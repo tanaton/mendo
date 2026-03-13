@@ -48,6 +48,7 @@ bool Renderer::Init(HWND hwnd) {
     render_target_->CreateSolidColorBrush(theme_.blockquote_bar_color, &blockquote_bar_brush_);
     render_target_->CreateSolidColorBrush(theme_.blockquote_text_color, &blockquote_text_brush_);
     render_target_->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.84f, 0.3f), &selection_brush_);
+    render_target_->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.02f), &table_stripe_brush_);
 
     // Initialize layout engine
     if (!layout_.Init(dwrite_factory_.Get(), theme_)) return false;
@@ -138,7 +139,27 @@ void Renderer::DrawBlockQuoteBar(const RenderNode& node, float base_x) {
     );
 }
 
-void Renderer::DrawTable(const RenderNode& node, float offset_x) {
+void Renderer::DrawTextRangeHighlight(IDWriteTextLayout* layout, uint32_t start, uint32_t length,
+                                      float origin_x, float origin_y, ID2D1Brush* brush) {
+    if (length == 0) return;
+    UINT32 count = 0;
+    layout->HitTestTextRange(start, length, 0, 0, nullptr, 0, &count);
+    if (count == 0) return;
+
+    std::vector<DWRITE_HIT_TEST_METRICS> metrics(count);
+    layout->HitTestTextRange(start, length, 0, 0, metrics.data(), count, &count);
+    for (UINT32 i = 0; i < count; i++) {
+        D2D1_RECT_F rect = D2D1::RectF(
+            origin_x + metrics[i].left,
+            origin_y + metrics[i].top,
+            origin_x + metrics[i].left + metrics[i].width,
+            origin_y + metrics[i].top + metrics[i].height);
+        render_target_->FillRectangle(rect, brush);
+    }
+}
+
+void Renderer::DrawTable(const RenderNode& node, int node_index, float offset_x,
+                         const TextSelection& selection) {
     if (node.table_rows.empty() || node.col_widths.empty()) return;
 
     float cell_padding = 8.0f;
@@ -150,7 +171,18 @@ void Renderer::DrawTable(const RenderNode& node, float offset_x) {
         table_width += cw + cell_padding * 2.0f + border;
     }
 
+    // Precompute selection range for this node
+    bool has_selection = selection.active &&
+        node_index >= selection.start_node && node_index <= selection.end_node;
+    uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(node.text.size());
+    if (has_selection) {
+        if (node_index == selection.start_node) sel_start = selection.start_pos;
+        if (node_index == selection.end_node) sel_end = selection.end_pos;
+        if (sel_end <= sel_start) has_selection = false;
+    }
+
     float y = node.y_position;
+    uint32_t flat_offset = 0;
 
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         const auto& row = node.table_rows[r];
@@ -162,13 +194,8 @@ void Renderer::DrawTable(const RenderNode& node, float offset_x) {
             D2D1_RECT_F bg = D2D1::RectF(offset_x, y, offset_x + table_width, y + row_h + border);
             render_target_->FillRectangle(bg, code_bg_brush_.Get());
         } else if (r % 2 == 0) {
-            D2D1_COLOR_F stripe = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.02f);
-            ComPtr<ID2D1SolidColorBrush> stripe_brush;
-            render_target_->CreateSolidColorBrush(stripe, &stripe_brush);
-            if (stripe_brush) {
-                D2D1_RECT_F bg = D2D1::RectF(offset_x, y, offset_x + table_width, y + row_h + border);
-                render_target_->FillRectangle(bg, stripe_brush.Get());
-            }
+            D2D1_RECT_F bg = D2D1::RectF(offset_x, y, offset_x + table_width, y + row_h + border);
+            render_target_->FillRectangle(bg, table_stripe_brush_.Get());
         }
 
         // Draw horizontal line at top of row
@@ -179,7 +206,8 @@ void Renderer::DrawTable(const RenderNode& node, float offset_x) {
 
         // Draw cells
         float cx = offset_x + border;
-        for (size_t c = 0; c < row.cells.size() && c < node.col_widths.size(); c++) {
+        size_t drawn_cols = std::min(row.cells.size(), node.col_widths.size());
+        for (size_t c = 0; c < drawn_cols; c++) {
             const auto& cell = row.cells[c];
             float cw = node.col_widths[c];
 
@@ -189,17 +217,40 @@ void Renderer::DrawTable(const RenderNode& node, float offset_x) {
                 D2D1::Point2F(cx - border, y + row_h + border),
                 hr_brush_.Get(), border);
 
+            float text_x = cx + cell_padding;
+            float text_y = y + cell_padding;
+
+            // Draw selection highlight BEFORE text
+            if (has_selection && cell.text_layout) {
+                uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
+                uint32_t ov_start = std::max(sel_start, flat_offset);
+                uint32_t ov_end = std::min(sel_end, flat_offset + cell_len);
+                if (ov_end > ov_start) {
+                    DrawTextRangeHighlight(cell.text_layout.Get(),
+                        ov_start - flat_offset, ov_end - ov_start,
+                        text_x, text_y, selection_brush_.Get());
+                }
+            }
+
             // Draw cell text
             if (cell.text_layout) {
-                float text_x = cx + cell_padding;
-                float text_y = y + cell_padding;
                 ID2D1SolidColorBrush* brush = cell.is_header ? heading_brush_.Get() : text_brush_.Get();
                 render_target_->DrawTextLayout(
                     D2D1::Point2F(text_x, text_y),
                     cell.text_layout.Get(), brush);
             }
 
+            // Advance flat_offset for this cell
+            flat_offset += static_cast<uint32_t>(cell.text.size());
+            if (c + 1 < row.cells.size()) flat_offset++; // tab separator
+
             cx += cw + cell_padding * 2.0f + border;
+        }
+
+        // Advance flat_offset for cells not drawn (beyond col_widths)
+        for (size_t c = drawn_cols; c < row.cells.size(); c++) {
+            flat_offset += static_cast<uint32_t>(row.cells[c].text.size());
+            if (c + 1 < row.cells.size()) flat_offset++; // tab separator
         }
 
         // Right border
@@ -209,6 +260,7 @@ void Renderer::DrawTable(const RenderNode& node, float offset_x) {
             hr_brush_.Get(), border);
 
         y += row_h + border;
+        if (r + 1 < node.table_rows.size()) flat_offset++; // newline separator
     }
 
     // Bottom border
@@ -234,7 +286,7 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
             return;
 
         case NodeType::Table:
-            DrawTable(node, x);
+            DrawTable(node, node_index, x, selection);
             return;
 
         case NodeType::CodeBlock:
@@ -266,7 +318,30 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
         base_brush = code_text_brush_.Get();
     }
 
-    // Draw selection highlight BEFORE text
+    // Draw inline code backgrounds BEFORE selection and text
+    for (const auto& run : node.runs) {
+        if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
+            UINT32 count = 0;
+            node.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
+            if (count > 0) {
+                std::vector<DWRITE_HIT_TEST_METRICS> metrics(count);
+                node.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
+                    metrics.data(), count, &count);
+                for (UINT32 i = 0; i < count; i++) {
+                    D2D1_RECT_F rect = D2D1::RectF(
+                        x + metrics[i].left - 2.0f,
+                        node.y_position + metrics[i].top - 1.0f,
+                        x + metrics[i].left + metrics[i].width + 2.0f,
+                        node.y_position + metrics[i].top + metrics[i].height + 1.0f
+                    );
+                    D2D1_ROUNDED_RECT rounded = {rect, 3.0f, 3.0f};
+                    render_target_->FillRoundedRectangle(rounded, code_bg_brush_.Get());
+                }
+            }
+        }
+    }
+
+    // Draw selection highlight AFTER code backgrounds, BEFORE text
     if (selection.active &&
         node_index >= selection.start_node && node_index <= selection.end_node) {
         uint32_t sel_start = 0;
@@ -276,46 +351,9 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
         if (node_index == selection.end_node)   sel_end   = selection.end_pos;
 
         if (sel_end > sel_start) {
-            UINT32 count = 0;
-            node.text_layout->HitTestTextRange(sel_start, sel_end - sel_start,
-                                               0, 0, nullptr, 0, &count);
-            if (count > 0) {
-                std::vector<DWRITE_HIT_TEST_METRICS> metrics(count);
-                node.text_layout->HitTestTextRange(sel_start, sel_end - sel_start,
-                                                   0, 0, metrics.data(), count, &count);
-                for (UINT32 i = 0; i < count; i++) {
-                    D2D1_RECT_F rect = D2D1::RectF(
-                        x + metrics[i].left,
-                        node.y_position + metrics[i].top,
-                        x + metrics[i].left + metrics[i].width,
-                        node.y_position + metrics[i].top + metrics[i].height
-                    );
-                    render_target_->FillRectangle(rect, selection_brush_.Get());
-                }
-            }
-        }
-    }
-
-    // Draw inline code backgrounds BEFORE text
-    for (const auto& run : node.runs) {
-        if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
-            UINT32 count = 0;
-            node.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
-            if (count > 0) {
-                std::vector<DWRITE_HIT_TEST_METRICS> range_metrics(count);
-                node.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
-                    range_metrics.data(), count, &count);
-                for (UINT32 i = 0; i < count; i++) {
-                    D2D1_RECT_F rect = D2D1::RectF(
-                        x + range_metrics[i].left - 2.0f,
-                        node.y_position + range_metrics[i].top - 1.0f,
-                        x + range_metrics[i].left + range_metrics[i].width + 2.0f,
-                        node.y_position + range_metrics[i].top + range_metrics[i].height + 1.0f
-                    );
-                    D2D1_ROUNDED_RECT rounded = {rect, 3.0f, 3.0f};
-                    render_target_->FillRoundedRectangle(rounded, code_bg_brush_.Get());
-                }
-            }
+            DrawTextRangeHighlight(node.text_layout.Get(),
+                sel_start, sel_end - sel_start,
+                x, node.y_position, selection_brush_.Get());
         }
     }
 
@@ -339,16 +377,15 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
             UINT32 count = 0;
             node.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
             if (count > 0) {
-                std::vector<DWRITE_HIT_TEST_METRICS> range_metrics(count);
+                std::vector<DWRITE_HIT_TEST_METRICS> metrics(count);
                 node.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
-                    range_metrics.data(), count, &count);
+                    metrics.data(), count, &count);
                 for (UINT32 i = 0; i < count; i++) {
                     D2D1_RECT_F rect = D2D1::RectF(
-                        x + range_metrics[i].left,
-                        node.y_position + range_metrics[i].top,
-                        x + range_metrics[i].left + range_metrics[i].width,
-                        node.y_position + range_metrics[i].top + range_metrics[i].height
-                    );
+                        x + metrics[i].left,
+                        node.y_position + metrics[i].top,
+                        x + metrics[i].left + metrics[i].width,
+                        node.y_position + metrics[i].top + metrics[i].height);
                     render_target_->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
                     render_target_->DrawTextLayout(
                         D2D1::Point2F(x, node.y_position),

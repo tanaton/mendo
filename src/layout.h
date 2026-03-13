@@ -15,6 +15,7 @@ public:
 private:
     void CreateTextLayout(RenderNode& node, float max_width);
     void CreateTableLayout(RenderNode& node, float max_width);
+    void ApplyCellRunFormatting(IDWriteTextLayout* layout, const std::vector<TextRun>& runs);
     IDWriteTextFormat* GetTextFormat(const RenderNode& node);
 
     IDWriteFactory* dwrite_ = nullptr;

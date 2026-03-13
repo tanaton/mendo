@@ -16,7 +16,6 @@ enum class NodeType : uint8_t {
     ListItem,
     BlockQuote,
     Table,
-    Image,
     TaskListItem
 };
 

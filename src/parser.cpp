@@ -71,21 +71,24 @@ struct ParseContext {
         current_node->indent_level = indent_level;
     }
 
+    TextRun MakeRun(uint32_t start, uint32_t length) const {
+        TextRun run;
+        run.start = start;
+        run.length = length;
+        run.bold = current_span.bold;
+        run.italic = current_span.italic;
+        run.code = current_span.code;
+        run.strikethrough = current_span.strikethrough;
+        run.link_url = current_span.link_url;
+        return run;
+    }
+
     void AppendText(const wchar_t* text, size_t len) {
         // If inside a table cell, append to cell instead
         if (current_cell) {
             uint32_t start = static_cast<uint32_t>(current_cell->text.size());
             current_cell->text.append(text, len);
-
-            TextRun run;
-            run.start = start;
-            run.length = static_cast<uint32_t>(len);
-            run.bold = current_span.bold;
-            run.italic = current_span.italic;
-            run.code = current_span.code;
-            run.strikethrough = current_span.strikethrough;
-            run.link_url = current_span.link_url;
-            current_cell->runs.push_back(std::move(run));
+            current_cell->runs.push_back(MakeRun(start, static_cast<uint32_t>(len)));
             return;
         }
 
@@ -93,16 +96,7 @@ struct ParseContext {
 
         uint32_t start = static_cast<uint32_t>(current_node->text.size());
         current_node->text.append(text, len);
-
-        TextRun run;
-        run.start = start;
-        run.length = static_cast<uint32_t>(len);
-        run.bold = current_span.bold;
-        run.italic = current_span.italic;
-        run.code = current_span.code;
-        run.strikethrough = current_span.strikethrough;
-        run.link_url = current_span.link_url;
-        current_node->runs.push_back(std::move(run));
+        current_node->runs.push_back(MakeRun(start, static_cast<uint32_t>(len)));
     }
 };
 

@@ -36,5 +36,6 @@ ctest --test-dir build --output-on-failure -C Release
 
 ## 注意事項
 
+- 思考過程も日本語で出力してね
 - `third_party/md4c/` は外部コードなので編集しない
 - マニフェストは `res/mdviewer.rc` 経由で埋め込み。`#pragma comment(linker, "/manifestdependency:...")` は使わない

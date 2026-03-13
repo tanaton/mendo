@@ -1,6 +1,5 @@
 #include "window.h"
 #include "parser.h"
-#include <shellapi.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
@@ -313,6 +312,19 @@ void MainWindow::UpdateSmoothScroll() {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
+void MainWindow::UpdateLayoutAndScroll(float desired_scroll) {
+    auto size = renderer_.GetRenderTarget()->GetSize();
+    renderer_.GetLayout().ComputeLayout(nodes_, size.width);
+
+    float total = renderer_.GetLayout().GetTotalHeight();
+    max_scroll_ = std::max(0.0f, total - size.height);
+    scroll_y_ = std::clamp(desired_scroll, 0.0f, max_scroll_);
+    scroll_target_ = scroll_y_;
+
+    UpdateScrollBar();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 void MainWindow::LoadMarkdownFile(const std::wstring& path) {
     std::string content = FileLoader::LoadFile(path);
     if (content.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
@@ -322,22 +334,9 @@ void MainWindow::LoadMarkdownFile(const std::wstring& path) {
     current_file_ = path;
     ClearSelection();
 
-    // Parse
     nodes_ = ParseMarkdown(content);
-
-    // Layout
-    auto size = renderer_.GetRenderTarget()->GetSize();
-    renderer_.GetLayout().ComputeLayout(nodes_, size.width);
-
-    // Reset scroll
-    float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - size.height);
-    scroll_y_ = 0.0f;
-    scroll_target_ = 0.0f;
-
-    UpdateScrollBar();
+    UpdateLayoutAndScroll(0.0f);
     UpdateTitleBar();
-    InvalidateRect(hwnd_, nullptr, FALSE);
 
     // Start watching file for changes (callback runs from WM_TIMER on main thread)
     file_loader_.StartWatching(path, [this]() {
@@ -349,20 +348,8 @@ void MainWindow::ReloadCurrentFile() {
     if (current_file_.empty()) return;
 
     float old_scroll = scroll_y_;
-    std::string content = FileLoader::LoadFile(current_file_);
-
-    nodes_ = ParseMarkdown(content);
-
-    auto size = renderer_.GetRenderTarget()->GetSize();
-    renderer_.GetLayout().ComputeLayout(nodes_, size.width);
-
-    float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - size.height);
-    scroll_y_ = std::clamp(old_scroll, 0.0f, max_scroll_);
-    scroll_target_ = scroll_y_;
-
-    UpdateScrollBar();
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    nodes_ = ParseMarkdown(FileLoader::LoadFile(current_file_));
+    UpdateLayoutAndScroll(old_scroll);
 }
 
 void MainWindow::UpdateTitleBar() {
@@ -400,9 +387,14 @@ MainWindow::HitResult MainWindow::HitTest(int screen_x, int screen_y) const {
     // Find the node at this y position
     for (int i = 0; i < static_cast<int>(nodes_.size()); i++) {
         const auto& node = nodes_[i];
-        if (!node.text_layout) continue;
         if (dip_y < node.y_position) continue;
         if (dip_y > node.y_position + node.height) continue;
+
+        if (node.type == NodeType::Table) {
+            return HitTestTable(node, i, dip_x, dip_y);
+        }
+
+        if (!node.text_layout) continue;
 
         // Found the node, now hit-test within its text layout
         float indent = node.indent_level * theme.indent_width;
@@ -428,6 +420,90 @@ MainWindow::HitResult MainWindow::HitTest(int screen_x, int screen_y) const {
             return result;
         }
     }
+    return result;
+}
+
+MainWindow::HitResult MainWindow::HitTestTable(const RenderNode& node, int node_index,
+                                                float dip_x, float dip_y) const {
+    HitResult result;
+    result.node_index = node_index;
+
+    const auto& theme = renderer_.GetTheme();
+    float indent = node.indent_level * theme.indent_width;
+    float base_x = theme.margin_left + indent;
+    float cell_padding = 8.0f;
+    float border = 1.0f;
+
+    // Find which row was clicked
+    float ry = node.y_position;
+    int hit_row = -1;
+    for (size_t r = 0; r < node.table_rows.size(); r++) {
+        float row_bottom = ry + node.table_rows[r].row_height + border;
+        if (dip_y < row_bottom) {
+            hit_row = static_cast<int>(r);
+            break;
+        }
+        ry += node.table_rows[r].row_height + border;
+    }
+    if (hit_row < 0) {
+        result.text_pos = static_cast<uint32_t>(node.text.size());
+        return result;
+    }
+
+    // Find which column was clicked
+    float cx = base_x + border;
+    int hit_col = static_cast<int>(node.col_widths.size()) - 1; // default to last
+    for (size_t c = 0; c < node.col_widths.size(); c++) {
+        float col_right = cx + node.col_widths[c] + cell_padding * 2.0f;
+        if (dip_x < col_right) {
+            hit_col = static_cast<int>(c);
+            break;
+        }
+        cx += node.col_widths[c] + cell_padding * 2.0f + border;
+    }
+    if (hit_col < 0) hit_col = 0;
+
+    // Compute flat text offset for cell (hit_row, hit_col)
+    uint32_t flat_offset = 0;
+    for (size_t r = 0; r < node.table_rows.size(); r++) {
+        const auto& row_cells = node.table_rows[r].cells;
+        for (size_t c = 0; c < row_cells.size(); c++) {
+            if (static_cast<int>(r) == hit_row && static_cast<int>(c) == hit_col) {
+                // Hit test within the cell's text layout
+                const auto& cell = row_cells[c];
+                if (cell.text_layout) {
+                    // Compute cell text position
+                    float cell_x = base_x + border;
+                    for (size_t cc = 0; cc < c; cc++) {
+                        cell_x += node.col_widths[cc] + cell_padding * 2.0f + border;
+                    }
+                    float cell_text_x = cell_x + cell_padding;
+
+                    float cell_y = node.y_position;
+                    for (size_t rr = 0; rr < r; rr++) {
+                        cell_y += node.table_rows[rr].row_height + border;
+                    }
+                    float cell_text_y = cell_y + cell_padding;
+
+                    BOOL is_trailing = FALSE, is_inside = FALSE;
+                    DWRITE_HIT_TEST_METRICS metrics{};
+                    cell.text_layout->HitTestPoint(
+                        dip_x - cell_text_x, dip_y - cell_text_y,
+                        &is_trailing, &is_inside, &metrics);
+
+                    result.text_pos = flat_offset + metrics.textPosition + (is_trailing ? 1 : 0);
+                } else {
+                    result.text_pos = flat_offset;
+                }
+                return result;
+            }
+            flat_offset += static_cast<uint32_t>(row_cells[c].text.size());
+            if (c + 1 < row_cells.size()) flat_offset++; // tab
+        }
+        if (r + 1 < node.table_rows.size()) flat_offset++; // newline
+    }
+
+    result.text_pos = static_cast<uint32_t>(node.text.size());
     return result;
 }
 

@@ -17,7 +17,6 @@ public:
                 const TextSelection& selection = {});
     void SetDpi(float dpi);
 
-    IDWriteFactory* GetDWriteFactory() const { return dwrite_factory_.Get(); }
     ID2D1HwndRenderTarget* GetRenderTarget() const { return render_target_.Get(); }
     LayoutEngine& GetLayout() { return layout_; }
     const Theme& GetTheme() const { return theme_; }
@@ -29,7 +28,9 @@ private:
     void DrawHorizontalRule(const RenderNode& node, float offset_x, float content_width);
     void DrawListBullet(const RenderNode& node, float offset_x);
     void DrawBlockQuoteBar(const RenderNode& node, float base_x);
-    void DrawTable(const RenderNode& node, float offset_x);
+    void DrawTable(const RenderNode& node, int node_index, float offset_x, const TextSelection& selection);
+    void DrawTextRangeHighlight(IDWriteTextLayout* layout, uint32_t start, uint32_t length,
+                                float origin_x, float origin_y, ID2D1Brush* brush);
 
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<ID2D1HwndRenderTarget> render_target_;
@@ -44,6 +45,7 @@ private:
     ComPtr<ID2D1SolidColorBrush> blockquote_bar_brush_;
     ComPtr<ID2D1SolidColorBrush> blockquote_text_brush_;
     ComPtr<ID2D1SolidColorBrush> selection_brush_;
+    ComPtr<ID2D1SolidColorBrush> table_stripe_brush_;
 
     Theme theme_;
     LayoutEngine layout_;

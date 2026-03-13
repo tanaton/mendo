@@ -3,9 +3,6 @@
 #include <shellscalingapi.h>
 #include <commctrl.h>
 
-#pragma comment(lib, "comctl32.lib")
-#pragma comment(lib, "shcore.lib")
-
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdShow) {
     // Enable Per-Monitor DPI v2
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

@@ -54,6 +54,20 @@ IDWriteTextFormat* LayoutEngine::GetTextFormat(const RenderNode& node) {
     return fmt_body_.Get();
 }
 
+void LayoutEngine::ApplyCellRunFormatting(IDWriteTextLayout* layout,
+                                          const std::vector<TextRun>& runs) {
+    for (const auto& run : runs) {
+        DWRITE_TEXT_RANGE range{run.start, run.length};
+        if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
+        if (run.italic) layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
+        if (run.code) {
+            layout->SetFontFamilyName(theme_->monospace_font, range);
+            layout->SetFontSize(theme_->font_size_code, range);
+        }
+        if (run.strikethrough) layout->SetStrikethrough(TRUE, range);
+    }
+}
+
 void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
     if (node.table_rows.empty()) {
         node.height = 0;
@@ -88,16 +102,7 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
                 cell_fmt, 10000.0f, 100000.0f, &layout);
 
             if (layout) {
-                // Apply runs
-                for (const auto& run : cell.runs) {
-                    DWRITE_TEXT_RANGE range{run.start, run.length};
-                    if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
-                    if (run.italic) layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
-                    if (run.code) {
-                        layout->SetFontFamilyName(theme_->monospace_font, range);
-                        layout->SetFontSize(theme_->font_size_code, range);
-                    }
-                }
+                ApplyCellRunFormatting(layout.Get(), cell.runs);
 
                 DWRITE_TEXT_METRICS metrics{};
                 layout->GetMetrics(&metrics);
@@ -143,15 +148,7 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
                 cell_fmt, cw, 100000.0f, &layout);
 
             if (layout) {
-                for (const auto& run : cell.runs) {
-                    DWRITE_TEXT_RANGE range{run.start, run.length};
-                    if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
-                    if (run.italic) layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
-                    if (run.code) {
-                        layout->SetFontFamilyName(theme_->monospace_font, range);
-                        layout->SetFontSize(theme_->font_size_code, range);
-                    }
-                }
+                ApplyCellRunFormatting(layout.Get(), cell.runs);
 
                 // Set text alignment
                 if (cell.align == 1) layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -165,6 +162,19 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
         }
         row.row_height = row_height;
         total_height += row_height + border_width;
+    }
+
+    // Build linearized text for selection support (tab-separated cells, newline-separated rows)
+    node.text.clear();
+    for (size_t r = 0; r < node.table_rows.size(); r++) {
+        const auto& row = node.table_rows[r];
+        for (size_t c = 0; c < row.cells.size(); c++) {
+            if (c > 0) node.text += L'\t';
+            node.text += row.cells[c].text;
+        }
+        if (r + 1 < node.table_rows.size()) {
+            node.text += L'\n';
+        }
     }
 
     node.height = total_height;

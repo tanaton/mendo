@@ -37,6 +37,7 @@ private:
         uint32_t text_pos = 0;
     };
     HitResult HitTest(int screen_x, int screen_y) const;
+    HitResult HitTestTable(const RenderNode& node, int node_index, float dip_x, float dip_y) const;
     std::optional<std::wstring> GetLinkAtHit(const HitResult& hit) const;
     void HandleLinkClick(const std::wstring& url);
     void NavigateToAnchor(const std::wstring& anchor);
@@ -44,6 +45,7 @@ private:
     void SelectAll();
     void ClearSelection();
 
+    void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();
     void ScrollTo(float position);
     void SmoothScrollBy(float delta);
