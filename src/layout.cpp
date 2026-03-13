@@ -1,0 +1,267 @@
+#include "layout.h"
+#include <algorithm>
+
+static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family,
+                            float size, DWRITE_FONT_WEIGHT weight,
+                            IDWriteTextFormat** out) {
+    return factory->CreateTextFormat(
+        family, nullptr, weight,
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+        size, L"ja-jp", out);
+}
+
+bool LayoutEngine::Init(IDWriteFactory* dwrite_factory, const Theme& theme) {
+    dwrite_ = dwrite_factory;
+    theme_ = &theme;
+
+    auto W = DWRITE_FONT_WEIGHT_NORMAL;
+    auto B = DWRITE_FONT_WEIGHT_BOLD;
+
+    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_body, W, &fmt_body_))) return false;
+    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h1, B, &fmt_h1_))) return false;
+    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h2, B, &fmt_h2_))) return false;
+    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h3, B, &fmt_h3_))) return false;
+    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h4, B, &fmt_h4_))) return false;
+    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h5, B, &fmt_h5_))) return false;
+    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h6, B, &fmt_h6_))) return false;
+    if (FAILED(CreateFormat(dwrite_, theme.monospace_font, theme.font_size_code, W, &fmt_code_))) return false;
+
+    // Enable word wrapping
+    fmt_body_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    fmt_h1_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    fmt_h2_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    fmt_h3_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    fmt_h4_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    fmt_h5_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    fmt_h6_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    fmt_code_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+
+    return true;
+}
+
+IDWriteTextFormat* LayoutEngine::GetTextFormat(const RenderNode& node) {
+    if (node.type == NodeType::CodeBlock) return fmt_code_.Get();
+    if (node.type == NodeType::Heading) {
+        switch (node.heading_level) {
+            case 1: return fmt_h1_.Get();
+            case 2: return fmt_h2_.Get();
+            case 3: return fmt_h3_.Get();
+            case 4: return fmt_h4_.Get();
+            case 5: return fmt_h5_.Get();
+            case 6: return fmt_h6_.Get();
+        }
+    }
+    return fmt_body_.Get();
+}
+
+void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
+    if (node.table_rows.empty()) {
+        node.height = 0;
+        node.layout_dirty = false;
+        return;
+    }
+
+    // Determine column count
+    size_t col_count = 0;
+    for (auto& row : node.table_rows) {
+        col_count = std::max(col_count, row.cells.size());
+    }
+    if (col_count == 0) { node.layout_dirty = false; return; }
+
+    float cell_padding = 8.0f;
+    float border_width = 1.0f;
+
+    // First pass: create text layouts and measure natural widths
+    std::vector<float> natural_widths(col_count, 0.0f);
+    IDWriteTextFormat* fmt = fmt_body_.Get();
+    IDWriteTextFormat* fmt_bold = fmt_h4_.Get(); // reuse bold format
+
+    for (auto& row : node.table_rows) {
+        for (size_t c = 0; c < row.cells.size(); c++) {
+            auto& cell = row.cells[c];
+            if (cell.text.empty()) continue;
+
+            IDWriteTextFormat* cell_fmt = cell.is_header ? fmt_bold : fmt;
+            ComPtr<IDWriteTextLayout> layout;
+            dwrite_->CreateTextLayout(
+                cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
+                cell_fmt, 10000.0f, 100000.0f, &layout);
+
+            if (layout) {
+                // Apply runs
+                for (const auto& run : cell.runs) {
+                    DWRITE_TEXT_RANGE range{run.start, run.length};
+                    if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
+                    if (run.italic) layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
+                    if (run.code) {
+                        layout->SetFontFamilyName(theme_->monospace_font, range);
+                        layout->SetFontSize(theme_->font_size_code, range);
+                    }
+                }
+
+                DWRITE_TEXT_METRICS metrics{};
+                layout->GetMetrics(&metrics);
+                natural_widths[c] = std::max(natural_widths[c], metrics.width);
+            }
+        }
+    }
+
+    // Compute column widths: proportional distribution
+    float total_natural = 0;
+    for (float w : natural_widths) total_natural += w;
+
+    float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width
+                      - static_cast<float>(col_count) * cell_padding * 2.0f;
+    available = std::max(available, static_cast<float>(col_count) * 30.0f);
+
+    node.col_widths.resize(col_count);
+    if (total_natural > 0 && total_natural > available) {
+        for (size_t c = 0; c < col_count; c++) {
+            node.col_widths[c] = std::max(30.0f, available * natural_widths[c] / total_natural);
+        }
+    } else {
+        // Distribute evenly if fits
+        float even = available / static_cast<float>(col_count);
+        for (size_t c = 0; c < col_count; c++) {
+            node.col_widths[c] = std::max(natural_widths[c] + 4.0f, even);
+        }
+    }
+
+    // Second pass: create final layouts with correct widths and measure row heights
+    float total_height = border_width; // top border
+    for (auto& row : node.table_rows) {
+        float row_height = theme_->font_size_body * 1.4f; // minimum row height
+        for (size_t c = 0; c < row.cells.size(); c++) {
+            auto& cell = row.cells[c];
+            float cw = (c < node.col_widths.size()) ? node.col_widths[c] : 60.0f;
+
+            IDWriteTextFormat* cell_fmt = cell.is_header ? fmt_bold : fmt;
+            ComPtr<IDWriteTextLayout> layout;
+            dwrite_->CreateTextLayout(
+                cell.text.c_str(),
+                static_cast<UINT32>(cell.text.size()),
+                cell_fmt, cw, 100000.0f, &layout);
+
+            if (layout) {
+                for (const auto& run : cell.runs) {
+                    DWRITE_TEXT_RANGE range{run.start, run.length};
+                    if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
+                    if (run.italic) layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
+                    if (run.code) {
+                        layout->SetFontFamilyName(theme_->monospace_font, range);
+                        layout->SetFontSize(theme_->font_size_code, range);
+                    }
+                }
+
+                // Set text alignment
+                if (cell.align == 1) layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                else if (cell.align == 2) layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+
+                DWRITE_TEXT_METRICS metrics{};
+                layout->GetMetrics(&metrics);
+                row_height = std::max(row_height, metrics.height + cell_padding * 2.0f);
+                cell.text_layout = std::move(layout);
+            }
+        }
+        row.row_height = row_height;
+        total_height += row_height + border_width;
+    }
+
+    node.height = total_height;
+    node.layout_dirty = false;
+}
+
+void LayoutEngine::CreateTextLayout(RenderNode& node, float max_width) {
+    if (node.type == NodeType::HorizontalRule) {
+        node.height = theme_->paragraph_spacing + theme_->hr_thickness;
+        node.layout_dirty = false;
+        return;
+    }
+
+    if (node.type == NodeType::Table) {
+        CreateTableLayout(node, max_width);
+        return;
+    }
+
+    const std::wstring& text = node.text;
+    if (text.empty()) {
+        node.height = theme_->paragraph_spacing;
+        node.layout_dirty = false;
+        return;
+    }
+
+    IDWriteTextFormat* fmt = GetTextFormat(node);
+    float layout_width = max_width;
+
+    // Adjust width for code blocks (account for padding)
+    if (node.type == NodeType::CodeBlock) {
+        layout_width = 10000.0f; // No wrap for code
+    }
+
+    ComPtr<IDWriteTextLayout> layout;
+    HRESULT hr = dwrite_->CreateTextLayout(
+        text.c_str(), static_cast<UINT32>(text.size()),
+        fmt, layout_width, 100000.0f, &layout);
+
+    if (FAILED(hr)) return;
+
+    // Apply per-run formatting
+    for (const auto& run : node.runs) {
+        DWRITE_TEXT_RANGE range{run.start, run.length};
+
+        if (run.bold) {
+            layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
+        }
+        if (run.italic) {
+            layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
+        }
+        if (run.code && node.type != NodeType::CodeBlock) {
+            layout->SetFontFamilyName(theme_->monospace_font, range);
+            layout->SetFontSize(theme_->font_size_code, range);
+        }
+        if (run.strikethrough) {
+            layout->SetStrikethrough(TRUE, range);
+        }
+    }
+
+    DWRITE_TEXT_METRICS metrics{};
+    layout->GetMetrics(&metrics);
+
+    node.text_layout = std::move(layout);
+    node.height = metrics.height;
+    node.layout_dirty = false;
+}
+
+void LayoutEngine::ComputeLayout(std::vector<RenderNode>& nodes, float viewport_width) {
+    bool width_changed = (viewport_width != last_viewport_width_);
+    last_viewport_width_ = viewport_width;
+
+    float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    float y = theme_->margin_top;
+
+    for (auto& node : nodes) {
+        float indent = node.indent_level * theme_->indent_width;
+        float node_width = content_width - indent;
+
+        if (width_changed || node.layout_dirty) {
+            CreateTextLayout(node, node_width);
+        }
+
+        // Add spacing before
+        if (node.type == NodeType::Heading) {
+            y += theme_->heading_spacing_above;
+        }
+
+        node.y_position = y;
+        y += node.height;
+
+        // Add spacing after
+        if (node.type == NodeType::Heading) {
+            y += theme_->heading_spacing_below;
+        } else {
+            y += theme_->paragraph_spacing;
+        }
+    }
+
+    total_height_ = y + theme_->margin_top;
+}

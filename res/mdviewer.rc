@@ -1,0 +1,33 @@
+#include <winresrc.h>
+#include "../src/resource.h"
+
+// Manifest
+1 RT_MANIFEST "mdviewer.manifest"
+
+// Version info
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION    1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+FILEFLAGS      0
+FILEOS         VOS_NT_WINDOWS32
+FILETYPE       VFT_APP
+FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041104b0"
+        BEGIN
+            VALUE "FileDescription", "mdviewer - High Performance Markdown Viewer"
+            VALUE "FileVersion", "1.0.0.0"
+            VALUE "InternalName", "mdviewer"
+            VALUE "OriginalFilename", "mdviewer.exe"
+            VALUE "ProductName", "mdviewer"
+            VALUE "ProductVersion", "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0411, 1200
+    END
+END

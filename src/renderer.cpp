@@ -1,0 +1,407 @@
+#include "renderer.h"
+#include <algorithm>
+#include <cmath>
+
+#pragma comment(lib, "d2d1.lib")
+#pragma comment(lib, "dwrite.lib")
+
+bool Renderer::Init(HWND hwnd) {
+    hwnd_ = hwnd;
+    theme_ = GetLightTheme();
+
+    // Query the actual DPI for this window's monitor
+    dpi_ = static_cast<float>(GetDpiForWindow(hwnd));
+    if (dpi_ == 0.0f) dpi_ = 96.0f;
+
+    // Create D2D factory
+    HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_factory_.GetAddressOf());
+    if (FAILED(hr)) return false;
+
+    // Create DirectWrite factory
+    hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
+        __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
+    if (FAILED(hr)) return false;
+
+    // Create render target with correct initial DPI
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+
+    D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties();
+    rtProps.dpiX = dpi_;
+    rtProps.dpiY = dpi_;
+
+    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(
+        hwnd, D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top));
+    hwndProps.presentOptions = D2D1_PRESENT_OPTIONS_IMMEDIATELY;
+
+    hr = d2d_factory_->CreateHwndRenderTarget(rtProps, hwndProps, &render_target_);
+    if (FAILED(hr)) return false;
+
+    // Create brushes
+    render_target_->CreateSolidColorBrush(theme_.text_color, &text_brush_);
+    render_target_->CreateSolidColorBrush(theme_.heading_color, &heading_brush_);
+    render_target_->CreateSolidColorBrush(theme_.code_bg_color, &code_bg_brush_);
+    render_target_->CreateSolidColorBrush(theme_.code_text_color, &code_text_brush_);
+    render_target_->CreateSolidColorBrush(theme_.link_color, &link_brush_);
+    render_target_->CreateSolidColorBrush(theme_.hr_color, &hr_brush_);
+    render_target_->CreateSolidColorBrush(theme_.blockquote_bar_color, &blockquote_bar_brush_);
+    render_target_->CreateSolidColorBrush(theme_.blockquote_text_color, &blockquote_text_brush_);
+    render_target_->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.84f, 0.3f), &selection_brush_);
+
+    // Initialize layout engine
+    if (!layout_.Init(dwrite_factory_.Get(), theme_)) return false;
+
+    return true;
+}
+
+void Renderer::Resize(UINT width, UINT height) {
+    if (render_target_) {
+        render_target_->Resize(D2D1::SizeU(width, height));
+    }
+}
+
+void Renderer::SetDpi(float dpi) {
+    dpi_ = dpi;
+    if (render_target_) {
+        render_target_->SetDpi(dpi, dpi);
+    }
+}
+
+void Renderer::DrawCodeBlockBackground(const RenderNode& node, float offset_x) {
+    float pad = theme_.code_block_padding;
+    D2D1_RECT_F bg_rect = D2D1::RectF(
+        offset_x - pad,
+        node.y_position - pad,
+        offset_x + (render_target_->GetSize().width - theme_.margin_left - theme_.margin_right),
+        node.y_position + node.height + pad
+    );
+    // Rounded rectangle for code blocks
+    D2D1_ROUNDED_RECT rounded = {bg_rect, 4.0f, 4.0f};
+    render_target_->FillRoundedRectangle(rounded, code_bg_brush_.Get());
+}
+
+void Renderer::DrawHorizontalRule(const RenderNode& node, float offset_x, float content_width) {
+    float y = node.y_position + theme_.paragraph_spacing * 0.5f;
+    render_target_->DrawLine(
+        D2D1::Point2F(offset_x, y),
+        D2D1::Point2F(offset_x + content_width, y),
+        hr_brush_.Get(),
+        theme_.hr_thickness
+    );
+}
+
+void Renderer::DrawListBullet(const RenderNode& node, float offset_x) {
+    if (node.list_number > 0) {
+        // Ordered list: draw number
+        std::wstring num_text = std::to_wstring(node.list_number) + L".";
+        ComPtr<IDWriteTextFormat> fmt;
+        dwrite_factory_->CreateTextFormat(
+            theme_.font_family, nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
+            L"ja-jp", &fmt);
+        if (fmt) {
+            fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+            D2D1_RECT_F num_rect = D2D1::RectF(
+                offset_x - theme_.list_bullet_offset - 8.0f,
+                node.y_position,
+                offset_x - 4.0f,
+                node.y_position + theme_.font_size_body * 1.5f
+            );
+            render_target_->DrawText(
+                num_text.c_str(), static_cast<UINT32>(num_text.size()),
+                fmt.Get(), num_rect, text_brush_.Get());
+        }
+    } else {
+        // Unordered list: draw bullet
+        float bullet_y = node.y_position + theme_.font_size_body * 0.45f;
+        float bullet_x = offset_x - theme_.list_bullet_offset * 0.6f;
+        float r = 3.0f;
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(bullet_x, bullet_y), r, r);
+
+        if (node.indent_level <= 1) {
+            render_target_->FillEllipse(ellipse, text_brush_.Get());
+        } else {
+            render_target_->DrawEllipse(ellipse, text_brush_.Get(), 1.0f);
+        }
+    }
+}
+
+void Renderer::DrawBlockQuoteBar(const RenderNode& node, float base_x) {
+    float bar_x = base_x - theme_.indent_width * 0.5f;
+    render_target_->DrawLine(
+        D2D1::Point2F(bar_x, node.y_position - 2.0f),
+        D2D1::Point2F(bar_x, node.y_position + node.height + 2.0f),
+        blockquote_bar_brush_.Get(),
+        theme_.blockquote_bar_width
+    );
+}
+
+void Renderer::DrawTable(const RenderNode& node, float offset_x) {
+    if (node.table_rows.empty() || node.col_widths.empty()) return;
+
+    float cell_padding = 8.0f;
+    float border = 1.0f;
+
+    // Compute total table width
+    float table_width = border;
+    for (float cw : node.col_widths) {
+        table_width += cw + cell_padding * 2.0f + border;
+    }
+
+    float y = node.y_position;
+
+    for (size_t r = 0; r < node.table_rows.size(); r++) {
+        const auto& row = node.table_rows[r];
+        float row_h = row.row_height;
+
+        // Row background: alternating + header
+        bool is_header_row = (!row.cells.empty() && row.cells[0].is_header);
+        if (is_header_row) {
+            D2D1_RECT_F bg = D2D1::RectF(offset_x, y, offset_x + table_width, y + row_h + border);
+            render_target_->FillRectangle(bg, code_bg_brush_.Get());
+        } else if (r % 2 == 0) {
+            D2D1_COLOR_F stripe = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.02f);
+            ComPtr<ID2D1SolidColorBrush> stripe_brush;
+            render_target_->CreateSolidColorBrush(stripe, &stripe_brush);
+            if (stripe_brush) {
+                D2D1_RECT_F bg = D2D1::RectF(offset_x, y, offset_x + table_width, y + row_h + border);
+                render_target_->FillRectangle(bg, stripe_brush.Get());
+            }
+        }
+
+        // Draw horizontal line at top of row
+        render_target_->DrawLine(
+            D2D1::Point2F(offset_x, y),
+            D2D1::Point2F(offset_x + table_width, y),
+            hr_brush_.Get(), border);
+
+        // Draw cells
+        float cx = offset_x + border;
+        for (size_t c = 0; c < row.cells.size() && c < node.col_widths.size(); c++) {
+            const auto& cell = row.cells[c];
+            float cw = node.col_widths[c];
+
+            // Vertical line at left of cell
+            render_target_->DrawLine(
+                D2D1::Point2F(cx - border, y),
+                D2D1::Point2F(cx - border, y + row_h + border),
+                hr_brush_.Get(), border);
+
+            // Draw cell text
+            if (cell.text_layout) {
+                float text_x = cx + cell_padding;
+                float text_y = y + cell_padding;
+                ID2D1SolidColorBrush* brush = cell.is_header ? heading_brush_.Get() : text_brush_.Get();
+                render_target_->DrawTextLayout(
+                    D2D1::Point2F(text_x, text_y),
+                    cell.text_layout.Get(), brush);
+            }
+
+            cx += cw + cell_padding * 2.0f + border;
+        }
+
+        // Right border
+        render_target_->DrawLine(
+            D2D1::Point2F(offset_x + table_width, y),
+            D2D1::Point2F(offset_x + table_width, y + row_h + border),
+            hr_brush_.Get(), border);
+
+        y += row_h + border;
+    }
+
+    // Bottom border
+    render_target_->DrawLine(
+        D2D1::Point2F(offset_x, y),
+        D2D1::Point2F(offset_x + table_width, y),
+        hr_brush_.Get(), border);
+}
+
+void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
+                        float viewport_top, float viewport_bottom, const TextSelection& selection) {
+    // Viewport culling
+    float node_bottom = node.y_position + node.height;
+    if (node_bottom < viewport_top || node.y_position > viewport_bottom) return;
+
+    float indent = node.indent_level * theme_.indent_width;
+    float x = offset_x + indent;
+    float content_width = render_target_->GetSize().width - theme_.margin_left - theme_.margin_right - indent;
+
+    switch (node.type) {
+        case NodeType::HorizontalRule:
+            DrawHorizontalRule(node, x, content_width);
+            return;
+
+        case NodeType::Table:
+            DrawTable(node, x);
+            return;
+
+        case NodeType::CodeBlock:
+            DrawCodeBlockBackground(node, x);
+            break;
+
+        case NodeType::ListItem:
+        case NodeType::TaskListItem:
+            DrawListBullet(node, x);
+            break;
+
+        case NodeType::BlockQuote:
+            DrawBlockQuoteBar(node, x);
+            break;
+
+        default:
+            break;
+    }
+
+    if (!node.text_layout) return;
+
+    // Determine base brush
+    ID2D1SolidColorBrush* base_brush = text_brush_.Get();
+    if (node.type == NodeType::Heading) {
+        base_brush = heading_brush_.Get();
+    } else if (node.type == NodeType::BlockQuote) {
+        base_brush = blockquote_text_brush_.Get();
+    } else if (node.type == NodeType::CodeBlock) {
+        base_brush = code_text_brush_.Get();
+    }
+
+    // Draw selection highlight BEFORE text
+    if (selection.active &&
+        node_index >= selection.start_node && node_index <= selection.end_node) {
+        uint32_t sel_start = 0;
+        uint32_t sel_end = static_cast<uint32_t>(node.text.size());
+
+        if (node_index == selection.start_node) sel_start = selection.start_pos;
+        if (node_index == selection.end_node)   sel_end   = selection.end_pos;
+
+        if (sel_end > sel_start) {
+            UINT32 count = 0;
+            node.text_layout->HitTestTextRange(sel_start, sel_end - sel_start,
+                                               0, 0, nullptr, 0, &count);
+            if (count > 0) {
+                std::vector<DWRITE_HIT_TEST_METRICS> metrics(count);
+                node.text_layout->HitTestTextRange(sel_start, sel_end - sel_start,
+                                                   0, 0, metrics.data(), count, &count);
+                for (UINT32 i = 0; i < count; i++) {
+                    D2D1_RECT_F rect = D2D1::RectF(
+                        x + metrics[i].left,
+                        node.y_position + metrics[i].top,
+                        x + metrics[i].left + metrics[i].width,
+                        node.y_position + metrics[i].top + metrics[i].height
+                    );
+                    render_target_->FillRectangle(rect, selection_brush_.Get());
+                }
+            }
+        }
+    }
+
+    // Draw inline code backgrounds BEFORE text
+    for (const auto& run : node.runs) {
+        if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
+            UINT32 count = 0;
+            node.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
+            if (count > 0) {
+                std::vector<DWRITE_HIT_TEST_METRICS> range_metrics(count);
+                node.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
+                    range_metrics.data(), count, &count);
+                for (UINT32 i = 0; i < count; i++) {
+                    D2D1_RECT_F rect = D2D1::RectF(
+                        x + range_metrics[i].left - 2.0f,
+                        node.y_position + range_metrics[i].top - 1.0f,
+                        x + range_metrics[i].left + range_metrics[i].width + 2.0f,
+                        node.y_position + range_metrics[i].top + range_metrics[i].height + 1.0f
+                    );
+                    D2D1_ROUNDED_RECT rounded = {rect, 3.0f, 3.0f};
+                    render_target_->FillRoundedRectangle(rounded, code_bg_brush_.Get());
+                }
+            }
+        }
+    }
+
+    // Set up link underlines
+    for (const auto& run : node.runs) {
+        if (run.link_url.has_value()) {
+            DWRITE_TEXT_RANGE range{run.start, run.length};
+            node.text_layout->SetUnderline(TRUE, range);
+        }
+    }
+
+    // Draw the text
+    render_target_->DrawTextLayout(
+        D2D1::Point2F(x, node.y_position),
+        node.text_layout.Get(),
+        base_brush);
+
+    // Overdraw link text with link color
+    for (const auto& run : node.runs) {
+        if (run.link_url.has_value() && run.length > 0) {
+            UINT32 count = 0;
+            node.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
+            if (count > 0) {
+                std::vector<DWRITE_HIT_TEST_METRICS> range_metrics(count);
+                node.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
+                    range_metrics.data(), count, &count);
+                for (UINT32 i = 0; i < count; i++) {
+                    D2D1_RECT_F rect = D2D1::RectF(
+                        x + range_metrics[i].left,
+                        node.y_position + range_metrics[i].top,
+                        x + range_metrics[i].left + range_metrics[i].width,
+                        node.y_position + range_metrics[i].top + range_metrics[i].height
+                    );
+                    render_target_->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                    render_target_->DrawTextLayout(
+                        D2D1::Point2F(x, node.y_position),
+                        node.text_layout.Get(),
+                        link_brush_.Get());
+                    render_target_->PopAxisAlignedClip();
+                }
+            }
+        }
+    }
+
+    // Draw task list checkbox
+    if (node.type == NodeType::TaskListItem) {
+        float cb_size = 14.0f;
+        float cb_x = x - theme_.list_bullet_offset;
+        float cb_y = node.y_position + 2.0f;
+        D2D1_RECT_F cb_rect = D2D1::RectF(cb_x, cb_y, cb_x + cb_size, cb_y + cb_size);
+        D2D1_ROUNDED_RECT rounded = {cb_rect, 2.0f, 2.0f};
+        render_target_->DrawRoundedRectangle(rounded, text_brush_.Get(), 1.0f);
+        if (node.task_checked) {
+            render_target_->DrawLine(
+                D2D1::Point2F(cb_x + 3.0f, cb_y + cb_size * 0.5f),
+                D2D1::Point2F(cb_x + cb_size * 0.4f, cb_y + cb_size - 3.0f),
+                text_brush_.Get(), 1.5f);
+            render_target_->DrawLine(
+                D2D1::Point2F(cb_x + cb_size * 0.4f, cb_y + cb_size - 3.0f),
+                D2D1::Point2F(cb_x + cb_size - 3.0f, cb_y + 3.0f),
+                text_brush_.Get(), 1.5f);
+        }
+    }
+}
+
+void Renderer::Render(const std::vector<RenderNode>& nodes, float scroll_y,
+                      const TextSelection& selection) {
+    if (!render_target_) return;
+
+    render_target_->BeginDraw();
+    render_target_->Clear(theme_.bg_color);
+
+    // Apply scroll transform
+    render_target_->SetTransform(D2D1::Matrix3x2F::Translation(0.0f, -scroll_y));
+
+    auto size = render_target_->GetSize();
+    float viewport_top = scroll_y;
+    float viewport_bottom = scroll_y + size.height;
+    float offset_x = theme_.margin_left;
+
+    for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
+        DrawNode(nodes[i], i, offset_x, viewport_top, viewport_bottom, selection);
+    }
+
+    // Reset transform
+    render_target_->SetTransform(D2D1::Matrix3x2F::Identity());
+
+    render_target_->EndDraw();
+}

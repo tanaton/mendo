@@ -1,0 +1,47 @@
+#pragma once
+#include <d2d1.h>
+#include <cstdint>
+
+struct Theme {
+    // Colors
+    D2D1_COLOR_F bg_color;
+    D2D1_COLOR_F text_color;
+    D2D1_COLOR_F heading_color;
+    D2D1_COLOR_F code_bg_color;
+    D2D1_COLOR_F code_text_color;
+    D2D1_COLOR_F link_color;
+    D2D1_COLOR_F hr_color;
+    D2D1_COLOR_F blockquote_bar_color;
+    D2D1_COLOR_F blockquote_text_color;
+
+    // Font
+    wchar_t font_family[64];
+    wchar_t monospace_font[64];
+
+    // Font sizes (in DIP)
+    float font_size_body;
+    float font_size_h1;
+    float font_size_h2;
+    float font_size_h3;
+    float font_size_h4;
+    float font_size_h5;
+    float font_size_h6;
+    float font_size_code;
+
+    // Margins and padding (in DIP)
+    float margin_left;
+    float margin_right;
+    float margin_top;
+    float paragraph_spacing;
+    float heading_spacing_above;
+    float heading_spacing_below;
+    float code_block_padding;
+    float indent_width;
+    float blockquote_bar_width;
+    float list_bullet_offset;
+    float hr_thickness;
+
+    float GetHeadingSize(int level) const;
+};
+
+Theme GetLightTheme();

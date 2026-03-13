@@ -1,0 +1,62 @@
+#include "theme.h"
+
+static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) {
+    return D2D1::ColorF(
+        ((rgb >> 16) & 0xFF) / 255.0f,
+        ((rgb >> 8) & 0xFF) / 255.0f,
+        (rgb & 0xFF) / 255.0f,
+        a
+    );
+}
+
+float Theme::GetHeadingSize(int level) const {
+    switch (level) {
+        case 1: return font_size_h1;
+        case 2: return font_size_h2;
+        case 3: return font_size_h3;
+        case 4: return font_size_h4;
+        case 5: return font_size_h5;
+        case 6: return font_size_h6;
+        default: return font_size_body;
+    }
+}
+
+Theme GetLightTheme() {
+    Theme t{};
+
+    t.bg_color              = Color(0xFFFFFF);
+    t.text_color            = Color(0x24292e);
+    t.heading_color         = Color(0x1a1a1a);
+    t.code_bg_color         = Color(0xf6f8fa);
+    t.code_text_color       = Color(0x24292e);
+    t.link_color            = Color(0x0366d6);
+    t.hr_color              = Color(0xd0d0d0);
+    t.blockquote_bar_color  = Color(0xdfe2e5);
+    t.blockquote_text_color = Color(0x6a737d);
+
+    wcscpy_s(t.font_family,    L"Yu Gothic UI");
+    wcscpy_s(t.monospace_font, L"Consolas");
+
+    t.font_size_body = 16.0f;
+    t.font_size_h1   = 32.0f;
+    t.font_size_h2   = 26.0f;
+    t.font_size_h3   = 22.0f;
+    t.font_size_h4   = 18.0f;
+    t.font_size_h5   = 16.0f;
+    t.font_size_h6   = 14.0f;
+    t.font_size_code = 14.0f;
+
+    t.margin_left           = 40.0f;
+    t.margin_right          = 40.0f;
+    t.margin_top            = 20.0f;
+    t.paragraph_spacing     = 12.0f;
+    t.heading_spacing_above = 24.0f;
+    t.heading_spacing_below = 8.0f;
+    t.code_block_padding    = 12.0f;
+    t.indent_width          = 24.0f;
+    t.blockquote_bar_width  = 4.0f;
+    t.list_bullet_offset    = 20.0f;
+    t.hr_thickness          = 1.5f;
+
+    return t;
+}
