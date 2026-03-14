@@ -1,6 +1,9 @@
 #pragma once
 #include "renderer.h"
 #include "file_loader.h"
+#include "file_explorer.h"
+#include "toc.h"
+#include "pane.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -21,7 +24,7 @@ private:
     void OnPaint();
     void OnResize(UINT width, UINT height);
     void OnVScroll(WPARAM wParam);
-    void OnMouseWheel(short delta);
+    void OnMouseWheel(int px, int py, short delta);
     void OnKeyDown(WPARAM key);
     void OnDropFiles(HDROP hDrop);
     void OnDpiChanged(UINT dpi, const RECT* suggested);
@@ -55,6 +58,17 @@ private:
     void ReloadCurrentFile();
     void UpdateTitleBar();
 
+    // Pane layout helpers
+    enum class PaneZone { None, FilePane, Splitter1, TocPane, Splitter2, MdPane };
+    struct PaneLayout {
+        PaneRect file_rect;
+        PaneRect toc_rect;
+        PaneRect md_rect;
+    };
+    PaneLayout GetPaneLayout() const;
+    PaneZone PaneAtPoint(float dip_x, float dip_y) const;
+    float GetMarkdownPaneWidth() const;
+
     HWND hwnd_ = nullptr;
     Renderer renderer_;
     FileLoader file_loader_;
@@ -62,7 +76,7 @@ private:
     std::vector<RenderNode> nodes_;
     std::wstring current_file_;
 
-    // Scroll state
+    // Scroll state (MD pane)
     float scroll_y_ = 0.0f;
     float scroll_target_ = 0.0f;
     float max_scroll_ = 0.0f;
@@ -81,4 +95,23 @@ private:
     bool is_dragging_ = false;
     int click_start_x_ = 0;
     int click_start_y_ = 0;
+
+    // 3-pane state
+    FileExplorer file_explorer_;
+    TableOfContents toc_;
+    float pane_file_width_ = 220.0f;
+    float pane_toc_width_ = 220.0f;
+    bool show_file_pane_ = true;
+    bool show_toc_pane_ = true;
+
+    enum class DragTarget { None, Splitter1, Splitter2, FileScrollbar, TocScrollbar };
+    DragTarget drag_target_ = DragTarget::None;
+    float drag_scroll_offset_ = 0.0f;  // Offset from thumb top to click point
+    int hovered_file_index_ = -1;
+    int hovered_toc_index_ = -1;
+    ScrollState file_scroll_;
+    ScrollState toc_scroll_;
+
+    static constexpr float PANE_MIN_WIDTH = 100.0f;
+    static constexpr float MD_PANE_MIN_WIDTH = 200.0f;
 };

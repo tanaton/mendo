@@ -17,7 +17,7 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
     wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
-    wc.hCursor = LoadCursorW(nullptr, IDC_IBEAM);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.lpszClassName = WINDOW_CLASS;
     wc.hbrBackground = nullptr; // We handle painting
 
@@ -29,7 +29,7 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
         L"MaDView",
         WS_OVERLAPPEDWINDOW | WS_VSCROLL,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        900, 700,
+        1200, 700,
         nullptr, nullptr, hInstance, this);
 
     if (!hwnd_) return false;
@@ -108,10 +108,64 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             if (wParam & MK_LBUTTON) {
                 OnMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             } else {
-                // Update cursor based on what's under the mouse
-                auto hit = HitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-                auto link = GetLinkAtHit(hit);
-                SetCursor(LoadCursorW(nullptr, link.has_value() ? IDC_HAND : IDC_IBEAM));
+                // Update cursor and hover state based on what's under the mouse
+                auto* rt = renderer_.GetRenderTarget();
+                if (rt) {
+                    float dpi_x, dpi_y;
+                    rt->GetDpi(&dpi_x, &dpi_y);
+                    float scale = dpi_x / 96.0f;
+                    float dip_x = GET_X_LPARAM(lParam) / scale;
+                    float dip_y = GET_Y_LPARAM(lParam) / scale;
+
+                    auto zone = PaneAtPoint(dip_x, dip_y);
+
+                    // Reset hover states
+                    int old_file_hover = hovered_file_index_;
+                    int old_toc_hover = hovered_toc_index_;
+                    hovered_file_index_ = -1;
+                    hovered_toc_index_ = -1;
+
+                    switch (zone) {
+                        case PaneZone::Splitter1:
+                        case PaneZone::Splitter2:
+                            SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
+                            break;
+                        case PaneZone::FilePane: {
+                            SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+                            auto layout = GetPaneLayout();
+                            float content_top = layout.file_rect.y + renderer_.GetTheme().pane_header_height;
+                            float local_y = dip_y - content_top + file_scroll_.scroll_y;
+                            hovered_file_index_ = file_explorer_.HitTest(local_y, renderer_.GetTheme().pane_item_height);
+                            break;
+                        }
+                        case PaneZone::TocPane: {
+                            SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+                            auto layout = GetPaneLayout();
+                            float content_top = layout.toc_rect.y + renderer_.GetTheme().pane_header_height;
+                            float local_y = dip_y - content_top + toc_scroll_.scroll_y;
+                            hovered_toc_index_ = toc_.HitTest(local_y, renderer_.GetTheme().pane_item_height);
+                            break;
+                        }
+                        case PaneZone::MdPane: {
+                            auto hit = HitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+                            auto link = GetLinkAtHit(hit);
+                            SetCursor(LoadCursorW(nullptr, link.has_value() ? IDC_HAND : IDC_IBEAM));
+                            break;
+                        }
+                        default:
+                            SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+                            break;
+                    }
+
+                    if (hovered_file_index_ != old_file_hover) {
+                        renderer_.InvalidateFilePaneCache();
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    }
+                    if (hovered_toc_index_ != old_toc_hover) {
+                        renderer_.InvalidateTocPaneCache();
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    }
+                }
             }
             return 0;
 
@@ -126,9 +180,15 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             OnLButtonDblClk(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
 
-        case WM_MOUSEWHEEL:
-            OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
+        case WM_MOUSEWHEEL: {
+            // Get cursor position in client coordinates for pane detection
+            POINT pt;
+            pt.x = GET_X_LPARAM(lParam);
+            pt.y = GET_Y_LPARAM(lParam);
+            ScreenToClient(hwnd_, &pt);
+            OnMouseWheel(pt.x, pt.y, GET_WHEEL_DELTA_WPARAM(wParam));
             return 0;
+        }
 
         case WM_KEYDOWN:
             OnKeyDown(wParam);
@@ -167,10 +227,90 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 }
 
+// ---- Pane Layout ----
+
+MainWindow::PaneLayout MainWindow::GetPaneLayout() const {
+    PaneLayout layout{};
+    auto* rt = renderer_.GetRenderTarget();
+    if (!rt) return layout;
+
+    auto size = rt->GetSize();
+    float total_width = size.width;
+    float total_height = size.height;
+    const auto& theme = renderer_.GetTheme();
+    float splitter_w = theme.splitter_width;
+
+    float x = 0.0f;
+
+    // File pane
+    if (show_file_pane_) {
+        layout.file_rect = {x, 0.0f, pane_file_width_, total_height};
+        x += pane_file_width_ + splitter_w;
+    }
+
+    // TOC pane
+    if (show_toc_pane_) {
+        layout.toc_rect = {x, 0.0f, pane_toc_width_, total_height};
+        x += pane_toc_width_ + splitter_w;
+    }
+
+    // MD pane takes the rest
+    float md_width = std::max(MD_PANE_MIN_WIDTH, total_width - x);
+    layout.md_rect = {x, 0.0f, md_width, total_height};
+
+    return layout;
+}
+
+MainWindow::PaneZone MainWindow::PaneAtPoint(float dip_x, [[maybe_unused]] float dip_y) const {
+    const auto& theme = renderer_.GetTheme();
+    float splitter_w = theme.splitter_width;
+    auto layout = GetPaneLayout();
+
+    if (show_file_pane_) {
+        float s1_x = layout.file_rect.x + layout.file_rect.width;
+        if (dip_x >= layout.file_rect.x && dip_x < s1_x) {
+            return PaneZone::FilePane;
+        }
+        if (dip_x >= s1_x && dip_x < s1_x + splitter_w) {
+            return PaneZone::Splitter1;
+        }
+    }
+
+    if (show_toc_pane_) {
+        float s2_x = layout.toc_rect.x + layout.toc_rect.width;
+        if (dip_x >= layout.toc_rect.x && dip_x < s2_x) {
+            return PaneZone::TocPane;
+        }
+        if (dip_x >= s2_x && dip_x < s2_x + splitter_w) {
+            return PaneZone::Splitter2;
+        }
+    }
+
+    if (dip_x >= layout.md_rect.x) {
+        return PaneZone::MdPane;
+    }
+
+    return PaneZone::None;
+}
+
+float MainWindow::GetMarkdownPaneWidth() const {
+    auto layout = GetPaneLayout();
+    return layout.md_rect.width;
+}
+
+// ---- Paint / Resize ----
+
 void MainWindow::OnPaint() {
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
-    renderer_.Render(nodes_, scroll_y_, selection_);
+
+    auto layout = GetPaneLayout();
+    renderer_.Render(nodes_, scroll_y_, selection_,
+                     layout.file_rect, layout.toc_rect, layout.md_rect,
+                     file_explorer_.GetEntries(), file_scroll_, hovered_file_index_,
+                     toc_.GetEntries(), toc_scroll_, hovered_toc_index_,
+                     show_file_pane_, show_toc_pane_);
+
     EndPaint(hwnd_, &ps);
 }
 
@@ -179,12 +319,13 @@ void MainWindow::OnResize(UINT width, UINT height) {
 
     renderer_.Resize(width, height);
 
+    float md_width = GetMarkdownPaneWidth();
+
     if (is_sizing_) {
-        // During active resize drag: skip expensive layout recomputation,
-        // just update scroll limits and repaint with existing layouts
-        auto size = renderer_.GetRenderTarget()->GetSize();
+        // During active resize drag: skip expensive layout recomputation
         float total = renderer_.GetLayout().GetTotalHeight();
-        max_scroll_ = std::max(0.0f, total - size.height);
+        auto layout = GetPaneLayout();
+        max_scroll_ = std::max(0.0f, total - layout.md_rect.height);
         scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
         scroll_target_ = scroll_y_;
         UpdateScrollBar();
@@ -192,18 +333,17 @@ void MainWindow::OnResize(UINT width, UINT height) {
         return;
     }
 
-    // Not in sizing mode (maximize, snap, etc.):
     // Viewport-only layout for instant feedback, then batch the rest
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
-    auto size = renderer_.GetRenderTarget()->GetSize();
+    auto pane_layout = GetPaneLayout();
     float viewport_top = scroll_y_;
-    float viewport_bottom = scroll_y_ + size.height;
+    float viewport_bottom = scroll_y_ + pane_layout.md_rect.height;
 
-    renderer_.GetLayout().ComputeLayout(nodes_, size.width, viewport_top, viewport_bottom);
+    renderer_.GetLayout().ComputeLayout(nodes_, md_width, viewport_top, viewport_bottom);
 
     float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - size.height);
+    max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
     scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
     scroll_target_ = scroll_y_;
 
@@ -222,7 +362,8 @@ void MainWindow::OnVScroll(WPARAM wParam) {
     GetScrollInfo(hwnd_, SB_VERT, &si);
 
     float old_pos = scroll_y_;
-    float page_size = renderer_.GetRenderTarget()->GetSize().height;
+    auto pane_layout = GetPaneLayout();
+    float page_size = pane_layout.md_rect.height;
 
     switch (LOWORD(wParam)) {
         case SB_LINEUP:    ScrollTo(scroll_y_ - 40.0f); break;
@@ -242,13 +383,51 @@ void MainWindow::OnVScroll(WPARAM wParam) {
     }
 }
 
-void MainWindow::OnMouseWheel(short delta) {
+void MainWindow::OnMouseWheel(int px, int py, short delta) {
+    auto* rt = renderer_.GetRenderTarget();
+    if (!rt) return;
+
+    float dpi_x, dpi_y;
+    rt->GetDpi(&dpi_x, &dpi_y);
+    float scale = dpi_x / 96.0f;
+    float dip_x = px / scale;
+    float dip_y = py / scale;
+
+    auto zone = PaneAtPoint(dip_x, dip_y);
     float scroll_amount = -delta * 0.5f;
-    SmoothScrollBy(scroll_amount);
+    const auto& theme = renderer_.GetTheme();
+
+    switch (zone) {
+        case PaneZone::FilePane: {
+            float max_file_scroll = std::max(0.0f,
+                static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height
+                - (GetPaneLayout().file_rect.height - theme.pane_header_height));
+            file_scroll_.scroll_y = std::clamp(file_scroll_.scroll_y + scroll_amount, 0.0f, max_file_scroll);
+            file_scroll_.max_scroll = max_file_scroll;
+            renderer_.InvalidateFilePaneCache();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            break;
+        }
+        case PaneZone::TocPane: {
+            float max_toc_scroll = std::max(0.0f,
+                static_cast<float>(toc_.GetEntries().size()) * theme.pane_item_height
+                - (GetPaneLayout().toc_rect.height - theme.pane_header_height));
+            toc_scroll_.scroll_y = std::clamp(toc_scroll_.scroll_y + scroll_amount, 0.0f, max_toc_scroll);
+            toc_scroll_.max_scroll = max_toc_scroll;
+            renderer_.InvalidateTocPaneCache();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            break;
+        }
+        default:
+            // MD pane or anywhere else
+            SmoothScrollBy(scroll_amount);
+            break;
+    }
 }
 
 void MainWindow::OnKeyDown(WPARAM key) {
-    float page_size = renderer_.GetRenderTarget()->GetSize().height;
+    auto pane_layout = GetPaneLayout();
+    float page_size = pane_layout.md_rect.height;
 
     switch (key) {
         case VK_UP:    SmoothScrollBy(-40.0f); break;
@@ -272,6 +451,25 @@ void MainWindow::OnKeyDown(WPARAM key) {
             if (GetKeyState(VK_CONTROL) & 0x8000) {
                 auto path = FileLoader::OpenFileDialog(hwnd_);
                 if (!path.empty()) LoadMarkdownFile(path);
+            }
+            break;
+        case '1':
+            if (GetKeyState(VK_CONTROL) & 0x8000) {
+                show_file_pane_ = !show_file_pane_;
+                // Trigger resize to recalculate layout
+                RECT rc;
+                GetClientRect(hwnd_, &rc);
+                OnResize(static_cast<UINT>(rc.right - rc.left),
+                         static_cast<UINT>(rc.bottom - rc.top));
+            }
+            break;
+        case '2':
+            if (GetKeyState(VK_CONTROL) & 0x8000) {
+                show_toc_pane_ = !show_toc_pane_;
+                RECT rc;
+                GetClientRect(hwnd_, &rc);
+                OnResize(static_cast<UINT>(rc.right - rc.left),
+                         static_cast<UINT>(rc.bottom - rc.top));
             }
             break;
         case VK_ESCAPE:
@@ -306,12 +504,13 @@ void MainWindow::OnDpiChanged(UINT dpi, const RECT* suggested) {
 }
 
 void MainWindow::UpdateScrollBar() {
+    auto pane_layout = GetPaneLayout();
     SCROLLINFO si{};
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
     si.nMin = 0;
     si.nMax = static_cast<int>(renderer_.GetLayout().GetTotalHeight());
-    si.nPage = static_cast<UINT>(renderer_.GetRenderTarget()->GetSize().height);
+    si.nPage = static_cast<UINT>(pane_layout.md_rect.height);
     si.nPos = static_cast<int>(scroll_y_);
     SetScrollInfo(hwnd_, SB_VERT, &si, TRUE);
 }
@@ -349,15 +548,15 @@ void MainWindow::UpdateSmoothScroll() {
 void MainWindow::OnResizeEnd() {
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
-    // Compute layout only for visible nodes first (instant feedback)
-    auto size = renderer_.GetRenderTarget()->GetSize();
+    float md_width = GetMarkdownPaneWidth();
+    auto pane_layout = GetPaneLayout();
     float viewport_top = scroll_y_;
-    float viewport_bottom = scroll_y_ + size.height;
+    float viewport_bottom = scroll_y_ + pane_layout.md_rect.height;
 
-    renderer_.GetLayout().ComputeLayout(nodes_, size.width, viewport_top, viewport_bottom);
+    renderer_.GetLayout().ComputeLayout(nodes_, md_width, viewport_top, viewport_bottom);
 
     float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - size.height);
+    max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
     scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
     scroll_target_ = scroll_y_;
 
@@ -371,11 +570,12 @@ void MainWindow::OnResizeEnd() {
 }
 
 void MainWindow::OnDeferredLayout() {
-    auto size = renderer_.GetRenderTarget()->GetSize();
-    bool more = renderer_.GetLayout().ProcessDirtyBatch(nodes_, size.width, 200);
+    float md_width = GetMarkdownPaneWidth();
+    bool more = renderer_.GetLayout().ProcessDirtyBatch(nodes_, md_width, 200);
 
+    auto pane_layout = GetPaneLayout();
     float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - size.height);
+    max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
     scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
     scroll_target_ = scroll_y_;
 
@@ -388,11 +588,12 @@ void MainWindow::OnDeferredLayout() {
 }
 
 void MainWindow::UpdateLayoutAndScroll(float desired_scroll) {
-    auto size = renderer_.GetRenderTarget()->GetSize();
-    renderer_.GetLayout().ComputeLayout(nodes_, size.width);
+    float md_width = GetMarkdownPaneWidth();
+    renderer_.GetLayout().ComputeLayout(nodes_, md_width);
 
+    auto pane_layout = GetPaneLayout();
     float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - size.height);
+    max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
     scroll_y_ = std::clamp(desired_scroll, 0.0f, max_scroll_);
     scroll_target_ = scroll_y_;
 
@@ -410,6 +611,22 @@ void MainWindow::LoadMarkdownFile(const std::wstring& path) {
     ClearSelection();
 
     nodes_ = ParseMarkdown(content);
+    toc_.BuildFromNodes(nodes_);
+
+    // Set up file explorer for the directory containing this file
+    auto pos = path.find_last_of(L"\\/");
+    if (pos != std::wstring::npos) {
+        std::wstring dir = path.substr(0, pos);
+        file_explorer_.SetDirectory(dir);
+        file_explorer_.SetCurrentFile(path);
+    }
+
+    // Reset pane scroll states and invalidate caches
+    file_scroll_ = {};
+    toc_scroll_ = {};
+    renderer_.InvalidateFilePaneCache();
+    renderer_.InvalidateTocPaneCache();
+
     UpdateLayoutAndScroll(0.0f);
     UpdateTitleBar();
 
@@ -424,6 +641,8 @@ void MainWindow::ReloadCurrentFile() {
 
     float old_scroll = scroll_y_;
     nodes_ = ParseMarkdown(FileLoader::LoadFile(current_file_));
+    toc_.BuildFromNodes(nodes_);
+    renderer_.InvalidateTocPaneCache();
     UpdateLayoutAndScroll(old_scroll);
 }
 
@@ -458,6 +677,11 @@ MainWindow::HitResult MainWindow::HitTest(int screen_x, int screen_y) const {
     // Convert physical pixels to DIPs
     float dip_x = screen_x / scale;
     float dip_y = screen_y / scale + scroll_y_;
+
+    // Offset by MD pane position
+    auto pane_layout = GetPaneLayout();
+    float md_left = pane_layout.md_rect.x;
+    dip_x -= md_left;
 
     // Find the node at this y position
     for (int i = 0; i < static_cast<int>(nodes_.size()); i++) {
@@ -583,6 +807,125 @@ MainWindow::HitResult MainWindow::HitTestTable(const RenderNode& node, int node_
 }
 
 void MainWindow::OnLButtonDown(int px, int py) {
+    auto* rt = renderer_.GetRenderTarget();
+    if (!rt) return;
+
+    float dpi_x, dpi_y;
+    rt->GetDpi(&dpi_x, &dpi_y);
+    float scale = dpi_x / 96.0f;
+    float dip_x = px / scale;
+    float dip_y = py / scale;
+
+    auto zone = PaneAtPoint(dip_x, dip_y);
+
+    switch (zone) {
+        case PaneZone::Splitter1:
+            SetCapture(hwnd_);
+            drag_target_ = DragTarget::Splitter1;
+            return;
+        case PaneZone::Splitter2:
+            SetCapture(hwnd_);
+            drag_target_ = DragTarget::Splitter2;
+            return;
+        case PaneZone::FilePane: {
+            auto layout = GetPaneLayout();
+            const auto& theme = renderer_.GetTheme();
+            float content_top = layout.file_rect.y + theme.pane_header_height;
+            float content_height = layout.file_rect.height - theme.pane_header_height;
+            float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
+            float local_x = dip_x - layout.file_rect.x;
+
+            // Check if click is on scrollbar area (rightmost PANE_SCROLLBAR_WIDTH + margin)
+            if (local_x >= layout.file_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
+                && total_content > content_height) {
+                SetCapture(hwnd_);
+                drag_target_ = DragTarget::FileScrollbar;
+
+                // Calculate current thumb position for offset
+                float thumb_ratio = content_height / total_content;
+                float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, content_height * thumb_ratio);
+                float max_s = total_content - content_height;
+                float scroll_ratio = (max_s > 0) ? file_scroll_.scroll_y / max_s : 0.0f;
+                float thumb_y = content_top + scroll_ratio * (content_height - thumb_height);
+
+                if (dip_y >= thumb_y && dip_y <= thumb_y + thumb_height) {
+                    // Clicked on thumb — store offset
+                    drag_scroll_offset_ = dip_y - thumb_y;
+                } else {
+                    // Clicked on track — jump thumb center to click
+                    drag_scroll_offset_ = thumb_height * 0.5f;
+                    float new_thumb_y = dip_y - drag_scroll_offset_;
+                    float track_range = content_height - thumb_height;
+                    float ratio = (track_range > 0) ? (new_thumb_y - content_top) / track_range : 0.0f;
+                    ratio = std::clamp(ratio, 0.0f, 1.0f);
+                    file_scroll_.scroll_y = ratio * max_s;
+                    file_scroll_.max_scroll = max_s;
+                    renderer_.InvalidateFilePaneCache();
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                }
+                return;
+            }
+
+            float local_y = dip_y - content_top + file_scroll_.scroll_y;
+            int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
+            if (idx >= 0 && idx < static_cast<int>(file_explorer_.GetEntries().size())) {
+                const auto& entry = file_explorer_.GetEntries()[idx];
+                if (!entry.is_current) {
+                    LoadMarkdownFile(entry.full_path);
+                }
+            }
+            return;
+        }
+        case PaneZone::TocPane: {
+            auto layout = GetPaneLayout();
+            const auto& theme = renderer_.GetTheme();
+            float content_top = layout.toc_rect.y + theme.pane_header_height;
+            float content_height = layout.toc_rect.height - theme.pane_header_height;
+            float total_content = static_cast<float>(toc_.GetEntries().size()) * theme.pane_item_height;
+            float local_x = dip_x - layout.toc_rect.x;
+
+            // Check if click is on scrollbar area
+            if (local_x >= layout.toc_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
+                && total_content > content_height) {
+                SetCapture(hwnd_);
+                drag_target_ = DragTarget::TocScrollbar;
+
+                float thumb_ratio = content_height / total_content;
+                float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, content_height * thumb_ratio);
+                float max_s = total_content - content_height;
+                float scroll_ratio = (max_s > 0) ? toc_scroll_.scroll_y / max_s : 0.0f;
+                float thumb_y = content_top + scroll_ratio * (content_height - thumb_height);
+
+                if (dip_y >= thumb_y && dip_y <= thumb_y + thumb_height) {
+                    drag_scroll_offset_ = dip_y - thumb_y;
+                } else {
+                    drag_scroll_offset_ = thumb_height * 0.5f;
+                    float new_thumb_y = dip_y - drag_scroll_offset_;
+                    float track_range = content_height - thumb_height;
+                    float ratio = (track_range > 0) ? (new_thumb_y - content_top) / track_range : 0.0f;
+                    ratio = std::clamp(ratio, 0.0f, 1.0f);
+                    toc_scroll_.scroll_y = ratio * max_s;
+                    toc_scroll_.max_scroll = max_s;
+                    renderer_.InvalidateTocPaneCache();
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                }
+                return;
+            }
+
+            float local_y = dip_y - content_top + toc_scroll_.scroll_y;
+            int idx = toc_.HitTest(local_y, theme.pane_item_height);
+            if (idx >= 0 && idx < static_cast<int>(toc_.GetEntries().size())) {
+                NavigateToAnchor(toc_.GetEntries()[idx].anchor_id);
+            }
+            return;
+        }
+        case PaneZone::MdPane:
+            break;
+        default:
+            return;
+    }
+
+    // MD pane: existing selection logic
     SetCapture(hwnd_);
     click_start_x_ = px;
     click_start_y_ = py;
@@ -598,6 +941,17 @@ void MainWindow::OnLButtonDown(int px, int py) {
 
 void MainWindow::OnLButtonUp(int px, int py) {
     ReleaseCapture();
+
+    if (drag_target_ != DragTarget::None) {
+        drag_target_ = DragTarget::None;
+        // Recalculate layout after splitter drag
+        RECT rc;
+        GetClientRect(hwnd_, &rc);
+        OnResize(static_cast<UINT>(rc.right - rc.left),
+                 static_cast<UINT>(rc.bottom - rc.top));
+        return;
+    }
+
     if (is_dragging_) {
         auto hit = HitTest(px, py);
         if (hit.node_index >= 0) {
@@ -621,6 +975,109 @@ void MainWindow::OnLButtonUp(int px, int py) {
 }
 
 void MainWindow::OnMouseMove(int px, int py) {
+    auto* rt = renderer_.GetRenderTarget();
+    if (!rt) return;
+
+    float dpi_x, dpi_y;
+    rt->GetDpi(&dpi_x, &dpi_y);
+    float scale = dpi_x / 96.0f;
+    float dip_x = px / scale;
+
+    // Handle splitter dragging
+    if (drag_target_ == DragTarget::Splitter1) {
+        float new_width = dip_x;
+        pane_file_width_ = std::clamp(new_width, PANE_MIN_WIDTH, dip_x);
+
+        // Ensure MD pane doesn't get too small
+        auto size = rt->GetSize();
+        float used = pane_file_width_ + renderer_.GetTheme().splitter_width;
+        if (show_toc_pane_) used += pane_toc_width_ + renderer_.GetTheme().splitter_width;
+        if (size.width - used < MD_PANE_MIN_WIDTH) {
+            pane_file_width_ = size.width - MD_PANE_MIN_WIDTH - renderer_.GetTheme().splitter_width;
+            if (show_toc_pane_) pane_file_width_ -= pane_toc_width_ + renderer_.GetTheme().splitter_width;
+            pane_file_width_ = std::max(PANE_MIN_WIDTH, pane_file_width_);
+        }
+
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+
+    if (drag_target_ == DragTarget::FileScrollbar) {
+        float dpi_x2, dpi_y2;
+        rt->GetDpi(&dpi_x2, &dpi_y2);
+        float scale2 = dpi_x2 / 96.0f;
+        float dip_y2 = py / scale2;
+
+        auto layout = GetPaneLayout();
+        const auto& theme = renderer_.GetTheme();
+        float content_top = layout.file_rect.y + theme.pane_header_height;
+        float content_height = layout.file_rect.height - theme.pane_header_height;
+        float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
+        float max_s = total_content - content_height;
+
+        float thumb_ratio = content_height / total_content;
+        float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, content_height * thumb_ratio);
+        float track_range = content_height - thumb_height;
+
+        float new_thumb_y = dip_y2 - drag_scroll_offset_;
+        float ratio = (track_range > 0) ? (new_thumb_y - content_top) / track_range : 0.0f;
+        ratio = std::clamp(ratio, 0.0f, 1.0f);
+        file_scroll_.scroll_y = ratio * max_s;
+        file_scroll_.max_scroll = max_s;
+        renderer_.InvalidateFilePaneCache();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+
+    if (drag_target_ == DragTarget::TocScrollbar) {
+        float dpi_x2, dpi_y2;
+        rt->GetDpi(&dpi_x2, &dpi_y2);
+        float scale2 = dpi_x2 / 96.0f;
+        float dip_y2 = py / scale2;
+
+        auto layout = GetPaneLayout();
+        const auto& theme = renderer_.GetTheme();
+        float content_top = layout.toc_rect.y + theme.pane_header_height;
+        float content_height = layout.toc_rect.height - theme.pane_header_height;
+        float total_content = static_cast<float>(toc_.GetEntries().size()) * theme.pane_item_height;
+        float max_s = total_content - content_height;
+
+        float thumb_ratio = content_height / total_content;
+        float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, content_height * thumb_ratio);
+        float track_range = content_height - thumb_height;
+
+        float new_thumb_y = dip_y2 - drag_scroll_offset_;
+        float ratio = (track_range > 0) ? (new_thumb_y - content_top) / track_range : 0.0f;
+        ratio = std::clamp(ratio, 0.0f, 1.0f);
+        toc_scroll_.scroll_y = ratio * max_s;
+        toc_scroll_.max_scroll = max_s;
+        renderer_.InvalidateTocPaneCache();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+
+    if (drag_target_ == DragTarget::Splitter2) {
+        auto pane_layout = GetPaneLayout();
+        float toc_left = pane_layout.toc_rect.x;
+        float new_width = dip_x - toc_left;
+        pane_toc_width_ = std::clamp(new_width, PANE_MIN_WIDTH, new_width);
+
+        // Ensure MD pane doesn't get too small
+        auto size = rt->GetSize();
+        float used = renderer_.GetTheme().splitter_width;
+        if (show_file_pane_) used += pane_file_width_ + renderer_.GetTheme().splitter_width;
+        used += pane_toc_width_;
+        if (size.width - used < MD_PANE_MIN_WIDTH) {
+            pane_toc_width_ = size.width - MD_PANE_MIN_WIDTH - renderer_.GetTheme().splitter_width;
+            if (show_file_pane_) pane_toc_width_ -= pane_file_width_ + renderer_.GetTheme().splitter_width;
+            pane_toc_width_ = std::max(PANE_MIN_WIDTH, pane_toc_width_);
+        }
+
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+
+    // MD pane: existing drag selection logic
     if (!is_dragging_) return;
     auto hit = HitTest(px, py);
     if (hit.node_index >= 0) {
@@ -631,6 +1088,18 @@ void MainWindow::OnMouseMove(int px, int py) {
 }
 
 void MainWindow::OnLButtonDblClk(int px, int py) {
+    auto* rt = renderer_.GetRenderTarget();
+    if (!rt) return;
+
+    float dpi_x, dpi_y;
+    rt->GetDpi(&dpi_x, &dpi_y);
+    float scale = dpi_x / 96.0f;
+    float dip_x = px / scale;
+    float dip_y = py / scale;
+
+    auto zone = PaneAtPoint(dip_x, dip_y);
+    if (zone != PaneZone::MdPane) return;
+
     auto hit = HitTest(px, py);
     if (hit.node_index < 0) return;
 

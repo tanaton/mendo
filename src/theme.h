@@ -50,6 +50,16 @@ struct Theme {
     float list_bullet_offset;
     float hr_thickness;
 
+    // Pane layout
+    D2D1_COLOR_F pane_bg_color;
+    D2D1_COLOR_F splitter_color;
+    D2D1_COLOR_F pane_item_hover_color;
+    D2D1_COLOR_F pane_item_active_color;
+    float pane_item_height;
+    float pane_header_height;
+    float splitter_width;
+    float pane_font_size;
+
     float GetHeadingSize(int level) const;
 };
 

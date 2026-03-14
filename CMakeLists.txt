@@ -22,6 +22,8 @@ add_library(MaDView_core STATIC
     src/file_loader.cpp
     src/theme.cpp
     src/syntax.cpp
+    src/file_explorer.cpp
+    src/toc.cpp
 )
 target_include_directories(MaDView_core PUBLIC src third_party/md4c)
 target_compile_definitions(MaDView_core PUBLIC

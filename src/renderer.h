@@ -3,6 +3,9 @@
 #include "theme.h"
 #include "layout.h"
 #include "syntax.h"
+#include "pane.h"
+#include "file_explorer.h"
+#include "toc.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -15,23 +18,43 @@ public:
     bool Init(HWND hwnd);
     void Resize(UINT width, UINT height);
     void Render(const std::vector<RenderNode>& nodes, float scroll_y,
-                const TextSelection& selection = {});
+                const TextSelection& selection,
+                const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
+                const PaneRect& md_pane_rect,
+                const std::vector<FileEntry>& file_entries,
+                const ScrollState& file_scroll, int hovered_file_index,
+                const std::vector<TocEntry>& toc_entries,
+                const ScrollState& toc_scroll, int hovered_toc_index,
+                bool show_file_pane, bool show_toc_pane);
     void SetDpi(float dpi);
 
     ID2D1HwndRenderTarget* GetRenderTarget() const { return render_target_.Get(); }
     LayoutEngine& GetLayout() { return layout_; }
     const Theme& GetTheme() const { return theme_; }
 
+    void InvalidateFilePaneCache() { file_pane_cache_.dirty = true; }
+    void InvalidateTocPaneCache() { toc_pane_cache_.dirty = true; }
+
 private:
     void DrawNode(const RenderNode& node, int node_index, float offset_x,
-                  float viewport_top, float viewport_bottom, const TextSelection& selection);
-    void DrawCodeBlockBackground(const RenderNode& node, float offset_x);
+                  float viewport_top, float viewport_bottom,
+                  const TextSelection& selection, float pane_content_width);
+    void DrawCodeBlockBackground(const RenderNode& node, float offset_x, float content_width);
     void DrawHorizontalRule(const RenderNode& node, float offset_x, float content_width);
     void DrawListBullet(const RenderNode& node, float offset_x);
     void DrawBlockQuoteBar(const RenderNode& node, float base_x);
     void DrawTable(const RenderNode& node, int node_index, float offset_x, const TextSelection& selection);
     void DrawTextRangeHighlight(IDWriteTextLayout* layout, uint32_t start, uint32_t length,
                                 float origin_x, float origin_y, ID2D1Brush* brush);
+
+    void DrawFileExplorer(const std::vector<FileEntry>& entries, const PaneRect& rect,
+                          const ScrollState& scroll, int hovered_index);
+    void DrawToc(const std::vector<TocEntry>& entries, const PaneRect& rect,
+                 const ScrollState& scroll, int hovered_index);
+    void DrawSplitter(float x, float height);
+    void DrawPaneScrollbar(ID2D1RenderTarget* rt, float pane_width,
+                           float content_top, float content_height,
+                           float scroll_y, float total_content_height);
 
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<ID2D1HwndRenderTarget> render_target_;
@@ -57,10 +80,35 @@ private:
     ComPtr<ID2D1SolidColorBrush> syntax_preprocessor_brush_;
     ComPtr<ID2D1SolidColorBrush> syntax_function_brush_;
 
+    // Pane brushes
+    ComPtr<ID2D1SolidColorBrush> pane_bg_brush_;
+    ComPtr<ID2D1SolidColorBrush> splitter_brush_;
+    ComPtr<ID2D1SolidColorBrush> pane_item_hover_brush_;
+    ComPtr<ID2D1SolidColorBrush> pane_item_active_brush_;
+    ComPtr<ID2D1SolidColorBrush> scrollbar_thumb_brush_;
+
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
     void ApplySyntaxHighlighting(const RenderNode& node);
 
     ComPtr<IDWriteTextFormat> icon_font_format_;
+    ComPtr<IDWriteTextFormat> fmt_pane_item_;
+    ComPtr<IDWriteTextFormat> fmt_pane_header_;
+
+public:
+    // Pane bitmap cache — side panes are rendered to off-screen bitmaps
+    // and only re-rendered when their content changes.
+    struct PaneCache {
+        ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
+        bool dirty = true;
+        float cached_width = 0;
+        float cached_height = 0;
+
+        void Invalidate() { dirty = true; }
+        void Reset() { bitmap_rt.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
+    };
+private:
+    PaneCache file_pane_cache_;
+    PaneCache toc_pane_cache_;
 
     Theme theme_;
     LayoutEngine layout_;

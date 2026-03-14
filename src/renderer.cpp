@@ -59,12 +59,41 @@ bool Renderer::Init(HWND hwnd) {
     render_target_->CreateSolidColorBrush(theme_.syntax_preprocessor, &syntax_preprocessor_brush_);
     render_target_->CreateSolidColorBrush(theme_.syntax_function, &syntax_function_brush_);
 
+    // Pane brushes
+    render_target_->CreateSolidColorBrush(theme_.pane_bg_color, &pane_bg_brush_);
+    render_target_->CreateSolidColorBrush(theme_.splitter_color, &splitter_brush_);
+    render_target_->CreateSolidColorBrush(theme_.pane_item_hover_color, &pane_item_hover_brush_);
+    render_target_->CreateSolidColorBrush(theme_.pane_item_active_color, &pane_item_active_brush_);
+    render_target_->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.25f), &scrollbar_thumb_brush_);
+
     // Create icon font format (Segoe Fluent Icons) for task list checkboxes
     dwrite_factory_->CreateTextFormat(
         L"Segoe Fluent Icons", nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
         L"en-us", &icon_font_format_);
+
+    // Pane item text format
+    dwrite_factory_->CreateTextFormat(
+        theme_.font_family, nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
+        L"ja-jp", &fmt_pane_item_);
+    if (fmt_pane_item_) {
+        fmt_pane_item_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_pane_item_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
+    // Pane header text format
+    dwrite_factory_->CreateTextFormat(
+        theme_.font_family, nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
+        L"ja-jp", &fmt_pane_header_);
+    if (fmt_pane_header_) {
+        fmt_pane_header_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_pane_header_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
 
     // Initialize layout engine
     if (!layout_.Init(dwrite_factory_.Get(), theme_)) return false;
@@ -83,14 +112,17 @@ void Renderer::SetDpi(float dpi) {
     if (render_target_) {
         render_target_->SetDpi(dpi, dpi);
     }
+    // Force pane cache recreation at new DPI
+    file_pane_cache_.Reset();
+    toc_pane_cache_.Reset();
 }
 
-void Renderer::DrawCodeBlockBackground(const RenderNode& node, float offset_x) {
+void Renderer::DrawCodeBlockBackground(const RenderNode& node, float offset_x, float content_width) {
     float pad = theme_.code_block_padding;
     D2D1_RECT_F bg_rect = D2D1::RectF(
         offset_x - pad,
         node.y_position - pad,
-        offset_x + (render_target_->GetSize().width - theme_.margin_left - theme_.margin_right),
+        offset_x + content_width,
         node.y_position + node.height + pad
     );
     // Rounded rectangle for code blocks
@@ -287,14 +319,15 @@ void Renderer::DrawTable(const RenderNode& node, int node_index, float offset_x,
 }
 
 void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
-                        float viewport_top, float viewport_bottom, const TextSelection& selection) {
+                        float viewport_top, float viewport_bottom,
+                        const TextSelection& selection, float pane_content_width) {
     // Viewport culling
     float node_bottom = node.y_position + node.height;
     if (node_bottom < viewport_top || node.y_position > viewport_bottom) return;
 
     float indent = node.indent_level * theme_.indent_width;
     float x = offset_x + indent;
-    float content_width = render_target_->GetSize().width - theme_.margin_left - theme_.margin_right - indent;
+    float content_width = pane_content_width - indent;
 
     switch (node.type) {
         case NodeType::HorizontalRule:
@@ -306,7 +339,7 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
             return;
 
         case NodeType::CodeBlock:
-            DrawCodeBlockBackground(node, x);
+            DrawCodeBlockBackground(node, x, content_width);
             ApplySyntaxHighlighting(node);
             break;
 
@@ -453,27 +486,247 @@ void Renderer::ApplySyntaxHighlighting(const RenderNode& node) {
     }
 }
 
+// Ensure a PaneCache's bitmap render target matches the required size.
+// Returns true if the cache is ready to use.
+static bool EnsurePaneCacheSize(Renderer::PaneCache& cache, ID2D1RenderTarget* parent,
+                                float width, float height) {
+    if (width <= 0 || height <= 0) return false;
+
+    if (!cache.bitmap_rt ||
+        cache.cached_width != width || cache.cached_height != height) {
+        cache.bitmap_rt.Reset();
+        HRESULT hr = parent->CreateCompatibleRenderTarget(
+            D2D1::SizeF(width, height), &cache.bitmap_rt);
+        if (FAILED(hr)) return false;
+        cache.cached_width = width;
+        cache.cached_height = height;
+        cache.dirty = true;
+    }
+    return true;
+}
+
+void Renderer::DrawFileExplorer(const std::vector<FileEntry>& entries, const PaneRect& rect,
+                                const ScrollState& scroll, int hovered_index) {
+    if (!EnsurePaneCacheSize(file_pane_cache_, render_target_.Get(), rect.width, rect.height))
+        return;
+
+    if (file_pane_cache_.dirty) {
+        auto* rt = file_pane_cache_.bitmap_rt.Get();
+        rt->BeginDraw();
+        rt->Clear(theme_.pane_bg_color);
+
+        // Header background
+        D2D1_RECT_F header_bg = D2D1::RectF(0, 0, rect.width, theme_.pane_header_height);
+        rt->FillRectangle(header_bg, splitter_brush_.Get());
+        if (fmt_pane_header_) {
+            D2D1_RECT_F header_text = D2D1::RectF(8.0f, 0, rect.width - 4.0f, theme_.pane_header_height);
+            rt->DrawText(L"Files", 5, fmt_pane_header_.Get(), header_text, text_brush_.Get(),
+                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+
+        // Content area with clipping
+        float content_top = theme_.pane_header_height;
+        float content_height = rect.height - content_top;
+        D2D1_RECT_F clip = D2D1::RectF(0, content_top, rect.width, rect.height);
+        rt->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        rt->SetTransform(D2D1::Matrix3x2F::Translation(0, -scroll.scroll_y));
+
+        // Viewport culling: only draw visible items
+        int first = std::max(0, static_cast<int>(scroll.scroll_y / theme_.pane_item_height));
+        int last = std::min(static_cast<int>(entries.size()) - 1,
+            static_cast<int>((scroll.scroll_y + content_height) / theme_.pane_item_height) + 1);
+
+        for (int i = first; i <= last; i++) {
+            float item_y = content_top + i * theme_.pane_item_height;
+            const auto& entry = entries[i];
+
+            D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, rect.width, item_y + theme_.pane_item_height);
+            if (entry.is_current) {
+                rt->FillRectangle(item_rect, pane_item_active_brush_.Get());
+            } else if (i == hovered_index) {
+                rt->FillRectangle(item_rect, pane_item_hover_brush_.Get());
+            }
+
+            if (fmt_pane_item_) {
+                D2D1_RECT_F text_rect = D2D1::RectF(
+                    8.0f, item_y, rect.width - 4.0f, item_y + theme_.pane_item_height);
+                rt->DrawText(entry.filename.c_str(), static_cast<UINT32>(entry.filename.size()),
+                             fmt_pane_item_.Get(), text_rect, text_brush_.Get(),
+                             D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
+        }
+
+        rt->SetTransform(D2D1::Matrix3x2F::Identity());
+        rt->PopAxisAlignedClip();
+
+        // Draw scrollbar overlay (fixed position, not scrolled)
+        float total_content = static_cast<float>(entries.size()) * theme_.pane_item_height;
+        DrawPaneScrollbar(rt, rect.width, content_top, content_height,
+                          scroll.scroll_y, total_content);
+
+        rt->EndDraw();
+        file_pane_cache_.dirty = false;
+    }
+
+    // Blit cached bitmap
+    ComPtr<ID2D1Bitmap> bmp;
+    file_pane_cache_.bitmap_rt->GetBitmap(&bmp);
+    if (bmp) {
+        D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y,
+                                         rect.x + rect.width, rect.y + rect.height);
+        render_target_->DrawBitmap(bmp.Get(), dest);
+    }
+}
+
+void Renderer::DrawToc(const std::vector<TocEntry>& entries, const PaneRect& rect,
+                       const ScrollState& scroll, int hovered_index) {
+    if (!EnsurePaneCacheSize(toc_pane_cache_, render_target_.Get(), rect.width, rect.height))
+        return;
+
+    if (toc_pane_cache_.dirty) {
+        auto* rt = toc_pane_cache_.bitmap_rt.Get();
+        rt->BeginDraw();
+        rt->Clear(theme_.pane_bg_color);
+
+        // Header background
+        D2D1_RECT_F header_bg = D2D1::RectF(0, 0, rect.width, theme_.pane_header_height);
+        rt->FillRectangle(header_bg, splitter_brush_.Get());
+        if (fmt_pane_header_) {
+            D2D1_RECT_F header_text = D2D1::RectF(8.0f, 0, rect.width - 4.0f, theme_.pane_header_height);
+            rt->DrawText(L"Table of Contents", 17, fmt_pane_header_.Get(), header_text,
+                         text_brush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+
+        // Content area with clipping
+        float content_top = theme_.pane_header_height;
+        float content_height = rect.height - content_top;
+        D2D1_RECT_F clip = D2D1::RectF(0, content_top, rect.width, rect.height);
+        rt->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        rt->SetTransform(D2D1::Matrix3x2F::Translation(0, -scroll.scroll_y));
+
+        // Viewport culling
+        int first = std::max(0, static_cast<int>(scroll.scroll_y / theme_.pane_item_height));
+        int last = std::min(static_cast<int>(entries.size()) - 1,
+            static_cast<int>((scroll.scroll_y + content_height) / theme_.pane_item_height) + 1);
+
+        for (int i = first; i <= last; i++) {
+            float item_y = content_top + i * theme_.pane_item_height;
+            const auto& entry = entries[i];
+
+            if (i == hovered_index) {
+                D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, rect.width, item_y + theme_.pane_item_height);
+                rt->FillRectangle(item_rect, pane_item_hover_brush_.Get());
+            }
+
+            float indent = (entry.heading_level - 1) * 12.0f;
+            if (fmt_pane_item_) {
+                D2D1_RECT_F text_rect = D2D1::RectF(
+                    8.0f + indent, item_y, rect.width - 4.0f, item_y + theme_.pane_item_height);
+                rt->DrawText(entry.text.c_str(), static_cast<UINT32>(entry.text.size()),
+                             fmt_pane_item_.Get(), text_rect, text_brush_.Get(),
+                             D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
+        }
+
+        rt->SetTransform(D2D1::Matrix3x2F::Identity());
+        rt->PopAxisAlignedClip();
+
+        // Draw scrollbar overlay (fixed position, not scrolled)
+        float total_content = static_cast<float>(entries.size()) * theme_.pane_item_height;
+        DrawPaneScrollbar(rt, rect.width, content_top, content_height,
+                          scroll.scroll_y, total_content);
+
+        rt->EndDraw();
+        toc_pane_cache_.dirty = false;
+    }
+
+    // Blit cached bitmap
+    ComPtr<ID2D1Bitmap> bmp;
+    toc_pane_cache_.bitmap_rt->GetBitmap(&bmp);
+    if (bmp) {
+        D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y,
+                                         rect.x + rect.width, rect.y + rect.height);
+        render_target_->DrawBitmap(bmp.Get(), dest);
+    }
+}
+
+void Renderer::DrawSplitter(float x, float height) {
+    D2D1_RECT_F rect = D2D1::RectF(x, 0.0f, x + theme_.splitter_width, height);
+    render_target_->FillRectangle(rect, splitter_brush_.Get());
+}
+
 void Renderer::Render(const std::vector<RenderNode>& nodes, float scroll_y,
-                      const TextSelection& selection) {
+                      const TextSelection& selection,
+                      const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
+                      const PaneRect& md_pane_rect,
+                      const std::vector<FileEntry>& file_entries,
+                      const ScrollState& file_scroll, int hovered_file_index,
+                      const std::vector<TocEntry>& toc_entries,
+                      const ScrollState& toc_scroll, int hovered_toc_index,
+                      bool show_file_pane, bool show_toc_pane) {
     if (!render_target_) return;
 
     render_target_->BeginDraw();
     render_target_->Clear(theme_.bg_color);
 
-    // Apply scroll transform
-    render_target_->SetTransform(D2D1::Matrix3x2F::Translation(0.0f, -scroll_y));
-
     auto size = render_target_->GetSize();
+
+    // Draw file explorer pane (bitmap blit when cache is clean)
+    if (show_file_pane) {
+        DrawFileExplorer(file_entries, file_pane_rect, file_scroll, hovered_file_index);
+        DrawSplitter(file_pane_rect.x + file_pane_rect.width, size.height);
+    }
+
+    // Draw TOC pane (bitmap blit when cache is clean)
+    if (show_toc_pane) {
+        DrawToc(toc_entries, toc_pane_rect, toc_scroll, hovered_toc_index);
+        DrawSplitter(toc_pane_rect.x + toc_pane_rect.width, size.height);
+    }
+
+    // Draw Markdown pane with clipping
+    D2D1_RECT_F md_clip = D2D1::RectF(
+        md_pane_rect.x, md_pane_rect.y,
+        md_pane_rect.x + md_pane_rect.width, md_pane_rect.y + md_pane_rect.height);
+    render_target_->PushAxisAlignedClip(md_clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+
+    // Apply scroll transform for MD pane
+    render_target_->SetTransform(D2D1::Matrix3x2F::Translation(md_pane_rect.x, -scroll_y));
+
     float viewport_top = scroll_y;
-    float viewport_bottom = scroll_y + size.height;
+    float viewport_bottom = scroll_y + md_pane_rect.height;
     float offset_x = theme_.margin_left;
+    float md_content_width = md_pane_rect.width - theme_.margin_left - theme_.margin_right;
 
     for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
-        DrawNode(nodes[i], i, offset_x, viewport_top, viewport_bottom, selection);
+        DrawNode(nodes[i], i, offset_x, viewport_top, viewport_bottom, selection, md_content_width);
     }
 
     // Reset transform
     render_target_->SetTransform(D2D1::Matrix3x2F::Identity());
+    render_target_->PopAxisAlignedClip();
 
     render_target_->EndDraw();
+}
+
+void Renderer::DrawPaneScrollbar(ID2D1RenderTarget* rt, float pane_width,
+                                  float content_top, float content_height,
+                                  float scroll_y, float total_content_height) {
+    if (total_content_height <= content_height) return;
+
+    float track_height = content_height;
+    float thumb_ratio = content_height / total_content_height;
+    float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, track_height * thumb_ratio);
+
+    float scroll_ratio = scroll_y / (total_content_height - content_height);
+    float thumb_y = content_top + scroll_ratio * (track_height - thumb_height);
+
+    float thumb_x = pane_width - PANE_SCROLLBAR_WIDTH - 2.0f;
+
+    D2D1_ROUNDED_RECT thumb_rect;
+    thumb_rect.rect = D2D1::RectF(thumb_x, thumb_y,
+                                   thumb_x + PANE_SCROLLBAR_WIDTH, thumb_y + thumb_height);
+    thumb_rect.radiusX = PANE_SCROLLBAR_WIDTH / 2.0f;
+    thumb_rect.radiusY = PANE_SCROLLBAR_WIDTH / 2.0f;
+
+    rt->FillRoundedRectangle(thumb_rect, scrollbar_thumb_brush_.Get());
 }

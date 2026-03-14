@@ -67,5 +67,15 @@ Theme GetLightTheme() {
     t.list_bullet_offset    = 20.0f;
     t.hr_thickness          = 1.5f;
 
+    // Pane layout
+    t.pane_bg_color         = Color(0xf5f5f5);
+    t.splitter_color        = Color(0xe0e0e0);
+    t.pane_item_hover_color = Color(0xe8e8e8);
+    t.pane_item_active_color = Color(0xd0e0f0);
+    t.pane_item_height      = 28.0f;
+    t.pane_header_height    = 32.0f;
+    t.splitter_width        = 4.0f;
+    t.pane_font_size        = 13.0f;
+
     return t;
 }
