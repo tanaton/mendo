@@ -3,5 +3,13 @@
 		{
 			"path": "."
 		}
-	]
+	],
+	"settings": {
+		"C_Cpp.default.defines": [
+			"UNICODE",
+			"_UNICODE",
+			"NOMINMAX",
+			"WIN32_LEAN_AND_MEAN"
+		]
+	}
 }
