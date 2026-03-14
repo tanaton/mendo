@@ -91,6 +91,7 @@ private:
     void ApplySyntaxHighlighting(const RenderNode& node);
 
     ComPtr<IDWriteTextFormat> icon_font_format_;
+    ComPtr<IDWriteTextFormat> fmt_pane_icon_;
     ComPtr<IDWriteTextFormat> fmt_pane_item_;
     ComPtr<IDWriteTextFormat> fmt_pane_header_;
 

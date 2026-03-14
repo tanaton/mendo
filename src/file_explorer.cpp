@@ -11,26 +11,84 @@ void FileExplorer::Refresh() {
     entries_.clear();
     if (directory_.empty()) return;
 
-    std::wstring pattern = directory_ + L"\\*.md";
+    // Add parent directory entry ".." (unless at a root like "C:\")
+    {
+        // Find parent: strip trailing backslash, then find last separator
+        std::wstring parent = directory_;
+        // Don't add ".." if we're at a drive root (e.g. "C:\")
+        if (parent.size() > 3 || (parent.size() == 3 && parent[1] != L':')) {
+            auto pos = parent.find_last_of(L"\\/");
+            if (pos != std::wstring::npos && pos > 0) {
+                // Make sure we're not just at "C:\"
+                std::wstring parent_dir = parent.substr(0, pos);
+                // Handle "C:" -> "C:\"
+                if (parent_dir.size() == 2 && parent_dir[1] == L':') {
+                    parent_dir += L"\\";
+                }
+                FileEntry pe;
+                pe.filename = L"..";
+                pe.full_path = parent_dir;
+                pe.is_directory = true;
+                pe.is_parent = true;
+                entries_.push_back(std::move(pe));
+            }
+        }
+    }
+
+    // Enumerate all items in the directory
+    std::wstring pattern = directory_ + L"\\*";
     WIN32_FIND_DATAW fd;
     HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE) return;
 
-    do {
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+    std::vector<FileEntry> dirs;
+    std::vector<FileEntry> files;
 
-        FileEntry entry;
-        entry.filename = fd.cFileName;
-        entry.full_path = directory_ + L"\\" + fd.cFileName;
-        entries_.push_back(std::move(entry));
+    do {
+        // Skip "." and ".."
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0)
+            continue;
+        // Skip hidden/system files
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) continue;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) continue;
+
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            FileEntry entry;
+            entry.filename = fd.cFileName;
+            entry.full_path = directory_ + L"\\" + fd.cFileName;
+            entry.is_directory = true;
+            dirs.push_back(std::move(entry));
+        } else {
+            // Only show .md files
+            std::wstring name = fd.cFileName;
+            if (name.size() >= 3) {
+                auto ext = name.substr(name.size() - 3);
+                // Case-insensitive .md check
+                if (_wcsicmp(ext.c_str(), L".md") == 0) {
+                    FileEntry entry;
+                    entry.filename = fd.cFileName;
+                    entry.full_path = directory_ + L"\\" + fd.cFileName;
+                    files.push_back(std::move(entry));
+                }
+            }
+        }
     } while (FindNextFileW(hFind, &fd));
 
     FindClose(hFind);
 
-    // Sort alphabetically (case-insensitive)
-    std::sort(entries_.begin(), entries_.end(), [](const FileEntry& a, const FileEntry& b) {
+    // Sort directories and files separately (case-insensitive)
+    std::sort(dirs.begin(), dirs.end(), [](const FileEntry& a, const FileEntry& b) {
         return _wcsicmp(a.filename.c_str(), b.filename.c_str()) < 0;
     });
+    std::sort(files.begin(), files.end(), [](const FileEntry& a, const FileEntry& b) {
+        return _wcsicmp(a.filename.c_str(), b.filename.c_str()) < 0;
+    });
+
+    // Append: directories first, then files
+    entries_.insert(entries_.end(), std::make_move_iterator(dirs.begin()),
+                    std::make_move_iterator(dirs.end()));
+    entries_.insert(entries_.end(), std::make_move_iterator(files.begin()),
+                    std::make_move_iterator(files.end()));
 }
 
 int FileExplorer::HitTest(float local_y, float item_height) const {
@@ -42,6 +100,7 @@ int FileExplorer::HitTest(float local_y, float item_height) const {
 
 void FileExplorer::SetCurrentFile(const std::wstring& path) {
     for (auto& entry : entries_) {
-        entry.is_current = (_wcsicmp(entry.full_path.c_str(), path.c_str()) == 0);
+        entry.is_current = (!entry.is_directory &&
+                            _wcsicmp(entry.full_path.c_str(), path.c_str()) == 0);
     }
 }

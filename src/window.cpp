@@ -870,7 +870,16 @@ void MainWindow::OnLButtonDown(int px, int py) {
             int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
             if (idx >= 0 && idx < static_cast<int>(file_explorer_.GetEntries().size())) {
                 const auto& entry = file_explorer_.GetEntries()[idx];
-                if (!entry.is_current) {
+                if (entry.is_directory) {
+                    // Navigate into the directory
+                    file_explorer_.SetDirectory(entry.full_path);
+                    if (!current_file_.empty()) {
+                        file_explorer_.SetCurrentFile(current_file_);
+                    }
+                    file_scroll_ = {};
+                    renderer_.InvalidateFilePaneCache();
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                } else if (!entry.is_current) {
                     LoadMarkdownFile(entry.full_path);
                 }
             }

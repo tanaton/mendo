@@ -7,6 +7,8 @@ struct FileEntry {
     std::wstring filename;
     std::wstring full_path;
     bool is_current = false;
+    bool is_directory = false;
+    bool is_parent = false;  // ".." entry
 };
 
 class FileExplorer {

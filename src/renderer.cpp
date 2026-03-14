@@ -73,6 +73,18 @@ bool Renderer::Init(HWND hwnd) {
         DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
         L"en-us", &icon_font_format_);
 
+    // Pane icon font format (Segoe Fluent Icons at pane size)
+    dwrite_factory_->CreateTextFormat(
+        L"Segoe Fluent Icons", nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
+        L"en-us", &fmt_pane_icon_);
+    if (fmt_pane_icon_) {
+        fmt_pane_icon_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_pane_icon_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        fmt_pane_icon_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+
     // Pane item text format
     dwrite_factory_->CreateTextFormat(
         theme_.font_family, nullptr,
@@ -536,6 +548,9 @@ void Renderer::DrawFileExplorer(const std::vector<FileEntry>& entries, const Pan
         int last = std::min(static_cast<int>(entries.size()) - 1,
             static_cast<int>((scroll.scroll_y + content_height) / theme_.pane_item_height) + 1);
 
+        // Icon width reserved for the Segoe Fluent Icons glyph
+        constexpr float icon_col_width = 24.0f;
+
         for (int i = first; i <= last; i++) {
             float item_y = content_top + i * theme_.pane_item_height;
             const auto& entry = entries[i];
@@ -547,9 +562,26 @@ void Renderer::DrawFileExplorer(const std::vector<FileEntry>& entries, const Pan
                 rt->FillRectangle(item_rect, pane_item_hover_brush_.Get());
             }
 
+            // Draw icon (Segoe Fluent Icons)
+            if (fmt_pane_icon_) {
+                // Choose icon: folder=\uE8B7, parent(..)=\uE74A (ChevronUp), md file=\uE8A5 (Page)
+                const wchar_t* icon;
+                if (entry.is_parent) {
+                    icon = L"\uE74A";  // ChevronUp
+                } else if (entry.is_directory) {
+                    icon = L"\uE8B7";  // Folder
+                } else {
+                    icon = L"\uE8A5";  // Page
+                }
+                D2D1_RECT_F icon_rect = D2D1::RectF(
+                    4.0f, item_y, 4.0f + icon_col_width, item_y + theme_.pane_item_height);
+                rt->DrawText(icon, 1, fmt_pane_icon_.Get(), icon_rect, text_brush_.Get(),
+                             D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
+
             if (fmt_pane_item_) {
                 D2D1_RECT_F text_rect = D2D1::RectF(
-                    8.0f, item_y, rect.width - 4.0f, item_y + theme_.pane_item_height);
+                    4.0f + icon_col_width, item_y, rect.width - 4.0f, item_y + theme_.pane_item_height);
                 rt->DrawText(entry.filename.c_str(), static_cast<UINT32>(entry.filename.size()),
                              fmt_pane_item_.Get(), text_rect, text_brush_.Get(),
                              D2D1_DRAW_TEXT_OPTIONS_CLIP);
