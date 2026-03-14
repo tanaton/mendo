@@ -50,6 +50,8 @@ private:
     void ScrollTo(float position);
     void SmoothScrollBy(float delta);
     void UpdateSmoothScroll();
+    void OnResizeEnd();
+    void OnDeferredLayout();
     void ReloadCurrentFile();
     void UpdateTitleBar();
 
@@ -69,6 +71,8 @@ private:
     static constexpr float SCROLL_EPSILON = 0.5f;
     static constexpr UINT_PTR TIMER_SMOOTH_SCROLL = 1;
     static constexpr UINT_PTR TIMER_FILE_WATCH = 2;
+    static constexpr UINT_PTR TIMER_DEFERRED_LAYOUT = 3;
+    bool is_sizing_ = false;
 
     // Selection state
     TextSelection selection_;

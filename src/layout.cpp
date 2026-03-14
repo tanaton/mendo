@@ -242,19 +242,41 @@ void LayoutEngine::CreateTextLayout(RenderNode& node, float max_width) {
     node.layout_dirty = false;
 }
 
-void LayoutEngine::ComputeLayout(std::vector<RenderNode>& nodes, float viewport_width) {
+void LayoutEngine::ComputeLayout(std::vector<RenderNode>& nodes, float viewport_width,
+                                  float viewport_top, float viewport_bottom) {
     bool width_changed = (viewport_width != last_viewport_width_);
-    last_viewport_width_ = viewport_width;
+    bool partial = (viewport_top >= 0.0f);
+
+    // In partial mode, don't update last_viewport_width_ so that
+    // subsequent batch processing still detects the width change
+    if (!partial) {
+        last_viewport_width_ = viewport_width;
+    }
 
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     float y = theme_->margin_top;
+    has_dirty_nodes_ = false;
 
     for (auto& node : nodes) {
         float indent = node.indent_level * theme_->indent_width;
         float node_width = content_width - indent;
 
-        if (width_changed || node.layout_dirty) {
-            CreateTextLayout(node, node_width);
+        bool needs_layout = width_changed || node.layout_dirty;
+
+        if (needs_layout) {
+            if (partial) {
+                // In partial mode, only compute layouts for visible nodes
+                float node_bottom = y + node.height; // estimate using old height
+                bool visible = (node_bottom >= viewport_top && y <= viewport_bottom);
+                if (visible) {
+                    CreateTextLayout(node, node_width);
+                } else {
+                    node.layout_dirty = true;
+                    has_dirty_nodes_ = true;
+                }
+            } else {
+                CreateTextLayout(node, node_width);
+            }
         }
 
         // Add spacing before
@@ -274,4 +296,47 @@ void LayoutEngine::ComputeLayout(std::vector<RenderNode>& nodes, float viewport_
     }
 
     total_height_ = y + theme_->margin_top;
+}
+
+bool LayoutEngine::ProcessDirtyBatch(std::vector<RenderNode>& nodes,
+                                      float viewport_width, int batch_size) {
+    float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    int processed = 0;
+
+    for (auto& node : nodes) {
+        if (!node.layout_dirty) continue;
+
+        float indent = node.indent_level * theme_->indent_width;
+        CreateTextLayout(node, content_width - indent);
+
+        if (++processed >= batch_size) break;
+    }
+
+    // Recompute y positions for all nodes
+    float y = theme_->margin_top;
+    has_dirty_nodes_ = false;
+
+    for (auto& node : nodes) {
+        if (node.layout_dirty) has_dirty_nodes_ = true;
+
+        if (node.type == NodeType::Heading) {
+            y += theme_->heading_spacing_above;
+        }
+
+        node.y_position = y;
+        y += node.height;
+
+        if (node.type == NodeType::Heading) {
+            y += theme_->heading_spacing_below;
+        } else {
+            y += theme_->paragraph_spacing;
+        }
+    }
+
+    total_height_ = y + theme_->margin_top;
+    // Update last_viewport_width_ when all dirty nodes are processed
+    if (!has_dirty_nodes_) {
+        last_viewport_width_ = viewport_width;
+    }
+    return has_dirty_nodes_;
 }

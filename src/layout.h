@@ -9,7 +9,10 @@ using Microsoft::WRL::ComPtr;
 class LayoutEngine {
 public:
     bool Init(IDWriteFactory* dwrite_factory, const Theme& theme);
-    void ComputeLayout(std::vector<RenderNode>& nodes, float viewport_width);
+    void ComputeLayout(std::vector<RenderNode>& nodes, float viewport_width,
+                       float viewport_top = -1.0f, float viewport_bottom = -1.0f);
+    bool ProcessDirtyBatch(std::vector<RenderNode>& nodes, float viewport_width, int batch_size);
+    bool HasDirtyNodes() const { return has_dirty_nodes_; }
     float GetTotalHeight() const { return total_height_; }
 
 private:
@@ -32,4 +35,5 @@ private:
 
     float total_height_ = 0.0f;
     float last_viewport_width_ = 0.0f;
+    bool has_dirty_nodes_ = false;
 };

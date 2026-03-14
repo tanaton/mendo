@@ -83,6 +83,15 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             OnResize(LOWORD(lParam), HIWORD(lParam));
             return 0;
 
+        case WM_ENTERSIZEMOVE:
+            is_sizing_ = true;
+            return 0;
+
+        case WM_EXITSIZEMOVE:
+            is_sizing_ = false;
+            OnResizeEnd();
+            return 0;
+
         case WM_VSCROLL:
             OnVScroll(wParam);
             return 0;
@@ -141,12 +150,15 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 UpdateSmoothScroll();
             } else if (wParam == TIMER_FILE_WATCH) {
                 file_loader_.CheckForChanges();
+            } else if (wParam == TIMER_DEFERRED_LAYOUT) {
+                OnDeferredLayout();
             }
             return 0;
 
         case WM_DESTROY:
             KillTimer(hwnd_, TIMER_FILE_WATCH);
             KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
+            KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
             PostQuitMessage(0);
             return 0;
 
@@ -167,11 +179,29 @@ void MainWindow::OnResize(UINT width, UINT height) {
 
     renderer_.Resize(width, height);
 
-    // Recompute layout with new width
-    auto size = renderer_.GetRenderTarget()->GetSize();
-    renderer_.GetLayout().ComputeLayout(nodes_, size.width);
+    if (is_sizing_) {
+        // During active resize drag: skip expensive layout recomputation,
+        // just update scroll limits and repaint with existing layouts
+        auto size = renderer_.GetRenderTarget()->GetSize();
+        float total = renderer_.GetLayout().GetTotalHeight();
+        max_scroll_ = std::max(0.0f, total - size.height);
+        scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
+        scroll_target_ = scroll_y_;
+        UpdateScrollBar();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
 
-    // Update scroll limits
+    // Not in sizing mode (maximize, snap, etc.):
+    // Viewport-only layout for instant feedback, then batch the rest
+    KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
+
+    auto size = renderer_.GetRenderTarget()->GetSize();
+    float viewport_top = scroll_y_;
+    float viewport_bottom = scroll_y_ + size.height;
+
+    renderer_.GetLayout().ComputeLayout(nodes_, size.width, viewport_top, viewport_bottom);
+
     float total = renderer_.GetLayout().GetTotalHeight();
     max_scroll_ = std::max(0.0f, total - size.height);
     scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
@@ -179,6 +209,10 @@ void MainWindow::OnResize(UINT width, UINT height) {
 
     UpdateScrollBar();
     InvalidateRect(hwnd_, nullptr, FALSE);
+
+    if (renderer_.GetLayout().HasDirtyNodes()) {
+        SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
+    }
 }
 
 void MainWindow::OnVScroll(WPARAM wParam) {
@@ -310,6 +344,47 @@ void MainWindow::UpdateSmoothScroll() {
     scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
     UpdateScrollBar();
     InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void MainWindow::OnResizeEnd() {
+    KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
+
+    // Compute layout only for visible nodes first (instant feedback)
+    auto size = renderer_.GetRenderTarget()->GetSize();
+    float viewport_top = scroll_y_;
+    float viewport_bottom = scroll_y_ + size.height;
+
+    renderer_.GetLayout().ComputeLayout(nodes_, size.width, viewport_top, viewport_bottom);
+
+    float total = renderer_.GetLayout().GetTotalHeight();
+    max_scroll_ = std::max(0.0f, total - size.height);
+    scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
+    scroll_target_ = scroll_y_;
+
+    UpdateScrollBar();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+
+    // Start incremental processing of remaining dirty nodes
+    if (renderer_.GetLayout().HasDirtyNodes()) {
+        SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
+    }
+}
+
+void MainWindow::OnDeferredLayout() {
+    auto size = renderer_.GetRenderTarget()->GetSize();
+    bool more = renderer_.GetLayout().ProcessDirtyBatch(nodes_, size.width, 200);
+
+    float total = renderer_.GetLayout().GetTotalHeight();
+    max_scroll_ = std::max(0.0f, total - size.height);
+    scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
+    scroll_target_ = scroll_y_;
+
+    UpdateScrollBar();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+
+    if (!more) {
+        KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
+    }
 }
 
 void MainWindow::UpdateLayoutAndScroll(float desired_scroll) {
