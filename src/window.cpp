@@ -11,6 +11,61 @@
 
 static constexpr wchar_t WINDOW_CLASS[] = L"MaDViewWindow";
 
+// ---- Helper methods ----
+
+MainWindow::DipPoint MainWindow::PixelToDip(int px, int py) const {
+    auto* rt = renderer_.GetRenderTarget();
+    if (!rt) return {static_cast<float>(px), static_cast<float>(py)};
+    float dpi_x, dpi_y;
+    rt->GetDpi(&dpi_x, &dpi_y);
+    float scale = dpi_x / 96.0f;
+    return {px / scale, py / scale};
+}
+
+MainWindow::PaneScrollInfo MainWindow::ComputePaneScrollInfo(
+    const PaneRect& rect, float total_content) const {
+    PaneScrollInfo info{};
+    info.content_top = rect.y + renderer_.GetTheme().pane_header_height;
+    info.content_height = rect.height - renderer_.GetTheme().pane_header_height;
+    info.total_content = total_content;
+    info.max_scroll = std::max(0.0f, total_content - info.content_height);
+    float thumb_ratio = (total_content > 0) ? info.content_height / total_content : 1.0f;
+    info.thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, info.content_height * thumb_ratio);
+    return info;
+}
+
+void MainWindow::HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
+                                      ScrollState& scroll, bool& cache_dirty) {
+    float scroll_ratio = (info.max_scroll > 0) ? scroll.scroll_y / info.max_scroll : 0.0f;
+    float thumb_y = info.content_top + scroll_ratio * (info.content_height - info.thumb_height);
+
+    if (dip_y >= thumb_y && dip_y <= thumb_y + info.thumb_height) {
+        drag_scroll_offset_ = dip_y - thumb_y;
+    } else {
+        drag_scroll_offset_ = info.thumb_height * 0.5f;
+        float new_thumb_y = dip_y - drag_scroll_offset_;
+        float track_range = info.content_height - info.thumb_height;
+        float ratio = (track_range > 0) ? (new_thumb_y - info.content_top) / track_range : 0.0f;
+        ratio = std::clamp(ratio, 0.0f, 1.0f);
+        scroll.scroll_y = ratio * info.max_scroll;
+        scroll.max_scroll = info.max_scroll;
+        cache_dirty = true;
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+}
+
+void MainWindow::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
+                                     ScrollState& scroll, bool& cache_dirty) {
+    float track_range = info.content_height - info.thumb_height;
+    float new_thumb_y = dip_y - drag_scroll_offset_;
+    float ratio = (track_range > 0) ? (new_thumb_y - info.content_top) / track_range : 0.0f;
+    ratio = std::clamp(ratio, 0.0f, 1.0f);
+    scroll.scroll_y = ratio * info.max_scroll;
+    scroll.max_scroll = info.max_scroll;
+    cache_dirty = true;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
@@ -109,13 +164,10 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 OnMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             } else {
                 // Update cursor and hover state based on what's under the mouse
-                auto* rt = renderer_.GetRenderTarget();
-                if (rt) {
-                    float dpi_x, dpi_y;
-                    rt->GetDpi(&dpi_x, &dpi_y);
-                    float scale = dpi_x / 96.0f;
-                    float dip_x = GET_X_LPARAM(lParam) / scale;
-                    float dip_y = GET_Y_LPARAM(lParam) / scale;
+                if (renderer_.GetRenderTarget()) {
+                    auto dip = PixelToDip(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+                    float dip_x = dip.x;
+                    float dip_y = dip.y;
 
                     auto zone = PaneAtPoint(dip_x, dip_y);
 
@@ -384,16 +436,10 @@ void MainWindow::OnVScroll(WPARAM wParam) {
 }
 
 void MainWindow::OnMouseWheel(int px, int py, short delta) {
-    auto* rt = renderer_.GetRenderTarget();
-    if (!rt) return;
+    if (!renderer_.GetRenderTarget()) return;
 
-    float dpi_x, dpi_y;
-    rt->GetDpi(&dpi_x, &dpi_y);
-    float scale = dpi_x / 96.0f;
-    float dip_x = px / scale;
-    float dip_y = py / scale;
-
-    auto zone = PaneAtPoint(dip_x, dip_y);
+    auto dip = PixelToDip(px, py);
+    auto zone = PaneAtPoint(dip.x, dip.y);
     float scroll_amount = -delta * 0.5f;
     const auto& theme = renderer_.GetTheme();
 
@@ -807,14 +853,11 @@ MainWindow::HitResult MainWindow::HitTestTable(const RenderNode& node, int node_
 }
 
 void MainWindow::OnLButtonDown(int px, int py) {
-    auto* rt = renderer_.GetRenderTarget();
-    if (!rt) return;
+    if (!renderer_.GetRenderTarget()) return;
 
-    float dpi_x, dpi_y;
-    rt->GetDpi(&dpi_x, &dpi_y);
-    float scale = dpi_x / 96.0f;
-    float dip_x = px / scale;
-    float dip_y = py / scale;
+    auto dip = PixelToDip(px, py);
+    float dip_x = dip.x;
+    float dip_y = dip.y;
 
     auto zone = PaneAtPoint(dip_x, dip_y);
 
@@ -830,48 +873,26 @@ void MainWindow::OnLButtonDown(int px, int py) {
         case PaneZone::FilePane: {
             auto layout = GetPaneLayout();
             const auto& theme = renderer_.GetTheme();
-            float content_top = layout.file_rect.y + theme.pane_header_height;
-            float content_height = layout.file_rect.height - theme.pane_header_height;
             float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
+            auto scroll_info = ComputePaneScrollInfo(layout.file_rect, total_content);
             float local_x = dip_x - layout.file_rect.x;
 
-            // Check if click is on scrollbar area (rightmost PANE_SCROLLBAR_WIDTH + margin)
+            // Check if click is on scrollbar area
             if (local_x >= layout.file_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
-                && total_content > content_height) {
+                && total_content > scroll_info.content_height) {
                 SetCapture(hwnd_);
                 drag_target_ = DragTarget::FileScrollbar;
-
-                // Calculate current thumb position for offset
-                float thumb_ratio = content_height / total_content;
-                float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, content_height * thumb_ratio);
-                float max_s = total_content - content_height;
-                float scroll_ratio = (max_s > 0) ? file_scroll_.scroll_y / max_s : 0.0f;
-                float thumb_y = content_top + scroll_ratio * (content_height - thumb_height);
-
-                if (dip_y >= thumb_y && dip_y <= thumb_y + thumb_height) {
-                    // Clicked on thumb — store offset
-                    drag_scroll_offset_ = dip_y - thumb_y;
-                } else {
-                    // Clicked on track — jump thumb center to click
-                    drag_scroll_offset_ = thumb_height * 0.5f;
-                    float new_thumb_y = dip_y - drag_scroll_offset_;
-                    float track_range = content_height - thumb_height;
-                    float ratio = (track_range > 0) ? (new_thumb_y - content_top) / track_range : 0.0f;
-                    ratio = std::clamp(ratio, 0.0f, 1.0f);
-                    file_scroll_.scroll_y = ratio * max_s;
-                    file_scroll_.max_scroll = max_s;
-                    renderer_.InvalidateFilePaneCache();
-                    InvalidateRect(hwnd_, nullptr, FALSE);
-                }
+                bool dirty = false;
+                HandleScrollbarClick(dip_y, scroll_info, file_scroll_, dirty);
+                if (dirty) renderer_.InvalidateFilePaneCache();
                 return;
             }
 
-            float local_y = dip_y - content_top + file_scroll_.scroll_y;
+            float local_y = dip_y - scroll_info.content_top + file_scroll_.scroll_y;
             int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
             if (idx >= 0 && idx < static_cast<int>(file_explorer_.GetEntries().size())) {
                 const auto& entry = file_explorer_.GetEntries()[idx];
                 if (entry.is_directory) {
-                    // Navigate into the directory
                     file_explorer_.SetDirectory(entry.full_path);
                     if (!current_file_.empty()) {
                         file_explorer_.SetCurrentFile(current_file_);
@@ -888,40 +909,22 @@ void MainWindow::OnLButtonDown(int px, int py) {
         case PaneZone::TocPane: {
             auto layout = GetPaneLayout();
             const auto& theme = renderer_.GetTheme();
-            float content_top = layout.toc_rect.y + theme.pane_header_height;
-            float content_height = layout.toc_rect.height - theme.pane_header_height;
             float total_content = static_cast<float>(toc_.GetEntries().size()) * theme.pane_item_height;
+            auto scroll_info = ComputePaneScrollInfo(layout.toc_rect, total_content);
             float local_x = dip_x - layout.toc_rect.x;
 
             // Check if click is on scrollbar area
             if (local_x >= layout.toc_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
-                && total_content > content_height) {
+                && total_content > scroll_info.content_height) {
                 SetCapture(hwnd_);
                 drag_target_ = DragTarget::TocScrollbar;
-
-                float thumb_ratio = content_height / total_content;
-                float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, content_height * thumb_ratio);
-                float max_s = total_content - content_height;
-                float scroll_ratio = (max_s > 0) ? toc_scroll_.scroll_y / max_s : 0.0f;
-                float thumb_y = content_top + scroll_ratio * (content_height - thumb_height);
-
-                if (dip_y >= thumb_y && dip_y <= thumb_y + thumb_height) {
-                    drag_scroll_offset_ = dip_y - thumb_y;
-                } else {
-                    drag_scroll_offset_ = thumb_height * 0.5f;
-                    float new_thumb_y = dip_y - drag_scroll_offset_;
-                    float track_range = content_height - thumb_height;
-                    float ratio = (track_range > 0) ? (new_thumb_y - content_top) / track_range : 0.0f;
-                    ratio = std::clamp(ratio, 0.0f, 1.0f);
-                    toc_scroll_.scroll_y = ratio * max_s;
-                    toc_scroll_.max_scroll = max_s;
-                    renderer_.InvalidateTocPaneCache();
-                    InvalidateRect(hwnd_, nullptr, FALSE);
-                }
+                bool dirty = false;
+                HandleScrollbarClick(dip_y, scroll_info, toc_scroll_, dirty);
+                if (dirty) renderer_.InvalidateTocPaneCache();
                 return;
             }
 
-            float local_y = dip_y - content_top + toc_scroll_.scroll_y;
+            float local_y = dip_y - scroll_info.content_top + toc_scroll_.scroll_y;
             int idx = toc_.HitTest(local_y, theme.pane_item_height);
             if (idx >= 0 && idx < static_cast<int>(toc_.GetEntries().size())) {
                 NavigateToAnchor(toc_.GetEntries()[idx].anchor_id);
@@ -987,10 +990,8 @@ void MainWindow::OnMouseMove(int px, int py) {
     auto* rt = renderer_.GetRenderTarget();
     if (!rt) return;
 
-    float dpi_x, dpi_y;
-    rt->GetDpi(&dpi_x, &dpi_y);
-    float scale = dpi_x / 96.0f;
-    float dip_x = px / scale;
+    auto dip = PixelToDip(px, py);
+    float dip_x = dip.x;
 
     // Handle splitter dragging
     if (drag_target_ == DragTarget::Splitter1) {
@@ -1012,56 +1013,22 @@ void MainWindow::OnMouseMove(int px, int py) {
     }
 
     if (drag_target_ == DragTarget::FileScrollbar) {
-        float dpi_x2, dpi_y2;
-        rt->GetDpi(&dpi_x2, &dpi_y2);
-        float scale2 = dpi_x2 / 96.0f;
-        float dip_y2 = py / scale2;
-
         auto layout = GetPaneLayout();
-        const auto& theme = renderer_.GetTheme();
-        float content_top = layout.file_rect.y + theme.pane_header_height;
-        float content_height = layout.file_rect.height - theme.pane_header_height;
-        float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
-        float max_s = total_content - content_height;
-
-        float thumb_ratio = content_height / total_content;
-        float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, content_height * thumb_ratio);
-        float track_range = content_height - thumb_height;
-
-        float new_thumb_y = dip_y2 - drag_scroll_offset_;
-        float ratio = (track_range > 0) ? (new_thumb_y - content_top) / track_range : 0.0f;
-        ratio = std::clamp(ratio, 0.0f, 1.0f);
-        file_scroll_.scroll_y = ratio * max_s;
-        file_scroll_.max_scroll = max_s;
-        renderer_.InvalidateFilePaneCache();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * renderer_.GetTheme().pane_item_height;
+        auto info = ComputePaneScrollInfo(layout.file_rect, total_content);
+        bool dirty = false;
+        HandleScrollbarDrag(dip.y, info, file_scroll_, dirty);
+        if (dirty) renderer_.InvalidateFilePaneCache();
         return;
     }
 
     if (drag_target_ == DragTarget::TocScrollbar) {
-        float dpi_x2, dpi_y2;
-        rt->GetDpi(&dpi_x2, &dpi_y2);
-        float scale2 = dpi_x2 / 96.0f;
-        float dip_y2 = py / scale2;
-
         auto layout = GetPaneLayout();
-        const auto& theme = renderer_.GetTheme();
-        float content_top = layout.toc_rect.y + theme.pane_header_height;
-        float content_height = layout.toc_rect.height - theme.pane_header_height;
-        float total_content = static_cast<float>(toc_.GetEntries().size()) * theme.pane_item_height;
-        float max_s = total_content - content_height;
-
-        float thumb_ratio = content_height / total_content;
-        float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, content_height * thumb_ratio);
-        float track_range = content_height - thumb_height;
-
-        float new_thumb_y = dip_y2 - drag_scroll_offset_;
-        float ratio = (track_range > 0) ? (new_thumb_y - content_top) / track_range : 0.0f;
-        ratio = std::clamp(ratio, 0.0f, 1.0f);
-        toc_scroll_.scroll_y = ratio * max_s;
-        toc_scroll_.max_scroll = max_s;
-        renderer_.InvalidateTocPaneCache();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        float total_content = static_cast<float>(toc_.GetEntries().size()) * renderer_.GetTheme().pane_item_height;
+        auto info = ComputePaneScrollInfo(layout.toc_rect, total_content);
+        bool dirty = false;
+        HandleScrollbarDrag(dip.y, info, toc_scroll_, dirty);
+        if (dirty) renderer_.InvalidateTocPaneCache();
         return;
     }
 
@@ -1097,16 +1064,10 @@ void MainWindow::OnMouseMove(int px, int py) {
 }
 
 void MainWindow::OnLButtonDblClk(int px, int py) {
-    auto* rt = renderer_.GetRenderTarget();
-    if (!rt) return;
+    if (!renderer_.GetRenderTarget()) return;
 
-    float dpi_x, dpi_y;
-    rt->GetDpi(&dpi_x, &dpi_y);
-    float scale = dpi_x / 96.0f;
-    float dip_x = px / scale;
-    float dip_y = py / scale;
-
-    auto zone = PaneAtPoint(dip_x, dip_y);
+    auto dip = PixelToDip(px, py);
+    auto zone = PaneAtPoint(dip.x, dip.y);
     if (zone != PaneZone::MdPane) return;
 
     auto hit = HitTest(px, py);

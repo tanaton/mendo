@@ -35,6 +35,10 @@ private:
     void OnMouseMove(int px, int py);
     void OnLButtonDblClk(int px, int py);
 
+    // Convert physical pixel coordinates to DIP (Device Independent Pixels)
+    struct DipPoint { float x, y; };
+    DipPoint PixelToDip(int px, int py) const;
+
     struct HitResult {
         int node_index = -1;
         uint32_t text_pos = 0;
@@ -47,6 +51,20 @@ private:
     void CopySelectionToClipboard() const;
     void SelectAll();
     void ClearSelection();
+
+    // Scrollbar drag helpers
+    struct PaneScrollInfo {
+        float content_top;
+        float content_height;
+        float total_content;
+        float max_scroll;
+        float thumb_height;
+    };
+    PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
+    void HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
+                              ScrollState& scroll, bool& cache_dirty);
+    void HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
+                             ScrollState& scroll, bool& cache_dirty);
 
     void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();

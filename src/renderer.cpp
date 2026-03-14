@@ -154,16 +154,19 @@ void Renderer::DrawHorizontalRule(const RenderNode& node, float offset_x, float 
 
 void Renderer::DrawListBullet(const RenderNode& node, float offset_x) {
     if (node.list_number > 0) {
-        // Ordered list: draw number
-        std::wstring num_text = std::to_wstring(node.list_number) + L".";
-        ComPtr<IDWriteTextFormat> fmt;
-        dwrite_factory_->CreateTextFormat(
-            theme_.font_family, nullptr,
-            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
-            L"ja-jp", &fmt);
-        if (fmt) {
-            fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+        // Ordered list: draw number (reuse cached format)
+        if (!fmt_list_number_) {
+            dwrite_factory_->CreateTextFormat(
+                theme_.font_family, nullptr,
+                DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
+                L"ja-jp", &fmt_list_number_);
+            if (fmt_list_number_) {
+                fmt_list_number_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+            }
+        }
+        if (fmt_list_number_) {
+            std::wstring num_text = std::to_wstring(node.list_number) + L".";
             D2D1_RECT_F num_rect = D2D1::RectF(
                 offset_x - theme_.list_bullet_offset - 8.0f,
                 node.y_position,
@@ -172,7 +175,7 @@ void Renderer::DrawListBullet(const RenderNode& node, float offset_x) {
             );
             render_target_->DrawText(
                 num_text.c_str(), static_cast<UINT32>(num_text.size()),
-                fmt.Get(), num_rect, text_brush_.Get());
+                fmt_list_number_.Get(), num_rect, text_brush_.Get());
         }
     } else {
         // Unordered list: draw bullet

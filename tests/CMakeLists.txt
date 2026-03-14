@@ -3,6 +3,8 @@ add_executable(MaDView_tests
     test_types.cpp
     test_theme.cpp
     test_file_loader.cpp
+    test_file_explorer.cpp
+    test_toc.cpp
     test_layout.cpp
     test_anchor.cpp
     test_syntax.cpp

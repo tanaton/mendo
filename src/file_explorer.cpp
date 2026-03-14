@@ -59,12 +59,14 @@ void FileExplorer::Refresh() {
             entry.is_directory = true;
             dirs.push_back(std::move(entry));
         } else {
-            // Only show .md files
+            // Only show Markdown files (.md, .markdown, .mkd)
             std::wstring name = fd.cFileName;
-            if (name.size() >= 3) {
-                auto ext = name.substr(name.size() - 3);
-                // Case-insensitive .md check
-                if (_wcsicmp(ext.c_str(), L".md") == 0) {
+            auto dot_pos = name.rfind(L'.');
+            if (dot_pos != std::wstring::npos) {
+                auto ext = name.substr(dot_pos);
+                if (_wcsicmp(ext.c_str(), L".md") == 0 ||
+                    _wcsicmp(ext.c_str(), L".markdown") == 0 ||
+                    _wcsicmp(ext.c_str(), L".mkd") == 0) {
                     FileEntry entry;
                     entry.filename = fd.cFileName;
                     entry.full_path = directory_ + L"\\" + fd.cFileName;
