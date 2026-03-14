@@ -3,7 +3,7 @@
   <assemblyIdentity
     version="1.0.0.0"
     processorArchitecture="*"
-    name="mdviewer"
+    name="MaDView"
     type="win32"/>
   <dependency>
     <dependentAssembly>

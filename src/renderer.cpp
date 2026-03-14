@@ -59,6 +59,13 @@ bool Renderer::Init(HWND hwnd) {
     render_target_->CreateSolidColorBrush(theme_.syntax_preprocessor, &syntax_preprocessor_brush_);
     render_target_->CreateSolidColorBrush(theme_.syntax_function, &syntax_function_brush_);
 
+    // Create icon font format (Segoe Fluent Icons) for task list checkboxes
+    dwrite_factory_->CreateTextFormat(
+        L"Segoe Fluent Icons", nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
+        L"en-us", &icon_font_format_);
+
     // Initialize layout engine
     if (!layout_.Init(dwrite_factory_.Get(), theme_)) return false;
 
@@ -304,8 +311,9 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
             break;
 
         case NodeType::ListItem:
-        case NodeType::TaskListItem:
             DrawListBullet(node, x);
+            break;
+        case NodeType::TaskListItem:
             break;
 
         case NodeType::BlockQuote:
@@ -407,24 +415,16 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
         }
     }
 
-    // Draw task list checkbox
-    if (node.type == NodeType::TaskListItem) {
-        float cb_size = 14.0f;
+    // Draw task list checkbox using Segoe Fluent Icons
+    if (node.type == NodeType::TaskListItem && icon_font_format_) {
+        // U+E73A = CheckboxComposite (checked), U+E739 = CheckboxCompositeReversed (unchecked)
+        const wchar_t icon[] = { node.task_checked ? L'\uE73A' : L'\uE739', L'\0' };
+        float icon_size = theme_.font_size_body;
         float cb_x = x - theme_.list_bullet_offset;
-        float cb_y = node.y_position + 2.0f;
-        D2D1_RECT_F cb_rect = D2D1::RectF(cb_x, cb_y, cb_x + cb_size, cb_y + cb_size);
-        D2D1_ROUNDED_RECT rounded = {cb_rect, 2.0f, 2.0f};
-        render_target_->DrawRoundedRectangle(rounded, text_brush_.Get(), 1.0f);
-        if (node.task_checked) {
-            render_target_->DrawLine(
-                D2D1::Point2F(cb_x + 3.0f, cb_y + cb_size * 0.5f),
-                D2D1::Point2F(cb_x + cb_size * 0.4f, cb_y + cb_size - 3.0f),
-                text_brush_.Get(), 1.5f);
-            render_target_->DrawLine(
-                D2D1::Point2F(cb_x + cb_size * 0.4f, cb_y + cb_size - 3.0f),
-                D2D1::Point2F(cb_x + cb_size - 3.0f, cb_y + 3.0f),
-                text_brush_.Get(), 1.5f);
-        }
+        float cb_y = node.y_position;
+        D2D1_RECT_F icon_rect = D2D1::RectF(cb_x, cb_y, cb_x + icon_size, cb_y + icon_size * 1.5f);
+        render_target_->DrawText(
+            icon, 1, icon_font_format_.Get(), icon_rect, text_brush_.Get());
     }
 }
 

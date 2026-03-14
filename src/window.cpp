@@ -9,7 +9,7 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "shcore.lib")
 
-static constexpr wchar_t WINDOW_CLASS[] = L"MdViewerWindow";
+static constexpr wchar_t WINDOW_CLASS[] = L"MaDViewWindow";
 
 bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
     WNDCLASSEXW wc{};
@@ -26,7 +26,7 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
     hwnd_ = CreateWindowExW(
         WS_EX_ACCEPTFILES,
         WINDOW_CLASS,
-        L"mdviewer",
+        L"MaDView",
         WS_OVERLAPPEDWINDOW | WS_VSCROLL,
         CW_USEDEFAULT, CW_USEDEFAULT,
         900, 700,
@@ -428,14 +428,14 @@ void MainWindow::ReloadCurrentFile() {
 }
 
 void MainWindow::UpdateTitleBar() {
-    std::wstring title = L"mdviewer";
+    std::wstring title = L"MaDView";
     if (!current_file_.empty()) {
         // Extract filename
         auto pos = current_file_.find_last_of(L"\\/");
         if (pos != std::wstring::npos) {
-            title = current_file_.substr(pos + 1) + L" - mdviewer";
+            title = current_file_.substr(pos + 1) + L" - MaDView";
         } else {
-            title = current_file_ + L" - mdviewer";
+            title = current_file_ + L" - MaDView";
         }
     }
     SetWindowTextW(hwnd_, title.c_str());

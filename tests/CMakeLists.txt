@@ -1,4 +1,4 @@
-add_executable(mdviewer_tests
+add_executable(MaDView_tests
     test_parser.cpp
     test_types.cpp
     test_theme.cpp
@@ -8,14 +8,14 @@ add_executable(mdviewer_tests
     test_syntax.cpp
 )
 
-target_link_libraries(mdviewer_tests PRIVATE
-    mdviewer_core
+target_link_libraries(MaDView_tests PRIVATE
+    MaDView_core
     GTest::gtest_main
 )
 
 if(MSVC)
-    target_compile_options(mdviewer_tests PRIVATE /W4 /utf-8)
+    target_compile_options(MaDView_tests PRIVATE /W4 /utf-8)
 endif()
 
 include(GoogleTest)
-gtest_discover_tests(mdviewer_tests)
+gtest_discover_tests(MaDView_tests)

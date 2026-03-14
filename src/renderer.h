@@ -60,6 +60,8 @@ private:
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
     void ApplySyntaxHighlighting(const RenderNode& node);
 
+    ComPtr<IDWriteTextFormat> icon_font_format_;
+
     Theme theme_;
     LayoutEngine layout_;
     float dpi_ = 96.0f;

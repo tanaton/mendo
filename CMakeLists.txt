@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mdviewer LANGUAGES CXX C)
+project(MaDView LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,41 +16,41 @@ if(MSVC)
 endif()
 
 # ---- Core library (testable code, no WinMain / window) ----
-add_library(mdviewer_core STATIC
+add_library(MaDView_core STATIC
     src/parser.cpp
     src/layout.cpp
     src/file_loader.cpp
     src/theme.cpp
     src/syntax.cpp
 )
-target_include_directories(mdviewer_core PUBLIC src third_party/md4c)
-target_compile_definitions(mdviewer_core PUBLIC
+target_include_directories(MaDView_core PUBLIC src third_party/md4c)
+target_compile_definitions(MaDView_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )
-target_link_libraries(mdviewer_core PUBLIC
+target_link_libraries(MaDView_core PUBLIC
     md4c d2d1 dwrite windowscodecs shlwapi comctl32
 )
 if(MSVC)
-    target_compile_options(mdviewer_core PRIVATE /W4 /utf-8)
+    target_compile_options(MaDView_core PRIVATE /W4 /utf-8)
 endif()
 
 # ---- Main executable ----
-add_executable(mdviewer WIN32
+add_executable(MaDView WIN32
     src/main.cpp
     src/window.cpp
     src/renderer.cpp
-    res/mdviewer.rc
+    res/MaDView.rc
 )
-target_link_libraries(mdviewer PRIVATE mdviewer_core)
+target_link_libraries(MaDView PRIVATE MaDView_core)
 if(MSVC)
-    target_compile_options(mdviewer PRIVATE /W4 /utf-8)
+    target_compile_options(MaDView PRIVATE /W4 /utf-8)
 endif()
 # Disable auto-generated manifest (we provide our own via RC)
-set_target_properties(mdviewer PROPERTIES LINK_FLAGS "/MANIFEST:NO")
+set_target_properties(MaDView PROPERTIES LINK_FLAGS "/MANIFEST:NO")
 
 # ---- Tests ----
-option(MDVIEWER_BUILD_TESTS "Build tests" ON)
-if(MDVIEWER_BUILD_TESTS)
+option(MADVIEW_BUILD_TESTS "Build tests" ON)
+if(MADVIEW_BUILD_TESTS)
     include(FetchContent)
     FetchContent_Declare(
         googletest

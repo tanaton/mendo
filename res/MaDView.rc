@@ -2,7 +2,7 @@
 #include "../src/resource.h"
 
 // Manifest
-1 RT_MANIFEST "mdviewer.manifest"
+1 RT_MANIFEST "MaDView.manifest"
 
 // Version info
 VS_VERSION_INFO VERSIONINFO
@@ -18,11 +18,11 @@ BEGIN
     BEGIN
         BLOCK "041104b0"
         BEGIN
-            VALUE "FileDescription", "mdviewer - High Performance Markdown Viewer"
+            VALUE "FileDescription", "MaDView - Insanely Fast Markdown Viewer"
             VALUE "FileVersion", "1.0.0.0"
-            VALUE "InternalName", "mdviewer"
-            VALUE "OriginalFilename", "mdviewer.exe"
-            VALUE "ProductName", "mdviewer"
+            VALUE "InternalName", "MaDView"
+            VALUE "OriginalFilename", "MaDView.exe"
+            VALUE "ProductName", "MaDView"
             VALUE "ProductVersion", "1.0.0.0"
         END
     END
