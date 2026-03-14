@@ -5,6 +5,7 @@ add_executable(mdviewer_tests
     test_file_loader.cpp
     test_layout.cpp
     test_anchor.cpp
+    test_syntax.cpp
 )
 
 target_link_libraries(mdviewer_tests PRIVATE

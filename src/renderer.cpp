@@ -50,6 +50,15 @@ bool Renderer::Init(HWND hwnd) {
     render_target_->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.84f, 0.3f), &selection_brush_);
     render_target_->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.02f), &table_stripe_brush_);
 
+    // Syntax highlighting brushes
+    render_target_->CreateSolidColorBrush(theme_.syntax_keyword, &syntax_keyword_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_type, &syntax_type_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_string, &syntax_string_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_number, &syntax_number_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_comment, &syntax_comment_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_preprocessor, &syntax_preprocessor_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_function, &syntax_function_brush_);
+
     // Initialize layout engine
     if (!layout_.Init(dwrite_factory_.Get(), theme_)) return false;
 
@@ -291,6 +300,7 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
 
         case NodeType::CodeBlock:
             DrawCodeBlockBackground(node, x);
+            ApplySyntaxHighlighting(node);
             break;
 
         case NodeType::ListItem:
@@ -414,6 +424,31 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
                 D2D1::Point2F(cb_x + cb_size * 0.4f, cb_y + cb_size - 3.0f),
                 D2D1::Point2F(cb_x + cb_size - 3.0f, cb_y + 3.0f),
                 text_brush_.Get(), 1.5f);
+        }
+    }
+}
+
+ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const {
+    switch (type) {
+        case SyntaxTokenType::Keyword:      return syntax_keyword_brush_.Get();
+        case SyntaxTokenType::Type:         return syntax_type_brush_.Get();
+        case SyntaxTokenType::String:       return syntax_string_brush_.Get();
+        case SyntaxTokenType::Number:       return syntax_number_brush_.Get();
+        case SyntaxTokenType::Comment:      return syntax_comment_brush_.Get();
+        case SyntaxTokenType::Preprocessor: return syntax_preprocessor_brush_.Get();
+        case SyntaxTokenType::Function:     return syntax_function_brush_.Get();
+        default:                      return nullptr;
+    }
+}
+
+void Renderer::ApplySyntaxHighlighting(const RenderNode& node) {
+    if (node.syntax_tokens.empty() || !node.text_layout) return;
+    for (const auto& token : node.syntax_tokens) {
+        if (token.type == SyntaxTokenType::Plain) continue;
+        auto* brush = GetSyntaxBrush(token.type);
+        if (brush) {
+            DWRITE_TEXT_RANGE range{token.start, token.length};
+            node.text_layout->SetDrawingEffect(brush, range);
         }
     }
 }

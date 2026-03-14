@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <wrl/client.h>
 #include <dwrite.h>
+#include "syntax.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -79,6 +80,8 @@ struct RenderNode {
     std::wstring text;
     std::vector<TextRun> runs;
     std::wstring anchor_id;   // For headings: GitHub-style slug for internal links
+    SyntaxLanguage code_language = SyntaxLanguage::None;
+    std::vector<SyntaxToken> syntax_tokens;
 
     // Table data (only used when type == Table)
     std::vector<TableRow> table_rows;

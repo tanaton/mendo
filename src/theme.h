@@ -14,6 +14,15 @@ struct Theme {
     D2D1_COLOR_F blockquote_bar_color;
     D2D1_COLOR_F blockquote_text_color;
 
+    // Syntax highlighting colors
+    D2D1_COLOR_F syntax_keyword;
+    D2D1_COLOR_F syntax_type;
+    D2D1_COLOR_F syntax_string;
+    D2D1_COLOR_F syntax_number;
+    D2D1_COLOR_F syntax_comment;
+    D2D1_COLOR_F syntax_preprocessor;
+    D2D1_COLOR_F syntax_function;
+
     // Font
     wchar_t font_family[64];
     wchar_t monospace_font[64];

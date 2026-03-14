@@ -127,6 +127,11 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
         case MD_BLOCK_CODE: {
             ctx->in_code_block = true;
             ctx->BeginNode(NodeType::CodeBlock);
+            auto* code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
+            if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
+                std::wstring lang_str = Utf8ToWide(code_detail->lang.text, code_detail->lang.size);
+                ctx->current_node->code_language = DetectLanguage(lang_str);
+            }
             break;
         }
 

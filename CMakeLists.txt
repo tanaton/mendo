@@ -21,6 +21,7 @@ add_library(mdviewer_core STATIC
     src/layout.cpp
     src/file_loader.cpp
     src/theme.cpp
+    src/syntax.cpp
 )
 target_include_directories(mdviewer_core PUBLIC src third_party/md4c)
 target_compile_definitions(mdviewer_core PUBLIC

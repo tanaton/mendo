@@ -34,6 +34,15 @@ Theme GetLightTheme() {
     t.blockquote_bar_color  = Color(0xdfe2e5);
     t.blockquote_text_color = Color(0x6a737d);
 
+    // Syntax highlighting
+    t.syntax_keyword      = Color(0xAF00DB);  // purple
+    t.syntax_type         = Color(0x267F99);  // teal
+    t.syntax_string       = Color(0xA31515);  // dark red
+    t.syntax_number       = Color(0x098658);  // green
+    t.syntax_comment      = Color(0x008000);  // green
+    t.syntax_preprocessor = Color(0x795E26);  // brown
+    t.syntax_function     = Color(0x795E26);  // brown
+
     wcscpy_s(t.font_family,    L"Yu Gothic UI");
     wcscpy_s(t.monospace_font, L"Consolas");
 

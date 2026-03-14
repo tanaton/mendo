@@ -2,6 +2,7 @@
 #include "types.h"
 #include "theme.h"
 #include "layout.h"
+#include "syntax.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -46,6 +47,18 @@ private:
     ComPtr<ID2D1SolidColorBrush> blockquote_text_brush_;
     ComPtr<ID2D1SolidColorBrush> selection_brush_;
     ComPtr<ID2D1SolidColorBrush> table_stripe_brush_;
+
+    // Syntax highlighting brushes
+    ComPtr<ID2D1SolidColorBrush> syntax_keyword_brush_;
+    ComPtr<ID2D1SolidColorBrush> syntax_type_brush_;
+    ComPtr<ID2D1SolidColorBrush> syntax_string_brush_;
+    ComPtr<ID2D1SolidColorBrush> syntax_number_brush_;
+    ComPtr<ID2D1SolidColorBrush> syntax_comment_brush_;
+    ComPtr<ID2D1SolidColorBrush> syntax_preprocessor_brush_;
+    ComPtr<ID2D1SolidColorBrush> syntax_function_brush_;
+
+    ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
+    void ApplySyntaxHighlighting(const RenderNode& node);
 
     Theme theme_;
     LayoutEngine layout_;

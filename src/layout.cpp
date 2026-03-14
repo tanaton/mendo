@@ -237,6 +237,13 @@ void LayoutEngine::CreateTextLayout(RenderNode& node, float max_width) {
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
 
+    // Tokenize code blocks for syntax highlighting
+    if (node.type == NodeType::CodeBlock && node.code_language != SyntaxLanguage::None) {
+        node.syntax_tokens = Tokenize(node.text, node.code_language);
+    } else {
+        node.syntax_tokens.clear();
+    }
+
     node.text_layout = std::move(layout);
     node.height = metrics.height;
     node.layout_dirty = false;
