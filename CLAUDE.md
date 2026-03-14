@@ -11,7 +11,7 @@ Webブラウザを使わず、Direct2D/DirectWriteによる自前レンダリン
 - **描画**: Direct2D (`ID2D1HwndRenderTarget`)
 - **テキスト**: DirectWrite (`IDWriteTextLayout`)
 - **Markdownパーサ**: md4c (SAX型コールバック、`third_party/md4c/`)
-- **テスト**: Google Test v1.14 (FetchContentで取得)
+- **テスト**: Google Test v1.17.0 (FetchContentで取得)
 - **ビルド**: CMake 3.20+
 
 ## ビルド方法

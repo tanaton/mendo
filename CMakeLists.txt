@@ -54,7 +54,7 @@ if(MDVIEWER_BUILD_TESTS)
     include(FetchContent)
     FetchContent_Declare(
         googletest
-        URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+        URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
     )
     # Prevent GoogleTest from overriding our CRT settings
     set(gtest_force_shared_crt OFF CACHE BOOL "" FORCE)
