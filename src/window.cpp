@@ -276,7 +276,14 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 file_loader_.CheckForChanges();
             } else if (wParam == TIMER_DEFERRED_LAYOUT) {
                 OnDeferredLayout();
+            } else if (wParam == TIMER_LOADING_ANIM) {
+                loading_angle_ += 0.15f;
+                InvalidateRect(hwnd_, nullptr, FALSE);
             }
+            return 0;
+
+        case WM_APP + 1:  // WM_APP_LOAD_FILE
+            DoLoadMarkdownFile();
             return 0;
 
         case WM_DESTROY:
@@ -284,6 +291,7 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             KillTimer(hwnd_, TIMER_FILE_WATCH);
             KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
             KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
+            KillTimer(hwnd_, TIMER_LOADING_ANIM);
             PostQuitMessage(0);
             return 0;
 
@@ -324,11 +332,19 @@ void MainWindow::OnPaint() {
     BeginPaint(hwnd_, &ps);
 
     auto layout = GetPaneLayout();
-    renderer_.Render(nodes_, scroll_y_, selection_,
-                     layout.file_rect, layout.toc_rect, layout.md_rect,
-                     file_explorer_.GetEntries(), file_scroll_, hovered_file_index_,
-                     toc_.GetEntries(), toc_scroll_, hovered_toc_index_,
-                     show_file_pane_, show_toc_pane_);
+    if (loading_) {
+        renderer_.DrawLoading(loading_angle_,
+                              layout.file_rect, layout.toc_rect, layout.md_rect,
+                              file_explorer_.GetEntries(), file_scroll_, hovered_file_index_,
+                              toc_.GetEntries(), toc_scroll_, hovered_toc_index_,
+                              show_file_pane_, show_toc_pane_);
+    } else {
+        renderer_.Render(nodes_, scroll_y_, selection_,
+                         layout.file_rect, layout.toc_rect, layout.md_rect,
+                         file_explorer_.GetEntries(), file_scroll_, hovered_file_index_,
+                         toc_.GetEntries(), toc_scroll_, hovered_toc_index_,
+                         show_file_pane_, show_toc_pane_);
+    }
 
     EndPaint(hwnd_, &ps);
 }
@@ -636,9 +652,24 @@ void MainWindow::UpdateLayoutAndScroll(float desired_scroll) {
 }
 
 void MainWindow::LoadMarkdownFile(const std::wstring& path) {
+    loading_ = true;
+    loading_path_ = path;
+    loading_angle_ = 0.0f;
+    SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+    UpdateWindow(hwnd_);
+    PostMessage(hwnd_, WM_APP_LOAD_FILE, 0, 0);
+}
+
+void MainWindow::DoLoadMarkdownFile() {
+    KillTimer(hwnd_, TIMER_LOADING_ANIM);
+    loading_ = false;
+
+    const std::wstring& path = loading_path_;
     std::string content = FileLoader::LoadFile(path);
     if (content.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
-        return; // File doesn't exist
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
     }
 
     current_file_ = path;

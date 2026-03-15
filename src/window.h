@@ -76,6 +76,7 @@ private:
     void OnResizeEnd();
     void OnDeferredLayout();
     void ReloadCurrentFile();
+    void DoLoadMarkdownFile();
     void UpdateTitleBar();
     void SaveLastFilePath() const;
 public:
@@ -110,7 +111,14 @@ private:
     static constexpr UINT_PTR TIMER_SMOOTH_SCROLL = 1;
     static constexpr UINT_PTR TIMER_FILE_WATCH = 2;
     static constexpr UINT_PTR TIMER_DEFERRED_LAYOUT = 3;
+    static constexpr UINT_PTR TIMER_LOADING_ANIM = 4;
+    static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
     bool is_sizing_ = false;
+
+    // Loading state
+    bool loading_ = false;
+    float loading_angle_ = 0.0f;
+    std::wstring loading_path_;
 
     // Selection state
     TextSelection selection_;

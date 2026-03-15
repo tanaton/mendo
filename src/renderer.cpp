@@ -678,6 +678,54 @@ void Renderer::DrawSplitter(float x, float height) {
     render_target_->FillRectangle(rect, splitter_brush_.Get());
 }
 
+void Renderer::DrawLoading(float angle,
+                            const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
+                            const PaneRect& md_pane_rect,
+                            const std::vector<FileEntry>& file_entries,
+                            const ScrollState& file_scroll, int hovered_file_index,
+                            const std::vector<TocEntry>& toc_entries,
+                            const ScrollState& toc_scroll, int hovered_toc_index,
+                            bool show_file_pane, bool show_toc_pane) {
+    if (!render_target_) return;
+
+    render_target_->BeginDraw();
+    render_target_->Clear(theme_.bg_color);
+
+    auto size = render_target_->GetSize();
+
+    // Draw side panes normally
+    if (show_file_pane) {
+        DrawFileExplorer(file_entries, file_pane_rect, file_scroll, hovered_file_index);
+        DrawSplitter(file_pane_rect.x + file_pane_rect.width, size.height);
+    }
+    if (show_toc_pane) {
+        DrawToc(toc_entries, toc_pane_rect, toc_scroll, hovered_toc_index);
+        DrawSplitter(toc_pane_rect.x + toc_pane_rect.width, size.height);
+    }
+
+    // Draw spinner in center of MD pane
+    float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
+    float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
+    float radius = 20.0f;
+    float dot_radius = 3.0f;
+    constexpr int dot_count = 8;
+    constexpr float pi2 = 6.28318530f;
+
+    for (int i = 0; i < dot_count; i++) {
+        float a = angle - i * (pi2 / dot_count);
+        float dx = cx + radius * std::cos(a);
+        float dy = cy + radius * std::sin(a);
+        float alpha = 1.0f - i * (0.85f / dot_count);
+
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), dot_radius, dot_radius);
+        text_brush_->SetOpacity(alpha);
+        render_target_->FillEllipse(ellipse, text_brush_.Get());
+    }
+    text_brush_->SetOpacity(1.0f);
+
+    render_target_->EndDraw();
+}
+
 void Renderer::Render(std::vector<RenderNode>& nodes, float scroll_y,
                       const TextSelection& selection,
                       const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,

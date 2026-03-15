@@ -27,6 +27,14 @@ public:
                 const ScrollState& toc_scroll, int hovered_toc_index,
                 bool show_file_pane, bool show_toc_pane);
     void SetDpi(float dpi);
+    void DrawLoading(float angle,
+                     const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
+                     const PaneRect& md_pane_rect,
+                     const std::vector<FileEntry>& file_entries,
+                     const ScrollState& file_scroll, int hovered_file_index,
+                     const std::vector<TocEntry>& toc_entries,
+                     const ScrollState& toc_scroll, int hovered_toc_index,
+                     bool show_file_pane, bool show_toc_pane);
 
     ID2D1HwndRenderTarget* GetRenderTarget() const { return render_target_.Get(); }
     LayoutEngine& GetLayout() { return layout_; }
