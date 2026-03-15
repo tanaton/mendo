@@ -349,6 +349,17 @@ void MermaidRenderer::ClearCache() {
     cache_.clear();
 }
 
+void MermaidRenderer::CancelPending() {
+    // Drain the pending queue
+    std::queue<RenderRequest> empty;
+    pending_requests_.swap(empty);
+
+    // Nullify the node pointer in the in-flight request so that
+    // callbacks completing later won't write to freed memory.
+    current_request_.node = nullptr;
+    current_request_.on_complete = nullptr;
+}
+
 std::wstring MermaidRenderer::HashCode(const std::wstring& code, float max_width, bool dark_mode) const {
     std::wstring key = code + L"|" + std::to_wstring(static_cast<int>(max_width))
                        + L"|" + (dark_mode ? L"d" : L"l");

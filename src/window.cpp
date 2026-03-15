@@ -480,6 +480,9 @@ void MainWindow::DoLoadMarkdownFile() {
     current_file_ = path;
     ClearSelection();
 
+    // Cancel in-flight / queued mermaid renders before replacing nodes_
+    mermaid_renderer_.CancelPending();
+
     nodes_ = ParseMarkdown(content);
     toc_.BuildFromNodes(nodes_);
 
@@ -513,6 +516,7 @@ void MainWindow::ReloadCurrentFile() {
     if (current_file_.empty()) return;
 
     float old_scroll = scroll_y_;
+    mermaid_renderer_.CancelPending();
     nodes_ = ParseMarkdown(FileLoader::LoadFile(current_file_));
     toc_.BuildFromNodes(nodes_);
     renderer_.InvalidateTocPaneCache();

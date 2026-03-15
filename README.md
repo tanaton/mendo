@@ -1,8 +1,6 @@
 # mendo
 
-**Mend** + **MD** — 面倒を見る高速Markdownビュアー
-
-Webブラウザ/WebViewを一切使わず、Direct2D/DirectWriteでMarkdownを直接描画するWindows向けネイティブアプリケーションです。
+Direct2D/DirectWriteでMarkdownを直接描画するWindows向けネイティブアプリケーションです。
 
 ## 特徴
 
@@ -112,7 +110,7 @@ mendo.exe [ファイルパス]
 | GUI | Win32 API |
 | 2D描画 | Direct2D (`ID2D1HwndRenderTarget`) |
 | テキスト描画 | DirectWrite (`IDWriteTextLayout`) |
-| ダイアグラム | WebView2 + Mermaid.js |
+| ダイアグラム | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
 | Markdownパーサ | [md4c](https://github.com/mity/md4c) (SAX型コールバック) |
 | テスト | Google Test v1.17.0 |
 | ビルド | CMake 3.20+ |

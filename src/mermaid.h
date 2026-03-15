@@ -45,6 +45,10 @@ public:
     // Clear all cached bitmaps.
     void ClearCache();
 
+    // Cancel all pending requests and invalidate the in-flight request.
+    // Must be called before the nodes vector is replaced.
+    void CancelPending();
+
 private:
     void ProcessQueue();
     void RenderMermaidInWebView(const std::wstring& code, float max_width, bool dark_mode);
