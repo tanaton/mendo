@@ -160,6 +160,7 @@ private:
     static bool LoadDarkMode();
 
     bool dark_mode_ = false;
+    float last_mermaid_content_width_ = 0.0f;
 
     static constexpr float PANE_MIN_WIDTH = 100.0f;
     static constexpr float MD_PANE_MIN_WIDTH = 200.0f;

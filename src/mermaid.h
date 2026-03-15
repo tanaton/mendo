@@ -58,7 +58,7 @@ private:
     HWND hwnd_ = nullptr;           // main window
     HWND webview_hwnd_ = nullptr;   // dedicated offscreen popup for WebView2
     ID2D1RenderTarget* render_target_ = nullptr;
-    float dpi_scale_ = 1.0f;        // physical pixels per DIP
+    float dpr_ = 1.0f;             // devicePixelRatio reported by WebView2 JS
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<ICoreWebView2Environment> webview_env_;
     ComPtr<ICoreWebView2Controller> webview_controller_;
@@ -75,6 +75,7 @@ private:
         std::wstring code_hash;
         float css_width = 0.0f;   // CSS pixel dimensions (DIPs) from JS
         float css_height = 0.0f;
+        float dpr = 1.0f;         // devicePixelRatio from JS
     };
     std::queue<RenderRequest> pending_requests_;
     RenderRequest current_request_;

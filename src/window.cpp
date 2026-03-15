@@ -432,6 +432,8 @@ void MainWindow::OnResize(UINT width, UINT height) {
     if (renderer_.GetLayout().HasDirtyNodes()) {
         SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
     }
+
+    RequestMermaidRenders();
 }
 
 void MainWindow::OnVScroll(WPARAM wParam) {
@@ -735,6 +737,8 @@ void MainWindow::OnResizeEnd() {
     if (renderer_.GetLayout().HasDirtyNodes()) {
         SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
     }
+
+    RequestMermaidRenders();
 }
 
 void MainWindow::OnDeferredLayout() {
@@ -857,6 +861,20 @@ void MainWindow::RequestMermaidRenders() {
     float content_width = viewport_width
                           - renderer_.GetTheme().margin_left
                           - renderer_.GetTheme().margin_right;
+
+    // If the available width changed, clear stale mermaid bitmaps so they re-render
+    if (last_mermaid_content_width_ > 0.0f &&
+        static_cast<int>(content_width) != static_cast<int>(last_mermaid_content_width_)) {
+        for (auto& node : nodes_) {
+            if (node.code_language == SyntaxLanguage::Mermaid) {
+                node.diagram_bitmap.Reset();
+                node.diagram_width = 0;
+                node.diagram_height = 0;
+            }
+        }
+        mermaid_renderer_.ClearCache();
+    }
+    last_mermaid_content_width_ = content_width;
 
     for (auto& node : nodes_) {
         if (node.type != NodeType::CodeBlock) continue;

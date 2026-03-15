@@ -432,6 +432,12 @@ void Renderer::DrawNode(RenderNode& node, int node_index, float offset_x,
                 DrawCodeBlockBackground(node, x, content_width);
                 float draw_w = node.diagram_width;
                 float draw_h = node.diagram_height;
+                // Scale down if wider than content_width
+                if (draw_w > content_width && draw_w > 0) {
+                    float scale = content_width / draw_w;
+                    draw_h *= scale;
+                    draw_w = content_width;
+                }
                 // Center horizontally if narrower than content_width
                 float dx = x + (content_width - draw_w) * 0.5f;
                 D2D1_RECT_F dest = D2D1::RectF(

@@ -62,6 +62,8 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
       }
       const container = document.getElementById('container');
       container.innerHTML = '';
+      // Reset any previous width constraints
+      document.body.style.width = '';
       container.style.maxWidth = '';
       renderCount++;
       const id = 'mmd-' + renderCount;
@@ -71,7 +73,12 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
       const svgEl = container.querySelector('svg');
       if (svgEl) {
         const rect = svgEl.getBoundingClientRect();
-        return JSON.stringify({ width: Math.ceil(rect.width), height: Math.ceil(rect.height), ok: true });
+        return JSON.stringify({
+          width: Math.ceil(rect.width),
+          height: Math.ceil(rect.height),
+          dpr: window.devicePixelRatio || 1,
+          ok: true
+        });
       }
       return JSON.stringify({ ok: false, error: 'SVG not found' });
     } catch (e) {
@@ -80,7 +87,9 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
   }
 
   window.addEventListener('load', function() {
-    window.chrome.webview.postMessage(mermaidReady() ? 'mermaid-ready' : 'mermaid-failed');
+    var dpr = window.devicePixelRatio || 1;
+    window.chrome.webview.postMessage(
+      mermaidReady() ? ('mermaid-ready:' + dpr) : 'mermaid-failed');
   });
 </script>
 </head>
@@ -176,10 +185,6 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
     hwnd_ = hwnd;
     render_target_ = render_target;
 
-    // Compute DPI scale for converting DIPs → physical pixels
-    UINT dpi = GetDpiForWindow(hwnd);
-    dpi_scale_ = dpi > 0 ? static_cast<float>(dpi) / 96.0f : 1.0f;
-
     // Create WIC factory for PNG decoding
     CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                      IID_PPV_ARGS(&wic_factory_));
@@ -264,8 +269,17 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                                      ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                                         LPWSTR msg = nullptr;
                                         if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
-                                            if (wcscmp(msg, L"mermaid-ready") == 0) {
-                                                OutputDebugStringW(L"[MaDView/Mermaid] Received mermaid-ready\n");
+                                            if (wcsncmp(msg, L"mermaid-ready:", 14) == 0) {
+                                                // Parse DPR from "mermaid-ready:<dpr>"
+                                                float dpr = 1.0f;
+                                                try { dpr = std::stof(std::wstring(msg + 14)); }
+                                                catch (...) {}
+                                                if (dpr > 0) dpr_ = dpr;
+                                                {
+                                                    std::wstring dbg = L"[MaDView/Mermaid] Received mermaid-ready dpr="
+                                                        + std::to_wstring(dpr_) + L"\n";
+                                                    OutputDebugStringW(dbg.c_str());
+                                                }
                                                 ready_ = true;
                                                 if (on_ready) on_ready();
                                                 ProcessQueue();
@@ -417,16 +431,25 @@ void MermaidRenderer::RenderMermaidInWebView(const std::wstring& code, float max
         return;
     }
 
-    // max_width is in DIPs.  WebView2 bounds are in physical pixels.
-    int vp_px = static_cast<int>(max_width * dpi_scale_);
-    if (vp_px < 400) vp_px = 400;
-    RECT bounds = {0, 0, vp_px, static_cast<LONG>(4096 * dpi_scale_)};
+    // Set WebView2 bounds so that the CSS viewport equals max_width (DIPs).
+    // Bounds are in physical pixels of the popup window, and WebView2
+    // internally divides by devicePixelRatio to get CSS viewport size.
+    int vp_phys = static_cast<int>(std::ceil(max_width * dpr_));
+    if (vp_phys < 1) vp_phys = 1;
+    int h_phys = static_cast<int>(4096 * dpr_);
+    RECT bounds = {0, 0, vp_phys, h_phys};
     webview_controller_->put_Bounds(bounds);
-    SetWindowPos(webview_hwnd_, nullptr, -32000, -32000, vp_px,
-                 static_cast<int>(4096 * dpi_scale_),
+    SetWindowPos(webview_hwnd_, nullptr, -32000, -32000, vp_phys, h_phys,
                  SWP_NOZORDER | SWP_NOACTIVATE);
 
-    // Call renderMermaid and deliver result via postMessage.
+    {
+        std::wstring dbg = L"[MaDView/Mermaid] Render: max_width=" + std::to_wstring(static_cast<int>(max_width))
+            + L" dpr=" + std::to_wstring(dpr_)
+            + L" bounds_w=" + std::to_wstring(vp_phys) + L"\n";
+        OutputDebugStringW(dbg.c_str());
+    }
+
+    // Render mermaid (maxWidth=0 means no CSS constraint, viewport constrains)
     std::wstring js = L"renderMermaid('" + JsEscape(code) + L"', "
                       + (dark_mode ? L"true" : L"false") + L", 0"
                       + L").then(function(r){window.chrome.webview.postMessage('render-result:'+r);"
@@ -454,6 +477,8 @@ void MermaidRenderer::OnMermaidRenderResult(const std::wstring& json) {
 
     dw = find_num(L"\"width\"");
     dh = find_num(L"\"height\"");
+    float dpr = find_num(L"\"dpr\"");
+    if (dpr <= 0) dpr = 1.0f;
     ok = json.find(L"\"ok\":true") != std::wstring::npos
          || json.find(L"\"ok\": true") != std::wstring::npos;
 
@@ -466,17 +491,20 @@ void MermaidRenderer::OnMermaidRenderResult(const std::wstring& json) {
     {
         std::wstring msg = L"[MaDView/Mermaid] renderMermaid ok: "
             + std::to_wstring(static_cast<int>(dw)) + L"x"
-            + std::to_wstring(static_cast<int>(dh)) + L"\n";
+            + std::to_wstring(static_cast<int>(dh))
+            + L" dpr=" + std::to_wstring(dpr) + L"\n";
         OutputDebugStringW(msg.c_str());
     }
 
     // Store CSS pixel dimensions for later use as drawing size (DIPs)
     current_request_.css_width = dw;
     current_request_.css_height = dh;
+    current_request_.dpr = dpr;
 
-    // Resize WebView to exact diagram size for capture (convert CSS px → physical px)
-    int cw = static_cast<int>(std::ceil(dw * dpi_scale_));
-    int ch = static_cast<int>(std::ceil(dh * dpi_scale_));
+    // Resize WebView to exact diagram size for capture.
+    // Multiply CSS pixels by devicePixelRatio to get physical pixels.
+    int cw = static_cast<int>(std::ceil(dw * dpr));
+    int ch = static_cast<int>(std::ceil(dh * dpr));
     RECT capBounds = {0, 0, static_cast<LONG>(cw), static_cast<LONG>(ch)};
     webview_controller_->put_Bounds(capBounds);
 
