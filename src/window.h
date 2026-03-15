@@ -115,6 +115,7 @@ private:
     static constexpr UINT_PTR TIMER_LOADING_ANIM = 4;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
     bool is_sizing_ = false;
+    bool is_scrollbar_tracking_ = false;
 
     // Loading state
     bool loading_ = false;

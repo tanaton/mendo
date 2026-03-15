@@ -471,7 +471,15 @@ void MainWindow::OnVScroll(WPARAM wParam) {
         case SB_PAGEUP:    ScrollTo(scroll_y_ - page_size); break;
         case SB_PAGEDOWN:  ScrollTo(scroll_y_ + page_size); break;
         case SB_THUMBTRACK:
+            is_scrollbar_tracking_ = true;
             ScrollTo(static_cast<float>(si.nTrackPos));
+            break;
+        case SB_THUMBPOSITION:
+            is_scrollbar_tracking_ = false;
+            ScrollTo(static_cast<float>(si.nTrackPos));
+            break;
+        case SB_ENDSCROLL:
+            is_scrollbar_tracking_ = false;
             break;
         case SB_TOP:       ScrollTo(0.0f); break;
         case SB_BOTTOM:    ScrollTo(max_scroll_); break;
@@ -739,8 +747,9 @@ void MainWindow::OnDeferredLayout() {
     float md_width = GetMarkdownPaneWidth();
     bool more = renderer_.GetLayout().ProcessDirtyBatch(nodes_, md_width, 200);
 
-    // Compensate scroll to keep visible content at the same screen position
-    if (anchor_idx >= 0) {
+    // Compensate scroll to keep visible content at the same screen position,
+    // but skip during active scrollbar drag to avoid fighting with user input
+    if (anchor_idx >= 0 && !is_scrollbar_tracking_) {
         float anchor_y_after = nodes_[anchor_idx].y_position;
         float shift = anchor_y_after - anchor_y_before;
         scroll_y_ += shift;
