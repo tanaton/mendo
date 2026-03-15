@@ -673,11 +673,12 @@ void MainWindow::OnResizeEnd() {
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
     float md_width = GetMarkdownPaneWidth();
-
-    // Full layout (no viewport bounds) to avoid incremental position shifts
-    renderer_.GetLayout().ComputeLayout(nodes_, md_width);
-
     auto pane_layout = GetPaneLayout();
+    float viewport_top = scroll_y_;
+    float viewport_bottom = scroll_y_ + pane_layout.md_rect.height;
+
+    renderer_.GetLayout().ComputeLayout(nodes_, md_width, viewport_top, viewport_bottom);
+
     float total = renderer_.GetLayout().GetTotalHeight();
     max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
     scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
@@ -685,11 +686,36 @@ void MainWindow::OnResizeEnd() {
 
     UpdateScrollBar();
     InvalidateRect(hwnd_, nullptr, FALSE);
+
+    // Start incremental processing of remaining dirty nodes
+    if (renderer_.GetLayout().HasDirtyNodes()) {
+        SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
+    }
 }
 
 void MainWindow::OnDeferredLayout() {
+    // Find the first visible node and record its y_position before layout
+    float anchor_y_before = 0.0f;
+    int anchor_idx = -1;
+    for (int i = 0; i < static_cast<int>(nodes_.size()); ++i) {
+        float bottom = nodes_[i].y_position + nodes_[i].height;
+        if (bottom > scroll_y_) {
+            anchor_idx = i;
+            anchor_y_before = nodes_[i].y_position;
+            break;
+        }
+    }
+
     float md_width = GetMarkdownPaneWidth();
     bool more = renderer_.GetLayout().ProcessDirtyBatch(nodes_, md_width, 200);
+
+    // Compensate scroll to keep visible content at the same screen position
+    if (anchor_idx >= 0) {
+        float anchor_y_after = nodes_[anchor_idx].y_position;
+        float shift = anchor_y_after - anchor_y_before;
+        scroll_y_ += shift;
+        scroll_target_ += shift;
+    }
 
     auto pane_layout = GetPaneLayout();
     float total = renderer_.GetLayout().GetTotalHeight();
