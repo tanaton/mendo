@@ -427,6 +427,25 @@ void Renderer::DrawNode(RenderNode& node, int node_index, float offset_x,
             return;
 
         case NodeType::CodeBlock:
+            // Mermaid diagrams: draw bitmap if available
+            if (node.code_language == SyntaxLanguage::Mermaid && node.diagram_bitmap) {
+                DrawCodeBlockBackground(node, x, content_width);
+                float draw_w = node.diagram_width;
+                float draw_h = node.diagram_height;
+                // Scale down if wider than content_width
+                if (draw_w > content_width && draw_w > 0) {
+                    float scale = content_width / draw_w;
+                    draw_h *= scale;
+                    draw_w = content_width;
+                }
+                // Center horizontally if narrower than content_width
+                float dx = x + (content_width - draw_w) * 0.5f;
+                D2D1_RECT_F dest = D2D1::RectF(
+                    dx, node.y_position,
+                    dx + draw_w, node.y_position + draw_h);
+                render_target_->DrawBitmap(node.diagram_bitmap.Get(), dest);
+                return;
+            }
             DrawCodeBlockBackground(node, x, content_width);
             break;
 

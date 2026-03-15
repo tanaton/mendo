@@ -4,6 +4,7 @@
 #include <optional>
 #include <cstdint>
 #include <wrl/client.h>
+#include <d2d1.h>
 #include <dwrite.h>
 #include "syntax.h"
 
@@ -86,6 +87,11 @@ struct RenderNode {
     // Table data (only used when type == Table)
     std::vector<TableRow> table_rows;
     std::vector<float> col_widths; // computed column widths
+
+    // Mermaid diagram bitmap (rendered via WebView2)
+    ComPtr<ID2D1Bitmap> diagram_bitmap;
+    float diagram_width = 0.0f;
+    float diagram_height = 0.0f;
 
     // Layout cache
     float y_position = 0.0f;

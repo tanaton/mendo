@@ -115,6 +115,12 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
 
     if (!renderer_.Init(hwnd_)) return false;
 
+    // Initialize Mermaid renderer (WebView2, async)
+    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
+        // WebView2 is ready — trigger rendering of any pending mermaid blocks
+        RequestMermaidRenders();
+    });
+
     // Apply saved dark mode preference
     dark_mode_ = LoadDarkMode();
     if (dark_mode_) {
@@ -426,6 +432,8 @@ void MainWindow::OnResize(UINT width, UINT height) {
     if (renderer_.GetLayout().HasDirtyNodes()) {
         SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
     }
+
+    RequestMermaidRenders();
 }
 
 void MainWindow::OnVScroll(WPARAM wParam) {
@@ -729,6 +737,8 @@ void MainWindow::OnResizeEnd() {
     if (renderer_.GetLayout().HasDirtyNodes()) {
         SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
     }
+
+    RequestMermaidRenders();
 }
 
 void MainWindow::OnDeferredLayout() {
@@ -820,6 +830,9 @@ void MainWindow::DoLoadMarkdownFile() {
     UpdateLayoutAndScroll(0.0f);
     UpdateTitleBar();
 
+    // Request Mermaid diagram rendering for any mermaid code blocks
+    RequestMermaidRenders();
+
     // Start watching file for changes (callback runs from WM_TIMER on main thread)
     file_loader_.StartWatching(path, [this]() {
         ReloadCurrentFile();
@@ -834,10 +847,47 @@ void MainWindow::ReloadCurrentFile() {
     toc_.BuildFromNodes(nodes_);
     renderer_.InvalidateTocPaneCache();
     UpdateLayoutAndScroll(old_scroll);
+    RequestMermaidRenders();
 }
 
 void MainWindow::UpdateTitleBar() {
     SetWindowTextW(hwnd_, BuildTitleString(current_file_).c_str());
+}
+
+void MainWindow::RequestMermaidRenders() {
+    if (!mermaid_renderer_.IsReady()) return;
+
+    float viewport_width = GetMarkdownPaneWidth();
+    float content_width = viewport_width
+                          - renderer_.GetTheme().margin_left
+                          - renderer_.GetTheme().margin_right;
+
+    // If the available width changed, clear stale mermaid bitmaps so they re-render
+    if (last_mermaid_content_width_ > 0.0f &&
+        static_cast<int>(content_width) != static_cast<int>(last_mermaid_content_width_)) {
+        for (auto& node : nodes_) {
+            if (node.code_language == SyntaxLanguage::Mermaid) {
+                node.diagram_bitmap.Reset();
+                node.diagram_width = 0;
+                node.diagram_height = 0;
+            }
+        }
+        mermaid_renderer_.ClearCache();
+    }
+    last_mermaid_content_width_ = content_width;
+
+    for (auto& node : nodes_) {
+        if (node.type != NodeType::CodeBlock) continue;
+        if (node.code_language != SyntaxLanguage::Mermaid) continue;
+        if (node.diagram_bitmap) continue; // already rendered
+
+        mermaid_renderer_.RequestRender(node, content_width, dark_mode_, [this]() {
+            // Re-layout after bitmap is available
+            auto result = RecomputeYPositions(nodes_, renderer_.GetTheme());
+            SyncMaxScroll();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        });
+    }
 }
 
 // ---- Dark mode persistence ----
@@ -865,7 +915,15 @@ void MainWindow::ToggleDarkMode() {
         node.text_layout.Reset();
         node.effects_applied = false;
         node.inline_code_bgs.clear();
+        // Clear mermaid bitmaps so they re-render with correct theme
+        if (node.code_language == SyntaxLanguage::Mermaid) {
+            node.diagram_bitmap.Reset();
+            node.diagram_width = 0;
+            node.diagram_height = 0;
+        }
     }
+    mermaid_renderer_.ClearCache();
+
     float md_width = GetMarkdownPaneWidth();
     renderer_.GetLayout().UpdateTheme(renderer_.GetTheme());
     renderer_.GetLayout().LayoutNodes(nodes_, md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
@@ -873,6 +931,9 @@ void MainWindow::ToggleDarkMode() {
     max_scroll_ = std::max(0.0f, total_height - (renderer_.GetRenderTarget()->GetSize().height));
     scroll_y_ = std::min(scroll_y_, max_scroll_);
     scroll_target_ = scroll_y_;
+
+    // Re-render mermaid diagrams with new theme
+    RequestMermaidRenders();
 
     SaveDarkMode();
     InvalidateRect(hwnd_, nullptr, FALSE);

@@ -1,5 +1,6 @@
 #pragma once
 #include "renderer.h"
+#include "mermaid.h"
 #include "file_loader.h"
 #include "file_explorer.h"
 #include "toc.h"
@@ -94,8 +95,11 @@ private:
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
+    void RequestMermaidRenders();
+
     HWND hwnd_ = nullptr;
     Renderer renderer_;
+    MermaidRenderer mermaid_renderer_;
     FileLoader file_loader_;
 
     // Cached system cursors
@@ -156,6 +160,7 @@ private:
     static bool LoadDarkMode();
 
     bool dark_mode_ = false;
+    float last_mermaid_content_width_ = 0.0f;
 
     static constexpr float PANE_MIN_WIDTH = 100.0f;
     static constexpr float MD_PANE_MIN_WIDTH = 200.0f;

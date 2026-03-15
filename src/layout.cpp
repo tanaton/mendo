@@ -223,6 +223,19 @@ void LayoutEngine::CreateTextLayout(RenderNode& node, float max_width) {
         return;
     }
 
+    // Mermaid blocks: if a bitmap has already been rendered, use its height.
+    // Otherwise set a placeholder height; the actual bitmap is created by MermaidRenderer.
+    if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
+        if (node.diagram_bitmap) {
+            node.height = node.diagram_height;
+        } else {
+            // Placeholder: show code text until the diagram bitmap arrives
+            node.height = std::max(60.0f, theme_->font_size_body * 3.0f);
+        }
+        node.layout_dirty = false;
+        return;
+    }
+
     const std::wstring& text = node.text;
     if (text.empty()) {
         node.height = theme_->paragraph_spacing;

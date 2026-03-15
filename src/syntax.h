@@ -7,7 +7,8 @@ enum class SyntaxLanguage : uint8_t {
     None,
     Cpp,
     Python,
-    JavaScript
+    JavaScript,
+    Mermaid
 };
 
 enum class SyntaxTokenType : uint8_t {
