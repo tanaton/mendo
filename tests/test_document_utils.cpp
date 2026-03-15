@@ -315,3 +315,143 @@ TEST(BuildTitleString, WithPath) {
 TEST(BuildTitleString, FilenameOnly) {
     EXPECT_EQ(BuildTitleString(L"readme.md"), L"readme.md - MaDView");
 }
+
+// ============================================================
+// Additional edge cases
+// ============================================================
+
+// ---- ExtractSelectedText additional tests ----
+
+TEST(ExtractSelectedText, SelectionSpanningTableNode) {
+    // Test with a table-type node (has linearized text)
+    RenderNode table_node;
+    table_node.type = NodeType::Table;
+    table_node.text = L"A\tB\n1\t2";
+
+    std::vector<RenderNode> nodes = {table_node};
+    TextSelection sel;
+    sel.start_node = 0;
+    sel.start_pos = 0;
+    sel.end_node = 0;
+    sel.end_pos = 3;
+    sel.active = true;
+
+    auto result = ExtractSelectedText(nodes, sel);
+    EXPECT_EQ(result, L"A\tB");
+}
+
+TEST(ExtractSelectedText, StartNodeOutOfRange) {
+    std::vector<RenderNode> nodes;
+    RenderNode n;
+    n.text = L"hello";
+    nodes.push_back(n);
+
+    TextSelection sel;
+    sel.start_node = -5;
+    sel.start_pos = 0;
+    sel.end_node = 0;
+    sel.end_pos = 5;
+    sel.active = true;
+
+    // Should not crash, just skip invalid nodes
+    auto result = ExtractSelectedText(nodes, sel);
+    EXPECT_FALSE(result.empty());
+}
+
+TEST(ExtractSelectedText, EndNodeOutOfRange) {
+    std::vector<RenderNode> nodes;
+    RenderNode n;
+    n.text = L"hello";
+    nodes.push_back(n);
+
+    TextSelection sel;
+    sel.start_node = 0;
+    sel.start_pos = 0;
+    sel.end_node = 100;
+    sel.end_pos = 5;
+    sel.active = true;
+
+    auto result = ExtractSelectedText(nodes, sel);
+    // Should include at least the first node's text
+    EXPECT_FALSE(result.empty());
+}
+
+// ---- FindLinkAtPosition additional tests ----
+
+TEST(FindLinkAtPosition, MultipleLinkRuns) {
+    RenderNode node;
+    node.text = L"link1 link2";
+
+    TextRun r1;
+    r1.start = 0; r1.length = 5;
+    r1.link_url = L"https://a.com";
+
+    TextRun r2;
+    r2.start = 6; r2.length = 5;
+    r2.link_url = L"https://b.com";
+
+    node.runs = {r1, r2};
+
+    auto result1 = FindLinkAtPosition(node, 2);
+    ASSERT_TRUE(result1.has_value());
+    EXPECT_EQ(*result1, L"https://a.com");
+
+    auto result2 = FindLinkAtPosition(node, 8);
+    ASSERT_TRUE(result2.has_value());
+    EXPECT_EQ(*result2, L"https://b.com");
+
+    // Between the two links
+    auto gap = FindLinkAtPosition(node, 5);
+    EXPECT_FALSE(gap.has_value());
+}
+
+// ---- FindAnchorNodeIndex additional tests ----
+
+TEST(FindAnchorNodeIndex, DuplicateAnchors) {
+    std::vector<RenderNode> nodes;
+
+    RenderNode h1;
+    h1.type = NodeType::Heading;
+    h1.anchor_id = L"title";
+    nodes.push_back(h1);
+
+    RenderNode h2;
+    h2.type = NodeType::Heading;
+    h2.anchor_id = L"title-1";
+    nodes.push_back(h2);
+
+    // First match wins
+    EXPECT_EQ(FindAnchorNodeIndex(nodes, L"title"), 0);
+    EXPECT_EQ(FindAnchorNodeIndex(nodes, L"title-1"), 1);
+}
+
+// ---- FindWordBoundaries additional tests ----
+
+TEST(FindWordBoundaries, SingleCharWord) {
+    auto result = FindWordBoundaries(L"a", 0);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 1u);
+}
+
+TEST(FindWordBoundaries, AllSpaces) {
+    auto result = FindWordBoundaries(L"   ", 1);
+    EXPECT_FALSE(result.found);
+}
+
+TEST(FindWordBoundaries, MixedPunctuationAndWords) {
+    auto result = FindWordBoundaries(L"(hello)", 3);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 1u);
+    EXPECT_EQ(result.end, 6u);
+}
+
+// ---- ExtractFilename additional tests ----
+
+TEST(ExtractFilename, UncPath) {
+    EXPECT_EQ(ExtractFilename(L"\\\\server\\share\\file.md"), L"file.md");
+}
+
+TEST(ExtractFilename, MixedSeparators) {
+    EXPECT_EQ(ExtractFilename(L"C:\\dir/subdir\\file.md"), L"file.md");
+}

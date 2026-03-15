@@ -1,5 +1,6 @@
 #pragma once
 #include "types.h"
+#include "mermaid_util.h"
 #include <d2d1.h>
 #include <wincodec.h>
 #include <wrl/client.h>

@@ -63,3 +63,75 @@ TEST(TextSelection, NodeZeroPositionZero) {
     EXPECT_EQ(s.start_node, 0);
     EXPECT_EQ(s.start_pos, 0u);
 }
+
+// ---- Additional edge cases ----
+
+TEST(TextSelection, LargeNodeIndices) {
+    auto s = TextSelection::MakeOrdered(100000, 50000, 200000, 99999);
+    EXPECT_EQ(s.start_node, 100000);
+    EXPECT_EQ(s.end_node, 200000);
+    EXPECT_TRUE(s.active);
+}
+
+TEST(TextSelection, ClearAndRecreate) {
+    auto s = TextSelection::MakeOrdered(1, 0, 5, 3);
+    s.Clear();
+    EXPECT_FALSE(s.active);
+    // Create new selection from cleared state
+    s = TextSelection::MakeOrdered(2, 1, 3, 4);
+    EXPECT_TRUE(s.active);
+    EXPECT_EQ(s.start_node, 2);
+    EXPECT_EQ(s.end_node, 3);
+}
+
+TEST(TextSelection, SingleCharSelection) {
+    auto s = TextSelection::MakeOrdered(0, 5, 0, 6);
+    EXPECT_TRUE(s.active);
+    EXPECT_EQ(s.start_pos, 5u);
+    EXPECT_EQ(s.end_pos, 6u);
+}
+
+TEST(TextSelection, ZeroPosZeroNode) {
+    auto s = TextSelection::MakeOrdered(0, 0, 0, 0);
+    EXPECT_FALSE(s.active); // same position = not active
+}
+
+TEST(TextSelection, ReverseWithDifferentNodesSamePos) {
+    auto s = TextSelection::MakeOrdered(5, 0, 1, 0);
+    EXPECT_EQ(s.start_node, 1);
+    EXPECT_EQ(s.end_node, 5);
+    EXPECT_TRUE(s.active);
+}
+
+// ---- RenderNode default state ----
+
+TEST(RenderNode, DefaultState) {
+    RenderNode node;
+    EXPECT_EQ(node.type, NodeType::Paragraph);
+    EXPECT_EQ(node.heading_level, 0);
+    EXPECT_EQ(node.indent_level, 0);
+    EXPECT_EQ(node.list_number, 0);
+    EXPECT_FALSE(node.task_checked);
+    EXPECT_TRUE(node.text.empty());
+    EXPECT_TRUE(node.runs.empty());
+    EXPECT_TRUE(node.anchor_id.empty());
+    EXPECT_EQ(node.code_language, SyntaxLanguage::None);
+    EXPECT_TRUE(node.table_rows.empty());
+    EXPECT_EQ(node.y_position, 0.0f);
+    EXPECT_EQ(node.height, 0.0f);
+    EXPECT_TRUE(node.layout_dirty);
+    EXPECT_FALSE(node.effects_applied);
+}
+
+// ---- TextRun default state ----
+
+TEST(TextRun, DefaultState) {
+    TextRun run;
+    EXPECT_EQ(run.start, 0u);
+    EXPECT_EQ(run.length, 0u);
+    EXPECT_FALSE(run.bold);
+    EXPECT_FALSE(run.italic);
+    EXPECT_FALSE(run.code);
+    EXPECT_FALSE(run.strikethrough);
+    EXPECT_FALSE(run.link_url.has_value());
+}

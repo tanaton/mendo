@@ -542,8 +542,7 @@ TEST(Parser, MultipleHeadingsHaveAnchors) {
     for (const auto& node : nodes) {
         if (node.type == NodeType::Heading) {
             EXPECT_FALSE(node.anchor_id.empty())
-                << "Heading '" << std::string(node.text.begin(), node.text.end())
-                << "' has no anchor";
+                << "Heading has no anchor";
         }
     }
 }
@@ -560,4 +559,113 @@ TEST(Parser, BoldLink) {
         }
     }
     EXPECT_TRUE(has_bold_link);
+}
+
+// ---- Duplicate anchor IDs get unique suffixes ----
+
+TEST(Parser, DuplicateHeadingAnchorsAreUnique) {
+    auto nodes = ParseMarkdown("# Title\n\n## Title\n\n### Title");
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[0].anchor_id, L"title");
+    EXPECT_EQ(nodes[1].anchor_id, L"title-1");
+    EXPECT_EQ(nodes[2].anchor_id, L"title-2");
+}
+
+TEST(Parser, DuplicateAnchorsWithDifferentText) {
+    auto nodes = ParseMarkdown("# A\n\n## B\n\n### A");
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[0].anchor_id, L"a");
+    EXPECT_EQ(nodes[1].anchor_id, L"b");
+    EXPECT_EQ(nodes[2].anchor_id, L"a-1");
+}
+
+// ---- Numeric HTML entities ----
+
+TEST(Parser, NumericEntityDecimal) {
+    auto nodes = ParseMarkdown("&#65;");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"A");
+}
+
+TEST(Parser, NumericEntityHex) {
+    auto nodes = ParseMarkdown("&#x41;");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"A");
+}
+
+TEST(Parser, NumericEntityJapanese) {
+    // &#x3042; = あ (Hiragana A)
+    auto nodes = ParseMarkdown("&#x3042;");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"\u3042");
+}
+
+// ---- Deep nesting ----
+
+TEST(Parser, DeeplyNestedList) {
+    std::string md;
+    md += "- L1\n";
+    md += "  - L2\n";
+    md += "    - L3\n";
+    md += "      - L4\n";
+    auto nodes = ParseMarkdown(md);
+    ASSERT_GE(nodes.size(), 4u);
+    // Each deeper level should have higher indent_level
+    for (size_t i = 1; i < nodes.size(); i++) {
+        EXPECT_GE(nodes[i].indent_level, nodes[i - 1].indent_level);
+    }
+}
+
+// ---- Table with uneven columns ----
+
+TEST(Parser, TableUnevenColumns) {
+    // md4c handles this - fewer cells in one row
+    auto nodes = ParseMarkdown(
+        "| A | B | C |\n"
+        "|---|---|---|\n"
+        "| 1 | 2 |\n"
+    );
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Table);
+    ASSERT_GE(nodes[0].table_rows.size(), 2u);
+}
+
+// ---- Code block with Mermaid language ----
+
+TEST(Parser, MermaidCodeBlock) {
+    auto nodes = ParseMarkdown("```mermaid\ngraph TD;\n  A-->B;\n```");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
+    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Mermaid);
+}
+
+// ---- URL with special characters ----
+
+TEST(Parser, LinkWithSpecialCharsInUrl) {
+    auto nodes = ParseMarkdown("[link](https://example.com/path?q=1&r=2#frag)");
+    ASSERT_EQ(nodes.size(), 1u);
+    bool found = false;
+    for (const auto& run : nodes[0].runs) {
+        if (run.link_url.has_value()) {
+            EXPECT_EQ(*run.link_url, L"https://example.com/path?q=1&r=2#frag");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+// ---- Empty heading ----
+
+TEST(Parser, EmptyHeading) {
+    auto nodes = ParseMarkdown("# \n\ntext");
+    // md4c may produce a heading node with empty text
+    bool found_heading = false;
+    for (auto& n : nodes) {
+        if (n.type == NodeType::Heading) {
+            found_heading = true;
+        }
+    }
+    // An empty heading may or may not be produced depending on md4c behavior;
+    // at minimum, we should not crash.
+    (void)found_heading;
 }

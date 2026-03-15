@@ -237,3 +237,60 @@ TEST(ScrollFromThumbY, ClampsAboveContent) {
     float scroll = ScrollFromThumbY(info, 99999.0f);
     EXPECT_FLOAT_EQ(scroll, info.max_scroll);
 }
+
+// ---- Additional edge cases ----
+
+TEST(ComputePaneLayout, ZeroWidth) {
+    auto layout = ComputePaneLayout(0.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);
+    // MD pane should use md_min_width
+    EXPECT_GE(layout.md_rect.width, 200.0f);
+}
+
+TEST(ComputePaneLayout, VeryNarrowWindow) {
+    auto layout = ComputePaneLayout(100.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);
+    // MD pane should not go below min width
+    EXPECT_GE(layout.md_rect.width, 200.0f);
+}
+
+TEST(DetectPaneZone, ExactlySplitter1Edge) {
+    auto layout = ComputePaneLayout(1200.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);
+    float splitter1_x = layout.file_rect.x + layout.file_rect.width;
+    EXPECT_EQ(DetectPaneZone(splitter1_x, layout, 4.0f, true, true), PaneZone::Splitter1);
+    EXPECT_EQ(DetectPaneZone(splitter1_x + 3.9f, layout, 4.0f, true, true), PaneZone::Splitter1);
+    EXPECT_EQ(DetectPaneZone(splitter1_x + 4.0f, layout, 4.0f, true, true), PaneZone::TocPane);
+}
+
+TEST(DetectPaneZone, ExactlySplitter2Edge) {
+    auto layout = ComputePaneLayout(1200.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);
+    float splitter2_x = layout.toc_rect.x + layout.toc_rect.width;
+    EXPECT_EQ(DetectPaneZone(splitter2_x, layout, 4.0f, true, true), PaneZone::Splitter2);
+}
+
+TEST(ComputeScrollInfo, VerySmallContent) {
+    PaneRect rect{0, 0, 220, 500};
+    auto info = ComputeScrollInfo(rect, 32.0f, 1.0f);
+    EXPECT_FLOAT_EQ(info.max_scroll, 0.0f);
+    EXPECT_GE(info.thumb_height, PANE_SCROLLBAR_THUMB_MIN);
+}
+
+TEST(ComputeScrollInfo, ExactFit) {
+    PaneRect rect{0, 0, 220, 500};
+    float content_height = 500.0f - 32.0f; // exactly fits
+    auto info = ComputeScrollInfo(rect, 32.0f, content_height);
+    EXPECT_FLOAT_EQ(info.max_scroll, 0.0f);
+}
+
+TEST(ComputeThumbY, ZeroMaxScroll) {
+    PaneRect rect{0, 0, 220, 500};
+    auto info = ComputeScrollInfo(rect, 32.0f, 100.0f); // content fits
+    float thumb_y = ComputeThumbY(info, 0.0f);
+    EXPECT_FLOAT_EQ(thumb_y, info.content_top);
+}
+
+TEST(ScrollFromThumbY, ZeroTrackRange) {
+    PaneRect rect{0, 0, 220, 500};
+    // Content exactly fits (or less) => no scrollable range
+    auto info = ComputeScrollInfo(rect, 32.0f, 100.0f);
+    float scroll = ScrollFromThumbY(info, 50.0f);
+    EXPECT_FLOAT_EQ(scroll, 0.0f);
+}

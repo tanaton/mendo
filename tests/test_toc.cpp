@@ -100,3 +100,57 @@ TEST(Toc, HitTestEmpty) {
     TableOfContents toc;
     EXPECT_EQ(toc.HitTest(0.0f, 28.0f), -1);
 }
+
+// ---- Additional edge cases ----
+
+TEST(Toc, DuplicateHeadingText) {
+    auto nodes = ParseMarkdown("# Title\n\nSome text\n\n# Title\n\nMore text\n\n## Title");
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+    ASSERT_EQ(toc.GetEntries().size(), 3u);
+    // All should have same text
+    for (const auto& entry : toc.GetEntries()) {
+        EXPECT_EQ(entry.text, L"Title");
+    }
+    // But anchor_ids should be unique (after parser refactoring)
+    EXPECT_NE(toc.GetEntries()[0].anchor_id, toc.GetEntries()[1].anchor_id);
+}
+
+TEST(Toc, ManyHeadings) {
+    std::string md;
+    for (int i = 0; i < 100; i++) {
+        md += "## Heading " + std::to_string(i) + "\n\ntext\n\n";
+    }
+    auto nodes = ParseMarkdown(md);
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+    EXPECT_EQ(toc.GetEntries().size(), 100u);
+}
+
+TEST(Toc, HeadingLevelsPreserved) {
+    auto nodes = ParseMarkdown(
+        "# L1\n\n## L2\n\n### L3\n\n#### L4\n\n##### L5\n\n###### L6"
+    );
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+    ASSERT_EQ(toc.GetEntries().size(), 6u);
+    for (int i = 0; i < 6; i++) {
+        EXPECT_EQ(toc.GetEntries()[i].heading_level, i + 1);
+    }
+}
+
+TEST(Toc, HitTestBoundary) {
+    auto nodes = ParseMarkdown("# A\n\n## B");
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+    // Exactly at boundary between items
+    EXPECT_EQ(toc.HitTest(27.9f, 28.0f), 0);
+    EXPECT_EQ(toc.HitTest(28.0f, 28.0f), 1);
+}
+
+TEST(Toc, HitTestNegativeItemHeight) {
+    auto nodes = ParseMarkdown("# A");
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+    EXPECT_EQ(toc.HitTest(10.0f, -1.0f), -1);
+}

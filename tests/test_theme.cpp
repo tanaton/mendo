@@ -132,3 +132,53 @@ TEST(Theme, DarkAndLightHaveSameSpacing) {
     EXPECT_FLOAT_EQ(light.heading_spacing_above, dark.heading_spacing_above);
     EXPECT_FLOAT_EQ(light.heading_spacing_below, dark.heading_spacing_below);
 }
+
+// ---- ApplyCommonLayout consistency tests ----
+
+TEST(Theme, DarkAndLightHaveSameIndentation) {
+    Theme light = GetLightTheme();
+    Theme dark = GetDarkTheme();
+    EXPECT_FLOAT_EQ(light.indent_width, dark.indent_width);
+    EXPECT_FLOAT_EQ(light.margin_right, dark.margin_right);
+    EXPECT_FLOAT_EQ(light.code_block_padding, dark.code_block_padding);
+}
+
+TEST(Theme, DarkAndLightHaveSamePaneLayout) {
+    Theme light = GetLightTheme();
+    Theme dark = GetDarkTheme();
+    EXPECT_FLOAT_EQ(light.splitter_width, dark.splitter_width);
+    EXPECT_FLOAT_EQ(light.pane_item_height, dark.pane_item_height);
+    EXPECT_FLOAT_EQ(light.pane_header_height, dark.pane_header_height);
+}
+
+TEST(Theme, DarkAndLightHaveSameAllHeadingSizes) {
+    Theme light = GetLightTheme();
+    Theme dark = GetDarkTheme();
+    EXPECT_FLOAT_EQ(light.font_size_h2, dark.font_size_h2);
+    EXPECT_FLOAT_EQ(light.font_size_h3, dark.font_size_h3);
+    EXPECT_FLOAT_EQ(light.font_size_h4, dark.font_size_h4);
+    EXPECT_FLOAT_EQ(light.font_size_h5, dark.font_size_h5);
+    EXPECT_FLOAT_EQ(light.font_size_h6, dark.font_size_h6);
+}
+
+TEST(Theme, GetHeadingSizeLargeLevel) {
+    Theme t = GetLightTheme();
+    EXPECT_EQ(t.GetHeadingSize(100), t.font_size_body);
+    EXPECT_EQ(t.GetHeadingSize(-100), t.font_size_body);
+}
+
+TEST(Theme, DarkAndLightDifferentColors) {
+    Theme light = GetLightTheme();
+    Theme dark = GetDarkTheme();
+    // Background colors should be different
+    EXPECT_NE(light.bg_color.r, dark.bg_color.r);
+    // Text colors should be different
+    EXPECT_NE(light.text_color.r, dark.text_color.r);
+}
+
+TEST(Theme, LightThemeTextIsDark) {
+    Theme t = GetLightTheme();
+    EXPECT_LT(t.text_color.r, 0.3f);
+    EXPECT_LT(t.text_color.g, 0.3f);
+    EXPECT_LT(t.text_color.b, 0.3f);
+}

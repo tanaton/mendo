@@ -49,6 +49,7 @@ add_library(MaDView_core STATIC
     src/toc.cpp
     src/document_utils.cpp
     src/pane_layout.cpp
+    src/mermaid_util.cpp
 )
 target_include_directories(MaDView_core PUBLIC src third_party/md4c)
 target_compile_definitions(MaDView_core PUBLIC

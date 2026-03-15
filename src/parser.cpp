@@ -1,6 +1,7 @@
 #include "parser.h"
 #include "md4c.h"
 #include <stack>
+#include <unordered_map>
 #include <windows.h>
 
 std::wstring GenerateAnchorId(const std::wstring& text) {
@@ -63,6 +64,9 @@ struct ParseContext {
 
     // Current node being built
     RenderNode* current_node = nullptr;
+
+    // Anchor ID uniqueness tracking: slug -> count
+    std::unordered_map<std::wstring, int> anchor_counts;
 
     void BeginNode(NodeType type) {
         nodes.emplace_back();
@@ -260,7 +264,14 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
 
         case MD_BLOCK_H:
             if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
-                ctx->current_node->anchor_id = GenerateAnchorId(ctx->current_node->text);
+                std::wstring base_id = GenerateAnchorId(ctx->current_node->text);
+                int& count = ctx->anchor_counts[base_id];
+                if (count > 0) {
+                    ctx->current_node->anchor_id = base_id + L"-" + std::to_wstring(count);
+                } else {
+                    ctx->current_node->anchor_id = base_id;
+                }
+                count++;
             }
             ctx->current_node = nullptr;
             break;
@@ -339,6 +350,25 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
                 else if (entity == "&quot;") wtext = L"\"";
                 else if (entity == "&apos;") wtext = L"'";
                 else if (entity == "&nbsp;") wtext = L"\u00A0";
+                else if (entity.size() >= 4 && entity[0] == '&' && entity[1] == '#') {
+                    // Numeric character reference: &#NNN; or &#xHHH;
+                    unsigned long codepoint = 0;
+                    bool valid = false;
+                    if (entity[2] == 'x' || entity[2] == 'X') {
+                        // Hex: &#xHHH;
+                        try { codepoint = std::stoul(entity.substr(3, entity.size() - 4), nullptr, 16); valid = true; }
+                        catch (...) {}
+                    } else {
+                        // Decimal: &#NNN;
+                        try { codepoint = std::stoul(entity.substr(2, entity.size() - 3), nullptr, 10); valid = true; }
+                        catch (...) {}
+                    }
+                    if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
+                        wtext = std::wstring(1, static_cast<wchar_t>(codepoint));
+                    } else {
+                        wtext = Utf8ToWide(text, size);
+                    }
+                }
                 else wtext = Utf8ToWide(text, size);
             } else {
                 wtext = Utf8ToWide(text, size);

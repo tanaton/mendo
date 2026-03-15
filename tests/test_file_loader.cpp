@@ -114,3 +114,59 @@ TEST_F(FileLoaderTest, StopWatchingPreventsCallback) {
     loader.CheckForChanges();
     EXPECT_FALSE(changed);
 }
+
+// ---- Additional edge cases ----
+
+TEST_F(FileLoaderTest, LargeFile) {
+    // Create a 1MB file
+    std::string large_content(1024 * 1024, 'A');
+    auto path = WriteFile(L"large.md", large_content);
+    auto content = FileLoader::LoadFile(path.wstring());
+    EXPECT_EQ(content.size(), large_content.size());
+}
+
+TEST_F(FileLoaderTest, FileWithOnlyBomAndContent) {
+    std::string bom_content = "\xEF\xBB\xBF# Title\n\nContent";
+    auto path = WriteFile(L"bomcontent.md", bom_content);
+    auto content = FileLoader::LoadFile(path.wstring());
+    EXPECT_EQ(content, "# Title\n\nContent");
+}
+
+TEST_F(FileLoaderTest, WatcherRestartOnNewFile) {
+    auto path1 = WriteFile(L"watch1.md", "content1");
+    auto path2 = WriteFile(L"watch2.md", "content2");
+
+    FileLoader loader;
+    int change_count = 0;
+    loader.StartWatching(path1.wstring(), [&]() { change_count++; });
+
+    // Switch to watching a different file
+    loader.StartWatching(path2.wstring(), [&]() { change_count++; });
+
+    // Modify original file - should NOT trigger callback
+    Sleep(300);
+    WriteFile(L"watch1.md", "modified1");
+    loader.CheckForChanges();
+    EXPECT_EQ(change_count, 0);
+
+    // Modify new file - should trigger callback
+    Sleep(300);
+    WriteFile(L"watch2.md", "modified2");
+    loader.CheckForChanges();
+    EXPECT_EQ(change_count, 1);
+}
+
+TEST_F(FileLoaderTest, WatcherDestructorDoesNotCrash) {
+    auto path = WriteFile(L"destructor.md", "content");
+    {
+        FileLoader loader;
+        loader.StartWatching(path.wstring(), []() {});
+        // Destructor should safely stop watching
+    }
+}
+
+TEST_F(FileLoaderTest, FileWithNewlines) {
+    auto path = WriteFile(L"newlines.md", "line1\r\nline2\r\nline3");
+    auto content = FileLoader::LoadFile(path.wstring());
+    EXPECT_EQ(content, "line1\r\nline2\r\nline3");
+}

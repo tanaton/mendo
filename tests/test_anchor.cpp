@@ -52,3 +52,40 @@ TEST(AnchorId, AllSpecialChars) {
 TEST(AnchorId, MultipleSpacesMultipleHyphens) {
     EXPECT_EQ(GenerateAnchorId(L"a  b"), L"a--b");
 }
+
+// ---- Additional edge cases ----
+
+TEST(AnchorId, FullWidthDigits) {
+    // Full-width digits (０-９) are >= 0x3000, so they should be kept
+    EXPECT_EQ(GenerateAnchorId(L"テスト０１"), L"テスト０１");
+}
+
+TEST(AnchorId, MixedWhitespaceAndSpecialChars) {
+    EXPECT_EQ(GenerateAnchorId(L"Hello!! World??"), L"hello-world");
+}
+
+TEST(AnchorId, OnlySpaces) {
+    EXPECT_EQ(GenerateAnchorId(L"   "), L"---");
+}
+
+TEST(AnchorId, LeadingAndTrailingSpaces) {
+    EXPECT_EQ(GenerateAnchorId(L" hello "), L"-hello-");
+}
+
+TEST(AnchorId, NumbersOnly) {
+    EXPECT_EQ(GenerateAnchorId(L"123"), L"123");
+}
+
+TEST(AnchorId, HyphenAndUnderscore) {
+    EXPECT_EQ(GenerateAnchorId(L"a-b_c"), L"a-b_c");
+}
+
+TEST(AnchorId, LongText) {
+    std::wstring input(1000, L'A');
+    auto result = GenerateAnchorId(input);
+    EXPECT_EQ(result.size(), 1000u);
+    // All should be lowercase 'a'
+    for (wchar_t c : result) {
+        EXPECT_EQ(c, L'a');
+    }
+}

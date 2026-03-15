@@ -1,24 +1,34 @@
 #include "layout.h"
 #include <algorithm>
 
+// Named constants for magic numbers
+static constexpr float MIN_COLUMN_WIDTH = 30.0f;
+static constexpr float COLUMN_WIDTH_PADDING = 4.0f;
+static constexpr float TABLE_CELL_PADDING = 8.0f;
+static constexpr float TABLE_BORDER_WIDTH = 1.0f;
+static constexpr float CODE_BLOCK_NO_WRAP_WIDTH = 10000.0f;
+static constexpr float LAYOUT_MAX_HEIGHT = 100000.0f;
+static constexpr float DEFAULT_COLUMN_WIDTH = 60.0f;
+static constexpr float MIN_MERMAID_PLACEHOLDER_HEIGHT = 60.0f;
+
 // ---- Free functions ----
 
 std::vector<float> ComputeColumnWidths(const std::vector<float>& natural_widths,
                                         float available_width, size_t col_count) {
     std::vector<float> widths(col_count);
-    available_width = std::max(available_width, static_cast<float>(col_count) * 30.0f);
+    available_width = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
     float total_natural = 0;
     for (float w : natural_widths) total_natural += w;
 
     if (total_natural > 0 && total_natural > available_width) {
         for (size_t c = 0; c < col_count; c++) {
-            widths[c] = std::max(30.0f, available_width * natural_widths[c] / total_natural);
+            widths[c] = std::max(MIN_COLUMN_WIDTH, available_width * natural_widths[c] / total_natural);
         }
     } else {
         float even = available_width / static_cast<float>(col_count);
         for (size_t c = 0; c < col_count; c++) {
-            widths[c] = std::max(natural_widths[c] + 4.0f, even);
+            widths[c] = std::max(natural_widths[c] + COLUMN_WIDTH_PADDING, even);
         }
     }
     return widths;
@@ -147,8 +157,8 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
     }
     if (col_count == 0) { node.layout_dirty = false; return; }
 
-    float cell_padding = 8.0f;
-    float border_width = 1.0f;
+    float cell_padding = TABLE_CELL_PADDING;
+    float border_width = TABLE_BORDER_WIDTH;
 
     // First pass: create text layouts and measure natural widths
     std::vector<float> natural_widths(col_count, 0.0f);
@@ -163,7 +173,7 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
             IDWriteTextFormat* cell_fmt = cell.is_header ? fmt_bold : fmt;
             dwrite_->CreateTextLayout(
                 cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
-                cell_fmt, 10000.0f, 100000.0f, &cell.text_layout);
+                cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT, &cell.text_layout);
 
             if (cell.text_layout) {
                 ApplyCellRunFormatting(cell.text_layout.Get(), cell.runs);
@@ -186,7 +196,7 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
         float row_height = theme_->font_size_body * 1.4f; // minimum row height
         for (size_t c = 0; c < row.cells.size(); c++) {
             auto& cell = row.cells[c];
-            float cw = (c < node.col_widths.size()) ? node.col_widths[c] : 60.0f;
+            float cw = (c < node.col_widths.size()) ? node.col_widths[c] : DEFAULT_COLUMN_WIDTH;
 
             if (cell.text_layout) {
                 cell.text_layout->SetMaxWidth(cw);
@@ -230,7 +240,7 @@ void LayoutEngine::CreateTextLayout(RenderNode& node, float max_width) {
             node.height = node.diagram_height;
         } else {
             // Placeholder: show code text until the diagram bitmap arrives
-            node.height = std::max(60.0f, theme_->font_size_body * 3.0f);
+            node.height = std::max(MIN_MERMAID_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
         }
         node.layout_dirty = false;
         return;
@@ -248,13 +258,13 @@ void LayoutEngine::CreateTextLayout(RenderNode& node, float max_width) {
 
     // Adjust width for code blocks (account for padding)
     if (node.type == NodeType::CodeBlock) {
-        layout_width = 10000.0f; // No wrap for code
+        layout_width = CODE_BLOCK_NO_WRAP_WIDTH; // No wrap for code
     }
 
     ComPtr<IDWriteTextLayout> layout;
     HRESULT hr = dwrite_->CreateTextLayout(
         text.c_str(), static_cast<UINT32>(text.size()),
-        fmt, layout_width, 100000.0f, &layout);
+        fmt, layout_width, LAYOUT_MAX_HEIGHT, &layout);
 
     if (FAILED(hr)) return;
 

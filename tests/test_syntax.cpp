@@ -596,3 +596,137 @@ TEST(Syntax, ParserCaseInsensitiveLanguage) {
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
 }
+
+// ---- Additional edge cases ----
+
+// Mermaid detection
+TEST(Syntax, DetectLanguageMermaid) {
+    EXPECT_EQ(DetectLanguage(L"mermaid"), SyntaxLanguage::Mermaid);
+}
+
+// C++ raw strings
+TEST(Syntax, CppRawString) {
+    auto tokens = Tokenize(L"R\"(hello)\"", SyntaxLanguage::Cpp);
+    // Should detect the raw string as a single string token
+    bool has_string = false;
+    for (const auto& t : tokens) {
+        if (t.type == SyntaxTokenType::String) {
+            has_string = true;
+        }
+    }
+    EXPECT_TRUE(has_string);
+}
+
+// C++ octal number
+TEST(Syntax, CppNumberOctal) {
+    auto tokens = Tokenize(L"0o77", SyntaxLanguage::Cpp);
+    bool has_number = false;
+    for (const auto& t : tokens) {
+        if (t.type == SyntaxTokenType::Number) has_number = true;
+    }
+    EXPECT_TRUE(has_number);
+}
+
+// C++ number suffix
+TEST(Syntax, CppNumberWithSuffix) {
+    auto tokens = Tokenize(L"42ULL", SyntaxLanguage::Cpp);
+    bool has_number = false;
+    for (const auto& t : tokens) {
+        if (t.type == SyntaxTokenType::Number) {
+            has_number = true;
+            // The entire "42ULL" should be a single number token
+            EXPECT_EQ(t.length, 5u);
+        }
+    }
+    EXPECT_TRUE(has_number);
+}
+
+// Python decorator
+TEST(Syntax, PythonDecorator) {
+    auto tokens = Tokenize(L"@staticmethod\ndef foo():\n    pass", SyntaxLanguage::Python);
+    // "@" is not specifically handled, but "def" and "pass" should still be keywords
+    bool has_def = false;
+    bool has_pass = false;
+    for (const auto& t : tokens) {
+        if (t.type == SyntaxTokenType::Keyword) {
+            std::wstring_view word(L"@staticmethod\ndef foo():\n    pass" + t.start, t.length);
+            if (word == L"def") has_def = true;
+            if (word == L"pass") has_pass = true;
+        }
+    }
+    EXPECT_TRUE(has_def);
+    EXPECT_TRUE(has_pass);
+}
+
+// JavaScript BigInt
+TEST(Syntax, JsBigIntNumber) {
+    auto tokens = Tokenize(L"42n", SyntaxLanguage::JavaScript);
+    bool has_number = false;
+    for (const auto& t : tokens) {
+        if (t.type == SyntaxTokenType::Number) {
+            has_number = true;
+            EXPECT_EQ(t.length, 3u); // "42n"
+        }
+    }
+    EXPECT_TRUE(has_number);
+}
+
+// Empty code block
+TEST(Syntax, TokenizeEmptyCpp) {
+    auto tokens = Tokenize(L"", SyntaxLanguage::Cpp);
+    EXPECT_TRUE(tokens.empty());
+}
+
+// Single character
+TEST(Syntax, TokenizeSingleKeyword) {
+    auto tokens = Tokenize(L"if", SyntaxLanguage::Cpp);
+    ASSERT_EQ(tokens.size(), 1u);
+    EXPECT_EQ(tokens[0].type, SyntaxTokenType::Keyword);
+}
+
+// C++ line comment at end of text (no newline)
+TEST(Syntax, CppCommentEol) {
+    auto tokens = Tokenize(L"int x; // comment", SyntaxLanguage::Cpp);
+    bool has_comment = false;
+    for (const auto& t : tokens) {
+        if (t.type == SyntaxTokenType::Comment) has_comment = true;
+    }
+    EXPECT_TRUE(has_comment);
+}
+
+// Float that starts with dot
+TEST(Syntax, NumberStartsWithDot) {
+    auto tokens = Tokenize(L".5f", SyntaxLanguage::Cpp);
+    bool has_number = false;
+    for (const auto& t : tokens) {
+        if (t.type == SyntaxTokenType::Number) has_number = true;
+    }
+    EXPECT_TRUE(has_number);
+}
+
+// C++ preprocessor with line continuation
+TEST(Syntax, CppPreprocessorContinuation) {
+    auto tokens = Tokenize(L"#define FOO \\\n    bar", SyntaxLanguage::Cpp);
+    // Should be a single preprocessor token spanning the continuation
+    bool has_prep = false;
+    for (const auto& t : tokens) {
+        if (t.type == SyntaxTokenType::Preprocessor) {
+            has_prep = true;
+        }
+    }
+    EXPECT_TRUE(has_prep);
+}
+
+// Detect Tsx extension
+TEST(Syntax, DetectLanguageTsx) {
+    EXPECT_EQ(DetectLanguage(L"tsx"), SyntaxLanguage::JavaScript);
+}
+
+// Detect unknown extensions
+TEST(Syntax, DetectLanguageRuby) {
+    EXPECT_EQ(DetectLanguage(L"ruby"), SyntaxLanguage::None);
+}
+
+TEST(Syntax, DetectLanguageGo) {
+    EXPECT_EQ(DetectLanguage(L"go"), SyntaxLanguage::None);
+}
