@@ -882,9 +882,11 @@ void MainWindow::RequestMermaidRenders() {
         if (node.diagram_bitmap) continue; // already rendered
 
         mermaid_renderer_.RequestRender(node, content_width, dark_mode_, [this]() {
-            // Re-layout after bitmap is available
+            // Re-layout after bitmap is available, preserving scroll position
+            int anchor_idx = FindFirstVisibleNode();
+            float anchor_y_before = (anchor_idx >= 0) ? nodes_[anchor_idx].y_position : 0.0f;
             auto result = RecomputeYPositions(nodes_, renderer_.GetTheme());
-            SyncMaxScroll();
+            AnchorCompensateScroll(anchor_idx, anchor_y_before);
             InvalidateRect(hwnd_, nullptr, FALSE);
         });
     }
@@ -915,11 +917,11 @@ void MainWindow::ToggleDarkMode() {
         node.text_layout.Reset();
         node.effects_applied = false;
         node.inline_code_bgs.clear();
-        // Clear mermaid bitmaps so they re-render with correct theme
+        // Clear mermaid bitmaps so they re-render with correct theme.
+        // Keep diagram_width/diagram_height so layout uses the previous size
+        // as a placeholder, preventing scroll position jumps.
         if (node.code_language == SyntaxLanguage::Mermaid) {
             node.diagram_bitmap.Reset();
-            node.diagram_width = 0;
-            node.diagram_height = 0;
         }
     }
     mermaid_renderer_.ClearCache();

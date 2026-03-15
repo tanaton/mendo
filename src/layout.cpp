@@ -238,6 +238,9 @@ void LayoutEngine::CreateTextLayout(RenderNode& node, float max_width) {
     if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
         if (node.diagram_bitmap) {
             node.height = node.diagram_height;
+        } else if (node.diagram_height > 0) {
+            // Use previously known height to keep layout stable during re-render
+            node.height = node.diagram_height;
         } else {
             // Placeholder: show code text until the diagram bitmap arrives
             node.height = std::max(MIN_MERMAID_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
