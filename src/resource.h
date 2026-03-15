@@ -8,4 +8,4 @@
 #define IDM_TOGGLE_DARK_MODE 203
 
 // Embedded resources
-#define IDR_MERMAID_JS 301
+#define IDR_MERMAID_JS_GZ 301

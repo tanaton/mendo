@@ -62,6 +62,20 @@ if(MSVC)
     target_compile_options(MaDView_core PRIVATE /W4 /utf-8)
 endif()
 
+# ---- Gzip compress mermaid.min.js for smaller exe ----
+set(MERMAID_JS_SRC "${CMAKE_SOURCE_DIR}/third_party/mermaid/mermaid.min.js")
+set(MERMAID_JS_GZ  "${CMAKE_SOURCE_DIR}/third_party/mermaid/mermaid.min.js.gz")
+add_custom_command(
+    OUTPUT  "${MERMAID_JS_GZ}"
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+        "${CMAKE_SOURCE_DIR}/cmake/gzip.ps1"
+        "${MERMAID_JS_SRC}" "${MERMAID_JS_GZ}"
+    DEPENDS "${MERMAID_JS_SRC}"
+    COMMENT "Compressing mermaid.min.js with gzip"
+    VERBATIM
+)
+add_custom_target(mermaid_gz DEPENDS "${MERMAID_JS_GZ}")
+
 # ---- Main executable ----
 add_executable(MaDView WIN32
     src/main.cpp
@@ -70,6 +84,7 @@ add_executable(MaDView WIN32
     src/mermaid.cpp
     res/MaDView.rc
 )
+add_dependencies(MaDView mermaid_gz)
 target_include_directories(MaDView PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})
 target_link_libraries(MaDView PRIVATE MaDView_core
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"

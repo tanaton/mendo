@@ -32,5 +32,5 @@ BEGIN
     END
 END
 
-// Embedded mermaid.js for offline rendering
-IDR_MERMAID_JS RCDATA "..\\third_party\\mermaid\\mermaid.min.js"
+// Embedded mermaid.js (gzip compressed) for offline rendering
+IDR_MERMAID_JS_GZ RCDATA "..\\third_party\\mermaid\\mermaid.min.js.gz"

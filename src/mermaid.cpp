@@ -10,11 +10,12 @@
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "shlwapi.lib")
 
-// Load the embedded mermaid.min.js from Win32 resources (RCDATA).
-// Returns the JS source as a UTF-8 std::string, or empty on failure.
-static std::string LoadMermaidJsFromResource() {
+// Load the gzip-compressed mermaid.min.js from Win32 resources (RCDATA).
+// Returns the raw gzip bytes as a std::string (NOT decompressed).
+// WebView2 (Chromium) will decompress it via Content-Encoding: gzip.
+static std::string LoadMermaidJsGzFromResource() {
     HMODULE hModule = GetModuleHandleW(nullptr);
-    HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(IDR_MERMAID_JS), RT_RCDATA);
+    HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(IDR_MERMAID_JS_GZ), RT_RCDATA);
     if (!hRes) return {};
     HGLOBAL hData = LoadResource(hModule, hRes);
     if (!hData) return {};
@@ -37,7 +38,6 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
   body.dark { background: #1e1e1e; }
   #container { display: block; }
 </style>
-<script src="https://app.local/mermaid.min.js"></script>
 <script>
   let currentTheme = null;
   let renderCount = 0;
@@ -87,11 +87,29 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
     }
   }
 
-  window.addEventListener('load', function() {
-    var dpr = window.devicePixelRatio || 1;
-    window.chrome.webview.postMessage(
-      mermaidReady() ? ('mermaid-ready:' + dpr) : 'mermaid-failed');
-  });
+  // Load gzip-compressed mermaid.js using DecompressionStream API
+  (async function() {
+    try {
+      const resp = await fetch('https://app.local/mermaid.min.js.gz');
+      const ds = new DecompressionStream('gzip');
+      const text = await new Response(resp.body.pipeThrough(ds)).text();
+      const blob = new Blob([text], {type: 'application/javascript'});
+      const url = URL.createObjectURL(blob);
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+      URL.revokeObjectURL(url);
+      var dpr = window.devicePixelRatio || 1;
+      window.chrome.webview.postMessage(
+        mermaidReady() ? ('mermaid-ready:' + dpr) : 'mermaid-failed');
+    } catch(e) {
+      window.chrome.webview.postMessage('mermaid-failed');
+    }
+  })();
 </script>
 </head>
 <body>
@@ -287,14 +305,14 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                         IStream* stream = nullptr;
                                         const wchar_t* headers = nullptr;
 
-                                        if (url.find(L"/mermaid.min.js") != std::wstring::npos) {
-                                            // Serve mermaid.js from embedded resource
-                                            std::string js = LoadMermaidJsFromResource();
-                                            OutputDebugStringW(L"[MaDView/Mermaid] Serving mermaid.min.js from resource (");
-                                            OutputDebugStringW(std::to_wstring(js.size()).c_str());
-                                            OutputDebugStringW(L" bytes)\n");
-                                            stream = CreateMemoryStream(js.data(), js.size());
-                                            headers = L"Content-Type: application/javascript; charset=utf-8";
+                                        if (url.find(L"/mermaid.min.js.gz") != std::wstring::npos) {
+                                            // Serve gzip-compressed mermaid.js; JS decompresses via DecompressionStream
+                                            std::string gz = LoadMermaidJsGzFromResource();
+                                            OutputDebugStringW(L"[MaDView/Mermaid] Serving mermaid.min.js.gz from resource (");
+                                            OutputDebugStringW(std::to_wstring(gz.size()).c_str());
+                                            OutputDebugStringW(L" bytes, gzip)\n");
+                                            stream = CreateMemoryStream(gz.data(), gz.size());
+                                            headers = L"Content-Type: application/gzip";
                                         } else {
                                             // Serve the HTML template for any other path
                                             stream = CreateMemoryStream(kMermaidHtml, sizeof(kMermaidHtml) - 1);
