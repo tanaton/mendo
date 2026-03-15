@@ -367,6 +367,13 @@ void MainWindow::OnPaint() {
     BeginPaint(hwnd_, &ps);
 
     auto layout = GetPaneLayout();
+    if (!loading_) {
+        // Ensure any dirty nodes now visible are laid out at the current width
+        float viewport_top = scroll_y_;
+        float viewport_bottom = scroll_y_ + layout.md_rect.height;
+        renderer_.GetLayout().EnsureVisibleLayout(
+            nodes_, GetMarkdownPaneWidth(), viewport_top, viewport_bottom);
+    }
     if (loading_) {
         renderer_.DrawLoading(loading_angle_,
                               layout.file_rect, layout.toc_rect, layout.md_rect,
