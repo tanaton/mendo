@@ -108,7 +108,7 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
         L"MaDView",
         WS_OVERLAPPEDWINDOW | WS_VSCROLL,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        1200, 700,
+        2100, 1400,
         nullptr, nullptr, hInstance, this);
 
     if (!hwnd_) return false;
