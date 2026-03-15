@@ -723,11 +723,12 @@ void MainWindow::OnDeferredLayout() {
     scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
     scroll_target_ = scroll_y_;
 
-    UpdateScrollBar();
-    InvalidateRect(hwnd_, nullptr, FALSE);
-
     if (!more) {
+        // Only repaint on the final batch; intermediate batches only affect
+        // off-screen nodes, so repainting would just cause sub-pixel jitter.
         KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
+        UpdateScrollBar();
+        InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
 
