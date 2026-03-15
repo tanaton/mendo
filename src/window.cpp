@@ -177,6 +177,11 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_ENTERSIZEMOVE:
             is_sizing_ = true;
+            if (smooth_scrolling_) {
+                scroll_y_ = scroll_target_;
+                smooth_scrolling_ = false;
+                KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
+            }
             return 0;
 
         case WM_EXITSIZEMOVE:
@@ -1355,5 +1360,7 @@ void MainWindow::NavigateToAnchor(const std::wstring& anchor) {
 
     float target_y = nodes_[idx].y_position - renderer_.GetTheme().heading_spacing_above;
     target_y = std::max(0.0f, target_y);
-    SmoothScrollBy(target_y - scroll_y_);
+    ScrollTo(target_y);
+    UpdateScrollBar();
+    InvalidateMdPane();
 }
