@@ -177,11 +177,7 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_ENTERSIZEMOVE:
             is_sizing_ = true;
-            if (smooth_scrolling_) {
-                scroll_y_ = scroll_target_;
-                smooth_scrolling_ = false;
-                KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
-            }
+            StopSmoothScroll();
             return 0;
 
         case WM_EXITSIZEMOVE:
@@ -372,29 +368,14 @@ void MainWindow::OnPaint() {
         float viewport_top = scroll_y_;
         float viewport_bottom = scroll_y_ + layout.md_rect.height;
 
-        // Record anchor node position before re-layout
-        float anchor_y_before = 0.0f;
-        int anchor_idx = -1;
-        for (int i = 0; i < static_cast<int>(nodes_.size()); ++i) {
-            float bottom = nodes_[i].y_position + nodes_[i].height;
-            if (bottom > scroll_y_) {
-                anchor_idx = i;
-                anchor_y_before = nodes_[i].y_position;
-                break;
-            }
-        }
+        int anchor_idx = FindFirstVisibleNode();
+        float anchor_y_before = (anchor_idx >= 0) ? nodes_[anchor_idx].y_position : 0.0f;
 
         bool updated = renderer_.GetLayout().EnsureVisibleLayout(
             nodes_, GetMarkdownPaneWidth(), viewport_top, viewport_bottom);
 
-        if (updated && anchor_idx >= 0) {
-            float shift = nodes_[anchor_idx].y_position - anchor_y_before;
-            scroll_y_ += shift;
-            scroll_target_ += shift;
-            float total = renderer_.GetLayout().GetTotalHeight();
-            max_scroll_ = std::max(0.0f, total - layout.md_rect.height);
-            scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
-            scroll_target_ = scroll_y_;
+        if (updated) {
+            AnchorCompensateScroll(anchor_idx, anchor_y_before);
         }
     }
     if (loading_) {
@@ -423,11 +404,7 @@ void MainWindow::OnResize(UINT width, UINT height) {
 
     if (is_sizing_) {
         // During active resize drag: skip expensive layout recomputation
-        float total = renderer_.GetLayout().GetTotalHeight();
-        auto layout = GetPaneLayout();
-        max_scroll_ = std::max(0.0f, total - layout.md_rect.height);
-        scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
-        scroll_target_ = scroll_y_;
+        SyncMaxScroll();
         UpdateScrollBar();
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
@@ -442,11 +419,7 @@ void MainWindow::OnResize(UINT width, UINT height) {
 
     renderer_.GetLayout().ComputeLayout(nodes_, md_width, viewport_top, viewport_bottom);
 
-    float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
-    scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
-    scroll_target_ = scroll_y_;
-
+    SyncMaxScroll();
     UpdateScrollBar();
     InvalidateRect(hwnd_, nullptr, FALSE);
 
@@ -707,6 +680,38 @@ void MainWindow::InvalidateMdPane() {
     InvalidateRect(hwnd_, &rc, FALSE);
 }
 
+void MainWindow::StopSmoothScroll() {
+    if (!smooth_scrolling_) return;
+    scroll_y_ = scroll_target_;
+    smooth_scrolling_ = false;
+    KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
+}
+
+void MainWindow::SyncMaxScroll() {
+    auto pane_layout = GetPaneLayout();
+    float total = renderer_.GetLayout().GetTotalHeight();
+    max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
+    scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
+    scroll_target_ = scroll_y_;
+}
+
+int MainWindow::FindFirstVisibleNode() const {
+    for (int i = 0; i < static_cast<int>(nodes_.size()); ++i) {
+        if (nodes_[i].y_position + nodes_[i].height > scroll_y_) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void MainWindow::AnchorCompensateScroll(int anchor_idx, float anchor_y_before) {
+    if (anchor_idx < 0) return;
+    float shift = nodes_[anchor_idx].y_position - anchor_y_before;
+    scroll_y_ += shift;
+    scroll_target_ += shift;
+    SyncMaxScroll();
+}
+
 void MainWindow::OnResizeEnd() {
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
@@ -717,50 +722,29 @@ void MainWindow::OnResizeEnd() {
 
     renderer_.GetLayout().ComputeLayout(nodes_, md_width, viewport_top, viewport_bottom);
 
-    float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
-    scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
-    scroll_target_ = scroll_y_;
-
+    SyncMaxScroll();
     UpdateScrollBar();
     InvalidateRect(hwnd_, nullptr, FALSE);
 
-    // Start incremental processing of remaining dirty nodes
     if (renderer_.GetLayout().HasDirtyNodes()) {
         SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
     }
 }
 
 void MainWindow::OnDeferredLayout() {
-    // Find the first visible node and record its y_position before layout
-    float anchor_y_before = 0.0f;
-    int anchor_idx = -1;
-    for (int i = 0; i < static_cast<int>(nodes_.size()); ++i) {
-        float bottom = nodes_[i].y_position + nodes_[i].height;
-        if (bottom > scroll_y_) {
-            anchor_idx = i;
-            anchor_y_before = nodes_[i].y_position;
-            break;
-        }
-    }
+    int anchor_idx = FindFirstVisibleNode();
+    float anchor_y_before = (anchor_idx >= 0) ? nodes_[anchor_idx].y_position : 0.0f;
 
     float md_width = GetMarkdownPaneWidth();
     bool more = renderer_.GetLayout().ProcessDirtyBatch(nodes_, md_width, 200);
 
     // Compensate scroll to keep visible content at the same screen position,
     // but skip during active scrollbar drag to avoid fighting with user input
-    if (anchor_idx >= 0 && !is_scrollbar_tracking_) {
-        float anchor_y_after = nodes_[anchor_idx].y_position;
-        float shift = anchor_y_after - anchor_y_before;
-        scroll_y_ += shift;
-        scroll_target_ += shift;
+    if (!is_scrollbar_tracking_) {
+        AnchorCompensateScroll(anchor_idx, anchor_y_before);
+    } else {
+        SyncMaxScroll();
     }
-
-    auto pane_layout = GetPaneLayout();
-    float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
-    scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
-    scroll_target_ = scroll_y_;
 
     if (!more) {
         // Only repaint on the final batch; intermediate batches only affect
@@ -775,11 +759,9 @@ void MainWindow::UpdateLayoutAndScroll(float desired_scroll) {
     float md_width = GetMarkdownPaneWidth();
     renderer_.GetLayout().ComputeLayout(nodes_, md_width);
 
-    auto pane_layout = GetPaneLayout();
-    float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
-    scroll_y_ = std::clamp(desired_scroll, 0.0f, max_scroll_);
-    scroll_target_ = scroll_y_;
+    scroll_y_ = desired_scroll;
+    scroll_target_ = desired_scroll;
+    SyncMaxScroll();
 
     UpdateScrollBar();
     InvalidateRect(hwnd_, nullptr, FALSE);

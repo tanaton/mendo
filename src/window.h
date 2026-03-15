@@ -74,8 +74,13 @@ private:
     void ScrollTo(float position);
     void SmoothScrollBy(float delta);
     void UpdateSmoothScroll();
+    void StopSmoothScroll();
+    void SyncMaxScroll();
+    int FindFirstVisibleNode() const;
+    void AnchorCompensateScroll(int anchor_idx, float anchor_y_before);
     void OnResizeEnd();
     void OnDeferredLayout();
+    void InvalidateMdPane();
     void ReloadCurrentFile();
     void DoLoadMarkdownFile();
     void UpdateTitleBar();
@@ -149,8 +154,6 @@ private:
     void ToggleDarkMode();
     void SaveDarkMode() const;
     static bool LoadDarkMode();
-
-    void InvalidateMdPane();
 
     bool dark_mode_ = false;
 
