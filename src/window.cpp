@@ -93,6 +93,12 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
 
     if (!renderer_.Init(hwnd_)) return false;
 
+    // Cache system cursors
+    cursor_arrow_ = LoadCursorW(nullptr, IDC_ARROW);
+    cursor_hand_ = LoadCursorW(nullptr, IDC_HAND);
+    cursor_ibeam_ = LoadCursorW(nullptr, IDC_IBEAM);
+    cursor_sizewe_ = LoadCursorW(nullptr, IDC_SIZEWE);
+
     // Set up file watch timer (check every 250ms)
     SetTimer(hwnd_, TIMER_FILE_WATCH, 250, nullptr);
 
@@ -171,7 +177,10 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     float dip_x = dip.x;
                     float dip_y = dip.y;
 
-                    auto zone = PaneAtPoint(dip_x, dip_y);
+                    auto pane_layout = GetPaneLayout();
+                    auto zone = DetectPaneZone(dip_x, pane_layout,
+                                               renderer_.GetTheme().splitter_width,
+                                               show_file_pane_, show_toc_pane_);
 
                     // Reset hover states
                     int old_file_hover = hovered_file_index_;
@@ -182,20 +191,18 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     switch (zone) {
                         case PaneZone::Splitter1:
                         case PaneZone::Splitter2:
-                            SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
+                            SetCursor(cursor_sizewe_);
                             break;
                         case PaneZone::FilePane: {
-                            SetCursor(LoadCursorW(nullptr, IDC_ARROW));
-                            auto layout = GetPaneLayout();
-                            float content_top = layout.file_rect.y + renderer_.GetTheme().pane_header_height;
+                            SetCursor(cursor_arrow_);
+                            float content_top = pane_layout.file_rect.y + renderer_.GetTheme().pane_header_height;
                             float local_y = dip_y - content_top + file_scroll_.scroll_y;
                             hovered_file_index_ = file_explorer_.HitTest(local_y, renderer_.GetTheme().pane_item_height);
                             break;
                         }
                         case PaneZone::TocPane: {
-                            SetCursor(LoadCursorW(nullptr, IDC_ARROW));
-                            auto layout = GetPaneLayout();
-                            float content_top = layout.toc_rect.y + renderer_.GetTheme().pane_header_height;
+                            SetCursor(cursor_arrow_);
+                            float content_top = pane_layout.toc_rect.y + renderer_.GetTheme().pane_header_height;
                             float local_y = dip_y - content_top + toc_scroll_.scroll_y;
                             hovered_toc_index_ = toc_.HitTest(local_y, renderer_.GetTheme().pane_item_height);
                             break;
@@ -203,11 +210,11 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                         case PaneZone::MdPane: {
                             auto hit = HitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
                             auto link = GetLinkAtHit(hit);
-                            SetCursor(LoadCursorW(nullptr, link.has_value() ? IDC_HAND : IDC_IBEAM));
+                            SetCursor(link.has_value() ? cursor_hand_ : cursor_ibeam_);
                             break;
                         }
                         default:
-                            SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+                            SetCursor(cursor_arrow_);
                             break;
                     }
 
@@ -395,7 +402,10 @@ void MainWindow::OnMouseWheel(int px, int py, short delta) {
     if (!renderer_.GetRenderTarget()) return;
 
     auto dip = PixelToDip(px, py);
-    auto zone = PaneAtPoint(dip.x, dip.y);
+    auto pane_layout = GetPaneLayout();
+    auto zone = DetectPaneZone(dip.x, pane_layout,
+                                renderer_.GetTheme().splitter_width,
+                                show_file_pane_, show_toc_pane_);
     float scroll_amount = -delta * 0.5f;
     const auto& theme = renderer_.GetTheme();
 
@@ -403,7 +413,7 @@ void MainWindow::OnMouseWheel(int px, int py, short delta) {
         case PaneZone::FilePane: {
             float max_file_scroll = std::max(0.0f,
                 static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height
-                - (GetPaneLayout().file_rect.height - theme.pane_header_height));
+                - (pane_layout.file_rect.height - theme.pane_header_height));
             file_scroll_.scroll_y = std::clamp(file_scroll_.scroll_y + scroll_amount, 0.0f, max_file_scroll);
             file_scroll_.max_scroll = max_file_scroll;
             renderer_.InvalidateFilePaneCache();
@@ -413,7 +423,7 @@ void MainWindow::OnMouseWheel(int px, int py, short delta) {
         case PaneZone::TocPane: {
             float max_toc_scroll = std::max(0.0f,
                 static_cast<float>(toc_.GetEntries().size()) * theme.pane_item_height
-                - (GetPaneLayout().toc_rect.height - theme.pane_header_height));
+                - (pane_layout.toc_rect.height - theme.pane_header_height));
             toc_scroll_.scroll_y = std::clamp(toc_scroll_.scroll_y + scroll_amount, 0.0f, max_toc_scroll);
             toc_scroll_.max_scroll = max_toc_scroll;
             renderer_.InvalidateTocPaneCache();
@@ -544,7 +554,25 @@ void MainWindow::UpdateSmoothScroll() {
 
     scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
     UpdateScrollBar();
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    InvalidateMdPane();
+}
+
+void MainWindow::InvalidateMdPane() {
+    auto* rt = renderer_.GetRenderTarget();
+    if (!rt) {
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+    float dpi_x, dpi_y;
+    rt->GetDpi(&dpi_x, &dpi_y);
+    float scale = dpi_x / 96.0f;
+    auto layout = GetPaneLayout();
+    RECT rc;
+    rc.left = static_cast<LONG>(layout.md_rect.x * scale);
+    rc.top = 0;
+    rc.right = static_cast<LONG>((layout.md_rect.x + layout.md_rect.width) * scale) + 1;
+    rc.bottom = static_cast<LONG>(layout.md_rect.height * scale) + 1;
+    InvalidateRect(hwnd_, &rc, FALSE);
 }
 
 void MainWindow::OnResizeEnd() {
@@ -675,32 +703,41 @@ MainWindow::HitResult MainWindow::HitTest(int screen_x, int screen_y) const {
     float md_left = pane_layout.md_rect.x;
     dip_x -= md_left;
 
-    // Find the node at this y position
-    for (int i = 0; i < static_cast<int>(nodes_.size()); i++) {
-        const auto& node = nodes_[i];
-        if (dip_y < node.y_position) continue;
-        if (dip_y > node.y_position + node.height) continue;
+    // Binary search for the node containing dip_y
+    int lo = 0, hi = static_cast<int>(nodes_.size()) - 1;
+    int candidate = -1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (nodes_[mid].y_position <= dip_y) {
+            candidate = mid;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+
+    if (candidate >= 0 && dip_y <= nodes_[candidate].y_position + nodes_[candidate].height) {
+        const auto& node = nodes_[candidate];
 
         if (node.type == NodeType::Table) {
-            return HitTestTable(node, i, dip_x, dip_y);
+            return HitTestTable(node, candidate, dip_x, dip_y);
         }
 
-        if (!node.text_layout) continue;
+        if (node.text_layout) {
+            float indent = node.indent_level * theme.indent_width;
+            float local_x = dip_x - theme.margin_left - indent;
+            float local_y = dip_y - node.y_position;
 
-        // Found the node, now hit-test within its text layout
-        float indent = node.indent_level * theme.indent_width;
-        float local_x = dip_x - theme.margin_left - indent;
-        float local_y = dip_y - node.y_position;
+            BOOL is_trailing = FALSE;
+            BOOL is_inside = FALSE;
+            DWRITE_HIT_TEST_METRICS metrics{};
+            node.text_layout->HitTestPoint(local_x, local_y,
+                                           &is_trailing, &is_inside, &metrics);
 
-        BOOL is_trailing = FALSE;
-        BOOL is_inside = FALSE;
-        DWRITE_HIT_TEST_METRICS metrics{};
-        node.text_layout->HitTestPoint(local_x, local_y,
-                                       &is_trailing, &is_inside, &metrics);
-
-        result.node_index = i;
-        result.text_pos = metrics.textPosition + (is_trailing ? 1 : 0);
-        return result;
+            result.node_index = candidate;
+            result.text_pos = metrics.textPosition + (is_trailing ? 1 : 0);
+            return result;
+        }
     }
 
     // Click below all nodes → select end of last node
@@ -805,7 +842,10 @@ void MainWindow::OnLButtonDown(int px, int py) {
     float dip_x = dip.x;
     float dip_y = dip.y;
 
-    auto zone = PaneAtPoint(dip_x, dip_y);
+    auto pane_layout = GetPaneLayout();
+    auto zone = DetectPaneZone(dip_x, pane_layout,
+                                renderer_.GetTheme().splitter_width,
+                                show_file_pane_, show_toc_pane_);
 
     switch (zone) {
         case PaneZone::Splitter1:
@@ -817,14 +857,13 @@ void MainWindow::OnLButtonDown(int px, int py) {
             drag_target_ = DragTarget::Splitter2;
             return;
         case PaneZone::FilePane: {
-            auto layout = GetPaneLayout();
             const auto& theme = renderer_.GetTheme();
             float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
-            auto scroll_info = ComputePaneScrollInfo(layout.file_rect, total_content);
-            float local_x = dip_x - layout.file_rect.x;
+            auto scroll_info = ComputePaneScrollInfo(pane_layout.file_rect, total_content);
+            float local_x = dip_x - pane_layout.file_rect.x;
 
             // Check if click is on scrollbar area
-            if (local_x >= layout.file_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
+            if (local_x >= pane_layout.file_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
                 && total_content > scroll_info.content_height) {
                 SetCapture(hwnd_);
                 drag_target_ = DragTarget::FileScrollbar;
@@ -853,14 +892,13 @@ void MainWindow::OnLButtonDown(int px, int py) {
             return;
         }
         case PaneZone::TocPane: {
-            auto layout = GetPaneLayout();
             const auto& theme = renderer_.GetTheme();
             float total_content = static_cast<float>(toc_.GetEntries().size()) * theme.pane_item_height;
-            auto scroll_info = ComputePaneScrollInfo(layout.toc_rect, total_content);
-            float local_x = dip_x - layout.toc_rect.x;
+            auto scroll_info = ComputePaneScrollInfo(pane_layout.toc_rect, total_content);
+            float local_x = dip_x - pane_layout.toc_rect.x;
 
             // Check if click is on scrollbar area
-            if (local_x >= layout.toc_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
+            if (local_x >= pane_layout.toc_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
                 && total_content > scroll_info.content_height) {
                 SetCapture(hwnd_);
                 drag_target_ = DragTarget::TocScrollbar;

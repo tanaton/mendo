@@ -17,7 +17,7 @@ class Renderer {
 public:
     bool Init(HWND hwnd);
     void Resize(UINT width, UINT height);
-    void Render(const std::vector<RenderNode>& nodes, float scroll_y,
+    void Render(std::vector<RenderNode>& nodes, float scroll_y,
                 const TextSelection& selection,
                 const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
                 const PaneRect& md_pane_rect,
@@ -36,7 +36,7 @@ public:
     void InvalidateTocPaneCache() { toc_pane_cache_.dirty = true; }
 
 private:
-    void DrawNode(const RenderNode& node, int node_index, float offset_x,
+    void DrawNode(RenderNode& node, int node_index, float offset_x,
                   float viewport_top, float viewport_bottom,
                   const TextSelection& selection, float pane_content_width);
     void DrawCodeBlockBackground(const RenderNode& node, float offset_x, float content_width);
@@ -88,7 +88,9 @@ private:
     ComPtr<ID2D1SolidColorBrush> scrollbar_thumb_brush_;
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
-    void ApplySyntaxHighlighting(const RenderNode& node);
+    void ApplyNodeEffects(RenderNode& node);
+
+    std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     ComPtr<IDWriteTextFormat> icon_font_format_;
     ComPtr<IDWriteTextFormat> fmt_list_number_;

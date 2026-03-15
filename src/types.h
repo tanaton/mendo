@@ -92,4 +92,11 @@ struct RenderNode {
     float height = 0.0f;
     ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
+    bool effects_applied = false;
+
+    // Cached inline code background rects (relative to text layout origin)
+    struct InlineCodeBg {
+        float left, top, width, height;
+    };
+    std::vector<InlineCodeBg> inline_code_bgs;
 };

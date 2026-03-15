@@ -33,7 +33,7 @@ bool Renderer::Init(HWND hwnd) {
 
     D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(
         hwnd, D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top));
-    hwndProps.presentOptions = D2D1_PRESENT_OPTIONS_IMMEDIATELY;
+    hwndProps.presentOptions = D2D1_PRESENT_OPTIONS_NONE;
 
     hr = d2d_factory_->CreateHwndRenderTarget(rtProps, hwndProps, &render_target_);
     if (FAILED(hr)) return false;
@@ -209,14 +209,14 @@ void Renderer::DrawTextRangeHighlight(IDWriteTextLayout* layout, uint32_t start,
     layout->HitTestTextRange(start, length, 0, 0, nullptr, 0, &count);
     if (count == 0) return;
 
-    std::vector<DWRITE_HIT_TEST_METRICS> metrics(count);
-    layout->HitTestTextRange(start, length, 0, 0, metrics.data(), count, &count);
+    hit_test_buffer_.resize(count);
+    layout->HitTestTextRange(start, length, 0, 0, hit_test_buffer_.data(), count, &count);
     for (UINT32 i = 0; i < count; i++) {
         D2D1_RECT_F rect = D2D1::RectF(
-            origin_x + metrics[i].left,
-            origin_y + metrics[i].top,
-            origin_x + metrics[i].left + metrics[i].width,
-            origin_y + metrics[i].top + metrics[i].height);
+            origin_x + hit_test_buffer_[i].left,
+            origin_y + hit_test_buffer_[i].top,
+            origin_x + hit_test_buffer_[i].left + hit_test_buffer_[i].width,
+            origin_y + hit_test_buffer_[i].top + hit_test_buffer_[i].height);
         render_target_->FillRectangle(rect, brush);
     }
 }
@@ -333,7 +333,7 @@ void Renderer::DrawTable(const RenderNode& node, int node_index, float offset_x,
         hr_brush_.Get(), border);
 }
 
-void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
+void Renderer::DrawNode(RenderNode& node, int node_index, float offset_x,
                         float viewport_top, float viewport_bottom,
                         const TextSelection& selection, float pane_content_width) {
     // Viewport culling
@@ -355,7 +355,6 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
 
         case NodeType::CodeBlock:
             DrawCodeBlockBackground(node, x, content_width);
-            ApplySyntaxHighlighting(node);
             break;
 
         case NodeType::ListItem:
@@ -374,6 +373,9 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
 
     if (!node.text_layout) return;
 
+    // Apply rendering effects once per layout creation
+    ApplyNodeEffects(node);
+
     // Determine base brush
     ID2D1SolidColorBrush* base_brush = text_brush_.Get();
     if (node.type == NodeType::Heading) {
@@ -384,30 +386,19 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
         base_brush = code_text_brush_.Get();
     }
 
-    // Draw inline code backgrounds BEFORE selection and text
-    for (const auto& run : node.runs) {
-        if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
-            UINT32 count = 0;
-            node.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
-            if (count > 0) {
-                std::vector<DWRITE_HIT_TEST_METRICS> metrics(count);
-                node.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
-                    metrics.data(), count, &count);
-                for (UINT32 i = 0; i < count; i++) {
-                    D2D1_RECT_F rect = D2D1::RectF(
-                        x + metrics[i].left - 2.0f,
-                        node.y_position + metrics[i].top - 1.0f,
-                        x + metrics[i].left + metrics[i].width + 2.0f,
-                        node.y_position + metrics[i].top + metrics[i].height + 1.0f
-                    );
-                    D2D1_ROUNDED_RECT rounded = {rect, 3.0f, 3.0f};
-                    render_target_->FillRoundedRectangle(rounded, code_bg_brush_.Get());
-                }
-            }
-        }
+    // Draw inline code backgrounds from cache
+    for (const auto& bg : node.inline_code_bgs) {
+        D2D1_RECT_F rect = D2D1::RectF(
+            x + bg.left - 2.0f,
+            node.y_position + bg.top - 1.0f,
+            x + bg.left + bg.width + 2.0f,
+            node.y_position + bg.top + bg.height + 1.0f
+        );
+        D2D1_ROUNDED_RECT rounded = {rect, 3.0f, 3.0f};
+        render_target_->FillRoundedRectangle(rounded, code_bg_brush_.Get());
     }
 
-    // Draw selection highlight AFTER code backgrounds, BEFORE text
+    // Draw selection highlight
     if (selection.active &&
         node_index >= selection.start_node && node_index <= selection.end_node) {
         uint32_t sel_start = 0;
@@ -423,45 +414,11 @@ void Renderer::DrawNode(const RenderNode& node, int node_index, float offset_x,
         }
     }
 
-    // Set up link underlines
-    for (const auto& run : node.runs) {
-        if (run.link_url.has_value()) {
-            DWRITE_TEXT_RANGE range{run.start, run.length};
-            node.text_layout->SetUnderline(TRUE, range);
-        }
-    }
-
-    // Draw the text
+    // Draw the text (link colors and syntax highlighting applied via DrawingEffect)
     render_target_->DrawTextLayout(
         D2D1::Point2F(x, node.y_position),
         node.text_layout.Get(),
         base_brush);
-
-    // Overdraw link text with link color
-    for (const auto& run : node.runs) {
-        if (run.link_url.has_value() && run.length > 0) {
-            UINT32 count = 0;
-            node.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
-            if (count > 0) {
-                std::vector<DWRITE_HIT_TEST_METRICS> metrics(count);
-                node.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
-                    metrics.data(), count, &count);
-                for (UINT32 i = 0; i < count; i++) {
-                    D2D1_RECT_F rect = D2D1::RectF(
-                        x + metrics[i].left,
-                        node.y_position + metrics[i].top,
-                        x + metrics[i].left + metrics[i].width,
-                        node.y_position + metrics[i].top + metrics[i].height);
-                    render_target_->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-                    render_target_->DrawTextLayout(
-                        D2D1::Point2F(x, node.y_position),
-                        node.text_layout.Get(),
-                        link_brush_.Get());
-                    render_target_->PopAxisAlignedClip();
-                }
-            }
-        }
-    }
 
     // Draw task list checkbox using Segoe Fluent Icons
     if (node.type == NodeType::TaskListItem && icon_font_format_) {
@@ -489,14 +446,45 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const {
     }
 }
 
-void Renderer::ApplySyntaxHighlighting(const RenderNode& node) {
-    if (node.syntax_tokens.empty() || !node.text_layout) return;
-    for (const auto& token : node.syntax_tokens) {
-        if (token.type == SyntaxTokenType::Plain) continue;
-        auto* brush = GetSyntaxBrush(token.type);
-        if (brush) {
-            DWRITE_TEXT_RANGE range{token.start, token.length};
-            node.text_layout->SetDrawingEffect(brush, range);
+void Renderer::ApplyNodeEffects(RenderNode& node) {
+    if (node.effects_applied || !node.text_layout) return;
+    node.effects_applied = true;
+
+    // Apply syntax highlighting for code blocks
+    if (node.type == NodeType::CodeBlock) {
+        for (const auto& token : node.syntax_tokens) {
+            if (token.type == SyntaxTokenType::Plain) continue;
+            auto* brush = GetSyntaxBrush(token.type);
+            if (brush) {
+                DWRITE_TEXT_RANGE range{token.start, token.length};
+                node.text_layout->SetDrawingEffect(brush, range);
+            }
+        }
+    }
+
+    // Apply link underlines/colors and cache inline code background rects
+    for (const auto& run : node.runs) {
+        if (run.link_url.has_value()) {
+            DWRITE_TEXT_RANGE range{run.start, run.length};
+            node.text_layout->SetUnderline(TRUE, range);
+            node.text_layout->SetDrawingEffect(link_brush_.Get(), range);
+        }
+        if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
+            UINT32 count = 0;
+            node.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
+            if (count > 0) {
+                hit_test_buffer_.resize(count);
+                node.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
+                    hit_test_buffer_.data(), count, &count);
+                for (UINT32 i = 0; i < count; i++) {
+                    node.inline_code_bgs.push_back({
+                        hit_test_buffer_[i].left,
+                        hit_test_buffer_[i].top,
+                        hit_test_buffer_[i].width,
+                        hit_test_buffer_[i].height
+                    });
+                }
+            }
         }
     }
 }
@@ -690,7 +678,7 @@ void Renderer::DrawSplitter(float x, float height) {
     render_target_->FillRectangle(rect, splitter_brush_.Get());
 }
 
-void Renderer::Render(const std::vector<RenderNode>& nodes, float scroll_y,
+void Renderer::Render(std::vector<RenderNode>& nodes, float scroll_y,
                       const TextSelection& selection,
                       const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
                       const PaneRect& md_pane_rect,
@@ -732,7 +720,23 @@ void Renderer::Render(const std::vector<RenderNode>& nodes, float scroll_y,
     float offset_x = theme_.margin_left;
     float md_content_width = md_pane_rect.width - theme_.margin_left - theme_.margin_right;
 
-    for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
+    // Binary search for first visible node
+    int node_count = static_cast<int>(nodes.size());
+    int first_visible = 0;
+    {
+        int lo = 0, hi = node_count;
+        while (lo < hi) {
+            int mid = (lo + hi) / 2;
+            if (nodes[mid].y_position + nodes[mid].height < viewport_top) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        first_visible = lo;
+    }
+    for (int i = first_visible; i < node_count; i++) {
+        if (nodes[i].y_position > viewport_bottom) break;
         DrawNode(nodes[i], i, offset_x, viewport_top, viewport_bottom, selection, md_content_width);
     }
 

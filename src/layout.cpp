@@ -96,16 +96,15 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
             if (cell.text.empty()) continue;
 
             IDWriteTextFormat* cell_fmt = cell.is_header ? fmt_bold : fmt;
-            ComPtr<IDWriteTextLayout> layout;
             dwrite_->CreateTextLayout(
                 cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
-                cell_fmt, 10000.0f, 100000.0f, &layout);
+                cell_fmt, 10000.0f, 100000.0f, &cell.text_layout);
 
-            if (layout) {
-                ApplyCellRunFormatting(layout.Get(), cell.runs);
+            if (cell.text_layout) {
+                ApplyCellRunFormatting(cell.text_layout.Get(), cell.runs);
 
                 DWRITE_TEXT_METRICS metrics{};
-                layout->GetMetrics(&metrics);
+                cell.text_layout->GetMetrics(&metrics);
                 natural_widths[c] = std::max(natural_widths[c], metrics.width);
             }
         }
@@ -132,7 +131,7 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
         }
     }
 
-    // Second pass: create final layouts with correct widths and measure row heights
+    // Second pass: update column widths and alignment on existing layouts, measure row heights
     float total_height = border_width; // top border
     for (auto& row : node.table_rows) {
         float row_height = theme_->font_size_body * 1.4f; // minimum row height
@@ -140,24 +139,16 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
             auto& cell = row.cells[c];
             float cw = (c < node.col_widths.size()) ? node.col_widths[c] : 60.0f;
 
-            IDWriteTextFormat* cell_fmt = cell.is_header ? fmt_bold : fmt;
-            ComPtr<IDWriteTextLayout> layout;
-            dwrite_->CreateTextLayout(
-                cell.text.c_str(),
-                static_cast<UINT32>(cell.text.size()),
-                cell_fmt, cw, 100000.0f, &layout);
-
-            if (layout) {
-                ApplyCellRunFormatting(layout.Get(), cell.runs);
+            if (cell.text_layout) {
+                cell.text_layout->SetMaxWidth(cw);
 
                 // Set text alignment
-                if (cell.align == 1) layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                else if (cell.align == 2) layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+                if (cell.align == 1) cell.text_layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                else if (cell.align == 2) cell.text_layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
 
                 DWRITE_TEXT_METRICS metrics{};
-                layout->GetMetrics(&metrics);
+                cell.text_layout->GetMetrics(&metrics);
                 row_height = std::max(row_height, metrics.height + cell_padding * 2.0f);
-                cell.text_layout = std::move(layout);
             }
         }
         row.row_height = row_height;
@@ -247,6 +238,8 @@ void LayoutEngine::CreateTextLayout(RenderNode& node, float max_width) {
     node.text_layout = std::move(layout);
     node.height = metrics.height;
     node.layout_dirty = false;
+    node.effects_applied = false;
+    node.inline_code_bgs.clear();
 }
 
 void LayoutEngine::ComputeLayout(std::vector<RenderNode>& nodes, float viewport_width,

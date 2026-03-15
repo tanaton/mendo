@@ -87,6 +87,12 @@ private:
     Renderer renderer_;
     FileLoader file_loader_;
 
+    // Cached system cursors
+    HCURSOR cursor_arrow_ = nullptr;
+    HCURSOR cursor_hand_ = nullptr;
+    HCURSOR cursor_ibeam_ = nullptr;
+    HCURSOR cursor_sizewe_ = nullptr;
+
     std::vector<RenderNode> nodes_;
     std::wstring current_file_;
 
@@ -125,6 +131,8 @@ private:
     int hovered_toc_index_ = -1;
     ScrollState file_scroll_;
     ScrollState toc_scroll_;
+
+    void InvalidateMdPane();
 
     static constexpr float PANE_MIN_WIDTH = 100.0f;
     static constexpr float MD_PANE_MIN_WIDTH = 200.0f;
