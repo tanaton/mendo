@@ -34,7 +34,7 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
   html, body { margin: 0; padding: 0; overflow: hidden; }
   body { background: white; }
   body.dark { background: #1e1e1e; }
-  #container { display: inline-block; }
+  #container { display: block; }
 </style>
 <script src="https://app.local/mermaid.min.js"></script>
 <script>
