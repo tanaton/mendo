@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <cmath>
 #include <shellscalingapi.h>
+#include <shlobj.h>
+#include <fstream>
+#include <filesystem>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -277,6 +280,7 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
 
         case WM_DESTROY:
+            SaveLastFilePath();
             KillTimer(hwnd_, TIMER_FILE_WATCH);
             KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
             KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
@@ -678,6 +682,52 @@ void MainWindow::ReloadCurrentFile() {
 
 void MainWindow::UpdateTitleBar() {
     SetWindowTextW(hwnd_, BuildTitleString(current_file_).c_str());
+}
+
+// ---- Last file persistence ----
+
+static std::filesystem::path GetLastFileConfigPath() {
+    wchar_t* appdata = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
+        return {};
+    }
+    std::filesystem::path dir = std::filesystem::path(appdata) / L"MaDView";
+    CoTaskMemFree(appdata);
+    return dir / L"last_file.txt";
+}
+
+void MainWindow::SaveLastFilePath() const {
+    if (current_file_.empty()) return;
+
+    auto config_path = GetLastFileConfigPath();
+    if (config_path.empty()) return;
+
+    std::filesystem::create_directories(config_path.parent_path());
+    std::ofstream ofs(config_path, std::ios::binary);
+    if (ofs) {
+        // Write as UTF-16LE (wstring direct)
+        ofs.write(reinterpret_cast<const char*>(current_file_.data()),
+                  static_cast<std::streamsize>(current_file_.size() * sizeof(wchar_t)));
+    }
+}
+
+std::wstring MainWindow::LoadLastFilePath() {
+    auto config_path = GetLastFileConfigPath();
+    if (config_path.empty()) return {};
+
+    std::ifstream ifs(config_path, std::ios::binary | std::ios::ate);
+    if (!ifs) return {};
+
+    auto size = ifs.tellg();
+    if (size <= 0 || size % sizeof(wchar_t) != 0) return {};
+    ifs.seekg(0);
+
+    std::wstring path(static_cast<size_t>(size) / sizeof(wchar_t), L'\0');
+    ifs.read(reinterpret_cast<char*>(path.data()), size);
+
+    // Verify the file still exists
+    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) return {};
+    return path;
 }
 
 // ---- Selection / Hit Testing ----

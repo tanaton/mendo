@@ -22,4 +22,4 @@ if(MSVC)
 endif()
 
 include(GoogleTest)
-gtest_discover_tests(MaDView_tests)
+gtest_add_tests(TARGET MaDView_tests)

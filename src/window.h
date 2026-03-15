@@ -77,6 +77,10 @@ private:
     void OnDeferredLayout();
     void ReloadCurrentFile();
     void UpdateTitleBar();
+    void SaveLastFilePath() const;
+public:
+    static std::wstring LoadLastFilePath();
+private:
 
     // Pane layout helpers (types defined in pane_layout.h)
     ::PaneLayout GetPaneLayout() const;

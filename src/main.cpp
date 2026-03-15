@@ -23,7 +23,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
         return 1;
     }
 
-    // Load file from command line if provided
+    // Load file from command line if provided, otherwise restore last file
     if (lpCmdLine && lpCmdLine[0]) {
         std::wstring path = lpCmdLine;
         // Strip quotes if present
@@ -31,6 +31,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
             path = path.substr(1, path.size() - 2);
         }
         window.LoadMarkdownFile(path);
+    } else {
+        std::wstring last = MainWindow::LoadLastFilePath();
+        if (!last.empty()) {
+            window.LoadMarkdownFile(last);
+        }
     }
 
     int result = window.RunMessageLoop();
