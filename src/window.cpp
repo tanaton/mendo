@@ -673,12 +673,11 @@ void MainWindow::OnResizeEnd() {
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
     float md_width = GetMarkdownPaneWidth();
+
+    // Full layout (no viewport bounds) to avoid incremental position shifts
+    renderer_.GetLayout().ComputeLayout(nodes_, md_width);
+
     auto pane_layout = GetPaneLayout();
-    float viewport_top = scroll_y_;
-    float viewport_bottom = scroll_y_ + pane_layout.md_rect.height;
-
-    renderer_.GetLayout().ComputeLayout(nodes_, md_width, viewport_top, viewport_bottom);
-
     float total = renderer_.GetLayout().GetTotalHeight();
     max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
     scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
@@ -686,11 +685,6 @@ void MainWindow::OnResizeEnd() {
 
     UpdateScrollBar();
     InvalidateRect(hwnd_, nullptr, FALSE);
-
-    // Start incremental processing of remaining dirty nodes
-    if (renderer_.GetLayout().HasDirtyNodes()) {
-        SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
-    }
 }
 
 void MainWindow::OnDeferredLayout() {
