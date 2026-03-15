@@ -75,3 +75,17 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor i
 | リスト | 対応済 | 箇条書き・番号 |
 | テーブル | 対応済 | この表 |
 | リンク | 対応済 | 外部・内部 |
+
+## Mermaidダイアグラム
+
+```mermaid
+graph TD
+    A[MaDView] --> B[md4c Parser]
+    B --> C[RenderNode]
+    C --> D[LayoutEngine]
+    D --> E[Direct2D Renderer]
+    C --> F[MermaidRenderer]
+    F --> G[WebView2]
+    G --> H[Bitmap]
+    H --> E
+```

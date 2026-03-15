@@ -23,7 +23,7 @@ public:
     MermaidRenderer(const MermaidRenderer&) = delete;
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
 
-    // Initialize the renderer. hwnd is used for the offscreen WebView2 host.
+    // Initialize the renderer. hwnd is the main app window.
     // render_target is used for creating D2D bitmaps.
     // on_ready is called (on UI thread) when WebView2 is initialized.
     void Init(HWND hwnd, ID2D1RenderTarget* render_target,
@@ -47,12 +47,16 @@ public:
 private:
     void ProcessQueue();
     void RenderMermaidInWebView(const std::wstring& code, float max_width, bool dark_mode);
+    void OnMermaidRenderResult(const std::wstring& json);
+    void DoCapturePreview();
     void OnCaptureComplete(const std::wstring& code_hash, IStream* png_stream);
     std::wstring HashCode(const std::wstring& code, float max_width, bool dark_mode) const;
     HRESULT CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
                                       float* width, float* height);
+    void FinishCurrentRequest();
 
-    HWND hwnd_ = nullptr;
+    HWND hwnd_ = nullptr;           // main window
+    HWND webview_hwnd_ = nullptr;   // dedicated offscreen popup for WebView2
     ID2D1RenderTarget* render_target_ = nullptr;
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<ICoreWebView2Environment> webview_env_;
@@ -60,6 +64,7 @@ private:
     ComPtr<ICoreWebView2> webview_;
     bool ready_ = false;
     bool rendering_ = false;
+    int render_counter_ = 0;
 
     struct RenderRequest {
         RenderNode* node = nullptr;

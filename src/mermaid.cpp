@@ -1,4 +1,5 @@
 #include "mermaid.h"
+#include "resource.h"
 #include <shlwapi.h>
 #include <shlobj.h>
 #include <wrl/event.h>
@@ -8,37 +9,74 @@
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "shlwapi.lib")
 
-// Embedded HTML template that loads mermaid.js from CDN and renders diagrams.
-// The page exposes renderMermaid(code, isDark) callable via ExecuteScript.
-static const wchar_t* kMermaidHtmlTemplate = LR"HTML(
-<!DOCTYPE html>
+// Load the embedded mermaid.min.js from Win32 resources (RCDATA).
+// Returns the JS source as a UTF-8 std::string, or empty on failure.
+static std::string LoadMermaidJsFromResource() {
+    HMODULE hModule = GetModuleHandleW(nullptr);
+    HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(IDR_MERMAID_JS), RT_RCDATA);
+    if (!hRes) return {};
+    HGLOBAL hData = LoadResource(hModule, hRes);
+    if (!hData) return {};
+    DWORD size = SizeofResource(hModule, hRes);
+    const char* data = static_cast<const char*>(LockResource(hData));
+    if (!data || size == 0) return {};
+    return std::string(data, size);
+}
+
+// Small HTML template served via virtual host. mermaid.js is loaded as a
+// separate <script src> so the HTML stays well under the 2 MB NavigateToString
+// limit.  Both resources are served in-process by WebResourceRequested.
+static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <style>
-  html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+  html, body { margin: 0; padding: 0; overflow: hidden; }
+  body { background: white; }
+  body.dark { background: #1e1e1e; }
   #container { display: inline-block; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://app.local/mermaid.min.js"></script>
 <script>
-  let initialized = false;
-  async function renderMermaid(code, isDark) {
+  let currentTheme = null;
+  let renderCount = 0;
+
+  function mermaidReady() {
+    return typeof mermaid !== 'undefined' && typeof mermaid.render === 'function';
+  }
+
+  async function renderMermaid(code, isDark, maxWidth) {
     try {
-      if (!initialized) {
+      if (!mermaidReady()) {
+        return JSON.stringify({ ok: false, error: 'mermaid not loaded' });
+      }
+      const wantTheme = isDark ? 'dark' : 'default';
+      document.body.className = isDark ? 'dark' : '';
+      if (currentTheme !== wantTheme) {
         mermaid.initialize({
           startOnLoad: false,
-          theme: isDark ? 'dark' : 'default',
+          theme: wantTheme,
           securityLevel: 'strict'
         });
-        initialized = true;
+        currentTheme = wantTheme;
       }
       const container = document.getElementById('container');
       container.innerHTML = '';
-      const { svg } = await mermaid.render('mermaid-diagram', code);
+      // Constrain container width so mermaid lays out to fit
+      if (maxWidth > 0) {
+        container.style.maxWidth = maxWidth + 'px';
+      }
+      renderCount++;
+      const id = 'mmd-' + renderCount;
+      const { svg } = await mermaid.render(id, code);
       container.innerHTML = svg;
-      // Wait for rendering to complete
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // Also constrain the SVG element itself
       const svgEl = container.querySelector('svg');
+      if (svgEl && maxWidth > 0) {
+        svgEl.style.maxWidth = maxWidth + 'px';
+        svgEl.style.height = 'auto';
+      }
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
       if (svgEl) {
         const rect = svgEl.getBoundingClientRect();
         return JSON.stringify({ width: Math.ceil(rect.width), height: Math.ceil(rect.height), ok: true });
@@ -48,6 +86,10 @@ static const wchar_t* kMermaidHtmlTemplate = LR"HTML(
       return JSON.stringify({ ok: false, error: e.message || String(e) });
     }
   }
+
+  window.addEventListener('load', function() {
+    window.chrome.webview.postMessage(mermaidReady() ? 'mermaid-ready' : 'mermaid-failed');
+  });
 </script>
 </head>
 <body>
@@ -55,6 +97,20 @@ static const wchar_t* kMermaidHtmlTemplate = LR"HTML(
 </body>
 </html>
 )HTML";
+
+// Helper: create an IStream containing a copy of the given byte data.
+static IStream* CreateMemoryStream(const void* data, size_t size) {
+    IStream* stream = nullptr;
+    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream)
+        return nullptr;
+    if (size > 0 && data) {
+        ULONG written = 0;
+        stream->Write(data, static_cast<ULONG>(size), &written);
+        LARGE_INTEGER zero{};
+        stream->Seek(zero, STREAM_SEEK_SET, nullptr);
+    }
+    return stream;
+}
 
 // ---- Helpers ----
 
@@ -69,9 +125,8 @@ static std::wstring GetWebView2UserDataFolder() {
     return path;
 }
 
-// Simple hash for cache key
+// FNV-1a 64-bit hash
 static std::wstring SimpleHash(const std::wstring& input) {
-    // FNV-1a 64-bit hash
     uint64_t hash = 14695981039346656037ULL;
     for (wchar_t c : input) {
         hash ^= static_cast<uint64_t>(c);
@@ -82,7 +137,7 @@ static std::wstring SimpleHash(const std::wstring& input) {
     return buf;
 }
 
-// Escape a wstring for embedding as a JavaScript string literal
+// Escape a wstring for embedding as a JavaScript string literal (single-quoted)
 static std::wstring JsEscape(const std::wstring& input) {
     std::wstring result;
     result.reserve(input.size() + input.size() / 4);
@@ -110,11 +165,17 @@ static std::wstring JsEscape(const std::wstring& input) {
     return result;
 }
 
+// Window class name for the offscreen WebView2 host
+static const wchar_t* kMermaidHostClass = L"MaDView_MermaidHost";
+
 // ---- MermaidRenderer implementation ----
 
 MermaidRenderer::~MermaidRenderer() {
     if (webview_controller_) {
         webview_controller_->Close();
+    }
+    if (webview_hwnd_) {
+        DestroyWindow(webview_hwnd_);
     }
 }
 
@@ -127,6 +188,38 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
     CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                      IID_PPV_ARGS(&wic_factory_));
 
+    // Register and create a hidden popup window to host WebView2 offscreen.
+    // WebView2 requires IsVisible=TRUE to render content for CapturePreview,
+    // so we use a popup positioned far off-screen instead of hiding.
+    static bool class_registered = false;
+    if (!class_registered) {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = kMermaidHostClass;
+        RegisterClassExW(&wc);
+        class_registered = true;
+    }
+
+    webview_hwnd_ = CreateWindowExW(
+        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        kMermaidHostClass,
+        L"",
+        WS_POPUP,
+        -32000, -32000,     // Far off-screen
+        4096, 4096,         // Large enough for any diagram
+        nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+
+    if (!webview_hwnd_) {
+        OutputDebugStringW(L"[MaDView/Mermaid] Failed to create offscreen host window\n");
+        return;
+    }
+
+    // Show the popup (required for WebView2 to consider it "visible")
+    // It's off-screen so the user won't see it
+    ShowWindow(webview_hwnd_, SW_SHOWNOACTIVATE);
+
     std::wstring user_data = GetWebView2UserDataFolder();
 
     // Create WebView2 environment
@@ -134,21 +227,28 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
         nullptr, user_data.c_str(), nullptr,
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [this, on_ready](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
-                if (FAILED(result) || !env) return S_OK;
+                if (FAILED(result) || !env) {
+                    OutputDebugStringW(L"[MaDView/Mermaid] WebView2 environment creation failed\n");
+                    return S_OK;
+                }
+                OutputDebugStringW(L"[MaDView/Mermaid] WebView2 environment created\n");
 
                 webview_env_ = env;
                 env->CreateCoreWebView2Controller(
-                    hwnd_,
+                    webview_hwnd_,
                     Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
                         [this, on_ready](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
-                            if (FAILED(result) || !controller) return S_OK;
+                            if (FAILED(result) || !controller) {
+                                OutputDebugStringW(L"[MaDView/Mermaid] WebView2 controller creation failed\n");
+                                return S_OK;
+                            }
+                            OutputDebugStringW(L"[MaDView/Mermaid] WebView2 controller created\n");
 
                             webview_controller_ = controller;
                             controller->get_CoreWebView2(&webview_);
 
-                            // Hide the WebView (offscreen rendering)
-                            controller->put_IsVisible(FALSE);
-                            RECT bounds = {0, 0, 1, 1};
+                            // Fill the host window with WebView
+                            RECT bounds = {0, 0, 4096, 4096};
                             controller->put_Bounds(bounds);
 
                             // Disable features we don't need
@@ -161,24 +261,86 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                 settings->put_AreDefaultScriptDialogsEnabled(FALSE);
                             }
 
-                            // Navigate to the mermaid HTML template
-                            webview_->NavigateToString(kMermaidHtmlTemplate);
-
-                            // Wait for navigation to complete
-                            webview_->add_NavigationCompleted(
-                                Microsoft::WRL::Callback<ICoreWebView2NavigationCompletedEventHandler>(
-                                    [this, on_ready](ICoreWebView2* sender,
-                                                     ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
-                                        BOOL success = FALSE;
-                                        args->get_IsSuccess(&success);
-                                        if (success) {
-                                            ready_ = true;
-                                            if (on_ready) on_ready();
-                                            ProcessQueue();
+                            // Listen for web messages (mermaid-ready signal)
+                            webview_->add_WebMessageReceived(
+                                Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
+                                    [this, on_ready](ICoreWebView2*,
+                                                     ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                                        LPWSTR msg = nullptr;
+                                        if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
+                                            if (wcscmp(msg, L"mermaid-ready") == 0) {
+                                                OutputDebugStringW(L"[MaDView/Mermaid] Received mermaid-ready\n");
+                                                ready_ = true;
+                                                if (on_ready) on_ready();
+                                                ProcessQueue();
+                                            } else if (wcsncmp(msg, L"render-result:", 14) == 0) {
+                                                OnMermaidRenderResult(std::wstring(msg + 14));
+                                            } else if (wcscmp(msg, L"capture-ready") == 0) {
+                                                DoCapturePreview();
+                                            } else if (wcsncmp(msg, L"render-error:", 13) == 0) {
+                                                OutputDebugStringW(L"[MaDView/Mermaid] Render error via postMessage: ");
+                                                OutputDebugStringW(msg + 13);
+                                                OutputDebugStringW(L"\n");
+                                                FinishCurrentRequest();
+                                            } else {
+                                                OutputDebugStringW(L"[MaDView/Mermaid] Received message: ");
+                                                OutputDebugStringW(msg);
+                                                OutputDebugStringW(L"\n");
+                                            }
+                                            CoTaskMemFree(msg);
                                         }
                                         return S_OK;
                                     }).Get(),
                                 nullptr);
+
+                            // Intercept requests to the virtual host and serve
+                            // HTML / mermaid.js from embedded Win32 resources.
+                            webview_->AddWebResourceRequestedFilter(
+                                L"https://app.local/*",
+                                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+
+                            webview_->add_WebResourceRequested(
+                                Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(
+                                    [this](ICoreWebView2*,
+                                           ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
+                                        ComPtr<ICoreWebView2WebResourceRequest> request;
+                                        args->get_Request(&request);
+                                        LPWSTR uri = nullptr;
+                                        request->get_Uri(&uri);
+                                        std::wstring url(uri ? uri : L"");
+                                        CoTaskMemFree(uri);
+
+                                        IStream* stream = nullptr;
+                                        const wchar_t* headers = nullptr;
+
+                                        if (url.find(L"/mermaid.min.js") != std::wstring::npos) {
+                                            // Serve mermaid.js from embedded resource
+                                            std::string js = LoadMermaidJsFromResource();
+                                            OutputDebugStringW(L"[MaDView/Mermaid] Serving mermaid.min.js from resource (");
+                                            OutputDebugStringW(std::to_wstring(js.size()).c_str());
+                                            OutputDebugStringW(L" bytes)\n");
+                                            stream = CreateMemoryStream(js.data(), js.size());
+                                            headers = L"Content-Type: application/javascript; charset=utf-8";
+                                        } else {
+                                            // Serve the HTML template for any other path
+                                            stream = CreateMemoryStream(kMermaidHtml, sizeof(kMermaidHtml) - 1);
+                                            headers = L"Content-Type: text/html; charset=utf-8";
+                                        }
+
+                                        if (stream && headers) {
+                                            ComPtr<ICoreWebView2WebResourceResponse> response;
+                                            webview_env_->CreateWebResourceResponse(
+                                                stream, 200, L"OK", headers, &response);
+                                            args->put_Response(response.Get());
+                                            stream->Release();
+                                        }
+                                        return S_OK;
+                                    }).Get(),
+                                nullptr);
+
+                            // Navigate to the virtual host (HTML + JS served
+                            // from memory by the handler above).
+                            webview_->Navigate(L"https://app.local/index.html");
 
                             return S_OK;
                         }).Get());
@@ -188,7 +350,6 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
 
 void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target) {
     render_target_ = render_target;
-    // Cached bitmaps are tied to the old render target — clear them
     cache_.clear();
 }
 
@@ -246,110 +407,108 @@ void MermaidRenderer::ProcessQueue() {
                            current_request_.dark_mode);
 }
 
-void MermaidRenderer::RenderMermaidInWebView(const std::wstring& code, float max_width, bool dark_mode) {
-    if (!webview_) return;
+void MermaidRenderer::FinishCurrentRequest() {
+    rendering_ = false;
+    auto cb = std::move(current_request_.on_complete);
+    current_request_ = {};
+    if (cb) cb();
+    ProcessQueue();
+}
 
-    // Set WebView size to accommodate the diagram
-    int width = static_cast<int>(max_width);
-    if (width < 200) width = 200;
-    RECT bounds = {0, 0, width, 4096}; // tall enough for any diagram
+void MermaidRenderer::RenderMermaidInWebView(const std::wstring& code, float max_width, bool dark_mode) {
+    if (!webview_) {
+        FinishCurrentRequest();
+        return;
+    }
+
+    // Use a wide viewport so the diagram is not clipped during rendering.
+    // The container's max-width (set via JS) constrains mermaid's layout.
+    RECT bounds = {0, 0, 8192, 4096};
     webview_controller_->put_Bounds(bounds);
 
-    // Build JavaScript call
+    // Call renderMermaid with maxWidth so it constrains the diagram to fit.
     std::wstring js = L"renderMermaid('" + JsEscape(code) + L"', "
-                      + (dark_mode ? L"true" : L"false") + L")";
+                      + (dark_mode ? L"true" : L"false") + L", "
+                      + std::to_wstring(static_cast<int>(max_width))
+                      + L").then(function(r){window.chrome.webview.postMessage('render-result:'+r);"
+                        L"}).catch(function(e){window.chrome.webview.postMessage('render-error:'+String(e));})";
 
-    webview_->ExecuteScript(js.c_str(),
-        Microsoft::WRL::Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-            [this](HRESULT hr, LPCWSTR resultJson) -> HRESULT {
-                if (FAILED(hr) || !resultJson) {
-                    // Rendering failed; skip this request
-                    rendering_ = false;
-                    if (current_request_.on_complete) current_request_.on_complete();
-                    ProcessQueue();
-                    return S_OK;
+    webview_->ExecuteScript(js.c_str(), nullptr);
+}
+
+void MermaidRenderer::OnMermaidRenderResult(const std::wstring& json) {
+    // json is the raw string from renderMermaid, e.g. {"ok":true,"width":400,"height":300}
+    float dw = 0, dh = 0;
+    bool ok = false;
+
+    auto find_num = [&](const std::wstring& key) -> float {
+        auto pos = json.find(key);
+        if (pos == std::wstring::npos) return 0;
+        pos += key.size();
+        while (pos < json.size() && (json[pos] == L':' || json[pos] == L' ')) pos++;
+        std::wstring num;
+        while (pos < json.size() && (iswdigit(json[pos]) || json[pos] == L'.')) {
+            num += json[pos++];
+        }
+        return num.empty() ? 0.0f : std::stof(num);
+    };
+
+    dw = find_num(L"\"width\"");
+    dh = find_num(L"\"height\"");
+    ok = json.find(L"\"ok\":true") != std::wstring::npos
+         || json.find(L"\"ok\": true") != std::wstring::npos;
+
+    if (!ok || dw <= 0 || dh <= 0) {
+        OutputDebugStringW(L"[MaDView/Mermaid] renderMermaid returned error or zero size\n");
+        OutputDebugStringW((L"[MaDView/Mermaid]   result: " + json + L"\n").c_str());
+        FinishCurrentRequest();
+        return;
+    }
+    {
+        std::wstring msg = L"[MaDView/Mermaid] renderMermaid ok: "
+            + std::to_wstring(static_cast<int>(dw)) + L"x"
+            + std::to_wstring(static_cast<int>(dh)) + L"\n";
+        OutputDebugStringW(msg.c_str());
+    }
+
+    // Resize WebView to exact diagram size for capture
+    int cw = static_cast<int>(std::ceil(dw));
+    int ch = static_cast<int>(std::ceil(dh));
+    RECT capBounds = {0, 0, static_cast<LONG>(cw), static_cast<LONG>(ch)};
+    webview_controller_->put_Bounds(capBounds);
+
+    // Also resize the host popup window to match
+    SetWindowPos(webview_hwnd_, nullptr, -32000, -32000, cw, ch,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+
+    // Wait for the WebView to re-render at the new size using rAF,
+    // then signal via postMessage (avoids Promise-await issue).
+    webview_->ExecuteScript(
+        L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
+        L"window.chrome.webview.postMessage('capture-ready');});})",
+        nullptr);
+}
+
+void MermaidRenderer::DoCapturePreview() {
+    if (!webview_) {
+        FinishCurrentRequest();
+        return;
+    }
+
+    IStream* pngStream = nullptr;
+    CreateStreamOnHGlobal(nullptr, TRUE, &pngStream);
+
+    webview_->CapturePreview(
+        COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+        pngStream,
+        Microsoft::WRL::Callback<ICoreWebView2CapturePreviewCompletedHandler>(
+            [this, pngStream](HRESULT hr3) -> HRESULT {
+                if (SUCCEEDED(hr3) && pngStream) {
+                    OnCaptureComplete(current_request_.code_hash, pngStream);
+                } else {
+                    FinishCurrentRequest();
                 }
-
-                // Parse the result JSON: {"width":N,"height":N,"ok":true}
-                std::wstring result(resultJson);
-
-                // The result from ExecuteScript is JSON-encoded (wrapped in quotes)
-                // Parse width/height from the JSON
-                float dw = 0, dh = 0;
-                bool ok = false;
-
-                // Simple parse — result is a JSON string returned as "\"...\""
-                // First, unwrap the outer quotes
-                if (result.size() >= 2 && result.front() == L'"' && result.back() == L'"') {
-                    // Unescape the inner JSON string
-                    std::wstring inner;
-                    inner.reserve(result.size());
-                    for (size_t i = 1; i + 1 < result.size(); i++) {
-                        if (result[i] == L'\\' && i + 2 < result.size()) {
-                            i++;
-                            switch (result[i]) {
-                                case L'"': inner += L'"'; break;
-                                case L'\\': inner += L'\\'; break;
-                                case L'n': inner += L'\n'; break;
-                                default: inner += result[i]; break;
-                            }
-                        } else {
-                            inner += result[i];
-                        }
-                    }
-
-                    // Parse width
-                    auto find_num = [&](const std::wstring& key) -> float {
-                        auto pos = inner.find(key);
-                        if (pos == std::wstring::npos) return 0;
-                        pos += key.size();
-                        while (pos < inner.size() && (inner[pos] == L':' || inner[pos] == L' ')) pos++;
-                        std::wstring num;
-                        while (pos < inner.size() && (iswdigit(inner[pos]) || inner[pos] == L'.')) {
-                            num += inner[pos++];
-                        }
-                        return num.empty() ? 0.0f : std::stof(num);
-                    };
-
-                    dw = find_num(L"\"width\"");
-                    dh = find_num(L"\"height\"");
-                    ok = inner.find(L"\"ok\":true") != std::wstring::npos
-                         || inner.find(L"\"ok\": true") != std::wstring::npos;
-                }
-
-                if (!ok || dw <= 0 || dh <= 0) {
-                    // Mermaid rendering failed — leave as text code block
-                    rendering_ = false;
-                    if (current_request_.on_complete) current_request_.on_complete();
-                    ProcessQueue();
-                    return S_OK;
-                }
-
-                // Now capture the WebView content as PNG
-                // Resize to exact diagram size
-                RECT capBounds = {0, 0, static_cast<LONG>(dw), static_cast<LONG>(dh)};
-                webview_controller_->put_Bounds(capBounds);
-
-                // Use CapturePreview to get the PNG
-                IStream* pngStream = nullptr;
-                CreateStreamOnHGlobal(nullptr, TRUE, &pngStream);
-
-                webview_->CapturePreview(
-                    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
-                    pngStream,
-                    Microsoft::WRL::Callback<ICoreWebView2CapturePreviewCompletedHandler>(
-                        [this, pngStream](HRESULT hr) -> HRESULT {
-                            if (SUCCEEDED(hr) && pngStream) {
-                                OnCaptureComplete(current_request_.code_hash, pngStream);
-                            } else {
-                                rendering_ = false;
-                                if (current_request_.on_complete) current_request_.on_complete();
-                                ProcessQueue();
-                            }
-                            if (pngStream) pngStream->Release();
-                            return S_OK;
-                        }).Get());
-
+                if (pngStream) pngStream->Release();
                 return S_OK;
             }).Get());
 }
@@ -376,9 +535,7 @@ void MermaidRenderer::OnCaptureComplete(const std::wstring& code_hash, IStream* 
         }
     }
 
-    rendering_ = false;
-    if (current_request_.on_complete) current_request_.on_complete();
-    ProcessQueue();
+    FinishCurrentRequest();
 }
 
 HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,

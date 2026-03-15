@@ -430,10 +430,13 @@ void Renderer::DrawNode(RenderNode& node, int node_index, float offset_x,
             // Mermaid diagrams: draw bitmap if available
             if (node.code_language == SyntaxLanguage::Mermaid && node.diagram_bitmap) {
                 DrawCodeBlockBackground(node, x, content_width);
-                float pad = theme_.code_block_padding;
+                float draw_w = node.diagram_width;
+                float draw_h = node.diagram_height;
+                // Center horizontally if narrower than content_width
+                float dx = x + (content_width - draw_w) * 0.5f;
                 D2D1_RECT_F dest = D2D1::RectF(
-                    x, node.y_position,
-                    x + node.diagram_width, node.y_position + node.diagram_height);
+                    dx, node.y_position,
+                    dx + draw_w, node.y_position + draw_h);
                 render_target_->DrawBitmap(node.diagram_bitmap.Get(), dest);
                 return;
             }

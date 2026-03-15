@@ -31,3 +31,6 @@ BEGIN
         VALUE "Translation", 0x0411, 1200
     END
 END
+
+// Embedded mermaid.js for offline rendering
+IDR_MERMAID_JS RCDATA "..\\third_party\\mermaid\\mermaid.min.js"
