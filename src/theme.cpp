@@ -46,6 +46,12 @@ void Theme::ApplyZoom(float new_zoom) {
     blockquote_bar_width  *= ratio;
     list_bullet_offset    *= ratio;
     hr_thickness          *= ratio;
+
+    // Pane sizes
+    pane_item_height      *= ratio;
+    pane_header_height    *= ratio;
+    splitter_width        *= ratio;
+    pane_font_size        *= ratio;
 }
 
 // Shared layout constants between light & dark themes

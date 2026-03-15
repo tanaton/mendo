@@ -1030,8 +1030,13 @@ void MainWindow::ApplyZoom(float new_zoom) {
     float anchor_offset = scroll_y_ - anchor_y_before;
 
     float old_zoom = renderer_.GetTheme().zoom;
+    float zoom_ratio = new_zoom / old_zoom;
 
-    // Update theme sizes and recreate DirectWrite formats
+    // Scale pane widths proportionally
+    pane_file_width_ *= zoom_ratio;
+    pane_toc_width_  *= zoom_ratio;
+
+    // Update theme sizes and recreate DirectWrite formats (including pane formats)
     renderer_.ApplyZoom(new_zoom);
 
     // Reset all node layouts
@@ -1049,9 +1054,15 @@ void MainWindow::ApplyZoom(float new_zoom) {
     // Compensate scroll: scale the offset proportionally to the zoom ratio
     if (anchor_idx >= 0 && anchor_idx < static_cast<int>(nodes_.size())) {
         float anchor_y_after = nodes_[anchor_idx].y_position;
-        float zoom_ratio = new_zoom / old_zoom;
         scroll_y_ = anchor_y_after + anchor_offset * zoom_ratio;
     }
+
+    // Scale pane scroll positions
+    file_scroll_.scroll_y *= zoom_ratio;
+    file_scroll_.max_scroll *= zoom_ratio;
+    toc_scroll_.scroll_y *= zoom_ratio;
+    toc_scroll_.max_scroll *= zoom_ratio;
+
     SyncMaxScroll();
     scroll_target_ = scroll_y_;
 

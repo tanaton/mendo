@@ -100,6 +100,7 @@ private:
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
     void ApplyNodeEffects(RenderNode& node);
+    void RecreatePaneFormats();
 
     std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 

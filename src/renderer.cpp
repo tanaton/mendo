@@ -181,9 +181,8 @@ void Renderer::SetTheme(const Theme& theme) {
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, thumb_alpha);
     render_target_->CreateSolidColorBrush(thumb_color, &scrollbar_thumb_brush_);
 
-    // Invalidate pane caches so they redraw with new colors
-    file_pane_cache_.Reset();
-    toc_pane_cache_.Reset();
+    // Recreate pane text formats (sizes may differ if zoom is active)
+    RecreatePaneFormats();
 }
 
 void Renderer::Resize(UINT width, UINT height) {
@@ -206,6 +205,57 @@ void Renderer::ApplyZoom(float new_zoom) {
     theme_.ApplyZoom(new_zoom);
     layout_.UpdateTheme(theme_);
     layout_.RecreateFormats();
+    RecreatePaneFormats();
+}
+
+void Renderer::RecreatePaneFormats() {
+    // Recreate all pane / UI text formats at updated theme sizes
+    icon_font_format_.Reset();
+    fmt_list_number_.Reset();
+    fmt_pane_icon_.Reset();
+    fmt_pane_item_.Reset();
+    fmt_pane_header_.Reset();
+
+    dwrite_factory_->CreateTextFormat(
+        L"Segoe Fluent Icons", nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
+        L"en-us", &icon_font_format_);
+
+    dwrite_factory_->CreateTextFormat(
+        L"Segoe Fluent Icons", nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
+        L"en-us", &fmt_pane_icon_);
+    if (fmt_pane_icon_) {
+        fmt_pane_icon_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_pane_icon_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        fmt_pane_icon_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+
+    dwrite_factory_->CreateTextFormat(
+        theme_.font_family, nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
+        L"ja-jp", &fmt_pane_item_);
+    if (fmt_pane_item_) {
+        fmt_pane_item_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_pane_item_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
+    dwrite_factory_->CreateTextFormat(
+        theme_.font_family, nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
+        L"ja-jp", &fmt_pane_header_);
+    if (fmt_pane_header_) {
+        fmt_pane_header_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_pane_header_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
+    // Invalidate pane caches so they redraw with new sizes
+    file_pane_cache_.Reset();
+    toc_pane_cache_.Reset();
 }
 
 void Renderer::DrawCodeBlockBackground(const RenderNode& node, float offset_x, float content_width) {
