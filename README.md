@@ -1,6 +1,6 @@
 # mendo
 
-Direct2D/DirectWriteでMarkdownを直接描画するWindows向けネイティブアプリケーションです。
+MarkdownをDirect2D/DirectWriteで直接描画するWindows向けネイティブアプリケーションです。
 
 ## 特徴
 
