@@ -378,7 +378,7 @@ void MainWindow::OnPaint() {
         float anchor_y_before = (anchor_idx >= 0) ? nodes_[anchor_idx].y_position : 0.0f;
 
         bool updated = renderer_.GetLayout().EnsureVisibleLayout(
-            nodes_, GetMarkdownPaneWidth(), viewport_top, viewport_bottom);
+            nodes_, layout.md_rect.width, viewport_top, viewport_bottom);
 
         if (updated) {
             AnchorCompensateScroll(anchor_idx, anchor_y_before);
@@ -406,8 +406,6 @@ void MainWindow::OnResize(UINT width, UINT height) {
 
     renderer_.Resize(width, height);
 
-    float md_width = GetMarkdownPaneWidth();
-
     if (is_sizing_) {
         // During active resize drag: skip expensive layout recomputation
         SyncMaxScroll();
@@ -420,6 +418,7 @@ void MainWindow::OnResize(UINT width, UINT height) {
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
     auto pane_layout = GetPaneLayout();
+    float md_width = pane_layout.md_rect.width;
     float viewport_top = scroll_y_;
     float viewport_bottom = scroll_y_ + pane_layout.md_rect.height;
 
@@ -704,12 +703,15 @@ void MainWindow::SyncMaxScroll() {
 }
 
 int MainWindow::FindFirstVisibleNode() const {
-    for (int i = 0; i < static_cast<int>(nodes_.size()); ++i) {
-        if (nodes_[i].y_position + nodes_[i].height > scroll_y_) {
-            return i;
-        }
+    int lo = 0, hi = static_cast<int>(nodes_.size());
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (nodes_[mid].y_position + nodes_[mid].height <= scroll_y_)
+            lo = mid + 1;
+        else
+            hi = mid;
     }
-    return -1;
+    return lo < static_cast<int>(nodes_.size()) ? lo : -1;
 }
 
 void MainWindow::AnchorCompensateScroll(int anchor_idx, float anchor_y_before) {
@@ -723,8 +725,8 @@ void MainWindow::AnchorCompensateScroll(int anchor_idx, float anchor_y_before) {
 void MainWindow::OnResizeEnd() {
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
-    float md_width = GetMarkdownPaneWidth();
     auto pane_layout = GetPaneLayout();
+    float md_width = pane_layout.md_rect.width;
     float viewport_top = scroll_y_;
     float viewport_bottom = scroll_y_ + pane_layout.md_rect.height;
 

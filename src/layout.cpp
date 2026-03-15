@@ -369,11 +369,20 @@ bool LayoutEngine::EnsureVisibleLayout(std::vector<RenderNode>& nodes, float vie
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     bool any_updated = false;
 
-    for (auto& node : nodes) {
-        if (!node.layout_dirty) continue;
-        float node_bottom = node.y_position + node.height;
-        if (node_bottom < viewport_top) continue;
+    // Binary search for the first node whose bottom edge >= viewport_top
+    int lo = 0, hi = static_cast<int>(nodes.size());
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (nodes[mid].y_position + nodes[mid].height < viewport_top)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+
+    for (int i = lo; i < static_cast<int>(nodes.size()); i++) {
+        auto& node = nodes[i];
         if (node.y_position > viewport_bottom) break;
+        if (!node.layout_dirty) continue;
         float indent = node.indent_level * theme_->indent_width;
         CreateTextLayout(node, content_width - indent);
         any_updated = true;
