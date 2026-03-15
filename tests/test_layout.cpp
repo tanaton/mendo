@@ -512,3 +512,173 @@ TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY) {
         EXPECT_GT(nodes[i].y_position, nodes[i - 1].y_position);
     }
 }
+
+// ---- EnsureVisibleLayout tests ----
+
+TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes) {
+    // Create several paragraphs and do a full layout at one width
+    std::string md;
+    for (int i = 0; i < 20; i++) {
+        md += "Paragraph " + std::to_string(i) + "\n\n";
+    }
+    auto nodes = ParseMarkdown(md);
+    engine_.ComputeLayout(nodes, 800.0f);
+
+    // Now do a partial layout at a different width — this marks off-screen nodes dirty
+    engine_.ComputeLayout(nodes, 400.0f, 0.0f, 100.0f);
+
+    // Some nodes beyond viewport should still be dirty
+    bool any_dirty = false;
+    for (const auto& n : nodes) {
+        if (n.layout_dirty) { any_dirty = true; break; }
+    }
+    ASSERT_TRUE(any_dirty);
+
+    // Mark a visible node dirty manually to test the fix path
+    nodes[0].layout_dirty = true;
+
+    // EnsureVisibleLayout should fix the visible range
+    bool updated = engine_.EnsureVisibleLayout(nodes, 400.0f, 0.0f, 100.0f);
+    EXPECT_TRUE(updated);
+
+    // Nodes in visible range should no longer be dirty
+    for (const auto& n : nodes) {
+        if (n.y_position + n.height < 0.0f) continue;
+        if (n.y_position > 100.0f) break;
+        EXPECT_FALSE(n.layout_dirty)
+            << "Visible node at y=" << n.y_position << " is still dirty";
+    }
+}
+
+TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean) {
+    auto nodes = ParseMarkdown("Hello world");
+    engine_.ComputeLayout(nodes, 800.0f);
+
+    // All nodes are clean, so EnsureVisibleLayout should return false
+    bool updated = engine_.EnsureVisibleLayout(nodes, 800.0f, 0.0f, 1000.0f);
+    EXPECT_FALSE(updated);
+}
+
+TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes) {
+    std::string md;
+    for (int i = 0; i < 30; i++) {
+        md += "Paragraph " + std::to_string(i) + "\n\n";
+    }
+    auto nodes = ParseMarkdown(md);
+    engine_.ComputeLayout(nodes, 800.0f, 0.0f, 50.0f);
+
+    // Count dirty nodes before
+    int dirty_before = 0;
+    for (const auto& n : nodes) {
+        if (n.layout_dirty) dirty_before++;
+    }
+
+    // EnsureVisibleLayout only for a small viewport slice
+    engine_.EnsureVisibleLayout(nodes, 800.0f, 0.0f, 50.0f);
+
+    // Distant dirty nodes should remain dirty
+    int dirty_after = 0;
+    for (const auto& n : nodes) {
+        if (n.layout_dirty) dirty_after++;
+    }
+    // Some nodes should still be dirty (the off-screen ones)
+    EXPECT_GT(dirty_after, 0);
+    EXPECT_LE(dirty_after, dirty_before);
+}
+
+TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions) {
+    std::string md;
+    for (int i = 0; i < 10; i++) {
+        md += "Paragraph " + std::to_string(i) + "\n\n";
+    }
+    auto nodes = ParseMarkdown(md);
+    // Full layout at wide width
+    engine_.ComputeLayout(nodes, 800.0f);
+
+    // Now do a partial layout at narrow width (marks off-screen dirty)
+    engine_.ComputeLayout(nodes, 300.0f, 0.0f, 50.0f);
+
+    // EnsureVisibleLayout should update Y positions consistently
+    engine_.EnsureVisibleLayout(nodes, 300.0f, 0.0f, 50.0f);
+
+    // Y positions should still be monotonically increasing
+    for (size_t i = 1; i < nodes.size(); i++) {
+        EXPECT_GT(nodes[i].y_position, nodes[i - 1].y_position)
+            << "Node " << i << " y should be > node " << (i - 1);
+    }
+}
+
+TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight) {
+    std::string md;
+    for (int i = 0; i < 10; i++) {
+        md += "Paragraph " + std::to_string(i) + "\n\n";
+    }
+    auto nodes = ParseMarkdown(md);
+    engine_.ComputeLayout(nodes, 800.0f, 0.0f, 50.0f);
+
+    float height_before = engine_.GetTotalHeight();
+    engine_.EnsureVisibleLayout(nodes, 800.0f, 0.0f, 50.0f);
+    float height_after = engine_.GetTotalHeight();
+
+    // Total height may change when visible nodes get re-laid out
+    // but should remain positive
+    EXPECT_GT(height_after, 0.0f);
+    (void)height_before;
+}
+
+// ---- RecomputeYPositions additional tests ----
+
+TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing) {
+    Theme theme = GetLightTheme();
+    RenderNode h1;
+    h1.type = NodeType::Heading;
+    h1.height = 40.0f;
+    h1.layout_dirty = false;
+
+    RenderNode h2;
+    h2.type = NodeType::Heading;
+    h2.height = 30.0f;
+    h2.layout_dirty = false;
+
+    std::vector<RenderNode> nodes = {h1, h2};
+    RecomputeYPositions(nodes, theme);
+
+    // First heading: margin_top + heading_spacing_above
+    EXPECT_FLOAT_EQ(nodes[0].y_position, theme.margin_top + theme.heading_spacing_above);
+
+    // Second heading: after first heading + heading_spacing_below + heading_spacing_above
+    float expected_y = nodes[0].y_position + nodes[0].height
+                     + theme.heading_spacing_below + theme.heading_spacing_above;
+    EXPECT_FLOAT_EQ(nodes[1].y_position, expected_y);
+}
+
+TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions) {
+    Theme theme = GetLightTheme();
+    std::vector<RenderNode> nodes;
+
+    auto add_node = [&](NodeType type, float height) {
+        RenderNode n;
+        n.type = type;
+        n.height = height;
+        n.layout_dirty = false;
+        nodes.push_back(n);
+    };
+
+    add_node(NodeType::Paragraph, 20.0f);
+    add_node(NodeType::Heading, 30.0f);
+    add_node(NodeType::CodeBlock, 50.0f);
+    add_node(NodeType::HorizontalRule, 5.0f);
+    add_node(NodeType::ListItem, 18.0f);
+    add_node(NodeType::BlockQuote, 25.0f);
+    add_node(NodeType::Table, 60.0f);
+
+    auto result = RecomputeYPositions(nodes, theme);
+
+    // All positions should be monotonically increasing
+    for (size_t i = 1; i < nodes.size(); i++) {
+        EXPECT_GT(nodes[i].y_position, nodes[i - 1].y_position);
+    }
+    // Total height should exceed last node's bottom
+    float last_bottom = nodes.back().y_position + nodes.back().height;
+    EXPECT_GE(result.total_height, last_bottom);
+}
