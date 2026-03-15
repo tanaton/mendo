@@ -8,6 +8,8 @@ add_executable(MaDView_tests
     test_layout.cpp
     test_anchor.cpp
     test_syntax.cpp
+    test_document_utils.cpp
+    test_pane_layout.cpp
 )
 
 target_link_libraries(MaDView_tests PRIVATE

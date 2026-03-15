@@ -1,5 +1,7 @@
 #include "window.h"
 #include "parser.h"
+#include "document_utils.h"
+#include "pane_layout.h"
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
@@ -22,19 +24,19 @@ MainWindow::DipPoint MainWindow::PixelToDip(int px, int py) const {
     return {px / scale, py / scale};
 }
 
-MainWindow::PaneScrollInfo MainWindow::ComputePaneScrollInfo(
+MainWindow::WinPaneScrollInfo MainWindow::ComputePaneScrollInfo(
     const PaneRect& rect, float total_content) const {
-    PaneScrollInfo info{};
-    info.content_top = rect.y + renderer_.GetTheme().pane_header_height;
-    info.content_height = rect.height - renderer_.GetTheme().pane_header_height;
-    info.total_content = total_content;
-    info.max_scroll = std::max(0.0f, total_content - info.content_height);
-    float thumb_ratio = (total_content > 0) ? info.content_height / total_content : 1.0f;
-    info.thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, info.content_height * thumb_ratio);
-    return info;
+    auto info = ComputeScrollInfo(rect, renderer_.GetTheme().pane_header_height, total_content);
+    WinPaneScrollInfo winfo{};
+    winfo.content_top = info.content_top;
+    winfo.content_height = info.content_height;
+    winfo.total_content = info.total_content;
+    winfo.max_scroll = info.max_scroll;
+    winfo.thumb_height = info.thumb_height;
+    return winfo;
 }
 
-void MainWindow::HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
+void MainWindow::HandleScrollbarClick(float dip_y, const WinPaneScrollInfo& info,
                                       ScrollState& scroll, bool& cache_dirty) {
     float scroll_ratio = (info.max_scroll > 0) ? scroll.scroll_y / info.max_scroll : 0.0f;
     float thumb_y = info.content_top + scroll_ratio * (info.content_height - info.thumb_height);
@@ -54,7 +56,7 @@ void MainWindow::HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
     }
 }
 
-void MainWindow::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
+void MainWindow::HandleScrollbarDrag(float dip_y, const WinPaneScrollInfo& info,
                                      ScrollState& scroll, bool& cache_dirty) {
     float track_range = info.content_height - info.thumb_height;
     float new_thumb_y = dip_y - drag_scroll_offset_;
@@ -281,68 +283,22 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
 // ---- Pane Layout ----
 
-MainWindow::PaneLayout MainWindow::GetPaneLayout() const {
-    PaneLayout layout{};
+PaneLayout MainWindow::GetPaneLayout() const {
     auto* rt = renderer_.GetRenderTarget();
-    if (!rt) return layout;
+    if (!rt) return {};
 
     auto size = rt->GetSize();
-    float total_width = size.width;
-    float total_height = size.height;
-    const auto& theme = renderer_.GetTheme();
-    float splitter_w = theme.splitter_width;
-
-    float x = 0.0f;
-
-    // File pane
-    if (show_file_pane_) {
-        layout.file_rect = {x, 0.0f, pane_file_width_, total_height};
-        x += pane_file_width_ + splitter_w;
-    }
-
-    // TOC pane
-    if (show_toc_pane_) {
-        layout.toc_rect = {x, 0.0f, pane_toc_width_, total_height};
-        x += pane_toc_width_ + splitter_w;
-    }
-
-    // MD pane takes the rest
-    float md_width = std::max(MD_PANE_MIN_WIDTH, total_width - x);
-    layout.md_rect = {x, 0.0f, md_width, total_height};
-
-    return layout;
+    return ComputePaneLayout(size.width, size.height,
+                              pane_file_width_, pane_toc_width_,
+                              renderer_.GetTheme().splitter_width,
+                              show_file_pane_, show_toc_pane_,
+                              MD_PANE_MIN_WIDTH);
 }
 
-MainWindow::PaneZone MainWindow::PaneAtPoint(float dip_x, [[maybe_unused]] float dip_y) const {
-    const auto& theme = renderer_.GetTheme();
-    float splitter_w = theme.splitter_width;
+PaneZone MainWindow::PaneAtPoint(float dip_x, [[maybe_unused]] float dip_y) const {
     auto layout = GetPaneLayout();
-
-    if (show_file_pane_) {
-        float s1_x = layout.file_rect.x + layout.file_rect.width;
-        if (dip_x >= layout.file_rect.x && dip_x < s1_x) {
-            return PaneZone::FilePane;
-        }
-        if (dip_x >= s1_x && dip_x < s1_x + splitter_w) {
-            return PaneZone::Splitter1;
-        }
-    }
-
-    if (show_toc_pane_) {
-        float s2_x = layout.toc_rect.x + layout.toc_rect.width;
-        if (dip_x >= layout.toc_rect.x && dip_x < s2_x) {
-            return PaneZone::TocPane;
-        }
-        if (dip_x >= s2_x && dip_x < s2_x + splitter_w) {
-            return PaneZone::Splitter2;
-        }
-    }
-
-    if (dip_x >= layout.md_rect.x) {
-        return PaneZone::MdPane;
-    }
-
-    return PaneZone::None;
+    return DetectPaneZone(dip_x, layout, renderer_.GetTheme().splitter_width,
+                           show_file_pane_, show_toc_pane_);
 }
 
 float MainWindow::GetMarkdownPaneWidth() const {
@@ -693,17 +649,7 @@ void MainWindow::ReloadCurrentFile() {
 }
 
 void MainWindow::UpdateTitleBar() {
-    std::wstring title = L"MaDView";
-    if (!current_file_.empty()) {
-        // Extract filename
-        auto pos = current_file_.find_last_of(L"\\/");
-        if (pos != std::wstring::npos) {
-            title = current_file_.substr(pos + 1) + L" - MaDView";
-        } else {
-            title = current_file_ + L" - MaDView";
-        }
-    }
-    SetWindowTextW(hwnd_, title.c_str());
+    SetWindowTextW(hwnd_, BuildTitleString(current_file_).c_str());
 }
 
 // ---- Selection / Hit Testing ----
@@ -1076,26 +1022,13 @@ void MainWindow::OnLButtonDblClk(int px, int py) {
     const auto& text = nodes_[hit.node_index].text;
     if (text.empty()) return;
 
-    // Find word boundaries
-    uint32_t pos = hit.text_pos;
-    if (pos >= text.size()) pos = static_cast<uint32_t>(text.size()) - 1;
-
-    auto is_word_char = [](wchar_t c) {
-        return IsCharAlphaNumericW(c) || c == L'_';
-    };
-
-    if (!is_word_char(text[pos])) return;
-
-    uint32_t word_start = pos;
-    while (word_start > 0 && is_word_char(text[word_start - 1])) word_start--;
-
-    uint32_t word_end = pos + 1;
-    while (word_end < text.size() && is_word_char(text[word_end])) word_end++;
+    auto wb = FindWordBoundaries(text, hit.text_pos);
+    if (!wb.found) return;
 
     anchor_node_ = hit.node_index;
-    anchor_pos_ = word_start;
+    anchor_pos_ = wb.start;
     selection_ = TextSelection::MakeOrdered(
-        hit.node_index, word_start, hit.node_index, word_end);
+        hit.node_index, wb.start, hit.node_index, wb.end);
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -1118,26 +1051,7 @@ void MainWindow::SelectAll() {
 void MainWindow::CopySelectionToClipboard() const {
     if (!selection_.active) return;
 
-    std::wstring result;
-    for (int i = selection_.start_node; i <= selection_.end_node; i++) {
-        if (i < 0 || i >= static_cast<int>(nodes_.size())) continue;
-        const auto& text = nodes_[i].text;
-
-        uint32_t start = 0;
-        uint32_t end = static_cast<uint32_t>(text.size());
-        if (i == selection_.start_node) start = selection_.start_pos;
-        if (i == selection_.end_node)   end = selection_.end_pos;
-
-        if (start < end && start < text.size()) {
-            if (end > text.size()) end = static_cast<uint32_t>(text.size());
-            result += text.substr(start, end - start);
-        }
-        // Add newline between nodes
-        if (i < selection_.end_node) {
-            result += L"\r\n";
-        }
-    }
-
+    std::wstring result = ExtractSelectedText(nodes_, selection_);
     if (result.empty()) return;
 
     if (!OpenClipboard(hwnd_)) return;
@@ -1160,15 +1074,7 @@ std::optional<std::wstring> MainWindow::GetLinkAtHit(const HitResult& hit) const
     if (hit.node_index < 0 || hit.node_index >= static_cast<int>(nodes_.size()))
         return std::nullopt;
 
-    const auto& node = nodes_[hit.node_index];
-    for (const auto& run : node.runs) {
-        if (run.link_url.has_value() &&
-            hit.text_pos >= run.start &&
-            hit.text_pos < run.start + run.length) {
-            return run.link_url;
-        }
-    }
-    return std::nullopt;
+    return FindLinkAtPosition(nodes_[hit.node_index], hit.text_pos);
 }
 
 void MainWindow::HandleLinkClick(const std::wstring& url) {
@@ -1186,20 +1092,10 @@ void MainWindow::HandleLinkClick(const std::wstring& url) {
 }
 
 void MainWindow::NavigateToAnchor(const std::wstring& anchor) {
-    if (anchor.empty()) return;
+    int idx = FindAnchorNodeIndex(nodes_, anchor);
+    if (idx < 0) return;
 
-    // Convert anchor to lowercase for comparison
-    std::wstring target = anchor;
-    for (auto& c : target) {
-        if (c >= L'A' && c <= L'Z') c = c - L'A' + L'a';
-    }
-
-    for (const auto& node : nodes_) {
-        if (node.type == NodeType::Heading && node.anchor_id == target) {
-            float target_y = node.y_position - renderer_.GetTheme().heading_spacing_above;
-            target_y = std::max(0.0f, target_y);
-            SmoothScrollBy(target_y - scroll_y_);
-            return;
-        }
-    }
+    float target_y = nodes_[idx].y_position - renderer_.GetTheme().heading_spacing_above;
+    target_y = std::max(0.0f, target_y);
+    SmoothScrollBy(target_y - scroll_y_);
 }

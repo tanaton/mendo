@@ -434,3 +434,130 @@ TEST(Parser, RunsAreContiguous) {
             << "Gap between run " << (i - 1) << " and " << i;
     }
 }
+
+// ---- Nested lists ----
+
+TEST(Parser, NestedUnorderedList) {
+    auto nodes = ParseMarkdown("- a\n  - b\n    - c");
+    ASSERT_GE(nodes.size(), 3u);
+    // Deeper items should have higher indent levels
+    EXPECT_LT(nodes[0].indent_level, nodes[1].indent_level);
+    EXPECT_LT(nodes[1].indent_level, nodes[2].indent_level);
+}
+
+TEST(Parser, NestedOrderedList) {
+    auto nodes = ParseMarkdown("1. a\n   1. b\n      1. c");
+    ASSERT_GE(nodes.size(), 3u);
+    EXPECT_EQ(nodes[0].list_number, 1);
+    EXPECT_EQ(nodes[1].list_number, 1);
+    EXPECT_EQ(nodes[2].list_number, 1);
+    EXPECT_LT(nodes[0].indent_level, nodes[1].indent_level);
+}
+
+TEST(Parser, MixedListNesting) {
+    auto nodes = ParseMarkdown("1. ordered\n   - unordered\n   - unordered2");
+    ASSERT_GE(nodes.size(), 3u);
+    EXPECT_GT(nodes[0].list_number, 0);
+    EXPECT_EQ(nodes[1].list_number, 0);
+    EXPECT_EQ(nodes[2].list_number, 0);
+}
+
+// ---- Code block with language ----
+
+TEST(Parser, CodeBlockWithLanguage) {
+    auto nodes = ParseMarkdown("```cpp\nint x = 1;\n```");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
+    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
+}
+
+TEST(Parser, CodeBlockNoTrailingNewline) {
+    auto nodes = ParseMarkdown("```\nhello\n```");
+    ASSERT_EQ(nodes.size(), 1u);
+    // Trailing newline should be stripped
+    EXPECT_FALSE(nodes[0].text.empty());
+    EXPECT_NE(nodes[0].text.back(), L'\n');
+}
+
+// ---- Table with inline formatting ----
+
+TEST(Parser, TableCellWithBold) {
+    auto nodes = ParseMarkdown(
+        "| A | **B** |\n"
+        "|---|---|\n"
+        "| 1 | 2 |"
+    );
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_GE(nodes[0].table_rows.size(), 1u);
+    auto& header = nodes[0].table_rows[0];
+    ASSERT_GE(header.cells.size(), 2u);
+    // Second header cell should have bold run
+    bool has_bold = false;
+    for (const auto& run : header.cells[1].runs) {
+        if (run.bold) has_bold = true;
+    }
+    EXPECT_TRUE(has_bold);
+}
+
+TEST(Parser, TableLinearizedText) {
+    auto nodes = ParseMarkdown(
+        "| A | B |\n"
+        "|---|---|\n"
+        "| 1 | 2 |"
+    );
+    ASSERT_EQ(nodes.size(), 1u);
+    // The parser does not build linearized text (layout does), so just check structure
+    ASSERT_GE(nodes[0].table_rows.size(), 2u);
+    EXPECT_EQ(nodes[0].table_rows[0].cells[0].text, L"A");
+    EXPECT_EQ(nodes[0].table_rows[0].cells[1].text, L"B");
+}
+
+// ---- HTML entity edge cases ----
+
+TEST(Parser, HtmlEntityQuot) {
+    auto nodes = ParseMarkdown("&quot;hello&quot;");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_NE(nodes[0].text.find(L"\""), std::wstring::npos);
+}
+
+TEST(Parser, HtmlEntityNbsp) {
+    auto nodes = ParseMarkdown("a&nbsp;b");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_NE(nodes[0].text.find(L'\u00A0'), std::wstring::npos);
+}
+
+// ---- Hard break ----
+
+TEST(Parser, HardBreakWithTwoSpaces) {
+    auto nodes = ParseMarkdown("line1  \nline2");
+    ASSERT_EQ(nodes.size(), 1u);
+    // Hard break should produce newline in text
+    EXPECT_NE(nodes[0].text.find(L'\n'), std::wstring::npos);
+}
+
+// ---- Multiple headings anchor uniqueness ----
+
+TEST(Parser, MultipleHeadingsHaveAnchors) {
+    auto nodes = ParseMarkdown("# A\n\n## B\n\n### C");
+    for (const auto& node : nodes) {
+        if (node.type == NodeType::Heading) {
+            EXPECT_FALSE(node.anchor_id.empty())
+                << "Heading '" << std::string(node.text.begin(), node.text.end())
+                << "' has no anchor";
+        }
+    }
+}
+
+// ---- Link with inline formatting ----
+
+TEST(Parser, BoldLink) {
+    auto nodes = ParseMarkdown("[**bold link**](https://example.com)");
+    ASSERT_EQ(nodes.size(), 1u);
+    bool has_bold_link = false;
+    for (const auto& run : nodes[0].runs) {
+        if (run.bold && run.link_url.has_value()) {
+            has_bold_link = true;
+        }
+    }
+    EXPECT_TRUE(has_bold_link);
+}

@@ -4,6 +4,8 @@
 #include "file_explorer.h"
 #include "toc.h"
 #include "pane.h"
+#include "pane_layout.h"
+#include "document_utils.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -53,17 +55,17 @@ private:
     void ClearSelection();
 
     // Scrollbar drag helpers
-    struct PaneScrollInfo {
+    struct WinPaneScrollInfo {
         float content_top;
         float content_height;
         float total_content;
         float max_scroll;
         float thumb_height;
     };
-    PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
-    void HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
+    WinPaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
+    void HandleScrollbarClick(float dip_y, const WinPaneScrollInfo& info,
                               ScrollState& scroll, bool& cache_dirty);
-    void HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
+    void HandleScrollbarDrag(float dip_y, const WinPaneScrollInfo& info,
                              ScrollState& scroll, bool& cache_dirty);
 
     void UpdateLayoutAndScroll(float desired_scroll);
@@ -76,15 +78,9 @@ private:
     void ReloadCurrentFile();
     void UpdateTitleBar();
 
-    // Pane layout helpers
-    enum class PaneZone { None, FilePane, Splitter1, TocPane, Splitter2, MdPane };
-    struct PaneLayout {
-        PaneRect file_rect;
-        PaneRect toc_rect;
-        PaneRect md_rect;
-    };
-    PaneLayout GetPaneLayout() const;
-    PaneZone PaneAtPoint(float dip_x, float dip_y) const;
+    // Pane layout helpers (types defined in pane_layout.h)
+    ::PaneLayout GetPaneLayout() const;
+    ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
     HWND hwnd_ = nullptr;
