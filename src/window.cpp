@@ -128,6 +128,12 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
         ApplyDarkModeToWindow(hwnd_, true);
     }
 
+    // Apply saved zoom level
+    zoom_index_ = LoadZoomIndex();
+    if (zoom_index_ != ZOOM_DEFAULT_INDEX) {
+        renderer_.ApplyZoom(ZOOM_STEPS[zoom_index_]);
+    }
+
     // Cache system cursors
     cursor_arrow_ = LoadCursorW(nullptr, IDC_ARROW);
     cursor_hand_ = LoadCursorW(nullptr, IDC_HAND);
@@ -278,12 +284,19 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
 
         case WM_MOUSEWHEEL: {
-            // Get cursor position in client coordinates for pane detection
+            short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            // Ctrl + Mouse Wheel = Zoom
+            if (LOWORD(wParam) & MK_CONTROL) {
+                if (wheel_delta > 0) ZoomIn();
+                else if (wheel_delta < 0) ZoomOut();
+                return 0;
+            }
+            // Normal scroll
             POINT pt;
             pt.x = GET_X_LPARAM(lParam);
             pt.y = GET_Y_LPARAM(lParam);
             ScreenToClient(hwnd_, &pt);
-            OnMouseWheel(pt.x, pt.y, GET_WHEEL_DELTA_WPARAM(wParam));
+            OnMouseWheel(pt.x, pt.y, wheel_delta);
             return 0;
         }
 
@@ -559,6 +572,20 @@ void MainWindow::OnKeyDown(WPARAM key) {
             break;
         case VK_ESCAPE:
             ClearSelection();
+            break;
+
+        // Zoom: Ctrl+Plus / Ctrl+Minus / Ctrl+0
+        case VK_OEM_PLUS:   // =/+ key
+        case VK_ADD:        // Numpad +
+            if (GetKeyState(VK_CONTROL) & 0x8000) ZoomIn();
+            break;
+        case VK_OEM_MINUS:  // -/_ key
+        case VK_SUBTRACT:   // Numpad -
+            if (GetKeyState(VK_CONTROL) & 0x8000) ZoomOut();
+            break;
+        case '0':
+        case VK_NUMPAD0:
+            if (GetKeyState(VK_CONTROL) & 0x8000) ZoomReset();
             break;
     }
 }
@@ -853,7 +880,8 @@ void MainWindow::ReloadCurrentFile() {
 }
 
 void MainWindow::UpdateTitleBar() {
-    SetWindowTextW(hwnd_, BuildTitleString(current_file_).c_str());
+    int zoom_percent = static_cast<int>(ZOOM_STEPS[zoom_index_] * 100.0f + 0.5f);
+    SetWindowTextW(hwnd_, BuildTitleString(current_file_, zoom_percent).c_str());
 }
 
 void MainWindow::RequestMermaidRenders() {
@@ -911,6 +939,10 @@ static std::filesystem::path GetDarkModeConfigPath() {
 void MainWindow::ToggleDarkMode() {
     dark_mode_ = !dark_mode_;
     Theme new_theme = dark_mode_ ? GetDarkTheme() : GetLightTheme();
+    // Preserve current zoom level across theme switch
+    if (zoom_index_ != ZOOM_DEFAULT_INDEX) {
+        new_theme.ApplyZoom(ZOOM_STEPS[zoom_index_]);
+    }
     renderer_.SetTheme(new_theme);
 
     // Apply dark mode to title bar and scrollbar
@@ -932,6 +964,7 @@ void MainWindow::ToggleDarkMode() {
 
     float md_width = GetMarkdownPaneWidth();
     renderer_.GetLayout().UpdateTheme(renderer_.GetTheme());
+    renderer_.GetLayout().RecreateFormats();
     renderer_.GetLayout().LayoutNodes(nodes_, md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
     float total_height = nodes_.empty() ? 0 : nodes_.back().y_position + nodes_.back().height + renderer_.GetTheme().margin_top;
     max_scroll_ = std::max(0.0f, total_height - (renderer_.GetRenderTarget()->GetSize().height));
@@ -966,6 +999,100 @@ bool MainWindow::LoadDarkMode() {
     char c = '0';
     ifs >> c;
     return c == '1';
+}
+
+// ---- Zoom ----
+
+void MainWindow::ZoomIn() {
+    if (zoom_index_ < ZOOM_STEP_COUNT - 1) {
+        ApplyZoom(ZOOM_STEPS[++zoom_index_]);
+    }
+}
+
+void MainWindow::ZoomOut() {
+    if (zoom_index_ > 0) {
+        ApplyZoom(ZOOM_STEPS[--zoom_index_]);
+    }
+}
+
+void MainWindow::ZoomReset() {
+    if (zoom_index_ != ZOOM_DEFAULT_INDEX) {
+        zoom_index_ = ZOOM_DEFAULT_INDEX;
+        ApplyZoom(ZOOM_STEPS[zoom_index_]);
+    }
+}
+
+void MainWindow::ApplyZoom(float new_zoom) {
+    // Remember the first visible node to anchor scroll position
+    int anchor_idx = FindFirstVisibleNode();
+    float anchor_y_before = (anchor_idx >= 0) ? nodes_[anchor_idx].y_position : 0.0f;
+    // Offset from anchor node top to current scroll position (in pre-zoom coords)
+    float anchor_offset = scroll_y_ - anchor_y_before;
+
+    float old_zoom = renderer_.GetTheme().zoom;
+
+    // Update theme sizes and recreate DirectWrite formats
+    renderer_.ApplyZoom(new_zoom);
+
+    // Reset all node layouts
+    for (auto& node : nodes_) {
+        node.text_layout.Reset();
+        node.effects_applied = false;
+        node.inline_code_bgs.clear();
+    }
+
+    // Re-layout
+    float md_width = GetMarkdownPaneWidth();
+    renderer_.GetLayout().LayoutNodes(nodes_,
+        md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
+
+    // Compensate scroll: scale the offset proportionally to the zoom ratio
+    if (anchor_idx >= 0 && anchor_idx < static_cast<int>(nodes_.size())) {
+        float anchor_y_after = nodes_[anchor_idx].y_position;
+        float zoom_ratio = new_zoom / old_zoom;
+        scroll_y_ = anchor_y_after + anchor_offset * zoom_ratio;
+    }
+    SyncMaxScroll();
+    scroll_target_ = scroll_y_;
+
+    UpdateScrollBar();
+    UpdateTitleBar();
+    SaveZoomLevel();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+static std::filesystem::path GetZoomConfigPath() {
+    wchar_t* appdata = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
+        return {};
+    }
+    std::filesystem::path dir = std::filesystem::path(appdata) / L"MaDView";
+    CoTaskMemFree(appdata);
+    return dir / L"zoom_level.txt";
+}
+
+void MainWindow::SaveZoomLevel() const {
+    auto config_path = GetZoomConfigPath();
+    if (config_path.empty()) return;
+
+    std::filesystem::create_directories(config_path.parent_path());
+    std::ofstream ofs(config_path);
+    if (ofs) {
+        ofs << zoom_index_;
+    }
+}
+
+int MainWindow::LoadZoomIndex() {
+    auto config_path = GetZoomConfigPath();
+    if (config_path.empty()) return ZOOM_DEFAULT_INDEX;
+
+    std::ifstream ifs(config_path);
+    if (!ifs) return ZOOM_DEFAULT_INDEX;
+
+    int index = ZOOM_DEFAULT_INDEX;
+    ifs >> index;
+    if (index < 0 || index >= ZOOM_STEP_COUNT) return ZOOM_DEFAULT_INDEX;
+    return index;
 }
 
 // ---- Last file persistence ----

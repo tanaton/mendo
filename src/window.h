@@ -159,6 +159,16 @@ private:
     void SaveDarkMode() const;
     static bool LoadDarkMode();
 
+    // Zoom
+    void ZoomIn();
+    void ZoomOut();
+    void ZoomReset();
+    void ApplyZoom(float new_zoom);
+    void SaveZoomLevel() const;
+    static int LoadZoomIndex();
+
+    int zoom_index_ = ZOOM_DEFAULT_INDEX; // index into ZOOM_STEPS[]
+
     bool dark_mode_ = false;
     float last_mermaid_content_width_ = 0.0f;
 

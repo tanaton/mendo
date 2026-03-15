@@ -21,6 +21,33 @@ float Theme::GetHeadingSize(int level) const {
     }
 }
 
+void Theme::ApplyZoom(float new_zoom) {
+    // Undo the previous zoom, then apply the new one
+    float ratio = new_zoom / zoom;
+    zoom = new_zoom;
+
+    font_size_body *= ratio;
+    font_size_h1   *= ratio;
+    font_size_h2   *= ratio;
+    font_size_h3   *= ratio;
+    font_size_h4   *= ratio;
+    font_size_h5   *= ratio;
+    font_size_h6   *= ratio;
+    font_size_code *= ratio;
+
+    margin_left           *= ratio;
+    margin_right          *= ratio;
+    margin_top            *= ratio;
+    paragraph_spacing     *= ratio;
+    heading_spacing_above *= ratio;
+    heading_spacing_below *= ratio;
+    code_block_padding    *= ratio;
+    indent_width          *= ratio;
+    blockquote_bar_width  *= ratio;
+    list_bullet_offset    *= ratio;
+    hr_thickness          *= ratio;
+}
+
 // Shared layout constants between light & dark themes
 static void ApplyCommonLayout(Theme& t) {
     wcscpy_s(t.font_family,    L"Yu Gothic UI");

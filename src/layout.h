@@ -27,6 +27,8 @@ class LayoutEngine {
 public:
     bool Init(IDWriteFactory* dwrite_factory, const Theme& theme);
     void UpdateTheme(const Theme& theme) { theme_ = &theme; }
+    // Recreate all IDWriteTextFormat objects (e.g. after zoom or theme change).
+    bool RecreateFormats();
     void ComputeLayout(std::vector<RenderNode>& nodes, float viewport_width,
                        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void LayoutNodes(std::vector<RenderNode>& nodes, float viewport_width);

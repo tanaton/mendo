@@ -40,6 +40,8 @@ public:
     LayoutEngine& GetLayout() { return layout_; }
     const Theme& GetTheme() const { return theme_; }
     void SetTheme(const Theme& theme);
+    void ApplyZoom(float new_zoom);
+    Theme& GetThemeMut() { return theme_; }
 
     void InvalidateFilePaneCache() { file_pane_cache_.dirty = true; }
     void InvalidateTocPaneCache() { toc_pane_cache_.dirty = true; }

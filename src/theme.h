@@ -60,8 +60,24 @@ struct Theme {
     float splitter_width;
     float pane_font_size;
 
+    // Zoom (1.0 = 100%)
+    float zoom = 1.0f;
+
     float GetHeadingSize(int level) const;
+
+    // Apply zoom factor to all scalable sizes (font sizes, margins, spacing).
+    // Call after changing `zoom` to update derived values.
+    void ApplyZoom(float new_zoom);
 };
+
+// Chrome-style discrete zoom steps
+inline constexpr float ZOOM_STEPS[] = {
+    0.25f, 0.33f, 0.50f, 0.67f, 0.75f, 0.80f, 0.90f,
+    1.00f,
+    1.10f, 1.25f, 1.50f, 1.75f, 2.00f, 2.50f, 3.00f, 4.00f, 5.00f
+};
+inline constexpr int ZOOM_STEP_COUNT = sizeof(ZOOM_STEPS) / sizeof(ZOOM_STEPS[0]);
+inline constexpr int ZOOM_DEFAULT_INDEX = 7; // 1.00f
 
 Theme GetLightTheme();
 Theme GetDarkTheme();

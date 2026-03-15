@@ -202,6 +202,12 @@ void Renderer::SetDpi(float dpi) {
     toc_pane_cache_.Reset();
 }
 
+void Renderer::ApplyZoom(float new_zoom) {
+    theme_.ApplyZoom(new_zoom);
+    layout_.UpdateTheme(theme_);
+    layout_.RecreateFormats();
+}
+
 void Renderer::DrawCodeBlockBackground(const RenderNode& node, float offset_x, float content_width) {
     float pad = theme_.code_block_padding;
     D2D1_RECT_F bg_rect = D2D1::RectF(
