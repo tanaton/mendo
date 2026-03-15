@@ -11,6 +11,7 @@ add_executable(MaDView_tests
     test_document_utils.cpp
     test_pane_layout.cpp
     test_mermaid_util.cpp
+    test_config_store.cpp
 )
 
 target_link_libraries(MaDView_tests PRIVATE

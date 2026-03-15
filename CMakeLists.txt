@@ -50,6 +50,7 @@ add_library(MaDView_core STATIC
     src/document_utils.cpp
     src/pane_layout.cpp
     src/mermaid_util.cpp
+    src/config_store.cpp
 )
 target_include_directories(MaDView_core PUBLIC src third_party/md4c)
 target_compile_definitions(MaDView_core PUBLIC
@@ -80,7 +81,11 @@ add_custom_target(mermaid_gz DEPENDS "${MERMAID_JS_GZ}")
 add_executable(MaDView WIN32
     src/main.cpp
     src/window.cpp
+    src/window_input.cpp
+    src/window_scroll.cpp
+    src/window_config.cpp
     src/renderer.cpp
+    src/renderer_pane.cpp
     src/mermaid.cpp
     res/MaDView.rc
 )

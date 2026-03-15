@@ -13,6 +13,9 @@
 #include <vector>
 #include <optional>
 
+// Apply dark mode styling to window title bar and scrollbar.
+void ApplyDarkModeToWindow(HWND hwnd, bool dark);
+
 class MainWindow {
 public:
     bool Create(HINSTANCE hInstance, int nCmdShow);
