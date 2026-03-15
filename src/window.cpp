@@ -886,6 +886,8 @@ void MainWindow::RequestMermaidRenders() {
             int anchor_idx = FindFirstVisibleNode();
             float anchor_y_before = (anchor_idx >= 0) ? nodes_[anchor_idx].y_position : 0.0f;
             auto result = RecomputeYPositions(nodes_, renderer_.GetTheme());
+            renderer_.GetLayout().SetTotalHeight(result.total_height);
+            SyncMaxScroll();
             AnchorCompensateScroll(anchor_idx, anchor_y_before);
             InvalidateRect(hwnd_, nullptr, FALSE);
         });

@@ -35,6 +35,7 @@ public:
                              float viewport_top, float viewport_bottom);
     bool HasDirtyNodes() const { return has_dirty_nodes_; }
     float GetTotalHeight() const { return total_height_; }
+    void SetTotalHeight(float h) { total_height_ = h; }
 
 private:
     void CreateTextLayout(RenderNode& node, float max_width);
