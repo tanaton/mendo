@@ -11,7 +11,7 @@ protected:
 
     void SetUp() override {
         // Create a unique temp directory for each test
-        temp_dir_ = fs::temp_directory_path() / L"madview_test_config";
+        temp_dir_ = fs::temp_directory_path() / L"mendo_test_config";
         fs::remove_all(temp_dir_);
         fs::create_directories(temp_dir_);
         config::SetConfigDirOverride(temp_dir_);
@@ -32,9 +32,9 @@ TEST_F(ConfigStoreTest, GetConfigDirReturnsOverride) {
 TEST_F(ConfigStoreTest, GetConfigDirReturnsDefaultWhenNoOverride) {
     config::SetConfigDirOverride({});
     auto dir = config::GetConfigDir();
-    // Should return a valid path containing "MaDView"
+    // Should return a valid path containing "mendo"
     EXPECT_FALSE(dir.empty());
-    EXPECT_NE(dir.wstring().find(L"MaDView"), std::wstring::npos);
+    EXPECT_NE(dir.wstring().find(L"mendo"), std::wstring::npos);
 }
 
 TEST_F(ConfigStoreTest, GetConfigPathCombinesCorrectly) {

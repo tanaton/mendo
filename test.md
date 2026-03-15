@@ -1,8 +1,8 @@
-# MaDView ソフトウェア詳細仕様書
+# mendo ソフトウェア詳細仕様書
 
 > **文書バージョン**: 1.0.0
 > **最終更新日**: 2026-03-16
-> **対象ソフトウェア**: MaDView v1.0
+> **対象ソフトウェア**: mendo v1.0
 
 ---
 
@@ -10,7 +10,7 @@
 
 ### 1.1 本文書の目的
 
-本文書は **MaDView**（Mad + MD + D + View）の詳細なソフトウェア仕様を記述する。本アプリケーションは、Webブラウザを使わず **Direct2D / DirectWrite** による自前レンダリングで高速なMarkdown表示を実現するWindows向けネイティブビュアーである。
+本文書は **mendo**（Mad + MD + D + View）の詳細なソフトウェア仕様を記述する。本アプリケーションは、Webブラウザを使わず **Direct2D / DirectWrite** による自前レンダリングで高速なMarkdown表示を実現するWindows向けネイティブビュアーである。
 
 ### 1.2 対象読者
 
@@ -44,7 +44,7 @@ graph TB
         B[スクロール / ズーム / テーマ切替]
     end
 
-    subgraph MaDView コア
+    subgraph mendo コア
         C[MainWindow<br>Win32 メッセージループ]
         D[FileLoader<br>ファイル読み込み & 監視]
         E[Parser<br>md4c SAXコールバック]
@@ -287,7 +287,7 @@ sequenceDiagram
 - **斜体** (`*italic*`) → *斜体の例*
 - **取り消し線** (`~~strike~~`) → ~~取り消し線の例~~
 - **インラインコード** (`` `code` ``) → `inline code`
-- **リンク** (`[text](url)`) → [MaDView GitHub](https://github.com/example)
+- **リンク** (`[text](url)`) → [mendo GitHub](https://github.com/example)
 - **太字+斜体** (`***both***`) → ***太字かつ斜体***
 
 #### 3.2.3 アンカーID生成ルール
@@ -685,7 +685,7 @@ graph LR
 #### 3.10.1 保存先
 
 ```
-%LOCALAPPDATA%\MaDView\
+%LOCALAPPDATA%\mendo\
 ```
 
 #### 3.10.2 保存項目
@@ -877,15 +877,15 @@ stateDiagram-v2
 
 ```mermaid
 graph TD
-    ROOT[CMakeLists.txt] --> CORE[MaDView_core<br>STATIC LIBRARY]
-    ROOT --> EXE[MaDView<br>WIN32 EXECUTABLE]
+    ROOT[CMakeLists.txt] --> CORE[mendo_core<br>STATIC LIBRARY]
+    ROOT --> EXE[mendo<br>WIN32 EXECUTABLE]
     ROOT --> TEST[テスト群<br>13テストバイナリ]
 
     CORE --> MD4C[md4c<br>third_party]
     EXE --> CORE
     EXE --> WV2[WebView2 SDK<br>NuGet/FetchContent]
     EXE --> WIL[WIL<br>NuGet/FetchContent]
-    EXE --> RC[MaDView.rc<br>リソース]
+    EXE --> RC[mendo.rc<br>リソース]
     TEST --> CORE
     TEST --> GTEST[Google Test v1.17.0<br>FetchContent]
 
@@ -906,7 +906,7 @@ cmake --build build --config Release
 **テストなしビルド:**
 
 ```bash
-cmake -B build -DMADVIEW_BUILD_TESTS=OFF
+cmake -B build -DMENDO_BUILD_TESTS=OFF
 cmake --build build --config Release
 ```
 
@@ -920,8 +920,8 @@ ctest --test-dir build --output-on-failure -C Release
 
 | ターゲット | 種別 | 説明 |
 |:-----------|:-----|:-----|
-| `MaDView_core` | 静的ライブラリ | テスト可能なコアロジック（WinMainを含まない） |
-| `MaDView` | 実行ファイル (WIN32) | メインアプリケーション |
+| `mendo_core` | 静的ライブラリ | テスト可能なコアロジック（WinMainを含まない） |
+| `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
 | `test_parser` | テスト | Markdownパーサのテスト |
 | `test_layout` | テスト | レイアウトエンジンのテスト |
 | `test_syntax` | テスト | シンタックスハイライトのテスト |
@@ -1098,7 +1098,7 @@ src/
 
 ### 付録C: Markdown表示サンプル
 
-本節は MaDView の表示テストを兼ねている。
+本節は mendo の表示テストを兼ねている。
 
 ---
 
@@ -1393,7 +1393,7 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     actor User as ユーザー
-    participant App as MaDView
+    participant App as mendo
     participant FS as ファイルシステム
 
     User->>App: ファイルをドロップ
@@ -1460,7 +1460,7 @@ stateDiagram-v2
 
 ```mermaid
 gantt
-    title MaDView 開発タイムライン
+    title mendo 開発タイムライン
     dateFormat  YYYY-MM-DD
     section 基盤
     プロジェクトセットアップ      :done, a1, 2025-01-01, 7d
@@ -1492,10 +1492,10 @@ gantt
 
 **Direct2D** は Microsoft が提供する *ハードウェアアクセラレーション対応* の2Dグラフィックス API であり、`ID2D1RenderTarget` インターフェースを通じて図形やテキストの描画を行う。詳しくは [Microsoft Docs](https://docs.microsoft.com) を参照。~~古いGDI+ベースの描画~~ は本アプリケーションでは使用しない。
 
-> **注意**: MaDView は `IDWriteTextLayout` の ***カスタムレンダラ*** を使用して、リンクの下線やインラインコードの背景色などを実現している。通常の `DrawTextLayout` 呼び出しでは不十分なケースに対応するためである。
+> **注意**: mendo は `IDWriteTextLayout` の ***カスタムレンダラ*** を使用して、リンクの下線やインラインコードの背景色などを実現している。通常の `DrawTextLayout` 呼び出しでは不十分なケースに対応するためである。
 
 コードブロック内の `#include <d2d1.h>` のような記述と、本文中の `d2d1.h` というインラインコードの区別が正しく表示されることを確認する。
 
 ---
 
-*本文書は MaDView の詳細仕様を網羅的に記述したものであり、開発・テスト・保守の参照資料として利用されることを想定している。*
+*本文書は mendo の詳細仕様を網羅的に記述したものであり、開発・テスト・保守の参照資料として利用されることを想定している。*

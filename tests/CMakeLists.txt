@@ -1,4 +1,4 @@
-add_executable(MaDView_tests
+add_executable(mendo_tests
     test_parser.cpp
     test_types.cpp
     test_theme.cpp
@@ -14,14 +14,14 @@ add_executable(MaDView_tests
     test_config_store.cpp
 )
 
-target_link_libraries(MaDView_tests PRIVATE
-    MaDView_core
+target_link_libraries(mendo_tests PRIVATE
+    mendo_core
     GTest::gtest_main
 )
 
 if(MSVC)
-    target_compile_options(MaDView_tests PRIVATE /W4 /utf-8)
+    target_compile_options(mendo_tests PRIVATE /W4 /utf-8)
 endif()
 
 include(GoogleTest)
-gtest_add_tests(TARGET MaDView_tests)
+gtest_add_tests(TARGET mendo_tests)

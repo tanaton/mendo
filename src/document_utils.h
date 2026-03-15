@@ -35,7 +35,7 @@ WordBoundary FindWordBoundaries(const std::wstring& text, uint32_t pos);
 std::wstring ExtractFilename(const std::wstring& path);
 
 // Build a title string from a file path.
-// e.g. "C:\\dir\\file.md" -> "file.md - MaDView"
-// If path is empty, returns "MaDView".
+// e.g. "C:\\dir\\file.md" -> "file.md - mendo"
+// If path is empty, returns "mendo".
 // zoom_percent: 0 or 100 means default (omitted), otherwise shown as "(125%)" etc.
 std::wstring BuildTitleString(const std::wstring& path, int zoom_percent = 0);

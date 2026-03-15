@@ -305,15 +305,15 @@ TEST(ExtractFilename, JapaneseFilename) {
 // ============================================================
 
 TEST(BuildTitleString, EmptyPath) {
-    EXPECT_EQ(BuildTitleString(L""), L"MaDView");
+    EXPECT_EQ(BuildTitleString(L""), L"mendo");
 }
 
 TEST(BuildTitleString, WithPath) {
-    EXPECT_EQ(BuildTitleString(L"C:\\dir\\test.md"), L"test.md - MaDView");
+    EXPECT_EQ(BuildTitleString(L"C:\\dir\\test.md"), L"test.md - mendo");
 }
 
 TEST(BuildTitleString, FilenameOnly) {
-    EXPECT_EQ(BuildTitleString(L"readme.md"), L"readme.md - MaDView");
+    EXPECT_EQ(BuildTitleString(L"readme.md"), L"readme.md - mendo");
 }
 
 // ============================================================

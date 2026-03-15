@@ -21,7 +21,7 @@ std::filesystem::path GetConfigDir() {
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
         return {};
     }
-    std::filesystem::path dir = std::filesystem::path(appdata) / L"MaDView";
+    std::filesystem::path dir = std::filesystem::path(appdata) / L"mendo";
     CoTaskMemFree(appdata);
     return dir;
 }

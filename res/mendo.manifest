@@ -3,7 +3,7 @@
   <assemblyIdentity
     version="1.0.0.0"
     processorArchitecture="*"
-    name="MaDView"
+    name="mendo"
     type="win32"/>
   <dependency>
     <dependentAssembly>

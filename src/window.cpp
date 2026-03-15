@@ -11,7 +11,7 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "shcore.lib")
 
-static constexpr wchar_t WINDOW_CLASS[] = L"MaDViewWindow";
+static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 
 // ---- Helper methods ----
 
@@ -85,7 +85,7 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
     hwnd_ = CreateWindowExW(
         WS_EX_ACCEPTFILES,
         WINDOW_CLASS,
-        L"MaDView",
+        L"mendo",
         WS_OVERLAPPEDWINDOW | WS_VSCROLL,
         CW_USEDEFAULT, CW_USEDEFAULT,
         2100, 1400,

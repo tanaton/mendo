@@ -1,6 +1,6 @@
-# MaDView
+# mendo
 
-**Mad** + **MD** + **D**irect2D + **View** — イカれた高速Markdownビュアー
+**Mend** + **MD** — 面倒を見る高速Markdownビュアー
 
 Webブラウザ/WebViewを一切使わず、Direct2D/DirectWriteでMarkdownを直接描画するWindows向けネイティブアプリケーションです。
 
@@ -20,7 +20,7 @@ Webブラウザ/WebViewを一切使わず、Direct2D/DirectWriteでMarkdownを�
 - **High DPI対応** — Per-Monitor DPI Awareness V2 に対応
 - **ドラッグ&ドロップ** — `.md` ファイルをウィンドウにドロップするだけで表示
 - **テキスト選択&コピー** — マウスで範囲選択し `Ctrl+C` でクリップボードにコピー
-- **設定の永続化** — ダークモード・ズームレベル・最後に開いたファイルを `%LOCALAPPDATA%\MaDView\` に保存
+- **設定の永続化** — ダークモード・ズームレベル・最後に開いたファイルを `%LOCALAPPDATA%\mendo\` に保存
 
 ## 対応するMarkdown要素
 
@@ -72,12 +72,12 @@ cmake -B build
 cmake --build build --config Release
 ```
 
-生成される実行ファイル: `build/Release/MaDView.exe`
+生成される実行ファイル: `build/Release/mendo.exe`
 
 テストなしでビルドする場合:
 
 ```
-cmake -B build -DMADVIEW_BUILD_TESTS=OFF
+cmake -B build -DMENDO_BUILD_TESTS=OFF
 cmake --build build --config Release
 ```
 
@@ -91,7 +91,7 @@ ctest --test-dir build --output-on-failure -C Release
 ## 使い方
 
 ```
-MaDView.exe [ファイルパス]
+mendo.exe [ファイルパス]
 ```
 
 引数なしで起動した場合は、`Ctrl+O` またはドラッグ&ドロップでファイルを開けます。

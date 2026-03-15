@@ -91,10 +91,10 @@ std::wstring ExtractFilename(const std::wstring& path) {
 std::wstring BuildTitleString(const std::wstring& path, int zoom_percent) {
     std::wstring title;
     if (path.empty()) {
-        title = L"MaDView";
+        title = L"mendo";
     } else {
         auto filename = ExtractFilename(path);
-        title = filename.empty() ? L"MaDView" : filename + L" - MaDView";
+        title = filename.empty() ? L"mendo" : filename + L" - mendo";
     }
     if (zoom_percent > 0 && zoom_percent != 100) {
         title += L" (" + std::to_wstring(zoom_percent) + L"%)";

@@ -2,7 +2,7 @@
 #include "../src/resource.h"
 
 // Manifest
-1 RT_MANIFEST "MaDView.manifest"
+1 RT_MANIFEST "mendo.manifest"
 
 // Version info
 VS_VERSION_INFO VERSIONINFO
@@ -18,11 +18,11 @@ BEGIN
     BEGIN
         BLOCK "041104b0"
         BEGIN
-            VALUE "FileDescription", "MaDView - Insanely Fast Markdown Viewer"
+            VALUE "FileDescription", "mendo - Insanely Fast Markdown Viewer"
             VALUE "FileVersion", "1.0.0.0"
-            VALUE "InternalName", "MaDView"
-            VALUE "OriginalFilename", "MaDView.exe"
-            VALUE "ProductName", "MaDView"
+            VALUE "InternalName", "mendo"
+            VALUE "OriginalFilename", "mendo.exe"
+            VALUE "ProductName", "mendo"
             VALUE "ProductVersion", "1.0.0.0"
         END
     END

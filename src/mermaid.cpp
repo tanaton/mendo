@@ -139,7 +139,7 @@ static std::wstring GetWebView2UserDataFolder() {
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
         return L"";
     }
-    std::wstring path = std::wstring(appdata) + L"\\MaDView\\WebView2Data";
+    std::wstring path = std::wstring(appdata) + L"\\mendo\\WebView2Data";
     CoTaskMemFree(appdata);
     std::filesystem::create_directories(path);
     return path;
@@ -149,7 +149,7 @@ static std::wstring GetWebView2UserDataFolder() {
 // JsEscape - now in mermaid_util.cpp
 
 // Window class name for the offscreen WebView2 host
-static const wchar_t* kMermaidHostClass = L"MaDView_MermaidHost";
+static const wchar_t* kMermaidHostClass = L"mendo_MermaidHost";
 
 // ---- MermaidRenderer implementation ----
 
@@ -195,7 +195,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
         nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
 
     if (!webview_hwnd_) {
-        OutputDebugStringW(L"[MaDView/Mermaid] Failed to create offscreen host window\n");
+        OutputDebugStringW(L"[mendo/Mermaid] Failed to create offscreen host window\n");
         return;
     }
 
@@ -211,10 +211,10 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [this, on_ready](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
                 if (FAILED(result) || !env) {
-                    OutputDebugStringW(L"[MaDView/Mermaid] WebView2 environment creation failed\n");
+                    OutputDebugStringW(L"[mendo/Mermaid] WebView2 environment creation failed\n");
                     return S_OK;
                 }
-                OutputDebugStringW(L"[MaDView/Mermaid] WebView2 environment created\n");
+                OutputDebugStringW(L"[mendo/Mermaid] WebView2 environment created\n");
 
                 webview_env_ = env;
                 env->CreateCoreWebView2Controller(
@@ -222,10 +222,10 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                     Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
                         [this, on_ready](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
                             if (FAILED(result) || !controller) {
-                                OutputDebugStringW(L"[MaDView/Mermaid] WebView2 controller creation failed\n");
+                                OutputDebugStringW(L"[mendo/Mermaid] WebView2 controller creation failed\n");
                                 return S_OK;
                             }
-                            OutputDebugStringW(L"[MaDView/Mermaid] WebView2 controller created\n");
+                            OutputDebugStringW(L"[mendo/Mermaid] WebView2 controller created\n");
 
                             webview_controller_ = controller;
                             controller->get_CoreWebView2(&webview_);
@@ -258,7 +258,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                                 catch (...) {}
                                                 if (dpr > 0) dpr_ = dpr;
                                                 {
-                                                    std::wstring dbg = L"[MaDView/Mermaid] Received mermaid-ready dpr="
+                                                    std::wstring dbg = L"[mendo/Mermaid] Received mermaid-ready dpr="
                                                         + std::to_wstring(dpr_) + L"\n";
                                                     OutputDebugStringW(dbg.c_str());
                                                 }
@@ -270,12 +270,12 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                             } else if (wcscmp(msg, L"capture-ready") == 0) {
                                                 DoCapturePreview();
                                             } else if (wcsncmp(msg, L"render-error:", 13) == 0) {
-                                                OutputDebugStringW(L"[MaDView/Mermaid] Render error via postMessage: ");
+                                                OutputDebugStringW(L"[mendo/Mermaid] Render error via postMessage: ");
                                                 OutputDebugStringW(msg + 13);
                                                 OutputDebugStringW(L"\n");
                                                 FinishCurrentRequest();
                                             } else {
-                                                OutputDebugStringW(L"[MaDView/Mermaid] Received message: ");
+                                                OutputDebugStringW(L"[mendo/Mermaid] Received message: ");
                                                 OutputDebugStringW(msg);
                                                 OutputDebugStringW(L"\n");
                                             }
@@ -308,7 +308,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                         if (url.find(L"/mermaid.min.js.gz") != std::wstring::npos) {
                                             // Serve gzip-compressed mermaid.js; JS decompresses via DecompressionStream
                                             std::string gz = LoadMermaidJsGzFromResource();
-                                            OutputDebugStringW(L"[MaDView/Mermaid] Serving mermaid.min.js.gz from resource (");
+                                            OutputDebugStringW(L"[mendo/Mermaid] Serving mermaid.min.js.gz from resource (");
                                             OutputDebugStringW(std::to_wstring(gz.size()).c_str());
                                             OutputDebugStringW(L" bytes, gzip)\n");
                                             stream = CreateMemoryStream(gz.data(), gz.size());
@@ -425,7 +425,7 @@ void MermaidRenderer::RenderMermaidInWebView(const std::wstring& code, float max
                  SWP_NOZORDER | SWP_NOACTIVATE);
 
     {
-        std::wstring dbg = L"[MaDView/Mermaid] Render: max_width=" + std::to_wstring(static_cast<int>(max_width))
+        std::wstring dbg = L"[mendo/Mermaid] Render: max_width=" + std::to_wstring(static_cast<int>(max_width))
             + L" dpr=" + std::to_wstring(dpr_)
             + L" bounds_w=" + std::to_wstring(vp_phys) + L"\n";
         OutputDebugStringW(dbg.c_str());
@@ -465,13 +465,13 @@ void MermaidRenderer::OnMermaidRenderResult(const std::wstring& json) {
          || json.find(L"\"ok\": true") != std::wstring::npos;
 
     if (!ok || dw <= 0 || dh <= 0) {
-        OutputDebugStringW(L"[MaDView/Mermaid] renderMermaid returned error or zero size\n");
-        OutputDebugStringW((L"[MaDView/Mermaid]   result: " + json + L"\n").c_str());
+        OutputDebugStringW(L"[mendo/Mermaid] renderMermaid returned error or zero size\n");
+        OutputDebugStringW((L"[mendo/Mermaid]   result: " + json + L"\n").c_str());
         FinishCurrentRequest();
         return;
     }
     {
-        std::wstring msg = L"[MaDView/Mermaid] renderMermaid ok: "
+        std::wstring msg = L"[mendo/Mermaid] renderMermaid ok: "
             + std::to_wstring(static_cast<int>(dw)) + L"x"
             + std::to_wstring(static_cast<int>(dh))
             + L" dpr=" + std::to_wstring(dpr) + L"\n";
@@ -539,7 +539,7 @@ void MermaidRenderer::OnCaptureComplete(const std::wstring& code_hash, IStream* 
         if (draw_h <= 0) draw_h = bh;
 
         {
-            std::wstring msg = L"[MaDView/Mermaid] Capture: bitmap="
+            std::wstring msg = L"[mendo/Mermaid] Capture: bitmap="
                 + std::to_wstring(static_cast<int>(bw)) + L"x"
                 + std::to_wstring(static_cast<int>(bh))
                 + L" draw=" + std::to_wstring(static_cast<int>(draw_w))

@@ -7,7 +7,7 @@ namespace config {
 // Override config directory (for testing). Pass empty path to reset to default.
 void SetConfigDirOverride(const std::filesystem::path& dir);
 
-// Returns the MaDView config directory (%LOCALAPPDATA%/MaDView).
+// Returns the mendo config directory (%LOCALAPPDATA%/mendo).
 std::filesystem::path GetConfigDir();
 
 // Returns full path for a config file within the config directory.

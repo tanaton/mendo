@@ -1,8 +1,8 @@
-# MaDView - イカれた高速Markdownビュアー
+# mendo - 面倒を見る高速Markdownビュアー
 
 ## プロジェクト概要
 
-Webブラウザを使わず、Direct2D/DirectWriteによる自前レンダリングでWindows向け高速Markdownビュアーを実現するネイティブアプリケーション。Mad（イカれた）+ MD（Markdown）+ D（Direct2D）+ View。
+Webブラウザを使わず、Direct2D/DirectWriteによる自前レンダリングでWindows向け高速Markdownビュアーを実現するネイティブアプリケーション。Mend（修繕する）+ MD（Markdown）+ 面倒を見る。
 
 ## 技術スタック
 
@@ -23,7 +23,7 @@ cmake --build build --config Release
 
 テストなしでビルドする場合:
 ```
-cmake -B build -DMADVIEW_BUILD_TESTS=OFF
+cmake -B build -DMENDO_BUILD_TESTS=OFF
 cmake --build build --config Release
 ```
 
@@ -38,4 +38,4 @@ ctest --test-dir build --output-on-failure -C Release
 
 - 思考過程も日本語で出力してね
 - `third_party/md4c/` は外部コードなので編集しない
-- マニフェストは `res/MaDView.rc` 経由で埋め込み。`#pragma comment(linker, "/manifestdependency:...")` は使わない
+- マニフェストは `res/mendo.rc` 経由で埋め込み。`#pragma comment(linker, "/manifestdependency:...")` は使わない

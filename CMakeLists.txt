@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MaDView LANGUAGES CXX C)
+project(mendo LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -39,7 +39,7 @@ if(MSVC)
 endif()
 
 # ---- Core library (testable code, no WinMain / window) ----
-add_library(MaDView_core STATIC
+add_library(mendo_core STATIC
     src/parser.cpp
     src/layout.cpp
     src/file_loader.cpp
@@ -52,15 +52,15 @@ add_library(MaDView_core STATIC
     src/mermaid_util.cpp
     src/config_store.cpp
 )
-target_include_directories(MaDView_core PUBLIC src third_party/md4c)
-target_compile_definitions(MaDView_core PUBLIC
+target_include_directories(mendo_core PUBLIC src third_party/md4c)
+target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )
-target_link_libraries(MaDView_core PUBLIC
+target_link_libraries(mendo_core PUBLIC
     md4c d2d1 dwrite windowscodecs shlwapi comctl32
 )
 if(MSVC)
-    target_compile_options(MaDView_core PRIVATE /W4 /utf-8)
+    target_compile_options(mendo_core PRIVATE /W4 /utf-8)
 endif()
 
 # ---- Gzip compress mermaid.min.js for smaller exe ----
@@ -78,7 +78,7 @@ add_custom_command(
 add_custom_target(mermaid_gz DEPENDS "${MERMAID_JS_GZ}")
 
 # ---- Main executable ----
-add_executable(MaDView WIN32
+add_executable(mendo WIN32
     src/main.cpp
     src/window.cpp
     src/window_input.cpp
@@ -87,22 +87,22 @@ add_executable(MaDView WIN32
     src/renderer.cpp
     src/renderer_pane.cpp
     src/mermaid.cpp
-    res/MaDView.rc
+    res/mendo.rc
 )
-add_dependencies(MaDView mermaid_gz)
-target_include_directories(MaDView PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})
-target_link_libraries(MaDView PRIVATE MaDView_core
+add_dependencies(mendo mermaid_gz)
+target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})
+target_link_libraries(mendo PRIVATE mendo_core
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
 )
 if(MSVC)
-    target_compile_options(MaDView PRIVATE /W4 /utf-8)
+    target_compile_options(mendo PRIVATE /W4 /utf-8)
 endif()
 # Disable auto-generated manifest (we provide our own via RC)
-set_target_properties(MaDView PROPERTIES LINK_FLAGS "/MANIFEST:NO")
+set_target_properties(mendo PROPERTIES LINK_FLAGS "/MANIFEST:NO")
 
 # ---- Tests ----
-option(MADVIEW_BUILD_TESTS "Build tests" ON)
-if(MADVIEW_BUILD_TESTS)
+option(MENDO_BUILD_TESTS "Build tests" ON)
+if(MENDO_BUILD_TESTS)
     include(FetchContent)
     FetchContent_Declare(
         googletest
