@@ -58,6 +58,7 @@ private:
     HWND hwnd_ = nullptr;           // main window
     HWND webview_hwnd_ = nullptr;   // dedicated offscreen popup for WebView2
     ID2D1RenderTarget* render_target_ = nullptr;
+    float dpi_scale_ = 1.0f;        // physical pixels per DIP
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<ICoreWebView2Environment> webview_env_;
     ComPtr<ICoreWebView2Controller> webview_controller_;
@@ -72,6 +73,8 @@ private:
         bool dark_mode = false;
         std::function<void()> on_complete;
         std::wstring code_hash;
+        float css_width = 0.0f;   // CSS pixel dimensions (DIPs) from JS
+        float css_height = 0.0f;
     };
     std::queue<RenderRequest> pending_requests_;
     RenderRequest current_request_;

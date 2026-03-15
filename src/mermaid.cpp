@@ -62,21 +62,13 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
       }
       const container = document.getElementById('container');
       container.innerHTML = '';
-      // Constrain container width so mermaid lays out to fit
-      if (maxWidth > 0) {
-        container.style.maxWidth = maxWidth + 'px';
-      }
+      container.style.maxWidth = '';
       renderCount++;
       const id = 'mmd-' + renderCount;
       const { svg } = await mermaid.render(id, code);
       container.innerHTML = svg;
-      // Also constrain the SVG element itself
-      const svgEl = container.querySelector('svg');
-      if (svgEl && maxWidth > 0) {
-        svgEl.style.maxWidth = maxWidth + 'px';
-        svgEl.style.height = 'auto';
-      }
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const svgEl = container.querySelector('svg');
       if (svgEl) {
         const rect = svgEl.getBoundingClientRect();
         return JSON.stringify({ width: Math.ceil(rect.width), height: Math.ceil(rect.height), ok: true });
@@ -183,6 +175,10 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                            std::function<void()> on_ready) {
     hwnd_ = hwnd;
     render_target_ = render_target;
+
+    // Compute DPI scale for converting DIPs → physical pixels
+    UINT dpi = GetDpiForWindow(hwnd);
+    dpi_scale_ = dpi > 0 ? static_cast<float>(dpi) / 96.0f : 1.0f;
 
     // Create WIC factory for PNG decoding
     CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
@@ -421,15 +417,18 @@ void MermaidRenderer::RenderMermaidInWebView(const std::wstring& code, float max
         return;
     }
 
-    // Use a wide viewport so the diagram is not clipped during rendering.
-    // The container's max-width (set via JS) constrains mermaid's layout.
-    RECT bounds = {0, 0, 8192, 4096};
+    // max_width is in DIPs.  WebView2 bounds are in physical pixels.
+    int vp_px = static_cast<int>(max_width * dpi_scale_);
+    if (vp_px < 400) vp_px = 400;
+    RECT bounds = {0, 0, vp_px, static_cast<LONG>(4096 * dpi_scale_)};
     webview_controller_->put_Bounds(bounds);
+    SetWindowPos(webview_hwnd_, nullptr, -32000, -32000, vp_px,
+                 static_cast<int>(4096 * dpi_scale_),
+                 SWP_NOZORDER | SWP_NOACTIVATE);
 
-    // Call renderMermaid with maxWidth so it constrains the diagram to fit.
+    // Call renderMermaid and deliver result via postMessage.
     std::wstring js = L"renderMermaid('" + JsEscape(code) + L"', "
-                      + (dark_mode ? L"true" : L"false") + L", "
-                      + std::to_wstring(static_cast<int>(max_width))
+                      + (dark_mode ? L"true" : L"false") + L", 0"
                       + L").then(function(r){window.chrome.webview.postMessage('render-result:'+r);"
                         L"}).catch(function(e){window.chrome.webview.postMessage('render-error:'+String(e));})";
 
@@ -471,9 +470,13 @@ void MermaidRenderer::OnMermaidRenderResult(const std::wstring& json) {
         OutputDebugStringW(msg.c_str());
     }
 
-    // Resize WebView to exact diagram size for capture
-    int cw = static_cast<int>(std::ceil(dw));
-    int ch = static_cast<int>(std::ceil(dh));
+    // Store CSS pixel dimensions for later use as drawing size (DIPs)
+    current_request_.css_width = dw;
+    current_request_.css_height = dh;
+
+    // Resize WebView to exact diagram size for capture (convert CSS px → physical px)
+    int cw = static_cast<int>(std::ceil(dw * dpi_scale_));
+    int ch = static_cast<int>(std::ceil(dh * dpi_scale_));
     RECT capBounds = {0, 0, static_cast<LONG>(cw), static_cast<LONG>(ch)};
     webview_controller_->put_Bounds(capBounds);
 
@@ -518,19 +521,35 @@ void MermaidRenderer::OnCaptureComplete(const std::wstring& code_hash, IStream* 
     float bw = 0, bh = 0;
 
     if (SUCCEEDED(CreateBitmapFromPngStream(png_stream, &bitmap, &bw, &bh)) && bitmap) {
+        // Use CSS pixel dimensions (DIPs) for drawing, not bitmap pixel
+        // dimensions which include DPI scaling.
+        float draw_w = current_request_.css_width;
+        float draw_h = current_request_.css_height;
+        if (draw_w <= 0) draw_w = bw;  // fallback
+        if (draw_h <= 0) draw_h = bh;
+
+        {
+            std::wstring msg = L"[MaDView/Mermaid] Capture: bitmap="
+                + std::to_wstring(static_cast<int>(bw)) + L"x"
+                + std::to_wstring(static_cast<int>(bh))
+                + L" draw=" + std::to_wstring(static_cast<int>(draw_w))
+                + L"x" + std::to_wstring(static_cast<int>(draw_h)) + L"\n";
+            OutputDebugStringW(msg.c_str());
+        }
+
         // Store in cache
         CachedBitmap cached;
         cached.bitmap = bitmap;
-        cached.width = bw;
-        cached.height = bh;
+        cached.width = draw_w;
+        cached.height = draw_h;
         cache_[code_hash] = cached;
 
         // Update the node
         if (current_request_.node) {
             current_request_.node->diagram_bitmap = bitmap;
-            current_request_.node->diagram_width = bw;
-            current_request_.node->diagram_height = bh;
-            current_request_.node->height = bh;
+            current_request_.node->diagram_width = draw_w;
+            current_request_.node->diagram_height = draw_h;
+            current_request_.node->height = draw_h;
             current_request_.node->layout_dirty = false;
         }
     }
