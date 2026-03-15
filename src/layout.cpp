@@ -1,6 +1,71 @@
 #include "layout.h"
 #include <algorithm>
 
+// ---- Free functions ----
+
+std::vector<float> ComputeColumnWidths(const std::vector<float>& natural_widths,
+                                        float available_width, size_t col_count) {
+    std::vector<float> widths(col_count);
+    available_width = std::max(available_width, static_cast<float>(col_count) * 30.0f);
+
+    float total_natural = 0;
+    for (float w : natural_widths) total_natural += w;
+
+    if (total_natural > 0 && total_natural > available_width) {
+        for (size_t c = 0; c < col_count; c++) {
+            widths[c] = std::max(30.0f, available_width * natural_widths[c] / total_natural);
+        }
+    } else {
+        float even = available_width / static_cast<float>(col_count);
+        for (size_t c = 0; c < col_count; c++) {
+            widths[c] = std::max(natural_widths[c] + 4.0f, even);
+        }
+    }
+    return widths;
+}
+
+std::wstring BuildLinearizedTableText(const std::vector<TableRow>& rows) {
+    std::wstring text;
+    for (size_t r = 0; r < rows.size(); r++) {
+        const auto& row = rows[r];
+        for (size_t c = 0; c < row.cells.size(); c++) {
+            if (c > 0) text += L'\t';
+            text += row.cells[c].text;
+        }
+        if (r + 1 < rows.size()) {
+            text += L'\n';
+        }
+    }
+    return text;
+}
+
+YPositionResult RecomputeYPositions(std::vector<RenderNode>& nodes, const Theme& theme) {
+    YPositionResult result;
+    float y = theme.margin_top;
+
+    for (auto& node : nodes) {
+        if (node.layout_dirty) result.has_dirty_nodes = true;
+
+        if (node.type == NodeType::Heading) {
+            y += theme.heading_spacing_above;
+        }
+
+        node.y_position = y;
+        y += node.height;
+
+        if (node.type == NodeType::Heading) {
+            y += theme.heading_spacing_below;
+        } else {
+            y += theme.paragraph_spacing;
+        }
+    }
+
+    result.total_height = y + theme.margin_top;
+    return result;
+}
+
+// ---- LayoutEngine ----
+
 static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family,
                             float size, DWRITE_FONT_WEIGHT weight,
                             IDWriteTextFormat** out) {
@@ -111,25 +176,9 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
     }
 
     // Compute column widths: proportional distribution
-    float total_natural = 0;
-    for (float w : natural_widths) total_natural += w;
-
     float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width
                       - static_cast<float>(col_count) * cell_padding * 2.0f;
-    available = std::max(available, static_cast<float>(col_count) * 30.0f);
-
-    node.col_widths.resize(col_count);
-    if (total_natural > 0 && total_natural > available) {
-        for (size_t c = 0; c < col_count; c++) {
-            node.col_widths[c] = std::max(30.0f, available * natural_widths[c] / total_natural);
-        }
-    } else {
-        // Distribute evenly if fits
-        float even = available / static_cast<float>(col_count);
-        for (size_t c = 0; c < col_count; c++) {
-            node.col_widths[c] = std::max(natural_widths[c] + 4.0f, even);
-        }
-    }
+    node.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
 
     // Second pass: update column widths and alignment on existing layouts, measure row heights
     float total_height = border_width; // top border
@@ -156,17 +205,7 @@ void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
     }
 
     // Build linearized text for selection support (tab-separated cells, newline-separated rows)
-    node.text.clear();
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        const auto& row = node.table_rows[r];
-        for (size_t c = 0; c < row.cells.size(); c++) {
-            if (c > 0) node.text += L'\t';
-            node.text += row.cells[c].text;
-        }
-        if (r + 1 < node.table_rows.size()) {
-            node.text += L'\n';
-        }
-    }
+    node.text = BuildLinearizedTableText(node.table_rows);
 
     node.height = total_height;
     node.layout_dirty = false;
@@ -255,7 +294,6 @@ void LayoutEngine::ComputeLayout(std::vector<RenderNode>& nodes, float viewport_
 
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     float y = theme_->margin_top;
-    has_dirty_nodes_ = false;
 
     for (auto& node : nodes) {
         float indent = node.indent_level * theme_->indent_width;
@@ -272,22 +310,17 @@ void LayoutEngine::ComputeLayout(std::vector<RenderNode>& nodes, float viewport_
                     CreateTextLayout(node, node_width);
                 } else {
                     node.layout_dirty = true;
-                    has_dirty_nodes_ = true;
                 }
             } else {
                 CreateTextLayout(node, node_width);
             }
         }
 
-        // Add spacing before
+        // Track y for partial visibility estimation
         if (node.type == NodeType::Heading) {
             y += theme_->heading_spacing_above;
         }
-
-        node.y_position = y;
         y += node.height;
-
-        // Add spacing after
         if (node.type == NodeType::Heading) {
             y += theme_->heading_spacing_below;
         } else {
@@ -295,7 +328,9 @@ void LayoutEngine::ComputeLayout(std::vector<RenderNode>& nodes, float viewport_
         }
     }
 
-    total_height_ = y + theme_->margin_top;
+    auto result = RecomputeYPositions(nodes, *theme_);
+    total_height_ = result.total_height;
+    has_dirty_nodes_ = result.has_dirty_nodes;
 }
 
 bool LayoutEngine::ProcessDirtyBatch(std::vector<RenderNode>& nodes,
@@ -312,28 +347,10 @@ bool LayoutEngine::ProcessDirtyBatch(std::vector<RenderNode>& nodes,
         if (++processed >= batch_size) break;
     }
 
-    // Recompute y positions for all nodes
-    float y = theme_->margin_top;
-    has_dirty_nodes_ = false;
+    auto result = RecomputeYPositions(nodes, *theme_);
+    total_height_ = result.total_height;
+    has_dirty_nodes_ = result.has_dirty_nodes;
 
-    for (auto& node : nodes) {
-        if (node.layout_dirty) has_dirty_nodes_ = true;
-
-        if (node.type == NodeType::Heading) {
-            y += theme_->heading_spacing_above;
-        }
-
-        node.y_position = y;
-        y += node.height;
-
-        if (node.type == NodeType::Heading) {
-            y += theme_->heading_spacing_below;
-        } else {
-            y += theme_->paragraph_spacing;
-        }
-    }
-
-    total_height_ = y + theme_->margin_top;
     // Update last_viewport_width_ when all dirty nodes are processed
     if (!has_dirty_nodes_) {
         last_viewport_width_ = viewport_width;

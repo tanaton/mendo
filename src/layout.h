@@ -6,6 +6,23 @@
 
 using Microsoft::WRL::ComPtr;
 
+// Compute column widths for a table given natural (measured) widths and available space.
+// Returns the final column widths vector.
+std::vector<float> ComputeColumnWidths(const std::vector<float>& natural_widths,
+                                        float available_width, size_t col_count);
+
+// Build linearized text from table rows (tab-separated cells, newline-separated rows).
+// Used for text selection support.
+std::wstring BuildLinearizedTableText(const std::vector<TableRow>& rows);
+
+// Recompute Y positions and spacing for all nodes.
+// Returns {total_height, has_dirty_nodes}.
+struct YPositionResult {
+    float total_height = 0.0f;
+    bool has_dirty_nodes = false;
+};
+YPositionResult RecomputeYPositions(std::vector<RenderNode>& nodes, const Theme& theme);
+
 class LayoutEngine {
 public:
     bool Init(IDWriteFactory* dwrite_factory, const Theme& theme);

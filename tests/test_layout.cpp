@@ -302,3 +302,213 @@ TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow) {
     float gap_below = next_y - heading_bottom;
     EXPECT_GT(gap_below, 0.0f);
 }
+
+// ========================================================
+// Tests for extracted free functions
+// ========================================================
+
+// ---- ComputeColumnWidths ----
+
+TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide) {
+    // natural widths total 300, available only 150 -> proportional
+    std::vector<float> natural = {100.0f, 100.0f, 100.0f};
+    auto widths = ComputeColumnWidths(natural, 150.0f, 3);
+    ASSERT_EQ(widths.size(), 3u);
+    // All columns should get equal share since natural widths are equal
+    EXPECT_NEAR(widths[0], widths[1], 0.01f);
+    EXPECT_NEAR(widths[1], widths[2], 0.01f);
+    // Total should approximate available width
+    float total = widths[0] + widths[1] + widths[2];
+    EXPECT_NEAR(total, 150.0f, 1.0f);
+}
+
+TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits) {
+    // natural widths total 30, available 300 -> even distribution
+    std::vector<float> natural = {10.0f, 10.0f, 10.0f};
+    auto widths = ComputeColumnWidths(natural, 300.0f, 3);
+    ASSERT_EQ(widths.size(), 3u);
+    // Even distribution: each should be at least 100
+    float even = 300.0f / 3.0f;
+    for (auto w : widths) {
+        EXPECT_GE(w, even - 0.01f);
+    }
+}
+
+TEST(ComputeColumnWidthsTest, MinimumWidthEnforced) {
+    // Very small available space
+    std::vector<float> natural = {200.0f, 200.0f};
+    auto widths = ComputeColumnWidths(natural, 40.0f, 2);
+    ASSERT_EQ(widths.size(), 2u);
+    // Minimum width is 30
+    for (auto w : widths) {
+        EXPECT_GE(w, 30.0f);
+    }
+}
+
+TEST(ComputeColumnWidthsTest, UnequalNaturalWidths) {
+    // Column A is much wider than column B
+    std::vector<float> natural = {300.0f, 100.0f};
+    auto widths = ComputeColumnWidths(natural, 200.0f, 2);
+    ASSERT_EQ(widths.size(), 2u);
+    // Column A should get a larger share than B
+    EXPECT_GT(widths[0], widths[1]);
+}
+
+TEST(ComputeColumnWidthsTest, SingleColumn) {
+    std::vector<float> natural = {50.0f};
+    auto widths = ComputeColumnWidths(natural, 200.0f, 1);
+    ASSERT_EQ(widths.size(), 1u);
+    EXPECT_GE(widths[0], 50.0f);
+}
+
+TEST(ComputeColumnWidthsTest, ZeroNaturalWidths) {
+    std::vector<float> natural = {0.0f, 0.0f};
+    auto widths = ComputeColumnWidths(natural, 200.0f, 2);
+    ASSERT_EQ(widths.size(), 2u);
+    // Should still produce valid widths
+    for (auto w : widths) {
+        EXPECT_GT(w, 0.0f);
+    }
+}
+
+// ---- BuildLinearizedTableText ----
+
+TEST(BuildLinearizedTableTextTest, EmptyRows) {
+    std::vector<TableRow> rows;
+    auto text = BuildLinearizedTableText(rows);
+    EXPECT_TRUE(text.empty());
+}
+
+TEST(BuildLinearizedTableTextTest, SingleCell) {
+    TableRow row;
+    row.cells.push_back(TableCell{L"hello"});
+    auto text = BuildLinearizedTableText({row});
+    EXPECT_EQ(text, L"hello");
+}
+
+TEST(BuildLinearizedTableTextTest, TabSeparatedCells) {
+    TableRow row;
+    row.cells.push_back(TableCell{L"A"});
+    row.cells.push_back(TableCell{L"B"});
+    row.cells.push_back(TableCell{L"C"});
+    auto text = BuildLinearizedTableText({row});
+    EXPECT_EQ(text, L"A\tB\tC");
+}
+
+TEST(BuildLinearizedTableTextTest, NewlineSeparatedRows) {
+    TableRow row1;
+    row1.cells.push_back(TableCell{L"A"});
+    row1.cells.push_back(TableCell{L"B"});
+    TableRow row2;
+    row2.cells.push_back(TableCell{L"1"});
+    row2.cells.push_back(TableCell{L"2"});
+    auto text = BuildLinearizedTableText({row1, row2});
+    EXPECT_EQ(text, L"A\tB\n1\t2");
+}
+
+TEST(BuildLinearizedTableTextTest, NoTrailingNewline) {
+    TableRow row;
+    row.cells.push_back(TableCell{L"x"});
+    auto text = BuildLinearizedTableText({row});
+    EXPECT_FALSE(text.empty());
+    EXPECT_NE(text.back(), L'\n');
+}
+
+TEST(BuildLinearizedTableTextTest, EmptyCells) {
+    TableRow row;
+    row.cells.push_back(TableCell{L""});
+    row.cells.push_back(TableCell{L"B"});
+    row.cells.push_back(TableCell{L""});
+    auto text = BuildLinearizedTableText({row});
+    EXPECT_EQ(text, L"\tB\t");
+}
+
+// ---- RecomputeYPositions ----
+
+TEST(RecomputeYPositionsTest, EmptyNodes) {
+    std::vector<RenderNode> nodes;
+    Theme theme = GetLightTheme();
+    auto result = RecomputeYPositions(nodes, theme);
+    EXPECT_FLOAT_EQ(result.total_height, theme.margin_top * 2);
+    EXPECT_FALSE(result.has_dirty_nodes);
+}
+
+TEST(RecomputeYPositionsTest, SingleParagraph) {
+    RenderNode node;
+    node.type = NodeType::Paragraph;
+    node.height = 20.0f;
+    node.layout_dirty = false;
+    std::vector<RenderNode> nodes = {node};
+    Theme theme = GetLightTheme();
+
+    auto result = RecomputeYPositions(nodes, theme);
+    EXPECT_FLOAT_EQ(nodes[0].y_position, theme.margin_top);
+    EXPECT_GT(result.total_height, theme.margin_top + 20.0f);
+    EXPECT_FALSE(result.has_dirty_nodes);
+}
+
+TEST(RecomputeYPositionsTest, HeadingSpacing) {
+    RenderNode para;
+    para.type = NodeType::Paragraph;
+    para.height = 20.0f;
+    para.layout_dirty = false;
+
+    RenderNode heading;
+    heading.type = NodeType::Heading;
+    heading.height = 30.0f;
+    heading.layout_dirty = false;
+
+    RenderNode para2;
+    para2.type = NodeType::Paragraph;
+    para2.height = 20.0f;
+    para2.layout_dirty = false;
+
+    std::vector<RenderNode> nodes = {para, heading, para2};
+    Theme theme = GetLightTheme();
+
+    RecomputeYPositions(nodes, theme);
+
+    // Heading should have extra spacing above
+    float para_bottom = nodes[0].y_position + nodes[0].height + theme.paragraph_spacing;
+    float heading_y = nodes[1].y_position;
+    EXPECT_FLOAT_EQ(heading_y, para_bottom + theme.heading_spacing_above);
+
+    // After heading: heading_spacing_below, not paragraph_spacing
+    float heading_bottom = nodes[1].y_position + nodes[1].height + theme.heading_spacing_below;
+    EXPECT_FLOAT_EQ(nodes[2].y_position, heading_bottom);
+}
+
+TEST(RecomputeYPositionsTest, DetectsDirtyNodes) {
+    RenderNode clean;
+    clean.type = NodeType::Paragraph;
+    clean.height = 20.0f;
+    clean.layout_dirty = false;
+
+    RenderNode dirty;
+    dirty.type = NodeType::Paragraph;
+    dirty.height = 20.0f;
+    dirty.layout_dirty = true;
+
+    std::vector<RenderNode> nodes = {clean, dirty};
+    Theme theme = GetLightTheme();
+
+    auto result = RecomputeYPositions(nodes, theme);
+    EXPECT_TRUE(result.has_dirty_nodes);
+}
+
+TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY) {
+    std::vector<RenderNode> nodes;
+    for (int i = 0; i < 10; i++) {
+        RenderNode node;
+        node.type = NodeType::Paragraph;
+        node.height = 15.0f + static_cast<float>(i);
+        node.layout_dirty = false;
+        nodes.push_back(node);
+    }
+    Theme theme = GetLightTheme();
+    RecomputeYPositions(nodes, theme);
+
+    for (size_t i = 1; i < nodes.size(); i++) {
+        EXPECT_GT(nodes[i].y_position, nodes[i - 1].y_position);
+    }
+}
