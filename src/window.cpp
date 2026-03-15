@@ -371,8 +371,31 @@ void MainWindow::OnPaint() {
         // Ensure any dirty nodes now visible are laid out at the current width
         float viewport_top = scroll_y_;
         float viewport_bottom = scroll_y_ + layout.md_rect.height;
-        renderer_.GetLayout().EnsureVisibleLayout(
+
+        // Record anchor node position before re-layout
+        float anchor_y_before = 0.0f;
+        int anchor_idx = -1;
+        for (int i = 0; i < static_cast<int>(nodes_.size()); ++i) {
+            float bottom = nodes_[i].y_position + nodes_[i].height;
+            if (bottom > scroll_y_) {
+                anchor_idx = i;
+                anchor_y_before = nodes_[i].y_position;
+                break;
+            }
+        }
+
+        bool updated = renderer_.GetLayout().EnsureVisibleLayout(
             nodes_, GetMarkdownPaneWidth(), viewport_top, viewport_bottom);
+
+        if (updated && anchor_idx >= 0) {
+            float shift = nodes_[anchor_idx].y_position - anchor_y_before;
+            scroll_y_ += shift;
+            scroll_target_ += shift;
+            float total = renderer_.GetLayout().GetTotalHeight();
+            max_scroll_ = std::max(0.0f, total - layout.md_rect.height);
+            scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
+            scroll_target_ = scroll_y_;
+        }
     }
     if (loading_) {
         renderer_.DrawLoading(loading_angle_,

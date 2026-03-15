@@ -338,19 +338,27 @@ void LayoutEngine::LayoutNodes(std::vector<RenderNode>& nodes, float viewport_wi
     ComputeLayout(nodes, viewport_width + theme_->margin_left + theme_->margin_right);
 }
 
-void LayoutEngine::EnsureVisibleLayout(std::vector<RenderNode>& nodes, float viewport_width,
+bool LayoutEngine::EnsureVisibleLayout(std::vector<RenderNode>& nodes, float viewport_width,
                                         float viewport_top, float viewport_bottom) {
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    bool any_updated = false;
 
     for (auto& node : nodes) {
         if (!node.layout_dirty) continue;
         float node_bottom = node.y_position + node.height;
         if (node_bottom < viewport_top) continue;
         if (node.y_position > viewport_bottom) break;
-        // Visible dirty node: re-layout in-place without recomputing Y positions
         float indent = node.indent_level * theme_->indent_width;
         CreateTextLayout(node, content_width - indent);
+        any_updated = true;
     }
+
+    if (any_updated) {
+        auto result = RecomputeYPositions(nodes, *theme_);
+        total_height_ = result.total_height;
+        has_dirty_nodes_ = result.has_dirty_nodes;
+    }
+    return any_updated;
 }
 
 bool LayoutEngine::ProcessDirtyBatch(std::vector<RenderNode>& nodes,

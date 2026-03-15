@@ -31,7 +31,7 @@ public:
                        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void LayoutNodes(std::vector<RenderNode>& nodes, float viewport_width);
     bool ProcessDirtyBatch(std::vector<RenderNode>& nodes, float viewport_width, int batch_size);
-    void EnsureVisibleLayout(std::vector<RenderNode>& nodes, float viewport_width,
+    bool EnsureVisibleLayout(std::vector<RenderNode>& nodes, float viewport_width,
                              float viewport_top, float viewport_bottom);
     bool HasDirtyNodes() const { return has_dirty_nodes_; }
     float GetTotalHeight() const { return total_height_; }
