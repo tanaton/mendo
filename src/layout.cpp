@@ -333,6 +333,11 @@ void LayoutEngine::ComputeLayout(std::vector<RenderNode>& nodes, float viewport_
     has_dirty_nodes_ = result.has_dirty_nodes;
 }
 
+void LayoutEngine::LayoutNodes(std::vector<RenderNode>& nodes, float viewport_width) {
+    last_viewport_width_ = 0.0f; // Force width change detection
+    ComputeLayout(nodes, viewport_width + theme_->margin_left + theme_->margin_right);
+}
+
 bool LayoutEngine::ProcessDirtyBatch(std::vector<RenderNode>& nodes,
                                       float viewport_width, int batch_size) {
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;

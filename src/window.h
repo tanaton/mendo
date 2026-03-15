@@ -145,7 +145,13 @@ private:
     ScrollState file_scroll_;
     ScrollState toc_scroll_;
 
+    void ToggleDarkMode();
+    void SaveDarkMode() const;
+    static bool LoadDarkMode();
+
     void InvalidateMdPane();
+
+    bool dark_mode_ = false;
 
     static constexpr float PANE_MIN_WIDTH = 100.0f;
     static constexpr float MD_PANE_MIN_WIDTH = 200.0f;

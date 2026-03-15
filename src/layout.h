@@ -26,8 +26,10 @@ YPositionResult RecomputeYPositions(std::vector<RenderNode>& nodes, const Theme&
 class LayoutEngine {
 public:
     bool Init(IDWriteFactory* dwrite_factory, const Theme& theme);
+    void UpdateTheme(const Theme& theme) { theme_ = &theme; }
     void ComputeLayout(std::vector<RenderNode>& nodes, float viewport_width,
                        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
+    void LayoutNodes(std::vector<RenderNode>& nodes, float viewport_width);
     bool ProcessDirtyBatch(std::vector<RenderNode>& nodes, float viewport_width, int batch_size);
     bool HasDirtyNodes() const { return has_dirty_nodes_; }
     float GetTotalHeight() const { return total_height_; }

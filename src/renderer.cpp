@@ -113,6 +113,79 @@ bool Renderer::Init(HWND hwnd) {
     return true;
 }
 
+void Renderer::SetTheme(const Theme& theme) {
+    theme_ = theme;
+
+    if (!render_target_) return;
+
+    // Recreate all color brushes
+    text_brush_.Reset();
+    heading_brush_.Reset();
+    code_bg_brush_.Reset();
+    code_text_brush_.Reset();
+    link_brush_.Reset();
+    hr_brush_.Reset();
+    blockquote_bar_brush_.Reset();
+    blockquote_text_brush_.Reset();
+    selection_brush_.Reset();
+    table_stripe_brush_.Reset();
+
+    syntax_keyword_brush_.Reset();
+    syntax_type_brush_.Reset();
+    syntax_string_brush_.Reset();
+    syntax_number_brush_.Reset();
+    syntax_comment_brush_.Reset();
+    syntax_preprocessor_brush_.Reset();
+    syntax_function_brush_.Reset();
+
+    pane_bg_brush_.Reset();
+    splitter_brush_.Reset();
+    pane_item_hover_brush_.Reset();
+    pane_item_active_brush_.Reset();
+    scrollbar_thumb_brush_.Reset();
+
+    render_target_->CreateSolidColorBrush(theme_.text_color, &text_brush_);
+    render_target_->CreateSolidColorBrush(theme_.heading_color, &heading_brush_);
+    render_target_->CreateSolidColorBrush(theme_.code_bg_color, &code_bg_brush_);
+    render_target_->CreateSolidColorBrush(theme_.code_text_color, &code_text_brush_);
+    render_target_->CreateSolidColorBrush(theme_.link_color, &link_brush_);
+    render_target_->CreateSolidColorBrush(theme_.hr_color, &hr_brush_);
+    render_target_->CreateSolidColorBrush(theme_.blockquote_bar_color, &blockquote_bar_brush_);
+    render_target_->CreateSolidColorBrush(theme_.blockquote_text_color, &blockquote_text_brush_);
+    render_target_->CreateSolidColorBrush(D2D1::ColorF(0.26f, 0.56f, 0.84f, 0.3f), &selection_brush_);
+
+    // Table stripe: slightly lighter in dark, slightly darker in light
+    bool is_dark = (theme_.bg_color.r + theme_.bg_color.g + theme_.bg_color.b) < 1.5f;
+    float stripe_alpha = is_dark ? 0.05f : 0.02f;
+    D2D1_COLOR_F stripe_color = is_dark
+        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, stripe_alpha)
+        : D2D1::ColorF(0.0f, 0.0f, 0.0f, stripe_alpha);
+    render_target_->CreateSolidColorBrush(stripe_color, &table_stripe_brush_);
+
+    render_target_->CreateSolidColorBrush(theme_.syntax_keyword, &syntax_keyword_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_type, &syntax_type_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_string, &syntax_string_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_number, &syntax_number_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_comment, &syntax_comment_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_preprocessor, &syntax_preprocessor_brush_);
+    render_target_->CreateSolidColorBrush(theme_.syntax_function, &syntax_function_brush_);
+
+    render_target_->CreateSolidColorBrush(theme_.pane_bg_color, &pane_bg_brush_);
+    render_target_->CreateSolidColorBrush(theme_.splitter_color, &splitter_brush_);
+    render_target_->CreateSolidColorBrush(theme_.pane_item_hover_color, &pane_item_hover_brush_);
+    render_target_->CreateSolidColorBrush(theme_.pane_item_active_color, &pane_item_active_brush_);
+
+    float thumb_alpha = is_dark ? 0.4f : 0.25f;
+    D2D1_COLOR_F thumb_color = is_dark
+        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, thumb_alpha)
+        : D2D1::ColorF(0.0f, 0.0f, 0.0f, thumb_alpha);
+    render_target_->CreateSolidColorBrush(thumb_color, &scrollbar_thumb_brush_);
+
+    // Invalidate pane caches so they redraw with new colors
+    file_pane_cache_.Reset();
+    toc_pane_cache_.Reset();
+}
+
 void Renderer::Resize(UINT width, UINT height) {
     if (render_target_) {
         render_target_->Resize(D2D1::SizeU(width, height));

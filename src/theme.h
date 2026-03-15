@@ -64,3 +64,4 @@ struct Theme {
 };
 
 Theme GetLightTheme();
+Theme GetDarkTheme();

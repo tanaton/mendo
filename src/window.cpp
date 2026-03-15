@@ -8,14 +8,32 @@
 #include <cmath>
 #include <shellscalingapi.h>
 #include <shlobj.h>
+#include <dwmapi.h>
+#include <uxtheme.h>
 #include <fstream>
 #include <filesystem>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "shcore.lib")
+#pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "uxtheme.lib")
 
 static constexpr wchar_t WINDOW_CLASS[] = L"MaDViewWindow";
+
+// DWMWA_USE_IMMERSIVE_DARK_MODE (supported on Windows 10 1809+ / Windows 11)
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+
+static void ApplyDarkModeToWindow(HWND hwnd, bool dark) {
+    // Dark title bar
+    BOOL value = dark ? TRUE : FALSE;
+    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
+
+    // Dark scrollbar via explorer theme
+    SetWindowTheme(hwnd, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
+}
 
 // ---- Helper methods ----
 
@@ -96,6 +114,13 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
     if (!hwnd_) return false;
 
     if (!renderer_.Init(hwnd_)) return false;
+
+    // Apply saved dark mode preference
+    dark_mode_ = LoadDarkMode();
+    if (dark_mode_) {
+        renderer_.SetTheme(GetDarkTheme());
+        ApplyDarkModeToWindow(hwnd_, true);
+    }
 
     // Cache system cursors
     cursor_arrow_ = LoadCursorW(nullptr, IDC_ARROW);
@@ -516,24 +541,29 @@ void MainWindow::OnKeyDown(WPARAM key) {
 }
 
 void MainWindow::OnContextMenu(int screen_x, int screen_y) {
-    // Only show context menu when right-clicking in the MD pane
     POINT pt = {screen_x, screen_y};
     POINT client_pt = pt;
     ScreenToClient(hwnd_, &client_pt);
     auto dip = PixelToDip(client_pt.x, client_pt.y);
     auto zone = PaneAtPoint(dip.x, dip.y);
-    if (zone != PaneZone::MdPane) return;
 
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
 
-    // "Edit file" item - enabled only when a file is loaded
-    bool has_file = !current_file_.empty();
-    AppendMenuW(menu, MF_STRING | (has_file ? 0 : MF_GRAYED), IDM_EDIT_FILE, L"エディタで開く(&E)");
+    if (zone == PaneZone::MdPane) {
+        // "Edit file" item - enabled only when a file is loaded
+        bool has_file = !current_file_.empty();
+        AppendMenuW(menu, MF_STRING | (has_file ? 0 : MF_GRAYED), IDM_EDIT_FILE, L"エディタで開く(&E)");
 
-    // "Copy" item - enabled only when text is selected
-    bool has_selection = selection_.active && selection_.start_node >= 0;
-    AppendMenuW(menu, MF_STRING | (has_selection ? 0 : MF_GRAYED), IDM_COPY, L"コピー(&C)");
+        // "Copy" item - enabled only when text is selected
+        bool has_selection = selection_.active && selection_.start_node >= 0;
+        AppendMenuW(menu, MF_STRING | (has_selection ? 0 : MF_GRAYED), IDM_COPY, L"コピー(&C)");
+
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    }
+
+    AppendMenuW(menu, MF_STRING | (dark_mode_ ? MF_CHECKED : 0),
+                IDM_TOGGLE_DARK_MODE, L"ダークモード(&D)");
 
     int cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
                               pt.x, pt.y, 0, hwnd_, nullptr);
@@ -544,6 +574,8 @@ void MainWindow::OnContextMenu(int screen_x, int screen_y) {
                       nullptr, nullptr, SW_SHOWNORMAL);
     } else if (cmd == IDM_COPY) {
         CopySelectionToClipboard();
+    } else if (cmd == IDM_TOGGLE_DARK_MODE) {
+        ToggleDarkMode();
     }
 }
 
@@ -759,6 +791,67 @@ void MainWindow::ReloadCurrentFile() {
 
 void MainWindow::UpdateTitleBar() {
     SetWindowTextW(hwnd_, BuildTitleString(current_file_).c_str());
+}
+
+// ---- Dark mode persistence ----
+
+static std::filesystem::path GetDarkModeConfigPath() {
+    wchar_t* appdata = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
+        return {};
+    }
+    std::filesystem::path dir = std::filesystem::path(appdata) / L"MaDView";
+    CoTaskMemFree(appdata);
+    return dir / L"dark_mode.txt";
+}
+
+void MainWindow::ToggleDarkMode() {
+    dark_mode_ = !dark_mode_;
+    Theme new_theme = dark_mode_ ? GetDarkTheme() : GetLightTheme();
+    renderer_.SetTheme(new_theme);
+
+    // Apply dark mode to title bar and scrollbar
+    ApplyDarkModeToWindow(hwnd_, dark_mode_);
+
+    // Re-layout with new theme (reuses existing parsed nodes)
+    for (auto& node : nodes_) {
+        node.text_layout.Reset();
+        node.effects_applied = false;
+        node.inline_code_bgs.clear();
+    }
+    float md_width = GetMarkdownPaneWidth();
+    renderer_.GetLayout().UpdateTheme(renderer_.GetTheme());
+    renderer_.GetLayout().LayoutNodes(nodes_, md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
+    float total_height = nodes_.empty() ? 0 : nodes_.back().y_position + nodes_.back().height + renderer_.GetTheme().margin_top;
+    max_scroll_ = std::max(0.0f, total_height - (renderer_.GetRenderTarget()->GetSize().height));
+    scroll_y_ = std::min(scroll_y_, max_scroll_);
+    scroll_target_ = scroll_y_;
+
+    SaveDarkMode();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void MainWindow::SaveDarkMode() const {
+    auto config_path = GetDarkModeConfigPath();
+    if (config_path.empty()) return;
+
+    std::filesystem::create_directories(config_path.parent_path());
+    std::ofstream ofs(config_path);
+    if (ofs) {
+        ofs << (dark_mode_ ? "1" : "0");
+    }
+}
+
+bool MainWindow::LoadDarkMode() {
+    auto config_path = GetDarkModeConfigPath();
+    if (config_path.empty()) return false;
+
+    std::ifstream ifs(config_path);
+    if (!ifs) return false;
+
+    char c = '0';
+    ifs >> c;
+    return c == '1';
 }
 
 // ---- Last file persistence ----
