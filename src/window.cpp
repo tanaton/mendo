@@ -1,4 +1,5 @@
 #include "window.h"
+#include "resource.h"
 #include "parser.h"
 #include "document_utils.h"
 #include "pane_layout.h"
@@ -253,6 +254,10 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             OnMouseWheel(pt.x, pt.y, GET_WHEEL_DELTA_WPARAM(wParam));
             return 0;
         }
+
+        case WM_CONTEXTMENU:
+            OnContextMenu(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            return 0;
 
         case WM_KEYDOWN:
             OnKeyDown(wParam);
@@ -510,6 +515,38 @@ void MainWindow::OnKeyDown(WPARAM key) {
     }
 }
 
+void MainWindow::OnContextMenu(int screen_x, int screen_y) {
+    // Only show context menu when right-clicking in the MD pane
+    POINT pt = {screen_x, screen_y};
+    POINT client_pt = pt;
+    ScreenToClient(hwnd_, &client_pt);
+    auto dip = PixelToDip(client_pt.x, client_pt.y);
+    auto zone = PaneAtPoint(dip.x, dip.y);
+    if (zone != PaneZone::MdPane) return;
+
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return;
+
+    // "Edit file" item - enabled only when a file is loaded
+    bool has_file = !current_file_.empty();
+    AppendMenuW(menu, MF_STRING | (has_file ? 0 : MF_GRAYED), IDM_EDIT_FILE, L"エディタで開く(&E)");
+
+    // "Copy" item - enabled only when text is selected
+    bool has_selection = selection_.active && selection_.start_node >= 0;
+    AppendMenuW(menu, MF_STRING | (has_selection ? 0 : MF_GRAYED), IDM_COPY, L"コピー(&C)");
+
+    int cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                              pt.x, pt.y, 0, hwnd_, nullptr);
+    DestroyMenu(menu);
+
+    if (cmd == IDM_EDIT_FILE) {
+        ShellExecuteW(hwnd_, L"open", current_file_.c_str(),
+                      nullptr, nullptr, SW_SHOWNORMAL);
+    } else if (cmd == IDM_COPY) {
+        CopySelectionToClipboard();
+    }
+}
+
 void MainWindow::OnDropFiles(HDROP hDrop) {
     wchar_t path[MAX_PATH];
     if (DragQueryFileW(hDrop, 0, path, MAX_PATH)) {
@@ -652,13 +689,22 @@ void MainWindow::UpdateLayoutAndScroll(float desired_scroll) {
 }
 
 void MainWindow::LoadMarkdownFile(const std::wstring& path) {
-    loading_ = true;
     loading_path_ = path;
-    loading_angle_ = 0.0f;
-    SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
-    InvalidateRect(hwnd_, nullptr, FALSE);
-    UpdateWindow(hwnd_);
-    PostMessage(hwnd_, WM_APP_LOAD_FILE, 0, 0);
+
+    // 128KB以下のファイルはローディングアニメーションをスキップして直接描画
+    static constexpr DWORD LOADING_ANIM_THRESHOLD = 128 * 1024;
+    WIN32_FILE_ATTRIBUTE_DATA attr{};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)
+        && attr.nFileSizeHigh == 0 && attr.nFileSizeLow <= LOADING_ANIM_THRESHOLD) {
+        DoLoadMarkdownFile();
+    } else {
+        loading_ = true;
+        loading_angle_ = 0.0f;
+        SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        UpdateWindow(hwnd_);
+        PostMessage(hwnd_, WM_APP_LOAD_FILE, 0, 0);
+    }
 }
 
 void MainWindow::DoLoadMarkdownFile() {

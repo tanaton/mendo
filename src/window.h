@@ -36,6 +36,7 @@ private:
     void OnLButtonUp(int px, int py);
     void OnMouseMove(int px, int py);
     void OnLButtonDblClk(int px, int py);
+    void OnContextMenu(int screen_x, int screen_y);
 
     // Convert physical pixel coordinates to DIP (Device Independent Pixels)
     struct DipPoint { float x, y; };
