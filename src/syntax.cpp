@@ -441,6 +441,9 @@ SyntaxLanguage DetectLanguage(const std::wstring& info_string) {
         lang == L"jsx" || lang == L"tsx") {
         return SyntaxLanguage::JavaScript;
     }
+    if (lang == L"mermaid") {
+        return SyntaxLanguage::Mermaid;
+    }
 
     return SyntaxLanguage::None;
 }

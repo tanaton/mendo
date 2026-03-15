@@ -1,5 +1,6 @@
 #pragma once
 #include "renderer.h"
+#include "mermaid.h"
 #include "file_loader.h"
 #include "file_explorer.h"
 #include "toc.h"
@@ -94,8 +95,11 @@ private:
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
+    void RequestMermaidRenders();
+
     HWND hwnd_ = nullptr;
     Renderer renderer_;
+    MermaidRenderer mermaid_renderer_;
     FileLoader file_loader_;
 
     // Cached system cursors

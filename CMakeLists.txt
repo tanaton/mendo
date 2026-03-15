@@ -7,6 +7,29 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Static CRT for single-exe distribution
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# ---- WebView2 SDK (for Mermaid diagram rendering) ----
+include(FetchContent)
+FetchContent_Declare(
+    webview2
+    URL https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2903.40
+    DOWNLOAD_NO_EXTRACT FALSE
+)
+FetchContent_MakeAvailable(webview2)
+
+# Locate extracted WebView2 headers and libs
+set(WEBVIEW2_DIR "${webview2_SOURCE_DIR}")
+set(WEBVIEW2_INCLUDE "${WEBVIEW2_DIR}/build/native/include")
+set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/x64")
+
+# WIL (Windows Implementation Library) for WebView2 callbacks
+FetchContent_Declare(
+    wil
+    URL https://www.nuget.org/api/v2/package/Microsoft.Windows.ImplementationLibrary/1.0.240803.1
+    DOWNLOAD_NO_EXTRACT FALSE
+)
+FetchContent_MakeAvailable(wil)
+set(WIL_INCLUDE "${wil_SOURCE_DIR}/include")
+
 # ---- md4c (third-party) ----
 add_library(md4c STATIC third_party/md4c/md4c.c)
 target_include_directories(md4c PUBLIC third_party/md4c)
@@ -43,9 +66,13 @@ add_executable(MaDView WIN32
     src/main.cpp
     src/window.cpp
     src/renderer.cpp
+    src/mermaid.cpp
     res/MaDView.rc
 )
-target_link_libraries(MaDView PRIVATE MaDView_core)
+target_include_directories(MaDView PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})
+target_link_libraries(MaDView PRIVATE MaDView_core
+    "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
+)
 if(MSVC)
     target_compile_options(MaDView PRIVATE /W4 /utf-8)
 endif()
