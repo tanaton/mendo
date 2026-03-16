@@ -88,7 +88,7 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
         L"mendo",
         WS_OVERLAPPEDWINDOW | WS_VSCROLL,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        2100, 1400,
+        1600, 900,
         nullptr, nullptr, hInstance, this);
 
     if (!hwnd_) return false;
