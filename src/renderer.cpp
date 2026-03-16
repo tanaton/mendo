@@ -204,21 +204,21 @@ void Renderer::RecreatePaneFormats() {
 
 // ---- Node drawing ----
 
-void Renderer::DrawCodeBlockBackground(const RenderNode& node, float offset_x, float content_width) {
+void Renderer::DrawCodeBlockBackground(const NodeLayoutEntry& entry, float offset_x, float content_width) {
     float pad = theme_.code_block_padding;
     D2D1_RECT_F bg_rect = D2D1::RectF(
         offset_x - pad,
-        node.y_position - pad,
+        entry.y_position - pad,
         offset_x + content_width,
-        node.y_position + node.height + pad
+        entry.y_position + entry.height + pad
     );
     // Rounded rectangle for code blocks
     D2D1_ROUNDED_RECT rounded = {bg_rect, 4.0f, 4.0f};
     render_target_->FillRoundedRectangle(rounded, code_bg_brush_.Get());
 }
 
-void Renderer::DrawHorizontalRule(const RenderNode& node, float offset_x, float content_width) {
-    float y = node.y_position + theme_.paragraph_spacing * 0.5f;
+void Renderer::DrawHorizontalRule(const NodeLayoutEntry& entry, float offset_x, float content_width) {
+    float y = entry.y_position + theme_.paragraph_spacing * 0.5f;
     render_target_->DrawLine(
         D2D1::Point2F(offset_x, y),
         D2D1::Point2F(offset_x + content_width, y),
@@ -227,7 +227,7 @@ void Renderer::DrawHorizontalRule(const RenderNode& node, float offset_x, float 
     );
 }
 
-void Renderer::DrawListBullet(const RenderNode& node, float offset_x) {
+void Renderer::DrawListBullet(const Node& node, const NodeLayoutEntry& entry, float offset_x) {
     if (node.list_number > 0) {
         // Ordered list: draw number (reuse cached format)
         if (!fmt_list_number_) {
@@ -244,9 +244,9 @@ void Renderer::DrawListBullet(const RenderNode& node, float offset_x) {
             std::wstring num_text = std::to_wstring(node.list_number) + L".";
             D2D1_RECT_F num_rect = D2D1::RectF(
                 offset_x - theme_.list_bullet_offset - 8.0f,
-                node.y_position,
+                entry.y_position,
                 offset_x - 4.0f,
-                node.y_position + theme_.font_size_body * 1.5f
+                entry.y_position + theme_.font_size_body * 1.5f
             );
             render_target_->DrawText(
                 num_text.c_str(), static_cast<UINT32>(num_text.size()),
@@ -254,7 +254,7 @@ void Renderer::DrawListBullet(const RenderNode& node, float offset_x) {
         }
     } else {
         // Unordered list: draw bullet
-        float bullet_y = node.y_position + theme_.font_size_body * 0.45f;
+        float bullet_y = entry.y_position + theme_.font_size_body * 0.45f;
         float bullet_x = offset_x - theme_.list_bullet_offset * 0.6f;
         float r = 3.0f;
         D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(bullet_x, bullet_y), r, r);
@@ -267,11 +267,11 @@ void Renderer::DrawListBullet(const RenderNode& node, float offset_x) {
     }
 }
 
-void Renderer::DrawBlockQuoteBar(const RenderNode& node, float base_x) {
+void Renderer::DrawBlockQuoteBar(const NodeLayoutEntry& entry, float base_x) {
     float bar_x = base_x - theme_.indent_width * 0.5f;
     render_target_->DrawLine(
-        D2D1::Point2F(bar_x, node.y_position - 2.0f),
-        D2D1::Point2F(bar_x, node.y_position + node.height + 2.0f),
+        D2D1::Point2F(bar_x, entry.y_position - 2.0f),
+        D2D1::Point2F(bar_x, entry.y_position + entry.height + 2.0f),
         blockquote_bar_brush_.Get(),
         theme_.blockquote_bar_width
     );
@@ -296,16 +296,17 @@ void Renderer::DrawTextRangeHighlight(IDWriteTextLayout* layout, uint32_t start,
     }
 }
 
-void Renderer::DrawTable(const RenderNode& node, int node_index, float offset_x,
+void Renderer::DrawTable(const Node& node, const NodeLayoutEntry& entry,
+                         int node_index, float offset_x,
                          const TextSelection& selection) {
-    if (node.table_rows.empty() || node.col_widths.empty()) return;
+    if (node.table_rows.empty() || entry.col_widths.empty()) return;
 
     float cell_padding = 8.0f;
     float border = 1.0f;
 
     // Compute total table width
     float table_width = border;
-    for (float cw : node.col_widths) {
+    for (float cw : entry.col_widths) {
         table_width += cw + cell_padding * 2.0f + border;
     }
 
@@ -319,12 +320,12 @@ void Renderer::DrawTable(const RenderNode& node, int node_index, float offset_x,
         if (sel_end <= sel_start) has_selection = false;
     }
 
-    float y = node.y_position;
+    float y = entry.y_position;
     uint32_t flat_offset = 0;
 
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         const auto& row = node.table_rows[r];
-        float row_h = row.row_height;
+        float row_h = (r < entry.row_heights.size()) ? entry.row_heights[r] : (theme_.font_size_body * 1.4f);
 
         // Row background: alternating + header
         bool is_header_row = (!row.cells.empty() && row.cells[0].is_header);
@@ -344,10 +345,10 @@ void Renderer::DrawTable(const RenderNode& node, int node_index, float offset_x,
 
         // Draw cells
         float cx = offset_x + border;
-        size_t drawn_cols = std::min(row.cells.size(), node.col_widths.size());
+        size_t drawn_cols = std::min(row.cells.size(), entry.col_widths.size());
         for (size_t c = 0; c < drawn_cols; c++) {
             const auto& cell = row.cells[c];
-            float cw = node.col_widths[c];
+            float cw = entry.col_widths[c];
 
             // Vertical line at left of cell
             render_target_->DrawLine(
@@ -358,32 +359,38 @@ void Renderer::DrawTable(const RenderNode& node, int node_index, float offset_x,
             float text_x = cx + cell_padding;
             float text_y = y + cell_padding;
 
+            // Get cell layout from cache
+            IDWriteTextLayout* cell_layout = nullptr;
+            if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
+                cell_layout = entry.cell_layouts[r][c].Get();
+            }
+
             // Draw selection highlight BEFORE text
-            if (has_selection && cell.text_layout) {
+            if (has_selection && cell_layout) {
                 uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
                 uint32_t ov_start = std::max(sel_start, flat_offset);
                 uint32_t ov_end = std::min(sel_end, flat_offset + cell_len);
                 if (ov_end > ov_start) {
-                    DrawTextRangeHighlight(cell.text_layout.Get(),
+                    DrawTextRangeHighlight(cell_layout,
                         ov_start - flat_offset, ov_end - ov_start,
                         text_x, text_y, selection_brush_.Get());
                 }
             }
 
             // Draw cell text
-            if (cell.text_layout) {
+            if (cell_layout) {
                 // Apply link color to cell runs that have a URL
                 for (const auto& run : cell.runs) {
                     if (run.link_url.has_value()) {
                         DWRITE_TEXT_RANGE range{run.start, run.length};
-                        cell.text_layout->SetDrawingEffect(link_brush_.Get(), range);
+                        cell_layout->SetDrawingEffect(link_brush_.Get(), range);
                     }
                 }
 
                 ID2D1SolidColorBrush* brush = cell.is_header ? heading_brush_.Get() : text_brush_.Get();
                 render_target_->DrawTextLayout(
                     D2D1::Point2F(text_x, text_y),
-                    cell.text_layout.Get(), brush);
+                    cell_layout, brush);
             }
 
             // Advance flat_offset for this cell
@@ -416,12 +423,14 @@ void Renderer::DrawTable(const RenderNode& node, int node_index, float offset_x,
         hr_brush_.Get(), border);
 }
 
-void Renderer::DrawNode(RenderNode& node, int node_index, float offset_x,
+void Renderer::DrawNode(const Node& node, const NodeLayoutEntry& entry,
+                        const DiagramEntry& diagram,
+                        int node_index, float offset_x,
                         float viewport_top, float viewport_bottom,
                         const TextSelection& selection, float pane_content_width) {
     // Viewport culling
-    float node_bottom = node.y_position + node.height;
-    if (node_bottom < viewport_top || node.y_position > viewport_bottom) return;
+    float node_bottom = entry.y_position + entry.height;
+    if (node_bottom < viewport_top || entry.y_position > viewport_bottom) return;
 
     float indent = node.indent_level * theme_.indent_width;
     float x = offset_x + indent;
@@ -429,19 +438,19 @@ void Renderer::DrawNode(RenderNode& node, int node_index, float offset_x,
 
     switch (node.type) {
         case NodeType::HorizontalRule:
-            DrawHorizontalRule(node, x, content_width);
+            DrawHorizontalRule(entry, x, content_width);
             return;
 
         case NodeType::Table:
-            DrawTable(node, node_index, x, selection);
+            DrawTable(node, entry, node_index, x, selection);
             return;
 
         case NodeType::CodeBlock:
             // Mermaid diagrams: draw bitmap if available
-            if (node.code_language == SyntaxLanguage::Mermaid && node.diagram_bitmap) {
-                DrawCodeBlockBackground(node, x, content_width);
-                float draw_w = node.diagram_width;
-                float draw_h = node.diagram_height;
+            if (node.code_language == SyntaxLanguage::Mermaid && diagram.bitmap) {
+                DrawCodeBlockBackground(entry, x, content_width);
+                float draw_w = diagram.width;
+                float draw_h = diagram.height;
                 // Scale down if wider than content_width
                 if (draw_w > content_width && draw_w > 0) {
                     float scale = content_width / draw_w;
@@ -451,32 +460,33 @@ void Renderer::DrawNode(RenderNode& node, int node_index, float offset_x,
                 // Center horizontally if narrower than content_width
                 float dx = x + (content_width - draw_w) * 0.5f;
                 D2D1_RECT_F dest = D2D1::RectF(
-                    dx, node.y_position,
-                    dx + draw_w, node.y_position + draw_h);
-                render_target_->DrawBitmap(node.diagram_bitmap.Get(), dest);
+                    dx, entry.y_position,
+                    dx + draw_w, entry.y_position + draw_h);
+                render_target_->DrawBitmap(diagram.bitmap.Get(), dest);
                 return;
             }
-            DrawCodeBlockBackground(node, x, content_width);
+            DrawCodeBlockBackground(entry, x, content_width);
             break;
 
         case NodeType::ListItem:
-            DrawListBullet(node, x);
+            DrawListBullet(node, entry, x);
             break;
         case NodeType::TaskListItem:
             break;
 
         case NodeType::BlockQuote:
-            DrawBlockQuoteBar(node, x);
+            DrawBlockQuoteBar(entry, x);
             break;
 
         default:
             break;
     }
 
-    if (!node.text_layout) return;
+    if (!entry.text_layout) return;
 
     // Apply rendering effects once per layout creation
-    ApplyNodeEffects(node);
+    // (const_cast is safe here: we only mutate cached rendering state in entry)
+    ApplyNodeEffects(node, const_cast<NodeLayoutEntry&>(entry));
 
     // Determine base brush
     ID2D1SolidColorBrush* base_brush = text_brush_.Get();
@@ -489,12 +499,12 @@ void Renderer::DrawNode(RenderNode& node, int node_index, float offset_x,
     }
 
     // Draw inline code backgrounds from cache
-    for (const auto& bg : node.inline_code_bgs) {
+    for (const auto& bg : entry.inline_code_bgs) {
         D2D1_RECT_F rect = D2D1::RectF(
             x + bg.left - 2.0f,
-            node.y_position + bg.top - 1.0f,
+            entry.y_position + bg.top - 1.0f,
             x + bg.left + bg.width + 2.0f,
-            node.y_position + bg.top + bg.height + 1.0f
+            entry.y_position + bg.top + bg.height + 1.0f
         );
         D2D1_ROUNDED_RECT rounded = {rect, 3.0f, 3.0f};
         render_target_->FillRoundedRectangle(rounded, code_bg_brush_.Get());
@@ -510,16 +520,16 @@ void Renderer::DrawNode(RenderNode& node, int node_index, float offset_x,
         if (node_index == selection.end_node)   sel_end   = selection.end_pos;
 
         if (sel_end > sel_start) {
-            DrawTextRangeHighlight(node.text_layout.Get(),
+            DrawTextRangeHighlight(entry.text_layout.Get(),
                 sel_start, sel_end - sel_start,
-                x, node.y_position, selection_brush_.Get());
+                x, entry.y_position, selection_brush_.Get());
         }
     }
 
     // Draw the text (link colors and syntax highlighting applied via DrawingEffect)
     render_target_->DrawTextLayout(
-        D2D1::Point2F(x, node.y_position),
-        node.text_layout.Get(),
+        D2D1::Point2F(x, entry.y_position),
+        entry.text_layout.Get(),
         base_brush);
 
     // Draw task list checkbox using Segoe Fluent Icons
@@ -528,7 +538,7 @@ void Renderer::DrawNode(RenderNode& node, int node_index, float offset_x,
         const wchar_t icon[] = { node.task_checked ? L'\uE73A' : L'\uE739', L'\0' };
         float icon_size = theme_.font_size_body;
         float cb_x = x - theme_.list_bullet_offset;
-        float cb_y = node.y_position;
+        float cb_y = entry.y_position;
         D2D1_RECT_F icon_rect = D2D1::RectF(cb_x, cb_y, cb_x + icon_size, cb_y + icon_size * 1.5f);
         render_target_->DrawText(
             icon, 1, icon_font_format_.Get(), icon_rect, text_brush_.Get());
@@ -548,9 +558,9 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const {
     }
 }
 
-void Renderer::ApplyNodeEffects(RenderNode& node) {
-    if (node.effects_applied || !node.text_layout) return;
-    node.effects_applied = true;
+void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
+    if (entry.effects_applied || !entry.text_layout) return;
+    entry.effects_applied = true;
 
     // Apply syntax highlighting for code blocks
     if (node.type == NodeType::CodeBlock) {
@@ -559,7 +569,7 @@ void Renderer::ApplyNodeEffects(RenderNode& node) {
             auto* brush = GetSyntaxBrush(token.type);
             if (brush) {
                 DWRITE_TEXT_RANGE range{token.start, token.length};
-                node.text_layout->SetDrawingEffect(brush, range);
+                entry.text_layout->SetDrawingEffect(brush, range);
             }
         }
     }
@@ -568,18 +578,18 @@ void Renderer::ApplyNodeEffects(RenderNode& node) {
     for (const auto& run : node.runs) {
         if (run.link_url.has_value()) {
             DWRITE_TEXT_RANGE range{run.start, run.length};
-            node.text_layout->SetUnderline(TRUE, range);
-            node.text_layout->SetDrawingEffect(link_brush_.Get(), range);
+            entry.text_layout->SetUnderline(TRUE, range);
+            entry.text_layout->SetDrawingEffect(link_brush_.Get(), range);
         }
         if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
             UINT32 count = 0;
-            node.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
+            entry.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
             if (count > 0) {
                 hit_test_buffer_.resize(count);
-                node.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
+                entry.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
                     hit_test_buffer_.data(), count, &count);
                 for (UINT32 i = 0; i < count; i++) {
-                    node.inline_code_bgs.push_back({
+                    entry.inline_code_bgs.push_back({
                         hit_test_buffer_[i].left,
                         hit_test_buffer_[i].top,
                         hit_test_buffer_[i].width,
@@ -641,7 +651,7 @@ void Renderer::DrawLoading(float angle,
     render_target_->EndDraw();
 }
 
-void Renderer::Render(std::vector<RenderNode>& nodes, float scroll_y,
+void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
                       const TextSelection& selection,
                       const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
                       const PaneRect& md_pane_rect,
@@ -690,7 +700,7 @@ void Renderer::Render(std::vector<RenderNode>& nodes, float scroll_y,
         int lo = 0, hi = node_count;
         while (lo < hi) {
             int mid = (lo + hi) / 2;
-            if (nodes[mid].y_position + nodes[mid].height < viewport_top) {
+            if (cache[mid].y_position + cache[mid].height < viewport_top) {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -699,8 +709,9 @@ void Renderer::Render(std::vector<RenderNode>& nodes, float scroll_y,
         first_visible = lo;
     }
     for (int i = first_visible; i < node_count; i++) {
-        if (nodes[i].y_position > viewport_bottom) break;
-        DrawNode(nodes[i], i, offset_x, viewport_top, viewport_bottom, selection, md_content_width);
+        if (cache[i].y_position > viewport_bottom) break;
+        DrawNode(nodes[i], cache[i], cache.GetDiagram(i),
+                 i, offset_x, viewport_top, viewport_bottom, selection, md_content_width);
     }
 
     // Reset transform

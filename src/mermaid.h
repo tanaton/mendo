@@ -1,5 +1,6 @@
 #pragma once
 #include "types.h"
+#include "layout_cache.h"
 #include "mermaid_util.h"
 #include <d2d1.h>
 #include <wincodec.h>
@@ -34,9 +35,10 @@ public:
     bool IsReady() const { return ready_; }
 
     // Request rendering of a mermaid code block.
-    // When done, the node's diagram_bitmap / diagram_width / diagram_height
-    // will be set, and on_complete will be called on the UI thread.
-    void RequestRender(RenderNode& node, float max_width, bool dark_mode,
+    // When done, the diagram entry's bitmap/width/height and the layout entry's
+    // height/layout_dirty will be set, and on_complete will be called on the UI thread.
+    void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry,
+                       float max_width, bool dark_mode,
                        std::function<void()> on_complete);
 
     // Update the D2D render target (e.g. after resize).
@@ -73,7 +75,9 @@ private:
     int render_counter_ = 0;
 
     struct RenderRequest {
-        RenderNode* node = nullptr;
+        Node* node = nullptr;
+        NodeLayoutEntry* layout_entry = nullptr;
+        DiagramEntry* diagram_entry = nullptr;
         float max_width = 0.0f;
         bool dark_mode = false;
         std::function<void()> on_complete;

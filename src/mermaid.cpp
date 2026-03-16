@@ -354,9 +354,11 @@ void MermaidRenderer::CancelPending() {
     std::queue<RenderRequest> empty;
     pending_requests_.swap(empty);
 
-    // Nullify the node pointer in the in-flight request so that
+    // Nullify pointers in the in-flight request so that
     // callbacks completing later won't write to freed memory.
     current_request_.node = nullptr;
+    current_request_.layout_entry = nullptr;
+    current_request_.diagram_entry = nullptr;
     current_request_.on_complete = nullptr;
 }
 
@@ -366,7 +368,9 @@ std::wstring MermaidRenderer::HashCode(const std::wstring& code, float max_width
     return mermaid_util::SimpleHash(key);
 }
 
-void MermaidRenderer::RequestRender(RenderNode& node, float max_width, bool dark_mode,
+void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
+                                     DiagramEntry& diagram_entry,
+                                     float max_width, bool dark_mode,
                                      std::function<void()> on_complete) {
     if (node.code_language != SyntaxLanguage::Mermaid) return;
 
@@ -375,11 +379,11 @@ void MermaidRenderer::RequestRender(RenderNode& node, float max_width, bool dark
     // Check cache first
     auto it = cache_.find(hash);
     if (it != cache_.end()) {
-        node.diagram_bitmap = it->second.bitmap;
-        node.diagram_width = it->second.width;
-        node.diagram_height = it->second.height;
-        node.height = it->second.height;
-        node.layout_dirty = false;
+        diagram_entry.bitmap = it->second.bitmap;
+        diagram_entry.width = it->second.width;
+        diagram_entry.height = it->second.height;
+        layout_entry.height = it->second.height;
+        layout_entry.layout_dirty = false;
         if (on_complete) on_complete();
         return;
     }
@@ -387,6 +391,8 @@ void MermaidRenderer::RequestRender(RenderNode& node, float max_width, bool dark
     // Queue the request
     RenderRequest req;
     req.node = &node;
+    req.layout_entry = &layout_entry;
+    req.diagram_entry = &diagram_entry;
     req.max_width = max_width;
     req.dark_mode = dark_mode;
     req.on_complete = std::move(on_complete);
@@ -565,13 +571,15 @@ void MermaidRenderer::OnCaptureComplete(const std::wstring& code_hash, IStream* 
         cached.height = draw_h;
         cache_[code_hash] = cached;
 
-        // Update the node
-        if (current_request_.node) {
-            current_request_.node->diagram_bitmap = bitmap;
-            current_request_.node->diagram_width = draw_w;
-            current_request_.node->diagram_height = draw_h;
-            current_request_.node->height = draw_h;
-            current_request_.node->layout_dirty = false;
+        // Update the layout/diagram entries
+        if (current_request_.diagram_entry) {
+            current_request_.diagram_entry->bitmap = bitmap;
+            current_request_.diagram_entry->width = draw_w;
+            current_request_.diagram_entry->height = draw_h;
+        }
+        if (current_request_.layout_entry) {
+            current_request_.layout_entry->height = draw_h;
+            current_request_.layout_entry->layout_dirty = false;
         }
     }
 

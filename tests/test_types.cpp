@@ -103,10 +103,10 @@ TEST(TextSelection, ReverseWithDifferentNodesSamePos) {
     EXPECT_TRUE(s.active);
 }
 
-// ---- RenderNode default state ----
+// ---- Node default state ----
 
-TEST(RenderNode, DefaultState) {
-    RenderNode node;
+TEST(NodeTest, DefaultState) {
+    Node node;
     EXPECT_EQ(node.type, NodeType::Paragraph);
     EXPECT_EQ(node.heading_level, 0);
     EXPECT_EQ(node.indent_level, 0);
@@ -117,10 +117,6 @@ TEST(RenderNode, DefaultState) {
     EXPECT_TRUE(node.anchor_id.empty());
     EXPECT_EQ(node.code_language, SyntaxLanguage::None);
     EXPECT_TRUE(node.table_rows.empty());
-    EXPECT_EQ(node.y_position, 0.0f);
-    EXPECT_EQ(node.height, 0.0f);
-    EXPECT_TRUE(node.layout_dirty);
-    EXPECT_FALSE(node.effects_applied);
 }
 
 // ---- TextRun default state ----
