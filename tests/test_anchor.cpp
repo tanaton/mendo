@@ -60,6 +60,16 @@ TEST(AnchorId, FullWidthDigits) {
     EXPECT_EQ(GenerateAnchorId(L"テスト０１"), L"テスト０１");
 }
 
+TEST(AnchorId, FullWidthParenthesesStripped) {
+    // Full-width parentheses （U+FF08）and （U+FF09） should be stripped like GitHub
+    EXPECT_EQ(GenerateAnchorId(L"テスト（サンプル）"), L"テストサンプル");
+}
+
+TEST(AnchorId, FullWidthPunctuationStripped) {
+    // Full-width punctuation marks should be stripped
+    EXPECT_EQ(GenerateAnchorId(L"見出し「補足」"), L"見出し補足");
+}
+
 TEST(AnchorId, MixedWhitespaceAndSpecialChars) {
     EXPECT_EQ(GenerateAnchorId(L"Hello!! World??"), L"hello-world");
 }

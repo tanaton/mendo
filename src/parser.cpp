@@ -15,9 +15,19 @@ std::wstring GenerateAnchorId(const std::wstring& text) {
         } else if (c == L' ' || c == L'\t') {
             slug += L'-';
         }
-        // CJK characters: keep as-is
+        // CJK characters: keep as-is, but skip punctuation/symbols
         else if (c >= 0x3000) {
-            slug += c;
+            bool skip = false;
+            // CJK Symbols and Punctuation (U+3000-U+303F): 、。「」【】〈〉 etc.
+            if (c <= 0x303F) skip = true;
+            // Fullwidth ASCII-mapped punctuation
+            else if (c >= 0xFF01 && c <= 0xFF0F) skip = true; // ！＂＃…（）＊＋，－．／
+            else if (c >= 0xFF1A && c <= 0xFF20) skip = true; // ：；＜＝＞？＠
+            else if (c >= 0xFF3B && c <= 0xFF40) skip = true; // ［＼］＾＿｀
+            else if (c >= 0xFF5B && c <= 0xFF65) skip = true; // ｛｜｝～…･
+            if (!skip) {
+                slug += c;
+            }
         }
         // Other characters: skip
     }
