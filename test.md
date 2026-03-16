@@ -1336,6 +1336,15 @@ async function renderMermaid(code, config) {
 | 123 | 456 | 789 |
 | short | medium length text | extraordinarily long text |
 
+##### テーブル内リンク
+
+| 名前 | リンク | 備考 |
+|:-----|:-------|:-----|
+| GitHub | [github.com](https://github.com) | 外部リンク |
+| はじめに | [1. はじめに](#1-はじめに) | 内部アンカーリンク |
+| **太字リンク** | [**Bold Link**](https://example.com) | 太字+リンク |
+| 複合 | 前文 [リンク](https://example.com) 後文 | テキスト中のリンク |
+
 ##### 大きなテーブル
 
 | # | コンポーネント | ファイル | 行数（概算） | 依存先 | テスト |

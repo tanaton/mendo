@@ -512,6 +512,95 @@ TEST(Parser, TableLinearizedText) {
     EXPECT_EQ(nodes[0].table_rows[0].cells[1].text, L"B");
 }
 
+// ---- Table with links ----
+
+TEST(Parser, TableCellWithLink) {
+    auto nodes = ParseMarkdown(
+        "| Name | Link |\n"
+        "|------|------|\n"
+        "| foo | [bar](https://example.com) |"
+    );
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_GE(nodes[0].table_rows.size(), 2u);
+    const auto& data_row = nodes[0].table_rows[1];
+    ASSERT_GE(data_row.cells.size(), 2u);
+
+    // Link cell should have link_url in its run
+    bool found_link = false;
+    for (const auto& run : data_row.cells[1].runs) {
+        if (run.link_url.has_value()) {
+            EXPECT_EQ(*run.link_url, L"https://example.com");
+            found_link = true;
+        }
+    }
+    EXPECT_TRUE(found_link);
+
+    // Non-link cell should have no link
+    for (const auto& run : data_row.cells[0].runs) {
+        EXPECT_FALSE(run.link_url.has_value());
+    }
+}
+
+TEST(Parser, TableCellWithInternalLink) {
+    auto nodes = ParseMarkdown(
+        "| Section |\n"
+        "|---------|\n"
+        "| [intro](#introduction) |"
+    );
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_GE(nodes[0].table_rows.size(), 2u);
+    const auto& cell = nodes[0].table_rows[1].cells[0];
+
+    bool found = false;
+    for (const auto& run : cell.runs) {
+        if (run.link_url.has_value()) {
+            EXPECT_EQ(*run.link_url, L"#introduction");
+            found = true;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST(Parser, TableCellWithBoldLink) {
+    auto nodes = ParseMarkdown(
+        "| Link |\n"
+        "|------|\n"
+        "| [**bold**](https://example.com) |"
+    );
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_GE(nodes[0].table_rows.size(), 2u);
+    const auto& cell = nodes[0].table_rows[1].cells[0];
+
+    bool has_bold_link = false;
+    for (const auto& run : cell.runs) {
+        if (run.bold && run.link_url.has_value()) {
+            has_bold_link = true;
+        }
+    }
+    EXPECT_TRUE(has_bold_link);
+}
+
+TEST(Parser, TableCellMixedTextAndLink) {
+    auto nodes = ParseMarkdown(
+        "| Content |\n"
+        "|---------|\n"
+        "| before [link](https://example.com) after |"
+    );
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_GE(nodes[0].table_rows.size(), 2u);
+    const auto& cell = nodes[0].table_rows[1].cells[0];
+
+    // Should have runs with and without links
+    bool has_link_run = false;
+    bool has_plain_run = false;
+    for (const auto& run : cell.runs) {
+        if (run.link_url.has_value()) has_link_run = true;
+        else has_plain_run = true;
+    }
+    EXPECT_TRUE(has_link_run);
+    EXPECT_TRUE(has_plain_run);
+}
+
 // ---- HTML entity edge cases ----
 
 TEST(Parser, HtmlEntityQuot) {
