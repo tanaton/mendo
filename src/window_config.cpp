@@ -35,15 +35,15 @@ void MainWindow::ToggleDarkMode() {
     ApplyDarkModeToWindow(hwnd_, dark_mode_);
 
     // Re-layout with new theme (reuses existing parsed nodes)
-    for (auto& node : nodes_) {
-        node.text_layout.Reset();
-        node.effects_applied = false;
-        node.inline_code_bgs.clear();
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+        layout_cache_[i].text_layout.Reset();
+        layout_cache_[i].effects_applied = false;
+        layout_cache_[i].inline_code_bgs.clear();
         // Clear mermaid bitmaps so they re-render with correct theme.
-        // Keep diagram_width/diagram_height so layout uses the previous size
+        // Keep width/height so layout uses the previous size
         // as a placeholder, preventing scroll position jumps.
-        if (node.code_language == SyntaxLanguage::Mermaid) {
-            node.diagram_bitmap.Reset();
+        if (nodes_[i].code_language == SyntaxLanguage::Mermaid) {
+            layout_cache_.GetDiagram(i).bitmap.Reset();
         }
     }
     mermaid_renderer_.ClearCache();
@@ -51,8 +51,9 @@ void MainWindow::ToggleDarkMode() {
     float md_width = GetMarkdownPaneWidth();
     renderer_.GetLayout().UpdateTheme(renderer_.GetTheme());
     renderer_.GetLayout().RecreateFormats();
-    renderer_.GetLayout().LayoutNodes(nodes_, md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
-    float total_height = nodes_.empty() ? 0 : nodes_.back().y_position + nodes_.back().height + renderer_.GetTheme().margin_top;
+    renderer_.GetLayout().LayoutNodes(nodes_, layout_cache_, md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
+    size_t last = nodes_.size() - 1;
+    float total_height = nodes_.empty() ? 0 : layout_cache_[last].y_position + layout_cache_[last].height + renderer_.GetTheme().margin_top;
     max_scroll_ = std::max(0.0f, total_height - (renderer_.GetRenderTarget()->GetSize().height));
     scroll_y_ = std::min(scroll_y_, max_scroll_);
     scroll_target_ = scroll_y_;
@@ -96,7 +97,7 @@ void MainWindow::ZoomReset() {
 void MainWindow::ApplyZoom(float new_zoom) {
     // Remember the first visible node to anchor scroll position
     int anchor_idx = FindFirstVisibleNode();
-    float anchor_y_before = (anchor_idx >= 0) ? nodes_[anchor_idx].y_position : 0.0f;
+    float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
     // Offset from anchor node top to current scroll position (in pre-zoom coords)
     float anchor_offset = scroll_y_ - anchor_y_before;
 
@@ -111,20 +112,20 @@ void MainWindow::ApplyZoom(float new_zoom) {
     renderer_.ApplyZoom(new_zoom);
 
     // Reset all node layouts
-    for (auto& node : nodes_) {
-        node.text_layout.Reset();
-        node.effects_applied = false;
-        node.inline_code_bgs.clear();
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+        layout_cache_[i].text_layout.Reset();
+        layout_cache_[i].effects_applied = false;
+        layout_cache_[i].inline_code_bgs.clear();
     }
 
     // Re-layout
     float md_width = GetMarkdownPaneWidth();
-    renderer_.GetLayout().LayoutNodes(nodes_,
+    renderer_.GetLayout().LayoutNodes(nodes_, layout_cache_,
         md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
 
     // Compensate scroll: scale the offset proportionally to the zoom ratio
     if (anchor_idx >= 0 && anchor_idx < static_cast<int>(nodes_.size())) {
-        float anchor_y_after = nodes_[anchor_idx].y_position;
+        float anchor_y_after = layout_cache_[anchor_idx].y_position;
         scroll_y_ = anchor_y_after + anchor_offset * zoom_ratio;
     }
 

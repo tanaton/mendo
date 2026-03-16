@@ -1,5 +1,6 @@
 #pragma once
 #include "types.h"
+#include "layout_cache.h"
 #include "theme.h"
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -21,7 +22,7 @@ struct YPositionResult {
     float total_height = 0.0f;
     bool has_dirty_nodes = false;
 };
-YPositionResult RecomputeYPositions(std::vector<RenderNode>& nodes, const Theme& theme);
+YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme);
 
 class LayoutEngine {
 public:
@@ -29,21 +30,22 @@ public:
     void UpdateTheme(const Theme& theme) { theme_ = &theme; }
     // Recreate all IDWriteTextFormat objects (e.g. after zoom or theme change).
     bool RecreateFormats();
-    void ComputeLayout(std::vector<RenderNode>& nodes, float viewport_width,
+    void ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
                        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
-    void LayoutNodes(std::vector<RenderNode>& nodes, float viewport_width);
-    bool ProcessDirtyBatch(std::vector<RenderNode>& nodes, float viewport_width, int batch_size);
-    bool EnsureVisibleLayout(std::vector<RenderNode>& nodes, float viewport_width,
+    void LayoutNodes(std::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
+    bool ProcessDirtyBatch(std::vector<Node>& nodes, LayoutCache& cache,
+                           float viewport_width, int batch_size);
+    bool EnsureVisibleLayout(std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
                              float viewport_top, float viewport_bottom);
     bool HasDirtyNodes() const { return has_dirty_nodes_; }
     float GetTotalHeight() const { return total_height_; }
     void SetTotalHeight(float h) { total_height_ = h; }
 
 private:
-    void CreateTextLayout(RenderNode& node, float max_width);
-    void CreateTableLayout(RenderNode& node, float max_width);
+    void CreateTextLayout(Node& node, NodeLayoutEntry& entry, float max_width);
+    void CreateTableLayout(Node& node, NodeLayoutEntry& entry, DiagramEntry& diagram, float max_width);
     void ApplyCellRunFormatting(IDWriteTextLayout* layout, const std::vector<TextRun>& runs);
-    IDWriteTextFormat* GetTextFormat(const RenderNode& node);
+    IDWriteTextFormat* GetTextFormat(const Node& node);
 
     IDWriteFactory* dwrite_ = nullptr;
     const Theme* theme_ = nullptr;

@@ -11,7 +11,7 @@ struct TocEntry {
 
 class TableOfContents {
 public:
-    void BuildFromNodes(const std::vector<RenderNode>& nodes);
+    void BuildFromNodes(const std::vector<Node>& nodes);
     const std::vector<TocEntry>& GetEntries() const { return entries_; }
     int HitTest(float local_y, float item_height) const;
 
