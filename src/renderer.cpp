@@ -372,6 +372,14 @@ void Renderer::DrawTable(const RenderNode& node, int node_index, float offset_x,
 
             // Draw cell text
             if (cell.text_layout) {
+                // Apply link color to cell runs that have a URL
+                for (const auto& run : cell.runs) {
+                    if (run.link_url.has_value()) {
+                        DWRITE_TEXT_RANGE range{run.start, run.length};
+                        cell.text_layout->SetDrawingEffect(link_brush_.Get(), range);
+                    }
+                }
+
                 ID2D1SolidColorBrush* brush = cell.is_header ? heading_brush_.Get() : text_brush_.Get();
                 render_target_->DrawTextLayout(
                     D2D1::Point2F(text_x, text_y),

@@ -405,6 +405,134 @@ TEST(FindLinkAtPosition, MultipleLinkRuns) {
     EXPECT_FALSE(gap.has_value());
 }
 
+// ---- FindLinkAtPosition: table cell links ----
+
+TEST(FindLinkAtPosition, TableCellLinkFound) {
+    // Build a table node with a link in cell (1, 1):
+    // | Name | URL     |
+    // | foo  | [bar](https://example.com) |
+    // Linearized text: "Name\tURL\nfoo\tbar"
+    RenderNode node;
+    node.type = NodeType::Table;
+
+    TableRow header;
+    TableCell h0; h0.text = L"Name"; h0.is_header = true;
+    TextRun h0r; h0r.start = 0; h0r.length = 4;
+    h0.runs.push_back(h0r);
+    header.cells.push_back(h0);
+
+    TableCell h1; h1.text = L"URL"; h1.is_header = true;
+    TextRun h1r; h1r.start = 0; h1r.length = 3;
+    h1.runs.push_back(h1r);
+    header.cells.push_back(h1);
+    node.table_rows.push_back(header);
+
+    TableRow data;
+    TableCell d0; d0.text = L"foo";
+    TextRun d0r; d0r.start = 0; d0r.length = 3;
+    d0.runs.push_back(d0r);
+    data.cells.push_back(d0);
+
+    TableCell d1; d1.text = L"bar";
+    TextRun d1r; d1r.start = 0; d1r.length = 3;
+    d1r.link_url = L"https://example.com";
+    d1.runs.push_back(d1r);
+    data.cells.push_back(d1);
+    node.table_rows.push_back(data);
+
+    // Linearized: "Name\tURL\nfoo\tbar"
+    //              0123 4567 8901 2345
+    // "Name" = offset 0-3, tab at 4, "URL" = 5-7, newline at 8
+    // "foo" = offset 9-11, tab at 12, "bar" = 13-15
+    node.text = L"Name\tURL\nfoo\tbar";
+
+    // Position in "bar" (offset 13) should find the link
+    auto result = FindLinkAtPosition(node, 13);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, L"https://example.com");
+
+    // Position in "Name" (offset 1) should not find a link
+    auto no_link = FindLinkAtPosition(node, 1);
+    EXPECT_FALSE(no_link.has_value());
+
+    // Position in "foo" (offset 9) should not find a link
+    auto no_link2 = FindLinkAtPosition(node, 9);
+    EXPECT_FALSE(no_link2.has_value());
+}
+
+TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown) {
+    auto nodes = ParseMarkdown(
+        "| Text | Link |\n"
+        "|------|------|\n"
+        "| hello | [click](https://example.com) |"
+    );
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Table);
+
+    // Verify the link run exists in the cell
+    ASSERT_GE(nodes[0].table_rows.size(), 2u);
+    const auto& data_row = nodes[0].table_rows[1];
+    ASSERT_GE(data_row.cells.size(), 2u);
+    bool has_link = false;
+    for (const auto& run : data_row.cells[1].runs) {
+        if (run.link_url.has_value()) {
+            EXPECT_EQ(*run.link_url, L"https://example.com");
+            has_link = true;
+        }
+    }
+    EXPECT_TRUE(has_link);
+}
+
+TEST(FindLinkAtPosition, TableCellInternalLink) {
+    RenderNode node;
+    node.type = NodeType::Table;
+
+    TableRow row;
+    TableCell cell; cell.text = L"section";
+    TextRun r; r.start = 0; r.length = 7;
+    r.link_url = L"#my-section";
+    cell.runs.push_back(r);
+    row.cells.push_back(cell);
+    node.table_rows.push_back(row);
+
+    node.text = L"section";
+
+    auto result = FindLinkAtPosition(node, 3);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, L"#my-section");
+}
+
+TEST(FindLinkAtPosition, TablePositionOnSeparator) {
+    // Position landing on tab/newline separator should return no link
+    RenderNode node;
+    node.type = NodeType::Table;
+
+    TableRow row;
+    TableCell c0; c0.text = L"A";
+    TextRun r0; r0.start = 0; r0.length = 1;
+    c0.runs.push_back(r0);
+    row.cells.push_back(c0);
+
+    TableCell c1; c1.text = L"B";
+    TextRun r1; r1.start = 0; r1.length = 1;
+    r1.link_url = L"https://b.com";
+    c1.runs.push_back(r1);
+    row.cells.push_back(c1);
+    node.table_rows.push_back(row);
+
+    // Linearized: "A\tB" → offset 0=A, 1=tab, 2=B
+    node.text = L"A\tB";
+
+    // Tab separator (offset 1) should not match any cell
+    auto result = FindLinkAtPosition(node, 1);
+    EXPECT_FALSE(result.has_value());
+
+    // "B" (offset 2) should find the link
+    auto link = FindLinkAtPosition(node, 2);
+    ASSERT_TRUE(link.has_value());
+    EXPECT_EQ(*link, L"https://b.com");
+}
+
 // ---- FindAnchorNodeIndex additional tests ----
 
 TEST(FindAnchorNodeIndex, DuplicateAnchors) {

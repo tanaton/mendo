@@ -27,15 +27,44 @@ std::wstring ExtractSelectedText(const std::vector<RenderNode>& nodes,
     return result;
 }
 
-std::optional<std::wstring> FindLinkAtPosition(const RenderNode& node, uint32_t text_pos) {
-    for (const auto& run : node.runs) {
+static std::optional<std::wstring> FindLinkInRuns(const std::vector<TextRun>& runs,
+                                                   uint32_t pos) {
+    for (const auto& run : runs) {
         if (run.link_url.has_value() &&
-            text_pos >= run.start &&
-            text_pos < run.start + run.length) {
+            pos >= run.start && pos < run.start + run.length) {
             return run.link_url;
         }
     }
     return std::nullopt;
+}
+
+static const std::vector<TextRun>* FindTableCellRuns(const RenderNode& node,
+                                                      uint32_t text_pos,
+                                                      uint32_t& local_pos) {
+    uint32_t offset = 0;
+    for (size_t r = 0; r < node.table_rows.size(); r++) {
+        const auto& row = node.table_rows[r];
+        for (size_t c = 0; c < row.cells.size(); c++) {
+            uint32_t cell_len = static_cast<uint32_t>(row.cells[c].text.size());
+            if (text_pos >= offset && text_pos < offset + cell_len) {
+                local_pos = text_pos - offset;
+                return &row.cells[c].runs;
+            }
+            offset += cell_len;
+            if (c + 1 < row.cells.size()) offset++; // tab separator
+        }
+        if (r + 1 < node.table_rows.size()) offset++; // newline separator
+    }
+    return nullptr;
+}
+
+std::optional<std::wstring> FindLinkAtPosition(const RenderNode& node, uint32_t text_pos) {
+    if (node.type == NodeType::Table) {
+        uint32_t local_pos = 0;
+        auto* runs = FindTableCellRuns(node, text_pos, local_pos);
+        return runs ? FindLinkInRuns(*runs, local_pos) : std::nullopt;
+    }
+    return FindLinkInRuns(node.runs, text_pos);
 }
 
 int FindAnchorNodeIndex(const std::vector<RenderNode>& nodes, const std::wstring& anchor) {

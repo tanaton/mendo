@@ -149,6 +149,35 @@ TEST_F(LayoutTest, TableCellLayoutsCreated) {
     }
 }
 
+TEST_F(LayoutTest, TableCellLinkHasUnderline) {
+    auto nodes = ParseMarkdown(
+        "| Text | Link |\n"
+        "|------|------|\n"
+        "| hello | [click](https://example.com) |"
+    );
+    engine_.ComputeLayout(nodes, 800.0f);
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_GE(nodes[0].table_rows.size(), 2u);
+
+    // The data row's second cell should have a link run with underline applied
+    const auto& cell = nodes[0].table_rows[1].cells[1];
+    ASSERT_NE(cell.text_layout.Get(), nullptr);
+
+    // Verify link run exists in cell
+    bool has_link_run = false;
+    for (const auto& run : cell.runs) {
+        if (run.link_url.has_value()) {
+            has_link_run = true;
+
+            // Check that underline was applied to the text layout
+            BOOL underline = FALSE;
+            cell.text_layout->GetUnderline(run.start, &underline);
+            EXPECT_TRUE(underline) << "Link run in table cell should have underline";
+        }
+    }
+    EXPECT_TRUE(has_link_run);
+}
+
 TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize) {
     auto nodes = ParseMarkdown("# H1\n\n## H2\n\n### H3");
     engine_.ComputeLayout(nodes, 800.0f);

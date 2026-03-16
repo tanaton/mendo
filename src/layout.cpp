@@ -180,6 +180,7 @@ void LayoutEngine::ApplyCellRunFormatting(IDWriteTextLayout* layout,
             layout->SetFontSize(theme_->font_size_code, range);
         }
         if (run.strikethrough) layout->SetStrikethrough(TRUE, range);
+        if (run.link_url.has_value()) layout->SetUnderline(TRUE, range);
     }
 }
 
