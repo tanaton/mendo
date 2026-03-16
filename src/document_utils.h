@@ -6,17 +6,17 @@
 
 // Extract selected text from nodes based on selection range.
 // Returns the concatenated text with \r\n between nodes.
-std::wstring ExtractSelectedText(const std::vector<Node>& nodes,
+std::wstring ExtractSelectedText(const std::vector<RenderNode>& nodes,
                                   const TextSelection& selection);
 
 // Find a link URL at a given text position within a node's runs.
 // Returns the link URL if the position falls within a link run, otherwise nullopt.
-std::optional<std::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos);
+std::optional<std::wstring> FindLinkAtPosition(const RenderNode& node, uint32_t text_pos);
 
 // Find the index of the heading node that matches the given anchor ID.
 // The anchor is compared case-insensitively (lowercased).
 // Returns -1 if not found.
-int FindAnchorNodeIndex(const std::vector<Node>& nodes, const std::wstring& anchor);
+int FindAnchorNodeIndex(const std::vector<RenderNode>& nodes, const std::wstring& anchor);
 
 // Word boundary result for double-click word selection.
 struct WordBoundary {

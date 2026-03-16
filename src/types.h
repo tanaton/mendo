@@ -3,7 +3,12 @@
 #include <vector>
 #include <optional>
 #include <cstdint>
+#include <wrl/client.h>
+#include <d2d1.h>
+#include <dwrite.h>
 #include "syntax.h"
+
+using Microsoft::WRL::ComPtr;
 
 enum class NodeType : uint8_t {
     Heading,
@@ -53,19 +58,21 @@ struct TextSelection {
     }
 };
 
-// Table cell data (pure domain — no layout cache)
+// Table cell data
 struct TableCell {
     std::wstring text;
     std::vector<TextRun> runs;
     bool is_header = false;
     int align = 0; // 0=left, 1=center, 2=right (from MD_ALIGN)
+    ComPtr<IDWriteTextLayout> text_layout;
 };
 
 struct TableRow {
     std::vector<TableCell> cells;
+    float row_height = 0.0f;
 };
 
-struct Node {
+struct RenderNode {
     NodeType type = NodeType::Paragraph;
     int heading_level = 0;
     int indent_level = 0;
@@ -79,4 +86,23 @@ struct Node {
 
     // Table data (only used when type == Table)
     std::vector<TableRow> table_rows;
+    std::vector<float> col_widths; // computed column widths
+
+    // Mermaid diagram bitmap (rendered via WebView2)
+    ComPtr<ID2D1Bitmap> diagram_bitmap;
+    float diagram_width = 0.0f;
+    float diagram_height = 0.0f;
+
+    // Layout cache
+    float y_position = 0.0f;
+    float height = 0.0f;
+    ComPtr<IDWriteTextLayout> text_layout;
+    bool layout_dirty = true;
+    bool effects_applied = false;
+
+    // Cached inline code background rects (relative to text layout origin)
+    struct InlineCodeBg {
+        float left, top, width, height;
+    };
+    std::vector<InlineCodeBg> inline_code_bgs;
 };

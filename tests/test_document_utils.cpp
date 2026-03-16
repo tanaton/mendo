@@ -64,7 +64,7 @@ TEST(ExtractSelectedText, NewlineBetweenNodes) {
 }
 
 TEST(ExtractSelectedText, EmptyNodes) {
-    std::vector<Node> nodes;
+    std::vector<RenderNode> nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
     // Out of range nodes - should not crash
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
@@ -137,7 +137,7 @@ TEST(FindLinkAtPosition, PositionBeyondText) {
 }
 
 TEST(FindLinkAtPosition, EmptyNode) {
-    Node node;
+    RenderNode node;
     auto result = FindLinkAtPosition(node, 0);
     EXPECT_FALSE(result.has_value());
 }
@@ -147,7 +147,7 @@ TEST(FindLinkAtPosition, EmptyNode) {
 // ============================================================
 
 TEST(FindAnchorNodeIndex, EmptyNodes) {
-    std::vector<Node> nodes;
+    std::vector<RenderNode> nodes;
     EXPECT_EQ(FindAnchorNodeIndex(nodes, L"test"), -1);
 }
 
@@ -324,11 +324,11 @@ TEST(BuildTitleString, FilenameOnly) {
 
 TEST(ExtractSelectedText, SelectionSpanningTableNode) {
     // Test with a table-type node (has linearized text)
-    Node table_node;
+    RenderNode table_node;
     table_node.type = NodeType::Table;
     table_node.text = L"A\tB\n1\t2";
 
-    std::vector<Node> nodes = {table_node};
+    std::vector<RenderNode> nodes = {table_node};
     TextSelection sel;
     sel.start_node = 0;
     sel.start_pos = 0;
@@ -341,8 +341,8 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode) {
 }
 
 TEST(ExtractSelectedText, StartNodeOutOfRange) {
-    std::vector<Node> nodes;
-    Node n;
+    std::vector<RenderNode> nodes;
+    RenderNode n;
     n.text = L"hello";
     nodes.push_back(n);
 
@@ -359,8 +359,8 @@ TEST(ExtractSelectedText, StartNodeOutOfRange) {
 }
 
 TEST(ExtractSelectedText, EndNodeOutOfRange) {
-    std::vector<Node> nodes;
-    Node n;
+    std::vector<RenderNode> nodes;
+    RenderNode n;
     n.text = L"hello";
     nodes.push_back(n);
 
@@ -379,7 +379,7 @@ TEST(ExtractSelectedText, EndNodeOutOfRange) {
 // ---- FindLinkAtPosition additional tests ----
 
 TEST(FindLinkAtPosition, MultipleLinkRuns) {
-    Node node;
+    RenderNode node;
     node.text = L"link1 link2";
 
     TextRun r1;
@@ -412,7 +412,7 @@ TEST(FindLinkAtPosition, TableCellLinkFound) {
     // | Name | URL     |
     // | foo  | [bar](https://example.com) |
     // Linearized text: "Name\tURL\nfoo\tbar"
-    Node node;
+    RenderNode node;
     node.type = NodeType::Table;
 
     TableRow header;
@@ -484,7 +484,7 @@ TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown) {
 }
 
 TEST(FindLinkAtPosition, TableCellInternalLink) {
-    Node node;
+    RenderNode node;
     node.type = NodeType::Table;
 
     TableRow row;
@@ -504,7 +504,7 @@ TEST(FindLinkAtPosition, TableCellInternalLink) {
 
 TEST(FindLinkAtPosition, TablePositionOnSeparator) {
     // Position landing on tab/newline separator should return no link
-    Node node;
+    RenderNode node;
     node.type = NodeType::Table;
 
     TableRow row;
@@ -536,14 +536,14 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator) {
 // ---- FindAnchorNodeIndex additional tests ----
 
 TEST(FindAnchorNodeIndex, DuplicateAnchors) {
-    std::vector<Node> nodes;
+    std::vector<RenderNode> nodes;
 
-    Node h1;
+    RenderNode h1;
     h1.type = NodeType::Heading;
     h1.anchor_id = L"title";
     nodes.push_back(h1);
 
-    Node h2;
+    RenderNode h2;
     h2.type = NodeType::Heading;
     h2.anchor_id = L"title-1";
     nodes.push_back(h2);

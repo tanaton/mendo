@@ -1,7 +1,7 @@
 #include "document_utils.h"
 #include <windows.h>
 
-std::wstring ExtractSelectedText(const std::vector<Node>& nodes,
+std::wstring ExtractSelectedText(const std::vector<RenderNode>& nodes,
                                   const TextSelection& selection) {
     if (!selection.active) return {};
 
@@ -38,7 +38,7 @@ static std::optional<std::wstring> FindLinkInRuns(const std::vector<TextRun>& ru
     return std::nullopt;
 }
 
-static const std::vector<TextRun>* FindTableCellRuns(const Node& node,
+static const std::vector<TextRun>* FindTableCellRuns(const RenderNode& node,
                                                       uint32_t text_pos,
                                                       uint32_t& local_pos) {
     uint32_t offset = 0;
@@ -58,7 +58,7 @@ static const std::vector<TextRun>* FindTableCellRuns(const Node& node,
     return nullptr;
 }
 
-std::optional<std::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos) {
+std::optional<std::wstring> FindLinkAtPosition(const RenderNode& node, uint32_t text_pos) {
     if (node.type == NodeType::Table) {
         uint32_t local_pos = 0;
         auto* runs = FindTableCellRuns(node, text_pos, local_pos);
@@ -67,7 +67,7 @@ std::optional<std::wstring> FindLinkAtPosition(const Node& node, uint32_t text_p
     return FindLinkInRuns(node.runs, text_pos);
 }
 
-int FindAnchorNodeIndex(const std::vector<Node>& nodes, const std::wstring& anchor) {
+int FindAnchorNodeIndex(const std::vector<RenderNode>& nodes, const std::wstring& anchor) {
     if (anchor.empty()) return -1;
 
     // Convert anchor to lowercase for comparison

@@ -1,6 +1,6 @@
 #include "toc.h"
 
-void TableOfContents::BuildFromNodes(const std::vector<Node>& nodes) {
+void TableOfContents::BuildFromNodes(const std::vector<RenderNode>& nodes) {
     entries_.clear();
     for (const auto& node : nodes) {
         if (node.type != NodeType::Heading) continue;

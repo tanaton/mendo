@@ -120,7 +120,7 @@ int MainWindow::FindFirstVisibleNode() const {
     int lo = 0, hi = static_cast<int>(nodes_.size());
     while (lo < hi) {
         int mid = (lo + hi) / 2;
-        if (layout_cache_[mid].y_position + layout_cache_[mid].height <= scroll_y_)
+        if (nodes_[mid].y_position + nodes_[mid].height <= scroll_y_)
             lo = mid + 1;
         else
             hi = mid;
@@ -130,7 +130,7 @@ int MainWindow::FindFirstVisibleNode() const {
 
 void MainWindow::AnchorCompensateScroll(int anchor_idx, float anchor_y_before) {
     if (anchor_idx < 0) return;
-    float shift = layout_cache_[anchor_idx].y_position - anchor_y_before;
+    float shift = nodes_[anchor_idx].y_position - anchor_y_before;
     scroll_y_ += shift;
     scroll_target_ += shift;
     SyncMaxScroll();
@@ -146,7 +146,7 @@ void MainWindow::OnResizeEnd() {
     float viewport_top = scroll_y_;
     float viewport_bottom = scroll_y_ + pane_layout.md_rect.height;
 
-    renderer_.GetLayout().ComputeLayout(nodes_, layout_cache_, md_width, viewport_top, viewport_bottom);
+    renderer_.GetLayout().ComputeLayout(nodes_, md_width, viewport_top, viewport_bottom);
 
     SyncMaxScroll();
     UpdateScrollBar();
@@ -161,10 +161,10 @@ void MainWindow::OnResizeEnd() {
 
 void MainWindow::OnDeferredLayout() {
     int anchor_idx = FindFirstVisibleNode();
-    float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
+    float anchor_y_before = (anchor_idx >= 0) ? nodes_[anchor_idx].y_position : 0.0f;
 
     float md_width = GetMarkdownPaneWidth();
-    bool more = renderer_.GetLayout().ProcessDirtyBatch(nodes_, layout_cache_, md_width, 200);
+    bool more = renderer_.GetLayout().ProcessDirtyBatch(nodes_, md_width, 200);
 
     // Compensate scroll to keep visible content at the same screen position,
     // but skip during active scrollbar drag to avoid fighting with user input
@@ -185,7 +185,7 @@ void MainWindow::OnDeferredLayout() {
 
 void MainWindow::UpdateLayoutAndScroll(float desired_scroll) {
     float md_width = GetMarkdownPaneWidth();
-    renderer_.GetLayout().ComputeLayout(nodes_, layout_cache_, md_width);
+    renderer_.GetLayout().ComputeLayout(nodes_, md_width);
 
     scroll_y_ = desired_scroll;
     scroll_target_ = desired_scroll;

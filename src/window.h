@@ -7,7 +7,6 @@
 #include "pane.h"
 #include "pane_layout.h"
 #include "document_utils.h"
-#include "layout_cache.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -52,8 +51,7 @@ private:
         uint32_t text_pos = 0;
     };
     HitResult HitTest(int screen_x, int screen_y) const;
-    HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
-                           int node_index, float dip_x, float dip_y) const;
+    HitResult HitTestTable(const RenderNode& node, int node_index, float dip_x, float dip_y) const;
     std::optional<std::wstring> GetLinkAtHit(const HitResult& hit) const;
     void HandleLinkClick(const std::wstring& url);
     void NavigateToAnchor(const std::wstring& anchor);
@@ -113,8 +111,7 @@ private:
     HCURSOR cursor_ibeam_ = nullptr;
     HCURSOR cursor_sizewe_ = nullptr;
 
-    std::vector<Node> nodes_;
-    LayoutCache layout_cache_;
+    std::vector<RenderNode> nodes_;
     std::wstring current_file_;
 
     // Scroll state (MD pane)

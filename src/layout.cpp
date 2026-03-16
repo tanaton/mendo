@@ -49,22 +49,21 @@ std::wstring BuildLinearizedTableText(const std::vector<TableRow>& rows) {
     return text;
 }
 
-YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) {
+YPositionResult RecomputeYPositions(std::vector<RenderNode>& nodes, const Theme& theme) {
     YPositionResult result;
     float y = theme.margin_top;
 
-    for (size_t i = 0; i < nodes.size(); i++) {
-        auto& entry = cache[i];
-        if (entry.layout_dirty) result.has_dirty_nodes = true;
+    for (auto& node : nodes) {
+        if (node.layout_dirty) result.has_dirty_nodes = true;
 
-        if (nodes[i].type == NodeType::Heading) {
+        if (node.type == NodeType::Heading) {
             y += theme.heading_spacing_above;
         }
 
-        entry.y_position = y;
-        y += entry.height;
+        node.y_position = y;
+        y += node.height;
 
-        if (nodes[i].type == NodeType::Heading) {
+        if (node.type == NodeType::Heading) {
             y += theme.heading_spacing_below;
         } else {
             y += theme.paragraph_spacing;
@@ -155,7 +154,7 @@ bool LayoutEngine::RecreateFormats() {
     return true;
 }
 
-IDWriteTextFormat* LayoutEngine::GetTextFormat(const Node& node) {
+IDWriteTextFormat* LayoutEngine::GetTextFormat(const RenderNode& node) {
     if (node.type == NodeType::CodeBlock) return fmt_code_.Get();
     if (node.type == NodeType::Heading) {
         switch (node.heading_level) {
@@ -185,11 +184,10 @@ void LayoutEngine::ApplyCellRunFormatting(IDWriteTextLayout* layout,
     }
 }
 
-void LayoutEngine::CreateTableLayout(Node& node, NodeLayoutEntry& entry,
-                                      DiagramEntry& /*diagram*/, float max_width) {
+void LayoutEngine::CreateTableLayout(RenderNode& node, float max_width) {
     if (node.table_rows.empty()) {
-        entry.height = 0;
-        entry.layout_dirty = false;
+        node.height = 0;
+        node.layout_dirty = false;
         return;
     }
 
@@ -198,25 +196,17 @@ void LayoutEngine::CreateTableLayout(Node& node, NodeLayoutEntry& entry,
     for (auto& row : node.table_rows) {
         col_count = std::max(col_count, row.cells.size());
     }
-    if (col_count == 0) { entry.layout_dirty = false; return; }
+    if (col_count == 0) { node.layout_dirty = false; return; }
 
     float cell_padding = TABLE_CELL_PADDING;
     float border_width = TABLE_BORDER_WIDTH;
-
-    // Resize cell_layouts to match table structure
-    entry.cell_layouts.resize(node.table_rows.size());
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        entry.cell_layouts[r].resize(node.table_rows[r].cells.size());
-    }
-    entry.row_heights.resize(node.table_rows.size());
 
     // First pass: create text layouts and measure natural widths
     std::vector<float> natural_widths(col_count, 0.0f);
     IDWriteTextFormat* fmt = fmt_body_.Get();
     IDWriteTextFormat* fmt_bold = fmt_h4_.Get(); // reuse bold format
 
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        auto& row = node.table_rows[r];
+    for (auto& row : node.table_rows) {
         for (size_t c = 0; c < row.cells.size(); c++) {
             auto& cell = row.cells[c];
             if (cell.text.empty()) continue;
@@ -224,14 +214,13 @@ void LayoutEngine::CreateTableLayout(Node& node, NodeLayoutEntry& entry,
             IDWriteTextFormat* cell_fmt = cell.is_header ? fmt_bold : fmt;
             dwrite_->CreateTextLayout(
                 cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
-                cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
-                &entry.cell_layouts[r][c]);
+                cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT, &cell.text_layout);
 
-            if (entry.cell_layouts[r][c]) {
-                ApplyCellRunFormatting(entry.cell_layouts[r][c].Get(), cell.runs);
+            if (cell.text_layout) {
+                ApplyCellRunFormatting(cell.text_layout.Get(), cell.runs);
 
                 DWRITE_TEXT_METRICS metrics{};
-                entry.cell_layouts[r][c]->GetMetrics(&metrics);
+                cell.text_layout->GetMetrics(&metrics);
                 natural_widths[c] = std::max(natural_widths[c], metrics.width);
             }
         }
@@ -240,74 +229,71 @@ void LayoutEngine::CreateTableLayout(Node& node, NodeLayoutEntry& entry,
     // Compute column widths: proportional distribution
     float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width
                       - static_cast<float>(col_count) * cell_padding * 2.0f;
-    entry.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
+    node.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
 
     // Second pass: update column widths and alignment on existing layouts, measure row heights
     float total_height = border_width; // top border
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        auto& row = node.table_rows[r];
+    for (auto& row : node.table_rows) {
         float row_height = theme_->font_size_body * 1.4f; // minimum row height
         for (size_t c = 0; c < row.cells.size(); c++) {
             auto& cell = row.cells[c];
-            float cw = (c < entry.col_widths.size()) ? entry.col_widths[c] : DEFAULT_COLUMN_WIDTH;
+            float cw = (c < node.col_widths.size()) ? node.col_widths[c] : DEFAULT_COLUMN_WIDTH;
 
-            if (entry.cell_layouts[r][c]) {
-                entry.cell_layouts[r][c]->SetMaxWidth(cw);
+            if (cell.text_layout) {
+                cell.text_layout->SetMaxWidth(cw);
 
                 // Set text alignment
-                if (cell.align == 1) entry.cell_layouts[r][c]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                else if (cell.align == 2) entry.cell_layouts[r][c]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+                if (cell.align == 1) cell.text_layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                else if (cell.align == 2) cell.text_layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
 
                 DWRITE_TEXT_METRICS metrics{};
-                entry.cell_layouts[r][c]->GetMetrics(&metrics);
+                cell.text_layout->GetMetrics(&metrics);
                 row_height = std::max(row_height, metrics.height + cell_padding * 2.0f);
             }
         }
-        entry.row_heights[r] = row_height;
+        row.row_height = row_height;
         total_height += row_height + border_width;
     }
 
     // Build linearized text for selection support (tab-separated cells, newline-separated rows)
     node.text = BuildLinearizedTableText(node.table_rows);
 
-    entry.height = total_height;
-    entry.layout_dirty = false;
+    node.height = total_height;
+    node.layout_dirty = false;
 }
 
-void LayoutEngine::CreateTextLayout(Node& node, NodeLayoutEntry& entry, float max_width) {
+void LayoutEngine::CreateTextLayout(RenderNode& node, float max_width) {
     if (node.type == NodeType::HorizontalRule) {
-        entry.height = theme_->paragraph_spacing + theme_->hr_thickness;
-        entry.layout_dirty = false;
+        node.height = theme_->paragraph_spacing + theme_->hr_thickness;
+        node.layout_dirty = false;
         return;
     }
 
     if (node.type == NodeType::Table) {
-        // DiagramEntry not used for tables but we need to pass something;
-        // in practice this path is only reached from ComputeLayout which passes
-        // the correct DiagramEntry. For tables we can use a dummy.
-        DiagramEntry dummy;
-        CreateTableLayout(node, entry, dummy, max_width);
+        CreateTableLayout(node, max_width);
         return;
     }
 
     // Mermaid blocks: if a bitmap has already been rendered, use its height.
     // Otherwise set a placeholder height; the actual bitmap is created by MermaidRenderer.
     if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
-        // Note: diagram info is accessed via DiagramEntry in the caller.
-        // Here we just handle the placeholder case when called without diagram context.
-        if (entry.height > 0) {
+        if (node.diagram_bitmap) {
+            node.height = node.diagram_height;
+        } else if (node.diagram_height > 0) {
             // Use previously known height to keep layout stable during re-render
+            node.height = node.diagram_height;
         } else {
-            entry.height = std::max(MIN_MERMAID_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
+            // Placeholder: show code text until the diagram bitmap arrives
+            node.height = std::max(MIN_MERMAID_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
         }
-        entry.layout_dirty = false;
+        node.layout_dirty = false;
         return;
     }
 
     const std::wstring& text = node.text;
     if (text.empty()) {
-        entry.height = theme_->paragraph_spacing;
-        entry.layout_dirty = false;
+        node.height = theme_->paragraph_spacing;
+        node.layout_dirty = false;
         return;
     }
 
@@ -355,18 +341,15 @@ void LayoutEngine::CreateTextLayout(Node& node, NodeLayoutEntry& entry, float ma
         node.syntax_tokens.clear();
     }
 
-    entry.text_layout = std::move(layout);
-    entry.height = metrics.height;
-    entry.layout_dirty = false;
-    entry.effects_applied = false;
-    entry.inline_code_bgs.clear();
+    node.text_layout = std::move(layout);
+    node.height = metrics.height;
+    node.layout_dirty = false;
+    node.effects_applied = false;
+    node.inline_code_bgs.clear();
 }
 
-void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
-                                  float viewport_width,
+void LayoutEngine::ComputeLayout(std::vector<RenderNode>& nodes, float viewport_width,
                                   float viewport_top, float viewport_bottom) {
-    cache.Resize(nodes.size());
-
     bool width_changed = (viewport_width != last_viewport_width_);
     bool partial = (viewport_top >= 0.0f);
 
@@ -379,26 +362,24 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     float y = theme_->margin_top;
 
-    for (size_t i = 0; i < nodes.size(); i++) {
-        auto& node = nodes[i];
-        auto& entry = cache[i];
+    for (auto& node : nodes) {
         float indent = node.indent_level * theme_->indent_width;
         float node_width = content_width - indent;
 
-        bool needs_layout = width_changed || entry.layout_dirty;
+        bool needs_layout = width_changed || node.layout_dirty;
 
         if (needs_layout) {
             if (partial) {
                 // In partial mode, only compute layouts for visible nodes
-                float node_bottom = y + entry.height; // estimate using old height
+                float node_bottom = y + node.height; // estimate using old height
                 bool visible = (node_bottom >= viewport_top && y <= viewport_bottom);
                 if (visible) {
-                    CreateTextLayout(node, entry, node_width);
+                    CreateTextLayout(node, node_width);
                 } else {
-                    entry.layout_dirty = true;
+                    node.layout_dirty = true;
                 }
             } else {
-                CreateTextLayout(node, entry, node_width);
+                CreateTextLayout(node, node_width);
             }
         }
 
@@ -406,7 +387,7 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
         if (node.type == NodeType::Heading) {
             y += theme_->heading_spacing_above;
         }
-        y += entry.height;
+        y += node.height;
         if (node.type == NodeType::Heading) {
             y += theme_->heading_spacing_below;
         } else {
@@ -414,18 +395,17 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
         }
     }
 
-    auto result = RecomputeYPositions(nodes, cache, *theme_);
+    auto result = RecomputeYPositions(nodes, *theme_);
     total_height_ = result.total_height;
     has_dirty_nodes_ = result.has_dirty_nodes;
 }
 
-void LayoutEngine::LayoutNodes(std::vector<Node>& nodes, LayoutCache& cache, float viewport_width) {
+void LayoutEngine::LayoutNodes(std::vector<RenderNode>& nodes, float viewport_width) {
     last_viewport_width_ = 0.0f; // Force width change detection
-    ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right);
+    ComputeLayout(nodes, viewport_width + theme_->margin_left + theme_->margin_right);
 }
 
-bool LayoutEngine::EnsureVisibleLayout(std::vector<Node>& nodes, LayoutCache& cache,
-                                        float viewport_width,
+bool LayoutEngine::EnsureVisibleLayout(std::vector<RenderNode>& nodes, float viewport_width,
                                         float viewport_top, float viewport_bottom) {
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     bool any_updated = false;
@@ -434,45 +414,44 @@ bool LayoutEngine::EnsureVisibleLayout(std::vector<Node>& nodes, LayoutCache& ca
     int lo = 0, hi = static_cast<int>(nodes.size());
     while (lo < hi) {
         int mid = (lo + hi) / 2;
-        if (cache[mid].y_position + cache[mid].height < viewport_top)
+        if (nodes[mid].y_position + nodes[mid].height < viewport_top)
             lo = mid + 1;
         else
             hi = mid;
     }
 
     for (int i = lo; i < static_cast<int>(nodes.size()); i++) {
-        auto& entry = cache[i];
-        if (entry.y_position > viewport_bottom) break;
-        if (!entry.layout_dirty) continue;
-        float indent = nodes[i].indent_level * theme_->indent_width;
-        CreateTextLayout(nodes[i], entry, content_width - indent);
+        auto& node = nodes[i];
+        if (node.y_position > viewport_bottom) break;
+        if (!node.layout_dirty) continue;
+        float indent = node.indent_level * theme_->indent_width;
+        CreateTextLayout(node, content_width - indent);
         any_updated = true;
     }
 
     if (any_updated) {
-        auto result = RecomputeYPositions(nodes, cache, *theme_);
+        auto result = RecomputeYPositions(nodes, *theme_);
         total_height_ = result.total_height;
         has_dirty_nodes_ = result.has_dirty_nodes;
     }
     return any_updated;
 }
 
-bool LayoutEngine::ProcessDirtyBatch(std::vector<Node>& nodes, LayoutCache& cache,
+bool LayoutEngine::ProcessDirtyBatch(std::vector<RenderNode>& nodes,
                                       float viewport_width, int batch_size) {
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     int processed = 0;
 
-    for (size_t i = 0; i < nodes.size(); i++) {
-        auto& entry = cache[i];
-        if (!entry.layout_dirty) continue;
+    for (auto& node : nodes) {
+        if (!node.layout_dirty) continue;
 
-        float indent = nodes[i].indent_level * theme_->indent_width;
-        CreateTextLayout(nodes[i], entry, content_width - indent);
+        float indent = node.indent_level * theme_->indent_width;
+        CreateTextLayout(node, content_width - indent);
 
         if (++processed >= batch_size) break;
     }
 
-    auto result = RecomputeYPositions(nodes, cache, *theme_);
+    auto result = RecomputeYPositions(nodes, *theme_);
     total_height_ = result.total_height;
     has_dirty_nodes_ = result.has_dirty_nodes;
 

@@ -368,10 +368,10 @@ void MainWindow::OnPaint() {
         float viewport_bottom = scroll_y_ + layout.md_rect.height;
 
         int anchor_idx = FindFirstVisibleNode();
-        float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
+        float anchor_y_before = (anchor_idx >= 0) ? nodes_[anchor_idx].y_position : 0.0f;
 
         bool updated = renderer_.GetLayout().EnsureVisibleLayout(
-            nodes_, layout_cache_, layout.md_rect.width, viewport_top, viewport_bottom);
+            nodes_, layout.md_rect.width, viewport_top, viewport_bottom);
 
         if (updated) {
             AnchorCompensateScroll(anchor_idx, anchor_y_before);
@@ -384,7 +384,7 @@ void MainWindow::OnPaint() {
                               toc_.GetEntries(), toc_scroll_, hovered_toc_index_,
                               show_file_pane_, show_toc_pane_);
     } else {
-        renderer_.Render(nodes_, layout_cache_, scroll_y_, selection_,
+        renderer_.Render(nodes_, scroll_y_, selection_,
                          layout.file_rect, layout.toc_rect, layout.md_rect,
                          file_explorer_.GetEntries(), file_scroll_, hovered_file_index_,
                          toc_.GetEntries(), toc_scroll_, hovered_toc_index_,
@@ -415,7 +415,7 @@ void MainWindow::OnResize(UINT width, UINT height) {
     float viewport_top = scroll_y_;
     float viewport_bottom = scroll_y_ + pane_layout.md_rect.height;
 
-    renderer_.GetLayout().ComputeLayout(nodes_, layout_cache_, md_width, viewport_top, viewport_bottom);
+    renderer_.GetLayout().ComputeLayout(nodes_, md_width, viewport_top, viewport_bottom);
 
     SyncMaxScroll();
     UpdateScrollBar();
@@ -432,9 +432,9 @@ void MainWindow::OnDpiChanged(UINT dpi, const RECT* suggested) {
     renderer_.SetDpi(static_cast<float>(dpi));
 
     // Mark all node layouts dirty so they get recreated at new DPI
-    for (size_t i = 0; i < nodes_.size(); i++) {
-        layout_cache_[i].layout_dirty = true;
-        layout_cache_[i].text_layout.Reset();
+    for (auto& node : nodes_) {
+        node.layout_dirty = true;
+        node.text_layout.Reset();
     }
 
     SetWindowPos(hwnd_, nullptr,
@@ -484,7 +484,6 @@ void MainWindow::DoLoadMarkdownFile() {
     mermaid_renderer_.CancelPending();
 
     nodes_ = ParseMarkdown(content);
-    layout_cache_.Resize(nodes_.size());
     toc_.BuildFromNodes(nodes_);
 
     // Set up file explorer for the directory containing this file
@@ -519,7 +518,6 @@ void MainWindow::ReloadCurrentFile() {
     float old_scroll = scroll_y_;
     mermaid_renderer_.CancelPending();
     nodes_ = ParseMarkdown(FileLoader::LoadFile(current_file_));
-    layout_cache_.Resize(nodes_.size());
     toc_.BuildFromNodes(nodes_);
     renderer_.InvalidateTocPaneCache();
     UpdateLayoutAndScroll(old_scroll);
@@ -542,31 +540,27 @@ void MainWindow::RequestMermaidRenders() {
     // If the available width changed, clear stale mermaid bitmaps so they re-render
     if (last_mermaid_content_width_ > 0.0f &&
         static_cast<int>(content_width) != static_cast<int>(last_mermaid_content_width_)) {
-        for (size_t i = 0; i < nodes_.size(); i++) {
-            if (nodes_[i].code_language == SyntaxLanguage::Mermaid) {
-                auto& diagram = layout_cache_.GetDiagram(i);
-                diagram.bitmap.Reset();
-                diagram.width = 0;
-                diagram.height = 0;
+        for (auto& node : nodes_) {
+            if (node.code_language == SyntaxLanguage::Mermaid) {
+                node.diagram_bitmap.Reset();
+                node.diagram_width = 0;
+                node.diagram_height = 0;
             }
         }
         mermaid_renderer_.ClearCache();
     }
     last_mermaid_content_width_ = content_width;
 
-    for (size_t i = 0; i < nodes_.size(); i++) {
-        auto& node = nodes_[i];
+    for (auto& node : nodes_) {
         if (node.type != NodeType::CodeBlock) continue;
         if (node.code_language != SyntaxLanguage::Mermaid) continue;
-        auto& diagram = layout_cache_.GetDiagram(i);
-        if (diagram.bitmap) continue; // already rendered
+        if (node.diagram_bitmap) continue; // already rendered
 
-        mermaid_renderer_.RequestRender(node, layout_cache_[i], diagram,
-                                        content_width, dark_mode_, [this]() {
+        mermaid_renderer_.RequestRender(node, content_width, dark_mode_, [this]() {
             // Re-layout after bitmap is available, preserving scroll position
             int anchor_idx = FindFirstVisibleNode();
-            float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
-            auto result = RecomputeYPositions(nodes_, layout_cache_, renderer_.GetTheme());
+            float anchor_y_before = (anchor_idx >= 0) ? nodes_[anchor_idx].y_position : 0.0f;
+            auto result = RecomputeYPositions(nodes_, renderer_.GetTheme());
             renderer_.GetLayout().SetTotalHeight(result.total_height);
             SyncMaxScroll();
             AnchorCompensateScroll(anchor_idx, anchor_y_before);

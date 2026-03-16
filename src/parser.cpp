@@ -54,7 +54,7 @@ struct SpanState {
 };
 
 struct ParseContext {
-    std::vector<Node> nodes;
+    std::vector<RenderNode> nodes;
     std::stack<SpanState> span_stack;
     SpanState current_span;
 
@@ -73,7 +73,7 @@ struct ParseContext {
     int current_cell_align = 0;
 
     // Current node being built
-    Node* current_node = nullptr;
+    RenderNode* current_node = nullptr;
 
     // Anchor ID uniqueness tracking: slug -> count
     std::unordered_map<std::wstring, int> anchor_counts;
@@ -404,7 +404,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
 
 } // namespace
 
-std::vector<Node> ParseMarkdown(const std::string& markdown_text) {
+std::vector<RenderNode> ParseMarkdown(const std::string& markdown_text) {
     ParseContext ctx;
 
     MD_PARSER parser{};

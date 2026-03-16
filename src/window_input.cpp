@@ -189,7 +189,7 @@ MainWindow::HitResult MainWindow::HitTest(int screen_x, int screen_y) const {
     int candidate = -1;
     while (lo <= hi) {
         int mid = (lo + hi) / 2;
-        if (layout_cache_[mid].y_position <= dip_y) {
+        if (nodes_[mid].y_position <= dip_y) {
             candidate = mid;
             lo = mid + 1;
         } else {
@@ -197,23 +197,22 @@ MainWindow::HitResult MainWindow::HitTest(int screen_x, int screen_y) const {
         }
     }
 
-    if (candidate >= 0 && dip_y <= layout_cache_[candidate].y_position + layout_cache_[candidate].height) {
+    if (candidate >= 0 && dip_y <= nodes_[candidate].y_position + nodes_[candidate].height) {
         const auto& node = nodes_[candidate];
-        const auto& entry = layout_cache_[candidate];
 
         if (node.type == NodeType::Table) {
-            return HitTestTable(node, entry, candidate, dip_x, dip_y);
+            return HitTestTable(node, candidate, dip_x, dip_y);
         }
 
-        if (entry.text_layout) {
+        if (node.text_layout) {
             float indent = node.indent_level * theme.indent_width;
             float local_x = dip_x - theme.margin_left - indent;
-            float local_y = dip_y - entry.y_position;
+            float local_y = dip_y - node.y_position;
 
             BOOL is_trailing = FALSE;
             BOOL is_inside = FALSE;
             DWRITE_HIT_TEST_METRICS metrics{};
-            entry.text_layout->HitTestPoint(local_x, local_y,
+            node.text_layout->HitTestPoint(local_x, local_y,
                                            &is_trailing, &is_inside, &metrics);
 
             result.node_index = candidate;
@@ -233,8 +232,7 @@ MainWindow::HitResult MainWindow::HitTest(int screen_x, int screen_y) const {
     return result;
 }
 
-MainWindow::HitResult MainWindow::HitTestTable(const Node& node, const NodeLayoutEntry& entry,
-                                                int node_index,
+MainWindow::HitResult MainWindow::HitTestTable(const RenderNode& node, int node_index,
                                                 float dip_x, float dip_y) const {
     HitResult result;
     result.node_index = node_index;
@@ -246,16 +244,15 @@ MainWindow::HitResult MainWindow::HitTestTable(const Node& node, const NodeLayou
     float border = 1.0f;
 
     // Find which row was clicked
-    float ry = entry.y_position;
+    float ry = node.y_position;
     int hit_row = -1;
     for (size_t r = 0; r < node.table_rows.size(); r++) {
-        float row_h = (r < entry.row_heights.size()) ? entry.row_heights[r] : (theme.font_size_body * 1.4f);
-        float row_bottom = ry + row_h + border;
+        float row_bottom = ry + node.table_rows[r].row_height + border;
         if (dip_y < row_bottom) {
             hit_row = static_cast<int>(r);
             break;
         }
-        ry += row_h + border;
+        ry += node.table_rows[r].row_height + border;
     }
     if (hit_row < 0) {
         result.text_pos = static_cast<uint32_t>(node.text.size());
@@ -264,14 +261,14 @@ MainWindow::HitResult MainWindow::HitTestTable(const Node& node, const NodeLayou
 
     // Find which column was clicked
     float cx = base_x + border;
-    int hit_col = static_cast<int>(entry.col_widths.size()) - 1; // default to last
-    for (size_t c = 0; c < entry.col_widths.size(); c++) {
-        float col_right = cx + entry.col_widths[c] + cell_padding * 2.0f;
+    int hit_col = static_cast<int>(node.col_widths.size()) - 1; // default to last
+    for (size_t c = 0; c < node.col_widths.size(); c++) {
+        float col_right = cx + node.col_widths[c] + cell_padding * 2.0f;
         if (dip_x < col_right) {
             hit_col = static_cast<int>(c);
             break;
         }
-        cx += entry.col_widths[c] + cell_padding * 2.0f + border;
+        cx += node.col_widths[c] + cell_padding * 2.0f + border;
     }
     if (hit_col < 0) hit_col = 0;
 
@@ -282,28 +279,24 @@ MainWindow::HitResult MainWindow::HitTestTable(const Node& node, const NodeLayou
         for (size_t c = 0; c < row_cells.size(); c++) {
             if (static_cast<int>(r) == hit_row && static_cast<int>(c) == hit_col) {
                 // Hit test within the cell's text layout
-                IDWriteTextLayout* cell_layout = nullptr;
-                if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
-                    cell_layout = entry.cell_layouts[r][c].Get();
-                }
-                if (cell_layout) {
+                const auto& cell = row_cells[c];
+                if (cell.text_layout) {
                     // Compute cell text position
                     float cell_x = base_x + border;
                     for (size_t cc = 0; cc < c; cc++) {
-                        cell_x += entry.col_widths[cc] + cell_padding * 2.0f + border;
+                        cell_x += node.col_widths[cc] + cell_padding * 2.0f + border;
                     }
                     float cell_text_x = cell_x + cell_padding;
 
-                    float cell_y = entry.y_position;
+                    float cell_y = node.y_position;
                     for (size_t rr = 0; rr < r; rr++) {
-                        float rh = (rr < entry.row_heights.size()) ? entry.row_heights[rr] : (theme.font_size_body * 1.4f);
-                        cell_y += rh + border;
+                        cell_y += node.table_rows[rr].row_height + border;
                     }
                     float cell_text_y = cell_y + cell_padding;
 
                     BOOL is_trailing = FALSE, is_inside = FALSE;
                     DWRITE_HIT_TEST_METRICS metrics{};
-                    cell_layout->HitTestPoint(
+                    cell.text_layout->HitTestPoint(
                         dip_x - cell_text_x, dip_y - cell_text_y,
                         &is_trailing, &is_inside, &metrics);
 
@@ -366,17 +359,17 @@ void MainWindow::OnLButtonDown(int px, int py) {
             float local_y = dip_y - scroll_info.content_top + file_scroll_.scroll_y;
             int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
             if (idx >= 0 && idx < static_cast<int>(file_explorer_.GetEntries().size())) {
-                const auto& file_entry = file_explorer_.GetEntries()[idx];
-                if (file_entry.is_directory) {
-                    file_explorer_.SetDirectory(file_entry.full_path);
+                const auto& entry = file_explorer_.GetEntries()[idx];
+                if (entry.is_directory) {
+                    file_explorer_.SetDirectory(entry.full_path);
                     if (!current_file_.empty()) {
                         file_explorer_.SetCurrentFile(current_file_);
                     }
                     file_scroll_ = {};
                     renderer_.InvalidateFilePaneCache();
                     InvalidateRect(hwnd_, nullptr, FALSE);
-                } else if (!file_entry.is_current) {
-                    LoadMarkdownFile(file_entry.full_path);
+                } else if (!entry.is_current) {
+                    LoadMarkdownFile(entry.full_path);
                 }
             }
             return;
@@ -627,7 +620,7 @@ void MainWindow::NavigateToAnchor(const std::wstring& anchor) {
     int idx = FindAnchorNodeIndex(nodes_, anchor);
     if (idx < 0) return;
 
-    float target_y = layout_cache_[idx].y_position - renderer_.GetTheme().heading_spacing_above;
+    float target_y = nodes_[idx].y_position - renderer_.GetTheme().heading_spacing_above;
     target_y = std::max(0.0f, target_y);
     ScrollTo(target_y);
     UpdateScrollBar();
