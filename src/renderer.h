@@ -17,30 +17,34 @@
 
 using Microsoft::WRL::ComPtr;
 
+// Side-pane rendering parameters bundled into a single struct.
+struct SidePaneState {
+    const PaneRect& file_pane_rect;
+    const PaneRect& toc_pane_rect;
+    const std::vector<FileEntry>& file_entries;
+    const ScrollState& file_scroll;
+    int hovered_file_index;
+    const std::vector<TocEntry>& toc_entries;
+    const ScrollState& toc_scroll;
+    int hovered_toc_index;
+    bool show_file_pane;
+    bool show_toc_pane;
+};
+
 class Renderer {
 public:
     bool Init(HWND hwnd);
     void Resize(UINT width, UINT height);
     void Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
                 const TextSelection& selection,
-                const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
                 const PaneRect& md_pane_rect,
-                const std::vector<FileEntry>& file_entries,
-                const ScrollState& file_scroll, int hovered_file_index,
-                const std::vector<TocEntry>& toc_entries,
-                const ScrollState& toc_scroll, int hovered_toc_index,
-                bool show_file_pane, bool show_toc_pane,
+                const SidePaneState& side_panes,
                 bool can_go_back = false, bool can_go_forward = false,
                 int nav_hovered = 0);
     void SetDpi(float dpi);
     void DrawLoading(float angle,
-                     const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
                      const PaneRect& md_pane_rect,
-                     const std::vector<FileEntry>& file_entries,
-                     const ScrollState& file_scroll, int hovered_file_index,
-                     const std::vector<TocEntry>& toc_entries,
-                     const ScrollState& toc_scroll, int hovered_toc_index,
-                     bool show_file_pane, bool show_toc_pane);
+                     const SidePaneState& side_panes);
 
     ID2D1HwndRenderTarget* GetRenderTarget() const { return render_target_.Get(); }
     LayoutEngine& GetLayout() { return layout_; }

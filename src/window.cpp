@@ -407,16 +407,18 @@ void MainWindow::OnPaint() {
     }
     if (loading_) {
         renderer_.DrawLoading(loading_angle_,
-                              layout.file_rect, layout.toc_rect, layout.md_rect,
-                              file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
-                              toc_.GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
-                              panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible());
+                              layout.md_rect,
+                              {layout.file_rect, layout.toc_rect,
+                               file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
+                               toc_.GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
+                               panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible()});
     } else {
         renderer_.Render(nodes_, layout_cache_, viewport_.GetScrollY(), viewport_.GetSelection(),
-                         layout.file_rect, layout.toc_rect, layout.md_rect,
-                         file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
-                         toc_.GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
-                         panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible(),
+                         layout.md_rect,
+                         {layout.file_rect, layout.toc_rect,
+                          file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
+                          toc_.GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
+                          panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible()},
                          nav_history_.CanGoBack(), nav_history_.CanGoForward(),
                          static_cast<int>(nav_hover_));
     }

@@ -328,13 +328,8 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
 // ---- Main rendering ----
 
 void Renderer::DrawLoading(float angle,
-                            const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
                             const PaneRect& md_pane_rect,
-                            const std::vector<FileEntry>& file_entries,
-                            const ScrollState& file_scroll, int hovered_file_index,
-                            const std::vector<TocEntry>& toc_entries,
-                            const ScrollState& toc_scroll, int hovered_toc_index,
-                            bool show_file_pane, bool show_toc_pane) {
+                            const SidePaneState& sp) {
     if (!render_target_) return;
 
     render_target_->BeginDraw();
@@ -343,13 +338,13 @@ void Renderer::DrawLoading(float angle,
     auto size = render_target_->GetSize();
 
     // Draw side panes normally
-    if (show_file_pane) {
-        DrawFileExplorer(file_entries, file_pane_rect, file_scroll, hovered_file_index);
-        DrawSplitter(file_pane_rect.x + file_pane_rect.width, size.height);
+    if (sp.show_file_pane) {
+        DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index);
+        DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, size.height);
     }
-    if (show_toc_pane) {
-        DrawToc(toc_entries, toc_pane_rect, toc_scroll, hovered_toc_index);
-        DrawSplitter(toc_pane_rect.x + toc_pane_rect.width, size.height);
+    if (sp.show_toc_pane) {
+        DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index);
+        DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, size.height);
     }
 
     // Draw spinner in center of MD pane
@@ -377,13 +372,8 @@ void Renderer::DrawLoading(float angle,
 
 void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
                       const TextSelection& selection,
-                      const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
                       const PaneRect& md_pane_rect,
-                      const std::vector<FileEntry>& file_entries,
-                      const ScrollState& file_scroll, int hovered_file_index,
-                      const std::vector<TocEntry>& toc_entries,
-                      const ScrollState& toc_scroll, int hovered_toc_index,
-                      bool show_file_pane, bool show_toc_pane,
+                      const SidePaneState& sp,
                       bool can_go_back, bool can_go_forward,
                       int nav_hovered) {
     if (!render_target_) return;
@@ -394,15 +384,15 @@ void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll
     auto size = render_target_->GetSize();
 
     // Draw file explorer pane (bitmap blit when cache is clean)
-    if (show_file_pane) {
-        DrawFileExplorer(file_entries, file_pane_rect, file_scroll, hovered_file_index);
-        DrawSplitter(file_pane_rect.x + file_pane_rect.width, size.height);
+    if (sp.show_file_pane) {
+        DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index);
+        DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, size.height);
     }
 
     // Draw TOC pane (bitmap blit when cache is clean)
-    if (show_toc_pane) {
-        DrawToc(toc_entries, toc_pane_rect, toc_scroll, hovered_toc_index);
-        DrawSplitter(toc_pane_rect.x + toc_pane_rect.width, size.height);
+    if (sp.show_toc_pane) {
+        DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index);
+        DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, size.height);
     }
 
     // Binary search for first visible node (done once, shared by effects + command gen).
