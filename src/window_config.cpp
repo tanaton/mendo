@@ -52,8 +52,11 @@ void MainWindow::ToggleDarkMode() {
     renderer_.GetLayout().UpdateTheme(renderer_.GetTheme());
     renderer_.GetLayout().RecreateFormats();
     renderer_.GetLayout().LayoutNodes(nodes_, layout_cache_, md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
-    size_t last = nodes_.size() - 1;
-    float total_height = nodes_.empty() ? 0 : layout_cache_[last].y_position + layout_cache_[last].height + renderer_.GetTheme().margin_top;
+    float total_height = 0;
+    if (!nodes_.empty()) {
+        size_t last = nodes_.size() - 1;
+        total_height = layout_cache_[last].y_position + layout_cache_[last].height + renderer_.GetTheme().margin_top;
+    }
     float viewport_height = renderer_.GetRenderTarget()->GetSize().height;
     viewport_.SyncMaxScroll(total_height, viewport_height);
 
