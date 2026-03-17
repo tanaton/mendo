@@ -46,6 +46,7 @@ void MainWindow::ToggleDarkMode() {
             layout_cache_.GetDiagram(i).bitmap.Reset();
         }
     }
+    mermaid_renderer_.CancelPending();
     mermaid_renderer_.ClearCache();
 
     float md_width = GetMarkdownPaneWidth();
