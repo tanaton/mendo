@@ -17,8 +17,8 @@ public:
     void Push(const NavEntry& current);
 
     // Navigate back: moves current to forward stack, pops from back stack.
-    // Returns the entry to navigate to, or std::nullopt if nothing to go back to.
-    // `current` is the state right now (before going back).
+    // Returns true and writes the entry to navigate to into `out`, or false if
+    // there is nothing to go back to. `current` is the state right now (before going back).
     bool GoBack(const NavEntry& current, NavEntry& out);
 
     // Navigate forward: moves current to back stack, pops from forward stack.
