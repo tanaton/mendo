@@ -46,7 +46,7 @@ void PaneController::DragSplitter2To(float dip_x, float total_width, float split
     auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
     float toc_left = layout.toc_rect.x;
     float new_width = dip_x - toc_left;
-    toc_width_ = std::clamp(new_width, PANE_MIN_WIDTH, new_width);
+    toc_width_ = std::max(PANE_MIN_WIDTH, new_width);
 
     float used = splitter_w;
     if (show_file_) used += file_width_ + splitter_w;
