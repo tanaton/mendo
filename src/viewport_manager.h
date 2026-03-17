@@ -103,7 +103,10 @@ public:
     }
 
     void SelectAll(const std::vector<Node>& nodes) {
-        if (nodes.empty()) return;
+        if (nodes.empty()) {
+            ClearSelection();
+            return;
+        }
         int last = static_cast<int>(nodes.size()) - 1;
         selection_ = TextSelection::MakeOrdered(
             0, 0, last, static_cast<uint32_t>(nodes[last].text.size()));
