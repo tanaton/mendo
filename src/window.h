@@ -11,6 +11,7 @@
 #include "layout_cache.h"
 #include "viewport_manager.h"
 #include "app_controller.h"
+#include "nav_history.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -63,6 +64,10 @@ private:
     std::optional<std::wstring> GetLinkAtHit(const HitResult& hit) const;
     void HandleLinkClick(const std::wstring& url);
     void NavigateToAnchor(const std::wstring& anchor);
+    void NavigateBack();
+    void NavigateForward();
+    void PushNavHistory();
+    void NavigateToEntry(const NavEntry& entry);
     void CopySelectionToClipboard() const;
     void SelectAll();
     void ClearSelection();
@@ -145,6 +150,7 @@ private:
     FileExplorer file_explorer_;
     TableOfContents toc_;
     PaneController panes_;
+    NavHistory nav_history_;
 
     void ToggleDarkMode();
     void SaveDarkMode() const;
@@ -160,4 +166,9 @@ private:
 
     bool dark_mode_ = false;
     float last_mermaid_content_width_ = 0.0f;
+
+    // Navigation overlay buttons
+    enum class NavButtonHover { None, Back, Forward };
+    NavButtonHover nav_hover_ = NavButtonHover::None;
+    NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const;
 };

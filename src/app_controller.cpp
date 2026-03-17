@@ -4,6 +4,15 @@
 ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const {
     ActionList actions;
 
+    // Alt+Arrow: back/forward navigation
+    if (event.alt && !event.ctrl) {
+        switch (event.key) {
+            case VK_LEFT:  actions.emplace_back(NavigateBackAction{}); break;
+            case VK_RIGHT: actions.emplace_back(NavigateForwardAction{}); break;
+        }
+        return actions;
+    }
+
     if (event.ctrl) {
         switch (event.key) {
             case 'C': actions.emplace_back(CopyClipboardAction{}); break;

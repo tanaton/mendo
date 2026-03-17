@@ -165,6 +165,7 @@ void Renderer::RecreatePaneFormats() {
     fmt_pane_icon_.Reset();
     fmt_pane_item_.Reset();
     fmt_pane_header_.Reset();
+    fmt_nav_button_.Reset();
 
     dwrite_factory_->CreateTextFormat(
         L"Segoe Fluent Icons", nullptr,
@@ -211,6 +212,18 @@ void Renderer::RecreatePaneFormats() {
     if (fmt_pane_header_) {
         fmt_pane_header_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_pane_header_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
+    // Navigation overlay button text format (centered both axes)
+    dwrite_factory_->CreateTextFormat(
+        theme_.font_family, nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
+        L"ja-jp", &fmt_nav_button_);
+    if (fmt_nav_button_) {
+        fmt_nav_button_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_nav_button_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_nav_button_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
     // Invalidate pane caches so they redraw with new sizes
@@ -370,7 +383,9 @@ void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll
                       const ScrollState& file_scroll, int hovered_file_index,
                       const std::vector<TocEntry>& toc_entries,
                       const ScrollState& toc_scroll, int hovered_toc_index,
-                      bool show_file_pane, bool show_toc_pane) {
+                      bool show_file_pane, bool show_toc_pane,
+                      bool can_go_back, bool can_go_forward,
+                      int nav_hovered) {
     if (!render_target_) return;
 
     render_target_->BeginDraw();
@@ -413,5 +428,75 @@ void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll
     const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection, first_visible);
     cmd_executor_.Execute(cmds, render_target_.Get());
 
+    // Draw navigation overlay buttons (back/forward)
+    if (can_go_back || can_go_forward) {
+        DrawNavOverlay(md_pane_rect, can_go_back, can_go_forward, nav_hovered);
+    }
+
     render_target_->EndDraw();
+}
+
+// Navigation overlay constants (in DIP)
+static constexpr float NAV_BTN_SIZE = 32.0f;
+static constexpr float NAV_BTN_MARGIN = 16.0f;
+static constexpr float NAV_BTN_GAP = 2.0f;
+static constexpr float NAV_BTN_CORNER = 6.0f;
+
+void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
+                              bool can_back, bool can_forward,
+                              int hovered) {
+    if (!render_target_) return;
+
+    bool is_dark = (theme_.bg_color.r + theme_.bg_color.g + theme_.bg_color.b) < 1.5f;
+
+    // Position: bottom-right of MD pane with margin
+    float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP;
+    float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
+
+    // Scrollbar avoidance
+    base_x -= 16.0f;
+
+    auto drawButton = [&](float x, bool enabled, bool is_hovered, const wchar_t* arrow) {
+        D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
+
+        // Background
+        float bg_alpha;
+        if (!enabled)        bg_alpha = is_dark ? 0.08f : 0.05f;
+        else if (is_hovered) bg_alpha = is_dark ? 0.35f : 0.25f;
+        else                 bg_alpha = is_dark ? 0.15f : 0.10f;
+
+        D2D1_COLOR_F bg_color = is_dark
+            ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha)
+            : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
+
+        ComPtr<ID2D1SolidColorBrush> brush;
+        render_target_->CreateSolidColorBrush(bg_color, &brush);
+        if (brush) {
+            D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
+            render_target_->FillRoundedRectangle(rrect, brush.Get());
+        }
+
+        // Arrow text
+        float text_alpha;
+        if (!enabled)        text_alpha = is_dark ? 0.2f : 0.15f;
+        else if (is_hovered) text_alpha = 1.0f;
+        else                 text_alpha = is_dark ? 0.6f : 0.5f;
+
+        D2D1_COLOR_F text_color = is_dark
+            ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
+            : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
+
+        ComPtr<ID2D1SolidColorBrush> text_brush;
+        render_target_->CreateSolidColorBrush(text_color, &text_brush);
+        if (text_brush && fmt_nav_button_) {
+            render_target_->DrawText(
+                arrow, 1, fmt_nav_button_.Get(), rect, text_brush.Get(),
+                D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
+        }
+    };
+
+    // Back button (◀)
+    drawButton(base_x, can_back, hovered == 1, L"\x25C0");
+    // Forward button (▶)
+    drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, L"\x25B6");
 }

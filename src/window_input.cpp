@@ -29,7 +29,8 @@ void MainWindow::OnKeyDown(WPARAM key) {
     KeyDownEvent event{
         static_cast<int>(key),
         (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-        (GetKeyState(VK_SHIFT) & 0x8000) != 0
+        (GetKeyState(VK_SHIFT) & 0x8000) != 0,
+        (GetKeyState(VK_MENU) & 0x8000) != 0
     };
     ExecuteActions(controller_.HandleKeyDown(event));
 }
@@ -100,10 +101,19 @@ void MainWindow::ExecuteActions(const ActionList& actions) {
             },
             [this](const OpenFileAction&) {
                 auto path = FileLoader::OpenFileDialog(hwnd_);
-                if (!path.empty()) LoadMarkdownFile(path);
+                if (!path.empty()) {
+                    if (!current_file_.empty()) PushNavHistory();
+                    LoadMarkdownFile(path);
+                }
             },
             [this](const ToggleDarkModeAction&) {
                 ToggleDarkMode();
+            },
+            [this](const NavigateBackAction&) {
+                NavigateBack();
+            },
+            [this](const NavigateForwardAction&) {
+                NavigateForward();
             },
         }, action);
     }
@@ -112,6 +122,7 @@ void MainWindow::ExecuteActions(const ActionList& actions) {
 void MainWindow::OnDropFiles(HDROP hDrop) {
     wchar_t path[MAX_PATH];
     if (DragQueryFileW(hDrop, 0, path, MAX_PATH)) {
+        if (!current_file_.empty()) PushNavHistory();
         LoadMarkdownFile(path);
     }
     DragFinish(hDrop);
@@ -371,6 +382,7 @@ void MainWindow::OnLButtonDown(int px, int py) {
                     renderer_.InvalidateFilePaneCache();
                     InvalidateRect(hwnd_, nullptr, FALSE);
                 } else if (!file_entry.is_current) {
+                    PushNavHistory();
                     LoadMarkdownFile(file_entry.full_path);
                 }
             }
@@ -396,12 +408,24 @@ void MainWindow::OnLButtonDown(int px, int py) {
             float local_y = dip_y - scroll_info.content_top + panes_.TocScroll().scroll_y;
             int idx = toc_.HitTest(local_y, theme.pane_item_height);
             if (idx >= 0 && idx < static_cast<int>(toc_.GetEntries().size())) {
+                PushNavHistory();
                 NavigateToAnchor(toc_.GetEntries()[idx].anchor_id);
             }
             return;
         }
-        case PaneZone::MdPane:
+        case PaneZone::MdPane: {
+            // Check nav overlay buttons first
+            auto nav_hit = NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
+            if (nav_hit == NavButtonHover::Back) {
+                NavigateBack();
+                return;
+            }
+            if (nav_hit == NavButtonHover::Forward) {
+                NavigateForward();
+                return;
+            }
             break;
+        }
         default:
             return;
     }
@@ -576,6 +600,7 @@ void MainWindow::HandleLinkClick(const std::wstring& url) {
     // Internal anchor link: #something
     if (url[0] == L'#') {
         std::wstring anchor = url.substr(1);
+        PushNavHistory();
         NavigateToAnchor(anchor);
         return;
     }
@@ -593,4 +618,58 @@ void MainWindow::NavigateToAnchor(const std::wstring& anchor) {
     viewport_.ScrollTo(target_y);
     UpdateScrollBar();
     InvalidateMdPane();
+}
+
+void MainWindow::PushNavHistory() {
+    nav_history_.Push({current_file_, viewport_.GetScrollY()});
+}
+
+void MainWindow::NavigateToEntry(const NavEntry& entry) {
+    if (entry.file_path != current_file_ && !entry.file_path.empty()) {
+        // Load a different file without pushing history (this IS a history navigation)
+        loading_path_ = entry.file_path;
+        DoLoadMarkdownFile();
+        // After loading, override scroll to the remembered position
+        viewport_.ScrollTo(entry.scroll_y);
+    } else {
+        viewport_.ScrollTo(entry.scroll_y);
+    }
+    UpdateScrollBar();
+    InvalidateMdPane();
+}
+
+void MainWindow::NavigateBack() {
+    NavEntry out;
+    if (nav_history_.GoBack({current_file_, viewport_.GetScrollY()}, out)) {
+        NavigateToEntry(out);
+    }
+}
+
+void MainWindow::NavigateForward() {
+    NavEntry out;
+    if (nav_history_.GoForward({current_file_, viewport_.GetScrollY()}, out)) {
+        NavigateToEntry(out);
+    }
+}
+
+MainWindow::NavButtonHover MainWindow::NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const {
+    // Must match the constants in renderer.cpp
+    constexpr float BTN_SIZE = 32.0f;
+    constexpr float BTN_MARGIN = 16.0f;
+    constexpr float BTN_GAP = 2.0f;
+
+    float base_x = md_rect.x + md_rect.width - BTN_MARGIN - BTN_SIZE * 2 - BTN_GAP - 16.0f;
+    float base_y = md_rect.y + md_rect.height - BTN_MARGIN - BTN_SIZE;
+
+    if (dip_y < base_y || dip_y > base_y + BTN_SIZE) return NavButtonHover::None;
+
+    // Back button
+    if (dip_x >= base_x && dip_x <= base_x + BTN_SIZE)
+        return NavButtonHover::Back;
+    // Forward button
+    float fwd_x = base_x + BTN_SIZE + BTN_GAP;
+    if (dip_x >= fwd_x && dip_x <= fwd_x + BTN_SIZE)
+        return NavButtonHover::Forward;
+
+    return NavButtonHover::None;
 }

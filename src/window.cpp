@@ -228,6 +228,20 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                             break;
                         }
                         case PaneZone::MdPane: {
+                            // Check nav overlay button hover
+                            auto pLayout = GetPaneLayout();
+                            auto nav_hit = NavButtonHitTest(dip_x, dip_y, pLayout.md_rect);
+                            auto old_nav_hover = nav_hover_;
+                            nav_hover_ = nav_hit;
+                            if (nav_hit != NavButtonHover::None) {
+                                SetCursor(cursor_hand_);
+                                if (nav_hit != old_nav_hover)
+                                    InvalidateRect(hwnd_, nullptr, FALSE);
+                                break;
+                            }
+                            if (old_nav_hover != NavButtonHover::None)
+                                InvalidateRect(hwnd_, nullptr, FALSE);
+
                             int mx = GET_X_LPARAM(lParam);
                             int my = GET_Y_LPARAM(lParam);
                             int dx = mx - last_md_hit_pos_.x;
@@ -295,6 +309,13 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_KEYDOWN:
             OnKeyDown(wParam);
             return 0;
+
+        case WM_XBUTTONDOWN: {
+            WORD button = GET_XBUTTON_WPARAM(wParam);
+            if (button == XBUTTON1) NavigateBack();
+            else if (button == XBUTTON2) NavigateForward();
+            return TRUE;
+        }
 
         case WM_DROPFILES:
             OnDropFiles(reinterpret_cast<HDROP>(wParam));
@@ -395,7 +416,9 @@ void MainWindow::OnPaint() {
                          layout.file_rect, layout.toc_rect, layout.md_rect,
                          file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
                          toc_.GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
-                         panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible());
+                         panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible(),
+                         nav_history_.CanGoBack(), nav_history_.CanGoForward(),
+                         static_cast<int>(nav_hover_));
     }
 
     EndPaint(hwnd_, &ps);
