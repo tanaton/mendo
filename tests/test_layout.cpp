@@ -522,6 +522,32 @@ TEST(RecomputeYPositionsTest, EmptyNodes) {
     EXPECT_FALSE(result.has_dirty_nodes);
 }
 
+// ---- ComputeTotalContentHeight ----
+
+TEST(ComputeTotalContentHeightTest, EmptyNodesReturnsZero) {
+    LayoutCache cache;
+    // node_count == 0 must not underflow size_t; should return 0.
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 0, 10.0f), 0.0f);
+}
+
+TEST(ComputeTotalContentHeightTest, SingleNode) {
+    LayoutCache cache;
+    cache.Resize(1);
+    cache[0].y_position = 15.0f;
+    cache[0].height = 50.0f;
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 1, 15.0f), 80.0f);
+}
+
+TEST(ComputeTotalContentHeightTest, MultipleNodes) {
+    LayoutCache cache;
+    cache.Resize(3);
+    cache[0].y_position = 10.0f;  cache[0].height = 20.0f;
+    cache[1].y_position = 40.0f;  cache[1].height = 30.0f;
+    cache[2].y_position = 80.0f;  cache[2].height = 25.0f;
+    // Only the last node matters: 80 + 25 + 10 = 115
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 3, 10.0f), 115.0f);
+}
+
 TEST(RecomputeYPositionsTest, SingleParagraph) {
     Node node;
     node.type = NodeType::Paragraph;

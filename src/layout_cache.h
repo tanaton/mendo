@@ -58,3 +58,11 @@ private:
     std::vector<NodeLayoutEntry> entries_;
     std::vector<DiagramEntry> diagrams_;
 };
+
+// Compute total content height from the last node's layout position.
+// Returns 0 if node_count is 0, avoiding unsigned underflow on size() - 1.
+inline float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) {
+    if (node_count == 0) return 0.0f;
+    size_t last = node_count - 1;
+    return cache[last].y_position + cache[last].height + margin_top;
+}
