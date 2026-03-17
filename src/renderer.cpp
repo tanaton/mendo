@@ -165,6 +165,7 @@ void Renderer::RecreatePaneFormats() {
     fmt_pane_icon_.Reset();
     fmt_pane_item_.Reset();
     fmt_pane_header_.Reset();
+    fmt_nav_button_.Reset();
 
     dwrite_factory_->CreateTextFormat(
         L"Segoe Fluent Icons", nullptr,
@@ -211,6 +212,18 @@ void Renderer::RecreatePaneFormats() {
     if (fmt_pane_header_) {
         fmt_pane_header_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_pane_header_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
+    // Navigation overlay button text format (centered both axes)
+    dwrite_factory_->CreateTextFormat(
+        theme_.font_family, nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
+        L"ja-jp", &fmt_nav_button_);
+    if (fmt_nav_button_) {
+        fmt_nav_button_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_nav_button_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_nav_button_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
     // Invalidate pane caches so they redraw with new sizes
@@ -475,9 +488,9 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
 
         ComPtr<ID2D1SolidColorBrush> text_brush;
         render_target_->CreateSolidColorBrush(text_color, &text_brush);
-        if (text_brush && fmt_pane_header_) {
+        if (text_brush && fmt_nav_button_) {
             render_target_->DrawText(
-                arrow, 1, fmt_pane_header_.Get(), rect, text_brush.Get(),
+                arrow, 1, fmt_nav_button_.Get(), rect, text_brush.Get(),
                 D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
         }
     };

@@ -113,6 +113,7 @@ private:
     ComPtr<IDWriteTextFormat> fmt_pane_icon_;
     ComPtr<IDWriteTextFormat> fmt_pane_item_;
     ComPtr<IDWriteTextFormat> fmt_pane_header_;
+    ComPtr<IDWriteTextFormat> fmt_nav_button_;
 
 public:
     // Pane bitmap cache — side panes are rendered to off-screen bitmaps
