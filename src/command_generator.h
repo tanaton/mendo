@@ -1,0 +1,44 @@
+#pragma once
+#include "draw_command.h"
+#include "types.h"
+#include "layout_cache.h"
+#include "theme.h"
+#include "pane.h"
+
+// Generates DrawCommandList from document data and viewport state.
+// Separates "what to draw" from "how to draw it" (the executor).
+class CommandGenerator {
+public:
+    struct Formats {
+        IDWriteTextFormat* list_number = nullptr;
+        IDWriteTextFormat* icon_font = nullptr;
+    };
+
+    void SetTheme(const Theme* theme) { theme_ = theme; }
+    void SetFormats(const Formats& fmts) { formats_ = fmts; }
+
+    // Generate all draw commands for the Markdown content pane.
+    DrawCommandList GenerateMdPane(
+        const std::vector<Node>& nodes, const LayoutCache& cache,
+        const PaneRect& md_pane_rect, float scroll_y,
+        const TextSelection& selection);
+
+private:
+    void GenerateNode(DrawCommandList& cmds,
+        const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
+        int node_index, float offset_x, float viewport_top, float viewport_bottom,
+        const TextSelection& selection, float content_width);
+
+    void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
+    void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
+                  int node_index, float x, const TextSelection& selection);
+    void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
+    void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
+    void GenBlockQuoteBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x);
+    void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout,
+                               uint32_t start, uint32_t length, float origin_x, float origin_y);
+
+    const Theme* theme_ = nullptr;
+    Formats formats_;
+    std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
+};

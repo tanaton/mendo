@@ -5,6 +5,10 @@
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
+#include <variant>
+
+// ── Visitor helper for std::visit ──
+template <class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 
 // ---- Mouse wheel / Keyboard ----
 
@@ -15,102 +19,93 @@ void MainWindow::OnMouseWheel(int px, int py, short delta) {
     auto pane_layout = GetPaneLayout();
     auto zone = DetectPaneZone(dip.x, pane_layout,
                                 renderer_.GetTheme().splitter_width,
-                                show_file_pane_, show_toc_pane_);
-    float scroll_amount = -delta * 0.5f;
-    const auto& theme = renderer_.GetTheme();
+                                panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible());
 
-    switch (zone) {
-        case PaneZone::FilePane: {
-            float max_file_scroll = std::max(0.0f,
-                static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height
-                - (pane_layout.file_rect.height - theme.pane_header_height));
-            file_scroll_.scroll_y = std::clamp(file_scroll_.scroll_y + scroll_amount, 0.0f, max_file_scroll);
-            file_scroll_.max_scroll = max_file_scroll;
-            renderer_.InvalidateFilePaneCache();
-            InvalidateRect(hwnd_, nullptr, FALSE);
-            break;
-        }
-        case PaneZone::TocPane: {
-            float max_toc_scroll = std::max(0.0f,
-                static_cast<float>(toc_.GetEntries().size()) * theme.pane_item_height
-                - (pane_layout.toc_rect.height - theme.pane_header_height));
-            toc_scroll_.scroll_y = std::clamp(toc_scroll_.scroll_y + scroll_amount, 0.0f, max_toc_scroll);
-            toc_scroll_.max_scroll = max_toc_scroll;
-            renderer_.InvalidateTocPaneCache();
-            InvalidateRect(hwnd_, nullptr, FALSE);
-            break;
-        }
-        default:
-            // MD pane or anywhere else
-            SmoothScrollBy(scroll_amount);
-            break;
-    }
+    MouseWheelEvent event{delta, false, zone};
+    ExecuteActions(controller_.HandleMouseWheel(event));
 }
 
 void MainWindow::OnKeyDown(WPARAM key) {
-    auto pane_layout = GetPaneLayout();
-    float page_size = pane_layout.md_rect.height;
+    KeyDownEvent event{
+        static_cast<int>(key),
+        (GetKeyState(VK_CONTROL) & 0x8000) != 0,
+        (GetKeyState(VK_SHIFT) & 0x8000) != 0
+    };
+    ExecuteActions(controller_.HandleKeyDown(event));
+}
 
-    switch (key) {
-        case VK_UP:    SmoothScrollBy(-40.0f); break;
-        case VK_DOWN:  SmoothScrollBy(40.0f); break;
-        case VK_PRIOR: SmoothScrollBy(-page_size * 0.9f); break;  // Page Up
-        case VK_NEXT:  SmoothScrollBy(page_size * 0.9f); break;   // Page Down
-        case VK_HOME:  SmoothScrollBy(-scroll_y_); break;
-        case VK_END:   SmoothScrollBy(max_scroll_ - scroll_y_); break;
-        case VK_F5:    ReloadCurrentFile(); break;
-        case 'C':
-            if (GetKeyState(VK_CONTROL) & 0x8000) {
+void MainWindow::ExecuteActions(const ActionList& actions) {
+    for (const auto& action : actions) {
+        std::visit(overloaded{
+            [this](const KeyScrollAction& a) {
+                auto pane_layout = GetPaneLayout();
+                float page_size = pane_layout.md_rect.height;
+                switch (a.type) {
+                    case ScrollType::LineUp:   SmoothScrollBy(-40.0f); break;
+                    case ScrollType::LineDown: SmoothScrollBy(40.0f); break;
+                    case ScrollType::PageUp:   SmoothScrollBy(-page_size * 0.9f); break;
+                    case ScrollType::PageDown: SmoothScrollBy(page_size * 0.9f); break;
+                    case ScrollType::Home:     SmoothScrollBy(-viewport_.GetScrollY()); break;
+                    case ScrollType::End:      SmoothScrollBy(viewport_.GetMaxScroll() - viewport_.GetScrollY()); break;
+                }
+            },
+            [this](const SmoothScrollByAction& a) {
+                SmoothScrollBy(a.delta);
+            },
+            [this](const ScrollPaneAction& a) {
+                auto pane_layout = GetPaneLayout();
+                const auto& theme = renderer_.GetTheme();
+                if (a.pane == PaneZone::FilePane) {
+                    float max_file_scroll = std::max(0.0f,
+                        static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height
+                        - (pane_layout.file_rect.height - theme.pane_header_height));
+                    if (panes_.ScrollFilePaneBy(a.delta, max_file_scroll)) {
+                        renderer_.InvalidateFilePaneCache();
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    }
+                } else if (a.pane == PaneZone::TocPane) {
+                    float max_toc_scroll = std::max(0.0f,
+                        static_cast<float>(toc_.GetEntries().size()) * theme.pane_item_height
+                        - (pane_layout.toc_rect.height - theme.pane_header_height));
+                    if (panes_.ScrollTocPaneBy(a.delta, max_toc_scroll)) {
+                        renderer_.InvalidateTocPaneCache();
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    }
+                }
+            },
+            [this](const CopyClipboardAction&) {
                 CopySelectionToClipboard();
-            }
-            break;
-        case 'A':
-            if (GetKeyState(VK_CONTROL) & 0x8000) {
+            },
+            [this](const SelectAllAction&) {
                 SelectAll();
-            }
-            break;
-        case 'O':
-            if (GetKeyState(VK_CONTROL) & 0x8000) {
+            },
+            [this](const ClearSelectionAction&) {
+                ClearSelection();
+            },
+            [this](const TogglePaneAction& a) {
+                if (a.file_pane) panes_.ToggleFilePane();
+                else panes_.ToggleTocPane();
+                RECT rc;
+                GetClientRect(hwnd_, &rc);
+                OnResize(static_cast<UINT>(rc.right - rc.left),
+                         static_cast<UINT>(rc.bottom - rc.top));
+            },
+            [this](const ZoomAction& a) {
+                if (a.direction > 0) ZoomIn();
+                else if (a.direction < 0) ZoomOut();
+                else ZoomReset();
+            },
+            [this](const ReloadFileAction&) {
+                ReloadCurrentFile();
+            },
+            [this](const OpenFileAction&) {
                 auto path = FileLoader::OpenFileDialog(hwnd_);
                 if (!path.empty()) LoadMarkdownFile(path);
-            }
-            break;
-        case '1':
-            if (GetKeyState(VK_CONTROL) & 0x8000) {
-                show_file_pane_ = !show_file_pane_;
-                // Trigger resize to recalculate layout
-                RECT rc;
-                GetClientRect(hwnd_, &rc);
-                OnResize(static_cast<UINT>(rc.right - rc.left),
-                         static_cast<UINT>(rc.bottom - rc.top));
-            }
-            break;
-        case '2':
-            if (GetKeyState(VK_CONTROL) & 0x8000) {
-                show_toc_pane_ = !show_toc_pane_;
-                RECT rc;
-                GetClientRect(hwnd_, &rc);
-                OnResize(static_cast<UINT>(rc.right - rc.left),
-                         static_cast<UINT>(rc.bottom - rc.top));
-            }
-            break;
-        case VK_ESCAPE:
-            ClearSelection();
-            break;
-
-        // Zoom: Ctrl+Plus / Ctrl+Minus / Ctrl+0
-        case VK_OEM_PLUS:   // =/+ key
-        case VK_ADD:        // Numpad +
-            if (GetKeyState(VK_CONTROL) & 0x8000) ZoomIn();
-            break;
-        case VK_OEM_MINUS:  // -/_ key
-        case VK_SUBTRACT:   // Numpad -
-            if (GetKeyState(VK_CONTROL) & 0x8000) ZoomOut();
-            break;
-        case '0':
-        case VK_NUMPAD0:
-            if (GetKeyState(VK_CONTROL) & 0x8000) ZoomReset();
-            break;
+            },
+            [this](const ToggleDarkModeAction&) {
+                ToggleDarkMode();
+            },
+        }, action);
     }
 }
 
@@ -138,7 +133,7 @@ void MainWindow::OnContextMenu(int screen_x, int screen_y) {
         AppendMenuW(menu, MF_STRING | (has_file ? 0 : MF_GRAYED), IDM_EDIT_FILE, L"エディタで開く(&E)");
 
         // "Copy" item - enabled only when text is selected
-        bool has_selection = selection_.active && selection_.start_node >= 0;
+        bool has_selection = viewport_.GetSelection().active && viewport_.GetSelection().start_node >= 0;
         AppendMenuW(menu, MF_STRING | (has_selection ? 0 : MF_GRAYED), IDM_COPY, L"コピー(&C)");
 
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -177,7 +172,7 @@ MainWindow::HitResult MainWindow::HitTest(int screen_x, int screen_y) const {
 
     // Convert physical pixels to DIPs
     float dip_x = screen_x / scale;
-    float dip_y = screen_y / scale + scroll_y_;
+    float dip_y = screen_y / scale + viewport_.GetScrollY();
 
     // Offset by MD pane position
     auto pane_layout = GetPaneLayout();
@@ -335,16 +330,16 @@ void MainWindow::OnLButtonDown(int px, int py) {
     auto pane_layout = GetPaneLayout();
     auto zone = DetectPaneZone(dip_x, pane_layout,
                                 renderer_.GetTheme().splitter_width,
-                                show_file_pane_, show_toc_pane_);
+                                panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible());
 
     switch (zone) {
         case PaneZone::Splitter1:
             SetCapture(hwnd_);
-            drag_target_ = DragTarget::Splitter1;
+            panes_.StartDrag(PaneController::DragTarget::Splitter1);
             return;
         case PaneZone::Splitter2:
             SetCapture(hwnd_);
-            drag_target_ = DragTarget::Splitter2;
+            panes_.StartDrag(PaneController::DragTarget::Splitter2);
             return;
         case PaneZone::FilePane: {
             const auto& theme = renderer_.GetTheme();
@@ -356,14 +351,14 @@ void MainWindow::OnLButtonDown(int px, int py) {
             if (local_x >= pane_layout.file_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
                 && total_content > scroll_info.content_height) {
                 SetCapture(hwnd_);
-                drag_target_ = DragTarget::FileScrollbar;
+                panes_.StartDrag(PaneController::DragTarget::FileScrollbar);
                 bool dirty = false;
-                HandleScrollbarClick(dip_y, scroll_info, file_scroll_, dirty);
+                HandleScrollbarClick(dip_y, scroll_info, panes_.FileScroll(), dirty);
                 if (dirty) renderer_.InvalidateFilePaneCache();
                 return;
             }
 
-            float local_y = dip_y - scroll_info.content_top + file_scroll_.scroll_y;
+            float local_y = dip_y - scroll_info.content_top + panes_.FileScroll().scroll_y;
             int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
             if (idx >= 0 && idx < static_cast<int>(file_explorer_.GetEntries().size())) {
                 const auto& file_entry = file_explorer_.GetEntries()[idx];
@@ -372,7 +367,7 @@ void MainWindow::OnLButtonDown(int px, int py) {
                     if (!current_file_.empty()) {
                         file_explorer_.SetCurrentFile(current_file_);
                     }
-                    file_scroll_ = {};
+                    panes_.FileScroll() = {};
                     renderer_.InvalidateFilePaneCache();
                     InvalidateRect(hwnd_, nullptr, FALSE);
                 } else if (!file_entry.is_current) {
@@ -391,14 +386,14 @@ void MainWindow::OnLButtonDown(int px, int py) {
             if (local_x >= pane_layout.toc_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
                 && total_content > scroll_info.content_height) {
                 SetCapture(hwnd_);
-                drag_target_ = DragTarget::TocScrollbar;
+                panes_.StartDrag(PaneController::DragTarget::TocScrollbar);
                 bool dirty = false;
-                HandleScrollbarClick(dip_y, scroll_info, toc_scroll_, dirty);
+                HandleScrollbarClick(dip_y, scroll_info, panes_.TocScroll(), dirty);
                 if (dirty) renderer_.InvalidateTocPaneCache();
                 return;
             }
 
-            float local_y = dip_y - scroll_info.content_top + toc_scroll_.scroll_y;
+            float local_y = dip_y - scroll_info.content_top + panes_.TocScroll().scroll_y;
             int idx = toc_.HitTest(local_y, theme.pane_item_height);
             if (idx >= 0 && idx < static_cast<int>(toc_.GetEntries().size())) {
                 NavigateToAnchor(toc_.GetEntries()[idx].anchor_id);
@@ -413,14 +408,12 @@ void MainWindow::OnLButtonDown(int px, int py) {
 
     // MD pane: existing selection logic
     SetCapture(hwnd_);
-    click_start_x_ = px;
-    click_start_y_ = py;
+    viewport_.SetClickStart(px, py);
     auto hit = HitTest(px, py);
     if (hit.node_index >= 0) {
-        anchor_node_ = hit.node_index;
-        anchor_pos_ = hit.text_pos;
-        is_dragging_ = true;
-        selection_.Clear();
+        viewport_.SetAnchor(hit.node_index, hit.text_pos);
+        viewport_.SetDragging(true);
+        viewport_.GetSelectionMut().Clear();
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
@@ -428,8 +421,8 @@ void MainWindow::OnLButtonDown(int px, int py) {
 void MainWindow::OnLButtonUp(int px, int py) {
     ReleaseCapture();
 
-    if (drag_target_ != DragTarget::None) {
-        drag_target_ = DragTarget::None;
+    if (panes_.GetDragTarget() != PaneController::DragTarget::None) {
+        panes_.EndDrag();
         // Recalculate layout after splitter drag
         RECT rc;
         GetClientRect(hwnd_, &rc);
@@ -438,18 +431,18 @@ void MainWindow::OnLButtonUp(int px, int py) {
         return;
     }
 
-    if (is_dragging_) {
+    if (viewport_.IsDragging()) {
         auto hit = HitTest(px, py);
         if (hit.node_index >= 0) {
-            selection_ = TextSelection::MakeOrdered(
-                anchor_node_, anchor_pos_, hit.node_index, hit.text_pos);
+            viewport_.SetSelection(TextSelection::MakeOrdered(
+                viewport_.GetAnchorNode(), viewport_.GetAnchorPos(), hit.node_index, hit.text_pos));
         }
-        is_dragging_ = false;
+        viewport_.SetDragging(false);
 
         // If it was a click (not a drag), check for link
-        int dx = px - click_start_x_;
-        int dy = py - click_start_y_;
-        if (!selection_.active && (dx * dx + dy * dy) < 25) {
+        int dx = px - viewport_.GetClickStartX();
+        int dy = py - viewport_.GetClickStartY();
+        if (!viewport_.GetSelection().active && (dx * dx + dy * dy) < 25) {
             auto link = GetLinkAtHit(hit);
             if (link.has_value()) {
                 HandleLinkClick(link.value());
@@ -466,73 +459,48 @@ void MainWindow::OnMouseMove(int px, int py) {
 
     auto dip = PixelToDip(px, py);
     float dip_x = dip.x;
+    auto size = rt->GetSize();
+    float splitter_w = renderer_.GetTheme().splitter_width;
 
     // Handle splitter dragging
-    if (drag_target_ == DragTarget::Splitter1) {
-        float new_width = dip_x;
-        pane_file_width_ = std::clamp(new_width, PANE_MIN_WIDTH, dip_x);
-
-        // Ensure MD pane doesn't get too small
-        auto size = rt->GetSize();
-        float used = pane_file_width_ + renderer_.GetTheme().splitter_width;
-        if (show_toc_pane_) used += pane_toc_width_ + renderer_.GetTheme().splitter_width;
-        if (size.width - used < MD_PANE_MIN_WIDTH) {
-            pane_file_width_ = size.width - MD_PANE_MIN_WIDTH - renderer_.GetTheme().splitter_width;
-            if (show_toc_pane_) pane_file_width_ -= pane_toc_width_ + renderer_.GetTheme().splitter_width;
-            pane_file_width_ = std::max(PANE_MIN_WIDTH, pane_file_width_);
-        }
-
+    if (panes_.GetDragTarget() == PaneController::DragTarget::Splitter1) {
+        panes_.DragSplitter1To(dip_x, size.width, splitter_w);
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
 
-    if (drag_target_ == DragTarget::FileScrollbar) {
+    if (panes_.GetDragTarget() == PaneController::DragTarget::FileScrollbar) {
         auto layout = GetPaneLayout();
         float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * renderer_.GetTheme().pane_item_height;
         auto info = ComputePaneScrollInfo(layout.file_rect, total_content);
         bool dirty = false;
-        HandleScrollbarDrag(dip.y, info, file_scroll_, dirty);
+        HandleScrollbarDrag(dip.y, info, panes_.FileScroll(), dirty);
         if (dirty) renderer_.InvalidateFilePaneCache();
         return;
     }
 
-    if (drag_target_ == DragTarget::TocScrollbar) {
+    if (panes_.GetDragTarget() == PaneController::DragTarget::TocScrollbar) {
         auto layout = GetPaneLayout();
         float total_content = static_cast<float>(toc_.GetEntries().size()) * renderer_.GetTheme().pane_item_height;
         auto info = ComputePaneScrollInfo(layout.toc_rect, total_content);
         bool dirty = false;
-        HandleScrollbarDrag(dip.y, info, toc_scroll_, dirty);
+        HandleScrollbarDrag(dip.y, info, panes_.TocScroll(), dirty);
         if (dirty) renderer_.InvalidateTocPaneCache();
         return;
     }
 
-    if (drag_target_ == DragTarget::Splitter2) {
-        auto pane_layout = GetPaneLayout();
-        float toc_left = pane_layout.toc_rect.x;
-        float new_width = dip_x - toc_left;
-        pane_toc_width_ = std::clamp(new_width, PANE_MIN_WIDTH, new_width);
-
-        // Ensure MD pane doesn't get too small
-        auto size = rt->GetSize();
-        float used = renderer_.GetTheme().splitter_width;
-        if (show_file_pane_) used += pane_file_width_ + renderer_.GetTheme().splitter_width;
-        used += pane_toc_width_;
-        if (size.width - used < MD_PANE_MIN_WIDTH) {
-            pane_toc_width_ = size.width - MD_PANE_MIN_WIDTH - renderer_.GetTheme().splitter_width;
-            if (show_file_pane_) pane_toc_width_ -= pane_file_width_ + renderer_.GetTheme().splitter_width;
-            pane_toc_width_ = std::max(PANE_MIN_WIDTH, pane_toc_width_);
-        }
-
+    if (panes_.GetDragTarget() == PaneController::DragTarget::Splitter2) {
+        panes_.DragSplitter2To(dip_x, size.width, splitter_w);
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
 
     // MD pane: existing drag selection logic
-    if (!is_dragging_) return;
+    if (!viewport_.IsDragging()) return;
     auto hit = HitTest(px, py);
     if (hit.node_index >= 0) {
-        selection_ = TextSelection::MakeOrdered(
-            anchor_node_, anchor_pos_, hit.node_index, hit.text_pos);
+        viewport_.SetSelection(TextSelection::MakeOrdered(
+            viewport_.GetAnchorNode(), viewport_.GetAnchorPos(), hit.node_index, hit.text_pos));
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
@@ -553,35 +521,28 @@ void MainWindow::OnLButtonDblClk(int px, int py) {
     auto wb = FindWordBoundaries(text, hit.text_pos);
     if (!wb.found) return;
 
-    anchor_node_ = hit.node_index;
-    anchor_pos_ = wb.start;
-    selection_ = TextSelection::MakeOrdered(
-        hit.node_index, wb.start, hit.node_index, wb.end);
+    viewport_.SetAnchor(hit.node_index, wb.start);
+    viewport_.SetSelection(TextSelection::MakeOrdered(
+        hit.node_index, wb.start, hit.node_index, wb.end));
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 // ---- Selection / Clipboard ----
 
 void MainWindow::ClearSelection() {
-    selection_.Clear();
-    anchor_node_ = -1;
-    is_dragging_ = false;
+    viewport_.ClearSelection();
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void MainWindow::SelectAll() {
-    if (nodes_.empty()) return;
-
-    int last = static_cast<int>(nodes_.size()) - 1;
-    selection_ = TextSelection::MakeOrdered(
-        0, 0, last, static_cast<uint32_t>(nodes_[last].text.size()));
+    viewport_.SelectAll(nodes_);
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void MainWindow::CopySelectionToClipboard() const {
-    if (!selection_.active) return;
+    if (!viewport_.GetSelection().active) return;
 
-    std::wstring result = ExtractSelectedText(nodes_, selection_);
+    std::wstring result = ExtractSelectedText(nodes_, viewport_.GetSelection());
     if (result.empty()) return;
 
     if (!OpenClipboard(hwnd_)) return;
@@ -629,7 +590,7 @@ void MainWindow::NavigateToAnchor(const std::wstring& anchor) {
 
     float target_y = layout_cache_[idx].y_position - renderer_.GetTheme().heading_spacing_above;
     target_y = std::max(0.0f, target_y);
-    ScrollTo(target_y);
+    viewport_.ScrollTo(target_y);
     UpdateScrollBar();
     InvalidateMdPane();
 }

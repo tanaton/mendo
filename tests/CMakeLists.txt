@@ -12,6 +12,11 @@ add_executable(mendo_tests
     test_pane_layout.cpp
     test_mermaid_util.cpp
     test_config_store.cpp
+    test_viewport_manager.cpp
+    test_text_measurer.cpp
+    test_draw_command.cpp
+    test_app_controller.cpp
+    test_pane_controller.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

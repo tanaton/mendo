@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "layout.h"
+#include "dwrite_measurer.h"
 #include "parser.h"
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -9,6 +10,7 @@ using Microsoft::WRL::ComPtr;
 class LayoutTest : public ::testing::Test {
 protected:
     ComPtr<IDWriteFactory> dwrite_;
+    DWriteTextMeasurer measurer_;
     LayoutEngine engine_;
     Theme theme_;
 
@@ -28,7 +30,8 @@ protected:
         ASSERT_TRUE(SUCCEEDED(hr)) << "Failed to create DirectWrite factory";
 
         theme_ = GetLightTheme();
-        ASSERT_TRUE(engine_.Init(dwrite_.Get(), theme_));
+        measurer_.SetFactory(dwrite_.Get());
+        ASSERT_TRUE(engine_.Init(&measurer_, theme_));
     }
 };
 

@@ -10,6 +10,10 @@
 			"_UNICODE",
 			"NOMINMAX",
 			"WIN32_LEAN_AND_MEAN"
-		]
+		],
+		"chat.tools.terminal.autoApprove": {
+			"ctest": true,
+			"cmake": true
+		}
 	}
 }

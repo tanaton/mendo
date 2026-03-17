@@ -1,0 +1,211 @@
+#include <gtest/gtest.h>
+#include "pane_controller.h"
+
+class PaneControllerTest : public ::testing::Test {
+protected:
+    PaneController panes_;
+};
+
+// ═══════════════════════════════════════════════
+// Visibility
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, DefaultVisibility) {
+    EXPECT_TRUE(panes_.IsFilePaneVisible());
+    EXPECT_TRUE(panes_.IsTocPaneVisible());
+}
+
+TEST_F(PaneControllerTest, ToggleFilePane) {
+    panes_.ToggleFilePane();
+    EXPECT_FALSE(panes_.IsFilePaneVisible());
+    panes_.ToggleFilePane();
+    EXPECT_TRUE(panes_.IsFilePaneVisible());
+}
+
+TEST_F(PaneControllerTest, ToggleTocPane) {
+    panes_.ToggleTocPane();
+    EXPECT_FALSE(panes_.IsTocPaneVisible());
+}
+
+// ═══════════════════════════════════════════════
+// Widths
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, DefaultWidths) {
+    EXPECT_FLOAT_EQ(panes_.GetFilePaneWidth(), 220.0f);
+    EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), 220.0f);
+}
+
+TEST_F(PaneControllerTest, SetWidthClampedToMin) {
+    panes_.SetFilePaneWidth(10.0f);
+    EXPECT_GE(panes_.GetFilePaneWidth(), PaneController::PANE_MIN_WIDTH);
+}
+
+TEST_F(PaneControllerTest, SetWidthAcceptsLargeValue) {
+    panes_.SetTocPaneWidth(500.0f);
+    EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), 500.0f);
+}
+
+// ═══════════════════════════════════════════════
+// Pane scroll
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, ScrollFilePaneByPositive) {
+    bool changed = panes_.ScrollFilePaneBy(50.0f, 200.0f);
+    EXPECT_TRUE(changed);
+    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 50.0f);
+    EXPECT_FLOAT_EQ(panes_.FileScroll().max_scroll, 200.0f);
+}
+
+TEST_F(PaneControllerTest, ScrollFilePaneClampsToMax) {
+    panes_.ScrollFilePaneBy(500.0f, 200.0f);
+    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 200.0f);
+}
+
+TEST_F(PaneControllerTest, ScrollFilePaneClampsToZero) {
+    panes_.ScrollFilePaneBy(-50.0f, 200.0f);
+    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 0.0f);
+}
+
+TEST_F(PaneControllerTest, ScrollFilePaneNoChangeReturnsFalse) {
+    bool changed = panes_.ScrollFilePaneBy(-10.0f, 200.0f);
+    EXPECT_FALSE(changed);  // already at 0
+}
+
+TEST_F(PaneControllerTest, ScrollTocPaneByPositive) {
+    bool changed = panes_.ScrollTocPaneBy(30.0f, 100.0f);
+    EXPECT_TRUE(changed);
+    EXPECT_FLOAT_EQ(panes_.TocScroll().scroll_y, 30.0f);
+}
+
+TEST_F(PaneControllerTest, ResetScrollStates) {
+    panes_.ScrollFilePaneBy(50.0f, 200.0f);
+    panes_.ScrollTocPaneBy(30.0f, 100.0f);
+    panes_.ResetScrollStates();
+    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 0.0f);
+    EXPECT_FLOAT_EQ(panes_.TocScroll().scroll_y, 0.0f);
+}
+
+// ═══════════════════════════════════════════════
+// Hover
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, HoverDefaultNegativeOne) {
+    EXPECT_EQ(panes_.GetHoveredFileIndex(), -1);
+    EXPECT_EQ(panes_.GetHoveredTocIndex(), -1);
+}
+
+TEST_F(PaneControllerTest, SetHoverReturnsTrueOnChange) {
+    EXPECT_TRUE(panes_.SetHoveredFileIndex(3));
+    EXPECT_EQ(panes_.GetHoveredFileIndex(), 3);
+}
+
+TEST_F(PaneControllerTest, SetHoverReturnsFalseOnSame) {
+    panes_.SetHoveredFileIndex(3);
+    EXPECT_FALSE(panes_.SetHoveredFileIndex(3));
+}
+
+TEST_F(PaneControllerTest, SetHoverTocReturnsTrueOnChange) {
+    EXPECT_TRUE(panes_.SetHoveredTocIndex(5));
+    EXPECT_EQ(panes_.GetHoveredTocIndex(), 5);
+}
+
+// ═══════════════════════════════════════════════
+// Drag
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, DragDefaultNone) {
+    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::None);
+}
+
+TEST_F(PaneControllerTest, StartEndDrag) {
+    panes_.StartDrag(PaneController::DragTarget::Splitter1);
+    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::Splitter1);
+    panes_.EndDrag();
+    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::None);
+}
+
+TEST_F(PaneControllerTest, DragScrollOffset) {
+    panes_.SetDragScrollOffset(12.5f);
+    EXPECT_FLOAT_EQ(panes_.GetDragScrollOffset(), 12.5f);
+}
+
+// ═══════════════════════════════════════════════
+// Splitter drag constraints
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, DragSplitter1RespectsMinWidth) {
+    panes_.DragSplitter1To(10.0f, 1200.0f, 4.0f);
+    EXPECT_GE(panes_.GetFilePaneWidth(), PaneController::PANE_MIN_WIDTH);
+}
+
+TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth) {
+    // With both panes visible: file(960) + splitter(4) + toc(220) + splitter(4) = 1188
+    // That leaves only 12 for MD pane (< 200), so it should be constrained
+    panes_.DragSplitter1To(960.0f, 1200.0f, 4.0f);
+    float remaining = 1200.0f - panes_.GetFilePaneWidth() - 4.0f - 220.0f - 4.0f;
+    EXPECT_GE(remaining, PaneController::MD_PANE_MIN_WIDTH);
+}
+
+TEST_F(PaneControllerTest, DragSplitter2RespectsMinWidth) {
+    // toc left depends on layout; dragging very small
+    panes_.DragSplitter2To(panes_.GetFilePaneWidth() + 4.0f + 10.0f, 1200.0f, 4.0f);
+    EXPECT_GE(panes_.GetTocPaneWidth(), PaneController::PANE_MIN_WIDTH);
+}
+
+TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth) {
+    // Drag toc width very large
+    panes_.DragSplitter2To(1190.0f, 1200.0f, 4.0f);
+    float layout_width = panes_.GetFilePaneWidth() + 4.0f + panes_.GetTocPaneWidth() + 4.0f;
+    float md_width = 1200.0f - layout_width;
+    EXPECT_GE(md_width, PaneController::MD_PANE_MIN_WIDTH);
+}
+
+// ═══════════════════════════════════════════════
+// Zoom
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, ApplyZoomScalesWidths) {
+    float old_file = panes_.GetFilePaneWidth();
+    float old_toc = panes_.GetTocPaneWidth();
+    panes_.ApplyZoom(2.0f);
+    EXPECT_FLOAT_EQ(panes_.GetFilePaneWidth(), old_file * 2.0f);
+    EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), old_toc * 2.0f);
+}
+
+TEST_F(PaneControllerTest, ApplyZoomScalesScrollPositions) {
+    panes_.ScrollFilePaneBy(50.0f, 200.0f);
+    panes_.ApplyZoom(1.5f);
+    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 75.0f);
+    EXPECT_FLOAT_EQ(panes_.FileScroll().max_scroll, 300.0f);
+}
+
+// ═══════════════════════════════════════════════
+// Layout computation
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, ComputeLayoutBothPanes) {
+    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
+    // File pane starts at x=0
+    EXPECT_FLOAT_EQ(layout.file_rect.x, 0.0f);
+    EXPECT_GT(layout.file_rect.width, 0.0f);
+    // MD pane should exist
+    EXPECT_GT(layout.md_rect.width, 0.0f);
+}
+
+TEST_F(PaneControllerTest, ComputeLayoutNoFilePane) {
+    panes_.ToggleFilePane();
+    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
+    EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
+    EXPECT_GT(layout.md_rect.width, 0.0f);
+}
+
+TEST_F(PaneControllerTest, DetectZoneMdPane) {
+    auto zone = panes_.DetectZone(800.0f, 1200.0f, 800.0f, 4.0f);
+    EXPECT_EQ(zone, PaneZone::MdPane);
+}
+
+TEST_F(PaneControllerTest, DetectZoneFilePane) {
+    auto zone = panes_.DetectZone(10.0f, 1200.0f, 800.0f, 4.0f);
+    EXPECT_EQ(zone, PaneZone::FilePane);
+}

@@ -2,6 +2,7 @@
 #include "types.h"
 #include "layout_cache.h"
 #include "theme.h"
+#include "text_measurer.h"
 #include <dwrite.h>
 #include <wrl/client.h>
 
@@ -26,9 +27,9 @@ YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache
 
 class LayoutEngine {
 public:
-    bool Init(IDWriteFactory* dwrite_factory, const Theme& theme);
-    void UpdateTheme(const Theme& theme) { theme_ = &theme; }
-    // Recreate all IDWriteTextFormat objects (e.g. after zoom or theme change).
+    bool Init(ITextMeasurer* measurer, const Theme& theme);
+    void UpdateTheme(const Theme& theme) { theme_ = &theme; measurer_->UpdateTheme(theme); }
+    // Recreate all text format objects (e.g. after zoom or theme change).
     bool RecreateFormats();
     void ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
                        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
@@ -43,21 +44,9 @@ public:
 
 private:
     void CreateTextLayout(Node& node, NodeLayoutEntry& entry, float max_width);
-    void CreateTableLayout(Node& node, NodeLayoutEntry& entry, DiagramEntry& diagram, float max_width);
-    void ApplyCellRunFormatting(IDWriteTextLayout* layout, const std::vector<TextRun>& runs);
-    IDWriteTextFormat* GetTextFormat(const Node& node);
 
-    IDWriteFactory* dwrite_ = nullptr;
+    ITextMeasurer* measurer_ = nullptr;
     const Theme* theme_ = nullptr;
-
-    ComPtr<IDWriteTextFormat> fmt_body_;
-    ComPtr<IDWriteTextFormat> fmt_h1_;
-    ComPtr<IDWriteTextFormat> fmt_h2_;
-    ComPtr<IDWriteTextFormat> fmt_h3_;
-    ComPtr<IDWriteTextFormat> fmt_h4_;
-    ComPtr<IDWriteTextFormat> fmt_h5_;
-    ComPtr<IDWriteTextFormat> fmt_h6_;
-    ComPtr<IDWriteTextFormat> fmt_code_;
 
     float total_height_ = 0.0f;
     float last_viewport_width_ = 0.0f;

@@ -11,31 +11,31 @@ void MainWindow::OnVScroll(WPARAM wParam) {
     si.fMask = SIF_ALL;
     GetScrollInfo(hwnd_, SB_VERT, &si);
 
-    float old_pos = scroll_y_;
+    float old_pos = viewport_.GetScrollY();
     auto pane_layout = GetPaneLayout();
     float page_size = pane_layout.md_rect.height;
 
     switch (LOWORD(wParam)) {
-        case SB_LINEUP:    ScrollTo(scroll_y_ - 40.0f); break;
-        case SB_LINEDOWN:  ScrollTo(scroll_y_ + 40.0f); break;
-        case SB_PAGEUP:    ScrollTo(scroll_y_ - page_size); break;
-        case SB_PAGEDOWN:  ScrollTo(scroll_y_ + page_size); break;
+        case SB_LINEUP:    ScrollTo(viewport_.GetScrollY() - 40.0f); break;
+        case SB_LINEDOWN:  ScrollTo(viewport_.GetScrollY() + 40.0f); break;
+        case SB_PAGEUP:    ScrollTo(viewport_.GetScrollY() - page_size); break;
+        case SB_PAGEDOWN:  ScrollTo(viewport_.GetScrollY() + page_size); break;
         case SB_THUMBTRACK:
-            is_scrollbar_tracking_ = true;
+            viewport_.SetScrollbarTracking(true);
             ScrollTo(static_cast<float>(si.nTrackPos));
             break;
         case SB_THUMBPOSITION:
-            is_scrollbar_tracking_ = false;
+            viewport_.SetScrollbarTracking(false);
             ScrollTo(static_cast<float>(si.nTrackPos));
             break;
         case SB_ENDSCROLL:
-            is_scrollbar_tracking_ = false;
+            viewport_.SetScrollbarTracking(false);
             break;
         case SB_TOP:       ScrollTo(0.0f); break;
-        case SB_BOTTOM:    ScrollTo(max_scroll_); break;
+        case SB_BOTTOM:    ScrollTo(viewport_.GetMaxScroll()); break;
     }
 
-    if (scroll_y_ != old_pos) {
+    if (viewport_.GetScrollY() != old_pos) {
         UpdateScrollBar();
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
@@ -49,36 +49,30 @@ void MainWindow::UpdateScrollBar() {
     si.nMin = 0;
     si.nMax = static_cast<int>(renderer_.GetLayout().GetTotalHeight());
     si.nPage = static_cast<UINT>(pane_layout.md_rect.height);
-    si.nPos = static_cast<int>(scroll_y_);
+    si.nPos = static_cast<int>(viewport_.GetScrollY());
     SetScrollInfo(hwnd_, SB_VERT, &si, TRUE);
 }
 
 void MainWindow::ScrollTo(float position) {
-    scroll_y_ = std::clamp(position, 0.0f, max_scroll_);
-    scroll_target_ = scroll_y_;
+    viewport_.ScrollTo(position);
 }
 
 void MainWindow::SmoothScrollBy(float delta) {
-    scroll_target_ = std::clamp(scroll_target_ + delta, 0.0f, max_scroll_);
+    bool was_scrolling = viewport_.IsSmoothScrolling();
+    viewport_.SmoothScrollBy(delta);
 
-    if (!smooth_scrolling_) {
-        smooth_scrolling_ = true;
-        SetTimer(hwnd_, TIMER_SMOOTH_SCROLL, 16, nullptr);  // ~60fps
+    if (!was_scrolling && viewport_.IsSmoothScrolling()) {
+        SetTimer(hwnd_, TIMER_SMOOTH_SCROLL, 16, nullptr);
     }
 }
 
 void MainWindow::UpdateSmoothScroll() {
-    float diff = scroll_target_ - scroll_y_;
+    bool still_active = viewport_.UpdateSmoothScroll();
 
-    if (std::abs(diff) < SCROLL_EPSILON) {
-        scroll_y_ = scroll_target_;
-        smooth_scrolling_ = false;
+    if (!still_active) {
         KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
-    } else {
-        scroll_y_ += diff * SCROLL_SPEED;
     }
 
-    scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
     UpdateScrollBar();
     InvalidateMdPane();
 }
@@ -102,37 +96,23 @@ void MainWindow::InvalidateMdPane() {
 }
 
 void MainWindow::StopSmoothScroll() {
-    if (!smooth_scrolling_) return;
-    scroll_y_ = scroll_target_;
-    smooth_scrolling_ = false;
+    if (!viewport_.IsSmoothScrolling()) return;
+    viewport_.StopSmoothScroll();
     KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
 }
 
 void MainWindow::SyncMaxScroll() {
     auto pane_layout = GetPaneLayout();
     float total = renderer_.GetLayout().GetTotalHeight();
-    max_scroll_ = std::max(0.0f, total - pane_layout.md_rect.height);
-    scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
-    scroll_target_ = scroll_y_;
+    viewport_.SyncMaxScroll(total, pane_layout.md_rect.height);
 }
 
 int MainWindow::FindFirstVisibleNode() const {
-    int lo = 0, hi = static_cast<int>(nodes_.size());
-    while (lo < hi) {
-        int mid = (lo + hi) / 2;
-        if (layout_cache_[mid].y_position + layout_cache_[mid].height <= scroll_y_)
-            lo = mid + 1;
-        else
-            hi = mid;
-    }
-    return lo < static_cast<int>(nodes_.size()) ? lo : -1;
+    return viewport_.FindFirstVisibleNode(layout_cache_, nodes_.size());
 }
 
 void MainWindow::AnchorCompensateScroll(int anchor_idx, float anchor_y_before) {
-    if (anchor_idx < 0) return;
-    float shift = layout_cache_[anchor_idx].y_position - anchor_y_before;
-    scroll_y_ += shift;
-    scroll_target_ += shift;
+    viewport_.AnchorCompensateScroll(anchor_idx, anchor_y_before, layout_cache_);
     SyncMaxScroll();
 }
 
@@ -143,8 +123,8 @@ void MainWindow::OnResizeEnd() {
 
     auto pane_layout = GetPaneLayout();
     float md_width = pane_layout.md_rect.width;
-    float viewport_top = scroll_y_;
-    float viewport_bottom = scroll_y_ + pane_layout.md_rect.height;
+    float viewport_top = viewport_.GetScrollY();
+    float viewport_bottom = viewport_.GetScrollY() + pane_layout.md_rect.height;
 
     renderer_.GetLayout().ComputeLayout(nodes_, layout_cache_, md_width, viewport_top, viewport_bottom);
 
@@ -166,17 +146,13 @@ void MainWindow::OnDeferredLayout() {
     float md_width = GetMarkdownPaneWidth();
     bool more = renderer_.GetLayout().ProcessDirtyBatch(nodes_, layout_cache_, md_width, 200);
 
-    // Compensate scroll to keep visible content at the same screen position,
-    // but skip during active scrollbar drag to avoid fighting with user input
-    if (!is_scrollbar_tracking_) {
+    if (!viewport_.IsScrollbarTracking()) {
         AnchorCompensateScroll(anchor_idx, anchor_y_before);
     } else {
         SyncMaxScroll();
     }
 
     if (!more) {
-        // Only repaint on the final batch; intermediate batches only affect
-        // off-screen nodes, so repainting would just cause sub-pixel jitter.
         KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
         UpdateScrollBar();
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -187,8 +163,8 @@ void MainWindow::UpdateLayoutAndScroll(float desired_scroll) {
     float md_width = GetMarkdownPaneWidth();
     renderer_.GetLayout().ComputeLayout(nodes_, layout_cache_, md_width);
 
-    scroll_y_ = desired_scroll;
-    scroll_target_ = desired_scroll;
+    viewport_.SetScrollY(desired_scroll);
+    viewport_.SetScrollTarget(desired_scroll);
     SyncMaxScroll();
 
     UpdateScrollBar();

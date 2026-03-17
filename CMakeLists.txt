@@ -42,6 +42,9 @@ endif()
 add_library(mendo_core STATIC
     src/parser.cpp
     src/layout.cpp
+    src/dwrite_measurer.cpp
+    src/command_generator.cpp
+    src/command_executor.cpp
     src/file_loader.cpp
     src/theme.cpp
     src/syntax.cpp
@@ -51,6 +54,8 @@ add_library(mendo_core STATIC
     src/pane_layout.cpp
     src/mermaid_util.cpp
     src/config_store.cpp
+    src/app_controller.cpp
+    src/pane_controller.cpp
 )
 target_include_directories(mendo_core PUBLIC src third_party/md4c)
 target_compile_definitions(mendo_core PUBLIC

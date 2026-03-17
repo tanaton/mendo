@@ -1,0 +1,64 @@
+#include "app_controller.h"
+#include <windows.h>
+
+ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const {
+    ActionList actions;
+
+    if (event.ctrl) {
+        switch (event.key) {
+            case 'C': actions.emplace_back(CopyClipboardAction{}); break;
+            case 'A': actions.emplace_back(SelectAllAction{}); break;
+            case 'O': actions.emplace_back(OpenFileAction{}); break;
+            case '1': actions.emplace_back(TogglePaneAction{true}); break;
+            case '2': actions.emplace_back(TogglePaneAction{false}); break;
+            case VK_OEM_PLUS:
+            case VK_ADD:
+                actions.emplace_back(ZoomAction{1}); break;
+            case VK_OEM_MINUS:
+            case VK_SUBTRACT:
+                actions.emplace_back(ZoomAction{-1}); break;
+            case '0':
+            case VK_NUMPAD0:
+                actions.emplace_back(ZoomAction{0}); break;
+        }
+        return actions;
+    }
+
+    switch (event.key) {
+        case VK_UP:    actions.emplace_back(KeyScrollAction{ScrollType::LineUp}); break;
+        case VK_DOWN:  actions.emplace_back(KeyScrollAction{ScrollType::LineDown}); break;
+        case VK_PRIOR: actions.emplace_back(KeyScrollAction{ScrollType::PageUp}); break;
+        case VK_NEXT:  actions.emplace_back(KeyScrollAction{ScrollType::PageDown}); break;
+        case VK_HOME:  actions.emplace_back(KeyScrollAction{ScrollType::Home}); break;
+        case VK_END:   actions.emplace_back(KeyScrollAction{ScrollType::End}); break;
+        case VK_F5:    actions.emplace_back(ReloadFileAction{}); break;
+        case VK_ESCAPE: actions.emplace_back(ClearSelectionAction{}); break;
+    }
+
+    return actions;
+}
+
+ActionList AppController::HandleMouseWheel(const MouseWheelEvent& event) const {
+    ActionList actions;
+
+    if (event.ctrl) {
+        actions.emplace_back(ZoomAction{event.delta > 0 ? 1 : -1});
+        return actions;
+    }
+
+    float scroll_amount = -event.delta * 0.5f;
+
+    switch (event.zone) {
+        case PaneZone::FilePane:
+            actions.emplace_back(ScrollPaneAction{PaneZone::FilePane, scroll_amount});
+            break;
+        case PaneZone::TocPane:
+            actions.emplace_back(ScrollPaneAction{PaneZone::TocPane, scroll_amount});
+            break;
+        default:
+            actions.emplace_back(SmoothScrollByAction{scroll_amount});
+            break;
+    }
+
+    return actions;
+}
