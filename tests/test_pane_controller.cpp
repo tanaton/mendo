@@ -209,3 +209,113 @@ TEST_F(PaneControllerTest, DetectZoneFilePane) {
     auto zone = panes_.DetectZone(10.0f, 1200.0f, 800.0f, 4.0f);
     EXPECT_EQ(zone, PaneZone::FilePane);
 }
+
+// ═══════════════════════════════════════════════
+// DetectZone — additional zones
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, DetectZoneSplitter1) {
+    // Splitter1 is right after file pane
+    float file_w = panes_.GetFilePaneWidth(); // 220
+    auto zone = panes_.DetectZone(file_w + 2.0f, 1200.0f, 800.0f, 4.0f);
+    EXPECT_EQ(zone, PaneZone::Splitter1);
+}
+
+TEST_F(PaneControllerTest, DetectZoneTocPane) {
+    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
+    float toc_mid = layout.toc_rect.x + layout.toc_rect.width * 0.5f;
+    auto zone = panes_.DetectZone(toc_mid, 1200.0f, 800.0f, 4.0f);
+    EXPECT_EQ(zone, PaneZone::TocPane);
+}
+
+// ═══════════════════════════════════════════════
+// Splitter drag — file pane hidden
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, DragSplitter1WithFilePaneHidden) {
+    panes_.ToggleFilePane(); // hide file pane
+    // Dragging splitter1 on hidden file pane should still clamp properly
+    panes_.DragSplitter1To(300.0f, 1200.0f, 4.0f);
+    EXPECT_GE(panes_.GetFilePaneWidth(), PaneController::PANE_MIN_WIDTH);
+}
+
+TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden) {
+    panes_.ToggleTocPane(); // hide toc pane
+    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
+    panes_.DragSplitter2To(1000.0f, 1200.0f, 4.0f);
+    EXPECT_GE(panes_.GetTocPaneWidth(), PaneController::PANE_MIN_WIDTH);
+}
+
+// ═══════════════════════════════════════════════
+// ComputeLayout — various configs
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, ComputeLayoutNoPanes) {
+    panes_.ToggleFilePane();
+    panes_.ToggleTocPane();
+    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
+    // All width goes to MD pane
+    EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
+    EXPECT_FLOAT_EQ(layout.toc_rect.width, 0.0f);
+    EXPECT_GT(layout.md_rect.width, 0.0f);
+}
+
+TEST_F(PaneControllerTest, ComputeLayoutOnlyTocPane) {
+    panes_.ToggleFilePane(); // hide file
+    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
+    EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
+    EXPECT_GT(layout.toc_rect.width, 0.0f);
+    EXPECT_GT(layout.md_rect.width, 0.0f);
+}
+
+TEST_F(PaneControllerTest, ComputeLayoutOnlyFilePane) {
+    panes_.ToggleTocPane(); // hide toc
+    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
+    EXPECT_GT(layout.file_rect.width, 0.0f);
+    EXPECT_FLOAT_EQ(layout.toc_rect.width, 0.0f);
+    EXPECT_GT(layout.md_rect.width, 0.0f);
+}
+
+// ═══════════════════════════════════════════════
+// Scroll — combined file and toc
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, ScrollBothPanesIndependently) {
+    panes_.ScrollFilePaneBy(100.0f, 500.0f);
+    panes_.ScrollTocPaneBy(50.0f, 300.0f);
+    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 100.0f);
+    EXPECT_FLOAT_EQ(panes_.TocScroll().scroll_y, 50.0f);
+}
+
+// ═══════════════════════════════════════════════
+// Zoom — scale and scroll interaction
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, ApplyZoomHalf) {
+    panes_.ScrollFilePaneBy(100.0f, 500.0f);
+    panes_.ScrollTocPaneBy(60.0f, 300.0f);
+    float old_file_w = panes_.GetFilePaneWidth();
+    panes_.ApplyZoom(0.5f);
+    EXPECT_FLOAT_EQ(panes_.GetFilePaneWidth(), old_file_w * 0.5f);
+    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 50.0f);
+    EXPECT_FLOAT_EQ(panes_.TocScroll().scroll_y, 30.0f);
+}
+
+// ═══════════════════════════════════════════════
+// Drag target types
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, DragTargetAllTypes) {
+    panes_.StartDrag(PaneController::DragTarget::FileScrollbar);
+    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::FileScrollbar);
+    panes_.EndDrag();
+
+    panes_.StartDrag(PaneController::DragTarget::TocScrollbar);
+    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::TocScrollbar);
+    panes_.EndDrag();
+
+    panes_.StartDrag(PaneController::DragTarget::Splitter2);
+    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::Splitter2);
+    panes_.EndDrag();
+    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::None);
+}

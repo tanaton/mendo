@@ -40,6 +40,11 @@ public:
     bool SetHoveredFileIndex(int idx);
     bool SetHoveredTocIndex(int idx);
 
+private:
+    static bool ScrollPaneBy(ScrollState& state, float delta, float max_scroll);
+    static bool SetHoveredIndex(int& current, int idx);
+public:
+
     // ---- Drag ----
     DragTarget GetDragTarget() const { return drag_target_; }
     void StartDrag(DragTarget t) { drag_target_ = t; }

@@ -1,29 +1,32 @@
 #include "pane_controller.h"
 
+bool PaneController::ScrollPaneBy(ScrollState& state, float delta, float max_scroll) {
+    float old = state.scroll_y;
+    state.scroll_y = std::clamp(state.scroll_y + delta, 0.0f, max_scroll);
+    state.max_scroll = max_scroll;
+    return state.scroll_y != old;
+}
+
 bool PaneController::ScrollFilePaneBy(float delta, float max_scroll) {
-    float old = file_scroll_.scroll_y;
-    file_scroll_.scroll_y = std::clamp(file_scroll_.scroll_y + delta, 0.0f, max_scroll);
-    file_scroll_.max_scroll = max_scroll;
-    return file_scroll_.scroll_y != old;
+    return ScrollPaneBy(file_scroll_, delta, max_scroll);
 }
 
 bool PaneController::ScrollTocPaneBy(float delta, float max_scroll) {
-    float old = toc_scroll_.scroll_y;
-    toc_scroll_.scroll_y = std::clamp(toc_scroll_.scroll_y + delta, 0.0f, max_scroll);
-    toc_scroll_.max_scroll = max_scroll;
-    return toc_scroll_.scroll_y != old;
+    return ScrollPaneBy(toc_scroll_, delta, max_scroll);
+}
+
+bool PaneController::SetHoveredIndex(int& current, int idx) {
+    bool changed = current != idx;
+    current = idx;
+    return changed;
 }
 
 bool PaneController::SetHoveredFileIndex(int idx) {
-    bool changed = hovered_file_ != idx;
-    hovered_file_ = idx;
-    return changed;
+    return SetHoveredIndex(hovered_file_, idx);
 }
 
 bool PaneController::SetHoveredTocIndex(int idx) {
-    bool changed = hovered_toc_ != idx;
-    hovered_toc_ = idx;
-    return changed;
+    return SetHoveredIndex(hovered_toc_, idx);
 }
 
 void PaneController::DragSplitter1To(float dip_x, float total_width, float splitter_w) {
