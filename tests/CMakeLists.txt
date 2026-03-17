@@ -17,6 +17,7 @@ add_executable(mendo_tests
     test_draw_command.cpp
     test_app_controller.cpp
     test_pane_controller.cpp
+    test_nav_history.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

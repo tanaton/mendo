@@ -29,7 +29,9 @@ public:
                 const ScrollState& file_scroll, int hovered_file_index,
                 const std::vector<TocEntry>& toc_entries,
                 const ScrollState& toc_scroll, int hovered_toc_index,
-                bool show_file_pane, bool show_toc_pane);
+                bool show_file_pane, bool show_toc_pane,
+                bool can_go_back = false, bool can_go_forward = false,
+                int nav_hovered = 0);
     void SetDpi(float dpi);
     void DrawLoading(float angle,
                      const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
@@ -63,6 +65,9 @@ private:
     void DrawPaneScrollbar(ID2D1RenderTarget* rt, float pane_width,
                            float content_top, float content_height,
                            float scroll_y, float total_content_height);
+    void DrawNavOverlay(const PaneRect& md_pane_rect,
+                        bool can_back, bool can_forward,
+                        int hovered);  // 0=none, 1=back, 2=forward
 
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<ID2D1HwndRenderTarget> render_target_;

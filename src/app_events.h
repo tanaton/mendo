@@ -9,6 +9,7 @@ struct KeyDownEvent {
     int key;
     bool ctrl = false;
     bool shift = false;
+    bool alt = false;
 };
 
 struct MouseWheelEvent {
@@ -43,6 +44,8 @@ struct ZoomAction { int direction; };
 struct ReloadFileAction {};
 struct OpenFileAction {};
 struct ToggleDarkModeAction {};
+struct NavigateBackAction {};
+struct NavigateForwardAction {};
 
 using AppAction = std::variant<
     KeyScrollAction,
@@ -55,7 +58,9 @@ using AppAction = std::variant<
     ZoomAction,
     ReloadFileAction,
     OpenFileAction,
-    ToggleDarkModeAction
+    ToggleDarkModeAction,
+    NavigateBackAction,
+    NavigateForwardAction
 >;
 
 using ActionList = std::vector<AppAction>;

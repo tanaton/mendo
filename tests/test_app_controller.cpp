@@ -222,3 +222,30 @@ TEST_F(AppControllerTest, CtrlWheelIgnoresZone) {
     ASSERT_EQ(a.size(), 1u);
     EXPECT_TRUE(std::holds_alternative<ZoomAction>(a[0]));
 }
+
+// ═══════════════════════════════════════════════
+// HandleKeyDown — Alt+Arrow navigation
+// ═══════════════════════════════════════════════
+
+TEST_F(AppControllerTest, AltLeftReturnsNavigateBack) {
+    auto a = ctrl_.HandleKeyDown({VK_LEFT, false, false, true});
+    ASSERT_EQ(a.size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<NavigateBackAction>(a[0]));
+}
+
+TEST_F(AppControllerTest, AltRightReturnsNavigateForward) {
+    auto a = ctrl_.HandleKeyDown({VK_RIGHT, false, false, true});
+    ASSERT_EQ(a.size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<NavigateForwardAction>(a[0]));
+}
+
+TEST_F(AppControllerTest, AltUpProducesNoAction) {
+    auto a = ctrl_.HandleKeyDown({VK_UP, false, false, true});
+    EXPECT_TRUE(a.empty());
+}
+
+TEST_F(AppControllerTest, CtrlAltLeftProducesNoAction) {
+    // Ctrl+Alt should not trigger navigation
+    auto a = ctrl_.HandleKeyDown({VK_LEFT, true, false, true});
+    EXPECT_TRUE(a.empty());
+}
