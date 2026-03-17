@@ -221,3 +221,83 @@ TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight) {
     size_t last = nodes.size() - 1;
     EXPECT_LE(cache[last].y_position + cache[last].height, engine_.GetTotalHeight());
 }
+
+// ---- File switch regression tests ----
+
+TEST_F(MockLayoutTest, ResetClearsAllEntries) {
+    auto nodes = ParseMarkdown("Hello\n\nWorld");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+
+    // All entries should be clean after layout
+    for (size_t i = 0; i < cache.size(); i++) {
+        ASSERT_FALSE(cache[i].layout_dirty);
+        ASSERT_GT(cache[i].height, 0.0f);
+    }
+
+    // Reset should clear everything back to defaults
+    cache.Reset(3);
+    EXPECT_EQ(cache.size(), 3u);
+    for (size_t i = 0; i < cache.size(); i++) {
+        EXPECT_TRUE(cache[i].layout_dirty) << "Entry " << i << " should be dirty after Reset";
+        EXPECT_FLOAT_EQ(cache[i].height, 0.0f) << "Entry " << i << " height should be 0 after Reset";
+        EXPECT_EQ(cache[i].text_layout.Get(), nullptr);
+    }
+}
+
+TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout) {
+    // Simulate opening file A: "# Big Heading\n\nSome paragraph"
+    auto nodes_a = ParseMarkdown("# Big Heading\n\nSome paragraph");
+    LayoutCache cache;
+    cache.Reset(nodes_a.size());
+    engine_.LayoutNodes(nodes_a, cache, 800.0f);
+
+    ASSERT_EQ(nodes_a.size(), 2u);
+    float heading_height_a = cache[0].height;
+    float para_height_a = cache[1].height;
+    EXPECT_GT(heading_height_a, 0.0f);
+    EXPECT_GT(para_height_a, 0.0f);
+
+    // Simulate switching to file B: "Just a paragraph\n\nAnother one\n\nThird"
+    auto nodes_b = ParseMarkdown("Just a paragraph\n\nAnother one\n\nThird");
+    cache.Reset(nodes_b.size());
+    engine_.LayoutNodes(nodes_b, cache, 800.0f);
+
+    ASSERT_EQ(nodes_b.size(), 3u);
+    // All nodes in file B should be paragraphs with fresh, correct heights
+    for (size_t i = 0; i < nodes_b.size(); i++) {
+        EXPECT_FALSE(cache[i].layout_dirty) << "Node " << i << " should be clean";
+        EXPECT_GT(cache[i].height, 0.0f) << "Node " << i << " should have positive height";
+        EXPECT_EQ(nodes_b[i].type, NodeType::Paragraph);
+    }
+    // First node of file B should NOT have old heading height from file A
+    EXPECT_NE(cache[0].height, heading_height_a)
+        << "File B paragraph should not retain file A heading height";
+}
+
+TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates) {
+    // File A: 2 headings
+    auto nodes_a = ParseMarkdown("# H1\n\n## H2");
+    LayoutCache cache;
+    cache.Reset(nodes_a.size());
+    engine_.LayoutNodes(nodes_a, cache, 800.0f);
+    float h1_height = cache[0].height;
+    float h2_height = cache[1].height;
+
+    // File B: 2 paragraphs (same node count as file A)
+    auto nodes_b = ParseMarkdown("alpha\n\nbeta");
+    cache.Reset(nodes_b.size());
+    engine_.LayoutNodes(nodes_b, cache, 800.0f);
+
+    // Paragraphs should be shorter than headings
+    EXPECT_LT(cache[0].height, h1_height)
+        << "Paragraph should be shorter than H1 heading";
+    EXPECT_LT(cache[1].height, h2_height)
+        << "Paragraph should be shorter than H2 heading";
+
+    // All should be clean
+    for (size_t i = 0; i < cache.size(); i++) {
+        EXPECT_FALSE(cache[i].layout_dirty);
+    }
+}

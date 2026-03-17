@@ -483,7 +483,7 @@ void MainWindow::DoLoadMarkdownFile() {
     mermaid_renderer_.CancelPending();
 
     nodes_ = ParseMarkdown(content);
-    layout_cache_.Resize(nodes_.size());
+    layout_cache_.Reset(nodes_.size());
     toc_.BuildFromNodes(nodes_);
 
     // Set up file explorer for the directory containing this file
@@ -517,7 +517,7 @@ void MainWindow::ReloadCurrentFile() {
     float old_scroll = viewport_.GetScrollY();
     mermaid_renderer_.CancelPending();
     nodes_ = ParseMarkdown(FileLoader::LoadFile(current_file_));
-    layout_cache_.Resize(nodes_.size());
+    layout_cache_.Reset(nodes_.size());
     toc_.BuildFromNodes(nodes_);
     renderer_.InvalidateTocPaneCache();
     UpdateLayoutAndScroll(old_scroll);

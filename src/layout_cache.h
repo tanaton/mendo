@@ -37,6 +37,15 @@ public:
         diagrams_.resize(node_count);
     }
 
+    // Clear all existing entries and resize to fresh defaults.
+    // Use this when switching files to avoid stale layout data.
+    void Reset(size_t node_count) {
+        entries_.clear();
+        entries_.resize(node_count);
+        diagrams_.clear();
+        diagrams_.resize(node_count);
+    }
+
     size_t size() const { return entries_.size(); }
 
     NodeLayoutEntry& operator[](size_t i) { return entries_[i]; }
