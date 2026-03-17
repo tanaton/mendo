@@ -1,4 +1,5 @@
 #include "parser.h"
+#include "syntax.h"
 #include "md4c.h"
 #include <stack>
 #include <unordered_map>
@@ -57,6 +58,9 @@ struct ParseContext {
     std::vector<Node> nodes;
     std::stack<SpanState> span_stack;
     SpanState current_span;
+
+    // Reusable buffer for UTF-8 → Wide conversion
+    std::wstring text_buffer;
 
     // Block context tracking
     int indent_level = 0;
@@ -244,6 +248,10 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
                     if (last.length > 0) last.length--;
                 }
             }
+            // Tokenize once at parse time instead of every layout pass
+            if (ctx->current_node && ctx->current_node->code_language != SyntaxLanguage::None) {
+                ctx->current_node->syntax_tokens = Tokenize(ctx->current_node->text, ctx->current_node->code_language);
+            }
             break;
 
         case MD_BLOCK_QUOTE:
@@ -348,42 +356,54 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
 
     switch (type) {
         case MD_TEXT_NORMAL:
-        case MD_TEXT_CODE:
-        case MD_TEXT_ENTITY: {
-            std::wstring wtext;
-            if (type == MD_TEXT_ENTITY) {
-                // Handle common HTML entities
-                std::string entity(text, size);
-                if (entity == "&amp;") wtext = L"&";
-                else if (entity == "&lt;") wtext = L"<";
-                else if (entity == "&gt;") wtext = L">";
-                else if (entity == "&quot;") wtext = L"\"";
-                else if (entity == "&apos;") wtext = L"'";
-                else if (entity == "&nbsp;") wtext = L"\u00A0";
-                else if (entity.size() >= 4 && entity[0] == '&' && entity[1] == '#') {
-                    // Numeric character reference: &#NNN; or &#xHHH;
-                    unsigned long codepoint = 0;
-                    bool valid = false;
-                    if (entity[2] == 'x' || entity[2] == 'X') {
-                        // Hex: &#xHHH;
-                        try { codepoint = std::stoul(entity.substr(3, entity.size() - 4), nullptr, 16); valid = true; }
-                        catch (...) {}
-                    } else {
-                        // Decimal: &#NNN;
-                        try { codepoint = std::stoul(entity.substr(2, entity.size() - 3), nullptr, 10); valid = true; }
-                        catch (...) {}
-                    }
-                    if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
-                        wtext = std::wstring(1, static_cast<wchar_t>(codepoint));
-                    } else {
-                        wtext = Utf8ToWide(text, size);
-                    }
-                }
-                else wtext = Utf8ToWide(text, size);
-            } else {
-                wtext = Utf8ToWide(text, size);
+        case MD_TEXT_CODE: {
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(size), nullptr, 0);
+            if (wlen > 0) {
+                ctx->text_buffer.resize(static_cast<size_t>(wlen));
+                MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(size),
+                                    ctx->text_buffer.data(), wlen);
+                ctx->AppendText(ctx->text_buffer.data(), static_cast<size_t>(wlen));
             }
-            ctx->AppendText(wtext.c_str(), wtext.size());
+            break;
+        }
+
+        case MD_TEXT_ENTITY: {
+            std::string entity(text, size);
+            const wchar_t* resolved = nullptr;
+            wchar_t single_char = 0;
+            if (entity == "&amp;")  resolved = L"&";
+            else if (entity == "&lt;")   resolved = L"<";
+            else if (entity == "&gt;")   resolved = L">";
+            else if (entity == "&quot;") resolved = L"\"";
+            else if (entity == "&apos;") resolved = L"'";
+            else if (entity == "&nbsp;") resolved = L"\u00A0";
+            else if (entity.size() >= 4 && entity[0] == '&' && entity[1] == '#') {
+                unsigned long codepoint = 0;
+                bool valid = false;
+                if (entity[2] == 'x' || entity[2] == 'X') {
+                    try { codepoint = std::stoul(entity.substr(3, entity.size() - 4), nullptr, 16); valid = true; }
+                    catch (...) {}
+                } else {
+                    try { codepoint = std::stoul(entity.substr(2, entity.size() - 3), nullptr, 10); valid = true; }
+                    catch (...) {}
+                }
+                if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
+                    single_char = static_cast<wchar_t>(codepoint);
+                    resolved = &single_char;
+                }
+            }
+            if (resolved) {
+                size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
+                ctx->AppendText(resolved, rlen);
+            } else {
+                int wlen = MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(size), nullptr, 0);
+                if (wlen > 0) {
+                    ctx->text_buffer.resize(static_cast<size_t>(wlen));
+                    MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(size),
+                                        ctx->text_buffer.data(), wlen);
+                    ctx->AppendText(ctx->text_buffer.data(), static_cast<size_t>(wlen));
+                }
+            }
             break;
         }
 

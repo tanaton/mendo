@@ -39,8 +39,8 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
                 }
             }
             else if constexpr (std::is_same_v<T, DrawTextCmd>) {
-                if (c.format && !c.text.empty()) {
-                    rt->DrawText(c.text.c_str(), static_cast<UINT32>(c.text.size()),
+                if (c.format && c.text_len > 0) {
+                    rt->DrawText(c.text, static_cast<UINT32>(c.text_len),
                                  c.format, c.rect, GetBrush(rt, c.color));
                 }
             }

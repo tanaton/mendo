@@ -3,11 +3,13 @@
 
 static constexpr D2D1_COLOR_F SELECTION_COLOR = {0.26f, 0.56f, 0.84f, 0.3f};
 
-DrawCommandList CommandGenerator::GenerateMdPane(
+const DrawCommandList& CommandGenerator::GenerateMdPane(
         const std::vector<Node>& nodes, const LayoutCache& cache,
         const PaneRect& md_pane_rect, float scroll_y,
-        const TextSelection& selection) {
-    DrawCommandList cmds;
+        const TextSelection& selection,
+        int first_visible) {
+    cmds_.clear();
+    auto& cmds = cmds_;
 
     // Clip to MD pane bounds
     D2D1_RECT_F md_clip = D2D1::RectF(
@@ -21,10 +23,9 @@ DrawCommandList CommandGenerator::GenerateMdPane(
     float offset_x = theme_->margin_left;
     float md_content_width = md_pane_rect.width - theme_->margin_left - theme_->margin_right;
 
-    // Binary search for first visible node
+    // Binary search for first visible node (use pre-computed index if available)
     int node_count = static_cast<int>(nodes.size());
-    int first_visible = 0;
-    {
+    if (first_visible < 0) {
         int lo = 0, hi = node_count;
         while (lo < hi) {
             int mid = (lo + hi) / 2;
@@ -45,7 +46,7 @@ DrawCommandList CommandGenerator::GenerateMdPane(
 
     cmds.push_back(SetTransformCmd{D2D1::Matrix3x2F::Identity()});
     cmds.push_back(PopClipCmd{});
-    return cmds;
+    return cmds_;
 }
 
 void CommandGenerator::GenerateNode(DrawCommandList& cmds,
@@ -141,14 +142,14 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
 
     // Task list checkbox
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {
-        const wchar_t icon[] = {node.task_checked ? L'\uE73A' : L'\uE739', L'\0'};
+        const wchar_t icon = node.task_checked ? L'\uE73A' : L'\uE739';
         float icon_size = theme_->font_size_body;
         float cb_x = x - theme_->list_bullet_offset;
-        cmds.push_back(DrawTextCmd{
-            icon,
+        cmds.push_back(DrawTextCmd::Make(
+            &icon, 1,
             D2D1::RectF(cb_x, entry.y_position, cb_x + icon_size, entry.y_position + icon_size * 1.5f),
             formats_.icon_font,
-            theme_->text_color});
+            theme_->text_color));
     }
 }
 
@@ -187,12 +188,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     float y = entry.y_position;
     uint32_t flat_offset = 0;
 
-    // Determine stripe color
-    bool is_dark = (theme_->bg_color.r + theme_->bg_color.g + theme_->bg_color.b) < 1.5f;
-    float stripe_alpha = is_dark ? 0.05f : 0.02f;
-    D2D1_COLOR_F stripe_color = is_dark
-        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, stripe_alpha)
-        : D2D1::ColorF(0.0f, 0.0f, 0.0f, stripe_alpha);
+    const D2D1_COLOR_F stripe_color = cached_stripe_color_;
 
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         const auto& row = node.table_rows[r];
@@ -289,13 +285,15 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
     if (node.list_number > 0) {
         // Ordered list number
         if (formats_.list_number) {
-            std::wstring num_text = std::to_wstring(node.list_number) + L".";
+            wchar_t num_buf[DrawTextCmd::MAX_TEXT];
+            int num_len = swprintf_s(num_buf, L"%d.", node.list_number);
+            if (num_len < 0) num_len = 0;
             D2D1_RECT_F num_rect = D2D1::RectF(
                 x - theme_->list_bullet_offset - 8.0f,
                 entry.y_position,
                 x - 4.0f,
                 entry.y_position + theme_->font_size_body * 1.5f);
-            cmds.push_back(DrawTextCmd{num_text, num_rect, formats_.list_number, theme_->text_color});
+            cmds.push_back(DrawTextCmd::Make(num_buf, static_cast<size_t>(num_len), num_rect, formats_.list_number, theme_->text_color));
         }
     } else {
         // Unordered list bullet

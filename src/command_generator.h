@@ -14,14 +14,23 @@ public:
         IDWriteTextFormat* icon_font = nullptr;
     };
 
-    void SetTheme(const Theme* theme) { theme_ = theme; }
+    void SetTheme(const Theme* theme) {
+        theme_ = theme;
+        bool is_dark = (theme->bg_color.r + theme->bg_color.g + theme->bg_color.b) < 1.5f;
+        float a = is_dark ? 0.05f : 0.02f;
+        cached_stripe_color_ = is_dark
+            ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a)
+            : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
+    }
     void SetFormats(const Formats& fmts) { formats_ = fmts; }
 
     // Generate all draw commands for the Markdown content pane.
-    DrawCommandList GenerateMdPane(
+    // Returns a reference to an internal buffer; valid until the next call.
+    const DrawCommandList& GenerateMdPane(
         const std::vector<Node>& nodes, const LayoutCache& cache,
         const PaneRect& md_pane_rect, float scroll_y,
-        const TextSelection& selection);
+        const TextSelection& selection,
+        int first_visible = -1);
 
 private:
     void GenerateNode(DrawCommandList& cmds,
@@ -40,5 +49,7 @@ private:
 
     const Theme* theme_ = nullptr;
     Formats formats_;
+    DrawCommandList cmds_;
     std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
+    D2D1_COLOR_F cached_stripe_color_{};
 };

@@ -29,25 +29,49 @@ std::vector<float> ComputeColumnWidths(const std::vector<float>& natural_widths,
 }
 
 std::wstring BuildLinearizedTableText(const std::vector<TableRow>& rows) {
+    size_t total = 0;
+    for (size_t r = 0; r < rows.size(); r++) {
+        const auto& row = rows[r];
+        for (size_t c = 0; c < row.cells.size(); c++) {
+            if (c > 0) total++;
+            total += row.cells[c].text.size();
+        }
+        if (r + 1 < rows.size()) total++;
+    }
     std::wstring text;
+    text.reserve(total);
     for (size_t r = 0; r < rows.size(); r++) {
         const auto& row = rows[r];
         for (size_t c = 0; c < row.cells.size(); c++) {
             if (c > 0) text += L'\t';
             text += row.cells[c].text;
         }
-        if (r + 1 < rows.size()) {
-            text += L'\n';
-        }
+        if (r + 1 < rows.size()) text += L'\n';
     }
     return text;
 }
 
-YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) {
+YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+                                    size_t from_index) {
     YPositionResult result;
     float y = theme.margin_top;
 
-    for (size_t i = 0; i < nodes.size(); i++) {
+    // Resume from the previous node's end position when starting mid-stream.
+    if (from_index > 0 && from_index < nodes.size()) {
+        auto& prev = cache[from_index - 1];
+        y = prev.y_position + prev.height;
+        if (nodes[from_index - 1].type == NodeType::Heading) {
+            y += theme.heading_spacing_below;
+        } else {
+            y += theme.paragraph_spacing;
+        }
+        // Scan earlier nodes for dirty flags.
+        for (size_t i = 0; i < from_index; i++) {
+            if (cache[i].layout_dirty) result.has_dirty_nodes = true;
+        }
+    }
+
+    for (size_t i = from_index; i < nodes.size(); i++) {
         auto& entry = cache[i];
         if (entry.layout_dirty) result.has_dirty_nodes = true;
 
@@ -103,6 +127,7 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
 
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     float y = theme_->margin_top;
+    bool any_dirty = false;
 
     for (size_t i = 0; i < nodes.size(); i++) {
         auto& node = nodes[i];
@@ -127,10 +152,13 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
             }
         }
 
-        // Track y for partial visibility estimation
+        if (entry.layout_dirty) any_dirty = true;
+
+        // Set y position directly in this pass
         if (node.type == NodeType::Heading) {
             y += theme_->heading_spacing_above;
         }
+        entry.y_position = y;
         y += entry.height;
         if (node.type == NodeType::Heading) {
             y += theme_->heading_spacing_below;
@@ -139,9 +167,8 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
         }
     }
 
-    auto result = RecomputeYPositions(nodes, cache, *theme_);
-    total_height_ = result.total_height;
-    has_dirty_nodes_ = result.has_dirty_nodes;
+    total_height_ = y + theme_->margin_top;
+    has_dirty_nodes_ = any_dirty;
 }
 
 void LayoutEngine::LayoutNodes(std::vector<Node>& nodes, LayoutCache& cache, float viewport_width) {
@@ -175,7 +202,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::vector<Node>& nodes, LayoutCache& ca
     }
 
     if (any_updated) {
-        auto result = RecomputeYPositions(nodes, cache, *theme_);
+        auto result = RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo));
         total_height_ = result.total_height;
         has_dirty_nodes_ = result.has_dirty_nodes;
     }
@@ -186,18 +213,20 @@ bool LayoutEngine::ProcessDirtyBatch(std::vector<Node>& nodes, LayoutCache& cach
                                       float viewport_width, int batch_size) {
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     int processed = 0;
+    size_t first_dirty = nodes.size();
 
     for (size_t i = 0; i < nodes.size(); i++) {
         auto& entry = cache[i];
         if (!entry.layout_dirty) continue;
 
+        if (first_dirty == nodes.size()) first_dirty = i;
         float indent = nodes[i].indent_level * theme_->indent_width;
         CreateTextLayout(nodes[i], entry, content_width - indent);
 
         if (++processed >= batch_size) break;
     }
 
-    auto result = RecomputeYPositions(nodes, cache, *theme_);
+    auto result = RecomputeYPositions(nodes, cache, *theme_, first_dirty);
     total_height_ = result.total_height;
     has_dirty_nodes_ = result.has_dirty_nodes;
 

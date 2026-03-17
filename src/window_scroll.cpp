@@ -55,6 +55,7 @@ void MainWindow::UpdateScrollBar() {
 
 void MainWindow::ScrollTo(float position) {
     viewport_.ScrollTo(position);
+    last_md_hit_pos_ = {LONG_MIN, LONG_MIN}; // Invalidate cursor cache
 }
 
 void MainWindow::SmoothScrollBy(float delta) {

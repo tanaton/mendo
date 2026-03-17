@@ -228,9 +228,17 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                             break;
                         }
                         case PaneZone::MdPane: {
-                            auto hit = HitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-                            auto link = GetLinkAtHit(hit);
-                            SetCursor(link.has_value() ? cursor_hand_ : cursor_ibeam_);
+                            int mx = GET_X_LPARAM(lParam);
+                            int my = GET_Y_LPARAM(lParam);
+                            int dx = mx - last_md_hit_pos_.x;
+                            int dy = my - last_md_hit_pos_.y;
+                            if (dx * dx + dy * dy > 16) { // >4px movement
+                                auto hit = HitTest(mx, my);
+                                auto link = GetLinkAtHit(hit);
+                                last_md_cursor_hand_ = link.has_value();
+                                last_md_hit_pos_ = {mx, my};
+                            }
+                            SetCursor(last_md_cursor_hand_ ? cursor_hand_ : cursor_ibeam_);
                             break;
                         }
                         default:

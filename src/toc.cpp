@@ -2,6 +2,11 @@
 
 void TableOfContents::BuildFromNodes(const std::vector<Node>& nodes) {
     entries_.clear();
+    size_t heading_count = 0;
+    for (const auto& node : nodes) {
+        if (node.type == NodeType::Heading) heading_count++;
+    }
+    entries_.reserve(heading_count);
     for (const auto& node : nodes) {
         if (node.type != NodeType::Heading) continue;
 

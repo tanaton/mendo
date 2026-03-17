@@ -162,13 +162,6 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
 
-    // Tokenize code blocks for syntax highlighting
-    if (node.type == NodeType::CodeBlock && node.code_language != SyntaxLanguage::None) {
-        node.syntax_tokens = Tokenize(node.text, node.code_language);
-    } else {
-        node.syntax_tokens.clear();
-    }
-
     entry.text_layout = std::move(layout);
     entry.height = metrics.height;
     entry.layout_dirty = false;

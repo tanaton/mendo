@@ -120,6 +120,10 @@ private:
     HCURSOR cursor_ibeam_ = nullptr;
     HCURSOR cursor_sizewe_ = nullptr;
 
+    // WM_MOUSEMOVE HitTest throttle: skip expensive hit-test when mouse barely moved
+    POINT last_md_hit_pos_ = {LONG_MIN, LONG_MIN};
+    bool last_md_cursor_hand_ = false;
+
     std::vector<Node> nodes_;
     LayoutCache layout_cache_;
     ViewportManager viewport_;

@@ -226,20 +226,9 @@ void Renderer::RecreatePaneFormats() {
 // Only ApplyNodeEffects remains here as a pre-pass (requires D2D brushes).
 
 void Renderer::ApplyVisibleEffects(std::vector<Node>& nodes, LayoutCache& cache,
-                                    float scroll_y, const PaneRect& md_pane_rect) {
-    float viewport_top = scroll_y;
-    float viewport_bottom = scroll_y + md_pane_rect.height;
+                                    int first_visible, float viewport_bottom) {
     int node_count = static_cast<int>(nodes.size());
-
-    int lo = 0, hi = node_count;
-    while (lo < hi) {
-        int mid = (lo + hi) / 2;
-        if (cache[mid].y_position + cache[mid].height < viewport_top)
-            lo = mid + 1;
-        else
-            hi = mid;
-    }
-    for (int i = lo; i < node_count; i++) {
+    for (int i = first_visible; i < node_count; i++) {
         if (cache[i].y_position > viewport_bottom) break;
         ApplyNodeEffects(nodes[i], cache[i]);
     }
@@ -401,11 +390,27 @@ void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll
         DrawSplitter(toc_pane_rect.x + toc_pane_rect.width, size.height);
     }
 
+    // Binary search for first visible node (done once, shared by effects + command gen).
+    float viewport_top = scroll_y;
+    float viewport_bottom = scroll_y + md_pane_rect.height;
+    int first_visible = 0;
+    {
+        int lo = 0, hi = static_cast<int>(nodes.size());
+        while (lo < hi) {
+            int mid = (lo + hi) / 2;
+            if (cache[mid].y_position + cache[mid].height < viewport_top)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        first_visible = lo;
+    }
+
     // Pre-pass: apply drawing effects (syntax highlighting, link colors) on visible nodes.
-    ApplyVisibleEffects(nodes, cache, scroll_y, md_pane_rect);
+    ApplyVisibleEffects(nodes, cache, first_visible, viewport_bottom);
 
     // Generate and execute draw commands for the Markdown content pane.
-    auto cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection);
+    const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection, first_visible);
     cmd_executor_.Execute(cmds, render_target_.Get());
 
     render_target_->EndDraw();

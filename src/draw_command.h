@@ -3,7 +3,8 @@
 #include <dwrite.h>
 #include <variant>
 #include <vector>
-#include <string>
+#include <cwchar>
+#include <algorithm>
 
 // ---- Primitive draw commands ----
 
@@ -35,10 +36,23 @@ struct DrawTextLayoutCmd {
 };
 
 struct DrawTextCmd {
-    std::wstring text;
+    static constexpr size_t MAX_TEXT = 32;
+    wchar_t text[MAX_TEXT];
+    uint8_t text_len = 0;
     D2D1_RECT_F rect;
     IDWriteTextFormat* format; // Non-owning; lifetime managed by Renderer.
     D2D1_COLOR_F color;
+
+    static DrawTextCmd Make(const wchar_t* src, size_t len,
+                            D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col) {
+        DrawTextCmd c{};
+        c.text_len = static_cast<uint8_t>((std::min)(len, MAX_TEXT));
+        std::wmemcpy(c.text, src, c.text_len);
+        c.rect = r;
+        c.format = fmt;
+        c.color = col;
+        return c;
+    }
 };
 
 struct DrawBitmapCmd {

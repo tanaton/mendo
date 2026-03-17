@@ -53,7 +53,7 @@ public:
 private:
     // Pre-pass: apply drawing effects (syntax highlighting, link colors) to layouts.
     void ApplyVisibleEffects(std::vector<Node>& nodes, LayoutCache& cache,
-                             float scroll_y, const PaneRect& md_pane_rect);
+                             int first_visible, float viewport_bottom);
 
     void DrawFileExplorer(const std::vector<FileEntry>& entries, const PaneRect& rect,
                           const ScrollState& scroll, int hovered_index);

@@ -17,13 +17,14 @@ std::vector<float> ComputeColumnWidths(const std::vector<float>& natural_widths,
 // Used for text selection support.
 std::wstring BuildLinearizedTableText(const std::vector<TableRow>& rows);
 
-// Recompute Y positions and spacing for all nodes.
+// Recompute Y positions and spacing for all nodes starting from from_index.
 // Returns {total_height, has_dirty_nodes}.
 struct YPositionResult {
     float total_height = 0.0f;
     bool has_dirty_nodes = false;
 };
-YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme);
+YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+                                    size_t from_index = 0);
 
 class LayoutEngine {
 public:
