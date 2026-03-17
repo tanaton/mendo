@@ -192,6 +192,9 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     float cell_padding = TABLE_CELL_PADDING;
     float border_width = TABLE_BORDER_WIDTH;
 
+    // Reset per-layout state because we are rebuilding cell layouts.
+    entry.effects_applied = false;
+
     entry.cell_layouts.resize(node.table_rows.size());
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         entry.cell_layouts[r].resize(node.table_rows[r].cells.size());
