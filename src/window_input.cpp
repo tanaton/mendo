@@ -101,7 +101,10 @@ void MainWindow::ExecuteActions(const ActionList& actions) {
             },
             [this](const OpenFileAction&) {
                 auto path = FileLoader::OpenFileDialog(hwnd_);
-                if (!path.empty()) LoadMarkdownFile(path);
+                if (!path.empty()) {
+                    if (!current_file_.empty()) PushNavHistory();
+                    LoadMarkdownFile(path);
+                }
             },
             [this](const ToggleDarkModeAction&) {
                 ToggleDarkMode();
@@ -119,6 +122,7 @@ void MainWindow::ExecuteActions(const ActionList& actions) {
 void MainWindow::OnDropFiles(HDROP hDrop) {
     wchar_t path[MAX_PATH];
     if (DragQueryFileW(hDrop, 0, path, MAX_PATH)) {
+        if (!current_file_.empty()) PushNavHistory();
         LoadMarkdownFile(path);
     }
     DragFinish(hDrop);
