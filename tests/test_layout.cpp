@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "layout.h"
+#include "dwrite_measurer.h"
 #include "parser.h"
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -9,6 +10,7 @@ using Microsoft::WRL::ComPtr;
 class LayoutTest : public ::testing::Test {
 protected:
     ComPtr<IDWriteFactory> dwrite_;
+    DWriteTextMeasurer measurer_;
     LayoutEngine engine_;
     Theme theme_;
 
@@ -28,67 +30,85 @@ protected:
         ASSERT_TRUE(SUCCEEDED(hr)) << "Failed to create DirectWrite factory";
 
         theme_ = GetLightTheme();
-        ASSERT_TRUE(engine_.Init(dwrite_.Get(), theme_));
+        measurer_.SetFactory(dwrite_.Get());
+        ASSERT_TRUE(engine_.Init(&measurer_, theme_));
     }
 };
 
 TEST_F(LayoutTest, EmptyNodesProduceZeroHeight) {
-    std::vector<RenderNode> nodes;
-    engine_.ComputeLayout(nodes, 800.0f);
+    std::vector<Node> nodes;
+    LayoutCache cache;
+    engine_.ComputeLayout(nodes, cache, 800.0f);
     // Only margin_top contributes
     EXPECT_FLOAT_EQ(engine_.GetTotalHeight(), theme_.margin_top * 2);
 }
 
 TEST_F(LayoutTest, SingleParagraphHasPositiveHeight) {
     auto nodes = ParseMarkdown("Hello world");
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
     EXPECT_GT(engine_.GetTotalHeight(), 0.0f);
-    EXPECT_GT(nodes[0].height, 0.0f);
+    EXPECT_GT(cache[0].height, 0.0f);
 }
 
 TEST_F(LayoutTest, HeadingIsTallerThanParagraph) {
     auto heading_nodes = ParseMarkdown("# Big Title");
+    LayoutCache heading_cache;
+    heading_cache.Resize(heading_nodes.size());
+
     auto para_nodes = ParseMarkdown("Small text");
+    LayoutCache para_cache;
+    para_cache.Resize(para_nodes.size());
 
-    engine_.ComputeLayout(heading_nodes, 800.0f);
-    float heading_height = heading_nodes[0].height;
+    engine_.ComputeLayout(heading_nodes, heading_cache, 800.0f);
+    float heading_height = heading_cache[0].height;
 
-    engine_.ComputeLayout(para_nodes, 800.0f);
-    float para_height = para_nodes[0].height;
+    engine_.ComputeLayout(para_nodes, para_cache, 800.0f);
+    float para_height = para_cache[0].height;
 
     EXPECT_GT(heading_height, para_height);
 }
 
 TEST_F(LayoutTest, YPositionsIncreaseMonotonically) {
     auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD");
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(nodes[i].y_position, nodes[i - 1].y_position)
+        EXPECT_GT(cache[i].y_position, cache[i - 1].y_position)
             << "Node " << i << " y should be > node " << (i - 1);
     }
 }
 
 TEST_F(LayoutTest, NodesDoNotOverlap) {
     auto nodes = ParseMarkdown("# Heading\n\nParagraph\n\n---\n\n- List");
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = nodes[i - 1].y_position + nodes[i - 1].height;
-        EXPECT_LE(prev_bottom, nodes[i].y_position)
+        float prev_bottom = cache[i - 1].y_position + cache[i - 1].height;
+        EXPECT_LE(prev_bottom, cache[i].y_position)
             << "Node " << (i - 1) << " overlaps with node " << i;
     }
 }
 
 TEST_F(LayoutTest, NarrowViewportWrapsText) {
     auto nodes_wide = ParseMarkdown("This is a somewhat long paragraph that should wrap.");
+    LayoutCache cache_wide;
+    cache_wide.Resize(nodes_wide.size());
+
     auto nodes_narrow = ParseMarkdown("This is a somewhat long paragraph that should wrap.");
+    LayoutCache cache_narrow;
+    cache_narrow.Resize(nodes_narrow.size());
 
-    engine_.ComputeLayout(nodes_wide, 800.0f);
-    float wide_height = nodes_wide[0].height;
+    engine_.ComputeLayout(nodes_wide, cache_wide, 800.0f);
+    float wide_height = cache_wide[0].height;
 
-    engine_.ComputeLayout(nodes_narrow, 200.0f);
-    float narrow_height = nodes_narrow[0].height;
+    engine_.ComputeLayout(nodes_narrow, cache_narrow, 200.0f);
+    float narrow_height = cache_narrow[0].height;
 
     // Narrower viewport should make the text taller (more wrapping)
     EXPECT_GE(narrow_height, wide_height);
@@ -96,28 +116,36 @@ TEST_F(LayoutTest, NarrowViewportWrapsText) {
 
 TEST_F(LayoutTest, LayoutDirtyFlagCleared) {
     auto nodes = ParseMarkdown("Test");
-    EXPECT_TRUE(nodes[0].layout_dirty);
-    engine_.ComputeLayout(nodes, 800.0f);
-    EXPECT_FALSE(nodes[0].layout_dirty);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    EXPECT_TRUE(cache[0].layout_dirty);
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    EXPECT_FALSE(cache[0].layout_dirty);
 }
 
 TEST_F(LayoutTest, TextLayoutCreated) {
     auto nodes = ParseMarkdown("Test paragraph");
-    engine_.ComputeLayout(nodes, 800.0f);
-    EXPECT_NE(nodes[0].text_layout.Get(), nullptr);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    EXPECT_NE(cache[0].text_layout.Get(), nullptr);
 }
 
 TEST_F(LayoutTest, HorizontalRuleHasNoTextLayout) {
     auto nodes = ParseMarkdown("---");
-    engine_.ComputeLayout(nodes, 800.0f);
-    EXPECT_EQ(nodes[0].text_layout.Get(), nullptr);
-    EXPECT_GT(nodes[0].height, 0.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    EXPECT_EQ(cache[0].text_layout.Get(), nullptr);
+    EXPECT_GT(cache[0].height, 0.0f);
 }
 
 TEST_F(LayoutTest, CodeBlockTextLayout) {
     auto nodes = ParseMarkdown("```\ncode\n```");
-    engine_.ComputeLayout(nodes, 800.0f);
-    EXPECT_NE(nodes[0].text_layout.Get(), nullptr);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    EXPECT_NE(cache[0].text_layout.Get(), nullptr);
 }
 
 TEST_F(LayoutTest, TableLayout) {
@@ -126,11 +154,13 @@ TEST_F(LayoutTest, TableLayout) {
         "|---|---|\n"
         "| 1 | 2 |"
     );
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
-    EXPECT_GT(nodes[0].height, 0.0f);
-    EXPECT_FALSE(nodes[0].col_widths.empty());
+    EXPECT_GT(cache[0].height, 0.0f);
+    EXPECT_FALSE(cache[0].col_widths.empty());
 }
 
 TEST_F(LayoutTest, TableCellLayoutsCreated) {
@@ -139,11 +169,14 @@ TEST_F(LayoutTest, TableCellLayoutsCreated) {
         "|---|---|\n"
         "| 1 | 2 |"
     );
-    engine_.ComputeLayout(nodes, 800.0f);
-    for (const auto& row : nodes[0].table_rows) {
-        for (const auto& cell : row.cells) {
-            if (!cell.text.empty()) {
-                EXPECT_NE(cell.text_layout.Get(), nullptr);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    const auto& cell_layouts = cache[0].cell_layouts;
+    for (size_t r = 0; r < cell_layouts.size(); r++) {
+        for (size_t c = 0; c < cell_layouts[r].size(); c++) {
+            if (!nodes[0].table_rows[r].cells[c].text.empty()) {
+                EXPECT_NE(cell_layouts[r][c].Get(), nullptr);
             }
         }
     }
@@ -155,13 +188,16 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline) {
         "|------|------|\n"
         "| hello | [click](https://example.com) |"
     );
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].table_rows.size(), 2u);
 
     // The data row's second cell should have a link run with underline applied
     const auto& cell = nodes[0].table_rows[1].cells[1];
-    ASSERT_NE(cell.text_layout.Get(), nullptr);
+    auto& cell_layout = cache[0].cell_layouts[1][1];
+    ASSERT_NE(cell_layout.Get(), nullptr);
 
     // Verify link run exists in cell
     bool has_link_run = false;
@@ -171,7 +207,7 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline) {
 
             // Check that underline was applied to the text layout
             BOOL underline = FALSE;
-            cell.text_layout->GetUnderline(run.start, &underline);
+            cell_layout->GetUnderline(run.start, &underline);
             EXPECT_TRUE(underline) << "Link run in table cell should have underline";
         }
     }
@@ -180,11 +216,13 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline) {
 
 TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize) {
     auto nodes = ParseMarkdown("# H1\n\n## H2\n\n### H3");
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 3u);
     // H1 should be taller than H2, H2 >= H3
-    EXPECT_GT(nodes[0].height, nodes[1].height);
-    EXPECT_GE(nodes[1].height, nodes[2].height);
+    EXPECT_GT(cache[0].height, cache[1].height);
+    EXPECT_GE(cache[1].height, cache[2].height);
 }
 
 TEST_F(LayoutTest, TotalHeightWithManyNodes) {
@@ -193,33 +231,37 @@ TEST_F(LayoutTest, TotalHeightWithManyNodes) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md);
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
 
     float total = engine_.GetTotalHeight();
     EXPECT_GT(total, 1000.0f); // 100 paragraphs should be quite tall
 
     // Last node's bottom should be within total height
-    const auto& last = nodes.back();
-    EXPECT_LE(last.y_position + last.height, total);
+    size_t last = nodes.size() - 1;
+    EXPECT_LE(cache[last].y_position + cache[last].height, total);
 }
 
 // ---- ProcessDirtyBatch tests ----
 
 TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes) {
     auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD\n\nE");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
     // Do a partial layout first
-    engine_.ComputeLayout(nodes, 800.0f, 0.0f, 50.0f);
+    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
     // If there are dirty nodes, process them
     if (engine_.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, 800.0f, 100);
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
         // After processing enough, should have no dirty nodes
         EXPECT_FALSE(more);
     }
 
     // All nodes should have valid positions
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(nodes[i].y_position, nodes[i - 1].y_position);
+        EXPECT_GT(cache[i].y_position, cache[i - 1].y_position);
     }
 }
 
@@ -230,13 +272,15 @@ TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
 
     // Do partial layout with very small viewport
-    engine_.ComputeLayout(nodes, 800.0f, 0.0f, 10.0f);
+    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 10.0f);
 
     if (engine_.HasDirtyNodes()) {
         // Process only 5 nodes at a time
-        bool more = engine_.ProcessDirtyBatch(nodes, 800.0f, 5);
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5);
         // With 50 nodes and batch=5, should still have more dirty
         EXPECT_TRUE(more);
     }
@@ -246,11 +290,13 @@ TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch) {
 
 TEST_F(LayoutTest, WidthChangeRecomputesLayouts) {
     auto nodes = ParseMarkdown("This is a paragraph with some text that might wrap differently.");
-    engine_.ComputeLayout(nodes, 800.0f);
-    float height_wide = nodes[0].height;
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    float height_wide = cache[0].height;
 
-    engine_.ComputeLayout(nodes, 200.0f);
-    float height_narrow = nodes[0].height;
+    engine_.ComputeLayout(nodes, cache, 200.0f);
+    float height_narrow = cache[0].height;
 
     // Narrow width should produce taller text (more wrapping)
     EXPECT_GE(height_narrow, height_wide);
@@ -259,27 +305,34 @@ TEST_F(LayoutTest, WidthChangeRecomputesLayouts) {
 // ---- Empty table ----
 
 TEST_F(LayoutTest, EmptyTableMinimalHeight) {
-    RenderNode node;
+    Node node;
     node.type = NodeType::Table;
     node.table_rows.clear();
-    std::vector<RenderNode> nodes = {node};
+    std::vector<Node> nodes = {node};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
 
-    engine_.ComputeLayout(nodes, 800.0f);
+    engine_.ComputeLayout(nodes, cache, 800.0f);
     // Empty table should not crash and have some height
-    EXPECT_GE(nodes[0].height, 0.0f);
+    EXPECT_GE(cache[0].height, 0.0f);
 }
 
 // ---- Indented nodes ----
 
 TEST_F(LayoutTest, IndentedNodesHaveNarrowerWidth) {
     auto nodes_plain = ParseMarkdown("This is a somewhat long paragraph that wraps.");
+    LayoutCache cache_plain;
+    cache_plain.Resize(nodes_plain.size());
+
     auto nodes_list = ParseMarkdown("- This is a somewhat long paragraph that wraps.");
+    LayoutCache cache_list;
+    cache_list.Resize(nodes_list.size());
 
-    engine_.ComputeLayout(nodes_plain, 400.0f);
-    float plain_height = nodes_plain[0].height;
+    engine_.ComputeLayout(nodes_plain, cache_plain, 400.0f);
+    float plain_height = cache_plain[0].height;
 
-    engine_.ComputeLayout(nodes_list, 400.0f);
-    float list_height = nodes_list[0].height;
+    engine_.ComputeLayout(nodes_list, cache_list, 400.0f);
+    float list_height = cache_list[0].height;
 
     // List items are indented, so same text should be taller (narrower available width)
     EXPECT_GE(list_height, plain_height);
@@ -289,9 +342,11 @@ TEST_F(LayoutTest, IndentedNodesHaveNarrowerWidth) {
 
 TEST_F(LayoutTest, BlockQuoteLayout) {
     auto nodes = ParseMarkdown("> Quoted text here");
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_GT(nodes[0].height, 0.0f);
+    EXPECT_GT(cache[0].height, 0.0f);
     EXPECT_GT(nodes[0].indent_level, 0);
 }
 
@@ -303,31 +358,35 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap) {
     long_line += "\n```";
 
     auto nodes = ParseMarkdown(long_line);
-    engine_.ComputeLayout(nodes, 200.0f);  // Very narrow
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 200.0f);  // Very narrow
 
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     // Code blocks don't wrap, so height should be for a single line
     // (approximately the code font height)
-    EXPECT_LT(nodes[0].height, 100.0f);
+    EXPECT_LT(cache[0].height, 100.0f);
 }
 
 // ---- Heading spacing ----
 
 TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow) {
     auto nodes = ParseMarkdown("Paragraph\n\n# Heading\n\nAnother paragraph");
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 3u);
 
     // Heading should have spacing above (gap between paragraph bottom and heading y)
-    float para_bottom = nodes[0].y_position + nodes[0].height;
-    float heading_y = nodes[1].y_position;
+    float para_bottom = cache[0].y_position + cache[0].height;
+    float heading_y = cache[1].y_position;
     float gap_above = heading_y - para_bottom;
     EXPECT_GT(gap_above, theme_.paragraph_spacing);
 
     // Heading should have spacing below
-    float heading_bottom = nodes[1].y_position + nodes[1].height;
-    float next_y = nodes[2].y_position;
+    float heading_bottom = cache[1].y_position + cache[1].height;
+    float next_y = cache[2].y_position;
     float gap_below = next_y - heading_bottom;
     EXPECT_GT(gap_below, 0.0f);
 }
@@ -455,90 +514,129 @@ TEST(BuildLinearizedTableTextTest, EmptyCells) {
 // ---- RecomputeYPositions ----
 
 TEST(RecomputeYPositionsTest, EmptyNodes) {
-    std::vector<RenderNode> nodes;
+    std::vector<Node> nodes;
+    LayoutCache cache;
     Theme theme = GetLightTheme();
-    auto result = RecomputeYPositions(nodes, theme);
+    auto result = RecomputeYPositions(nodes, cache, theme);
     EXPECT_FLOAT_EQ(result.total_height, theme.margin_top * 2);
     EXPECT_FALSE(result.has_dirty_nodes);
 }
 
+// ---- ComputeTotalContentHeight ----
+
+TEST(ComputeTotalContentHeightTest, EmptyNodesReturnsZero) {
+    LayoutCache cache;
+    // node_count == 0 must not underflow size_t; should return 0.
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 0, 10.0f), 0.0f);
+}
+
+TEST(ComputeTotalContentHeightTest, SingleNode) {
+    LayoutCache cache;
+    cache.Resize(1);
+    cache[0].y_position = 15.0f;
+    cache[0].height = 50.0f;
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 1, 15.0f), 80.0f);
+}
+
+TEST(ComputeTotalContentHeightTest, MultipleNodes) {
+    LayoutCache cache;
+    cache.Resize(3);
+    cache[0].y_position = 10.0f;  cache[0].height = 20.0f;
+    cache[1].y_position = 40.0f;  cache[1].height = 30.0f;
+    cache[2].y_position = 80.0f;  cache[2].height = 25.0f;
+    // Only the last node matters: 80 + 25 + 10 = 115
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 3, 10.0f), 115.0f);
+}
+
 TEST(RecomputeYPositionsTest, SingleParagraph) {
-    RenderNode node;
+    Node node;
     node.type = NodeType::Paragraph;
-    node.height = 20.0f;
-    node.layout_dirty = false;
-    std::vector<RenderNode> nodes = {node};
+    std::vector<Node> nodes = {node};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 20.0f;
+    cache[0].layout_dirty = false;
     Theme theme = GetLightTheme();
 
-    auto result = RecomputeYPositions(nodes, theme);
-    EXPECT_FLOAT_EQ(nodes[0].y_position, theme.margin_top);
+    auto result = RecomputeYPositions(nodes, cache, theme);
+    EXPECT_FLOAT_EQ(cache[0].y_position, theme.margin_top);
     EXPECT_GT(result.total_height, theme.margin_top + 20.0f);
     EXPECT_FALSE(result.has_dirty_nodes);
 }
 
 TEST(RecomputeYPositionsTest, HeadingSpacing) {
-    RenderNode para;
+    Node para;
     para.type = NodeType::Paragraph;
-    para.height = 20.0f;
-    para.layout_dirty = false;
 
-    RenderNode heading;
+    Node heading;
     heading.type = NodeType::Heading;
-    heading.height = 30.0f;
-    heading.layout_dirty = false;
 
-    RenderNode para2;
+    Node para2;
     para2.type = NodeType::Paragraph;
-    para2.height = 20.0f;
-    para2.layout_dirty = false;
 
-    std::vector<RenderNode> nodes = {para, heading, para2};
+    std::vector<Node> nodes = {para, heading, para2};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 20.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 30.0f;
+    cache[1].layout_dirty = false;
+    cache[2].height = 20.0f;
+    cache[2].layout_dirty = false;
+
     Theme theme = GetLightTheme();
 
-    RecomputeYPositions(nodes, theme);
+    RecomputeYPositions(nodes, cache, theme);
 
     // Heading should have extra spacing above
-    float para_bottom = nodes[0].y_position + nodes[0].height + theme.paragraph_spacing;
-    float heading_y = nodes[1].y_position;
+    float para_bottom = cache[0].y_position + cache[0].height + theme.paragraph_spacing;
+    float heading_y = cache[1].y_position;
     EXPECT_FLOAT_EQ(heading_y, para_bottom + theme.heading_spacing_above);
 
     // After heading: heading_spacing_below, not paragraph_spacing
-    float heading_bottom = nodes[1].y_position + nodes[1].height + theme.heading_spacing_below;
-    EXPECT_FLOAT_EQ(nodes[2].y_position, heading_bottom);
+    float heading_bottom = cache[1].y_position + cache[1].height + theme.heading_spacing_below;
+    EXPECT_FLOAT_EQ(cache[2].y_position, heading_bottom);
 }
 
 TEST(RecomputeYPositionsTest, DetectsDirtyNodes) {
-    RenderNode clean;
+    Node clean;
     clean.type = NodeType::Paragraph;
-    clean.height = 20.0f;
-    clean.layout_dirty = false;
 
-    RenderNode dirty;
+    Node dirty;
     dirty.type = NodeType::Paragraph;
-    dirty.height = 20.0f;
-    dirty.layout_dirty = true;
 
-    std::vector<RenderNode> nodes = {clean, dirty};
+    std::vector<Node> nodes = {clean, dirty};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 20.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 20.0f;
+    cache[1].layout_dirty = true;
+
     Theme theme = GetLightTheme();
 
-    auto result = RecomputeYPositions(nodes, theme);
+    auto result = RecomputeYPositions(nodes, cache, theme);
     EXPECT_TRUE(result.has_dirty_nodes);
 }
 
 TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY) {
-    std::vector<RenderNode> nodes;
+    std::vector<Node> nodes;
     for (int i = 0; i < 10; i++) {
-        RenderNode node;
+        Node node;
         node.type = NodeType::Paragraph;
-        node.height = 15.0f + static_cast<float>(i);
-        node.layout_dirty = false;
         nodes.push_back(node);
     }
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    for (int i = 0; i < 10; i++) {
+        cache[i].height = 15.0f + static_cast<float>(i);
+        cache[i].layout_dirty = false;
+    }
     Theme theme = GetLightTheme();
-    RecomputeYPositions(nodes, theme);
+    RecomputeYPositions(nodes, cache, theme);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(nodes[i].y_position, nodes[i - 1].y_position);
+        EXPECT_GT(cache[i].y_position, cache[i - 1].y_position);
     }
 }
 
@@ -551,40 +649,44 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md);
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
 
     // Now do a partial layout at a different width — this marks off-screen nodes dirty
-    engine_.ComputeLayout(nodes, 400.0f, 0.0f, 100.0f);
+    engine_.ComputeLayout(nodes, cache, 400.0f, 0.0f, 100.0f);
 
     // Some nodes beyond viewport should still be dirty
     bool any_dirty = false;
-    for (const auto& n : nodes) {
-        if (n.layout_dirty) { any_dirty = true; break; }
+    for (size_t i = 0; i < nodes.size(); i++) {
+        if (cache[i].layout_dirty) { any_dirty = true; break; }
     }
     ASSERT_TRUE(any_dirty);
 
     // Mark a visible node dirty manually to test the fix path
-    nodes[0].layout_dirty = true;
+    cache[0].layout_dirty = true;
 
     // EnsureVisibleLayout should fix the visible range
-    bool updated = engine_.EnsureVisibleLayout(nodes, 400.0f, 0.0f, 100.0f);
+    bool updated = engine_.EnsureVisibleLayout(nodes, cache, 400.0f, 0.0f, 100.0f);
     EXPECT_TRUE(updated);
 
     // Nodes in visible range should no longer be dirty
-    for (const auto& n : nodes) {
-        if (n.y_position + n.height < 0.0f) continue;
-        if (n.y_position > 100.0f) break;
-        EXPECT_FALSE(n.layout_dirty)
-            << "Visible node at y=" << n.y_position << " is still dirty";
+    for (size_t i = 0; i < nodes.size(); i++) {
+        if (cache[i].y_position + cache[i].height < 0.0f) continue;
+        if (cache[i].y_position > 100.0f) break;
+        EXPECT_FALSE(cache[i].layout_dirty)
+            << "Visible node at y=" << cache[i].y_position << " is still dirty";
     }
 }
 
 TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean) {
     auto nodes = ParseMarkdown("Hello world");
-    engine_.ComputeLayout(nodes, 800.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
 
     // All nodes are clean, so EnsureVisibleLayout should return false
-    bool updated = engine_.EnsureVisibleLayout(nodes, 800.0f, 0.0f, 1000.0f);
+    bool updated = engine_.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 1000.0f);
     EXPECT_FALSE(updated);
 }
 
@@ -594,21 +696,23 @@ TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md);
-    engine_.ComputeLayout(nodes, 800.0f, 0.0f, 50.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
     // Count dirty nodes before
     int dirty_before = 0;
-    for (const auto& n : nodes) {
-        if (n.layout_dirty) dirty_before++;
+    for (size_t i = 0; i < nodes.size(); i++) {
+        if (cache[i].layout_dirty) dirty_before++;
     }
 
     // EnsureVisibleLayout only for a small viewport slice
-    engine_.EnsureVisibleLayout(nodes, 800.0f, 0.0f, 50.0f);
+    engine_.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
     // Distant dirty nodes should remain dirty
     int dirty_after = 0;
-    for (const auto& n : nodes) {
-        if (n.layout_dirty) dirty_after++;
+    for (size_t i = 0; i < nodes.size(); i++) {
+        if (cache[i].layout_dirty) dirty_after++;
     }
     // Some nodes should still be dirty (the off-screen ones)
     EXPECT_GT(dirty_after, 0);
@@ -621,18 +725,20 @@ TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
     // Full layout at wide width
-    engine_.ComputeLayout(nodes, 800.0f);
+    engine_.ComputeLayout(nodes, cache, 800.0f);
 
     // Now do a partial layout at narrow width (marks off-screen dirty)
-    engine_.ComputeLayout(nodes, 300.0f, 0.0f, 50.0f);
+    engine_.ComputeLayout(nodes, cache, 300.0f, 0.0f, 50.0f);
 
     // EnsureVisibleLayout should update Y positions consistently
-    engine_.EnsureVisibleLayout(nodes, 300.0f, 0.0f, 50.0f);
+    engine_.EnsureVisibleLayout(nodes, cache, 300.0f, 0.0f, 50.0f);
 
     // Y positions should still be monotonically increasing
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(nodes[i].y_position, nodes[i - 1].y_position)
+        EXPECT_GT(cache[i].y_position, cache[i - 1].y_position)
             << "Node " << i << " y should be > node " << (i - 1);
     }
 }
@@ -643,10 +749,12 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md);
-    engine_.ComputeLayout(nodes, 800.0f, 0.0f, 50.0f);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
     float height_before = engine_.GetTotalHeight();
-    engine_.EnsureVisibleLayout(nodes, 800.0f, 0.0f, 50.0f);
+    engine_.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
     float height_after = engine_.GetTotalHeight();
 
     // Total height may change when visible nodes get re-laid out
@@ -659,55 +767,65 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight) {
 
 TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing) {
     Theme theme = GetLightTheme();
-    RenderNode h1;
+    Node h1;
     h1.type = NodeType::Heading;
-    h1.height = 40.0f;
-    h1.layout_dirty = false;
 
-    RenderNode h2;
+    Node h2;
     h2.type = NodeType::Heading;
-    h2.height = 30.0f;
-    h2.layout_dirty = false;
 
-    std::vector<RenderNode> nodes = {h1, h2};
-    RecomputeYPositions(nodes, theme);
+    std::vector<Node> nodes = {h1, h2};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 40.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 30.0f;
+    cache[1].layout_dirty = false;
+
+    RecomputeYPositions(nodes, cache, theme);
 
     // First heading: margin_top + heading_spacing_above
-    EXPECT_FLOAT_EQ(nodes[0].y_position, theme.margin_top + theme.heading_spacing_above);
+    EXPECT_FLOAT_EQ(cache[0].y_position, theme.margin_top + theme.heading_spacing_above);
 
     // Second heading: after first heading + heading_spacing_below + heading_spacing_above
-    float expected_y = nodes[0].y_position + nodes[0].height
+    float expected_y = cache[0].y_position + cache[0].height
                      + theme.heading_spacing_below + theme.heading_spacing_above;
-    EXPECT_FLOAT_EQ(nodes[1].y_position, expected_y);
+    EXPECT_FLOAT_EQ(cache[1].y_position, expected_y);
 }
 
 TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions) {
     Theme theme = GetLightTheme();
-    std::vector<RenderNode> nodes;
+    std::vector<Node> nodes;
 
-    auto add_node = [&](NodeType type, float height) {
-        RenderNode n;
+    auto add_node = [&](NodeType type) {
+        Node n;
         n.type = type;
-        n.height = height;
-        n.layout_dirty = false;
         nodes.push_back(n);
     };
 
-    add_node(NodeType::Paragraph, 20.0f);
-    add_node(NodeType::Heading, 30.0f);
-    add_node(NodeType::CodeBlock, 50.0f);
-    add_node(NodeType::HorizontalRule, 5.0f);
-    add_node(NodeType::ListItem, 18.0f);
-    add_node(NodeType::BlockQuote, 25.0f);
-    add_node(NodeType::Table, 60.0f);
+    add_node(NodeType::Paragraph);
+    add_node(NodeType::Heading);
+    add_node(NodeType::CodeBlock);
+    add_node(NodeType::HorizontalRule);
+    add_node(NodeType::ListItem);
+    add_node(NodeType::BlockQuote);
+    add_node(NodeType::Table);
 
-    auto result = RecomputeYPositions(nodes, theme);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    float heights[] = {20.0f, 30.0f, 50.0f, 5.0f, 18.0f, 25.0f, 60.0f};
+    for (size_t i = 0; i < nodes.size(); i++) {
+        cache[i].height = heights[i];
+        cache[i].layout_dirty = false;
+    }
+
+    auto result = RecomputeYPositions(nodes, cache, theme);
 
     // All positions should be monotonically increasing
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(nodes[i].y_position, nodes[i - 1].y_position);
+        EXPECT_GT(cache[i].y_position, cache[i - 1].y_position);
     }
     // Total height should exceed last node's bottom
-    float last_bottom = nodes.back().y_position + nodes.back().height;
+    size_t last = nodes.size() - 1;
+    float last_bottom = cache[last].y_position + cache[last].height;
     EXPECT_GE(result.total_height, last_bottom);
 }

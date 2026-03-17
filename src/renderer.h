@@ -1,7 +1,11 @@
 #pragma once
 #include "types.h"
+#include "layout_cache.h"
 #include "theme.h"
 #include "layout.h"
+#include "dwrite_measurer.h"
+#include "command_generator.h"
+#include "command_executor.h"
 #include "syntax.h"
 #include "pane.h"
 #include "file_explorer.h"
@@ -17,7 +21,7 @@ class Renderer {
 public:
     bool Init(HWND hwnd);
     void Resize(UINT width, UINT height);
-    void Render(std::vector<RenderNode>& nodes, float scroll_y,
+    void Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
                 const TextSelection& selection,
                 const PaneRect& file_pane_rect, const PaneRect& toc_pane_rect,
                 const PaneRect& md_pane_rect,
@@ -47,16 +51,9 @@ public:
     void InvalidateTocPaneCache() { toc_pane_cache_.dirty = true; }
 
 private:
-    void DrawNode(RenderNode& node, int node_index, float offset_x,
-                  float viewport_top, float viewport_bottom,
-                  const TextSelection& selection, float pane_content_width);
-    void DrawCodeBlockBackground(const RenderNode& node, float offset_x, float content_width);
-    void DrawHorizontalRule(const RenderNode& node, float offset_x, float content_width);
-    void DrawListBullet(const RenderNode& node, float offset_x);
-    void DrawBlockQuoteBar(const RenderNode& node, float base_x);
-    void DrawTable(const RenderNode& node, int node_index, float offset_x, const TextSelection& selection);
-    void DrawTextRangeHighlight(IDWriteTextLayout* layout, uint32_t start, uint32_t length,
-                                float origin_x, float origin_y, ID2D1Brush* brush);
+    // Pre-pass: apply drawing effects (syntax highlighting, link colors) to layouts.
+    void ApplyVisibleEffects(std::vector<Node>& nodes, LayoutCache& cache,
+                             float scroll_y, const PaneRect& md_pane_rect);
 
     void DrawFileExplorer(const std::vector<FileEntry>& entries, const PaneRect& rect,
                           const ScrollState& scroll, int hovered_index);
@@ -99,10 +96,11 @@ private:
     ComPtr<ID2D1SolidColorBrush> scrollbar_thumb_brush_;
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
-    void ApplyNodeEffects(RenderNode& node);
+    void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry);
     void RecreateBrushes();
     void RecreatePaneFormats();
 
+    // Hit-test buffer for ApplyNodeEffects inline-code background computation.
     std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     ComPtr<IDWriteTextFormat> icon_font_format_;
@@ -128,7 +126,10 @@ private:
     PaneCache toc_pane_cache_;
 
     Theme theme_;
+    DWriteTextMeasurer measurer_;
     LayoutEngine layout_;
+    CommandGenerator cmd_generator_;
+    CommandExecutor cmd_executor_;
     float dpi_ = 96.0f;
     HWND hwnd_ = nullptr;
 };

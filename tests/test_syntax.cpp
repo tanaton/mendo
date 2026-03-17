@@ -730,3 +730,160 @@ TEST(Syntax, DetectLanguageRuby) {
 TEST(Syntax, DetectLanguageGo) {
     EXPECT_EQ(DetectLanguage(L"go"), SyntaxLanguage::None);
 }
+
+// ============================================================
+// Additional language extensions
+// ============================================================
+
+TEST(Syntax, DetectLanguageCc) {
+    EXPECT_EQ(DetectLanguage(L"cc"), SyntaxLanguage::Cpp);
+}
+
+TEST(Syntax, DetectLanguageHxx) {
+    EXPECT_EQ(DetectLanguage(L"hxx"), SyntaxLanguage::Cpp);
+}
+
+TEST(Syntax, DetectLanguageMermaidCaseInsensitive) {
+    EXPECT_EQ(DetectLanguage(L"Mermaid"), SyntaxLanguage::Mermaid);
+    EXPECT_EQ(DetectLanguage(L"MERMAID"), SyntaxLanguage::Mermaid);
+}
+
+// ============================================================
+// Mermaid tokenization returns empty (no keyword tables)
+// ============================================================
+
+TEST(Syntax, MermaidLanguageReturnsEmpty) {
+    // Mermaid has no tokenizer in the current implementation
+    auto tokens = Tokenize(L"graph TD; A-->B;", SyntaxLanguage::Mermaid);
+    EXPECT_TRUE(tokens.empty());
+}
+
+// ============================================================
+// Number edge cases
+// ============================================================
+
+TEST(Syntax, CppNumberExponent) {
+    std::wstring code = L"1.5e10";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    auto* num = FindToken(tokens, SyntaxTokenType::Number);
+    ASSERT_NE(num, nullptr);
+    EXPECT_EQ(GetTokenText(code, *num), L"1.5e10");
+}
+
+TEST(Syntax, CppNumberExponentNegative) {
+    std::wstring code = L"2.0e-3";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    auto* num = FindToken(tokens, SyntaxTokenType::Number);
+    ASSERT_NE(num, nullptr);
+    EXPECT_EQ(GetTokenText(code, *num), L"2.0e-3");
+}
+
+TEST(Syntax, CppNumberDigitSeparator) {
+    std::wstring code = L"1'000'000";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    auto* num = FindToken(tokens, SyntaxTokenType::Number);
+    ASSERT_NE(num, nullptr);
+    EXPECT_EQ(GetTokenText(code, *num), L"1'000'000");
+}
+
+TEST(Syntax, CppHexDigitSeparator) {
+    std::wstring code = L"0xFF'FF";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    auto* num = FindToken(tokens, SyntaxTokenType::Number);
+    ASSERT_NE(num, nullptr);
+    EXPECT_EQ(GetTokenText(code, *num), L"0xFF'FF");
+}
+
+// ============================================================
+// C++ raw string with delimiter
+// ============================================================
+
+TEST(Syntax, CppRawStringWithDelimiter) {
+    std::wstring code = LR"(R"delim(hello "world")delim")";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    // R is emitted as a separate identifier, then the raw string follows
+    auto* str = FindToken(tokens, SyntaxTokenType::String);
+    ASSERT_NE(str, nullptr);
+    // Entire R"delim(...)delim" captured (R as plain + string body)
+    EXPECT_GT(str->length, 10u);
+}
+
+// ============================================================
+// Python unterminated triple-quote
+// ============================================================
+
+TEST(Syntax, PythonUnterminatedTripleQuote) {
+    std::wstring code = L"s = \"\"\"never closed";
+    auto tokens = Tokenize(code, SyntaxLanguage::Python);
+    AssertTokensCoverText(tokens, code.size());
+    auto* str = FindToken(tokens, SyntaxTokenType::String);
+    ASSERT_NE(str, nullptr);
+}
+
+// ============================================================
+// C++ modern keywords
+// ============================================================
+
+TEST(Syntax, CppModernKeywords) {
+    std::wstring code = L"constexpr consteval constinit concept requires co_await co_return co_yield";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 8);
+}
+
+TEST(Syntax, CppCastKeywords) {
+    std::wstring code = L"static_cast dynamic_cast reinterpret_cast const_cast";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 4);
+}
+
+// ============================================================
+// C++ STL types
+// ============================================================
+
+TEST(Syntax, CppStlTypes) {
+    std::wstring code = L"vector map optional variant span unique_ptr shared_ptr";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 7);
+}
+
+TEST(Syntax, CppWin32Types) {
+    std::wstring code = L"HRESULT BOOL DWORD HWND LRESULT";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
+}
+
+// ============================================================
+// Python exception types
+// ============================================================
+
+TEST(Syntax, PythonExceptionTypes) {
+    std::wstring code = L"ValueError TypeError KeyError IndexError RuntimeError";
+    auto tokens = Tokenize(code, SyntaxLanguage::Python);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
+}
+
+// ============================================================
+// JavaScript globals
+// ============================================================
+
+TEST(Syntax, JsGlobalTypes) {
+    std::wstring code = L"console document window JSON Math";
+    auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
+}
+
+TEST(Syntax, JsAsyncAwait) {
+    std::wstring code = L"async await";
+    auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 2);
+}

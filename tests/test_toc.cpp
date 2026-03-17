@@ -3,7 +3,7 @@
 #include "parser.h"
 
 TEST(Toc, EmptyDocument) {
-    std::vector<RenderNode> nodes;
+    std::vector<Node> nodes;
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
     EXPECT_TRUE(toc.GetEntries().empty());
