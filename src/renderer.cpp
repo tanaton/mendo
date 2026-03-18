@@ -563,9 +563,9 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2,
                                      cx + rect_w / 2, cy + rect_h / 2);
 
-    // Background
+    // Background (semi-transparent dark overlay for both themes)
     D2D1_COLOR_F bg_color = is_dark
-        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha * 0.15f)
+        ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.8f)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.6f);
 
     ComPtr<ID2D1SolidColorBrush> bg_brush;
@@ -575,13 +575,11 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
         render_target_->FillRoundedRectangle(rrect, bg_brush.Get());
     }
 
-    // Text
+    // Text (white on dark overlay for both themes)
     const wchar_t* text = (direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080";
     UINT32 text_len = static_cast<UINT32>(wcslen(text));
 
-    D2D1_COLOR_F text_color = is_dark
-        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha)
-        : D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha);
+    D2D1_COLOR_F text_color = D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha);
 
     ComPtr<ID2D1SolidColorBrush> text_brush;
     render_target_->CreateSolidColorBrush(text_color, &text_brush);

@@ -169,23 +169,27 @@ void MainWindow::OnContextMenu(int screen_x, int screen_y) {
 
 // ---- Right-click gesture ----
 
-void MainWindow::OnRButtonDown(int px, int py) {
-    if (!renderer_.GetRenderTarget()) return;
+bool MainWindow::OnRButtonDown(int px, int py) {
+    if (!renderer_.GetRenderTarget()) return false;
 
     // Don't start gesture during left-button drag
-    if (viewport_.IsDragging()) return;
+    if (viewport_.IsDragging()) return false;
 
     auto dip = PixelToDip(px, py);
     auto zone = PaneAtPoint(dip.x, dip.y);
 
     // Only handle gesture in MD pane
-    if (zone != PaneZone::MdPane) return;
+    if (zone != PaneZone::MdPane) return false;
 
     gesture_.OnRButtonDown(dip.x, dip.y);
     SetCapture(hwnd_);
+    return true;
 }
 
-void MainWindow::OnRButtonUp(int px, int py) {
+bool MainWindow::OnRButtonUp(int px, int py) {
+    // If gesture wasn't started, let DefWindowProc handle it
+    if (gesture_.GetPhase() == GesturePhase::Idle) return false;
+
     // OnRButtonUp must be called BEFORE ReleaseCapture().
     // ReleaseCapture() sends WM_CAPTURECHANGED synchronously,
     // which would Reset() the gesture before we read the result.
@@ -213,6 +217,7 @@ void MainWindow::OnRButtonUp(int px, int py) {
             InvalidateRect(hwnd_, nullptr, FALSE);
             break;
     }
+    return true;
 }
 
 void MainWindow::OnRButtonMove(int px, int py) {

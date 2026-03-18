@@ -182,11 +182,13 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
 
         case WM_RBUTTONDOWN:
-            OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            if (!OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+                return DefWindowProcW(hwnd_, msg, wParam, lParam);
             return 0;
 
         case WM_RBUTTONUP:
-            OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            if (!OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+                return DefWindowProcW(hwnd_, msg, wParam, lParam);
             return 0;
 
         case WM_LBUTTONDOWN:
@@ -348,12 +350,6 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             } else if (wParam == TIMER_LOADING_ANIM) {
                 loading_angle_ += 0.15f;
                 InvalidateRect(hwnd_, nullptr, FALSE);
-            } else if (wParam == TIMER_GESTURE_OVERLAY) {
-                if (!gesture_.UpdateOverlay(16.0f / 1000.0f)) {
-                    KillTimer(hwnd_, TIMER_GESTURE_OVERLAY);
-                    gesture_.Reset();
-                }
-                InvalidateRect(hwnd_, nullptr, FALSE);
             }
             return 0;
 
@@ -362,7 +358,7 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
 
         case WM_CAPTURECHANGED:
-            if (gesture_.IsGestureActive()) {
+            if (gesture_.GetPhase() != GesturePhase::Idle) {
                 gesture_.Reset();
                 InvalidateRect(hwnd_, nullptr, FALSE);
             }
@@ -374,7 +370,6 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
             KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
             KillTimer(hwnd_, TIMER_LOADING_ANIM);
-            KillTimer(hwnd_, TIMER_GESTURE_OVERLAY);
             PostQuitMessage(0);
             return 0;
 

@@ -2,7 +2,7 @@
 #include <vector>
 #include <cmath>
 
-enum class GesturePhase { Idle, Pressed, Tracking, Completed };
+enum class GesturePhase { Idle, Pressed, Tracking };
 enum class GestureDirection { None, Left, Right };
 enum class GestureResult { None, ShowContextMenu, Back, Forward };
 
@@ -16,7 +16,6 @@ public:
     static constexpr float GESTURE_THRESHOLD = 30.0f;
     static constexpr float MIN_POINT_DISTANCE = 2.0f;
     static constexpr int   TRAIL_MAX_POINTS = 512;
-    static constexpr float OVERLAY_FADE_DURATION = 0.8f;
 
     void OnRButtonDown(float x, float y) {
         Reset();
@@ -30,7 +29,7 @@ public:
     }
 
     void OnMouseMove(float x, float y) {
-        if (phase_ == GesturePhase::Idle || phase_ == GesturePhase::Completed) return;
+        if (phase_ == GesturePhase::Idle) return;
 
         current_x_ = x;
         current_y_ = y;
@@ -65,7 +64,7 @@ public:
     }
 
     GestureResult OnRButtonUp() {
-        if (phase_ == GesturePhase::Idle || phase_ == GesturePhase::Completed) {
+        if (phase_ == GesturePhase::Idle) {
             return GestureResult::None;
         }
 
@@ -84,16 +83,6 @@ public:
             case GestureDirection::Right: return GestureResult::Forward;
             default:                      return GestureResult::None;
         }
-    }
-
-    bool UpdateOverlay(float dt) {
-        if (phase_ != GesturePhase::Completed) return false;
-        overlay_alpha_ -= dt / OVERLAY_FADE_DURATION;
-        if (overlay_alpha_ <= 0.0f) {
-            overlay_alpha_ = 0.0f;
-            return false;
-        }
-        return true;
     }
 
     void Reset() {
