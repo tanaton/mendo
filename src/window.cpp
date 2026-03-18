@@ -181,6 +181,16 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             OnVScroll(wParam);
             return 0;
 
+        case WM_RBUTTONDOWN:
+            if (!OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+                return DefWindowProcW(hwnd_, msg, wParam, lParam);
+            return 0;
+
+        case WM_RBUTTONUP:
+            if (!OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+                return DefWindowProcW(hwnd_, msg, wParam, lParam);
+            return 0;
+
         case WM_LBUTTONDOWN:
             OnLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
@@ -192,6 +202,8 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_MOUSEMOVE:
             if (wParam & MK_LBUTTON) {
                 OnMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            } else if (wParam & MK_RBUTTON) {
+                OnRButtonMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             } else {
                 // Update cursor and hover state based on what's under the mouse
                 if (renderer_.GetRenderTarget()) {
@@ -345,6 +357,13 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             DoLoadMarkdownFile();
             return 0;
 
+        case WM_CAPTURECHANGED:
+            if (gesture_.GetPhase() != GesturePhase::Idle) {
+                gesture_.Reset();
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
+            return 0;
+
         case WM_DESTROY:
             SaveLastFilePath();
             KillTimer(hwnd_, TIMER_FILE_WATCH);
@@ -405,13 +424,22 @@ void MainWindow::OnPaint() {
             AnchorCompensateScroll(anchor_idx, anchor_y_before);
         }
     }
+    GestureRenderState gs;
+    gs.trail_active = gesture_.IsGestureActive();
+    gs.trail_points = &gesture_.GetTrailPoints();
+    gs.overlay_visible = gesture_.IsOverlayVisible();
+    gs.direction = (gesture_.GetDirection() == GestureDirection::Left) ? -1
+                 : (gesture_.GetDirection() == GestureDirection::Right) ? 1 : 0;
+    gs.overlay_alpha = gesture_.GetOverlayAlpha();
+
     if (loading_) {
         renderer_.DrawLoading(loading_angle_,
                               layout.md_rect,
                               {layout.file_rect, layout.toc_rect,
                                file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
                                toc_.GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
-                               panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible()});
+                               panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible()},
+                              gs);
     } else {
         renderer_.Render(nodes_, layout_cache_, viewport_.GetScrollY(), viewport_.GetSelection(),
                          layout.md_rect,
@@ -420,7 +448,8 @@ void MainWindow::OnPaint() {
                           toc_.GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
                           panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible()},
                          nav_history_.CanGoBack(), nav_history_.CanGoForward(),
-                         static_cast<int>(nav_hover_));
+                         static_cast<int>(nav_hover_),
+                         gs);
     }
 
     EndPaint(hwnd_, &ps);

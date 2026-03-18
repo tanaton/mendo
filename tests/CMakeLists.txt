@@ -19,6 +19,7 @@ add_executable(mendo_tests
     test_pane_controller.cpp
     test_nav_history.cpp
     test_nav_button_format.cpp
+    test_mouse_gesture.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE
