@@ -646,7 +646,9 @@ void MainWindow::CopySelectionToClipboard() const {
         if (ptr) {
             memcpy(ptr, result.c_str(), bytes);
             GlobalUnlock(hMem);
-            SetClipboardData(CF_UNICODETEXT, hMem);
+            if (!SetClipboardData(CF_UNICODETEXT, hMem)) {
+                GlobalFree(hMem);
+            }
         } else {
             GlobalFree(hMem);
         }

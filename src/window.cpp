@@ -86,6 +86,11 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
         RequestMermaidRenders();
     });
 
+    // When D2D device is lost and render target is recreated, update MermaidRenderer
+    renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
+        mermaid_renderer_.SetRenderTarget(new_rt);
+    });
+
     // Apply saved dark mode preference
     dark_mode_ = LoadDarkMode();
     if (dark_mode_) {

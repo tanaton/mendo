@@ -468,7 +468,10 @@ void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll
 bool Renderer::CheckEndDraw() {
     HRESULT hr = render_target_->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
-        return RecreateRenderTarget();
+        RecreateRenderTarget();
+        // Current frame was discarded — request a repaint on the new target
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return false;
     }
     return SUCCEEDED(hr);
 }
@@ -494,6 +497,11 @@ bool Renderer::RecreateRenderTarget() {
     file_pane_cache_.Reset();
     toc_pane_cache_.Reset();
     cmd_executor_ = CommandExecutor{}; // Reset bound render target
+
+    // Notify owner so dependent resources (e.g. MermaidRenderer bitmaps) are updated
+    if (on_device_lost_) {
+        on_device_lost_(render_target_.Get());
+    }
 
     return true;
 }
