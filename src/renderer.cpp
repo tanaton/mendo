@@ -531,7 +531,7 @@ void Renderer::DrawGestureTrail(const std::vector<GesturePoint>& points) {
 
     ComPtr<ID2D1SolidColorBrush> trail_brush;
     render_target_->CreateSolidColorBrush(
-        D2D1::ColorF(0.26f, 0.56f, 0.84f, 0.5f), &trail_brush);
+        D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f), &trail_brush);
     if (!trail_brush) return;
 
     for (size_t i = 1; i < points.size(); i++) {
