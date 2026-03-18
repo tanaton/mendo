@@ -198,6 +198,69 @@ TEST(Parser, UnorderedList) {
     EXPECT_EQ(nodes[2].text, L"item3");
 }
 
+// ---- Bug #10: Nested blockquotes ----
+
+TEST(Parser, NestedBlockquotePreservesOuterStyle) {
+    auto nodes = ParseMarkdown("> outer\n>\n> > inner\n>\n> still outer");
+    // After inner blockquote exits, "still outer" should still be BlockQuote
+    bool found_still_outer = false;
+    for (const auto& node : nodes) {
+        if (node.text.find(L"still outer") != std::wstring::npos) {
+            EXPECT_EQ(node.type, NodeType::BlockQuote)
+                << "Text after inner blockquote should remain BlockQuote";
+            found_still_outer = true;
+        }
+    }
+    EXPECT_TRUE(found_still_outer) << "Should find 'still outer' in nodes";
+}
+
+TEST(Parser, SingleBlockquoteIsBlockQuoteType) {
+    auto nodes = ParseMarkdown("> quoted text");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+    EXPECT_EQ(nodes[0].text, L"quoted text");
+}
+
+// ---- Bug #11: Unicode supplementary plane entities ----
+
+TEST(Parser, HtmlEntitySupplementaryPlane) {
+    // U+1F600 = GRINNING FACE emoji (supplementary plane)
+    auto nodes = ParseMarkdown("&#x1F600;");
+    ASSERT_EQ(nodes.size(), 1u);
+    // UTF-16 surrogate pair for U+1F600: D83D DE00
+    ASSERT_GE(nodes[0].text.size(), 2u);
+    EXPECT_EQ(nodes[0].text[0], static_cast<wchar_t>(0xD83D));
+    EXPECT_EQ(nodes[0].text[1], static_cast<wchar_t>(0xDE00));
+}
+
+TEST(Parser, HtmlEntityDecimalSupplementaryPlane) {
+    // U+1F4A9 = 128169 decimal
+    auto nodes = ParseMarkdown("&#128169;");
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_GE(nodes[0].text.size(), 2u);
+    // U+1F4A9 -> D83D DCA9
+    EXPECT_EQ(nodes[0].text[0], static_cast<wchar_t>(0xD83D));
+    EXPECT_EQ(nodes[0].text[1], static_cast<wchar_t>(0xDCA9));
+}
+
+TEST(Parser, HtmlEntityBmpStillWorks) {
+    // U+00A9 = copyright sign (BMP)
+    auto nodes = ParseMarkdown("&#xA9;");
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].text.size(), 1u);
+    EXPECT_EQ(nodes[0].text[0], L'\u00A9');
+}
+
+TEST(Parser, HtmlEntityBeyondUnicode) {
+    // U+110000 is beyond Unicode max; should be ignored
+    auto nodes = ParseMarkdown("&#x110000;");
+    ASSERT_EQ(nodes.size(), 1u);
+    // Should be passed through as raw entity text
+    EXPECT_NE(nodes[0].text.find(L"110000"), std::wstring::npos);
+}
+
+// ---- Lists ----
+
 TEST(Parser, OrderedList) {
     auto nodes = ParseMarkdown("1. first\n2. second\n3. third");
     ASSERT_EQ(nodes.size(), 3u);

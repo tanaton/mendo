@@ -290,14 +290,16 @@ std::vector<SyntaxToken> TokenizeGeneric(
             flush_plain();
             size_t start = i;
             i += 2;
+            bool terminated = false;
             while (i + 1 < text.size()) {
                 if (text[i] == L'*' && text[i + 1] == L'/') {
                     i += 2;
+                    terminated = true;
                     break;
                 }
                 i++;
             }
-            if (i >= text.size()) i = text.size();
+            if (!terminated) i = text.size();
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
         }
@@ -334,7 +336,8 @@ std::vector<SyntaxToken> TokenizeGeneric(
         // 5. String literals
         if (c == L'"' || c == L'\'') {
             // Check for C++ raw string: R"(...)"
-            if (c == L'"' && i > 0 && text[i - 1] == L'R') {
+            if (c == L'"' && i > 0 && text[i - 1] == L'R' &&
+                (i < 2 || !IsIdentChar(text[i - 2]))) {
                 // Adjust: the R is already in the plain buffer. Remove it.
                 if (in_plain) {
                     if (static_cast<uint32_t>(i - 1) > plain_start) {

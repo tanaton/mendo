@@ -357,12 +357,10 @@ void MermaidRenderer::CancelPending() {
     std::queue<RenderRequest> empty;
     pending_requests_.swap(empty);
 
-    // Nullify pointers in the in-flight request so that
-    // callbacks completing later won't write to freed memory.
-    current_request_.node = nullptr;
-    current_request_.layout_entry = nullptr;
-    current_request_.diagram_entry = nullptr;
-    current_request_.on_complete = nullptr;
+    // Reset rendering state so new requests can be processed
+    // after in-flight callbacks complete harmlessly.
+    rendering_ = false;
+    current_request_ = {};
 }
 
 std::wstring MermaidRenderer::HashCode(const std::wstring& code, float max_width, bool dark_mode) const {
@@ -474,7 +472,8 @@ void MermaidRenderer::OnMermaidRenderResult(const std::wstring& json) {
         while (pos < json.size() && (iswdigit(json[pos]) || json[pos] == L'.')) {
             num += json[pos++];
         }
-        return num.empty() ? 0.0f : std::stof(num);
+        if (num.empty()) return 0.0f;
+        try { return std::stof(num); } catch (...) { return 0.0f; }
     };
 
     dw = find_num(L"\"width\"");
@@ -531,7 +530,7 @@ void MermaidRenderer::DoCapturePreview() {
     IStream* pngStream = nullptr;
     CreateStreamOnHGlobal(nullptr, TRUE, &pngStream);
 
-    webview_->CapturePreview(
+    HRESULT hr = webview_->CapturePreview(
         COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
         pngStream,
         Microsoft::WRL::Callback<ICoreWebView2CapturePreviewCompletedHandler>(
@@ -544,6 +543,11 @@ void MermaidRenderer::DoCapturePreview() {
                 if (pngStream) pngStream->Release();
                 return S_OK;
             }).Get());
+
+    if (FAILED(hr)) {
+        if (pngStream) pngStream->Release();
+        FinishCurrentRequest();
+    }
 }
 
 void MermaidRenderer::OnCaptureComplete(const std::wstring& code_hash, IStream* png_stream) {

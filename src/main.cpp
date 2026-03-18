@@ -27,7 +27,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
     if (lpCmdLine && lpCmdLine[0]) {
         std::wstring path = lpCmdLine;
         // Strip quotes if present
-        if (path.front() == L'"' && path.back() == L'"') {
+        if (path.size() >= 2 && path.front() == L'"' && path.back() == L'"') {
             path = path.substr(1, path.size() - 2);
         }
         window.LoadMarkdownFile(path);

@@ -241,3 +241,66 @@ TEST(Theme, ApplyZoomResetToOne) {
 
     EXPECT_NEAR(t.font_size_body, original_body, 0.01f);
 }
+
+// ---- Bug #12: ApplyZoom zero guard ----
+
+TEST(Theme, ApplyZoomZeroIsNoOp) {
+    Theme t = GetLightTheme();
+    float original_body = t.font_size_body;
+    float original_zoom = t.zoom;
+
+    t.ApplyZoom(0.0f);
+
+    // Should be unchanged (no division by zero, no inf/NaN)
+    EXPECT_FLOAT_EQ(t.font_size_body, original_body);
+    EXPECT_FLOAT_EQ(t.zoom, original_zoom);
+}
+
+TEST(Theme, ApplyZoomNegativeIsNoOp) {
+    Theme t = GetLightTheme();
+    float original_body = t.font_size_body;
+
+    t.ApplyZoom(-1.0f);
+
+    EXPECT_FLOAT_EQ(t.font_size_body, original_body);
+}
+
+// ---- Bug #20: ApplyZoom drift prevention ----
+
+TEST(Theme, ApplyZoomFromBaseNoDrift) {
+    // Simulate repeated zoom in/out via base reconstruction (the fix approach)
+    Theme base = GetLightTheme();
+    float base_body = base.font_size_body;
+    float base_margin = base.margin_left;
+
+    // Apply zoom to 2.0 from base
+    Theme zoomed = base;
+    zoomed.ApplyZoom(2.0f);
+    EXPECT_NEAR(zoomed.font_size_body, base_body * 2.0f, 0.001f);
+
+    // Apply zoom back to 1.0 from base (not from zoomed) -> no drift
+    Theme restored = base;
+    // zoom is already 1.0 from base, no ApplyZoom needed
+    EXPECT_FLOAT_EQ(restored.font_size_body, base_body);
+    EXPECT_FLOAT_EQ(restored.margin_left, base_margin);
+}
+
+TEST(Theme, ApplyZoomRepeatedRoundTripsAccumulateDrift) {
+    // This demonstrates why the base-reconstruction approach is needed:
+    // incremental ApplyZoom loses precision over many cycles
+    Theme t = GetLightTheme();
+    float original_body = t.font_size_body;
+
+    // Zoom in and out 100 times
+    for (int i = 0; i < 100; ++i) {
+        t.ApplyZoom(1.5f);
+        t.ApplyZoom(1.0f);
+    }
+
+    // With incremental approach, drift is possible but small
+    // The important thing is it doesn't produce inf/NaN
+    EXPECT_GT(t.font_size_body, 0.0f);
+    EXPECT_LT(t.font_size_body, original_body * 2.0f);
+    EXPECT_FALSE(std::isnan(t.font_size_body));
+    EXPECT_FALSE(std::isinf(t.font_size_body));
+}

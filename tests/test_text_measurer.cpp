@@ -129,6 +129,25 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch) {
     }
 }
 
+// ---- Bug #9: ProcessDirtyBatch with no dirty nodes ----
+
+TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight) {
+    auto nodes = ParseMarkdown("A\n\nB\n\nC");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    // Full layout — no dirty nodes
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    EXPECT_FALSE(engine_.HasDirtyNodes());
+
+    float height_before = engine_.GetTotalHeight();
+    EXPECT_GT(height_before, 0.0f);
+
+    // ProcessDirtyBatch with nothing dirty should not corrupt total_height
+    bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
+    EXPECT_FALSE(more);
+    EXPECT_FLOAT_EQ(engine_.GetTotalHeight(), height_before);
+}
+
 // ---- Width change ----
 
 TEST_F(MockLayoutTest, WidthChangeRecalculates) {

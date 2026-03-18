@@ -62,6 +62,7 @@ public:
     const Theme& GetTheme() const { return theme_; }
     void SetTheme(const Theme& theme);
     void ApplyZoom(float new_zoom);
+    void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
     Theme& GetThemeMut() { return theme_; }
 
     void InvalidateFilePaneCache() { file_pane_cache_.dirty = true; }
@@ -125,6 +126,8 @@ private:
     void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry);
     void RecreateBrushes();
     void RecreatePaneFormats();
+    bool CheckEndDraw();
+    bool RecreateRenderTarget();
 
     // Hit-test buffer for ApplyNodeEffects inline-code background computation.
     std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;

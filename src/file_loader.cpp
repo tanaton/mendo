@@ -22,6 +22,12 @@ std::string FileLoader::LoadFile(const std::wstring& path) {
         return {};
     }
 
+    // Reject files larger than MAXDWORD (~4GB) to avoid ReadFile truncation
+    if (size.QuadPart > static_cast<LONGLONG>(MAXDWORD)) {
+        CloseHandle(hFile);
+        return {};
+    }
+
     std::string content(static_cast<size_t>(size.QuadPart), '\0');
     DWORD bytesRead = 0;
     BOOL ok = ReadFile(hFile, content.data(), static_cast<DWORD>(size.QuadPart), &bytesRead, nullptr);

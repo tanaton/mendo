@@ -168,6 +168,17 @@ void Renderer::ApplyZoom(float new_zoom) {
     RecreatePaneFormats();
 }
 
+void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom) {
+    theme_ = base_theme;
+    if (new_zoom != 1.0f) {
+        theme_.ApplyZoom(new_zoom);
+    }
+    layout_.UpdateTheme(theme_);
+    layout_.RecreateFormats();
+    RecreatePaneFormats();
+    cmd_generator_.SetTheme(&theme_);
+}
+
 void Renderer::RecreatePaneFormats() {
     // Recreate all pane / UI text formats at updated theme sizes
     icon_font_format_.Reset();
@@ -395,7 +406,7 @@ void Renderer::DrawLoading(float angle,
         DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
     }
 
-    render_target_->EndDraw();
+    if (!CheckEndDraw()) return;
 }
 
 void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
@@ -451,7 +462,40 @@ void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll
         DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
     }
 
-    render_target_->EndDraw();
+    if (!CheckEndDraw()) return;
+}
+
+bool Renderer::CheckEndDraw() {
+    HRESULT hr = render_target_->EndDraw();
+    if (hr == D2DERR_RECREATE_TARGET) {
+        return RecreateRenderTarget();
+    }
+    return SUCCEEDED(hr);
+}
+
+bool Renderer::RecreateRenderTarget() {
+    render_target_.Reset();
+
+    RECT rc;
+    GetClientRect(hwnd_, &rc);
+
+    D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties();
+    rtProps.dpiX = dpi_;
+    rtProps.dpiY = dpi_;
+
+    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(
+        hwnd_, D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top));
+    hwndProps.presentOptions = D2D1_PRESENT_OPTIONS_NONE;
+
+    HRESULT hr = d2d_factory_->CreateHwndRenderTarget(rtProps, hwndProps, &render_target_);
+    if (FAILED(hr)) return false;
+
+    RecreateBrushes();
+    file_pane_cache_.Reset();
+    toc_pane_cache_.Reset();
+    cmd_executor_ = CommandExecutor{}; // Reset bound render target
+
+    return true;
 }
 
 // Navigation overlay constants (in DIP)

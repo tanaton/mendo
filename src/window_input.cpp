@@ -120,10 +120,13 @@ void MainWindow::ExecuteActions(const ActionList& actions) {
 }
 
 void MainWindow::OnDropFiles(HDROP hDrop) {
-    wchar_t path[MAX_PATH];
-    if (DragQueryFileW(hDrop, 0, path, MAX_PATH)) {
-        if (!current_file_.empty()) PushNavHistory();
-        LoadMarkdownFile(path);
+    UINT required = DragQueryFileW(hDrop, 0, nullptr, 0);
+    if (required > 0) {
+        std::wstring path(required, L'\0');
+        if (DragQueryFileW(hDrop, 0, path.data(), required + 1)) {
+            if (!current_file_.empty()) PushNavHistory();
+            LoadMarkdownFile(path);
+        }
     }
     DragFinish(hDrop);
 }
@@ -644,6 +647,8 @@ void MainWindow::CopySelectionToClipboard() const {
             memcpy(ptr, result.c_str(), bytes);
             GlobalUnlock(hMem);
             SetClipboardData(CF_UNICODETEXT, hMem);
+        } else {
+            GlobalFree(hMem);
         }
     }
     CloseClipboard();
