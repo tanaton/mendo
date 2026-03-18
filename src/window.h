@@ -12,6 +12,7 @@
 #include "viewport_manager.h"
 #include "app_controller.h"
 #include "nav_history.h"
+#include "mouse_gesture.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -49,6 +50,9 @@ private:
     void OnMouseMove(int px, int py);
     void OnLButtonDblClk(int px, int py);
     void OnContextMenu(int screen_x, int screen_y);
+    void OnRButtonDown(int px, int py);
+    void OnRButtonUp(int px, int py);
+    void OnRButtonMove(int px, int py);
 
     // Convert physical pixel coordinates to DIP (Device Independent Pixels)
     struct DipPoint { float x, y; };
@@ -138,6 +142,7 @@ private:
     static constexpr UINT_PTR TIMER_FILE_WATCH = 2;
     static constexpr UINT_PTR TIMER_DEFERRED_LAYOUT = 3;
     static constexpr UINT_PTR TIMER_LOADING_ANIM = 4;
+    static constexpr UINT_PTR TIMER_GESTURE_OVERLAY = 5;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
     bool is_sizing_ = false;
 
@@ -151,6 +156,7 @@ private:
     TableOfContents toc_;
     PaneController panes_;
     NavHistory nav_history_;
+    MouseGesture gesture_;
 
     void ToggleDarkMode();
     void SaveDarkMode() const;

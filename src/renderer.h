@@ -10,12 +10,21 @@
 #include "pane.h"
 #include "file_explorer.h"
 #include "toc.h"
+#include "mouse_gesture.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
+
+struct GestureRenderState {
+    bool trail_active = false;
+    const std::vector<GesturePoint>* trail_points = nullptr;
+    bool overlay_visible = false;
+    int direction = 0;   // -1=Left(戻る), 1=Right(進む)
+    float overlay_alpha = 0.0f;
+};
 
 // Side-pane rendering parameters bundled into a single struct.
 struct SidePaneState {
@@ -40,11 +49,13 @@ public:
                 const PaneRect& md_pane_rect,
                 const SidePaneState& side_panes,
                 bool can_go_back = false, bool can_go_forward = false,
-                int nav_hovered = 0);
+                int nav_hovered = 0,
+                const GestureRenderState& gesture = {});
     void SetDpi(float dpi);
     void DrawLoading(float angle,
                      const PaneRect& md_pane_rect,
-                     const SidePaneState& side_panes);
+                     const SidePaneState& side_panes,
+                     const GestureRenderState& gesture = {});
 
     ID2D1HwndRenderTarget* GetRenderTarget() const { return render_target_.Get(); }
     LayoutEngine& GetLayout() { return layout_; }
@@ -72,6 +83,8 @@ private:
     void DrawNavOverlay(const PaneRect& md_pane_rect,
                         bool can_back, bool can_forward,
                         int hovered);  // 0=none, 1=back, 2=forward
+    void DrawGestureTrail(const std::vector<GesturePoint>& points);
+    void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
 
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<ID2D1HwndRenderTarget> render_target_;
@@ -118,6 +131,8 @@ private:
     ComPtr<IDWriteTextFormat> fmt_pane_item_;
     ComPtr<IDWriteTextFormat> fmt_pane_header_;
     ComPtr<IDWriteTextFormat> fmt_nav_button_;
+    ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
+    ComPtr<IDWriteTextFormat> fmt_gesture_overlay_;
 
 public:
     // Pane bitmap cache — side panes are rendered to off-screen bitmaps

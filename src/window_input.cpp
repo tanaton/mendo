@@ -167,6 +167,65 @@ void MainWindow::OnContextMenu(int screen_x, int screen_y) {
     }
 }
 
+// ---- Right-click gesture ----
+
+void MainWindow::OnRButtonDown(int px, int py) {
+    if (!renderer_.GetRenderTarget()) return;
+
+    // Don't start gesture during left-button drag
+    if (viewport_.IsDragging()) return;
+
+    auto dip = PixelToDip(px, py);
+    auto zone = PaneAtPoint(dip.x, dip.y);
+
+    // Only handle gesture in MD pane
+    if (zone != PaneZone::MdPane) return;
+
+    gesture_.OnRButtonDown(dip.x, dip.y);
+    SetCapture(hwnd_);
+}
+
+void MainWindow::OnRButtonUp(int px, int py) {
+    // OnRButtonUp must be called BEFORE ReleaseCapture().
+    // ReleaseCapture() sends WM_CAPTURECHANGED synchronously,
+    // which would Reset() the gesture before we read the result.
+    auto result = gesture_.OnRButtonUp();
+    ReleaseCapture();
+
+    switch (result) {
+        case GestureResult::ShowContextMenu: {
+            gesture_.Reset();
+            // Convert client coords to screen coords for context menu
+            POINT pt = {px, py};
+            ClientToScreen(hwnd_, &pt);
+            OnContextMenu(pt.x, pt.y);
+            break;
+        }
+        case GestureResult::Back:
+            NavigateBack();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            break;
+        case GestureResult::Forward:
+            NavigateForward();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            break;
+        case GestureResult::None:
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            break;
+    }
+}
+
+void MainWindow::OnRButtonMove(int px, int py) {
+    if (!renderer_.GetRenderTarget()) return;
+
+    auto dip = PixelToDip(px, py);
+    gesture_.OnMouseMove(dip.x, dip.y);
+
+    if (gesture_.IsGestureActive()) {
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+}
+
 // ---- Hit Testing ----
 
 MainWindow::HitResult MainWindow::HitTest(int screen_x, int screen_y) const {
