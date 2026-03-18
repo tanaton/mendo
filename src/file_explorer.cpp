@@ -2,8 +2,13 @@
 #include <algorithm>
 
 void FileExplorer::SetDirectory(const std::wstring& dir_path) {
-    if (directory_ == dir_path) return;
-    directory_ = dir_path;
+    std::wstring normalized = dir_path;
+    // Strip trailing separators (except for root paths like "C:\")
+    while (normalized.size() > 3 && (normalized.back() == L'\\' || normalized.back() == L'/')) {
+        normalized.pop_back();
+    }
+    if (directory_ == normalized) return;
+    directory_ = normalized;
     Refresh();
 }
 

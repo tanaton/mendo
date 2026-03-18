@@ -887,3 +887,83 @@ TEST(Syntax, JsAsyncAwait) {
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 2);
 }
+
+// ============================================================
+// Bug #16: Raw string R" detection should not trigger on
+// identifiers ending with R (e.g. RENDER"hello")
+// ============================================================
+
+TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR) {
+    std::wstring code = L"RENDER\"hello\"";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+
+    // RENDER should be a single identifier token (Plain or Function)
+    // "hello" should be a string token
+    // They should NOT overlap
+    bool found_render = false;
+    bool found_string = false;
+    for (const auto& t : tokens) {
+        std::wstring text = GetTokenText(code, t);
+        if (text == L"RENDER") {
+            found_render = true;
+            // Should NOT be a string
+            EXPECT_NE(t.type, SyntaxTokenType::String);
+        }
+        if (text == L"\"hello\"") {
+            found_string = true;
+            EXPECT_EQ(t.type, SyntaxTokenType::String);
+        }
+    }
+    EXPECT_TRUE(found_render) << "Should find RENDER as a separate token";
+    EXPECT_TRUE(found_string) << "Should find \"hello\" as a string token";
+}
+
+TEST(Syntax, CppRawStringStandaloneRStillWorks) {
+    // Standalone R"(...)" should still be recognized as raw string
+    std::wstring code = L"R\"(hello)\"";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    auto* str = FindToken(tokens, SyntaxTokenType::String);
+    ASSERT_NE(str, nullptr);
+    EXPECT_GT(str->length, 5u);
+}
+
+TEST(Syntax, CppRawStringAfterSpaceR) {
+    // "x R\"(test)\"" — R preceded by space should work
+    std::wstring code = L"x R\"(test)\"";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    auto* str = FindToken(tokens, SyntaxTokenType::String);
+    ASSERT_NE(str, nullptr);
+}
+
+// ============================================================
+// Bug #22: Unterminated block comment should include last char
+// ============================================================
+
+TEST(Syntax, UnterminatedBlockCommentCoversAllText) {
+    std::wstring code = L"/* unterminated comment";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    ASSERT_EQ(tokens.size(), 1u);
+    EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
+    EXPECT_EQ(tokens[0].length, static_cast<uint32_t>(code.size()));
+}
+
+TEST(Syntax, UnterminatedBlockCommentEndsWithStar) {
+    // Edge case: comment ends with * but no /
+    std::wstring code = L"/* test *";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    ASSERT_EQ(tokens.size(), 1u);
+    EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
+    EXPECT_EQ(tokens[0].length, static_cast<uint32_t>(code.size()));
+}
+
+TEST(Syntax, TerminatedBlockCommentStillWorks) {
+    std::wstring code = L"/* ok */ x";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
+    ASSERT_NE(comment, nullptr);
+    EXPECT_EQ(GetTokenText(code, *comment), L"/* ok */");
+}

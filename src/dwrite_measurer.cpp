@@ -89,6 +89,8 @@ void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
 }
 
 void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) {
+    if (!dwrite_ || !theme_) return;
+
     if (node.type == NodeType::HorizontalRule) {
         entry.height = theme_->paragraph_spacing + theme_->hr_thickness;
         entry.layout_dirty = false;
@@ -151,6 +153,8 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
 }
 
 void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) {
+    if (!dwrite_ || !theme_) return;
+
     if (node.table_rows.empty()) {
         entry.height = 0;
         entry.layout_dirty = false;

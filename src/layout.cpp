@@ -232,6 +232,11 @@ bool LayoutEngine::ProcessDirtyBatch(std::vector<Node>& nodes, LayoutCache& cach
         if (++processed >= batch_size) break;
     }
 
+    if (processed == 0) {
+        has_dirty_nodes_ = false;
+        return false;
+    }
+
     auto result = RecomputeYPositions(nodes, cache, *theme_, first_dirty, false);
     total_height_ = result.total_height;
     has_dirty_nodes_ = result.has_dirty_nodes;

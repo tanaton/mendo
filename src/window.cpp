@@ -86,6 +86,11 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
         RequestMermaidRenders();
     });
 
+    // When D2D device is lost and render target is recreated, update MermaidRenderer
+    renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
+        mermaid_renderer_.SetRenderTarget(new_rt);
+    });
+
     // Apply saved dark mode preference
     dark_mode_ = LoadDarkMode();
     if (dark_mode_) {
@@ -116,7 +121,9 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
 
 int MainWindow::RunMessageLoop() {
     MSG msg{};
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
+    BOOL ret;
+    while ((ret = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
+        if (ret == -1) break; // GetMessageW error
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
@@ -333,6 +340,7 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 OnDeferredLayout();
             } else if (wParam == TIMER_LOADING_ANIM) {
                 loading_angle_ += 0.15f;
+                if (loading_angle_ > 6.2831853f) loading_angle_ -= 6.2831853f;
                 InvalidateRect(hwnd_, nullptr, FALSE);
             }
             return 0;

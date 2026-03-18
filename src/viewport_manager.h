@@ -62,8 +62,8 @@ public:
     void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, const LayoutCache& cache) {
         if (anchor_idx < 0) return;
         float shift = cache[anchor_idx].y_position - anchor_y_before;
-        scroll_y_ += shift;
-        scroll_target_ += shift;
+        scroll_y_ = std::max(0.0f, scroll_y_ + shift);
+        scroll_target_ = std::max(0.0f, scroll_target_ + shift);
         // Note: caller must call SyncMaxScroll() afterwards
     }
 

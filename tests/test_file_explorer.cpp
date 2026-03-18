@@ -44,6 +44,47 @@ TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly) {
     EXPECT_EQ(entries[0].filename, L"..");
 }
 
+// ---- Bug #23: Path normalization (trailing backslash) ----
+
+TEST_F(FileExplorerTest, TrailingBackslashNormalized) {
+    CreateFile(L"test.md");
+    FileExplorer explorer;
+
+    std::wstring with_slash = temp_dir_.wstring() + L"\\";
+    std::wstring without_slash = temp_dir_.wstring();
+
+    explorer.SetDirectory(with_slash);
+    size_t count1 = explorer.GetEntries().size();
+
+    // Setting same directory with different trailing slash should not re-refresh
+    // (if normalization works, the directory_ comparison detects same dir)
+    explorer.SetDirectory(without_slash);
+    size_t count2 = explorer.GetEntries().size();
+
+    EXPECT_EQ(count1, count2);
+}
+
+TEST_F(FileExplorerTest, TrailingSlashDoesNotCreateDoubleBackslash) {
+    CreateFile(L"hello.md");
+    FileExplorer explorer;
+
+    std::wstring with_slash = temp_dir_.wstring() + L"\\";
+    explorer.SetDirectory(with_slash);
+
+    // Should find the .md file without issues
+    bool found_md = false;
+    for (const auto& entry : explorer.GetEntries()) {
+        if (entry.filename == L"hello.md") {
+            found_md = true;
+            // full_path should not have double backslash
+            EXPECT_EQ(entry.full_path.find(L"\\\\"), std::wstring::npos)
+                << "full_path should not contain double backslash: "
+                << std::string(entry.full_path.begin(), entry.full_path.end());
+        }
+    }
+    EXPECT_TRUE(found_md);
+}
+
 TEST_F(FileExplorerTest, ShowsMdFiles) {
     CreateFile(L"readme.md");
     CreateFile(L"notes.md");

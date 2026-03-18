@@ -14,6 +14,7 @@
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
+#include <functional>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
@@ -62,7 +63,12 @@ public:
     const Theme& GetTheme() const { return theme_; }
     void SetTheme(const Theme& theme);
     void ApplyZoom(float new_zoom);
+    void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
     Theme& GetThemeMut() { return theme_; }
+
+    // Set callback invoked when the D2D render target is recreated after device loss.
+    // The callback receives the new render target pointer.
+    void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
 
     void InvalidateFilePaneCache() { file_pane_cache_.dirty = true; }
     void InvalidateTocPaneCache() { toc_pane_cache_.dirty = true; }
@@ -125,6 +131,8 @@ private:
     void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry);
     void RecreateBrushes();
     void RecreatePaneFormats();
+    bool CheckEndDraw();
+    bool RecreateRenderTarget();
 
     // Hit-test buffer for ApplyNodeEffects inline-code background computation.
     std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
@@ -159,6 +167,7 @@ private:
     LayoutEngine layout_;
     CommandGenerator cmd_generator_;
     CommandExecutor cmd_executor_;
+    std::function<void(ID2D1RenderTarget*)> on_device_lost_;
     float dpi_ = 96.0f;
     HWND hwnd_ = nullptr;
 };

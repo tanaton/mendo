@@ -65,7 +65,7 @@ struct ParseContext {
     // Block context tracking
     int indent_level = 0;
     bool in_code_block = false;
-    bool in_blockquote = false;
+    int blockquote_depth = 0;
 
     // List tracking
     std::stack<int> list_counter; // 0 = unordered, >0 = ordered counter
@@ -144,7 +144,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
 
         case MD_BLOCK_P:
             if (!ctx->in_code_block) {
-                if (ctx->in_blockquote) {
+                if (ctx->blockquote_depth > 0) {
                     ctx->BeginNode(NodeType::BlockQuote);
                 } else {
                     ctx->BeginNode(NodeType::Paragraph);
@@ -164,7 +164,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
         }
 
         case MD_BLOCK_QUOTE:
-            ctx->in_blockquote = true;
+            ctx->blockquote_depth++;
             ctx->indent_level++;
             break;
 
@@ -265,7 +265,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
             break;
 
         case MD_BLOCK_QUOTE:
-            ctx->in_blockquote = false;
+            if (ctx->blockquote_depth > 0) ctx->blockquote_depth--;
             if (ctx->indent_level > 0) ctx->indent_level--;
             break;
 
@@ -393,6 +393,14 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
                 if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
                     single_char = static_cast<wchar_t>(codepoint);
                     resolved = &single_char;
+                } else if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
+                    // Supplementary plane: emit UTF-16 surrogate pair
+                    unsigned long adj = codepoint - 0x10000;
+                    wchar_t surrogate[2];
+                    surrogate[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));
+                    surrogate[1] = static_cast<wchar_t>(0xDC00 + (adj & 0x3FF));
+                    ctx->AppendText(surrogate, 2);
+                    break;
                 }
             }
             if (resolved) {

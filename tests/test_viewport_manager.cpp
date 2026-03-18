@@ -250,3 +250,36 @@ TEST(ViewportManagerTest, ScrollbarTracking) {
     vm.SetScrollbarTracking(true);
     EXPECT_TRUE(vm.IsScrollbarTracking());
 }
+
+// ---- Bug #17: AnchorCompensateScroll clamp to non-negative ----
+
+TEST(ViewportManagerTest, AnchorCompensateScrollClampsNegative) {
+    ViewportManager vm;
+    auto cache = MakeTestCache(5, 100.0f);
+    vm.SyncMaxScroll(500.0f, 200.0f);
+    vm.ScrollTo(50.0f);
+
+    float y_before = cache[2].y_position; // 200.0f
+    // Simulate a layout change that shifts node 2 upward by 300
+    // (e.g. a large node above was removed)
+    cache[2].y_position = 0.0f;
+
+    vm.AnchorCompensateScroll(2, y_before, cache);
+
+    // scroll_y should be clamped to 0, not go to -150
+    EXPECT_GE(vm.GetScrollY(), 0.0f);
+    EXPECT_GE(vm.GetScrollTarget(), 0.0f);
+}
+
+TEST(ViewportManagerTest, AnchorCompensateScrollPositiveShiftOk) {
+    ViewportManager vm;
+    auto cache = MakeTestCache(5, 100.0f);
+    vm.SyncMaxScroll(500.0f, 200.0f);
+    vm.ScrollTo(100.0f);
+
+    float y_before = cache[1].y_position; // 100.0f
+    cache[1].y_position = 150.0f; // shifted down by 50
+
+    vm.AnchorCompensateScroll(1, y_before, cache);
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), 150.0f);
+}

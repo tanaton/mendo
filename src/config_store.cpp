@@ -70,9 +70,12 @@ int LoadInt(const wchar_t* filename, int default_value, int min_val, int max_val
 }
 
 void SaveWString(const wchar_t* filename, const std::wstring& value) {
-    if (value.empty()) return;
     auto path = GetConfigPath(filename);
     if (path.empty()) return;
+    if (value.empty()) {
+        std::filesystem::remove(path);
+        return;
+    }
     std::filesystem::create_directories(path.parent_path());
     std::ofstream ofs(path, std::ios::binary);
     if (ofs) {

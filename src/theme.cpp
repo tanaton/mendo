@@ -22,6 +22,7 @@ float Theme::GetHeadingSize(int level) const {
 }
 
 void Theme::ApplyZoom(float new_zoom) {
+    if (new_zoom <= 0.0f || zoom <= 0.0f) return;
     // Undo the previous zoom, then apply the new one
     float ratio = new_zoom / zoom;
     zoom = new_zoom;

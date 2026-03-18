@@ -54,7 +54,16 @@ void MainWindow::ToggleDarkMode() {
     renderer_.GetLayout().RecreateFormats();
     renderer_.GetLayout().LayoutNodes(nodes_, layout_cache_, md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
     float total_height = ComputeTotalContentHeight(layout_cache_, nodes_.size(), renderer_.GetTheme().margin_top);
-    float viewport_height = renderer_.GetRenderTarget()->GetSize().height;
+    auto* rt = renderer_.GetRenderTarget();
+    float viewport_height;
+    if (rt) {
+        viewport_height = rt->GetSize().height;
+    } else {
+        // Fallback: compute from client rect when render target is temporarily null (e.g. device loss)
+        RECT rc;
+        GetClientRect(hwnd_, &rc);
+        viewport_height = static_cast<float>(rc.bottom - rc.top) / cached_dpi_scale_;
+    }
     viewport_.SyncMaxScroll(total_height, viewport_height);
 
     // Re-render mermaid diagrams with new theme
@@ -102,8 +111,9 @@ void MainWindow::ApplyZoom(float new_zoom) {
     // Scale pane widths and scroll positions proportionally
     panes_.ApplyZoom(zoom_ratio);
 
-    // Update theme sizes and recreate DirectWrite formats (including pane formats)
-    renderer_.ApplyZoom(new_zoom);
+    // Reconstruct theme from base to avoid floating-point drift from repeated zoom
+    Theme base = dark_mode_ ? GetDarkTheme() : GetLightTheme();
+    renderer_.ApplyZoomFromBase(base, new_zoom);
 
     // Reset all node layouts
     for (size_t i = 0; i < nodes_.size(); ++i) {

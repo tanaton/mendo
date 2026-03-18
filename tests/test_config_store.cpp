@@ -133,6 +133,15 @@ TEST_F(ConfigStoreTest, SaveWStringEmptyDoesNothing) {
     EXPECT_TRUE(config::LoadWString(L"wstr_empty.txt").empty());
 }
 
+// Bug #13: SaveWString with empty should clear previously saved value
+TEST_F(ConfigStoreTest, SaveWStringEmptyClearsPrevious) {
+    config::SaveWString(L"wstr_clear.txt", L"some value");
+    EXPECT_EQ(config::LoadWString(L"wstr_clear.txt"), L"some value");
+
+    config::SaveWString(L"wstr_clear.txt", L"");
+    EXPECT_TRUE(config::LoadWString(L"wstr_clear.txt").empty());
+}
+
 TEST_F(ConfigStoreTest, SaveWStringOverwrite) {
     config::SaveWString(L"wstr_ow.txt", L"first");
     EXPECT_EQ(config::LoadWString(L"wstr_ow.txt"), L"first");
