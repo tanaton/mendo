@@ -170,7 +170,9 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
         // Early exit: in partial mode without width change, once past viewport
         // and no height changes, remaining Y positions are unchanged.
         if (partial && !width_changed && !any_height_changed && y > viewport_bottom) {
-            any_dirty = any_dirty || has_dirty_nodes_;
+            // Conservatively assume dirty nodes may exist beyond the break point.
+            // ProcessDirtyBatch will quickly confirm and clear if none exist.
+            any_dirty = true;
             broke_early = true;
             break;
         }
