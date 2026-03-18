@@ -73,6 +73,7 @@ private:
     bool ready_ = false;
     bool rendering_ = false;
     int render_counter_ = 0;
+    std::string cached_mermaid_gz_; // Cached gzip-compressed mermaid.js from Win32 resources
 
     struct RenderRequest {
         Node* node = nullptr;

@@ -15,7 +15,9 @@ struct GesturePoint {
 class MouseGesture {
 public:
     static constexpr float GESTURE_THRESHOLD = 30.0f;
+    static constexpr float GESTURE_THRESHOLD_SQ = GESTURE_THRESHOLD * GESTURE_THRESHOLD;
     static constexpr float MIN_POINT_DISTANCE = 2.0f;
+    static constexpr float MIN_POINT_DISTANCE_SQ = MIN_POINT_DISTANCE * MIN_POINT_DISTANCE;
     static constexpr int   TRAIL_MAX_POINTS = 512;
 
     void OnRButtonDown(float x, float y) {
@@ -37,10 +39,10 @@ public:
 
         float dx = x - start_x_;
         float dy = y - start_y_;
-        float dist = std::sqrt(dx * dx + dy * dy);
+        float dist_sq = dx * dx + dy * dy;
 
         if (phase_ == GesturePhase::Pressed) {
-            if (dist >= GESTURE_THRESHOLD) {
+            if (dist_sq >= GESTURE_THRESHOLD_SQ) {
                 phase_ = GesturePhase::Tracking;
                 UpdateDirection();
             }
@@ -51,8 +53,7 @@ public:
             const auto& last = trail_points_.back();
             float pdx = x - last.x;
             float pdy = y - last.y;
-            float pdist = std::sqrt(pdx * pdx + pdy * pdy);
-            if (pdist >= MIN_POINT_DISTANCE) {
+            if (pdx * pdx + pdy * pdy >= MIN_POINT_DISTANCE_SQ) {
                 if (trail_points_.size() >= static_cast<size_t>(TRAIL_MAX_POINTS)) {
                     trail_points_.pop_front();
                 }
@@ -108,9 +109,9 @@ private:
     void UpdateDirection() {
         float dx = current_x_ - start_x_;
         float dy = current_y_ - start_y_;
-        float dist = std::sqrt(dx * dx + dy * dy);
+        float dist_sq = dx * dx + dy * dy;
 
-        if (dist < GESTURE_THRESHOLD || std::abs(dx) <= std::abs(dy)) {
+        if (dist_sq < GESTURE_THRESHOLD_SQ || std::abs(dx) <= std::abs(dy)) {
             direction_ = GestureDirection::None;
             return;
         }

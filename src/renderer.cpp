@@ -89,6 +89,7 @@ void Renderer::RecreateBrushes() {
     pane_item_hover_brush_.Reset();
     pane_item_active_brush_.Reset();
     scrollbar_thumb_brush_.Reset();
+    overlay_brush_.Reset();
 
     // Create theme brushes
     render_target_->CreateSolidColorBrush(theme_.text_color, &text_brush_);
@@ -131,6 +132,9 @@ void Renderer::RecreateBrushes() {
         ? D2D1::ColorF(1.0f, 1.0f, 1.0f, thumb_alpha)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, thumb_alpha);
     render_target_->CreateSolidColorBrush(thumb_color, &scrollbar_thumb_brush_);
+
+    // Reusable overlay brush (color/opacity set per use)
+    render_target_->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 1.0f), &overlay_brush_);
 }
 
 void Renderer::SetTheme(const Theme& theme) {
@@ -471,6 +475,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
     base_x -= 16.0f;
 
     auto drawButton = [&](float x, bool enabled, bool is_hovered, const wchar_t* arrow) {
+        if (!overlay_brush_) return;
         D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
 
         // Background
@@ -483,12 +488,9 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
 
-        ComPtr<ID2D1SolidColorBrush> brush;
-        render_target_->CreateSolidColorBrush(bg_color, &brush);
-        if (brush) {
-            D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
-            render_target_->FillRoundedRectangle(rrect, brush.Get());
-        }
+        overlay_brush_->SetColor(bg_color);
+        D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
+        render_target_->FillRoundedRectangle(rrect, overlay_brush_.Get());
 
         // Arrow text
         float text_alpha;
@@ -500,11 +502,10 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
 
-        ComPtr<ID2D1SolidColorBrush> text_brush;
-        render_target_->CreateSolidColorBrush(text_color, &text_brush);
-        if (text_brush && fmt_nav_button_) {
+        if (fmt_nav_button_) {
+            overlay_brush_->SetColor(text_color);
             render_target_->DrawText(
-                arrow, 1, fmt_nav_button_.Get(), rect, text_brush.Get(),
+                arrow, 1, fmt_nav_button_.Get(), rect, overlay_brush_.Get(),
                 D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
         }
     };
@@ -531,16 +532,14 @@ void Renderer::DrawGestureTrail(const std::deque<GesturePoint>& points) {
     sink->EndFigure(D2D1_FIGURE_END_OPEN);
     sink->Close();
 
-    ComPtr<ID2D1SolidColorBrush> trail_brush;
-    render_target_->CreateSolidColorBrush(
-        D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f), &trail_brush);
-    if (!trail_brush) return;
+    if (!overlay_brush_) return;
+    overlay_brush_->SetColor(D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f));
 
-    render_target_->DrawGeometry(geometry.Get(), trail_brush.Get(), 4.0f, gesture_stroke_style_.Get());
+    render_target_->DrawGeometry(geometry.Get(), overlay_brush_.Get(), 4.0f, gesture_stroke_style_.Get());
 }
 
 void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect) {
-    if (!render_target_ || direction == 0) return;
+    if (!render_target_ || direction == 0 || !overlay_brush_) return;
 
     bool is_dark = (theme_.bg_color.r + theme_.bg_color.g + theme_.bg_color.b) < 1.5f;
 
@@ -557,24 +556,18 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
         ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.8f)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.6f);
 
-    ComPtr<ID2D1SolidColorBrush> bg_brush;
-    render_target_->CreateSolidColorBrush(bg_color, &bg_brush);
-    if (bg_brush) {
-        D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 12.0f, 12.0f);
-        render_target_->FillRoundedRectangle(rrect, bg_brush.Get());
-    }
+    overlay_brush_->SetColor(bg_color);
+    D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 12.0f, 12.0f);
+    render_target_->FillRoundedRectangle(rrect, overlay_brush_.Get());
 
     // Text (white on dark overlay for both themes)
     const wchar_t* text = (direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080";
     UINT32 text_len = static_cast<UINT32>(wcslen(text));
 
-    D2D1_COLOR_F text_color = D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha);
-
-    ComPtr<ID2D1SolidColorBrush> text_brush;
-    render_target_->CreateSolidColorBrush(text_color, &text_brush);
-    if (text_brush && fmt_gesture_overlay_) {
+    if (fmt_gesture_overlay_) {
+        overlay_brush_->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
         render_target_->DrawText(
-            text, text_len, fmt_gesture_overlay_.Get(), rect, text_brush.Get(),
+            text, text_len, fmt_gesture_overlay_.Get(), rect, overlay_brush_.Get(),
             D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
     }
 }
