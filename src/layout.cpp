@@ -52,8 +52,9 @@ std::wstring BuildLinearizedTableText(const std::vector<TableRow>& rows) {
 }
 
 YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-                                    size_t from_index) {
+                                    size_t from_index, bool has_earlier_dirty) {
     YPositionResult result;
+    result.has_dirty_nodes = has_earlier_dirty;
     float y = theme.margin_top;
 
     // Resume from the previous node's end position when starting mid-stream.
@@ -64,10 +65,6 @@ YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache
             y += theme.heading_spacing_below;
         } else {
             y += theme.paragraph_spacing;
-        }
-        // Scan earlier nodes for dirty flags.
-        for (size_t i = 0; i < from_index; i++) {
-            if (cache[i].layout_dirty) result.has_dirty_nodes = true;
         }
     }
 
@@ -128,6 +125,8 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     float y = theme_->margin_top;
     bool any_dirty = false;
+    bool any_height_changed = false;
+    bool broke_early = false;
 
     for (size_t i = 0; i < nodes.size(); i++) {
         auto& node = nodes[i];
@@ -143,7 +142,9 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
                 float node_bottom = y + entry.height; // estimate using old height
                 bool visible = (node_bottom >= viewport_top && y <= viewport_bottom);
                 if (visible) {
+                    float old_height = entry.height;
                     CreateTextLayout(node, entry, node_width);
+                    if (entry.height != old_height) any_height_changed = true;
                 } else {
                     entry.layout_dirty = true;
                 }
@@ -165,9 +166,21 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
         } else {
             y += theme_->paragraph_spacing;
         }
+
+        // Early exit: in partial mode without width change, once past viewport
+        // and no height changes, remaining Y positions are unchanged.
+        if (partial && !width_changed && !any_height_changed && y > viewport_bottom) {
+            // Conservatively assume dirty nodes may exist beyond the break point.
+            // ProcessDirtyBatch will quickly confirm and clear if none exist.
+            any_dirty = true;
+            broke_early = true;
+            break;
+        }
     }
 
-    total_height_ = y + theme_->margin_top;
+    if (!broke_early) {
+        total_height_ = y + theme_->margin_top;
+    }
     has_dirty_nodes_ = any_dirty;
 }
 
@@ -195,7 +208,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::vector<Node>& nodes, LayoutCache& ca
     }
 
     if (any_updated) {
-        auto result = RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo));
+        auto result = RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo), has_dirty_nodes_);
         total_height_ = result.total_height;
         has_dirty_nodes_ = result.has_dirty_nodes;
     }
@@ -219,7 +232,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::vector<Node>& nodes, LayoutCache& cach
         if (++processed >= batch_size) break;
     }
 
-    auto result = RecomputeYPositions(nodes, cache, *theme_, first_dirty);
+    auto result = RecomputeYPositions(nodes, cache, *theme_, first_dirty, false);
     total_height_ = result.total_height;
     has_dirty_nodes_ = result.has_dirty_nodes;
 

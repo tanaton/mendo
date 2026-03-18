@@ -85,13 +85,16 @@ private:
 
     void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();
+    void UpdateScrollBar(float md_pane_height);
     void ScrollTo(float position);
     void SmoothScrollBy(float delta);
     void UpdateSmoothScroll();
     void StopSmoothScroll();
     void SyncMaxScroll();
+    void SyncMaxScroll(float md_pane_height);
     int FindFirstVisibleNode() const;
     void AnchorCompensateScroll(int anchor_idx, float anchor_y_before);
+    void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height);
     void OnResizeEnd();
     void OnDeferredLayout();
     void InvalidateMdPane();
@@ -111,6 +114,7 @@ private:
     void RequestMermaidRenders();
 
     HWND hwnd_ = nullptr;
+    float cached_dpi_scale_ = 1.0f;  // DPI / 96.0, cached for PixelToDip
     Renderer renderer_;
     MermaidRenderer mermaid_renderer_;
     FileLoader file_loader_;

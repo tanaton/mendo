@@ -36,19 +36,23 @@ void MainWindow::OnVScroll(WPARAM wParam) {
     }
 
     if (viewport_.GetScrollY() != old_pos) {
-        UpdateScrollBar();
+        UpdateScrollBar(page_size);
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
 
 void MainWindow::UpdateScrollBar() {
     auto pane_layout = GetPaneLayout();
+    UpdateScrollBar(pane_layout.md_rect.height);
+}
+
+void MainWindow::UpdateScrollBar(float md_pane_height) {
     SCROLLINFO si{};
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
     si.nMin = 0;
     si.nMax = static_cast<int>(renderer_.GetLayout().GetTotalHeight());
-    si.nPage = static_cast<UINT>(pane_layout.md_rect.height);
+    si.nPage = static_cast<UINT>(md_pane_height);
     si.nPos = static_cast<int>(viewport_.GetScrollY());
     SetScrollInfo(hwnd_, SB_VERT, &si, TRUE);
 }
@@ -108,6 +112,11 @@ void MainWindow::SyncMaxScroll() {
     viewport_.SyncMaxScroll(total, pane_layout.md_rect.height);
 }
 
+void MainWindow::SyncMaxScroll(float md_pane_height) {
+    float total = renderer_.GetLayout().GetTotalHeight();
+    viewport_.SyncMaxScroll(total, md_pane_height);
+}
+
 int MainWindow::FindFirstVisibleNode() const {
     return viewport_.FindFirstVisibleNode(layout_cache_, nodes_.size());
 }
@@ -117,6 +126,11 @@ void MainWindow::AnchorCompensateScroll(int anchor_idx, float anchor_y_before) {
     SyncMaxScroll();
 }
 
+void MainWindow::AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height) {
+    viewport_.AnchorCompensateScroll(anchor_idx, anchor_y_before, layout_cache_);
+    SyncMaxScroll(md_pane_height);
+}
+
 // ---- Deferred layout ----
 
 void MainWindow::OnResizeEnd() {
@@ -124,13 +138,14 @@ void MainWindow::OnResizeEnd() {
 
     auto pane_layout = GetPaneLayout();
     float md_width = pane_layout.md_rect.width;
+    float md_height = pane_layout.md_rect.height;
     float viewport_top = viewport_.GetScrollY();
-    float viewport_bottom = viewport_.GetScrollY() + pane_layout.md_rect.height;
+    float viewport_bottom = viewport_.GetScrollY() + md_height;
 
     renderer_.GetLayout().ComputeLayout(nodes_, layout_cache_, md_width, viewport_top, viewport_bottom);
 
-    SyncMaxScroll();
-    UpdateScrollBar();
+    SyncMaxScroll(md_height);
+    UpdateScrollBar(md_height);
     InvalidateRect(hwnd_, nullptr, FALSE);
 
     if (renderer_.GetLayout().HasDirtyNodes()) {
@@ -144,30 +159,34 @@ void MainWindow::OnDeferredLayout() {
     int anchor_idx = FindFirstVisibleNode();
     float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
 
-    float md_width = GetMarkdownPaneWidth();
+    auto pane_layout = GetPaneLayout();
+    float md_width = pane_layout.md_rect.width;
+    float md_height = pane_layout.md_rect.height;
     bool more = renderer_.GetLayout().ProcessDirtyBatch(nodes_, layout_cache_, md_width, 200);
 
     if (!viewport_.IsScrollbarTracking()) {
-        AnchorCompensateScroll(anchor_idx, anchor_y_before);
+        AnchorCompensateScroll(anchor_idx, anchor_y_before, md_height);
     } else {
-        SyncMaxScroll();
+        SyncMaxScroll(md_height);
     }
 
     if (!more) {
         KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
-        UpdateScrollBar();
+        UpdateScrollBar(md_height);
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
 
 void MainWindow::UpdateLayoutAndScroll(float desired_scroll) {
-    float md_width = GetMarkdownPaneWidth();
+    auto pane_layout = GetPaneLayout();
+    float md_width = pane_layout.md_rect.width;
+    float md_height = pane_layout.md_rect.height;
     renderer_.GetLayout().ComputeLayout(nodes_, layout_cache_, md_width);
 
     viewport_.SetScrollY(desired_scroll);
     viewport_.SetScrollTarget(desired_scroll);
-    SyncMaxScroll();
+    SyncMaxScroll(md_height);
 
-    UpdateScrollBar();
+    UpdateScrollBar(md_height);
     InvalidateRect(hwnd_, nullptr, FALSE);
 }

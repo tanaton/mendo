@@ -24,7 +24,7 @@ struct YPositionResult {
     bool has_dirty_nodes = false;
 };
 YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-                                    size_t from_index = 0);
+                                    size_t from_index = 0, bool has_earlier_dirty = false);
 
 class LayoutEngine {
 public:

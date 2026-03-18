@@ -132,7 +132,7 @@ public:
     }
 
     static constexpr float SCROLL_SPEED = 0.25f;
-    static constexpr float SCROLL_EPSILON = 0.5f;
+    static constexpr float SCROLL_EPSILON = 1.5f;
 
 private:
     // Scroll state

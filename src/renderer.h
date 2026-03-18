@@ -117,6 +117,10 @@ private:
     ComPtr<ID2D1SolidColorBrush> pane_item_active_brush_;
     ComPtr<ID2D1SolidColorBrush> scrollbar_thumb_brush_;
 
+    // Reusable brush for overlay drawing (nav buttons, gesture trail/overlay).
+    // Color/opacity set per use via SetColor — avoids per-frame CreateSolidColorBrush.
+    ComPtr<ID2D1SolidColorBrush> overlay_brush_;
+
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
     void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry);
     void RecreateBrushes();

@@ -16,12 +16,7 @@ static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 // ---- Helper methods ----
 
 MainWindow::DipPoint MainWindow::PixelToDip(int px, int py) const {
-    auto* rt = renderer_.GetRenderTarget();
-    if (!rt) return {static_cast<float>(px), static_cast<float>(py)};
-    float dpi_x, dpi_y;
-    rt->GetDpi(&dpi_x, &dpi_y);
-    float scale = dpi_x / 96.0f;
-    return {px / scale, py / scale};
+    return {px / cached_dpi_scale_, py / cached_dpi_scale_};
 }
 
 PaneScrollInfo MainWindow::ComputePaneScrollInfo(
@@ -80,6 +75,10 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow) {
     if (!hwnd_) return false;
 
     if (!renderer_.Init(hwnd_)) return false;
+
+    // Cache DPI scale for PixelToDip (updated in OnDpiChanged)
+    float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
+    cached_dpi_scale_ = (init_dpi > 0.0f) ? (init_dpi / 96.0f) : 1.0f;
 
     // Initialize Mermaid renderer (WebView2, async)
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
@@ -227,8 +226,7 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                         }
                         case PaneZone::MdPane: {
                             // Check nav overlay button hover
-                            auto pLayout = GetPaneLayout();
-                            auto nav_hit = NavButtonHitTest(dip_x, dip_y, pLayout.md_rect);
+                            auto nav_hit = NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
                             auto old_nav_hover = nav_hover_;
                             nav_hover_ = nav_hit;
                             if (nav_hit != NavButtonHover::None) {
@@ -407,7 +405,7 @@ void MainWindow::OnPaint() {
             nodes_, layout_cache_, layout.md_rect.width, viewport_top, viewport_bottom);
 
         if (updated) {
-            AnchorCompensateScroll(anchor_idx, anchor_y_before);
+            AnchorCompensateScroll(anchor_idx, anchor_y_before, layout.md_rect.height);
         }
     }
     GestureRenderState gs;
@@ -448,8 +446,10 @@ void MainWindow::OnResize(UINT width, UINT height) {
 
     if (is_sizing_) {
         // During active resize drag: skip expensive layout recomputation
-        SyncMaxScroll();
-        UpdateScrollBar();
+        auto sizing_layout = GetPaneLayout();
+        float sizing_h = sizing_layout.md_rect.height;
+        SyncMaxScroll(sizing_h);
+        UpdateScrollBar(sizing_h);
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
@@ -459,13 +459,14 @@ void MainWindow::OnResize(UINT width, UINT height) {
 
     auto pane_layout = GetPaneLayout();
     float md_width = pane_layout.md_rect.width;
+    float md_height = pane_layout.md_rect.height;
     float viewport_top = viewport_.GetScrollY();
-    float viewport_bottom = viewport_.GetScrollY() + pane_layout.md_rect.height;
+    float viewport_bottom = viewport_.GetScrollY() + md_height;
 
     renderer_.GetLayout().ComputeLayout(nodes_, layout_cache_, md_width, viewport_top, viewport_bottom);
 
-    SyncMaxScroll();
-    UpdateScrollBar();
+    SyncMaxScroll(md_height);
+    UpdateScrollBar(md_height);
     InvalidateRect(hwnd_, nullptr, FALSE);
 
     if (renderer_.GetLayout().HasDirtyNodes()) {
@@ -476,6 +477,8 @@ void MainWindow::OnResize(UINT width, UINT height) {
 }
 
 void MainWindow::OnDpiChanged(UINT dpi, const RECT* suggested) {
+    cached_dpi_scale_ = static_cast<float>(dpi) / 96.0f;
+    if (cached_dpi_scale_ <= 0.0f) cached_dpi_scale_ = 1.0f;
     renderer_.SetDpi(static_cast<float>(dpi));
 
     // Mark all node layouts dirty so they get recreated at new DPI

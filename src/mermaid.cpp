@@ -306,8 +306,11 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                         const wchar_t* headers = nullptr;
 
                                         if (url.find(L"/mermaid.min.js.gz") != std::wstring::npos) {
-                                            // Serve gzip-compressed mermaid.js; JS decompresses via DecompressionStream
-                                            std::string gz = LoadMermaidJsGzFromResource();
+                                            // Serve gzip-compressed mermaid.js (cached); JS decompresses via DecompressionStream
+                                            if (cached_mermaid_gz_.empty()) {
+                                                cached_mermaid_gz_ = LoadMermaidJsGzFromResource();
+                                            }
+                                            const auto& gz = cached_mermaid_gz_;
                                             OutputDebugStringW(L"[mendo/Mermaid] Serving mermaid.min.js.gz from resource (");
                                             OutputDebugStringW(std::to_wstring(gz.size()).c_str());
                                             OutputDebugStringW(L" bytes, gzip)\n");
