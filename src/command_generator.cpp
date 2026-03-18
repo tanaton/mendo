@@ -64,7 +64,6 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
 
         case NodeType::CodeBlock:
             if (node.code_language == SyntaxLanguage::Mermaid && diagram.bitmap) {
-                GenCodeBlockBg(cmds, entry, x, cw);
                 float draw_w = diagram.width;
                 float draw_h = diagram.height;
                 if (draw_w > cw && draw_w > 0) {
