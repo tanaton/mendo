@@ -48,14 +48,15 @@ public:
 
         if (phase_ == GesturePhase::Tracking) {
             // Subsample trail points
-            if (trail_points_.size() < static_cast<size_t>(TRAIL_MAX_POINTS)) {
-                const auto& last = trail_points_.back();
-                float pdx = x - last.x;
-                float pdy = y - last.y;
-                float pdist = std::sqrt(pdx * pdx + pdy * pdy);
-                if (pdist >= MIN_POINT_DISTANCE) {
-                    trail_points_.push_back({x, y});
+            const auto& last = trail_points_.back();
+            float pdx = x - last.x;
+            float pdy = y - last.y;
+            float pdist = std::sqrt(pdx * pdx + pdy * pdy);
+            if (pdist >= MIN_POINT_DISTANCE) {
+                if (trail_points_.size() >= static_cast<size_t>(TRAIL_MAX_POINTS)) {
+                    trail_points_.erase(trail_points_.begin());
                 }
+                trail_points_.push_back({x, y});
             }
             UpdateDirection();
             // Show overlay as soon as a direction is determined

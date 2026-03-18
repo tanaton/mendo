@@ -527,19 +527,27 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
 }
 
 void Renderer::DrawGestureTrail(const std::vector<GesturePoint>& points) {
-    if (!render_target_ || points.size() < 2) return;
+    if (!render_target_ || !d2d_factory_ || points.size() < 2) return;
+
+    ComPtr<ID2D1PathGeometry> geometry;
+    if (FAILED(d2d_factory_->CreatePathGeometry(&geometry))) return;
+
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(geometry->Open(&sink))) return;
+
+    sink->BeginFigure(D2D1::Point2F(points[0].x, points[0].y), D2D1_FIGURE_BEGIN_HOLLOW);
+    for (size_t i = 1; i < points.size(); i++) {
+        sink->AddLine(D2D1::Point2F(points[i].x, points[i].y));
+    }
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    sink->Close();
 
     ComPtr<ID2D1SolidColorBrush> trail_brush;
     render_target_->CreateSolidColorBrush(
         D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f), &trail_brush);
     if (!trail_brush) return;
 
-    for (size_t i = 1; i < points.size(); i++) {
-        render_target_->DrawLine(
-            D2D1::Point2F(points[i - 1].x, points[i - 1].y),
-            D2D1::Point2F(points[i].x, points[i].y),
-            trail_brush.Get(), 4.0f, gesture_stroke_style_.Get());
-    }
+    render_target_->DrawGeometry(geometry.Get(), trail_brush.Get(), 4.0f, gesture_stroke_style_.Get());
 }
 
 void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect) {
