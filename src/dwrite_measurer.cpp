@@ -19,35 +19,7 @@ static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family,
         size, L"ja-jp", out);
 }
 
-bool DWriteTextMeasurer::Init(const Theme& theme) {
-    theme_ = &theme;
-    if (!dwrite_) return false;
-
-    auto W = DWRITE_FONT_WEIGHT_NORMAL;
-    auto B = DWRITE_FONT_WEIGHT_BOLD;
-
-    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_body, W, &fmt_body_))) return false;
-    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h1, B, &fmt_h1_))) return false;
-    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h2, B, &fmt_h2_))) return false;
-    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h3, B, &fmt_h3_))) return false;
-    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h4, B, &fmt_h4_))) return false;
-    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h5, B, &fmt_h5_))) return false;
-    if (FAILED(CreateFormat(dwrite_, theme.font_family, theme.font_size_h6, B, &fmt_h6_))) return false;
-    if (FAILED(CreateFormat(dwrite_, theme.monospace_font, theme.font_size_code, W, &fmt_code_))) return false;
-
-    fmt_body_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    fmt_h1_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    fmt_h2_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    fmt_h3_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    fmt_h4_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    fmt_h5_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    fmt_h6_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    fmt_code_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-
-    return true;
-}
-
-bool DWriteTextMeasurer::RecreateFormats() {
+bool DWriteTextMeasurer::CreateAllFormats() {
     if (!dwrite_ || !theme_) return false;
 
     fmt_body_.Reset(); fmt_h1_.Reset(); fmt_h2_.Reset(); fmt_h3_.Reset();
@@ -75,6 +47,15 @@ bool DWriteTextMeasurer::RecreateFormats() {
     fmt_code_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 
     return true;
+}
+
+bool DWriteTextMeasurer::Init(const Theme& theme) {
+    theme_ = &theme;
+    return CreateAllFormats();
+}
+
+bool DWriteTextMeasurer::RecreateFormats() {
+    return CreateAllFormats();
 }
 
 IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) {

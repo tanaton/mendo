@@ -116,6 +116,16 @@ struct ParseContext {
         current_node->text.append(text, len);
         current_node->runs.push_back(MakeRun(start, static_cast<uint32_t>(len)));
     }
+
+    // Convert UTF-8 text to wide and append to the current node/cell.
+    void AppendUtf8(const char* text, int size) {
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, text, size, nullptr, 0);
+        if (wlen > 0) {
+            text_buffer.resize(static_cast<size_t>(wlen));
+            MultiByteToWideChar(CP_UTF8, 0, text, size, text_buffer.data(), wlen);
+            AppendText(text_buffer.data(), static_cast<size_t>(wlen));
+        }
+    }
 };
 
 int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
@@ -356,16 +366,9 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
 
     switch (type) {
         case MD_TEXT_NORMAL:
-        case MD_TEXT_CODE: {
-            int wlen = MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(size), nullptr, 0);
-            if (wlen > 0) {
-                ctx->text_buffer.resize(static_cast<size_t>(wlen));
-                MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(size),
-                                    ctx->text_buffer.data(), wlen);
-                ctx->AppendText(ctx->text_buffer.data(), static_cast<size_t>(wlen));
-            }
+        case MD_TEXT_CODE:
+            ctx->AppendUtf8(text, static_cast<int>(size));
             break;
-        }
 
         case MD_TEXT_ENTITY: {
             std::string entity(text, size);
@@ -396,13 +399,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
                 size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
                 ctx->AppendText(resolved, rlen);
             } else {
-                int wlen = MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(size), nullptr, 0);
-                if (wlen > 0) {
-                    ctx->text_buffer.resize(static_cast<size_t>(wlen));
-                    MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(size),
-                                        ctx->text_buffer.data(), wlen);
-                    ctx->AppendText(ctx->text_buffer.data(), static_cast<size_t>(wlen));
-                }
+                ctx->AppendUtf8(text, static_cast<int>(size));
             }
             break;
         }

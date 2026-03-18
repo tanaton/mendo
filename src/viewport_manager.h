@@ -52,17 +52,11 @@ public:
         scroll_target_ = scroll_y_;
     }
 
-    // Binary search for the first node whose bottom edge is below scroll_y_.
+    // Find the first node whose bottom edge is below scroll_y_.
+    // Returns -1 if no visible node exists.
     int FindFirstVisibleNode(const LayoutCache& cache, size_t node_count) const {
-        int lo = 0, hi = static_cast<int>(node_count);
-        while (lo < hi) {
-            int mid = (lo + hi) / 2;
-            if (cache[mid].y_position + cache[mid].height <= scroll_y_)
-                lo = mid + 1;
-            else
-                hi = mid;
-        }
-        return lo < static_cast<int>(node_count) ? lo : -1;
+        int idx = FindFirstVisibleNodeIndex(cache, node_count, scroll_y_);
+        return idx < static_cast<int>(node_count) ? idx : -1;
     }
 
     void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, const LayoutCache& cache) {

@@ -829,3 +829,59 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions) {
     float last_bottom = cache[last].y_position + cache[last].height;
     EXPECT_GE(result.total_height, last_bottom);
 }
+
+// ---- FindFirstVisibleNodeIndex tests (free function in layout_cache.h) ----
+
+static LayoutCache MakeSimpleCache(int count, float node_height) {
+    LayoutCache cache;
+    cache.Resize(count);
+    float y = 0.0f;
+    for (int i = 0; i < count; ++i) {
+        cache[i].y_position = y;
+        cache[i].height = node_height;
+        y += node_height;
+    }
+    return cache;
+}
+
+TEST(FindFirstVisibleNodeIndex, AtStart) {
+    auto cache = MakeSimpleCache(10, 50.0f);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 0.0f), 0);
+}
+
+TEST(FindFirstVisibleNodeIndex, MidDocument) {
+    auto cache = MakeSimpleCache(10, 50.0f);
+    // viewport_top = 120 → node 2 (y=100, bottom=150) is first visible
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 120.0f), 2);
+}
+
+TEST(FindFirstVisibleNodeIndex, ExactBoundary) {
+    auto cache = MakeSimpleCache(10, 50.0f);
+    // viewport_top = 50 → node 0 ends at y=50, node 1 starts at y=50
+    // node 0's bottom (50) == viewport_top (50), so it's excluded
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 50.0f), 1);
+}
+
+TEST(FindFirstVisibleNodeIndex, PastEnd) {
+    auto cache = MakeSimpleCache(5, 50.0f);
+    // viewport_top = 300, all nodes end at y=250
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 5, 300.0f), 5);
+}
+
+TEST(FindFirstVisibleNodeIndex, EmptyCache) {
+    LayoutCache cache;
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 0, 0.0f), 0);
+}
+
+TEST(FindFirstVisibleNodeIndex, SingleNode) {
+    auto cache = MakeSimpleCache(1, 100.0f);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 0.0f), 0);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 50.0f), 0);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 100.0f), 1); // past the node
+}
+
+TEST(FindFirstVisibleNodeIndex, LastNodeVisible) {
+    auto cache = MakeSimpleCache(10, 50.0f);
+    // viewport_top = 449 → node 8 ends at 450, still visible
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 449.0f), 8);
+}

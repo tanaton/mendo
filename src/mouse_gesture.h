@@ -1,4 +1,5 @@
 #pragma once
+#include <deque>
 #include <vector>
 #include <cmath>
 
@@ -53,7 +54,7 @@ public:
             float pdist = std::sqrt(pdx * pdx + pdy * pdy);
             if (pdist >= MIN_POINT_DISTANCE) {
                 if (trail_points_.size() >= static_cast<size_t>(TRAIL_MAX_POINTS)) {
-                    trail_points_.erase(trail_points_.begin());
+                    trail_points_.pop_front();
                 }
                 trail_points_.push_back({x, y});
             }
@@ -98,7 +99,7 @@ public:
 
     bool IsGestureActive() const { return phase_ == GesturePhase::Tracking; }
     bool IsOverlayVisible() const { return overlay_alpha_ > 0.0f; }
-    const std::vector<GesturePoint>& GetTrailPoints() const { return trail_points_; }
+    const std::deque<GesturePoint>& GetTrailPoints() const { return trail_points_; }
     GestureDirection GetDirection() const { return direction_; }
     GesturePhase GetPhase() const { return phase_; }
     float GetOverlayAlpha() const { return overlay_alpha_; }
@@ -123,5 +124,5 @@ private:
     float current_x_ = 0.0f;
     float current_y_ = 0.0f;
     float overlay_alpha_ = 0.0f;
-    std::vector<GesturePoint> trail_points_;
+    std::deque<GesturePoint> trail_points_;
 };

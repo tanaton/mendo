@@ -26,15 +26,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     // Binary search for first visible node (use pre-computed index if available)
     int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
-        int lo = 0, hi = node_count;
-        while (lo < hi) {
-            int mid = (lo + hi) / 2;
-            if (cache[mid].y_position + cache[mid].height < viewport_top)
-                lo = mid + 1;
-            else
-                hi = mid;
-        }
-        first_visible = lo;
+        first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
     }
 
     for (int i = first_visible; i < node_count; i++) {

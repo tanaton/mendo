@@ -20,6 +20,7 @@ public:
     void SetFactory(IDWriteFactory* factory) { dwrite_ = factory; }
 
 private:
+    bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node);
     void ApplyCellRunFormatting(IDWriteTextLayout* layout, const std::vector<TextRun>& runs);
 

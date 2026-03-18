@@ -182,3 +182,62 @@ TEST(Theme, LightThemeTextIsDark) {
     EXPECT_LT(t.text_color.g, 0.3f);
     EXPECT_LT(t.text_color.b, 0.3f);
 }
+
+// ---- ApplyZoom tests ----
+
+TEST(Theme, ApplyZoomScalesFonts) {
+    Theme t = GetLightTheme();
+    float original_body = t.font_size_body;
+    float original_h1 = t.font_size_h1;
+    float original_code = t.font_size_code;
+
+    t.ApplyZoom(2.0f);
+
+    EXPECT_NEAR(t.font_size_body, original_body * 2.0f, 0.01f);
+    EXPECT_NEAR(t.font_size_h1, original_h1 * 2.0f, 0.01f);
+    EXPECT_NEAR(t.font_size_code, original_code * 2.0f, 0.01f);
+    EXPECT_FLOAT_EQ(t.zoom, 2.0f);
+}
+
+TEST(Theme, ApplyZoomScalesMargins) {
+    Theme t = GetLightTheme();
+    float original_left = t.margin_left;
+    float original_spacing = t.paragraph_spacing;
+
+    t.ApplyZoom(1.5f);
+
+    EXPECT_NEAR(t.margin_left, original_left * 1.5f, 0.01f);
+    EXPECT_NEAR(t.paragraph_spacing, original_spacing * 1.5f, 0.01f);
+}
+
+TEST(Theme, ApplyZoomScalesPaneSizes) {
+    Theme t = GetLightTheme();
+    float original_item_h = t.pane_item_height;
+    float original_pane_font = t.pane_font_size;
+
+    t.ApplyZoom(1.25f);
+
+    EXPECT_NEAR(t.pane_item_height, original_item_h * 1.25f, 0.01f);
+    EXPECT_NEAR(t.pane_font_size, original_pane_font * 1.25f, 0.01f);
+}
+
+TEST(Theme, ApplyZoomTwiceIsMultiplicative) {
+    Theme t = GetLightTheme();
+    float original_body = t.font_size_body;
+
+    t.ApplyZoom(2.0f);  // zoom from 1.0 to 2.0
+    t.ApplyZoom(3.0f);  // zoom from 2.0 to 3.0
+
+    EXPECT_NEAR(t.font_size_body, original_body * 3.0f, 0.01f);
+    EXPECT_FLOAT_EQ(t.zoom, 3.0f);
+}
+
+TEST(Theme, ApplyZoomResetToOne) {
+    Theme t = GetLightTheme();
+    float original_body = t.font_size_body;
+
+    t.ApplyZoom(2.0f);
+    t.ApplyZoom(1.0f);
+
+    EXPECT_NEAR(t.font_size_body, original_body, 0.01f);
+}

@@ -24,45 +24,31 @@ MainWindow::DipPoint MainWindow::PixelToDip(int px, int py) const {
     return {px / scale, py / scale};
 }
 
-MainWindow::WinPaneScrollInfo MainWindow::ComputePaneScrollInfo(
+PaneScrollInfo MainWindow::ComputePaneScrollInfo(
     const PaneRect& rect, float total_content) const {
-    auto info = ComputeScrollInfo(rect, renderer_.GetTheme().pane_header_height, total_content);
-    WinPaneScrollInfo winfo{};
-    winfo.content_top = info.content_top;
-    winfo.content_height = info.content_height;
-    winfo.total_content = info.total_content;
-    winfo.max_scroll = info.max_scroll;
-    winfo.thumb_height = info.thumb_height;
-    return winfo;
+    return ComputeScrollInfo(rect, renderer_.GetTheme().pane_header_height, total_content);
 }
 
-void MainWindow::HandleScrollbarClick(float dip_y, const WinPaneScrollInfo& info,
+void MainWindow::HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
                                       ScrollState& scroll, bool& cache_dirty) {
-    float scroll_ratio = (info.max_scroll > 0) ? scroll.scroll_y / info.max_scroll : 0.0f;
-    float thumb_y = info.content_top + scroll_ratio * (info.content_height - info.thumb_height);
+    float thumb_y = ComputeThumbY(info, scroll.scroll_y);
 
     if (dip_y >= thumb_y && dip_y <= thumb_y + info.thumb_height) {
         panes_.SetDragScrollOffset(dip_y - thumb_y);
     } else {
         panes_.SetDragScrollOffset(info.thumb_height * 0.5f);
         float new_thumb_y = dip_y - panes_.GetDragScrollOffset();
-        float track_range = info.content_height - info.thumb_height;
-        float ratio = (track_range > 0) ? (new_thumb_y - info.content_top) / track_range : 0.0f;
-        ratio = std::clamp(ratio, 0.0f, 1.0f);
-        scroll.scroll_y = ratio * info.max_scroll;
+        scroll.scroll_y = ScrollFromThumbY(info, new_thumb_y);
         scroll.max_scroll = info.max_scroll;
         cache_dirty = true;
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
 
-void MainWindow::HandleScrollbarDrag(float dip_y, const WinPaneScrollInfo& info,
+void MainWindow::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
                                      ScrollState& scroll, bool& cache_dirty) {
-    float track_range = info.content_height - info.thumb_height;
     float new_thumb_y = dip_y - panes_.GetDragScrollOffset();
-    float ratio = (track_range > 0) ? (new_thumb_y - info.content_top) / track_range : 0.0f;
-    ratio = std::clamp(ratio, 0.0f, 1.0f);
-    scroll.scroll_y = ratio * info.max_scroll;
+    scroll.scroll_y = ScrollFromThumbY(info, new_thumb_y);
     scroll.max_scroll = info.max_scroll;
     cache_dirty = true;
     InvalidateRect(hwnd_, nullptr, FALSE);

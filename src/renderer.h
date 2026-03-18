@@ -20,7 +20,7 @@ using Microsoft::WRL::ComPtr;
 
 struct GestureRenderState {
     bool trail_active = false;
-    const std::vector<GesturePoint>* trail_points = nullptr;
+    const std::deque<GesturePoint>* trail_points = nullptr;
     bool overlay_visible = false;
     int direction = 0;   // -1=Left(戻る), 1=Right(進む)
     float overlay_alpha = 0.0f;
@@ -83,7 +83,7 @@ private:
     void DrawNavOverlay(const PaneRect& md_pane_rect,
                         bool can_back, bool can_forward,
                         int hovered);  // 0=none, 1=back, 2=forward
-    void DrawGestureTrail(const std::vector<GesturePoint>& points);
+    void DrawGestureTrail(const std::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
 
     ComPtr<ID2D1Factory> d2d_factory_;

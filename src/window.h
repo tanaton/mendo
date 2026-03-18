@@ -77,17 +77,10 @@ private:
     void ClearSelection();
 
     // Scrollbar drag helpers
-    struct WinPaneScrollInfo {
-        float content_top;
-        float content_height;
-        float total_content;
-        float max_scroll;
-        float thumb_height;
-    };
-    WinPaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
-    void HandleScrollbarClick(float dip_y, const WinPaneScrollInfo& info,
+    PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
+    void HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
                               ScrollState& scroll, bool& cache_dirty);
-    void HandleScrollbarDrag(float dip_y, const WinPaneScrollInfo& info,
+    void HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
                              ScrollState& scroll, bool& cache_dirty);
 
     void UpdateLayoutAndScroll(float desired_scroll);

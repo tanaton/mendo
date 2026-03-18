@@ -420,21 +420,10 @@ void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll
         DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, size.height);
     }
 
-    // Binary search for first visible node (done once, shared by effects + command gen).
+    // Find first visible node (done once, shared by effects + command gen).
     float viewport_top = scroll_y;
     float viewport_bottom = scroll_y + md_pane_rect.height;
-    int first_visible = 0;
-    {
-        int lo = 0, hi = static_cast<int>(nodes.size());
-        while (lo < hi) {
-            int mid = (lo + hi) / 2;
-            if (cache[mid].y_position + cache[mid].height < viewport_top)
-                lo = mid + 1;
-            else
-                hi = mid;
-        }
-        first_visible = lo;
-    }
+    int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
 
     // Pre-pass: apply drawing effects (syntax highlighting, link colors) on visible nodes.
     ApplyVisibleEffects(nodes, cache, first_visible, viewport_bottom);
@@ -526,7 +515,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
     drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, L"\x25B6");
 }
 
-void Renderer::DrawGestureTrail(const std::vector<GesturePoint>& points) {
+void Renderer::DrawGestureTrail(const std::deque<GesturePoint>& points) {
     if (!render_target_ || !d2d_factory_ || points.size() < 2) return;
 
     ComPtr<ID2D1PathGeometry> geometry;

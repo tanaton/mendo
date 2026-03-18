@@ -66,3 +66,17 @@ inline float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_cou
     size_t last = node_count - 1;
     return cache[last].y_position + cache[last].height + margin_top;
 }
+
+// Binary search for the first node whose bottom edge is at or below viewport_top.
+// Returns the index of the first potentially visible node, or node_count if none.
+inline int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) {
+    int lo = 0, hi = static_cast<int>(node_count);
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (cache[mid].y_position + cache[mid].height <= viewport_top)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    return lo;
+}

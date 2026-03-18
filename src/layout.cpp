@@ -182,15 +182,8 @@ bool LayoutEngine::EnsureVisibleLayout(std::vector<Node>& nodes, LayoutCache& ca
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     bool any_updated = false;
 
-    // Binary search for the first node whose bottom edge >= viewport_top
-    int lo = 0, hi = static_cast<int>(nodes.size());
-    while (lo < hi) {
-        int mid = (lo + hi) / 2;
-        if (cache[mid].y_position + cache[mid].height < viewport_top)
-            lo = mid + 1;
-        else
-            hi = mid;
-    }
+    // Find the first node whose bottom edge >= viewport_top
+    int lo = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
 
     for (int i = lo; i < static_cast<int>(nodes.size()); i++) {
         auto& entry = cache[i];
