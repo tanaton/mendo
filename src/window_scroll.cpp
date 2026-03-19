@@ -83,14 +83,11 @@ void MainWindow::UpdateSmoothScroll() {
 }
 
 void MainWindow::InvalidateMdPane() {
-    auto* rt = renderer_.GetRenderTarget();
-    if (!rt) {
+    if (!renderer_.GetRenderTarget()) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
-    float dpi_x, dpi_y;
-    rt->GetDpi(&dpi_x, &dpi_y);
-    float scale = dpi_x / 96.0f;
+    float scale = cached_dpi_scale_;
     auto layout = GetPaneLayout();
     RECT rc;
     rc.left = static_cast<LONG>(layout.md_rect.x * scale);
