@@ -11,11 +11,13 @@
 #include "file_explorer.h"
 #include "toc.h"
 #include "mouse_gesture.h"
+#include "d2d_render_backend.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <functional>
 #include <vector>
+#include <memory>
 
 using Microsoft::WRL::ComPtr;
 
@@ -58,7 +60,7 @@ public:
                      const SidePaneState& side_panes,
                      const GestureRenderState& gesture = {});
 
-    ID2D1HwndRenderTarget* GetRenderTarget() const { return render_target_.Get(); }
+    ID2D1HwndRenderTarget* GetRenderTarget() const { return backend_.GetRenderTarget(); }
     LayoutEngine& GetLayout() { return layout_; }
     const Theme& GetTheme() const { return theme_; }
     void SetTheme(const Theme& theme);
@@ -92,9 +94,10 @@ private:
     void DrawGestureTrail(const std::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
 
-    ComPtr<ID2D1Factory> d2d_factory_;
-    ComPtr<ID2D1HwndRenderTarget> render_target_;
-    ComPtr<IDWriteFactory> dwrite_factory_;
+    D2DRenderBackend backend_;
+    // Convenience accessors (avoid verbose backend_.Get... in 600-line rendering code)
+    ID2D1HwndRenderTarget* rt() const { return backend_.GetRenderTarget(); }
+    ID2D1Factory* d2d() const { return backend_.GetD2DFactory(); }
 
     ComPtr<ID2D1SolidColorBrush> text_brush_;
     ComPtr<ID2D1SolidColorBrush> heading_brush_;
@@ -168,6 +171,4 @@ private:
     CommandGenerator cmd_generator_;
     CommandExecutor cmd_executor_;
     std::function<void(ID2D1RenderTarget*)> on_device_lost_;
-    float dpi_ = 96.0f;
-    HWND hwnd_ = nullptr;
 };

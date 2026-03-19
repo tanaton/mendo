@@ -6,37 +6,9 @@
 #pragma comment(lib, "dwrite.lib")
 
 bool Renderer::Init(HWND hwnd) {
-    hwnd_ = hwnd;
     theme_ = GetLightTheme();
 
-    // Query the actual DPI for this window's monitor
-    dpi_ = static_cast<float>(GetDpiForWindow(hwnd));
-    if (dpi_ == 0.0f) dpi_ = 96.0f;
-
-    // Create D2D factory
-    HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_factory_.GetAddressOf());
-    if (FAILED(hr)) return false;
-
-    // Create DirectWrite factory
-    hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
-        __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
-    if (FAILED(hr)) return false;
-
-    // Create render target with correct initial DPI
-    RECT rc;
-    GetClientRect(hwnd, &rc);
-
-    D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties();
-    rtProps.dpiX = dpi_;
-    rtProps.dpiY = dpi_;
-
-    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(
-        hwnd, D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top));
-    hwndProps.presentOptions = D2D1_PRESENT_OPTIONS_NONE;
-
-    hr = d2d_factory_->CreateHwndRenderTarget(rtProps, hwndProps, &render_target_);
-    if (FAILED(hr)) return false;
+    if (!backend_.Init(hwnd)) return false;
 
     // Create all brushes from theme
     RecreateBrushes();
@@ -48,10 +20,10 @@ bool Renderer::Init(HWND hwnd) {
     D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(
         D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
         D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
-    d2d_factory_->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
+    backend_.GetD2DFactory()->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
 
     // Initialize layout engine via DWriteTextMeasurer
-    measurer_.SetFactory(dwrite_factory_.Get());
+    measurer_.SetFactory(backend_.GetDWriteFactory());
     if (!layout_.Init(&measurer_, theme_)) return false;
 
     // Initialize command generator
@@ -62,6 +34,7 @@ bool Renderer::Init(HWND hwnd) {
 }
 
 void Renderer::RecreateBrushes() {
+    auto* render_target_ = backend_.GetRenderTarget();
     if (!render_target_) return;
 
     // Reset all brushes
@@ -139,23 +112,18 @@ void Renderer::RecreateBrushes() {
 
 void Renderer::SetTheme(const Theme& theme) {
     theme_ = theme;
-    if (!render_target_) return;
+    if (!backend_.GetRenderTarget()) return;
     RecreateBrushes();
     RecreatePaneFormats();
     cmd_generator_.SetTheme(&theme_);
 }
 
 void Renderer::Resize(UINT width, UINT height) {
-    if (render_target_) {
-        render_target_->Resize(D2D1::SizeU(width, height));
-    }
+    backend_.Resize(width, height);
 }
 
 void Renderer::SetDpi(float dpi) {
-    dpi_ = dpi;
-    if (render_target_) {
-        render_target_->SetDpi(dpi, dpi);
-    }
+    backend_.SetDpi(dpi);
     // Force pane cache recreation at new DPI
     file_pane_cache_.Reset();
     toc_pane_cache_.Reset();
@@ -189,14 +157,14 @@ void Renderer::RecreatePaneFormats() {
     fmt_nav_button_.Reset();
     fmt_gesture_overlay_.Reset();
 
-    dwrite_factory_->CreateTextFormat(
+    backend_.GetDWriteFactory()->CreateTextFormat(
         L"Segoe Fluent Icons", nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
         L"en-us", &icon_font_format_);
 
     // List number format (right-aligned for ordered list bullets)
-    dwrite_factory_->CreateTextFormat(
+    backend_.GetDWriteFactory()->CreateTextFormat(
         theme_.font_family, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
@@ -205,7 +173,7 @@ void Renderer::RecreatePaneFormats() {
         fmt_list_number_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
     }
 
-    dwrite_factory_->CreateTextFormat(
+    backend_.GetDWriteFactory()->CreateTextFormat(
         L"Segoe Fluent Icons", nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
@@ -216,7 +184,7 @@ void Renderer::RecreatePaneFormats() {
         fmt_pane_icon_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 
-    dwrite_factory_->CreateTextFormat(
+    backend_.GetDWriteFactory()->CreateTextFormat(
         theme_.font_family, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
@@ -226,7 +194,7 @@ void Renderer::RecreatePaneFormats() {
         fmt_pane_item_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
-    dwrite_factory_->CreateTextFormat(
+    backend_.GetDWriteFactory()->CreateTextFormat(
         theme_.font_family, nullptr,
         DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
@@ -237,7 +205,7 @@ void Renderer::RecreatePaneFormats() {
     }
 
     // Navigation overlay button text format (centered both axes)
-    dwrite_factory_->CreateTextFormat(
+    backend_.GetDWriteFactory()->CreateTextFormat(
         theme_.font_family, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
@@ -249,7 +217,7 @@ void Renderer::RecreatePaneFormats() {
     }
 
     // Gesture overlay text format (large bold, centered)
-    dwrite_factory_->CreateTextFormat(
+    backend_.GetDWriteFactory()->CreateTextFormat(
         theme_.font_family, nullptr,
         DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, 32.0f * theme_.zoom,
@@ -364,12 +332,12 @@ void Renderer::DrawLoading(float angle,
                             const PaneRect& md_pane_rect,
                             const SidePaneState& sp,
                             const GestureRenderState& gesture) {
-    if (!render_target_) return;
+    if (!rt()) return;
 
-    render_target_->BeginDraw();
-    render_target_->Clear(theme_.bg_color);
+    rt()->BeginDraw();
+    rt()->Clear(theme_.bg_color);
 
-    auto size = render_target_->GetSize();
+    auto size = rt()->GetSize();
 
     // Draw side panes normally
     if (sp.show_file_pane) {
@@ -397,7 +365,7 @@ void Renderer::DrawLoading(float angle,
 
         D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), dot_radius, dot_radius);
         text_brush_->SetOpacity(alpha);
-        render_target_->FillEllipse(ellipse, text_brush_.Get());
+        rt()->FillEllipse(ellipse, text_brush_.Get());
     }
     text_brush_->SetOpacity(1.0f);
 
@@ -416,12 +384,12 @@ void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll
                       bool can_go_back, bool can_go_forward,
                       int nav_hovered,
                       const GestureRenderState& gesture) {
-    if (!render_target_) return;
+    if (!rt()) return;
 
-    render_target_->BeginDraw();
-    render_target_->Clear(theme_.bg_color);
+    rt()->BeginDraw();
+    rt()->Clear(theme_.bg_color);
 
-    auto size = render_target_->GetSize();
+    auto size = rt()->GetSize();
 
     // Draw file explorer pane (bitmap blit when cache is clean)
     if (sp.show_file_pane) {
@@ -445,7 +413,7 @@ void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll
 
     // Generate and execute draw commands for the Markdown content pane.
     const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection, first_visible);
-    cmd_executor_.Execute(cmds, render_target_.Get());
+    cmd_executor_.Execute(cmds, rt());
 
     // Draw navigation overlay buttons (back/forward)
     if (can_go_back || can_go_forward) {
@@ -466,32 +434,18 @@ void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll
 }
 
 bool Renderer::CheckEndDraw() {
-    HRESULT hr = render_target_->EndDraw();
+    HRESULT hr = rt()->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
         RecreateRenderTarget();
         // Current frame was discarded — request a repaint on the new target
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
         return false;
     }
     return SUCCEEDED(hr);
 }
 
 bool Renderer::RecreateRenderTarget() {
-    render_target_.Reset();
-
-    RECT rc;
-    GetClientRect(hwnd_, &rc);
-
-    D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties();
-    rtProps.dpiX = dpi_;
-    rtProps.dpiY = dpi_;
-
-    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(
-        hwnd_, D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top));
-    hwndProps.presentOptions = D2D1_PRESENT_OPTIONS_NONE;
-
-    HRESULT hr = d2d_factory_->CreateHwndRenderTarget(rtProps, hwndProps, &render_target_);
-    if (FAILED(hr)) return false;
+    if (!backend_.RecreateRenderTarget()) return false;
 
     RecreateBrushes();
     file_pane_cache_.Reset();
@@ -500,7 +454,7 @@ bool Renderer::RecreateRenderTarget() {
 
     // Notify owner so dependent resources (e.g. MermaidRenderer bitmaps) are updated
     if (on_device_lost_) {
-        on_device_lost_(render_target_.Get());
+        on_device_lost_(backend_.GetRenderTarget());
     }
 
     return true;
@@ -515,7 +469,7 @@ static constexpr float NAV_BTN_CORNER = 6.0f;
 void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
                               bool can_back, bool can_forward,
                               int hovered) {
-    if (!render_target_) return;
+    if (!rt()) return;
 
     bool is_dark = (theme_.bg_color.r + theme_.bg_color.g + theme_.bg_color.b) < 1.5f;
 
@@ -542,7 +496,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
 
         overlay_brush_->SetColor(bg_color);
         D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
-        render_target_->FillRoundedRectangle(rrect, overlay_brush_.Get());
+        rt()->FillRoundedRectangle(rrect, overlay_brush_.Get());
 
         // Arrow text
         float text_alpha;
@@ -556,7 +510,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
 
         if (fmt_nav_button_) {
             overlay_brush_->SetColor(text_color);
-            render_target_->DrawText(
+            rt()->DrawText(
                 arrow, 1, fmt_nav_button_.Get(), rect, overlay_brush_.Get(),
                 D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
         }
@@ -569,10 +523,10 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
 }
 
 void Renderer::DrawGestureTrail(const std::deque<GesturePoint>& points) {
-    if (!render_target_ || !d2d_factory_ || points.size() < 2) return;
+    if (!rt() || !d2d() || points.size() < 2) return;
 
     ComPtr<ID2D1PathGeometry> geometry;
-    if (FAILED(d2d_factory_->CreatePathGeometry(&geometry))) return;
+    if (FAILED(d2d()->CreatePathGeometry(&geometry))) return;
 
     ComPtr<ID2D1GeometrySink> sink;
     if (FAILED(geometry->Open(&sink))) return;
@@ -587,11 +541,11 @@ void Renderer::DrawGestureTrail(const std::deque<GesturePoint>& points) {
     if (!overlay_brush_) return;
     overlay_brush_->SetColor(D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f));
 
-    render_target_->DrawGeometry(geometry.Get(), overlay_brush_.Get(), 4.0f, gesture_stroke_style_.Get());
+    rt()->DrawGeometry(geometry.Get(), overlay_brush_.Get(), 4.0f, gesture_stroke_style_.Get());
 }
 
 void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect) {
-    if (!render_target_ || direction == 0 || !overlay_brush_) return;
+    if (!rt() || direction == 0 || !overlay_brush_) return;
 
     bool is_dark = (theme_.bg_color.r + theme_.bg_color.g + theme_.bg_color.b) < 1.5f;
 
@@ -610,7 +564,7 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
 
     overlay_brush_->SetColor(bg_color);
     D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 12.0f, 12.0f);
-    render_target_->FillRoundedRectangle(rrect, overlay_brush_.Get());
+    rt()->FillRoundedRectangle(rrect, overlay_brush_.Get());
 
     // Text (white on dark overlay for both themes)
     const wchar_t* text = (direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080";
@@ -618,7 +572,7 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
 
     if (fmt_gesture_overlay_) {
         overlay_brush_->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
-        render_target_->DrawText(
+        rt()->DrawText(
             text, text_len, fmt_gesture_overlay_.Get(), rect, overlay_brush_.Get(),
             D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
     }

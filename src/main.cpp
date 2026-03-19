@@ -32,7 +32,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
         }
         window.LoadMarkdownFile(path);
     } else {
-        std::wstring last = MainWindow::LoadLastFilePath();
+        std::wstring last = window.LoadLastFilePath();
         if (!last.empty()) {
             window.LoadMarkdownFile(last);
         }

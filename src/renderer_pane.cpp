@@ -23,7 +23,7 @@ static bool EnsurePaneCacheSize(Renderer::PaneCache& cache, ID2D1RenderTarget* p
 
 void Renderer::DrawFileExplorer(const std::vector<FileEntry>& entries, const PaneRect& rect,
                                 const ScrollState& scroll, int hovered_index) {
-    if (!EnsurePaneCacheSize(file_pane_cache_, render_target_.Get(), rect.width, rect.height))
+    if (!EnsurePaneCacheSize(file_pane_cache_, rt(), rect.width, rect.height))
         return;
 
     if (file_pane_cache_.dirty) {
@@ -110,13 +110,13 @@ void Renderer::DrawFileExplorer(const std::vector<FileEntry>& entries, const Pan
     if (bmp) {
         D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y,
                                          rect.x + rect.width, rect.y + rect.height);
-        render_target_->DrawBitmap(bmp.Get(), dest);
+        rt()->DrawBitmap(bmp.Get(), dest);
     }
 }
 
 void Renderer::DrawToc(const std::vector<TocEntry>& entries, const PaneRect& rect,
                        const ScrollState& scroll, int hovered_index) {
-    if (!EnsurePaneCacheSize(toc_pane_cache_, render_target_.Get(), rect.width, rect.height))
+    if (!EnsurePaneCacheSize(toc_pane_cache_, rt(), rect.width, rect.height))
         return;
 
     if (toc_pane_cache_.dirty) {
@@ -182,13 +182,13 @@ void Renderer::DrawToc(const std::vector<TocEntry>& entries, const PaneRect& rec
     if (bmp) {
         D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y,
                                          rect.x + rect.width, rect.y + rect.height);
-        render_target_->DrawBitmap(bmp.Get(), dest);
+        rt()->DrawBitmap(bmp.Get(), dest);
     }
 }
 
 void Renderer::DrawSplitter(float x, float height) {
     D2D1_RECT_F rect = D2D1::RectF(x, 0.0f, x + theme_.splitter_width, height);
-    render_target_->FillRectangle(rect, splitter_brush_.Get());
+    rt()->FillRectangle(rect, splitter_brush_.Get());
 }
 
 void Renderer::DrawPaneScrollbar(ID2D1RenderTarget* rt, float pane_width,
