@@ -25,6 +25,9 @@ public:
     // 内容の差し替え（再パース時）
     void ReplaceContent(std::vector<Node> new_nodes);
 
+    // Markdown文字列から内容を再パース（パスは保持）
+    void ReplaceFromMarkdown(const std::string& utf8);
+
 private:
     std::vector<Node> nodes_;
     std::wstring file_path_;

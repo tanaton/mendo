@@ -15,6 +15,7 @@ public:
     // ファイル監視
     void StartWatching(const std::wstring& path, FileLoader::ChangeCallback cb);
     void StopWatching();
+    void CheckForChanges();
 
     // 大きいファイルかどうか（ローディングアニメ判定用）
     static bool NeedsLoadingAnimation(const std::wstring& path);

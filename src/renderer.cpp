@@ -460,11 +460,8 @@ bool Renderer::RecreateRenderTarget() {
     return true;
 }
 
-// Navigation overlay constants (in DIP)
-static constexpr float NAV_BTN_SIZE = 32.0f;
-static constexpr float NAV_BTN_MARGIN = 16.0f;
-static constexpr float NAV_BTN_GAP = 2.0f;
-static constexpr float NAV_BTN_CORNER = 6.0f;
+// Navigation overlay constants
+#include "nav_button_constants.h"
 
 void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
                               bool can_back, bool can_forward,
@@ -474,11 +471,8 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
     bool is_dark = (theme_.bg_color.r + theme_.bg_color.g + theme_.bg_color.b) < 1.5f;
 
     // Position: bottom-right of MD pane with margin
-    float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP;
+    float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
-
-    // Scrollbar avoidance
-    base_x -= 16.0f;
 
     auto drawButton = [&](float x, bool enabled, bool is_hovered, const wchar_t* arrow) {
         if (!overlay_brush_) return;

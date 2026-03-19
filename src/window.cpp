@@ -6,12 +6,6 @@
 
 static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 
-// Timer IDs must match App's constants
-static constexpr UINT_PTR TIMER_SMOOTH_SCROLL = 1;
-static constexpr UINT_PTR TIMER_FILE_WATCH = 2;
-static constexpr UINT_PTR TIMER_DEFERRED_LAYOUT = 3;
-static constexpr UINT_PTR TIMER_LOADING_ANIM = 4;
-
 bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow) {
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
@@ -176,18 +170,18 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         case WM_TIMER:
-            if (wParam == TIMER_SMOOTH_SCROLL) {
+            if (wParam == App::TIMER_SMOOTH_SCROLL) {
                 app_.OnSmoothScrollTimer();
-            } else if (wParam == TIMER_FILE_WATCH) {
+            } else if (wParam == App::TIMER_FILE_WATCH) {
                 app_.OnFileWatchTimer();
-            } else if (wParam == TIMER_DEFERRED_LAYOUT) {
+            } else if (wParam == App::TIMER_DEFERRED_LAYOUT) {
                 app_.OnDeferredLayoutTimer();
-            } else if (wParam == TIMER_LOADING_ANIM) {
+            } else if (wParam == App::TIMER_LOADING_ANIM) {
                 app_.OnLoadingAnimTimer();
             }
             return 0;
 
-        case WM_APP + 1:
+        case App::WM_APP_LOAD_FILE:
             app_.OnAppLoadFile();
             return 0;
 

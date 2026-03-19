@@ -17,7 +17,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
     icc.dwICC = ICC_STANDARD_CLASSES;
     InitCommonControlsEx(&icc);
 
-    MainWindow window;
+    Win32Window window;
     if (!window.Create(hInstance, nCmdShow)) {
         CoUninitialize();
         return 1;

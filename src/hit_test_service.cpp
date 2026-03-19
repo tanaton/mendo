@@ -1,4 +1,5 @@
 #include "hit_test_service.h"
+#include "nav_button_constants.h"
 
 HitTestService::HitResult HitTestService::HitTest(
     const std::vector<Node>& nodes,
@@ -162,22 +163,17 @@ HitTestService::HitResult HitTestService::HitTestTable(
 
 HitTestService::NavButtonHover HitTestService::NavButtonHitTest(
     float dip_x, float dip_y, const PaneRect& md_rect) const {
-    // Must match the constants in renderer.cpp
-    constexpr float BTN_SIZE = 32.0f;
-    constexpr float BTN_MARGIN = 16.0f;
-    constexpr float BTN_GAP = 2.0f;
+    float base_x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
+    float base_y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 
-    float base_x = md_rect.x + md_rect.width - BTN_MARGIN - BTN_SIZE * 2 - BTN_GAP - 16.0f;
-    float base_y = md_rect.y + md_rect.height - BTN_MARGIN - BTN_SIZE;
-
-    if (dip_y < base_y || dip_y > base_y + BTN_SIZE) return NavButtonHover::None;
+    if (dip_y < base_y || dip_y > base_y + NAV_BTN_SIZE) return NavButtonHover::None;
 
     // Back button
-    if (dip_x >= base_x && dip_x <= base_x + BTN_SIZE)
+    if (dip_x >= base_x && dip_x <= base_x + NAV_BTN_SIZE)
         return NavButtonHover::Back;
     // Forward button
-    float fwd_x = base_x + BTN_SIZE + BTN_GAP;
-    if (dip_x >= fwd_x && dip_x <= fwd_x + BTN_SIZE)
+    float fwd_x = base_x + NAV_BTN_SIZE + NAV_BTN_GAP;
+    if (dip_x >= fwd_x && dip_x <= fwd_x + NAV_BTN_SIZE)
         return NavButtonHover::Forward;
 
     return NavButtonHover::None;

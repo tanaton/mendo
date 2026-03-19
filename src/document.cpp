@@ -21,3 +21,7 @@ void Document::ReplaceContent(std::vector<Node> new_nodes) {
     nodes_ = std::move(new_nodes);
     toc_.BuildFromNodes(nodes_);
 }
+
+void Document::ReplaceFromMarkdown(const std::string& utf8) {
+    ReplaceContent(ParseMarkdown(utf8));
+}

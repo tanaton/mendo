@@ -1,5 +1,4 @@
 #include "document_service.h"
-#include "parser.h"
 
 bool DocumentService::LoadFile(const std::wstring& path, Document& doc) {
     std::string content = FileLoader::LoadFile(path);
@@ -12,8 +11,7 @@ bool DocumentService::LoadFile(const std::wstring& path, Document& doc) {
 
 bool DocumentService::ReloadFile(Document& doc) {
     if (doc.GetFilePath().empty()) return false;
-    std::string content = FileLoader::LoadFile(doc.GetFilePath());
-    doc.ReplaceContent(ParseMarkdown(content));
+    doc.ReplaceFromMarkdown(FileLoader::LoadFile(doc.GetFilePath()));
     return true;
 }
 
@@ -23,6 +21,10 @@ void DocumentService::StartWatching(const std::wstring& path, FileLoader::Change
 
 void DocumentService::StopWatching() {
     loader_.StopWatching();
+}
+
+void DocumentService::CheckForChanges() {
+    loader_.CheckForChanges();
 }
 
 bool DocumentService::NeedsLoadingAnimation(const std::wstring& path) {

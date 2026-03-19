@@ -32,5 +32,6 @@ public:
     bool CanGoForward() const { return history_.CanGoForward(); }
 
 private:
+    NavigateResult MakeResultFromEntry(NavEntry&& entry, const std::wstring& current_file);
     NavHistory& history_;
 };

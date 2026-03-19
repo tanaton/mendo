@@ -3,9 +3,6 @@
 #include <windows.h>
 #include <string>
 
-// Apply dark mode styling to window title bar and scrollbar.
-void ApplyDarkModeToWindow(HWND hwnd, bool dark);
-
 class Win32Window {
 public:
     bool Create(HINSTANCE hInstance, int nCmdShow);
@@ -21,6 +18,3 @@ private:
     HWND hwnd_ = nullptr;
     App app_;
 };
-
-// Backward compatibility alias
-using MainWindow = Win32Window;

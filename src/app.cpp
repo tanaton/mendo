@@ -42,7 +42,7 @@ bool App::Init(HWND hwnd) {
 
     if (!renderer_.Init(hwnd_)) return false;
 
-    layout_service_ = std::make_unique<LayoutService>(renderer_.GetLayout(), viewport_);
+    layout_service_.emplace(renderer_.GetLayout(), viewport_);
 
     // Cache DPI scale for PixelToDip (updated in OnDpiChanged)
     float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
@@ -176,24 +176,18 @@ void App::OnPaint() {
                  : (gesture_.GetDirection() == GestureDirection::Right) ? 1 : 0;
     gs.overlay_alpha = gesture_.GetOverlayAlpha();
 
+    SidePaneState sp{layout.file_rect, layout.toc_rect,
+                     file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
+                     doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
+                     panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible()};
+
     if (loading_) {
-        renderer_.DrawLoading(loading_angle_,
-                              layout.md_rect,
-                              {layout.file_rect, layout.toc_rect,
-                               file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
-                               doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
-                               panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible()},
-                              gs);
+        renderer_.DrawLoading(loading_angle_, layout.md_rect, sp, gs);
     } else {
         renderer_.Render(doc_.GetNodesMut(), layout_cache_, viewport_.GetScrollY(), viewport_.GetSelection(),
-                         layout.md_rect,
-                         {layout.file_rect, layout.toc_rect,
-                          file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
-                          doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
-                          panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible()},
+                         layout.md_rect, sp,
                          nav_service_.CanGoBack(), nav_service_.CanGoForward(),
-                         static_cast<int>(nav_hover_),
-                         gs);
+                         static_cast<int>(nav_hover_), gs);
     }
 
     EndPaint(hwnd_, &ps);
@@ -989,34 +983,24 @@ void App::PushNavHistory() {
     nav_service_.PushHistory(doc_.GetFilePath(), viewport_.GetScrollY());
 }
 
-void App::NavigateBack() {
-    auto result = nav_service_.GoBack(doc_.GetFilePath(), viewport_.GetScrollY());
+void App::ApplyNavigateResult(const NavigationService::NavigateResult& result) {
     if (result.type == NavigationService::NavigateResult::Type::None) return;
 
     if (result.type == NavigationService::NavigateResult::Type::LoadFile) {
         loading_path_ = result.target;
         DoLoadMarkdownFile();
-        viewport_.ScrollTo(result.scroll_y);
-    } else {
-        viewport_.ScrollTo(result.scroll_y);
     }
+    viewport_.ScrollTo(result.scroll_y);
     UpdateScrollBar();
     InvalidateMdPane();
 }
 
-void App::NavigateForward() {
-    auto result = nav_service_.GoForward(doc_.GetFilePath(), viewport_.GetScrollY());
-    if (result.type == NavigationService::NavigateResult::Type::None) return;
+void App::NavigateBack() {
+    ApplyNavigateResult(nav_service_.GoBack(doc_.GetFilePath(), viewport_.GetScrollY()));
+}
 
-    if (result.type == NavigationService::NavigateResult::Type::LoadFile) {
-        loading_path_ = result.target;
-        DoLoadMarkdownFile();
-        viewport_.ScrollTo(result.scroll_y);
-    } else {
-        viewport_.ScrollTo(result.scroll_y);
-    }
-    UpdateScrollBar();
-    InvalidateMdPane();
+void App::NavigateForward() {
+    ApplyNavigateResult(nav_service_.GoForward(doc_.GetFilePath(), viewport_.GetScrollY()));
 }
 
 // ============================================================
@@ -1028,7 +1012,7 @@ void App::OnSmoothScrollTimer() {
 }
 
 void App::OnFileWatchTimer() {
-    file_loader_.CheckForChanges();
+    doc_service_.CheckForChanges();
 }
 
 void App::OnDeferredLayoutTimer() {

@@ -25,6 +25,9 @@
 #include <optional>
 #include <memory>
 
+// Apply dark mode styling to window title bar and scrollbar.
+void ApplyDarkModeToWindow(HWND hwnd, bool dark);
+
 class App {
 public:
     bool Init(HWND hwnd);
@@ -90,6 +93,7 @@ private:
     std::optional<std::wstring> GetLinkAtHit(const HitResult& hit) const;
     void HandleLinkClick(const std::wstring& url);
     void NavigateToAnchor(const std::wstring& anchor);
+    void ApplyNavigateResult(const NavigationService::NavigateResult& result);
     void NavigateBack();
     void NavigateForward();
     void PushNavHistory();
@@ -145,16 +149,18 @@ private:
     void SaveZoomLevel();
     int LoadZoomIndex() const;
 
-    // Win32 handle
-    HWND hwnd_ = nullptr;
-    float cached_dpi_scale_ = 1.0f;
-
-    // Timer IDs
+public:
+    // Timer IDs (shared with Win32Window for message routing)
     static constexpr UINT_PTR TIMER_SMOOTH_SCROLL = 1;
     static constexpr UINT_PTR TIMER_FILE_WATCH = 2;
     static constexpr UINT_PTR TIMER_DEFERRED_LAYOUT = 3;
     static constexpr UINT_PTR TIMER_LOADING_ANIM = 4;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
+
+private:
+    // Win32 handle
+    HWND hwnd_ = nullptr;
+    float cached_dpi_scale_ = 1.0f;
 
     // Cached system cursors
     HCURSOR cursor_arrow_ = nullptr;
@@ -178,7 +184,7 @@ private:
     Document doc_;
     LayoutCache layout_cache_;
     ViewportManager viewport_;
-    std::unique_ptr<LayoutService> layout_service_;
+    std::optional<LayoutService> layout_service_;
 
     bool is_sizing_ = false;
 

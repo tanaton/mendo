@@ -1,7 +1,7 @@
 #pragma once
 #include "render_backend.h"
 
-class D2DRenderBackend : public IRenderBackend {
+class D2DRenderBackend final : public IRenderBackend {
 public:
     bool Init(HWND hwnd) override;
     void Resize(UINT width, UINT height) override;
