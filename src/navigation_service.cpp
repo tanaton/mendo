@@ -1,7 +1,7 @@
 #include "navigation_service.h"
 
 NavigationService::NavigateResult NavigationService::HandleLinkClick(
-    const std::wstring& url, const std::wstring& current_file) {
+    const std::wstring& url, [[maybe_unused]] const std::wstring& current_file) {
     NavigateResult result;
     if (url.empty()) return result;
 

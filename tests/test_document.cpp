@@ -57,7 +57,6 @@ TEST(DocumentTest, ReplaceContent) {
     EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"First");
 
     // Replace with new content
-    auto new_nodes = doc.GetNodes(); // Copy existing
     auto doc2 = Document::FromMarkdown("# Second\n## Sub", L"");
     doc.ReplaceContent(doc2.GetNodesMut());
 
