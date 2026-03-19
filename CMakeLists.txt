@@ -40,8 +40,12 @@ endif()
 
 # ---- Core library (testable code, no WinMain / window) ----
 add_library(mendo_core STATIC
+    src/document.cpp
+    src/document_service.cpp
+    src/hit_test_service.cpp
     src/parser.cpp
     src/layout.cpp
+    src/layout_service.cpp
     src/dwrite_measurer.cpp
     src/command_generator.cpp
     src/command_executor.cpp
@@ -57,6 +61,7 @@ add_library(mendo_core STATIC
     src/app_controller.cpp
     src/pane_controller.cpp
     src/nav_history.cpp
+    src/navigation_service.cpp
 )
 target_include_directories(mendo_core PUBLIC src third_party/md4c)
 target_compile_definitions(mendo_core PUBLIC
@@ -87,11 +92,10 @@ add_custom_target(mermaid_gz DEPENDS "${MERMAID_JS_GZ}")
 add_executable(mendo WIN32
     src/main.cpp
     src/window.cpp
-    src/window_input.cpp
-    src/window_scroll.cpp
-    src/window_config.cpp
+    src/app.cpp
     src/renderer.cpp
     src/renderer_pane.cpp
+    src/d2d_render_backend.cpp
     src/mermaid.cpp
     res/mendo.rc
 )

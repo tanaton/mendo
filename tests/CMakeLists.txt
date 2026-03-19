@@ -1,4 +1,6 @@
 add_executable(mendo_tests
+    test_document.cpp
+    test_document_service.cpp
     test_parser.cpp
     test_types.cpp
     test_theme.cpp
@@ -18,6 +20,7 @@ add_executable(mendo_tests
     test_app_controller.cpp
     test_pane_controller.cpp
     test_nav_history.cpp
+    test_navigation_service.cpp
     test_nav_button_format.cpp
     test_mouse_gesture.cpp
 )

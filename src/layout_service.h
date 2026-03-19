@@ -1,0 +1,41 @@
+#pragma once
+#include "layout.h"
+#include "viewport_manager.h"
+#include "document.h"
+#include "layout_cache.h"
+
+class LayoutService {
+public:
+    LayoutService(LayoutEngine& engine, ViewportManager& viewport)
+        : engine_(engine), viewport_(viewport) {}
+
+    // 全レイアウト計算（初回ロード時）
+    void FullLayout(Document& doc, LayoutCache& cache, float width);
+
+    // ビューポート優先レイアウト（リサイズ時）
+    void ViewportLayout(Document& doc, LayoutCache& cache,
+                        float width, float height);
+
+    // ダーティバッチ処理（遅延レイアウト）
+    bool ProcessDirtyBatch(Document& doc, LayoutCache& cache,
+                           float width, int batch_size);
+
+    // 可視領域のレイアウト保証（OnPaint 時）
+    bool EnsureVisibleLayout(Document& doc, LayoutCache& cache,
+                             float width, float height);
+
+    // ダイアグラム反映後の Y 位置再計算
+    void RecomputeAfterDiagram(Document& doc, LayoutCache& cache,
+                               const Theme& theme);
+
+    // ダーティノードが残っているか
+    bool HasDirtyNodes() const { return engine_.HasDirtyNodes(); }
+
+    // 合計高さ
+    float GetTotalHeight() const { return engine_.GetTotalHeight(); }
+    void SetTotalHeight(float h) { engine_.SetTotalHeight(h); }
+
+private:
+    LayoutEngine& engine_;
+    ViewportManager& viewport_;
+};
