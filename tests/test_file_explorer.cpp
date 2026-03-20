@@ -79,7 +79,7 @@ TEST_F(FileExplorerTest, TrailingSlashDoesNotCreateDoubleBackslash) {
             // full_path should not have double backslash
             EXPECT_EQ(entry.full_path.find(L"\\\\"), std::wstring::npos)
                 << "full_path should not contain double backslash: "
-                << std::string(entry.full_path.begin(), entry.full_path.end());
+                << "full_path contains double backslash";
         }
     }
     EXPECT_TRUE(found_md);

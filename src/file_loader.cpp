@@ -86,7 +86,7 @@ void FileLoader::StopWatching() noexcept {
     on_change_ = nullptr;
 }
 
-void FileLoader::CheckForChanges() noexcept {
+void FileLoader::CheckForChanges() {
     if (!watching_) return;
 
     // Debounce: skip check if too soon after last reload

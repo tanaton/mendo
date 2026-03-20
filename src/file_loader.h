@@ -14,7 +14,7 @@ public:
     using ChangeCallback = std::function<void()>;
     void StartWatching(const std::wstring& file_path, ChangeCallback callback);
     void StopWatching() noexcept;
-    void CheckForChanges() noexcept;
+    void CheckForChanges();
 
 private:
     std::wstring watch_path_;

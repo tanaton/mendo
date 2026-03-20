@@ -7,6 +7,28 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Static CRT for single-exe distribution
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# ---- MSVC build optimization ----
+if(MSVC)
+    # /MP: Multi-processor compilation (parallel compile within each target)
+    add_compile_options(/MP)
+
+    # /GL: Whole Program Optimization (enables LTCG at compile time)
+    # /Gy: Function-Level Linking (allows linker to remove unused functions)
+    add_compile_options($<$<CONFIG:Release>:/GL> $<$<CONFIG:Release>:/Gy>)
+
+    # /LTCG: Link-Time Code Generation
+    # /OPT:REF: Remove unreferenced functions/data
+    # /OPT:ICF: Fold identical COMDATs
+    add_link_options(
+        $<$<CONFIG:Release>:/LTCG>
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
+    )
+
+    # Static libraries also need /LTCG for the linker to process them
+    set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
+endif()
+
 # ---- WebView2 SDK (for Mermaid diagram rendering) ----
 include(FetchContent)
 FetchContent_Declare(

@@ -23,7 +23,7 @@ void DocumentService::StopWatching() noexcept {
     loader_.StopWatching();
 }
 
-void DocumentService::CheckForChanges() noexcept {
+void DocumentService::CheckForChanges() {
     loader_.CheckForChanges();
 }
 
