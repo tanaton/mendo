@@ -366,4 +366,5 @@ MigrationBackup/
 FodyWeavers.xsd
 
 build/
+CMakeSettings.json
 .claude/

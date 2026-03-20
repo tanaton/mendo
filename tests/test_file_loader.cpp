@@ -12,7 +12,7 @@ protected:
     void SetUp() override {
         wchar_t tmp[MAX_PATH];
         GetTempPathW(MAX_PATH, tmp);
-        temp_dir_ = fs::path(tmp) / L"mendo_test";
+        temp_dir_ = fs::path(tmp) / (L"mendo_test_" + std::to_wstring(GetCurrentProcessId()));
         fs::create_directories(temp_dir_);
     }
 

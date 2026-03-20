@@ -2,6 +2,8 @@
 #include "config_store.h"
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <Windows.h>
 
 namespace fs = std::filesystem;
 
@@ -11,7 +13,7 @@ protected:
 
     void SetUp() override {
         // Create a unique temp directory for each test
-        temp_dir_ = fs::temp_directory_path() / L"mendo_test_config";
+        temp_dir_ = fs::temp_directory_path() / (L"mendo_test_config_" + std::to_wstring(GetCurrentProcessId()));
         fs::remove_all(temp_dir_);
         fs::create_directories(temp_dir_);
         config::SetConfigDirOverride(temp_dir_);

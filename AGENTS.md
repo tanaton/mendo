@@ -31,7 +31,7 @@ cmake --build build --config Release
 
 ```
 cmake --build build --config Release
-ctest --test-dir build --output-on-failure -C Release
+ctest --test-dir build --output-on-failure -C Release -j0 2>&1 | grep -vE "^\s*(Start|[0-9]+/[0-9]+.*Passed)"
 ```
 
 ## 注意事項
