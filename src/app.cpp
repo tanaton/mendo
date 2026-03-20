@@ -58,17 +58,14 @@ bool App::Init(HWND hwnd) {
         mermaid_renderer_.SetRenderTarget(new_rt);
     });
 
-    // Apply saved dark mode preference
-    dark_mode_ = LoadDarkMode();
-    if (dark_mode_) {
-        renderer_.SetTheme(GetDarkTheme());
-        ApplyDarkModeToWindow(hwnd_, true);
+    // Apply saved dark mode and zoom preferences
+    theme_service_.LoadDarkMode();
+    viewport_.SetZoomIndex(theme_service_.LoadZoomIndex());
+    if (theme_service_.IsDarkMode() || viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
+        renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
     }
-
-    // Apply saved zoom level
-    viewport_.SetZoomIndex(LoadZoomIndex());
-    if (viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
-        renderer_.ApplyZoom(ZOOM_STEPS[viewport_.GetZoomIndex()]);
+    if (theme_service_.IsDarkMode()) {
+        ApplyDarkModeToWindow(hwnd_, true);
     }
 
     // Cache system cursors
@@ -156,7 +153,7 @@ void App::OnPaint() {
     BeginPaint(hwnd_, &ps);
 
     auto layout = GetPaneLayout();
-    if (!loading_) {
+    if (!file_load_service_.IsLoading()) {
         // Ensure any dirty nodes now visible are laid out at the current width
         int anchor_idx = FindFirstVisibleNode();
         float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
@@ -181,8 +178,8 @@ void App::OnPaint() {
                      doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
                      panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible()};
 
-    if (loading_) {
-        renderer_.DrawLoading(loading_angle_, layout.md_rect, sp, gs);
+    if (file_load_service_.IsLoading()) {
+        renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, gs);
     } else {
         renderer_.Render(doc_.GetNodesMut(), layout_cache_, viewport_.GetScrollY(), viewport_.GetSelection(),
                          layout.md_rect, sp,
@@ -231,10 +228,7 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested) {
     if (cached_dpi_scale_ <= 0.0f) cached_dpi_scale_ = 1.0f;
     renderer_.SetDpi(static_cast<float>(dpi));
 
-    for (size_t i = 0; i < doc_.GetNodes().size(); i++) {
-        layout_cache_[i].layout_dirty = true;
-        layout_cache_[i].text_layout.Reset();
-    }
+    layout_cache_.MarkAllDirty();
 
     SetWindowPos(hwnd_, nullptr,
         suggested->left, suggested->top,
@@ -262,13 +256,11 @@ void App::OnExitSizeMove() {
 // ============================================================
 
 void App::LoadMarkdownFile(const std::wstring& path) {
-    loading_path_ = path;
-
     if (!DocumentService::NeedsLoadingAnimation(path)) {
+        file_load_service_.SetLoadingPath(path);
         DoLoadMarkdownFile();
     } else {
-        loading_ = true;
-        loading_angle_ = 0.0f;
+        file_load_service_.StartLoading(path);
         SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
         InvalidateRect(hwnd_, nullptr, FALSE);
         UpdateWindow(hwnd_);
@@ -278,16 +270,14 @@ void App::LoadMarkdownFile(const std::wstring& path) {
 
 void App::DoLoadMarkdownFile() {
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
-    loading_ = false;
 
     viewport_.ClearSelection();
     mermaid_renderer_.CancelPending();
 
-    if (!doc_service_.LoadFile(loading_path_, doc_)) {
+    if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
-    layout_cache_.Reset(doc_.GetNodes().size());
 
     std::wstring dir = doc_.GetDirectory();
     if (!dir.empty()) {
@@ -313,11 +303,12 @@ void App::ReloadCurrentFile() {
 
     float old_scroll = viewport_.GetScrollY();
     mermaid_renderer_.CancelPending();
-    doc_service_.ReloadFile(doc_);
-    layout_cache_.Reset(doc_.GetNodes().size());
-    renderer_.InvalidateTocPaneCache();
-    UpdateLayoutAndScroll(old_scroll);
-    RequestMermaidRenders();
+
+    if (file_load_service_.ExecuteReload(doc_, layout_cache_)) {
+        renderer_.InvalidateTocPaneCache();
+        UpdateLayoutAndScroll(old_scroll);
+        RequestMermaidRenders();
+    }
 }
 
 void App::UpdateTitleBar() {
@@ -355,7 +346,7 @@ void App::RequestMermaidRenders() {
         if (diagram.bitmap) continue;
 
         mermaid_renderer_.RequestRender(node, layout_cache_[i], diagram,
-                                        content_width, dark_mode_, [this]() {
+                                        content_width, theme_service_.IsDarkMode(), [this]() {
             int anchor_idx = FindFirstVisibleNode();
             float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
             layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
@@ -515,7 +506,7 @@ void App::OnContextMenu(int screen_x, int screen_y) {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     }
 
-    AppendMenuW(menu, MF_STRING | (dark_mode_ ? MF_CHECKED : 0),
+    AppendMenuW(menu, MF_STRING | (theme_service_.IsDarkMode() ? MF_CHECKED : 0),
                 IDM_TOGGLE_DARK_MODE, L"ダークモード(&D)");
 
     int cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
@@ -613,15 +604,71 @@ App::HitResult App::HitTest(int screen_x, int screen_y) const {
 // Mouse events
 // ============================================================
 
+void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout) {
+    const auto& theme = renderer_.GetTheme();
+    float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
+    auto scroll_info = ComputePaneScrollInfo(layout.file_rect, total_content);
+    float local_x = dip_x - layout.file_rect.x;
+
+    if (local_x >= layout.file_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
+        && total_content > scroll_info.content_height) {
+        SetCapture(hwnd_);
+        panes_.StartDrag(PaneController::DragTarget::FileScrollbar);
+        bool dirty = false;
+        HandleScrollbarClick(dip_y, scroll_info, panes_.FileScroll(), dirty);
+        if (dirty) renderer_.InvalidateFilePaneCache();
+        return;
+    }
+
+    float local_y = dip_y - scroll_info.content_top + panes_.FileScroll().scroll_y;
+    int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
+    if (idx >= 0 && idx < static_cast<int>(file_explorer_.GetEntries().size())) {
+        const auto& file_entry = file_explorer_.GetEntries()[idx];
+        if (file_entry.is_directory) {
+            file_explorer_.SetDirectory(file_entry.full_path);
+            if (!doc_.GetFilePath().empty()) {
+                file_explorer_.SetCurrentFile(doc_.GetFilePath());
+            }
+            panes_.FileScroll() = {};
+            renderer_.InvalidateFilePaneCache();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        } else if (!file_entry.is_current) {
+            PushNavHistory();
+            LoadMarkdownFile(file_entry.full_path);
+        }
+    }
+}
+
+void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout) {
+    const auto& theme = renderer_.GetTheme();
+    float total_content = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
+    auto scroll_info = ComputePaneScrollInfo(layout.toc_rect, total_content);
+    float local_x = dip_x - layout.toc_rect.x;
+
+    if (local_x >= layout.toc_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
+        && total_content > scroll_info.content_height) {
+        SetCapture(hwnd_);
+        panes_.StartDrag(PaneController::DragTarget::TocScrollbar);
+        bool dirty = false;
+        HandleScrollbarClick(dip_y, scroll_info, panes_.TocScroll(), dirty);
+        if (dirty) renderer_.InvalidateTocPaneCache();
+        return;
+    }
+
+    float local_y = dip_y - scroll_info.content_top + panes_.TocScroll().scroll_y;
+    int idx = doc_.GetToc().HitTest(local_y, theme.pane_item_height);
+    if (idx >= 0 && idx < static_cast<int>(doc_.GetToc().GetEntries().size())) {
+        PushNavHistory();
+        NavigateToAnchor(doc_.GetToc().GetEntries()[idx].anchor_id);
+    }
+}
+
 void App::OnLButtonDown(int px, int py) {
     if (!renderer_.GetRenderTarget()) return;
 
     auto dip = PixelToDip(px, py);
-    float dip_x = dip.x;
-    float dip_y = dip.y;
-
     auto pane_layout = GetPaneLayout();
-    auto zone = DetectPaneZone(dip_x, pane_layout,
+    auto zone = DetectPaneZone(dip.x, pane_layout,
                                 renderer_.GetTheme().splitter_width,
                                 panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible());
 
@@ -634,67 +681,14 @@ void App::OnLButtonDown(int px, int py) {
             SetCapture(hwnd_);
             panes_.StartDrag(PaneController::DragTarget::Splitter2);
             return;
-        case PaneZone::FilePane: {
-            const auto& theme = renderer_.GetTheme();
-            float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
-            auto scroll_info = ComputePaneScrollInfo(pane_layout.file_rect, total_content);
-            float local_x = dip_x - pane_layout.file_rect.x;
-
-            if (local_x >= pane_layout.file_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
-                && total_content > scroll_info.content_height) {
-                SetCapture(hwnd_);
-                panes_.StartDrag(PaneController::DragTarget::FileScrollbar);
-                bool dirty = false;
-                HandleScrollbarClick(dip_y, scroll_info, panes_.FileScroll(), dirty);
-                if (dirty) renderer_.InvalidateFilePaneCache();
-                return;
-            }
-
-            float local_y = dip_y - scroll_info.content_top + panes_.FileScroll().scroll_y;
-            int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
-            if (idx >= 0 && idx < static_cast<int>(file_explorer_.GetEntries().size())) {
-                const auto& file_entry = file_explorer_.GetEntries()[idx];
-                if (file_entry.is_directory) {
-                    file_explorer_.SetDirectory(file_entry.full_path);
-                    if (!doc_.GetFilePath().empty()) {
-                        file_explorer_.SetCurrentFile(doc_.GetFilePath());
-                    }
-                    panes_.FileScroll() = {};
-                    renderer_.InvalidateFilePaneCache();
-                    InvalidateRect(hwnd_, nullptr, FALSE);
-                } else if (!file_entry.is_current) {
-                    PushNavHistory();
-                    LoadMarkdownFile(file_entry.full_path);
-                }
-            }
+        case PaneZone::FilePane:
+            HandleFilePaneClick(dip.x, dip.y, pane_layout);
             return;
-        }
-        case PaneZone::TocPane: {
-            const auto& theme = renderer_.GetTheme();
-            float total_content = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
-            auto scroll_info = ComputePaneScrollInfo(pane_layout.toc_rect, total_content);
-            float local_x = dip_x - pane_layout.toc_rect.x;
-
-            if (local_x >= pane_layout.toc_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
-                && total_content > scroll_info.content_height) {
-                SetCapture(hwnd_);
-                panes_.StartDrag(PaneController::DragTarget::TocScrollbar);
-                bool dirty = false;
-                HandleScrollbarClick(dip_y, scroll_info, panes_.TocScroll(), dirty);
-                if (dirty) renderer_.InvalidateTocPaneCache();
-                return;
-            }
-
-            float local_y = dip_y - scroll_info.content_top + panes_.TocScroll().scroll_y;
-            int idx = doc_.GetToc().HitTest(local_y, theme.pane_item_height);
-            if (idx >= 0 && idx < static_cast<int>(doc_.GetToc().GetEntries().size())) {
-                PushNavHistory();
-                NavigateToAnchor(doc_.GetToc().GetEntries()[idx].anchor_id);
-            }
+        case PaneZone::TocPane:
+            HandleTocPaneClick(dip.x, dip.y, pane_layout);
             return;
-        }
         case PaneZone::MdPane: {
-            auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
+            auto nav_hit = hit_test_.NavButtonHitTest(dip.x, dip.y, pane_layout.md_rect);
             if (nav_hit == NavButtonHover::Back) {
                 NavigateBack();
                 return;
@@ -987,7 +981,7 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result) {
     if (result.type == NavigationService::NavigateResult::Type::None) return;
 
     if (result.type == NavigationService::NavigateResult::Type::LoadFile) {
-        loading_path_ = result.target;
+        file_load_service_.SetLoadingPath(result.target);
         DoLoadMarkdownFile();
     }
     viewport_.ScrollTo(result.scroll_y);
@@ -1020,8 +1014,7 @@ void App::OnDeferredLayoutTimer() {
 }
 
 void App::OnLoadingAnimTimer() {
-    loading_angle_ += 0.15f;
-    if (loading_angle_ > 6.2831853f) loading_angle_ -= 6.2831853f;
+    file_load_service_.TickLoadingAnimation();
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -1236,18 +1229,17 @@ void App::UpdateLayoutAndScroll(float desired_scroll) {
 // ============================================================
 
 void App::ToggleDarkMode() {
-    dark_mode_ = !dark_mode_;
-    Theme new_theme = dark_mode_ ? GetDarkTheme() : GetLightTheme();
-    if (viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
-        new_theme.ApplyZoom(ZOOM_STEPS[viewport_.GetZoomIndex()]);
-    }
+    theme_service_.ToggleDarkMode();
+    Theme new_theme = theme_service_.CreateTheme(viewport_.GetZoomIndex());
     renderer_.SetTheme(new_theme);
-    ApplyDarkModeToWindow(hwnd_, dark_mode_);
+    ApplyDarkModeToWindow(hwnd_, theme_service_.IsDarkMode());
 
+    // Invalidate all layouts and mermaid diagrams in a single pass
     for (size_t i = 0; i < doc_.GetNodes().size(); ++i) {
-        layout_cache_[i].text_layout.Reset();
-        layout_cache_[i].effects_applied = false;
-        layout_cache_[i].inline_code_bgs.clear();
+        auto& entry = layout_cache_[i];
+        entry.text_layout.Reset();
+        entry.effects_applied = false;
+        entry.inline_code_bgs.clear();
         if (doc_.GetNodes()[i].code_language == SyntaxLanguage::Mermaid) {
             layout_cache_.GetDiagram(i).bitmap.Reset();
         }
@@ -1272,16 +1264,8 @@ void App::ToggleDarkMode() {
     viewport_.SyncMaxScroll(total_height, viewport_height);
 
     RequestMermaidRenders();
-    SaveDarkMode();
+    theme_service_.SaveDarkMode();
     InvalidateRect(hwnd_, nullptr, FALSE);
-}
-
-void App::SaveDarkMode() {
-    config_.SaveBool(L"dark_mode.txt", dark_mode_);
-}
-
-bool App::LoadDarkMode() const {
-    return config_.LoadBool(L"dark_mode.txt", false);
 }
 
 // ============================================================
@@ -1313,14 +1297,10 @@ void App::ApplyZoom(float new_zoom) {
 
     panes_.ApplyZoom(zoom_ratio);
 
-    Theme base = dark_mode_ ? GetDarkTheme() : GetLightTheme();
+    Theme base = theme_service_.CreateTheme();
     renderer_.ApplyZoomFromBase(base, new_zoom);
 
-    for (size_t i = 0; i < doc_.GetNodes().size(); ++i) {
-        layout_cache_[i].text_layout.Reset();
-        layout_cache_[i].effects_applied = false;
-        layout_cache_[i].inline_code_bgs.clear();
-    }
+    layout_cache_.InvalidateAllLayouts();
 
     float md_width = GetMarkdownPaneWidth();
     renderer_.GetLayout().LayoutNodes(doc_.GetNodesMut(), layout_cache_,
@@ -1336,16 +1316,8 @@ void App::ApplyZoom(float new_zoom) {
 
     UpdateScrollBar();
     UpdateTitleBar();
-    SaveZoomLevel();
+    theme_service_.SaveZoomLevel(viewport_.GetZoomIndex());
     InvalidateRect(hwnd_, nullptr, FALSE);
-}
-
-void App::SaveZoomLevel() {
-    config_.SaveInt(L"zoom_level.txt", viewport_.GetZoomIndex());
-}
-
-int App::LoadZoomIndex() const {
-    return config_.LoadInt(L"zoom_level.txt", ZOOM_DEFAULT_INDEX, 0, ZOOM_STEP_COUNT - 1);
 }
 
 // ============================================================

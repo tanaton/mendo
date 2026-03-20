@@ -54,6 +54,24 @@ public:
     DiagramEntry& GetDiagram(size_t i) noexcept { return diagrams_[i]; }
     const DiagramEntry& GetDiagram(size_t i) const noexcept { return diagrams_[i]; }
 
+    // Invalidate all text layouts and effects (for theme/zoom changes).
+    // Caller should separately handle diagram/mermaid cache if needed.
+    void InvalidateAllLayouts() {
+        for (auto& e : entries_) {
+            e.text_layout.Reset();
+            e.effects_applied = false;
+            e.inline_code_bgs.clear();
+        }
+    }
+
+    // Mark all entries as dirty and reset layouts (for DPI changes).
+    void MarkAllDirty() {
+        for (auto& e : entries_) {
+            e.layout_dirty = true;
+            e.text_layout.Reset();
+        }
+    }
+
 private:
     std::vector<NodeLayoutEntry> entries_;
     std::vector<DiagramEntry> diagrams_;

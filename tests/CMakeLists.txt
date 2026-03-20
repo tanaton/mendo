@@ -23,6 +23,9 @@ add_executable(mendo_tests
     test_navigation_service.cpp
     test_nav_button_format.cpp
     test_mouse_gesture.cpp
+    test_theme_service.cpp
+    test_file_load_service.cpp
+    test_layout_cache.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

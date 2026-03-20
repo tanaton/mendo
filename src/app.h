@@ -18,6 +18,8 @@
 #include "navigation_service.h"
 #include "mouse_gesture.h"
 #include "config_service.h"
+#include "theme_service.h"
+#include "file_load_service.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -91,15 +93,23 @@ private:
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y) const;
     std::optional<std::wstring> GetLinkAtHit(const HitResult& hit) const;
+
+    // Link & anchor navigation
     void HandleLinkClick(const std::wstring& url);
     void NavigateToAnchor(const std::wstring& anchor);
     void ApplyNavigateResult(const NavigationService::NavigateResult& result);
     void NavigateBack();
     void NavigateForward();
     void PushNavHistory();
+
+    // Clipboard & selection
     void CopySelectionToClipboard() const;
     void SelectAll();
     void ClearSelection();
+
+    // Pane click handlers (extracted from OnLButtonDown)
+    void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
+    void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);
 
     // Scrollbar helpers
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
@@ -124,6 +134,8 @@ private:
     void OnResizeEnd();
     void OnDeferredLayout();
     void InvalidateMdPane();
+
+    // File loading (delegates to file_load_service_)
     void ReloadCurrentFile();
     void DoLoadMarkdownFile();
     void UpdateTitleBar();
@@ -136,18 +148,12 @@ private:
 
     void RequestMermaidRenders();
 
-    // Dark mode
+    // Dark mode / zoom (delegates to theme_service_)
     void ToggleDarkMode();
-    void SaveDarkMode();
-    bool LoadDarkMode() const;
-
-    // Zoom
     void ZoomIn();
     void ZoomOut();
     void ZoomReset();
     void ApplyZoom(float new_zoom);
-    void SaveZoomLevel();
-    int LoadZoomIndex() const;
 
 public:
     // Timer IDs (shared with Win32Window for message routing)
@@ -179,6 +185,8 @@ private:
     DocumentService doc_service_{file_loader_};
     AppController controller_;
     ConfigService config_;
+    ThemeService theme_service_{config_};
+    FileLoadService file_load_service_{doc_service_};
 
     // Domain state
     Document doc_;
@@ -188,11 +196,6 @@ private:
 
     bool is_sizing_ = false;
 
-    // Loading state
-    bool loading_ = false;
-    float loading_angle_ = 0.0f;
-    std::wstring loading_path_;
-
     // 3-pane state
     FileExplorer file_explorer_;
     PaneController panes_;
@@ -201,7 +204,6 @@ private:
     MouseGesture gesture_;
     HitTestService hit_test_;
 
-    bool dark_mode_ = false;
     float last_mermaid_content_width_ = 0.0f;
 
     // Navigation overlay
