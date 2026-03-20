@@ -12,11 +12,11 @@ public:
     static Document FromMarkdown(const std::string& utf8, std::wstring path);
 
     // アクセサ
-    const std::vector<Node>& GetNodes() const { return nodes_; }
-    std::vector<Node>& GetNodesMut() { return nodes_; }
-    const std::wstring& GetFilePath() const { return file_path_; }
-    const TableOfContents& GetToc() const { return toc_; }
-    bool IsEmpty() const { return nodes_.empty(); }
+    const std::vector<Node>& GetNodes() const noexcept { return nodes_; }
+    std::vector<Node>& GetNodesMut() noexcept { return nodes_; }
+    const std::wstring& GetFilePath() const noexcept { return file_path_; }
+    const TableOfContents& GetToc() const noexcept { return toc_; }
+    bool IsEmpty() const noexcept { return nodes_.empty(); }
     std::wstring GetDirectory() const;
 
     // ファイルパス設定（LoadMarkdownFile で使用）

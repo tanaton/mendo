@@ -1,6 +1,6 @@
 #include "theme.h"
 
-static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) {
+static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) noexcept {
     return D2D1::ColorF(
         ((rgb >> 16) & 0xFF) / 255.0f,
         ((rgb >> 8) & 0xFF) / 255.0f,
@@ -9,7 +9,7 @@ static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) {
     );
 }
 
-float Theme::GetHeadingSize(int level) const {
+float Theme::GetHeadingSize(int level) const noexcept {
     switch (level) {
         case 1: return font_size_h1;
         case 2: return font_size_h2;
@@ -21,7 +21,7 @@ float Theme::GetHeadingSize(int level) const {
     }
 }
 
-void Theme::ApplyZoom(float new_zoom) {
+void Theme::ApplyZoom(float new_zoom) noexcept {
     if (new_zoom <= 0.0f || zoom <= 0.0f) return;
     // Undo the previous zoom, then apply the new one
     float ratio = new_zoom / zoom;
@@ -56,7 +56,7 @@ void Theme::ApplyZoom(float new_zoom) {
 }
 
 // Shared layout constants between light & dark themes
-static void ApplyCommonLayout(Theme& t) {
+static void ApplyCommonLayout(Theme& t) noexcept {
     wcscpy_s(t.font_family,    L"Yu Gothic UI");
     wcscpy_s(t.monospace_font, L"Consolas");
 
@@ -87,7 +87,7 @@ static void ApplyCommonLayout(Theme& t) {
     t.pane_font_size        = 13.0f;
 }
 
-Theme GetLightTheme() {
+Theme GetLightTheme() noexcept {
     Theme t{};
 
     t.bg_color              = Color(0xFFFFFF);
@@ -120,7 +120,7 @@ Theme GetLightTheme() {
     return t;
 }
 
-Theme GetDarkTheme() {
+Theme GetDarkTheme() noexcept {
     Theme t{};
 
     t.bg_color              = Color(0x1e1e1e);

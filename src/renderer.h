@@ -60,20 +60,20 @@ public:
                      const SidePaneState& side_panes,
                      const GestureRenderState& gesture = {});
 
-    ID2D1HwndRenderTarget* GetRenderTarget() const { return backend_.GetRenderTarget(); }
-    LayoutEngine& GetLayout() { return layout_; }
-    const Theme& GetTheme() const { return theme_; }
+    ID2D1HwndRenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
+    LayoutEngine& GetLayout() noexcept { return layout_; }
+    const Theme& GetTheme() const noexcept { return theme_; }
     void SetTheme(const Theme& theme);
     void ApplyZoom(float new_zoom);
     void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
-    Theme& GetThemeMut() { return theme_; }
+    Theme& GetThemeMut() noexcept { return theme_; }
 
     // Set callback invoked when the D2D render target is recreated after device loss.
     // The callback receives the new render target pointer.
     void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
 
-    void InvalidateFilePaneCache() { file_pane_cache_.dirty = true; }
-    void InvalidateTocPaneCache() { toc_pane_cache_.dirty = true; }
+    void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }
+    void InvalidateTocPaneCache() noexcept { toc_pane_cache_.dirty = true; }
 
 private:
     // Pre-pass: apply drawing effects (syntax highlighting, link colors) to layouts.
@@ -96,8 +96,8 @@ private:
 
     D2DRenderBackend backend_;
     // Convenience accessors (avoid verbose backend_.Get... in 600-line rendering code)
-    ID2D1HwndRenderTarget* rt() const { return backend_.GetRenderTarget(); }
-    ID2D1Factory* d2d() const { return backend_.GetD2DFactory(); }
+    ID2D1HwndRenderTarget* rt() const noexcept { return backend_.GetRenderTarget(); }
+    ID2D1Factory* d2d() const noexcept { return backend_.GetD2DFactory(); }
 
     ComPtr<ID2D1SolidColorBrush> text_brush_;
     ComPtr<ID2D1SolidColorBrush> heading_brush_;
@@ -158,8 +158,8 @@ public:
         float cached_width = 0;
         float cached_height = 0;
 
-        void Invalidate() { dirty = true; }
-        void Reset() { bitmap_rt.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
+        void Invalidate() noexcept { dirty = true; }
+        void Reset() noexcept { bitmap_rt.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
     };
 private:
     PaneCache file_pane_cache_;

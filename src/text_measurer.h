@@ -11,7 +11,7 @@ public:
 
     virtual bool Init(const Theme& theme) = 0;
     virtual bool RecreateFormats() = 0;
-    virtual void UpdateTheme(const Theme& theme) = 0;
+    virtual void UpdateTheme(const Theme& theme) noexcept = 0;
 
     // Create and measure a text layout for a non-table node.
     // Sets entry.text_layout, entry.height, entry.layout_dirty, entry.effects_applied.

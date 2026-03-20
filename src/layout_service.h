@@ -6,7 +6,7 @@
 
 class LayoutService {
 public:
-    LayoutService(LayoutEngine& engine, ViewportManager& viewport)
+    LayoutService(LayoutEngine& engine, ViewportManager& viewport) noexcept
         : engine_(engine), viewport_(viewport) {}
 
     // 全レイアウト計算（初回ロード時）
@@ -29,11 +29,11 @@ public:
                                const Theme& theme);
 
     // ダーティノードが残っているか
-    bool HasDirtyNodes() const { return engine_.HasDirtyNodes(); }
+    bool HasDirtyNodes() const noexcept { return engine_.HasDirtyNodes(); }
 
     // 合計高さ
-    float GetTotalHeight() const { return engine_.GetTotalHeight(); }
-    void SetTotalHeight(float h) { engine_.SetTotalHeight(h); }
+    float GetTotalHeight() const noexcept { return engine_.GetTotalHeight(); }
+    void SetTotalHeight(float h) noexcept { engine_.SetTotalHeight(h); }
 
 private:
     LayoutEngine& engine_;

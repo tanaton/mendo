@@ -28,7 +28,7 @@ bool NavHistory::GoForward(const NavEntry& current, NavEntry& out) {
     return true;
 }
 
-void NavHistory::Clear() {
+void NavHistory::Clear() noexcept {
     back_stack_.clear();
     forward_stack_.clear();
 }

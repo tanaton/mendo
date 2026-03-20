@@ -29,7 +29,7 @@ YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache
 class LayoutEngine {
 public:
     bool Init(ITextMeasurer* measurer, const Theme& theme);
-    void UpdateTheme(const Theme& theme) { theme_ = &theme; measurer_->UpdateTheme(theme); }
+    void UpdateTheme(const Theme& theme) noexcept { theme_ = &theme; measurer_->UpdateTheme(theme); }
     // Recreate all text format objects (e.g. after zoom or theme change).
     bool RecreateFormats();
     void ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
@@ -39,9 +39,9 @@ public:
                            float viewport_width, int batch_size);
     bool EnsureVisibleLayout(std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
                              float viewport_top, float viewport_bottom);
-    bool HasDirtyNodes() const { return has_dirty_nodes_; }
-    float GetTotalHeight() const { return total_height_; }
-    void SetTotalHeight(float h) { total_height_ = h; }
+    bool HasDirtyNodes() const noexcept { return has_dirty_nodes_; }
+    float GetTotalHeight() const noexcept { return total_height_; }
+    void SetTotalHeight(float h) noexcept { total_height_ = h; }
 
 private:
     void CreateTextLayout(Node& node, NodeLayoutEntry& entry, float max_width);

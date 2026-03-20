@@ -4,7 +4,7 @@
 
 class DocumentService {
 public:
-    explicit DocumentService(FileLoader& loader) : loader_(loader) {}
+    explicit DocumentService(FileLoader& loader) noexcept : loader_(loader) {}
 
     // ファイルを読み込み、Document を構築。成功時 true。
     bool LoadFile(const std::wstring& path, Document& doc);
@@ -14,11 +14,11 @@ public:
 
     // ファイル監視
     void StartWatching(const std::wstring& path, FileLoader::ChangeCallback cb);
-    void StopWatching();
-    void CheckForChanges();
+    void StopWatching() noexcept;
+    void CheckForChanges() noexcept;
 
     // 大きいファイルかどうか（ローディングアニメ判定用）
-    static bool NeedsLoadingAnimation(const std::wstring& path);
+    static bool NeedsLoadingAnimation(const std::wstring& path) noexcept;
 
 private:
     FileLoader& loader_;

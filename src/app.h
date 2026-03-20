@@ -74,10 +74,10 @@ public:
     void OnExitSizeMove();
 
     // Cursor state for WM_SETCURSOR
-    bool IsRenderReady() const { return renderer_.GetRenderTarget() != nullptr; }
+    bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
 
     // Expose DPI scale for Win32Window cursor/invalidation
-    float GetDpiScale() const { return cached_dpi_scale_; }
+    float GetDpiScale() const noexcept { return cached_dpi_scale_; }
 
 private:
     // Execute actions returned by AppController

@@ -63,11 +63,11 @@ struct Theme {
     // Zoom (1.0 = 100%)
     float zoom = 1.0f;
 
-    float GetHeadingSize(int level) const;
+    float GetHeadingSize(int level) const noexcept;
 
     // Apply zoom factor to all scalable sizes (font sizes, margins, spacing).
     // Call after changing `zoom` to update derived values.
-    void ApplyZoom(float new_zoom);
+    void ApplyZoom(float new_zoom) noexcept;
 };
 
 // Chrome-style discrete zoom steps
@@ -79,5 +79,5 @@ inline constexpr float ZOOM_STEPS[] = {
 inline constexpr int ZOOM_STEP_COUNT = sizeof(ZOOM_STEPS) / sizeof(ZOOM_STEPS[0]);
 inline constexpr int ZOOM_DEFAULT_INDEX = 7; // 1.00f
 
-Theme GetLightTheme();
-Theme GetDarkTheme();
+Theme GetLightTheme() noexcept;
+Theme GetDarkTheme() noexcept;

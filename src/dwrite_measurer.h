@@ -11,13 +11,13 @@ class DWriteTextMeasurer : public ITextMeasurer {
 public:
     bool Init(const Theme& theme) override;
     bool RecreateFormats() override;
-    void UpdateTheme(const Theme& theme) override { theme_ = &theme; }
+    void UpdateTheme(const Theme& theme) noexcept override { theme_ = &theme; }
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) override;
     void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) override;
 
     // Initialize with an external IDWriteFactory (required before Init).
-    void SetFactory(IDWriteFactory* factory) { dwrite_ = factory; }
+    void SetFactory(IDWriteFactory* factory) noexcept { dwrite_ = factory; }
 
 private:
     bool CreateAllFormats();

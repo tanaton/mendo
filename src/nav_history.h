@@ -24,13 +24,13 @@ public:
     // Navigate forward: moves current to back stack, pops from forward stack.
     bool GoForward(const NavEntry& current, NavEntry& out);
 
-    bool CanGoBack() const { return !back_stack_.empty(); }
-    bool CanGoForward() const { return !forward_stack_.empty(); }
+    bool CanGoBack() const noexcept { return !back_stack_.empty(); }
+    bool CanGoForward() const noexcept { return !forward_stack_.empty(); }
 
-    size_t BackSize() const { return back_stack_.size(); }
-    size_t ForwardSize() const { return forward_stack_.size(); }
+    size_t BackSize() const noexcept { return back_stack_.size(); }
+    size_t ForwardSize() const noexcept { return forward_stack_.size(); }
 
-    void Clear();
+    void Clear() noexcept;
 
     static constexpr size_t MAX_HISTORY = 50;
 

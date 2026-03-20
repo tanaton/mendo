@@ -32,7 +32,7 @@ public:
               std::function<void()> on_ready);
 
     // Returns true if WebView2 is initialized and ready to render.
-    bool IsReady() const { return ready_; }
+    bool IsReady() const noexcept { return ready_; }
 
     // Request rendering of a mermaid code block.
     // When done, the diagram entry's bitmap/width/height and the layout entry's

@@ -98,7 +98,7 @@ void FileExplorer::Refresh() {
                     std::make_move_iterator(files.end()));
 }
 
-int FileExplorer::HitTest(float local_y, float item_height) const {
+int FileExplorer::HitTest(float local_y, float item_height) const noexcept {
     if (local_y < 0 || item_height <= 0) return -1;
     int index = static_cast<int>(local_y / item_height);
     if (index < 0 || index >= static_cast<int>(entries_.size())) return -1;

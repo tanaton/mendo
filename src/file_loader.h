@@ -13,8 +13,8 @@ public:
     // File watching (timestamp polling)
     using ChangeCallback = std::function<void()>;
     void StartWatching(const std::wstring& file_path, ChangeCallback callback);
-    void StopWatching();
-    void CheckForChanges();
+    void StopWatching() noexcept;
+    void CheckForChanges() noexcept;
 
 private:
     std::wstring watch_path_;

@@ -81,12 +81,12 @@ void FileLoader::StartWatching(const std::wstring& file_path, ChangeCallback cal
     watching_ = true;
 }
 
-void FileLoader::StopWatching() {
+void FileLoader::StopWatching() noexcept {
     watching_ = false;
     on_change_ = nullptr;
 }
 
-void FileLoader::CheckForChanges() {
+void FileLoader::CheckForChanges() noexcept {
     if (!watching_) return;
 
     // Debounce: skip check if too soon after last reload

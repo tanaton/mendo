@@ -6,7 +6,7 @@
 
 class NavigationService {
 public:
-    explicit NavigationService(NavHistory& history) : history_(history) {}
+    explicit NavigationService(NavHistory& history) noexcept : history_(history) {}
 
     struct NavigateResult {
         enum class Type { None, Anchor, ExternalUrl, LoadFile };
@@ -28,8 +28,8 @@ public:
     // 履歴にプッシュ
     void PushHistory(const std::wstring& file, float scroll_y);
 
-    bool CanGoBack() const { return history_.CanGoBack(); }
-    bool CanGoForward() const { return history_.CanGoForward(); }
+    bool CanGoBack() const noexcept { return history_.CanGoBack(); }
+    bool CanGoForward() const noexcept { return history_.CanGoForward(); }
 
 private:
     NavigateResult MakeResultFromEntry(NavEntry&& entry, const std::wstring& current_file);

@@ -8,7 +8,7 @@ HitTestService::HitResult HitTestService::HitTest(
     float scroll_y,
     float md_pane_left,
     float dpi_scale,
-    int screen_x, int screen_y) const {
+    int screen_x, int screen_y) const noexcept {
 
     HitResult result;
     if (nodes.empty()) return result;
@@ -73,7 +73,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const Node& node, const NodeLayoutEntry& entry,
     int node_index,
     const Theme& theme,
-    float dip_x, float dip_y) const {
+    float dip_x, float dip_y) const noexcept {
 
     HitResult result;
     result.node_index = node_index;
@@ -162,7 +162,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
 }
 
 HitTestService::NavButtonHover HitTestService::NavButtonHitTest(
-    float dip_x, float dip_y, const PaneRect& md_rect) const {
+    float dip_x, float dip_y, const PaneRect& md_rect) const noexcept {
     float base_x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     float base_y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 

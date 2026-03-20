@@ -21,15 +21,15 @@ public:
                       float scroll_y,
                       float md_pane_left,
                       float dpi_scale,
-                      int screen_x, int screen_y) const;
+                      int screen_x, int screen_y) const noexcept;
 
     // テーブルセル内のヒットテスト
     HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
                            int node_index,
                            const Theme& theme,
-                           float dip_x, float dip_y) const;
+                           float dip_x, float dip_y) const noexcept;
 
     // ナビゲーションボタンのヒットテスト
     enum class NavButtonHover { None, Back, Forward };
-    NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const;
+    NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept;
 };

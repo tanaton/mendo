@@ -11,24 +11,24 @@ class ViewportManager {
 public:
     // ---- Scroll ----
 
-    float GetScrollY() const { return scroll_y_; }
-    float GetScrollTarget() const { return scroll_target_; }
-    float GetMaxScroll() const { return max_scroll_; }
-    bool IsSmoothScrolling() const { return smooth_scrolling_; }
+    float GetScrollY() const noexcept { return scroll_y_; }
+    float GetScrollTarget() const noexcept { return scroll_target_; }
+    float GetMaxScroll() const noexcept { return max_scroll_; }
+    bool IsSmoothScrolling() const noexcept { return smooth_scrolling_; }
 
-    void ScrollTo(float position) {
+    void ScrollTo(float position) noexcept {
         scroll_y_ = std::clamp(position, 0.0f, max_scroll_);
         scroll_target_ = scroll_y_;
     }
 
-    void SmoothScrollBy(float delta) {
+    void SmoothScrollBy(float delta) noexcept {
         scroll_target_ = std::clamp(scroll_target_ + delta, 0.0f, max_scroll_);
         smooth_scrolling_ = true;
     }
 
     // Advance one frame of smooth scroll interpolation.
     // Returns true if scrolling is still active (caller should keep timer alive).
-    bool UpdateSmoothScroll() {
+    bool UpdateSmoothScroll() noexcept {
         float diff = scroll_target_ - scroll_y_;
         if (std::abs(diff) < SCROLL_EPSILON) {
             scroll_y_ = scroll_target_;
@@ -40,13 +40,13 @@ public:
         return true;
     }
 
-    void StopSmoothScroll() {
+    void StopSmoothScroll() noexcept {
         if (!smooth_scrolling_) return;
         scroll_y_ = scroll_target_;
         smooth_scrolling_ = false;
     }
 
-    void SyncMaxScroll(float total_height, float viewport_height) {
+    void SyncMaxScroll(float total_height, float viewport_height) noexcept {
         max_scroll_ = std::max(0.0f, total_height - viewport_height);
         scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
         scroll_target_ = scroll_y_;
@@ -54,12 +54,12 @@ public:
 
     // Find the first node whose bottom edge is below scroll_y_.
     // Returns -1 if no visible node exists.
-    int FindFirstVisibleNode(const LayoutCache& cache, size_t node_count) const {
+    int FindFirstVisibleNode(const LayoutCache& cache, size_t node_count) const noexcept {
         int idx = FindFirstVisibleNodeIndex(cache, node_count, scroll_y_);
         return idx < static_cast<int>(node_count) ? idx : -1;
     }
 
-    void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, const LayoutCache& cache) {
+    void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, const LayoutCache& cache) noexcept {
         if (anchor_idx < 0) return;
         float shift = cache[anchor_idx].y_position - anchor_y_before;
         scroll_y_ = std::max(0.0f, scroll_y_ + shift);
@@ -67,36 +67,36 @@ public:
         // Note: caller must call SyncMaxScroll() afterwards
     }
 
-    void SetScrollY(float y) { scroll_y_ = y; }
-    void SetScrollTarget(float t) { scroll_target_ = t; }
+    void SetScrollY(float y) noexcept { scroll_y_ = y; }
+    void SetScrollTarget(float t) noexcept { scroll_target_ = t; }
 
-    bool IsScrollbarTracking() const { return is_scrollbar_tracking_; }
-    void SetScrollbarTracking(bool v) { is_scrollbar_tracking_ = v; }
+    bool IsScrollbarTracking() const noexcept { return is_scrollbar_tracking_; }
+    void SetScrollbarTracking(bool v) noexcept { is_scrollbar_tracking_ = v; }
 
     // ---- Selection ----
 
-    const TextSelection& GetSelection() const { return selection_; }
-    TextSelection& GetSelectionMut() { return selection_; }
-    void SetSelection(const TextSelection& sel) { selection_ = sel; }
+    const TextSelection& GetSelection() const noexcept { return selection_; }
+    TextSelection& GetSelectionMut() noexcept { return selection_; }
+    void SetSelection(const TextSelection& sel) noexcept { selection_ = sel; }
 
-    int GetAnchorNode() const { return anchor_node_; }
-    uint32_t GetAnchorPos() const { return anchor_pos_; }
-    void SetAnchor(int node, uint32_t pos) { anchor_node_ = node; anchor_pos_ = pos; }
+    int GetAnchorNode() const noexcept { return anchor_node_; }
+    uint32_t GetAnchorPos() const noexcept { return anchor_pos_; }
+    void SetAnchor(int node, uint32_t pos) noexcept { anchor_node_ = node; anchor_pos_ = pos; }
 
-    bool IsDragging() const { return is_dragging_; }
-    void SetDragging(bool v) { is_dragging_ = v; }
+    bool IsDragging() const noexcept { return is_dragging_; }
+    void SetDragging(bool v) noexcept { is_dragging_ = v; }
 
-    int GetClickStartX() const { return click_start_x_; }
-    int GetClickStartY() const { return click_start_y_; }
-    void SetClickStart(int x, int y) { click_start_x_ = x; click_start_y_ = y; }
+    int GetClickStartX() const noexcept { return click_start_x_; }
+    int GetClickStartY() const noexcept { return click_start_y_; }
+    void SetClickStart(int x, int y) noexcept { click_start_x_ = x; click_start_y_ = y; }
 
-    void ClearSelection() {
+    void ClearSelection() noexcept {
         selection_.Clear();
         anchor_node_ = -1;
         is_dragging_ = false;
     }
 
-    void SelectAll(const std::vector<Node>& nodes) {
+    void SelectAll(const std::vector<Node>& nodes) noexcept {
         if (nodes.empty()) {
             ClearSelection();
             return;
@@ -108,22 +108,22 @@ public:
 
     // ---- Zoom ----
 
-    int GetZoomIndex() const { return zoom_index_; }
-    void SetZoomIndex(int idx) { zoom_index_ = idx; }
-    float GetCurrentZoom() const { return ZOOM_STEPS[zoom_index_]; }
+    int GetZoomIndex() const noexcept { return zoom_index_; }
+    void SetZoomIndex(int idx) noexcept { zoom_index_ = idx; }
+    float GetCurrentZoom() const noexcept { return ZOOM_STEPS[zoom_index_]; }
 
     // Returns new zoom value, or 0 if already at limit.
-    float ZoomIn() {
+    float ZoomIn() noexcept {
         if (zoom_index_ < ZOOM_STEP_COUNT - 1) return ZOOM_STEPS[++zoom_index_];
         return 0.0f;
     }
 
-    float ZoomOut() {
+    float ZoomOut() noexcept {
         if (zoom_index_ > 0) return ZOOM_STEPS[--zoom_index_];
         return 0.0f;
     }
 
-    float ZoomReset() {
+    float ZoomReset() noexcept {
         if (zoom_index_ != ZOOM_DEFAULT_INDEX) {
             zoom_index_ = ZOOM_DEFAULT_INDEX;
             return ZOOM_STEPS[zoom_index_];

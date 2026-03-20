@@ -14,7 +14,7 @@ public:
         IDWriteTextFormat* icon_font = nullptr;
     };
 
-    void SetTheme(const Theme* theme) {
+    void SetTheme(const Theme* theme) noexcept {
         theme_ = theme;
         bool is_dark = (theme->bg_color.r + theme->bg_color.g + theme->bg_color.b) < 1.5f;
         float a = is_dark ? 0.05f : 0.02f;
@@ -22,7 +22,7 @@ public:
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
     }
-    void SetFormats(const Formats& fmts) { formats_ = fmts; }
+    void SetFormats(const Formats& fmts) noexcept { formats_ = fmts; }
 
     // Generate all draw commands for the Markdown content pane.
     // Returns a reference to an internal buffer; valid until the next call.

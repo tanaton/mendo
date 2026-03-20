@@ -14,7 +14,7 @@ public:
 
     bool Init(const Theme&) override { return true; }
     bool RecreateFormats() override { return true; }
-    void UpdateTheme(const Theme&) override {}
+    void UpdateTheme(const Theme&) noexcept override {}
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) override {
         if (node.type == NodeType::HorizontalRule) {

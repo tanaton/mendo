@@ -35,11 +35,11 @@ struct TextSelection {
     uint32_t end_pos = 0;
     bool active = false;
 
-    void Clear() { start_node = end_node = -1; active = false; }
+    constexpr void Clear() noexcept { start_node = end_node = -1; active = false; }
 
     // Normalize anchor/caret so start <= end in document order
-    static TextSelection MakeOrdered(int node_a, uint32_t pos_a,
-                                     int node_b, uint32_t pos_b) {
+    static constexpr TextSelection MakeOrdered(int node_a, uint32_t pos_a,
+                                     int node_b, uint32_t pos_b) noexcept {
         TextSelection s;
         if (node_a < node_b || (node_a == node_b && pos_a <= pos_b)) {
             s.start_node = node_a; s.start_pos = pos_a;

@@ -46,13 +46,13 @@ public:
         diagrams_.resize(node_count);
     }
 
-    size_t size() const { return entries_.size(); }
+    size_t size() const noexcept { return entries_.size(); }
 
-    NodeLayoutEntry& operator[](size_t i) { return entries_[i]; }
-    const NodeLayoutEntry& operator[](size_t i) const { return entries_[i]; }
+    NodeLayoutEntry& operator[](size_t i) noexcept { return entries_[i]; }
+    const NodeLayoutEntry& operator[](size_t i) const noexcept { return entries_[i]; }
 
-    DiagramEntry& GetDiagram(size_t i) { return diagrams_[i]; }
-    const DiagramEntry& GetDiagram(size_t i) const { return diagrams_[i]; }
+    DiagramEntry& GetDiagram(size_t i) noexcept { return diagrams_[i]; }
+    const DiagramEntry& GetDiagram(size_t i) const noexcept { return diagrams_[i]; }
 
 private:
     std::vector<NodeLayoutEntry> entries_;
@@ -61,7 +61,7 @@ private:
 
 // Compute total content height from the last node's layout position.
 // Returns 0 if node_count is 0, avoiding unsigned underflow on size() - 1.
-inline float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) {
+inline float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) noexcept {
     if (node_count == 0) return 0.0f;
     size_t last = node_count - 1;
     return cache[last].y_position + cache[last].height + margin_top;
@@ -69,7 +69,7 @@ inline float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_cou
 
 // Binary search for the first node whose bottom edge is at or below viewport_top.
 // Returns the index of the first potentially visible node, or node_count if none.
-inline int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) {
+inline int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) noexcept {
     int lo = 0, hi = static_cast<int>(node_count);
     while (lo < hi) {
         int mid = (lo + hi) / 2;

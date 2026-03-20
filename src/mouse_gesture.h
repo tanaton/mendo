@@ -65,7 +65,7 @@ public:
         }
     }
 
-    GestureResult OnRButtonUp() {
+    GestureResult OnRButtonUp() noexcept {
         if (phase_ == GesturePhase::Idle) {
             return GestureResult::None;
         }
@@ -87,7 +87,7 @@ public:
         }
     }
 
-    void Reset() {
+    void Reset() noexcept {
         phase_ = GesturePhase::Idle;
         direction_ = GestureDirection::None;
         start_x_ = 0.0f;
@@ -98,15 +98,15 @@ public:
         trail_points_.clear();
     }
 
-    bool IsGestureActive() const { return phase_ == GesturePhase::Tracking; }
-    bool IsOverlayVisible() const { return overlay_alpha_ > 0.0f; }
-    const std::deque<GesturePoint>& GetTrailPoints() const { return trail_points_; }
-    GestureDirection GetDirection() const { return direction_; }
-    GesturePhase GetPhase() const { return phase_; }
-    float GetOverlayAlpha() const { return overlay_alpha_; }
+    bool IsGestureActive() const noexcept { return phase_ == GesturePhase::Tracking; }
+    bool IsOverlayVisible() const noexcept { return overlay_alpha_ > 0.0f; }
+    const std::deque<GesturePoint>& GetTrailPoints() const noexcept { return trail_points_; }
+    GestureDirection GetDirection() const noexcept { return direction_; }
+    GesturePhase GetPhase() const noexcept { return phase_; }
+    float GetOverlayAlpha() const noexcept { return overlay_alpha_; }
 
 private:
-    void UpdateDirection() {
+    void UpdateDirection() noexcept {
         float dx = current_x_ - start_x_;
         float dy = current_y_ - start_y_;
         float dist_sq = dx * dx + dy * dy;

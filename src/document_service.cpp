@@ -19,15 +19,15 @@ void DocumentService::StartWatching(const std::wstring& path, FileLoader::Change
     loader_.StartWatching(path, std::move(cb));
 }
 
-void DocumentService::StopWatching() {
+void DocumentService::StopWatching() noexcept {
     loader_.StopWatching();
 }
 
-void DocumentService::CheckForChanges() {
+void DocumentService::CheckForChanges() noexcept {
     loader_.CheckForChanges();
 }
 
-bool DocumentService::NeedsLoadingAnimation(const std::wstring& path) {
+bool DocumentService::NeedsLoadingAnimation(const std::wstring& path) noexcept {
     static constexpr DWORD LOADING_ANIM_THRESHOLD = 128 * 1024;
     WIN32_FILE_ATTRIBUTE_DATA attr{};
     if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)
