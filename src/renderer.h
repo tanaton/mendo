@@ -18,12 +18,13 @@
 #include <functional>
 #include <vector>
 #include <memory>
+#include <memory_resource>
 
 using Microsoft::WRL::ComPtr;
 
 struct GestureRenderState {
     bool trail_active = false;
-    const std::deque<GesturePoint>* trail_points = nullptr;
+    const std::pmr::deque<GesturePoint>* trail_points = nullptr;
     bool overlay_visible = false;
     int direction = 0;   // -1=Left(戻る), 1=Right(進む)
     float overlay_alpha = 0.0f;
@@ -33,10 +34,10 @@ struct GestureRenderState {
 struct SidePaneState {
     const PaneRect& file_pane_rect;
     const PaneRect& toc_pane_rect;
-    const std::vector<FileEntry>& file_entries;
+    const std::pmr::vector<FileEntry>& file_entries;
     const ScrollState& file_scroll;
     int hovered_file_index;
-    const std::vector<TocEntry>& toc_entries;
+    const std::pmr::vector<TocEntry>& toc_entries;
     const ScrollState& toc_scroll;
     int hovered_toc_index;
     bool show_file_pane;
@@ -47,7 +48,7 @@ class Renderer {
 public:
     bool Init(HWND hwnd);
     void Resize(UINT width, UINT height);
-    void Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
+    void Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
                 const TextSelection& selection,
                 const PaneRect& md_pane_rect,
                 const SidePaneState& side_panes,
@@ -77,12 +78,12 @@ public:
 
 private:
     // Pre-pass: apply drawing effects (syntax highlighting, link colors) to layouts.
-    void ApplyVisibleEffects(std::vector<Node>& nodes, LayoutCache& cache,
+    void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
                              int first_visible, float viewport_bottom);
 
-    void DrawFileExplorer(const std::vector<FileEntry>& entries, const PaneRect& rect,
+    void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
                           const ScrollState& scroll, int hovered_index);
-    void DrawToc(const std::vector<TocEntry>& entries, const PaneRect& rect,
+    void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
                  const ScrollState& scroll, int hovered_index);
     void DrawSplitter(float x, float height);
     void DrawPaneScrollbar(ID2D1RenderTarget* rt, float pane_width,
@@ -91,7 +92,7 @@ private:
     void DrawNavOverlay(const PaneRect& md_pane_rect,
                         bool can_back, bool can_forward,
                         int hovered);  // 0=none, 1=back, 2=forward
-    void DrawGestureTrail(const std::deque<GesturePoint>& points);
+    void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
 
     D2DRenderBackend backend_;
@@ -138,7 +139,7 @@ private:
     bool RecreateRenderTarget();
 
     // Hit-test buffer for ApplyNodeEffects inline-code background computation.
-    std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     ComPtr<IDWriteTextFormat> icon_font_format_;
     ComPtr<IDWriteTextFormat> fmt_list_number_;

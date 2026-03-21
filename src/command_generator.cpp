@@ -4,11 +4,13 @@
 static constexpr D2D1_COLOR_F SELECTION_COLOR = {0.26f, 0.56f, 0.84f, 0.3f};
 
 const DrawCommandList& CommandGenerator::GenerateMdPane(
-        const std::vector<Node>& nodes, const LayoutCache& cache,
+        const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
         int first_visible) {
-    cmds_.clear();
+    // monotonic リソースをリセットし、新しいフレーム用にコマンドリストを再構築
+    frame_resource_.Reset();
+    cmds_ = DrawCommandList{frame_resource_.resource()};
     auto& cmds = cmds_;
 
     // Clip to MD pane bounds

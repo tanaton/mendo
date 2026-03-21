@@ -1,22 +1,24 @@
 #pragma once
 #include "types.h"
 #include <string>
+#include <string_view>
 #include <vector>
 #include <optional>
+#include <memory_resource>
 
 // Extract selected text from nodes based on selection range.
 // Returns the concatenated text with \r\n between nodes.
-std::wstring ExtractSelectedText(const std::vector<Node>& nodes,
+std::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
                                   const TextSelection& selection);
 
 // Find a link URL at a given text position within a node's runs.
 // Returns the link URL if the position falls within a link run, otherwise nullopt.
-std::optional<std::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos);
+std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos);
 
 // Find the index of the heading node that matches the given anchor ID.
 // The anchor is compared case-insensitively (lowercased).
 // Returns -1 if not found.
-int FindAnchorNodeIndex(const std::vector<Node>& nodes, const std::wstring& anchor);
+int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view anchor);
 
 // Word boundary result for double-click word selection.
 struct WordBoundary {
@@ -28,14 +30,14 @@ struct WordBoundary {
 // Find word boundaries around a position in text.
 // A "word character" is alphanumeric or underscore.
 // Returns {start, end, true} if the position is on a word character, otherwise {0, 0, false}.
-WordBoundary FindWordBoundaries(const std::wstring& text, uint32_t pos);
+WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos);
 
 // Extract the filename portion from a full file path.
 // e.g. "C:\\dir\\file.md" -> "file.md"
-std::wstring ExtractFilename(const std::wstring& path);
+std::wstring ExtractFilename(std::wstring_view path);
 
 // Build a title string from a file path.
 // e.g. "C:\\dir\\file.md" -> "file.md - mendo"
 // If path is empty, returns "mendo".
 // zoom_percent: 0 or 100 means default (omitted), otherwise shown as "(125%)" etc.
-std::wstring BuildTitleString(const std::wstring& path, int zoom_percent = 0);
+std::wstring BuildTitleString(std::wstring_view path, int zoom_percent = 0);

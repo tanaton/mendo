@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <memory_resource>
 #include "syntax.h"
 #include "parser.h"
 #include <numeric>
@@ -101,7 +102,7 @@ TEST(Syntax, NoneLanguageReturnsEmpty) {
 }
 
 // Helper: check that tokens cover the entire text contiguously
-void AssertTokensCoverText(const std::vector<SyntaxToken>& tokens, size_t text_length) {
+void AssertTokensCoverText(const std::pmr::vector<SyntaxToken>& tokens, size_t text_length) {
     if (text_length == 0) {
         EXPECT_TRUE(tokens.empty());
         return;
@@ -124,7 +125,7 @@ void AssertTokensCoverText(const std::vector<SyntaxToken>& tokens, size_t text_l
 }
 
 // Helper: find first token of a given type
-const SyntaxToken* FindToken(const std::vector<SyntaxToken>& tokens, SyntaxTokenType type) {
+const SyntaxToken* FindToken(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type) {
     for (const auto& t : tokens) {
         if (t.type == type) return &t;
     }
@@ -132,7 +133,7 @@ const SyntaxToken* FindToken(const std::vector<SyntaxToken>& tokens, SyntaxToken
 }
 
 // Helper: count tokens of a given type
-int CountTokens(const std::vector<SyntaxToken>& tokens, SyntaxTokenType type) {
+int CountTokens(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type) {
     int count = 0;
     for (const auto& t : tokens) {
         if (t.type == type) count++;

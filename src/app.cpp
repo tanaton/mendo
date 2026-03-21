@@ -255,7 +255,7 @@ void App::OnExitSizeMove() {
 // File loading
 // ============================================================
 
-void App::LoadMarkdownFile(const std::wstring& path) {
+void App::LoadMarkdownFile(std::wstring_view path) {
     if (!DocumentService::NeedsLoadingAnimation(path)) {
         file_load_service_.SetLoadingPath(path);
         DoLoadMarkdownFile();
@@ -949,14 +949,14 @@ void App::CopySelectionToClipboard() const {
 // Link navigation
 // ============================================================
 
-std::optional<std::wstring> App::GetLinkAtHit(const HitResult& hit) const {
+std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const {
     if (hit.node_index < 0 || hit.node_index >= static_cast<int>(doc_.GetNodes().size()))
         return std::nullopt;
 
     return FindLinkAtPosition(doc_.GetNodes()[hit.node_index], hit.text_pos);
 }
 
-void App::HandleLinkClick(const std::wstring& url) {
+void App::HandleLinkClick(std::wstring_view url) {
     if (url.empty()) return;
 
     auto result = nav_service_.HandleLinkClick(url, doc_.GetFilePath());
@@ -973,7 +973,7 @@ void App::HandleLinkClick(const std::wstring& url) {
     }
 }
 
-void App::NavigateToAnchor(const std::wstring& anchor) {
+void App::NavigateToAnchor(std::wstring_view anchor) {
     int idx = FindAnchorNodeIndex(doc_.GetNodes(), anchor);
     if (idx < 0) return;
 

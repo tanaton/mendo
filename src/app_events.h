@@ -2,6 +2,7 @@
 #include "pane_layout.h"
 #include <variant>
 #include <vector>
+#include <memory_resource>
 
 // ──── Events (platform-agnostic user input) ────
 
@@ -63,4 +64,4 @@ using AppAction = std::variant<
     NavigateForwardAction
 >;
 
-using ActionList = std::vector<AppAction>;
+using ActionList = std::pmr::vector<AppAction>;

@@ -22,7 +22,7 @@ void SaveInt(const wchar_t* filename, int value);
 int LoadInt(const wchar_t* filename, int default_value, int min_val, int max_val);
 
 // Save/load a wide string (stored as UTF-16LE binary).
-void SaveWString(const wchar_t* filename, const std::wstring& value);
+void SaveWString(const wchar_t* filename, std::wstring_view value);
 std::wstring LoadWString(const wchar_t* filename);
 
 } // namespace config

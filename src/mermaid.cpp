@@ -266,7 +266,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                                 if (on_ready) on_ready();
                                                 ProcessQueue();
                                             } else if (wcsncmp(msg, L"render-result:", 14) == 0) {
-                                                OnMermaidRenderResult(std::wstring(msg + 14));
+                                                OnMermaidRenderResult(std::wstring_view(msg + 14));
                                             } else if (wcscmp(msg, L"capture-ready") == 0) {
                                                 DoCapturePreview();
                                             } else if (wcsncmp(msg, L"render-error:", 13) == 0) {
@@ -354,7 +354,7 @@ void MermaidRenderer::ClearCache() {
 
 void MermaidRenderer::CancelPending() {
     // Drain the pending queue
-    std::queue<RenderRequest> empty;
+    decltype(pending_requests_) empty;
     pending_requests_.swap(empty);
 
     // Reset rendering state so new requests can be processed
@@ -363,10 +363,13 @@ void MermaidRenderer::CancelPending() {
     current_request_ = {};
 }
 
-std::wstring MermaidRenderer::HashCode(const std::wstring& code, float max_width, bool dark_mode) const {
-    std::wstring key = code + L"|" + std::to_wstring(static_cast<int>(max_width))
-                       + L"|" + (dark_mode ? L"d" : L"l");
-    return mermaid_util::SimpleHash(key);
+std::pmr::wstring MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const {
+    std::wstring key{code};
+    key += L"|";
+    key += std::to_wstring(static_cast<int>(max_width));
+    key += L"|";
+    key += (dark_mode ? L"d" : L"l");
+    return std::pmr::wstring{mermaid_util::SimpleHash(key)};
 }
 
 void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
@@ -375,7 +378,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
                                      std::function<void()> on_complete) {
     if (node.code_language != SyntaxLanguage::Mermaid) return;
 
-    std::wstring hash = HashCode(node.text, max_width, dark_mode);
+    auto hash = HashCode(std::wstring_view{node.text}, max_width, dark_mode);
 
     // Check cache first
     auto it = cache_.find(hash);
@@ -397,7 +400,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     req.max_width = max_width;
     req.dark_mode = dark_mode;
     req.on_complete = std::move(on_complete);
-    req.code_hash = hash;
+    req.code_hash = std::move(hash);
     pending_requests_.push(std::move(req));
 
     if (!rendering_) {
@@ -412,7 +415,7 @@ void MermaidRenderer::ProcessQueue() {
     pending_requests_.pop();
     rendering_ = true;
 
-    RenderMermaidInWebView(current_request_.node->text,
+    RenderMermaidInWebView(std::wstring_view{current_request_.node->text},
                            current_request_.max_width,
                            current_request_.dark_mode);
 }
@@ -425,7 +428,7 @@ void MermaidRenderer::FinishCurrentRequest() {
     ProcessQueue();
 }
 
-void MermaidRenderer::RenderMermaidInWebView(const std::wstring& code, float max_width, bool dark_mode) {
+void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_width, bool dark_mode) {
     if (!webview_) {
         FinishCurrentRequest();
         return;
@@ -458,14 +461,14 @@ void MermaidRenderer::RenderMermaidInWebView(const std::wstring& code, float max
     webview_->ExecuteScript(js.c_str(), nullptr);
 }
 
-void MermaidRenderer::OnMermaidRenderResult(const std::wstring& json) {
+void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
     // json is the raw string from renderMermaid, e.g. {"ok":true,"width":400,"height":300}
     float dw = 0, dh = 0;
     bool ok = false;
 
-    auto find_num = [&](const std::wstring& key) -> float {
+    auto find_num = [&](std::wstring_view key) -> float {
         auto pos = json.find(key);
-        if (pos == std::wstring::npos) return 0;
+        if (pos == std::wstring_view::npos) return 0;
         pos += key.size();
         while (pos < json.size() && (json[pos] == L':' || json[pos] == L' ')) pos++;
         std::wstring num;
@@ -480,12 +483,15 @@ void MermaidRenderer::OnMermaidRenderResult(const std::wstring& json) {
     dh = find_num(L"\"height\"");
     float dpr = find_num(L"\"dpr\"");
     if (dpr <= 0) dpr = 1.0f;
-    ok = json.find(L"\"ok\":true") != std::wstring::npos
-         || json.find(L"\"ok\": true") != std::wstring::npos;
+    ok = json.find(L"\"ok\":true") != std::wstring_view::npos
+         || json.find(L"\"ok\": true") != std::wstring_view::npos;
 
     if (!ok || dw <= 0 || dh <= 0) {
         OutputDebugStringW(L"[mendo/Mermaid] renderMermaid returned error or zero size\n");
-        OutputDebugStringW((L"[mendo/Mermaid]   result: " + json + L"\n").c_str());
+        std::wstring dbg_msg = L"[mendo/Mermaid]   result: ";
+        dbg_msg.append(json.data(), json.size());
+        dbg_msg += L"\n";
+        OutputDebugStringW(dbg_msg.c_str());
         FinishCurrentRequest();
         return;
     }
@@ -550,7 +556,7 @@ void MermaidRenderer::DoCapturePreview() {
     }
 }
 
-void MermaidRenderer::OnCaptureComplete(const std::wstring& code_hash, IStream* png_stream) {
+void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* png_stream) {
     ComPtr<ID2D1Bitmap> bitmap;
     float bw = 0, bh = 0;
 
@@ -576,7 +582,7 @@ void MermaidRenderer::OnCaptureComplete(const std::wstring& code_hash, IStream* 
         cached.bitmap = bitmap;
         cached.width = draw_w;
         cached.height = draw_h;
-        cache_[code_hash] = cached;
+        cache_[std::pmr::wstring{code_hash}] = cached;
 
         // Update the layout/diagram entries
         if (current_request_.diagram_entry) {

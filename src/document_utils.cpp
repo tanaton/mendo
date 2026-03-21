@@ -1,7 +1,7 @@
 #include "document_utils.h"
 #include <windows.h>
 
-std::wstring ExtractSelectedText(const std::vector<Node>& nodes,
+std::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
                                   const TextSelection& selection) {
     if (!selection.active) return {};
 
@@ -17,7 +17,7 @@ std::wstring ExtractSelectedText(const std::vector<Node>& nodes,
 
         if (start < end && start < text.size()) {
             if (end > text.size()) end = static_cast<uint32_t>(text.size());
-            result += text.substr(start, end - start);
+            result.append(text.data() + start, end - start);
         }
         // Add newline between nodes
         if (i < selection.end_node) {
@@ -27,7 +27,7 @@ std::wstring ExtractSelectedText(const std::vector<Node>& nodes,
     return result;
 }
 
-static std::optional<std::wstring> FindLinkInRuns(const std::vector<TextRun>& runs,
+static std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>& runs,
                                                    uint32_t pos) {
     for (const auto& run : runs) {
         if (run.link_url.has_value() &&
@@ -38,7 +38,7 @@ static std::optional<std::wstring> FindLinkInRuns(const std::vector<TextRun>& ru
     return std::nullopt;
 }
 
-static const std::vector<TextRun>* FindTableCellRuns(const Node& node,
+static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node,
                                                       uint32_t text_pos,
                                                       uint32_t& local_pos) {
     uint32_t offset = 0;
@@ -58,7 +58,7 @@ static const std::vector<TextRun>* FindTableCellRuns(const Node& node,
     return nullptr;
 }
 
-std::optional<std::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos) {
+std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos) {
     if (node.type == NodeType::Table) {
         uint32_t local_pos = 0;
         auto* runs = FindTableCellRuns(node, text_pos, local_pos);
@@ -67,25 +67,26 @@ std::optional<std::wstring> FindLinkAtPosition(const Node& node, uint32_t text_p
     return FindLinkInRuns(node.runs, text_pos);
 }
 
-int FindAnchorNodeIndex(const std::vector<Node>& nodes, const std::wstring& anchor) {
+int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view anchor) {
     if (anchor.empty()) return -1;
 
     // Convert anchor to lowercase for comparison
-    std::wstring target = anchor;
+    std::wstring target{anchor};
     for (auto& c : target) {
         if (c >= L'A' && c <= L'Z') c = c - L'A' + L'a';
     }
 
     for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
         const auto& node = nodes[i];
-        if (node.type == NodeType::Heading && node.anchor_id == target) {
+        if (node.type == NodeType::Heading &&
+            std::wstring_view{node.anchor_id} == std::wstring_view{target}) {
             return i;
         }
     }
     return -1;
 }
 
-WordBoundary FindWordBoundaries(const std::wstring& text, uint32_t pos) {
+WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) {
     WordBoundary result;
     if (text.empty()) return result;
     if (pos >= text.size()) pos = static_cast<uint32_t>(text.size()) - 1;
@@ -108,16 +109,16 @@ WordBoundary FindWordBoundaries(const std::wstring& text, uint32_t pos) {
     return result;
 }
 
-std::wstring ExtractFilename(const std::wstring& path) {
+std::wstring ExtractFilename(std::wstring_view path) {
     if (path.empty()) return {};
     auto pos = path.find_last_of(L"\\/");
-    if (pos != std::wstring::npos) {
-        return path.substr(pos + 1);
+    if (pos != std::wstring_view::npos) {
+        return std::wstring{path.substr(pos + 1)};
     }
-    return path;
+    return std::wstring{path};
 }
 
-std::wstring BuildTitleString(const std::wstring& path, int zoom_percent) {
+std::wstring BuildTitleString(std::wstring_view path, int zoom_percent) {
     std::wstring title;
     if (path.empty()) {
         title = L"mendo";

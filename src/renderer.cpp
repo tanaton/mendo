@@ -239,7 +239,7 @@ void Renderer::RecreatePaneFormats() {
 // Node drawing logic has been extracted to CommandGenerator.
 // Only ApplyNodeEffects remains here as a pre-pass (requires D2D brushes).
 
-void Renderer::ApplyVisibleEffects(std::vector<Node>& nodes, LayoutCache& cache,
+void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
                                     int first_visible, float viewport_bottom) {
     int node_count = static_cast<int>(nodes.size());
     for (int i = first_visible; i < node_count; i++) {
@@ -377,7 +377,7 @@ void Renderer::DrawLoading(float angle,
     if (!CheckEndDraw()) return;
 }
 
-void Renderer::Render(std::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
+void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
                       const TextSelection& selection,
                       const PaneRect& md_pane_rect,
                       const SidePaneState& sp,
@@ -516,7 +516,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
     drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, L"\x25B6");
 }
 
-void Renderer::DrawGestureTrail(const std::deque<GesturePoint>& points) {
+void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points) {
     if (!rt() || !d2d() || points.size() < 2) return;
 
     ComPtr<ID2D1PathGeometry> geometry;

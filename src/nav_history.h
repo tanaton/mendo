@@ -1,11 +1,17 @@
 #pragma once
 #include <string>
+#include <string_view>
 #include <vector>
+#include <memory_resource>
 
 // A single navigation history entry: file path + scroll position.
 struct NavEntry {
-    std::wstring file_path;
+    std::pmr::wstring file_path;
     float scroll_y = 0.0f;
+
+    NavEntry() = default;
+    NavEntry(std::wstring_view fp, float sy = 0.0f)
+        : file_path(fp), scroll_y(sy) {}
 };
 
 // Browser-style back/forward navigation history.
@@ -35,6 +41,6 @@ public:
     static constexpr size_t MAX_HISTORY = 50;
 
 private:
-    std::vector<NavEntry> back_stack_;
-    std::vector<NavEntry> forward_stack_;
+    std::pmr::vector<NavEntry> back_stack_;
+    std::pmr::vector<NavEntry> forward_stack_;
 };

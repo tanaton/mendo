@@ -21,7 +21,7 @@ static bool EnsurePaneCacheSize(Renderer::PaneCache& cache, ID2D1RenderTarget* p
     return true;
 }
 
-void Renderer::DrawFileExplorer(const std::vector<FileEntry>& entries, const PaneRect& rect,
+void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
                                 const ScrollState& scroll, int hovered_index) {
     if (!EnsurePaneCacheSize(file_pane_cache_, rt(), rect.width, rect.height))
         return;
@@ -114,7 +114,7 @@ void Renderer::DrawFileExplorer(const std::vector<FileEntry>& entries, const Pan
     }
 }
 
-void Renderer::DrawToc(const std::vector<TocEntry>& entries, const PaneRect& rect,
+void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
                        const ScrollState& scroll, int hovered_index) {
     if (!EnsurePaneCacheSize(toc_pane_cache_, rt(), rect.width, rect.height))
         return;

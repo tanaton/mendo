@@ -3,7 +3,7 @@
 FileLoadService::FileLoadService(DocumentService& doc_service) noexcept
     : doc_service_(doc_service) {}
 
-void FileLoadService::StartLoading(const std::wstring& path) {
+void FileLoadService::StartLoading(std::wstring_view path) {
     loading_path_ = path;
     loading_ = true;
     loading_angle_ = 0.0f;

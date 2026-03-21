@@ -1,11 +1,12 @@
 #include "parser.h"
 #include "syntax.h"
+#include "memory_resource.h"
 #include "md4c.h"
 #include <stack>
 #include <unordered_map>
 #include <windows.h>
 
-std::wstring GenerateAnchorId(const std::wstring& text) {
+std::wstring GenerateAnchorId(std::wstring_view text) {
     std::wstring slug;
     slug.reserve(text.size());
     for (wchar_t c : text) {
@@ -51,12 +52,18 @@ struct SpanState {
     bool italic = false;
     bool code = false;
     bool strikethrough = false;
-    std::optional<std::wstring> link_url;
+    std::optional<std::pmr::wstring> link_url;
 };
 
 struct ParseContext {
-    std::vector<Node> nodes;
-    std::stack<SpanState> span_stack;
+    // パース用 monotonic リソース（一括確保→一括解放）
+    ScopedMonotonicResource parse_resource{64 * 1024};
+
+    std::pmr::vector<Node> nodes;
+
+    // パース一時データには monotonic リソースを使用
+    std::stack<SpanState, std::pmr::deque<SpanState>> span_stack{
+        std::pmr::deque<SpanState>{parse_resource.resource()}};
     SpanState current_span;
 
     // Reusable buffer for UTF-8 → Wide conversion
@@ -68,7 +75,8 @@ struct ParseContext {
     int blockquote_depth = 0;
 
     // List tracking
-    std::stack<int> list_counter; // 0 = unordered, >0 = ordered counter
+    std::stack<int, std::pmr::deque<int>> list_counter{
+        std::pmr::deque<int>{parse_resource.resource()}}; // 0 = unordered, >0 = ordered counter
 
     // Table tracking
     bool in_table = false;
@@ -80,7 +88,7 @@ struct ParseContext {
     Node* current_node = nullptr;
 
     // Anchor ID uniqueness tracking: slug -> count
-    std::unordered_map<std::wstring, int> anchor_counts;
+    std::pmr::unordered_map<std::pmr::wstring, int> anchor_counts{parse_resource.resource()};
 
     void BeginNode(NodeType type) {
         nodes.emplace_back();
@@ -260,7 +268,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
             }
             // Tokenize once at parse time instead of every layout pass
             if (ctx->current_node && ctx->current_node->code_language != SyntaxLanguage::None) {
-                ctx->current_node->syntax_tokens = Tokenize(ctx->current_node->text, ctx->current_node->code_language);
+                ctx->current_node->syntax_tokens = Tokenize(
+                    ctx->current_node->text, ctx->current_node->code_language);
             }
             break;
 
@@ -293,13 +302,20 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
         case MD_BLOCK_H:
             if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
                 std::wstring base_id = GenerateAnchorId(ctx->current_node->text);
-                int& count = ctx->anchor_counts[base_id];
-                if (count > 0) {
-                    ctx->current_node->anchor_id = base_id + L"-" + std::to_wstring(count);
-                } else {
-                    ctx->current_node->anchor_id = base_id;
+                std::pmr::wstring base_id_pmr{base_id};
+                auto it = ctx->anchor_counts.find(base_id_pmr);
+                int count = 0;
+                if (it != ctx->anchor_counts.end()) {
+                    count = it->second;
                 }
-                count++;
+                if (count > 0) {
+                    ctx->current_node->anchor_id = base_id_pmr;
+                    ctx->current_node->anchor_id += L"-";
+                    ctx->current_node->anchor_id += std::to_wstring(count);
+                } else {
+                    ctx->current_node->anchor_id = base_id_pmr;
+                }
+                ctx->anchor_counts[base_id_pmr] = count + 1;
             }
             ctx->current_node = nullptr;
             break;
@@ -337,7 +353,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata) {
         case MD_SPAN_A: {
             auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
             if (a->href.text && a->href.size > 0) {
-                ctx->current_span.link_url = Utf8ToWide(a->href.text, a->href.size);
+                std::wstring url_str = Utf8ToWide(a->href.text, a->href.size);
+                ctx->current_span.link_url = std::pmr::wstring{url_str};
             }
             break;
         }
@@ -429,7 +446,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
 
 } // namespace
 
-std::vector<Node> ParseMarkdown(const std::string& markdown_text) {
+std::pmr::vector<Node> ParseMarkdown(const std::string& markdown_text) {
     ParseContext ctx;
 
     MD_PARSER parser{};

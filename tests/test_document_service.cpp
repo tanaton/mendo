@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <memory_resource>
+#include <string_view>
 #include "document_service.h"
 #include <fstream>
 #include <filesystem>
@@ -31,7 +33,7 @@ TEST_F(DocumentServiceTest, LoadFileSuccess) {
 
     EXPECT_TRUE(service.LoadFile(path, doc));
     EXPECT_FALSE(doc.IsEmpty());
-    EXPECT_EQ(doc.GetFilePath(), path);
+    EXPECT_EQ(std::wstring_view{doc.GetFilePath()}, std::wstring_view{path});
     EXPECT_FALSE(doc.GetToc().GetEntries().empty());
 }
 
@@ -58,7 +60,7 @@ TEST_F(DocumentServiceTest, ReloadFile) {
     }
 
     EXPECT_TRUE(service.ReloadFile(doc));
-    EXPECT_EQ(doc.GetFilePath(), path);
+    EXPECT_EQ(std::wstring_view{doc.GetFilePath()}, std::wstring_view{path});
     EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);
     EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"Second");
 }

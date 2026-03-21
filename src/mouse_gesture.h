@@ -2,6 +2,7 @@
 #include <deque>
 #include <vector>
 #include <cmath>
+#include <memory_resource>
 
 enum class GesturePhase { Idle, Pressed, Tracking };
 enum class GestureDirection { None, Left, Right };
@@ -100,7 +101,7 @@ public:
 
     bool IsGestureActive() const noexcept { return phase_ == GesturePhase::Tracking; }
     bool IsOverlayVisible() const noexcept { return overlay_alpha_ > 0.0f; }
-    const std::deque<GesturePoint>& GetTrailPoints() const noexcept { return trail_points_; }
+    const std::pmr::deque<GesturePoint>& GetTrailPoints() const noexcept { return trail_points_; }
     GestureDirection GetDirection() const noexcept { return direction_; }
     GesturePhase GetPhase() const noexcept { return phase_; }
     float GetOverlayAlpha() const noexcept { return overlay_alpha_; }
@@ -125,5 +126,5 @@ private:
     float current_x_ = 0.0f;
     float current_y_ = 0.0f;
     float overlay_alpha_ = 0.0f;
-    std::deque<GesturePoint> trail_points_;
+    std::pmr::deque<GesturePoint> trail_points_;
 };

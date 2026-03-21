@@ -1,7 +1,7 @@
 #include "navigation_service.h"
 
 NavigationService::NavigateResult NavigationService::HandleLinkClick(
-    const std::wstring& url, [[maybe_unused]] const std::wstring& current_file) {
+    std::wstring_view url, [[maybe_unused]] std::wstring_view current_file) {
     NavigateResult result;
     if (url.empty()) return result;
 
@@ -19,7 +19,7 @@ NavigationService::NavigateResult NavigationService::HandleLinkClick(
 }
 
 NavigationService::NavigateResult NavigationService::MakeResultFromEntry(
-    NavEntry&& entry, const std::wstring& current_file) {
+    NavEntry&& entry, std::wstring_view current_file) {
     NavigateResult result;
     if (entry.file_path != current_file && !entry.file_path.empty()) {
         result.type = NavigateResult::Type::LoadFile;
@@ -33,23 +33,23 @@ NavigationService::NavigateResult NavigationService::MakeResultFromEntry(
 }
 
 NavigationService::NavigateResult NavigationService::GoBack(
-    const std::wstring& current_file, float scroll_y) {
+    std::wstring_view current_file, float scroll_y) {
     NavEntry out;
-    if (!history_.GoBack({current_file, scroll_y}, out)) {
+    if (!history_.GoBack(NavEntry{current_file, scroll_y}, out)) {
         return {};
     }
     return MakeResultFromEntry(std::move(out), current_file);
 }
 
 NavigationService::NavigateResult NavigationService::GoForward(
-    const std::wstring& current_file, float scroll_y) {
+    std::wstring_view current_file, float scroll_y) {
     NavEntry out;
-    if (!history_.GoForward({current_file, scroll_y}, out)) {
+    if (!history_.GoForward(NavEntry{current_file, scroll_y}, out)) {
         return {};
     }
     return MakeResultFromEntry(std::move(out), current_file);
 }
 
-void NavigationService::PushHistory(const std::wstring& file, float scroll_y) {
-    history_.Push({file, scroll_y});
+void NavigationService::PushHistory(std::wstring_view file, float scroll_y) {
+    history_.Push(NavEntry{file, scroll_y});
 }

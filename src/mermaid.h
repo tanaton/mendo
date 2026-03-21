@@ -12,6 +12,7 @@
 #include <functional>
 #include <unordered_map>
 #include <queue>
+#include <memory_resource>
 
 using Microsoft::WRL::ComPtr;
 
@@ -53,11 +54,11 @@ public:
 
 private:
     void ProcessQueue();
-    void RenderMermaidInWebView(const std::wstring& code, float max_width, bool dark_mode);
-    void OnMermaidRenderResult(const std::wstring& json);
+    void RenderMermaidInWebView(std::wstring_view code, float max_width, bool dark_mode);
+    void OnMermaidRenderResult(std::wstring_view json);
     void DoCapturePreview();
-    void OnCaptureComplete(const std::wstring& code_hash, IStream* png_stream);
-    std::wstring HashCode(const std::wstring& code, float max_width, bool dark_mode) const;
+    void OnCaptureComplete(std::wstring_view code_hash, IStream* png_stream);
+    std::pmr::wstring HashCode(std::wstring_view code, float max_width, bool dark_mode) const;
     HRESULT CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
                                       float* width, float* height);
     void FinishCurrentRequest();
@@ -82,12 +83,12 @@ private:
         float max_width = 0.0f;
         bool dark_mode = false;
         std::function<void()> on_complete;
-        std::wstring code_hash;
+        std::pmr::wstring code_hash;
         float css_width = 0.0f;   // CSS pixel dimensions (DIPs) from JS
         float css_height = 0.0f;
         float dpr = 1.0f;         // devicePixelRatio from JS
     };
-    std::queue<RenderRequest> pending_requests_;
+    std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
     RenderRequest current_request_;
 
     // Cache: code_hash -> {bitmap, width, height}
@@ -96,5 +97,5 @@ private:
         float width = 0.0f;
         float height = 0.0f;
     };
-    std::unordered_map<std::wstring, CachedBitmap> cache_;
+    std::pmr::unordered_map<std::pmr::wstring, CachedBitmap> cache_;
 };

@@ -2,7 +2,7 @@
 #include "nav_button_constants.h"
 
 HitTestService::HitResult HitTestService::HitTest(
-    const std::vector<Node>& nodes,
+    const std::pmr::vector<Node>& nodes,
     const LayoutCache& cache,
     const Theme& theme,
     float scroll_y,

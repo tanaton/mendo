@@ -74,7 +74,7 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) {
 }
 
 void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
-                                                 const std::vector<TextRun>& runs) {
+                                                 const std::pmr::vector<TextRun>& runs) {
     for (const auto& run : runs) {
         DWRITE_TEXT_RANGE range{run.start, run.length};
         if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
@@ -111,7 +111,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         return;
     }
 
-    const std::wstring& text = node.text;
+    const auto& text = node.text;
     if (text.empty()) {
         entry.height = theme_->paragraph_spacing;
         entry.layout_dirty = false;
@@ -180,7 +180,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     entry.row_heights.resize(node.table_rows.size());
 
     // First pass: create text layouts and measure natural widths
-    std::vector<float> natural_widths(col_count, 0.0f);
+    std::pmr::vector<float> natural_widths(col_count, 0.0f);
     IDWriteTextFormat* fmt = fmt_body_.Get();
     IDWriteTextFormat* fmt_bold = fmt_h4_.Get();
 

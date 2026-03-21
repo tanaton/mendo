@@ -4,6 +4,7 @@
 #include "layout_cache.h"
 #include "theme.h"
 #include "pane.h"
+#include "memory_resource.h"
 
 // Generates DrawCommandList from document data and viewport state.
 // Separates "what to draw" from "how to draw it" (the executor).
@@ -27,7 +28,7 @@ public:
     // Generate all draw commands for the Markdown content pane.
     // Returns a reference to an internal buffer; valid until the next call.
     const DrawCommandList& GenerateMdPane(
-        const std::vector<Node>& nodes, const LayoutCache& cache,
+        const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
         int first_visible = -1);
@@ -49,7 +50,11 @@ private:
 
     const Theme* theme_ = nullptr;
     Formats formats_;
-    DrawCommandList cmds_;
-    std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
+
+    // フレーム毎にリセットする monotonic リソースで描画コマンドを管理
+    FrameMonotonicResource frame_resource_{128 * 1024};
+    DrawCommandList cmds_{frame_resource_.resource()};
+
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
     D2D1_COLOR_F cached_stripe_color_{};
 };

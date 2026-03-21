@@ -3,6 +3,7 @@
 #include <vector>
 #include <optional>
 #include <cstdint>
+#include <memory_resource>
 #include "syntax.h"
 
 enum class NodeType : uint8_t {
@@ -23,7 +24,7 @@ struct TextRun {
     bool italic = false;
     bool code = false;
     bool strikethrough = false;
-    std::optional<std::wstring> link_url;
+    std::optional<std::pmr::wstring> link_url;
 };
 
 // Text selection: positions are (node_index, char_offset) pairs.
@@ -55,14 +56,14 @@ struct TextSelection {
 
 // Table cell data (pure domain — no layout cache)
 struct TableCell {
-    std::wstring text;
-    std::vector<TextRun> runs;
+    std::pmr::wstring text;
+    std::pmr::vector<TextRun> runs;
     bool is_header = false;
     int align = 0; // 0=left, 1=center, 2=right (from MD_ALIGN)
 };
 
 struct TableRow {
-    std::vector<TableCell> cells;
+    std::pmr::vector<TableCell> cells;
 };
 
 struct Node {
@@ -71,12 +72,12 @@ struct Node {
     int indent_level = 0;
     int list_number = 0;      // 0 = unordered, >0 = ordered list number
     bool task_checked = false;
-    std::wstring text;
-    std::vector<TextRun> runs;
-    std::wstring anchor_id;   // For headings: GitHub-style slug for internal links
+    std::pmr::wstring text;
+    std::pmr::vector<TextRun> runs;
+    std::pmr::wstring anchor_id;   // For headings: GitHub-style slug for internal links
     SyntaxLanguage code_language = SyntaxLanguage::None;
-    std::vector<SyntaxToken> syntax_tokens;
+    std::pmr::vector<SyntaxToken> syntax_tokens;
 
     // Table data (only used when type == Table)
-    std::vector<TableRow> table_rows;
+    std::pmr::vector<TableRow> table_rows;
 };

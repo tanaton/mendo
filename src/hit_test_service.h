@@ -6,6 +6,7 @@
 #include <dwrite.h>
 #include <optional>
 #include <string>
+#include <memory_resource>
 
 class HitTestService {
 public:
@@ -15,7 +16,7 @@ public:
     };
 
     // Md ペイン内のヒットテスト
-    HitResult HitTest(const std::vector<Node>& nodes,
+    HitResult HitTest(const std::pmr::vector<Node>& nodes,
                       const LayoutCache& cache,
                       const Theme& theme,
                       float scroll_y,

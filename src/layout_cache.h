@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <memory_resource>
 #include <wrl/client.h>
 #include <d2d1.h>
 #include <dwrite.h>
@@ -16,12 +17,12 @@ struct NodeLayoutEntry {
     ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
     bool effects_applied = false;
-    std::vector<InlineCodeBg> inline_code_bgs;
+    std::pmr::vector<InlineCodeBg> inline_code_bgs;
 
     // Table layout data
-    std::vector<std::vector<ComPtr<IDWriteTextLayout>>> cell_layouts; // [row][col]
-    std::vector<float> col_widths;
-    std::vector<float> row_heights;
+    std::pmr::vector<std::pmr::vector<ComPtr<IDWriteTextLayout>>> cell_layouts; // [row][col]
+    std::pmr::vector<float> col_widths;
+    std::pmr::vector<float> row_heights;
 };
 
 struct DiagramEntry {
@@ -73,8 +74,8 @@ public:
     }
 
 private:
-    std::vector<NodeLayoutEntry> entries_;
-    std::vector<DiagramEntry> diagrams_;
+    std::pmr::vector<NodeLayoutEntry> entries_;
+    std::pmr::vector<DiagramEntry> diagrams_;
 };
 
 // Compute total content height from the last node's layout position.
