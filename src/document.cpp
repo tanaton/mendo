@@ -12,7 +12,7 @@ Document Document::FromMarkdown(const std::pmr::string& utf8, std::wstring_view 
 std::pmr::wstring Document::GetDirectory() const {
     auto pos = file_path_.find_last_of(L"\\/");
     if (pos != std::pmr::wstring::npos) {
-        return std::pmr::wstring(file_path_.substr(0, pos));
+        return file_path_.substr(0, pos);
     }
     return {};
 }

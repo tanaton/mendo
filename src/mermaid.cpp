@@ -351,7 +351,7 @@ std::pmr::wstring MermaidRenderer::HashCode(std::wstring_view code, float max_wi
     key += std::to_wstring(static_cast<int>(max_width));
     key += L"|";
     key += (dark_mode ? L"d" : L"l");
-    return std::pmr::wstring{mermaid_util::SimpleHash(key)};
+    return mermaid_util::SimpleHash(key);
 }
 
 void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
@@ -360,7 +360,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
                                      std::function<void()> on_complete) {
     if (node.code_language != SyntaxLanguage::Mermaid) return;
 
-    auto hash = HashCode(std::wstring_view{node.text}, max_width, dark_mode);
+    auto hash = HashCode(node.text, max_width, dark_mode);
 
     // まずキャッシュを確認
     auto it = cache_.find(hash);
