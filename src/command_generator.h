@@ -6,8 +6,8 @@
 #include "pane.h"
 #include "memory_resource.h"
 
-// Generates DrawCommandList from document data and viewport state.
-// Separates "what to draw" from "how to draw it" (the executor).
+// ドキュメントデータとビューポート状態から DrawCommandList を生成する。
+// 「何を描画するか」と「どう描画するか」（エグゼキュータ）を分離する。
 class CommandGenerator {
 public:
     struct Formats {
@@ -25,8 +25,8 @@ public:
     }
     void SetFormats(const Formats& fmts) noexcept { formats_ = fmts; }
 
-    // Generate all draw commands for the Markdown content pane.
-    // Returns a reference to an internal buffer; valid until the next call.
+    // Markdownコンテンツペインのすべての描画コマンドを生成する。
+    // 内部バッファへの参照を返す。次回呼び出しまで有効。
     const DrawCommandList& GenerateMdPane(
         const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
         const PaneRect& md_pane_rect, float scroll_y,

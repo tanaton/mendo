@@ -4,7 +4,7 @@ void NavHistory::Push(const NavEntry& current) {
     back_stack_.push_back(current);
     forward_stack_.clear();
 
-    // Cap history size
+    // 履歴サイズを制限
     if (back_stack_.size() > MAX_HISTORY) {
         back_stack_.erase(back_stack_.begin());
     }

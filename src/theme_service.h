@@ -3,24 +3,24 @@
 #include "theme.h"
 #include <string>
 
-// Manages dark mode state, theme creation, and related persistence.
-// No Win32 dependency — fully testable.
+// ダークモード状態、テーマ作成、および関連する永続化を管理する。
+// Win32依存なし — 完全にテスト可能。
 class ThemeService {
 public:
     explicit ThemeService(ConfigService& config) noexcept;
 
-    // ---- State ----
+    // ---- 状態 ----
 
     bool IsDarkMode() const noexcept { return dark_mode_; }
 
-    // Create a theme for the current dark mode state with optional zoom applied.
+    // 現在のダークモード状態に基づきテーマを作成する（オプションでズームを適用）。
     Theme CreateTheme() const;
     Theme CreateTheme(int zoom_index) const;
 
-    // Toggle dark mode. Returns the new dark_mode state.
+    // ダークモードを切り替える。新しいdark_mode状態を返す。
     bool ToggleDarkMode();
 
-    // ---- Persistence ----
+    // ---- 永続化 ----
 
     void SaveDarkMode();
     void LoadDarkMode();

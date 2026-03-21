@@ -27,8 +27,8 @@ struct TextRun {
     std::optional<std::pmr::wstring> link_url;
 };
 
-// Text selection: positions are (node_index, char_offset) pairs.
-// "start" is always <= "end" in document order.
+// テキスト選択: 位置は (node_index, char_offset) のペアで表す。
+// "start" はドキュメント順で常に "end" 以下。
 struct TextSelection {
     int start_node = -1;
     uint32_t start_pos = 0;
@@ -38,7 +38,7 @@ struct TextSelection {
 
     constexpr void Clear() noexcept { start_node = end_node = -1; active = false; }
 
-    // Normalize anchor/caret so start <= end in document order
+    // アンカー/キャレットをドキュメント順で start <= end に正規化する
     static constexpr TextSelection MakeOrdered(int node_a, uint32_t pos_a,
                                      int node_b, uint32_t pos_b) noexcept {
         TextSelection s;
@@ -54,12 +54,12 @@ struct TextSelection {
     }
 };
 
-// Table cell data (pure domain — no layout cache)
+// テーブルセルデータ（純粋なドメインデータ — レイアウトキャッシュなし）
 struct TableCell {
     std::pmr::wstring text;
     std::pmr::vector<TextRun> runs;
     bool is_header = false;
-    int align = 0; // 0=left, 1=center, 2=right (from MD_ALIGN)
+    int align = 0; // 0=左寄せ, 1=中央寄せ, 2=右寄せ (MD_ALIGN由来)
 };
 
 struct TableRow {
@@ -70,14 +70,14 @@ struct Node {
     NodeType type = NodeType::Paragraph;
     int heading_level = 0;
     int indent_level = 0;
-    int list_number = 0;      // 0 = unordered, >0 = ordered list number
+    int list_number = 0;      // 0 = 順序なし, >0 = 順序付きリスト番号
     bool task_checked = false;
     std::pmr::wstring text;
     std::pmr::vector<TextRun> runs;
-    std::pmr::wstring anchor_id;   // For headings: GitHub-style slug for internal links
+    std::pmr::wstring anchor_id;   // 見出し用: 内部リンク向けGitHubスタイルのスラグ
     SyntaxLanguage code_language = SyntaxLanguage::None;
     std::pmr::vector<SyntaxToken> syntax_tokens;
 
-    // Table data (only used when type == Table)
+    // テーブルデータ（type == Table の場合のみ使用）
     std::pmr::vector<TableRow> table_rows;
 };

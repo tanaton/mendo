@@ -61,7 +61,7 @@ TEST(Theme, BackgroundColorIsWhite) {
     EXPECT_FLOAT_EQ(t.bg_color.b, 1.0f);
 }
 
-// ---- Dark theme tests ----
+// ---- ダークテーマテスト ----
 
 TEST(Theme, DarkThemeHasPositiveFontSizes) {
     Theme t = GetDarkTheme();
@@ -86,7 +86,7 @@ TEST(Theme, DarkThemeHeadingSizesDecrease) {
 
 TEST(Theme, DarkThemeBackgroundIsDark) {
     Theme t = GetDarkTheme();
-    // Dark theme should have a dark background (low RGB values)
+    // ダークテーマは暗い背景（低いRGB値）を持つべき
     EXPECT_LT(t.bg_color.r, 0.3f);
     EXPECT_LT(t.bg_color.g, 0.3f);
     EXPECT_LT(t.bg_color.b, 0.3f);
@@ -94,7 +94,7 @@ TEST(Theme, DarkThemeBackgroundIsDark) {
 
 TEST(Theme, DarkThemeTextIsLight) {
     Theme t = GetDarkTheme();
-    // Dark theme text should be light (high RGB values)
+    // ダークテーマのテキストは明るい（高いRGB値）べき
     EXPECT_GT(t.text_color.r, 0.7f);
     EXPECT_GT(t.text_color.g, 0.7f);
     EXPECT_GT(t.text_color.b, 0.7f);
@@ -133,7 +133,7 @@ TEST(Theme, DarkAndLightHaveSameSpacing) {
     EXPECT_FLOAT_EQ(light.heading_spacing_below, dark.heading_spacing_below);
 }
 
-// ---- ApplyCommonLayout consistency tests ----
+// ---- ApplyCommonLayout 整合性テスト ----
 
 TEST(Theme, DarkAndLightHaveSameIndentation) {
     Theme light = GetLightTheme();
@@ -170,9 +170,9 @@ TEST(Theme, GetHeadingSizeLargeLevel) {
 TEST(Theme, DarkAndLightDifferentColors) {
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
-    // Background colors should be different
+    // 背景色は異なるべき
     EXPECT_NE(light.bg_color.r, dark.bg_color.r);
-    // Text colors should be different
+    // テキスト色は異なるべき
     EXPECT_NE(light.text_color.r, dark.text_color.r);
 }
 
@@ -183,7 +183,7 @@ TEST(Theme, LightThemeTextIsDark) {
     EXPECT_LT(t.text_color.b, 0.3f);
 }
 
-// ---- ApplyZoom tests ----
+// ---- ApplyZoom テスト ----
 
 TEST(Theme, ApplyZoomScalesFonts) {
     Theme t = GetLightTheme();
@@ -225,8 +225,8 @@ TEST(Theme, ApplyZoomTwiceIsMultiplicative) {
     Theme t = GetLightTheme();
     float original_body = t.font_size_body;
 
-    t.ApplyZoom(2.0f);  // zoom from 1.0 to 2.0
-    t.ApplyZoom(3.0f);  // zoom from 2.0 to 3.0
+    t.ApplyZoom(2.0f);  // 1.0から2.0へズーム
+    t.ApplyZoom(3.0f);  // 2.0から3.0へズーム
 
     EXPECT_NEAR(t.font_size_body, original_body * 3.0f, 0.01f);
     EXPECT_FLOAT_EQ(t.zoom, 3.0f);
@@ -242,7 +242,7 @@ TEST(Theme, ApplyZoomResetToOne) {
     EXPECT_NEAR(t.font_size_body, original_body, 0.01f);
 }
 
-// ---- Bug #12: ApplyZoom zero guard ----
+// ---- バグ #12: ApplyZoom ゼロガード ----
 
 TEST(Theme, ApplyZoomZeroIsNoOp) {
     Theme t = GetLightTheme();
@@ -251,7 +251,7 @@ TEST(Theme, ApplyZoomZeroIsNoOp) {
 
     t.ApplyZoom(0.0f);
 
-    // Should be unchanged (no division by zero, no inf/NaN)
+    // 変更されないべき（ゼロ除算なし、inf/NaNなし）
     EXPECT_FLOAT_EQ(t.font_size_body, original_body);
     EXPECT_FLOAT_EQ(t.zoom, original_zoom);
 }
@@ -265,40 +265,40 @@ TEST(Theme, ApplyZoomNegativeIsNoOp) {
     EXPECT_FLOAT_EQ(t.font_size_body, original_body);
 }
 
-// ---- Bug #20: ApplyZoom drift prevention ----
+// ---- バグ #20: ApplyZoom ドリフト防止 ----
 
 TEST(Theme, ApplyZoomFromBaseNoDrift) {
-    // Simulate repeated zoom in/out via base reconstruction (the fix approach)
+    // ベース再構築によるズームイン/アウトの繰り返しをシミュレーション（修正アプローチ）
     Theme base = GetLightTheme();
     float base_body = base.font_size_body;
     float base_margin = base.margin_left;
 
-    // Apply zoom to 2.0 from base
+    // ベースから2.0へズームを適用
     Theme zoomed = base;
     zoomed.ApplyZoom(2.0f);
     EXPECT_NEAR(zoomed.font_size_body, base_body * 2.0f, 0.001f);
 
-    // Apply zoom back to 1.0 from base (not from zoomed) -> no drift
+    // ベースから1.0へズームを戻す（ズーム済みからではなく）→ ドリフトなし
     Theme restored = base;
-    // zoom is already 1.0 from base, no ApplyZoom needed
+    // ベースからのズームはすでに1.0、ApplyZoom不要
     EXPECT_FLOAT_EQ(restored.font_size_body, base_body);
     EXPECT_FLOAT_EQ(restored.margin_left, base_margin);
 }
 
 TEST(Theme, ApplyZoomRepeatedRoundTripsAccumulateDrift) {
-    // This demonstrates why the base-reconstruction approach is needed:
-    // incremental ApplyZoom loses precision over many cycles
+    // ベース再構築アプローチが必要な理由を示す:
+    // インクリメンタルなApplyZoomは多くのサイクルで精度を失う
     Theme t = GetLightTheme();
     float original_body = t.font_size_body;
 
-    // Zoom in and out 100 times
+    // 100回ズームイン・アウトを繰り返す
     for (int i = 0; i < 100; ++i) {
         t.ApplyZoom(1.5f);
         t.ApplyZoom(1.0f);
     }
 
-    // With incremental approach, drift is possible but small
-    // The important thing is it doesn't produce inf/NaN
+    // インクリメンタルアプローチではドリフトが発生し得るが小さい
+    // 重要なのはinf/NaNを生成しないこと
     EXPECT_GT(t.font_size_body, 0.0f);
     EXPECT_LT(t.font_size_body, original_body * 2.0f);
     EXPECT_FALSE(std::isnan(t.font_size_body));

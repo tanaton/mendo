@@ -50,7 +50,7 @@ public:
         }
 
         if (phase_ == GesturePhase::Tracking) {
-            // Subsample trail points
+            // 軌跡ポイントをサブサンプリング
             const auto& last = trail_points_.back();
             float pdx = x - last.x;
             float pdy = y - last.y;
@@ -61,7 +61,7 @@ public:
                 trail_points_.push_back({x, y});
             }
             UpdateDirection();
-            // Show overlay as soon as a direction is determined
+            // 方向が決定されたらすぐにオーバーレイを表示する
             overlay_alpha_ = (direction_ != GestureDirection::None) ? 1.0f : 0.0f;
         }
     }
@@ -72,12 +72,12 @@ public:
         }
 
         if (phase_ == GesturePhase::Pressed) {
-            // Small movement — context menu
+            // 小さな移動 — コンテキストメニュー
             phase_ = GesturePhase::Idle;
             return GestureResult::ShowContextMenu;
         }
 
-        // Tracking → determine result and reset to Idle
+        // トラッキング中 → 結果を判定してIdleにリセット
         GestureDirection dir = direction_;
         Reset();
 

@@ -42,7 +42,7 @@ void PaneController::DragSplitter1To(float dip_x, float total_width, float split
 }
 
 void PaneController::DragSplitter2To(float dip_x, float total_width, float splitter_w) noexcept {
-    // toc_left is known from layout; dip_x is the new right edge
+    // toc_leftはレイアウトから既知; dip_xは新しい右端
     auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
     float toc_left = layout.toc_rect.x;
     float new_width = dip_x - toc_left;

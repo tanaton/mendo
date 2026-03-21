@@ -10,7 +10,7 @@ public:
     static std::string LoadFile(const std::wstring& path);
     static std::wstring OpenFileDialog(HWND owner);
 
-    // File watching (timestamp polling)
+    // ファイル監視（タイムスタンプポーリング）
     using ChangeCallback = std::function<void()>;
     void StartWatching(const std::wstring& file_path, ChangeCallback callback);
     void StopWatching() noexcept;
@@ -22,7 +22,7 @@ private:
     FILETIME last_write_time_{};
     bool watching_ = false;
 
-    // Debounce: ignore changes within this window after a reload
+    // デバウンス: リロード後の一定時間内の変更を無視
     ULONGLONG last_reload_tick_ = 0;
     static constexpr DWORD DEBOUNCE_MS = 200;
 };

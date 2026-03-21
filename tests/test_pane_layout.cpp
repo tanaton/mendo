@@ -8,16 +8,16 @@
 TEST(PaneLayout, BothPanesVisible) {
     auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true);
 
-    // File pane at x=0
+    // ファイルペインはx=0
     EXPECT_FLOAT_EQ(layout.file_rect.x, 0.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.width, 220.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.height, 700.0f);
 
-    // TOC pane after file pane + splitter
+    // 目次ペインはファイルペイン + スプリッターの後
     EXPECT_FLOAT_EQ(layout.toc_rect.x, 224.0f);  // 220 + 4
     EXPECT_FLOAT_EQ(layout.toc_rect.width, 220.0f);
 
-    // MD pane after TOC pane + splitter
+    // MDペインは目次ペイン + スプリッターの後
     EXPECT_FLOAT_EQ(layout.md_rect.x, 448.0f);  // 224 + 220 + 4
     EXPECT_FLOAT_EQ(layout.md_rect.width, 1200.0f - 448.0f);
 }
@@ -25,7 +25,7 @@ TEST(PaneLayout, BothPanesVisible) {
 TEST(PaneLayout, NoPanesVisible) {
     auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, false, false);
 
-    // MD pane takes full width
+    // MDペインが全幅を占める
     EXPECT_FLOAT_EQ(layout.md_rect.x, 0.0f);
     EXPECT_FLOAT_EQ(layout.md_rect.width, 1200.0f);
 }
@@ -36,10 +36,10 @@ TEST(PaneLayout, OnlyFilePaneVisible) {
     EXPECT_FLOAT_EQ(layout.file_rect.x, 0.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.width, 220.0f);
 
-    // TOC pane should be at default (0,0)
+    // 目次ペインはデフォルト(0,0)にあるべき
     EXPECT_FLOAT_EQ(layout.toc_rect.width, 0.0f);
 
-    // MD pane after file pane + splitter
+    // MDペインはファイルペイン + スプリッターの後
     EXPECT_FLOAT_EQ(layout.md_rect.x, 224.0f);
 }
 
@@ -53,7 +53,7 @@ TEST(PaneLayout, OnlyTocPaneVisible) {
 }
 
 TEST(PaneLayout, MdPaneMinWidth) {
-    // Total width too small: MD pane should be at least md_min_width
+    // 全幅が小さすぎる: MDペインは少なくともmd_min_widthであるべき
     auto layout = ComputePaneLayout(400.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true, 200.0f);
 
     EXPECT_GE(layout.md_rect.width, 200.0f);
@@ -83,15 +83,15 @@ TEST(PaneLayout, DifferentPaneWidths) {
 TEST(DetectPaneZone, BothPanes) {
     auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true);
 
-    // In file pane
+    // ファイルペイン内
     EXPECT_EQ(DetectPaneZone(100.0f, layout, 4.0f, true, true), PaneZone::FilePane);
-    // On splitter 1
+    // スプリッター1上
     EXPECT_EQ(DetectPaneZone(221.0f, layout, 4.0f, true, true), PaneZone::Splitter1);
-    // In TOC pane
+    // 目次ペイン内
     EXPECT_EQ(DetectPaneZone(300.0f, layout, 4.0f, true, true), PaneZone::TocPane);
-    // On splitter 2
+    // スプリッター2上
     EXPECT_EQ(DetectPaneZone(445.0f, layout, 4.0f, true, true), PaneZone::Splitter2);
-    // In MD pane
+    // MDペイン内
     EXPECT_EQ(DetectPaneZone(500.0f, layout, 4.0f, true, true), PaneZone::MdPane);
 }
 
@@ -127,7 +127,7 @@ TEST(ComputeScrollInfo, ContentFits) {
     EXPECT_FLOAT_EQ(info.content_top, 32.0f);
     EXPECT_FLOAT_EQ(info.content_height, 468.0f);
     EXPECT_FLOAT_EQ(info.total_content, 100.0f);
-    EXPECT_FLOAT_EQ(info.max_scroll, 0.0f);  // Content fits, no scroll needed
+    EXPECT_FLOAT_EQ(info.max_scroll, 0.0f);  // コンテンツが収まる、スクロール不要
 }
 
 TEST(ComputeScrollInfo, ContentOverflows) {
@@ -142,7 +142,7 @@ TEST(ComputeScrollInfo, ContentOverflows) {
 
 TEST(ComputeScrollInfo, ThumbMinimumHeight) {
     PaneRect rect{0, 0, 220, 500};
-    // Very large content - thumb should be at minimum
+    // 非常に大きなコンテンツ - つまみは最小サイズになるべき
     auto info = ComputeScrollInfo(rect, 32.0f, 100000.0f, 24.0f);
 
     EXPECT_GE(info.thumb_height, 24.0f);
@@ -172,7 +172,7 @@ TEST(ComputeThumbY, AtBottom) {
     auto info = ComputeScrollInfo(rect, 32.0f, 1000.0f);
 
     float thumb_y = ComputeThumbY(info, info.max_scroll);
-    // Thumb bottom should align with content bottom
+    // つまみの下端がコンテンツの下端と揃うべき
     EXPECT_NEAR(thumb_y + info.thumb_height, info.content_top + info.content_height, 0.01f);
 }
 
@@ -213,7 +213,7 @@ TEST(ScrollFromThumbY, RoundTrip) {
     PaneRect rect{0, 0, 220, 500};
     auto info = ComputeScrollInfo(rect, 32.0f, 1000.0f);
 
-    // Scroll -> thumb Y -> scroll should round-trip
+    // スクロール → つまみY → スクロール のラウンドトリップ
     float original_scroll = 250.0f;
     float thumb_y = ComputeThumbY(info, original_scroll);
     float recovered_scroll = ScrollFromThumbY(info, thumb_y);
@@ -224,7 +224,7 @@ TEST(ScrollFromThumbY, ClampsBelowContent) {
     PaneRect rect{0, 0, 220, 500};
     auto info = ComputeScrollInfo(rect, 32.0f, 1000.0f);
 
-    // Thumb Y above content_top should clamp to 0
+    // つまみYがcontent_topより上の場合は0にクランプされるべき
     float scroll = ScrollFromThumbY(info, 0.0f);
     EXPECT_FLOAT_EQ(scroll, 0.0f);
 }
@@ -233,22 +233,22 @@ TEST(ScrollFromThumbY, ClampsAboveContent) {
     PaneRect rect{0, 0, 220, 500};
     auto info = ComputeScrollInfo(rect, 32.0f, 1000.0f);
 
-    // Thumb Y way below should clamp to max_scroll
+    // つまみYが大幅に下の場合はmax_scrollにクランプされるべき
     float scroll = ScrollFromThumbY(info, 99999.0f);
     EXPECT_FLOAT_EQ(scroll, info.max_scroll);
 }
 
-// ---- Additional edge cases ----
+// ---- 追加エッジケース ----
 
 TEST(ComputePaneLayout, ZeroWidth) {
     auto layout = ComputePaneLayout(0.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);
-    // MD pane should use md_min_width
+    // MDペインはmd_min_widthを使用すべき
     EXPECT_GE(layout.md_rect.width, 200.0f);
 }
 
 TEST(ComputePaneLayout, VeryNarrowWindow) {
     auto layout = ComputePaneLayout(100.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);
-    // MD pane should not go below min width
+    // MDペインは最小幅を下回らないべき
     EXPECT_GE(layout.md_rect.width, 200.0f);
 }
 
@@ -275,21 +275,21 @@ TEST(ComputeScrollInfo, VerySmallContent) {
 
 TEST(ComputeScrollInfo, ExactFit) {
     PaneRect rect{0, 0, 220, 500};
-    float content_height = 500.0f - 32.0f; // exactly fits
+    float content_height = 500.0f - 32.0f; // ちょうど収まる
     auto info = ComputeScrollInfo(rect, 32.0f, content_height);
     EXPECT_FLOAT_EQ(info.max_scroll, 0.0f);
 }
 
 TEST(ComputeThumbY, ZeroMaxScroll) {
     PaneRect rect{0, 0, 220, 500};
-    auto info = ComputeScrollInfo(rect, 32.0f, 100.0f); // content fits
+    auto info = ComputeScrollInfo(rect, 32.0f, 100.0f); // コンテンツが収まる
     float thumb_y = ComputeThumbY(info, 0.0f);
     EXPECT_FLOAT_EQ(thumb_y, info.content_top);
 }
 
 TEST(ScrollFromThumbY, ZeroTrackRange) {
     PaneRect rect{0, 0, 220, 500};
-    // Content exactly fits (or less) => no scrollable range
+    // コンテンツがちょうど収まる（またはそれ以下）=> スクロール可能な範囲なし
     auto info = ComputeScrollInfo(rect, 32.0f, 100.0f);
     float scroll = ScrollFromThumbY(info, 50.0f);
     EXPECT_FLOAT_EQ(scroll, 0.0f);

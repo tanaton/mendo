@@ -4,7 +4,7 @@
 #include "layout_cache.h"
 #include "types.h"
 
-// Helper: build a simple LayoutCache with evenly spaced nodes.
+// ヘルパー: 等間隔に配置されたノードで単純なLayoutCacheを構築する。
 static LayoutCache MakeTestCache(int count, float node_height = 50.0f) {
     LayoutCache cache;
     cache.Resize(count);
@@ -17,7 +17,7 @@ static LayoutCache MakeTestCache(int count, float node_height = 50.0f) {
     return cache;
 }
 
-// ---- Scroll tests ----
+// ---- スクロールテスト ----
 
 TEST(ViewportManagerTest, ScrollToClampsToZero) {
     ViewportManager vm;
@@ -39,7 +39,7 @@ TEST(ViewportManagerTest, SyncMaxScrollClampsExistingScroll) {
     vm.ScrollTo(600.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 600.0f);
 
-    // Shrink content so max drops below current scroll
+    // コンテンツを縮小して最大値が現在のスクロール以下になるようにする
     vm.SyncMaxScroll(500.0f, 200.0f); // max = 300
     EXPECT_FLOAT_EQ(vm.GetMaxScroll(), 300.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 300.0f);
@@ -47,11 +47,11 @@ TEST(ViewportManagerTest, SyncMaxScrollClampsExistingScroll) {
 
 TEST(ViewportManagerTest, SyncMaxScrollNoNegative) {
     ViewportManager vm;
-    vm.SyncMaxScroll(100.0f, 500.0f); // content smaller than viewport
+    vm.SyncMaxScroll(100.0f, 500.0f); // コンテンツがビューポートより小さい
     EXPECT_FLOAT_EQ(vm.GetMaxScroll(), 0.0f);
 }
 
-// ---- SmoothScroll tests ----
+// ---- スムーススクロールテスト ----
 
 TEST(ViewportManagerTest, SmoothScrollActivates) {
     ViewportManager vm;
@@ -68,7 +68,7 @@ TEST(ViewportManagerTest, SmoothScrollConverges) {
     vm.SyncMaxScroll(10000.0f, 200.0f);
     vm.SmoothScrollBy(400.0f);
 
-    // Run enough frames for convergence
+    // 収束に十分なフレーム数を実行
     for (int i = 0; i < 200; ++i) {
         bool active = vm.UpdateSmoothScroll();
         if (!active) break;
@@ -96,7 +96,7 @@ TEST(ViewportManagerTest, StopSmoothScroll) {
     EXPECT_FLOAT_EQ(vm.GetScrollY(), vm.GetScrollTarget());
 }
 
-// ---- FindFirstVisibleNode tests ----
+// ---- FindFirstVisibleNode テスト ----
 
 TEST(ViewportManagerTest, FindFirstVisibleNodeStart) {
     ViewportManager vm;
@@ -110,7 +110,7 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeMiddle) {
     ViewportManager vm;
     auto cache = MakeTestCache(10, 50.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
-    vm.ScrollTo(120.0f); // Should see node at y=100 (index 2)
+    vm.ScrollTo(120.0f); // y=100のノード(インデックス2)が見えるはず
     EXPECT_EQ(vm.FindFirstVisibleNode(cache, 10), 2);
 }
 
@@ -129,7 +129,7 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeEmpty) {
     EXPECT_EQ(vm.FindFirstVisibleNode(cache, 0), -1);
 }
 
-// ---- AnchorCompensateScroll tests ----
+// ---- AnchorCompensateScroll テスト ----
 
 TEST(ViewportManagerTest, AnchorCompensateScroll) {
     ViewportManager vm;
@@ -138,7 +138,7 @@ TEST(ViewportManagerTest, AnchorCompensateScroll) {
     vm.ScrollTo(100.0f);
 
     float y_before = cache[1].y_position; // 100.0f
-    // Simulate layout change: shift node 1 down by 30
+    // レイアウト変更をシミュレーション: ノード1を30下にシフト
     cache[1].y_position = 130.0f;
     cache[2].y_position = 230.0f;
     cache[3].y_position = 330.0f;
@@ -155,10 +155,10 @@ TEST(ViewportManagerTest, AnchorCompensateNegativeIndex) {
     vm.ScrollTo(50.0f);
     float before = vm.GetScrollY();
     vm.AnchorCompensateScroll(-1, 0.0f, cache);
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), before); // No change
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), before); // 変更なし
 }
 
-// ---- Selection tests ----
+// ---- 選択テスト ----
 
 TEST(ViewportManagerTest, ClearSelection) {
     ViewportManager vm;
@@ -195,7 +195,7 @@ TEST(ViewportManagerTest, SelectAllEmpty) {
     EXPECT_FALSE(vm.GetSelection().active);
 }
 
-// ---- Zoom tests ----
+// ---- ズームテスト ----
 
 TEST(ViewportManagerTest, ZoomInReturnsNewZoom) {
     ViewportManager vm; // starts at ZOOM_DEFAULT_INDEX (1.0)
@@ -214,7 +214,7 @@ TEST(ViewportManagerTest, ZoomOutReturnsNewZoom) {
 
 TEST(ViewportManagerTest, ZoomInAtMaxReturnsZero) {
     ViewportManager vm;
-    // Zoom to max
+    // 最大までズーム
     for (int i = 0; i < 50; ++i) vm.ZoomIn();
     float z = vm.ZoomIn();
     EXPECT_FLOAT_EQ(z, 0.0f);
@@ -222,7 +222,7 @@ TEST(ViewportManagerTest, ZoomInAtMaxReturnsZero) {
 
 TEST(ViewportManagerTest, ZoomOutAtMinReturnsZero) {
     ViewportManager vm;
-    // Zoom to min
+    // 最小までズーム
     for (int i = 0; i < 50; ++i) vm.ZoomOut();
     float z = vm.ZoomOut();
     EXPECT_FLOAT_EQ(z, 0.0f);
@@ -240,10 +240,10 @@ TEST(ViewportManagerTest, ZoomResetFromNonDefault) {
 TEST(ViewportManagerTest, ZoomResetAlreadyDefault) {
     ViewportManager vm;
     float z = vm.ZoomReset();
-    EXPECT_FLOAT_EQ(z, 0.0f); // No change needed
+    EXPECT_FLOAT_EQ(z, 0.0f); // 変更不要
 }
 
-// ---- ScrollbarTracking tests ----
+// ---- スクロールバー追跡テスト ----
 
 TEST(ViewportManagerTest, ScrollbarTracking) {
     ViewportManager vm;
@@ -252,7 +252,7 @@ TEST(ViewportManagerTest, ScrollbarTracking) {
     EXPECT_TRUE(vm.IsScrollbarTracking());
 }
 
-// ---- Bug #17: AnchorCompensateScroll clamp to non-negative ----
+// ---- バグ #17: AnchorCompensateScrollの非負クランプ ----
 
 TEST(ViewportManagerTest, AnchorCompensateScrollClampsNegative) {
     ViewportManager vm;
@@ -261,13 +261,13 @@ TEST(ViewportManagerTest, AnchorCompensateScrollClampsNegative) {
     vm.ScrollTo(50.0f);
 
     float y_before = cache[2].y_position; // 200.0f
-    // Simulate a layout change that shifts node 2 upward by 300
-    // (e.g. a large node above was removed)
+    // ノード2を上方に300シフトするレイアウト変更をシミュレーション
+    // （例: 上にある大きなノードが削除された場合）
     cache[2].y_position = 0.0f;
 
     vm.AnchorCompensateScroll(2, y_before, cache);
 
-    // scroll_y should be clamped to 0, not go to -150
+    // scroll_yは-150ではなく0にクランプされるべき
     EXPECT_GE(vm.GetScrollY(), 0.0f);
     EXPECT_GE(vm.GetScrollTarget(), 0.0f);
 }

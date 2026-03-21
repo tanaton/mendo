@@ -9,6 +9,6 @@ struct ScrollState {
     float max_scroll = 0.0f;
 };
 
-// Shared scrollbar constants
+// スクロールバー共通定数
 static constexpr float PANE_SCROLLBAR_WIDTH = 8.0f;
 static constexpr float PANE_SCROLLBAR_THUMB_MIN = 24.0f;

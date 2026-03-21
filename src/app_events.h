@@ -4,7 +4,7 @@
 #include <vector>
 #include <memory_resource>
 
-// ──── Events (platform-agnostic user input) ────
+// ──── イベント (プラットフォーム非依存のユーザー入力) ────
 
 struct KeyDownEvent {
     int key;
@@ -14,32 +14,32 @@ struct KeyDownEvent {
 };
 
 struct MouseWheelEvent {
-    int delta;                          // raw WHEEL_DELTA units
+    int delta;                          // 生のWHEEL_DELTA単位
     bool ctrl = false;
     PaneZone zone = PaneZone::MdPane;
 };
 
-// ──── Actions (what the app should do) ────
+// ──── アクション (アプリが実行すべき操作) ────
 
 enum class ScrollType { LineUp, LineDown, PageUp, PageDown, Home, End };
 
-// Keyboard/scrollbar scroll (Shell computes concrete delta from type)
+// キーボード/スクロールバースクロール (Shellがtypeから具体的なdeltaを算出)
 struct KeyScrollAction { ScrollType type; };
 
-// Mouse wheel smooth scroll with pre-computed delta
+// マウスホイールのスムーズスクロール (事前計算済みdelta)
 struct SmoothScrollByAction { float delta; };
 
-// Pane (file/toc) scroll
+// ペイン (ファイル/目次) スクロール
 struct ScrollPaneAction { PaneZone pane; float delta; };
 
 struct CopyClipboardAction {};
 struct SelectAllAction {};
 struct ClearSelectionAction {};
 
-// Toggle a side pane
-struct TogglePaneAction { bool file_pane; };   // true = file, false = toc
+// サイドペインの切り替え
+struct TogglePaneAction { bool file_pane; };   // true = ファイル, false = 目次
 
-// Zoom: -1 = out, 0 = reset, +1 = in
+// ズーム: -1 = 縮小, 0 = リセット, +1 = 拡大
 struct ZoomAction { int direction; };
 
 struct ReloadFileAction {};

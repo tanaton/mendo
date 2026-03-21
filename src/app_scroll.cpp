@@ -5,7 +5,7 @@
 #include <cmath>
 
 // ============================================================
-// Scrollbar & Scroll
+// スクロールバー・スクロール
 // ============================================================
 
 void App::OnVScroll(WPARAM wParam) {
@@ -132,7 +132,7 @@ void App::AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md
 }
 
 // ============================================================
-// Deferred layout
+// 遅延レイアウト
 // ============================================================
 
 void App::OnResizeEnd() {

@@ -102,7 +102,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         return;
     }
 
-    // Mermaid blocks: placeholder height until bitmap is rendered
+    // Mermaidブロック: ビットマップがレンダリングされるまでのプレースホルダー高さ
     if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
         if (entry.height <= 0) {
             entry.height = std::max(MIN_MERMAID_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
@@ -130,7 +130,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         fmt, layout_width, LAYOUT_MAX_HEIGHT, &layout);
     if (FAILED(hr)) return;
 
-    // Apply per-run formatting
+    // ラン単位のフォーマットを適用
     for (const auto& run : node.runs) {
         DWRITE_TEXT_RANGE range{run.start, run.length};
         if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
@@ -170,7 +170,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     float cell_padding = TABLE_CELL_PADDING;
     float border_width = TABLE_BORDER_WIDTH;
 
-    // Reset per-layout state because we are rebuilding cell layouts.
+    // セルレイアウトを再構築するため、レイアウト単位の状態をリセット。
     entry.effects_applied = false;
 
     entry.cell_layouts.resize(node.table_rows.size());
@@ -179,7 +179,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     }
     entry.row_heights.resize(node.table_rows.size());
 
-    // First pass: create text layouts and measure natural widths
+    // 第1パス: テキストレイアウトを作成し、自然な幅を計測
     std::pmr::vector<float> natural_widths(col_count, 0.0f);
     IDWriteTextFormat* fmt = fmt_body_.Get();
     IDWriteTextFormat* fmt_bold = fmt_h4_.Get();
@@ -209,7 +209,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
                       - static_cast<float>(col_count) * cell_padding * 2.0f;
     entry.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
 
-    // Second pass: set column widths and measure row heights
+    // 第2パス: 列幅を設定し、行の高さを計測
     float total_height = border_width;
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         auto& row = node.table_rows[r];

@@ -6,8 +6,8 @@
 
 using Microsoft::WRL::ComPtr;
 
-// DirectWrite implementation of ITextMeasurer.
-// Owns IDWriteTextFormat objects and creates IDWriteTextLayout for measurement.
+// ITextMeasurerのDirectWrite実装。
+// IDWriteTextFormatオブジェクトを所有し、計測用のIDWriteTextLayoutを作成する。
 class DWriteTextMeasurer : public ITextMeasurer {
 public:
     bool Init(const Theme& theme) override;
@@ -17,7 +17,7 @@ public:
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) override;
     void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) override;
 
-    // Initialize with an external IDWriteFactory (required before Init).
+    // 外部のIDWriteFactoryで初期化する（Initの前に呼び出す必要がある）。
     void SetFactory(IDWriteFactory* factory) noexcept { dwrite_ = factory; }
 
 private:

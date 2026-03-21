@@ -10,7 +10,7 @@ struct FileEntry {
     std::pmr::wstring full_path;
     bool is_current = false;
     bool is_directory = false;
-    bool is_parent = false;  // ".." entry
+    bool is_parent = false;  // ".." エントリ
 };
 
 class FileExplorer {

@@ -6,38 +6,38 @@
 #include <optional>
 #include <memory_resource>
 
-// Extract selected text from nodes based on selection range.
-// Returns the concatenated text with \r\n between nodes.
+// 選択範囲に基づいてノードから選択テキストを抽出する。
+// ノード間を \r\n で連結したテキストを返す。
 std::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
                                   const TextSelection& selection);
 
-// Find a link URL at a given text position within a node's runs.
-// Returns the link URL if the position falls within a link run, otherwise nullopt.
+// ノードのラン内の指定テキスト位置にあるリンクURLを検索する。
+// リンクラン内の位置であればリンクURLを返し、そうでなければnulloptを返す。
 std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos);
 
-// Find the index of the heading node that matches the given anchor ID.
-// The anchor is compared case-insensitively (lowercased).
-// Returns -1 if not found.
+// 指定されたアンカーIDに一致する見出しノードのインデックスを検索する。
+// アンカーは大文字小文字を区別せず（小文字化して）比較される。
+// 見つからない場合は-1を返す。
 int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view anchor);
 
-// Word boundary result for double-click word selection.
+// ダブルクリックによる単語選択の単語境界結果。
 struct WordBoundary {
     uint32_t start = 0;
     uint32_t end = 0;
     bool found = false;
 };
 
-// Find word boundaries around a position in text.
-// A "word character" is alphanumeric or underscore.
-// Returns {start, end, true} if the position is on a word character, otherwise {0, 0, false}.
+// テキスト内の指定位置周辺の単語境界を検索する。
+// 「単語文字」は英数字またはアンダースコア。
+// 位置が単語文字上にあれば {start, end, true} を返し、そうでなければ {0, 0, false} を返す。
 WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos);
 
-// Extract the filename portion from a full file path.
-// e.g. "C:\\dir\\file.md" -> "file.md"
+// フルファイルパスからファイル名部分を抽出する。
+// 例: "C:\\dir\\file.md" -> "file.md"
 std::wstring ExtractFilename(std::wstring_view path);
 
-// Build a title string from a file path.
-// e.g. "C:\\dir\\file.md" -> "file.md - mendo"
-// If path is empty, returns "mendo".
-// zoom_percent: 0 or 100 means default (omitted), otherwise shown as "(125%)" etc.
+// ファイルパスからタイトル文字列を構築する。
+// 例: "C:\\dir\\file.md" -> "file.md - mendo"
+// パスが空の場合は "mendo" を返す。
+// zoom_percent: 0 または 100 はデフォルト（省略）、それ以外は "(125%)" 等として表示される。
 std::wstring BuildTitleString(std::wstring_view path, int zoom_percent = 0);

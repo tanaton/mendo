@@ -3,7 +3,7 @@
 #include <cstdint>
 
 struct Theme {
-    // Colors
+    // 色
     D2D1_COLOR_F bg_color;
     D2D1_COLOR_F text_color;
     D2D1_COLOR_F heading_color;
@@ -14,7 +14,7 @@ struct Theme {
     D2D1_COLOR_F blockquote_bar_color;
     D2D1_COLOR_F blockquote_text_color;
 
-    // Syntax highlighting colors
+    // シンタックスハイライトの色
     D2D1_COLOR_F syntax_keyword;
     D2D1_COLOR_F syntax_type;
     D2D1_COLOR_F syntax_string;
@@ -23,11 +23,11 @@ struct Theme {
     D2D1_COLOR_F syntax_preprocessor;
     D2D1_COLOR_F syntax_function;
 
-    // Font
+    // フォント
     wchar_t font_family[64];
     wchar_t monospace_font[64];
 
-    // Font sizes (in DIP)
+    // フォントサイズ（DIP単位）
     float font_size_body;
     float font_size_h1;
     float font_size_h2;
@@ -37,7 +37,7 @@ struct Theme {
     float font_size_h6;
     float font_size_code;
 
-    // Margins and padding (in DIP)
+    // マージンとパディング（DIP単位）
     float margin_left;
     float margin_right;
     float margin_top;
@@ -50,7 +50,7 @@ struct Theme {
     float list_bullet_offset;
     float hr_thickness;
 
-    // Pane layout
+    // ペインレイアウト
     D2D1_COLOR_F pane_bg_color;
     D2D1_COLOR_F splitter_color;
     D2D1_COLOR_F pane_item_hover_color;
@@ -60,18 +60,18 @@ struct Theme {
     float splitter_width;
     float pane_font_size;
 
-    // Zoom (1.0 = 100%)
+    // ズーム（1.0 = 100%）
     float zoom = 1.0f;
 
     float GetHeadingSize(int level) const noexcept;
     bool IsDark() const noexcept { return (bg_color.r + bg_color.g + bg_color.b) < 1.5f; }
 
-    // Apply zoom factor to all scalable sizes (font sizes, margins, spacing).
-    // Call after changing `zoom` to update derived values.
+    // すべてのスケーラブルなサイズ（フォントサイズ、マージン、スペーシング）にズーム倍率を適用する。
+    // `zoom` を変更した後に呼び出して派生値を更新する。
     void ApplyZoom(float new_zoom) noexcept;
 };
 
-// Chrome-style discrete zoom steps
+// Chrome風の段階的ズームステップ
 inline constexpr float ZOOM_STEPS[] = {
     0.25f, 0.33f, 0.50f, 0.67f, 0.75f, 0.80f, 0.90f,
     1.00f,

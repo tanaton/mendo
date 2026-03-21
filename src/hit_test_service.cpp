@@ -13,14 +13,14 @@ HitTestService::HitResult HitTestService::HitTest(
     HitResult result;
     if (nodes.empty()) return result;
 
-    // Convert physical pixels to DIPs
+    // 物理ピクセルをDIPに変換
     float dip_x = screen_x / dpi_scale;
     float dip_y = screen_y / dpi_scale + scroll_y;
 
-    // Offset by MD pane position
+    // MDペインの位置でオフセット
     dip_x -= md_pane_left;
 
-    // Binary search for the node containing dip_y
+    // dip_yを含むノードを二分探索で検索
     int lo = 0, hi = static_cast<int>(nodes.size()) - 1;
     int candidate = -1;
     while (lo <= hi) {
@@ -58,7 +58,7 @@ HitTestService::HitResult HitTestService::HitTest(
         }
     }
 
-    // Click below all nodes → select end of last node
+    // 全ノードより下をクリック → 最後のノードの末尾を選択
     for (int i = static_cast<int>(nodes.size()) - 1; i >= 0; i--) {
         if (!nodes[i].text.empty()) {
             result.node_index = i;
@@ -83,7 +83,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     float cell_padding = 8.0f;
     float border = 1.0f;
 
-    // Find which row was clicked
+    // クリックされた行を特定
     float ry = entry.y_position;
     int hit_row = -1;
     for (size_t r = 0; r < node.table_rows.size(); r++) {
@@ -100,9 +100,9 @@ HitTestService::HitResult HitTestService::HitTestTable(
         return result;
     }
 
-    // Find which column was clicked
+    // クリックされた列を特定
     float cx = base_x + border;
-    int hit_col = static_cast<int>(entry.col_widths.size()) - 1; // default to last
+    int hit_col = static_cast<int>(entry.col_widths.size()) - 1; // デフォルトは最後の列
     for (size_t c = 0; c < entry.col_widths.size(); c++) {
         float col_right = cx + entry.col_widths[c] + cell_padding * 2.0f;
         if (dip_x < col_right) {
@@ -113,19 +113,19 @@ HitTestService::HitResult HitTestService::HitTestTable(
     }
     if (hit_col < 0) hit_col = 0;
 
-    // Compute flat text offset for cell (hit_row, hit_col)
+    // セル (hit_row, hit_col) のフラットテキストオフセットを計算
     uint32_t flat_offset = 0;
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         const auto& row_cells = node.table_rows[r].cells;
         for (size_t c = 0; c < row_cells.size(); c++) {
             if (static_cast<int>(r) == hit_row && static_cast<int>(c) == hit_col) {
-                // Hit test within the cell's text layout
+                // セルのテキストレイアウト内でヒットテスト
                 IDWriteTextLayout* cell_layout = nullptr;
                 if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
                     cell_layout = entry.cell_layouts[r][c].Get();
                 }
                 if (cell_layout) {
-                    // Compute cell text position
+                    // セルのテキスト位置を計算
                     float cell_x = base_x + border;
                     for (size_t cc = 0; cc < c; cc++) {
                         cell_x += entry.col_widths[cc] + cell_padding * 2.0f + border;
@@ -152,9 +152,9 @@ HitTestService::HitResult HitTestService::HitTestTable(
                 return result;
             }
             flat_offset += static_cast<uint32_t>(row_cells[c].text.size());
-            if (c + 1 < row_cells.size()) flat_offset++; // tab
+            if (c + 1 < row_cells.size()) flat_offset++; // タブ
         }
-        if (r + 1 < node.table_rows.size()) flat_offset++; // newline
+        if (r + 1 < node.table_rows.size()) flat_offset++; // 改行
     }
 
     result.text_pos = static_cast<uint32_t>(node.text.size());
@@ -168,10 +168,10 @@ HitTestService::NavButtonHover HitTestService::NavButtonHitTest(
 
     if (dip_y < base_y || dip_y > base_y + NAV_BTN_SIZE) return NavButtonHover::None;
 
-    // Back button
+    // 戻るボタン
     if (dip_x >= base_x && dip_x <= base_x + NAV_BTN_SIZE)
         return NavButtonHover::Back;
-    // Forward button
+    // 進むボタン
     float fwd_x = base_x + NAV_BTN_SIZE + NAV_BTN_GAP;
     if (dip_x >= fwd_x && dip_x <= fwd_x + NAV_BTN_SIZE)
         return NavButtonHover::Forward;

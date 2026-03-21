@@ -7,5 +7,5 @@
 
 std::pmr::vector<Node> ParseMarkdown(const std::string& markdown_text);
 
-// Generate GitHub-style anchor slug from heading text (exposed for testing)
+// 見出しテキストからGitHubスタイルのアンカースラグを生成する（テスト用に公開）
 std::wstring GenerateAnchorId(std::wstring_view text);

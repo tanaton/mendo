@@ -4,7 +4,7 @@
 #include <algorithm>
 
 // ============================================================
-// Link navigation
+// リンクナビゲーション
 // ============================================================
 
 void App::HandleLinkClick(std::wstring_view url) {
@@ -60,7 +60,7 @@ void App::NavigateForward() {
 }
 
 // ============================================================
-// Dark mode
+// ダークモード
 // ============================================================
 
 void App::ToggleDarkMode() {
@@ -69,7 +69,7 @@ void App::ToggleDarkMode() {
     renderer_.SetTheme(new_theme);
     ApplyDarkModeToWindow(hwnd_, theme_service_.IsDarkMode());
 
-    // Invalidate all layouts and mermaid diagrams in a single pass
+    // 全レイアウトとMermaid図を一括で無効化
     for (size_t i = 0; i < doc_.GetNodes().size(); ++i) {
         auto& entry = layout_cache_[i];
         entry.text_layout.Reset();
@@ -104,7 +104,7 @@ void App::ToggleDarkMode() {
 }
 
 // ============================================================
-// Zoom
+// ズーム
 // ============================================================
 
 void App::ZoomIn() {

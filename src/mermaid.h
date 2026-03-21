@@ -16,8 +16,8 @@
 
 using Microsoft::WRL::ComPtr;
 
-// Renders Mermaid diagram code to ID2D1Bitmap via an offscreen WebView2.
-// All public methods must be called from the UI thread.
+// オフスクリーンWebView2を使ってMermaidダイアグラムコードをID2D1Bitmapにレンダリングする。
+// すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
 class MermaidRenderer {
 public:
     MermaidRenderer() = default;
@@ -26,30 +26,30 @@ public:
     MermaidRenderer(const MermaidRenderer&) = delete;
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
 
-    // Initialize the renderer. hwnd is the main app window.
-    // render_target is used for creating D2D bitmaps.
-    // on_ready is called (on UI thread) when WebView2 is initialized.
+    // レンダラーを初期化する。hwndはメインアプリウィンドウ。
+    // render_targetはD2Dビットマップの作成に使用する。
+    // on_readyはWebView2の初期化完了時にUIスレッドで呼び出される。
     void Init(HWND hwnd, ID2D1RenderTarget* render_target,
               std::function<void()> on_ready);
 
-    // Returns true if WebView2 is initialized and ready to render.
+    // WebView2が初期化済みでレンダリング可能な場合にtrueを返す。
     bool IsReady() const noexcept { return ready_; }
 
-    // Request rendering of a mermaid code block.
-    // When done, the diagram entry's bitmap/width/height and the layout entry's
-    // height/layout_dirty will be set, and on_complete will be called on the UI thread.
+    // Mermaidコードブロックのレンダリングを要求する。
+    // 完了時、ダイアグラムエントリのbitmap/width/heightとレイアウトエントリの
+    // height/layout_dirtyが設定され、on_completeがUIスレッドで呼び出される。
     void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry,
                        float max_width, bool dark_mode,
                        std::function<void()> on_complete);
 
-    // Update the D2D render target (e.g. after resize).
+    // D2Dレンダーターゲットを更新する（例：リサイズ後）。
     void SetRenderTarget(ID2D1RenderTarget* render_target);
 
-    // Clear all cached bitmaps.
+    // キャッシュされたビットマップをすべてクリアする。
     void ClearCache();
 
-    // Cancel all pending requests and invalidate the in-flight request.
-    // Must be called before the nodes vector is replaced.
+    // 保留中のリクエストをすべてキャンセルし、処理中のリクエストを無効化する。
+    // nodesベクターが置き換えられる前に呼び出す必要がある。
     void CancelPending();
 
 private:
@@ -63,10 +63,10 @@ private:
                                       float* width, float* height);
     void FinishCurrentRequest();
 
-    HWND hwnd_ = nullptr;           // main window
-    HWND webview_hwnd_ = nullptr;   // dedicated offscreen popup for WebView2
+    HWND hwnd_ = nullptr;           // メインウィンドウ
+    HWND webview_hwnd_ = nullptr;   // WebView2専用のオフスクリーンポップアップ
     ID2D1RenderTarget* render_target_ = nullptr;
-    float dpr_ = 1.0f;             // devicePixelRatio reported by WebView2 JS
+    float dpr_ = 1.0f;             // WebView2 JSから報告されるdevicePixelRatio
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<ICoreWebView2Environment> webview_env_;
     ComPtr<ICoreWebView2Controller> webview_controller_;
@@ -74,7 +74,7 @@ private:
     bool ready_ = false;
     bool rendering_ = false;
     int render_counter_ = 0;
-    std::string cached_mermaid_gz_; // Cached gzip-compressed mermaid.js from Win32 resources
+    std::string cached_mermaid_gz_; // Win32リソースからキャッシュされたgzip圧縮済みmermaid.js
 
     struct RenderRequest {
         Node* node = nullptr;
@@ -84,14 +84,14 @@ private:
         bool dark_mode = false;
         std::function<void()> on_complete;
         std::pmr::wstring code_hash;
-        float css_width = 0.0f;   // CSS pixel dimensions (DIPs) from JS
+        float css_width = 0.0f;   // JSから取得したCSSピクセル寸法（DIP）
         float css_height = 0.0f;
-        float dpr = 1.0f;         // devicePixelRatio from JS
+        float dpr = 1.0f;         // JSから取得したdevicePixelRatio
     };
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
     RenderRequest current_request_;
 
-    // Cache: code_hash -> {bitmap, width, height}
+    // キャッシュ: code_hash -> {bitmap, width, height}
     struct CachedBitmap {
         ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;

@@ -53,20 +53,20 @@ TEST(AnchorId, MultipleSpacesMultipleHyphens) {
     EXPECT_EQ(GenerateAnchorId(L"a  b"), L"a--b");
 }
 
-// ---- Additional edge cases ----
+// ---- 追加のエッジケース ----
 
 TEST(AnchorId, FullWidthDigits) {
-    // Full-width digits (０-９) are >= 0x3000, so they should be kept
+    // 全角数字（０-９）は0x3000以上なので保持される
     EXPECT_EQ(GenerateAnchorId(L"テスト０１"), L"テスト０１");
 }
 
 TEST(AnchorId, FullWidthParenthesesStripped) {
-    // Full-width parentheses （U+FF08）and （U+FF09） should be stripped like GitHub
+    // 全角括弧（U+FF08）と（U+FF09）はGitHubと同様に除去される
     EXPECT_EQ(GenerateAnchorId(L"テスト（サンプル）"), L"テストサンプル");
 }
 
 TEST(AnchorId, FullWidthPunctuationStripped) {
-    // Full-width punctuation marks should be stripped
+    // 全角句読点記号は除去される
     EXPECT_EQ(GenerateAnchorId(L"見出し「補足」"), L"見出し補足");
 }
 
@@ -94,7 +94,7 @@ TEST(AnchorId, LongText) {
     std::wstring input(1000, L'A');
     auto result = GenerateAnchorId(input);
     EXPECT_EQ(result.size(), 1000u);
-    // All should be lowercase 'a'
+    // すべて小文字の'a'になるべき
     for (wchar_t c : result) {
         EXPECT_EQ(c, L'a');
     }

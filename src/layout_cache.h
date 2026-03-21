@@ -19,8 +19,8 @@ struct NodeLayoutEntry {
     bool effects_applied = false;
     std::pmr::vector<InlineCodeBg> inline_code_bgs;
 
-    // Table layout data
-    std::pmr::vector<std::pmr::vector<ComPtr<IDWriteTextLayout>>> cell_layouts; // [row][col]
+    // テーブルレイアウトデータ
+    std::pmr::vector<std::pmr::vector<ComPtr<IDWriteTextLayout>>> cell_layouts; // [行][列]
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
 };
@@ -38,8 +38,8 @@ public:
         diagrams_.resize(node_count);
     }
 
-    // Clear all existing entries and resize to fresh defaults.
-    // Use this when switching files to avoid stale layout data.
+    // 既存のエントリをすべてクリアし、デフォルト値でリサイズする。
+    // ファイル切り替え時に古いレイアウトデータを残さないために使用する。
     void Reset(size_t node_count) {
         entries_.clear();
         entries_.resize(node_count);
@@ -55,8 +55,8 @@ public:
     DiagramEntry& GetDiagram(size_t i) noexcept { return diagrams_[i]; }
     const DiagramEntry& GetDiagram(size_t i) const noexcept { return diagrams_[i]; }
 
-    // Invalidate all text layouts and effects (for theme/zoom changes).
-    // Caller should separately handle diagram/mermaid cache if needed.
+    // すべてのテキストレイアウトとエフェクトを無効化する（テーマ/ズーム変更時）。
+    // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
     void InvalidateAllLayouts() {
         for (auto& e : entries_) {
             e.text_layout.Reset();
@@ -65,7 +65,7 @@ public:
         }
     }
 
-    // Mark all entries as dirty and reset layouts (for DPI changes).
+    // すべてのエントリをダーティとしてマークし、レイアウトをリセットする（DPI 変更時）。
     void MarkAllDirty() {
         for (auto& e : entries_) {
             e.layout_dirty = true;
@@ -78,16 +78,16 @@ private:
     std::pmr::vector<DiagramEntry> diagrams_;
 };
 
-// Compute total content height from the last node's layout position.
-// Returns 0 if node_count is 0, avoiding unsigned underflow on size() - 1.
+// 最後のノードのレイアウト位置からコンテンツ全体の高さを計算する。
+// node_count が 0 の場合は 0 を返し、size() - 1 の符号なし整数アンダーフローを回避する。
 inline float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) noexcept {
     if (node_count == 0) return 0.0f;
     size_t last = node_count - 1;
     return cache[last].y_position + cache[last].height + margin_top;
 }
 
-// Binary search for the first node whose bottom edge is at or below viewport_top.
-// Returns the index of the first potentially visible node, or node_count if none.
+// 下端が viewport_top 以上の最初のノードを二分探索で見つける。
+// 最初の可視候補ノードのインデックスを返す。該当なしの場合は node_count を返す。
 inline int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) noexcept {
     int lo = 0, hi = static_cast<int>(node_count);
     while (lo < hi) {

@@ -5,14 +5,14 @@ NavigationService::NavigateResult NavigationService::HandleLinkClick(
     NavigateResult result;
     if (url.empty()) return result;
 
-    // Internal anchor link: #something
+    // 内部アンカーリンク: #something
     if (url[0] == L'#') {
         result.type = NavigateResult::Type::Anchor;
         result.target = url.substr(1);
         return result;
     }
 
-    // External link
+    // 外部リンク
     result.type = NavigateResult::Type::ExternalUrl;
     result.target = url;
     return result;

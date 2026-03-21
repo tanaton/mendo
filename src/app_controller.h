@@ -1,9 +1,9 @@
 #pragma once
 #include "app_events.h"
 
-// Stateless event → action mapper.
-// Translates user input events into high-level app actions
-// that the Shell (MainWindow) executes.
+// ステートレスなイベント→アクション変換器。
+// ユーザー入力イベントを高レベルのアプリアクションに変換し、
+// Shell (MainWindow) が実行する。
 class AppController {
 public:
     ActionList HandleKeyDown(const KeyDownEvent& event) const;

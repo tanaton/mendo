@@ -1,11 +1,11 @@
 #include "layout.h"
 #include <algorithm>
 
-// Named constants for magic numbers
+// マジックナンバーの名前付き定数
 static constexpr float MIN_COLUMN_WIDTH = 30.0f;
 static constexpr float COLUMN_WIDTH_PADDING = 4.0f;
 
-// ---- Free functions ----
+// ---- フリー関数 ----
 
 std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natural_widths,
                                         float available_width, size_t col_count) {
@@ -57,7 +57,7 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
     result.has_dirty_nodes = has_earlier_dirty;
     float y = theme.margin_top;
 
-    // Resume from the previous node's end position when starting mid-stream.
+    // 途中から開始する場合、前のノードの終了位置から再開する。
     if (from_index > 0 && from_index < nodes.size()) {
         auto& prev = cache[from_index - 1];
         y = prev.y_position + prev.height;
@@ -90,7 +90,7 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
     return result;
 }
 
-// ---- LayoutEngine ----
+// ---- LayoutEngine クラス ----
 
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme) {
     measurer_ = measurer;
@@ -116,8 +116,8 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     bool width_changed = (viewport_width != last_viewport_width_);
     bool partial = (viewport_top >= 0.0f);
 
-    // In partial mode, don't update last_viewport_width_ so that
-    // subsequent batch processing still detects the width change
+    // 部分モードでは last_viewport_width_ を更新しない。
+    // 後続のバッチ処理が幅の変更を検出できるようにするため。
     if (!partial) {
         last_viewport_width_ = viewport_width;
     }
@@ -138,8 +138,8 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 
         if (needs_layout) {
             if (partial) {
-                // In partial mode, only compute layouts for visible nodes
-                float node_bottom = y + entry.height; // estimate using old height
+                // 部分モードでは、可視ノードのレイアウトのみ計算する
+                float node_bottom = y + entry.height; // 古い高さを使って推定
                 bool visible = (node_bottom >= viewport_top && y <= viewport_bottom);
                 if (visible) {
                     float old_height = entry.height;
@@ -155,7 +155,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 
         if (entry.layout_dirty) any_dirty = true;
 
-        // Set y position directly in this pass
+        // このパスで直接 Y 位置を設定する
         if (node.type == NodeType::Heading) {
             y += theme_->heading_spacing_above;
         }
@@ -167,11 +167,11 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
             y += theme_->paragraph_spacing;
         }
 
-        // Early exit: in partial mode without width change, once past viewport
-        // and no height changes, remaining Y positions are unchanged.
+        // 早期終了: 部分モードで幅の変更がなく、ビューポートを超えた後に
+        // 高さの変更もなければ、残りの Y 位置は変わらない。
         if (partial && !width_changed && !any_height_changed && y > viewport_bottom) {
-            // Conservatively assume dirty nodes may exist beyond the break point.
-            // ProcessDirtyBatch will quickly confirm and clear if none exist.
+            // 中断地点より先にダーティノードが存在する可能性を保守的に仮定する。
+            // ProcessDirtyBatch が存在しない場合は速やかに確認・クリアする。
             any_dirty = true;
             broke_early = true;
             break;
@@ -185,7 +185,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 }
 
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width) {
-    last_viewport_width_ = 0.0f; // Force width change detection
+    last_viewport_width_ = 0.0f; // 幅の変更検出を強制する
     ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right);
 }
 
@@ -195,7 +195,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     bool any_updated = false;
 
-    // Find the first node whose bottom edge >= viewport_top
+    // 下端が viewport_top 以上の最初のノードを見つける
     int lo = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
 
     for (int i = lo; i < static_cast<int>(nodes.size()); i++) {
@@ -241,7 +241,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
     total_height_ = result.total_height;
     has_dirty_nodes_ = result.has_dirty_nodes;
 
-    // Update last_viewport_width_ when all dirty nodes are processed
+    // すべてのダーティノードが処理されたら last_viewport_width_ を更新する
     if (!has_dirty_nodes_) {
         last_viewport_width_ = viewport_width;
     }

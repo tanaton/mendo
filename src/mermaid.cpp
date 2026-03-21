@@ -10,9 +10,9 @@
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "shlwapi.lib")
 
-// Load the gzip-compressed mermaid.min.js from Win32 resources (RCDATA).
-// Returns the raw gzip bytes as a std::string (NOT decompressed).
-// WebView2 (Chromium) will decompress it via Content-Encoding: gzip.
+// Win32リソース（RCDATA）からgzip圧縮されたmermaid.min.jsを読み込む。
+// 生のgzipバイト列をstd::stringとして返す（展開はしない）。
+// WebView2（Chromium）がContent-Encoding: gzipで展開する。
 static std::string LoadMermaidJsGzFromResource() {
     HMODULE hModule = GetModuleHandleW(nullptr);
     HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(IDR_MERMAID_JS_GZ), RT_RCDATA);
@@ -25,9 +25,9 @@ static std::string LoadMermaidJsGzFromResource() {
     return std::string(data, size);
 }
 
-// Small HTML template served via virtual host. mermaid.js is loaded as a
-// separate <script src> so the HTML stays well under the 2 MB NavigateToString
-// limit.  Both resources are served in-process by WebResourceRequested.
+// 仮想ホスト経由で配信される小さなHTMLテンプレート。mermaid.jsは別の
+// <script src>として読み込まれるため、HTMLは2MBのNavigateToString制限を
+// 十分に下回る。両リソースはWebResourceRequestedによりインプロセスで配信される。
 static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
 <html>
 <head>
@@ -63,7 +63,7 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
       }
       const container = document.getElementById('container');
       container.innerHTML = '';
-      // Reset any previous width constraints
+      // 以前の幅制約をリセット
       document.body.style.width = '';
       container.style.maxWidth = '';
       renderCount++;
@@ -87,7 +87,7 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
     }
   }
 
-  // Load gzip-compressed mermaid.js using DecompressionStream API
+  // DecompressionStream APIを使ってgzip圧縮されたmermaid.jsを読み込む
   (async function() {
     try {
       const resp = await fetch('https://app.local/mermaid.min.js.gz');
@@ -118,7 +118,7 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
 </html>
 )HTML";
 
-// Helper: create an IStream containing a copy of the given byte data.
+// ヘルパー: 指定されたバイトデータのコピーを含むIStreamを作成する。
 static IStream* CreateMemoryStream(const void* data, size_t size) {
     IStream* stream = nullptr;
     if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream)
@@ -132,7 +132,7 @@ static IStream* CreateMemoryStream(const void* data, size_t size) {
     return stream;
 }
 
-// ---- Helpers ----
+// ---- ヘルパー ----
 
 static std::wstring GetWebView2UserDataFolder() {
     wchar_t* appdata = nullptr;
@@ -145,13 +145,13 @@ static std::wstring GetWebView2UserDataFolder() {
     return path;
 }
 
-// FNV-1a 64-bit hash - now in mermaid_util.cpp
-// JsEscape - now in mermaid_util.cpp
+// FNV-1a 64ビットハッシュ - mermaid_util.cppに移動済み
+// JsEscape - mermaid_util.cppに移動済み
 
-// Window class name for the offscreen WebView2 host
+// オフスクリーンWebView2ホストのウィンドウクラス名
 static const wchar_t* kMermaidHostClass = L"mendo_MermaidHost";
 
-// ---- MermaidRenderer implementation ----
+// ---- MermaidRendererの実装 ----
 
 MermaidRenderer::~MermaidRenderer() {
     if (webview_controller_) {
@@ -167,13 +167,13 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
     hwnd_ = hwnd;
     render_target_ = render_target;
 
-    // Create WIC factory for PNG decoding
+    // PNGデコード用のWICファクトリを作成
     CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                      IID_PPV_ARGS(&wic_factory_));
 
-    // Register and create a hidden popup window to host WebView2 offscreen.
-    // WebView2 requires IsVisible=TRUE to render content for CapturePreview,
-    // so we use a popup positioned far off-screen instead of hiding.
+    // オフスクリーンでWebView2をホストする非表示ポップアップウィンドウを登録・作成する。
+    // WebView2はCapturePreviewでコンテンツをレンダリングするためにIsVisible=TRUEが必要なため、
+    // 非表示にする代わりに画面外に配置したポップアップを使用する。
     static bool class_registered = false;
     if (!class_registered) {
         WNDCLASSEXW wc{};
@@ -190,8 +190,8 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
         kMermaidHostClass,
         L"",
         WS_POPUP,
-        -32000, -32000,     // Far off-screen
-        4096, 4096,         // Large enough for any diagram
+        -32000, -32000,     // 画面外の遠い位置
+        4096, 4096,         // どのダイアグラムにも十分な大きさ
         nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
 
     if (!webview_hwnd_) {
@@ -199,13 +199,13 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
         return;
     }
 
-    // Show the popup (required for WebView2 to consider it "visible")
-    // It's off-screen so the user won't see it
+    // ポップアップを表示する（WebView2が「可視」と認識するために必要）
+    // 画面外にあるためユーザーには見えない
     ShowWindow(webview_hwnd_, SW_SHOWNOACTIVATE);
 
     std::wstring user_data = GetWebView2UserDataFolder();
 
-    // Create WebView2 environment
+    // WebView2環境を作成
     CreateCoreWebView2EnvironmentWithOptions(
         nullptr, user_data.c_str(), nullptr,
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
@@ -230,11 +230,11 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                             webview_controller_ = controller;
                             controller->get_CoreWebView2(&webview_);
 
-                            // Fill the host window with WebView
+                            // ホストウィンドウをWebViewで埋める
                             RECT bounds = {0, 0, 4096, 4096};
                             controller->put_Bounds(bounds);
 
-                            // Disable features we don't need
+                            // 不要な機能を無効化する
                             ComPtr<ICoreWebView2Settings> settings;
                             webview_->get_Settings(&settings);
                             if (settings) {
@@ -244,7 +244,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                 settings->put_AreDefaultScriptDialogsEnabled(FALSE);
                             }
 
-                            // Listen for web messages (mermaid-ready signal)
+                            // Webメッセージ（mermaid-readyシグナル）をリッスンする
                             webview_->add_WebMessageReceived(
                                 Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                                     [this, on_ready](ICoreWebView2*,
@@ -252,7 +252,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                         LPWSTR msg = nullptr;
                                         if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
                                             if (wcsncmp(msg, L"mermaid-ready:", 14) == 0) {
-                                                // Parse DPR from "mermaid-ready:<dpr>"
+                                                // "mermaid-ready:<dpr>"からDPRを解析
                                                 float dpr = 1.0f;
                                                 try { dpr = std::stof(std::wstring(msg + 14)); }
                                                 catch (...) {}
@@ -285,8 +285,8 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                     }).Get(),
                                 nullptr);
 
-                            // Intercept requests to the virtual host and serve
-                            // HTML / mermaid.js from embedded Win32 resources.
+                            // 仮想ホストへのリクエストをインターセプトし、
+                            // 埋め込みWin32リソースからHTML / mermaid.jsを配信する。
                             webview_->AddWebResourceRequestedFilter(
                                 L"https://app.local/*",
                                 COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
@@ -306,7 +306,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                         const wchar_t* headers = nullptr;
 
                                         if (url.find(L"/mermaid.min.js.gz") != std::wstring::npos) {
-                                            // Serve gzip-compressed mermaid.js (cached); JS decompresses via DecompressionStream
+                                            // gzip圧縮されたmermaid.js（キャッシュ済み）を配信する。JSがDecompressionStreamで展開する
                                             if (cached_mermaid_gz_.empty()) {
                                                 cached_mermaid_gz_ = LoadMermaidJsGzFromResource();
                                             }
@@ -317,7 +317,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                             stream = CreateMemoryStream(gz.data(), gz.size());
                                             headers = L"Content-Type: application/gzip";
                                         } else {
-                                            // Serve the HTML template for any other path
+                                            // その他のパスにはHTMLテンプレートを配信する
                                             stream = CreateMemoryStream(kMermaidHtml, sizeof(kMermaidHtml) - 1);
                                             headers = L"Content-Type: text/html; charset=utf-8";
                                         }
@@ -333,8 +333,8 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                     }).Get(),
                                 nullptr);
 
-                            // Navigate to the virtual host (HTML + JS served
-                            // from memory by the handler above).
+                            // 仮想ホストにナビゲートする（HTML + JSは上記ハンドラにより
+                            // メモリから配信される）。
                             webview_->Navigate(L"https://app.local/index.html");
 
                             return S_OK;
@@ -353,12 +353,12 @@ void MermaidRenderer::ClearCache() {
 }
 
 void MermaidRenderer::CancelPending() {
-    // Drain the pending queue
+    // 保留キューを空にする
     decltype(pending_requests_) empty;
     pending_requests_.swap(empty);
 
-    // Reset rendering state so new requests can be processed
-    // after in-flight callbacks complete harmlessly.
+    // レンダリング状態をリセットし、処理中のコールバックが無害に完了した後に
+    // 新しいリクエストを処理できるようにする。
     rendering_ = false;
     current_request_ = {};
 }
@@ -380,7 +380,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
 
     auto hash = HashCode(std::wstring_view{node.text}, max_width, dark_mode);
 
-    // Check cache first
+    // まずキャッシュを確認
     auto it = cache_.find(hash);
     if (it != cache_.end()) {
         diagram_entry.bitmap = it->second.bitmap;
@@ -392,7 +392,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         return;
     }
 
-    // Queue the request
+    // リクエストをキューに追加
     RenderRequest req;
     req.node = &node;
     req.layout_entry = &layout_entry;
@@ -434,9 +434,9 @@ void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_w
         return;
     }
 
-    // Set WebView2 bounds so that the CSS viewport equals max_width (DIPs).
-    // Bounds are in physical pixels of the popup window, and WebView2
-    // internally divides by devicePixelRatio to get CSS viewport size.
+    // CSSビューポートがmax_width（DIP）と等しくなるようにWebView2の境界を設定する。
+    // 境界はポップアップウィンドウの物理ピクセル単位で、WebView2は
+    // 内部でdevicePixelRatioで除算してCSSビューポートサイズを求める。
     int vp_phys = static_cast<int>(std::ceil(max_width * dpr_));
     if (vp_phys < 1) vp_phys = 1;
     int h_phys = static_cast<int>(4096 * dpr_);
@@ -452,7 +452,7 @@ void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_w
         OutputDebugStringW(dbg.c_str());
     }
 
-    // Render mermaid (maxWidth=0 means no CSS constraint, viewport constrains)
+    // Mermaidをレンダリングする（maxWidth=0はCSS制約なし、ビューポートが制約する）
     std::wstring js = L"renderMermaid('" + mermaid_util::JsEscape(code) + L"', "
                       + (dark_mode ? L"true" : L"false") + L", 0"
                       + L").then(function(r){window.chrome.webview.postMessage('render-result:'+r);"
@@ -462,7 +462,7 @@ void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_w
 }
 
 void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
-    // json is the raw string from renderMermaid, e.g. {"ok":true,"width":400,"height":300}
+    // jsonはrenderMermaidからの生の文字列。例: {"ok":true,"width":400,"height":300}
     float dw = 0, dh = 0;
     bool ok = false;
 
@@ -503,24 +503,24 @@ void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
         OutputDebugStringW(msg.c_str());
     }
 
-    // Store CSS pixel dimensions for later use as drawing size (DIPs)
+    // 描画サイズ（DIP）として後で使用するためにCSSピクセル寸法を保存する
     current_request_.css_width = dw;
     current_request_.css_height = dh;
     current_request_.dpr = dpr;
 
-    // Resize WebView to exact diagram size for capture.
-    // Multiply CSS pixels by devicePixelRatio to get physical pixels.
+    // キャプチャ用にWebViewをダイアグラムの正確なサイズにリサイズする。
+    // CSSピクセルにdevicePixelRatioを掛けて物理ピクセルを求める。
     int cw = static_cast<int>(std::ceil(dw * dpr));
     int ch = static_cast<int>(std::ceil(dh * dpr));
     RECT capBounds = {0, 0, static_cast<LONG>(cw), static_cast<LONG>(ch)};
     webview_controller_->put_Bounds(capBounds);
 
-    // Also resize the host popup window to match
+    // ホストポップアップウィンドウも同じサイズにリサイズする
     SetWindowPos(webview_hwnd_, nullptr, -32000, -32000, cw, ch,
                  SWP_NOZORDER | SWP_NOACTIVATE);
 
-    // Wait for the WebView to re-render at the new size using rAF,
-    // then signal via postMessage (avoids Promise-await issue).
+    // rAFを使ってWebViewが新しいサイズで再レンダリングするのを待ち、
+    // postMessageでシグナルを送る（Promise-awaitの問題を回避する）。
     webview_->ExecuteScript(
         L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
         L"window.chrome.webview.postMessage('capture-ready');});})",
@@ -561,11 +561,11 @@ void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* pn
     float bw = 0, bh = 0;
 
     if (SUCCEEDED(CreateBitmapFromPngStream(png_stream, &bitmap, &bw, &bh)) && bitmap) {
-        // Use CSS pixel dimensions (DIPs) for drawing, not bitmap pixel
-        // dimensions which include DPI scaling.
+        // 描画にはCSSピクセル寸法（DIP）を使用する。DPIスケーリングを含む
+        // ビットマップピクセル寸法は使用しない。
         float draw_w = current_request_.css_width;
         float draw_h = current_request_.css_height;
-        if (draw_w <= 0) draw_w = bw;  // fallback
+        if (draw_w <= 0) draw_w = bw;  // フォールバック
         if (draw_h <= 0) draw_h = bh;
 
         {
@@ -577,14 +577,14 @@ void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* pn
             OutputDebugStringW(msg.c_str());
         }
 
-        // Store in cache
+        // キャッシュに格納
         CachedBitmap cached;
         cached.bitmap = bitmap;
         cached.width = draw_w;
         cached.height = draw_h;
         cache_[std::pmr::wstring{code_hash}] = cached;
 
-        // Update the layout/diagram entries
+        // レイアウト/ダイアグラムエントリを更新
         if (current_request_.diagram_entry) {
             current_request_.diagram_entry->bitmap = bitmap;
             current_request_.diagram_entry->width = draw_w;
@@ -603,7 +603,7 @@ HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap*
                                                     float* width, float* height) {
     if (!wic_factory_ || !render_target_ || !stream) return E_FAIL;
 
-    // Seek to beginning
+    // 先頭にシーク
     LARGE_INTEGER zero = {};
     stream->Seek(zero, STREAM_SEEK_SET, nullptr);
 

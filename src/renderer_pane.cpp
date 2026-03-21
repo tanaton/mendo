@@ -2,8 +2,8 @@
 #include <algorithm>
 #include <cmath>
 
-// Ensure a PaneCache's bitmap render target matches the required size.
-// Returns true if the cache is ready to use.
+// PaneCacheのビットマップレンダーターゲットが必要なサイズと一致することを確認。
+// キャッシュが使用可能ならtrueを返す。
 static bool EnsurePaneCacheSize(Renderer::PaneCache& cache, ID2D1RenderTarget* parent,
                                 float width, float height) {
     if (width <= 0 || height <= 0) return false;
@@ -44,8 +44,8 @@ static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb
     rt->FillRoundedRectangle(thumb_rect, thumb_brush);
 }
 
-// Common side-pane rendering scaffold.
-// DrawItemFn signature: void(ID2D1RenderTarget* rt, int index, float item_y, float pane_width)
+// サイドペイン描画の共通スキャフォールド。
+// DrawItemFnのシグネチャ: void(ID2D1RenderTarget* rt, int index, float item_y, float pane_width)
 template<typename DrawItemFn>
 static void DrawSidePaneImpl(
     Renderer::PaneCache& cache,
@@ -69,7 +69,7 @@ static void DrawSidePaneImpl(
         rt->BeginDraw();
         rt->Clear(theme.pane_bg_color);
 
-        // Header
+        // ヘッダー
         D2D1_RECT_F header_bg = D2D1::RectF(0, 0, rect.width, theme.pane_header_height);
         rt->FillRectangle(header_bg, splitter_brush);
         if (fmt_header) {
@@ -78,14 +78,14 @@ static void DrawSidePaneImpl(
                          fmt_header, header_rect, text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
-        // Content area with clipping
+        // クリッピング付きコンテンツ領域
         float content_top = theme.pane_header_height;
         float content_height = rect.height - content_top;
         D2D1_RECT_F clip = D2D1::RectF(0, content_top, rect.width, rect.height);
         rt->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         rt->SetTransform(D2D1::Matrix3x2F::Translation(0, -scroll.scroll_y));
 
-        // Viewport culling
+        // ビューポートカリング
         int first = std::max(0, static_cast<int>(scroll.scroll_y / theme.pane_item_height));
         int last = std::min(item_count - 1,
             static_cast<int>((scroll.scroll_y + content_height) / theme.pane_item_height) + 1);
@@ -98,7 +98,7 @@ static void DrawSidePaneImpl(
         rt->SetTransform(D2D1::Matrix3x2F::Identity());
         rt->PopAxisAlignedClip();
 
-        // Scrollbar overlay
+        // スクロールバーオーバーレイ
         float total_content = static_cast<float>(item_count) * theme.pane_item_height;
         DrawPaneScrollbar(rt, scrollbar_thumb_brush,
                           rect.width, content_top, content_height,
@@ -108,7 +108,7 @@ static void DrawSidePaneImpl(
         cache.dirty = false;
     }
 
-    // Blit cached bitmap
+    // キャッシュされたビットマップを転送
     ComPtr<ID2D1Bitmap> bmp;
     cache.bitmap_rt->GetBitmap(&bmp);
     if (bmp) {

@@ -14,7 +14,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     cmds_ = DrawCommandList{frame_resource_.resource()};
     auto& cmds = cmds_;
 
-    // Clip to MD pane bounds
+    // MDペインの境界でクリップ
     D2D1_RECT_F md_clip = D2D1::RectF(
         md_pane_rect.x, md_pane_rect.y,
         md_pane_rect.x + md_pane_rect.width, md_pane_rect.y + md_pane_rect.height);
@@ -26,7 +26,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     float offset_x = theme_->margin_left;
     float md_content_width = md_pane_rect.width - theme_->margin_left - theme_->margin_right;
 
-    // Binary search for first visible node (use pre-computed index if available)
+    // 最初の可視ノードを二分探索で検索（事前計算済みのインデックスがあればそれを使用）
     int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
         first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
@@ -48,7 +48,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
         int node_index, float offset_x, float viewport_top, float viewport_bottom,
         const TextSelection& selection, float content_width) {
-    // Viewport culling
+    // ビューポート外のノードをカリング
     float node_bottom = entry.y_position + entry.height;
     if (node_bottom < viewport_top || entry.y_position > viewport_bottom) return;
 
@@ -99,7 +99,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
 
     if (!entry.text_layout) return;
 
-    // Determine base color by node type
+    // ノードタイプに応じたベースカラーを決定
     D2D1_COLOR_F base_color = theme_->text_color;
     if (node.type == NodeType::Heading) {
         base_color = theme_->heading_color;
@@ -109,7 +109,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         base_color = theme_->code_text_color;
     }
 
-    // Inline code backgrounds
+    // インラインコードの背景
     for (const auto& bg : entry.inline_code_bgs) {
         D2D1_RECT_F rect = D2D1::RectF(
             x + bg.left - 2.0f,
@@ -119,7 +119,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         cmds.push_back(FillRoundedRectCmd{rect, 3.0f, 3.0f, theme_->code_bg_color});
     }
 
-    // Selection highlight
+    // 選択範囲のハイライト
     if (selection.active &&
         node_index >= selection.start_node && node_index <= selection.end_node) {
         uint32_t sel_start = 0;
@@ -132,11 +132,11 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         }
     }
 
-    // Main text
+    // メインテキスト
     cmds.push_back(DrawTextLayoutCmd{D2D1::Point2F(x, entry.y_position),
                                       entry.text_layout.Get(), base_color});
 
-    // Task list checkbox
+    // タスクリストのチェックボックス
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {
         const wchar_t icon = node.task_checked ? L'\uE73A' : L'\uE739';
         float icon_size = theme_->font_size_body;
@@ -149,7 +149,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     }
 }
 
-// ---- Sub-generators ----
+// ---- サブジェネレータ ----
 
 void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds,
         const NodeLayoutEntry& entry, float x, float w) {
@@ -201,19 +201,19 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
                 stripe_color});
         }
 
-        // Horizontal line at top of row
+        // 行上部の水平線
         cmds.push_back(DrawLineCmd{
             D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
             theme_->hr_color, border});
 
-        // Draw cells
+        // セルを描画
         float cx = offset_x + border;
         size_t drawn_cols = std::min(row.cells.size(), entry.col_widths.size());
         for (size_t c = 0; c < drawn_cols; c++) {
             const auto& cell = row.cells[c];
             float cw = entry.col_widths[c];
 
-            // Vertical border
+            // 垂直の罫線
             cmds.push_back(DrawLineCmd{
                 D2D1::Point2F(cx - border, y), D2D1::Point2F(cx - border, y + row_h + border),
                 theme_->hr_color, border});
@@ -225,7 +225,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size())
                 cell_layout = entry.cell_layouts[r][c].Get();
 
-            // Selection highlight in cell
+            // セル内の選択範囲ハイライト
             if (has_selection && cell_layout) {
                 uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
                 uint32_t ov_start = std::max(sel_start, flat_offset);
@@ -251,7 +251,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             if (c + 1 < row.cells.size()) flat_offset++;
         }
 
-        // Right border
+        // 右罫線
         cmds.push_back(DrawLineCmd{
             D2D1::Point2F(offset_x + table_width, y),
             D2D1::Point2F(offset_x + table_width, y + row_h + border),
@@ -261,7 +261,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
         if (r + 1 < node.table_rows.size()) flat_offset++;
     }
 
-    // Bottom border
+    // 下罫線
     cmds.push_back(DrawLineCmd{
         D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
         theme_->hr_color, border});
@@ -279,7 +279,7 @@ void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds,
 void CommandGenerator::GenListBullet(DrawCommandList& cmds,
         const Node& node, const NodeLayoutEntry& entry, float x) {
     if (node.list_number > 0) {
-        // Ordered list number
+        // 順序付きリストの番号
         if (formats_.list_number) {
             wchar_t num_buf[DrawTextCmd::MAX_TEXT];
             int num_len = swprintf_s(num_buf, L"%d.", node.list_number);
@@ -292,7 +292,7 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
             cmds.push_back(DrawTextCmd::Make(num_buf, static_cast<size_t>(num_len), num_rect, formats_.list_number, theme_->text_color));
         }
     } else {
-        // Unordered list bullet
+        // 順序なしリストの箇条書き記号
         float bullet_y = entry.y_position + theme_->font_size_body * 0.45f;
         float bullet_x = x - theme_->list_bullet_offset * 0.6f;
         float r = 3.0f;

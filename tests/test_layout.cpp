@@ -28,7 +28,7 @@ protected:
             DWRITE_FACTORY_TYPE_SHARED,
             __uuidof(IDWriteFactory),
             reinterpret_cast<IUnknown**>(dwrite_.GetAddressOf()));
-        ASSERT_TRUE(SUCCEEDED(hr)) << "Failed to create DirectWrite factory";
+        ASSERT_TRUE(SUCCEEDED(hr)) << "DirectWriteファクトリの作成に失敗";
 
         theme_ = GetLightTheme();
         measurer_.SetFactory(dwrite_.Get());
@@ -40,7 +40,7 @@ TEST_F(LayoutTest, EmptyNodesProduceZeroHeight) {
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    // Only margin_top contributes
+    // margin_topのみが寄与
     EXPECT_FLOAT_EQ(engine_.GetTotalHeight(), theme_.margin_top * 2);
 }
 
@@ -79,7 +79,7 @@ TEST_F(LayoutTest, YPositionsIncreaseMonotonically) {
 
     for (size_t i = 1; i < nodes.size(); i++) {
         EXPECT_GT(cache[i].y_position, cache[i - 1].y_position)
-            << "Node " << i << " y should be > node " << (i - 1);
+            << "ノード " << i << " のyはノード " << (i - 1) << " より大きいこと";
     }
 }
 
@@ -92,7 +92,7 @@ TEST_F(LayoutTest, NodesDoNotOverlap) {
     for (size_t i = 1; i < nodes.size(); i++) {
         float prev_bottom = cache[i - 1].y_position + cache[i - 1].height;
         EXPECT_LE(prev_bottom, cache[i].y_position)
-            << "Node " << (i - 1) << " overlaps with node " << i;
+            << "ノード " << (i - 1) << " がノード " << i << " と重なっている";
     }
 }
 
@@ -111,7 +111,7 @@ TEST_F(LayoutTest, NarrowViewportWrapsText) {
     engine_.ComputeLayout(nodes_narrow, cache_narrow, 200.0f);
     float narrow_height = cache_narrow[0].height;
 
-    // Narrower viewport should make the text taller (more wrapping)
+    // ビューポートが狭いほどテキストが高くなる（折り返しが増える）
     EXPECT_GE(narrow_height, wide_height);
 }
 
@@ -195,21 +195,21 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline) {
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].table_rows.size(), 2u);
 
-    // The data row's second cell should have a link run with underline applied
+    // データ行の2番目のセルにはリンクランがあり、下線が適用されていること
     const auto& cell = nodes[0].table_rows[1].cells[1];
     auto& cell_layout = cache[0].cell_layouts[1][1];
     ASSERT_NE(cell_layout.Get(), nullptr);
 
-    // Verify link run exists in cell
+    // セル内にリンクランが存在することを確認
     bool has_link_run = false;
     for (const auto& run : cell.runs) {
         if (run.link_url.has_value()) {
             has_link_run = true;
 
-            // Check that underline was applied to the text layout
+            // テキストレイアウトに下線が適用されていることを確認
             BOOL underline = FALSE;
             cell_layout->GetUnderline(run.start, &underline);
-            EXPECT_TRUE(underline) << "Link run in table cell should have underline";
+            EXPECT_TRUE(underline) << "テーブルセル内のリンクランには下線があること";
         }
     }
     EXPECT_TRUE(has_link_run);
@@ -221,7 +221,7 @@ TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize) {
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 3u);
-    // H1 should be taller than H2, H2 >= H3
+    // H1はH2より高く、H2はH3以上であること
     EXPECT_GT(cache[0].height, cache[1].height);
     EXPECT_GE(cache[1].height, cache[2].height);
 }
@@ -237,37 +237,37 @@ TEST_F(LayoutTest, TotalHeightWithManyNodes) {
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
     float total = engine_.GetTotalHeight();
-    EXPECT_GT(total, 1000.0f); // 100 paragraphs should be quite tall
+    EXPECT_GT(total, 1000.0f); // 100段落あればかなり高くなるはず
 
-    // Last node's bottom should be within total height
+    // 最後のノードの下端が全体の高さ以内であること
     size_t last = nodes.size() - 1;
     EXPECT_LE(cache[last].y_position + cache[last].height, total);
 }
 
-// ---- ProcessDirtyBatch tests ----
+// ---- ProcessDirtyBatch テスト ----
 
 TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes) {
     auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD\n\nE");
     LayoutCache cache;
     cache.Resize(nodes.size());
-    // Do a partial layout first
+    // まず部分的なレイアウトを実行
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
-    // If there are dirty nodes, process them
+    // ダーティなノードがあれば処理する
     if (engine_.HasDirtyNodes()) {
         bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
-        // After processing enough, should have no dirty nodes
+        // 十分に処理した後、ダーティなノードがなくなること
         EXPECT_FALSE(more);
     }
 
-    // All nodes should have valid positions
+    // すべてのノードが有効な位置を持つこと
     for (size_t i = 1; i < nodes.size(); i++) {
         EXPECT_GT(cache[i].y_position, cache[i - 1].y_position);
     }
 }
 
 TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch) {
-    // Create many paragraphs
+    // 多数の段落を作成
     std::string md;
     for (int i = 0; i < 50; i++) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
@@ -276,18 +276,18 @@ TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch) {
     LayoutCache cache;
     cache.Resize(nodes.size());
 
-    // Do partial layout with very small viewport
+    // 非常に小さなビューポートで部分的なレイアウトを実行
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 10.0f);
 
     if (engine_.HasDirtyNodes()) {
-        // Process only 5 nodes at a time
+        // 一度に5ノードだけ処理
         bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5);
-        // With 50 nodes and batch=5, should still have more dirty
+        // 50ノードでバッチ=5なら、まだダーティなノードが残るはず
         EXPECT_TRUE(more);
     }
 }
 
-// ---- Width change detection ----
+// ---- 幅変更の検出 ----
 
 TEST_F(LayoutTest, WidthChangeRecomputesLayouts) {
     auto nodes = ParseMarkdown("This is a paragraph with some text that might wrap differently.");
@@ -299,11 +299,11 @@ TEST_F(LayoutTest, WidthChangeRecomputesLayouts) {
     engine_.ComputeLayout(nodes, cache, 200.0f);
     float height_narrow = cache[0].height;
 
-    // Narrow width should produce taller text (more wrapping)
+    // 狭い幅ではテキストが高くなる（折り返しが増える）
     EXPECT_GE(height_narrow, height_wide);
 }
 
-// ---- Empty table ----
+// ---- 空のテーブル ----
 
 TEST_F(LayoutTest, EmptyTableMinimalHeight) {
     Node node;
@@ -314,11 +314,11 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight) {
     cache.Resize(nodes.size());
 
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    // Empty table should not crash and have some height
+    // 空のテーブルはクラッシュせず、何らかの高さを持つこと
     EXPECT_GE(cache[0].height, 0.0f);
 }
 
-// ---- Indented nodes ----
+// ---- インデントされたノード ----
 
 TEST_F(LayoutTest, IndentedNodesHaveNarrowerWidth) {
     auto nodes_plain = ParseMarkdown("This is a somewhat long paragraph that wraps.");
@@ -335,11 +335,11 @@ TEST_F(LayoutTest, IndentedNodesHaveNarrowerWidth) {
     engine_.ComputeLayout(nodes_list, cache_list, 400.0f);
     float list_height = cache_list[0].height;
 
-    // List items are indented, so same text should be taller (narrower available width)
+    // リスト項目はインデントされるため、同じテキストでも高くなる（利用可能な幅が狭い）
     EXPECT_GE(list_height, plain_height);
 }
 
-// ---- Block quote layout ----
+// ---- ブロック引用のレイアウト ----
 
 TEST_F(LayoutTest, BlockQuoteLayout) {
     auto nodes = ParseMarkdown("> Quoted text here");
@@ -351,7 +351,7 @@ TEST_F(LayoutTest, BlockQuoteLayout) {
     EXPECT_GT(nodes[0].indent_level, 0);
 }
 
-// ---- Code block no wrap ----
+// ---- コードブロックの折り返し無効 ----
 
 TEST_F(LayoutTest, CodeBlockDoesNotWrap) {
     std::string long_line = "```\n";
@@ -365,12 +365,12 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap) {
 
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    // Code blocks don't wrap, so height should be for a single line
-    // (approximately the code font height)
+    // コードブロックは折り返さないため、高さは1行分になるはず
+    // （おおよそコードフォントの高さ）
     EXPECT_LT(cache[0].height, 100.0f);
 }
 
-// ---- Heading spacing ----
+// ---- 見出しの間隔 ----
 
 TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow) {
     auto nodes = ParseMarkdown("Paragraph\n\n# Heading\n\nAnother paragraph");
@@ -379,13 +379,13 @@ TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow) {
     engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 3u);
 
-    // Heading should have spacing above (gap between paragraph bottom and heading y)
+    // 見出しの上に間隔があること（段落の下端と見出しのyの間隔）
     float para_bottom = cache[0].y_position + cache[0].height;
     float heading_y = cache[1].y_position;
     float gap_above = heading_y - para_bottom;
     EXPECT_GT(gap_above, theme_.paragraph_spacing);
 
-    // Heading should have spacing below
+    // 見出しの下に間隔があること
     float heading_bottom = cache[1].y_position + cache[1].height;
     float next_y = cache[2].y_position;
     float gap_below = next_y - heading_bottom;
@@ -393,30 +393,30 @@ TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow) {
 }
 
 // ========================================================
-// Tests for extracted free functions
+// 抽出されたフリー関数のテスト
 // ========================================================
 
-// ---- ComputeColumnWidths ----
+// ---- ComputeColumnWidths テスト ----
 
 TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide) {
-    // natural widths total 300, available only 150 -> proportional
+    // 自然幅の合計300、利用可能幅150のみ -> 比例配分
     std::pmr::vector<float> natural = {100.0f, 100.0f, 100.0f};
     auto widths = ComputeColumnWidths(natural, 150.0f, 3);
     ASSERT_EQ(widths.size(), 3u);
-    // All columns should get equal share since natural widths are equal
+    // 自然幅が等しいため、すべての列が均等な幅を得ること
     EXPECT_NEAR(widths[0], widths[1], 0.01f);
     EXPECT_NEAR(widths[1], widths[2], 0.01f);
-    // Total should approximate available width
+    // 合計は利用可能幅に近似すること
     float total = widths[0] + widths[1] + widths[2];
     EXPECT_NEAR(total, 150.0f, 1.0f);
 }
 
 TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits) {
-    // natural widths total 30, available 300 -> even distribution
+    // 自然幅の合計30、利用可能幅300 -> 均等配分
     std::pmr::vector<float> natural = {10.0f, 10.0f, 10.0f};
     auto widths = ComputeColumnWidths(natural, 300.0f, 3);
     ASSERT_EQ(widths.size(), 3u);
-    // Even distribution: each should be at least 100
+    // 均等配分: 各列は少なくとも100であること
     float even = 300.0f / 3.0f;
     for (auto w : widths) {
         EXPECT_GE(w, even - 0.01f);
@@ -424,22 +424,22 @@ TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits) {
 }
 
 TEST(ComputeColumnWidthsTest, MinimumWidthEnforced) {
-    // Very small available space
+    // 非常に小さな利用可能スペース
     std::pmr::vector<float> natural = {200.0f, 200.0f};
     auto widths = ComputeColumnWidths(natural, 40.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
-    // Minimum width is 30
+    // 最小幅は30
     for (auto w : widths) {
         EXPECT_GE(w, 30.0f);
     }
 }
 
 TEST(ComputeColumnWidthsTest, UnequalNaturalWidths) {
-    // Column A is much wider than column B
+    // 列Aは列Bよりはるかに広い
     std::pmr::vector<float> natural = {300.0f, 100.0f};
     auto widths = ComputeColumnWidths(natural, 200.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
-    // Column A should get a larger share than B
+    // 列Aは列Bよりも大きな割合を得ること
     EXPECT_GT(widths[0], widths[1]);
 }
 
@@ -454,13 +454,13 @@ TEST(ComputeColumnWidthsTest, ZeroNaturalWidths) {
     std::pmr::vector<float> natural = {0.0f, 0.0f};
     auto widths = ComputeColumnWidths(natural, 200.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
-    // Should still produce valid widths
+    // それでも有効な幅を生成すること
     for (auto w : widths) {
         EXPECT_GT(w, 0.0f);
     }
 }
 
-// ---- BuildLinearizedTableText ----
+// ---- BuildLinearizedTableText テスト ----
 
 TEST(BuildLinearizedTableTextTest, EmptyRows) {
     std::pmr::vector<TableRow> rows;
@@ -512,7 +512,7 @@ TEST(BuildLinearizedTableTextTest, EmptyCells) {
     EXPECT_EQ(text, L"\tB\t");
 }
 
-// ---- RecomputeYPositions ----
+// ---- RecomputeYPositions テスト ----
 
 TEST(RecomputeYPositionsTest, EmptyNodes) {
     std::pmr::vector<Node> nodes;
@@ -523,11 +523,11 @@ TEST(RecomputeYPositionsTest, EmptyNodes) {
     EXPECT_FALSE(result.has_dirty_nodes);
 }
 
-// ---- ComputeTotalContentHeight ----
+// ---- ComputeTotalContentHeight テスト ----
 
 TEST(ComputeTotalContentHeightTest, EmptyNodesReturnsZero) {
     LayoutCache cache;
-    // node_count == 0 must not underflow size_t; should return 0.
+    // node_count == 0 で size_t のアンダーフローが起きないこと。0を返すべき。
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 0, 10.0f), 0.0f);
 }
 
@@ -545,7 +545,7 @@ TEST(ComputeTotalContentHeightTest, MultipleNodes) {
     cache[0].y_position = 10.0f;  cache[0].height = 20.0f;
     cache[1].y_position = 40.0f;  cache[1].height = 30.0f;
     cache[2].y_position = 80.0f;  cache[2].height = 25.0f;
-    // Only the last node matters: 80 + 25 + 10 = 115
+    // 最後のノードのみが関係: 80 + 25 + 10 = 115
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 3, 10.0f), 115.0f);
 }
 
@@ -589,12 +589,12 @@ TEST(RecomputeYPositionsTest, HeadingSpacing) {
 
     RecomputeYPositions(nodes, cache, theme);
 
-    // Heading should have extra spacing above
+    // 見出しの上に追加の間隔があること
     float para_bottom = cache[0].y_position + cache[0].height + theme.paragraph_spacing;
     float heading_y = cache[1].y_position;
     EXPECT_FLOAT_EQ(heading_y, para_bottom + theme.heading_spacing_above);
 
-    // After heading: heading_spacing_below, not paragraph_spacing
+    // 見出しの後: paragraph_spacingではなくheading_spacing_below
     float heading_bottom = cache[1].y_position + cache[1].height + theme.heading_spacing_below;
     EXPECT_FLOAT_EQ(cache[2].y_position, heading_bottom);
 }
@@ -641,10 +641,10 @@ TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY) {
     }
 }
 
-// ---- EnsureVisibleLayout tests ----
+// ---- EnsureVisibleLayout テスト ----
 
 TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes) {
-    // Create several paragraphs and do a full layout at one width
+    // 複数の段落を作成し、ある幅でフルレイアウトを実行
     std::string md;
     for (int i = 0; i < 20; i++) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
@@ -654,29 +654,29 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes) {
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
-    // Now do a partial layout at a different width — this marks off-screen nodes dirty
+    // 別の幅で部分的なレイアウトを実行 — 画面外のノードがダーティにマークされる
     engine_.ComputeLayout(nodes, cache, 400.0f, 0.0f, 100.0f);
 
-    // Some nodes beyond viewport should still be dirty
+    // ビューポート外のノードはまだダーティであること
     bool any_dirty = false;
     for (size_t i = 0; i < nodes.size(); i++) {
         if (cache[i].layout_dirty) { any_dirty = true; break; }
     }
     ASSERT_TRUE(any_dirty);
 
-    // Mark a visible node dirty manually to test the fix path
+    // 修正パスをテストするため、表示中のノードを手動でダーティにマーク
     cache[0].layout_dirty = true;
 
-    // EnsureVisibleLayout should fix the visible range
+    // EnsureVisibleLayoutが表示範囲を修正すること
     bool updated = engine_.EnsureVisibleLayout(nodes, cache, 400.0f, 0.0f, 100.0f);
     EXPECT_TRUE(updated);
 
-    // Nodes in visible range should no longer be dirty
+    // 表示範囲内のノードはもうダーティでないこと
     for (size_t i = 0; i < nodes.size(); i++) {
         if (cache[i].y_position + cache[i].height < 0.0f) continue;
         if (cache[i].y_position > 100.0f) break;
         EXPECT_FALSE(cache[i].layout_dirty)
-            << "Visible node at y=" << cache[i].y_position << " is still dirty";
+            << "y=" << cache[i].y_position << " の表示ノードがまだダーティ";
     }
 }
 
@@ -686,7 +686,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean) {
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
-    // All nodes are clean, so EnsureVisibleLayout should return false
+    // すべてのノードがクリーンなので、EnsureVisibleLayoutはfalseを返すこと
     bool updated = engine_.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 1000.0f);
     EXPECT_FALSE(updated);
 }
@@ -701,21 +701,21 @@ TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes) {
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
-    // Count dirty nodes before
+    // 処理前のダーティノード数をカウント
     int dirty_before = 0;
     for (size_t i = 0; i < nodes.size(); i++) {
         if (cache[i].layout_dirty) dirty_before++;
     }
 
-    // EnsureVisibleLayout only for a small viewport slice
+    // 小さなビューポート範囲のみでEnsureVisibleLayoutを実行
     engine_.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
-    // Distant dirty nodes should remain dirty
+    // 遠くのダーティノードはダーティのままであること
     int dirty_after = 0;
     for (size_t i = 0; i < nodes.size(); i++) {
         if (cache[i].layout_dirty) dirty_after++;
     }
-    // Some nodes should still be dirty (the off-screen ones)
+    // 一部のノード（画面外のもの）はまだダーティであること
     EXPECT_GT(dirty_after, 0);
     EXPECT_LE(dirty_after, dirty_before);
 }
@@ -728,19 +728,19 @@ TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions) {
     auto nodes = ParseMarkdown(md);
     LayoutCache cache;
     cache.Resize(nodes.size());
-    // Full layout at wide width
+    // 広い幅でフルレイアウト
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
-    // Now do a partial layout at narrow width (marks off-screen dirty)
+    // 狭い幅で部分的なレイアウトを実行（画面外をダーティにマーク）
     engine_.ComputeLayout(nodes, cache, 300.0f, 0.0f, 50.0f);
 
-    // EnsureVisibleLayout should update Y positions consistently
+    // EnsureVisibleLayoutがY位置を一貫して更新すること
     engine_.EnsureVisibleLayout(nodes, cache, 300.0f, 0.0f, 50.0f);
 
-    // Y positions should still be monotonically increasing
+    // Y位置が単調増加を維持していること
     for (size_t i = 1; i < nodes.size(); i++) {
         EXPECT_GT(cache[i].y_position, cache[i - 1].y_position)
-            << "Node " << i << " y should be > node " << (i - 1);
+            << "ノード " << i << " のyはノード " << (i - 1) << " より大きいこと";
     }
 }
 
@@ -758,13 +758,13 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight) {
     engine_.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
     float height_after = engine_.GetTotalHeight();
 
-    // Total height may change when visible nodes get re-laid out
-    // but should remain positive
+    // 表示ノードが再レイアウトされると全体の高さが変わる可能性があるが
+    // 正の値を維持すること
     EXPECT_GT(height_after, 0.0f);
     (void)height_before;
 }
 
-// ---- RecomputeYPositions additional tests ----
+// ---- RecomputeYPositions 追加テスト ----
 
 TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing) {
     Theme theme = GetLightTheme();
@@ -784,10 +784,10 @@ TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing) {
 
     RecomputeYPositions(nodes, cache, theme);
 
-    // First heading: margin_top + heading_spacing_above
+    // 最初の見出し: margin_top + heading_spacing_above
     EXPECT_FLOAT_EQ(cache[0].y_position, theme.margin_top + theme.heading_spacing_above);
 
-    // Second heading: after first heading + heading_spacing_below + heading_spacing_above
+    // 2番目の見出し: 最初の見出しの後 + heading_spacing_below + heading_spacing_above
     float expected_y = cache[0].y_position + cache[0].height
                      + theme.heading_spacing_below + theme.heading_spacing_above;
     EXPECT_FLOAT_EQ(cache[1].y_position, expected_y);
@@ -821,17 +821,17 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions) {
 
     auto result = RecomputeYPositions(nodes, cache, theme);
 
-    // All positions should be monotonically increasing
+    // すべての位置が単調増加であること
     for (size_t i = 1; i < nodes.size(); i++) {
         EXPECT_GT(cache[i].y_position, cache[i - 1].y_position);
     }
-    // Total height should exceed last node's bottom
+    // 全体の高さが最後のノードの下端を超えること
     size_t last = nodes.size() - 1;
     float last_bottom = cache[last].y_position + cache[last].height;
     EXPECT_GE(result.total_height, last_bottom);
 }
 
-// ---- FindFirstVisibleNodeIndex tests (free function in layout_cache.h) ----
+// ---- FindFirstVisibleNodeIndex テスト（layout_cache.h のフリー関数） ----
 
 static LayoutCache MakeSimpleCache(int count, float node_height) {
     LayoutCache cache;
@@ -852,20 +852,20 @@ TEST(FindFirstVisibleNodeIndex, AtStart) {
 
 TEST(FindFirstVisibleNodeIndex, MidDocument) {
     auto cache = MakeSimpleCache(10, 50.0f);
-    // viewport_top = 120 → node 2 (y=100, bottom=150) is first visible
+    // viewport_top = 120 → ノード2 (y=100, bottom=150) が最初の可視ノード
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 120.0f), 2);
 }
 
 TEST(FindFirstVisibleNodeIndex, ExactBoundary) {
     auto cache = MakeSimpleCache(10, 50.0f);
-    // viewport_top = 50 → node 0 ends at y=50, node 1 starts at y=50
-    // node 0's bottom (50) == viewport_top (50), so it's excluded
+    // viewport_top = 50 → ノード0はy=50で終了、ノード1はy=50で開始
+    // ノード0の下端(50) == viewport_top(50)なので除外される
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 50.0f), 1);
 }
 
 TEST(FindFirstVisibleNodeIndex, PastEnd) {
     auto cache = MakeSimpleCache(5, 50.0f);
-    // viewport_top = 300, all nodes end at y=250
+    // viewport_top = 300、すべてのノードはy=250で終了
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 5, 300.0f), 5);
 }
 
@@ -878,11 +878,11 @@ TEST(FindFirstVisibleNodeIndex, SingleNode) {
     auto cache = MakeSimpleCache(1, 100.0f);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 0.0f), 0);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 50.0f), 0);
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 100.0f), 1); // past the node
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 100.0f), 1); // ノードを過ぎた位置
 }
 
 TEST(FindFirstVisibleNodeIndex, LastNodeVisible) {
     auto cache = MakeSimpleCache(10, 50.0f);
-    // viewport_top = 449 → node 8 ends at 450, still visible
+    // viewport_top = 449 → ノード8は450で終了、まだ可視
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 449.0f), 8);
 }

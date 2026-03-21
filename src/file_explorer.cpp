@@ -3,7 +3,7 @@
 
 void FileExplorer::SetDirectory(std::wstring_view dir_path) {
     std::pmr::wstring normalized{dir_path};
-    // Strip trailing separators (except for root paths like "C:\")
+    // 末尾の区切り文字を除去（"C:\" のようなルートパスは除く）
     while (normalized.size() > 3 && (normalized.back() == L'\\' || normalized.back() == L'/')) {
         normalized.pop_back();
     }
@@ -16,17 +16,17 @@ void FileExplorer::Refresh() {
     entries_.clear();
     if (directory_.empty()) return;
 
-    // Add parent directory entry ".." (unless at a root like "C:\")
+    // 親ディレクトリエントリ ".." を追加（"C:\" のようなルートでは追加しない）
     {
-        // Find parent: strip trailing backslash, then find last separator
+        // 親を検索: 末尾のバックスラッシュを除去し、最後の区切り文字を探す
         std::wstring_view parent_view{directory_};
-        // Don't add ".." if we're at a drive root (e.g. "C:\")
+        // ドライブルート（例: "C:\"）では ".." を追加しない
         if (parent_view.size() > 3 || (parent_view.size() == 3 && parent_view[1] != L':')) {
             auto pos = parent_view.find_last_of(L"\\/");
             if (pos != std::wstring_view::npos && pos > 0) {
-                // Make sure we're not just at "C:\"
+                // "C:\" だけでないことを確認
                 std::wstring parent_dir{parent_view.substr(0, pos)};
-                // Handle "C:" -> "C:\"
+                // "C:" → "C:\" に変換
                 if (parent_dir.size() == 2 && parent_dir[1] == L':') {
                     parent_dir += L"\\";
                 }
@@ -40,7 +40,7 @@ void FileExplorer::Refresh() {
         }
     }
 
-    // Enumerate all items in the directory
+    // ディレクトリ内の全アイテムを列挙
     std::wstring pattern{directory_};
     pattern += L"\\*";
     WIN32_FIND_DATAW fd;
@@ -51,10 +51,10 @@ void FileExplorer::Refresh() {
     std::pmr::vector<FileEntry> files;
 
     do {
-        // Skip "." and ".."
+        // "." と ".." をスキップ
         if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0)
             continue;
-        // Skip hidden/system files
+        // 隠しファイル/システムファイルをスキップ
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) continue;
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) continue;
 
@@ -67,7 +67,7 @@ void FileExplorer::Refresh() {
             entry.is_directory = true;
             dirs.push_back(std::move(entry));
         } else {
-            // Only show Markdown files (.md, .markdown, .mkd)
+            // Markdownファイル（.md, .markdown, .mkd）のみ表示
             std::wstring name = fd.cFileName;
             auto dot_pos = name.rfind(L'.');
             if (dot_pos != std::wstring::npos) {
@@ -88,7 +88,7 @@ void FileExplorer::Refresh() {
 
     FindClose(hFind);
 
-    // Sort directories and files separately (case-insensitive)
+    // ディレクトリとファイルをそれぞれ大文字小文字無視でソート
     std::sort(dirs.begin(), dirs.end(), [](const FileEntry& a, const FileEntry& b) {
         return _wcsicmp(a.filename.c_str(), b.filename.c_str()) < 0;
     });
@@ -96,7 +96,7 @@ void FileExplorer::Refresh() {
         return _wcsicmp(a.filename.c_str(), b.filename.c_str()) < 0;
     });
 
-    // Append: directories first, then files
+    // 追加: ディレクトリを先に、次にファイル
     entries_.insert(entries_.end(), std::make_move_iterator(dirs.begin()),
                     std::make_move_iterator(dirs.end()));
     entries_.insert(entries_.end(), std::make_move_iterator(files.begin()),

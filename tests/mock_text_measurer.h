@@ -2,15 +2,15 @@
 #include "text_measurer.h"
 #include <cmath>
 
-// Mock text measurer for testing LayoutEngine without DirectWrite.
-// Heights are computed deterministically from text length and node type.
+// DirectWriteなしでLayoutEngineをテストするためのモックテキスト計測器。
+// テキスト長とノード種別から高さを決定論的に計算する。
 class MockTextMeasurer : public ITextMeasurer {
 public:
-    float line_height = 20.0f;       // base line height
-    float chars_per_line = 40.0f;    // characters per line for wrap estimation
-    float heading_scale = 1.5f;      // heading height multiplier
-    float table_row_height = 28.0f;  // height per table row
-    float table_border = 1.0f;       // table border width
+    float line_height = 20.0f;       // 基本行高
+    float chars_per_line = 40.0f;    // 折り返し推定用の1行あたり文字数
+    float heading_scale = 1.5f;      // 見出し高さの倍率
+    float table_row_height = 28.0f;  // テーブル1行あたりの高さ
+    float table_border = 1.0f;       // テーブル罫線の幅
 
     bool Init(const Theme&) override { return true; }
     bool RecreateFormats() override { return true; }
@@ -34,7 +34,7 @@ public:
             return;
         }
 
-        // Estimate lines based on text length and available width
+        // テキスト長と利用可能な幅から行数を推定
         float effective_chars = (max_width > 0) ? (max_width / (line_height * 0.6f)) : chars_per_line;
         effective_chars = std::max(effective_chars, 1.0f);
         float lines = std::ceil(static_cast<float>(text.size()) / effective_chars);
@@ -44,7 +44,7 @@ public:
             h *= heading_scale;
         }
 
-        entry.text_layout = nullptr; // no real layout in mock
+        entry.text_layout = nullptr; // モックでは実際のレイアウトなし
         entry.height = h;
         entry.layout_dirty = false;
         entry.effects_applied = false;

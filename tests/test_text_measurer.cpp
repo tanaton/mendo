@@ -4,7 +4,7 @@
 #include "mock_text_measurer.h"
 #include "parser.h"
 
-// Tests LayoutEngine logic through MockTextMeasurer (no COM / DirectWrite required).
+// MockTextMeasurerを通じてLayoutEngineのロジックをテストする（COM / DirectWrite不要）。
 
 class MockLayoutTest : public ::testing::Test {
 protected:
@@ -18,7 +18,7 @@ protected:
     }
 };
 
-// ---- Basic layout ----
+// ---- 基本レイアウト ----
 
 TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight) {
     std::pmr::vector<Node> nodes;
@@ -57,7 +57,7 @@ TEST_F(MockLayoutTest, NoOverlapBetweenNodes) {
     }
 }
 
-// ---- Heading spacing ----
+// ---- 見出しの間隔 ----
 
 TEST_F(MockLayoutTest, HeadingHasExtraSpacing) {
     auto nodes = ParseMarkdown("Paragraph\n\n# Heading\n\nAnother");
@@ -80,7 +80,7 @@ TEST_F(MockLayoutTest, HeadingTallerThanParagraph) {
     EXPECT_GT(cache[0].height, cache[1].height);
 }
 
-// ---- Dirty tracking ----
+// ---- ダーティ追跡 ----
 
 TEST_F(MockLayoutTest, NoDirtyAfterFullLayout) {
     auto nodes = ParseMarkdown("A\n\nB\n\nC");
@@ -94,9 +94,9 @@ TEST_F(MockLayoutTest, PartialLayoutLeavesDirtyNodes) {
     auto nodes = ParseMarkdown("A\n\nB\n\nC\n\nD\n\nE");
     LayoutCache cache;
     cache.Resize(nodes.size());
-    // Partial layout: only viewport [0, 1) — very small
+    // 部分レイアウト: ビューポート[0, 1)のみ — 非常に小さい
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 1.0f);
-    // Some nodes outside viewport should be dirty
+    // ビューポート外のノードはダーティであるべき
     EXPECT_TRUE(engine_.HasDirtyNodes());
 }
 
@@ -130,26 +130,26 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch) {
     }
 }
 
-// ---- Bug #9: ProcessDirtyBatch with no dirty nodes ----
+// ---- バグ #9: ダーティノードなしでのProcessDirtyBatch ----
 
 TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight) {
     auto nodes = ParseMarkdown("A\n\nB\n\nC");
     LayoutCache cache;
     cache.Resize(nodes.size());
-    // Full layout — no dirty nodes
+    // フルレイアウト — ダーティノードなし
     engine_.ComputeLayout(nodes, cache, 800.0f);
     EXPECT_FALSE(engine_.HasDirtyNodes());
 
     float height_before = engine_.GetTotalHeight();
     EXPECT_GT(height_before, 0.0f);
 
-    // ProcessDirtyBatch with nothing dirty should not corrupt total_height
+    // ダーティなものがない場合のProcessDirtyBatchはtotal_heightを破損させないべき
     bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
     EXPECT_FALSE(more);
     EXPECT_FLOAT_EQ(engine_.GetTotalHeight(), height_before);
 }
 
-// ---- Width change ----
+// ---- 幅の変更 ----
 
 TEST_F(MockLayoutTest, WidthChangeRecalculates) {
     auto nodes = ParseMarkdown("Some text that could wrap when narrower");
@@ -162,7 +162,7 @@ TEST_F(MockLayoutTest, WidthChangeRecalculates) {
     EXPECT_GE(h_narrow, h_wide);
 }
 
-// ---- Table mock ----
+// ---- テーブルモック ----
 
 TEST_F(MockLayoutTest, TableHasPositiveHeight) {
     auto nodes = ParseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
@@ -179,7 +179,7 @@ TEST_F(MockLayoutTest, TableHasPositiveHeight) {
     EXPECT_TRUE(found_table);
 }
 
-// ---- HorizontalRule mock ----
+// ---- 水平線モック ----
 
 TEST_F(MockLayoutTest, HorizontalRuleHasHeight) {
     auto nodes = ParseMarkdown("Above\n\n---\n\nBelow");
@@ -201,17 +201,17 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport) {
     auto nodes = ParseMarkdown(md);
     LayoutCache cache;
     cache.Resize(nodes.size());
-    // Partial layout for viewport [0,50)
+    // ビューポート[0,50)の部分レイアウト
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
     EXPECT_TRUE(engine_.HasDirtyNodes());
 
-    // Now ensure layout for a later region
+    // より後の領域のレイアウトを確保
     float total = engine_.GetTotalHeight();
     engine_.EnsureVisibleLayout(nodes, cache, 800.0f, total * 0.5f, total * 0.7f);
-    // Some nodes should now be clean
+    // 一部のノードはクリーンになっているべき
 }
 
-// ---- LayoutNodes convenience ----
+// ---- LayoutNodes 便利関数 ----
 
 TEST_F(MockLayoutTest, LayoutNodesFullLayout) {
     auto nodes = ParseMarkdown("A\n\nB");
@@ -228,7 +228,7 @@ TEST_F(MockLayoutTest, RecreateFormatsSucceeds) {
     EXPECT_TRUE(engine_.RecreateFormats());
 }
 
-// ---- Many nodes total height ----
+// ---- 多数ノードの合計高さ ----
 
 TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight) {
     std::string md;
@@ -242,7 +242,7 @@ TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight) {
     EXPECT_LE(cache[last].y_position + cache[last].height, engine_.GetTotalHeight());
 }
 
-// ---- File switch regression tests ----
+// ---- ファイル切り替えリグレッションテスト ----
 
 TEST_F(MockLayoutTest, ResetClearsAllEntries) {
     auto nodes = ParseMarkdown("Hello\n\nWorld");
@@ -250,24 +250,24 @@ TEST_F(MockLayoutTest, ResetClearsAllEntries) {
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
-    // All entries should be clean after layout
+    // レイアウト後、すべてのエントリはクリーンであるべき
     for (size_t i = 0; i < cache.size(); i++) {
         ASSERT_FALSE(cache[i].layout_dirty);
         ASSERT_GT(cache[i].height, 0.0f);
     }
 
-    // Reset should clear everything back to defaults
+    // Resetはすべてをデフォルトにクリアすべき
     cache.Reset(3);
     EXPECT_EQ(cache.size(), 3u);
     for (size_t i = 0; i < cache.size(); i++) {
-        EXPECT_TRUE(cache[i].layout_dirty) << "Entry " << i << " should be dirty after Reset";
-        EXPECT_FLOAT_EQ(cache[i].height, 0.0f) << "Entry " << i << " height should be 0 after Reset";
+        EXPECT_TRUE(cache[i].layout_dirty) << "エントリ " << i << " はReset後にダーティであるべき";
+        EXPECT_FLOAT_EQ(cache[i].height, 0.0f) << "エントリ " << i << " の高さはReset後に0であるべき";
         EXPECT_EQ(cache[i].text_layout.Get(), nullptr);
     }
 }
 
 TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout) {
-    // Simulate opening file A: "# Big Heading\n\nSome paragraph"
+    // ファイルAを開くシミュレーション: "# Big Heading\n\nSome paragraph"
     auto nodes_a = ParseMarkdown("# Big Heading\n\nSome paragraph");
     LayoutCache cache;
     cache.Reset(nodes_a.size());
@@ -279,25 +279,25 @@ TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout) {
     EXPECT_GT(heading_height_a, 0.0f);
     EXPECT_GT(para_height_a, 0.0f);
 
-    // Simulate switching to file B: "Just a paragraph\n\nAnother one\n\nThird"
+    // ファイルBへ切り替えシミュレーション: "Just a paragraph\n\nAnother one\n\nThird"
     auto nodes_b = ParseMarkdown("Just a paragraph\n\nAnother one\n\nThird");
     cache.Reset(nodes_b.size());
     engine_.LayoutNodes(nodes_b, cache, 800.0f);
 
     ASSERT_EQ(nodes_b.size(), 3u);
-    // All nodes in file B should be paragraphs with fresh, correct heights
+    // ファイルBのすべてのノードは新しく正しい高さの段落であるべき
     for (size_t i = 0; i < nodes_b.size(); i++) {
-        EXPECT_FALSE(cache[i].layout_dirty) << "Node " << i << " should be clean";
-        EXPECT_GT(cache[i].height, 0.0f) << "Node " << i << " should have positive height";
+        EXPECT_FALSE(cache[i].layout_dirty) << "ノード " << i << " はクリーンであるべき";
+        EXPECT_GT(cache[i].height, 0.0f) << "ノード " << i << " は正の高さを持つべき";
         EXPECT_EQ(nodes_b[i].type, NodeType::Paragraph);
     }
-    // First node of file B should NOT have old heading height from file A
+    // ファイルBの最初のノードはファイルAの見出しの高さを保持していてはならない
     EXPECT_NE(cache[0].height, heading_height_a)
-        << "File B paragraph should not retain file A heading height";
+        << "ファイルBの段落はファイルAの見出しの高さを保持していてはならない";
 }
 
 TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates) {
-    // File A: 2 headings
+    // ファイルA: 見出し2つ
     auto nodes_a = ParseMarkdown("# H1\n\n## H2");
     LayoutCache cache;
     cache.Reset(nodes_a.size());
@@ -305,18 +305,18 @@ TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates) {
     float h1_height = cache[0].height;
     float h2_height = cache[1].height;
 
-    // File B: 2 paragraphs (same node count as file A)
+    // ファイルB: 段落2つ（ファイルAと同じノード数）
     auto nodes_b = ParseMarkdown("alpha\n\nbeta");
     cache.Reset(nodes_b.size());
     engine_.LayoutNodes(nodes_b, cache, 800.0f);
 
-    // Paragraphs should be shorter than headings
+    // 段落は見出しより短いべき
     EXPECT_LT(cache[0].height, h1_height)
-        << "Paragraph should be shorter than H1 heading";
+        << "段落はH1見出しより短いべき";
     EXPECT_LT(cache[1].height, h2_height)
-        << "Paragraph should be shorter than H2 heading";
+        << "段落はH2見出しより短いべき";
 
-    // All should be clean
+    // すべてクリーンであるべき
     for (size_t i = 0; i < cache.size(); i++) {
         EXPECT_FALSE(cache[i].layout_dirty);
     }

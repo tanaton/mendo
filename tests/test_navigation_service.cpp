@@ -54,12 +54,12 @@ TEST_F(NavigationServiceTest, GoForwardNoHistory) {
 TEST_F(NavigationServiceTest, GoBackThenForward) {
     service_.PushHistory(L"C:\\first.md", 10.0f);
 
-    // Go back
+    // 戻る
     auto back_result = service_.GoBack(L"C:\\first.md", 100.0f);
     EXPECT_EQ(back_result.type, NavigationService::NavigateResult::Type::Anchor);
     EXPECT_FLOAT_EQ(back_result.scroll_y, 10.0f);
 
-    // Go forward
+    // 進む
     auto fwd_result = service_.GoForward(L"C:\\first.md", 10.0f);
     EXPECT_EQ(fwd_result.type, NavigationService::NavigateResult::Type::Anchor);
     EXPECT_FLOAT_EQ(fwd_result.scroll_y, 100.0f);

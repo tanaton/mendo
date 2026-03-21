@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <memory_resource>
 
-// ---- Primitive draw commands ----
+// ---- 基本描画コマンド ----
 
 struct ClearCmd {
     D2D1_COLOR_F color;
@@ -32,7 +32,7 @@ struct DrawLineCmd {
 
 struct DrawTextLayoutCmd {
     D2D1_POINT_2F origin;
-    IDWriteTextLayout* layout; // Non-owning; lifetime managed by LayoutCache.
+    IDWriteTextLayout* layout; // 非所有; ライフタイムはLayoutCacheが管理。
     D2D1_COLOR_F color;
 };
 
@@ -41,7 +41,7 @@ struct DrawTextCmd {
     wchar_t text[MAX_TEXT];
     uint8_t text_len = 0;
     D2D1_RECT_F rect;
-    IDWriteTextFormat* format; // Non-owning; lifetime managed by Renderer.
+    IDWriteTextFormat* format; // 非所有; ライフタイムはRendererが管理。
     D2D1_COLOR_F color;
 
     static DrawTextCmd Make(const wchar_t* src, size_t len,
@@ -57,7 +57,7 @@ struct DrawTextCmd {
 };
 
 struct DrawBitmapCmd {
-    ID2D1Bitmap* bitmap; // Non-owning; lifetime managed by LayoutCache::DiagramEntry.
+    ID2D1Bitmap* bitmap; // 非所有; ライフタイムはLayoutCache::DiagramEntryが管理。
     D2D1_RECT_F dest;
     float opacity = 1.0f;
 };
@@ -75,7 +75,7 @@ struct DrawEllipseCmd {
     float stroke_width;
 };
 
-// ---- State commands ----
+// ---- 状態コマンド ----
 
 struct PushClipCmd {
     D2D1_RECT_F rect;
@@ -87,7 +87,7 @@ struct SetTransformCmd {
     D2D1_MATRIX_3X2_F transform;
 };
 
-// ---- Variant + list ----
+// ---- バリアント + リスト ----
 
 using DrawCommand = std::variant<
     ClearCmd, FillRectCmd, FillRoundedRectCmd,

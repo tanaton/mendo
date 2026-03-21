@@ -12,7 +12,7 @@ protected:
     fs::path temp_dir_;
 
     void SetUp() override {
-        // Create a unique temp directory for each test
+        // 各テスト用に一意の一時ディレクトリを作成
         temp_dir_ = fs::temp_directory_path() / (L"mendo_test_config_" + std::to_wstring(GetCurrentProcessId()));
         fs::remove_all(temp_dir_);
         fs::create_directories(temp_dir_);
@@ -34,7 +34,7 @@ TEST_F(ConfigStoreTest, GetConfigDirReturnsOverride) {
 TEST_F(ConfigStoreTest, GetConfigDirReturnsDefaultWhenNoOverride) {
     config::SetConfigDirOverride({});
     auto dir = config::GetConfigDir();
-    // Should return a valid path containing "mendo"
+    // "mendo"を含む有効なパスを返すべき
     EXPECT_FALSE(dir.empty());
     EXPECT_NE(dir.wstring().find(L"mendo"), std::wstring::npos);
 }
@@ -98,7 +98,7 @@ TEST_F(ConfigStoreTest, LoadIntBoundaryValues) {
 }
 
 TEST_F(ConfigStoreTest, LoadIntCorruptedFile) {
-    // Write non-integer content
+    // 整数でないコンテンツを書き込み
     auto path = config::GetConfigPath(L"int_corrupt.txt");
     std::ofstream ofs(path);
     ofs << "not_a_number";
@@ -131,11 +131,11 @@ TEST_F(ConfigStoreTest, LoadWStringReturnsEmptyWhenFileMissing) {
 
 TEST_F(ConfigStoreTest, SaveWStringEmptyDoesNothing) {
     config::SaveWString(L"wstr_empty.txt", L"");
-    // File should not exist (empty string is not saved)
+    // ファイルは存在しないべき（空文字列は保存されない）
     EXPECT_TRUE(config::LoadWString(L"wstr_empty.txt").empty());
 }
 
-// Bug #13: SaveWString with empty should clear previously saved value
+// バグ #13: 空でのSaveWStringは以前に保存された値をクリアすべき
 TEST_F(ConfigStoreTest, SaveWStringEmptyClearsPrevious) {
     config::SaveWString(L"wstr_clear.txt", L"some value");
     EXPECT_EQ(config::LoadWString(L"wstr_clear.txt"), L"some value");
@@ -152,7 +152,7 @@ TEST_F(ConfigStoreTest, SaveWStringOverwrite) {
 }
 
 TEST_F(ConfigStoreTest, LoadWStringCorruptedOddBytes) {
-    // Write an odd number of bytes (invalid for UTF-16LE)
+    // 奇数バイトを書き込み（UTF-16LEとして無効）
     auto path = config::GetConfigPath(L"wstr_corrupt.txt");
     std::ofstream ofs(path, std::ios::binary);
     ofs.write("abc", 3);  // 3 bytes, not divisible by sizeof(wchar_t)
@@ -160,17 +160,17 @@ TEST_F(ConfigStoreTest, LoadWStringCorruptedOddBytes) {
     EXPECT_TRUE(config::LoadWString(L"wstr_corrupt.txt").empty());
 }
 
-// ---- Config directory creation ----
+// ---- 設定ディレクトリの作成 ----
 
 TEST_F(ConfigStoreTest, SaveCreatesDirectories) {
-    // Set override to a nested path that doesn't exist yet
+    // まだ存在しないネストされたパスにオーバーライドを設定
     fs::path nested = temp_dir_ / L"sub" / L"dir";
     config::SetConfigDirOverride(nested);
     config::SaveBool(L"nested_test.txt", true);
     EXPECT_TRUE(config::LoadBool(L"nested_test.txt", false));
 }
 
-// ---- Multiple config files coexist ----
+// ---- 複数の設定ファイルの共存 ----
 
 TEST_F(ConfigStoreTest, MultipleConfigFilesIndependent) {
     config::SaveBool(L"a.txt", true);

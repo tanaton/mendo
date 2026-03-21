@@ -29,7 +29,7 @@
 #include <memory>
 #include <memory_resource>
 
-// Apply dark mode styling to window title bar and scrollbar.
+// ウィンドウのタイトルバーとスクロールバーにダークモードスタイルを適用する。
 void ApplyDarkModeToWindow(HWND hwnd, bool dark);
 
 class App {
@@ -39,7 +39,7 @@ public:
     void LoadMarkdownFile(std::wstring_view path);
     std::wstring LoadLastFilePath() const;
 
-    // Event handlers called from Win32Window
+    // Win32Windowから呼び出されるイベントハンドラ
     void OnPaint();
     void OnResize(UINT width, UINT height);
     void OnVScroll(WPARAM wParam);
@@ -57,14 +57,14 @@ public:
     bool OnRButtonUp(int px, int py);
     void OnRButtonMove(int px, int py);
 
-    // Non-button mouse hover handling
+    // ボタン押下なしのマウスホバー処理
     void OnMouseHover(int px, int py);
 
-    // Mouse X-button navigation
+    // マウスXボタンによるナビゲーション
     void OnXButtonBack();
     void OnXButtonForward();
 
-    // Timer callbacks
+    // タイマーコールバック
     void OnSmoothScrollTimer();
     void OnFileWatchTimer();
     void OnDeferredLayoutTimer();
@@ -73,30 +73,30 @@ public:
     void OnCaptureChanged();
     void OnDestroy();
 
-    // Sizing state
+    // サイズ変更状態
     void OnEnterSizeMove();
     void OnExitSizeMove();
 
-    // Cursor state for WM_SETCURSOR
+    // WM_SETCURSOR用のカーソル状態
     bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
 
-    // Expose DPI scale for Win32Window cursor/invalidation
+    // Win32Windowのカーソル/再描画用にDPIスケールを公開
     float GetDpiScale() const noexcept { return cached_dpi_scale_; }
 
 private:
-    // Execute actions returned by AppController
+    // AppControllerが返すアクションを実行
     void ExecuteActions(const ActionList& actions);
 
-    // DIP conversion
+    // DIP変換
     struct DipPoint { float x, y; };
     DipPoint PixelToDip(int px, int py) const;
 
-    // Hit testing
+    // ヒットテスト
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y) const;
     std::optional<std::pmr::wstring> GetLinkAtHit(const HitResult& hit) const;
 
-    // Link & anchor navigation
+    // リンク・アンカーナビゲーション
     void HandleLinkClick(std::wstring_view url);
     void NavigateToAnchor(std::wstring_view anchor);
     void ApplyNavigateResult(const NavigationService::NavigateResult& result);
@@ -104,23 +104,23 @@ private:
     void NavigateForward();
     void PushNavHistory();
 
-    // Clipboard & selection
+    // クリップボード・選択
     void CopySelectionToClipboard() const;
     void SelectAll();
     void ClearSelection();
 
-    // Pane click handlers (extracted from OnLButtonDown)
+    // ペインクリックハンドラ (OnLButtonDownから抽出)
     void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);
 
-    // Scrollbar helpers
+    // スクロールバーヘルパー
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
     void HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
                               ScrollState& scroll, bool& cache_dirty);
     void HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
                              ScrollState& scroll, bool& cache_dirty);
 
-    // Layout / scroll
+    // レイアウト / スクロール
     void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();
     void UpdateScrollBar(float md_pane_height);
@@ -137,20 +137,20 @@ private:
     void OnDeferredLayout();
     void InvalidateMdPane();
 
-    // File loading (delegates to file_load_service_)
+    // ファイル読み込み (file_load_service_に委譲)
     void ReloadCurrentFile();
     void DoLoadMarkdownFile();
     void UpdateTitleBar();
     void SaveLastFilePath();
 
-    // Pane layout
+    // ペインレイアウト
     ::PaneLayout GetPaneLayout() const;
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
     void RequestMermaidRenders();
 
-    // Dark mode / zoom (delegates to theme_service_)
+    // ダークモード / ズーム (theme_service_に委譲)
     void ToggleDarkMode();
     void ZoomIn();
     void ZoomOut();
@@ -158,7 +158,7 @@ private:
     void ApplyZoom(float new_zoom);
 
 public:
-    // Timer IDs (shared with Win32Window for message routing)
+    // タイマーID (メッセージルーティング用にWin32Windowと共有)
     static constexpr UINT_PTR TIMER_SMOOTH_SCROLL = 1;
     static constexpr UINT_PTR TIMER_FILE_WATCH = 2;
     static constexpr UINT_PTR TIMER_DEFERRED_LAYOUT = 3;
@@ -166,21 +166,21 @@ public:
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
 
 private:
-    // Win32 handle
+    // Win32ハンドル
     HWND hwnd_ = nullptr;
     float cached_dpi_scale_ = 1.0f;
 
-    // Cached system cursors
+    // キャッシュ済みシステムカーソル
     HCURSOR cursor_arrow_ = nullptr;
     HCURSOR cursor_hand_ = nullptr;
     HCURSOR cursor_ibeam_ = nullptr;
     HCURSOR cursor_sizewe_ = nullptr;
 
-    // HitTest throttle
+    // ヒットテストのスロットリング
     POINT last_md_hit_pos_ = {LONG_MIN, LONG_MIN};
     bool last_md_cursor_hand_ = false;
 
-    // Core services
+    // コアサービス
     Renderer renderer_;
     MermaidRenderer mermaid_renderer_;
     FileLoader file_loader_;
@@ -190,7 +190,7 @@ private:
     ThemeService theme_service_{config_};
     FileLoadService file_load_service_{doc_service_};
 
-    // Domain state
+    // ドメイン状態
     Document doc_;
     LayoutCache layout_cache_;
     ViewportManager viewport_;
@@ -198,7 +198,7 @@ private:
 
     bool is_sizing_ = false;
 
-    // 3-pane state
+    // 3ペイン状態
     FileExplorer file_explorer_;
     PaneController panes_;
     NavHistory nav_history_;
@@ -208,7 +208,7 @@ private:
 
     float last_mermaid_content_width_ = 0.0f;
 
-    // Navigation overlay
+    // ナビゲーションオーバーレイ
     using NavButtonHover = HitTestService::NavButtonHover;
     NavButtonHover nav_hover_ = NavButtonHover::None;
 };

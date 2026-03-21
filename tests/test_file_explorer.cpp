@@ -34,19 +34,19 @@ protected:
     }
 };
 
-// ---- Basic enumeration ----
+// ---- 基本的な列挙 ----
 
 TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly) {
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
-    // Only the ".." parent entry
+    // ".." 親エントリのみ
     auto& entries = explorer.GetEntries();
     ASSERT_EQ(entries.size(), 1u);
     EXPECT_TRUE(entries[0].is_parent);
     EXPECT_EQ(entries[0].filename, L"..");
 }
 
-// ---- Bug #23: Path normalization (trailing backslash) ----
+// ---- Bug #23: パスの正規化（末尾のバックスラッシュ） ----
 
 TEST_F(FileExplorerTest, TrailingBackslashNormalized) {
     CreateFile(L"test.md");
@@ -58,8 +58,8 @@ TEST_F(FileExplorerTest, TrailingBackslashNormalized) {
     explorer.SetDirectory(with_slash);
     size_t count1 = explorer.GetEntries().size();
 
-    // Setting same directory with different trailing slash should not re-refresh
-    // (if normalization works, the directory_ comparison detects same dir)
+    // 末尾スラッシュが異なる同じディレクトリを設定しても再リフレッシュしないこと
+    // （正規化が機能していれば、directory_の比較で同じディレクトリと検出される）
     explorer.SetDirectory(without_slash);
     size_t count2 = explorer.GetEntries().size();
 
@@ -73,15 +73,15 @@ TEST_F(FileExplorerTest, TrailingSlashDoesNotCreateDoubleBackslash) {
     std::wstring with_slash = temp_dir_.wstring() + L"\\";
     explorer.SetDirectory(with_slash);
 
-    // Should find the .md file without issues
+    // .mdファイルが問題なく見つかること
     bool found_md = false;
     for (const auto& entry : explorer.GetEntries()) {
         if (entry.filename == L"hello.md") {
             found_md = true;
-            // full_path should not have double backslash
+            // full_pathに二重バックスラッシュが含まれないこと
             EXPECT_EQ(entry.full_path.find(L"\\\\"), std::wstring::npos)
-                << "full_path should not contain double backslash: "
-                << "full_path contains double backslash";
+                << "full_pathに二重バックスラッシュが含まれています: "
+                << "full_pathに二重バックスラッシュあり";
         }
     }
     EXPECT_TRUE(found_md);
@@ -95,7 +95,7 @@ TEST_F(FileExplorerTest, ShowsMdFiles) {
     explorer.SetDirectory(temp_dir_.wstring());
     auto& entries = explorer.GetEntries();
 
-    // ".." + 2 md files
+    // ".." + mdファイル2つ
     EXPECT_EQ(entries.size(), 3u);
 }
 
@@ -106,7 +106,7 @@ TEST_F(FileExplorerTest, ShowsMarkdownExtension) {
     explorer.SetDirectory(temp_dir_.wstring());
     auto& entries = explorer.GetEntries();
 
-    // ".." + 1 markdown file
+    // ".." + markdownファイル1つ
     EXPECT_EQ(entries.size(), 2u);
     EXPECT_EQ(entries[1].filename, L"doc.markdown");
 }
@@ -132,7 +132,7 @@ TEST_F(FileExplorerTest, HidesNonMarkdownFiles) {
     explorer.SetDirectory(temp_dir_.wstring());
     auto& entries = explorer.GetEntries();
 
-    // ".." + 1 md file (non-md files hidden)
+    // ".." + mdファイル1つ（非mdファイルは非表示）
     EXPECT_EQ(entries.size(), 2u);
 }
 
@@ -144,7 +144,7 @@ TEST_F(FileExplorerTest, ShowsDirectories) {
     explorer.SetDirectory(temp_dir_.wstring());
     auto& entries = explorer.GetEntries();
 
-    // ".." + 1 dir + 1 file
+    // ".." + ディレクトリ1つ + ファイル1つ
     EXPECT_EQ(entries.size(), 3u);
 }
 
@@ -157,7 +157,7 @@ TEST_F(FileExplorerTest, DirectoriesBeforeFiles) {
     auto& entries = explorer.GetEntries();
 
     ASSERT_GE(entries.size(), 3u);
-    // Entry 0: "..", Entry 1: directory, Entry 2: file
+    // エントリ0: "..", エントリ1: ディレクトリ, エントリ2: ファイル
     EXPECT_TRUE(entries[0].is_parent);
     EXPECT_TRUE(entries[1].is_directory);
     EXPECT_FALSE(entries[2].is_directory);
@@ -172,7 +172,7 @@ TEST_F(FileExplorerTest, EntriesSortedCaseInsensitive) {
     explorer.SetDirectory(temp_dir_.wstring());
     auto& entries = explorer.GetEntries();
 
-    // Skip ".." entry
+    // ".."エントリをスキップ
     ASSERT_GE(entries.size(), 4u);
     EXPECT_EQ(entries[1].filename, L"aaa.md");
     EXPECT_EQ(entries[2].filename, L"Bbb.md");
@@ -186,10 +186,10 @@ TEST_F(FileExplorerTest, CaseInsensitiveMdExtension) {
     explorer.SetDirectory(temp_dir_.wstring());
     auto& entries = explorer.GetEntries();
 
-    EXPECT_EQ(entries.size(), 2u); // ".." + 1 file
+    EXPECT_EQ(entries.size(), 2u); // ".." + ファイル1つ
 }
 
-// ---- SetCurrentFile ----
+// ---- SetCurrentFile テスト ----
 
 TEST_F(FileExplorerTest, SetCurrentFileMarksEntry) {
     CreateFile(L"a.md");
@@ -218,7 +218,7 @@ TEST_F(FileExplorerTest, SetCurrentFileDoesNotMarkDirectories) {
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
-    // Even if path matches, directories should not be marked as current
+    // パスが一致してもディレクトリはcurrentとしてマークされないこと
     std::wstring dir_path = (temp_dir_ / L"subdir").wstring();
     explorer.SetCurrentFile(dir_path);
 
@@ -227,7 +227,7 @@ TEST_F(FileExplorerTest, SetCurrentFileDoesNotMarkDirectories) {
     }
 }
 
-// ---- HitTest ----
+// ---- ヒットテスト ----
 
 TEST_F(FileExplorerTest, HitTestValidIndex) {
     CreateFile(L"a.md");
@@ -236,7 +236,7 @@ TEST_F(FileExplorerTest, HitTestValidIndex) {
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
 
-    // 3 entries: "..", "a.md", "b.md"
+    // 3エントリ: "..", "a.md", "b.md"
     EXPECT_EQ(explorer.HitTest(0.0f, 28.0f), 0);
     EXPECT_EQ(explorer.HitTest(28.0f, 28.0f), 1);
     EXPECT_EQ(explorer.HitTest(56.0f, 28.0f), 2);
@@ -258,7 +258,7 @@ TEST_F(FileExplorerTest, HitTestZeroItemHeight) {
     EXPECT_EQ(explorer.HitTest(10.0f, 0.0f), -1);
 }
 
-// ---- Refresh / SetDirectory ----
+// ---- リフレッシュ / SetDirectory ----
 
 TEST_F(FileExplorerTest, SetDirectorySamePathNoRefresh) {
     CreateFile(L"a.md");
@@ -267,7 +267,7 @@ TEST_F(FileExplorerTest, SetDirectorySamePathNoRefresh) {
     explorer.SetDirectory(temp_dir_.wstring());
     size_t count1 = explorer.GetEntries().size();
 
-    // Setting same directory should be a no-op
+    // 同じディレクトリを設定しても何も起こらないこと
     explorer.SetDirectory(temp_dir_.wstring());
     EXPECT_EQ(explorer.GetEntries().size(), count1);
 }

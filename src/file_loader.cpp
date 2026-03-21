@@ -10,7 +10,7 @@ FileLoader::~FileLoader() {
 }
 
 std::string FileLoader::LoadFile(const std::wstring& path) {
-    // FILE_SHARE_READ | FILE_SHARE_WRITE so we can read while editor has it open
+    // エディタがファイルを開いている間も読み取れるよう FILE_SHARE_READ | FILE_SHARE_WRITE を指定
     HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -22,7 +22,7 @@ std::string FileLoader::LoadFile(const std::wstring& path) {
         return {};
     }
 
-    // Reject files larger than MAXDWORD (~4GB) to avoid ReadFile truncation
+    // ReadFileの切り捨てを防ぐため、MAXDWORD（約4GB）を超えるファイルを拒否
     if (size.QuadPart > static_cast<LONGLONG>(MAXDWORD)) {
         CloseHandle(hFile);
         return {};
@@ -36,7 +36,7 @@ std::string FileLoader::LoadFile(const std::wstring& path) {
     if (!ok) return {};
     content.resize(bytesRead);
 
-    // Strip UTF-8 BOM if present
+    // UTF-8 BOMがあれば除去
     if (content.size() >= 3 &&
         static_cast<unsigned char>(content[0]) == 0xEF &&
         static_cast<unsigned char>(content[1]) == 0xBB &&
@@ -89,13 +89,13 @@ void FileLoader::StopWatching() noexcept {
 void FileLoader::CheckForChanges() {
     if (!watching_) return;
 
-    // Debounce: skip check if too soon after last reload
+    // デバウンス: 最後のリロードから間隔が短すぎる場合はチェックをスキップ
     ULONGLONG now = GetTickCount64();
     if (now - last_reload_tick_ < DEBOUNCE_MS) return;
 
     FILETIME current = GetFileWriteTime(watch_path_);
 
-    // Check for zero FILETIME (file temporarily missing during atomic save)
+    // FILETIMEがゼロかチェック（アトミック保存中にファイルが一時的に消失する場合）
     if (current.dwLowDateTime == 0 && current.dwHighDateTime == 0) return;
 
     if (CompareFileTime(&current, &last_write_time_) != 0) {

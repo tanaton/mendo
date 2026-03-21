@@ -41,7 +41,7 @@ struct GestureRenderState {
     float overlay_alpha = 0.0f;
 };
 
-// Side-pane rendering parameters bundled into a single struct.
+// サイドペイン描画パラメータを一つの構造体にまとめたもの。
 struct SidePaneState {
     const PaneRect& file_pane_rect;
     const PaneRect& toc_pane_rect;
@@ -80,15 +80,15 @@ public:
     void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
     Theme& GetThemeMut() noexcept { return theme_; }
 
-    // Set callback invoked when the D2D render target is recreated after device loss.
-    // The callback receives the new render target pointer.
+    // デバイスロスト後にD2Dレンダーターゲットが再作成された際に呼び出されるコールバックを設定。
+    // コールバックには新しいレンダーターゲットのポインタが渡される。
     void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
 
     void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }
     void InvalidateTocPaneCache() noexcept { toc_pane_cache_.dirty = true; }
 
 private:
-    // Pre-pass: apply drawing effects (syntax highlighting, link colors) to layouts.
+    // 描画前パス: レイアウトに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
                              int first_visible, float viewport_bottom);
 
@@ -99,12 +99,12 @@ private:
     void DrawSplitter(float x, float height);
     void DrawNavOverlay(const PaneRect& md_pane_rect,
                         bool can_back, bool can_forward,
-                        int hovered);  // 0=none, 1=back, 2=forward
+                        int hovered);  // 0=なし, 1=戻る, 2=進む
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
 
     D2DRenderBackend backend_;
-    // Convenience accessors (avoid verbose backend_.Get... in 600-line rendering code)
+    // 簡易アクセサ（600行の描画コード内で冗長なbackend_.Get...を避けるため）
     ID2D1HwndRenderTarget* rt() const noexcept { return backend_.GetRenderTarget(); }
     ID2D1Factory* d2d() const noexcept { return backend_.GetD2DFactory(); }
 
@@ -120,7 +120,7 @@ private:
     bool CheckEndDraw();
     bool RecreateRenderTarget();
 
-    // Hit-test buffer for ApplyNodeEffects inline-code background computation.
+    // ApplyNodeEffectsでインラインコード背景を計算するためのヒットテストバッファ。
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     ComPtr<IDWriteTextFormat> icon_font_format_;
@@ -133,8 +133,8 @@ private:
     ComPtr<IDWriteTextFormat> fmt_gesture_overlay_;
 
 public:
-    // Pane bitmap cache — side panes are rendered to off-screen bitmaps
-    // and only re-rendered when their content changes.
+    // ペインビットマップキャッシュ — サイドペインはオフスクリーンビットマップに描画され、
+    // 内容が変更された場合のみ再描画される。
     struct PaneCache {
         ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
         bool dirty = true;

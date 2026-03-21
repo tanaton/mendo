@@ -5,7 +5,7 @@
 #include <shellapi.h>
 
 // ============================================================
-// Context menu
+// コンテキストメニュー
 // ============================================================
 
 void App::OnContextMenu(int screen_x, int screen_y) {
@@ -46,7 +46,7 @@ void App::OnContextMenu(int screen_x, int screen_y) {
 }
 
 // ============================================================
-// Right-click gesture
+// 右クリックジェスチャー
 // ============================================================
 
 bool App::OnRButtonDown(int px, int py) {
@@ -111,7 +111,7 @@ void App::OnXButtonForward() {
 }
 
 // ============================================================
-// Hit Testing
+// ヒットテスト
 // ============================================================
 
 App::HitResult App::HitTest(int screen_x, int screen_y) const {
@@ -130,7 +130,7 @@ std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const {
 }
 
 // ============================================================
-// Mouse events
+// マウスイベント
 // ============================================================
 
 void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout) {
@@ -232,7 +232,7 @@ void App::OnLButtonDown(int px, int py) {
             return;
     }
 
-    // MD pane: selection logic
+    // MDペイン: 選択ロジック
     SetCapture(hwnd_);
     viewport_.SetClickStart(px, py);
     auto hit = HitTest(px, py);
@@ -318,7 +318,7 @@ void App::OnMouseMove(int px, int py) {
         return;
     }
 
-    // MD pane: drag selection
+    // MDペイン: ドラッグ選択
     if (!viewport_.IsDragging()) return;
     auto hit = HitTest(px, py);
     if (hit.node_index >= 0) {
@@ -424,7 +424,7 @@ void App::OnLButtonDblClk(int px, int py) {
 }
 
 // ============================================================
-// Selection / Clipboard
+// 選択 / クリップボード
 // ============================================================
 
 void App::ClearSelection() {

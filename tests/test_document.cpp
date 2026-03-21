@@ -14,7 +14,7 @@ TEST(DocumentTest, FromMarkdownBasic) {
     EXPECT_FALSE(doc.IsEmpty());
     EXPECT_EQ(doc.GetFilePath(), L"C:\\test.md");
     EXPECT_GE(doc.GetNodes().size(), 2u);
-    // Should have a heading in TOC
+    // TOCに見出しが含まれるべき
     EXPECT_FALSE(doc.GetToc().GetEntries().empty());
     EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"Hello");
 }
@@ -56,14 +56,14 @@ TEST(DocumentTest, ReplaceContent) {
     EXPECT_FALSE(doc.GetToc().GetEntries().empty());
     EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"First");
 
-    // Replace with new content
+    // 新しいコンテンツで置き換え
     auto doc2 = Document::FromMarkdown("# Second\n## Sub", L"");
     doc.ReplaceContent(doc2.GetNodesMut());
 
-    // TOC should be rebuilt
+    // TOCが再構築されるべき
     EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);
     EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"Second");
-    // File path should be unchanged
+    // ファイルパスは変更されないべき
     EXPECT_EQ(doc.GetFilePath(), L"C:\\test.md");
 }
 
@@ -71,7 +71,7 @@ TEST(DocumentTest, GetNodesMut) {
     auto doc = Document::FromMarkdown("hello", L"test.md");
     ASSERT_FALSE(doc.IsEmpty());
 
-    // Modify nodes through mutable reference
+    // 可変参照を通じてノードを変更
     auto& nodes = doc.GetNodesMut();
     nodes[0].text = L"modified";
     EXPECT_EQ(doc.GetNodes()[0].text, L"modified");

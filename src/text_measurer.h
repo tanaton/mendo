@@ -3,8 +3,8 @@
 #include "layout_cache.h"
 #include "theme.h"
 
-// Abstract text measurement interface.
-// Separates DirectWrite dependency from layout logic, enabling mock-based testing.
+// テキスト計測の抽象インターフェース。
+// DirectWrite依存をレイアウトロジックから分離し、モックベースのテストを可能にする。
 class ITextMeasurer {
 public:
     virtual ~ITextMeasurer() = default;
@@ -13,11 +13,11 @@ public:
     virtual bool RecreateFormats() = 0;
     virtual void UpdateTheme(const Theme& theme) noexcept = 0;
 
-    // Create and measure a text layout for a non-table node.
-    // Sets entry.text_layout, entry.height, entry.layout_dirty, entry.effects_applied.
+    // 非テーブルノードのテキストレイアウトを作成・計測する。
+    // entry.text_layout, entry.height, entry.layout_dirty, entry.effects_applied を設定する。
     virtual void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) = 0;
 
-    // Create and measure table cell layouts.
-    // Sets entry.cell_layouts, entry.col_widths, entry.row_heights, entry.height, entry.layout_dirty.
+    // テーブルセルのレイアウトを作成・計測する。
+    // entry.cell_layouts, entry.col_widths, entry.row_heights, entry.height, entry.layout_dirty を設定する。
     virtual void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) = 0;
 };

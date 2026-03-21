@@ -72,7 +72,7 @@ TEST_F(FileLoaderTest, BomOnlyFileReturnsEmpty) {
     EXPECT_TRUE(content.empty());
 }
 
-// ---- File watcher tests ----
+// ---- ファイル監視テスト ----
 
 TEST_F(FileLoaderTest, WatcherDetectsChange) {
     auto path = WriteFile(L"watch.md", "original");
@@ -81,11 +81,11 @@ TEST_F(FileLoaderTest, WatcherDetectsChange) {
     bool changed = false;
     loader.StartWatching(path.wstring(), [&]() { changed = true; });
 
-    // Modify file after a small delay to ensure different timestamp
+    // 異なるタイムスタンプを確保するため、少し待ってからファイルを変更
     Sleep(300);
     WriteFile(L"watch.md", "modified");
 
-    // Poll for changes
+    // 変更をポーリング
     loader.CheckForChanges();
     EXPECT_TRUE(changed);
 }
@@ -115,10 +115,10 @@ TEST_F(FileLoaderTest, StopWatchingPreventsCallback) {
     EXPECT_FALSE(changed);
 }
 
-// ---- Additional edge cases ----
+// ---- 追加のエッジケース ----
 
 TEST_F(FileLoaderTest, LargeFile) {
-    // Create a 1MB file
+    // 1MBのファイルを作成
     std::string large_content(1024 * 1024, 'A');
     auto path = WriteFile(L"large.md", large_content);
     auto content = FileLoader::LoadFile(path.wstring());
@@ -140,16 +140,16 @@ TEST_F(FileLoaderTest, WatcherRestartOnNewFile) {
     int change_count = 0;
     loader.StartWatching(path1.wstring(), [&]() { change_count++; });
 
-    // Switch to watching a different file
+    // 別のファイルの監視に切り替え
     loader.StartWatching(path2.wstring(), [&]() { change_count++; });
 
-    // Modify original file - should NOT trigger callback
+    // 元のファイルを変更 - コールバックが発火しないこと
     Sleep(300);
     WriteFile(L"watch1.md", "modified1");
     loader.CheckForChanges();
     EXPECT_EQ(change_count, 0);
 
-    // Modify new file - should trigger callback
+    // 新しいファイルを変更 - コールバックが発火すること
     Sleep(300);
     WriteFile(L"watch2.md", "modified2");
     loader.CheckForChanges();
@@ -161,7 +161,7 @@ TEST_F(FileLoaderTest, WatcherDestructorDoesNotCrash) {
     {
         FileLoader loader;
         loader.StartWatching(path.wstring(), []() {});
-        // Destructor should safely stop watching
+        // デストラクタで安全に監視が停止されること
     }
 }
 

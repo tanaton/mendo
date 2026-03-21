@@ -53,7 +53,7 @@ TEST_F(DocumentServiceTest, ReloadFile) {
     EXPECT_TRUE(service.LoadFile(path, doc));
     EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"First");
 
-    // Modify the file
+    // ファイルを変更
     {
         std::ofstream ofs(path, std::ios::binary);
         ofs << "# Second\n## Sub";
@@ -78,6 +78,6 @@ TEST_F(DocumentServiceTest, NeedsLoadingAnimationSmallFile) {
 }
 
 TEST_F(DocumentServiceTest, NeedsLoadingAnimationNonexistent) {
-    // Non-existent file reports needing animation (can't determine size)
+    // 存在しないファイルはアニメーション必要と報告（サイズを判定できないため）
     EXPECT_TRUE(DocumentService::NeedsLoadingAnimation(L"C:\\nonexistent\\file.md"));
 }

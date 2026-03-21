@@ -47,7 +47,7 @@ TEST(ExtractSelectedText, MultipleNodesFullSelection) {
 TEST(ExtractSelectedText, MultipleNodesPartialSelection) {
     auto nodes = ParseMarkdown("First\n\nSecond\n\nThird");
     ASSERT_EQ(nodes.size(), 3u);
-    // Select from middle of "First" to middle of "Third"
+    // "First"の途中から"Third"の途中まで選択
     auto sel = TextSelection::MakeOrdered(0, 2, 2, 3);
     auto result = ExtractSelectedText(nodes, sel);
     EXPECT_EQ(result.substr(0, 3), L"rst");
@@ -61,21 +61,21 @@ TEST(ExtractSelectedText, NewlineBetweenNodes) {
     auto sel = TextSelection::MakeOrdered(
         0, 0, 1, static_cast<uint32_t>(nodes[1].text.size()));
     auto result = ExtractSelectedText(nodes, sel);
-    // Should have \r\n between nodes
+    // ノード間に\r\nが含まれるべき
     EXPECT_NE(result.find(L"\r\n"), std::wstring::npos);
 }
 
 TEST(ExtractSelectedText, EmptyNodes) {
     std::pmr::vector<Node> nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
-    // Out of range nodes - should not crash
+    // 範囲外のノード - クラッシュしないこと
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
 }
 
 TEST(ExtractSelectedText, EndBeyondTextSize) {
     auto nodes = ParseMarkdown("Short");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 1000);
-    // end_pos beyond text size should be clamped
+    // end_posがテキストサイズを超える場合はクランプされるべき
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Short");
 }
 
@@ -100,7 +100,7 @@ TEST(FindLinkAtPosition, NoLinks) {
 TEST(FindLinkAtPosition, LinkFound) {
     auto nodes = ParseMarkdown("[click](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
-    // Position within the link text
+    // リンクテキスト内の位置
     auto result = FindLinkAtPosition(nodes[0], 0);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), L"https://example.com");
@@ -109,7 +109,7 @@ TEST(FindLinkAtPosition, LinkFound) {
 TEST(FindLinkAtPosition, PositionOutsideLink) {
     auto nodes = ParseMarkdown("before [link](https://example.com) after");
     ASSERT_EQ(nodes.size(), 1u);
-    // Position in "before" text (should not be a link)
+    // "before"テキスト内の位置（リンクではないはず）
     auto result = FindLinkAtPosition(nodes[0], 0);
     EXPECT_FALSE(result.has_value());
 }
@@ -125,7 +125,7 @@ TEST(FindLinkAtPosition, InternalLink) {
 TEST(FindLinkAtPosition, PositionAtLinkBoundary) {
     auto nodes = ParseMarkdown("[link](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
-    // Position at the last character of the link
+    // リンクの最後の文字の位置
     uint32_t last_pos = static_cast<uint32_t>(nodes[0].text.size()) - 1;
     auto result = FindLinkAtPosition(nodes[0], last_pos);
     ASSERT_TRUE(result.has_value());
@@ -174,7 +174,7 @@ TEST(FindAnchorNodeIndex, FindSecondHeading) {
 
 TEST(FindAnchorNodeIndex, CaseInsensitiveSearch) {
     auto nodes = ParseMarkdown("# Hello World");
-    // Anchor is "hello-world", search with uppercase
+    // アンカーは"hello-world"、大文字で検索
     int idx = FindAnchorNodeIndex(nodes, L"Hello-World");
     EXPECT_EQ(idx, 0);
 }
@@ -253,21 +253,21 @@ TEST(FindWordBoundaries, WordWithNumbers) {
 
 TEST(FindWordBoundaries, PositionBeyondEnd) {
     auto result = FindWordBoundaries(L"hello", 100);
-    // Should clamp to last character
+    // 最後の文字にクランプされるべき
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 5u);
 }
 
 TEST(FindWordBoundaries, NonAlphanumericAtPosition) {
-    // CJK characters are not treated as word characters by IsCharAlphaNumericW
-    // so double-click on them should not select
+    // CJK文字はIsCharAlphaNumericWで単語文字として扱われないため
+    // ダブルクリックでは選択されないべき
     auto result = FindWordBoundaries(L"テスト test", 0);
     EXPECT_FALSE(result.found);
 }
 
 TEST(FindWordBoundaries, AsciiWordAfterCjk) {
-    // Click on the ASCII word after CJK should work
+    // CJKの後のASCII単語をクリックすると動作するべき
     auto result = FindWordBoundaries(L"テスト test", 4);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 4u);
@@ -319,13 +319,13 @@ TEST(BuildTitleString, FilenameOnly) {
 }
 
 // ============================================================
-// Additional edge cases
+// 追加のエッジケース
 // ============================================================
 
-// ---- ExtractSelectedText additional tests ----
+// ---- ExtractSelectedText 追加テスト ----
 
 TEST(ExtractSelectedText, SelectionSpanningTableNode) {
-    // Test with a table-type node (has linearized text)
+    // テーブル型ノード（線形化テキストを持つ）でのテスト
     Node table_node;
     table_node.type = NodeType::Table;
     table_node.text = L"A\tB\n1\t2";
@@ -355,7 +355,7 @@ TEST(ExtractSelectedText, StartNodeOutOfRange) {
     sel.end_pos = 5;
     sel.active = true;
 
-    // Should not crash, just skip invalid nodes
+    // クラッシュせず、無効なノードをスキップするべき
     auto result = ExtractSelectedText(nodes, sel);
     EXPECT_FALSE(result.empty());
 }
@@ -374,11 +374,11 @@ TEST(ExtractSelectedText, EndNodeOutOfRange) {
     sel.active = true;
 
     auto result = ExtractSelectedText(nodes, sel);
-    // Should include at least the first node's text
+    // 少なくとも最初のノードのテキストが含まれるべき
     EXPECT_FALSE(result.empty());
 }
 
-// ---- FindLinkAtPosition additional tests ----
+// ---- FindLinkAtPosition 追加テスト ----
 
 TEST(FindLinkAtPosition, MultipleLinkRuns) {
     Node node;
@@ -402,18 +402,18 @@ TEST(FindLinkAtPosition, MultipleLinkRuns) {
     ASSERT_TRUE(result2.has_value());
     EXPECT_EQ(*result2, L"https://b.com");
 
-    // Between the two links
+    // 2つのリンクの間
     auto gap = FindLinkAtPosition(node, 5);
     EXPECT_FALSE(gap.has_value());
 }
 
-// ---- FindLinkAtPosition: table cell links ----
+// ---- FindLinkAtPosition: テーブルセル内のリンク ----
 
 TEST(FindLinkAtPosition, TableCellLinkFound) {
-    // Build a table node with a link in cell (1, 1):
+    // セル(1, 1)にリンクを持つテーブルノードを構築:
     // | Name | URL     |
     // | foo  | [bar](https://example.com) |
-    // Linearized text: "Name\tURL\nfoo\tbar"
+    // 線形化テキスト: "Name\tURL\nfoo\tbar"
     Node node;
     node.type = NodeType::Table;
 
@@ -442,22 +442,22 @@ TEST(FindLinkAtPosition, TableCellLinkFound) {
     data.cells.push_back(d1);
     node.table_rows.push_back(data);
 
-    // Linearized: "Name\tURL\nfoo\tbar"
-    //              0123 4567 8901 2345
-    // "Name" = offset 0-3, tab at 4, "URL" = 5-7, newline at 8
-    // "foo" = offset 9-11, tab at 12, "bar" = 13-15
+    // 線形化: "Name\tURL\nfoo\tbar"
+    //          0123 4567 8901 2345
+    // "Name" = オフセット 0-3, タブ 4, "URL" = 5-7, 改行 8
+    // "foo" = オフセット 9-11, タブ 12, "bar" = 13-15
     node.text = L"Name\tURL\nfoo\tbar";
 
-    // Position in "bar" (offset 13) should find the link
+    // "bar"内の位置（オフセット13）でリンクが見つかるべき
     auto result = FindLinkAtPosition(node, 13);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, L"https://example.com");
 
-    // Position in "Name" (offset 1) should not find a link
+    // "Name"内の位置（オフセット1）ではリンクが見つからないべき
     auto no_link = FindLinkAtPosition(node, 1);
     EXPECT_FALSE(no_link.has_value());
 
-    // Position in "foo" (offset 9) should not find a link
+    // "foo"内の位置（オフセット9）ではリンクが見つからないべき
     auto no_link2 = FindLinkAtPosition(node, 9);
     EXPECT_FALSE(no_link2.has_value());
 }
@@ -471,7 +471,7 @@ TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown) {
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
 
-    // Verify the link run exists in the cell
+    // セル内にリンクのrunが存在することを確認
     ASSERT_GE(nodes[0].table_rows.size(), 2u);
     const auto& data_row = nodes[0].table_rows[1];
     ASSERT_GE(data_row.cells.size(), 2u);
@@ -505,7 +505,7 @@ TEST(FindLinkAtPosition, TableCellInternalLink) {
 }
 
 TEST(FindLinkAtPosition, TablePositionOnSeparator) {
-    // Position landing on tab/newline separator should return no link
+    // タブ/改行区切り上の位置ではリンクを返さないべき
     Node node;
     node.type = NodeType::Table;
 
@@ -522,20 +522,20 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator) {
     row.cells.push_back(c1);
     node.table_rows.push_back(row);
 
-    // Linearized: "A\tB" → offset 0=A, 1=tab, 2=B
+    // 線形化: "A\tB" → オフセット 0=A, 1=タブ, 2=B
     node.text = L"A\tB";
 
-    // Tab separator (offset 1) should not match any cell
+    // タブ区切り（オフセット1）はどのセルにもマッチしないべき
     auto result = FindLinkAtPosition(node, 1);
     EXPECT_FALSE(result.has_value());
 
-    // "B" (offset 2) should find the link
+    // "B"（オフセット2）でリンクが見つかるべき
     auto link = FindLinkAtPosition(node, 2);
     ASSERT_TRUE(link.has_value());
     EXPECT_EQ(*link, L"https://b.com");
 }
 
-// ---- FindAnchorNodeIndex additional tests ----
+// ---- FindAnchorNodeIndex 追加テスト ----
 
 TEST(FindAnchorNodeIndex, DuplicateAnchors) {
     std::pmr::vector<Node> nodes;
@@ -550,12 +550,12 @@ TEST(FindAnchorNodeIndex, DuplicateAnchors) {
     h2.anchor_id = L"title-1";
     nodes.push_back(h2);
 
-    // First match wins
+    // 最初のマッチが優先される
     EXPECT_EQ(FindAnchorNodeIndex(nodes, L"title"), 0);
     EXPECT_EQ(FindAnchorNodeIndex(nodes, L"title-1"), 1);
 }
 
-// ---- FindWordBoundaries additional tests ----
+// ---- FindWordBoundaries 追加テスト ----
 
 TEST(FindWordBoundaries, SingleCharWord) {
     auto result = FindWordBoundaries(L"a", 0);
@@ -576,7 +576,7 @@ TEST(FindWordBoundaries, MixedPunctuationAndWords) {
     EXPECT_EQ(result.end, 6u);
 }
 
-// ---- ExtractFilename additional tests ----
+// ---- ExtractFilename 追加テスト ----
 
 TEST(ExtractFilename, UncPath) {
     EXPECT_EQ(ExtractFilename(L"\\\\server\\share\\file.md"), L"file.md");

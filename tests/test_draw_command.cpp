@@ -4,8 +4,8 @@
 #include "mock_text_measurer.h"
 #include "parser.h"
 
-// Tests for CommandGenerator with MockTextMeasurer (no COM / DirectWrite required).
-// Uses the mock so entry.text_layout is null — tests structural command output.
+// MockTextMeasurerを使用したCommandGeneratorのテスト（COM / DirectWrite不要）。
+// モックを使用するためentry.text_layoutはnull — 構造的なコマンド出力をテストする。
 
 class CmdGenTest : public ::testing::Test {
 protected:
@@ -18,10 +18,10 @@ protected:
         theme_ = GetLightTheme();
         ASSERT_TRUE(engine_.Init(&mock_, theme_));
         gen_.SetTheme(&theme_);
-        gen_.SetFormats({nullptr, nullptr}); // No real DWrite formats in mock tests
+        gen_.SetFormats({nullptr, nullptr}); // モックテストでは実際のDWriteフォーマットなし
     }
 
-    // Helper: parse markdown, compute layout, generate commands for the MD pane.
+    // ヘルパー: Markdownをパースし、レイアウトを計算し、MDペイン用のコマンドを生成する。
     DrawCommandList Generate(const std::string& md, float viewport_w = 800.0f) {
         auto nodes = ParseMarkdown(md);
         LayoutCache cache;
@@ -32,11 +32,11 @@ protected:
     }
 };
 
-// ---- Structure tests ----
+// ---- 構造テスト ----
 
 TEST_F(CmdGenTest, EmptyDocumentProducesClipAndTransformOnly) {
     auto cmds = Generate("");
-    // Expect: PushClip, SetTransform, SetTransform(identity), PopClip
+    // 期待値: PushClip, SetTransform, SetTransform(単位行列), PopClip
     ASSERT_GE(cmds.size(), 4u);
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
@@ -59,10 +59,10 @@ TEST_F(CmdGenTest, TransformsArePaired) {
     for (const auto& cmd : cmds) {
         if (std::holds_alternative<SetTransformCmd>(cmd)) transforms++;
     }
-    EXPECT_EQ(transforms, 2); // scroll transform + identity reset
+    EXPECT_EQ(transforms, 2); // スクロール変換 + 単位行列リセット
 }
 
-// ---- HorizontalRule ----
+// ---- 水平線 ----
 
 TEST_F(CmdGenTest, HorizontalRuleGeneratesDrawLine) {
     auto cmds = Generate("---");
@@ -73,7 +73,7 @@ TEST_F(CmdGenTest, HorizontalRuleGeneratesDrawLine) {
     EXPECT_GE(line_count, 1);
 }
 
-// ---- CodeBlock ----
+// ---- コードブロック ----
 
 TEST_F(CmdGenTest, CodeBlockGeneratesRoundedRectBackground) {
     auto cmds = Generate("```\ncode\n```");
@@ -84,7 +84,7 @@ TEST_F(CmdGenTest, CodeBlockGeneratesRoundedRectBackground) {
     EXPECT_GE(rounded_count, 1);
 }
 
-// ---- Table ----
+// ---- テーブル ----
 
 TEST_F(CmdGenTest, TableGeneratesLinesAndRects) {
     auto cmds = Generate("| A | B |\n|---|---|\n| 1 | 2 |");
@@ -93,12 +93,12 @@ TEST_F(CmdGenTest, TableGeneratesLinesAndRects) {
         if (std::holds_alternative<DrawLineCmd>(cmd)) lines++;
         if (std::holds_alternative<FillRectCmd>(cmd)) rects++;
     }
-    // Table should produce border lines and row backgrounds
+    // テーブルは罫線と行背景を生成するべき
     EXPECT_GT(lines, 0);
     EXPECT_GT(rects, 0);
 }
 
-// ---- List item ----
+// ---- リスト項目 ----
 
 TEST_F(CmdGenTest, UnorderedListGeneratesFillEllipse) {
     auto cmds = Generate("- Item");
@@ -118,14 +118,14 @@ TEST_F(CmdGenTest, NestedListGeneratesDrawEllipse) {
     EXPECT_GE(outline_ellipses, 1);
 }
 
-// ---- BlockQuote ----
+// ---- 引用ブロック ----
 
 TEST_F(CmdGenTest, BlockQuoteGeneratesBarLine) {
     auto cmds = Generate("> Quote");
     int lines = 0;
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
-            // BlockQuote bar is a vertical line (same x for both points)
+            // 引用ブロックのバーは垂直線（両端のxが同じ）
             if (std::abs(line->p0.x - line->p1.x) < 0.01f)
                 lines++;
         }
@@ -133,10 +133,10 @@ TEST_F(CmdGenTest, BlockQuoteGeneratesBarLine) {
     EXPECT_GE(lines, 1);
 }
 
-// ---- Viewport culling ----
+// ---- ビューポートカリング ----
 
 TEST_F(CmdGenTest, ViewportCullingExcludesOffscreenNodes) {
-    // Create many horizontal rules; these produce DrawLineCmd even without text_layout.
+    // 多数の水平線を作成。text_layoutがなくてもDrawLineCmdを生成する。
     std::string md;
     for (int i = 0; i < 50; i++) md += "---\n\n";
     auto nodes = ParseMarkdown(md);
@@ -144,18 +144,18 @@ TEST_F(CmdGenTest, ViewportCullingExcludesOffscreenNodes) {
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
-    // Use a small viewport: [0, 100) -> should only see a few nodes
+    // 小さなビューポートを使用: [0, 100) -> 少数のノードのみ表示されるべき
     PaneRect md_pane{0, 0, 800.0f, 100.0f};
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
-    // Full viewport should have more commands
+    // フルビューポートではより多くのコマンドがあるべき
     PaneRect md_pane_full{0, 0, 800.0f, 50000.0f};
     auto cmds_full = gen_.GenerateMdPane(nodes, cache, md_pane_full, 0.0f, TextSelection{});
 
     EXPECT_LT(cmds.size(), cmds_full.size());
 }
 
-// ---- DrawLineCmd properties ----
+// ---- DrawLineCmdのプロパティ ----
 
 TEST_F(CmdGenTest, HorizontalRuleColorMatchesTheme) {
     auto cmds = Generate("---");
@@ -169,11 +169,11 @@ TEST_F(CmdGenTest, HorizontalRuleColorMatchesTheme) {
     }
 }
 
-// ---- Multiple nodes ----
+// ---- 複数ノード ----
 
 TEST_F(CmdGenTest, MixedContentGeneratesVariousCommands) {
     auto cmds = Generate("# Heading\n\nParagraph\n\n---\n\n- List\n\n> Quote\n\n```\ncode\n```");
-    // Should have commands from all node types
+    // すべてのノード種別からのコマンドがあるべき
     bool has_line = false, has_ellipse = false, has_rounded = false;
     for (const auto& cmd : cmds) {
         if (std::holds_alternative<DrawLineCmd>(cmd)) has_line = true;
@@ -185,11 +185,11 @@ TEST_F(CmdGenTest, MixedContentGeneratesVariousCommands) {
     EXPECT_TRUE(has_rounded);
 }
 
-// ---- Ordered list ----
+// ---- 番号付きリスト ----
 
 TEST_F(CmdGenTest, OrderedListGeneratesDrawText) {
     auto cmds = Generate("1. First\n2. Second\n3. Third");
-    // Ordered list should not produce bullet ellipses
+    // 番号付きリストは箇条書きの楕円を生成しないべき
     int fill_ellipses = 0;
     for (const auto& cmd : cmds) {
         if (std::holds_alternative<FillEllipseCmd>(cmd)) fill_ellipses++;
@@ -197,11 +197,11 @@ TEST_F(CmdGenTest, OrderedListGeneratesDrawText) {
     EXPECT_EQ(fill_ellipses, 0);
 }
 
-// ---- Task list ----
+// ---- タスクリスト ----
 
 TEST_F(CmdGenTest, TaskListItemGeneratesNoEllipse) {
     auto cmds = Generate("- [x] Done\n- [ ] Not done");
-    // Task list items should not generate bullet ellipses
+    // タスクリスト項目は箇条書きの楕円を生成しないべき
     int fill_ellipses = 0;
     for (const auto& cmd : cmds) {
         if (std::holds_alternative<FillEllipseCmd>(cmd)) fill_ellipses++;
@@ -209,7 +209,7 @@ TEST_F(CmdGenTest, TaskListItemGeneratesNoEllipse) {
     EXPECT_EQ(fill_ellipses, 0);
 }
 
-// ---- Selection highlighting ----
+// ---- 選択ハイライト ----
 
 TEST_F(CmdGenTest, SelectionGeneratesFillRects) {
     auto nodes = ParseMarkdown("Hello world paragraph");
@@ -227,17 +227,17 @@ TEST_F(CmdGenTest, SelectionGeneratesFillRects) {
     PaneRect pane{0, 0, 800.0f, 2000.0f};
     auto cmds = gen_.GenerateMdPane(nodes, cache, pane, 0.0f, sel);
 
-    // With mock measurer, text_layout is null so no selection rects generated
-    // But structure should be valid: PushClip at start, PopClip at end
+    // モック計測器ではtext_layoutがnullなので選択矩形は生成されない
+    // ただし構造は有効であるべき: 先頭にPushClip、末尾にPopClip
     ASSERT_GE(cmds.size(), 4u);
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
 }
 
-// ---- Scrolled viewport ----
+// ---- スクロール済みビューポート ----
 
 TEST_F(CmdGenTest, ScrolledViewportCullsTopNodes) {
-    // Create multiple paragraphs
+    // 複数の段落を作成
     std::string md;
     for (int i = 0; i < 20; i++) md += "Paragraph " + std::to_string(i) + "\n\n";
 
@@ -253,12 +253,12 @@ TEST_F(CmdGenTest, ScrolledViewportCullsTopNodes) {
     auto cmds_top = gen_.GenerateMdPane(nodes, cache, pane, 0.0f, TextSelection{});
     auto cmds_mid = gen_.GenerateMdPane(nodes, cache, pane, half_scroll, TextSelection{});
 
-    // Both should have valid clip/transform structure
+    // 両方とも有効なclip/transform構造を持つべき
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds_top.front()));
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds_mid.front()));
 }
 
-// ---- Code block with syntax language ----
+// ---- 言語指定付きコードブロック ----
 
 TEST_F(CmdGenTest, CodeBlockWithLanguageGeneratesBackground) {
     auto cmds = Generate("```cpp\nint x = 42;\n```");
@@ -269,7 +269,7 @@ TEST_F(CmdGenTest, CodeBlockWithLanguageGeneratesBackground) {
     EXPECT_GE(rounded_count, 1);
 }
 
-// ---- Multiple horizontal rules ----
+// ---- 複数の水平線 ----
 
 TEST_F(CmdGenTest, MultipleHorizontalRulesGenerateMultipleLines) {
     auto cmds = Generate("---\n\n---\n\n---");
@@ -280,13 +280,13 @@ TEST_F(CmdGenTest, MultipleHorizontalRulesGenerateMultipleLines) {
     EXPECT_GE(line_count, 3);
 }
 
-// ---- BlockQuote bar color matches theme ----
+// ---- 引用ブロックのバー色がテーマと一致 ----
 
 TEST_F(CmdGenTest, BlockQuoteBarColorMatchesTheme) {
     auto cmds = Generate("> Quote text");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
-            // BlockQuote bar: vertical line (same x)
+            // 引用ブロックのバー: 垂直線（xが同じ）
             if (std::abs(line->p0.x - line->p1.x) < 0.01f) {
                 EXPECT_FLOAT_EQ(line->color.r, theme_.blockquote_bar_color.r);
                 EXPECT_FLOAT_EQ(line->color.g, theme_.blockquote_bar_color.g);
@@ -297,7 +297,7 @@ TEST_F(CmdGenTest, BlockQuoteBarColorMatchesTheme) {
     }
 }
 
-// ---- Dark theme test ----
+// ---- ダークテーマテスト ----
 
 TEST_F(CmdGenTest, DarkThemeTableGeneratesCommands) {
     theme_ = GetDarkTheme();
@@ -312,16 +312,16 @@ TEST_F(CmdGenTest, DarkThemeTableGeneratesCommands) {
     EXPECT_GT(lines, 0);
 }
 
-// ---- Empty table ----
+// ---- 空のテーブル ----
 
 TEST_F(CmdGenTest, EmptyDocumentNoExtraCommands) {
     auto cmds = Generate("");
-    // Only clip/transform commands, no drawing commands
+    // clip/transformコマンドのみで、描画コマンドはない
     for (size_t i = 1; i < cmds.size() - 1; i++) {
-        // Middle commands should only be SetTransformCmd (identity reset)
+        // 中間のコマンドはSetTransformCmd（単位行列リセット）のみであるべき
         bool is_structural = std::holds_alternative<SetTransformCmd>(cmds[i]);
         if (!is_structural) {
-            // Allow but don't strictly require only structural commands
+            // 構造的コマンドのみを厳密には要求しないが許容する
         }
     }
 }

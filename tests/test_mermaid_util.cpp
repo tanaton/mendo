@@ -2,7 +2,7 @@
 #include "mermaid_util.h"
 
 // ============================================================
-// JsEscape
+// JsEscape テスト
 // ============================================================
 
 TEST(JsEscape, EmptyString) {
@@ -46,7 +46,7 @@ TEST(JsEscape, DollarEscaped) {
 }
 
 TEST(JsEscape, ControlCharEscaped) {
-    // Bell character (0x07)
+    // ベル文字 (0x07)
     std::wstring input(1, L'\x07');
     EXPECT_EQ(mermaid_util::JsEscape(input), L"\\u0007");
 }
@@ -54,9 +54,9 @@ TEST(JsEscape, ControlCharEscaped) {
 TEST(JsEscape, MermaidDiagramCode) {
     std::wstring code = L"graph TD;\n  A-->B;\n  B-->C;";
     auto escaped = mermaid_util::JsEscape(code);
-    // Should not contain raw newlines
+    // 生の改行を含まないこと
     EXPECT_EQ(escaped.find(L'\n'), std::wstring::npos);
-    // Should contain escaped newlines
+    // エスケープされた改行を含むこと
     EXPECT_NE(escaped.find(L"\\n"), std::wstring::npos);
 }
 
@@ -66,12 +66,12 @@ TEST(JsEscape, AllSpecialChars) {
 }
 
 // ============================================================
-// SimpleHash
+// SimpleHash テスト
 // ============================================================
 
 TEST(SimpleHash, EmptyString) {
     auto hash = mermaid_util::SimpleHash(L"");
-    EXPECT_EQ(hash.size(), 16u); // 16 hex chars
+    EXPECT_EQ(hash.size(), 16u); // 16進数文字16文字
 }
 
 TEST(SimpleHash, DeterministicOutput) {
@@ -89,7 +89,7 @@ TEST(SimpleHash, DifferentInputsDifferentHashes) {
 TEST(SimpleHash, HashLength) {
     auto hash = mermaid_util::SimpleHash(L"test input");
     EXPECT_EQ(hash.size(), 16u);
-    // Should be valid hex characters
+    // 有効な16進数文字であること
     for (wchar_t c : hash) {
         EXPECT_TRUE((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'));
     }

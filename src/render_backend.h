@@ -6,8 +6,8 @@
 
 using Microsoft::WRL::ComPtr;
 
-// Abstract interface for render backend (D2D factories, render target, DPI).
-// Brushes and text formats remain in Renderer (abstraction cost too high).
+// レンダーバックエンドの抽象インターフェース（D2Dファクトリ、レンダーターゲット、DPI）。
+// ブラシとテキストフォーマットは抽象化コストが高すぎるためRendererに残す。
 class IRenderBackend {
 public:
     virtual ~IRenderBackend() = default;

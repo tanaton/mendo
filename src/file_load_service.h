@@ -4,36 +4,36 @@
 #include "layout_cache.h"
 #include <string>
 
-// Manages file loading orchestration and loading animation state.
-// No Win32 dependency — fully testable.
+// ファイル読み込みのオーケストレーションとローディングアニメーション状態を管理。
+// Win32非依存 — 完全にテスト可能。
 class FileLoadService {
 public:
     explicit FileLoadService(DocumentService& doc_service) noexcept;
 
-    // ---- Loading animation state ----
+    // ---- ローディングアニメーション状態 ----
 
     bool IsLoading() const noexcept { return loading_; }
     float GetLoadingAngle() const noexcept { return loading_angle_; }
 
-    // Start loading animation for a file.
+    // ファイルのローディングアニメーションを開始。
     void StartLoading(std::wstring_view path);
 
-    // Stop loading animation.
+    // ローディングアニメーションを停止。
     void StopLoading() noexcept;
 
-    // Advance loading animation by one frame.
+    // ローディングアニメーションを1フレーム進める。
     void TickLoadingAnimation() noexcept;
 
-    // ---- File loading ----
+    // ---- ファイル読み込み ----
 
-    // Execute file load using the stored loading path.
-    // Returns true on success. Caller should read doc for directory/file_path.
+    // 保存されたローディングパスを使ってファイル読み込みを実行。
+    // 成功時にtrueを返す。呼び出し元はdocからディレクトリ/ファイルパスを参照すること。
     bool ExecuteLoad(Document& doc, LayoutCache& cache);
 
-    // Reload current file.
+    // 現在のファイルをリロード。
     bool ExecuteReload(Document& doc, LayoutCache& cache);
 
-    // ---- Path access ----
+    // ---- パスアクセス ----
 
     std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }
     void SetLoadingPath(std::wstring_view path) { loading_path_ = path; }

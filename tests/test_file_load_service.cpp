@@ -34,11 +34,11 @@ TEST_F(FileLoadServiceTest, TickLoadingAnimation) {
 
 TEST_F(FileLoadServiceTest, TickLoadingAnimationWraps) {
     service_.StartLoading(L"test.md");
-    // Tick enough times to wrap around (2*pi / 0.15 ≈ 42)
+    // 一周するのに十分な回数ティック（2*pi / 0.15 ≈ 42）
     for (int i = 0; i < 50; ++i) {
         service_.TickLoadingAnimation();
     }
-    // Angle should be less than 2*pi after wrapping
+    // ラップ後の角度は2*pi未満であること
     EXPECT_LT(service_.GetLoadingAngle(), 6.2831853f);
 }
 

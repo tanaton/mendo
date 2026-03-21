@@ -16,25 +16,25 @@
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "uxtheme.lib")
 
-// DWMWA_USE_IMMERSIVE_DARK_MODE (supported on Windows 10 1809+ / Windows 11)
+// DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 10 1809以降 / Windows 11でサポート)
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
-// Visitor helper for std::visit
+// std::visit用のビジターヘルパー
 template <class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 
 void ApplyDarkModeToWindow(HWND hwnd, bool dark) {
-    // Dark title bar
+    // ダークタイトルバー
     BOOL value = dark ? TRUE : FALSE;
     DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
 
-    // Dark scrollbar via explorer theme
+    // エクスプローラーテーマによるダークスクロールバー
     SetWindowTheme(hwnd, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
 }
 
 // ============================================================
-// Initialization
+// 初期化
 // ============================================================
 
 bool App::Init(HWND hwnd) {
@@ -44,21 +44,21 @@ bool App::Init(HWND hwnd) {
 
     layout_service_.emplace(renderer_.GetLayout(), viewport_);
 
-    // Cache DPI scale for PixelToDip (updated in OnDpiChanged)
+    // PixelToDip用にDPIスケールをキャッシュ (OnDpiChangedで更新)
     float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
     cached_dpi_scale_ = (init_dpi > 0.0f) ? (init_dpi / 96.0f) : 1.0f;
 
-    // Initialize Mermaid renderer (WebView2, async)
+    // Mermaidレンダラーを初期化 (WebView2、非同期)
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
         RequestMermaidRenders();
     });
 
-    // When D2D device is lost and render target is recreated, update MermaidRenderer
+    // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、MermaidRendererを更新
     renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
         mermaid_renderer_.SetRenderTarget(new_rt);
     });
 
-    // Apply saved dark mode and zoom preferences
+    // 保存済みのダークモードとズーム設定を適用
     theme_service_.LoadDarkMode();
     viewport_.SetZoomIndex(theme_service_.LoadZoomIndex());
     if (theme_service_.IsDarkMode() || viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
@@ -68,20 +68,20 @@ bool App::Init(HWND hwnd) {
         ApplyDarkModeToWindow(hwnd_, true);
     }
 
-    // Cache system cursors
+    // システムカーソルをキャッシュ
     cursor_arrow_ = LoadCursorW(nullptr, IDC_ARROW);
     cursor_hand_ = LoadCursorW(nullptr, IDC_HAND);
     cursor_ibeam_ = LoadCursorW(nullptr, IDC_IBEAM);
     cursor_sizewe_ = LoadCursorW(nullptr, IDC_SIZEWE);
 
-    // Set up file watch timer (check every 250ms)
+    // ファイル監視タイマーを設定 (250ms毎にチェック)
     SetTimer(hwnd_, TIMER_FILE_WATCH, 250, nullptr);
 
     return true;
 }
 
 // ============================================================
-// Helpers
+// ヘルパー
 // ============================================================
 
 App::DipPoint App::PixelToDip(int px, int py) const {
@@ -119,7 +119,7 @@ void App::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
 }
 
 // ============================================================
-// Pane Layout
+// ペインレイアウト
 // ============================================================
 
 PaneLayout App::GetPaneLayout() const {
@@ -145,7 +145,7 @@ float App::GetMarkdownPaneWidth() const {
 }
 
 // ============================================================
-// Paint / Resize
+// 描画 / リサイズ
 // ============================================================
 
 void App::OnPaint() {
@@ -154,7 +154,7 @@ void App::OnPaint() {
 
     auto layout = GetPaneLayout();
     if (!file_load_service_.IsLoading()) {
-        // Ensure any dirty nodes now visible are laid out at the current width
+        // 現在表示中のダーティなノードを現在の幅でレイアウトする
         int anchor_idx = FindFirstVisibleNode();
         float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
 
@@ -222,7 +222,7 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested) {
 }
 
 // ============================================================
-// Sizing state
+// サイズ変更状態
 // ============================================================
 
 void App::OnEnterSizeMove() {
@@ -236,7 +236,7 @@ void App::OnExitSizeMove() {
 }
 
 // ============================================================
-// File loading
+// ファイル読み込み
 // ============================================================
 
 void App::LoadMarkdownFile(std::wstring_view path) {
@@ -353,7 +353,7 @@ void App::RequestMermaidRenders() {
 }
 
 // ============================================================
-// Mouse wheel / Keyboard
+// マウスホイール / キーボード
 // ============================================================
 
 void App::OnMouseWheel(int px, int py, short delta, bool ctrl) {
@@ -518,7 +518,7 @@ void App::OnDestroy() {
 }
 
 // ============================================================
-// Last file persistence
+// 最後に開いたファイルの永続化
 // ============================================================
 
 void App::SaveLastFilePath() {

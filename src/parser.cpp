@@ -17,12 +17,12 @@ std::wstring GenerateAnchorId(std::wstring_view text) {
         } else if (c == L' ' || c == L'\t') {
             slug += L'-';
         }
-        // CJK characters: keep as-is, but skip punctuation/symbols
+        // CJK文字: そのまま保持するが、句読点・記号はスキップ
         else if (c >= 0x3000) {
             bool skip = false;
-            // CJK Symbols and Punctuation (U+3000-U+303F): 、。「」【】〈〉 etc.
+            // CJK記号と句読点 (U+3000-U+303F): 、。「」【】〈〉 等
             if (c <= 0x303F) skip = true;
-            // Fullwidth ASCII-mapped punctuation
+            // 全角ASCII対応の句読点
             else if (c >= 0xFF01 && c <= 0xFF0F) skip = true; // ！＂＃…（）＊＋，－．／
             else if (c >= 0xFF1A && c <= 0xFF20) skip = true; // ：；＜＝＞？＠
             else if (c >= 0xFF3B && c <= 0xFF40) skip = true; // ［＼］＾＿｀
@@ -31,7 +31,7 @@ std::wstring GenerateAnchorId(std::wstring_view text) {
                 slug += c;
             }
         }
-        // Other characters: skip
+        // その他の文字: スキップ
     }
     return slug;
 }
@@ -66,28 +66,28 @@ struct ParseContext {
         std::pmr::deque<SpanState>{parse_resource.resource()}};
     SpanState current_span;
 
-    // Reusable buffer for UTF-8 → Wide conversion
+    // UTF-8 → Wide変換用の再利用可能バッファ
     std::wstring text_buffer;
 
-    // Block context tracking
+    // ブロックコンテキスト追跡
     int indent_level = 0;
     bool in_code_block = false;
     int blockquote_depth = 0;
 
-    // List tracking
+    // リスト追跡
     std::stack<int, std::pmr::deque<int>> list_counter{
-        std::pmr::deque<int>{parse_resource.resource()}}; // 0 = unordered, >0 = ordered counter
+        std::pmr::deque<int>{parse_resource.resource()}}; // 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
 
-    // Table tracking
+    // テーブル追跡
     bool in_table = false;
     bool in_thead = false;
     TableCell* current_cell = nullptr;
     int current_cell_align = 0;
 
-    // Current node being built
+    // 現在構築中のノード
     Node* current_node = nullptr;
 
-    // Anchor ID uniqueness tracking: slug -> count
+    // アンカーIDの一意性追跡: スラグ -> 出現回数
     std::pmr::unordered_map<std::pmr::wstring, int> anchor_counts{parse_resource.resource()};
 
     void BeginNode(NodeType type) {
@@ -110,7 +110,7 @@ struct ParseContext {
     }
 
     void AppendText(const wchar_t* text, size_t len) {
-        // If inside a table cell, append to cell instead
+        // テーブルセル内の場合、ノードではなくセルに追加
         if (current_cell) {
             uint32_t start = static_cast<uint32_t>(current_cell->text.size());
             current_cell->text.append(text, len);
@@ -125,7 +125,7 @@ struct ParseContext {
         current_node->runs.push_back(MakeRun(start, static_cast<uint32_t>(len)));
     }
 
-    // Convert UTF-8 text to wide and append to the current node/cell.
+    // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する。
     void AppendUtf8(const char* text, int size) {
         int wlen = MultiByteToWideChar(CP_UTF8, 0, text, size, nullptr, 0);
         if (wlen > 0) {
@@ -257,7 +257,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
     switch (type) {
         case MD_BLOCK_CODE:
             ctx->in_code_block = false;
-            // Remove trailing newline if present
+            // 末尾の改行があれば除去
             if (ctx->current_node && !ctx->current_node->text.empty()
                 && ctx->current_node->text.back() == L'\n') {
                 ctx->current_node->text.pop_back();
@@ -266,7 +266,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
                     if (last.length > 0) last.length--;
                 }
             }
-            // Tokenize once at parse time instead of every layout pass
+            // レイアウトパスの度にではなく、パース時に一度だけトークン化する
             if (ctx->current_node && ctx->current_node->code_language != SyntaxLanguage::None) {
                 ctx->current_node->syntax_tokens = Tokenize(
                     ctx->current_node->text, ctx->current_node->code_language);
@@ -411,7 +411,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
                     single_char = static_cast<wchar_t>(codepoint);
                     resolved = &single_char;
                 } else if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
-                    // Supplementary plane: emit UTF-16 surrogate pair
+                    // 補助面: UTF-16サロゲートペアを出力
                     unsigned long adj = codepoint - 0x10000;
                     wchar_t surrogate[2];
                     surrogate[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));

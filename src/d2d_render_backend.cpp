@@ -6,21 +6,21 @@
 bool D2DRenderBackend::Init(HWND hwnd) {
     hwnd_ = hwnd;
 
-    // Query the actual DPI for this window's monitor
+    // このウィンドウのモニターの実際のDPIを取得
     dpi_ = static_cast<float>(GetDpiForWindow(hwnd));
     if (dpi_ == 0.0f) dpi_ = 96.0f;
 
-    // Create D2D factory
+    // D2Dファクトリを作成
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_factory_.GetAddressOf());
     if (FAILED(hr)) return false;
 
-    // Create DirectWrite factory
+    // DirectWriteファクトリを作成
     hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
         __uuidof(IDWriteFactory),
         reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
     if (FAILED(hr)) return false;
 
-    // Create render target with correct initial DPI
+    // 正しい初期DPIでレンダーターゲットを作成
     RECT rc;
     GetClientRect(hwnd, &rc);
 

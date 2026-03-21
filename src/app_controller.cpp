@@ -4,7 +4,7 @@
 ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const {
     ActionList actions;
 
-    // Alt+Arrow: back/forward navigation
+    // Alt+矢印キー: 戻る/進むナビゲーション
     if (event.alt && !event.ctrl) {
         switch (event.key) {
             case VK_LEFT:  actions.emplace_back(NavigateBackAction{}); break;

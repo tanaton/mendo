@@ -13,7 +13,7 @@ bool Renderer::Init(HWND hwnd) {
     RecreateBrushes();
     RecreatePaneFormats();
 
-    // Round caps and joins for smooth gesture trail
+    // 滑らかなジェスチャー軌跡のための丸型キャップと結合
     D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(
         D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
         D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
@@ -87,7 +87,7 @@ void Renderer::Resize(UINT width, UINT height) {
 
 void Renderer::SetDpi(float dpi) {
     backend_.SetDpi(dpi);
-    // Force pane cache recreation at new DPI
+    // 新しいDPIでペインキャッシュを再作成
     file_pane_cache_.Reset();
     toc_pane_cache_.Reset();
 }
@@ -111,7 +111,7 @@ void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom) {
 }
 
 void Renderer::RecreatePaneFormats() {
-    // Recreate all pane / UI text formats at updated theme sizes
+    // テーマサイズの更新に合わせて全ペイン/UIテキストフォーマットを再作成
     icon_font_format_.Reset();
     fmt_list_number_.Reset();
     fmt_pane_icon_.Reset();
@@ -126,7 +126,7 @@ void Renderer::RecreatePaneFormats() {
         DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
         L"en-us", &icon_font_format_);
 
-    // List number format (right-aligned for ordered list bullets)
+    // リスト番号フォーマット（順序付きリストの番号を右揃え）
     backend_.GetDWriteFactory()->CreateTextFormat(
         theme_.font_family, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
@@ -167,7 +167,7 @@ void Renderer::RecreatePaneFormats() {
         fmt_pane_header_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
-    // Navigation overlay button text format (centered both axes)
+    // ナビゲーションオーバーレイボタンのテキストフォーマット（両軸中央揃え）
     backend_.GetDWriteFactory()->CreateTextFormat(
         theme_.font_family, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
@@ -179,7 +179,7 @@ void Renderer::RecreatePaneFormats() {
         fmt_nav_button_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
-    // Gesture overlay text format (large bold, centered)
+    // ジェスチャーオーバーレイのテキストフォーマット（大きい太字、中央揃え）
     backend_.GetDWriteFactory()->CreateTextFormat(
         theme_.font_family, nullptr,
         DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
@@ -190,17 +190,17 @@ void Renderer::RecreatePaneFormats() {
         fmt_gesture_overlay_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
-    // Invalidate pane caches so they redraw with new sizes
+    // ペインキャッシュを無効化して新しいサイズで再描画させる
     file_pane_cache_.Reset();
     toc_pane_cache_.Reset();
 
-    // Update command generator formats
+    // コマンドジェネレータのフォーマットを更新
     cmd_generator_.SetFormats({fmt_list_number_.Get(), icon_font_format_.Get()});
 }
 
-// ---- Node drawing ----
-// Node drawing logic has been extracted to CommandGenerator.
-// Only ApplyNodeEffects remains here as a pre-pass (requires D2D brushes).
+// ---- ノード描画 ----
+// ノード描画ロジックはCommandGeneratorに抽出済み。
+// D2Dブラシが必要なApplyNodeEffectsのみ描画前パスとしてここに残る。
 
 void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
                                     int first_visible, float viewport_bottom) {
@@ -213,14 +213,14 @@ void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& c
 
 ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const {
     static constexpr BrushId SYNTAX_MAP[] = {
-        BrushId::Text,                // Plain (unused, returns text brush as fallback)
-        BrushId::SyntaxKeyword,       // Keyword
-        BrushId::SyntaxType,          // Type
-        BrushId::SyntaxString,        // String
-        BrushId::SyntaxNumber,        // Number
-        BrushId::SyntaxComment,       // Comment
-        BrushId::SyntaxPreprocessor,  // Preprocessor
-        BrushId::SyntaxFunction,      // Function
+        BrushId::Text,                // Plain（未使用、フォールバックとしてテキストブラシを返す）
+        BrushId::SyntaxKeyword,       // キーワード
+        BrushId::SyntaxType,          // 型
+        BrushId::SyntaxString,        // 文字列
+        BrushId::SyntaxNumber,        // 数値
+        BrushId::SyntaxComment,       // コメント
+        BrushId::SyntaxPreprocessor,  // プリプロセッサ
+        BrushId::SyntaxFunction,      // 関数
     };
     auto idx = static_cast<size_t>(type);
     if (idx >= std::size(SYNTAX_MAP)) return nullptr;
@@ -231,7 +231,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
     if (entry.effects_applied) return;
     entry.effects_applied = true;
 
-    // Table cells: apply link colors on cell layouts
+    // テーブルセル: セルレイアウトにリンク色を適用
     if (node.type == NodeType::Table) {
         for (size_t r = 0; r < node.table_rows.size(); r++) {
             const auto& row = node.table_rows[r];
@@ -253,7 +253,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
 
     if (!entry.text_layout) return;
 
-    // Apply syntax highlighting for code blocks
+    // コードブロックにシンタックスハイライトを適用
     if (node.type == NodeType::CodeBlock) {
         for (const auto& token : node.syntax_tokens) {
             if (token.type == SyntaxTokenType::Plain) continue;
@@ -265,7 +265,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
         }
     }
 
-    // Apply link underlines/colors and cache inline code background rects
+    // リンクの下線/色を適用し、インラインコード背景の矩形をキャッシュ
     for (const auto& run : node.runs) {
         if (run.link_url.has_value()) {
             DWRITE_TEXT_RANGE range{run.start, run.length};
@@ -292,7 +292,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
     }
 }
 
-// ---- Main rendering ----
+// ---- メイン描画 ----
 
 void Renderer::DrawLoading(float angle,
                             const PaneRect& md_pane_rect,
@@ -305,7 +305,7 @@ void Renderer::DrawLoading(float angle,
 
     auto size = rt()->GetSize();
 
-    // Draw side panes normally
+    // サイドペインを通常通り描画
     if (sp.show_file_pane) {
         DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index);
         DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, size.height);
@@ -315,7 +315,7 @@ void Renderer::DrawLoading(float angle,
         DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, size.height);
     }
 
-    // Draw spinner in center of MD pane
+    // MDペイン中央にスピナーを描画
     float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
     float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
     float radius = 20.0f;
@@ -335,7 +335,7 @@ void Renderer::DrawLoading(float angle,
     }
     Brush(BrushId::Text)->SetOpacity(1.0f);
 
-    // Gesture overlay (visible during fade-out even while loading)
+    // ジェスチャーオーバーレイ（ローディング中でもフェードアウト中は表示）
     if (gesture.overlay_visible && gesture.overlay_alpha > 0.0f) {
         DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
     }
@@ -357,41 +357,41 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
 
     auto size = rt()->GetSize();
 
-    // Draw file explorer pane (bitmap blit when cache is clean)
+    // ファイルエクスプローラペインを描画（キャッシュが有効ならビットマップ転送）
     if (sp.show_file_pane) {
         DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index);
         DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, size.height);
     }
 
-    // Draw TOC pane (bitmap blit when cache is clean)
+    // 目次ペインを描画（キャッシュが有効ならビットマップ転送）
     if (sp.show_toc_pane) {
         DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index);
         DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, size.height);
     }
 
-    // Find first visible node (done once, shared by effects + command gen).
+    // 最初の可視ノードを検索（一度だけ実行し、エフェクトとコマンド生成で共有）。
     float viewport_top = scroll_y;
     float viewport_bottom = scroll_y + md_pane_rect.height;
     int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
 
-    // Pre-pass: apply drawing effects (syntax highlighting, link colors) on visible nodes.
+    // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     ApplyVisibleEffects(nodes, cache, first_visible, viewport_bottom);
 
-    // Generate and execute draw commands for the Markdown content pane.
+    // Markdownコンテンツペインの描画コマンドを生成・実行。
     const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection, first_visible);
     cmd_executor_.Execute(cmds, rt());
 
-    // Draw navigation overlay buttons (back/forward)
+    // ナビゲーションオーバーレイボタン（戻る/進む）を描画
     if (can_go_back || can_go_forward) {
         DrawNavOverlay(md_pane_rect, can_go_back, can_go_forward, nav_hovered);
     }
 
-    // Gesture trail
+    // ジェスチャー軌跡
     if (gesture.trail_active && gesture.trail_points && gesture.trail_points->size() >= 2) {
         DrawGestureTrail(*gesture.trail_points);
     }
 
-    // Gesture overlay (fade-out after action)
+    // ジェスチャーオーバーレイ（アクション後のフェードアウト）
     if (gesture.overlay_visible && gesture.overlay_alpha > 0.0f) {
         DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
     }
@@ -403,7 +403,7 @@ bool Renderer::CheckEndDraw() {
     HRESULT hr = rt()->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
         RecreateRenderTarget();
-        // Current frame was discarded — request a repaint on the new target
+        // 現在のフレームは破棄された — 新しいターゲットで再描画を要求
         InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
         return false;
     }
@@ -416,9 +416,9 @@ bool Renderer::RecreateRenderTarget() {
     RecreateBrushes();
     file_pane_cache_.Reset();
     toc_pane_cache_.Reset();
-    cmd_executor_ = CommandExecutor{}; // Reset bound render target
+    cmd_executor_ = CommandExecutor{}; // バインドされたレンダーターゲットをリセット
 
-    // Notify owner so dependent resources (e.g. MermaidRenderer bitmaps) are updated
+    // 依存リソース（例: MermaidRendererのビットマップ）が更新されるようオーナーに通知
     if (on_device_lost_) {
         on_device_lost_(backend_.GetRenderTarget());
     }
@@ -426,7 +426,7 @@ bool Renderer::RecreateRenderTarget() {
     return true;
 }
 
-// Navigation overlay constants
+// ナビゲーションオーバーレイの定数
 #include "nav_button_constants.h"
 
 void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
@@ -436,7 +436,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
 
     bool is_dark = theme_.IsDark();
 
-    // Position: bottom-right of MD pane with margin
+    // 位置: MDペインの右下にマージン付き
     float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 
@@ -444,7 +444,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
         if (!Brush(BrushId::Overlay)) return;
         D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
 
-        // Background
+        // 背景
         float bg_alpha;
         if (!enabled)        bg_alpha = is_dark ? 0.08f : 0.05f;
         else if (is_hovered) bg_alpha = is_dark ? 0.35f : 0.25f;
@@ -458,7 +458,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
         D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
         rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
-        // Arrow text
+        // 矢印テキスト
         float text_alpha;
         if (!enabled)        text_alpha = is_dark ? 0.2f : 0.15f;
         else if (is_hovered) text_alpha = 1.0f;
@@ -476,9 +476,9 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
         }
     };
 
-    // Back button (◀)
+    // 戻るボタン (◀)
     drawButton(base_x, can_back, hovered == 1, L"\x25C0");
-    // Forward button (▶)
+    // 進むボタン (▶)
     drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, L"\x25B6");
 }
 
@@ -509,7 +509,7 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
 
     bool is_dark = theme_.IsDark();
 
-    // Center rectangle in MD pane
+    // MDペイン中央の矩形
     float rect_w = 280.0f;
     float rect_h = 80.0f;
     float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
@@ -517,7 +517,7 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2,
                                      cx + rect_w / 2, cy + rect_h / 2);
 
-    // Background (semi-transparent dark overlay for both themes)
+    // 背景（両テーマ共通の半透明ダークオーバーレイ）
     D2D1_COLOR_F bg_color = is_dark
         ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.8f)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.6f);
@@ -526,7 +526,7 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 12.0f, 12.0f);
     rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
-    // Text (white on dark overlay for both themes)
+    // テキスト（両テーマ共通でダークオーバーレイ上に白色）
     const wchar_t* text = (direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080";
     UINT32 text_len = static_cast<UINT32>(wcslen(text));
 

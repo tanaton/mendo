@@ -3,8 +3,8 @@
 #include <d2d1.h>
 #include <wrl/client.h>
 
-// Executes a DrawCommandList on a Direct2D render target.
-// Uses a single reusable brush for all solid-color operations.
+// DrawCommandList を Direct2D レンダーターゲット上で実行する。
+// すべての単色描画操作に対して再利用可能な単一ブラシを使用する。
 class CommandExecutor {
 public:
     void Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt);

@@ -102,18 +102,18 @@ TEST(Toc, HitTestEmpty) {
     EXPECT_EQ(toc.HitTest(0.0f, 28.0f), -1);
 }
 
-// ---- Additional edge cases ----
+// ---- 追加エッジケース ----
 
 TEST(Toc, DuplicateHeadingText) {
     auto nodes = ParseMarkdown("# Title\n\nSome text\n\n# Title\n\nMore text\n\n## Title");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
     ASSERT_EQ(toc.GetEntries().size(), 3u);
-    // All should have same text
+    // すべて同じテキストを持つべき
     for (const auto& entry : toc.GetEntries()) {
         EXPECT_EQ(entry.text, L"Title");
     }
-    // But anchor_ids should be unique (after parser refactoring)
+    // ただしanchor_idは一意であるべき（パーサーリファクタリング後）
     EXPECT_NE(toc.GetEntries()[0].anchor_id, toc.GetEntries()[1].anchor_id);
 }
 
@@ -144,7 +144,7 @@ TEST(Toc, HitTestBoundary) {
     auto nodes = ParseMarkdown("# A\n\n## B");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
-    // Exactly at boundary between items
+    // アイテム間の境界上ちょうどの位置
     EXPECT_EQ(toc.HitTest(27.9f, 28.0f), 0);
     EXPECT_EQ(toc.HitTest(28.0f, 28.0f), 1);
 }

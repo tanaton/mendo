@@ -4,7 +4,7 @@
 #include <vector>
 #include <memory_resource>
 
-// A single navigation history entry: file path + scroll position.
+// 単一のナビゲーション履歴エントリ: ファイルパス + スクロール位置。
 struct NavEntry {
     std::pmr::wstring file_path;
     float scroll_y = 0.0f;
@@ -14,20 +14,20 @@ struct NavEntry {
         : file_path(fp), scroll_y(sy) {}
 };
 
-// Browser-style back/forward navigation history.
-// Pure logic, no Win32 dependencies — fully testable.
+// ブラウザスタイルの戻る/進むナビゲーション履歴。
+// 純粋なロジックのみ、Win32依存なし — 完全にテスト可能。
 class NavHistory {
 public:
-    // Record the current state before a navigation.
-    // Pushes current onto back stack and clears forward stack.
+    // ナビゲーション前の現在の状態を記録する。
+    // currentを戻るスタックにプッシュし、進むスタックをクリアする。
     void Push(const NavEntry& current);
 
-    // Navigate back: moves current to forward stack, pops from back stack.
-    // Returns true and writes the entry to navigate to into `out`, or false if
-    // there is nothing to go back to. `current` is the state right now (before going back).
+    // 戻るナビゲーション: currentを進むスタックに移動し、戻るスタックからポップする。
+    // ナビゲート先のエントリを`out`に書き込みtrueを返す。戻る先がない場合はfalseを返す。
+    // `current`は現在の状態（戻る前の状態）。
     bool GoBack(const NavEntry& current, NavEntry& out);
 
-    // Navigate forward: moves current to back stack, pops from forward stack.
+    // 進むナビゲーション: currentを戻るスタックに移動し、進むスタックからポップする。
     bool GoForward(const NavEntry& current, NavEntry& out);
 
     bool CanGoBack() const noexcept { return !back_stack_.empty(); }

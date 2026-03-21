@@ -5,7 +5,7 @@ TEST(LayoutCacheTest, InvalidateAllLayouts) {
     LayoutCache cache;
     cache.Resize(3);
 
-    // Simulate having layouts set
+    // レイアウトが設定された状態をシミュレート
     cache[0].effects_applied = true;
     cache[1].effects_applied = true;
     cache[2].effects_applied = true;
@@ -17,7 +17,7 @@ TEST(LayoutCacheTest, InvalidateAllLayouts) {
     for (size_t i = 0; i < 3; ++i) {
         EXPECT_FALSE(cache[i].effects_applied) << "index " << i;
         EXPECT_TRUE(cache[i].inline_code_bgs.empty()) << "index " << i;
-        // text_layout is ComPtr, Reset() makes it null
+        // text_layoutはComPtrで、Reset()するとnullになる
         EXPECT_EQ(cache[i].text_layout.Get(), nullptr) << "index " << i;
     }
 }
@@ -32,7 +32,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions) {
 
     cache.InvalidateAllLayouts();
 
-    // Positions should be preserved
+    // 位置は保持されること
     EXPECT_FLOAT_EQ(cache[0].y_position, 100.0f);
     EXPECT_FLOAT_EQ(cache[0].height, 50.0f);
     EXPECT_FLOAT_EQ(cache[1].y_position, 150.0f);
@@ -59,7 +59,7 @@ TEST(LayoutCacheTest, InvalidateEmptyCache) {
     LayoutCache cache;
     cache.Resize(0);
 
-    // Should not crash
+    // クラッシュしないこと
     cache.InvalidateAllLayouts();
     cache.MarkAllDirty();
 }

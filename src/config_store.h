@@ -4,24 +4,24 @@
 
 namespace config {
 
-// Override config directory (for testing). Pass empty path to reset to default.
+// 設定ディレクトリを上書きする（テスト用）。デフォルトに戻すには空のパスを渡す。
 void SetConfigDirOverride(const std::filesystem::path& dir);
 
-// Returns the mendo config directory (%LOCALAPPDATA%/mendo).
+// mendoの設定ディレクトリを返す（%LOCALAPPDATA%/mendo）。
 std::filesystem::path GetConfigDir();
 
-// Returns full path for a config file within the config directory.
+// 設定ディレクトリ内の設定ファイルのフルパスを返す。
 std::filesystem::path GetConfigPath(const wchar_t* filename);
 
-// Save/load a boolean value (stored as '0' or '1').
+// 真偽値を保存/読み込みする（'0' または '1' として保存）。
 void SaveBool(const wchar_t* filename, bool value);
 bool LoadBool(const wchar_t* filename, bool default_value = false);
 
-// Save/load an integer value with bounds checking.
+// 範囲チェック付きで整数値を保存/読み込みする。
 void SaveInt(const wchar_t* filename, int value);
 int LoadInt(const wchar_t* filename, int default_value, int min_val, int max_val);
 
-// Save/load a wide string (stored as UTF-16LE binary).
+// ワイド文字列を保存/読み込みする（UTF-16LEバイナリとして保存）。
 void SaveWString(const wchar_t* filename, std::wstring_view value);
 std::wstring LoadWString(const wchar_t* filename);
 

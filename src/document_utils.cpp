@@ -19,7 +19,7 @@ std::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
             if (end > text.size()) end = static_cast<uint32_t>(text.size());
             result.append(text.data() + start, end - start);
         }
-        // Add newline between nodes
+        // ノード間に改行を追加
         if (i < selection.end_node) {
             result += L"\r\n";
         }
@@ -51,9 +51,9 @@ static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node,
                 return &row.cells[c].runs;
             }
             offset += cell_len;
-            if (c + 1 < row.cells.size()) offset++; // tab separator
+            if (c + 1 < row.cells.size()) offset++; // タブ区切り
         }
-        if (r + 1 < node.table_rows.size()) offset++; // newline separator
+        if (r + 1 < node.table_rows.size()) offset++; // 改行区切り
     }
     return nullptr;
 }
@@ -70,7 +70,7 @@ std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t t
 int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view anchor) {
     if (anchor.empty()) return -1;
 
-    // Convert anchor to lowercase for comparison
+    // 比較のためアンカーを小文字に変換
     std::wstring target{anchor};
     for (auto& c : target) {
         if (c >= L'A' && c <= L'Z') c = c - L'A' + L'a';

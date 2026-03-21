@@ -5,7 +5,7 @@
 
 namespace {
 
-// ---- Helper functions ----
+// ---- ヘルパー関数 ----
 
 bool IsIdentStart(wchar_t c) {
     return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || c == L'_' || c >= 0x80;
@@ -48,7 +48,7 @@ std::wstring ToLower(std::wstring_view s) {
     return result;
 }
 
-// ---- Keyword tables ----
+// ---- キーワードテーブル ----
 
 using KeywordSet = std::unordered_set<std::wstring_view>;
 
@@ -187,7 +187,7 @@ const KeywordSet& RustTypes() {
     return s;
 }
 
-// ---- TypeScript (JS superset) ----
+// ---- TypeScript（JSのスーパーセット） ----
 
 const KeywordSet& TsKeywords() {
     static const KeywordSet s = MergeKeywords(JsKeywords(), {
@@ -232,7 +232,7 @@ const KeywordSet& BashTypes() {
     return s;
 }
 
-// ---- PowerShell (keywords stored in lowercase for case-insensitive matching) ----
+// ---- PowerShell（大文字小文字を区別しないマッチングのためキーワードは小文字で格納） ----
 
 const KeywordSet& PwshKeywords() {
     static const KeywordSet s = {
@@ -256,7 +256,7 @@ const KeywordSet& PwshTypes() {
     return s;
 }
 
-// ---- Cmd (keywords stored in lowercase for case-insensitive matching) ----
+// ---- Cmd（大文字小文字を区別しないマッチングのためキーワードは小文字で格納） ----
 
 const KeywordSet& CmdKeywords() {
     static const KeywordSet s = {
@@ -279,7 +279,7 @@ const KeywordSet& CmdTypes() {
     return s;
 }
 
-// ---- Lexer helpers ----
+// ---- レキサーヘルパー ----
 
 void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type) {
     if (length > 0) {
@@ -287,8 +287,8 @@ void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t l
     }
 }
 
-// Scan a string literal starting at pos (pos points to the opening quote).
-// Returns the position after the closing quote (or end of text if unterminated).
+// posから始まる文字列リテラルをスキャン（posは開始引用符を指す）。
+// 閉じ引用符の次の位置を返す（未終端の場合はテキストの末尾）。
 size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_multiline, bool handle_escape = true) {
     size_t i = pos + 1;
     while (i < text.size()) {
@@ -298,7 +298,7 @@ size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_
         } else if (text[i] == quote) {
             return i + 1;
         } else if (!allow_multiline && text[i] == L'\n') {
-            return i; // unterminated
+            return i; // 未終端
         } else {
             i++;
         }
@@ -306,9 +306,9 @@ size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_
     return i;
 }
 
-// Scan a Python triple-quoted string.
+// Pythonのトリプルクォート文字列をスキャン。
 size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quote) {
-    // pos points to the first quote of the triple
+    // posはトリプルクォートの最初の引用符を指す
     size_t i = pos + 3;
     while (i + 2 < text.size()) {
         if (text[i] == L'\\') {
@@ -319,20 +319,20 @@ size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quote) {
             i++;
         }
     }
-    return text.size(); // unterminated
+    return text.size(); // 未終端
 }
 
-// Scan a number literal starting at pos.
+// posから始まる数値リテラルをスキャン。
 size_t ScanNumber(std::wstring_view text, size_t pos) {
     size_t i = pos;
 
-    // Handle 0x, 0b, 0o prefixes
+    // 0x, 0b, 0oプレフィックスの処理
     if (i + 1 < text.size() && text[i] == L'0') {
         wchar_t next = text[i + 1];
         if (next == L'x' || next == L'X') {
             i += 2;
             while (i < text.size() && (IsHexDigit(text[i]) || text[i] == L'\'')) i++;
-            // Suffixes
+            // サフィックス
             while (i < text.size() && (text[i] == L'u' || text[i] == L'U' || text[i] == L'l' || text[i] == L'L')) i++;
             return i;
         }
@@ -348,40 +348,40 @@ size_t ScanNumber(std::wstring_view text, size_t pos) {
         }
     }
 
-    // Integer / floating point
+    // 整数 / 浮動小数点
     while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) i++;
 
-    // Decimal point
+    // 小数点
     if (i < text.size() && text[i] == L'.') {
         i++;
         while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) i++;
     }
 
-    // Exponent
+    // 指数部
     if (i < text.size() && (text[i] == L'e' || text[i] == L'E')) {
         i++;
         if (i < text.size() && (text[i] == L'+' || text[i] == L'-')) i++;
         while (i < text.size() && IsDigit(text[i])) i++;
     }
 
-    // Suffixes (f, F, l, L, u, U, etc.)
+    // サフィックス (f, F, l, L, u, U 等)
     while (i < text.size() && (text[i] == L'f' || text[i] == L'F' ||
                                 text[i] == L'l' || text[i] == L'L' ||
                                 text[i] == L'u' || text[i] == L'U' ||
-                                text[i] == L'n')) i++;  // 'n' for JS BigInt
+                                text[i] == L'n')) i++;  // 'n'はJS BigInt用
 
     return i;
 }
 
-// Check if identifier at [start, end) is followed by '(' (skipping whitespace).
+// [start, end)の識別子の後に'('が続くか確認（空白をスキップ）。
 bool IsFollowedByParen(std::wstring_view text, size_t end) {
     size_t i = end;
     while (i < text.size() && (text[i] == L' ' || text[i] == L'\t')) i++;
     return i < text.size() && text[i] == L'(';
 }
 
-// Scan a block comment starting at pos (pos points to the first char of the opening pair).
-// Returns the position after the closing pair, or text.size() if unterminated.
+// posから始まるブロックコメントをスキャン（posは開始ペアの最初の文字を指す）。
+// 閉じペアの次の位置を返す。未終端の場合はtext.size()を返す。
 size_t ScanBlockComment(std::wstring_view text, size_t pos, wchar_t close1, wchar_t close2) {
     size_t i = pos + 2;
     while (i + 1 < text.size()) {
@@ -393,21 +393,21 @@ size_t ScanBlockComment(std::wstring_view text, size_t pos, wchar_t close1, wcha
     return text.size();
 }
 
-// ---- Generic tokenizer ----
+// ---- 汎用トークナイザ ----
 
 struct LexerConfig {
     bool line_comment_slash = false;    // //
     bool block_comment = false;         // /* */
     bool hash_comment = false;          // #
-    bool preprocessor = false;          // # at line start
+    bool preprocessor = false;          // 行頭の#
     bool triple_quote = false;          // """ '''
     bool backtick_string = false;       // `
     bool angle_block_comment = false;   // <# #>
     bool double_colon_comment = false;  // ::
     bool rem_comment = false;           // REM
-    bool case_insensitive = false;      // case-insensitive keyword matching
-    bool skip_single_quote = false;     // don't treat ' as string delimiter
-    bool raw_backtick = false;          // backtick strings without escape (Go)
+    bool case_insensitive = false;      // 大文字小文字を区別しないキーワードマッチング
+    bool skip_single_quote = false;     // 'を文字列デリミタとして扱わない
+    bool raw_backtick = false;          // エスケープなしのバッククォート文字列（Go）
 };
 
 std::pmr::vector<SyntaxToken> TokenizeGeneric(
@@ -439,7 +439,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     while (i < text.size()) {
         wchar_t c = text[i];
 
-        // 1. Line comments: //
+        // 1. 行コメント: //
         if (cfg.line_comment_slash && c == L'/' && i + 1 < text.size() && text[i + 1] == L'/') {
             flush_plain();
             size_t start = i;
@@ -448,7 +448,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 1b. Angle block comments: <# #> (PowerShell)
+        // 1b. アングルブロックコメント: <# #>（PowerShell）
         if (cfg.angle_block_comment && c == L'<' && i + 1 < text.size() && text[i + 1] == L'#') {
             flush_plain();
             size_t start = i;
@@ -465,7 +465,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 2. Block comments: /* */
+        // 2. ブロックコメント: /* */
         if (cfg.block_comment && c == L'/' && i + 1 < text.size() && text[i + 1] == L'*') {
             flush_plain();
             size_t start = i;
@@ -474,13 +474,13 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 3. Preprocessor: # at line start (C/C++)
+        // 3. プリプロセッサ: 行頭の#（C/C++）
         if (cfg.preprocessor && c == L'#' && IsAtLineStart(text, i)) {
             flush_plain();
             size_t start = i;
             while (i < text.size()) {
                 if (text[i] == L'\n') {
-                    // Check for line continuation
+                    // 行継続の確認
                     if (i > 0 && text[i - 1] == L'\\') {
                         i++;
                         continue;
@@ -493,7 +493,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 3b. Double-colon comments: :: at line start (cmd)
+        // 3b. ダブルコロンコメント: 行頭の::（cmd）
         if (cfg.double_colon_comment && c == L':' && i + 1 < text.size() && text[i + 1] == L':' &&
             IsAtLineStart(text, i)) {
             flush_plain();
@@ -503,7 +503,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 3c. REM comments: REM at line start (cmd)
+        // 3c. REMコメント: 行頭のREM（cmd）
         if (cfg.rem_comment && (c == L'r' || c == L'R') && IsAtLineStart(text, i) &&
             i + 2 < text.size() &&
             (text[i + 1] == L'e' || text[i + 1] == L'E') &&
@@ -516,7 +516,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 4. Triple-quoted strings (Python)
+        // 4. トリプルクォート文字列（Python）
         if (cfg.triple_quote && (c == L'"' || c == L'\'') &&
             i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
             flush_plain();
@@ -526,12 +526,12 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 5. String literals
+        // 5. 文字列リテラル
         if (c == L'"' || (c == L'\'' && !cfg.skip_single_quote)) {
-            // Check for C++ raw string: R"(...)"
+            // C++生文字列の確認: R"(...)"
             if (c == L'"' && i > 0 && text[i - 1] == L'R' &&
                 (i < 2 || !IsIdentChar(text[i - 2]))) {
-                // Adjust: the R is already in the plain buffer. Remove it.
+                // 調整: Rは既にプレーンバッファにあるので除去する。
                 if (in_plain) {
                     if (static_cast<uint32_t>(i - 1) > plain_start) {
                         EmitToken(tokens, plain_start, static_cast<uint32_t>(i - 1) - plain_start, SyntaxTokenType::Plain);
@@ -539,7 +539,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                     in_plain = false;
                 }
                 size_t start = i - 1;
-                // Find the delimiter: R"DELIM( ... )DELIM"
+                // デリミタを検索: R"DELIM( ... )DELIM"
                 size_t paren = text.find(L'(', i + 1);
                 if (paren != std::wstring_view::npos) {
                     std::wstring delim{text.substr(i + 1, paren - i - 1)};
@@ -563,7 +563,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 6. Backtick template literals (JS)
+        // 6. バッククォートテンプレートリテラル（JS）
         if (cfg.backtick_string && c == L'`') {
             flush_plain();
             size_t start = i;
@@ -572,7 +572,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 7. Numbers
+        // 7. 数値
         if (IsDigit(c) || (c == L'.' && i + 1 < text.size() && IsDigit(text[i + 1]))) {
             flush_plain();
             size_t start = i;
@@ -581,7 +581,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 8. Identifiers and keywords
+        // 8. 識別子とキーワード
         if (IsIdentStart(c)) {
             flush_plain();
             size_t start = i;
@@ -614,7 +614,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        // 9. Everything else: accumulate as plain
+        // 9. その他: プレーンとして蓄積
         start_plain();
         i++;
     }
@@ -623,7 +623,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     return tokens;
 }
 
-// ---- Language definition table ----
+// ---- 言語定義テーブル ----
 
 struct LanguageDef {
     const KeywordSet& (*keywords)();
@@ -631,19 +631,19 @@ struct LanguageDef {
     LexerConfig config;
 };
 
-// Empty keyword set for placeholder entries (None, Mermaid).
+// プレースホルダーエントリ（None, Mermaid）用の空キーワードセット。
 const KeywordSet& EmptyKeywords() {
     static const KeywordSet s;
     return s;
 }
 
-// Indexed by SyntaxLanguage enum value.
+// SyntaxLanguage列挙値でインデックス。
 // None=0, Cpp=1, Python=2, JavaScript=3, Mermaid=4,
 // Go=5, Rust=6, TypeScript=7, Bash=8, PowerShell=9, Cmd=10
 static const LanguageDef LANGUAGE_DEFS[] = {
-    // None
+    // なし
     {&EmptyKeywords, &EmptyKeywords, {}},
-    // Cpp
+    // C++
     {&CppKeywords, &CppTypes, {
         .line_comment_slash = true, .block_comment = true,
         .preprocessor = true,
@@ -657,7 +657,7 @@ static const LanguageDef LANGUAGE_DEFS[] = {
         .line_comment_slash = true, .block_comment = true,
         .backtick_string = true,
     }},
-    // Mermaid (not tokenized)
+    // Mermaid（トークン化しない）
     {&EmptyKeywords, &EmptyKeywords, {}},
     // Go
     {&GoKeywords, &GoTypes, {
@@ -695,12 +695,12 @@ static_assert(std::size(LANGUAGE_DEFS) == static_cast<size_t>(SyntaxLanguage::Cm
 
 } // namespace
 
-// ---- Public API ----
+// ---- 公開API ----
 
 SyntaxLanguage DetectLanguage(std::wstring_view info_string) {
     if (info_string.empty()) return SyntaxLanguage::None;
 
-    // Extract first word and lowercase it
+    // 最初の単語を抽出して小文字に変換
     std::wstring lang;
     for (wchar_t c : info_string) {
         if (c == L' ' || c == L'\t') break;

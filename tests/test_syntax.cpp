@@ -5,7 +5,7 @@
 #include <numeric>
 
 // ============================================================
-// DetectLanguage tests
+// DetectLanguage テスト
 // ============================================================
 
 TEST(Syntax, DetectLanguageCpp) {
@@ -82,13 +82,13 @@ TEST(Syntax, DetectLanguageCaseInsensitive) {
 }
 
 TEST(Syntax, DetectLanguageWithExtraInfo) {
-    // md4c may provide info string with extra text after language
+    // md4cは言語の後に追加テキストを含むinfo文字列を提供する場合がある
     EXPECT_EQ(DetectLanguage(L"cpp some-extra"), SyntaxLanguage::Cpp);
     EXPECT_EQ(DetectLanguage(L"python\ttab-separated"), SyntaxLanguage::Python);
 }
 
 // ============================================================
-// Tokenize - basic tests
+// Tokenize - 基本テスト
 // ============================================================
 
 TEST(Syntax, EmptyTextReturnsEmpty) {
@@ -101,7 +101,7 @@ TEST(Syntax, NoneLanguageReturnsEmpty) {
     EXPECT_TRUE(tokens.empty());
 }
 
-// Helper: check that tokens cover the entire text contiguously
+// ヘルパー: トークンがテキスト全体を連続的にカバーしていることを確認
 void AssertTokensCoverText(const std::pmr::vector<SyntaxToken>& tokens, size_t text_length) {
     if (text_length == 0) {
         EXPECT_TRUE(tokens.empty());
@@ -109,22 +109,22 @@ void AssertTokensCoverText(const std::pmr::vector<SyntaxToken>& tokens, size_t t
     }
     ASSERT_FALSE(tokens.empty());
 
-    // First token starts at 0
+    // 最初のトークンは0から開始
     EXPECT_EQ(tokens[0].start, 0u);
 
-    // Tokens are contiguous
+    // トークンは連続している
     for (size_t i = 1; i < tokens.size(); i++) {
         EXPECT_EQ(tokens[i].start, tokens[i - 1].start + tokens[i - 1].length)
-            << "Gap between token " << (i - 1) << " and " << i;
+            << "トークン " << (i - 1) << " と " << i << " の間にギャップあり";
     }
 
-    // Total length matches
+    // 合計長が一致
     uint32_t total = 0;
     for (const auto& t : tokens) total += t.length;
     EXPECT_EQ(total, static_cast<uint32_t>(text_length));
 }
 
-// Helper: find first token of a given type
+// ヘルパー: 指定された種類の最初のトークンを検索
 const SyntaxToken* FindToken(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type) {
     for (const auto& t : tokens) {
         if (t.type == type) return &t;
@@ -132,7 +132,7 @@ const SyntaxToken* FindToken(const std::pmr::vector<SyntaxToken>& tokens, Syntax
     return nullptr;
 }
 
-// Helper: count tokens of a given type
+// ヘルパー: 指定された種類のトークン数をカウント
 int CountTokens(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type) {
     int count = 0;
     for (const auto& t : tokens) {
@@ -141,7 +141,7 @@ int CountTokens(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType typ
     return count;
 }
 
-// Helper: get the text for a token
+// ヘルパー: トークンのテキストを取得
 std::wstring GetTokenText(const std::wstring& text, const SyntaxToken& token) {
     return text.substr(token.start, token.length);
 }
@@ -165,14 +165,14 @@ TEST(Syntax, TokensCoverEntireTextJs) {
 }
 
 // ============================================================
-// C/C++ tokenization
+// C/C++ トークン化
 // ============================================================
 
 TEST(Syntax, CppKeywords) {
     std::wstring code = L"if else while for return";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
-    // All identifiers should be keywords
+    // すべての識別子はキーワードであるべき
     for (const auto& t : tokens) {
         if (t.type != SyntaxTokenType::Plain) {
             EXPECT_EQ(t.type, SyntaxTokenType::Keyword) << "offset=" << t.start;
@@ -282,7 +282,7 @@ TEST(Syntax, CppPreprocessorDefine) {
 }
 
 TEST(Syntax, CppPreprocessorNotAtLineStart) {
-    // # after code should not be preprocessor
+    // コードの後の#はプリプロセッサではないべき
     std::wstring code = L"x = a #";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -307,7 +307,7 @@ TEST(Syntax, CppFunctionCallWithSpace) {
 }
 
 TEST(Syntax, CppKeywordNotFunction) {
-    // Keywords followed by ( should still be keywords, not functions
+    // (の後に続くキーワードは関数ではなくキーワードのままであるべき
     std::wstring code = L"if (x)";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* kw = FindToken(tokens, SyntaxTokenType::Keyword);
@@ -331,7 +331,7 @@ TEST(Syntax, CppComplexCode) {
 }
 
 // ============================================================
-// Python tokenization
+// Python トークン化
 // ============================================================
 
 TEST(Syntax, PythonKeywords) {
@@ -398,7 +398,7 @@ TEST(Syntax, PythonFString) {
     std::wstring code = L"f\"hello {name}\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
-    // 'f' is plain, then the string
+    // 'f'はプレーン、その後が文字列
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
 }
@@ -416,7 +416,7 @@ TEST(Syntax, PythonComplexCode) {
 }
 
 // ============================================================
-// JavaScript tokenization
+// JavaScript トークン化
 // ============================================================
 
 TEST(Syntax, JsKeywords) {
@@ -497,7 +497,7 @@ TEST(Syntax, JsComplexCode) {
 }
 
 // ============================================================
-// Edge cases
+// エッジケース
 // ============================================================
 
 TEST(Syntax, OnlyWhitespace) {
@@ -516,7 +516,7 @@ TEST(Syntax, OnlyOperators) {
 }
 
 TEST(Syntax, UnterminatedString) {
-    // Unterminated string should not cause infinite loop
+    // 閉じられていない文字列が無限ループを引き起こさないべき
     std::wstring code = L"x = \"unterminated\ny = 1";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -539,7 +539,7 @@ TEST(Syntax, NumberAtEndOfText) {
 }
 
 TEST(Syntax, DotNotANumber) {
-    // A lone dot should not be treated as a number
+    // 単独のドットは数値として扱われないべき
     std::wstring code = L"a.b";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -564,7 +564,7 @@ TEST(Syntax, MultipleLinesOfCode) {
 }
 
 // ============================================================
-// Parser integration: language extraction
+// パーサー統合: 言語抽出
 // ============================================================
 
 TEST(Syntax, ParserExtractsLanguageCpp) {
@@ -610,17 +610,17 @@ TEST(Syntax, ParserCaseInsensitiveLanguage) {
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
 }
 
-// ---- Additional edge cases ----
+// ---- 追加エッジケース ----
 
-// Mermaid detection
+// Mermaid検出
 TEST(Syntax, DetectLanguageMermaid) {
     EXPECT_EQ(DetectLanguage(L"mermaid"), SyntaxLanguage::Mermaid);
 }
 
-// C++ raw strings
+// C++ 生文字列
 TEST(Syntax, CppRawString) {
     auto tokens = Tokenize(L"R\"(hello)\"", SyntaxLanguage::Cpp);
-    // Should detect the raw string as a single string token
+    // 生文字列を単一の文字列トークンとして検出すべき
     bool has_string = false;
     for (const auto& t : tokens) {
         if (t.type == SyntaxTokenType::String) {
@@ -630,7 +630,7 @@ TEST(Syntax, CppRawString) {
     EXPECT_TRUE(has_string);
 }
 
-// C++ octal number
+// C++ 8進数
 TEST(Syntax, CppNumberOctal) {
     auto tokens = Tokenize(L"0o77", SyntaxLanguage::Cpp);
     bool has_number = false;
@@ -640,24 +640,24 @@ TEST(Syntax, CppNumberOctal) {
     EXPECT_TRUE(has_number);
 }
 
-// C++ number suffix
+// C++ 数値サフィックス
 TEST(Syntax, CppNumberWithSuffix) {
     auto tokens = Tokenize(L"42ULL", SyntaxLanguage::Cpp);
     bool has_number = false;
     for (const auto& t : tokens) {
         if (t.type == SyntaxTokenType::Number) {
             has_number = true;
-            // The entire "42ULL" should be a single number token
+            // "42ULL"全体が単一の数値トークンであるべき
             EXPECT_EQ(t.length, 5u);
         }
     }
     EXPECT_TRUE(has_number);
 }
 
-// Python decorator
+// Python デコレータ
 TEST(Syntax, PythonDecorator) {
     auto tokens = Tokenize(L"@staticmethod\ndef foo():\n    pass", SyntaxLanguage::Python);
-    // "@" is not specifically handled, but "def" and "pass" should still be keywords
+    // "@"は特別に処理されないが、"def"と"pass"はキーワードであるべき
     bool has_def = false;
     bool has_pass = false;
     for (const auto& t : tokens) {
@@ -684,20 +684,20 @@ TEST(Syntax, JsBigIntNumber) {
     EXPECT_TRUE(has_number);
 }
 
-// Empty code block
+// 空のコードブロック
 TEST(Syntax, TokenizeEmptyCpp) {
     auto tokens = Tokenize(L"", SyntaxLanguage::Cpp);
     EXPECT_TRUE(tokens.empty());
 }
 
-// Single character
+// 単一文字
 TEST(Syntax, TokenizeSingleKeyword) {
     auto tokens = Tokenize(L"if", SyntaxLanguage::Cpp);
     ASSERT_EQ(tokens.size(), 1u);
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Keyword);
 }
 
-// C++ line comment at end of text (no newline)
+// C++ テキスト末尾の行コメント（改行なし）
 TEST(Syntax, CppCommentEol) {
     auto tokens = Tokenize(L"int x; // comment", SyntaxLanguage::Cpp);
     bool has_comment = false;
@@ -707,7 +707,7 @@ TEST(Syntax, CppCommentEol) {
     EXPECT_TRUE(has_comment);
 }
 
-// Float that starts with dot
+// ドットで始まる浮動小数点数
 TEST(Syntax, NumberStartsWithDot) {
     auto tokens = Tokenize(L".5f", SyntaxLanguage::Cpp);
     bool has_number = false;
@@ -717,10 +717,10 @@ TEST(Syntax, NumberStartsWithDot) {
     EXPECT_TRUE(has_number);
 }
 
-// C++ preprocessor with line continuation
+// C++ 行継続付きプリプロセッサ
 TEST(Syntax, CppPreprocessorContinuation) {
     auto tokens = Tokenize(L"#define FOO \\\n    bar", SyntaxLanguage::Cpp);
-    // Should be a single preprocessor token spanning the continuation
+    // 行継続をまたぐ単一のプリプロセッサトークンであるべき
     bool has_prep = false;
     for (const auto& t : tokens) {
         if (t.type == SyntaxTokenType::Preprocessor) {
@@ -730,18 +730,18 @@ TEST(Syntax, CppPreprocessorContinuation) {
     EXPECT_TRUE(has_prep);
 }
 
-// Detect Tsx extension
+// Tsx拡張子の検出
 TEST(Syntax, DetectLanguageTsx) {
     EXPECT_EQ(DetectLanguage(L"tsx"), SyntaxLanguage::TypeScript);
 }
 
-// Detect unknown extensions
+// 不明な拡張子の検出
 TEST(Syntax, DetectLanguageRuby) {
     EXPECT_EQ(DetectLanguage(L"ruby"), SyntaxLanguage::None);
 }
 
 // ============================================================
-// Additional language extensions
+// 追加の言語拡張子
 // ============================================================
 
 TEST(Syntax, DetectLanguageCc) {
@@ -758,17 +758,17 @@ TEST(Syntax, DetectLanguageMermaidCaseInsensitive) {
 }
 
 // ============================================================
-// Mermaid tokenization returns empty (no keyword tables)
+// Mermaidトークン化は空を返す（キーワードテーブルなし）
 // ============================================================
 
 TEST(Syntax, MermaidLanguageReturnsEmpty) {
-    // Mermaid has no tokenizer in the current implementation
+    // Mermaidは現在の実装ではトークナイザーを持たない
     auto tokens = Tokenize(L"graph TD; A-->B;", SyntaxLanguage::Mermaid);
     EXPECT_TRUE(tokens.empty());
 }
 
 // ============================================================
-// Number edge cases
+// 数値のエッジケース
 // ============================================================
 
 TEST(Syntax, CppNumberExponent) {
@@ -807,21 +807,21 @@ TEST(Syntax, CppHexDigitSeparator) {
 }
 
 // ============================================================
-// C++ raw string with delimiter
+// C++ デリミタ付き生文字列
 // ============================================================
 
 TEST(Syntax, CppRawStringWithDelimiter) {
     std::wstring code = LR"(R"delim(hello "world")delim")";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    // R is emitted as a separate identifier, then the raw string follows
+    // Rは別の識別子として出力され、その後に生文字列が続く
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    // Entire R"delim(...)delim" captured (R as plain + string body)
+    // R"delim(...)delim"全体がキャプチャされる（Rはプレーン + 文字列本体）
     EXPECT_GT(str->length, 10u);
 }
 
 // ============================================================
-// Python unterminated triple-quote
+// Python 閉じられていないトリプルクォート
 // ============================================================
 
 TEST(Syntax, PythonUnterminatedTripleQuote) {
@@ -833,7 +833,7 @@ TEST(Syntax, PythonUnterminatedTripleQuote) {
 }
 
 // ============================================================
-// C++ modern keywords
+// C++ モダンキーワード
 // ============================================================
 
 TEST(Syntax, CppModernKeywords) {
@@ -851,7 +851,7 @@ TEST(Syntax, CppCastKeywords) {
 }
 
 // ============================================================
-// C++ STL types
+// C++ STL型
 // ============================================================
 
 TEST(Syntax, CppStlTypes) {
@@ -869,7 +869,7 @@ TEST(Syntax, CppWin32Types) {
 }
 
 // ============================================================
-// Python exception types
+// Python 例外型
 // ============================================================
 
 TEST(Syntax, PythonExceptionTypes) {
@@ -880,7 +880,7 @@ TEST(Syntax, PythonExceptionTypes) {
 }
 
 // ============================================================
-// JavaScript globals
+// JavaScript グローバル
 // ============================================================
 
 TEST(Syntax, JsGlobalTypes) {
@@ -898,8 +898,8 @@ TEST(Syntax, JsAsyncAwait) {
 }
 
 // ============================================================
-// Bug #16: Raw string R" detection should not trigger on
-// identifiers ending with R (e.g. RENDER"hello")
+// バグ #16: 生文字列R"の検出がRで終わる識別子で
+// トリガーされないべき（例: RENDER"hello"）
 // ============================================================
 
 TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR) {
@@ -907,16 +907,16 @@ TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR) {
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
 
-    // RENDER should be a single identifier token (Plain or Function)
-    // "hello" should be a string token
-    // They should NOT overlap
+    // RENDERは単一の識別子トークン（PlainまたはFunction）であるべき
+    // "hello"は文字列トークンであるべき
+    // 両者は重複してはならない
     bool found_render = false;
     bool found_string = false;
     for (const auto& t : tokens) {
         std::wstring text = GetTokenText(code, t);
         if (text == L"RENDER") {
             found_render = true;
-            // Should NOT be a string
+            // 文字列であってはならない
             EXPECT_NE(t.type, SyntaxTokenType::String);
         }
         if (text == L"\"hello\"") {
@@ -924,12 +924,12 @@ TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR) {
             EXPECT_EQ(t.type, SyntaxTokenType::String);
         }
     }
-    EXPECT_TRUE(found_render) << "Should find RENDER as a separate token";
-    EXPECT_TRUE(found_string) << "Should find \"hello\" as a string token";
+    EXPECT_TRUE(found_render) << "RENDERが独立したトークンとして見つかるべき";
+    EXPECT_TRUE(found_string) << "\"hello\"が文字列トークンとして見つかるべき";
 }
 
 TEST(Syntax, CppRawStringStandaloneRStillWorks) {
-    // Standalone R"(...)" should still be recognized as raw string
+    // 単独のR"(...)"は依然として生文字列として認識されるべき
     std::wstring code = L"R\"(hello)\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* str = FindToken(tokens, SyntaxTokenType::String);
@@ -938,7 +938,7 @@ TEST(Syntax, CppRawStringStandaloneRStillWorks) {
 }
 
 TEST(Syntax, CppRawStringAfterSpaceR) {
-    // "x R\"(test)\"" — R preceded by space should work
+    // "x R\"(test)\"" — スペースの後のRは動作すべき
     std::wstring code = L"x R\"(test)\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* str = FindToken(tokens, SyntaxTokenType::String);
@@ -946,7 +946,7 @@ TEST(Syntax, CppRawStringAfterSpaceR) {
 }
 
 // ============================================================
-// Bug #22: Unterminated block comment should include last char
+// バグ #22: 閉じられていないブロックコメントは最後の文字を含むべき
 // ============================================================
 
 TEST(Syntax, UnterminatedBlockCommentCoversAllText) {
@@ -959,7 +959,7 @@ TEST(Syntax, UnterminatedBlockCommentCoversAllText) {
 }
 
 TEST(Syntax, UnterminatedBlockCommentEndsWithStar) {
-    // Edge case: comment ends with * but no /
+    // エッジケース: コメントが*で終わるが/がない
     std::wstring code = L"/* test *";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -978,7 +978,7 @@ TEST(Syntax, TerminatedBlockCommentStillWorks) {
 }
 
 // ============================================================
-// Go tokenization
+// Go トークン化
 // ============================================================
 
 TEST(Syntax, DetectLanguageGo) {
@@ -1027,7 +1027,7 @@ TEST(Syntax, GoBacktickRawString) {
 }
 
 TEST(Syntax, GoBacktickRawStringWithBackslash) {
-    // Go raw strings don't treat backslash as escape, so `c:\` is valid
+    // Goの生文字列はバックスラッシュをエスケープとして扱わないので、`c:\`は有効
     std::wstring code = L"`c:\\`";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
@@ -1037,7 +1037,7 @@ TEST(Syntax, GoBacktickRawStringWithBackslash) {
 }
 
 TEST(Syntax, GoBacktickRawStringTrailingBackslash) {
-    // Ensure backslash at end of raw string doesn't skip closing backtick
+    // 生文字列末尾のバックスラッシュが閉じバッククォートをスキップしないことを確認
     std::wstring code = L"s := `path\\` + x";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
@@ -1071,7 +1071,7 @@ TEST(Syntax, TokensCoverEntireTextGo) {
 }
 
 // ============================================================
-// Rust tokenization
+// Rust トークン化
 // ============================================================
 
 TEST(Syntax, DetectLanguageRust) {
@@ -1119,12 +1119,12 @@ TEST(Syntax, RustStringDouble) {
 }
 
 TEST(Syntax, RustSingleQuoteNotString) {
-    // In Rust, single quotes are used for lifetimes ('a) and char literals ('x').
-    // We skip single-quote strings to avoid lifetime issues.
+    // Rustではシングルクォートはライフタイム('a)と文字リテラル('x')に使用される。
+    // ライフタイムの問題を避けるためシングルクォート文字列はスキップする。
     std::wstring code = L"fn foo<'a>(x: &'a str) {}";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
-    // 'a should NOT create a string token that swallows the rest of the line
+    // 'aは行の残りを飲み込む文字列トークンを生成してはならない
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 1); // fn
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 1);    // str
 }
@@ -1162,7 +1162,7 @@ TEST(Syntax, TokensCoverEntireTextRust) {
 }
 
 // ============================================================
-// TypeScript tokenization
+// TypeScript トークン化
 // ============================================================
 
 TEST(Syntax, DetectLanguageTypeScript) {
@@ -1186,7 +1186,7 @@ TEST(Syntax, TsSpecificKeywords) {
 }
 
 TEST(Syntax, TsSpecificTypes) {
-    // void is a keyword (inherited from JS), so it won't be in types
+    // voidはキーワード（JSから継承）なので、型には含まれない
     std::wstring code = L"any unknown never number string boolean";
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
@@ -1225,7 +1225,7 @@ TEST(Syntax, TokensCoverEntireTextTs) {
 }
 
 // ============================================================
-// Bash tokenization
+// Bash トークン化
 // ============================================================
 
 TEST(Syntax, DetectLanguageBash) {
@@ -1292,7 +1292,7 @@ TEST(Syntax, TokensCoverEntireTextBash) {
 }
 
 // ============================================================
-// PowerShell tokenization
+// PowerShell トークン化
 // ============================================================
 
 TEST(Syntax, DetectLanguagePowerShell) {
@@ -1371,7 +1371,7 @@ TEST(Syntax, TokensCoverEntireTextPwsh) {
 }
 
 // ============================================================
-// Cmd tokenization
+// Cmd トークン化
 // ============================================================
 
 TEST(Syntax, DetectLanguageCmd) {
@@ -1413,11 +1413,11 @@ TEST(Syntax, CmdRemCommentCaseInsensitive) {
 }
 
 TEST(Syntax, CmdRemNotAtLineStart) {
-    // REM in the middle of a line should be a keyword, not a comment
+    // 行の途中のREMはコメントではなくキーワードであるべき
     std::wstring code = L"echo REM";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
-    // "echo" is keyword, " " is plain, "REM" should not be a comment
+    // "echo"はキーワード、" "はプレーン、"REM"はコメントであってはならない
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Comment), 0);
 }
 
@@ -1431,7 +1431,7 @@ TEST(Syntax, CmdDoubleColonComment) {
 }
 
 TEST(Syntax, CmdDoubleColonNotAtLineStart) {
-    // :: not at line start should not be treated as comment
+    // 行頭でない::はコメントとして扱われないべき
     std::wstring code = L"x::y";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
@@ -1469,7 +1469,7 @@ TEST(Syntax, TokensCoverEntireTextCmd) {
 }
 
 // ============================================================
-// Parser integration: new languages
+// パーサー統合: 新言語
 // ============================================================
 
 TEST(Syntax, ParserExtractsLanguageGo) {

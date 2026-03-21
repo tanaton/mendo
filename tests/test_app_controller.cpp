@@ -7,7 +7,7 @@ protected:
     AppController ctrl_;
 };
 
-// ─── Helper: extract single action of expected type ───
+// ─── ヘルパー: 期待する型の単一アクションを取得 ───
 
 template <typename T>
 const T& GetSingleAction(const ActionList& actions) {
@@ -16,7 +16,7 @@ const T& GetSingleAction(const ActionList& actions) {
 }
 
 // ═══════════════════════════════════════════════
-// HandleKeyDown — navigation keys
+// HandleKeyDown — ナビゲーションキー
 // ═══════════════════════════════════════════════
 
 TEST_F(AppControllerTest, ArrowUpReturnsLineUp) {
@@ -56,7 +56,7 @@ TEST_F(AppControllerTest, EndReturnsEnd) {
 }
 
 // ═══════════════════════════════════════════════
-// HandleKeyDown — function / special keys
+// HandleKeyDown — ファンクション／特殊キー
 // ═══════════════════════════════════════════════
 
 TEST_F(AppControllerTest, F5ReturnsReload) {
@@ -72,7 +72,7 @@ TEST_F(AppControllerTest, EscapeReturnsClearSelection) {
 }
 
 // ═══════════════════════════════════════════════
-// HandleKeyDown — Ctrl shortcuts
+// HandleKeyDown — Ctrlショートカット
 // ═══════════════════════════════════════════════
 
 TEST_F(AppControllerTest, CtrlCReturnsCopy) {
@@ -142,7 +142,7 @@ TEST_F(AppControllerTest, CtrlNumpad0ReturnsZoomReset) {
 }
 
 // ═══════════════════════════════════════════════
-// HandleKeyDown — no action cases
+// HandleKeyDown — アクションなしのケース
 // ═══════════════════════════════════════════════
 
 TEST_F(AppControllerTest, UnknownKeyProducesNoAction) {
@@ -161,7 +161,7 @@ TEST_F(AppControllerTest, UnknownCtrlKeyProducesNoAction) {
 }
 
 // ═══════════════════════════════════════════════
-// HandleMouseWheel — MD pane scroll
+// HandleMouseWheel — MDペインのスクロール
 // ═══════════════════════════════════════════════
 
 TEST_F(AppControllerTest, WheelUpInMdPaneSmoothScrolls) {
@@ -177,7 +177,7 @@ TEST_F(AppControllerTest, WheelDownInMdPaneSmoothScrolls) {
 }
 
 // ═══════════════════════════════════════════════
-// HandleMouseWheel — pane scroll
+// HandleMouseWheel — ペインスクロール
 // ═══════════════════════════════════════════════
 
 TEST_F(AppControllerTest, WheelInFilePaneScrollsFilePane) {
@@ -201,7 +201,7 @@ TEST_F(AppControllerTest, WheelOnSplitterScrollsMdPane) {
 }
 
 // ═══════════════════════════════════════════════
-// HandleMouseWheel — Ctrl+wheel zoom
+// HandleMouseWheel — Ctrl+ホイールによるズーム
 // ═══════════════════════════════════════════════
 
 TEST_F(AppControllerTest, CtrlWheelUpZoomsIn) {
@@ -217,14 +217,14 @@ TEST_F(AppControllerTest, CtrlWheelDownZoomsOut) {
 }
 
 TEST_F(AppControllerTest, CtrlWheelIgnoresZone) {
-    // Ctrl+wheel zooms regardless of which pane
+    // Ctrl+ホイールはどのペインでもズームする
     auto a = ctrl_.HandleMouseWheel({120, true, PaneZone::FilePane});
     ASSERT_EQ(a.size(), 1u);
     EXPECT_TRUE(std::holds_alternative<ZoomAction>(a[0]));
 }
 
 // ═══════════════════════════════════════════════
-// HandleKeyDown — Alt+Arrow navigation
+// HandleKeyDown — Alt+矢印キーによるナビゲーション
 // ═══════════════════════════════════════════════
 
 TEST_F(AppControllerTest, AltLeftReturnsNavigateBack) {
@@ -245,7 +245,7 @@ TEST_F(AppControllerTest, AltUpProducesNoAction) {
 }
 
 TEST_F(AppControllerTest, CtrlAltLeftProducesNoAction) {
-    // Ctrl+Alt should not trigger navigation
+    // Ctrl+Altではナビゲーションが発動しないこと
     auto a = ctrl_.HandleKeyDown({VK_LEFT, true, false, true});
     EXPECT_TRUE(a.empty());
 }

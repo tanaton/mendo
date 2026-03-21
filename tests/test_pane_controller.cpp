@@ -7,7 +7,7 @@ protected:
 };
 
 // ═══════════════════════════════════════════════
-// Visibility
+// 表示状態
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, DefaultVisibility) {
@@ -28,7 +28,7 @@ TEST_F(PaneControllerTest, ToggleTocPane) {
 }
 
 // ═══════════════════════════════════════════════
-// Widths
+// 幅
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, DefaultWidths) {
@@ -47,7 +47,7 @@ TEST_F(PaneControllerTest, SetWidthAcceptsLargeValue) {
 }
 
 // ═══════════════════════════════════════════════
-// Pane scroll
+// ペインスクロール
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, ScrollFilePaneByPositive) {
@@ -69,7 +69,7 @@ TEST_F(PaneControllerTest, ScrollFilePaneClampsToZero) {
 
 TEST_F(PaneControllerTest, ScrollFilePaneNoChangeReturnsFalse) {
     bool changed = panes_.ScrollFilePaneBy(-10.0f, 200.0f);
-    EXPECT_FALSE(changed);  // already at 0
+    EXPECT_FALSE(changed);  // すでに0の位置にいる
 }
 
 TEST_F(PaneControllerTest, ScrollTocPaneByPositive) {
@@ -87,7 +87,7 @@ TEST_F(PaneControllerTest, ResetScrollStates) {
 }
 
 // ═══════════════════════════════════════════════
-// Hover
+// ホバー
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, HoverDefaultNegativeOne) {
@@ -111,7 +111,7 @@ TEST_F(PaneControllerTest, SetHoverTocReturnsTrueOnChange) {
 }
 
 // ═══════════════════════════════════════════════
-// Drag
+// ドラッグ
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, DragDefaultNone) {
@@ -131,7 +131,7 @@ TEST_F(PaneControllerTest, DragScrollOffset) {
 }
 
 // ═══════════════════════════════════════════════
-// Splitter drag constraints
+// スプリッタードラッグ制約
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, DragSplitter1RespectsMinWidth) {
@@ -140,21 +140,21 @@ TEST_F(PaneControllerTest, DragSplitter1RespectsMinWidth) {
 }
 
 TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth) {
-    // With both panes visible: file(960) + splitter(4) + toc(220) + splitter(4) = 1188
-    // That leaves only 12 for MD pane (< 200), so it should be constrained
+    // 両ペイン表示時: file(960) + splitter(4) + toc(220) + splitter(4) = 1188
+    // MDペインに残るのは12のみ(< 200)なので、制約されるべき
     panes_.DragSplitter1To(960.0f, 1200.0f, 4.0f);
     float remaining = 1200.0f - panes_.GetFilePaneWidth() - 4.0f - 220.0f - 4.0f;
     EXPECT_GE(remaining, PaneController::MD_PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2RespectsMinWidth) {
-    // toc left depends on layout; dragging very small
+    // 目次の左端位置はレイアウトに依存する; 非常に小さくドラッグ
     panes_.DragSplitter2To(panes_.GetFilePaneWidth() + 4.0f + 10.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetTocPaneWidth(), PaneController::PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth) {
-    // Drag toc width very large
+    // 目次ペインの幅を非常に大きくドラッグ
     panes_.DragSplitter2To(1190.0f, 1200.0f, 4.0f);
     float layout_width = panes_.GetFilePaneWidth() + 4.0f + panes_.GetTocPaneWidth() + 4.0f;
     float md_width = 1200.0f - layout_width;
@@ -162,7 +162,7 @@ TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth) {
 }
 
 // ═══════════════════════════════════════════════
-// Zoom
+// ズーム
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, ApplyZoomScalesWidths) {
@@ -181,15 +181,15 @@ TEST_F(PaneControllerTest, ApplyZoomScalesScrollPositions) {
 }
 
 // ═══════════════════════════════════════════════
-// Layout computation
+// レイアウト計算
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, ComputeLayoutBothPanes) {
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
-    // File pane starts at x=0
+    // ファイルペインはx=0から開始
     EXPECT_FLOAT_EQ(layout.file_rect.x, 0.0f);
     EXPECT_GT(layout.file_rect.width, 0.0f);
-    // MD pane should exist
+    // MDペインが存在すべき
     EXPECT_GT(layout.md_rect.width, 0.0f);
 }
 
@@ -211,11 +211,11 @@ TEST_F(PaneControllerTest, DetectZoneFilePane) {
 }
 
 // ═══════════════════════════════════════════════
-// DetectZone — additional zones
+// DetectZone — 追加ゾーン
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, DetectZoneSplitter1) {
-    // Splitter1 is right after file pane
+    // Splitter1はファイルペインの直後
     float file_w = panes_.GetFilePaneWidth(); // 220
     auto zone = panes_.DetectZone(file_w + 2.0f, 1200.0f, 800.0f, 4.0f);
     EXPECT_EQ(zone, PaneZone::Splitter1);
@@ -229,39 +229,39 @@ TEST_F(PaneControllerTest, DetectZoneTocPane) {
 }
 
 // ═══════════════════════════════════════════════
-// Splitter drag — file pane hidden
+// スプリッタードラッグ — ファイルペイン非表示時
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, DragSplitter1WithFilePaneHidden) {
-    panes_.ToggleFilePane(); // hide file pane
-    // Dragging splitter1 on hidden file pane should still clamp properly
+    panes_.ToggleFilePane(); // ファイルペインを非表示
+    // 非表示のファイルペインでsplitter1をドラッグしても正しくクランプされるべき
     panes_.DragSplitter1To(300.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetFilePaneWidth(), PaneController::PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden) {
-    panes_.ToggleTocPane(); // hide toc pane
+    panes_.ToggleTocPane(); // 目次ペインを非表示
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     panes_.DragSplitter2To(1000.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetTocPaneWidth(), PaneController::PANE_MIN_WIDTH);
 }
 
 // ═══════════════════════════════════════════════
-// ComputeLayout — various configs
+// ComputeLayout — 各種構成
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, ComputeLayoutNoPanes) {
     panes_.ToggleFilePane();
     panes_.ToggleTocPane();
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
-    // All width goes to MD pane
+    // 全幅がMDペインに割り当てられる
     EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
     EXPECT_FLOAT_EQ(layout.toc_rect.width, 0.0f);
     EXPECT_GT(layout.md_rect.width, 0.0f);
 }
 
 TEST_F(PaneControllerTest, ComputeLayoutOnlyTocPane) {
-    panes_.ToggleFilePane(); // hide file
+    panes_.ToggleFilePane(); // ファイルペインを非表示
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
     EXPECT_GT(layout.toc_rect.width, 0.0f);
@@ -269,7 +269,7 @@ TEST_F(PaneControllerTest, ComputeLayoutOnlyTocPane) {
 }
 
 TEST_F(PaneControllerTest, ComputeLayoutOnlyFilePane) {
-    panes_.ToggleTocPane(); // hide toc
+    panes_.ToggleTocPane(); // 目次ペインを非表示
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     EXPECT_GT(layout.file_rect.width, 0.0f);
     EXPECT_FLOAT_EQ(layout.toc_rect.width, 0.0f);
@@ -277,7 +277,7 @@ TEST_F(PaneControllerTest, ComputeLayoutOnlyFilePane) {
 }
 
 // ═══════════════════════════════════════════════
-// Scroll — combined file and toc
+// スクロール — ファイルペインと目次ペインの複合
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, ScrollBothPanesIndependently) {
@@ -288,7 +288,7 @@ TEST_F(PaneControllerTest, ScrollBothPanesIndependently) {
 }
 
 // ═══════════════════════════════════════════════
-// Zoom — scale and scroll interaction
+// ズーム — スケールとスクロールの相互作用
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, ApplyZoomHalf) {
@@ -302,7 +302,7 @@ TEST_F(PaneControllerTest, ApplyZoomHalf) {
 }
 
 // ═══════════════════════════════════════════════
-// Drag target types
+// ドラッグターゲットの種類
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, DragTargetAllTypes) {

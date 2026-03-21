@@ -64,7 +64,7 @@ TEST(TextSelection, NodeZeroPositionZero) {
     EXPECT_EQ(s.start_pos, 0u);
 }
 
-// ---- Additional edge cases ----
+// ---- 追加エッジケース ----
 
 TEST(TextSelection, LargeNodeIndices) {
     auto s = TextSelection::MakeOrdered(100000, 50000, 200000, 99999);
@@ -77,7 +77,7 @@ TEST(TextSelection, ClearAndRecreate) {
     auto s = TextSelection::MakeOrdered(1, 0, 5, 3);
     s.Clear();
     EXPECT_FALSE(s.active);
-    // Create new selection from cleared state
+    // クリア状態から新しい選択を作成
     s = TextSelection::MakeOrdered(2, 1, 3, 4);
     EXPECT_TRUE(s.active);
     EXPECT_EQ(s.start_node, 2);
@@ -93,7 +93,7 @@ TEST(TextSelection, SingleCharSelection) {
 
 TEST(TextSelection, ZeroPosZeroNode) {
     auto s = TextSelection::MakeOrdered(0, 0, 0, 0);
-    EXPECT_FALSE(s.active); // same position = not active
+    EXPECT_FALSE(s.active); // 同じ位置 = アクティブではない
 }
 
 TEST(TextSelection, ReverseWithDifferentNodesSamePos) {
@@ -103,7 +103,7 @@ TEST(TextSelection, ReverseWithDifferentNodesSamePos) {
     EXPECT_TRUE(s.active);
 }
 
-// ---- Node default state ----
+// ---- Nodeのデフォルト状態 ----
 
 TEST(NodeTest, DefaultState) {
     Node node;
@@ -119,7 +119,7 @@ TEST(NodeTest, DefaultState) {
     EXPECT_TRUE(node.table_rows.empty());
 }
 
-// ---- TextRun default state ----
+// ---- TextRunのデフォルト状態 ----
 
 TEST(TextRun, DefaultState) {
     TextRun run;

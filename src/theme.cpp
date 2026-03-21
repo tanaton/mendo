@@ -23,7 +23,7 @@ float Theme::GetHeadingSize(int level) const noexcept {
 
 void Theme::ApplyZoom(float new_zoom) noexcept {
     if (new_zoom <= 0.0f || zoom <= 0.0f) return;
-    // Undo the previous zoom, then apply the new one
+    // 前のズームを元に戻してから新しいズームを適用する
     float ratio = new_zoom / zoom;
     zoom = new_zoom;
 
@@ -48,14 +48,14 @@ void Theme::ApplyZoom(float new_zoom) noexcept {
     list_bullet_offset    *= ratio;
     hr_thickness          *= ratio;
 
-    // Pane sizes
+    // ペインサイズ
     pane_item_height      *= ratio;
     pane_header_height    *= ratio;
     splitter_width        *= ratio;
     pane_font_size        *= ratio;
 }
 
-// Shared layout constants between light & dark themes
+// ライトテーマとダークテーマで共有するレイアウト定数
 static void ApplyCommonLayout(Theme& t) noexcept {
     wcscpy_s(t.font_family,    L"Yu Gothic UI");
     wcscpy_s(t.monospace_font, L"Consolas");
@@ -100,18 +100,18 @@ Theme GetLightTheme() noexcept {
     t.blockquote_bar_color  = Color(0xdfe2e5);
     t.blockquote_text_color = Color(0x6a737d);
 
-    // Syntax highlighting
-    t.syntax_keyword      = Color(0xAF00DB);  // purple
-    t.syntax_type         = Color(0x267F99);  // teal
-    t.syntax_string       = Color(0xA31515);  // dark red
-    t.syntax_number       = Color(0x098658);  // green
-    t.syntax_comment      = Color(0x008000);  // green
-    t.syntax_preprocessor = Color(0x795E26);  // brown
-    t.syntax_function     = Color(0x795E26);  // brown
+    // シンタックスハイライト
+    t.syntax_keyword      = Color(0xAF00DB);  // 紫
+    t.syntax_type         = Color(0x267F99);  // ティール
+    t.syntax_string       = Color(0xA31515);  // 暗い赤
+    t.syntax_number       = Color(0x098658);  // 緑
+    t.syntax_comment      = Color(0x008000);  // 緑
+    t.syntax_preprocessor = Color(0x795E26);  // 茶
+    t.syntax_function     = Color(0x795E26);  // 茶
 
     ApplyCommonLayout(t);
 
-    // Pane layout
+    // ペインレイアウト
     t.pane_bg_color         = Color(0xf5f5f5);
     t.splitter_color        = Color(0xe0e0e0);
     t.pane_item_hover_color = Color(0xe8e8e8);
@@ -133,7 +133,7 @@ Theme GetDarkTheme() noexcept {
     t.blockquote_bar_color  = Color(0x505050);
     t.blockquote_text_color = Color(0x9e9e9e);
 
-    // Syntax highlighting (VS Code Dark+ inspired)
+    // シンタックスハイライト（VS Code Dark+風）
     t.syntax_keyword      = Color(0xC586C0);
     t.syntax_type         = Color(0x4EC9B0);
     t.syntax_string       = Color(0xCE9178);
@@ -144,7 +144,7 @@ Theme GetDarkTheme() noexcept {
 
     ApplyCommonLayout(t);
 
-    // Pane layout
+    // ペインレイアウト
     t.pane_bg_color         = Color(0x252526);
     t.splitter_color        = Color(0x3c3c3c);
     t.pane_item_hover_color = Color(0x2a2d2e);
