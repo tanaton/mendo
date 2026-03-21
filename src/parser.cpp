@@ -138,8 +138,8 @@ struct ParseContext {
         int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
         if (wlen > 0) {
             text_buffer.resize_and_overwrite(static_cast<size_t>(wlen), [text](wchar_t* buf, size_t count) -> size_t {
-                MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf, static_cast<int>(count));
-                return count;
+                int written = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf, static_cast<int>(count));
+                return (written > 0) ? static_cast<size_t>(written) : 0;
             });
             AppendText(text_buffer);
         }
