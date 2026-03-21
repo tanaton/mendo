@@ -1025,6 +1025,26 @@ TEST(Syntax, GoBacktickRawString) {
     EXPECT_EQ(GetTokenText(code, *str), L"`raw\\nstring`");
 }
 
+TEST(Syntax, GoBacktickRawStringWithBackslash) {
+    // Go raw strings don't treat backslash as escape, so `c:\` is valid
+    std::wstring code = L"`c:\\`";
+    auto tokens = Tokenize(code, SyntaxLanguage::Go);
+    AssertTokensCoverText(tokens, code.size());
+    auto* str = FindToken(tokens, SyntaxTokenType::String);
+    ASSERT_NE(str, nullptr);
+    EXPECT_EQ(GetTokenText(code, *str), L"`c:\\`");
+}
+
+TEST(Syntax, GoBacktickRawStringTrailingBackslash) {
+    // Ensure backslash at end of raw string doesn't skip closing backtick
+    std::wstring code = L"s := `path\\` + x";
+    auto tokens = Tokenize(code, SyntaxLanguage::Go);
+    AssertTokensCoverText(tokens, code.size());
+    auto* str = FindToken(tokens, SyntaxTokenType::String);
+    ASSERT_NE(str, nullptr);
+    EXPECT_EQ(GetTokenText(code, *str), L"`path\\`");
+}
+
 TEST(Syntax, GoNilTrueFalse) {
     std::wstring code = L"nil true false iota";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);

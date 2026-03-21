@@ -288,10 +288,10 @@ void EmitToken(std::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length
 
 // Scan a string literal starting at pos (pos points to the opening quote).
 // Returns the position after the closing quote (or end of text if unterminated).
-size_t ScanString(const std::wstring& text, size_t pos, wchar_t quote, bool allow_multiline) {
+size_t ScanString(const std::wstring& text, size_t pos, wchar_t quote, bool allow_multiline, bool handle_escape = true) {
     size_t i = pos + 1;
     while (i < text.size()) {
-        if (text[i] == L'\\') {
+        if (handle_escape && text[i] == L'\\') {
             i += 2;
             if (i > text.size()) i = text.size();
         } else if (text[i] == quote) {
@@ -406,6 +406,7 @@ struct LexerConfig {
     bool rem_comment = false;           // REM
     bool case_insensitive = false;      // case-insensitive keyword matching
     bool skip_single_quote = false;     // don't treat ' as string delimiter
+    bool raw_backtick = false;          // backtick strings without escape (Go)
 };
 
 std::vector<SyntaxToken> TokenizeGeneric(
@@ -565,7 +566,7 @@ std::vector<SyntaxToken> TokenizeGeneric(
         if (cfg.backtick_string && c == L'`') {
             flush_plain();
             size_t start = i;
-            i = ScanString(text, i, L'`', true);
+            i = ScanString(text, i, L'`', true, !cfg.raw_backtick);
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
             continue;
         }
@@ -589,8 +590,14 @@ std::vector<SyntaxToken> TokenizeGeneric(
             std::wstring word_lower;
             std::wstring_view lookup_word = word;
             if (cfg.case_insensitive) {
-                word_lower = ToLower(word);
-                lookup_word = word_lower;
+                bool has_upper = false;
+                for (wchar_t ch : word) {
+                    if (ch >= L'A' && ch <= L'Z') { has_upper = true; break; }
+                }
+                if (has_upper) {
+                    word_lower = ToLower(word);
+                    lookup_word = word_lower;
+                }
             }
 
             SyntaxTokenType tt = SyntaxTokenType::Plain;
@@ -691,7 +698,7 @@ std::vector<SyntaxToken> Tokenize(const std::wstring& text, SyntaxLanguage langu
         case SyntaxLanguage::Go:
             return TokenizeGeneric(text, GoKeywords(), GoTypes(), {
                 .line_comment_slash = true, .block_comment = true,
-                .backtick_string = true,
+                .backtick_string = true, .raw_backtick = true,
             });
 
         case SyntaxLanguage::Rust:
