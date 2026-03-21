@@ -340,6 +340,11 @@ void MermaidRenderer::CancelPending() {
     current_request_ = {};
 }
 
+void MermaidRenderer::ClearPendingQueue() noexcept {
+    decltype(pending_requests_) empty;
+    pending_requests_.swap(empty);
+}
+
 std::pmr::wstring MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const {
     std::pmr::wstring key{code};
     key += L"|";

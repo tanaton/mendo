@@ -53,6 +53,10 @@ public:
     // nodesベクターが置き換えられる前に呼び出す必要がある。
     void CancelPending();
 
+    // 保留キューのみをクリアする（処理中のレンダリングには影響しない）。
+    // リサイズ時に古い幅のリクエストを破棄するために使用する。
+    void ClearPendingQueue() noexcept;
+
 private:
     void ProcessQueue();
     void RenderMermaidInWebView(std::wstring_view code, float max_width, bool dark_mode);

@@ -335,6 +335,7 @@ void App::RequestMermaidRenders() {
         if (any_invalidated) {
             mermaid_renderer_.ClearCache();
         }
+        mermaid_renderer_.ClearPendingQueue();
     }
     last_mermaid_content_width_ = content_width;
 

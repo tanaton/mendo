@@ -112,11 +112,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     bool width_changed = (viewport_width != last_viewport_width_);
     bool partial = (viewport_top >= 0.0f);
 
-    // 部分モードでは last_viewport_width_ を更新しない。
-    // 後続のバッチ処理が幅の変更を検出できるようにするため。
-    if (!partial) {
-        last_viewport_width_ = viewport_width;
-    }
+    last_viewport_width_ = viewport_width;
 
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     float y = theme_->margin_top;
