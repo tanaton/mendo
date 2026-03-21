@@ -99,12 +99,12 @@ public:
         trail_points_.clear();
     }
 
-    bool IsGestureActive() const noexcept { return phase_ == GesturePhase::Tracking; }
-    bool IsOverlayVisible() const noexcept { return overlay_alpha_ > 0.0f; }
-    const std::pmr::deque<GesturePoint>& GetTrailPoints() const noexcept { return trail_points_; }
-    GestureDirection GetDirection() const noexcept { return direction_; }
-    GesturePhase GetPhase() const noexcept { return phase_; }
-    float GetOverlayAlpha() const noexcept { return overlay_alpha_; }
+    constexpr bool IsGestureActive() const noexcept { return phase_ == GesturePhase::Tracking; }
+    constexpr bool IsOverlayVisible() const noexcept { return overlay_alpha_ > 0.0f; }
+    constexpr const std::pmr::deque<GesturePoint>& GetTrailPoints() const noexcept { return trail_points_; }
+    constexpr GestureDirection GetDirection() const noexcept { return direction_; }
+    constexpr GesturePhase GetPhase() const noexcept { return phase_; }
+    constexpr float GetOverlayAlpha() const noexcept { return overlay_alpha_; }
 
 private:
     void UpdateDirection() noexcept {

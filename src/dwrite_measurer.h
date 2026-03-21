@@ -24,16 +24,15 @@ private:
     bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node);
     void ApplyCellRunFormatting(IDWriteTextLayout* layout, const std::pmr::vector<TextRun>& runs);
+    void MeasureTableCells(Node& node, NodeLayoutEntry& entry,
+                           std::pmr::vector<float>& natural_widths);
+    void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
+                              size_t col_count, std::pmr::vector<float>& natural_widths);
 
     IDWriteFactory* dwrite_ = nullptr;
     const Theme* theme_ = nullptr;
 
     ComPtr<IDWriteTextFormat> fmt_body_;
-    ComPtr<IDWriteTextFormat> fmt_h1_;
-    ComPtr<IDWriteTextFormat> fmt_h2_;
-    ComPtr<IDWriteTextFormat> fmt_h3_;
-    ComPtr<IDWriteTextFormat> fmt_h4_;
-    ComPtr<IDWriteTextFormat> fmt_h5_;
-    ComPtr<IDWriteTextFormat> fmt_h6_;
+    ComPtr<IDWriteTextFormat> fmt_h_[6];
     ComPtr<IDWriteTextFormat> fmt_code_;
 };

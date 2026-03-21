@@ -70,15 +70,7 @@ void App::ToggleDarkMode() {
     ApplyDarkModeToWindow(hwnd_, theme_service_.IsDarkMode());
 
     // 全レイアウトとMermaid図を一括で無効化
-    for (size_t i = 0; i < doc_.GetNodes().size(); ++i) {
-        auto& entry = layout_cache_[i];
-        entry.text_layout.Reset();
-        entry.effects_applied = false;
-        entry.inline_code_bgs.clear();
-        if (doc_.GetNodes()[i].code_language == SyntaxLanguage::Mermaid) {
-            layout_cache_.GetDiagram(i).bitmap.Reset();
-        }
-    }
+    layout_cache_.InvalidateAllWithDiagrams(doc_.GetNodes());
     mermaid_renderer_.CancelPending();
     mermaid_renderer_.ClearCache();
 
@@ -148,6 +140,8 @@ void App::ApplyZoom(float new_zoom) {
 
     SyncMaxScroll();
     viewport_.SetScrollTarget(viewport_.GetScrollY());
+
+    RequestMermaidRenders();
 
     UpdateScrollBar();
     UpdateTitleBar();

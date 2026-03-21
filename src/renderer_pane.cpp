@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
 
@@ -11,6 +12,7 @@ static bool EnsurePaneCacheSize(Renderer::PaneCache& cache, ID2D1RenderTarget* p
     if (!cache.bitmap_rt ||
         cache.cached_width != width || cache.cached_height != height) {
         cache.bitmap_rt.Reset();
+        cache.cached_bitmap.Reset();
         HRESULT hr = parent->CreateCompatibleRenderTarget(
             D2D1::SizeF(width, height), &cache.bitmap_rt);
         if (FAILED(hr)) return false;
@@ -106,15 +108,15 @@ static void DrawSidePaneImpl(
 
         rt->EndDraw();
         cache.dirty = false;
+        cache.cached_bitmap.Reset();
+        cache.bitmap_rt->GetBitmap(&cache.cached_bitmap);
     }
 
     // キャッシュされたビットマップを転送
-    ComPtr<ID2D1Bitmap> bmp;
-    cache.bitmap_rt->GetBitmap(&bmp);
-    if (bmp) {
+    if (cache.cached_bitmap) {
         D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y,
                                          rect.x + rect.width, rect.y + rect.height);
-        main_rt->DrawBitmap(bmp.Get(), dest);
+        main_rt->DrawBitmap(cache.cached_bitmap.Get(), dest);
     }
 }
 
@@ -171,7 +173,7 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
             rt->FillRectangle(item_rect, Brush(BrushId::PaneItemHover));
         }
 
-        float indent = (entry.heading_level - 1) * 12.0f;
+        float indent = (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
         if (fmt_pane_item_) {
             D2D1_RECT_F text_rect = D2D1::RectF(
                 8.0f + indent, item_y, width - 4.0f, item_y + theme_.pane_item_height);

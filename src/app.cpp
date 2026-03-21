@@ -63,6 +63,11 @@ bool App::Init(HWND hwnd) {
     viewport_.SetZoomIndex(theme_service_.LoadZoomIndex());
     if (theme_service_.IsDarkMode() || viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
         renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
+        renderer_.GetLayout().UpdateTheme(renderer_.GetTheme());
+        renderer_.GetLayout().RecreateFormats();
+        if (viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
+            panes_.ApplyZoom(viewport_.GetCurrentZoom());
+        }
     }
     if (theme_service_.IsDarkMode()) {
         ApplyDarkModeToWindow(hwnd_, true);
@@ -263,7 +268,7 @@ void App::DoLoadMarkdownFile() {
         return;
     }
 
-    std::wstring dir = doc_.GetDirectory();
+    std::pmr::wstring dir = doc_.GetDirectory();
     if (!dir.empty()) {
         file_explorer_.SetDirectory(dir);
         file_explorer_.SetCurrentFile(doc_.GetFilePath());
@@ -308,6 +313,11 @@ void App::RequestMermaidRenders() {
                           - renderer_.GetTheme().margin_left
                           - renderer_.GetTheme().margin_right;
 
+    // コンテンツ幅が0以下の場合（ズームでMDペインが極小になった場合など）は
+    // 不正な幅でレンダリングしないようスキップする。
+    // last_mermaid_content_width_ を更新しないことで、復帰時の幅変更検出を正しく保つ。
+    if (content_width <= 0.0f) return;
+
     if (last_mermaid_content_width_ > 0.0f &&
         static_cast<int>(content_width) != static_cast<int>(last_mermaid_content_width_)) {
         // 図のサイズが新旧どちらのコンテンツ幅より小さければ
@@ -330,6 +340,7 @@ void App::RequestMermaidRenders() {
         if (any_invalidated) {
             mermaid_renderer_.ClearCache();
         }
+        mermaid_renderer_.ClearPendingQueue();
     }
     last_mermaid_content_width_ = content_width;
 
@@ -472,7 +483,7 @@ void App::ExecuteActions(const ActionList& actions) {
 void App::OnDropFiles(HDROP hDrop) {
     UINT required = DragQueryFileW(hDrop, 0, nullptr, 0);
     if (required > 0) {
-        std::wstring path(required, L'\0');
+        std::pmr::wstring path(required, L'\0');
         if (DragQueryFileW(hDrop, 0, path.data(), required + 1)) {
             if (!doc_.GetFilePath().empty()) PushNavHistory();
             LoadMarkdownFile(path);
@@ -526,8 +537,8 @@ void App::SaveLastFilePath() {
     config_.SaveWString(L"last_file.txt", doc_.GetFilePath());
 }
 
-std::wstring App::LoadLastFilePath() const {
-    std::wstring path = config_.LoadWString(L"last_file.txt");
+std::pmr::wstring App::LoadLastFilePath() const {
+    std::pmr::wstring path = config_.LoadWString(L"last_file.txt");
     if (!path.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return {};
     }

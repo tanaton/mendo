@@ -11,7 +11,7 @@ public:
 
     // ---- 状態 ----
 
-    bool IsDarkMode() const noexcept { return dark_mode_; }
+    constexpr bool IsDarkMode() const noexcept { return dark_mode_; }
 
     // 現在のダークモード状態に基づきテーマを作成する（オプションでズームを適用）。
     Theme CreateTheme() const;

@@ -15,7 +15,7 @@ public:
         IDWriteTextFormat* icon_font = nullptr;
     };
 
-    void SetTheme(const Theme* theme) noexcept {
+    constexpr void SetTheme(const Theme* theme) noexcept {
         theme_ = theme;
         bool is_dark = theme->IsDark();
         float a = is_dark ? 0.05f : 0.02f;
@@ -23,7 +23,7 @@ public:
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
     }
-    void SetFormats(const Formats& fmts) noexcept { formats_ = fmts; }
+    constexpr void SetFormats(const Formats& fmts) noexcept { formats_ = fmts; }
 
     // Markdownコンテンツペインのすべての描画コマンドを生成する。
     // 内部バッファへの参照を返す。次回呼び出しまで有効。
@@ -41,7 +41,15 @@ private:
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
-                  int node_index, float x, const TextSelection& selection);
+                  int node_index, float x, const TextSelection& selection,
+                  float viewport_top, float viewport_bottom);
+    void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row,
+                       float x, float y, float table_width, float row_h, float border);
+    void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,
+                             IDWriteTextLayout* cell_layout,
+                             float text_x, float text_y,
+                             bool has_selection, uint32_t sel_start, uint32_t sel_end,
+                             uint32_t flat_offset);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
     void GenBlockQuoteBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x);
@@ -52,7 +60,7 @@ private:
     Formats formats_;
 
     // フレーム毎にリセットする monotonic リソースで描画コマンドを管理
-    FrameMonotonicResource frame_resource_{128 * 1024};
+    MonotonicResource frame_resource_{128 * 1024};
     DrawCommandList cmds_{frame_resource_.resource()};
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;

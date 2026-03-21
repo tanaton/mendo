@@ -1,15 +1,17 @@
 #include "toc.h"
+#include <algorithm>
+
+struct NodeTypeHeadingFilter {
+    static constexpr bool operator()(const Node& node) noexcept {
+        return node.type == NodeType::Heading;
+    }
+};
 
 void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes) {
     entries_.clear();
-    size_t heading_count = 0;
-    for (const auto& node : nodes) {
-        if (node.type == NodeType::Heading) heading_count++;
-    }
+    size_t heading_count = std::ranges::count_if(nodes, NodeTypeHeadingFilter{});
     entries_.reserve(heading_count);
-    for (const auto& node : nodes) {
-        if (node.type != NodeType::Heading) continue;
-
+    for (const auto& node : nodes | std::views::filter(NodeTypeHeadingFilter{})) {
         TocEntry entry;
         entry.text = std::wstring_view{node.text};
         entry.anchor_id = std::wstring_view{node.anchor_id};

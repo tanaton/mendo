@@ -73,19 +73,19 @@ public:
                      const GestureRenderState& gesture = {});
 
     ID2D1HwndRenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
-    LayoutEngine& GetLayout() noexcept { return layout_; }
-    const Theme& GetTheme() const noexcept { return theme_; }
+    constexpr LayoutEngine& GetLayout() noexcept { return layout_; }
+    constexpr const Theme& GetTheme() const noexcept { return theme_; }
     void SetTheme(const Theme& theme);
     void ApplyZoom(float new_zoom);
     void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
-    Theme& GetThemeMut() noexcept { return theme_; }
+    constexpr Theme& GetThemeMut() noexcept { return theme_; }
 
     // デバイスロスト後にD2Dレンダーターゲットが再作成された際に呼び出されるコールバックを設定。
     // コールバックには新しいレンダーターゲットのポインタが渡される。
     void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
 
-    void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }
-    void InvalidateTocPaneCache() noexcept { toc_pane_cache_.dirty = true; }
+    constexpr void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }
+    constexpr void InvalidateTocPaneCache() noexcept { toc_pane_cache_.dirty = true; }
 
 private:
     // 描画前パス: レイアウトに描画エフェクト（シンタックスハイライト、リンク色）を適用。
@@ -117,6 +117,9 @@ private:
     void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry);
     void RecreateBrushes();
     void RecreatePaneFormats();
+    ComPtr<IDWriteTextFormat> CreatePaneFormat(
+        const wchar_t* family, DWRITE_FONT_WEIGHT weight,
+        float size, const wchar_t* locale);
     bool CheckEndDraw();
     bool RecreateRenderTarget();
 
@@ -129,6 +132,8 @@ private:
     ComPtr<IDWriteTextFormat> fmt_pane_item_;
     ComPtr<IDWriteTextFormat> fmt_pane_header_;
     ComPtr<IDWriteTextFormat> fmt_nav_button_;
+    ComPtr<IDWriteTextLayout> nav_back_layout_;   // ◀ のキャッシュ済みレイアウト
+    ComPtr<IDWriteTextLayout> nav_forward_layout_; // ▶ のキャッシュ済みレイアウト
     ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
     ComPtr<IDWriteTextFormat> fmt_gesture_overlay_;
 
@@ -137,12 +142,13 @@ public:
     // 内容が変更された場合のみ再描画される。
     struct PaneCache {
         ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
+        ComPtr<ID2D1Bitmap> cached_bitmap; // GetBitmap() の毎フレーム呼び出しを回避
         bool dirty = true;
         float cached_width = 0;
         float cached_height = 0;
 
-        void Invalidate() noexcept { dirty = true; }
-        void Reset() noexcept { bitmap_rt.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
+        constexpr void Invalidate() noexcept { dirty = true; }
+        void Reset() noexcept { bitmap_rt.Reset(); cached_bitmap.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
     };
 private:
     PaneCache file_pane_cache_;

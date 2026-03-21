@@ -114,13 +114,13 @@ TEST_F(ConfigStoreTest, SaveIntNegativeValues) {
 // ---- SaveWString / LoadWString ----
 
 TEST_F(ConfigStoreTest, SaveAndLoadWString) {
-    std::wstring test_path = L"C:\\Users\\test\\document.md";
+    std::pmr::wstring test_path = L"C:\\Users\\test\\document.md";
     config::SaveWString(L"wstr_test.txt", test_path);
     EXPECT_EQ(config::LoadWString(L"wstr_test.txt"), test_path);
 }
 
 TEST_F(ConfigStoreTest, SaveAndLoadWStringJapanese) {
-    std::wstring jp = L"C:\\ユーザー\\テスト\\文書.md";
+    std::pmr::wstring jp = L"C:\\ユーザー\\テスト\\文書.md";
     config::SaveWString(L"wstr_jp.txt", jp);
     EXPECT_EQ(config::LoadWString(L"wstr_jp.txt"), jp);
 }

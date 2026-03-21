@@ -63,3 +63,24 @@ TEST(LayoutCacheTest, InvalidateEmptyCache) {
     cache.InvalidateAllLayouts();
     cache.MarkAllDirty();
 }
+
+// ズーム時に使用されるInvalidateAllLayoutsがダイアグラムのビットマップ/サイズを
+// 保持することを検証する（ズーム→復帰でMermaid図が消える問題の再発防止）。
+TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesDiagramEntries) {
+    LayoutCache cache;
+    cache.Resize(2);
+
+    // ダイアグラムエントリにサイズを設定（ビットマップは設定できないが、サイズで確認）
+    cache.GetDiagram(0).width = 400.0f;
+    cache.GetDiagram(0).height = 300.0f;
+    cache.GetDiagram(1).width = 500.0f;
+    cache.GetDiagram(1).height = 250.0f;
+
+    cache.InvalidateAllLayouts();
+
+    // ダイアグラムの幅・高さは保持されること
+    EXPECT_FLOAT_EQ(cache.GetDiagram(0).width, 400.0f);
+    EXPECT_FLOAT_EQ(cache.GetDiagram(0).height, 300.0f);
+    EXPECT_FLOAT_EQ(cache.GetDiagram(1).width, 500.0f);
+    EXPECT_FLOAT_EQ(cache.GetDiagram(1).height, 250.0f);
+}

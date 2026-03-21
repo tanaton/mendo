@@ -28,7 +28,7 @@ struct PaneScrollInfo {
 };
 
 // ウィンドウサイズとペイン設定からペインレイアウトを計算する。
-PaneLayout ComputePaneLayout(float total_width, float total_height,
+[[nodiscard]] PaneLayout ComputePaneLayout(float total_width, float total_height,
                               float file_pane_width, float toc_pane_width,
                               float splitter_width, bool show_file, bool show_toc,
                               float md_min_width = 200.0f) noexcept;

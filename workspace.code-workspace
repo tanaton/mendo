@@ -14,6 +14,8 @@
 		"chat.tools.terminal.autoApprove": {
 			"ctest": true,
 			"cmake": true
-		}
+		},
+		"C_Cpp.default.cppStandard": "c++23",
+		"C_Cpp.default.cStandard": "c23"
 	}
 }

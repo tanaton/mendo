@@ -12,6 +12,7 @@
 #include <functional>
 #include <unordered_map>
 #include <queue>
+#include <span>
 #include <memory_resource>
 
 using Microsoft::WRL::ComPtr;
@@ -33,7 +34,7 @@ public:
               std::function<void()> on_ready);
 
     // WebView2が初期化済みでレンダリング可能な場合にtrueを返す。
-    bool IsReady() const noexcept { return ready_; }
+    constexpr bool IsReady() const noexcept { return ready_; }
 
     // Mermaidコードブロックのレンダリングを要求する。
     // 完了時、ダイアグラムエントリのbitmap/width/heightとレイアウトエントリの
@@ -51,6 +52,10 @@ public:
     // 保留中のリクエストをすべてキャンセルし、処理中のリクエストを無効化する。
     // nodesベクターが置き換えられる前に呼び出す必要がある。
     void CancelPending();
+
+    // 保留キューのみをクリアする（処理中のレンダリングには影響しない）。
+    // リサイズ時に古い幅のリクエストを破棄するために使用する。
+    void ClearPendingQueue() noexcept;
 
 private:
     void ProcessQueue();
@@ -74,7 +79,7 @@ private:
     bool ready_ = false;
     bool rendering_ = false;
     int render_counter_ = 0;
-    std::string cached_mermaid_gz_; // Win32リソースからキャッシュされたgzip圧縮済みmermaid.js
+    std::span<const std::byte> cached_mermaid_gz_; // Win32リソースから直接参照するgzip圧縮済みmermaid.js
 
     struct RenderRequest {
         Node* node = nullptr;

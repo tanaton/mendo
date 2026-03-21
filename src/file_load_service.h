@@ -8,12 +8,12 @@
 // Win32非依存 — 完全にテスト可能。
 class FileLoadService {
 public:
-    explicit FileLoadService(DocumentService& doc_service) noexcept;
+    explicit constexpr FileLoadService(DocumentService& doc_service) noexcept : doc_service_(doc_service) {}
 
     // ---- ローディングアニメーション状態 ----
 
-    bool IsLoading() const noexcept { return loading_; }
-    float GetLoadingAngle() const noexcept { return loading_angle_; }
+    constexpr bool IsLoading() const noexcept { return loading_; }
+    constexpr float GetLoadingAngle() const noexcept { return loading_angle_; }
 
     // ファイルのローディングアニメーションを開始。
     void StartLoading(std::wstring_view path);
@@ -35,8 +35,8 @@ public:
 
     // ---- パスアクセス ----
 
-    std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }
-    void SetLoadingPath(std::wstring_view path) { loading_path_ = path; }
+    constexpr std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }
+    constexpr void SetLoadingPath(std::wstring_view path) { loading_path_ = path; }
 
 private:
     DocumentService& doc_service_;

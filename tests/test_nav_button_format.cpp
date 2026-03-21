@@ -26,7 +26,7 @@ protected:
 
         // Renderer::RecreatePaneFormatsと同じパラメータでフォーマットを作成
         hr = factory_->CreateTextFormat(
-            theme_.font_family, nullptr,
+            theme_.font_family.c_str(), nullptr,
             DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
             L"ja-jp", &fmt_);

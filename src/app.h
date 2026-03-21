@@ -37,7 +37,7 @@ public:
     bool Init(HWND hwnd);
 
     void LoadMarkdownFile(std::wstring_view path);
-    std::wstring LoadLastFilePath() const;
+    std::pmr::wstring LoadLastFilePath() const;
 
     // Win32Windowから呼び出されるイベントハンドラ
     void OnPaint();
@@ -59,6 +59,7 @@ public:
 
     // ボタン押下なしのマウスホバー処理
     void OnMouseHover(int px, int py);
+    void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
 
     // マウスXボタンによるナビゲーション
     void OnXButtonBack();
@@ -81,7 +82,7 @@ public:
     bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
 
     // Win32Windowのカーソル/再描画用にDPIスケールを公開
-    float GetDpiScale() const noexcept { return cached_dpi_scale_; }
+    constexpr float GetDpiScale() const noexcept { return cached_dpi_scale_; }
 
 private:
     // AppControllerが返すアクションを実行
@@ -112,6 +113,11 @@ private:
     // ペインクリックハンドラ (OnLButtonDownから抽出)
     void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);
+    bool TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& rect,
+                                      PaneController::DragTarget target,
+                                      const PaneScrollInfo& scroll_info,
+                                      float total_content, ScrollState& scroll,
+                                      void (Renderer::*invalidate)());
 
     // スクロールバーヘルパー
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
@@ -124,6 +130,7 @@ private:
     void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();
     void UpdateScrollBar(float md_pane_height);
+    void InvalidateMdPane(const PaneRect& md_rect);
     void ScrollTo(float position);
     void SmoothScrollBy(float delta);
     void UpdateSmoothScroll();

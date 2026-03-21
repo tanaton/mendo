@@ -1,11 +1,11 @@
 #include "document_utils.h"
 #include <windows.h>
 
-std::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
+std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
                                   const TextSelection& selection) {
     if (!selection.active) return {};
 
-    std::wstring result;
+    std::pmr::wstring result;
     for (int i = selection.start_node; i <= selection.end_node; i++) {
         if (i < 0 || i >= static_cast<int>(nodes.size())) continue;
         const auto& text = nodes[i].text;
@@ -67,14 +67,23 @@ std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t t
     return FindLinkInRuns(node.runs, text_pos);
 }
 
+std::pmr::wstring ToLowerAscii(std::wstring_view text) {
+    std::pmr::wstring result;
+    result.reserve(text.size());
+    for (wchar_t c : text) {
+        if (c >= L'A' && c <= L'Z')
+            result += static_cast<wchar_t>(c - L'A' + L'a');
+        else
+            result += c;
+    }
+    return result;
+}
+
 int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view anchor) {
     if (anchor.empty()) return -1;
 
     // 比較のためアンカーを小文字に変換
-    std::wstring target{anchor};
-    for (auto& c : target) {
-        if (c >= L'A' && c <= L'Z') c = c - L'A' + L'a';
-    }
+    std::pmr::wstring target = ToLowerAscii(anchor);
 
     for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
         const auto& node = nodes[i];
@@ -109,17 +118,17 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) {
     return result;
 }
 
-std::wstring ExtractFilename(std::wstring_view path) {
+std::pmr::wstring ExtractFilename(std::wstring_view path) {
     if (path.empty()) return {};
     auto pos = path.find_last_of(L"\\/");
     if (pos != std::wstring_view::npos) {
-        return std::wstring{path.substr(pos + 1)};
+        return std::pmr::wstring{path.substr(pos + 1)};
     }
-    return std::wstring{path};
+    return std::pmr::wstring{path};
 }
 
-std::wstring BuildTitleString(std::wstring_view path, int zoom_percent) {
-    std::wstring title;
+std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent) {
+    std::pmr::wstring title;
     if (path.empty()) {
         title = L"mendo";
     } else {

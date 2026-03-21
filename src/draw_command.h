@@ -3,7 +3,6 @@
 #include <dwrite.h>
 #include <variant>
 #include <vector>
-#include <cwchar>
 #include <algorithm>
 #include <memory_resource>
 
@@ -37,7 +36,7 @@ struct DrawTextLayoutCmd {
 };
 
 struct DrawTextCmd {
-    static constexpr size_t MAX_TEXT = 32;
+    static constexpr size_t MAX_TEXT = 12;
     wchar_t text[MAX_TEXT];
     uint8_t text_len = 0;
     D2D1_RECT_F rect;
@@ -48,7 +47,7 @@ struct DrawTextCmd {
                             D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col) noexcept {
         DrawTextCmd c{};
         c.text_len = static_cast<uint8_t>((std::min)(len, MAX_TEXT));
-        std::wmemcpy(c.text, src, c.text_len);
+        std::char_traits<wchar_t>::copy(c.text, src, c.text_len);
         c.rect = r;
         c.format = fmt;
         c.color = col;

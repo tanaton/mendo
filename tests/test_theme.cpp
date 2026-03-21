@@ -4,32 +4,29 @@
 TEST(Theme, LightThemeHasPositiveFontSizes) {
     Theme t = GetLightTheme();
     EXPECT_GT(t.font_size_body, 0.0f);
-    EXPECT_GT(t.font_size_h1, 0.0f);
-    EXPECT_GT(t.font_size_h2, 0.0f);
-    EXPECT_GT(t.font_size_h3, 0.0f);
-    EXPECT_GT(t.font_size_h4, 0.0f);
-    EXPECT_GT(t.font_size_h5, 0.0f);
-    EXPECT_GT(t.font_size_h6, 0.0f);
+    for (int i = 0; i < 6; ++i) {
+        EXPECT_GT(t.font_size_h[i], 0.0f);
+    }
     EXPECT_GT(t.font_size_code, 0.0f);
 }
 
 TEST(Theme, HeadingSizesDecrease) {
     Theme t = GetLightTheme();
-    EXPECT_GT(t.font_size_h1, t.font_size_h2);
-    EXPECT_GT(t.font_size_h2, t.font_size_h3);
-    EXPECT_GE(t.font_size_h3, t.font_size_h4);
-    EXPECT_GE(t.font_size_h4, t.font_size_h5);
-    EXPECT_GE(t.font_size_h5, t.font_size_h6);
+    EXPECT_GT(t.font_size_h[0], t.font_size_h[1]);
+    EXPECT_GT(t.font_size_h[1], t.font_size_h[2]);
+    EXPECT_GE(t.font_size_h[2], t.font_size_h[3]);
+    EXPECT_GE(t.font_size_h[3], t.font_size_h[4]);
+    EXPECT_GE(t.font_size_h[4], t.font_size_h[5]);
 }
 
 TEST(Theme, GetHeadingSizeReturnsCorrectLevel) {
     Theme t = GetLightTheme();
-    EXPECT_EQ(t.GetHeadingSize(1), t.font_size_h1);
-    EXPECT_EQ(t.GetHeadingSize(2), t.font_size_h2);
-    EXPECT_EQ(t.GetHeadingSize(3), t.font_size_h3);
-    EXPECT_EQ(t.GetHeadingSize(4), t.font_size_h4);
-    EXPECT_EQ(t.GetHeadingSize(5), t.font_size_h5);
-    EXPECT_EQ(t.GetHeadingSize(6), t.font_size_h6);
+    EXPECT_EQ(t.GetHeadingSize(1), t.font_size_h[0]);
+    EXPECT_EQ(t.GetHeadingSize(2), t.font_size_h[1]);
+    EXPECT_EQ(t.GetHeadingSize(3), t.font_size_h[2]);
+    EXPECT_EQ(t.GetHeadingSize(4), t.font_size_h[3]);
+    EXPECT_EQ(t.GetHeadingSize(5), t.font_size_h[4]);
+    EXPECT_EQ(t.GetHeadingSize(6), t.font_size_h[5]);
 }
 
 TEST(Theme, GetHeadingSizeInvalidLevelReturnsBody) {
@@ -50,8 +47,8 @@ TEST(Theme, PositiveMargins) {
 
 TEST(Theme, FontFamilyNotEmpty) {
     Theme t = GetLightTheme();
-    EXPECT_GT(wcslen(t.font_family), 0u);
-    EXPECT_GT(wcslen(t.monospace_font), 0u);
+    EXPECT_GT(t.font_family.size(), 0u);
+    EXPECT_GT(t.monospace_font.size(), 0u);
 }
 
 TEST(Theme, BackgroundColorIsWhite) {
@@ -66,22 +63,19 @@ TEST(Theme, BackgroundColorIsWhite) {
 TEST(Theme, DarkThemeHasPositiveFontSizes) {
     Theme t = GetDarkTheme();
     EXPECT_GT(t.font_size_body, 0.0f);
-    EXPECT_GT(t.font_size_h1, 0.0f);
-    EXPECT_GT(t.font_size_h2, 0.0f);
-    EXPECT_GT(t.font_size_h3, 0.0f);
-    EXPECT_GT(t.font_size_h4, 0.0f);
-    EXPECT_GT(t.font_size_h5, 0.0f);
-    EXPECT_GT(t.font_size_h6, 0.0f);
+    for (int i = 0; i < 6; ++i) {
+        EXPECT_GT(t.font_size_h[i], 0.0f);
+    }
     EXPECT_GT(t.font_size_code, 0.0f);
 }
 
 TEST(Theme, DarkThemeHeadingSizesDecrease) {
     Theme t = GetDarkTheme();
-    EXPECT_GT(t.font_size_h1, t.font_size_h2);
-    EXPECT_GT(t.font_size_h2, t.font_size_h3);
-    EXPECT_GE(t.font_size_h3, t.font_size_h4);
-    EXPECT_GE(t.font_size_h4, t.font_size_h5);
-    EXPECT_GE(t.font_size_h5, t.font_size_h6);
+    EXPECT_GT(t.font_size_h[0], t.font_size_h[1]);
+    EXPECT_GT(t.font_size_h[1], t.font_size_h[2]);
+    EXPECT_GE(t.font_size_h[2], t.font_size_h[3]);
+    EXPECT_GE(t.font_size_h[3], t.font_size_h[4]);
+    EXPECT_GE(t.font_size_h[4], t.font_size_h[5]);
 }
 
 TEST(Theme, DarkThemeBackgroundIsDark) {
@@ -111,15 +105,15 @@ TEST(Theme, DarkThemePositiveMargins) {
 
 TEST(Theme, DarkThemeFontFamilyNotEmpty) {
     Theme t = GetDarkTheme();
-    EXPECT_GT(wcslen(t.font_family), 0u);
-    EXPECT_GT(wcslen(t.monospace_font), 0u);
+    EXPECT_GT(t.font_family.size(), 0u);
+    EXPECT_GT(t.monospace_font.size(), 0u);
 }
 
 TEST(Theme, DarkAndLightHaveSameFontSizes) {
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
     EXPECT_FLOAT_EQ(light.font_size_body, dark.font_size_body);
-    EXPECT_FLOAT_EQ(light.font_size_h1, dark.font_size_h1);
+    EXPECT_FLOAT_EQ(light.font_size_h[0], dark.font_size_h[0]);
     EXPECT_FLOAT_EQ(light.font_size_code, dark.font_size_code);
 }
 
@@ -154,11 +148,9 @@ TEST(Theme, DarkAndLightHaveSamePaneLayout) {
 TEST(Theme, DarkAndLightHaveSameAllHeadingSizes) {
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
-    EXPECT_FLOAT_EQ(light.font_size_h2, dark.font_size_h2);
-    EXPECT_FLOAT_EQ(light.font_size_h3, dark.font_size_h3);
-    EXPECT_FLOAT_EQ(light.font_size_h4, dark.font_size_h4);
-    EXPECT_FLOAT_EQ(light.font_size_h5, dark.font_size_h5);
-    EXPECT_FLOAT_EQ(light.font_size_h6, dark.font_size_h6);
+    for (int i = 0; i < 6; ++i) {
+        EXPECT_FLOAT_EQ(light.font_size_h[i], dark.font_size_h[i]);
+    }
 }
 
 TEST(Theme, GetHeadingSizeLargeLevel) {
@@ -188,13 +180,13 @@ TEST(Theme, LightThemeTextIsDark) {
 TEST(Theme, ApplyZoomScalesFonts) {
     Theme t = GetLightTheme();
     float original_body = t.font_size_body;
-    float original_h1 = t.font_size_h1;
+    float original_h1 = t.font_size_h[0];
     float original_code = t.font_size_code;
 
     t.ApplyZoom(2.0f);
 
     EXPECT_NEAR(t.font_size_body, original_body * 2.0f, 0.01f);
-    EXPECT_NEAR(t.font_size_h1, original_h1 * 2.0f, 0.01f);
+    EXPECT_NEAR(t.font_size_h[0], original_h1 * 2.0f, 0.01f);
     EXPECT_NEAR(t.font_size_code, original_code * 2.0f, 0.01f);
     EXPECT_FLOAT_EQ(t.zoom, 2.0f);
 }

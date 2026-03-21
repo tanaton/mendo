@@ -10,15 +10,8 @@ static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) noexcept {
 }
 
 float Theme::GetHeadingSize(int level) const noexcept {
-    switch (level) {
-        case 1: return font_size_h1;
-        case 2: return font_size_h2;
-        case 3: return font_size_h3;
-        case 4: return font_size_h4;
-        case 5: return font_size_h5;
-        case 6: return font_size_h6;
-        default: return font_size_body;
-    }
+    if(level < 1 || level > 6) return font_size_body;  
+    return font_size_h[level - 1];
 }
 
 void Theme::ApplyZoom(float new_zoom) noexcept {
@@ -28,12 +21,9 @@ void Theme::ApplyZoom(float new_zoom) noexcept {
     zoom = new_zoom;
 
     font_size_body *= ratio;
-    font_size_h1   *= ratio;
-    font_size_h2   *= ratio;
-    font_size_h3   *= ratio;
-    font_size_h4   *= ratio;
-    font_size_h5   *= ratio;
-    font_size_h6   *= ratio;
+    for (int i = 0; i < 6; ++i) {
+        font_size_h[i] *= ratio;
+    }
     font_size_code *= ratio;
 
     margin_left           *= ratio;
@@ -56,17 +46,17 @@ void Theme::ApplyZoom(float new_zoom) noexcept {
 }
 
 // ライトテーマとダークテーマで共有するレイアウト定数
-static void ApplyCommonLayout(Theme& t) noexcept {
-    wcscpy_s(t.font_family,    L"Yu Gothic UI");
-    wcscpy_s(t.monospace_font, L"Consolas");
+static void ApplyCommonLayout(Theme& t) {
+    t.font_family    = L"Yu Gothic UI";
+    t.monospace_font = L"Consolas";
 
     t.font_size_body = 16.0f;
-    t.font_size_h1   = 32.0f;
-    t.font_size_h2   = 26.0f;
-    t.font_size_h3   = 22.0f;
-    t.font_size_h4   = 18.0f;
-    t.font_size_h5   = 16.0f;
-    t.font_size_h6   = 14.0f;
+    t.font_size_h[0] = 32.0f;
+    t.font_size_h[1] = 26.0f;
+    t.font_size_h[2] = 22.0f;
+    t.font_size_h[3] = 18.0f;
+    t.font_size_h[4] = 16.0f;
+    t.font_size_h[5] = 14.0f;
     t.font_size_code = 14.0f;
 
     t.margin_left           = 40.0f;
@@ -87,7 +77,7 @@ static void ApplyCommonLayout(Theme& t) noexcept {
     t.pane_font_size        = 13.0f;
 }
 
-Theme GetLightTheme() noexcept {
+Theme GetLightTheme() {
     Theme t{};
 
     t.bg_color              = Color(0xFFFFFF);
@@ -120,7 +110,7 @@ Theme GetLightTheme() noexcept {
     return t;
 }
 
-Theme GetDarkTheme() noexcept {
+Theme GetDarkTheme() {
     Theme t{};
 
     t.bg_color              = Color(0x1e1e1e);

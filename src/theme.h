@@ -1,6 +1,7 @@
 #pragma once
 #include <d2d1.h>
 #include <cstdint>
+#include <string>
 
 struct Theme {
     // 色
@@ -24,17 +25,12 @@ struct Theme {
     D2D1_COLOR_F syntax_function;
 
     // フォント
-    wchar_t font_family[64];
-    wchar_t monospace_font[64];
+    std::wstring font_family;
+    std::wstring monospace_font;
 
     // フォントサイズ（DIP単位）
     float font_size_body;
-    float font_size_h1;
-    float font_size_h2;
-    float font_size_h3;
-    float font_size_h4;
-    float font_size_h5;
-    float font_size_h6;
+    float font_size_h[6];
     float font_size_code;
 
     // マージンとパディング（DIP単位）
@@ -64,7 +60,7 @@ struct Theme {
     float zoom = 1.0f;
 
     float GetHeadingSize(int level) const noexcept;
-    bool IsDark() const noexcept { return (bg_color.r + bg_color.g + bg_color.b) < 1.5f; }
+    constexpr bool IsDark() const noexcept { return (bg_color.r + bg_color.g + bg_color.b) < 1.5f; }
 
     // すべてのスケーラブルなサイズ（フォントサイズ、マージン、スペーシング）にズーム倍率を適用する。
     // `zoom` を変更した後に呼び出して派生値を更新する。
@@ -80,5 +76,5 @@ inline constexpr float ZOOM_STEPS[] = {
 inline constexpr int ZOOM_STEP_COUNT = sizeof(ZOOM_STEPS) / sizeof(ZOOM_STEPS[0]);
 inline constexpr int ZOOM_DEFAULT_INDEX = 7; // 1.00f
 
-Theme GetLightTheme() noexcept;
-Theme GetDarkTheme() noexcept;
+[[nodiscard]] Theme GetLightTheme();
+[[nodiscard]] Theme GetDarkTheme();

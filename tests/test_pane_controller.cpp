@@ -302,6 +302,47 @@ TEST_F(PaneControllerTest, ApplyZoomHalf) {
 }
 
 // ═══════════════════════════════════════════════
+// 極端なズーム — MDペインのコンテンツ幅
+// ═══════════════════════════════════════════════
+
+// 500%ズームで両ペイン表示時、MDペインの実効コンテンツ幅が0以下になりうることを検証。
+// RequestMermaidRendersはこの状態でスキップする必要がある。
+TEST_F(PaneControllerTest, ExtremeZoomMdContentWidthCanBeZeroOrNegative) {
+    // 5倍ズームを模擬: ペイン幅を5倍にする
+    panes_.ApplyZoom(5.0f);
+
+    // テーマのマージンも5倍になる（margin_left=40*5=200, margin_right=40*5=200）
+    float zoomed_margin_left = 40.0f * 5.0f;
+    float zoomed_margin_right = 40.0f * 5.0f;
+    float zoomed_splitter = 4.0f * 5.0f;
+
+    // 幅1000pxのウィンドウでレイアウト
+    auto layout = panes_.ComputeLayout(1000.0f, 800.0f, zoomed_splitter);
+    float md_width = layout.md_rect.width;
+    float content_width = md_width - zoomed_margin_left - zoomed_margin_right;
+
+    // MDペインのコンテンツ幅は0以下になりうる
+    EXPECT_LE(content_width, 0.0f)
+        << "500%%ズーム+小さいウィンドウではcontent_widthは0以下になる";
+}
+
+// 元のズームに戻した後、MDペインのコンテンツ幅が正常に復帰することを検証。
+TEST_F(PaneControllerTest, ZoomRestoreMdContentWidthPositive) {
+    panes_.ApplyZoom(5.0f);
+    panes_.ApplyZoom(1.0f / 5.0f);  // 元に戻す
+
+    float margin_left = 40.0f;
+    float margin_right = 40.0f;
+    float splitter = 4.0f;
+
+    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, splitter);
+    float content_width = layout.md_rect.width - margin_left - margin_right;
+
+    EXPECT_GT(content_width, 0.0f)
+        << "ズーム復帰後のcontent_widthは正であるべき";
+}
+
+// ═══════════════════════════════════════════════
 // ドラッグターゲットの種類
 // ═══════════════════════════════════════════════
 

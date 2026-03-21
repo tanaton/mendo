@@ -1,7 +1,5 @@
 #include "file_load_service.h"
-
-FileLoadService::FileLoadService(DocumentService& doc_service) noexcept
-    : doc_service_(doc_service) {}
+#include "ui_constants.h"
 
 void FileLoadService::StartLoading(std::wstring_view path) {
     loading_path_ = path;
@@ -14,8 +12,8 @@ void FileLoadService::StopLoading() noexcept {
 }
 
 void FileLoadService::TickLoadingAnimation() noexcept {
-    loading_angle_ += 0.15f;
-    if (loading_angle_ > 6.2831853f) loading_angle_ -= 6.2831853f;
+    loading_angle_ += spinner::ROTATION_INCREMENT;
+    if (loading_angle_ > TWO_PI) loading_angle_ -= TWO_PI;
 }
 
 bool FileLoadService::ExecuteLoad(Document& doc, LayoutCache& cache) {

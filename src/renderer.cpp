@@ -1,4 +1,6 @@
 #include "renderer.h"
+#include "ui_constants.h"
+#include "nav_button_constants.h"
 #include <algorithm>
 #include <cmath>
 
@@ -49,7 +51,7 @@ void Renderer::RecreateBrushes() {
         {BrushId::Hr,               theme_.hr_color},
         {BrushId::BlockquoteBar,    theme_.blockquote_bar_color},
         {BrushId::BlockquoteText,   theme_.blockquote_text_color},
-        {BrushId::Selection,        D2D1::ColorF(0.26f, 0.56f, 0.84f, 0.3f)},
+        {BrushId::Selection,        SELECTION_COLOR},
         {BrushId::TableStripe,      is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, stripe_alpha)
                                             : D2D1::ColorF(0.0f, 0.0f, 0.0f, stripe_alpha)},
         {BrushId::SyntaxKeyword,    theme_.syntax_keyword},
@@ -110,69 +112,49 @@ void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom) {
     cmd_generator_.SetTheme(&theme_);
 }
 
+ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
+    const wchar_t* family, DWRITE_FONT_WEIGHT weight,
+    float size, const wchar_t* locale) {
+    ComPtr<IDWriteTextFormat> fmt;
+    backend_.GetDWriteFactory()->CreateTextFormat(
+        family, nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
+    return fmt;
+}
+
 void Renderer::RecreatePaneFormats() {
     // テーマサイズの更新に合わせて全ペイン/UIテキストフォーマットを再作成
-    icon_font_format_.Reset();
-    fmt_list_number_.Reset();
-    fmt_pane_icon_.Reset();
-    fmt_pane_item_.Reset();
-    fmt_pane_header_.Reset();
-    fmt_nav_button_.Reset();
-    fmt_gesture_overlay_.Reset();
+    auto W = DWRITE_FONT_WEIGHT_NORMAL;
 
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        L"Segoe Fluent Icons", nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
-        L"en-us", &icon_font_format_);
+    icon_font_format_ = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");
 
     // リスト番号フォーマット（順序付きリストの番号を右揃え）
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        theme_.font_family, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
-        L"ja-jp", &fmt_list_number_);
+    fmt_list_number_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
     if (fmt_list_number_) {
         fmt_list_number_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
     }
 
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        L"Segoe Fluent Icons", nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
-        L"en-us", &fmt_pane_icon_);
+    fmt_pane_icon_ = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.pane_font_size, L"en-us");
     if (fmt_pane_icon_) {
         fmt_pane_icon_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_pane_icon_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         fmt_pane_icon_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        theme_.font_family, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
-        L"ja-jp", &fmt_pane_item_);
+    fmt_pane_item_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
     if (fmt_pane_item_) {
         fmt_pane_item_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_pane_item_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        theme_.font_family, nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
-        L"ja-jp", &fmt_pane_header_);
+    fmt_pane_header_ = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size, L"ja-jp");
     if (fmt_pane_header_) {
         fmt_pane_header_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_pane_header_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
     // ナビゲーションオーバーレイボタンのテキストフォーマット（両軸中央揃え）
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        theme_.font_family, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
-        L"ja-jp", &fmt_nav_button_);
+    fmt_nav_button_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
     if (fmt_nav_button_) {
         fmt_nav_button_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_nav_button_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -180,14 +162,22 @@ void Renderer::RecreatePaneFormats() {
     }
 
     // ジェスチャーオーバーレイのテキストフォーマット（大きい太字、中央揃え）
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        theme_.font_family, nullptr,
-        DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, 32.0f * theme_.zoom,
-        L"ja-JP", &fmt_gesture_overlay_);
+    fmt_gesture_overlay_ = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_.zoom, L"ja-JP");
     if (fmt_gesture_overlay_) {
         fmt_gesture_overlay_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         fmt_gesture_overlay_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
+    nav_back_layout_.Reset();
+    nav_forward_layout_.Reset();
+    if (fmt_nav_button_) {
+        auto* dw = backend_.GetDWriteFactory();
+        if (dw) {
+            static const wchar_t kBack[] = L"\x25C0";
+            static const wchar_t kForward[] = L"\x25B6";
+            dw->CreateTextLayout(kBack, 1, fmt_nav_button_.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
+            dw->CreateTextLayout(kForward, 1, fmt_nav_button_.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
+        }
     }
 
     // ペインキャッシュを無効化して新しいサイズで再描画させる
@@ -318,18 +308,13 @@ void Renderer::DrawLoading(float angle,
     // MDペイン中央にスピナーを描画
     float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
     float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
-    float radius = 20.0f;
-    float dot_radius = 3.0f;
-    constexpr int dot_count = 8;
-    constexpr float pi2 = 6.28318530f;
+    for (int i = 0; i < spinner::DOT_COUNT; i++) {
+        float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
+        float dx = cx + spinner::RADIUS * std::cos(a);
+        float dy = cy + spinner::RADIUS * std::sin(a);
+        float alpha = 1.0f - i * (spinner::DOT_FADE_FACTOR / spinner::DOT_COUNT);
 
-    for (int i = 0; i < dot_count; i++) {
-        float a = angle - i * (pi2 / dot_count);
-        float dx = cx + radius * std::cos(a);
-        float dy = cy + radius * std::sin(a);
-        float alpha = 1.0f - i * (0.85f / dot_count);
-
-        D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), dot_radius, dot_radius);
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
         Brush(BrushId::Text)->SetOpacity(alpha);
         rt()->FillEllipse(ellipse, Brush(BrushId::Text));
     }
@@ -426,9 +411,6 @@ bool Renderer::RecreateRenderTarget() {
     return true;
 }
 
-// ナビゲーションオーバーレイの定数
-#include "nav_button_constants.h"
-
 void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
                               bool can_back, bool can_forward,
                               int hovered) {
@@ -440,7 +422,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
     float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 
-    auto drawButton = [&](float x, bool enabled, bool is_hovered, const wchar_t* arrow) {
+    auto drawButton = [&](float x, bool enabled, bool is_hovered, IDWriteTextLayout* arrow_layout) {
         if (!Brush(BrushId::Overlay)) return;
         D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
 
@@ -458,7 +440,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
         D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
         rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
-        // 矢印テキスト
+        // 矢印テキスト（キャッシュ済みレイアウトを使用）
         float text_alpha;
         if (!enabled)        text_alpha = is_dark ? 0.2f : 0.15f;
         else if (is_hovered) text_alpha = 1.0f;
@@ -468,40 +450,31 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
 
-        if (fmt_nav_button_) {
+        if (arrow_layout) {
             Brush(BrushId::Overlay)->SetColor(text_color);
-            rt()->DrawText(
-                arrow, 1, fmt_nav_button_.Get(), rect, Brush(BrushId::Overlay),
-                D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
+            rt()->DrawTextLayout(D2D1::Point2F(x, base_y), arrow_layout, Brush(BrushId::Overlay));
         }
     };
 
     // 戻るボタン (◀)
-    drawButton(base_x, can_back, hovered == 1, L"\x25C0");
+    drawButton(base_x, can_back, hovered == 1, nav_back_layout_.Get());
     // 進むボタン (▶)
-    drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, L"\x25B6");
+    drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, nav_forward_layout_.Get());
 }
 
 void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points) {
-    if (!rt() || !d2d() || points.size() < 2) return;
-
-    ComPtr<ID2D1PathGeometry> geometry;
-    if (FAILED(d2d()->CreatePathGeometry(&geometry))) return;
-
-    ComPtr<ID2D1GeometrySink> sink;
-    if (FAILED(geometry->Open(&sink))) return;
-
-    sink->BeginFigure(D2D1::Point2F(points[0].x, points[0].y), D2D1_FIGURE_BEGIN_HOLLOW);
-    for (size_t i = 1; i < points.size(); i++) {
-        sink->AddLine(D2D1::Point2F(points[i].x, points[i].y));
-    }
-    sink->EndFigure(D2D1_FIGURE_END_OPEN);
-    sink->Close();
-
+    if (!rt() || points.size() < 2) return;
     if (!Brush(BrushId::Overlay)) return;
+
     Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f));
 
-    rt()->DrawGeometry(geometry.Get(), Brush(BrushId::Overlay), 4.0f, gesture_stroke_style_.Get());
+    // 丸型キャップ同士が結合部で重なり、視覚的にはパスジオメトリと同等の結果になる
+    for (size_t i = 1; i < points.size(); i++) {
+        rt()->DrawLine(
+            D2D1::Point2F(points[i - 1].x, points[i - 1].y),
+            D2D1::Point2F(points[i].x, points[i].y),
+            Brush(BrushId::Overlay), 4.0f, gesture_stroke_style_.Get());
+    }
 }
 
 void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect) {

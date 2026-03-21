@@ -1,6 +1,7 @@
 #include "app.h"
 #include "pane_layout.h"
 #include "document_utils.h"
+#include "ui_constants.h"
 #include "resource.h"
 #include <shellapi.h>
 
@@ -133,22 +134,36 @@ std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const {
 // マウスイベント
 // ============================================================
 
+bool App::TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& rect,
+                                       PaneController::DragTarget target,
+                                       const PaneScrollInfo& scroll_info,
+                                       float total_content, ScrollState& scroll,
+                                       void (Renderer::*invalidate)()) {
+    float local_x = dip_x - rect.x;
+
+    if (local_x >= rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
+        && total_content > scroll_info.content_height) {
+        SetCapture(hwnd_);
+        panes_.StartDrag(target);
+        bool dirty = false;
+        HandleScrollbarClick(dip_y, scroll_info, scroll, dirty);
+        if (dirty) (renderer_.*invalidate)();
+        return true;
+    }
+    return false;
+}
+
 void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout) {
     const auto& theme = renderer_.GetTheme();
     float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
     auto scroll_info = ComputePaneScrollInfo(layout.file_rect, total_content);
-    float local_x = dip_x - layout.file_rect.x;
 
-    if (local_x >= layout.file_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
-        && total_content > scroll_info.content_height) {
-        SetCapture(hwnd_);
-        panes_.StartDrag(PaneController::DragTarget::FileScrollbar);
-        bool dirty = false;
-        HandleScrollbarClick(dip_y, scroll_info, panes_.FileScroll(), dirty);
-        if (dirty) renderer_.InvalidateFilePaneCache();
+    if (TryHandlePaneScrollbarClick(dip_x, dip_y, layout.file_rect,
+            PaneController::DragTarget::FileScrollbar,
+            scroll_info, total_content, panes_.FileScroll(),
+            &Renderer::InvalidateFilePaneCache)) {
         return;
     }
-
     float local_y = dip_y - scroll_info.content_top + panes_.FileScroll().scroll_y;
     int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
     if (idx >= 0 && idx < static_cast<int>(file_explorer_.GetEntries().size())) {
@@ -172,18 +187,13 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
     const auto& theme = renderer_.GetTheme();
     float total_content = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
     auto scroll_info = ComputePaneScrollInfo(layout.toc_rect, total_content);
-    float local_x = dip_x - layout.toc_rect.x;
 
-    if (local_x >= layout.toc_rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
-        && total_content > scroll_info.content_height) {
-        SetCapture(hwnd_);
-        panes_.StartDrag(PaneController::DragTarget::TocScrollbar);
-        bool dirty = false;
-        HandleScrollbarClick(dip_y, scroll_info, panes_.TocScroll(), dirty);
-        if (dirty) renderer_.InvalidateTocPaneCache();
+    if (TryHandlePaneScrollbarClick(dip_x, dip_y, layout.toc_rect,
+            PaneController::DragTarget::TocScrollbar,
+            scroll_info, total_content, panes_.TocScroll(),
+            &Renderer::InvalidateTocPaneCache)) {
         return;
     }
-
     float local_y = dip_y - scroll_info.content_top + panes_.TocScroll().scroll_y;
     int idx = doc_.GetToc().HitTest(local_y, theme.pane_item_height);
     if (idx >= 0 && idx < static_cast<int>(doc_.GetToc().GetEntries().size())) {
@@ -362,30 +372,9 @@ void App::OnMouseHover(int px, int py) {
             new_toc_hover = doc_.GetToc().HitTest(local_y, renderer_.GetTheme().pane_item_height);
             break;
         }
-        case PaneZone::MdPane: {
-            auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
-            auto old_nav_hover = nav_hover_;
-            nav_hover_ = nav_hit;
-            if (nav_hit != NavButtonHover::None) {
-                SetCursor(cursor_hand_);
-                if (nav_hit != old_nav_hover)
-                    InvalidateRect(hwnd_, nullptr, FALSE);
-                break;
-            }
-            if (old_nav_hover != NavButtonHover::None)
-                InvalidateRect(hwnd_, nullptr, FALSE);
-
-            int dx = px - last_md_hit_pos_.x;
-            int dy = py - last_md_hit_pos_.y;
-            if (dx * dx + dy * dy > 16) {
-                auto hit = HitTest(px, py);
-                auto link = GetLinkAtHit(hit);
-                last_md_cursor_hand_ = link.has_value();
-                last_md_hit_pos_ = {px, py};
-            }
-            SetCursor(last_md_cursor_hand_ ? cursor_hand_ : cursor_ibeam_);
+        case PaneZone::MdPane:
+            HandleMdPaneHover(dip_x, dip_y, px, py, pane_layout);
             break;
-        }
         default:
             SetCursor(cursor_arrow_);
             break;
@@ -399,6 +388,30 @@ void App::OnMouseHover(int px, int py) {
         renderer_.InvalidateTocPaneCache();
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
+}
+
+void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout) {
+    auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
+    auto old_nav_hover = nav_hover_;
+    nav_hover_ = nav_hit;
+    if (nav_hit != NavButtonHover::None) {
+        SetCursor(cursor_hand_);
+        if (nav_hit != old_nav_hover)
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+    if (old_nav_hover != NavButtonHover::None)
+        InvalidateRect(hwnd_, nullptr, FALSE);
+
+    int dx = px - last_md_hit_pos_.x;
+    int dy = py - last_md_hit_pos_.y;
+    if (dx * dx + dy * dy > HOVER_THROTTLE_DISTANCE_SQ) {
+        auto hit = HitTest(px, py);
+        auto link = GetLinkAtHit(hit);
+        last_md_cursor_hand_ = link.has_value();
+        last_md_hit_pos_ = {px, py};
+    }
+    SetCursor(last_md_cursor_hand_ ? cursor_hand_ : cursor_ibeam_);
 }
 
 void App::OnLButtonDblClk(int px, int py) {
@@ -440,7 +453,7 @@ void App::SelectAll() {
 void App::CopySelectionToClipboard() const {
     if (!viewport_.GetSelection().active) return;
 
-    std::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
+    std::pmr::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
     if (result.empty()) return;
 
     if (!OpenClipboard(hwnd_)) return;

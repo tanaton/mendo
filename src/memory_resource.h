@@ -22,19 +22,22 @@ inline void InitGlobalMemoryResource() {
     std::pmr::set_default_resource(&GetGlobalPoolResource());
 }
 
-// スコープに紐づくヒープ上のバッファを使う monotonic_buffer_resource のラッパー。
-// 一括確保→一括解放パターン（パース、描画コマンド生成など）に最適。
-class ScopedMonotonicResource {
+// ヒープ上のバッファを使う monotonic_buffer_resource のラッパー。
+// 一括確保→一括解放パターン（パース）や、毎フレームリセットパターン（描画コマンド生成）に使用。
+class MonotonicResource {
 public:
-    explicit ScopedMonotonicResource(std::size_t initial_size = 16 * 1024)
+    explicit MonotonicResource(std::size_t initial_size = 16 * 1024)
         : buffer_(std::make_unique<std::byte[]>(initial_size))
         , monotonic_(buffer_.get(), initial_size, std::pmr::get_default_resource())
     {}
 
-    ScopedMonotonicResource(const ScopedMonotonicResource&) = delete;
-    ScopedMonotonicResource& operator=(const ScopedMonotonicResource&) = delete;
+    MonotonicResource(const MonotonicResource&) = delete;
+    MonotonicResource& operator=(const MonotonicResource&) = delete;
 
     std::pmr::memory_resource* resource() noexcept { return &monotonic_; }
+
+    // 確保済みメモリを再利用可能な状態にリセットする
+    void Reset() { monotonic_.release(); }
 
 private:
     // buffer_ は monotonic_ より先に宣言し、monotonic_ より後に破棄されるようにする
@@ -42,27 +45,3 @@ private:
     std::pmr::monotonic_buffer_resource monotonic_;
 };
 
-// フレーム毎にリセット可能な monotonic_buffer_resource。
-// 描画コマンドリスト等、毎フレーム一括確保→リセットするパターンに最適。
-class FrameMonotonicResource {
-public:
-    explicit FrameMonotonicResource(std::size_t initial_size = 64 * 1024)
-        : buffer_(std::make_unique<std::byte[]>(initial_size))
-        , monotonic_(buffer_.get(), initial_size, std::pmr::get_default_resource())
-    {}
-
-    FrameMonotonicResource(const FrameMonotonicResource&) = delete;
-    FrameMonotonicResource& operator=(const FrameMonotonicResource&) = delete;
-
-    std::pmr::memory_resource* resource() noexcept { return &monotonic_; }
-
-    // フレーム終了時にリセット（確保済みメモリを再利用）
-    void Reset() {
-        monotonic_.release();
-    }
-
-private:
-    // buffer_ は monotonic_ より先に宣言し、monotonic_ より後に破棄されるようにする
-    std::unique_ptr<std::byte[]> buffer_;
-    std::pmr::monotonic_buffer_resource monotonic_;
-};

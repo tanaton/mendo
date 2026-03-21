@@ -28,7 +28,7 @@ std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natur
     return widths;
 }
 
-std::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows) {
+std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows) {
     size_t total = 0;
     for (size_t r = 0; r < rows.size(); r++) {
         const auto& row = rows[r];
@@ -38,7 +38,7 @@ std::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows) {
         }
         if (r + 1 < rows.size()) total++;
     }
-    std::wstring text;
+    std::pmr::wstring text;
     text.reserve(total);
     for (size_t r = 0; r < rows.size(); r++) {
         const auto& row = rows[r];
@@ -104,10 +104,6 @@ bool LayoutEngine::RecreateFormats() {
     return measurer_->RecreateFormats();
 }
 
-void LayoutEngine::CreateTextLayout(Node& node, NodeLayoutEntry& entry, float max_width) {
-    measurer_->MeasureNode(node, entry, max_width);
-}
-
 void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache,
                                   float viewport_width,
                                   float viewport_top, float viewport_bottom) {
@@ -116,11 +112,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     bool width_changed = (viewport_width != last_viewport_width_);
     bool partial = (viewport_top >= 0.0f);
 
-    // 部分モードでは last_viewport_width_ を更新しない。
-    // 後続のバッチ処理が幅の変更を検出できるようにするため。
-    if (!partial) {
-        last_viewport_width_ = viewport_width;
-    }
+    last_viewport_width_ = viewport_width;
 
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     float y = theme_->margin_top;
@@ -143,13 +135,13 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                 bool visible = (node_bottom >= viewport_top && y <= viewport_bottom);
                 if (visible) {
                     float old_height = entry.height;
-                    CreateTextLayout(node, entry, node_width);
+                    measurer_->MeasureNode(node, entry, node_width);
                     if (entry.height != old_height) any_height_changed = true;
                 } else {
                     entry.layout_dirty = true;
                 }
             } else {
-                CreateTextLayout(node, entry, node_width);
+                measurer_->MeasureNode(node, entry, node_width);
             }
         }
 
@@ -203,7 +195,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         if (entry.y_position > viewport_bottom) break;
         if (!entry.layout_dirty) continue;
         float indent = nodes[i].indent_level * theme_->indent_width;
-        CreateTextLayout(nodes[i], entry, content_width - indent);
+        measurer_->MeasureNode(nodes[i], entry, content_width - indent);
         any_updated = true;
     }
 
@@ -227,7 +219,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
 
         if (first_dirty == nodes.size()) first_dirty = i;
         float indent = nodes[i].indent_level * theme_->indent_width;
-        CreateTextLayout(nodes[i], entry, content_width - indent);
+        measurer_->MeasureNode(nodes[i], entry, content_width - indent);
 
         if (++processed >= batch_size) break;
     }

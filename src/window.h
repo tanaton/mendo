@@ -9,7 +9,7 @@ public:
     int RunMessageLoop();
 
     void LoadMarkdownFile(std::wstring_view path) { app_.LoadMarkdownFile(path); }
-    std::wstring LoadLastFilePath() const { return app_.LoadLastFilePath(); }
+    std::pmr::wstring LoadLastFilePath() const { return app_.LoadLastFilePath(); }
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);

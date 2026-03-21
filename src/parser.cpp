@@ -4,10 +4,11 @@
 #include "md4c.h"
 #include <stack>
 #include <unordered_map>
+#include <charconv>
 #include <windows.h>
 
-std::wstring GenerateAnchorId(std::wstring_view text) {
-    std::wstring slug;
+std::pmr::wstring GenerateAnchorId(std::wstring_view text) {
+    std::pmr::wstring slug;
     slug.reserve(text.size());
     for (wchar_t c : text) {
         if (c >= L'A' && c <= L'Z') {
@@ -38,12 +39,14 @@ std::wstring GenerateAnchorId(std::wstring_view text) {
 
 namespace {
 
-std::wstring Utf8ToWide(const char* str, size_t len) {
-    if (len == 0) return {};
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, str, static_cast<int>(len), nullptr, 0);
+std::pmr::wstring Utf8ToWide(std::string_view utf8) {
+    if (utf8.empty()) return {};
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
     if (wlen <= 0) return {};
-    std::wstring result(wlen, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, str, static_cast<int>(len), result.data(), wlen);
+    std::pmr::wstring result;
+    result.resize_and_overwrite(static_cast<size_t>(wlen), [utf8](wchar_t* buf, size_t count) -> size_t {
+        return static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), buf, static_cast<int>(count)));
+    });
     return result;
 }
 
@@ -52,12 +55,12 @@ struct SpanState {
     bool italic = false;
     bool code = false;
     bool strikethrough = false;
-    std::optional<std::pmr::wstring> link_url;
+    int link_url_index = -1; // -1 = リンクなし, >= 0 = link_urls へのインデックス
 };
 
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
-    ScopedMonotonicResource parse_resource{64 * 1024};
+    MonotonicResource parse_resource{64 * 1024};
 
     std::pmr::vector<Node> nodes;
 
@@ -67,7 +70,7 @@ struct ParseContext {
     SpanState current_span;
 
     // UTF-8 → Wide変換用の再利用可能バッファ
-    std::wstring text_buffer;
+    std::pmr::wstring text_buffer;
 
     // ブロックコンテキスト追跡
     int indent_level = 0;
@@ -87,6 +90,9 @@ struct ParseContext {
     // 現在構築中のノード
     Node* current_node = nullptr;
 
+    // リンクURL格納: SpanStateではインデックスのみ保持し、push/popでの文字列コピーを回避
+    std::pmr::vector<std::pmr::wstring> link_urls{parse_resource.resource()};
+
     // アンカーIDの一意性追跡: スラグ -> 出現回数
     std::pmr::unordered_map<std::pmr::wstring, int> anchor_counts{parse_resource.resource()};
 
@@ -105,33 +111,37 @@ struct ParseContext {
         run.italic = current_span.italic;
         run.code = current_span.code;
         run.strikethrough = current_span.strikethrough;
-        run.link_url = current_span.link_url;
+        if (current_span.link_url_index >= 0) {
+            run.link_url = link_urls[static_cast<size_t>(current_span.link_url_index)];
+        }
         return run;
     }
 
-    void AppendText(const wchar_t* text, size_t len) {
+    void AppendText(std::wstring_view text) {
         // テーブルセル内の場合、ノードではなくセルに追加
         if (current_cell) {
             uint32_t start = static_cast<uint32_t>(current_cell->text.size());
-            current_cell->text.append(text, len);
-            current_cell->runs.push_back(MakeRun(start, static_cast<uint32_t>(len)));
+            current_cell->text.append(text);
+            current_cell->runs.push_back(MakeRun(start, static_cast<uint32_t>(text.size())));
             return;
         }
 
         if (!current_node) return;
 
         uint32_t start = static_cast<uint32_t>(current_node->text.size());
-        current_node->text.append(text, len);
-        current_node->runs.push_back(MakeRun(start, static_cast<uint32_t>(len)));
+        current_node->text.append(text);
+        current_node->runs.push_back(MakeRun(start, static_cast<uint32_t>(text.size())));
     }
 
     // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する。
-    void AppendUtf8(const char* text, int size) {
-        int wlen = MultiByteToWideChar(CP_UTF8, 0, text, size, nullptr, 0);
+    void AppendUtf8(std::string_view text) {
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
         if (wlen > 0) {
-            text_buffer.resize(static_cast<size_t>(wlen));
-            MultiByteToWideChar(CP_UTF8, 0, text, size, text_buffer.data(), wlen);
-            AppendText(text_buffer.data(), static_cast<size_t>(wlen));
+            text_buffer.resize_and_overwrite(static_cast<size_t>(wlen), [text](wchar_t* buf, size_t count) -> size_t {
+                int written = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf, static_cast<int>(count));
+                return (written > 0) ? static_cast<size_t>(written) : 0;
+            });
+            AppendText(text_buffer);
         }
     }
 };
@@ -165,7 +175,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
             ctx->BeginNode(NodeType::CodeBlock);
             auto* code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
             if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-                std::wstring lang_str = Utf8ToWide(code_detail->lang.text, code_detail->lang.size);
+                std::pmr::wstring lang_str = Utf8ToWide(std::string_view{code_detail->lang.text, static_cast<size_t>(code_detail->lang.size)});
                 ctx->current_node->code_language = DetectLanguage(lang_str);
             }
             break;
@@ -301,21 +311,17 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
 
         case MD_BLOCK_H:
             if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
-                std::wstring base_id = GenerateAnchorId(ctx->current_node->text);
-                std::pmr::wstring base_id_pmr{base_id};
-                auto it = ctx->anchor_counts.find(base_id_pmr);
-                int count = 0;
-                if (it != ctx->anchor_counts.end()) {
-                    count = it->second;
-                }
+                std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->text);
+                auto it = ctx->anchor_counts.find(base_id);
+                int count = (it != ctx->anchor_counts.end()) ? it->second : 0;
                 if (count > 0) {
-                    ctx->current_node->anchor_id = base_id_pmr;
+                    ctx->current_node->anchor_id = base_id;
                     ctx->current_node->anchor_id += L"-";
                     ctx->current_node->anchor_id += std::to_wstring(count);
                 } else {
-                    ctx->current_node->anchor_id = base_id_pmr;
+                    ctx->current_node->anchor_id = base_id;
                 }
-                ctx->anchor_counts[base_id_pmr] = count + 1;
+                ctx->anchor_counts[std::move(base_id)] = count + 1;
             }
             ctx->current_node = nullptr;
             break;
@@ -353,8 +359,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata) {
         case MD_SPAN_A: {
             auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
             if (a->href.text && a->href.size > 0) {
-                std::wstring url_str = Utf8ToWide(a->href.text, a->href.size);
-                ctx->current_span.link_url = std::pmr::wstring{url_str};
+                ctx->link_urls.push_back(Utf8ToWide(std::string_view{a->href.text, static_cast<size_t>(a->href.size)}));
+                ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
             }
             break;
         }
@@ -376,6 +382,46 @@ int OnLeaveSpan(MD_SPANTYPE /*type*/, void* /*detail*/, void* userdata) {
     return 0;
 }
 
+void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity) {
+    const wchar_t* resolved = nullptr;
+    wchar_t single_char = 0;
+    if (entity == "&amp;")  resolved = L"&";
+    else if (entity == "&lt;")   resolved = L"<";
+    else if (entity == "&gt;")   resolved = L">";
+    else if (entity == "&quot;") resolved = L"\"";
+    else if (entity == "&apos;") resolved = L"'";
+    else if (entity == "&nbsp;") resolved = L"\u00A0";
+    else if (entity.size() >= 4 && entity[0] == '&' && entity[1] == '#') {
+        unsigned long codepoint = 0;
+        bool valid = false;
+        if (entity[2] == 'x' || entity[2] == 'X') {
+            auto result = std::from_chars(entity.data() + 3, entity.data() + entity.size() - 1, codepoint, 16);
+            valid = (result.ec == std::errc());
+        } else {
+            auto result = std::from_chars(entity.data() + 2, entity.data() + entity.size() - 1, codepoint, 10);
+            valid = (result.ec == std::errc());
+        }
+        if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
+            single_char = static_cast<wchar_t>(codepoint);
+            resolved = &single_char;
+        } else if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
+            // 補助面: UTF-16サロゲートペアを出力
+            unsigned long adj = codepoint - 0x10000;
+            wchar_t surrogate[2];
+            surrogate[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));
+            surrogate[1] = static_cast<wchar_t>(0xDC00 + (adj & 0x3FF));
+            ctx->AppendText(std::wstring_view{surrogate, 2});
+            return;
+        }
+    }
+    if (resolved) {
+        size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
+        ctx->AppendText(std::wstring_view{resolved, rlen});
+    } else {
+        ctx->AppendUtf8(entity);
+    }
+}
+
 int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) {
     auto* ctx = static_cast<ParseContext*>(userdata);
 
@@ -384,57 +430,19 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
     switch (type) {
         case MD_TEXT_NORMAL:
         case MD_TEXT_CODE:
-            ctx->AppendUtf8(text, static_cast<int>(size));
+            ctx->AppendUtf8(std::string_view{text, static_cast<size_t>(size)});
             break;
 
-        case MD_TEXT_ENTITY: {
-            std::string entity(text, size);
-            const wchar_t* resolved = nullptr;
-            wchar_t single_char = 0;
-            if (entity == "&amp;")  resolved = L"&";
-            else if (entity == "&lt;")   resolved = L"<";
-            else if (entity == "&gt;")   resolved = L">";
-            else if (entity == "&quot;") resolved = L"\"";
-            else if (entity == "&apos;") resolved = L"'";
-            else if (entity == "&nbsp;") resolved = L"\u00A0";
-            else if (entity.size() >= 4 && entity[0] == '&' && entity[1] == '#') {
-                unsigned long codepoint = 0;
-                bool valid = false;
-                if (entity[2] == 'x' || entity[2] == 'X') {
-                    try { codepoint = std::stoul(entity.substr(3, entity.size() - 4), nullptr, 16); valid = true; }
-                    catch (...) {}
-                } else {
-                    try { codepoint = std::stoul(entity.substr(2, entity.size() - 3), nullptr, 10); valid = true; }
-                    catch (...) {}
-                }
-                if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
-                    single_char = static_cast<wchar_t>(codepoint);
-                    resolved = &single_char;
-                } else if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
-                    // 補助面: UTF-16サロゲートペアを出力
-                    unsigned long adj = codepoint - 0x10000;
-                    wchar_t surrogate[2];
-                    surrogate[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));
-                    surrogate[1] = static_cast<wchar_t>(0xDC00 + (adj & 0x3FF));
-                    ctx->AppendText(surrogate, 2);
-                    break;
-                }
-            }
-            if (resolved) {
-                size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
-                ctx->AppendText(resolved, rlen);
-            } else {
-                ctx->AppendUtf8(text, static_cast<int>(size));
-            }
+        case MD_TEXT_ENTITY:
+            ResolveHtmlEntity(ctx, std::string_view{text, static_cast<size_t>(size)});
             break;
-        }
 
         case MD_TEXT_BR:
-            ctx->AppendText(L"\n", 1);
+            ctx->AppendText(std::wstring_view{L"\n", 1});
             break;
 
         case MD_TEXT_SOFTBR:
-            ctx->AppendText(L" ", 1);
+            ctx->AppendText(std::wstring_view{L" ", 1});
             break;
 
         default:
@@ -446,7 +454,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
 
 } // namespace
 
-std::pmr::vector<Node> ParseMarkdown(const std::string& markdown_text) {
+std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text) {
     ParseContext ctx;
 
     MD_PARSER parser{};
@@ -458,7 +466,7 @@ std::pmr::vector<Node> ParseMarkdown(const std::string& markdown_text) {
     parser.leave_span = OnLeaveSpan;
     parser.text = OnText;
 
-    md_parse(markdown_text.c_str(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
+    md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
 
     return std::move(ctx.nodes);
 }
