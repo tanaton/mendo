@@ -382,8 +382,7 @@ int OnLeaveSpan(MD_SPANTYPE /*type*/, void* /*detail*/, void* userdata) {
     return 0;
 }
 
-void ResolveHtmlEntity(ParseContext* ctx, const char* text, size_t size) {
-    std::string_view entity(text, size);
+void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity) {
     const wchar_t* resolved = nullptr;
     wchar_t single_char = 0;
     if (entity == "&amp;")  resolved = L"&";
@@ -419,7 +418,7 @@ void ResolveHtmlEntity(ParseContext* ctx, const char* text, size_t size) {
         size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
         ctx->AppendText(std::wstring_view{resolved, rlen});
     } else {
-        ctx->AppendUtf8(std::string_view{text, size});
+        ctx->AppendUtf8(entity);
     }
 }
 
@@ -435,7 +434,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
             break;
 
         case MD_TEXT_ENTITY:
-            ResolveHtmlEntity(ctx, text, static_cast<size_t>(size));
+            ResolveHtmlEntity(ctx, std::string_view{text, static_cast<size_t>(size)});
             break;
 
         case MD_TEXT_BR:
