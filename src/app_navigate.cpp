@@ -141,6 +141,8 @@ void App::ApplyZoom(float new_zoom) {
     SyncMaxScroll();
     viewport_.SetScrollTarget(viewport_.GetScrollY());
 
+    RequestMermaidRenders();
+
     UpdateScrollBar();
     UpdateTitleBar();
     theme_service_.SaveZoomLevel(viewport_.GetZoomIndex());

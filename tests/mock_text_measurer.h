@@ -27,6 +27,15 @@ public:
             return;
         }
 
+        // Mermaidブロック: 実装と同じく既存の高さを保持する
+        if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
+            if (entry.height <= 0) {
+                entry.height = 60.0f; // プレースホルダー高さ
+            }
+            entry.layout_dirty = false;
+            return;
+        }
+
         const auto& text = node.text;
         if (text.empty()) {
             entry.height = line_height * 0.5f;

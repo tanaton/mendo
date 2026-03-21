@@ -313,6 +313,11 @@ void App::RequestMermaidRenders() {
                           - renderer_.GetTheme().margin_left
                           - renderer_.GetTheme().margin_right;
 
+    // コンテンツ幅が0以下の場合（ズームでMDペインが極小になった場合など）は
+    // 不正な幅でレンダリングしないようスキップする。
+    // last_mermaid_content_width_ を更新しないことで、復帰時の幅変更検出を正しく保つ。
+    if (content_width <= 0.0f) return;
+
     if (last_mermaid_content_width_ > 0.0f &&
         static_cast<int>(content_width) != static_cast<int>(last_mermaid_content_width_)) {
         // 図のサイズが新旧どちらのコンテンツ幅より小さければ
