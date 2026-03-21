@@ -63,18 +63,20 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             return;
 
         case NodeType::CodeBlock:
-            if (node.code_language == SyntaxLanguage::Mermaid && diagram.bitmap) {
-                float draw_w = diagram.width;
-                float draw_h = diagram.height;
-                if (draw_w > cw && draw_w > 0) {
-                    float scale = cw / draw_w;
-                    draw_h *= scale;
-                    draw_w = cw;
+            if (node.code_language == SyntaxLanguage::Mermaid) {
+                if (diagram.bitmap) {
+                    float draw_w = diagram.width;
+                    float draw_h = diagram.height;
+                    if (draw_w > cw && draw_w > 0) {
+                        float scale = cw / draw_w;
+                        draw_h *= scale;
+                        draw_w = cw;
+                    }
+                    float dx = x + (cw - draw_w) * 0.5f;
+                    cmds.push_back(DrawBitmapCmd{
+                        diagram.bitmap.Get(),
+                        D2D1::RectF(dx, entry.y_position, dx + draw_w, entry.y_position + draw_h)});
                 }
-                float dx = x + (cw - draw_w) * 0.5f;
-                cmds.push_back(DrawBitmapCmd{
-                    diagram.bitmap.Get(),
-                    D2D1::RectF(dx, entry.y_position, dx + draw_w, entry.y_position + draw_h)});
                 return;
             }
             GenCodeBlockBg(cmds, entry, x, cw);

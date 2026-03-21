@@ -326,15 +326,26 @@ void App::RequestMermaidRenders() {
 
     if (last_mermaid_content_width_ > 0.0f &&
         static_cast<int>(content_width) != static_cast<int>(last_mermaid_content_width_)) {
+        // 図のサイズが新旧どちらのコンテンツ幅より小さければ
+        // ビューポートに制約されていないため再生成不要
+        float min_width = std::min(content_width, last_mermaid_content_width_);
+        bool any_invalidated = false;
         for (size_t i = 0; i < doc_.GetNodes().size(); i++) {
             if (doc_.GetNodes()[i].code_language == SyntaxLanguage::Mermaid) {
                 auto& diagram = layout_cache_.GetDiagram(i);
+                if (diagram.bitmap && diagram.width > 0 &&
+                    diagram.width + 1.0f < min_width) {
+                    continue;
+                }
                 diagram.bitmap.Reset();
                 diagram.width = 0;
                 diagram.height = 0;
+                any_invalidated = true;
             }
         }
-        mermaid_renderer_.ClearCache();
+        if (any_invalidated) {
+            mermaid_renderer_.ClearCache();
+        }
     }
     last_mermaid_content_width_ = content_width;
 
