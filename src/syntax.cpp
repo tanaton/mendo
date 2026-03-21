@@ -37,8 +37,6 @@ bool IsAtLineStart(std::wstring_view text, size_t pos) {
     }
 }
 
-// ToLowerAscii は document_utils.h から参照
-
 // ---- キーワードテーブル ----
 
 using KeywordSet = std::pmr::unordered_set<std::wstring_view>;

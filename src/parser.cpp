@@ -60,7 +60,7 @@ struct SpanState {
 
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
-    ScopedMonotonicResource parse_resource{64 * 1024};
+    MonotonicResource parse_resource{64 * 1024};
 
     std::pmr::vector<Node> nodes;
 
@@ -307,20 +307,16 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
         case MD_BLOCK_H:
             if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
                 std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->text);
-                std::pmr::wstring base_id_pmr{base_id};
-                auto it = ctx->anchor_counts.find(base_id_pmr);
-                int count = 0;
-                if (it != ctx->anchor_counts.end()) {
-                    count = it->second;
-                }
+                auto it = ctx->anchor_counts.find(base_id);
+                int count = (it != ctx->anchor_counts.end()) ? it->second : 0;
                 if (count > 0) {
-                    ctx->current_node->anchor_id = base_id_pmr;
+                    ctx->current_node->anchor_id = base_id;
                     ctx->current_node->anchor_id += L"-";
                     ctx->current_node->anchor_id += std::to_wstring(count);
                 } else {
-                    ctx->current_node->anchor_id = base_id_pmr;
+                    ctx->current_node->anchor_id = base_id;
                 }
-                ctx->anchor_counts[base_id_pmr] = count + 1;
+                ctx->anchor_counts[std::move(base_id)] = count + 1;
             }
             ctx->current_node = nullptr;
             break;
@@ -381,7 +377,7 @@ int OnLeaveSpan(MD_SPANTYPE /*type*/, void* /*detail*/, void* userdata) {
 }
 
 void ResolveHtmlEntity(ParseContext* ctx, const char* text, size_t size) {
-    std::pmr::string entity(text, size);
+    std::string_view entity(text, size);
     const wchar_t* resolved = nullptr;
     wchar_t single_char = 0;
     if (entity == "&amp;")  resolved = L"&";

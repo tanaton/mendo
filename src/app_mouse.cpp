@@ -136,9 +136,9 @@ std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const {
 
 bool App::TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& rect,
                                        PaneController::DragTarget target,
+                                       const PaneScrollInfo& scroll_info,
                                        float total_content, ScrollState& scroll,
                                        void (Renderer::*invalidate)()) {
-    auto scroll_info = ComputePaneScrollInfo(rect, total_content);
     float local_x = dip_x - rect.x;
 
     if (local_x >= rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
@@ -156,15 +156,14 @@ bool App::TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& 
 void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout) {
     const auto& theme = renderer_.GetTheme();
     float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
+    auto scroll_info = ComputePaneScrollInfo(layout.file_rect, total_content);
 
     if (TryHandlePaneScrollbarClick(dip_x, dip_y, layout.file_rect,
             PaneController::DragTarget::FileScrollbar,
-            total_content, panes_.FileScroll(),
+            scroll_info, total_content, panes_.FileScroll(),
             &Renderer::InvalidateFilePaneCache)) {
         return;
     }
-
-    auto scroll_info = ComputePaneScrollInfo(layout.file_rect, total_content);
     float local_y = dip_y - scroll_info.content_top + panes_.FileScroll().scroll_y;
     int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
     if (idx >= 0 && idx < static_cast<int>(file_explorer_.GetEntries().size())) {
@@ -187,15 +186,14 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
 void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout) {
     const auto& theme = renderer_.GetTheme();
     float total_content = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
+    auto scroll_info = ComputePaneScrollInfo(layout.toc_rect, total_content);
 
     if (TryHandlePaneScrollbarClick(dip_x, dip_y, layout.toc_rect,
             PaneController::DragTarget::TocScrollbar,
-            total_content, panes_.TocScroll(),
+            scroll_info, total_content, panes_.TocScroll(),
             &Renderer::InvalidateTocPaneCache)) {
         return;
     }
-
-    auto scroll_info = ComputePaneScrollInfo(layout.toc_rect, total_content);
     float local_y = dip_y - scroll_info.content_top + panes_.TocScroll().scroll_y;
     int idx = doc_.GetToc().HitTest(local_y, theme.pane_item_height);
     if (idx >= 0 && idx < static_cast<int>(doc_.GetToc().GetEntries().size())) {

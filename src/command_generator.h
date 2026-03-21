@@ -59,7 +59,7 @@ private:
     Formats formats_;
 
     // フレーム毎にリセットする monotonic リソースで描画コマンドを管理
-    FrameMonotonicResource frame_resource_{128 * 1024};
+    MonotonicResource frame_resource_{128 * 1024};
     DrawCommandList cmds_{frame_resource_.resource()};
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;

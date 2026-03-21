@@ -115,6 +115,7 @@ private:
     void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     bool TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& rect,
                                       PaneController::DragTarget target,
+                                      const PaneScrollInfo& scroll_info,
                                       float total_content, ScrollState& scroll,
                                       void (Renderer::*invalidate)());
 

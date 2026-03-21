@@ -5,7 +5,6 @@
 // 選択範囲のハイライトカラー
 inline constexpr D2D1_COLOR_F SELECTION_COLOR = {0.26f, 0.56f, 0.84f, 0.3f};
 
-// 2π（円周率の2倍）
 inline constexpr float TWO_PI = std::numbers::pi_v<float> * 2.0f;
 
 // ローディングスピナーの定数

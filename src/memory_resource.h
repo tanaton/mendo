@@ -45,6 +45,3 @@ private:
     std::pmr::monotonic_buffer_resource monotonic_;
 };
 
-// 後方互換エイリアス
-using ScopedMonotonicResource = MonotonicResource;
-using FrameMonotonicResource = MonotonicResource;
