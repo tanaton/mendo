@@ -55,7 +55,7 @@ ActionList AppController::HandleMouseWheel(const MouseWheelEvent& event) const {
         return actions;
     }
 
-    float scroll_amount = -event.delta * 0.5f;
+    float scroll_amount = -event.delta * 0.8f;
 
     switch (event.zone) {
         case PaneZone::FilePane:

@@ -167,13 +167,13 @@ TEST_F(AppControllerTest, UnknownCtrlKeyProducesNoAction) {
 TEST_F(AppControllerTest, WheelUpInMdPaneSmoothScrolls) {
     auto a = ctrl_.HandleMouseWheel({120, false, PaneZone::MdPane});
     auto& s = GetSingleAction<SmoothScrollByAction>(a);
-    EXPECT_FLOAT_EQ(s.delta, -120.0f * 0.5f);
+    EXPECT_FLOAT_EQ(s.delta, -120.0f * 0.8f);
 }
 
 TEST_F(AppControllerTest, WheelDownInMdPaneSmoothScrolls) {
     auto a = ctrl_.HandleMouseWheel({-120, false, PaneZone::MdPane});
     auto& s = GetSingleAction<SmoothScrollByAction>(a);
-    EXPECT_FLOAT_EQ(s.delta, 120.0f * 0.5f);
+    EXPECT_FLOAT_EQ(s.delta, 120.0f * 0.8f);
 }
 
 // ═══════════════════════════════════════════════
@@ -184,14 +184,14 @@ TEST_F(AppControllerTest, WheelInFilePaneScrollsFilePane) {
     auto a = ctrl_.HandleMouseWheel({120, false, PaneZone::FilePane});
     auto& s = GetSingleAction<ScrollPaneAction>(a);
     EXPECT_EQ(s.pane, PaneZone::FilePane);
-    EXPECT_FLOAT_EQ(s.delta, -120.0f * 0.5f);
+    EXPECT_FLOAT_EQ(s.delta, -120.0f * 0.8f);
 }
 
 TEST_F(AppControllerTest, WheelInTocPaneScrollsTocPane) {
     auto a = ctrl_.HandleMouseWheel({-120, false, PaneZone::TocPane});
     auto& s = GetSingleAction<ScrollPaneAction>(a);
     EXPECT_EQ(s.pane, PaneZone::TocPane);
-    EXPECT_FLOAT_EQ(s.delta, 120.0f * 0.5f);
+    EXPECT_FLOAT_EQ(s.delta, 120.0f * 0.8f);
 }
 
 TEST_F(AppControllerTest, WheelOnSplitterScrollsMdPane) {
