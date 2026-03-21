@@ -63,6 +63,11 @@ bool App::Init(HWND hwnd) {
     viewport_.SetZoomIndex(theme_service_.LoadZoomIndex());
     if (theme_service_.IsDarkMode() || viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
         renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
+        renderer_.GetLayout().UpdateTheme(renderer_.GetTheme());
+        renderer_.GetLayout().RecreateFormats();
+        if (viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
+            panes_.ApplyZoom(viewport_.GetCurrentZoom());
+        }
     }
     if (theme_service_.IsDarkMode()) {
         ApplyDarkModeToWindow(hwnd_, true);
