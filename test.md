@@ -1913,6 +1913,423 @@ async function renderMermaid(code, config) {
 }
 ```
 
+##### TypeScript コード
+
+```typescript
+import { readFileSync } from 'fs';
+import * as path from 'path';
+
+interface MarkdownNode {
+    type: 'heading' | 'paragraph' | 'code_block';
+    level?: number;
+    text: string;
+    language?: string;
+}
+
+type ParseResult = {
+    nodes: MarkdownNode[];
+    metadata: Record<string, unknown>;
+};
+
+class MarkdownLoader {
+    private cache = new Map<string, ParseResult>();
+
+    constructor(private readonly basePath: string) {}
+
+    async load(filename: string): Promise<ParseResult> {
+        const fullPath = path.join(this.basePath, filename);
+        const cached = this.cache.get(fullPath);
+        if (cached !== undefined) {
+            return cached;
+        }
+
+        const content: string = readFileSync(fullPath, 'utf-8');
+        const nodes: MarkdownNode[] = this.parse(content);
+        const result: ParseResult = { nodes, metadata: {} };
+        this.cache.set(fullPath, result);
+        return result;
+    }
+
+    private parse(content: string): MarkdownNode[] {
+        const lines = content.split('\n');
+        const nodes: MarkdownNode[] = [];
+        for (const line of lines) {
+            if (line.startsWith('# ')) {
+                nodes.push({ type: 'heading', level: 1, text: line.slice(2) });
+            } else if (line.trim().length > 0) {
+                nodes.push({ type: 'paragraph', text: line });
+            }
+        }
+        return nodes;
+    }
+}
+
+// 使用例
+const loader = new MarkdownLoader('./docs');
+loader.load('README.md').then((result) => {
+    console.log(`ノード数: ${result.nodes.length}`);
+});
+```
+
+##### Go コード
+
+```go
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+)
+
+// MarkdownNode はMarkdownドキュメントの1要素を表す
+type MarkdownNode struct {
+	Type  string
+	Level int
+	Text  string
+}
+
+// ParseMarkdown はMarkdownテキストをパースしてノードのスライスを返す
+func ParseMarkdown(content string) []MarkdownNode {
+	var nodes []MarkdownNode
+	scanner := bufio.NewScanner(strings.NewReader(content))
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case strings.HasPrefix(line, "# "):
+			nodes = append(nodes, MarkdownNode{
+				Type:  "heading",
+				Level: 1,
+				Text:  line[2:],
+			})
+		case strings.HasPrefix(line, "```"):
+			// コードブロック開始/終了
+			lang := strings.TrimPrefix(line, "```")
+			nodes = append(nodes, MarkdownNode{
+				Type: "code_fence",
+				Text: lang,
+			})
+		default:
+			if len(strings.TrimSpace(line)) > 0 {
+				nodes = append(nodes, MarkdownNode{
+					Type: "paragraph",
+					Text: line,
+				})
+			}
+		}
+	}
+	return nodes
+}
+
+func main() {
+	data, err := os.ReadFile("README.md")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "読み込みエラー: %v\n", err)
+		os.Exit(1)
+	}
+
+	nodes := ParseMarkdown(string(data))
+	for i, node := range nodes {
+		fmt.Printf("[%d] %s: %s\n", i, node.Type, node.Text)
+	}
+}
+```
+
+##### Rust コード
+
+```rust
+use std::fs;
+use std::io::{self, BufRead};
+use std::path::Path;
+use std::collections::HashMap;
+
+/// Markdownノードの種類
+#[derive(Debug, Clone)]
+enum NodeType {
+    Heading(u8),
+    Paragraph,
+    CodeBlock(String),
+}
+
+/// パースされたMarkdownノード
+#[derive(Debug, Clone)]
+struct MarkdownNode {
+    node_type: NodeType,
+    text: String,
+}
+
+/// Markdownパーサ
+struct Parser {
+    cache: HashMap<String, Vec<MarkdownNode>>,
+}
+
+impl Parser {
+    fn new() -> Self {
+        Parser {
+            cache: HashMap::new(),
+        }
+    }
+
+    /// ファイルを読み込みパースする
+    fn parse_file(&mut self, path: &Path) -> io::Result<&Vec<MarkdownNode>> {
+        let key = path.to_string_lossy().to_string();
+        if !self.cache.contains_key(&key) {
+            let content = fs::read_to_string(path)?;
+            let nodes = self.parse(&content);
+            self.cache.insert(key.clone(), nodes);
+        }
+        Ok(self.cache.get(&key).unwrap())
+    }
+
+    fn parse(&self, content: &str) -> Vec<MarkdownNode> {
+        let mut nodes = Vec::new();
+        for line in content.lines() {
+            if let Some(text) = line.strip_prefix("# ") {
+                nodes.push(MarkdownNode {
+                    node_type: NodeType::Heading(1),
+                    text: text.to_string(),
+                });
+            } else if !line.trim().is_empty() {
+                nodes.push(MarkdownNode {
+                    node_type: NodeType::Paragraph,
+                    text: line.to_string(),
+                });
+            }
+        }
+        nodes
+    }
+}
+
+fn main() -> io::Result<()> {
+    let mut parser = Parser::new();
+    let path = Path::new("README.md");
+    let nodes = parser.parse_file(path)?;
+
+    for (i, node) in nodes.iter().enumerate() {
+        println!("[{}] {:?}: {}", i, node.node_type, node.text);
+    }
+    Ok(())
+}
+```
+
+##### Bash コード
+
+```bash
+#!/bin/bash
+# Markdownファイルの見出しを抽出するスクリプト
+
+set -euo pipefail
+
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly DEFAULT_EXT="*.md"
+
+# 使い方を表示
+usage() {
+    echo "Usage: $(basename "$0") [-d directory] [-l level] [-h]"
+    echo "  -d  検索ディレクトリ (デフォルト: カレント)"
+    echo "  -l  見出しレベル (1-6, デフォルト: 全て)"
+    echo "  -h  ヘルプ表示"
+    exit 0
+}
+
+# 見出しを抽出する関数
+extract_headings() {
+    local file="$1"
+    local level="${2:-}"
+
+    if [[ ! -f "$file" ]]; then
+        echo "エラー: ファイルが見つかりません: $file" >&2
+        return 1
+    fi
+
+    local pattern="^#{1,6} "
+    if [[ -n "$level" ]]; then
+        pattern="^#{${level}} "
+    fi
+
+    grep -nE "$pattern" "$file" | while IFS=: read -r lineno content; do
+        local depth="${content%%[! #]*}"
+        depth="${#depth}"
+        printf "  L%-4d [H%d] %s\n" "$lineno" "$depth" "${content#*# }"
+    done
+}
+
+# メイン処理
+main() {
+    local dir="."
+    local level=""
+
+    while getopts "d:l:h" opt; do
+        case "$opt" in
+            d) dir="$OPTARG" ;;
+            l) level="$OPTARG" ;;
+            h) usage ;;
+            *) usage ;;
+        esac
+    done
+
+    echo "=== Markdown見出し一覧 ==="
+    find "$dir" -name "$DEFAULT_EXT" -type f | sort | while read -r file; do
+        echo ""
+        echo "📄 $file"
+        extract_headings "$file" "$level"
+    done
+}
+
+main "$@"
+```
+
+##### PowerShell コード
+
+```powershell
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Markdownファイルの解析ユーティリティ
+.DESCRIPTION
+    指定ディレクトリ内のMarkdownファイルから見出しとリンクを抽出する
+#>
+
+[CmdletBinding()]
+param(
+    [Parameter(Position = 0)]
+    [string]$Path = ".",
+
+    [ValidateRange(1, 6)]
+    [int]$HeadingLevel = 0,
+
+    [switch]$IncludeLinks
+)
+
+class MarkdownInfo {
+    [string]$File
+    [System.Collections.Generic.List[hashtable]]$Headings
+    [System.Collections.Generic.List[hashtable]]$Links
+
+    MarkdownInfo([string]$file) {
+        $this.File = $file
+        $this.Headings = [System.Collections.Generic.List[hashtable]]::new()
+        $this.Links = [System.Collections.Generic.List[hashtable]]::new()
+    }
+}
+
+function Get-MarkdownHeadings {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]$FilePath,
+
+        [int]$Level = 0
+    )
+
+    process {
+        $info = [MarkdownInfo]::new($FilePath)
+        $lineNum = 0
+
+        foreach ($line in Get-Content -Path $FilePath -Encoding UTF8) {
+            $lineNum++
+
+            # 見出しの検出
+            if ($line -match '^(#{1,6})\s+(.+)$') {
+                $depth = $Matches[1].Length
+                if ($Level -eq 0 -or $depth -eq $Level) {
+                    $info.Headings.Add(@{
+                        Line  = $lineNum
+                        Level = $depth
+                        Text  = $Matches[2]
+                    })
+                }
+            }
+
+            # リンクの検出
+            if ($line -match '\[([^\]]+)\]\(([^)]+)\)') {
+                $info.Links.Add(@{
+                    Line = $lineNum
+                    Text = $Matches[1]
+                    Url  = $Matches[2]
+                })
+            }
+        }
+
+        Write-Output $info
+    }
+}
+
+# メイン処理
+$mdFiles = Get-ChildItem -Path $Path -Filter "*.md" -Recurse -File
+Write-Host "=== Markdown解析結果 ===" -ForegroundColor Cyan
+
+foreach ($file in $mdFiles) {
+    $result = $file.FullName | Get-MarkdownHeadings -Level $HeadingLevel
+    Write-Host "`n$($result.File)" -ForegroundColor Green
+
+    foreach ($h in $result.Headings) {
+        $indent = "  " * $h.Level
+        Write-Host "${indent}[H$($h.Level)] L$($h.Line): $($h.Text)"
+    }
+
+    if ($IncludeLinks -and $result.Links.Count -gt 0) {
+        Write-Host "  --- リンク ---" -ForegroundColor Yellow
+        foreach ($link in $result.Links) {
+            Write-Host "  L$($link.Line): [$($link.Text)]($($link.Url))"
+        }
+    }
+}
+```
+
+##### Cmd (バッチ) コード
+
+```cmd
+@echo off
+rem Markdownファイルの見出しを簡易抽出するバッチスクリプト
+setlocal enabledelayedexpansion
+
+set "TARGET_DIR=%~1"
+if "%TARGET_DIR%"=="" set "TARGET_DIR=."
+
+echo === Markdown 見出し抽出ツール ===
+echo 対象ディレクトリ: %TARGET_DIR%
+echo.
+
+set "FILE_COUNT=0"
+set "HEADING_COUNT=0"
+
+for /r "%TARGET_DIR%" %%f in (*.md) do (
+    set /a FILE_COUNT+=1
+    echo ファイル: %%f
+    set "LINE_NUM=0"
+
+    for /f "usebackq delims=" %%l in ("%%f") do (
+        set /a LINE_NUM+=1
+        set "LINE=%%l"
+
+        rem 見出し行の判定（#で始まる行）
+        if "!LINE:~0,2!"=="# " (
+            echo   L!LINE_NUM!: [H1] !LINE:~2!
+            set /a HEADING_COUNT+=1
+        )
+        if "!LINE:~0,3!"=="## " (
+            echo   L!LINE_NUM!: [H2] !LINE:~3!
+            set /a HEADING_COUNT+=1
+        )
+        if "!LINE:~0,4!"=="### " (
+            echo   L!LINE_NUM!: [H3] !LINE:~4!
+            set /a HEADING_COUNT+=1
+        )
+    )
+    echo.
+)
+
+echo === 結果 ===
+echo ファイル数: %FILE_COUNT%
+echo 見出し数:   %HEADING_COUNT%
+
+endlocal
+exit /b 0
+```
+
 ---
 
 #### C.7 テーブルテスト
