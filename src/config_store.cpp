@@ -26,13 +26,13 @@ std::filesystem::path GetConfigDir() {
     return dir;
 }
 
-std::filesystem::path GetConfigPath(const wchar_t* filename) {
+std::filesystem::path GetConfigPath(std::wstring_view filename) {
     auto dir = GetConfigDir();
     if (dir.empty()) return {};
     return dir / filename;
 }
 
-void SaveBool(const wchar_t* filename, bool value) {
+void SaveBool(std::wstring_view filename, bool value) {
     auto path = GetConfigPath(filename);
     if (path.empty()) return;
     std::filesystem::create_directories(path.parent_path());
@@ -40,7 +40,7 @@ void SaveBool(const wchar_t* filename, bool value) {
     if (ofs) ofs << (value ? "1" : "0");
 }
 
-bool LoadBool(const wchar_t* filename, bool default_value) {
+bool LoadBool(std::wstring_view filename, bool default_value) {
     auto path = GetConfigPath(filename);
     if (path.empty()) return default_value;
     std::ifstream ifs(path);
@@ -50,7 +50,7 @@ bool LoadBool(const wchar_t* filename, bool default_value) {
     return c == '1';
 }
 
-void SaveInt(const wchar_t* filename, int value) {
+void SaveInt(std::wstring_view filename, int value) {
     auto path = GetConfigPath(filename);
     if (path.empty()) return;
     std::filesystem::create_directories(path.parent_path());
@@ -58,7 +58,7 @@ void SaveInt(const wchar_t* filename, int value) {
     if (ofs) ofs << value;
 }
 
-int LoadInt(const wchar_t* filename, int default_value, int min_val, int max_val) {
+int LoadInt(std::wstring_view filename, int default_value, int min_val, int max_val) {
     auto path = GetConfigPath(filename);
     if (path.empty()) return default_value;
     std::ifstream ifs(path);
@@ -69,7 +69,7 @@ int LoadInt(const wchar_t* filename, int default_value, int min_val, int max_val
     return val;
 }
 
-void SaveWString(const wchar_t* filename, std::wstring_view value) {
+void SaveWString(std::wstring_view filename, std::wstring_view value) {
     auto path = GetConfigPath(filename);
     if (path.empty()) return;
     if (value.empty()) {
@@ -84,7 +84,7 @@ void SaveWString(const wchar_t* filename, std::wstring_view value) {
     }
 }
 
-std::pmr::wstring LoadWString(const wchar_t* filename) {
+std::pmr::wstring LoadWString(std::wstring_view filename) {
     auto path = GetConfigPath(filename);
     if (path.empty()) return {};
     std::ifstream ifs(path, std::ios::binary | std::ios::ate);

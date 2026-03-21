@@ -42,8 +42,10 @@ std::pmr::wstring Utf8ToWide(const char* str, size_t len) {
     if (len == 0) return {};
     int wlen = MultiByteToWideChar(CP_UTF8, 0, str, static_cast<int>(len), nullptr, 0);
     if (wlen <= 0) return {};
-    std::pmr::wstring result(wlen, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, str, static_cast<int>(len), result.data(), wlen);
+    std::pmr::wstring result;
+    result.resize_and_overwrite(static_cast<size_t>(wlen), [&](wchar_t* buf, size_t count) -> size_t {
+        return static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, str, static_cast<int>(len), buf, static_cast<int>(count)));
+    });
     return result;
 }
 
@@ -129,8 +131,10 @@ struct ParseContext {
     void AppendUtf8(const char* text, int size) {
         int wlen = MultiByteToWideChar(CP_UTF8, 0, text, size, nullptr, 0);
         if (wlen > 0) {
-            text_buffer.resize(static_cast<size_t>(wlen));
-            MultiByteToWideChar(CP_UTF8, 0, text, size, text_buffer.data(), wlen);
+            text_buffer.resize_and_overwrite(static_cast<size_t>(wlen), [&](wchar_t* buf, size_t count) -> size_t {
+                MultiByteToWideChar(CP_UTF8, 0, text, size, buf, static_cast<int>(count));
+                return count;
+            });
             AppendText(text_buffer.data(), static_cast<size_t>(wlen));
         }
     }

@@ -138,7 +138,7 @@ TEST_F(ConfigStoreTest, SaveWStringEmptyDoesNothing) {
 // バグ #13: 空でのSaveWStringは以前に保存された値をクリアすべき
 TEST_F(ConfigStoreTest, SaveWStringEmptyClearsPrevious) {
     config::SaveWString(L"wstr_clear.txt", L"some value");
-    EXPECT_EQ(config::LoadWString(L"wstr_clear.txt").c_str(), L"some value");
+    EXPECT_EQ(config::LoadWString(L"wstr_clear.txt"), L"some value");
 
     config::SaveWString(L"wstr_clear.txt", L"");
     EXPECT_TRUE(config::LoadWString(L"wstr_clear.txt").empty());
@@ -146,9 +146,9 @@ TEST_F(ConfigStoreTest, SaveWStringEmptyClearsPrevious) {
 
 TEST_F(ConfigStoreTest, SaveWStringOverwrite) {
     config::SaveWString(L"wstr_ow.txt", L"first");
-    EXPECT_EQ(config::LoadWString(L"wstr_ow.txt").c_str(), L"first");
+    EXPECT_EQ(config::LoadWString(L"wstr_ow.txt"), L"first");
     config::SaveWString(L"wstr_ow.txt", L"second");
-    EXPECT_EQ(config::LoadWString(L"wstr_ow.txt").c_str(), L"second");
+    EXPECT_EQ(config::LoadWString(L"wstr_ow.txt"), L"second");
 }
 
 TEST_F(ConfigStoreTest, LoadWStringCorruptedOddBytes) {
@@ -179,5 +179,5 @@ TEST_F(ConfigStoreTest, MultipleConfigFilesIndependent) {
 
     EXPECT_TRUE(config::LoadBool(L"a.txt"));
     EXPECT_EQ(config::LoadInt(L"b.txt", 0, 0, 100), 42);
-    EXPECT_EQ(config::LoadWString(L"c.txt").c_str(), L"hello");
+    EXPECT_EQ(config::LoadWString(L"c.txt"), L"hello");
 }

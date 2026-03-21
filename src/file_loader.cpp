@@ -28,13 +28,16 @@ std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path) {
         return {};
     }
 
-    std::pmr::string content(static_cast<size_t>(size.QuadPart), '\0');
+    std::pmr::string content;
     DWORD bytesRead = 0;
-    BOOL ok = ReadFile(hFile, content.data(), static_cast<DWORD>(size.QuadPart), &bytesRead, nullptr);
+    BOOL ok = FALSE;
+    content.resize_and_overwrite(static_cast<size_t>(size.QuadPart), [&](char* buf, size_t count) -> size_t {
+        ok = ReadFile(hFile, buf, static_cast<DWORD>(count), &bytesRead, nullptr);
+        return ok ? bytesRead : 0;
+    });
     CloseHandle(hFile);
 
     if (!ok) return {};
-    content.resize(bytesRead);
 
     // UTF-8 BOMがあれば除去
     if (content.size() >= 3 &&
