@@ -12,6 +12,7 @@
 #include <functional>
 #include <unordered_map>
 #include <queue>
+#include <span>
 #include <memory_resource>
 
 using Microsoft::WRL::ComPtr;
@@ -74,7 +75,7 @@ private:
     bool ready_ = false;
     bool rendering_ = false;
     int render_counter_ = 0;
-    std::pmr::string cached_mermaid_gz_; // Win32リソースからキャッシュされたgzip圧縮済みmermaid.js
+    std::span<const std::byte> cached_mermaid_gz_; // Win32リソースから直接参照するgzip圧縮済みmermaid.js
 
     struct RenderRequest {
         Node* node = nullptr;
