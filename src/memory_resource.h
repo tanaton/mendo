@@ -1,7 +1,7 @@
 #pragma once
 #include <memory_resource>
 #include <cstddef>
-#include <new>
+#include <memory>
 
 // アプリケーション全体のメモリリソース管理
 //
@@ -22,18 +22,14 @@ inline void InitGlobalMemoryResource() {
     std::pmr::set_default_resource(&GetGlobalPoolResource());
 }
 
-// スタック上に確保したバッファを使う monotonic_buffer_resource のラッパー。
+// スコープに紐づくヒープ上のバッファを使う monotonic_buffer_resource のラッパー。
 // 一括確保→一括解放パターン（パース、描画コマンド生成など）に最適。
 class ScopedMonotonicResource {
 public:
     explicit ScopedMonotonicResource(std::size_t initial_size = 16 * 1024)
-        : buffer_(static_cast<std::byte*>(::operator new(initial_size, std::nothrow)))
-        , monotonic_(buffer_, initial_size, std::pmr::get_default_resource())
+        : buffer_(std::make_unique<std::byte[]>(initial_size))
+        , monotonic_(buffer_.get(), initial_size, std::pmr::get_default_resource())
     {}
-
-    ~ScopedMonotonicResource() {
-        ::operator delete(buffer_, std::nothrow);
-    }
 
     ScopedMonotonicResource(const ScopedMonotonicResource&) = delete;
     ScopedMonotonicResource& operator=(const ScopedMonotonicResource&) = delete;
@@ -41,7 +37,8 @@ public:
     std::pmr::memory_resource* resource() noexcept { return &monotonic_; }
 
 private:
-    std::byte* buffer_;
+    // buffer_ は monotonic_ より先に宣言し、monotonic_ より後に破棄されるようにする
+    std::unique_ptr<std::byte[]> buffer_;
     std::pmr::monotonic_buffer_resource monotonic_;
 };
 
@@ -50,13 +47,9 @@ private:
 class FrameMonotonicResource {
 public:
     explicit FrameMonotonicResource(std::size_t initial_size = 64 * 1024)
-        : buffer_(static_cast<std::byte*>(::operator new(initial_size, std::nothrow)))
-        , monotonic_(buffer_, initial_size, std::pmr::get_default_resource())
+        : buffer_(std::make_unique<std::byte[]>(initial_size))
+        , monotonic_(buffer_.get(), initial_size, std::pmr::get_default_resource())
     {}
-
-    ~FrameMonotonicResource() {
-        ::operator delete(buffer_, std::nothrow);
-    }
 
     FrameMonotonicResource(const FrameMonotonicResource&) = delete;
     FrameMonotonicResource& operator=(const FrameMonotonicResource&) = delete;
@@ -69,6 +62,7 @@ public:
     }
 
 private:
-    std::byte* buffer_;
+    // buffer_ は monotonic_ より先に宣言し、monotonic_ より後に破棄されるようにする
+    std::unique_ptr<std::byte[]> buffer_;
     std::pmr::monotonic_buffer_resource monotonic_;
 };

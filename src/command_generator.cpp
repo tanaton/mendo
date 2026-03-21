@@ -8,7 +8,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
         int first_visible) {
-    // monotonic リソースをリセットし、新しいフレーム用にコマンドリストを再構築
+    // 古いコマンドを破棄してからリソースをリセットし、新しいフレーム用に再構築
+    cmds_.clear();
     frame_resource_.Reset();
     cmds_ = DrawCommandList{frame_resource_.resource()};
     auto& cmds = cmds_;
