@@ -2,6 +2,7 @@
 #include "text_measurer.h"
 #include <dwrite.h>
 #include <wrl/client.h>
+#include <memory_resource>
 
 using Microsoft::WRL::ComPtr;
 
@@ -22,7 +23,7 @@ public:
 private:
     bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node);
-    void ApplyCellRunFormatting(IDWriteTextLayout* layout, const std::vector<TextRun>& runs);
+    void ApplyCellRunFormatting(IDWriteTextLayout* layout, const std::pmr::vector<TextRun>& runs);
 
     IDWriteFactory* dwrite_ = nullptr;
     const Theme* theme_ = nullptr;

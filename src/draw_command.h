@@ -5,6 +5,7 @@
 #include <vector>
 #include <cwchar>
 #include <algorithm>
+#include <memory_resource>
 
 // ---- Primitive draw commands ----
 
@@ -95,4 +96,4 @@ using DrawCommand = std::variant<
     PushClipCmd, PopClipCmd, SetTransformCmd
 >;
 
-using DrawCommandList = std::vector<DrawCommand>;
+using DrawCommandList = std::pmr::vector<DrawCommand>;

@@ -1,9 +1,13 @@
 #include "window.h"
+#include "memory_resource.h"
 #include <windows.h>
 #include <shellscalingapi.h>
 #include <commctrl.h>
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdShow) {
+    // グローバル同期プールリソースを初期化（最初に呼び出す）
+    InitGlobalMemoryResource();
+
     // Enable Per-Monitor DPI v2
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 

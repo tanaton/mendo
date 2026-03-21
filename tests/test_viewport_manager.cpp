@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <memory_resource>
 #include "viewport_manager.h"
 #include "layout_cache.h"
 #include "types.h"
@@ -172,7 +173,7 @@ TEST(ViewportManagerTest, ClearSelection) {
 }
 
 TEST(ViewportManagerTest, SelectAll) {
-    std::vector<Node> nodes(3);
+    std::pmr::vector<Node> nodes(3);
     nodes[0].text = L"hello";
     nodes[1].text = L"world";
     nodes[2].text = L"end";
@@ -188,7 +189,7 @@ TEST(ViewportManagerTest, SelectAll) {
 }
 
 TEST(ViewportManagerTest, SelectAllEmpty) {
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
     ViewportManager vm;
     vm.SelectAll(nodes);
     EXPECT_FALSE(vm.GetSelection().active);

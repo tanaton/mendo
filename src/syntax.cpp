@@ -1,6 +1,7 @@
 #include "syntax.h"
 #include <algorithm>
 #include <unordered_set>
+#include <memory_resource>
 
 namespace {
 
@@ -26,7 +27,7 @@ bool IsWhitespace(wchar_t c) {
     return c == L' ' || c == L'\t' || c == L'\n' || c == L'\r';
 }
 
-bool IsAtLineStart(const std::wstring& text, size_t pos) {
+bool IsAtLineStart(std::wstring_view text, size_t pos) {
     if (pos == 0) return true;
     for (size_t i = pos - 1; ; i--) {
         if (text[i] == L'\n') return true;
@@ -280,7 +281,7 @@ const KeywordSet& CmdTypes() {
 
 // ---- Lexer helpers ----
 
-void EmitToken(std::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type) {
+void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type) {
     if (length > 0) {
         tokens.push_back({start, length, type});
     }
@@ -288,7 +289,7 @@ void EmitToken(std::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length
 
 // Scan a string literal starting at pos (pos points to the opening quote).
 // Returns the position after the closing quote (or end of text if unterminated).
-size_t ScanString(const std::wstring& text, size_t pos, wchar_t quote, bool allow_multiline, bool handle_escape = true) {
+size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_multiline, bool handle_escape = true) {
     size_t i = pos + 1;
     while (i < text.size()) {
         if (handle_escape && text[i] == L'\\') {
@@ -306,7 +307,7 @@ size_t ScanString(const std::wstring& text, size_t pos, wchar_t quote, bool allo
 }
 
 // Scan a Python triple-quoted string.
-size_t ScanTripleQuote(const std::wstring& text, size_t pos, wchar_t quote) {
+size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quote) {
     // pos points to the first quote of the triple
     size_t i = pos + 3;
     while (i + 2 < text.size()) {
@@ -322,7 +323,7 @@ size_t ScanTripleQuote(const std::wstring& text, size_t pos, wchar_t quote) {
 }
 
 // Scan a number literal starting at pos.
-size_t ScanNumber(const std::wstring& text, size_t pos) {
+size_t ScanNumber(std::wstring_view text, size_t pos) {
     size_t i = pos;
 
     // Handle 0x, 0b, 0o prefixes
@@ -373,7 +374,7 @@ size_t ScanNumber(const std::wstring& text, size_t pos) {
 }
 
 // Check if identifier at [start, end) is followed by '(' (skipping whitespace).
-bool IsFollowedByParen(const std::wstring& text, size_t end) {
+bool IsFollowedByParen(std::wstring_view text, size_t end) {
     size_t i = end;
     while (i < text.size() && (text[i] == L' ' || text[i] == L'\t')) i++;
     return i < text.size() && text[i] == L'(';
@@ -381,7 +382,7 @@ bool IsFollowedByParen(const std::wstring& text, size_t end) {
 
 // Scan a block comment starting at pos (pos points to the first char of the opening pair).
 // Returns the position after the closing pair, or text.size() if unterminated.
-size_t ScanBlockComment(const std::wstring& text, size_t pos, wchar_t close1, wchar_t close2) {
+size_t ScanBlockComment(std::wstring_view text, size_t pos, wchar_t close1, wchar_t close2) {
     size_t i = pos + 2;
     while (i + 1 < text.size()) {
         if (text[i] == close1 && text[i + 1] == close2) {
@@ -409,13 +410,13 @@ struct LexerConfig {
     bool raw_backtick = false;          // backtick strings without escape (Go)
 };
 
-std::vector<SyntaxToken> TokenizeGeneric(
-    const std::wstring& text,
+std::pmr::vector<SyntaxToken> TokenizeGeneric(
+    std::wstring_view text,
     const KeywordSet& keywords,
     const KeywordSet& types,
     const LexerConfig& cfg
 ) {
-    std::vector<SyntaxToken> tokens;
+    std::pmr::vector<SyntaxToken> tokens;
     tokens.reserve(text.size() / 4);
     size_t i = 0;
     uint32_t plain_start = 0;
@@ -540,11 +541,11 @@ std::vector<SyntaxToken> TokenizeGeneric(
                 size_t start = i - 1;
                 // Find the delimiter: R"DELIM( ... )DELIM"
                 size_t paren = text.find(L'(', i + 1);
-                if (paren != std::wstring::npos) {
-                    std::wstring delim = text.substr(i + 1, paren - i - 1);
+                if (paren != std::wstring_view::npos) {
+                    std::wstring delim{text.substr(i + 1, paren - i - 1)};
                     std::wstring end_marker = L")" + delim + L"\"";
-                    size_t end_pos = text.find(end_marker, paren + 1);
-                    if (end_pos != std::wstring::npos) {
+                    size_t end_pos = text.find(std::wstring_view{end_marker}, paren + 1);
+                    if (end_pos != std::wstring_view::npos) {
                         i = end_pos + end_marker.size();
                     } else {
                         i = text.size();
@@ -626,7 +627,7 @@ std::vector<SyntaxToken> TokenizeGeneric(
 
 // ---- Public API ----
 
-SyntaxLanguage DetectLanguage(const std::wstring& info_string) {
+SyntaxLanguage DetectLanguage(std::wstring_view info_string) {
     if (info_string.empty()) return SyntaxLanguage::None;
 
     // Extract first word and lowercase it
@@ -672,7 +673,7 @@ SyntaxLanguage DetectLanguage(const std::wstring& info_string) {
     return SyntaxLanguage::None;
 }
 
-std::vector<SyntaxToken> Tokenize(const std::wstring& text, SyntaxLanguage language) {
+std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language) {
     if (text.empty() || language == SyntaxLanguage::None) {
         return {};
     }

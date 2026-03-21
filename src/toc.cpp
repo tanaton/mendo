@@ -1,6 +1,6 @@
 #include "toc.h"
 
-void TableOfContents::BuildFromNodes(const std::vector<Node>& nodes) {
+void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes) {
     entries_.clear();
     size_t heading_count = 0;
     for (const auto& node : nodes) {
@@ -11,8 +11,8 @@ void TableOfContents::BuildFromNodes(const std::vector<Node>& nodes) {
         if (node.type != NodeType::Heading) continue;
 
         TocEntry entry;
-        entry.text = node.text;
-        entry.anchor_id = node.anchor_id;
+        entry.text = std::wstring_view{node.text};
+        entry.anchor_id = std::wstring_view{node.anchor_id};
         entry.heading_level = node.heading_level;
         entries_.push_back(std::move(entry));
     }

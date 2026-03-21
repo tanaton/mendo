@@ -7,9 +7,9 @@ static constexpr float COLUMN_WIDTH_PADDING = 4.0f;
 
 // ---- Free functions ----
 
-std::vector<float> ComputeColumnWidths(const std::vector<float>& natural_widths,
+std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natural_widths,
                                         float available_width, size_t col_count) {
-    std::vector<float> widths(col_count);
+    std::pmr::vector<float> widths(col_count);
     available_width = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
     float total_natural = 0;
@@ -28,7 +28,7 @@ std::vector<float> ComputeColumnWidths(const std::vector<float>& natural_widths,
     return widths;
 }
 
-std::wstring BuildLinearizedTableText(const std::vector<TableRow>& rows) {
+std::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows) {
     size_t total = 0;
     for (size_t r = 0; r < rows.size(); r++) {
         const auto& row = rows[r];
@@ -51,7 +51,7 @@ std::wstring BuildLinearizedTableText(const std::vector<TableRow>& rows) {
     return text;
 }
 
-YPositionResult RecomputeYPositions(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
                                     size_t from_index, bool has_earlier_dirty) {
     YPositionResult result;
     result.has_dirty_nodes = has_earlier_dirty;
@@ -108,7 +108,7 @@ void LayoutEngine::CreateTextLayout(Node& node, NodeLayoutEntry& entry, float ma
     measurer_->MeasureNode(node, entry, max_width);
 }
 
-void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
+void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache,
                                   float viewport_width,
                                   float viewport_top, float viewport_bottom) {
     cache.Resize(nodes.size());
@@ -184,12 +184,12 @@ void LayoutEngine::ComputeLayout(std::vector<Node>& nodes, LayoutCache& cache,
     has_dirty_nodes_ = any_dirty;
 }
 
-void LayoutEngine::LayoutNodes(std::vector<Node>& nodes, LayoutCache& cache, float viewport_width) {
+void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width) {
     last_viewport_width_ = 0.0f; // Force width change detection
     ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right);
 }
 
-bool LayoutEngine::EnsureVisibleLayout(std::vector<Node>& nodes, LayoutCache& cache,
+bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache,
                                         float viewport_width,
                                         float viewport_top, float viewport_bottom) {
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
@@ -215,7 +215,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::vector<Node>& nodes, LayoutCache& ca
     return any_updated;
 }
 
-bool LayoutEngine::ProcessDirtyBatch(std::vector<Node>& nodes, LayoutCache& cache,
+bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
                                       float viewport_width, int batch_size) {
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     int processed = 0;

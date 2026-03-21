@@ -16,7 +16,7 @@ public:
     float GetLoadingAngle() const noexcept { return loading_angle_; }
 
     // Start loading animation for a file.
-    void StartLoading(const std::wstring& path);
+    void StartLoading(std::wstring_view path);
 
     // Stop loading animation.
     void StopLoading() noexcept;
@@ -35,12 +35,12 @@ public:
 
     // ---- Path access ----
 
-    const std::wstring& GetLoadingPath() const noexcept { return loading_path_; }
-    void SetLoadingPath(const std::wstring& path) { loading_path_ = path; }
+    std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }
+    void SetLoadingPath(std::wstring_view path) { loading_path_ = path; }
 
 private:
     DocumentService& doc_service_;
     bool loading_ = false;
     float loading_angle_ = 0.0f;
-    std::wstring loading_path_;
+    std::pmr::wstring loading_path_;
 };

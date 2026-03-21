@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <memory_resource>
 #include "layout.h"
 #include "dwrite_measurer.h"
 #include "parser.h"
@@ -36,7 +37,7 @@ protected:
 };
 
 TEST_F(LayoutTest, EmptyNodesProduceZeroHeight) {
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
     LayoutCache cache;
     engine_.ComputeLayout(nodes, cache, 800.0f);
     // Only margin_top contributes
@@ -308,7 +309,7 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight) {
     Node node;
     node.type = NodeType::Table;
     node.table_rows.clear();
-    std::vector<Node> nodes = {node};
+    std::pmr::vector<Node> nodes = {node};
     LayoutCache cache;
     cache.Resize(nodes.size());
 
@@ -399,7 +400,7 @@ TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow) {
 
 TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide) {
     // natural widths total 300, available only 150 -> proportional
-    std::vector<float> natural = {100.0f, 100.0f, 100.0f};
+    std::pmr::vector<float> natural = {100.0f, 100.0f, 100.0f};
     auto widths = ComputeColumnWidths(natural, 150.0f, 3);
     ASSERT_EQ(widths.size(), 3u);
     // All columns should get equal share since natural widths are equal
@@ -412,7 +413,7 @@ TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide) {
 
 TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits) {
     // natural widths total 30, available 300 -> even distribution
-    std::vector<float> natural = {10.0f, 10.0f, 10.0f};
+    std::pmr::vector<float> natural = {10.0f, 10.0f, 10.0f};
     auto widths = ComputeColumnWidths(natural, 300.0f, 3);
     ASSERT_EQ(widths.size(), 3u);
     // Even distribution: each should be at least 100
@@ -424,7 +425,7 @@ TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits) {
 
 TEST(ComputeColumnWidthsTest, MinimumWidthEnforced) {
     // Very small available space
-    std::vector<float> natural = {200.0f, 200.0f};
+    std::pmr::vector<float> natural = {200.0f, 200.0f};
     auto widths = ComputeColumnWidths(natural, 40.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
     // Minimum width is 30
@@ -435,7 +436,7 @@ TEST(ComputeColumnWidthsTest, MinimumWidthEnforced) {
 
 TEST(ComputeColumnWidthsTest, UnequalNaturalWidths) {
     // Column A is much wider than column B
-    std::vector<float> natural = {300.0f, 100.0f};
+    std::pmr::vector<float> natural = {300.0f, 100.0f};
     auto widths = ComputeColumnWidths(natural, 200.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
     // Column A should get a larger share than B
@@ -443,14 +444,14 @@ TEST(ComputeColumnWidthsTest, UnequalNaturalWidths) {
 }
 
 TEST(ComputeColumnWidthsTest, SingleColumn) {
-    std::vector<float> natural = {50.0f};
+    std::pmr::vector<float> natural = {50.0f};
     auto widths = ComputeColumnWidths(natural, 200.0f, 1);
     ASSERT_EQ(widths.size(), 1u);
     EXPECT_GE(widths[0], 50.0f);
 }
 
 TEST(ComputeColumnWidthsTest, ZeroNaturalWidths) {
-    std::vector<float> natural = {0.0f, 0.0f};
+    std::pmr::vector<float> natural = {0.0f, 0.0f};
     auto widths = ComputeColumnWidths(natural, 200.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
     // Should still produce valid widths
@@ -462,7 +463,7 @@ TEST(ComputeColumnWidthsTest, ZeroNaturalWidths) {
 // ---- BuildLinearizedTableText ----
 
 TEST(BuildLinearizedTableTextTest, EmptyRows) {
-    std::vector<TableRow> rows;
+    std::pmr::vector<TableRow> rows;
     auto text = BuildLinearizedTableText(rows);
     EXPECT_TRUE(text.empty());
 }
@@ -514,7 +515,7 @@ TEST(BuildLinearizedTableTextTest, EmptyCells) {
 // ---- RecomputeYPositions ----
 
 TEST(RecomputeYPositionsTest, EmptyNodes) {
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
     LayoutCache cache;
     Theme theme = GetLightTheme();
     auto result = RecomputeYPositions(nodes, cache, theme);
@@ -551,7 +552,7 @@ TEST(ComputeTotalContentHeightTest, MultipleNodes) {
 TEST(RecomputeYPositionsTest, SingleParagraph) {
     Node node;
     node.type = NodeType::Paragraph;
-    std::vector<Node> nodes = {node};
+    std::pmr::vector<Node> nodes = {node};
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 20.0f;
@@ -574,7 +575,7 @@ TEST(RecomputeYPositionsTest, HeadingSpacing) {
     Node para2;
     para2.type = NodeType::Paragraph;
 
-    std::vector<Node> nodes = {para, heading, para2};
+    std::pmr::vector<Node> nodes = {para, heading, para2};
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 20.0f;
@@ -605,7 +606,7 @@ TEST(RecomputeYPositionsTest, DetectsDirtyNodes) {
     Node dirty;
     dirty.type = NodeType::Paragraph;
 
-    std::vector<Node> nodes = {clean, dirty};
+    std::pmr::vector<Node> nodes = {clean, dirty};
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 20.0f;
@@ -620,7 +621,7 @@ TEST(RecomputeYPositionsTest, DetectsDirtyNodes) {
 }
 
 TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY) {
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
     for (int i = 0; i < 10; i++) {
         Node node;
         node.type = NodeType::Paragraph;
@@ -773,7 +774,7 @@ TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing) {
     Node h2;
     h2.type = NodeType::Heading;
 
-    std::vector<Node> nodes = {h1, h2};
+    std::pmr::vector<Node> nodes = {h1, h2};
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 40.0f;
@@ -794,7 +795,7 @@ TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing) {
 
 TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions) {
     Theme theme = GetLightTheme();
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
 
     auto add_node = [&](NodeType type) {
         Node n;

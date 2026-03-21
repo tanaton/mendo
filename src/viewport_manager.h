@@ -4,6 +4,7 @@
 #include "theme.h"
 #include <algorithm>
 #include <cmath>
+#include <memory_resource>
 
 // Pure state management for scroll, selection, and zoom.
 // No Win32 API dependencies — fully testable.
@@ -96,7 +97,7 @@ public:
         is_dragging_ = false;
     }
 
-    void SelectAll(const std::vector<Node>& nodes) noexcept {
+    void SelectAll(const std::pmr::vector<Node>& nodes) noexcept {
         if (nodes.empty()) {
             ClearSelection();
             return;

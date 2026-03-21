@@ -1,7 +1,9 @@
 #pragma once
 #include <string>
+#include <string_view>
 #include <vector>
 #include <cstdint>
+#include <memory_resource>
 
 enum class SyntaxLanguage : uint8_t {
     None,
@@ -34,6 +36,6 @@ struct SyntaxToken {
     SyntaxTokenType type = SyntaxTokenType::Plain;
 };
 
-SyntaxLanguage DetectLanguage(const std::wstring& info_string);
+SyntaxLanguage DetectLanguage(std::wstring_view info_string);
 
-std::vector<SyntaxToken> Tokenize(const std::wstring& text, SyntaxLanguage language);
+std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language);

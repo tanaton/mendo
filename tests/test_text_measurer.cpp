@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <memory_resource>
 #include "layout.h"
 #include "mock_text_measurer.h"
 #include "parser.h"
@@ -20,7 +21,7 @@ protected:
 // ---- Basic layout ----
 
 TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight) {
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
     LayoutCache cache;
     engine_.ComputeLayout(nodes, cache, 800.0f);
     EXPECT_FLOAT_EQ(engine_.GetTotalHeight(), theme_.margin_top * 2);

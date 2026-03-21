@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <memory_resource>
+#include <string_view>
 #include "file_explorer.h"
 #include <filesystem>
 #include <fstream>
@@ -291,7 +293,7 @@ TEST_F(FileExplorerTest, FullPathIsCorrect) {
     for (const auto& e : explorer.GetEntries()) {
         if (e.filename == L"test.md") {
             std::wstring expected = temp_dir_.wstring() + L"\\" + L"test.md";
-            EXPECT_EQ(e.full_path, expected);
+            EXPECT_EQ(std::wstring_view{e.full_path}, std::wstring_view{expected});
             found = true;
         }
     }
@@ -301,5 +303,5 @@ TEST_F(FileExplorerTest, FullPathIsCorrect) {
 TEST_F(FileExplorerTest, GetDirectoryReturnsSetPath) {
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
-    EXPECT_EQ(explorer.GetDirectory(), temp_dir_.wstring());
+    EXPECT_EQ(std::wstring_view{explorer.GetDirectory()}, std::wstring_view{temp_dir_.wstring()});
 }

@@ -69,7 +69,7 @@ int LoadInt(const wchar_t* filename, int default_value, int min_val, int max_val
     return val;
 }
 
-void SaveWString(const wchar_t* filename, const std::wstring& value) {
+void SaveWString(const wchar_t* filename, std::wstring_view value) {
     auto path = GetConfigPath(filename);
     if (path.empty()) return;
     if (value.empty()) {

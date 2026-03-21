@@ -1,14 +1,14 @@
 #include "file_explorer.h"
 #include <algorithm>
 
-void FileExplorer::SetDirectory(const std::wstring& dir_path) {
-    std::wstring normalized = dir_path;
+void FileExplorer::SetDirectory(std::wstring_view dir_path) {
+    std::pmr::wstring normalized{dir_path};
     // Strip trailing separators (except for root paths like "C:\")
     while (normalized.size() > 3 && (normalized.back() == L'\\' || normalized.back() == L'/')) {
         normalized.pop_back();
     }
     if (directory_ == normalized) return;
-    directory_ = normalized;
+    directory_ = std::move(normalized);
     Refresh();
 }
 
@@ -19,13 +19,13 @@ void FileExplorer::Refresh() {
     // Add parent directory entry ".." (unless at a root like "C:\")
     {
         // Find parent: strip trailing backslash, then find last separator
-        std::wstring parent = directory_;
+        std::wstring_view parent_view{directory_};
         // Don't add ".." if we're at a drive root (e.g. "C:\")
-        if (parent.size() > 3 || (parent.size() == 3 && parent[1] != L':')) {
-            auto pos = parent.find_last_of(L"\\/");
-            if (pos != std::wstring::npos && pos > 0) {
+        if (parent_view.size() > 3 || (parent_view.size() == 3 && parent_view[1] != L':')) {
+            auto pos = parent_view.find_last_of(L"\\/");
+            if (pos != std::wstring_view::npos && pos > 0) {
                 // Make sure we're not just at "C:\"
-                std::wstring parent_dir = parent.substr(0, pos);
+                std::wstring parent_dir{parent_view.substr(0, pos)};
                 // Handle "C:" -> "C:\"
                 if (parent_dir.size() == 2 && parent_dir[1] == L':') {
                     parent_dir += L"\\";
@@ -41,13 +41,14 @@ void FileExplorer::Refresh() {
     }
 
     // Enumerate all items in the directory
-    std::wstring pattern = directory_ + L"\\*";
+    std::wstring pattern{directory_};
+    pattern += L"\\*";
     WIN32_FIND_DATAW fd;
     HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE) return;
 
-    std::vector<FileEntry> dirs;
-    std::vector<FileEntry> files;
+    std::pmr::vector<FileEntry> dirs;
+    std::pmr::vector<FileEntry> files;
 
     do {
         // Skip "." and ".."
@@ -60,7 +61,9 @@ void FileExplorer::Refresh() {
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             FileEntry entry;
             entry.filename = fd.cFileName;
-            entry.full_path = directory_ + L"\\" + fd.cFileName;
+            entry.full_path = directory_;
+            entry.full_path += L"\\";
+            entry.full_path += fd.cFileName;
             entry.is_directory = true;
             dirs.push_back(std::move(entry));
         } else {
@@ -74,7 +77,9 @@ void FileExplorer::Refresh() {
                     _wcsicmp(ext.c_str(), L".mkd") == 0) {
                     FileEntry entry;
                     entry.filename = fd.cFileName;
-                    entry.full_path = directory_ + L"\\" + fd.cFileName;
+                    entry.full_path = directory_;
+                    entry.full_path += L"\\";
+                    entry.full_path += fd.cFileName;
                     files.push_back(std::move(entry));
                 }
             }
@@ -105,9 +110,10 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept {
     return index;
 }
 
-void FileExplorer::SetCurrentFile(const std::wstring& path) {
+void FileExplorer::SetCurrentFile(std::wstring_view path) {
+    std::wstring path_str{path};
     for (auto& entry : entries_) {
         entry.is_current = (!entry.is_directory &&
-                            _wcsicmp(entry.full_path.c_str(), path.c_str()) == 0);
+                            _wcsicmp(entry.full_path.c_str(), path_str.c_str()) == 0);
     }
 }

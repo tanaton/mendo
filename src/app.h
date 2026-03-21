@@ -23,9 +23,11 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <optional>
 #include <memory>
+#include <memory_resource>
 
 // Apply dark mode styling to window title bar and scrollbar.
 void ApplyDarkModeToWindow(HWND hwnd, bool dark);
@@ -34,7 +36,7 @@ class App {
 public:
     bool Init(HWND hwnd);
 
-    void LoadMarkdownFile(const std::wstring& path);
+    void LoadMarkdownFile(std::wstring_view path);
     std::wstring LoadLastFilePath() const;
 
     // Event handlers called from Win32Window
@@ -92,11 +94,11 @@ private:
     // Hit testing
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y) const;
-    std::optional<std::wstring> GetLinkAtHit(const HitResult& hit) const;
+    std::optional<std::pmr::wstring> GetLinkAtHit(const HitResult& hit) const;
 
     // Link & anchor navigation
-    void HandleLinkClick(const std::wstring& url);
-    void NavigateToAnchor(const std::wstring& anchor);
+    void HandleLinkClick(std::wstring_view url);
+    void NavigateToAnchor(std::wstring_view anchor);
     void ApplyNavigateResult(const NavigationService::NavigateResult& result);
     void NavigateBack();
     void NavigateForward();

@@ -8,7 +8,7 @@ public:
     bool Create(HINSTANCE hInstance, int nCmdShow);
     int RunMessageLoop();
 
-    void LoadMarkdownFile(const std::wstring& path) { app_.LoadMarkdownFile(path); }
+    void LoadMarkdownFile(std::wstring_view path) { app_.LoadMarkdownFile(path); }
     std::wstring LoadLastFilePath() const { return app_.LoadLastFilePath(); }
 
 private:

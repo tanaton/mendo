@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <memory_resource>
+#include <string_view>
 #include "document_utils.h"
 #include "parser.h"
 
@@ -64,7 +66,7 @@ TEST(ExtractSelectedText, NewlineBetweenNodes) {
 }
 
 TEST(ExtractSelectedText, EmptyNodes) {
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
     // Out of range nodes - should not crash
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
@@ -147,7 +149,7 @@ TEST(FindLinkAtPosition, EmptyNode) {
 // ============================================================
 
 TEST(FindAnchorNodeIndex, EmptyNodes) {
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
     EXPECT_EQ(FindAnchorNodeIndex(nodes, L"test"), -1);
 }
 
@@ -328,7 +330,7 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode) {
     table_node.type = NodeType::Table;
     table_node.text = L"A\tB\n1\t2";
 
-    std::vector<Node> nodes = {table_node};
+    std::pmr::vector<Node> nodes = {table_node};
     TextSelection sel;
     sel.start_node = 0;
     sel.start_pos = 0;
@@ -341,7 +343,7 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode) {
 }
 
 TEST(ExtractSelectedText, StartNodeOutOfRange) {
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
     Node n;
     n.text = L"hello";
     nodes.push_back(n);
@@ -359,7 +361,7 @@ TEST(ExtractSelectedText, StartNodeOutOfRange) {
 }
 
 TEST(ExtractSelectedText, EndNodeOutOfRange) {
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
     Node n;
     n.text = L"hello";
     nodes.push_back(n);
@@ -536,7 +538,7 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator) {
 // ---- FindAnchorNodeIndex additional tests ----
 
 TEST(FindAnchorNodeIndex, DuplicateAnchors) {
-    std::vector<Node> nodes;
+    std::pmr::vector<Node> nodes;
 
     Node h1;
     h1.type = NodeType::Heading;
