@@ -35,7 +35,7 @@ bool IsAtLineStart(const std::wstring& text, size_t pos) {
     }
 }
 
-std::wstring ToLower(const std::wstring& s) {
+std::wstring ToLower(std::wstring_view s) {
     std::wstring result;
     result.reserve(s.size());
     for (wchar_t c : s) {
@@ -50,6 +50,12 @@ std::wstring ToLower(const std::wstring& s) {
 // ---- Keyword tables ----
 
 using KeywordSet = std::unordered_set<std::wstring_view>;
+
+KeywordSet MergeKeywords(const KeywordSet& base, std::initializer_list<std::wstring_view> extra) {
+    KeywordSet result = base;
+    result.insert(extra);
+    return result;
+}
 
 const KeywordSet& CppKeywords() {
     static const KeywordSet s = {
@@ -127,6 +133,147 @@ const KeywordSet& JsTypes() {
         L"Symbol", L"BigInt", L"WeakMap", L"WeakSet", L"Proxy", L"Reflect",
         L"undefined", L"null", L"true", L"false", L"NaN", L"Infinity",
         L"console", L"document", L"window", L"globalThis", L"JSON", L"Math"
+    };
+    return s;
+}
+
+// ---- Go ----
+
+const KeywordSet& GoKeywords() {
+    static const KeywordSet s = {
+        L"break", L"case", L"chan", L"const", L"continue", L"default", L"defer",
+        L"else", L"fallthrough", L"for", L"func", L"go", L"goto", L"if", L"import",
+        L"interface", L"map", L"package", L"range", L"return", L"select", L"struct",
+        L"switch", L"type", L"var"
+    };
+    return s;
+}
+
+const KeywordSet& GoTypes() {
+    static const KeywordSet s = {
+        L"bool", L"byte", L"complex64", L"complex128", L"error",
+        L"float32", L"float64", L"int", L"int8", L"int16", L"int32", L"int64",
+        L"rune", L"string", L"uint", L"uint8", L"uint16", L"uint32", L"uint64",
+        L"uintptr", L"any", L"comparable",
+        L"true", L"false", L"nil", L"iota"
+    };
+    return s;
+}
+
+// ---- Rust ----
+
+const KeywordSet& RustKeywords() {
+    static const KeywordSet s = {
+        L"as", L"async", L"await", L"break", L"const", L"continue", L"crate",
+        L"dyn", L"else", L"enum", L"extern", L"false", L"fn", L"for", L"if",
+        L"impl", L"in", L"let", L"loop", L"match", L"mod", L"move", L"mut",
+        L"pub", L"ref", L"return", L"self", L"Self", L"static", L"struct",
+        L"super", L"trait", L"true", L"type", L"unsafe", L"use", L"where",
+        L"while", L"yield", L"macro_rules"
+    };
+    return s;
+}
+
+const KeywordSet& RustTypes() {
+    static const KeywordSet s = {
+        L"bool", L"char", L"f32", L"f64", L"i8", L"i16", L"i32", L"i64", L"i128",
+        L"isize", L"str", L"u8", L"u16", L"u32", L"u64", L"u128", L"usize",
+        L"String", L"Vec", L"Box", L"Rc", L"Arc", L"Cell", L"RefCell",
+        L"Option", L"Result", L"Some", L"None", L"Ok", L"Err",
+        L"HashMap", L"HashSet", L"BTreeMap", L"BTreeSet", L"VecDeque",
+        L"LinkedList", L"Cow", L"Pin", L"PhantomData"
+    };
+    return s;
+}
+
+// ---- TypeScript (JS superset) ----
+
+const KeywordSet& TsKeywords() {
+    static const KeywordSet s = MergeKeywords(JsKeywords(), {
+        L"abstract", L"declare", L"enum", L"implements", L"infer",
+        L"interface", L"is", L"keyof", L"namespace", L"override",
+        L"readonly", L"satisfies", L"type", L"module", L"asserts"
+    });
+    return s;
+}
+
+const KeywordSet& TsTypes() {
+    static const KeywordSet s = MergeKeywords(JsTypes(), {
+        L"any", L"unknown", L"never", L"number", L"string", L"boolean",
+        L"symbol", L"bigint", L"object",
+        L"Record", L"Partial", L"Required", L"Readonly", L"Pick", L"Omit",
+        L"Exclude", L"Extract", L"NonNullable", L"ReturnType", L"Parameters",
+        L"InstanceType", L"Awaited", L"Uppercase", L"Lowercase",
+        L"Capitalize", L"Uncapitalize", L"ThisType", L"ConstructorParameters"
+    });
+    return s;
+}
+
+// ---- Bash ----
+
+const KeywordSet& BashKeywords() {
+    static const KeywordSet s = {
+        L"if", L"then", L"else", L"elif", L"fi", L"case", L"esac",
+        L"for", L"while", L"until", L"do", L"done", L"in", L"function",
+        L"select", L"time", L"return", L"exit", L"break", L"continue",
+        L"declare", L"local", L"export", L"readonly", L"typeset", L"unset",
+        L"shift", L"source", L"eval", L"exec", L"trap", L"set"
+    };
+    return s;
+}
+
+const KeywordSet& BashTypes() {
+    static const KeywordSet s = {
+        L"echo", L"printf", L"read", L"test", L"true", L"false",
+        L"cd", L"pwd", L"alias", L"unalias", L"type", L"which",
+        L"command", L"builtin", L"let", L"getopts", L"mapfile", L"readarray"
+    };
+    return s;
+}
+
+// ---- PowerShell (keywords stored in lowercase for case-insensitive matching) ----
+
+const KeywordSet& PwshKeywords() {
+    static const KeywordSet s = {
+        L"begin", L"break", L"catch", L"class", L"continue", L"data",
+        L"do", L"dynamicparam", L"else", L"elseif", L"end", L"enum",
+        L"exit", L"filter", L"finally", L"for", L"foreach", L"from",
+        L"function", L"hidden", L"if", L"in", L"inlinescript", L"param",
+        L"process", L"return", L"static", L"switch", L"throw", L"trap",
+        L"try", L"until", L"using", L"while", L"workflow"
+    };
+    return s;
+}
+
+const KeywordSet& PwshTypes() {
+    static const KeywordSet s = {
+        L"int", L"long", L"float", L"double", L"decimal", L"bool",
+        L"byte", L"string", L"char", L"array", L"hashtable", L"xml",
+        L"datetime", L"timespan", L"regex", L"scriptblock", L"void",
+        L"null", L"true", L"false"
+    };
+    return s;
+}
+
+// ---- Cmd (keywords stored in lowercase for case-insensitive matching) ----
+
+const KeywordSet& CmdKeywords() {
+    static const KeywordSet s = {
+        L"if", L"else", L"for", L"do", L"goto", L"call", L"set",
+        L"setlocal", L"endlocal", L"echo", L"pause", L"exit", L"rem",
+        L"not", L"exist", L"defined", L"equ", L"neq", L"lss", L"leq",
+        L"gtr", L"geq", L"errorlevel", L"off", L"on", L"in"
+    };
+    return s;
+}
+
+const KeywordSet& CmdTypes() {
+    static const KeywordSet s = {
+        L"dir", L"copy", L"move", L"del", L"ren", L"rename",
+        L"mkdir", L"md", L"rmdir", L"rd", L"type", L"find", L"findstr",
+        L"sort", L"more", L"cls", L"title", L"color", L"start",
+        L"taskkill", L"tasklist", L"reg", L"sc", L"net", L"netsh",
+        L"ping", L"ipconfig", L"ver", L"attrib", L"xcopy", L"robocopy"
     };
     return s;
 }
@@ -232,18 +379,40 @@ bool IsFollowedByParen(const std::wstring& text, size_t end) {
     return i < text.size() && text[i] == L'(';
 }
 
+// Scan a block comment starting at pos (pos points to the first char of the opening pair).
+// Returns the position after the closing pair, or text.size() if unterminated.
+size_t ScanBlockComment(const std::wstring& text, size_t pos, wchar_t close1, wchar_t close2) {
+    size_t i = pos + 2;
+    while (i + 1 < text.size()) {
+        if (text[i] == close1 && text[i + 1] == close2) {
+            return i + 2;
+        }
+        i++;
+    }
+    return text.size();
+}
+
 // ---- Generic tokenizer ----
+
+struct LexerConfig {
+    bool line_comment_slash = false;    // //
+    bool block_comment = false;         // /* */
+    bool hash_comment = false;          // #
+    bool preprocessor = false;          // # at line start
+    bool triple_quote = false;          // """ '''
+    bool backtick_string = false;       // `
+    bool angle_block_comment = false;   // <# #>
+    bool double_colon_comment = false;  // ::
+    bool rem_comment = false;           // REM
+    bool case_insensitive = false;      // case-insensitive keyword matching
+    bool skip_single_quote = false;     // don't treat ' as string delimiter
+};
 
 std::vector<SyntaxToken> TokenizeGeneric(
     const std::wstring& text,
     const KeywordSet& keywords,
     const KeywordSet& types,
-    bool has_line_comment_slash,    // //
-    bool has_block_comment,         // /* */
-    bool has_hash_comment,          // #
-    bool has_preprocessor,          // # at line start
-    bool has_triple_quote,          // """ '''
-    bool has_backtick_string        // ` (JS template literals)
+    const LexerConfig& cfg
 ) {
     std::vector<SyntaxToken> tokens;
     tokens.reserve(text.size() / 4);
@@ -268,8 +437,8 @@ std::vector<SyntaxToken> TokenizeGeneric(
     while (i < text.size()) {
         wchar_t c = text[i];
 
-        // 1. Line comments: // or #
-        if (has_line_comment_slash && c == L'/' && i + 1 < text.size() && text[i + 1] == L'/') {
+        // 1. Line comments: //
+        if (cfg.line_comment_slash && c == L'/' && i + 1 < text.size() && text[i + 1] == L'/') {
             flush_plain();
             size_t start = i;
             while (i < text.size() && text[i] != L'\n') i++;
@@ -277,7 +446,16 @@ std::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
-        if (has_hash_comment && c == L'#' && !has_preprocessor) {
+        // 1b. Angle block comments: <# #> (PowerShell)
+        if (cfg.angle_block_comment && c == L'<' && i + 1 < text.size() && text[i + 1] == L'#') {
+            flush_plain();
+            size_t start = i;
+            i = ScanBlockComment(text, i, L'#', L'>');
+            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
+            continue;
+        }
+
+        if (cfg.hash_comment && c == L'#' && !cfg.preprocessor) {
             flush_plain();
             size_t start = i;
             while (i < text.size() && text[i] != L'\n') i++;
@@ -286,26 +464,16 @@ std::vector<SyntaxToken> TokenizeGeneric(
         }
 
         // 2. Block comments: /* */
-        if (has_block_comment && c == L'/' && i + 1 < text.size() && text[i + 1] == L'*') {
+        if (cfg.block_comment && c == L'/' && i + 1 < text.size() && text[i + 1] == L'*') {
             flush_plain();
             size_t start = i;
-            i += 2;
-            bool terminated = false;
-            while (i + 1 < text.size()) {
-                if (text[i] == L'*' && text[i + 1] == L'/') {
-                    i += 2;
-                    terminated = true;
-                    break;
-                }
-                i++;
-            }
-            if (!terminated) i = text.size();
+            i = ScanBlockComment(text, i, L'*', L'/');
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
         }
 
         // 3. Preprocessor: # at line start (C/C++)
-        if (has_preprocessor && c == L'#' && IsAtLineStart(text, i)) {
+        if (cfg.preprocessor && c == L'#' && IsAtLineStart(text, i)) {
             flush_plain();
             size_t start = i;
             while (i < text.size()) {
@@ -323,8 +491,31 @@ std::vector<SyntaxToken> TokenizeGeneric(
             continue;
         }
 
+        // 3b. Double-colon comments: :: at line start (cmd)
+        if (cfg.double_colon_comment && c == L':' && i + 1 < text.size() && text[i + 1] == L':' &&
+            IsAtLineStart(text, i)) {
+            flush_plain();
+            size_t start = i;
+            while (i < text.size() && text[i] != L'\n') i++;
+            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
+            continue;
+        }
+
+        // 3c. REM comments: REM at line start (cmd)
+        if (cfg.rem_comment && (c == L'r' || c == L'R') && IsAtLineStart(text, i) &&
+            i + 2 < text.size() &&
+            (text[i + 1] == L'e' || text[i + 1] == L'E') &&
+            (text[i + 2] == L'm' || text[i + 2] == L'M') &&
+            (i + 3 >= text.size() || !IsIdentChar(text[i + 3]))) {
+            flush_plain();
+            size_t start = i;
+            while (i < text.size() && text[i] != L'\n') i++;
+            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
+            continue;
+        }
+
         // 4. Triple-quoted strings (Python)
-        if (has_triple_quote && (c == L'"' || c == L'\'') &&
+        if (cfg.triple_quote && (c == L'"' || c == L'\'') &&
             i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
             flush_plain();
             size_t start = i;
@@ -334,7 +525,7 @@ std::vector<SyntaxToken> TokenizeGeneric(
         }
 
         // 5. String literals
-        if (c == L'"' || c == L'\'') {
+        if (c == L'"' || (c == L'\'' && !cfg.skip_single_quote)) {
             // Check for C++ raw string: R"(...)"
             if (c == L'"' && i > 0 && text[i - 1] == L'R' &&
                 (i < 2 || !IsIdentChar(text[i - 2]))) {
@@ -371,7 +562,7 @@ std::vector<SyntaxToken> TokenizeGeneric(
         }
 
         // 6. Backtick template literals (JS)
-        if (has_backtick_string && c == L'`') {
+        if (cfg.backtick_string && c == L'`') {
             flush_plain();
             size_t start = i;
             i = ScanString(text, i, L'`', true);
@@ -395,11 +586,17 @@ std::vector<SyntaxToken> TokenizeGeneric(
             while (i < text.size() && IsIdentChar(text[i])) i++;
 
             std::wstring_view word(text.data() + start, i - start);
+            std::wstring word_lower;
+            std::wstring_view lookup_word = word;
+            if (cfg.case_insensitive) {
+                word_lower = ToLower(word);
+                lookup_word = word_lower;
+            }
 
             SyntaxTokenType tt = SyntaxTokenType::Plain;
-            if (keywords.count(word)) {
+            if (keywords.count(lookup_word)) {
                 tt = SyntaxTokenType::Keyword;
-            } else if (types.count(word)) {
+            } else if (types.count(lookup_word)) {
                 tt = SyntaxTokenType::Type;
             } else if (IsFollowedByParen(text, i)) {
                 tt = SyntaxTokenType::Function;
@@ -440,12 +637,29 @@ SyntaxLanguage DetectLanguage(const std::wstring& info_string) {
     if (lang == L"python" || lang == L"py") {
         return SyntaxLanguage::Python;
     }
-    if (lang == L"javascript" || lang == L"js" || lang == L"typescript" || lang == L"ts" ||
-        lang == L"jsx" || lang == L"tsx") {
+    if (lang == L"javascript" || lang == L"js" || lang == L"jsx") {
         return SyntaxLanguage::JavaScript;
+    }
+    if (lang == L"typescript" || lang == L"ts" || lang == L"tsx") {
+        return SyntaxLanguage::TypeScript;
     }
     if (lang == L"mermaid") {
         return SyntaxLanguage::Mermaid;
+    }
+    if (lang == L"go" || lang == L"golang") {
+        return SyntaxLanguage::Go;
+    }
+    if (lang == L"rust" || lang == L"rs") {
+        return SyntaxLanguage::Rust;
+    }
+    if (lang == L"bash" || lang == L"sh" || lang == L"zsh" || lang == L"shell") {
+        return SyntaxLanguage::Bash;
+    }
+    if (lang == L"powershell" || lang == L"pwsh" || lang == L"ps1") {
+        return SyntaxLanguage::PowerShell;
+    }
+    if (lang == L"cmd" || lang == L"bat" || lang == L"batch" || lang == L"dosbatch") {
+        return SyntaxLanguage::Cmd;
     }
 
     return SyntaxLanguage::None;
@@ -458,22 +672,56 @@ std::vector<SyntaxToken> Tokenize(const std::wstring& text, SyntaxLanguage langu
 
     switch (language) {
         case SyntaxLanguage::Cpp:
-            return TokenizeGeneric(text, CppKeywords(), CppTypes(),
-                /*line_comment_slash=*/true, /*block_comment=*/true,
-                /*hash_comment=*/false, /*preprocessor=*/true,
-                /*triple_quote=*/false, /*backtick_string=*/false);
+            return TokenizeGeneric(text, CppKeywords(), CppTypes(), {
+                .line_comment_slash = true, .block_comment = true,
+                .preprocessor = true,
+            });
 
         case SyntaxLanguage::Python:
-            return TokenizeGeneric(text, PythonKeywords(), PythonTypes(),
-                /*line_comment_slash=*/false, /*block_comment=*/false,
-                /*hash_comment=*/true, /*preprocessor=*/false,
-                /*triple_quote=*/true, /*backtick_string=*/false);
+            return TokenizeGeneric(text, PythonKeywords(), PythonTypes(), {
+                .hash_comment = true, .triple_quote = true,
+            });
 
         case SyntaxLanguage::JavaScript:
-            return TokenizeGeneric(text, JsKeywords(), JsTypes(),
-                /*line_comment_slash=*/true, /*block_comment=*/true,
-                /*hash_comment=*/false, /*preprocessor=*/false,
-                /*triple_quote=*/false, /*backtick_string=*/true);
+            return TokenizeGeneric(text, JsKeywords(), JsTypes(), {
+                .line_comment_slash = true, .block_comment = true,
+                .backtick_string = true,
+            });
+
+        case SyntaxLanguage::Go:
+            return TokenizeGeneric(text, GoKeywords(), GoTypes(), {
+                .line_comment_slash = true, .block_comment = true,
+                .backtick_string = true,
+            });
+
+        case SyntaxLanguage::Rust:
+            return TokenizeGeneric(text, RustKeywords(), RustTypes(), {
+                .line_comment_slash = true, .block_comment = true,
+                .skip_single_quote = true,
+            });
+
+        case SyntaxLanguage::TypeScript:
+            return TokenizeGeneric(text, TsKeywords(), TsTypes(), {
+                .line_comment_slash = true, .block_comment = true,
+                .backtick_string = true,
+            });
+
+        case SyntaxLanguage::Bash:
+            return TokenizeGeneric(text, BashKeywords(), BashTypes(), {
+                .hash_comment = true, .backtick_string = true,
+            });
+
+        case SyntaxLanguage::PowerShell:
+            return TokenizeGeneric(text, PwshKeywords(), PwshTypes(), {
+                .hash_comment = true, .angle_block_comment = true,
+                .case_insensitive = true,
+            });
+
+        case SyntaxLanguage::Cmd:
+            return TokenizeGeneric(text, CmdKeywords(), CmdTypes(), {
+                .double_colon_comment = true, .rem_comment = true,
+                .case_insensitive = true, .skip_single_quote = true,
+            });
 
         default:
             return {};

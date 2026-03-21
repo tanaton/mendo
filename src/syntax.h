@@ -8,7 +8,13 @@ enum class SyntaxLanguage : uint8_t {
     Cpp,
     Python,
     JavaScript,
-    Mermaid
+    Mermaid,
+    Go,
+    Rust,
+    TypeScript,
+    Bash,
+    PowerShell,
+    Cmd
 };
 
 enum class SyntaxTokenType : uint8_t {
