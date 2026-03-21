@@ -114,13 +114,13 @@ TEST_F(ConfigStoreTest, SaveIntNegativeValues) {
 // ---- SaveWString / LoadWString ----
 
 TEST_F(ConfigStoreTest, SaveAndLoadWString) {
-    std::wstring test_path = L"C:\\Users\\test\\document.md";
+    std::pmr::wstring test_path = L"C:\\Users\\test\\document.md";
     config::SaveWString(L"wstr_test.txt", test_path);
     EXPECT_EQ(config::LoadWString(L"wstr_test.txt"), test_path);
 }
 
 TEST_F(ConfigStoreTest, SaveAndLoadWStringJapanese) {
-    std::wstring jp = L"C:\\ユーザー\\テスト\\文書.md";
+    std::pmr::wstring jp = L"C:\\ユーザー\\テスト\\文書.md";
     config::SaveWString(L"wstr_jp.txt", jp);
     EXPECT_EQ(config::LoadWString(L"wstr_jp.txt"), jp);
 }
@@ -138,7 +138,7 @@ TEST_F(ConfigStoreTest, SaveWStringEmptyDoesNothing) {
 // バグ #13: 空でのSaveWStringは以前に保存された値をクリアすべき
 TEST_F(ConfigStoreTest, SaveWStringEmptyClearsPrevious) {
     config::SaveWString(L"wstr_clear.txt", L"some value");
-    EXPECT_EQ(config::LoadWString(L"wstr_clear.txt"), L"some value");
+    EXPECT_EQ(config::LoadWString(L"wstr_clear.txt").c_str(), L"some value");
 
     config::SaveWString(L"wstr_clear.txt", L"");
     EXPECT_TRUE(config::LoadWString(L"wstr_clear.txt").empty());
@@ -146,9 +146,9 @@ TEST_F(ConfigStoreTest, SaveWStringEmptyClearsPrevious) {
 
 TEST_F(ConfigStoreTest, SaveWStringOverwrite) {
     config::SaveWString(L"wstr_ow.txt", L"first");
-    EXPECT_EQ(config::LoadWString(L"wstr_ow.txt"), L"first");
+    EXPECT_EQ(config::LoadWString(L"wstr_ow.txt").c_str(), L"first");
     config::SaveWString(L"wstr_ow.txt", L"second");
-    EXPECT_EQ(config::LoadWString(L"wstr_ow.txt"), L"second");
+    EXPECT_EQ(config::LoadWString(L"wstr_ow.txt").c_str(), L"second");
 }
 
 TEST_F(ConfigStoreTest, LoadWStringCorruptedOddBytes) {
@@ -179,5 +179,5 @@ TEST_F(ConfigStoreTest, MultipleConfigFilesIndependent) {
 
     EXPECT_TRUE(config::LoadBool(L"a.txt"));
     EXPECT_EQ(config::LoadInt(L"b.txt", 0, 0, 100), 42);
-    EXPECT_EQ(config::LoadWString(L"c.txt"), L"hello");
+    EXPECT_EQ(config::LoadWString(L"c.txt").c_str(), L"hello");
 }

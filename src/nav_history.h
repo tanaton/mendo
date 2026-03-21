@@ -30,11 +30,11 @@ public:
     // 進むナビゲーション: currentを戻るスタックに移動し、進むスタックからポップする。
     bool GoForward(const NavEntry& current, NavEntry& out);
 
-    bool CanGoBack() const noexcept { return !back_stack_.empty(); }
-    bool CanGoForward() const noexcept { return !forward_stack_.empty(); }
+    constexpr bool CanGoBack() const noexcept { return !back_stack_.empty(); }
+    constexpr bool CanGoForward() const noexcept { return !forward_stack_.empty(); }
 
-    size_t BackSize() const noexcept { return back_stack_.size(); }
-    size_t ForwardSize() const noexcept { return forward_stack_.size(); }
+    constexpr size_t BackSize() const noexcept { return back_stack_.size(); }
+    constexpr size_t ForwardSize() const noexcept { return forward_stack_.size(); }
 
     void Clear() noexcept;
 

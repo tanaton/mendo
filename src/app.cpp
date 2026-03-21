@@ -263,7 +263,7 @@ void App::DoLoadMarkdownFile() {
         return;
     }
 
-    std::wstring dir = doc_.GetDirectory();
+    std::pmr::wstring dir = doc_.GetDirectory();
     if (!dir.empty()) {
         file_explorer_.SetDirectory(dir);
         file_explorer_.SetCurrentFile(doc_.GetFilePath());
@@ -472,7 +472,7 @@ void App::ExecuteActions(const ActionList& actions) {
 void App::OnDropFiles(HDROP hDrop) {
     UINT required = DragQueryFileW(hDrop, 0, nullptr, 0);
     if (required > 0) {
-        std::wstring path(required, L'\0');
+        std::pmr::wstring path(required, L'\0');
         if (DragQueryFileW(hDrop, 0, path.data(), required + 1)) {
             if (!doc_.GetFilePath().empty()) PushNavHistory();
             LoadMarkdownFile(path);
@@ -526,8 +526,8 @@ void App::SaveLastFilePath() {
     config_.SaveWString(L"last_file.txt", doc_.GetFilePath());
 }
 
-std::wstring App::LoadLastFilePath() const {
-    std::wstring path = config_.LoadWString(L"last_file.txt");
+std::pmr::wstring App::LoadLastFilePath() const {
+    std::pmr::wstring path = config_.LoadWString(L"last_file.txt");
     if (!path.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return {};
     }

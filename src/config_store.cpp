@@ -84,7 +84,7 @@ void SaveWString(const wchar_t* filename, std::wstring_view value) {
     }
 }
 
-std::wstring LoadWString(const wchar_t* filename) {
+std::pmr::wstring LoadWString(const wchar_t* filename) {
     auto path = GetConfigPath(filename);
     if (path.empty()) return {};
     std::ifstream ifs(path, std::ios::binary | std::ios::ate);
@@ -92,7 +92,7 @@ std::wstring LoadWString(const wchar_t* filename) {
     auto size = ifs.tellg();
     if (size <= 0 || size % sizeof(wchar_t) != 0) return {};
     ifs.seekg(0);
-    std::wstring result(static_cast<size_t>(size) / sizeof(wchar_t), L'\0');
+    std::pmr::wstring result(static_cast<size_t>(size) / sizeof(wchar_t), L'\0');
     ifs.read(reinterpret_cast<char*>(result.data()), size);
     return result;
 }

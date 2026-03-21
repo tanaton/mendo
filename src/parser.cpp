@@ -6,8 +6,8 @@
 #include <unordered_map>
 #include <windows.h>
 
-std::wstring GenerateAnchorId(std::wstring_view text) {
-    std::wstring slug;
+std::pmr::wstring GenerateAnchorId(std::wstring_view text) {
+    std::pmr::wstring slug;
     slug.reserve(text.size());
     for (wchar_t c : text) {
         if (c >= L'A' && c <= L'Z') {
@@ -38,11 +38,11 @@ std::wstring GenerateAnchorId(std::wstring_view text) {
 
 namespace {
 
-std::wstring Utf8ToWide(const char* str, size_t len) {
+std::pmr::wstring Utf8ToWide(const char* str, size_t len) {
     if (len == 0) return {};
     int wlen = MultiByteToWideChar(CP_UTF8, 0, str, static_cast<int>(len), nullptr, 0);
     if (wlen <= 0) return {};
-    std::wstring result(wlen, L'\0');
+    std::pmr::wstring result(wlen, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, str, static_cast<int>(len), result.data(), wlen);
     return result;
 }
@@ -67,7 +67,7 @@ struct ParseContext {
     SpanState current_span;
 
     // UTF-8 → Wide変換用の再利用可能バッファ
-    std::wstring text_buffer;
+    std::pmr::wstring text_buffer;
 
     // ブロックコンテキスト追跡
     int indent_level = 0;
@@ -165,7 +165,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
             ctx->BeginNode(NodeType::CodeBlock);
             auto* code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
             if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-                std::wstring lang_str = Utf8ToWide(code_detail->lang.text, code_detail->lang.size);
+                std::pmr::wstring lang_str = Utf8ToWide(code_detail->lang.text, code_detail->lang.size);
                 ctx->current_node->code_language = DetectLanguage(lang_str);
             }
             break;
@@ -301,7 +301,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
 
         case MD_BLOCK_H:
             if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
-                std::wstring base_id = GenerateAnchorId(ctx->current_node->text);
+                std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->text);
                 std::pmr::wstring base_id_pmr{base_id};
                 auto it = ctx->anchor_counts.find(base_id_pmr);
                 int count = 0;
@@ -353,7 +353,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata) {
         case MD_SPAN_A: {
             auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
             if (a->href.text && a->href.size > 0) {
-                std::wstring url_str = Utf8ToWide(a->href.text, a->href.size);
+                std::pmr::wstring url_str = Utf8ToWide(a->href.text, a->href.size);
                 ctx->current_span.link_url = std::pmr::wstring{url_str};
             }
             break;
@@ -446,7 +446,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
 
 } // namespace
 
-std::pmr::vector<Node> ParseMarkdown(const std::string& markdown_text) {
+std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text) {
     ParseContext ctx;
 
     MD_PARSER parser{};
@@ -458,7 +458,7 @@ std::pmr::vector<Node> ParseMarkdown(const std::string& markdown_text) {
     parser.leave_span = OnLeaveSpan;
     parser.text = OnText;
 
-    md_parse(markdown_text.c_str(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
+    md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
 
     return std::move(ctx.nodes);
 }

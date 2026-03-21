@@ -29,12 +29,7 @@ struct Theme {
 
     // フォントサイズ（DIP単位）
     float font_size_body;
-    float font_size_h1;
-    float font_size_h2;
-    float font_size_h3;
-    float font_size_h4;
-    float font_size_h5;
-    float font_size_h6;
+    float font_size_h[6];
     float font_size_code;
 
     // マージンとパディング（DIP単位）
@@ -64,7 +59,7 @@ struct Theme {
     float zoom = 1.0f;
 
     float GetHeadingSize(int level) const noexcept;
-    bool IsDark() const noexcept { return (bg_color.r + bg_color.g + bg_color.b) < 1.5f; }
+    constexpr bool IsDark() const noexcept { return (bg_color.r + bg_color.g + bg_color.b) < 1.5f; }
 
     // すべてのスケーラブルなサイズ（フォントサイズ、マージン、スペーシング）にズーム倍率を適用する。
     // `zoom` を変更した後に呼び出して派生値を更新する。

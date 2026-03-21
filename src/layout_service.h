@@ -29,11 +29,11 @@ public:
                                const Theme& theme);
 
     // ダーティノードが残っているか
-    bool HasDirtyNodes() const noexcept { return engine_.HasDirtyNodes(); }
+    constexpr bool HasDirtyNodes() const noexcept { return engine_.HasDirtyNodes(); }
 
     // 合計高さ
-    float GetTotalHeight() const noexcept { return engine_.GetTotalHeight(); }
-    void SetTotalHeight(float h) noexcept { engine_.SetTotalHeight(h); }
+    constexpr float GetTotalHeight() const noexcept { return engine_.GetTotalHeight(); }
+    constexpr void SetTotalHeight(float h) noexcept { engine_.SetTotalHeight(h); }
 
 private:
     LayoutEngine& engine_;

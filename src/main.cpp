@@ -29,14 +29,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
 
     // コマンドラインでファイルが指定されていればそれを読み込み、なければ前回のファイルを復元
     if (lpCmdLine && lpCmdLine[0]) {
-        std::wstring path = lpCmdLine;
+        std::pmr::wstring path = lpCmdLine;
         // 引用符があれば除去
         if (path.size() >= 2 && path.front() == L'"' && path.back() == L'"') {
             path = path.substr(1, path.size() - 2);
         }
         window.LoadMarkdownFile(path);
     } else {
-        std::wstring last = window.LoadLastFilePath();
+        std::pmr::wstring last = window.LoadLastFilePath();
         if (!last.empty()) {
             window.LoadMarkdownFile(last);
         }

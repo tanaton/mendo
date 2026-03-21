@@ -9,7 +9,7 @@ FileLoader::~FileLoader() {
     StopWatching();
 }
 
-std::string FileLoader::LoadFile(const std::wstring& path) {
+std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path) {
     // エディタがファイルを開いている間も読み取れるよう FILE_SHARE_READ | FILE_SHARE_WRITE を指定
     HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -28,7 +28,7 @@ std::string FileLoader::LoadFile(const std::wstring& path) {
         return {};
     }
 
-    std::string content(static_cast<size_t>(size.QuadPart), '\0');
+    std::pmr::string content(static_cast<size_t>(size.QuadPart), '\0');
     DWORD bytesRead = 0;
     BOOL ok = ReadFile(hFile, content.data(), static_cast<DWORD>(size.QuadPart), &bytesRead, nullptr);
     CloseHandle(hFile);
@@ -47,7 +47,7 @@ std::string FileLoader::LoadFile(const std::wstring& path) {
     return content;
 }
 
-std::wstring FileLoader::OpenFileDialog(HWND owner) {
+std::pmr::wstring FileLoader::OpenFileDialog(HWND owner) {
     wchar_t filename[MAX_PATH] = {};
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);
@@ -64,7 +64,7 @@ std::wstring FileLoader::OpenFileDialog(HWND owner) {
     return {};
 }
 
-static FILETIME GetFileWriteTime(const std::wstring& path) {
+static FILETIME GetFileWriteTime(const std::pmr::wstring& path) {
     WIN32_FILE_ATTRIBUTE_DATA attrs{};
     if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attrs)) {
         return attrs.ftLastWriteTime;
@@ -72,7 +72,7 @@ static FILETIME GetFileWriteTime(const std::wstring& path) {
     return {};
 }
 
-void FileLoader::StartWatching(const std::wstring& file_path, ChangeCallback callback) {
+void FileLoader::StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback) {
     StopWatching();
     watch_path_ = file_path;
     on_change_ = std::move(callback);

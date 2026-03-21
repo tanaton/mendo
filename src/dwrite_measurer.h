@@ -29,11 +29,6 @@ private:
     const Theme* theme_ = nullptr;
 
     ComPtr<IDWriteTextFormat> fmt_body_;
-    ComPtr<IDWriteTextFormat> fmt_h1_;
-    ComPtr<IDWriteTextFormat> fmt_h2_;
-    ComPtr<IDWriteTextFormat> fmt_h3_;
-    ComPtr<IDWriteTextFormat> fmt_h4_;
-    ComPtr<IDWriteTextFormat> fmt_h5_;
-    ComPtr<IDWriteTextFormat> fmt_h6_;
+    ComPtr<IDWriteTextFormat> fmt_h_[6];
     ComPtr<IDWriteTextFormat> fmt_code_;
 };

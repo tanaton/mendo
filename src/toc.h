@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory_resource>
+#include <ranges>
 
 struct TocEntry {
     std::pmr::wstring text;

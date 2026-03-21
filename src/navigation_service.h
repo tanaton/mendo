@@ -30,8 +30,8 @@ public:
     // 履歴にプッシュ
     void PushHistory(std::wstring_view file, float scroll_y);
 
-    bool CanGoBack() const noexcept { return history_.CanGoBack(); }
-    bool CanGoForward() const noexcept { return history_.CanGoForward(); }
+    constexpr bool CanGoBack() const noexcept { return history_.CanGoBack(); }
+    constexpr bool CanGoForward() const noexcept { return history_.CanGoForward(); }
 
 private:
     NavigateResult MakeResultFromEntry(NavEntry&& entry, std::wstring_view current_file);

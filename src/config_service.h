@@ -14,5 +14,5 @@ public:
     int LoadInt(const wchar_t* key, int def, int min_v, int max_v) const { return config::LoadInt(key, def, min_v, max_v); }
 
     void SaveWString(const wchar_t* key, std::wstring_view value) { config::SaveWString(key, value); }
-    std::wstring LoadWString(const wchar_t* key) const { return config::LoadWString(key); }
+    std::pmr::wstring LoadWString(const wchar_t* key) const { return config::LoadWString(key); }
 };

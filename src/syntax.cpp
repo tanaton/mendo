@@ -36,8 +36,8 @@ bool IsAtLineStart(std::wstring_view text, size_t pos) {
     }
 }
 
-std::wstring ToLower(std::wstring_view s) {
-    std::wstring result;
+std::pmr::wstring ToLower(std::wstring_view s) {
+    std::pmr::wstring result;
     result.reserve(s.size());
     for (wchar_t c : s) {
         if (c >= L'A' && c <= L'Z')
@@ -50,7 +50,7 @@ std::wstring ToLower(std::wstring_view s) {
 
 // ---- キーワードテーブル ----
 
-using KeywordSet = std::unordered_set<std::wstring_view>;
+using KeywordSet = std::pmr::unordered_set<std::wstring_view>;
 
 KeywordSet MergeKeywords(const KeywordSet& base, std::initializer_list<std::wstring_view> extra) {
     KeywordSet result = base;
@@ -542,8 +542,8 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                 // デリミタを検索: R"DELIM( ... )DELIM"
                 size_t paren = text.find(L'(', i + 1);
                 if (paren != std::wstring_view::npos) {
-                    std::wstring delim{text.substr(i + 1, paren - i - 1)};
-                    std::wstring end_marker = L")" + delim + L"\"";
+                    std::pmr::wstring delim{text.substr(i + 1, paren - i - 1)};
+                    std::pmr::wstring end_marker = L")" + delim + L"\"";
                     size_t end_pos = text.find(std::wstring_view{end_marker}, paren + 1);
                     if (end_pos != std::wstring_view::npos) {
                         i = end_pos + end_marker.size();
@@ -588,7 +588,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             while (i < text.size() && IsIdentChar(text[i])) i++;
 
             std::wstring_view word(text.data() + start, i - start);
-            std::wstring word_lower;
+            std::pmr::wstring word_lower;
             std::wstring_view lookup_word = word;
             if (cfg.case_insensitive) {
                 bool has_upper = false;
@@ -701,7 +701,7 @@ SyntaxLanguage DetectLanguage(std::wstring_view info_string) {
     if (info_string.empty()) return SyntaxLanguage::None;
 
     // 最初の単語を抽出して小文字に変換
-    std::wstring lang;
+    std::pmr::wstring lang;
     for (wchar_t c : info_string) {
         if (c == L' ' || c == L'\t') break;
         lang += c;

@@ -440,7 +440,7 @@ void App::SelectAll() {
 void App::CopySelectionToClipboard() const {
     if (!viewport_.GetSelection().active) return;
 
-    std::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
+    std::pmr::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
     if (result.empty()) return;
 
     if (!OpenClipboard(hwnd_)) return;

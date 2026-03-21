@@ -73,19 +73,19 @@ public:
                      const GestureRenderState& gesture = {});
 
     ID2D1HwndRenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
-    LayoutEngine& GetLayout() noexcept { return layout_; }
-    const Theme& GetTheme() const noexcept { return theme_; }
+    constexpr LayoutEngine& GetLayout() noexcept { return layout_; }
+    constexpr const Theme& GetTheme() const noexcept { return theme_; }
     void SetTheme(const Theme& theme);
     void ApplyZoom(float new_zoom);
     void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
-    Theme& GetThemeMut() noexcept { return theme_; }
+    constexpr Theme& GetThemeMut() noexcept { return theme_; }
 
     // デバイスロスト後にD2Dレンダーターゲットが再作成された際に呼び出されるコールバックを設定。
     // コールバックには新しいレンダーターゲットのポインタが渡される。
     void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
 
-    void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }
-    void InvalidateTocPaneCache() noexcept { toc_pane_cache_.dirty = true; }
+    constexpr void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }
+    constexpr void InvalidateTocPaneCache() noexcept { toc_pane_cache_.dirty = true; }
 
 private:
     // 描画前パス: レイアウトに描画エフェクト（シンタックスハイライト、リンク色）を適用。
@@ -141,7 +141,7 @@ public:
         float cached_width = 0;
         float cached_height = 0;
 
-        void Invalidate() noexcept { dirty = true; }
+        constexpr void Invalidate() noexcept { dirty = true; }
         void Reset() noexcept { bitmap_rt.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
     };
 private:

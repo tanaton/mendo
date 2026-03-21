@@ -15,7 +15,7 @@ public:
         IDWriteTextFormat* icon_font = nullptr;
     };
 
-    void SetTheme(const Theme* theme) noexcept {
+    constexpr void SetTheme(const Theme* theme) noexcept {
         theme_ = theme;
         bool is_dark = theme->IsDark();
         float a = is_dark ? 0.05f : 0.02f;
@@ -23,7 +23,7 @@ public:
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
     }
-    void SetFormats(const Formats& fmts) noexcept { formats_ = fmts; }
+    constexpr void SetFormats(const Formats& fmts) noexcept { formats_ = fmts; }
 
     // Markdownコンテンツペインのすべての描画コマンドを生成する。
     // 内部バッファへの参照を返す。次回呼び出しまで有効。

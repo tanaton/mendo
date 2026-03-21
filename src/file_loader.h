@@ -7,17 +7,17 @@ class FileLoader {
 public:
     ~FileLoader();
 
-    static std::string LoadFile(const std::wstring& path);
-    static std::wstring OpenFileDialog(HWND owner);
+    static std::pmr::string LoadFile(const std::pmr::wstring& path);
+    static std::pmr::wstring OpenFileDialog(HWND owner);
 
     // ファイル監視（タイムスタンプポーリング）
     using ChangeCallback = std::function<void()>;
-    void StartWatching(const std::wstring& file_path, ChangeCallback callback);
+    void StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback);
     void StopWatching() noexcept;
     void CheckForChanges();
 
 private:
-    std::wstring watch_path_;
+    std::pmr::wstring watch_path_;
     ChangeCallback on_change_;
     FILETIME last_write_time_{};
     bool watching_ = false;

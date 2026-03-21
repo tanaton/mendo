@@ -8,7 +8,7 @@
 
 // 選択範囲に基づいてノードから選択テキストを抽出する。
 // ノード間を \r\n で連結したテキストを返す。
-std::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
+std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
                                   const TextSelection& selection);
 
 // ノードのラン内の指定テキスト位置にあるリンクURLを検索する。
@@ -34,10 +34,10 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos);
 
 // フルファイルパスからファイル名部分を抽出する。
 // 例: "C:\\dir\\file.md" -> "file.md"
-std::wstring ExtractFilename(std::wstring_view path);
+std::pmr::wstring ExtractFilename(std::wstring_view path);
 
 // ファイルパスからタイトル文字列を構築する。
 // 例: "C:\\dir\\file.md" -> "file.md - mendo"
 // パスが空の場合は "mendo" を返す。
 // zoom_percent: 0 または 100 はデフォルト（省略）、それ以外は "(125%)" 等として表示される。
-std::wstring BuildTitleString(std::wstring_view path, int zoom_percent = 0);
+std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent = 0);

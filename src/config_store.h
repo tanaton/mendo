@@ -23,6 +23,6 @@ int LoadInt(const wchar_t* filename, int default_value, int min_val, int max_val
 
 // ワイド文字列を保存/読み込みする（UTF-16LEバイナリとして保存）。
 void SaveWString(const wchar_t* filename, std::wstring_view value);
-std::wstring LoadWString(const wchar_t* filename);
+std::pmr::wstring LoadWString(const wchar_t* filename);
 
 } // namespace config

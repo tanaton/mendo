@@ -67,15 +67,15 @@ struct TableRow {
 };
 
 struct Node {
-    NodeType type = NodeType::Paragraph;
-    int heading_level = 0;
-    int indent_level = 0;
-    int list_number = 0;      // 0 = 順序なし, >0 = 順序付きリスト番号
-    bool task_checked = false;
+    NodeType type;
+    int heading_level;
+    int indent_level;
+    int list_number;      // 0 = 順序なし, >0 = 順序付きリスト番号
+    bool task_checked;
     std::pmr::wstring text;
     std::pmr::vector<TextRun> runs;
     std::pmr::wstring anchor_id;   // 見出し用: 内部リンク向けGitHubスタイルのスラグ
-    SyntaxLanguage code_language = SyntaxLanguage::None;
+    SyntaxLanguage code_language;
     std::pmr::vector<SyntaxToken> syntax_tokens;
 
     // テーブルデータ（type == Table の場合のみ使用）

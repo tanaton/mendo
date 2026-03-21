@@ -20,7 +20,7 @@ protected:
         fs::remove_all(temp_dir_);
     }
 
-    fs::path WriteFile(const std::wstring& name, const std::string& content) {
+    fs::path WriteFile(std::wstring_view name, std::string_view content) {
         auto path = temp_dir_ / name;
         std::ofstream f(path, std::ios::binary);
         f.write(content.data(), content.size());
@@ -31,20 +31,20 @@ protected:
 
 TEST_F(FileLoaderTest, LoadsUtf8File) {
     auto path = WriteFile(L"test.md", "Hello, World!");
-    auto content = FileLoader::LoadFile(path.wstring());
+    auto content = FileLoader::LoadFile(path.native().c_str());
     EXPECT_EQ(content, "Hello, World!");
 }
 
 TEST_F(FileLoaderTest, LoadsMultilineFile) {
     auto path = WriteFile(L"multi.md", "line1\nline2\nline3");
-    auto content = FileLoader::LoadFile(path.wstring());
+    auto content = FileLoader::LoadFile(path.native().c_str());
     EXPECT_EQ(content, "line1\nline2\nline3");
 }
 
 TEST_F(FileLoaderTest, StripsUtf8Bom) {
     std::string bom = "\xEF\xBB\xBF" "Hello";
     auto path = WriteFile(L"bom.md", bom);
-    auto content = FileLoader::LoadFile(path.wstring());
+    auto content = FileLoader::LoadFile(path.native().c_str());
     EXPECT_EQ(content, "Hello");
 }
 
@@ -55,20 +55,20 @@ TEST_F(FileLoaderTest, NonExistentFileReturnsEmpty) {
 
 TEST_F(FileLoaderTest, EmptyFileReturnsEmpty) {
     auto path = WriteFile(L"empty.md", "");
-    auto content = FileLoader::LoadFile(path.wstring());
+    auto content = FileLoader::LoadFile(path.native().c_str());
     EXPECT_TRUE(content.empty());
 }
 
 TEST_F(FileLoaderTest, LoadsJapaneseUtf8) {
     auto path = WriteFile(L"jp.md", "日本語テスト");
-    auto content = FileLoader::LoadFile(path.wstring());
+    auto content = FileLoader::LoadFile(path.native().c_str());
     EXPECT_EQ(content, "日本語テスト");
 }
 
 TEST_F(FileLoaderTest, BomOnlyFileReturnsEmpty) {
     std::string bom_only = "\xEF\xBB\xBF";
     auto path = WriteFile(L"bomonly.md", bom_only);
-    auto content = FileLoader::LoadFile(path.wstring());
+    auto content = FileLoader::LoadFile(path.native().c_str());
     EXPECT_TRUE(content.empty());
 }
 
@@ -79,7 +79,7 @@ TEST_F(FileLoaderTest, WatcherDetectsChange) {
 
     FileLoader loader;
     bool changed = false;
-    loader.StartWatching(path.wstring(), [&]() { changed = true; });
+    loader.StartWatching(path.native().c_str(), [&]() { changed = true; });
 
     // 異なるタイムスタンプを確保するため、少し待ってからファイルを変更
     Sleep(300);
@@ -95,7 +95,7 @@ TEST_F(FileLoaderTest, WatcherDoesNotFireWithoutChange) {
 
     FileLoader loader;
     bool changed = false;
-    loader.StartWatching(path.wstring(), [&]() { changed = true; });
+    loader.StartWatching(path.native().c_str(), [&]() { changed = true; });
 
     loader.CheckForChanges();
     EXPECT_FALSE(changed);
@@ -106,7 +106,7 @@ TEST_F(FileLoaderTest, StopWatchingPreventsCallback) {
 
     FileLoader loader;
     bool changed = false;
-    loader.StartWatching(path.wstring(), [&]() { changed = true; });
+    loader.StartWatching(path.native().c_str(), [&]() { changed = true; });
     loader.StopWatching();
 
     Sleep(300);
@@ -121,14 +121,14 @@ TEST_F(FileLoaderTest, LargeFile) {
     // 1MBのファイルを作成
     std::string large_content(1024 * 1024, 'A');
     auto path = WriteFile(L"large.md", large_content);
-    auto content = FileLoader::LoadFile(path.wstring());
+    auto content = FileLoader::LoadFile(path.native().c_str());
     EXPECT_EQ(content.size(), large_content.size());
 }
 
 TEST_F(FileLoaderTest, FileWithOnlyBomAndContent) {
     std::string bom_content = "\xEF\xBB\xBF# Title\n\nContent";
     auto path = WriteFile(L"bomcontent.md", bom_content);
-    auto content = FileLoader::LoadFile(path.wstring());
+    auto content = FileLoader::LoadFile(path.native().c_str());
     EXPECT_EQ(content, "# Title\n\nContent");
 }
 
@@ -138,10 +138,10 @@ TEST_F(FileLoaderTest, WatcherRestartOnNewFile) {
 
     FileLoader loader;
     int change_count = 0;
-    loader.StartWatching(path1.wstring(), [&]() { change_count++; });
+    loader.StartWatching(path1.native().c_str(), [&]() { change_count++; });
 
     // 別のファイルの監視に切り替え
-    loader.StartWatching(path2.wstring(), [&]() { change_count++; });
+    loader.StartWatching(path2.native().c_str(), [&]() { change_count++; });
 
     // 元のファイルを変更 - コールバックが発火しないこと
     Sleep(300);
@@ -160,13 +160,13 @@ TEST_F(FileLoaderTest, WatcherDestructorDoesNotCrash) {
     auto path = WriteFile(L"destructor.md", "content");
     {
         FileLoader loader;
-        loader.StartWatching(path.wstring(), []() {});
+        loader.StartWatching(path.native().c_str(), []() {});
         // デストラクタで安全に監視が停止されること
     }
 }
 
 TEST_F(FileLoaderTest, FileWithNewlines) {
     auto path = WriteFile(L"newlines.md", "line1\r\nline2\r\nline3");
-    auto content = FileLoader::LoadFile(path.wstring());
+    auto content = FileLoader::LoadFile(path.native().c_str());
     EXPECT_EQ(content, "line1\r\nline2\r\nline3");
 }

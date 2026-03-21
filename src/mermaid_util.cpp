@@ -1,7 +1,7 @@
 #include "mermaid_util.h"
 
-std::wstring mermaid_util::JsEscape(std::wstring_view input) {
-    std::wstring result;
+std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input) {
+    std::pmr::wstring result;
     result.reserve(input.size() + input.size() / 4);
     for (wchar_t c : input) {
         switch (c) {
@@ -27,7 +27,7 @@ std::wstring mermaid_util::JsEscape(std::wstring_view input) {
     return result;
 }
 
-std::wstring mermaid_util::SimpleHash(std::wstring_view input) {
+std::pmr::wstring mermaid_util::SimpleHash(std::wstring_view input) {
     uint64_t hash = 14695981039346656037ULL;
     for (wchar_t c : input) {
         hash ^= static_cast<uint64_t>(c);

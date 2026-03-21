@@ -33,7 +33,7 @@ public:
               std::function<void()> on_ready);
 
     // WebView2が初期化済みでレンダリング可能な場合にtrueを返す。
-    bool IsReady() const noexcept { return ready_; }
+    constexpr bool IsReady() const noexcept { return ready_; }
 
     // Mermaidコードブロックのレンダリングを要求する。
     // 完了時、ダイアグラムエントリのbitmap/width/heightとレイアウトエントリの

@@ -37,7 +37,7 @@ public:
     bool Init(HWND hwnd);
 
     void LoadMarkdownFile(std::wstring_view path);
-    std::wstring LoadLastFilePath() const;
+    std::pmr::wstring LoadLastFilePath() const;
 
     // Win32Windowから呼び出されるイベントハンドラ
     void OnPaint();
@@ -81,7 +81,7 @@ public:
     bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
 
     // Win32Windowのカーソル/再描画用にDPIスケールを公開
-    float GetDpiScale() const noexcept { return cached_dpi_scale_; }
+    constexpr float GetDpiScale() const noexcept { return cached_dpi_scale_; }
 
 private:
     // AppControllerが返すアクションを実行

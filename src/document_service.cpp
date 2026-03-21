@@ -1,8 +1,8 @@
 #include "document_service.h"
 
 bool DocumentService::LoadFile(std::wstring_view path, Document& doc) {
-    std::wstring path_str{path};
-    std::string content = FileLoader::LoadFile(path_str);
+    std::pmr::wstring path_str{path};
+    std::pmr::string content = FileLoader::LoadFile(path_str);
     if (content.empty() && GetFileAttributesW(path_str.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return false;
     }
@@ -12,12 +12,12 @@ bool DocumentService::LoadFile(std::wstring_view path, Document& doc) {
 
 bool DocumentService::ReloadFile(Document& doc) {
     if (doc.GetFilePath().empty()) return false;
-    doc.ReplaceFromMarkdown(FileLoader::LoadFile(std::wstring{doc.GetFilePath()}));
+    doc.ReplaceFromMarkdown(FileLoader::LoadFile(std::pmr::wstring{doc.GetFilePath()}));
     return true;
 }
 
 void DocumentService::StartWatching(std::wstring_view path, FileLoader::ChangeCallback cb) {
-    loader_.StartWatching(std::wstring{path}, std::move(cb));
+    loader_.StartWatching(std::pmr::wstring{path}, std::move(cb));
 }
 
 void DocumentService::StopWatching() noexcept {
@@ -31,7 +31,7 @@ void DocumentService::CheckForChanges() {
 bool DocumentService::NeedsLoadingAnimation(std::wstring_view path) noexcept {
     static constexpr DWORD LOADING_ANIM_THRESHOLD = 128 * 1024;
     WIN32_FILE_ATTRIBUTE_DATA attr{};
-    std::wstring path_str{path};
+    std::pmr::wstring path_str{path};
     if (GetFileAttributesExW(path_str.c_str(), GetFileExInfoStandard, &attr)
         && attr.nFileSizeHigh == 0 && attr.nFileSizeLow <= LOADING_ANIM_THRESHOLD) {
         return false;

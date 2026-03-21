@@ -25,7 +25,7 @@ void FileExplorer::Refresh() {
             auto pos = parent_view.find_last_of(L"\\/");
             if (pos != std::wstring_view::npos && pos > 0) {
                 // "C:\" だけでないことを確認
-                std::wstring parent_dir{parent_view.substr(0, pos)};
+                std::pmr::wstring parent_dir{parent_view.substr(0, pos)};
                 // "C:" → "C:\" に変換
                 if (parent_dir.size() == 2 && parent_dir[1] == L':') {
                     parent_dir += L"\\";
@@ -41,7 +41,7 @@ void FileExplorer::Refresh() {
     }
 
     // ディレクトリ内の全アイテムを列挙
-    std::wstring pattern{directory_};
+    std::pmr::wstring pattern{directory_};
     pattern += L"\\*";
     WIN32_FIND_DATAW fd;
     HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
@@ -68,9 +68,9 @@ void FileExplorer::Refresh() {
             dirs.push_back(std::move(entry));
         } else {
             // Markdownファイル（.md, .markdown, .mkd）のみ表示
-            std::wstring name = fd.cFileName;
+            std::pmr::wstring name = fd.cFileName;
             auto dot_pos = name.rfind(L'.');
-            if (dot_pos != std::wstring::npos) {
+            if (dot_pos != std::pmr::wstring::npos) {
                 auto ext = name.substr(dot_pos);
                 if (_wcsicmp(ext.c_str(), L".md") == 0 ||
                     _wcsicmp(ext.c_str(), L".markdown") == 0 ||
@@ -111,7 +111,7 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept {
 }
 
 void FileExplorer::SetCurrentFile(std::wstring_view path) {
-    std::wstring path_str{path};
+    std::pmr::wstring path_str{path};
     for (auto& entry : entries_) {
         entry.is_current = (!entry.is_directory &&
                             _wcsicmp(entry.full_path.c_str(), path_str.c_str()) == 0);
