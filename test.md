@@ -397,7 +397,7 @@ sequenceDiagram
         MD->>P: leave_block(type, detail)
         P->>P: ノード確定 → nodes へ push
     end
-    P-->>DS: std::vector&lt;Node&gt;
+    P-->>DS: std::vector~Node~
 ```
 
 #### 3.3.2 対応する Markdown 要素
