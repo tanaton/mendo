@@ -67,14 +67,23 @@ std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t t
     return FindLinkInRuns(node.runs, text_pos);
 }
 
+std::pmr::wstring ToLowerAscii(std::wstring_view text) {
+    std::pmr::wstring result;
+    result.reserve(text.size());
+    for (wchar_t c : text) {
+        if (c >= L'A' && c <= L'Z')
+            result += static_cast<wchar_t>(c - L'A' + L'a');
+        else
+            result += c;
+    }
+    return result;
+}
+
 int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view anchor) {
     if (anchor.empty()) return -1;
 
     // 比較のためアンカーを小文字に変換
-    std::pmr::wstring target{anchor};
-    for (auto& c : target) {
-        if (c >= L'A' && c <= L'Z') c = c - L'A' + L'a';
-    }
+    std::pmr::wstring target = ToLowerAscii(anchor);
 
     for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
         const auto& node = nodes[i];

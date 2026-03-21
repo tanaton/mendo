@@ -47,8 +47,8 @@ TEST(Theme, PositiveMargins) {
 
 TEST(Theme, FontFamilyNotEmpty) {
     Theme t = GetLightTheme();
-    EXPECT_GT(wcslen(t.font_family), 0u);
-    EXPECT_GT(wcslen(t.monospace_font), 0u);
+    EXPECT_GT(t.font_family.size(), 0u);
+    EXPECT_GT(t.monospace_font.size(), 0u);
 }
 
 TEST(Theme, BackgroundColorIsWhite) {
@@ -105,8 +105,8 @@ TEST(Theme, DarkThemePositiveMargins) {
 
 TEST(Theme, DarkThemeFontFamilyNotEmpty) {
     Theme t = GetDarkTheme();
-    EXPECT_GT(wcslen(t.font_family), 0u);
-    EXPECT_GT(wcslen(t.monospace_font), 0u);
+    EXPECT_GT(t.font_family.size(), 0u);
+    EXPECT_GT(t.monospace_font.size(), 0u);
 }
 
 TEST(Theme, DarkAndLightHaveSameFontSizes) {

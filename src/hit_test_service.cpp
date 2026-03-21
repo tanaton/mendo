@@ -1,5 +1,23 @@
 #include "hit_test_service.h"
+#include "table_constants.h"
 #include "nav_button_constants.h"
+
+// 指定された行・列までのフラットテキストオフセットを計算する。
+static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int target_col) {
+    uint32_t offset = 0;
+    for (size_t r = 0; r < node.table_rows.size(); r++) {
+        const auto& row_cells = node.table_rows[r].cells;
+        for (size_t c = 0; c < row_cells.size(); c++) {
+            if (static_cast<int>(r) == target_row && static_cast<int>(c) == target_col) {
+                return offset;
+            }
+            offset += static_cast<uint32_t>(row_cells[c].text.size());
+            if (c + 1 < row_cells.size()) offset++;
+        }
+        if (r + 1 < node.table_rows.size()) offset++;
+    }
+    return static_cast<uint32_t>(node.text.size());
+}
 
 HitTestService::HitResult HitTestService::HitTest(
     const std::pmr::vector<Node>& nodes,
@@ -80,8 +98,8 @@ HitTestService::HitResult HitTestService::HitTestTable(
 
     float indent = node.indent_level * theme.indent_width;
     float base_x = theme.margin_left + indent;
-    float cell_padding = 8.0f;
-    float border = 1.0f;
+    float cell_padding = TABLE_CELL_PADDING;
+    float border = TABLE_BORDER_WIDTH;
 
     // クリックされた行を特定
     float ry = entry.y_position;
@@ -114,50 +132,39 @@ HitTestService::HitResult HitTestService::HitTestTable(
     if (hit_col < 0) hit_col = 0;
 
     // セル (hit_row, hit_col) のフラットテキストオフセットを計算
-    uint32_t flat_offset = 0;
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        const auto& row_cells = node.table_rows[r].cells;
-        for (size_t c = 0; c < row_cells.size(); c++) {
-            if (static_cast<int>(r) == hit_row && static_cast<int>(c) == hit_col) {
-                // セルのテキストレイアウト内でヒットテスト
-                IDWriteTextLayout* cell_layout = nullptr;
-                if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
-                    cell_layout = entry.cell_layouts[r][c].Get();
-                }
-                if (cell_layout) {
-                    // セルのテキスト位置を計算
-                    float cell_x = base_x + border;
-                    for (size_t cc = 0; cc < c; cc++) {
-                        cell_x += entry.col_widths[cc] + cell_padding * 2.0f + border;
-                    }
-                    float cell_text_x = cell_x + cell_padding;
+    uint32_t flat_offset = ComputeTableFlatOffset(node, hit_row, hit_col);
 
-                    float cell_y = entry.y_position;
-                    for (size_t rr = 0; rr < r; rr++) {
-                        float rh = (rr < entry.row_heights.size()) ? entry.row_heights[rr] : (theme.font_size_body * 1.4f);
-                        cell_y += rh + border;
-                    }
-                    float cell_text_y = cell_y + cell_padding;
-
-                    BOOL is_trailing = FALSE, is_inside = FALSE;
-                    DWRITE_HIT_TEST_METRICS metrics{};
-                    cell_layout->HitTestPoint(
-                        dip_x - cell_text_x, dip_y - cell_text_y,
-                        &is_trailing, &is_inside, &metrics);
-
-                    result.text_pos = flat_offset + metrics.textPosition + (is_trailing ? 1 : 0);
-                } else {
-                    result.text_pos = flat_offset;
-                }
-                return result;
-            }
-            flat_offset += static_cast<uint32_t>(row_cells[c].text.size());
-            if (c + 1 < row_cells.size()) flat_offset++; // タブ
-        }
-        if (r + 1 < node.table_rows.size()) flat_offset++; // 改行
+    // セルのテキストレイアウト内でヒットテスト
+    size_t r = static_cast<size_t>(hit_row);
+    size_t c = static_cast<size_t>(hit_col);
+    IDWriteTextLayout* cell_layout = nullptr;
+    if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
+        cell_layout = entry.cell_layouts[r][c].Get();
     }
+    if (cell_layout) {
+        float cell_x = base_x + border;
+        for (size_t cc = 0; cc < c; cc++) {
+            cell_x += entry.col_widths[cc] + cell_padding * 2.0f + border;
+        }
+        float cell_text_x = cell_x + cell_padding;
 
-    result.text_pos = static_cast<uint32_t>(node.text.size());
+        float cell_y = entry.y_position;
+        for (size_t rr = 0; rr < r; rr++) {
+            float rh = (rr < entry.row_heights.size()) ? entry.row_heights[rr] : (theme.font_size_body * 1.4f);
+            cell_y += rh + border;
+        }
+        float cell_text_y = cell_y + cell_padding;
+
+        BOOL is_trailing = FALSE, is_inside = FALSE;
+        DWRITE_HIT_TEST_METRICS metrics{};
+        cell_layout->HitTestPoint(
+            dip_x - cell_text_x, dip_y - cell_text_y,
+            &is_trailing, &is_inside, &metrics);
+
+        result.text_pos = flat_offset + metrics.textPosition + (is_trailing ? 1 : 0);
+    } else {
+        result.text_pos = flat_offset;
+    }
     return result;
 }
 

@@ -1,10 +1,8 @@
 #include "dwrite_measurer.h"
 #include "layout.h"
 #include "syntax.h"
+#include "table_constants.h"
 #include <algorithm>
-
-static constexpr float TABLE_CELL_PADDING = 8.0f;
-static constexpr float TABLE_BORDER_WIDTH = 1.0f;
 static constexpr float CODE_BLOCK_NO_WRAP_WIDTH = 10000.0f;
 static constexpr float LAYOUT_MAX_HEIGHT = 100000.0f;
 static constexpr float DEFAULT_COLUMN_WIDTH = 60.0f;
@@ -29,11 +27,11 @@ bool DWriteTextMeasurer::CreateAllFormats() {
     auto W = DWRITE_FONT_WEIGHT_NORMAL;
     auto B = DWRITE_FONT_WEIGHT_BOLD;
 
-    if (FAILED(CreateFormat(dwrite_, theme_->font_family, theme_->font_size_body, W, &fmt_body_))) return false;
+    if (FAILED(CreateFormat(dwrite_, theme_->font_family.c_str(), theme_->font_size_body, W, &fmt_body_))) return false;
     for (int i = 0; i < 6; ++i) {
-        if (FAILED(CreateFormat(dwrite_, theme_->font_family, theme_->font_size_h[i], B, &fmt_h_[i]))) return false;
+        if (FAILED(CreateFormat(dwrite_, theme_->font_family.c_str(), theme_->font_size_h[i], B, &fmt_h_[i]))) return false;
     }
-    if (FAILED(CreateFormat(dwrite_, theme_->monospace_font, theme_->font_size_code, W, &fmt_code_))) return false;
+    if (FAILED(CreateFormat(dwrite_, theme_->monospace_font.c_str(), theme_->font_size_code, W, &fmt_code_))) return false;
 
     fmt_body_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
     for (auto& fmt : fmt_h_) {
@@ -70,7 +68,7 @@ void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
         if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
         if (run.italic) layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
         if (run.code) {
-            layout->SetFontFamilyName(theme_->monospace_font, range);
+            layout->SetFontFamilyName(theme_->monospace_font.c_str(), range);
             layout->SetFontSize(theme_->font_size_code, range);
         }
         if (run.strikethrough) layout->SetStrikethrough(TRUE, range);
@@ -126,7 +124,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
         if (run.italic) layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
         if (run.code && node.type != NodeType::CodeBlock) {
-            layout->SetFontFamilyName(theme_->monospace_font, range);
+            layout->SetFontFamilyName(theme_->monospace_font.c_str(), range);
             layout->SetFontSize(theme_->font_size_code, range);
         }
         if (run.strikethrough) layout->SetStrikethrough(TRUE, range);
@@ -142,35 +140,8 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     entry.inline_code_bgs.clear();
 }
 
-void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) {
-    if (!dwrite_ || !theme_) return;
-
-    if (node.table_rows.empty()) {
-        entry.height = 0;
-        entry.layout_dirty = false;
-        return;
-    }
-
-    size_t col_count = 0;
-    for (auto& row : node.table_rows) {
-        col_count = std::max(col_count, row.cells.size());
-    }
-    if (col_count == 0) { entry.layout_dirty = false; return; }
-
-    float cell_padding = TABLE_CELL_PADDING;
-    float border_width = TABLE_BORDER_WIDTH;
-
-    // セルレイアウトを再構築するため、レイアウト単位の状態をリセット。
-    entry.effects_applied = false;
-
-    entry.cell_layouts.resize(node.table_rows.size());
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        entry.cell_layouts[r].resize(node.table_rows[r].cells.size());
-    }
-    entry.row_heights.resize(node.table_rows.size());
-
-    // 第1パス: テキストレイアウトを作成し、自然な幅を計測
-    std::pmr::vector<float> natural_widths(col_count, 0.0f);
+void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
+                                            std::pmr::vector<float>& natural_widths) {
     IDWriteTextFormat* fmt = fmt_body_.Get();
     IDWriteTextFormat* fmt_bold = fmt_h_[3].Get();
 
@@ -194,12 +165,17 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
             }
         }
     }
+}
+
+void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
+                                              size_t col_count, std::pmr::vector<float>& natural_widths) {
+    float cell_padding = TABLE_CELL_PADDING;
+    float border_width = TABLE_BORDER_WIDTH;
 
     float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width
                       - static_cast<float>(col_count) * cell_padding * 2.0f;
     entry.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
 
-    // 第2パス: 列幅を設定し、行の高さを計測
     float total_height = border_width;
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         auto& row = node.table_rows[r];
@@ -225,4 +201,35 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     node.text = BuildLinearizedTableText(node.table_rows);
     entry.height = total_height;
     entry.layout_dirty = false;
+}
+
+void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) {
+    if (!dwrite_ || !theme_) return;
+
+    if (node.table_rows.empty()) {
+        entry.height = 0;
+        entry.layout_dirty = false;
+        return;
+    }
+
+    size_t col_count = 0;
+    for (auto& row : node.table_rows) {
+        col_count = std::max(col_count, row.cells.size());
+    }
+    if (col_count == 0) { entry.layout_dirty = false; return; }
+
+    // セルレイアウトを再構築するため、レイアウト単位の状態をリセット。
+    entry.effects_applied = false;
+    entry.cell_layouts.resize(node.table_rows.size());
+    for (size_t r = 0; r < node.table_rows.size(); r++) {
+        entry.cell_layouts[r].resize(node.table_rows[r].cells.size());
+    }
+    entry.row_heights.resize(node.table_rows.size());
+
+    // 第1パス: テキストレイアウトを作成し、自然な幅を計測
+    std::pmr::vector<float> natural_widths(col_count, 0.0f);
+    MeasureTableCells(node, entry, natural_widths);
+
+    // 第2パス: 列幅を設定し、行の高さを計測
+    FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
 }

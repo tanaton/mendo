@@ -1,4 +1,5 @@
 #include "app_controller.h"
+#include "ui_constants.h"
 #include <windows.h>
 
 ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const {
@@ -55,7 +56,7 @@ ActionList AppController::HandleMouseWheel(const MouseWheelEvent& event) const {
         return actions;
     }
 
-    float scroll_amount = -event.delta * 0.8f;
+    float scroll_amount = -event.delta * MOUSE_WHEEL_SCROLL_MULTIPLIER;
 
     switch (event.zone) {
         case PaneZone::FilePane:

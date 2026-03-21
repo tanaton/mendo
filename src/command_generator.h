@@ -42,6 +42,13 @@ private:
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
                   int node_index, float x, const TextSelection& selection);
+    void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row,
+                       float x, float y, float table_width, float row_h, float border);
+    void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,
+                             IDWriteTextLayout* cell_layout,
+                             float text_x, float text_y,
+                             bool has_selection, uint32_t sel_start, uint32_t sel_end,
+                             uint32_t flat_offset);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
     void GenBlockQuoteBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x);

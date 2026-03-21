@@ -74,7 +74,7 @@ private:
     bool ready_ = false;
     bool rendering_ = false;
     int render_counter_ = 0;
-    std::string cached_mermaid_gz_; // Win32リソースからキャッシュされたgzip圧縮済みmermaid.js
+    std::pmr::string cached_mermaid_gz_; // Win32リソースからキャッシュされたgzip圧縮済みmermaid.js
 
     struct RenderRequest {
         Node* node = nullptr;

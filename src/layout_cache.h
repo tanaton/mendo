@@ -1,4 +1,5 @@
 #pragma once
+#include "types.h"
 #include <vector>
 #include <memory_resource>
 #include <wrl/client.h>
@@ -62,6 +63,17 @@ public:
             e.text_layout.Reset();
             e.effects_applied = false;
             e.inline_code_bgs.clear();
+        }
+    }
+
+    // すべてのテキストレイアウトとエフェクトを無効化し、Mermaid図のビットマップもリセットする。
+    // ダークモード切替時に使用。
+    void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes) {
+        InvalidateAllLayouts();
+        for (size_t i = 0; i < nodes.size() && i < diagrams_.size(); ++i) {
+            if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
+                diagrams_[i].bitmap.Reset();
+            }
         }
     }
 

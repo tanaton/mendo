@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
 
@@ -49,7 +50,7 @@ void Renderer::RecreateBrushes() {
         {BrushId::Hr,               theme_.hr_color},
         {BrushId::BlockquoteBar,    theme_.blockquote_bar_color},
         {BrushId::BlockquoteText,   theme_.blockquote_text_color},
-        {BrushId::Selection,        D2D1::ColorF(0.26f, 0.56f, 0.84f, 0.3f)},
+        {BrushId::Selection,        SELECTION_COLOR},
         {BrushId::TableStripe,      is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, stripe_alpha)
                                             : D2D1::ColorF(0.0f, 0.0f, 0.0f, stripe_alpha)},
         {BrushId::SyntaxKeyword,    theme_.syntax_keyword},
@@ -110,69 +111,49 @@ void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom) {
     cmd_generator_.SetTheme(&theme_);
 }
 
+ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
+    const wchar_t* family, DWRITE_FONT_WEIGHT weight,
+    float size, const wchar_t* locale) {
+    ComPtr<IDWriteTextFormat> fmt;
+    backend_.GetDWriteFactory()->CreateTextFormat(
+        family, nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
+    return fmt;
+}
+
 void Renderer::RecreatePaneFormats() {
     // テーマサイズの更新に合わせて全ペイン/UIテキストフォーマットを再作成
-    icon_font_format_.Reset();
-    fmt_list_number_.Reset();
-    fmt_pane_icon_.Reset();
-    fmt_pane_item_.Reset();
-    fmt_pane_header_.Reset();
-    fmt_nav_button_.Reset();
-    fmt_gesture_overlay_.Reset();
+    auto W = DWRITE_FONT_WEIGHT_NORMAL;
 
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        L"Segoe Fluent Icons", nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
-        L"en-us", &icon_font_format_);
+    icon_font_format_ = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");
 
     // リスト番号フォーマット（順序付きリストの番号を右揃え）
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        theme_.font_family, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
-        L"ja-jp", &fmt_list_number_);
+    fmt_list_number_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
     if (fmt_list_number_) {
         fmt_list_number_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
     }
 
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        L"Segoe Fluent Icons", nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
-        L"en-us", &fmt_pane_icon_);
+    fmt_pane_icon_ = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.pane_font_size, L"en-us");
     if (fmt_pane_icon_) {
         fmt_pane_icon_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_pane_icon_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         fmt_pane_icon_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        theme_.font_family, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
-        L"ja-jp", &fmt_pane_item_);
+    fmt_pane_item_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
     if (fmt_pane_item_) {
         fmt_pane_item_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_pane_item_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        theme_.font_family, nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
-        L"ja-jp", &fmt_pane_header_);
+    fmt_pane_header_ = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size, L"ja-jp");
     if (fmt_pane_header_) {
         fmt_pane_header_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_pane_header_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
     // ナビゲーションオーバーレイボタンのテキストフォーマット（両軸中央揃え）
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        theme_.font_family, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
-        L"ja-jp", &fmt_nav_button_);
+    fmt_nav_button_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
     if (fmt_nav_button_) {
         fmt_nav_button_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_nav_button_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -180,11 +161,7 @@ void Renderer::RecreatePaneFormats() {
     }
 
     // ジェスチャーオーバーレイのテキストフォーマット（大きい太字、中央揃え）
-    backend_.GetDWriteFactory()->CreateTextFormat(
-        theme_.font_family, nullptr,
-        DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, 32.0f * theme_.zoom,
-        L"ja-JP", &fmt_gesture_overlay_);
+    fmt_gesture_overlay_ = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_.zoom, L"ja-JP");
     if (fmt_gesture_overlay_) {
         fmt_gesture_overlay_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         fmt_gesture_overlay_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
@@ -318,18 +295,13 @@ void Renderer::DrawLoading(float angle,
     // MDペイン中央にスピナーを描画
     float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
     float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
-    float radius = 20.0f;
-    float dot_radius = 3.0f;
-    constexpr int dot_count = 8;
-    constexpr float pi2 = 6.28318530f;
+    for (int i = 0; i < spinner::DOT_COUNT; i++) {
+        float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
+        float dx = cx + spinner::RADIUS * std::cos(a);
+        float dy = cy + spinner::RADIUS * std::sin(a);
+        float alpha = 1.0f - i * (spinner::DOT_FADE_FACTOR / spinner::DOT_COUNT);
 
-    for (int i = 0; i < dot_count; i++) {
-        float a = angle - i * (pi2 / dot_count);
-        float dx = cx + radius * std::cos(a);
-        float dy = cy + radius * std::sin(a);
-        float alpha = 1.0f - i * (0.85f / dot_count);
-
-        D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), dot_radius, dot_radius);
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
         Brush(BrushId::Text)->SetOpacity(alpha);
         rt()->FillEllipse(ellipse, Brush(BrushId::Text));
     }

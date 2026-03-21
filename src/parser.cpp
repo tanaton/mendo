@@ -380,6 +380,47 @@ int OnLeaveSpan(MD_SPANTYPE /*type*/, void* /*detail*/, void* userdata) {
     return 0;
 }
 
+void ResolveHtmlEntity(ParseContext* ctx, const char* text, size_t size) {
+    std::pmr::string entity(text, size);
+    const wchar_t* resolved = nullptr;
+    wchar_t single_char = 0;
+    if (entity == "&amp;")  resolved = L"&";
+    else if (entity == "&lt;")   resolved = L"<";
+    else if (entity == "&gt;")   resolved = L">";
+    else if (entity == "&quot;") resolved = L"\"";
+    else if (entity == "&apos;") resolved = L"'";
+    else if (entity == "&nbsp;") resolved = L"\u00A0";
+    else if (entity.size() >= 4 && entity[0] == '&' && entity[1] == '#') {
+        unsigned long codepoint = 0;
+        bool valid = false;
+        if (entity[2] == 'x' || entity[2] == 'X') {
+            auto result = std::from_chars(entity.data() + 3, entity.data() + entity.size() - 1, codepoint, 16);
+            valid = (result.ec == std::errc());
+        } else {
+            auto result = std::from_chars(entity.data() + 2, entity.data() + entity.size() - 1, codepoint, 10);
+            valid = (result.ec == std::errc());
+        }
+        if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
+            single_char = static_cast<wchar_t>(codepoint);
+            resolved = &single_char;
+        } else if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
+            // 補助面: UTF-16サロゲートペアを出力
+            unsigned long adj = codepoint - 0x10000;
+            wchar_t surrogate[2];
+            surrogate[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));
+            surrogate[1] = static_cast<wchar_t>(0xDC00 + (adj & 0x3FF));
+            ctx->AppendText(std::wstring_view{surrogate, 2});
+            return;
+        }
+    }
+    if (resolved) {
+        size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
+        ctx->AppendText(std::wstring_view{resolved, rlen});
+    } else {
+        ctx->AppendUtf8(std::string_view{text, size});
+    }
+}
+
 int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) {
     auto* ctx = static_cast<ParseContext*>(userdata);
 
@@ -391,47 +432,9 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
             ctx->AppendUtf8(std::string_view{text, static_cast<size_t>(size)});
             break;
 
-        case MD_TEXT_ENTITY: {
-            std::string entity(text, size);
-            const wchar_t* resolved = nullptr;
-            wchar_t single_char = 0;
-            if (entity == "&amp;")  resolved = L"&";
-            else if (entity == "&lt;")   resolved = L"<";
-            else if (entity == "&gt;")   resolved = L">";
-            else if (entity == "&quot;") resolved = L"\"";
-            else if (entity == "&apos;") resolved = L"'";
-            else if (entity == "&nbsp;") resolved = L"\u00A0";
-            else if (entity.size() >= 4 && entity[0] == '&' && entity[1] == '#') {
-                unsigned long codepoint = 0;
-                bool valid = false;
-                if (entity[2] == 'x' || entity[2] == 'X') {
-                    auto result = std::from_chars(entity.data() + 3, entity.data() + entity.size() - 1, codepoint, 16);
-                    valid = (result.ec == std::errc());
-                } else {
-                    auto result = std::from_chars(entity.data() + 2, entity.data() + entity.size() - 1, codepoint, 10);
-                    valid = (result.ec == std::errc());
-                }
-                if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
-                    single_char = static_cast<wchar_t>(codepoint);
-                    resolved = &single_char;
-                } else if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
-                    // 補助面: UTF-16サロゲートペアを出力
-                    unsigned long adj = codepoint - 0x10000;
-                    wchar_t surrogate[2];
-                    surrogate[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));
-                    surrogate[1] = static_cast<wchar_t>(0xDC00 + (adj & 0x3FF));
-                    ctx->AppendText(std::wstring_view{surrogate, 2});
-                    break;
-                }
-            }
-            if (resolved) {
-                size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
-                ctx->AppendText(std::wstring_view{resolved, rlen});
-            } else {
-                ctx->AppendUtf8(std::string_view{text, static_cast<size_t>(size)});
-            }
+        case MD_TEXT_ENTITY:
+            ResolveHtmlEntity(ctx, text, static_cast<size_t>(size));
             break;
-        }
 
         case MD_TEXT_BR:
             ctx->AppendText(std::wstring_view{L"\n", 1});

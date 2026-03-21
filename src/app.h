@@ -59,6 +59,7 @@ public:
 
     // ボタン押下なしのマウスホバー処理
     void OnMouseHover(int px, int py);
+    void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
 
     // マウスXボタンによるナビゲーション
     void OnXButtonBack();
@@ -112,6 +113,10 @@ private:
     // ペインクリックハンドラ (OnLButtonDownから抽出)
     void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);
+    bool TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& rect,
+                                      PaneController::DragTarget target,
+                                      float total_content, ScrollState& scroll,
+                                      void (Renderer::*invalidate)());
 
     // スクロールバーヘルパー
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;

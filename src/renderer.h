@@ -117,6 +117,9 @@ private:
     void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry);
     void RecreateBrushes();
     void RecreatePaneFormats();
+    ComPtr<IDWriteTextFormat> CreatePaneFormat(
+        const wchar_t* family, DWRITE_FONT_WEIGHT weight,
+        float size, const wchar_t* locale);
     bool CheckEndDraw();
     bool RecreateRenderTarget();
 

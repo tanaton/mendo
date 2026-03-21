@@ -1,4 +1,5 @@
 #include "syntax.h"
+#include "document_utils.h"
 #include <algorithm>
 #include <unordered_set>
 #include <memory_resource>
@@ -36,17 +37,7 @@ bool IsAtLineStart(std::wstring_view text, size_t pos) {
     }
 }
 
-std::pmr::wstring ToLower(std::wstring_view s) {
-    std::pmr::wstring result;
-    result.reserve(s.size());
-    for (wchar_t c : s) {
-        if (c >= L'A' && c <= L'Z')
-            result += static_cast<wchar_t>(c - L'A' + L'a');
-        else
-            result += c;
-    }
-    return result;
-}
+// ToLowerAscii は document_utils.h から参照
 
 // ---- キーワードテーブル ----
 
@@ -596,7 +587,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                     if (ch >= L'A' && ch <= L'Z') { has_upper = true; break; }
                 }
                 if (has_upper) {
-                    word_lower = ToLower(word);
+                    word_lower = ToLowerAscii(word);
                     lookup_word = word_lower;
                 }
             }
@@ -706,7 +697,7 @@ SyntaxLanguage DetectLanguage(std::wstring_view info_string) {
         if (c == L' ' || c == L'\t') break;
         lang += c;
     }
-    lang = ToLower(lang);
+    lang = ToLowerAscii(lang);
 
     if (lang == L"c" || lang == L"cpp" || lang == L"c++" || lang == L"cxx" ||
         lang == L"h" || lang == L"hpp" || lang == L"cc" || lang == L"hxx") {

@@ -11,9 +11,9 @@
 #pragma comment(lib, "shlwapi.lib")
 
 // Win32リソース（RCDATA）からgzip圧縮されたmermaid.min.jsを読み込む。
-// 生のgzipバイト列をstd::stringとして返す（展開はしない）。
+// 生のgzipバイト列をstd::pmr::stringとして返す（展開はしない）。
 // WebView2（Chromium）がContent-Encoding: gzipで展開する。
-static std::string LoadMermaidJsGzFromResource() {
+static std::pmr::string LoadMermaidJsGzFromResource() {
     HMODULE hModule = GetModuleHandleW(nullptr);
     HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(IDR_MERMAID_JS_GZ), RT_RCDATA);
     if (!hRes) return {};
@@ -22,7 +22,7 @@ static std::string LoadMermaidJsGzFromResource() {
     DWORD size = SizeofResource(hModule, hRes);
     const char* data = static_cast<const char*>(LockResource(hData));
     if (!data || size == 0) return {};
-    return std::string(data, size);
+    return std::pmr::string(data, size);
 }
 
 // 仮想ホスト経由で配信される小さなHTMLテンプレート。mermaid.jsは別の

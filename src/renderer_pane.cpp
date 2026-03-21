@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
 
@@ -171,7 +172,7 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
             rt->FillRectangle(item_rect, Brush(BrushId::PaneItemHover));
         }
 
-        float indent = (entry.heading_level - 1) * 12.0f;
+        float indent = (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
         if (fmt_pane_item_) {
             D2D1_RECT_F text_rect = D2D1::RectF(
                 8.0f + indent, item_y, width - 4.0f, item_y + theme_.pane_item_height);

@@ -46,9 +46,9 @@ void Theme::ApplyZoom(float new_zoom) noexcept {
 }
 
 // ライトテーマとダークテーマで共有するレイアウト定数
-static void ApplyCommonLayout(Theme& t) noexcept {
-    wcscpy_s(t.font_family,    L"Yu Gothic UI");
-    wcscpy_s(t.monospace_font, L"Consolas");
+static void ApplyCommonLayout(Theme& t) {
+    t.font_family    = L"Yu Gothic UI";
+    t.monospace_font = L"Consolas";
 
     t.font_size_body = 16.0f;
     t.font_size_h[0] = 32.0f;
@@ -77,7 +77,7 @@ static void ApplyCommonLayout(Theme& t) noexcept {
     t.pane_font_size        = 13.0f;
 }
 
-Theme GetLightTheme() noexcept {
+Theme GetLightTheme() {
     Theme t{};
 
     t.bg_color              = Color(0xFFFFFF);
@@ -110,7 +110,7 @@ Theme GetLightTheme() noexcept {
     return t;
 }
 
-Theme GetDarkTheme() noexcept {
+Theme GetDarkTheme() {
     Theme t{};
 
     t.bg_color              = Color(0x1e1e1e);
