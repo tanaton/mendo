@@ -247,9 +247,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                         if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
                                             if (wcsncmp(msg, L"mermaid-ready:", 14) == 0) {
                                                 // "mermaid-ready:<dpr>"からDPRを解析
-                                                float dpr = 1.0f;
-                                                try { dpr = std::stof(std::wstring(msg + 14)); }
-                                                catch (...) {}
+                                                float dpr = std::wcstof(msg + 14, nullptr);
                                                 if (dpr > 0) dpr_ = dpr;
                                                 ready_ = true;
                                                 if (on_ready) on_ready();
@@ -444,12 +442,8 @@ void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
         if (pos == std::wstring_view::npos) return 0;
         pos += key.size();
         while (pos < json.size() && (json[pos] == L':' || json[pos] == L' ')) pos++;
-        std::wstring num;
-        while (pos < json.size() && (iswdigit(json[pos]) || json[pos] == L'.')) {
-            num += json[pos++];
-        }
-        if (num.empty()) return 0.0f;
-        try { return std::stof(num); } catch (...) { return 0.0f; }
+        if (pos >= json.size()) return 0.0f;
+        return std::wcstof(json.data() + pos, nullptr);
     };
 
     dw = find_num(L"\"width\"");
