@@ -10,23 +10,18 @@ bool Renderer::Init(HWND hwnd) {
 
     if (!backend_.Init(hwnd)) return false;
 
-    // Create all brushes from theme
     RecreateBrushes();
-
-    // Create pane text formats
     RecreatePaneFormats();
 
-    // Create gesture stroke style (round caps and joins for smooth trail)
+    // Round caps and joins for smooth gesture trail
     D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(
         D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
         D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
     backend_.GetD2DFactory()->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
 
-    // Initialize layout engine via DWriteTextMeasurer
     measurer_.SetFactory(backend_.GetDWriteFactory());
     if (!layout_.Init(&measurer_, theme_)) return false;
 
-    // Initialize command generator
     cmd_generator_.SetTheme(&theme_);
     cmd_generator_.SetFormats({fmt_list_number_.Get(), icon_font_format_.Get()});
 
@@ -37,77 +32,45 @@ void Renderer::RecreateBrushes() {
     auto* render_target_ = backend_.GetRenderTarget();
     if (!render_target_) return;
 
-    // Reset all brushes
-    text_brush_.Reset();
-    heading_brush_.Reset();
-    code_bg_brush_.Reset();
-    code_text_brush_.Reset();
-    link_brush_.Reset();
-    hr_brush_.Reset();
-    blockquote_bar_brush_.Reset();
-    blockquote_text_brush_.Reset();
-    selection_brush_.Reset();
-    table_stripe_brush_.Reset();
+    for (auto& b : brushes_) b.Reset();
 
-    syntax_keyword_brush_.Reset();
-    syntax_type_brush_.Reset();
-    syntax_string_brush_.Reset();
-    syntax_number_brush_.Reset();
-    syntax_comment_brush_.Reset();
-    syntax_preprocessor_brush_.Reset();
-    syntax_function_brush_.Reset();
-
-    pane_bg_brush_.Reset();
-    splitter_brush_.Reset();
-    pane_item_hover_brush_.Reset();
-    pane_item_active_brush_.Reset();
-    scrollbar_thumb_brush_.Reset();
-    overlay_brush_.Reset();
-
-    // Create theme brushes
-    render_target_->CreateSolidColorBrush(theme_.text_color, &text_brush_);
-    render_target_->CreateSolidColorBrush(theme_.heading_color, &heading_brush_);
-    render_target_->CreateSolidColorBrush(theme_.code_bg_color, &code_bg_brush_);
-    render_target_->CreateSolidColorBrush(theme_.code_text_color, &code_text_brush_);
-    render_target_->CreateSolidColorBrush(theme_.link_color, &link_brush_);
-    render_target_->CreateSolidColorBrush(theme_.hr_color, &hr_brush_);
-    render_target_->CreateSolidColorBrush(theme_.blockquote_bar_color, &blockquote_bar_brush_);
-    render_target_->CreateSolidColorBrush(theme_.blockquote_text_color, &blockquote_text_brush_);
-
-    // Theme-dependent colors
-    bool is_dark = (theme_.bg_color.r + theme_.bg_color.g + theme_.bg_color.b) < 1.5f;
-
-    render_target_->CreateSolidColorBrush(D2D1::ColorF(0.26f, 0.56f, 0.84f, 0.3f), &selection_brush_);
+    bool is_dark = theme_.IsDark();
 
     float stripe_alpha = is_dark ? 0.05f : 0.02f;
-    D2D1_COLOR_F stripe_color = is_dark
-        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, stripe_alpha)
-        : D2D1::ColorF(0.0f, 0.0f, 0.0f, stripe_alpha);
-    render_target_->CreateSolidColorBrush(stripe_color, &table_stripe_brush_);
-
-    // Syntax highlighting brushes
-    render_target_->CreateSolidColorBrush(theme_.syntax_keyword, &syntax_keyword_brush_);
-    render_target_->CreateSolidColorBrush(theme_.syntax_type, &syntax_type_brush_);
-    render_target_->CreateSolidColorBrush(theme_.syntax_string, &syntax_string_brush_);
-    render_target_->CreateSolidColorBrush(theme_.syntax_number, &syntax_number_brush_);
-    render_target_->CreateSolidColorBrush(theme_.syntax_comment, &syntax_comment_brush_);
-    render_target_->CreateSolidColorBrush(theme_.syntax_preprocessor, &syntax_preprocessor_brush_);
-    render_target_->CreateSolidColorBrush(theme_.syntax_function, &syntax_function_brush_);
-
-    // Pane brushes
-    render_target_->CreateSolidColorBrush(theme_.pane_bg_color, &pane_bg_brush_);
-    render_target_->CreateSolidColorBrush(theme_.splitter_color, &splitter_brush_);
-    render_target_->CreateSolidColorBrush(theme_.pane_item_hover_color, &pane_item_hover_brush_);
-    render_target_->CreateSolidColorBrush(theme_.pane_item_active_color, &pane_item_active_brush_);
-
     float thumb_alpha = is_dark ? 0.4f : 0.25f;
-    D2D1_COLOR_F thumb_color = is_dark
-        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, thumb_alpha)
-        : D2D1::ColorF(0.0f, 0.0f, 0.0f, thumb_alpha);
-    render_target_->CreateSolidColorBrush(thumb_color, &scrollbar_thumb_brush_);
 
-    // Reusable overlay brush (color/opacity set per use)
-    render_target_->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 1.0f), &overlay_brush_);
+    struct BrushSpec { BrushId id; D2D1_COLOR_F color; };
+    BrushSpec specs[] = {
+        {BrushId::Text,             theme_.text_color},
+        {BrushId::Heading,          theme_.heading_color},
+        {BrushId::CodeBg,           theme_.code_bg_color},
+        {BrushId::CodeText,         theme_.code_text_color},
+        {BrushId::Link,             theme_.link_color},
+        {BrushId::Hr,               theme_.hr_color},
+        {BrushId::BlockquoteBar,    theme_.blockquote_bar_color},
+        {BrushId::BlockquoteText,   theme_.blockquote_text_color},
+        {BrushId::Selection,        D2D1::ColorF(0.26f, 0.56f, 0.84f, 0.3f)},
+        {BrushId::TableStripe,      is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, stripe_alpha)
+                                            : D2D1::ColorF(0.0f, 0.0f, 0.0f, stripe_alpha)},
+        {BrushId::SyntaxKeyword,    theme_.syntax_keyword},
+        {BrushId::SyntaxType,       theme_.syntax_type},
+        {BrushId::SyntaxString,     theme_.syntax_string},
+        {BrushId::SyntaxNumber,     theme_.syntax_number},
+        {BrushId::SyntaxComment,    theme_.syntax_comment},
+        {BrushId::SyntaxPreprocessor, theme_.syntax_preprocessor},
+        {BrushId::SyntaxFunction,   theme_.syntax_function},
+        {BrushId::PaneBg,           theme_.pane_bg_color},
+        {BrushId::Splitter,         theme_.splitter_color},
+        {BrushId::PaneItemHover,    theme_.pane_item_hover_color},
+        {BrushId::PaneItemActive,   theme_.pane_item_active_color},
+        {BrushId::ScrollbarThumb,   is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, thumb_alpha)
+                                            : D2D1::ColorF(0.0f, 0.0f, 0.0f, thumb_alpha)},
+        {BrushId::Overlay,          D2D1::ColorF(0, 0, 0, 1.0f)},
+    };
+
+    for (const auto& s : specs) {
+        render_target_->CreateSolidColorBrush(s.color, &brushes_[static_cast<size_t>(s.id)]);
+    }
 }
 
 void Renderer::SetTheme(const Theme& theme) {
@@ -249,16 +212,19 @@ void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& c
 }
 
 ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const {
-    switch (type) {
-        case SyntaxTokenType::Keyword:      return syntax_keyword_brush_.Get();
-        case SyntaxTokenType::Type:         return syntax_type_brush_.Get();
-        case SyntaxTokenType::String:       return syntax_string_brush_.Get();
-        case SyntaxTokenType::Number:       return syntax_number_brush_.Get();
-        case SyntaxTokenType::Comment:      return syntax_comment_brush_.Get();
-        case SyntaxTokenType::Preprocessor: return syntax_preprocessor_brush_.Get();
-        case SyntaxTokenType::Function:     return syntax_function_brush_.Get();
-        default:                      return nullptr;
-    }
+    static constexpr BrushId SYNTAX_MAP[] = {
+        BrushId::Text,                // Plain (unused, returns text brush as fallback)
+        BrushId::SyntaxKeyword,       // Keyword
+        BrushId::SyntaxType,          // Type
+        BrushId::SyntaxString,        // String
+        BrushId::SyntaxNumber,        // Number
+        BrushId::SyntaxComment,       // Comment
+        BrushId::SyntaxPreprocessor,  // Preprocessor
+        BrushId::SyntaxFunction,      // Function
+    };
+    auto idx = static_cast<size_t>(type);
+    if (idx >= std::size(SYNTAX_MAP)) return nullptr;
+    return Brush(SYNTAX_MAP[idx]);
 }
 
 void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
@@ -277,7 +243,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
                 for (const auto& run : row.cells[c].runs) {
                     if (run.link_url.has_value()) {
                         DWRITE_TEXT_RANGE range{run.start, run.length};
-                        cell_layout->SetDrawingEffect(link_brush_.Get(), range);
+                        cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                     }
                 }
             }
@@ -304,7 +270,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
         if (run.link_url.has_value()) {
             DWRITE_TEXT_RANGE range{run.start, run.length};
             entry.text_layout->SetUnderline(TRUE, range);
-            entry.text_layout->SetDrawingEffect(link_brush_.Get(), range);
+            entry.text_layout->SetDrawingEffect(Brush(BrushId::Link), range);
         }
         if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
             UINT32 count = 0;
@@ -364,10 +330,10 @@ void Renderer::DrawLoading(float angle,
         float alpha = 1.0f - i * (0.85f / dot_count);
 
         D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), dot_radius, dot_radius);
-        text_brush_->SetOpacity(alpha);
-        rt()->FillEllipse(ellipse, text_brush_.Get());
+        Brush(BrushId::Text)->SetOpacity(alpha);
+        rt()->FillEllipse(ellipse, Brush(BrushId::Text));
     }
-    text_brush_->SetOpacity(1.0f);
+    Brush(BrushId::Text)->SetOpacity(1.0f);
 
     // Gesture overlay (visible during fade-out even while loading)
     if (gesture.overlay_visible && gesture.overlay_alpha > 0.0f) {
@@ -468,14 +434,14 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
                               int hovered) {
     if (!rt()) return;
 
-    bool is_dark = (theme_.bg_color.r + theme_.bg_color.g + theme_.bg_color.b) < 1.5f;
+    bool is_dark = theme_.IsDark();
 
     // Position: bottom-right of MD pane with margin
     float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 
     auto drawButton = [&](float x, bool enabled, bool is_hovered, const wchar_t* arrow) {
-        if (!overlay_brush_) return;
+        if (!Brush(BrushId::Overlay)) return;
         D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
 
         // Background
@@ -488,9 +454,9 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
 
-        overlay_brush_->SetColor(bg_color);
+        Brush(BrushId::Overlay)->SetColor(bg_color);
         D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
-        rt()->FillRoundedRectangle(rrect, overlay_brush_.Get());
+        rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
         // Arrow text
         float text_alpha;
@@ -503,9 +469,9 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
 
         if (fmt_nav_button_) {
-            overlay_brush_->SetColor(text_color);
+            Brush(BrushId::Overlay)->SetColor(text_color);
             rt()->DrawText(
-                arrow, 1, fmt_nav_button_.Get(), rect, overlay_brush_.Get(),
+                arrow, 1, fmt_nav_button_.Get(), rect, Brush(BrushId::Overlay),
                 D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
         }
     };
@@ -532,16 +498,16 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points) {
     sink->EndFigure(D2D1_FIGURE_END_OPEN);
     sink->Close();
 
-    if (!overlay_brush_) return;
-    overlay_brush_->SetColor(D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f));
+    if (!Brush(BrushId::Overlay)) return;
+    Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f));
 
-    rt()->DrawGeometry(geometry.Get(), overlay_brush_.Get(), 4.0f, gesture_stroke_style_.Get());
+    rt()->DrawGeometry(geometry.Get(), Brush(BrushId::Overlay), 4.0f, gesture_stroke_style_.Get());
 }
 
 void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect) {
-    if (!rt() || direction == 0 || !overlay_brush_) return;
+    if (!rt() || direction == 0 || !Brush(BrushId::Overlay)) return;
 
-    bool is_dark = (theme_.bg_color.r + theme_.bg_color.g + theme_.bg_color.b) < 1.5f;
+    bool is_dark = theme_.IsDark();
 
     // Center rectangle in MD pane
     float rect_w = 280.0f;
@@ -556,18 +522,18 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
         ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.8f)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.6f);
 
-    overlay_brush_->SetColor(bg_color);
+    Brush(BrushId::Overlay)->SetColor(bg_color);
     D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 12.0f, 12.0f);
-    rt()->FillRoundedRectangle(rrect, overlay_brush_.Get());
+    rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
     // Text (white on dark overlay for both themes)
     const wchar_t* text = (direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080";
     UINT32 text_len = static_cast<UINT32>(wcslen(text));
 
     if (fmt_gesture_overlay_) {
-        overlay_brush_->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
+        Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
         rt()->DrawText(
-            text, text_len, fmt_gesture_overlay_.Get(), rect, overlay_brush_.Get(),
+            text, text_len, fmt_gesture_overlay_.Get(), rect, Brush(BrushId::Overlay),
             D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
     }
 }

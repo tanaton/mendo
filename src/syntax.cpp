@@ -623,6 +623,76 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     return tokens;
 }
 
+// ---- Language definition table ----
+
+struct LanguageDef {
+    const KeywordSet& (*keywords)();
+    const KeywordSet& (*types)();
+    LexerConfig config;
+};
+
+// Empty keyword set for placeholder entries (None, Mermaid).
+const KeywordSet& EmptyKeywords() {
+    static const KeywordSet s;
+    return s;
+}
+
+// Indexed by SyntaxLanguage enum value.
+// None=0, Cpp=1, Python=2, JavaScript=3, Mermaid=4,
+// Go=5, Rust=6, TypeScript=7, Bash=8, PowerShell=9, Cmd=10
+static const LanguageDef LANGUAGE_DEFS[] = {
+    // None
+    {&EmptyKeywords, &EmptyKeywords, {}},
+    // Cpp
+    {&CppKeywords, &CppTypes, {
+        .line_comment_slash = true, .block_comment = true,
+        .preprocessor = true,
+    }},
+    // Python
+    {&PythonKeywords, &PythonTypes, {
+        .hash_comment = true, .triple_quote = true,
+    }},
+    // JavaScript
+    {&JsKeywords, &JsTypes, {
+        .line_comment_slash = true, .block_comment = true,
+        .backtick_string = true,
+    }},
+    // Mermaid (not tokenized)
+    {&EmptyKeywords, &EmptyKeywords, {}},
+    // Go
+    {&GoKeywords, &GoTypes, {
+        .line_comment_slash = true, .block_comment = true,
+        .backtick_string = true, .raw_backtick = true,
+    }},
+    // Rust
+    {&RustKeywords, &RustTypes, {
+        .line_comment_slash = true, .block_comment = true,
+        .skip_single_quote = true,
+    }},
+    // TypeScript
+    {&TsKeywords, &TsTypes, {
+        .line_comment_slash = true, .block_comment = true,
+        .backtick_string = true,
+    }},
+    // Bash
+    {&BashKeywords, &BashTypes, {
+        .hash_comment = true, .backtick_string = true,
+    }},
+    // PowerShell
+    {&PwshKeywords, &PwshTypes, {
+        .hash_comment = true, .angle_block_comment = true,
+        .case_insensitive = true,
+    }},
+    // Cmd
+    {&CmdKeywords, &CmdTypes, {
+        .double_colon_comment = true, .rem_comment = true,
+        .case_insensitive = true, .skip_single_quote = true,
+    }},
+};
+
+static_assert(std::size(LANGUAGE_DEFS) == static_cast<size_t>(SyntaxLanguage::Cmd) + 1,
+              "LANGUAGE_DEFS must cover all SyntaxLanguage values");
+
 } // namespace
 
 // ---- Public API ----
@@ -674,64 +744,11 @@ SyntaxLanguage DetectLanguage(std::wstring_view info_string) {
 }
 
 std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language) {
-    if (text.empty() || language == SyntaxLanguage::None) {
+    auto idx = static_cast<size_t>(language);
+    if (text.empty() || language == SyntaxLanguage::None ||
+        language == SyntaxLanguage::Mermaid || idx >= std::size(LANGUAGE_DEFS)) {
         return {};
     }
-
-    switch (language) {
-        case SyntaxLanguage::Cpp:
-            return TokenizeGeneric(text, CppKeywords(), CppTypes(), {
-                .line_comment_slash = true, .block_comment = true,
-                .preprocessor = true,
-            });
-
-        case SyntaxLanguage::Python:
-            return TokenizeGeneric(text, PythonKeywords(), PythonTypes(), {
-                .hash_comment = true, .triple_quote = true,
-            });
-
-        case SyntaxLanguage::JavaScript:
-            return TokenizeGeneric(text, JsKeywords(), JsTypes(), {
-                .line_comment_slash = true, .block_comment = true,
-                .backtick_string = true,
-            });
-
-        case SyntaxLanguage::Go:
-            return TokenizeGeneric(text, GoKeywords(), GoTypes(), {
-                .line_comment_slash = true, .block_comment = true,
-                .backtick_string = true, .raw_backtick = true,
-            });
-
-        case SyntaxLanguage::Rust:
-            return TokenizeGeneric(text, RustKeywords(), RustTypes(), {
-                .line_comment_slash = true, .block_comment = true,
-                .skip_single_quote = true,
-            });
-
-        case SyntaxLanguage::TypeScript:
-            return TokenizeGeneric(text, TsKeywords(), TsTypes(), {
-                .line_comment_slash = true, .block_comment = true,
-                .backtick_string = true,
-            });
-
-        case SyntaxLanguage::Bash:
-            return TokenizeGeneric(text, BashKeywords(), BashTypes(), {
-                .hash_comment = true, .backtick_string = true,
-            });
-
-        case SyntaxLanguage::PowerShell:
-            return TokenizeGeneric(text, PwshKeywords(), PwshTypes(), {
-                .hash_comment = true, .angle_block_comment = true,
-                .case_insensitive = true,
-            });
-
-        case SyntaxLanguage::Cmd:
-            return TokenizeGeneric(text, CmdKeywords(), CmdTypes(), {
-                .double_colon_comment = true, .rem_comment = true,
-                .case_insensitive = true, .skip_single_quote = true,
-            });
-
-        default:
-            return {};
-    }
+    const auto& def = LANGUAGE_DEFS[idx];
+    return TokenizeGeneric(text, def.keywords(), def.types(), def.config);
 }

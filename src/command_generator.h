@@ -17,7 +17,7 @@ public:
 
     void SetTheme(const Theme* theme) noexcept {
         theme_ = theme;
-        bool is_dark = (theme->bg_color.r + theme->bg_color.g + theme->bg_color.b) < 1.5f;
+        bool is_dark = theme->IsDark();
         float a = is_dark ? 0.05f : 0.02f;
         cached_stripe_color_ = is_dark
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a)

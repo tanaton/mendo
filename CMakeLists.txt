@@ -117,6 +117,9 @@ add_executable(mendo WIN32
     src/main.cpp
     src/window.cpp
     src/app.cpp
+    src/app_scroll.cpp
+    src/app_mouse.cpp
+    src/app_navigate.cpp
     src/renderer.cpp
     src/renderer_pane.cpp
     src/d2d_render_backend.cpp

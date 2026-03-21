@@ -17,10 +17,21 @@
 #include <wrl/client.h>
 #include <functional>
 #include <vector>
+#include <array>
 #include <memory>
 #include <memory_resource>
 
 using Microsoft::WRL::ComPtr;
+
+enum class BrushId : uint8_t {
+    Text, Heading, CodeBg, CodeText, Link, Hr,
+    BlockquoteBar, BlockquoteText, Selection, TableStripe,
+    SyntaxKeyword, SyntaxType, SyntaxString, SyntaxNumber,
+    SyntaxComment, SyntaxPreprocessor, SyntaxFunction,
+    PaneBg, Splitter, PaneItemHover, PaneItemActive,
+    ScrollbarThumb, Overlay,
+    Count
+};
 
 struct GestureRenderState {
     bool trail_active = false;
@@ -86,9 +97,6 @@ private:
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
                  const ScrollState& scroll, int hovered_index);
     void DrawSplitter(float x, float height);
-    void DrawPaneScrollbar(ID2D1RenderTarget* rt, float pane_width,
-                           float content_top, float content_height,
-                           float scroll_y, float total_content_height);
     void DrawNavOverlay(const PaneRect& md_pane_rect,
                         bool can_back, bool can_forward,
                         int hovered);  // 0=none, 1=back, 2=forward
@@ -100,36 +108,10 @@ private:
     ID2D1HwndRenderTarget* rt() const noexcept { return backend_.GetRenderTarget(); }
     ID2D1Factory* d2d() const noexcept { return backend_.GetD2DFactory(); }
 
-    ComPtr<ID2D1SolidColorBrush> text_brush_;
-    ComPtr<ID2D1SolidColorBrush> heading_brush_;
-    ComPtr<ID2D1SolidColorBrush> code_bg_brush_;
-    ComPtr<ID2D1SolidColorBrush> code_text_brush_;
-    ComPtr<ID2D1SolidColorBrush> link_brush_;
-    ComPtr<ID2D1SolidColorBrush> hr_brush_;
-    ComPtr<ID2D1SolidColorBrush> blockquote_bar_brush_;
-    ComPtr<ID2D1SolidColorBrush> blockquote_text_brush_;
-    ComPtr<ID2D1SolidColorBrush> selection_brush_;
-    ComPtr<ID2D1SolidColorBrush> table_stripe_brush_;
-
-    // Syntax highlighting brushes
-    ComPtr<ID2D1SolidColorBrush> syntax_keyword_brush_;
-    ComPtr<ID2D1SolidColorBrush> syntax_type_brush_;
-    ComPtr<ID2D1SolidColorBrush> syntax_string_brush_;
-    ComPtr<ID2D1SolidColorBrush> syntax_number_brush_;
-    ComPtr<ID2D1SolidColorBrush> syntax_comment_brush_;
-    ComPtr<ID2D1SolidColorBrush> syntax_preprocessor_brush_;
-    ComPtr<ID2D1SolidColorBrush> syntax_function_brush_;
-
-    // Pane brushes
-    ComPtr<ID2D1SolidColorBrush> pane_bg_brush_;
-    ComPtr<ID2D1SolidColorBrush> splitter_brush_;
-    ComPtr<ID2D1SolidColorBrush> pane_item_hover_brush_;
-    ComPtr<ID2D1SolidColorBrush> pane_item_active_brush_;
-    ComPtr<ID2D1SolidColorBrush> scrollbar_thumb_brush_;
-
-    // Reusable brush for overlay drawing (nav buttons, gesture trail/overlay).
-    // Color/opacity set per use via SetColor — avoids per-frame CreateSolidColorBrush.
-    ComPtr<ID2D1SolidColorBrush> overlay_brush_;
+    std::array<ComPtr<ID2D1SolidColorBrush>, static_cast<size_t>(BrushId::Count)> brushes_;
+    ID2D1SolidColorBrush* Brush(BrushId id) const noexcept {
+        return brushes_[static_cast<size_t>(id)].Get();
+    }
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
     void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry);

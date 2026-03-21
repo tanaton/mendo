@@ -64,6 +64,7 @@ struct Theme {
     float zoom = 1.0f;
 
     float GetHeadingSize(int level) const noexcept;
+    bool IsDark() const noexcept { return (bg_color.r + bg_color.g + bg_color.b) < 1.5f; }
 
     // Apply zoom factor to all scalable sizes (font sizes, margins, spacing).
     // Call after changing `zoom` to update derived values.
