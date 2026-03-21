@@ -49,6 +49,7 @@ void FileExplorer::Refresh() {
 
     std::pmr::vector<FileEntry> dirs;
     std::pmr::vector<FileEntry> files;
+    static constexpr size_t MAX_ENTRIES = 4096;
 
     do {
         // "." と ".." をスキップ
@@ -57,6 +58,8 @@ void FileExplorer::Refresh() {
         // 隠しファイル/システムファイルをスキップ
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) continue;
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) continue;
+        // エントリ数上限
+        if (dirs.size() + files.size() >= MAX_ENTRIES) break;
 
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             FileEntry entry;

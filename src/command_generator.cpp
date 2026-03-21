@@ -8,8 +8,10 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
         int first_visible) {
-    // 古いコマンドを破棄してからリソースをリセットし、新しいフレーム用に再構築
-    cmds_.clear();
+    // 古いコマンドリストを破棄し、monotonic リソースをリセットして再利用する。
+    // cmds_ を先に空のリストで置き換えてから Reset() を呼ぶことで、
+    // 解放済みメモリを指す内部バッファが残らないようにする。
+    cmds_ = DrawCommandList{frame_resource_.resource()};
     frame_resource_.Reset();
     cmds_ = DrawCommandList{frame_resource_.resource()};
     auto& cmds = cmds_;

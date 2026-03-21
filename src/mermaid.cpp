@@ -334,8 +334,11 @@ void MermaidRenderer::CancelPending() {
     decltype(pending_requests_) empty;
     pending_requests_.swap(empty);
 
-    // レンダリング状態をリセットし、処理中のコールバックが無害に完了した後に
-    // 新しいリクエストを処理できるようにする。
+    // キャンセルカウンタをインクリメントし、処理中の非同期コールバックを無効化する。
+    // コールバック到着時にカウンタが一致しなければ結果を破棄する。
+    cancel_counter_++;
+
+    // レンダリング状態をリセットし、新しいリクエストを処理できるようにする。
     rendering_ = false;
     current_request_ = {};
 }
@@ -395,6 +398,7 @@ void MermaidRenderer::ProcessQueue() {
 
     current_request_ = std::move(pending_requests_.front());
     pending_requests_.pop();
+    current_request_.cancel_snapshot = cancel_counter_;
     rendering_ = true;
 
     RenderMermaidInWebView(std::wstring_view{current_request_.node->text},
@@ -437,6 +441,9 @@ void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_w
 }
 
 void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
+    // CancelPending後に到着した古いコールバックを無視する
+    if (current_request_.cancel_snapshot != cancel_counter_) { FinishCurrentRequest(); return; }
+
     // jsonはrenderMermaidからの生の文字列。例: {"ok":true,"width":400,"height":300}
     float dw = 0, dh = 0;
     bool ok = false;
@@ -492,7 +499,7 @@ void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
 }
 
 void MermaidRenderer::DoCapturePreview() {
-    if (!webview_) {
+    if (!webview_ || current_request_.cancel_snapshot != cancel_counter_) {
         FinishCurrentRequest();
         return;
     }
@@ -532,7 +539,11 @@ void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* pn
         if (draw_w <= 0) draw_w = bw;  // フォールバック
         if (draw_h <= 0) draw_h = bh;
 
-        // キャッシュに格納
+        // キャッシュに格納（エントリ数上限を超えたら任意のエントリを削除）
+        static constexpr size_t MAX_CACHE_ENTRIES = 4096;
+        if (cache_.size() >= MAX_CACHE_ENTRIES) {
+            cache_.erase(cache_.begin());
+        }
         CachedBitmap cached;
         cached.bitmap = bitmap;
         cached.width = draw_w;

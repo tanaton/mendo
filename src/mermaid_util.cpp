@@ -14,7 +14,8 @@ std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input) {
             case L'`':  result += L"\\`"; break;
             case L'$':  result += L"\\$"; break;
             default:
-                if (c < 0x20) {
+                if (c < 0x20 || c == 0x2028 || c == 0x2029) {
+                    // 制御文字およびJS文字列リテラルで特殊なU+2028/U+2029をエスケープ
                     wchar_t buf[8];
                     swprintf_s(buf, L"\\u%04x", static_cast<unsigned>(c));
                     result += buf;

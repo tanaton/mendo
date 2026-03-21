@@ -14,6 +14,9 @@ bool NavHistory::GoBack(const NavEntry& current, NavEntry& out) {
     if (back_stack_.empty()) return false;
 
     forward_stack_.push_back(current);
+    if (forward_stack_.size() > MAX_HISTORY) {
+        forward_stack_.erase(forward_stack_.begin());
+    }
     out = back_stack_.back();
     back_stack_.pop_back();
     return true;

@@ -91,9 +91,18 @@ std::pmr::wstring LoadWString(std::wstring_view filename) {
     if (!ifs) return {};
     auto size = ifs.tellg();
     if (size <= 0 || size % sizeof(wchar_t) != 0) return {};
+    // 設定値として妥当なサイズ上限（1MB）を設ける
+    static constexpr std::streamoff MAX_CONFIG_STRING_SIZE = 1 * 1024 * 1024;
+    if (size > MAX_CONFIG_STRING_SIZE) return {};
     ifs.seekg(0);
     std::pmr::wstring result(static_cast<size_t>(size) / sizeof(wchar_t), L'\0');
     ifs.read(reinterpret_cast<char*>(result.data()), size);
+    if (!ifs) return {};
+    // 埋め込みnull文字を除去（破損データ対策）
+    auto null_pos = result.find(L'\0');
+    if (null_pos != std::pmr::wstring::npos) {
+        result.resize(null_pos);
+    }
     return result;
 }
 

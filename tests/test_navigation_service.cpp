@@ -19,6 +19,41 @@ TEST_F(NavigationServiceTest, HandleExternalLink) {
     EXPECT_EQ(result.target, L"https://example.com");
 }
 
+TEST_F(NavigationServiceTest, HandleHttpLink) {
+    auto result = service_.HandleLinkClick(L"http://example.com", L"C:\\file.md");
+    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::ExternalUrl);
+}
+
+TEST_F(NavigationServiceTest, HandleMailtoLink) {
+    auto result = service_.HandleLinkClick(L"mailto:user@example.com", L"C:\\file.md");
+    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::ExternalUrl);
+}
+
+TEST_F(NavigationServiceTest, BlockFileScheme) {
+    auto result = service_.HandleLinkClick(L"file:///C:/Windows/System32/cmd.exe", L"C:\\file.md");
+    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::None);
+}
+
+TEST_F(NavigationServiceTest, BlockJavascriptScheme) {
+    auto result = service_.HandleLinkClick(L"javascript:alert(1)", L"C:\\file.md");
+    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::None);
+}
+
+TEST_F(NavigationServiceTest, BlockUnknownScheme) {
+    auto result = service_.HandleLinkClick(L"ftp://example.com/file", L"C:\\file.md");
+    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::None);
+}
+
+TEST_F(NavigationServiceTest, BlockBareRelativePath) {
+    auto result = service_.HandleLinkClick(L"other.md", L"C:\\file.md");
+    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::None);
+}
+
+TEST_F(NavigationServiceTest, HttpsCaseInsensitive) {
+    auto result = service_.HandleLinkClick(L"HTTPS://EXAMPLE.COM", L"C:\\file.md");
+    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::ExternalUrl);
+}
+
 TEST_F(NavigationServiceTest, HandleEmptyLink) {
     auto result = service_.HandleLinkClick(L"", L"C:\\file.md");
     EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::None);
