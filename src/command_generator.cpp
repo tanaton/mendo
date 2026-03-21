@@ -62,7 +62,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             return;
 
         case NodeType::Table:
-            GenTable(cmds, node, entry, node_index, x, selection);
+            GenTable(cmds, node, entry, node_index, x, selection, viewport_top, viewport_bottom);
             return;
 
         case NodeType::CodeBlock:
@@ -194,7 +194,8 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCel
 
 void CommandGenerator::GenTable(DrawCommandList& cmds,
         const Node& node, const NodeLayoutEntry& entry,
-        int node_index, float offset_x, const TextSelection& selection) {
+        int node_index, float offset_x, const TextSelection& selection,
+        float viewport_top, float viewport_bottom) {
     if (node.table_rows.empty() || entry.col_widths.empty()) return;
 
     float cell_padding = TABLE_CELL_PADDING;
@@ -214,12 +215,28 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
         if (sel_end <= sel_start) has_selection = false;
     }
 
+    // セル範囲の flat_offset を進めるヘルパー
+    auto advance_flat_offset = [](uint32_t& offset, const TableRow& row, size_t from, size_t to) {
+        for (size_t c = from; c < to; c++) {
+            offset += static_cast<uint32_t>(row.cells[c].text.size());
+            if (c + 1 < row.cells.size()) offset++;
+        }
+    };
+
     float y = entry.y_position;
     uint32_t flat_offset = 0;
 
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         const auto& row = node.table_rows[r];
         float row_h = (r < entry.row_heights.size()) ? entry.row_heights[r] : (theme_->font_size_body * 1.4f);
+
+        float row_bottom = y + row_h + border;
+        if (row_bottom < viewport_top || y > viewport_bottom) {
+            advance_flat_offset(flat_offset, row, 0, row.cells.size());
+            y = row_bottom;
+            if (r + 1 < node.table_rows.size()) flat_offset++;
+            continue;
+        }
 
         bool is_header_row = (!row.cells.empty() && row.cells[0].is_header);
         GenTableRowBg(cmds, is_header_row, r % 2 == 0, offset_x, y, table_width, row_h, border);
@@ -256,10 +273,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             cx += cw + cell_padding * 2.0f + border;
         }
 
-        for (size_t c = drawn_cols; c < row.cells.size(); c++) {
-            flat_offset += static_cast<uint32_t>(row.cells[c].text.size());
-            if (c + 1 < row.cells.size()) flat_offset++;
-        }
+        advance_flat_offset(flat_offset, row, drawn_cols, row.cells.size());
 
         // 右罫線
         cmds.push_back(DrawLineCmd{

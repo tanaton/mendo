@@ -81,22 +81,27 @@ void App::UpdateSmoothScroll() {
         KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
     }
 
-    UpdateScrollBar();
-    InvalidateMdPane();
+    auto layout = GetPaneLayout();
+    UpdateScrollBar(layout.md_rect.height);
+    InvalidateMdPane(layout.md_rect);
 }
 
 void App::InvalidateMdPane() {
+    auto layout = GetPaneLayout();
+    InvalidateMdPane(layout.md_rect);
+}
+
+void App::InvalidateMdPane(const PaneRect& md_rect) {
     if (!renderer_.GetRenderTarget()) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
     float scale = cached_dpi_scale_;
-    auto layout = GetPaneLayout();
     RECT rc;
-    rc.left = static_cast<LONG>(layout.md_rect.x * scale);
+    rc.left = static_cast<LONG>(md_rect.x * scale);
     rc.top = 0;
-    rc.right = static_cast<LONG>((layout.md_rect.x + layout.md_rect.width) * scale) + 1;
-    rc.bottom = static_cast<LONG>(layout.md_rect.height * scale) + 1;
+    rc.right = static_cast<LONG>((md_rect.x + md_rect.width) * scale) + 1;
+    rc.bottom = static_cast<LONG>(md_rect.height * scale) + 1;
     InvalidateRect(hwnd_, &rc, FALSE);
 }
 

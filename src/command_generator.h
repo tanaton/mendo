@@ -41,7 +41,8 @@ private:
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
-                  int node_index, float x, const TextSelection& selection);
+                  int node_index, float x, const TextSelection& selection,
+                  float viewport_top, float viewport_bottom);
     void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row,
                        float x, float y, float table_width, float row_h, float border);
     void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,

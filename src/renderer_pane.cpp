@@ -12,6 +12,7 @@ static bool EnsurePaneCacheSize(Renderer::PaneCache& cache, ID2D1RenderTarget* p
     if (!cache.bitmap_rt ||
         cache.cached_width != width || cache.cached_height != height) {
         cache.bitmap_rt.Reset();
+        cache.cached_bitmap.Reset();
         HRESULT hr = parent->CreateCompatibleRenderTarget(
             D2D1::SizeF(width, height), &cache.bitmap_rt);
         if (FAILED(hr)) return false;
@@ -107,15 +108,15 @@ static void DrawSidePaneImpl(
 
         rt->EndDraw();
         cache.dirty = false;
+        cache.cached_bitmap.Reset();
+        cache.bitmap_rt->GetBitmap(&cache.cached_bitmap);
     }
 
     // キャッシュされたビットマップを転送
-    ComPtr<ID2D1Bitmap> bmp;
-    cache.bitmap_rt->GetBitmap(&bmp);
-    if (bmp) {
+    if (cache.cached_bitmap) {
         D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y,
                                          rect.x + rect.width, rect.y + rect.height);
-        main_rt->DrawBitmap(bmp.Get(), dest);
+        main_rt->DrawBitmap(cache.cached_bitmap.Get(), dest);
     }
 }
 

@@ -28,24 +28,31 @@ std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path) {
         return {};
     }
 
+    // UTF-8 BOMを先に検出し、全内容の memmove を回避する
+    size_t file_size = static_cast<size_t>(size.QuadPart);
+    size_t bom_skip = 0;
+    if (file_size >= 3) {
+        unsigned char bom[3]{};
+        DWORD bom_read = 0;
+        if (ReadFile(hFile, bom, 3, &bom_read, nullptr) && bom_read == 3 &&
+            bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) {
+            bom_skip = 3;
+        } else {
+            // BOMなし: ファイル先頭に巻き戻す
+            SetFilePointer(hFile, 0, nullptr, FILE_BEGIN);
+        }
+    }
+
     std::pmr::string content;
     DWORD bytesRead = 0;
     BOOL ok = FALSE;
-    content.resize_and_overwrite(static_cast<size_t>(size.QuadPart), [&](char* buf, size_t count) -> size_t {
+    content.resize_and_overwrite(file_size - bom_skip, [&](char* buf, size_t count) -> size_t {
         ok = ReadFile(hFile, buf, static_cast<DWORD>(count), &bytesRead, nullptr);
         return ok ? bytesRead : 0;
     });
     CloseHandle(hFile);
 
     if (!ok) return {};
-
-    // UTF-8 BOMがあれば除去
-    if (content.size() >= 3 &&
-        static_cast<unsigned char>(content[0]) == 0xEF &&
-        static_cast<unsigned char>(content[1]) == 0xBB &&
-        static_cast<unsigned char>(content[2]) == 0xBF) {
-        content.erase(0, 3);
-    }
 
     return content;
 }

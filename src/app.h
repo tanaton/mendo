@@ -130,6 +130,7 @@ private:
     void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();
     void UpdateScrollBar(float md_pane_height);
+    void InvalidateMdPane(const PaneRect& md_rect);
     void ScrollTo(float position);
     void SmoothScrollBy(float delta);
     void UpdateSmoothScroll();

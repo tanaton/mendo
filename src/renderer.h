@@ -132,6 +132,8 @@ private:
     ComPtr<IDWriteTextFormat> fmt_pane_item_;
     ComPtr<IDWriteTextFormat> fmt_pane_header_;
     ComPtr<IDWriteTextFormat> fmt_nav_button_;
+    ComPtr<IDWriteTextLayout> nav_back_layout_;   // ◀ のキャッシュ済みレイアウト
+    ComPtr<IDWriteTextLayout> nav_forward_layout_; // ▶ のキャッシュ済みレイアウト
     ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
     ComPtr<IDWriteTextFormat> fmt_gesture_overlay_;
 
@@ -140,12 +142,13 @@ public:
     // 内容が変更された場合のみ再描画される。
     struct PaneCache {
         ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
+        ComPtr<ID2D1Bitmap> cached_bitmap; // GetBitmap() の毎フレーム呼び出しを回避
         bool dirty = true;
         float cached_width = 0;
         float cached_height = 0;
 
         constexpr void Invalidate() noexcept { dirty = true; }
-        void Reset() noexcept { bitmap_rt.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
+        void Reset() noexcept { bitmap_rt.Reset(); cached_bitmap.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
     };
 private:
     PaneCache file_pane_cache_;

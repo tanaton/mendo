@@ -55,7 +55,7 @@ struct SpanState {
     bool italic = false;
     bool code = false;
     bool strikethrough = false;
-    std::optional<std::pmr::wstring> link_url;
+    int link_url_index = -1; // -1 = リンクなし, >= 0 = link_urls へのインデックス
 };
 
 struct ParseContext {
@@ -90,6 +90,9 @@ struct ParseContext {
     // 現在構築中のノード
     Node* current_node = nullptr;
 
+    // リンクURL格納: SpanStateではインデックスのみ保持し、push/popでの文字列コピーを回避
+    std::pmr::vector<std::pmr::wstring> link_urls{parse_resource.resource()};
+
     // アンカーIDの一意性追跡: スラグ -> 出現回数
     std::pmr::unordered_map<std::pmr::wstring, int> anchor_counts{parse_resource.resource()};
 
@@ -108,7 +111,9 @@ struct ParseContext {
         run.italic = current_span.italic;
         run.code = current_span.code;
         run.strikethrough = current_span.strikethrough;
-        run.link_url = current_span.link_url;
+        if (current_span.link_url_index >= 0) {
+            run.link_url = link_urls[static_cast<size_t>(current_span.link_url_index)];
+        }
         return run;
     }
 
@@ -354,7 +359,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata) {
         case MD_SPAN_A: {
             auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
             if (a->href.text && a->href.size > 0) {
-                ctx->current_span.link_url = Utf8ToWide(std::string_view{a->href.text, static_cast<size_t>(a->href.size)});
+                ctx->link_urls.push_back(Utf8ToWide(std::string_view{a->href.text, static_cast<size_t>(a->href.size)}));
+                ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
             }
             break;
         }
