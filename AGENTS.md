@@ -1,8 +1,8 @@
-# mendo - 面倒を見る高速Markdownビュアー
+# mendo - 高速＆省メモリMarkdownビュアー
 
 ## プロジェクト概要
 
-Webブラウザを使わず、Direct2D/DirectWriteによる自前レンダリングでWindows向け高速Markdownビュアーを実現するネイティブアプリケーション。Mend（修繕する）+ MD（Markdown）+ 面倒を見る。
+Webブラウザを使わず、Direct2D/DirectWriteによる自前レンダリングでWindows向け高速Markdownビュアーを実現するネイティブアプリケーション。
 
 ## 技術スタック
 
