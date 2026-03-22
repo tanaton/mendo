@@ -252,11 +252,25 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                                 if (on_ready) on_ready();
                                                 ProcessQueue();
                                             } else if (wcsncmp(msg, L"render-result:", 14) == 0) {
-                                                OnMermaidRenderResult(std::wstring_view(msg + 14));
-                                            } else if (wcscmp(msg, L"capture-ready") == 0) {
-                                                DoCapturePreview();
+                                                // "render-result:<id>:<json>" からリクエストIDを解析
+                                                wchar_t* end = nullptr;
+                                                auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, &end, 10));
+                                                if (end && *end == L':' && id == current_request_.request_id) {
+                                                    OnMermaidRenderResult(std::wstring_view(end + 1));
+                                                }
+                                            } else if (wcsncmp(msg, L"capture-ready:", 14) == 0) {
+                                                // "capture-ready:<id>" からリクエストIDを解析
+                                                auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, nullptr, 10));
+                                                if (id == current_request_.request_id) {
+                                                    DoCapturePreview();
+                                                }
                                             } else if (wcsncmp(msg, L"render-error:", 13) == 0) {
-                                                FinishCurrentRequest();
+                                                // "render-error:<id>:<message>" からリクエストIDを解析
+                                                wchar_t* end = nullptr;
+                                                auto id = static_cast<unsigned int>(std::wcstoul(msg + 13, &end, 10));
+                                                if (id == current_request_.request_id) {
+                                                    FinishCurrentRequest();
+                                                }
                                             } else {
                                             }
                                             CoTaskMemFree(msg);
@@ -334,11 +348,9 @@ void MermaidRenderer::CancelPending() {
     decltype(pending_requests_) empty;
     pending_requests_.swap(empty);
 
-    // キャンセルカウンタをインクリメントし、処理中の非同期コールバックを無効化する。
-    // コールバック到着時にカウンタが一致しなければ結果を破棄する。
-    cancel_counter_++;
-
     // レンダリング状態をリセットし、新しいリクエストを処理できるようにする。
+    // current_request_のrequest_idが0にリセットされるため、
+    // 処理中の非同期コールバックはID不一致で自動的に無視される。
     rendering_ = false;
     current_request_ = {};
 }
@@ -398,7 +410,7 @@ void MermaidRenderer::ProcessQueue() {
 
     current_request_ = std::move(pending_requests_.front());
     pending_requests_.pop();
-    current_request_.cancel_snapshot = cancel_counter_;
+    current_request_.request_id = ++request_counter_;
     rendering_ = true;
 
     RenderMermaidInWebView(std::wstring_view{current_request_.node->text},
@@ -432,19 +444,22 @@ void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_w
                  SWP_NOZORDER | SWP_NOACTIVATE);
 
     // Mermaidをレンダリングする（maxWidth=0はCSS制約なし、ビューポートが制約する）
+    // リクエストIDをpostMessageに含め、C++側でコールバックとリクエストを照合する
+    auto id_str = std::to_wstring(current_request_.request_id);
     std::pmr::wstring js = L"renderMermaid('" + mermaid_util::JsEscape(code) + L"', "
                       + (dark_mode ? L"true" : L"false") + L", 0"
-                      + L").then(function(r){window.chrome.webview.postMessage('render-result:'+r);"
-                        L"}).catch(function(e){window.chrome.webview.postMessage('render-error:'+String(e));})";
+                      + L").then(function(r){window.chrome.webview.postMessage('render-result:";
+    js += id_str.c_str();
+    js += L":'+r);}).catch(function(e){window.chrome.webview.postMessage('render-error:";
+    js += id_str.c_str();
+    js += L":'+String(e));})";
 
     webview_->ExecuteScript(js.c_str(), nullptr);
 }
 
 void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
-    // CancelPending後に到着した古いコールバックを無視する
-    if (current_request_.cancel_snapshot != cancel_counter_) { FinishCurrentRequest(); return; }
-
     // jsonはrenderMermaidからの生の文字列。例: {"ok":true,"width":400,"height":300}
+    // リクエストIDの照合はメッセージハンドラで実施済み
     float dw = 0, dh = 0;
     bool ok = false;
 
@@ -492,18 +507,25 @@ void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
 
     // rAFを使ってWebViewが新しいサイズで再レンダリングするのを待ち、
     // postMessageでシグナルを送る（Promise-awaitの問題を回避する）。
-    webview_->ExecuteScript(
+    // リクエストIDを含めて、C++側でコールバックとリクエストを照合する。
+    auto id_str = std::to_wstring(current_request_.request_id);
+    std::pmr::wstring cap_js =
         L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
-        L"window.chrome.webview.postMessage('capture-ready');});})",
-        nullptr);
+        L"window.chrome.webview.postMessage('capture-ready:";
+    cap_js += id_str.c_str();
+    cap_js += L"');});})";
+    webview_->ExecuteScript(cap_js.c_str(), nullptr);
 }
 
 void MermaidRenderer::DoCapturePreview() {
-    if (!webview_ || current_request_.cancel_snapshot != cancel_counter_) {
+    if (!webview_) {
         FinishCurrentRequest();
         return;
     }
 
+    // CapturePreviewコールバックでもリクエストIDを照合し、
+    // CancelPending後に到着した古いキャプチャ結果を無視する
+    unsigned int req_id = current_request_.request_id;
     IStream* pngStream = nullptr;
     CreateStreamOnHGlobal(nullptr, TRUE, &pngStream);
 
@@ -511,7 +533,12 @@ void MermaidRenderer::DoCapturePreview() {
         COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
         pngStream,
         Microsoft::WRL::Callback<ICoreWebView2CapturePreviewCompletedHandler>(
-            [this, pngStream](HRESULT hr3) -> HRESULT {
+            [this, pngStream, req_id](HRESULT hr3) -> HRESULT {
+                if (current_request_.request_id != req_id) {
+                    // CancelPending後に到着した古いコールバック
+                    if (pngStream) pngStream->Release();
+                    return S_OK;
+                }
                 if (SUCCEEDED(hr3) && pngStream) {
                     OnCaptureComplete(current_request_.code_hash, pngStream);
                 } else {

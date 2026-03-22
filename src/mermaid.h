@@ -78,7 +78,7 @@ private:
     ComPtr<ICoreWebView2> webview_;
     bool ready_ = false;
     bool rendering_ = false;
-    unsigned int cancel_counter_ = 0; // CancelPending時にインクリメント（コールバック無効化用）
+    unsigned int request_counter_ = 0; // リクエストごとにインクリメント（コールバック照合用）
     std::span<const std::byte> cached_mermaid_gz_; // Win32リソースから直接参照するgzip圧縮済みmermaid.js
 
     struct RenderRequest {
@@ -92,7 +92,7 @@ private:
         float css_width = 0.0f;   // JSから取得したCSSピクセル寸法（DIP）
         float css_height = 0.0f;
         float dpr = 1.0f;         // JSから取得したdevicePixelRatio
-        unsigned int cancel_snapshot = 0; // リクエスト開始時のcancel_counter_のスナップショット
+        unsigned int request_id = 0; // リクエスト固有のID（JS側のpostMessageと照合）
     };
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
     RenderRequest current_request_;
