@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 #include <d2d1.h>
 #include <dwrite.h>
+#include <cassert>
 
 using Microsoft::WRL::ComPtr;
 
@@ -50,11 +51,11 @@ public:
 
     constexpr size_t size() const noexcept { return entries_.size(); }
 
-    constexpr NodeLayoutEntry& operator[](size_t i) noexcept { return entries_[i]; }
-    constexpr const NodeLayoutEntry& operator[](size_t i) const noexcept { return entries_[i]; }
+    constexpr NodeLayoutEntry& operator[](size_t i) noexcept { assert(i < entries_.size()); return entries_[i]; }
+    constexpr const NodeLayoutEntry& operator[](size_t i) const noexcept { assert(i < entries_.size()); return entries_[i]; }
 
-    constexpr DiagramEntry& GetDiagram(size_t i) noexcept { return diagrams_[i]; }
-    constexpr const DiagramEntry& GetDiagram(size_t i) const noexcept { return diagrams_[i]; }
+    constexpr DiagramEntry& GetDiagram(size_t i) noexcept { assert(i < diagrams_.size()); return diagrams_[i]; }
+    constexpr const DiagramEntry& GetDiagram(size_t i) const noexcept { assert(i < diagrams_.size()); return diagrams_[i]; }
 
     // すべてのテキストレイアウトとエフェクトを無効化する（テーマ/ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。

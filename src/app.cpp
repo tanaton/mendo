@@ -262,6 +262,7 @@ void App::DoLoadMarkdownFile() {
 
     viewport_.ClearSelection();
     mermaid_renderer_.CancelPending();
+    renderer_.ShrinkBuffers();
 
     if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
         InvalidateRect(hwnd_, nullptr, FALSE);

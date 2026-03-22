@@ -22,8 +22,10 @@ std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path) {
         return {};
     }
 
-    // ReadFileの切り捨てを防ぐため、MAXDWORD（約4GB）を超えるファイルを拒否
-    if (size.QuadPart > static_cast<LONGLONG>(MAXDWORD)) {
+    // Markdownビュアーとして妥当なファイルサイズ上限（256MB）。
+    // これにより、OOMやMultiByteToWideCharのint切り捨て（>2GB）も防止する。
+    static constexpr LONGLONG MAX_FILE_SIZE = 256LL * 1024 * 1024;
+    if (size.QuadPart > MAX_FILE_SIZE) {
         CloseHandle(hFile);
         return {};
     }

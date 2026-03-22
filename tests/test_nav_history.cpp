@@ -139,6 +139,19 @@ TEST_F(NavHistoryTest, MaxHistoryCapsBackStack) {
     EXPECT_EQ(hist_.BackSize(), NavHistory::MAX_HISTORY);
 }
 
+TEST_F(NavHistoryTest, MaxHistoryCapsForwardStack) {
+    // 戻るスタックにMAX_HISTORY+10件を積む
+    for (size_t i = 0; i < NavHistory::MAX_HISTORY + 10; ++i) {
+        hist_.Push({L"file" + std::to_wstring(i) + L".md", static_cast<float>(i)});
+    }
+    // 全件GoBackして進むスタックに移す
+    NavEntry out;
+    for (size_t i = 0; i < NavHistory::MAX_HISTORY; ++i) {
+        if (!hist_.GoBack({L"cur.md", 0.0f}, out)) break;
+    }
+    EXPECT_LE(hist_.ForwardSize(), NavHistory::MAX_HISTORY);
+}
+
 // ─── シナリオ: ファイルを開くダイアログ / ドラッグ＆ドロップでファイルを開く ───
 // これらのテストは、ファイルを開くダイアログとドラッグ＆ドロップのコードパスで
 // PushNavHistory()がLoadMarkdownFile()の前に呼ばれることを保証する

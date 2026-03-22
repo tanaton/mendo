@@ -65,6 +65,16 @@ TEST(JsEscape, AllSpecialChars) {
     EXPECT_EQ(result, L"\\\\\\'\\\"\\n\\r\\t\\`\\$");
 }
 
+TEST(JsEscape, LineSeparatorEscaped) {
+    std::wstring input(1, L'\x2028');
+    EXPECT_EQ(mermaid_util::JsEscape(input), L"\\u2028");
+}
+
+TEST(JsEscape, ParagraphSeparatorEscaped) {
+    std::wstring input(1, L'\x2029');
+    EXPECT_EQ(mermaid_util::JsEscape(input), L"\\u2029");
+}
+
 // ============================================================
 // SimpleHash テスト
 // ============================================================

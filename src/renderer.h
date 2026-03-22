@@ -87,6 +87,9 @@ public:
     constexpr void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }
     constexpr void InvalidateTocPaneCache() noexcept { toc_pane_cache_.dirty = true; }
 
+    // ファイル切替時にヒットテストバッファ等を縮小する
+    void ShrinkBuffers() { hit_test_buffer_.shrink_to_fit(); cmd_generator_.ShrinkBuffers(); }
+
 private:
     // 描画前パス: レイアウトに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,

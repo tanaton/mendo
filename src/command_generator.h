@@ -15,6 +15,9 @@ public:
         IDWriteTextFormat* icon_font = nullptr;
     };
 
+    // ファイル切替時にバッファを縮小する
+    void ShrinkBuffers() { hit_test_buffer_.shrink_to_fit(); }
+
     constexpr void SetTheme(const Theme* theme) noexcept {
         theme_ = theme;
         bool is_dark = theme->IsDark();
