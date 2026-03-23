@@ -76,11 +76,11 @@ void Renderer::RecreateBrushes() {
 
 void Renderer::SetTheme(const Theme& theme) {
     theme_ = theme;
-    if (!backend_.GetRenderTarget()) return;
-    RecreateBrushes();
     UpdateLayoutTheme();
     RecreatePaneFormats();
     cmd_generator_.SetTheme(&theme_);
+    if (!backend_.GetRenderTarget()) return;
+    RecreateBrushes();
 }
 
 void Renderer::Resize(UINT width, UINT height) {
@@ -116,7 +116,7 @@ void Renderer::UpdateLayoutTheme() {
 }
 
 void Renderer::LayoutAllNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width) {
-    float content_width = viewport_width - theme_.margin_left - theme_.margin_right;
+    float content_width = std::max(0.0f, viewport_width - theme_.margin_left - theme_.margin_right);
     layout_.LayoutNodes(nodes, cache, content_width);
 }
 
