@@ -24,3 +24,15 @@ inline constexpr int HOVER_THROTTLE_DISTANCE_SQ = 16;
 
 // 目次ペインの見出しレベル毎のインデント幅
 inline constexpr float TOC_INDENT_PER_LEVEL = 12.0f;
+
+// テーブル描画で共有するレイアウト定数
+inline constexpr float TABLE_CELL_PADDING = 8.0f;
+inline constexpr float TABLE_BORDER_WIDTH = 1.0f;
+
+// ナビゲーションオーバーレイボタンの定数（DIP単位）。
+// レンダラー（描画）とhit_test_service（クリック検出）の間で共有される。
+inline constexpr float NAV_BTN_SIZE = 32.0f;
+inline constexpr float NAV_BTN_MARGIN = 16.0f;
+inline constexpr float NAV_BTN_GAP = 2.0f;
+inline constexpr float NAV_BTN_CORNER = 6.0f;
+inline constexpr float NAV_BTN_SCROLLBAR_OFFSET = 16.0f;

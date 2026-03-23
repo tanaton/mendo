@@ -63,8 +63,6 @@ bool App::Init(HWND hwnd) {
     viewport_.SetZoomIndex(theme_service_.LoadZoomIndex());
     if (theme_service_.IsDarkMode() || viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
         renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
-        renderer_.GetLayout().UpdateTheme(renderer_.GetTheme());
-        renderer_.GetLayout().RecreateFormats();
         if (viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
             panes_.ApplyZoom(viewport_.GetCurrentZoom());
         }
@@ -357,8 +355,9 @@ void App::RequestMermaidRenders() {
             int anchor_idx = FindFirstVisibleNode();
             float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
             layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-            SyncMaxScroll();
-            AnchorCompensateScroll(anchor_idx, anchor_y_before);
+            auto layout = GetPaneLayout();
+            float md_h = layout.md_rect.height;
+            AnchorCompensateScroll(anchor_idx, anchor_y_before, md_h);
             InvalidateRect(hwnd_, nullptr, FALSE);
         });
     }
@@ -493,21 +492,17 @@ void App::OnDropFiles(HDROP hDrop) {
     DragFinish(hDrop);
 }
 
-void App::OnSmoothScrollTimer() {
-    UpdateSmoothScroll();
-}
-
-void App::OnFileWatchTimer() {
-    doc_service_.CheckForChanges();
-}
-
-void App::OnDeferredLayoutTimer() {
-    OnDeferredLayout();
-}
-
-void App::OnLoadingAnimTimer() {
-    file_load_service_.TickLoadingAnimation();
-    InvalidateRect(hwnd_, nullptr, FALSE);
+void App::HandleTimer(UINT_PTR timer_id) {
+    switch (timer_id) {
+        case TIMER_SMOOTH_SCROLL:  UpdateSmoothScroll(); break;
+        case TIMER_FILE_WATCH:     doc_service_.CheckForChanges(); break;
+        case TIMER_DEFERRED_LAYOUT: OnDeferredLayout(); break;
+        case TIMER_LOADING_ANIM:
+            file_load_service_.TickLoadingAnimation();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            break;
+        default: break;
+    }
 }
 
 void App::OnAppLoadFile() {

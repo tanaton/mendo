@@ -78,6 +78,13 @@ public:
     void SetTheme(const Theme& theme);
     void ApplyZoom(float new_zoom);
     void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
+
+    // LayoutEngineのテーマを更新しフォーマットを再作成する。
+    void UpdateLayoutTheme();
+
+    // ビューポート幅からマージンを差し引いてLayoutEngineでノードをレイアウトする。
+    void LayoutAllNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
+
     constexpr Theme& GetThemeMut() noexcept { return theme_; }
 
     // デバイスロスト後にD2Dレンダーターゲットが再作成された際に呼び出されるコールバックを設定。

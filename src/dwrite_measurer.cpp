@@ -1,7 +1,7 @@
 #include "dwrite_measurer.h"
 #include "layout.h"
 #include "syntax.h"
-#include "table_constants.h"
+#include "ui_constants.h"
 #include <algorithm>
 static constexpr float CODE_BLOCK_NO_WRAP_WIDTH = 10000.0f;
 static constexpr float LAYOUT_MAX_HEIGHT = 100000.0f;

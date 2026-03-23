@@ -31,8 +31,9 @@ void App::NavigateToAnchor(std::wstring_view anchor) {
     float target_y = layout_cache_[idx].y_position - renderer_.GetTheme().heading_spacing_above;
     target_y = std::max(0.0f, target_y);
     viewport_.ScrollTo(target_y);
-    UpdateScrollBar();
-    InvalidateMdPane();
+    auto layout = GetPaneLayout();
+    UpdateScrollBar(layout.md_rect.height);
+    InvalidateMdPane(layout.md_rect);
 }
 
 void App::PushNavHistory() {
@@ -47,8 +48,9 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result) {
         DoLoadMarkdownFile();
     }
     viewport_.ScrollTo(result.scroll_y);
-    UpdateScrollBar();
-    InvalidateMdPane();
+    auto layout = GetPaneLayout();
+    UpdateScrollBar(layout.md_rect.height);
+    InvalidateMdPane(layout.md_rect);
 }
 
 void App::NavigateBack() {
@@ -65,8 +67,7 @@ void App::NavigateForward() {
 
 void App::ToggleDarkMode() {
     theme_service_.ToggleDarkMode();
-    Theme new_theme = theme_service_.CreateTheme(viewport_.GetZoomIndex());
-    renderer_.SetTheme(new_theme);
+    renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
     ApplyDarkModeToWindow(hwnd_, theme_service_.IsDarkMode());
 
     // 全レイアウトとMermaid図を一括で無効化
@@ -74,25 +75,9 @@ void App::ToggleDarkMode() {
     mermaid_renderer_.CancelPending();
     mermaid_renderer_.ClearCache();
 
-    float md_width = GetMarkdownPaneWidth();
-    renderer_.GetLayout().UpdateTheme(renderer_.GetTheme());
-    renderer_.GetLayout().RecreateFormats();
-    renderer_.GetLayout().LayoutNodes(doc_.GetNodesMut(), layout_cache_, md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
-    float total_height = ComputeTotalContentHeight(layout_cache_, doc_.GetNodes().size(), renderer_.GetTheme().margin_top);
-    auto* rt = renderer_.GetRenderTarget();
-    float viewport_height;
-    if (rt) {
-        viewport_height = rt->GetSize().height;
-    } else {
-        RECT rc;
-        GetClientRect(hwnd_, &rc);
-        viewport_height = static_cast<float>(rc.bottom - rc.top) / cached_dpi_scale_;
-    }
-    viewport_.SyncMaxScroll(total_height, viewport_height);
-
+    UpdateLayoutAndScroll(viewport_.GetScrollY());
     RequestMermaidRenders();
     theme_service_.SaveDarkMode();
-    InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 // ============================================================
@@ -129,21 +114,21 @@ void App::ApplyZoom(float new_zoom) {
 
     layout_cache_.InvalidateAllLayouts();
 
-    float md_width = GetMarkdownPaneWidth();
-    renderer_.GetLayout().LayoutNodes(doc_.GetNodesMut(), layout_cache_,
-        md_width - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right);
+    auto layout = GetPaneLayout();
+    renderer_.LayoutAllNodes(doc_.GetNodesMut(), layout_cache_, layout.md_rect.width);
 
     if (anchor_idx >= 0 && anchor_idx < static_cast<int>(doc_.GetNodes().size())) {
         float anchor_y_after = layout_cache_[anchor_idx].y_position;
         viewport_.SetScrollY(anchor_y_after + anchor_offset * zoom_ratio);
     }
 
-    SyncMaxScroll();
+    float md_h = layout.md_rect.height;
+    SyncMaxScroll(md_h);
     viewport_.SetScrollTarget(viewport_.GetScrollY());
 
     RequestMermaidRenders();
 
-    UpdateScrollBar();
+    UpdateScrollBar(md_h);
     UpdateTitleBar();
     theme_service_.SaveZoomLevel(viewport_.GetZoomIndex());
     InvalidateRect(hwnd_, nullptr, FALSE);

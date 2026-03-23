@@ -44,11 +44,6 @@ void App::OnVScroll(WPARAM wParam) {
     }
 }
 
-void App::UpdateScrollBar() {
-    auto pane_layout = GetPaneLayout();
-    UpdateScrollBar(pane_layout.md_rect.height);
-}
-
 void App::UpdateScrollBar(float md_pane_height) {
     SCROLLINFO si{};
     si.cbSize = sizeof(si);
@@ -86,11 +81,6 @@ void App::UpdateSmoothScroll() {
     InvalidateMdPane(layout.md_rect);
 }
 
-void App::InvalidateMdPane() {
-    auto layout = GetPaneLayout();
-    InvalidateMdPane(layout.md_rect);
-}
-
 void App::InvalidateMdPane(const PaneRect& md_rect) {
     if (!renderer_.GetRenderTarget()) {
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -111,12 +101,6 @@ void App::StopSmoothScroll() {
     KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
 }
 
-void App::SyncMaxScroll() {
-    auto pane_layout = GetPaneLayout();
-    float total = layout_service_->GetTotalHeight();
-    viewport_.SyncMaxScroll(total, pane_layout.md_rect.height);
-}
-
 void App::SyncMaxScroll(float md_pane_height) {
     float total = layout_service_->GetTotalHeight();
     viewport_.SyncMaxScroll(total, md_pane_height);
@@ -124,11 +108,6 @@ void App::SyncMaxScroll(float md_pane_height) {
 
 int App::FindFirstVisibleNode() const {
     return viewport_.FindFirstVisibleNode(layout_cache_, doc_.GetNodes().size());
-}
-
-void App::AnchorCompensateScroll(int anchor_idx, float anchor_y_before) {
-    viewport_.AnchorCompensateScroll(anchor_idx, anchor_y_before, layout_cache_);
-    SyncMaxScroll();
 }
 
 void App::AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height) {
