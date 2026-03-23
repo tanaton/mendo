@@ -1,6 +1,5 @@
 #include "hit_test_service.h"
-#include "table_constants.h"
-#include "nav_button_constants.h"
+#include "ui_constants.h"
 
 // 指定された行・列までのフラットテキストオフセットを計算する。
 static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int target_col) {

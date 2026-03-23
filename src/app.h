@@ -66,10 +66,7 @@ public:
     void OnXButtonForward();
 
     // タイマーコールバック
-    void OnSmoothScrollTimer();
-    void OnFileWatchTimer();
-    void OnDeferredLayoutTimer();
-    void OnLoadingAnimTimer();
+    void HandleTimer(UINT_PTR timer_id);
     void OnAppLoadFile();
     void OnCaptureChanged();
     void OnDestroy();
@@ -128,21 +125,17 @@ private:
 
     // レイアウト / スクロール
     void UpdateLayoutAndScroll(float desired_scroll);
-    void UpdateScrollBar();
     void UpdateScrollBar(float md_pane_height);
     void InvalidateMdPane(const PaneRect& md_rect);
     void ScrollTo(float position);
     void SmoothScrollBy(float delta);
     void UpdateSmoothScroll();
     void StopSmoothScroll();
-    void SyncMaxScroll();
     void SyncMaxScroll(float md_pane_height);
     int FindFirstVisibleNode() const;
-    void AnchorCompensateScroll(int anchor_idx, float anchor_y_before);
     void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height);
     void OnResizeEnd();
     void OnDeferredLayout();
-    void InvalidateMdPane();
 
     // ファイル読み込み (file_load_service_に委譲)
     void ReloadCurrentFile();

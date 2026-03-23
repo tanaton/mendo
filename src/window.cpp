@@ -170,15 +170,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         case WM_TIMER:
-            if (wParam == App::TIMER_SMOOTH_SCROLL) {
-                app_.OnSmoothScrollTimer();
-            } else if (wParam == App::TIMER_FILE_WATCH) {
-                app_.OnFileWatchTimer();
-            } else if (wParam == App::TIMER_DEFERRED_LAYOUT) {
-                app_.OnDeferredLayoutTimer();
-            } else if (wParam == App::TIMER_LOADING_ANIM) {
-                app_.OnLoadingAnimTimer();
-            }
+            app_.HandleTimer(wParam);
             return 0;
 
         case App::WM_APP_LOAD_FILE:
