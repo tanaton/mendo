@@ -1,5 +1,7 @@
 #include "file_explorer.h"
+#include "document_utils.h"
 #include <algorithm>
+#include <filesystem>
 
 void FileExplorer::SetDirectory(std::wstring_view dir_path) {
     std::pmr::wstring normalized{dir_path};
@@ -18,31 +20,21 @@ void FileExplorer::Refresh() {
 
     // 親ディレクトリエントリ ".." を追加（"C:\" のようなルートでは追加しない）
     {
-        // 親を検索: 末尾のバックスラッシュを除去し、最後の区切り文字を探す
-        std::wstring_view parent_view{directory_};
-        // ドライブルート（例: "C:\"）では ".." を追加しない
-        if (parent_view.size() > 3 || (parent_view.size() == 3 && parent_view[1] != L':')) {
-            auto pos = parent_view.find_last_of(L"\\/");
-            if (pos != std::wstring_view::npos && pos > 0) {
-                // "C:\" だけでないことを確認
-                std::pmr::wstring parent_dir{parent_view.substr(0, pos)};
-                // "C:" → "C:\" に変換
-                if (parent_dir.size() == 2 && parent_dir[1] == L':') {
-                    parent_dir += L"\\";
-                }
-                FileEntry pe;
-                pe.filename = L"..";
-                pe.full_path = parent_dir;
-                pe.is_directory = true;
-                pe.is_parent = true;
-                entries_.push_back(std::move(pe));
-            }
+        std::filesystem::path dir_path{std::wstring_view{directory_}};
+        auto parent = dir_path.parent_path();
+        if (parent != dir_path) {
+            FileEntry pe;
+            pe.filename = L"..";
+            pe.full_path.assign(std::wstring_view{parent.native()});
+            pe.is_directory = true;
+            pe.is_parent = true;
+            entries_.push_back(std::move(pe));
         }
     }
 
     // ディレクトリ内の全アイテムを列挙
-    std::pmr::wstring pattern{directory_};
-    pattern += L"\\*";
+    std::filesystem::path dir_base{directory_.c_str()};
+    auto pattern = dir_base / L"*";
     WIN32_FIND_DATAW fd;
     HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE) return;
@@ -64,28 +56,14 @@ void FileExplorer::Refresh() {
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             FileEntry entry;
             entry.filename = fd.cFileName;
-            entry.full_path = directory_;
-            entry.full_path += L"\\";
-            entry.full_path += fd.cFileName;
+            entry.full_path.assign(std::wstring_view{(dir_base / fd.cFileName).native()});
             entry.is_directory = true;
             dirs.push_back(std::move(entry));
-        } else {
-            // Markdownファイル（.md, .markdown, .mkd）のみ表示
-            std::pmr::wstring name = fd.cFileName;
-            auto dot_pos = name.rfind(L'.');
-            if (dot_pos != std::pmr::wstring::npos) {
-                auto ext = name.substr(dot_pos);
-                if (_wcsicmp(ext.c_str(), L".md") == 0 ||
-                    _wcsicmp(ext.c_str(), L".markdown") == 0 ||
-                    _wcsicmp(ext.c_str(), L".mkd") == 0) {
-                    FileEntry entry;
-                    entry.filename = fd.cFileName;
-                    entry.full_path = directory_;
-                    entry.full_path += L"\\";
-                    entry.full_path += fd.cFileName;
-                    files.push_back(std::move(entry));
-                }
-            }
+        } else if (IsMarkdownFile(fd.cFileName)) {
+            FileEntry entry;
+            entry.filename = fd.cFileName;
+            entry.full_path.assign(std::wstring_view{(dir_base / fd.cFileName).native()});
+            files.push_back(std::move(entry));
         }
     } while (FindNextFileW(hFind, &fd));
 

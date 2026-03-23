@@ -1,10 +1,11 @@
 #include "window.h"
 #include "memory_resource.h"
 #include <windows.h>
+#include <shellapi.h>
 #include <shellscalingapi.h>
 #include <commctrl.h>
 
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdShow) {
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow) {
     // グローバル同期プールリソースを初期化（最初に呼び出す）
     InitGlobalMemoryResource();
 
@@ -28,13 +29,19 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
     }
 
     // コマンドラインでファイルが指定されていればそれを読み込み、なければ前回のファイルを復元
-    if (lpCmdLine && lpCmdLine[0]) {
-        std::pmr::wstring path = lpCmdLine;
-        // 引用符があれば除去
-        if (path.size() >= 2 && path.front() == L'"' && path.back() == L'"') {
-            path = path.substr(1, path.size() - 2);
+    // CommandLineToArgvWで正規のパースを行い、引用符やスペースを正しく処理する
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv) {
+        if (argc > 1) {
+            window.LoadMarkdownFile(argv[1]);
+        } else {
+            std::pmr::wstring last = window.LoadLastFilePath();
+            if (!last.empty()) {
+                window.LoadMarkdownFile(last);
+            }
         }
-        window.LoadMarkdownFile(path);
+        LocalFree(argv);
     } else {
         std::pmr::wstring last = window.LoadLastFilePath();
         if (!last.empty()) {

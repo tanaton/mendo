@@ -1,5 +1,6 @@
 #include "document.h"
 #include "parser.h"
+#include <filesystem>
 
 Document Document::FromMarkdown(const std::pmr::string& utf8, std::wstring_view path) {
     Document doc;
@@ -10,9 +11,9 @@ Document Document::FromMarkdown(const std::pmr::string& utf8, std::wstring_view 
 }
 
 std::pmr::wstring Document::GetDirectory() const {
-    auto pos = file_path_.find_last_of(L"\\/");
-    if (pos != std::pmr::wstring::npos) {
-        return file_path_.substr(0, pos);
+    auto dir = std::filesystem::path(file_path_.c_str()).parent_path();
+    if (!dir.empty()) {
+        return std::pmr::wstring{std::wstring_view{dir.native()}};
     }
     return {};
 }

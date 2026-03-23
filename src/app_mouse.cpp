@@ -4,6 +4,18 @@
 #include "ui_constants.h"
 #include "resource.h"
 #include <shellapi.h>
+#include <cwctype>
+#include <filesystem>
+
+namespace {
+
+bool IsEditableTextFile(std::wstring_view path) {
+    auto ext = std::filesystem::path(path).extension().wstring();
+    for (auto& c : ext) c = std::towlower(c);
+    return ext == L".md" || ext == L".markdown" || ext == L".mkd" || ext == L".txt";
+}
+
+} // namespace
 
 // ============================================================
 // コンテキストメニュー
@@ -37,8 +49,12 @@ void App::OnContextMenu(int screen_x, int screen_y) {
     DestroyMenu(menu);
 
     if (cmd == IDM_EDIT_FILE) {
-        ShellExecuteW(hwnd_, L"open", doc_.GetFilePath().c_str(),
-                      nullptr, nullptr, SW_SHOWNORMAL);
+        // ファイル拡張子がMarkdown/テキストであることを検証してからShellExecuteを実行
+        const auto& file_path = doc_.GetFilePath();
+        if (IsEditableTextFile(file_path)) {
+            ShellExecuteW(hwnd_, L"edit", file_path.c_str(),
+                          nullptr, nullptr, SW_SHOWNORMAL);
+        }
     } else if (cmd == IDM_COPY) {
         CopySelectionToClipboard();
     } else if (cmd == IDM_TOGGLE_DARK_MODE) {

@@ -27,6 +27,13 @@ std::filesystem::path GetConfigDir() {
 }
 
 std::filesystem::path GetConfigPath(std::wstring_view filename) {
+    // パストラバーサル防御: ファイル名にパス区切り文字や危険なパターンが含まれていないことを検証
+    if (filename.empty()) return {};
+    for (wchar_t c : filename) {
+        if (c == L'\\' || c == L'/' || c == L':') return {};
+    }
+    if (filename.find(L"..") != std::wstring_view::npos) return {};
+
     auto dir = GetConfigDir();
     if (dir.empty()) return {};
     return dir / filename;

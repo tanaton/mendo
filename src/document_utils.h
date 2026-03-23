@@ -35,6 +35,10 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos);
 // ASCII範囲の大文字を小文字に変換する。
 [[nodiscard]] std::pmr::wstring ToLowerAscii(std::wstring_view text);
 
+// ファイルパスまたはファイル名がMarkdownファイル（.md, .markdown, .mkd）かどうかを判定する。
+// 拡張子の大文字小文字は区別しない。
+[[nodiscard]] bool IsMarkdownFile(std::wstring_view path);
+
 // フルファイルパスからファイル名部分を抽出する。
 // 例: "C:\\dir\\file.md" -> "file.md"
 [[nodiscard]] std::pmr::wstring ExtractFilename(std::wstring_view path);

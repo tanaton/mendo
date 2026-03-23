@@ -1,5 +1,7 @@
 #include "document_utils.h"
 #include <windows.h>
+#include <cwctype>
+#include <filesystem>
 
 std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
                                   const TextSelection& selection) {
@@ -118,13 +120,15 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) {
     return result;
 }
 
+bool IsMarkdownFile(std::wstring_view path) {
+    auto ext = std::filesystem::path(path).extension().wstring();
+    for (auto& c : ext) c = std::towlower(c);
+    return ext == L".md" || ext == L".markdown" || ext == L".mkd";
+}
+
 std::pmr::wstring ExtractFilename(std::wstring_view path) {
     if (path.empty()) return {};
-    auto pos = path.find_last_of(L"\\/");
-    if (pos != std::wstring_view::npos) {
-        return std::pmr::wstring{path.substr(pos + 1)};
-    }
-    return std::pmr::wstring{path};
+    return std::pmr::wstring{std::wstring_view{std::filesystem::path(path).filename().native()}};
 }
 
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent) {

@@ -138,10 +138,10 @@ static std::pmr::wstring GetWebView2UserDataFolder() {
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
         return L"";
     }
-    std::pmr::wstring path = std::pmr::wstring(appdata) + L"\\mendo\\WebView2Data";
+    auto path = std::filesystem::path(appdata) / L"mendo" / L"WebView2Data";
     CoTaskMemFree(appdata);
     std::filesystem::create_directories(path);
-    return path;
+    return std::pmr::wstring{std::wstring_view{path.native()}};
 }
 
 // FNV-1a 64ビットハッシュ - mermaid_util.cppに移動済み
@@ -279,10 +279,36 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                     }).Get(),
                                 nullptr);
 
+                            // ナビゲーションを制限: app.local以外へのナビゲーションをブロック
+                            webview_->add_NavigationStarting(
+                                Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
+                                    [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                                        LPWSTR uri = nullptr;
+                                        if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
+                                            if (wcsncmp(uri, L"https://app.local/", 18) != 0 &&
+                                                wcscmp(uri, L"about:blank") != 0) {
+                                                args->put_Cancel(TRUE);
+                                            }
+                                            CoTaskMemFree(uri);
+                                        }
+                                        return S_OK;
+                                    }).Get(),
+                                nullptr);
+
+                            // 新規ウィンドウの要求を全てブロック
+                            webview_->add_NewWindowRequested(
+                                Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+                                    [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
+                                        args->put_Handled(TRUE);
+                                        return S_OK;
+                                    }).Get(),
+                                nullptr);
+
                             // 仮想ホストへのリクエストをインターセプトし、
                             // 埋め込みWin32リソースからHTML / mermaid.jsを配信する。
+                            // 全URLをフィルタし、app.local以外へのリクエストもブロックする。
                             webview_->AddWebResourceRequestedFilter(
-                                L"https://app.local/*",
+                                L"*",
                                 COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
 
                             webview_->add_WebResourceRequested(
@@ -295,6 +321,15 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                                         request->get_Uri(&uri);
                                         std::pmr::wstring url(uri ? uri : L"");
                                         CoTaskMemFree(uri);
+
+                                        // app.local以外へのリクエストをブロック（fetch/XHR等）
+                                        if (url.find(L"app.local") == std::pmr::wstring::npos) {
+                                            ComPtr<ICoreWebView2WebResourceResponse> response;
+                                            webview_env_->CreateWebResourceResponse(
+                                                nullptr, 403, L"Blocked", L"", &response);
+                                            args->put_Response(response.Get());
+                                            return S_OK;
+                                        }
 
                                         IStream* stream = nullptr;
                                         const wchar_t* headers = nullptr;

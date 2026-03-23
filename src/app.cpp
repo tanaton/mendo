@@ -540,7 +540,11 @@ void App::SaveLastFilePath() {
 
 std::pmr::wstring App::LoadLastFilePath() const {
     std::pmr::wstring path = config_.LoadWString(L"last_file.txt");
-    if (!path.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (path.empty()) return {};
+    // 安全なローカルファイルパスであることを検証
+    // UNCパス (\\server\...) やデバイスパス (\\.\, \\?\) をブロック
+    if (path.size() >= 2 && path[0] == L'\\' && path[1] == L'\\') return {};
+    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return {};
     }
     return path;
