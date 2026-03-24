@@ -103,7 +103,9 @@ private:
     void PushNavHistory();
 
     // クリップボード・選択
+    void SetClipboardText(std::wstring_view text) const;
     void CopySelectionToClipboard() const;
+    void CopyCodeBlockToClipboard(int node_index) const;
     void SelectAll();
     void ClearSelection();
 
@@ -211,4 +213,7 @@ private:
     // ナビゲーションオーバーレイ
     using NavButtonHover = HitTestService::NavButtonHover;
     NavButtonHover nav_hover_ = NavButtonHover::None;
+
+    // コードブロック コピーボタン
+    int hovered_copy_node_ = -1;
 };

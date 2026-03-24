@@ -24,7 +24,7 @@ bool Renderer::Init(HWND hwnd) {
     if (!layout_.Init(&measurer_, theme_)) return false;
 
     cmd_generator_.SetTheme(&theme_);
-    cmd_generator_.SetFormats({fmt_list_number_.Get(), icon_font_format_.Get()});
+    cmd_generator_.SetFormats({fmt_list_number_.Get(), icon_font_format_.Get(), fmt_copy_btn_icon_.Get()});
 
     return true;
 }
@@ -141,6 +141,14 @@ void Renderer::RecreatePaneFormats() {
 
     icon_font_format_ = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");
 
+    // コピーボタン用アイコンフォーマット（両軸中央揃え）
+    fmt_copy_btn_icon_ = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");
+    if (fmt_copy_btn_icon_) {
+        fmt_copy_btn_icon_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_copy_btn_icon_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_copy_btn_icon_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
     // リスト番号フォーマット（順序付きリストの番号を右揃え）
     fmt_list_number_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
     if (fmt_list_number_) {
@@ -198,7 +206,7 @@ void Renderer::RecreatePaneFormats() {
     toc_pane_cache_.Reset();
 
     // コマンドジェネレータのフォーマットを更新
-    cmd_generator_.SetFormats({fmt_list_number_.Get(), icon_font_format_.Get()});
+    cmd_generator_.SetFormats({fmt_list_number_.Get(), icon_font_format_.Get(), fmt_copy_btn_icon_.Get()});
 }
 
 // ---- ノード描画 ----
@@ -362,6 +370,7 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
                       const SidePaneState& sp,
                       bool can_go_back, bool can_go_forward,
                       int nav_hovered,
+                      int hovered_copy_node,
                       const GestureRenderState& gesture) {
     if (!rt()) return;
 
@@ -391,7 +400,7 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
     ApplyVisibleEffects(nodes, cache, first_visible, viewport_bottom);
 
     // Markdownコンテンツペインの描画コマンドを生成・実行。
-    const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection, first_visible);
+    const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection, first_visible, hovered_copy_node);
     cmd_executor_.Execute(cmds, rt());
 
     // ナビゲーションオーバーレイボタン（戻る/進む）を描画

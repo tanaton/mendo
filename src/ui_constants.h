@@ -36,3 +36,17 @@ inline constexpr float NAV_BTN_MARGIN = 16.0f;
 inline constexpr float NAV_BTN_GAP = 2.0f;
 inline constexpr float NAV_BTN_CORNER = 6.0f;
 inline constexpr float NAV_BTN_SCROLLBAR_OFFSET = 16.0f;
+
+// コードブロック コピーボタンの定数（DIP単位）。
+// CommandGenerator（描画）とHitTestService（クリック検出）の間で共有される。
+inline constexpr float COPY_BTN_SIZE = 28.0f;
+inline constexpr float COPY_BTN_MARGIN = 6.0f;
+inline constexpr float COPY_BTN_CORNER = 4.0f;
+
+// コードブロック背景の右上を基準にコピーボタンの矩形を返す。
+// block_right: コードブロック背景の右端, block_top: コードブロック背景の上端
+inline D2D1_RECT_F CopyButtonRect(float block_right, float block_top) noexcept {
+    float bx = block_right - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+    float by = block_top + COPY_BTN_MARGIN;
+    return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);
+}

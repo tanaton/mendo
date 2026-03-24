@@ -18,7 +18,7 @@ protected:
         theme_ = GetLightTheme();
         ASSERT_TRUE(engine_.Init(&mock_, theme_));
         gen_.SetTheme(&theme_);
-        gen_.SetFormats({nullptr, nullptr}); // モックテストでは実際のDWriteフォーマットなし
+        gen_.SetFormats({nullptr, nullptr, nullptr}); // モックテストでは実際のDWriteフォーマットなし
     }
 
     // ヘルパー: Markdownをパースし、レイアウトを計算し、MDペイン用のコマンドを生成する。
@@ -409,4 +409,39 @@ TEST_F(CmdGenTest, AllAlertTypesGenerateCommands) {
         }
         EXPECT_GE(lines, 1) << "Alert '" << md << "' はバー線を生成するべき";
     }
+}
+
+// ---- コピーボタン ----
+
+// icon_font が null の場合、コピーボタン用の DrawTextCmd は生成されない
+TEST_F(CmdGenTest, CodeBlockNoCopyButtonWithoutIconFont) {
+    auto cmds = Generate("```\ncode\n```");
+    int text_cmd_count = 0;
+    for (const auto& cmd : cmds) {
+        if (std::holds_alternative<DrawTextCmd>(cmd)) text_cmd_count++;
+    }
+    EXPECT_EQ(text_cmd_count, 0) << "icon_font が null のときコピーボタンの DrawTextCmd は生成されないべき";
+}
+
+// 非コードブロックノードはコピーボタンのコマンドを生成しない
+TEST_F(CmdGenTest, NonCodeBlockNoCopyButton) {
+    auto cmds = Generate("Hello world");
+    int text_cmd_count = 0;
+    for (const auto& cmd : cmds) {
+        if (std::holds_alternative<DrawTextCmd>(cmd)) text_cmd_count++;
+    }
+    EXPECT_EQ(text_cmd_count, 0);
+}
+
+// hovered_copy_node パラメータが GenerateMdPane に渡せることの検証
+TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted) {
+    auto nodes = ParseMarkdown("```\ncode\n```");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    // hovered_copy_node=0 を渡してもクラッシュしない
+    auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, -1, 0);
+    EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
+    EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
 }

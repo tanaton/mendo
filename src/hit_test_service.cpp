@@ -167,6 +167,57 @@ HitTestService::HitResult HitTestService::HitTestTable(
     return result;
 }
 
+int HitTestService::CopyButtonHitTest(
+    const std::pmr::vector<Node>& nodes,
+    const LayoutCache& cache,
+    const Theme& theme,
+    float scroll_y,
+    float md_pane_left,
+    float content_width,
+    float md_pane_height,
+    float dpi_scale,
+    int screen_x, int screen_y) const noexcept {
+
+    if (nodes.empty()) return -1;
+
+    // 物理ピクセルをDIPに変換（ドキュメント空間）
+    float dip_x = screen_x / dpi_scale - md_pane_left;
+    float dip_y = screen_y / dpi_scale + scroll_y;
+
+    // コピーボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
+    float btn_left_bound = theme.margin_left + content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+    if (dip_x < btn_left_bound) return -1;
+
+    float viewport_top = scroll_y;
+    float viewport_bottom = scroll_y + md_pane_height;
+
+    // 可視範囲のコードブロックを検索
+    int first = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
+    int count = static_cast<int>(nodes.size());
+    for (int i = first; i < count; i++) {
+        if (cache[i].y_position > viewport_bottom) break;
+
+        const auto& node = nodes[i];
+        if (node.type != NodeType::CodeBlock) continue;
+        if (node.code_language == SyntaxLanguage::Mermaid) continue;
+
+        float indent = node.indent_level * theme.indent_width;
+        float x = theme.margin_left + indent;
+        float w = content_width - indent;
+        float pad = theme.code_block_padding;
+
+        float block_right = x + w;
+        float block_top = cache[i].y_position - pad;
+
+        D2D1_RECT_F btn = CopyButtonRect(block_right, block_top);
+        if (dip_x >= btn.left && dip_x <= btn.right &&
+            dip_y >= btn.top && dip_y <= btn.bottom) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 HitTestService::NavButtonHover HitTestService::NavButtonHitTest(
     float dip_x, float dip_y, const PaneRect& md_rect) const noexcept {
     float base_x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;

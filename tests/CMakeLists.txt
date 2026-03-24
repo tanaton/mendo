@@ -26,6 +26,7 @@ add_executable(mendo_tests
     test_theme_service.cpp
     test_file_load_service.cpp
     test_layout_cache.cpp
+    test_copy_button.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

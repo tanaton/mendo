@@ -187,7 +187,7 @@ void App::OnPaint() {
         renderer_.Render(doc_.GetNodesMut(), layout_cache_, viewport_.GetScrollY(), viewport_.GetSelection(),
                          layout.md_rect, sp,
                          nav_service_.CanGoBack(), nav_service_.CanGoForward(),
-                         static_cast<int>(nav_hover_), gs);
+                         static_cast<int>(nav_hover_), hovered_copy_node_, gs);
     }
 
     EndPaint(hwnd_, &ps);

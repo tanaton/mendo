@@ -6,7 +6,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
-        int first_visible) {
+        int first_visible,
+        int hovered_copy_node) {
     // 古いコマンドリストを破棄し、monotonic リソースをリセットして再利用する。
     // cmds_ を先に空のリストで置き換えてから Reset() を呼ぶことで、
     // 解放済みメモリを指す内部バッファが残らないようにする。
@@ -37,7 +38,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         if (cache[i].y_position > viewport_bottom) break;
         GenerateNode(cmds, nodes[i], cache[i], cache.GetDiagram(i),
                      i, offset_x, viewport_top, viewport_bottom,
-                     selection, md_content_width);
+                     selection, md_content_width, hovered_copy_node);
     }
 
     cmds.push_back(SetTransformCmd{D2D1::Matrix3x2F::Identity()});
@@ -48,7 +49,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
 void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
         int node_index, float offset_x, float viewport_top, float viewport_bottom,
-        const TextSelection& selection, float content_width) {
+        const TextSelection& selection, float content_width,
+        int hovered_copy_node) {
     // ビューポート外のノードをカリング
     float node_bottom = entry.y_position + entry.height;
     if (node_bottom < viewport_top || entry.y_position > viewport_bottom) return;
@@ -84,6 +86,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                 return;
             }
             GenCodeBlockBg(cmds, entry, x, cw);
+            GenCopyButton(cmds, entry, x, cw, node_index == hovered_copy_node);
             break;
 
         case NodeType::ListItem:
@@ -305,6 +308,31 @@ void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds,
         x - pad, entry.y_position - pad,
         x + w, entry.y_position + entry.height + pad);
     cmds.push_back(FillRoundedRectCmd{bg_rect, 4.0f, 4.0f, theme_->code_bg_color});
+}
+
+void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
+        const NodeLayoutEntry& entry, float x, float w, bool is_hovered) {
+    if (!formats_.copy_btn_icon) return;
+
+    float pad = theme_->code_block_padding;
+    D2D1_RECT_F btn = CopyButtonRect(x + w, entry.y_position - pad);
+
+    float bg_alpha = is_hovered
+        ? (cached_is_dark_ ? 0.30f : 0.15f)
+        : (cached_is_dark_ ? 0.10f : 0.05f);
+    D2D1_COLOR_F bg_color = cached_is_dark_
+        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha)
+        : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
+    cmds.push_back(FillRoundedRectCmd{btn, COPY_BTN_CORNER, COPY_BTN_CORNER, bg_color});
+
+    float text_alpha = is_hovered
+        ? (cached_is_dark_ ? 0.9f : 0.8f)
+        : (cached_is_dark_ ? 0.4f : 0.35f);
+    D2D1_COLOR_F icon_color = cached_is_dark_
+        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
+        : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
+    const wchar_t icon = L'\uE8C8';
+    cmds.push_back(DrawTextCmd::Make(&icon, 1, btn, formats_.copy_btn_icon, icon_color));
 }
 
 void CommandGenerator::GenListBullet(DrawCommandList& cmds,

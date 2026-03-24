@@ -33,4 +33,16 @@ public:
     // ナビゲーションボタンのヒットテスト
     enum class NavButtonHover { None, Back, Forward };
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept;
+
+    // コードブロックのコピーボタンのヒットテスト。
+    // ヒットしたコードブロックのノードインデックスを返す（-1=なし）。
+    int CopyButtonHitTest(const std::pmr::vector<Node>& nodes,
+                          const LayoutCache& cache,
+                          const Theme& theme,
+                          float scroll_y,
+                          float md_pane_left,
+                          float content_width,
+                          float md_pane_height,
+                          float dpi_scale,
+                          int screen_x, int screen_y) const noexcept;
 };

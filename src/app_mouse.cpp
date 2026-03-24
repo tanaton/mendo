@@ -252,6 +252,11 @@ void App::OnLButtonDown(int px, int py) {
                 NavigateForward();
                 return;
             }
+            // コピーボタンのクリック判定
+            if (hovered_copy_node_ >= 0) {
+                CopyCodeBlockToClipboard(hovered_copy_node_);
+                return;
+            }
             break;
         }
         default:
@@ -411,12 +416,31 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     auto old_nav_hover = nav_hover_;
     nav_hover_ = nav_hit;
     if (nav_hit != NavButtonHover::None) {
+        hovered_copy_node_ = -1;
         SetCursor(cursor_hand_);
         if (nav_hit != old_nav_hover)
             InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
     if (old_nav_hover != NavButtonHover::None)
+        InvalidateRect(hwnd_, nullptr, FALSE);
+
+    // コピーボタンのホバー判定
+    float content_width = pane_layout.md_rect.width
+        - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right;
+    int old_copy_hover = hovered_copy_node_;
+    hovered_copy_node_ = hit_test_.CopyButtonHitTest(
+        doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
+        viewport_.GetScrollY(), pane_layout.md_rect.x,
+        content_width, pane_layout.md_rect.height,
+        cached_dpi_scale_, px, py);
+    if (hovered_copy_node_ >= 0) {
+        SetCursor(cursor_hand_);
+        if (hovered_copy_node_ != old_copy_hover)
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+    if (old_copy_hover >= 0)
         InvalidateRect(hwnd_, nullptr, FALSE);
 
     int dx = px - last_md_hit_pos_.x;
@@ -466,21 +490,18 @@ void App::SelectAll() {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
-void App::CopySelectionToClipboard() const {
-    if (!viewport_.GetSelection().active) return;
-
-    std::pmr::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
-    if (result.empty()) return;
-
+void App::SetClipboardText(std::wstring_view text) const {
+    if (text.empty()) return;
     if (!OpenClipboard(hwnd_)) return;
     EmptyClipboard();
 
-    size_t bytes = (result.size() + 1) * sizeof(wchar_t);
+    size_t bytes = (text.size() + 1) * sizeof(wchar_t);
     HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
     if (hMem) {
         void* ptr = GlobalLock(hMem);
         if (ptr) {
-            memcpy(ptr, result.c_str(), bytes);
+            memcpy(ptr, text.data(), text.size() * sizeof(wchar_t));
+            static_cast<wchar_t*>(ptr)[text.size()] = L'\0';
             GlobalUnlock(hMem);
             if (!SetClipboardData(CF_UNICODETEXT, hMem)) {
                 GlobalFree(hMem);
@@ -490,4 +511,16 @@ void App::CopySelectionToClipboard() const {
         }
     }
     CloseClipboard();
+}
+
+void App::CopySelectionToClipboard() const {
+    if (!viewport_.GetSelection().active) return;
+    std::pmr::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
+    SetClipboardText(result);
+}
+
+void App::CopyCodeBlockToClipboard(int node_index) const {
+    const auto& nodes = doc_.GetNodes();
+    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) return;
+    SetClipboardText(nodes[node_index].text);
 }
