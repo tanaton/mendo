@@ -335,36 +335,36 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
     }
 }
 
-void CommandGenerator::GenBlockQuoteBar(DrawCommandList& cmds,
-        const NodeLayoutEntry& entry, float base_x) {
+void CommandGenerator::GenVerticalBar(DrawCommandList& cmds,
+        const NodeLayoutEntry& entry, float base_x, D2D1_COLOR_F color) {
+    static constexpr float BAR_EXTEND = 2.0f;
     float bar_x = base_x - theme_->indent_width * 0.5f;
     cmds.push_back(DrawLineCmd{
-        D2D1::Point2F(bar_x, entry.y_position - 2.0f),
-        D2D1::Point2F(bar_x, entry.y_position + entry.height + 2.0f),
-        theme_->blockquote_bar_color, theme_->blockquote_bar_width});
+        D2D1::Point2F(bar_x, entry.y_position - BAR_EXTEND),
+        D2D1::Point2F(bar_x, entry.y_position + entry.height + BAR_EXTEND),
+        color, theme_->blockquote_bar_width});
+}
+
+void CommandGenerator::GenBlockQuoteBar(DrawCommandList& cmds,
+        const NodeLayoutEntry& entry, float base_x) {
+    GenVerticalBar(cmds, entry, base_x, theme_->blockquote_bar_color);
 }
 
 void CommandGenerator::GenAlertBar(DrawCommandList& cmds,
         const Node& node, const NodeLayoutEntry& entry, float base_x, float content_width) {
-    auto idx = static_cast<size_t>(node.alert_type) - 1;
-    if (idx >= 5) return;
-
-    D2D1_COLOR_F bar_color = theme_->alert_color[idx];
-    D2D1_COLOR_F bg_color = theme_->alert_bg_color[idx];
+    auto idx = AlertColorIndex(node.alert_type);
+    if (idx >= ALERT_TYPE_COUNT) return;
 
     // 背景
-    float pad = 4.0f;
+    static constexpr float ALERT_BG_PAD = 4.0f;
+    static constexpr float ALERT_BG_CORNER = 4.0f;
     D2D1_RECT_F bg_rect = D2D1::RectF(
-        base_x - pad, entry.y_position - pad,
-        base_x + content_width, entry.y_position + entry.height + pad);
-    cmds.push_back(FillRoundedRectCmd{bg_rect, 4.0f, 4.0f, bg_color});
+        base_x - ALERT_BG_PAD, entry.y_position - ALERT_BG_PAD,
+        base_x + content_width, entry.y_position + entry.height + ALERT_BG_PAD);
+    cmds.push_back(FillRoundedRectCmd{bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, theme_->alert_bg_color[idx]});
 
     // 左バー
-    float bar_x = base_x - theme_->indent_width * 0.5f;
-    cmds.push_back(DrawLineCmd{
-        D2D1::Point2F(bar_x, entry.y_position - 2.0f),
-        D2D1::Point2F(bar_x, entry.y_position + entry.height + 2.0f),
-        bar_color, theme_->blockquote_bar_width});
+    GenVerticalBar(cmds, entry, base_x, theme_->alert_color[idx]);
 }
 
 void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,

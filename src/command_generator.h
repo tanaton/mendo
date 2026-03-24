@@ -55,6 +55,7 @@ private:
                              uint32_t flat_offset);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
+    void GenVerticalBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x, D2D1_COLOR_F color);
     void GenBlockQuoteBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x);
     void GenAlertBar(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
                      float base_x, float content_width);

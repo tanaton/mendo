@@ -2,6 +2,7 @@
 #include <d2d1.h>
 #include <cstdint>
 #include <string>
+#include "types.h"
 
 struct Theme {
     // 色
@@ -15,9 +16,9 @@ struct Theme {
     D2D1_COLOR_F blockquote_bar_color;
     D2D1_COLOR_F blockquote_text_color;
 
-    // GitHub Alerts: Note, Tip, Important, Warning, Caution（AlertType-1でインデックス）
-    D2D1_COLOR_F alert_color[5];     // バー・ラベル色
-    D2D1_COLOR_F alert_bg_color[5];  // 背景色
+    // GitHub Alerts: AlertColorIndex() でインデックス
+    D2D1_COLOR_F alert_color[ALERT_TYPE_COUNT];     // バー・ラベル色
+    D2D1_COLOR_F alert_bg_color[ALERT_TYPE_COUNT];  // 背景色
 
     // シンタックスハイライトの色
     D2D1_COLOR_F syntax_keyword;

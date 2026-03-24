@@ -26,6 +26,13 @@ enum class AlertType : uint8_t {
     Caution
 };
 
+inline constexpr size_t ALERT_TYPE_COUNT = 5;
+
+// AlertType → 0ベースの色/ブラシインデックス。None の場合は ALERT_TYPE_COUNT を返す（範囲外）。
+constexpr size_t AlertColorIndex(AlertType t) noexcept {
+    return static_cast<size_t>(t) - 1;
+}
+
 struct TextRun {
     uint32_t start = 0;
     uint32_t length = 0;

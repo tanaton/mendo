@@ -582,11 +582,13 @@ void DetectAlerts(std::pmr::vector<Node>& nodes) {
         TransformAlertNode(nodes[i], type, marker_end);
 
         // 同一 blockquote_group の後続ノードにも同じ alert_type を伝播
-        for (size_t j = i + 1; j < nodes.size(); j++) {
+        size_t j = i + 1;
+        for (; j < nodes.size(); j++) {
             if (nodes[j].type != NodeType::BlockQuote) break;
             if (nodes[j].blockquote_group != group) break;
             nodes[j].alert_type = type;
         }
+        i = j - 1; // 伝播済みノードをスキップ
     }
 }
 

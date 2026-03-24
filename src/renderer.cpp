@@ -275,8 +275,9 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
             BrushId::AlertNote, BrushId::AlertTip, BrushId::AlertImportant,
             BrushId::AlertWarning, BrushId::AlertCaution,
         };
-        auto idx = static_cast<size_t>(node.alert_type) - 1;
-        if (idx < std::size(ALERT_BRUSH)) {
+        static_assert(std::size(ALERT_BRUSH) == ALERT_TYPE_COUNT);
+        auto idx = AlertColorIndex(node.alert_type);
+        if (idx < ALERT_TYPE_COUNT) {
             DWRITE_TEXT_RANGE range{0, node.alert_label_length};
             entry.text_layout->SetDrawingEffect(Brush(ALERT_BRUSH[idx]), range);
         }
