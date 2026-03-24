@@ -9,7 +9,9 @@
 bool Renderer::Init(HWND hwnd) {
     theme_ = GetLightTheme();
 
-    if (!backend_.Init(hwnd)) return false;
+    if (!backend_.Init(hwnd)) {
+        return false;
+    }
 
     RecreateBrushes();
     RecreatePaneFormats();
@@ -21,19 +23,25 @@ bool Renderer::Init(HWND hwnd) {
     backend_.GetD2DFactory()->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
 
     measurer_.SetFactory(backend_.GetDWriteFactory());
-    if (!layout_.Init(&measurer_, theme_)) return false;
+    if (!layout_.Init(&measurer_, theme_)) {
+        return false;
+    }
 
     cmd_generator_.SetTheme(&theme_);
-    cmd_generator_.SetFormats({fmt_list_number_.Get(), icon_font_format_.Get(), fmt_copy_btn_icon_.Get()});
+    cmd_generator_.SetFormats({ fmt_list_number_.Get(), icon_font_format_.Get(), fmt_copy_btn_icon_.Get() });
 
     return true;
 }
 
 void Renderer::RecreateBrushes() {
     auto* render_target_ = backend_.GetRenderTarget();
-    if (!render_target_) return;
+    if (!render_target_) {
+        return;
+    }
 
-    for (auto& b : brushes_) b.Reset();
+    for (auto& b : brushes_) {
+        b.Reset();
+    }
 
     bool is_dark = theme_.IsDark();
 
@@ -84,7 +92,9 @@ void Renderer::SetTheme(const Theme& theme) {
     UpdateLayoutTheme();
     RecreatePaneFormats();
     cmd_generator_.SetTheme(&theme_);
-    if (!backend_.GetRenderTarget()) return;
+    if (!backend_.GetRenderTarget()) {
+        return;
+    }
     RecreateBrushes();
 }
 
@@ -206,7 +216,7 @@ void Renderer::RecreatePaneFormats() {
     toc_pane_cache_.Reset();
 
     // コマンドジェネレータのフォーマットを更新
-    cmd_generator_.SetFormats({fmt_list_number_.Get(), icon_font_format_.Get(), fmt_copy_btn_icon_.Get()});
+    cmd_generator_.SetFormats({ fmt_list_number_.Get(), icon_font_format_.Get(), fmt_copy_btn_icon_.Get() });
 }
 
 // ---- ノード描画 ----
@@ -214,10 +224,12 @@ void Renderer::RecreatePaneFormats() {
 // D2Dブラシが必要なApplyNodeEffectsのみ描画前パスとしてここに残る。
 
 void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-                                    int first_visible, float viewport_bottom) {
+    int first_visible, float viewport_bottom) {
     int node_count = static_cast<int>(nodes.size());
     for (int i = first_visible; i < node_count; i++) {
-        if (cache[i].y_position > viewport_bottom) break;
+        if (cache[i].y_position > viewport_bottom) {
+            break;
+        }
         ApplyNodeEffects(nodes[i], cache[i]);
     }
 }
@@ -234,12 +246,16 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const {
         BrushId::SyntaxFunction,      // 関数
     };
     auto idx = static_cast<size_t>(type);
-    if (idx >= std::size(SYNTAX_MAP)) return nullptr;
+    if (idx >= std::size(SYNTAX_MAP)) {
+        return nullptr;
+    }
     return Brush(SYNTAX_MAP[idx]);
 }
 
 void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
-    if (entry.effects_applied) return;
+    if (entry.effects_applied) {
+        return;
+    }
     entry.effects_applied = true;
 
     // テーブルセル: セルレイアウトにリンク色を適用
@@ -248,12 +264,15 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
             const auto& row = node.table_rows[r];
             for (size_t c = 0; c < row.cells.size(); c++) {
                 IDWriteTextLayout* cell_layout = nullptr;
-                if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size())
+                if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
                     cell_layout = entry.cell_layouts[r][c].Get();
-                if (!cell_layout) continue;
+                }
+                if (!cell_layout) {
+                    continue;
+                }
                 for (const auto& run : row.cells[c].runs) {
                     if (run.link_url.has_value()) {
-                        DWRITE_TEXT_RANGE range{run.start, run.length};
+                        DWRITE_TEXT_RANGE range{ run.start, run.length };
                         cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                     }
                 }
@@ -262,15 +281,19 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
         return;
     }
 
-    if (!entry.text_layout) return;
+    if (!entry.text_layout) {
+        return;
+    }
 
     // コードブロックにシンタックスハイライトを適用
     if (node.type == NodeType::CodeBlock) {
         for (const auto& token : node.syntax_tokens) {
-            if (token.type == SyntaxTokenType::Plain) continue;
+            if (token.type == SyntaxTokenType::Plain) {
+                continue;
+            }
             auto* brush = GetSyntaxBrush(token.type);
             if (brush) {
-                DWRITE_TEXT_RANGE range{token.start, token.length};
+                DWRITE_TEXT_RANGE range{ token.start, token.length };
                 entry.text_layout->SetDrawingEffect(brush, range);
             }
         }
@@ -286,7 +309,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
         static_assert(std::size(ALERT_BRUSH) == ALERT_TYPE_COUNT);
         auto idx = AlertColorIndex(node.alert_type);
         if (idx < ALERT_TYPE_COUNT) {
-            DWRITE_TEXT_RANGE range{0, node.alert_label_length};
+            DWRITE_TEXT_RANGE range{ 0, node.alert_label_length };
             entry.text_layout->SetDrawingEffect(Brush(ALERT_BRUSH[idx]), range);
         }
     }
@@ -294,7 +317,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
     // リンクの下線/色を適用し、インラインコード背景の矩形をキャッシュ
     for (const auto& run : node.runs) {
         if (run.link_url.has_value()) {
-            DWRITE_TEXT_RANGE range{run.start, run.length};
+            DWRITE_TEXT_RANGE range{ run.start, run.length };
             entry.text_layout->SetUnderline(TRUE, range);
             entry.text_layout->SetDrawingEffect(Brush(BrushId::Link), range);
         }
@@ -311,7 +334,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
                         hit_test_buffer_[i].top,
                         hit_test_buffer_[i].width,
                         hit_test_buffer_[i].height
-                    });
+                        });
                 }
             }
         }
@@ -321,10 +344,12 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
 // ---- メイン描画 ----
 
 void Renderer::DrawLoading(float angle,
-                            const PaneRect& md_pane_rect,
-                            const SidePaneState& sp,
-                            const GestureRenderState& gesture) {
-    if (!rt()) return;
+    const PaneRect& md_pane_rect,
+    const SidePaneState& sp,
+    const GestureRenderState& gesture) {
+    if (!rt()) {
+        return;
+    }
 
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);
@@ -361,18 +386,22 @@ void Renderer::DrawLoading(float angle,
         DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
     }
 
-    if (!CheckEndDraw()) return;
+    if (!CheckEndDraw()) {
+        return;
+    }
 }
 
 void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
-                      const TextSelection& selection,
-                      const PaneRect& md_pane_rect,
-                      const SidePaneState& sp,
-                      bool can_go_back, bool can_go_forward,
-                      int nav_hovered,
-                      int hovered_copy_node,
-                      const GestureRenderState& gesture) {
-    if (!rt()) return;
+    const TextSelection& selection,
+    const PaneRect& md_pane_rect,
+    const SidePaneState& sp,
+    bool can_go_back, bool can_go_forward,
+    int nav_hovered,
+    int hovered_copy_node,
+    const GestureRenderState& gesture) {
+    if (!rt()) {
+        return;
+    }
 
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);
@@ -418,7 +447,9 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
         DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
     }
 
-    if (!CheckEndDraw()) return;
+    if (!CheckEndDraw()) {
+        return;
+    }
 }
 
 bool Renderer::CheckEndDraw() {
@@ -433,7 +464,9 @@ bool Renderer::CheckEndDraw() {
 }
 
 bool Renderer::RecreateRenderTarget() {
-    if (!backend_.RecreateRenderTarget()) return false;
+    if (!backend_.RecreateRenderTarget()) {
+        return false;
+    }
 
     RecreateBrushes();
     file_pane_cache_.Reset();
@@ -449,9 +482,11 @@ bool Renderer::RecreateRenderTarget() {
 }
 
 void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
-                              bool can_back, bool can_forward,
-                              int hovered) {
-    if (!rt()) return;
+    bool can_back, bool can_forward,
+    int hovered) {
+    if (!rt()) {
+        return;
+    }
 
     bool is_dark = theme_.IsDark();
 
@@ -460,14 +495,22 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
     float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 
     auto drawButton = [&](float x, bool enabled, bool is_hovered, IDWriteTextLayout* arrow_layout) {
-        if (!Brush(BrushId::Overlay)) return;
+        if (!Brush(BrushId::Overlay)) {
+            return;
+        }
         D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
 
         // 背景
         float bg_alpha;
-        if (!enabled)        bg_alpha = is_dark ? 0.08f : 0.05f;
-        else if (is_hovered) bg_alpha = is_dark ? 0.35f : 0.25f;
-        else                 bg_alpha = is_dark ? 0.15f : 0.10f;
+        if (!enabled) {
+            bg_alpha = is_dark ? 0.08f : 0.05f;
+        }
+        else if (is_hovered) {
+            bg_alpha = is_dark ? 0.35f : 0.25f;
+        }
+        else {
+            bg_alpha = is_dark ? 0.15f : 0.10f;
+        }
 
         D2D1_COLOR_F bg_color = is_dark
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha)
@@ -479,9 +522,15 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
 
         // 矢印テキスト（キャッシュ済みレイアウトを使用）
         float text_alpha;
-        if (!enabled)        text_alpha = is_dark ? 0.2f : 0.15f;
-        else if (is_hovered) text_alpha = 1.0f;
-        else                 text_alpha = is_dark ? 0.6f : 0.5f;
+        if (!enabled) {
+            text_alpha = is_dark ? 0.2f : 0.15f;
+        }
+        else if (is_hovered) {
+            text_alpha = 1.0f;
+        }
+        else {
+            text_alpha = is_dark ? 0.6f : 0.5f;
+        }
 
         D2D1_COLOR_F text_color = is_dark
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
@@ -500,29 +549,41 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
 }
 
 void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points) {
-    if (!rt() || points.size() < 2) return;
-    if (!Brush(BrushId::Overlay) || !d2d()) return;
+    if (!rt() || points.size() < 2) {
+        return;
+    }
+    if (!Brush(BrushId::Overlay) || !d2d()) {
+        return;
+    }
 
     // パスジオメトリで一筆描きすることで、結合部のアルファ蓄積（節）を防ぐ
     ComPtr<ID2D1PathGeometry> path;
-    if (FAILED(d2d()->CreatePathGeometry(&path))) return;
+    if (FAILED(d2d()->CreatePathGeometry(&path))) {
+        return;
+    }
 
     ComPtr<ID2D1GeometrySink> sink;
-    if (FAILED(path->Open(&sink))) return;
+    if (FAILED(path->Open(&sink))) {
+        return;
+    }
 
     sink->BeginFigure(D2D1::Point2F(points[0].x, points[0].y), D2D1_FIGURE_BEGIN_HOLLOW);
     for (size_t i = 1; i < points.size(); i++) {
         sink->AddLine(D2D1::Point2F(points[i].x, points[i].y));
     }
     sink->EndFigure(D2D1_FIGURE_END_OPEN);
-    if (FAILED(sink->Close())) return;
+    if (FAILED(sink->Close())) {
+        return;
+    }
 
     Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f));
     rt()->DrawGeometry(path.Get(), Brush(BrushId::Overlay), 4.0f, gesture_stroke_style_.Get());
 }
 
 void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect) {
-    if (!rt() || direction == 0 || !Brush(BrushId::Overlay)) return;
+    if (!rt() || direction == 0 || !Brush(BrushId::Overlay)) {
+        return;
+    }
 
     bool is_dark = theme_.IsDark();
 
@@ -532,7 +593,7 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
     float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
     D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2,
-                                     cx + rect_w / 2, cy + rect_h / 2);
+        cx + rect_w / 2, cy + rect_h / 2);
 
     // 背景（両テーマ共通の半透明ダークオーバーレイ）
     D2D1_COLOR_F bg_color = is_dark

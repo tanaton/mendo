@@ -11,9 +11,13 @@ static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int tar
                 return offset;
             }
             offset += static_cast<uint32_t>(row_cells[c].text.size());
-            if (c + 1 < row_cells.size()) offset++;
+            if (c + 1 < row_cells.size()) {
+                offset++;
+            }
         }
-        if (r + 1 < node.table_rows.size()) offset++;
+        if (r + 1 < node.table_rows.size()) {
+            offset++;
+        }
     }
     return static_cast<uint32_t>(node.text.size());
 }
@@ -28,7 +32,9 @@ HitTestService::HitResult HitTestService::HitTest(
     int screen_x, int screen_y) const noexcept {
 
     HitResult result;
-    if (nodes.empty()) return result;
+    if (nodes.empty()) {
+        return result;
+    }
 
     // 物理ピクセルをDIPに変換
     float dip_x = screen_x / dpi_scale;
@@ -45,7 +51,8 @@ HitTestService::HitResult HitTestService::HitTest(
         if (cache[mid].y_position <= dip_y) {
             candidate = mid;
             lo = mid + 1;
-        } else {
+        }
+        else {
             hi = mid - 1;
         }
     }
@@ -67,7 +74,7 @@ HitTestService::HitResult HitTestService::HitTest(
             BOOL is_inside = FALSE;
             DWRITE_HIT_TEST_METRICS metrics{};
             entry.text_layout->HitTestPoint(local_x, local_y,
-                                           &is_trailing, &is_inside, &metrics);
+                &is_trailing, &is_inside, &metrics);
 
             result.node_index = candidate;
             result.text_pos = metrics.textPosition + (is_trailing ? 1 : 0);
@@ -128,7 +135,9 @@ HitTestService::HitResult HitTestService::HitTestTable(
         }
         cx += entry.col_widths[c] + cell_padding * 2.0f + border;
     }
-    if (hit_col < 0) hit_col = 0;
+    if (hit_col < 0) {
+        hit_col = 0;
+    }
 
     // セル (hit_row, hit_col) のフラットテキストオフセットを計算
     uint32_t flat_offset = ComputeTableFlatOffset(node, hit_row, hit_col);
@@ -161,7 +170,8 @@ HitTestService::HitResult HitTestService::HitTestTable(
             &is_trailing, &is_inside, &metrics);
 
         result.text_pos = flat_offset + metrics.textPosition + (is_trailing ? 1 : 0);
-    } else {
+    }
+    else {
         result.text_pos = flat_offset;
     }
     return result;
@@ -178,7 +188,9 @@ int HitTestService::CopyButtonHitTest(
     float dpi_scale,
     int screen_x, int screen_y) const noexcept {
 
-    if (nodes.empty()) return -1;
+    if (nodes.empty()) {
+        return -1;
+    }
 
     // 物理ピクセルをDIPに変換（ドキュメント空間）
     float dip_x = screen_x / dpi_scale - md_pane_left;
@@ -186,7 +198,9 @@ int HitTestService::CopyButtonHitTest(
 
     // コピーボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
     float btn_left_bound = theme.margin_left + content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
-    if (dip_x < btn_left_bound) return -1;
+    if (dip_x < btn_left_bound) {
+        return -1;
+    }
 
     float viewport_top = scroll_y;
     float viewport_bottom = scroll_y + md_pane_height;
@@ -195,11 +209,17 @@ int HitTestService::CopyButtonHitTest(
     int first = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
     int count = static_cast<int>(nodes.size());
     for (int i = first; i < count; i++) {
-        if (cache[i].y_position - theme.code_block_padding > viewport_bottom) break;
+        if (cache[i].y_position - theme.code_block_padding > viewport_bottom) {
+            break;
+        }
 
         const auto& node = nodes[i];
-        if (node.type != NodeType::CodeBlock) continue;
-        if (node.code_language == SyntaxLanguage::Mermaid) continue;
+        if (node.type != NodeType::CodeBlock) {
+            continue;
+        }
+        if (node.code_language == SyntaxLanguage::Mermaid) {
+            continue;
+        }
 
         float indent = node.indent_level * theme.indent_width;
         float x = theme.margin_left + indent;
@@ -223,15 +243,19 @@ HitTestService::NavButtonHover HitTestService::NavButtonHitTest(
     float base_x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     float base_y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 
-    if (dip_y < base_y || dip_y > base_y + NAV_BTN_SIZE) return NavButtonHover::None;
+    if (dip_y < base_y || dip_y > base_y + NAV_BTN_SIZE) {
+        return NavButtonHover::None;
+    }
 
     // 戻るボタン
-    if (dip_x >= base_x && dip_x <= base_x + NAV_BTN_SIZE)
+    if (dip_x >= base_x && dip_x <= base_x + NAV_BTN_SIZE) {
         return NavButtonHover::Back;
+    }
     // 進むボタン
     float fwd_x = base_x + NAV_BTN_SIZE + NAV_BTN_GAP;
-    if (dip_x >= fwd_x && dip_x <= fwd_x + NAV_BTN_SIZE)
+    if (dip_x >= fwd_x && dip_x <= fwd_x + NAV_BTN_SIZE) {
         return NavButtonHover::Forward;
+    }
 
     return NavButtonHover::None;
 }

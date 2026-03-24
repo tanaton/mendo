@@ -16,6 +16,12 @@
 			"cmake": true
 		},
 		"C_Cpp.default.cppStandard": "c++23",
-		"C_Cpp.default.cStandard": "c23"
+		"C_Cpp.default.cStandard": "c23",
+		"editor.formatOnSave": true,
+		"C_Cpp.clang_format_style": "Visual Studio",
+		"C_Cpp.formatting": "vcFormat",
+		"C_Cpp.doxygen.generatedStyle": "//!",
+		"C_Cpp.vcFormat.indent.namespaceContents": false,
+		"C_Cpp.vcFormat.indent.lambdaBracesWhenParameter": false
 	}
 }

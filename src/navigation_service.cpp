@@ -4,11 +4,15 @@
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
 static bool IsSafeUrlScheme(std::wstring_view url) noexcept {
     auto starts_with_i = [](std::wstring_view s, std::wstring_view prefix) noexcept {
-        if (s.size() < prefix.size()) return false;
+        if (s.size() < prefix.size()) {
+            return false;
+        }
         for (size_t i = 0; i < prefix.size(); i++) {
             wchar_t a = s[i], b = prefix[i];
             if (a >= L'A' && a <= L'Z') a += L'a' - L'A';
-            if (a != b) return false;
+            if (a != b) {
+                return false;
+            }
         }
         return true;
     };
@@ -44,7 +48,8 @@ NavigationService::NavigateResult NavigationService::MakeResultFromEntry(
         result.type = NavigateResult::Type::LoadFile;
         result.target = std::move(entry.file_path);
         result.scroll_y = entry.scroll_y;
-    } else {
+    }
+    else {
         result.type = NavigateResult::Type::Anchor;
         result.scroll_y = entry.scroll_y;
     }
@@ -54,7 +59,7 @@ NavigationService::NavigateResult NavigationService::MakeResultFromEntry(
 NavigationService::NavigateResult NavigationService::GoBack(
     std::wstring_view current_file, float scroll_y) {
     NavEntry out;
-    if (!history_.GoBack(NavEntry{current_file, scroll_y}, out)) {
+    if (!history_.GoBack(NavEntry{ current_file, scroll_y }, out)) {
         return {};
     }
     return MakeResultFromEntry(std::move(out), current_file);
@@ -63,12 +68,12 @@ NavigationService::NavigateResult NavigationService::GoBack(
 NavigationService::NavigateResult NavigationService::GoForward(
     std::wstring_view current_file, float scroll_y) {
     NavEntry out;
-    if (!history_.GoForward(NavEntry{current_file, scroll_y}, out)) {
+    if (!history_.GoForward(NavEntry{ current_file, scroll_y }, out)) {
         return {};
     }
     return MakeResultFromEntry(std::move(out), current_file);
 }
 
 void NavigationService::PushHistory(std::wstring_view file, float scroll_y) {
-    history_.Push(NavEntry{file, scroll_y});
+    history_.Push(NavEntry{ file, scroll_y });
 }

@@ -8,7 +8,9 @@ bool D2DRenderBackend::Init(HWND hwnd) {
 
     // このウィンドウのモニターの実際のDPIを取得
     dpi_ = static_cast<float>(GetDpiForWindow(hwnd));
-    if (dpi_ == 0.0f) dpi_ = 96.0f;
+    if (dpi_ == 0.0f) {
+        dpi_ = 96.0f;
+    }
 
     // D2Dファクトリを作成
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_factory_.GetAddressOf());

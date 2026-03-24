@@ -1,7 +1,8 @@
 #include "theme_service.h"
 
 ThemeService::ThemeService(ConfigService& config) noexcept
-    : config_(config) {}
+    : config_(config) {
+}
 
 Theme ThemeService::CreateTheme() const {
     return dark_mode_ ? GetDarkTheme() : GetLightTheme();

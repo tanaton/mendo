@@ -44,7 +44,7 @@ struct DrawTextCmd {
     D2D1_COLOR_F color;
 
     static DrawTextCmd Make(const wchar_t* src, size_t len,
-                            D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col) noexcept {
+        D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col) noexcept {
         DrawTextCmd c{};
         c.text_len = static_cast<uint8_t>((std::min)(len, MAX_TEXT));
         std::char_traits<wchar_t>::copy(c.text, src, c.text_len);

@@ -3,17 +3,17 @@
 #include <numbers>
 
 // 選択範囲のハイライトカラー
-inline constexpr D2D1_COLOR_F SELECTION_COLOR = {0.26f, 0.56f, 0.84f, 0.3f};
+inline constexpr D2D1_COLOR_F SELECTION_COLOR = { 0.26f, 0.56f, 0.84f, 0.3f };
 
-inline constexpr float TWO_PI = std::numbers::pi_v<float> * 2.0f;
+inline constexpr float TWO_PI = std::numbers::pi_v<float> *2.0f;
 
 // ローディングスピナーの定数
 namespace spinner {
-    inline constexpr float RADIUS = 20.0f;
-    inline constexpr float DOT_RADIUS = 3.0f;
-    inline constexpr int DOT_COUNT = 8;
-    inline constexpr float ROTATION_INCREMENT = 0.15f;
-    inline constexpr float DOT_FADE_FACTOR = 0.85f;
+inline constexpr float RADIUS = 20.0f;
+inline constexpr float DOT_RADIUS = 3.0f;
+inline constexpr int DOT_COUNT = 8;
+inline constexpr float ROTATION_INCREMENT = 0.15f;
+inline constexpr float DOT_FADE_FACTOR = 0.85f;
 }
 
 // マウスホイールスクロールの倍率

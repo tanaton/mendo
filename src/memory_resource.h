@@ -13,8 +13,8 @@
 // 以降、std::pmr コンテナのデフォルトリソースとして使われる。
 inline std::pmr::synchronized_pool_resource& GetGlobalPoolResource() {
     // プールオプション: 最大ブロックサイズ 1MB、チャンク成長率はデフォルト
-    static std::pmr::pool_options opts{/*max_blocks_per_chunk=*/0, /*largest_required_pool_block=*/1 << 20};
-    static std::pmr::synchronized_pool_resource pool{opts, std::pmr::new_delete_resource()};
+    static std::pmr::pool_options opts{/*max_blocks_per_chunk=*/0, /*largest_required_pool_block=*/1 << 20 };
+    static std::pmr::synchronized_pool_resource pool{ opts, std::pmr::new_delete_resource() };
     return pool;
 }
 
@@ -29,7 +29,8 @@ public:
     explicit MonotonicResource(std::size_t initial_size = 16 * 1024)
         : buffer_(std::make_unique<std::byte[]>(initial_size))
         , monotonic_(buffer_.get(), initial_size, std::pmr::get_default_resource())
-    {}
+    {
+    }
 
     MonotonicResource(const MonotonicResource&) = delete;
     MonotonicResource& operator=(const MonotonicResource&) = delete;

@@ -61,12 +61,13 @@ struct TextSelection {
 
     // アンカー/キャレットをドキュメント順で start <= end に正規化する
     static constexpr TextSelection MakeOrdered(int node_a, uint32_t pos_a,
-                                     int node_b, uint32_t pos_b) noexcept {
+        int node_b, uint32_t pos_b) noexcept {
         TextSelection s;
         if (node_a < node_b || (node_a == node_b && pos_a <= pos_b)) {
             s.start_node = node_a; s.start_pos = pos_a;
             s.end_node = node_b;   s.end_pos = pos_b;
-        } else {
+        }
+        else {
             s.start_node = node_b; s.start_pos = pos_b;
             s.end_node = node_a;   s.end_pos = pos_a;
         }

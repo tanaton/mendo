@@ -6,8 +6,10 @@
 // PaneCacheのビットマップレンダーターゲットが必要なサイズと一致することを確認。
 // キャッシュが使用可能ならtrueを返す。
 static bool EnsurePaneCacheSize(Renderer::PaneCache& cache, ID2D1RenderTarget* parent,
-                                float width, float height) {
-    if (width <= 0 || height <= 0) return false;
+    float width, float height) {
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
 
     if (!cache.bitmap_rt ||
         cache.cached_width != width || cache.cached_height != height) {
@@ -15,7 +17,9 @@ static bool EnsurePaneCacheSize(Renderer::PaneCache& cache, ID2D1RenderTarget* p
         cache.cached_bitmap.Reset();
         HRESULT hr = parent->CreateCompatibleRenderTarget(
             D2D1::SizeF(width, height), &cache.bitmap_rt);
-        if (FAILED(hr)) return false;
+        if (FAILED(hr)) {
+            return false;
+        }
         cache.cached_width = width;
         cache.cached_height = height;
         cache.dirty = true;
@@ -24,9 +28,11 @@ static bool EnsurePaneCacheSize(Renderer::PaneCache& cache, ID2D1RenderTarget* p
 }
 
 static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb_brush,
-                               float pane_width, float content_top, float content_height,
-                               float scroll_y, float total_content_height) {
-    if (total_content_height <= content_height) return;
+    float pane_width, float content_top, float content_height,
+    float scroll_y, float total_content_height) {
+    if (total_content_height <= content_height) {
+        return;
+    }
 
     float track_height = content_height;
     float thumb_ratio = content_height / total_content_height;
@@ -39,7 +45,7 @@ static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb
 
     D2D1_ROUNDED_RECT thumb_rect;
     thumb_rect.rect = D2D1::RectF(thumb_x, thumb_y,
-                                   thumb_x + PANE_SCROLLBAR_WIDTH, thumb_y + thumb_height);
+        thumb_x + PANE_SCROLLBAR_WIDTH, thumb_y + thumb_height);
     thumb_rect.radiusX = PANE_SCROLLBAR_WIDTH / 2.0f;
     thumb_rect.radiusY = PANE_SCROLLBAR_WIDTH / 2.0f;
 
@@ -77,7 +83,7 @@ static void DrawSidePaneImpl(
         if (fmt_header) {
             D2D1_RECT_F header_rect = D2D1::RectF(8.0f, 0, rect.width - 4.0f, theme.pane_header_height);
             rt->DrawText(header_text.data(), static_cast<UINT32>(header_text.size()),
-                         fmt_header, header_rect, text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                fmt_header, header_rect, text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
         // クリッピング付きコンテンツ領域
@@ -103,8 +109,8 @@ static void DrawSidePaneImpl(
         // スクロールバーオーバーレイ
         float total_content = static_cast<float>(item_count) * theme.pane_item_height;
         DrawPaneScrollbar(rt, scrollbar_thumb_brush,
-                          rect.width, content_top, content_height,
-                          scroll.scroll_y, total_content);
+            rect.width, content_top, content_height,
+            scroll.scroll_y, total_content);
 
         rt->EndDraw();
         cache.dirty = false;
@@ -115,26 +121,27 @@ static void DrawSidePaneImpl(
     // キャッシュされたビットマップを転送
     if (cache.cached_bitmap) {
         D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y,
-                                         rect.x + rect.width, rect.y + rect.height);
+            rect.x + rect.width, rect.y + rect.height);
         main_rt->DrawBitmap(cache.cached_bitmap.Get(), dest);
     }
 }
 
 void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
-                                const ScrollState& scroll, int hovered_index) {
+    const ScrollState& scroll, int hovered_index) {
     constexpr float icon_col_width = 24.0f;
 
     DrawSidePaneImpl(file_pane_cache_, rt(), rect, scroll,
-                 static_cast<int>(entries.size()), L"Files", theme_,
-                 Brush(BrushId::Splitter), Brush(BrushId::Text),
-                 Brush(BrushId::ScrollbarThumb), fmt_pane_header_.Get(),
-                 [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
+        static_cast<int>(entries.size()), L"Files", theme_,
+        Brush(BrushId::Splitter), Brush(BrushId::Text),
+        Brush(BrushId::ScrollbarThumb), fmt_pane_header_.Get(),
+        [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
 
         D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, width, item_y + theme_.pane_item_height);
         if (entry.is_current) {
             rt->FillRectangle(item_rect, Brush(BrushId::PaneItemActive));
-        } else if (i == hovered_index) {
+        }
+        else if (i == hovered_index) {
             rt->FillRectangle(item_rect, Brush(BrushId::PaneItemHover));
         }
 
@@ -146,26 +153,26 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
             D2D1_RECT_F icon_rect = D2D1::RectF(
                 4.0f, item_y, 4.0f + icon_col_width, item_y + theme_.pane_item_height);
             rt->DrawText(icon, 1, fmt_pane_icon_.Get(), icon_rect, Brush(BrushId::Text),
-                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
         if (fmt_pane_item_) {
             D2D1_RECT_F text_rect = D2D1::RectF(
                 4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
             rt->DrawText(entry.filename.c_str(), static_cast<UINT32>(entry.filename.size()),
-                         fmt_pane_item_.Get(), text_rect, Brush(BrushId::Text),
-                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                fmt_pane_item_.Get(), text_rect, Brush(BrushId::Text),
+                D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
     });
 }
 
 void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
-                       const ScrollState& scroll, int hovered_index) {
+    const ScrollState& scroll, int hovered_index) {
     DrawSidePaneImpl(toc_pane_cache_, rt(), rect, scroll,
-                 static_cast<int>(entries.size()), L"Table of Contents", theme_,
-                 Brush(BrushId::Splitter), Brush(BrushId::Text),
-                 Brush(BrushId::ScrollbarThumb), fmt_pane_header_.Get(),
-                 [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
+        static_cast<int>(entries.size()), L"Table of Contents", theme_,
+        Brush(BrushId::Splitter), Brush(BrushId::Text),
+        Brush(BrushId::ScrollbarThumb), fmt_pane_header_.Get(),
+        [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
 
         if (i == hovered_index) {
@@ -178,8 +185,8 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
             D2D1_RECT_F text_rect = D2D1::RectF(
                 8.0f + indent, item_y, width - 4.0f, item_y + theme_.pane_item_height);
             rt->DrawText(entry.text.c_str(), static_cast<UINT32>(entry.text.size()),
-                         fmt_pane_item_.Get(), text_rect, Brush(BrushId::Text),
-                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                fmt_pane_item_.Get(), text_rect, Brush(BrushId::Text),
+                D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
     });
 }

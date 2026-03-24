@@ -35,14 +35,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     if (argv) {
         if (argc > 1) {
             window.LoadMarkdownFile(argv[1]);
-        } else {
+        }
+        else {
             std::pmr::wstring last = window.LoadLastFilePath();
             if (!last.empty()) {
                 window.LoadMarkdownFile(last);
             }
         }
         LocalFree(argv);
-    } else {
+    }
+    else {
         std::pmr::wstring last = window.LoadLastFilePath();
         if (!last.empty()) {
             window.LoadMarkdownFile(last);

@@ -11,7 +11,9 @@ void NavHistory::Push(const NavEntry& current) {
 }
 
 bool NavHistory::GoBack(const NavEntry& current, NavEntry& out) {
-    if (back_stack_.empty()) return false;
+    if (back_stack_.empty()) {
+        return false;
+    }
 
     forward_stack_.push_back(current);
     if (forward_stack_.size() > MAX_HISTORY) {
@@ -23,7 +25,9 @@ bool NavHistory::GoBack(const NavEntry& current, NavEntry& out) {
 }
 
 bool NavHistory::GoForward(const NavEntry& current, NavEntry& out) {
-    if (forward_stack_.empty()) return false;
+    if (forward_stack_.empty()) {
+        return false;
+    }
 
     back_stack_.push_back(current);
     out = forward_stack_.back();

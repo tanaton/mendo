@@ -12,21 +12,23 @@ void App::HandleLinkClick(std::wstring_view url) {
 
     auto result = nav_service_.HandleLinkClick(url, doc_.GetFilePath());
     switch (result.type) {
-        case NavigationService::NavigateResult::Type::Anchor:
-            PushNavHistory();
-            NavigateToAnchor(result.target);
-            break;
-        case NavigationService::NavigateResult::Type::ExternalUrl:
-            ShellExecuteW(hwnd_, L"open", result.target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            break;
-        default:
-            break;
+    case NavigationService::NavigateResult::Type::Anchor:
+        PushNavHistory();
+        NavigateToAnchor(result.target);
+        break;
+    case NavigationService::NavigateResult::Type::ExternalUrl:
+        ShellExecuteW(hwnd_, L"open", result.target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        break;
+    default:
+        break;
     }
 }
 
 void App::NavigateToAnchor(std::wstring_view anchor) {
     int idx = FindAnchorNodeIndex(doc_.GetNodes(), anchor);
-    if (idx < 0) return;
+    if (idx < 0) {
+        return;
+    }
 
     float target_y = layout_cache_[idx].y_position - renderer_.GetTheme().heading_spacing_above;
     target_y = std::max(0.0f, target_y);
@@ -41,7 +43,9 @@ void App::PushNavHistory() {
 }
 
 void App::ApplyNavigateResult(const NavigationService::NavigateResult& result) {
-    if (result.type == NavigationService::NavigateResult::Type::None) return;
+    if (result.type == NavigationService::NavigateResult::Type::None) {
+        return;
+    }
 
     if (result.type == NavigationService::NavigateResult::Type::LoadFile) {
         file_load_service_.SetLoadingPath(result.target);
@@ -86,17 +90,23 @@ void App::ToggleDarkMode() {
 
 void App::ZoomIn() {
     float z = viewport_.ZoomIn();
-    if (z > 0.0f) ApplyZoom(z);
+    if (z > 0.0f) {
+        ApplyZoom(z);
+    }
 }
 
 void App::ZoomOut() {
     float z = viewport_.ZoomOut();
-    if (z > 0.0f) ApplyZoom(z);
+    if (z > 0.0f) {
+        ApplyZoom(z);
+    }
 }
 
 void App::ZoomReset() {
     float z = viewport_.ZoomReset();
-    if (z > 0.0f) ApplyZoom(z);
+    if (z > 0.0f) {
+        ApplyZoom(z);
+    }
 }
 
 void App::ApplyZoom(float new_zoom) {

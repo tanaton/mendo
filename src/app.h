@@ -115,17 +115,17 @@ private:
     void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     bool TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& rect,
-                                      PaneController::DragTarget target,
-                                      const PaneScrollInfo& scroll_info,
-                                      float total_content, ScrollState& scroll,
-                                      void (Renderer::*invalidate)());
+        PaneController::DragTarget target,
+        const PaneScrollInfo& scroll_info,
+        float total_content, ScrollState& scroll,
+        void (Renderer::* invalidate)());
 
     // スクロールバーヘルパー
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
     void HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
-                              ScrollState& scroll, bool& cache_dirty);
+        ScrollState& scroll, bool& cache_dirty);
     void HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
-                             ScrollState& scroll, bool& cache_dirty);
+        ScrollState& scroll, bool& cache_dirty);
 
     // レイアウト / スクロール
     void UpdateLayoutAndScroll(float desired_scroll);
@@ -182,18 +182,18 @@ private:
     HCURSOR cursor_sizewe_ = nullptr;
 
     // ヒットテストのスロットリング
-    POINT last_md_hit_pos_ = {LONG_MIN, LONG_MIN};
+    POINT last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
     bool last_md_cursor_hand_ = false;
 
     // コアサービス
     Renderer renderer_;
     MermaidRenderer mermaid_renderer_;
     FileLoader file_loader_;
-    DocumentService doc_service_{file_loader_};
+    DocumentService doc_service_{ file_loader_ };
     AppController controller_;
     ConfigService config_;
-    ThemeService theme_service_{config_};
-    FileLoadService file_load_service_{doc_service_};
+    ThemeService theme_service_{ config_ };
+    FileLoadService file_load_service_{ doc_service_ };
 
     // ドメイン状態
     Document doc_;
@@ -207,7 +207,7 @@ private:
     FileExplorer file_explorer_;
     PaneController panes_;
     NavHistory nav_history_;
-    NavigationService nav_service_{nav_history_};
+    NavigationService nav_service_{ nav_history_ };
     MouseGesture gesture_;
     SwipeDetector swipe_detector_;
     HitTestService hit_test_;

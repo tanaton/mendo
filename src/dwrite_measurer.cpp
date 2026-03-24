@@ -9,8 +9,8 @@ static constexpr float DEFAULT_COLUMN_WIDTH = 60.0f;
 static constexpr float MIN_MERMAID_PLACEHOLDER_HEIGHT = 60.0f;
 
 static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family,
-                            float size, DWRITE_FONT_WEIGHT weight,
-                            IDWriteTextFormat** out) {
+    float size, DWRITE_FONT_WEIGHT weight,
+    IDWriteTextFormat** out) {
     return factory->CreateTextFormat(
         family, nullptr, weight,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
@@ -18,20 +18,30 @@ static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family,
 }
 
 bool DWriteTextMeasurer::CreateAllFormats() {
-    if (!dwrite_ || !theme_) return false;
+    if (!dwrite_ || !theme_) {
+        return false;
+    }
 
     fmt_body_.Reset();
-    for (auto& fmt : fmt_h_) fmt.Reset();
+    for (auto& fmt : fmt_h_) {
+        fmt.Reset();
+    }
     fmt_code_.Reset();
 
     auto W = DWRITE_FONT_WEIGHT_NORMAL;
     auto B = DWRITE_FONT_WEIGHT_BOLD;
 
-    if (FAILED(CreateFormat(dwrite_, theme_->font_family.c_str(), theme_->font_size_body, W, &fmt_body_))) return false;
-    for (int i = 0; i < 6; ++i) {
-        if (FAILED(CreateFormat(dwrite_, theme_->font_family.c_str(), theme_->font_size_h[i], B, &fmt_h_[i]))) return false;
+    if (FAILED(CreateFormat(dwrite_, theme_->font_family.c_str(), theme_->font_size_body, W, &fmt_body_))) {
+        return false;
     }
-    if (FAILED(CreateFormat(dwrite_, theme_->monospace_font.c_str(), theme_->font_size_code, W, &fmt_code_))) return false;
+    for (int i = 0; i < 6; ++i) {
+        if (FAILED(CreateFormat(dwrite_, theme_->font_family.c_str(), theme_->font_size_h[i], B, &fmt_h_[i]))) {
+            return false;
+        }
+    }
+    if (FAILED(CreateFormat(dwrite_, theme_->monospace_font.c_str(), theme_->font_size_code, W, &fmt_code_))) {
+        return false;
+    }
 
     fmt_body_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
     for (auto& fmt : fmt_h_) {
@@ -52,9 +62,11 @@ bool DWriteTextMeasurer::RecreateFormats() {
 }
 
 IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) {
-    if (node.type == NodeType::CodeBlock) return fmt_code_.Get();
+    if (node.type == NodeType::CodeBlock) {
+        return fmt_code_.Get();
+    }
     if (node.type == NodeType::Heading) {
-        if(node.heading_level >= 1 && node.heading_level <= 6) {
+        if (node.heading_level >= 1 && node.heading_level <= 6) {
             return fmt_h_[node.heading_level - 1].Get();
         }
     }
@@ -62,22 +74,32 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) {
 }
 
 void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
-                                                 const std::pmr::vector<TextRun>& runs) {
+    const std::pmr::vector<TextRun>& runs) {
     for (const auto& run : runs) {
-        DWRITE_TEXT_RANGE range{run.start, run.length};
-        if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
-        if (run.italic) layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
+        DWRITE_TEXT_RANGE range{ run.start, run.length };
+        if (run.bold) {
+            layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
+        }
+        if (run.italic) {
+            layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
+        }
         if (run.code) {
             layout->SetFontFamilyName(theme_->monospace_font.c_str(), range);
             layout->SetFontSize(theme_->font_size_code, range);
         }
-        if (run.strikethrough) layout->SetStrikethrough(TRUE, range);
-        if (run.link_url.has_value()) layout->SetUnderline(TRUE, range);
+        if (run.strikethrough) {
+            layout->SetStrikethrough(TRUE, range);
+        }
+        if (run.link_url.has_value()) {
+            layout->SetUnderline(TRUE, range);
+        }
     }
 }
 
 void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) {
-    if (!dwrite_ || !theme_) return;
+    if (!dwrite_ || !theme_) {
+        return;
+    }
 
     if (node.type == NodeType::HorizontalRule) {
         entry.height = theme_->paragraph_spacing + theme_->hr_thickness;
@@ -116,18 +138,26 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     HRESULT hr = dwrite_->CreateTextLayout(
         text.c_str(), static_cast<UINT32>(text.size()),
         fmt, layout_width, LAYOUT_MAX_HEIGHT, &layout);
-    if (FAILED(hr)) return;
+    if (FAILED(hr)) {
+        return;
+    }
 
     // ラン単位のフォーマットを適用
     for (const auto& run : node.runs) {
-        DWRITE_TEXT_RANGE range{run.start, run.length};
-        if (run.bold) layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
-        if (run.italic) layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
+        DWRITE_TEXT_RANGE range{ run.start, run.length };
+        if (run.bold) {
+            layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
+        }
+        if (run.italic) {
+            layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
+        }
         if (run.code && node.type != NodeType::CodeBlock) {
             layout->SetFontFamilyName(theme_->monospace_font.c_str(), range);
             layout->SetFontSize(theme_->font_size_code, range);
         }
-        if (run.strikethrough) layout->SetStrikethrough(TRUE, range);
+        if (run.strikethrough) {
+            layout->SetStrikethrough(TRUE, range);
+        }
     }
 
     DWRITE_TEXT_METRICS metrics{};
@@ -141,7 +171,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
 }
 
 void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
-                                            std::pmr::vector<float>& natural_widths) {
+    std::pmr::vector<float>& natural_widths) {
     IDWriteTextFormat* fmt = fmt_body_.Get();
     IDWriteTextFormat* fmt_bold = fmt_h_[3].Get();
 
@@ -149,7 +179,9 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
         auto& row = node.table_rows[r];
         for (size_t c = 0; c < row.cells.size(); c++) {
             auto& cell = row.cells[c];
-            if (cell.text.empty()) continue;
+            if (cell.text.empty()) {
+                continue;
+            }
 
             IDWriteTextFormat* cell_fmt = cell.is_header ? fmt_bold : fmt;
             dwrite_->CreateTextLayout(
@@ -168,12 +200,12 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
 }
 
 void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
-                                              size_t col_count, std::pmr::vector<float>& natural_widths) {
+    size_t col_count, std::pmr::vector<float>& natural_widths) {
     float cell_padding = TABLE_CELL_PADDING;
     float border_width = TABLE_BORDER_WIDTH;
 
     float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width
-                      - static_cast<float>(col_count) * cell_padding * 2.0f;
+        - static_cast<float>(col_count) * cell_padding * 2.0f;
     entry.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
 
     float total_height = border_width;
@@ -186,8 +218,12 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
 
             if (entry.cell_layouts[r][c]) {
                 entry.cell_layouts[r][c]->SetMaxWidth(cw);
-                if (cell.align == 1) entry.cell_layouts[r][c]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                else if (cell.align == 2) entry.cell_layouts[r][c]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+                if (cell.align == 1) {
+                    entry.cell_layouts[r][c]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                }
+                else if (cell.align == 2) {
+                    entry.cell_layouts[r][c]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+                }
 
                 DWRITE_TEXT_METRICS metrics{};
                 entry.cell_layouts[r][c]->GetMetrics(&metrics);
@@ -204,7 +240,9 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
 }
 
 void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) {
-    if (!dwrite_ || !theme_) return;
+    if (!dwrite_ || !theme_) {
+        return;
+    }
 
     if (node.table_rows.empty()) {
         entry.height = 0;

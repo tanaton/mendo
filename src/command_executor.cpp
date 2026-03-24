@@ -7,14 +7,17 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
     }
     if (!brush_) {
         rt->CreateSolidColorBrush(color, &brush_);
-    } else {
+    }
+    else {
         brush_->SetColor(color);
     }
     return brush_.Get();
 }
 
 void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt) {
-    if (!rt) return;
+    if (!rt) {
+        return;
+    }
 
     for (const auto& cmd : cmds) {
         std::visit([&](const auto& c) {
@@ -25,27 +28,35 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             }
             else if constexpr (std::is_same_v<T, FillRectCmd>) {
                 auto* b = GetBrush(rt, c.color);
-                if (b) rt->FillRectangle(c.rect, b);
+                if (b) {
+                    rt->FillRectangle(c.rect, b);
+                }
             }
             else if constexpr (std::is_same_v<T, FillRoundedRectCmd>) {
                 auto* b = GetBrush(rt, c.color);
-                if (b) { D2D1_ROUNDED_RECT rr = {c.rect, c.rx, c.ry}; rt->FillRoundedRectangle(rr, b); }
+                if (b) { D2D1_ROUNDED_RECT rr = { c.rect, c.rx, c.ry }; rt->FillRoundedRectangle(rr, b); }
             }
             else if constexpr (std::is_same_v<T, DrawLineCmd>) {
                 auto* b = GetBrush(rt, c.color);
-                if (b) rt->DrawLine(c.p0, c.p1, b, c.stroke_width);
+                if (b) {
+                    rt->DrawLine(c.p0, c.p1, b, c.stroke_width);
+                }
             }
             else if constexpr (std::is_same_v<T, DrawTextLayoutCmd>) {
                 if (c.layout) {
                     auto* b = GetBrush(rt, c.color);
-                    if (b) rt->DrawTextLayout(c.origin, c.layout, b);
+                    if (b) {
+                        rt->DrawTextLayout(c.origin, c.layout, b);
+                    }
                 }
             }
             else if constexpr (std::is_same_v<T, DrawTextCmd>) {
                 if (c.format && c.text_len > 0) {
                     auto* b = GetBrush(rt, c.color);
-                    if (b) rt->DrawText(c.text, static_cast<UINT32>(c.text_len),
-                                        c.format, c.rect, b);
+                    if (b) {
+                        rt->DrawText(c.text, static_cast<UINT32>(c.text_len),
+                            c.format, c.rect, b);
+                    }
                 }
             }
             else if constexpr (std::is_same_v<T, DrawBitmapCmd>) {

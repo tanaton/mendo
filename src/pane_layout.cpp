@@ -2,33 +2,32 @@
 #include <algorithm>
 
 PaneLayout ComputePaneLayout(float total_width, float total_height,
-                              float file_pane_width, float toc_pane_width,
-                              float splitter_width, bool show_file, bool show_toc,
-                              float md_min_width) noexcept {
+    float file_pane_width, float toc_pane_width,
+    float splitter_width, bool show_file, bool show_toc,
+    float md_min_width) noexcept {
     PaneLayout layout{};
     float x = 0.0f;
 
     // ファイルペイン
     if (show_file) {
-        layout.file_rect = {x, 0.0f, file_pane_width, total_height};
+        layout.file_rect = { x, 0.0f, file_pane_width, total_height };
         x += file_pane_width + splitter_width;
     }
 
     // 目次ペイン
     if (show_toc) {
-        layout.toc_rect = {x, 0.0f, toc_pane_width, total_height};
+        layout.toc_rect = { x, 0.0f, toc_pane_width, total_height };
         x += toc_pane_width + splitter_width;
     }
 
     // MDペインは残りの幅を使用
     float md_width = std::max(md_min_width, total_width - x);
-    layout.md_rect = {x, 0.0f, md_width, total_height};
+    layout.md_rect = { x, 0.0f, md_width, total_height };
 
     return layout;
 }
 
-PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout,
-                         float splitter_width, bool show_file, bool show_toc) noexcept {
+PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_width, bool show_file, bool show_toc) noexcept {
     if (show_file) {
         float s1_x = layout.file_rect.x + layout.file_rect.width;
         if (dip_x >= layout.file_rect.x && dip_x < s1_x) {
@@ -56,8 +55,7 @@ PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout,
     return PaneZone::None;
 }
 
-PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height,
-                                  float total_content, float thumb_min) noexcept {
+PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content, float thumb_min) noexcept {
     PaneScrollInfo info{};
     info.content_top = rect.y + header_height;
     info.content_height = rect.height - header_height;

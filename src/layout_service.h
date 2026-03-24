@@ -7,26 +7,27 @@
 class LayoutService {
 public:
     LayoutService(LayoutEngine& engine, ViewportManager& viewport) noexcept
-        : engine_(engine), viewport_(viewport) {}
+        : engine_(engine), viewport_(viewport) {
+    }
 
     // 全レイアウト計算（初回ロード時）
     void FullLayout(Document& doc, LayoutCache& cache, float width);
 
     // ビューポート優先レイアウト（リサイズ時）
     void ViewportLayout(Document& doc, LayoutCache& cache,
-                        float width, float height);
+        float width, float height);
 
     // ダーティバッチ処理（遅延レイアウト）
     bool ProcessDirtyBatch(Document& doc, LayoutCache& cache,
-                           float width, int batch_size);
+        float width, int batch_size);
 
     // 可視領域のレイアウト保証（OnPaint 時）
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache,
-                             float width, float height);
+        float width, float height);
 
     // ダイアグラム反映後の Y 位置再計算
     void RecomputeAfterDiagram(Document& doc, LayoutCache& cache,
-                               const Theme& theme);
+        const Theme& theme);
 
     // ダーティノードが残っているか
     constexpr bool HasDirtyNodes() const noexcept { return engine_.HasDirtyNodes(); }

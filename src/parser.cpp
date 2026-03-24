@@ -13,9 +13,11 @@ std::pmr::wstring GenerateAnchorId(std::wstring_view text) {
     for (wchar_t c : text) {
         if (c >= L'A' && c <= L'Z') {
             slug += static_cast<wchar_t>(c - L'A' + L'a');
-        } else if ((c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9') || c == L'-' || c == L'_') {
+        }
+        else if ((c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9') || c == L'-' || c == L'_') {
             slug += c;
-        } else if (c == L' ' || c == L'\t') {
+        }
+        else if (c == L' ' || c == L'\t') {
             slug += L'-';
         }
         // CJK文字: そのまま保持するが、句読点・記号はスキップ
@@ -40,9 +42,13 @@ std::pmr::wstring GenerateAnchorId(std::wstring_view text) {
 namespace {
 
 std::pmr::wstring Utf8ToWide(std::string_view utf8) {
-    if (utf8.empty()) return {};
+    if (utf8.empty()) {
+        return {};
+    }
     int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
-    if (wlen <= 0) return {};
+    if (wlen <= 0) {
+        return {};
+    }
     std::pmr::wstring result;
     result.resize_and_overwrite(static_cast<size_t>(wlen), [utf8](wchar_t* buf, size_t count) -> size_t {
         return static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), buf, static_cast<int>(count)));
@@ -60,13 +66,13 @@ struct SpanState {
 
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
-    MonotonicResource parse_resource{64 * 1024};
+    MonotonicResource parse_resource{ 64 * 1024 };
 
     std::pmr::vector<Node> nodes;
 
     // パース一時データには monotonic リソースを使用
     std::stack<SpanState, std::pmr::deque<SpanState>> span_stack{
-        std::pmr::deque<SpanState>{parse_resource.resource()}};
+        std::pmr::deque<SpanState>{parse_resource.resource()} };
     SpanState current_span;
 
     // UTF-8 → Wide変換用の再利用可能バッファ
@@ -78,11 +84,11 @@ struct ParseContext {
     int blockquote_depth = 0;
     int blockquote_group_counter = 0;           // グループID生成用
     std::stack<int, std::pmr::deque<int>> blockquote_group_stack{
-        std::pmr::deque<int>{parse_resource.resource()}}; // ネスト追跡用
+        std::pmr::deque<int>{parse_resource.resource()} }; // ネスト追跡用
 
     // リスト追跡
     std::stack<int, std::pmr::deque<int>> list_counter{
-        std::pmr::deque<int>{parse_resource.resource()}}; // 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
+        std::pmr::deque<int>{parse_resource.resource()} }; // 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
 
     // テーブル追跡
     bool in_table = false;
@@ -94,10 +100,10 @@ struct ParseContext {
     Node* current_node = nullptr;
 
     // リンクURL格納: SpanStateではインデックスのみ保持し、push/popでの文字列コピーを回避
-    std::pmr::vector<std::pmr::wstring> link_urls{parse_resource.resource()};
+    std::pmr::vector<std::pmr::wstring> link_urls{ parse_resource.resource() };
 
     // アンカーIDの一意性追跡: スラグ -> 出現回数
-    std::pmr::unordered_map<std::pmr::wstring, int> anchor_counts{parse_resource.resource()};
+    std::pmr::unordered_map<std::pmr::wstring, int> anchor_counts{ parse_resource.resource() };
 
     void BeginNode(NodeType type) {
         nodes.emplace_back();
@@ -132,7 +138,9 @@ struct ParseContext {
             return;
         }
 
-        if (!current_node) return;
+        if (!current_node) {
+            return;
+        }
 
         uint32_t start = static_cast<uint32_t>(current_node->text.size());
         current_node->text.append(text);
@@ -156,113 +164,115 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
     auto* ctx = static_cast<ParseContext*>(userdata);
 
     switch (type) {
-        case MD_BLOCK_DOC:
-            break;
+    case MD_BLOCK_DOC:
+        break;
 
-        case MD_BLOCK_H: {
-            auto* h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
-            ctx->BeginNode(NodeType::Heading);
-            ctx->current_node->heading_level = static_cast<int>(h->level);
-            break;
+    case MD_BLOCK_H: {
+        auto* h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
+        ctx->BeginNode(NodeType::Heading);
+        ctx->current_node->heading_level = static_cast<int>(h->level);
+        break;
+    }
+
+    case MD_BLOCK_P:
+        if (!ctx->in_code_block) {
+            if (ctx->blockquote_depth > 0) {
+                ctx->BeginNode(NodeType::BlockQuote);
+            }
+            else {
+                ctx->BeginNode(NodeType::Paragraph);
+            }
         }
+        break;
 
-        case MD_BLOCK_P:
-            if (!ctx->in_code_block) {
-                if (ctx->blockquote_depth > 0) {
-                    ctx->BeginNode(NodeType::BlockQuote);
-                } else {
-                    ctx->BeginNode(NodeType::Paragraph);
-                }
-            }
-            break;
-
-        case MD_BLOCK_CODE: {
-            ctx->in_code_block = true;
-            ctx->BeginNode(NodeType::CodeBlock);
-            auto* code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
-            if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-                std::pmr::wstring lang_str = Utf8ToWide(std::string_view{code_detail->lang.text, static_cast<size_t>(code_detail->lang.size)});
-                ctx->current_node->code_language = DetectLanguage(lang_str);
-            }
-            break;
+    case MD_BLOCK_CODE: {
+        ctx->in_code_block = true;
+        ctx->BeginNode(NodeType::CodeBlock);
+        auto* code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
+        if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
+            std::pmr::wstring lang_str = Utf8ToWide(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
+            ctx->current_node->code_language = DetectLanguage(lang_str);
         }
+        break;
+    }
 
-        case MD_BLOCK_QUOTE:
-            ctx->blockquote_depth++;
-            ctx->indent_level++;
-            ctx->blockquote_group_stack.push(++ctx->blockquote_group_counter);
-            break;
+    case MD_BLOCK_QUOTE:
+        ctx->blockquote_depth++;
+        ctx->indent_level++;
+        ctx->blockquote_group_stack.push(++ctx->blockquote_group_counter);
+        break;
 
-        case MD_BLOCK_UL:
-            ctx->list_counter.push(0);
-            ctx->indent_level++;
-            break;
+    case MD_BLOCK_UL:
+        ctx->list_counter.push(0);
+        ctx->indent_level++;
+        break;
 
-        case MD_BLOCK_OL: {
-            auto* ol = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
-            ctx->list_counter.push(static_cast<int>(ol->start));
-            ctx->indent_level++;
-            break;
+    case MD_BLOCK_OL: {
+        auto* ol = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
+        ctx->list_counter.push(static_cast<int>(ol->start));
+        ctx->indent_level++;
+        break;
+    }
+
+    case MD_BLOCK_LI: {
+        auto* li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
+        if (li->is_task) {
+            ctx->BeginNode(NodeType::TaskListItem);
+            ctx->current_node->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
         }
-
-        case MD_BLOCK_LI: {
-            auto* li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
-            if (li->is_task) {
-                ctx->BeginNode(NodeType::TaskListItem);
-                ctx->current_node->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
-            } else {
-                ctx->BeginNode(NodeType::ListItem);
-            }
-            if (!ctx->list_counter.empty()) {
-                int counter = ctx->list_counter.top();
-                ctx->current_node->list_number = counter;
-                if (counter > 0) {
-                    ctx->list_counter.top()++;
-                }
-            }
-            break;
+        else {
+            ctx->BeginNode(NodeType::ListItem);
         }
-
-        case MD_BLOCK_HR:
-            ctx->BeginNode(NodeType::HorizontalRule);
-            break;
-
-        case MD_BLOCK_TABLE:
-            ctx->BeginNode(NodeType::Table);
-            ctx->in_table = true;
-            break;
-
-        case MD_BLOCK_THEAD:
-            ctx->in_thead = true;
-            break;
-
-        case MD_BLOCK_TBODY:
-            ctx->in_thead = false;
-            break;
-
-        case MD_BLOCK_TR:
-            if (ctx->current_node && ctx->current_node->type == NodeType::Table) {
-                ctx->current_node->table_rows.emplace_back();
+        if (!ctx->list_counter.empty()) {
+            int counter = ctx->list_counter.top();
+            ctx->current_node->list_number = counter;
+            if (counter > 0) {
+                ctx->list_counter.top()++;
             }
-            break;
-
-        case MD_BLOCK_TH:
-        case MD_BLOCK_TD: {
-            if (ctx->current_node && ctx->current_node->type == NodeType::Table
-                && !ctx->current_node->table_rows.empty()) {
-                auto& row = ctx->current_node->table_rows.back();
-                row.cells.emplace_back();
-                ctx->current_cell = &row.cells.back();
-                ctx->current_cell->is_header = (type == MD_BLOCK_TH);
-                if (detail) {
-                    auto* td = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
-                    ctx->current_cell->align = static_cast<int>(td->align);
-                }
-            }
-            break;
         }
-        case MD_BLOCK_HTML:
-            break;
+        break;
+    }
+
+    case MD_BLOCK_HR:
+        ctx->BeginNode(NodeType::HorizontalRule);
+        break;
+
+    case MD_BLOCK_TABLE:
+        ctx->BeginNode(NodeType::Table);
+        ctx->in_table = true;
+        break;
+
+    case MD_BLOCK_THEAD:
+        ctx->in_thead = true;
+        break;
+
+    case MD_BLOCK_TBODY:
+        ctx->in_thead = false;
+        break;
+
+    case MD_BLOCK_TR:
+        if (ctx->current_node && ctx->current_node->type == NodeType::Table) {
+            ctx->current_node->table_rows.emplace_back();
+        }
+        break;
+
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD: {
+        if (ctx->current_node && ctx->current_node->type == NodeType::Table
+            && !ctx->current_node->table_rows.empty()) {
+            auto& row = ctx->current_node->table_rows.back();
+            row.cells.emplace_back();
+            ctx->current_cell = &row.cells.back();
+            ctx->current_cell->is_header = (type == MD_BLOCK_TH);
+            if (detail) {
+                auto* td = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
+                ctx->current_cell->align = static_cast<int>(td->align);
+            }
+        }
+        break;
+    }
+    case MD_BLOCK_HTML:
+        break;
     }
 
     return 0;
@@ -272,75 +282,86 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
     auto* ctx = static_cast<ParseContext*>(userdata);
 
     switch (type) {
-        case MD_BLOCK_CODE:
-            ctx->in_code_block = false;
-            // 末尾の改行があれば除去
-            if (ctx->current_node && !ctx->current_node->text.empty()
-                && ctx->current_node->text.back() == L'\n') {
-                ctx->current_node->text.pop_back();
-                if (!ctx->current_node->runs.empty()) {
-                    auto& last = ctx->current_node->runs.back();
-                    if (last.length > 0) last.length--;
-                }
+    case MD_BLOCK_CODE:
+        ctx->in_code_block = false;
+        // 末尾の改行があれば除去
+        if (ctx->current_node && !ctx->current_node->text.empty()
+            && ctx->current_node->text.back() == L'\n') {
+            ctx->current_node->text.pop_back();
+            if (!ctx->current_node->runs.empty()) {
+                auto& last = ctx->current_node->runs.back();
+                if (last.length > 0) last.length--;
             }
-            // レイアウトパスの度にではなく、パース時に一度だけトークン化する
-            if (ctx->current_node && ctx->current_node->code_language != SyntaxLanguage::None) {
-                ctx->current_node->syntax_tokens = Tokenize(
-                    ctx->current_node->text, ctx->current_node->code_language);
+        }
+        // レイアウトパスの度にではなく、パース時に一度だけトークン化する
+        if (ctx->current_node && ctx->current_node->code_language != SyntaxLanguage::None) {
+            ctx->current_node->syntax_tokens = Tokenize(
+                ctx->current_node->text, ctx->current_node->code_language);
+        }
+        break;
+
+    case MD_BLOCK_QUOTE:
+        if (ctx->blockquote_depth > 0) {
+            ctx->blockquote_depth--;
+        }
+        if (ctx->indent_level > 0) {
+            ctx->indent_level--;
+        }
+        if (!ctx->blockquote_group_stack.empty()) {
+            ctx->blockquote_group_stack.pop();
+        }
+        break;
+
+    case MD_BLOCK_UL:
+    case MD_BLOCK_OL:
+        if (!ctx->list_counter.empty()) {
+            ctx->list_counter.pop();
+        }
+        if (ctx->indent_level > 0) {
+            ctx->indent_level--;
+        }
+        break;
+
+    case MD_BLOCK_TABLE:
+        ctx->in_table = false;
+        ctx->current_node = nullptr;
+        break;
+
+    case MD_BLOCK_THEAD:
+    case MD_BLOCK_TBODY:
+    case MD_BLOCK_TR:
+        break;
+
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD:
+        ctx->current_cell = nullptr;
+        break;
+
+    case MD_BLOCK_H:
+        if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
+            std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->text);
+            auto it = ctx->anchor_counts.find(base_id);
+            int count = (it != ctx->anchor_counts.end()) ? it->second : 0;
+            if (count > 0) {
+                ctx->current_node->anchor_id = base_id;
+                ctx->current_node->anchor_id += L"-";
+                ctx->current_node->anchor_id += std::to_wstring(count);
             }
-            break;
-
-        case MD_BLOCK_QUOTE:
-            if (ctx->blockquote_depth > 0) ctx->blockquote_depth--;
-            if (ctx->indent_level > 0) ctx->indent_level--;
-            if (!ctx->blockquote_group_stack.empty()) ctx->blockquote_group_stack.pop();
-            break;
-
-        case MD_BLOCK_UL:
-        case MD_BLOCK_OL:
-            if (!ctx->list_counter.empty()) ctx->list_counter.pop();
-            if (ctx->indent_level > 0) ctx->indent_level--;
-            break;
-
-        case MD_BLOCK_TABLE:
-            ctx->in_table = false;
-            ctx->current_node = nullptr;
-            break;
-
-        case MD_BLOCK_THEAD:
-        case MD_BLOCK_TBODY:
-        case MD_BLOCK_TR:
-            break;
-
-        case MD_BLOCK_TH:
-        case MD_BLOCK_TD:
-            ctx->current_cell = nullptr;
-            break;
-
-        case MD_BLOCK_H:
-            if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
-                std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->text);
-                auto it = ctx->anchor_counts.find(base_id);
-                int count = (it != ctx->anchor_counts.end()) ? it->second : 0;
-                if (count > 0) {
-                    ctx->current_node->anchor_id = base_id;
-                    ctx->current_node->anchor_id += L"-";
-                    ctx->current_node->anchor_id += std::to_wstring(count);
-                } else {
-                    ctx->current_node->anchor_id = base_id;
-                }
-                ctx->anchor_counts[std::move(base_id)] = count + 1;
+            else {
+                ctx->current_node->anchor_id = base_id;
             }
-            ctx->current_node = nullptr;
-            break;
-        case MD_BLOCK_P:
-        case MD_BLOCK_LI:
-        case MD_BLOCK_HR:
-            ctx->current_node = nullptr;
-            break;
+            ctx->anchor_counts[std::move(base_id)] = count + 1;
+        }
+        ctx->current_node = nullptr;
+        break;
+    case MD_BLOCK_P:
+    case MD_BLOCK_LI:
+    case MD_BLOCK_HR:
+        ctx->current_node = nullptr;
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 
     return 0;
@@ -352,28 +373,28 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata) {
     ctx->span_stack.push(ctx->current_span);
 
     switch (type) {
-        case MD_SPAN_STRONG:
-            ctx->current_span.bold = true;
-            break;
-        case MD_SPAN_EM:
-            ctx->current_span.italic = true;
-            break;
-        case MD_SPAN_CODE:
-            ctx->current_span.code = true;
-            break;
-        case MD_SPAN_DEL:
-            ctx->current_span.strikethrough = true;
-            break;
-        case MD_SPAN_A: {
-            auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
-            if (a->href.text && a->href.size > 0) {
-                ctx->link_urls.push_back(Utf8ToWide(std::string_view{a->href.text, static_cast<size_t>(a->href.size)}));
-                ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
-            }
-            break;
+    case MD_SPAN_STRONG:
+        ctx->current_span.bold = true;
+        break;
+    case MD_SPAN_EM:
+        ctx->current_span.italic = true;
+        break;
+    case MD_SPAN_CODE:
+        ctx->current_span.code = true;
+        break;
+    case MD_SPAN_DEL:
+        ctx->current_span.strikethrough = true;
+        break;
+    case MD_SPAN_A: {
+        auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
+        if (a->href.text && a->href.size > 0) {
+            ctx->link_urls.push_back(Utf8ToWide(std::string_view{ a->href.text, static_cast<size_t>(a->href.size) }));
+            ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
         }
-        default:
-            break;
+        break;
+    }
+    default:
+        break;
     }
 
     return 0;
@@ -405,27 +426,30 @@ void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity) {
         if (entity[2] == 'x' || entity[2] == 'X') {
             auto result = std::from_chars(entity.data() + 3, entity.data() + entity.size() - 1, codepoint, 16);
             valid = (result.ec == std::errc());
-        } else {
+        }
+        else {
             auto result = std::from_chars(entity.data() + 2, entity.data() + entity.size() - 1, codepoint, 10);
             valid = (result.ec == std::errc());
         }
         if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
             single_char = static_cast<wchar_t>(codepoint);
             resolved = &single_char;
-        } else if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
+        }
+        else if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
             // 補助面: UTF-16サロゲートペアを出力
             unsigned long adj = codepoint - 0x10000;
             wchar_t surrogate[2];
             surrogate[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));
             surrogate[1] = static_cast<wchar_t>(0xDC00 + (adj & 0x3FF));
-            ctx->AppendText(std::wstring_view{surrogate, 2});
+            ctx->AppendText(std::wstring_view{ surrogate, 2 });
             return;
         }
     }
     if (resolved) {
         size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
-        ctx->AppendText(std::wstring_view{resolved, rlen});
-    } else {
+        ctx->AppendText(std::wstring_view{ resolved, rlen });
+    }
+    else {
         ctx->AppendUtf8(entity);
     }
 }
@@ -433,28 +457,30 @@ void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity) {
 int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) {
     auto* ctx = static_cast<ParseContext*>(userdata);
 
-    if (!ctx->current_node) return 0;
+    if (!ctx->current_node) {
+        return 0;
+    }
 
     switch (type) {
-        case MD_TEXT_NORMAL:
-        case MD_TEXT_CODE:
-            ctx->AppendUtf8(std::string_view{text, static_cast<size_t>(size)});
-            break;
+    case MD_TEXT_NORMAL:
+    case MD_TEXT_CODE:
+        ctx->AppendUtf8(std::string_view{ text, static_cast<size_t>(size) });
+        break;
 
-        case MD_TEXT_ENTITY:
-            ResolveHtmlEntity(ctx, std::string_view{text, static_cast<size_t>(size)});
-            break;
+    case MD_TEXT_ENTITY:
+        ResolveHtmlEntity(ctx, std::string_view{ text, static_cast<size_t>(size) });
+        break;
 
-        case MD_TEXT_BR:
-            ctx->AppendText(std::wstring_view{L"\n", 1});
-            break;
+    case MD_TEXT_BR:
+        ctx->AppendText(std::wstring_view{ L"\n", 1 });
+        break;
 
-        case MD_TEXT_SOFTBR:
-            ctx->AppendText(std::wstring_view{L" ", 1});
-            break;
+    case MD_TEXT_SOFTBR:
+        ctx->AppendText(std::wstring_view{ L" ", 1 });
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 
     return 0;
@@ -466,12 +492,12 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
 
 const wchar_t* GetAlertLabel(AlertType type) noexcept {
     switch (type) {
-        case AlertType::Note:      return L"Note";
-        case AlertType::Tip:       return L"Tip";
-        case AlertType::Important: return L"Important";
-        case AlertType::Warning:   return L"Warning";
-        case AlertType::Caution:   return L"Caution";
-        default:                   return L"";
+    case AlertType::Note:      return L"Note";
+    case AlertType::Tip:       return L"Tip";
+    case AlertType::Important: return L"Important";
+    case AlertType::Warning:   return L"Warning";
+    case AlertType::Caution:   return L"Caution";
+    default:                   return L"";
     }
 }
 
@@ -479,11 +505,15 @@ namespace {
 
 // 大文字小文字を無視して wstring_view を比較する（ASCII範囲のみ）
 bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept {
-    if (a.size() != b.size()) return false;
+    if (a.size() != b.size()) {
+        return false;
+    }
     for (size_t i = 0; i < a.size(); i++) {
         wchar_t ca = (a[i] >= L'a' && a[i] <= L'z') ? (a[i] - L'a' + L'A') : a[i];
         wchar_t cb = (b[i] >= L'a' && b[i] <= L'z') ? (b[i] - L'a' + L'A') : b[i];
-        if (ca != cb) return false;
+        if (ca != cb) {
+            return false;
+        }
     }
     return true;
 }
@@ -495,7 +525,9 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end) {
         return AlertType::None;
     }
     auto close = text.find(L']');
-    if (close == std::wstring_view::npos || close <= 2) return AlertType::None;
+    if (close == std::wstring_view::npos || close <= 2) {
+        return AlertType::None;
+    }
 
     auto type_str = text.substr(2, close - 2);
 
@@ -506,7 +538,9 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end) {
     else if (AsciiCaseEqual(type_str, L"WARNING"))   type = AlertType::Warning;
     else if (AsciiCaseEqual(type_str, L"CAUTION"))   type = AlertType::Caution;
 
-    if (type == AlertType::None) return AlertType::None;
+    if (type == AlertType::None) {
+        return AlertType::None;
+    }
 
     marker_end = close + 1;
     // マーカー直後のスペースまたは改行を1つスキップ

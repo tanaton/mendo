@@ -19,23 +19,23 @@ void App::OnVScroll(WPARAM wParam) {
     float page_size = pane_layout.md_rect.height;
 
     switch (LOWORD(wParam)) {
-        case SB_LINEUP:    ScrollTo(viewport_.GetScrollY() - 40.0f); break;
-        case SB_LINEDOWN:  ScrollTo(viewport_.GetScrollY() + 40.0f); break;
-        case SB_PAGEUP:    ScrollTo(viewport_.GetScrollY() - page_size); break;
-        case SB_PAGEDOWN:  ScrollTo(viewport_.GetScrollY() + page_size); break;
-        case SB_THUMBTRACK:
-            viewport_.SetScrollbarTracking(true);
-            ScrollTo(static_cast<float>(si.nTrackPos));
-            break;
-        case SB_THUMBPOSITION:
-            viewport_.SetScrollbarTracking(false);
-            ScrollTo(static_cast<float>(si.nTrackPos));
-            break;
-        case SB_ENDSCROLL:
-            viewport_.SetScrollbarTracking(false);
-            break;
-        case SB_TOP:       ScrollTo(0.0f); break;
-        case SB_BOTTOM:    ScrollTo(viewport_.GetMaxScroll()); break;
+    case SB_LINEUP:    ScrollTo(viewport_.GetScrollY() - 40.0f); break;
+    case SB_LINEDOWN:  ScrollTo(viewport_.GetScrollY() + 40.0f); break;
+    case SB_PAGEUP:    ScrollTo(viewport_.GetScrollY() - page_size); break;
+    case SB_PAGEDOWN:  ScrollTo(viewport_.GetScrollY() + page_size); break;
+    case SB_THUMBTRACK:
+        viewport_.SetScrollbarTracking(true);
+        ScrollTo(static_cast<float>(si.nTrackPos));
+        break;
+    case SB_THUMBPOSITION:
+        viewport_.SetScrollbarTracking(false);
+        ScrollTo(static_cast<float>(si.nTrackPos));
+        break;
+    case SB_ENDSCROLL:
+        viewport_.SetScrollbarTracking(false);
+        break;
+    case SB_TOP:       ScrollTo(0.0f); break;
+    case SB_BOTTOM:    ScrollTo(viewport_.GetMaxScroll()); break;
     }
 
     if (viewport_.GetScrollY() != old_pos) {
@@ -57,7 +57,7 @@ void App::UpdateScrollBar(float md_pane_height) {
 
 void App::ScrollTo(float position) {
     viewport_.ScrollTo(position);
-    last_md_hit_pos_ = {LONG_MIN, LONG_MIN};
+    last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
 }
 
 void App::SmoothScrollBy(float delta) {
@@ -96,7 +96,9 @@ void App::InvalidateMdPane(const PaneRect& md_rect) {
 }
 
 void App::StopSmoothScroll() {
-    if (!viewport_.IsSmoothScrolling()) return;
+    if (!viewport_.IsSmoothScrolling()) {
+        return;
+    }
     viewport_.StopSmoothScroll();
     KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
 }
@@ -150,7 +152,8 @@ void App::OnDeferredLayout() {
 
     if (!viewport_.IsScrollbarTracking()) {
         AnchorCompensateScroll(anchor_idx, anchor_y_before, md_height);
-    } else {
+    }
+    else {
         SyncMaxScroll(md_height);
     }
 

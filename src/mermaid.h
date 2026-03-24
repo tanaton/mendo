@@ -31,7 +31,7 @@ public:
     // render_targetはD2Dビットマップの作成に使用する。
     // on_readyはWebView2の初期化完了時にUIスレッドで呼び出される。
     void Init(HWND hwnd, ID2D1RenderTarget* render_target,
-              std::function<void()> on_ready);
+        std::function<void()> on_ready);
 
     // WebView2が初期化済みでレンダリング可能な場合にtrueを返す。
     constexpr bool IsReady() const noexcept { return ready_; }
@@ -40,8 +40,8 @@ public:
     // 完了時、ダイアグラムエントリのbitmap/width/heightとレイアウトエントリの
     // height/layout_dirtyが設定され、on_completeがUIスレッドで呼び出される。
     void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry,
-                       float max_width, bool dark_mode,
-                       std::function<void()> on_complete);
+        float max_width, bool dark_mode,
+        std::function<void()> on_complete);
 
     // D2Dレンダーターゲットを更新する（例：リサイズ後）。
     void SetRenderTarget(ID2D1RenderTarget* render_target);
@@ -65,7 +65,7 @@ private:
     void OnCaptureComplete(std::wstring_view code_hash, IStream* png_stream);
     std::pmr::wstring HashCode(std::wstring_view code, float max_width, bool dark_mode) const;
     HRESULT CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
-                                      float* width, float* height);
+        float* width, float* height);
     void FinishCurrentRequest();
 
     HWND hwnd_ = nullptr;           // メインウィンドウ

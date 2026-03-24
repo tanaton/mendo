@@ -61,18 +61,18 @@ public:
     bool Init(HWND hwnd);
     void Resize(UINT width, UINT height);
     void Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
-                const TextSelection& selection,
-                const PaneRect& md_pane_rect,
-                const SidePaneState& side_panes,
-                bool can_go_back = false, bool can_go_forward = false,
-                int nav_hovered = 0,
-                int hovered_copy_node = -1,
-                const GestureRenderState& gesture = {});
+        const TextSelection& selection,
+        const PaneRect& md_pane_rect,
+        const SidePaneState& side_panes,
+        bool can_go_back = false, bool can_go_forward = false,
+        int nav_hovered = 0,
+        int hovered_copy_node = -1,
+        const GestureRenderState& gesture = {});
     void SetDpi(float dpi);
     void DrawLoading(float angle,
-                     const PaneRect& md_pane_rect,
-                     const SidePaneState& side_panes,
-                     const GestureRenderState& gesture = {});
+        const PaneRect& md_pane_rect,
+        const SidePaneState& side_panes,
+        const GestureRenderState& gesture = {});
 
     ID2D1HwndRenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
     constexpr LayoutEngine& GetLayout() noexcept { return layout_; }
@@ -102,16 +102,16 @@ public:
 private:
     // 描画前パス: レイアウトに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-                             int first_visible, float viewport_bottom);
+        int first_visible, float viewport_bottom);
 
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
-                          const ScrollState& scroll, int hovered_index);
+        const ScrollState& scroll, int hovered_index);
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
-                 const ScrollState& scroll, int hovered_index);
+        const ScrollState& scroll, int hovered_index);
     void DrawSplitter(float x, float height);
     void DrawNavOverlay(const PaneRect& md_pane_rect,
-                        bool can_back, bool can_forward,
-                        int hovered);  // 0=なし, 1=戻る, 2=進む
+        bool can_back, bool can_forward,
+        int hovered);  // 0=なし, 1=戻る, 2=進む
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
 

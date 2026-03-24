@@ -69,7 +69,7 @@ void PaneController::ApplyZoom(float ratio) noexcept {
 
 PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float splitter_w) const noexcept {
     return ComputePaneLayout(total_w, total_h, file_width_, toc_width_,
-                             splitter_w, show_file_, show_toc_, MD_PANE_MIN_WIDTH);
+        splitter_w, show_file_, show_toc_, MD_PANE_MIN_WIDTH);
 }
 
 PaneZone PaneController::DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept {

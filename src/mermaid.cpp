@@ -15,13 +15,19 @@
 static std::span<const std::byte> LoadMermaidJsGzFromResource() {
     HMODULE hModule = GetModuleHandleW(nullptr);
     HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(IDR_MERMAID_JS_GZ), RT_RCDATA);
-    if (!hRes) return {};
+    if (!hRes) {
+        return {};
+    }
     HGLOBAL hData = LoadResource(hModule, hRes);
-    if (!hData) return {};
+    if (!hData) {
+        return {};
+    }
     DWORD size = SizeofResource(hModule, hRes);
     const auto* data = static_cast<const std::byte*>(LockResource(hData));
-    if (!data || size == 0) return {};
-    return {data, size};
+    if (!data || size == 0) {
+        return {};
+    }
+    return { data, size };
 }
 
 // 仮想ホスト経由で配信される小さなHTMLテンプレート。mermaid.jsは別の
@@ -120,8 +126,9 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
 // ヘルパー: 指定されたバイトデータのコピーを含むIStreamを作成する。
 static IStream* CreateMemoryStream(const void* data, size_t size) {
     IStream* stream = nullptr;
-    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream)
+    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream) {
         return nullptr;
+    }
     if (size > 0 && data) {
         ULONG written = 0;
         stream->Write(data, static_cast<ULONG>(size), &written);
@@ -141,7 +148,7 @@ static std::pmr::wstring GetWebView2UserDataFolder() {
     auto path = std::filesystem::path(appdata) / L"mendo" / L"WebView2Data";
     CoTaskMemFree(appdata);
     std::filesystem::create_directories(path);
-    return std::pmr::wstring{std::wstring_view{path.native()}};
+    return std::pmr::wstring{ std::wstring_view{path.native()} };
 }
 
 // FNV-1a 64ビットハッシュ - mermaid_util.cppに移動済み
@@ -162,13 +169,13 @@ MermaidRenderer::~MermaidRenderer() {
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
-                           std::function<void()> on_ready) {
+    std::function<void()> on_ready) {
     hwnd_ = hwnd;
     render_target_ = render_target;
 
     // PNGデコード用のWICファクトリを作成
     CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                     IID_PPV_ARGS(&wic_factory_));
+        IID_PPV_ARGS(&wic_factory_));
 
     // オフスクリーンでWebView2をホストする非表示ポップアップウィンドウを登録・作成する。
     // WebView2はCapturePreviewでコンテンツをレンダリングするためにIsVisible=TRUEが必要なため、
@@ -208,165 +215,174 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
         nullptr, user_data.c_str(), nullptr,
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [this, on_ready](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
-                if (FAILED(result) || !env) {
+        if (FAILED(result) || !env) {
+            return S_OK;
+        }
+        webview_env_ = env;
+        env->CreateCoreWebView2Controller(
+            webview_hwnd_,
+            Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+                [this, on_ready](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+            if (FAILED(result) || !controller) {
+                return S_OK;
+            }
+
+            webview_controller_ = controller;
+            controller->get_CoreWebView2(&webview_);
+
+            // ホストウィンドウをWebViewで埋める
+            RECT bounds = { 0, 0, 4096, 4096 };
+            controller->put_Bounds(bounds);
+
+            // 不要な機能を無効化する
+            ComPtr<ICoreWebView2Settings> settings;
+            webview_->get_Settings(&settings);
+            if (settings) {
+                settings->put_AreDevToolsEnabled(FALSE);
+                settings->put_IsStatusBarEnabled(FALSE);
+                settings->put_AreDefaultContextMenusEnabled(FALSE);
+                settings->put_AreDefaultScriptDialogsEnabled(FALSE);
+            }
+
+            // Webメッセージ（mermaid-readyシグナル）をリッスンする
+            webview_->add_WebMessageReceived(
+                Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
+                    [this, on_ready](ICoreWebView2*,
+                        ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                LPWSTR msg = nullptr;
+                if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
+                    if (wcsncmp(msg, L"mermaid-ready:", 14) == 0) {
+                        // "mermaid-ready:<dpr>"からDPRを解析
+                        float dpr = std::wcstof(msg + 14, nullptr);
+                        if (dpr > 0) {
+                            dpr_ = dpr;
+                        }
+                        ready_ = true;
+                        if (on_ready) {
+                            on_ready();
+                        }
+                        ProcessQueue();
+                    }
+                    else if (wcsncmp(msg, L"render-result:", 14) == 0) {
+                        // "render-result:<id>:<json>" からリクエストIDを解析
+                        wchar_t* end = nullptr;
+                        auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, &end, 10));
+                        if (end && *end == L':' && id == current_request_.request_id) {
+                            OnMermaidRenderResult(std::wstring_view(end + 1));
+                        }
+                    }
+                    else if (wcsncmp(msg, L"capture-ready:", 14) == 0) {
+                        // "capture-ready:<id>" からリクエストIDを解析
+                        auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, nullptr, 10));
+                        if (id == current_request_.request_id) {
+                            DoCapturePreview();
+                        }
+                    }
+                    else if (wcsncmp(msg, L"render-error:", 13) == 0) {
+                        // "render-error:<id>:<message>" からリクエストIDを解析
+                        wchar_t* end = nullptr;
+                        auto id = static_cast<unsigned int>(std::wcstoul(msg + 13, &end, 10));
+                        if (id == current_request_.request_id) {
+                            FinishCurrentRequest();
+                        }
+                    }
+                    else {
+                    }
+                    CoTaskMemFree(msg);
+                }
+                return S_OK;
+            }).Get(),
+                nullptr);
+
+            // ナビゲーションを制限: app.local以外へのナビゲーションをブロック
+            webview_->add_NavigationStarting(
+                Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
+                    [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                LPWSTR uri = nullptr;
+                if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
+                    if (wcsncmp(uri, L"https://app.local/", 18) != 0 &&
+                        wcscmp(uri, L"about:blank") != 0) {
+                        args->put_Cancel(TRUE);
+                    }
+                    CoTaskMemFree(uri);
+                }
+                return S_OK;
+            }).Get(),
+                nullptr);
+
+            // 新規ウィンドウの要求を全てブロック
+            webview_->add_NewWindowRequested(
+                Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+                    [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
+                args->put_Handled(TRUE);
+                return S_OK;
+            }).Get(),
+                nullptr);
+
+            // 仮想ホストへのリクエストをインターセプトし、
+            // 埋め込みWin32リソースからHTML / mermaid.jsを配信する。
+            // 全URLをフィルタし、app.local以外へのリクエストもブロックする。
+            webview_->AddWebResourceRequestedFilter(
+                L"*",
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+
+            webview_->add_WebResourceRequested(
+                Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(
+                    [this](ICoreWebView2*,
+                        ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
+                ComPtr<ICoreWebView2WebResourceRequest> request;
+                args->get_Request(&request);
+                LPWSTR uri = nullptr;
+                request->get_Uri(&uri);
+                std::pmr::wstring url(uri ? uri : L"");
+                CoTaskMemFree(uri);
+
+                // app.local以外へのリクエストをブロック（fetch/XHR等）
+                if (url.find(L"app.local") == std::pmr::wstring::npos) {
+                    ComPtr<ICoreWebView2WebResourceResponse> response;
+                    webview_env_->CreateWebResourceResponse(
+                        nullptr, 403, L"Blocked", L"", &response);
+                    args->put_Response(response.Get());
                     return S_OK;
                 }
-                webview_env_ = env;
-                env->CreateCoreWebView2Controller(
-                    webview_hwnd_,
-                    Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-                        [this, on_ready](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
-                            if (FAILED(result) || !controller) {
-                                return S_OK;
-                            }
 
-                            webview_controller_ = controller;
-                            controller->get_CoreWebView2(&webview_);
+                IStream* stream = nullptr;
+                const wchar_t* headers = nullptr;
 
-                            // ホストウィンドウをWebViewで埋める
-                            RECT bounds = {0, 0, 4096, 4096};
-                            controller->put_Bounds(bounds);
+                if (url.find(L"/mermaid.min.js.gz") != std::pmr::wstring::npos) {
+                    // gzip圧縮されたmermaid.js（キャッシュ済み）を配信する。JSがDecompressionStreamで展開する
+                    if (cached_mermaid_gz_.empty()) {
+                        cached_mermaid_gz_ = LoadMermaidJsGzFromResource();
+                    }
+                    const auto& gz = cached_mermaid_gz_;
+                    stream = CreateMemoryStream(gz.data(), gz.size());
+                    headers = L"Content-Type: application/gzip";
+                }
+                else {
+                    // その他のパスにはHTMLテンプレートを配信する
+                    stream = CreateMemoryStream(kMermaidHtml, sizeof(kMermaidHtml) - 1);
+                    headers = L"Content-Type: text/html; charset=utf-8";
+                }
 
-                            // 不要な機能を無効化する
-                            ComPtr<ICoreWebView2Settings> settings;
-                            webview_->get_Settings(&settings);
-                            if (settings) {
-                                settings->put_AreDevToolsEnabled(FALSE);
-                                settings->put_IsStatusBarEnabled(FALSE);
-                                settings->put_AreDefaultContextMenusEnabled(FALSE);
-                                settings->put_AreDefaultScriptDialogsEnabled(FALSE);
-                            }
-
-                            // Webメッセージ（mermaid-readyシグナル）をリッスンする
-                            webview_->add_WebMessageReceived(
-                                Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
-                                    [this, on_ready](ICoreWebView2*,
-                                                     ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-                                        LPWSTR msg = nullptr;
-                                        if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
-                                            if (wcsncmp(msg, L"mermaid-ready:", 14) == 0) {
-                                                // "mermaid-ready:<dpr>"からDPRを解析
-                                                float dpr = std::wcstof(msg + 14, nullptr);
-                                                if (dpr > 0) dpr_ = dpr;
-                                                ready_ = true;
-                                                if (on_ready) on_ready();
-                                                ProcessQueue();
-                                            } else if (wcsncmp(msg, L"render-result:", 14) == 0) {
-                                                // "render-result:<id>:<json>" からリクエストIDを解析
-                                                wchar_t* end = nullptr;
-                                                auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, &end, 10));
-                                                if (end && *end == L':' && id == current_request_.request_id) {
-                                                    OnMermaidRenderResult(std::wstring_view(end + 1));
-                                                }
-                                            } else if (wcsncmp(msg, L"capture-ready:", 14) == 0) {
-                                                // "capture-ready:<id>" からリクエストIDを解析
-                                                auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, nullptr, 10));
-                                                if (id == current_request_.request_id) {
-                                                    DoCapturePreview();
-                                                }
-                                            } else if (wcsncmp(msg, L"render-error:", 13) == 0) {
-                                                // "render-error:<id>:<message>" からリクエストIDを解析
-                                                wchar_t* end = nullptr;
-                                                auto id = static_cast<unsigned int>(std::wcstoul(msg + 13, &end, 10));
-                                                if (id == current_request_.request_id) {
-                                                    FinishCurrentRequest();
-                                                }
-                                            } else {
-                                            }
-                                            CoTaskMemFree(msg);
-                                        }
-                                        return S_OK;
-                                    }).Get(),
-                                nullptr);
-
-                            // ナビゲーションを制限: app.local以外へのナビゲーションをブロック
-                            webview_->add_NavigationStarting(
-                                Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
-                                    [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
-                                        LPWSTR uri = nullptr;
-                                        if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
-                                            if (wcsncmp(uri, L"https://app.local/", 18) != 0 &&
-                                                wcscmp(uri, L"about:blank") != 0) {
-                                                args->put_Cancel(TRUE);
-                                            }
-                                            CoTaskMemFree(uri);
-                                        }
-                                        return S_OK;
-                                    }).Get(),
-                                nullptr);
-
-                            // 新規ウィンドウの要求を全てブロック
-                            webview_->add_NewWindowRequested(
-                                Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
-                                    [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
-                                        args->put_Handled(TRUE);
-                                        return S_OK;
-                                    }).Get(),
-                                nullptr);
-
-                            // 仮想ホストへのリクエストをインターセプトし、
-                            // 埋め込みWin32リソースからHTML / mermaid.jsを配信する。
-                            // 全URLをフィルタし、app.local以外へのリクエストもブロックする。
-                            webview_->AddWebResourceRequestedFilter(
-                                L"*",
-                                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-
-                            webview_->add_WebResourceRequested(
-                                Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(
-                                    [this](ICoreWebView2*,
-                                           ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
-                                        ComPtr<ICoreWebView2WebResourceRequest> request;
-                                        args->get_Request(&request);
-                                        LPWSTR uri = nullptr;
-                                        request->get_Uri(&uri);
-                                        std::pmr::wstring url(uri ? uri : L"");
-                                        CoTaskMemFree(uri);
-
-                                        // app.local以外へのリクエストをブロック（fetch/XHR等）
-                                        if (url.find(L"app.local") == std::pmr::wstring::npos) {
-                                            ComPtr<ICoreWebView2WebResourceResponse> response;
-                                            webview_env_->CreateWebResourceResponse(
-                                                nullptr, 403, L"Blocked", L"", &response);
-                                            args->put_Response(response.Get());
-                                            return S_OK;
-                                        }
-
-                                        IStream* stream = nullptr;
-                                        const wchar_t* headers = nullptr;
-
-                                        if (url.find(L"/mermaid.min.js.gz") != std::pmr::wstring::npos) {
-                                            // gzip圧縮されたmermaid.js（キャッシュ済み）を配信する。JSがDecompressionStreamで展開する
-                                            if (cached_mermaid_gz_.empty()) {
-                                                cached_mermaid_gz_ = LoadMermaidJsGzFromResource();
-                                            }
-                                            const auto& gz = cached_mermaid_gz_;
-                                            stream = CreateMemoryStream(gz.data(), gz.size());
-                                            headers = L"Content-Type: application/gzip";
-                                        } else {
-                                            // その他のパスにはHTMLテンプレートを配信する
-                                            stream = CreateMemoryStream(kMermaidHtml, sizeof(kMermaidHtml) - 1);
-                                            headers = L"Content-Type: text/html; charset=utf-8";
-                                        }
-
-                                        if (stream && headers) {
-                                            ComPtr<ICoreWebView2WebResourceResponse> response;
-                                            webview_env_->CreateWebResourceResponse(
-                                                stream, 200, L"OK", headers, &response);
-                                            args->put_Response(response.Get());
-                                            stream->Release();
-                                        }
-                                        return S_OK;
-                                    }).Get(),
-                                nullptr);
-
-                            // 仮想ホストにナビゲートする（HTML + JSは上記ハンドラにより
-                            // メモリから配信される）。
-                            webview_->Navigate(L"https://app.local/index.html");
-
-                            return S_OK;
-                        }).Get());
+                if (stream && headers) {
+                    ComPtr<ICoreWebView2WebResourceResponse> response;
+                    webview_env_->CreateWebResourceResponse(
+                        stream, 200, L"OK", headers, &response);
+                    args->put_Response(response.Get());
+                    stream->Release();
+                }
                 return S_OK;
-            }).Get());
+            }).Get(),
+                nullptr);
+
+            // 仮想ホストにナビゲートする（HTML + JSは上記ハンドラにより
+            // メモリから配信される）。
+            webview_->Navigate(L"https://app.local/index.html");
+
+            return S_OK;
+        }).Get());
+        return S_OK;
+    }).Get());
 }
 
 void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target) {
@@ -396,7 +412,7 @@ void MermaidRenderer::ClearPendingQueue() noexcept {
 }
 
 std::pmr::wstring MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const {
-    std::pmr::wstring key{code};
+    std::pmr::wstring key{ code };
     key += L"|";
     key += std::to_wstring(static_cast<int>(max_width));
     key += L"|";
@@ -405,10 +421,12 @@ std::pmr::wstring MermaidRenderer::HashCode(std::wstring_view code, float max_wi
 }
 
 void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
-                                     DiagramEntry& diagram_entry,
-                                     float max_width, bool dark_mode,
-                                     std::function<void()> on_complete) {
-    if (node.code_language != SyntaxLanguage::Mermaid) return;
+    DiagramEntry& diagram_entry,
+    float max_width, bool dark_mode,
+    std::function<void()> on_complete) {
+    if (node.code_language != SyntaxLanguage::Mermaid) {
+        return;
+    }
 
     auto hash = HashCode(node.text, max_width, dark_mode);
 
@@ -420,7 +438,9 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         diagram_entry.height = it->second.height;
         layout_entry.height = it->second.height;
         layout_entry.layout_dirty = false;
-        if (on_complete) on_complete();
+        if (on_complete) {
+            on_complete();
+        }
         return;
     }
 
@@ -441,23 +461,27 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
 }
 
 void MermaidRenderer::ProcessQueue() {
-    if (!ready_ || rendering_ || pending_requests_.empty()) return;
+    if (!ready_ || rendering_ || pending_requests_.empty()) {
+        return;
+    }
 
     current_request_ = std::move(pending_requests_.front());
     pending_requests_.pop();
     current_request_.request_id = ++request_counter_;
     rendering_ = true;
 
-    RenderMermaidInWebView(std::wstring_view{current_request_.node->text},
-                           current_request_.max_width,
-                           current_request_.dark_mode);
+    RenderMermaidInWebView(std::wstring_view{ current_request_.node->text },
+        current_request_.max_width,
+        current_request_.dark_mode);
 }
 
 void MermaidRenderer::FinishCurrentRequest() {
     rendering_ = false;
     auto cb = std::move(current_request_.on_complete);
     current_request_ = {};
-    if (cb) cb();
+    if (cb) {
+        cb();
+    }
     ProcessQueue();
 }
 
@@ -471,19 +495,21 @@ void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_w
     // 境界はポップアップウィンドウの物理ピクセル単位で、WebView2は
     // 内部でdevicePixelRatioで除算してCSSビューポートサイズを求める。
     int vp_phys = static_cast<int>(std::ceil(max_width * dpr_));
-    if (vp_phys < 1) vp_phys = 1;
+    if (vp_phys < 1) {
+        vp_phys = 1;
+    }
     int h_phys = static_cast<int>(4096 * dpr_);
-    RECT bounds = {0, 0, vp_phys, h_phys};
+    RECT bounds = { 0, 0, vp_phys, h_phys };
     webview_controller_->put_Bounds(bounds);
     SetWindowPos(webview_hwnd_, nullptr, -32000, -32000, vp_phys, h_phys,
-                 SWP_NOZORDER | SWP_NOACTIVATE);
+        SWP_NOZORDER | SWP_NOACTIVATE);
 
     // Mermaidをレンダリングする（maxWidth=0はCSS制約なし、ビューポートが制約する）
     // リクエストIDをpostMessageに含め、C++側でコールバックとリクエストを照合する
     auto id_str = std::to_wstring(current_request_.request_id);
     std::pmr::wstring js = L"renderMermaid('" + mermaid_util::JsEscape(code) + L"', "
-                      + (dark_mode ? L"true" : L"false") + L", 0"
-                      + L").then(function(r){window.chrome.webview.postMessage('render-result:";
+        + (dark_mode ? L"true" : L"false") + L", 0"
+        + L").then(function(r){window.chrome.webview.postMessage('render-result:";
     js += id_str.c_str();
     js += L":'+r);}).catch(function(e){window.chrome.webview.postMessage('render-error:";
     js += id_str.c_str();
@@ -500,10 +526,16 @@ void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
 
     auto find_num = [](std::wstring_view json, std::wstring_view key) static -> float {
         auto pos = json.find(key);
-        if (pos == std::wstring_view::npos) return 0;
+        if (pos == std::wstring_view::npos) {
+            return 0;
+        }
         pos += key.size();
-        while (pos < json.size() && (json[pos] == L':' || json[pos] == L' ')) pos++;
-        if (pos >= json.size()) return 0.0f;
+        while (pos < json.size() && (json[pos] == L':' || json[pos] == L' ')) {
+            pos++;
+        }
+        if (pos >= json.size()) {
+            return 0.0f;
+        }
         // wstring_viewはnull終端が保証されないため、数値部分を切り出してからwcstofに渡す
         wchar_t buf[64];
         auto num_len = (std::min)(json.size() - pos, std::size(buf) - 1);
@@ -515,9 +547,11 @@ void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
     dw = find_num(json, L"\"width\"");
     dh = find_num(json, L"\"height\"");
     float dpr = find_num(json, L"\"dpr\"");
-    if (dpr <= 0) dpr = 1.0f;
+    if (dpr <= 0) {
+        dpr = 1.0f;
+    }
     ok = json.find(L"\"ok\":true") != std::wstring_view::npos
-         || json.find(L"\"ok\": true") != std::wstring_view::npos;
+        || json.find(L"\"ok\": true") != std::wstring_view::npos;
 
     if (!ok || dw <= 0 || dh <= 0) {
         FinishCurrentRequest();
@@ -533,12 +567,12 @@ void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
     // CSSピクセルにdevicePixelRatioを掛けて物理ピクセルを求める。
     int cw = static_cast<int>(std::ceil(dw * dpr));
     int ch = static_cast<int>(std::ceil(dh * dpr));
-    RECT capBounds = {0, 0, static_cast<LONG>(cw), static_cast<LONG>(ch)};
+    RECT capBounds = { 0, 0, static_cast<LONG>(cw), static_cast<LONG>(ch) };
     webview_controller_->put_Bounds(capBounds);
 
     // ホストポップアップウィンドウも同じサイズにリサイズする
     SetWindowPos(webview_hwnd_, nullptr, -32000, -32000, cw, ch,
-                 SWP_NOZORDER | SWP_NOACTIVATE);
+        SWP_NOZORDER | SWP_NOACTIVATE);
 
     // rAFを使ってWebViewが新しいサイズで再レンダリングするのを待ち、
     // postMessageでシグナルを送る（Promise-awaitの問題を回避する）。
@@ -569,22 +603,29 @@ void MermaidRenderer::DoCapturePreview() {
         pngStream,
         Microsoft::WRL::Callback<ICoreWebView2CapturePreviewCompletedHandler>(
             [this, pngStream, req_id](HRESULT hr3) -> HRESULT {
-                if (current_request_.request_id != req_id) {
-                    // CancelPending後に到着した古いコールバック
-                    if (pngStream) pngStream->Release();
-                    return S_OK;
-                }
-                if (SUCCEEDED(hr3) && pngStream) {
-                    OnCaptureComplete(current_request_.code_hash, pngStream);
-                } else {
-                    FinishCurrentRequest();
-                }
-                if (pngStream) pngStream->Release();
-                return S_OK;
-            }).Get());
+        if (current_request_.request_id != req_id) {
+            // CancelPending後に到着した古いコールバック
+            if (pngStream) {
+                pngStream->Release();
+            }
+            return S_OK;
+        }
+        if (SUCCEEDED(hr3) && pngStream) {
+            OnCaptureComplete(current_request_.code_hash, pngStream);
+        }
+        else {
+            FinishCurrentRequest();
+        }
+        if (pngStream) {
+            pngStream->Release();
+        }
+        return S_OK;
+    }).Get());
 
     if (FAILED(hr)) {
-        if (pngStream) pngStream->Release();
+        if (pngStream) {
+            pngStream->Release();
+        }
         FinishCurrentRequest();
     }
 }
@@ -598,8 +639,12 @@ void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* pn
         // ビットマップピクセル寸法は使用しない。
         float draw_w = current_request_.css_width;
         float draw_h = current_request_.css_height;
-        if (draw_w <= 0) draw_w = bw;  // フォールバック
-        if (draw_h <= 0) draw_h = bh;
+        if (draw_w <= 0) {
+            draw_w = bw;  // フォールバック
+        }
+        if (draw_h <= 0) {
+            draw_h = bh;
+        }
 
         // キャッシュに格納（エントリ数上限を超えたら任意のエントリを削除）
         static constexpr size_t MAX_CACHE_ENTRIES = 4096;
@@ -610,7 +655,7 @@ void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* pn
         cached.bitmap = bitmap;
         cached.width = draw_w;
         cached.height = draw_h;
-        cache_[std::pmr::wstring{code_hash}] = cached;
+        cache_[std::pmr::wstring{ code_hash }] = cached;
 
         // レイアウト/ダイアグラムエントリを更新
         if (current_request_.diagram_entry) {
@@ -628,8 +673,10 @@ void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* pn
 }
 
 HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
-                                                    float* width, float* height) {
-    if (!wic_factory_ || !render_target_ || !stream) return E_FAIL;
+    float* width, float* height) {
+    if (!wic_factory_ || !render_target_ || !stream) {
+        return E_FAIL;
+    }
 
     // 先頭にシーク
     LARGE_INTEGER zero = {};
@@ -638,24 +685,34 @@ HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap*
     ComPtr<IWICBitmapDecoder> decoder;
     HRESULT hr = wic_factory_->CreateDecoderFromStream(
         stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) {
+        return hr;
+    }
 
     ComPtr<IWICBitmapFrameDecode> frame;
     hr = decoder->GetFrame(0, &frame);
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) {
+        return hr;
+    }
 
     ComPtr<IWICFormatConverter> converter;
     hr = wic_factory_->CreateFormatConverter(&converter);
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) {
+        return hr;
+    }
 
     hr = converter->Initialize(
         frame.Get(), GUID_WICPixelFormat32bppPBGRA,
         WICBitmapDitherTypeNone, nullptr, 0.0f,
         WICBitmapPaletteTypeCustom);
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) {
+        return hr;
+    }
 
     hr = render_target_->CreateBitmapFromWicBitmap(converter.Get(), bitmap);
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) {
+        return hr;
+    }
 
     UINT w = 0, h = 0;
     frame->GetSize(&w, &h);

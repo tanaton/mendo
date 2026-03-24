@@ -13,7 +13,7 @@ Document Document::FromMarkdown(const std::pmr::string& utf8, std::wstring_view 
 std::pmr::wstring Document::GetDirectory() const {
     auto dir = std::filesystem::path(file_path_.c_str()).parent_path();
     if (!dir.empty()) {
-        return std::pmr::wstring{std::wstring_view{dir.native()}};
+        return std::pmr::wstring{ std::wstring_view{dir.native()} };
     }
     return {};
 }

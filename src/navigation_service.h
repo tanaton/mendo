@@ -19,7 +19,7 @@ public:
 
     // リンククリック処理。結果を返すだけで副作用は起こさない。
     NavigateResult HandleLinkClick(std::wstring_view url,
-                                   std::wstring_view current_file);
+        std::wstring_view current_file);
 
     // 戻る
     NavigateResult GoBack(std::wstring_view current_file, float scroll_y);

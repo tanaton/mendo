@@ -28,30 +28,46 @@ std::filesystem::path GetConfigDir() {
 
 std::filesystem::path GetConfigPath(std::wstring_view filename) {
     // パストラバーサル防御: ファイル名にパス区切り文字や危険なパターンが含まれていないことを検証
-    if (filename.empty()) return {};
-    for (wchar_t c : filename) {
-        if (c == L'\\' || c == L'/' || c == L':') return {};
+    if (filename.empty()) {
+        return {};
     }
-    if (filename.find(L"..") != std::wstring_view::npos) return {};
+    for (wchar_t c : filename) {
+        if (c == L'\\' || c == L'/' || c == L':') {
+            return {};
+        }
+    }
+    if (filename.find(L"..") != std::wstring_view::npos) {
+        return {};
+    }
 
     auto dir = GetConfigDir();
-    if (dir.empty()) return {};
+    if (dir.empty()) {
+        return {};
+    }
     return dir / filename;
 }
 
 void SaveBool(std::wstring_view filename, bool value) {
     auto path = GetConfigPath(filename);
-    if (path.empty()) return;
+    if (path.empty()) {
+        return;
+    }
     std::filesystem::create_directories(path.parent_path());
     std::ofstream ofs(path);
-    if (ofs) ofs << (value ? "1" : "0");
+    if (ofs) {
+        ofs << (value ? "1" : "0");
+    }
 }
 
 bool LoadBool(std::wstring_view filename, bool default_value) {
     auto path = GetConfigPath(filename);
-    if (path.empty()) return default_value;
+    if (path.empty()) {
+        return default_value;
+    }
     std::ifstream ifs(path);
-    if (!ifs) return default_value;
+    if (!ifs) {
+        return default_value;
+    }
     char c = '0';
     ifs >> c;
     return c == '1';
@@ -59,26 +75,40 @@ bool LoadBool(std::wstring_view filename, bool default_value) {
 
 void SaveInt(std::wstring_view filename, int value) {
     auto path = GetConfigPath(filename);
-    if (path.empty()) return;
+    if (path.empty()) {
+        return;
+    }
     std::filesystem::create_directories(path.parent_path());
     std::ofstream ofs(path);
-    if (ofs) ofs << value;
+    if (ofs) {
+        ofs << value;
+    }
 }
 
 int LoadInt(std::wstring_view filename, int default_value, int min_val, int max_val) {
     auto path = GetConfigPath(filename);
-    if (path.empty()) return default_value;
+    if (path.empty()) {
+        return default_value;
+    }
     std::ifstream ifs(path);
-    if (!ifs) return default_value;
+    if (!ifs) {
+        return default_value;
+    }
     int val = default_value;
-    if (!(ifs >> val)) return default_value;
-    if (val < min_val || val > max_val) return default_value;
+    if (!(ifs >> val)) {
+        return default_value;
+    }
+    if (val < min_val || val > max_val) {
+        return default_value;
+    }
     return val;
 }
 
 void SaveWString(std::wstring_view filename, std::wstring_view value) {
     auto path = GetConfigPath(filename);
-    if (path.empty()) return;
+    if (path.empty()) {
+        return;
+    }
     if (value.empty()) {
         std::filesystem::remove(path);
         return;
@@ -87,24 +117,34 @@ void SaveWString(std::wstring_view filename, std::wstring_view value) {
     std::ofstream ofs(path, std::ios::binary);
     if (ofs) {
         ofs.write(reinterpret_cast<const char*>(value.data()),
-                  static_cast<std::streamsize>(value.size() * sizeof(wchar_t)));
+            static_cast<std::streamsize>(value.size() * sizeof(wchar_t)));
     }
 }
 
 std::pmr::wstring LoadWString(std::wstring_view filename) {
     auto path = GetConfigPath(filename);
-    if (path.empty()) return {};
+    if (path.empty()) {
+        return {};
+    }
     std::ifstream ifs(path, std::ios::binary | std::ios::ate);
-    if (!ifs) return {};
+    if (!ifs) {
+        return {};
+    }
     auto size = ifs.tellg();
-    if (size <= 0 || size % sizeof(wchar_t) != 0) return {};
+    if (size <= 0 || size % sizeof(wchar_t) != 0) {
+        return {};
+    }
     // 設定値として妥当なサイズ上限（1MB）を設ける
     static constexpr std::streamoff MAX_CONFIG_STRING_SIZE = 1 * 1024 * 1024;
-    if (size > MAX_CONFIG_STRING_SIZE) return {};
+    if (size > MAX_CONFIG_STRING_SIZE) {
+        return {};
+    }
     ifs.seekg(0);
     std::pmr::wstring result(static_cast<size_t>(size) / sizeof(wchar_t), L'\0');
     ifs.read(reinterpret_cast<char*>(result.data()), size);
-    if (!ifs) return {};
+    if (!ifs) {
+        return {};
+    }
     // 埋め込みnull文字を除去（破損データ対策）
     auto null_pos = result.find(L'\0');
     if (null_pos != std::pmr::wstring::npos) {

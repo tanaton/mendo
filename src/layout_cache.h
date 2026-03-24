@@ -94,7 +94,9 @@ private:
 // 最後のノードのレイアウト位置からコンテンツ全体の高さを計算する。
 // node_count が 0 の場合は 0 を返し、size() - 1 の符号なし整数アンダーフローを回避する。
 constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) noexcept {
-    if (node_count == 0) return 0.0f;
+    if (node_count == 0) {
+        return 0.0f;
+    }
     size_t last = node_count - 1;
     return cache[last].y_position + cache[last].height + margin_top;
 }
@@ -105,10 +107,12 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_co
     int lo = 0, hi = static_cast<int>(node_count);
     while (lo < hi) {
         int mid = (lo + hi) / 2;
-        if (cache[mid].y_position + cache[mid].height <= viewport_top)
+        if (cache[mid].y_position + cache[mid].height <= viewport_top) {
             lo = mid + 1;
-        else
+        }
+        else {
             hi = mid;
+        }
     }
     return lo;
 }

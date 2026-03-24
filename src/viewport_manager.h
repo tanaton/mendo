@@ -42,7 +42,9 @@ public:
     }
 
     constexpr void StopSmoothScroll() noexcept {
-        if (!smooth_scrolling_) return;
+        if (!smooth_scrolling_) {
+            return;
+        }
         scroll_y_ = scroll_target_;
         smooth_scrolling_ = false;
     }
@@ -61,7 +63,9 @@ public:
     }
 
     constexpr void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, const LayoutCache& cache) noexcept {
-        if (anchor_idx < 0) return;
+        if (anchor_idx < 0) {
+            return;
+        }
         float shift = cache[anchor_idx].y_position - anchor_y_before;
         scroll_y_ = std::max(0.0f, scroll_y_ + shift);
         scroll_target_ = std::max(0.0f, scroll_target_ + shift);
@@ -115,12 +119,16 @@ public:
 
     // 新しいズーム値を返す。既に上限/下限の場合は0を返す。
     constexpr float ZoomIn() noexcept {
-        if (zoom_index_ < ZOOM_STEP_COUNT - 1) return ZOOM_STEPS[++zoom_index_];
+        if (zoom_index_ < ZOOM_STEP_COUNT - 1) {
+            return ZOOM_STEPS[++zoom_index_];
+        }
         return 0.0f;
     }
 
     constexpr float ZoomOut() noexcept {
-        if (zoom_index_ > 0) return ZOOM_STEPS[--zoom_index_];
+        if (zoom_index_ > 0) {
+            return ZOOM_STEPS[--zoom_index_];
+        }
         return 0.0f;
     }
 

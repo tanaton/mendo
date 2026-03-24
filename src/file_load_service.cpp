@@ -13,7 +13,9 @@ void FileLoadService::StopLoading() noexcept {
 
 void FileLoadService::TickLoadingAnimation() noexcept {
     loading_angle_ += spinner::ROTATION_INCREMENT;
-    if (loading_angle_ > TWO_PI) loading_angle_ -= TWO_PI;
+    if (loading_angle_ > TWO_PI) {
+        loading_angle_ -= TWO_PI;
+    }
 }
 
 bool FileLoadService::ExecuteLoad(Document& doc, LayoutCache& cache) {
@@ -27,7 +29,9 @@ bool FileLoadService::ExecuteLoad(Document& doc, LayoutCache& cache) {
 }
 
 bool FileLoadService::ExecuteReload(Document& doc, LayoutCache& cache) {
-    if (doc.GetFilePath().empty()) return false;
+    if (doc.GetFilePath().empty()) {
+        return false;
+    }
 
     doc_service_.ReloadFile(doc);
     cache.Reset(doc.GetNodes().size());

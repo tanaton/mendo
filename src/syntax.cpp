@@ -29,11 +29,11 @@ bool IsWhitespace(wchar_t c) {
 }
 
 bool IsAtLineStart(std::wstring_view text, size_t pos) {
-    if (pos == 0) return true;
+    if (pos == 0) { return true; }
     for (size_t i = pos - 1; ; i--) {
-        if (text[i] == L'\n') return true;
-        if (text[i] != L' ' && text[i] != L'\t') return false;
-        if (i == 0) return true;
+        if (text[i] == L'\n') { return true; }
+        if (text[i] != L' ' && text[i] != L'\t') { return false; }
+        if (i == 0) { return true; }
     }
 }
 
@@ -183,7 +183,7 @@ const KeywordSet& TsKeywords() {
         L"abstract", L"declare", L"enum", L"implements", L"infer",
         L"interface", L"is", L"keyof", L"namespace", L"override",
         L"readonly", L"satisfies", L"type", L"module", L"asserts"
-    });
+        });
     return s;
 }
 
@@ -195,7 +195,7 @@ const KeywordSet& TsTypes() {
         L"Exclude", L"Extract", L"NonNullable", L"ReturnType", L"Parameters",
         L"InstanceType", L"Awaited", L"Uppercase", L"Lowercase",
         L"Capitalize", L"Uncapitalize", L"ThisType", L"ConstructorParameters"
-    });
+        });
     return s;
 }
 
@@ -272,7 +272,7 @@ const KeywordSet& CmdTypes() {
 
 void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type) {
     if (length > 0) {
-        tokens.push_back({start, length, type});
+        tokens.push_back({ start, length, type });
     }
 }
 
@@ -283,12 +283,15 @@ size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_
     while (i < text.size()) {
         if (handle_escape && text[i] == L'\\') {
             i += 2;
-            if (i > text.size()) i = text.size();
-        } else if (text[i] == quote) {
+            if (i > text.size()) { i = text.size(); }
+        }
+        else if (text[i] == quote) {
             return i + 1;
-        } else if (!allow_multiline && text[i] == L'\n') {
+        }
+        else if (!allow_multiline && text[i] == L'\n') {
             return i; // 未終端
-        } else {
+        }
+        else {
             i++;
         }
     }
@@ -302,9 +305,11 @@ size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quote) {
     while (i + 2 < text.size()) {
         if (text[i] == L'\\') {
             i += 2;
-        } else if (text[i] == quote && text[i + 1] == quote && text[i + 2] == quote) {
+        }
+        else if (text[i] == quote && text[i + 1] == quote && text[i + 2] == quote) {
             return i + 3;
-        } else {
+        }
+        else {
             i++;
         }
     }
@@ -320,44 +325,46 @@ size_t ScanNumber(std::wstring_view text, size_t pos) {
         wchar_t next = text[i + 1];
         if (next == L'x' || next == L'X') {
             i += 2;
-            while (i < text.size() && (IsHexDigit(text[i]) || text[i] == L'\'')) i++;
+            while (i < text.size() && (IsHexDigit(text[i]) || text[i] == L'\'')) { i++; }
             // サフィックス
-            while (i < text.size() && (text[i] == L'u' || text[i] == L'U' || text[i] == L'l' || text[i] == L'L')) i++;
+            while (i < text.size() && (text[i] == L'u' || text[i] == L'U' || text[i] == L'l' || text[i] == L'L')) { i++; }
             return i;
         }
         if (next == L'b' || next == L'B') {
             i += 2;
-            while (i < text.size() && (text[i] == L'0' || text[i] == L'1' || text[i] == L'\'')) i++;
+            while (i < text.size() && (text[i] == L'0' || text[i] == L'1' || text[i] == L'\'')) { i++; }
             return i;
         }
         if (next == L'o' || next == L'O') {
             i += 2;
-            while (i < text.size() && text[i] >= L'0' && text[i] <= L'7') i++;
+            while (i < text.size() && text[i] >= L'0' && text[i] <= L'7') { i++; }
             return i;
         }
     }
 
     // 整数 / 浮動小数点
-    while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) i++;
+    while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) { i++; }
 
     // 小数点
     if (i < text.size() && text[i] == L'.') {
         i++;
-        while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) i++;
+        while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) { i++; }
     }
 
     // 指数部
     if (i < text.size() && (text[i] == L'e' || text[i] == L'E')) {
         i++;
-        if (i < text.size() && (text[i] == L'+' || text[i] == L'-')) i++;
-        while (i < text.size() && IsDigit(text[i])) i++;
+        if (i < text.size() && (text[i] == L'+' || text[i] == L'-')) { i++; }
+        while (i < text.size() && IsDigit(text[i])) { i++; }
     }
 
     // サフィックス (f, F, l, L, u, U 等)
     while (i < text.size() && (text[i] == L'f' || text[i] == L'F' ||
-                                text[i] == L'l' || text[i] == L'L' ||
-                                text[i] == L'u' || text[i] == L'U' ||
-                                text[i] == L'n')) i++;  // 'n'はJS BigInt用
+        text[i] == L'l' || text[i] == L'L' ||
+        text[i] == L'u' || text[i] == L'U' ||
+        text[i] == L'n')) {
+        i++;
+    }  // 'n'はJS BigInt用
 
     return i;
 }
@@ -365,7 +372,7 @@ size_t ScanNumber(std::wstring_view text, size_t pos) {
 // [start, end)の識別子の後に'('が続くか確認（空白をスキップ）。
 bool IsFollowedByParen(std::wstring_view text, size_t end) {
     size_t i = end;
-    while (i < text.size() && (text[i] == L' ' || text[i] == L'\t')) i++;
+    while (i < text.size() && (text[i] == L' ' || text[i] == L'\t')) { i++; }
     return i < text.size() && text[i] == L'(';
 }
 
@@ -432,7 +439,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         if (cfg.line_comment_slash && c == L'/' && i + 1 < text.size() && text[i + 1] == L'/') {
             flush_plain();
             size_t start = i;
-            while (i < text.size() && text[i] != L'\n') i++;
+            while (i < text.size() && text[i] != L'\n') { i++; }
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
         }
@@ -449,7 +456,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         if (cfg.hash_comment && c == L'#' && !cfg.preprocessor) {
             flush_plain();
             size_t start = i;
-            while (i < text.size() && text[i] != L'\n') i++;
+            while (i < text.size() && text[i] != L'\n') { i++; }
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
         }
@@ -487,7 +494,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             IsAtLineStart(text, i)) {
             flush_plain();
             size_t start = i;
-            while (i < text.size() && text[i] != L'\n') i++;
+            while (i < text.size() && text[i] != L'\n') { i++; }
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
         }
@@ -500,7 +507,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             (i + 3 >= text.size() || !IsIdentChar(text[i + 3]))) {
             flush_plain();
             size_t start = i;
-            while (i < text.size() && text[i] != L'\n') i++;
+            while (i < text.size() && text[i] != L'\n') { i++; }
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
         }
@@ -531,15 +538,17 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                 // デリミタを検索: R"DELIM( ... )DELIM"
                 size_t paren = text.find(L'(', i + 1);
                 if (paren != std::wstring_view::npos) {
-                    std::pmr::wstring delim{text.substr(i + 1, paren - i - 1)};
+                    std::pmr::wstring delim{ text.substr(i + 1, paren - i - 1) };
                     std::pmr::wstring end_marker = L")" + delim + L"\"";
-                    size_t end_pos = text.find(std::wstring_view{end_marker}, paren + 1);
+                    size_t end_pos = text.find(std::wstring_view{ end_marker }, paren + 1);
                     if (end_pos != std::wstring_view::npos) {
                         i = end_pos + end_marker.size();
-                    } else {
+                    }
+                    else {
                         i = text.size();
                     }
-                } else {
+                }
+                else {
                     i = ScanString(text, i, c, false);
                 }
                 EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
@@ -574,7 +583,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         if (IsIdentStart(c)) {
             flush_plain();
             size_t start = i;
-            while (i < text.size() && IsIdentChar(text[i])) i++;
+            while (i < text.size() && IsIdentChar(text[i])) { i++; }
 
             std::wstring_view word(text.data() + start, i - start);
             std::pmr::wstring word_lower;
@@ -593,9 +602,11 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             SyntaxTokenType tt = SyntaxTokenType::Plain;
             if (keywords.count(lookup_word)) {
                 tt = SyntaxTokenType::Keyword;
-            } else if (types.count(lookup_word)) {
+            }
+            else if (types.count(lookup_word)) {
                 tt = SyntaxTokenType::Type;
-            } else if (IsFollowedByParen(text, i)) {
+            }
+            else if (IsFollowedByParen(text, i)) {
                 tt = SyntaxTokenType::Function;
             }
 
@@ -680,19 +691,19 @@ static const LanguageDef LANGUAGE_DEFS[] = {
 };
 
 static_assert(std::size(LANGUAGE_DEFS) == static_cast<size_t>(SyntaxLanguage::Cmd) + 1,
-              "LANGUAGE_DEFS must cover all SyntaxLanguage values");
+    "LANGUAGE_DEFS must cover all SyntaxLanguage values");
 
 } // namespace
 
 // ---- 公開API ----
 
 SyntaxLanguage DetectLanguage(std::wstring_view info_string) {
-    if (info_string.empty()) return SyntaxLanguage::None;
+    if (info_string.empty()) { return SyntaxLanguage::None; }
 
     // 最初の単語を抽出して小文字に変換
     std::pmr::wstring lang;
     for (wchar_t c : info_string) {
-        if (c == L' ' || c == L'\t') break;
+        if (c == L' ' || c == L'\t') { break; }
         lang += c;
     }
     lang = ToLowerAscii(lang);

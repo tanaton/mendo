@@ -14,7 +14,9 @@ std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path) {
     HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) return {};
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return {};
+    }
 
     LARGE_INTEGER size;
     if (!GetFileSizeEx(hFile, &size) || size.QuadPart == 0) {
@@ -39,7 +41,8 @@ std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path) {
         if (ReadFile(hFile, bom, 3, &bom_read, nullptr) && bom_read == 3 &&
             bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) {
             bom_skip = 3;
-        } else {
+        }
+        else {
             // BOMなし: ファイル先頭に巻き戻す
             SetFilePointer(hFile, 0, nullptr, FILE_BEGIN);
         }
@@ -54,7 +57,9 @@ std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path) {
     });
     CloseHandle(hFile);
 
-    if (!ok) return {};
+    if (!ok) {
+        return {};
+    }
 
     return content;
 }
@@ -99,16 +104,22 @@ void FileLoader::StopWatching() noexcept {
 }
 
 void FileLoader::CheckForChanges() {
-    if (!watching_) return;
+    if (!watching_) {
+        return;
+    }
 
     // デバウンス: 最後のリロードから間隔が短すぎる場合はチェックをスキップ
     ULONGLONG now = GetTickCount64();
-    if (now - last_reload_tick_ < DEBOUNCE_MS) return;
+    if (now - last_reload_tick_ < DEBOUNCE_MS) {
+        return;
+    }
 
     FILETIME current = GetFileWriteTime(watch_path_);
 
     // FILETIMEがゼロかチェック（アトミック保存中にファイルが一時的に消失する場合）
-    if (current.dwLowDateTime == 0 && current.dwHighDateTime == 0) return;
+    if (current.dwLowDateTime == 0 && current.dwHighDateTime == 0) {
+        return;
+    }
 
     if (CompareFileTime(&current, &last_write_time_) != 0) {
         last_write_time_ = current;

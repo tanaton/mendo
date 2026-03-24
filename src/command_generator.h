@@ -47,32 +47,32 @@ private:
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
-                  int node_index, float x, const TextSelection& selection,
-                  float viewport_top, float viewport_bottom);
+        int node_index, float x, const TextSelection& selection,
+        float viewport_top, float viewport_bottom);
     void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row,
-                       float x, float y, float table_width, float row_h, float border);
+        float x, float y, float table_width, float row_h, float border);
     void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,
-                             IDWriteTextLayout* cell_layout,
-                             float text_x, float text_y,
-                             bool has_selection, uint32_t sel_start, uint32_t sel_end,
-                             uint32_t flat_offset);
+        IDWriteTextLayout* cell_layout,
+        float text_x, float text_y,
+        bool has_selection, uint32_t sel_start, uint32_t sel_end,
+        uint32_t flat_offset);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry,
-                       float x, float w, bool is_hovered);
+        float x, float w, bool is_hovered);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
     void GenVerticalBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x, D2D1_COLOR_F color);
     void GenBlockQuoteBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x);
     void GenAlertBar(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
-                     float base_x, float content_width);
+        float base_x, float content_width);
     void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout,
-                               uint32_t start, uint32_t length, float origin_x, float origin_y);
+        uint32_t start, uint32_t length, float origin_x, float origin_y);
 
     const Theme* theme_ = nullptr;
     Formats formats_;
 
     // フレーム毎にリセットする monotonic リソースで描画コマンドを管理
-    MonotonicResource frame_resource_{128 * 1024};
-    DrawCommandList cmds_{frame_resource_.resource()};
+    MonotonicResource frame_resource_{ 128 * 1024 };
+    DrawCommandList cmds_{ frame_resource_.resource() };
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
     D2D1_COLOR_F cached_stripe_color_{};
