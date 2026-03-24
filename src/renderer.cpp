@@ -510,7 +510,6 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points) {
     ComPtr<ID2D1GeometrySink> sink;
     if (FAILED(path->Open(&sink))) return;
 
-    sink->SetFillMode(D2D1_FILL_MODE_WINDING);
     sink->BeginFigure(D2D1::Point2F(points[0].x, points[0].y), D2D1_FIGURE_BEGIN_HOLLOW);
     for (size_t i = 1; i < points.size(); i++) {
         sink->AddLine(D2D1::Point2F(points[i].x, points[i].y));
