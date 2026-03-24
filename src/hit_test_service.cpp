@@ -195,7 +195,7 @@ int HitTestService::CopyButtonHitTest(
     int first = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
     int count = static_cast<int>(nodes.size());
     for (int i = first; i < count; i++) {
-        if (cache[i].y_position > viewport_bottom) break;
+        if (cache[i].y_position - theme.code_block_padding > viewport_bottom) break;
 
         const auto& node = nodes[i];
         if (node.type != NodeType::CodeBlock) continue;

@@ -252,9 +252,16 @@ void App::OnLButtonDown(int px, int py) {
                 NavigateForward();
                 return;
             }
-            // コピーボタンのクリック判定
-            if (hovered_copy_node_ >= 0) {
-                CopyCodeBlockToClipboard(hovered_copy_node_);
+            // コピーボタンのクリック判定（クリック位置で再判定）
+            float content_width = pane_layout.md_rect.width
+                - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right;
+            const auto copy_node = hit_test_.CopyButtonHitTest(
+                doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
+                viewport_.GetScrollY(), pane_layout.md_rect.x,
+                content_width, pane_layout.md_rect.height,
+                cached_dpi_scale_, px, py);
+            if (copy_node >= 0) {
+                CopyCodeBlockToClipboard(copy_node);
                 return;
             }
             break;

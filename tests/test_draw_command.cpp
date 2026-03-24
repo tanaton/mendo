@@ -413,14 +413,14 @@ TEST_F(CmdGenTest, AllAlertTypesGenerateCommands) {
 
 // ---- コピーボタン ----
 
-// icon_font が null の場合、コピーボタン用の DrawTextCmd は生成されない
+// formats_.copy_btn_icon が null の場合、コピーボタン用の DrawTextCmd は生成されない
 TEST_F(CmdGenTest, CodeBlockNoCopyButtonWithoutIconFont) {
     auto cmds = Generate("```\ncode\n```");
     int text_cmd_count = 0;
     for (const auto& cmd : cmds) {
         if (std::holds_alternative<DrawTextCmd>(cmd)) text_cmd_count++;
     }
-    EXPECT_EQ(text_cmd_count, 0) << "icon_font が null のときコピーボタンの DrawTextCmd は生成されないべき";
+    EXPECT_EQ(text_cmd_count, 0) << "formats_.copy_btn_icon が null のときコピーボタンの DrawTextCmd は生成されないべき";
 }
 
 // 非コードブロックノードはコピーボタンのコマンドを生成しない
