@@ -28,6 +28,7 @@ enum class BrushId : uint8_t {
     BlockquoteBar, BlockquoteText, Selection, TableStripe,
     SyntaxKeyword, SyntaxType, SyntaxString, SyntaxNumber,
     SyntaxComment, SyntaxPreprocessor, SyntaxFunction,
+    AlertNote, AlertTip, AlertImportant, AlertWarning, AlertCaution,
     PaneBg, Splitter, PaneItemHover, PaneItemActive,
     ScrollbarThumb, Overlay,
     Count

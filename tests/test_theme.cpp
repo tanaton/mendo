@@ -296,3 +296,61 @@ TEST(Theme, ApplyZoomRepeatedRoundTripsAccumulateDrift) {
     EXPECT_FALSE(std::isnan(t.font_size_body));
     EXPECT_FALSE(std::isinf(t.font_size_body));
 }
+
+// ---- GitHub Alerts テーマ色テスト ----
+
+TEST(Theme, LightThemeAlertColorsAreDefined) {
+    Theme t = GetLightTheme();
+    for (int i = 0; i < 5; ++i) {
+        // 各Alert色がゼロでない（黒一色でない）ことを確認
+        float sum = t.alert_color[i].r + t.alert_color[i].g + t.alert_color[i].b;
+        EXPECT_GT(sum, 0.0f) << "alert_color[" << i << "] はゼロでないべき";
+        EXPECT_FLOAT_EQ(t.alert_color[i].a, 1.0f) << "alert_color[" << i << "] のアルファは1.0";
+    }
+}
+
+TEST(Theme, DarkThemeAlertColorsAreDefined) {
+    Theme t = GetDarkTheme();
+    for (int i = 0; i < 5; ++i) {
+        float sum = t.alert_color[i].r + t.alert_color[i].g + t.alert_color[i].b;
+        EXPECT_GT(sum, 0.0f) << "alert_color[" << i << "] はゼロでないべき";
+        EXPECT_FLOAT_EQ(t.alert_color[i].a, 1.0f);
+    }
+}
+
+TEST(Theme, AlertBgColorsHaveAlpha) {
+    Theme light = GetLightTheme();
+    Theme dark = GetDarkTheme();
+    for (int i = 0; i < 5; ++i) {
+        // 背景色は半透明であるべき
+        EXPECT_GT(light.alert_bg_color[i].a, 0.0f);
+        EXPECT_LT(light.alert_bg_color[i].a, 1.0f);
+        EXPECT_GT(dark.alert_bg_color[i].a, 0.0f);
+        EXPECT_LT(dark.alert_bg_color[i].a, 1.0f);
+    }
+}
+
+TEST(Theme, LightAndDarkAlertColorsDiffer) {
+    Theme light = GetLightTheme();
+    Theme dark = GetDarkTheme();
+    for (int i = 0; i < 5; ++i) {
+        // ライトとダークでAlert色が異なるべき
+        bool same = (light.alert_color[i].r == dark.alert_color[i].r)
+                 && (light.alert_color[i].g == dark.alert_color[i].g)
+                 && (light.alert_color[i].b == dark.alert_color[i].b);
+        EXPECT_FALSE(same) << "alert_color[" << i << "] はライトとダークで異なるべき";
+    }
+}
+
+TEST(Theme, AlertColorsAreDistinct) {
+    Theme t = GetLightTheme();
+    // 5種のAlert色が互いに異なることを確認
+    for (int i = 0; i < 5; ++i) {
+        for (int j = i + 1; j < 5; ++j) {
+            bool same = (t.alert_color[i].r == t.alert_color[j].r)
+                     && (t.alert_color[i].g == t.alert_color[j].g)
+                     && (t.alert_color[i].b == t.alert_color[j].b);
+            EXPECT_FALSE(same) << "alert_color[" << i << "] と [" << j << "] は異なるべき";
+        }
+    }
+}

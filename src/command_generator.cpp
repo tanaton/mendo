@@ -92,7 +92,11 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         case NodeType::TaskListItem:
             break;
         case NodeType::BlockQuote:
-            GenBlockQuoteBar(cmds, entry, x);
+            if (node.alert_type != AlertType::None) {
+                GenAlertBar(cmds, node, entry, x, cw);
+            } else {
+                GenBlockQuoteBar(cmds, entry, x);
+            }
             break;
         default:
             break;
@@ -105,7 +109,9 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     if (node.type == NodeType::Heading) {
         base_color = theme_->heading_color;
     } else if (node.type == NodeType::BlockQuote) {
-        base_color = theme_->blockquote_text_color;
+        base_color = (node.alert_type != AlertType::None)
+            ? theme_->text_color
+            : theme_->blockquote_text_color;
     } else if (node.type == NodeType::CodeBlock) {
         base_color = theme_->code_text_color;
     }
@@ -336,6 +342,29 @@ void CommandGenerator::GenBlockQuoteBar(DrawCommandList& cmds,
         D2D1::Point2F(bar_x, entry.y_position - 2.0f),
         D2D1::Point2F(bar_x, entry.y_position + entry.height + 2.0f),
         theme_->blockquote_bar_color, theme_->blockquote_bar_width});
+}
+
+void CommandGenerator::GenAlertBar(DrawCommandList& cmds,
+        const Node& node, const NodeLayoutEntry& entry, float base_x, float content_width) {
+    auto idx = static_cast<size_t>(node.alert_type) - 1;
+    if (idx >= 5) return;
+
+    D2D1_COLOR_F bar_color = theme_->alert_color[idx];
+    D2D1_COLOR_F bg_color = theme_->alert_bg_color[idx];
+
+    // 背景
+    float pad = 4.0f;
+    D2D1_RECT_F bg_rect = D2D1::RectF(
+        base_x - pad, entry.y_position - pad,
+        base_x + content_width, entry.y_position + entry.height + pad);
+    cmds.push_back(FillRoundedRectCmd{bg_rect, 4.0f, 4.0f, bg_color});
+
+    // 左バー
+    float bar_x = base_x - theme_->indent_width * 0.5f;
+    cmds.push_back(DrawLineCmd{
+        D2D1::Point2F(bar_x, entry.y_position - 2.0f),
+        D2D1::Point2F(bar_x, entry.y_position + entry.height + 2.0f),
+        bar_color, theme_->blockquote_bar_width});
 }
 
 void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,

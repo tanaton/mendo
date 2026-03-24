@@ -17,6 +17,15 @@ enum class NodeType : uint8_t {
     TaskListItem
 };
 
+enum class AlertType : uint8_t {
+    None,
+    Note,
+    Tip,
+    Important,
+    Warning,
+    Caution
+};
+
 struct TextRun {
     uint32_t start = 0;
     uint32_t length = 0;
@@ -72,6 +81,9 @@ struct Node {
     int indent_level = 0;
     int list_number = 0;      // 0 = 順序なし, >0 = 順序付きリスト番号
     bool task_checked = false;
+    AlertType alert_type = AlertType::None;
+    uint32_t alert_label_length = 0; // ラベル部分の文字数（描画エフェクト適用範囲）
+    int blockquote_group = -1;       // 同一 MD_BLOCK_QUOTE 内のノードを識別するグループID
     std::pmr::wstring text;
     std::pmr::vector<TextRun> runs;
     std::pmr::wstring anchor_id;   // 見出し用: 内部リンク向けGitHubスタイルのスラグ

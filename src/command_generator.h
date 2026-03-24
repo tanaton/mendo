@@ -56,6 +56,8 @@ private:
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
     void GenBlockQuoteBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x);
+    void GenAlertBar(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
+                     float base_x, float content_width);
     void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout,
                                uint32_t start, uint32_t length, float origin_x, float origin_y);
 

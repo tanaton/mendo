@@ -5,6 +5,7 @@
 #include <stack>
 #include <unordered_map>
 #include <charconv>
+#include <algorithm>
 #include <windows.h>
 
 std::pmr::wstring GenerateAnchorId(std::wstring_view text) {
@@ -76,6 +77,9 @@ struct ParseContext {
     int indent_level = 0;
     bool in_code_block = false;
     int blockquote_depth = 0;
+    int blockquote_group_counter = 0;           // グループID生成用
+    std::stack<int, std::pmr::deque<int>> blockquote_group_stack{
+        std::pmr::deque<int>{parse_resource.resource()}}; // ネスト追跡用
 
     // リスト追跡
     std::stack<int, std::pmr::deque<int>> list_counter{
@@ -164,6 +168,9 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
             if (!ctx->in_code_block) {
                 if (ctx->blockquote_depth > 0) {
                     ctx->BeginNode(NodeType::BlockQuote);
+                    if (!ctx->blockquote_group_stack.empty()) {
+                        ctx->current_node->blockquote_group = ctx->blockquote_group_stack.top();
+                    }
                 } else {
                     ctx->BeginNode(NodeType::Paragraph);
                 }
@@ -184,6 +191,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
         case MD_BLOCK_QUOTE:
             ctx->blockquote_depth++;
             ctx->indent_level++;
+            ctx->blockquote_group_stack.push(++ctx->blockquote_group_counter);
             break;
 
         case MD_BLOCK_UL:
@@ -286,6 +294,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
         case MD_BLOCK_QUOTE:
             if (ctx->blockquote_depth > 0) ctx->blockquote_depth--;
             if (ctx->indent_level > 0) ctx->indent_level--;
+            if (!ctx->blockquote_group_stack.empty()) ctx->blockquote_group_stack.pop();
             break;
 
         case MD_BLOCK_UL:
@@ -454,6 +463,133 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
 
 } // namespace
 
+// ---- GitHub Alerts 検出 ----
+
+const wchar_t* GetAlertLabel(AlertType type) noexcept {
+    switch (type) {
+        case AlertType::Note:      return L"Note";
+        case AlertType::Tip:       return L"Tip";
+        case AlertType::Important: return L"Important";
+        case AlertType::Warning:   return L"Warning";
+        case AlertType::Caution:   return L"Caution";
+        default:                   return L"";
+    }
+}
+
+namespace {
+
+// 大文字小文字を無視して wstring_view を比較する（ASCII範囲のみ）
+bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); i++) {
+        wchar_t ca = (a[i] >= L'a' && a[i] <= L'z') ? (a[i] - L'a' + L'A') : a[i];
+        wchar_t cb = (b[i] >= L'a' && b[i] <= L'z') ? (b[i] - L'a' + L'A') : b[i];
+        if (ca != cb) return false;
+    }
+    return true;
+}
+
+// テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す。
+// marker_end には ']' の次の位置（スペース/改行をスキップ済み）を設定する。
+AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end) {
+    if (text.size() < 3 || text[0] != L'[' || text[1] != L'!') {
+        return AlertType::None;
+    }
+    auto close = text.find(L']');
+    if (close == std::wstring_view::npos || close <= 2) return AlertType::None;
+
+    auto type_str = text.substr(2, close - 2);
+
+    AlertType type = AlertType::None;
+    if (AsciiCaseEqual(type_str, L"NOTE"))      type = AlertType::Note;
+    else if (AsciiCaseEqual(type_str, L"TIP"))       type = AlertType::Tip;
+    else if (AsciiCaseEqual(type_str, L"IMPORTANT")) type = AlertType::Important;
+    else if (AsciiCaseEqual(type_str, L"WARNING"))   type = AlertType::Warning;
+    else if (AsciiCaseEqual(type_str, L"CAUTION"))   type = AlertType::Caution;
+
+    if (type == AlertType::None) return AlertType::None;
+
+    marker_end = close + 1;
+    // マーカー直後のスペースまたは改行を1つスキップ
+    if (marker_end < text.size() && (text[marker_end] == L' ' || text[marker_end] == L'\n')) {
+        marker_end++;
+    }
+    return type;
+}
+
+// マーカーを除去しラベルを挿入する。TextRunも調整する。
+void TransformAlertNode(Node& node, AlertType type, size_t marker_end) {
+    const wchar_t* label = GetAlertLabel(type);
+    size_t label_len = std::wcslen(label);
+
+    bool has_content = (marker_end < node.text.size());
+
+    // 新しいテキストを構築: "Label" (+ "\n" + 残りテキスト)
+    std::pmr::wstring new_text;
+    new_text.reserve(label_len + 1 + (has_content ? node.text.size() - marker_end : 0));
+    new_text.append(label, label_len);
+
+    size_t new_content_start = label_len;
+    if (has_content) {
+        new_text += L'\n';
+        new_content_start = label_len + 1;
+        new_text.append(node.text.c_str() + marker_end, node.text.size() - marker_end);
+    }
+
+    // TextRun の調整
+    int delta = static_cast<int>(new_content_start) - static_cast<int>(marker_end);
+
+    std::pmr::vector<TextRun> new_runs;
+    // ラベル用の太字ラン
+    TextRun label_run;
+    label_run.start = 0;
+    label_run.length = static_cast<uint32_t>(label_len);
+    label_run.bold = true;
+    new_runs.push_back(label_run);
+
+    // 元のランを調整（マーカー部分を除外）
+    for (const auto& run : node.runs) {
+        uint32_t run_end = run.start + run.length;
+        if (run_end <= static_cast<uint32_t>(marker_end)) continue;
+
+        TextRun adjusted = run;
+        if (adjusted.start < static_cast<uint32_t>(marker_end)) {
+            uint32_t trim = static_cast<uint32_t>(marker_end) - adjusted.start;
+            adjusted.start = static_cast<uint32_t>(marker_end);
+            adjusted.length -= trim;
+        }
+        adjusted.start = static_cast<uint32_t>(static_cast<int>(adjusted.start) + delta);
+        new_runs.push_back(adjusted);
+    }
+
+    node.text = std::move(new_text);
+    node.runs = std::move(new_runs);
+    node.alert_type = type;
+    node.alert_label_length = static_cast<uint32_t>(label_len);
+}
+
+} // namespace
+
+void DetectAlerts(std::pmr::vector<Node>& nodes) {
+    for (size_t i = 0; i < nodes.size(); i++) {
+        if (nodes[i].type != NodeType::BlockQuote) continue;
+
+        size_t marker_end = 0;
+        AlertType type = DetectAlertMarker(nodes[i].text, marker_end);
+        if (type == AlertType::None) continue;
+
+        int group = nodes[i].blockquote_group;
+        TransformAlertNode(nodes[i], type, marker_end);
+
+        // 同一 blockquote_group の後続ノードにも同じ alert_type を伝播
+        for (size_t j = i + 1; j < nodes.size(); j++) {
+            if (nodes[j].type != NodeType::BlockQuote) break;
+            if (nodes[j].blockquote_group != group) break;
+            nodes[j].alert_type = type;
+        }
+    }
+}
+
 std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text) {
     ParseContext ctx;
 
@@ -467,6 +603,8 @@ std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text) {
     parser.text = OnText;
 
     md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
+
+    DetectAlerts(ctx.nodes);
 
     return std::move(ctx.nodes);
 }

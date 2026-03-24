@@ -15,6 +15,10 @@ struct Theme {
     D2D1_COLOR_F blockquote_bar_color;
     D2D1_COLOR_F blockquote_text_color;
 
+    // GitHub Alerts: Note, Tip, Important, Warning, Caution（AlertType-1でインデックス）
+    D2D1_COLOR_F alert_color[5];     // バー・ラベル色
+    D2D1_COLOR_F alert_bg_color[5];  // 背景色
+
     // シンタックスハイライトの色
     D2D1_COLOR_F syntax_keyword;
     D2D1_COLOR_F syntax_type;
