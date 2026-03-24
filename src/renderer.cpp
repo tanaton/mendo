@@ -60,6 +60,11 @@ void Renderer::RecreateBrushes() {
         {BrushId::SyntaxComment,    theme_.syntax_comment},
         {BrushId::SyntaxPreprocessor, theme_.syntax_preprocessor},
         {BrushId::SyntaxFunction,   theme_.syntax_function},
+        {BrushId::AlertNote,        theme_.alert_color[0]},
+        {BrushId::AlertTip,         theme_.alert_color[1]},
+        {BrushId::AlertImportant,   theme_.alert_color[2]},
+        {BrushId::AlertWarning,     theme_.alert_color[3]},
+        {BrushId::AlertCaution,     theme_.alert_color[4]},
         {BrushId::PaneBg,           theme_.pane_bg_color},
         {BrushId::Splitter,         theme_.splitter_color},
         {BrushId::PaneItemHover,    theme_.pane_item_hover_color},
@@ -260,6 +265,21 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
                 DWRITE_TEXT_RANGE range{token.start, token.length};
                 entry.text_layout->SetDrawingEffect(brush, range);
             }
+        }
+    }
+
+    // Alertラベルの色を適用
+    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None
+        && node.alert_label_length > 0) {
+        static constexpr BrushId ALERT_BRUSH[] = {
+            BrushId::AlertNote, BrushId::AlertTip, BrushId::AlertImportant,
+            BrushId::AlertWarning, BrushId::AlertCaution,
+        };
+        static_assert(std::size(ALERT_BRUSH) == ALERT_TYPE_COUNT);
+        auto idx = AlertColorIndex(node.alert_type);
+        if (idx < ALERT_TYPE_COUNT) {
+            DWRITE_TEXT_RANGE range{0, node.alert_label_length};
+            entry.text_layout->SetDrawingEffect(Brush(ALERT_BRUSH[idx]), range);
         }
     }
 

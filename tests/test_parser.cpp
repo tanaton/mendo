@@ -821,3 +821,193 @@ TEST(Parser, EmptyHeading) {
     // 少なくともクラッシュしないべき。
     (void)found_heading;
 }
+
+// ---- GitHub Alerts ----
+
+TEST(Parser, AlertNoteDetected) {
+    auto nodes = ParseMarkdown("> [!NOTE]\n> This is a note");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
+}
+
+TEST(Parser, AlertTipDetected) {
+    auto nodes = ParseMarkdown("> [!TIP]\n> Helpful advice");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Tip);
+}
+
+TEST(Parser, AlertImportantDetected) {
+    auto nodes = ParseMarkdown("> [!IMPORTANT]\n> Key info");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Important);
+}
+
+TEST(Parser, AlertWarningDetected) {
+    auto nodes = ParseMarkdown("> [!WARNING]\n> Be careful");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Warning);
+}
+
+TEST(Parser, AlertCautionDetected) {
+    auto nodes = ParseMarkdown("> [!CAUTION]\n> Dangerous");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Caution);
+}
+
+TEST(Parser, AlertCaseInsensitive) {
+    auto nodes = ParseMarkdown("> [!note]\n> lower case");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
+}
+
+TEST(Parser, AlertCaseMixed) {
+    auto nodes = ParseMarkdown("> [!Note]\n> mixed case");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
+}
+
+TEST(Parser, AlertMarkerStrippedAndLabelInserted) {
+    auto nodes = ParseMarkdown("> [!NOTE]\n> Content here");
+    ASSERT_GE(nodes.size(), 1u);
+    // マーカー "[!NOTE]" が除去され、ラベル "Note" に置換されているべき
+    EXPECT_NE(nodes[0].text.find(L"Note"), std::wstring::npos);
+    EXPECT_EQ(nodes[0].text.find(L"[!NOTE]"), std::wstring::npos);
+    // コンテンツも残っているべき
+    EXPECT_NE(nodes[0].text.find(L"Content here"), std::wstring::npos);
+}
+
+TEST(Parser, AlertLabelIsBold) {
+    auto nodes = ParseMarkdown("> [!NOTE]\n> Some text");
+    ASSERT_GE(nodes.size(), 1u);
+    ASSERT_GE(nodes[0].runs.size(), 1u);
+    // 最初のランはラベル部分で太字であるべき
+    EXPECT_TRUE(nodes[0].runs[0].bold);
+    EXPECT_EQ(nodes[0].runs[0].start, 0u);
+    EXPECT_EQ(nodes[0].runs[0].length, nodes[0].alert_label_length);
+}
+
+TEST(Parser, AlertLabelLength) {
+    auto nodes = ParseMarkdown("> [!NOTE]\n> text");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].alert_label_length, 4u); // "Note" = 4文字
+
+    auto nodes2 = ParseMarkdown("> [!IMPORTANT]\n> text");
+    ASSERT_GE(nodes2.size(), 1u);
+    EXPECT_EQ(nodes2[0].alert_label_length, 9u); // "Important" = 9文字
+}
+
+TEST(Parser, AlertRunPositionsAreValid) {
+    auto nodes = ParseMarkdown("> [!WARNING]\n> Some **bold** text");
+    ASSERT_GE(nodes.size(), 1u);
+    const auto& node = nodes[0];
+    for (const auto& run : node.runs) {
+        EXPECT_LE(run.start + run.length, static_cast<uint32_t>(node.text.size()))
+            << "ラン [" << run.start << ", " << run.start + run.length
+            << ") がテキスト長 " << node.text.size() << " を超えている";
+    }
+}
+
+TEST(Parser, AlertMultiParagraphGrouping) {
+    auto nodes = ParseMarkdown("> [!NOTE]\n> First para\n>\n> Second para");
+    // 複数の BlockQuote ノードが生成され、すべて同じ alert_type を持つべき
+    int alert_count = 0;
+    for (const auto& node : nodes) {
+        if (node.type == NodeType::BlockQuote && node.alert_type == AlertType::Note) {
+            alert_count++;
+        }
+    }
+    EXPECT_GE(alert_count, 2) << "複数段落のAlertは全ノードに伝播されるべき";
+}
+
+TEST(Parser, AlertOnlyFirstNodeHasLabel) {
+    auto nodes = ParseMarkdown("> [!TIP]\n> First\n>\n> Second");
+    // 最初のノードだけ alert_label_length > 0
+    int label_count = 0;
+    for (const auto& node : nodes) {
+        if (node.alert_label_length > 0) label_count++;
+    }
+    EXPECT_EQ(label_count, 1);
+}
+
+TEST(Parser, RegularBlockquoteUnaffected) {
+    auto nodes = ParseMarkdown("> Just a normal quote");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::None);
+    EXPECT_EQ(nodes[0].alert_label_length, 0u);
+    EXPECT_EQ(nodes[0].text, L"Just a normal quote");
+}
+
+TEST(Parser, AlertMarkerOnlyNoContent) {
+    auto nodes = ParseMarkdown("> [!NOTE]");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
+    // マーカーだけの場合、ラベルのみ残る
+    EXPECT_EQ(nodes[0].text, L"Note");
+}
+
+TEST(Parser, AlertFollowedByRegularBlockquote) {
+    auto nodes = ParseMarkdown("> [!NOTE]\n> Alert text\n\n> Normal quote");
+    // Alert と通常の blockquote が混在
+    bool has_alert = false, has_normal = false;
+    for (const auto& node : nodes) {
+        if (node.type == NodeType::BlockQuote) {
+            if (node.alert_type != AlertType::None) has_alert = true;
+            else has_normal = true;
+        }
+    }
+    EXPECT_TRUE(has_alert);
+    EXPECT_TRUE(has_normal);
+}
+
+TEST(Parser, AlertUnknownTypeIgnored) {
+    auto nodes = ParseMarkdown("> [!UNKNOWN]\n> text");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::None);
+    // マーカーがそのまま残っているべき
+    EXPECT_NE(nodes[0].text.find(L"UNKNOWN"), std::wstring::npos);
+}
+
+TEST(Parser, AlertLabelContents) {
+    // 各AlertTypeのラベル文字列を確認
+    EXPECT_STREQ(GetAlertLabel(AlertType::Note), L"Note");
+    EXPECT_STREQ(GetAlertLabel(AlertType::Tip), L"Tip");
+    EXPECT_STREQ(GetAlertLabel(AlertType::Important), L"Important");
+    EXPECT_STREQ(GetAlertLabel(AlertType::Warning), L"Warning");
+    EXPECT_STREQ(GetAlertLabel(AlertType::Caution), L"Caution");
+    EXPECT_STREQ(GetAlertLabel(AlertType::None), L"");
+}
+
+TEST(Parser, DetectAlertsOnEmptyVector) {
+    std::pmr::vector<Node> nodes;
+    DetectAlerts(nodes); // クラッシュしないべき
+    EXPECT_TRUE(nodes.empty());
+}
+
+TEST(Parser, AlertWithInlineFormatting) {
+    auto nodes = ParseMarkdown("> [!TIP]\n> Use **bold** and `code`");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Tip);
+    // テキストにboldとcodeが含まれるべき
+    EXPECT_NE(nodes[0].text.find(L"bold"), std::wstring::npos);
+    EXPECT_NE(nodes[0].text.find(L"code"), std::wstring::npos);
+    // フォーマット用のランがあるべき
+    bool has_bold = false, has_code = false;
+    for (const auto& run : nodes[0].runs) {
+        if (run.bold && run.start > 0) has_bold = true; // ラベル以外の太字
+        if (run.code) has_code = true;
+    }
+    EXPECT_TRUE(has_bold);
+    EXPECT_TRUE(has_code);
+}
+
+TEST(Parser, AlertTextStartsWithLabelThenNewline) {
+    auto nodes = ParseMarkdown("> [!CAUTION]\n> Don't do this");
+    ASSERT_GE(nodes.size(), 1u);
+    // テキストは "Caution\n..." の形式であるべき
+    const auto& text = nodes[0].text;
+    auto nl = text.find(L'\n');
+    ASSERT_NE(nl, std::wstring::npos);
+    EXPECT_EQ(text.substr(0, nl), L"Caution");
+}

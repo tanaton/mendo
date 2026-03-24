@@ -92,7 +92,11 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         case NodeType::TaskListItem:
             break;
         case NodeType::BlockQuote:
-            GenBlockQuoteBar(cmds, entry, x);
+            if (node.alert_type != AlertType::None) {
+                GenAlertBar(cmds, node, entry, x, cw);
+            } else {
+                GenBlockQuoteBar(cmds, entry, x);
+            }
             break;
         default:
             break;
@@ -105,7 +109,9 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     if (node.type == NodeType::Heading) {
         base_color = theme_->heading_color;
     } else if (node.type == NodeType::BlockQuote) {
-        base_color = theme_->blockquote_text_color;
+        base_color = (node.alert_type != AlertType::None)
+            ? theme_->text_color
+            : theme_->blockquote_text_color;
     } else if (node.type == NodeType::CodeBlock) {
         base_color = theme_->code_text_color;
     }
@@ -329,13 +335,36 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
     }
 }
 
-void CommandGenerator::GenBlockQuoteBar(DrawCommandList& cmds,
-        const NodeLayoutEntry& entry, float base_x) {
+void CommandGenerator::GenVerticalBar(DrawCommandList& cmds,
+        const NodeLayoutEntry& entry, float base_x, D2D1_COLOR_F color) {
+    static constexpr float BAR_EXTEND = 2.0f;
     float bar_x = base_x - theme_->indent_width * 0.5f;
     cmds.push_back(DrawLineCmd{
-        D2D1::Point2F(bar_x, entry.y_position - 2.0f),
-        D2D1::Point2F(bar_x, entry.y_position + entry.height + 2.0f),
-        theme_->blockquote_bar_color, theme_->blockquote_bar_width});
+        D2D1::Point2F(bar_x, entry.y_position - BAR_EXTEND),
+        D2D1::Point2F(bar_x, entry.y_position + entry.height + BAR_EXTEND),
+        color, theme_->blockquote_bar_width});
+}
+
+void CommandGenerator::GenBlockQuoteBar(DrawCommandList& cmds,
+        const NodeLayoutEntry& entry, float base_x) {
+    GenVerticalBar(cmds, entry, base_x, theme_->blockquote_bar_color);
+}
+
+void CommandGenerator::GenAlertBar(DrawCommandList& cmds,
+        const Node& node, const NodeLayoutEntry& entry, float base_x, float content_width) {
+    auto idx = AlertColorIndex(node.alert_type);
+    if (idx >= ALERT_TYPE_COUNT) return;
+
+    // 背景
+    static constexpr float ALERT_BG_PAD = 4.0f;
+    static constexpr float ALERT_BG_CORNER = 4.0f;
+    D2D1_RECT_F bg_rect = D2D1::RectF(
+        base_x - ALERT_BG_PAD, entry.y_position - ALERT_BG_PAD,
+        base_x + content_width, entry.y_position + entry.height + ALERT_BG_PAD);
+    cmds.push_back(FillRoundedRectCmd{bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, theme_->alert_bg_color[idx]});
+
+    // 左バー
+    GenVerticalBar(cmds, entry, base_x, theme_->alert_color[idx]);
 }
 
 void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,

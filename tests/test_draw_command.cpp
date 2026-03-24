@@ -325,3 +325,88 @@ TEST_F(CmdGenTest, EmptyDocumentNoExtraCommands) {
         }
     }
 }
+
+// ---- GitHub Alerts ----
+
+TEST_F(CmdGenTest, AlertGeneratesColoredBar) {
+    auto cmds = Generate("> [!NOTE]\n> Alert content");
+    // Alertのバーは垂直線で、通常のblockquoteとは異なる色を持つべき
+    bool found_alert_bar = false;
+    for (const auto& cmd : cmds) {
+        if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
+            if (std::abs(line->p0.x - line->p1.x) < 0.01f) {
+                // 垂直線 = バー。blockquote_bar_color と異なるべき
+                bool is_blockquote_color =
+                    (std::abs(line->color.r - theme_.blockquote_bar_color.r) < 0.01f) &&
+                    (std::abs(line->color.g - theme_.blockquote_bar_color.g) < 0.01f) &&
+                    (std::abs(line->color.b - theme_.blockquote_bar_color.b) < 0.01f);
+                if (!is_blockquote_color) {
+                    found_alert_bar = true;
+                }
+            }
+        }
+    }
+    EXPECT_TRUE(found_alert_bar) << "Alert のバーは通常の blockquote とは異なる色であるべき";
+}
+
+TEST_F(CmdGenTest, AlertGeneratesBackground) {
+    auto cmds = Generate("> [!WARNING]\n> Be careful");
+    // Alertは角丸四角形の背景を生成するべき
+    int rounded_count = 0;
+    for (const auto& cmd : cmds) {
+        if (std::holds_alternative<FillRoundedRectCmd>(cmd)) rounded_count++;
+    }
+    EXPECT_GE(rounded_count, 1) << "Alert は背景の角丸四角形を生成するべき";
+}
+
+TEST_F(CmdGenTest, AlertBarColorMatchesTheme) {
+    auto cmds = Generate("> [!NOTE]\n> text");
+    // Note の色は theme_.alert_color[0]
+    for (const auto& cmd : cmds) {
+        if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
+            if (std::abs(line->p0.x - line->p1.x) < 0.01f) {
+                // 垂直線を検出
+                if (std::abs(line->color.r - theme_.alert_color[0].r) < 0.01f &&
+                    std::abs(line->color.g - theme_.alert_color[0].g) < 0.01f &&
+                    std::abs(line->color.b - theme_.alert_color[0].b) < 0.01f) {
+                    SUCCEED();
+                    return;
+                }
+            }
+        }
+    }
+    FAIL() << "Note のバー色が theme_.alert_color[0] と一致するべき";
+}
+
+TEST_F(CmdGenTest, RegularBlockquoteStillUsesOriginalColor) {
+    auto cmds = Generate("> Normal quote");
+    for (const auto& cmd : cmds) {
+        if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
+            if (std::abs(line->p0.x - line->p1.x) < 0.01f) {
+                EXPECT_FLOAT_EQ(line->color.r, theme_.blockquote_bar_color.r);
+                EXPECT_FLOAT_EQ(line->color.g, theme_.blockquote_bar_color.g);
+                EXPECT_FLOAT_EQ(line->color.b, theme_.blockquote_bar_color.b);
+                return;
+            }
+        }
+    }
+    FAIL() << "Regular blockquote は垂直バー線を生成し、その色が theme_.blockquote_bar_color と一致するべき";
+}
+
+TEST_F(CmdGenTest, AllAlertTypesGenerateCommands) {
+    const char* alerts[] = {
+        "> [!NOTE]\n> n",
+        "> [!TIP]\n> t",
+        "> [!IMPORTANT]\n> i",
+        "> [!WARNING]\n> w",
+        "> [!CAUTION]\n> c"
+    };
+    for (const char* md : alerts) {
+        auto cmds = Generate(md);
+        int lines = 0;
+        for (const auto& cmd : cmds) {
+            if (std::holds_alternative<DrawLineCmd>(cmd)) lines++;
+        }
+        EXPECT_GE(lines, 1) << "Alert '" << md << "' はバー線を生成するべき";
+    }
+}

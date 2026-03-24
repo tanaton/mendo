@@ -90,6 +90,18 @@ Theme GetLightTheme() {
     t.blockquote_bar_color  = Color(0xdfe2e5);
     t.blockquote_text_color = Color(0x6a737d);
 
+    // GitHub Alerts（ライト）
+    t.alert_color[0] = Color(0x0969da); // Note: 青
+    t.alert_color[1] = Color(0x1a7f37); // Tip: 緑
+    t.alert_color[2] = Color(0x8250df); // Important: 紫
+    t.alert_color[3] = Color(0x9a6700); // Warning: 琥珀
+    t.alert_color[4] = Color(0xcf222e); // Caution: 赤
+    t.alert_bg_color[0] = Color(0xddf4ff, 0.4f); // Note bg
+    t.alert_bg_color[1] = Color(0xdafbe1, 0.4f); // Tip bg
+    t.alert_bg_color[2] = Color(0xfbefff, 0.4f); // Important bg
+    t.alert_bg_color[3] = Color(0xfff8c5, 0.4f); // Warning bg
+    t.alert_bg_color[4] = Color(0xffebe9, 0.4f); // Caution bg
+
     // シンタックスハイライト
     t.syntax_keyword      = Color(0xAF00DB);  // 紫
     t.syntax_type         = Color(0x267F99);  // ティール
@@ -122,6 +134,18 @@ Theme GetDarkTheme() {
     t.hr_color              = Color(0x404040);
     t.blockquote_bar_color  = Color(0x505050);
     t.blockquote_text_color = Color(0x9e9e9e);
+
+    // GitHub Alerts（ダーク）
+    t.alert_color[0] = Color(0x4493f8); // Note: 明るい青
+    t.alert_color[1] = Color(0x3fb950); // Tip: 緑
+    t.alert_color[2] = Color(0xa371f7); // Important: 紫
+    t.alert_color[3] = Color(0xd29922); // Warning: 黄
+    t.alert_color[4] = Color(0xf85149); // Caution: 赤
+    t.alert_bg_color[0] = Color(0x0d1d31, 0.5f); // Note bg
+    t.alert_bg_color[1] = Color(0x0b2212, 0.5f); // Tip bg
+    t.alert_bg_color[2] = Color(0x1e0f35, 0.5f); // Important bg
+    t.alert_bg_color[3] = Color(0x2a1e02, 0.5f); // Warning bg
+    t.alert_bg_color[4] = Color(0x2e0b0d, 0.5f); // Caution bg
 
     // シンタックスハイライト（VS Code Dark+風）
     t.syntax_keyword      = Color(0xC586C0);
