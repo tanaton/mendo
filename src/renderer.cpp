@@ -501,17 +501,25 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
 
 void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points) {
     if (!rt() || points.size() < 2) return;
-    if (!Brush(BrushId::Overlay)) return;
+    if (!Brush(BrushId::Overlay) || !d2d()) return;
+
+    // パスジオメトリで一筆描きすることで、結合部のアルファ蓄積（節）を防ぐ
+    ComPtr<ID2D1PathGeometry> path;
+    if (FAILED(d2d()->CreatePathGeometry(&path))) return;
+
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(path->Open(&sink))) return;
+
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+    sink->BeginFigure(D2D1::Point2F(points[0].x, points[0].y), D2D1_FIGURE_BEGIN_HOLLOW);
+    for (size_t i = 1; i < points.size(); i++) {
+        sink->AddLine(D2D1::Point2F(points[i].x, points[i].y));
+    }
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    if (FAILED(sink->Close())) return;
 
     Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f));
-
-    // 丸型キャップ同士が結合部で重なり、視覚的にはパスジオメトリと同等の結果になる
-    for (size_t i = 1; i < points.size(); i++) {
-        rt()->DrawLine(
-            D2D1::Point2F(points[i - 1].x, points[i - 1].y),
-            D2D1::Point2F(points[i].x, points[i].y),
-            Brush(BrushId::Overlay), 4.0f, gesture_stroke_style_.Get());
-    }
+    rt()->DrawGeometry(path.Get(), Brush(BrushId::Overlay), 4.0f, gesture_stroke_style_.Get());
 }
 
 void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect) {
