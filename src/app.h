@@ -17,6 +17,7 @@
 #include "nav_history.h"
 #include "navigation_service.h"
 #include "mouse_gesture.h"
+#include "swipe_detector.h"
 #include "config_service.h"
 #include "theme_service.h"
 #include "file_load_service.h"
@@ -44,6 +45,7 @@ public:
     void OnResize(UINT width, UINT height);
     void OnVScroll(WPARAM wParam);
     void OnMouseWheel(int px, int py, short delta, bool ctrl = false);
+    void OnMouseHWheel(short delta);
     void OnKeyDown(WPARAM key);
     void OnDropFiles(HDROP hDrop);
     void OnDpiChanged(UINT dpi, const RECT* suggested);
@@ -165,6 +167,7 @@ public:
     static constexpr UINT_PTR TIMER_FILE_WATCH = 2;
     static constexpr UINT_PTR TIMER_DEFERRED_LAYOUT = 3;
     static constexpr UINT_PTR TIMER_LOADING_ANIM = 4;
+    static constexpr UINT_PTR TIMER_SWIPE_OVERLAY = 5;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
 
 private:
@@ -206,6 +209,7 @@ private:
     NavHistory nav_history_;
     NavigationService nav_service_{nav_history_};
     MouseGesture gesture_;
+    SwipeDetector swipe_detector_;
     HitTestService hit_test_;
 
     float last_mermaid_content_width_ = 0.0f;

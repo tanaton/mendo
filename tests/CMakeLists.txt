@@ -27,6 +27,7 @@ add_executable(mendo_tests
     test_file_load_service.cpp
     test_layout_cache.cpp
     test_copy_button.cpp
+    test_swipe_detector.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE
