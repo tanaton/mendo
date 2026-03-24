@@ -390,6 +390,7 @@ TEST_F(CmdGenTest, RegularBlockquoteStillUsesOriginalColor) {
             }
         }
     }
+    FAIL() << "Regular blockquote は垂直バー線を生成し、その色が theme_.blockquote_bar_color と一致するべき";
 }
 
 TEST_F(CmdGenTest, AllAlertTypesGenerateCommands) {

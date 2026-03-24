@@ -26,10 +26,15 @@ enum class AlertType : uint8_t {
     Caution
 };
 
+static_assert(static_cast<size_t>(AlertType::None) == 0, "AlertType::None must be 0");
+static_assert(static_cast<size_t>(AlertType::Note) == 1, "AlertType::Note must be 1");
+static_assert(static_cast<size_t>(AlertType::Caution) == 5, "AlertType::Caution must be 5");
+
 inline constexpr size_t ALERT_TYPE_COUNT = 5;
 
 // AlertType → 0ベースの色/ブラシインデックス。None の場合は ALERT_TYPE_COUNT を返す（範囲外）。
 constexpr size_t AlertColorIndex(AlertType t) noexcept {
+    if (t == AlertType::None) return ALERT_TYPE_COUNT;
     return static_cast<size_t>(t) - 1;
 }
 

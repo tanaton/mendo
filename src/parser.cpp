@@ -5,7 +5,6 @@
 #include <stack>
 #include <unordered_map>
 #include <charconv>
-#include <algorithm>
 #include <windows.h>
 
 std::pmr::wstring GenerateAnchorId(std::wstring_view text) {
@@ -105,6 +104,9 @@ struct ParseContext {
         current_node = &nodes.back();
         current_node->type = type;
         current_node->indent_level = indent_level;
+        if (blockquote_depth > 0 && !blockquote_group_stack.empty()) {
+            current_node->blockquote_group = blockquote_group_stack.top();
+        }
     }
 
     TextRun MakeRun(uint32_t start, uint32_t length) const {
@@ -168,9 +170,6 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
             if (!ctx->in_code_block) {
                 if (ctx->blockquote_depth > 0) {
                     ctx->BeginNode(NodeType::BlockQuote);
-                    if (!ctx->blockquote_group_stack.empty()) {
-                        ctx->current_node->blockquote_group = ctx->blockquote_group_stack.top();
-                    }
                 } else {
                     ctx->BeginNode(NodeType::Paragraph);
                 }
@@ -582,9 +581,9 @@ void DetectAlerts(std::pmr::vector<Node>& nodes) {
         TransformAlertNode(nodes[i], type, marker_end);
 
         // 同一 blockquote_group の後続ノードにも同じ alert_type を伝播
+        // ノード種別に依存せず、グループIDで判定する（リスト等も含む）
         size_t j = i + 1;
         for (; j < nodes.size(); j++) {
-            if (nodes[j].type != NodeType::BlockQuote) break;
             if (nodes[j].blockquote_group != group) break;
             nodes[j].alert_type = type;
         }

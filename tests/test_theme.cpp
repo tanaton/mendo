@@ -301,7 +301,7 @@ TEST(Theme, ApplyZoomRepeatedRoundTripsAccumulateDrift) {
 
 TEST(Theme, LightThemeAlertColorsAreDefined) {
     Theme t = GetLightTheme();
-    for (int i = 0; i < 5; ++i) {
+    for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         // 各Alert色がゼロでない（黒一色でない）ことを確認
         float sum = t.alert_color[i].r + t.alert_color[i].g + t.alert_color[i].b;
         EXPECT_GT(sum, 0.0f) << "alert_color[" << i << "] はゼロでないべき";
@@ -311,7 +311,7 @@ TEST(Theme, LightThemeAlertColorsAreDefined) {
 
 TEST(Theme, DarkThemeAlertColorsAreDefined) {
     Theme t = GetDarkTheme();
-    for (int i = 0; i < 5; ++i) {
+    for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         float sum = t.alert_color[i].r + t.alert_color[i].g + t.alert_color[i].b;
         EXPECT_GT(sum, 0.0f) << "alert_color[" << i << "] はゼロでないべき";
         EXPECT_FLOAT_EQ(t.alert_color[i].a, 1.0f);
@@ -321,7 +321,7 @@ TEST(Theme, DarkThemeAlertColorsAreDefined) {
 TEST(Theme, AlertBgColorsHaveAlpha) {
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
-    for (int i = 0; i < 5; ++i) {
+    for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         // 背景色は半透明であるべき
         EXPECT_GT(light.alert_bg_color[i].a, 0.0f);
         EXPECT_LT(light.alert_bg_color[i].a, 1.0f);
@@ -333,7 +333,7 @@ TEST(Theme, AlertBgColorsHaveAlpha) {
 TEST(Theme, LightAndDarkAlertColorsDiffer) {
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
-    for (int i = 0; i < 5; ++i) {
+    for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         // ライトとダークでAlert色が異なるべき
         bool same = (light.alert_color[i].r == dark.alert_color[i].r)
                  && (light.alert_color[i].g == dark.alert_color[i].g)
@@ -345,8 +345,8 @@ TEST(Theme, LightAndDarkAlertColorsDiffer) {
 TEST(Theme, AlertColorsAreDistinct) {
     Theme t = GetLightTheme();
     // 5種のAlert色が互いに異なることを確認
-    for (int i = 0; i < 5; ++i) {
-        for (int j = i + 1; j < 5; ++j) {
+    for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
+        for (size_t j = i + 1; j < ALERT_TYPE_COUNT; ++j) {
             bool same = (t.alert_color[i].r == t.alert_color[j].r)
                      && (t.alert_color[i].g == t.alert_color[j].g)
                      && (t.alert_color[i].b == t.alert_color[j].b);
