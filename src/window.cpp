@@ -143,6 +143,12 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
+        case WM_MOUSEHWHEEL: {
+            short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            app_.OnMouseHWheel(wheel_delta);
+            return 0;
+        }
+
         case WM_CONTEXTMENU:
             app_.OnContextMenu(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;

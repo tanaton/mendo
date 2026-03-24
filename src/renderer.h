@@ -66,6 +66,7 @@ public:
                 const SidePaneState& side_panes,
                 bool can_go_back = false, bool can_go_forward = false,
                 int nav_hovered = 0,
+                int hovered_copy_node = -1,
                 const GestureRenderState& gesture = {});
     void SetDpi(float dpi);
     void DrawLoading(float angle,
@@ -138,6 +139,7 @@ private:
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     ComPtr<IDWriteTextFormat> icon_font_format_;
+    ComPtr<IDWriteTextFormat> fmt_copy_btn_icon_;
     ComPtr<IDWriteTextFormat> fmt_list_number_;
     ComPtr<IDWriteTextFormat> fmt_pane_icon_;
     ComPtr<IDWriteTextFormat> fmt_pane_item_;

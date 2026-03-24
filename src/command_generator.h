@@ -13,6 +13,7 @@ public:
     struct Formats {
         IDWriteTextFormat* list_number = nullptr;
         IDWriteTextFormat* icon_font = nullptr;
+        IDWriteTextFormat* copy_btn_icon = nullptr;
     };
 
     // ファイル切替時にバッファを縮小する
@@ -20,9 +21,9 @@ public:
 
     constexpr void SetTheme(const Theme* theme) noexcept {
         theme_ = theme;
-        bool is_dark = theme->IsDark();
-        float a = is_dark ? 0.05f : 0.02f;
-        cached_stripe_color_ = is_dark
+        cached_is_dark_ = theme->IsDark();
+        float a = cached_is_dark_ ? 0.05f : 0.02f;
+        cached_stripe_color_ = cached_is_dark_
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
     }
@@ -34,13 +35,15 @@ public:
         const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
-        int first_visible = -1);
+        int first_visible = -1,
+        int hovered_copy_node = -1);
 
 private:
     void GenerateNode(DrawCommandList& cmds,
         const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
         int node_index, float offset_x, float viewport_top, float viewport_bottom,
-        const TextSelection& selection, float content_width);
+        const TextSelection& selection, float content_width,
+        int hovered_copy_node);
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
@@ -54,6 +57,8 @@ private:
                              bool has_selection, uint32_t sel_start, uint32_t sel_end,
                              uint32_t flat_offset);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
+    void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry,
+                       float x, float w, bool is_hovered);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
     void GenVerticalBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x, D2D1_COLOR_F color);
     void GenBlockQuoteBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x);
@@ -71,4 +76,5 @@ private:
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
     D2D1_COLOR_F cached_stripe_color_{};
+    bool cached_is_dark_ = false;
 };

@@ -176,6 +176,13 @@ void App::OnPaint() {
                  : (gesture_.GetDirection() == GestureDirection::Right) ? 1 : 0;
     gs.overlay_alpha = gesture_.GetOverlayAlpha();
 
+    // タッチパッドスワイプのオーバーレイ（マウスジェスチャーが非アクティブの場合のみ）
+    if (!gs.overlay_visible && swipe_detector_.IsOverlayVisible()) {
+        gs.overlay_visible = true;
+        gs.direction = swipe_detector_.GetOverlayDirection();
+        gs.overlay_alpha = swipe_detector_.GetOverlayAlpha();
+    }
+
     SidePaneState sp{layout.file_rect, layout.toc_rect,
                      file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
                      doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
@@ -187,7 +194,7 @@ void App::OnPaint() {
         renderer_.Render(doc_.GetNodesMut(), layout_cache_, viewport_.GetScrollY(), viewport_.GetSelection(),
                          layout.md_rect, sp,
                          nav_service_.CanGoBack(), nav_service_.CanGoForward(),
-                         static_cast<int>(nav_hover_), gs);
+                         static_cast<int>(nav_hover_), hovered_copy_node_, gs);
     }
 
     EndPaint(hwnd_, &ps);
@@ -370,6 +377,16 @@ void App::RequestMermaidRenders() {
 void App::OnMouseWheel(int px, int py, short delta, bool ctrl) {
     if (!renderer_.GetRenderTarget()) return;
 
+    // 軸ロック用: 縦スクロール発生をスワイプ検出器に通知
+    if (!ctrl) {
+        bool had_overlay = swipe_detector_.IsOverlayVisible();
+        swipe_detector_.NotifyVScroll(GetTickCount64());
+        if (had_overlay) {
+            KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+    }
+
     if (ctrl) {
         MouseWheelEvent event{delta, true, PaneZone::MdPane};
         ExecuteActions(controller_.HandleMouseWheel(event));
@@ -384,6 +401,25 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl) {
 
     MouseWheelEvent event{delta, false, zone};
     ExecuteActions(controller_.HandleMouseWheel(event));
+}
+
+void App::OnMouseHWheel(short delta) {
+    auto result = swipe_detector_.OnHWheel(delta, GetTickCount64());
+    switch (result) {
+        case SwipeResult::Back:    NavigateBack(); break;
+        case SwipeResult::Forward: NavigateForward(); break;
+        default: break;
+    }
+
+    // オーバーレイ表示中はタイムアウトで消去するタイマーを維持
+    if (swipe_detector_.IsOverlayVisible()) {
+        SetTimer(hwnd_, TIMER_SWIPE_OVERLAY,
+                 static_cast<UINT>(SwipeDetector::RESET_TIMEOUT_MS), nullptr);
+    } else {
+        KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
+    }
+
+    InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void App::OnKeyDown(WPARAM key) {
@@ -501,6 +537,11 @@ void App::HandleTimer(UINT_PTR timer_id) {
             file_load_service_.TickLoadingAnimation();
             InvalidateRect(hwnd_, nullptr, FALSE);
             break;
+        case TIMER_SWIPE_OVERLAY:
+            swipe_detector_.Reset();
+            KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            break;
         default: break;
     }
 }
@@ -522,6 +563,7 @@ void App::OnDestroy() {
     KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
+    KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
 }
 
 // ============================================================
