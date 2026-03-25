@@ -431,23 +431,19 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl) {
 }
 
 void App::OnMouseHWheel(short delta) {
-    auto result = swipe_detector_.OnHWheel(delta, GetTickCount64());
-    switch (result) {
-    case SwipeResult::Back:    NavigateBack(); break;
-    case SwipeResult::Forward: NavigateForward(); break;
-    default: break;
-    }
+    bool had_overlay = swipe_detector_.IsOverlayVisible();
+    int old_direction = swipe_detector_.GetOverlayDirection();
+    swipe_detector_.OnHWheel(delta, GetTickCount64());
 
-    // オーバーレイ表示中はタイムアウトで消去するタイマーを維持
-    if (swipe_detector_.IsOverlayVisible()) {
-        SetTimer(hwnd_, TIMER_SWIPE_OVERLAY,
-            static_cast<UINT>(SwipeDetector::RESET_TIMEOUT_MS), nullptr);
-    }
-    else {
-        KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
-    }
+    // 入力のたびにコミットタイマーをリセット。
+    // 指を離して COMMIT_TIMEOUT_MS 経過後に Commit() でナビゲーション判定する。
+    SetTimer(hwnd_, TIMER_SWIPE_OVERLAY,
+        static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS), nullptr);
 
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    if (had_overlay != swipe_detector_.IsOverlayVisible()
+        || old_direction != swipe_detector_.GetOverlayDirection()) {
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
 }
 
 void App::OnKeyDown(WPARAM key) {
@@ -577,11 +573,27 @@ void App::HandleTimer(UINT_PTR timer_id) {
         file_load_service_.TickLoadingAnimation();
         InvalidateRect(hwnd_, nullptr, FALSE);
         break;
-    case TIMER_SWIPE_OVERLAY:
-        swipe_detector_.Reset();
+    case TIMER_SWIPE_OVERLAY: {
+        auto result = swipe_detector_.Commit();
+        bool need_redraw = false;
+        switch (result) {
+        case SwipeResult::Back:
+            NavigateBack();
+            need_redraw = true;
+            break;
+        case SwipeResult::Forward:
+            NavigateForward();
+            need_redraw = true;
+            break;
+        default:
+            break;
+        }
         KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        if (need_redraw) {
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
         break;
+    }
     default: break;
     }
 }

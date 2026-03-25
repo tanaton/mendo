@@ -16,40 +16,40 @@ TEST_F(SwipeDetectorTest, InitiallyZero) {
 // ─── 閾値未満は None ───
 
 TEST_F(SwipeDetectorTest, BelowThresholdReturnsNone) {
-    auto result = detector_.OnHWheel(120, now_);
-    EXPECT_EQ(result, SwipeResult::None);
+    detector_.OnHWheel(120, now_);
     EXPECT_EQ(detector_.GetAccumulatedDelta(), 120);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::None);
 }
 
-// ─── 右スワイプ（正のdelta蓄積）→ Back ───
+// ─── 右スワイプ（正のdelta蓄積）→ Commit で Back ───
 
 TEST_F(SwipeDetectorTest, RightSwipeTriggersBack) {
     detector_.OnHWheel(200, now_);
-    auto result = detector_.OnHWheel(200, now_ + 10);
-    EXPECT_EQ(result, SwipeResult::Back);
-    // 発動後にリセットされる
+    detector_.OnHWheel(200, now_ + 10);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
+    // Commit後にリセットされる
     EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
 }
 
-// ─── 左スワイプ（負のdelta蓄積）→ Forward ───
+// ─── 左スワイプ（負のdelta蓄積）→ Commit で Forward ───
 
 TEST_F(SwipeDetectorTest, LeftSwipeTriggersForward) {
     detector_.OnHWheel(-200, now_);
-    auto result = detector_.OnHWheel(-200, now_ + 10);
-    EXPECT_EQ(result, SwipeResult::Forward);
+    detector_.OnHWheel(-200, now_ + 10);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Forward);
     EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
 }
 
 // ─── ちょうど閾値で発動 ───
 
 TEST_F(SwipeDetectorTest, ExactThresholdTriggersBack) {
-    auto result = detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_EQ(result, SwipeResult::Back);
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
 }
 
 TEST_F(SwipeDetectorTest, ExactNegativeThresholdTriggersForward) {
-    auto result = detector_.OnHWheel(-SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_EQ(result, SwipeResult::Forward);
+    detector_.OnHWheel(-SwipeDetector::TRIGGER_THRESHOLD, now_);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Forward);
 }
 
 // ─── 複数回の小さいイベントで蓄積 ───
@@ -57,12 +57,21 @@ TEST_F(SwipeDetectorTest, ExactNegativeThresholdTriggersForward) {
 TEST_F(SwipeDetectorTest, SmallDeltasAccumulate) {
     // TRIGGER_THRESHOLD / 50 = 8 ずつ、50回
     int small = SwipeDetector::TRIGGER_THRESHOLD / 50;
-    SwipeResult result = SwipeResult::None;
     for (int i = 0; i < 50; ++i) {
-        result = detector_.OnHWheel(small, now_ + i * 10);
-        if (result != SwipeResult::None) break;
+        detector_.OnHWheel(small, now_ + i * 10);
     }
-    EXPECT_EQ(result, SwipeResult::Back);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
+}
+
+// ─── OnHWheel は即時発火しない ───
+
+TEST_F(SwipeDetectorTest, OnHWheelDoesNotFireImmediately) {
+    // 閾値を大幅に超えてもOnHWheel自体は発火しない
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD * 2, now_);
+    // 蓄積されたまま残っている
+    EXPECT_EQ(detector_.GetAccumulatedDelta(), SwipeDetector::TRIGGER_THRESHOLD * 2);
+    // Commitで初めて発火
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
 }
 
 // ─── 軸ロック: 縦スクロール直後は水平入力を無視 ───
@@ -71,9 +80,9 @@ TEST_F(SwipeDetectorTest, AxisLockIgnoresHWheelAfterVScroll) {
     detector_.NotifyVScroll(now_);
 
     // 軸ロック期間内
-    auto result = detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_ + 100);
-    EXPECT_EQ(result, SwipeResult::None);
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_ + 100);
     EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);  // NotifyVScrollでリセットされている
+    EXPECT_EQ(detector_.Commit(), SwipeResult::None);
 }
 
 TEST_F(SwipeDetectorTest, AxisLockExpiresAfterTimeout) {
@@ -81,8 +90,8 @@ TEST_F(SwipeDetectorTest, AxisLockExpiresAfterTimeout) {
 
     // 軸ロック期間を過ぎた後は通常通り動作
     uint64_t after_lock = now_ + SwipeDetector::AXIS_LOCK_MS;
-    auto result = detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, after_lock);
-    EXPECT_EQ(result, SwipeResult::Back);
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, after_lock);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
 }
 
 // ─── タイムアウト: 長時間の無活動で蓄積リセット ───
@@ -93,8 +102,7 @@ TEST_F(SwipeDetectorTest, ResetAfterInactivity) {
 
     // タイムアウト後に新しいイベント → 蓄積リセットされてから加算
     uint64_t after_timeout = now_ + SwipeDetector::RESET_TIMEOUT_MS + 1;
-    auto result = detector_.OnHWheel(50, after_timeout);
-    EXPECT_EQ(result, SwipeResult::None);
+    detector_.OnHWheel(50, after_timeout);
     EXPECT_EQ(detector_.GetAccumulatedDelta(), 50);  // 300はリセットされた
 }
 
@@ -102,8 +110,8 @@ TEST_F(SwipeDetectorTest, NoResetWithinTimeout) {
     detector_.OnHWheel(300, now_);
 
     // タイムアウト内なら蓄積は継続
-    auto result = detector_.OnHWheel(100, now_ + SwipeDetector::RESET_TIMEOUT_MS);
-    EXPECT_EQ(result, SwipeResult::Back);  // 300 + 100 = 400 >= threshold
+    detector_.OnHWheel(100, now_ + SwipeDetector::RESET_TIMEOUT_MS);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Back);  // 300 + 100 = 400 >= threshold
 }
 
 // ─── 方向の打ち消し ───
@@ -123,18 +131,28 @@ TEST_F(SwipeDetectorTest, ResetClearsAllState) {
 
     EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
     // リセット後は軸ロックも解除されている
-    auto result = detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_ + 20);
-    EXPECT_EQ(result, SwipeResult::Back);
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_ + 20);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
 }
 
-// ─── 連続ナビゲーション: 発動後すぐに次のスワイプが可能 ───
+// ─── Commit はリセット後に再度 None を返す ───
+
+TEST_F(SwipeDetectorTest, CommitResetsState) {
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
+    // 2回目のCommitはNone
+    EXPECT_EQ(detector_.Commit(), SwipeResult::None);
+    EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
+}
+
+// ─── 連続ナビゲーション: Commit後すぐに次のスワイプが可能 ───
 
 TEST_F(SwipeDetectorTest, ConsecutiveSwipes) {
-    auto r1 = detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_EQ(r1, SwipeResult::Back);
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
 
-    auto r2 = detector_.OnHWheel(-SwipeDetector::TRIGGER_THRESHOLD, now_ + 100);
-    EXPECT_EQ(r2, SwipeResult::Forward);
+    detector_.OnHWheel(-SwipeDetector::TRIGGER_THRESHOLD, now_ + 100);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::Forward);
 }
 
 // ─── NotifyVScrollが蓄積をリセットする ───
@@ -147,7 +165,7 @@ TEST_F(SwipeDetectorTest, VScrollResetsDelta) {
     EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
 }
 
-// ─── オーバーレイ表示 ───
+// ─── オーバーレイ表示（閾値到達で表示、Commitで消滅） ───
 
 TEST_F(SwipeDetectorTest, OverlayNotVisibleInitially) {
     EXPECT_FALSE(detector_.IsOverlayVisible());
@@ -155,54 +173,41 @@ TEST_F(SwipeDetectorTest, OverlayNotVisibleInitially) {
     EXPECT_FLOAT_EQ(detector_.GetOverlayAlpha(), 0.0f);
 }
 
-TEST_F(SwipeDetectorTest, OverlayNotVisibleBelowMinDelta) {
-    detector_.OnHWheel(SwipeDetector::OVERLAY_MIN_DELTA - 1, now_);
+TEST_F(SwipeDetectorTest, OverlayNotVisibleBelowThreshold) {
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD - 1, now_);
     EXPECT_FALSE(detector_.IsOverlayVisible());
     EXPECT_EQ(detector_.GetOverlayDirection(), 0);
     EXPECT_FLOAT_EQ(detector_.GetOverlayAlpha(), 0.0f);
 }
 
-TEST_F(SwipeDetectorTest, OverlayVisibleAtMinDelta) {
-    detector_.OnHWheel(SwipeDetector::OVERLAY_MIN_DELTA, now_);
+TEST_F(SwipeDetectorTest, OverlayVisibleAtThreshold) {
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
     EXPECT_TRUE(detector_.IsOverlayVisible());
+    EXPECT_FLOAT_EQ(detector_.GetOverlayAlpha(), 1.0f);
 }
 
 TEST_F(SwipeDetectorTest, OverlayDirectionBackOnPositiveDelta) {
-    detector_.OnHWheel(100, now_);
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
     EXPECT_EQ(detector_.GetOverlayDirection(), -1);  // 戻る
 }
 
 TEST_F(SwipeDetectorTest, OverlayDirectionForwardOnNegativeDelta) {
-    detector_.OnHWheel(-100, now_);
+    detector_.OnHWheel(-SwipeDetector::TRIGGER_THRESHOLD, now_);
     EXPECT_EQ(detector_.GetOverlayDirection(), 1);  // 進む
 }
 
-TEST_F(SwipeDetectorTest, OverlayAlphaProportionalToProgress) {
-    // 閾値の半分
-    int half = SwipeDetector::TRIGGER_THRESHOLD / 2;
-    detector_.OnHWheel(half, now_);
-    float alpha = detector_.GetOverlayAlpha();
-    EXPECT_NEAR(alpha, 0.5f, 0.01f);
-}
-
-TEST_F(SwipeDetectorTest, OverlayAlphaClampedToOne) {
-    // 閾値をわずかに下回る値（発動はしない）
-    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD - 1, now_);
-    float alpha = detector_.GetOverlayAlpha();
-    EXPECT_LE(alpha, 1.0f);
-    EXPECT_GT(alpha, 0.9f);
-}
-
-TEST_F(SwipeDetectorTest, OverlayDisappearsAfterTrigger) {
+TEST_F(SwipeDetectorTest, OverlayDisappearsAfterCommit) {
     detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
-    // 発動後はデルタがリセットされる
+    EXPECT_TRUE(detector_.IsOverlayVisible());
+    // Commit後はデルタがリセットされオーバーレイが消える
+    detector_.Commit();
     EXPECT_FALSE(detector_.IsOverlayVisible());
     EXPECT_EQ(detector_.GetOverlayDirection(), 0);
     EXPECT_FLOAT_EQ(detector_.GetOverlayAlpha(), 0.0f);
 }
 
 TEST_F(SwipeDetectorTest, OverlayDisappearsAfterVScroll) {
-    detector_.OnHWheel(200, now_);
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
     EXPECT_TRUE(detector_.IsOverlayVisible());
 
     detector_.NotifyVScroll(now_ + 50);
@@ -210,7 +215,7 @@ TEST_F(SwipeDetectorTest, OverlayDisappearsAfterVScroll) {
 }
 
 TEST_F(SwipeDetectorTest, OverlayDisappearsAfterReset) {
-    detector_.OnHWheel(200, now_);
+    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
     EXPECT_TRUE(detector_.IsOverlayVisible());
 
     detector_.Reset();
