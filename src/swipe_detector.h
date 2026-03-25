@@ -10,13 +10,13 @@ enum class SwipeResult { None, Back, Forward };
 // タイムアウト: 一定時間水平入力がなければ蓄積をリセットする。
 class SwipeDetector {
 public:
-    // 水平ホイールイベントを処理。
-    // ナビゲーションが発動した場合 Back/Forward を返す。
+    // 水平ホイールイベントを処理。デルタを蓄積するのみで即時発火しない。
+    // 指を離した後の Commit() 呼び出しでナビゲーションが発動する。
     // now_ms: 現在時刻（ミリ秒）。呼び出し側で GetTickCount64() 等を渡す。
-    SwipeResult OnHWheel(int delta, uint64_t now_ms) noexcept {
+    void OnHWheel(int delta, uint64_t now_ms) noexcept {
         // 直近の縦スクロールから一定時間内なら無視（軸ロック）
         if (now_ms - last_vscroll_time_ < AXIS_LOCK_MS) {
-            return SwipeResult::None;
+            return;
         }
 
         // 前回の水平イベントから一定時間経過していたらリセット
@@ -26,19 +26,20 @@ public:
 
         last_hscroll_time_ = now_ms;
         accumulated_delta_ += delta;
+    }
 
-        // 右方向スワイプ（正のdelta）→ 戻る（ブラウザと同じ慣習）
+    // 指を離した（一定時間入力が途絶えた）タイミングで呼び出す。
+    // 蓄積デルタが閾値を超えていれば Back/Forward を返し、状態をリセットする。
+    SwipeResult Commit() noexcept {
+        SwipeResult result = SwipeResult::None;
         if (accumulated_delta_ >= TRIGGER_THRESHOLD) {
-            accumulated_delta_ = 0;
-            return SwipeResult::Back;
+            result = SwipeResult::Back;
+        } else if (accumulated_delta_ <= -TRIGGER_THRESHOLD) {
+            result = SwipeResult::Forward;
         }
-        // 左方向スワイプ（負のdelta）→ 進む
-        if (accumulated_delta_ <= -TRIGGER_THRESHOLD) {
-            accumulated_delta_ = 0;
-            return SwipeResult::Forward;
-        }
-
-        return SwipeResult::None;
+        accumulated_delta_ = 0;
+        last_hscroll_time_ = 0;
+        return result;
     }
 
     // 縦スクロールイベントが発生したことを通知する。
@@ -56,35 +57,32 @@ public:
 
     // ---- オーバーレイ表示用 ----
 
-    // 蓄積デルタが最小値を超えていればオーバーレイを表示する。
+    // 蓄積デルタが発動閾値に達していればオーバーレイを表示する。
     constexpr bool IsOverlayVisible() const noexcept {
         int abs_d = accumulated_delta_ < 0 ? -accumulated_delta_ : accumulated_delta_;
-        return abs_d >= OVERLAY_MIN_DELTA;
+        return abs_d >= TRIGGER_THRESHOLD;
     }
 
     // オーバーレイの方向。 -1=戻る（右スワイプ）, 1=進む（左スワイプ）, 0=なし。
     // GestureRenderState::direction と同じ符号規約。
     constexpr int GetOverlayDirection() const noexcept {
-        if (accumulated_delta_ >= OVERLAY_MIN_DELTA)  return -1;  // 右スワイプ → 戻る
-        if (accumulated_delta_ <= -OVERLAY_MIN_DELTA) return  1;  // 左スワイプ → 進む
+        if (accumulated_delta_ >= TRIGGER_THRESHOLD)  return -1;  // 右スワイプ → 戻る
+        if (accumulated_delta_ <= -TRIGGER_THRESHOLD) return  1;  // 左スワイプ → 進む
         return 0;
     }
 
-    // 蓄積の進捗を 0.0〜1.0 で返す。
+    // オーバーレイ表示中は 1.0、非表示時は 0.0 を返す。
     constexpr float GetOverlayAlpha() const noexcept {
-        int abs_d = accumulated_delta_ < 0 ? -accumulated_delta_ : accumulated_delta_;
-        if (abs_d < OVERLAY_MIN_DELTA) return 0.0f;
-        float raw = static_cast<float>(abs_d) / static_cast<float>(TRIGGER_THRESHOLD);
-        return raw < 1.0f ? raw : 1.0f;
+        return IsOverlayVisible() ? 1.0f : 0.0f;
     }
 
     // テスト・チューニング用のアクセサ
     constexpr int GetAccumulatedDelta() const noexcept { return accumulated_delta_; }
 
     static constexpr int TRIGGER_THRESHOLD = 400;           // ナビゲーション発動閾値（WHEEL_DELTA単位の蓄積値）
-    static constexpr int OVERLAY_MIN_DELTA = 40;            // オーバーレイ表示開始の最小蓄積値
     static constexpr uint64_t AXIS_LOCK_MS = 200;           // 縦スクロール後の水平入力無視期間
     static constexpr uint64_t RESET_TIMEOUT_MS = 500;       // 蓄積リセットまでの無活動期間
+    static constexpr uint64_t COMMIT_TIMEOUT_MS = 150;      // 指を離してからナビゲーション発火までの待機期間
 
 private:
     int accumulated_delta_ = 0;

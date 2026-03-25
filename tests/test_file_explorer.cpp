@@ -15,6 +15,7 @@ protected:
         wchar_t tmp[MAX_PATH];
         GetTempPathW(MAX_PATH, tmp);
         temp_dir_ = fs::path(tmp) / L"mendo_explorer_test";
+        fs::remove_all(temp_dir_);  // 前回の残りを確実に削除
         fs::create_directories(temp_dir_);
     }
 
