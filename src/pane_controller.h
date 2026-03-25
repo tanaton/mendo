@@ -13,6 +13,8 @@ public:
     // ---- 表示/非表示 ----
     constexpr bool IsFilePaneVisible() const noexcept { return show_file_; }
     constexpr bool IsTocPaneVisible() const noexcept { return show_toc_; }
+    constexpr void SetFilePaneVisible(bool v) noexcept { show_file_ = v; }
+    constexpr void SetTocPaneVisible(bool v) noexcept { show_toc_ = v; }
     constexpr void ToggleFilePane() noexcept { show_file_ = !show_file_; }
     constexpr void ToggleTocPane() noexcept { show_toc_ = !show_toc_; }
 
@@ -40,9 +42,16 @@ public:
     bool SetHoveredFileIndex(int idx) noexcept;
     bool SetHoveredTocIndex(int idx) noexcept;
 
+    // ペインヘッダー閉じるボタンのホバー状態
+    constexpr bool IsFileCloseHovered() const noexcept { return file_close_hovered_; }
+    constexpr bool IsTocCloseHovered() const noexcept { return toc_close_hovered_; }
+    bool SetFileCloseHovered(bool h) noexcept;
+    bool SetTocCloseHovered(bool h) noexcept;
+
 private:
     static bool ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept;
     static bool SetHoveredIndex(int& current, int idx) noexcept;
+    static bool SetFlag(bool& current, bool value) noexcept;
 public:
 
     // ---- ドラッグ ----
@@ -65,12 +74,13 @@ public:
     PaneZone DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept;
 
     // ---- 定数 ----
+    static constexpr float PANE_DEFAULT_WIDTH = 220.0f;
     static constexpr float PANE_MIN_WIDTH = 100.0f;
     static constexpr float MD_PANE_MIN_WIDTH = 200.0f;
 
 private:
-    float file_width_ = 220.0f;
-    float toc_width_ = 220.0f;
+    float file_width_ = PANE_DEFAULT_WIDTH;
+    float toc_width_ = PANE_DEFAULT_WIDTH;
     bool show_file_ = true;
     bool show_toc_ = true;
 
@@ -79,6 +89,8 @@ private:
 
     int hovered_file_ = -1;
     int hovered_toc_ = -1;
+    bool file_close_hovered_ = false;
+    bool toc_close_hovered_ = false;
 
     DragTarget drag_target_ = DragTarget::None;
     float drag_scroll_offset_ = 0.0f;

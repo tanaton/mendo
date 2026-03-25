@@ -153,6 +153,8 @@ private:
     void DoLoadMarkdownFile();
     void UpdateTitleBar();
     void SaveLastFilePath();
+    void SavePaneState();
+    void LoadPaneState();
 
     // ペインレイアウト
     ::PaneLayout GetPaneLayout() const;

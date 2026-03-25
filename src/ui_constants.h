@@ -43,6 +43,22 @@ inline constexpr float COPY_BTN_SIZE = 28.0f;
 inline constexpr float COPY_BTN_MARGIN = 6.0f;
 inline constexpr float COPY_BTN_CORNER = 4.0f;
 
+// 点が矩形内にあるか判定する（D2D規約に合わせ右辺・下辺は排他的）。
+inline constexpr bool PointInRect(float x, float y, const D2D1_RECT_F& r) noexcept {
+    return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+}
+
+// ペインヘッダー閉じるボタンの余白
+inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
+
+// ペインヘッダー内の閉じるボタン矩形を返す（ペインローカル座標）。
+inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) noexcept {
+    float btn_size = header_height - 4.0f;
+    float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN;
+    float btn_y = (header_height - btn_size) / 2.0f;
+    return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
+}
+
 // コードブロック背景の右上を基準にコピーボタンの矩形を返す。
 // block_right: コードブロック背景の右端, block_top: コードブロック背景の上端
 inline D2D1_RECT_F CopyButtonRect(float block_right, float block_top) noexcept {
