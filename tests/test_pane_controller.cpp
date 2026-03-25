@@ -32,8 +32,8 @@ TEST_F(PaneControllerTest, ToggleTocPane) {
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, DefaultWidths) {
-    EXPECT_FLOAT_EQ(panes_.GetFilePaneWidth(), 220.0f);
-    EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), 220.0f);
+    EXPECT_FLOAT_EQ(panes_.GetFilePaneWidth(), PaneController::PANE_DEFAULT_WIDTH);
+    EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), PaneController::PANE_DEFAULT_WIDTH);
 }
 
 TEST_F(PaneControllerTest, SetWidthClampedToMin) {
@@ -359,4 +359,127 @@ TEST_F(PaneControllerTest, DragTargetAllTypes) {
     EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::Splitter2);
     panes_.EndDrag();
     EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::None);
+}
+
+// ═══════════════════════════════════════════════
+// 表示状態の直接設定
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, SetFilePaneVisible) {
+    panes_.SetFilePaneVisible(false);
+    EXPECT_FALSE(panes_.IsFilePaneVisible());
+    panes_.SetFilePaneVisible(true);
+    EXPECT_TRUE(panes_.IsFilePaneVisible());
+}
+
+TEST_F(PaneControllerTest, SetTocPaneVisible) {
+    panes_.SetTocPaneVisible(false);
+    EXPECT_FALSE(panes_.IsTocPaneVisible());
+    panes_.SetTocPaneVisible(true);
+    EXPECT_TRUE(panes_.IsTocPaneVisible());
+}
+
+TEST_F(PaneControllerTest, SetVisibleAffectsLayout) {
+    panes_.SetFilePaneVisible(false);
+    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
+    EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
+    EXPECT_GT(layout.md_rect.width, 0.0f);
+}
+
+// ═══════════════════════════════════════════════
+// 閉じるボタンのホバー状態
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, CloseHoverDefaultFalse) {
+    EXPECT_FALSE(panes_.IsFileCloseHovered());
+    EXPECT_FALSE(panes_.IsTocCloseHovered());
+}
+
+TEST_F(PaneControllerTest, SetFileCloseHoveredReturnsTrueOnChange) {
+    EXPECT_TRUE(panes_.SetFileCloseHovered(true));
+    EXPECT_TRUE(panes_.IsFileCloseHovered());
+}
+
+TEST_F(PaneControllerTest, SetFileCloseHoveredReturnsFalseOnSame) {
+    panes_.SetFileCloseHovered(true);
+    EXPECT_FALSE(panes_.SetFileCloseHovered(true));
+}
+
+TEST_F(PaneControllerTest, SetFileCloseHoveredReset) {
+    panes_.SetFileCloseHovered(true);
+    EXPECT_TRUE(panes_.SetFileCloseHovered(false));
+    EXPECT_FALSE(panes_.IsFileCloseHovered());
+}
+
+TEST_F(PaneControllerTest, SetTocCloseHoveredReturnsTrueOnChange) {
+    EXPECT_TRUE(panes_.SetTocCloseHovered(true));
+    EXPECT_TRUE(panes_.IsTocCloseHovered());
+}
+
+TEST_F(PaneControllerTest, SetTocCloseHoveredReturnsFalseOnSame) {
+    panes_.SetTocCloseHovered(true);
+    EXPECT_FALSE(panes_.SetTocCloseHovered(true));
+}
+
+TEST_F(PaneControllerTest, FileAndTocCloseHoverIndependent) {
+    panes_.SetFileCloseHovered(true);
+    panes_.SetTocCloseHovered(true);
+    EXPECT_TRUE(panes_.IsFileCloseHovered());
+    EXPECT_TRUE(panes_.IsTocCloseHovered());
+    panes_.SetFileCloseHovered(false);
+    EXPECT_FALSE(panes_.IsFileCloseHovered());
+    EXPECT_TRUE(panes_.IsTocCloseHovered());
+}
+
+// ═══════════════════════════════════════════════
+// 表示切替時のホバー状態リセット
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, ToggleFilePaneResetsHover) {
+    panes_.SetHoveredFileIndex(3);
+    panes_.SetFileCloseHovered(true);
+    panes_.ToggleFilePane(); // 非表示にする
+    EXPECT_EQ(panes_.GetHoveredFileIndex(), -1);
+    EXPECT_FALSE(panes_.IsFileCloseHovered());
+}
+
+TEST_F(PaneControllerTest, ToggleTocPaneResetsHover) {
+    panes_.SetHoveredTocIndex(5);
+    panes_.SetTocCloseHovered(true);
+    panes_.ToggleTocPane();
+    EXPECT_EQ(panes_.GetHoveredTocIndex(), -1);
+    EXPECT_FALSE(panes_.IsTocCloseHovered());
+}
+
+TEST_F(PaneControllerTest, SetFilePaneVisibleResetsHoverOnChange) {
+    panes_.SetHoveredFileIndex(2);
+    panes_.SetFileCloseHovered(true);
+    panes_.SetFilePaneVisible(false);
+    EXPECT_EQ(panes_.GetHoveredFileIndex(), -1);
+    EXPECT_FALSE(panes_.IsFileCloseHovered());
+}
+
+TEST_F(PaneControllerTest, SetFilePaneVisibleNoResetOnSameValue) {
+    panes_.SetHoveredFileIndex(2);
+    panes_.SetFileCloseHovered(true);
+    panes_.SetFilePaneVisible(true); // 変化なし
+    EXPECT_EQ(panes_.GetHoveredFileIndex(), 2);
+    EXPECT_TRUE(panes_.IsFileCloseHovered());
+}
+
+TEST_F(PaneControllerTest, SetTocPaneVisibleResetsHoverOnChange) {
+    panes_.SetHoveredTocIndex(4);
+    panes_.SetTocCloseHovered(true);
+    panes_.SetTocPaneVisible(false);
+    EXPECT_EQ(panes_.GetHoveredTocIndex(), -1);
+    EXPECT_FALSE(panes_.IsTocCloseHovered());
+}
+
+// ═══════════════════════════════════════════════
+// PANE_DEFAULT_WIDTH定数
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, DefaultWidthConstant) {
+    EXPECT_FLOAT_EQ(PaneController::PANE_DEFAULT_WIDTH, 220.0f);
+    EXPECT_GT(PaneController::PANE_DEFAULT_WIDTH, PaneController::PANE_MIN_WIDTH);
 }

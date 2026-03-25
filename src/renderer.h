@@ -79,6 +79,8 @@ struct SidePaneState {
     int hovered_toc_index;
     bool show_file_pane;
     bool show_toc_pane;
+    bool file_close_hovered;
+    bool toc_close_hovered;
 };
 
 class Renderer {
@@ -135,9 +137,9 @@ private:
     void DrawTitleBar(const TitleBarRenderState& tb);
     void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height);
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
-        const ScrollState& scroll, int hovered_index);
+        const ScrollState& scroll, int hovered_index, bool close_hovered);
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
-        const ScrollState& scroll, int hovered_index);
+        const ScrollState& scroll, int hovered_index, bool close_hovered);
     void DrawSplitter(float x, float top, float bottom);
     void DrawNavOverlay(const PaneRect& md_pane_rect,
         bool can_back, bool can_forward,

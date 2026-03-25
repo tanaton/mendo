@@ -1,4 +1,5 @@
 #pragma once
+#include "ui_constants.h"
 #include <d2d1.h>
 
 // タイトルバー上のヒット領域
@@ -99,10 +100,6 @@ public:
     constexpr const D2D1_RECT_F& GetTitleTextRect() const noexcept { return title_text_rect_; }
 
 private:
-    static constexpr bool PointInRect(float x, float y, const D2D1_RECT_F& r) noexcept {
-        return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
-    }
-
     TitleBarButton file_toggle_;
     TitleBarButton toc_toggle_;
     TitleBarButton minimize_;

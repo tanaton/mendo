@@ -15,6 +15,16 @@ bool IsEditableTextFile(std::wstring_view path) {
     return ext == L".md" || ext == L".markdown" || ext == L".mkd" || ext == L".txt";
 }
 
+// ペインヘッダーの閉じるボタンがクリックされたか判定する。
+bool HitPaneCloseButton(float dip_x, float dip_y, const PaneRect& rect, float header_height) {
+    float local_x = dip_x - rect.x;
+    float local_y = dip_y - rect.y;
+    if (local_y >= header_height) {
+        return false;
+    }
+    return PointInRect(local_x, local_y, PaneCloseButtonRect(rect.width, header_height));
+}
+
 } // namespace
 
 // ============================================================
@@ -174,6 +184,15 @@ bool App::TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& 
 
 void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout) {
     const auto& theme = renderer_.GetTheme();
+
+    if (dip_y - layout.file_rect.y < theme.pane_header_height) {
+        if (HitPaneCloseButton(dip_x, dip_y, layout.file_rect, theme.pane_header_height)) {
+            panes_.ToggleFilePane();
+            RefreshPaneLayout();
+        }
+        return;
+    }
+
     float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
     auto scroll_info = ComputePaneScrollInfo(layout.file_rect, total_content);
 
@@ -205,6 +224,15 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
 
 void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout) {
     const auto& theme = renderer_.GetTheme();
+
+    if (dip_y - layout.toc_rect.y < theme.pane_header_height) {
+        if (HitPaneCloseButton(dip_x, dip_y, layout.toc_rect, theme.pane_header_height)) {
+            panes_.ToggleTocPane();
+            RefreshPaneLayout();
+        }
+        return;
+    }
+
     float total_content = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
     auto scroll_info = ComputePaneScrollInfo(layout.toc_rect, total_content);
 
@@ -467,21 +495,43 @@ void App::OnMouseHover(int px, int py) {
     int new_file_hover = -1;
     int new_toc_hover = -1;
 
+    // ペインゾーン外に出たら閉じるボタンのホバーをリセット
+    if (zone != PaneZone::FilePane && panes_.SetFileCloseHovered(false)) {
+        renderer_.InvalidateFilePaneCache();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+    if (zone != PaneZone::TocPane && panes_.SetTocCloseHovered(false)) {
+        renderer_.InvalidateTocPaneCache();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
     switch (zone) {
     case PaneZone::Splitter1:
     case PaneZone::Splitter2:
         SetCursor(cursor_sizewe_);
         break;
     case PaneZone::FilePane: {
-        SetCursor(cursor_arrow_);
-        float content_top = pane_layout.file_rect.y + renderer_.GetTheme().pane_header_height;
+        float header_h = renderer_.GetTheme().pane_header_height;
+        bool close_hit = HitPaneCloseButton(dip_x, dip_y, pane_layout.file_rect, header_h);
+        SetCursor(close_hit ? cursor_hand_ : cursor_arrow_);
+        if (panes_.SetFileCloseHovered(close_hit)) {
+            renderer_.InvalidateFilePaneCache();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+        float content_top = pane_layout.file_rect.y + header_h;
         float local_y = dip_y - content_top + panes_.FileScroll().scroll_y;
         new_file_hover = file_explorer_.HitTest(local_y, renderer_.GetTheme().pane_item_height);
         break;
     }
     case PaneZone::TocPane: {
-        SetCursor(cursor_arrow_);
-        float content_top = pane_layout.toc_rect.y + renderer_.GetTheme().pane_header_height;
+        float header_h = renderer_.GetTheme().pane_header_height;
+        bool close_hit = HitPaneCloseButton(dip_x, dip_y, pane_layout.toc_rect, header_h);
+        SetCursor(close_hit ? cursor_hand_ : cursor_arrow_);
+        if (panes_.SetTocCloseHovered(close_hit)) {
+            renderer_.InvalidateTocPaneCache();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+        float content_top = pane_layout.toc_rect.y + header_h;
         float local_y = dip_y - content_top + panes_.TocScroll().scroll_y;
         new_toc_hover = doc_.GetToc().HitTest(local_y, renderer_.GetTheme().pane_item_height);
         break;

@@ -86,6 +86,8 @@ bool App::Init(HWND hwnd) {
         titlebar_.UpdateLayout(window_w);
     }
 
+    LoadPaneState();
+
     // ファイル監視タイマーを設定 (250ms毎にチェック)
     SetTimer(hwnd_, TIMER_FILE_WATCH, 250, nullptr);
 
@@ -212,7 +214,8 @@ void App::OnPaint() {
     SidePaneState sp{ layout.file_rect, layout.toc_rect,
                      file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
                      doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
-                     panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible() };
+                     panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible(),
+                     panes_.IsFileCloseHovered(), panes_.IsTocCloseHovered() };
 
     auto* rt = renderer_.GetRenderTarget();
     float window_w = rt ? rt->GetSize().width : 0.0f;
@@ -660,6 +663,7 @@ void App::OnCaptureChanged() {
 
 void App::OnDestroy() {
     SaveLastFilePath();
+    SavePaneState();
     KillTimer(hwnd_, TIMER_FILE_WATCH);
     KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
@@ -692,4 +696,40 @@ std::pmr::wstring App::LoadLastFilePath() const {
         return {};
     }
     return path;
+}
+
+// ============================================================
+// ペイン状態の永続化
+// ============================================================
+
+void App::SavePaneState() {
+    config_.SaveBool(L"pane_show_file.txt", panes_.IsFilePaneVisible());
+    config_.SaveBool(L"pane_show_toc.txt", panes_.IsTocPaneVisible());
+    config_.SaveInt(L"pane_file_width.txt", static_cast<int>(std::lround(panes_.GetFilePaneWidth())));
+    config_.SaveInt(L"pane_toc_width.txt", static_cast<int>(std::lround(panes_.GetTocPaneWidth())));
+}
+
+void App::LoadPaneState() {
+    panes_.SetFilePaneVisible(config_.LoadBool(L"pane_show_file.txt", true));
+    panes_.SetTocPaneVisible(config_.LoadBool(L"pane_show_toc.txt", true));
+
+    constexpr int kDefaultWidth = static_cast<int>(PaneController::PANE_DEFAULT_WIDTH);
+    constexpr int kMinWidth = static_cast<int>(PaneController::PANE_MIN_WIDTH);
+
+    // クライアント幅に基づいて有効な最大ペイン幅を計算する
+    int dynamic_max = kDefaultWidth;
+    if (hwnd_) {
+        RECT rc{};
+        if (GetClientRect(hwnd_, &rc)) {
+            int client_width = rc.right - rc.left;
+            if (client_width > 0) {
+                dynamic_max = std::max(kMinWidth, client_width - kMinWidth);
+            }
+        }
+    }
+
+    panes_.SetFilePaneWidth(static_cast<float>(
+        config_.LoadInt(L"pane_file_width.txt", kDefaultWidth, kMinWidth, dynamic_max)));
+    panes_.SetTocPaneWidth(static_cast<float>(
+        config_.LoadInt(L"pane_toc_width.txt", kDefaultWidth, kMinWidth, dynamic_max)));
 }

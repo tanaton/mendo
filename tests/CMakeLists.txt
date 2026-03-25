@@ -29,6 +29,7 @@ add_executable(mendo_tests
     test_copy_button.cpp
     test_swipe_detector.cpp
     test_titlebar.cpp
+    test_ui_constants.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE
