@@ -6,8 +6,8 @@
 
 // Version info
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION    0,1,0,3
-PRODUCTVERSION 0,1,0,3
+FILEVERSION    0,1,0,4
+PRODUCTVERSION 0,1,0,4
 FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
 FILEFLAGS      0
 FILEOS         VOS_NT_WINDOWS32
@@ -19,11 +19,11 @@ BEGIN
         BLOCK "041104b0"
         BEGIN
             VALUE "FileDescription", "mendo - Insanely Fast Markdown Viewer"
-            VALUE "FileVersion", "0.1.0.3"
+            VALUE "FileVersion", "0.1.0.4"
             VALUE "InternalName", "mendo"
             VALUE "OriginalFilename", "mendo.exe"
             VALUE "ProductName", "mendo"
-            VALUE "ProductVersion", "0.1.0.3"
+            VALUE "ProductVersion", "0.1.0.4"
         END
     END
     BLOCK "VarFileInfo"

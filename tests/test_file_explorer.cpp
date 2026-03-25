@@ -14,14 +14,18 @@ protected:
     void SetUp() override {
         wchar_t tmp[MAX_PATH];
         GetTempPathW(MAX_PATH, tmp);
-        temp_dir_ = fs::path(tmp) / L"mendo_explorer_test";
+        // テストごとに一意のディレクトリを使用（CTest並列実行での競合を防止）
+        auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+        std::string suffix = std::string(info->test_suite_name()) + "_" + info->name();
+        temp_dir_ = fs::path(tmp) / L"mendo_explorer_test" / fs::path(suffix);
         std::error_code ec;
         fs::remove_all(temp_dir_, ec);  // 前回の残りを確実に削除
         fs::create_directories(temp_dir_);
     }
 
     void TearDown() override {
-        fs::remove_all(temp_dir_);
+        std::error_code ec;
+        fs::remove_all(temp_dir_, ec);
     }
 
     void CreateFile(const std::wstring& name, const std::string& content = "") {

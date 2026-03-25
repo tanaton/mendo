@@ -30,10 +30,10 @@ void App::NavigateToAnchor(std::wstring_view anchor) {
         return;
     }
 
-    float target_y = layout_cache_[idx].y_position - renderer_.GetTheme().heading_spacing_above;
+    auto layout = GetPaneLayout();
+    float target_y = layout_cache_[idx].y_position - renderer_.GetTheme().heading_spacing_above - layout.md_rect.y;
     target_y = std::max(0.0f, target_y);
     viewport_.ScrollTo(target_y);
-    auto layout = GetPaneLayout();
     UpdateScrollBar(layout.md_rect.height);
     InvalidateMdPane(layout.md_rect);
 }
