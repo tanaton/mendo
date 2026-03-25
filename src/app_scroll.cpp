@@ -8,51 +8,9 @@
 // スクロールバー・スクロール
 // ============================================================
 
-void App::OnVScroll(WPARAM wParam) {
-    SCROLLINFO si{};
-    si.cbSize = sizeof(si);
-    si.fMask = SIF_ALL;
-    GetScrollInfo(hwnd_, SB_VERT, &si);
-
-    float old_pos = viewport_.GetScrollY();
-    auto pane_layout = GetPaneLayout();
-    float page_size = pane_layout.md_rect.height;
-
-    switch (LOWORD(wParam)) {
-    case SB_LINEUP:    ScrollTo(viewport_.GetScrollY() - 40.0f); break;
-    case SB_LINEDOWN:  ScrollTo(viewport_.GetScrollY() + 40.0f); break;
-    case SB_PAGEUP:    ScrollTo(viewport_.GetScrollY() - page_size); break;
-    case SB_PAGEDOWN:  ScrollTo(viewport_.GetScrollY() + page_size); break;
-    case SB_THUMBTRACK:
-        viewport_.SetScrollbarTracking(true);
-        ScrollTo(static_cast<float>(si.nTrackPos));
-        break;
-    case SB_THUMBPOSITION:
-        viewport_.SetScrollbarTracking(false);
-        ScrollTo(static_cast<float>(si.nTrackPos));
-        break;
-    case SB_ENDSCROLL:
-        viewport_.SetScrollbarTracking(false);
-        break;
-    case SB_TOP:       ScrollTo(0.0f); break;
-    case SB_BOTTOM:    ScrollTo(viewport_.GetMaxScroll()); break;
-    }
-
-    if (viewport_.GetScrollY() != old_pos) {
-        UpdateScrollBar(page_size);
-        InvalidateRect(hwnd_, nullptr, FALSE);
-    }
-}
-
-void App::UpdateScrollBar(float md_pane_height) {
-    SCROLLINFO si{};
-    si.cbSize = sizeof(si);
-    si.fMask = SIF_ALL;
-    si.nMin = 0;
-    si.nMax = static_cast<int>(layout_service_->GetTotalHeight());
-    si.nPage = static_cast<UINT>(md_pane_height);
-    si.nPos = static_cast<int>(viewport_.GetScrollY());
-    SetScrollInfo(hwnd_, SB_VERT, &si, TRUE);
+void App::UpdateScrollBar([[maybe_unused]] float md_pane_height) {
+    // カスタムスクロールバーはRenderer側で描画するため、再描画をトリガーするのみ
+    InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void App::ScrollTo(float position) {
@@ -139,6 +97,12 @@ void App::OnResizeEnd() {
     }
 
     RequestMermaidRenders();
+}
+
+void App::RefreshPaneLayout() {
+    renderer_.InvalidateFilePaneCache();
+    renderer_.InvalidateTocPaneCache();
+    OnResizeEnd();
 }
 
 void App::OnDeferredLayout() {

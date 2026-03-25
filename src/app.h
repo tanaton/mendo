@@ -9,6 +9,7 @@
 #include "pane.h"
 #include "pane_layout.h"
 #include "pane_controller.h"
+#include "titlebar.h"
 #include "document_utils.h"
 #include "layout_cache.h"
 #include "layout_service.h"
@@ -43,7 +44,6 @@ public:
     // Win32Windowから呼び出されるイベントハンドラ
     void OnPaint();
     void OnResize(UINT width, UINT height);
-    void OnVScroll(WPARAM wParam);
     void OnMouseWheel(int px, int py, short delta, bool ctrl = false);
     void OnMouseHWheel(short delta);
     void OnKeyDown(WPARAM key);
@@ -82,6 +82,12 @@ public:
 
     // Win32Windowのカーソル/再描画用にDPIスケールを公開
     constexpr float GetDpiScale() const noexcept { return cached_dpi_scale_; }
+
+    // カスタムタイトルバー
+    float GetTitleBarHeightDip() const noexcept { return titlebar_.GetHeight(); }
+    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const { return titlebar_.HitTest(dip_x, dip_y); }
+    bool IsOverMdScrollbar(float dip_x, float dip_y) const;
+    void OnActivate(bool active);
 
 private:
     // AppControllerが返すアクションを実行
@@ -139,6 +145,7 @@ private:
     int FindFirstVisibleNode() const;
     void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height);
     void OnResizeEnd();
+    void RefreshPaneLayout();
     void OnDeferredLayout();
 
     // ファイル読み込み (file_load_service_に委譲)
@@ -202,6 +209,11 @@ private:
     std::optional<LayoutService> layout_service_;
 
     bool is_sizing_ = false;
+
+    // カスタムタイトルバー
+    TitleBar titlebar_;
+    bool window_active_ = true;
+    std::wstring cached_title_text_ = L"mendo";
 
     // 3ペイン状態
     FileExplorer file_explorer_;

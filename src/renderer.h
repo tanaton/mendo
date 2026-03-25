@@ -8,6 +8,7 @@
 #include "command_executor.h"
 #include "syntax.h"
 #include "pane.h"
+#include "titlebar.h"
 #include "file_explorer.h"
 #include "toc.h"
 #include "mouse_gesture.h"
@@ -29,6 +30,8 @@ enum class BrushId : uint8_t {
     SyntaxKeyword, SyntaxType, SyntaxString, SyntaxNumber,
     SyntaxComment, SyntaxPreprocessor, SyntaxFunction,
     AlertNote, AlertTip, AlertImportant, AlertWarning, AlertCaution,
+    TitleBarBg, TitleBarText, TitleBarButtonHover, TitleBarButtonActive,
+    TitleBarCloseRed, TitleBarCloseWhite,
     PaneBg, Splitter, PaneItemHover, PaneItemActive,
     ScrollbarThumb, Overlay,
     Count
@@ -40,6 +43,28 @@ struct GestureRenderState {
     bool overlay_visible = false;
     int direction = 0;   // -1=Left(戻る), 1=Right(進む)
     float overlay_alpha = 0.0f;
+};
+
+// タイトルバー描画パラメータ。
+struct TitleBarRenderState {
+    float height = 0.0f;
+    float window_width = 0.0f;
+    D2D1_RECT_F file_btn_rect{};
+    bool file_btn_hovered = false;
+    bool file_pane_visible = false;
+    D2D1_RECT_F toc_btn_rect{};
+    bool toc_btn_hovered = false;
+    bool toc_pane_visible = false;
+    D2D1_RECT_F minimize_btn_rect{};
+    bool minimize_btn_hovered = false;
+    D2D1_RECT_F maximize_btn_rect{};
+    bool maximize_btn_hovered = false;
+    bool is_maximized = false;
+    D2D1_RECT_F close_btn_rect{};
+    bool close_btn_hovered = false;
+    D2D1_RECT_F title_text_rect{};
+    std::wstring_view title_text;
+    bool window_active = true;
 };
 
 // サイドペイン描画パラメータを一つの構造体にまとめたもの。
@@ -61,9 +86,11 @@ public:
     bool Init(HWND hwnd);
     void Resize(UINT width, UINT height);
     void Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
+        float total_content_height,
         const TextSelection& selection,
         const PaneRect& md_pane_rect,
         const SidePaneState& side_panes,
+        const TitleBarRenderState& titlebar,
         bool can_go_back = false, bool can_go_forward = false,
         int nav_hovered = 0,
         int hovered_copy_node = -1,
@@ -72,6 +99,7 @@ public:
     void DrawLoading(float angle,
         const PaneRect& md_pane_rect,
         const SidePaneState& side_panes,
+        const TitleBarRenderState& titlebar,
         const GestureRenderState& gesture = {});
 
     ID2D1HwndRenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
@@ -104,11 +132,13 @@ private:
     void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
         int first_visible, float viewport_bottom);
 
+    void DrawTitleBar(const TitleBarRenderState& tb);
+    void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height);
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
         const ScrollState& scroll, int hovered_index);
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
         const ScrollState& scroll, int hovered_index);
-    void DrawSplitter(float x, float height);
+    void DrawSplitter(float x, float top, float bottom);
     void DrawNavOverlay(const PaneRect& md_pane_rect,
         bool can_back, bool can_forward,
         int hovered);  // 0=なし, 1=戻る, 2=進む
@@ -141,6 +171,8 @@ private:
     ComPtr<IDWriteTextFormat> icon_font_format_;
     ComPtr<IDWriteTextFormat> fmt_copy_btn_icon_;
     ComPtr<IDWriteTextFormat> fmt_list_number_;
+    ComPtr<IDWriteTextFormat> fmt_titlebar_text_;
+    ComPtr<IDWriteTextFormat> fmt_titlebar_icon_;
     ComPtr<IDWriteTextFormat> fmt_pane_icon_;
     ComPtr<IDWriteTextFormat> fmt_pane_item_;
     ComPtr<IDWriteTextFormat> fmt_pane_header_;

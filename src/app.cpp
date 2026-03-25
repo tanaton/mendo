@@ -79,6 +79,13 @@ bool App::Init(HWND hwnd) {
     cursor_ibeam_ = LoadCursorW(nullptr, IDC_IBEAM);
     cursor_sizewe_ = LoadCursorW(nullptr, IDC_SIZEWE);
 
+    // タイトルバーのレイアウト初期化
+    {
+        auto* rt = renderer_.GetRenderTarget();
+        float window_w = rt ? rt->GetSize().width : 1600.0f;
+        titlebar_.UpdateLayout(window_w);
+    }
+
     // ファイル監視タイマーを設定 (250ms毎にチェック)
     SetTimer(hwnd_, TIMER_FILE_WATCH, 250, nullptr);
 
@@ -125,6 +132,17 @@ void App::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
 }
 
 // ============================================================
+// カスタムタイトルバー
+// ============================================================
+
+void App::OnActivate(bool active) {
+    if (window_active_ != active) {
+        window_active_ = active;
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+}
+
+// ============================================================
 // ペインレイアウト
 // ============================================================
 
@@ -135,8 +153,9 @@ PaneLayout App::GetPaneLayout() const {
     }
 
     auto size = rt->GetSize();
+    float tb_h = titlebar_.GetHeight();
     return panes_.ComputeLayout(size.width, size.height,
-        renderer_.GetTheme().splitter_width);
+        renderer_.GetTheme().splitter_width, tb_h);
 }
 
 PaneZone App::PaneAtPoint(float dip_x, [[maybe_unused]] float dip_y) const {
@@ -195,12 +214,36 @@ void App::OnPaint() {
                      doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
                      panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible() };
 
+    auto* rt = renderer_.GetRenderTarget();
+    float window_w = rt ? rt->GetSize().width : 0.0f;
+    TitleBarRenderState tb;
+    tb.height = titlebar_.GetHeight();
+    tb.window_width = window_w;
+    tb.file_btn_rect = titlebar_.GetFileToggleButton().rect;
+    tb.file_btn_hovered = titlebar_.GetFileToggleButton().hovered;
+    tb.file_pane_visible = panes_.IsFilePaneVisible();
+    tb.toc_btn_rect = titlebar_.GetTocToggleButton().rect;
+    tb.toc_btn_hovered = titlebar_.GetTocToggleButton().hovered;
+    tb.toc_pane_visible = panes_.IsTocPaneVisible();
+    tb.minimize_btn_rect = titlebar_.GetMinimizeButton().rect;
+    tb.minimize_btn_hovered = titlebar_.GetMinimizeButton().hovered;
+    tb.maximize_btn_rect = titlebar_.GetMaximizeButton().rect;
+    tb.maximize_btn_hovered = titlebar_.GetMaximizeButton().hovered;
+    tb.is_maximized = IsZoomed(hwnd_) != FALSE;
+    tb.close_btn_rect = titlebar_.GetCloseButton().rect;
+    tb.close_btn_hovered = titlebar_.GetCloseButton().hovered;
+    tb.title_text_rect = titlebar_.GetTitleTextRect();
+    tb.title_text = cached_title_text_;
+    tb.window_active = window_active_;
+
     if (file_load_service_.IsLoading()) {
-        renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, gs);
+        renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs);
     }
     else {
-        renderer_.Render(doc_.GetNodesMut(), layout_cache_, viewport_.GetScrollY(), viewport_.GetSelection(),
-            layout.md_rect, sp,
+        renderer_.Render(doc_.GetNodesMut(), layout_cache_, viewport_.GetScrollY(),
+            layout_service_->GetTotalHeight(),
+            viewport_.GetSelection(),
+            layout.md_rect, sp, tb,
             nav_service_.CanGoBack(), nav_service_.CanGoForward(),
             static_cast<int>(nav_hover_), hovered_copy_node_, gs);
     }
@@ -214,6 +257,12 @@ void App::OnResize(UINT width, UINT height) {
     }
 
     renderer_.Resize(width, height);
+
+    // タイトルバーボタン位置を再計算
+    {
+        float window_w_dip = width / cached_dpi_scale_;
+        titlebar_.UpdateLayout(window_w_dip);
+    }
 
     if (is_sizing_) {
         auto sizing_layout = GetPaneLayout();
@@ -323,7 +372,10 @@ void App::ReloadCurrentFile() {
 
 void App::UpdateTitleBar() {
     int zoom_percent = static_cast<int>(ZOOM_STEPS[viewport_.GetZoomIndex()] * 100.0f + 0.5f);
-    SetWindowTextW(hwnd_, BuildTitleString(doc_.GetFilePath(), zoom_percent).c_str());
+    auto title = BuildTitleString(doc_.GetFilePath(), zoom_percent);
+    SetWindowTextW(hwnd_, title.c_str());
+    cached_title_text_ = std::wstring(title.begin(), title.end());
+    InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void App::RequestMermaidRenders() {
@@ -506,13 +558,10 @@ void App::ExecuteActions(const ActionList& actions) {
             [this](const TogglePaneAction& a) {
                 if (a.file_pane) {
                     panes_.ToggleFilePane();
-                }
-                else {
+                } else {
                     panes_.ToggleTocPane();
                 }
-                RECT rc;
-                GetClientRect(hwnd_, &rc);
-                OnResize(static_cast<UINT>(rc.right - rc.left), static_cast<UINT>(rc.bottom - rc.top));
+                RefreshPaneLayout();
             },
             [this](const ZoomAction& a) {
                 if (a.direction > 0) {

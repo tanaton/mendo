@@ -8,7 +8,7 @@
 class PaneController {
 public:
     // ---- ドラッグ対象 ----
-    enum class DragTarget { None, Splitter1, Splitter2, FileScrollbar, TocScrollbar };
+    enum class DragTarget { None, Splitter1, Splitter2, FileScrollbar, TocScrollbar, MdScrollbar };
 
     // ---- 表示/非表示 ----
     constexpr bool IsFilePaneVisible() const noexcept { return show_file_; }
@@ -61,7 +61,7 @@ public:
     void ApplyZoom(float ratio) noexcept;
 
     // ---- レイアウト ----
-    PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w) const noexcept;
+    PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset = 0.0f) const noexcept;
     PaneZone DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept;
 
     // ---- 定数 ----

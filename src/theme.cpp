@@ -117,6 +117,12 @@ Theme GetLightTheme() {
 
     ApplyCommonLayout(t);
 
+    // タイトルバー
+    t.titlebar_bg_color = Color(0xf0f0f0);
+    t.titlebar_text_color = Color(0x333333);
+    t.titlebar_button_hover_color = Color(0xe0e0e0);
+    t.titlebar_button_active_color = Color(0xd0d0d0);
+
     // ペインレイアウト
     t.pane_bg_color = Color(0xf5f5f5);
     t.splitter_color = Color(0xe0e0e0);
@@ -161,6 +167,12 @@ Theme GetDarkTheme() {
     t.syntax_function = Color(0xDCDCAA);
 
     ApplyCommonLayout(t);
+
+    // タイトルバー
+    t.titlebar_bg_color = Color(0x1e1e1e);
+    t.titlebar_text_color = Color(0xcccccc);
+    t.titlebar_button_hover_color = Color(0x383838);
+    t.titlebar_button_active_color = Color(0x444444);
 
     // ペインレイアウト
     t.pane_bg_color = Color(0x252526);

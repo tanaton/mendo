@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "pane_layout.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
@@ -191,8 +192,100 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
     });
 }
 
-void Renderer::DrawSplitter(float x, float height) {
-    D2D1_RECT_F rect = D2D1::RectF(x, 0.0f, x + theme_.splitter_width, height);
+void Renderer::DrawSplitter(float x, float top, float bottom) {
+    D2D1_RECT_F rect = D2D1::RectF(x, top, x + theme_.splitter_width, bottom);
     rt()->FillRectangle(rect, Brush(BrushId::Splitter));
+}
+
+void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height) {
+    float viewport_h = md_pane_rect.height;
+    if (total_content_height <= viewport_h || viewport_h <= 0.0f) {
+        return;
+    }
+
+    auto info = ComputeScrollInfo(md_pane_rect, 0.0f, total_content_height);
+    float thumb_y = ComputeThumbY(info, scroll_y);
+    float track_x = md_pane_rect.x + md_pane_rect.width - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+
+    D2D1_ROUNDED_RECT thumb_rect;
+    thumb_rect.rect = D2D1::RectF(track_x, thumb_y, track_x + PANE_SCROLLBAR_WIDTH, thumb_y + info.thumb_height);
+    thumb_rect.radiusX = PANE_SCROLLBAR_WIDTH / 2.0f;
+    thumb_rect.radiusY = PANE_SCROLLBAR_WIDTH / 2.0f;
+    rt()->FillRoundedRectangle(thumb_rect, Brush(BrushId::ScrollbarThumb));
+}
+
+void Renderer::DrawTitleBar(const TitleBarRenderState& tb) {
+    if (tb.height <= 0.0f) {
+        return;
+    }
+
+    // タイトルバー背景（完全不透明でガラス効果を隠す）
+    D2D1_RECT_F bg_rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, tb.height);
+    rt()->FillRectangle(bg_rect, Brush(BrushId::TitleBarBg));
+
+    float text_alpha = tb.window_active ? 1.0f : 0.5f;
+
+    // アイコンボタン描画ヘルパー
+    auto drawButton = [&](const D2D1_RECT_F& rect, const wchar_t* icon,
+                          bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
+        if (show_bg) {
+            rt()->FillRectangle(rect, Brush(bg_id));
+        }
+        if (fmt_titlebar_icon_) {
+            auto* brush = Brush(text_id);
+            if (brush) {
+                brush->SetOpacity(alpha);
+                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), rect, brush);
+                brush->SetOpacity(1.0f);
+            }
+        }
+    };
+
+    // ペイン切替ボタン（active > hover の優先度）
+    drawButton(tb.file_btn_rect, L"\uE8B7",
+        tb.file_pane_visible || tb.file_btn_hovered,
+        tb.file_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
+
+    drawButton(tb.toc_btn_rect, L"\uE8FD",
+        tb.toc_pane_visible || tb.toc_btn_hovered,
+        tb.toc_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
+
+    // キャプションボタン
+    drawButton(tb.minimize_btn_rect, L"\uE921",
+        tb.minimize_btn_hovered, BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
+
+    const wchar_t max_icon[] = { tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
+    drawButton(tb.maximize_btn_rect, max_icon,
+        tb.maximize_btn_hovered, BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
+
+    // 閉じるボタン（ホバー時は赤背景＋白アイコン）
+    if (tb.close_btn_hovered) {
+        drawButton(tb.close_btn_rect, L"\uE8BB",
+            true, BrushId::TitleBarCloseRed,
+            BrushId::TitleBarCloseWhite, 1.0f);
+    } else {
+        drawButton(tb.close_btn_rect, L"\uE8BB",
+            false, BrushId::TitleBarButtonHover,
+            BrushId::TitleBarText, text_alpha);
+    }
+
+    // タイトルテキスト
+    if (fmt_titlebar_text_ && !tb.title_text.empty()) {
+        auto* brush = Brush(BrushId::TitleBarText);
+        if (brush) {
+            brush->SetOpacity(text_alpha);
+            rt()->DrawText(
+                tb.title_text.data(),
+                static_cast<UINT32>(tb.title_text.size()),
+                fmt_titlebar_text_.Get(),
+                tb.title_text_rect,
+                brush);
+            brush->SetOpacity(1.0f);
+        }
+    }
 }
 

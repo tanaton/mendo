@@ -28,10 +28,11 @@ struct PaneScrollInfo {
 };
 
 // ウィンドウサイズとペイン設定からペインレイアウトを計算する。
+// top_offset: ペイン上端のY座標オフセット（カスタムタイトルバーの高さ等）
 [[nodiscard]] PaneLayout ComputePaneLayout(float total_width, float total_height,
     float file_pane_width, float toc_pane_width,
     float splitter_width, bool show_file, bool show_toc,
-    float md_min_width = 200.0f) noexcept;
+    float md_min_width = 200.0f, float top_offset = 0.0f) noexcept;
 
 // ある座標（DIP座標）がどのペイン領域に属するかを判定する。
 PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout,
