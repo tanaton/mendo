@@ -53,7 +53,7 @@ inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
 
 // ペインヘッダー内の閉じるボタン矩形を返す（ペインローカル座標）。
 inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) noexcept {
-    float btn_size = header_height - 4.0f;
+    float btn_size = header_height - 2.0f * PANE_CLOSE_BTN_MARGIN;
     float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN;
     float btn_y = (header_height - btn_size) / 2.0f;
     return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
