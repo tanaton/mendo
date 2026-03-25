@@ -31,6 +31,7 @@ enum class BrushId : uint8_t {
     SyntaxComment, SyntaxPreprocessor, SyntaxFunction,
     AlertNote, AlertTip, AlertImportant, AlertWarning, AlertCaution,
     TitleBarBg, TitleBarText, TitleBarButtonHover, TitleBarButtonActive,
+    TitleBarCloseRed, TitleBarCloseWhite,
     PaneBg, Splitter, PaneItemHover, PaneItemActive,
     ScrollbarThumb, Overlay,
     Count

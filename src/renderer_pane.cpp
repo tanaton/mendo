@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "pane_layout.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
@@ -199,29 +200,17 @@ void Renderer::DrawSplitter(float x, float top, float height) {
 void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height) {
     float viewport_h = md_pane_rect.height;
     if (total_content_height <= viewport_h || viewport_h <= 0.0f) {
-        return;  // スクロール不要
+        return;
     }
 
-    constexpr float SCROLLBAR_WIDTH = 8.0f;
-    constexpr float THUMB_MIN_HEIGHT = 24.0f;
-    constexpr float SCROLLBAR_MARGIN = 2.0f;
+    auto info = ComputeScrollInfo(md_pane_rect, 0.0f, total_content_height);
+    float thumb_y = ComputeThumbY(info, scroll_y);
+    float track_x = md_pane_rect.x + md_pane_rect.width - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
 
-    float track_x = md_pane_rect.x + md_pane_rect.width - SCROLLBAR_WIDTH - SCROLLBAR_MARGIN;
-    float track_top = md_pane_rect.y;
-    float track_height = viewport_h;
-
-    // つまみサイズと位置
-    float thumb_ratio = viewport_h / total_content_height;
-    float thumb_height = std::max(THUMB_MIN_HEIGHT, track_height * thumb_ratio);
-    float max_scroll = total_content_height - viewport_h;
-    float scroll_ratio = (max_scroll > 0.0f) ? scroll_y / max_scroll : 0.0f;
-    float thumb_y = track_top + scroll_ratio * (track_height - thumb_height);
-
-    // つまみを描画（角丸）
     D2D1_ROUNDED_RECT thumb_rect;
-    thumb_rect.rect = D2D1::RectF(track_x, thumb_y, track_x + SCROLLBAR_WIDTH, thumb_y + thumb_height);
-    thumb_rect.radiusX = SCROLLBAR_WIDTH / 2.0f;
-    thumb_rect.radiusY = SCROLLBAR_WIDTH / 2.0f;
+    thumb_rect.rect = D2D1::RectF(track_x, thumb_y, track_x + PANE_SCROLLBAR_WIDTH, thumb_y + info.thumb_height);
+    thumb_rect.radiusX = PANE_SCROLLBAR_WIDTH / 2.0f;
+    thumb_rect.radiusY = PANE_SCROLLBAR_WIDTH / 2.0f;
     rt()->FillRoundedRectangle(thumb_rect, Brush(BrushId::ScrollbarThumb));
 }
 
@@ -234,115 +223,54 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb) {
     D2D1_RECT_F bg_rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, tb.height);
     rt()->FillRectangle(bg_rect, Brush(BrushId::TitleBarBg));
 
-    // 非アクティブ時のテキスト透過度
     float text_alpha = tb.window_active ? 1.0f : 0.5f;
 
-    // ファイルペイン切替ボタン
-    {
-        auto& btn = tb.file_btn_rect;
-        if (tb.file_pane_visible) {
-            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonActive));
-        } else if (tb.file_btn_hovered) {
-            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonHover));
+    // アイコンボタン描画ヘルパー
+    auto drawButton = [&](const D2D1_RECT_F& rect, const wchar_t* icon,
+                          bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
+        if (show_bg) {
+            rt()->FillRectangle(rect, Brush(bg_id));
         }
         if (fmt_titlebar_icon_) {
-            // \uE8B7 = FolderOpen
-            static const wchar_t icon[] = L"\uE8B7";
-            auto* brush = Brush(BrushId::TitleBarText);
+            auto* brush = Brush(text_id);
             if (brush) {
-                brush->SetOpacity(text_alpha);
-                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, brush);
+                brush->SetOpacity(alpha);
+                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), rect, brush);
                 brush->SetOpacity(1.0f);
             }
         }
-    }
+    };
 
-    // 目次ペイン切替ボタン
-    {
-        auto& btn = tb.toc_btn_rect;
-        if (tb.toc_pane_visible) {
-            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonActive));
-        } else if (tb.toc_btn_hovered) {
-            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonHover));
-        }
-        if (fmt_titlebar_icon_) {
-            // \uE8FD = List
-            static const wchar_t icon[] = L"\uE8FD";
-            auto* brush = Brush(BrushId::TitleBarText);
-            if (brush) {
-                brush->SetOpacity(text_alpha);
-                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, brush);
-                brush->SetOpacity(1.0f);
-            }
-        }
-    }
+    // ペイン切替ボタン（active > hover の優先度）
+    drawButton(tb.file_btn_rect, L"\uE8B7",
+        tb.file_pane_visible || tb.file_btn_hovered,
+        tb.file_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
 
-    // 最小化ボタン
-    {
-        auto& btn = tb.minimize_btn_rect;
-        if (tb.minimize_btn_hovered) {
-            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonHover));
-        }
-        if (fmt_titlebar_icon_) {
-            // \uE921 = ChromeMinimize
-            static const wchar_t icon[] = L"\uE921";
-            auto* brush = Brush(BrushId::TitleBarText);
-            if (brush) {
-                brush->SetOpacity(text_alpha);
-                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, brush);
-                brush->SetOpacity(1.0f);
-            }
-        }
-    }
+    drawButton(tb.toc_btn_rect, L"\uE8FD",
+        tb.toc_pane_visible || tb.toc_btn_hovered,
+        tb.toc_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
 
-    // 最大化/復元ボタン
-    {
-        auto& btn = tb.maximize_btn_rect;
-        if (tb.maximize_btn_hovered) {
-            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonHover));
-        }
-        if (fmt_titlebar_icon_) {
-            // \uE922 = ChromeMaximize, \uE923 = ChromeRestore
-            const wchar_t icon[] = { tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
-            auto* brush = Brush(BrushId::TitleBarText);
-            if (brush) {
-                brush->SetOpacity(text_alpha);
-                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, brush);
-                brush->SetOpacity(1.0f);
-            }
-        }
-    }
+    // キャプションボタン
+    drawButton(tb.minimize_btn_rect, L"\uE921",
+        tb.minimize_btn_hovered, BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
 
-    // 閉じるボタン（ホバー時は赤背景）
-    {
-        auto& btn = tb.close_btn_rect;
-        if (tb.close_btn_hovered) {
-            ComPtr<ID2D1SolidColorBrush> red_brush;
-            rt()->CreateSolidColorBrush(D2D1::ColorF(0xE81123), &red_brush);
-            if (red_brush) {
-                rt()->FillRectangle(btn, red_brush.Get());
-            }
-            // ホバー時は白アイコン
-            if (fmt_titlebar_icon_) {
-                static const wchar_t icon[] = L"\uE8BB";
-                ComPtr<ID2D1SolidColorBrush> white_brush;
-                rt()->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White), &white_brush);
-                if (white_brush) {
-                    rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, white_brush.Get());
-                }
-            }
-        } else {
-            if (fmt_titlebar_icon_) {
-                // \uE8BB = ChromeClose
-                static const wchar_t icon[] = L"\uE8BB";
-                auto* brush = Brush(BrushId::TitleBarText);
-                if (brush) {
-                    brush->SetOpacity(text_alpha);
-                    rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, brush);
-                    brush->SetOpacity(1.0f);
-                }
-            }
-        }
+    const wchar_t max_icon[] = { tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
+    drawButton(tb.maximize_btn_rect, max_icon,
+        tb.maximize_btn_hovered, BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
+
+    // 閉じるボタン（ホバー時は赤背景＋白アイコン）
+    if (tb.close_btn_hovered) {
+        drawButton(tb.close_btn_rect, L"\uE8BB",
+            true, BrushId::TitleBarCloseRed,
+            BrushId::TitleBarCloseWhite, 1.0f);
+    } else {
+        drawButton(tb.close_btn_rect, L"\uE8BB",
+            false, BrushId::TitleBarButtonHover,
+            BrushId::TitleBarText, text_alpha);
     }
 
     // タイトルテキスト

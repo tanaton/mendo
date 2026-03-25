@@ -230,22 +230,13 @@ void App::OnLButtonDown(int px, int py) {
     // タイトルバーボタンのクリック処理
     if (dip.y < titlebar_.GetHeight()) {
         auto tb_zone = titlebar_.HitTest(dip.x, dip.y);
-        if (tb_zone == TitleBarHitZone::FileToggle) {
-            panes_.ToggleFilePane();
-            renderer_.InvalidateFilePaneCache();
-            renderer_.InvalidateTocPaneCache();
-            RECT rc;
-            GetClientRect(hwnd_, &rc);
-            OnResize(static_cast<UINT>(rc.right - rc.left), static_cast<UINT>(rc.bottom - rc.top));
-            return;
-        }
-        if (tb_zone == TitleBarHitZone::TocToggle) {
-            panes_.ToggleTocPane();
-            renderer_.InvalidateFilePaneCache();
-            renderer_.InvalidateTocPaneCache();
-            RECT rc;
-            GetClientRect(hwnd_, &rc);
-            OnResize(static_cast<UINT>(rc.right - rc.left), static_cast<UINT>(rc.bottom - rc.top));
+        if (tb_zone == TitleBarHitZone::FileToggle || tb_zone == TitleBarHitZone::TocToggle) {
+            if (tb_zone == TitleBarHitZone::FileToggle) {
+                panes_.ToggleFilePane();
+            } else {
+                panes_.ToggleTocPane();
+            }
+            RefreshPaneLayout();
             return;
         }
         if (tb_zone == TitleBarHitZone::Minimize) {
@@ -310,10 +301,9 @@ void App::OnLButtonDown(int px, int py) {
             float total_h = layout_service_->GetTotalHeight();
             float viewport_h = pane_layout.md_rect.height;
             if (total_h > viewport_h) {
-                constexpr float SB_WIDTH = 8.0f;
-                constexpr float SB_MARGIN = 2.0f;
-                float sb_left = pane_layout.md_rect.x + pane_layout.md_rect.width - SB_WIDTH - SB_MARGIN;
-                if (dip.x >= sb_left - 4.0f) {
+                float sb_left = pane_layout.md_rect.x + pane_layout.md_rect.width
+                    - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+                if (dip.x >= sb_left - PANE_SCROLLBAR_HIT_PADDING) {
                     SetCapture(hwnd_);
                     panes_.StartDrag(PaneController::DragTarget::MdScrollbar);
                     auto info = ComputeScrollInfo(pane_layout.md_rect, 0.0f, total_h);
@@ -454,13 +444,7 @@ void App::OnMouseHover(int px, int py) {
     // タイトルバーのホバー処理
     if (dip_y < titlebar_.GetHeight()) {
         auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
-        if (tb_zone == TitleBarHitZone::FileToggle || tb_zone == TitleBarHitZone::TocToggle ||
-            tb_zone == TitleBarHitZone::Minimize || tb_zone == TitleBarHitZone::Maximize ||
-            tb_zone == TitleBarHitZone::Close) {
-            SetCursor(cursor_arrow_);
-        } else {
-            SetCursor(cursor_arrow_);
-        }
+        SetCursor(cursor_arrow_);
         if (titlebar_.SetHovered(tb_zone)) {
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
@@ -654,10 +638,8 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y) const {
     if (dip_y < layout.md_rect.y || dip_y > layout.md_rect.y + viewport_h) {
         return false;
     }
-    constexpr float SB_WIDTH = 8.0f;
-    constexpr float SB_MARGIN = 2.0f;
     float md_right = layout.md_rect.x + layout.md_rect.width;
-    float sb_left = md_right - SB_WIDTH - SB_MARGIN;
-    float sb_right = md_right - SB_MARGIN;
-    return dip_x >= sb_left - 4.0f && dip_x <= sb_right;
+    float sb_left = md_right - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+    float sb_right = md_right - PANE_SCROLLBAR_MARGIN;
+    return dip_x >= sb_left - PANE_SCROLLBAR_HIT_PADDING && dip_x <= sb_right;
 }

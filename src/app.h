@@ -44,7 +44,6 @@ public:
     // Win32Windowから呼び出されるイベントハンドラ
     void OnPaint();
     void OnResize(UINT width, UINT height);
-    void OnVScroll(WPARAM wParam);
     void OnMouseWheel(int px, int py, short delta, bool ctrl = false);
     void OnMouseHWheel(short delta);
     void OnKeyDown(WPARAM key);
@@ -146,6 +145,7 @@ private:
     int FindFirstVisibleNode() const;
     void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height);
     void OnResizeEnd();
+    void RefreshPaneLayout();
     void OnDeferredLayout();
 
     // ファイル読み込み (file_load_service_に委譲)

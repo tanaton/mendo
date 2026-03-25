@@ -8,10 +8,6 @@
 // スクロールバー・スクロール
 // ============================================================
 
-void App::OnVScroll([[maybe_unused]] WPARAM wParam) {
-    // WS_VSCROLL除去に伴い使用しない
-}
-
 void App::UpdateScrollBar([[maybe_unused]] float md_pane_height) {
     // カスタムスクロールバーはRenderer側で描画するため、再描画をトリガーするのみ
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -101,6 +97,12 @@ void App::OnResizeEnd() {
     }
 
     RequestMermaidRenders();
+}
+
+void App::RefreshPaneLayout() {
+    renderer_.InvalidateFilePaneCache();
+    renderer_.InvalidateTocPaneCache();
+    OnResizeEnd();
 }
 
 void App::OnDeferredLayout() {

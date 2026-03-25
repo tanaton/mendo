@@ -558,13 +558,10 @@ void App::ExecuteActions(const ActionList& actions) {
             [this](const TogglePaneAction& a) {
                 if (a.file_pane) {
                     panes_.ToggleFilePane();
-                }
-                else {
+                } else {
                     panes_.ToggleTocPane();
                 }
-                RECT rc;
-                GetClientRect(hwnd_, &rc);
-                OnResize(static_cast<UINT>(rc.right - rc.left), static_cast<UINT>(rc.bottom - rc.top));
+                RefreshPaneLayout();
             },
             [this](const ZoomAction& a) {
                 if (a.direction > 0) {
