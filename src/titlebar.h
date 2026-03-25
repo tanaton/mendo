@@ -24,7 +24,6 @@ class TitleBar {
 public:
     static constexpr float BASE_HEIGHT = 32.0f;
     static constexpr float BUTTON_WIDTH = 32.0f;
-    static constexpr float BUTTON_HEIGHT = 28.0f;
     static constexpr float BUTTON_LEFT_MARGIN = 8.0f;
     static constexpr float BUTTON_GAP = 2.0f;
     // キャプションボタン（最小化/最大化/閉じる）はタイトルバーの全高を使う
@@ -34,17 +33,6 @@ public:
 
     // ウィンドウ幅からボタン位置を計算
     void UpdateLayout(float window_width_dip) noexcept {
-        float btn_y = (BASE_HEIGHT - BUTTON_HEIGHT) / 2.0f;
-
-        // ファイルペイン切替ボタン（左端）
-        float x = BUTTON_LEFT_MARGIN;
-        file_toggle_.rect = D2D1::RectF(x, btn_y, x + BUTTON_WIDTH, btn_y + BUTTON_HEIGHT);
-        x += BUTTON_WIDTH + BUTTON_GAP;
-
-        // 目次ペイン切替ボタン
-        toc_toggle_.rect = D2D1::RectF(x, btn_y, x + BUTTON_WIDTH, btn_y + BUTTON_HEIGHT);
-        x += BUTTON_WIDTH + BUTTON_LEFT_MARGIN;
-
         // キャプションボタン（右端から配置、全高を使用）
         float right = window_width_dip;
         close_.rect = D2D1::RectF(right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT);
@@ -52,10 +40,17 @@ public:
         maximize_.rect = D2D1::RectF(right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT);
         right -= CAPTION_BTN_WIDTH;
         minimize_.rect = D2D1::RectF(right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT);
+        right -= CAPTION_BTN_WIDTH;
 
-        // タイトルテキスト領域（ペインボタンの右からキャプションボタンの左まで）
-        float title_right = minimize_.rect.left;
-        title_text_rect_ = D2D1::RectF(x, 0.0f, (title_right > x) ? title_right : x, BASE_HEIGHT);
+        // ペイン切替ボタン（キャプションボタンの左隣に配置）
+        toc_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
+        right -= BUTTON_WIDTH;
+        file_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
+
+        // タイトルテキスト領域（左端からペインボタンの左まで）
+        float title_left = BUTTON_LEFT_MARGIN;
+        float title_right = file_toggle_.rect.left;
+        title_text_rect_ = D2D1::RectF(title_left, 0.0f, (title_right > title_left) ? title_right : title_left, BASE_HEIGHT);
     }
 
     // DIP座標でヒットテスト

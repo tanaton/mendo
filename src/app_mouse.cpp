@@ -234,14 +234,18 @@ void App::OnLButtonDown(int px, int py) {
             panes_.ToggleFilePane();
             renderer_.InvalidateFilePaneCache();
             renderer_.InvalidateTocPaneCache();
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            RECT rc;
+            GetClientRect(hwnd_, &rc);
+            OnResize(static_cast<UINT>(rc.right - rc.left), static_cast<UINT>(rc.bottom - rc.top));
             return;
         }
         if (tb_zone == TitleBarHitZone::TocToggle) {
             panes_.ToggleTocPane();
             renderer_.InvalidateFilePaneCache();
             renderer_.InvalidateTocPaneCache();
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            RECT rc;
+            GetClientRect(hwnd_, &rc);
+            OnResize(static_cast<UINT>(rc.right - rc.left), static_cast<UINT>(rc.bottom - rc.top));
             return;
         }
         if (tb_zone == TitleBarHitZone::Minimize) {
