@@ -226,6 +226,39 @@ void App::OnLButtonDown(int px, int py) {
     if (!renderer_.GetRenderTarget()) { return; }
 
     auto dip = PixelToDip(px, py);
+
+    // タイトルバーボタンのクリック処理
+    if (dip.y < titlebar_.GetHeight()) {
+        auto tb_zone = titlebar_.HitTest(dip.x, dip.y);
+        if (tb_zone == TitleBarHitZone::FileToggle) {
+            panes_.ToggleFilePane();
+            renderer_.InvalidateFilePaneCache();
+            renderer_.InvalidateTocPaneCache();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+        if (tb_zone == TitleBarHitZone::TocToggle) {
+            panes_.ToggleTocPane();
+            renderer_.InvalidateFilePaneCache();
+            renderer_.InvalidateTocPaneCache();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+        if (tb_zone == TitleBarHitZone::Minimize) {
+            ShowWindow(hwnd_, SW_MINIMIZE);
+            return;
+        }
+        if (tb_zone == TitleBarHitZone::Maximize) {
+            ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE);
+            return;
+        }
+        if (tb_zone == TitleBarHitZone::Close) {
+            PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+            return;
+        }
+        return;  // タイトルバーの他の領域はWM_NCHITTESTで処理済み
+    }
+
     auto pane_layout = GetPaneLayout();
     auto zone = DetectPaneZone(dip.x, pane_layout,
         renderer_.GetTheme().splitter_width,
@@ -376,6 +409,26 @@ void App::OnMouseHover(int px, int py) {
     auto dip = PixelToDip(px, py);
     float dip_x = dip.x;
     float dip_y = dip.y;
+
+    // タイトルバーのホバー処理
+    if (dip_y < titlebar_.GetHeight()) {
+        auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
+        if (tb_zone == TitleBarHitZone::FileToggle || tb_zone == TitleBarHitZone::TocToggle ||
+            tb_zone == TitleBarHitZone::Minimize || tb_zone == TitleBarHitZone::Maximize ||
+            tb_zone == TitleBarHitZone::Close) {
+            SetCursor(cursor_arrow_);
+        } else {
+            SetCursor(cursor_arrow_);
+        }
+        if (titlebar_.SetHovered(tb_zone)) {
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+        return;
+    }
+    // タイトルバー外に出たらホバーをリセット
+    if (titlebar_.SetHovered(TitleBarHitZone::None)) {
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
 
     auto pane_layout = GetPaneLayout();
     auto zone = DetectPaneZone(dip_x, pane_layout,

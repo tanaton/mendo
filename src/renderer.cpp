@@ -73,6 +73,10 @@ void Renderer::RecreateBrushes() {
         {BrushId::AlertImportant,   theme_.alert_color[2]},
         {BrushId::AlertWarning,     theme_.alert_color[3]},
         {BrushId::AlertCaution,     theme_.alert_color[4]},
+        {BrushId::TitleBarBg,       theme_.titlebar_bg_color},
+        {BrushId::TitleBarText,     theme_.titlebar_text_color},
+        {BrushId::TitleBarButtonHover, theme_.titlebar_button_hover_color},
+        {BrushId::TitleBarButtonActive, theme_.titlebar_button_active_color},
         {BrushId::PaneBg,           theme_.pane_bg_color},
         {BrushId::Splitter,         theme_.splitter_color},
         {BrushId::PaneItemHover,    theme_.pane_item_hover_color},
@@ -163,6 +167,20 @@ void Renderer::RecreatePaneFormats() {
     fmt_list_number_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
     if (fmt_list_number_) {
         fmt_list_number_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+    }
+
+    // タイトルバー用テキストフォーマット
+    fmt_titlebar_text_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
+    if (fmt_titlebar_text_) {
+        fmt_titlebar_text_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_titlebar_text_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_titlebar_text_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    fmt_titlebar_icon_ = CreatePaneFormat(L"Segoe Fluent Icons", W, 14.0f, L"en-us");
+    if (fmt_titlebar_icon_) {
+        fmt_titlebar_icon_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_titlebar_icon_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_titlebar_icon_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
     fmt_pane_icon_ = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.pane_font_size, L"en-us");
@@ -346,6 +364,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
 void Renderer::DrawLoading(float angle,
     const PaneRect& md_pane_rect,
     const SidePaneState& sp,
+    const TitleBarRenderState& titlebar,
     const GestureRenderState& gesture) {
     if (!rt()) {
         return;
@@ -354,16 +373,19 @@ void Renderer::DrawLoading(float angle,
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);
 
+    // カスタムタイトルバーを描画
+    DrawTitleBar(titlebar);
+
     auto size = rt()->GetSize();
 
     // サイドペインを通常通り描画
     if (sp.show_file_pane) {
         DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index);
-        DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, size.height);
+        DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
     }
     if (sp.show_toc_pane) {
         DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index);
-        DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, size.height);
+        DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, sp.toc_pane_rect.y, sp.toc_pane_rect.y + sp.toc_pane_rect.height);
     }
 
     // MDペイン中央にスピナーを描画
@@ -395,6 +417,7 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
     const TextSelection& selection,
     const PaneRect& md_pane_rect,
     const SidePaneState& sp,
+    const TitleBarRenderState& titlebar,
     bool can_go_back, bool can_go_forward,
     int nav_hovered,
     int hovered_copy_node,
@@ -406,18 +429,21 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);
 
+    // カスタムタイトルバーを描画
+    DrawTitleBar(titlebar);
+
     auto size = rt()->GetSize();
 
     // ファイルエクスプローラペインを描画（キャッシュが有効ならビットマップ転送）
     if (sp.show_file_pane) {
         DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index);
-        DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, size.height);
+        DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
     }
 
     // 目次ペインを描画（キャッシュが有効ならビットマップ転送）
     if (sp.show_toc_pane) {
         DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index);
-        DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, size.height);
+        DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, sp.toc_pane_rect.y, sp.toc_pane_rect.y + sp.toc_pane_rect.height);
     }
 
     // 最初の可視ノードを検索（一度だけ実行し、エフェクトとコマンド生成で共有）。

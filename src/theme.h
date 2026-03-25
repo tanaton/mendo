@@ -51,6 +51,12 @@ struct Theme {
     float list_bullet_offset;
     float hr_thickness;
 
+    // タイトルバー
+    D2D1_COLOR_F titlebar_bg_color;
+    D2D1_COLOR_F titlebar_text_color;
+    D2D1_COLOR_F titlebar_button_hover_color;
+    D2D1_COLOR_F titlebar_button_active_color;
+
     // ペインレイアウト
     D2D1_COLOR_F pane_bg_color;
     D2D1_COLOR_F splitter_color;

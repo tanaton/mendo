@@ -61,7 +61,7 @@ public:
     void ApplyZoom(float ratio) noexcept;
 
     // ---- レイアウト ----
-    PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w) const noexcept;
+    PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset = 0.0f) const noexcept;
     PaneZone DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept;
 
     // ---- 定数 ----

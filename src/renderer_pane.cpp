@@ -191,8 +191,144 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
     });
 }
 
-void Renderer::DrawSplitter(float x, float height) {
-    D2D1_RECT_F rect = D2D1::RectF(x, 0.0f, x + theme_.splitter_width, height);
+void Renderer::DrawSplitter(float x, float top, float height) {
+    D2D1_RECT_F rect = D2D1::RectF(x, top, x + theme_.splitter_width, height);
     rt()->FillRectangle(rect, Brush(BrushId::Splitter));
+}
+
+void Renderer::DrawTitleBar(const TitleBarRenderState& tb) {
+    if (tb.height <= 0.0f) {
+        return;
+    }
+
+    // タイトルバー背景（完全不透明でガラス効果を隠す）
+    D2D1_RECT_F bg_rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, tb.height);
+    rt()->FillRectangle(bg_rect, Brush(BrushId::TitleBarBg));
+
+    // 非アクティブ時のテキスト透過度
+    float text_alpha = tb.window_active ? 1.0f : 0.5f;
+
+    // ファイルペイン切替ボタン
+    {
+        auto& btn = tb.file_btn_rect;
+        if (tb.file_pane_visible) {
+            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonActive));
+        } else if (tb.file_btn_hovered) {
+            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonHover));
+        }
+        if (fmt_titlebar_icon_) {
+            // \uE8B7 = FolderOpen
+            static const wchar_t icon[] = L"\uE8B7";
+            auto* brush = Brush(BrushId::TitleBarText);
+            if (brush) {
+                brush->SetOpacity(text_alpha);
+                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, brush);
+                brush->SetOpacity(1.0f);
+            }
+        }
+    }
+
+    // 目次ペイン切替ボタン
+    {
+        auto& btn = tb.toc_btn_rect;
+        if (tb.toc_pane_visible) {
+            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonActive));
+        } else if (tb.toc_btn_hovered) {
+            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonHover));
+        }
+        if (fmt_titlebar_icon_) {
+            // \uE8FD = List
+            static const wchar_t icon[] = L"\uE8FD";
+            auto* brush = Brush(BrushId::TitleBarText);
+            if (brush) {
+                brush->SetOpacity(text_alpha);
+                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, brush);
+                brush->SetOpacity(1.0f);
+            }
+        }
+    }
+
+    // 最小化ボタン
+    {
+        auto& btn = tb.minimize_btn_rect;
+        if (tb.minimize_btn_hovered) {
+            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonHover));
+        }
+        if (fmt_titlebar_icon_) {
+            // \uE921 = ChromeMinimize
+            static const wchar_t icon[] = L"\uE921";
+            auto* brush = Brush(BrushId::TitleBarText);
+            if (brush) {
+                brush->SetOpacity(text_alpha);
+                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, brush);
+                brush->SetOpacity(1.0f);
+            }
+        }
+    }
+
+    // 最大化/復元ボタン
+    {
+        auto& btn = tb.maximize_btn_rect;
+        if (tb.maximize_btn_hovered) {
+            rt()->FillRectangle(btn, Brush(BrushId::TitleBarButtonHover));
+        }
+        if (fmt_titlebar_icon_) {
+            // \uE922 = ChromeMaximize, \uE923 = ChromeRestore
+            const wchar_t icon[] = { tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
+            auto* brush = Brush(BrushId::TitleBarText);
+            if (brush) {
+                brush->SetOpacity(text_alpha);
+                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, brush);
+                brush->SetOpacity(1.0f);
+            }
+        }
+    }
+
+    // 閉じるボタン（ホバー時は赤背景）
+    {
+        auto& btn = tb.close_btn_rect;
+        if (tb.close_btn_hovered) {
+            ComPtr<ID2D1SolidColorBrush> red_brush;
+            rt()->CreateSolidColorBrush(D2D1::ColorF(0xE81123), &red_brush);
+            if (red_brush) {
+                rt()->FillRectangle(btn, red_brush.Get());
+            }
+            // ホバー時は白アイコン
+            if (fmt_titlebar_icon_) {
+                static const wchar_t icon[] = L"\uE8BB";
+                ComPtr<ID2D1SolidColorBrush> white_brush;
+                rt()->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White), &white_brush);
+                if (white_brush) {
+                    rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, white_brush.Get());
+                }
+            }
+        } else {
+            if (fmt_titlebar_icon_) {
+                // \uE8BB = ChromeClose
+                static const wchar_t icon[] = L"\uE8BB";
+                auto* brush = Brush(BrushId::TitleBarText);
+                if (brush) {
+                    brush->SetOpacity(text_alpha);
+                    rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), btn, brush);
+                    brush->SetOpacity(1.0f);
+                }
+            }
+        }
+    }
+
+    // タイトルテキスト
+    if (fmt_titlebar_text_ && !tb.title_text.empty()) {
+        auto* brush = Brush(BrushId::TitleBarText);
+        if (brush) {
+            brush->SetOpacity(text_alpha);
+            rt()->DrawText(
+                tb.title_text.data(),
+                static_cast<UINT32>(tb.title_text.size()),
+                fmt_titlebar_text_.Get(),
+                tb.title_text_rect,
+                brush);
+            brush->SetOpacity(1.0f);
+        }
+    }
 }
 

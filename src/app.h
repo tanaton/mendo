@@ -9,6 +9,7 @@
 #include "pane.h"
 #include "pane_layout.h"
 #include "pane_controller.h"
+#include "titlebar.h"
 #include "document_utils.h"
 #include "layout_cache.h"
 #include "layout_service.h"
@@ -82,6 +83,11 @@ public:
 
     // Win32Windowのカーソル/再描画用にDPIスケールを公開
     constexpr float GetDpiScale() const noexcept { return cached_dpi_scale_; }
+
+    // カスタムタイトルバー
+    float GetTitleBarHeightDip() const noexcept { return titlebar_.GetHeight(); }
+    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const { return titlebar_.HitTest(dip_x, dip_y); }
+    void OnActivate(bool active);
 
 private:
     // AppControllerが返すアクションを実行
@@ -202,6 +208,11 @@ private:
     std::optional<LayoutService> layout_service_;
 
     bool is_sizing_ = false;
+
+    // カスタムタイトルバー
+    TitleBar titlebar_;
+    bool window_active_ = true;
+    std::wstring cached_title_text_ = L"mendo";
 
     // 3ペイン状態
     FileExplorer file_explorer_;

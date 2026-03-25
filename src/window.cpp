@@ -1,8 +1,10 @@
 #include "window.h"
 #include <windowsx.h>
 #include <shellscalingapi.h>
+#include <dwmapi.h>
 
 #pragma comment(lib, "shcore.lib")
+#pragma comment(lib, "dwmapi.lib")
 
 static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 
@@ -37,10 +39,21 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow) {
         return false;
     }
 
+    UpdateDwmFrame();
+
     ShowWindow(hwnd_, nCmdShow);
     UpdateWindow(hwnd_);
 
     return true;
+}
+
+void Win32Window::UpdateDwmFrame() {
+    // 1ピクセルだけ拡張してDWMのウィンドウシャドウ・アニメーションを有効化。
+    // キャプションボタンは自前描画のため大きな拡張は不要。
+    MARGINS margins = { 0, 0, 1, 0 };
+    DwmExtendFrameIntoClientArea(hwnd_, &margins);
+    SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
+        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 int Win32Window::RunMessageLoop() {
@@ -74,8 +87,90 @@ LRESULT CALLBACK Win32Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
+LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam) {
+    if (wParam == TRUE) {
+        auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+        // NC領域を完全に除去: クライアント領域 = ウィンドウ全体。
+        // rgrc[0]はデフォルトでウィンドウrectなので、そのまま返すとNC領域がなくなる。
+
+        // 最大化時はフレーム厚分だけ内側に縮小（タスクバー/隣接ウィンドウとの重なり防止）
+        if (IsZoomed(hwnd_)) {
+            UINT dpi = GetDpiForWindow(hwnd_);
+            int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
+                        + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+            int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
+                        + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+            params->rgrc[0].top += frame_y;
+            params->rgrc[0].left += frame_x;
+            params->rgrc[0].right -= frame_x;
+            params->rgrc[0].bottom -= frame_y;
+        }
+        return 0;
+    }
+    return DefWindowProcW(hwnd_, WM_NCCALCSIZE, wParam, lParam);
+}
+
+LRESULT Win32Window::OnNcHitTest(LPARAM lParam) {
+    POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+    ScreenToClient(hwnd_, &pt);
+
+    // 非最大化時のリサイズ枠判定
+    if (!IsZoomed(hwnd_)) {
+        UINT dpi = GetDpiForWindow(hwnd_);
+        int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
+                    + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+        int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
+                    + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+
+        RECT rc;
+        GetClientRect(hwnd_, &rc);
+
+        if (pt.y < frame_y) {
+            if (pt.x < frame_x) return HTTOPLEFT;
+            if (pt.x >= rc.right - frame_x) return HTTOPRIGHT;
+            return HTTOP;
+        }
+        if (pt.y >= rc.bottom - frame_y) {
+            if (pt.x < frame_x) return HTBOTTOMLEFT;
+            if (pt.x >= rc.right - frame_x) return HTBOTTOMRIGHT;
+            return HTBOTTOM;
+        }
+        if (pt.x < frame_x) return HTLEFT;
+        if (pt.x >= rc.right - frame_x) return HTRIGHT;
+    }
+
+    // タイトルバー領域のヒットテスト
+    float dpi_scale = app_.GetDpiScale();
+    float dip_x = pt.x / dpi_scale;
+    float dip_y = pt.y / dpi_scale;
+    float titlebar_height = app_.GetTitleBarHeightDip();
+
+    if (dip_y < titlebar_height) {
+        auto zone = app_.TitleBarHitTest(dip_x, dip_y);
+        switch (zone) {
+        case TitleBarHitZone::FileToggle:
+        case TitleBarHitZone::TocToggle:
+        case TitleBarHitZone::Minimize:
+        case TitleBarHitZone::Maximize:
+        case TitleBarHitZone::Close:
+            return HTCLIENT;  // カスタムボタンはWM_LBUTTONDOWNで処理
+        case TitleBarHitZone::Caption:
+        default:
+            return HTCAPTION;
+        }
+    }
+
+    return HTCLIENT;
+}
+
 LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    case WM_NCCALCSIZE:
+        return OnNcCalcSize(wParam, lParam);
+
+    case WM_NCHITTEST:
+        return OnNcHitTest(lParam);
+
     case WM_PAINT:
         app_.OnPaint();
         return 0;
@@ -83,6 +178,10 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_SIZE:
         app_.OnResize(LOWORD(lParam), HIWORD(lParam));
         return 0;
+
+    case WM_ACTIVATE:
+        app_.OnActivate(LOWORD(wParam) != WA_INACTIVE);
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     case WM_ENTERSIZEMOVE:
         app_.OnEnterSizeMove();
@@ -182,6 +281,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         UINT dpi = HIWORD(wParam);
         auto* suggested = reinterpret_cast<const RECT*>(lParam);
         app_.OnDpiChanged(dpi, suggested);
+        UpdateDwmFrame();
         return 0;
     }
 
