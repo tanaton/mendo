@@ -301,6 +301,31 @@ void App::OnLButtonDown(int px, int py) {
             CopyCodeBlockToClipboard(copy_node);
             return;
         }
+        // MDペインスクロールバーのクリック判定
+        if (layout_service_) {
+            float total_h = layout_service_->GetTotalHeight();
+            float viewport_h = pane_layout.md_rect.height;
+            if (total_h > viewport_h) {
+                constexpr float SB_WIDTH = 8.0f;
+                constexpr float SB_MARGIN = 2.0f;
+                float sb_left = pane_layout.md_rect.x + pane_layout.md_rect.width - SB_WIDTH - SB_MARGIN;
+                if (dip.x >= sb_left - 4.0f) {
+                    SetCapture(hwnd_);
+                    panes_.StartDrag(PaneController::DragTarget::MdScrollbar);
+                    auto info = ComputeScrollInfo(pane_layout.md_rect, 0.0f, total_h);
+                    float thumb_y = ComputeThumbY(info, viewport_.GetScrollY());
+                    if (dip.y >= thumb_y && dip.y <= thumb_y + info.thumb_height) {
+                        panes_.SetDragScrollOffset(dip.y - thumb_y);
+                    } else {
+                        panes_.SetDragScrollOffset(info.thumb_height * 0.5f);
+                        float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
+                        viewport_.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    }
+                    return;
+                }
+            }
+        }
         break;
     }
     default:
@@ -384,6 +409,18 @@ void App::OnMouseMove(int px, int py) {
         bool dirty = false;
         HandleScrollbarDrag(dip.y, info, panes_.TocScroll(), dirty);
         if (dirty) { renderer_.InvalidateTocPaneCache(); }
+        return;
+    }
+
+    if (panes_.GetDragTarget() == PaneController::DragTarget::MdScrollbar) {
+        if (layout_service_) {
+            auto layout = GetPaneLayout();
+            float total_h = layout_service_->GetTotalHeight();
+            auto info = ComputeScrollInfo(layout.md_rect, 0.0f, total_h);
+            float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
+            viewport_.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
         return;
     }
 
@@ -476,6 +513,12 @@ void App::OnMouseHover(int px, int py) {
 }
 
 void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout) {
+    // スクロールバー領域では矢印カーソル
+    if (IsOverMdScrollbar(dip_x, dip_y)) {
+        SetCursor(cursor_arrow_);
+        return;
+    }
+
     auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
     auto old_nav_hover = nav_hover_;
     nav_hover_ = nav_hit;
@@ -592,4 +635,25 @@ void App::CopyCodeBlockToClipboard(int node_index) const {
     const auto& nodes = doc_.GetNodes();
     if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) { return; }
     SetClipboardText(nodes[node_index].text);
+}
+
+bool App::IsOverMdScrollbar(float dip_x, float dip_y) const {
+    if (!layout_service_) {
+        return false;
+    }
+    auto layout = GetPaneLayout();
+    float total_h = layout_service_->GetTotalHeight();
+    float viewport_h = layout.md_rect.height;
+    if (total_h <= viewport_h || viewport_h <= 0.0f) {
+        return false;
+    }
+    if (dip_y < layout.md_rect.y || dip_y > layout.md_rect.y + viewport_h) {
+        return false;
+    }
+    constexpr float SB_WIDTH = 8.0f;
+    constexpr float SB_MARGIN = 2.0f;
+    float md_right = layout.md_rect.x + layout.md_rect.width;
+    float sb_left = md_right - SB_WIDTH - SB_MARGIN;
+    float sb_right = md_right - SB_MARGIN;
+    return dip_x >= sb_left - 4.0f && dip_x <= sb_right;
 }

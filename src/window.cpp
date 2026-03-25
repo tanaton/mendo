@@ -136,7 +136,13 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam) {
             return HTBOTTOM;
         }
         if (pt.x < border) return HTLEFT;
-        if (pt.x >= rc.right - border) return HTRIGHT;
+        if (pt.x >= rc.right - border) {
+            float dpi_scale = app_.GetDpiScale();
+            if (app_.IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
+                return HTCLIENT;
+            }
+            return HTRIGHT;
+        }
     }
 
     // タイトルバー領域のヒットテスト

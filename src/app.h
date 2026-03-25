@@ -87,6 +87,7 @@ public:
     // カスタムタイトルバー
     float GetTitleBarHeightDip() const noexcept { return titlebar_.GetHeight(); }
     TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const { return titlebar_.HitTest(dip_x, dip_y); }
+    bool IsOverMdScrollbar(float dip_x, float dip_y) const;
     void OnActivate(bool active);
 
 private:
