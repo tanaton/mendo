@@ -240,7 +240,9 @@ void App::OnPaint() {
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs);
     }
     else {
-        renderer_.Render(doc_.GetNodesMut(), layout_cache_, viewport_.GetScrollY(), viewport_.GetSelection(),
+        renderer_.Render(doc_.GetNodesMut(), layout_cache_, viewport_.GetScrollY(),
+            layout_service_->GetTotalHeight(),
+            viewport_.GetSelection(),
             layout.md_rect, sp, tb,
             nav_service_.CanGoBack(), nav_service_.CanGoForward(),
             static_cast<int>(nav_hover_), hovered_copy_node_, gs);

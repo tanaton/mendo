@@ -26,7 +26,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow) {
         WS_EX_ACCEPTFILES,
         WINDOW_CLASS,
         L"mendo",
-        WS_OVERLAPPEDWINDOW | WS_VSCROLL,
+        WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
         1600, 900,
         nullptr, nullptr, hInstance, this);
@@ -90,22 +90,19 @@ LRESULT CALLBACK Win32Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam) {
     if (wParam == TRUE) {
         auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
-        // 元のウィンドウrect（上端）を保存
-        LONG original_top = params->rgrc[0].top;
+        // NC領域を完全に除去: クライアント領域 = ウィンドウ全体。
 
-        // DefWindowProcにデフォルトのNC領域を計算させる
-        // （スクロールバー・左右下ボーダーのスペースが確保される）
-        DefWindowProcW(hwnd_, WM_NCCALCSIZE, wParam, lParam);
-
-        // 上端だけ元に戻してタイトルバーのNC領域を消す
-        params->rgrc[0].top = original_top;
-
-        // 最大化時はフレーム厚を加算（タスクバー隠れ防止）
+        // 最大化時はフレーム厚分だけ内側に縮小（タスクバー隠れ防止）
         if (IsZoomed(hwnd_)) {
             UINT dpi = GetDpiForWindow(hwnd_);
+            int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
+                        + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
             int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
                         + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
             params->rgrc[0].top += frame_y;
+            params->rgrc[0].left += frame_x;
+            params->rgrc[0].right -= frame_x;
+            params->rgrc[0].bottom -= frame_y;
         }
         return 0;
     }
@@ -113,33 +110,32 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT Win32Window::OnNcHitTest(LPARAM lParam) {
-    // まずDefWindowProcに判定させる（スクロールバー、左右下ボーダー）
-    LRESULT def_hit = DefWindowProcW(hwnd_, WM_NCHITTEST, 0, lParam);
-    // スクロールバーやボーダーはそのまま返す
-    if (def_hit == HTVSCROLL || def_hit == HTHSCROLL ||
-        def_hit == HTLEFT || def_hit == HTRIGHT ||
-        def_hit == HTBOTTOM || def_hit == HTBOTTOMLEFT || def_hit == HTBOTTOMRIGHT) {
-        return def_hit;
-    }
-
     POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
     ScreenToClient(hwnd_, &pt);
 
-    // 非最大化時: 上端のリサイズ枠判定（タイトルバーのNC領域を消したため自前で判定）
+    // 非最大化時のリサイズ枠判定
     if (!IsZoomed(hwnd_)) {
         UINT dpi = GetDpiForWindow(hwnd_);
-        int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
-                    + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
         int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
                     + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+        int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
+                    + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+
+        RECT rc;
+        GetClientRect(hwnd_, &rc);
 
         if (pt.y < frame_y) {
             if (pt.x < frame_x) return HTTOPLEFT;
-            RECT rc;
-            GetClientRect(hwnd_, &rc);
             if (pt.x >= rc.right - frame_x) return HTTOPRIGHT;
             return HTTOP;
         }
+        if (pt.y >= rc.bottom - frame_y) {
+            if (pt.x < frame_x) return HTBOTTOMLEFT;
+            if (pt.x >= rc.right - frame_x) return HTBOTTOMRIGHT;
+            return HTBOTTOM;
+        }
+        if (pt.x < frame_x) return HTLEFT;
+        if (pt.x >= rc.right - frame_x) return HTRIGHT;
     }
 
     // タイトルバー領域のヒットテスト
@@ -192,10 +188,6 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_EXITSIZEMOVE:
         app_.OnExitSizeMove();
-        return 0;
-
-    case WM_VSCROLL:
-        app_.OnVScroll(wParam);
         return 0;
 
     case WM_RBUTTONDOWN:

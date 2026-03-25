@@ -85,6 +85,7 @@ public:
     bool Init(HWND hwnd);
     void Resize(UINT width, UINT height);
     void Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
+        float total_content_height,
         const TextSelection& selection,
         const PaneRect& md_pane_rect,
         const SidePaneState& side_panes,
@@ -131,6 +132,7 @@ private:
         int first_visible, float viewport_bottom);
 
     void DrawTitleBar(const TitleBarRenderState& tb);
+    void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height);
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
         const ScrollState& scroll, int hovered_index);
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,

@@ -414,6 +414,7 @@ void Renderer::DrawLoading(float angle,
 }
 
 void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
+    float total_content_height,
     const TextSelection& selection,
     const PaneRect& md_pane_rect,
     const SidePaneState& sp,
@@ -472,6 +473,9 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
     if (gesture.overlay_visible && gesture.overlay_alpha > 0.0f) {
         DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
     }
+
+    // Markdownペインのカスタムスクロールバー
+    DrawMdScrollbar(md_pane_rect, scroll_y, total_content_height);
 
     if (!CheckEndDraw()) {
         return;

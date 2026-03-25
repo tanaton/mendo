@@ -196,6 +196,35 @@ void Renderer::DrawSplitter(float x, float top, float height) {
     rt()->FillRectangle(rect, Brush(BrushId::Splitter));
 }
 
+void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height) {
+    float viewport_h = md_pane_rect.height;
+    if (total_content_height <= viewport_h || viewport_h <= 0.0f) {
+        return;  // スクロール不要
+    }
+
+    constexpr float SCROLLBAR_WIDTH = 8.0f;
+    constexpr float THUMB_MIN_HEIGHT = 24.0f;
+    constexpr float SCROLLBAR_MARGIN = 2.0f;
+
+    float track_x = md_pane_rect.x + md_pane_rect.width - SCROLLBAR_WIDTH - SCROLLBAR_MARGIN;
+    float track_top = md_pane_rect.y;
+    float track_height = viewport_h;
+
+    // つまみサイズと位置
+    float thumb_ratio = viewport_h / total_content_height;
+    float thumb_height = std::max(THUMB_MIN_HEIGHT, track_height * thumb_ratio);
+    float max_scroll = total_content_height - viewport_h;
+    float scroll_ratio = (max_scroll > 0.0f) ? scroll_y / max_scroll : 0.0f;
+    float thumb_y = track_top + scroll_ratio * (track_height - thumb_height);
+
+    // つまみを描画（角丸）
+    D2D1_ROUNDED_RECT thumb_rect;
+    thumb_rect.rect = D2D1::RectF(track_x, thumb_y, track_x + SCROLLBAR_WIDTH, thumb_y + thumb_height);
+    thumb_rect.radiusX = SCROLLBAR_WIDTH / 2.0f;
+    thumb_rect.radiusY = SCROLLBAR_WIDTH / 2.0f;
+    rt()->FillRoundedRectangle(thumb_rect, Brush(BrushId::ScrollbarThumb));
+}
+
 void Renderer::DrawTitleBar(const TitleBarRenderState& tb) {
     if (tb.height <= 0.0f) {
         return;
