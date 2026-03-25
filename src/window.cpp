@@ -113,11 +113,12 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam) {
     POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
     ScreenToClient(hwnd_, &pt);
 
-    // 非最大化時のリサイズ枠判定
+    // 非最大化時のリサイズ枠判定（細めの枠でスクロールバーと干渉しないようにする）
     if (!IsZoomed(hwnd_)) {
         UINT dpi = GetDpiForWindow(hwnd_);
-        int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
-                    + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+        // リサイズ枠は4DIPの細い領域（スクロールバーと重ならないようにする）
+        int border = MulDiv(4, dpi, 96);
+        // 上端はタイトルバーがないため標準のフレーム厚を使う
         int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
                     + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 
@@ -125,17 +126,17 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam) {
         GetClientRect(hwnd_, &rc);
 
         if (pt.y < frame_y) {
-            if (pt.x < frame_x) return HTTOPLEFT;
-            if (pt.x >= rc.right - frame_x) return HTTOPRIGHT;
+            if (pt.x < border) return HTTOPLEFT;
+            if (pt.x >= rc.right - border) return HTTOPRIGHT;
             return HTTOP;
         }
-        if (pt.y >= rc.bottom - frame_y) {
-            if (pt.x < frame_x) return HTBOTTOMLEFT;
-            if (pt.x >= rc.right - frame_x) return HTBOTTOMRIGHT;
+        if (pt.y >= rc.bottom - border) {
+            if (pt.x < border) return HTBOTTOMLEFT;
+            if (pt.x >= rc.right - border) return HTBOTTOMRIGHT;
             return HTBOTTOM;
         }
-        if (pt.x < frame_x) return HTLEFT;
-        if (pt.x >= rc.right - frame_x) return HTRIGHT;
+        if (pt.x < border) return HTLEFT;
+        if (pt.x >= rc.right - border) return HTRIGHT;
     }
 
     // タイトルバー領域のヒットテスト
