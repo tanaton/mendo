@@ -432,6 +432,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl) {
 
 void App::OnMouseHWheel(short delta) {
     bool had_overlay = swipe_detector_.IsOverlayVisible();
+    int old_direction = swipe_detector_.GetOverlayDirection();
     swipe_detector_.OnHWheel(delta, GetTickCount64());
 
     // 入力のたびにコミットタイマーをリセット。
@@ -439,7 +440,8 @@ void App::OnMouseHWheel(short delta) {
     SetTimer(hwnd_, TIMER_SWIPE_OVERLAY,
         static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS), nullptr);
 
-    if (had_overlay != swipe_detector_.IsOverlayVisible()) {
+    if (had_overlay != swipe_detector_.IsOverlayVisible()
+        || old_direction != swipe_detector_.GetOverlayDirection()) {
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
@@ -573,13 +575,23 @@ void App::HandleTimer(UINT_PTR timer_id) {
         break;
     case TIMER_SWIPE_OVERLAY: {
         auto result = swipe_detector_.Commit();
+        bool need_redraw = false;
         switch (result) {
-        case SwipeResult::Back:    NavigateBack(); break;
-        case SwipeResult::Forward: NavigateForward(); break;
-        default: break;
+        case SwipeResult::Back:
+            NavigateBack();
+            need_redraw = true;
+            break;
+        case SwipeResult::Forward:
+            NavigateForward();
+            need_redraw = true;
+            break;
+        default:
+            break;
         }
         KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        if (need_redraw) {
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
         break;
     }
     default: break;
