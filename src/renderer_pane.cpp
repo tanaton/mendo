@@ -192,8 +192,8 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
     });
 }
 
-void Renderer::DrawSplitter(float x, float top, float height) {
-    D2D1_RECT_F rect = D2D1::RectF(x, top, x + theme_.splitter_width, height);
+void Renderer::DrawSplitter(float x, float top, float bottom) {
+    D2D1_RECT_F rect = D2D1::RectF(x, top, x + theme_.splitter_width, bottom);
     rt()->FillRectangle(rect, Brush(BrushId::Splitter));
 }
 

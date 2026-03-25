@@ -306,6 +306,7 @@ void App::OnLButtonDown(int px, int py) {
                 if (dip.x >= sb_left - PANE_SCROLLBAR_HIT_PADDING) {
                     SetCapture(hwnd_);
                     panes_.StartDrag(PaneController::DragTarget::MdScrollbar);
+                    viewport_.SetScrollbarTracking(true);
                     auto info = ComputeScrollInfo(pane_layout.md_rect, 0.0f, total_h);
                     float thumb_y = ComputeThumbY(info, viewport_.GetScrollY());
                     if (dip.y >= thumb_y && dip.y <= thumb_y + info.thumb_height) {
@@ -342,6 +343,9 @@ void App::OnLButtonUp(int px, int py) {
     ReleaseCapture();
 
     if (panes_.GetDragTarget() != PaneController::DragTarget::None) {
+        if (panes_.GetDragTarget() == PaneController::DragTarget::MdScrollbar) {
+            viewport_.SetScrollbarTracking(false);
+        }
         panes_.EndDrag();
         RECT rc;
         GetClientRect(hwnd_, &rc);

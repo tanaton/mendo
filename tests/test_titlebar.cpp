@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <iterator>
 #include "titlebar.h"
 
 class TitleBarTest : public ::testing::Test {

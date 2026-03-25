@@ -138,7 +138,7 @@ private:
         const ScrollState& scroll, int hovered_index);
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
         const ScrollState& scroll, int hovered_index);
-    void DrawSplitter(float x, float top, float height);
+    void DrawSplitter(float x, float top, float bottom);
     void DrawNavOverlay(const PaneRect& md_pane_rect,
         bool can_back, bool can_forward,
         int hovered);  // 0=なし, 1=戻る, 2=進む
