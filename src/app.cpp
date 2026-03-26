@@ -180,6 +180,12 @@ float App::GetMarkdownPaneWidth() const {
 // ============================================================
 
 void App::OnPaint() {
+    // スムーススクロール中は描画前にデルタタイムでスクロール位置を進める。
+    // SetTimerではなくWM_PAINTループで駆動することでディスプレイのリフレッシュレートに追従する。
+    if (viewport_.IsSmoothScrolling()) {
+        UpdateSmoothScroll();
+    }
+
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
 
@@ -252,6 +258,11 @@ void App::OnPaint() {
     }
 
     EndPaint(hwnd_, &ps);
+
+    // スクロール継続中なら次フレームの再描画を要求（WM_PAINTループを維持）
+    if (viewport_.IsSmoothScrolling()) {
+        InvalidateMdPane(layout.md_rect);
+    }
 }
 
 void App::OnResize(UINT width, UINT height) {
@@ -618,7 +629,6 @@ void App::OnDropFiles(HDROP hDrop) {
 
 void App::HandleTimer(UINT_PTR timer_id) {
     switch (timer_id) {
-    case TIMER_SMOOTH_SCROLL:  UpdateSmoothScroll(); break;
     case TIMER_FILE_WATCH:     doc_service_.CheckForChanges(); break;
     case TIMER_DEFERRED_LAYOUT: OnDeferredLayout(); break;
     case TIMER_LOADING_ANIM:
@@ -665,7 +675,6 @@ void App::OnDestroy() {
     SaveLastFilePath();
     SavePaneState();
     KillTimer(hwnd_, TIMER_FILE_WATCH);
-    KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
     KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);

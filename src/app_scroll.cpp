@@ -23,20 +23,21 @@ void App::SmoothScrollBy(float delta) {
     viewport_.SmoothScrollBy(delta);
 
     if (!was_scrolling && viewport_.IsSmoothScrolling()) {
-        SetTimer(hwnd_, TIMER_SMOOTH_SCROLL, 16, nullptr);
+        last_scroll_time_ = std::chrono::steady_clock::now();
+    }
+    // WM_PAINTループでスクロールを駆動するため再描画を要求
+    if (viewport_.IsSmoothScrolling()) {
+        auto layout = GetPaneLayout();
+        InvalidateMdPane(layout.md_rect);
     }
 }
 
 void App::UpdateSmoothScroll() {
-    bool still_active = viewport_.UpdateSmoothScroll();
+    auto now = std::chrono::steady_clock::now();
+    float dt_ms = std::chrono::duration<float, std::milli>(now - last_scroll_time_).count();
+    last_scroll_time_ = now;
 
-    if (!still_active) {
-        KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
-    }
-
-    auto layout = GetPaneLayout();
-    UpdateScrollBar(layout.md_rect.height);
-    InvalidateMdPane(layout.md_rect);
+    viewport_.UpdateSmoothScroll(dt_ms);
 }
 
 void App::InvalidateMdPane(const PaneRect& md_rect) {
@@ -58,7 +59,6 @@ void App::StopSmoothScroll() {
         return;
     }
     viewport_.StopSmoothScroll();
-    KillTimer(hwnd_, TIMER_SMOOTH_SCROLL);
 }
 
 void App::SyncMaxScroll(float md_pane_height) {

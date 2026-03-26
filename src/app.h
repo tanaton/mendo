@@ -24,6 +24,7 @@
 #include "file_load_service.h"
 #include <windows.h>
 #include <shellapi.h>
+#include <chrono>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -172,7 +173,6 @@ private:
 
 public:
     // タイマーID (メッセージルーティング用にWin32Windowと共有)
-    static constexpr UINT_PTR TIMER_SMOOTH_SCROLL = 1;
     static constexpr UINT_PTR TIMER_FILE_WATCH = 2;
     static constexpr UINT_PTR TIMER_DEFERRED_LAYOUT = 3;
     static constexpr UINT_PTR TIMER_LOADING_ANIM = 4;
@@ -234,4 +234,7 @@ private:
 
     // コードブロック コピーボタン
     int hovered_copy_node_ = -1;
+
+    // スムーススクロールのフレーム間タイミング
+    std::chrono::steady_clock::time_point last_scroll_time_{};
 };
