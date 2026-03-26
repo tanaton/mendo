@@ -1,5 +1,6 @@
 #pragma once
 #include <d2d1.h>
+#include <cmath>
 #include <numbers>
 
 // 選択範囲のハイライトカラー
@@ -15,6 +16,9 @@ inline constexpr int DOT_COUNT = 8;
 inline constexpr float ROTATION_INCREMENT = 0.15f;
 inline constexpr float DOT_FADE_FACTOR = 0.85f;
 }
+
+// Windowsの基準DPI（100%スケーリング時の値）
+inline constexpr float DEFAULT_DPI = 96.0f;
 
 // マウスホイールスクロールの倍率
 inline constexpr float MOUSE_WHEEL_SCROLL_MULTIPLIER = 0.8f;
@@ -57,6 +61,13 @@ inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) no
     float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN;
     float btn_y = (header_height - btn_size) / 2.0f;
     return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
+}
+
+// スクロール位置を物理ピクセル境界にスナップする。
+// ClearTypeヒンティングのフレーム間変動によるテキストのガタつきを防止する。
+// dpi_scale: DPI / DEFAULT_DPI（例: 100%→1.0, 150%→1.5, 200%→2.0）
+inline float SnapScrollToPixel(float scroll_y, float dpi_scale) noexcept {
+    return std::round(scroll_y * dpi_scale) / dpi_scale;
 }
 
 // コードブロック背景の右上を基準にコピーボタンの矩形を返す。
