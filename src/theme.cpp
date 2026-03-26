@@ -169,7 +169,7 @@ Theme GetDarkTheme() {
     ApplyCommonLayout(t);
 
     // タイトルバー
-    t.titlebar_bg_color = Color(0x1e1e1e);
+    t.titlebar_bg_color = Color(0x272727);
     t.titlebar_text_color = Color(0xcccccc);
     t.titlebar_button_hover_color = Color(0x383838);
     t.titlebar_button_active_color = Color(0x444444);
