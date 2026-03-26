@@ -62,7 +62,7 @@ void App::OnContextMenu(int screen_x, int screen_y) {
         // ファイル拡張子がMarkdown/テキストであることを検証してからShellExecuteを実行
         const auto& file_path = doc_.GetFilePath();
         if (IsEditableTextFile(file_path)) {
-            ShellExecuteW(hwnd_, L"edit", file_path.c_str(),
+            ShellExecuteW(hwnd_, L"open", file_path.c_str(),
                 nullptr, nullptr, SW_SHOWNORMAL);
         }
     }
