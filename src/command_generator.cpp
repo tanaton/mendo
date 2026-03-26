@@ -164,6 +164,14 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     cmds.push_back(DrawTextLayoutCmd{ D2D1::Point2F(x, entry.y_position),
                                       entry.text_layout.Get(), base_color });
 
+    // h1/h2の見出し下線
+    if (node.type == NodeType::Heading && node.heading_level <= 2) {
+        float line_y = entry.y_position + entry.height + theme_->heading_spacing_below * 0.5f;
+        cmds.push_back(DrawLineCmd{
+            D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
+            theme_->hr_color, theme_->hr_thickness });
+    }
+
     // タスクリストのチェックボックス
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {
         const wchar_t icon = node.task_checked ? L'\uE73A' : L'\uE739';
