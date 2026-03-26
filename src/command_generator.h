@@ -36,7 +36,8 @@ public:
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
         int first_visible = -1,
-        int hovered_copy_node = -1);
+        int hovered_copy_node = -1,
+        float dpi_scale = 1.0f);
 
 private:
     void GenerateNode(DrawCommandList& cmds,

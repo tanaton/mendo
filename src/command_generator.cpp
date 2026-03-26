@@ -7,7 +7,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const PaneRect& md_pane_rect, float scroll_y,
     const TextSelection& selection,
     int first_visible,
-    int hovered_copy_node) {
+    int hovered_copy_node,
+    float dpi_scale) {
     // 古いコマンドリストを破棄し、monotonic リソースをリセットして再利用する。
     // cmds_ を先に空のリストで置き換えてから Reset() を呼ぶことで、
     // 解放済みメモリを指す内部バッファが残らないようにする。
@@ -21,7 +22,11 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         md_pane_rect.x, md_pane_rect.y,
         md_pane_rect.x + md_pane_rect.width, md_pane_rect.y + md_pane_rect.height);
     cmds.push_back(PushClipCmd{ md_clip });
-    cmds.push_back(SetTransformCmd{ D2D1::Matrix3x2F::Translation(md_pane_rect.x, -scroll_y) });
+    // スクロール位置を物理ピクセル境界にスナップし、ClearTypeヒンティングの
+    // フレーム間変動によるテキストのガタつきを防止する。
+    // viewport bounds にはスナップ前の scroll_y を使い、ヒットテストとの座標一致を保つ。
+    float snapped_y = SnapScrollToPixel(scroll_y, dpi_scale);
+    cmds.push_back(SetTransformCmd{ D2D1::Matrix3x2F::Translation(md_pane_rect.x, -snapped_y) });
 
     float viewport_top = scroll_y;
     float viewport_bottom = scroll_y + md_pane_rect.height;

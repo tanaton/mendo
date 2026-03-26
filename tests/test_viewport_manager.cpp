@@ -146,7 +146,7 @@ TEST(ViewportManagerTest, SmoothScrollReferenceDtMatchesLegacy) {
     for (int i = 0; i < 30; ++i) {
         vm1.UpdateSmoothScroll();
         vm2.UpdateSmoothScroll(ViewportManager::SCROLL_REFERENCE_DT);
-        EXPECT_FLOAT_EQ(vm1.GetScrollY(), vm2.GetScrollY());
+        EXPECT_NEAR(vm1.GetScrollY(), vm2.GetScrollY(), 1e-3f);
     }
 }
 

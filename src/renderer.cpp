@@ -449,20 +449,18 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
         DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, sp.toc_pane_rect.y, sp.toc_pane_rect.y + sp.toc_pane_rect.height);
     }
 
-    // スクロール位置を物理ピクセル境界にスナップし、ClearTypeヒンティングの
-    // フレーム間変動によるテキストのガタつきを防止する。
-    float snapped_scroll_y = SnapScrollToPixel(scroll_y, backend_.GetDpi() / DEFAULT_DPI);
-
     // 最初の可視ノードを検索（一度だけ実行し、エフェクトとコマンド生成で共有）。
-    float viewport_top = snapped_scroll_y;
-    float viewport_bottom = snapped_scroll_y + md_pane_rect.height;
+    // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
+    float viewport_top = scroll_y;
+    float viewport_bottom = scroll_y + md_pane_rect.height;
     int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
 
     // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     ApplyVisibleEffects(nodes, cache, first_visible, viewport_bottom);
 
     // Markdownコンテンツペインの描画コマンドを生成・実行。
-    const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, snapped_scroll_y, selection, first_visible, hovered_copy_node);
+    float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
+    const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection, first_visible, hovered_copy_node, dpi_scale);
     cmd_executor_.Execute(cmds, rt());
 
     // ナビゲーションオーバーレイボタン（戻る/進む）を描画
@@ -481,7 +479,7 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
     }
 
     // Markdownペインのカスタムスクロールバー
-    DrawMdScrollbar(md_pane_rect, snapped_scroll_y, total_content_height);
+    DrawMdScrollbar(md_pane_rect, scroll_y, total_content_height);
 
     if (!CheckEndDraw()) {
         return;
