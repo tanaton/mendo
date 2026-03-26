@@ -450,6 +450,7 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
     }
 
     // 最初の可視ノードを検索（一度だけ実行し、エフェクトとコマンド生成で共有）。
+    // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
     float viewport_top = scroll_y;
     float viewport_bottom = scroll_y + md_pane_rect.height;
     int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
@@ -458,7 +459,8 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
     ApplyVisibleEffects(nodes, cache, first_visible, viewport_bottom);
 
     // Markdownコンテンツペインの描画コマンドを生成・実行。
-    const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection, first_visible, hovered_copy_node);
+    float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
+    const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection, first_visible, hovered_copy_node, dpi_scale);
     cmd_executor_.Execute(cmds, rt());
 
     // ナビゲーションオーバーレイボタン（戻る/進む）を描画

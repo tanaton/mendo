@@ -28,17 +28,26 @@ public:
     }
 
     // スムーススクロール補間を1フレーム進める。
-    // スクロールがまだ継続中の場合trueを返す（呼び出し側はタイマーを維持すべき）。
-    bool UpdateSmoothScroll() noexcept {
+    // スクロールがまだ継続中の場合trueを返す。
+    // dt_ms: 前フレームからの経過時間（ミリ秒）。フレームレート非依存の補間を行う。
+    bool UpdateSmoothScroll(float dt_ms) noexcept {
+        // 極端に大きなデルタタイムを防止（ウィンドウ最小化等）
+        dt_ms = std::min(dt_ms, MAX_DELTA_MS);
         float diff = scroll_target_ - scroll_y_;
         if (std::abs(diff) < SCROLL_EPSILON) {
             scroll_y_ = scroll_target_;
             smooth_scrolling_ = false;
             return false;
         }
-        scroll_y_ += diff * SCROLL_SPEED;
+        float factor = 1.0f - std::pow(1.0f - SCROLL_SPEED, dt_ms / SCROLL_REFERENCE_DT);
+        scroll_y_ += diff * factor;
         scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
         return true;
+    }
+
+    // 基準フレーム時間（16ms ≈ 60fps）でのオーバーロード。
+    bool UpdateSmoothScroll() noexcept {
+        return UpdateSmoothScroll(SCROLL_REFERENCE_DT);
     }
 
     constexpr void StopSmoothScroll() noexcept {
@@ -142,6 +151,8 @@ public:
 
     static constexpr float SCROLL_SPEED = 0.25f;
     static constexpr float SCROLL_EPSILON = 1.5f;
+    static constexpr float SCROLL_REFERENCE_DT = 16.0f; // 基準フレーム時間（ms）
+    static constexpr float MAX_DELTA_MS = 100.0f;       // デルタタイム上限（ms）
 
 private:
     // スクロール状態
