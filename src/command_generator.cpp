@@ -59,7 +59,11 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     const TextSelection& selection, float content_width,
     int hovered_copy_node) {
     // ビューポート外のノードをカリング
+    // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
     float node_bottom = entry.y_position + entry.height;
+    if (node.type == NodeType::Heading && node.heading_level <= 2) {
+        node_bottom += theme_->heading_spacing_below * 0.5f + theme_->hr_thickness;
+    }
     if (node_bottom < viewport_top || entry.y_position > viewport_bottom) {
         return;
     }
@@ -109,6 +113,14 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         }
         else {
             GenBlockQuoteBar(cmds, entry, x);
+        }
+        break;
+    case NodeType::Heading:
+        if (node.heading_level <= 2) {
+            float line_y = entry.y_position + entry.height + theme_->heading_spacing_below * 0.5f;
+            cmds.push_back(DrawLineCmd{
+                D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
+                theme_->hr_color, theme_->hr_thickness });
         }
         break;
     default:
@@ -163,14 +175,6 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     // メインテキスト
     cmds.push_back(DrawTextLayoutCmd{ D2D1::Point2F(x, entry.y_position),
                                       entry.text_layout.Get(), base_color });
-
-    // h1/h2の見出し下線
-    if (node.type == NodeType::Heading && node.heading_level <= 2) {
-        float line_y = entry.y_position + entry.height + theme_->heading_spacing_below * 0.5f;
-        cmds.push_back(DrawLineCmd{
-            D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
-            theme_->hr_color, theme_->hr_thickness });
-    }
 
     // タスクリストのチェックボックス
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {

@@ -411,6 +411,64 @@ TEST_F(CmdGenTest, AllAlertTypesGenerateCommands) {
     }
 }
 
+// ---- 見出し下線 ----
+
+TEST_F(CmdGenTest, H1GeneratesUnderline) {
+    auto cmds = Generate("# Heading 1");
+    int hlines = 0;
+    for (const auto& cmd : cmds) {
+        if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
+            // 水平線（両端のyが同じ）
+            if (std::abs(line->p0.y - line->p1.y) < 0.01f) {
+                hlines++;
+            }
+        }
+    }
+    EXPECT_GE(hlines, 1) << "h1 は下線の水平線を生成するべき";
+}
+
+TEST_F(CmdGenTest, H2GeneratesUnderline) {
+    auto cmds = Generate("## Heading 2");
+    int hlines = 0;
+    for (const auto& cmd : cmds) {
+        if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
+            if (std::abs(line->p0.y - line->p1.y) < 0.01f) {
+                hlines++;
+            }
+        }
+    }
+    EXPECT_GE(hlines, 1) << "h2 は下線の水平線を生成するべき";
+}
+
+TEST_F(CmdGenTest, H3DoesNotGenerateUnderline) {
+    auto cmds = Generate("### Heading 3");
+    int hlines = 0;
+    for (const auto& cmd : cmds) {
+        if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
+            if (std::abs(line->p0.y - line->p1.y) < 0.01f) {
+                hlines++;
+            }
+        }
+    }
+    EXPECT_EQ(hlines, 0) << "h3 は下線を生成しないべき";
+}
+
+TEST_F(CmdGenTest, HeadingUnderlineColorMatchesTheme) {
+    auto cmds = Generate("# Title");
+    for (const auto& cmd : cmds) {
+        if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
+            if (std::abs(line->p0.y - line->p1.y) < 0.01f) {
+                EXPECT_FLOAT_EQ(line->color.r, theme_.hr_color.r);
+                EXPECT_FLOAT_EQ(line->color.g, theme_.hr_color.g);
+                EXPECT_FLOAT_EQ(line->color.b, theme_.hr_color.b);
+                EXPECT_FLOAT_EQ(line->stroke_width, theme_.hr_thickness);
+                return;
+            }
+        }
+    }
+    FAIL() << "見出し下線が見つからない";
+}
+
 // ---- コピーボタン ----
 
 // formats_.copy_btn_icon が null の場合、コピーボタン用の DrawTextCmd は生成されない
