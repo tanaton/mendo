@@ -40,7 +40,14 @@ public:
             return false;
         }
         float factor = 1.0f - std::pow(1.0f - SCROLL_SPEED, dt_ms / SCROLL_REFERENCE_DT);
-        scroll_y_ += diff * factor;
+        float movement = diff * factor;
+        // タッチパッドで勢いよくスワイプ後に指を離した際のジャンプを防止。
+        // 蓄積されたターゲットとの大きなギャップから一気に追いつくのを制限する。
+        float max_movement = MAX_SCROLL_SPEED * dt_ms;
+        if (std::abs(movement) > max_movement) {
+            movement = std::copysign(max_movement, movement);
+        }
+        scroll_y_ += movement;
         scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
         return true;
     }
@@ -153,6 +160,7 @@ public:
     static constexpr float SCROLL_EPSILON = 1.5f;
     static constexpr float SCROLL_REFERENCE_DT = 16.0f; // 基準フレーム時間（ms）
     static constexpr float MAX_DELTA_MS = 100.0f;       // デルタタイム上限（ms）
+    static constexpr float MAX_SCROLL_SPEED = 10.0f;    // スクロール速度上限（px/ms）
 
 private:
     // スクロール状態
