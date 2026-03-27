@@ -148,6 +148,7 @@ private:
     void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height);
     void OnResizeEnd();
     void RefreshPaneLayout();
+    void RefreshFilePane();
     void OnDeferredLayout();
 
     // ファイル読み込み (file_load_service_に委譲)
