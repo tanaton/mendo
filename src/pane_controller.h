@@ -18,6 +18,7 @@ public:
             show_file_ = v;
             hovered_file_ = -1;
             file_close_hovered_ = false;
+            file_refresh_hovered_ = false;
         }
     }
     constexpr void SetTocPaneVisible(bool v) noexcept {
@@ -31,6 +32,7 @@ public:
         show_file_ = !show_file_;
         hovered_file_ = -1;
         file_close_hovered_ = false;
+        file_refresh_hovered_ = false;
     }
     constexpr void ToggleTocPane() noexcept {
         show_toc_ = !show_toc_;
@@ -67,6 +69,10 @@ public:
     constexpr bool IsTocCloseHovered() const noexcept { return toc_close_hovered_; }
     bool SetFileCloseHovered(bool h) noexcept;
     bool SetTocCloseHovered(bool h) noexcept;
+
+    // ファイルペインヘッダー更新ボタンのホバー状態
+    constexpr bool IsFileRefreshHovered() const noexcept { return file_refresh_hovered_; }
+    bool SetFileRefreshHovered(bool h) noexcept;
 
 private:
     static bool ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept;
@@ -110,6 +116,7 @@ private:
     int hovered_file_ = -1;
     int hovered_toc_ = -1;
     bool file_close_hovered_ = false;
+    bool file_refresh_hovered_ = false;
     bool toc_close_hovered_ = false;
 
     DragTarget drag_target_ = DragTarget::None;

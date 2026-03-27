@@ -43,6 +43,10 @@ bool PaneController::SetTocCloseHovered(bool h) noexcept {
     return SetFlag(toc_close_hovered_, h);
 }
 
+bool PaneController::SetFileRefreshHovered(bool h) noexcept {
+    return SetFlag(file_refresh_hovered_, h);
+}
+
 void PaneController::DragSplitter1To(float dip_x, float total_width, float splitter_w) noexcept {
     file_width_ = std::clamp(dip_x, PANE_MIN_WIDTH, total_width);
 

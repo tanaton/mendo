@@ -63,6 +63,15 @@ inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) no
     return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
 }
 
+// ペインヘッダー内の更新ボタン矩形を返す（閉じるボタンの左隣、ペインローカル座標）。
+inline D2D1_RECT_F PaneRefreshButtonRect(float pane_width, float header_height) noexcept {
+    D2D1_RECT_F close_rect = PaneCloseButtonRect(pane_width, header_height);
+    float btn_size = close_rect.right - close_rect.left;
+    float btn_x = close_rect.left - btn_size - PANE_CLOSE_BTN_MARGIN;
+    float btn_y = close_rect.top;
+    return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
+}
+
 // スクロール位置を物理ピクセル境界にスナップする。
 // ClearTypeヒンティングのフレーム間変動によるテキストのガタつきを防止する。
 // dpi_scale: DPI / DEFAULT_DPI（例: 100%→1.0, 150%→1.5, 200%→2.0）

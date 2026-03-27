@@ -41,6 +41,7 @@ void Theme::ApplyZoom(float new_zoom) noexcept {
     blockquote_bar_width *= ratio;
     list_bullet_offset *= ratio;
     hr_thickness *= ratio;
+    h2_underline_thickness *= ratio;
 
     // ペインサイズ
     pane_item_height *= ratio;
@@ -74,6 +75,7 @@ static void ApplyCommonLayout(Theme& t) {
     t.blockquote_bar_width = 4.0f;
     t.list_bullet_offset = 20.0f;
     t.hr_thickness = 1.5f;
+    t.h2_underline_thickness = 1.0f;
 
     t.pane_item_height = 28.0f;
     t.pane_header_height = 32.0f;

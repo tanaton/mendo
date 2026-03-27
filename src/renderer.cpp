@@ -219,6 +219,14 @@ void Renderer::RecreatePaneFormats() {
         fmt_gesture_overlay_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
+    // トースト通知のテキストフォーマット（中央揃え）
+    fmt_toast_text_ = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size * 1.1f, L"ja-JP");
+    if (fmt_toast_text_) {
+        fmt_toast_text_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_toast_text_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        fmt_toast_text_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    }
+
     nav_back_layout_.Reset();
     nav_forward_layout_.Reset();
     if (fmt_nav_button_) {
@@ -367,7 +375,8 @@ void Renderer::DrawLoading(float angle,
     const PaneRect& md_pane_rect,
     const SidePaneState& sp,
     const TitleBarRenderState& titlebar,
-    const GestureRenderState& gesture) {
+    const GestureRenderState& gesture,
+    const ToastRenderState& toast) {
     if (!rt()) {
         return;
     }
@@ -382,7 +391,7 @@ void Renderer::DrawLoading(float angle,
 
     // サイドペインを通常通り描画
     if (sp.show_file_pane) {
-        DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index, sp.file_close_hovered);
+        DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index, sp.file_close_hovered, sp.file_refresh_hovered);
         DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
     }
     if (sp.show_toc_pane) {
@@ -410,6 +419,11 @@ void Renderer::DrawLoading(float angle,
         DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
     }
 
+    // トースト通知
+    if (toast.visible) {
+        DrawToastOverlay(toast, md_pane_rect);
+    }
+
     if (!CheckEndDraw()) {
         return;
     }
@@ -424,7 +438,8 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
     bool can_go_back, bool can_go_forward,
     int nav_hovered,
     int hovered_copy_node,
-    const GestureRenderState& gesture) {
+    const GestureRenderState& gesture,
+    const ToastRenderState& toast) {
     if (!rt()) {
         return;
     }
@@ -439,7 +454,7 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
 
     // ファイルエクスプローラペインを描画（キャッシュが有効ならビットマップ転送）
     if (sp.show_file_pane) {
-        DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index, sp.file_close_hovered);
+        DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index, sp.file_close_hovered, sp.file_refresh_hovered);
         DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
     }
 
@@ -476,6 +491,11 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
     // ジェスチャーオーバーレイ（アクション後のフェードアウト）
     if (gesture.overlay_visible && gesture.overlay_alpha > 0.0f) {
         DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
+    }
+
+    // トースト通知
+    if (toast.visible) {
+        DrawToastOverlay(toast, md_pane_rect);
     }
 
     // Markdownペインのカスタムスクロールバー
@@ -646,6 +666,40 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
         Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
         rt()->DrawText(
             text, text_len, fmt_gesture_overlay_.Get(), rect, Brush(BrushId::Overlay),
+            D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
+    }
+}
+
+void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect) {
+    if (!rt() || toast.message.empty() || !Brush(BrushId::Overlay)) {
+        return;
+    }
+
+    float alpha = std::min(toast.alpha, 1.0f);
+    bool is_dark = theme_.IsDark();
+
+    // MDペイン下部中央に配置
+    float rect_w = 320.0f;
+    float rect_h = 48.0f;
+    float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
+    float bottom_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE - 16.0f;
+    D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, bottom_y - rect_h,
+        cx + rect_w / 2, bottom_y);
+
+    // 半透明ダーク背景
+    D2D1_COLOR_F bg_color = is_dark
+        ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.85f)
+        : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.7f);
+    Brush(BrushId::Overlay)->SetColor(bg_color);
+    D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 8.0f, 8.0f);
+    rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
+
+    // 白テキスト
+    if (fmt_toast_text_) {
+        Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
+        rt()->DrawText(
+            toast.message.data(), static_cast<UINT32>(toast.message.size()),
+            fmt_toast_text_.Get(), rect, Brush(BrushId::Overlay),
             D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
     }
 }

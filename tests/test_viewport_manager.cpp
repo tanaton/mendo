@@ -161,6 +161,38 @@ TEST(ViewportManagerTest, SmoothScrollLargeDeltaTimeClamped) {
     EXPECT_LE(vm.GetScrollY(), 10000.0f);
 }
 
+TEST(ViewportManagerTest, SmoothScrollSpeedCapped) {
+    // 大きなギャップがある場合、1フレームの移動量がMAX_SCROLL_SPEED*dtに制限される
+    ViewportManager vm;
+    vm.SyncMaxScroll(10000.0f, 200.0f);
+    vm.SmoothScrollBy(2000.0f); // 大きなギャップを作る
+
+    float dt = 16.0f;
+    vm.UpdateSmoothScroll(dt);
+
+    // 指数補間では 2000*0.25=500 だが、速度制限で 10*16=160 に抑えられる
+    float max_allowed = ViewportManager::MAX_SCROLL_SPEED * dt;
+    EXPECT_LE(vm.GetScrollY(), max_allowed + 1.0f);
+    EXPECT_GT(vm.GetScrollY(), 0.0f);
+}
+
+TEST(ViewportManagerTest, SmoothScrollSpeedCapConverges) {
+    // 速度制限があっても最終的にターゲットに収束する
+    ViewportManager vm;
+    vm.SyncMaxScroll(10000.0f, 200.0f);
+    vm.SmoothScrollBy(2000.0f);
+
+    for (int i = 0; i < 500; ++i) {
+        bool active = vm.UpdateSmoothScroll(16.0f);
+        if (!active) {
+            break;
+        }
+    }
+
+    EXPECT_FALSE(vm.IsSmoothScrolling());
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), 2000.0f);
+}
+
 // ---- FindFirstVisibleNode テスト ----
 
 TEST(ViewportManagerTest, FindFirstVisibleNodeStart) {

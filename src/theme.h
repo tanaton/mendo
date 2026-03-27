@@ -50,6 +50,7 @@ struct Theme {
     float blockquote_bar_width;
     float list_bullet_offset;
     float hr_thickness;
+    float h2_underline_thickness;
 
     // タイトルバー
     D2D1_COLOR_F titlebar_bg_color;
@@ -71,6 +72,9 @@ struct Theme {
     float zoom = 1.0f;
 
     float GetHeadingSize(int level) const noexcept;
+    constexpr float GetHeadingUnderlineThickness(int level) const noexcept {
+        return (level == 2) ? h2_underline_thickness : hr_thickness;
+    }
     constexpr bool IsDark() const noexcept { return (bg_color.r + bg_color.g + bg_color.b) < 1.5f; }
 
     // すべてのスケーラブルなサイズ（フォントサイズ、マージン、スペーシング）にズーム倍率を適用する。

@@ -15,17 +15,27 @@ bool IsEditableTextFile(std::wstring_view path) {
     return ext == L".md" || ext == L".markdown" || ext == L".mkd" || ext == L".txt";
 }
 
-// ペインヘッダーの閉じるボタンがクリックされたか判定する。
-bool HitPaneCloseButton(float dip_x, float dip_y, const PaneRect& rect, float header_height) {
+// ペインヘッダー内のボタンがクリックされたか判定する。
+bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height,
+    D2D1_RECT_F(*button_rect_fn)(float, float) noexcept) {
     float local_x = dip_x - rect.x;
     float local_y = dip_y - rect.y;
     if (local_y >= header_height) {
         return false;
     }
-    return PointInRect(local_x, local_y, PaneCloseButtonRect(rect.width, header_height));
+    return PointInRect(local_x, local_y, button_rect_fn(rect.width, header_height));
 }
 
 } // namespace
+
+void App::RefreshFilePane() {
+    file_explorer_.Refresh();
+    if (!doc_.GetFilePath().empty()) {
+        file_explorer_.SetCurrentFile(doc_.GetFilePath());
+    }
+    renderer_.InvalidateFilePaneCache();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
 
 // ============================================================
 // コンテキストメニュー
@@ -186,9 +196,11 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
     const auto& theme = renderer_.GetTheme();
 
     if (dip_y - layout.file_rect.y < theme.pane_header_height) {
-        if (HitPaneCloseButton(dip_x, dip_y, layout.file_rect, theme.pane_header_height)) {
+        if (HitPaneHeaderButton(dip_x, dip_y, layout.file_rect, theme.pane_header_height, PaneCloseButtonRect)) {
             panes_.ToggleFilePane();
             RefreshPaneLayout();
+        } else if (HitPaneHeaderButton(dip_x, dip_y, layout.file_rect, theme.pane_header_height, PaneRefreshButtonRect)) {
+            RefreshFilePane();
         }
         return;
     }
@@ -216,6 +228,11 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
         else if (!file_entry.is_current) {
+            if (GetFileAttributesW(file_entry.full_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                RefreshFilePane();
+                ShowToast(L"ファイルが見つかりません");
+                return;
+            }
             PushNavHistory();
             LoadMarkdownFile(file_entry.full_path);
         }
@@ -226,7 +243,7 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
     const auto& theme = renderer_.GetTheme();
 
     if (dip_y - layout.toc_rect.y < theme.pane_header_height) {
-        if (HitPaneCloseButton(dip_x, dip_y, layout.toc_rect, theme.pane_header_height)) {
+        if (HitPaneHeaderButton(dip_x, dip_y, layout.toc_rect, theme.pane_header_height, PaneCloseButtonRect)) {
             panes_.ToggleTocPane();
             RefreshPaneLayout();
         }
@@ -495,10 +512,14 @@ void App::OnMouseHover(int px, int py) {
     int new_file_hover = -1;
     int new_toc_hover = -1;
 
-    // ペインゾーン外に出たら閉じるボタンのホバーをリセット
-    if (zone != PaneZone::FilePane && panes_.SetFileCloseHovered(false)) {
-        renderer_.InvalidateFilePaneCache();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+    // ペインゾーン外に出たら閉じる/更新ボタンのホバーをリセット
+    if (zone != PaneZone::FilePane) {
+        bool changed = panes_.SetFileCloseHovered(false);
+        changed |= panes_.SetFileRefreshHovered(false);
+        if (changed) {
+            renderer_.InvalidateFilePaneCache();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
     }
     if (zone != PaneZone::TocPane && panes_.SetTocCloseHovered(false)) {
         renderer_.InvalidateTocPaneCache();
@@ -512,11 +533,16 @@ void App::OnMouseHover(int px, int py) {
         break;
     case PaneZone::FilePane: {
         float header_h = renderer_.GetTheme().pane_header_height;
-        bool close_hit = HitPaneCloseButton(dip_x, dip_y, pane_layout.file_rect, header_h);
-        SetCursor(close_hit ? cursor_hand_ : cursor_arrow_);
-        if (panes_.SetFileCloseHovered(close_hit)) {
-            renderer_.InvalidateFilePaneCache();
-            InvalidateRect(hwnd_, nullptr, FALSE);
+        bool close_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.file_rect, header_h, PaneCloseButtonRect);
+        bool refresh_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.file_rect, header_h, PaneRefreshButtonRect);
+        SetCursor((close_hit || refresh_hit) ? cursor_hand_ : cursor_arrow_);
+        {
+            bool changed = panes_.SetFileCloseHovered(close_hit);
+            changed |= panes_.SetFileRefreshHovered(refresh_hit);
+            if (changed) {
+                renderer_.InvalidateFilePaneCache();
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
         }
         float content_top = pane_layout.file_rect.y + header_h;
         float local_y = dip_y - content_top + panes_.FileScroll().scroll_y;
@@ -525,7 +551,7 @@ void App::OnMouseHover(int px, int py) {
     }
     case PaneZone::TocPane: {
         float header_h = renderer_.GetTheme().pane_header_height;
-        bool close_hit = HitPaneCloseButton(dip_x, dip_y, pane_layout.toc_rect, header_h);
+        bool close_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.toc_rect, header_h, PaneCloseButtonRect);
         SetCursor(close_hit ? cursor_hand_ : cursor_arrow_);
         if (panes_.SetTocCloseHovered(close_hit)) {
             renderer_.InvalidateTocPaneCache();
