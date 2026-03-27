@@ -50,6 +50,7 @@ struct Theme {
     float blockquote_bar_width;
     float list_bullet_offset;
     float hr_thickness;
+    float h2_underline_thickness;
 
     // タイトルバー
     D2D1_COLOR_F titlebar_bg_color;

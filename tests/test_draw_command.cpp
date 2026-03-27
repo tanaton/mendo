@@ -469,6 +469,20 @@ TEST_F(CmdGenTest, HeadingUnderlineColorMatchesTheme) {
     FAIL() << "見出し下線が見つからない";
 }
 
+TEST_F(CmdGenTest, H2UnderlineThicknessMatchesTheme) {
+    auto cmds = Generate("## Heading 2");
+    for (const auto& cmd : cmds) {
+        if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
+            if (std::abs(line->p0.y - line->p1.y) < 0.01f) {
+                EXPECT_FLOAT_EQ(line->stroke_width, theme_.h2_underline_thickness);
+                EXPECT_LT(line->stroke_width, theme_.hr_thickness);
+                return;
+            }
+        }
+    }
+    FAIL() << "h2 の見出し下線が見つからない";
+}
+
 // ---- コピーボタン ----
 
 // formats_.copy_btn_icon が null の場合、コピーボタン用の DrawTextCmd は生成されない

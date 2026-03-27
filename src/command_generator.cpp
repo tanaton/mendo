@@ -62,7 +62,8 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
     float node_bottom = entry.y_position + entry.height;
     if (node.type == NodeType::Heading && node.heading_level <= 2) {
-        node_bottom += theme_->heading_spacing_below * 0.5f + theme_->hr_thickness;
+        float ul_thickness = (node.heading_level == 2) ? theme_->h2_underline_thickness : theme_->hr_thickness;
+        node_bottom += theme_->heading_spacing_below * 0.5f + ul_thickness;
     }
     if (node_bottom < viewport_top || entry.y_position > viewport_bottom) {
         return;
@@ -117,10 +118,11 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         break;
     case NodeType::Heading:
         if (node.heading_level <= 2) {
+            float thickness = (node.heading_level == 2) ? theme_->h2_underline_thickness : theme_->hr_thickness;
             float line_y = entry.y_position + entry.height + theme_->heading_spacing_below * 0.5f;
             cmds.push_back(DrawLineCmd{
                 D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
-                theme_->hr_color, theme_->hr_thickness });
+                theme_->hr_color, thickness });
         }
         break;
     default:
