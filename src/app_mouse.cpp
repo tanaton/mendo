@@ -17,7 +17,7 @@ bool IsEditableTextFile(std::wstring_view path) {
 
 // ペインヘッダー内のボタンがクリックされたか判定する。
 bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height,
-    D2D1_RECT_F(*button_rect_fn)(float, float)) {
+    D2D1_RECT_F(*button_rect_fn)(float, float) noexcept) {
     float local_x = dip_x - rect.x;
     float local_y = dip_y - rect.y;
     if (local_y >= header_height) {

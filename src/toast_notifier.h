@@ -7,8 +7,8 @@
 // App側でタイマー駆動の Tick() 呼び出しによりフェードアウトを進行させる。
 class ToastNotifier {
 public:
-    static constexpr float INITIAL_ALPHA = 2.5f;   // 1.5秒ホールド + 1.0秒フェードアウト
-    static constexpr float FADE_SPEED = 0.03f;      // 16ms/tickで約83tick（~1.3秒）で消滅
+    static constexpr float INITIAL_ALPHA = 2.5f;   // 約0.8秒ホールド + 約0.5秒フェードアウト（合計~1.3秒）
+    static constexpr float FADE_SPEED = 0.03f;      // 16ms/tickで約83tick
 
     void Show(std::wstring_view message) {
         message_ = message;

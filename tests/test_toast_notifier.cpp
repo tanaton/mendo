@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <cmath>
 #include "toast_notifier.h"
 
 class ToastNotifierTest : public ::testing::Test {
