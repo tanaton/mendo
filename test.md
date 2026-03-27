@@ -1,8 +1,8 @@
 # mendo ソフトウェア詳細仕様書
 
-> **文書バージョン**: 1.1.0
-> **最終更新日**: 2026-03-21
-> **対象ソフトウェア**: mendo v1.1
+> **文書バージョン**: 1.2.0
+> **最終更新日**: 2026-03-28
+> **対象ソフトウェア**: mendo v1.2
 
 ---
 
@@ -58,6 +58,9 @@ graph TB
         MR[MermaidRenderer<br>WebView2 SVG→PNG]
         NS[NavigationService<br>リンク & 履歴ナビゲーション]
         TS[ThemeService<br>テーマ & ズーム管理]
+        TB[TitleBar<br>カスタムタイトルバー]
+        TN[ToastNotifier<br>トースト通知]
+        SD[SwipeDetector<br>スワイプ検出]
     end
 
     subgraph 外部ライブラリ
@@ -94,6 +97,9 @@ graph TB
     MR --> N
     APP --> NS
     APP --> TS
+    APP --> TB
+    APP --> TN
+    APP --> SD
     W --> O
 ```
 
@@ -107,6 +113,7 @@ graph LR
         CE[CommandExecutor]
         RP[RendererPane]
         RB[D2DRenderBackend]
+        TB_L[TitleBar]
     end
 
     subgraph アプリケーション層
@@ -126,9 +133,11 @@ graph LR
         PC[PaneController]
         NH[NavHistory]
         MG[MouseGesture]
+        SD_L[SwipeDetector]
         FE[FileExplorer]
         TOC[TableOfContents]
         DU[DocumentUtils]
+        TN_L[ToastNotifier]
     end
 
     subgraph データ層
@@ -147,6 +156,8 @@ graph LR
         T[Types]
         DC[DrawCommand]
         AE[AppEvents]
+        UC[UIConstants]
+        MR_L[MemoryResource]
     end
 
     W --> APP
@@ -225,14 +236,15 @@ private:
 class App {
 public:
     bool Init(HWND hwnd);
-    void LoadMarkdownFile(const std::wstring& path);
-    std::wstring LoadLastFilePath() const;
+    void LoadMarkdownFile(std::wstring_view path);
+    std::pmr::wstring LoadLastFilePath() const;
 
     // Win32Window から呼び出されるイベントハンドラ
     void OnPaint();
     void OnResize(UINT width, UINT height);
     void OnKeyDown(WPARAM key);
     void OnMouseWheel(int px, int py, short delta, bool ctrl);
+    void OnMouseHWheel(short delta);
     void OnDropFiles(HDROP hDrop);
     void OnDpiChanged(UINT dpi, const RECT* suggested);
     void OnLButtonDown(int px, int py);
@@ -246,14 +258,17 @@ public:
     void OnXButtonBack();
     void OnXButtonForward();
     void OnContextMenu(int screen_x, int screen_y);
-    void OnSmoothScrollTimer();
-    void OnFileWatchTimer();
-    void OnDeferredLayoutTimer();
-    void OnLoadingAnimTimer();
+    void HandleTimer(UINT_PTR timer_id);
+    void OnAppLoadFile();
+    void OnCaptureChanged();
+    void OnDestroy();
+    void OnEnterSizeMove();
+    void OnExitSizeMove();
+    void OnActivate(bool active);
     // ...
 
 private:
-    // Core services
+    // コアサービス
     Renderer           renderer_;
     MermaidRenderer    mermaid_renderer_;
     FileLoader         file_loader_;
@@ -263,19 +278,26 @@ private:
     ThemeService       theme_service_;
     FileLoadService    file_load_service_;
 
-    // Domain state
+    // ドメイン状態
     Document           doc_;
     LayoutCache        layout_cache_;
     ViewportManager    viewport_;
     std::optional<LayoutService> layout_service_;
 
-    // 3-pane state
+    // カスタムタイトルバー
+    TitleBar           titlebar_;
+
+    // 3ペイン状態
     FileExplorer       file_explorer_;
     PaneController     panes_;
     NavHistory         nav_history_;
     NavigationService  nav_service_;
     MouseGesture       gesture_;
+    SwipeDetector      swipe_detector_;
     HitTestService     hit_test_;
+
+    // トースト通知
+    ToastNotifier      toast_;
 };
 ```
 
@@ -345,6 +367,7 @@ flowchart TD
 | Xボタン戻る | ナビゲーション戻る | マウスの戻るボタン |
 | Xボタン進む | ナビゲーション進む | マウスの進むボタン |
 | ダブルクリック | 単語選択 | カーソル位置の単語 |
+| タッチパッド水平スワイプ | ナビゲーション戻る/進む | `SwipeDetector` による検出 |
 
 #### 3.2.6 AppController — イベント→アクション変換
 
@@ -522,7 +545,7 @@ public:
 
 #### 3.5.1 Command パターン
 
-v1.1 ではレンダリングが **Command パターン** に分離された。
+レンダリングは **Command パターン** に分離されている。
 
 ```mermaid
 sequenceDiagram
@@ -565,6 +588,7 @@ public:
     virtual ID2D1Factory* GetD2DFactory() const noexcept = 0;
     virtual ID2D1HwndRenderTarget* GetRenderTarget() const noexcept = 0;
     virtual IDWriteFactory* GetDWriteFactory() const noexcept = 0;
+    virtual HWND GetHwnd() const noexcept = 0;
 };
 ```
 
@@ -588,8 +612,12 @@ public:
 6. スプリッタ
 7. スクロールバー
 8. ナビゲーションボタン（戻る/進むオーバーレイ）
-9. マウスジェスチャトレイル & 方向オーバーレイ
-10. ローディングアニメーション
+9. コピーボタン（コードブロックホバー時）
+10. マウスジェスチャトレイル & 方向オーバーレイ
+11. スワイプオーバーレイ（`SwipeDetector` による方向表示）
+12. カスタムタイトルバー（`TitleBar`）
+13. トースト通知（`ToastNotifier`）
+14. ローディングアニメーション
 
 ---
 
@@ -605,29 +633,32 @@ struct Theme {
     D2D1_COLOR_F link_color, hr_color;
     D2D1_COLOR_F blockquote_bar_color, blockquote_text_color;
 
+    // GitHub Alerts 色（各5種: Note, Tip, Important, Warning, Caution）
+    D2D1_COLOR_F alert_color[ALERT_TYPE_COUNT];     // バー・ラベル色
+    D2D1_COLOR_F alert_bg_color[ALERT_TYPE_COUNT];  // 背景色
+
     // シンタックスハイライト色
     D2D1_COLOR_F syntax_keyword, syntax_type;
     D2D1_COLOR_F syntax_string, syntax_number;
     D2D1_COLOR_F syntax_comment, syntax_preprocessor;
     D2D1_COLOR_F syntax_function;
 
+    // タイトルバー
+    D2D1_COLOR_F titlebar_bg_color, titlebar_text_color;
+    D2D1_COLOR_F titlebar_button_hover_color, titlebar_button_active_color;
+
     // ペイン
     D2D1_COLOR_F pane_bg_color, splitter_color;
     D2D1_COLOR_F pane_item_hover_color, pane_item_active_color;
 
     // フォント
-    wchar_t font_family[64];      // "Yu Gothic UI"
-    wchar_t monospace_font[64];   // "Consolas"
+    std::wstring font_family;      // "Yu Gothic UI"
+    std::wstring monospace_font;   // "Consolas"
 
     // フォントサイズ (DIP)
-    float font_size_body;     // 16
-    float font_size_h1;       // 32
-    float font_size_h2;       // 26
-    float font_size_h3;       // 22
-    float font_size_h4;       // 18
-    float font_size_h5;       // 16
-    float font_size_h6;       // 14
-    float font_size_code;     // 14
+    float font_size_body;       // 16
+    float font_size_h[6];       // {32, 26, 22, 18, 16, 14}
+    float font_size_code;       // 14
 
     // スペーシング
     float margin_left, margin_right, margin_top;
@@ -638,6 +669,7 @@ struct Theme {
     float blockquote_bar_width;
     float list_bullet_offset;
     float hr_thickness;
+    float h2_underline_thickness;  // H2見出し下線の太さ
 
     // ペインレイアウト
     float pane_item_height;    // 28
@@ -647,6 +679,11 @@ struct Theme {
 
     // ズーム
     float zoom;                // 1.0
+
+    // メソッド
+    float GetHeadingSize(int level) const noexcept;
+    float GetHeadingUnderlineThickness(int level) const noexcept;
+    bool IsDark() const noexcept;
     void ApplyZoom(float new_zoom) noexcept;
 };
 ```
@@ -702,6 +739,12 @@ graph LR
         CPP[C / C++]
         PY[Python]
         JS[JavaScript]
+        TS[TypeScript]
+        GO[Go]
+        RS[Rust]
+        BASH[Bash]
+        PS[PowerShell]
+        CMD[Cmd]
         MER[Mermaid]
     end
 
@@ -719,6 +762,12 @@ graph LR
     CPP --> KW & TY & ST & NU & CM & PP & FN & PL
     PY --> KW & TY & ST & NU & CM & PL
     JS --> KW & TY & ST & NU & CM & FN & PL
+    TS --> KW & TY & ST & NU & CM & FN & PL
+    GO --> KW & TY & ST & NU & CM & FN & PL
+    RS --> KW & TY & ST & NU & CM & FN & PL
+    BASH --> KW & ST & NU & CM & PL
+    PS --> KW & TY & ST & NU & CM & PL
+    CMD --> KW & ST & CM & PL
 ```
 
 #### 3.7.2 トークン化例
@@ -1140,6 +1189,144 @@ public:
 
 ---
 
+### 3.16 TitleBar — カスタムタイトルバー
+
+#### 3.16.1 概要
+
+`TitleBar` はWin32の標準タイトルバーを置き換えるカスタムタイトルバーを管理する。ファイルペイン/TOCペインのトグルボタンと、最小化/最大化/閉じるボタンを含む。
+
+```cpp
+enum class TitleBarHitZone {
+    None, Caption, FileToggle, TocToggle,
+    Minimize, Maximize, Close
+};
+
+struct TitleBarButton {
+    D2D1_RECT_F rect;
+    bool hovered;
+};
+
+class TitleBar {
+public:
+    static constexpr float BASE_HEIGHT = 32.0f;
+    static constexpr float BUTTON_WIDTH = 32.0f;
+    static constexpr float CAPTION_BTN_WIDTH = 46.0f;
+
+    float GetHeight() const noexcept;
+    void UpdateLayout(float window_width_dip) noexcept;
+    TitleBarHitZone HitTest(float dip_x, float dip_y) const noexcept;
+    bool SetHovered(TitleBarHitZone zone) noexcept;
+
+    const TitleBarButton& GetFileToggleButton() const noexcept;
+    const TitleBarButton& GetTocToggleButton() const noexcept;
+    const TitleBarButton& GetMinimizeButton() const noexcept;
+    const TitleBarButton& GetMaximizeButton() const noexcept;
+    const TitleBarButton& GetCloseButton() const noexcept;
+    const D2D1_RECT_F& GetTitleTextRect() const noexcept;
+};
+```
+
+---
+
+### 3.17 SwipeDetector — スワイプ検出
+
+#### 3.17.1 概要
+
+`SwipeDetector` はタッチパッドの水平スワイプジェスチャ（`WM_MOUSEHWHEEL`）を検出し、ナビゲーション操作（戻る/進む）に変換する。`MouseGesture` がマウスの右ドラッグを処理するのに対し、`SwipeDetector` はタッチパッドの2本指スワイプを担当する。
+
+```cpp
+enum class SwipeResult { None, Back, Forward };
+
+class SwipeDetector {
+public:
+    static constexpr int TRIGGER_THRESHOLD = 400;
+    static constexpr int AXIS_LOCK_MS = 200;
+    static constexpr int RESET_TIMEOUT_MS = 500;
+    static constexpr int COMMIT_TIMEOUT_MS = 150;
+
+    void OnHWheel(int delta, uint64_t now_ms) noexcept;
+    SwipeResult Commit() noexcept;
+    void NotifyVScroll(uint64_t now_ms) noexcept;
+    void Reset() noexcept;
+    bool IsOverlayVisible() const noexcept;
+    int GetOverlayDirection() const noexcept;
+    float GetOverlayAlpha() const noexcept;
+};
+```
+
+#### 3.17.2 パラメータ
+
+| パラメータ | 値 | 説明 |
+|:----------|:---|:-----|
+| `TRIGGER_THRESHOLD` | 400 | スワイプ発火の累積デルタ閾値 |
+| `AXIS_LOCK_MS` | 200ms | 垂直スクロール後の軸ロック期間 |
+| `RESET_TIMEOUT_MS` | 500ms | 入力なしでリセットするタイムアウト |
+| `COMMIT_TIMEOUT_MS` | 150ms | スワイプ確定までの待機時間 |
+
+---
+
+### 3.18 ToastNotifier — トースト通知
+
+#### 3.18.1 概要
+
+`ToastNotifier` は短期間表示されるフェードアウト型の通知メッセージを管理する。ファイルが外部で削除された場合などに使用される。
+
+```cpp
+class ToastNotifier {
+public:
+    static constexpr float INITIAL_ALPHA = 2.5f;
+    static constexpr float FADE_SPEED = 0.03f;
+
+    void Show(std::wstring_view message);
+    bool Tick() noexcept;
+    void Reset() noexcept;
+    bool IsVisible() const noexcept;
+    float GetRenderAlpha() const noexcept;
+    std::wstring_view GetMessage() const noexcept;
+};
+```
+
+#### 3.18.2 フェードアニメーション
+
+初期アルファ値2.5（1.0を超える部分は完全不透明を維持する猶予時間として機能）から `FADE_SPEED` ずつ減算し、0以下で非表示になる。描画時のアルファはclamp(0, 1)で適用される。
+
+---
+
+### 3.19 UIConstants — UI定数
+
+`ui_constants.h` にはUI全体で共有される定数とヘルパー関数を集約している。
+
+| 定数グループ | 内容 |
+|:------------|:-----|
+| Spinner | ローディングスピナーの半径・ドット数・回転速度 |
+| Table | セルパディング・ボーダー幅 |
+| NavButton | 戻る/進むボタンのサイズ・マージン・角丸 |
+| CopyButton | コードブロックコピーボタンのサイズ・マージン |
+| ScrollSnap | ピクセルスナップ関数 |
+| PaneButton | ペイン閉じる/更新ボタンの矩形計算 |
+
+---
+
+### 3.20 MemoryResource — PMRメモリ管理
+
+`memory_resource.h` はアプリケーション全体で使用するPMR（Polymorphic Memory Resource）を提供する。
+
+```cpp
+std::pmr::synchronized_pool_resource& GetGlobalPoolResource();
+void InitGlobalMemoryResource();
+
+class MonotonicResource {
+public:
+    explicit MonotonicResource(std::size_t initial_size = 16 * 1024);
+    std::pmr::memory_resource* resource() noexcept;
+    void Reset();
+};
+```
+
+`std::pmr::wstring` や `std::pmr::vector` の使用により、頻繁なヒープアロケーションを抑制している。
+
+---
+
 ## 4. データ構造
 
 ### 4.1 Node
@@ -1154,6 +1341,9 @@ classDiagram
         +int indent_level
         +int list_number
         +bool task_checked
+        +AlertType alert_type
+        +uint32_t alert_label_length
+        +int blockquote_group
         +wstring text
         +vector~TextRun~ runs
         +wstring anchor_id
@@ -1184,9 +1374,9 @@ classDiagram
     }
 
     class SyntaxToken {
-        +size_t start
-        +size_t length
-        +TokenType type
+        +uint32_t start
+        +uint32_t length
+        +SyntaxTokenType type
     }
 
     Node "1" --> "*" TextRun
@@ -1276,7 +1466,25 @@ graph TD
     NT --> TLI[TaskListItem<br>タスクリスト項目]
 ```
 
-### 4.5 TextSelection
+### 4.5 AlertType 列挙型
+
+GitHub Alerts記法（`> [!NOTE]` 等）に対応するアラート種別。
+
+```cpp
+enum class AlertType : uint8_t {
+    None = 0,
+    Note = 1,
+    Tip = 2,
+    Important = 3,
+    Warning = 4,
+    Caution = 5
+};
+constexpr size_t ALERT_TYPE_COUNT = 5;
+```
+
+各種別に対応するバー色・背景色は `Theme::alert_color[]` / `Theme::alert_bg_color[]` で定義される。
+
+### 4.6 TextSelection
 
 ```cpp
 struct TextSelection {
@@ -1375,6 +1583,9 @@ sequenceDiagram
     R->>R: DrawScrollbar()
     R->>R: DrawNavButtons()
     R->>R: DrawGestureOverlay()
+    R->>R: DrawSwipeOverlay()
+    R->>R: DrawTitleBar()
+    R->>R: DrawToast()
     R->>R: DrawLoadingAnimation()
     R->>RT: EndDraw()
 ```
@@ -1435,7 +1646,7 @@ ctest --test-dir build --output-on-failure -C Release
 |:-----------|:-----|:-----|
 | `mendo_core` | 静的ライブラリ | テスト可能なコアロジック（WinMain・ウィンドウ・レンダラを含まない） |
 | `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
-| `mendo_tests` | テスト | 全テストを含む単一バイナリ（27テストソース） |
+| `mendo_tests` | テスト | 全テストを含む単一バイナリ（32テストソース） |
 
 ### 6.4 MSVC ビルド最適化
 
@@ -1458,11 +1669,11 @@ ctest --test-dir build --output-on-failure -C Release
 - 単一テストバイナリ `mendo_tests` に全テストをリンク
 - `gtest_add_tests` で CTest に登録
 
-### 7.2 テストソースファイル（27ファイル）
+### 7.2 テストソースファイル（32ファイル）
 
 ```mermaid
 pie title テストカバレッジ（ファイル数ベース）
-    "テスト済みモジュール" : 27
+    "テスト済みモジュール" : 32
     "UIコード（テスト対象外）" : 7
 ```
 
@@ -1499,6 +1710,11 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_theme_service.cpp` | ThemeService |
 | `test_file_load_service.cpp` | FileLoadService |
 | `test_layout_cache.cpp` | LayoutCache |
+| `test_copy_button.cpp` | コピーボタン矩形計算 |
+| `test_swipe_detector.cpp` | SwipeDetector |
+| `test_titlebar.cpp` | TitleBar |
+| `test_toast_notifier.cpp` | ToastNotifier |
+| `test_ui_constants.cpp` | UIConstants |
 
 ### 7.4 主要テストケース
 
@@ -1611,6 +1827,9 @@ src/
 ├── window.cpp              # Win32Window 実装 (薄い Win32 ラッパー)
 ├── app.h                   # App 宣言
 ├── app.cpp                 # App 実装 (アプリケーション統括)
+├── app_navigate.cpp        # App ナビゲーション処理
+├── app_mouse.cpp           # App マウスイベント処理
+├── app_scroll.cpp          # App スクロール処理
 ├── app_controller.h        # AppController 宣言 (イベント→アクション変換)
 ├── app_controller.cpp      # AppController 実装
 ├── app_events.h            # イベント型 & アクション型定義
@@ -1666,8 +1885,13 @@ src/
 ├── navigation_service.cpp  # リンク & 履歴ナビゲーション
 ├── nav_history.h           # NavHistory 宣言
 ├── nav_history.cpp         # ブラウザスタイル履歴
-├── nav_button_constants.h  # ナビゲーションボタン定数
 ├── mouse_gesture.h         # MouseGesture 宣言 (右ドラッグジェスチャ)
+├── swipe_detector.h        # SwipeDetector 宣言 (タッチパッドスワイプ検出)
+├── titlebar.h              # TitleBar 宣言 (カスタムタイトルバー)
+├── toast_notifier.h        # ToastNotifier 宣言 (トースト通知)
+├── ui_constants.h          # UI定数 & ヘルパー関数
+├── memory_resource.h       # PMRメモリリソース管理
+├── utility.h               # ユーティリティ関数
 ├── hit_test_service.h      # HitTestService 宣言
 ├── hit_test_service.cpp    # ヒットテスト
 ├── config_store.h          # ConfigStore 宣言
@@ -1756,6 +1980,9 @@ src/
 - [x] サービスアーキテクチャへのリファクタリング
 - [x] ナビゲーション機能
 - [x] マウスジェスチャ
+- [x] カスタムタイトルバー
+- [x] トースト通知
+- [x] タッチパッドスワイプ検出
 - [ ] パフォーマンス最適化
 - [ ] ドキュメント整備
 
@@ -2389,6 +2616,11 @@ exit /b 0
 | 24 | HitTestService | hit_test_service.h/cpp | Types, LayoutCache | なし |
 | 25 | ConfigStore | config_store.h/cpp | Win32 API | あり |
 | 26 | MermaidRenderer | mermaid.h/cpp | WebView2, WIC | ユーティリティのみ |
+| 27 | TitleBar | titlebar.h | なし | あり |
+| 28 | SwipeDetector | swipe_detector.h | なし | あり |
+| 29 | ToastNotifier | toast_notifier.h | なし | あり |
+| 30 | UIConstants | ui_constants.h | なし | あり |
+| 31 | MemoryResource | memory_resource.h | PMR | なし |
 
 ---
 
@@ -2527,8 +2759,14 @@ gantt
     Command パターン              :done, e2, after e1, 7d
     ナビゲーション & ジェスチャ   :done, e3, after e2, 7d
 
+    section UI拡張
+    カスタムタイトルバー          :done, f1, after e3, 7d
+    トースト通知                  :done, f2, after f1, 3d
+    タッチパッドスワイプ          :done, f3, after f2, 3d
+    PMRメモリ最適化               :done, f4, after f3, 7d
+
     section 品質
-    ユニットテスト整備            :done, d1, after e3, 14d
+    ユニットテスト整備            :done, d1, after f4, 14d
     パフォーマンス最適化          :active, d2, after d1, 14d
     ドキュメント整備              :active, d3, after d1, 7d
 ```
