@@ -191,3 +191,77 @@ TEST(PaneCloseButtonRectTest, ButtonPositionAdaptsToWidth) {
     EXPECT_FLOAT_EQ(size1, size2);
     EXPECT_GT(r2.left, r1.left);
 }
+
+// ═══════════════════════════════════════════════
+// PaneRefreshButtonRect
+// ═══════════════════════════════════════════════
+
+TEST(PaneRefreshButtonRectTest, ButtonFitsInHeader) {
+    float pane_width = 220.0f;
+    float header_height = 32.0f;
+    auto r = PaneRefreshButtonRect(pane_width, header_height);
+
+    EXPECT_GE(r.left, 0.0f);
+    EXPECT_LE(r.right, pane_width);
+    EXPECT_GE(r.top, 0.0f);
+    EXPECT_LE(r.bottom, header_height);
+}
+
+TEST(PaneRefreshButtonRectTest, ButtonIsSquare) {
+    auto r = PaneRefreshButtonRect(220.0f, 32.0f);
+    float width = r.right - r.left;
+    float height = r.bottom - r.top;
+    EXPECT_FLOAT_EQ(width, height);
+}
+
+TEST(PaneRefreshButtonRectTest, SameSizeAsCloseButton) {
+    float pane_width = 220.0f;
+    float header_height = 32.0f;
+    auto close = PaneCloseButtonRect(pane_width, header_height);
+    auto refresh = PaneRefreshButtonRect(pane_width, header_height);
+    float close_size = close.right - close.left;
+    float refresh_size = refresh.right - refresh.left;
+    EXPECT_FLOAT_EQ(close_size, refresh_size);
+}
+
+TEST(PaneRefreshButtonRectTest, PositionedLeftOfCloseButton) {
+    float pane_width = 220.0f;
+    float header_height = 32.0f;
+    auto close = PaneCloseButtonRect(pane_width, header_height);
+    auto refresh = PaneRefreshButtonRect(pane_width, header_height);
+    EXPECT_LT(refresh.right, close.left);
+}
+
+TEST(PaneRefreshButtonRectTest, ButtonIsVerticallyCentered) {
+    float header_height = 32.0f;
+    auto r = PaneRefreshButtonRect(220.0f, header_height);
+    float center_y = (r.top + r.bottom) / 2.0f;
+    EXPECT_NEAR(center_y, header_height / 2.0f, 0.01f);
+}
+
+TEST(PaneRefreshButtonRectTest, NoOverlapWithCloseButton) {
+    float pane_width = 220.0f;
+    float header_height = 32.0f;
+    auto close = PaneCloseButtonRect(pane_width, header_height);
+    auto refresh = PaneRefreshButtonRect(pane_width, header_height);
+    // 更新ボタンの右端が閉じるボタンの左端より小さいことを確認
+    EXPECT_LE(refresh.right, close.left);
+}
+
+TEST(PaneRefreshButtonRectTest, ButtonPositionAdaptsToWidth) {
+    auto r1 = PaneRefreshButtonRect(200.0f, 32.0f);
+    auto r2 = PaneRefreshButtonRect(400.0f, 32.0f);
+    // ボタンサイズは同じだが、位置が異なる
+    float size1 = r1.right - r1.left;
+    float size2 = r2.right - r2.left;
+    EXPECT_FLOAT_EQ(size1, size2);
+    EXPECT_GT(r2.left, r1.left);
+}
+
+TEST(PaneRefreshButtonRectTest, ButtonSizeScalesWithHeaderHeight) {
+    auto r1 = PaneRefreshButtonRect(220.0f, 32.0f);
+    auto r2 = PaneRefreshButtonRect(220.0f, 64.0f);
+    float size1 = r1.right - r1.left;
+    float size2 = r2.right - r2.left;
+    EXPECT_GT(size2, size1);
+}

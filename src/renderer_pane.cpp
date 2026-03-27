@@ -71,6 +71,8 @@ static void DrawSidePaneImpl(
     IDWriteTextFormat* fmt_close_icon,
     ID2D1SolidColorBrush* close_hover_brush,
     bool close_hovered,
+    bool show_refresh,
+    bool refresh_hovered,
     DrawItemFn draw_item)
 {
     if (!EnsurePaneCacheSize(cache, main_rt, rect.width, rect.height))
@@ -95,8 +97,22 @@ static void DrawSidePaneImpl(
                 D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
+        // 更新ボタン（閉じるボタンの左隣、ファイルペインのみ）
+        float header_text_right = close_rect.left - 4.0f;
+        if (show_refresh) {
+            D2D1_RECT_F refresh_rect = PaneRefreshButtonRect(rect.width, theme.pane_header_height);
+            if (refresh_hovered) {
+                rt->FillRectangle(refresh_rect, close_hover_brush);
+            }
+            if (fmt_close_icon) {
+                rt->DrawText(L"\uE72C", 1, fmt_close_icon, refresh_rect, text_brush,
+                    D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
+            header_text_right = refresh_rect.left - 4.0f;
+        }
+
         if (fmt_header) {
-            D2D1_RECT_F header_rect = D2D1::RectF(8.0f, 0, close_rect.left - 4.0f, theme.pane_header_height);
+            D2D1_RECT_F header_rect = D2D1::RectF(8.0f, 0, header_text_right, theme.pane_header_height);
             rt->DrawText(header_text.data(), static_cast<UINT32>(header_text.size()),
                 fmt_header, header_rect, text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
@@ -142,7 +158,7 @@ static void DrawSidePaneImpl(
 }
 
 void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
-    const ScrollState& scroll, int hovered_index, bool close_hovered) {
+    const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered) {
     constexpr float icon_col_width = 24.0f;
 
     DrawSidePaneImpl(file_pane_cache_, rt(), rect, scroll,
@@ -150,6 +166,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
         Brush(BrushId::Splitter), Brush(BrushId::Text),
         Brush(BrushId::ScrollbarThumb), fmt_pane_header_.Get(),
         fmt_pane_icon_.Get(), Brush(BrushId::PaneItemHover), close_hovered,
+        true, refresh_hovered,
         [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
 
@@ -189,6 +206,7 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
         Brush(BrushId::Splitter), Brush(BrushId::Text),
         Brush(BrushId::ScrollbarThumb), fmt_pane_header_.Get(),
         fmt_pane_icon_.Get(), Brush(BrushId::PaneItemHover), close_hovered,
+        false, false,
         [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
 

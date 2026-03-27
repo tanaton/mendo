@@ -432,15 +432,51 @@ TEST_F(PaneControllerTest, FileAndTocCloseHoverIndependent) {
 }
 
 // ═══════════════════════════════════════════════
+// 更新ボタンのホバー状態
+// ═══════════════════════════════════════════════
+
+TEST_F(PaneControllerTest, RefreshHoverDefaultFalse) {
+    EXPECT_FALSE(panes_.IsFileRefreshHovered());
+}
+
+TEST_F(PaneControllerTest, SetFileRefreshHoveredReturnsTrueOnChange) {
+    EXPECT_TRUE(panes_.SetFileRefreshHovered(true));
+    EXPECT_TRUE(panes_.IsFileRefreshHovered());
+}
+
+TEST_F(PaneControllerTest, SetFileRefreshHoveredReturnsFalseOnSame) {
+    panes_.SetFileRefreshHovered(true);
+    EXPECT_FALSE(panes_.SetFileRefreshHovered(true));
+}
+
+TEST_F(PaneControllerTest, SetFileRefreshHoveredReset) {
+    panes_.SetFileRefreshHovered(true);
+    EXPECT_TRUE(panes_.SetFileRefreshHovered(false));
+    EXPECT_FALSE(panes_.IsFileRefreshHovered());
+}
+
+TEST_F(PaneControllerTest, RefreshAndCloseHoverIndependent) {
+    panes_.SetFileCloseHovered(true);
+    panes_.SetFileRefreshHovered(true);
+    EXPECT_TRUE(panes_.IsFileCloseHovered());
+    EXPECT_TRUE(panes_.IsFileRefreshHovered());
+    panes_.SetFileCloseHovered(false);
+    EXPECT_FALSE(panes_.IsFileCloseHovered());
+    EXPECT_TRUE(panes_.IsFileRefreshHovered());
+}
+
+// ═══════════════════════════════════════════════
 // 表示切替時のホバー状態リセット
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, ToggleFilePaneResetsHover) {
     panes_.SetHoveredFileIndex(3);
     panes_.SetFileCloseHovered(true);
+    panes_.SetFileRefreshHovered(true);
     panes_.ToggleFilePane(); // 非表示にする
     EXPECT_EQ(panes_.GetHoveredFileIndex(), -1);
     EXPECT_FALSE(panes_.IsFileCloseHovered());
+    EXPECT_FALSE(panes_.IsFileRefreshHovered());
 }
 
 TEST_F(PaneControllerTest, ToggleTocPaneResetsHover) {
@@ -454,17 +490,21 @@ TEST_F(PaneControllerTest, ToggleTocPaneResetsHover) {
 TEST_F(PaneControllerTest, SetFilePaneVisibleResetsHoverOnChange) {
     panes_.SetHoveredFileIndex(2);
     panes_.SetFileCloseHovered(true);
+    panes_.SetFileRefreshHovered(true);
     panes_.SetFilePaneVisible(false);
     EXPECT_EQ(panes_.GetHoveredFileIndex(), -1);
     EXPECT_FALSE(panes_.IsFileCloseHovered());
+    EXPECT_FALSE(panes_.IsFileRefreshHovered());
 }
 
 TEST_F(PaneControllerTest, SetFilePaneVisibleNoResetOnSameValue) {
     panes_.SetHoveredFileIndex(2);
     panes_.SetFileCloseHovered(true);
+    panes_.SetFileRefreshHovered(true);
     panes_.SetFilePaneVisible(true); // 変化なし
     EXPECT_EQ(panes_.GetHoveredFileIndex(), 2);
     EXPECT_TRUE(panes_.IsFileCloseHovered());
+    EXPECT_TRUE(panes_.IsFileRefreshHovered());
 }
 
 TEST_F(PaneControllerTest, SetTocPaneVisibleResetsHoverOnChange) {

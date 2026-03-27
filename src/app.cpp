@@ -221,7 +221,8 @@ void App::OnPaint() {
                      file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
                      doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
                      panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible(),
-                     panes_.IsFileCloseHovered(), panes_.IsTocCloseHovered() };
+                     panes_.IsFileCloseHovered(), panes_.IsFileRefreshHovered(),
+                     panes_.IsTocCloseHovered() };
 
     auto* rt = renderer_.GetRenderTarget();
     float window_w = rt ? rt->GetSize().width : 0.0f;
