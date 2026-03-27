@@ -90,21 +90,42 @@ struct SidePaneState {
     bool toc_close_hovered;
 };
 
+// ペインビットマップキャッシュ — サイドペインはオフスクリーンビットマップに描画され、
+// 内容が変更された場合のみ再描画される。
+struct PaneCache {
+    ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
+    ComPtr<ID2D1Bitmap> cached_bitmap; // GetBitmap() の毎フレーム呼び出しを回避
+    bool dirty = true;
+    float cached_width = 0;
+    float cached_height = 0;
+
+    constexpr void Invalidate() noexcept { dirty = true; }
+    void Reset() noexcept { bitmap_rt.Reset(); cached_bitmap.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
+};
+
+// Renderer::Render に渡す全パラメータをまとめた構造体。
+struct RenderParams {
+    std::pmr::vector<Node>& nodes;
+    LayoutCache& cache;
+    float scroll_y = 0.0f;
+    float total_content_height = 0.0f;
+    const TextSelection& selection;
+    const PaneRect& md_pane_rect;
+    const SidePaneState& side_panes;
+    const TitleBarRenderState& titlebar;
+    bool can_go_back = false;
+    bool can_go_forward = false;
+    int nav_hovered = 0;
+    int hovered_copy_node = -1;
+    const GestureRenderState& gesture;
+    const ToastRenderState& toast;
+};
+
 class Renderer {
 public:
     bool Init(HWND hwnd);
     void Resize(UINT width, UINT height);
-    void Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
-        float total_content_height,
-        const TextSelection& selection,
-        const PaneRect& md_pane_rect,
-        const SidePaneState& side_panes,
-        const TitleBarRenderState& titlebar,
-        bool can_go_back = false, bool can_go_forward = false,
-        int nav_hovered = 0,
-        int hovered_copy_node = -1,
-        const GestureRenderState& gesture = {},
-        const ToastRenderState& toast = {});
+    void Render(const RenderParams& params);
     void SetDpi(float dpi);
     void DrawLoading(float angle,
         const PaneRect& md_pane_rect,
@@ -143,6 +164,7 @@ private:
     void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
         int first_visible, float viewport_bottom);
 
+    void DrawSidePanes(const SidePaneState& sp);
     void DrawTitleBar(const TitleBarRenderState& tb);
     void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height);
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
@@ -180,35 +202,26 @@ private:
     // ApplyNodeEffectsでインラインコード背景を計算するためのヒットテストバッファ。
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
-    ComPtr<IDWriteTextFormat> icon_font_format_;
-    ComPtr<IDWriteTextFormat> fmt_copy_btn_icon_;
-    ComPtr<IDWriteTextFormat> fmt_list_number_;
-    ComPtr<IDWriteTextFormat> fmt_titlebar_text_;
-    ComPtr<IDWriteTextFormat> fmt_titlebar_icon_;
-    ComPtr<IDWriteTextFormat> fmt_pane_icon_;
-    ComPtr<IDWriteTextFormat> fmt_pane_item_;
-    ComPtr<IDWriteTextFormat> fmt_pane_header_;
-    ComPtr<IDWriteTextFormat> fmt_nav_button_;
+    // UI テキストフォーマットをグループ化した構造体
+    struct TextFormats {
+        ComPtr<IDWriteTextFormat> icon_font;
+        ComPtr<IDWriteTextFormat> copy_btn_icon;
+        ComPtr<IDWriteTextFormat> list_number;
+        ComPtr<IDWriteTextFormat> titlebar_text;
+        ComPtr<IDWriteTextFormat> titlebar_icon;
+        ComPtr<IDWriteTextFormat> pane_icon;
+        ComPtr<IDWriteTextFormat> pane_item;
+        ComPtr<IDWriteTextFormat> pane_header;
+        ComPtr<IDWriteTextFormat> nav_button;
+        ComPtr<IDWriteTextFormat> gesture_overlay;
+        ComPtr<IDWriteTextFormat> toast_text;
+    };
+    TextFormats fmt_;
+
     ComPtr<IDWriteTextLayout> nav_back_layout_;   // ◀ のキャッシュ済みレイアウト
     ComPtr<IDWriteTextLayout> nav_forward_layout_; // ▶ のキャッシュ済みレイアウト
     ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
-    ComPtr<IDWriteTextFormat> fmt_gesture_overlay_;
-    ComPtr<IDWriteTextFormat> fmt_toast_text_;
 
-public:
-    // ペインビットマップキャッシュ — サイドペインはオフスクリーンビットマップに描画され、
-    // 内容が変更された場合のみ再描画される。
-    struct PaneCache {
-        ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
-        ComPtr<ID2D1Bitmap> cached_bitmap; // GetBitmap() の毎フレーム呼び出しを回避
-        bool dirty = true;
-        float cached_width = 0;
-        float cached_height = 0;
-
-        constexpr void Invalidate() noexcept { dirty = true; }
-        void Reset() noexcept { bitmap_rt.Reset(); cached_bitmap.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
-    };
-private:
     PaneCache file_pane_cache_;
     PaneCache toc_pane_cache_;
 

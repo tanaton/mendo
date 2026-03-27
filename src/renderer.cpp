@@ -28,7 +28,7 @@ bool Renderer::Init(HWND hwnd) {
     }
 
     cmd_generator_.SetTheme(&theme_);
-    cmd_generator_.SetFormats({ fmt_list_number_.Get(), icon_font_format_.Get(), fmt_copy_btn_icon_.Get() });
+    cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get() });
 
     return true;
 }
@@ -155,87 +155,87 @@ void Renderer::RecreatePaneFormats() {
     // テーマサイズの更新に合わせて全ペイン/UIテキストフォーマットを再作成
     auto W = DWRITE_FONT_WEIGHT_NORMAL;
 
-    icon_font_format_ = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");
+    fmt_.icon_font = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");
 
     // コピーボタン用アイコンフォーマット（両軸中央揃え）
-    fmt_copy_btn_icon_ = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");
-    if (fmt_copy_btn_icon_) {
-        fmt_copy_btn_icon_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_copy_btn_icon_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_copy_btn_icon_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    fmt_.copy_btn_icon = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");
+    if (fmt_.copy_btn_icon) {
+        fmt_.copy_btn_icon->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_.copy_btn_icon->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_.copy_btn_icon->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
     // リスト番号フォーマット（順序付きリストの番号を右揃え）
-    fmt_list_number_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
-    if (fmt_list_number_) {
-        fmt_list_number_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+    fmt_.list_number = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
+    if (fmt_.list_number) {
+        fmt_.list_number->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
     }
 
     // タイトルバー用テキストフォーマット
-    fmt_titlebar_text_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
-    if (fmt_titlebar_text_) {
-        fmt_titlebar_text_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_titlebar_text_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_titlebar_text_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    fmt_.titlebar_text = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
+    if (fmt_.titlebar_text) {
+        fmt_.titlebar_text->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_.titlebar_text->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_.titlebar_text->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
-    fmt_titlebar_icon_ = CreatePaneFormat(L"Segoe Fluent Icons", W, 14.0f, L"en-us");
-    if (fmt_titlebar_icon_) {
-        fmt_titlebar_icon_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_titlebar_icon_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_titlebar_icon_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-
-    fmt_pane_icon_ = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.pane_font_size, L"en-us");
-    if (fmt_pane_icon_) {
-        fmt_pane_icon_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_pane_icon_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        fmt_pane_icon_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    fmt_.titlebar_icon = CreatePaneFormat(L"Segoe Fluent Icons", W, 14.0f, L"en-us");
+    if (fmt_.titlebar_icon) {
+        fmt_.titlebar_icon->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_.titlebar_icon->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_.titlebar_icon->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
-    fmt_pane_item_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
-    if (fmt_pane_item_) {
-        fmt_pane_item_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_pane_item_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    fmt_.pane_icon = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.pane_font_size, L"en-us");
+    if (fmt_.pane_icon) {
+        fmt_.pane_icon->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_.pane_icon->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        fmt_.pane_icon->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 
-    fmt_pane_header_ = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size, L"ja-jp");
-    if (fmt_pane_header_) {
-        fmt_pane_header_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_pane_header_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    fmt_.pane_item = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
+    if (fmt_.pane_item) {
+        fmt_.pane_item->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_.pane_item->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
+    fmt_.pane_header = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size, L"ja-jp");
+    if (fmt_.pane_header) {
+        fmt_.pane_header->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_.pane_header->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
     // ナビゲーションオーバーレイボタンのテキストフォーマット（両軸中央揃え）
-    fmt_nav_button_ = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
-    if (fmt_nav_button_) {
-        fmt_nav_button_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_nav_button_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_nav_button_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    fmt_.nav_button = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
+    if (fmt_.nav_button) {
+        fmt_.nav_button->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        fmt_.nav_button->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_.nav_button->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
     // ジェスチャーオーバーレイのテキストフォーマット（大きい太字、中央揃え）
-    fmt_gesture_overlay_ = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_.zoom, L"ja-JP");
-    if (fmt_gesture_overlay_) {
-        fmt_gesture_overlay_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_gesture_overlay_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    fmt_.gesture_overlay = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_.zoom, L"ja-JP");
+    if (fmt_.gesture_overlay) {
+        fmt_.gesture_overlay->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_.gesture_overlay->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
     // トースト通知のテキストフォーマット（中央揃え）
-    fmt_toast_text_ = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size * 1.1f, L"ja-JP");
-    if (fmt_toast_text_) {
-        fmt_toast_text_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_toast_text_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        fmt_toast_text_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    fmt_.toast_text = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size * 1.1f, L"ja-JP");
+    if (fmt_.toast_text) {
+        fmt_.toast_text->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_.toast_text->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        fmt_.toast_text->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     }
 
     nav_back_layout_.Reset();
     nav_forward_layout_.Reset();
-    if (fmt_nav_button_) {
+    if (fmt_.nav_button) {
         auto* dw = backend_.GetDWriteFactory();
         if (dw) {
             static const wchar_t kBack[] = L"\x25C0";
             static const wchar_t kForward[] = L"\x25B6";
-            dw->CreateTextLayout(kBack, 1, fmt_nav_button_.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
-            dw->CreateTextLayout(kForward, 1, fmt_nav_button_.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
+            dw->CreateTextLayout(kBack, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
+            dw->CreateTextLayout(kForward, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
         }
     }
 
@@ -244,7 +244,7 @@ void Renderer::RecreatePaneFormats() {
     toc_pane_cache_.Reset();
 
     // コマンドジェネレータのフォーマットを更新
-    cmd_generator_.SetFormats({ fmt_list_number_.Get(), icon_font_format_.Get(), fmt_copy_btn_icon_.Get() });
+    cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get() });
 }
 
 // ---- ノード描画 ----
@@ -371,6 +371,17 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
 
 // ---- メイン描画 ----
 
+void Renderer::DrawSidePanes(const SidePaneState& sp) {
+    if (sp.show_file_pane) {
+        DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index, sp.file_close_hovered, sp.file_refresh_hovered);
+        DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
+    }
+    if (sp.show_toc_pane) {
+        DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index, sp.toc_close_hovered);
+        DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, sp.toc_pane_rect.y, sp.toc_pane_rect.y + sp.toc_pane_rect.height);
+    }
+}
+
 void Renderer::DrawLoading(float angle,
     const PaneRect& md_pane_rect,
     const SidePaneState& sp,
@@ -387,17 +398,7 @@ void Renderer::DrawLoading(float angle,
     // カスタムタイトルバーを描画
     DrawTitleBar(titlebar);
 
-    auto size = rt()->GetSize();
-
-    // サイドペインを通常通り描画
-    if (sp.show_file_pane) {
-        DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index, sp.file_close_hovered, sp.file_refresh_hovered);
-        DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
-    }
-    if (sp.show_toc_pane) {
-        DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index, sp.toc_close_hovered);
-        DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, sp.toc_pane_rect.y, sp.toc_pane_rect.y + sp.toc_pane_rect.height);
-    }
+    DrawSidePanes(sp);
 
     // MDペイン中央にスピナーを描画
     float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
@@ -429,17 +430,7 @@ void Renderer::DrawLoading(float angle,
     }
 }
 
-void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y,
-    float total_content_height,
-    const TextSelection& selection,
-    const PaneRect& md_pane_rect,
-    const SidePaneState& sp,
-    const TitleBarRenderState& titlebar,
-    bool can_go_back, bool can_go_forward,
-    int nav_hovered,
-    int hovered_copy_node,
-    const GestureRenderState& gesture,
-    const ToastRenderState& toast) {
+void Renderer::Render(const RenderParams& p) {
     if (!rt()) {
         return;
     }
@@ -448,58 +439,46 @@ void Renderer::Render(std::pmr::vector<Node>& nodes, LayoutCache& cache, float s
     rt()->Clear(theme_.bg_color);
 
     // カスタムタイトルバーを描画
-    DrawTitleBar(titlebar);
+    DrawTitleBar(p.titlebar);
 
-    auto size = rt()->GetSize();
-
-    // ファイルエクスプローラペインを描画（キャッシュが有効ならビットマップ転送）
-    if (sp.show_file_pane) {
-        DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index, sp.file_close_hovered, sp.file_refresh_hovered);
-        DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
-    }
-
-    // 目次ペインを描画（キャッシュが有効ならビットマップ転送）
-    if (sp.show_toc_pane) {
-        DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index, sp.toc_close_hovered);
-        DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, sp.toc_pane_rect.y, sp.toc_pane_rect.y + sp.toc_pane_rect.height);
-    }
+    DrawSidePanes(p.side_panes);
 
     // 最初の可視ノードを検索（一度だけ実行し、エフェクトとコマンド生成で共有）。
     // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
-    float viewport_top = scroll_y;
-    float viewport_bottom = scroll_y + md_pane_rect.height;
-    int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
+    float viewport_top = p.scroll_y;
+    float viewport_bottom = p.scroll_y + p.md_pane_rect.height;
+    int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
 
     // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
-    ApplyVisibleEffects(nodes, cache, first_visible, viewport_bottom);
+    ApplyVisibleEffects(p.nodes, p.cache, first_visible, viewport_bottom);
 
     // Markdownコンテンツペインの描画コマンドを生成・実行。
     float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
-    const auto& cmds = cmd_generator_.GenerateMdPane(nodes, cache, md_pane_rect, scroll_y, selection, first_visible, hovered_copy_node, dpi_scale);
+    const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered_copy_node, dpi_scale);
     cmd_executor_.Execute(cmds, rt());
 
     // ナビゲーションオーバーレイボタン（戻る/進む）を描画
-    if (can_go_back || can_go_forward) {
-        DrawNavOverlay(md_pane_rect, can_go_back, can_go_forward, nav_hovered);
+    if (p.can_go_back || p.can_go_forward) {
+        DrawNavOverlay(p.md_pane_rect, p.can_go_back, p.can_go_forward, p.nav_hovered);
     }
 
     // ジェスチャー軌跡
-    if (gesture.trail_active && gesture.trail_points && gesture.trail_points->size() >= 2) {
-        DrawGestureTrail(*gesture.trail_points);
+    if (p.gesture.trail_active && p.gesture.trail_points && p.gesture.trail_points->size() >= 2) {
+        DrawGestureTrail(*p.gesture.trail_points);
     }
 
     // ジェスチャーオーバーレイ（アクション後のフェードアウト）
-    if (gesture.overlay_visible && gesture.overlay_alpha > 0.0f) {
-        DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
+    if (p.gesture.overlay_visible && p.gesture.overlay_alpha > 0.0f) {
+        DrawGestureOverlay(p.gesture.direction, p.gesture.overlay_alpha, p.md_pane_rect);
     }
 
     // トースト通知
-    if (toast.visible) {
-        DrawToastOverlay(toast, md_pane_rect);
+    if (p.toast.visible) {
+        DrawToastOverlay(p.toast, p.md_pane_rect);
     }
 
     // Markdownペインのカスタムスクロールバー
-    DrawMdScrollbar(md_pane_rect, scroll_y, total_content_height);
+    DrawMdScrollbar(p.md_pane_rect, p.scroll_y, p.total_content_height);
 
     if (!CheckEndDraw()) {
         return;
@@ -662,10 +641,10 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     const wchar_t* text = (direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080";
     UINT32 text_len = static_cast<UINT32>(wcslen(text));
 
-    if (fmt_gesture_overlay_) {
+    if (fmt_.gesture_overlay) {
         Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
         rt()->DrawText(
-            text, text_len, fmt_gesture_overlay_.Get(), rect, Brush(BrushId::Overlay),
+            text, text_len, fmt_.gesture_overlay.Get(), rect, Brush(BrushId::Overlay),
             D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
     }
 }
@@ -695,11 +674,11 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
     rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
     // 白テキスト
-    if (fmt_toast_text_) {
+    if (fmt_.toast_text) {
         Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
         rt()->DrawText(
             toast.message.data(), static_cast<UINT32>(toast.message.size()),
-            fmt_toast_text_.Get(), rect, Brush(BrushId::Overlay),
+            fmt_.toast_text.Get(), rect, Brush(BrushId::Overlay),
             D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
     }
 }

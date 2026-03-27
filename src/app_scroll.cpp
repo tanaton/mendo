@@ -10,7 +10,7 @@
 
 void App::UpdateScrollBar([[maybe_unused]] float md_pane_height) {
     // カスタムスクロールバーはRenderer側で描画するため、再描画をトリガーするのみ
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 }
 
 void App::ScrollTo(float position) {
@@ -42,7 +42,7 @@ void App::UpdateSmoothScroll() {
 
 void App::InvalidateMdPane(const PaneRect& md_rect) {
     if (!renderer_.GetRenderTarget()) {
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         return;
     }
     float scale = cached_dpi_scale_;
@@ -90,7 +90,7 @@ void App::OnResizeEnd() {
 
     SyncMaxScroll(md_height);
     UpdateScrollBar(md_height);
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 
     if (layout_service_->HasDirtyNodes()) {
         SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
@@ -124,7 +124,7 @@ void App::OnDeferredLayout() {
     if (!more) {
         KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
         UpdateScrollBar(md_height);
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 }
 
@@ -139,5 +139,5 @@ void App::UpdateLayoutAndScroll(float desired_scroll) {
     SyncMaxScroll(md_height);
 
     UpdateScrollBar(md_height);
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 }

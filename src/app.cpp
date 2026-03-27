@@ -21,8 +21,7 @@
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
-// std::visit用のビジターヘルパー
-template <class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+#include "utility.h"
 
 void ApplyDarkModeToWindow(HWND hwnd, bool dark) {
     // ダークタイトルバー
@@ -120,7 +119,7 @@ void App::HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
         scroll.scroll_y = ScrollFromThumbY(info, new_thumb_y);
         scroll.max_scroll = info.max_scroll;
         cache_dirty = true;
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 }
 
@@ -130,7 +129,7 @@ void App::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
     scroll.scroll_y = ScrollFromThumbY(info, new_thumb_y);
     scroll.max_scroll = info.max_scroll;
     cache_dirty = true;
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 }
 
 // ============================================================
@@ -140,7 +139,7 @@ void App::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
 void App::OnActivate(bool active) {
     if (window_active_ != active) {
         window_active_ = active;
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 }
 
@@ -176,6 +175,70 @@ float App::GetMarkdownPaneWidth() const {
 }
 
 // ============================================================
+// OnPaint用のレンダーステート構築ヘルパー
+// ============================================================
+
+GestureRenderState App::BuildGestureRenderState() const {
+    GestureRenderState gs;
+    gs.trail_active = gesture_.IsGestureActive();
+    gs.trail_points = &gesture_.GetTrailPoints();
+    gs.overlay_visible = gesture_.IsOverlayVisible();
+    gs.direction = (gesture_.GetDirection() == GestureDirection::Left) ? -1
+        : (gesture_.GetDirection() == GestureDirection::Right) ? 1 : 0;
+    gs.overlay_alpha = gesture_.GetOverlayAlpha();
+
+    // タッチパッドスワイプのオーバーレイ（マウスジェスチャーが非アクティブの場合のみ）
+    if (!gs.overlay_visible && swipe_detector_.IsOverlayVisible()) {
+        gs.overlay_visible = true;
+        gs.direction = swipe_detector_.GetOverlayDirection();
+        gs.overlay_alpha = swipe_detector_.GetOverlayAlpha();
+    }
+    return gs;
+}
+
+SidePaneState App::BuildSidePaneState(const ::PaneLayout& layout) const {
+    return { layout.file_rect, layout.toc_rect,
+             file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
+             doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
+             panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible(),
+             panes_.IsFileCloseHovered(), panes_.IsFileRefreshHovered(),
+             panes_.IsTocCloseHovered() };
+}
+
+TitleBarRenderState App::BuildTitleBarRenderState() const {
+    auto* rt = renderer_.GetRenderTarget();
+    float window_w = rt ? rt->GetSize().width : 0.0f;
+    TitleBarRenderState tb;
+    tb.height = titlebar_.GetHeight();
+    tb.window_width = window_w;
+    tb.file_btn_rect = titlebar_.GetFileToggleButton().rect;
+    tb.file_btn_hovered = titlebar_.GetFileToggleButton().hovered;
+    tb.file_pane_visible = panes_.IsFilePaneVisible();
+    tb.toc_btn_rect = titlebar_.GetTocToggleButton().rect;
+    tb.toc_btn_hovered = titlebar_.GetTocToggleButton().hovered;
+    tb.toc_pane_visible = panes_.IsTocPaneVisible();
+    tb.minimize_btn_rect = titlebar_.GetMinimizeButton().rect;
+    tb.minimize_btn_hovered = titlebar_.GetMinimizeButton().hovered;
+    tb.maximize_btn_rect = titlebar_.GetMaximizeButton().rect;
+    tb.maximize_btn_hovered = titlebar_.GetMaximizeButton().hovered;
+    tb.is_maximized = IsZoomed(hwnd_) != FALSE;
+    tb.close_btn_rect = titlebar_.GetCloseButton().rect;
+    tb.close_btn_hovered = titlebar_.GetCloseButton().hovered;
+    tb.title_text_rect = titlebar_.GetTitleTextRect();
+    tb.title_text = cached_title_text_;
+    tb.window_active = window_active_;
+    return tb;
+}
+
+ToastRenderState App::BuildToastRenderState() const {
+    ToastRenderState ts;
+    ts.visible = toast_.IsVisible();
+    ts.alpha = toast_.GetRenderAlpha();
+    ts.message = toast_.GetMessage();
+    return ts;
+}
+
+// ============================================================
 // 描画 / リサイズ
 // ============================================================
 
@@ -202,65 +265,22 @@ void App::OnPaint() {
             AnchorCompensateScroll(anchor_idx, anchor_y_before, layout.md_rect.height);
         }
     }
-    GestureRenderState gs;
-    gs.trail_active = gesture_.IsGestureActive();
-    gs.trail_points = &gesture_.GetTrailPoints();
-    gs.overlay_visible = gesture_.IsOverlayVisible();
-    gs.direction = (gesture_.GetDirection() == GestureDirection::Left) ? -1
-        : (gesture_.GetDirection() == GestureDirection::Right) ? 1 : 0;
-    gs.overlay_alpha = gesture_.GetOverlayAlpha();
-
-    // タッチパッドスワイプのオーバーレイ（マウスジェスチャーが非アクティブの場合のみ）
-    if (!gs.overlay_visible && swipe_detector_.IsOverlayVisible()) {
-        gs.overlay_visible = true;
-        gs.direction = swipe_detector_.GetOverlayDirection();
-        gs.overlay_alpha = swipe_detector_.GetOverlayAlpha();
-    }
-
-    SidePaneState sp{ layout.file_rect, layout.toc_rect,
-                     file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
-                     doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
-                     panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible(),
-                     panes_.IsFileCloseHovered(), panes_.IsFileRefreshHovered(),
-                     panes_.IsTocCloseHovered() };
-
-    auto* rt = renderer_.GetRenderTarget();
-    float window_w = rt ? rt->GetSize().width : 0.0f;
-    TitleBarRenderState tb;
-    tb.height = titlebar_.GetHeight();
-    tb.window_width = window_w;
-    tb.file_btn_rect = titlebar_.GetFileToggleButton().rect;
-    tb.file_btn_hovered = titlebar_.GetFileToggleButton().hovered;
-    tb.file_pane_visible = panes_.IsFilePaneVisible();
-    tb.toc_btn_rect = titlebar_.GetTocToggleButton().rect;
-    tb.toc_btn_hovered = titlebar_.GetTocToggleButton().hovered;
-    tb.toc_pane_visible = panes_.IsTocPaneVisible();
-    tb.minimize_btn_rect = titlebar_.GetMinimizeButton().rect;
-    tb.minimize_btn_hovered = titlebar_.GetMinimizeButton().hovered;
-    tb.maximize_btn_rect = titlebar_.GetMaximizeButton().rect;
-    tb.maximize_btn_hovered = titlebar_.GetMaximizeButton().hovered;
-    tb.is_maximized = IsZoomed(hwnd_) != FALSE;
-    tb.close_btn_rect = titlebar_.GetCloseButton().rect;
-    tb.close_btn_hovered = titlebar_.GetCloseButton().hovered;
-    tb.title_text_rect = titlebar_.GetTitleTextRect();
-    tb.title_text = cached_title_text_;
-    tb.window_active = window_active_;
-
-    ToastRenderState ts;
-    ts.visible = toast_.IsVisible();
-    ts.alpha = toast_.GetRenderAlpha();
-    ts.message = toast_.GetMessage();
+    auto gs = BuildGestureRenderState();
+    auto sp = BuildSidePaneState(layout);
+    auto tb = BuildTitleBarRenderState();
+    auto ts = BuildToastRenderState();
 
     if (file_load_service_.IsLoading()) {
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
     }
     else {
-        renderer_.Render(doc_.GetNodesMut(), layout_cache_, viewport_.GetScrollY(),
-            layout_service_->GetTotalHeight(),
-            viewport_.GetSelection(),
-            layout.md_rect, sp, tb,
+        renderer_.Render({
+            doc_.GetNodesMut(), layout_cache_,
+            viewport_.GetScrollY(), layout_service_->GetTotalHeight(),
+            viewport_.GetSelection(), layout.md_rect, sp, tb,
             nav_service_.CanGoBack(), nav_service_.CanGoForward(),
-            static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts);
+            static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts
+        });
     }
 
     EndPaint(hwnd_, &ps);
@@ -289,7 +309,7 @@ void App::OnResize(UINT width, UINT height) {
         float sizing_h = sizing_layout.md_rect.height;
         SyncMaxScroll(sizing_h);
         UpdateScrollBar(sizing_h);
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         return;
     }
 
@@ -338,7 +358,7 @@ void App::LoadMarkdownFile(std::wstring_view path) {
     else {
         file_load_service_.StartLoading(path);
         SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         UpdateWindow(hwnd_);
         PostMessage(hwnd_, WM_APP_LOAD_FILE, 0, 0);
     }
@@ -352,7 +372,7 @@ void App::DoLoadMarkdownFile() {
     renderer_.ShrinkBuffers();
 
     if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         return;
     }
 
@@ -395,7 +415,7 @@ void App::UpdateTitleBar() {
     auto title = BuildTitleString(doc_.GetFilePath(), zoom_percent);
     SetWindowTextW(hwnd_, title.c_str());
     cached_title_text_ = std::wstring(title.begin(), title.end());
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 }
 
 void App::RequestMermaidRenders() {
@@ -462,7 +482,7 @@ void App::RequestMermaidRenders() {
             auto layout = GetPaneLayout();
             float md_h = layout.md_rect.height;
             AnchorCompensateScroll(anchor_idx, anchor_y_before, md_h);
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            Invalidate();
         });
     }
 }
@@ -482,7 +502,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl) {
         swipe_detector_.NotifyVScroll(GetTickCount64());
         if (had_overlay) {
             KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            Invalidate();
         }
     }
 
@@ -514,7 +534,7 @@ void App::OnMouseHWheel(short delta) {
 
     if (had_overlay != swipe_detector_.IsOverlayVisible()
         || old_direction != swipe_detector_.GetOverlayDirection()) {
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 }
 
@@ -555,14 +575,14 @@ void App::ExecuteActions(const ActionList& actions) {
                         - (pane_layout.file_rect.height - theme.pane_header_height));
                     if (panes_.ScrollFilePaneBy(a.delta, max_file_scroll)) {
                         renderer_.InvalidateFilePaneCache();
-                        InvalidateRect(hwnd_, nullptr, FALSE);
+                        Invalidate();
                     }
                 }
                 else if (a.pane == PaneZone::TocPane) {
                     float max_toc_scroll = std::max(0.0f, static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height - (pane_layout.toc_rect.height - theme.pane_header_height));
                     if (panes_.ScrollTocPaneBy(a.delta, max_toc_scroll)) {
                         renderer_.InvalidateTocPaneCache();
-                        InvalidateRect(hwnd_, nullptr, FALSE);
+                        Invalidate();
                     }
                 }
             },
@@ -639,7 +659,7 @@ void App::HandleTimer(UINT_PTR timer_id) {
     case TIMER_DEFERRED_LAYOUT: OnDeferredLayout(); break;
     case TIMER_LOADING_ANIM:
         file_load_service_.TickLoadingAnimation();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         break;
     case TIMER_SWIPE_OVERLAY: {
         auto result = swipe_detector_.Commit();
@@ -658,7 +678,7 @@ void App::HandleTimer(UINT_PTR timer_id) {
         }
         KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
         if (need_redraw) {
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            Invalidate();
         }
         break;
     }
@@ -666,7 +686,7 @@ void App::HandleTimer(UINT_PTR timer_id) {
         if (!toast_.Tick()) {
             KillTimer(hwnd_, TIMER_TOAST);
         }
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         break;
     }
     default: break;
@@ -680,14 +700,14 @@ void App::OnAppLoadFile() {
 void App::OnCaptureChanged() {
     if (gesture_.GetPhase() != GesturePhase::Idle) {
         gesture_.Reset();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 }
 
 void App::ShowToast(std::wstring_view message) {
     toast_.Show(message);
     SetTimer(hwnd_, TIMER_TOAST, 16, nullptr);
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 }
 
 void App::OnDestroy() {

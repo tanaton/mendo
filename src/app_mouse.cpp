@@ -34,7 +34,7 @@ void App::RefreshFilePane() {
         file_explorer_.SetCurrentFile(doc_.GetFilePath());
     }
     renderer_.InvalidateFilePaneCache();
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 }
 
 // ============================================================
@@ -117,14 +117,14 @@ bool App::OnRButtonUp(int px, int py) {
     }
     case GestureResult::Back:
         NavigateBack();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         break;
     case GestureResult::Forward:
         NavigateForward();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         break;
     case GestureResult::None:
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         break;
     }
     return true;
@@ -137,7 +137,7 @@ void App::OnRButtonMove(int px, int py) {
     gesture_.OnMouseMove(dip.x, dip.y);
 
     if (gesture_.IsGestureActive()) {
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 }
 
@@ -225,7 +225,7 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
             }
             panes_.FileScroll() = {};
             renderer_.InvalidateFilePaneCache();
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            Invalidate();
         }
         else if (!file_entry.is_current) {
             if (GetFileAttributesW(file_entry.full_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
@@ -360,7 +360,7 @@ void App::OnLButtonDown(int px, int py) {
                         panes_.SetDragScrollOffset(info.thumb_height * 0.5f);
                         float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
                         viewport_.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
-                        InvalidateRect(hwnd_, nullptr, FALSE);
+                        Invalidate();
                     }
                     return;
                 }
@@ -380,7 +380,7 @@ void App::OnLButtonDown(int px, int py) {
         viewport_.SetAnchor(hit.node_index, hit.text_pos);
         viewport_.SetDragging(true);
         viewport_.GetSelectionMut().Clear();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 }
 
@@ -416,7 +416,7 @@ void App::OnLButtonUp(int px, int py) {
             }
         }
 
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 }
 
@@ -431,7 +431,7 @@ void App::OnMouseMove(int px, int py) {
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::Splitter1) {
         panes_.DragSplitter1To(dip_x, size.width, splitter_w);
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         return;
     }
 
@@ -462,14 +462,14 @@ void App::OnMouseMove(int px, int py) {
             auto info = ComputeScrollInfo(layout.md_rect, 0.0f, total_h);
             float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
             viewport_.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            Invalidate();
         }
         return;
     }
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::Splitter2) {
         panes_.DragSplitter2To(dip_x, size.width, splitter_w);
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         return;
     }
 
@@ -479,7 +479,7 @@ void App::OnMouseMove(int px, int py) {
     if (hit.node_index >= 0) {
         viewport_.SetSelection(TextSelection::MakeOrdered(
             viewport_.GetAnchorNode(), viewport_.GetAnchorPos(), hit.node_index, hit.text_pos));
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 }
 
@@ -495,13 +495,13 @@ void App::OnMouseHover(int px, int py) {
         auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
         SetCursor(cursor_arrow_);
         if (titlebar_.SetHovered(tb_zone)) {
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            Invalidate();
         }
         return;
     }
     // タイトルバー外に出たらホバーをリセット
     if (titlebar_.SetHovered(TitleBarHitZone::None)) {
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 
     auto pane_layout = GetPaneLayout();
@@ -518,12 +518,12 @@ void App::OnMouseHover(int px, int py) {
         changed |= panes_.SetFileRefreshHovered(false);
         if (changed) {
             renderer_.InvalidateFilePaneCache();
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            Invalidate();
         }
     }
     if (zone != PaneZone::TocPane && panes_.SetTocCloseHovered(false)) {
         renderer_.InvalidateTocPaneCache();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 
     switch (zone) {
@@ -541,7 +541,7 @@ void App::OnMouseHover(int px, int py) {
             changed |= panes_.SetFileRefreshHovered(refresh_hit);
             if (changed) {
                 renderer_.InvalidateFilePaneCache();
-                InvalidateRect(hwnd_, nullptr, FALSE);
+                Invalidate();
             }
         }
         float content_top = pane_layout.file_rect.y + header_h;
@@ -555,7 +555,7 @@ void App::OnMouseHover(int px, int py) {
         SetCursor(close_hit ? cursor_hand_ : cursor_arrow_);
         if (panes_.SetTocCloseHovered(close_hit)) {
             renderer_.InvalidateTocPaneCache();
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            Invalidate();
         }
         float content_top = pane_layout.toc_rect.y + header_h;
         float local_y = dip_y - content_top + panes_.TocScroll().scroll_y;
@@ -572,11 +572,11 @@ void App::OnMouseHover(int px, int py) {
 
     if (panes_.SetHoveredFileIndex(new_file_hover)) {
         renderer_.InvalidateFilePaneCache();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
     if (panes_.SetHoveredTocIndex(new_toc_hover)) {
         renderer_.InvalidateTocPaneCache();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 }
 
@@ -594,12 +594,12 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         hovered_copy_node_ = -1;
         SetCursor(cursor_hand_);
         if (nav_hit != old_nav_hover) {
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            Invalidate();
         }
         return;
     }
     if (old_nav_hover != NavButtonHover::None) {
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 
     // コピーボタンのホバー判定
@@ -614,12 +614,12 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     if (hovered_copy_node_ >= 0) {
         SetCursor(cursor_hand_);
         if (hovered_copy_node_ != old_copy_hover) {
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            Invalidate();
         }
         return;
     }
     if (old_copy_hover >= 0) {
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
     }
 
     int dx = px - last_md_hit_pos_.x;
@@ -652,7 +652,7 @@ void App::OnLButtonDblClk(int px, int py) {
     viewport_.SetAnchor(hit.node_index, wb.start);
     viewport_.SetSelection(TextSelection::MakeOrdered(
         hit.node_index, wb.start, hit.node_index, wb.end));
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 }
 
 // ============================================================
@@ -661,12 +661,12 @@ void App::OnLButtonDblClk(int px, int py) {
 
 void App::ClearSelection() {
     viewport_.ClearSelection();
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 }
 
 void App::SelectAll() {
     viewport_.SelectAll(doc_.GetNodes());
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 }
 
 void App::SetClipboardText(std::wstring_view text) const {

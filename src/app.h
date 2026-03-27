@@ -82,6 +82,9 @@ public:
     // WM_SETCURSOR用のカーソル状態
     bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
 
+    // ウィンドウ全体の再描画を要求する
+    void Invalidate() noexcept { InvalidateRect(hwnd_, nullptr, FALSE); }
+
     // Win32Windowのカーソル/再描画用にDPIスケールを公開
     constexpr float GetDpiScale() const noexcept { return cached_dpi_scale_; }
 
@@ -165,6 +168,12 @@ private:
     float GetMarkdownPaneWidth() const;
 
     void RequestMermaidRenders();
+
+    // OnPaint用のレンダーステート構築ヘルパー
+    GestureRenderState BuildGestureRenderState() const;
+    SidePaneState BuildSidePaneState(const ::PaneLayout& layout) const;
+    TitleBarRenderState BuildTitleBarRenderState() const;
+    ToastRenderState BuildToastRenderState() const;
 
     // ダークモード / ズーム (theme_service_に委譲)
     void ToggleDarkMode();

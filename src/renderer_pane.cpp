@@ -6,7 +6,7 @@
 
 // PaneCacheのビットマップレンダーターゲットが必要なサイズと一致することを確認。
 // キャッシュが使用可能ならtrueを返す。
-static bool EnsurePaneCacheSize(Renderer::PaneCache& cache, ID2D1RenderTarget* parent,
+static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent,
     float width, float height) {
     if (width <= 0 || height <= 0) {
         return false;
@@ -57,7 +57,7 @@ static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb
 // DrawItemFnのシグネチャ: void(ID2D1RenderTarget* rt, int index, float item_y, float pane_width)
 template<typename DrawItemFn>
 static void DrawSidePaneImpl(
-    Renderer::PaneCache& cache,
+    PaneCache& cache,
     ID2D1HwndRenderTarget* main_rt,
     const PaneRect& rect,
     const ScrollState& scroll,
@@ -164,8 +164,8 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
     DrawSidePaneImpl(file_pane_cache_, rt(), rect, scroll,
         static_cast<int>(entries.size()), L"Files", theme_,
         Brush(BrushId::Splitter), Brush(BrushId::Text),
-        Brush(BrushId::ScrollbarThumb), fmt_pane_header_.Get(),
-        fmt_pane_icon_.Get(), Brush(BrushId::PaneItemHover), close_hovered,
+        Brush(BrushId::ScrollbarThumb), fmt_.pane_header.Get(),
+        fmt_.pane_icon.Get(), Brush(BrushId::PaneItemHover), close_hovered,
         true, refresh_hovered,
         [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
@@ -178,22 +178,22 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
             rt->FillRectangle(item_rect, Brush(BrushId::PaneItemHover));
         }
 
-        if (fmt_pane_icon_) {
+        if (fmt_.pane_icon) {
             const wchar_t* icon;
             if (entry.is_parent) icon = L"\uE74A";
             else if (entry.is_directory) icon = L"\uE8B7";
             else icon = L"\uE8A5";
             D2D1_RECT_F icon_rect = D2D1::RectF(
                 4.0f, item_y, 4.0f + icon_col_width, item_y + theme_.pane_item_height);
-            rt->DrawText(icon, 1, fmt_pane_icon_.Get(), icon_rect, Brush(BrushId::Text),
+            rt->DrawText(icon, 1, fmt_.pane_icon.Get(), icon_rect, Brush(BrushId::Text),
                 D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
-        if (fmt_pane_item_) {
+        if (fmt_.pane_item) {
             D2D1_RECT_F text_rect = D2D1::RectF(
                 4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
             rt->DrawText(entry.filename.c_str(), static_cast<UINT32>(entry.filename.size()),
-                fmt_pane_item_.Get(), text_rect, Brush(BrushId::Text),
+                fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
                 D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
     });
@@ -204,8 +204,8 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
     DrawSidePaneImpl(toc_pane_cache_, rt(), rect, scroll,
         static_cast<int>(entries.size()), L"Table of Contents", theme_,
         Brush(BrushId::Splitter), Brush(BrushId::Text),
-        Brush(BrushId::ScrollbarThumb), fmt_pane_header_.Get(),
-        fmt_pane_icon_.Get(), Brush(BrushId::PaneItemHover), close_hovered,
+        Brush(BrushId::ScrollbarThumb), fmt_.pane_header.Get(),
+        fmt_.pane_icon.Get(), Brush(BrushId::PaneItemHover), close_hovered,
         false, false,
         [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
@@ -216,11 +216,11 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
         }
 
         float indent = (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
-        if (fmt_pane_item_) {
+        if (fmt_.pane_item) {
             D2D1_RECT_F text_rect = D2D1::RectF(
                 8.0f + indent, item_y, width - 4.0f, item_y + theme_.pane_item_height);
             rt->DrawText(entry.text.c_str(), static_cast<UINT32>(entry.text.size()),
-                fmt_pane_item_.Get(), text_rect, Brush(BrushId::Text),
+                fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
                 D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
     });
@@ -265,11 +265,11 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb) {
         if (show_bg) {
             rt()->FillRectangle(rect, Brush(bg_id));
         }
-        if (fmt_titlebar_icon_) {
+        if (fmt_.titlebar_icon) {
             auto* brush = Brush(text_id);
             if (brush) {
                 brush->SetOpacity(alpha);
-                rt()->DrawText(icon, 1, fmt_titlebar_icon_.Get(), rect, brush);
+                rt()->DrawText(icon, 1, fmt_.titlebar_icon.Get(), rect, brush);
                 brush->SetOpacity(1.0f);
             }
         }
@@ -308,14 +308,14 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb) {
     }
 
     // タイトルテキスト
-    if (fmt_titlebar_text_ && !tb.title_text.empty()) {
+    if (fmt_.titlebar_text && !tb.title_text.empty()) {
         auto* brush = Brush(BrushId::TitleBarText);
         if (brush) {
             brush->SetOpacity(text_alpha);
             rt()->DrawText(
                 tb.title_text.data(),
                 static_cast<UINT32>(tb.title_text.size()),
-                fmt_titlebar_text_.Get(),
+                fmt_.titlebar_text.Get(),
                 tb.title_text_rect,
                 brush);
             brush->SetOpacity(1.0f);

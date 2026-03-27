@@ -141,5 +141,5 @@ void App::ApplyZoom(float new_zoom) {
     UpdateScrollBar(md_h);
     UpdateTitleBar();
     theme_service_.SaveZoomLevel(viewport_.GetZoomIndex());
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
 }

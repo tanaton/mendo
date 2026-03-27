@@ -30,25 +30,24 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     // コマンドラインでファイルが指定されていればそれを読み込み、なければ前回のファイルを復元
     // CommandLineToArgvWで正規のパースを行い、引用符やスペースを正しく処理する
+    std::wstring_view initial_path;
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (argv) {
-        if (argc > 1) {
-            window.LoadMarkdownFile(argv[1]);
-        }
-        else {
-            std::pmr::wstring last = window.LoadLastFilePath();
-            if (!last.empty()) {
-                window.LoadMarkdownFile(last);
-            }
-        }
-        LocalFree(argv);
+    if (argv && argc > 1) {
+        initial_path = argv[1];
     }
-    else {
+
+    if (!initial_path.empty()) {
+        window.LoadMarkdownFile(initial_path);
+    } else {
         std::pmr::wstring last = window.LoadLastFilePath();
         if (!last.empty()) {
             window.LoadMarkdownFile(last);
         }
+    }
+
+    if (argv) {
+        LocalFree(argv);
     }
 
     int result = window.RunMessageLoop();
