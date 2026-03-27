@@ -233,6 +233,16 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
         else if (!file_entry.is_current) {
+            if (GetFileAttributesW(file_entry.full_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                // ファイルが削除されている — ファイルペインを更新しトースト通知
+                file_explorer_.Refresh();
+                if (!doc_.GetFilePath().empty()) {
+                    file_explorer_.SetCurrentFile(doc_.GetFilePath());
+                }
+                renderer_.InvalidateFilePaneCache();
+                ShowToast(L"\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
+                return;
+            }
             PushNavHistory();
             LoadMarkdownFile(file_entry.full_path);
         }

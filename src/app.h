@@ -19,6 +19,7 @@
 #include "navigation_service.h"
 #include "mouse_gesture.h"
 #include "swipe_detector.h"
+#include "toast_notifier.h"
 #include "config_service.h"
 #include "theme_service.h"
 #include "file_load_service.h"
@@ -177,6 +178,7 @@ public:
     static constexpr UINT_PTR TIMER_DEFERRED_LAYOUT = 3;
     static constexpr UINT_PTR TIMER_LOADING_ANIM = 4;
     static constexpr UINT_PTR TIMER_SWIPE_OVERLAY = 5;
+    static constexpr UINT_PTR TIMER_TOAST = 6;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
 
 private:
@@ -234,6 +236,10 @@ private:
 
     // コードブロック コピーボタン
     int hovered_copy_node_ = -1;
+
+    // トースト通知
+    ToastNotifier toast_;
+    void ShowToast(std::wstring_view message);
 
     // スムーススクロールのフレーム間タイミング
     std::chrono::steady_clock::time_point last_scroll_time_{};

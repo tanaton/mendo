@@ -246,8 +246,13 @@ void App::OnPaint() {
     tb.title_text = cached_title_text_;
     tb.window_active = window_active_;
 
+    ToastRenderState ts;
+    ts.visible = toast_.IsVisible();
+    ts.alpha = toast_.GetRenderAlpha();
+    ts.message = toast_.GetMessage();
+
     if (file_load_service_.IsLoading()) {
-        renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs);
+        renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
     }
     else {
         renderer_.Render(doc_.GetNodesMut(), layout_cache_, viewport_.GetScrollY(),
@@ -255,7 +260,7 @@ void App::OnPaint() {
             viewport_.GetSelection(),
             layout.md_rect, sp, tb,
             nav_service_.CanGoBack(), nav_service_.CanGoForward(),
-            static_cast<int>(nav_hover_), hovered_copy_node_, gs);
+            static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts);
     }
 
     EndPaint(hwnd_, &ps);
@@ -657,6 +662,13 @@ void App::HandleTimer(UINT_PTR timer_id) {
         }
         break;
     }
+    case TIMER_TOAST: {
+        if (!toast_.Tick()) {
+            KillTimer(hwnd_, TIMER_TOAST);
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        break;
+    }
     default: break;
     }
 }
@@ -672,6 +684,12 @@ void App::OnCaptureChanged() {
     }
 }
 
+void App::ShowToast(std::wstring_view message) {
+    toast_.Show(message);
+    SetTimer(hwnd_, TIMER_TOAST, 16, nullptr);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 void App::OnDestroy() {
     SaveLastFilePath();
     SavePaneState();
@@ -679,6 +697,7 @@ void App::OnDestroy() {
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
     KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
+    KillTimer(hwnd_, TIMER_TOAST);
 }
 
 // ============================================================

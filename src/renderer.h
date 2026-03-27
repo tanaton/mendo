@@ -45,6 +45,12 @@ struct GestureRenderState {
     float overlay_alpha = 0.0f;
 };
 
+struct ToastRenderState {
+    bool visible = false;
+    float alpha = 0.0f;
+    std::wstring_view message;
+};
+
 // タイトルバー描画パラメータ。
 struct TitleBarRenderState {
     float height = 0.0f;
@@ -97,13 +103,15 @@ public:
         bool can_go_back = false, bool can_go_forward = false,
         int nav_hovered = 0,
         int hovered_copy_node = -1,
-        const GestureRenderState& gesture = {});
+        const GestureRenderState& gesture = {},
+        const ToastRenderState& toast = {});
     void SetDpi(float dpi);
     void DrawLoading(float angle,
         const PaneRect& md_pane_rect,
         const SidePaneState& side_panes,
         const TitleBarRenderState& titlebar,
-        const GestureRenderState& gesture = {});
+        const GestureRenderState& gesture = {},
+        const ToastRenderState& toast = {});
 
     ID2D1HwndRenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
     constexpr LayoutEngine& GetLayout() noexcept { return layout_; }
@@ -147,6 +155,7 @@ private:
         int hovered);  // 0=なし, 1=戻る, 2=進む
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
+    void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
 
     D2DRenderBackend backend_;
     // 簡易アクセサ（600行の描画コード内で冗長なbackend_.Get...を避けるため）
@@ -184,6 +193,7 @@ private:
     ComPtr<IDWriteTextLayout> nav_forward_layout_; // ▶ のキャッシュ済みレイアウト
     ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
     ComPtr<IDWriteTextFormat> fmt_gesture_overlay_;
+    ComPtr<IDWriteTextFormat> fmt_toast_text_;
 
 public:
     // ペインビットマップキャッシュ — サイドペインはオフスクリーンビットマップに描画され、
