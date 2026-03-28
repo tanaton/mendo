@@ -39,6 +39,6 @@ bool FileLoadService::ExecuteReload(Document& doc, LayoutCache& cache)
     }
 
     doc_service_.ReloadFile(doc);
-    cache.Reset(doc.GetNodes().size());
+    cache.Reset(doc.GetNodes().size(), false);
     return true;
 }

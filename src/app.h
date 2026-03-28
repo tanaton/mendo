@@ -86,6 +86,9 @@ public:
     // ウィンドウ全体の再描画を要求する
     void Invalidate() noexcept { InvalidateRect(hwnd_, nullptr, FALSE); }
 
+    // 指定ペイン領域のみ再描画を要求する
+    void InvalidatePane(const PaneRect& rect) noexcept;
+
     // Win32Windowのカーソル/再描画用にDPIスケールを公開
     constexpr float GetDpiScale() const noexcept { return cached_dpi_scale_; }
 
@@ -164,8 +167,9 @@ private:
     void SavePaneState();
     void LoadPaneState();
 
-    // ペインレイアウト
-    ::PaneLayout GetPaneLayout() const;
+    // ペインレイアウト（結果はキャッシュされる）
+    const ::PaneLayout& GetPaneLayout() const;
+    void InvalidatePaneLayoutCache() noexcept { pane_layout_valid_ = false; }
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
@@ -175,7 +179,7 @@ private:
     // OnPaint用のレンダーステート構築ヘルパー
     GestureRenderState BuildGestureRenderState() const;
     SidePaneState BuildSidePaneState(const ::PaneLayout& layout) const;
-    TitleBarRenderState BuildTitleBarRenderState() const;
+    TitleBarRenderState BuildTitleBarRenderState(float window_width) const;
     ToastRenderState BuildToastRenderState() const;
 
     // ダークモード / ズーム (theme_service_に委譲)
@@ -242,6 +246,11 @@ private:
     HitTestService hit_test_;
 
     float last_mermaid_content_width_ = 0.0f;
+
+    // PaneLayout キャッシュ（ウィンドウサイズ・ペイン状態が変わるまで再利用）
+    mutable ::PaneLayout cached_pane_layout_{};
+    mutable float cached_window_width_for_layout_ = 0.0f;
+    mutable bool pane_layout_valid_ = false;
 
     // ナビゲーションオーバーレイ
     using NavButtonHover = HitTestService::NavButtonHover;

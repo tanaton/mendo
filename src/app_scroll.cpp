@@ -111,6 +111,7 @@ void App::OnResizeEnd()
 
 void App::RefreshPaneLayout()
 {
+    InvalidatePaneLayoutCache();
     renderer_.InvalidateFilePaneCache();
     renderer_.InvalidateTocPaneCache();
     OnResizeEnd();

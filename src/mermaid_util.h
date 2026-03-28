@@ -14,5 +14,5 @@ std::pmr::wstring SimpleHash(std::wstring_view input);
 uint64_t HashRaw(std::wstring_view input);
 
 // 複数の値からキャッシュキーのハッシュを計算する（コード全体のコピーを回避）。
-std::pmr::wstring CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode);
+uint64_t CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode);
 }

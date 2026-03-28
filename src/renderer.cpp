@@ -240,6 +240,10 @@ void Renderer::RecreatePaneFormats()
 
     nav_back_layout_.Reset();
     nav_forward_layout_.Reset();
+    gesture_back_layout_.Reset();
+    gesture_forward_layout_.Reset();
+    cached_toast_layout_.Reset();
+    cached_toast_text_.clear();
     if (fmt_.nav_button) {
         auto* dw = backend_.GetDWriteFactory();
         if (dw) {
@@ -247,6 +251,15 @@ void Renderer::RecreatePaneFormats()
             static const wchar_t kForward[] = L"\x25B6";
             dw->CreateTextLayout(kBack, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
             dw->CreateTextLayout(kForward, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
+        }
+    }
+    if (fmt_.gesture_overlay) {
+        auto* dw = backend_.GetDWriteFactory();
+        if (dw) {
+            static const wchar_t kGestureBack[] = L"\x2190 \x623B\x308B";
+            static const wchar_t kGestureForward[] = L"\x2192 \x9032\x3080";
+            dw->CreateTextLayout(kGestureBack, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_back_layout_);
+            dw->CreateTextLayout(kGestureForward, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_forward_layout_);
         }
     }
 
@@ -654,15 +667,11 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 12.0f, 12.0f);
     rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
-    // テキスト（両テーマ共通でダークオーバーレイ上に白色）
-    const wchar_t* text = (direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080";
-    UINT32 text_len = static_cast<UINT32>(wcslen(text));
-
-    if (fmt_.gesture_overlay) {
+    // テキスト（両テーマ共通でダークオーバーレイ上に白色、キャッシュ済みレイアウトを使用）
+    auto* gesture_layout = (direction < 0) ? gesture_back_layout_.Get() : gesture_forward_layout_.Get();
+    if (gesture_layout) {
         Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
-        rt()->DrawText(
-            text, text_len, fmt_.gesture_overlay.Get(), rect, Brush(BrushId::Overlay),
-            D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
+        rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), gesture_layout, Brush(BrushId::Overlay));
     }
 }
 
@@ -691,12 +700,18 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
     D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 8.0f, 8.0f);
     rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
-    // 白テキスト
+    // 白テキスト（キャッシュ済みレイアウトを使用。メッセージ変更時のみ再作成）
     if (fmt_.toast_text) {
-        Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
-        rt()->DrawText(
-            toast.message.data(), static_cast<UINT32>(toast.message.size()),
-            fmt_.toast_text.Get(), rect, Brush(BrushId::Overlay),
-            D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
+        if (!cached_toast_layout_ || toast.message != cached_toast_text_) {
+            cached_toast_text_ = toast.message;
+            cached_toast_layout_.Reset();
+            backend_.GetDWriteFactory()->CreateTextLayout(
+                cached_toast_text_.data(), static_cast<UINT32>(cached_toast_text_.size()),
+                fmt_.toast_text.Get(), 320.0f, 48.0f, &cached_toast_layout_);
+        }
+        if (cached_toast_layout_) {
+            Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
+            rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), cached_toast_layout_.Get(), Brush(BrushId::Overlay));
+        }
     }
 }

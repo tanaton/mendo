@@ -46,11 +46,11 @@ std::pmr::wstring mermaid_util::SimpleHash(std::wstring_view input)
     return PmrFormat(L"{:016x}", HashRaw(input));
 }
 
-std::pmr::wstring mermaid_util::CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode)
+uint64_t mermaid_util::CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode)
 {
     // コード全体をコピーせず、直接ハッシュして幅・モードをミックスする
     uint64_t h = HashRaw(code);
     h ^= static_cast<uint64_t>(max_width_int) * 1099511628211ULL;
     h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL;
-    return PmrFormat(L"{:016x}", h);
+    return h;
 }

@@ -65,8 +65,8 @@ private:
     void RenderMermaidInWebView(std::wstring_view code, float max_width, bool dark_mode);
     void OnMermaidRenderResult(std::wstring_view json);
     void DoCapturePreview();
-    void OnCaptureComplete(std::wstring_view code_hash, IStream* png_stream);
-    std::pmr::wstring HashCode(std::wstring_view code, float max_width, bool dark_mode) const;
+    void OnCaptureComplete(uint64_t code_hash, IStream* png_stream);
+    uint64_t HashCode(std::wstring_view code, float max_width, bool dark_mode) const;
     HRESULT CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
         float* width, float* height);
     void FinishCurrentRequest();
@@ -92,7 +92,7 @@ private:
         bool dark_mode = false;
         Callback on_complete = nullptr;
         void* on_complete_data = nullptr;
-        std::pmr::wstring code_hash;
+        uint64_t code_hash = 0;
         float css_width = 0.0f;   // JSから取得したCSSピクセル寸法（DIP）
         float css_height = 0.0f;
         float dpr = 1.0f;         // JSから取得したdevicePixelRatio
@@ -107,5 +107,5 @@ private:
         float width = 0.0f;
         float height = 0.0f;
     };
-    std::pmr::unordered_map<std::pmr::wstring, CachedBitmap> cache_;
+    std::pmr::unordered_map<uint64_t, CachedBitmap> cache_;
 };

@@ -7,18 +7,18 @@ public:
     explicit DocumentService(FileLoader& loader) noexcept : loader_(loader) {}
 
     // ファイルを読み込み、Document を構築。成功時 true。
-    bool LoadFile(std::wstring_view path, Document& doc);
+    bool LoadFile(const std::pmr::wstring& path, Document& doc);
 
     // 現在のファイルを再読み込み
     bool ReloadFile(Document& doc);
 
     // ファイル監視
-    void StartWatching(std::wstring_view path, FileLoader::ChangeCallback cb);
+    void StartWatching(const std::pmr::wstring& path, FileLoader::ChangeCallback cb);
     void StopWatching() noexcept;
     void CheckForChanges();
 
     // 大きいファイルかどうか（ローディングアニメ判定用）
-    static bool NeedsLoadingAnimation(std::wstring_view path) noexcept;
+    static bool NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept;
 
 private:
     FileLoader& loader_;

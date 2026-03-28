@@ -15,11 +15,12 @@ protected:
         std::filesystem::remove_all(test_dir_);
     }
 
-    std::wstring CreateTestFile(const std::string& name, const std::string& content) {
+    std::pmr::wstring CreateTestFile(const std::string& name, const std::string& content) {
         auto path = test_dir_ / name;
         std::ofstream ofs(path, std::ios::binary);
         ofs << content;
-        return path.wstring();
+        auto ws = path.wstring();
+        return std::pmr::wstring{ std::wstring_view{ws} };
     }
 
     std::filesystem::path test_dir_;
@@ -41,7 +42,8 @@ TEST_F(DocumentServiceTest, LoadFileNotFound) {
     DocumentService service(loader_);
     Document doc;
 
-    EXPECT_FALSE(service.LoadFile(L"C:\\nonexistent\\file.md", doc));
+    std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
+    EXPECT_FALSE(service.LoadFile(nonexistent, doc));
     EXPECT_TRUE(doc.IsEmpty());
 }
 
@@ -55,7 +57,7 @@ TEST_F(DocumentServiceTest, ReloadFile) {
 
     // ファイルを変更
     {
-        std::ofstream ofs(path, std::ios::binary);
+        std::ofstream ofs(std::filesystem::path(path.c_str()), std::ios::binary);
         ofs << "# Second\n## Sub";
     }
 
@@ -79,5 +81,6 @@ TEST_F(DocumentServiceTest, NeedsLoadingAnimationSmallFile) {
 
 TEST_F(DocumentServiceTest, NeedsLoadingAnimationNonexistent) {
     // 存在しないファイルはアニメーション必要と報告（サイズを判定できないため）
-    EXPECT_TRUE(DocumentService::NeedsLoadingAnimation(L"C:\\nonexistent\\file.md"));
+    std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
+    EXPECT_TRUE(DocumentService::NeedsLoadingAnimation(nonexistent));
 }

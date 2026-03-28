@@ -221,6 +221,10 @@ private:
 
     ComPtr<IDWriteTextLayout> nav_back_layout_;   // ◀ のキャッシュ済みレイアウト
     ComPtr<IDWriteTextLayout> nav_forward_layout_; // ▶ のキャッシュ済みレイアウト
+    ComPtr<IDWriteTextLayout> gesture_back_layout_;    // "← 戻る" のキャッシュ済みレイアウト
+    ComPtr<IDWriteTextLayout> gesture_forward_layout_;  // "→ 進む" のキャッシュ済みレイアウト
+    ComPtr<IDWriteTextLayout> cached_toast_layout_;
+    std::pmr::wstring cached_toast_text_;
     ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
 
     PaneCache file_pane_cache_;

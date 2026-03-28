@@ -154,17 +154,33 @@ void App::OnActivate(bool active)
 // ペインレイアウト
 // ============================================================
 
-PaneLayout App::GetPaneLayout() const
+const PaneLayout& App::GetPaneLayout() const
 {
-    auto* rt = renderer_.GetRenderTarget();
-    if (!rt) {
-        return {};
+    if (!pane_layout_valid_) {
+        auto* rt = renderer_.GetRenderTarget();
+        if (!rt) {
+            static const PaneLayout empty{};
+            return empty;
+        }
+        auto size = rt->GetSize();
+        cached_window_width_for_layout_ = size.width;
+        float tb_h = titlebar_.GetHeight();
+        cached_pane_layout_ = panes_.ComputeLayout(size.width, size.height,
+            renderer_.GetTheme().splitter_width, tb_h);
+        pane_layout_valid_ = true;
     }
+    return cached_pane_layout_;
+}
 
-    auto size = rt->GetSize();
-    float tb_h = titlebar_.GetHeight();
-    return panes_.ComputeLayout(size.width, size.height,
-        renderer_.GetTheme().splitter_width, tb_h);
+void App::InvalidatePane(const PaneRect& rect) noexcept
+{
+    float scale = cached_dpi_scale_;
+    RECT rc;
+    rc.left = static_cast<LONG>(rect.x * scale);
+    rc.top = static_cast<LONG>(rect.y * scale);
+    rc.right = static_cast<LONG>((rect.x + rect.width) * scale) + 1;
+    rc.bottom = static_cast<LONG>((rect.y + rect.height) * scale) + 1;
+    InvalidateRect(hwnd_, &rc, FALSE);
 }
 
 PaneZone App::PaneAtPoint(float dip_x, [[maybe_unused]] float dip_y) const
@@ -217,13 +233,11 @@ SidePaneState App::BuildSidePaneState(const ::PaneLayout& layout) const
              panes_.IsTocCloseHovered() };
 }
 
-TitleBarRenderState App::BuildTitleBarRenderState() const
+TitleBarRenderState App::BuildTitleBarRenderState(float window_width) const
 {
-    auto* rt = renderer_.GetRenderTarget();
-    float window_w = rt ? rt->GetSize().width : 0.0f;
     TitleBarRenderState tb;
     tb.height = titlebar_.GetHeight();
-    tb.window_width = window_w;
+    tb.window_width = window_width;
     tb.file_btn_rect = titlebar_.GetFileToggleButton().rect;
     tb.file_btn_hovered = titlebar_.GetFileToggleButton().hovered;
     tb.file_pane_visible = panes_.IsFilePaneVisible();
@@ -267,7 +281,7 @@ void App::OnPaint()
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
 
-    auto layout = GetPaneLayout();
+    const auto& layout = GetPaneLayout();
     if (!file_load_service_.IsLoading()) {
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
         int anchor_idx = FindFirstVisibleNode();
@@ -282,7 +296,7 @@ void App::OnPaint()
     }
     auto gs = BuildGestureRenderState();
     auto sp = BuildSidePaneState(layout);
-    auto tb = BuildTitleBarRenderState();
+    auto tb = BuildTitleBarRenderState(cached_window_width_for_layout_);
     auto ts = BuildToastRenderState();
 
     if (file_load_service_.IsLoading()) {
@@ -312,6 +326,7 @@ void App::OnResize(UINT width, UINT height)
         return;
     }
 
+    InvalidatePaneLayoutCache();
     renderer_.Resize(width, height);
 
     // タイトルバーボタン位置を再計算
@@ -340,6 +355,7 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested)
     }
     renderer_.SetDpi(static_cast<float>(dpi));
 
+    InvalidatePaneLayoutCache();
     layout_cache_.MarkAllDirty();
 
     SetWindowPos(hwnd_, nullptr,
@@ -371,12 +387,13 @@ void App::OnExitSizeMove()
 
 void App::LoadMarkdownFile(std::wstring_view path)
 {
-    if (!DocumentService::NeedsLoadingAnimation(path)) {
-        file_load_service_.SetLoadingPath(path);
+    std::pmr::wstring path_str{ path };
+    if (!DocumentService::NeedsLoadingAnimation(path_str)) {
+        file_load_service_.SetLoadingPath(path_str);
         DoLoadMarkdownFile();
     }
     else {
-        file_load_service_.StartLoading(path);
+        file_load_service_.StartLoading(path_str);
         SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
         Invalidate();
         UpdateWindow(hwnd_);

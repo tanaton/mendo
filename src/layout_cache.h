@@ -42,14 +42,19 @@ public:
     }
 
     // 既存のエントリをすべてクリアし、デフォルト値でリサイズする。
-    // ファイル切り替え時に古いレイアウトデータを残さないために使用する。
-    void Reset(size_t node_count)
+    // shrink=true (デフォルト): ファイル切り替え時に古い容量を解放する。
+    // shrink=false: リロード時に容量を保持し、同サイズファイルの再確保を回避する。
+    void Reset(size_t node_count, bool shrink = true)
     {
         entries_.clear();
-        entries_.shrink_to_fit();
+        if (shrink) {
+            entries_.shrink_to_fit();
+        }
         entries_.resize(node_count);
         diagrams_.clear();
-        diagrams_.shrink_to_fit();
+        if (shrink) {
+            diagrams_.shrink_to_fit();
+        }
         diagrams_.resize(node_count);
     }
 

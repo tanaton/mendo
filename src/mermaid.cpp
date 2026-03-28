@@ -420,7 +420,7 @@ void MermaidRenderer::ClearPendingQueue() noexcept
     pending_requests_.swap(empty);
 }
 
-std::pmr::wstring MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const
+uint64_t MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const
 {
     return mermaid_util::CombinedHash(code, static_cast<int>(max_width), dark_mode);
 }
@@ -629,7 +629,7 @@ void MermaidRenderer::DoCapturePreview()
     }
 }
 
-void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* png_stream)
+void MermaidRenderer::OnCaptureComplete(uint64_t code_hash, IStream* png_stream)
 {
     ComPtr<ID2D1Bitmap> bitmap;
     float bw = 0, bh = 0;
@@ -655,7 +655,7 @@ void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* pn
         cached.bitmap = bitmap;
         cached.width = draw_w;
         cached.height = draw_h;
-        cache_[std::pmr::wstring{ code_hash }] = cached;
+        cache_[code_hash] = cached;
 
         // レイアウト/ダイアグラムエントリを更新
         if (current_request_.diagram_entry) {

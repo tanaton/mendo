@@ -451,6 +451,7 @@ void App::OnMouseMove(int px, int py)
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::Splitter1) {
         panes_.DragSplitter1To(dip_x, size.width, splitter_w);
+        InvalidatePaneLayoutCache();
         Invalidate();
         return;
     }
@@ -489,6 +490,7 @@ void App::OnMouseMove(int px, int py)
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::Splitter2) {
         panes_.DragSplitter2To(dip_x, size.width, splitter_w);
+        InvalidatePaneLayoutCache();
         Invalidate();
         return;
     }
@@ -539,12 +541,12 @@ void App::OnMouseHover(int px, int py)
         changed |= panes_.SetFileRefreshHovered(false);
         if (changed) {
             renderer_.InvalidateFilePaneCache();
-            Invalidate();
+            InvalidatePane(pane_layout.file_rect);
         }
     }
     if (zone != PaneZone::TocPane && panes_.SetTocCloseHovered(false)) {
         renderer_.InvalidateTocPaneCache();
-        Invalidate();
+        InvalidatePane(pane_layout.toc_rect);
     }
 
     switch (zone) {
@@ -593,11 +595,11 @@ void App::OnMouseHover(int px, int py)
 
     if (panes_.SetHoveredFileIndex(new_file_hover)) {
         renderer_.InvalidateFilePaneCache();
-        Invalidate();
+        InvalidatePane(pane_layout.file_rect);
     }
     if (panes_.SetHoveredTocIndex(new_toc_hover)) {
         renderer_.InvalidateTocPaneCache();
-        Invalidate();
+        InvalidatePane(pane_layout.toc_rect);
     }
 }
 

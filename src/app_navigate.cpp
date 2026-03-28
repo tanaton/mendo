@@ -28,7 +28,7 @@ void App::HandleLinkClick(std::wstring_view url)
 
 void App::NavigateToAnchor(std::wstring_view anchor)
 {
-    int idx = FindAnchorNodeIndex(doc_.GetNodes(), anchor);
+    int idx = doc_.FindAnchorIndex(anchor);
     if (idx < 0) {
         return;
     }
@@ -79,6 +79,7 @@ void App::NavigateForward()
 void App::ToggleDarkMode()
 {
     theme_service_.ToggleDarkMode();
+    InvalidatePaneLayoutCache();
     renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
     ApplyDarkModeToWindow(hwnd_, theme_service_.IsDarkMode());
 
@@ -122,6 +123,7 @@ void App::ZoomReset()
 
 void App::ApplyZoom(float new_zoom)
 {
+    InvalidatePaneLayoutCache();
     int anchor_idx = FindFirstVisibleNode();
     float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
     float anchor_offset = viewport_.GetScrollY() - anchor_y_before;
