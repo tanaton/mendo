@@ -839,7 +839,7 @@ RefreshPaneLayout();
     NavigateForward();
 },
 [this](const ShowHelpAction&) {
-    if (!doc_.GetFilePath().empty()) {
+    if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
         PushNavHistory();
     }
     LoadHelpDocument();

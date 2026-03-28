@@ -290,7 +290,7 @@ void App::OnLButtonDown(int px, int py)
     if (dip.y < titlebar_.GetHeight()) {
         auto tb_zone = titlebar_.HitTest(dip.x, dip.y);
         if (tb_zone == TitleBarHitZone::Help) {
-            if (!doc_.GetFilePath().empty()) {
+            if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
                 PushNavHistory();
             }
             LoadHelpDocument();
