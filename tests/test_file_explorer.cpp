@@ -264,6 +264,64 @@ TEST_F(FileExplorerTest, HitTestZeroItemHeight) {
     EXPECT_EQ(explorer.HitTest(10.0f, 0.0f), -1);
 }
 
+// ---- 初回起動シナリオ（ファイル未選択でディレクトリ表示） ----
+
+TEST_F(FileExplorerTest, SetDirectoryWithoutCurrentFileHasNoCurrent) {
+    CreateFile(L"a.md");
+    CreateFile(L"b.md");
+
+    FileExplorer explorer;
+    explorer.SetDirectory(temp_dir_.wstring());
+
+    // SetCurrentFileを呼ばない場合、どのエントリもcurrentでないこと
+    for (const auto& e : explorer.GetEntries()) {
+        EXPECT_FALSE(e.is_current);
+    }
+}
+
+TEST_F(FileExplorerTest, SetDirectoryWithCurrentWorkingDirectory) {
+    // 実際のカレントディレクトリを使用するシナリオ（初回起動を模倣）
+    wchar_t cwd[MAX_PATH];
+    ASSERT_NE(GetCurrentDirectoryW(MAX_PATH, cwd), 0u);
+
+    FileExplorer explorer;
+    explorer.SetDirectory(cwd);
+
+    // ディレクトリが設定されていること
+    EXPECT_FALSE(explorer.GetDirectory().empty());
+    // 少なくとも ".." エントリがあること
+    EXPECT_GE(explorer.GetEntries().size(), 1u);
+    EXPECT_TRUE(explorer.GetEntries()[0].is_parent);
+}
+
+TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches) {
+    // 初回起動でcwdを表示した後、ファイルのあるディレクトリに切り替えるシナリオ
+    CreateFile(L"test.md");
+
+    fs::path other_dir = temp_dir_ / L"other";
+    fs::create_directories(other_dir);
+    std::ofstream(other_dir / L"other.md", std::ios::binary).close();
+
+    FileExplorer explorer;
+    explorer.SetDirectory(temp_dir_.wstring());
+    EXPECT_EQ(std::wstring_view{explorer.GetDirectory()}, std::wstring_view{temp_dir_.wstring()});
+
+    // 別ディレクトリに切り替え
+    explorer.SetDirectory(other_dir.wstring());
+    EXPECT_EQ(std::wstring_view{explorer.GetDirectory()}, std::wstring_view{other_dir.wstring()});
+
+    // 新しいディレクトリの内容が表示されること
+    bool found_other = false;
+    for (const auto& e : explorer.GetEntries()) {
+        if (e.filename == L"other.md") {
+            found_other = true;
+        }
+        // 前のディレクトリのファイルがないこと
+        EXPECT_NE(e.filename, L"test.md");
+    }
+    EXPECT_TRUE(found_other);
+}
+
 // ---- リフレッシュ / SetDirectory ----
 
 TEST_F(FileExplorerTest, SetDirectorySamePathNoRefresh) {

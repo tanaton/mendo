@@ -10,6 +10,7 @@ public:
 
     void LoadMarkdownFile(std::wstring_view path) { app_.LoadMarkdownFile(path); }
     std::pmr::wstring LoadLastFilePath() const { return app_.LoadLastFilePath(); }
+    void ShowDirectory(std::wstring_view dir_path) { app_.ShowDirectory(dir_path); }
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);

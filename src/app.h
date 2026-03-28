@@ -42,6 +42,7 @@ public:
 
     void LoadMarkdownFile(std::wstring_view path);
     std::pmr::wstring LoadLastFilePath() const;
+    void ShowDirectory(std::wstring_view dir_path);
 
     // Win32Windowから呼び出されるイベントハンドラ
     void OnPaint();

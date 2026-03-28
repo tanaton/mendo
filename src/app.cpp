@@ -789,6 +789,13 @@ std::pmr::wstring App::LoadLastFilePath() const
     return path;
 }
 
+void App::ShowDirectory(std::wstring_view dir_path)
+{
+    file_explorer_.SetDirectory(dir_path);
+    renderer_.InvalidateFilePaneCache();
+    Invalidate();
+}
+
 // ============================================================
 // ペイン状態の永続化
 // ============================================================

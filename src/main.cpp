@@ -47,6 +47,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         if (!last.empty()) {
             window.LoadMarkdownFile(last);
         }
+        else {
+            // 初回起動または前回ファイルが存在しない場合、カレントディレクトリを表示
+            wchar_t cwd[MAX_PATH];
+            if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
+                window.ShowDirectory(cwd);
+            }
+        }
     }
 
     if (argv) {
