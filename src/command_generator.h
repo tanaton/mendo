@@ -81,10 +81,10 @@ private:
     void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry,
         float x, float w, bool is_hovered);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
-    void GenVerticalBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x, D2D1_COLOR_F color);
-    void GenBlockQuoteBar(DrawCommandList& cmds, const NodeLayoutEntry& entry, float base_x);
-    void GenAlertBar(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
-        float base_x, float content_width);
+    void GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
+        const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
+        int node_count, float offset_x, float content_width,
+        int first_visible, float viewport_bottom);
     void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout,
         uint32_t start, uint32_t length, float origin_x, float origin_y);
 

@@ -69,6 +69,11 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
     }
 
+    // 同一 blockquote_group のノードをまとめてバー/背景を描画する。
+    // ノード単体ごとではなく一括で描画することで、複数行の引用ブロックが連続した見た目になる。
+    GenBlockQuoteGroupDecorations(cmds, nodes, cache, node_count,
+        offset_x, md_content_width, first_visible, viewport_bottom);
+
     for (int i = first_visible; i < node_count; i++) {
         if (cache[i].y_position > viewport_bottom) {
             break;
@@ -139,12 +144,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     case NodeType::TaskListItem:
         break;
     case NodeType::BlockQuote:
-        if (node.alert_type != AlertType::None) {
-            GenAlertBar(cmds, node, entry, x, cw);
-        }
-        else {
-            GenBlockQuoteBar(cmds, entry, x);
-        }
+        // バーと背景はグループ単位で GenBlockQuoteGroupDecorations から描画済み
         break;
     case NodeType::Heading:
         if (node.heading_level <= 2) {
@@ -458,41 +458,88 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
     }
 }
 
-void CommandGenerator::GenVerticalBar(DrawCommandList& cmds,
-    const NodeLayoutEntry& entry, float base_x, D2D1_COLOR_F color)
+void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
+    const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
+    int node_count, float offset_x, float content_width,
+    int first_visible, float viewport_bottom)
 {
     static constexpr float BAR_EXTEND = 2.0f;
-    float bar_x = base_x - theme_->indent_width * 0.5f;
-    cmds.push_back(DrawLineCmd{
-        D2D1::Point2F(bar_x, entry.y_position - BAR_EXTEND),
-        D2D1::Point2F(bar_x, entry.y_position + entry.height + BAR_EXTEND),
-        color, theme_->blockquote_bar_width });
-}
-
-void CommandGenerator::GenBlockQuoteBar(DrawCommandList& cmds,
-    const NodeLayoutEntry& entry, float base_x)
-{
-    GenVerticalBar(cmds, entry, base_x, theme_->blockquote_bar_color);
-}
-
-void CommandGenerator::GenAlertBar(DrawCommandList& cmds,
-    const Node& node, const NodeLayoutEntry& entry, float base_x, float content_width)
-{
-    auto idx = AlertColorIndex(node.alert_type);
-    if (idx >= ALERT_TYPE_COUNT) {
-        return;
-    }
-
-    // 背景
     static constexpr float ALERT_BG_PAD = 4.0f;
     static constexpr float ALERT_BG_CORNER = 4.0f;
-    D2D1_RECT_F bg_rect = D2D1::RectF(
-        base_x - ALERT_BG_PAD, entry.y_position - ALERT_BG_PAD,
-        base_x + content_width, entry.y_position + entry.height + ALERT_BG_PAD);
-    cmds.push_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, theme_->alert_bg_color[idx] });
 
-    // 左バー
-    GenVerticalBar(cmds, entry, base_x, theme_->alert_color[idx]);
+    // first_visible がグループ途中の場合、グループ先頭まで遡る
+    int i = first_visible;
+    if (i < node_count && nodes[i].blockquote_group >= 0) {
+        int group = nodes[i].blockquote_group;
+        while (i > 0 && nodes[i - 1].blockquote_group == group) {
+            i--;
+        }
+    }
+
+    while (i < node_count) {
+        int group = nodes[i].blockquote_group;
+        if (group < 0) {
+            i++;
+            continue;
+        }
+        if (cache[i].y_position > viewport_bottom) {
+            break;
+        }
+
+        // グループの範囲を特定
+        float group_top = cache[i].y_position;
+        float group_bottom = cache[i].y_position + cache[i].height;
+        AlertType alert_type = nodes[i].alert_type;
+        int bar_indent = -1;
+        if (nodes[i].type == NodeType::BlockQuote) {
+            bar_indent = nodes[i].indent_level;
+        }
+
+        int j = i + 1;
+        while (j < node_count && nodes[j].blockquote_group == group) {
+            float bottom = cache[j].y_position + cache[j].height;
+            if (bottom > group_bottom) {
+                group_bottom = bottom;
+            }
+            if (bar_indent < 0 && nodes[j].type == NodeType::BlockQuote) {
+                bar_indent = nodes[j].indent_level;
+            }
+            j++;
+        }
+
+        if (bar_indent < 0) {
+            // BlockQuote ノードがないグループはスキップ
+            i = j;
+            continue;
+        }
+
+        float indent = static_cast<float>(bar_indent) * theme_->indent_width;
+        float x = offset_x + indent;
+        float bar_x = x - theme_->indent_width * 0.5f;
+
+        if (alert_type != AlertType::None) {
+            auto idx = AlertColorIndex(alert_type);
+            if (idx < ALERT_TYPE_COUNT) {
+                float cw = content_width - indent;
+                D2D1_RECT_F bg_rect = D2D1::RectF(
+                    x - ALERT_BG_PAD, group_top - ALERT_BG_PAD,
+                    x + cw, group_bottom + ALERT_BG_PAD);
+                cmds.push_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER,
+                    theme_->alert_bg_color[idx] });
+                cmds.push_back(DrawLineCmd{
+                    D2D1::Point2F(bar_x, group_top - BAR_EXTEND),
+                    D2D1::Point2F(bar_x, group_bottom + BAR_EXTEND),
+                    theme_->alert_color[idx], theme_->blockquote_bar_width });
+            }
+        } else {
+            cmds.push_back(DrawLineCmd{
+                D2D1::Point2F(bar_x, group_top - BAR_EXTEND),
+                D2D1::Point2F(bar_x, group_bottom + BAR_EXTEND),
+                theme_->blockquote_bar_color, theme_->blockquote_bar_width });
+        }
+
+        i = j;
+    }
 }
 
 void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,

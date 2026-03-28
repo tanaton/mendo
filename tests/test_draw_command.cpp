@@ -133,6 +133,37 @@ TEST_F(CmdGenTest, BlockQuoteGeneratesBarLine) {
     EXPECT_GE(lines, 1);
 }
 
+TEST_F(CmdGenTest, MultiLineBlockQuoteGeneratesSingleBar) {
+    auto cmds = Generate("> Line 1\n>\n> Line 2");
+    int vertical_lines = 0;
+    for (const auto& cmd : cmds) {
+        if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
+            if (std::abs(line->p0.x - line->p1.x) < 0.01f) {
+                vertical_lines++;
+            }
+        }
+    }
+    EXPECT_EQ(vertical_lines, 1) << "複数行の引用ブロックは1本の統合されたバーのみ生成するべき";
+}
+
+TEST_F(CmdGenTest, MultiLineAlertGeneratesSingleBarAndBackground) {
+    auto cmds = Generate("> [!NOTE]\n> Line 1\n>\n> Line 2");
+    int vertical_lines = 0;
+    int rounded_rects = 0;
+    for (const auto& cmd : cmds) {
+        if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
+            if (std::abs(line->p0.x - line->p1.x) < 0.01f) {
+                vertical_lines++;
+            }
+        }
+        if (std::holds_alternative<FillRoundedRectCmd>(cmd)) {
+            rounded_rects++;
+        }
+    }
+    EXPECT_EQ(vertical_lines, 1) << "複数行のAlertは1本の統合されたバーのみ生成するべき";
+    EXPECT_EQ(rounded_rects, 1) << "複数行のAlertは1つの統合された背景のみ生成するべき";
+}
+
 // ---- ビューポートカリング ----
 
 TEST_F(CmdGenTest, ViewportCullingExcludesOffscreenNodes) {
