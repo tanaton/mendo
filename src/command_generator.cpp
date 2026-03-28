@@ -119,7 +119,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             float draw_w = (diagram.height > 0)
                 ? diagram.width * (draw_h / diagram.height)
                 : diagram.width;
-            float dx = x + (cw - draw_w) * 0.5f;
+            float dx = x;
             cmds.push_back(DrawBitmapCmd{
                 diagram.bitmap.Get(),
                 D2D1::RectF(dx, entry.y_position, dx + draw_w, entry.y_position + draw_h) });
