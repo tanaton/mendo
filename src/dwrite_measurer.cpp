@@ -128,6 +128,23 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         return;
     }
 
+    // 画像ノード: 元画像サイズが設定済みならコンテンツ幅に合わせてスケール、
+    // 未設定ならプレースホルダー高さ
+    if (node.type == NodeType::Image) {
+        if (node.image_width > 0 && node.image_height > 0) {
+            float w = node.image_width;
+            float h = node.image_height;
+            if (w > max_width) {
+                h *= max_width / w;
+            }
+            entry.height = h;
+        } else if (entry.height <= 0) {
+            entry.height = std::max(MIN_MERMAID_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
+        }
+        entry.layout_dirty = false;
+        return;
+    }
+
     const auto& text = node.text;
     if (text.empty()) {
         entry.height = theme_->paragraph_spacing;

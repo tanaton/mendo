@@ -24,6 +24,7 @@ static float GetSpacingBelow(NodeType type, const Theme& theme)
     case NodeType::Heading:
         return theme.heading_spacing_below;
     case NodeType::CodeBlock:
+    case NodeType::Image:
         return theme.paragraph_spacing + theme.code_block_spacing_above;
     case NodeType::ListItem:
     case NodeType::TaskListItem:

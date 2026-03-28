@@ -313,6 +313,11 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
     }
     entry.effects_applied = true;
 
+    // 画像ノード: テキストエフェクト不要
+    if (node.type == NodeType::Image) {
+        return;
+    }
+
     // テーブルセル: セルレイアウトにリンク色を適用し、インラインコード背景を計算
     if (node.type == NodeType::Table) {
         entry.cell_inline_code_bgs.resize(node.table_rows.size());

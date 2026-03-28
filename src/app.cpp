@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <variant>
+#include <filesystem>
 #include <dwmapi.h>
 #include <uxtheme.h>
 
@@ -56,9 +57,14 @@ bool App::Init(HWND hwnd)
         RequestMermaidRenders();
     });
 
-    // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、MermaidRendererを更新
+    // 画像ローダーを初期化
+    image_loader_.Init(renderer_.GetRenderTarget());
+
+    // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、各ローダーを更新
     renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
         mermaid_renderer_.SetRenderTarget(new_rt);
+        image_loader_.SetRenderTarget(new_rt);
+        image_loader_.ClearCache();
     });
 
     // 保存済みのダークモードとズーム設定を適用
@@ -428,6 +434,7 @@ void App::DoLoadMarkdownFile()
 
     UpdateLayoutAndScroll(0.0f);
     UpdateTitleBar();
+    LoadImages();
     RequestMermaidRenders();
 
     doc_service_.StartWatching(doc_.GetFilePath(), [this]() {
@@ -447,6 +454,7 @@ void App::ReloadCurrentFile()
     if (file_load_service_.ExecuteReload(doc_, layout_cache_)) {
         renderer_.InvalidateTocPaneCache();
         UpdateLayoutAndScroll(old_scroll);
+        LoadImages();
         RequestMermaidRenders();
     }
 }
@@ -458,6 +466,73 @@ void App::UpdateTitleBar()
     SetWindowTextW(hwnd_, title.c_str());
     cached_title_text_ = std::move(title);
     Invalidate();
+}
+
+void App::LoadImages()
+{
+    std::wstring doc_dir{ doc_.GetDirectory() };
+    if (doc_dir.empty()) {
+        return;
+    }
+
+    float viewport_width = GetMarkdownPaneWidth();
+    float content_width = viewport_width
+        - renderer_.GetTheme().margin_left
+        - renderer_.GetTheme().margin_right;
+    if (content_width <= 0.0f) {
+        return;
+    }
+
+    bool any_loaded = false;
+    auto& nodes = doc_.GetNodesMut();
+    for (size_t i = 0; i < nodes.size(); i++) {
+        auto& node = nodes[i];
+        if (node.type != NodeType::Image) {
+            continue;
+        }
+        auto& diagram = layout_cache_.GetDiagram(i);
+        if (diagram.bitmap) {
+            continue;
+        }
+
+        // URLスキームはスキップ（ローカルファイルのみ対応）
+        if (node.image_src.find(L"://") != std::pmr::wstring::npos) {
+            continue;
+        }
+
+        // パス解決: 相対パスはドキュメントディレクトリ基準
+        std::filesystem::path img_path(std::wstring_view{ node.image_src });
+        if (img_path.is_relative()) {
+            img_path = std::filesystem::path(doc_dir) / img_path;
+        }
+
+        std::error_code ec;
+        auto abs_path = std::filesystem::canonical(img_path, ec);
+        if (ec) {
+            continue;
+        }
+
+        if (image_loader_.LoadImage(abs_path.wstring(), diagram)) {
+            node.image_width = diagram.width;
+            node.image_height = diagram.height;
+
+            // コンテンツ幅に合わせてレイアウト高さを設定
+            float indent = node.indent_level * renderer_.GetTheme().indent_width;
+            float node_width = content_width - indent;
+            float h = diagram.height;
+            if (diagram.width > node_width && diagram.width > 0) {
+                h *= node_width / diagram.width;
+            }
+            layout_cache_[i].height = h;
+            layout_cache_[i].layout_dirty = false;
+            any_loaded = true;
+        }
+    }
+
+    if (any_loaded) {
+        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+        Invalidate();
+    }
 }
 
 void App::RequestMermaidRenders()

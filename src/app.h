@@ -1,6 +1,7 @@
 #pragma once
 #include "renderer.h"
 #include "mermaid.h"
+#include "image_loader.h"
 #include "file_loader.h"
 #include "file_explorer.h"
 #include "document.h"
@@ -176,6 +177,7 @@ private:
 
     void RequestMermaidRenders();
     void OnMermaidRenderComplete();
+    void LoadImages();
 
     // OnPaint用のレンダーステート構築ヘルパー
     GestureRenderState BuildGestureRenderState() const;
@@ -217,6 +219,7 @@ private:
     // コアサービス
     Renderer renderer_;
     MermaidRenderer mermaid_renderer_;
+    ImageLoader image_loader_;
     FileLoader file_loader_;
     DocumentService doc_service_{ file_loader_ };
     AppController controller_;
