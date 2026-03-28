@@ -108,3 +108,76 @@ TEST_F(NavigationServiceTest, CanGoBackForward) {
     EXPECT_TRUE(service_.CanGoBack());
     EXPECT_FALSE(service_.CanGoForward());
 }
+
+// ═══════════════════════════════════════════════
+// 異なるファイル間でのスクロール位置保持
+// （戻る/進むでファイルロードが発生するケース）
+// ═══════════════════════════════════════════════
+
+TEST_F(NavigationServiceTest, GoForwardDifferentFileReturnsLoadFile) {
+    service_.PushHistory(L"C:\\first.md", 50.0f);
+
+    // first.md → second.md へ移動した後、戻る
+    auto back = service_.GoBack(L"C:\\second.md", 200.0f);
+    ASSERT_EQ(back.type, NavigationService::NavigateResult::Type::LoadFile);
+
+    // first.md から second.md へ進む
+    auto fwd = service_.GoForward(L"C:\\first.md", 50.0f);
+    EXPECT_EQ(fwd.type, NavigationService::NavigateResult::Type::LoadFile);
+    EXPECT_EQ(fwd.target, L"C:\\second.md");
+    EXPECT_FLOAT_EQ(fwd.scroll_y, 200.0f);
+}
+
+TEST_F(NavigationServiceTest, BackForwardCyclePreservesScrollPositions) {
+    // A(scroll=100) → B(scroll=300) → C(scroll=500)
+    service_.PushHistory(L"C:\\a.md", 100.0f);
+    service_.PushHistory(L"C:\\b.md", 300.0f);
+
+    // C から B へ戻る → LoadFile + scroll_y=300
+    auto r1 = service_.GoBack(L"C:\\c.md", 500.0f);
+    EXPECT_EQ(r1.type, NavigationService::NavigateResult::Type::LoadFile);
+    EXPECT_EQ(r1.target, L"C:\\b.md");
+    EXPECT_FLOAT_EQ(r1.scroll_y, 300.0f);
+
+    // B から A へ戻る → LoadFile + scroll_y=100
+    auto r2 = service_.GoBack(L"C:\\b.md", 300.0f);
+    EXPECT_EQ(r2.type, NavigationService::NavigateResult::Type::LoadFile);
+    EXPECT_EQ(r2.target, L"C:\\a.md");
+    EXPECT_FLOAT_EQ(r2.scroll_y, 100.0f);
+
+    // A から B へ進む → LoadFile + scroll_y=300
+    auto r3 = service_.GoForward(L"C:\\a.md", 100.0f);
+    EXPECT_EQ(r3.type, NavigationService::NavigateResult::Type::LoadFile);
+    EXPECT_EQ(r3.target, L"C:\\b.md");
+    EXPECT_FLOAT_EQ(r3.scroll_y, 300.0f);
+
+    // B から C へ進む → LoadFile + scroll_y=500
+    auto r4 = service_.GoForward(L"C:\\b.md", 300.0f);
+    EXPECT_EQ(r4.type, NavigationService::NavigateResult::Type::LoadFile);
+    EXPECT_EQ(r4.target, L"C:\\c.md");
+    EXPECT_FLOAT_EQ(r4.scroll_y, 500.0f);
+}
+
+TEST_F(NavigationServiceTest, BackFromDifferentFilePreservesCurrentScroll) {
+    // ファイルAで scroll_y=150 の状態を記録してBへ遷移
+    service_.PushHistory(L"C:\\a.md", 150.0f);
+
+    // B(scroll_y=400) から戻る → Aのファイルロード
+    auto back = service_.GoBack(L"C:\\b.md", 400.0f);
+    EXPECT_EQ(back.type, NavigationService::NavigateResult::Type::LoadFile);
+    EXPECT_FLOAT_EQ(back.scroll_y, 150.0f);
+
+    // 進む → B(scroll_y=400) へ戻る
+    auto fwd = service_.GoForward(L"C:\\a.md", 150.0f);
+    EXPECT_EQ(fwd.type, NavigationService::NavigateResult::Type::LoadFile);
+    EXPECT_EQ(fwd.target, L"C:\\b.md");
+    EXPECT_FLOAT_EQ(fwd.scroll_y, 400.0f);
+}
+
+TEST_F(NavigationServiceTest, LoadFileResultAlwaysHasScrollY) {
+    // scroll_y=0 でもLoadFile結果に含まれることを確認
+    service_.PushHistory(L"C:\\a.md", 0.0f);
+    auto result = service_.GoBack(L"C:\\b.md", 0.0f);
+    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::LoadFile);
+    EXPECT_FLOAT_EQ(result.scroll_y, 0.0f);
+}
