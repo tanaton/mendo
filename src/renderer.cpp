@@ -49,7 +49,7 @@ void Renderer::LoadAppIconBitmap()
 
     // アイコンリソースから16x16のビットマップを取得するため、LoadImageを使用
     HICON hIcon = static_cast<HICON>(LoadImageW(
-        hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR));
+        hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
     if (!hIcon) {
         return;
     }
