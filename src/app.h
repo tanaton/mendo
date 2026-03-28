@@ -269,6 +269,9 @@ private:
     using NavButtonHover = HitTestService::NavButtonHover;
     NavButtonHover nav_hover_ = NavButtonHover::None;
 
+    // 戻る/進むナビゲーション時の遅延スクロール復元用
+    float pending_nav_scroll_y_ = -1.0f;
+
     // カスタムコンテキストメニュー
     ContextMenu ctx_menu_;
 

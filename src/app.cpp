@@ -481,7 +481,13 @@ void App::DoLoadMarkdownFile()
     renderer_.InvalidateFilePaneCache();
     renderer_.InvalidateTocPaneCache();
 
-    UpdateLayoutAndScroll(0.0f);
+    // 戻る/進むナビゲーションからの遷移時はスクロール位置を復元
+    float scroll_y = 0.0f;
+    if (pending_nav_scroll_y_ >= 0.0f) {
+        scroll_y = pending_nav_scroll_y_;
+        pending_nav_scroll_y_ = -1.0f;
+    }
+    UpdateLayoutAndScroll(scroll_y);
     UpdateTitleBar();
     LoadImages();
     RequestMermaidRenders();

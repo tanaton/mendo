@@ -53,8 +53,9 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result)
     }
 
     if (result.type == NavigationService::NavigateResult::Type::LoadFile) {
-        file_load_service_.SetLoadingPath(result.target);
-        DoLoadMarkdownFile();
+        pending_nav_scroll_y_ = result.scroll_y;
+        LoadMarkdownFile(result.target);
+        return;
     }
     viewport_.ScrollTo(result.scroll_y);
     auto layout = GetPaneLayout();
