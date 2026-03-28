@@ -162,11 +162,15 @@ protected:
     static ComPtr<ID2D1Factory> d2d_;
 
     static void SetUpTestSuite() {
-        DWriteCreateFactory(
+        HRESULT hr = DWriteCreateFactory(
             DWRITE_FACTORY_TYPE_SHARED,
             __uuidof(IDWriteFactory),
             reinterpret_cast<IUnknown**>(dwrite_.GetAddressOf()));
-        D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_.GetAddressOf());
+        ASSERT_TRUE(SUCCEEDED(hr)) << "DWriteCreateFactory failed";
+        ASSERT_NE(dwrite_.Get(), nullptr);
+        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_.GetAddressOf());
+        ASSERT_TRUE(SUCCEEDED(hr)) << "D2D1CreateFactory failed";
+        ASSERT_NE(d2d_.Get(), nullptr);
     }
 
     static void TearDownTestSuite() {

@@ -95,10 +95,11 @@ public:
     float GetMenuWidth() const noexcept { return menu_width_; }
     float GetMenuHeight() const noexcept { return menu_height_; }
 
-    // テスト用: BuildItems/ComputeLayoutを外部から呼べるようにする
+#ifdef MENDO_TESTING
     void TestBuildItems(const ContextMenuParams& params) { BuildItems(params); }
     void TestCreateTextFormats(const Theme& theme) { CreateTextFormats(theme); }
     void TestComputeLayout() { ComputeLayout(); }
+#endif
 
 private:
 

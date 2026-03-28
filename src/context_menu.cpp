@@ -1,6 +1,5 @@
 #include "context_menu.h"
 #include "ui_constants.h"
-#include <shellscalingapi.h>
 #include <cmath>
 
 bool ContextMenu::class_registered_ = false;
@@ -70,7 +69,7 @@ ContextMenu::~ContextMenu()
 
 int ContextMenu::Show(HWND owner, const ContextMenuParams& params)
 {
-    if (!d2d_factory_ || !dwrite_factory_) {
+    if (!d2d_factory_ || !dwrite_factory_ || !params.theme || params.dpi_scale <= 0.0f) {
         return 0;
     }
 
@@ -116,7 +115,7 @@ int ContextMenu::Show(HWND owner, const ContextMenuParams& params)
     }
 
     hwnd_ = CreateWindowExW(
-        WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
         L"mendoContextMenu", nullptr,
         WS_POPUP,
         x, y, pixel_w, pixel_h,
@@ -144,14 +143,21 @@ int ContextMenu::Show(HWND owner, const ContextMenuParams& params)
     hovered_id_ = 0;
     hovered_nav_ = 0;
 
-    ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+    ShowWindow(hwnd_, SW_SHOW);
+    SetForegroundWindow(hwnd_);
     SetCapture(hwnd_);
 
     // モーダルメッセージループ
     MSG msg{};
     while (!done_) {
         BOOL ret = GetMessageW(&msg, nullptr, 0, 0);
-        if (ret <= 0) {
+        if (ret == -1) {
+            done_ = true;
+            break;
+        }
+        if (ret == 0) {
+            // WM_QUITを再ポストしてメインループに伝搬させる
+            PostQuitMessage(static_cast<int>(msg.wParam));
             done_ = true;
             break;
         }
@@ -255,6 +261,16 @@ LRESULT ContextMenu::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_CAPTURECHANGED:
         // キャプチャを失った → 閉じる
         if (reinterpret_cast<HWND>(lParam) != hwnd_) {
+            done_ = true;
+        }
+        return 0;
+
+    case WM_KILLFOCUS:
+        done_ = true;
+        return 0;
+
+    case WM_ACTIVATEAPP:
+        if (wParam == FALSE) {
             done_ = true;
         }
         return 0;
@@ -463,7 +479,10 @@ void ContextMenu::Paint()
         }
     }
 
-    rt_->EndDraw();
+    HRESULT hr = rt_->EndDraw();
+    if (hr == D2DERR_RECREATE_TARGET) {
+        rt_.Reset();
+    }
 }
 
 void ContextMenu::DrawNavRow(const Item& /*item*/)
