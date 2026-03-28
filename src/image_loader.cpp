@@ -128,11 +128,18 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
     UINT w = 0, h = 0;
     frame->GetSize(&w, &h);
 
+    // ピクセルサイズを DIP に変換。DPI スケーリングの影響を受けずに
+    // 元のピクセルサイズで表示される。
+    float dpi_x = 96.0f, dpi_y = 96.0f;
+    render_target_->GetDpi(&dpi_x, &dpi_y);
+    float scale_x = (dpi_x > 0.0f) ? (dpi_x / 96.0f) : 1.0f;
+    float scale_y = (dpi_y > 0.0f) ? (dpi_y / 96.0f) : 1.0f;
+
     // キャッシュに格納
     CachedImage cached;
     cached.bitmap = bitmap;
-    cached.width = static_cast<float>(w);
-    cached.height = static_cast<float>(h);
+    cached.width = static_cast<float>(w) / scale_x;
+    cached.height = static_cast<float>(h) / scale_y;
     cache_[abs_path] = cached;
 
     out.bitmap = bitmap;
@@ -195,10 +202,14 @@ void ImageLoader::ProcessCompletedDecodes()
                 HRESULT hr = render_target_->CreateBitmapFromWicBitmap(
                     r.converter.Get(), &bitmap);
                 if (SUCCEEDED(hr) && bitmap) {
+                    float dpi_x = 96.0f, dpi_y = 96.0f;
+                    render_target_->GetDpi(&dpi_x, &dpi_y);
+                    float sx = (dpi_x > 0.0f) ? (dpi_x / 96.0f) : 1.0f;
+                    float sy = (dpi_y > 0.0f) ? (dpi_y / 96.0f) : 1.0f;
                     CachedImage cached;
                     cached.bitmap = bitmap;
-                    cached.width = r.width;
-                    cached.height = r.height;
+                    cached.width = r.width / sx;
+                    cached.height = r.height / sy;
                     cache_[r.path] = cached;
                 }
             }

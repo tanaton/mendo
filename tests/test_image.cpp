@@ -801,6 +801,186 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad) {
 }
 
 // ============================================================
+// DPI スケーリングテスト: 画像サイズが DIP 単位で返されること
+// ============================================================
+
+class ImageLoaderDpiTest : public ::testing::Test {
+protected:
+    ComPtr<ID2D1Factory> d2d_factory_;
+    ComPtr<IWICImagingFactory> wic_factory_;
+    std::filesystem::path temp_dir_;
+
+    static void SetUpTestSuite() {
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        ASSERT_TRUE(SUCCEEDED(hr)) << "COM初期化に失敗";
+    }
+
+    static void TearDownTestSuite() {
+        CoUninitialize();
+    }
+
+    void SetUp() override {
+        HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
+            d2d_factory_.GetAddressOf());
+        ASSERT_TRUE(SUCCEEDED(hr));
+
+        hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+            CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic_factory_));
+        ASSERT_TRUE(SUCCEEDED(hr));
+
+        auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+        temp_dir_ = std::filesystem::temp_directory_path()
+            / ("mendo_test_dpi_" + std::string(info->name()));
+        std::filesystem::create_directories(temp_dir_);
+    }
+
+    void TearDown() override {
+        std::error_code ec;
+        std::filesystem::remove_all(temp_dir_, ec);
+    }
+
+    // 指定DPIのレンダーターゲットを作成
+    ComPtr<ID2D1RenderTarget> CreateRenderTargetWithDpi(float dpi) {
+        ComPtr<IWICBitmap> wic_bitmap;
+        wic_factory_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA,
+            WICBitmapCacheOnLoad, &wic_bitmap);
+
+        auto props = D2D1::RenderTargetProperties();
+        props.dpiX = dpi;
+        props.dpiY = dpi;
+
+        ComPtr<ID2D1RenderTarget> rt;
+        d2d_factory_->CreateWicBitmapRenderTarget(wic_bitmap.Get(), props, &rt);
+        return rt;
+    }
+
+    bool CreateTestImage(const std::wstring& filename, UINT width, UINT height) {
+        auto path = temp_dir_ / filename;
+        ComPtr<IWICBitmapEncoder> encoder;
+        HRESULT hr = wic_factory_->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
+        if (FAILED(hr)) { return false; }
+
+        ComPtr<IStream> stream;
+        hr = SHCreateStreamOnFileW(path.wstring().c_str(), STGM_CREATE | STGM_WRITE, &stream);
+        if (FAILED(hr)) { return false; }
+
+        hr = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
+        if (FAILED(hr)) { return false; }
+
+        ComPtr<IWICBitmapFrameEncode> frame;
+        hr = encoder->CreateNewFrame(&frame, nullptr);
+        if (FAILED(hr)) { return false; }
+        hr = frame->Initialize(nullptr);
+        if (FAILED(hr)) { return false; }
+        hr = frame->SetSize(width, height);
+        if (FAILED(hr)) { return false; }
+
+        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+        hr = frame->SetPixelFormat(&format);
+        if (FAILED(hr)) { return false; }
+
+        UINT stride = width * 4;
+        std::vector<BYTE> row(stride, 0);
+        for (UINT y = 0; y < height; y++) {
+            hr = frame->WritePixels(1, stride, stride, row.data());
+            if (FAILED(hr)) { return false; }
+        }
+
+        hr = frame->Commit();
+        if (FAILED(hr)) { return false; }
+        return SUCCEEDED(encoder->Commit());
+    }
+
+    std::wstring GetTestImagePath(const std::wstring& filename) {
+        return (temp_dir_ / filename).wstring();
+    }
+};
+
+TEST_F(ImageLoaderDpiTest, At96DpiSizeEqualsPixels) {
+    auto rt = CreateRenderTargetWithDpi(96.0f);
+    ASSERT_TRUE(rt);
+
+    ImageLoader loader;
+    loader.Init(rt.Get());
+
+    ASSERT_TRUE(CreateTestImage(L"test96.png", 200, 100));
+    DiagramEntry entry;
+    EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test96.png"), entry));
+    // 96 DPI: 1 pixel = 1 DIP
+    EXPECT_FLOAT_EQ(entry.width, 200.0f);
+    EXPECT_FLOAT_EQ(entry.height, 100.0f);
+}
+
+TEST_F(ImageLoaderDpiTest, At144DpiSizeDividedByScale) {
+    // 150% スケーリング (144 DPI)
+    auto rt = CreateRenderTargetWithDpi(144.0f);
+    ASSERT_TRUE(rt);
+
+    ImageLoader loader;
+    loader.Init(rt.Get());
+
+    ASSERT_TRUE(CreateTestImage(L"test144.png", 300, 150));
+    DiagramEntry entry;
+    EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test144.png"), entry));
+    // 300px / 1.5 = 200 DIP, 150px / 1.5 = 100 DIP
+    EXPECT_NEAR(entry.width, 200.0f, 0.1f);
+    EXPECT_NEAR(entry.height, 100.0f, 0.1f);
+}
+
+TEST_F(ImageLoaderDpiTest, At192DpiSizeDividedByScale) {
+    // 200% スケーリング (192 DPI)
+    auto rt = CreateRenderTargetWithDpi(192.0f);
+    ASSERT_TRUE(rt);
+
+    ImageLoader loader;
+    loader.Init(rt.Get());
+
+    ASSERT_TRUE(CreateTestImage(L"test192.png", 400, 200));
+    DiagramEntry entry;
+    EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test192.png"), entry));
+    // 400px / 2.0 = 200 DIP, 200px / 2.0 = 100 DIP
+    EXPECT_FLOAT_EQ(entry.width, 200.0f);
+    EXPECT_FLOAT_EQ(entry.height, 100.0f);
+}
+
+TEST_F(ImageLoaderDpiTest, At120DpiSizeDividedByScale) {
+    // 125% スケーリング (120 DPI)
+    auto rt = CreateRenderTargetWithDpi(120.0f);
+    ASSERT_TRUE(rt);
+
+    ImageLoader loader;
+    loader.Init(rt.Get());
+
+    ASSERT_TRUE(CreateTestImage(L"test120.png", 250, 100));
+    DiagramEntry entry;
+    EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test120.png"), entry));
+    // 250px / 1.25 = 200 DIP, 100px / 1.25 = 80 DIP
+    EXPECT_NEAR(entry.width, 200.0f, 0.1f);
+    EXPECT_NEAR(entry.height, 80.0f, 0.1f);
+}
+
+TEST_F(ImageLoaderDpiTest, CacheReturnsDipSize) {
+    auto rt = CreateRenderTargetWithDpi(144.0f);
+    ASSERT_TRUE(rt);
+
+    ImageLoader loader;
+    loader.Init(rt.Get());
+
+    ASSERT_TRUE(CreateTestImage(L"cache_dpi.png", 300, 150));
+    auto path = GetTestImagePath(L"cache_dpi.png");
+
+    // 1回目: LoadImage でキャッシュに格納
+    DiagramEntry entry1;
+    ASSERT_TRUE(loader.LoadImage(path, entry1));
+
+    // 2回目: キャッシュヒット — 同じ DIP サイズが返されること
+    DiagramEntry entry2;
+    ASSERT_TRUE(loader.GetCachedImage(path, entry2));
+    EXPECT_NEAR(entry2.width, 200.0f, 0.1f);
+    EXPECT_NEAR(entry2.height, 100.0f, 0.1f);
+}
+
+// ============================================================
 // 非同期読み込みテスト
 // ============================================================
 
@@ -907,6 +1087,42 @@ TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad) {
     if (hFile != INVALID_HANDLE_VALUE) {
         CloseHandle(hFile);
     }
+}
+
+TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent) {
+    // 非同期パスでも DPI 補正が適用されることを確認
+    // 既存ローダーを停止し、144 DPI のレンダーターゲットで再初期化
+    loader_.Shutdown();
+    loader_.ClearCache();
+
+    ComPtr<IWICBitmap> wic_bitmap;
+    HRESULT hr = wic_factory_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA,
+        WICBitmapCacheOnLoad, &wic_bitmap);
+    ASSERT_TRUE(SUCCEEDED(hr));
+
+    auto rt_props = D2D1::RenderTargetProperties();
+    rt_props.dpiX = 144.0f;
+    rt_props.dpiY = 144.0f;
+    ComPtr<ID2D1RenderTarget> rt_144;
+    hr = d2d_factory_->CreateWicBitmapRenderTarget(
+        wic_bitmap.Get(), rt_props, &rt_144);
+    ASSERT_TRUE(SUCCEEDED(hr));
+
+    loader_.Init(rt_144.Get());
+    loader_.InitAsync(nullptr, 0);
+
+    ASSERT_TRUE(CreateTestImage(L"async_dpi.png", GUID_ContainerFormatPng, 300, 150));
+    auto path = GetTestImagePath(L"async_dpi.png");
+
+    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
+
+    DiagramEntry entry;
+    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    EXPECT_TRUE(entry.bitmap);
+    // 300px / 1.5 = 200 DIP, 150px / 1.5 = 100 DIP
+    EXPECT_NEAR(entry.width, 200.0f, 0.1f);
+    EXPECT_NEAR(entry.height, 100.0f, 0.1f);
 }
 
 TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue) {
