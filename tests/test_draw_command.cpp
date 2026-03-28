@@ -505,6 +505,53 @@ TEST_F(CmdGenTest, NonCodeBlockNoCopyButton) {
     EXPECT_EQ(text_cmd_count, 0);
 }
 
+// ---- リスト箇条書き記号の垂直位置 ----
+
+TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine) {
+    auto nodes = ParseMarkdown("- Item");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+
+    // text_layout が null のフォールバック: first_line_h = font_size_body * 1.3
+    float expected_y = cache[0].y_position + theme_.font_size_body * 1.3f * 0.5f;
+
+    for (const auto& cmd : cmds) {
+        if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
+            EXPECT_NEAR(e->center.y, expected_y, 0.01f);
+            return;
+        }
+    }
+    FAIL() << "FillEllipseCmd が見つからない";
+}
+
+TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine) {
+    auto nodes = ParseMarkdown("- A\n  - B");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+
+    float expected_y0 = cache[0].y_position + theme_.font_size_body * 1.3f * 0.5f;
+    float expected_y1 = cache[1].y_position + theme_.font_size_body * 1.3f * 0.5f;
+
+    int idx = 0;
+    for (const auto& cmd : cmds) {
+        if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
+            EXPECT_NEAR(e->center.y, expected_y0, 0.01f) << "親リスト項目の箇条書き記号";
+            idx++;
+        }
+        else if (auto* d = std::get_if<DrawEllipseCmd>(&cmd)) {
+            EXPECT_NEAR(d->center.y, expected_y1, 0.01f) << "子リスト項目の箇条書き記号";
+            idx++;
+        }
+    }
+    EXPECT_EQ(idx, 2) << "親と子の箇条書き記号が1つずつ存在するべき";
+}
+
 // hovered_copy_node パラメータが GenerateMdPane に渡せることの検証
 TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted) {
     auto nodes = ParseMarkdown("```\ncode\n```");

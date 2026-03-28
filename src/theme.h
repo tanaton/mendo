@@ -43,8 +43,10 @@ struct Theme {
     float margin_right;
     float margin_top;
     float paragraph_spacing;
+    float list_item_spacing;
     float heading_spacing_above;
     float heading_spacing_below;
+    float code_block_spacing_above;
     float code_block_padding;
     float indent_width;
     float blockquote_bar_width;

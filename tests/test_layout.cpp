@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <memory_resource>
 #include "layout.h"
+#include "command_generator.h"
 #include "dwrite_measurer.h"
 #include "parser.h"
 #include <dwrite.h>
@@ -885,4 +886,201 @@ TEST(FindFirstVisibleNodeIndex, LastNodeVisible) {
     auto cache = MakeSimpleCache(10, 50.0f);
     // viewport_top = 449 → ノード8は450で終了、まだ可視
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 449.0f), 8);
+}
+
+// ---- コードブロックの上下マージン ----
+
+TEST(RecomputeYPositionsTest, CodeBlockHasSpacingAbove) {
+    Theme theme = GetLightTheme();
+    Node para;
+    para.type = NodeType::Paragraph;
+    Node code;
+    code.type = NodeType::CodeBlock;
+
+    std::pmr::vector<Node> nodes = {para, code};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 20.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 50.0f;
+    cache[1].layout_dirty = false;
+
+    RecomputeYPositions(nodes, cache, theme);
+
+    float para_bottom = cache[0].y_position + cache[0].height;
+    float gap = cache[1].y_position - para_bottom;
+    // paragraph_spacing + code_block_spacing_above
+    EXPECT_FLOAT_EQ(gap, theme.paragraph_spacing + theme.code_block_spacing_above);
+}
+
+TEST(RecomputeYPositionsTest, CodeBlockHasSpacingBelow) {
+    Theme theme = GetLightTheme();
+    Node code;
+    code.type = NodeType::CodeBlock;
+    Node para;
+    para.type = NodeType::Paragraph;
+
+    std::pmr::vector<Node> nodes = {code, para};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 50.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 20.0f;
+    cache[1].layout_dirty = false;
+
+    RecomputeYPositions(nodes, cache, theme);
+
+    float code_bottom = cache[0].y_position + cache[0].height;
+    float gap = cache[1].y_position - code_bottom;
+    // コードブロック後: paragraph_spacing + code_block_spacing_above
+    EXPECT_FLOAT_EQ(gap, theme.paragraph_spacing + theme.code_block_spacing_above);
+}
+
+// ---- 引用ブロックの上部マージン ----
+
+TEST(RecomputeYPositionsTest, BlockQuoteHasSpacingAbove) {
+    Theme theme = GetLightTheme();
+    Node para;
+    para.type = NodeType::Paragraph;
+    Node quote;
+    quote.type = NodeType::BlockQuote;
+
+    std::pmr::vector<Node> nodes = {para, quote};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 20.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 30.0f;
+    cache[1].layout_dirty = false;
+
+    RecomputeYPositions(nodes, cache, theme);
+
+    float para_bottom = cache[0].y_position + cache[0].height;
+    float gap = cache[1].y_position - para_bottom;
+    // paragraph_spacing + code_block_spacing_above
+    EXPECT_FLOAT_EQ(gap, theme.paragraph_spacing + theme.code_block_spacing_above);
+}
+
+// ---- リスト項目のスペーシング ----
+
+TEST(RecomputeYPositionsTest, ListItemUsesListItemSpacing) {
+    Theme theme = GetLightTheme();
+    Node li1;
+    li1.type = NodeType::ListItem;
+    Node li2;
+    li2.type = NodeType::ListItem;
+
+    std::pmr::vector<Node> nodes = {li1, li2};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 18.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 18.0f;
+    cache[1].layout_dirty = false;
+
+    RecomputeYPositions(nodes, cache, theme);
+
+    float gap = cache[1].y_position - (cache[0].y_position + cache[0].height);
+    EXPECT_FLOAT_EQ(gap, theme.list_item_spacing);
+}
+
+TEST(RecomputeYPositionsTest, TaskListItemUsesListItemSpacing) {
+    Theme theme = GetLightTheme();
+    Node tli1;
+    tli1.type = NodeType::TaskListItem;
+    Node tli2;
+    tli2.type = NodeType::TaskListItem;
+
+    std::pmr::vector<Node> nodes = {tli1, tli2};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 18.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 18.0f;
+    cache[1].layout_dirty = false;
+
+    RecomputeYPositions(nodes, cache, theme);
+
+    float gap = cache[1].y_position - (cache[0].y_position + cache[0].height);
+    EXPECT_FLOAT_EQ(gap, theme.list_item_spacing);
+}
+
+// ---- from_index による途中再開 ----
+
+TEST(RecomputeYPositionsTest, FromIndexCodeBlock) {
+    Theme theme = GetLightTheme();
+    Node code;
+    code.type = NodeType::CodeBlock;
+    Node para;
+    para.type = NodeType::Paragraph;
+
+    std::pmr::vector<Node> nodes = {code, para};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 50.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 20.0f;
+    cache[1].layout_dirty = false;
+
+    // まず全体を計算
+    RecomputeYPositions(nodes, cache, theme);
+    float expected_y1 = cache[1].y_position;
+
+    // from_index=1 で途中から再計算
+    RecomputeYPositions(nodes, cache, theme, 1);
+    EXPECT_FLOAT_EQ(cache[1].y_position, expected_y1);
+}
+
+TEST(RecomputeYPositionsTest, FromIndexListItem) {
+    Theme theme = GetLightTheme();
+    Node li;
+    li.type = NodeType::ListItem;
+    Node para;
+    para.type = NodeType::Paragraph;
+
+    std::pmr::vector<Node> nodes = {li, para};
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 18.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 20.0f;
+    cache[1].layout_dirty = false;
+
+    RecomputeYPositions(nodes, cache, theme);
+    float expected_y1 = cache[1].y_position;
+
+    RecomputeYPositions(nodes, cache, theme, 1);
+    EXPECT_FLOAT_EQ(cache[1].y_position, expected_y1);
+}
+
+// ---- リスト箇条書き記号の垂直位置（実DWriteレイアウト使用） ----
+
+TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout) {
+    auto nodes = ParseMarkdown("- Item text here");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+
+    ASSERT_NE(cache[0].text_layout.Get(), nullptr);
+    DWRITE_LINE_METRICS lm;
+    UINT32 lc;
+    ASSERT_TRUE(SUCCEEDED(cache[0].text_layout->GetLineMetrics(&lm, 1, &lc)));
+    ASSERT_GT(lc, 0u);
+
+    float expected_y = cache[0].y_position + lm.height * 0.5f;
+
+    CommandGenerator gen;
+    gen.SetTheme(&theme_);
+    gen.SetFormats({nullptr, nullptr, nullptr});
+    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+
+    for (const auto& cmd : cmds) {
+        if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
+            EXPECT_NEAR(e->center.y, expected_y, 0.01f)
+                << "箇条書き記号は1行目の中央に配置されるべき";
+            return;
+        }
+    }
+    FAIL() << "FillEllipseCmd が見つからない";
 }

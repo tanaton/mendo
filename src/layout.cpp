@@ -5,6 +5,36 @@
 static constexpr float MIN_COLUMN_WIDTH = 30.0f;
 static constexpr float COLUMN_WIDTH_PADDING = 4.0f;
 
+static float GetSpacingAbove(NodeType type, const Theme& theme)
+{
+    switch (type) {
+    case NodeType::Heading:
+        return theme.heading_spacing_above;
+    case NodeType::CodeBlock:
+    case NodeType::BlockQuote:
+        return theme.code_block_spacing_above;
+    default:
+        return 0.0f;
+    }
+}
+
+static float GetSpacingBelow(NodeType type, const Theme& theme)
+{
+    switch (type) {
+    case NodeType::Heading:
+        return theme.heading_spacing_below;
+    case NodeType::CodeBlock:
+        return theme.paragraph_spacing + theme.code_block_spacing_above;
+    case NodeType::ListItem:
+    case NodeType::TaskListItem:
+        return theme.list_item_spacing;
+    case NodeType::HorizontalRule:
+        return 0.0f;
+    default:
+        return theme.paragraph_spacing;
+    }
+}
+
 // ---- フリー関数 ----
 
 std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natural_widths,
@@ -71,12 +101,7 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
     if (from_index > 0 && from_index < nodes.size()) {
         auto& prev = cache[from_index - 1];
         y = prev.y_position + prev.height;
-        if (nodes[from_index - 1].type == NodeType::Heading) {
-            y += theme.heading_spacing_below;
-        }
-        else {
-            y += theme.paragraph_spacing;
-        }
+        y += GetSpacingBelow(nodes[from_index - 1].type, theme);
     }
 
     for (size_t i = from_index; i < nodes.size(); i++) {
@@ -85,19 +110,12 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
             result.has_dirty_nodes = true;
         }
 
-        if (nodes[i].type == NodeType::Heading) {
-            y += theme.heading_spacing_above;
-        }
+        y += GetSpacingAbove(nodes[i].type, theme);
 
         entry.y_position = y;
         y += entry.height;
 
-        if (nodes[i].type == NodeType::Heading) {
-            y += theme.heading_spacing_below;
-        }
-        else {
-            y += theme.paragraph_spacing;
-        }
+        y += GetSpacingBelow(nodes[i].type, theme);
     }
 
     result.total_height = y + theme.margin_top;
@@ -171,17 +189,10 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         }
 
         // このパスで直接 Y 位置を設定する
-        if (node.type == NodeType::Heading) {
-            y += theme_->heading_spacing_above;
-        }
+        y += GetSpacingAbove(node.type, *theme_);
         entry.y_position = y;
         y += entry.height;
-        if (node.type == NodeType::Heading) {
-            y += theme_->heading_spacing_below;
-        }
-        else {
-            y += theme_->paragraph_spacing;
-        }
+        y += GetSpacingBelow(node.type, *theme_);
 
         // 早期終了: 部分モードで幅の変更がなく、ビューポートを超えた後に
         // 高さの変更もなければ、残りの Y 位置は変わらない。

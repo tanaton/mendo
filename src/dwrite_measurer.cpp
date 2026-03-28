@@ -84,7 +84,7 @@ void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
     for (const auto& run : runs) {
         DWRITE_TEXT_RANGE range{ run.start, run.length };
         if (run.bold) {
-            layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
+            layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, range);
         }
         if (run.italic) {
             layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
@@ -153,7 +153,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     for (const auto& run : node.runs) {
         DWRITE_TEXT_RANGE range{ run.start, run.length };
         if (run.bold) {
-            layout->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
+            layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, range);
         }
         if (run.italic) {
             layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
@@ -270,6 +270,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
 
     // セルレイアウトを再構築するため、レイアウト単位の状態をリセット。
     entry.effects_applied = false;
+    entry.cell_inline_code_bgs.clear();
     entry.cell_layouts.resize(node.table_rows.size());
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         entry.cell_layouts[r].resize(node.table_rows[r].cells.size());

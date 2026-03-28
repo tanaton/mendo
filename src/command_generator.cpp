@@ -3,6 +3,33 @@
 #include <algorithm>
 #include <format>
 
+static float GetFirstLineHeight(IDWriteTextLayout* layout, float font_size)
+{
+    float h = font_size * 1.3f;
+    if (layout) {
+        DWRITE_LINE_METRICS lm;
+        UINT32 lc;
+        if (SUCCEEDED(layout->GetLineMetrics(&lm, 1, &lc)) && lc > 0) {
+            h = lm.height;
+        }
+    }
+    return h;
+}
+
+static void GenInlineCodeBgs(DrawCommandList& cmds,
+    const std::pmr::vector<InlineCodeBg>& bgs,
+    float origin_x, float origin_y, D2D1_COLOR_F color)
+{
+    for (const auto& bg : bgs) {
+        D2D1_RECT_F rect = D2D1::RectF(
+            origin_x + bg.left - 3.0f,
+            origin_y + bg.top - 2.0f,
+            origin_x + bg.left + bg.width + 3.0f,
+            origin_y + bg.top + bg.height + 2.0f);
+        cmds.push_back(FillRoundedRectCmd{ rect, 3.0f, 3.0f, color });
+    }
+}
+
 const DrawCommandList& CommandGenerator::GenerateMdPane(
     const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
     const PaneRect& md_pane_rect, float scroll_y,
@@ -150,14 +177,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     }
 
     // インラインコードの背景
-    for (const auto& bg : entry.inline_code_bgs) {
-        D2D1_RECT_F rect = D2D1::RectF(
-            x + bg.left - 2.0f,
-            entry.y_position + bg.top - 1.0f,
-            x + bg.left + bg.width + 2.0f,
-            entry.y_position + bg.top + bg.height + 1.0f);
-        cmds.push_back(FillRoundedRectCmd{ rect, 3.0f, 3.0f, theme_->code_bg_color });
-    }
+    GenInlineCodeBgs(cmds, entry.inline_code_bgs, x, entry.y_position, theme_->code_bg_color);
 
     // 選択範囲のハイライト
     if (selection.active &&
@@ -221,10 +241,14 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool
 
 void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,
     IDWriteTextLayout* cell_layout,
+    const std::pmr::vector<InlineCodeBg>& code_bgs,
     float text_x, float text_y,
     bool has_selection, uint32_t sel_start, uint32_t sel_end,
     uint32_t flat_offset)
 {
+    // インラインコード背景
+    GenInlineCodeBgs(cmds, code_bgs, text_x, text_y, theme_->code_bg_color);
+
     if (has_selection && cell_layout) {
         uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
         uint32_t ov_start = std::max(sel_start, flat_offset);
@@ -327,7 +351,13 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
                 cell_layout = entry.cell_layouts[r][c].Get();
             }
 
-            GenTableCellContent(cmds, cell, cell_layout, text_x, text_y,
+            // セルのインラインコード背景を取得
+            static const std::pmr::vector<InlineCodeBg> empty_bgs;
+            const auto& code_bgs =
+                (r < entry.cell_inline_code_bgs.size() && c < entry.cell_inline_code_bgs[r].size())
+                ? entry.cell_inline_code_bgs[r][c] : empty_bgs;
+
+            GenTableCellContent(cmds, cell, cell_layout, code_bgs, text_x, text_y,
                 has_selection, sel_start, sel_end, flat_offset);
 
             flat_offset += static_cast<uint32_t>(cell.text.size());
@@ -399,8 +429,9 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
     const Node& node, const NodeLayoutEntry& entry, float x)
 {
     if (node.list_number > 0) {
-        // 順序付きリストの番号
+        // 順序付きリストの番号（1行目に合わせて配置）
         if (formats_.list_number) {
+            float first_line_h = GetFirstLineHeight(entry.text_layout.Get(), theme_->font_size_body);
             wchar_t num_buf[DrawTextCmd::MAX_TEXT];
             auto fmt_result = std::format_to_n(num_buf, DrawTextCmd::MAX_TEXT, L"{}.", node.list_number);
             size_t num_len = std::min(static_cast<size_t>(fmt_result.size), static_cast<size_t>(DrawTextCmd::MAX_TEXT));
@@ -408,13 +439,14 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
                 x - theme_->list_bullet_offset - 8.0f,
                 entry.y_position,
                 x - 4.0f,
-                entry.y_position + theme_->font_size_body * 1.5f);
+                entry.y_position + first_line_h);
             cmds.push_back(DrawTextCmd::Make(num_buf, num_len, num_rect, formats_.list_number, theme_->text_color));
         }
     }
     else {
-        // 順序なしリストの箇条書き記号
-        float bullet_y = entry.y_position + theme_->font_size_body * 0.45f;
+        // 順序なしリストの箇条書き記号（1行目の中央に配置）
+        float first_line_h = GetFirstLineHeight(entry.text_layout.Get(), theme_->font_size_body);
+        float bullet_y = entry.y_position + first_line_h * 0.5f;
         float bullet_x = x - theme_->list_bullet_offset * 0.6f;
         float r = 3.0f;
         if (node.indent_level <= 1) {

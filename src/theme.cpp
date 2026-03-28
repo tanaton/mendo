@@ -37,8 +37,10 @@ void Theme::ApplyZoom(float new_zoom) noexcept
     margin_right *= ratio;
     margin_top *= ratio;
     paragraph_spacing *= ratio;
+    list_item_spacing *= ratio;
     heading_spacing_above *= ratio;
     heading_spacing_below *= ratio;
+    code_block_spacing_above *= ratio;
     code_block_padding *= ratio;
     indent_width *= ratio;
     blockquote_bar_width *= ratio;
@@ -72,8 +74,10 @@ static void ApplyCommonLayout(Theme& t)
     t.margin_right = 40.0f;
     t.margin_top = 20.0f;
     t.paragraph_spacing = 12.0f;
-    t.heading_spacing_above = 24.0f;
-    t.heading_spacing_below = 8.0f;
+    t.list_item_spacing = 6.0f;
+    t.heading_spacing_above = 12.0f;
+    t.heading_spacing_below = 10.0f;
+    t.code_block_spacing_above = 8.0f;
     t.code_block_padding = 12.0f;
     t.indent_width = 24.0f;
     t.blockquote_bar_width = 4.0f;

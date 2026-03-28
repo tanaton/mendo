@@ -313,10 +313,12 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
     }
     entry.effects_applied = true;
 
-    // テーブルセル: セルレイアウトにリンク色を適用
+    // テーブルセル: セルレイアウトにリンク色を適用し、インラインコード背景を計算
     if (node.type == NodeType::Table) {
+        entry.cell_inline_code_bgs.resize(node.table_rows.size());
         for (size_t r = 0; r < node.table_rows.size(); r++) {
             const auto& row = node.table_rows[r];
+            entry.cell_inline_code_bgs[r].resize(row.cells.size());
             for (size_t c = 0; c < row.cells.size(); c++) {
                 IDWriteTextLayout* cell_layout = nullptr;
                 if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
@@ -329,6 +331,18 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
                     if (run.has_link()) {
                         DWRITE_TEXT_RANGE range{ run.start, run.length };
                         cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
+                    }
+                    if (run.code && run.length > 0) {
+                        UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length,
+                            hit_test_buffer_);
+                        for (UINT32 i = 0; i < count; i++) {
+                            entry.cell_inline_code_bgs[r][c].push_back({
+                                hit_test_buffer_[i].left,
+                                hit_test_buffer_[i].top,
+                                hit_test_buffer_[i].width,
+                                hit_test_buffer_[i].height
+                            });
+                        }
                     }
                 }
             }

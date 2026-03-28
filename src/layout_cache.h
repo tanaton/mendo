@@ -23,6 +23,7 @@ struct NodeLayoutEntry {
 
     // テーブルレイアウトデータ
     std::pmr::vector<std::pmr::vector<ComPtr<IDWriteTextLayout>>> cell_layouts; // [行][列]
+    std::pmr::vector<std::pmr::vector<std::pmr::vector<InlineCodeBg>>> cell_inline_code_bgs; // [行][列][]
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
 };
@@ -74,6 +75,7 @@ public:
             e.text_layout.Reset();
             e.effects_applied = false;
             e.inline_code_bgs.clear();
+            e.cell_inline_code_bgs.clear();
         }
     }
 

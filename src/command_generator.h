@@ -73,6 +73,7 @@ private:
         float x, float y, float table_width, float row_h, float border);
     void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,
         IDWriteTextLayout* cell_layout,
+        const std::pmr::vector<InlineCodeBg>& code_bgs,
         float text_x, float text_y,
         bool has_selection, uint32_t sel_start, uint32_t sel_end,
         uint32_t flat_offset);
