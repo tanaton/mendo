@@ -83,9 +83,10 @@ TEST_F(TitleBarTest, PaneToggleButtonWidth) {
     check(tb_.GetTocToggleButton());
 }
 
-TEST_F(TitleBarTest, TitleTextRectStartsAtLeftMargin) {
+TEST_F(TitleBarTest, TitleTextRectStartsAfterIcon) {
     auto& rect = tb_.GetTitleTextRect();
-    EXPECT_FLOAT_EQ(rect.left, TitleBar::BUTTON_LEFT_MARGIN);
+    float expected = TitleBar::ICON_LEFT_MARGIN + TitleBar::ICON_SIZE + TitleBar::ICON_RIGHT_GAP;
+    EXPECT_FLOAT_EQ(rect.left, expected);
 }
 
 TEST_F(TitleBarTest, TitleTextRectEndsAtFileToggle) {

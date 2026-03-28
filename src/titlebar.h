@@ -25,6 +25,9 @@ class TitleBar {
 public:
     static constexpr float BASE_HEIGHT = 32.0f;
     static constexpr float BUTTON_WIDTH = 32.0f;
+    static constexpr float ICON_LEFT_MARGIN = 8.0f;
+    static constexpr float ICON_SIZE = 16.0f;
+    static constexpr float ICON_RIGHT_GAP = 4.0f;
     static constexpr float BUTTON_LEFT_MARGIN = 8.0f;
     static constexpr float BUTTON_GAP = 2.0f;
     // キャプションボタン（最小化/最大化/閉じる）はタイトルバーの全高を使う
@@ -49,8 +52,13 @@ public:
         right -= BUTTON_WIDTH;
         file_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
 
-        // タイトルテキスト領域（左端からペインボタンの左まで）
-        float title_left = BUTTON_LEFT_MARGIN;
+        // アイコン位置（タイトルバー左端、垂直中央）
+        float icon_top = (BASE_HEIGHT - ICON_SIZE) / 2.0f;
+        icon_rect_ = D2D1::RectF(ICON_LEFT_MARGIN, icon_top,
+            ICON_LEFT_MARGIN + ICON_SIZE, icon_top + ICON_SIZE);
+
+        // タイトルテキスト領域（アイコンの右からペインボタンの左まで）
+        float title_left = ICON_LEFT_MARGIN + ICON_SIZE + ICON_RIGHT_GAP;
         float title_right = file_toggle_.rect.left;
         title_text_rect_ = D2D1::RectF(title_left, 0.0f, (title_right > title_left) ? title_right : title_left, BASE_HEIGHT);
     }
@@ -100,6 +108,7 @@ public:
     constexpr const TitleBarButton& GetMinimizeButton() const noexcept { return minimize_; }
     constexpr const TitleBarButton& GetMaximizeButton() const noexcept { return maximize_; }
     constexpr const TitleBarButton& GetCloseButton() const noexcept { return close_; }
+    constexpr const D2D1_RECT_F& GetIconRect() const noexcept { return icon_rect_; }
     constexpr const D2D1_RECT_F& GetTitleTextRect() const noexcept { return title_text_rect_; }
 
 private:
@@ -108,6 +117,7 @@ private:
     TitleBarButton minimize_;
     TitleBarButton maximize_;
     TitleBarButton close_;
+    D2D1_RECT_F icon_rect_{};
     D2D1_RECT_F title_text_rect_{};
     TitleBarHitZone hovered_ = TitleBarHitZone::None;
 };

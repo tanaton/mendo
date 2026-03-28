@@ -315,6 +315,13 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
             BrushId::TitleBarText, text_alpha);
     }
 
+    // アプリアイコン
+    if (app_icon_bitmap_) {
+        float icon_alpha = tb.window_active ? 1.0f : 0.5f;
+        rt()->DrawBitmap(app_icon_bitmap_.Get(), tb.icon_rect, icon_alpha,
+            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    }
+
     // タイトルテキスト
     if (fmt_.titlebar_text && !tb.title_text.empty()) {
         auto* brush = Brush(BrushId::TitleBarText);

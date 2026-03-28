@@ -262,6 +262,7 @@ TitleBarRenderState App::BuildTitleBarRenderState(float window_width) const
     tb.is_maximized = IsZoomed(hwnd_) != FALSE;
     tb.close_btn_rect = titlebar_.GetCloseButton().rect;
     tb.close_btn_hovered = titlebar_.GetCloseButton().hovered;
+    tb.icon_rect = titlebar_.GetIconRect();
     tb.title_text_rect = titlebar_.GetTitleTextRect();
     tb.title_text = cached_title_text_;
     tb.window_active = window_active_;

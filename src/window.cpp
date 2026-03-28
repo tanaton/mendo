@@ -1,4 +1,5 @@
 #include "window.h"
+#include "resource.h"
 #include <windowsx.h>
 #include <shellscalingapi.h>
 #include <dwmapi.h>
@@ -15,6 +16,8 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
+    wc.hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APP_ICON));
+    wc.hIconSm = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APP_ICON));
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.lpszClassName = WINDOW_CLASS;
     wc.hbrBackground = nullptr;
