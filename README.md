@@ -1,5 +1,7 @@
 # mendo - 高速＆省メモリMarkdownビュアー
 
+![mendoのアイコン](./res/mendo_256x256.png)
+
 MarkdownをDirect2D/DirectWriteで直接描画するWindows向けネイティブアプリケーションです。
 
 ## 特徴
