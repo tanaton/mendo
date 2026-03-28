@@ -115,13 +115,10 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
 
     case NodeType::Image:
         if (diagram.bitmap) {
-            float draw_w = diagram.width;
-            float draw_h = diagram.height;
-            if (draw_w > cw && draw_w > 0) {
-                float scale = cw / draw_w;
-                draw_h *= scale;
-                draw_w = cw;
-            }
+            float draw_h = entry.height;
+            float draw_w = (diagram.height > 0)
+                ? diagram.width * (draw_h / diagram.height)
+                : diagram.width;
             float dx = x + (cw - draw_w) * 0.5f;
             cmds.push_back(DrawBitmapCmd{
                 diagram.bitmap.Get(),
