@@ -20,6 +20,8 @@ struct ContextMenuParams {
     bool has_file = false;
     bool has_selection = false;
     bool dark_mode_checked = false;
+    bool file_pane_checked = false;
+    bool toc_pane_checked = false;
     bool show_file_items = false;       // MdPaneの場合のみtrue
     const Theme* theme = nullptr;
 };

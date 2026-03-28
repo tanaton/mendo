@@ -8,6 +8,8 @@
 #define IDM_TOGGLE_DARK_MODE 203
 #define IDM_NAV_BACK         204
 #define IDM_NAV_FORWARD      205
+#define IDM_TOGGLE_FILE_PANE 206
+#define IDM_TOGGLE_TOC_PANE  207
 
 // 埋め込みリソース
 #define IDR_MERMAID_JS_GZ 301

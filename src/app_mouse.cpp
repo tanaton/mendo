@@ -60,6 +60,8 @@ void App::OnContextMenu(int screen_x, int screen_y)
     params.has_file = !doc_.GetFilePath().empty();
     params.has_selection = viewport_.GetSelection().active && viewport_.GetSelection().start_node >= 0;
     params.dark_mode_checked = theme_service_.IsDarkMode();
+    params.file_pane_checked = panes_.IsFilePaneVisible();
+    params.toc_pane_checked = panes_.IsTocPaneVisible();
     params.show_file_items = (zone == PaneZone::MdPane);
     params.theme = &renderer_.GetTheme();
 
@@ -83,6 +85,14 @@ void App::OnContextMenu(int screen_x, int screen_y)
     }
     else if (cmd == IDM_TOGGLE_DARK_MODE) {
         ToggleDarkMode();
+    }
+    else if (cmd == IDM_TOGGLE_FILE_PANE) {
+        panes_.ToggleFilePane();
+        RefreshPaneLayout();
+    }
+    else if (cmd == IDM_TOGGLE_TOC_PANE) {
+        panes_.ToggleTocPane();
+        RefreshPaneLayout();
     }
 }
 

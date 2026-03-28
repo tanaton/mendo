@@ -41,8 +41,8 @@ protected:
 
 TEST_F(ContextMenuTest, MdPaneItemCount) {
     Build(MakeParams(true));
-    // NavRow, Sep, EditFile, Copy, Sep, DarkMode = 6項目
-    EXPECT_EQ(menu_.GetItems().size(), 6u);
+    // NavRow, Sep, EditFile, Copy, Sep, DarkMode, Sep, FilePane, TocPane = 9項目
+    EXPECT_EQ(menu_.GetItems().size(), 9u);
 }
 
 TEST_F(ContextMenuTest, FirstItemIsNavRow) {
@@ -74,8 +74,8 @@ TEST_F(ContextMenuTest, DarkModeItemHasCorrectId) {
 
 TEST_F(ContextMenuTest, NonMdPaneItemCount) {
     Build(MakeParams(false));
-    // NavRow, Sep, DarkMode = 3項目
-    EXPECT_EQ(menu_.GetItems().size(), 3u);
+    // NavRow, Sep, DarkMode, Sep, FilePane, TocPane = 6項目
+    EXPECT_EQ(menu_.GetItems().size(), 6u);
 }
 
 TEST_F(ContextMenuTest, NonMdPaneHasNoCopyOrEdit) {
@@ -150,6 +150,66 @@ TEST_F(ContextMenuTest, DarkModeItemAlwaysEnabled) {
             EXPECT_TRUE(item.enabled);
         }
     }
+}
+
+// ─── ファイルペイン/目次ペイン表示切替 ───
+
+TEST_F(ContextMenuTest, FilePaneItemHasCorrectId) {
+    Build(MakeParams(true));
+    EXPECT_EQ(menu_.GetItems()[7].id, IDM_TOGGLE_FILE_PANE);
+}
+
+TEST_F(ContextMenuTest, TocPaneItemHasCorrectId) {
+    Build(MakeParams(true));
+    EXPECT_EQ(menu_.GetItems()[8].id, IDM_TOGGLE_TOC_PANE);
+}
+
+TEST_F(ContextMenuTest, FilePaneCheckedWhenVisible) {
+    auto p = MakeParams(true);
+    p.file_pane_checked = true;
+    Build(p);
+    EXPECT_TRUE(menu_.GetItems()[7].checked);
+}
+
+TEST_F(ContextMenuTest, FilePaneUncheckedWhenHidden) {
+    auto p = MakeParams(true);
+    p.file_pane_checked = false;
+    Build(p);
+    EXPECT_FALSE(menu_.GetItems()[7].checked);
+}
+
+TEST_F(ContextMenuTest, TocPaneCheckedWhenVisible) {
+    auto p = MakeParams(true);
+    p.toc_pane_checked = true;
+    Build(p);
+    EXPECT_TRUE(menu_.GetItems()[8].checked);
+}
+
+TEST_F(ContextMenuTest, TocPaneUncheckedWhenHidden) {
+    auto p = MakeParams(true);
+    p.toc_pane_checked = false;
+    Build(p);
+    EXPECT_FALSE(menu_.GetItems()[8].checked);
+}
+
+TEST_F(ContextMenuTest, PaneItemsAlwaysEnabled) {
+    Build(MakeParams(true));
+    for (const auto& item : menu_.GetItems()) {
+        if (item.id == IDM_TOGGLE_FILE_PANE || item.id == IDM_TOGGLE_TOC_PANE) {
+            EXPECT_TRUE(item.enabled);
+        }
+    }
+}
+
+TEST_F(ContextMenuTest, PaneItemsPresentInNonMdPane) {
+    Build(MakeParams(false));
+    bool found_file = false, found_toc = false;
+    for (const auto& item : menu_.GetItems()) {
+        if (item.id == IDM_TOGGLE_FILE_PANE) { found_file = true; }
+        if (item.id == IDM_TOGGLE_TOC_PANE) { found_toc = true; }
+    }
+    EXPECT_TRUE(found_file);
+    EXPECT_TRUE(found_toc);
 }
 
 // ============================================================
@@ -348,9 +408,9 @@ TEST_F(ContextMenuLayoutTest, HitTestOnCopy) {
 TEST_F(ContextMenuLayoutTest, HitTestOnDarkMode) {
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
-    auto& last = items.back();
-    float cx = (last.rect.left + last.rect.right) / 2.0f;
-    float cy = (last.rect.top + last.rect.bottom) / 2.0f;
+    // DarkModeはindex 5
+    float cx = (items[5].rect.left + items[5].rect.right) / 2.0f;
+    float cy = (items[5].rect.top + items[5].rect.bottom) / 2.0f;
     EXPECT_EQ(menu_.HitTest(cx, cy), IDM_TOGGLE_DARK_MODE);
 }
 
@@ -418,4 +478,24 @@ TEST_F(ContextMenuLayoutTest, NavHitTestDisabledForwardReturnsZero) {
 TEST_F(ContextMenuLayoutTest, NavHitTestOutsideReturnsZero) {
     BuildAndLayout(MakeParams());
     EXPECT_EQ(menu_.NavHitTest(-10.0f, -10.0f), 0);
+}
+
+// ─── ペイン表示切替項目のヒットテスト ───
+
+TEST_F(ContextMenuLayoutTest, HitTestOnFilePane) {
+    BuildAndLayout(MakeParams());
+    auto& items = menu_.GetItems();
+    // FilePaneはindex 7
+    float cx = (items[7].rect.left + items[7].rect.right) / 2.0f;
+    float cy = (items[7].rect.top + items[7].rect.bottom) / 2.0f;
+    EXPECT_EQ(menu_.HitTest(cx, cy), IDM_TOGGLE_FILE_PANE);
+}
+
+TEST_F(ContextMenuLayoutTest, HitTestOnTocPane) {
+    BuildAndLayout(MakeParams());
+    auto& items = menu_.GetItems();
+    // TocPaneはindex 8
+    float cx = (items[8].rect.left + items[8].rect.right) / 2.0f;
+    float cy = (items[8].rect.top + items[8].rect.bottom) / 2.0f;
+    EXPECT_EQ(menu_.HitTest(cx, cy), IDM_TOGGLE_TOC_PANE);
 }

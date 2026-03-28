@@ -309,6 +309,13 @@ void ContextMenu::BuildItems(const ContextMenuParams& params)
 
     items_.push_back({ ItemType::Text, IDM_TOGGLE_DARK_MODE, L"ダークモード",
         true, params.dark_mode_checked });
+
+    items_.push_back({ ItemType::Separator });
+
+    items_.push_back({ ItemType::Text, IDM_TOGGLE_FILE_PANE, L"ファイルペイン",
+        true, params.file_pane_checked });
+    items_.push_back({ ItemType::Text, IDM_TOGGLE_TOC_PANE, L"目次ペイン",
+        true, params.toc_pane_checked });
 }
 
 // ============================================================
