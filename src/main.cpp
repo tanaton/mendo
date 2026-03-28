@@ -5,7 +5,8 @@
 #include <shellscalingapi.h>
 #include <commctrl.h>
 
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow) {
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow)
+{
     // グローバル同期プールリソースを初期化（最初に呼び出す）
     InitGlobalMemoryResource();
 

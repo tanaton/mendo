@@ -11,14 +11,16 @@
 // グローバル同期プールリソースの初期化。
 // main() の最初に一度だけ呼び出すこと。
 // 以降、std::pmr コンテナのデフォルトリソースとして使われる。
-inline std::pmr::synchronized_pool_resource& GetGlobalPoolResource() {
+inline std::pmr::synchronized_pool_resource& GetGlobalPoolResource()
+{
     // プールオプション: 最大ブロックサイズ 1MB、チャンク成長率はデフォルト
     static std::pmr::pool_options opts{/*max_blocks_per_chunk=*/0, /*largest_required_pool_block=*/1 << 20 };
     static std::pmr::synchronized_pool_resource pool{ opts, std::pmr::new_delete_resource() };
     return pool;
 }
 
-inline void InitGlobalMemoryResource() {
+inline void InitGlobalMemoryResource()
+{
     std::pmr::set_default_resource(&GetGlobalPoolResource());
 }
 

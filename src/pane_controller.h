@@ -13,7 +13,8 @@ public:
     // ---- 表示/非表示 ----
     constexpr bool IsFilePaneVisible() const noexcept { return show_file_; }
     constexpr bool IsTocPaneVisible() const noexcept { return show_toc_; }
-    constexpr void SetFilePaneVisible(bool v) noexcept {
+    constexpr void SetFilePaneVisible(bool v) noexcept
+    {
         if (show_file_ != v) {
             show_file_ = v;
             hovered_file_ = -1;
@@ -21,20 +22,23 @@ public:
             file_refresh_hovered_ = false;
         }
     }
-    constexpr void SetTocPaneVisible(bool v) noexcept {
+    constexpr void SetTocPaneVisible(bool v) noexcept
+    {
         if (show_toc_ != v) {
             show_toc_ = v;
             hovered_toc_ = -1;
             toc_close_hovered_ = false;
         }
     }
-    constexpr void ToggleFilePane() noexcept {
+    constexpr void ToggleFilePane() noexcept
+    {
         show_file_ = !show_file_;
         hovered_file_ = -1;
         file_close_hovered_ = false;
         file_refresh_hovered_ = false;
     }
-    constexpr void ToggleTocPane() noexcept {
+    constexpr void ToggleTocPane() noexcept
+    {
         show_toc_ = !show_toc_;
         hovered_toc_ = -1;
         toc_close_hovered_ = false;

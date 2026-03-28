@@ -9,7 +9,7 @@
 // 選択範囲に基づいてノードから選択テキストを抽出する。
 // ノード間を \r\n で連結したテキストを返す。
 [[nodiscard]] std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
-                                  const TextSelection& selection);
+    const TextSelection& selection);
 
 // ノードのラン内の指定テキスト位置にあるリンクURLを検索する。
 // リンクラン内の位置であればリンクURLを返し、そうでなければnulloptを返す。

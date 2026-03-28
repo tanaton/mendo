@@ -5,11 +5,13 @@
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "comdlg32.lib")
 
-FileLoader::~FileLoader() {
+FileLoader::~FileLoader()
+{
     StopWatching();
 }
 
-std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path) {
+std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path)
+{
     // エディタがファイルを開いている間も読み取れるよう FILE_SHARE_READ | FILE_SHARE_WRITE を指定
     HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -64,7 +66,8 @@ std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path) {
     return content;
 }
 
-std::pmr::wstring FileLoader::OpenFileDialog(HWND owner) {
+std::pmr::wstring FileLoader::OpenFileDialog(HWND owner)
+{
     wchar_t filename[MAX_PATH] = {};
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);
@@ -81,7 +84,8 @@ std::pmr::wstring FileLoader::OpenFileDialog(HWND owner) {
     return {};
 }
 
-static FILETIME GetFileWriteTime(const std::pmr::wstring& path) {
+static FILETIME GetFileWriteTime(const std::pmr::wstring& path)
+{
     WIN32_FILE_ATTRIBUTE_DATA attrs{};
     if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attrs)) {
         return attrs.ftLastWriteTime;
@@ -89,7 +93,8 @@ static FILETIME GetFileWriteTime(const std::pmr::wstring& path) {
     return {};
 }
 
-void FileLoader::StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback) {
+void FileLoader::StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback)
+{
     StopWatching();
     watch_path_ = file_path;
     on_change_ = std::move(callback);
@@ -98,12 +103,14 @@ void FileLoader::StartWatching(const std::pmr::wstring& file_path, ChangeCallbac
     watching_ = true;
 }
 
-void FileLoader::StopWatching() noexcept {
+void FileLoader::StopWatching() noexcept
+{
     watching_ = false;
     on_change_ = nullptr;
 }
 
-void FileLoader::CheckForChanges() {
+void FileLoader::CheckForChanges()
+{
     if (!watching_) {
         return;
     }

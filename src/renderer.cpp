@@ -6,7 +6,8 @@
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
 
-bool Renderer::Init(HWND hwnd) {
+bool Renderer::Init(HWND hwnd)
+{
     theme_ = GetLightTheme();
 
     if (!backend_.Init(hwnd)) {
@@ -33,7 +34,8 @@ bool Renderer::Init(HWND hwnd) {
     return true;
 }
 
-void Renderer::RecreateBrushes() {
+void Renderer::RecreateBrushes()
+{
     auto* render_target_ = backend_.GetRenderTarget();
     if (!render_target_) {
         return;
@@ -93,7 +95,8 @@ void Renderer::RecreateBrushes() {
     }
 }
 
-void Renderer::SetTheme(const Theme& theme) {
+void Renderer::SetTheme(const Theme& theme)
+{
     theme_ = theme;
     UpdateLayoutTheme();
     RecreatePaneFormats();
@@ -104,24 +107,28 @@ void Renderer::SetTheme(const Theme& theme) {
     RecreateBrushes();
 }
 
-void Renderer::Resize(UINT width, UINT height) {
+void Renderer::Resize(UINT width, UINT height)
+{
     backend_.Resize(width, height);
 }
 
-void Renderer::SetDpi(float dpi) {
+void Renderer::SetDpi(float dpi)
+{
     backend_.SetDpi(dpi);
     // 新しいDPIでペインキャッシュを再作成
     file_pane_cache_.Reset();
     toc_pane_cache_.Reset();
 }
 
-void Renderer::ApplyZoom(float new_zoom) {
+void Renderer::ApplyZoom(float new_zoom)
+{
     theme_.ApplyZoom(new_zoom);
     UpdateLayoutTheme();
     RecreatePaneFormats();
 }
 
-void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom) {
+void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
+{
     theme_ = base_theme;
     if (new_zoom != 1.0f) {
         theme_.ApplyZoom(new_zoom);
@@ -131,19 +138,22 @@ void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom) {
     cmd_generator_.SetTheme(&theme_);
 }
 
-void Renderer::UpdateLayoutTheme() {
+void Renderer::UpdateLayoutTheme()
+{
     layout_.UpdateTheme(theme_);
     layout_.RecreateFormats();
 }
 
-void Renderer::LayoutAllNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width) {
+void Renderer::LayoutAllNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
+{
     float content_width = std::max(0.0f, viewport_width - theme_.margin_left - theme_.margin_right);
     layout_.LayoutNodes(nodes, cache, content_width);
 }
 
 ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
     const wchar_t* family, DWRITE_FONT_WEIGHT weight,
-    float size, const wchar_t* locale) {
+    float size, const wchar_t* locale)
+{
     ComPtr<IDWriteTextFormat> fmt;
     backend_.GetDWriteFactory()->CreateTextFormat(
         family, nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
@@ -151,7 +161,8 @@ ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
     return fmt;
 }
 
-void Renderer::RecreatePaneFormats() {
+void Renderer::RecreatePaneFormats()
+{
     // テーマサイズの更新に合わせて全ペイン/UIテキストフォーマットを再作成
     auto W = DWRITE_FONT_WEIGHT_NORMAL;
 
@@ -252,7 +263,8 @@ void Renderer::RecreatePaneFormats() {
 // D2Dブラシが必要なApplyNodeEffectsのみ描画前パスとしてここに残る。
 
 void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    int first_visible, float viewport_bottom) {
+    int first_visible, float viewport_bottom)
+{
     int node_count = static_cast<int>(nodes.size());
     for (int i = first_visible; i < node_count; i++) {
         if (cache[i].y_position > viewport_bottom) {
@@ -262,7 +274,8 @@ void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& c
     }
 }
 
-ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const {
+ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const
+{
     static constexpr BrushId SYNTAX_MAP[] = {
         BrushId::Text,                // Plain（未使用、フォールバックとしてテキストブラシを返す）
         BrushId::SyntaxKeyword,       // キーワード
@@ -280,7 +293,8 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const {
     return Brush(SYNTAX_MAP[idx]);
 }
 
-void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
+void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
+{
     if (entry.effects_applied) {
         return;
     }
@@ -371,7 +385,8 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry) {
 
 // ---- メイン描画 ----
 
-void Renderer::DrawSidePanes(const SidePaneState& sp) {
+void Renderer::DrawSidePanes(const SidePaneState& sp)
+{
     if (sp.show_file_pane) {
         DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index, sp.file_close_hovered, sp.file_refresh_hovered);
         DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
@@ -387,7 +402,8 @@ void Renderer::DrawLoading(float angle,
     const SidePaneState& sp,
     const TitleBarRenderState& titlebar,
     const GestureRenderState& gesture,
-    const ToastRenderState& toast) {
+    const ToastRenderState& toast)
+{
     if (!rt()) {
         return;
     }
@@ -430,7 +446,8 @@ void Renderer::DrawLoading(float angle,
     }
 }
 
-void Renderer::Render(const RenderParams& p) {
+void Renderer::Render(const RenderParams& p)
+{
     if (!rt()) {
         return;
     }
@@ -485,7 +502,8 @@ void Renderer::Render(const RenderParams& p) {
     }
 }
 
-bool Renderer::CheckEndDraw() {
+bool Renderer::CheckEndDraw()
+{
     HRESULT hr = rt()->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
         RecreateRenderTarget();
@@ -496,7 +514,8 @@ bool Renderer::CheckEndDraw() {
     return SUCCEEDED(hr);
 }
 
-bool Renderer::RecreateRenderTarget() {
+bool Renderer::RecreateRenderTarget()
+{
     if (!backend_.RecreateRenderTarget()) {
         return false;
     }
@@ -516,7 +535,8 @@ bool Renderer::RecreateRenderTarget() {
 
 void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
     bool can_back, bool can_forward,
-    int hovered) {
+    int hovered)
+{
     if (!rt()) {
         return;
     }
@@ -581,7 +601,8 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
     drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, nav_forward_layout_.Get());
 }
 
-void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points) {
+void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
+{
     if (!rt() || points.size() < 2) {
         return;
     }
@@ -613,7 +634,8 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points) {
     rt()->DrawGeometry(path.Get(), Brush(BrushId::Overlay), 4.0f, gesture_stroke_style_.Get());
 }
 
-void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect) {
+void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect)
+{
     if (!rt() || direction == 0 || !Brush(BrushId::Overlay)) {
         return;
     }
@@ -649,7 +671,8 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     }
 }
 
-void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect) {
+void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect)
+{
     if (!rt() || toast.message.empty() || !Brush(BrushId::Overlay)) {
         return;
     }

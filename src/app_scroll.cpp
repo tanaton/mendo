@@ -8,17 +8,20 @@
 // スクロールバー・スクロール
 // ============================================================
 
-void App::UpdateScrollBar([[maybe_unused]] float md_pane_height) {
+void App::UpdateScrollBar([[maybe_unused]] float md_pane_height)
+{
     // カスタムスクロールバーはRenderer側で描画するため、再描画をトリガーするのみ
     Invalidate();
 }
 
-void App::ScrollTo(float position) {
+void App::ScrollTo(float position)
+{
     viewport_.ScrollTo(position);
     last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
 }
 
-void App::SmoothScrollBy(float delta) {
+void App::SmoothScrollBy(float delta)
+{
     bool was_scrolling = viewport_.IsSmoothScrolling();
     viewport_.SmoothScrollBy(delta);
 
@@ -32,7 +35,8 @@ void App::SmoothScrollBy(float delta) {
     }
 }
 
-void App::UpdateSmoothScroll() {
+void App::UpdateSmoothScroll()
+{
     auto now = std::chrono::steady_clock::now();
     float dt_ms = std::chrono::duration<float, std::milli>(now - last_scroll_time_).count();
     last_scroll_time_ = now;
@@ -40,7 +44,8 @@ void App::UpdateSmoothScroll() {
     viewport_.UpdateSmoothScroll(dt_ms);
 }
 
-void App::InvalidateMdPane(const PaneRect& md_rect) {
+void App::InvalidateMdPane(const PaneRect& md_rect)
+{
     if (!renderer_.GetRenderTarget()) {
         Invalidate();
         return;
@@ -54,23 +59,27 @@ void App::InvalidateMdPane(const PaneRect& md_rect) {
     InvalidateRect(hwnd_, &rc, FALSE);
 }
 
-void App::StopSmoothScroll() {
+void App::StopSmoothScroll()
+{
     if (!viewport_.IsSmoothScrolling()) {
         return;
     }
     viewport_.StopSmoothScroll();
 }
 
-void App::SyncMaxScroll(float md_pane_height) {
+void App::SyncMaxScroll(float md_pane_height)
+{
     float total = layout_service_->GetTotalHeight();
     viewport_.SyncMaxScroll(total, md_pane_height);
 }
 
-int App::FindFirstVisibleNode() const {
+int App::FindFirstVisibleNode() const
+{
     return viewport_.FindFirstVisibleNode(layout_cache_, doc_.GetNodes().size());
 }
 
-void App::AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height) {
+void App::AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height)
+{
     viewport_.AnchorCompensateScroll(anchor_idx, anchor_y_before, layout_cache_);
     SyncMaxScroll(md_pane_height);
 }
@@ -79,7 +88,8 @@ void App::AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md
 // 遅延レイアウト
 // ============================================================
 
-void App::OnResizeEnd() {
+void App::OnResizeEnd()
+{
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
     auto pane_layout = GetPaneLayout();
@@ -99,13 +109,15 @@ void App::OnResizeEnd() {
     RequestMermaidRenders();
 }
 
-void App::RefreshPaneLayout() {
+void App::RefreshPaneLayout()
+{
     renderer_.InvalidateFilePaneCache();
     renderer_.InvalidateTocPaneCache();
     OnResizeEnd();
 }
 
-void App::OnDeferredLayout() {
+void App::OnDeferredLayout()
+{
     int anchor_idx = FindFirstVisibleNode();
     float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
 
@@ -128,7 +140,8 @@ void App::OnDeferredLayout() {
     }
 }
 
-void App::UpdateLayoutAndScroll(float desired_scroll) {
+void App::UpdateLayoutAndScroll(float desired_scroll)
+{
     auto pane_layout = GetPaneLayout();
     float md_width = pane_layout.md_rect.width;
     float md_height = pane_layout.md_rect.height;

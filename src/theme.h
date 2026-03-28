@@ -72,7 +72,8 @@ struct Theme {
     float zoom = 1.0f;
 
     float GetHeadingSize(int level) const noexcept;
-    constexpr float GetHeadingUnderlineThickness(int level) const noexcept {
+    constexpr float GetHeadingUnderlineThickness(int level) const noexcept
+    {
         return (level == 2) ? h2_underline_thickness : hr_thickness;
     }
     constexpr bool IsDark() const noexcept { return (bg_color.r + bg_color.g + bg_color.b) < 1.5f; }

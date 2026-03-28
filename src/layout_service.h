@@ -7,7 +7,8 @@
 class LayoutService {
 public:
     LayoutService(LayoutEngine& engine, ViewportManager& viewport) noexcept
-        : engine_(engine), viewport_(viewport) {
+        : engine_(engine), viewport_(viewport)
+    {
     }
 
     // 全レイアウト計算（初回ロード時）

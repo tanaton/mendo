@@ -17,12 +17,14 @@ public:
     constexpr float GetMaxScroll() const noexcept { return max_scroll_; }
     constexpr bool IsSmoothScrolling() const noexcept { return smooth_scrolling_; }
 
-    constexpr void ScrollTo(float position) noexcept {
+    constexpr void ScrollTo(float position) noexcept
+    {
         scroll_y_ = std::clamp(position, 0.0f, max_scroll_);
         scroll_target_ = scroll_y_;
     }
 
-    constexpr void SmoothScrollBy(float delta) noexcept {
+    constexpr void SmoothScrollBy(float delta) noexcept
+    {
         scroll_target_ = std::clamp(scroll_target_ + delta, 0.0f, max_scroll_);
         smooth_scrolling_ = true;
     }
@@ -30,7 +32,8 @@ public:
     // スムーススクロール補間を1フレーム進める。
     // スクロールがまだ継続中の場合trueを返す。
     // dt_ms: 前フレームからの経過時間（ミリ秒）。フレームレート非依存の補間を行う。
-    bool UpdateSmoothScroll(float dt_ms) noexcept {
+    bool UpdateSmoothScroll(float dt_ms) noexcept
+    {
         // 極端に大きなデルタタイムを防止（ウィンドウ最小化等）
         dt_ms = std::min(dt_ms, MAX_DELTA_MS);
         float diff = scroll_target_ - scroll_y_;
@@ -53,11 +56,13 @@ public:
     }
 
     // 基準フレーム時間（16ms ≈ 60fps）でのオーバーロード。
-    bool UpdateSmoothScroll() noexcept {
+    bool UpdateSmoothScroll() noexcept
+    {
         return UpdateSmoothScroll(SCROLL_REFERENCE_DT);
     }
 
-    constexpr void StopSmoothScroll() noexcept {
+    constexpr void StopSmoothScroll() noexcept
+    {
         if (!smooth_scrolling_) {
             return;
         }
@@ -65,7 +70,8 @@ public:
         smooth_scrolling_ = false;
     }
 
-    constexpr void SyncMaxScroll(float total_height, float viewport_height) noexcept {
+    constexpr void SyncMaxScroll(float total_height, float viewport_height) noexcept
+    {
         max_scroll_ = std::max(0.0f, total_height - viewport_height);
         scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
         scroll_target_ = scroll_y_;
@@ -73,12 +79,14 @@ public:
 
     // 下端がscroll_y_より下にある最初のノードを見つける。
     // 表示可能なノードが存在しない場合は-1を返す。
-    constexpr int FindFirstVisibleNode(const LayoutCache& cache, size_t node_count) const noexcept {
+    constexpr int FindFirstVisibleNode(const LayoutCache& cache, size_t node_count) const noexcept
+    {
         int idx = FindFirstVisibleNodeIndex(cache, node_count, scroll_y_);
         return idx < static_cast<int>(node_count) ? idx : -1;
     }
 
-    constexpr void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, const LayoutCache& cache) noexcept {
+    constexpr void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, const LayoutCache& cache) noexcept
+    {
         if (anchor_idx < 0) {
             return;
         }
@@ -111,13 +119,15 @@ public:
     constexpr int GetClickStartY() const noexcept { return click_start_y_; }
     constexpr void SetClickStart(int x, int y) noexcept { click_start_x_ = x; click_start_y_ = y; }
 
-    constexpr void ClearSelection() noexcept {
+    constexpr void ClearSelection() noexcept
+    {
         selection_.Clear();
         anchor_node_ = -1;
         is_dragging_ = false;
     }
 
-    constexpr void SelectAll(const std::pmr::vector<Node>& nodes) noexcept {
+    constexpr void SelectAll(const std::pmr::vector<Node>& nodes) noexcept
+    {
         if (nodes.empty()) {
             ClearSelection();
             return;
@@ -134,21 +144,24 @@ public:
     constexpr float GetCurrentZoom() const noexcept { return ZOOM_STEPS[zoom_index_]; }
 
     // 新しいズーム値を返す。既に上限/下限の場合は0を返す。
-    constexpr float ZoomIn() noexcept {
+    constexpr float ZoomIn() noexcept
+    {
         if (zoom_index_ < ZOOM_STEP_COUNT - 1) {
             return ZOOM_STEPS[++zoom_index_];
         }
         return 0.0f;
     }
 
-    constexpr float ZoomOut() noexcept {
+    constexpr float ZoomOut() noexcept
+    {
         if (zoom_index_ > 0) {
             return ZOOM_STEPS[--zoom_index_];
         }
         return 0.0f;
     }
 
-    constexpr float ZoomReset() noexcept {
+    constexpr float ZoomReset() noexcept
+    {
         if (zoom_index_ != ZOOM_DEFAULT_INDEX) {
             zoom_index_ = ZOOM_DEFAULT_INDEX;
             return ZOOM_STEPS[zoom_index_];

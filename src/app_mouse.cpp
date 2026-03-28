@@ -9,7 +9,8 @@
 
 namespace {
 
-bool IsEditableTextFile(std::wstring_view path) {
+bool IsEditableTextFile(std::wstring_view path)
+{
     auto ext = std::filesystem::path(path).extension().wstring();
     for (auto& c : ext) { c = std::towlower(c); }
     return ext == L".md" || ext == L".markdown" || ext == L".mkd" || ext == L".txt";
@@ -17,7 +18,8 @@ bool IsEditableTextFile(std::wstring_view path) {
 
 // ペインヘッダー内のボタンがクリックされたか判定する。
 bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height,
-    D2D1_RECT_F(*button_rect_fn)(float, float) noexcept) {
+    D2D1_RECT_F(*button_rect_fn)(float, float) noexcept)
+{
     float local_x = dip_x - rect.x;
     float local_y = dip_y - rect.y;
     if (local_y >= header_height) {
@@ -28,7 +30,8 @@ bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float h
 
 } // namespace
 
-void App::RefreshFilePane() {
+void App::RefreshFilePane()
+{
     file_explorer_.Refresh();
     if (!doc_.GetFilePath().empty()) {
         file_explorer_.SetCurrentFile(doc_.GetFilePath());
@@ -41,7 +44,8 @@ void App::RefreshFilePane() {
 // コンテキストメニュー
 // ============================================================
 
-void App::OnContextMenu(int screen_x, int screen_y) {
+void App::OnContextMenu(int screen_x, int screen_y)
+{
     POINT pt = { screen_x, screen_y };
     POINT client_pt = pt;
     ScreenToClient(hwnd_, &client_pt);
@@ -88,7 +92,8 @@ void App::OnContextMenu(int screen_x, int screen_y) {
 // 右クリックジェスチャー
 // ============================================================
 
-bool App::OnRButtonDown(int px, int py) {
+bool App::OnRButtonDown(int px, int py)
+{
     if (!renderer_.GetRenderTarget()) { return false; }
     if (viewport_.IsDragging()) { return false; }
 
@@ -101,7 +106,8 @@ bool App::OnRButtonDown(int px, int py) {
     return true;
 }
 
-bool App::OnRButtonUp(int px, int py) {
+bool App::OnRButtonUp(int px, int py)
+{
     if (gesture_.GetPhase() == GesturePhase::Idle) { return false; }
 
     auto result = gesture_.OnRButtonUp();
@@ -130,7 +136,8 @@ bool App::OnRButtonUp(int px, int py) {
     return true;
 }
 
-void App::OnRButtonMove(int px, int py) {
+void App::OnRButtonMove(int px, int py)
+{
     if (!renderer_.GetRenderTarget()) { return; }
 
     auto dip = PixelToDip(px, py);
@@ -141,11 +148,13 @@ void App::OnRButtonMove(int px, int py) {
     }
 }
 
-void App::OnXButtonBack() {
+void App::OnXButtonBack()
+{
     NavigateBack();
 }
 
-void App::OnXButtonForward() {
+void App::OnXButtonForward()
+{
     NavigateForward();
 }
 
@@ -153,7 +162,8 @@ void App::OnXButtonForward() {
 // ヒットテスト
 // ============================================================
 
-App::HitResult App::HitTest(int screen_x, int screen_y) const {
+App::HitResult App::HitTest(int screen_x, int screen_y) const
+{
     auto pane_layout = GetPaneLayout();
     return hit_test_.HitTest(doc_.GetNodes(), layout_cache_,
         renderer_.GetTheme(), viewport_.GetScrollY(),
@@ -161,7 +171,8 @@ App::HitResult App::HitTest(int screen_x, int screen_y) const {
         screen_x, screen_y);
 }
 
-std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const {
+std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const
+{
     if (hit.node_index < 0 || hit.node_index >= static_cast<int>(doc_.GetNodes().size())) {
         return std::nullopt;
     }
@@ -177,7 +188,8 @@ bool App::TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& 
     PaneController::DragTarget target,
     const PaneScrollInfo& scroll_info,
     float total_content, ScrollState& scroll,
-    void (Renderer::* invalidate)()) {
+    void (Renderer::* invalidate)())
+{
     float local_x = dip_x - rect.x;
 
     if (local_x >= rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
@@ -192,7 +204,8 @@ bool App::TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& 
     return false;
 }
 
-void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout) {
+void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout)
+{
     const auto& theme = renderer_.GetTheme();
 
     if (dip_y - layout.file_rect.y < theme.pane_header_height) {
@@ -240,7 +253,8 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
     }
 }
 
-void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout) {
+void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
+{
     const auto& theme = renderer_.GetTheme();
 
     if (dip_y - layout.toc_rect.y < theme.pane_header_height) {
@@ -268,7 +282,8 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
     }
 }
 
-void App::OnLButtonDown(int px, int py) {
+void App::OnLButtonDown(int px, int py)
+{
     if (!renderer_.GetRenderTarget()) { return; }
 
     auto dip = PixelToDip(px, py);
@@ -387,7 +402,8 @@ void App::OnLButtonDown(int px, int py) {
     }
 }
 
-void App::OnLButtonUp(int px, int py) {
+void App::OnLButtonUp(int px, int py)
+{
     ReleaseCapture();
 
     if (panes_.GetDragTarget() != PaneController::DragTarget::None) {
@@ -423,7 +439,8 @@ void App::OnLButtonUp(int px, int py) {
     }
 }
 
-void App::OnMouseMove(int px, int py) {
+void App::OnMouseMove(int px, int py)
+{
     auto* rt = renderer_.GetRenderTarget();
     if (!rt) { return; }
 
@@ -486,7 +503,8 @@ void App::OnMouseMove(int px, int py) {
     }
 }
 
-void App::OnMouseHover(int px, int py) {
+void App::OnMouseHover(int px, int py)
+{
     if (!renderer_.GetRenderTarget()) { return; }
 
     auto dip = PixelToDip(px, py);
@@ -583,7 +601,8 @@ void App::OnMouseHover(int px, int py) {
     }
 }
 
-void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout) {
+void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
+{
     // スクロールバー領域では矢印カーソル
     if (IsOverMdScrollbar(dip_x, dip_y)) {
         SetCursor(cursor_arrow_);
@@ -636,7 +655,8 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     SetCursor(last_md_cursor_hand_ ? cursor_hand_ : cursor_ibeam_);
 }
 
-void App::OnLButtonDblClk(int px, int py) {
+void App::OnLButtonDblClk(int px, int py)
+{
     if (!renderer_.GetRenderTarget()) { return; }
 
     auto dip = PixelToDip(px, py);
@@ -662,17 +682,20 @@ void App::OnLButtonDblClk(int px, int py) {
 // 選択 / クリップボード
 // ============================================================
 
-void App::ClearSelection() {
+void App::ClearSelection()
+{
     viewport_.ClearSelection();
     Invalidate();
 }
 
-void App::SelectAll() {
+void App::SelectAll()
+{
     viewport_.SelectAll(doc_.GetNodes());
     Invalidate();
 }
 
-void App::SetClipboardText(std::wstring_view text) const {
+void App::SetClipboardText(std::wstring_view text) const
+{
     if (text.empty()) { return; }
     if (!OpenClipboard(hwnd_)) { return; }
     EmptyClipboard();
@@ -696,19 +719,22 @@ void App::SetClipboardText(std::wstring_view text) const {
     CloseClipboard();
 }
 
-void App::CopySelectionToClipboard() const {
+void App::CopySelectionToClipboard() const
+{
     if (!viewport_.GetSelection().active) { return; }
     std::pmr::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
     SetClipboardText(result);
 }
 
-void App::CopyCodeBlockToClipboard(int node_index) const {
+void App::CopyCodeBlockToClipboard(int node_index) const
+{
     const auto& nodes = doc_.GetNodes();
     if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) { return; }
     SetClipboardText(nodes[node_index].text);
 }
 
-bool App::IsOverMdScrollbar(float dip_x, float dip_y) const {
+bool App::IsOverMdScrollbar(float dip_x, float dip_y) const
+{
     if (!layout_service_) {
         return false;
     }

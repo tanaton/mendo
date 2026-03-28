@@ -11,7 +11,8 @@ struct NavEntry {
 
     NavEntry() = default;
     NavEntry(std::wstring_view fp, float sy = 0.0f)
-        : file_path(fp), scroll_y(sy) {
+        : file_path(fp), scroll_y(sy)
+    {
     }
 };
 

@@ -2,7 +2,8 @@
 #include "ui_constants.h"
 
 // 指定された行・列までのフラットテキストオフセットを計算する。
-static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int target_col) {
+static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int target_col)
+{
     uint32_t offset = 0;
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         const auto& row_cells = node.table_rows[r].cells;
@@ -29,7 +30,8 @@ HitTestService::HitResult HitTestService::HitTest(
     float scroll_y,
     float md_pane_left,
     float dpi_scale,
-    int screen_x, int screen_y) const noexcept {
+    int screen_x, int screen_y) const noexcept
+{
 
     HitResult result;
     if (nodes.empty()) {
@@ -97,7 +99,8 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const Node& node, const NodeLayoutEntry& entry,
     int node_index,
     const Theme& theme,
-    float dip_x, float dip_y) const noexcept {
+    float dip_x, float dip_y) const noexcept
+{
 
     HitResult result;
     result.node_index = node_index;
@@ -186,7 +189,8 @@ int HitTestService::CopyButtonHitTest(
     float content_width,
     float md_pane_height,
     float dpi_scale,
-    int screen_x, int screen_y) const noexcept {
+    int screen_x, int screen_y) const noexcept
+{
 
     if (nodes.empty()) {
         return -1;
@@ -239,7 +243,8 @@ int HitTestService::CopyButtonHitTest(
 }
 
 HitTestService::NavButtonHover HitTestService::NavButtonHitTest(
-    float dip_x, float dip_y, const PaneRect& md_rect) const noexcept {
+    float dip_x, float dip_y, const PaneRect& md_rect) const noexcept
+{
     float base_x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     float base_y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 

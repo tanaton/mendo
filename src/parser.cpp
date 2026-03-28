@@ -7,7 +7,8 @@
 #include <charconv>
 #include <windows.h>
 
-std::pmr::wstring GenerateAnchorId(std::wstring_view text) {
+std::pmr::wstring GenerateAnchorId(std::wstring_view text)
+{
     std::pmr::wstring slug;
     slug.reserve(text.size());
     for (wchar_t c : text) {
@@ -41,7 +42,8 @@ std::pmr::wstring GenerateAnchorId(std::wstring_view text) {
 
 namespace {
 
-std::pmr::wstring Utf8ToWide(std::string_view utf8) {
+std::pmr::wstring Utf8ToWide(std::string_view utf8)
+{
     if (utf8.empty()) {
         return {};
     }
@@ -105,7 +107,8 @@ struct ParseContext {
     // アンカーIDの一意性追跡: スラグ -> 出現回数
     std::pmr::unordered_map<std::pmr::wstring, int> anchor_counts{ parse_resource.resource() };
 
-    void BeginNode(NodeType type) {
+    void BeginNode(NodeType type)
+    {
         nodes.emplace_back();
         current_node = &nodes.back();
         current_node->type = type;
@@ -115,7 +118,8 @@ struct ParseContext {
         }
     }
 
-    TextRun MakeRun(uint32_t start, uint32_t length) const {
+    TextRun MakeRun(uint32_t start, uint32_t length) const
+    {
         TextRun run;
         run.start = start;
         run.length = length;
@@ -129,7 +133,8 @@ struct ParseContext {
         return run;
     }
 
-    void AppendText(std::wstring_view text) {
+    void AppendText(std::wstring_view text)
+    {
         // テーブルセル内の場合、ノードではなくセルに追加
         if (current_cell) {
             uint32_t start = static_cast<uint32_t>(current_cell->text.size());
@@ -148,7 +153,8 @@ struct ParseContext {
     }
 
     // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する。
-    void AppendUtf8(std::string_view text) {
+    void AppendUtf8(std::string_view text)
+    {
         int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
         if (wlen > 0) {
             text_buffer.resize_and_overwrite(static_cast<size_t>(wlen), [text](wchar_t* buf, size_t count) -> size_t {
@@ -160,7 +166,8 @@ struct ParseContext {
     }
 };
 
-int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
+int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
+{
     auto* ctx = static_cast<ParseContext*>(userdata);
 
     switch (type) {
@@ -278,7 +285,8 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata) {
     return 0;
 }
 
-int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
+int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
+{
     auto* ctx = static_cast<ParseContext*>(userdata);
 
     switch (type) {
@@ -367,7 +375,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata) {
     return 0;
 }
 
-int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata) {
+int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
+{
     auto* ctx = static_cast<ParseContext*>(userdata);
 
     ctx->span_stack.push(ctx->current_span);
@@ -400,7 +409,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata) {
     return 0;
 }
 
-int OnLeaveSpan(MD_SPANTYPE /*type*/, void* /*detail*/, void* userdata) {
+int OnLeaveSpan(MD_SPANTYPE /*type*/, void* /*detail*/, void* userdata)
+{
     auto* ctx = static_cast<ParseContext*>(userdata);
 
     if (!ctx->span_stack.empty()) {
@@ -411,7 +421,8 @@ int OnLeaveSpan(MD_SPANTYPE /*type*/, void* /*detail*/, void* userdata) {
     return 0;
 }
 
-void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity) {
+void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity)
+{
     const wchar_t* resolved = nullptr;
     wchar_t single_char = 0;
     if (entity == "&amp;")  resolved = L"&";
@@ -454,7 +465,8 @@ void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity) {
     }
 }
 
-int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) {
+int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
+{
     auto* ctx = static_cast<ParseContext*>(userdata);
 
     if (!ctx->current_node) {
@@ -490,7 +502,8 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) 
 
 // ---- GitHub Alerts 検出 ----
 
-const wchar_t* GetAlertLabel(AlertType type) noexcept {
+const wchar_t* GetAlertLabel(AlertType type) noexcept
+{
     switch (type) {
     case AlertType::Note:      return L"Note";
     case AlertType::Tip:       return L"Tip";
@@ -504,7 +517,8 @@ const wchar_t* GetAlertLabel(AlertType type) noexcept {
 namespace {
 
 // 大文字小文字を無視して wstring_view を比較する（ASCII範囲のみ）
-bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept {
+bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept
+{
     if (a.size() != b.size()) {
         return false;
     }
@@ -520,7 +534,8 @@ bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept {
 
 // テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す。
 // marker_end には ']' の次の位置（スペース/改行をスキップ済み）を設定する。
-AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end) {
+AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
+{
     if (text.size() < 3 || text[0] != L'[' || text[1] != L'!') {
         return AlertType::None;
     }
@@ -551,7 +566,8 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end) {
 }
 
 // マーカーを除去しラベルを挿入する。TextRunも調整する。
-void TransformAlertNode(Node& node, AlertType type, size_t marker_end) {
+void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
+{
     const wchar_t* label = GetAlertLabel(type);
     size_t label_len = std::wcslen(label);
 
@@ -603,7 +619,8 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end) {
 
 } // namespace
 
-void DetectAlerts(std::pmr::vector<Node>& nodes) {
+void DetectAlerts(std::pmr::vector<Node>& nodes)
+{
     for (size_t i = 0; i < nodes.size(); i++) {
         if (nodes[i].type != NodeType::BlockQuote) continue;
 
@@ -625,7 +642,8 @@ void DetectAlerts(std::pmr::vector<Node>& nodes) {
     }
 }
 
-std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text) {
+std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text)
+{
     ParseContext ctx;
 
     MD_PARSER parser{};

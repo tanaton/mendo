@@ -33,7 +33,8 @@ public:
     constexpr float GetHeight() const noexcept { return BASE_HEIGHT; }
 
     // ウィンドウ幅からボタン位置を計算
-    void UpdateLayout(float window_width_dip) noexcept {
+    void UpdateLayout(float window_width_dip) noexcept
+    {
         // キャプションボタン（右端から配置、全高を使用）
         float right = window_width_dip;
         close_.rect = D2D1::RectF(right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT);
@@ -55,7 +56,8 @@ public:
     }
 
     // DIP座標でヒットテスト
-    TitleBarHitZone HitTest(float dip_x, float dip_y) const noexcept {
+    TitleBarHitZone HitTest(float dip_x, float dip_y) const noexcept
+    {
         if (dip_y < 0.0f || dip_y >= BASE_HEIGHT) {
             return TitleBarHitZone::None;
         }
@@ -78,7 +80,8 @@ public:
     }
 
     // ホバー状態を設定。変化した場合trueを返す。
-    bool SetHovered(TitleBarHitZone zone) noexcept {
+    bool SetHovered(TitleBarHitZone zone) noexcept
+    {
         if (hovered_ == zone) {
             return false;
         }

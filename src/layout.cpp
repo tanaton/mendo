@@ -8,7 +8,8 @@ static constexpr float COLUMN_WIDTH_PADDING = 4.0f;
 // ---- フリー関数 ----
 
 std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natural_widths,
-    float available_width, size_t col_count) {
+    float available_width, size_t col_count)
+{
     std::pmr::vector<float> widths(col_count);
     available_width = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
@@ -31,7 +32,8 @@ std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natur
     return widths;
 }
 
-std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows) {
+std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows)
+{
     size_t total = 0;
     for (size_t r = 0; r < rows.size(); r++) {
         const auto& row = rows[r];
@@ -59,7 +61,8 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
 }
 
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-    size_t from_index, bool has_earlier_dirty) {
+    size_t from_index, bool has_earlier_dirty)
+{
     YPositionResult result;
     result.has_dirty_nodes = has_earlier_dirty;
     float y = theme.margin_top;
@@ -103,13 +106,15 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
 
 // ---- LayoutEngine クラス ----
 
-bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme) {
+bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
+{
     measurer_ = measurer;
     theme_ = &theme;
     return measurer_->Init(theme);
 }
 
-bool LayoutEngine::RecreateFormats() {
+bool LayoutEngine::RecreateFormats()
+{
     if (!measurer_) {
         return false;
     }
@@ -119,7 +124,8 @@ bool LayoutEngine::RecreateFormats() {
 
 void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width,
-    float viewport_top, float viewport_bottom) {
+    float viewport_top, float viewport_bottom)
+{
     cache.Resize(nodes.size());
 
     bool width_changed = (viewport_width != last_viewport_width_);
@@ -194,14 +200,16 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     has_dirty_nodes_ = any_dirty;
 }
 
-void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width) {
+void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
+{
     last_viewport_width_ = 0.0f; // 幅の変更検出を強制する
     ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right);
 }
 
 bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width,
-    float viewport_top, float viewport_bottom) {
+    float viewport_top, float viewport_bottom)
+{
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     bool any_updated = false;
 
@@ -230,7 +238,8 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 }
 
 bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    float viewport_width, int batch_size) {
+    float viewport_width, int batch_size)
+{
     float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     int processed = 0;
     size_t first_dirty = nodes.size();

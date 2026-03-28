@@ -7,7 +7,8 @@
 // リンクナビゲーション
 // ============================================================
 
-void App::HandleLinkClick(std::wstring_view url) {
+void App::HandleLinkClick(std::wstring_view url)
+{
     if (url.empty()) {
         return;
     }
@@ -25,7 +26,8 @@ void App::HandleLinkClick(std::wstring_view url) {
     }
 }
 
-void App::NavigateToAnchor(std::wstring_view anchor) {
+void App::NavigateToAnchor(std::wstring_view anchor)
+{
     int idx = FindAnchorNodeIndex(doc_.GetNodes(), anchor);
     if (idx < 0) {
         return;
@@ -39,11 +41,13 @@ void App::NavigateToAnchor(std::wstring_view anchor) {
     InvalidateMdPane(layout.md_rect);
 }
 
-void App::PushNavHistory() {
+void App::PushNavHistory()
+{
     nav_service_.PushHistory(doc_.GetFilePath(), viewport_.GetScrollY());
 }
 
-void App::ApplyNavigateResult(const NavigationService::NavigateResult& result) {
+void App::ApplyNavigateResult(const NavigationService::NavigateResult& result)
+{
     if (result.type == NavigationService::NavigateResult::Type::None) {
         return;
     }
@@ -58,11 +62,13 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result) {
     InvalidateMdPane(layout.md_rect);
 }
 
-void App::NavigateBack() {
+void App::NavigateBack()
+{
     ApplyNavigateResult(nav_service_.GoBack(doc_.GetFilePath(), viewport_.GetScrollY()));
 }
 
-void App::NavigateForward() {
+void App::NavigateForward()
+{
     ApplyNavigateResult(nav_service_.GoForward(doc_.GetFilePath(), viewport_.GetScrollY()));
 }
 
@@ -70,7 +76,8 @@ void App::NavigateForward() {
 // ダークモード
 // ============================================================
 
-void App::ToggleDarkMode() {
+void App::ToggleDarkMode()
+{
     theme_service_.ToggleDarkMode();
     renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
     ApplyDarkModeToWindow(hwnd_, theme_service_.IsDarkMode());
@@ -89,28 +96,32 @@ void App::ToggleDarkMode() {
 // ズーム
 // ============================================================
 
-void App::ZoomIn() {
+void App::ZoomIn()
+{
     float z = viewport_.ZoomIn();
     if (z > 0.0f) {
         ApplyZoom(z);
     }
 }
 
-void App::ZoomOut() {
+void App::ZoomOut()
+{
     float z = viewport_.ZoomOut();
     if (z > 0.0f) {
         ApplyZoom(z);
     }
 }
 
-void App::ZoomReset() {
+void App::ZoomReset()
+{
     float z = viewport_.ZoomReset();
     if (z > 0.0f) {
         ApplyZoom(z);
     }
 }
 
-void App::ApplyZoom(float new_zoom) {
+void App::ApplyZoom(float new_zoom)
+{
     int anchor_idx = FindFirstVisibleNode();
     float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
     float anchor_offset = viewport_.GetScrollY() - anchor_y_before;

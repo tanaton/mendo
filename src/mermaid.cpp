@@ -12,7 +12,8 @@
 
 // Win32リソース（RCDATA）からgzip圧縮されたmermaid.min.jsのバイト列を取得する。
 // リソースはプロセスのアドレス空間にマップされており、コピーせずに直接参照できる。
-static std::span<const std::byte> LoadMermaidJsGzFromResource() {
+static std::span<const std::byte> LoadMermaidJsGzFromResource()
+{
     HMODULE hModule = GetModuleHandleW(nullptr);
     HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(IDR_MERMAID_JS_GZ), RT_RCDATA);
     if (!hRes) {
@@ -124,7 +125,8 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
 )HTML";
 
 // ヘルパー: 指定されたバイトデータのコピーを含むIStreamを作成する。
-static IStream* CreateMemoryStream(const void* data, size_t size) {
+static IStream* CreateMemoryStream(const void* data, size_t size)
+{
     IStream* stream = nullptr;
     if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream) {
         return nullptr;
@@ -140,7 +142,8 @@ static IStream* CreateMemoryStream(const void* data, size_t size) {
 
 // ---- ヘルパー ----
 
-static std::pmr::wstring GetWebView2UserDataFolder() {
+static std::pmr::wstring GetWebView2UserDataFolder()
+{
     wchar_t* appdata = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
         return L"";
@@ -159,7 +162,8 @@ static const wchar_t* kMermaidHostClass = L"mendo_MermaidHost";
 
 // ---- MermaidRendererの実装 ----
 
-MermaidRenderer::~MermaidRenderer() {
+MermaidRenderer::~MermaidRenderer()
+{
     if (webview_controller_) {
         webview_controller_->Close();
     }
@@ -169,7 +173,8 @@ MermaidRenderer::~MermaidRenderer() {
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
-    std::function<void()> on_ready) {
+    std::function<void()> on_ready)
+{
     hwnd_ = hwnd;
     render_target_ = render_target;
 
@@ -385,16 +390,19 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
     }).Get());
 }
 
-void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target) {
+void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
+{
     render_target_ = render_target;
     cache_.clear();
 }
 
-void MermaidRenderer::ClearCache() {
+void MermaidRenderer::ClearCache()
+{
     cache_.clear();
 }
 
-void MermaidRenderer::CancelPending() {
+void MermaidRenderer::CancelPending()
+{
     // 保留キューを空にする
     decltype(pending_requests_) empty;
     pending_requests_.swap(empty);
@@ -406,12 +414,14 @@ void MermaidRenderer::CancelPending() {
     current_request_ = {};
 }
 
-void MermaidRenderer::ClearPendingQueue() noexcept {
+void MermaidRenderer::ClearPendingQueue() noexcept
+{
     decltype(pending_requests_) empty;
     pending_requests_.swap(empty);
 }
 
-std::pmr::wstring MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const {
+std::pmr::wstring MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const
+{
     std::pmr::wstring key{ code };
     key += L"|";
     key += std::to_wstring(static_cast<int>(max_width));
@@ -423,7 +433,8 @@ std::pmr::wstring MermaidRenderer::HashCode(std::wstring_view code, float max_wi
 void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode,
-    std::function<void()> on_complete) {
+    std::function<void()> on_complete)
+{
     if (node.code_language != SyntaxLanguage::Mermaid) {
         return;
     }
@@ -460,7 +471,8 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     }
 }
 
-void MermaidRenderer::ProcessQueue() {
+void MermaidRenderer::ProcessQueue()
+{
     if (!ready_ || rendering_ || pending_requests_.empty()) {
         return;
     }
@@ -475,7 +487,8 @@ void MermaidRenderer::ProcessQueue() {
         current_request_.dark_mode);
 }
 
-void MermaidRenderer::FinishCurrentRequest() {
+void MermaidRenderer::FinishCurrentRequest()
+{
     rendering_ = false;
     auto cb = std::move(current_request_.on_complete);
     current_request_ = {};
@@ -485,7 +498,8 @@ void MermaidRenderer::FinishCurrentRequest() {
     ProcessQueue();
 }
 
-void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_width, bool dark_mode) {
+void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_width, bool dark_mode)
+{
     if (!webview_) {
         FinishCurrentRequest();
         return;
@@ -518,7 +532,8 @@ void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_w
     webview_->ExecuteScript(js.c_str(), nullptr);
 }
 
-void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
+void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json)
+{
     // jsonはrenderMermaidからの生の文字列。例: {"ok":true,"width":400,"height":300}
     // リクエストIDの照合はメッセージハンドラで実施済み
     float dw = 0, dh = 0;
@@ -586,7 +601,8 @@ void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json) {
     webview_->ExecuteScript(cap_js.c_str(), nullptr);
 }
 
-void MermaidRenderer::DoCapturePreview() {
+void MermaidRenderer::DoCapturePreview()
+{
     if (!webview_) {
         FinishCurrentRequest();
         return;
@@ -630,7 +646,8 @@ void MermaidRenderer::DoCapturePreview() {
     }
 }
 
-void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* png_stream) {
+void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* png_stream)
+{
     ComPtr<ID2D1Bitmap> bitmap;
     float bw = 0, bh = 0;
 
@@ -673,7 +690,8 @@ void MermaidRenderer::OnCaptureComplete(std::wstring_view code_hash, IStream* pn
 }
 
 HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
-    float* width, float* height) {
+    float* width, float* height)
+{
     if (!wic_factory_ || !render_target_ || !stream) {
         return E_FAIL;
     }

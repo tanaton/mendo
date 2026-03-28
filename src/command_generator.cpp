@@ -8,7 +8,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const TextSelection& selection,
     int first_visible,
     int hovered_copy_node,
-    float dpi_scale) {
+    float dpi_scale)
+{
     // 古いコマンドリストを破棄し、monotonic リソースをリセットして再利用する。
     // cmds_ を先に空のリストで置き換えてから Reset() を呼ぶことで、
     // 解放済みメモリを指す内部バッファが残らないようにする。
@@ -57,7 +58,8 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
     int node_index, float offset_x, float viewport_top, float viewport_bottom,
     const TextSelection& selection, float content_width,
-    int hovered_copy_node) {
+    int hovered_copy_node)
+{
     // ビューポート外のノードをカリング
     // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
     float node_bottom = entry.y_position + entry.height;
@@ -192,7 +194,8 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
 // ---- サブジェネレータ ----
 
 void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds,
-    const NodeLayoutEntry& entry, float x, float w) {
+    const NodeLayoutEntry& entry, float x, float w)
+{
     float y = entry.y_position + theme_->paragraph_spacing * 0.5f;
     cmds.push_back(DrawLineCmd{
         D2D1::Point2F(x, y), D2D1::Point2F(x + w, y),
@@ -200,7 +203,8 @@ void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds,
 }
 
 void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row,
-    float x, float y, float table_width, float row_h, float border) {
+    float x, float y, float table_width, float row_h, float border)
+{
     if (is_header) {
         cmds.push_back(FillRectCmd{
             D2D1::RectF(x, y, x + table_width, y + row_h + border),
@@ -217,7 +221,8 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCel
     IDWriteTextLayout* cell_layout,
     float text_x, float text_y,
     bool has_selection, uint32_t sel_start, uint32_t sel_end,
-    uint32_t flat_offset) {
+    uint32_t flat_offset)
+{
     if (has_selection && cell_layout) {
         uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
         uint32_t ov_start = std::max(sel_start, flat_offset);
@@ -236,7 +241,8 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCel
 void CommandGenerator::GenTable(DrawCommandList& cmds,
     const Node& node, const NodeLayoutEntry& entry,
     int node_index, float offset_x, const TextSelection& selection,
-    float viewport_top, float viewport_bottom) {
+    float viewport_top, float viewport_bottom)
+{
     if (node.table_rows.empty() || entry.col_widths.empty()) {
         return;
     }
@@ -350,7 +356,8 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 }
 
 void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds,
-    const NodeLayoutEntry& entry, float x, float w) {
+    const NodeLayoutEntry& entry, float x, float w)
+{
     float pad = theme_->code_block_padding;
     D2D1_RECT_F bg_rect = D2D1::RectF(
         x - pad, entry.y_position - pad,
@@ -359,7 +366,8 @@ void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds,
 }
 
 void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
-    const NodeLayoutEntry& entry, float x, float w, bool is_hovered) {
+    const NodeLayoutEntry& entry, float x, float w, bool is_hovered)
+{
     if (!formats_.copy_btn_icon) {
         return;
     }
@@ -386,7 +394,8 @@ void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
 }
 
 void CommandGenerator::GenListBullet(DrawCommandList& cmds,
-    const Node& node, const NodeLayoutEntry& entry, float x) {
+    const Node& node, const NodeLayoutEntry& entry, float x)
+{
     if (node.list_number > 0) {
         // 順序付きリストの番号
         if (formats_.list_number) {
@@ -418,7 +427,8 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
 }
 
 void CommandGenerator::GenVerticalBar(DrawCommandList& cmds,
-    const NodeLayoutEntry& entry, float base_x, D2D1_COLOR_F color) {
+    const NodeLayoutEntry& entry, float base_x, D2D1_COLOR_F color)
+{
     static constexpr float BAR_EXTEND = 2.0f;
     float bar_x = base_x - theme_->indent_width * 0.5f;
     cmds.push_back(DrawLineCmd{
@@ -428,12 +438,14 @@ void CommandGenerator::GenVerticalBar(DrawCommandList& cmds,
 }
 
 void CommandGenerator::GenBlockQuoteBar(DrawCommandList& cmds,
-    const NodeLayoutEntry& entry, float base_x) {
+    const NodeLayoutEntry& entry, float base_x)
+{
     GenVerticalBar(cmds, entry, base_x, theme_->blockquote_bar_color);
 }
 
 void CommandGenerator::GenAlertBar(DrawCommandList& cmds,
-    const Node& node, const NodeLayoutEntry& entry, float base_x, float content_width) {
+    const Node& node, const NodeLayoutEntry& entry, float base_x, float content_width)
+{
     auto idx = AlertColorIndex(node.alert_type);
     if (idx >= ALERT_TYPE_COUNT) {
         return;
@@ -453,7 +465,8 @@ void CommandGenerator::GenAlertBar(DrawCommandList& cmds,
 
 void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,
     IDWriteTextLayout* layout, uint32_t start, uint32_t length,
-    float origin_x, float origin_y) {
+    float origin_x, float origin_y)
+{
     if (!layout || length == 0) {
         return;
     }

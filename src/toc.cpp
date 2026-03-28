@@ -2,12 +2,14 @@
 #include <algorithm>
 
 struct NodeTypeHeadingFilter {
-    static constexpr bool operator()(const Node& node) noexcept {
+    static constexpr bool operator()(const Node& node) noexcept
+    {
         return node.type == NodeType::Heading;
     }
 };
 
-void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes) {
+void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes)
+{
     entries_.clear();
     size_t heading_count = std::ranges::count_if(nodes, NodeTypeHeadingFilter{});
     entries_.reserve(heading_count);
@@ -20,7 +22,8 @@ void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes) {
     }
 }
 
-int TableOfContents::HitTest(float local_y, float item_height) const noexcept {
+int TableOfContents::HitTest(float local_y, float item_height) const noexcept
+{
     if (local_y < 0 || item_height <= 0) {
         return -1;
     }

@@ -33,7 +33,8 @@ static_assert(static_cast<size_t>(AlertType::Caution) == 5, "AlertType::Caution 
 inline constexpr size_t ALERT_TYPE_COUNT = 5;
 
 // AlertType → 0ベースの色/ブラシインデックス。None の場合は ALERT_TYPE_COUNT を返す（範囲外）。
-constexpr size_t AlertColorIndex(AlertType t) noexcept {
+constexpr size_t AlertColorIndex(AlertType t) noexcept
+{
     if (t == AlertType::None) {
         return ALERT_TYPE_COUNT;
     }
@@ -63,7 +64,8 @@ struct TextSelection {
 
     // アンカー/キャレットをドキュメント順で start <= end に正規化する
     static constexpr TextSelection MakeOrdered(int node_a, uint32_t pos_a,
-        int node_b, uint32_t pos_b) noexcept {
+        int node_b, uint32_t pos_b) noexcept
+    {
         TextSelection s;
         if (node_a < node_b || (node_a == node_b && pos_a <= pos_b)) {
             s.start_node = node_a; s.start_pos = pos_a;

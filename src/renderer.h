@@ -185,7 +185,8 @@ private:
     ID2D1Factory* d2d() const noexcept { return backend_.GetD2DFactory(); }
 
     std::array<ComPtr<ID2D1SolidColorBrush>, static_cast<size_t>(BrushId::Count)> brushes_;
-    ID2D1SolidColorBrush* Brush(BrushId id) const noexcept {
+    ID2D1SolidColorBrush* Brush(BrushId id) const noexcept
+    {
         return brushes_[static_cast<size_t>(id)].Get();
     }
 

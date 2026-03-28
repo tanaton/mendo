@@ -10,14 +10,16 @@ static constexpr float MIN_MERMAID_PLACEHOLDER_HEIGHT = 60.0f;
 
 static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family,
     float size, DWRITE_FONT_WEIGHT weight,
-    IDWriteTextFormat** out) {
+    IDWriteTextFormat** out)
+{
     return factory->CreateTextFormat(
         family, nullptr, weight,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
         size, L"ja-jp", out);
 }
 
-bool DWriteTextMeasurer::CreateAllFormats() {
+bool DWriteTextMeasurer::CreateAllFormats()
+{
     if (!dwrite_ || !theme_) {
         return false;
     }
@@ -52,16 +54,19 @@ bool DWriteTextMeasurer::CreateAllFormats() {
     return true;
 }
 
-bool DWriteTextMeasurer::Init(const Theme& theme) {
+bool DWriteTextMeasurer::Init(const Theme& theme)
+{
     theme_ = &theme;
     return CreateAllFormats();
 }
 
-bool DWriteTextMeasurer::RecreateFormats() {
+bool DWriteTextMeasurer::RecreateFormats()
+{
     return CreateAllFormats();
 }
 
-IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) {
+IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node)
+{
     if (node.type == NodeType::CodeBlock) {
         return fmt_code_.Get();
     }
@@ -74,7 +79,8 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) {
 }
 
 void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
-    const std::pmr::vector<TextRun>& runs) {
+    const std::pmr::vector<TextRun>& runs)
+{
     for (const auto& run : runs) {
         DWRITE_TEXT_RANGE range{ run.start, run.length };
         if (run.bold) {
@@ -96,7 +102,8 @@ void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
     }
 }
 
-void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) {
+void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width)
+{
     if (!dwrite_ || !theme_) {
         return;
     }
@@ -171,7 +178,8 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
 }
 
 void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
-    std::pmr::vector<float>& natural_widths) {
+    std::pmr::vector<float>& natural_widths)
+{
     IDWriteTextFormat* fmt = fmt_body_.Get();
     IDWriteTextFormat* fmt_bold = fmt_h_[3].Get();
 
@@ -200,7 +208,8 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
 }
 
 void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
-    size_t col_count, std::pmr::vector<float>& natural_widths) {
+    size_t col_count, std::pmr::vector<float>& natural_widths)
+{
     float cell_padding = TABLE_CELL_PADDING;
     float border_width = TABLE_BORDER_WIDTH;
 
@@ -239,7 +248,8 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     entry.layout_dirty = false;
 }
 
-void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) {
+void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width)
+{
     if (!dwrite_ || !theme_) {
         return;
     }

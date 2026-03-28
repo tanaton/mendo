@@ -19,7 +19,8 @@ public:
     // ファイル切替時にバッファを縮小する
     void ShrinkBuffers() { hit_test_buffer_.shrink_to_fit(); }
 
-    constexpr void SetTheme(const Theme* theme) noexcept {
+    constexpr void SetTheme(const Theme* theme) noexcept
+    {
         theme_ = theme;
         cached_is_dark_ = theme->IsDark();
         float a = cached_is_dark_ ? 0.05f : 0.02f;

@@ -1,6 +1,7 @@
 #include "theme.h"
 
-static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) noexcept {
+static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) noexcept
+{
     return D2D1::ColorF(
         ((rgb >> 16) & 0xFF) / 255.0f,
         ((rgb >> 8) & 0xFF) / 255.0f,
@@ -9,14 +10,16 @@ static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) noexcept {
     );
 }
 
-float Theme::GetHeadingSize(int level) const noexcept {
+float Theme::GetHeadingSize(int level) const noexcept
+{
     if (level < 1 || level > 6) {
         return font_size_body;
     }
     return font_size_h[level - 1];
 }
 
-void Theme::ApplyZoom(float new_zoom) noexcept {
+void Theme::ApplyZoom(float new_zoom) noexcept
+{
     if (new_zoom <= 0.0f || zoom <= 0.0f) {
         return;
     }
@@ -51,7 +54,8 @@ void Theme::ApplyZoom(float new_zoom) noexcept {
 }
 
 // ライトテーマとダークテーマで共有するレイアウト定数
-static void ApplyCommonLayout(Theme& t) {
+static void ApplyCommonLayout(Theme& t)
+{
     t.font_family = L"Yu Gothic UI";
     t.monospace_font = L"Consolas";
 
@@ -83,7 +87,8 @@ static void ApplyCommonLayout(Theme& t) {
     t.pane_font_size = 13.0f;
 }
 
-Theme GetLightTheme() {
+Theme GetLightTheme()
+{
     Theme t{};
 
     t.bg_color = Color(0xFFFFFF);
@@ -134,7 +139,8 @@ Theme GetLightTheme() {
     return t;
 }
 
-Theme GetDarkTheme() {
+Theme GetDarkTheme()
+{
     Theme t{};
 
     t.bg_color = Color(0x1e1e1e);

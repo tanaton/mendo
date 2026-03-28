@@ -2,7 +2,8 @@
 #include "ui_constants.h"
 #include <windows.h>
 
-ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const {
+ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const
+{
     ActionList actions;
 
     // Alt+矢印キー: 戻る/進むナビゲーション
@@ -48,7 +49,8 @@ ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const {
     return actions;
 }
 
-ActionList AppController::HandleMouseWheel(const MouseWheelEvent& event) const {
+ActionList AppController::HandleMouseWheel(const MouseWheelEvent& event) const
+{
     ActionList actions;
 
     if (event.ctrl) {

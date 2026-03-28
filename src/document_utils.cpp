@@ -4,7 +4,8 @@
 #include <filesystem>
 
 std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
-    const TextSelection& selection) {
+    const TextSelection& selection)
+{
     if (!selection.active) {
         return {};
     }
@@ -38,7 +39,8 @@ std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
 }
 
 static std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>& runs,
-    uint32_t pos) {
+    uint32_t pos)
+{
     for (const auto& run : runs) {
         if (run.link_url.has_value() &&
             pos >= run.start && pos < run.start + run.length) {
@@ -50,7 +52,8 @@ static std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<Te
 
 static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node,
     uint32_t text_pos,
-    uint32_t& local_pos) {
+    uint32_t& local_pos)
+{
     uint32_t offset = 0;
     for (size_t r = 0; r < node.table_rows.size(); r++) {
         const auto& row = node.table_rows[r];
@@ -68,7 +71,8 @@ static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node,
     return nullptr;
 }
 
-std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos) {
+std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos)
+{
     if (node.type == NodeType::Table) {
         uint32_t local_pos = 0;
         auto* runs = FindTableCellRuns(node, text_pos, local_pos);
@@ -77,7 +81,8 @@ std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t t
     return FindLinkInRuns(node.runs, text_pos);
 }
 
-std::pmr::wstring ToLowerAscii(std::wstring_view text) {
+std::pmr::wstring ToLowerAscii(std::wstring_view text)
+{
     std::pmr::wstring result;
     result.reserve(text.size());
     for (wchar_t c : text) {
@@ -91,7 +96,8 @@ std::pmr::wstring ToLowerAscii(std::wstring_view text) {
     return result;
 }
 
-int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view anchor) {
+int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view anchor)
+{
     if (anchor.empty()) {
         return -1;
     }
@@ -109,7 +115,8 @@ int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view a
     return -1;
 }
 
-WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) {
+WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos)
+{
     WordBoundary result;
     if (text.empty()) {
         return result;
@@ -142,7 +149,8 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) {
     return result;
 }
 
-bool IsMarkdownFile(std::wstring_view path) {
+bool IsMarkdownFile(std::wstring_view path)
+{
     auto ext = std::filesystem::path(path).extension().wstring();
     for (auto& c : ext) {
         c = std::towlower(c);
@@ -150,14 +158,16 @@ bool IsMarkdownFile(std::wstring_view path) {
     return ext == L".md" || ext == L".markdown" || ext == L".mkd";
 }
 
-std::pmr::wstring ExtractFilename(std::wstring_view path) {
+std::pmr::wstring ExtractFilename(std::wstring_view path)
+{
     if (path.empty()) {
         return {};
     }
     return std::pmr::wstring{ std::wstring_view{std::filesystem::path(path).filename().native()} };
 }
 
-std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent) {
+std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
+{
     std::pmr::wstring title;
     if (path.empty()) {
         title = L"mendo";

@@ -8,27 +8,33 @@ namespace {
 
 // ---- ヘルパー関数 ----
 
-bool IsIdentStart(wchar_t c) {
+bool IsIdentStart(wchar_t c)
+{
     return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || c == L'_' || c >= 0x80;
 }
 
-bool IsIdentChar(wchar_t c) {
+bool IsIdentChar(wchar_t c)
+{
     return IsIdentStart(c) || (c >= L'0' && c <= L'9');
 }
 
-bool IsDigit(wchar_t c) {
+bool IsDigit(wchar_t c)
+{
     return c >= L'0' && c <= L'9';
 }
 
-bool IsHexDigit(wchar_t c) {
+bool IsHexDigit(wchar_t c)
+{
     return IsDigit(c) || (c >= L'a' && c <= L'f') || (c >= L'A' && c <= L'F');
 }
 
-bool IsWhitespace(wchar_t c) {
+bool IsWhitespace(wchar_t c)
+{
     return c == L' ' || c == L'\t' || c == L'\n' || c == L'\r';
 }
 
-bool IsAtLineStart(std::wstring_view text, size_t pos) {
+bool IsAtLineStart(std::wstring_view text, size_t pos)
+{
     if (pos == 0) { return true; }
     for (size_t i = pos - 1; ; i--) {
         if (text[i] == L'\n') { return true; }
@@ -41,13 +47,15 @@ bool IsAtLineStart(std::wstring_view text, size_t pos) {
 
 using KeywordSet = std::pmr::unordered_set<std::wstring_view>;
 
-KeywordSet MergeKeywords(const KeywordSet& base, std::initializer_list<std::wstring_view> extra) {
+KeywordSet MergeKeywords(const KeywordSet& base, std::initializer_list<std::wstring_view> extra)
+{
     KeywordSet result = base;
     result.insert(extra);
     return result;
 }
 
-const KeywordSet& CppKeywords() {
+const KeywordSet& CppKeywords()
+{
     static const KeywordSet s = {
         L"auto", L"break", L"case", L"catch", L"class", L"const", L"consteval",
         L"constexpr", L"constinit", L"continue", L"co_await", L"co_return", L"co_yield",
@@ -65,7 +73,8 @@ const KeywordSet& CppKeywords() {
     return s;
 }
 
-const KeywordSet& CppTypes() {
+const KeywordSet& CppTypes()
+{
     static const KeywordSet s = {
         L"int", L"long", L"short", L"char", L"float", L"double", L"bool",
         L"unsigned", L"signed", L"size_t", L"ptrdiff_t",
@@ -82,7 +91,8 @@ const KeywordSet& CppTypes() {
     return s;
 }
 
-const KeywordSet& PythonKeywords() {
+const KeywordSet& PythonKeywords()
+{
     static const KeywordSet s = {
         L"and", L"as", L"assert", L"async", L"await", L"break", L"class",
         L"continue", L"def", L"del", L"elif", L"else", L"except", L"finally",
@@ -93,7 +103,8 @@ const KeywordSet& PythonKeywords() {
     return s;
 }
 
-const KeywordSet& PythonTypes() {
+const KeywordSet& PythonTypes()
+{
     static const KeywordSet s = {
         L"int", L"float", L"str", L"bool", L"list", L"dict", L"set", L"tuple",
         L"bytes", L"bytearray", L"object", L"type", L"range", L"complex",
@@ -104,7 +115,8 @@ const KeywordSet& PythonTypes() {
     return s;
 }
 
-const KeywordSet& JsKeywords() {
+const KeywordSet& JsKeywords()
+{
     static const KeywordSet s = {
         L"break", L"case", L"catch", L"class", L"const", L"continue",
         L"debugger", L"default", L"delete", L"do", L"else", L"export",
@@ -116,7 +128,8 @@ const KeywordSet& JsKeywords() {
     return s;
 }
 
-const KeywordSet& JsTypes() {
+const KeywordSet& JsTypes()
+{
     static const KeywordSet s = {
         L"Array", L"Boolean", L"Date", L"Error", L"Function", L"Map",
         L"Number", L"Object", L"Promise", L"RegExp", L"Set", L"String",
@@ -129,7 +142,8 @@ const KeywordSet& JsTypes() {
 
 // ---- Go ----
 
-const KeywordSet& GoKeywords() {
+const KeywordSet& GoKeywords()
+{
     static const KeywordSet s = {
         L"break", L"case", L"chan", L"const", L"continue", L"default", L"defer",
         L"else", L"fallthrough", L"for", L"func", L"go", L"goto", L"if", L"import",
@@ -139,7 +153,8 @@ const KeywordSet& GoKeywords() {
     return s;
 }
 
-const KeywordSet& GoTypes() {
+const KeywordSet& GoTypes()
+{
     static const KeywordSet s = {
         L"bool", L"byte", L"complex64", L"complex128", L"error",
         L"float32", L"float64", L"int", L"int8", L"int16", L"int32", L"int64",
@@ -152,7 +167,8 @@ const KeywordSet& GoTypes() {
 
 // ---- Rust ----
 
-const KeywordSet& RustKeywords() {
+const KeywordSet& RustKeywords()
+{
     static const KeywordSet s = {
         L"as", L"async", L"await", L"break", L"const", L"continue", L"crate",
         L"dyn", L"else", L"enum", L"extern", L"false", L"fn", L"for", L"if",
@@ -164,7 +180,8 @@ const KeywordSet& RustKeywords() {
     return s;
 }
 
-const KeywordSet& RustTypes() {
+const KeywordSet& RustTypes()
+{
     static const KeywordSet s = {
         L"bool", L"char", L"f32", L"f64", L"i8", L"i16", L"i32", L"i64", L"i128",
         L"isize", L"str", L"u8", L"u16", L"u32", L"u64", L"u128", L"usize",
@@ -178,7 +195,8 @@ const KeywordSet& RustTypes() {
 
 // ---- TypeScript（JSのスーパーセット） ----
 
-const KeywordSet& TsKeywords() {
+const KeywordSet& TsKeywords()
+{
     static const KeywordSet s = MergeKeywords(JsKeywords(), {
         L"abstract", L"declare", L"enum", L"implements", L"infer",
         L"interface", L"is", L"keyof", L"namespace", L"override",
@@ -187,7 +205,8 @@ const KeywordSet& TsKeywords() {
     return s;
 }
 
-const KeywordSet& TsTypes() {
+const KeywordSet& TsTypes()
+{
     static const KeywordSet s = MergeKeywords(JsTypes(), {
         L"any", L"unknown", L"never", L"number", L"string", L"boolean",
         L"symbol", L"bigint", L"object",
@@ -201,7 +220,8 @@ const KeywordSet& TsTypes() {
 
 // ---- Bash ----
 
-const KeywordSet& BashKeywords() {
+const KeywordSet& BashKeywords()
+{
     static const KeywordSet s = {
         L"if", L"then", L"else", L"elif", L"fi", L"case", L"esac",
         L"for", L"while", L"until", L"do", L"done", L"in", L"function",
@@ -212,7 +232,8 @@ const KeywordSet& BashKeywords() {
     return s;
 }
 
-const KeywordSet& BashTypes() {
+const KeywordSet& BashTypes()
+{
     static const KeywordSet s = {
         L"echo", L"printf", L"read", L"test", L"true", L"false",
         L"cd", L"pwd", L"alias", L"unalias", L"type", L"which",
@@ -223,7 +244,8 @@ const KeywordSet& BashTypes() {
 
 // ---- PowerShell（大文字小文字を区別しないマッチングのためキーワードは小文字で格納） ----
 
-const KeywordSet& PwshKeywords() {
+const KeywordSet& PwshKeywords()
+{
     static const KeywordSet s = {
         L"begin", L"break", L"catch", L"class", L"continue", L"data",
         L"do", L"dynamicparam", L"else", L"elseif", L"end", L"enum",
@@ -235,7 +257,8 @@ const KeywordSet& PwshKeywords() {
     return s;
 }
 
-const KeywordSet& PwshTypes() {
+const KeywordSet& PwshTypes()
+{
     static const KeywordSet s = {
         L"int", L"long", L"float", L"double", L"decimal", L"bool",
         L"byte", L"string", L"char", L"array", L"hashtable", L"xml",
@@ -247,7 +270,8 @@ const KeywordSet& PwshTypes() {
 
 // ---- Cmd（大文字小文字を区別しないマッチングのためキーワードは小文字で格納） ----
 
-const KeywordSet& CmdKeywords() {
+const KeywordSet& CmdKeywords()
+{
     static const KeywordSet s = {
         L"if", L"else", L"for", L"do", L"goto", L"call", L"set",
         L"setlocal", L"endlocal", L"echo", L"pause", L"exit", L"rem",
@@ -257,7 +281,8 @@ const KeywordSet& CmdKeywords() {
     return s;
 }
 
-const KeywordSet& CmdTypes() {
+const KeywordSet& CmdTypes()
+{
     static const KeywordSet s = {
         L"dir", L"copy", L"move", L"del", L"ren", L"rename",
         L"mkdir", L"md", L"rmdir", L"rd", L"type", L"find", L"findstr",
@@ -270,7 +295,8 @@ const KeywordSet& CmdTypes() {
 
 // ---- レキサーヘルパー ----
 
-void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type) {
+void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type)
+{
     if (length > 0) {
         tokens.push_back({ start, length, type });
     }
@@ -278,7 +304,8 @@ void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t l
 
 // posから始まる文字列リテラルをスキャン（posは開始引用符を指す）。
 // 閉じ引用符の次の位置を返す（未終端の場合はテキストの末尾）。
-size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_multiline, bool handle_escape = true) {
+size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_multiline, bool handle_escape = true)
+{
     size_t i = pos + 1;
     while (i < text.size()) {
         if (handle_escape && text[i] == L'\\') {
@@ -299,7 +326,8 @@ size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_
 }
 
 // Pythonのトリプルクォート文字列をスキャン。
-size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quote) {
+size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quote)
+{
     // posはトリプルクォートの最初の引用符を指す
     size_t i = pos + 3;
     while (i + 2 < text.size()) {
@@ -317,7 +345,8 @@ size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quote) {
 }
 
 // posから始まる数値リテラルをスキャン。
-size_t ScanNumber(std::wstring_view text, size_t pos) {
+size_t ScanNumber(std::wstring_view text, size_t pos)
+{
     size_t i = pos;
 
     // 0x, 0b, 0oプレフィックスの処理
@@ -370,7 +399,8 @@ size_t ScanNumber(std::wstring_view text, size_t pos) {
 }
 
 // [start, end)の識別子の後に'('が続くか確認（空白をスキップ）。
-bool IsFollowedByParen(std::wstring_view text, size_t end) {
+bool IsFollowedByParen(std::wstring_view text, size_t end)
+{
     size_t i = end;
     while (i < text.size() && (text[i] == L' ' || text[i] == L'\t')) { i++; }
     return i < text.size() && text[i] == L'(';
@@ -378,7 +408,8 @@ bool IsFollowedByParen(std::wstring_view text, size_t end) {
 
 // posから始まるブロックコメントをスキャン（posは開始ペアの最初の文字を指す）。
 // 閉じペアの次の位置を返す。未終端の場合はtext.size()を返す。
-size_t ScanBlockComment(std::wstring_view text, size_t pos, wchar_t close1, wchar_t close2) {
+size_t ScanBlockComment(std::wstring_view text, size_t pos, wchar_t close1, wchar_t close2)
+{
     size_t i = pos + 2;
     while (i + 1 < text.size()) {
         if (text[i] == close1 && text[i + 1] == close2) {
@@ -411,7 +442,8 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     const KeywordSet& keywords,
     const KeywordSet& types,
     const LexerConfig& cfg
-) {
+)
+{
     std::pmr::vector<SyntaxToken> tokens;
     tokens.reserve(text.size() / 4);
     size_t i = 0;
@@ -632,7 +664,8 @@ struct LanguageDef {
 };
 
 // プレースホルダーエントリ（None, Mermaid）用の空キーワードセット。
-const KeywordSet& EmptyKeywords() {
+const KeywordSet& EmptyKeywords()
+{
     static const KeywordSet s;
     return s;
 }
@@ -697,7 +730,8 @@ static_assert(std::size(LANGUAGE_DEFS) == static_cast<size_t>(SyntaxLanguage::Cm
 
 // ---- 公開API ----
 
-SyntaxLanguage DetectLanguage(std::wstring_view info_string) {
+SyntaxLanguage DetectLanguage(std::wstring_view info_string)
+{
     if (info_string.empty()) { return SyntaxLanguage::None; }
 
     // 最初の単語を抽出して小文字に変換
@@ -743,7 +777,8 @@ SyntaxLanguage DetectLanguage(std::wstring_view info_string) {
     return SyntaxLanguage::None;
 }
 
-std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language) {
+std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language)
+{
     auto idx = static_cast<size_t>(language);
     if (text.empty() || language == SyntaxLanguage::None ||
         language == SyntaxLanguage::Mermaid || idx >= std::size(LANGUAGE_DEFS)) {

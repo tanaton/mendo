@@ -9,11 +9,13 @@ namespace config {
 
 static std::filesystem::path g_config_dir_override;
 
-void SetConfigDirOverride(const std::filesystem::path& dir) {
+void SetConfigDirOverride(const std::filesystem::path& dir)
+{
     g_config_dir_override = dir;
 }
 
-std::filesystem::path GetConfigDir() {
+std::filesystem::path GetConfigDir()
+{
     if (!g_config_dir_override.empty()) {
         return g_config_dir_override;
     }
@@ -26,7 +28,8 @@ std::filesystem::path GetConfigDir() {
     return dir;
 }
 
-std::filesystem::path GetConfigPath(std::wstring_view filename) {
+std::filesystem::path GetConfigPath(std::wstring_view filename)
+{
     // パストラバーサル防御: ファイル名にパス区切り文字や危険なパターンが含まれていないことを検証
     if (filename.empty()) {
         return {};
@@ -47,7 +50,8 @@ std::filesystem::path GetConfigPath(std::wstring_view filename) {
     return dir / filename;
 }
 
-void SaveBool(std::wstring_view filename, bool value) {
+void SaveBool(std::wstring_view filename, bool value)
+{
     auto path = GetConfigPath(filename);
     if (path.empty()) {
         return;
@@ -59,7 +63,8 @@ void SaveBool(std::wstring_view filename, bool value) {
     }
 }
 
-bool LoadBool(std::wstring_view filename, bool default_value) {
+bool LoadBool(std::wstring_view filename, bool default_value)
+{
     auto path = GetConfigPath(filename);
     if (path.empty()) {
         return default_value;
@@ -73,7 +78,8 @@ bool LoadBool(std::wstring_view filename, bool default_value) {
     return c == '1';
 }
 
-void SaveInt(std::wstring_view filename, int value) {
+void SaveInt(std::wstring_view filename, int value)
+{
     auto path = GetConfigPath(filename);
     if (path.empty()) {
         return;
@@ -85,7 +91,8 @@ void SaveInt(std::wstring_view filename, int value) {
     }
 }
 
-int LoadInt(std::wstring_view filename, int default_value, int min_val, int max_val) {
+int LoadInt(std::wstring_view filename, int default_value, int min_val, int max_val)
+{
     auto path = GetConfigPath(filename);
     if (path.empty()) {
         return default_value;
@@ -104,7 +111,8 @@ int LoadInt(std::wstring_view filename, int default_value, int min_val, int max_
     return val;
 }
 
-void SaveWString(std::wstring_view filename, std::wstring_view value) {
+void SaveWString(std::wstring_view filename, std::wstring_view value)
+{
     auto path = GetConfigPath(filename);
     if (path.empty()) {
         return;
@@ -121,7 +129,8 @@ void SaveWString(std::wstring_view filename, std::wstring_view value) {
     }
 }
 
-std::pmr::wstring LoadWString(std::wstring_view filename) {
+std::pmr::wstring LoadWString(std::wstring_view filename)
+{
     auto path = GetConfigPath(filename);
     if (path.empty()) {
         return {};

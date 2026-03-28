@@ -1,6 +1,7 @@
 #include "command_executor.h"
 
-ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color) {
+ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color)
+{
     if (rt != bound_rt_) {
         brush_.Reset();
         bound_rt_ = rt;
@@ -14,7 +15,8 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
     return brush_.Get();
 }
 
-void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt) {
+void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt)
+{
     if (!rt) {
         return;
     }

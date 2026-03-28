@@ -1,6 +1,7 @@
 #include "nav_history.h"
 
-void NavHistory::Push(const NavEntry& current) {
+void NavHistory::Push(const NavEntry& current)
+{
     back_stack_.push_back(current);
     forward_stack_.clear();
 
@@ -10,7 +11,8 @@ void NavHistory::Push(const NavEntry& current) {
     }
 }
 
-bool NavHistory::GoBack(const NavEntry& current, NavEntry& out) {
+bool NavHistory::GoBack(const NavEntry& current, NavEntry& out)
+{
     if (back_stack_.empty()) {
         return false;
     }
@@ -24,7 +26,8 @@ bool NavHistory::GoBack(const NavEntry& current, NavEntry& out) {
     return true;
 }
 
-bool NavHistory::GoForward(const NavEntry& current, NavEntry& out) {
+bool NavHistory::GoForward(const NavEntry& current, NavEntry& out)
+{
     if (forward_stack_.empty()) {
         return false;
     }
@@ -35,7 +38,8 @@ bool NavHistory::GoForward(const NavEntry& current, NavEntry& out) {
     return true;
 }
 
-void NavHistory::Clear() noexcept {
+void NavHistory::Clear() noexcept
+{
     back_stack_.clear();
     forward_stack_.clear();
 }

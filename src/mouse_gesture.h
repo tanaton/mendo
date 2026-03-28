@@ -21,7 +21,8 @@ public:
     static constexpr float MIN_POINT_DISTANCE_SQ = MIN_POINT_DISTANCE * MIN_POINT_DISTANCE;
     static constexpr int   TRAIL_MAX_POINTS = 512;
 
-    void OnRButtonDown(float x, float y) {
+    void OnRButtonDown(float x, float y)
+    {
         Reset();
         phase_ = GesturePhase::Pressed;
         start_x_ = x;
@@ -32,7 +33,8 @@ public:
         trail_points_.push_back({ x, y });
     }
 
-    void OnMouseMove(float x, float y) {
+    void OnMouseMove(float x, float y)
+    {
         if (phase_ == GesturePhase::Idle) {
             return;
         }
@@ -68,7 +70,8 @@ public:
         }
     }
 
-    GestureResult OnRButtonUp() noexcept {
+    GestureResult OnRButtonUp() noexcept
+    {
         if (phase_ == GesturePhase::Idle) {
             return GestureResult::None;
         }
@@ -90,7 +93,8 @@ public:
         }
     }
 
-    void Reset() noexcept {
+    void Reset() noexcept
+    {
         phase_ = GesturePhase::Idle;
         direction_ = GestureDirection::None;
         start_x_ = 0.0f;
@@ -109,7 +113,8 @@ public:
     constexpr float GetOverlayAlpha() const noexcept { return overlay_alpha_; }
 
 private:
-    void UpdateDirection() noexcept {
+    void UpdateDirection() noexcept
+    {
         float dx = current_x_ - start_x_;
         float dy = current_y_ - start_y_;
         float dist_sq = dx * dx + dy * dy;

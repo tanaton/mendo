@@ -35,14 +35,16 @@ struct DiagramEntry {
 
 class LayoutCache {
 public:
-    constexpr void Resize(size_t node_count) {
+    constexpr void Resize(size_t node_count)
+    {
         entries_.resize(node_count);
         diagrams_.resize(node_count);
     }
 
     // 既存のエントリをすべてクリアし、デフォルト値でリサイズする。
     // ファイル切り替え時に古いレイアウトデータを残さないために使用する。
-    constexpr void Reset(size_t node_count) {
+    constexpr void Reset(size_t node_count)
+    {
         entries_.clear();
         entries_.resize(node_count);
         diagrams_.clear();
@@ -59,7 +61,8 @@ public:
 
     // すべてのテキストレイアウトとエフェクトを無効化する（テーマ/ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
-    void InvalidateAllLayouts() {
+    void InvalidateAllLayouts()
+    {
         for (auto& e : entries_) {
             e.text_layout.Reset();
             e.effects_applied = false;
@@ -69,7 +72,8 @@ public:
 
     // すべてのテキストレイアウトとエフェクトを無効化し、Mermaid図のビットマップもリセットする。
     // ダークモード切替時に使用。
-    void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes) {
+    void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes)
+    {
         InvalidateAllLayouts();
         for (size_t i = 0; i < nodes.size() && i < diagrams_.size(); ++i) {
             if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
@@ -79,7 +83,8 @@ public:
     }
 
     // すべてのエントリをダーティとしてマークし、レイアウトをリセットする（DPI 変更時）。
-    void MarkAllDirty() {
+    void MarkAllDirty()
+    {
         for (auto& e : entries_) {
             e.layout_dirty = true;
             e.text_layout.Reset();
@@ -93,7 +98,8 @@ private:
 
 // 最後のノードのレイアウト位置からコンテンツ全体の高さを計算する。
 // node_count が 0 の場合は 0 を返し、size() - 1 の符号なし整数アンダーフローを回避する。
-constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) noexcept {
+constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) noexcept
+{
     if (node_count == 0) {
         return 0.0f;
     }
@@ -103,7 +109,8 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_
 
 // 下端が viewport_top 以上の最初のノードを二分探索で見つける。
 // 最初の可視候補ノードのインデックスを返す。該当なしの場合は node_count を返す。
-constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) noexcept {
+constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) noexcept
+{
     int lo = 0, hi = static_cast<int>(node_count);
     while (lo < hi) {
         int mid = (lo + hi) / 2;

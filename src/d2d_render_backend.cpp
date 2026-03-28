@@ -3,7 +3,8 @@
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
 
-bool D2DRenderBackend::Init(HWND hwnd) {
+bool D2DRenderBackend::Init(HWND hwnd)
+{
     hwnd_ = hwnd;
 
     // このウィンドウのモニターの実際のDPIを取得
@@ -43,20 +44,23 @@ bool D2DRenderBackend::Init(HWND hwnd) {
     return true;
 }
 
-void D2DRenderBackend::Resize(UINT width, UINT height) {
+void D2DRenderBackend::Resize(UINT width, UINT height)
+{
     if (render_target_) {
         render_target_->Resize(D2D1::SizeU(width, height));
     }
 }
 
-void D2DRenderBackend::SetDpi(float dpi) {
+void D2DRenderBackend::SetDpi(float dpi)
+{
     dpi_ = dpi;
     if (render_target_) {
         render_target_->SetDpi(dpi, dpi);
     }
 }
 
-bool D2DRenderBackend::RecreateRenderTarget() {
+bool D2DRenderBackend::RecreateRenderTarget()
+{
     render_target_.Reset();
 
     RECT rc;

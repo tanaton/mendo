@@ -3,7 +3,8 @@
 #include <algorithm>
 #include <filesystem>
 
-void FileExplorer::SetDirectory(std::wstring_view dir_path) {
+void FileExplorer::SetDirectory(std::wstring_view dir_path)
+{
     std::pmr::wstring normalized{ dir_path };
     // 末尾の区切り文字を除去（"C:\" のようなルートパスは除く）
     while (normalized.size() > 3 && (normalized.back() == L'\\' || normalized.back() == L'/')) {
@@ -16,7 +17,8 @@ void FileExplorer::SetDirectory(std::wstring_view dir_path) {
     Refresh();
 }
 
-void FileExplorer::Refresh() {
+void FileExplorer::Refresh()
+{
     entries_.clear();
     if (directory_.empty()) {
         return;
@@ -98,7 +100,8 @@ void FileExplorer::Refresh() {
         std::make_move_iterator(files.end()));
 }
 
-int FileExplorer::HitTest(float local_y, float item_height) const noexcept {
+int FileExplorer::HitTest(float local_y, float item_height) const noexcept
+{
     if (local_y < 0 || item_height <= 0) {
         return -1;
     }
@@ -109,7 +112,8 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept {
     return index;
 }
 
-void FileExplorer::SetCurrentFile(std::wstring_view path) {
+void FileExplorer::SetCurrentFile(std::wstring_view path)
+{
     std::pmr::wstring path_str{ path };
     for (auto& entry : entries_) {
         entry.is_current = (!entry.is_directory &&

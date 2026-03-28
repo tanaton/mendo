@@ -8,7 +8,8 @@
 
 static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 
-bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow) {
+bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
+{
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
     wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
@@ -47,7 +48,8 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow) {
     return true;
 }
 
-void Win32Window::UpdateDwmFrame() {
+void Win32Window::UpdateDwmFrame()
+{
     // 1ピクセルだけ拡張してDWMのウィンドウシャドウ・アニメーションを有効化。
     // キャプションボタンは自前描画のため大きな拡張は不要。
     MARGINS margins = { 0, 0, 1, 0 };
@@ -56,7 +58,8 @@ void Win32Window::UpdateDwmFrame() {
         SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-int Win32Window::RunMessageLoop() {
+int Win32Window::RunMessageLoop()
+{
     MSG msg{};
     BOOL ret;
     while ((ret = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
@@ -67,7 +70,8 @@ int Win32Window::RunMessageLoop() {
     return static_cast<int>(msg.wParam);
 }
 
-LRESULT CALLBACK Win32Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK Win32Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
     Win32Window* self = nullptr;
 
     if (msg == WM_NCCREATE) {
@@ -87,7 +91,8 @@ LRESULT CALLBACK Win32Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam) {
+LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
+{
     if (wParam == TRUE) {
         auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
         // NC領域を完全に除去: クライアント領域 = ウィンドウ全体。
@@ -109,7 +114,8 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam) {
     return DefWindowProcW(hwnd_, WM_NCCALCSIZE, wParam, lParam);
 }
 
-LRESULT Win32Window::OnNcHitTest(LPARAM lParam) {
+LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
+{
     POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
     ScreenToClient(hwnd_, &pt);
 
@@ -179,7 +185,8 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam) {
     return HTCLIENT;
 }
 
-LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
+{
     switch (msg) {
     case WM_NCCALCSIZE:
         return OnNcCalcSize(wParam, lParam);

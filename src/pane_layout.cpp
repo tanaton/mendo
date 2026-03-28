@@ -4,7 +4,8 @@
 PaneLayout ComputePaneLayout(float total_width, float total_height,
     float file_pane_width, float toc_pane_width,
     float splitter_width, bool show_file, bool show_toc,
-    float md_min_width, float top_offset) noexcept {
+    float md_min_width, float top_offset) noexcept
+{
     PaneLayout layout{};
     float x = 0.0f;
     float pane_height = total_height - top_offset;
@@ -31,7 +32,8 @@ PaneLayout ComputePaneLayout(float total_width, float total_height,
     return layout;
 }
 
-PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_width, bool show_file, bool show_toc) noexcept {
+PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_width, bool show_file, bool show_toc) noexcept
+{
     if (show_file) {
         float s1_x = layout.file_rect.x + layout.file_rect.width;
         if (dip_x >= layout.file_rect.x && dip_x < s1_x) {
@@ -59,7 +61,8 @@ PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_wi
     return PaneZone::None;
 }
 
-PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content, float thumb_min) noexcept {
+PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content, float thumb_min) noexcept
+{
     PaneScrollInfo info{};
     info.content_top = rect.y + header_height;
     info.content_height = rect.height - header_height;
@@ -70,12 +73,14 @@ PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, floa
     return info;
 }
 
-float ComputeThumbY(const PaneScrollInfo& info, float scroll_y) noexcept {
+float ComputeThumbY(const PaneScrollInfo& info, float scroll_y) noexcept
+{
     float scroll_ratio = (info.max_scroll > 0) ? scroll_y / info.max_scroll : 0.0f;
     return info.content_top + scroll_ratio * (info.content_height - info.thumb_height);
 }
 
-float ScrollFromThumbY(const PaneScrollInfo& info, float thumb_y) noexcept {
+float ScrollFromThumbY(const PaneScrollInfo& info, float thumb_y) noexcept
+{
     float track_range = info.content_height - info.thumb_height;
     float ratio = (track_range > 0) ? (thumb_y - info.content_top) / track_range : 0.0f;
     ratio = std::clamp(ratio, 0.0f, 1.0f);

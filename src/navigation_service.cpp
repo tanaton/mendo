@@ -2,7 +2,8 @@
 
 // ShellExecuteWに渡しても安全なURLスキームかどうかを判定する。
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
-static bool IsSafeUrlScheme(std::wstring_view url) noexcept {
+static bool IsSafeUrlScheme(std::wstring_view url) noexcept
+{
     auto starts_with_i = [](std::wstring_view s, std::wstring_view prefix) noexcept {
         if (s.size() < prefix.size()) {
             return false;
@@ -22,7 +23,8 @@ static bool IsSafeUrlScheme(std::wstring_view url) noexcept {
 }
 
 NavigationService::NavigateResult NavigationService::HandleLinkClick(
-    std::wstring_view url, [[maybe_unused]] std::wstring_view current_file) {
+    std::wstring_view url, [[maybe_unused]] std::wstring_view current_file)
+{
     NavigateResult result;
     if (url.empty()) {
         return result;
@@ -43,7 +45,8 @@ NavigationService::NavigateResult NavigationService::HandleLinkClick(
 }
 
 NavigationService::NavigateResult NavigationService::MakeResultFromEntry(
-    NavEntry&& entry, std::wstring_view current_file) {
+    NavEntry&& entry, std::wstring_view current_file)
+{
     NavigateResult result;
     if (entry.file_path != current_file && !entry.file_path.empty()) {
         result.type = NavigateResult::Type::LoadFile;
@@ -58,7 +61,8 @@ NavigationService::NavigateResult NavigationService::MakeResultFromEntry(
 }
 
 NavigationService::NavigateResult NavigationService::GoBack(
-    std::wstring_view current_file, float scroll_y) {
+    std::wstring_view current_file, float scroll_y)
+{
     NavEntry out;
     if (!history_.GoBack(NavEntry{ current_file, scroll_y }, out)) {
         return {};
@@ -67,7 +71,8 @@ NavigationService::NavigateResult NavigationService::GoBack(
 }
 
 NavigationService::NavigateResult NavigationService::GoForward(
-    std::wstring_view current_file, float scroll_y) {
+    std::wstring_view current_file, float scroll_y)
+{
     NavEntry out;
     if (!history_.GoForward(NavEntry{ current_file, scroll_y }, out)) {
         return {};
@@ -75,6 +80,7 @@ NavigationService::NavigateResult NavigationService::GoForward(
     return MakeResultFromEntry(std::move(out), current_file);
 }
 
-void NavigationService::PushHistory(std::wstring_view file, float scroll_y) {
+void NavigationService::PushHistory(std::wstring_view file, float scroll_y)
+{
     history_.Push(NavEntry{ file, scroll_y });
 }

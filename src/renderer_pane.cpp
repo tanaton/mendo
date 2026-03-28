@@ -7,7 +7,8 @@
 // PaneCacheのビットマップレンダーターゲットが必要なサイズと一致することを確認。
 // キャッシュが使用可能ならtrueを返す。
 static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent,
-    float width, float height) {
+    float width, float height)
+{
     if (width <= 0 || height <= 0) {
         return false;
     }
@@ -30,7 +31,8 @@ static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent,
 
 static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb_brush,
     float pane_width, float content_top, float content_height,
-    float scroll_y, float total_content_height) {
+    float scroll_y, float total_content_height)
+{
     if (total_content_height <= content_height) {
         return;
     }
@@ -158,7 +160,8 @@ static void DrawSidePaneImpl(
 }
 
 void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
-    const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered) {
+    const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered)
+{
     constexpr float icon_col_width = 24.0f;
 
     DrawSidePaneImpl(file_pane_cache_, rt(), rect, scroll,
@@ -200,7 +203,8 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
 }
 
 void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
-    const ScrollState& scroll, int hovered_index, bool close_hovered) {
+    const ScrollState& scroll, int hovered_index, bool close_hovered)
+{
     DrawSidePaneImpl(toc_pane_cache_, rt(), rect, scroll,
         static_cast<int>(entries.size()), L"Table of Contents", theme_,
         Brush(BrushId::Splitter), Brush(BrushId::Text),
@@ -226,12 +230,14 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
     });
 }
 
-void Renderer::DrawSplitter(float x, float top, float bottom) {
+void Renderer::DrawSplitter(float x, float top, float bottom)
+{
     D2D1_RECT_F rect = D2D1::RectF(x, top, x + theme_.splitter_width, bottom);
     rt()->FillRectangle(rect, Brush(BrushId::Splitter));
 }
 
-void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height) {
+void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height)
+{
     float viewport_h = md_pane_rect.height;
     if (total_content_height <= viewport_h || viewport_h <= 0.0f) {
         return;
@@ -248,7 +254,8 @@ void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, flo
     rt()->FillRoundedRectangle(thumb_rect, Brush(BrushId::ScrollbarThumb));
 }
 
-void Renderer::DrawTitleBar(const TitleBarRenderState& tb) {
+void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
+{
     if (tb.height <= 0.0f) {
         return;
     }
