@@ -28,7 +28,6 @@ public:
     static constexpr float ICON_LEFT_MARGIN = 8.0f;
     static constexpr float ICON_SIZE = 24.0f;
     static constexpr float ICON_RIGHT_GAP = 4.0f;
-    static constexpr float BUTTON_LEFT_MARGIN = 8.0f;
     static constexpr float BUTTON_GAP = 2.0f;
     // キャプションボタン（最小化/最大化/閉じる）はタイトルバーの全高を使う
     static constexpr float CAPTION_BTN_WIDTH = 46.0f;

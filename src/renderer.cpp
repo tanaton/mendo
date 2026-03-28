@@ -42,12 +42,6 @@ void Renderer::LoadAppIconBitmap()
     app_icon_bitmap_.Reset();
 
     HMODULE hModule = GetModuleHandleW(nullptr);
-    HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(IDI_APP_ICON), RT_GROUP_ICON);
-    if (!hRes) {
-        return;
-    }
-
-    // アイコンリソースから16x16のビットマップを取得するため、LoadImageを使用
     HICON hIcon = static_cast<HICON>(LoadImageW(
         hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
     if (!hIcon) {

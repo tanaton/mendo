@@ -180,7 +180,7 @@ private:
     void OnMermaidRenderComplete();
     void LoadImages();
     void OnImageLoadComplete();
-    int ApplyCachedImages(const std::wstring& doc_dir, float content_width);
+    int ApplyCachedImages();
 
     // OnPaint用のレンダーステート構築ヘルパー
     GestureRenderState BuildGestureRenderState() const;

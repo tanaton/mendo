@@ -474,11 +474,23 @@ void App::UpdateTitleBar()
     Invalidate();
 }
 
-// キャッシュ済み画像を DiagramEntry に反映し、未キャッシュ画像のパス数を返す。
-// 反映された画像がある場合は負でない値、反映数 0 なら 0 を返す。
+// キャッシュ済み画像を DiagramEntry に反映する。
 // 戻り値: キャッシュから反映できた画像の数
-int App::ApplyCachedImages(const std::wstring& doc_dir, float content_width)
+int App::ApplyCachedImages()
 {
+    std::wstring doc_dir{ doc_.GetDirectory() };
+    if (doc_dir.empty()) {
+        return 0;
+    }
+
+    float viewport_width = GetMarkdownPaneWidth();
+    float content_width = viewport_width
+        - renderer_.GetTheme().margin_left
+        - renderer_.GetTheme().margin_right;
+    if (content_width <= 0.0f) {
+        return 0;
+    }
+
     int applied = 0;
     auto& nodes = doc_.GetNodesMut();
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -532,20 +544,7 @@ int App::ApplyCachedImages(const std::wstring& doc_dir, float content_width)
 
 void App::LoadImages()
 {
-    std::wstring doc_dir{ doc_.GetDirectory() };
-    if (doc_dir.empty()) {
-        return;
-    }
-
-    float viewport_width = GetMarkdownPaneWidth();
-    float content_width = viewport_width
-        - renderer_.GetTheme().margin_left
-        - renderer_.GetTheme().margin_right;
-    if (content_width <= 0.0f) {
-        return;
-    }
-
-    if (ApplyCachedImages(doc_dir, content_width) > 0) {
+    if (ApplyCachedImages() > 0) {
         layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
         Invalidate();
     }
@@ -558,20 +557,7 @@ void App::OnAppImageLoaded()
 
 void App::OnImageLoadComplete()
 {
-    std::wstring doc_dir{ doc_.GetDirectory() };
-    if (doc_dir.empty()) {
-        return;
-    }
-
-    float viewport_width = GetMarkdownPaneWidth();
-    float content_width = viewport_width
-        - renderer_.GetTheme().margin_left
-        - renderer_.GetTheme().margin_right;
-    if (content_width <= 0.0f) {
-        return;
-    }
-
-    if (ApplyCachedImages(doc_dir, content_width) > 0) {
+    if (ApplyCachedImages() > 0) {
         int anchor_idx = FindFirstVisibleNode();
         float anchor_y_before = (anchor_idx >= 0)
             ? layout_cache_[anchor_idx].y_position : 0.0f;
