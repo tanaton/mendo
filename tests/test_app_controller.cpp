@@ -59,6 +59,12 @@ TEST_F(AppControllerTest, EndReturnsEnd) {
 // HandleKeyDown — ファンクション／特殊キー
 // ═══════════════════════════════════════════════
 
+TEST_F(AppControllerTest, F1ReturnsShowHelp) {
+    auto a = ctrl_.HandleKeyDown({VK_F1, false, false});
+    ASSERT_EQ(a.size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<ShowHelpAction>(a[0]));
+}
+
 TEST_F(AppControllerTest, F5ReturnsReload) {
     auto a = ctrl_.HandleKeyDown({VK_F5, false, false});
     ASSERT_EQ(a.size(), 1u);

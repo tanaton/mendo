@@ -173,6 +173,7 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
     if (dip_y < titlebar_height) {
         auto zone = app_.TitleBarHitTest(dip_x, dip_y);
         switch (zone) {
+        case TitleBarHitZone::Help:
         case TitleBarHitZone::FileToggle:
         case TitleBarHitZone::TocToggle:
         case TitleBarHitZone::Minimize:

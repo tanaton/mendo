@@ -40,6 +40,10 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos);
 // 拡張子の大文字小文字は区別しない。
 [[nodiscard]] bool IsMarkdownFile(std::wstring_view path);
 
+// ヘルプ用仮想パス
+inline constexpr std::wstring_view HELP_PATH = L"mendo://help";
+inline bool IsHelpPath(std::wstring_view path) noexcept { return path == HELP_PATH; }
+
 // フルファイルパスからファイル名部分を抽出する。
 // 例: "C:\\dir\\file.md" -> "file.md"
 [[nodiscard]] std::pmr::wstring ExtractFilename(std::wstring_view path);

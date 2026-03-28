@@ -42,6 +42,7 @@ ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const
     case VK_NEXT:  actions.emplace_back(KeyScrollAction{ ScrollType::PageDown }); break;
     case VK_HOME:  actions.emplace_back(KeyScrollAction{ ScrollType::Home }); break;
     case VK_END:   actions.emplace_back(KeyScrollAction{ ScrollType::End }); break;
+    case VK_F1:    actions.emplace_back(ShowHelpAction{}); break;
     case VK_F5:    actions.emplace_back(ReloadFileAction{}); break;
     case VK_ESCAPE: actions.emplace_back(ClearSelectionAction{}); break;
     }

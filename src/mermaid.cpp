@@ -11,25 +11,9 @@
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "shlwapi.lib")
 
-// Win32リソース（RCDATA）からgzip圧縮されたmermaid.min.jsのバイト列を取得する。
-// リソースはプロセスのアドレス空間にマップされており、コピーせずに直接参照できる。
 static std::span<const std::byte> LoadMermaidJsGzFromResource()
 {
-    HMODULE hModule = GetModuleHandleW(nullptr);
-    HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(IDR_MERMAID_JS_GZ), RT_RCDATA);
-    if (!hRes) {
-        return {};
-    }
-    HGLOBAL hData = LoadResource(hModule, hRes);
-    if (!hData) {
-        return {};
-    }
-    DWORD size = SizeofResource(hModule, hRes);
-    const auto* data = static_cast<const std::byte*>(LockResource(hData));
-    if (!data || size == 0) {
-        return {};
-    }
-    return { data, size };
+    return LoadRcData(IDR_MERMAID_JS_GZ);
 }
 
 // 仮想ホスト経由で配信される小さなHTMLテンプレート。mermaid.jsは別の

@@ -9,6 +9,7 @@ public:
     int RunMessageLoop();
 
     void LoadMarkdownFile(std::wstring_view path) { app_.LoadMarkdownFile(path); }
+    void LoadHelpDocument() { app_.LoadHelpDocument(); }
     std::pmr::wstring LoadLastFilePath() const { return app_.LoadLastFilePath(); }
     void ShowDirectory(std::wstring_view dir_path) { app_.ShowDirectory(dir_path); }
 

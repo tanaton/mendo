@@ -54,11 +54,18 @@ TEST_F(TitleBarTest, FileToggleIsLeftOfTocToggle) {
     EXPECT_FLOAT_EQ(file.rect.right, toc.rect.left);
 }
 
+TEST_F(TitleBarTest, HelpButtonIsLeftOfFileToggle) {
+    auto& file = tb_.GetFileToggleButton();
+    auto& help = tb_.GetHelpButton();
+    EXPECT_FLOAT_EQ(help.rect.right, file.rect.left);
+}
+
 TEST_F(TitleBarTest, AllButtonsUseFullHeight) {
     auto check = [](const TitleBarButton& btn) {
         EXPECT_FLOAT_EQ(btn.rect.top, 0.0f);
         EXPECT_FLOAT_EQ(btn.rect.bottom, TitleBar::BASE_HEIGHT);
     };
+    check(tb_.GetHelpButton());
     check(tb_.GetFileToggleButton());
     check(tb_.GetTocToggleButton());
     check(tb_.GetMinimizeButton());
@@ -79,6 +86,7 @@ TEST_F(TitleBarTest, PaneToggleButtonWidth) {
     auto check = [](const TitleBarButton& btn) {
         EXPECT_FLOAT_EQ(btn.rect.right - btn.rect.left, TitleBar::BUTTON_WIDTH);
     };
+    check(tb_.GetHelpButton());
     check(tb_.GetFileToggleButton());
     check(tb_.GetTocToggleButton());
 }
@@ -89,10 +97,10 @@ TEST_F(TitleBarTest, TitleTextRectStartsAfterIcon) {
     EXPECT_FLOAT_EQ(rect.left, expected);
 }
 
-TEST_F(TitleBarTest, TitleTextRectEndsAtFileToggle) {
+TEST_F(TitleBarTest, TitleTextRectEndsAtHelpButton) {
     auto& rect = tb_.GetTitleTextRect();
-    auto& file = tb_.GetFileToggleButton();
-    EXPECT_FLOAT_EQ(rect.right, file.rect.left);
+    auto& help = tb_.GetHelpButton();
+    EXPECT_FLOAT_EQ(rect.right, help.rect.left);
 }
 
 TEST_F(TitleBarTest, LayoutUpdatesOnWindowResize) {
@@ -144,6 +152,13 @@ TEST_F(TitleBarTest, HitTestTocToggle) {
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
     float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::TocToggle);
+}
+
+TEST_F(TitleBarTest, HitTestHelpButton) {
+    auto& btn = tb_.GetHelpButton();
+    float cx = (btn.rect.left + btn.rect.right) / 2.0f;
+    float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
+    EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Help);
 }
 
 TEST_F(TitleBarTest, HitTestCaptionArea) {
@@ -201,6 +216,7 @@ TEST_F(TitleBarTest, SetHoveredClearsPrevious) {
 TEST_F(TitleBarTest, SetHoveredNoneClearsAll) {
     tb_.SetHovered(TitleBarHitZone::FileToggle);
     tb_.SetHovered(TitleBarHitZone::None);
+    EXPECT_FALSE(tb_.GetHelpButton().hovered);
     EXPECT_FALSE(tb_.GetFileToggleButton().hovered);
     EXPECT_FALSE(tb_.GetTocToggleButton().hovered);
     EXPECT_FALSE(tb_.GetMinimizeButton().hovered);
@@ -211,6 +227,7 @@ TEST_F(TitleBarTest, SetHoveredNoneClearsAll) {
 TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton) {
     auto countHovered = [&]() {
         int count = 0;
+        if (tb_.GetHelpButton().hovered) { ++count; }
         if (tb_.GetFileToggleButton().hovered) { ++count; }
         if (tb_.GetTocToggleButton().hovered) { ++count; }
         if (tb_.GetMinimizeButton().hovered) { ++count; }
@@ -220,6 +237,7 @@ TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton) {
     };
 
     TitleBarHitZone zones[] = {
+        TitleBarHitZone::Help,
         TitleBarHitZone::FileToggle, TitleBarHitZone::TocToggle,
         TitleBarHitZone::Minimize, TitleBarHitZone::Maximize,
         TitleBarHitZone::Close,
@@ -238,6 +256,7 @@ TEST_F(TitleBarTest, ButtonsDoNotOverlap) {
     // 全ボタンの矩形を収集して、左端でソートし隣接確認
     struct Rect { float left; float right; };
     Rect rects[] = {
+        { tb_.GetHelpButton().rect.left,        tb_.GetHelpButton().rect.right },
         { tb_.GetFileToggleButton().rect.left,  tb_.GetFileToggleButton().rect.right },
         { tb_.GetTocToggleButton().rect.left,   tb_.GetTocToggleButton().rect.right },
         { tb_.GetMinimizeButton().rect.left,    tb_.GetMinimizeButton().rect.right },
@@ -256,8 +275,8 @@ TEST_F(TitleBarTest, ButtonsDoNotOverlap) {
 
 TEST_F(TitleBarTest, TitleTextDoesNotOverlapButtons) {
     auto& title = tb_.GetTitleTextRect();
-    auto& file = tb_.GetFileToggleButton().rect;
-    EXPECT_LE(title.right, file.left);
+    auto& help = tb_.GetHelpButton().rect;
+    EXPECT_LE(title.right, help.left);
     EXPECT_GE(title.left, 0.0f);
 }
 
