@@ -296,6 +296,10 @@ void App::OnLButtonDown(int px, int py)
             LoadHelpDocument();
             return;
         }
+        if (tb_zone == TitleBarHitZone::ThemeToggle) {
+            ToggleDarkMode();
+            return;
+        }
         if (tb_zone == TitleBarHitZone::FileToggle || tb_zone == TitleBarHitZone::TocToggle) {
             if (tb_zone == TitleBarHitZone::FileToggle) {
                 panes_.ToggleFilePane();

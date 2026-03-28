@@ -57,6 +57,9 @@ struct TitleBarRenderState {
     float window_width = 0.0f;
     D2D1_RECT_F help_btn_rect{};
     bool help_btn_hovered = false;
+    D2D1_RECT_F theme_btn_rect{};
+    bool theme_btn_hovered = false;
+    bool is_dark_mode = false;
     D2D1_RECT_F file_btn_rect{};
     bool file_btn_hovered = false;
     bool file_pane_visible = false;

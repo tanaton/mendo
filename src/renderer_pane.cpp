@@ -165,7 +165,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
     constexpr float icon_col_width = 24.0f;
 
     DrawSidePaneImpl(file_pane_cache_, rt(), rect, scroll,
-        static_cast<int>(entries.size()), L"Files", theme_,
+        static_cast<int>(entries.size()), L"ファイル", theme_,
         Brush(BrushId::Splitter), Brush(BrushId::Text),
         Brush(BrushId::ScrollbarThumb), fmt_.pane_header.Get(),
         fmt_.pane_icon.Get(), Brush(BrushId::PaneItemHover), close_hovered,
@@ -206,7 +206,7 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
     const ScrollState& scroll, int hovered_index, bool close_hovered)
 {
     DrawSidePaneImpl(toc_pane_cache_, rt(), rect, scroll,
-        static_cast<int>(entries.size()), L"Table of Contents", theme_,
+        static_cast<int>(entries.size()), L"目次", theme_,
         Brush(BrushId::Splitter), Brush(BrushId::Text),
         Brush(BrushId::ScrollbarThumb), fmt_.pane_header.Get(),
         fmt_.pane_icon.Get(), Brush(BrushId::PaneItemHover), close_hovered,
@@ -285,6 +285,11 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     // ヘルプボタン
     drawButton(tb.help_btn_rect, L"\uE897",
         tb.help_btn_hovered, BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
+
+    // ダークモード切替ボタン（ダーク時: 太陽アイコン、ライト時: 月アイコン）
+    drawButton(tb.theme_btn_rect, tb.is_dark_mode ? L"\uE706" : L"\uE708",
+        tb.theme_btn_hovered, BrushId::TitleBarButtonHover,
         BrushId::TitleBarText, text_alpha);
 
     // ペイン切替ボタン（active > hover の優先度）

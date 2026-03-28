@@ -251,6 +251,9 @@ TitleBarRenderState App::BuildTitleBarRenderState(float window_width) const
     tb.window_width = window_width;
     tb.help_btn_rect = titlebar_.GetHelpButton().rect;
     tb.help_btn_hovered = titlebar_.GetHelpButton().hovered;
+    tb.theme_btn_rect = titlebar_.GetThemeToggleButton().rect;
+    tb.theme_btn_hovered = titlebar_.GetThemeToggleButton().hovered;
+    tb.is_dark_mode = theme_service_.IsDarkMode();
     tb.file_btn_rect = titlebar_.GetFileToggleButton().rect;
     tb.file_btn_hovered = titlebar_.GetFileToggleButton().hovered;
     tb.file_pane_visible = panes_.IsFilePaneVisible();

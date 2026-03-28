@@ -1,4 +1,40 @@
 #include "image_loader.h"
+#include <shlwapi.h>
+#include <vector>
+
+#pragma comment(lib, "shlwapi.lib")
+
+// ファイルを共有モードでメモリに読み込みIStreamとして返す。
+// CreateDecoderFromFilename はファイルを排他的に開くため、
+// 外部エディタ等がファイルを更新できなくなる問題を回避する。
+static ComPtr<IStream> ReadFileToStream(const std::wstring& path)
+{
+    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return nullptr;
+    }
+
+    LARGE_INTEGER size;
+    if (!GetFileSizeEx(hFile, &size) || size.QuadPart == 0 || size.QuadPart > 256LL * 1024 * 1024) {
+        CloseHandle(hFile);
+        return nullptr;
+    }
+
+    std::vector<BYTE> buf(static_cast<size_t>(size.QuadPart));
+    DWORD bytesRead = 0;
+    BOOL ok = ReadFile(hFile, buf.data(), static_cast<DWORD>(buf.size()), &bytesRead, nullptr);
+    CloseHandle(hFile);
+
+    if (!ok || bytesRead != buf.size()) {
+        return nullptr;
+    }
+
+    ComPtr<IStream> stream;
+    stream.Attach(SHCreateMemStream(buf.data(), static_cast<UINT>(buf.size())));
+    return stream;
+}
 
 ImageLoader::~ImageLoader()
 {
@@ -50,11 +86,15 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
         return true;
     }
 
-    // WIC でデコード
+    // WIC でデコード（メモリストリーム経由でファイルロックを回避）
+    auto stream = ReadFileToStream(abs_path);
+    if (!stream) {
+        return false;
+    }
+
     ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = wic_factory_->CreateDecoderFromFilename(
-        abs_path.c_str(), nullptr, GENERIC_READ,
-        WICDecodeMetadataCacheOnLoad, &decoder);
+    HRESULT hr = wic_factory_->CreateDecoderFromStream(
+        stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
     if (FAILED(hr)) {
         return false;
     }
@@ -215,10 +255,10 @@ void ImageLoader::WorkerLoop()
         result.user_data = req.user_data;
 
         if (wic) {
+            auto stream = ReadFileToStream(req.path);
             ComPtr<IWICBitmapDecoder> decoder;
-            HRESULT hr = wic->CreateDecoderFromFilename(
-                req.path.c_str(), nullptr, GENERIC_READ,
-                WICDecodeMetadataCacheOnLoad, &decoder);
+            HRESULT hr = stream ? wic->CreateDecoderFromStream(
+                stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder) : E_FAIL;
 
             if (SUCCEEDED(hr)) {
                 ComPtr<IWICBitmapFrameDecode> frame;

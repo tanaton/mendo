@@ -174,6 +174,7 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
         auto zone = app_.TitleBarHitTest(dip_x, dip_y);
         switch (zone) {
         case TitleBarHitZone::Help:
+        case TitleBarHitZone::ThemeToggle:
         case TitleBarHitZone::FileToggle:
         case TitleBarHitZone::TocToggle:
         case TitleBarHitZone::Minimize:
