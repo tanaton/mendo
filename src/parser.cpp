@@ -554,15 +554,15 @@ const wchar_t* GetAlertLabel(AlertType type) noexcept
     }
 }
 
-wchar_t GetAlertIcon(AlertType type) noexcept
+const wchar_t* GetAlertIcon(AlertType type) noexcept
 {
     switch (type) {
-    case AlertType::Note:      return L'\uE946'; // Info
-    case AlertType::Tip:       return L'\uEA80'; // Lightbulb
-    case AlertType::Important: return L'\uE171'; // Important
-    case AlertType::Warning:   return L'\uE7BA'; // Warning
-    case AlertType::Caution:   return L'\uE814'; // ErrorBadge
-    default:                   return L' ';
+    case AlertType::Note:      return L"\u2139";         // ℹ Information Source
+    case AlertType::Tip:       return L"\xD83D\xDCA1";   // 💡 Light Bulb (surrogate pair)
+    case AlertType::Important: return L"\u2757";         // ❗ Heavy Exclamation Mark
+    case AlertType::Warning:   return L"\u26A0";         // ⚠ Warning Sign
+    case AlertType::Caution:   return L"\u26D4";         // ⛔ No Entry
+    default:                   return L" ";
     }
 }
 
@@ -619,21 +619,21 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
 
 // マーカーを除去しアイコン+ラベルを挿入する。TextRunも調整する。
 // テキスト構造: "[icon] Label" (コンテンツなし) または "[icon] Label\n[content]" (コンテンツあり)
-static constexpr size_t ALERT_ICON_PREFIX_LEN = 2; // アイコン文字 + スペース
-
 void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
 {
     const wchar_t* label = GetAlertLabel(type);
     size_t label_len = std::wcslen(label);
-    wchar_t icon = GetAlertIcon(type);
+    const wchar_t* icon = GetAlertIcon(type);
+    size_t icon_len = std::wcslen(icon);
 
     bool has_content = (marker_end < node.text.size());
 
     // 新しいテキストを構築: "[icon] Label" (+ "\n \n" + 残りテキスト)
-    size_t full_label_len = ALERT_ICON_PREFIX_LEN + label_len;
+    size_t icon_prefix_len = icon_len + 1; // アイコン文字列 + スペース
+    size_t full_label_len = icon_prefix_len + label_len;
     std::pmr::wstring new_text;
     new_text.reserve(full_label_len + 4 + (has_content ? node.text.size() - marker_end : 0));
-    new_text += icon;
+    new_text.append(icon, icon_len);
     new_text += L' ';
     new_text.append(label, label_len);
 

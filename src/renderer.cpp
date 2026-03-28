@@ -211,7 +211,7 @@ void Renderer::RecreatePaneFormats()
     // テーマサイズの更新に合わせて全ペイン/UIテキストフォーマットを再作成
     auto W = DWRITE_FONT_WEIGHT_NORMAL;
 
-    fmt_.icon_font = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");
+    fmt_.icon_font = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
 
     // コピーボタン用アイコンフォーマット（両軸中央揃え）
     fmt_.copy_btn_icon = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");

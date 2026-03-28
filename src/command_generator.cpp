@@ -215,7 +215,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
 
     // タスクリストのチェックボックス
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {
-        const wchar_t icon = node.task_checked ? L'\uE73A' : L'\uE739';
+        const wchar_t icon = node.task_checked ? L'\u2611' : L'\u2610'; // ☑ / ☐
         float icon_size = theme_->font_size_body;
         float cb_x = x - theme_->list_bullet_offset;
         cmds.push_back(DrawTextCmd::Make(

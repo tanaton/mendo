@@ -873,8 +873,10 @@ TEST(Parser, AlertMarkerStrippedAndLabelInserted) {
     // マーカー "[!NOTE]" が除去され、アイコン + ラベル "Note" に置換されているべき
     EXPECT_NE(nodes[0].text.find(L"Note"), std::wstring::npos);
     EXPECT_EQ(nodes[0].text.find(L"[!NOTE]"), std::wstring::npos);
-    // 先頭はアイコン文字であるべき
-    EXPECT_EQ(nodes[0].text[0], GetAlertIcon(AlertType::Note));
+    // 先頭はアイコン文字列であるべき
+    auto icon = GetAlertIcon(AlertType::Note);
+    size_t icon_len = std::wcslen(icon);
+    EXPECT_EQ(nodes[0].text.substr(0, icon_len), std::wstring_view(icon, icon_len));
     // コンテンツも残っているべき
     EXPECT_NE(nodes[0].text.find(L"Content here"), std::wstring::npos);
 }
@@ -946,8 +948,8 @@ TEST(Parser, AlertMarkerOnlyNoContent) {
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
     // マーカーだけの場合、アイコン + スペース + ラベルのみ残る
-    wchar_t expected[] = { GetAlertIcon(AlertType::Note), L' ', L'N', L'o', L't', L'e', L'\0' };
-    EXPECT_EQ(nodes[0].text, expected);
+    std::wstring expected = std::wstring(GetAlertIcon(AlertType::Note)) + L" Note";
+    EXPECT_EQ(std::wstring_view(nodes[0].text.c_str(), nodes[0].text.size()), expected);
 }
 
 TEST(Parser, AlertFollowedByRegularBlockquote) {
@@ -1012,6 +1014,6 @@ TEST(Parser, AlertTextStartsWithLabelThenNewline) {
     const auto& text = nodes[0].text;
     auto nl = text.find(L'\n');
     ASSERT_NE(nl, std::wstring::npos);
-    wchar_t expected[] = { GetAlertIcon(AlertType::Caution), L' ', L'C', L'a', L'u', L't', L'i', L'o', L'n', L'\0' };
-    EXPECT_EQ(text.substr(0, nl), expected);
+    std::wstring expected = std::wstring(GetAlertIcon(AlertType::Caution)) + L" Caution";
+    EXPECT_EQ(text.substr(0, nl), std::wstring_view(expected));
 }

@@ -1,4 +1,5 @@
 #include "image_loader.h"
+#include "ui_constants.h"
 #include <shlwapi.h>
 #include <vector>
 
@@ -39,6 +40,16 @@ static ComPtr<IStream> ReadFileToStream(const std::wstring& path)
 ImageLoader::~ImageLoader()
 {
     Shutdown();
+}
+
+void ImageLoader::GetDpiScale(float& scale_x, float& scale_y) const
+{
+    float dpi_x = DEFAULT_DPI, dpi_y = DEFAULT_DPI;
+    if (render_target_) {
+        render_target_->GetDpi(&dpi_x, &dpi_y);
+    }
+    scale_x = (dpi_x > 0.0f) ? (dpi_x / DEFAULT_DPI) : 1.0f;
+    scale_y = (dpi_y > 0.0f) ? (dpi_y / DEFAULT_DPI) : 1.0f;
 }
 
 void ImageLoader::Init(ID2D1RenderTarget* rt)
@@ -128,14 +139,10 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
     UINT w = 0, h = 0;
     frame->GetSize(&w, &h);
 
-    // ピクセルサイズを DIP に変換。DPI スケーリングの影響を受けずに
-    // 元のピクセルサイズで表示される。
-    float dpi_x = 96.0f, dpi_y = 96.0f;
-    render_target_->GetDpi(&dpi_x, &dpi_y);
-    float scale_x = (dpi_x > 0.0f) ? (dpi_x / 96.0f) : 1.0f;
-    float scale_y = (dpi_y > 0.0f) ? (dpi_y / 96.0f) : 1.0f;
+    // ピクセルサイズを DIP に変換
+    float scale_x, scale_y;
+    GetDpiScale(scale_x, scale_y);
 
-    // キャッシュに格納
     CachedImage cached;
     cached.bitmap = bitmap;
     cached.width = static_cast<float>(w) / scale_x;
@@ -195,6 +202,9 @@ void ImageLoader::ProcessCompletedDecodes()
     Callback last_cb = nullptr;
     void* last_data = nullptr;
 
+    float scale_x, scale_y;
+    GetDpiScale(scale_x, scale_y);
+
     for (auto& r : results) {
         if (r.success && r.converter && render_target_) {
             if (!cache_.contains(r.path)) {
@@ -202,14 +212,10 @@ void ImageLoader::ProcessCompletedDecodes()
                 HRESULT hr = render_target_->CreateBitmapFromWicBitmap(
                     r.converter.Get(), &bitmap);
                 if (SUCCEEDED(hr) && bitmap) {
-                    float dpi_x = 96.0f, dpi_y = 96.0f;
-                    render_target_->GetDpi(&dpi_x, &dpi_y);
-                    float sx = (dpi_x > 0.0f) ? (dpi_x / 96.0f) : 1.0f;
-                    float sy = (dpi_y > 0.0f) ? (dpi_y / 96.0f) : 1.0f;
                     CachedImage cached;
                     cached.bitmap = bitmap;
-                    cached.width = r.width / sx;
-                    cached.height = r.height / sy;
+                    cached.width = r.width / scale_x;
+                    cached.height = r.height / scale_y;
                     cache_[r.path] = cached;
                 }
             }

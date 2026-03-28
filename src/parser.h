@@ -16,5 +16,5 @@ void DetectAlerts(std::pmr::vector<Node>& nodes);
 // AlertTypeに対応するラベル文字列を返す（テスト用に公開）
 [[nodiscard]] const wchar_t* GetAlertLabel(AlertType type) noexcept;
 
-// AlertTypeに対応するアイコン文字（Segoe Fluent Icons）を返す（テスト用に公開）
-[[nodiscard]] wchar_t GetAlertIcon(AlertType type) noexcept;
+// AlertTypeに対応するアイコン文字列を返す（テスト用に公開）
+[[nodiscard]] const wchar_t* GetAlertIcon(AlertType type) noexcept;

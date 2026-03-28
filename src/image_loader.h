@@ -75,6 +75,7 @@ private:
     };
 
     void WorkerLoop();
+    void GetDpiScale(float& scale_x, float& scale_y) const;
 
     ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
