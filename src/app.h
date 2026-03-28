@@ -82,8 +82,6 @@ public:
     // WM_SETCURSOR用のカーソル状態
     bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
 
-    // スクロールバー判定（外部用: PaneLayoutを内部で計算）
-
     // ウィンドウ全体の再描画を要求する
     void Invalidate() noexcept { InvalidateRect(hwnd_, nullptr, FALSE); }
 

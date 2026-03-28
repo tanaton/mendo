@@ -6,6 +6,24 @@
 #include "pane.h"
 #include "memory_resource.h"
 
+// HitTestTextRange をバッファ再利用付きで呼び出し、取得件数を返す。
+inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT32 length,
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS>& buffer)
+{
+    if (buffer.empty()) {
+        buffer.resize(8);
+    }
+    UINT32 count = static_cast<UINT32>(buffer.size());
+    HRESULT hr = layout->HitTestTextRange(start, length, 0, 0,
+        buffer.data(), count, &count);
+    if (hr == E_NOT_SUFFICIENT_BUFFER) {
+        buffer.resize(count);
+        layout->HitTestTextRange(start, length, 0, 0,
+            buffer.data(), count, &count);
+    }
+    return count;
+}
+
 // ドキュメントデータとビューポート状態から DrawCommandList を生成する。
 // 「何を描画するか」と「どう描画するか」（エグゼキュータ）を分離する。
 class CommandGenerator {

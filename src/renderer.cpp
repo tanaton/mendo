@@ -364,18 +364,8 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
             entry.text_layout->SetDrawingEffect(Brush(BrushId::Link), range);
         }
         if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
-            // 既存バッファで直接取得を試み、不足時のみリサイズして再取得
-            if (hit_test_buffer_.empty()) {
-                hit_test_buffer_.resize(8);
-            }
-            UINT32 count = static_cast<UINT32>(hit_test_buffer_.size());
-            HRESULT hr = entry.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
-                hit_test_buffer_.data(), count, &count);
-            if (hr == E_NOT_SUFFICIENT_BUFFER) {
-                hit_test_buffer_.resize(count);
-                entry.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
-                    hit_test_buffer_.data(), count, &count);
-            }
+            UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length,
+                hit_test_buffer_);
             for (UINT32 i = 0; i < count; i++) {
                 entry.inline_code_bgs.push_back({
                     hit_test_buffer_[i].left,

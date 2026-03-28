@@ -471,18 +471,7 @@ void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,
     if (!layout || length == 0) {
         return;
     }
-    // 既存バッファで直接取得を試み、不足時のみリサイズして再取得
-    if (hit_test_buffer_.empty()) {
-        hit_test_buffer_.resize(8);
-    }
-    UINT32 count = static_cast<UINT32>(hit_test_buffer_.size());
-    HRESULT hr = layout->HitTestTextRange(start, length, 0, 0,
-        hit_test_buffer_.data(), count, &count);
-    if (hr == E_NOT_SUFFICIENT_BUFFER) {
-        hit_test_buffer_.resize(count);
-        layout->HitTestTextRange(start, length, 0, 0,
-            hit_test_buffer_.data(), count, &count);
-    }
+    UINT32 count = FetchHitTestMetrics(layout, start, length, hit_test_buffer_);
     if (count == 0) {
         return;
     }
