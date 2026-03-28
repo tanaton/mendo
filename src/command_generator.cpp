@@ -241,14 +241,10 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool
 
 void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,
     IDWriteTextLayout* cell_layout,
-    const std::pmr::vector<InlineCodeBg>& code_bgs,
     float text_x, float text_y,
     bool has_selection, uint32_t sel_start, uint32_t sel_end,
     uint32_t flat_offset)
 {
-    // インラインコード背景
-    GenInlineCodeBgs(cmds, code_bgs, text_x, text_y, theme_->code_bg_color);
-
     if (has_selection && cell_layout) {
         uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
         uint32_t ov_start = std::max(sel_start, flat_offset);
@@ -351,13 +347,13 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
                 cell_layout = entry.cell_layouts[r][c].Get();
             }
 
-            // セルのインラインコード背景を取得
-            static const std::pmr::vector<InlineCodeBg> empty_bgs;
-            const auto& code_bgs =
-                (r < entry.cell_inline_code_bgs.size() && c < entry.cell_inline_code_bgs[r].size())
-                ? entry.cell_inline_code_bgs[r][c] : empty_bgs;
+            // セルのインラインコード背景
+            if (r < entry.cell_inline_code_bgs.size() && c < entry.cell_inline_code_bgs[r].size()) {
+                GenInlineCodeBgs(cmds, entry.cell_inline_code_bgs[r][c],
+                    text_x, text_y, theme_->code_bg_color);
+            }
 
-            GenTableCellContent(cmds, cell, cell_layout, code_bgs, text_x, text_y,
+            GenTableCellContent(cmds, cell, cell_layout, text_x, text_y,
                 has_selection, sel_start, sel_end, flat_offset);
 
             flat_offset += static_cast<uint32_t>(cell.text.size());
