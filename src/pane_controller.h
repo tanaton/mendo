@@ -74,10 +74,6 @@ public:
     constexpr bool IsFileRefreshHovered() const noexcept { return file_refresh_hovered_; }
     bool SetFileRefreshHovered(bool h) noexcept;
 
-private:
-    static bool ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept;
-    static bool SetHoveredIndex(int& current, int idx) noexcept;
-    static bool SetFlag(bool& current, bool value) noexcept;
 public:
 
     // ---- ドラッグ ----
@@ -121,4 +117,8 @@ private:
 
     DragTarget drag_target_ = DragTarget::None;
     float drag_scroll_offset_ = 0.0f;
+
+    static bool ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept;
+    static bool SetHoveredIndex(int& current, int idx) noexcept;
+    static bool SetFlag(bool& current, bool value) noexcept;
 };
