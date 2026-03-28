@@ -56,10 +56,7 @@ void FileExplorer::Refresh()
         if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) {
             continue;
         }
-        // 隠しファイル/システムファイルをスキップ
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) {
-            continue;
-        }
+        // システムファイルをスキップ
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) {
             continue;
         }

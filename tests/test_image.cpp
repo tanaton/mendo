@@ -742,6 +742,58 @@ TEST_F(ImageLoaderTest, CancelPendingIsNoOp) {
     loader_.CancelPending();
 }
 
+// ---- ファイルロック回避テスト ----
+
+TEST_F(ImageLoaderTest, FileNotLockedAfterSyncLoad) {
+    ASSERT_TRUE(CreateTestImage(L"lock_test.png", GUID_ContainerFormatPng, 64, 64));
+    auto path = GetTestImagePath(L"lock_test.png");
+
+    DiagramEntry entry;
+    ASSERT_TRUE(loader_.LoadImage(path, entry));
+
+    // 読み込み後、外部プロセスと同様に書き込みモードでファイルを開けること
+    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE,
+        0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    EXPECT_NE(hFile, INVALID_HANDLE_VALUE)
+        << "画像読み込み後にファイルが書き込みロックされている";
+    if (hFile != INVALID_HANDLE_VALUE) {
+        CloseHandle(hFile);
+    }
+}
+
+TEST_F(ImageLoaderTest, FileCanBeDeletedAfterLoad) {
+    ASSERT_TRUE(CreateTestImage(L"deletable.png", GUID_ContainerFormatPng, 32, 32));
+    auto path = GetTestImagePath(L"deletable.png");
+
+    DiagramEntry entry;
+    ASSERT_TRUE(loader_.LoadImage(path, entry));
+
+    // 読み込み後にファイルを削除できること（ロックされていない証拠）
+    std::error_code ec;
+    EXPECT_TRUE(std::filesystem::remove(path, ec))
+        << "画像読み込み後にファイルを削除できなかった: " << ec.message();
+}
+
+TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad) {
+    // 壊れた画像でも読み込み後にファイルがロックされないこと
+    auto path = temp_dir_ / L"bad_lock.png";
+    {
+        std::ofstream f(path, std::ios::binary);
+        f.write("\x89PNG\r\n\x1a\n\x00\x00", 10);
+    }
+
+    DiagramEntry entry;
+    loader_.LoadImage(path.wstring(), entry);
+
+    HANDLE hFile = CreateFileW(path.wstring().c_str(), GENERIC_WRITE,
+        0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    EXPECT_NE(hFile, INVALID_HANDLE_VALUE)
+        << "失敗した読み込み後にファイルがロックされている";
+    if (hFile != INVALID_HANDLE_VALUE) {
+        CloseHandle(hFile);
+    }
+}
+
 // ============================================================
 // 非同期読み込みテスト
 // ============================================================
@@ -832,6 +884,23 @@ TEST_F(ImageLoaderAsyncTest, MultiplePathsAllCached) {
     EXPECT_TRUE(loader_.GetCachedImage(path_b, entry_b));
     EXPECT_FLOAT_EQ(entry_a.width, 10.0f);
     EXPECT_FLOAT_EQ(entry_b.width, 20.0f);
+}
+
+TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad) {
+    ASSERT_TRUE(CreateTestImage(L"async_lock.png", GUID_ContainerFormatPng, 80, 60));
+    auto path = GetTestImagePath(L"async_lock.png");
+
+    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
+
+    // 非同期読み込み完了後、書き込みモードでファイルを開けること
+    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE,
+        0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    EXPECT_NE(hFile, INVALID_HANDLE_VALUE)
+        << "非同期読み込み後にファイルが書き込みロックされている";
+    if (hFile != INVALID_HANDLE_VALUE) {
+        CloseHandle(hFile);
+    }
 }
 
 TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue) {
