@@ -75,6 +75,7 @@ public:
     // タイマーコールバック
     void HandleTimer(UINT_PTR timer_id);
     void OnAppLoadFile();
+    void OnAppImageLoaded();
     void OnCaptureChanged();
     void OnDestroy();
 
@@ -178,6 +179,8 @@ private:
     void RequestMermaidRenders();
     void OnMermaidRenderComplete();
     void LoadImages();
+    void OnImageLoadComplete();
+    int ApplyCachedImages(const std::wstring& doc_dir, float content_width);
 
     // OnPaint用のレンダーステート構築ヘルパー
     GestureRenderState BuildGestureRenderState() const;
@@ -200,6 +203,7 @@ public:
     static constexpr UINT_PTR TIMER_SWIPE_OVERLAY = 5;
     static constexpr UINT_PTR TIMER_TOAST = 6;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
+    static constexpr UINT WM_APP_IMAGE_LOADED = WM_APP + 2;
 
 private:
     // Win32ハンドル

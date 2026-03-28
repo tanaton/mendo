@@ -59,12 +59,15 @@ bool App::Init(HWND hwnd)
 
     // 画像ローダーを初期化
     image_loader_.Init(renderer_.GetRenderTarget());
+    image_loader_.InitAsync(hwnd_, WM_APP_IMAGE_LOADED);
 
     // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、各ローダーを更新
     renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
         mermaid_renderer_.SetRenderTarget(new_rt);
+        image_loader_.CancelPending();
         image_loader_.SetRenderTarget(new_rt);
         image_loader_.ClearCache();
+        LoadImages();
     });
 
     // 保存済みのダークモードとズーム設定を適用
@@ -415,6 +418,7 @@ void App::DoLoadMarkdownFile()
 
     viewport_.ClearSelection();
     mermaid_renderer_.CancelPending();
+    image_loader_.CancelPending();
     renderer_.ShrinkBuffers();
 
     if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
@@ -450,6 +454,7 @@ void App::ReloadCurrentFile()
 
     float old_scroll = viewport_.GetScrollY();
     mermaid_renderer_.CancelPending();
+    image_loader_.CancelPending();
 
     if (file_load_service_.ExecuteReload(doc_, layout_cache_)) {
         renderer_.InvalidateTocPaneCache();
@@ -468,6 +473,62 @@ void App::UpdateTitleBar()
     Invalidate();
 }
 
+// キャッシュ済み画像を DiagramEntry に反映し、未キャッシュ画像のパス数を返す。
+// 反映された画像がある場合は負でない値、反映数 0 なら 0 を返す。
+// 戻り値: キャッシュから反映できた画像の数
+int App::ApplyCachedImages(const std::wstring& doc_dir, float content_width)
+{
+    int applied = 0;
+    auto& nodes = doc_.GetNodesMut();
+    for (size_t i = 0; i < nodes.size(); i++) {
+        auto& node = nodes[i];
+        if (node.type != NodeType::Image) {
+            continue;
+        }
+        auto& diagram = layout_cache_.GetDiagram(i);
+        if (diagram.bitmap) {
+            continue;
+        }
+
+        if (node.image_src.find(L"://") != std::pmr::wstring::npos) {
+            continue;
+        }
+
+        std::filesystem::path img_path(std::wstring_view{ node.image_src });
+        if (img_path.is_relative()) {
+            img_path = std::filesystem::path(doc_dir) / img_path;
+        }
+
+        std::error_code ec;
+        auto abs_path = std::filesystem::canonical(img_path, ec);
+        if (ec) {
+            continue;
+        }
+
+        auto abs_str = abs_path.wstring();
+
+        if (image_loader_.GetCachedImage(abs_str, diagram)) {
+            node.image_width = diagram.width;
+            node.image_height = diagram.height;
+
+            float indent = node.indent_level * renderer_.GetTheme().indent_width;
+            float node_width = content_width - indent;
+            float h = diagram.height;
+            if (diagram.width > node_width && diagram.width > 0) {
+                h *= node_width / diagram.width;
+            }
+            layout_cache_[i].height = h;
+            layout_cache_[i].layout_dirty = false;
+            ++applied;
+        } else {
+            image_loader_.RequestLoadAsync(abs_str,
+                [](void* ctx) { static_cast<App*>(ctx)->OnImageLoadComplete(); },
+                this);
+        }
+    }
+    return applied;
+}
+
 void App::LoadImages()
 {
     std::wstring doc_dir{ doc_.GetDirectory() };
@@ -483,54 +544,40 @@ void App::LoadImages()
         return;
     }
 
-    bool any_loaded = false;
-    auto& nodes = doc_.GetNodesMut();
-    for (size_t i = 0; i < nodes.size(); i++) {
-        auto& node = nodes[i];
-        if (node.type != NodeType::Image) {
-            continue;
-        }
-        auto& diagram = layout_cache_.GetDiagram(i);
-        if (diagram.bitmap) {
-            continue;
-        }
+    if (ApplyCachedImages(doc_dir, content_width) > 0) {
+        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+        Invalidate();
+    }
+}
 
-        // URLスキームはスキップ（ローカルファイルのみ対応）
-        if (node.image_src.find(L"://") != std::pmr::wstring::npos) {
-            continue;
-        }
+void App::OnAppImageLoaded()
+{
+    image_loader_.ProcessCompletedDecodes();
+}
 
-        // パス解決: 相対パスはドキュメントディレクトリ基準
-        std::filesystem::path img_path(std::wstring_view{ node.image_src });
-        if (img_path.is_relative()) {
-            img_path = std::filesystem::path(doc_dir) / img_path;
-        }
-
-        std::error_code ec;
-        auto abs_path = std::filesystem::canonical(img_path, ec);
-        if (ec) {
-            continue;
-        }
-
-        if (image_loader_.LoadImage(abs_path.wstring(), diagram)) {
-            node.image_width = diagram.width;
-            node.image_height = diagram.height;
-
-            // コンテンツ幅に合わせてレイアウト高さを設定
-            float indent = node.indent_level * renderer_.GetTheme().indent_width;
-            float node_width = content_width - indent;
-            float h = diagram.height;
-            if (diagram.width > node_width && diagram.width > 0) {
-                h *= node_width / diagram.width;
-            }
-            layout_cache_[i].height = h;
-            layout_cache_[i].layout_dirty = false;
-            any_loaded = true;
-        }
+void App::OnImageLoadComplete()
+{
+    std::wstring doc_dir{ doc_.GetDirectory() };
+    if (doc_dir.empty()) {
+        return;
     }
 
-    if (any_loaded) {
+    float viewport_width = GetMarkdownPaneWidth();
+    float content_width = viewport_width
+        - renderer_.GetTheme().margin_left
+        - renderer_.GetTheme().margin_right;
+    if (content_width <= 0.0f) {
+        return;
+    }
+
+    if (ApplyCachedImages(doc_dir, content_width) > 0) {
+        int anchor_idx = FindFirstVisibleNode();
+        float anchor_y_before = (anchor_idx >= 0)
+            ? layout_cache_[anchor_idx].y_position : 0.0f;
         layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+        auto layout = GetPaneLayout();
+        float md_h = layout.md_rect.height;
+        AnchorCompensateScroll(anchor_idx, anchor_y_before, md_h);
         Invalidate();
     }
 }
@@ -845,6 +892,7 @@ void App::ShowToast(std::wstring_view message)
 
 void App::OnDestroy()
 {
+    image_loader_.Shutdown();
     SaveLastFilePath();
     SavePaneState();
     KillTimer(hwnd_, TIMER_FILE_WATCH);

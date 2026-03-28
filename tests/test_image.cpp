@@ -692,3 +692,50 @@ TEST_F(ImageLoaderTest, FailedLoadDoesNotModifyExistingEntry) {
     EXPECT_FLOAT_EQ(entry.height, 888.0f);
     EXPECT_FALSE(entry.bitmap);
 }
+
+// ---- GetCachedImage テスト ----
+
+TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseWhenNotCached) {
+    DiagramEntry entry;
+    EXPECT_FALSE(loader_.GetCachedImage(L"C:\\not_cached.png", entry));
+}
+
+TEST_F(ImageLoaderTest, GetCachedImageReturnsTrueAfterLoadImage) {
+    ASSERT_TRUE(CreateTestImage(L"cached_test.png", GUID_ContainerFormatPng, 120, 90));
+    auto path = GetTestImagePath(L"cached_test.png");
+
+    // LoadImage でキャッシュに格納
+    DiagramEntry entry1;
+    ASSERT_TRUE(loader_.LoadImage(path, entry1));
+
+    // GetCachedImage でキャッシュから取得できること
+    DiagramEntry entry2;
+    EXPECT_TRUE(loader_.GetCachedImage(path, entry2));
+    EXPECT_EQ(entry1.bitmap.Get(), entry2.bitmap.Get());
+    EXPECT_FLOAT_EQ(entry2.width, 120.0f);
+    EXPECT_FLOAT_EQ(entry2.height, 90.0f);
+}
+
+TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseAfterClearCache) {
+    ASSERT_TRUE(CreateTestImage(L"clear_test.png", GUID_ContainerFormatPng, 30, 30));
+    auto path = GetTestImagePath(L"clear_test.png");
+
+    DiagramEntry entry;
+    ASSERT_TRUE(loader_.LoadImage(path, entry));
+    loader_.ClearCache();
+
+    EXPECT_FALSE(loader_.GetCachedImage(path, entry));
+}
+
+// ---- Shutdown テスト ----
+
+TEST_F(ImageLoaderTest, ShutdownWithoutInitAsyncIsNoOp) {
+    ImageLoader loader;
+    loader.Init(render_target_.Get());
+    loader.Shutdown();  // InitAsync 未呼び出しでもクラッシュしないこと
+}
+
+TEST_F(ImageLoaderTest, CancelPendingIsNoOp) {
+    // CancelPending が空の状態でもクラッシュしないこと
+    loader_.CancelPending();
+}
