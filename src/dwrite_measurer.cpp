@@ -294,19 +294,40 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     }
     if (col_count == 0) { entry.layout_dirty = false; return; }
 
-    // セルレイアウトを再構築するため、レイアウト単位の状態をリセット。
     entry.effects_applied = false;
     entry.cell_inline_code_bgs.clear();
-    entry.cell_layouts.resize(node.table_rows.size());
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        entry.cell_layouts[r].resize(node.table_rows[r].cells.size());
-    }
     entry.row_heights.resize(node.table_rows.size());
 
-    // 第1パス: テキストレイアウトを作成し、自然な幅を計測
-    std::pmr::vector<float> natural_widths(col_count, 0.0f);
-    MeasureTableCells(node, entry, natural_widths);
+    // セルレイアウトが既に存在する場合は第1パス（テキストレイアウト作成）をスキップし、
+    // 列幅の再計算のみ行う（リサイズ時の高速パス）。
+    bool has_existing_layouts = !entry.cell_layouts.empty()
+        && entry.cell_layouts.size() == node.table_rows.size();
+    if (has_existing_layouts) {
+        // 既存レイアウトから自然幅を再取得
+        std::pmr::vector<float> natural_widths(col_count, 0.0f);
+        for (size_t r = 0; r < node.table_rows.size(); r++) {
+            for (size_t c = 0; c < node.table_rows[r].cells.size() && c < entry.cell_layouts[r].size(); c++) {
+                if (entry.cell_layouts[r][c]) {
+                    // 自然幅を取得するため一時的にNoWrap幅に戻す
+                    entry.cell_layouts[r][c]->SetMaxWidth(CODE_BLOCK_NO_WRAP_WIDTH);
+                    DWRITE_TEXT_METRICS metrics{};
+                    entry.cell_layouts[r][c]->GetMetrics(&metrics);
+                    natural_widths[c] = std::max(natural_widths[c], metrics.width);
+                }
+            }
+        }
+        FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
+    } else {
+        entry.cell_layouts.resize(node.table_rows.size());
+        for (size_t r = 0; r < node.table_rows.size(); r++) {
+            entry.cell_layouts[r].resize(node.table_rows[r].cells.size());
+        }
 
-    // 第2パス: 列幅を設定し、行の高さを計測
-    FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
+        // 第1パス: テキストレイアウトを作成し、自然な幅を計測
+        std::pmr::vector<float> natural_widths(col_count, 0.0f);
+        MeasureTableCells(node, entry, natural_widths);
+
+        // 第2パス: 列幅を設定し、行の高さを計測
+        FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
+    }
 }

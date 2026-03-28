@@ -37,7 +37,7 @@ void App::NavigateToAnchor(std::wstring_view anchor)
     float target_y = layout_cache_[idx].y_position - renderer_.GetTheme().heading_spacing_above - layout.md_rect.y;
     target_y = std::max(0.0f, target_y);
     viewport_.ScrollTo(target_y);
-    UpdateScrollBar(layout.md_rect.height);
+    UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
 }
 
@@ -59,7 +59,7 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result)
     }
     viewport_.ScrollTo(result.scroll_y);
     auto layout = GetPaneLayout();
-    UpdateScrollBar(layout.md_rect.height);
+    UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
 }
 
@@ -140,20 +140,28 @@ void App::ApplyZoom(float new_zoom)
     layout_cache_.InvalidateAllLayouts();
 
     auto layout = GetPaneLayout();
-    renderer_.LayoutAllNodes(doc_.GetNodesMut(), layout_cache_, layout.md_rect.width);
+    float md_width = layout.md_rect.width;
+    float md_height = layout.md_rect.height;
+
+    // 表示領域を優先的にレイアウトし、残りは遅延処理に委ねる
+    layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
 
     if (anchor_idx >= 0 && anchor_idx < static_cast<int>(doc_.GetNodes().size())) {
         float anchor_y_after = layout_cache_[anchor_idx].y_position;
         viewport_.SetScrollY(anchor_y_after + anchor_offset * zoom_ratio);
     }
 
-    float md_h = layout.md_rect.height;
-    SyncMaxScroll(md_h);
+    SyncMaxScroll(md_height);
     viewport_.SetScrollTarget(viewport_.GetScrollY());
 
     RequestMermaidRenders();
 
-    UpdateScrollBar(md_h);
+    // 残りのダーティノードを遅延レイアウト
+    if (layout_service_->HasDirtyNodes()) {
+        SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
+    }
+
+    UpdateScrollBar();
     UpdateTitleBar();
     theme_service_.SaveZoomLevel(viewport_.GetZoomIndex());
     Invalidate();

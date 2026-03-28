@@ -14,4 +14,5 @@ private:
 
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_;
     ID2D1RenderTarget* bound_rt_ = nullptr;
+    D2D1_COLOR_F last_color_{ -1.0f, -1.0f, -1.0f, -1.0f };
 };

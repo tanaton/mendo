@@ -449,6 +449,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     size_t i = 0;
     uint32_t plain_start = 0;
     bool in_plain = false;
+    std::pmr::wstring ci_buf; // case_insensitive用の再利用バッファ
 
     auto flush_plain = [&]() {
         if (in_plain && static_cast<uint32_t>(i) > plain_start) {
@@ -618,16 +619,24 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             while (i < text.size() && IsIdentChar(text[i])) { i++; }
 
             std::wstring_view word(text.data() + start, i - start);
-            std::pmr::wstring word_lower;
             std::wstring_view lookup_word = word;
             if (cfg.case_insensitive) {
+                // 再利用バッファで小文字化（毎回のメモリ確保を回避）
+                ci_buf.clear();
+                if (ci_buf.capacity() < word.size()) {
+                    ci_buf.reserve(word.size());
+                }
                 bool has_upper = false;
                 for (wchar_t ch : word) {
-                    if (ch >= L'A' && ch <= L'Z') { has_upper = true; break; }
+                    if (ch >= L'A' && ch <= L'Z') {
+                        has_upper = true;
+                        ci_buf += static_cast<wchar_t>(ch - L'A' + L'a');
+                    } else {
+                        ci_buf += ch;
+                    }
                 }
                 if (has_upper) {
-                    word_lower = ToLowerAscii(word);
-                    lookup_word = word_lower;
+                    lookup_word = ci_buf;
                 }
             }
 

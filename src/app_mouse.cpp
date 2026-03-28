@@ -645,24 +645,28 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         Invalidate();
     }
 
-    // コピーボタンのホバー判定
-    float content_width = pane_layout.md_rect.width
-        - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right;
-    int old_copy_hover = hovered_copy_node_;
-    hovered_copy_node_ = hit_test_.CopyButtonHitTest(
-        doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
-        viewport_.GetScrollY(), pane_layout.md_rect.x,
-        content_width, pane_layout.md_rect.height,
-        cached_dpi_scale_, px, py);
+    // コピーボタンのホバー判定（距離スロットリングで不要な再計算を回避）
+    {
+        int cdx = px - last_copy_hit_pos_.x;
+        int cdy = py - last_copy_hit_pos_.y;
+        if (cdx * cdx + cdy * cdy > HOVER_THROTTLE_DISTANCE_SQ) {
+            last_copy_hit_pos_ = { px, py };
+            float content_width = pane_layout.md_rect.width
+                - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right;
+            int old_copy_hover = hovered_copy_node_;
+            hovered_copy_node_ = hit_test_.CopyButtonHitTest(
+                doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
+                viewport_.GetScrollY(), pane_layout.md_rect.x,
+                content_width, pane_layout.md_rect.height,
+                cached_dpi_scale_, px, py);
+            if (hovered_copy_node_ != old_copy_hover) {
+                Invalidate();
+            }
+        }
+    }
     if (hovered_copy_node_ >= 0) {
         SetCursor(cursor_hand_);
-        if (hovered_copy_node_ != old_copy_hover) {
-            Invalidate();
-        }
         return;
-    }
-    if (old_copy_hover >= 0) {
-        Invalidate();
     }
 
     int dx = px - last_md_hit_pos_.x;

@@ -8,7 +8,7 @@
 // スクロールバー・スクロール
 // ============================================================
 
-void App::UpdateScrollBar([[maybe_unused]] float md_pane_height)
+void App::UpdateScrollBar()
 {
     // カスタムスクロールバーはRenderer側で描画するため、再描画をトリガーするのみ
     Invalidate();
@@ -18,6 +18,7 @@ void App::ScrollTo(float position)
 {
     viewport_.ScrollTo(position);
     last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
+    last_copy_hit_pos_ = { LONG_MIN, LONG_MIN };
 }
 
 void App::SmoothScrollBy(float delta)
@@ -27,6 +28,8 @@ void App::SmoothScrollBy(float delta)
 
     if (!was_scrolling && viewport_.IsSmoothScrolling()) {
         last_scroll_time_ = std::chrono::steady_clock::now();
+        last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
+        last_copy_hit_pos_ = { LONG_MIN, LONG_MIN };
     }
     // WM_PAINTループでスクロールを駆動するため再描画を要求
     if (viewport_.IsSmoothScrolling()) {
@@ -99,7 +102,7 @@ void App::OnResizeEnd()
     layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
 
     SyncMaxScroll(md_height);
-    UpdateScrollBar(md_height);
+    UpdateScrollBar();
     Invalidate();
 
     if (layout_service_->HasDirtyNodes()) {
@@ -136,7 +139,7 @@ void App::OnDeferredLayout()
 
     if (!more) {
         KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
-        UpdateScrollBar(md_height);
+        UpdateScrollBar();
         Invalidate();
     }
 }
@@ -152,6 +155,6 @@ void App::UpdateLayoutAndScroll(float desired_scroll)
     viewport_.SetScrollTarget(desired_scroll);
     SyncMaxScroll(md_height);
 
-    UpdateScrollBar(md_height);
+    UpdateScrollBar();
     Invalidate();
 }

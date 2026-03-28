@@ -153,7 +153,7 @@ private:
 
     // レイアウト / スクロール
     void UpdateLayoutAndScroll(float desired_scroll);
-    void UpdateScrollBar(float md_pane_height);
+    void UpdateScrollBar();
     void InvalidateMdPane(const PaneRect& md_rect);
     void ScrollTo(float position);
     void SmoothScrollBy(float delta);
@@ -224,6 +224,7 @@ private:
     // ヒットテストのスロットリング
     POINT last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
     bool last_md_cursor_hand_ = false;
+    POINT last_copy_hit_pos_ = { LONG_MIN, LONG_MIN };
 
     // コアサービス
     Renderer renderer_;

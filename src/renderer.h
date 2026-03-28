@@ -155,8 +155,6 @@ public:
     // ビューポート幅からマージンを差し引いてLayoutEngineでノードをレイアウトする。
     void LayoutAllNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
 
-    constexpr Theme& GetThemeMut() noexcept { return theme_; }
-
     // デバイスロスト後にD2Dレンダーターゲットが再作成された際に呼び出されるコールバックを設定。
     // コールバックには新しいレンダーターゲットのポインタが渡される。
     void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }

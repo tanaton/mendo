@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <string_view>
-#include <vector>
+#include <deque>
 #include <memory_resource>
 
 // 単一のナビゲーション履歴エントリ: ファイルパス + スクロール位置。
@@ -32,17 +32,17 @@ public:
     // 進むナビゲーション: currentを戻るスタックに移動し、進むスタックからポップする。
     bool GoForward(const NavEntry& current, NavEntry& out);
 
-    constexpr bool CanGoBack() const noexcept { return !back_stack_.empty(); }
-    constexpr bool CanGoForward() const noexcept { return !forward_stack_.empty(); }
+    bool CanGoBack() const noexcept { return !back_stack_.empty(); }
+    bool CanGoForward() const noexcept { return !forward_stack_.empty(); }
 
-    constexpr size_t BackSize() const noexcept { return back_stack_.size(); }
-    constexpr size_t ForwardSize() const noexcept { return forward_stack_.size(); }
+    size_t BackSize() const noexcept { return back_stack_.size(); }
+    size_t ForwardSize() const noexcept { return forward_stack_.size(); }
 
     void Clear() noexcept;
 
-    static constexpr size_t MAX_HISTORY = 50;
+    static constexpr size_t MAX_HISTORY = 1024;
 
 private:
-    std::pmr::vector<NavEntry> back_stack_;
-    std::pmr::vector<NavEntry> forward_stack_;
+    std::pmr::deque<NavEntry> back_stack_;
+    std::pmr::deque<NavEntry> forward_stack_;
 };

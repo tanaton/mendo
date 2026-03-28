@@ -394,8 +394,10 @@ protected:
 
         loader_.Init(render_target_.Get());
 
-        // テスト用一時ディレクトリ
-        temp_dir_ = std::filesystem::temp_directory_path() / "mendo_test_images";
+        // テスト用一時ディレクトリ（並列実行時の競合を避けるためテスト名で分離）
+        auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+        temp_dir_ = std::filesystem::temp_directory_path()
+            / ("mendo_test_images_" + std::string(info->name()));
         std::filesystem::create_directories(temp_dir_);
     }
 
@@ -449,20 +451,24 @@ protected:
             return false;
         }
 
-        // 赤色のピクセルデータを書き込み
+        // 赤色のピクセルデータを1行ずつ書き込み（大画像でもメモリ使用量を抑える）
         UINT stride = width * 4;
-        std::vector<BYTE> pixels(stride * height);
+        std::vector<BYTE> row(stride);
+        for (UINT x = 0; x < width; x++) {
+            UINT offset = x * 4;
+            row[offset + 0] = 0;     // B
+            row[offset + 1] = 0;     // G
+            row[offset + 2] = 255;   // R
+            row[offset + 3] = 255;   // A
+        }
         for (UINT y = 0; y < height; y++) {
-            for (UINT x = 0; x < width; x++) {
-                UINT offset = y * stride + x * 4;
-                pixels[offset + 0] = 0;     // B
-                pixels[offset + 1] = 0;     // G
-                pixels[offset + 2] = 255;   // R
-                pixels[offset + 3] = 255;   // A
+            hr = frame->WritePixels(1, stride, stride, row.data());
+            if (FAILED(hr)) {
+                return false;
             }
         }
-
-        hr = frame->WritePixels(height, stride, static_cast<UINT>(pixels.size()), pixels.data());
+        // WritePixels の最終結果は上のループ内で検査済み
+        hr = S_OK;
         if (FAILED(hr)) {
             return false;
         }

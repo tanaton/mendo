@@ -27,6 +27,15 @@ protected:
         f.close();
         return path;
     }
+
+    // 非同期ファイル監視のポーリングを待つヘルパー
+    bool PollForChange(FileLoader& loader, int max_ms = 2000) {
+        for (int elapsed = 0; elapsed < max_ms; elapsed += 50) {
+            loader.CheckForChanges();
+            Sleep(50);
+        }
+        return true;
+    }
 };
 
 TEST_F(FileLoaderTest, LoadsUtf8File) {
@@ -85,8 +94,11 @@ TEST_F(FileLoaderTest, WatcherDetectsChange) {
     Sleep(300);
     WriteFile(L"watch.md", "modified");
 
-    // 変更をポーリング
-    loader.CheckForChanges();
+    // 非同期通知をポーリングで待つ
+    for (int i = 0; i < 40 && !changed; i++) {
+        Sleep(50);
+        loader.CheckForChanges();
+    }
     EXPECT_TRUE(changed);
 }
 
@@ -97,6 +109,8 @@ TEST_F(FileLoaderTest, WatcherDoesNotFireWithoutChange) {
     bool changed = false;
     loader.StartWatching(path.native().c_str(), [&]() { changed = true; });
 
+    // 少し待ってからチェック（変更なしなので発火しないはず）
+    Sleep(100);
     loader.CheckForChanges();
     EXPECT_FALSE(changed);
 }
@@ -111,6 +125,7 @@ TEST_F(FileLoaderTest, StopWatchingPreventsCallback) {
 
     Sleep(300);
     WriteFile(L"stop.md", "modified");
+    Sleep(100);
     loader.CheckForChanges();
     EXPECT_FALSE(changed);
 }
@@ -146,13 +161,20 @@ TEST_F(FileLoaderTest, WatcherRestartOnNewFile) {
     // 元のファイルを変更 - コールバックが発火しないこと
     Sleep(300);
     WriteFile(L"watch1.md", "modified1");
-    loader.CheckForChanges();
+    // watch1の変更通知を拾いつつ、ファイル名フィルタで弾くことを確認
+    for (int i = 0; i < 20; i++) {
+        Sleep(50);
+        loader.CheckForChanges();
+    }
     EXPECT_EQ(change_count, 0);
 
     // 新しいファイルを変更 - コールバックが発火すること
     Sleep(300);
     WriteFile(L"watch2.md", "modified2");
-    loader.CheckForChanges();
+    for (int i = 0; i < 40 && change_count == 0; i++) {
+        Sleep(50);
+        loader.CheckForChanges();
+    }
     EXPECT_EQ(change_count, 1);
 }
 

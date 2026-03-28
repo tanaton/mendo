@@ -356,7 +356,7 @@ void App::OnResize(UINT width, UINT height)
         auto sizing_layout = GetPaneLayout();
         float sizing_h = sizing_layout.md_rect.height;
         SyncMaxScroll(sizing_h);
-        UpdateScrollBar(sizing_h);
+        UpdateScrollBar();
         Invalidate();
         return;
     }
