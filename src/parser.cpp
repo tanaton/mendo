@@ -380,7 +380,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         ctx->current_node = nullptr;
         break;
     case MD_BLOCK_P:
-        // 画像のみの段落/引用ブロックを Image ノードに変換
+        // 画像を含む段落/引用ブロックを Image ノードに変換
         if (ctx->current_node && !ctx->current_node->image_src.empty()
             && (ctx->current_node->type == NodeType::Paragraph
                 || ctx->current_node->type == NodeType::BlockQuote)) {

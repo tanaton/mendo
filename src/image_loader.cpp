@@ -8,8 +8,11 @@ ImageLoader::~ImageLoader()
 void ImageLoader::Init(ID2D1RenderTarget* rt)
 {
     render_target_ = rt;
-    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&wic_factory_));
+    if (FAILED(hr)) {
+        wic_factory_.Reset();
+    }
 }
 
 void ImageLoader::InitAsync(HWND hwnd, UINT msg_id)

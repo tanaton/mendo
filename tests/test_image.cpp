@@ -2,6 +2,7 @@
 #include <memory_resource>
 #include <filesystem>
 #include <fstream>
+#include <chrono>
 #include "parser.h"
 #include "layout.h"
 #include "layout_cache.h"
@@ -362,7 +363,8 @@ protected:
     std::filesystem::path temp_dir_;
 
     static void SetUpTestSuite() {
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        ASSERT_TRUE(SUCCEEDED(hr)) << "COM初期化に失敗";
     }
 
     static void TearDownTestSuite() {
@@ -738,4 +740,112 @@ TEST_F(ImageLoaderTest, ShutdownWithoutInitAsyncIsNoOp) {
 TEST_F(ImageLoaderTest, CancelPendingIsNoOp) {
     // CancelPending が空の状態でもクラッシュしないこと
     loader_.CancelPending();
+}
+
+// ============================================================
+// 非同期読み込みテスト
+// ============================================================
+
+class ImageLoaderAsyncTest : public ImageLoaderTest {
+protected:
+    // コールバック発火を検知するためのカウンター
+    static std::atomic<int> callback_count_;
+
+    static void OnComplete(void* /*ctx*/) {
+        callback_count_.fetch_add(1);
+    }
+
+    void SetUp() override {
+        ImageLoaderTest::SetUp();
+        callback_count_.store(0);
+        // InitAsync にはウィンドウハンドルが必要だが、テストでは PostMessage を
+        // 受け取れないため HWND は nullptr で起動し、手動で ProcessCompletedDecodes を呼ぶ
+        loader_.InitAsync(nullptr, 0);
+    }
+
+    void TearDown() override {
+        loader_.Shutdown();
+        ImageLoaderTest::TearDown();
+    }
+
+    // ワーカーの処理完了を待つ（最大 timeout_ms ミリ秒）
+    bool WaitForResults(int expected_count, int timeout_ms = 5000) {
+        auto deadline = std::chrono::steady_clock::now()
+            + std::chrono::milliseconds(timeout_ms);
+        while (std::chrono::steady_clock::now() < deadline) {
+            loader_.ProcessCompletedDecodes();
+            if (callback_count_.load() >= expected_count) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        // 最後にもう一度試行
+        loader_.ProcessCompletedDecodes();
+        return callback_count_.load() >= expected_count;
+    }
+};
+
+std::atomic<int> ImageLoaderAsyncTest::callback_count_{0};
+
+TEST_F(ImageLoaderAsyncTest, AsyncLoadPopulatesCache) {
+    ASSERT_TRUE(CreateTestImage(L"async.png", GUID_ContainerFormatPng, 120, 90));
+    auto path = GetTestImagePath(L"async.png");
+
+    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
+
+    DiagramEntry entry;
+    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    EXPECT_TRUE(entry.bitmap);
+    EXPECT_FLOAT_EQ(entry.width, 120.0f);
+    EXPECT_FLOAT_EQ(entry.height, 90.0f);
+}
+
+TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored) {
+    ASSERT_TRUE(CreateTestImage(L"dup.png", GUID_ContainerFormatPng, 50, 50));
+    auto path = GetTestImagePath(L"dup.png");
+
+    // 同じパスを2回リクエスト — 重複は無視される
+    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+
+    ASSERT_TRUE(WaitForResults(1));
+
+    // コールバックは1回のみ（バッチの最後の1件）
+    EXPECT_EQ(callback_count_.load(), 1);
+}
+
+TEST_F(ImageLoaderAsyncTest, MultiplePathsAllCached) {
+    ASSERT_TRUE(CreateTestImage(L"a.png", GUID_ContainerFormatPng, 10, 10));
+    ASSERT_TRUE(CreateTestImage(L"b.png", GUID_ContainerFormatPng, 20, 20));
+    auto path_a = GetTestImagePath(L"a.png");
+    auto path_b = GetTestImagePath(L"b.png");
+
+    loader_.RequestLoadAsync(path_a, OnComplete, nullptr);
+    loader_.RequestLoadAsync(path_b, OnComplete, nullptr);
+
+    // 少なくとも1回コールバックが来るのを待つ
+    ASSERT_TRUE(WaitForResults(1));
+
+    DiagramEntry entry_a, entry_b;
+    EXPECT_TRUE(loader_.GetCachedImage(path_a, entry_a));
+    EXPECT_TRUE(loader_.GetCachedImage(path_b, entry_b));
+    EXPECT_FLOAT_EQ(entry_a.width, 10.0f);
+    EXPECT_FLOAT_EQ(entry_b.width, 20.0f);
+}
+
+TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue) {
+    ASSERT_TRUE(CreateTestImage(L"cancel.png", GUID_ContainerFormatPng, 30, 30));
+    auto path = GetTestImagePath(L"cancel.png");
+
+    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    loader_.CancelPending();
+
+    // キャンセル後、短時間待ってもコールバックが来ないこと
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    loader_.ProcessCompletedDecodes();
+
+    // キャンセルのタイミングにより結果はゼロまたはキャッシュ済みになりうるが、
+    // コールバックは発火しないこと
+    EXPECT_EQ(callback_count_.load(), 0);
 }
