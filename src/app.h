@@ -23,6 +23,7 @@
 #include "config_service.h"
 #include "theme_service.h"
 #include "file_load_service.h"
+#include "context_menu.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <chrono>
@@ -255,6 +256,9 @@ private:
     // ナビゲーションオーバーレイ
     using NavButtonHover = HitTestService::NavButtonHover;
     NavButtonHover nav_hover_ = NavButtonHover::None;
+
+    // カスタムコンテキストメニュー
+    ContextMenu ctx_menu_;
 
     // コードブロック コピーボタン
     int hovered_copy_node_ = -1;

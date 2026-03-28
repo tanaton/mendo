@@ -135,6 +135,8 @@ public:
         const ToastRenderState& toast = {});
 
     ID2D1HwndRenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
+    ID2D1Factory* GetD2DFactory() const noexcept { return backend_.GetD2DFactory(); }
+    IDWriteFactory* GetDWriteFactory() const noexcept { return backend_.GetDWriteFactory(); }
     constexpr LayoutEngine& GetLayout() noexcept { return layout_; }
     constexpr const Theme& GetTheme() const noexcept { return theme_; }
     void SetTheme(const Theme& theme);

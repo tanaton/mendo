@@ -31,12 +31,14 @@ add_executable(mendo_tests
     test_titlebar.cpp
     test_ui_constants.cpp
     test_toast_notifier.cpp
+    test_context_menu.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE
     mendo_core
     GTest::gtest_main
 )
+target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)
 
 if(MSVC)
     target_compile_options(mendo_tests PRIVATE /W4 /utf-8)
