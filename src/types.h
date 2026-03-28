@@ -13,7 +13,8 @@ enum class NodeType : uint8_t {
     ListItem,
     BlockQuote,
     Table,
-    TaskListItem
+    TaskListItem,
+    Image
 };
 
 enum class AlertType : uint8_t {
@@ -113,4 +114,9 @@ struct Node {
 
     // テーブルデータ（type == Table の場合のみ使用）
     std::pmr::vector<TableRow> table_rows;
+
+    // 画像データ（type == Image の場合のみ使用）
+    std::pmr::wstring image_src;    // 画像ソースパス（Markdown内の記述）
+    float image_width = 0.0f;       // 元画像の幅（ピクセル）
+    float image_height = 0.0f;      // 元画像の高さ（ピクセル）
 };

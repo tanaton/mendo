@@ -6,7 +6,7 @@
 static constexpr float CODE_BLOCK_NO_WRAP_WIDTH = 10000.0f;
 static constexpr float LAYOUT_MAX_HEIGHT = 100000.0f;
 static constexpr float DEFAULT_COLUMN_WIDTH = 60.0f;
-static constexpr float MIN_MERMAID_PLACEHOLDER_HEIGHT = 60.0f;
+static constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
 
 static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family,
     float size, DWRITE_FONT_WEIGHT weight,
@@ -122,7 +122,24 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     // Mermaidブロック: ビットマップがレンダリングされるまでのプレースホルダー高さ
     if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
         if (entry.height <= 0) {
-            entry.height = std::max(MIN_MERMAID_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
+            entry.height = std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
+        }
+        entry.layout_dirty = false;
+        return;
+    }
+
+    // 画像ノード: 元画像サイズが設定済みならコンテンツ幅に合わせてスケール、
+    // 未設定ならプレースホルダー高さ
+    if (node.type == NodeType::Image) {
+        if (node.image_width > 0 && node.image_height > 0) {
+            float w = node.image_width;
+            float h = node.image_height;
+            if (w > max_width) {
+                h *= max_width / w;
+            }
+            entry.height = h;
+        } else if (entry.height <= 0) {
+            entry.height = std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
         }
         entry.layout_dirty = false;
         return;

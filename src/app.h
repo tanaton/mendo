@@ -1,6 +1,7 @@
 #pragma once
 #include "renderer.h"
 #include "mermaid.h"
+#include "image_loader.h"
 #include "file_loader.h"
 #include "file_explorer.h"
 #include "document.h"
@@ -74,6 +75,7 @@ public:
     // タイマーコールバック
     void HandleTimer(UINT_PTR timer_id);
     void OnAppLoadFile();
+    void OnAppImageLoaded();
     void OnCaptureChanged();
     void OnDestroy();
 
@@ -176,6 +178,9 @@ private:
 
     void RequestMermaidRenders();
     void OnMermaidRenderComplete();
+    void LoadImages();
+    void OnImageLoadComplete();
+    int ApplyCachedImages();
 
     // OnPaint用のレンダーステート構築ヘルパー
     GestureRenderState BuildGestureRenderState() const;
@@ -198,6 +203,7 @@ public:
     static constexpr UINT_PTR TIMER_SWIPE_OVERLAY = 5;
     static constexpr UINT_PTR TIMER_TOAST = 6;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
+    static constexpr UINT WM_APP_IMAGE_LOADED = WM_APP + 2;
 
 private:
     // Win32ハンドル
@@ -217,6 +223,7 @@ private:
     // コアサービス
     Renderer renderer_;
     MermaidRenderer mermaid_renderer_;
+    ImageLoader image_loader_;
     FileLoader file_loader_;
     DocumentService doc_service_{ file_loader_ };
     AppController controller_;

@@ -1,6 +1,9 @@
 #include <winresrc.h>
 #include "../src/resource.h"
 
+// Icon
+IDI_APP_ICON ICON "mendo.ico"
+
 // Manifest
 1 RT_MANIFEST "mendo.manifest"
 

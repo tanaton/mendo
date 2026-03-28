@@ -109,6 +109,9 @@ struct ParseContext {
     // アンカーIDの一意性追跡: スラグ -> 出現回数
     std::pmr::unordered_map<std::pmr::wstring, int> anchor_counts{ parse_resource.resource() };
 
+    // 画像スパン追跡
+    std::pmr::wstring pending_image_src{ parse_resource.resource() };
+
     void BeginNode(NodeType type)
     {
         nodes.emplace_back();
@@ -377,6 +380,14 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         ctx->current_node = nullptr;
         break;
     case MD_BLOCK_P:
+        // 画像を含む段落/引用ブロックを Image ノードに変換
+        if (ctx->current_node && !ctx->current_node->image_src.empty()
+            && (ctx->current_node->type == NodeType::Paragraph
+                || ctx->current_node->type == NodeType::BlockQuote)) {
+            ctx->current_node->type = NodeType::Image;
+        }
+        ctx->current_node = nullptr;
+        break;
     case MD_BLOCK_LI:
     case MD_BLOCK_HR:
         ctx->current_node = nullptr;
@@ -416,6 +427,14 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         }
         break;
     }
+    case MD_SPAN_IMG: {
+        auto* img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
+        if (img->src.text && img->src.size > 0) {
+            ctx->pending_image_src = Utf8ToWide(
+                std::string_view{ img->src.text, static_cast<size_t>(img->src.size) });
+        }
+        break;
+    }
     default:
         break;
     }
@@ -423,9 +442,16 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     return 0;
 }
 
-int OnLeaveSpan(MD_SPANTYPE /*type*/, void* /*detail*/, void* userdata)
+int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 {
     auto* ctx = static_cast<ParseContext*>(userdata);
+
+    if (type == MD_SPAN_IMG) {
+        if (ctx->current_node && !ctx->pending_image_src.empty()) {
+            ctx->current_node->image_src = ctx->pending_image_src;
+        }
+        ctx->pending_image_src.clear();
+    }
 
     if (!ctx->span_stack.empty()) {
         ctx->current_span = ctx->span_stack.top();

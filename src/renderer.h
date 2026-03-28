@@ -68,6 +68,7 @@ struct TitleBarRenderState {
     bool is_maximized = false;
     D2D1_RECT_F close_btn_rect{};
     bool close_btn_hovered = false;
+    D2D1_RECT_F icon_rect{};
     D2D1_RECT_F title_text_rect{};
     std::wstring_view title_text;
     bool window_active = true;
@@ -227,6 +228,8 @@ private:
     ComPtr<IDWriteTextLayout> gesture_forward_layout_;  // "→ 進む" のキャッシュ済みレイアウト
     ComPtr<IDWriteTextLayout> cached_toast_layout_;
     std::pmr::wstring cached_toast_text_;
+    ComPtr<ID2D1Bitmap> app_icon_bitmap_;
+    void LoadAppIconBitmap();
     ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
 
     PaneCache file_pane_cache_;

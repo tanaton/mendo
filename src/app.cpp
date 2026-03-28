@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <variant>
+#include <filesystem>
 #include <dwmapi.h>
 #include <uxtheme.h>
 
@@ -56,9 +57,17 @@ bool App::Init(HWND hwnd)
         RequestMermaidRenders();
     });
 
-    // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、MermaidRendererを更新
+    // 画像ローダーを初期化
+    image_loader_.Init(renderer_.GetRenderTarget());
+    image_loader_.InitAsync(hwnd_, WM_APP_IMAGE_LOADED);
+
+    // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、各ローダーを更新
     renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
         mermaid_renderer_.SetRenderTarget(new_rt);
+        image_loader_.CancelPending();
+        image_loader_.SetRenderTarget(new_rt);
+        image_loader_.ClearCache();
+        LoadImages();
     });
 
     // 保存済みのダークモードとズーム設定を適用
@@ -253,6 +262,7 @@ TitleBarRenderState App::BuildTitleBarRenderState(float window_width) const
     tb.is_maximized = IsZoomed(hwnd_) != FALSE;
     tb.close_btn_rect = titlebar_.GetCloseButton().rect;
     tb.close_btn_hovered = titlebar_.GetCloseButton().hovered;
+    tb.icon_rect = titlebar_.GetIconRect();
     tb.title_text_rect = titlebar_.GetTitleTextRect();
     tb.title_text = cached_title_text_;
     tb.window_active = window_active_;
@@ -409,6 +419,7 @@ void App::DoLoadMarkdownFile()
 
     viewport_.ClearSelection();
     mermaid_renderer_.CancelPending();
+    image_loader_.CancelPending();
     renderer_.ShrinkBuffers();
 
     if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
@@ -428,6 +439,7 @@ void App::DoLoadMarkdownFile()
 
     UpdateLayoutAndScroll(0.0f);
     UpdateTitleBar();
+    LoadImages();
     RequestMermaidRenders();
 
     doc_service_.StartWatching(doc_.GetFilePath(), [this]() {
@@ -443,10 +455,12 @@ void App::ReloadCurrentFile()
 
     float old_scroll = viewport_.GetScrollY();
     mermaid_renderer_.CancelPending();
+    image_loader_.CancelPending();
 
     if (file_load_service_.ExecuteReload(doc_, layout_cache_)) {
         renderer_.InvalidateTocPaneCache();
         UpdateLayoutAndScroll(old_scroll);
+        LoadImages();
         RequestMermaidRenders();
     }
 }
@@ -458,6 +472,101 @@ void App::UpdateTitleBar()
     SetWindowTextW(hwnd_, title.c_str());
     cached_title_text_ = std::move(title);
     Invalidate();
+}
+
+// キャッシュ済み画像を DiagramEntry に反映する。
+// 戻り値: キャッシュから反映できた画像の数
+int App::ApplyCachedImages()
+{
+    std::wstring doc_dir{ doc_.GetDirectory() };
+    if (doc_dir.empty()) {
+        return 0;
+    }
+
+    float viewport_width = GetMarkdownPaneWidth();
+    float content_width = viewport_width
+        - renderer_.GetTheme().margin_left
+        - renderer_.GetTheme().margin_right;
+    if (content_width <= 0.0f) {
+        return 0;
+    }
+
+    int applied = 0;
+    auto& nodes = doc_.GetNodesMut();
+    for (size_t i = 0; i < nodes.size(); i++) {
+        auto& node = nodes[i];
+        if (node.type != NodeType::Image) {
+            continue;
+        }
+        auto& diagram = layout_cache_.GetDiagram(i);
+        if (diagram.bitmap) {
+            continue;
+        }
+
+        if (node.image_src.find(L"://") != std::pmr::wstring::npos) {
+            continue;
+        }
+
+        std::filesystem::path img_path(std::wstring_view{ node.image_src });
+        if (img_path.is_relative()) {
+            img_path = std::filesystem::path(doc_dir) / img_path;
+        }
+
+        std::error_code ec;
+        auto abs_path = std::filesystem::canonical(img_path, ec);
+        if (ec) {
+            continue;
+        }
+
+        auto abs_str = abs_path.wstring();
+
+        if (image_loader_.GetCachedImage(abs_str, diagram)) {
+            node.image_width = diagram.width;
+            node.image_height = diagram.height;
+
+            float indent = node.indent_level * renderer_.GetTheme().indent_width;
+            float node_width = content_width - indent;
+            float h = diagram.height;
+            if (diagram.width > node_width && diagram.width > 0) {
+                h *= node_width / diagram.width;
+            }
+            layout_cache_[i].height = h;
+            layout_cache_[i].layout_dirty = false;
+            ++applied;
+        } else {
+            image_loader_.RequestLoadAsync(abs_str,
+                [](void* ctx) { static_cast<App*>(ctx)->OnImageLoadComplete(); },
+                this);
+        }
+    }
+    return applied;
+}
+
+void App::LoadImages()
+{
+    if (ApplyCachedImages() > 0) {
+        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+        Invalidate();
+    }
+}
+
+void App::OnAppImageLoaded()
+{
+    image_loader_.ProcessCompletedDecodes();
+}
+
+void App::OnImageLoadComplete()
+{
+    if (ApplyCachedImages() > 0) {
+        int anchor_idx = FindFirstVisibleNode();
+        float anchor_y_before = (anchor_idx >= 0)
+            ? layout_cache_[anchor_idx].y_position : 0.0f;
+        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+        auto layout = GetPaneLayout();
+        float md_h = layout.md_rect.height;
+        AnchorCompensateScroll(anchor_idx, anchor_y_before, md_h);
+        Invalidate();
+    }
 }
 
 void App::RequestMermaidRenders()
@@ -770,6 +879,7 @@ void App::ShowToast(std::wstring_view message)
 
 void App::OnDestroy()
 {
+    image_loader_.Shutdown();
     SaveLastFilePath();
     SavePaneState();
     KillTimer(hwnd_, TIMER_FILE_WATCH);

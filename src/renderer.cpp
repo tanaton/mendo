@@ -1,7 +1,9 @@
 #include "renderer.h"
+#include "resource.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
+#include <wincodec.h>
 
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
@@ -16,6 +18,7 @@ bool Renderer::Init(HWND hwnd)
 
     RecreateBrushes();
     RecreatePaneFormats();
+    LoadAppIconBitmap();
 
     // 滑らかなジェスチャー軌跡のための丸型キャップと結合
     D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(
@@ -32,6 +35,48 @@ bool Renderer::Init(HWND hwnd)
     cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get() });
 
     return true;
+}
+
+void Renderer::LoadAppIconBitmap()
+{
+    app_icon_bitmap_.Reset();
+
+    HMODULE hModule = GetModuleHandleW(nullptr);
+    HICON hIcon = static_cast<HICON>(LoadImageW(
+        hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
+    if (!hIcon) {
+        return;
+    }
+
+    // HICONからD2D1ビットマップに変換
+    ComPtr<IWICImagingFactory> wic;
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&wic));
+    if (FAILED(hr)) {
+        DestroyIcon(hIcon);
+        return;
+    }
+
+    ComPtr<IWICBitmap> wic_bitmap;
+    hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
+    DestroyIcon(hIcon);
+    if (FAILED(hr)) {
+        return;
+    }
+
+    ComPtr<IWICFormatConverter> converter;
+    hr = wic->CreateFormatConverter(&converter);
+    if (FAILED(hr)) {
+        return;
+    }
+
+    hr = converter->Initialize(wic_bitmap.Get(), GUID_WICPixelFormat32bppPBGRA,
+        WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeMedianCut);
+    if (FAILED(hr)) {
+        return;
+    }
+
+    rt()->CreateBitmapFromWicBitmap(converter.Get(), nullptr, &app_icon_bitmap_);
 }
 
 void Renderer::RecreateBrushes()
@@ -313,6 +358,11 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
     }
     entry.effects_applied = true;
 
+    // 画像ノード: テキストエフェクト不要
+    if (node.type == NodeType::Image) {
+        return;
+    }
+
     // テーブルセル: セルレイアウトにリンク色を適用し、インラインコード背景を計算
     if (node.type == NodeType::Table) {
         entry.cell_inline_code_bgs.resize(node.table_rows.size());
@@ -543,6 +593,7 @@ bool Renderer::RecreateRenderTarget()
     }
 
     RecreateBrushes();
+    LoadAppIconBitmap();
     file_pane_cache_.Reset();
     toc_pane_cache_.Reset();
     cmd_executor_ = CommandExecutor{}; // バインドされたレンダーターゲットをリセット

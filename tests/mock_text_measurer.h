@@ -36,6 +36,22 @@ public:
             return;
         }
 
+        // 画像ノード: 実装と同じくサイズが設定済みならスケール、未設定ならプレースホルダー
+        if (node.type == NodeType::Image) {
+            if (node.image_width > 0 && node.image_height > 0) {
+                float w = node.image_width;
+                float h = node.image_height;
+                if (w > max_width) {
+                    h *= max_width / w;
+                }
+                entry.height = h;
+            } else if (entry.height <= 0) {
+                entry.height = 60.0f; // プレースホルダー高さ
+            }
+            entry.layout_dirty = false;
+            return;
+        }
+
         const auto& text = node.text;
         if (text.empty()) {
             entry.height = line_height * 0.5f;

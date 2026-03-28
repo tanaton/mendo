@@ -113,6 +113,19 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         GenHorizontalRule(cmds, entry, x, cw);
         return;
 
+    case NodeType::Image:
+        if (diagram.bitmap) {
+            float draw_h = entry.height;
+            float draw_w = (diagram.height > 0)
+                ? diagram.width * (draw_h / diagram.height)
+                : diagram.width;
+            float dx = x + (cw - draw_w) * 0.5f;
+            cmds.push_back(DrawBitmapCmd{
+                diagram.bitmap.Get(),
+                D2D1::RectF(dx, entry.y_position, dx + draw_w, entry.y_position + draw_h) });
+        }
+        return;
+
     case NodeType::Table:
         GenTable(cmds, node, entry, node_index, x, selection, viewport_top, viewport_bottom);
         return;
