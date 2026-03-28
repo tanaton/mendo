@@ -46,34 +46,32 @@ void App::RefreshFilePane()
 
 void App::OnContextMenu(int screen_x, int screen_y)
 {
-    POINT pt = { screen_x, screen_y };
-    POINT client_pt = pt;
+    POINT client_pt = { screen_x, screen_y };
     ScreenToClient(hwnd_, &client_pt);
     auto dip = PixelToDip(client_pt.x, client_pt.y);
     auto zone = PaneAtPoint(dip.x, dip.y);
 
-    HMENU menu = CreatePopupMenu();
-    if (!menu) { return; }
+    ContextMenuParams params;
+    params.screen_x = screen_x;
+    params.screen_y = screen_y;
+    params.dpi_scale = cached_dpi_scale_;
+    params.can_go_back = nav_history_.CanGoBack();
+    params.can_go_forward = nav_history_.CanGoForward();
+    params.has_file = !doc_.GetFilePath().empty();
+    params.has_selection = viewport_.GetSelection().active && viewport_.GetSelection().start_node >= 0;
+    params.dark_mode_checked = theme_service_.IsDarkMode();
+    params.show_file_items = (zone == PaneZone::MdPane);
+    params.theme = &renderer_.GetTheme();
 
-    if (zone == PaneZone::MdPane) {
-        bool has_file = !doc_.GetFilePath().empty();
-        AppendMenuW(menu, MF_STRING | (has_file ? 0 : MF_GRAYED), IDM_EDIT_FILE, L"エディタで開く(&E)");
+    int cmd = ctx_menu_.Show(hwnd_, params);
 
-        bool has_selection = viewport_.GetSelection().active && viewport_.GetSelection().start_node >= 0;
-        AppendMenuW(menu, MF_STRING | (has_selection ? 0 : MF_GRAYED), IDM_COPY, L"コピー(&C)");
-
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    if (cmd == IDM_NAV_BACK) {
+        NavigateBack();
     }
-
-    AppendMenuW(menu, MF_STRING | (theme_service_.IsDarkMode() ? MF_CHECKED : 0),
-        IDM_TOGGLE_DARK_MODE, L"ダークモード(&D)");
-
-    int cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
-        pt.x, pt.y, 0, hwnd_, nullptr);
-    DestroyMenu(menu);
-
-    if (cmd == IDM_EDIT_FILE) {
-        // ファイル拡張子がMarkdown/テキストであることを検証してからShellExecuteを実行
+    else if (cmd == IDM_NAV_FORWARD) {
+        NavigateForward();
+    }
+    else if (cmd == IDM_EDIT_FILE) {
         const auto& file_path = doc_.GetFilePath();
         if (IsEditableTextFile(file_path)) {
             ShellExecuteW(hwnd_, L"open", file_path.c_str(),

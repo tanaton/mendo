@@ -31,6 +31,7 @@ add_executable(mendo_tests
     test_titlebar.cpp
     test_ui_constants.cpp
     test_toast_notifier.cpp
+    test_context_menu.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

@@ -86,6 +86,7 @@ add_library(mendo_core STATIC
     src/navigation_service.cpp
     src/theme_service.cpp
     src/file_load_service.cpp
+    src/context_menu.cpp
 )
 target_include_directories(mendo_core PUBLIC src third_party/md4c)
 target_compile_definitions(mendo_core PUBLIC

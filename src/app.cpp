@@ -89,6 +89,8 @@ bool App::Init(HWND hwnd)
 
     LoadPaneState();
 
+    ctx_menu_.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
+
     // ファイル監視タイマーを設定 (250ms毎にチェック)
     SetTimer(hwnd_, TIMER_FILE_WATCH, 250, nullptr);
 

@@ -6,6 +6,8 @@
 #define IDM_EDIT_FILE 201
 #define IDM_COPY      202
 #define IDM_TOGGLE_DARK_MODE 203
+#define IDM_NAV_BACK         204
+#define IDM_NAV_FORWARD      205
 
 // 埋め込みリソース
 #define IDR_MERMAID_JS_GZ 301
