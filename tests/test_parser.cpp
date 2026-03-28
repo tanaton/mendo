@@ -870,9 +870,11 @@ TEST(Parser, AlertCaseMixed) {
 TEST(Parser, AlertMarkerStrippedAndLabelInserted) {
     auto nodes = ParseMarkdown("> [!NOTE]\n> Content here");
     ASSERT_GE(nodes.size(), 1u);
-    // マーカー "[!NOTE]" が除去され、ラベル "Note" に置換されているべき
+    // マーカー "[!NOTE]" が除去され、アイコン + ラベル "Note" に置換されているべき
     EXPECT_NE(nodes[0].text.find(L"Note"), std::wstring::npos);
     EXPECT_EQ(nodes[0].text.find(L"[!NOTE]"), std::wstring::npos);
+    // 先頭はアイコン文字であるべき
+    EXPECT_EQ(nodes[0].text[0], GetAlertIcon(AlertType::Note));
     // コンテンツも残っているべき
     EXPECT_NE(nodes[0].text.find(L"Content here"), std::wstring::npos);
 }
@@ -890,11 +892,11 @@ TEST(Parser, AlertLabelIsBold) {
 TEST(Parser, AlertLabelLength) {
     auto nodes = ParseMarkdown("> [!NOTE]\n> text");
     ASSERT_GE(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].alert_label_length, 4u); // "Note" = 4文字
+    EXPECT_EQ(nodes[0].alert_label_length, 6u); // icon + space + "Note" = 2 + 4文字
 
     auto nodes2 = ParseMarkdown("> [!IMPORTANT]\n> text");
     ASSERT_GE(nodes2.size(), 1u);
-    EXPECT_EQ(nodes2[0].alert_label_length, 9u); // "Important" = 9文字
+    EXPECT_EQ(nodes2[0].alert_label_length, 11u); // icon + space + "Important" = 2 + 9文字
 }
 
 TEST(Parser, AlertRunPositionsAreValid) {
@@ -943,8 +945,9 @@ TEST(Parser, AlertMarkerOnlyNoContent) {
     auto nodes = ParseMarkdown("> [!NOTE]");
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
-    // マーカーだけの場合、ラベルのみ残る
-    EXPECT_EQ(nodes[0].text, L"Note");
+    // マーカーだけの場合、アイコン + スペース + ラベルのみ残る
+    wchar_t expected[] = { GetAlertIcon(AlertType::Note), L' ', L'N', L'o', L't', L'e', L'\0' };
+    EXPECT_EQ(nodes[0].text, expected);
 }
 
 TEST(Parser, AlertFollowedByRegularBlockquote) {
@@ -1005,9 +1008,10 @@ TEST(Parser, AlertWithInlineFormatting) {
 TEST(Parser, AlertTextStartsWithLabelThenNewline) {
     auto nodes = ParseMarkdown("> [!CAUTION]\n> Don't do this");
     ASSERT_GE(nodes.size(), 1u);
-    // テキストは "Caution\n..." の形式であるべき
+    // テキストは "[icon] Caution\n..." の形式であるべき
     const auto& text = nodes[0].text;
     auto nl = text.find(L'\n');
     ASSERT_NE(nl, std::wstring::npos);
-    EXPECT_EQ(text.substr(0, nl), L"Caution");
+    wchar_t expected[] = { GetAlertIcon(AlertType::Caution), L' ', L'C', L'a', L'u', L't', L'i', L'o', L'n', L'\0' };
+    EXPECT_EQ(text.substr(0, nl), expected);
 }

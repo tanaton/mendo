@@ -167,6 +167,15 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         }
     }
 
+    // Alert ノード: アイコン文字のフォントを設定し、ラベル下のスペーサー行を縮小
+    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None
+        && node.alert_label_length > 0) {
+        // 先頭のアイコン文字を Segoe Fluent Icons で描画
+        DWRITE_TEXT_RANGE icon_range{ 0, 1 };
+        layout->SetFontFamilyName(L"Segoe Fluent Icons", icon_range);
+        layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);
+    }
+
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
 
