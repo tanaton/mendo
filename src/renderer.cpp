@@ -391,7 +391,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
                                 hit_test_buffer_[i].top,
                                 hit_test_buffer_[i].width,
                                 hit_test_buffer_[i].height
-                            });
+                                });
                         }
                     }
                 }

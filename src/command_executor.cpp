@@ -12,7 +12,7 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         last_color_ = color;
     }
     else if (color.r != last_color_.r || color.g != last_color_.g ||
-             color.b != last_color_.b || color.a != last_color_.a) {
+        color.b != last_color_.b || color.a != last_color_.a) {
         brush_->SetColor(color);
         last_color_ = color;
     }

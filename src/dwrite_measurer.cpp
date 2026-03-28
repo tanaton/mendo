@@ -139,7 +139,8 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
                 h *= max_width / w;
             }
             entry.height = h;
-        } else if (entry.height <= 0) {
+        }
+        else if (entry.height <= 0) {
             entry.height = std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
         }
         entry.layout_dirty = false;
@@ -317,7 +318,8 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
             }
         }
         FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
-    } else {
+    }
+    else {
         entry.cell_layouts.resize(node.table_rows.size());
         for (size_t r = 0; r < node.table_rows.size(); r++) {
             entry.cell_layouts[r].resize(node.table_rows[r].cells.size());

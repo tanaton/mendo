@@ -583,7 +583,8 @@ int App::ApplyCachedImages()
             layout_cache_[i].height = h;
             layout_cache_[i].layout_dirty = false;
             ++applied;
-        } else {
+        }
+        else {
             image_loader_.RequestLoadAsync(abs_str,
                 [](void* ctx) { static_cast<App*>(ctx)->OnImageLoadComplete(); },
                 this);

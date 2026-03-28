@@ -631,7 +631,8 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                     if (ch >= L'A' && ch <= L'Z') {
                         has_upper = true;
                         ci_buf += static_cast<wchar_t>(ch - L'A' + L'a');
-                    } else {
+                    }
+                    else {
                         ci_buf += ch;
                     }
                 }

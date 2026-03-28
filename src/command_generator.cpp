@@ -540,7 +540,8 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
                     D2D1::Point2F(bar_x, group_bottom + BAR_EXTEND),
                     theme_->alert_color[idx], theme_->blockquote_bar_width });
             }
-        } else {
+        }
+        else {
             cmds.push_back(DrawLineCmd{
                 D2D1::Point2F(bar_x, group_top - BAR_EXTEND),
                 D2D1::Point2F(bar_x, group_bottom + BAR_EXTEND),
