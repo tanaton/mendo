@@ -63,7 +63,7 @@ public:
 
     // ボタン押下なしのマウスホバー処理
     void OnMouseHover(int px, int py);
-    void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
+    void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const ::PaneLayout& layout);
 
     // マウスXボタンによるナビゲーション
     void OnXButtonBack();
@@ -82,6 +82,8 @@ public:
     // WM_SETCURSOR用のカーソル状態
     bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
 
+    // スクロールバー判定（外部用: PaneLayoutを内部で計算）
+
     // ウィンドウ全体の再描画を要求する
     void Invalidate() noexcept { InvalidateRect(hwnd_, nullptr, FALSE); }
 
@@ -92,6 +94,7 @@ public:
     float GetTitleBarHeightDip() const noexcept { return titlebar_.GetHeight(); }
     TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const { return titlebar_.HitTest(dip_x, dip_y); }
     bool IsOverMdScrollbar(float dip_x, float dip_y) const;
+    bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const;
     void OnActivate(bool active);
 
 private:
@@ -168,6 +171,7 @@ private:
     float GetMarkdownPaneWidth() const;
 
     void RequestMermaidRenders();
+    void OnMermaidRenderComplete();
 
     // OnPaint用のレンダーステート構築ヘルパー
     GestureRenderState BuildGestureRenderState() const;
@@ -227,7 +231,7 @@ private:
     // カスタムタイトルバー
     TitleBar titlebar_;
     bool window_active_ = true;
-    std::wstring cached_title_text_ = L"mendo";
+    std::pmr::wstring cached_title_text_ = L"mendo";
 
     // 3ペイン状態
     FileExplorer file_explorer_;

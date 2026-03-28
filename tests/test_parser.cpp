@@ -128,8 +128,8 @@ TEST(Parser, ExternalLink) {
     auto nodes = ParseMarkdown("[text](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
-    ASSERT_TRUE(nodes[0].runs[0].link_url.has_value());
-    EXPECT_EQ(nodes[0].runs[0].link_url.value(), L"https://example.com");
+    ASSERT_TRUE(nodes[0].runs[0].has_link());
+    EXPECT_EQ(nodes[0].link_urls[nodes[0].runs[0].link_url_index], L"https://example.com");
     EXPECT_EQ(nodes[0].text, L"text");
 }
 
@@ -137,15 +137,15 @@ TEST(Parser, InternalLink) {
     auto nodes = ParseMarkdown("[section](#my-section)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
-    ASSERT_TRUE(nodes[0].runs[0].link_url.has_value());
-    EXPECT_EQ(nodes[0].runs[0].link_url.value(), L"#my-section");
+    ASSERT_TRUE(nodes[0].runs[0].has_link());
+    EXPECT_EQ(nodes[0].link_urls[nodes[0].runs[0].link_url_index], L"#my-section");
 }
 
 TEST(Parser, ParagraphWithNoLink) {
     auto nodes = ParseMarkdown("plain text");
     ASSERT_EQ(nodes.size(), 1u);
     for (const auto& run : nodes[0].runs) {
-        EXPECT_FALSE(run.link_url.has_value());
+        EXPECT_FALSE(run.has_link());
     }
 }
 
@@ -591,8 +591,8 @@ TEST(Parser, TableCellWithLink) {
     // リンクセルはランにlink_urlを持つべき
     bool found_link = false;
     for (const auto& run : data_row.cells[1].runs) {
-        if (run.link_url.has_value()) {
-            EXPECT_EQ(*run.link_url, L"https://example.com");
+        if (run.has_link()) {
+            EXPECT_EQ(nodes[0].link_urls[run.link_url_index], L"https://example.com");
             found_link = true;
         }
     }
@@ -600,7 +600,7 @@ TEST(Parser, TableCellWithLink) {
 
     // リンクでないセルはリンクを持たないべき
     for (const auto& run : data_row.cells[0].runs) {
-        EXPECT_FALSE(run.link_url.has_value());
+        EXPECT_FALSE(run.has_link());
     }
 }
 
@@ -616,8 +616,8 @@ TEST(Parser, TableCellWithInternalLink) {
 
     bool found = false;
     for (const auto& run : cell.runs) {
-        if (run.link_url.has_value()) {
-            EXPECT_EQ(*run.link_url, L"#introduction");
+        if (run.has_link()) {
+            EXPECT_EQ(nodes[0].link_urls[run.link_url_index], L"#introduction");
             found = true;
         }
     }
@@ -636,7 +636,7 @@ TEST(Parser, TableCellWithBoldLink) {
 
     bool has_bold_link = false;
     for (const auto& run : cell.runs) {
-        if (run.bold && run.link_url.has_value()) {
+        if (run.bold && run.has_link()) {
             has_bold_link = true;
         }
     }
@@ -657,7 +657,7 @@ TEST(Parser, TableCellMixedTextAndLink) {
     bool has_link_run = false;
     bool has_plain_run = false;
     for (const auto& run : cell.runs) {
-        if (run.link_url.has_value()) has_link_run = true;
+        if (run.has_link()) has_link_run = true;
         else has_plain_run = true;
     }
     EXPECT_TRUE(has_link_run);
@@ -706,7 +706,7 @@ TEST(Parser, BoldLink) {
     ASSERT_EQ(nodes.size(), 1u);
     bool has_bold_link = false;
     for (const auto& run : nodes[0].runs) {
-        if (run.bold && run.link_url.has_value()) {
+        if (run.bold && run.has_link()) {
             has_bold_link = true;
         }
     }
@@ -798,8 +798,8 @@ TEST(Parser, LinkWithSpecialCharsInUrl) {
     ASSERT_EQ(nodes.size(), 1u);
     bool found = false;
     for (const auto& run : nodes[0].runs) {
-        if (run.link_url.has_value()) {
-            EXPECT_EQ(*run.link_url, L"https://example.com/path?q=1&r=2#frag");
+        if (run.has_link()) {
+            EXPECT_EQ(nodes[0].link_urls[run.link_url_index], L"https://example.com/path?q=1&r=2#frag");
             found = true;
         }
     }

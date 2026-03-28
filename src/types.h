@@ -1,7 +1,6 @@
 #pragma once
 #include <string>
 #include <vector>
-#include <optional>
 #include <cstdint>
 #include <memory_resource>
 #include "syntax.h"
@@ -48,7 +47,9 @@ struct TextRun {
     bool italic = false;
     bool code = false;
     bool strikethrough = false;
-    std::optional<std::pmr::wstring> link_url;
+    int16_t link_url_index = -1; // -1 = リンクなし, >= 0 = Node::link_urls へのインデックス
+
+    constexpr bool has_link() const noexcept { return link_url_index >= 0; }
 };
 
 // テキスト選択: 位置は (node_index, char_offset) のペアで表す。
@@ -106,6 +107,9 @@ struct Node {
     std::pmr::wstring anchor_id;   // 見出し用: 内部リンク向けGitHubスタイルのスラグ
     SyntaxLanguage code_language = SyntaxLanguage::None;
     std::pmr::vector<SyntaxToken> syntax_tokens;
+
+    // runs および table_rows 内の TextRun::link_url_index が参照するリンクURLプール
+    std::pmr::vector<std::pmr::wstring> link_urls;
 
     // テーブルデータ（type == Table の場合のみ使用）
     std::pmr::vector<TableRow> table_rows;

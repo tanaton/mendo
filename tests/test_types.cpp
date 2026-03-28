@@ -129,5 +129,5 @@ TEST(TextRun, DefaultState) {
     EXPECT_FALSE(run.italic);
     EXPECT_FALSE(run.code);
     EXPECT_FALSE(run.strikethrough);
-    EXPECT_FALSE(run.link_url.has_value());
+    EXPECT_FALSE(run.has_link());
 }

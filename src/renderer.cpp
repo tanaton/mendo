@@ -313,7 +313,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
                     continue;
                 }
                 for (const auto& run : row.cells[c].runs) {
-                    if (run.link_url.has_value()) {
+                    if (run.has_link()) {
                         DWRITE_TEXT_RANGE range{ run.start, run.length };
                         cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                     }
@@ -358,26 +358,31 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
 
     // リンクの下線/色を適用し、インラインコード背景の矩形をキャッシュ
     for (const auto& run : node.runs) {
-        if (run.link_url.has_value()) {
+        if (run.has_link()) {
             DWRITE_TEXT_RANGE range{ run.start, run.length };
             entry.text_layout->SetUnderline(TRUE, range);
             entry.text_layout->SetDrawingEffect(Brush(BrushId::Link), range);
         }
         if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
-            UINT32 count = 0;
-            entry.text_layout->HitTestTextRange(run.start, run.length, 0, 0, nullptr, 0, &count);
-            if (count > 0) {
+            // 既存バッファで直接取得を試み、不足時のみリサイズして再取得
+            if (hit_test_buffer_.empty()) {
+                hit_test_buffer_.resize(8);
+            }
+            UINT32 count = static_cast<UINT32>(hit_test_buffer_.size());
+            HRESULT hr = entry.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
+                hit_test_buffer_.data(), count, &count);
+            if (hr == E_NOT_SUFFICIENT_BUFFER) {
                 hit_test_buffer_.resize(count);
                 entry.text_layout->HitTestTextRange(run.start, run.length, 0, 0,
                     hit_test_buffer_.data(), count, &count);
-                for (UINT32 i = 0; i < count; i++) {
-                    entry.inline_code_bgs.push_back({
-                        hit_test_buffer_[i].left,
-                        hit_test_buffer_[i].top,
-                        hit_test_buffer_[i].width,
-                        hit_test_buffer_[i].height
-                        });
-                }
+            }
+            for (UINT32 i = 0; i < count; i++) {
+                entry.inline_code_bgs.push_back({
+                    hit_test_buffer_[i].left,
+                    hit_test_buffer_[i].top,
+                    hit_test_buffer_[i].width,
+                    hit_test_buffer_[i].height
+                    });
             }
         }
     }

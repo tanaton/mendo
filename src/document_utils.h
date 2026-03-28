@@ -4,6 +4,7 @@
 #include <string_view>
 #include <vector>
 #include <optional>
+#include <cstdint>
 #include <memory_resource>
 
 // 選択範囲に基づいてノードから選択テキストを抽出する。

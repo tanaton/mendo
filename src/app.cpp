@@ -437,7 +437,7 @@ void App::UpdateTitleBar()
     int zoom_percent = static_cast<int>(ZOOM_STEPS[viewport_.GetZoomIndex()] * 100.0f + 0.5f);
     auto title = BuildTitleString(doc_.GetFilePath(), zoom_percent);
     SetWindowTextW(hwnd_, title.c_str());
-    cached_title_text_ = std::wstring(title.begin(), title.end());
+    cached_title_text_ = std::move(title);
     Invalidate();
 }
 
@@ -499,16 +499,21 @@ void App::RequestMermaidRenders()
         }
 
         mermaid_renderer_.RequestRender(node, layout_cache_[i], diagram,
-            content_width, theme_service_.IsDarkMode(), [this]() {
-            int anchor_idx = FindFirstVisibleNode();
-            float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
-            layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-            auto layout = GetPaneLayout();
-            float md_h = layout.md_rect.height;
-            AnchorCompensateScroll(anchor_idx, anchor_y_before, md_h);
-            Invalidate();
-        });
+            content_width, theme_service_.IsDarkMode(),
+            [](void* ctx) { static_cast<App*>(ctx)->OnMermaidRenderComplete(); },
+            this);
     }
+}
+
+void App::OnMermaidRenderComplete()
+{
+    int anchor_idx = FindFirstVisibleNode();
+    float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
+    layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+    auto layout = GetPaneLayout();
+    float md_h = layout.md_rect.height;
+    AnchorCompensateScroll(anchor_idx, anchor_y_before, md_h);
+    Invalidate();
 }
 
 // ============================================================

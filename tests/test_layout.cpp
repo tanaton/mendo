@@ -203,7 +203,7 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline) {
     // セル内にリンクランが存在することを確認
     bool has_link_run = false;
     for (const auto& run : cell.runs) {
-        if (run.link_url.has_value()) {
+        if (run.has_link()) {
             has_link_run = true;
 
             // テキストレイアウトに下線が適用されていることを確認

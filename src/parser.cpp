@@ -127,8 +127,21 @@ struct ParseContext {
         run.italic = current_span.italic;
         run.code = current_span.code;
         run.strikethrough = current_span.strikethrough;
-        if (current_span.link_url_index >= 0) {
-            run.link_url = link_urls[static_cast<size_t>(current_span.link_url_index)];
+        if (current_span.link_url_index >= 0 && current_node) {
+            const auto& url = link_urls[static_cast<size_t>(current_span.link_url_index)];
+            // ノードのURLプール内で重複を検索し、なければ追加
+            int16_t node_idx = -1;
+            for (size_t i = 0; i < current_node->link_urls.size(); i++) {
+                if (current_node->link_urls[i] == url) {
+                    node_idx = static_cast<int16_t>(i);
+                    break;
+                }
+            }
+            if (node_idx < 0) {
+                node_idx = static_cast<int16_t>(current_node->link_urls.size());
+                current_node->link_urls.push_back(url);
+            }
+            run.link_url_index = node_idx;
         }
         return run;
     }

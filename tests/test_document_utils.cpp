@@ -384,13 +384,16 @@ TEST(FindLinkAtPosition, MultipleLinkRuns) {
     Node node;
     node.text = L"link1 link2";
 
+    node.link_urls.push_back(L"https://a.com");
+    node.link_urls.push_back(L"https://b.com");
+
     TextRun r1;
     r1.start = 0; r1.length = 5;
-    r1.link_url = L"https://a.com";
+    r1.link_url_index = 0;
 
     TextRun r2;
     r2.start = 6; r2.length = 5;
-    r2.link_url = L"https://b.com";
+    r2.link_url_index = 1;
 
     node.runs = {r1, r2};
 
@@ -437,7 +440,8 @@ TEST(FindLinkAtPosition, TableCellLinkFound) {
 
     TableCell d1; d1.text = L"bar";
     TextRun d1r; d1r.start = 0; d1r.length = 3;
-    d1r.link_url = L"https://example.com";
+    d1r.link_url_index = static_cast<int16_t>(node.link_urls.size());
+    node.link_urls.push_back(L"https://example.com");
     d1.runs.push_back(d1r);
     data.cells.push_back(d1);
     node.table_rows.push_back(data);
@@ -477,8 +481,8 @@ TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown) {
     ASSERT_GE(data_row.cells.size(), 2u);
     bool has_link = false;
     for (const auto& run : data_row.cells[1].runs) {
-        if (run.link_url.has_value()) {
-            EXPECT_EQ(*run.link_url, L"https://example.com");
+        if (run.has_link()) {
+            EXPECT_EQ(nodes[0].link_urls[run.link_url_index], L"https://example.com");
             has_link = true;
         }
     }
@@ -492,7 +496,8 @@ TEST(FindLinkAtPosition, TableCellInternalLink) {
     TableRow row;
     TableCell cell; cell.text = L"section";
     TextRun r; r.start = 0; r.length = 7;
-    r.link_url = L"#my-section";
+    r.link_url_index = static_cast<int16_t>(node.link_urls.size());
+    node.link_urls.push_back(L"#my-section");
     cell.runs.push_back(r);
     row.cells.push_back(cell);
     node.table_rows.push_back(row);
@@ -517,7 +522,8 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator) {
 
     TableCell c1; c1.text = L"B";
     TextRun r1; r1.start = 0; r1.length = 1;
-    r1.link_url = L"https://b.com";
+    r1.link_url_index = static_cast<int16_t>(node.link_urls.size());
+    node.link_urls.push_back(L"https://b.com");
     c1.runs.push_back(r1);
     row.cells.push_back(c1);
     node.table_rows.push_back(row);

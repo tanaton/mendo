@@ -39,12 +39,13 @@ std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
 }
 
 static std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>& runs,
+    const std::pmr::vector<std::pmr::wstring>& link_urls,
     uint32_t pos)
 {
     for (const auto& run : runs) {
-        if (run.link_url.has_value() &&
+        if (run.has_link() &&
             pos >= run.start && pos < run.start + run.length) {
-            return run.link_url;
+            return link_urls[static_cast<size_t>(run.link_url_index)];
         }
     }
     return std::nullopt;
@@ -76,9 +77,9 @@ std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t t
     if (node.type == NodeType::Table) {
         uint32_t local_pos = 0;
         auto* runs = FindTableCellRuns(node, text_pos, local_pos);
-        return runs ? FindLinkInRuns(*runs, local_pos) : std::nullopt;
+        return runs ? FindLinkInRuns(*runs, node.link_urls, local_pos) : std::nullopt;
     }
-    return FindLinkInRuns(node.runs, text_pos);
+    return FindLinkInRuns(node.runs, node.link_urls, text_pos);
 }
 
 std::pmr::wstring ToLowerAscii(std::wstring_view text)

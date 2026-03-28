@@ -604,7 +604,7 @@ void App::OnMouseHover(int px, int py)
 void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
 {
     // スクロールバー領域では矢印カーソル
-    if (IsOverMdScrollbar(dip_x, dip_y)) {
+    if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
         SetCursor(cursor_arrow_);
         return;
     }
@@ -733,12 +733,11 @@ void App::CopyCodeBlockToClipboard(int node_index) const
     SetClipboardText(nodes[node_index].text);
 }
 
-bool App::IsOverMdScrollbar(float dip_x, float dip_y) const
+bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const
 {
     if (!layout_service_) {
         return false;
     }
-    auto layout = GetPaneLayout();
     float total_h = layout_service_->GetTotalHeight();
     float viewport_h = layout.md_rect.height;
     if (total_h <= viewport_h || viewport_h <= 0.0f) {
@@ -751,4 +750,9 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y) const
     float sb_left = md_right - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
     float sb_right = md_right - PANE_SCROLLBAR_MARGIN;
     return dip_x >= sb_left - PANE_SCROLLBAR_HIT_PADDING && dip_x <= sb_right;
+}
+
+bool App::IsOverMdScrollbar(float dip_x, float dip_y) const
+{
+    return IsOverMdScrollbar(dip_x, dip_y, GetPaneLayout());
 }

@@ -125,9 +125,9 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
 )HTML";
 
 // ヘルパー: 指定されたバイトデータのコピーを含むIStreamを作成する。
-static IStream* CreateMemoryStream(const void* data, size_t size)
+static ComPtr<IStream> CreateMemoryStream(const void* data, size_t size)
 {
-    IStream* stream = nullptr;
+    ComPtr<IStream> stream;
     if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream) {
         return nullptr;
     }
@@ -351,7 +351,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                     return S_OK;
                 }
 
-                IStream* stream = nullptr;
+                ComPtr<IStream> stream;
                 const wchar_t* headers = nullptr;
 
                 if (url.find(L"/mermaid.min.js.gz") != std::pmr::wstring::npos) {
@@ -372,9 +372,8 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
                 if (stream && headers) {
                     ComPtr<ICoreWebView2WebResourceResponse> response;
                     webview_env_->CreateWebResourceResponse(
-                        stream, 200, L"OK", headers, &response);
+                        stream.Get(), 200, L"OK", headers, &response);
                     args->put_Response(response.Get());
-                    stream->Release();
                 }
                 return S_OK;
             }).Get(),
@@ -422,18 +421,13 @@ void MermaidRenderer::ClearPendingQueue() noexcept
 
 std::pmr::wstring MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const
 {
-    std::pmr::wstring key{ code };
-    key += L"|";
-    key += std::to_wstring(static_cast<int>(max_width));
-    key += L"|";
-    key += (dark_mode ? L"d" : L"l");
-    return mermaid_util::SimpleHash(key);
+    return mermaid_util::CombinedHash(code, static_cast<int>(max_width), dark_mode);
 }
 
 void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode,
-    std::function<void()> on_complete)
+    Callback on_complete, void* user_data)
 {
     if (node.code_language != SyntaxLanguage::Mermaid) {
         return;
@@ -450,7 +444,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         layout_entry.height = it->second.height;
         layout_entry.layout_dirty = false;
         if (on_complete) {
-            on_complete();
+            on_complete(user_data);
         }
         return;
     }
@@ -462,7 +456,8 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     req.diagram_entry = &diagram_entry;
     req.max_width = max_width;
     req.dark_mode = dark_mode;
-    req.on_complete = std::move(on_complete);
+    req.on_complete = on_complete;
+    req.on_complete_data = user_data;
     req.code_hash = std::move(hash);
     pending_requests_.push(std::move(req));
 
@@ -490,10 +485,11 @@ void MermaidRenderer::ProcessQueue()
 void MermaidRenderer::FinishCurrentRequest()
 {
     rendering_ = false;
-    auto cb = std::move(current_request_.on_complete);
+    auto cb = current_request_.on_complete;
+    auto cb_data = current_request_.on_complete_data;
     current_request_ = {};
     if (cb) {
-        cb();
+        cb(cb_data);
     }
     ProcessQueue();
 }
@@ -611,37 +607,27 @@ void MermaidRenderer::DoCapturePreview()
     // CapturePreviewコールバックでもリクエストIDを照合し、
     // CancelPending後に到着した古いキャプチャ結果を無視する
     unsigned int req_id = current_request_.request_id;
-    IStream* pngStream = nullptr;
+    ComPtr<IStream> pngStream;
     CreateStreamOnHGlobal(nullptr, TRUE, &pngStream);
 
     HRESULT hr = webview_->CapturePreview(
         COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
-        pngStream,
+        pngStream.Get(),
         Microsoft::WRL::Callback<ICoreWebView2CapturePreviewCompletedHandler>(
             [this, pngStream, req_id](HRESULT hr3) -> HRESULT {
         if (current_request_.request_id != req_id) {
-            // CancelPending後に到着した古いコールバック
-            if (pngStream) {
-                pngStream->Release();
-            }
             return S_OK;
         }
         if (SUCCEEDED(hr3) && pngStream) {
-            OnCaptureComplete(current_request_.code_hash, pngStream);
+            OnCaptureComplete(current_request_.code_hash, pngStream.Get());
         }
         else {
             FinishCurrentRequest();
-        }
-        if (pngStream) {
-            pngStream->Release();
         }
         return S_OK;
     }).Get());
 
     if (FAILED(hr)) {
-        if (pngStream) {
-            pngStream->Release();
-        }
         FinishCurrentRequest();
     }
 }

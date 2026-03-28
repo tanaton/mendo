@@ -36,12 +36,15 @@ public:
     // WebView2が初期化済みでレンダリング可能な場合にtrueを返す。
     constexpr bool IsReady() const noexcept { return ready_; }
 
+    // コールバック型: ヒープ割り当てを回避するために関数ポインタ+コンテキストを使用
+    using Callback = void(*)(void*);
+
     // Mermaidコードブロックのレンダリングを要求する。
     // 完了時、ダイアグラムエントリのbitmap/width/heightとレイアウトエントリの
     // height/layout_dirtyが設定され、on_completeがUIスレッドで呼び出される。
     void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry,
         float max_width, bool dark_mode,
-        std::function<void()> on_complete);
+        Callback on_complete, void* user_data);
 
     // D2Dレンダーターゲットを更新する（例：リサイズ後）。
     void SetRenderTarget(ID2D1RenderTarget* render_target);
@@ -87,7 +90,8 @@ private:
         DiagramEntry* diagram_entry = nullptr;
         float max_width = 0.0f;
         bool dark_mode = false;
-        std::function<void()> on_complete;
+        Callback on_complete = nullptr;
+        void* on_complete_data = nullptr;
         std::pmr::wstring code_hash;
         float css_width = 0.0f;   // JSから取得したCSSピクセル寸法（DIP）
         float css_height = 0.0f;

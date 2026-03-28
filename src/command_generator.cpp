@@ -11,9 +11,10 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     float dpi_scale)
 {
     // 古いコマンドリストを破棄し、monotonic リソースをリセットして再利用する。
-    // cmds_ を先に空のリストで置き換えてから Reset() を呼ぶことで、
-    // 解放済みメモリを指す内部バッファが残らないようにする。
-    cmds_ = DrawCommandList{ frame_resource_.resource() };
+    // clear() で要素を破棄してから Reset() を呼び、新しいリストを作成する。
+    // monotonic_buffer_resource::deallocate は no-op のため、
+    // clear() 後のバッファポインタが残っていても安全。
+    cmds_.clear();
     frame_resource_.Reset();
     cmds_ = DrawCommandList{ frame_resource_.resource() };
     auto& cmds = cmds_;
@@ -470,14 +471,21 @@ void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,
     if (!layout || length == 0) {
         return;
     }
-    UINT32 count = 0;
-    layout->HitTestTextRange(start, length, 0, 0, nullptr, 0, &count);
+    // 既存バッファで直接取得を試み、不足時のみリサイズして再取得
+    if (hit_test_buffer_.empty()) {
+        hit_test_buffer_.resize(8);
+    }
+    UINT32 count = static_cast<UINT32>(hit_test_buffer_.size());
+    HRESULT hr = layout->HitTestTextRange(start, length, 0, 0,
+        hit_test_buffer_.data(), count, &count);
+    if (hr == E_NOT_SUFFICIENT_BUFFER) {
+        hit_test_buffer_.resize(count);
+        layout->HitTestTextRange(start, length, 0, 0,
+            hit_test_buffer_.data(), count, &count);
+    }
     if (count == 0) {
         return;
     }
-
-    hit_test_buffer_.resize(count);
-    layout->HitTestTextRange(start, length, 0, 0, hit_test_buffer_.data(), count, &count);
     for (UINT32 i = 0; i < count; i++) {
         cmds.push_back(FillRectCmd{
             D2D1::RectF(

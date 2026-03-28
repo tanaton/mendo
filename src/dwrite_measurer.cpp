@@ -96,7 +96,7 @@ void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
         if (run.strikethrough) {
             layout->SetStrikethrough(TRUE, range);
         }
-        if (run.link_url.has_value()) {
+        if (run.has_link()) {
             layout->SetUnderline(TRUE, range);
         }
     }
@@ -243,7 +243,9 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         total_height += row_height + border_width;
     }
 
-    node.text = BuildLinearizedTableText(node.table_rows);
+    if (node.text.empty()) {
+        node.text = BuildLinearizedTableText(node.table_rows);
+    }
     entry.height = total_height;
     entry.layout_dirty = false;
 }
