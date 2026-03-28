@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <cwctype>
 #include <filesystem>
+#include <format>
+#include <iterator>
 
 std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
     const TextSelection& selection)
@@ -178,7 +180,7 @@ std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
         title = filename.empty() ? L"mendo" : filename + L" - mendo";
     }
     if (zoom_percent > 0 && zoom_percent != 100) {
-        title += L" (" + std::to_wstring(zoom_percent) + L"%)";
+        std::format_to(std::back_inserter(title), L" ({}%)", zoom_percent);
     }
     return title;
 }

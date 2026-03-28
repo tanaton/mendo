@@ -1,6 +1,7 @@
 #include "command_generator.h"
 #include "ui_constants.h"
 #include <algorithm>
+#include <format>
 
 const DrawCommandList& CommandGenerator::GenerateMdPane(
     const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
@@ -401,16 +402,14 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
         // 順序付きリストの番号
         if (formats_.list_number) {
             wchar_t num_buf[DrawTextCmd::MAX_TEXT];
-            int num_len = swprintf_s(num_buf, L"%d.", node.list_number);
-            if (num_len < 0) {
-                num_len = 0;
-            }
+            auto fmt_result = std::format_to_n(num_buf, DrawTextCmd::MAX_TEXT, L"{}.", node.list_number);
+            size_t num_len = std::min(static_cast<size_t>(fmt_result.size), static_cast<size_t>(DrawTextCmd::MAX_TEXT));
             D2D1_RECT_F num_rect = D2D1::RectF(
                 x - theme_->list_bullet_offset - 8.0f,
                 entry.y_position,
                 x - 4.0f,
                 entry.y_position + theme_->font_size_body * 1.5f);
-            cmds.push_back(DrawTextCmd::Make(num_buf, static_cast<size_t>(num_len), num_rect, formats_.list_number, theme_->text_color));
+            cmds.push_back(DrawTextCmd::Make(num_buf, num_len, num_rect, formats_.list_number, theme_->text_color));
         }
     }
     else {

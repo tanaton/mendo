@@ -1,5 +1,6 @@
 #include "mermaid.h"
 #include "mermaid_util.h"
+#include "utility.h"
 #include "resource.h"
 #include <shlwapi.h>
 #include <shlobj.h>
@@ -516,14 +517,12 @@ void MermaidRenderer::RenderMermaidInWebView(std::wstring_view code, float max_w
 
     // Mermaidをレンダリングする（maxWidth=0はCSS制約なし、ビューポートが制約する）
     // リクエストIDをpostMessageに含め、C++側でコールバックとリクエストを照合する
-    auto id_str = std::to_wstring(current_request_.request_id);
-    std::pmr::wstring js = L"renderMermaid('" + mermaid_util::JsEscape(code) + L"', "
-        + (dark_mode ? L"true" : L"false") + L", 0"
-        + L").then(function(r){window.chrome.webview.postMessage('render-result:";
-    js += id_str.c_str();
-    js += L":'+r);}).catch(function(e){window.chrome.webview.postMessage('render-error:";
-    js += id_str.c_str();
-    js += L":'+String(e));})";
+    auto js = PmrFormat(
+        L"renderMermaid('{}', {}, 0)"
+        L".then(function(r){{window.chrome.webview.postMessage('render-result:{}:'+r);}})"
+        L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
+        mermaid_util::JsEscape(code), dark_mode ? L"true" : L"false",
+        current_request_.request_id, current_request_.request_id);
 
     webview_->ExecuteScript(js.c_str(), nullptr);
 }
@@ -588,12 +587,10 @@ void MermaidRenderer::OnMermaidRenderResult(std::wstring_view json)
     // rAFを使ってWebViewが新しいサイズで再レンダリングするのを待ち、
     // postMessageでシグナルを送る（Promise-awaitの問題を回避する）。
     // リクエストIDを含めて、C++側でコールバックとリクエストを照合する。
-    auto id_str = std::to_wstring(current_request_.request_id);
-    std::pmr::wstring cap_js =
-        L"requestAnimationFrame(function(){requestAnimationFrame(function(){"
-        L"window.chrome.webview.postMessage('capture-ready:";
-    cap_js += id_str.c_str();
-    cap_js += L"');});})";
+    auto cap_js = PmrFormat(
+        L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
+        L"window.chrome.webview.postMessage('capture-ready:{}');}});}});",
+        current_request_.request_id);
     webview_->ExecuteScript(cap_js.c_str(), nullptr);
 }
 

@@ -43,11 +43,13 @@ public:
 
     // 既存のエントリをすべてクリアし、デフォルト値でリサイズする。
     // ファイル切り替え時に古いレイアウトデータを残さないために使用する。
-    constexpr void Reset(size_t node_count)
+    void Reset(size_t node_count)
     {
         entries_.clear();
+        entries_.shrink_to_fit();
         entries_.resize(node_count);
         diagrams_.clear();
+        diagrams_.shrink_to_fit();
         diagrams_.resize(node_count);
     }
 

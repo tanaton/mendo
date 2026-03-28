@@ -5,6 +5,8 @@
 #include <stack>
 #include <unordered_map>
 #include <charconv>
+#include <format>
+#include <iterator>
 #include <windows.h>
 
 std::pmr::wstring GenerateAnchorId(std::wstring_view text)
@@ -365,8 +367,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             int count = (it != ctx->anchor_counts.end()) ? it->second : 0;
             if (count > 0) {
                 ctx->current_node->anchor_id = base_id;
-                ctx->current_node->anchor_id += L"-";
-                ctx->current_node->anchor_id += std::to_wstring(count);
+                std::format_to(std::back_inserter(ctx->current_node->anchor_id), L"-{}", count);
             }
             else {
                 ctx->current_node->anchor_id = base_id;
