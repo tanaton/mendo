@@ -11,7 +11,9 @@ bool DocumentService::LoadFile(std::wstring_view path, Document& doc) {
 }
 
 bool DocumentService::ReloadFile(Document& doc) {
-    if (doc.GetFilePath().empty()) return false;
+    if (doc.GetFilePath().empty()) {
+        return false;
+    }
     doc.ReplaceFromMarkdown(FileLoader::LoadFile(doc.GetFilePath()));
     return true;
 }

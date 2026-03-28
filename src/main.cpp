@@ -14,8 +14,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     // COM を初期化
     HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    if (FAILED(hr)) return 1;
-
+    if (FAILED(hr)) {
+        return 1;
+    }
     // コモンコントロールを初期化
     INITCOMMONCONTROLSEX icc{};
     icc.dwSize = sizeof(icc);
@@ -39,7 +40,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     if (!initial_path.empty()) {
         window.LoadMarkdownFile(initial_path);
-    } else {
+    }
+    else {
         std::pmr::wstring last = window.LoadLastFilePath();
         if (!last.empty()) {
             window.LoadMarkdownFile(last);

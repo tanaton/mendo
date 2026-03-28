@@ -261,7 +261,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb) {
 
     // アイコンボタン描画ヘルパー
     auto drawButton = [&](const D2D1_RECT_F& rect, const wchar_t* icon,
-                          bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
+        bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
         if (show_bg) {
             rt()->FillRectangle(rect, Brush(bg_id));
         }
@@ -301,7 +301,8 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb) {
         drawButton(tb.close_btn_rect, L"\uE8BB",
             true, BrushId::TitleBarCloseRed,
             BrushId::TitleBarCloseWhite, 1.0f);
-    } else {
+    }
+    else {
         drawButton(tb.close_btn_rect, L"\uE8BB",
             false, BrushId::TitleBarButtonHover,
             BrushId::TitleBarText, text_alpha);

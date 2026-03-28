@@ -199,7 +199,8 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
         if (HitPaneHeaderButton(dip_x, dip_y, layout.file_rect, theme.pane_header_height, PaneCloseButtonRect)) {
             panes_.ToggleFilePane();
             RefreshPaneLayout();
-        } else if (HitPaneHeaderButton(dip_x, dip_y, layout.file_rect, theme.pane_header_height, PaneRefreshButtonRect)) {
+        }
+        else if (HitPaneHeaderButton(dip_x, dip_y, layout.file_rect, theme.pane_header_height, PaneRefreshButtonRect)) {
             RefreshFilePane();
         }
         return;
@@ -278,7 +279,8 @@ void App::OnLButtonDown(int px, int py) {
         if (tb_zone == TitleBarHitZone::FileToggle || tb_zone == TitleBarHitZone::TocToggle) {
             if (tb_zone == TitleBarHitZone::FileToggle) {
                 panes_.ToggleFilePane();
-            } else {
+            }
+            else {
                 panes_.ToggleTocPane();
             }
             RefreshPaneLayout();
@@ -356,7 +358,8 @@ void App::OnLButtonDown(int px, int py) {
                     float thumb_y = ComputeThumbY(info, viewport_.GetScrollY());
                     if (dip.y >= thumb_y && dip.y <= thumb_y + info.thumb_height) {
                         panes_.SetDragScrollOffset(dip.y - thumb_y);
-                    } else {
+                    }
+                    else {
                         panes_.SetDragScrollOffset(info.thumb_height * 0.5f);
                         float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
                         viewport_.ScrollTo(ScrollFromThumbY(info, new_thumb_y));

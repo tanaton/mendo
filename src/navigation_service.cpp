@@ -24,18 +24,19 @@ static bool IsSafeUrlScheme(std::wstring_view url) noexcept {
 NavigationService::NavigateResult NavigationService::HandleLinkClick(
     std::wstring_view url, [[maybe_unused]] std::wstring_view current_file) {
     NavigateResult result;
-    if (url.empty()) return result;
-
+    if (url.empty()) {
+        return result;
+    }
     // 内部アンカーリンク: #something
     if (url[0] == L'#') {
         result.type = NavigateResult::Type::Anchor;
         result.target = url.substr(1);
         return result;
     }
-
     // 安全なスキームの外部リンクのみ許可
-    if (!IsSafeUrlScheme(url)) return result;
-
+    if (!IsSafeUrlScheme(url)) {
+        return result;
+    }
     result.type = NavigateResult::Type::ExternalUrl;
     result.target = url;
     return result;

@@ -127,7 +127,9 @@ void AssertTokensCoverText(const std::pmr::vector<SyntaxToken>& tokens, size_t t
 // ヘルパー: 指定された種類の最初のトークンを検索
 const SyntaxToken* FindToken(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type) {
     for (const auto& t : tokens) {
-        if (t.type == type) return &t;
+        if (t.type == type) {
+            return &t;
+        }
     }
     return nullptr;
 }

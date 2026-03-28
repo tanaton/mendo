@@ -14,14 +14,16 @@ bool D2DRenderBackend::Init(HWND hwnd) {
 
     // D2Dファクトリを作成
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_factory_.GetAddressOf());
-    if (FAILED(hr)) return false;
-
+    if (FAILED(hr)) {
+        return false;
+    }
     // DirectWriteファクトリを作成
     hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
         __uuidof(IDWriteFactory),
         reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
-    if (FAILED(hr)) return false;
-
+    if (FAILED(hr)) {
+        return false;
+    }
     // 正しい初期DPIでレンダーターゲットを作成
     RECT rc;
     GetClientRect(hwnd, &rc);
@@ -35,8 +37,9 @@ bool D2DRenderBackend::Init(HWND hwnd) {
     hwndProps.presentOptions = D2D1_PRESENT_OPTIONS_NONE;
 
     hr = d2d_factory_->CreateHwndRenderTarget(rtProps, hwndProps, &render_target_);
-    if (FAILED(hr)) return false;
-
+    if (FAILED(hr)) {
+        return false;
+    }
     return true;
 }
 

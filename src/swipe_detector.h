@@ -34,7 +34,8 @@ public:
         SwipeResult result = SwipeResult::None;
         if (accumulated_delta_ >= TRIGGER_THRESHOLD) {
             result = SwipeResult::Back;
-        } else if (accumulated_delta_ <= -TRIGGER_THRESHOLD) {
+        }
+        else if (accumulated_delta_ <= -TRIGGER_THRESHOLD) {
             result = SwipeResult::Forward;
         }
         accumulated_delta_ = 0;
@@ -66,8 +67,12 @@ public:
     // オーバーレイの方向。 -1=戻る（右スワイプ）, 1=進む（左スワイプ）, 0=なし。
     // GestureRenderState::direction と同じ符号規約。
     constexpr int GetOverlayDirection() const noexcept {
-        if (accumulated_delta_ >= TRIGGER_THRESHOLD)  return -1;  // 右スワイプ → 戻る
-        if (accumulated_delta_ <= -TRIGGER_THRESHOLD) return  1;  // 左スワイプ → 進む
+        if (accumulated_delta_ >= TRIGGER_THRESHOLD) {
+            return -1;  // 右スワイプ → 戻る
+        }
+        if (accumulated_delta_ <= -TRIGGER_THRESHOLD) {
+            return  1;  // 左スワイプ → 進む
+        }
         return 0;
     }
 

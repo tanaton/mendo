@@ -96,9 +96,9 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam) {
         if (IsZoomed(hwnd_)) {
             UINT dpi = GetDpiForWindow(hwnd_);
             int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
-                        + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+                + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
             int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
-                        + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+                + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
             params->rgrc[0].top += frame_y;
             params->rgrc[0].left += frame_x;
             params->rgrc[0].right -= frame_x;
@@ -120,22 +120,32 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam) {
         int border = MulDiv(4, dpi, 96);
         // 上端はタイトルバーがないため標準のフレーム厚を使う
         int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
-                    + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+            + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 
         RECT rc;
         GetClientRect(hwnd_, &rc);
 
         if (pt.y < frame_y) {
-            if (pt.x < border) return HTTOPLEFT;
-            if (pt.x >= rc.right - border) return HTTOPRIGHT;
+            if (pt.x < border) {
+                return HTTOPLEFT;
+            }
+            if (pt.x >= rc.right - border) {
+                return HTTOPRIGHT;
+            }
             return HTTOP;
         }
         if (pt.y >= rc.bottom - border) {
-            if (pt.x < border) return HTBOTTOMLEFT;
-            if (pt.x >= rc.right - border) return HTBOTTOMRIGHT;
+            if (pt.x < border) {
+                return HTBOTTOMLEFT;
+            }
+            if (pt.x >= rc.right - border) {
+                return HTBOTTOMRIGHT;
+            }
             return HTBOTTOM;
         }
-        if (pt.x < border) return HTLEFT;
+        if (pt.x < border) {
+            return HTLEFT;
+        }
         if (pt.x >= rc.right - border) {
             float dpi_scale = app_.GetDpiScale();
             if (app_.IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {

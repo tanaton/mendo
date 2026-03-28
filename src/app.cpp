@@ -280,7 +280,7 @@ void App::OnPaint() {
             viewport_.GetSelection(), layout.md_rect, sp, tb,
             nav_service_.CanGoBack(), nav_service_.CanGoForward(),
             static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts
-        });
+            });
     }
 
     EndPaint(hwnd_, &ps);
@@ -598,43 +598,44 @@ void App::ExecuteActions(const ActionList& actions) {
             [this](const TogglePaneAction& a) {
                 if (a.file_pane) {
                     panes_.ToggleFilePane();
-                } else {
-                    panes_.ToggleTocPane();
                 }
-                RefreshPaneLayout();
-            },
-            [this](const ZoomAction& a) {
-                if (a.direction > 0) {
-                    ZoomIn();
-                }
-                else if (a.direction < 0) {
-                    ZoomOut();
-                }
-                else {
-                ZoomReset();
-            }
-            },
-            [this](const ReloadFileAction&) {
-                ReloadCurrentFile();
-            },
-            [this](const OpenFileAction&) {
-                auto path = FileLoader::OpenFileDialog(hwnd_);
-                if (!path.empty()) {
-                    if (!doc_.GetFilePath().empty()) {
-                        PushNavHistory();
-                    }
-                    LoadMarkdownFile(path);
-                }
-            },
-            [this](const ToggleDarkModeAction&) {
-                ToggleDarkMode();
-            },
-            [this](const NavigateBackAction&) {
-                NavigateBack();
-            },
-            [this](const NavigateForwardAction&) {
-                NavigateForward();
-            },
+ else {
+  panes_.ToggleTocPane();
+}
+RefreshPaneLayout();
+},
+[this](const ZoomAction& a) {
+    if (a.direction > 0) {
+        ZoomIn();
+    }
+    else if (a.direction < 0) {
+        ZoomOut();
+    }
+    else {
+    ZoomReset();
+}
+},
+[this](const ReloadFileAction&) {
+    ReloadCurrentFile();
+},
+[this](const OpenFileAction&) {
+    auto path = FileLoader::OpenFileDialog(hwnd_);
+    if (!path.empty()) {
+        if (!doc_.GetFilePath().empty()) {
+            PushNavHistory();
+        }
+        LoadMarkdownFile(path);
+    }
+},
+[this](const ToggleDarkModeAction&) {
+    ToggleDarkMode();
+},
+[this](const NavigateBackAction&) {
+    NavigateBack();
+},
+[this](const NavigateForwardAction&) {
+    NavigateForward();
+},
             }, action);
     }
 }

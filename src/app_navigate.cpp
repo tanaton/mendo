@@ -8,8 +8,9 @@
 // ============================================================
 
 void App::HandleLinkClick(std::wstring_view url) {
-    if (url.empty()) return;
-
+    if (url.empty()) {
+        return;
+    }
     auto result = nav_service_.HandleLinkClick(url, doc_.GetFilePath());
     switch (result.type) {
     case NavigationService::NavigateResult::Type::Anchor:
