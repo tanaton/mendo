@@ -47,6 +47,7 @@ struct OpenFileAction {};
 struct ToggleDarkModeAction {};
 struct NavigateBackAction {};
 struct NavigateForwardAction {};
+struct ShowHelpAction {};
 
 using AppAction = std::variant<
     KeyScrollAction,
@@ -61,7 +62,8 @@ using AppAction = std::variant<
     OpenFileAction,
     ToggleDarkModeAction,
     NavigateBackAction,
-    NavigateForwardAction
+    NavigateForwardAction,
+    ShowHelpAction
 >;
 
 using ActionList = std::pmr::vector<AppAction>;

@@ -48,11 +48,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
             window.LoadMarkdownFile(last);
         }
         else {
-            // 初回起動または前回ファイルが存在しない場合、カレントディレクトリを表示
+            // 初回起動または前回ファイルが存在しない場合、ヘルプを表示
             wchar_t cwd[MAX_PATH];
             if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
                 window.ShowDirectory(cwd);
             }
+            window.LoadHelpDocument();
         }
     }
 

@@ -249,6 +249,8 @@ TitleBarRenderState App::BuildTitleBarRenderState(float window_width) const
     TitleBarRenderState tb;
     tb.height = titlebar_.GetHeight();
     tb.window_width = window_width;
+    tb.help_btn_rect = titlebar_.GetHelpButton().rect;
+    tb.help_btn_hovered = titlebar_.GetHelpButton().hovered;
     tb.file_btn_rect = titlebar_.GetFileToggleButton().rect;
     tb.file_btn_hovered = titlebar_.GetFileToggleButton().hovered;
     tb.file_pane_visible = panes_.IsFilePaneVisible();
@@ -397,6 +399,39 @@ void App::OnExitSizeMove()
 // ファイル読み込み
 // ============================================================
 
+void App::LoadHelpDocument()
+{
+    if (IsHelpPath(doc_.GetFilePath())) {
+        return;
+    }
+
+    auto rc = LoadRcData(IDR_HELP_MD);
+    if (rc.empty()) {
+        return;
+    }
+
+    KillTimer(hwnd_, TIMER_LOADING_ANIM);
+    file_load_service_.StopLoading();
+    viewport_.ClearSelection();
+    mermaid_renderer_.CancelPending();
+    image_loader_.CancelPending();
+    renderer_.ShrinkBuffers();
+    doc_service_.StopWatching();
+
+    std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
+    doc_ = Document::FromMarkdown(utf8, HELP_PATH);
+    layout_cache_.Reset(doc_.GetNodes().size());
+
+    file_explorer_.SetCurrentFile(L"");
+    renderer_.InvalidateFilePaneCache();
+
+    panes_.ResetScrollStates();
+    renderer_.InvalidateTocPaneCache();
+
+    UpdateLayoutAndScroll(0.0f);
+    UpdateTitleBar();
+}
+
 void App::LoadMarkdownFile(std::wstring_view path)
 {
     std::pmr::wstring path_str{ path };
@@ -415,6 +450,12 @@ void App::LoadMarkdownFile(std::wstring_view path)
 
 void App::DoLoadMarkdownFile()
 {
+    // ヘルプ仮想パスの場合は専用ルートへ
+    if (IsHelpPath(file_load_service_.GetLoadingPath())) {
+        LoadHelpDocument();
+        return;
+    }
+
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
 
     viewport_.ClearSelection();
@@ -449,7 +490,7 @@ void App::DoLoadMarkdownFile()
 
 void App::ReloadCurrentFile()
 {
-    if (doc_.GetFilePath().empty()) {
+    if (doc_.GetFilePath().empty() || IsHelpPath(doc_.GetFilePath())) {
         return;
     }
 
@@ -797,6 +838,12 @@ RefreshPaneLayout();
 [this](const NavigateForwardAction&) {
     NavigateForward();
 },
+[this](const ShowHelpAction&) {
+    if (!doc_.GetFilePath().empty()) {
+        PushNavHistory();
+    }
+    LoadHelpDocument();
+},
             }, action);
     }
 }
@@ -895,7 +942,7 @@ void App::OnDestroy()
 
 void App::SaveLastFilePath()
 {
-    if (doc_.GetFilePath().empty()) {
+    if (doc_.GetFilePath().empty() || IsHelpPath(doc_.GetFilePath())) {
         return;
     }
     config_.SaveWString(L"last_file.txt", doc_.GetFilePath());

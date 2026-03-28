@@ -289,6 +289,13 @@ void App::OnLButtonDown(int px, int py)
     // タイトルバーボタンのクリック処理
     if (dip.y < titlebar_.GetHeight()) {
         auto tb_zone = titlebar_.HitTest(dip.x, dip.y);
+        if (tb_zone == TitleBarHitZone::Help) {
+            if (!doc_.GetFilePath().empty()) {
+                PushNavHistory();
+            }
+            LoadHelpDocument();
+            return;
+        }
         if (tb_zone == TitleBarHitZone::FileToggle || tb_zone == TitleBarHitZone::TocToggle) {
             if (tb_zone == TitleBarHitZone::FileToggle) {
                 panes_.ToggleFilePane();

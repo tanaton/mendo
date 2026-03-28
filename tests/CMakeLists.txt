@@ -33,6 +33,7 @@ add_executable(mendo_tests
     test_toast_notifier.cpp
     test_context_menu.cpp
     test_image.cpp
+    test_help.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

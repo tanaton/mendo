@@ -282,6 +282,11 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         }
     };
 
+    // ヘルプボタン
+    drawButton(tb.help_btn_rect, L"\uE897",
+        tb.help_btn_hovered, BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
+
     // ペイン切替ボタン（active > hover の優先度）
     drawButton(tb.file_btn_rect, L"\uE8B7",
         tb.file_pane_visible || tb.file_btn_hovered,

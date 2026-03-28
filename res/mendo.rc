@@ -37,3 +37,6 @@ END
 
 // Embedded mermaid.js (gzip compressed) for offline rendering
 IDR_MERMAID_JS_GZ RCDATA "..\\third_party\\mermaid\\mermaid.min.js.gz"
+
+// Embedded help document (UTF-8 Markdown)
+IDR_HELP_MD RCDATA "help.md"

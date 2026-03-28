@@ -6,6 +6,7 @@
 enum class TitleBarHitZone {
     None,        // タイトルバー外
     Caption,     // ドラッグ可能領域
+    Help,        // ヘルプボタン
     FileToggle,  // ファイルペイン切替ボタン
     TocToggle,   // 目次ペイン切替ボタン
     Minimize,    // 最小化ボタン
@@ -50,15 +51,17 @@ public:
         toc_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
         right -= BUTTON_WIDTH;
         file_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
+        right -= BUTTON_WIDTH;
+        help_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
 
         // アイコン位置（タイトルバー左端、垂直中央）
         float icon_top = (BASE_HEIGHT - ICON_SIZE) / 2.0f;
         icon_rect_ = D2D1::RectF(ICON_LEFT_MARGIN, icon_top,
             ICON_LEFT_MARGIN + ICON_SIZE, icon_top + ICON_SIZE);
 
-        // タイトルテキスト領域（アイコンの右からペインボタンの左まで）
+        // タイトルテキスト領域（アイコンの右からヘルプボタンの左まで）
         float title_left = ICON_LEFT_MARGIN + ICON_SIZE + ICON_RIGHT_GAP;
-        float title_right = file_toggle_.rect.left;
+        float title_right = help_.rect.left;
         title_text_rect_ = D2D1::RectF(title_left, 0.0f, (title_right > title_left) ? title_right : title_left, BASE_HEIGHT);
     }
 
@@ -83,6 +86,9 @@ public:
         if (PointInRect(dip_x, dip_y, toc_toggle_.rect)) {
             return TitleBarHitZone::TocToggle;
         }
+        if (PointInRect(dip_x, dip_y, help_.rect)) {
+            return TitleBarHitZone::Help;
+        }
         return TitleBarHitZone::Caption;
     }
 
@@ -93,6 +99,7 @@ public:
             return false;
         }
         hovered_ = zone;
+        help_.hovered = (zone == TitleBarHitZone::Help);
         file_toggle_.hovered = (zone == TitleBarHitZone::FileToggle);
         toc_toggle_.hovered = (zone == TitleBarHitZone::TocToggle);
         minimize_.hovered = (zone == TitleBarHitZone::Minimize);
@@ -102,6 +109,7 @@ public:
     }
 
     constexpr TitleBarHitZone GetHovered() const noexcept { return hovered_; }
+    constexpr const TitleBarButton& GetHelpButton() const noexcept { return help_; }
     constexpr const TitleBarButton& GetFileToggleButton() const noexcept { return file_toggle_; }
     constexpr const TitleBarButton& GetTocToggleButton() const noexcept { return toc_toggle_; }
     constexpr const TitleBarButton& GetMinimizeButton() const noexcept { return minimize_; }
@@ -111,6 +119,7 @@ public:
     constexpr const D2D1_RECT_F& GetTitleTextRect() const noexcept { return title_text_rect_; }
 
 private:
+    TitleBarButton help_;
     TitleBarButton file_toggle_;
     TitleBarButton toc_toggle_;
     TitleBarButton minimize_;
