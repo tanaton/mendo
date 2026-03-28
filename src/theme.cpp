@@ -72,7 +72,7 @@ static void ApplyCommonLayout(Theme& t)
 
     t.margin_left = 40.0f;
     t.margin_right = 40.0f;
-    t.margin_top = 20.0f;
+    t.margin_top = 40.0f;
     t.paragraph_spacing = 12.0f;
     t.list_item_spacing = 6.0f;
     t.heading_spacing_above = 12.0f;
