@@ -417,7 +417,7 @@ void App::OnLButtonDown(int px, int py)
         viewport_.SetAnchor(hit.node_index, hit.text_pos);
         viewport_.SetDragging(true);
         viewport_.GetSelectionMut().Clear();
-        Invalidate();
+        InvalidateMdPane(pane_layout.md_rect);
     }
 }
 
@@ -454,7 +454,8 @@ void App::OnLButtonUp(int px, int py)
             }
         }
 
-        Invalidate();
+        auto layout = GetPaneLayout();
+        InvalidateMdPane(layout.md_rect);
     }
 }
 
@@ -520,7 +521,8 @@ void App::OnMouseMove(int px, int py)
     if (hit.node_index >= 0) {
         viewport_.SetSelection(TextSelection::MakeOrdered(
             viewport_.GetAnchorNode(), viewport_.GetAnchorPos(), hit.node_index, hit.text_pos));
-        Invalidate();
+        auto layout = GetPaneLayout();
+        InvalidateMdPane(layout.md_rect);
     }
 }
 
@@ -637,12 +639,12 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         hovered_copy_node_ = -1;
         SetCursor(cursor_hand_);
         if (nav_hit != old_nav_hover) {
-            Invalidate();
+            InvalidateMdPane(pane_layout.md_rect);
         }
         return;
     }
     if (old_nav_hover != NavButtonHover::None) {
-        Invalidate();
+        InvalidateMdPane(pane_layout.md_rect);
     }
 
     // コピーボタンのホバー判定（距離スロットリングで不要な再計算を回避）
@@ -660,7 +662,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
                 content_width, pane_layout.md_rect.height,
                 cached_dpi_scale_, px, py);
             if (hovered_copy_node_ != old_copy_hover) {
-                Invalidate();
+                InvalidateMdPane(pane_layout.md_rect);
             }
         }
     }
@@ -700,7 +702,8 @@ void App::OnLButtonDblClk(int px, int py)
     viewport_.SetAnchor(hit.node_index, wb.start);
     viewport_.SetSelection(TextSelection::MakeOrdered(
         hit.node_index, wb.start, hit.node_index, wb.end));
-    Invalidate();
+    auto layout = GetPaneLayout();
+    InvalidateMdPane(layout.md_rect);
 }
 
 // ============================================================
@@ -710,13 +713,15 @@ void App::OnLButtonDblClk(int px, int py)
 void App::ClearSelection()
 {
     viewport_.ClearSelection();
-    Invalidate();
+    auto layout = GetPaneLayout();
+    InvalidateMdPane(layout.md_rect);
 }
 
 void App::SelectAll()
 {
     viewport_.SelectAll(doc_.GetNodes());
-    Invalidate();
+    auto layout = GetPaneLayout();
+    InvalidateMdPane(layout.md_rect);
 }
 
 void App::SetClipboardText(std::wstring_view text) const

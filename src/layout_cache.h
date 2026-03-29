@@ -26,6 +26,7 @@ struct NodeLayoutEntry {
     std::pmr::vector<std::pmr::vector<std::pmr::vector<InlineCodeBg>>> cell_inline_code_bgs; // [行][列][]
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
+    std::pmr::vector<float> natural_col_widths; // リサイズ高速パス用キャッシュ
 };
 
 struct DiagramEntry {

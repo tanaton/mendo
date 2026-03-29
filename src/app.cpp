@@ -443,6 +443,7 @@ void App::LoadHelpDocument()
     mermaid_renderer_.CancelPending();
     image_loader_.CancelPending();
     renderer_.ShrinkBuffers();
+    resolved_image_paths_.clear();
     doc_service_.StopWatching();
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
@@ -490,6 +491,7 @@ void App::DoLoadMarkdownFile()
     mermaid_renderer_.CancelPending();
     image_loader_.CancelPending();
     renderer_.ShrinkBuffers();
+    resolved_image_paths_.clear();
 
     if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
         Invalidate();
@@ -555,6 +557,7 @@ void App::DoReloadCurrentFile()
 
     mermaid_renderer_.CancelPending();
     image_loader_.CancelPending();
+    resolved_image_paths_.clear();
 
     if (file_load_service_.ExecuteReload(doc_, layout_cache_)) {
         renderer_.InvalidateTocPaneCache();
@@ -647,11 +650,8 @@ int App::ApplyCachedImages()
 
     int applied = 0;
     auto& nodes = doc_.GetNodesMut();
-    for (size_t i = 0; i < nodes.size(); i++) {
+    for (size_t i : doc_.GetImageNodeIndices()) {
         auto& node = nodes[i];
-        if (node.type != NodeType::Image) {
-            continue;
-        }
         auto& diagram = layout_cache_.GetDiagram(i);
         if (diagram.bitmap) {
             continue;
@@ -661,18 +661,25 @@ int App::ApplyCachedImages()
             continue;
         }
 
-        std::filesystem::path img_path(std::wstring_view{ node.image_src });
-        if (img_path.is_relative()) {
-            img_path = std::filesystem::path(doc_dir) / img_path;
-        }
+        // 解決済みパスのキャッシュを確認し、ディスクI/Oを回避
+        auto cache_it = resolved_image_paths_.find(i);
+        std::wstring abs_str;
+        if (cache_it != resolved_image_paths_.end()) {
+            abs_str = cache_it->second;
+        } else {
+            std::filesystem::path img_path(std::wstring_view{ node.image_src });
+            if (img_path.is_relative()) {
+                img_path = std::filesystem::path(doc_dir) / img_path;
+            }
 
-        std::error_code ec;
-        auto abs_path = std::filesystem::canonical(img_path, ec);
-        if (ec) {
-            continue;
+            std::error_code ec;
+            auto abs_path = std::filesystem::canonical(img_path, ec);
+            if (ec) {
+                continue;
+            }
+            abs_str = abs_path.wstring();
+            resolved_image_paths_[i] = abs_str;
         }
-
-        auto abs_str = abs_path.wstring();
 
         if (image_loader_.GetCachedImage(abs_str, diagram)) {
             node.image_width = diagram.width;
@@ -748,18 +755,16 @@ void App::RequestMermaidRenders()
         // ビューポートに制約されていないため再生成不要
         float min_width = std::min(content_width, last_mermaid_content_width_);
         bool any_invalidated = false;
-        for (size_t i = 0; i < doc_.GetNodes().size(); i++) {
-            if (doc_.GetNodes()[i].code_language == SyntaxLanguage::Mermaid) {
-                auto& diagram = layout_cache_.GetDiagram(i);
-                if (diagram.bitmap && diagram.width > 0 &&
-                    diagram.width + 1.0f < min_width) {
-                    continue;
-                }
-                diagram.bitmap.Reset();
-                diagram.width = 0;
-                diagram.height = 0;
-                any_invalidated = true;
+        for (size_t i : doc_.GetMermaidNodeIndices()) {
+            auto& diagram = layout_cache_.GetDiagram(i);
+            if (diagram.bitmap && diagram.width > 0 &&
+                diagram.width + 1.0f < min_width) {
+                continue;
             }
+            diagram.bitmap.Reset();
+            diagram.width = 0;
+            diagram.height = 0;
+            any_invalidated = true;
         }
         if (any_invalidated) {
             mermaid_renderer_.ClearCache();
@@ -768,14 +773,8 @@ void App::RequestMermaidRenders()
     }
     last_mermaid_content_width_ = content_width;
 
-    for (size_t i = 0; i < doc_.GetNodes().size(); i++) {
+    for (size_t i : doc_.GetMermaidNodeIndices()) {
         auto& node = doc_.GetNodesMut()[i];
-        if (node.type != NodeType::CodeBlock) {
-            continue;
-        }
-        if (node.code_language != SyntaxLanguage::Mermaid) {
-            continue;
-        }
         auto& diagram = layout_cache_.GetDiagram(i);
         if (diagram.bitmap) {
             continue;

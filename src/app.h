@@ -34,6 +34,7 @@
 #include <optional>
 #include <memory>
 #include <memory_resource>
+#include <unordered_map>
 
 // ウィンドウのタイトルバーとスクロールバーにダークモードスタイルを適用する。
 void ApplyDarkModeToWindow(HWND hwnd, bool dark);
@@ -263,6 +264,9 @@ private:
     HitTestService hit_test_;
 
     float last_mermaid_content_width_ = 0.0f;
+
+    // 画像パス解決キャッシュ（canonical() のディスクI/Oを回避）
+    std::unordered_map<size_t, std::wstring> resolved_image_paths_;
 
     // PaneLayout キャッシュ（ウィンドウサイズ・ペイン状態が変わるまで再利用）
     mutable ::PaneLayout cached_pane_layout_{};

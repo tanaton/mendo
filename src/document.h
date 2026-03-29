@@ -36,12 +36,19 @@ public:
     // 見つか��ない場合は -1 を返す。
     int FindAnchorIndex(std::wstring_view anchor) const;
 
+    // 特殊ノードインデックスの高速アクセス
+    constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept { return image_node_indices_; }
+    constexpr const std::pmr::vector<size_t>& GetMermaidNodeIndices() const noexcept { return mermaid_node_indices_; }
+
 private:
     void BuildAnchorIndex();
+    void BuildSpecialNodeIndices();
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
     std::pmr::string raw_utf8_;
     TableOfContents toc_;
     std::pmr::unordered_map<std::pmr::wstring, int> anchor_index_;
+    std::pmr::vector<size_t> image_node_indices_;
+    std::pmr::vector<size_t> mermaid_node_indices_;
 };

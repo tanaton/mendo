@@ -11,6 +11,7 @@ Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
     doc.nodes_ = ParseMarkdown(doc.raw_utf8_);
     doc.toc_.BuildFromNodes(doc.nodes_);
     doc.BuildAnchorIndex();
+    doc.BuildSpecialNodeIndices();
     return doc;
 }
 
@@ -28,6 +29,7 @@ void Document::ReplaceContent(std::pmr::vector<Node> new_nodes)
     nodes_ = std::move(new_nodes);
     toc_.BuildFromNodes(nodes_);
     BuildAnchorIndex();
+    BuildSpecialNodeIndices();
 }
 
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)
@@ -53,6 +55,20 @@ void Document::BuildAnchorIndex()
         const auto& node = nodes_[i];
         if (node.type == NodeType::Heading && !node.anchor_id.empty()) {
             anchor_index_.emplace(node.anchor_id, i);
+        }
+    }
+}
+
+void Document::BuildSpecialNodeIndices()
+{
+    image_node_indices_.clear();
+    mermaid_node_indices_.clear();
+    for (size_t i = 0; i < nodes_.size(); i++) {
+        const auto& node = nodes_[i];
+        if (node.type == NodeType::Image) {
+            image_node_indices_.push_back(i);
+        } else if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
+            mermaid_node_indices_.push_back(i);
         }
     }
 }

@@ -174,10 +174,35 @@ size_t FindFirstDifference(std::string_view old_text, std::string_view new_text)
 
 int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_offset) noexcept
 {
+    // source_offset はパース順で基本的に単調増加するため二分探索を使用。
+    // UINT32_MAX（未設定）ノードに当たった場合は左に有効ノードを探してから判定する。
+    int lo = 0, hi = static_cast<int>(nodes.size()) - 1;
     int result = -1;
-    for (int i = 0; i < static_cast<int>(nodes.size()); ++i) {
-        if (nodes[i].source_offset != UINT32_MAX && nodes[i].source_offset <= diff_offset) {
-            result = i;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        uint32_t offset = nodes[mid].source_offset;
+        if (offset == UINT32_MAX) {
+            // 左側で最も近い有効ノードを探す
+            int probe = mid - 1;
+            while (probe >= lo && nodes[probe].source_offset == UINT32_MAX) {
+                probe--;
+            }
+            if (probe < lo) {
+                // lo..mid に有効ノードがないので右へ
+                lo = mid + 1;
+            } else if (nodes[probe].source_offset <= diff_offset) {
+                result = probe;
+                lo = mid + 1;
+            } else {
+                hi = probe - 1;
+            }
+            continue;
+        }
+        if (offset <= diff_offset) {
+            result = mid;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
         }
     }
     return result;
