@@ -80,6 +80,7 @@ public:
     // タイマーコールバック
     void HandleTimer(UINT_PTR timer_id);
     void OnAppLoadFile();
+    void OnAppReloadFile();
     void OnAppImageLoaded();
     void OnCaptureChanged();
     void OnDestroy();
@@ -169,6 +170,7 @@ private:
 
     // ファイル読み込み (file_load_service_に委譲)
     void ReloadCurrentFile();
+    void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
     void UpdateTitleBar();
     void SaveLastFilePath();
@@ -209,6 +211,7 @@ public:
     static constexpr UINT_PTR TIMER_TOAST = 6;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
     static constexpr UINT WM_APP_IMAGE_LOADED = WM_APP + 2;
+    static constexpr UINT WM_APP_RELOAD_FILE = WM_APP + 3;
 
 private:
     // Win32ハンドル
@@ -278,6 +281,9 @@ private:
 
     // コードブロック コピーボタン
     int hovered_copy_node_ = -1;
+
+    // 目次ペインの現在アクティブな見出しインデックス
+    int active_toc_index_ = -1;
 
     // トースト通知
     ToastNotifier toast_;

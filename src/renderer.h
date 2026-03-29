@@ -94,6 +94,7 @@ struct SidePaneState {
     bool file_close_hovered;
     bool file_refresh_hovered;
     bool toc_close_hovered;
+    int active_toc_index;
 };
 
 // ペインビットマップキャッシュ — サイドペインはオフスクリーンビットマップに描画され、
@@ -176,7 +177,7 @@ private:
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
         const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered);
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
-        const ScrollState& scroll, int hovered_index, bool close_hovered);
+        const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index);
     void DrawSplitter(float x, float top, float bottom);
     void DrawNavOverlay(const PaneRect& md_pane_rect,
         bool can_back, bool can_forward,
@@ -214,6 +215,7 @@ private:
         ComPtr<IDWriteTextFormat> icon_font;
         ComPtr<IDWriteTextFormat> copy_btn_icon;
         ComPtr<IDWriteTextFormat> list_number;
+        ComPtr<IDWriteTextFormat> placeholder_text;
         ComPtr<IDWriteTextFormat> titlebar_text;
         ComPtr<IDWriteTextFormat> titlebar_icon;
         ComPtr<IDWriteTextFormat> pane_icon;

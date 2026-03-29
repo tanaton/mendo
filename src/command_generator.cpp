@@ -124,6 +124,9 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                 diagram.bitmap.Get(),
                 D2D1::RectF(dx, entry.y_position, dx + draw_w, entry.y_position + draw_h) });
         }
+        else {
+            GenDiagramPlaceholder(cmds, x, entry.y_position, cw, entry.height);
+        }
         return;
 
     case NodeType::Table:
@@ -144,6 +147,9 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                 cmds.push_back(DrawBitmapCmd{
                     diagram.bitmap.Get(),
                     D2D1::RectF(dx, entry.y_position, dx + draw_w, entry.y_position + draw_h) });
+            }
+            else {
+                GenDiagramPlaceholder(cmds, x, entry.y_position, cw, entry.height);
             }
             return;
         }
@@ -549,6 +555,17 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
         }
 
         i = j;
+    }
+}
+
+void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds,
+    float x, float y, float w, float h)
+{
+    D2D1_RECT_F bg = D2D1::RectF(x, y, x + w, y + h);
+    cmds.push_back(FillRoundedRectCmd{ bg, 4.0f, 4.0f, theme_->code_bg_color });
+    if (formats_.placeholder_text) {
+        constexpr wchar_t kText[] = L"Loading...";
+        cmds.push_back(DrawTextCmd::Make(kText, static_cast<UINT32>(std::ranges::size(kText) - 1), bg, formats_.placeholder_text, theme_->blockquote_text_color));
     }
 }
 

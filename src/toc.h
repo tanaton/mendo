@@ -1,5 +1,6 @@
 #pragma once
 #include "types.h"
+#include "layout_cache.h"
 #include <string>
 #include <vector>
 #include <memory_resource>
@@ -9,6 +10,7 @@ struct TocEntry {
     std::pmr::wstring text;
     std::pmr::wstring anchor_id;
     int heading_level = 1;
+    int node_index = -1;
 };
 
 class TableOfContents {
@@ -16,6 +18,10 @@ public:
     void BuildFromNodes(const std::pmr::vector<Node>& nodes);
     const std::pmr::vector<TocEntry>& GetEntries() const noexcept { return entries_; }
     int HitTest(float local_y, float item_height) const noexcept;
+
+    // ビューポート先頭のスクロール位置から、現在表示中の見出しに対応するTOCエントリのインデックスを返す。
+    // 見つからない場合は -1 を返す。
+    int FindActiveIndex(const LayoutCache& cache, float scroll_y) const noexcept;
 
 private:
     std::pmr::vector<TocEntry> entries_;

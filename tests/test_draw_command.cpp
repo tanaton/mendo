@@ -18,7 +18,7 @@ protected:
         theme_ = GetLightTheme();
         ASSERT_TRUE(engine_.Init(&mock_, theme_));
         gen_.SetTheme(&theme_);
-        gen_.SetFormats({nullptr, nullptr, nullptr}); // モックテストでは実際のDWriteフォーマットなし
+        gen_.SetFormats({nullptr, nullptr, nullptr, nullptr}); // モックテストでは実際のDWriteフォーマットなし
     }
 
     // ヘルパー: Markdownをパースし、レイアウトを計算し、MDペイン用のコマンドを生成する。
@@ -594,4 +594,61 @@ TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted) {
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, -1, 0);
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
+}
+
+// ---- 図・画像プレースホルダー ----
+
+TEST_F(CmdGenTest, ImageWithoutBitmapGeneratesPlaceholder) {
+    auto nodes = ParseMarkdown("![alt](image.png)");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    // bitmapを設定しない → プレースホルダーが描画されるべき
+    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+
+    int rounded_count = 0;
+    for (const auto& cmd : cmds) {
+        if (std::holds_alternative<FillRoundedRectCmd>(cmd)) {
+            rounded_count++;
+        }
+    }
+    EXPECT_GE(rounded_count, 1) << "ビットマップ未設定の画像はプレースホルダー背景を描画するべき";
+}
+
+TEST_F(CmdGenTest, MermaidWithoutBitmapGeneratesPlaceholder) {
+    auto nodes = ParseMarkdown("```mermaid\ngraph TD\n  A-->B\n```");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    // bitmapを設定しない → プレースホルダーが描画されるべき
+    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+
+    int rounded_count = 0;
+    for (const auto& cmd : cmds) {
+        if (std::holds_alternative<FillRoundedRectCmd>(cmd)) {
+            rounded_count++;
+        }
+    }
+    EXPECT_GE(rounded_count, 1) << "ビットマップ未設定のMermaidはプレースホルダー背景を描画するべき";
+}
+
+TEST_F(CmdGenTest, PlaceholderBgUsesCodeBgColor) {
+    auto nodes = ParseMarkdown("![alt](image.png)");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+
+    for (const auto& cmd : cmds) {
+        if (auto* rr = std::get_if<FillRoundedRectCmd>(&cmd)) {
+            EXPECT_FLOAT_EQ(rr->color.r, theme_.code_bg_color.r);
+            EXPECT_FLOAT_EQ(rr->color.g, theme_.code_bg_color.g);
+            EXPECT_FLOAT_EQ(rr->color.b, theme_.code_bg_color.b);
+            return;
+        }
+    }
+    FAIL() << "プレースホルダーの角丸四角形が見つからない";
 }

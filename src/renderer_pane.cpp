@@ -203,7 +203,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
 }
 
 void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
-    const ScrollState& scroll, int hovered_index, bool close_hovered)
+    const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index)
 {
     DrawSidePaneImpl(toc_pane_cache_, rt(), rect, scroll,
         static_cast<int>(entries.size()), L"目次", theme_,
@@ -214,9 +214,10 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
         [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
 
-        if (i == hovered_index) {
+        if (i == active_index || i == hovered_index) {
             D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, width, item_y + theme_.pane_item_height);
-            rt->FillRectangle(item_rect, Brush(BrushId::PaneItemHover));
+            auto bid = (i == active_index) ? BrushId::PaneItemActive : BrushId::PaneItemHover;
+            rt->FillRectangle(item_rect, Brush(bid));
         }
 
         float indent = (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
@@ -226,6 +227,16 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
             rt->DrawText(entry.text.c_str(), static_cast<UINT32>(entry.text.size()),
                 fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
                 D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+
+        // アクティブ見出しの下線
+        if (i == active_index) {
+            float line_y = item_y + theme_.pane_item_height - 1.0f;
+            float line_left = 8.0f + indent;
+            rt->DrawLine(
+                D2D1::Point2F(line_left, line_y),
+                D2D1::Point2F(width - 4.0f, line_y),
+                Brush(BrushId::Text), 1.5f);
         }
     });
 }

@@ -72,3 +72,54 @@ TEST_F(FileLoadServiceTest, LoadStopsAnimation) {
     service_.ExecuteLoad(doc, cache);
     EXPECT_FALSE(service_.IsLoading());
 }
+
+// ---- リロード時ローディングアニメーション関連テスト ----
+
+TEST_F(FileLoadServiceTest, StartLoadingForReload) {
+    // リロード用にStartLoadingを呼んでもアニメーション状態が正しく初期化される
+    service_.StartLoading(L"reload_target.md");
+    EXPECT_TRUE(service_.IsLoading());
+    EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
+    EXPECT_EQ(service_.GetLoadingPath(), L"reload_target.md");
+}
+
+TEST_F(FileLoadServiceTest, StopLoadingBeforeReload) {
+    // ローディングアニメーション開始後にStopLoadingで停止し、
+    // その後ExecuteReloadが正常に動作する
+    service_.StartLoading(L"test.md");
+    service_.TickLoadingAnimation();
+    EXPECT_TRUE(service_.IsLoading());
+    EXPECT_GT(service_.GetLoadingAngle(), 0.0f);
+
+    service_.StopLoading();
+    EXPECT_FALSE(service_.IsLoading());
+
+    // StopLoading後もExecuteReloadは正常に呼べる（パスが空なのでfalse）
+    Document doc;
+    LayoutCache cache;
+    EXPECT_FALSE(service_.ExecuteReload(doc, cache));
+}
+
+TEST_F(FileLoadServiceTest, ReloadDoesNotAffectLoadingState) {
+    // ExecuteReloadはloading_フラグを変更しない
+    service_.StartLoading(L"test.md");
+    EXPECT_TRUE(service_.IsLoading());
+
+    Document doc;
+    LayoutCache cache;
+    service_.ExecuteReload(doc, cache);
+    // ExecuteReloadはloading_に触れないのでtrueのまま
+    EXPECT_TRUE(service_.IsLoading());
+}
+
+TEST_F(FileLoadServiceTest, StartLoadingResetsAngle) {
+    // 2回目のStartLoadingでアングルがリセットされる
+    service_.StartLoading(L"first.md");
+    for (int i = 0; i < 10; ++i) {
+        service_.TickLoadingAnimation();
+    }
+    EXPECT_GT(service_.GetLoadingAngle(), 0.0f);
+
+    service_.StartLoading(L"second.md");
+    EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
+}

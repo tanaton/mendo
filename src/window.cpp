@@ -317,6 +317,10 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_.OnAppLoadFile();
         return 0;
 
+    case App::WM_APP_RELOAD_FILE:
+        app_.OnAppReloadFile();
+        return 0;
+
     case App::WM_APP_IMAGE_LOADED:
         app_.OnAppImageLoaded();
         return 0;

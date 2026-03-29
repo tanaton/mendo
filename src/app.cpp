@@ -241,7 +241,7 @@ SidePaneState App::BuildSidePaneState(const ::PaneLayout& layout) const
              doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
              panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible(),
              panes_.IsFileCloseHovered(), panes_.IsFileRefreshHovered(),
-             panes_.IsTocCloseHovered() };
+             panes_.IsTocCloseHovered(), active_toc_index_ };
 }
 
 TitleBarRenderState App::BuildTitleBarRenderState(float window_width) const
@@ -311,6 +311,29 @@ void App::OnPaint()
             AnchorCompensateScroll(anchor_idx, anchor_y_before, layout.md_rect.height);
         }
     }
+    // 目次ペインの同期: mdペインのスクロール位置からアクティブ見出しを判定し、
+    // 目次ペインを自動スクロールする
+    if (panes_.IsTocPaneVisible() && !file_load_service_.IsLoading()) {
+        int new_active = doc_.GetToc().FindActiveIndex(layout_cache_, viewport_.GetScrollY());
+        if (new_active != active_toc_index_) {
+            active_toc_index_ = new_active;
+            renderer_.InvalidateTocPaneCache();
+
+            // アクティブ見出しが目次ペインの表示範囲外なら自動スクロール
+            if (new_active >= 0) {
+                const auto& theme = renderer_.GetTheme();
+                float item_y = static_cast<float>(new_active) * theme.pane_item_height;
+                float total = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
+                auto info = ComputeScrollInfo(layout.toc_rect, theme.pane_header_height, total);
+                float& sy = panes_.TocScroll().scroll_y;
+                if (item_y < sy || item_y + theme.pane_item_height > sy + info.content_height) {
+                    sy = std::clamp(item_y - info.content_height * 0.5f, 0.0f, info.max_scroll);
+                    panes_.TocScroll().max_scroll = info.max_scroll;
+                }
+            }
+        }
+    }
+
     auto gs = BuildGestureRenderState();
     auto sp = BuildSidePaneState(layout);
     auto tb = BuildTitleBarRenderState(cached_window_width_for_layout_);
@@ -462,6 +485,7 @@ void App::DoLoadMarkdownFile()
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
 
     viewport_.ClearSelection();
+    active_toc_index_ = -1;
     mermaid_renderer_.CancelPending();
     image_loader_.CancelPending();
     renderer_.ShrinkBuffers();
@@ -502,6 +526,28 @@ void App::ReloadCurrentFile()
     if (doc_.GetFilePath().empty() || IsHelpPath(doc_.GetFilePath())) {
         return;
     }
+    // ローディングアニメーション表示中は重複リロードを抑制
+    if (file_load_service_.IsLoading()) {
+        return;
+    }
+
+    if (DocumentService::NeedsLoadingAnimation(doc_.GetFilePath())) {
+        file_load_service_.StartLoading(doc_.GetFilePath());
+        SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
+        Invalidate();
+        UpdateWindow(hwnd_);
+        PostMessage(hwnd_, WM_APP_RELOAD_FILE, 0, 0);
+    }
+    else {
+        DoReloadCurrentFile();
+    }
+}
+
+void App::DoReloadCurrentFile()
+{
+    KillTimer(hwnd_, TIMER_LOADING_ANIM);
+    file_load_service_.StopLoading();
+    active_toc_index_ = -1;
 
     float old_scroll = viewport_.GetScrollY();
     std::pmr::string old_content = doc_.GetRawUtf8();
@@ -970,6 +1016,11 @@ void App::HandleTimer(UINT_PTR timer_id)
 void App::OnAppLoadFile()
 {
     DoLoadMarkdownFile();
+}
+
+void App::OnAppReloadFile()
+{
+    DoReloadCurrentFile();
 }
 
 void App::OnCaptureChanged()

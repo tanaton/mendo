@@ -32,7 +32,7 @@ bool Renderer::Init(HWND hwnd)
     }
 
     cmd_generator_.SetTheme(&theme_);
-    cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get() });
+    cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
 
     return true;
 }
@@ -227,6 +227,13 @@ void Renderer::RecreatePaneFormats()
         fmt_.list_number->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
     }
 
+    // 図・画像プレースホルダー用テキストフォーマット（両軸中央揃え）
+    fmt_.placeholder_text = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
+    if (fmt_.placeholder_text) {
+        fmt_.placeholder_text->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt_.placeholder_text->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
     // タイトルバー用テキストフォーマット
     fmt_.titlebar_text = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
     if (fmt_.titlebar_text) {
@@ -313,7 +320,7 @@ void Renderer::RecreatePaneFormats()
     toc_pane_cache_.Reset();
 
     // コマンドジェネレータのフォーマットを更新
-    cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get() });
+    cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
 }
 
 // ---- ノード描画 ----
@@ -464,7 +471,7 @@ void Renderer::DrawSidePanes(const SidePaneState& sp)
         DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
     }
     if (sp.show_toc_pane) {
-        DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index, sp.toc_close_hovered);
+        DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index, sp.toc_close_hovered, sp.active_toc_index);
         DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, sp.toc_pane_rect.y, sp.toc_pane_rect.y + sp.toc_pane_rect.height);
     }
 }

@@ -155,3 +155,99 @@ TEST(Toc, HitTestNegativeItemHeight) {
     toc.BuildFromNodes(nodes);
     EXPECT_EQ(toc.HitTest(10.0f, -1.0f), -1);
 }
+
+// ---- node_index ----
+
+TEST(Toc, NodeIndexRecorded) {
+    auto nodes = ParseMarkdown("Para\n\n# First\n\nMore text\n\n## Second");
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+    ASSERT_EQ(toc.GetEntries().size(), 2u);
+    // 最初のノード(Para)はインデックス0、# FirstはParagraphの次のノード
+    EXPECT_GE(toc.GetEntries()[0].node_index, 0);
+    EXPECT_LT(toc.GetEntries()[0].node_index, static_cast<int>(nodes.size()));
+    EXPECT_GE(toc.GetEntries()[1].node_index, 0);
+    EXPECT_GT(toc.GetEntries()[1].node_index, toc.GetEntries()[0].node_index);
+}
+
+TEST(Toc, NodeIndexOrderPreserved) {
+    auto nodes = ParseMarkdown("# A\n\n## B\n\n### C");
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+    ASSERT_EQ(toc.GetEntries().size(), 3u);
+    for (size_t i = 1; i < toc.GetEntries().size(); ++i) {
+        EXPECT_GT(toc.GetEntries()[i].node_index, toc.GetEntries()[i - 1].node_index);
+    }
+}
+
+// ---- FindActiveIndex ----
+
+TEST(Toc, FindActiveIndexEmpty) {
+    TableOfContents toc;
+    LayoutCache cache;
+    EXPECT_EQ(toc.FindActiveIndex(cache, 0.0f), -1);
+}
+
+TEST(Toc, FindActiveIndexBeforeFirstHeading) {
+    auto nodes = ParseMarkdown("Para\n\n# Title");
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    // 見出しノードのy_positionを200に設定
+    int heading_idx = toc.GetEntries()[0].node_index;
+    cache[heading_idx].y_position = 200.0f;
+    cache[heading_idx].height = 30.0f;
+
+    // scroll_y=0 は見出しより前 → -1
+    EXPECT_EQ(toc.FindActiveIndex(cache, 0.0f), -1);
+}
+
+TEST(Toc, FindActiveIndexAtHeading) {
+    auto nodes = ParseMarkdown("# First\n\nText\n\n## Second");
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    int first_idx = toc.GetEntries()[0].node_index;
+    int second_idx = toc.GetEntries()[1].node_index;
+    cache[first_idx].y_position = 10.0f;
+    cache[first_idx].height = 30.0f;
+    cache[second_idx].y_position = 200.0f;
+    cache[second_idx].height = 25.0f;
+
+    // scroll_y=10 は最初の見出しのy_position丁度 → 0
+    EXPECT_EQ(toc.FindActiveIndex(cache, 10.0f), 0);
+    // scroll_y=100 は最初の見出しの後、2番目の前 → 0
+    EXPECT_EQ(toc.FindActiveIndex(cache, 100.0f), 0);
+    // scroll_y=200 は2番目の見出しのy_position丁度 → 1
+    EXPECT_EQ(toc.FindActiveIndex(cache, 200.0f), 1);
+    // scroll_y=300 は2番目の見出しの後 → 1
+    EXPECT_EQ(toc.FindActiveIndex(cache, 300.0f), 1);
+}
+
+TEST(Toc, FindActiveIndexManyHeadings) {
+    std::string md;
+    for (int i = 0; i < 10; ++i) {
+        md += "## H" + std::to_string(i) + "\n\nText\n\n";
+    }
+    auto nodes = ParseMarkdown(md);
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+    ASSERT_EQ(toc.GetEntries().size(), 10u);
+
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    // 各見出しノードのy_positionを 100*i に設定
+    for (int i = 0; i < 10; ++i) {
+        int ni = toc.GetEntries()[i].node_index;
+        cache[ni].y_position = static_cast<float>(i * 100);
+        cache[ni].height = 30.0f;
+    }
+
+    EXPECT_EQ(toc.FindActiveIndex(cache, 0.0f), 0);
+    EXPECT_EQ(toc.FindActiveIndex(cache, 450.0f), 4);
+    EXPECT_EQ(toc.FindActiveIndex(cache, 999.0f), 9);
+}

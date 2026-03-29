@@ -32,6 +32,7 @@ public:
         IDWriteTextFormat* list_number = nullptr;
         IDWriteTextFormat* icon_font = nullptr;
         IDWriteTextFormat* copy_btn_icon = nullptr;
+        IDWriteTextFormat* placeholder_text = nullptr;
     };
 
     // ファイル切替時にバッファを縮小する
@@ -84,6 +85,7 @@ private:
         const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
         int node_count, float offset_x, float content_width,
         int first_visible, float viewport_bottom);
+    void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
     void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout,
         uint32_t start, uint32_t length, float origin_x, float origin_y);
 
