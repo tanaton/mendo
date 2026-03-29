@@ -18,6 +18,7 @@
 using Microsoft::WRL::ComPtr;
 
 // オフスクリーンWebView2を使ってMermaidダイアグラムコードをID2D1Bitmapにレンダリングする。
+// 複数のWebView2インスタンスを並行稼働させ、複数の図を同時にレンダリングできる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
 class MermaidRenderer {
 public:
@@ -61,29 +62,6 @@ public:
     void ClearPendingQueue() noexcept;
 
 private:
-    void ProcessQueue();
-    void RenderMermaidInWebView(std::wstring_view code, float max_width, bool dark_mode);
-    void OnMermaidRenderResult(std::wstring_view json);
-    void DoCapturePreview();
-    void OnCaptureComplete(uint64_t code_hash, IStream* png_stream);
-    uint64_t HashCode(std::wstring_view code, float max_width, bool dark_mode) const;
-    HRESULT CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
-        float* width, float* height);
-    void FinishCurrentRequest();
-
-    HWND hwnd_ = nullptr;           // メインウィンドウ
-    HWND webview_hwnd_ = nullptr;   // WebView2専用のオフスクリーンポップアップ
-    ID2D1RenderTarget* render_target_ = nullptr;
-    float dpr_ = 1.0f;             // WebView2 JSから報告されるdevicePixelRatio
-    ComPtr<IWICImagingFactory> wic_factory_;
-    ComPtr<ICoreWebView2Environment> webview_env_;
-    ComPtr<ICoreWebView2Controller> webview_controller_;
-    ComPtr<ICoreWebView2> webview_;
-    bool ready_ = false;
-    bool rendering_ = false;
-    unsigned int request_counter_ = 0; // リクエストごとにインクリメント（コールバック照合用）
-    std::span<const std::byte> cached_mermaid_gz_; // Win32リソースから直接参照するgzip圧縮済みmermaid.js
-
     struct RenderRequest {
         Node* node = nullptr;
         NodeLayoutEntry* layout_entry = nullptr;
@@ -98,8 +76,46 @@ private:
         float dpr = 1.0f;         // JSから取得したdevicePixelRatio
         unsigned int request_id = 0; // リクエスト固有のID（JS側のpostMessageと照合）
     };
+
+    static constexpr int kMaxWorkers = 4;
+
+    // WebView2ワーカー: 各ワーカーが独立したWebView2インスタンスを持ち、
+    // 1つのダイアグラムを非同期レンダリングできる。
+    struct Worker {
+        HWND hwnd = nullptr;
+        ComPtr<ICoreWebView2Controller> controller;
+        ComPtr<ICoreWebView2> webview;
+        RenderRequest current_request;
+        float dpr = 1.0f;
+        bool rendering = false;
+        bool ready = false;
+    };
+
+    static int ComputeWorkerCount() noexcept;
+    void SetupWorker(int index);
+    void ProcessQueue();
+    void RenderInWorker(Worker& worker);
+    void OnRenderResult(int worker_idx, std::wstring_view json);
+    void DoCapturePreview(int worker_idx);
+    void OnCaptureComplete(int worker_idx, uint64_t code_hash, IStream* png_stream);
+    void FinishWorkerRequest(Worker& worker);
+    uint64_t HashCode(std::wstring_view code, float max_width, bool dark_mode) const;
+    HRESULT CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
+        float* width, float* height);
+
+    HWND hwnd_ = nullptr;           // メインウィンドウ
+    ID2D1RenderTarget* render_target_ = nullptr;
+    ComPtr<IWICImagingFactory> wic_factory_;
+    ComPtr<ICoreWebView2Environment> webview_env_;
+    std::span<const std::byte> cached_mermaid_gz_; // Win32リソースから直接参照するgzip圧縮済みmermaid.js
+
+    Worker workers_[kMaxWorkers];
+    int worker_count_ = 0;
+    bool ready_ = false;
+    unsigned int request_counter_ = 0;
+    std::function<void()> on_all_ready_; // 最初のワーカー準備完了時に1回だけ呼び出す
+
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
-    RenderRequest current_request_;
 
     // キャッシュ: code_hash -> {bitmap, width, height}
     struct CachedBitmap {

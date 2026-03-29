@@ -1,5 +1,6 @@
 #include "mermaid_util.h"
 #include "utility.h"
+#include <algorithm>
 #include <format>
 #include <iterator>
 
@@ -53,4 +54,9 @@ uint64_t mermaid_util::CombinedHash(std::wstring_view code, int max_width_int, b
     h ^= static_cast<uint64_t>(max_width_int) * 1099511628211ULL;
     h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL;
     return h;
+}
+
+int mermaid_util::ComputeWorkerCount(unsigned int processor_count) noexcept
+{
+    return std::clamp(static_cast<int>(processor_count) / 2, 2, 4);
 }

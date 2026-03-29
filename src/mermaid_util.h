@@ -15,4 +15,8 @@ uint64_t HashRaw(std::wstring_view input);
 
 // 複数の値からキャッシュキーのハッシュを計算する（コード全体のコピーを回避）。
 uint64_t CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode);
+
+// 論理プロセッサ数からMermaidレンダリング用ワーカー数を計算する。
+// 結果は [2, 4] にクランプされる。
+int ComputeWorkerCount(unsigned int processor_count) noexcept;
 }

@@ -116,3 +116,104 @@ TEST(SimpleHash, LongInput) {
     auto hash = mermaid_util::SimpleHash(input);
     EXPECT_EQ(hash.size(), 16u);
 }
+
+// ============================================================
+// CombinedHash テスト
+// ============================================================
+
+TEST(CombinedHash, SameInputProducesSameHash) {
+    auto h1 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, false);
+    auto h2 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, false);
+    EXPECT_EQ(h1, h2);
+}
+
+TEST(CombinedHash, DifferentCodeProducesDifferentHash) {
+    auto h1 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, false);
+    auto h2 = mermaid_util::CombinedHash(L"graph LR; A-->B;", 800, false);
+    EXPECT_NE(h1, h2);
+}
+
+TEST(CombinedHash, DifferentWidthProducesDifferentHash) {
+    auto h1 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, false);
+    auto h2 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 600, false);
+    EXPECT_NE(h1, h2);
+}
+
+TEST(CombinedHash, DifferentDarkModeProducesDifferentHash) {
+    auto h1 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, false);
+    auto h2 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, true);
+    EXPECT_NE(h1, h2);
+}
+
+TEST(CombinedHash, IdenticalDiagramsShareCacheKey) {
+    // 同じ図が複数配置されている場合、同一ハッシュでキャッシュを共有する
+    std::wstring_view diagram = L"sequenceDiagram\n    Alice->>Bob: Hello\n    Bob-->>Alice: Hi";
+    auto h1 = mermaid_util::CombinedHash(diagram, 1000, false);
+    auto h2 = mermaid_util::CombinedHash(diagram, 1000, false);
+    auto h3 = mermaid_util::CombinedHash(diagram, 1000, false);
+    EXPECT_EQ(h1, h2);
+    EXPECT_EQ(h2, h3);
+}
+
+TEST(CombinedHash, WidthZero) {
+    auto h1 = mermaid_util::CombinedHash(L"graph TD;", 0, false);
+    auto h2 = mermaid_util::CombinedHash(L"graph TD;", 1, false);
+    EXPECT_NE(h1, h2);
+}
+
+TEST(CombinedHash, EmptyCode) {
+    auto h1 = mermaid_util::CombinedHash(L"", 800, false);
+    auto h2 = mermaid_util::CombinedHash(L"", 800, true);
+    EXPECT_NE(h1, h2);
+}
+
+// ============================================================
+// ComputeWorkerCount テスト
+// ============================================================
+
+TEST(ComputeWorkerCount, ZeroProcessorsReturnsMinimum) {
+    EXPECT_EQ(mermaid_util::ComputeWorkerCount(0), 2);
+}
+
+TEST(ComputeWorkerCount, OneProcessorReturnsMinimum) {
+    EXPECT_EQ(mermaid_util::ComputeWorkerCount(1), 2);
+}
+
+TEST(ComputeWorkerCount, TwoProcessorsReturnsMinimum) {
+    // 2 / 2 = 1 → クランプで2
+    EXPECT_EQ(mermaid_util::ComputeWorkerCount(2), 2);
+}
+
+TEST(ComputeWorkerCount, ThreeProcessorsReturnsMinimum) {
+    // 3 / 2 = 1 → クランプで2
+    EXPECT_EQ(mermaid_util::ComputeWorkerCount(3), 2);
+}
+
+TEST(ComputeWorkerCount, FourProcessorsReturnsTwo) {
+    // 4 / 2 = 2
+    EXPECT_EQ(mermaid_util::ComputeWorkerCount(4), 2);
+}
+
+TEST(ComputeWorkerCount, SixProcessorsReturnsThree) {
+    // 6 / 2 = 3
+    EXPECT_EQ(mermaid_util::ComputeWorkerCount(6), 3);
+}
+
+TEST(ComputeWorkerCount, EightProcessorsReturnsFour) {
+    // 8 / 2 = 4
+    EXPECT_EQ(mermaid_util::ComputeWorkerCount(8), 4);
+}
+
+TEST(ComputeWorkerCount, TwelveProcessorsReturnsMaximum) {
+    // 12 / 2 = 6 → クランプで4
+    EXPECT_EQ(mermaid_util::ComputeWorkerCount(12), 4);
+}
+
+TEST(ComputeWorkerCount, SixteenProcessorsReturnsMaximum) {
+    // 16 / 2 = 8 → クランプで4
+    EXPECT_EQ(mermaid_util::ComputeWorkerCount(16), 4);
+}
+
+TEST(ComputeWorkerCount, LargeProcessorCountReturnsMaximum) {
+    EXPECT_EQ(mermaid_util::ComputeWorkerCount(128), 4);
+}
