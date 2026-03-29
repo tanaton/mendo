@@ -1,11 +1,5 @@
 # mendo ソフトウェア詳細仕様書
 
-> **文書バージョン**: 1.2.0
-> **最終更新日**: 2026-03-28
-> **対象ソフトウェア**: mendo v1.2
-
----
-
 ## 1. はじめに
 
 ### 1.1 本文書の目的
@@ -56,9 +50,11 @@ graph TB
         CG[CommandGenerator<br>描画コマンド生成]
         CE[CommandExecutor<br>描画コマンド実行]
         MR[MermaidRenderer<br>WebView2 SVG→PNG]
+        IL[ImageLoader<br>非同期WIC画像読み込み]
         NS[NavigationService<br>リンク & 履歴ナビゲーション]
         TS[ThemeService<br>テーマ & ズーム管理]
         TB[TitleBar<br>カスタムタイトルバー]
+        CM[ContextMenu<br>カスタムコンテキストメニュー]
         TN[ToastNotifier<br>トースト通知]
         SD[SwipeDetector<br>スワイプ検出]
     end
@@ -92,12 +88,15 @@ graph TB
     CE --> L
     CE --> N
     APP --> MR
+    APP --> IL
     MR --> J
     MR --> K
     MR --> N
+    IL --> N
     APP --> NS
     APP --> TS
     APP --> TB
+    APP --> CM
     APP --> TN
     APP --> SD
     W --> O
@@ -114,6 +113,7 @@ graph LR
         RP[RendererPane]
         RB[D2DRenderBackend]
         TB_L[TitleBar]
+        CM_L[ContextMenu]
     end
 
     subgraph アプリケーション層
@@ -125,6 +125,7 @@ graph LR
         FLS[FileLoadService]
         LS[LayoutService]
         HTS[HitTestService]
+        IL_L[ImageLoader]
     end
 
     subgraph ドメイン層
@@ -207,12 +208,17 @@ public:
     bool Create(HINSTANCE hInstance, int nCmdShow);
     int  RunMessageLoop();
 
-    void LoadMarkdownFile(const std::wstring& path);
-    std::wstring LoadLastFilePath() const;
+    void LoadMarkdownFile(std::wstring_view path);
+    void LoadHelpDocument();
+    std::pmr::wstring LoadLastFilePath() const;
+    void ShowDirectory(std::wstring_view dir_path);
 
 private:
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
+    LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);
+    LRESULT OnNcHitTest(LPARAM lParam);
+    void UpdateDwmFrame();
 
     HWND hwnd_ = nullptr;
     App  app_;
@@ -237,7 +243,9 @@ class App {
 public:
     bool Init(HWND hwnd);
     void LoadMarkdownFile(std::wstring_view path);
+    void LoadHelpDocument();
     std::pmr::wstring LoadLastFilePath() const;
+    void ShowDirectory(std::wstring_view dir_path);
 
     // Win32Window から呼び出されるイベントハンドラ
     void OnPaint();
@@ -260,6 +268,7 @@ public:
     void OnContextMenu(int screen_x, int screen_y);
     void HandleTimer(UINT_PTR timer_id);
     void OnAppLoadFile();
+    void OnAppImageLoaded();
     void OnCaptureChanged();
     void OnDestroy();
     void OnEnterSizeMove();
@@ -268,9 +277,16 @@ public:
     // ...
 
 private:
+    // Win32ハンドル
+    HWND               hwnd_ = nullptr;
+    float              cached_dpi_scale_ = 1.0f;
+    HCURSOR            cursor_arrow_, cursor_hand_;
+    HCURSOR            cursor_ibeam_, cursor_sizewe_;
+
     // コアサービス
     Renderer           renderer_;
     MermaidRenderer    mermaid_renderer_;
+    ImageLoader        image_loader_;
     FileLoader         file_loader_;
     DocumentService    doc_service_;
     AppController      controller_;
@@ -295,6 +311,9 @@ private:
     MouseGesture       gesture_;
     SwipeDetector      swipe_detector_;
     HitTestService     hit_test_;
+
+    // カスタムコンテキストメニュー
+    ContextMenu        ctx_menu_;
 
     // トースト通知
     ToastNotifier      toast_;
@@ -332,12 +351,14 @@ flowchart TD
     TIMER --> FWATCH[OnFileWatchTimer]
     TIMER --> DEFER[OnDeferredLayoutTimer]
     TIMER --> LANIM[OnLoadingAnimTimer]
+    W -->|WM_APP+2| IMGLD[App::OnAppImageLoaded]
 ```
 
 #### 3.2.4 キーボードショートカット
 
 | キー | 動作 | 備考 |
 |:-----|:-----|:-----|
+| `F1` | ヘルプ表示 | 内蔵ヘルプドキュメントを表示 |
 | `Ctrl+O` | ファイルを開く | OpenFileDialog 表示 |
 | `Ctrl+A` | 全選択 | 全ノードのテキストを選択 |
 | `Ctrl+C` | コピー | 選択テキストをクリップボードへ |
@@ -389,7 +410,8 @@ using AppAction = std::variant<
     CopyClipboardAction, SelectAllAction, ClearSelectionAction,
     TogglePaneAction, ZoomAction,
     ReloadFileAction, OpenFileAction, ToggleDarkModeAction,
-    NavigateBackAction, NavigateForwardAction
+    NavigateBackAction, NavigateForwardAction,
+    ShowHelpAction
 >;
 ```
 
@@ -616,8 +638,9 @@ public:
 10. マウスジェスチャトレイル & 方向オーバーレイ
 11. スワイプオーバーレイ（`SwipeDetector` による方向表示）
 12. カスタムタイトルバー（`TitleBar`）
-13. トースト通知（`ToastNotifier`）
-14. ローディングアニメーション
+13. コンテキストメニュー（`ContextMenu` — モーダルポップアップ）
+14. トースト通知（`ToastNotifier`）
+15. ローディングアニメーション
 
 ---
 
@@ -663,7 +686,9 @@ struct Theme {
     // スペーシング
     float margin_left, margin_right, margin_top;
     float paragraph_spacing;
+    float list_item_spacing;
     float heading_spacing_above, heading_spacing_below;
+    float code_block_spacing_above;
     float code_block_padding;
     float indent_width;
     float blockquote_bar_width;
@@ -997,20 +1022,29 @@ class ViewportManager {
 public:
     // スクロール
     float GetScrollY() const noexcept;
+    float GetScrollTarget() const noexcept;
+    float GetMaxScroll() const noexcept;
+    bool IsSmoothScrolling() const noexcept;
     void ScrollTo(float position) noexcept;
     void SmoothScrollBy(float delta) noexcept;
-    bool UpdateSmoothScroll() noexcept;
+    bool UpdateSmoothScroll(float dt_ms) noexcept;
+    bool UpdateSmoothScroll() noexcept;         // 16ms基準のオーバーロード
     void StopSmoothScroll() noexcept;
     void SyncMaxScroll(float total_height, float viewport_height) noexcept;
     int FindFirstVisibleNode(const LayoutCache& cache, size_t count) const noexcept;
+    void AnchorCompensateScroll(int anchor_idx, float anchor_y_before,
+                                const LayoutCache& cache) noexcept;
 
     // 選択
     const TextSelection& GetSelection() const noexcept;
+    TextSelection& GetSelectionMut() noexcept;
+    void SetSelection(const TextSelection& sel) noexcept;
     void ClearSelection() noexcept;
-    void SelectAll(const std::vector<Node>& nodes) noexcept;
+    void SelectAll(const std::pmr::vector<Node>& nodes) noexcept;
 
     // ズーム
     int GetZoomIndex() const noexcept;
+    void SetZoomIndex(int idx) noexcept;
     float GetCurrentZoom() const noexcept;
     float ZoomIn() noexcept;
     float ZoomOut() noexcept;
@@ -1018,6 +1052,9 @@ public:
 
     static constexpr float SCROLL_SPEED = 0.25f;
     static constexpr float SCROLL_EPSILON = 1.5f;
+    static constexpr float SCROLL_REFERENCE_DT = 16.0f; // 基準フレーム時間（ms）
+    static constexpr float MAX_DELTA_MS = 100.0f;       // デルタタイム上限（ms）
+    static constexpr float MAX_SCROLL_SPEED = 10.0f;    // スクロール速度上限（px/ms）
 };
 ```
 
@@ -1032,13 +1069,15 @@ stateDiagram-v2
     Idle --> Navigating : TOC項目クリック / 内部リンク
 
     Scrolling --> Animating : SmoothScrollBy(delta)
-    Animating --> Animating : UpdateSmoothScroll<br>diff * 0.25 per frame
+    Animating --> Animating : UpdateSmoothScroll(dt_ms)<br>フレームレート非依存補間
     Animating --> Idle : |diff| < 1.5px
 
     Dragging --> Clamping : ScrollTo(position)
     Navigating --> Clamping : ScrollTo(anchor_y)
     Clamping --> Idle : InvalidateRect
 ```
+
+スムーズスクロールはフレームレート非依存の指数イージングを使用する。各フレームでの移動量は `diff * (1 - (1 - 0.25)^(dt_ms / 16))` で計算され、最大速度 `10px/ms` でクランプされる。
 
 ---
 
@@ -1165,11 +1204,15 @@ public:
 
 #### 3.15.2 保存項目
 
-| 項目 | 型 | 既定値 |
-|:-----|:---|:------|
-| ダークモード | `bool` | `false` |
-| ズームインデックス | `int` | `7` (1.00x) |
-| 最後に開いたファイルパス | `wstring` | 空文字列 |
+| 項目 | ファイル名 | 型 | 既定値 |
+|:-----|:----------|:---|:------|
+| ダークモード | `dark_mode.txt` | `bool` | `false` |
+| ズームインデックス | `zoom_level.txt` | `int` | `7` (1.00x) |
+| 最後に開いたファイルパス | `last_file.txt` | `wstring` | 空文字列 |
+| ファイルペイン幅 | `pane_file_width.txt` | `int` | `220` (DIP) |
+| TOCペイン幅 | `pane_toc_width.txt` | `int` | `220` (DIP) |
+| ファイルペイン表示 | `pane_show_file.txt` | `bool` | `true` |
+| TOCペイン表示 | `pane_show_toc.txt` | `bool` | `true` |
 
 #### 3.15.3 ConfigService
 
@@ -1182,8 +1225,8 @@ public:
     bool LoadBool(const wchar_t* key, bool default_value = false) const;
     void SaveInt(const wchar_t* key, int value);
     int LoadInt(const wchar_t* key, int def, int min_v, int max_v) const;
-    void SaveWString(const wchar_t* key, const std::wstring& value);
-    std::wstring LoadWString(const wchar_t* key) const;
+    void SaveWString(const wchar_t* key, std::wstring_view value);
+    std::pmr::wstring LoadWString(const wchar_t* key) const;
 };
 ```
 
@@ -1193,35 +1236,44 @@ public:
 
 #### 3.16.1 概要
 
-`TitleBar` はWin32の標準タイトルバーを置き換えるカスタムタイトルバーを管理する。ファイルペイン/TOCペインのトグルボタンと、最小化/最大化/閉じるボタンを含む。
+`TitleBar` はWin32の標準タイトルバーを置き換えるカスタムタイトルバーを管理する。ヘルプボタン、ダークモード切替ボタン、ファイルペイン/TOCペインのトグルボタン、最小化/最大化/閉じるボタンを含む。
 
 ```cpp
 enum class TitleBarHitZone {
-    None, Caption, FileToggle, TocToggle,
+    None, Caption, Help, ThemeToggle,
+    FileToggle, TocToggle,
     Minimize, Maximize, Close
 };
 
 struct TitleBarButton {
-    D2D1_RECT_F rect;
-    bool hovered;
+    D2D1_RECT_F rect{};
+    bool hovered = false;
 };
 
 class TitleBar {
 public:
     static constexpr float BASE_HEIGHT = 32.0f;
     static constexpr float BUTTON_WIDTH = 32.0f;
+    static constexpr float ICON_LEFT_MARGIN = 8.0f;
+    static constexpr float ICON_SIZE = 24.0f;
+    static constexpr float ICON_RIGHT_GAP = 4.0f;
+    static constexpr float BUTTON_GAP = 2.0f;
     static constexpr float CAPTION_BTN_WIDTH = 46.0f;
 
     float GetHeight() const noexcept;
     void UpdateLayout(float window_width_dip) noexcept;
     TitleBarHitZone HitTest(float dip_x, float dip_y) const noexcept;
     bool SetHovered(TitleBarHitZone zone) noexcept;
+    TitleBarHitZone GetHovered() const noexcept;
 
+    const TitleBarButton& GetHelpButton() const noexcept;
+    const TitleBarButton& GetThemeToggleButton() const noexcept;
     const TitleBarButton& GetFileToggleButton() const noexcept;
     const TitleBarButton& GetTocToggleButton() const noexcept;
     const TitleBarButton& GetMinimizeButton() const noexcept;
     const TitleBarButton& GetMaximizeButton() const noexcept;
     const TitleBarButton& GetCloseButton() const noexcept;
+    const D2D1_RECT_F& GetIconRect() const noexcept;
     const D2D1_RECT_F& GetTitleTextRect() const noexcept;
 };
 ```
@@ -1292,9 +1344,127 @@ public:
 
 ---
 
-### 3.19 UIConstants — UI定数
+### 3.19 ContextMenu — カスタムコンテキストメニュー
 
-`ui_constants.h` にはUI全体で共有される定数とヘルパー関数を集約している。
+#### 3.19.1 概要
+
+`ContextMenu` はWin32のシステムメニューの代わりに、Direct2Dで自前描画するカスタムコンテキストメニューを提供する。戻る/進むボタンの横並び表示に対応する。
+
+```cpp
+struct ContextMenuParams {
+    int screen_x = 0;
+    int screen_y = 0;
+    float dpi_scale = 1.0f;
+    bool can_go_back = false;
+    bool can_go_forward = false;
+    bool has_file = false;
+    bool has_selection = false;
+    bool dark_mode_checked = false;
+    bool file_pane_checked = false;
+    bool toc_pane_checked = false;
+    bool show_file_items = false;       // MdPaneの場合のみtrue
+    const Theme* theme = nullptr;
+};
+
+class ContextMenu {
+public:
+    enum class ItemType { NavRow, Separator, Text };
+
+    void Init(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory);
+    int Show(HWND owner, const ContextMenuParams& params);
+    int HitTest(float x, float y) const;
+    int NavHitTest(float x, float y) const;
+};
+```
+
+#### 3.19.2 メニュー構成
+
+```
+┌──────────────────────────────────┐
+│ ← [戻る]  [進む] →               │  NavRow（横並び）
+├──────────────────────────────────┤
+│ エディタで開く                    │  ※ MdPaneのみ表示
+├──────────────────────────────────┤
+│ コピー                           │  ※ MdPaneのみ / 選択なしで無効
+├──────────────────────────────────┤
+│ ☑ ダークモード                    │  トグル
+├──────────────────────────────────┤
+│ ☑ ファイルペイン                  │  トグル
+├──────────────────────────────────┤
+│ ☑ 目次ペイン                     │  トグル
+└──────────────────────────────────┘
+```
+
+`show_file_items` が `false` の場合（ペイン上での右クリック）、「エディタで開く」と「コピー」は非表示になる。
+
+#### 3.19.3 定数
+
+| 定数 | 値 | 説明 |
+|:-----|:---|:-----|
+| `ITEM_HEIGHT` | 28px | テキスト項目の高さ |
+| `NAV_BTN_SIZE` | 28px | 戻る/進むボタンのサイズ |
+| `NAV_BTN_GAP` | 16px | ナビゲーションボタン間のギャップ |
+| `SEPARATOR_HEIGHT` | 9px | セパレータの高さ |
+| `PAD_X` | 28px | 左右パディング |
+| `MENU_CORNER` | 8px | メニューの角丸半径 |
+
+---
+
+### 3.20 ImageLoader — 非同期画像読み込み
+
+#### 3.20.1 概要
+
+`ImageLoader` はWIC（Windows Imaging Component）を使用した非同期画像読み込みを担当する。ワーカースレッドでデコードを行い、UIスレッドでD2Dビットマップに変換する。
+
+```cpp
+class ImageLoader {
+public:
+    void Init(ID2D1RenderTarget* rt);
+    void InitAsync(HWND hwnd, UINT msg_id);
+    bool LoadImage(const std::wstring& path, DiagramEntry& out);
+    bool GetCachedImage(const std::wstring& path, DiagramEntry& out);
+    void RequestLoadAsync(const std::wstring& path);
+    void ProcessCompletedDecodes();
+    void CancelPending();
+    void ClearCache();
+    void Shutdown();
+};
+```
+
+#### 3.20.2 対応画像形式
+
+WICが対応する形式すべてをデコード可能。主な形式は以下の通り。
+
+| 形式 | 拡張子 |
+|:-----|:------|
+| PNG | `.png` |
+| JPEG | `.jpg`, `.jpeg` |
+| BMP | `.bmp` |
+
+#### 3.20.3 非同期処理フロー
+
+```mermaid
+sequenceDiagram
+    participant APP as App (UIスレッド)
+    participant IL as ImageLoader
+    participant WK as ワーカースレッド
+    participant WIC as WIC
+
+    APP->>IL: RequestLoadAsync(path)
+    IL->>WK: キューに追加
+    WK->>WIC: デコード → ピクセルデータ
+    WIC-->>WK: IWICBitmapSource
+    WK-->>APP: WM_APP_IMAGE_LOADED メッセージ
+    APP->>IL: ProcessCompletedDecodes()
+    IL->>IL: ピクセル → ID2D1Bitmap 変換
+    IL-->>APP: キャッシュに格納
+```
+
+---
+
+### 3.21 UIConstants — UI定数
+
+`ui_constants.h` にはUI全体で共有される定数とヘルパー関数を集約する。
 
 | 定数グループ | 内容 |
 |:------------|:-----|
@@ -1307,7 +1477,7 @@ public:
 
 ---
 
-### 3.20 MemoryResource — PMRメモリ管理
+### 3.22 MemoryResource — PMRメモリ管理
 
 `memory_resource.h` はアプリケーション全体で使用するPMR（Polymorphic Memory Resource）を提供する。
 
@@ -1585,6 +1755,7 @@ sequenceDiagram
     R->>R: DrawGestureOverlay()
     R->>R: DrawSwipeOverlay()
     R->>R: DrawTitleBar()
+    Note right of R: ContextMenuはモーダル<br>ポップアップで別途描画
     R->>R: DrawToast()
     R->>R: DrawLoadingAnimation()
     R->>RT: EndDraw()
@@ -1646,7 +1817,7 @@ ctest --test-dir build --output-on-failure -C Release
 |:-----------|:-----|:-----|
 | `mendo_core` | 静的ライブラリ | テスト可能なコアロジック（WinMain・ウィンドウ・レンダラを含まない） |
 | `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
-| `mendo_tests` | テスト | 全テストを含む単一バイナリ（32テストソース） |
+| `mendo_tests` | テスト | 全テストを含む単一バイナリ（35テストソース） |
 
 ### 6.4 MSVC ビルド最適化
 
@@ -1669,11 +1840,11 @@ ctest --test-dir build --output-on-failure -C Release
 - 単一テストバイナリ `mendo_tests` に全テストをリンク
 - `gtest_add_tests` で CTest に登録
 
-### 7.2 テストソースファイル（32ファイル）
+### 7.2 テストソースファイル（35ファイル）
 
 ```mermaid
 pie title テストカバレッジ（ファイル数ベース）
-    "テスト済みモジュール" : 32
+    "テスト済みモジュール" : 35
     "UIコード（テスト対象外）" : 7
 ```
 
@@ -1715,6 +1886,9 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_titlebar.cpp` | TitleBar |
 | `test_toast_notifier.cpp` | ToastNotifier |
 | `test_ui_constants.cpp` | UIConstants |
+| `test_context_menu.cpp` | ContextMenu |
+| `test_image.cpp` | ImageLoader |
+| `test_help.cpp` | ヘルプドキュメント |
 
 ### 7.4 主要テストケース
 
@@ -1752,9 +1926,25 @@ pie title テストカバレッジ（ファイル数ベース）
 - [x] NavigationService のリンク種別判定
 - [x] MouseGesture の状態遷移と方向検出
 
+#### コンテキストメニューテスト
+
+- [x] メニュー項目の構築（MdPane / 非MdPane）
+- [x] ナビゲーション行のレイアウト
+- [x] ヒットテスト
+
+#### 画像テスト
+
+- [x] 画像パスの解決
+- [x] キャッシュの動作確認
+
+#### ヘルプテスト
+
+- [x] ヘルプパス判定（`IsHelpPath`）
+- [x] ヘルプドキュメントの読み込み
+
 #### ビューポートテスト
 
-- [x] スムーズスクロールの補間計算
+- [x] スムーズスクロールの補間計算（フレームレート非依存）
 - [x] ズームイン/アウト/リセット
 - [x] 選択の全選択/クリア
 - [x] max_scroll の同期
@@ -1889,6 +2079,10 @@ src/
 ├── swipe_detector.h        # SwipeDetector 宣言 (タッチパッドスワイプ検出)
 ├── titlebar.h              # TitleBar 宣言 (カスタムタイトルバー)
 ├── toast_notifier.h        # ToastNotifier 宣言 (トースト通知)
+├── context_menu.h          # ContextMenu 宣言 (カスタムコンテキストメニュー)
+├── context_menu.cpp        # ContextMenu 実装
+├── image_loader.h          # ImageLoader 宣言 (非同期画像読み込み)
+├── image_loader.cpp        # ImageLoader 実装
 ├── ui_constants.h          # UI定数 & ヘルパー関数
 ├── memory_resource.h       # PMRメモリリソース管理
 ├── utility.h               # ユーティリティ関数
@@ -1983,6 +2177,9 @@ src/
 - [x] カスタムタイトルバー
 - [x] トースト通知
 - [x] タッチパッドスワイプ検出
+- [x] カスタムコンテキストメニュー
+- [x] 非同期画像読み込み
+- [x] ヘルプドキュメント
 - [ ] パフォーマンス最適化
 - [ ] ドキュメント整備
 
@@ -2620,7 +2817,9 @@ exit /b 0
 | 28 | SwipeDetector | swipe_detector.h | なし | あり |
 | 29 | ToastNotifier | toast_notifier.h | なし | あり |
 | 30 | UIConstants | ui_constants.h | なし | あり |
-| 31 | MemoryResource | memory_resource.h | PMR | なし |
+| 31 | ContextMenu | context_menu.h/cpp | D2D, Theme | あり |
+| 32 | ImageLoader | image_loader.h/cpp | WIC, D2D | あり |
+| 33 | MemoryResource | memory_resource.h | PMR | なし |
 
 ---
 
@@ -2763,10 +2962,13 @@ gantt
     カスタムタイトルバー          :done, f1, after e3, 7d
     トースト通知                  :done, f2, after f1, 3d
     タッチパッドスワイプ          :done, f3, after f2, 3d
-    PMRメモリ最適化               :done, f4, after f3, 7d
+    カスタムコンテキストメニュー  :done, f4, after f3, 5d
+    非同期画像読み込み            :done, f5, after f4, 5d
+    ヘルプドキュメント            :done, f6, after f5, 3d
+    PMRメモリ最適化               :done, f7, after f6, 7d
 
     section 品質
-    ユニットテスト整備            :done, d1, after f4, 14d
+    ユニットテスト整備            :done, d1, after f7, 14d
     パフォーマンス最適化          :active, d2, after d1, 14d
     ドキュメント整備              :active, d3, after d1, 7d
 ```
@@ -2819,5 +3021,3 @@ GitHub Alerts記法を用いたコールアウトの表示テスト。各Alert�
 > 通常の引用ブロックとAlertは同じ文書内で共存できます。
 
 ---
-
-*本文書は mendo の詳細仕様を網羅的に記述したものであり、開発・テスト・保守の参照資料として利用されることを想定している。*
