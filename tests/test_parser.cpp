@@ -1017,3 +1017,171 @@ TEST(Parser, AlertTextStartsWithLabelThenNewline) {
     std::wstring expected = std::wstring(GetAlertIcon(AlertType::Caution)) + L" Caution";
     EXPECT_EQ(text.substr(0, nl), std::wstring_view(expected));
 }
+
+// ---- ソースオフセット ----
+
+TEST(Parser, SourceOffsetSingleParagraph) {
+    auto nodes = ParseMarkdown("Hello world");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].source_offset, 0u);
+}
+
+TEST(Parser, SourceOffsetHeading) {
+    // "# Title" → テキスト "Title" はオフセット 2 から
+    auto nodes = ParseMarkdown("# Title");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].source_offset, 2u);
+}
+
+TEST(Parser, SourceOffsetMultipleParagraphs) {
+    // "First\n\nSecond\n\nThird"
+    // "First" = offset 0, "Second" = offset 7, "Third" = offset 15
+    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird");
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[0].source_offset, 0u);
+    EXPECT_EQ(nodes[1].source_offset, 7u);
+    EXPECT_EQ(nodes[2].source_offset, 15u);
+}
+
+TEST(Parser, SourceOffsetIncreasing) {
+    // ノードの source_offset は単調増加であるべき
+    auto nodes = ParseMarkdown(
+        "# Heading\n\n"
+        "Paragraph\n\n"
+        "- item1\n"
+        "- item2\n\n"
+        "```\ncode\n```\n\n"
+        "End");
+    ASSERT_GE(nodes.size(), 3u);
+    uint32_t prev = 0;
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].source_offset != UINT32_MAX) {
+            EXPECT_GE(nodes[i].source_offset, prev)
+                << "ノード " << i << " の source_offset が前のノードより小さい";
+            prev = nodes[i].source_offset;
+        }
+    }
+}
+
+TEST(Parser, SourceOffsetCodeBlock) {
+    // "```\nhello\n```" → コードブロック内テキストのオフセット
+    auto nodes = ParseMarkdown("```\nhello\n```");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
+    // コードブロックのテキスト "hello" は "```\n" = 4バイト目から
+    EXPECT_EQ(nodes[0].source_offset, 4u);
+}
+
+TEST(Parser, SourceOffsetEmptyInput) {
+    auto nodes = ParseMarkdown("");
+    EXPECT_TRUE(nodes.empty());
+}
+
+TEST(Parser, SourceOffsetHorizontalRule) {
+    // "---" はテキストを持たないのでsource_offsetは未設定(UINT32_MAX)のまま
+    auto nodes = ParseMarkdown("---");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::HorizontalRule);
+    EXPECT_EQ(nodes[0].source_offset, UINT32_MAX);
+}
+
+TEST(Parser, SourceOffsetUtf8Multibyte) {
+    // "あいう\n\ntest" → "あいう"=9バイト, "\n\n"=2バイト
+    auto nodes = ParseMarkdown("あいう\n\ntest");
+    ASSERT_EQ(nodes.size(), 2u);
+    EXPECT_EQ(nodes[0].source_offset, 0u);
+    EXPECT_EQ(nodes[1].source_offset, 11u); // 9 + 2
+}
+
+TEST(Parser, SourceOffsetUnorderedList) {
+    // "- A\n- B\n- C"
+    // "- " = 2バイト, "A" offset=2, "\n- " = 3バイト, "B" offset=5+2=7?
+    // 実際: "- A\n" = 4, "- B\n" = 4, "- C" = 3
+    auto nodes = ParseMarkdown("- A\n- B\n- C");
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[0].source_offset, 2u);  // "A" = "- " の後
+    EXPECT_EQ(nodes[1].source_offset, 6u);  // "B" = "- A\n- " の後
+    EXPECT_EQ(nodes[2].source_offset, 10u); // "C" = "- A\n- B\n- " の後
+}
+
+TEST(Parser, SourceOffsetOrderedList) {
+    // "1. First\n2. Second"
+    auto nodes = ParseMarkdown("1. First\n2. Second");
+    ASSERT_EQ(nodes.size(), 2u);
+    EXPECT_EQ(nodes[0].source_offset, 3u);  // "First" = "1. " の後
+    EXPECT_EQ(nodes[1].source_offset, 12u); // "Second" = "1. First\n2. " の後
+}
+
+TEST(Parser, SourceOffsetBlockQuote) {
+    // "> quoted\n\nnormal"
+    auto nodes = ParseMarkdown("> quoted\n\nnormal");
+    ASSERT_GE(nodes.size(), 2u);
+    EXPECT_EQ(nodes[0].source_offset, 2u); // "quoted" = "> " の後
+}
+
+TEST(Parser, SourceOffsetNestedList) {
+    // ネストされたリストでも単調増加
+    auto nodes = ParseMarkdown("- outer\n  - inner\n- next");
+    ASSERT_GE(nodes.size(), 3u);
+    uint32_t prev = 0;
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].source_offset != UINT32_MAX) {
+            EXPECT_GE(nodes[i].source_offset, prev)
+                << "ノード " << i << " の offset が前のノードより小さい";
+            prev = nodes[i].source_offset;
+        }
+    }
+}
+
+TEST(Parser, SourceOffsetTable) {
+    // テーブルノードの source_offset はヘッダの最初のセルテキスト
+    auto nodes = ParseMarkdown(
+        "| A | B |\n"
+        "|---|---|\n"
+        "| 1 | 2 |");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Table);
+    // "| " の後の "A" = offset 2
+    EXPECT_EQ(nodes[0].source_offset, 2u);
+}
+
+TEST(Parser, SourceOffsetCodeBlockWithLanguage) {
+    // "```cpp\nint x;\n```" → テキストは "```cpp\n" = 7バイト目から
+    auto nodes = ParseMarkdown("```cpp\nint x;\n```");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].source_offset, 7u);
+}
+
+TEST(Parser, SourceOffsetMixedDocument) {
+    // 多様なブロック型を含む文書で全ノードの offset が有効かつ単調増加
+    std::string md =
+        "# Title\n\n"            // heading
+        "Paragraph\n\n"          // paragraph
+        "- item\n\n"             // list
+        "> quote\n\n"            // blockquote
+        "```\ncode\n```\n\n"     // code
+        "---\n\n"                // hr (UINT32_MAX)
+        "End";                   // paragraph
+    auto nodes = ParseMarkdown(md);
+    ASSERT_GE(nodes.size(), 6u);
+
+    uint32_t prev = 0;
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].source_offset != UINT32_MAX) {
+            EXPECT_GE(nodes[i].source_offset, prev)
+                << "ノード " << i << " (type="
+                << static_cast<int>(nodes[i].type) << ") の offset が不正";
+            EXPECT_LT(nodes[i].source_offset, static_cast<uint32_t>(md.size()))
+                << "ノード " << i << " の offset がソース長を超えている";
+            prev = nodes[i].source_offset;
+        }
+    }
+}
+
+TEST(Parser, SourceOffsetTaskList) {
+    auto nodes = ParseMarkdown("- [x] done\n- [ ] todo");
+    ASSERT_EQ(nodes.size(), 2u);
+    // "- [x] " = 6バイト, "done" offset=6
+    EXPECT_EQ(nodes[0].source_offset, 6u);
+    EXPECT_EQ(nodes[1].source_offset, 17u); // "- [x] done\n- [ ] " = 17
+}

@@ -3,6 +3,7 @@
 #include <cwctype>
 #include <filesystem>
 #include <format>
+#include <algorithm>
 #include <iterator>
 
 std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
@@ -159,6 +160,27 @@ bool IsMarkdownFile(std::wstring_view path)
         c = std::towlower(c);
     }
     return ext == L".md" || ext == L".markdown" || ext == L".mkd";
+}
+
+size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
+{
+    auto [it_old, it_new] = std::mismatch(old_text.begin(), old_text.end(),
+        new_text.begin(), new_text.end());
+    if (it_old == old_text.end() && it_new == new_text.end()) {
+        return std::string_view::npos;
+    }
+    return static_cast<size_t>(it_old - old_text.begin());
+}
+
+int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_offset) noexcept
+{
+    int result = -1;
+    for (int i = 0; i < static_cast<int>(nodes.size()); ++i) {
+        if (nodes[i].source_offset != UINT32_MAX && nodes[i].source_offset <= diff_offset) {
+            result = i;
+        }
+    }
+    return result;
 }
 
 std::pmr::wstring ExtractFilename(std::wstring_view path)

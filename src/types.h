@@ -102,6 +102,7 @@ struct Node {
     bool task_checked = false;
     AlertType alert_type = AlertType::None;
     uint32_t alert_label_length = 0; // ラベル部分の文字数（描画エフェクト適用範囲）
+    uint32_t source_offset = UINT32_MAX; // ソースUTF-8内のバイトオフセット（未設定時UINT32_MAX）
     int blockquote_group = -1;       // 同一 MD_BLOCK_QUOTE 内のノードを識別するグループID
     std::pmr::wstring text;
     std::pmr::vector<TextRun> runs;

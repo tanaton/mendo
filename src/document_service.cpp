@@ -6,7 +6,7 @@ bool DocumentService::LoadFile(const std::pmr::wstring& path, Document& doc)
     if (content.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return false;
     }
-    doc = Document::FromMarkdown(content, path);
+    doc = Document::FromMarkdown(std::move(content), path);
     return true;
 }
 

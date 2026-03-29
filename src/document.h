@@ -12,7 +12,7 @@ public:
     constexpr Document() noexcept = default;
 
     // ファクトリ
-    static Document FromMarkdown(const std::pmr::string& utf8, std::wstring_view path);
+    static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 
     // アクセサ
     constexpr const std::pmr::vector<Node>& GetNodes() const noexcept { return nodes_; }
@@ -20,6 +20,7 @@ public:
     constexpr const std::pmr::wstring& GetFilePath() const noexcept { return file_path_; }
     constexpr const TableOfContents& GetToc() const noexcept { return toc_; }
     constexpr bool IsEmpty() const noexcept { return nodes_.empty(); }
+    const std::pmr::string& GetRawUtf8() const noexcept { return raw_utf8_; }
     std::pmr::wstring GetDirectory() const;
 
     // ファイルパス設定（LoadMarkdownFile で使用）
@@ -29,7 +30,7 @@ public:
     void ReplaceContent(std::pmr::vector<Node> new_nodes);
 
     // Markdown文字列から��容を再パース（パスは保持）
-    void ReplaceFromMarkdown(const std::pmr::string& utf8);
+    void ReplaceFromMarkdown(std::pmr::string utf8);
 
     // アンカーIDに一致する見出しノードのインデックスを O(1) で検索する。
     // 見つか��ない場合は -1 を返す。
@@ -40,6 +41,7 @@ private:
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
+    std::pmr::string raw_utf8_;
     TableOfContents toc_;
     std::pmr::unordered_map<std::pmr::wstring, int> anchor_index_;
 };
