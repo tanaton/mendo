@@ -31,18 +31,20 @@ int TableOfContents::HitTest(float local_y, float item_height) const noexcept
     return index;
 }
 
-int TableOfContents::FindActiveIndex(const LayoutCache& cache, float scroll_y) const noexcept
+int TableOfContents::FindActiveIndex(const LayoutCache& cache, float scroll_y, float margin) const noexcept
 {
     int n = static_cast<int>(entries_.size());
     if (n == 0) {
         return -1;
     }
-    // 二分探索: cache[entries_[i].node_index].y_position <= scroll_y を満たす最大の i を求める
+    // 二分探索: cache[entries_[i].node_index].y_position <= scroll_y + margin を満たす最大の i を求める
+    // margin はMDペイン上端オフセット＋見出し上部余白で、画面上端に近い見出しを正しくアクティブにする。
+    float threshold = scroll_y + margin;
     int lo = 0, hi = n;
     while (lo < hi) {
         int mid = lo + (hi - lo) / 2;
         int ni = entries_[mid].node_index;
-        if (ni >= 0 && ni < static_cast<int>(cache.size()) && cache[ni].y_position <= scroll_y) {
+        if (ni >= 0 && ni < static_cast<int>(cache.size()) && cache[ni].y_position <= threshold) {
             lo = mid + 1;
         }
         else {

@@ -314,7 +314,8 @@ void App::OnPaint()
     // 目次ペインの同期: mdペインのスクロール位置からアクティブ見出しを判定し、
     // 目次ペインを自動スクロールする
     if (panes_.IsTocPaneVisible() && !file_load_service_.IsLoading()) {
-        int new_active = doc_.GetToc().FindActiveIndex(layout_cache_, viewport_.GetScrollY());
+        float toc_margin = layout.md_rect.y + renderer_.GetTheme().heading_spacing_above;
+        int new_active = doc_.GetToc().FindActiveIndex(layout_cache_, viewport_.GetScrollY(), toc_margin);
         if (new_active != active_toc_index_) {
             active_toc_index_ = new_active;
             renderer_.InvalidateTocPaneCache();

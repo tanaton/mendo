@@ -251,3 +251,28 @@ TEST(Toc, FindActiveIndexManyHeadings) {
     EXPECT_EQ(toc.FindActiveIndex(cache, 450.0f), 4);
     EXPECT_EQ(toc.FindActiveIndex(cache, 999.0f), 9);
 }
+
+// margin付きのFindActiveIndex: TOCリンククリック時に正しい見出しがアクティブになることを確認
+TEST(Toc, FindActiveIndexWithMargin) {
+    auto nodes = ParseMarkdown("# First\n\nText\n\n## Second");
+    TableOfContents toc;
+    toc.BuildFromNodes(nodes);
+
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    int first_idx = toc.GetEntries()[0].node_index;
+    int second_idx = toc.GetEntries()[1].node_index;
+    cache[first_idx].y_position = 100.0f;
+    cache[first_idx].height = 30.0f;
+    cache[second_idx].y_position = 300.0f;
+    cache[second_idx].height = 25.0f;
+
+    // NavigateToAnchorが target_y = y_position - margin でスクロールする想定
+    // margin=50 のとき、scroll_y=250 (= 300 - 50) で2番目の見出しがアクティブになるべき
+    float margin = 50.0f;
+    float scroll_after_click = 300.0f - margin;  // = 250
+    // margin無しでは scroll_y=250 < y_position=300 なので1番目が選ばれてしまう
+    EXPECT_EQ(toc.FindActiveIndex(cache, scroll_after_click), 0);
+    // margin有りでは threshold=300 >= y_position=300 なので2番目が正しく選ばれる
+    EXPECT_EQ(toc.FindActiveIndex(cache, scroll_after_click, margin), 1);
+}
