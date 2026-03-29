@@ -210,3 +210,8 @@ void FileLoader::CheckForChanges()
         }
     }
 }
+
+void FileLoader::ResetDebounceTick() noexcept
+{
+    last_reload_tick_ = GetTickCount64();
+}

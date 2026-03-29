@@ -16,6 +16,7 @@ public:
     void StartWatching(const std::pmr::wstring& path, FileLoader::ChangeCallback cb);
     void StopWatching() noexcept;
     void CheckForChanges();
+    void ResetDebounceTick() noexcept;
 
     // 大きいファイルかどうか（ローディングアニメ判定用）
     static bool NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept;

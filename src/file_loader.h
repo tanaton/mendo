@@ -15,6 +15,7 @@ public:
     void StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback);
     void StopWatching() noexcept;
     void CheckForChanges();
+    void ResetDebounceTick() noexcept;
 
 private:
     void BeginRead();

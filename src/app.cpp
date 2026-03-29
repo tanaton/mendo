@@ -612,6 +612,10 @@ void App::DoReloadCurrentFile()
         SyncMaxScroll(md_height);
         UpdateScrollBar();
         Invalidate();
+
+        // OSが同一セーブ操作で複数イベントを送るため、処理完了時点から
+        // デバウンスを再計測しないと重複リロードが発生する
+        doc_service_.ResetDebounceTick();
     }
 }
 

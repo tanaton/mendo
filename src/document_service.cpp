@@ -34,6 +34,11 @@ void DocumentService::CheckForChanges()
     loader_.CheckForChanges();
 }
 
+void DocumentService::ResetDebounceTick() noexcept
+{
+    loader_.ResetDebounceTick();
+}
+
 bool DocumentService::NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept
 {
     static constexpr DWORD LOADING_ANIM_THRESHOLD = 128 * 1024;
