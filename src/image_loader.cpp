@@ -67,7 +67,13 @@ void ImageLoader::InitAsync(HWND hwnd, UINT msg_id)
     hwnd_ = hwnd;
     msg_id_ = msg_id;
     shutdown_flag_.store(false);
-    worker_thread_ = std::thread(&ImageLoader::WorkerLoop, this);
+
+    int count = mermaid_util::ComputeWorkerCount(
+        std::thread::hardware_concurrency());
+    worker_threads_.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        worker_threads_.emplace_back(&ImageLoader::WorkerLoop, this);
+    }
 }
 
 void ImageLoader::Shutdown()
@@ -76,10 +82,13 @@ void ImageLoader::Shutdown()
         std::lock_guard lock(queue_mutex_);
         shutdown_flag_.store(true);
     }
-    queue_cv_.notify_one();
-    if (worker_thread_.joinable()) {
-        worker_thread_.join();
+    queue_cv_.notify_all();
+    for (auto& t : worker_threads_) {
+        if (t.joinable()) {
+            t.join();
+        }
     }
+    worker_threads_.clear();
 }
 
 bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)

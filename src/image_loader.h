@@ -1,5 +1,6 @@
 #pragma once
 #include "layout_cache.h"
+#include "mermaid_util.h"
 #include <d2d1.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -81,10 +82,10 @@ private:
     ID2D1RenderTarget* render_target_ = nullptr;
     std::unordered_map<std::wstring, CachedImage> cache_;
 
-    // 非同期ワーカー
+    // 非同期ワーカープール
     HWND hwnd_ = nullptr;
     UINT msg_id_ = 0;
-    std::thread worker_thread_;
+    std::vector<std::thread> worker_threads_;
     std::mutex queue_mutex_;
     std::condition_variable queue_cv_;
     std::queue<PendingRequest> request_queue_;

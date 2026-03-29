@@ -1140,3 +1140,100 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue) {
     // コールバックは発火しないこと
     EXPECT_EQ(callback_count_.load(), 0);
 }
+
+// ---- スレッドプールテスト ----
+
+TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly) {
+    // ワーカー数を超える画像を同時にリクエストし、全て正しくキャッシュされること
+    constexpr int kImageCount = 8;
+    std::vector<std::wstring> paths;
+    for (int i = 0; i < kImageCount; ++i) {
+        auto name = L"pool_" + std::to_wstring(i) + L".png";
+        UINT w = static_cast<UINT>(10 + i * 5);
+        UINT h = static_cast<UINT>(20 + i * 3);
+        ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, w, h));
+        paths.push_back(GetTestImagePath(name));
+    }
+
+    for (auto& p : paths) {
+        loader_.RequestLoadAsync(p, OnComplete, nullptr);
+    }
+
+    ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
+
+    for (int i = 0; i < kImageCount; ++i) {
+        DiagramEntry entry;
+        EXPECT_TRUE(loader_.GetCachedImage(paths[i], entry))
+            << "画像 " << i << " がキャッシュされていない";
+        EXPECT_FLOAT_EQ(entry.width, static_cast<float>(10 + i * 5));
+        EXPECT_FLOAT_EQ(entry.height, static_cast<float>(20 + i * 3));
+    }
+}
+
+TEST_F(ImageLoaderAsyncTest, ShutdownDuringHeavyLoad) {
+    // 大量のリクエスト中に Shutdown してもクラッシュしないこと
+    constexpr int kImageCount = 10;
+    for (int i = 0; i < kImageCount; ++i) {
+        auto name = L"heavy_" + std::to_wstring(i) + L".png";
+        ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 100, 100));
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete, nullptr);
+    }
+
+    // 処理途中で即座にシャットダウン — デッドロックやクラッシュが起きないこと
+    loader_.Shutdown();
+}
+
+TEST_F(ImageLoaderAsyncTest, ReinitAfterShutdownWithHeavyLoad) {
+    // Shutdown 後に再度 InitAsync して正常に動作すること
+    constexpr int kImageCount = 6;
+    for (int i = 0; i < kImageCount; ++i) {
+        auto name = L"reinit_a_" + std::to_wstring(i) + L".png";
+        ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 40, 40));
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete, nullptr);
+    }
+
+    loader_.Shutdown();
+    loader_.CancelPending();
+    loader_.ClearCache();
+    callback_count_.store(0);
+
+    // 再初期化
+    loader_.InitAsync(nullptr, 0);
+
+    auto name = L"reinit_b.png";
+    ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 77, 55));
+    auto path = GetTestImagePath(name);
+
+    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    ASSERT_TRUE(WaitForResults(1)) << "再初期化後の非同期読み込みが完了しなかった";
+
+    DiagramEntry entry;
+    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    EXPECT_FLOAT_EQ(entry.width, 77.0f);
+    EXPECT_FLOAT_EQ(entry.height, 55.0f);
+}
+
+TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload) {
+    // 大量リクエスト中にキャンセルし、その後に新たなリクエストが処理されること
+    constexpr int kImageCount = 8;
+    for (int i = 0; i < kImageCount; ++i) {
+        auto name = L"cancel_heavy_" + std::to_wstring(i) + L".png";
+        ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 50, 50));
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete, nullptr);
+    }
+
+    loader_.CancelPending();
+    callback_count_.store(0);
+
+    // キャンセル後に新しいリクエストが正常に処理されること
+    ASSERT_TRUE(CreateTestImage(L"after_cancel.png", GUID_ContainerFormatPng, 88, 66));
+    auto path = GetTestImagePath(L"after_cancel.png");
+
+    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    ASSERT_TRUE(WaitForResults(1)) << "キャンセル後のリクエストが完了しなかった";
+
+    DiagramEntry entry;
+    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    EXPECT_FLOAT_EQ(entry.width, 88.0f);
+    EXPECT_FLOAT_EQ(entry.height, 66.0f);
+}
