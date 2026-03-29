@@ -457,14 +457,38 @@ void MermaidRenderer::ProcessQueue()
         return;
     }
 
-    current_request_ = std::move(pending_requests_.front());
-    pending_requests_.pop();
-    current_request_.request_id = ++request_counter_;
-    rendering_ = true;
+    // キューからリクエストを取り出し、キャッシュヒットならWebView2をスキップする。
+    // 同一コードの図が複数あるとき、最初の1つのレンダリング完了後に
+    // 残りをキャッシュから即座に解決できる。
+    while (!pending_requests_.empty()) {
+        auto& front = pending_requests_.front();
+        auto it = cache_.find(front.code_hash);
+        if (it != cache_.end()) {
+            // キャッシュヒット: WebView2を経由せずにエントリを更新
+            front.diagram_entry->bitmap = it->second.bitmap;
+            front.diagram_entry->width = it->second.width;
+            front.diagram_entry->height = it->second.height;
+            front.layout_entry->height = it->second.height;
+            front.layout_entry->layout_dirty = false;
+            auto cb = front.on_complete;
+            auto cb_data = front.on_complete_data;
+            pending_requests_.pop();
+            if (cb) {
+                cb(cb_data);
+            }
+            continue;
+        }
 
-    RenderMermaidInWebView(std::wstring_view{ current_request_.node->text },
-        current_request_.max_width,
-        current_request_.dark_mode);
+        // キャッシュミス: current_request_に移動してWebView2でレンダリング開始
+        current_request_ = std::move(front);
+        pending_requests_.pop();
+        current_request_.request_id = ++request_counter_;
+        rendering_ = true;
+        RenderMermaidInWebView(std::wstring_view{ current_request_.node->text },
+            current_request_.max_width,
+            current_request_.dark_mode);
+        return;
+    }
 }
 
 void MermaidRenderer::FinishCurrentRequest()
