@@ -20,6 +20,7 @@ public:
     constexpr const std::pmr::wstring& GetFilePath() const noexcept { return file_path_; }
     constexpr const TableOfContents& GetToc() const noexcept { return toc_; }
     constexpr bool IsEmpty() const noexcept { return nodes_.empty(); }
+    const std::pmr::string& GetRawUtf8() const noexcept { return raw_utf8_; }
     std::pmr::wstring GetDirectory() const;
 
     // ファイルパス設定（LoadMarkdownFile で使用）
@@ -40,6 +41,7 @@ private:
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
+    std::pmr::string raw_utf8_;
     TableOfContents toc_;
     std::pmr::unordered_map<std::pmr::wstring, int> anchor_index_;
 };

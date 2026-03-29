@@ -591,3 +591,311 @@ TEST(ExtractFilename, UncPath) {
 TEST(ExtractFilename, MixedSeparators) {
     EXPECT_EQ(ExtractFilename(L"C:\\dir/subdir\\file.md"), L"file.md");
 }
+
+// ============================================================
+// FindFirstDifference
+// ============================================================
+
+TEST(FindFirstDifference, IdenticalStrings) {
+    EXPECT_EQ(FindFirstDifference("hello", "hello"), std::string_view::npos);
+}
+
+TEST(FindFirstDifference, BothEmpty) {
+    EXPECT_EQ(FindFirstDifference("", ""), std::string_view::npos);
+}
+
+TEST(FindFirstDifference, DifferentFirstByte) {
+    EXPECT_EQ(FindFirstDifference("abc", "xbc"), 0u);
+}
+
+TEST(FindFirstDifference, DifferentMiddle) {
+    EXPECT_EQ(FindFirstDifference("abcdef", "abcXef"), 3u);
+}
+
+TEST(FindFirstDifference, DifferentLastByte) {
+    EXPECT_EQ(FindFirstDifference("abc", "abX"), 2u);
+}
+
+TEST(FindFirstDifference, NewLongerThanOld) {
+    EXPECT_EQ(FindFirstDifference("abc", "abcdef"), 3u);
+}
+
+TEST(FindFirstDifference, OldLongerThanNew) {
+    EXPECT_EQ(FindFirstDifference("abcdef", "abc"), 3u);
+}
+
+TEST(FindFirstDifference, EmptyOld) {
+    EXPECT_EQ(FindFirstDifference("", "new"), 0u);
+}
+
+TEST(FindFirstDifference, EmptyNew) {
+    EXPECT_EQ(FindFirstDifference("old", ""), 0u);
+}
+
+TEST(FindFirstDifference, Utf8Content) {
+    // UTF-8: "う"=E3 81 86, "え"=E3 81 88 → 先頭2バイト共通、3バイト目で差分
+    std::string a = "あいう";
+    std::string b = "あいえ";
+    size_t diff = FindFirstDifference(a, b);
+    EXPECT_EQ(diff, 8u); // "あいう"/"あいえ" の最後のバイトで差分
+}
+
+// ============================================================
+// FindNodeBySourceOffset
+// ============================================================
+
+TEST(FindNodeBySourceOffset, EmptyNodes) {
+    std::pmr::vector<Node> nodes;
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), -1);
+}
+
+TEST(FindNodeBySourceOffset, SingleNode) {
+    std::pmr::vector<Node> nodes(1);
+    nodes[0].source_offset = 0;
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), 0);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 100), 0);
+}
+
+TEST(FindNodeBySourceOffset, OffsetBeforeAllNodes) {
+    std::pmr::vector<Node> nodes(2);
+    nodes[0].source_offset = 10;
+    nodes[1].source_offset = 20;
+    // diff_offset=5 は最初のノード(offset=10)よりも前 → 該当なし
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), -1);
+}
+
+TEST(FindNodeBySourceOffset, ExactMatch) {
+    std::pmr::vector<Node> nodes(3);
+    nodes[0].source_offset = 0;
+    nodes[1].source_offset = 10;
+    nodes[2].source_offset = 25;
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 10), 1);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 25), 2);
+}
+
+TEST(FindNodeBySourceOffset, BetweenNodes) {
+    std::pmr::vector<Node> nodes(3);
+    nodes[0].source_offset = 0;
+    nodes[1].source_offset = 10;
+    nodes[2].source_offset = 25;
+    // offset=15 はノード1(10)とノード2(25)の間 → ノード1を返す
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 15), 1);
+}
+
+TEST(FindNodeBySourceOffset, SkipsUnsetOffsets) {
+    std::pmr::vector<Node> nodes(3);
+    nodes[0].source_offset = 0;
+    nodes[1].source_offset = UINT32_MAX; // 未設定（HorizontalRule等）
+    nodes[2].source_offset = 20;
+    // UINT32_MAX は常に diff_offset 以上にならない（UINT32_MAX <= diff_offset は通常 false）
+    // → ノード0を返す
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 10), 0);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 20), 2);
+}
+
+TEST(FindNodeBySourceOffset, ParsedMarkdown) {
+    auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section");
+    ASSERT_GE(nodes.size(), 3u);
+    // 各ノードが有効な source_offset を持つ
+    for (const auto& n : nodes) {
+        EXPECT_NE(n.source_offset, UINT32_MAX);
+    }
+    // 最初のノードの offset は "# " の後 = 2
+    EXPECT_EQ(nodes[0].source_offset, 2u);
+    // "Paragraph" は "# Title\n\n" = 9バイト目から
+    EXPECT_EQ(nodes[1].source_offset, 9u);
+}
+
+TEST(FindNodeBySourceOffset, LastNodeForLargeOffset) {
+    std::pmr::vector<Node> nodes(3);
+    nodes[0].source_offset = 0;
+    nodes[1].source_offset = 100;
+    nodes[2].source_offset = 200;
+    // ソース末尾を超えるオフセット → 最後のノードを返す
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 999), 2);
+}
+
+TEST(FindNodeBySourceOffset, AllUnsetOffsets) {
+    // 全ノードが UINT32_MAX（テキストなし）→ 該当なし
+    std::pmr::vector<Node> nodes(3);
+    nodes[0].source_offset = UINT32_MAX;
+    nodes[1].source_offset = UINT32_MAX;
+    nodes[2].source_offset = UINT32_MAX;
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 50), -1);
+}
+
+TEST(FindNodeBySourceOffset, MixedWithHorizontalRules) {
+    // パース結果で HorizontalRule が混在するケース
+    auto nodes = ParseMarkdown("AAA\n\n---\n\nBBB");
+    ASSERT_GE(nodes.size(), 3u);
+    // "AAA" offset=0, "---" offset=UINT32_MAX, "BBB" offset=10
+    EXPECT_EQ(nodes[0].source_offset, 0u);
+    EXPECT_EQ(nodes[1].source_offset, UINT32_MAX);
+
+    // offset=5（"---"のソース位置付近）→ AAA(offset=0)を返す（HRはスキップ）
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), 0);
+    // offset=10（BBBのソース位置）→ BBBを返す
+    int bbb_idx = FindNodeBySourceOffset(nodes, 10);
+    EXPECT_EQ(bbb_idx, 2);
+}
+
+// ============================================================
+// 統合テスト: diff検出 → ノード特定
+// ============================================================
+
+// ヘルパー: old→new の編集をシミュレートし、変更箇所のノードを特定する
+static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new_md)
+{
+    size_t diff_pos = FindFirstDifference(old_md, new_md);
+    if (diff_pos == std::string_view::npos) {
+        return -1;
+    }
+    auto nodes = ParseMarkdown(new_md);
+    if (nodes.empty()) {
+        return -1;
+    }
+    return FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
+}
+
+TEST(DiffToNode, EditMiddleParagraph) {
+    // 2番目の段落を編集
+    std::string old_md = "First\n\nSecond\n\nThird";
+    std::string new_md = "First\n\nModified\n\nThird";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    auto nodes = ParseMarkdown(new_md);
+    EXPECT_EQ(node, 1); // 2番目の段落
+    EXPECT_EQ(nodes[node].text, L"Modified");
+}
+
+TEST(DiffToNode, EditFirstParagraph) {
+    std::string old_md = "Hello\n\nWorld";
+    std::string new_md = "Changed\n\nWorld";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    EXPECT_EQ(node, 0);
+}
+
+TEST(DiffToNode, EditLastParagraph) {
+    std::string old_md = "First\n\nSecond\n\nThird";
+    std::string new_md = "First\n\nSecond\n\nChanged";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    EXPECT_EQ(node, 2); // 最後の段落
+}
+
+TEST(DiffToNode, InsertNewParagraph) {
+    // 段落を挿入
+    std::string old_md = "Before\n\nAfter";
+    std::string new_md = "Before\n\nInserted\n\nAfter";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    auto nodes = ParseMarkdown(new_md);
+    ASSERT_GE(node, 0);
+    // 挿入位置のノード（"Inserted" または "Before"の次）
+    EXPECT_EQ(nodes[node].text, L"Inserted");
+}
+
+TEST(DiffToNode, DeleteParagraph) {
+    // 段落を削除
+    std::string old_md = "First\n\nRemoveMe\n\nLast";
+    std::string new_md = "First\n\nLast";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    ASSERT_GE(node, 0);
+    // diff_pos=7（"RemoveMe" vs "Last"の開始位置）→ "Last"(offset=7)か"First"
+    auto nodes = ParseMarkdown(new_md);
+    EXPECT_LE(node, 1); // "First" or "Last"
+}
+
+TEST(DiffToNode, AppendToEnd) {
+    std::string old_md = "Existing";
+    std::string new_md = "Existing\n\nAppended";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    auto nodes = ParseMarkdown(new_md);
+    ASSERT_GE(node, 0);
+    // diff_pos=8（old の末尾）→ "Existing"(offset=0)を返す
+    // "Appended" の offset=10 > 8 なので "Existing" がマッチ
+    EXPECT_LE(node, 1);
+}
+
+TEST(DiffToNode, EditInCodeBlock) {
+    // コードブロック内の編集
+    std::string old_md = "text\n\n```\nold code\n```\n\nend";
+    std::string new_md = "text\n\n```\nnew code\n```\n\nend";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    auto nodes = ParseMarkdown(new_md);
+    ASSERT_GE(node, 0);
+    EXPECT_EQ(nodes[node].type, NodeType::CodeBlock);
+}
+
+TEST(DiffToNode, EditInListItem) {
+    // リストアイテムの編集
+    std::string old_md = "- first\n- second\n- third";
+    std::string new_md = "- first\n- changed\n- third";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    auto nodes = ParseMarkdown(new_md);
+    ASSERT_GE(node, 0);
+    EXPECT_EQ(nodes[node].text, L"changed");
+}
+
+TEST(DiffToNode, EditHeading) {
+    // 見出しテキストの編集
+    std::string old_md = "# Old Title\n\nBody";
+    std::string new_md = "# New Title\n\nBody";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    EXPECT_EQ(node, 0); // 見出しノード
+}
+
+TEST(DiffToNode, NoChange) {
+    std::string md = "Same content";
+    EXPECT_EQ(SimulateEditAndFindNode(md, md), -1);
+}
+
+TEST(DiffToNode, EditInBlockQuote) {
+    std::string old_md = "normal\n\n> old quote\n\nafter";
+    std::string new_md = "normal\n\n> new quote\n\nafter";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    auto nodes = ParseMarkdown(new_md);
+    ASSERT_GE(node, 0);
+    EXPECT_EQ(nodes[node].type, NodeType::BlockQuote);
+}
+
+TEST(DiffToNode, EditWithJapanese) {
+    // 日本語テキストの編集
+    std::string old_md = "# はじめに\n\n旧テキスト\n\nおわり";
+    std::string new_md = "# はじめに\n\n新テキスト\n\nおわり";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    auto nodes = ParseMarkdown(new_md);
+    ASSERT_GE(node, 0);
+    // "# はじめに\n\n" = 2 + 15 + 2 = 19バイト
+    // diff_pos は "新" vs "旧" の位置
+    EXPECT_EQ(node, 1); // 2番目の段落
+}
+
+TEST(DiffToNode, EditInTable) {
+    std::string old_md =
+        "| A | B |\n"
+        "|---|---|\n"
+        "| 1 | 2 |";
+    std::string new_md =
+        "| A | B |\n"
+        "|---|---|\n"
+        "| X | 2 |";
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    auto nodes = ParseMarkdown(new_md);
+    ASSERT_GE(node, 0);
+    EXPECT_EQ(nodes[node].type, NodeType::Table);
+}
+
+TEST(DiffToNode, LargeDocumentMiddleEdit) {
+    // 多数のノードを持つ文書の中間を編集
+    std::string old_md, new_md;
+    for (int i = 0; i < 100; ++i) {
+        old_md += "Paragraph " + std::to_string(i) + "\n\n";
+        if (i == 50) {
+            new_md += "CHANGED paragraph 50\n\n";
+        } else {
+            new_md += "Paragraph " + std::to_string(i) + "\n\n";
+        }
+    }
+    int node = SimulateEditAndFindNode(old_md, new_md);
+    auto nodes = ParseMarkdown(new_md);
+    ASSERT_GE(node, 0);
+    EXPECT_EQ(nodes[node].text, L"CHANGED paragraph 50");
+}

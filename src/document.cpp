@@ -7,6 +7,7 @@ Document Document::FromMarkdown(const std::pmr::string& utf8, std::wstring_view 
 {
     Document doc;
     doc.file_path_ = path;
+    doc.raw_utf8_ = utf8;
     doc.nodes_ = ParseMarkdown(utf8);
     doc.toc_.BuildFromNodes(doc.nodes_);
     doc.BuildAnchorIndex();
@@ -31,6 +32,7 @@ void Document::ReplaceContent(std::pmr::vector<Node> new_nodes)
 
 void Document::ReplaceFromMarkdown(const std::pmr::string& utf8)
 {
+    raw_utf8_ = utf8;
     ReplaceContent(ParseMarkdown(utf8));
 }
 

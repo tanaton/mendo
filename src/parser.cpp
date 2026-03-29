@@ -112,6 +112,9 @@ struct ParseContext {
     // 画像スパン追跡
     std::pmr::wstring pending_image_src{ parse_resource.resource() };
 
+    // md_parse() に渡した入力バッファ先頭ポインタ（source_offset 計算用）
+    const char* markdown_base = nullptr;
+
     void BeginNode(NodeType type)
     {
         nodes.emplace_back();
@@ -513,6 +516,11 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         return 0;
     }
 
+    // 各ノードの最初のテキストコールバックでソースオフセットを記録
+    if (ctx->current_node->source_offset == UINT32_MAX && ctx->markdown_base) {
+        ctx->current_node->source_offset = static_cast<uint32_t>(text - ctx->markdown_base);
+    }
+
     switch (type) {
     case MD_TEXT_NORMAL:
     case MD_TEXT_CODE:
@@ -704,6 +712,7 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
 std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text)
 {
     ParseContext ctx;
+    ctx.markdown_base = markdown_text.data();
 
     MD_PARSER parser{};
     parser.abi_version = 0;

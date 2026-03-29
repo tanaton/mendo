@@ -504,14 +504,62 @@ void App::ReloadCurrentFile()
     }
 
     float old_scroll = viewport_.GetScrollY();
+    std::pmr::string old_content = doc_.GetRawUtf8();
+
     mermaid_renderer_.CancelPending();
     image_loader_.CancelPending();
 
     if (file_load_service_.ExecuteReload(doc_, layout_cache_)) {
         renderer_.InvalidateTocPaneCache();
-        UpdateLayoutAndScroll(old_scroll);
+
+        // レイアウト計算（プレースホルダー高さで初期レイアウト）
+        auto pane_layout = GetPaneLayout();
+        float md_width = pane_layout.md_rect.width;
+        float md_height = pane_layout.md_rect.height;
+        layout_service_->FullLayout(doc_, layout_cache_, md_width);
+
+        // キャッシュ済み画像/Mermaidを適用してY位置を正確にする
+        // （RequestRender内でキャッシュヒット時に同期的にheightが更新される）
         LoadImages();
         RequestMermaidRenders();
+
+        // 新旧コンテンツをバイト比較して変更箇所のスクロール位置を決定
+        // （画像/Mermaid適用後の正確なY位置を使用）
+        float desired_scroll = old_scroll;
+        const auto& new_content = doc_.GetRawUtf8();
+        const auto& nodes = doc_.GetNodes();
+        size_t diff_pos = FindFirstDifference(
+            std::string_view(old_content.data(), old_content.size()),
+            std::string_view(new_content.data(), new_content.size()));
+
+        if (diff_pos != std::string_view::npos && !nodes.empty()) {
+            int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
+            if (changed_node >= 0 && changed_node < static_cast<int>(layout_cache_.size())) {
+                float node_y = layout_cache_[changed_node].y_position;
+                float node_h = layout_cache_[changed_node].height;
+
+                // ノード内での相対位置を推定してY座標を補正
+                uint32_t node_start = nodes[changed_node].source_offset;
+                uint32_t next_start = (changed_node + 1 < static_cast<int>(nodes.size())
+                    && nodes[changed_node + 1].source_offset != UINT32_MAX)
+                    ? nodes[changed_node + 1].source_offset
+                    : static_cast<uint32_t>(new_content.size());
+                if (next_start > node_start) {
+                    float fraction = static_cast<float>(diff_pos - node_start)
+                        / static_cast<float>(next_start - node_start);
+                    node_y += node_h * std::min(fraction, 1.0f);
+                }
+
+                float margin = md_height * 0.2f;
+                desired_scroll = std::max(0.0f, node_y - margin);
+            }
+        }
+
+        viewport_.SetScrollY(desired_scroll);
+        viewport_.SetScrollTarget(desired_scroll);
+        SyncMaxScroll(md_height);
+        UpdateScrollBar();
+        Invalidate();
     }
 }
 

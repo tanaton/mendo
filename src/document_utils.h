@@ -44,6 +44,12 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos);
 inline constexpr std::wstring_view HELP_PATH = L"mendo://help";
 inline bool IsHelpPath(std::wstring_view path) noexcept { return path == HELP_PATH; }
 
+// 新旧コンテンツの最初の差分バイトオフセットを返す。同一の場合は npos。
+[[nodiscard]] size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
+
+// source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
+[[nodiscard]] int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_offset) noexcept;
+
 // フルファイルパスからファイル名部分を抽出する。
 // 例: "C:\\dir\\file.md" -> "file.md"
 [[nodiscard]] std::pmr::wstring ExtractFilename(std::wstring_view path);

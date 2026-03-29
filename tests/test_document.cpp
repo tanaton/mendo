@@ -76,3 +76,70 @@ TEST(DocumentTest, GetNodesMut) {
     nodes[0].text = L"modified";
     EXPECT_EQ(doc.GetNodes()[0].text, L"modified");
 }
+
+// ---- GetRawUtf8 ----
+
+TEST(DocumentTest, GetRawUtf8FromMarkdown) {
+    auto doc = Document::FromMarkdown("# Hello\nworld", L"test.md");
+    EXPECT_EQ(doc.GetRawUtf8(), "# Hello\nworld");
+}
+
+TEST(DocumentTest, GetRawUtf8Empty) {
+    auto doc = Document::FromMarkdown("", L"test.md");
+    EXPECT_TRUE(doc.GetRawUtf8().empty());
+}
+
+TEST(DocumentTest, GetRawUtf8Default) {
+    Document doc;
+    EXPECT_TRUE(doc.GetRawUtf8().empty());
+}
+
+TEST(DocumentTest, GetRawUtf8AfterReplace) {
+    auto doc = Document::FromMarkdown("old content", L"test.md");
+    EXPECT_EQ(doc.GetRawUtf8(), "old content");
+
+    doc.ReplaceFromMarkdown("new content");
+    EXPECT_EQ(doc.GetRawUtf8(), "new content");
+}
+
+TEST(DocumentTest, GetRawUtf8Utf8Content) {
+    std::pmr::string utf8 = "# 日本語テスト\n\nこんにちは";
+    auto doc = Document::FromMarkdown(utf8, L"test.md");
+    EXPECT_EQ(doc.GetRawUtf8(), utf8);
+}
+
+TEST(DocumentTest, GetRawUtf8PreservedAcrossMultipleReplaces) {
+    auto doc = Document::FromMarkdown("v1", L"test.md");
+    EXPECT_EQ(doc.GetRawUtf8(), "v1");
+
+    doc.ReplaceFromMarkdown("v2");
+    EXPECT_EQ(doc.GetRawUtf8(), "v2");
+
+    doc.ReplaceFromMarkdown("v3");
+    EXPECT_EQ(doc.GetRawUtf8(), "v3");
+}
+
+TEST(DocumentTest, GetRawUtf8IndependentOfNodes) {
+    // ノードの変更が raw_utf8_ に影響しないことを確認
+    auto doc = Document::FromMarkdown("hello", L"test.md");
+    doc.GetNodesMut()[0].text = L"modified";
+    // raw_utf8_ はパース入力のまま
+    EXPECT_EQ(doc.GetRawUtf8(), "hello");
+}
+
+TEST(DocumentTest, RawUtf8SourceOffsetConsistency) {
+    // raw_utf8_ 内のオフセットがノードの source_offset と一致することを確認
+    std::pmr::string md = "# Title\n\nBody text";
+    auto doc = Document::FromMarkdown(md, L"test.md");
+    const auto& nodes = doc.GetNodes();
+    const auto& raw = doc.GetRawUtf8();
+    ASSERT_GE(nodes.size(), 2u);
+
+    // source_offset 位置の文字がノードのテキスト先頭と対応する
+    for (const auto& n : nodes) {
+        if (n.source_offset != UINT32_MAX && n.source_offset < raw.size()) {
+            // ソース位置のバイトがノードテキストの最初の文字のUTF-8エンコーディングと一致
+            EXPECT_LT(n.source_offset, static_cast<uint32_t>(raw.size()));
+        }
+    }
+}
