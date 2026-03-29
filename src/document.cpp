@@ -3,12 +3,12 @@
 #include "parser.h"
 #include <filesystem>
 
-Document Document::FromMarkdown(const std::pmr::string& utf8, std::wstring_view path)
+Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
     Document doc;
     doc.file_path_ = path;
-    doc.raw_utf8_ = utf8;
-    doc.nodes_ = ParseMarkdown(utf8);
+    doc.raw_utf8_ = std::move(utf8);
+    doc.nodes_ = ParseMarkdown(doc.raw_utf8_);
     doc.toc_.BuildFromNodes(doc.nodes_);
     doc.BuildAnchorIndex();
     return doc;
@@ -30,10 +30,10 @@ void Document::ReplaceContent(std::pmr::vector<Node> new_nodes)
     BuildAnchorIndex();
 }
 
-void Document::ReplaceFromMarkdown(const std::pmr::string& utf8)
+void Document::ReplaceFromMarkdown(std::pmr::string utf8)
 {
-    raw_utf8_ = utf8;
-    ReplaceContent(ParseMarkdown(utf8));
+    raw_utf8_ = std::move(utf8);
+    ReplaceContent(ParseMarkdown(raw_utf8_));
 }
 
 int Document::FindAnchorIndex(std::wstring_view anchor) const

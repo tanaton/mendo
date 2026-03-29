@@ -12,7 +12,7 @@ public:
     constexpr Document() noexcept = default;
 
     // ファクトリ
-    static Document FromMarkdown(const std::pmr::string& utf8, std::wstring_view path);
+    static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 
     // アクセサ
     constexpr const std::pmr::vector<Node>& GetNodes() const noexcept { return nodes_; }
@@ -30,7 +30,7 @@ public:
     void ReplaceContent(std::pmr::vector<Node> new_nodes);
 
     // Markdown文字列から��容を再パース（パスは保持）
-    void ReplaceFromMarkdown(const std::pmr::string& utf8);
+    void ReplaceFromMarkdown(std::pmr::string utf8);
 
     // アンカーIDに一致する見出しノードのインデックスを O(1) で検索する。
     // 見つか��ない場合は -1 を返す。

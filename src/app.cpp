@@ -422,7 +422,7 @@ void App::LoadHelpDocument()
     doc_service_.StopWatching();
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
-    doc_ = Document::FromMarkdown(utf8, HELP_PATH);
+    doc_ = Document::FromMarkdown(std::move(utf8), HELP_PATH);
     layout_cache_.Reset(doc_.GetNodes().size());
 
     file_explorer_.SetCurrentFile(L"");
@@ -540,14 +540,19 @@ void App::ReloadCurrentFile()
 
                 // ノード内での相対位置を推定してY座標を補正
                 uint32_t node_start = nodes[changed_node].source_offset;
-                uint32_t next_start = (changed_node + 1 < static_cast<int>(nodes.size())
-                    && nodes[changed_node + 1].source_offset != UINT32_MAX)
-                    ? nodes[changed_node + 1].source_offset
-                    : static_cast<uint32_t>(new_content.size());
-                if (next_start > node_start) {
-                    float fraction = static_cast<float>(diff_pos - node_start)
-                        / static_cast<float>(next_start - node_start);
-                    node_y += node_h * std::min(fraction, 1.0f);
+                if (node_start != UINT32_MAX) {
+                    uint32_t next_start = static_cast<uint32_t>(new_content.size());
+                    for (int i = changed_node + 1; i < static_cast<int>(nodes.size()); ++i) {
+                        if (nodes[i].source_offset != UINT32_MAX && nodes[i].source_offset > node_start) {
+                            next_start = nodes[i].source_offset;
+                            break;
+                        }
+                    }
+                    if (next_start > node_start) {
+                        float fraction = static_cast<float>(diff_pos - node_start)
+                            / static_cast<float>(next_start - node_start);
+                        node_y += node_h * std::min(fraction, 1.0f);
+                    }
                 }
 
                 float margin = md_height * 0.2f;
