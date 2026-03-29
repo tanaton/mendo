@@ -84,3 +84,9 @@ TEST_F(DocumentServiceTest, NeedsLoadingAnimationNonexistent) {
     std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
     EXPECT_TRUE(DocumentService::NeedsLoadingAnimation(nonexistent));
 }
+
+TEST_F(DocumentServiceTest, ResetDebounceTick) {
+    // DocumentService経由でResetDebounceTickが安全に呼べること
+    DocumentService service(loader_);
+    service.ResetDebounceTick();
+}

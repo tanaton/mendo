@@ -192,3 +192,68 @@ TEST_F(FileLoaderTest, FileWithNewlines) {
     auto content = FileLoader::LoadFile(path.native().c_str());
     EXPECT_EQ(content, "line1\r\nline2\r\nline3");
 }
+
+// ---- デバウンスリセットテスト ----
+
+TEST_F(FileLoaderTest, ResetDebounceTickWithoutWatching) {
+    // 監視未開始でも安全に呼べること
+    FileLoader loader;
+    loader.ResetDebounceTick();
+}
+
+TEST_F(FileLoaderTest, ResetDebounceSuppressesDuplicateChange) {
+    auto path = WriteFile(L"debounce.md", "original");
+
+    FileLoader loader;
+    int change_count = 0;
+    loader.StartWatching(path.native().c_str(), [&]() { change_count++; });
+
+    // 初期デバウンスを過ぎるまで待つ
+    Sleep(300);
+
+    // ファイルを変更して検出を待つ
+    WriteFile(L"debounce.md", "modified1");
+    for (int i = 0; i < 40 && change_count == 0; i++) {
+        Sleep(50);
+        loader.CheckForChanges();
+    }
+    ASSERT_EQ(change_count, 1);
+
+    // デバウンスをリセット（DoReloadCurrentFile完了をシミュレート）
+    loader.ResetDebounceTick();
+
+    // すぐにファイルを変更（OSの重複通知をシミュレート）
+    WriteFile(L"debounce.md", "modified2");
+
+    // デバウンス期間内（200ms以内）にポーリング → 抑制されるはず
+    for (int i = 0; i < 3; i++) {
+        Sleep(50);
+        loader.CheckForChanges();
+    }
+    EXPECT_EQ(change_count, 1);
+}
+
+TEST_F(FileLoaderTest, ChangeDetectedAfterResetDebounceExpires) {
+    auto path = WriteFile(L"debounce2.md", "original");
+
+    FileLoader loader;
+    int change_count = 0;
+    loader.StartWatching(path.native().c_str(), [&]() { change_count++; });
+
+    // 初期デバウンスを過ぎるまで待つ
+    Sleep(300);
+
+    // デバウンスをリセット
+    loader.ResetDebounceTick();
+
+    // デバウンス期間が過ぎるのを待つ
+    Sleep(300);
+
+    // ファイルを変更 → デバウンス切れなので検出されるはず
+    WriteFile(L"debounce2.md", "modified");
+    for (int i = 0; i < 40 && change_count == 0; i++) {
+        Sleep(50);
+        loader.CheckForChanges();
+    }
+    EXPECT_EQ(change_count, 1);
+}
