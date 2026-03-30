@@ -112,13 +112,6 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
 </html>
 )HTML";
 
-// ファイルキャッシュ用のキーを計算する（量子化幅 + コード/テーマのハッシュ）。
-static uint64_t ComputeFileCacheKey(std::wstring_view code, float max_width, bool dark_mode)
-{
-    int qw = mermaid_util::QuantizeWidth(max_width);
-    return mermaid_util::CombinedHash(code, qw, dark_mode);
-}
-
 // IStreamから全バイトを読み出す（ファイルキャッシュ保存用）。
 static std::vector<uint8_t> ReadAllStreamBytes(IStream* stream)
 {
@@ -475,7 +468,8 @@ void MermaidRenderer::ClearPendingQueue() noexcept
 
 uint64_t MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const
 {
-    return mermaid_util::CombinedHash(code, static_cast<int>(max_width), dark_mode);
+    int qw = mermaid_util::QuantizeWidth(max_width);
+    return mermaid_util::CombinedHash(code, qw, dark_mode);
 }
 
 void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
@@ -505,7 +499,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
 
     // ファイルキャッシュを確認
     if (file_cache_) {
-        uint64_t fkey = ComputeFileCacheKey(node.text, max_width, dark_mode);
+        uint64_t fkey = HashCode(node.text, max_width, dark_mode);
         MermaidFileCache::CacheEntry fentry;
         std::vector<uint8_t> png_data;
         if (file_cache_->Lookup(fkey, fentry, png_data)) {
@@ -795,7 +789,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
 
         // ファイルキャッシュに非同期で保存
         if (file_cache_ && w.current_request.node) {
-            uint64_t fkey = ComputeFileCacheKey(
+            uint64_t fkey = HashCode(
                 w.current_request.node->text, w.current_request.max_width, w.current_request.dark_mode);
             auto png_bytes = ReadAllStreamBytes(png_stream);
             if (!png_bytes.empty()) {

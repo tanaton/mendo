@@ -788,7 +788,7 @@ void App::RequestMermaidRenders()
     }
 
     if (last_mermaid_content_width_ > 0.0f &&
-        static_cast<int>(content_width) != static_cast<int>(last_mermaid_content_width_)) {
+        mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_)) {
         // 図のサイズが新旧どちらのコンテンツ幅より小さければ
         // ビューポートに制約されていないため再生成不要
         float min_width = std::min(content_width, last_mermaid_content_width_);
