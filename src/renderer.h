@@ -126,6 +126,7 @@ struct RenderParams {
     int hovered_copy_node = -1;
     const GestureRenderState& gesture;
     const ToastRenderState& toast;
+    bool has_dirty_nodes = false;
 };
 
 class Renderer {
@@ -173,7 +174,7 @@ private:
 
     void DrawSidePanes(const SidePaneState& sp);
     void DrawTitleBar(const TitleBarRenderState& tb);
-    void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height);
+    void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes);
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
         const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered);
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,

@@ -358,7 +358,8 @@ void App::OnPaint()
             viewport_.GetScrollY(), layout_service_->GetTotalHeight(),
             viewport_.GetSelection(), layout.md_rect, sp, tb,
             nav_service_.CanGoBack(), nav_service_.CanGoForward(),
-            static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts
+            static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts,
+            layout_service_->HasDirtyNodes()
             });
     }
 

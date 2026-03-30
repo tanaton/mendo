@@ -134,10 +134,12 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
     // 非最大化時のリサイズ枠判定（細めの枠でスクロールバーと干渉しないようにする）
     if (!IsZoomed(hwnd_)) {
         UINT dpi = GetDpiForWindow(hwnd_);
-        // リサイズ枠は4DIPの細い領域（スクロールバーと重ならないようにする）
         int border = MulDiv(4, dpi, 96);
         // 上端はタイトルバーがないため標準のフレーム厚を使う
         int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
+            + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+        // 右辺はシステム標準幅で広めに確保（スクロールバーとの共存）
+        int right_border = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
             + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 
         RECT rc;
@@ -147,7 +149,7 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
             if (pt.x < border) {
                 return HTTOPLEFT;
             }
-            if (pt.x >= rc.right - border) {
+            if (pt.x >= rc.right - right_border) {
                 return HTTOPRIGHT;
             }
             return HTTOP;
@@ -156,7 +158,7 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
             if (pt.x < border) {
                 return HTBOTTOMLEFT;
             }
-            if (pt.x >= rc.right - border) {
+            if (pt.x >= rc.right - right_border) {
                 return HTBOTTOMRIGHT;
             }
             return HTBOTTOM;
@@ -164,10 +166,13 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
         if (pt.x < border) {
             return HTLEFT;
         }
-        if (pt.x >= rc.right - border) {
-            float dpi_scale = app_.GetDpiScale();
-            if (app_.IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
-                return HTCLIENT;
+        if (pt.x >= rc.right - right_border) {
+            // 内側部分のみスクロールバーを優先、最外側borderはリサイズを優先
+            if (pt.x < rc.right - border) {
+                float dpi_scale = app_.GetDpiScale();
+                if (app_.IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
+                    return HTCLIENT;
+                }
             }
             return HTRIGHT;
         }

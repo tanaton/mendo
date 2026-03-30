@@ -574,7 +574,7 @@ void Renderer::Render(const RenderParams& p)
     }
 
     // Markdownペインのカスタムスクロールバー
-    DrawMdScrollbar(p.md_pane_rect, p.scroll_y, p.total_content_height);
+    DrawMdScrollbar(p.md_pane_rect, p.scroll_y, p.total_content_height, p.has_dirty_nodes);
 
     if (!CheckEndDraw()) {
         return;
