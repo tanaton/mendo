@@ -53,13 +53,17 @@ void ImageLoader::GetDpiScale(float& scale_x, float& scale_y) const
     scale_y = (dpi_y > 0.0f) ? (dpi_y / DEFAULT_DPI) : 1.0f;
 }
 
-void ImageLoader::Init(ID2D1RenderTarget* rt)
+void ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
 {
     render_target_ = rt;
-    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic_factory_));
-    if (FAILED(hr)) {
-        wic_factory_.Reset();
+    if (wic) {
+        wic_factory_ = wic;
+    } else {
+        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&wic_factory_));
+        if (FAILED(hr)) {
+            wic_factory_.Reset();
+        }
     }
 }
 

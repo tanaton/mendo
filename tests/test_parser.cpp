@@ -333,7 +333,7 @@ TEST(Parser, SimpleTable) {
     );
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
-    ASSERT_GE(nodes[0].table_rows.size(), 2u); // header + 1 data row
+    ASSERT_GE(nodes[0].table_rows().size(), 2u); // header + 1 data row
 }
 
 TEST(Parser, TableHeaderCells) {
@@ -343,10 +343,10 @@ TEST(Parser, TableHeaderCells) {
         "| D1 | D2 |"
     );
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows.size(), 2u);
+    ASSERT_GE(nodes[0].table_rows().size(), 2u);
 
     // 最初の行はヘッダーであるべき
-    const auto& header = nodes[0].table_rows[0];
+    const auto& header = nodes[0].table_rows()[0];
     ASSERT_EQ(header.cells.size(), 2u);
     EXPECT_TRUE(header.cells[0].is_header);
     EXPECT_TRUE(header.cells[1].is_header);
@@ -354,7 +354,7 @@ TEST(Parser, TableHeaderCells) {
     EXPECT_EQ(header.cells[1].text, L"H2");
 
     // 2番目の行はヘッダーではないべき
-    const auto& data = nodes[0].table_rows[1];
+    const auto& data = nodes[0].table_rows()[1];
     EXPECT_FALSE(data.cells[0].is_header);
 }
 
@@ -366,8 +366,8 @@ TEST(Parser, TableAlignment) {
     );
     ASSERT_EQ(nodes.size(), 1u);
     // データ行の配置を確認（配置はMD_BLOCK_TD_DETAILから取得）
-    ASSERT_GE(nodes[0].table_rows.size(), 2u);
-    const auto& row = nodes[0].table_rows[1];
+    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    const auto& row = nodes[0].table_rows()[1];
     ASSERT_EQ(row.cells.size(), 3u);
     EXPECT_EQ(row.cells[0].align, 1); // MD_ALIGN_LEFT
     EXPECT_EQ(row.cells[1].align, 2); // MD_ALIGN_CENTER
@@ -383,7 +383,7 @@ TEST(Parser, TableMultipleRows) {
         "| 3 |"
     );
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].table_rows.size(), 4u); // 1 header + 3 data
+    EXPECT_EQ(nodes[0].table_rows().size(), 4u); // 1 header + 3 data
 }
 
 // ---- HTMLエンティティ ----
@@ -551,8 +551,8 @@ TEST(Parser, TableCellWithBold) {
         "| 1 | 2 |"
     );
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows.size(), 1u);
-    auto& header = nodes[0].table_rows[0];
+    ASSERT_GE(nodes[0].table_rows().size(), 1u);
+    auto& header = nodes[0].table_rows()[0];
     ASSERT_GE(header.cells.size(), 2u);
     // 2番目のヘッダーセルは太字ランを持つべき
     bool has_bold = false;
@@ -570,9 +570,9 @@ TEST(Parser, TableLinearizedText) {
     );
     ASSERT_EQ(nodes.size(), 1u);
     // パーサーは線形化テキストを構築しない（レイアウトが行う）ので、構造だけ確認
-    ASSERT_GE(nodes[0].table_rows.size(), 2u);
-    EXPECT_EQ(nodes[0].table_rows[0].cells[0].text, L"A");
-    EXPECT_EQ(nodes[0].table_rows[0].cells[1].text, L"B");
+    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    EXPECT_EQ(nodes[0].table_rows()[0].cells[0].text, L"A");
+    EXPECT_EQ(nodes[0].table_rows()[0].cells[1].text, L"B");
 }
 
 // ---- リンク付きテーブル ----
@@ -584,8 +584,8 @@ TEST(Parser, TableCellWithLink) {
         "| foo | [bar](https://example.com) |"
     );
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows.size(), 2u);
-    const auto& data_row = nodes[0].table_rows[1];
+    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    const auto& data_row = nodes[0].table_rows()[1];
     ASSERT_GE(data_row.cells.size(), 2u);
 
     // リンクセルはランにlink_urlを持つべき
@@ -611,8 +611,8 @@ TEST(Parser, TableCellWithInternalLink) {
         "| [intro](#introduction) |"
     );
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows.size(), 2u);
-    const auto& cell = nodes[0].table_rows[1].cells[0];
+    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    const auto& cell = nodes[0].table_rows()[1].cells[0];
 
     bool found = false;
     for (const auto& run : cell.runs) {
@@ -631,8 +631,8 @@ TEST(Parser, TableCellWithBoldLink) {
         "| [**bold**](https://example.com) |"
     );
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows.size(), 2u);
-    const auto& cell = nodes[0].table_rows[1].cells[0];
+    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    const auto& cell = nodes[0].table_rows()[1].cells[0];
 
     bool has_bold_link = false;
     for (const auto& run : cell.runs) {
@@ -650,8 +650,8 @@ TEST(Parser, TableCellMixedTextAndLink) {
         "| before [link](https://example.com) after |"
     );
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows.size(), 2u);
-    const auto& cell = nodes[0].table_rows[1].cells[0];
+    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    const auto& cell = nodes[0].table_rows()[1].cells[0];
 
     // リンク付きとリンクなしのランを持つべき
     bool has_link_run = false;
@@ -779,7 +779,7 @@ TEST(Parser, TableUnevenColumns) {
     );
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
-    ASSERT_GE(nodes[0].table_rows.size(), 2u);
+    ASSERT_GE(nodes[0].table_rows().size(), 2u);
 }
 
 // ---- Mermaid言語のコードブロック ----

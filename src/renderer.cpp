@@ -3,7 +3,6 @@
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
-#include <wincodec.h>
 
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
@@ -48,17 +47,15 @@ void Renderer::LoadAppIconBitmap()
         return;
     }
 
-    // HICONからD2D1ビットマップに変換
-    ComPtr<IWICImagingFactory> wic;
-    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic));
-    if (FAILED(hr)) {
+    // HICONからD2D1ビットマップに変換（バックエンドのWICファクトリを共有使用）
+    auto* wic = backend_.GetWICFactory();
+    if (!wic) {
         DestroyIcon(hIcon);
         return;
     }
 
     ComPtr<IWICBitmap> wic_bitmap;
-    hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
+    HRESULT hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
     DestroyIcon(hIcon);
     if (FAILED(hr)) {
         return;
@@ -372,9 +369,9 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
 
     // テーブルセル: セルレイアウトにリンク色を適用し、インラインコード背景を計算
     if (node.type == NodeType::Table) {
-        entry.cell_inline_code_bgs.resize(node.table_rows.size());
-        for (size_t r = 0; r < node.table_rows.size(); r++) {
-            const auto& row = node.table_rows[r];
+        entry.cell_inline_code_bgs.resize(node.table_rows().size());
+        for (size_t r = 0; r < node.table_rows().size(); r++) {
+            const auto& row = node.table_rows()[r];
             entry.cell_inline_code_bgs[r].resize(row.cells.size());
             for (size_t c = 0; c < row.cells.size(); c++) {
                 IDWriteTextLayout* cell_layout = nullptr;
@@ -589,6 +586,9 @@ bool Renderer::CheckEndDraw()
         // 現在のフレームは破棄された — 新しいターゲットで再描画を要求
         InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
         return false;
+    }
+    if (SUCCEEDED(hr)) {
+        backend_.Present();
     }
     return SUCCEEDED(hr);
 }

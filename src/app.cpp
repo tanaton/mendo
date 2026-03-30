@@ -66,8 +66,8 @@ bool App::Init(HWND hwnd)
         RequestMermaidRenders();
     });
 
-    // 画像ローダーを初期化
-    image_loader_.Init(renderer_.GetRenderTarget());
+    // 画像ローダーを初期化（WICファクトリはバックエンドと共有）
+    image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory());
     image_loader_.InitAsync(hwnd_, WM_APP_IMAGE_LOADED, scheduler_);
 
     // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、各ローダーを更新
@@ -580,14 +580,27 @@ void App::DoReloadCurrentFile()
     file_load_service_.StopLoading();
     active_toc_index_ = -1;
 
+    if (doc_.GetFilePath().empty()) {
+        return;
+    }
+
     float old_scroll = viewport_.GetScrollY();
-    std::pmr::string old_content = doc_.GetRawUtf8();
 
     mermaid_renderer_.CancelPending();
     image_loader_.CancelPending();
     resolved_image_paths_.clear();
 
-    if (file_load_service_.ExecuteReload(doc_, layout_cache_)) {
+    // ファイルを読み込み、旧コンテンツとの差分位置をコピーなしで計算
+    std::pmr::string new_utf8 = FileLoader::LoadFile(doc_.GetFilePath());
+    const size_t diff_pos = FindFirstDifference(
+        std::string_view(doc_.GetRawUtf8()),
+        std::string_view(new_utf8));
+
+    // ドキュメントを新コンテンツで更新
+    doc_.ReplaceFromMarkdown(std::move(new_utf8));
+    layout_cache_.Reset(doc_.GetNodes().size(), false);
+
+    {
         renderer_.InvalidateTocPaneCache();
 
         // レイアウト計算（プレースホルダー高さで初期レイアウト）
@@ -601,14 +614,11 @@ void App::DoReloadCurrentFile()
         LoadImages();
         RequestMermaidRenders();
 
-        // 新旧コンテンツをバイト比較して変更箇所のスクロール位置を決定
+        // 変更箇所のスクロール位置を決定
         // （画像/Mermaid適用後の正確なY位置を使用）
         float desired_scroll = old_scroll;
         const auto& new_content = doc_.GetRawUtf8();
         const auto& nodes = doc_.GetNodes();
-        size_t diff_pos = FindFirstDifference(
-            std::string_view(old_content.data(), old_content.size()),
-            std::string_view(new_content.data(), new_content.size()));
 
         if (diff_pos != std::string_view::npos && !nodes.empty()) {
             int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
@@ -685,7 +695,7 @@ int App::ApplyCachedImages()
             continue;
         }
 
-        if (node.image_src.find(L"://") != std::pmr::wstring::npos) {
+        if (!node.has_image() || node.image_data->src.find(L"://") != std::pmr::wstring::npos) {
             continue;
         }
 
@@ -695,7 +705,7 @@ int App::ApplyCachedImages()
         if (cache_it != resolved_image_paths_.end()) {
             abs_str = cache_it->second;
         } else {
-            std::filesystem::path img_path(std::wstring_view{ node.image_src });
+            std::filesystem::path img_path(std::wstring_view{ node.image_data->src });
             if (img_path.is_relative()) {
                 img_path = std::filesystem::path(doc_dir) / img_path;
             }
@@ -710,8 +720,8 @@ int App::ApplyCachedImages()
         }
 
         if (image_loader_.GetCachedImage(abs_str, diagram)) {
-            node.image_width = diagram.width;
-            node.image_height = diagram.height;
+            node.image_data->width = diagram.width;
+            node.image_data->height = diagram.height;
 
             float indent = node.indent_level * renderer_.GetTheme().indent_width;
             float node_width = content_width - indent;

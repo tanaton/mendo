@@ -60,7 +60,7 @@ static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb
 template<typename DrawItemFn>
 static void DrawSidePaneImpl(
     PaneCache& cache,
-    ID2D1HwndRenderTarget* main_rt,
+    ID2D1RenderTarget* main_rt,
     const PaneRect& rect,
     const ScrollState& scroll,
     int item_count,

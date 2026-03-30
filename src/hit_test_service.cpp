@@ -5,8 +5,8 @@
 static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int target_col)
 {
     uint32_t offset = 0;
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        const auto& row_cells = node.table_rows[r].cells;
+    for (size_t r = 0; r < node.table_rows().size(); r++) {
+        const auto& row_cells = node.table_rows()[r].cells;
         for (size_t c = 0; c < row_cells.size(); c++) {
             if (static_cast<int>(r) == target_row && static_cast<int>(c) == target_col) {
                 return offset;
@@ -16,7 +16,7 @@ static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int tar
                 offset++;
             }
         }
-        if (r + 1 < node.table_rows.size()) {
+        if (r + 1 < node.table_rows().size()) {
             offset++;
         }
     }
@@ -113,7 +113,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     // クリックされた行を特定
     float ry = entry.y_position;
     int hit_row = -1;
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
+    for (size_t r = 0; r < node.table_rows().size(); r++) {
         float row_h = (r < entry.row_heights.size()) ? entry.row_heights[r] : (theme.font_size_body * 1.4f);
         float row_bottom = ry + row_h + border;
         if (dip_y < row_bottom) {

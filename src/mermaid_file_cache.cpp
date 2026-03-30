@@ -60,6 +60,17 @@ int64_t MermaidFileCache::Now()
         std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
+void MermaidFileCache::RemoveLruEntry(int64_t timestamp, uint64_t key)
+{
+    auto [lo, hi] = lru_order_.equal_range(timestamp);
+    for (auto iter = lo; iter != hi; ++iter) {
+        if (iter->second == key) {
+            lru_order_.erase(iter);
+            return;
+        }
+    }
+}
+
 void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 {
     scheduler_ = &scheduler;
@@ -87,6 +98,7 @@ void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 void MermaidFileCache::LoadIndex()
 {
     index_.clear();
+    lru_order_.clear();
     total_size_ = 0;
 
     auto path = GetIndexPath();
@@ -137,6 +149,7 @@ void MermaidFileCache::LoadIndex()
         }
 
         index_[key] = entry;
+        lru_order_.emplace(entry.last_used, key);
         total_size_ += entry.png_size;
     }
 }
@@ -195,12 +208,14 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, std::vector<uint8
         } else {
             total_size_ = 0;
         }
+        RemoveLruEntry(it->second.last_used, key);
         index_.erase(it);
         return false;
     }
 
     auto size = ifs.tellg();
     if (size <= 0) {
+        RemoveLruEntry(it->second.last_used, key);
         index_.erase(it);
         return false;
     }
@@ -215,8 +230,12 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, std::vector<uint8
     entry.css_width = it->second.css_width;
     entry.css_height = it->second.css_height;
 
-    // last_usedを更新
-    it->second.last_used = Now();
+    // last_usedを更新し、LRU順序を再配置
+    int64_t old_time = it->second.last_used;
+    int64_t new_time = Now();
+    it->second.last_used = new_time;
+    RemoveLruEntry(old_time, key);
+    lru_order_.emplace(new_time, key);
 
     return true;
 }
@@ -237,12 +256,14 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     auto& entry = index_[key];
     if (entry.png_size > 0 && total_size_ >= entry.png_size) {
         total_size_ -= entry.png_size;
+        RemoveLruEntry(entry.last_used, key);
     }
     entry.css_width = css_width;
     entry.css_height = css_height;
     entry.png_size = png_size;
     entry.last_used = Now();
     total_size_ += png_size;
+    lru_order_.emplace(entry.last_used, key);
 
     if (!scheduler_) {
         return;
@@ -275,28 +296,30 @@ void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
 {
     while ((index_.size() >= max_entries_ ||
         total_size_ + new_png_size > max_total_size_) &&
-        !index_.empty()) {
-        // LRU: last_usedが最も古いエントリを探す
-        auto oldest = index_.begin();
-        for (auto it = index_.begin(); it != index_.end(); ++it) {
-            if (it->second.last_used < oldest->second.last_used) {
-                oldest = it;
-            }
+        !lru_order_.empty()) {
+        // LRU: multimapの先頭が最も古いエントリ（O(1)）
+        auto oldest_lru = lru_order_.begin();
+        uint64_t evict_key = oldest_lru->second;
+        lru_order_.erase(oldest_lru);
+
+        auto it = index_.find(evict_key);
+        if (it == index_.end()) {
+            continue;
         }
 
         // PNGファイルを削除
-        auto path = GetPngPath(oldest->first);
+        auto path = GetPngPath(evict_key);
         if (!path.empty()) {
             std::error_code ec;
             std::filesystem::remove(path, ec);
         }
 
-        if (total_size_ >= oldest->second.png_size) {
-            total_size_ -= oldest->second.png_size;
+        if (total_size_ >= it->second.png_size) {
+            total_size_ -= it->second.png_size;
         } else {
             total_size_ = 0;
         }
-        index_.erase(oldest);
+        index_.erase(it);
     }
 }
 
@@ -316,6 +339,7 @@ void MermaidFileCache::ClearAll()
     }
 
     index_.clear();
+    lru_order_.clear();
     total_size_ = 0;
 }
 

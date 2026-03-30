@@ -132,9 +132,9 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     // 画像ノード: 元画像サイズが設定済みならコンテンツ幅に合わせてスケール、
     // 未設定ならプレースホルダー高さ
     if (node.type == NodeType::Image) {
-        if (node.image_width > 0 && node.image_height > 0) {
-            float w = node.image_width;
-            float h = node.image_height;
+        if (node.has_image() && node.image_data->width > 0 && node.image_data->height > 0) {
+            float w = node.image_data->width;
+            float h = node.image_data->height;
             if (w > max_width) {
                 h *= max_width / w;
             }
@@ -210,8 +210,8 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
     IDWriteTextFormat* fmt = fmt_body_.Get();
     IDWriteTextFormat* fmt_bold = fmt_h_[3].Get();
 
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        auto& row = node.table_rows[r];
+    for (size_t r = 0; r < node.table_rows().size(); r++) {
+        auto& row = node.table_rows()[r];
         for (size_t c = 0; c < row.cells.size(); c++) {
             auto& cell = row.cells[c];
             if (cell.text.empty()) {
@@ -245,8 +245,8 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     entry.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
 
     float total_height = border_width;
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        auto& row = node.table_rows[r];
+    for (size_t r = 0; r < node.table_rows().size(); r++) {
+        auto& row = node.table_rows()[r];
         float row_height = theme_->font_size_body * 1.4f;
         for (size_t c = 0; c < row.cells.size(); c++) {
             auto& cell = row.cells[c];
@@ -271,7 +271,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     }
 
     if (node.text.empty()) {
-        node.text = BuildLinearizedTableText(node.table_rows);
+        node.text = BuildLinearizedTableText(node.table_rows());
     }
     entry.height = total_height;
     entry.layout_dirty = false;
@@ -283,26 +283,26 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         return;
     }
 
-    if (node.table_rows.empty()) {
+    if (node.table_rows().empty()) {
         entry.height = 0;
         entry.layout_dirty = false;
         return;
     }
 
     size_t col_count = 0;
-    for (auto& row : node.table_rows) {
+    for (auto& row : node.table_rows()) {
         col_count = std::max(col_count, row.cells.size());
     }
     if (col_count == 0) { entry.layout_dirty = false; return; }
 
     entry.effects_applied = false;
     entry.cell_inline_code_bgs.clear();
-    entry.row_heights.resize(node.table_rows.size());
+    entry.row_heights.resize(node.table_rows().size());
 
     // セルレイアウトが既に存在する場合は第1パス（テキストレイアウト作成）をスキップし、
     // 列幅の再計算のみ行う（リサイズ時の高速パス）。
     bool has_existing_layouts = !entry.cell_layouts.empty()
-        && entry.cell_layouts.size() == node.table_rows.size();
+        && entry.cell_layouts.size() == node.table_rows().size();
     if (has_existing_layouts) {
         // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
         if (entry.natural_col_widths.size() == col_count) {
@@ -310,8 +310,8 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         } else {
             // キャッシュなし: 既存レイアウトから自然幅を再取得
             std::pmr::vector<float> natural_widths(col_count, 0.0f);
-            for (size_t r = 0; r < node.table_rows.size(); r++) {
-                for (size_t c = 0; c < node.table_rows[r].cells.size() && c < entry.cell_layouts[r].size(); c++) {
+            for (size_t r = 0; r < node.table_rows().size(); r++) {
+                for (size_t c = 0; c < node.table_rows()[r].cells.size() && c < entry.cell_layouts[r].size(); c++) {
                     if (entry.cell_layouts[r][c]) {
                         entry.cell_layouts[r][c]->SetMaxWidth(CODE_BLOCK_NO_WRAP_WIDTH);
                         DWRITE_TEXT_METRICS metrics{};
@@ -325,9 +325,9 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         }
     }
     else {
-        entry.cell_layouts.resize(node.table_rows.size());
-        for (size_t r = 0; r < node.table_rows.size(); r++) {
-            entry.cell_layouts[r].resize(node.table_rows[r].cells.size());
+        entry.cell_layouts.resize(node.table_rows().size());
+        for (size_t r = 0; r < node.table_rows().size(); r++) {
+            entry.cell_layouts[r].resize(node.table_rows()[r].cells.size());
         }
 
         // 第1パス: テキストレイアウトを作成し、自然な幅を計測

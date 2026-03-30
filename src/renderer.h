@@ -142,9 +142,10 @@ public:
         const GestureRenderState& gesture = {},
         const ToastRenderState& toast = {});
 
-    ID2D1HwndRenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
+    ID2D1RenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
     ID2D1Factory* GetD2DFactory() const noexcept { return backend_.GetD2DFactory(); }
     IDWriteFactory* GetDWriteFactory() const noexcept { return backend_.GetDWriteFactory(); }
+    IWICImagingFactory* GetWICFactory() const noexcept { return backend_.GetWICFactory(); }
     constexpr LayoutEngine& GetLayout() noexcept { return layout_; }
     constexpr const Theme& GetTheme() const noexcept { return theme_; }
     void SetTheme(const Theme& theme);
@@ -189,7 +190,7 @@ private:
 
     D2DRenderBackend backend_;
     // 簡易アクセサ（600行の描画コード内で冗長なbackend_.Get...を避けるため）
-    ID2D1HwndRenderTarget* rt() const noexcept { return backend_.GetRenderTarget(); }
+    ID2D1DeviceContext* rt() const noexcept { return backend_.GetRenderTarget(); }
     ID2D1Factory* d2d() const noexcept { return backend_.GetD2DFactory(); }
 
     std::array<ComPtr<ID2D1SolidColorBrush>, static_cast<size_t>(BrushId::Count)> brushes_;

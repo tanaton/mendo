@@ -3,6 +3,7 @@
 #include <vector>
 #include <filesystem>
 #include <unordered_map>
+#include <map>
 #include <atomic>
 
 class TaskScheduler;
@@ -76,6 +77,7 @@ private:
     std::filesystem::path GetIndexPath() const;
     void LoadIndex();
     void EvictIfNeeded(uint32_t new_png_size);
+    void RemoveLruEntry(int64_t timestamp, uint64_t key);
     static int64_t Now();
 
     std::filesystem::path cache_dir_override_;
@@ -84,6 +86,8 @@ private:
 
     // インデックス: key → エントリメタデータ
     std::unordered_map<uint64_t, IndexEntry> index_;
+    // LRU順序: last_used → keys（O(log n) での最古エントリ特定用）
+    std::multimap<int64_t, uint64_t> lru_order_;
     uint64_t total_size_ = 0;
 
     size_t max_entries_ = kDefaultMaxEntries;

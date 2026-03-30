@@ -21,7 +21,7 @@ public:
 
     ~ImageLoader();
 
-    void Init(ID2D1RenderTarget* rt);
+    void Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);
     void SetRenderTarget(ID2D1RenderTarget* rt) noexcept { render_target_ = rt; }
 
     // TaskSchedulerを設定し、非同期読み込みを有効にする。
