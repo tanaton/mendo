@@ -74,7 +74,7 @@ public:
     {
         max_scroll_ = std::max(0.0f, total_height - viewport_height);
         scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
-        scroll_target_ = scroll_y_;
+        scroll_target_ = std::clamp(scroll_target_, 0.0f, max_scroll_);
     }
 
     // 下端がscroll_y_より下にある最初のノードを見つける。
