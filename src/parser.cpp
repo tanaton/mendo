@@ -280,15 +280,16 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_TR:
         if (ctx->current_node && ctx->current_node->type == NodeType::Table) {
-            ctx->current_node->table_rows.emplace_back();
+            ctx->current_node->ensure_table();
+            ctx->current_node->table_rows().emplace_back();
         }
         break;
 
     case MD_BLOCK_TH:
     case MD_BLOCK_TD: {
         if (ctx->current_node && ctx->current_node->type == NodeType::Table
-            && !ctx->current_node->table_rows.empty()) {
-            auto& row = ctx->current_node->table_rows.back();
+            && ctx->current_node->has_table() && !ctx->current_node->table_rows().empty()) {
+            auto& row = ctx->current_node->table_rows().back();
             row.cells.emplace_back();
             ctx->current_cell = &row.cells.back();
             ctx->current_cell->is_header = (type == MD_BLOCK_TH);
@@ -384,7 +385,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
     case MD_BLOCK_P:
         // 画像を含む段落/引用ブロックを Image ノードに変換
-        if (ctx->current_node && !ctx->current_node->image_src.empty()
+        if (ctx->current_node && ctx->current_node->has_image() && !ctx->current_node->image_data->src.empty()
             && (ctx->current_node->type == NodeType::Paragraph
                 || ctx->current_node->type == NodeType::BlockQuote)) {
             ctx->current_node->type = NodeType::Image;
@@ -451,7 +452,8 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 
     if (type == MD_SPAN_IMG) {
         if (ctx->current_node && !ctx->pending_image_src.empty()) {
-            ctx->current_node->image_src = ctx->pending_image_src;
+            ctx->current_node->ensure_image();
+            ctx->current_node->image_data->src = ctx->pending_image_src;
         }
         ctx->pending_image_src.clear();
     }

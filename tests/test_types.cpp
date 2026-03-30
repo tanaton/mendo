@@ -116,7 +116,7 @@ TEST(NodeTest, DefaultState) {
     EXPECT_TRUE(node.runs.empty());
     EXPECT_TRUE(node.anchor_id.empty());
     EXPECT_EQ(node.code_language, SyntaxLanguage::None);
-    EXPECT_TRUE(node.table_rows.empty());
+    EXPECT_FALSE(node.has_table());
 }
 
 // ---- TextRunのデフォルト状態 ----

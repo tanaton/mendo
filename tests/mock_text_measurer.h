@@ -38,9 +38,9 @@ public:
 
         // 画像ノード: 実装と同じくサイズが設定済みならスケール、未設定ならプレースホルダー
         if (node.type == NodeType::Image) {
-            if (node.image_width > 0 && node.image_height > 0) {
-                float w = node.image_width;
-                float h = node.image_height;
+            if (node.has_image() && node.image_data->width > 0 && node.image_data->height > 0) {
+                float w = node.image_data->width;
+                float h = node.image_data->height;
                 if (w > max_width) {
                     h *= max_width / w;
                 }
@@ -76,27 +76,27 @@ public:
     }
 
     void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) override {
-        if (node.table_rows.empty()) {
+        if (!node.has_table() || node.table_rows().empty()) {
             entry.height = 0;
             entry.layout_dirty = false;
             return;
         }
 
         size_t col_count = 0;
-        for (auto& row : node.table_rows) {
+        for (auto& row : node.table_rows()) {
             col_count = std::max(col_count, row.cells.size());
         }
         if (col_count == 0) { entry.layout_dirty = false; return; }
 
         entry.col_widths.assign(col_count, max_width / static_cast<float>(col_count));
-        entry.row_heights.assign(node.table_rows.size(), table_row_height);
-        entry.cell_layouts.resize(node.table_rows.size());
-        for (size_t r = 0; r < node.table_rows.size(); r++) {
-            entry.cell_layouts[r].resize(node.table_rows[r].cells.size());
+        entry.row_heights.assign(node.table_rows().size(), table_row_height);
+        entry.cell_layouts.resize(node.table_rows().size());
+        for (size_t r = 0; r < node.table_rows().size(); r++) {
+            entry.cell_layouts[r].resize(node.table_rows()[r].cells.size());
         }
 
         float total = table_border;
-        for (size_t r = 0; r < node.table_rows.size(); r++) {
+        for (size_t r = 0; r < node.table_rows().size(); r++) {
             total += table_row_height + table_border;
         }
         entry.height = total;

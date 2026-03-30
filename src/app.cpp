@@ -3,6 +3,7 @@
 #include "resource.h"
 #include "pane_layout.h"
 #include "document_utils.h"
+#include "mermaid_util.h"
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
@@ -52,14 +53,22 @@ bool App::Init(HWND hwnd)
     float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
     cached_dpi_scale_ = (init_dpi > 0.0f) ? (init_dpi / 96.0f) : 1.0f;
 
+    // タスクスケジューラを初期化（画像デコード・キャッシュ書き込み共用）
+    scheduler_.Init(mermaid_util::ComputeWorkerCount(
+        std::thread::hardware_concurrency()));
+
+    // Mermaidファイルキャッシュを初期化
+    file_cache_.Init(cached_dpi_scale_, scheduler_);
+    mermaid_renderer_.SetFileCache(&file_cache_);
+
     // Mermaidレンダラーを初期化 (WebView2、非同期)
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
         RequestMermaidRenders();
     });
 
-    // 画像ローダーを初期化
-    image_loader_.Init(renderer_.GetRenderTarget());
-    image_loader_.InitAsync(hwnd_, WM_APP_IMAGE_LOADED);
+    // 画像ローダーを初期化（WICファクトリはバックエンドと共有）
+    image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory());
+    image_loader_.InitAsync(hwnd_, WM_APP_IMAGE_LOADED, scheduler_);
 
     // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、各ローダーを更新
     renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
@@ -301,14 +310,13 @@ void App::OnPaint()
     const auto& layout = GetPaneLayout();
     if (!file_load_service_.IsLoading()) {
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
-        int anchor_idx = FindFirstVisibleNode();
-        float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
+        auto anchor = SaveAnchor();
 
         bool updated = layout_service_->EnsureVisibleLayout(
             doc_, layout_cache_, layout.md_rect.width, layout.md_rect.height);
 
         if (updated) {
-            AnchorCompensateScroll(anchor_idx, anchor_y_before, layout.md_rect.height);
+            RestoreAnchor(anchor, layout.md_rect.height);
         }
     }
     // 目次ペインの同期: mdペインのスクロール位置からアクティブ見出しを判定し、
@@ -349,7 +357,8 @@ void App::OnPaint()
             viewport_.GetScrollY(), layout_service_->GetTotalHeight(),
             viewport_.GetSelection(), layout.md_rect, sp, tb,
             nav_service_.CanGoBack(), nav_service_.CanGoForward(),
-            static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts
+            static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts,
+            layout_service_->HasDirtyNodes()
             });
     }
 
@@ -398,6 +407,7 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 
     InvalidatePaneLayoutCache();
     layout_cache_.MarkAllDirty();
+    file_cache_.ClearAll();
 
     SetWindowPos(hwnd_, nullptr,
         suggested->left, suggested->top,
@@ -508,16 +518,33 @@ void App::DoLoadMarkdownFile()
     renderer_.InvalidateFilePaneCache();
     renderer_.InvalidateTocPaneCache();
 
-    // 戻る/進むナビゲーションからの遷移時はスクロール位置を復元
+    // 中間レイアウト: キャッシュ済みの画像/Mermaid高さを反映するための前段階
+    {
+        auto pane_layout = GetPaneLayout();
+        layout_service_->FullLayout(doc_, layout_cache_, pane_layout.md_rect.width);
+    }
+
+    // キャッシュ済みリソースを適用（正確な高さを反映）
+    LoadImages();
+    RequestMermaidRenders();
+
+    // スクロール位置の復元（キャッシュ反映後の正確な高さで計算）
     float scroll_y = 0.0f;
-    if (pending_nav_scroll_y_ >= 0.0f) {
+    if (pending_restore_node_ >= 0) {
+        // セッション復元: ノードのY座標+オフセットからスクロール位置を計算
+        int node = std::min(pending_restore_node_,
+            static_cast<int>(layout_cache_.size()) - 1);
+        if (node >= 0) {
+            scroll_y = std::max(0.0f,
+                layout_cache_[node].y_position + static_cast<float>(pending_restore_offset_));
+        }
+        pending_restore_node_ = -1;
+    } else if (pending_nav_scroll_y_ >= 0.0f) {
         scroll_y = pending_nav_scroll_y_;
         pending_nav_scroll_y_ = -1.0f;
     }
     UpdateLayoutAndScroll(scroll_y);
     UpdateTitleBar();
-    LoadImages();
-    RequestMermaidRenders();
 
     doc_service_.StartWatching(doc_.GetFilePath(), [this]() {
         ReloadCurrentFile();
@@ -552,14 +579,27 @@ void App::DoReloadCurrentFile()
     file_load_service_.StopLoading();
     active_toc_index_ = -1;
 
+    if (doc_.GetFilePath().empty()) {
+        return;
+    }
+
     float old_scroll = viewport_.GetScrollY();
-    std::pmr::string old_content = doc_.GetRawUtf8();
 
     mermaid_renderer_.CancelPending();
     image_loader_.CancelPending();
     resolved_image_paths_.clear();
 
-    if (file_load_service_.ExecuteReload(doc_, layout_cache_)) {
+    // ファイルを読み込み、旧コンテンツとの差分位置をコピーなしで計算
+    std::pmr::string new_utf8 = FileLoader::LoadFile(doc_.GetFilePath());
+    const size_t diff_pos = FindFirstDifference(
+        std::string_view(doc_.GetRawUtf8()),
+        std::string_view(new_utf8));
+
+    // ドキュメントを新コンテンツで更新
+    doc_.ReplaceFromMarkdown(std::move(new_utf8));
+    layout_cache_.Reset(doc_.GetNodes().size(), false);
+
+    {
         renderer_.InvalidateTocPaneCache();
 
         // レイアウト計算（プレースホルダー高さで初期レイアウト）
@@ -573,14 +613,11 @@ void App::DoReloadCurrentFile()
         LoadImages();
         RequestMermaidRenders();
 
-        // 新旧コンテンツをバイト比較して変更箇所のスクロール位置を決定
+        // 変更箇所のスクロール位置を決定
         // （画像/Mermaid適用後の正確なY位置を使用）
         float desired_scroll = old_scroll;
         const auto& new_content = doc_.GetRawUtf8();
         const auto& nodes = doc_.GetNodes();
-        size_t diff_pos = FindFirstDifference(
-            std::string_view(old_content.data(), old_content.size()),
-            std::string_view(new_content.data(), new_content.size()));
 
         if (diff_pos != std::string_view::npos && !nodes.empty()) {
             int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
@@ -657,7 +694,7 @@ int App::ApplyCachedImages()
             continue;
         }
 
-        if (node.image_src.find(L"://") != std::pmr::wstring::npos) {
+        if (!node.has_image() || node.image_data->src.find(L"://") != std::pmr::wstring::npos) {
             continue;
         }
 
@@ -667,7 +704,7 @@ int App::ApplyCachedImages()
         if (cache_it != resolved_image_paths_.end()) {
             abs_str = cache_it->second;
         } else {
-            std::filesystem::path img_path(std::wstring_view{ node.image_src });
+            std::filesystem::path img_path(std::wstring_view{ node.image_data->src });
             if (img_path.is_relative()) {
                 img_path = std::filesystem::path(doc_dir) / img_path;
             }
@@ -682,8 +719,8 @@ int App::ApplyCachedImages()
         }
 
         if (image_loader_.GetCachedImage(abs_str, diagram)) {
-            node.image_width = diagram.width;
-            node.image_height = diagram.height;
+            node.image_data->width = diagram.width;
+            node.image_data->height = diagram.height;
 
             float indent = node.indent_level * renderer_.GetTheme().indent_width;
             float node_width = content_width - indent;
@@ -720,13 +757,10 @@ void App::OnAppImageLoaded()
 void App::OnImageLoadComplete()
 {
     if (ApplyCachedImages() > 0) {
-        int anchor_idx = FindFirstVisibleNode();
-        float anchor_y_before = (anchor_idx >= 0)
-            ? layout_cache_[anchor_idx].y_position : 0.0f;
+        auto anchor = SaveAnchor();
         layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
         auto layout = GetPaneLayout();
-        float md_h = layout.md_rect.height;
-        AnchorCompensateScroll(anchor_idx, anchor_y_before, md_h);
+        RestoreAnchor(anchor, layout.md_rect.height);
         Invalidate();
     }
 }
@@ -750,7 +784,7 @@ void App::RequestMermaidRenders()
     }
 
     if (last_mermaid_content_width_ > 0.0f &&
-        static_cast<int>(content_width) != static_cast<int>(last_mermaid_content_width_)) {
+        mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_)) {
         // 図のサイズが新旧どちらのコンテンツ幅より小さければ
         // ビューポートに制約されていないため再生成不要
         float min_width = std::min(content_width, last_mermaid_content_width_);
@@ -789,12 +823,10 @@ void App::RequestMermaidRenders()
 
 void App::OnMermaidRenderComplete()
 {
-    int anchor_idx = FindFirstVisibleNode();
-    float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
+    auto anchor = SaveAnchor();
     layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
     auto layout = GetPaneLayout();
-    float md_h = layout.md_rect.height;
-    AnchorCompensateScroll(anchor_idx, anchor_y_before, md_h);
+    RestoreAnchor(anchor, layout.md_rect.height);
     Invalidate();
 }
 
@@ -914,49 +946,49 @@ void App::ExecuteActions(const ActionList& actions)
                 if (a.file_pane) {
                     panes_.ToggleFilePane();
                 }
- else {
-  panes_.ToggleTocPane();
-}
-RefreshPaneLayout();
-},
-[this](const ZoomAction& a) {
-    if (a.direction > 0) {
-        ZoomIn();
-    }
-    else if (a.direction < 0) {
-        ZoomOut();
-    }
-    else {
-    ZoomReset();
-}
-},
-[this](const ReloadFileAction&) {
-    ReloadCurrentFile();
-},
-[this](const OpenFileAction&) {
-    auto path = FileLoader::OpenFileDialog(hwnd_);
-    if (!path.empty()) {
-        if (!doc_.GetFilePath().empty()) {
-            PushNavHistory();
-        }
-        LoadMarkdownFile(path);
-    }
-},
-[this](const ToggleDarkModeAction&) {
-    ToggleDarkMode();
-},
-[this](const NavigateBackAction&) {
-    NavigateBack();
-},
-[this](const NavigateForwardAction&) {
-    NavigateForward();
-},
-[this](const ShowHelpAction&) {
-    if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
-        PushNavHistory();
-    }
-    LoadHelpDocument();
-},
+                else {
+                    panes_.ToggleTocPane();
+                }
+                RefreshPaneLayout();
+            },
+            [this](const ZoomAction& a) {
+                if (a.direction > 0) {
+                    ZoomIn();
+                }
+                else if (a.direction < 0) {
+                    ZoomOut();
+                }
+                else {
+                    ZoomReset();
+                }
+            },
+            [this](const ReloadFileAction&) {
+                ReloadCurrentFile();
+            },
+            [this](const OpenFileAction&) {
+                auto path = FileLoader::OpenFileDialog(hwnd_);
+                if (!path.empty()) {
+                    if (!doc_.GetFilePath().empty()) {
+                        PushNavHistory();
+                    }
+                    LoadMarkdownFile(path);
+                }
+            },
+            [this](const ToggleDarkModeAction&) {
+                ToggleDarkMode();
+            },
+            [this](const NavigateBackAction&) {
+                NavigateBack();
+            },
+            [this](const NavigateForwardAction&) {
+                NavigateForward();
+            },
+            [this](const ShowHelpAction&) {
+                if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
+                    PushNavHistory();
+                }
+                LoadHelpDocument();
+            },
             }, action);
     }
 }
@@ -1044,9 +1076,11 @@ void App::ShowToast(std::wstring_view message)
 
 void App::OnDestroy()
 {
-    image_loader_.Shutdown();
+    scheduler_.Shutdown();
+    file_cache_.SaveIndex();
     SaveLastFilePath();
     SavePaneState();
+    SaveScrollPosition();
     KillTimer(hwnd_, TIMER_FILE_WATCH);
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
@@ -1126,4 +1160,16 @@ void App::LoadPaneState()
         config_.LoadInt(L"pane_file_width.txt", kDefaultWidth, kMinWidth, dynamic_max)));
     panes_.SetTocPaneWidth(static_cast<float>(
         config_.LoadInt(L"pane_toc_width.txt", kDefaultWidth, kMinWidth, dynamic_max)));
+}
+
+void App::SaveScrollPosition()
+{
+    int node = FindFirstVisibleNode();
+    if (node < 0) {
+        return;
+    }
+    float node_y = layout_cache_[node].y_position;
+    int offset = static_cast<int>(std::lround(viewport_.GetScrollY() - node_y));
+    config_.SaveInt(L"scroll_node.txt", node);
+    config_.SaveInt(L"scroll_offset.txt", offset);
 }

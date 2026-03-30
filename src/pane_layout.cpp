@@ -69,7 +69,7 @@ PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, floa
     info.total_content = total_content;
     info.max_scroll = std::max(0.0f, total_content - info.content_height);
     float thumb_ratio = (total_content > 0) ? info.content_height / total_content : 1.0f;
-    info.thumb_height = std::max(thumb_min, info.content_height * thumb_ratio);
+    info.thumb_height = std::min(info.content_height, std::max(thumb_min, info.content_height * thumb_ratio));
     return info;
 }
 

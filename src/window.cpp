@@ -1,13 +1,19 @@
 #include "window.h"
+#include "config_store.h"
 #include "resource.h"
 #include <windowsx.h>
 #include <shellscalingapi.h>
 #include <dwmapi.h>
+#include <climits>
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
 
 static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
+
+// システムメニュー（タスクバー右クリック）のカスタムコマンドID
+// 0xF000以上はシステム予約（SC_KEYMENU=0xF100等）のため、下位4bitが0のカスタム値を使う
+static constexpr UINT SC_RESET_WINDOW = 0x0010;
 
 bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 {
@@ -43,9 +49,12 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         return false;
     }
 
+    InitSystemMenu();
     UpdateDwmFrame();
 
-    ShowWindow(hwnd_, nCmdShow);
+    if (!RestoreWindowPlacement(nCmdShow)) {
+        ShowWindow(hwnd_, nCmdShow);
+    }
     UpdateWindow(hwnd_);
 
     return true;
@@ -125,10 +134,12 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
     // 非最大化時のリサイズ枠判定（細めの枠でスクロールバーと干渉しないようにする）
     if (!IsZoomed(hwnd_)) {
         UINT dpi = GetDpiForWindow(hwnd_);
-        // リサイズ枠は4DIPの細い領域（スクロールバーと重ならないようにする）
         int border = MulDiv(4, dpi, 96);
         // 上端はタイトルバーがないため標準のフレーム厚を使う
         int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
+            + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+        // 右辺はシステム標準幅で広めに確保（スクロールバーとの共存）
+        int right_border = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
             + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 
         RECT rc;
@@ -138,7 +149,7 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
             if (pt.x < border) {
                 return HTTOPLEFT;
             }
-            if (pt.x >= rc.right - border) {
+            if (pt.x >= rc.right - right_border) {
                 return HTTOPRIGHT;
             }
             return HTTOP;
@@ -147,7 +158,7 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
             if (pt.x < border) {
                 return HTBOTTOMLEFT;
             }
-            if (pt.x >= rc.right - border) {
+            if (pt.x >= rc.right - right_border) {
                 return HTBOTTOMRIGHT;
             }
             return HTBOTTOM;
@@ -155,10 +166,13 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
         if (pt.x < border) {
             return HTLEFT;
         }
-        if (pt.x >= rc.right - border) {
-            float dpi_scale = app_.GetDpiScale();
-            if (app_.IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
-                return HTCLIENT;
+        if (pt.x >= rc.right - right_border) {
+            // 内側部分のみスクロールバーを優先、最外側borderはリサイズを優先
+            if (pt.x < rc.right - border) {
+                float dpi_scale = app_.GetDpiScale();
+                if (app_.IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
+                    return HTCLIENT;
+                }
             }
             return HTRIGHT;
         }
@@ -173,6 +187,8 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
     if (dip_y < titlebar_height) {
         auto zone = app_.TitleBarHitTest(dip_x, dip_y);
         switch (zone) {
+        case TitleBarHitZone::Icon:
+            return HTSYSMENU;  // システムメニュー表示（ダブルクリックで閉じる）
         case TitleBarHitZone::Help:
         case TitleBarHitZone::ThemeToggle:
         case TitleBarHitZone::FileToggle:
@@ -219,12 +235,24 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_.OnExitSizeMove();
         return 0;
 
+    case WM_NCLBUTTONDOWN:
+        // システムメニュー表示時はフラグを立て、モーダルループ中の右クリック競合を防ぐ
+        if (wParam == HTSYSMENU) {
+            in_sys_menu_ = true;
+            auto r = DefWindowProcW(hwnd_, msg, wParam, lParam);
+            in_sys_menu_ = false;
+            return r;
+        }
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
     case WM_RBUTTONDOWN:
+        if (in_sys_menu_) { return 0; }
         if (!app_.OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
         return 0;
 
     case WM_RBUTTONUP:
+        if (in_sys_menu_) { return 0; }
         if (!app_.OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
         return 0;
@@ -282,9 +310,24 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
 
-    case WM_CONTEXTMENU:
-        app_.OnContextMenu(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+    case WM_CONTEXTMENU: {
+        // システムメニュー表示中はカスタムメニューを抑制
+        if (in_sys_menu_) { return 0; }
+        int sx = GET_X_LPARAM(lParam);
+        int sy = GET_Y_LPARAM(lParam);
+        // マウス由来の場合、タイトルバー上の右クリックは抑制する
+        if (sx != -1 || sy != -1) {
+            POINT pt = { sx, sy };
+            ScreenToClient(hwnd_, &pt);
+            float dpi_scale = app_.GetDpiScale();
+            float dip_y = pt.y / dpi_scale;
+            if (dip_y < app_.GetTitleBarHeightDip()) {
+                return 0;
+            }
+        }
+        app_.OnContextMenu(sx, sy);
         return 0;
+    }
 
     case WM_KEYDOWN:
         app_.OnKeyDown(wParam);
@@ -325,16 +368,131 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_.OnAppImageLoaded();
         return 0;
 
+    case WM_SYSCOMMAND:
+        if ((wParam & 0xFFF0) == SC_RESET_WINDOW) {
+            ResetWindowPlacement();
+            return 0;
+        }
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
     case WM_CAPTURECHANGED:
         app_.OnCaptureChanged();
         return 0;
 
     case WM_DESTROY:
+        SaveWindowPlacement();
         app_.OnDestroy();
         PostQuitMessage(0);
         return 0;
 
+    case WM_NCRBUTTONDOWN:
+        // システムメニューアイコン上の右クリックを抑制
+        // （システムメニュー表示中に右クリックメニューが重なるのを防ぐ）
+        if (wParam == HTSYSMENU) {
+            return 0;
+        }
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
     default:
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
     }
+}
+
+// ============================================================
+// システムメニュー（タスクバー右クリック）
+// ============================================================
+
+void Win32Window::InitSystemMenu()
+{
+    HMENU menu = GetSystemMenu(hwnd_, FALSE);
+    if (menu) {
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, SC_RESET_WINDOW, L"ウィンドウ位置をリセット(&R)");
+    }
+}
+
+void Win32Window::ResetWindowPlacement()
+{
+    // 最大化・最小化を解除してから配置をリセットする
+    if (IsZoomed(hwnd_) || IsIconic(hwnd_)) {
+        ShowWindow(hwnd_, SW_RESTORE);
+    }
+
+    // プライマリモニターの作業領域に中央配置
+    RECT work{};
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    int work_w = work.right - work.left;
+    int work_h = work.bottom - work.top;
+
+    constexpr int DEFAULT_W = 1600;
+    constexpr int DEFAULT_H = 900;
+    int w = std::min(DEFAULT_W, work_w);
+    int h = std::min(DEFAULT_H, work_h);
+    int x = work.left + (work_w - w) / 2;
+    int y = work.top + (work_h - h) / 2;
+
+    SetWindowPos(hwnd_, nullptr, x, y, w, h,
+        SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
+// ============================================================
+// ウィンドウ配置の永続化
+// ============================================================
+
+void Win32Window::SaveWindowPlacement()
+{
+    WINDOWPLACEMENT wp{};
+    wp.length = sizeof(wp);
+    if (!GetWindowPlacement(hwnd_, &wp)) {
+        return;
+    }
+    const auto& rc = wp.rcNormalPosition;
+    config::SaveInt(L"window_x.txt", rc.left);
+    config::SaveInt(L"window_y.txt", rc.top);
+    config::SaveInt(L"window_w.txt", rc.right - rc.left);
+    config::SaveInt(L"window_h.txt", rc.bottom - rc.top);
+
+    // 最小化中に閉じた場合も、元が最大化だったかを正しく保存する
+    bool was_maximized = (wp.showCmd == SW_SHOWMAXIMIZED) ||
+        ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED));
+    config::SaveBool(L"window_maximized.txt", was_maximized);
+}
+
+bool Win32Window::RestoreWindowPlacement(int nCmdShow)
+{
+    // 保存済みのウィンドウサイズを読み込み（なければデフォルト表示へフォールバック）
+    int w = config::LoadInt(L"window_w.txt", 0, 100, 100000);
+    int h = config::LoadInt(L"window_h.txt", 0, 100, 100000);
+    if (w == 0 || h == 0) {
+        return false;
+    }
+    int x = config::LoadInt(L"window_x.txt", 0, -100000, 100000);
+    int y = config::LoadInt(L"window_y.txt", 0, -100000, 100000);
+    bool maximized = config::LoadBool(L"window_maximized.txt", false);
+
+    WINDOWPLACEMENT wp{};
+    wp.length = sizeof(wp);
+    wp.rcNormalPosition = { x, y, x + w, y + h };
+
+    if (nCmdShow == SW_SHOWMINIMIZED || nCmdShow == SW_MINIMIZE) {
+        wp.showCmd = SW_SHOWMINIMIZED;
+        if (maximized) {
+            wp.flags = WPF_RESTORETOMAXIMIZED;
+        }
+    } else {
+        wp.showCmd = maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+    }
+
+    SetWindowPlacement(hwnd_, &wp);
+    return true;
+}
+
+void Win32Window::RestoreScrollPosition()
+{
+    int node = config::LoadInt(L"scroll_node.txt", -1, -1, 100000000);
+    if (node < 0) {
+        return;
+    }
+    int offset = config::LoadInt(L"scroll_offset.txt", 0, -100000, 100000);
+    app_.SetPendingRestoreNode(node, offset);
 }

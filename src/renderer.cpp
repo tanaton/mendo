@@ -3,7 +3,6 @@
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
-#include <wincodec.h>
 
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
@@ -48,17 +47,15 @@ void Renderer::LoadAppIconBitmap()
         return;
     }
 
-    // HICONからD2D1ビットマップに変換
-    ComPtr<IWICImagingFactory> wic;
-    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic));
-    if (FAILED(hr)) {
+    // HICONからD2D1ビットマップに変換（バックエンドのWICファクトリを共有使用）
+    auto* wic = backend_.GetWICFactory();
+    if (!wic) {
         DestroyIcon(hIcon);
         return;
     }
 
     ComPtr<IWICBitmap> wic_bitmap;
-    hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
+    HRESULT hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
     DestroyIcon(hIcon);
     if (FAILED(hr)) {
         return;
@@ -92,7 +89,7 @@ void Renderer::RecreateBrushes()
 
     bool is_dark = theme_.IsDark();
 
-    float stripe_alpha = is_dark ? 0.05f : 0.02f;
+    float stripe_alpha = is_dark ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
     float thumb_alpha = is_dark ? 0.4f : 0.25f;
 
     struct BrushSpec { BrushId id; D2D1_COLOR_F color; };
@@ -209,85 +206,55 @@ ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
 void Renderer::RecreatePaneFormats()
 {
     // テーマサイズの更新に合わせて全ペイン/UIテキストフォーマットを再作成
-    auto W = DWRITE_FONT_WEIGHT_NORMAL;
+    constexpr DWRITE_FONT_WEIGHT W = DWRITE_FONT_WEIGHT_NORMAL;
+    constexpr DWRITE_TEXT_ALIGNMENT TA_LEAD = DWRITE_TEXT_ALIGNMENT_LEADING;
+    constexpr DWRITE_TEXT_ALIGNMENT TA_CTR  = DWRITE_TEXT_ALIGNMENT_CENTER;
+    constexpr DWRITE_TEXT_ALIGNMENT TA_TAIL = DWRITE_TEXT_ALIGNMENT_TRAILING;
+    constexpr DWRITE_PARAGRAPH_ALIGNMENT PA_TOP = DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
+    constexpr DWRITE_PARAGRAPH_ALIGNMENT PA_CTR = DWRITE_PARAGRAPH_ALIGNMENT_CENTER;
 
-    fmt_.icon_font = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
+    const wchar_t* body_font = theme_.font_family.c_str();
+    const wchar_t* icon_font = L"Segoe Fluent Icons";
 
-    // コピーボタン用アイコンフォーマット（両軸中央揃え）
-    fmt_.copy_btn_icon = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.font_size_body, L"en-us");
-    if (fmt_.copy_btn_icon) {
-        fmt_.copy_btn_icon->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_.copy_btn_icon->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_.copy_btn_icon->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
+    struct FormatSpec {
+        ComPtr<IDWriteTextFormat>* target;
+        const wchar_t* family;
+        DWRITE_FONT_WEIGHT weight;
+        float size;
+        const wchar_t* locale;
+        DWRITE_TEXT_ALIGNMENT text_align;
+        DWRITE_PARAGRAPH_ALIGNMENT para_align;
+        bool no_wrap;
+    };
 
-    // リスト番号フォーマット（順序付きリストの番号を右揃え）
-    fmt_.list_number = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
-    if (fmt_.list_number) {
-        fmt_.list_number->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-    }
+    FormatSpec specs[] = {
+        { &fmt_.icon_font,        body_font, W,                            theme_.font_size_body,         L"ja-jp", TA_LEAD, PA_TOP, false },
+        { &fmt_.copy_btn_icon,    icon_font, W,                            theme_.font_size_body,         L"en-us", TA_CTR,  PA_CTR, true  },
+        { &fmt_.list_number,      body_font, W,                            theme_.font_size_body,         L"ja-jp", TA_TAIL, PA_TOP, false },
+        { &fmt_.placeholder_text, body_font, W,                            theme_.font_size_body,         L"ja-jp", TA_CTR,  PA_CTR, false },
+        { &fmt_.titlebar_text,    body_font, W,                            theme_.pane_font_size,         L"ja-jp", TA_CTR,  PA_CTR, true  },
+        { &fmt_.titlebar_icon,    icon_font, W,                            14.0f,                         L"en-us", TA_CTR,  PA_CTR, true  },
+        { &fmt_.pane_icon,        icon_font, W,                            theme_.pane_font_size,         L"en-us", TA_CTR,  PA_CTR, true  },
+        { &fmt_.pane_item,        body_font, W,                            theme_.pane_font_size,         L"ja-jp", TA_LEAD, PA_CTR, true  },
+        { &fmt_.pane_header,      body_font, DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size,         L"ja-jp", TA_LEAD, PA_CTR, true  },
+        { &fmt_.nav_button,       body_font, W,                            theme_.pane_font_size,         L"ja-jp", TA_CTR,  PA_CTR, true  },
+        { &fmt_.gesture_overlay,  body_font, DWRITE_FONT_WEIGHT_BOLD,      32.0f * theme_.zoom,           L"ja-JP", TA_CTR,  PA_CTR, false },
+        { &fmt_.toast_text,       body_font, DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size * 1.1f,  L"ja-JP", TA_CTR,  PA_CTR, true  },
+    };
 
-    // 図・画像プレースホルダー用テキストフォーマット（両軸中央揃え）
-    fmt_.placeholder_text = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.font_size_body, L"ja-jp");
-    if (fmt_.placeholder_text) {
-        fmt_.placeholder_text->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_.placeholder_text->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-
-    // タイトルバー用テキストフォーマット
-    fmt_.titlebar_text = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
-    if (fmt_.titlebar_text) {
-        fmt_.titlebar_text->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_.titlebar_text->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_.titlebar_text->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-    fmt_.titlebar_icon = CreatePaneFormat(L"Segoe Fluent Icons", W, 14.0f, L"en-us");
-    if (fmt_.titlebar_icon) {
-        fmt_.titlebar_icon->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_.titlebar_icon->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_.titlebar_icon->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-
-    fmt_.pane_icon = CreatePaneFormat(L"Segoe Fluent Icons", W, theme_.pane_font_size, L"en-us");
-    if (fmt_.pane_icon) {
-        fmt_.pane_icon->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_.pane_icon->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        fmt_.pane_icon->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    }
-
-    fmt_.pane_item = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
-    if (fmt_.pane_item) {
-        fmt_.pane_item->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_.pane_item->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-
-    fmt_.pane_header = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size, L"ja-jp");
-    if (fmt_.pane_header) {
-        fmt_.pane_header->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_.pane_header->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-
-    // ナビゲーションオーバーレイボタンのテキストフォーマット（両軸中央揃え）
-    fmt_.nav_button = CreatePaneFormat(theme_.font_family.c_str(), W, theme_.pane_font_size, L"ja-jp");
-    if (fmt_.nav_button) {
-        fmt_.nav_button->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_.nav_button->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_.nav_button->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-
-    // ジェスチャーオーバーレイのテキストフォーマット（大きい太字、中央揃え）
-    fmt_.gesture_overlay = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_.zoom, L"ja-JP");
-    if (fmt_.gesture_overlay) {
-        fmt_.gesture_overlay->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_.gesture_overlay->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-
-    // トースト通知のテキストフォーマット（中央揃え）
-    fmt_.toast_text = CreatePaneFormat(theme_.font_family.c_str(), DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size * 1.1f, L"ja-JP");
-    if (fmt_.toast_text) {
-        fmt_.toast_text->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_.toast_text->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        fmt_.toast_text->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    for (const auto& s : specs) {
+        *s.target = CreatePaneFormat(s.family, s.weight, s.size, s.locale);
+        if (*s.target) {
+            if (s.no_wrap) {
+                (*s.target)->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            }
+            if (s.text_align != TA_LEAD) {
+                (*s.target)->SetTextAlignment(s.text_align);
+            }
+            if (s.para_align != PA_TOP) {
+                (*s.target)->SetParagraphAlignment(s.para_align);
+            }
+        }
     }
 
     nav_back_layout_.Reset();
@@ -372,9 +339,9 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
 
     // テーブルセル: セルレイアウトにリンク色を適用し、インラインコード背景を計算
     if (node.type == NodeType::Table) {
-        entry.cell_inline_code_bgs.resize(node.table_rows.size());
-        for (size_t r = 0; r < node.table_rows.size(); r++) {
-            const auto& row = node.table_rows[r];
+        entry.cell_inline_code_bgs.resize(node.table_rows().size());
+        for (size_t r = 0; r < node.table_rows().size(); r++) {
+            const auto& row = node.table_rows()[r];
             entry.cell_inline_code_bgs[r].resize(row.cells.size());
             for (size_t c = 0; c < row.cells.size(); c++) {
                 IDWriteTextLayout* cell_layout = nullptr;
@@ -574,7 +541,7 @@ void Renderer::Render(const RenderParams& p)
     }
 
     // Markdownペインのカスタムスクロールバー
-    DrawMdScrollbar(p.md_pane_rect, p.scroll_y, p.total_content_height);
+    DrawMdScrollbar(p.md_pane_rect, p.scroll_y, p.total_content_height, p.has_dirty_nodes);
 
     if (!CheckEndDraw()) {
         return;
@@ -589,6 +556,9 @@ bool Renderer::CheckEndDraw()
         // 現在のフレームは破棄された — 新しいターゲットで再描画を要求
         InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
         return false;
+    }
+    if (SUCCEEDED(hr)) {
+        backend_.Present();
     }
     return SUCCEEDED(hr);
 }

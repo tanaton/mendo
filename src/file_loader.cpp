@@ -27,9 +27,6 @@ std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path)
         return {};
     }
 
-    // Markdownビュアーとして妥当なファイルサイズ上限（256MB）。
-    // これにより、OOMやMultiByteToWideCharのint切り捨て（>2GB）も防止する。
-    static constexpr LONGLONG MAX_FILE_SIZE = 256LL * 1024 * 1024;
     if (size.QuadPart > MAX_FILE_SIZE) {
         CloseHandle(hFile);
         return {};

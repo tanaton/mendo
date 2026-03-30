@@ -19,4 +19,8 @@ uint64_t CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode)
 // 論理プロセッサ数からMermaidレンダリング用ワーカー数を計算する。
 // 結果は [2, 4] にクランプされる。
 int ComputeWorkerCount(unsigned int processor_count) noexcept;
+
+// 幅を100px単位に量子化する（ファイルキャッシュのキー用）。
+// 結果は常に100以上の100の倍数。
+int QuantizeWidth(float max_width) noexcept;
 }

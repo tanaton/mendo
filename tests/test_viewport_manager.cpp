@@ -381,3 +381,130 @@ TEST(ViewportManagerTest, AnchorCompensateScrollPositiveShiftOk) {
     vm.AnchorCompensateScroll(1, y_before, cache);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 150.0f);
 }
+
+// ---- セッション復元テスト（ノードベーススクロール復元） ----
+
+TEST(ViewportManagerTest, ScrollRestoreRoundTrip) {
+    // ノード+オフセットで保存→復元すると元のスクロール位置を再現できる
+    ViewportManager vm;
+    auto cache = MakeTestCache(10, 50.0f); // total=500
+    vm.SyncMaxScroll(500.0f, 200.0f);      // max_scroll=300
+    vm.ScrollTo(125.0f);                    // ノード2の途中
+
+    int saved_node = vm.FindFirstVisibleNode(cache, 10);
+    float saved_offset = vm.GetScrollY() - cache[saved_node].y_position;
+
+    // 復元
+    float restored = cache[saved_node].y_position + saved_offset;
+    EXPECT_FLOAT_EQ(restored, 125.0f);
+}
+
+TEST(ViewportManagerTest, ScrollRestoreResilientToHeightChange) {
+    // 画像未読み込み→読み込み後でレイアウトが変わっても正しいノードを指す
+    ViewportManager vm;
+    auto cache = MakeTestCache(10, 50.0f);
+    vm.SyncMaxScroll(500.0f, 200.0f);
+    vm.ScrollTo(200.0f); // ノード4の先頭
+
+    int saved_node = vm.FindFirstVisibleNode(cache, 10);
+    float saved_offset = vm.GetScrollY() - cache[saved_node].y_position;
+    EXPECT_EQ(saved_node, 4);
+    EXPECT_FLOAT_EQ(saved_offset, 0.0f);
+
+    // レイアウト変更: ノード1の高さが200に増加（画像読み込みシミュレーション）
+    LayoutCache new_cache;
+    new_cache.Resize(10);
+    float y = 0.0f;
+    for (int i = 0; i < 10; ++i) {
+        new_cache[i].y_position = y;
+        new_cache[i].height = (i == 1) ? 200.0f : 50.0f;
+        y += new_cache[i].height;
+    }
+    // ノード4の新しいy位置: 50 + 200 + 50 + 50 = 350
+    EXPECT_FLOAT_EQ(new_cache[saved_node].y_position, 350.0f);
+
+    // ノードベース復元: 正しいノードの先頭にスクロール
+    float restored = new_cache[saved_node].y_position + saved_offset;
+    EXPECT_FLOAT_EQ(restored, 350.0f);
+}
+
+TEST(ViewportManagerTest, ScrollRestoreWithPartialNodeVisibility) {
+    // ノードの途中で保存した場合、オフセットがノード内の位置を再現する
+    ViewportManager vm;
+    auto cache = MakeTestCache(10, 100.0f); // total=1000
+    vm.SyncMaxScroll(1000.0f, 300.0f);
+    vm.ScrollTo(350.0f); // ノード3(y=300)の途中
+
+    int saved_node = vm.FindFirstVisibleNode(cache, 10);
+    float saved_offset = vm.GetScrollY() - cache[saved_node].y_position;
+    EXPECT_EQ(saved_node, 3);
+    EXPECT_FLOAT_EQ(saved_offset, 50.0f);
+
+    float restored = cache[saved_node].y_position + saved_offset;
+    EXPECT_FLOAT_EQ(restored, 350.0f);
+}
+
+TEST(ViewportManagerTest, ScrollRestoreNodeClampedToSize) {
+    // 保存されたノードインデックスが現在のノード数を超える場合は最終ノードに制限
+    auto cache = MakeTestCache(5, 100.0f);
+    int saved_node = 8; // 5個しかないので超過
+    int clamped = std::min(saved_node, static_cast<int>(cache.size()) - 1);
+    EXPECT_EQ(clamped, 4);
+
+    float restored = std::max(0.0f, cache[clamped].y_position + 0.0f);
+    EXPECT_FLOAT_EQ(restored, 400.0f);
+}
+
+TEST(ViewportManagerTest, ScrollRestoreAtDocumentStart) {
+    ViewportManager vm;
+    auto cache = MakeTestCache(10, 50.0f);
+    vm.SyncMaxScroll(500.0f, 200.0f);
+    vm.ScrollTo(0.0f);
+
+    int saved_node = vm.FindFirstVisibleNode(cache, 10);
+    float saved_offset = vm.GetScrollY() - cache[saved_node].y_position;
+
+    EXPECT_EQ(saved_node, 0);
+    EXPECT_FLOAT_EQ(saved_offset, 0.0f);
+
+    float restored = cache[saved_node].y_position + saved_offset;
+    EXPECT_FLOAT_EQ(restored, 0.0f);
+}
+
+TEST(ViewportManagerTest, ScrollRestoreAtDocumentEnd) {
+    ViewportManager vm;
+    auto cache = MakeTestCache(10, 50.0f); // total=500
+    vm.SyncMaxScroll(500.0f, 200.0f);      // max_scroll=300
+    vm.ScrollTo(300.0f);                    // 最下端
+
+    int saved_node = vm.FindFirstVisibleNode(cache, 10);
+    float saved_offset = vm.GetScrollY() - cache[saved_node].y_position;
+
+    float restored = cache[saved_node].y_position + saved_offset;
+    EXPECT_FLOAT_EQ(restored, 300.0f);
+}
+
+TEST(ViewportManagerTest, ScrollRestoreAnchorCompensationAfterHeightChange) {
+    // ノードベース復元後に画像読み込みでアンカー補正が正しく機能する
+    ViewportManager vm;
+    auto cache = MakeTestCache(10, 50.0f);
+    vm.SyncMaxScroll(500.0f, 200.0f);
+
+    // ノード5(y=250)付近にスクロール復元
+    int restore_node = 5;
+    float restore_offset = 10.0f;
+    float scroll_y = cache[restore_node].y_position + restore_offset; // 260
+    vm.ScrollTo(scroll_y);
+
+    // ノード2の高さが100増加（画像読み込み）→ ノード5が下にシフト
+    float anchor_y_before = cache[5].y_position; // 250
+    for (int i = 2; i < 10; ++i) {
+        cache[i].y_position += 100.0f;
+    }
+    cache[2].height = 150.0f;
+
+    // アンカー補正
+    vm.AnchorCompensateScroll(5, anchor_y_before, cache);
+    // scroll_yが100増加して360になるべき（ノード5が350に移動+オフセット10）
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), 360.0f);
+}

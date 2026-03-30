@@ -1,4 +1,6 @@
 #include "image_loader.h"
+#include "file_loader.h"
+#include "task_scheduler.h"
 #include "ui_constants.h"
 #include <shlwapi.h>
 #include <vector>
@@ -18,7 +20,7 @@ static ComPtr<IStream> ReadFileToStream(const std::wstring& path)
     }
 
     LARGE_INTEGER size;
-    if (!GetFileSizeEx(hFile, &size) || size.QuadPart == 0 || size.QuadPart > 256LL * 1024 * 1024) {
+    if (!GetFileSizeEx(hFile, &size) || size.QuadPart == 0 || size.QuadPart > MAX_FILE_SIZE) {
         CloseHandle(hFile);
         return nullptr;
     }
@@ -52,43 +54,30 @@ void ImageLoader::GetDpiScale(float& scale_x, float& scale_y) const
     scale_y = (dpi_y > 0.0f) ? (dpi_y / DEFAULT_DPI) : 1.0f;
 }
 
-void ImageLoader::Init(ID2D1RenderTarget* rt)
+void ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
 {
     render_target_ = rt;
-    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic_factory_));
-    if (FAILED(hr)) {
-        wic_factory_.Reset();
+    if (wic) {
+        wic_factory_ = wic;
+    } else {
+        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&wic_factory_));
+        if (FAILED(hr)) {
+            wic_factory_.Reset();
+        }
     }
 }
 
-void ImageLoader::InitAsync(HWND hwnd, UINT msg_id)
+void ImageLoader::InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler)
 {
     hwnd_ = hwnd;
     msg_id_ = msg_id;
-    shutdown_flag_.store(false);
-
-    int count = mermaid_util::ComputeWorkerCount(
-        std::thread::hardware_concurrency());
-    worker_threads_.reserve(count);
-    for (int i = 0; i < count; ++i) {
-        worker_threads_.emplace_back(&ImageLoader::WorkerLoop, this);
-    }
+    scheduler_ = &scheduler;
 }
 
 void ImageLoader::Shutdown()
 {
-    {
-        std::lock_guard lock(queue_mutex_);
-        shutdown_flag_.store(true);
-    }
-    queue_cv_.notify_all();
-    for (auto& t : worker_threads_) {
-        if (t.joinable()) {
-            t.join();
-        }
-    }
-    worker_threads_.clear();
+    CancelPending();
 }
 
 bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
@@ -180,13 +169,70 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
     Callback on_complete, void* user_data)
 {
     {
-        std::lock_guard lock(queue_mutex_);
+        std::lock_guard lock(pending_mutex_);
         if (!pending_paths_.insert(abs_path).second) {
             return;
         }
-        request_queue_.push({ abs_path, on_complete, user_data });
     }
-    queue_cv_.notify_one();
+
+    if (!scheduler_) {
+        return;
+    }
+
+    uint32_t gen = cancel_gen_.load();
+    scheduler_->Post([this, path = abs_path, on_complete, user_data, gen] {
+        if (cancel_gen_.load() != gen) {
+            return;
+        }
+
+        DecodeResult result;
+        result.path = path;
+        result.on_complete = on_complete;
+        result.user_data = user_data;
+
+        if (wic_factory_) {
+            auto stream = ReadFileToStream(path);
+            ComPtr<IWICBitmapDecoder> decoder;
+            HRESULT hr = stream ? wic_factory_->CreateDecoderFromStream(
+                stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder) : E_FAIL;
+
+            if (SUCCEEDED(hr)) {
+                ComPtr<IWICBitmapFrameDecode> frame;
+                hr = decoder->GetFrame(0, &frame);
+                if (SUCCEEDED(hr)) {
+                    ComPtr<IWICFormatConverter> converter;
+                    hr = wic_factory_->CreateFormatConverter(&converter);
+                    if (SUCCEEDED(hr)) {
+                        hr = converter->Initialize(
+                            frame.Get(), GUID_WICPixelFormat32bppPBGRA,
+                            WICBitmapDitherTypeNone, nullptr, 0.0f,
+                            WICBitmapPaletteTypeCustom);
+                        if (SUCCEEDED(hr)) {
+                            UINT w = 0, h = 0;
+                            frame->GetSize(&w, &h);
+                            result.converter = converter;
+                            result.width = static_cast<float>(w);
+                            result.height = static_cast<float>(h);
+                            result.success = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (cancel_gen_.load() != gen) {
+            return;
+        }
+
+        {
+            std::lock_guard lock(result_mutex_);
+            completed_.push_back(std::move(result));
+        }
+
+        if (hwnd_) {
+            PostMessage(hwnd_, msg_id_, 0, 0);
+        }
+    });
 }
 
 void ImageLoader::ProcessCompletedDecodes()
@@ -202,7 +248,7 @@ void ImageLoader::ProcessCompletedDecodes()
     }
 
     {
-        std::lock_guard lock(queue_mutex_);
+        std::lock_guard lock(pending_mutex_);
         for (auto& r : results) {
             pending_paths_.erase(r.path);
         }
@@ -241,84 +287,13 @@ void ImageLoader::ProcessCompletedDecodes()
 
 void ImageLoader::CancelPending()
 {
+    cancel_gen_.fetch_add(1);
     {
-        std::lock_guard lock(queue_mutex_);
-        std::queue<PendingRequest> empty;
-        request_queue_.swap(empty);
+        std::lock_guard lock(pending_mutex_);
         pending_paths_.clear();
     }
     {
         std::lock_guard lock(result_mutex_);
         completed_.clear();
     }
-}
-
-void ImageLoader::WorkerLoop()
-{
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-
-    ComPtr<IWICImagingFactory> wic;
-    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic));
-
-    while (true) {
-        PendingRequest req;
-        {
-            std::unique_lock lock(queue_mutex_);
-            queue_cv_.wait(lock, [this] {
-                return shutdown_flag_.load() || !request_queue_.empty();
-            });
-            if (shutdown_flag_.load() && request_queue_.empty()) {
-                break;
-            }
-            req = std::move(request_queue_.front());
-            request_queue_.pop();
-        }
-
-        DecodeResult result;
-        result.path = req.path;
-        result.on_complete = req.on_complete;
-        result.user_data = req.user_data;
-
-        if (wic) {
-            auto stream = ReadFileToStream(req.path);
-            ComPtr<IWICBitmapDecoder> decoder;
-            HRESULT hr = stream ? wic->CreateDecoderFromStream(
-                stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder) : E_FAIL;
-
-            if (SUCCEEDED(hr)) {
-                ComPtr<IWICBitmapFrameDecode> frame;
-                hr = decoder->GetFrame(0, &frame);
-                if (SUCCEEDED(hr)) {
-                    ComPtr<IWICFormatConverter> converter;
-                    hr = wic->CreateFormatConverter(&converter);
-                    if (SUCCEEDED(hr)) {
-                        hr = converter->Initialize(
-                            frame.Get(), GUID_WICPixelFormat32bppPBGRA,
-                            WICBitmapDitherTypeNone, nullptr, 0.0f,
-                            WICBitmapPaletteTypeCustom);
-                        if (SUCCEEDED(hr)) {
-                            UINT w = 0, h = 0;
-                            frame->GetSize(&w, &h);
-                            result.converter = converter;
-                            result.width = static_cast<float>(w);
-                            result.height = static_cast<float>(h);
-                            result.success = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        {
-            std::lock_guard lock(result_mutex_);
-            completed_.push_back(std::move(result));
-        }
-
-        if (hwnd_) {
-            PostMessage(hwnd_, msg_id_, 0, 0);
-        }
-    }
-
-    CoUninitialize();
 }

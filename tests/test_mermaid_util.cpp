@@ -217,3 +217,28 @@ TEST(ComputeWorkerCount, SixteenProcessorsReturnsMaximum) {
 TEST(ComputeWorkerCount, LargeProcessorCountReturnsMaximum) {
     EXPECT_EQ(mermaid_util::ComputeWorkerCount(128), 4);
 }
+
+// ═══════════════════════════════════════════════
+// QuantizeWidth
+// ═══════════════════════════════════════════════
+
+TEST(QuantizeWidth, RoundsUpToNearest100) {
+    EXPECT_EQ(mermaid_util::QuantizeWidth(750.0f), 800);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(801.0f), 900);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(1.0f), 100);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(99.0f), 100);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(1920.0f), 2000);
+}
+
+TEST(QuantizeWidth, ExactMultiplesUnchanged) {
+    EXPECT_EQ(mermaid_util::QuantizeWidth(100.0f), 100);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(200.0f), 200);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(800.0f), 800);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(1000.0f), 1000);
+}
+
+TEST(QuantizeWidth, ZeroAndNegativeReturn100) {
+    EXPECT_EQ(mermaid_util::QuantizeWidth(0.0f), 100);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(-1.0f), 100);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(-100.0f), 100);
+}

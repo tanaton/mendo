@@ -1,4 +1,5 @@
 #include "mermaid.h"
+#include "mermaid_file_cache.h"
 #include "mermaid_util.h"
 #include "utility.h"
 #include "resource.h"
@@ -10,6 +11,8 @@
 
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "shlwapi.lib")
+
+static constexpr size_t MAX_CACHE_ENTRIES = 4096;
 
 static std::span<const std::byte> LoadMermaidJsGzFromResource()
 {
@@ -108,6 +111,33 @@ static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
 </body>
 </html>
 )HTML";
+
+// IStreamから全バイトを読み出す（ファイルキャッシュ保存用）。
+static std::vector<uint8_t> ReadAllStreamBytes(IStream* stream)
+{
+    if (!stream) {
+        return {};
+    }
+
+    STATSTG stat{};
+    if (FAILED(stream->Stat(&stat, STATFLAG_NONAME))) {
+        return {};
+    }
+
+    auto size = static_cast<size_t>(stat.cbSize.QuadPart);
+    if (size == 0) {
+        return {};
+    }
+
+    LARGE_INTEGER zero{};
+    stream->Seek(zero, STREAM_SEEK_SET, nullptr);
+
+    std::vector<uint8_t> data(size);
+    ULONG read = 0;
+    stream->Read(data.data(), static_cast<ULONG>(size), &read);
+    data.resize(read);
+    return data;
+}
 
 // ヘルパー: 指定されたバイトデータのコピーを含むIStreamを作成する。
 static ComPtr<IStream> CreateMemoryStream(const void* data, size_t size)
@@ -438,7 +468,8 @@ void MermaidRenderer::ClearPendingQueue() noexcept
 
 uint64_t MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const
 {
-    return mermaid_util::CombinedHash(code, static_cast<int>(max_width), dark_mode);
+    int qw = mermaid_util::QuantizeWidth(max_width);
+    return mermaid_util::CombinedHash(code, qw, dark_mode);
 }
 
 void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
@@ -452,7 +483,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
 
     auto hash = HashCode(node.text, max_width, dark_mode);
 
-    // まずキャッシュを確認
+    // まずメモリキャッシュを確認
     auto it = cache_.find(hash);
     if (it != cache_.end()) {
         diagram_entry.bitmap = it->second.bitmap;
@@ -464,6 +495,41 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
             on_complete(user_data);
         }
         return;
+    }
+
+    // ファイルキャッシュを確認
+    if (file_cache_) {
+        uint64_t fkey = HashCode(node.text, max_width, dark_mode);
+        MermaidFileCache::CacheEntry fentry;
+        std::vector<uint8_t> png_data;
+        if (file_cache_->Lookup(fkey, fentry, png_data)) {
+            auto stream = CreateMemoryStream(png_data.data(), png_data.size());
+            if (stream) {
+                ComPtr<ID2D1Bitmap> bitmap;
+                float bw = 0, bh = 0;
+                if (SUCCEEDED(CreateBitmapFromPngStream(stream.Get(), &bitmap, &bw, &bh)) && bitmap) {
+                    diagram_entry.bitmap = bitmap;
+                    diagram_entry.width = fentry.css_width;
+                    diagram_entry.height = fentry.css_height;
+                    layout_entry.height = fentry.css_height;
+                    layout_entry.layout_dirty = false;
+
+                    // メモリキャッシュにも格納
+                    if (cache_.size() < MAX_CACHE_ENTRIES) {
+                        CachedBitmap cached;
+                        cached.bitmap = bitmap;
+                        cached.width = fentry.css_width;
+                        cached.height = fentry.css_height;
+                        cache_[hash] = cached;
+                    }
+
+                    if (on_complete) {
+                        on_complete(user_data);
+                    }
+                    return;
+                }
+            }
+        }
     }
 
     // リクエストをキューに追加
@@ -701,7 +767,6 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
         }
 
         // キャッシュに格納（エントリ数上限を超えたら任意のエントリを削除）
-        static constexpr size_t MAX_CACHE_ENTRIES = 4096;
         if (cache_.size() >= MAX_CACHE_ENTRIES) {
             cache_.erase(cache_.begin());
         }
@@ -720,6 +785,16 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
         if (w.current_request.layout_entry) {
             w.current_request.layout_entry->height = draw_h;
             w.current_request.layout_entry->layout_dirty = false;
+        }
+
+        // ファイルキャッシュに非同期で保存
+        if (file_cache_ && w.current_request.node) {
+            uint64_t fkey = HashCode(
+                w.current_request.node->text, w.current_request.max_width, w.current_request.dark_mode);
+            auto png_bytes = ReadAllStreamBytes(png_stream);
+            if (!png_bytes.empty()) {
+                file_cache_->StoreAsync(fkey, draw_w, draw_h, std::move(png_bytes));
+            }
         }
     }
 

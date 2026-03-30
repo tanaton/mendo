@@ -58,7 +58,7 @@ TEST(DocumentTest, ReplaceContent) {
 
     // 新しいコンテンツで置き換え
     auto doc2 = Document::FromMarkdown("# Second\n## Sub", L"");
-    doc.ReplaceContent(doc2.GetNodesMut());
+    doc.ReplaceContent(std::move(doc2.GetNodesMut()));
 
     // TOCが再構築されるべき
     EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);

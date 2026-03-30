@@ -284,7 +284,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     int node_index, float offset_x, const TextSelection& selection,
     float viewport_top, float viewport_bottom)
 {
-    if (node.table_rows.empty() || entry.col_widths.empty()) {
+    if (node.table_rows().empty() || entry.col_widths.empty()) {
         return;
     }
 
@@ -324,15 +324,15 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     float y = entry.y_position;
     uint32_t flat_offset = 0;
 
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        const auto& row = node.table_rows[r];
+    for (size_t r = 0; r < node.table_rows().size(); r++) {
+        const auto& row = node.table_rows()[r];
         float row_h = (r < entry.row_heights.size()) ? entry.row_heights[r] : (theme_->font_size_body * 1.4f);
 
         float row_bottom = y + row_h + border;
         if (row_bottom < viewport_top || y > viewport_bottom) {
             advance_flat_offset(flat_offset, row, 0, row.cells.size());
             y = row_bottom;
-            if (r + 1 < node.table_rows.size()) {
+            if (r + 1 < node.table_rows().size()) {
                 flat_offset++;
             }
             continue;
@@ -391,7 +391,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             theme_->hr_color, border });
 
         y += row_h + border;
-        if (r + 1 < node.table_rows.size()) {
+        if (r + 1 < node.table_rows().size()) {
             flat_offset++;
         }
     }

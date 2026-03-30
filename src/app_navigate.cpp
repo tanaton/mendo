@@ -77,10 +77,31 @@ void App::NavigateForward()
 // ダークモード
 // ============================================================
 
+void App::FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale)
+{
+    auto layout = GetPaneLayout();
+    float md_width = layout.md_rect.width;
+    float md_height = layout.md_rect.height;
+
+    // 表示領域を優先的にレイアウトし、残りは遅延処理に委ねる
+    layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
+
+    RestoreAnchorWithScale(anchor, offset_scale);
+
+    SyncMaxScroll(md_height);
+    RequestMermaidRenders();
+    ScheduleDeferredLayoutIfNeeded();
+    UpdateScrollBar();
+    Invalidate();
+}
+
 void App::ToggleDarkMode()
 {
     theme_service_.ToggleDarkMode();
     InvalidatePaneLayoutCache();
+
+    auto anchor = SaveAnchor();
+
     renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
     ApplyDarkModeToWindow(hwnd_, theme_service_.IsDarkMode());
 
@@ -89,8 +110,7 @@ void App::ToggleDarkMode()
     mermaid_renderer_.CancelPending();
     mermaid_renderer_.ClearCache();
 
-    UpdateLayoutAndScroll(viewport_.GetScrollY());
-    RequestMermaidRenders();
+    FinishThemeOrZoomChange(anchor, 1.0f);
     theme_service_.SaveDarkMode();
 }
 
@@ -125,9 +145,7 @@ void App::ZoomReset()
 void App::ApplyZoom(float new_zoom)
 {
     InvalidatePaneLayoutCache();
-    int anchor_idx = FindFirstVisibleNode();
-    float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
-    float anchor_offset = viewport_.GetScrollY() - anchor_y_before;
+    auto anchor = SaveAnchor();
 
     float old_zoom = renderer_.GetTheme().zoom;
     float zoom_ratio = new_zoom / old_zoom;
@@ -139,30 +157,7 @@ void App::ApplyZoom(float new_zoom)
 
     layout_cache_.InvalidateAllLayouts();
 
-    auto layout = GetPaneLayout();
-    float md_width = layout.md_rect.width;
-    float md_height = layout.md_rect.height;
-
-    // 表示領域を優先的にレイアウトし、残りは遅延処理に委ねる
-    layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
-
-    if (anchor_idx >= 0 && anchor_idx < static_cast<int>(doc_.GetNodes().size())) {
-        float anchor_y_after = layout_cache_[anchor_idx].y_position;
-        viewport_.SetScrollY(anchor_y_after + anchor_offset * zoom_ratio);
-    }
-
-    SyncMaxScroll(md_height);
-    viewport_.SetScrollTarget(viewport_.GetScrollY());
-
-    RequestMermaidRenders();
-
-    // 残りのダーティノードを遅延レイアウト
-    if (layout_service_->HasDirtyNodes()) {
-        SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
-    }
-
-    UpdateScrollBar();
+    FinishThemeOrZoomChange(anchor, zoom_ratio);
     UpdateTitleBar();
     theme_service_.SaveZoomLevel(viewport_.GetZoomIndex());
-    Invalidate();
 }

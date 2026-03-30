@@ -60,7 +60,7 @@ static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb
 template<typename DrawItemFn>
 static void DrawSidePaneImpl(
     PaneCache& cache,
-    ID2D1HwndRenderTarget* main_rt,
+    ID2D1RenderTarget* main_rt,
     const PaneRect& rect,
     const ScrollState& scroll,
     int item_count,
@@ -247,10 +247,17 @@ void Renderer::DrawSplitter(float x, float top, float bottom)
     rt()->FillRectangle(rect, Brush(BrushId::Splitter));
 }
 
-void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height)
+void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes)
 {
     float viewport_h = md_pane_rect.height;
-    if (total_content_height <= viewport_h || viewport_h <= 0.0f) {
+    if (viewport_h <= 0.0f) {
+        return;
+    }
+    // ダーティノードがある間は高さが増える可能性があるため、ぴったり一致でもスクロールバーを表示し続ける
+    bool needs_scrollbar = has_dirty_nodes
+        ? (total_content_height >= viewport_h)
+        : (total_content_height > viewport_h);
+    if (!needs_scrollbar) {
         return;
     }
 

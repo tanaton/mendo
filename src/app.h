@@ -1,5 +1,7 @@
 #pragma once
 #include "renderer.h"
+#include "task_scheduler.h"
+#include "mermaid_file_cache.h"
 #include "mermaid.h"
 #include "image_loader.h"
 #include "file_loader.h"
@@ -86,6 +88,13 @@ public:
     void OnCaptureChanged();
     void OnDestroy();
 
+    // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
+    void SetPendingRestoreNode(int node, int offset) noexcept
+    {
+        pending_restore_node_ = node;
+        pending_restore_offset_ = offset;
+    }
+
     // サイズ変更状態
     void OnEnterSizeMove();
     void OnExitSizeMove();
@@ -112,6 +121,16 @@ public:
 private:
     // AppControllerが返すアクションを実行
     void ExecuteActions(const ActionList& actions);
+
+    // アンカーベースのスクロール位置保存/復元
+    struct AnchorState {
+        int idx = -1;
+        float y_before = 0.0f;
+        float offset = 0.0f;
+    };
+    AnchorState SaveAnchor() const;
+    void RestoreAnchor(const AnchorState& anchor, float md_pane_height);
+    void RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale);
 
     // DIP変換
     struct DipPoint { float x, y; };
@@ -154,6 +173,7 @@ private:
         ScrollState& scroll, bool& cache_dirty);
 
     // レイアウト / スクロール
+    void ScheduleDeferredLayoutIfNeeded();
     void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();
     void InvalidateMdPane(const PaneRect& md_rect);
@@ -163,7 +183,6 @@ private:
     void StopSmoothScroll();
     void SyncMaxScroll(float md_pane_height);
     int FindFirstVisibleNode() const;
-    void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height);
     void OnResizeEnd();
     void RefreshPaneLayout();
     void RefreshFilePane();
@@ -177,6 +196,7 @@ private:
     void SaveLastFilePath();
     void SavePaneState();
     void LoadPaneState();
+    void SaveScrollPosition();
 
     // ペインレイアウト（結果はキャッシュされる）
     const ::PaneLayout& GetPaneLayout() const;
@@ -202,6 +222,9 @@ private:
     void ZoomOut();
     void ZoomReset();
     void ApplyZoom(float new_zoom);
+
+    // テーマ/ズーム変更後の共通後処理（ViewportLayout→スクロール復元→再描画）
+    void FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale);
 
 public:
     // タイマーID (メッセージルーティング用にWin32Windowと共有)
@@ -232,6 +255,8 @@ private:
 
     // コアサービス
     Renderer renderer_;
+    TaskScheduler scheduler_;
+    MermaidFileCache file_cache_;         // mermaid_renderer_より先に宣言（破棄順序の保証）
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileLoader file_loader_;
@@ -279,6 +304,10 @@ private:
 
     // 戻る/進むナビゲーション時の遅延スクロール復元用
     float pending_nav_scroll_y_ = -1.0f;
+
+    // セッション復元時のノードベーススクロール復元用
+    int pending_restore_node_ = -1;
+    int pending_restore_offset_ = 0;
 
     // カスタムコンテキストメニュー
     ContextMenu ctx_menu_;

@@ -6,6 +6,7 @@
 enum class TitleBarHitZone {
     None,        // タイトルバー外
     Caption,     // ドラッグ可能領域
+    Icon,        // アプリアイコン（システムメニュー）
     Help,        // ヘルプボタン
     ThemeToggle, // ダークモード切替ボタン
     FileToggle,  // ファイルペイン切替ボタン
@@ -98,6 +99,10 @@ public:
         }
         if (PointInRect(dip_x, dip_y, help_.rect)) {
             return TitleBarHitZone::Help;
+        }
+        // アイコン領域（クリックしやすいようアイコン右のギャップまで含む）
+        if (dip_x < icon_rect_.right + ICON_RIGHT_GAP) {
+            return TitleBarHitZone::Icon;
         }
         return TitleBarHitZone::Caption;
     }

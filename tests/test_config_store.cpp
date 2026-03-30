@@ -181,3 +181,60 @@ TEST_F(ConfigStoreTest, MultipleConfigFilesIndependent) {
     EXPECT_EQ(config::LoadInt(L"b.txt", 0, 0, 100), 42);
     EXPECT_EQ(config::LoadWString(L"c.txt"), L"hello");
 }
+
+// ---- ウィンドウ配置設定テスト ----
+
+TEST_F(ConfigStoreTest, WindowPlacementRoundTrip) {
+    // マルチモニター環境での負の座標を含むウィンドウ配置の保存/復元
+    config::SaveInt(L"window_x.txt", -500);
+    config::SaveInt(L"window_y.txt", 200);
+    config::SaveInt(L"window_w.txt", 1600);
+    config::SaveInt(L"window_h.txt", 900);
+    config::SaveBool(L"window_maximized.txt", true);
+
+    EXPECT_EQ(config::LoadInt(L"window_x.txt", 0, -100000, 100000), -500);
+    EXPECT_EQ(config::LoadInt(L"window_y.txt", 0, -100000, 100000), 200);
+    EXPECT_EQ(config::LoadInt(L"window_w.txt", 0, 100, 100000), 1600);
+    EXPECT_EQ(config::LoadInt(L"window_h.txt", 0, 100, 100000), 900);
+    EXPECT_TRUE(config::LoadBool(L"window_maximized.txt"));
+}
+
+TEST_F(ConfigStoreTest, WindowPlacementMissingReturnsDefaults) {
+    // 初回起動時: 保存済み設定がなければデフォルト値を返す
+    EXPECT_EQ(config::LoadInt(L"window_w.txt", 0, 100, 100000), 0);
+    EXPECT_EQ(config::LoadInt(L"window_h.txt", 0, 100, 100000), 0);
+    EXPECT_FALSE(config::LoadBool(L"window_maximized.txt"));
+}
+
+TEST_F(ConfigStoreTest, WindowPlacementTooSmallReturnsDefault) {
+    // 幅/高さが最小値未満の場合はデフォルト値を返す
+    config::SaveInt(L"window_w.txt", 50);  // 最小100未満
+    config::SaveInt(L"window_h.txt", 30);  // 最小100未満
+    EXPECT_EQ(config::LoadInt(L"window_w.txt", 0, 100, 100000), 0);
+    EXPECT_EQ(config::LoadInt(L"window_h.txt", 0, 100, 100000), 0);
+}
+
+// ---- スクロール復元設定テスト ----
+
+TEST_F(ConfigStoreTest, ScrollNodeRoundTrip) {
+    config::SaveInt(L"scroll_node.txt", 42);
+    config::SaveInt(L"scroll_offset.txt", 15);
+
+    EXPECT_EQ(config::LoadInt(L"scroll_node.txt", -1, -1, 100000000), 42);
+    EXPECT_EQ(config::LoadInt(L"scroll_offset.txt", 0, -100000, 100000), 15);
+}
+
+TEST_F(ConfigStoreTest, ScrollNodeMissingReturnsDefault) {
+    // 保存済みスクロール位置なし: ノード=-1でスキップされる
+    EXPECT_EQ(config::LoadInt(L"scroll_node.txt", -1, -1, 100000000), -1);
+    EXPECT_EQ(config::LoadInt(L"scroll_offset.txt", 0, -100000, 100000), 0);
+}
+
+TEST_F(ConfigStoreTest, ScrollNodeNegativeOffset) {
+    // ノード間のスペーシング領域にスクロール位置がある場合
+    config::SaveInt(L"scroll_node.txt", 5);
+    config::SaveInt(L"scroll_offset.txt", -10);
+
+    EXPECT_EQ(config::LoadInt(L"scroll_node.txt", -1, -1, 100000000), 5);
+    EXPECT_EQ(config::LoadInt(L"scroll_offset.txt", 0, -100000, 100000), -10);
+}

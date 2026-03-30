@@ -59,8 +59,8 @@ static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node,
     uint32_t& local_pos)
 {
     uint32_t offset = 0;
-    for (size_t r = 0; r < node.table_rows.size(); r++) {
-        const auto& row = node.table_rows[r];
+    for (size_t r = 0; r < node.table_rows().size(); r++) {
+        const auto& row = node.table_rows()[r];
         for (size_t c = 0; c < row.cells.size(); c++) {
             uint32_t cell_len = static_cast<uint32_t>(row.cells[c].text.size());
             if (text_pos >= offset && text_pos < offset + cell_len) {
@@ -70,7 +70,7 @@ static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node,
             offset += cell_len;
             if (c + 1 < row.cells.size()) offset++; // タブ区切り
         }
-        if (r + 1 < node.table_rows.size()) offset++; // 改行区切り
+        if (r + 1 < node.table_rows().size()) offset++; // 改行区切り
     }
     return nullptr;
 }

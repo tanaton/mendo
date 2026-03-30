@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <memory>
 #include <memory_resource>
 #include "syntax.h"
 
@@ -94,6 +95,18 @@ struct TableRow {
     std::pmr::vector<TableCell> cells;
 };
 
+// テーブル専用データ（Tableノードのみ確保）
+struct NodeTableData {
+    std::pmr::vector<TableRow> rows;
+};
+
+// 画像専用データ（Imageノードのみ確保）
+struct NodeImageData {
+    std::pmr::wstring src;     // 画像ソースパス（Markdown内の記述）
+    float width = 0.0f;        // 元画像の幅（ピクセル）
+    float height = 0.0f;       // 元画像の高さ（ピクセル）
+};
+
 struct Node {
     NodeType type = NodeType::Paragraph;
     int heading_level = 0;
@@ -110,14 +123,22 @@ struct Node {
     SyntaxLanguage code_language = SyntaxLanguage::None;
     std::pmr::vector<SyntaxToken> syntax_tokens;
 
-    // runs および table_rows 内の TextRun::link_url_index が参照するリンクURLプール
+    // runs および table_data->rows 内の TextRun::link_url_index が参照するリンクURLプール
     std::pmr::vector<std::pmr::wstring> link_urls;
 
-    // テーブルデータ（type == Table の場合のみ使用）
-    std::pmr::vector<TableRow> table_rows;
+    // テーブルデータ（type == Table の場合のみ確保、それ以外は nullptr）
+    std::unique_ptr<NodeTableData> table_data;
 
-    // 画像データ（type == Image の場合のみ使用）
-    std::pmr::wstring image_src;    // 画像ソースパス（Markdown内の記述）
-    float image_width = 0.0f;       // 元画像の幅（ピクセル）
-    float image_height = 0.0f;      // 元画像の高さ（ピクセル）
+    // 画像データ（type == Image の場合のみ確保、それ以外は nullptr）
+    std::unique_ptr<NodeImageData> image_data;
+
+    // テーブル行への便利アクセサ
+    std::pmr::vector<TableRow>& table_rows() { return table_data->rows; }
+    const std::pmr::vector<TableRow>& table_rows() const { return table_data->rows; }
+    void ensure_table() { if (!table_data) { table_data = std::make_unique<NodeTableData>(); } }
+    bool has_table() const noexcept { return table_data != nullptr; }
+
+    // 画像への便利アクセサ
+    void ensure_image() { if (!image_data) { image_data = std::make_unique<NodeImageData>(); } }
+    bool has_image() const noexcept { return image_data != nullptr; }
 };
