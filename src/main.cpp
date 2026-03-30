@@ -45,6 +45,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     else {
         std::pmr::wstring last = window.LoadLastFilePath();
         if (!last.empty()) {
+            window.RestoreScrollPosition();
             window.LoadMarkdownFile(last);
         }
         else {

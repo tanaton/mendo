@@ -87,6 +87,13 @@ public:
     void OnCaptureChanged();
     void OnDestroy();
 
+    // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
+    void SetPendingRestoreNode(int node, int offset) noexcept
+    {
+        pending_restore_node_ = node;
+        pending_restore_offset_ = offset;
+    }
+
     // サイズ変更状態
     void OnEnterSizeMove();
     void OnExitSizeMove();
@@ -178,6 +185,7 @@ private:
     void SaveLastFilePath();
     void SavePaneState();
     void LoadPaneState();
+    void SaveScrollPosition();
 
     // ペインレイアウト（結果はキャッシュされる）
     const ::PaneLayout& GetPaneLayout() const;
@@ -281,6 +289,10 @@ private:
 
     // 戻る/進むナビゲーション時の遅延スクロール復元用
     float pending_nav_scroll_y_ = -1.0f;
+
+    // セッション復元時のノードベーススクロール復元用
+    int pending_restore_node_ = -1;
+    int pending_restore_offset_ = 0;
 
     // カスタムコンテキストメニュー
     ContextMenu ctx_menu_;

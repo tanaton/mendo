@@ -1230,10 +1230,21 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload) {
     auto path = GetTestImagePath(L"after_cancel.png");
 
     loader_.RequestLoadAsync(path, OnComplete, nullptr);
-    ASSERT_TRUE(WaitForResults(1)) << "キャンセル後のリクエストが完了しなかった";
 
+    // キャンセル直後は進行中だったワーカーの結果が先に返る可能性があるため、
+    // コールバック回数ではなく対象画像がキャッシュされるまで直接ポーリングする
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    bool found = false;
+    while (std::chrono::steady_clock::now() < deadline) {
+        loader_.ProcessCompletedDecodes();
+        if (loader_.GetCachedImage(path, entry)) {
+            found = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(found) << "キャンセル後のリクエストが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 88.0f);
     EXPECT_FLOAT_EQ(entry.height, 66.0f);
 }

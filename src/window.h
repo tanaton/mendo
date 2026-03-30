@@ -13,12 +13,19 @@ public:
     std::pmr::wstring LoadLastFilePath() const { return app_.LoadLastFilePath(); }
     void ShowDirectory(std::wstring_view dir_path) { app_.ShowDirectory(dir_path); }
 
+    // 前回セッションのスクロール位置を復元する（LoadMarkdownFileの前に呼ぶ）
+    void RestoreScrollPosition();
+
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);
     LRESULT OnNcHitTest(LPARAM lParam);
     void UpdateDwmFrame();
+    void InitSystemMenu();
+    void ResetWindowPlacement();
+    void SaveWindowPlacement();
+    bool RestoreWindowPlacement(int nCmdShow);
 
     HWND hwnd_ = nullptr;
     App app_;

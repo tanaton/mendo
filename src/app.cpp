@@ -513,16 +513,33 @@ void App::DoLoadMarkdownFile()
     renderer_.InvalidateFilePaneCache();
     renderer_.InvalidateTocPaneCache();
 
-    // 戻る/進むナビゲーションからの遷移時はスクロール位置を復元
+    // 中間レイアウト: キャッシュ済みの画像/Mermaid高さを反映するための前段階
+    {
+        auto pane_layout = GetPaneLayout();
+        layout_service_->FullLayout(doc_, layout_cache_, pane_layout.md_rect.width);
+    }
+
+    // キャッシュ済みリソースを適用（正確な高さを反映）
+    LoadImages();
+    RequestMermaidRenders();
+
+    // スクロール位置の復元（キャッシュ反映後の正確な高さで計算）
     float scroll_y = 0.0f;
-    if (pending_nav_scroll_y_ >= 0.0f) {
+    if (pending_restore_node_ >= 0) {
+        // セッション復元: ノードのY座標+オフセットからスクロール位置を計算
+        int node = std::min(pending_restore_node_,
+            static_cast<int>(layout_cache_.size()) - 1);
+        if (node >= 0) {
+            scroll_y = std::max(0.0f,
+                layout_cache_[node].y_position + static_cast<float>(pending_restore_offset_));
+        }
+        pending_restore_node_ = -1;
+    } else if (pending_nav_scroll_y_ >= 0.0f) {
         scroll_y = pending_nav_scroll_y_;
         pending_nav_scroll_y_ = -1.0f;
     }
     UpdateLayoutAndScroll(scroll_y);
     UpdateTitleBar();
-    LoadImages();
-    RequestMermaidRenders();
 
     doc_service_.StartWatching(doc_.GetFilePath(), [this]() {
         ReloadCurrentFile();
@@ -1054,6 +1071,7 @@ void App::OnDestroy()
     image_loader_.Shutdown();
     SaveLastFilePath();
     SavePaneState();
+    SaveScrollPosition();
     KillTimer(hwnd_, TIMER_FILE_WATCH);
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
@@ -1133,4 +1151,16 @@ void App::LoadPaneState()
         config_.LoadInt(L"pane_file_width.txt", kDefaultWidth, kMinWidth, dynamic_max)));
     panes_.SetTocPaneWidth(static_cast<float>(
         config_.LoadInt(L"pane_toc_width.txt", kDefaultWidth, kMinWidth, dynamic_max)));
+}
+
+void App::SaveScrollPosition()
+{
+    int node = FindFirstVisibleNode();
+    if (node < 0) {
+        return;
+    }
+    float node_y = layout_cache_[node].y_position;
+    int offset = static_cast<int>(std::lround(viewport_.GetScrollY() - node_y));
+    config_.SaveInt(L"scroll_node.txt", node);
+    config_.SaveInt(L"scroll_offset.txt", offset);
 }
