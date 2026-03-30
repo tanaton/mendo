@@ -81,6 +81,12 @@ void App::ToggleDarkMode()
 {
     theme_service_.ToggleDarkMode();
     InvalidatePaneLayoutCache();
+
+    // スクロール位置復元用のアンカーを記録
+    int anchor_idx = FindFirstVisibleNode();
+    float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
+    float anchor_offset = viewport_.GetScrollY() - anchor_y_before;
+
     renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
     ApplyDarkModeToWindow(hwnd_, theme_service_.IsDarkMode());
 
@@ -89,9 +95,30 @@ void App::ToggleDarkMode()
     mermaid_renderer_.CancelPending();
     mermaid_renderer_.ClearCache();
 
-    UpdateLayoutAndScroll(viewport_.GetScrollY());
+    // 表示領域を優先的にレイアウトし、残りは遅延処理に委ねる
+    auto layout = GetPaneLayout();
+    float md_width = layout.md_rect.width;
+    float md_height = layout.md_rect.height;
+    layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
+
+    // アンカーベースでスクロール位置を復元
+    if (anchor_idx >= 0 && anchor_idx < static_cast<int>(doc_.GetNodes().size())) {
+        float anchor_y_after = layout_cache_[anchor_idx].y_position;
+        viewport_.SetScrollY(anchor_y_after + anchor_offset);
+    }
+    viewport_.SetScrollTarget(viewport_.GetScrollY());
+
+    SyncMaxScroll(md_height);
     RequestMermaidRenders();
+
+    // 残りのダーティノードを遅延レイアウト
+    if (layout_service_->HasDirtyNodes()) {
+        SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
+    }
+
+    UpdateScrollBar();
     theme_service_.SaveDarkMode();
+    Invalidate();
 }
 
 // ============================================================
