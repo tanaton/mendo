@@ -52,6 +52,10 @@ bool App::Init(HWND hwnd)
     float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
     cached_dpi_scale_ = (init_dpi > 0.0f) ? (init_dpi / 96.0f) : 1.0f;
 
+    // Mermaidファイルキャッシュを初期化
+    file_cache_.Init(cached_dpi_scale_);
+    mermaid_renderer_.SetFileCache(&file_cache_);
+
     // Mermaidレンダラーを初期化 (WebView2、非同期)
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
         RequestMermaidRenders();
@@ -398,6 +402,7 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 
     InvalidatePaneLayoutCache();
     layout_cache_.MarkAllDirty();
+    file_cache_.ClearAll();
 
     SetWindowPos(hwnd_, nullptr,
         suggested->left, suggested->top,
@@ -1044,6 +1049,8 @@ void App::ShowToast(std::wstring_view message)
 
 void App::OnDestroy()
 {
+    file_cache_.Shutdown();
+    file_cache_.SaveIndex();
     image_loader_.Shutdown();
     SaveLastFilePath();
     SavePaneState();

@@ -13,6 +13,7 @@ add_executable(mendo_tests
     test_document_utils.cpp
     test_pane_layout.cpp
     test_mermaid_util.cpp
+    test_mermaid_file_cache.cpp
     test_config_store.cpp
     test_viewport_manager.cpp
     test_text_measurer.cpp

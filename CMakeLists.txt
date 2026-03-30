@@ -79,6 +79,7 @@ add_library(mendo_core STATIC
     src/document_utils.cpp
     src/pane_layout.cpp
     src/mermaid_util.cpp
+    src/mermaid_file_cache.cpp
     src/config_store.cpp
     src/app_controller.cpp
     src/pane_controller.cpp

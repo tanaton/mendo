@@ -17,6 +17,8 @@
 
 using Microsoft::WRL::ComPtr;
 
+class MermaidFileCache;
+
 // オフスクリーンWebView2を使ってMermaidダイアグラムコードをID2D1Bitmapにレンダリングする。
 // 複数のWebView2インスタンスを並行稼働させ、複数の図を同時にレンダリングできる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
@@ -49,6 +51,9 @@ public:
 
     // D2Dレンダーターゲットを更新する（例：リサイズ後）。
     void SetRenderTarget(ID2D1RenderTarget* render_target);
+
+    // ファイルキャッシュを設定する。Init()の前に呼び出す。
+    void SetFileCache(MermaidFileCache* cache) noexcept { file_cache_ = cache; }
 
     // キャッシュされたビットマップをすべてクリアする。
     void ClearCache();
@@ -124,4 +129,6 @@ private:
         float height = 0.0f;
     };
     std::pmr::unordered_map<uint64_t, CachedBitmap> cache_;
+
+    MermaidFileCache* file_cache_ = nullptr;
 };
