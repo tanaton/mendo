@@ -122,6 +122,16 @@ private:
     // AppControllerが返すアクションを実行
     void ExecuteActions(const ActionList& actions);
 
+    // アンカーベースのスクロール位置保存/復元
+    struct AnchorState {
+        int idx = -1;
+        float y_before = 0.0f;
+        float offset = 0.0f;
+    };
+    AnchorState SaveAnchor() const;
+    void RestoreAnchor(const AnchorState& anchor, float md_pane_height);
+    void RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale);
+
     // DIP変換
     struct DipPoint { float x, y; };
     DipPoint PixelToDip(int px, int py) const;
@@ -163,6 +173,7 @@ private:
         ScrollState& scroll, bool& cache_dirty);
 
     // レイアウト / スクロール
+    void ScheduleDeferredLayoutIfNeeded();
     void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();
     void InvalidateMdPane(const PaneRect& md_rect);
@@ -172,7 +183,6 @@ private:
     void StopSmoothScroll();
     void SyncMaxScroll(float md_pane_height);
     int FindFirstVisibleNode() const;
-    void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height);
     void OnResizeEnd();
     void RefreshPaneLayout();
     void RefreshFilePane();
@@ -212,6 +222,9 @@ private:
     void ZoomOut();
     void ZoomReset();
     void ApplyZoom(float new_zoom);
+
+    // テーマ/ズーム変更後の共通後処理（ViewportLayout→スクロール復元→再描画）
+    void FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale);
 
 public:
     // タイマーID (メッセージルーティング用にWin32Windowと共有)

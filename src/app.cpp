@@ -310,14 +310,13 @@ void App::OnPaint()
     const auto& layout = GetPaneLayout();
     if (!file_load_service_.IsLoading()) {
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
-        int anchor_idx = FindFirstVisibleNode();
-        float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
+        auto anchor = SaveAnchor();
 
         bool updated = layout_service_->EnsureVisibleLayout(
             doc_, layout_cache_, layout.md_rect.width, layout.md_rect.height);
 
         if (updated) {
-            AnchorCompensateScroll(anchor_idx, anchor_y_before, layout.md_rect.height);
+            RestoreAnchor(anchor, layout.md_rect.height);
         }
     }
     // 目次ペインの同期: mdペインのスクロール位置からアクティブ見出しを判定し、
@@ -758,13 +757,10 @@ void App::OnAppImageLoaded()
 void App::OnImageLoadComplete()
 {
     if (ApplyCachedImages() > 0) {
-        int anchor_idx = FindFirstVisibleNode();
-        float anchor_y_before = (anchor_idx >= 0)
-            ? layout_cache_[anchor_idx].y_position : 0.0f;
+        auto anchor = SaveAnchor();
         layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
         auto layout = GetPaneLayout();
-        float md_h = layout.md_rect.height;
-        AnchorCompensateScroll(anchor_idx, anchor_y_before, md_h);
+        RestoreAnchor(anchor, layout.md_rect.height);
         Invalidate();
     }
 }
@@ -827,12 +823,10 @@ void App::RequestMermaidRenders()
 
 void App::OnMermaidRenderComplete()
 {
-    int anchor_idx = FindFirstVisibleNode();
-    float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
+    auto anchor = SaveAnchor();
     layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
     auto layout = GetPaneLayout();
-    float md_h = layout.md_rect.height;
-    AnchorCompensateScroll(anchor_idx, anchor_y_before, md_h);
+    RestoreAnchor(anchor, layout.md_rect.height);
     Invalidate();
 }
 
@@ -952,49 +946,49 @@ void App::ExecuteActions(const ActionList& actions)
                 if (a.file_pane) {
                     panes_.ToggleFilePane();
                 }
- else {
-  panes_.ToggleTocPane();
-}
-RefreshPaneLayout();
-},
-[this](const ZoomAction& a) {
-    if (a.direction > 0) {
-        ZoomIn();
-    }
-    else if (a.direction < 0) {
-        ZoomOut();
-    }
-    else {
-    ZoomReset();
-}
-},
-[this](const ReloadFileAction&) {
-    ReloadCurrentFile();
-},
-[this](const OpenFileAction&) {
-    auto path = FileLoader::OpenFileDialog(hwnd_);
-    if (!path.empty()) {
-        if (!doc_.GetFilePath().empty()) {
-            PushNavHistory();
-        }
-        LoadMarkdownFile(path);
-    }
-},
-[this](const ToggleDarkModeAction&) {
-    ToggleDarkMode();
-},
-[this](const NavigateBackAction&) {
-    NavigateBack();
-},
-[this](const NavigateForwardAction&) {
-    NavigateForward();
-},
-[this](const ShowHelpAction&) {
-    if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
-        PushNavHistory();
-    }
-    LoadHelpDocument();
-},
+                else {
+                    panes_.ToggleTocPane();
+                }
+                RefreshPaneLayout();
+            },
+            [this](const ZoomAction& a) {
+                if (a.direction > 0) {
+                    ZoomIn();
+                }
+                else if (a.direction < 0) {
+                    ZoomOut();
+                }
+                else {
+                    ZoomReset();
+                }
+            },
+            [this](const ReloadFileAction&) {
+                ReloadCurrentFile();
+            },
+            [this](const OpenFileAction&) {
+                auto path = FileLoader::OpenFileDialog(hwnd_);
+                if (!path.empty()) {
+                    if (!doc_.GetFilePath().empty()) {
+                        PushNavHistory();
+                    }
+                    LoadMarkdownFile(path);
+                }
+            },
+            [this](const ToggleDarkModeAction&) {
+                ToggleDarkMode();
+            },
+            [this](const NavigateBackAction&) {
+                NavigateBack();
+            },
+            [this](const NavigateForwardAction&) {
+                NavigateForward();
+            },
+            [this](const ShowHelpAction&) {
+                if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
+                    PushNavHistory();
+                }
+                LoadHelpDocument();
+            },
             }, action);
     }
 }

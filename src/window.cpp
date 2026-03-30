@@ -235,12 +235,24 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_.OnExitSizeMove();
         return 0;
 
+    case WM_NCLBUTTONDOWN:
+        // システムメニュー表示時はフラグを立て、モーダルループ中の右クリック競合を防ぐ
+        if (wParam == HTSYSMENU) {
+            in_sys_menu_ = true;
+            auto r = DefWindowProcW(hwnd_, msg, wParam, lParam);
+            in_sys_menu_ = false;
+            return r;
+        }
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
     case WM_RBUTTONDOWN:
+        if (in_sys_menu_) { return 0; }
         if (!app_.OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
         return 0;
 
     case WM_RBUTTONUP:
+        if (in_sys_menu_) { return 0; }
         if (!app_.OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
         return 0;
@@ -298,9 +310,24 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
 
-    case WM_CONTEXTMENU:
-        app_.OnContextMenu(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+    case WM_CONTEXTMENU: {
+        // システムメニュー表示中はカスタムメニューを抑制
+        if (in_sys_menu_) { return 0; }
+        int sx = GET_X_LPARAM(lParam);
+        int sy = GET_Y_LPARAM(lParam);
+        // マウス由来の場合、タイトルバー上の右クリックは抑制する
+        if (sx != -1 || sy != -1) {
+            POINT pt = { sx, sy };
+            ScreenToClient(hwnd_, &pt);
+            float dpi_scale = app_.GetDpiScale();
+            float dip_y = pt.y / dpi_scale;
+            if (dip_y < app_.GetTitleBarHeightDip()) {
+                return 0;
+            }
+        }
+        app_.OnContextMenu(sx, sy);
         return 0;
+    }
 
     case WM_KEYDOWN:
         app_.OnKeyDown(wParam);
@@ -357,6 +384,14 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_.OnDestroy();
         PostQuitMessage(0);
         return 0;
+
+    case WM_NCRBUTTONDOWN:
+        // システムメニューアイコン上の右クリックを抑制
+        // （システムメニュー表示中に右クリックメニューが重なるのを防ぐ）
+        if (wParam == HTSYSMENU) {
+            return 0;
+        }
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     default:
         return DefWindowProcW(hwnd_, msg, wParam, lParam);

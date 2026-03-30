@@ -4,6 +4,7 @@
 #include "layout_cache.h"
 #include "theme.h"
 #include "pane.h"
+#include "ui_constants.h"
 #include "memory_resource.h"
 
 // HitTestTextRange をバッファ再利用付きで呼び出し、取得件数を返す。
@@ -42,7 +43,7 @@ public:
     {
         theme_ = theme;
         cached_is_dark_ = theme->IsDark();
-        float a = cached_is_dark_ ? 0.05f : 0.02f;
+        float a = cached_is_dark_ ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
         cached_stripe_color_ = cached_is_dark_
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);

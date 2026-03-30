@@ -81,15 +81,40 @@ int App::FindFirstVisibleNode() const
     return viewport_.FindFirstVisibleNode(layout_cache_, doc_.GetNodes().size());
 }
 
-void App::AnchorCompensateScroll(int anchor_idx, float anchor_y_before, float md_pane_height)
+App::AnchorState App::SaveAnchor() const
 {
-    viewport_.AnchorCompensateScroll(anchor_idx, anchor_y_before, layout_cache_);
+    AnchorState a;
+    a.idx = FindFirstVisibleNode();
+    a.y_before = (a.idx >= 0) ? layout_cache_[a.idx].y_position : 0.0f;
+    a.offset = viewport_.GetScrollY() - a.y_before;
+    return a;
+}
+
+void App::RestoreAnchor(const AnchorState& anchor, float md_pane_height)
+{
+    viewport_.AnchorCompensateScroll(anchor.idx, anchor.y_before, layout_cache_);
     SyncMaxScroll(md_pane_height);
+}
+
+void App::RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale)
+{
+    if (anchor.idx >= 0 && anchor.idx < static_cast<int>(doc_.GetNodes().size())) {
+        float anchor_y_after = layout_cache_[anchor.idx].y_position;
+        viewport_.SetScrollY(anchor_y_after + anchor.offset * offset_scale);
+    }
+    viewport_.SetScrollTarget(viewport_.GetScrollY());
 }
 
 // ============================================================
 // 遅延レイアウト
 // ============================================================
+
+void App::ScheduleDeferredLayoutIfNeeded()
+{
+    if (layout_service_->HasDirtyNodes()) {
+        SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
+    }
+}
 
 void App::OnResizeEnd()
 {
@@ -105,9 +130,7 @@ void App::OnResizeEnd()
     UpdateScrollBar();
     Invalidate();
 
-    if (layout_service_->HasDirtyNodes()) {
-        SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
-    }
+    ScheduleDeferredLayoutIfNeeded();
 
     RequestMermaidRenders();
 }
@@ -122,8 +145,7 @@ void App::RefreshPaneLayout()
 
 void App::OnDeferredLayout()
 {
-    int anchor_idx = FindFirstVisibleNode();
-    float anchor_y_before = (anchor_idx >= 0) ? layout_cache_[anchor_idx].y_position : 0.0f;
+    auto anchor = SaveAnchor();
 
     auto pane_layout = GetPaneLayout();
     float md_width = pane_layout.md_rect.width;
@@ -131,7 +153,7 @@ void App::OnDeferredLayout()
     bool more = layout_service_->ProcessDirtyBatch(doc_, layout_cache_, md_width, 200);
 
     if (!viewport_.IsScrollbarTracking()) {
-        AnchorCompensateScroll(anchor_idx, anchor_y_before, md_height);
+        RestoreAnchor(anchor, md_height);
     }
     else {
         SyncMaxScroll(md_height);

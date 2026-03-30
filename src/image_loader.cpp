@@ -1,4 +1,5 @@
 #include "image_loader.h"
+#include "file_loader.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include <shlwapi.h>
@@ -19,7 +20,7 @@ static ComPtr<IStream> ReadFileToStream(const std::wstring& path)
     }
 
     LARGE_INTEGER size;
-    if (!GetFileSizeEx(hFile, &size) || size.QuadPart == 0 || size.QuadPart > 256LL * 1024 * 1024) {
+    if (!GetFileSizeEx(hFile, &size) || size.QuadPart == 0 || size.QuadPart > MAX_FILE_SIZE) {
         CloseHandle(hFile);
         return nullptr;
     }

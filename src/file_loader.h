@@ -3,6 +3,9 @@
 #include <functional>
 #include <windows.h>
 
+// ファイル読み込みの最大サイズ（256MB）。FileLoader / ImageLoader で共有。
+inline constexpr LONGLONG MAX_FILE_SIZE = 256LL * 1024 * 1024;
+
 class FileLoader {
 public:
     ~FileLoader();

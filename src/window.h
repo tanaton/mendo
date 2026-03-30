@@ -28,5 +28,6 @@ private:
     bool RestoreWindowPlacement(int nCmdShow);
 
     HWND hwnd_ = nullptr;
+    bool in_sys_menu_ = false;   // システムメニューのモーダルループ中フラグ
     App app_;
 };
