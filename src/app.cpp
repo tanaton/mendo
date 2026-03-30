@@ -3,6 +3,7 @@
 #include "resource.h"
 #include "pane_layout.h"
 #include "document_utils.h"
+#include "mermaid_util.h"
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
@@ -52,8 +53,12 @@ bool App::Init(HWND hwnd)
     float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
     cached_dpi_scale_ = (init_dpi > 0.0f) ? (init_dpi / 96.0f) : 1.0f;
 
+    // タスクスケジューラを初期化（画像デコード・キャッシュ書き込み共用）
+    scheduler_.Init(mermaid_util::ComputeWorkerCount(
+        std::thread::hardware_concurrency()));
+
     // Mermaidファイルキャッシュを初期化
-    file_cache_.Init(cached_dpi_scale_);
+    file_cache_.Init(cached_dpi_scale_, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
     // Mermaidレンダラーを初期化 (WebView2、非同期)
@@ -63,7 +68,7 @@ bool App::Init(HWND hwnd)
 
     // 画像ローダーを初期化
     image_loader_.Init(renderer_.GetRenderTarget());
-    image_loader_.InitAsync(hwnd_, WM_APP_IMAGE_LOADED);
+    image_loader_.InitAsync(hwnd_, WM_APP_IMAGE_LOADED, scheduler_);
 
     // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、各ローダーを更新
     renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
@@ -1066,9 +1071,8 @@ void App::ShowToast(std::wstring_view message)
 
 void App::OnDestroy()
 {
-    file_cache_.Shutdown();
+    scheduler_.Shutdown();
     file_cache_.SaveIndex();
-    image_loader_.Shutdown();
     SaveLastFilePath();
     SavePaneState();
     SaveScrollPosition();

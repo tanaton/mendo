@@ -3,18 +3,16 @@
 #include <vector>
 #include <filesystem>
 #include <unordered_map>
-#include <queue>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
 #include <atomic>
+
+class TaskScheduler;
 
 // Mermaidダイアグラムの描画済みPNGをファイルに永続化するキャッシュ。
 // 幅は100px単位に量子化し、コード・テーマの組み合わせごとにPNGを保持する。
-// PNG書き出しはバックグラウンドスレッドで非同期に行う。
+// PNG書き出しはTaskSchedulerを介してバックグラウンドスレッドで非同期に行う。
 // インデックスはメモリ上で管理し、SaveIndex()でディスクに書き出す。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある
-// （StoreAsyncのキュー操作のみmutexで保護）。
+// （StoreAsyncのタスク投入のみスレッドセーフ）。
 class MermaidFileCache {
 public:
     MermaidFileCache() = default;
@@ -31,7 +29,7 @@ public:
 
     // キャッシュを初期化し、インデックスをディスクから読み込む。
     // current_dprが保存済みDPRと異なる場合、キャッシュを全削除する。
-    void Init(float current_dpr);
+    void Init(float current_dpr, TaskScheduler& scheduler);
 
     // キャッシュされたPNGを検索する。見つかった場合trueを返す。
     // last_usedタイムスタンプも更新される。
@@ -48,7 +46,7 @@ public:
     // すべてのキャッシュファイルとインデックスを削除する。
     void ClearAll();
 
-    // バックグラウンドライタースレッドを停止し、キューを完全に処理してからjoinする。
+    // 保留中の書き込みタスクを無効化する。
     void Shutdown();
 
     // テスト用: キャッシュディレクトリを上書きする。Init()の前に呼び出す。
@@ -73,17 +71,11 @@ private:
         int64_t last_used = 0;
     };
 
-    struct WriteRequest {
-        uint64_t key = 0;
-        std::vector<uint8_t> png_data;
-    };
-
     std::filesystem::path GetCacheDir() const;
     std::filesystem::path GetPngPath(uint64_t key) const;
     std::filesystem::path GetIndexPath() const;
     void LoadIndex();
     void EvictIfNeeded(uint32_t new_png_size);
-    void WriterLoop();
     static int64_t Now();
 
     std::filesystem::path cache_dir_override_;
@@ -97,10 +89,7 @@ private:
     size_t max_entries_ = kDefaultMaxEntries;
     uint64_t max_total_size_ = kDefaultMaxTotalSize;
 
-    // バックグラウンドライター
-    std::thread writer_thread_;
-    std::mutex writer_mutex_;
-    std::condition_variable writer_cv_;
-    std::queue<WriteRequest> write_queue_;
-    std::atomic<bool> shutdown_flag_{ false };
+    // バックグラウンド書き込み
+    TaskScheduler* scheduler_ = nullptr;
+    std::atomic<uint32_t> write_gen_{0};
 };

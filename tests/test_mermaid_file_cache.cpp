@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "mermaid_file_cache.h"
+#include "task_scheduler.h"
 #include "mermaid_util.h"
 #include <filesystem>
 #include <fstream>
@@ -29,27 +30,29 @@ protected:
         std::error_code ec;
         std::filesystem::remove_all(temp_dir_, ec);
         cache_.SetCacheDir(temp_dir_);
+        scheduler_.Init(2);
     }
 
     void TearDown() override
     {
-        cache_.Shutdown();
+        scheduler_.Shutdown();
         std::error_code ec;
         std::filesystem::remove_all(temp_dir_, ec);
     }
 
     void InitCache(float dpr = 1.0f)
     {
-        cache_.Init(dpr);
+        cache_.Init(dpr, scheduler_);
     }
 
-    // SaveIndex + Shutdown → 再ロードのサイクルを実行する
+    // SaveIndex + スケジューラ再起動 → 再ロードのサイクルを実行する
     void FlushAndReopen(float dpr = 1.0f)
     {
         cache_.SaveIndex();
-        cache_.Shutdown();
+        scheduler_.Shutdown();
         cache_.SetCacheDir(temp_dir_);
-        cache_.Init(dpr);
+        scheduler_.Init(2);
+        cache_.Init(dpr, scheduler_);
     }
 
     // 再ロード用の新しいキャッシュを作成
@@ -61,6 +64,7 @@ protected:
     }
 
     std::filesystem::path temp_dir_;
+    TaskScheduler scheduler_;
     MermaidFileCache cache_;
 };
 
@@ -227,15 +231,15 @@ TEST_F(MermaidFileCacheTest, DprMismatchClearsAll)
     cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(256));
     EXPECT_EQ(cache_.EntryCount(), 2u);
 
-    // インデックスを保存してシャットダウン
+    // インデックスを保存してスケジューラを停止
     cache_.SaveIndex();
-    cache_.Shutdown();
+    scheduler_.Shutdown();
 
     // 異なるDPRで再初期化 → 全エントリが削除される
     auto fresh = CreateFreshCache();
-    fresh->Init(2.0f);
+    scheduler_.Init(2);
+    fresh->Init(2.0f, scheduler_);
     EXPECT_EQ(fresh->EntryCount(), 0u);
-    fresh->Shutdown();
 }
 
 TEST_F(MermaidFileCacheTest, SameDprPreservesCache)
@@ -244,13 +248,13 @@ TEST_F(MermaidFileCacheTest, SameDprPreservesCache)
 
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(256));
     cache_.SaveIndex();
-    cache_.Shutdown();
+    scheduler_.Shutdown();
 
     // 同じDPRで再初期化 → エントリが保持される
     auto fresh = CreateFreshCache();
-    fresh->Init(1.5f);
+    scheduler_.Init(2);
+    fresh->Init(1.5f, scheduler_);
     EXPECT_EQ(fresh->EntryCount(), 1u);
-    fresh->Shutdown();
 }
 
 // ═══════════════════════════════════════════════
@@ -264,11 +268,12 @@ TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
     cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyPng(1024));
     cache_.StoreAsync(200, 320.0f, 240.0f, MakeDummyPng(512));
     cache_.SaveIndex();
-    cache_.Shutdown();
+    scheduler_.Shutdown();
 
     // 新しいキャッシュオブジェクトで読み込み
     auto fresh = CreateFreshCache();
-    fresh->Init(1.0f);
+    scheduler_.Init(2);
+    fresh->Init(1.0f, scheduler_);
     EXPECT_EQ(fresh->EntryCount(), 2u);
 
     MermaidFileCache::CacheEntry entry;
@@ -282,14 +287,12 @@ TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
     EXPECT_EQ(entry.css_width, 320.0f);
     EXPECT_EQ(entry.css_height, 240.0f);
     EXPECT_EQ(out.size(), 512u);
-
-    fresh->Shutdown();
 }
 
 TEST_F(MermaidFileCacheTest, LoadIndexWithInvalidMagicIgnoresFile)
 {
     InitCache();
-    cache_.Shutdown();
+    scheduler_.Shutdown();
 
     // 不正なインデックスファイルを作成
     auto index_path = temp_dir_ / L"index.bin";
@@ -300,15 +303,15 @@ TEST_F(MermaidFileCacheTest, LoadIndexWithInvalidMagicIgnoresFile)
     }
 
     auto fresh = CreateFreshCache();
-    fresh->Init(1.0f);
+    scheduler_.Init(2);
+    fresh->Init(1.0f, scheduler_);
     EXPECT_EQ(fresh->EntryCount(), 0u);
-    fresh->Shutdown();
 }
 
 TEST_F(MermaidFileCacheTest, LoadIndexWithTruncatedEntries)
 {
     InitCache();
-    cache_.Shutdown();
+    scheduler_.Shutdown();
 
     // 正しいヘッダー + 途中で切れたエントリを書き込む
     auto index_path = temp_dir_ / L"index.bin";
@@ -331,15 +334,15 @@ TEST_F(MermaidFileCacheTest, LoadIndexWithTruncatedEntries)
 
     // クラッシュせずに空のインデックスとして扱われること
     auto fresh = CreateFreshCache();
-    fresh->Init(1.0f);
+    scheduler_.Init(2);
+    fresh->Init(1.0f, scheduler_);
     EXPECT_EQ(fresh->EntryCount(), 0u);
-    fresh->Shutdown();
 }
 
 TEST_F(MermaidFileCacheTest, LoadIndexSkipsCorruptedEntries)
 {
     InitCache();
-    cache_.Shutdown();
+    scheduler_.Shutdown();
 
     // 正しいヘッダー + 不正なフィールド値を持つエントリ
     auto index_path = temp_dir_ / L"index.bin";
@@ -371,17 +374,17 @@ TEST_F(MermaidFileCacheTest, LoadIndexSkipsCorruptedEntries)
     }
 
     auto fresh = CreateFreshCache();
-    fresh->Init(1.0f);
+    scheduler_.Init(2);
+    fresh->Init(1.0f, scheduler_);
     // 不正な2エントリはスキップされ、正常な1エントリのみ読み込まれる
     EXPECT_EQ(fresh->EntryCount(), 1u);
     EXPECT_EQ(fresh->TotalSize(), 512u);
-    fresh->Shutdown();
 }
 
 TEST_F(MermaidFileCacheTest, LoadIndexWithNaNWidthSkipsEntry)
 {
     InitCache();
-    cache_.Shutdown();
+    scheduler_.Shutdown();
 
     auto index_path = temp_dir_ / L"index.bin";
     {
@@ -408,24 +411,24 @@ TEST_F(MermaidFileCacheTest, LoadIndexWithNaNWidthSkipsEntry)
     }
 
     auto fresh = CreateFreshCache();
-    fresh->Init(1.0f);
+    scheduler_.Init(2);
+    fresh->Init(1.0f, scheduler_);
     EXPECT_EQ(fresh->EntryCount(), 0u);
-    fresh->Shutdown();
 }
 
 TEST_F(MermaidFileCacheTest, LoadIndexWithZeroBytesFile)
 {
     InitCache();
-    cache_.Shutdown();
+    scheduler_.Shutdown();
 
     // 0バイトのインデックスファイル
     auto index_path = temp_dir_ / L"index.bin";
     { std::ofstream ofs(index_path, std::ios::binary); }
 
     auto fresh = CreateFreshCache();
-    fresh->Init(1.0f);
+    scheduler_.Init(2);
+    fresh->Init(1.0f, scheduler_);
     EXPECT_EQ(fresh->EntryCount(), 0u);
-    fresh->Shutdown();
 }
 
 // ═══════════════════════════════════════════════
@@ -465,13 +468,16 @@ TEST_F(MermaidFileCacheTest, AsyncWriteCreatesFile)
     auto png = MakeDummyPng(2048);
     cache_.StoreAsync(777, 500.0f, 400.0f, png);
 
-    // Shutdownでキューが完全に処理される
-    cache_.Shutdown();
+    // スケジューラをシャットダウンしてキューを完全に処理する
+    scheduler_.Shutdown();
 
     // PNGファイルが存在すること
     wchar_t name[24];
     swprintf_s(name, L"%016llx.png", 777ULL);
     EXPECT_TRUE(std::filesystem::exists(temp_dir_ / name));
+
+    // TearDownのためにスケジューラを再起動
+    scheduler_.Init(2);
 }
 
 // ═══════════════════════════════════════════════
@@ -508,14 +514,15 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
 
     // key=2を格納（key=1より新しいタイムスタンプ）
     cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
-    cache_.Shutdown();
+    scheduler_.Shutdown();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1100));
 
     cache_.SetCacheDir(temp_dir_);
     cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
     cache_.SaveIndex();
-    cache_.Init(1.0f);
+    scheduler_.Init(2);
+    cache_.Init(1.0f, scheduler_);
 
     // key=1をLookupしてタイムスタンプを更新（key=2より新しくなる）
     MermaidFileCache::CacheEntry entry;

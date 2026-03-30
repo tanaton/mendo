@@ -1,4 +1,5 @@
 #include "mermaid_file_cache.h"
+#include "task_scheduler.h"
 #include "config_store.h"
 #include <fstream>
 #include <algorithm>
@@ -59,8 +60,9 @@ int64_t MermaidFileCache::Now()
         std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-void MermaidFileCache::Init(float current_dpr)
+void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 {
+    scheduler_ = &scheduler;
     current_dpr_ = current_dpr;
     auto dir = GetCacheDir();
     if (dir.empty()) {
@@ -80,10 +82,6 @@ void MermaidFileCache::Init(float current_dpr)
         ClearAll();
     }
     stored_dpr_ = current_dpr;
-
-    // バックグラウンドライタースレッドを起動
-    shutdown_flag_.store(false);
-    writer_thread_ = std::thread(&MermaidFileCache::WriterLoop, this);
 }
 
 void MermaidFileCache::LoadIndex()
@@ -246,12 +244,31 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     entry.last_used = Now();
     total_size_ += png_size;
 
-    // バックグラウンドスレッドに書き出しを依頼
-    {
-        std::lock_guard lock(writer_mutex_);
-        write_queue_.push({ key, std::move(png_data) });
+    if (!scheduler_) {
+        return;
     }
-    writer_cv_.notify_one();
+
+    // バックグラウンドスレッドに書き出しを依頼
+    uint32_t gen = write_gen_.load();
+    auto path = GetPngPath(key);
+    scheduler_->Post([this, path = std::move(path), data = std::move(png_data), gen] {
+        if (write_gen_.load() != gen) {
+            return;
+        }
+
+        if (path.empty()) {
+            return;
+        }
+
+        std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(), ec);
+
+        std::ofstream ofs(path, std::ios::binary);
+        if (ofs) {
+            ofs.write(reinterpret_cast<const char*>(data.data()),
+                static_cast<std::streamsize>(data.size()));
+        }
+    });
 }
 
 void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
@@ -285,12 +302,8 @@ void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
 
 void MermaidFileCache::ClearAll()
 {
-    // 保留中の書き込みを破棄
-    {
-        std::lock_guard lock(writer_mutex_);
-        std::queue<WriteRequest> empty;
-        write_queue_.swap(empty);
-    }
+    // 保留中の書き込みタスクを無効化
+    write_gen_.fetch_add(1);
 
     // すべてのPNGファイルとインデックスファイルを削除
     auto dir = GetCacheDir();
@@ -308,45 +321,6 @@ void MermaidFileCache::ClearAll()
 
 void MermaidFileCache::Shutdown()
 {
-    if (writer_thread_.joinable()) {
-        shutdown_flag_.store(true);
-        writer_cv_.notify_one();
-        writer_thread_.join();
-    }
-}
-
-void MermaidFileCache::WriterLoop()
-{
-    while (true) {
-        WriteRequest req;
-        {
-            std::unique_lock lock(writer_mutex_);
-            writer_cv_.wait(lock, [this] {
-                return !write_queue_.empty() || shutdown_flag_.load();
-            });
-            if (write_queue_.empty()) {
-                if (shutdown_flag_.load()) {
-                    return;
-                }
-                continue;
-            }
-            req = std::move(write_queue_.front());
-            write_queue_.pop();
-        }
-
-        // PNGファイルを書き出す
-        auto path = GetPngPath(req.key);
-        if (path.empty()) {
-            continue;
-        }
-
-        std::error_code ec;
-        std::filesystem::create_directories(path.parent_path(), ec);
-
-        std::ofstream ofs(path, std::ios::binary);
-        if (ofs) {
-            ofs.write(reinterpret_cast<const char*>(req.png_data.data()),
-                static_cast<std::streamsize>(req.png_data.size()));
-        }
-    }
+    write_gen_.fetch_add(1);
+    scheduler_ = nullptr;
 }

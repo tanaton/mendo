@@ -1,6 +1,5 @@
 #pragma once
 #include "layout_cache.h"
-#include "mermaid_util.h"
 #include <d2d1.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -8,14 +7,13 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
-#include <queue>
 #include <vector>
-#include <thread>
 #include <mutex>
-#include <condition_variable>
 #include <atomic>
 
 using Microsoft::WRL::ComPtr;
+
+class TaskScheduler;
 
 class ImageLoader {
 public:
@@ -26,8 +24,8 @@ public:
     void Init(ID2D1RenderTarget* rt);
     void SetRenderTarget(ID2D1RenderTarget* rt) noexcept { render_target_ = rt; }
 
-    // 非同期ワーカースレッドを起動する。hwnd に msg_id メッセージがポストされる。
-    void InitAsync(HWND hwnd, UINT msg_id);
+    // TaskSchedulerを設定し、非同期読み込みを有効にする。
+    void InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
 
     // 画像ファイルを同期的に読み込む（テスト用に残す）。
     bool LoadImage(const std::wstring& abs_path, DiagramEntry& out);
@@ -49,7 +47,7 @@ public:
 
     void ClearCache() noexcept { cache_.clear(); }
 
-    // ワーカースレッドを停止し、join する。
+    // 保留中のリクエストをキャンセルする（CancelPendingと同等）。
     void Shutdown();
 
 private:
@@ -57,12 +55,6 @@ private:
         ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
-    };
-
-    struct PendingRequest {
-        std::wstring path;
-        Callback on_complete = nullptr;
-        void* user_data = nullptr;
     };
 
     struct DecodeResult {
@@ -75,22 +67,19 @@ private:
         bool success = false;
     };
 
-    void WorkerLoop();
     void GetDpiScale(float& scale_x, float& scale_y) const;
 
     ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
     std::unordered_map<std::wstring, CachedImage> cache_;
 
-    // 非同期ワーカープール
+    // 非同期読み込み
     HWND hwnd_ = nullptr;
     UINT msg_id_ = 0;
-    std::vector<std::thread> worker_threads_;
-    std::mutex queue_mutex_;
-    std::condition_variable queue_cv_;
-    std::queue<PendingRequest> request_queue_;
+    TaskScheduler* scheduler_ = nullptr;
+    std::atomic<uint32_t> cancel_gen_{0};
+    std::mutex pending_mutex_;
     std::unordered_set<std::wstring> pending_paths_;
-    std::atomic<bool> shutdown_flag_{ false };
 
     std::mutex result_mutex_;
     std::vector<DecodeResult> completed_;

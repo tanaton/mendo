@@ -8,6 +8,7 @@
 #include "layout_cache.h"
 #include "mock_text_measurer.h"
 #include "image_loader.h"
+#include "task_scheduler.h"
 #include <d2d1.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -986,6 +987,8 @@ TEST_F(ImageLoaderDpiTest, CacheReturnsDipSize) {
 
 class ImageLoaderAsyncTest : public ImageLoaderTest {
 protected:
+    TaskScheduler scheduler_;
+
     // コールバック発火を検知するためのカウンター
     static std::atomic<int> callback_count_;
 
@@ -996,13 +999,14 @@ protected:
     void SetUp() override {
         ImageLoaderTest::SetUp();
         callback_count_.store(0);
+        scheduler_.Init(2);
         // InitAsync にはウィンドウハンドルが必要だが、テストでは PostMessage を
         // 受け取れないため HWND は nullptr で起動し、手動で ProcessCompletedDecodes を呼ぶ
-        loader_.InitAsync(nullptr, 0);
+        loader_.InitAsync(nullptr, 0, scheduler_);
     }
 
     void TearDown() override {
-        loader_.Shutdown();
+        scheduler_.Shutdown();
         ImageLoaderTest::TearDown();
     }
 
@@ -1109,7 +1113,7 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent) {
     ASSERT_TRUE(SUCCEEDED(hr));
 
     loader_.Init(rt_144.Get());
-    loader_.InitAsync(nullptr, 0);
+    loader_.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"async_dpi.png", GUID_ContainerFormatPng, 300, 150));
     auto path = GetTestImagePath(L"async_dpi.png");
@@ -1198,7 +1202,7 @@ TEST_F(ImageLoaderAsyncTest, ReinitAfterShutdownWithHeavyLoad) {
     callback_count_.store(0);
 
     // 再初期化
-    loader_.InitAsync(nullptr, 0);
+    loader_.InitAsync(nullptr, 0, scheduler_);
 
     auto name = L"reinit_b.png";
     ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 77, 55));

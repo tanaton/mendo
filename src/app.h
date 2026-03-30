@@ -1,5 +1,6 @@
 #pragma once
 #include "renderer.h"
+#include "task_scheduler.h"
 #include "mermaid_file_cache.h"
 #include "mermaid.h"
 #include "image_loader.h"
@@ -241,6 +242,7 @@ private:
 
     // コアサービス
     Renderer renderer_;
+    TaskScheduler scheduler_;
     MermaidFileCache file_cache_;         // mermaid_renderer_より先に宣言（破棄順序の保証）
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
