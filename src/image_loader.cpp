@@ -185,14 +185,10 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
         result.on_complete = on_complete;
         result.user_data = user_data;
 
-        ComPtr<IWICImagingFactory> wic;
-        CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&wic));
-
-        if (wic) {
+        if (wic_factory_) {
             auto stream = ReadFileToStream(path);
             ComPtr<IWICBitmapDecoder> decoder;
-            HRESULT hr = stream ? wic->CreateDecoderFromStream(
+            HRESULT hr = stream ? wic_factory_->CreateDecoderFromStream(
                 stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder) : E_FAIL;
 
             if (SUCCEEDED(hr)) {
@@ -200,7 +196,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
                 hr = decoder->GetFrame(0, &frame);
                 if (SUCCEEDED(hr)) {
                     ComPtr<IWICFormatConverter> converter;
-                    hr = wic->CreateFormatConverter(&converter);
+                    hr = wic_factory_->CreateFormatConverter(&converter);
                     if (SUCCEEDED(hr)) {
                         hr = converter->Initialize(
                             frame.Get(), GUID_WICPixelFormat32bppPBGRA,

@@ -250,15 +250,15 @@ void Renderer::DrawSplitter(float x, float top, float bottom)
 void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes)
 {
     float viewport_h = md_pane_rect.height;
-    // ダーティノードが残っている場合は高さが確定していないため、スクロールバーを消さない
-    if (has_dirty_nodes) {
-        if (total_content_height < viewport_h || viewport_h <= 0.0f) {
-            return;
-        }
-    } else {
-        if (total_content_height <= viewport_h || viewport_h <= 0.0f) {
-            return;
-        }
+    if (viewport_h <= 0.0f) {
+        return;
+    }
+    // ダーティノードがある間は高さが増える可能性があるため、ぴったり一致でもスクロールバーを表示し続ける
+    bool needs_scrollbar = has_dirty_nodes
+        ? (total_content_height >= viewport_h)
+        : (total_content_height > viewport_h);
+    if (!needs_scrollbar) {
+        return;
     }
 
     auto info = ComputeScrollInfo(md_pane_rect, 0.0f, total_content_height);
