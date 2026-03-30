@@ -3,6 +3,7 @@
 #include <fstream>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 
 MermaidFileCache::~MermaidFileCache()
 {
@@ -128,6 +129,13 @@ void MermaidFileCache::LoadIndex()
         ifs.read(reinterpret_cast<char*>(&entry.last_used), 8);
         if (!ifs) {
             break;
+        }
+
+        // 壊れたエントリを無視する
+        if (entry.css_width <= 0.0f || entry.css_height <= 0.0f ||
+            !std::isfinite(entry.css_width) || !std::isfinite(entry.css_height) ||
+            entry.png_size == 0) {
+            continue;
         }
 
         index_[key] = entry;

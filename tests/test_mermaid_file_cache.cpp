@@ -305,6 +305,129 @@ TEST_F(MermaidFileCacheTest, LoadIndexWithInvalidMagicIgnoresFile)
     fresh->Shutdown();
 }
 
+TEST_F(MermaidFileCacheTest, LoadIndexWithTruncatedEntries)
+{
+    InitCache();
+    cache_.Shutdown();
+
+    // 正しいヘッダー + 途中で切れたエントリを書き込む
+    auto index_path = temp_dir_ / L"index.bin";
+    {
+        std::ofstream ofs(index_path, std::ios::binary);
+        uint32_t magic = 0x4D454D43u;
+        uint32_t version = 1;
+        float dpr = 1.0f;
+        uint32_t count = 5; // 5エントリあると宣言するが実データは途中まで
+        ofs.write(reinterpret_cast<const char*>(&magic), 4);
+        ofs.write(reinterpret_cast<const char*>(&version), 4);
+        ofs.write(reinterpret_cast<const char*>(&dpr), 4);
+        ofs.write(reinterpret_cast<const char*>(&count), 4);
+        // 1エントリ分だけ書いて打ち切り（28バイト中の10バイトだけ）
+        uint64_t key = 999;
+        ofs.write(reinterpret_cast<const char*>(&key), 8);
+        float w = 100.0f;
+        ofs.write(reinterpret_cast<const char*>(&w), 2); // 意図的に不完全
+    }
+
+    // クラッシュせずに空のインデックスとして扱われること
+    auto fresh = CreateFreshCache();
+    fresh->Init(1.0f);
+    EXPECT_EQ(fresh->EntryCount(), 0u);
+    fresh->Shutdown();
+}
+
+TEST_F(MermaidFileCacheTest, LoadIndexSkipsCorruptedEntries)
+{
+    InitCache();
+    cache_.Shutdown();
+
+    // 正しいヘッダー + 不正なフィールド値を持つエントリ
+    auto index_path = temp_dir_ / L"index.bin";
+    {
+        std::ofstream ofs(index_path, std::ios::binary);
+        uint32_t magic = 0x4D454D43u;
+        uint32_t version = 1;
+        float dpr = 1.0f;
+        uint32_t count = 3;
+        ofs.write(reinterpret_cast<const char*>(&magic), 4);
+        ofs.write(reinterpret_cast<const char*>(&version), 4);
+        ofs.write(reinterpret_cast<const char*>(&dpr), 4);
+        ofs.write(reinterpret_cast<const char*>(&count), 4);
+
+        auto write_entry = [&](uint64_t key, float w, float h, uint32_t sz, int64_t t) {
+            ofs.write(reinterpret_cast<const char*>(&key), 8);
+            ofs.write(reinterpret_cast<const char*>(&w), 4);
+            ofs.write(reinterpret_cast<const char*>(&h), 4);
+            ofs.write(reinterpret_cast<const char*>(&sz), 4);
+            ofs.write(reinterpret_cast<const char*>(&t), 8);
+        };
+
+        // エントリ1: css_widthが負 → スキップされる
+        write_entry(1, -100.0f, 50.0f, 256, 1000);
+        // エントリ2: png_sizeが0 → スキップされる
+        write_entry(2, 100.0f, 50.0f, 0, 1000);
+        // エントリ3: 正常 → 読み込まれる
+        write_entry(3, 200.0f, 100.0f, 512, 1000);
+    }
+
+    auto fresh = CreateFreshCache();
+    fresh->Init(1.0f);
+    // 不正な2エントリはスキップされ、正常な1エントリのみ読み込まれる
+    EXPECT_EQ(fresh->EntryCount(), 1u);
+    EXPECT_EQ(fresh->TotalSize(), 512u);
+    fresh->Shutdown();
+}
+
+TEST_F(MermaidFileCacheTest, LoadIndexWithNaNWidthSkipsEntry)
+{
+    InitCache();
+    cache_.Shutdown();
+
+    auto index_path = temp_dir_ / L"index.bin";
+    {
+        std::ofstream ofs(index_path, std::ios::binary);
+        uint32_t magic = 0x4D454D43u;
+        uint32_t version = 1;
+        float dpr = 1.0f;
+        uint32_t count = 1;
+        ofs.write(reinterpret_cast<const char*>(&magic), 4);
+        ofs.write(reinterpret_cast<const char*>(&version), 4);
+        ofs.write(reinterpret_cast<const char*>(&dpr), 4);
+        ofs.write(reinterpret_cast<const char*>(&count), 4);
+
+        uint64_t key = 42;
+        float nan_val = std::numeric_limits<float>::quiet_NaN();
+        float h = 100.0f;
+        uint32_t sz = 256;
+        int64_t t = 1000;
+        ofs.write(reinterpret_cast<const char*>(&key), 8);
+        ofs.write(reinterpret_cast<const char*>(&nan_val), 4);
+        ofs.write(reinterpret_cast<const char*>(&h), 4);
+        ofs.write(reinterpret_cast<const char*>(&sz), 4);
+        ofs.write(reinterpret_cast<const char*>(&t), 8);
+    }
+
+    auto fresh = CreateFreshCache();
+    fresh->Init(1.0f);
+    EXPECT_EQ(fresh->EntryCount(), 0u);
+    fresh->Shutdown();
+}
+
+TEST_F(MermaidFileCacheTest, LoadIndexWithZeroBytesFile)
+{
+    InitCache();
+    cache_.Shutdown();
+
+    // 0バイトのインデックスファイル
+    auto index_path = temp_dir_ / L"index.bin";
+    { std::ofstream ofs(index_path, std::ios::binary); }
+
+    auto fresh = CreateFreshCache();
+    fresh->Init(1.0f);
+    EXPECT_EQ(fresh->EntryCount(), 0u);
+    fresh->Shutdown();
+}
+
 // ═══════════════════════════════════════════════
 // ClearAll
 // ═══════════════════════════════════════════════
