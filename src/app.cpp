@@ -166,7 +166,7 @@ void App::OnActivate(bool active)
 {
     if (window_active_ != active) {
         window_active_ = active;
-        Invalidate();
+        InvalidateTitleBar();
     }
 }
 
@@ -200,6 +200,21 @@ void App::InvalidatePane(const PaneRect& rect) noexcept
     rc.top = static_cast<LONG>(rect.y * scale);
     rc.right = static_cast<LONG>((rect.x + rect.width) * scale) + 1;
     rc.bottom = static_cast<LONG>((rect.y + rect.height) * scale) + 1;
+    InvalidateRect(hwnd_, &rc, FALSE);
+}
+
+void App::InvalidateTitleBar() noexcept
+{
+    const float scale = cached_dpi_scale_;
+    const float tb_h = titlebar_.GetHeight();
+    if (tb_h <= 0.0f) {
+        return;
+    }
+    RECT rc;
+    rc.left = 0;
+    rc.top = 0;
+    rc.right = static_cast<LONG>(cached_window_width_for_layout_ * scale) + 1;
+    rc.bottom = static_cast<LONG>(tb_h * scale) + 1;
     InvalidateRect(hwnd_, &rc, FALSE);
 }
 
@@ -665,7 +680,7 @@ void App::UpdateTitleBar()
     auto title = BuildTitleString(doc_.GetFilePath(), zoom_percent);
     SetWindowTextW(hwnd_, title.c_str());
     cached_title_text_ = std::move(title);
-    Invalidate();
+    InvalidateTitleBar();
 }
 
 // キャッシュ済み画像を DiagramEntry に反映する。

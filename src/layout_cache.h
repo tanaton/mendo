@@ -40,6 +40,7 @@ public:
     {
         entries_.resize(node_count);
         diagrams_.resize(node_count);
+        effects_generation_++;
     }
 
     // 既存のエントリをすべてクリアし、デフォルト値でリサイズする。
@@ -57,6 +58,7 @@ public:
             diagrams_.shrink_to_fit();
         }
         diagrams_.resize(node_count);
+        effects_generation_++;
     }
 
     constexpr size_t size() const noexcept { return entries_.size(); }
@@ -77,13 +79,14 @@ public:
             e.inline_code_bgs.clear();
             e.cell_inline_code_bgs.clear();
         }
+        effects_generation_++;
     }
 
     // すべてのテキストレイアウトとエフェクトを無効化し、Mermaid図のビットマップもリセットする。
     // ダークモード切替時に使用。
     void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes)
     {
-        InvalidateAllLayouts();
+        InvalidateAllLayouts(); // effects_generation_ は InvalidateAllLayouts 内で更新済み
         for (size_t i = 0; i < nodes.size() && i < diagrams_.size(); ++i) {
             if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
                 diagrams_[i].bitmap.Reset();
@@ -98,11 +101,18 @@ public:
             e.layout_dirty = true;
             e.text_layout.Reset();
         }
+        effects_generation_++;
     }
+
+    // エフェクト世代カウンタ。レイアウト変更時にインクリメントされる。
+    // Renderer が ApplyVisibleEffects のスキップ判定に使用する。
+    constexpr uint32_t GetEffectsGeneration() const noexcept { return effects_generation_; }
+    void IncrementEffectsGeneration() noexcept { effects_generation_++; }
 
 private:
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<DiagramEntry> diagrams_;
+    uint32_t effects_generation_ = 0;
 };
 
 // 最後のノードのレイアウト位置からコンテンツ全体の高さを計算する。

@@ -539,13 +539,13 @@ void App::OnMouseHover(int px, int py)
         const auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
         SetCursor(cursor_arrow_);
         if (titlebar_.SetHovered(tb_zone)) {
-            Invalidate();
+            InvalidateTitleBar();
         }
         return;
     }
     // タイトルバー外に出たらホバーをリセット
     if (titlebar_.SetHovered(TitleBarHitZone::None)) {
-        Invalidate();
+        InvalidateTitleBar();
     }
 
     const auto pane_layout = GetPaneLayout();
@@ -585,7 +585,7 @@ void App::OnMouseHover(int px, int py)
             changed |= panes_.SetFileRefreshHovered(refresh_hit);
             if (changed) {
                 renderer_.InvalidateFilePaneCache();
-                Invalidate();
+                InvalidatePane(pane_layout.file_rect);
             }
         }
         const float content_top = pane_layout.file_rect.y + header_h;
@@ -599,7 +599,7 @@ void App::OnMouseHover(int px, int py)
         SetCursor(close_hit ? cursor_hand_ : cursor_arrow_);
         if (panes_.SetTocCloseHovered(close_hit)) {
             renderer_.InvalidateTocPaneCache();
-            Invalidate();
+            InvalidatePane(pane_layout.toc_rect);
         }
         const float content_top = pane_layout.toc_rect.y + header_h;
         const float local_y = dip_y - content_top + panes_.TocScroll().scroll_y;

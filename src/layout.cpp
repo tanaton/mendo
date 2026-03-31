@@ -92,7 +92,7 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
 }
 
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-    size_t from_index, bool has_earlier_dirty)
+    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after)
 {
     YPositionResult result;
     result.has_dirty_nodes = has_earlier_dirty;
@@ -112,6 +112,20 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
         }
 
         y += GetSpacingAbove(nodes[i].type, theme);
+
+        // 早期終了: safe_exit_after 以降でY位置が一致すれば、
+        // 以降のノードのY位置は変わらない。
+        if (i > safe_exit_after && entry.y_position == y) {
+            // 残りにダーティノードがあるかは不明なため保守的にtrueとする。
+            // ProcessDirtyBatch の次回呼び出しで確認・クリアされる。
+            if (!result.has_dirty_nodes) {
+                result.has_dirty_nodes = true;
+            }
+            const size_t last_idx = nodes.size() - 1;
+            result.total_height = cache[last_idx].y_position + cache[last_idx].height
+                + GetSpacingBelow(nodes[last_idx].type, theme) + theme.margin_top;
+            return result;
+        }
 
         entry.y_position = y;
         y += entry.height;
@@ -210,6 +224,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         total_height_ = y + theme_->margin_top;
     }
     has_dirty_nodes_ = any_dirty;
+    cache.IncrementEffectsGeneration();
 }
 
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
@@ -224,6 +239,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 {
     const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     bool any_updated = false;
+    int last_measured = -1;
 
     // 下端が viewport_top 以上の最初のノードを見つける
     const int lo = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
@@ -239,10 +255,13 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         const float indent = nodes[i].indent_level * theme_->indent_width;
         measurer_->MeasureNode(nodes[i], entry, content_width - indent);
         any_updated = true;
+        last_measured = i;
     }
 
     if (any_updated) {
-        const auto result = RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo), has_dirty_nodes_);
+        cache.IncrementEffectsGeneration();
+        const auto result = RecomputeYPositions(nodes, cache, *theme_,
+            static_cast<size_t>(lo), has_dirty_nodes_, static_cast<size_t>(last_measured));
         total_height_ = result.total_height;
         has_dirty_nodes_ = result.has_dirty_nodes;
     }
@@ -255,6 +274,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
     const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     int processed = 0;
     size_t first_dirty = nodes.size();
+    size_t last_processed = 0;
 
     for (size_t i = 0; i < nodes.size(); i++) {
         auto& entry = cache[i];
@@ -265,6 +285,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
         if (first_dirty == nodes.size()) first_dirty = i;
         const float indent = nodes[i].indent_level * theme_->indent_width;
         measurer_->MeasureNode(nodes[i], entry, content_width - indent);
+        last_processed = i;
 
         if (++processed >= batch_size) {
             break;
@@ -276,7 +297,8 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
         return false;
     }
 
-    const auto result = RecomputeYPositions(nodes, cache, *theme_, first_dirty, false);
+    cache.IncrementEffectsGeneration();
+    const auto result = RecomputeYPositions(nodes, cache, *theme_, first_dirty, false, last_processed);
     total_height_ = result.total_height;
     has_dirty_nodes_ = result.has_dirty_nodes;
 

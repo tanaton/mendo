@@ -515,7 +515,14 @@ void Renderer::Render(const RenderParams& p)
     const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
 
     // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
-    ApplyVisibleEffects(p.nodes, p.cache, first_visible, viewport_bottom);
+    // レイアウト世代と可視範囲が前回と同一ならスキップする（静止時の不要な走査を回避）。
+    const uint32_t effects_gen = p.cache.GetEffectsGeneration();
+    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || viewport_bottom != last_effects_bottom_) {
+        ApplyVisibleEffects(p.nodes, p.cache, first_visible, viewport_bottom);
+        last_effects_gen_ = effects_gen;
+        last_effects_first_ = first_visible;
+        last_effects_bottom_ = viewport_bottom;
+    }
 
     // Markdownコンテンツペインの描画コマンドを生成・実行。
     const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
