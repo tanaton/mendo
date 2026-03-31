@@ -1,18 +1,22 @@
 #pragma once
 #include "config_store.h"
 #include <string>
+#include <string_view>
+#include <memory_resource>
 
 class ConfigService {
 public:
-    // 本番用: config_store の名前空間関数に委譲
     ConfigService() = default;
 
-    void SaveBool(const wchar_t* key, bool value) { config::SaveBool(key, value); }
-    bool LoadBool(const wchar_t* key, bool default_value = false) const { return config::LoadBool(key, default_value); }
+    void SaveBool(std::string_view section, std::string_view key, bool value) { config::SetBool(section, key, value); }
+    bool LoadBool(std::string_view section, std::string_view key, bool default_value = false) const { return config::GetBool(section, key, default_value); }
 
-    void SaveInt(const wchar_t* key, int value) { config::SaveInt(key, value); }
-    int LoadInt(const wchar_t* key, int def, int min_v, int max_v) const { return config::LoadInt(key, def, min_v, max_v); }
+    void SaveInt(std::string_view section, std::string_view key, int value) { config::SetInt(section, key, value); }
+    int LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const { return config::GetInt(section, key, def, min_v, max_v); }
 
-    void SaveWString(const wchar_t* key, std::wstring_view value) { config::SaveWString(key, value); }
-    std::pmr::wstring LoadWString(const wchar_t* key) const { return config::LoadWString(key); }
+    void SaveWString(std::string_view section, std::string_view key, std::wstring_view value) { config::SetWString(section, key, value); }
+    std::pmr::wstring LoadWString(std::string_view section, std::string_view key) const { return config::GetWString(section, key); }
+
+    // メモリ上のデータをディスクに書き出す
+    void Flush() { config::Save(); }
 };

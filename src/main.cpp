@@ -1,4 +1,5 @@
 #include "window.h"
+#include "config_store.h"
 #include "memory_resource.h"
 #include <windows.h>
 #include <shellapi.h>
@@ -23,6 +24,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     icc.dwSize = sizeof(icc);
     icc.dwICC = ICC_STANDARD_CLASSES;
     InitCommonControlsEx(&icc);
+
+    config::Load();
 
     Win32Window window;
     if (!window.Create(hInstance, nCmdShow)) {

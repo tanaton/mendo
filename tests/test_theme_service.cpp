@@ -5,6 +5,14 @@ class ThemeServiceTest : public ::testing::Test {
 protected:
     ConfigService config_;
     ThemeService service_{config_};
+
+    void SetUp() override {
+        config::Clear();
+    }
+
+    void TearDown() override {
+        config::Clear();
+    }
 };
 
 TEST_F(ThemeServiceTest, InitiallyLightMode) {

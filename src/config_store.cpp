@@ -1,4 +1,7 @@
 #include "config_store.h"
+#include "ini_parser.h"
+#include "string_convert.h"
+#include <charconv>
 #include <fstream>
 #include <shlobj.h>
 
@@ -8,6 +11,11 @@
 namespace config {
 
 static std::filesystem::path g_config_dir_override;
+static ini::IniData g_data;
+
+// ============================================================
+// ディレクトリ・パスヘルパー
+// ============================================================
 
 void SetConfigDirOverride(const std::filesystem::path& dir)
 {
@@ -30,7 +38,6 @@ std::filesystem::path GetConfigDir()
 
 std::filesystem::path GetConfigPath(std::wstring_view filename)
 {
-    // パストラバーサル防御: ファイル名にパス区切り文字や危険なパターンが含まれていないことを検証
     if (filename.empty()) {
         return {};
     }
@@ -42,7 +49,6 @@ std::filesystem::path GetConfigPath(std::wstring_view filename)
     if (filename.find(L"..") != std::wstring_view::npos) {
         return {};
     }
-
     auto dir = GetConfigDir();
     if (dir.empty()) {
         return {};
@@ -50,116 +56,124 @@ std::filesystem::path GetConfigPath(std::wstring_view filename)
     return dir / filename;
 }
 
-void SaveBool(std::wstring_view filename, bool value)
+// ============================================================
+// Load / Save / Clear
+// ============================================================
+
+void Load()
 {
-    auto path = GetConfigPath(filename);
-    if (path.empty()) {
+    auto dir = GetConfigDir();
+    if (dir.empty()) {
         return;
     }
-    std::filesystem::create_directories(path.parent_path());
-    std::ofstream ofs(path);
-    if (ofs) {
-        ofs << (value ? "1" : "0");
+
+    auto ini_path = dir / L"settings.ini";
+    std::ifstream ifs(ini_path, std::ios::binary);
+    if (ifs) {
+        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+        g_data = ini::Parse(content);
     }
 }
 
-bool LoadBool(std::wstring_view filename, bool default_value)
+void Save()
 {
-    auto path = GetConfigPath(filename);
-    if (path.empty()) {
-        return default_value;
-    }
-    std::ifstream ifs(path);
-    if (!ifs) {
-        return default_value;
-    }
-    char c = '0';
-    ifs >> c;
-    return c == '1';
-}
-
-void SaveInt(std::wstring_view filename, int value)
-{
-    auto path = GetConfigPath(filename);
-    if (path.empty()) {
+    auto dir = GetConfigDir();
+    if (dir.empty()) {
         return;
     }
-    std::filesystem::create_directories(path.parent_path());
-    std::ofstream ofs(path);
-    if (ofs) {
-        ofs << value;
+    std::filesystem::create_directories(dir);
+
+    auto ini_path = dir / L"settings.ini";
+    auto tmp_path = dir / L"settings.ini.tmp";
+
+    std::string content = ini::Serialize(g_data);
+    {
+        std::ofstream ofs(tmp_path, std::ios::binary);
+        if (!ofs) {
+            return;
+        }
+        ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!ofs) {
+            return;
+        }
+    }
+
+    std::error_code ec;
+    std::filesystem::rename(tmp_path, ini_path, ec);
+    if (ec) {
+        // renameが失敗した場合（クロスボリューム等）、直接書き込み
+        std::filesystem::remove(tmp_path, ec);
+        std::ofstream ofs(ini_path, std::ios::binary);
+        if (ofs) {
+            ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
+        }
     }
 }
 
-int LoadInt(std::wstring_view filename, int default_value, int min_val, int max_val)
+void Clear()
 {
-    auto path = GetConfigPath(filename);
-    if (path.empty()) {
-        return default_value;
-    }
-    std::ifstream ifs(path);
-    if (!ifs) {
-        return default_value;
-    }
-    int val = default_value;
-    if (!(ifs >> val)) {
-        return default_value;
-    }
-    if (val < min_val || val > max_val) {
-        return default_value;
-    }
-    return val;
+    g_data.clear();
 }
 
-void SaveWString(std::wstring_view filename, std::wstring_view value)
+// ============================================================
+// 型付きアクセサ
+// ============================================================
+
+static const std::string* FindValue(std::string_view section, std::string_view key)
 {
-    auto path = GetConfigPath(filename);
-    if (path.empty()) {
-        return;
+    auto sit = g_data.find(section);
+    if (sit == g_data.end()) {
+        return nullptr;
     }
-    if (value.empty()) {
-        std::filesystem::remove(path);
-        return;
+    auto kit = sit->second.find(key);
+    if (kit == sit->second.end()) {
+        return nullptr;
     }
-    std::filesystem::create_directories(path.parent_path());
-    std::ofstream ofs(path, std::ios::binary);
-    if (ofs) {
-        ofs.write(reinterpret_cast<const char*>(value.data()),
-            static_cast<std::streamsize>(value.size() * sizeof(wchar_t)));
-    }
+    return &kit->second;
 }
 
-std::pmr::wstring LoadWString(std::wstring_view filename)
+void SetBool(std::string_view section, std::string_view key, bool value)
 {
-    auto path = GetConfigPath(filename);
-    if (path.empty()) {
-        return {};
+    g_data[std::string(section)][std::string(key)] = value ? "1" : "0";
+}
+
+bool GetBool(std::string_view section, std::string_view key, bool default_value)
+{
+    auto* val = FindValue(section, key);
+    return val ? (*val == "1") : default_value;
+}
+
+void SetInt(std::string_view section, std::string_view key, int value)
+{
+    g_data[std::string(section)][std::string(key)] = std::to_string(value);
+}
+
+int GetInt(std::string_view section, std::string_view key, int default_value, int min_val, int max_val)
+{
+    auto* val = FindValue(section, key);
+    if (!val) {
+        return default_value;
     }
-    std::ifstream ifs(path, std::ios::binary | std::ios::ate);
-    if (!ifs) {
-        return {};
+    int result = default_value;
+    auto [ptr, ec] = std::from_chars(val->data(), val->data() + val->size(), result);
+    if (ec != std::errc{}) {
+        return default_value;
     }
-    auto size = ifs.tellg();
-    if (size <= 0 || size % sizeof(wchar_t) != 0) {
-        return {};
-    }
-    // 設定値として妥当なサイズ上限（1MB）を設ける
-    static constexpr std::streamoff MAX_CONFIG_STRING_SIZE = 1 * 1024 * 1024;
-    if (size > MAX_CONFIG_STRING_SIZE) {
-        return {};
-    }
-    ifs.seekg(0);
-    std::pmr::wstring result(static_cast<size_t>(size) / sizeof(wchar_t), L'\0');
-    ifs.read(reinterpret_cast<char*>(result.data()), size);
-    if (!ifs) {
-        return {};
-    }
-    // 埋め込みnull文字を除去（破損データ対策）
-    auto null_pos = result.find(L'\0');
-    if (null_pos != std::pmr::wstring::npos) {
-        result.resize(null_pos);
+    if (result < min_val || result > max_val) {
+        return default_value;
     }
     return result;
+}
+
+void SetWString(std::string_view section, std::string_view key, std::wstring_view value)
+{
+    g_data[std::string(section)][std::string(key)] = string_convert::WideToUtf8(value);
+}
+
+std::pmr::wstring GetWString(std::string_view section, std::string_view key)
+{
+    auto* val = FindValue(section, key);
+    return val ? string_convert::Utf8ToWide(*val) : std::pmr::wstring{};
 }
 
 } // namespace config

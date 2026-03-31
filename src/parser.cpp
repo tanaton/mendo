@@ -1,5 +1,6 @@
 #include "parser.h"
 #include "syntax.h"
+#include "string_convert.h"
 #include "memory_resource.h"
 #include "md4c.h"
 #include <stack>
@@ -7,7 +8,6 @@
 #include <charconv>
 #include <format>
 #include <iterator>
-#include <windows.h>
 
 std::pmr::wstring GenerateAnchorId(std::wstring_view text)
 {
@@ -44,21 +44,7 @@ std::pmr::wstring GenerateAnchorId(std::wstring_view text)
 
 namespace {
 
-std::pmr::wstring Utf8ToWide(std::string_view utf8)
-{
-    if (utf8.empty()) {
-        return {};
-    }
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
-    if (wlen <= 0) {
-        return {};
-    }
-    std::pmr::wstring result;
-    result.resize_and_overwrite(static_cast<size_t>(wlen), [utf8](wchar_t* buf, size_t count) -> size_t {
-        return static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), buf, static_cast<int>(count)));
-    });
-    return result;
-}
+using string_convert::Utf8ToWide;
 
 struct SpanState {
     bool bold = false;

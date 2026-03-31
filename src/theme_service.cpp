@@ -27,20 +27,22 @@ bool ThemeService::ToggleDarkMode()
 
 void ThemeService::SaveDarkMode()
 {
-    config_.SaveBool(L"dark_mode.txt", dark_mode_);
+    config_.SaveBool("View", "DarkMode", dark_mode_);
+    config_.Flush();
 }
 
 void ThemeService::LoadDarkMode()
 {
-    dark_mode_ = config_.LoadBool(L"dark_mode.txt", false);
+    dark_mode_ = config_.LoadBool("View", "DarkMode", false);
 }
 
 void ThemeService::SaveZoomLevel(int zoom_index)
 {
-    config_.SaveInt(L"zoom_level.txt", zoom_index);
+    config_.SaveInt("View", "ZoomLevel", zoom_index);
+    config_.Flush();
 }
 
 int ThemeService::LoadZoomIndex() const
 {
-    return config_.LoadInt(L"zoom_level.txt", ZOOM_DEFAULT_INDEX, 0, ZOOM_STEP_COUNT - 1);
+    return config_.LoadInt("View", "ZoomLevel", ZOOM_DEFAULT_INDEX, 0, ZOOM_STEP_COUNT - 1);
 }

@@ -382,6 +382,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_DESTROY:
         SaveWindowPlacement();
         app_.OnDestroy();
+        config::Save();
         PostQuitMessage(0);
         return 0;
 
@@ -447,28 +448,28 @@ void Win32Window::SaveWindowPlacement()
         return;
     }
     const auto& rc = wp.rcNormalPosition;
-    config::SaveInt(L"window_x.txt", rc.left);
-    config::SaveInt(L"window_y.txt", rc.top);
-    config::SaveInt(L"window_w.txt", rc.right - rc.left);
-    config::SaveInt(L"window_h.txt", rc.bottom - rc.top);
+    config::SetInt("Window", "X", rc.left);
+    config::SetInt("Window", "Y", rc.top);
+    config::SetInt("Window", "Width", rc.right - rc.left);
+    config::SetInt("Window", "Height", rc.bottom - rc.top);
 
     // 最小化中に閉じた場合も、元が最大化だったかを正しく保存する
     bool was_maximized = (wp.showCmd == SW_SHOWMAXIMIZED) ||
         ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED));
-    config::SaveBool(L"window_maximized.txt", was_maximized);
+    config::SetBool("Window", "Maximized", was_maximized);
 }
 
 bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 {
     // 保存済みのウィンドウサイズを読み込み（なければデフォルト表示へフォールバック）
-    int w = config::LoadInt(L"window_w.txt", 0, 100, 100000);
-    int h = config::LoadInt(L"window_h.txt", 0, 100, 100000);
+    int w = config::GetInt("Window", "Width", 0, 100, 100000);
+    int h = config::GetInt("Window", "Height", 0, 100, 100000);
     if (w == 0 || h == 0) {
         return false;
     }
-    int x = config::LoadInt(L"window_x.txt", 0, -100000, 100000);
-    int y = config::LoadInt(L"window_y.txt", 0, -100000, 100000);
-    bool maximized = config::LoadBool(L"window_maximized.txt", false);
+    int x = config::GetInt("Window", "X", 0, -100000, 100000);
+    int y = config::GetInt("Window", "Y", 0, -100000, 100000);
+    bool maximized = config::GetBool("Window", "Maximized", false);
 
     WINDOWPLACEMENT wp{};
     wp.length = sizeof(wp);
@@ -489,10 +490,10 @@ bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 
 void Win32Window::RestoreScrollPosition()
 {
-    int node = config::LoadInt(L"scroll_node.txt", -1, -1, 100000000);
+    int node = config::GetInt("Session", "ScrollNode", -1, -1, 100000000);
     if (node < 0) {
         return;
     }
-    int offset = config::LoadInt(L"scroll_offset.txt", 0, -100000, 100000);
+    int offset = config::GetInt("Session", "ScrollOffset", 0, -100000, 100000);
     app_.SetPendingRestoreNode(node, offset);
 }

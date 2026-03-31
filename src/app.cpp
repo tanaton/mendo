@@ -1099,12 +1099,12 @@ void App::SaveLastFilePath()
     if (doc_.GetFilePath().empty() || IsHelpPath(doc_.GetFilePath())) {
         return;
     }
-    config_.SaveWString(L"last_file.txt", doc_.GetFilePath());
+    config_.SaveWString("Session", "LastFile", doc_.GetFilePath());
 }
 
 std::pmr::wstring App::LoadLastFilePath() const
 {
-    std::pmr::wstring path = config_.LoadWString(L"last_file.txt");
+    std::pmr::wstring path = config_.LoadWString("Session", "LastFile");
     if (path.empty()) {
         return {};
     }
@@ -1132,16 +1132,16 @@ void App::ShowDirectory(std::wstring_view dir_path)
 
 void App::SavePaneState()
 {
-    config_.SaveBool(L"pane_show_file.txt", panes_.IsFilePaneVisible());
-    config_.SaveBool(L"pane_show_toc.txt", panes_.IsTocPaneVisible());
-    config_.SaveInt(L"pane_file_width.txt", static_cast<int>(std::lround(panes_.GetFilePaneWidth())));
-    config_.SaveInt(L"pane_toc_width.txt", static_cast<int>(std::lround(panes_.GetTocPaneWidth())));
+    config_.SaveBool("Pane", "ShowFile", panes_.IsFilePaneVisible());
+    config_.SaveBool("Pane", "ShowToc", panes_.IsTocPaneVisible());
+    config_.SaveInt("Pane", "FileWidth", static_cast<int>(std::lround(panes_.GetFilePaneWidth())));
+    config_.SaveInt("Pane", "TocWidth", static_cast<int>(std::lround(panes_.GetTocPaneWidth())));
 }
 
 void App::LoadPaneState()
 {
-    panes_.SetFilePaneVisible(config_.LoadBool(L"pane_show_file.txt", true));
-    panes_.SetTocPaneVisible(config_.LoadBool(L"pane_show_toc.txt", true));
+    panes_.SetFilePaneVisible(config_.LoadBool("Pane", "ShowFile", true));
+    panes_.SetTocPaneVisible(config_.LoadBool("Pane", "ShowToc", true));
 
     constexpr int kDefaultWidth = static_cast<int>(PaneController::PANE_DEFAULT_WIDTH);
     constexpr int kMinWidth = static_cast<int>(PaneController::PANE_MIN_WIDTH);
@@ -1159,9 +1159,9 @@ void App::LoadPaneState()
     }
 
     panes_.SetFilePaneWidth(static_cast<float>(
-        config_.LoadInt(L"pane_file_width.txt", kDefaultWidth, kMinWidth, dynamic_max)));
+        config_.LoadInt("Pane", "FileWidth", kDefaultWidth, kMinWidth, dynamic_max)));
     panes_.SetTocPaneWidth(static_cast<float>(
-        config_.LoadInt(L"pane_toc_width.txt", kDefaultWidth, kMinWidth, dynamic_max)));
+        config_.LoadInt("Pane", "TocWidth", kDefaultWidth, kMinWidth, dynamic_max)));
 }
 
 void App::SaveScrollPosition()
@@ -1172,6 +1172,6 @@ void App::SaveScrollPosition()
     }
     float node_y = layout_cache_[node].y_position;
     int offset = static_cast<int>(std::lround(viewport_.GetScrollY() - node_y));
-    config_.SaveInt(L"scroll_node.txt", node);
-    config_.SaveInt(L"scroll_offset.txt", offset);
+    config_.SaveInt("Session", "ScrollNode", node);
+    config_.SaveInt("Session", "ScrollOffset", offset);
 }
