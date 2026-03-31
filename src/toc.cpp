@@ -15,7 +15,7 @@ void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes)
         entry.anchor_id = nodes[i].anchor_id;
         entry.heading_level = nodes[i].heading_level;
         entry.node_index = static_cast<int>(i);
-        entries_.push_back(std::move(entry));
+        entries_.emplace_back(std::move(entry));
     }
 }
 

@@ -362,12 +362,12 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
                         UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length,
                             hit_test_buffer_);
                         for (UINT32 i = 0; i < count; i++) {
-                            entry.cell_inline_code_bgs[r][c].push_back({
+                            entry.cell_inline_code_bgs[r][c].emplace_back(
                                 hit_test_buffer_[i].left,
                                 hit_test_buffer_[i].top,
                                 hit_test_buffer_[i].width,
                                 hit_test_buffer_[i].height
-                                });
+                                );
                         }
                     }
                 }
@@ -420,12 +420,12 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
             UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length,
                 hit_test_buffer_);
             for (UINT32 i = 0; i < count; i++) {
-                entry.inline_code_bgs.push_back({
+                entry.inline_code_bgs.emplace_back(
                     hit_test_buffer_[i].left,
                     hit_test_buffer_[i].top,
                     hit_test_buffer_[i].width,
                     hit_test_buffer_[i].height
-                    });
+                    );
             }
         }
     }

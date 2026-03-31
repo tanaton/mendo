@@ -228,7 +228,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
 
         {
             std::lock_guard lock(result_mutex_);
-            completed_.push_back(std::move(result));
+            completed_.emplace_back(std::move(result));
         }
 
         if (hwnd_) {

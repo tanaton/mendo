@@ -298,7 +298,7 @@ const KeywordSet& CmdTypes()
 void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type)
 {
     if (length > 0) {
-        tokens.push_back({ start, length, type });
+        tokens.emplace_back(start, length, type);
     }
 }
 

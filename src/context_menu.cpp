@@ -297,27 +297,27 @@ void ContextMenu::BuildItems(const ContextMenuParams& params)
     Item nav_row;
     nav_row.type = ItemType::NavRow;
     nav_row.id = 0;
-    items_.push_back(std::move(nav_row));
+    items_.emplace_back(std::move(nav_row));
     nav_layout_.back_enabled = params.can_go_back;
     nav_layout_.fwd_enabled = params.can_go_forward;
 
-    items_.push_back({ ItemType::Separator });
+    items_.emplace_back(ItemType::Separator);
 
     if (params.show_file_items) {
-        items_.push_back({ ItemType::Text, IDM_EDIT_FILE, L"エディタで開く", params.has_file, false });
-        items_.push_back({ ItemType::Text, IDM_COPY, L"コピー", params.has_selection, false });
-        items_.push_back({ ItemType::Separator });
+        items_.emplace_back(ItemType::Text, IDM_EDIT_FILE, L"エディタで開く", params.has_file, false);
+        items_.emplace_back(ItemType::Text, IDM_COPY, L"コピー", params.has_selection, false);
+        items_.emplace_back(ItemType::Separator);
     }
 
-    items_.push_back({ ItemType::Text, IDM_TOGGLE_DARK_MODE, L"ダークモード",
-        true, params.dark_mode_checked });
+    items_.emplace_back(ItemType::Text, IDM_TOGGLE_DARK_MODE, L"ダークモード",
+        true, params.dark_mode_checked);
 
-    items_.push_back({ ItemType::Separator });
+    items_.emplace_back(ItemType::Separator);
 
-    items_.push_back({ ItemType::Text, IDM_TOGGLE_FILE_PANE, L"ファイルペイン",
-        true, params.file_pane_checked });
-    items_.push_back({ ItemType::Text, IDM_TOGGLE_TOC_PANE, L"目次ペイン",
-        true, params.toc_pane_checked });
+    items_.emplace_back(ItemType::Text, IDM_TOGGLE_FILE_PANE, L"ファイルペイン",
+        true, params.file_pane_checked);
+    items_.emplace_back(ItemType::Text, IDM_TOGGLE_TOC_PANE, L"目次ペイン",
+        true, params.toc_pane_checked);
 }
 
 // ============================================================

@@ -1156,7 +1156,7 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly) {
         UINT w = static_cast<UINT>(10 + i * 5);
         UINT h = static_cast<UINT>(20 + i * 3);
         ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, w, h));
-        paths.push_back(GetTestImagePath(name));
+        paths.emplace_back(GetTestImagePath(name));
     }
 
     for (auto& p : paths) {

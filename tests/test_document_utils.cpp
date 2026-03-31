@@ -331,7 +331,7 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode) {
     table_node.text = L"A\tB\n1\t2";
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(table_node));
+    nodes.emplace_back(std::move(table_node));
     TextSelection sel;
     sel.start_node = 0;
     sel.start_pos = 0;
@@ -347,7 +347,7 @@ TEST(ExtractSelectedText, StartNodeOutOfRange) {
     std::pmr::vector<Node> nodes;
     Node n;
     n.text = L"hello";
-    nodes.push_back(std::move(n));
+    nodes.emplace_back(std::move(n));
 
     TextSelection sel;
     sel.start_node = -5;
@@ -365,7 +365,7 @@ TEST(ExtractSelectedText, EndNodeOutOfRange) {
     std::pmr::vector<Node> nodes;
     Node n;
     n.text = L"hello";
-    nodes.push_back(std::move(n));
+    nodes.emplace_back(std::move(n));
 
     TextSelection sel;
     sel.start_node = 0;
@@ -385,8 +385,8 @@ TEST(FindLinkAtPosition, MultipleLinkRuns) {
     Node node;
     node.text = L"link1 link2";
 
-    node.link_urls.push_back(L"https://a.com");
-    node.link_urls.push_back(L"https://b.com");
+    node.link_urls.emplace_back(L"https://a.com");
+    node.link_urls.emplace_back(L"https://b.com");
 
     TextRun r1;
     r1.start = 0; r1.length = 5;
@@ -424,29 +424,29 @@ TEST(FindLinkAtPosition, TableCellLinkFound) {
     TableRow header;
     TableCell h0; h0.text = L"Name"; h0.is_header = true;
     TextRun h0r; h0r.start = 0; h0r.length = 4;
-    h0.runs.push_back(h0r);
-    header.cells.push_back(h0);
+    h0.runs.emplace_back(h0r);
+    header.cells.emplace_back(h0);
 
     TableCell h1; h1.text = L"URL"; h1.is_header = true;
     TextRun h1r; h1r.start = 0; h1r.length = 3;
-    h1.runs.push_back(h1r);
-    header.cells.push_back(h1);
+    h1.runs.emplace_back(h1r);
+    header.cells.emplace_back(h1);
     node.ensure_table();
-    node.table_rows().push_back(header);
+    node.table_rows().emplace_back(header);
 
     TableRow data;
     TableCell d0; d0.text = L"foo";
     TextRun d0r; d0r.start = 0; d0r.length = 3;
-    d0.runs.push_back(d0r);
-    data.cells.push_back(d0);
+    d0.runs.emplace_back(d0r);
+    data.cells.emplace_back(d0);
 
     TableCell d1; d1.text = L"bar";
     TextRun d1r; d1r.start = 0; d1r.length = 3;
     d1r.link_url_index = static_cast<int16_t>(node.link_urls.size());
-    node.link_urls.push_back(L"https://example.com");
-    d1.runs.push_back(d1r);
-    data.cells.push_back(d1);
-    node.table_rows().push_back(data);
+    node.link_urls.emplace_back(L"https://example.com");
+    d1.runs.emplace_back(d1r);
+    data.cells.emplace_back(d1);
+    node.table_rows().emplace_back(data);
 
     // 線形化: "Name\tURL\nfoo\tbar"
     //          0123 4567 8901 2345
@@ -499,11 +499,11 @@ TEST(FindLinkAtPosition, TableCellInternalLink) {
     TableCell cell; cell.text = L"section";
     TextRun r; r.start = 0; r.length = 7;
     r.link_url_index = static_cast<int16_t>(node.link_urls.size());
-    node.link_urls.push_back(L"#my-section");
-    cell.runs.push_back(r);
-    row.cells.push_back(cell);
+    node.link_urls.emplace_back(L"#my-section");
+    cell.runs.emplace_back(r);
+    row.cells.emplace_back(cell);
     node.ensure_table();
-    node.table_rows().push_back(row);
+    node.table_rows().emplace_back(row);
 
     node.text = L"section";
 
@@ -520,17 +520,17 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator) {
     TableRow row;
     TableCell c0; c0.text = L"A";
     TextRun r0; r0.start = 0; r0.length = 1;
-    c0.runs.push_back(r0);
-    row.cells.push_back(c0);
+    c0.runs.emplace_back(r0);
+    row.cells.emplace_back(c0);
 
     TableCell c1; c1.text = L"B";
     TextRun r1; r1.start = 0; r1.length = 1;
     r1.link_url_index = static_cast<int16_t>(node.link_urls.size());
-    node.link_urls.push_back(L"https://b.com");
-    c1.runs.push_back(r1);
-    row.cells.push_back(c1);
+    node.link_urls.emplace_back(L"https://b.com");
+    c1.runs.emplace_back(r1);
+    row.cells.emplace_back(c1);
     node.ensure_table();
-    node.table_rows().push_back(row);
+    node.table_rows().emplace_back(row);
 
     // 線形化: "A\tB" → オフセット 0=A, 1=タブ, 2=B
     node.text = L"A\tB";
@@ -553,12 +553,12 @@ TEST(FindAnchorNodeIndex, DuplicateAnchors) {
     Node h1;
     h1.type = NodeType::Heading;
     h1.anchor_id = L"title";
-    nodes.push_back(std::move(h1));
+    nodes.emplace_back(std::move(h1));
 
     Node h2;
     h2.type = NodeType::Heading;
     h2.anchor_id = L"title-1";
-    nodes.push_back(std::move(h2));
+    nodes.emplace_back(std::move(h2));
 
     // 最初のマッチが優先される
     EXPECT_EQ(FindAnchorNodeIndex(nodes, L"title"), 0);

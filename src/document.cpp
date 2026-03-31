@@ -66,10 +66,10 @@ void Document::BuildSpecialNodeIndices()
     for (size_t i = 0; i < nodes_.size(); i++) {
         const auto& node = nodes_[i];
         if (node.type == NodeType::Image) {
-            image_node_indices_.push_back(i);
+            image_node_indices_.emplace_back(i);
         }
         else if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
-            mermaid_node_indices_.push_back(i);
+            mermaid_node_indices_.emplace_back(i);
         }
     }
 }

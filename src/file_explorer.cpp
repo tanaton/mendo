@@ -34,7 +34,7 @@ void FileExplorer::Refresh()
             pe.full_path.assign(parent.native());
             pe.is_directory = true;
             pe.is_parent = true;
-            entries_.push_back(std::move(pe));
+            entries_.emplace_back(std::move(pe));
         }
     }
 
@@ -70,13 +70,13 @@ void FileExplorer::Refresh()
             entry.filename = fd.cFileName;
             entry.full_path.assign((dir_base / fd.cFileName).native());
             entry.is_directory = true;
-            dirs.push_back(std::move(entry));
+            dirs.emplace_back(std::move(entry));
         }
         else if (IsMarkdownFile(fd.cFileName)) {
             FileEntry entry;
             entry.filename = fd.cFileName;
             entry.full_path.assign((dir_base / fd.cFileName).native());
-            files.push_back(std::move(entry));
+            files.emplace_back(std::move(entry));
         }
     } while (FindNextFileW(hFind, &fd));
 

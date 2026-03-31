@@ -2,7 +2,7 @@
 
 void NavHistory::Push(const NavEntry& current)
 {
-    back_stack_.push_back(current);
+    back_stack_.emplace_back(current);
     forward_stack_.clear();
 
     // 履歴サイズを制限（dequeなのでpop_frontはO(1)）
@@ -17,7 +17,7 @@ bool NavHistory::GoBack(const NavEntry& current, NavEntry& out)
         return false;
     }
 
-    forward_stack_.push_back(current);
+    forward_stack_.emplace_back(current);
     if (forward_stack_.size() > MAX_HISTORY) {
         forward_stack_.pop_front();
     }
@@ -32,7 +32,7 @@ bool NavHistory::GoForward(const NavEntry& current, NavEntry& out)
         return false;
     }
 
-    back_stack_.push_back(current);
+    back_stack_.emplace_back(current);
     out = forward_stack_.back();
     forward_stack_.pop_back();
     return true;

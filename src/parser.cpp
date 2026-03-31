@@ -133,7 +133,7 @@ struct ParseContext {
             }
             if (node_idx < 0) {
                 node_idx = static_cast<int16_t>(current_node->link_urls.size());
-                current_node->link_urls.push_back(url);
+                current_node->link_urls.emplace_back(url);
             }
             run.link_url_index = node_idx;
         }
@@ -146,7 +146,7 @@ struct ParseContext {
         if (current_cell) {
             uint32_t start = static_cast<uint32_t>(current_cell->text.size());
             current_cell->text.append(text);
-            current_cell->runs.push_back(MakeRun(start, static_cast<uint32_t>(text.size())));
+            current_cell->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
             return;
         }
 
@@ -156,7 +156,7 @@ struct ParseContext {
 
         uint32_t start = static_cast<uint32_t>(current_node->text.size());
         current_node->text.append(text);
-        current_node->runs.push_back(MakeRun(start, static_cast<uint32_t>(text.size())));
+        current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
     }
 
     // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する。
@@ -412,7 +412,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_A: {
         auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
         if (a->href.text && a->href.size > 0) {
-            ctx->link_urls.push_back(Utf8ToWide(std::string_view{ a->href.text, static_cast<size_t>(a->href.size) }));
+            ctx->link_urls.emplace_back(Utf8ToWide(std::string_view{ a->href.text, static_cast<size_t>(a->href.size) }));
             ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
         }
         break;
@@ -649,7 +649,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     label_run.start = 0;
     label_run.length = static_cast<uint32_t>(full_label_len);
     label_run.bold = true;
-    new_runs.push_back(label_run);
+    new_runs.emplace_back(label_run);
 
     // 元のランを調整（マーカー部分を除外）
     for (const auto& run : node.runs) {
@@ -663,7 +663,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
             adjusted.length -= trim;
         }
         adjusted.start = static_cast<uint32_t>(static_cast<int>(adjusted.start) + delta);
-        new_runs.push_back(adjusted);
+        new_runs.emplace_back(adjusted);
     }
 
     node.text = std::move(new_text);

@@ -30,7 +30,7 @@ public:
         current_x_ = x;
         current_y_ = y;
         trail_points_.clear();
-        trail_points_.push_back({ x, y });
+        trail_points_.emplace_back(x, y);
     }
 
     void OnMouseMove(float x, float y)
@@ -62,7 +62,7 @@ public:
                 if (trail_points_.size() >= static_cast<size_t>(TRAIL_MAX_POINTS)) {
                     trail_points_.pop_front();
                 }
-                trail_points_.push_back({ x, y });
+                trail_points_.emplace_back(x, y);
             }
             UpdateDirection();
             // 方向が決定されたらすぐにオーバーレイを表示する

@@ -135,7 +135,7 @@ TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne) {
     std::vector<int> code_indices;
     for (size_t i = 0; i < pr.nodes.size(); i++) {
         if (pr.nodes[i].type == NodeType::CodeBlock) {
-            code_indices.push_back(static_cast<int>(i));
+            code_indices.emplace_back(static_cast<int>(i));
         }
     }
     ASSERT_GE(code_indices.size(), 2u) << "2つ以上のコードブロックが必要";

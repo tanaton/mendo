@@ -26,7 +26,7 @@ static void GenInlineCodeBgs(DrawCommandList& cmds,
             origin_y + bg.top - 2.0f,
             origin_x + bg.left + bg.width + 3.0f,
             origin_y + bg.top + bg.height + 2.0f);
-        cmds.push_back(FillRoundedRectCmd{ rect, 3.0f, 3.0f, color });
+        cmds.emplace_back(FillRoundedRectCmd{ rect, 3.0f, 3.0f, color });
     }
 }
 
@@ -51,12 +51,12 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     D2D1_RECT_F md_clip = D2D1::RectF(
         md_pane_rect.x, md_pane_rect.y,
         md_pane_rect.x + md_pane_rect.width, md_pane_rect.y + md_pane_rect.height);
-    cmds.push_back(PushClipCmd{ md_clip });
+    cmds.emplace_back(PushClipCmd{ md_clip });
     // スクロール位置を物理ピクセル境界にスナップし、ClearTypeヒンティングの
     // フレーム間変動によるテキストのガタつきを防止する。
     // viewport bounds にはスナップ前の scroll_y を使い、ヒットテストとの座標一致を保つ。
     float snapped_y = SnapScrollToPixel(scroll_y, dpi_scale);
-    cmds.push_back(SetTransformCmd{ D2D1::Matrix3x2F::Translation(md_pane_rect.x, -snapped_y) });
+    cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Translation(md_pane_rect.x, -snapped_y) });
 
     float viewport_top = scroll_y;
     float viewport_bottom = scroll_y + md_pane_rect.height;
@@ -83,8 +83,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
             selection, md_content_width, hovered_copy_node);
     }
 
-    cmds.push_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
-    cmds.push_back(PopClipCmd{});
+    cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
+    cmds.emplace_back(PopClipCmd{});
     return cmds_;
 }
 
@@ -120,7 +120,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                 ? diagram.width * (draw_h / diagram.height)
                 : diagram.width;
             float dx = x;
-            cmds.push_back(DrawBitmapCmd{
+            cmds.emplace_back(DrawBitmapCmd{
                 diagram.bitmap.Get(),
                 D2D1::RectF(dx, entry.y_position, dx + draw_w, entry.y_position + draw_h) });
         }
@@ -144,7 +144,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                     draw_w = cw;
                 }
                 float dx = x + (cw - draw_w) * 0.5f;
-                cmds.push_back(DrawBitmapCmd{
+                cmds.emplace_back(DrawBitmapCmd{
                     diagram.bitmap.Get(),
                     D2D1::RectF(dx, entry.y_position, dx + draw_w, entry.y_position + draw_h) });
             }
@@ -168,7 +168,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     case NodeType::Heading:
         if (node.heading_level <= 2) {
             float line_y = entry.y_position + entry.height + theme_->heading_spacing_below * 0.5f;
-            cmds.push_back(DrawLineCmd{
+            cmds.emplace_back(DrawLineCmd{
                 D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
                 theme_->hr_color, theme_->GetHeadingUnderlineThickness(node.heading_level) });
         }
@@ -216,15 +216,15 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     }
 
     // メインテキスト
-    cmds.push_back(DrawTextLayoutCmd{ D2D1::Point2F(x, entry.y_position),
-                                      entry.text_layout.Get(), base_color });
+    cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(x, entry.y_position),
+                                        entry.text_layout.Get(), base_color });
 
     // タスクリストのチェックボックス
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {
         const wchar_t icon = node.task_checked ? L'\u2611' : L'\u2610'; // ☑ / ☐
         float icon_size = theme_->font_size_body;
         float cb_x = x - theme_->list_bullet_offset;
-        cmds.push_back(DrawTextCmd::Make(
+        cmds.emplace_back(DrawTextCmd::Make(
             &icon, 1,
             D2D1::RectF(cb_x, entry.y_position, cb_x + icon_size, entry.y_position + icon_size * 1.5f),
             formats_.icon_font,
@@ -238,7 +238,7 @@ void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds,
     const NodeLayoutEntry& entry, float x, float w)
 {
     float y = entry.y_position + theme_->paragraph_spacing * 0.5f;
-    cmds.push_back(DrawLineCmd{
+    cmds.emplace_back(DrawLineCmd{
         D2D1::Point2F(x, y), D2D1::Point2F(x + w, y),
         theme_->hr_color, theme_->hr_thickness });
 }
@@ -247,12 +247,12 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool
     float x, float y, float table_width, float row_h, float border)
 {
     if (is_header) {
-        cmds.push_back(FillRectCmd{
+        cmds.emplace_back(FillRectCmd{
             D2D1::RectF(x, y, x + table_width, y + row_h + border),
             theme_->code_bg_color });
     }
     else if (is_even_row) {
-        cmds.push_back(FillRectCmd{
+        cmds.emplace_back(FillRectCmd{
             D2D1::RectF(x, y, x + table_width, y + row_h + border),
             cached_stripe_color_ });
     }
@@ -275,7 +275,7 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCel
     }
     if (cell_layout) {
         D2D1_COLOR_F cell_color = cell.is_header ? theme_->heading_color : theme_->text_color;
-        cmds.push_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, text_y), cell_layout, cell_color });
+        cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, text_y), cell_layout, cell_color });
     }
 }
 
@@ -342,7 +342,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
         GenTableRowBg(cmds, is_header_row, r % 2 == 0, offset_x, y, table_width, row_h, border);
 
         // 行上部の水平線
-        cmds.push_back(DrawLineCmd{
+        cmds.emplace_back(DrawLineCmd{
             D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
             theme_->hr_color, border });
 
@@ -354,7 +354,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             float cw = entry.col_widths[c];
 
             // 垂直の罫線
-            cmds.push_back(DrawLineCmd{
+            cmds.emplace_back(DrawLineCmd{
                 D2D1::Point2F(cx - border, y), D2D1::Point2F(cx - border, y + row_h + border),
                 theme_->hr_color, border });
 
@@ -385,7 +385,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
         advance_flat_offset(flat_offset, row, drawn_cols, row.cells.size());
 
         // 右罫線
-        cmds.push_back(DrawLineCmd{
+        cmds.emplace_back(DrawLineCmd{
             D2D1::Point2F(offset_x + table_width, y),
             D2D1::Point2F(offset_x + table_width, y + row_h + border),
             theme_->hr_color, border });
@@ -397,7 +397,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     }
 
     // 下罫線
-    cmds.push_back(DrawLineCmd{
+    cmds.emplace_back(DrawLineCmd{
         D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
         theme_->hr_color, border });
 }
@@ -409,7 +409,7 @@ void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds,
     D2D1_RECT_F bg_rect = D2D1::RectF(
         x - pad, entry.y_position - pad,
         x + w, entry.y_position + entry.height + pad);
-    cmds.push_back(FillRoundedRectCmd{ bg_rect, 4.0f, 4.0f, theme_->code_bg_color });
+    cmds.emplace_back(FillRoundedRectCmd{ bg_rect, 4.0f, 4.0f, theme_->code_bg_color });
 }
 
 void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
@@ -428,7 +428,7 @@ void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
     D2D1_COLOR_F bg_color = cached_is_dark_
         ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
-    cmds.push_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, bg_color });
+    cmds.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, bg_color });
 
     float text_alpha = is_hovered
         ? (cached_is_dark_ ? 0.9f : 0.8f)
@@ -437,7 +437,7 @@ void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
         ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
     const wchar_t icon = L'\uE8C8';
-    cmds.push_back(DrawTextCmd::Make(&icon, 1, btn, formats_.copy_btn_icon, icon_color));
+    cmds.emplace_back(DrawTextCmd::Make(&icon, 1, btn, formats_.copy_btn_icon, icon_color));
 }
 
 void CommandGenerator::GenListBullet(DrawCommandList& cmds,
@@ -455,7 +455,7 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
                 entry.y_position,
                 x - 4.0f,
                 entry.y_position + first_line_h);
-            cmds.push_back(DrawTextCmd::Make(num_buf, num_len, num_rect, formats_.list_number, theme_->text_color));
+            cmds.emplace_back(DrawTextCmd::Make(num_buf, num_len, num_rect, formats_.list_number, theme_->text_color));
         }
     }
     else {
@@ -465,10 +465,10 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
         float bullet_x = x - theme_->list_bullet_offset * 0.6f;
         float r = 3.0f;
         if (node.indent_level <= 1) {
-            cmds.push_back(FillEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color });
+            cmds.emplace_back(FillEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color });
         }
         else {
-            cmds.push_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color, 1.0f });
+            cmds.emplace_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color, 1.0f });
         }
     }
 }
@@ -539,16 +539,16 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
                 D2D1_RECT_F bg_rect = D2D1::RectF(
                     x - ALERT_BG_PAD, group_top - ALERT_BG_PAD,
                     x + cw, group_bottom + ALERT_BG_PAD);
-                cmds.push_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER,
+                cmds.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER,
                     theme_->alert_bg_color[idx] });
-                cmds.push_back(DrawLineCmd{
+                cmds.emplace_back(DrawLineCmd{
                     D2D1::Point2F(bar_x, group_top - BAR_EXTEND),
                     D2D1::Point2F(bar_x, group_bottom + BAR_EXTEND),
                     theme_->alert_color[idx], theme_->blockquote_bar_width });
             }
         }
         else {
-            cmds.push_back(DrawLineCmd{
+            cmds.emplace_back(DrawLineCmd{
                 D2D1::Point2F(bar_x, group_top - BAR_EXTEND),
                 D2D1::Point2F(bar_x, group_bottom + BAR_EXTEND),
                 theme_->blockquote_bar_color, theme_->blockquote_bar_width });
@@ -562,10 +562,10 @@ void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds,
     float x, float y, float w, float h)
 {
     D2D1_RECT_F bg = D2D1::RectF(x, y, x + w, y + h);
-    cmds.push_back(FillRoundedRectCmd{ bg, 4.0f, 4.0f, theme_->code_bg_color });
+    cmds.emplace_back(FillRoundedRectCmd{ bg, 4.0f, 4.0f, theme_->code_bg_color });
     if (formats_.placeholder_text) {
         constexpr wchar_t kText[] = L"Loading...";
-        cmds.push_back(DrawTextCmd::Make(kText, static_cast<UINT32>(std::ranges::size(kText) - 1), bg, formats_.placeholder_text, theme_->blockquote_text_color));
+        cmds.emplace_back(DrawTextCmd::Make(kText, static_cast<UINT32>(std::ranges::size(kText) - 1), bg, formats_.placeholder_text, theme_->blockquote_text_color));
     }
 }
 
@@ -581,7 +581,7 @@ void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,
         return;
     }
     for (UINT32 i = 0; i < count; i++) {
-        cmds.push_back(FillRectCmd{
+        cmds.emplace_back(FillRectCmd{
             D2D1::RectF(
                 origin_x + hit_test_buffer_[i].left,
                 origin_y + hit_test_buffer_[i].top,

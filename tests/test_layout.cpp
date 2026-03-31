@@ -312,7 +312,7 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight) {
     node.ensure_table();
     node.table_rows().clear();
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(node));
+    nodes.emplace_back(std::move(node));
     LayoutCache cache;
     cache.Resize(nodes.size());
 
@@ -473,34 +473,34 @@ TEST(BuildLinearizedTableTextTest, EmptyRows) {
 
 TEST(BuildLinearizedTableTextTest, SingleCell) {
     TableRow row;
-    row.cells.push_back(TableCell{L"hello"});
+    row.cells.emplace_back(TableCell{L"hello"});
     auto text = BuildLinearizedTableText({row});
     EXPECT_EQ(text, L"hello");
 }
 
 TEST(BuildLinearizedTableTextTest, TabSeparatedCells) {
     TableRow row;
-    row.cells.push_back(TableCell{L"A"});
-    row.cells.push_back(TableCell{L"B"});
-    row.cells.push_back(TableCell{L"C"});
+    row.cells.emplace_back(TableCell{L"A"});
+    row.cells.emplace_back(TableCell{L"B"});
+    row.cells.emplace_back(TableCell{L"C"});
     auto text = BuildLinearizedTableText({row});
     EXPECT_EQ(text, L"A\tB\tC");
 }
 
 TEST(BuildLinearizedTableTextTest, NewlineSeparatedRows) {
     TableRow row1;
-    row1.cells.push_back(TableCell{L"A"});
-    row1.cells.push_back(TableCell{L"B"});
+    row1.cells.emplace_back(TableCell{L"A"});
+    row1.cells.emplace_back(TableCell{L"B"});
     TableRow row2;
-    row2.cells.push_back(TableCell{L"1"});
-    row2.cells.push_back(TableCell{L"2"});
+    row2.cells.emplace_back(TableCell{L"1"});
+    row2.cells.emplace_back(TableCell{L"2"});
     auto text = BuildLinearizedTableText({row1, row2});
     EXPECT_EQ(text, L"A\tB\n1\t2");
 }
 
 TEST(BuildLinearizedTableTextTest, NoTrailingNewline) {
     TableRow row;
-    row.cells.push_back(TableCell{L"x"});
+    row.cells.emplace_back(TableCell{L"x"});
     auto text = BuildLinearizedTableText({row});
     EXPECT_FALSE(text.empty());
     EXPECT_NE(text.back(), L'\n');
@@ -508,9 +508,9 @@ TEST(BuildLinearizedTableTextTest, NoTrailingNewline) {
 
 TEST(BuildLinearizedTableTextTest, EmptyCells) {
     TableRow row;
-    row.cells.push_back(TableCell{L""});
-    row.cells.push_back(TableCell{L"B"});
-    row.cells.push_back(TableCell{L""});
+    row.cells.emplace_back(TableCell{L""});
+    row.cells.emplace_back(TableCell{L"B"});
+    row.cells.emplace_back(TableCell{L""});
     auto text = BuildLinearizedTableText({row});
     EXPECT_EQ(text, L"\tB\t");
 }
@@ -556,7 +556,7 @@ TEST(RecomputeYPositionsTest, SingleParagraph) {
     Node node;
     node.type = NodeType::Paragraph;
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(node));
+    nodes.emplace_back(std::move(node));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 20.0f;
@@ -580,9 +580,9 @@ TEST(RecomputeYPositionsTest, HeadingSpacing) {
     para2.type = NodeType::Paragraph;
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(para));
-    nodes.push_back(std::move(heading));
-    nodes.push_back(std::move(para2));
+    nodes.emplace_back(std::move(para));
+    nodes.emplace_back(std::move(heading));
+    nodes.emplace_back(std::move(para2));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 20.0f;
@@ -614,8 +614,8 @@ TEST(RecomputeYPositionsTest, DetectsDirtyNodes) {
     dirty.type = NodeType::Paragraph;
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(clean));
-    nodes.push_back(std::move(dirty));
+    nodes.emplace_back(std::move(clean));
+    nodes.emplace_back(std::move(dirty));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 20.0f;
@@ -634,7 +634,7 @@ TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY) {
     for (int i = 0; i < 10; i++) {
         Node node;
         node.type = NodeType::Paragraph;
-        nodes.push_back(std::move(node));
+        nodes.emplace_back(std::move(node));
     }
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -784,8 +784,8 @@ TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing) {
     h2.type = NodeType::Heading;
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(h1));
-    nodes.push_back(std::move(h2));
+    nodes.emplace_back(std::move(h1));
+    nodes.emplace_back(std::move(h2));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 40.0f;
@@ -811,7 +811,7 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions) {
     auto add_node = [&](NodeType type) {
         Node n;
         n.type = type;
-        nodes.push_back(std::move(n));
+        nodes.emplace_back(std::move(n));
     };
 
     add_node(NodeType::Paragraph);
@@ -908,8 +908,8 @@ TEST(RecomputeYPositionsTest, CodeBlockHasSpacingAbove) {
     code.type = NodeType::CodeBlock;
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(para));
-    nodes.push_back(std::move(code));
+    nodes.emplace_back(std::move(para));
+    nodes.emplace_back(std::move(code));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 20.0f;
@@ -933,8 +933,8 @@ TEST(RecomputeYPositionsTest, CodeBlockHasSpacingBelow) {
     para.type = NodeType::Paragraph;
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(code));
-    nodes.push_back(std::move(para));
+    nodes.emplace_back(std::move(code));
+    nodes.emplace_back(std::move(para));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 50.0f;
@@ -960,8 +960,8 @@ TEST(RecomputeYPositionsTest, BlockQuoteHasSpacingAbove) {
     quote.type = NodeType::BlockQuote;
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(para));
-    nodes.push_back(std::move(quote));
+    nodes.emplace_back(std::move(para));
+    nodes.emplace_back(std::move(quote));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 20.0f;
@@ -987,8 +987,8 @@ TEST(RecomputeYPositionsTest, ListItemUsesListItemSpacing) {
     li2.type = NodeType::ListItem;
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(li1));
-    nodes.push_back(std::move(li2));
+    nodes.emplace_back(std::move(li1));
+    nodes.emplace_back(std::move(li2));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 18.0f;
@@ -1010,8 +1010,8 @@ TEST(RecomputeYPositionsTest, TaskListItemUsesListItemSpacing) {
     tli2.type = NodeType::TaskListItem;
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(tli1));
-    nodes.push_back(std::move(tli2));
+    nodes.emplace_back(std::move(tli1));
+    nodes.emplace_back(std::move(tli2));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 18.0f;
@@ -1035,8 +1035,8 @@ TEST(RecomputeYPositionsTest, FromIndexCodeBlock) {
     para.type = NodeType::Paragraph;
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(code));
-    nodes.push_back(std::move(para));
+    nodes.emplace_back(std::move(code));
+    nodes.emplace_back(std::move(para));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 50.0f;
@@ -1061,8 +1061,8 @@ TEST(RecomputeYPositionsTest, FromIndexListItem) {
     para.type = NodeType::Paragraph;
 
     std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(li));
-    nodes.push_back(std::move(para));
+    nodes.emplace_back(std::move(li));
+    nodes.emplace_back(std::move(para));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 18.0f;
