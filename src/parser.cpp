@@ -144,7 +144,7 @@ struct ParseContext {
     {
         // テーブルセル内の場合、ノードではなくセルに追加
         if (current_cell) {
-            uint32_t start = static_cast<uint32_t>(current_cell->text.size());
+            const uint32_t start = static_cast<uint32_t>(current_cell->text.size());
             current_cell->text.append(text);
             current_cell->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
             return;
@@ -154,7 +154,7 @@ struct ParseContext {
             return;
         }
 
-        uint32_t start = static_cast<uint32_t>(current_node->text.size());
+        const uint32_t start = static_cast<uint32_t>(current_node->text.size());
         current_node->text.append(text);
         current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
     }
@@ -162,10 +162,10 @@ struct ParseContext {
     // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する。
     void AppendUtf8(std::string_view text)
     {
-        int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+        const int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
         if (wlen > 0) {
             text_buffer.resize_and_overwrite(static_cast<size_t>(wlen), [text](wchar_t* buf, size_t count) -> size_t {
-                int written = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf, static_cast<int>(count));
+                const int written = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf, static_cast<int>(count));
                 return (written > 0) ? static_cast<size_t>(written) : 0;
             });
             AppendText(text_buffer);
@@ -175,14 +175,14 @@ struct ParseContext {
 
 int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 {
-    auto* ctx = static_cast<ParseContext*>(userdata);
+    auto* const ctx = static_cast<ParseContext*>(userdata);
 
     switch (type) {
     case MD_BLOCK_DOC:
         break;
 
     case MD_BLOCK_H: {
-        auto* h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
+        auto* const h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
         ctx->BeginNode(NodeType::Heading);
         ctx->current_node->heading_level = static_cast<int>(h->level);
         break;
@@ -202,9 +202,9 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     case MD_BLOCK_CODE: {
         ctx->in_code_block = true;
         ctx->BeginNode(NodeType::CodeBlock);
-        auto* code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
+        auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            std::pmr::wstring lang_str = Utf8ToWide(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
+            const std::pmr::wstring lang_str = Utf8ToWide(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
             ctx->current_node->code_language = DetectLanguage(lang_str);
         }
         break;
@@ -222,14 +222,14 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         break;
 
     case MD_BLOCK_OL: {
-        auto* ol = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
+        auto* const ol = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
         ctx->list_counter.push(static_cast<int>(ol->start));
         ctx->indent_level++;
         break;
     }
 
     case MD_BLOCK_LI: {
-        auto* li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
+        auto* const li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
         if (li->is_task) {
             ctx->BeginNode(NodeType::TaskListItem);
             ctx->current_node->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
@@ -238,7 +238,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
             ctx->BeginNode(NodeType::ListItem);
         }
         if (!ctx->list_counter.empty()) {
-            int counter = ctx->list_counter.top();
+            const int counter = ctx->list_counter.top();
             ctx->current_node->list_number = counter;
             if (counter > 0) {
                 ctx->list_counter.top()++;
@@ -280,7 +280,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
             ctx->current_cell = &row.cells.back();
             ctx->current_cell->is_header = (type == MD_BLOCK_TH);
             if (detail) {
-                auto* td = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
+                auto* const td = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
                 ctx->current_cell->align = static_cast<int>(td->align);
             }
         }
@@ -295,7 +295,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
 int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 {
-    auto* ctx = static_cast<ParseContext*>(userdata);
+    auto* const ctx = static_cast<ParseContext*>(userdata);
 
     switch (type) {
     case MD_BLOCK_CODE:
@@ -356,8 +356,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     case MD_BLOCK_H:
         if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
             std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->text);
-            auto it = ctx->anchor_counts.find(base_id);
-            int count = (it != ctx->anchor_counts.end()) ? it->second : 0;
+            const auto it = ctx->anchor_counts.find(base_id);
+            const int count = (it != ctx->anchor_counts.end()) ? it->second : 0;
             if (count > 0) {
                 ctx->current_node->anchor_id = base_id;
                 std::format_to(std::back_inserter(ctx->current_node->anchor_id), L"-{}", count);
@@ -392,7 +392,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
 int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 {
-    auto* ctx = static_cast<ParseContext*>(userdata);
+    auto* const ctx = static_cast<ParseContext*>(userdata);
 
     ctx->span_stack.push(ctx->current_span);
 
@@ -410,7 +410,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ctx->current_span.strikethrough = true;
         break;
     case MD_SPAN_A: {
-        auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
+        auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
         if (a->href.text && a->href.size > 0) {
             ctx->link_urls.emplace_back(Utf8ToWide(std::string_view{ a->href.text, static_cast<size_t>(a->href.size) }));
             ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
@@ -418,7 +418,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     }
     case MD_SPAN_IMG: {
-        auto* img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
+        auto* const img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
         if (img->src.text && img->src.size > 0) {
             ctx->pending_image_src = Utf8ToWide(
                 std::string_view{ img->src.text, static_cast<size_t>(img->src.size) });
@@ -434,7 +434,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 
 int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 {
-    auto* ctx = static_cast<ParseContext*>(userdata);
+    auto* const ctx = static_cast<ParseContext*>(userdata);
 
     if (type == MD_SPAN_IMG) {
         if (ctx->current_node && !ctx->pending_image_src.empty()) {
@@ -466,11 +466,11 @@ void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity)
         unsigned long codepoint = 0;
         bool valid = false;
         if (entity[2] == 'x' || entity[2] == 'X') {
-            auto result = std::from_chars(entity.data() + 3, entity.data() + entity.size() - 1, codepoint, 16);
+            const auto result = std::from_chars(entity.data() + 3, entity.data() + entity.size() - 1, codepoint, 16);
             valid = (result.ec == std::errc());
         }
         else {
-            auto result = std::from_chars(entity.data() + 2, entity.data() + entity.size() - 1, codepoint, 10);
+            const auto result = std::from_chars(entity.data() + 2, entity.data() + entity.size() - 1, codepoint, 10);
             valid = (result.ec == std::errc());
         }
         if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
@@ -479,7 +479,7 @@ void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity)
         }
         else if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
             // 補助面: UTF-16サロゲートペアを出力
-            unsigned long adj = codepoint - 0x10000;
+            const unsigned long adj = codepoint - 0x10000;
             wchar_t surrogate[2];
             surrogate[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));
             surrogate[1] = static_cast<wchar_t>(0xDC00 + (adj & 0x3FF));
@@ -488,7 +488,7 @@ void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity)
         }
     }
     if (resolved) {
-        size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
+        const size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
         ctx->AppendText(std::wstring_view{ resolved, rlen });
     }
     else {
@@ -498,7 +498,7 @@ void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity)
 
 int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 {
-    auto* ctx = static_cast<ParseContext*>(userdata);
+    auto* const ctx = static_cast<ParseContext*>(userdata);
 
     if (!ctx->current_node) {
         return 0;
@@ -571,8 +571,8 @@ bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept
         return false;
     }
     for (size_t i = 0; i < a.size(); i++) {
-        wchar_t ca = (a[i] >= L'a' && a[i] <= L'z') ? (a[i] - L'a' + L'A') : a[i];
-        wchar_t cb = (b[i] >= L'a' && b[i] <= L'z') ? (b[i] - L'a' + L'A') : b[i];
+        const wchar_t ca = (a[i] >= L'a' && a[i] <= L'z') ? (a[i] - L'a' + L'A') : a[i];
+        const wchar_t cb = (b[i] >= L'a' && b[i] <= L'z') ? (b[i] - L'a' + L'A') : b[i];
         if (ca != cb) {
             return false;
         }
@@ -587,12 +587,12 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
     if (text.size() < 3 || text[0] != L'[' || text[1] != L'!') {
         return AlertType::None;
     }
-    auto close = text.find(L']');
+    const auto close = text.find(L']');
     if (close == std::wstring_view::npos || close <= 2) {
         return AlertType::None;
     }
 
-    auto type_str = text.substr(2, close - 2);
+    const auto type_str = text.substr(2, close - 2);
 
     AlertType type = AlertType::None;
     if (AsciiCaseEqual(type_str, L"NOTE"))      type = AlertType::Note;
@@ -617,16 +617,16 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
 // テキスト構造: "[icon] Label" (コンテンツなし) または "[icon] Label\n[content]" (コンテンツあり)
 void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
 {
-    const wchar_t* label = GetAlertLabel(type);
-    size_t label_len = std::wcslen(label);
-    const wchar_t* icon = GetAlertIcon(type);
-    size_t icon_len = std::wcslen(icon);
+    const wchar_t* const label = GetAlertLabel(type);
+    const size_t label_len = std::wcslen(label);
+    const wchar_t* const icon = GetAlertIcon(type);
+    const size_t icon_len = std::wcslen(icon);
 
-    bool has_content = (marker_end < node.text.size());
+    const bool has_content = (marker_end < node.text.size());
 
     // 新しいテキストを構築: "[icon] Label" (+ "\n \n" + 残りテキスト)
-    size_t icon_prefix_len = icon_len + 1; // アイコン文字列 + スペース
-    size_t full_label_len = icon_prefix_len + label_len;
+    const size_t icon_prefix_len = icon_len + 1; // アイコン文字列 + スペース
+    const size_t full_label_len = icon_prefix_len + label_len;
     std::pmr::wstring new_text;
     new_text.reserve(full_label_len + 4 + (has_content ? node.text.size() - marker_end : 0));
     new_text.append(icon, icon_len);
@@ -641,7 +641,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     }
 
     // TextRun の調整
-    int delta = static_cast<int>(new_content_start) - static_cast<int>(marker_end);
+    const int delta = static_cast<int>(new_content_start) - static_cast<int>(marker_end);
 
     std::pmr::vector<TextRun> new_runs;
     // ラベル用の太字ラン（アイコン + スペース + ラベルテキスト）
@@ -653,12 +653,12 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
 
     // 元のランを調整（マーカー部分を除外）
     for (const auto& run : node.runs) {
-        uint32_t run_end = run.start + run.length;
+        const uint32_t run_end = run.start + run.length;
         if (run_end <= static_cast<uint32_t>(marker_end)) continue;
 
         TextRun adjusted = run;
         if (adjusted.start < static_cast<uint32_t>(marker_end)) {
-            uint32_t trim = static_cast<uint32_t>(marker_end) - adjusted.start;
+            const uint32_t trim = static_cast<uint32_t>(marker_end) - adjusted.start;
             adjusted.start = static_cast<uint32_t>(marker_end);
             adjusted.length -= trim;
         }
@@ -680,10 +680,10 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
         if (nodes[i].type != NodeType::BlockQuote) continue;
 
         size_t marker_end = 0;
-        AlertType type = DetectAlertMarker(nodes[i].text, marker_end);
+        const AlertType type = DetectAlertMarker(nodes[i].text, marker_end);
         if (type == AlertType::None) continue;
 
-        int group = nodes[i].blockquote_group;
+        const int group = nodes[i].blockquote_group;
         TransformAlertNode(nodes[i], type, marker_end);
 
         // 同一 blockquote_group の後続ノードにも同じ alert_type を伝播

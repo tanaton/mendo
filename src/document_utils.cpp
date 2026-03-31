@@ -62,7 +62,7 @@ static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node,
     for (size_t r = 0; r < node.table_rows().size(); r++) {
         const auto& row = node.table_rows()[r];
         for (size_t c = 0; c < row.cells.size(); c++) {
-            uint32_t cell_len = static_cast<uint32_t>(row.cells[c].text.size());
+            const uint32_t cell_len = static_cast<uint32_t>(row.cells[c].text.size());
             if (text_pos >= offset && text_pos < offset + cell_len) {
                 local_pos = text_pos - offset;
                 return &row.cells[c].runs;
@@ -79,7 +79,7 @@ std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t t
 {
     if (node.type == NodeType::Table) {
         uint32_t local_pos = 0;
-        auto* runs = FindTableCellRuns(node, text_pos, local_pos);
+        const auto* runs = FindTableCellRuns(node, text_pos, local_pos);
         return runs ? FindLinkInRuns(*runs, node.link_urls, local_pos) : std::nullopt;
     }
     return FindLinkInRuns(node.runs, node.link_urls, text_pos);
@@ -107,7 +107,7 @@ int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view a
     }
 
     // 比較のためアンカーを小文字に変換
-    std::pmr::wstring target = ToLowerAscii(anchor);
+    const std::pmr::wstring target = ToLowerAscii(anchor);
 
     for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
         const auto& node = nodes[i];
@@ -129,7 +129,7 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos)
         pos = static_cast<uint32_t>(text.size()) - 1;
     }
 
-    auto is_word_char = [](wchar_t c) {
+    const auto is_word_char = [](wchar_t c) {
         return IsCharAlphaNumericW(c) || c == L'_';
     };
 
@@ -164,7 +164,7 @@ bool IsMarkdownFile(std::wstring_view path)
 
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
 {
-    auto [it_old, it_new] = std::mismatch(old_text.begin(), old_text.end(),
+    const auto [it_old, it_new] = std::mismatch(old_text.begin(), old_text.end(),
         new_text.begin(), new_text.end());
     if (it_old == old_text.end() && it_new == new_text.end()) {
         return std::string_view::npos;
@@ -179,8 +179,8 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_of
     int lo = 0, hi = static_cast<int>(nodes.size()) - 1;
     int result = -1;
     while (lo <= hi) {
-        int mid = lo + (hi - lo) / 2;
-        uint32_t offset = nodes[mid].source_offset;
+        const int mid = lo + (hi - lo) / 2;
+        const uint32_t offset = nodes[mid].source_offset;
         if (offset == UINT32_MAX) {
             // 左側で最も近い有効ノードを探す
             int probe = mid - 1;
@@ -223,7 +223,7 @@ std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
         title = L"mendo";
     }
     else {
-        auto filename = ExtractFilename(path);
+        const auto filename = ExtractFilename(path);
         title = filename.empty() ? L"mendo" : filename + L" - mendo";
     }
     if (zoom_percent > 0 && zoom_percent != 100) {

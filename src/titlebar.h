@@ -63,13 +63,13 @@ public:
         file_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
 
         // アイコン位置（タイトルバー左端、垂直中央）
-        float icon_top = (BASE_HEIGHT - ICON_SIZE) / 2.0f;
+        const float icon_top = (BASE_HEIGHT - ICON_SIZE) / 2.0f;
         icon_rect_ = D2D1::RectF(ICON_LEFT_MARGIN, icon_top,
             ICON_LEFT_MARGIN + ICON_SIZE, icon_top + ICON_SIZE);
 
         // タイトルテキスト領域（アイコンの右からファイル切替ボタンの左まで）
-        float title_left = ICON_LEFT_MARGIN + ICON_SIZE + ICON_RIGHT_GAP;
-        float title_right = file_toggle_.rect.left;
+        const float title_left = ICON_LEFT_MARGIN + ICON_SIZE + ICON_RIGHT_GAP;
+        const float title_right = file_toggle_.rect.left;
         title_text_rect_ = D2D1::RectF(title_left, 0.0f, (title_right > title_left) ? title_right : title_left, BASE_HEIGHT);
     }
 

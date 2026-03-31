@@ -22,7 +22,7 @@ bool Renderer::Init(HWND hwnd)
     LoadAppIconBitmap();
 
     // 滑らかなジェスチャー軌跡のための丸型キャップと結合
-    D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(
+    const D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(
         D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
         D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
     backend_.GetD2DFactory()->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
@@ -42,8 +42,8 @@ void Renderer::LoadAppIconBitmap()
 {
     app_icon_bitmap_.Reset();
 
-    HMODULE hModule = GetModuleHandleW(nullptr);
-    HICON hIcon = static_cast<HICON>(LoadImageW(
+    const HMODULE hModule = GetModuleHandleW(nullptr);
+    const HICON hIcon = static_cast<HICON>(LoadImageW(
         hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
     if (!hIcon) {
         return;
@@ -89,10 +89,10 @@ void Renderer::RecreateBrushes()
         b.Reset();
     }
 
-    bool is_dark = theme_.IsDark();
+    const bool is_dark = theme_.IsDark();
 
-    float stripe_alpha = is_dark ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
-    float thumb_alpha = is_dark ? 0.4f : 0.25f;
+    const float stripe_alpha = is_dark ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
+    const float thumb_alpha = is_dark ? 0.4f : 0.25f;
 
     struct BrushSpec { BrushId id; D2D1_COLOR_F color; };
     BrushSpec specs[] = {
@@ -190,7 +190,7 @@ void Renderer::UpdateLayoutTheme()
 
 void Renderer::LayoutAllNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
 {
-    float content_width = std::max(0.0f, viewport_width - theme_.margin_left - theme_.margin_right);
+    const float content_width = std::max(0.0f, viewport_width - theme_.margin_left - theme_.margin_right);
     layout_.LayoutNodes(nodes, cache, content_width);
 }
 
@@ -215,8 +215,8 @@ void Renderer::RecreatePaneFormats()
     constexpr DWRITE_PARAGRAPH_ALIGNMENT PA_TOP = DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
     constexpr DWRITE_PARAGRAPH_ALIGNMENT PA_CTR = DWRITE_PARAGRAPH_ALIGNMENT_CENTER;
 
-    const wchar_t* body_font = theme_.font_family.c_str();
-    const wchar_t* icon_font = L"Segoe Fluent Icons";
+    const wchar_t* const body_font = theme_.font_family.c_str();
+    const wchar_t* const icon_font = L"Segoe Fluent Icons";
 
     struct FormatSpec {
         ComPtr<IDWriteTextFormat>* target;
@@ -299,7 +299,7 @@ void Renderer::RecreatePaneFormats()
 void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     int first_visible, float viewport_bottom)
 {
-    int node_count = static_cast<int>(nodes.size());
+    const int node_count = static_cast<int>(nodes.size());
     for (int i = first_visible; i < node_count; i++) {
         if (cache[i].y_position > viewport_bottom) {
             break;
@@ -320,7 +320,7 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const
         BrushId::SyntaxPreprocessor,  // プリプロセッサ
         BrushId::SyntaxFunction,      // 関数
     };
-    auto idx = static_cast<size_t>(type);
+    const auto idx = static_cast<size_t>(type);
     if (idx >= std::size(SYNTAX_MAP)) {
         return nullptr;
     }
@@ -355,11 +355,11 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
                 }
                 for (const auto& run : row.cells[c].runs) {
                     if (run.has_link()) {
-                        DWRITE_TEXT_RANGE range{ run.start, run.length };
+                        const DWRITE_TEXT_RANGE range{ run.start, run.length };
                         cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                     }
                     if (run.code && run.length > 0) {
-                        UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length,
+                        const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length,
                             hit_test_buffer_);
                         for (UINT32 i = 0; i < count; i++) {
                             entry.cell_inline_code_bgs[r][c].emplace_back(
@@ -388,7 +388,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
             }
             auto* brush = GetSyntaxBrush(token.type);
             if (brush) {
-                DWRITE_TEXT_RANGE range{ token.start, token.length };
+                const DWRITE_TEXT_RANGE range{ token.start, token.length };
                 entry.text_layout->SetDrawingEffect(brush, range);
             }
         }
@@ -402,9 +402,9 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
             BrushId::AlertWarning, BrushId::AlertCaution,
         };
         static_assert(std::size(ALERT_BRUSH) == ALERT_TYPE_COUNT);
-        auto idx = AlertColorIndex(node.alert_type);
+        const auto idx = AlertColorIndex(node.alert_type);
         if (idx < ALERT_TYPE_COUNT) {
-            DWRITE_TEXT_RANGE range{ 0, node.alert_label_length };
+            const DWRITE_TEXT_RANGE range{ 0, node.alert_label_length };
             entry.text_layout->SetDrawingEffect(Brush(ALERT_BRUSH[idx]), range);
         }
     }
@@ -412,12 +412,12 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
     // リンクの下線/色を適用し、インラインコード背景の矩形をキャッシュ
     for (const auto& run : node.runs) {
         if (run.has_link()) {
-            DWRITE_TEXT_RANGE range{ run.start, run.length };
+            const DWRITE_TEXT_RANGE range{ run.start, run.length };
             entry.text_layout->SetUnderline(TRUE, range);
             entry.text_layout->SetDrawingEffect(Brush(BrushId::Link), range);
         }
         if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
-            UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length,
+            const UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length,
                 hit_test_buffer_);
             for (UINT32 i = 0; i < count; i++) {
                 entry.inline_code_bgs.emplace_back(
@@ -465,15 +465,15 @@ void Renderer::DrawLoading(float angle,
     DrawSidePanes(sp);
 
     // MDペイン中央にスピナーを描画
-    float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
-    float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
+    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
+    const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
     for (int i = 0; i < spinner::DOT_COUNT; i++) {
-        float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
-        float dx = cx + spinner::RADIUS * std::cos(a);
-        float dy = cy + spinner::RADIUS * std::sin(a);
-        float alpha = 1.0f - i * (spinner::DOT_FADE_FACTOR / spinner::DOT_COUNT);
+        const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
+        const float dx = cx + spinner::RADIUS * std::cos(a);
+        const float dy = cy + spinner::RADIUS * std::sin(a);
+        const float alpha = 1.0f - i * (spinner::DOT_FADE_FACTOR / spinner::DOT_COUNT);
 
-        D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
+        const D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
         Brush(BrushId::Text)->SetOpacity(alpha);
         rt()->FillEllipse(ellipse, Brush(BrushId::Text));
     }
@@ -510,15 +510,15 @@ void Renderer::Render(const RenderParams& p)
 
     // 最初の可視ノードを検索（一度だけ実行し、エフェクトとコマンド生成で共有）。
     // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
-    float viewport_top = p.scroll_y;
-    float viewport_bottom = p.scroll_y + p.md_pane_rect.height;
-    int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
+    const float viewport_top = p.scroll_y;
+    const float viewport_bottom = p.scroll_y + p.md_pane_rect.height;
+    const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
 
     // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     ApplyVisibleEffects(p.nodes, p.cache, first_visible, viewport_bottom);
 
     // Markdownコンテンツペインの描画コマンドを生成・実行。
-    float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
+    const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
     const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered_copy_node, dpi_scale);
     cmd_executor_.Execute(cmds, rt());
 
@@ -552,7 +552,7 @@ void Renderer::Render(const RenderParams& p)
 
 bool Renderer::CheckEndDraw()
 {
-    HRESULT hr = rt()->EndDraw();
+    const HRESULT hr = rt()->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
         RecreateRenderTarget();
         // 現在のフレームは破棄された — 新しいターゲットで再描画を要求
@@ -593,17 +593,17 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
         return;
     }
 
-    bool is_dark = theme_.IsDark();
+    const bool is_dark = theme_.IsDark();
 
     // 位置: MDペインの右下にマージン付き
-    float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
-    float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
+    const float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
+    const float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 
     auto drawButton = [&](float x, bool enabled, bool is_hovered, IDWriteTextLayout* arrow_layout) {
         if (!Brush(BrushId::Overlay)) {
             return;
         }
-        D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
+        const D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
 
         // 背景
         float bg_alpha;
@@ -617,12 +617,12 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
             bg_alpha = is_dark ? 0.15f : 0.10f;
         }
 
-        D2D1_COLOR_F bg_color = is_dark
+        const D2D1_COLOR_F bg_color = is_dark
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
 
         Brush(BrushId::Overlay)->SetColor(bg_color);
-        D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
+        const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
         rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
         // 矢印テキスト（キャッシュ済みレイアウトを使用）
@@ -637,7 +637,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
             text_alpha = is_dark ? 0.6f : 0.5f;
         }
 
-        D2D1_COLOR_F text_color = is_dark
+        const D2D1_COLOR_F text_color = is_dark
             ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
 
@@ -692,23 +692,23 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
         return;
     }
 
-    bool is_dark = theme_.IsDark();
+    const bool is_dark = theme_.IsDark();
 
     // MDペイン中央の矩形
-    float rect_w = 280.0f;
-    float rect_h = 80.0f;
-    float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
-    float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
-    D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2,
+    const float rect_w = 280.0f;
+    const float rect_h = 80.0f;
+    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
+    const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
+    const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2,
         cx + rect_w / 2, cy + rect_h / 2);
 
     // 背景（両テーマ共通の半透明ダークオーバーレイ）
-    D2D1_COLOR_F bg_color = is_dark
+    const D2D1_COLOR_F bg_color = is_dark
         ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.8f)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.6f);
 
     Brush(BrushId::Overlay)->SetColor(bg_color);
-    D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 12.0f, 12.0f);
+    const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 12.0f, 12.0f);
     rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
     // テキスト（両テーマ共通でダークオーバーレイ上に白色、キャッシュ済みレイアウトを使用）
@@ -725,23 +725,23 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
         return;
     }
 
-    float alpha = std::min(toast.alpha, 1.0f);
-    bool is_dark = theme_.IsDark();
+    const float alpha = std::min(toast.alpha, 1.0f);
+    const bool is_dark = theme_.IsDark();
 
     // MDペイン下部中央に配置
-    float rect_w = 320.0f;
-    float rect_h = 48.0f;
-    float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
-    float bottom_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE - 16.0f;
-    D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, bottom_y - rect_h,
+    const float rect_w = 320.0f;
+    const float rect_h = 48.0f;
+    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
+    const float bottom_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE - 16.0f;
+    const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, bottom_y - rect_h,
         cx + rect_w / 2, bottom_y);
 
     // 半透明ダーク背景
-    D2D1_COLOR_F bg_color = is_dark
+    const D2D1_COLOR_F bg_color = is_dark
         ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.85f)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.7f);
     Brush(BrushId::Overlay)->SetColor(bg_color);
-    D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 8.0f, 8.0f);
+    const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, 8.0f, 8.0f);
     rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
 
     // 白テキスト（キャッシュ済みレイアウトを使用。メッセージ変更時のみ再作成）

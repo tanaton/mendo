@@ -17,7 +17,7 @@ Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 
 std::pmr::wstring Document::GetDirectory() const
 {
-    auto dir = std::filesystem::path(file_path_).parent_path();
+    const auto dir = std::filesystem::path(file_path_).parent_path();
     if (!dir.empty()) {
         return std::pmr::wstring{ dir.native() };
     }
@@ -43,8 +43,8 @@ int Document::FindAnchorIndex(std::wstring_view anchor) const
     if (anchor.empty()) {
         return -1;
     }
-    std::pmr::wstring target = ToLowerAscii(anchor);
-    auto it = anchor_index_.find(target);
+    const std::pmr::wstring target = ToLowerAscii(anchor);
+    const auto it = anchor_index_.find(target);
     return (it != anchor_index_.end()) ? it->second : -1;
 }
 

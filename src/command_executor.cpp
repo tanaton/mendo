@@ -40,7 +40,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             }
             else if constexpr (std::is_same_v<T, FillRoundedRectCmd>) {
                 auto* b = GetBrush(rt, c.color);
-                if (b) { D2D1_ROUNDED_RECT rr = { c.rect, c.rx, c.ry }; rt->FillRoundedRectangle(rr, b); }
+                if (b) { const D2D1_ROUNDED_RECT rr = { c.rect, c.rx, c.ry }; rt->FillRoundedRectangle(rr, b); }
             }
             else if constexpr (std::is_same_v<T, DrawLineCmd>) {
                 auto* b = GetBrush(rt, c.color);
@@ -72,11 +72,11 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             }
             else if constexpr (std::is_same_v<T, FillEllipseCmd>) {
                 auto* b = GetBrush(rt, c.color);
-                if (b) { D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry); rt->FillEllipse(e, b); }
+                if (b) { const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry); rt->FillEllipse(e, b); }
             }
             else if constexpr (std::is_same_v<T, DrawEllipseCmd>) {
                 auto* b = GetBrush(rt, c.color);
-                if (b) { D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry); rt->DrawEllipse(e, b, c.stroke_width); }
+                if (b) { const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry); rt->DrawEllipse(e, b, c.stroke_width); }
             }
             else if constexpr (std::is_same_v<T, PushClipCmd>) {
                 rt->PushAxisAlignedClip(c.rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);

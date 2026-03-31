@@ -28,7 +28,7 @@
 void ApplyDarkModeToWindow(HWND hwnd, bool dark)
 {
     // ダークタイトルバー
-    BOOL value = dark ? TRUE : FALSE;
+    const BOOL value = dark ? TRUE : FALSE;
     DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
 
     // エクスプローラーテーマによるダークスクロールバー
@@ -50,7 +50,7 @@ bool App::Init(HWND hwnd)
     layout_service_.emplace(renderer_.GetLayout(), viewport_);
 
     // PixelToDip用にDPIスケールをキャッシュ (OnDpiChangedで更新)
-    float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
+    const float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
     cached_dpi_scale_ = (init_dpi > 0.0f) ? (init_dpi / 96.0f) : 1.0f;
 
     // タスクスケジューラを初期化（画像デコード・キャッシュ書き込み共用）
@@ -100,8 +100,8 @@ bool App::Init(HWND hwnd)
 
     // タイトルバーのレイアウト初期化
     {
-        auto* rt = renderer_.GetRenderTarget();
-        float window_w = rt ? rt->GetSize().width : 1600.0f;
+        const auto* rt = renderer_.GetRenderTarget();
+        const float window_w = rt ? rt->GetSize().width : 1600.0f;
         titlebar_.UpdateLayout(window_w);
     }
 
@@ -133,14 +133,14 @@ PaneScrollInfo App::ComputePaneScrollInfo(
 void App::HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
     ScrollState& scroll, bool& cache_dirty)
 {
-    float thumb_y = ComputeThumbY(info, scroll.scroll_y);
+    const float thumb_y = ComputeThumbY(info, scroll.scroll_y);
 
     if (dip_y >= thumb_y && dip_y <= thumb_y + info.thumb_height) {
         panes_.SetDragScrollOffset(dip_y - thumb_y);
     }
     else {
         panes_.SetDragScrollOffset(info.thumb_height * 0.5f);
-        float new_thumb_y = dip_y - panes_.GetDragScrollOffset();
+        const float new_thumb_y = dip_y - panes_.GetDragScrollOffset();
         scroll.scroll_y = ScrollFromThumbY(info, new_thumb_y);
         scroll.max_scroll = info.max_scroll;
         cache_dirty = true;
@@ -151,7 +151,7 @@ void App::HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
 void App::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
     ScrollState& scroll, bool& cache_dirty)
 {
-    float new_thumb_y = dip_y - panes_.GetDragScrollOffset();
+    const float new_thumb_y = dip_y - panes_.GetDragScrollOffset();
     scroll.scroll_y = ScrollFromThumbY(info, new_thumb_y);
     scroll.max_scroll = info.max_scroll;
     cache_dirty = true;
@@ -182,9 +182,9 @@ const PaneLayout& App::GetPaneLayout() const
             static const PaneLayout empty{};
             return empty;
         }
-        auto size = rt->GetSize();
+        const auto size = rt->GetSize();
         cached_window_width_for_layout_ = size.width;
-        float tb_h = titlebar_.GetHeight();
+        const float tb_h = titlebar_.GetHeight();
         cached_pane_layout_ = panes_.ComputeLayout(size.width, size.height,
             renderer_.GetTheme().splitter_width, tb_h);
         pane_layout_valid_ = true;
@@ -194,7 +194,7 @@ const PaneLayout& App::GetPaneLayout() const
 
 void App::InvalidatePane(const PaneRect& rect) noexcept
 {
-    float scale = cached_dpi_scale_;
+    const float scale = cached_dpi_scale_;
     RECT rc;
     rc.left = static_cast<LONG>(rect.x * scale);
     rc.top = static_cast<LONG>(rect.y * scale);
@@ -205,18 +205,18 @@ void App::InvalidatePane(const PaneRect& rect) noexcept
 
 PaneZone App::PaneAtPoint(float dip_x, [[maybe_unused]] float dip_y) const
 {
-    auto* rt = renderer_.GetRenderTarget();
+    const auto* rt = renderer_.GetRenderTarget();
     if (!rt) {
         return PaneZone::None;
     }
-    auto size = rt->GetSize();
+    const auto size = rt->GetSize();
     return panes_.DetectZone(dip_x, size.width, size.height,
         renderer_.GetTheme().splitter_width);
 }
 
 float App::GetMarkdownPaneWidth() const
 {
-    auto layout = GetPaneLayout();
+    const auto layout = GetPaneLayout();
     return layout.md_rect.width;
 }
 
@@ -310,9 +310,9 @@ void App::OnPaint()
     const auto& layout = GetPaneLayout();
     if (!file_load_service_.IsLoading()) {
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
-        auto anchor = SaveAnchor();
+        const auto anchor = SaveAnchor();
 
-        bool updated = layout_service_->EnsureVisibleLayout(
+        const bool updated = layout_service_->EnsureVisibleLayout(
             doc_, layout_cache_, layout.md_rect.width, layout.md_rect.height);
 
         if (updated) {
@@ -322,8 +322,8 @@ void App::OnPaint()
     // 目次ペインの同期: mdペインのスクロール位置からアクティブ見出しを判定し、
     // 目次ペインを自動スクロールする
     if (panes_.IsTocPaneVisible() && !file_load_service_.IsLoading()) {
-        float toc_margin = layout.md_rect.y + renderer_.GetTheme().heading_spacing_above;
-        int new_active = doc_.GetToc().FindActiveIndex(layout_cache_, viewport_.GetScrollY(), toc_margin);
+        const float toc_margin = layout.md_rect.y + renderer_.GetTheme().heading_spacing_above;
+        const int new_active = doc_.GetToc().FindActiveIndex(layout_cache_, viewport_.GetScrollY(), toc_margin);
         if (new_active != active_toc_index_) {
             active_toc_index_ = new_active;
             renderer_.InvalidateTocPaneCache();
@@ -331,9 +331,9 @@ void App::OnPaint()
             // アクティブ見出しが目次ペインの表示範囲外なら自動スクロール
             if (new_active >= 0) {
                 const auto& theme = renderer_.GetTheme();
-                float item_y = static_cast<float>(new_active) * theme.pane_item_height;
-                float total = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
-                auto info = ComputeScrollInfo(layout.toc_rect, theme.pane_header_height, total);
+                const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
+                const float total = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
+                const auto info = ComputeScrollInfo(layout.toc_rect, theme.pane_header_height, total);
                 float& sy = panes_.TocScroll().scroll_y;
                 if (item_y < sy || item_y + theme.pane_item_height > sy + info.content_height) {
                     sy = std::clamp(item_y - info.content_height * 0.5f, 0.0f, info.max_scroll);
@@ -343,10 +343,10 @@ void App::OnPaint()
         }
     }
 
-    auto gs = BuildGestureRenderState();
-    auto sp = BuildSidePaneState(layout);
-    auto tb = BuildTitleBarRenderState(cached_window_width_for_layout_);
-    auto ts = BuildToastRenderState();
+    const auto gs = BuildGestureRenderState();
+    const auto sp = BuildSidePaneState(layout);
+    const auto tb = BuildTitleBarRenderState(cached_window_width_for_layout_);
+    const auto ts = BuildToastRenderState();
 
     if (file_load_service_.IsLoading()) {
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
@@ -381,13 +381,13 @@ void App::OnResize(UINT width, UINT height)
 
     // タイトルバーボタン位置を再計算
     {
-        float window_w_dip = width / cached_dpi_scale_;
+        const float window_w_dip = width / cached_dpi_scale_;
         titlebar_.UpdateLayout(window_w_dip);
     }
 
     if (is_sizing_) {
-        auto sizing_layout = GetPaneLayout();
-        float sizing_h = sizing_layout.md_rect.height;
+        const auto sizing_layout = GetPaneLayout();
+        const float sizing_h = sizing_layout.md_rect.height;
         SyncMaxScroll(sizing_h);
         UpdateScrollBar();
         Invalidate();
@@ -442,7 +442,7 @@ void App::LoadHelpDocument()
         return;
     }
 
-    auto rc = LoadRcData(IDR_HELP_MD);
+    const auto rc = LoadRcData(IDR_HELP_MD);
     if (rc.empty()) {
         return;
     }
@@ -472,7 +472,7 @@ void App::LoadHelpDocument()
 
 void App::LoadMarkdownFile(std::wstring_view path)
 {
-    std::pmr::wstring path_str{ path };
+    const std::pmr::wstring path_str{ path };
     if (!DocumentService::NeedsLoadingAnimation(path_str)) {
         file_load_service_.SetLoadingPath(path_str);
         DoLoadMarkdownFile();
@@ -508,7 +508,7 @@ void App::DoLoadMarkdownFile()
         return;
     }
 
-    std::pmr::wstring dir = doc_.GetDirectory();
+    const std::pmr::wstring dir = doc_.GetDirectory();
     if (!dir.empty()) {
         file_explorer_.SetDirectory(dir);
         file_explorer_.SetCurrentFile(doc_.GetFilePath());
@@ -520,7 +520,7 @@ void App::DoLoadMarkdownFile()
 
     // 中間レイアウト: キャッシュ済みの画像/Mermaid高さを反映するための前段階
     {
-        auto pane_layout = GetPaneLayout();
+        const auto pane_layout = GetPaneLayout();
         layout_service_->FullLayout(doc_, layout_cache_, pane_layout.md_rect.width);
     }
 
@@ -532,7 +532,7 @@ void App::DoLoadMarkdownFile()
     float scroll_y = 0.0f;
     if (pending_restore_node_ >= 0) {
         // セッション復元: ノードのY座標+オフセットからスクロール位置を計算
-        int node = std::min(pending_restore_node_,
+        const int node = std::min(pending_restore_node_,
             static_cast<int>(layout_cache_.size()) - 1);
         if (node >= 0) {
             scroll_y = std::max(0.0f,
@@ -583,7 +583,7 @@ void App::DoReloadCurrentFile()
         return;
     }
 
-    float old_scroll = viewport_.GetScrollY();
+    const float old_scroll = viewport_.GetScrollY();
 
     mermaid_renderer_.CancelPending();
     image_loader_.CancelPending();
@@ -603,9 +603,9 @@ void App::DoReloadCurrentFile()
         renderer_.InvalidateTocPaneCache();
 
         // レイアウト計算（プレースホルダー高さで初期レイアウト）
-        auto pane_layout = GetPaneLayout();
-        float md_width = pane_layout.md_rect.width;
-        float md_height = pane_layout.md_rect.height;
+        const auto pane_layout = GetPaneLayout();
+        const float md_width = pane_layout.md_rect.width;
+        const float md_height = pane_layout.md_rect.height;
         layout_service_->FullLayout(doc_, layout_cache_, md_width);
 
         // キャッシュ済み画像/Mermaidを適用してY位置を正確にする
@@ -620,13 +620,13 @@ void App::DoReloadCurrentFile()
         const auto& nodes = doc_.GetNodes();
 
         if (diff_pos != std::string_view::npos && !nodes.empty()) {
-            int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
+            const int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
             if (changed_node >= 0 && changed_node < static_cast<int>(layout_cache_.size())) {
                 float node_y = layout_cache_[changed_node].y_position;
-                float node_h = layout_cache_[changed_node].height;
+                const float node_h = layout_cache_[changed_node].height;
 
                 // ノード内での相対位置を推定してY座標を補正
-                uint32_t node_start = nodes[changed_node].source_offset;
+                const uint32_t node_start = nodes[changed_node].source_offset;
                 if (node_start != UINT32_MAX) {
                     uint32_t next_start = static_cast<uint32_t>(new_content.size());
                     for (int i = changed_node + 1; i < static_cast<int>(nodes.size()); ++i) {
@@ -636,13 +636,13 @@ void App::DoReloadCurrentFile()
                         }
                     }
                     if (next_start > node_start) {
-                        float fraction = static_cast<float>(diff_pos - node_start)
+                        const float fraction = static_cast<float>(diff_pos - node_start)
                             / static_cast<float>(next_start - node_start);
                         node_y += node_h * std::min(fraction, 1.0f);
                     }
                 }
 
-                float margin = md_height * 0.2f;
+                const float margin = md_height * 0.2f;
                 desired_scroll = std::max(0.0f, node_y - margin);
             }
         }
@@ -661,7 +661,7 @@ void App::DoReloadCurrentFile()
 
 void App::UpdateTitleBar()
 {
-    int zoom_percent = static_cast<int>(ZOOM_STEPS[viewport_.GetZoomIndex()] * 100.0f + 0.5f);
+    const int zoom_percent = static_cast<int>(ZOOM_STEPS[viewport_.GetZoomIndex()] * 100.0f + 0.5f);
     auto title = BuildTitleString(doc_.GetFilePath(), zoom_percent);
     SetWindowTextW(hwnd_, title.c_str());
     cached_title_text_ = std::move(title);
@@ -672,13 +672,13 @@ void App::UpdateTitleBar()
 // 戻り値: キャッシュから反映できた画像の数
 int App::ApplyCachedImages()
 {
-    std::wstring doc_dir{ doc_.GetDirectory() };
+    const std::wstring doc_dir{ doc_.GetDirectory() };
     if (doc_dir.empty()) {
         return 0;
     }
 
-    float viewport_width = GetMarkdownPaneWidth();
-    float content_width = viewport_width
+    const float viewport_width = GetMarkdownPaneWidth();
+    const float content_width = viewport_width
         - renderer_.GetTheme().margin_left
         - renderer_.GetTheme().margin_right;
     if (content_width <= 0.0f) {
@@ -699,7 +699,7 @@ int App::ApplyCachedImages()
         }
 
         // 解決済みパスのキャッシュを確認し、ディスクI/Oを回避
-        auto cache_it = resolved_image_paths_.find(i);
+        const auto cache_it = resolved_image_paths_.find(i);
         std::wstring abs_str;
         if (cache_it != resolved_image_paths_.end()) {
             abs_str = cache_it->second;
@@ -710,7 +710,7 @@ int App::ApplyCachedImages()
             }
 
             std::error_code ec;
-            auto abs_path = std::filesystem::canonical(img_path, ec);
+            const auto abs_path = std::filesystem::canonical(img_path, ec);
             if (ec) {
                 continue;
             }
@@ -722,8 +722,8 @@ int App::ApplyCachedImages()
             node.image_data->width = diagram.width;
             node.image_data->height = diagram.height;
 
-            float indent = node.indent_level * renderer_.GetTheme().indent_width;
-            float node_width = content_width - indent;
+            const float indent = node.indent_level * renderer_.GetTheme().indent_width;
+            const float node_width = content_width - indent;
             float h = diagram.height;
             if (diagram.width > node_width && diagram.width > 0) {
                 h *= node_width / diagram.width;
@@ -757,9 +757,9 @@ void App::OnAppImageLoaded()
 void App::OnImageLoadComplete()
 {
     if (ApplyCachedImages() > 0) {
-        auto anchor = SaveAnchor();
+        const auto anchor = SaveAnchor();
         layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-        auto layout = GetPaneLayout();
+        const auto layout = GetPaneLayout();
         RestoreAnchor(anchor, layout.md_rect.height);
         Invalidate();
     }
@@ -771,8 +771,8 @@ void App::RequestMermaidRenders()
         return;
     }
 
-    float viewport_width = GetMarkdownPaneWidth();
-    float content_width = viewport_width
+    const float viewport_width = GetMarkdownPaneWidth();
+    const float content_width = viewport_width
         - renderer_.GetTheme().margin_left
         - renderer_.GetTheme().margin_right;
 
@@ -787,7 +787,7 @@ void App::RequestMermaidRenders()
         mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_)) {
         // 図のサイズが新旧どちらのコンテンツ幅より小さければ
         // ビューポートに制約されていないため再生成不要
-        float min_width = std::min(content_width, last_mermaid_content_width_);
+        const float min_width = std::min(content_width, last_mermaid_content_width_);
         bool any_invalidated = false;
         for (size_t i : doc_.GetMermaidNodeIndices()) {
             auto& diagram = layout_cache_.GetDiagram(i);
@@ -823,9 +823,9 @@ void App::RequestMermaidRenders()
 
 void App::OnMermaidRenderComplete()
 {
-    auto anchor = SaveAnchor();
+    const auto anchor = SaveAnchor();
     layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-    auto layout = GetPaneLayout();
+    const auto layout = GetPaneLayout();
     RestoreAnchor(anchor, layout.md_rect.height);
     Invalidate();
 }
@@ -842,7 +842,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
 
     // 軸ロック用: 縦スクロール発生をスワイプ検出器に通知
     if (!ctrl) {
-        bool had_overlay = swipe_detector_.IsOverlayVisible();
+        const bool had_overlay = swipe_detector_.IsOverlayVisible();
         swipe_detector_.NotifyVScroll(GetTickCount64());
         if (had_overlay) {
             KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
@@ -851,25 +851,25 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
     }
 
     if (ctrl) {
-        MouseWheelEvent event{ delta, true, PaneZone::MdPane };
+        const MouseWheelEvent event{ delta, true, PaneZone::MdPane };
         ExecuteActions(controller_.HandleMouseWheel(event));
         return;
     }
 
-    auto dip = PixelToDip(px, py);
-    auto pane_layout = GetPaneLayout();
-    auto zone = DetectPaneZone(dip.x, pane_layout,
+    const auto dip = PixelToDip(px, py);
+    const auto pane_layout = GetPaneLayout();
+    const auto zone = DetectPaneZone(dip.x, pane_layout,
         renderer_.GetTheme().splitter_width,
         panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible());
 
-    MouseWheelEvent event{ delta, false, zone };
+    const MouseWheelEvent event{ delta, false, zone };
     ExecuteActions(controller_.HandleMouseWheel(event));
 }
 
 void App::OnMouseHWheel(short delta)
 {
-    bool had_overlay = swipe_detector_.IsOverlayVisible();
-    int old_direction = swipe_detector_.GetOverlayDirection();
+    const bool had_overlay = swipe_detector_.IsOverlayVisible();
+    const int old_direction = swipe_detector_.GetOverlayDirection();
     swipe_detector_.OnHWheel(delta, GetTickCount64());
 
     // 入力のたびにコミットタイマーをリセット。
@@ -885,7 +885,7 @@ void App::OnMouseHWheel(short delta)
 
 void App::OnKeyDown(WPARAM key)
 {
-    KeyDownEvent event{
+    const KeyDownEvent event{
         static_cast<int>(key),
         (GetKeyState(VK_CONTROL) & 0x8000) != 0,
         (GetKeyState(VK_SHIFT) & 0x8000) != 0,
@@ -899,8 +899,8 @@ void App::ExecuteActions(const ActionList& actions)
     for (const auto& action : actions) {
         std::visit(overloaded{
             [this](const KeyScrollAction& a) {
-                auto pane_layout = GetPaneLayout();
-                float page_size = pane_layout.md_rect.height;
+                const auto pane_layout = GetPaneLayout();
+                const float page_size = pane_layout.md_rect.height;
                 switch (a.type) {
                     case ScrollType::LineUp:   SmoothScrollBy(-40.0f); break;
                     case ScrollType::LineDown: SmoothScrollBy(40.0f); break;
@@ -916,10 +916,10 @@ void App::ExecuteActions(const ActionList& actions)
                 Invalidate();
             },
             [this](const ScrollPaneAction& a) {
-                auto pane_layout = GetPaneLayout();
+                const auto pane_layout = GetPaneLayout();
                 const auto& theme = renderer_.GetTheme();
                 if (a.pane == PaneZone::FilePane) {
-                    float max_file_scroll = std::max(0.0f,
+                    const float max_file_scroll = std::max(0.0f,
                         static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height
                         - (pane_layout.file_rect.height - theme.pane_header_height));
                     if (panes_.ScrollFilePaneBy(a.delta, max_file_scroll)) {
@@ -928,7 +928,7 @@ void App::ExecuteActions(const ActionList& actions)
                     }
                 }
                 else if (a.pane == PaneZone::TocPane) {
-                    float max_toc_scroll = std::max(0.0f, static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height - (pane_layout.toc_rect.height - theme.pane_header_height));
+                    const float max_toc_scroll = std::max(0.0f, static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height - (pane_layout.toc_rect.height - theme.pane_header_height));
                     if (panes_.ScrollTocPaneBy(a.delta, max_toc_scroll)) {
                         renderer_.InvalidateTocPaneCache();
                         Invalidate();
@@ -968,7 +968,7 @@ void App::ExecuteActions(const ActionList& actions)
                 ReloadCurrentFile();
             },
             [this](const OpenFileAction&) {
-                auto path = FileLoader::OpenFileDialog(hwnd_);
+                const auto path = FileLoader::OpenFileDialog(hwnd_);
                 if (!path.empty()) {
                     if (!doc_.GetFilePath().empty()) {
                         PushNavHistory();
@@ -997,7 +997,7 @@ void App::ExecuteActions(const ActionList& actions)
 
 void App::OnDropFiles(HDROP hDrop)
 {
-    UINT required = DragQueryFileW(hDrop, 0, nullptr, 0);
+    const UINT required = DragQueryFileW(hDrop, 0, nullptr, 0);
     if (required > 0) {
         std::pmr::wstring path(required, L'\0');
         if (DragQueryFileW(hDrop, 0, path.data(), required + 1)) {
@@ -1020,7 +1020,7 @@ void App::HandleTimer(UINT_PTR timer_id)
         Invalidate();
         break;
     case TIMER_SWIPE_OVERLAY: {
-        auto result = swipe_detector_.Commit();
+        const auto result = swipe_detector_.Commit();
         bool need_redraw = false;
         switch (result) {
         case SwipeResult::Back:
@@ -1104,7 +1104,7 @@ void App::SaveLastFilePath()
 
 std::pmr::wstring App::LoadLastFilePath() const
 {
-    std::pmr::wstring path = config_.LoadWString("Session", "LastFile");
+    const std::pmr::wstring path = config_.LoadWString("Session", "LastFile");
     if (path.empty()) {
         return {};
     }
@@ -1151,7 +1151,7 @@ void App::LoadPaneState()
     if (hwnd_) {
         RECT rc{};
         if (GetClientRect(hwnd_, &rc)) {
-            int client_width = rc.right - rc.left;
+            const int client_width = rc.right - rc.left;
             if (client_width > 0) {
                 dynamic_max = std::max(kMinWidth, client_width - kMinWidth);
             }
@@ -1166,12 +1166,12 @@ void App::LoadPaneState()
 
 void App::SaveScrollPosition()
 {
-    int node = FindFirstVisibleNode();
+    const int node = FindFirstVisibleNode();
     if (node < 0) {
         return;
     }
-    float node_y = layout_cache_[node].y_position;
-    int offset = static_cast<int>(std::lround(viewport_.GetScrollY() - node_y));
+    const float node_y = layout_cache_[node].y_position;
+    const int offset = static_cast<int>(std::lround(viewport_.GetScrollY() - node_y));
     config_.SaveInt("Session", "ScrollNode", node);
     config_.SaveInt("Session", "ScrollOffset", offset);
 }

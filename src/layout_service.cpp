@@ -8,8 +8,8 @@ void LayoutService::FullLayout(Document& doc, LayoutCache& cache, float width)
 void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache,
     float width, float height)
 {
-    float viewport_top = viewport_.GetScrollY();
-    float viewport_bottom = viewport_.GetScrollY() + height;
+    const float viewport_top = viewport_.GetScrollY();
+    const float viewport_bottom = viewport_.GetScrollY() + height;
     engine_.ComputeLayout(doc.GetNodesMut(), cache, width, viewport_top, viewport_bottom);
 }
 
@@ -22,14 +22,14 @@ bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache,
 bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache,
     float width, float height)
 {
-    float viewport_top = viewport_.GetScrollY();
-    float viewport_bottom = viewport_.GetScrollY() + height;
+    const float viewport_top = viewport_.GetScrollY();
+    const float viewport_bottom = viewport_.GetScrollY() + height;
     return engine_.EnsureVisibleLayout(doc.GetNodesMut(), cache, width, viewport_top, viewport_bottom);
 }
 
 void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache,
     const Theme& theme)
 {
-    auto result = RecomputeYPositions(doc.GetNodesMut(), cache, theme);
+    const auto result = RecomputeYPositions(doc.GetNodesMut(), cache, theme);
     engine_.SetTotalHeight(result.total_height);
 }

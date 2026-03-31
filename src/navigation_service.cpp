@@ -4,13 +4,15 @@
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
 static bool IsSafeUrlScheme(std::wstring_view url) noexcept
 {
-    auto starts_with_i = [](std::wstring_view s, std::wstring_view prefix) noexcept {
+    const auto starts_with_i = [](std::wstring_view s, std::wstring_view prefix) noexcept {
         if (s.size() < prefix.size()) {
             return false;
         }
         for (size_t i = 0; i < prefix.size(); i++) {
             wchar_t a = s[i], b = prefix[i];
-            if (a >= L'A' && a <= L'Z') a += L'a' - L'A';
+            if (a >= L'A' && a <= L'Z') {
+                a += L'a' - L'A';
+            }
             if (a != b) {
                 return false;
             }

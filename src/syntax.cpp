@@ -451,14 +451,14 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     bool in_plain = false;
     std::pmr::wstring ci_buf; // case_insensitive用の再利用バッファ
 
-    auto flush_plain = [&]() {
+    const auto flush_plain = [&]() {
         if (in_plain && static_cast<uint32_t>(i) > plain_start) {
             EmitToken(tokens, plain_start, static_cast<uint32_t>(i) - plain_start, SyntaxTokenType::Plain);
             in_plain = false;
         }
     };
 
-    auto start_plain = [&]() {
+    const auto start_plain = [&]() {
         if (!in_plain) {
             plain_start = static_cast<uint32_t>(i);
             in_plain = true;
@@ -466,12 +466,12 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     };
 
     while (i < text.size()) {
-        wchar_t c = text[i];
+        const wchar_t c = text[i];
 
         // 1. 行コメント: //
         if (cfg.line_comment_slash && c == L'/' && i + 1 < text.size() && text[i + 1] == L'/') {
             flush_plain();
-            size_t start = i;
+            const size_t start = i;
             while (i < text.size() && text[i] != L'\n') { i++; }
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
@@ -480,7 +480,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         // 1b. アングルブロックコメント: <# #>（PowerShell）
         if (cfg.angle_block_comment && c == L'<' && i + 1 < text.size() && text[i + 1] == L'#') {
             flush_plain();
-            size_t start = i;
+            const size_t start = i;
             i = ScanBlockComment(text, i, L'#', L'>');
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
@@ -488,8 +488,10 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
 
         if (cfg.hash_comment && c == L'#' && !cfg.preprocessor) {
             flush_plain();
-            size_t start = i;
-            while (i < text.size() && text[i] != L'\n') { i++; }
+            const size_t start = i;
+            while (i < text.size() && text[i] != L'\n') {
+                i++;
+            }
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
         }
@@ -497,7 +499,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         // 2. ブロックコメント: /* */
         if (cfg.block_comment && c == L'/' && i + 1 < text.size() && text[i + 1] == L'*') {
             flush_plain();
-            size_t start = i;
+            const size_t start = i;
             i = ScanBlockComment(text, i, L'*', L'/');
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
@@ -506,7 +508,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         // 3. プリプロセッサ: 行頭の#（C/C++）
         if (cfg.preprocessor && c == L'#' && IsAtLineStart(text, i)) {
             flush_plain();
-            size_t start = i;
+            const size_t start = i;
             while (i < text.size()) {
                 if (text[i] == L'\n') {
                     // 行継続の確認
@@ -526,8 +528,10 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         if (cfg.double_colon_comment && c == L':' && i + 1 < text.size() && text[i + 1] == L':' &&
             IsAtLineStart(text, i)) {
             flush_plain();
-            size_t start = i;
-            while (i < text.size() && text[i] != L'\n') { i++; }
+            const size_t start = i;
+            while (i < text.size() && text[i] != L'\n') {
+                i++;
+            }
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
         }
@@ -539,8 +543,10 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             (text[i + 2] == L'm' || text[i + 2] == L'M') &&
             (i + 3 >= text.size() || !IsIdentChar(text[i + 3]))) {
             flush_plain();
-            size_t start = i;
-            while (i < text.size() && text[i] != L'\n') { i++; }
+            const size_t start = i;
+            while (i < text.size() && text[i] != L'\n') {
+                i++;
+            }
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
         }
@@ -549,7 +555,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         if (cfg.triple_quote && (c == L'"' || c == L'\'') &&
             i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
             flush_plain();
-            size_t start = i;
+            const size_t start = i;
             i = ScanTripleQuote(text, i, c);
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
             continue;
@@ -567,13 +573,13 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                     }
                     in_plain = false;
                 }
-                size_t start = i - 1;
+                const size_t start = i - 1;
                 // デリミタを検索: R"DELIM( ... )DELIM"
-                size_t paren = text.find(L'(', i + 1);
+                const size_t paren = text.find(L'(', i + 1);
                 if (paren != std::wstring_view::npos) {
-                    std::pmr::wstring delim{ text.substr(i + 1, paren - i - 1) };
-                    std::pmr::wstring end_marker = L")" + delim + L"\"";
-                    size_t end_pos = text.find(std::wstring_view{ end_marker }, paren + 1);
+                    const std::pmr::wstring delim{ text.substr(i + 1, paren - i - 1) };
+                    const std::pmr::wstring end_marker = L")" + delim + L"\"";
+                    const size_t end_pos = text.find(std::wstring_view{ end_marker }, paren + 1);
                     if (end_pos != std::wstring_view::npos) {
                         i = end_pos + end_marker.size();
                     }
@@ -588,7 +594,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                 continue;
             }
             flush_plain();
-            size_t start = i;
+            const size_t start = i;
             i = ScanString(text, i, c, false);
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
             continue;
@@ -597,7 +603,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         // 6. バッククォートテンプレートリテラル（JS）
         if (cfg.backtick_string && c == L'`') {
             flush_plain();
-            size_t start = i;
+            const size_t start = i;
             i = ScanString(text, i, L'`', true, !cfg.raw_backtick);
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
             continue;
@@ -606,7 +612,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         // 7. 数値
         if (IsDigit(c) || (c == L'.' && i + 1 < text.size() && IsDigit(text[i + 1]))) {
             flush_plain();
-            size_t start = i;
+            const size_t start = i;
             i = ScanNumber(text, i);
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Number);
             continue;
@@ -615,10 +621,10 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         // 8. 識別子とキーワード
         if (IsIdentStart(c)) {
             flush_plain();
-            size_t start = i;
+            const size_t start = i;
             while (i < text.size() && IsIdentChar(text[i])) { i++; }
 
-            std::wstring_view word(text.data() + start, i - start);
+            const std::wstring_view word(text.data() + start, i - start);
             std::wstring_view lookup_word = word;
             if (cfg.case_insensitive) {
                 // 再利用バッファで小文字化（毎回のメモリ確保を回避）
@@ -789,7 +795,7 @@ SyntaxLanguage DetectLanguage(std::wstring_view info_string)
 
 std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language)
 {
-    auto idx = static_cast<size_t>(language);
+    const auto idx = static_cast<size_t>(language);
     if (text.empty() || language == SyntaxLanguage::None ||
         language == SyntaxLanguage::Mermaid || idx >= std::size(LANGUAGE_DEFS)) {
         return {};

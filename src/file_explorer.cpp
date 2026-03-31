@@ -26,8 +26,8 @@ void FileExplorer::Refresh()
 
     // 親ディレクトリエントリ ".." を追加（"C:\" のようなルートでは追加しない）
     {
-        std::filesystem::path dir_path{ directory_ };
-        auto parent = dir_path.parent_path();
+        const std::filesystem::path dir_path{ directory_ };
+        const auto parent = dir_path.parent_path();
         if (parent != dir_path) {
             FileEntry pe;
             pe.filename = L"..";
@@ -39,10 +39,10 @@ void FileExplorer::Refresh()
     }
 
     // ディレクトリ内の全アイテムを列挙
-    std::filesystem::path dir_base{ directory_ };
-    auto pattern = dir_base / L"*";
+    const std::filesystem::path dir_base{ directory_ };
+    const auto pattern = dir_base / L"*";
     WIN32_FIND_DATAW fd;
-    HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
+    const HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE) {
         return;
     }
@@ -102,7 +102,7 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept
     if (local_y < 0 || item_height <= 0) {
         return -1;
     }
-    int index = static_cast<int>(local_y / item_height);
+    const int index = static_cast<int>(local_y / item_height);
     if (index < 0 || index >= static_cast<int>(entries_.size())) {
         return -1;
     }
@@ -111,7 +111,7 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept
 
 void FileExplorer::SetCurrentFile(std::wstring_view path)
 {
-    std::pmr::wstring path_str{ path };
+    const std::pmr::wstring path_str{ path };
     for (auto& entry : entries_) {
         entry.is_current = (!entry.is_directory &&
             _wcsicmp(entry.full_path.c_str(), path_str.c_str()) == 0);

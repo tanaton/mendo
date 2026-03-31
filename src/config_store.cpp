@@ -31,7 +31,7 @@ std::filesystem::path GetConfigDir()
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
         return {};
     }
-    std::filesystem::path dir = std::filesystem::path(appdata) / L"mendo";
+    const std::filesystem::path dir = std::filesystem::path(appdata) / L"mendo";
     CoTaskMemFree(appdata);
     return dir;
 }
@@ -49,7 +49,7 @@ std::filesystem::path GetConfigPath(std::wstring_view filename)
     if (filename.find(L"..") != std::wstring_view::npos) {
         return {};
     }
-    auto dir = GetConfigDir();
+    const auto dir = GetConfigDir();
     if (dir.empty()) {
         return {};
     }
@@ -62,31 +62,31 @@ std::filesystem::path GetConfigPath(std::wstring_view filename)
 
 void Load()
 {
-    auto dir = GetConfigDir();
+    const auto dir = GetConfigDir();
     if (dir.empty()) {
         return;
     }
 
-    auto ini_path = dir / L"settings.ini";
+    const auto ini_path = dir / L"settings.ini";
     std::ifstream ifs(ini_path, std::ios::binary);
     if (ifs) {
-        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+        const std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
         g_data = ini::Parse(content);
     }
 }
 
 void Save()
 {
-    auto dir = GetConfigDir();
+    const auto dir = GetConfigDir();
     if (dir.empty()) {
         return;
     }
     std::filesystem::create_directories(dir);
 
-    auto ini_path = dir / L"settings.ini";
-    auto tmp_path = dir / L"settings.ini.tmp";
+    const auto ini_path = dir / L"settings.ini";
+    const auto tmp_path = dir / L"settings.ini.tmp";
 
-    std::string content = ini::Serialize(g_data);
+    const std::string content = ini::Serialize(g_data);
     {
         std::ofstream ofs(tmp_path, std::ios::binary);
         if (!ofs) {
@@ -121,11 +121,11 @@ void Clear()
 
 static const std::string* FindValue(std::string_view section, std::string_view key)
 {
-    auto sit = g_data.find(section);
+    const auto sit = g_data.find(section);
     if (sit == g_data.end()) {
         return nullptr;
     }
-    auto kit = sit->second.find(key);
+    const auto kit = sit->second.find(key);
     if (kit == sit->second.end()) {
         return nullptr;
     }
@@ -139,7 +139,7 @@ void SetBool(std::string_view section, std::string_view key, bool value)
 
 bool GetBool(std::string_view section, std::string_view key, bool default_value)
 {
-    auto* val = FindValue(section, key);
+    const auto* val = FindValue(section, key);
     return val ? (*val == "1") : default_value;
 }
 
@@ -150,12 +150,12 @@ void SetInt(std::string_view section, std::string_view key, int value)
 
 int GetInt(std::string_view section, std::string_view key, int default_value, int min_val, int max_val)
 {
-    auto* val = FindValue(section, key);
+    const auto* val = FindValue(section, key);
     if (!val) {
         return default_value;
     }
     int result = default_value;
-    auto [ptr, ec] = std::from_chars(val->data(), val->data() + val->size(), result);
+    const auto [ptr, ec] = std::from_chars(val->data(), val->data() + val->size(), result);
     if (ec != std::errc{}) {
         return default_value;
     }
@@ -172,7 +172,7 @@ void SetWString(std::string_view section, std::string_view key, std::wstring_vie
 
 std::pmr::wstring GetWString(std::string_view section, std::string_view key)
 {
-    auto* val = FindValue(section, key);
+    const auto* val = FindValue(section, key);
     return val ? string_convert::Utf8ToWide(*val) : std::pmr::wstring{};
 }
 

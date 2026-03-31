@@ -19,7 +19,7 @@ void TaskScheduler::Init(int thread_count)
 void TaskScheduler::Post(std::function<void()> task)
 {
     {
-        std::lock_guard lock(mutex_);
+        const std::lock_guard lock(mutex_);
         queue_.push(std::move(task));
     }
     cv_.notify_one();
@@ -28,7 +28,7 @@ void TaskScheduler::Post(std::function<void()> task)
 void TaskScheduler::Shutdown()
 {
     {
-        std::lock_guard lock(mutex_);
+        const std::lock_guard lock(mutex_);
         shutdown_.store(true);
     }
     cv_.notify_all();

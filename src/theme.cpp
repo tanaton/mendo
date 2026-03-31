@@ -24,7 +24,7 @@ void Theme::ApplyZoom(float new_zoom) noexcept
         return;
     }
     // 前のズームを元に戻してから新しいズームを適用する
-    float ratio = new_zoom / zoom;
+    const float ratio = new_zoom / zoom;
     zoom = new_zoom;
 
     font_size_body *= ratio;

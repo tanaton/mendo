@@ -61,18 +61,18 @@ inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
 
 // ペインヘッダー内の閉じるボタン矩形を返す（ペインローカル座標）。
 inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) noexcept {
-    float btn_size = header_height - 2.0f * PANE_CLOSE_BTN_MARGIN;
-    float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN;
-    float btn_y = (header_height - btn_size) / 2.0f;
+    const float btn_size = header_height - 2.0f * PANE_CLOSE_BTN_MARGIN;
+    const float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN;
+    const float btn_y = (header_height - btn_size) / 2.0f;
     return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
 }
 
 // ペインヘッダー内の更新ボタン矩形を返す（閉じるボタンの左隣、ペインローカル座標）。
 inline D2D1_RECT_F PaneRefreshButtonRect(float pane_width, float header_height) noexcept {
-    D2D1_RECT_F close_rect = PaneCloseButtonRect(pane_width, header_height);
-    float btn_size = close_rect.right - close_rect.left;
-    float btn_x = close_rect.left - btn_size - PANE_CLOSE_BTN_MARGIN;
-    float btn_y = close_rect.top;
+    const D2D1_RECT_F close_rect = PaneCloseButtonRect(pane_width, header_height);
+    const float btn_size = close_rect.right - close_rect.left;
+    const float btn_x = close_rect.left - btn_size - PANE_CLOSE_BTN_MARGIN;
+    const float btn_y = close_rect.top;
     return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
 }
 
@@ -86,7 +86,7 @@ inline float SnapScrollToPixel(float scroll_y, float dpi_scale) noexcept {
 // コードブロック背景の右上を基準にコピーボタンの矩形を返す。
 // block_right: コードブロック背景の右端, block_top: コードブロック背景の上端
 inline D2D1_RECT_F CopyButtonRect(float block_right, float block_top) noexcept {
-    float bx = block_right - COPY_BTN_MARGIN - COPY_BTN_SIZE;
-    float by = block_top + COPY_BTN_MARGIN;
+    const float bx = block_right - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+    const float by = block_top + COPY_BTN_MARGIN;
     return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);
 }

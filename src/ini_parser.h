@@ -38,7 +38,7 @@ inline IniData Parse(std::string_view text)
         }
 
         // 先頭の空白を除去
-        size_t start = line.find_first_not_of(" \t");
+        const size_t start = line.find_first_not_of(" \t");
         if (start == std::string_view::npos) {
             continue; // 空行
         }
@@ -51,7 +51,7 @@ inline IniData Parse(std::string_view text)
 
         // セクションヘッダー
         if (line[0] == '[') {
-            size_t close = line.find(']', 1);
+            const size_t close = line.find(']', 1);
             if (close != std::string_view::npos) {
                 current_section = std::string(line.substr(1, close - 1));
             }
@@ -59,14 +59,14 @@ inline IniData Parse(std::string_view text)
         }
 
         // キー=値
-        size_t eq = line.find('=');
+        const size_t eq = line.find('=');
         if (eq == std::string_view::npos) {
             continue; // 不正な行は無視
         }
 
         // キーの末尾の空白を除去
-        std::string_view key_part = line.substr(0, eq);
-        size_t key_end = key_part.find_last_not_of(" \t");
+        const std::string_view key_part = line.substr(0, eq);
+        const size_t key_end = key_part.find_last_not_of(" \t");
         std::string key;
         if (key_end != std::string_view::npos) {
             key = std::string(key_part.substr(0, key_end + 1));
@@ -76,12 +76,12 @@ inline IniData Parse(std::string_view text)
         }
 
         // 値の先頭の空白を除去
-        std::string_view val_part = line.substr(eq + 1);
-        size_t val_start = val_part.find_first_not_of(" \t");
+        const std::string_view val_part = line.substr(eq + 1);
+        const size_t val_start = val_part.find_first_not_of(" \t");
         std::string value;
         if (val_start != std::string_view::npos) {
             // 値の末尾の空白を除去
-            size_t val_end = val_part.find_last_not_of(" \t");
+            const size_t val_end = val_part.find_last_not_of(" \t");
             value = std::string(val_part.substr(val_start, val_end - val_start + 1));
         }
 

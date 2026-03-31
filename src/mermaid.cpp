@@ -126,12 +126,12 @@ static std::vector<uint8_t> ReadAllStreamBytes(IStream* stream)
         return {};
     }
 
-    auto size = static_cast<size_t>(stat.cbSize.QuadPart);
+    const auto size = static_cast<size_t>(stat.cbSize.QuadPart);
     if (size == 0) {
         return {};
     }
 
-    LARGE_INTEGER zero{};
+    const LARGE_INTEGER zero{};
     stream->Seek(zero, STREAM_SEEK_SET, nullptr);
 
     std::vector<uint8_t> data(size);
@@ -151,7 +151,7 @@ static ComPtr<IStream> CreateMemoryStream(const void* data, size_t size)
     if (size > 0 && data) {
         ULONG written = 0;
         stream->Write(data, static_cast<ULONG>(size), &written);
-        LARGE_INTEGER zero{};
+        const LARGE_INTEGER zero{};
         stream->Seek(zero, STREAM_SEEK_SET, nullptr);
     }
     return stream;
@@ -165,7 +165,7 @@ static std::pmr::wstring GetWebView2UserDataFolder()
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
         return L"";
     }
-    auto path = std::filesystem::path(appdata) / L"mendo" / L"WebView2Data";
+    const auto path = std::filesystem::path(appdata) / L"mendo" / L"WebView2Data";
     CoTaskMemFree(appdata);
     std::filesystem::create_directories(path);
     return std::pmr::wstring{ path.native() };
@@ -245,7 +245,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
         return;
     }
 
-    std::pmr::wstring user_data = GetWebView2UserDataFolder();
+    const std::pmr::wstring user_data = GetWebView2UserDataFolder();
 
     // 共有WebView2環境を作成し、各ワーカーのコントローラーを初期化する
     CreateCoreWebView2EnvironmentWithOptions(
@@ -280,7 +280,7 @@ void MermaidRenderer::SetupWorker(int index)
         controller->get_CoreWebView2(&w.webview);
 
         // ホストウィンドウをWebViewで埋める
-        RECT bounds = { 0, 0, 4096, 4096 };
+        const RECT bounds = { 0, 0, 4096, 4096 };
         controller->put_Bounds(bounds);
 
         // 不要な機能を無効化する
@@ -303,7 +303,7 @@ void MermaidRenderer::SetupWorker(int index)
                 auto& w = workers_[index];
                 if (wcsncmp(msg, L"mermaid-ready:", 14) == 0) {
                     // "mermaid-ready:<dpr>"からDPRを解析
-                    float dpr = std::wcstof(msg + 14, nullptr);
+                    const float dpr = std::wcstof(msg + 14, nullptr);
                     if (dpr > 0) {
                         w.dpr = dpr;
                     }
@@ -313,7 +313,7 @@ void MermaidRenderer::SetupWorker(int index)
                     if (!ready_) {
                         ready_ = true;
                         if (on_all_ready_) {
-                            auto cb = std::move(on_all_ready_);
+                            const auto cb = std::move(on_all_ready_);
                             cb();
                         }
                     }
@@ -322,14 +322,14 @@ void MermaidRenderer::SetupWorker(int index)
                 else if (wcsncmp(msg, L"render-result:", 14) == 0) {
                     // "render-result:<id>:<json>" からリクエストIDを解析
                     wchar_t* end = nullptr;
-                    auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, &end, 10));
+                    const auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, &end, 10));
                     if (end && *end == L':' && id == w.current_request.request_id) {
                         OnRenderResult(index, std::wstring_view(end + 1));
                     }
                 }
                 else if (wcsncmp(msg, L"capture-ready:", 14) == 0) {
                     // "capture-ready:<id>" からリクエストIDを解析
-                    auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, nullptr, 10));
+                    const auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, nullptr, 10));
                     if (id == w.current_request.request_id) {
                         DoCapturePreview(index);
                     }
@@ -337,7 +337,7 @@ void MermaidRenderer::SetupWorker(int index)
                 else if (wcsncmp(msg, L"render-error:", 13) == 0) {
                     // "render-error:<id>:<message>" からリクエストIDを解析
                     wchar_t* end = nullptr;
-                    auto id = static_cast<unsigned int>(std::wcstoul(msg + 13, &end, 10));
+                    const auto id = static_cast<unsigned int>(std::wcstoul(msg + 13, &end, 10));
                     if (id == w.current_request.request_id) {
                         FinishWorkerRequest(w);
                     }
@@ -388,7 +388,7 @@ void MermaidRenderer::SetupWorker(int index)
             args->get_Request(&request);
             LPWSTR uri = nullptr;
             request->get_Uri(&uri);
-            std::pmr::wstring url(uri ? uri : L"");
+            const std::pmr::wstring url(uri ? uri : L"");
             CoTaskMemFree(uri);
 
             // app.local以外へのリクエストをブロック（fetch/XHR等）
@@ -470,7 +470,7 @@ void MermaidRenderer::ClearPendingQueue() noexcept
 
 uint64_t MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const
 {
-    int qw = mermaid_util::QuantizeWidth(max_width);
+    const int qw = mermaid_util::QuantizeWidth(max_width);
     return mermaid_util::CombinedHash(code, qw, dark_mode);
 }
 
@@ -483,10 +483,10 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         return;
     }
 
-    auto hash = HashCode(node.text, max_width, dark_mode);
+    const auto hash = HashCode(node.text, max_width, dark_mode);
 
     // まずメモリキャッシュを確認
-    auto it = cache_.find(hash);
+    const auto it = cache_.find(hash);
     if (it != cache_.end()) {
         diagram_entry.bitmap = it->second.bitmap;
         diagram_entry.width = it->second.width;
@@ -501,7 +501,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
 
     // ファイルキャッシュを確認
     if (file_cache_) {
-        uint64_t fkey = HashCode(node.text, max_width, dark_mode);
+        const uint64_t fkey = HashCode(node.text, max_width, dark_mode);
         MermaidFileCache::CacheEntry fentry;
         std::vector<uint8_t> png_data;
         if (file_cache_->Lookup(fkey, fentry, png_data)) {
@@ -561,7 +561,7 @@ void MermaidRenderer::ProcessQueue()
     // アイドル状態のワーカーが見つかれば順次ディスパッチする。
     while (!pending_requests_.empty()) {
         auto& front = pending_requests_.front();
-        auto it = cache_.find(front.code_hash);
+        const auto it = cache_.find(front.code_hash);
         if (it != cache_.end()) {
             // キャッシュヒット: WebView2を経由せずにエントリを更新
             front.diagram_entry->bitmap = it->second.bitmap;
@@ -569,8 +569,8 @@ void MermaidRenderer::ProcessQueue()
             front.diagram_entry->height = it->second.height;
             front.layout_entry->height = it->second.height;
             front.layout_entry->layout_dirty = false;
-            auto cb = front.on_complete;
-            auto cb_data = front.on_complete_data;
+            const auto cb = front.on_complete;
+            const auto cb_data = front.on_complete_data;
             pending_requests_.pop();
             if (cb) {
                 cb(cb_data);
@@ -602,8 +602,8 @@ void MermaidRenderer::ProcessQueue()
 void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
     worker.rendering = false;
-    auto cb = worker.current_request.on_complete;
-    auto cb_data = worker.current_request.on_complete_data;
+    const auto cb = worker.current_request.on_complete;
+    const auto cb_data = worker.current_request.on_complete_data;
     worker.current_request = {};
     if (cb) {
         cb(cb_data);
@@ -625,15 +625,15 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     if (vp_phys < 1) {
         vp_phys = 1;
     }
-    int h_phys = static_cast<int>(4096 * worker.dpr);
-    RECT bounds = { 0, 0, vp_phys, h_phys };
+    const int h_phys = static_cast<int>(4096 * worker.dpr);
+    const RECT bounds = { 0, 0, vp_phys, h_phys };
     worker.controller->put_Bounds(bounds);
     SetWindowPos(worker.hwnd, nullptr, -32000, -32000, vp_phys, h_phys,
         SWP_NOZORDER | SWP_NOACTIVATE);
 
     // Mermaidをレンダリングする（maxWidth=0はCSS制約なし、ビューポートが制約する）
     // リクエストIDをpostMessageに含め、C++側でコールバックとリクエストを照合する
-    auto js = PmrFormat(
+    const auto js = PmrFormat(
         L"renderMermaid('{}', {}, 0)"
         L".then(function(r){{window.chrome.webview.postMessage('render-result:{}:'+r);}})"
         L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
@@ -653,7 +653,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
     float dw = 0, dh = 0;
     bool ok = false;
 
-    auto find_num = [](std::wstring_view json, std::wstring_view key) static -> float {
+    const auto find_num = [](std::wstring_view json, std::wstring_view key) static -> float {
         auto pos = json.find(key);
         if (pos == std::wstring_view::npos) {
             return 0;
@@ -667,7 +667,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
         }
         // wstring_viewはnull終端が保証されないため、数値部分を切り出してからwcstofに渡す
         wchar_t buf[64];
-        auto num_len = (std::min)(json.size() - pos, std::size(buf) - 1);
+        const auto num_len = (std::min)(json.size() - pos, std::size(buf) - 1);
         std::char_traits<wchar_t>::copy(buf, json.data() + pos, num_len);
         buf[num_len] = L'\0';
         return std::wcstof(buf, nullptr);
@@ -694,9 +694,9 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
 
     // キャプチャ用にWebViewをダイアグラムの正確なサイズにリサイズする。
     // CSSピクセルにdevicePixelRatioを掛けて物理ピクセルを求める。
-    int cw = static_cast<int>(std::ceil(dw * dpr));
-    int ch = static_cast<int>(std::ceil(dh * dpr));
-    RECT capBounds = { 0, 0, static_cast<LONG>(cw), static_cast<LONG>(ch) };
+    const int cw = static_cast<int>(std::ceil(dw * dpr));
+    const int ch = static_cast<int>(std::ceil(dh * dpr));
+    const RECT capBounds = { 0, 0, static_cast<LONG>(cw), static_cast<LONG>(ch) };
     w.controller->put_Bounds(capBounds);
 
     // ホストポップアップウィンドウも同じサイズにリサイズする
@@ -706,7 +706,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
     // rAFを使ってWebViewが新しいサイズで再レンダリングするのを待ち、
     // postMessageでシグナルを送る（Promise-awaitの問題を回避する）。
     // リクエストIDを含めて、C++側でコールバックとリクエストを照合する。
-    auto cap_js = PmrFormat(
+    const auto cap_js = PmrFormat(
         L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
         L"window.chrome.webview.postMessage('capture-ready:{}');}});}});",
         w.current_request.request_id);
@@ -723,11 +723,11 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
 
     // CapturePreviewコールバックでもリクエストIDを照合し、
     // CancelPending後に到着した古いキャプチャ結果を無視する
-    unsigned int req_id = w.current_request.request_id;
+    const unsigned int req_id = w.current_request.request_id;
     ComPtr<IStream> pngStream;
     CreateStreamOnHGlobal(nullptr, TRUE, &pngStream);
 
-    HRESULT hr = w.webview->CapturePreview(
+    const HRESULT hr = w.webview->CapturePreview(
         COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
         pngStream.Get(),
         Microsoft::WRL::Callback<ICoreWebView2CapturePreviewCompletedHandler>(
@@ -791,7 +791,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
 
         // ファイルキャッシュに非同期で保存
         if (file_cache_ && w.current_request.node) {
-            uint64_t fkey = HashCode(
+            const uint64_t fkey = HashCode(
                 w.current_request.node->text, w.current_request.max_width, w.current_request.dark_mode);
             auto png_bytes = ReadAllStreamBytes(png_stream);
             if (!png_bytes.empty()) {
@@ -811,7 +811,7 @@ HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap*
     }
 
     // 先頭にシーク
-    LARGE_INTEGER zero = {};
+    const LARGE_INTEGER zero = {};
     stream->Seek(zero, STREAM_SEEK_SET, nullptr);
 
     ComPtr<IWICBitmapDecoder> decoder;

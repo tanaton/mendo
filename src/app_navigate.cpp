@@ -12,7 +12,7 @@ void App::HandleLinkClick(std::wstring_view url)
     if (url.empty()) {
         return;
     }
-    auto result = nav_service_.HandleLinkClick(url, doc_.GetFilePath());
+    const auto result = nav_service_.HandleLinkClick(url, doc_.GetFilePath());
     switch (result.type) {
     case NavigationService::NavigateResult::Type::Anchor:
         PushNavHistory();
@@ -28,12 +28,12 @@ void App::HandleLinkClick(std::wstring_view url)
 
 void App::NavigateToAnchor(std::wstring_view anchor)
 {
-    int idx = doc_.FindAnchorIndex(anchor);
+    const int idx = doc_.FindAnchorIndex(anchor);
     if (idx < 0) {
         return;
     }
 
-    auto layout = GetPaneLayout();
+    const auto layout = GetPaneLayout();
     float target_y = layout_cache_[idx].y_position - renderer_.GetTheme().heading_spacing_above - layout.md_rect.y;
     target_y = std::max(0.0f, target_y);
     viewport_.ScrollTo(target_y);
@@ -58,7 +58,7 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result)
         return;
     }
     viewport_.ScrollTo(result.scroll_y);
-    auto layout = GetPaneLayout();
+    const auto layout = GetPaneLayout();
     UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
 }
@@ -100,7 +100,7 @@ void App::ToggleDarkMode()
     theme_service_.ToggleDarkMode();
     InvalidatePaneLayoutCache();
 
-    auto anchor = SaveAnchor();
+    const auto anchor = SaveAnchor();
 
     renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
     ApplyDarkModeToWindow(hwnd_, theme_service_.IsDarkMode());
@@ -120,7 +120,7 @@ void App::ToggleDarkMode()
 
 void App::ZoomIn()
 {
-    float z = viewport_.ZoomIn();
+    const float z = viewport_.ZoomIn();
     if (z > 0.0f) {
         ApplyZoom(z);
     }
@@ -128,7 +128,7 @@ void App::ZoomIn()
 
 void App::ZoomOut()
 {
-    float z = viewport_.ZoomOut();
+    const float z = viewport_.ZoomOut();
     if (z > 0.0f) {
         ApplyZoom(z);
     }
@@ -136,7 +136,7 @@ void App::ZoomOut()
 
 void App::ZoomReset()
 {
-    float z = viewport_.ZoomReset();
+    const float z = viewport_.ZoomReset();
     if (z > 0.0f) {
         ApplyZoom(z);
     }
@@ -145,14 +145,14 @@ void App::ZoomReset()
 void App::ApplyZoom(float new_zoom)
 {
     InvalidatePaneLayoutCache();
-    auto anchor = SaveAnchor();
+    const auto anchor = SaveAnchor();
 
-    float old_zoom = renderer_.GetTheme().zoom;
-    float zoom_ratio = new_zoom / old_zoom;
+    const float old_zoom = renderer_.GetTheme().zoom;
+    const float zoom_ratio = new_zoom / old_zoom;
 
     panes_.ApplyZoom(zoom_ratio);
 
-    Theme base = theme_service_.CreateTheme();
+    const Theme base = theme_service_.CreateTheme();
     renderer_.ApplyZoomFromBase(base, new_zoom);
 
     layout_cache_.InvalidateAllLayouts();

@@ -34,8 +34,8 @@ bool DWriteTextMeasurer::CreateAllFormats()
     }
     fmt_code_.Reset();
 
-    auto W = DWRITE_FONT_WEIGHT_NORMAL;
-    auto B = DWRITE_FONT_WEIGHT_BOLD;
+    const auto W = DWRITE_FONT_WEIGHT_NORMAL;
+    const auto B = DWRITE_FONT_WEIGHT_BOLD;
 
     if (FAILED(CreateFormat(dwrite_, theme_->font_family.c_str(), theme_->font_size_body, W, &fmt_body_))) {
         return false;
@@ -86,7 +86,7 @@ void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
     const std::pmr::vector<TextRun>& runs)
 {
     for (const auto& run : runs) {
-        DWRITE_TEXT_RANGE range{ run.start, run.length };
+        const DWRITE_TEXT_RANGE range{ run.start, run.length };
         if (run.bold) {
             layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, range);
         }
@@ -136,7 +136,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     // 未設定ならプレースホルダー高さ
     if (node.type == NodeType::Image) {
         if (node.has_image() && node.image_data->width > 0 && node.image_data->height > 0) {
-            float w = node.image_data->width;
+            const float w = node.image_data->width;
             float h = node.image_data->height;
             if (w > max_width) {
                 h *= max_width / w;
@@ -157,14 +157,14 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         return;
     }
 
-    IDWriteTextFormat* fmt = GetTextFormat(node);
+    IDWriteTextFormat* const fmt = GetTextFormat(node);
     float layout_width = max_width;
     if (node.type == NodeType::CodeBlock) {
         layout_width = CODE_BLOCK_NO_WRAP_WIDTH;
     }
 
     ComPtr<IDWriteTextLayout> layout;
-    HRESULT hr = dwrite_->CreateTextLayout(
+    const HRESULT hr = dwrite_->CreateTextLayout(
         text.c_str(), static_cast<UINT32>(text.size()),
         fmt, layout_width, LAYOUT_MAX_HEIGHT, &layout);
     if (FAILED(hr)) {
@@ -173,7 +173,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
 
     // ラン単位のフォーマットを適用
     for (const auto& run : node.runs) {
-        DWRITE_TEXT_RANGE range{ run.start, run.length };
+        const DWRITE_TEXT_RANGE range{ run.start, run.length };
         if (run.bold) {
             layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, range);
         }
@@ -194,8 +194,8 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     // Alert ノード: アイコン文字のフォントウェイトを設定
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None
         && node.alert_label_length > 0) {
-        UINT32 icon_len = static_cast<UINT32>(std::wcslen(GetAlertIcon(node.alert_type)));
-        DWRITE_TEXT_RANGE icon_range{ 0, icon_len };
+        const UINT32 icon_len = static_cast<UINT32>(std::wcslen(GetAlertIcon(node.alert_type)));
+        const DWRITE_TEXT_RANGE icon_range{ 0, icon_len };
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);
     }
 
@@ -212,8 +212,8 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
 void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
     std::pmr::vector<float>& natural_widths)
 {
-    IDWriteTextFormat* fmt = fmt_body_.Get();
-    IDWriteTextFormat* fmt_bold = fmt_h_[3].Get();
+    IDWriteTextFormat* const fmt = fmt_body_.Get();
+    IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
 
     for (size_t r = 0; r < node.table_rows().size(); r++) {
         auto& row = node.table_rows()[r];
@@ -223,7 +223,7 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
                 continue;
             }
 
-            IDWriteTextFormat* cell_fmt = cell.is_header ? fmt_bold : fmt;
+            IDWriteTextFormat* const cell_fmt = cell.is_header ? fmt_bold : fmt;
             dwrite_->CreateTextLayout(
                 cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
                 cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
@@ -242,10 +242,10 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
 void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
     size_t col_count, std::pmr::vector<float>& natural_widths)
 {
-    float cell_padding = TABLE_CELL_PADDING;
-    float border_width = TABLE_BORDER_WIDTH;
+    const float cell_padding = TABLE_CELL_PADDING;
+    const float border_width = TABLE_BORDER_WIDTH;
 
-    float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width
+    const float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width
         - static_cast<float>(col_count) * cell_padding * 2.0f;
     entry.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
 
@@ -255,7 +255,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         float row_height = theme_->font_size_body * 1.4f;
         for (size_t c = 0; c < row.cells.size(); c++) {
             auto& cell = row.cells[c];
-            float cw = (c < entry.col_widths.size()) ? entry.col_widths[c] : DEFAULT_COLUMN_WIDTH;
+            const float cw = (c < entry.col_widths.size()) ? entry.col_widths[c] : DEFAULT_COLUMN_WIDTH;
 
             if (entry.cell_layouts[r][c]) {
                 entry.cell_layouts[r][c]->SetMaxWidth(cw);
@@ -309,7 +309,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
 
     // セルレイアウトが既に存在する場合は第1パス（テキストレイアウト作成）をスキップし、
     // 列幅の再計算のみ行う（リサイズ時の高速パス）。
-    bool has_existing_layouts = !entry.cell_layouts.empty()
+    const bool has_existing_layouts = !entry.cell_layouts.empty()
         && entry.cell_layouts.size() == node.table_rows().size();
     if (has_existing_layouts) {
         // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
