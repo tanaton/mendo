@@ -9,8 +9,8 @@ TEST(LayoutCacheTest, InvalidateAllLayouts) {
     cache[0].effects_applied = true;
     cache[1].effects_applied = true;
     cache[2].effects_applied = true;
-    cache[0].inline_code_bgs.push_back({0, 0, 10, 10});
-    cache[1].inline_code_bgs.push_back({0, 0, 20, 20});
+    cache[0].inline_code_bgs.emplace_back(0.0f, 0.0f, 10.0f, 10.0f);
+    cache[1].inline_code_bgs.emplace_back(0.0f, 0.0f, 20.0f, 20.0f);
 
     cache.InvalidateAllLayouts();
 

@@ -10,9 +10,9 @@
 // ファイルを共有モードでメモリに読み込みIStreamとして返す。
 // CreateDecoderFromFilename はファイルを排他的に開くため、
 // 外部エディタ等がファイルを更新できなくなる問題を回避する。
-static ComPtr<IStream> ReadFileToStream(const std::wstring& path)
+static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path)
 {
-    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
+    const HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
@@ -27,14 +27,14 @@ static ComPtr<IStream> ReadFileToStream(const std::wstring& path)
 
     std::vector<BYTE> buf(static_cast<size_t>(size.QuadPart));
     DWORD bytesRead = 0;
-    BOOL ok = ReadFile(hFile, buf.data(), static_cast<DWORD>(buf.size()), &bytesRead, nullptr);
+    const BOOL ok = ReadFile(hFile, buf.data(), static_cast<DWORD>(buf.size()), &bytesRead, nullptr);
     CloseHandle(hFile);
 
     if (!ok || bytesRead != buf.size()) {
         return nullptr;
     }
 
-    ComPtr<IStream> stream;
+    Microsoft::WRL::ComPtr<IStream> stream;
     stream.Attach(SHCreateMemStream(buf.data(), static_cast<UINT>(buf.size())));
     return stream;
 }
@@ -59,9 +59,14 @@ void ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
     render_target_ = rt;
     if (wic) {
         wic_factory_ = wic;
-    } else {
-        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&wic_factory_));
+    }
+    else {
+        HRESULT hr = CoCreateInstance(
+            CLSID_WICImagingFactory,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&wic_factory_)
+        );
         if (FAILED(hr)) {
             wic_factory_.Reset();
         }
@@ -87,7 +92,7 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
     }
 
     // キャッシュ確認
-    auto it = cache_.find(abs_path);
+    const auto it = cache_.find(abs_path);
     if (it != cache_.end()) {
         out.bitmap = it->second.bitmap;
         out.width = it->second.width;
@@ -96,25 +101,29 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
     }
 
     // WIC でデコード（メモリストリーム経由でファイルロックを回避）
-    auto stream = ReadFileToStream(abs_path);
+    const auto stream = ReadFileToStream(abs_path);
     if (!stream) {
         return false;
     }
 
-    ComPtr<IWICBitmapDecoder> decoder;
+    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     HRESULT hr = wic_factory_->CreateDecoderFromStream(
-        stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
+        stream.Get(),
+        nullptr,
+        WICDecodeMetadataCacheOnLoad,
+        &decoder
+    );
     if (FAILED(hr)) {
         return false;
     }
 
-    ComPtr<IWICBitmapFrameDecode> frame;
+    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
     hr = decoder->GetFrame(0, &frame);
     if (FAILED(hr)) {
         return false;
     }
 
-    ComPtr<IWICFormatConverter> converter;
+    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
     hr = wic_factory_->CreateFormatConverter(&converter);
     if (FAILED(hr)) {
         return false;
@@ -128,7 +137,7 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
         return false;
     }
 
-    ComPtr<ID2D1Bitmap> bitmap;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     hr = render_target_->CreateBitmapFromWicBitmap(converter.Get(), &bitmap);
     if (FAILED(hr)) {
         return false;
@@ -155,7 +164,7 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
 
 bool ImageLoader::GetCachedImage(const std::wstring& abs_path, DiagramEntry& out) const
 {
-    auto it = cache_.find(abs_path);
+    const auto it = cache_.find(abs_path);
     if (it != cache_.end()) {
         out.bitmap = it->second.bitmap;
         out.width = it->second.width;
@@ -169,7 +178,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
     Callback on_complete, void* user_data)
 {
     {
-        std::lock_guard lock(pending_mutex_);
+        const std::lock_guard lock(pending_mutex_);
         if (!pending_paths_.insert(abs_path).second) {
             return;
         }
@@ -179,7 +188,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
         return;
     }
 
-    uint32_t gen = cancel_gen_.load();
+    const uint32_t gen = cancel_gen_.load();
     scheduler_->Post([this, path = abs_path, on_complete, user_data, gen] {
         if (cancel_gen_.load() != gen) {
             return;
@@ -191,16 +200,16 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
         result.user_data = user_data;
 
         if (wic_factory_) {
-            auto stream = ReadFileToStream(path);
-            ComPtr<IWICBitmapDecoder> decoder;
+            const auto stream = ReadFileToStream(path);
+            Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
             HRESULT hr = stream ? wic_factory_->CreateDecoderFromStream(
                 stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder) : E_FAIL;
 
             if (SUCCEEDED(hr)) {
-                ComPtr<IWICBitmapFrameDecode> frame;
+                Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
                 hr = decoder->GetFrame(0, &frame);
                 if (SUCCEEDED(hr)) {
-                    ComPtr<IWICFormatConverter> converter;
+                    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
                     hr = wic_factory_->CreateFormatConverter(&converter);
                     if (SUCCEEDED(hr)) {
                         hr = converter->Initialize(
@@ -225,8 +234,8 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
         }
 
         {
-            std::lock_guard lock(result_mutex_);
-            completed_.push_back(std::move(result));
+            const std::lock_guard lock(result_mutex_);
+            completed_.emplace_back(std::move(result));
         }
 
         if (hwnd_) {
@@ -239,7 +248,7 @@ void ImageLoader::ProcessCompletedDecodes()
 {
     std::vector<DecodeResult> results;
     {
-        std::lock_guard lock(result_mutex_);
+        const std::lock_guard lock(result_mutex_);
         results.swap(completed_);
     }
 
@@ -248,7 +257,7 @@ void ImageLoader::ProcessCompletedDecodes()
     }
 
     {
-        std::lock_guard lock(pending_mutex_);
+        const std::lock_guard lock(pending_mutex_);
         for (auto& r : results) {
             pending_paths_.erase(r.path);
         }
@@ -263,9 +272,8 @@ void ImageLoader::ProcessCompletedDecodes()
     for (auto& r : results) {
         if (r.success && r.converter && render_target_) {
             if (!cache_.contains(r.path)) {
-                ComPtr<ID2D1Bitmap> bitmap;
-                HRESULT hr = render_target_->CreateBitmapFromWicBitmap(
-                    r.converter.Get(), &bitmap);
+                Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+                const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.converter.Get(), &bitmap);
                 if (SUCCEEDED(hr) && bitmap) {
                     CachedImage cached;
                     cached.bitmap = bitmap;
@@ -289,11 +297,11 @@ void ImageLoader::CancelPending()
 {
     cancel_gen_.fetch_add(1);
     {
-        std::lock_guard lock(pending_mutex_);
+        const std::lock_guard lock(pending_mutex_);
         pending_paths_.clear();
     }
     {
-        std::lock_guard lock(result_mutex_);
+        const std::lock_guard lock(result_mutex_);
         completed_.clear();
     }
 }

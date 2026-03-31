@@ -35,12 +35,10 @@ struct PaneScrollInfo {
     float md_min_width = 200.0f, float top_offset = 0.0f) noexcept;
 
 // ある座標（DIP座標）がどのペイン領域に属するかを判定する。
-PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout,
-    float splitter_width, bool show_file, bool show_toc) noexcept;
+PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_width, bool show_file, bool show_toc) noexcept;
 
 // ペインのスクロール情報を計算する。スクロールバーの描画と操作に使用。
-PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height,
-    float total_content, float thumb_min = PANE_SCROLLBAR_THUMB_MIN) noexcept;
+PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content, float thumb_min = PANE_SCROLLBAR_THUMB_MIN) noexcept;
 
 // ドラッグ計算用にスクロールバーのつまみ位置を計算する。
 // つまみ上端のY座標を返す。

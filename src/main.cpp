@@ -15,7 +15,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     // COM を初期化
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(hr)) {
         return 1;
     }
@@ -46,7 +46,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         window.LoadMarkdownFile(initial_path);
     }
     else {
-        std::pmr::wstring last = window.LoadLastFilePath();
+        const std::pmr::wstring last = window.LoadLastFilePath();
         if (!last.empty()) {
             window.RestoreScrollPosition();
             window.LoadMarkdownFile(last);
@@ -65,7 +65,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         LocalFree(argv);
     }
 
-    int result = window.RunMessageLoop();
+    const int result = window.RunMessageLoop();
 
     CoUninitialize();
     return result;

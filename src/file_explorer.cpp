@@ -26,23 +26,23 @@ void FileExplorer::Refresh()
 
     // 親ディレクトリエントリ ".." を追加（"C:\" のようなルートでは追加しない）
     {
-        std::filesystem::path dir_path{ std::wstring_view{directory_} };
-        auto parent = dir_path.parent_path();
+        const std::filesystem::path dir_path{ directory_ };
+        const auto parent = dir_path.parent_path();
         if (parent != dir_path) {
             FileEntry pe;
             pe.filename = L"..";
-            pe.full_path.assign(std::wstring_view{ parent.native() });
+            pe.full_path.assign(parent.native());
             pe.is_directory = true;
             pe.is_parent = true;
-            entries_.push_back(std::move(pe));
+            entries_.emplace_back(std::move(pe));
         }
     }
 
     // ディレクトリ内の全アイテムを列挙
-    std::filesystem::path dir_base{ directory_.c_str() };
-    auto pattern = dir_base / L"*";
+    const std::filesystem::path dir_base{ directory_ };
+    const auto pattern = dir_base / L"*";
     WIN32_FIND_DATAW fd;
-    HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
+    const HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE) {
         return;
     }
@@ -68,15 +68,15 @@ void FileExplorer::Refresh()
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             FileEntry entry;
             entry.filename = fd.cFileName;
-            entry.full_path.assign(std::wstring_view{ (dir_base / fd.cFileName).native() });
+            entry.full_path.assign((dir_base / fd.cFileName).native());
             entry.is_directory = true;
-            dirs.push_back(std::move(entry));
+            dirs.emplace_back(std::move(entry));
         }
         else if (IsMarkdownFile(fd.cFileName)) {
             FileEntry entry;
             entry.filename = fd.cFileName;
-            entry.full_path.assign(std::wstring_view{ (dir_base / fd.cFileName).native() });
-            files.push_back(std::move(entry));
+            entry.full_path.assign((dir_base / fd.cFileName).native());
+            files.emplace_back(std::move(entry));
         }
     } while (FindNextFileW(hFind, &fd));
 
@@ -91,10 +91,8 @@ void FileExplorer::Refresh()
     });
 
     // 追加: ディレクトリを先に、次にファイル
-    entries_.insert(entries_.end(), std::make_move_iterator(dirs.begin()),
-        std::make_move_iterator(dirs.end()));
-    entries_.insert(entries_.end(), std::make_move_iterator(files.begin()),
-        std::make_move_iterator(files.end()));
+    entries_.insert(entries_.end(), std::make_move_iterator(dirs.begin()), std::make_move_iterator(dirs.end()));
+    entries_.insert(entries_.end(), std::make_move_iterator(files.begin()), std::make_move_iterator(files.end()));
 }
 
 int FileExplorer::HitTest(float local_y, float item_height) const noexcept
@@ -102,7 +100,7 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept
     if (local_y < 0 || item_height <= 0) {
         return -1;
     }
-    int index = static_cast<int>(local_y / item_height);
+    const int index = static_cast<int>(local_y / item_height);
     if (index < 0 || index >= static_cast<int>(entries_.size())) {
         return -1;
     }
@@ -111,9 +109,8 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept
 
 void FileExplorer::SetCurrentFile(std::wstring_view path)
 {
-    std::pmr::wstring path_str{ path };
+    const std::pmr::wstring path_str{ path };
     for (auto& entry : entries_) {
-        entry.is_current = (!entry.is_directory &&
-            _wcsicmp(entry.full_path.c_str(), path_str.c_str()) == 0);
+        entry.is_current = (!entry.is_directory && _wcsicmp(entry.full_path.c_str(), path_str.c_str()) == 0);
     }
 }

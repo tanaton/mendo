@@ -17,9 +17,9 @@ Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 
 std::pmr::wstring Document::GetDirectory() const
 {
-    auto dir = std::filesystem::path(file_path_.c_str()).parent_path();
+    const auto dir = std::filesystem::path(file_path_).parent_path();
     if (!dir.empty()) {
-        return std::pmr::wstring{ std::wstring_view{dir.native()} };
+        return std::pmr::wstring{ dir.native() };
     }
     return {};
 }
@@ -43,8 +43,8 @@ int Document::FindAnchorIndex(std::wstring_view anchor) const
     if (anchor.empty()) {
         return -1;
     }
-    std::pmr::wstring target = ToLowerAscii(anchor);
-    auto it = anchor_index_.find(target);
+    const std::pmr::wstring target = ToLowerAscii(anchor);
+    const auto it = anchor_index_.find(target);
     return (it != anchor_index_.end()) ? it->second : -1;
 }
 
@@ -66,9 +66,10 @@ void Document::BuildSpecialNodeIndices()
     for (size_t i = 0; i < nodes_.size(); i++) {
         const auto& node = nodes_[i];
         if (node.type == NodeType::Image) {
-            image_node_indices_.push_back(i);
-        } else if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
-            mermaid_node_indices_.push_back(i);
+            image_node_indices_.emplace_back(i);
+        }
+        else if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
+            mermaid_node_indices_.emplace_back(i);
         }
     }
 }

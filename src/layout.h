@@ -4,10 +4,7 @@
 #include "theme.h"
 #include "text_measurer.h"
 #include <dwrite.h>
-#include <wrl/client.h>
 #include <memory_resource>
-
-using Microsoft::WRL::ComPtr;
 
 // テーブルの自然幅（実測値）と利用可能な幅から列幅を計算する。
 // 最終的な列幅のベクターを返す。
@@ -24,8 +21,10 @@ struct YPositionResult {
     float total_height = 0.0f;
     bool has_dirty_nodes = false;
 };
+// safe_exit_after: この位置以降でY位置が一致すれば早期終了する。
+// SIZE_MAX（デフォルト）の場合は早期終了しない。
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-    size_t from_index = 0, bool has_earlier_dirty = false);
+    size_t from_index = 0, bool has_earlier_dirty = false, size_t safe_exit_after = SIZE_MAX);
 
 class LayoutEngine {
 public:

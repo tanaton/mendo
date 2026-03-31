@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 
-using Microsoft::WRL::ComPtr;
 
 // カスタムコンテキストメニューの表示パラメータ。
 struct ContextMenuParams {
@@ -145,14 +144,14 @@ private:
     // D2Dリソース
     ID2D1Factory* d2d_factory_ = nullptr;
     IDWriteFactory* dwrite_factory_ = nullptr;
-    ComPtr<ID2D1HwndRenderTarget> rt_;
-    ComPtr<ID2D1SolidColorBrush> brush_border_;
-    ComPtr<ID2D1SolidColorBrush> brush_text_;
-    ComPtr<ID2D1SolidColorBrush> brush_gray_;
-    ComPtr<ID2D1SolidColorBrush> brush_hover_;
-    ComPtr<ID2D1SolidColorBrush> brush_check_;
-    ComPtr<IDWriteTextFormat> fmt_text_;
-    ComPtr<IDWriteTextFormat> fmt_icon_;
+    Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> rt_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_border_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_text_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_gray_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_hover_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_check_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_text_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_icon_;
 
     // 現在のテーマ（Show中のみ有効）
     const Theme* theme_ = nullptr;

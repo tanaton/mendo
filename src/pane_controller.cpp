@@ -2,7 +2,7 @@
 
 bool PaneController::ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept
 {
-    float old = state.scroll_y;
+    const float old = state.scroll_y;
     state.scroll_y = std::clamp(state.scroll_y + delta, 0.0f, max_scroll);
     state.max_scroll = max_scroll;
     return state.scroll_y != old;
@@ -20,7 +20,7 @@ bool PaneController::ScrollTocPaneBy(float delta, float max_scroll) noexcept
 
 bool PaneController::SetHoveredIndex(int& current, int idx) noexcept
 {
-    bool changed = current != idx;
+    const bool changed = current != idx;
     current = idx;
     return changed;
 }
@@ -37,7 +37,7 @@ bool PaneController::SetHoveredTocIndex(int idx) noexcept
 
 bool PaneController::SetFlag(bool& current, bool value) noexcept
 {
-    bool changed = current != value;
+    const bool changed = current != value;
     current = value;
     return changed;
 }
@@ -65,7 +65,9 @@ void PaneController::DragSplitter1To(float dip_x, float total_width, float split
     if (show_toc_) used += toc_width_ + splitter_w;
     if (total_width - used < MD_PANE_MIN_WIDTH) {
         file_width_ = total_width - MD_PANE_MIN_WIDTH - splitter_w;
-        if (show_toc_) file_width_ -= toc_width_ + splitter_w;
+        if (show_toc_) {
+            file_width_ -= toc_width_ + splitter_w;
+        }
         file_width_ = std::max(PANE_MIN_WIDTH, file_width_);
     }
 }
@@ -73,17 +75,21 @@ void PaneController::DragSplitter1To(float dip_x, float total_width, float split
 void PaneController::DragSplitter2To(float dip_x, float total_width, float splitter_w) noexcept
 {
     // toc_leftはレイアウトから既知; dip_xは新しい右端
-    auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
-    float toc_left = layout.toc_rect.x;
-    float new_width = dip_x - toc_left;
+    const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
+    const float toc_left = layout.toc_rect.x;
+    const float new_width = dip_x - toc_left;
     toc_width_ = std::max(PANE_MIN_WIDTH, new_width);
 
     float used = splitter_w;
-    if (show_file_) used += file_width_ + splitter_w;
+    if (show_file_) {
+        used += file_width_ + splitter_w;
+    }
     used += toc_width_;
     if (total_width - used < MD_PANE_MIN_WIDTH) {
         toc_width_ = total_width - MD_PANE_MIN_WIDTH - splitter_w;
-        if (show_file_) toc_width_ -= file_width_ + splitter_w;
+        if (show_file_) {
+            toc_width_ -= file_width_ + splitter_w;
+        }
         toc_width_ = std::max(PANE_MIN_WIDTH, toc_width_);
     }
 }
@@ -106,6 +112,6 @@ PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float spl
 
 PaneZone PaneController::DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept
 {
-    auto layout = ComputeLayout(total_w, total_h, splitter_w);
+    const auto layout = ComputeLayout(total_w, total_h, splitter_w);
     return DetectPaneZone(dip_x, layout, splitter_w, show_file_, show_toc_);
 }

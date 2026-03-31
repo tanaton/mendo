@@ -17,8 +17,7 @@ static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent,
         cache.cached_width != width || cache.cached_height != height) {
         cache.bitmap_rt.Reset();
         cache.cached_bitmap.Reset();
-        HRESULT hr = parent->CreateCompatibleRenderTarget(
-            D2D1::SizeF(width, height), &cache.bitmap_rt);
+        const HRESULT hr = parent->CreateCompatibleRenderTarget(D2D1::SizeF(width, height), &cache.bitmap_rt);
         if (FAILED(hr)) {
             return false;
         }
@@ -37,18 +36,17 @@ static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb
         return;
     }
 
-    float track_height = content_height;
-    float thumb_ratio = content_height / total_content_height;
-    float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, track_height * thumb_ratio);
+    const float track_height = content_height;
+    const float thumb_ratio = content_height / total_content_height;
+    const float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, track_height * thumb_ratio);
 
-    float scroll_ratio = scroll_y / (total_content_height - content_height);
-    float thumb_y = content_top + scroll_ratio * (track_height - thumb_height);
+    const float scroll_ratio = scroll_y / (total_content_height - content_height);
+    const float thumb_y = content_top + scroll_ratio * (track_height - thumb_height);
 
-    float thumb_x = pane_width - PANE_SCROLLBAR_WIDTH - 2.0f;
+    const float thumb_x = pane_width - PANE_SCROLLBAR_WIDTH - 2.0f;
 
     D2D1_ROUNDED_RECT thumb_rect;
-    thumb_rect.rect = D2D1::RectF(thumb_x, thumb_y,
-        thumb_x + PANE_SCROLLBAR_WIDTH, thumb_y + thumb_height);
+    thumb_rect.rect = D2D1::RectF(thumb_x, thumb_y, thumb_x + PANE_SCROLLBAR_WIDTH, thumb_y + thumb_height);
     thumb_rect.radiusX = PANE_SCROLLBAR_WIDTH / 2.0f;
     thumb_rect.radiusY = PANE_SCROLLBAR_WIDTH / 2.0f;
 
@@ -77,8 +75,9 @@ static void DrawSidePaneImpl(
     bool refresh_hovered,
     DrawItemFn draw_item)
 {
-    if (!EnsurePaneCacheSize(cache, main_rt, rect.width, rect.height))
+    if (!EnsurePaneCacheSize(cache, main_rt, rect.width, rect.height)) {
         return;
+    }
 
     if (cache.dirty) {
         auto* rt = cache.bitmap_rt.Get();
@@ -86,23 +85,22 @@ static void DrawSidePaneImpl(
         rt->Clear(theme.pane_bg_color);
 
         // ヘッダー
-        D2D1_RECT_F header_bg = D2D1::RectF(0, 0, rect.width, theme.pane_header_height);
+        const D2D1_RECT_F header_bg = D2D1::RectF(0, 0, rect.width, theme.pane_header_height);
         rt->FillRectangle(header_bg, splitter_brush);
 
         // 閉じるボタン
-        D2D1_RECT_F close_rect = PaneCloseButtonRect(rect.width, theme.pane_header_height);
+        const D2D1_RECT_F close_rect = PaneCloseButtonRect(rect.width, theme.pane_header_height);
         if (close_hovered) {
             rt->FillRectangle(close_rect, close_hover_brush);
         }
         if (fmt_close_icon) {
-            rt->DrawText(L"\uE8BB", 1, fmt_close_icon, close_rect, text_brush,
-                D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            rt->DrawText(L"\uE8BB", 1, fmt_close_icon, close_rect, text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
         // 更新ボタン（閉じるボタンの左隣、ファイルペインのみ）
         float header_text_right = close_rect.left - 4.0f;
         if (show_refresh) {
-            D2D1_RECT_F refresh_rect = PaneRefreshButtonRect(rect.width, theme.pane_header_height);
+            const D2D1_RECT_F refresh_rect = PaneRefreshButtonRect(rect.width, theme.pane_header_height);
             if (refresh_hovered) {
                 rt->FillRectangle(refresh_rect, close_hover_brush);
             }
@@ -114,25 +112,33 @@ static void DrawSidePaneImpl(
         }
 
         if (fmt_header) {
-            D2D1_RECT_F header_rect = D2D1::RectF(8.0f, 0, header_text_right, theme.pane_header_height);
-            rt->DrawText(header_text.data(), static_cast<UINT32>(header_text.size()),
-                fmt_header, header_rect, text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            const D2D1_RECT_F header_rect = D2D1::RectF(8.0f, 0, header_text_right, theme.pane_header_height);
+            rt->DrawText(
+                header_text.data(),
+                static_cast<UINT32>(header_text.size()),
+                fmt_header,
+                header_rect,
+                text_brush,
+                D2D1_DRAW_TEXT_OPTIONS_CLIP
+            );
         }
 
         // クリッピング付きコンテンツ領域
-        float content_top = theme.pane_header_height;
-        float content_height = rect.height - content_top;
-        D2D1_RECT_F clip = D2D1::RectF(0, content_top, rect.width, rect.height);
+        const float content_top = theme.pane_header_height;
+        const float content_height = rect.height - content_top;
+        const D2D1_RECT_F clip = D2D1::RectF(0, content_top, rect.width, rect.height);
         rt->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         rt->SetTransform(D2D1::Matrix3x2F::Translation(0, -scroll.scroll_y));
 
         // ビューポートカリング
-        int first = std::max(0, static_cast<int>(scroll.scroll_y / theme.pane_item_height));
-        int last = std::min(item_count - 1,
-            static_cast<int>((scroll.scroll_y + content_height) / theme.pane_item_height) + 1);
+        const int first = std::max(0, static_cast<int>(scroll.scroll_y / theme.pane_item_height));
+        const int last = std::min(
+            item_count - 1,
+            static_cast<int>((scroll.scroll_y + content_height) / theme.pane_item_height) + 1
+        );
 
         for (int i = first; i <= last; i++) {
-            float item_y = content_top + i * theme.pane_item_height;
+            const float item_y = content_top + i * theme.pane_item_height;
             draw_item(rt, i, item_y, rect.width);
         }
 
@@ -140,7 +146,7 @@ static void DrawSidePaneImpl(
         rt->PopAxisAlignedClip();
 
         // スクロールバーオーバーレイ
-        float total_content = static_cast<float>(item_count) * theme.pane_item_height;
+        const float total_content = static_cast<float>(item_count) * theme.pane_item_height;
         DrawPaneScrollbar(rt, scrollbar_thumb_brush,
             rect.width, content_top, content_height,
             scroll.scroll_y, total_content);
@@ -153,7 +159,7 @@ static void DrawSidePaneImpl(
 
     // キャッシュされたビットマップを転送
     if (cache.cached_bitmap) {
-        D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y,
+        const D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y,
             rect.x + rect.width, rect.y + rect.height);
         main_rt->DrawBitmap(cache.cached_bitmap.Get(), dest);
     }
@@ -173,7 +179,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
         [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
 
-        D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, width, item_y + theme_.pane_item_height);
+        const D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, width, item_y + theme_.pane_item_height);
         if (entry.is_current) {
             rt->FillRectangle(item_rect, Brush(BrushId::PaneItemActive));
         }
@@ -183,21 +189,29 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
 
         if (fmt_.pane_icon) {
             const wchar_t* icon;
-            if (entry.is_parent) icon = L"\uE74A";
-            else if (entry.is_directory) icon = L"\uE8B7";
-            else icon = L"\uE8A5";
-            D2D1_RECT_F icon_rect = D2D1::RectF(
-                4.0f, item_y, 4.0f + icon_col_width, item_y + theme_.pane_item_height);
-            rt->DrawText(icon, 1, fmt_.pane_icon.Get(), icon_rect, Brush(BrushId::Text),
-                D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            if (entry.is_parent) {
+                icon = L"\uE74A";
+            }
+            else if (entry.is_directory) {
+                icon = L"\uE8B7";
+            }
+            else {
+                icon = L"\uE8A5";
+            }
+            const D2D1_RECT_F icon_rect = D2D1::RectF(4.0f, item_y, 4.0f + icon_col_width, item_y + theme_.pane_item_height);
+            rt->DrawText(icon, 1, fmt_.pane_icon.Get(), icon_rect, Brush(BrushId::Text), D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
         if (fmt_.pane_item) {
-            D2D1_RECT_F text_rect = D2D1::RectF(
-                4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
-            rt->DrawText(entry.filename.c_str(), static_cast<UINT32>(entry.filename.size()),
-                fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
-                D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            const D2D1_RECT_F text_rect = D2D1::RectF(4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
+            rt->DrawText(
+                entry.filename.c_str(),
+                static_cast<UINT32>(entry.filename.size()),
+                fmt_.pane_item.Get(),
+                text_rect,
+                Brush(BrushId::Text),
+                D2D1_DRAW_TEXT_OPTIONS_CLIP
+            );
         }
     });
 }
@@ -215,14 +229,14 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
         const auto& entry = entries[i];
 
         if (i == active_index || i == hovered_index) {
-            D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, width, item_y + theme_.pane_item_height);
-            auto bid = (i == active_index) ? BrushId::PaneItemActive : BrushId::PaneItemHover;
+            const D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, width, item_y + theme_.pane_item_height);
+            const auto bid = (i == active_index) ? BrushId::PaneItemActive : BrushId::PaneItemHover;
             rt->FillRectangle(item_rect, Brush(bid));
         }
 
-        float indent = (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
+        const float indent = (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
         if (fmt_.pane_item) {
-            D2D1_RECT_F text_rect = D2D1::RectF(
+            const D2D1_RECT_F text_rect = D2D1::RectF(
                 8.0f + indent, item_y, width - 4.0f, item_y + theme_.pane_item_height);
             rt->DrawText(entry.text.c_str(), static_cast<UINT32>(entry.text.size()),
                 fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
@@ -231,39 +245,41 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
 
         // アクティブ見出しの下線
         if (i == active_index) {
-            float line_y = item_y + theme_.pane_item_height - 1.0f;
-            float line_left = 8.0f + indent;
+            const float line_y = item_y + theme_.pane_item_height - 1.0f;
+            const float line_left = 8.0f + indent;
             rt->DrawLine(
                 D2D1::Point2F(line_left, line_y),
                 D2D1::Point2F(width - 4.0f, line_y),
-                Brush(BrushId::Text), 1.5f);
+                Brush(BrushId::Text),
+                1.5f
+            );
         }
     });
 }
 
 void Renderer::DrawSplitter(float x, float top, float bottom)
 {
-    D2D1_RECT_F rect = D2D1::RectF(x, top, x + theme_.splitter_width, bottom);
+    const D2D1_RECT_F rect = D2D1::RectF(x, top, x + theme_.splitter_width, bottom);
     rt()->FillRectangle(rect, Brush(BrushId::Splitter));
 }
 
 void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes)
 {
-    float viewport_h = md_pane_rect.height;
+    const float viewport_h = md_pane_rect.height;
     if (viewport_h <= 0.0f) {
         return;
     }
     // ダーティノードがある間は高さが増える可能性があるため、ぴったり一致でもスクロールバーを表示し続ける
-    bool needs_scrollbar = has_dirty_nodes
+    const bool needs_scrollbar = has_dirty_nodes
         ? (total_content_height >= viewport_h)
         : (total_content_height > viewport_h);
     if (!needs_scrollbar) {
         return;
     }
 
-    auto info = ComputeScrollInfo(md_pane_rect, 0.0f, total_content_height);
-    float thumb_y = ComputeThumbY(info, scroll_y);
-    float track_x = md_pane_rect.x + md_pane_rect.width - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+    const auto info = ComputeScrollInfo(md_pane_rect, 0.0f, total_content_height);
+    const float thumb_y = ComputeThumbY(info, scroll_y);
+    const float track_x = md_pane_rect.x + md_pane_rect.width - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
 
     D2D1_ROUNDED_RECT thumb_rect;
     thumb_rect.rect = D2D1::RectF(track_x, thumb_y, track_x + PANE_SCROLLBAR_WIDTH, thumb_y + info.thumb_height);
@@ -279,14 +295,13 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     }
 
     // タイトルバー背景（完全不透明でガラス効果を隠す）
-    D2D1_RECT_F bg_rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, tb.height);
+    const D2D1_RECT_F bg_rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, tb.height);
     rt()->FillRectangle(bg_rect, Brush(BrushId::TitleBarBg));
 
-    float text_alpha = tb.window_active ? 1.0f : 0.5f;
+    const float text_alpha = tb.window_active ? 1.0f : 0.5f;
 
     // アイコンボタン描画ヘルパー
-    auto drawButton = [&](const D2D1_RECT_F& rect, const wchar_t* icon,
-        bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
+    auto drawButton = [&](const D2D1_RECT_F& rect, const wchar_t* icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
         if (show_bg) {
             rt()->FillRectangle(rect, Brush(bg_id));
         }
@@ -326,7 +341,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         tb.minimize_btn_hovered, BrushId::TitleBarButtonHover,
         BrushId::TitleBarText, text_alpha);
 
-    const wchar_t max_icon[] = { tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
+    const wchar_t max_icon[]{ tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
     drawButton(tb.maximize_btn_rect, max_icon,
         tb.maximize_btn_hovered, BrushId::TitleBarButtonHover,
         BrushId::TitleBarText, text_alpha);
@@ -345,9 +360,8 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
 
     // アプリアイコン
     if (app_icon_bitmap_) {
-        float icon_alpha = tb.window_active ? 1.0f : 0.5f;
-        rt()->DrawBitmap(app_icon_bitmap_.Get(), tb.icon_rect, icon_alpha,
-            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        const float icon_alpha = tb.window_active ? 1.0f : 0.5f;
+        rt()->DrawBitmap(app_icon_bitmap_.Get(), tb.icon_rect, icon_alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
 
     // タイトルテキスト

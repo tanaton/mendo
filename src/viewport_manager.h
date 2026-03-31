@@ -45,14 +45,14 @@ public:
     {
         // 極端に大きなデルタタイムを防止（ウィンドウ最小化等）
         dt_ms = std::min(dt_ms, MAX_DELTA_MS);
-        float diff = scroll_target_ - scroll_y_;
+        const float diff = scroll_target_ - scroll_y_;
         if (std::abs(diff) < SCROLL_EPSILON) {
             scroll_y_ = scroll_target_;
             smooth_scrolling_ = false;
             return false;
         }
-        float factor = 1.0f - std::pow(1.0f - SCROLL_SPEED, dt_ms / SCROLL_REFERENCE_DT);
-        float movement = diff * factor;
+        const float factor = 1.0f - std::pow(1.0f - SCROLL_SPEED, dt_ms / SCROLL_REFERENCE_DT);
+        const float movement = diff * factor;
         scroll_y_ += movement;
         scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
         return true;
@@ -84,7 +84,7 @@ public:
     // 表示可能なノードが存在しない場合は-1を返す。
     constexpr int FindFirstVisibleNode(const LayoutCache& cache, size_t node_count) const noexcept
     {
-        int idx = FindFirstVisibleNodeIndex(cache, node_count, scroll_y_);
+        const int idx = FindFirstVisibleNodeIndex(cache, node_count, scroll_y_);
         return idx < static_cast<int>(node_count) ? idx : -1;
     }
 
@@ -93,7 +93,7 @@ public:
         if (anchor_idx < 0) {
             return;
         }
-        float shift = cache[anchor_idx].y_position - anchor_y_before;
+        const float shift = cache[anchor_idx].y_position - anchor_y_before;
         scroll_y_ = std::max(0.0f, scroll_y_ + shift);
         scroll_target_ = std::max(0.0f, scroll_target_ + shift);
         // 注意: 呼び出し側はこの後SyncMaxScroll()を呼ぶ必要がある
@@ -135,7 +135,7 @@ public:
             ClearSelection();
             return;
         }
-        int last = static_cast<int>(nodes.size()) - 1;
+        const int last = static_cast<int>(nodes.size()) - 1;
         selection_ = TextSelection::MakeOrdered(
             0, 0, last, static_cast<uint32_t>(nodes[last].text.size()));
     }

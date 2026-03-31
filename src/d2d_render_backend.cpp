@@ -1,5 +1,7 @@
 #include "d2d_render_backend.h"
 
+using Microsoft::WRL::ComPtr;
+
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -16,25 +18,34 @@ bool D2DRenderBackend::Init(HWND hwnd)
     }
 
     // D2D 1.1 ファクトリを作成
-    D2D1_FACTORY_OPTIONS opts{};
-    HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-        __uuidof(ID2D1Factory1), &opts,
-        reinterpret_cast<void**>(d2d_factory_.GetAddressOf()));
+    const D2D1_FACTORY_OPTIONS opts{};
+    HRESULT hr = D2D1CreateFactory(
+        D2D1_FACTORY_TYPE_SINGLE_THREADED,
+        __uuidof(ID2D1Factory1),
+        &opts,
+        reinterpret_cast<void**>(d2d_factory_.GetAddressOf())
+    );
     if (FAILED(hr)) {
         return false;
     }
 
     // DirectWriteファクトリを作成
-    hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
+    hr = DWriteCreateFactory(
+        DWRITE_FACTORY_TYPE_SHARED,
         __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
+        reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf())
+    );
     if (FAILED(hr)) {
         return false;
     }
 
     // WICファクトリを作成（Renderer・ImageLoaderで共有）
-    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic_factory_));
+    CoCreateInstance(
+        CLSID_WICImagingFactory,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&wic_factory_)
+    );
 
     // D3D11デバイスとD2Dデバイスコンテキストを作成
     if (!CreateDeviceResources()) {
@@ -47,13 +58,13 @@ bool D2DRenderBackend::Init(HWND hwnd)
 bool D2DRenderBackend::CreateDeviceResources()
 {
     // D3D11 デバイスを作成
-    D3D_FEATURE_LEVEL feature_levels[] = {
+    const D3D_FEATURE_LEVEL feature_levels[] = {
         D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0,
         D3D_FEATURE_LEVEL_10_1,
         D3D_FEATURE_LEVEL_10_0,
     };
-    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+    const UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 
     HRESULT hr = D3D11CreateDevice(
         nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
@@ -144,7 +155,7 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
         return false;
     }
 
-    D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+    const D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
         D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
         dpi_, dpi_);
@@ -171,8 +182,7 @@ void D2DRenderBackend::Resize(UINT width, UINT height)
     // ターゲットを解放してからリサイズ
     device_context_->SetTarget(nullptr);
 
-    HRESULT hr = swap_chain_->ResizeBuffers(0, width, height,
-        DXGI_FORMAT_UNKNOWN, 0);
+    const HRESULT hr = swap_chain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
     if (SUCCEEDED(hr)) {
         CreateSwapChainBitmap();
     }

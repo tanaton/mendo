@@ -2,10 +2,7 @@
 #include <d2d1_1.h>
 #include <dwrite.h>
 #include <wincodec.h>
-#include <wrl/client.h>
 #include <windows.h>
-
-using Microsoft::WRL::ComPtr;
 
 // レンダーバックエンドの抽象インターフェース（D2Dファクトリ、レンダーターゲット、DPI）。
 // ブラシとテキストフォーマットは抽象化コストが高すぎるためRendererに残す。

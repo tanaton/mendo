@@ -4,6 +4,7 @@
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <wincodec.h>
+#include <wrl/client.h>
 
 class D2DRenderBackend final : public IRenderBackend {
 public:
@@ -26,11 +27,11 @@ private:
 
     HWND hwnd_ = nullptr;
     float dpi_ = 96.0f;
-    ComPtr<ID2D1Factory1> d2d_factory_;
-    ComPtr<ID3D11Device> d3d_device_;
-    ComPtr<ID2D1Device> d2d_device_;
-    ComPtr<ID2D1DeviceContext> device_context_;
-    ComPtr<IDXGISwapChain1> swap_chain_;
-    ComPtr<IDWriteFactory> dwrite_factory_;
-    ComPtr<IWICImagingFactory> wic_factory_;
+    Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
+    Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
+    Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> device_context_;
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
+    Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 };

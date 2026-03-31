@@ -11,7 +11,7 @@ inline std::pmr::wstring Utf8ToWide(std::string_view utf8)
     if (utf8.empty()) {
         return {};
     }
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    const int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
     if (wlen <= 0) {
         return {};
     }
@@ -27,7 +27,7 @@ inline std::string WideToUtf8(std::wstring_view wide)
     if (wide.empty()) {
         return {};
     }
-    int len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    const int len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
     if (len <= 0) {
         return {};
     }

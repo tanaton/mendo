@@ -11,7 +11,6 @@
 #include <mutex>
 #include <atomic>
 
-using Microsoft::WRL::ComPtr;
 
 class TaskScheduler;
 
@@ -52,14 +51,14 @@ public:
 
 private:
     struct CachedImage {
-        ComPtr<ID2D1Bitmap> bitmap;
+        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
     };
 
     struct DecodeResult {
         std::wstring path;
-        ComPtr<IWICFormatConverter> converter;
+        Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
         float width = 0.0f;
         float height = 0.0f;
         Callback on_complete = nullptr;
@@ -69,7 +68,7 @@ private:
 
     void GetDpiScale(float& scale_x, float& scale_y) const;
 
-    ComPtr<IWICImagingFactory> wic_factory_;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
     std::unordered_map<std::wstring, CachedImage> cache_;
 

@@ -55,7 +55,7 @@ std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natur
         }
     }
     else {
-        float even = available_width / static_cast<float>(col_count);
+        const float even = available_width / static_cast<float>(col_count);
         for (size_t c = 0; c < col_count; c++) {
             widths[c] = std::max(natural_widths[c] + COLUMN_WIDTH_PADDING, even);
         }
@@ -74,7 +74,9 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
             }
             total += row.cells[c].text.size();
         }
-        if (r + 1 < rows.size()) total++;
+        if (r + 1 < rows.size()) {
+            total++;
+        }
     }
     std::pmr::wstring text;
     text.reserve(total);
@@ -86,13 +88,15 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
             }
             text += row.cells[c].text;
         }
-        if (r + 1 < rows.size()) text += L'\n';
+        if (r + 1 < rows.size()) {
+            text += L'\n';
+        }
     }
     return text;
 }
 
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-    size_t from_index, bool has_earlier_dirty)
+    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after)
 {
     YPositionResult result;
     result.has_dirty_nodes = has_earlier_dirty;
@@ -112,6 +116,24 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
         }
 
         y += GetSpacingAbove(nodes[i].type, theme);
+
+        // 早期終了: safe_exit_after 以降でY位置が一致すれば、
+        // 以降のノードのY位置は変わらない。
+        if (i > safe_exit_after && entry.y_position == y) {
+            // 残りのダーティノードを確認（Y更新より軽量なフラグチェックのみ）
+            if (!result.has_dirty_nodes) {
+                for (size_t j = i; j < nodes.size(); j++) {
+                    if (cache[j].layout_dirty) {
+                        result.has_dirty_nodes = true;
+                        break;
+                    }
+                }
+            }
+            const size_t last_idx = nodes.size() - 1;
+            result.total_height = cache[last_idx].y_position + cache[last_idx].height
+                + GetSpacingBelow(nodes[last_idx].type, theme) + theme.margin_top;
+            return result;
+        }
 
         entry.y_position = y;
         y += entry.height;
@@ -147,33 +169,35 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 {
     cache.Resize(nodes.size());
 
-    bool width_changed = (viewport_width != last_viewport_width_);
-    bool partial = (viewport_top >= 0.0f);
+    const bool width_changed = (viewport_width != last_viewport_width_);
+    const bool partial = (viewport_top >= 0.0f);
 
     last_viewport_width_ = viewport_width;
 
-    float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     float y = theme_->margin_top;
     bool any_dirty = false;
     bool any_height_changed = false;
+    bool any_measured = false;
     bool broke_early = false;
 
     for (size_t i = 0; i < nodes.size(); i++) {
         auto& node = nodes[i];
         auto& entry = cache[i];
-        float indent = node.indent_level * theme_->indent_width;
-        float node_width = content_width - indent;
+        const float indent = node.indent_level * theme_->indent_width;
+        const float node_width = content_width - indent;
 
-        bool needs_layout = width_changed || entry.layout_dirty;
+        const bool needs_layout = width_changed || entry.layout_dirty;
 
         if (needs_layout) {
             if (partial) {
                 // 部分モードでは、可視ノードのレイアウトのみ計算する
-                float node_bottom = y + entry.height; // 古い高さを使って推定
-                bool visible = (node_bottom >= viewport_top && y <= viewport_bottom);
+                const float node_bottom = y + entry.height; // 古い高さを使って推定
+                const bool visible = (node_bottom >= viewport_top && y <= viewport_bottom);
                 if (visible) {
-                    float old_height = entry.height;
+                    const float old_height = entry.height;
                     measurer_->MeasureNode(node, entry, node_width);
+                    any_measured = true;
                     if (entry.height != old_height) any_height_changed = true;
                 }
                 else {
@@ -182,6 +206,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
             }
             else {
                 measurer_->MeasureNode(node, entry, node_width);
+                any_measured = true;
             }
         }
 
@@ -210,6 +235,10 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         total_height_ = y + theme_->margin_top;
     }
     has_dirty_nodes_ = any_dirty;
+
+    if (any_measured) {
+        cache.IncrementEffectsGeneration();
+    }
 }
 
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
@@ -222,11 +251,12 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
     float viewport_width,
     float viewport_top, float viewport_bottom)
 {
-    float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     bool any_updated = false;
+    int last_measured = -1;
 
     // 下端が viewport_top 以上の最初のノードを見つける
-    int lo = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
+    const int lo = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
 
     for (int i = lo; i < static_cast<int>(nodes.size()); i++) {
         auto& entry = cache[i];
@@ -236,13 +266,16 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         if (!entry.layout_dirty) {
             continue;
         }
-        float indent = nodes[i].indent_level * theme_->indent_width;
+        const float indent = nodes[i].indent_level * theme_->indent_width;
         measurer_->MeasureNode(nodes[i], entry, content_width - indent);
         any_updated = true;
+        last_measured = i;
     }
 
     if (any_updated) {
-        auto result = RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo), has_dirty_nodes_);
+        cache.IncrementEffectsGeneration();
+        const auto result = RecomputeYPositions(nodes, cache, *theme_,
+            static_cast<size_t>(lo), has_dirty_nodes_, static_cast<size_t>(last_measured));
         total_height_ = result.total_height;
         has_dirty_nodes_ = result.has_dirty_nodes;
     }
@@ -252,9 +285,10 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width, int batch_size)
 {
-    float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
     int processed = 0;
     size_t first_dirty = nodes.size();
+    size_t last_processed = 0;
 
     for (size_t i = 0; i < nodes.size(); i++) {
         auto& entry = cache[i];
@@ -262,11 +296,16 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
             continue;
         }
 
-        if (first_dirty == nodes.size()) first_dirty = i;
-        float indent = nodes[i].indent_level * theme_->indent_width;
+        if (first_dirty == nodes.size()) {
+            first_dirty = i;
+        }
+        const float indent = nodes[i].indent_level * theme_->indent_width;
         measurer_->MeasureNode(nodes[i], entry, content_width - indent);
+        last_processed = i;
 
-        if (++processed >= batch_size) break;
+        if (++processed >= batch_size) {
+            break;
+        }
     }
 
     if (processed == 0) {
@@ -274,7 +313,8 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
         return false;
     }
 
-    auto result = RecomputeYPositions(nodes, cache, *theme_, first_dirty, false);
+    cache.IncrementEffectsGeneration();
+    const auto result = RecomputeYPositions(nodes, cache, *theme_, first_dirty, false, last_processed);
     total_height_ = result.total_height;
     has_dirty_nodes_ = result.has_dirty_nodes;
 

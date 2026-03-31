@@ -4,13 +4,15 @@
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
 static bool IsSafeUrlScheme(std::wstring_view url) noexcept
 {
-    auto starts_with_i = [](std::wstring_view s, std::wstring_view prefix) noexcept {
+    const auto starts_with_i = [](std::wstring_view s, std::wstring_view prefix) noexcept {
         if (s.size() < prefix.size()) {
             return false;
         }
         for (size_t i = 0; i < prefix.size(); i++) {
             wchar_t a = s[i], b = prefix[i];
-            if (a >= L'A' && a <= L'Z') a += L'a' - L'A';
+            if (a >= L'A' && a <= L'Z') {
+                a += L'a' - L'A';
+            }
             if (a != b) {
                 return false;
             }
@@ -22,8 +24,7 @@ static bool IsSafeUrlScheme(std::wstring_view url) noexcept
         || starts_with_i(url, L"mailto:");
 }
 
-NavigationService::NavigateResult NavigationService::HandleLinkClick(
-    std::wstring_view url, [[maybe_unused]] std::wstring_view current_file)
+NavigationService::NavigateResult NavigationService::HandleLinkClick(std::wstring_view url, [[maybe_unused]] std::wstring_view current_file)
 {
     NavigateResult result;
     if (url.empty()) {
@@ -44,8 +45,7 @@ NavigationService::NavigateResult NavigationService::HandleLinkClick(
     return result;
 }
 
-NavigationService::NavigateResult NavigationService::MakeResultFromEntry(
-    NavEntry&& entry, std::wstring_view current_file)
+NavigationService::NavigateResult NavigationService::MakeResultFromEntry(NavEntry&& entry, std::wstring_view current_file)
 {
     NavigateResult result;
     if (entry.file_path != current_file && !entry.file_path.empty()) {
@@ -60,8 +60,7 @@ NavigationService::NavigateResult NavigationService::MakeResultFromEntry(
     return result;
 }
 
-NavigationService::NavigateResult NavigationService::GoBack(
-    std::wstring_view current_file, float scroll_y)
+NavigationService::NavigateResult NavigationService::GoBack(std::wstring_view current_file, float scroll_y)
 {
     NavEntry out;
     if (!history_.GoBack(NavEntry{ current_file, scroll_y }, out)) {
@@ -70,8 +69,7 @@ NavigationService::NavigateResult NavigationService::GoBack(
     return MakeResultFromEntry(std::move(out), current_file);
 }
 
-NavigationService::NavigateResult NavigationService::GoForward(
-    std::wstring_view current_file, float scroll_y)
+NavigationService::NavigateResult NavigationService::GoForward(std::wstring_view current_file, float scroll_y)
 {
     NavEntry out;
     if (!history_.GoForward(NavEntry{ current_file, scroll_y }, out)) {

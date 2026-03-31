@@ -12,16 +12,17 @@ namespace {
 bool IsEditableTextFile(std::wstring_view path)
 {
     auto ext = std::filesystem::path(path).extension().wstring();
-    for (auto& c : ext) { c = std::towlower(c); }
+    for (auto& c : ext) {
+        c = std::towlower(c);
+    }
     return ext == L".md" || ext == L".markdown" || ext == L".mkd" || ext == L".txt";
 }
 
 // ペインヘッダー内のボタンがクリックされたか判定する。
-bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height,
-    D2D1_RECT_F(*button_rect_fn)(float, float) noexcept)
+bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height, D2D1_RECT_F(*button_rect_fn)(float, float) noexcept)
 {
-    float local_x = dip_x - rect.x;
-    float local_y = dip_y - rect.y;
+    const float local_x = dip_x - rect.x;
+    const float local_y = dip_y - rect.y;
     if (local_y >= header_height) {
         return false;
     }
@@ -46,10 +47,10 @@ void App::RefreshFilePane()
 
 void App::OnContextMenu(int screen_x, int screen_y)
 {
-    POINT client_pt = { screen_x, screen_y };
+    POINT client_pt{ screen_x, screen_y };
     ScreenToClient(hwnd_, &client_pt);
-    auto dip = PixelToDip(client_pt.x, client_pt.y);
-    auto zone = PaneAtPoint(dip.x, dip.y);
+    const auto dip = PixelToDip(client_pt.x, client_pt.y);
+    const auto zone = PaneAtPoint(dip.x, dip.y);
 
     ContextMenuParams params;
     params.screen_x = screen_x;
@@ -65,7 +66,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
     params.show_file_items = (zone == PaneZone::MdPane);
     params.theme = &renderer_.GetTheme();
 
-    int cmd = ctx_menu_.Show(hwnd_, params);
+    const int cmd = ctx_menu_.Show(hwnd_, params);
 
     if (cmd == IDM_NAV_BACK) {
         NavigateBack();
@@ -76,8 +77,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
     else if (cmd == IDM_EDIT_FILE) {
         const auto& file_path = doc_.GetFilePath();
         if (IsEditableTextFile(file_path)) {
-            ShellExecuteW(hwnd_, L"open", file_path.c_str(),
-                nullptr, nullptr, SW_SHOWNORMAL);
+            ShellExecuteW(hwnd_, L"open", file_path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
     }
     else if (cmd == IDM_COPY) {
@@ -102,13 +102,17 @@ void App::OnContextMenu(int screen_x, int screen_y)
 
 bool App::OnRButtonDown(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) { return false; }
-    if (viewport_.IsDragging()) { return false; }
-
-    auto dip = PixelToDip(px, py);
-    auto zone = PaneAtPoint(dip.x, dip.y);
-    if (zone != PaneZone::MdPane) { return false; }
-
+    if (!renderer_.GetRenderTarget()) {
+        return false;
+    }
+    if (viewport_.IsDragging()) {
+        return false;
+    }
+    const auto dip = PixelToDip(px, py);
+    const auto zone = PaneAtPoint(dip.x, dip.y);
+    if (zone != PaneZone::MdPane) {
+        return false;
+    }
     gesture_.OnRButtonDown(dip.x, dip.y);
     SetCapture(hwnd_);
     return true;
@@ -116,15 +120,16 @@ bool App::OnRButtonDown(int px, int py)
 
 bool App::OnRButtonUp(int px, int py)
 {
-    if (gesture_.GetPhase() == GesturePhase::Idle) { return false; }
-
-    auto result = gesture_.OnRButtonUp();
+    if (gesture_.GetPhase() == GesturePhase::Idle) {
+        return false;
+    }
+    const auto result = gesture_.OnRButtonUp();
     ReleaseCapture();
 
     switch (result) {
     case GestureResult::ShowContextMenu: {
         gesture_.Reset();
-        POINT pt = { px, py };
+        POINT pt{ px, py };
         ClientToScreen(hwnd_, &pt);
         OnContextMenu(pt.x, pt.y);
         break;
@@ -148,7 +153,7 @@ void App::OnRButtonMove(int px, int py)
 {
     if (!renderer_.GetRenderTarget()) { return; }
 
-    auto dip = PixelToDip(px, py);
+    const auto dip = PixelToDip(px, py);
     gesture_.OnMouseMove(dip.x, dip.y);
 
     if (gesture_.IsGestureActive()) {
@@ -172,11 +177,17 @@ void App::OnXButtonForward()
 
 App::HitResult App::HitTest(int screen_x, int screen_y) const
 {
-    auto pane_layout = GetPaneLayout();
-    return hit_test_.HitTest(doc_.GetNodes(), layout_cache_,
-        renderer_.GetTheme(), viewport_.GetScrollY(),
-        pane_layout.md_rect.x, cached_dpi_scale_,
-        screen_x, screen_y);
+    const auto pane_layout = GetPaneLayout();
+    return hit_test_.HitTest(
+        doc_.GetNodes(),
+        layout_cache_,
+        renderer_.GetTheme(),
+        viewport_.GetScrollY(),
+        pane_layout.md_rect.x,
+        cached_dpi_scale_,
+        screen_x,
+        screen_y
+    );
 }
 
 std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const
@@ -198,10 +209,9 @@ bool App::TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& 
     float total_content, ScrollState& scroll,
     void (Renderer::* invalidate)())
 {
-    float local_x = dip_x - rect.x;
+    const float local_x = dip_x - rect.x;
 
-    if (local_x >= rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
-        && total_content > scroll_info.content_height) {
+    if ((local_x >= rect.width - PANE_SCROLLBAR_WIDTH - 4.0f) && (total_content > scroll_info.content_height)) {
         SetCapture(hwnd_);
         panes_.StartDrag(target);
         bool dirty = false;
@@ -227,8 +237,8 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
         return;
     }
 
-    float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
-    auto scroll_info = ComputePaneScrollInfo(layout.file_rect, total_content);
+    const float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height;
+    const auto scroll_info = ComputePaneScrollInfo(layout.file_rect, total_content);
 
     if (TryHandlePaneScrollbarClick(dip_x, dip_y, layout.file_rect,
         PaneController::DragTarget::FileScrollbar,
@@ -236,8 +246,8 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
         &Renderer::InvalidateFilePaneCache)) {
         return;
     }
-    float local_y = dip_y - scroll_info.content_top + panes_.FileScroll().scroll_y;
-    int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
+    const float local_y = dip_y - scroll_info.content_top + panes_.FileScroll().scroll_y;
+    const int idx = file_explorer_.HitTest(local_y, theme.pane_item_height);
     if (idx >= 0 && idx < static_cast<int>(file_explorer_.GetEntries().size())) {
         const auto& file_entry = file_explorer_.GetEntries()[idx];
         if (file_entry.is_directory) {
@@ -273,8 +283,8 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
         return;
     }
 
-    float total_content = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
-    auto scroll_info = ComputePaneScrollInfo(layout.toc_rect, total_content);
+    const float total_content = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
+    const auto scroll_info = ComputePaneScrollInfo(layout.toc_rect, total_content);
 
     if (TryHandlePaneScrollbarClick(dip_x, dip_y, layout.toc_rect,
         PaneController::DragTarget::TocScrollbar,
@@ -282,8 +292,8 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
         &Renderer::InvalidateTocPaneCache)) {
         return;
     }
-    float local_y = dip_y - scroll_info.content_top + panes_.TocScroll().scroll_y;
-    int idx = doc_.GetToc().HitTest(local_y, theme.pane_item_height);
+    const float local_y = dip_y - scroll_info.content_top + panes_.TocScroll().scroll_y;
+    const int idx = doc_.GetToc().HitTest(local_y, theme.pane_item_height);
     if (idx >= 0 && idx < static_cast<int>(doc_.GetToc().GetEntries().size())) {
         PushNavHistory();
         NavigateToAnchor(doc_.GetToc().GetEntries()[idx].anchor_id);
@@ -294,11 +304,11 @@ void App::OnLButtonDown(int px, int py)
 {
     if (!renderer_.GetRenderTarget()) { return; }
 
-    auto dip = PixelToDip(px, py);
+    const auto dip = PixelToDip(px, py);
 
     // タイトルバーボタンのクリック処理
     if (dip.y < titlebar_.GetHeight()) {
-        auto tb_zone = titlebar_.HitTest(dip.x, dip.y);
+        const auto tb_zone = titlebar_.HitTest(dip.x, dip.y);
         if (tb_zone == TitleBarHitZone::Help) {
             if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
                 PushNavHistory();
@@ -335,8 +345,8 @@ void App::OnLButtonDown(int px, int py)
         return;  // タイトルバーの他の領域はWM_NCHITTESTで処理済み
     }
 
-    auto pane_layout = GetPaneLayout();
-    auto zone = DetectPaneZone(dip.x, pane_layout,
+    const auto pane_layout = GetPaneLayout();
+    const auto zone = DetectPaneZone(dip.x, pane_layout,
         renderer_.GetTheme().splitter_width,
         panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible());
 
@@ -356,7 +366,7 @@ void App::OnLButtonDown(int px, int py)
         HandleTocPaneClick(dip.x, dip.y, pane_layout);
         return;
     case PaneZone::MdPane: {
-        auto nav_hit = hit_test_.NavButtonHitTest(dip.x, dip.y, pane_layout.md_rect);
+        const auto nav_hit = hit_test_.NavButtonHitTest(dip.x, dip.y, pane_layout.md_rect);
         if (nav_hit == NavButtonHover::Back) {
             NavigateBack();
             return;
@@ -366,7 +376,7 @@ void App::OnLButtonDown(int px, int py)
             return;
         }
         // コピーボタンのクリック判定（クリック位置で再判定）
-        float content_width = pane_layout.md_rect.width
+        const float content_width = pane_layout.md_rect.width
             - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right;
         const auto copy_node = hit_test_.CopyButtonHitTest(
             doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
@@ -382,20 +392,20 @@ void App::OnLButtonDown(int px, int py)
             float total_h = layout_service_->GetTotalHeight();
             float viewport_h = pane_layout.md_rect.height;
             if (total_h > viewport_h) {
-                float sb_left = pane_layout.md_rect.x + pane_layout.md_rect.width
+                const float sb_left = pane_layout.md_rect.x + pane_layout.md_rect.width
                     - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
                 if (dip.x >= sb_left - PANE_SCROLLBAR_HIT_PADDING) {
                     SetCapture(hwnd_);
                     panes_.StartDrag(PaneController::DragTarget::MdScrollbar);
                     viewport_.SetScrollbarTracking(true);
-                    auto info = ComputeScrollInfo(pane_layout.md_rect, 0.0f, total_h);
-                    float thumb_y = ComputeThumbY(info, viewport_.GetScrollY());
+                    const auto info = ComputeScrollInfo(pane_layout.md_rect, 0.0f, total_h);
+                    const float thumb_y = ComputeThumbY(info, viewport_.GetScrollY());
                     if (dip.y >= thumb_y && dip.y <= thumb_y + info.thumb_height) {
                         panes_.SetDragScrollOffset(dip.y - thumb_y);
                     }
                     else {
                         panes_.SetDragScrollOffset(info.thumb_height * 0.5f);
-                        float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
+                        const float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
                         viewport_.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
                         Invalidate();
                     }
@@ -438,23 +448,23 @@ void App::OnLButtonUp(int px, int py)
     }
 
     if (viewport_.IsDragging()) {
-        auto hit = HitTest(px, py);
+        const auto hit = HitTest(px, py);
         if (hit.node_index >= 0) {
             viewport_.SetSelection(TextSelection::MakeOrdered(
                 viewport_.GetAnchorNode(), viewport_.GetAnchorPos(), hit.node_index, hit.text_pos));
         }
         viewport_.SetDragging(false);
 
-        int dx = px - viewport_.GetClickStartX();
-        int dy = py - viewport_.GetClickStartY();
+        const int dx = px - viewport_.GetClickStartX();
+        const int dy = py - viewport_.GetClickStartY();
         if (!viewport_.GetSelection().active && (dx * dx + dy * dy) < 25) {
-            auto link = GetLinkAtHit(hit);
+            const auto link = GetLinkAtHit(hit);
             if (link.has_value()) {
                 HandleLinkClick(link.value());
             }
         }
 
-        auto layout = GetPaneLayout();
+        const auto layout = GetPaneLayout();
         InvalidateMdPane(layout.md_rect);
     }
 }
@@ -464,10 +474,10 @@ void App::OnMouseMove(int px, int py)
     auto* rt = renderer_.GetRenderTarget();
     if (!rt) { return; }
 
-    auto dip = PixelToDip(px, py);
-    float dip_x = dip.x;
-    auto size = rt->GetSize();
-    float splitter_w = renderer_.GetTheme().splitter_width;
+    const auto dip = PixelToDip(px, py);
+    const float dip_x = dip.x;
+    const auto size = rt->GetSize();
+    const float splitter_w = renderer_.GetTheme().splitter_width;
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::Splitter1) {
         panes_.DragSplitter1To(dip_x, size.width, splitter_w);
@@ -477,9 +487,9 @@ void App::OnMouseMove(int px, int py)
     }
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::FileScrollbar) {
-        auto layout = GetPaneLayout();
-        float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * renderer_.GetTheme().pane_item_height;
-        auto info = ComputePaneScrollInfo(layout.file_rect, total_content);
+        const auto layout = GetPaneLayout();
+        const float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * renderer_.GetTheme().pane_item_height;
+        const auto info = ComputePaneScrollInfo(layout.file_rect, total_content);
         bool dirty = false;
         HandleScrollbarDrag(dip.y, info, panes_.FileScroll(), dirty);
         if (dirty) { renderer_.InvalidateFilePaneCache(); }
@@ -487,9 +497,9 @@ void App::OnMouseMove(int px, int py)
     }
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::TocScrollbar) {
-        auto layout = GetPaneLayout();
-        float total_content = static_cast<float>(doc_.GetToc().GetEntries().size()) * renderer_.GetTheme().pane_item_height;
-        auto info = ComputePaneScrollInfo(layout.toc_rect, total_content);
+        const auto layout = GetPaneLayout();
+        const float total_content = static_cast<float>(doc_.GetToc().GetEntries().size()) * renderer_.GetTheme().pane_item_height;
+        const auto info = ComputePaneScrollInfo(layout.toc_rect, total_content);
         bool dirty = false;
         HandleScrollbarDrag(dip.y, info, panes_.TocScroll(), dirty);
         if (dirty) { renderer_.InvalidateTocPaneCache(); }
@@ -498,10 +508,10 @@ void App::OnMouseMove(int px, int py)
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::MdScrollbar) {
         if (layout_service_) {
-            auto layout = GetPaneLayout();
-            float total_h = layout_service_->GetTotalHeight();
-            auto info = ComputeScrollInfo(layout.md_rect, 0.0f, total_h);
-            float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
+            const auto layout = GetPaneLayout();
+            const float total_h = layout_service_->GetTotalHeight();
+            const auto info = ComputeScrollInfo(layout.md_rect, 0.0f, total_h);
+            const float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
             viewport_.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
             Invalidate();
         }
@@ -517,11 +527,11 @@ void App::OnMouseMove(int px, int py)
 
     // MDペイン: ドラッグ選択
     if (!viewport_.IsDragging()) { return; }
-    auto hit = HitTest(px, py);
+    const auto hit = HitTest(px, py);
     if (hit.node_index >= 0) {
         viewport_.SetSelection(TextSelection::MakeOrdered(
             viewport_.GetAnchorNode(), viewport_.GetAnchorPos(), hit.node_index, hit.text_pos));
-        auto layout = GetPaneLayout();
+        const auto layout = GetPaneLayout();
         InvalidateMdPane(layout.md_rect);
     }
 }
@@ -530,26 +540,26 @@ void App::OnMouseHover(int px, int py)
 {
     if (!renderer_.GetRenderTarget()) { return; }
 
-    auto dip = PixelToDip(px, py);
-    float dip_x = dip.x;
-    float dip_y = dip.y;
+    const auto dip = PixelToDip(px, py);
+    const float dip_x = dip.x;
+    const float dip_y = dip.y;
 
     // タイトルバーのホバー処理
     if (dip_y < titlebar_.GetHeight()) {
-        auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
+        const auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
         SetCursor(cursor_arrow_);
         if (titlebar_.SetHovered(tb_zone)) {
-            Invalidate();
+            InvalidateTitleBar();
         }
         return;
     }
     // タイトルバー外に出たらホバーをリセット
     if (titlebar_.SetHovered(TitleBarHitZone::None)) {
-        Invalidate();
+        InvalidateTitleBar();
     }
 
-    auto pane_layout = GetPaneLayout();
-    auto zone = DetectPaneZone(dip_x, pane_layout,
+    const auto pane_layout = GetPaneLayout();
+    const auto zone = DetectPaneZone(dip_x, pane_layout,
         renderer_.GetTheme().splitter_width,
         panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible());
 
@@ -576,33 +586,33 @@ void App::OnMouseHover(int px, int py)
         SetCursor(cursor_sizewe_);
         break;
     case PaneZone::FilePane: {
-        float header_h = renderer_.GetTheme().pane_header_height;
-        bool close_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.file_rect, header_h, PaneCloseButtonRect);
-        bool refresh_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.file_rect, header_h, PaneRefreshButtonRect);
+        const float header_h = renderer_.GetTheme().pane_header_height;
+        const bool close_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.file_rect, header_h, PaneCloseButtonRect);
+        const bool refresh_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.file_rect, header_h, PaneRefreshButtonRect);
         SetCursor((close_hit || refresh_hit) ? cursor_hand_ : cursor_arrow_);
         {
             bool changed = panes_.SetFileCloseHovered(close_hit);
             changed |= panes_.SetFileRefreshHovered(refresh_hit);
             if (changed) {
                 renderer_.InvalidateFilePaneCache();
-                Invalidate();
+                InvalidatePane(pane_layout.file_rect);
             }
         }
-        float content_top = pane_layout.file_rect.y + header_h;
-        float local_y = dip_y - content_top + panes_.FileScroll().scroll_y;
+        const float content_top = pane_layout.file_rect.y + header_h;
+        const float local_y = dip_y - content_top + panes_.FileScroll().scroll_y;
         new_file_hover = file_explorer_.HitTest(local_y, renderer_.GetTheme().pane_item_height);
         break;
     }
     case PaneZone::TocPane: {
-        float header_h = renderer_.GetTheme().pane_header_height;
-        bool close_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.toc_rect, header_h, PaneCloseButtonRect);
+        const float header_h = renderer_.GetTheme().pane_header_height;
+        const bool close_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.toc_rect, header_h, PaneCloseButtonRect);
         SetCursor(close_hit ? cursor_hand_ : cursor_arrow_);
         if (panes_.SetTocCloseHovered(close_hit)) {
             renderer_.InvalidateTocPaneCache();
-            Invalidate();
+            InvalidatePane(pane_layout.toc_rect);
         }
-        float content_top = pane_layout.toc_rect.y + header_h;
-        float local_y = dip_y - content_top + panes_.TocScroll().scroll_y;
+        const float content_top = pane_layout.toc_rect.y + header_h;
+        const float local_y = dip_y - content_top + panes_.TocScroll().scroll_y;
         new_toc_hover = doc_.GetToc().HitTest(local_y, renderer_.GetTheme().pane_item_height);
         break;
     }
@@ -632,8 +642,8 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
 
-    auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
-    auto old_nav_hover = nav_hover_;
+    const auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
+    const auto old_nav_hover = nav_hover_;
     nav_hover_ = nav_hit;
     if (nav_hit != NavButtonHover::None) {
         hovered_copy_node_ = -1;
@@ -649,13 +659,13 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
 
     // コピーボタンのホバー判定（距離スロットリングで不要な再計算を回避）
     {
-        int cdx = px - last_copy_hit_pos_.x;
-        int cdy = py - last_copy_hit_pos_.y;
+        const int cdx = px - last_copy_hit_pos_.x;
+        const int cdy = py - last_copy_hit_pos_.y;
         if (cdx * cdx + cdy * cdy > HOVER_THROTTLE_DISTANCE_SQ) {
             last_copy_hit_pos_ = { px, py };
-            float content_width = pane_layout.md_rect.width
+            const float content_width = pane_layout.md_rect.width
                 - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right;
-            int old_copy_hover = hovered_copy_node_;
+            const int old_copy_hover = hovered_copy_node_;
             hovered_copy_node_ = hit_test_.CopyButtonHitTest(
                 doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
                 viewport_.GetScrollY(), pane_layout.md_rect.x,
@@ -671,11 +681,11 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
 
-    int dx = px - last_md_hit_pos_.x;
-    int dy = py - last_md_hit_pos_.y;
+    const int dx = px - last_md_hit_pos_.x;
+    const int dy = py - last_md_hit_pos_.y;
     if (dx * dx + dy * dy > HOVER_THROTTLE_DISTANCE_SQ) {
-        auto hit = HitTest(px, py);
-        auto link = GetLinkAtHit(hit);
+        const auto hit = HitTest(px, py);
+        const auto link = GetLinkAtHit(hit);
         last_md_cursor_hand_ = link.has_value();
         last_md_hit_pos_ = { px, py };
     }
@@ -684,25 +694,30 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
 
 void App::OnLButtonDblClk(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) { return; }
-
-    auto dip = PixelToDip(px, py);
-    auto zone = PaneAtPoint(dip.x, dip.y);
-    if (zone != PaneZone::MdPane) { return; }
-
-    auto hit = HitTest(px, py);
-    if (hit.node_index < 0) { return; }
-
+    if (!renderer_.GetRenderTarget()) {
+        return;
+    }
+    const auto dip = PixelToDip(px, py);
+    const auto zone = PaneAtPoint(dip.x, dip.y);
+    if (zone != PaneZone::MdPane) {
+        return;
+    }
+    const auto hit = HitTest(px, py);
+    if (hit.node_index < 0) {
+        return;
+    }
     const auto& text = doc_.GetNodes()[hit.node_index].text;
-    if (text.empty()) { return; }
-
-    auto wb = FindWordBoundaries(text, hit.text_pos);
-    if (!wb.found) { return; }
+    if (text.empty()) {
+        return;
+    }
+    const auto wb = FindWordBoundaries(text, hit.text_pos);
+    if (!wb.found) {
+        return;
+    }
 
     viewport_.SetAnchor(hit.node_index, wb.start);
-    viewport_.SetSelection(TextSelection::MakeOrdered(
-        hit.node_index, wb.start, hit.node_index, wb.end));
-    auto layout = GetPaneLayout();
+    viewport_.SetSelection(TextSelection::MakeOrdered(hit.node_index, wb.start, hit.node_index, wb.end));
+    const auto layout = GetPaneLayout();
     InvalidateMdPane(layout.md_rect);
 }
 
@@ -713,25 +728,29 @@ void App::OnLButtonDblClk(int px, int py)
 void App::ClearSelection()
 {
     viewport_.ClearSelection();
-    auto layout = GetPaneLayout();
+    const auto layout = GetPaneLayout();
     InvalidateMdPane(layout.md_rect);
 }
 
 void App::SelectAll()
 {
     viewport_.SelectAll(doc_.GetNodes());
-    auto layout = GetPaneLayout();
+    const auto layout = GetPaneLayout();
     InvalidateMdPane(layout.md_rect);
 }
 
 void App::SetClipboardText(std::wstring_view text) const
 {
-    if (text.empty()) { return; }
-    if (!OpenClipboard(hwnd_)) { return; }
+    if (text.empty()) {
+        return;
+    }
+    if (!OpenClipboard(hwnd_)) {
+        return;
+    }
     EmptyClipboard();
 
-    size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+    const HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
     if (hMem) {
         void* ptr = GlobalLock(hMem);
         if (ptr) {
@@ -751,15 +770,19 @@ void App::SetClipboardText(std::wstring_view text) const
 
 void App::CopySelectionToClipboard() const
 {
-    if (!viewport_.GetSelection().active) { return; }
-    std::pmr::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
+    if (!viewport_.GetSelection().active) {
+        return;
+    }
+    const std::pmr::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
     SetClipboardText(result);
 }
 
 void App::CopyCodeBlockToClipboard(int node_index) const
 {
     const auto& nodes = doc_.GetNodes();
-    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) { return; }
+    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
+        return;
+    }
     SetClipboardText(nodes[node_index].text);
 }
 
@@ -768,17 +791,17 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) 
     if (!layout_service_) {
         return false;
     }
-    float total_h = layout_service_->GetTotalHeight();
-    float viewport_h = layout.md_rect.height;
+    const float total_h = layout_service_->GetTotalHeight();
+    const float viewport_h = layout.md_rect.height;
     if (total_h <= viewport_h || viewport_h <= 0.0f) {
         return false;
     }
     if (dip_y < layout.md_rect.y || dip_y > layout.md_rect.y + viewport_h) {
         return false;
     }
-    float md_right = layout.md_rect.x + layout.md_rect.width;
-    float sb_left = md_right - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
-    float sb_right = md_right - PANE_SCROLLBAR_MARGIN;
+    const float md_right = layout.md_rect.x + layout.md_rect.width;
+    const float sb_left = md_right - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+    const float sb_right = md_right - PANE_SCROLLBAR_MARGIN;
     return dip_x >= sb_left - PANE_SCROLLBAR_HIT_PADDING && dip_x <= sb_right;
 }
 

@@ -65,7 +65,7 @@ public:
     // 蓄積デルタが発動閾値に達していればオーバーレイを表示する。
     constexpr bool IsOverlayVisible() const noexcept
     {
-        int abs_d = accumulated_delta_ < 0 ? -accumulated_delta_ : accumulated_delta_;
+        const int abs_d = accumulated_delta_ < 0 ? -accumulated_delta_ : accumulated_delta_;
         return abs_d >= TRIGGER_THRESHOLD;
     }
 

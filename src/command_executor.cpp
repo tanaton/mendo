@@ -1,4 +1,5 @@
 #include "command_executor.h"
+#include "utility.h"
 
 ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color)
 {
@@ -26,67 +27,73 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
     }
 
     for (const auto& cmd : cmds) {
-        std::visit([&](const auto& c) {
-            using T = std::decay_t<decltype(c)>;
-
-            if constexpr (std::is_same_v<T, ClearCmd>) {
+        std::visit(overloaded{
+            [&](const ClearCmd& c) {
                 rt->Clear(c.color);
-            }
-            else if constexpr (std::is_same_v<T, FillRectCmd>) {
+            },
+            [&](const FillRectCmd& c) {
                 auto* b = GetBrush(rt, c.color);
                 if (b) {
                     rt->FillRectangle(c.rect, b);
                 }
-            }
-            else if constexpr (std::is_same_v<T, FillRoundedRectCmd>) {
+            },
+            [&](const FillRoundedRectCmd& c) {
                 auto* b = GetBrush(rt, c.color);
-                if (b) { D2D1_ROUNDED_RECT rr = { c.rect, c.rx, c.ry }; rt->FillRoundedRectangle(rr, b); }
-            }
-            else if constexpr (std::is_same_v<T, DrawLineCmd>) {
+                if (b) {
+                    const D2D1_ROUNDED_RECT rr = { c.rect, c.rx, c.ry };
+                    rt->FillRoundedRectangle(rr, b);
+                }
+            },
+            [&](const DrawLineCmd& c) {
                 auto* b = GetBrush(rt, c.color);
                 if (b) {
                     rt->DrawLine(c.p0, c.p1, b, c.stroke_width);
                 }
-            }
-            else if constexpr (std::is_same_v<T, DrawTextLayoutCmd>) {
+            },
+            [&](const DrawTextLayoutCmd& c) {
                 if (c.layout) {
                     auto* b = GetBrush(rt, c.color);
                     if (b) {
                         rt->DrawTextLayout(c.origin, c.layout, b);
                     }
                 }
-            }
-            else if constexpr (std::is_same_v<T, DrawTextCmd>) {
+            },
+            [&](const DrawTextCmd& c) {
                 if (c.format && c.text_len > 0) {
                     auto* b = GetBrush(rt, c.color);
                     if (b) {
-                        rt->DrawText(c.text, static_cast<UINT32>(c.text_len),
-                            c.format, c.rect, b);
+                        rt->DrawText(c.text, static_cast<UINT32>(c.text_len), c.format, c.rect, b);
                     }
                 }
-            }
-            else if constexpr (std::is_same_v<T, DrawBitmapCmd>) {
+            },
+            [&](const DrawBitmapCmd& c) {
                 if (c.bitmap) {
                     rt->DrawBitmap(c.bitmap, c.dest, c.opacity);
                 }
-            }
-            else if constexpr (std::is_same_v<T, FillEllipseCmd>) {
+            },
+            [&](const FillEllipseCmd& c) {
                 auto* b = GetBrush(rt, c.color);
-                if (b) { D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry); rt->FillEllipse(e, b); }
-            }
-            else if constexpr (std::is_same_v<T, DrawEllipseCmd>) {
+                if (b) {
+                    const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry);
+                    rt->FillEllipse(e, b);
+                }
+            },
+            [&](const DrawEllipseCmd& c) {
                 auto* b = GetBrush(rt, c.color);
-                if (b) { D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry); rt->DrawEllipse(e, b, c.stroke_width); }
-            }
-            else if constexpr (std::is_same_v<T, PushClipCmd>) {
+                if (b) {
+                    const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry);
+                    rt->DrawEllipse(e, b, c.stroke_width);
+                }
+            },
+            [&](const PushClipCmd& c) {
                 rt->PushAxisAlignedClip(c.rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            }
-            else if constexpr (std::is_same_v<T, PopClipCmd>) {
+            },
+            [&](const PopClipCmd&) {
                 rt->PopAxisAlignedClip();
-            }
-            else if constexpr (std::is_same_v<T, SetTransformCmd>) {
+            },
+            [&](const SetTransformCmd& c) {
                 rt->SetTransform(c.transform);
-            }
+            },
         }, cmd);
     }
 }

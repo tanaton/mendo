@@ -108,6 +108,9 @@ public:
     // 指定ペイン領域のみ再描画を要求する
     void InvalidatePane(const PaneRect& rect) noexcept;
 
+    // タイトルバー領域のみ再描画を要求する
+    void InvalidateTitleBar() noexcept;
+
     // Win32Windowのカーソル/再描画用にDPIスケールを公開
     constexpr float GetDpiScale() const noexcept { return cached_dpi_scale_; }
 

@@ -14,7 +14,7 @@ FileLoader::~FileLoader()
 std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path)
 {
     // エディタがファイルを開いている間も読み取れるよう FILE_SHARE_READ | FILE_SHARE_WRITE を指定
-    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
+    const HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
@@ -33,7 +33,7 @@ std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path)
     }
 
     // UTF-8 BOMを先に検出し、全内容の memmove を回避する
-    size_t file_size = static_cast<size_t>(size.QuadPart);
+    const size_t file_size = static_cast<size_t>(size.QuadPart);
     size_t bom_skip = 0;
     if (file_size >= 3) {
         unsigned char bom[3]{};
@@ -90,11 +90,11 @@ void FileLoader::StartWatching(const std::pmr::wstring& file_path, ChangeCallbac
     last_reload_tick_ = GetTickCount64();
 
     // ファイル名部分を抽出
-    std::filesystem::path p(std::wstring_view{ file_path });
-    watch_filename_ = std::pmr::wstring{ std::wstring_view{ p.filename().native() } };
+    const std::filesystem::path p(file_path);
+    watch_filename_ = std::pmr::wstring{ p.filename().native() };
 
     // 親ディレクトリをReadDirectoryChangesWで監視
-    auto dir = p.parent_path();
+    const auto dir = p.parent_path();
     if (dir.empty()) {
         return;
     }
@@ -175,15 +175,15 @@ void FileLoader::CheckForChanges()
     read_pending_ = false;
 
     // デバウンス: 最後のリロードから間隔が短すぎる場合はスキップ
-    ULONGLONG now = GetTickCount64();
-    bool debounced = (now - last_reload_tick_ < DEBOUNCE_MS);
+    const ULONGLONG now = GetTickCount64();
+    const bool debounced = (now - last_reload_tick_ < DEBOUNCE_MS);
 
     // 変更通知を解析し、監視対象のファイルが含まれているか確認
     bool target_changed = false;
     if (bytes_returned > 0 && !debounced) {
         auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(change_buf_);
         for (;;) {
-            std::wstring_view changed_name(info->FileName, info->FileNameLength / sizeof(wchar_t));
+            const std::wstring_view changed_name(info->FileName, info->FileNameLength / sizeof(wchar_t));
             if (changed_name.size() == watch_filename_.size() &&
                 _wcsnicmp(changed_name.data(), watch_filename_.c_str(), changed_name.size()) == 0) {
                 target_changed = true;

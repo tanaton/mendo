@@ -7,7 +7,6 @@
 #include <dwrite.h>
 #include <cassert>
 
-using Microsoft::WRL::ComPtr;
 
 struct InlineCodeBg {
     float left, top, width, height;
@@ -16,13 +15,13 @@ struct InlineCodeBg {
 struct NodeLayoutEntry {
     float y_position = 0.0f;
     float height = 0.0f;
-    ComPtr<IDWriteTextLayout> text_layout;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
     bool effects_applied = false;
     std::pmr::vector<InlineCodeBg> inline_code_bgs;
 
     // テーブルレイアウトデータ
-    std::pmr::vector<std::pmr::vector<ComPtr<IDWriteTextLayout>>> cell_layouts; // [行][列]
+    std::pmr::vector<std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>>> cell_layouts; // [行][列]
     std::pmr::vector<std::pmr::vector<std::pmr::vector<InlineCodeBg>>> cell_inline_code_bgs; // [行][列][]
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
@@ -30,7 +29,7 @@ struct NodeLayoutEntry {
 };
 
 struct DiagramEntry {
-    ComPtr<ID2D1Bitmap> bitmap;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float width = 0.0f;
     float height = 0.0f;
 };
@@ -41,6 +40,7 @@ public:
     {
         entries_.resize(node_count);
         diagrams_.resize(node_count);
+        effects_generation_++;
     }
 
     // 既存のエントリをすべてクリアし、デフォルト値でリサイズする。
@@ -58,6 +58,7 @@ public:
             diagrams_.shrink_to_fit();
         }
         diagrams_.resize(node_count);
+        effects_generation_++;
     }
 
     constexpr size_t size() const noexcept { return entries_.size(); }
@@ -78,13 +79,14 @@ public:
             e.inline_code_bgs.clear();
             e.cell_inline_code_bgs.clear();
         }
+        effects_generation_++;
     }
 
     // すべてのテキストレイアウトとエフェクトを無効化し、Mermaid図のビットマップもリセットする。
     // ダークモード切替時に使用。
     void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes)
     {
-        InvalidateAllLayouts();
+        InvalidateAllLayouts(); // effects_generation_ は InvalidateAllLayouts 内で更新済み
         for (size_t i = 0; i < nodes.size() && i < diagrams_.size(); ++i) {
             if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
                 diagrams_[i].bitmap.Reset();
@@ -99,11 +101,18 @@ public:
             e.layout_dirty = true;
             e.text_layout.Reset();
         }
+        effects_generation_++;
     }
+
+    // エフェクト世代カウンタ。レイアウト変更時にインクリメントされる。
+    // Renderer が ApplyVisibleEffects のスキップ判定に使用する。
+    constexpr uint32_t GetEffectsGeneration() const noexcept { return effects_generation_; }
+    void IncrementEffectsGeneration() noexcept { effects_generation_++; }
 
 private:
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<DiagramEntry> diagrams_;
+    uint32_t effects_generation_ = 0;
 };
 
 // 最後のノードのレイアウト位置からコンテンツ全体の高さを計算する。
@@ -113,7 +122,7 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_
     if (node_count == 0) {
         return 0.0f;
     }
-    size_t last = node_count - 1;
+    const size_t last = node_count - 1;
     return cache[last].y_position + cache[last].height + margin_top;
 }
 
@@ -123,7 +132,7 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_co
 {
     int lo = 0, hi = static_cast<int>(node_count);
     while (lo < hi) {
-        int mid = (lo + hi) / 2;
+        const int mid = (lo + hi) / 2;
         if (cache[mid].y_position + cache[mid].height <= viewport_top) {
             lo = mid + 1;
         }

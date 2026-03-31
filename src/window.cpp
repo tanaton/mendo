@@ -64,10 +64,9 @@ void Win32Window::UpdateDwmFrame()
 {
     // 1ピクセルだけ拡張してDWMのウィンドウシャドウ・アニメーションを有効化。
     // キャプションボタンは自前描画のため大きな拡張は不要。
-    MARGINS margins = { 0, 0, 1, 0 };
+    const MARGINS margins = { 0, 0, 1, 0 };
     DwmExtendFrameIntoClientArea(hwnd_, &margins);
-    SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
-        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 int Win32Window::RunMessageLoop()
@@ -75,7 +74,9 @@ int Win32Window::RunMessageLoop()
     MSG msg{};
     BOOL ret;
     while ((ret = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
-        if (ret == -1) break;
+        if (ret == -1) {
+            break;
+        }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
@@ -87,7 +88,7 @@ LRESULT CALLBACK Win32Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     Win32Window* self = nullptr;
 
     if (msg == WM_NCCREATE) {
-        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        const auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
         self = static_cast<Win32Window*>(cs->lpCreateParams);
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
         self->hwnd_ = hwnd;
@@ -111,10 +112,10 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
 
         // 最大化時はフレーム厚分だけ内側に縮小（タスクバー隠れ防止）
         if (IsZoomed(hwnd_)) {
-            UINT dpi = GetDpiForWindow(hwnd_);
-            int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
+            const UINT dpi = GetDpiForWindow(hwnd_);
+            const int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
                 + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-            int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
+            const int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
                 + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
             params->rgrc[0].top += frame_y;
             params->rgrc[0].left += frame_x;
@@ -133,13 +134,13 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
 
     // 非最大化時のリサイズ枠判定（細めの枠でスクロールバーと干渉しないようにする）
     if (!IsZoomed(hwnd_)) {
-        UINT dpi = GetDpiForWindow(hwnd_);
-        int border = MulDiv(4, dpi, 96);
+        const UINT dpi = GetDpiForWindow(hwnd_);
+        const int border = MulDiv(4, dpi, 96);
         // 上端はタイトルバーがないため標準のフレーム厚を使う
-        int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
+        const int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
             + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
         // 右辺はシステム標準幅で広めに確保（スクロールバーとの共存）
-        int right_border = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
+        const int right_border = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
             + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 
         RECT rc;
@@ -169,7 +170,7 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
         if (pt.x >= rc.right - right_border) {
             // 内側部分のみスクロールバーを優先、最外側borderはリサイズを優先
             if (pt.x < rc.right - border) {
-                float dpi_scale = app_.GetDpiScale();
+                const float dpi_scale = app_.GetDpiScale();
                 if (app_.IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
                     return HTCLIENT;
                 }
@@ -179,13 +180,13 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
     }
 
     // タイトルバー領域のヒットテスト
-    float dpi_scale = app_.GetDpiScale();
-    float dip_x = pt.x / dpi_scale;
-    float dip_y = pt.y / dpi_scale;
-    float titlebar_height = app_.GetTitleBarHeightDip();
+    const float dpi_scale = app_.GetDpiScale();
+    const float dip_x = pt.x / dpi_scale;
+    const float dip_y = pt.y / dpi_scale;
+    const float titlebar_height = app_.GetTitleBarHeightDip();
 
     if (dip_y < titlebar_height) {
-        auto zone = app_.TitleBarHitTest(dip_x, dip_y);
+        const auto zone = app_.TitleBarHitTest(dip_x, dip_y);
         switch (zone) {
         case TitleBarHitZone::Icon:
             return HTSYSMENU;  // システムメニュー表示（ダブルクリックで閉じる）
@@ -239,22 +240,28 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         // システムメニュー表示時はフラグを立て、モーダルループ中の右クリック競合を防ぐ
         if (wParam == HTSYSMENU) {
             in_sys_menu_ = true;
-            auto r = DefWindowProcW(hwnd_, msg, wParam, lParam);
+            const auto r = DefWindowProcW(hwnd_, msg, wParam, lParam);
             in_sys_menu_ = false;
             return r;
         }
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     case WM_RBUTTONDOWN:
-        if (in_sys_menu_) { return 0; }
-        if (!app_.OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        if (in_sys_menu_) {
+            return 0;
+        }
+        if (!app_.OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        }
         return 0;
 
     case WM_RBUTTONUP:
-        if (in_sys_menu_) { return 0; }
-        if (!app_.OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        if (in_sys_menu_) {
+            return 0;
+        }
+        if (!app_.OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        }
         return 0;
 
     case WM_LBUTTONDOWN:
@@ -288,8 +295,8 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_MOUSEWHEEL: {
-        short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        bool ctrl = (LOWORD(wParam) & MK_CONTROL) != 0;
+        const short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        const bool ctrl = (LOWORD(wParam) & MK_CONTROL) != 0;
 
         if (ctrl) {
             app_.OnMouseWheel(0, 0, wheel_delta, true);
@@ -305,22 +312,24 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_MOUSEHWHEEL: {
-        short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        const short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
         app_.OnMouseHWheel(wheel_delta);
         return 0;
     }
 
     case WM_CONTEXTMENU: {
         // システムメニュー表示中はカスタムメニューを抑制
-        if (in_sys_menu_) { return 0; }
-        int sx = GET_X_LPARAM(lParam);
-        int sy = GET_Y_LPARAM(lParam);
+        if (in_sys_menu_) {
+            return 0;
+        }
+        const int sx = GET_X_LPARAM(lParam);
+        const int sy = GET_Y_LPARAM(lParam);
         // マウス由来の場合、タイトルバー上の右クリックは抑制する
         if (sx != -1 || sy != -1) {
             POINT pt = { sx, sy };
             ScreenToClient(hwnd_, &pt);
-            float dpi_scale = app_.GetDpiScale();
-            float dip_y = pt.y / dpi_scale;
+            const float dpi_scale = app_.GetDpiScale();
+            const float dip_y = pt.y / dpi_scale;
             if (dip_y < app_.GetTitleBarHeightDip()) {
                 return 0;
             }
@@ -334,9 +343,13 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_XBUTTONDOWN: {
-        WORD button = GET_XBUTTON_WPARAM(wParam);
-        if (button == XBUTTON1) app_.OnXButtonBack();
-        else if (button == XBUTTON2) app_.OnXButtonForward();
+        const WORD button = GET_XBUTTON_WPARAM(wParam);
+        if (button == XBUTTON1) {
+            app_.OnXButtonBack();
+        }
+        else if (button == XBUTTON2) {
+            app_.OnXButtonForward();
+        }
         return TRUE;
     }
 
@@ -345,8 +358,8 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_DPICHANGED: {
-        UINT dpi = HIWORD(wParam);
-        auto* suggested = reinterpret_cast<const RECT*>(lParam);
+        const UINT dpi = HIWORD(wParam);
+        const auto* suggested = reinterpret_cast<const RECT*>(lParam);
         app_.OnDpiChanged(dpi, suggested);
         UpdateDwmFrame();
         return 0;
@@ -405,7 +418,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
 void Win32Window::InitSystemMenu()
 {
-    HMENU menu = GetSystemMenu(hwnd_, FALSE);
+    const HMENU menu = GetSystemMenu(hwnd_, FALSE);
     if (menu) {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, SC_RESET_WINDOW, L"ウィンドウ位置をリセット(&R)");
@@ -422,18 +435,17 @@ void Win32Window::ResetWindowPlacement()
     // プライマリモニターの作業領域に中央配置
     RECT work{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
-    int work_w = work.right - work.left;
-    int work_h = work.bottom - work.top;
+    const int work_w = work.right - work.left;
+    const int work_h = work.bottom - work.top;
 
     constexpr int DEFAULT_W = 1600;
     constexpr int DEFAULT_H = 900;
-    int w = std::min(DEFAULT_W, work_w);
-    int h = std::min(DEFAULT_H, work_h);
-    int x = work.left + (work_w - w) / 2;
-    int y = work.top + (work_h - h) / 2;
+    const int w = std::min(DEFAULT_W, work_w);
+    const int h = std::min(DEFAULT_H, work_h);
+    const int x = work.left + (work_w - w) / 2;
+    const int y = work.top + (work_h - h) / 2;
 
-    SetWindowPos(hwnd_, nullptr, x, y, w, h,
-        SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    SetWindowPos(hwnd_, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
 
 // ============================================================
@@ -454,7 +466,7 @@ void Win32Window::SaveWindowPlacement()
     config::SetInt("Window", "Height", rc.bottom - rc.top);
 
     // 最小化中に閉じた場合も、元が最大化だったかを正しく保存する
-    bool was_maximized = (wp.showCmd == SW_SHOWMAXIMIZED) ||
+    const bool was_maximized = (wp.showCmd == SW_SHOWMAXIMIZED) ||
         ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED));
     config::SetBool("Window", "Maximized", was_maximized);
 }
@@ -462,14 +474,14 @@ void Win32Window::SaveWindowPlacement()
 bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 {
     // 保存済みのウィンドウサイズを読み込み（なければデフォルト表示へフォールバック）
-    int w = config::GetInt("Window", "Width", 0, 100, 100000);
-    int h = config::GetInt("Window", "Height", 0, 100, 100000);
+    const int w = config::GetInt("Window", "Width", 0, 100, 100000);
+    const int h = config::GetInt("Window", "Height", 0, 100, 100000);
     if (w == 0 || h == 0) {
         return false;
     }
-    int x = config::GetInt("Window", "X", 0, -100000, 100000);
-    int y = config::GetInt("Window", "Y", 0, -100000, 100000);
-    bool maximized = config::GetBool("Window", "Maximized", false);
+    const int x = config::GetInt("Window", "X", 0, -100000, 100000);
+    const int y = config::GetInt("Window", "Y", 0, -100000, 100000);
+    const bool maximized = config::GetBool("Window", "Maximized", false);
 
     WINDOWPLACEMENT wp{};
     wp.length = sizeof(wp);
@@ -480,7 +492,8 @@ bool Win32Window::RestoreWindowPlacement(int nCmdShow)
         if (maximized) {
             wp.flags = WPF_RESTORETOMAXIMIZED;
         }
-    } else {
+    }
+    else {
         wp.showCmd = maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
     }
 
@@ -490,10 +503,10 @@ bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 
 void Win32Window::RestoreScrollPosition()
 {
-    int node = config::GetInt("Session", "ScrollNode", -1, -1, 100000000);
+    const int node = config::GetInt("Session", "ScrollNode", -1, -1, 100000000);
     if (node < 0) {
         return;
     }
-    int offset = config::GetInt("Session", "ScrollOffset", 0, -100000, 100000);
+    const int offset = config::GetInt("Session", "ScrollOffset", 0, -100000, 100000);
     app_.SetPendingRestoreNode(node, offset);
 }

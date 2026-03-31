@@ -40,7 +40,7 @@ HitTestService::HitResult HitTestService::HitTest(
 
     // 物理ピクセルをDIPに変換
     float dip_x = screen_x / dpi_scale;
-    float dip_y = screen_y / dpi_scale + scroll_y;
+    const float dip_y = screen_y / dpi_scale + scroll_y;
 
     // MDペインの位置でオフセット
     dip_x -= md_pane_left;
@@ -68,9 +68,9 @@ HitTestService::HitResult HitTestService::HitTest(
         }
 
         if (entry.text_layout) {
-            float indent = node.indent_level * theme.indent_width;
-            float local_x = dip_x - theme.margin_left - indent;
-            float local_y = dip_y - entry.y_position;
+            const float indent = node.indent_level * theme.indent_width;
+            const float local_x = dip_x - theme.margin_left - indent;
+            const float local_y = dip_y - entry.y_position;
 
             BOOL is_trailing = FALSE;
             BOOL is_inside = FALSE;
@@ -101,21 +101,20 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const Theme& theme,
     float dip_x, float dip_y) const noexcept
 {
-
     HitResult result;
     result.node_index = node_index;
 
-    float indent = node.indent_level * theme.indent_width;
-    float base_x = theme.margin_left + indent;
-    float cell_padding = TABLE_CELL_PADDING;
-    float border = TABLE_BORDER_WIDTH;
+    const float indent = node.indent_level * theme.indent_width;
+    const float base_x = theme.margin_left + indent;
+    const float cell_padding = TABLE_CELL_PADDING;
+    const float border = TABLE_BORDER_WIDTH;
 
     // クリックされた行を特定
     float ry = entry.y_position;
     int hit_row = -1;
     for (size_t r = 0; r < node.table_rows().size(); r++) {
-        float row_h = (r < entry.row_heights.size()) ? entry.row_heights[r] : (theme.font_size_body * 1.4f);
-        float row_bottom = ry + row_h + border;
+        const float row_h = (r < entry.row_heights.size()) ? entry.row_heights[r] : (theme.font_size_body * 1.4f);
+        const float row_bottom = ry + row_h + border;
         if (dip_y < row_bottom) {
             hit_row = static_cast<int>(r);
             break;
@@ -131,7 +130,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     float cx = base_x + border;
     int hit_col = static_cast<int>(entry.col_widths.size()) - 1; // デフォルトは最後の列
     for (size_t c = 0; c < entry.col_widths.size(); c++) {
-        float col_right = cx + entry.col_widths[c] + cell_padding * 2.0f;
+        const float col_right = cx + entry.col_widths[c] + cell_padding * 2.0f;
         if (dip_x < col_right) {
             hit_col = static_cast<int>(c);
             break;
@@ -143,11 +142,11 @@ HitTestService::HitResult HitTestService::HitTestTable(
     }
 
     // セル (hit_row, hit_col) のフラットテキストオフセットを計算
-    uint32_t flat_offset = ComputeTableFlatOffset(node, hit_row, hit_col);
+    const uint32_t flat_offset = ComputeTableFlatOffset(node, hit_row, hit_col);
 
     // セルのテキストレイアウト内でヒットテスト
-    size_t r = static_cast<size_t>(hit_row);
-    size_t c = static_cast<size_t>(hit_col);
+    const size_t r = static_cast<size_t>(hit_row);
+    const size_t c = static_cast<size_t>(hit_col);
     IDWriteTextLayout* cell_layout = nullptr;
     if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
         cell_layout = entry.cell_layouts[r][c].Get();
@@ -157,14 +156,14 @@ HitTestService::HitResult HitTestService::HitTestTable(
         for (size_t cc = 0; cc < c; cc++) {
             cell_x += entry.col_widths[cc] + cell_padding * 2.0f + border;
         }
-        float cell_text_x = cell_x + cell_padding;
+        const float cell_text_x = cell_x + cell_padding;
 
         float cell_y = entry.y_position;
         for (size_t rr = 0; rr < r; rr++) {
-            float rh = (rr < entry.row_heights.size()) ? entry.row_heights[rr] : (theme.font_size_body * 1.4f);
+            const float rh = (rr < entry.row_heights.size()) ? entry.row_heights[rr] : (theme.font_size_body * 1.4f);
             cell_y += rh + border;
         }
-        float cell_text_y = cell_y + cell_padding;
+        const float cell_text_y = cell_y + cell_padding;
 
         BOOL is_trailing = FALSE, is_inside = FALSE;
         DWRITE_HIT_TEST_METRICS metrics{};
@@ -191,27 +190,26 @@ int HitTestService::CopyButtonHitTest(
     float dpi_scale,
     int screen_x, int screen_y) const noexcept
 {
-
     if (nodes.empty()) {
         return -1;
     }
 
     // 物理ピクセルをDIPに変換（ドキュメント空間）
-    float dip_x = screen_x / dpi_scale - md_pane_left;
-    float dip_y = screen_y / dpi_scale + scroll_y;
+    const float dip_x = screen_x / dpi_scale - md_pane_left;
+    const float dip_y = screen_y / dpi_scale + scroll_y;
 
     // コピーボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
-    float btn_left_bound = theme.margin_left + content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+    const float btn_left_bound = theme.margin_left + content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
     if (dip_x < btn_left_bound) {
         return -1;
     }
 
-    float viewport_top = scroll_y;
-    float viewport_bottom = scroll_y + md_pane_height;
+    const float viewport_top = scroll_y;
+    const float viewport_bottom = scroll_y + md_pane_height;
 
     // 可視範囲のコードブロックを検索
-    int first = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
-    int count = static_cast<int>(nodes.size());
+    const int first = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
+    const int count = static_cast<int>(nodes.size());
     for (int i = first; i < count; i++) {
         if (cache[i].y_position - theme.code_block_padding > viewport_bottom) {
             break;
@@ -225,17 +223,16 @@ int HitTestService::CopyButtonHitTest(
             continue;
         }
 
-        float indent = node.indent_level * theme.indent_width;
-        float x = theme.margin_left + indent;
-        float w = content_width - indent;
-        float pad = theme.code_block_padding;
+        const float indent = node.indent_level * theme.indent_width;
+        const float x = theme.margin_left + indent;
+        const float w = content_width - indent;
+        const float pad = theme.code_block_padding;
 
-        float block_right = x + w;
-        float block_top = cache[i].y_position - pad;
+        const float block_right = x + w;
+        const float block_top = cache[i].y_position - pad;
 
-        D2D1_RECT_F btn = CopyButtonRect(block_right, block_top);
-        if (dip_x >= btn.left && dip_x <= btn.right &&
-            dip_y >= btn.top && dip_y <= btn.bottom) {
+        const D2D1_RECT_F btn = CopyButtonRect(block_right, block_top);
+        if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
             return i;
         }
     }
@@ -245,8 +242,8 @@ int HitTestService::CopyButtonHitTest(
 HitTestService::NavButtonHover HitTestService::NavButtonHitTest(
     float dip_x, float dip_y, const PaneRect& md_rect) const noexcept
 {
-    float base_x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
-    float base_y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
+    const float base_x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
+    const float base_y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 
     if (dip_y < base_y || dip_y > base_y + NAV_BTN_SIZE) {
         return NavButtonHover::None;
@@ -257,7 +254,7 @@ HitTestService::NavButtonHover HitTestService::NavButtonHitTest(
         return NavButtonHover::Back;
     }
     // 進むボタン
-    float fwd_x = base_x + NAV_BTN_SIZE + NAV_BTN_GAP;
+    const float fwd_x = base_x + NAV_BTN_SIZE + NAV_BTN_GAP;
     if (dip_x >= fwd_x && dip_x <= fwd_x + NAV_BTN_SIZE) {
         return NavButtonHover::Forward;
     }

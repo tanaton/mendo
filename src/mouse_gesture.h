@@ -30,7 +30,7 @@ public:
         current_x_ = x;
         current_y_ = y;
         trail_points_.clear();
-        trail_points_.push_back({ x, y });
+        trail_points_.emplace_back(x, y);
     }
 
     void OnMouseMove(float x, float y)
@@ -42,9 +42,9 @@ public:
         current_x_ = x;
         current_y_ = y;
 
-        float dx = x - start_x_;
-        float dy = y - start_y_;
-        float dist_sq = dx * dx + dy * dy;
+        const float dx = x - start_x_;
+        const float dy = y - start_y_;
+        const float dist_sq = dx * dx + dy * dy;
 
         if (phase_ == GesturePhase::Pressed) {
             if (dist_sq >= GESTURE_THRESHOLD_SQ) {
@@ -56,13 +56,13 @@ public:
         if (phase_ == GesturePhase::Tracking) {
             // 軌跡ポイントをサブサンプリング
             const auto& last = trail_points_.back();
-            float pdx = x - last.x;
-            float pdy = y - last.y;
+            const float pdx = x - last.x;
+            const float pdy = y - last.y;
             if (pdx * pdx + pdy * pdy >= MIN_POINT_DISTANCE_SQ) {
                 if (trail_points_.size() >= static_cast<size_t>(TRAIL_MAX_POINTS)) {
                     trail_points_.pop_front();
                 }
-                trail_points_.push_back({ x, y });
+                trail_points_.emplace_back(x, y);
             }
             UpdateDirection();
             // 方向が決定されたらすぐにオーバーレイを表示する
@@ -83,7 +83,7 @@ public:
         }
 
         // トラッキング中 → 結果を判定してIdleにリセット
-        GestureDirection dir = direction_;
+        const GestureDirection dir = direction_;
         Reset();
 
         switch (dir) {
@@ -115,9 +115,9 @@ public:
 private:
     void UpdateDirection() noexcept
     {
-        float dx = current_x_ - start_x_;
-        float dy = current_y_ - start_y_;
-        float dist_sq = dx * dx + dy * dy;
+        const float dx = current_x_ - start_x_;
+        const float dy = current_y_ - start_y_;
+        const float dist_sq = dx * dx + dy * dy;
 
         if (dist_sq < GESTURE_THRESHOLD_SQ || std::abs(dx) <= std::abs(dy)) {
             direction_ = GestureDirection::None;

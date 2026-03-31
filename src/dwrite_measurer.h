@@ -4,7 +4,6 @@
 #include <wrl/client.h>
 #include <memory_resource>
 
-using Microsoft::WRL::ComPtr;
 
 // ITextMeasurerのDirectWrite実装。
 // IDWriteTextFormatオブジェクトを所有し、計測用のIDWriteTextLayoutを作成する。
@@ -32,7 +31,7 @@ private:
     IDWriteFactory* dwrite_ = nullptr;
     const Theme* theme_ = nullptr;
 
-    ComPtr<IDWriteTextFormat> fmt_body_;
-    ComPtr<IDWriteTextFormat> fmt_h_[6];
-    ComPtr<IDWriteTextFormat> fmt_code_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_body_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_h_[6];
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_code_;
 };
