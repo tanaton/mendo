@@ -179,7 +179,9 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         }
         if (run.code && node.type != NodeType::CodeBlock) {
             layout->SetFontFamilyName(theme_->monospace_font.c_str(), range);
-            layout->SetFontSize(theme_->font_size_code, range);
+            if (node.type != NodeType::Heading) {
+                layout->SetFontSize(theme_->font_size_code, range);
+            }
         }
         if (run.strikethrough) {
             layout->SetStrikethrough(TRUE, range);

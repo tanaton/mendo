@@ -1079,6 +1079,83 @@ TEST(RecomputeYPositionsTest, FromIndexListItem) {
 
 // ---- リスト箇条書き記号の垂直位置（実DWriteレイアウト使用） ----
 
+// ---- 見出し内インラインコードのフォントサイズ ----
+
+TEST_F(LayoutTest, InlineCodeInHeadingAllLevels) {
+    for (int level = 1; level <= 6; ++level) {
+        std::string md(level, '#');
+        md += " Test `code`";
+
+        auto nodes = ParseMarkdown(md);
+        LayoutCache cache;
+        cache.Resize(nodes.size());
+        engine_.ComputeLayout(nodes, cache, 800.0f);
+
+        ASSERT_EQ(nodes.size(), 1u);
+        ASSERT_EQ(nodes[0].type, NodeType::Heading);
+        ASSERT_NE(cache[0].text_layout.Get(), nullptr);
+
+        bool found_code_run = false;
+        for (const auto& run : nodes[0].runs) {
+            if (run.code) {
+                found_code_run = true;
+                float code_font_size = 0.0f;
+                DWRITE_TEXT_RANGE range{};
+                cache[0].text_layout->GetFontSize(run.start, &code_font_size, &range);
+                EXPECT_FLOAT_EQ(code_font_size, theme_.font_size_h[level - 1])
+                    << "H" << level << " 内のインラインコードのフォントサイズが不一致";
+            }
+        }
+        EXPECT_TRUE(found_code_run)
+            << "H" << level << " のインラインコード TextRun が見つからない";
+    }
+}
+
+TEST_F(LayoutTest, InlineCodeInParagraphUsesCodeFontSize) {
+    // 段落内のインラインコードは従来通り font_size_code を使うこと
+    auto nodes = ParseMarkdown("Hello `code` world");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Paragraph);
+    ASSERT_NE(cache[0].text_layout.Get(), nullptr);
+
+    for (const auto& run : nodes[0].runs) {
+        if (run.code) {
+            float code_font_size = 0.0f;
+            DWRITE_TEXT_RANGE range{};
+            cache[0].text_layout->GetFontSize(run.start, &code_font_size, &range);
+            EXPECT_FLOAT_EQ(code_font_size, theme_.font_size_code)
+                << "段落内のインラインコードは font_size_code を使うべき";
+        }
+    }
+}
+
+TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont) {
+    // 見出し内のインラインコードはフォントサイズは見出しと同じだが、フォントファミリーはモノスペースであること
+    auto nodes = ParseMarkdown("# Hello `code`");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_NE(cache[0].text_layout.Get(), nullptr);
+
+    for (const auto& run : nodes[0].runs) {
+        if (run.code) {
+            WCHAR font_name[256] = {};
+            DWRITE_TEXT_RANGE range{};
+            HRESULT hr = cache[0].text_layout->GetFontFamilyName(
+                run.start, font_name, 256, &range);
+            ASSERT_TRUE(SUCCEEDED(hr));
+            EXPECT_EQ(std::wstring(font_name), theme_.monospace_font)
+                << "見出し内のインラインコードはモノスペースフォントを使うべき";
+        }
+    }
+}
+
 TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout) {
     auto nodes = ParseMarkdown("- Item text here");
     LayoutCache cache;
