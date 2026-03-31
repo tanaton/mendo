@@ -51,7 +51,6 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result)
     if (result.type == NavigationService::NavigateResult::Type::None) {
         return;
     }
-
     if (result.type == NavigationService::NavigateResult::Type::LoadFile) {
         pending_nav_scroll_y_ = result.scroll_y;
         LoadMarkdownFile(result.target);

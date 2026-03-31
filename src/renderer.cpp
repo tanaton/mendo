@@ -210,7 +210,7 @@ void Renderer::RecreatePaneFormats()
     // テーマサイズの更新に合わせて全ペイン/UIテキストフォーマットを再作成
     constexpr DWRITE_FONT_WEIGHT W = DWRITE_FONT_WEIGHT_NORMAL;
     constexpr DWRITE_TEXT_ALIGNMENT TA_LEAD = DWRITE_TEXT_ALIGNMENT_LEADING;
-    constexpr DWRITE_TEXT_ALIGNMENT TA_CTR  = DWRITE_TEXT_ALIGNMENT_CENTER;
+    constexpr DWRITE_TEXT_ALIGNMENT TA_CTR = DWRITE_TEXT_ALIGNMENT_CENTER;
     constexpr DWRITE_TEXT_ALIGNMENT TA_TAIL = DWRITE_TEXT_ALIGNMENT_TRAILING;
     constexpr DWRITE_PARAGRAPH_ALIGNMENT PA_TOP = DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
     constexpr DWRITE_PARAGRAPH_ALIGNMENT PA_CTR = DWRITE_PARAGRAPH_ALIGNMENT_CENTER;
@@ -296,8 +296,7 @@ void Renderer::RecreatePaneFormats()
 // ノード描画ロジックはCommandGeneratorに抽出済み。
 // D2Dブラシが必要なApplyNodeEffectsのみ描画前パスとしてここに残る。
 
-void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    int first_visible, float viewport_bottom)
+void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, int first_visible, float viewport_bottom)
 {
     const int node_count = static_cast<int>(nodes.size());
     for (int i = first_visible; i < node_count; i++) {
@@ -359,15 +358,14 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
                         cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                     }
                     if (run.code && run.length > 0) {
-                        const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length,
-                            hit_test_buffer_);
+                        const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length, hit_test_buffer_);
                         for (UINT32 i = 0; i < count; i++) {
                             entry.cell_inline_code_bgs[r][c].emplace_back(
                                 hit_test_buffer_[i].left,
                                 hit_test_buffer_[i].top,
                                 hit_test_buffer_[i].width,
                                 hit_test_buffer_[i].height
-                                );
+                            );
                         }
                     }
                 }
@@ -395,8 +393,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
     }
 
     // Alertラベルの色を適用
-    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None
-        && node.alert_label_length > 0) {
+    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
         static constexpr BrushId ALERT_BRUSH[] = {
             BrushId::AlertNote, BrushId::AlertTip, BrushId::AlertImportant,
             BrushId::AlertWarning, BrushId::AlertCaution,
@@ -417,15 +414,14 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
             entry.text_layout->SetDrawingEffect(Brush(BrushId::Link), range);
         }
         if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
-            const UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length,
-                hit_test_buffer_);
+            const UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length, hit_test_buffer_);
             for (UINT32 i = 0; i < count; i++) {
                 entry.inline_code_bgs.emplace_back(
                     hit_test_buffer_[i].left,
                     hit_test_buffer_[i].top,
                     hit_test_buffer_[i].width,
                     hit_test_buffer_[i].height
-                    );
+                );
             }
         }
     }
@@ -706,8 +702,7 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     const float rect_h = 80.0f;
     const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
     const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
-    const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2,
-        cx + rect_w / 2, cy + rect_h / 2);
+    const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2, cx + rect_w / 2, cy + rect_h / 2);
 
     // 背景（両テーマ共通の半透明ダークオーバーレイ）
     const D2D1_COLOR_F bg_color = is_dark
@@ -740,8 +735,7 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
     const float rect_h = 48.0f;
     const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
     const float bottom_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE - 16.0f;
-    const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, bottom_y - rect_h,
-        cx + rect_w / 2, bottom_y);
+    const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, bottom_y - rect_h, cx + rect_w / 2, bottom_y);
 
     // 半透明ダーク背景
     const D2D1_COLOR_F bg_color = is_dark

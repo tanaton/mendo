@@ -9,8 +9,6 @@
 #include <filesystem>
 #include <functional>
 
-using Microsoft::WRL::ComPtr;
-
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "shlwapi.lib")
 
@@ -142,9 +140,9 @@ static std::vector<uint8_t> ReadAllStreamBytes(IStream* stream)
 }
 
 // ヘルパー: 指定されたバイトデータのコピーを含むIStreamを作成する。
-static ComPtr<IStream> CreateMemoryStream(const void* data, size_t size)
+static Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size_t size)
 {
-    ComPtr<IStream> stream;
+    Microsoft::WRL::ComPtr<IStream> stream;
     if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream) {
         return nullptr;
     }
@@ -204,8 +202,12 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
     worker_count_ = ComputeWorkerCount();
 
     // PNGデコード用のWICファクトリを作成
-    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic_factory_));
+    CoCreateInstance(
+        CLSID_WICImagingFactory,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&wic_factory_)
+    );
 
     // オフスクリーンでWebView2をホストする非表示ポップアップウィンドウを登録・作成する。
     // WebView2はCapturePreviewでコンテンツをレンダリングするためにIsVisible=TRUEが必要なため、
@@ -284,7 +286,7 @@ void MermaidRenderer::SetupWorker(int index)
         controller->put_Bounds(bounds);
 
         // 不要な機能を無効化する
-        ComPtr<ICoreWebView2Settings> settings;
+        Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;
         w.webview->get_Settings(&settings);
         if (settings) {
             settings->put_AreDevToolsEnabled(FALSE);
@@ -370,8 +372,7 @@ void MermaidRenderer::SetupWorker(int index)
                 [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
             args->put_Handled(TRUE);
             return S_OK;
-        }).Get(),
-            nullptr);
+        }).Get(), nullptr);
 
         // 仮想ホストへのリクエストをインターセプトし、
         // 埋め込みWin32リソースからHTML / mermaid.jsを配信する。
@@ -384,7 +385,7 @@ void MermaidRenderer::SetupWorker(int index)
             Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(
                 [this](ICoreWebView2*,
                     ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
-            ComPtr<ICoreWebView2WebResourceRequest> request;
+            Microsoft::WRL::ComPtr<ICoreWebView2WebResourceRequest> request;
             args->get_Request(&request);
             LPWSTR uri = nullptr;
             request->get_Uri(&uri);
@@ -393,14 +394,13 @@ void MermaidRenderer::SetupWorker(int index)
 
             // app.local以外へのリクエストをブロック（fetch/XHR等）
             if (url.find(L"app.local") == std::pmr::wstring::npos) {
-                ComPtr<ICoreWebView2WebResourceResponse> response;
-                webview_env_->CreateWebResourceResponse(
-                    nullptr, 403, L"Blocked", L"", &response);
+                Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
+                webview_env_->CreateWebResourceResponse(nullptr, 403, L"Blocked", L"", &response);
                 args->put_Response(response.Get());
                 return S_OK;
             }
 
-            ComPtr<IStream> stream;
+            Microsoft::WRL::ComPtr<IStream> stream;
             const wchar_t* headers = nullptr;
 
             if (url.find(L"/mermaid.min.js.gz") != std::pmr::wstring::npos) {
@@ -419,9 +419,8 @@ void MermaidRenderer::SetupWorker(int index)
             }
 
             if (stream && headers) {
-                ComPtr<ICoreWebView2WebResourceResponse> response;
-                webview_env_->CreateWebResourceResponse(
-                    stream.Get(), 200, L"OK", headers, &response);
+                Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
+                webview_env_->CreateWebResourceResponse(stream.Get(), 200, L"OK", headers, &response);
                 args->put_Response(response.Get());
             }
             return S_OK;
@@ -507,7 +506,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         if (file_cache_->Lookup(fkey, fentry, png_data)) {
             auto stream = CreateMemoryStream(png_data.data(), png_data.size());
             if (stream) {
-                ComPtr<ID2D1Bitmap> bitmap;
+                Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
                 float bw = 0, bh = 0;
                 if (SUCCEEDED(CreateBitmapFromPngStream(stream.Get(), &bitmap, &bw, &bh)) && bitmap) {
                     diagram_entry.bitmap = bitmap;
@@ -724,7 +723,7 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
     // CapturePreviewコールバックでもリクエストIDを照合し、
     // CancelPending後に到着した古いキャプチャ結果を無視する
     const unsigned int req_id = w.current_request.request_id;
-    ComPtr<IStream> pngStream;
+    Microsoft::WRL::ComPtr<IStream> pngStream;
     CreateStreamOnHGlobal(nullptr, TRUE, &pngStream);
 
     const HRESULT hr = w.webview->CapturePreview(
@@ -753,7 +752,7 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
 void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStream* png_stream)
 {
     auto& w = workers_[worker_idx];
-    ComPtr<ID2D1Bitmap> bitmap;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float bw = 0, bh = 0;
 
     if (SUCCEEDED(CreateBitmapFromPngStream(png_stream, &bitmap, &bw, &bh)) && bitmap) {
@@ -814,20 +813,20 @@ HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap*
     const LARGE_INTEGER zero = {};
     stream->Seek(zero, STREAM_SEEK_SET, nullptr);
 
-    ComPtr<IWICBitmapDecoder> decoder;
+    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     HRESULT hr = wic_factory_->CreateDecoderFromStream(
         stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
     if (FAILED(hr)) {
         return hr;
     }
 
-    ComPtr<IWICBitmapFrameDecode> frame;
+    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
     hr = decoder->GetFrame(0, &frame);
     if (FAILED(hr)) {
         return hr;
     }
 
-    ComPtr<IWICFormatConverter> converter;
+    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
     hr = wic_factory_->CreateFormatConverter(&converter);
     if (FAILED(hr)) {
         return hr;

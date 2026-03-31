@@ -309,8 +309,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
 
     // セルレイアウトが既に存在する場合は第1パス（テキストレイアウト作成）をスキップし、
     // 列幅の再計算のみ行う（リサイズ時の高速パス）。
-    const bool has_existing_layouts = !entry.cell_layouts.empty()
-        && entry.cell_layouts.size() == node.table_rows().size();
+    const bool has_existing_layouts = !entry.cell_layouts.empty() && (entry.cell_layouts.size() == node.table_rows().size());
     if (has_existing_layouts) {
         // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
         if (entry.natural_col_widths.size() == col_count) {

@@ -205,7 +205,8 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, std::vector<uint8
         // ファイルが存在しない（書き込み前 or 削除済み）→ 古いインデックスエントリを除去
         if (total_size_ >= it->second.png_size) {
             total_size_ -= it->second.png_size;
-        } else {
+        }
+        else {
             total_size_ = 0;
         }
         RemoveLruEntry(it->second.last_used, key);
@@ -286,8 +287,10 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
         std::ofstream ofs(path, std::ios::binary);
         if (ofs) {
-            ofs.write(reinterpret_cast<const char*>(data.data()),
-                static_cast<std::streamsize>(data.size()));
+            ofs.write(
+                reinterpret_cast<const char*>(data.data()),
+                static_cast<std::streamsize>(data.size())
+            );
         }
     });
 }
@@ -316,7 +319,8 @@ void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
 
         if (total_size_ >= it->second.png_size) {
             total_size_ -= it->second.png_size;
-        } else {
+        }
+        else {
             total_size_ = 0;
         }
         index_.erase(it);

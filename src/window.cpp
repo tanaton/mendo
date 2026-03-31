@@ -66,8 +66,7 @@ void Win32Window::UpdateDwmFrame()
     // キャプションボタンは自前描画のため大きな拡張は不要。
     const MARGINS margins = { 0, 0, 1, 0 };
     DwmExtendFrameIntoClientArea(hwnd_, &margins);
-    SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
-        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 int Win32Window::RunMessageLoop()
@@ -75,7 +74,9 @@ int Win32Window::RunMessageLoop()
     MSG msg{};
     BOOL ret;
     while ((ret = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
-        if (ret == -1) break;
+        if (ret == -1) {
+            break;
+        }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
@@ -246,15 +247,21 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     case WM_RBUTTONDOWN:
-        if (in_sys_menu_) { return 0; }
-        if (!app_.OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        if (in_sys_menu_) {
+            return 0;
+        }
+        if (!app_.OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        }
         return 0;
 
     case WM_RBUTTONUP:
-        if (in_sys_menu_) { return 0; }
-        if (!app_.OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        if (in_sys_menu_) {
+            return 0;
+        }
+        if (!app_.OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        }
         return 0;
 
     case WM_LBUTTONDOWN:
@@ -312,7 +319,9 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_CONTEXTMENU: {
         // システムメニュー表示中はカスタムメニューを抑制
-        if (in_sys_menu_) { return 0; }
+        if (in_sys_menu_) {
+            return 0;
+        }
         const int sx = GET_X_LPARAM(lParam);
         const int sy = GET_Y_LPARAM(lParam);
         // マウス由来の場合、タイトルバー上の右クリックは抑制する
@@ -335,8 +344,12 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_XBUTTONDOWN: {
         const WORD button = GET_XBUTTON_WPARAM(wParam);
-        if (button == XBUTTON1) app_.OnXButtonBack();
-        else if (button == XBUTTON2) app_.OnXButtonForward();
+        if (button == XBUTTON1) {
+            app_.OnXButtonBack();
+        }
+        else if (button == XBUTTON2) {
+            app_.OnXButtonForward();
+        }
         return TRUE;
     }
 
@@ -432,8 +445,7 @@ void Win32Window::ResetWindowPlacement()
     const int x = work.left + (work_w - w) / 2;
     const int y = work.top + (work_h - h) / 2;
 
-    SetWindowPos(hwnd_, nullptr, x, y, w, h,
-        SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    SetWindowPos(hwnd_, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
 
 // ============================================================
@@ -480,7 +492,8 @@ bool Win32Window::RestoreWindowPlacement(int nCmdShow)
         if (maximized) {
             wp.flags = WPF_RESTORETOMAXIMIZED;
         }
-    } else {
+    }
+    else {
         wp.showCmd = maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
     }
 

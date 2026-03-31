@@ -101,7 +101,6 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const Theme& theme,
     float dip_x, float dip_y) const noexcept
 {
-
     HitResult result;
     result.node_index = node_index;
 
@@ -233,8 +232,7 @@ int HitTestService::CopyButtonHitTest(
         const float block_top = cache[i].y_position - pad;
 
         const D2D1_RECT_F btn = CopyButtonRect(block_right, block_top);
-        if (dip_x >= btn.left && dip_x <= btn.right &&
-            dip_y >= btn.top && dip_y <= btn.bottom) {
+        if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
             return i;
         }
     }

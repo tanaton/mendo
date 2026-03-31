@@ -5,14 +5,12 @@
 #include <shlwapi.h>
 #include <vector>
 
-using Microsoft::WRL::ComPtr;
-
 #pragma comment(lib, "shlwapi.lib")
 
 // ファイルを共有モードでメモリに読み込みIStreamとして返す。
 // CreateDecoderFromFilename はファイルを排他的に開くため、
 // 外部エディタ等がファイルを更新できなくなる問題を回避する。
-static ComPtr<IStream> ReadFileToStream(const std::wstring& path)
+static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path)
 {
     const HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -36,7 +34,7 @@ static ComPtr<IStream> ReadFileToStream(const std::wstring& path)
         return nullptr;
     }
 
-    ComPtr<IStream> stream;
+    Microsoft::WRL::ComPtr<IStream> stream;
     stream.Attach(SHCreateMemStream(buf.data(), static_cast<UINT>(buf.size())));
     return stream;
 }
@@ -61,9 +59,14 @@ void ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
     render_target_ = rt;
     if (wic) {
         wic_factory_ = wic;
-    } else {
-        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&wic_factory_));
+    }
+    else {
+        HRESULT hr = CoCreateInstance(
+            CLSID_WICImagingFactory,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&wic_factory_)
+        );
         if (FAILED(hr)) {
             wic_factory_.Reset();
         }
@@ -103,20 +106,24 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
         return false;
     }
 
-    ComPtr<IWICBitmapDecoder> decoder;
+    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     HRESULT hr = wic_factory_->CreateDecoderFromStream(
-        stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
+        stream.Get(),
+        nullptr,
+        WICDecodeMetadataCacheOnLoad,
+        &decoder
+    );
     if (FAILED(hr)) {
         return false;
     }
 
-    ComPtr<IWICBitmapFrameDecode> frame;
+    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
     hr = decoder->GetFrame(0, &frame);
     if (FAILED(hr)) {
         return false;
     }
 
-    ComPtr<IWICFormatConverter> converter;
+    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
     hr = wic_factory_->CreateFormatConverter(&converter);
     if (FAILED(hr)) {
         return false;
@@ -130,7 +137,7 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
         return false;
     }
 
-    ComPtr<ID2D1Bitmap> bitmap;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     hr = render_target_->CreateBitmapFromWicBitmap(converter.Get(), &bitmap);
     if (FAILED(hr)) {
         return false;
@@ -194,15 +201,15 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
 
         if (wic_factory_) {
             const auto stream = ReadFileToStream(path);
-            ComPtr<IWICBitmapDecoder> decoder;
+            Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
             HRESULT hr = stream ? wic_factory_->CreateDecoderFromStream(
                 stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder) : E_FAIL;
 
             if (SUCCEEDED(hr)) {
-                ComPtr<IWICBitmapFrameDecode> frame;
+                Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
                 hr = decoder->GetFrame(0, &frame);
                 if (SUCCEEDED(hr)) {
-                    ComPtr<IWICFormatConverter> converter;
+                    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
                     hr = wic_factory_->CreateFormatConverter(&converter);
                     if (SUCCEEDED(hr)) {
                         hr = converter->Initialize(
@@ -265,9 +272,8 @@ void ImageLoader::ProcessCompletedDecodes()
     for (auto& r : results) {
         if (r.success && r.converter && render_target_) {
             if (!cache_.contains(r.path)) {
-                ComPtr<ID2D1Bitmap> bitmap;
-                const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(
-                    r.converter.Get(), &bitmap);
+                Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+                const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.converter.Get(), &bitmap);
                 if (SUCCEEDED(hr) && bitmap) {
                     CachedImage cached;
                     cached.bitmap = bitmap;

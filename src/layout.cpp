@@ -74,7 +74,9 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
             }
             total += row.cells[c].text.size();
         }
-        if (r + 1 < rows.size()) total++;
+        if (r + 1 < rows.size()) {
+            total++;
+        }
     }
     std::pmr::wstring text;
     text.reserve(total);
@@ -86,7 +88,9 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
             }
             text += row.cells[c].text;
         }
-        if (r + 1 < rows.size()) text += L'\n';
+        if (r + 1 < rows.size()) {
+            text += L'\n';
+        }
     }
     return text;
 }
@@ -116,10 +120,14 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
         // 早期終了: safe_exit_after 以降でY位置が一致すれば、
         // 以降のノードのY位置は変わらない。
         if (i > safe_exit_after && entry.y_position == y) {
-            // 残りにダーティノードがあるかは不明なため保守的にtrueとする。
-            // ProcessDirtyBatch の次回呼び出しで確認・クリアされる。
+            // 残りのダーティノードを確認（Y更新より軽量なフラグチェックのみ）
             if (!result.has_dirty_nodes) {
-                result.has_dirty_nodes = true;
+                for (size_t j = i; j < nodes.size(); j++) {
+                    if (cache[j].layout_dirty) {
+                        result.has_dirty_nodes = true;
+                        break;
+                    }
+                }
             }
             const size_t last_idx = nodes.size() - 1;
             result.total_height = cache[last_idx].y_position + cache[last_idx].height
@@ -170,6 +178,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     float y = theme_->margin_top;
     bool any_dirty = false;
     bool any_height_changed = false;
+    bool any_measured = false;
     bool broke_early = false;
 
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -188,6 +197,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                 if (visible) {
                     const float old_height = entry.height;
                     measurer_->MeasureNode(node, entry, node_width);
+                    any_measured = true;
                     if (entry.height != old_height) any_height_changed = true;
                 }
                 else {
@@ -196,6 +206,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
             }
             else {
                 measurer_->MeasureNode(node, entry, node_width);
+                any_measured = true;
             }
         }
 
@@ -224,7 +235,10 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         total_height_ = y + theme_->margin_top;
     }
     has_dirty_nodes_ = any_dirty;
-    cache.IncrementEffectsGeneration();
+
+    if (any_measured) {
+        cache.IncrementEffectsGeneration();
+    }
 }
 
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
@@ -282,7 +296,9 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
             continue;
         }
 
-        if (first_dirty == nodes.size()) first_dirty = i;
+        if (first_dirty == nodes.size()) {
+            first_dirty = i;
+        }
         const float indent = nodes[i].indent_level * theme_->indent_width;
         measurer_->MeasureNode(nodes[i], entry, content_width - indent);
         last_processed = i;

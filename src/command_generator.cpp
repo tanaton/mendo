@@ -25,7 +25,8 @@ static void GenInlineCodeBgs(DrawCommandList& cmds,
             origin_x + bg.left - 3.0f,
             origin_y + bg.top - 2.0f,
             origin_x + bg.left + bg.width + 3.0f,
-            origin_y + bg.top + bg.height + 2.0f);
+            origin_y + bg.top + bg.height + 2.0f
+        );
         cmds.emplace_back(FillRoundedRectCmd{ rect, 3.0f, 3.0f, color });
     }
 }
@@ -199,8 +200,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     GenInlineCodeBgs(cmds, entry.inline_code_bgs, x, entry.y_position, theme_->code_bg_color);
 
     // 選択範囲のハイライト
-    if (selection.active &&
-        node_index >= selection.start_node && node_index <= selection.end_node) {
+    if (selection.active && node_index >= selection.start_node && node_index <= selection.end_node) {
         uint32_t sel_start = 0;
         uint32_t sel_end = static_cast<uint32_t>(node.text.size());
         if (node_index == selection.start_node) {
@@ -216,8 +216,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     }
 
     // メインテキスト
-    cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(x, entry.y_position),
-                                        entry.text_layout.Get(), base_color });
+    cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(x, entry.y_position), entry.text_layout.Get(), base_color });
 
     // タスクリストのチェックボックス
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {
@@ -228,7 +227,8 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             &icon, 1,
             D2D1::RectF(cb_x, entry.y_position, cb_x + icon_size, entry.y_position + icon_size * 1.5f),
             formats_.icon_font,
-            theme_->text_color));
+            theme_->text_color
+        ));
     }
 }
 
@@ -269,8 +269,7 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCel
         const uint32_t ov_start = std::max(sel_start, flat_offset);
         const uint32_t ov_end = std::min(sel_end, flat_offset + cell_len);
         if (ov_end > ov_start) {
-            GenSelectionHighlight(cmds, cell_layout,
-                ov_start - flat_offset, ov_end - ov_start, text_x, text_y);
+            GenSelectionHighlight(cmds, cell_layout, ov_start - flat_offset, ov_end - ov_start, text_x, text_y);
         }
     }
     if (cell_layout) {
@@ -296,8 +295,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
         table_width += cw + cell_padding * 2.0f + border;
     }
 
-    bool has_selection = selection.active &&
-        node_index >= selection.start_node && node_index <= selection.end_node;
+    bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
     uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(node.text.size());
     if (has_selection) {
         if (node_index == selection.start_node) {
@@ -368,12 +366,10 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
             // セルのインラインコード背景
             if (r < entry.cell_inline_code_bgs.size() && c < entry.cell_inline_code_bgs[r].size()) {
-                GenInlineCodeBgs(cmds, entry.cell_inline_code_bgs[r][c],
-                    text_x, text_y, theme_->code_bg_color);
+                GenInlineCodeBgs(cmds, entry.cell_inline_code_bgs[r][c], text_x, text_y, theme_->code_bg_color);
             }
 
-            GenTableCellContent(cmds, cell, cell_layout, text_x, text_y,
-                has_selection, sel_start, sel_end, flat_offset);
+            GenTableCellContent(cmds, cell, cell_layout, text_x, text_y, has_selection, sel_start, sel_end, flat_offset);
 
             flat_offset += static_cast<uint32_t>(cell.text.size());
             if (c + 1 < row.cells.size()) {
@@ -407,8 +403,11 @@ void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds,
 {
     const float pad = theme_->code_block_padding;
     const D2D1_RECT_F bg_rect = D2D1::RectF(
-        x - pad, entry.y_position - pad,
-        x + w, entry.y_position + entry.height + pad);
+        x - pad,
+        entry.y_position - pad,
+        x + w,
+        entry.y_position + entry.height + pad
+    );
     cmds.emplace_back(FillRoundedRectCmd{ bg_rect, 4.0f, 4.0f, theme_->code_bg_color });
 }
 
@@ -454,7 +453,8 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
                 x - theme_->list_bullet_offset - 8.0f,
                 entry.y_position,
                 x - 4.0f,
-                entry.y_position + first_line_h);
+                entry.y_position + first_line_h
+            );
             cmds.emplace_back(DrawTextCmd::Make(num_buf, num_len, num_rect, formats_.list_number, theme_->text_color));
         }
     }
@@ -539,8 +539,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
                 const D2D1_RECT_F bg_rect = D2D1::RectF(
                     x - ALERT_BG_PAD, group_top - ALERT_BG_PAD,
                     x + cw, group_bottom + ALERT_BG_PAD);
-                cmds.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER,
-                    theme_->alert_bg_color[idx] });
+                cmds.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, theme_->alert_bg_color[idx] });
                 cmds.emplace_back(DrawLineCmd{
                     D2D1::Point2F(bar_x, group_top - BAR_EXTEND),
                     D2D1::Point2F(bar_x, group_bottom + BAR_EXTEND),

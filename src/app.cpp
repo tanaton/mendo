@@ -205,17 +205,16 @@ void App::InvalidatePane(const PaneRect& rect) noexcept
 
 void App::InvalidateTitleBar() noexcept
 {
-    const float scale = cached_dpi_scale_;
     const float tb_h = titlebar_.GetHeight();
     if (tb_h <= 0.0f) {
         return;
     }
-    RECT rc;
-    rc.left = 0;
-    rc.top = 0;
-    rc.right = static_cast<LONG>(cached_window_width_for_layout_ * scale) + 1;
-    rc.bottom = static_cast<LONG>(tb_h * scale) + 1;
-    InvalidateRect(hwnd_, &rc, FALSE);
+    // 幅が未計算（初期化直後など）の場合はウィンドウ全体を無効化する
+    if (cached_window_width_for_layout_ <= 0.0f) {
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+    InvalidatePane(PaneRect{ 0.0f, 0.0f, cached_window_width_for_layout_, tb_h });
 }
 
 PaneZone App::PaneAtPoint(float dip_x, [[maybe_unused]] float dip_y) const

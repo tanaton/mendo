@@ -17,8 +17,7 @@ static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent,
         cache.cached_width != width || cache.cached_height != height) {
         cache.bitmap_rt.Reset();
         cache.cached_bitmap.Reset();
-        const HRESULT hr = parent->CreateCompatibleRenderTarget(
-            D2D1::SizeF(width, height), &cache.bitmap_rt);
+        const HRESULT hr = parent->CreateCompatibleRenderTarget(D2D1::SizeF(width, height), &cache.bitmap_rt);
         if (FAILED(hr)) {
             return false;
         }
@@ -47,8 +46,7 @@ static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb
     const float thumb_x = pane_width - PANE_SCROLLBAR_WIDTH - 2.0f;
 
     D2D1_ROUNDED_RECT thumb_rect;
-    thumb_rect.rect = D2D1::RectF(thumb_x, thumb_y,
-        thumb_x + PANE_SCROLLBAR_WIDTH, thumb_y + thumb_height);
+    thumb_rect.rect = D2D1::RectF(thumb_x, thumb_y, thumb_x + PANE_SCROLLBAR_WIDTH, thumb_y + thumb_height);
     thumb_rect.radiusX = PANE_SCROLLBAR_WIDTH / 2.0f;
     thumb_rect.radiusY = PANE_SCROLLBAR_WIDTH / 2.0f;
 
@@ -77,8 +75,9 @@ static void DrawSidePaneImpl(
     bool refresh_hovered,
     DrawItemFn draw_item)
 {
-    if (!EnsurePaneCacheSize(cache, main_rt, rect.width, rect.height))
+    if (!EnsurePaneCacheSize(cache, main_rt, rect.width, rect.height)) {
         return;
+    }
 
     if (cache.dirty) {
         auto* rt = cache.bitmap_rt.Get();
@@ -95,8 +94,7 @@ static void DrawSidePaneImpl(
             rt->FillRectangle(close_rect, close_hover_brush);
         }
         if (fmt_close_icon) {
-            rt->DrawText(L"\uE8BB", 1, fmt_close_icon, close_rect, text_brush,
-                D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            rt->DrawText(L"\uE8BB", 1, fmt_close_icon, close_rect, text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
         // 更新ボタン（閉じるボタンの左隣、ファイルペインのみ）
@@ -115,8 +113,14 @@ static void DrawSidePaneImpl(
 
         if (fmt_header) {
             const D2D1_RECT_F header_rect = D2D1::RectF(8.0f, 0, header_text_right, theme.pane_header_height);
-            rt->DrawText(header_text.data(), static_cast<UINT32>(header_text.size()),
-                fmt_header, header_rect, text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            rt->DrawText(
+                header_text.data(),
+                static_cast<UINT32>(header_text.size()),
+                fmt_header,
+                header_rect,
+                text_brush,
+                D2D1_DRAW_TEXT_OPTIONS_CLIP
+            );
         }
 
         // クリッピング付きコンテンツ領域
@@ -128,8 +132,10 @@ static void DrawSidePaneImpl(
 
         // ビューポートカリング
         const int first = std::max(0, static_cast<int>(scroll.scroll_y / theme.pane_item_height));
-        const int last = std::min(item_count - 1,
-            static_cast<int>((scroll.scroll_y + content_height) / theme.pane_item_height) + 1);
+        const int last = std::min(
+            item_count - 1,
+            static_cast<int>((scroll.scroll_y + content_height) / theme.pane_item_height) + 1
+        );
 
         for (int i = first; i <= last; i++) {
             const float item_y = content_top + i * theme.pane_item_height;
@@ -183,21 +189,29 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
 
         if (fmt_.pane_icon) {
             const wchar_t* icon;
-            if (entry.is_parent) icon = L"\uE74A";
-            else if (entry.is_directory) icon = L"\uE8B7";
-            else icon = L"\uE8A5";
-            const D2D1_RECT_F icon_rect = D2D1::RectF(
-                4.0f, item_y, 4.0f + icon_col_width, item_y + theme_.pane_item_height);
-            rt->DrawText(icon, 1, fmt_.pane_icon.Get(), icon_rect, Brush(BrushId::Text),
-                D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            if (entry.is_parent) {
+                icon = L"\uE74A";
+            }
+            else if (entry.is_directory) {
+                icon = L"\uE8B7";
+            }
+            else {
+                icon = L"\uE8A5";
+            }
+            const D2D1_RECT_F icon_rect = D2D1::RectF(4.0f, item_y, 4.0f + icon_col_width, item_y + theme_.pane_item_height);
+            rt->DrawText(icon, 1, fmt_.pane_icon.Get(), icon_rect, Brush(BrushId::Text), D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
         if (fmt_.pane_item) {
-            const D2D1_RECT_F text_rect = D2D1::RectF(
-                4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
-            rt->DrawText(entry.filename.c_str(), static_cast<UINT32>(entry.filename.size()),
-                fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
-                D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            const D2D1_RECT_F text_rect = D2D1::RectF(4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
+            rt->DrawText(
+                entry.filename.c_str(),
+                static_cast<UINT32>(entry.filename.size()),
+                fmt_.pane_item.Get(),
+                text_rect,
+                Brush(BrushId::Text),
+                D2D1_DRAW_TEXT_OPTIONS_CLIP
+            );
         }
     });
 }
@@ -236,7 +250,9 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
             rt->DrawLine(
                 D2D1::Point2F(line_left, line_y),
                 D2D1::Point2F(width - 4.0f, line_y),
-                Brush(BrushId::Text), 1.5f);
+                Brush(BrushId::Text),
+                1.5f
+            );
         }
     });
 }
@@ -285,8 +301,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     const float text_alpha = tb.window_active ? 1.0f : 0.5f;
 
     // アイコンボタン描画ヘルパー
-    auto drawButton = [&](const D2D1_RECT_F& rect, const wchar_t* icon,
-        bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
+    auto drawButton = [&](const D2D1_RECT_F& rect, const wchar_t* icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
         if (show_bg) {
             rt()->FillRectangle(rect, Brush(bg_id));
         }
@@ -326,7 +341,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         tb.minimize_btn_hovered, BrushId::TitleBarButtonHover,
         BrushId::TitleBarText, text_alpha);
 
-    const wchar_t max_icon[] = { tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
+    const wchar_t max_icon[]{ tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
     drawButton(tb.maximize_btn_rect, max_icon,
         tb.maximize_btn_hovered, BrushId::TitleBarButtonHover,
         BrushId::TitleBarText, text_alpha);
@@ -346,8 +361,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     // アプリアイコン
     if (app_icon_bitmap_) {
         const float icon_alpha = tb.window_active ? 1.0f : 0.5f;
-        rt()->DrawBitmap(app_icon_bitmap_.Get(), tb.icon_rect, icon_alpha,
-            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        rt()->DrawBitmap(app_icon_bitmap_.Get(), tb.icon_rect, icon_alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
 
     // タイトルテキスト

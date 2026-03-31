@@ -308,16 +308,10 @@ void ContextMenu::BuildItems(const ContextMenuParams& params)
         items_.emplace_back(ItemType::Text, IDM_COPY, L"コピー", params.has_selection, false);
         items_.emplace_back(ItemType::Separator);
     }
-
-    items_.emplace_back(ItemType::Text, IDM_TOGGLE_DARK_MODE, L"ダークモード",
-        true, params.dark_mode_checked);
-
+    items_.emplace_back(ItemType::Text, IDM_TOGGLE_DARK_MODE, L"ダークモード", true, params.dark_mode_checked);
     items_.emplace_back(ItemType::Separator);
-
-    items_.emplace_back(ItemType::Text, IDM_TOGGLE_FILE_PANE, L"ファイルペイン",
-        true, params.file_pane_checked);
-    items_.emplace_back(ItemType::Text, IDM_TOGGLE_TOC_PANE, L"目次ペイン",
-        true, params.toc_pane_checked);
+    items_.emplace_back(ItemType::Text, IDM_TOGGLE_FILE_PANE, L"ファイルペイン", true, params.file_pane_checked);
+    items_.emplace_back(ItemType::Text, IDM_TOGGLE_TOC_PANE, L"目次ペイン", true, params.toc_pane_checked);
 }
 
 // ============================================================
@@ -366,8 +360,7 @@ void ContextMenu::ComputeLayout()
             const float bx = cx - total_w / 2.0f;
             const float by = y + NAV_ROW_PAD_Y;
             nav_layout_.back_rect = { bx, by, bx + NAV_BTN_SIZE, by + NAV_BTN_SIZE };
-            nav_layout_.fwd_rect = { bx + NAV_BTN_SIZE + NAV_BTN_GAP, by,
-                                     bx + total_w, by + NAV_BTN_SIZE };
+            nav_layout_.fwd_rect = { bx + NAV_BTN_SIZE + NAV_BTN_GAP, by, bx + total_w, by + NAV_BTN_SIZE };
             y += row_h;
             break;
         }
@@ -396,7 +389,7 @@ bool ContextMenu::EnsureRenderTarget(float dpi)
     }
     RECT rc;
     GetClientRect(hwnd_, &rc);
-    const D2D1_SIZE_U size = { static_cast<UINT32>(rc.right), static_cast<UINT32>(rc.bottom) };
+    const D2D1_SIZE_U size{ static_cast<UINT32>(rc.right), static_cast<UINT32>(rc.bottom) };
     D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties();
     rtProps.dpiX = dpi;
     rtProps.dpiY = dpi;
@@ -469,9 +462,13 @@ void ContextMenu::Paint()
     rt_->Clear(theme_->pane_bg_color);
 
     // 枠線
-    const D2D1_RECT_F border_rect = { MENU_BORDER * 0.5f, MENU_BORDER * 0.5f,
-        menu_width_ - MENU_BORDER * 0.5f, menu_height_ - MENU_BORDER * 0.5f };
-    const D2D1_ROUNDED_RECT rr = { border_rect, MENU_CORNER, MENU_CORNER };
+    const D2D1_RECT_F border_rect{
+        MENU_BORDER * 0.5f,
+        MENU_BORDER * 0.5f,
+        menu_width_ - MENU_BORDER * 0.5f,
+        menu_height_ - MENU_BORDER * 0.5f
+    };
+    const D2D1_ROUNDED_RECT rr{ border_rect, MENU_CORNER, MENU_CORNER };
     rt_->DrawRoundedRectangle(rr, brush_border_.Get(), MENU_BORDER);
 
     for (const auto& item : items_) {
@@ -507,10 +504,8 @@ void ContextMenu::DrawNavRow(const Item& /*item*/)
         }
     };
 
-    draw_btn(nav_layout_.back_rect, GLYPH_BACK, nav_layout_.back_enabled,
-        hovered_nav_ == -1);
-    draw_btn(nav_layout_.fwd_rect, GLYPH_FORWARD, nav_layout_.fwd_enabled,
-        hovered_nav_ == 1);
+    draw_btn(nav_layout_.back_rect, GLYPH_BACK, nav_layout_.back_enabled, hovered_nav_ == -1);
+    draw_btn(nav_layout_.fwd_rect, GLYPH_FORWARD, nav_layout_.fwd_enabled, hovered_nav_ == 1);
 }
 
 void ContextMenu::DrawSeparator(const Item& item)
@@ -520,7 +515,9 @@ void ContextMenu::DrawSeparator(const Item& item)
     rt_->DrawLine(
         { item.rect.left + margin, cy },
         { item.rect.right - margin, cy },
-        brush_border_.Get(), 1.0f);
+        brush_border_.Get(),
+        1.0f
+    );
 }
 
 void ContextMenu::DrawTextItem(const Item& item)
@@ -529,11 +526,12 @@ void ContextMenu::DrawTextItem(const Item& item)
 
     if (hovered) {
         const float margin = 4.0f;
-        const D2D1_ROUNDED_RECT rr = {
-            { item.rect.left + margin, item.rect.top + 1.0f,
-              item.rect.right - margin, item.rect.bottom - 1.0f },
-            4.0f, 4.0f
-        };
+        const D2D1_ROUNDED_RECT rr{ {
+            item.rect.left + margin,
+            item.rect.top + 1.0f,
+            item.rect.right - margin,
+            item.rect.bottom - 1.0f
+        }, 4.0f, 4.0f };
         rt_->FillRoundedRectangle(rr, brush_hover_.Get());
     }
 
@@ -556,8 +554,7 @@ void ContextMenu::DrawTextItem(const Item& item)
             item.rect.left + PAD_X, item.rect.top,
             item.rect.right - 8.0f, item.rect.bottom
         };
-        rt_->DrawText(item.text.c_str(), static_cast<UINT32>(item.text.size()),
-            fmt_text_.Get(), text_rc, brush);
+        rt_->DrawText(item.text.c_str(), static_cast<UINT32>(item.text.size()), fmt_text_.Get(), text_rc, brush);
     }
 }
 

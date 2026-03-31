@@ -37,9 +37,15 @@ bool IsAtLineStart(std::wstring_view text, size_t pos)
 {
     if (pos == 0) { return true; }
     for (size_t i = pos - 1; ; i--) {
-        if (text[i] == L'\n') { return true; }
-        if (text[i] != L' ' && text[i] != L'\t') { return false; }
-        if (i == 0) { return true; }
+        if (text[i] == L'\n') {
+            return true;
+        }
+        if (text[i] != L' ' && text[i] != L'\t') {
+            return false;
+        }
+        if (i == 0) {
+            return true;
+        }
     }
 }
 
@@ -56,7 +62,7 @@ KeywordSet MergeKeywords(const KeywordSet& base, std::initializer_list<std::wstr
 
 const KeywordSet& CppKeywords()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"auto", L"break", L"case", L"catch", L"class", L"const", L"consteval",
         L"constexpr", L"constinit", L"continue", L"co_await", L"co_return", L"co_yield",
         L"decltype", L"default", L"delete", L"do", L"else", L"enum", L"explicit",
@@ -75,7 +81,7 @@ const KeywordSet& CppKeywords()
 
 const KeywordSet& CppTypes()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"int", L"long", L"short", L"char", L"float", L"double", L"bool",
         L"unsigned", L"signed", L"size_t", L"ptrdiff_t",
         L"uint8_t", L"uint16_t", L"uint32_t", L"uint64_t",
@@ -93,7 +99,7 @@ const KeywordSet& CppTypes()
 
 const KeywordSet& PythonKeywords()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"and", L"as", L"assert", L"async", L"await", L"break", L"class",
         L"continue", L"def", L"del", L"elif", L"else", L"except", L"finally",
         L"for", L"from", L"global", L"if", L"import", L"in", L"is", L"lambda",
@@ -105,7 +111,7 @@ const KeywordSet& PythonKeywords()
 
 const KeywordSet& PythonTypes()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"int", L"float", L"str", L"bool", L"list", L"dict", L"set", L"tuple",
         L"bytes", L"bytearray", L"object", L"type", L"range", L"complex",
         L"frozenset", L"memoryview", L"property", L"classmethod", L"staticmethod",
@@ -117,7 +123,7 @@ const KeywordSet& PythonTypes()
 
 const KeywordSet& JsKeywords()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"break", L"case", L"catch", L"class", L"const", L"continue",
         L"debugger", L"default", L"delete", L"do", L"else", L"export",
         L"extends", L"finally", L"for", L"function", L"if", L"import",
@@ -130,7 +136,7 @@ const KeywordSet& JsKeywords()
 
 const KeywordSet& JsTypes()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"Array", L"Boolean", L"Date", L"Error", L"Function", L"Map",
         L"Number", L"Object", L"Promise", L"RegExp", L"Set", L"String",
         L"Symbol", L"BigInt", L"WeakMap", L"WeakSet", L"Proxy", L"Reflect",
@@ -144,7 +150,7 @@ const KeywordSet& JsTypes()
 
 const KeywordSet& GoKeywords()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"break", L"case", L"chan", L"const", L"continue", L"default", L"defer",
         L"else", L"fallthrough", L"for", L"func", L"go", L"goto", L"if", L"import",
         L"interface", L"map", L"package", L"range", L"return", L"select", L"struct",
@@ -155,7 +161,7 @@ const KeywordSet& GoKeywords()
 
 const KeywordSet& GoTypes()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"bool", L"byte", L"complex64", L"complex128", L"error",
         L"float32", L"float64", L"int", L"int8", L"int16", L"int32", L"int64",
         L"rune", L"string", L"uint", L"uint8", L"uint16", L"uint32", L"uint64",
@@ -169,7 +175,7 @@ const KeywordSet& GoTypes()
 
 const KeywordSet& RustKeywords()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"as", L"async", L"await", L"break", L"const", L"continue", L"crate",
         L"dyn", L"else", L"enum", L"extern", L"false", L"fn", L"for", L"if",
         L"impl", L"in", L"let", L"loop", L"match", L"mod", L"move", L"mut",
@@ -182,7 +188,7 @@ const KeywordSet& RustKeywords()
 
 const KeywordSet& RustTypes()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"bool", L"char", L"f32", L"f64", L"i8", L"i16", L"i32", L"i64", L"i128",
         L"isize", L"str", L"u8", L"u16", L"u32", L"u64", L"u128", L"usize",
         L"String", L"Vec", L"Box", L"Rc", L"Arc", L"Cell", L"RefCell",
@@ -222,7 +228,7 @@ const KeywordSet& TsTypes()
 
 const KeywordSet& BashKeywords()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"if", L"then", L"else", L"elif", L"fi", L"case", L"esac",
         L"for", L"while", L"until", L"do", L"done", L"in", L"function",
         L"select", L"time", L"return", L"exit", L"break", L"continue",
@@ -234,7 +240,7 @@ const KeywordSet& BashKeywords()
 
 const KeywordSet& BashTypes()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"echo", L"printf", L"read", L"test", L"true", L"false",
         L"cd", L"pwd", L"alias", L"unalias", L"type", L"which",
         L"command", L"builtin", L"let", L"getopts", L"mapfile", L"readarray"
@@ -246,7 +252,7 @@ const KeywordSet& BashTypes()
 
 const KeywordSet& PwshKeywords()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"begin", L"break", L"catch", L"class", L"continue", L"data",
         L"do", L"dynamicparam", L"else", L"elseif", L"end", L"enum",
         L"exit", L"filter", L"finally", L"for", L"foreach", L"from",
@@ -259,7 +265,7 @@ const KeywordSet& PwshKeywords()
 
 const KeywordSet& PwshTypes()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"int", L"long", L"float", L"double", L"decimal", L"bool",
         L"byte", L"string", L"char", L"array", L"hashtable", L"xml",
         L"datetime", L"timespan", L"regex", L"scriptblock", L"void",
@@ -272,7 +278,7 @@ const KeywordSet& PwshTypes()
 
 const KeywordSet& CmdKeywords()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"if", L"else", L"for", L"do", L"goto", L"call", L"set",
         L"setlocal", L"endlocal", L"echo", L"pause", L"exit", L"rem",
         L"not", L"exist", L"defined", L"equ", L"neq", L"lss", L"leq",
@@ -283,7 +289,7 @@ const KeywordSet& CmdKeywords()
 
 const KeywordSet& CmdTypes()
 {
-    static const KeywordSet s = {
+    static const KeywordSet s{
         L"dir", L"copy", L"move", L"del", L"ren", L"rename",
         L"mkdir", L"md", L"rmdir", L"rd", L"type", L"find", L"findstr",
         L"sort", L"more", L"cls", L"title", L"color", L"start",
@@ -310,7 +316,9 @@ size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_
     while (i < text.size()) {
         if (handle_escape && text[i] == L'\\') {
             i += 2;
-            if (i > text.size()) { i = text.size(); }
+            if (i > text.size()) {
+                i = text.size();
+            }
         }
         else if (text[i] == quote) {
             return i + 1;
@@ -354,37 +362,53 @@ size_t ScanNumber(std::wstring_view text, size_t pos)
         wchar_t next = text[i + 1];
         if (next == L'x' || next == L'X') {
             i += 2;
-            while (i < text.size() && (IsHexDigit(text[i]) || text[i] == L'\'')) { i++; }
+            while (i < text.size() && (IsHexDigit(text[i]) || text[i] == L'\'')) {
+                i++;
+            }
             // サフィックス
-            while (i < text.size() && (text[i] == L'u' || text[i] == L'U' || text[i] == L'l' || text[i] == L'L')) { i++; }
+            while (i < text.size() && (text[i] == L'u' || text[i] == L'U' || text[i] == L'l' || text[i] == L'L')) {
+                i++;
+            }
             return i;
         }
         if (next == L'b' || next == L'B') {
             i += 2;
-            while (i < text.size() && (text[i] == L'0' || text[i] == L'1' || text[i] == L'\'')) { i++; }
+            while (i < text.size() && (text[i] == L'0' || text[i] == L'1' || text[i] == L'\'')) {
+                i++;
+            }
             return i;
         }
         if (next == L'o' || next == L'O') {
             i += 2;
-            while (i < text.size() && text[i] >= L'0' && text[i] <= L'7') { i++; }
+            while (i < text.size() && text[i] >= L'0' && text[i] <= L'7') {
+                i++;
+            }
             return i;
         }
     }
 
     // 整数 / 浮動小数点
-    while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) { i++; }
+    while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) {
+        i++;
+    }
 
     // 小数点
     if (i < text.size() && text[i] == L'.') {
         i++;
-        while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) { i++; }
+        while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) {
+            i++;
+        }
     }
 
     // 指数部
     if (i < text.size() && (text[i] == L'e' || text[i] == L'E')) {
         i++;
-        if (i < text.size() && (text[i] == L'+' || text[i] == L'-')) { i++; }
-        while (i < text.size() && IsDigit(text[i])) { i++; }
+        if (i < text.size() && (text[i] == L'+' || text[i] == L'-')) {
+            i++;
+        }
+        while (i < text.size() && IsDigit(text[i])) {
+            i++;
+        }
     }
 
     // サフィックス (f, F, l, L, u, U 等)
@@ -402,7 +426,9 @@ size_t ScanNumber(std::wstring_view text, size_t pos)
 bool IsFollowedByParen(std::wstring_view text, size_t end)
 {
     size_t i = end;
-    while (i < text.size() && (text[i] == L' ' || text[i] == L'\t')) { i++; }
+    while (i < text.size() && (text[i] == L' ' || text[i] == L'\t')) {
+        i++;
+    }
     return i < text.size() && text[i] == L'(';
 }
 
@@ -472,7 +498,9 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         if (cfg.line_comment_slash && c == L'/' && i + 1 < text.size() && text[i + 1] == L'/') {
             flush_plain();
             const size_t start = i;
-            while (i < text.size() && text[i] != L'\n') { i++; }
+            while (i < text.size() && text[i] != L'\n') {
+                i++;
+            }
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
             continue;
         }
@@ -622,7 +650,9 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         if (IsIdentStart(c)) {
             flush_plain();
             const size_t start = i;
-            while (i < text.size() && IsIdentChar(text[i])) { i++; }
+            while (i < text.size() && IsIdentChar(text[i])) {
+                i++;
+            }
 
             const std::wstring_view word(text.data() + start, i - start);
             std::wstring_view lookup_word = word;
@@ -739,8 +769,7 @@ static const LanguageDef LANGUAGE_DEFS[] = {
     }},
 };
 
-static_assert(std::size(LANGUAGE_DEFS) == static_cast<size_t>(SyntaxLanguage::Cmd) + 1,
-    "LANGUAGE_DEFS must cover all SyntaxLanguage values");
+static_assert(std::size(LANGUAGE_DEFS) == static_cast<size_t>(SyntaxLanguage::Cmd) + 1, "LANGUAGE_DEFS must cover all SyntaxLanguage values");
 
 } // namespace
 
@@ -748,12 +777,16 @@ static_assert(std::size(LANGUAGE_DEFS) == static_cast<size_t>(SyntaxLanguage::Cm
 
 SyntaxLanguage DetectLanguage(std::wstring_view info_string)
 {
-    if (info_string.empty()) { return SyntaxLanguage::None; }
+    if (info_string.empty()) {
+        return SyntaxLanguage::None;
+    }
 
     // 最初の単語を抽出して小文字に変換
     std::pmr::wstring lang;
     for (wchar_t c : info_string) {
-        if (c == L' ' || c == L'\t') { break; }
+        if (c == L' ' || c == L'\t') {
+            break;
+        }
         lang += c;
     }
     lang = ToLowerAscii(lang);

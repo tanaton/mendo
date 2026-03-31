@@ -27,12 +27,22 @@ std::pmr::wstring GenerateAnchorId(std::wstring_view text)
         else if (c >= 0x3000) {
             bool skip = false;
             // CJK記号と句読点 (U+3000-U+303F): 、。「」【】〈〉 等
-            if (c <= 0x303F) skip = true;
+            if (c <= 0x303F) {
+                skip = true;
+            }
             // 全角ASCII対応の句読点
-            else if (c >= 0xFF01 && c <= 0xFF0F) skip = true; // ！＂＃…（）＊＋，－．／
-            else if (c >= 0xFF1A && c <= 0xFF20) skip = true; // ：；＜＝＞？＠
-            else if (c >= 0xFF3B && c <= 0xFF40) skip = true; // ［＼］＾＿｀
-            else if (c >= 0xFF5B && c <= 0xFF65) skip = true; // ｛｜｝～…･
+            else if (c >= 0xFF01 && c <= 0xFF0F) {
+                skip = true; // ！＂＃…（）＊＋，－．／
+            }
+            else if (c >= 0xFF1A && c <= 0xFF20) {
+                skip = true; // ：；＜＝＞？＠
+            }
+            else if (c >= 0xFF3B && c <= 0xFF40) {
+                skip = true; // ［＼］＾＿｀
+            }
+            else if (c >= 0xFF5B && c <= 0xFF65) {
+                skip = true; // ｛｜｝～…･
+            }
             if (!skip) {
                 slug += c;
             }
@@ -273,8 +283,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_TH:
     case MD_BLOCK_TD: {
-        if (ctx->current_node && ctx->current_node->type == NodeType::Table
-            && ctx->current_node->has_table() && !ctx->current_node->table_rows().empty()) {
+        if (ctx->current_node && ctx->current_node->type == NodeType::Table && ctx->current_node->has_table() && !ctx->current_node->table_rows().empty()) {
             auto& row = ctx->current_node->table_rows().back();
             row.cells.emplace_back();
             ctx->current_cell = &row.cells.back();
@@ -301,8 +310,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     case MD_BLOCK_CODE:
         ctx->in_code_block = false;
         // 末尾の改行があれば除去
-        if (ctx->current_node && !ctx->current_node->text.empty()
-            && ctx->current_node->text.back() == L'\n') {
+        if (ctx->current_node && !ctx->current_node->text.empty() && ctx->current_node->text.back() == L'\n') {
             ctx->current_node->text.pop_back();
             if (!ctx->current_node->runs.empty()) {
                 auto& last = ctx->current_node->runs.back();
@@ -311,8 +319,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         }
         // レイアウトパスの度にではなく、パース時に一度だけトークン化する
         if (ctx->current_node && ctx->current_node->code_language != SyntaxLanguage::None) {
-            ctx->current_node->syntax_tokens = Tokenize(
-                ctx->current_node->text, ctx->current_node->code_language);
+            ctx->current_node->syntax_tokens = Tokenize(ctx->current_node->text, ctx->current_node->code_language);
         }
         break;
 
@@ -420,8 +427,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_IMG: {
         auto* const img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
         if (img->src.text && img->src.size > 0) {
-            ctx->pending_image_src = Utf8ToWide(
-                std::string_view{ img->src.text, static_cast<size_t>(img->src.size) });
+            ctx->pending_image_src = Utf8ToWide(std::string_view{ img->src.text, static_cast<size_t>(img->src.size) });
         }
         break;
     }
@@ -456,12 +462,24 @@ void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity)
 {
     const wchar_t* resolved = nullptr;
     wchar_t single_char = 0;
-    if (entity == "&amp;")  resolved = L"&";
-    else if (entity == "&lt;")   resolved = L"<";
-    else if (entity == "&gt;")   resolved = L">";
-    else if (entity == "&quot;") resolved = L"\"";
-    else if (entity == "&apos;") resolved = L"'";
-    else if (entity == "&nbsp;") resolved = L"\u00A0";
+    if (entity == "&amp;") {
+        resolved = L"&";
+    }
+    else if (entity == "&lt;") {
+        resolved = L"<";
+    }
+    else if (entity == "&gt;") {
+        resolved = L">";
+    }
+    else if (entity == "&quot;") {
+        resolved = L"\"";
+    }
+    else if (entity == "&apos;") {
+        resolved = L"'";
+    }
+    else if (entity == "&nbsp;") {
+        resolved = L"\u00A0";
+    }
     else if (entity.size() >= 4 && entity[0] == '&' && entity[1] == '#') {
         unsigned long codepoint = 0;
         bool valid = false;
@@ -595,11 +613,21 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
     const auto type_str = text.substr(2, close - 2);
 
     AlertType type = AlertType::None;
-    if (AsciiCaseEqual(type_str, L"NOTE"))      type = AlertType::Note;
-    else if (AsciiCaseEqual(type_str, L"TIP"))       type = AlertType::Tip;
-    else if (AsciiCaseEqual(type_str, L"IMPORTANT")) type = AlertType::Important;
-    else if (AsciiCaseEqual(type_str, L"WARNING"))   type = AlertType::Warning;
-    else if (AsciiCaseEqual(type_str, L"CAUTION"))   type = AlertType::Caution;
+    if (AsciiCaseEqual(type_str, L"NOTE")) {
+        type = AlertType::Note;
+    }
+    else if (AsciiCaseEqual(type_str, L"TIP")) {
+        type = AlertType::Tip;
+    }
+    else if (AsciiCaseEqual(type_str, L"IMPORTANT")) {
+        type = AlertType::Important;
+    }
+    else if (AsciiCaseEqual(type_str, L"WARNING")) {
+        type = AlertType::Warning;
+    }
+    else if (AsciiCaseEqual(type_str, L"CAUTION")) {
+        type = AlertType::Caution;
+    }
 
     if (type == AlertType::None) {
         return AlertType::None;
@@ -654,8 +682,9 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     // 元のランを調整（マーカー部分を除外）
     for (const auto& run : node.runs) {
         const uint32_t run_end = run.start + run.length;
-        if (run_end <= static_cast<uint32_t>(marker_end)) continue;
-
+        if (run_end <= static_cast<uint32_t>(marker_end)) {
+            continue;
+        }
         TextRun adjusted = run;
         if (adjusted.start < static_cast<uint32_t>(marker_end)) {
             const uint32_t trim = static_cast<uint32_t>(marker_end) - adjusted.start;
@@ -677,12 +706,14 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
 void DetectAlerts(std::pmr::vector<Node>& nodes)
 {
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].type != NodeType::BlockQuote) continue;
-
+        if (nodes[i].type != NodeType::BlockQuote) {
+            continue;
+        }
         size_t marker_end = 0;
         const AlertType type = DetectAlertMarker(nodes[i].text, marker_end);
-        if (type == AlertType::None) continue;
-
+        if (type == AlertType::None) {
+            continue;
+        }
         const int group = nodes[i].blockquote_group;
         TransformAlertNode(nodes[i], type, marker_end);
 
@@ -690,7 +721,9 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
         // ノード種別に依存せず、グループIDで判定する（リスト等も含む）
         size_t j = i + 1;
         for (; j < nodes.size(); j++) {
-            if (nodes[j].blockquote_group != group) break;
+            if (nodes[j].blockquote_group != group) {
+                break;
+            }
             nodes[j].alert_type = type;
         }
         i = j - 1; // 伝播済みノードをスキップ

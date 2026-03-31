@@ -91,10 +91,8 @@ void FileExplorer::Refresh()
     });
 
     // 追加: ディレクトリを先に、次にファイル
-    entries_.insert(entries_.end(), std::make_move_iterator(dirs.begin()),
-        std::make_move_iterator(dirs.end()));
-    entries_.insert(entries_.end(), std::make_move_iterator(files.begin()),
-        std::make_move_iterator(files.end()));
+    entries_.insert(entries_.end(), std::make_move_iterator(dirs.begin()), std::make_move_iterator(dirs.end()));
+    entries_.insert(entries_.end(), std::make_move_iterator(files.begin()), std::make_move_iterator(files.end()));
 }
 
 int FileExplorer::HitTest(float local_y, float item_height) const noexcept
@@ -113,7 +111,6 @@ void FileExplorer::SetCurrentFile(std::wstring_view path)
 {
     const std::pmr::wstring path_str{ path };
     for (auto& entry : entries_) {
-        entry.is_current = (!entry.is_directory &&
-            _wcsicmp(entry.full_path.c_str(), path_str.c_str()) == 0);
+        entry.is_current = (!entry.is_directory && _wcsicmp(entry.full_path.c_str(), path_str.c_str()) == 0);
     }
 }

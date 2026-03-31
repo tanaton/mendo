@@ -15,7 +15,9 @@ std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
 
     std::pmr::wstring result;
     for (int i = selection.start_node; i <= selection.end_node; i++) {
-        if (i < 0 || i >= static_cast<int>(nodes.size())) continue;
+        if (i < 0 || i >= static_cast<int>(nodes.size())) {
+            continue;
+        }
         const auto& text = nodes[i].text;
 
         uint32_t start = 0;
@@ -46,8 +48,7 @@ static std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<Te
     uint32_t pos)
 {
     for (const auto& run : runs) {
-        if (run.has_link() &&
-            pos >= run.start && pos < run.start + run.length) {
+        if (run.has_link() && (pos >= run.start) && (pos < run.start + run.length)) {
             return link_urls[static_cast<size_t>(run.link_url_index)];
         }
     }
@@ -68,9 +69,13 @@ static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node,
                 return &row.cells[c].runs;
             }
             offset += cell_len;
-            if (c + 1 < row.cells.size()) offset++; // タブ区切り
+            if (c + 1 < row.cells.size()) {
+                offset++; // タブ区切り
+            }
         }
-        if (r + 1 < node.table_rows().size()) offset++; // 改行区切り
+        if (r + 1 < node.table_rows().size()) {
+            offset++; // 改行区切り
+        }
     }
     return nullptr;
 }
@@ -111,8 +116,7 @@ int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view a
 
     for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
         const auto& node = nodes[i];
-        if (node.type == NodeType::Heading &&
-            node.anchor_id == target) {
+        if (node.type == NodeType::Heading && node.anchor_id == target) {
             return i;
         }
     }
@@ -164,8 +168,7 @@ bool IsMarkdownFile(std::wstring_view path)
 
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
 {
-    const auto [it_old, it_new] = std::mismatch(old_text.begin(), old_text.end(),
-        new_text.begin(), new_text.end());
+    const auto [it_old, it_new] = std::mismatch(old_text.begin(), old_text.end(), new_text.begin(), new_text.end());
     if (it_old == old_text.end() && it_new == new_text.end()) {
         return std::string_view::npos;
     }
@@ -190,10 +193,12 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_of
             if (probe < lo) {
                 // lo..mid に有効ノードがないので右へ
                 lo = mid + 1;
-            } else if (nodes[probe].source_offset <= diff_offset) {
+            }
+            else if (nodes[probe].source_offset <= diff_offset) {
                 result = probe;
                 lo = mid + 1;
-            } else {
+            }
+            else {
                 hi = probe - 1;
             }
             continue;
@@ -201,7 +206,8 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_of
         if (offset <= diff_offset) {
             result = mid;
             lo = mid + 1;
-        } else {
+        }
+        else {
             hi = mid - 1;
         }
     }

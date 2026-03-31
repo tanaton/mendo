@@ -12,13 +12,14 @@ namespace {
 bool IsEditableTextFile(std::wstring_view path)
 {
     auto ext = std::filesystem::path(path).extension().wstring();
-    for (auto& c : ext) { c = std::towlower(c); }
+    for (auto& c : ext) {
+        c = std::towlower(c);
+    }
     return ext == L".md" || ext == L".markdown" || ext == L".mkd" || ext == L".txt";
 }
 
 // ペインヘッダー内のボタンがクリックされたか判定する。
-bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height,
-    D2D1_RECT_F(*button_rect_fn)(float, float) noexcept)
+bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height, D2D1_RECT_F(*button_rect_fn)(float, float) noexcept)
 {
     const float local_x = dip_x - rect.x;
     const float local_y = dip_y - rect.y;
@@ -46,7 +47,7 @@ void App::RefreshFilePane()
 
 void App::OnContextMenu(int screen_x, int screen_y)
 {
-    POINT client_pt = { screen_x, screen_y };
+    POINT client_pt{ screen_x, screen_y };
     ScreenToClient(hwnd_, &client_pt);
     const auto dip = PixelToDip(client_pt.x, client_pt.y);
     const auto zone = PaneAtPoint(dip.x, dip.y);
@@ -76,8 +77,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
     else if (cmd == IDM_EDIT_FILE) {
         const auto& file_path = doc_.GetFilePath();
         if (IsEditableTextFile(file_path)) {
-            ShellExecuteW(hwnd_, L"open", file_path.c_str(),
-                nullptr, nullptr, SW_SHOWNORMAL);
+            ShellExecuteW(hwnd_, L"open", file_path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
     }
     else if (cmd == IDM_COPY) {
@@ -102,13 +102,17 @@ void App::OnContextMenu(int screen_x, int screen_y)
 
 bool App::OnRButtonDown(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) { return false; }
-    if (viewport_.IsDragging()) { return false; }
-
+    if (!renderer_.GetRenderTarget()) {
+        return false;
+    }
+    if (viewport_.IsDragging()) {
+        return false;
+    }
     const auto dip = PixelToDip(px, py);
     const auto zone = PaneAtPoint(dip.x, dip.y);
-    if (zone != PaneZone::MdPane) { return false; }
-
+    if (zone != PaneZone::MdPane) {
+        return false;
+    }
     gesture_.OnRButtonDown(dip.x, dip.y);
     SetCapture(hwnd_);
     return true;
@@ -116,15 +120,16 @@ bool App::OnRButtonDown(int px, int py)
 
 bool App::OnRButtonUp(int px, int py)
 {
-    if (gesture_.GetPhase() == GesturePhase::Idle) { return false; }
-
+    if (gesture_.GetPhase() == GesturePhase::Idle) {
+        return false;
+    }
     const auto result = gesture_.OnRButtonUp();
     ReleaseCapture();
 
     switch (result) {
     case GestureResult::ShowContextMenu: {
         gesture_.Reset();
-        POINT pt = { px, py };
+        POINT pt{ px, py };
         ClientToScreen(hwnd_, &pt);
         OnContextMenu(pt.x, pt.y);
         break;
@@ -173,10 +178,16 @@ void App::OnXButtonForward()
 App::HitResult App::HitTest(int screen_x, int screen_y) const
 {
     const auto pane_layout = GetPaneLayout();
-    return hit_test_.HitTest(doc_.GetNodes(), layout_cache_,
-        renderer_.GetTheme(), viewport_.GetScrollY(),
-        pane_layout.md_rect.x, cached_dpi_scale_,
-        screen_x, screen_y);
+    return hit_test_.HitTest(
+        doc_.GetNodes(),
+        layout_cache_,
+        renderer_.GetTheme(),
+        viewport_.GetScrollY(),
+        pane_layout.md_rect.x,
+        cached_dpi_scale_,
+        screen_x,
+        screen_y
+    );
 }
 
 std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const
@@ -200,8 +211,7 @@ bool App::TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& 
 {
     const float local_x = dip_x - rect.x;
 
-    if (local_x >= rect.width - PANE_SCROLLBAR_WIDTH - 4.0f
-        && total_content > scroll_info.content_height) {
+    if ((local_x >= rect.width - PANE_SCROLLBAR_WIDTH - 4.0f) && (total_content > scroll_info.content_height)) {
         SetCapture(hwnd_);
         panes_.StartDrag(target);
         bool dirty = false;
@@ -684,24 +694,29 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
 
 void App::OnLButtonDblClk(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) { return; }
-
+    if (!renderer_.GetRenderTarget()) {
+        return;
+    }
     const auto dip = PixelToDip(px, py);
     const auto zone = PaneAtPoint(dip.x, dip.y);
-    if (zone != PaneZone::MdPane) { return; }
-
+    if (zone != PaneZone::MdPane) {
+        return;
+    }
     const auto hit = HitTest(px, py);
-    if (hit.node_index < 0) { return; }
-
+    if (hit.node_index < 0) {
+        return;
+    }
     const auto& text = doc_.GetNodes()[hit.node_index].text;
-    if (text.empty()) { return; }
-
+    if (text.empty()) {
+        return;
+    }
     const auto wb = FindWordBoundaries(text, hit.text_pos);
-    if (!wb.found) { return; }
+    if (!wb.found) {
+        return;
+    }
 
     viewport_.SetAnchor(hit.node_index, wb.start);
-    viewport_.SetSelection(TextSelection::MakeOrdered(
-        hit.node_index, wb.start, hit.node_index, wb.end));
+    viewport_.SetSelection(TextSelection::MakeOrdered(hit.node_index, wb.start, hit.node_index, wb.end));
     const auto layout = GetPaneLayout();
     InvalidateMdPane(layout.md_rect);
 }
