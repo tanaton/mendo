@@ -266,7 +266,9 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
         float indent = nodes[i].indent_level * theme_->indent_width;
         measurer_->MeasureNode(nodes[i], entry, content_width - indent);
 
-        if (++processed >= batch_size) break;
+        if (++processed >= batch_size) {
+            break;
+        }
     }
 
     if (processed == 0) {
