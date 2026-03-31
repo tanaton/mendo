@@ -5,6 +5,8 @@
 #include <shlwapi.h>
 #include <vector>
 
+using Microsoft::WRL::ComPtr;
+
 #pragma comment(lib, "shlwapi.lib")
 
 // ファイルを共有モードでメモリに読み込みIStreamとして返す。

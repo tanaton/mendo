@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cmath>
 
+using Microsoft::WRL::ComPtr;
+
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
 

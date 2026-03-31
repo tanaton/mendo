@@ -726,8 +726,12 @@ void App::SelectAll()
 
 void App::SetClipboardText(std::wstring_view text) const
 {
-    if (text.empty()) { return; }
-    if (!OpenClipboard(hwnd_)) { return; }
+    if (text.empty()) {
+        return;
+    }
+    if (!OpenClipboard(hwnd_)) {
+        return;
+    }
     EmptyClipboard();
 
     size_t bytes = (text.size() + 1) * sizeof(wchar_t);
@@ -751,7 +755,9 @@ void App::SetClipboardText(std::wstring_view text) const
 
 void App::CopySelectionToClipboard() const
 {
-    if (!viewport_.GetSelection().active) { return; }
+    if (!viewport_.GetSelection().active) {
+        return;
+    }
     std::pmr::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
     SetClipboardText(result);
 }
@@ -759,7 +765,9 @@ void App::CopySelectionToClipboard() const
 void App::CopyCodeBlockToClipboard(int node_index) const
 {
     const auto& nodes = doc_.GetNodes();
-    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) { return; }
+    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
+        return;
+    }
     SetClipboardText(nodes[node_index].text);
 }
 

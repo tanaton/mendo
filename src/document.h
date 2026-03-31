@@ -26,14 +26,14 @@ public:
     // ファイルパス設定（LoadMarkdownFile で使用）
     constexpr void SetFilePath(std::wstring_view path) { file_path_ = path; }
 
-    // ���容の差し替え（���パース時）
+    // 内容の差し替え（再パース時）
     void ReplaceContent(std::pmr::vector<Node> new_nodes);
 
-    // Markdown文字列から��容を再パース（パスは保持）
+    // Markdown文字列から内容を再パース（パスは保持）
     void ReplaceFromMarkdown(std::pmr::string utf8);
 
     // アンカーIDに一致する見出しノードのインデックスを O(1) で検索する。
-    // 見つか��ない場合は -1 を返す。
+    // 見つからない場合は -1 を返す。
     int FindAnchorIndex(std::wstring_view anchor) const;
 
     // 特殊ノードインデックスの高速アクセス

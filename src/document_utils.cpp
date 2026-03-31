@@ -112,7 +112,7 @@ int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view a
     for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
         const auto& node = nodes[i];
         if (node.type == NodeType::Heading &&
-            std::wstring_view{ node.anchor_id } == std::wstring_view{ target }) {
+            node.anchor_id == target) {
             return i;
         }
     }
@@ -213,7 +213,7 @@ std::pmr::wstring ExtractFilename(std::wstring_view path)
     if (path.empty()) {
         return {};
     }
-    return std::pmr::wstring{ std::wstring_view{std::filesystem::path(path).filename().native()} };
+    return std::pmr::wstring{ std::filesystem::path(path).filename().native() };
 }
 
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)

@@ -22,7 +22,6 @@
 #include <memory>
 #include <memory_resource>
 
-using Microsoft::WRL::ComPtr;
 
 enum class BrushId : uint8_t {
     Text, Heading, CodeBg, CodeText, Link, Hr,
@@ -100,8 +99,8 @@ struct SidePaneState {
 // ペインビットマップキャッシュ — サイドペインはオフスクリーンビットマップに描画され、
 // 内容が変更された場合のみ再描画される。
 struct PaneCache {
-    ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
-    ComPtr<ID2D1Bitmap> cached_bitmap; // GetBitmap() の毎フレーム呼び出しを回避
+    Microsoft::WRL::ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> cached_bitmap; // GetBitmap() の毎フレーム呼び出しを回避
     bool dirty = true;
     float cached_width = 0;
     float cached_height = 0;
@@ -193,7 +192,7 @@ private:
     ID2D1DeviceContext* rt() const noexcept { return backend_.GetRenderTarget(); }
     ID2D1Factory* d2d() const noexcept { return backend_.GetD2DFactory(); }
 
-    std::array<ComPtr<ID2D1SolidColorBrush>, static_cast<size_t>(BrushId::Count)> brushes_;
+    std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, static_cast<size_t>(BrushId::Count)> brushes_;
     ID2D1SolidColorBrush* Brush(BrushId id) const noexcept
     {
         return brushes_[static_cast<size_t>(id)].Get();
@@ -203,7 +202,7 @@ private:
     void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry);
     void RecreateBrushes();
     void RecreatePaneFormats();
-    ComPtr<IDWriteTextFormat> CreatePaneFormat(
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(
         const wchar_t* family, DWRITE_FONT_WEIGHT weight,
         float size, const wchar_t* locale);
     bool CheckEndDraw();
@@ -214,30 +213,30 @@ private:
 
     // UI テキストフォーマットをグループ化した構造体
     struct TextFormats {
-        ComPtr<IDWriteTextFormat> icon_font;
-        ComPtr<IDWriteTextFormat> copy_btn_icon;
-        ComPtr<IDWriteTextFormat> list_number;
-        ComPtr<IDWriteTextFormat> placeholder_text;
-        ComPtr<IDWriteTextFormat> titlebar_text;
-        ComPtr<IDWriteTextFormat> titlebar_icon;
-        ComPtr<IDWriteTextFormat> pane_icon;
-        ComPtr<IDWriteTextFormat> pane_item;
-        ComPtr<IDWriteTextFormat> pane_header;
-        ComPtr<IDWriteTextFormat> nav_button;
-        ComPtr<IDWriteTextFormat> gesture_overlay;
-        ComPtr<IDWriteTextFormat> toast_text;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_font;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> copy_btn_icon;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> list_number;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> placeholder_text;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> titlebar_text;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> titlebar_icon;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> pane_icon;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> pane_item;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> pane_header;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> nav_button;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> gesture_overlay;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> toast_text;
     };
     TextFormats fmt_;
 
-    ComPtr<IDWriteTextLayout> nav_back_layout_;   // ◀ のキャッシュ済みレイアウト
-    ComPtr<IDWriteTextLayout> nav_forward_layout_; // ▶ のキャッシュ済みレイアウト
-    ComPtr<IDWriteTextLayout> gesture_back_layout_;    // "← 戻る" のキャッシュ済みレイアウト
-    ComPtr<IDWriteTextLayout> gesture_forward_layout_;  // "→ 進む" のキャッシュ済みレイアウト
-    ComPtr<IDWriteTextLayout> cached_toast_layout_;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_back_layout_;   // ◀ のキャッシュ済みレイアウト
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_forward_layout_; // ▶ のキャッシュ済みレイアウト
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_back_layout_;    // "← 戻る" のキャッシュ済みレイアウト
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_forward_layout_;  // "→ 進む" のキャッシュ済みレイアウト
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_toast_layout_;
     std::pmr::wstring cached_toast_text_;
-    ComPtr<ID2D1Bitmap> app_icon_bitmap_;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;
     void LoadAppIconBitmap();
-    ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
+    Microsoft::WRL::ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
 
     PaneCache file_pane_cache_;
     PaneCache toc_pane_cache_;

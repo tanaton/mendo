@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <functional>
 
+using Microsoft::WRL::ComPtr;
+
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "shlwapi.lib")
 
@@ -166,7 +168,7 @@ static std::pmr::wstring GetWebView2UserDataFolder()
     auto path = std::filesystem::path(appdata) / L"mendo" / L"WebView2Data";
     CoTaskMemFree(appdata);
     std::filesystem::create_directories(path);
-    return std::pmr::wstring{ std::wstring_view{path.native()} };
+    return std::pmr::wstring{ path.native() };
 }
 
 // オフスクリーンWebView2ホストのウィンドウクラス名

@@ -4,6 +4,9 @@
 #include "syntax.h"
 #include "ui_constants.h"
 #include <algorithm>
+
+using Microsoft::WRL::ComPtr;
+
 static constexpr float CODE_BLOCK_NO_WRAP_WIDTH = 10000.0f;
 static constexpr float LAYOUT_MAX_HEIGHT = 100000.0f;
 static constexpr float DEFAULT_COLUMN_WIDTH = 60.0f;
@@ -295,7 +298,10 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     for (auto& row : node.table_rows()) {
         col_count = std::max(col_count, row.cells.size());
     }
-    if (col_count == 0) { entry.layout_dirty = false; return; }
+    if (col_count == 0) {
+        entry.layout_dirty = false;
+        return;
+    }
 
     entry.effects_applied = false;
     entry.cell_inline_code_bgs.clear();
@@ -309,7 +315,8 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
         if (entry.natural_col_widths.size() == col_count) {
             FinalizeTableLayout(node, entry, max_width, col_count, entry.natural_col_widths);
-        } else {
+        }
+        else {
             // キャッシュなし: 既存レイアウトから自然幅を再取得
             std::pmr::vector<float> natural_widths(col_count, 0.0f);
             for (size_t r = 0; r < node.table_rows().size(); r++) {

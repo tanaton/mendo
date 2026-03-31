@@ -4,10 +4,7 @@
 #include "theme.h"
 #include "text_measurer.h"
 #include <dwrite.h>
-#include <wrl/client.h>
 #include <memory_resource>
-
-using Microsoft::WRL::ComPtr;
 
 // テーブルの自然幅（実測値）と利用可能な幅から列幅を計算する。
 // 最終的な列幅のベクターを返す。

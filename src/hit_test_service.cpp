@@ -191,7 +191,6 @@ int HitTestService::CopyButtonHitTest(
     float dpi_scale,
     int screen_x, int screen_y) const noexcept
 {
-
     if (nodes.empty()) {
         return -1;
     }

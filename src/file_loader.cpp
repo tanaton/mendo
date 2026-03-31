@@ -90,8 +90,8 @@ void FileLoader::StartWatching(const std::pmr::wstring& file_path, ChangeCallbac
     last_reload_tick_ = GetTickCount64();
 
     // ファイル名部分を抽出
-    std::filesystem::path p(std::wstring_view{ file_path });
-    watch_filename_ = std::pmr::wstring{ std::wstring_view{ p.filename().native() } };
+    std::filesystem::path p(file_path);
+    watch_filename_ = std::pmr::wstring{ p.filename().native() };
 
     // 親ディレクトリをReadDirectoryChangesWで監視
     auto dir = p.parent_path();

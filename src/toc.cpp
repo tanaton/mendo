@@ -11,8 +11,8 @@ void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes)
             continue;
         }
         TocEntry entry;
-        entry.text = std::wstring_view{ nodes[i].text };
-        entry.anchor_id = std::wstring_view{ nodes[i].anchor_id };
+        entry.text = nodes[i].text;
+        entry.anchor_id = nodes[i].anchor_id;
         entry.heading_level = nodes[i].heading_level;
         entry.node_index = static_cast<int>(i);
         entries_.push_back(std::move(entry));

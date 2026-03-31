@@ -7,7 +7,6 @@
 #include <dwrite.h>
 #include <cassert>
 
-using Microsoft::WRL::ComPtr;
 
 struct InlineCodeBg {
     float left, top, width, height;
@@ -16,13 +15,13 @@ struct InlineCodeBg {
 struct NodeLayoutEntry {
     float y_position = 0.0f;
     float height = 0.0f;
-    ComPtr<IDWriteTextLayout> text_layout;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
     bool effects_applied = false;
     std::pmr::vector<InlineCodeBg> inline_code_bgs;
 
     // テーブルレイアウトデータ
-    std::pmr::vector<std::pmr::vector<ComPtr<IDWriteTextLayout>>> cell_layouts; // [行][列]
+    std::pmr::vector<std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>>> cell_layouts; // [行][列]
     std::pmr::vector<std::pmr::vector<std::pmr::vector<InlineCodeBg>>> cell_inline_code_bgs; // [行][列][]
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
@@ -30,7 +29,7 @@ struct NodeLayoutEntry {
 };
 
 struct DiagramEntry {
-    ComPtr<ID2D1Bitmap> bitmap;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float width = 0.0f;
     float height = 0.0f;
 };

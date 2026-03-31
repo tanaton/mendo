@@ -704,7 +704,7 @@ int App::ApplyCachedImages()
         if (cache_it != resolved_image_paths_.end()) {
             abs_str = cache_it->second;
         } else {
-            std::filesystem::path img_path(std::wstring_view{ node.image_data->src });
+            std::filesystem::path img_path(node.image_data->src);
             if (img_path.is_relative()) {
                 img_path = std::filesystem::path(doc_dir) / img_path;
             }

@@ -2,6 +2,8 @@
 #include "ui_constants.h"
 #include <cmath>
 
+using Microsoft::WRL::ComPtr;
+
 bool ContextMenu::class_registered_ = false;
 
 // ============================================================

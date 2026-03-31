@@ -26,12 +26,12 @@ void FileExplorer::Refresh()
 
     // 親ディレクトリエントリ ".." を追加（"C:\" のようなルートでは追加しない）
     {
-        std::filesystem::path dir_path{ std::wstring_view{directory_} };
+        std::filesystem::path dir_path{ directory_ };
         auto parent = dir_path.parent_path();
         if (parent != dir_path) {
             FileEntry pe;
             pe.filename = L"..";
-            pe.full_path.assign(std::wstring_view{ parent.native() });
+            pe.full_path.assign(parent.native());
             pe.is_directory = true;
             pe.is_parent = true;
             entries_.push_back(std::move(pe));
@@ -39,7 +39,7 @@ void FileExplorer::Refresh()
     }
 
     // ディレクトリ内の全アイテムを列挙
-    std::filesystem::path dir_base{ directory_.c_str() };
+    std::filesystem::path dir_base{ directory_ };
     auto pattern = dir_base / L"*";
     WIN32_FIND_DATAW fd;
     HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
@@ -68,14 +68,14 @@ void FileExplorer::Refresh()
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             FileEntry entry;
             entry.filename = fd.cFileName;
-            entry.full_path.assign(std::wstring_view{ (dir_base / fd.cFileName).native() });
+            entry.full_path.assign((dir_base / fd.cFileName).native());
             entry.is_directory = true;
             dirs.push_back(std::move(entry));
         }
         else if (IsMarkdownFile(fd.cFileName)) {
             FileEntry entry;
             entry.filename = fd.cFileName;
-            entry.full_path.assign(std::wstring_view{ (dir_base / fd.cFileName).native() });
+            entry.full_path.assign((dir_base / fd.cFileName).native());
             files.push_back(std::move(entry));
         }
     } while (FindNextFileW(hFind, &fd));

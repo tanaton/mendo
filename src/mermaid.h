@@ -15,7 +15,6 @@
 #include <span>
 #include <memory_resource>
 
-using Microsoft::WRL::ComPtr;
 
 class MermaidFileCache;
 
@@ -88,8 +87,8 @@ private:
     // 1つのダイアグラムを非同期レンダリングできる。
     struct Worker {
         HWND hwnd = nullptr;
-        ComPtr<ICoreWebView2Controller> controller;
-        ComPtr<ICoreWebView2> webview;
+        Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller;
+        Microsoft::WRL::ComPtr<ICoreWebView2> webview;
         RenderRequest current_request;
         float dpr = 1.0f;
         bool rendering = false;
@@ -110,8 +109,8 @@ private:
 
     HWND hwnd_ = nullptr;           // メインウィンドウ
     ID2D1RenderTarget* render_target_ = nullptr;
-    ComPtr<IWICImagingFactory> wic_factory_;
-    ComPtr<ICoreWebView2Environment> webview_env_;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
+    Microsoft::WRL::ComPtr<ICoreWebView2Environment> webview_env_;
     std::span<const std::byte> cached_mermaid_gz_; // Win32リソースから直接参照するgzip圧縮済みmermaid.js
 
     Worker workers_[kMaxWorkers];
@@ -124,7 +123,7 @@ private:
 
     // キャッシュ: code_hash -> {bitmap, width, height}
     struct CachedBitmap {
-        ComPtr<ID2D1Bitmap> bitmap;
+        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
     };
