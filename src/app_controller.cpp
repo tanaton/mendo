@@ -69,7 +69,7 @@ ActionList AppController::HandleMouseWheel(const MouseWheelEvent& event) const
         actions.emplace_back(ScrollPaneAction{ PaneZone::TocPane, scroll_amount });
         break;
     default:
-        actions.emplace_back(SmoothScrollByAction{ scroll_amount });
+        actions.emplace_back(DirectScrollByAction{ scroll_amount });
         break;
     }
 

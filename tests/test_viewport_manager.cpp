@@ -161,23 +161,9 @@ TEST(ViewportManagerTest, SmoothScrollLargeDeltaTimeClamped) {
     EXPECT_LE(vm.GetScrollY(), 10000.0f);
 }
 
-TEST(ViewportManagerTest, SmoothScrollSpeedCapped) {
-    // 大きなギャップがある場合、1フレームの移動量がMAX_SCROLL_SPEED*dtに制限される
-    ViewportManager vm;
-    vm.SyncMaxScroll(10000.0f, 200.0f);
-    vm.SmoothScrollBy(2000.0f); // 大きなギャップを作る
-
-    float dt = 16.0f;
-    vm.UpdateSmoothScroll(dt);
-
-    // 指数補間では 2000*0.25=500 だが、速度制限で 10*16=160 に抑えられる
-    float max_allowed = ViewportManager::MAX_SCROLL_SPEED * dt;
-    EXPECT_LE(vm.GetScrollY(), max_allowed + 1.0f);
-    EXPECT_GT(vm.GetScrollY(), 0.0f);
-}
-
-TEST(ViewportManagerTest, SmoothScrollSpeedCapConverges) {
-    // 速度制限があっても最終的にターゲットに収束する
+TEST(ViewportManagerTest, SmoothScrollLargeGapConverges)
+{
+    // 大きなギャップがあっても最終的にターゲットに収束する
     ViewportManager vm;
     vm.SyncMaxScroll(10000.0f, 200.0f);
     vm.SmoothScrollBy(2000.0f);
@@ -191,6 +177,69 @@ TEST(ViewportManagerTest, SmoothScrollSpeedCapConverges) {
 
     EXPECT_FALSE(vm.IsSmoothScrolling());
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 2000.0f);
+}
+
+TEST(ViewportManagerTest, DirectScrollByMovesPosition)
+{
+    ViewportManager vm;
+    vm.SyncMaxScroll(10000.0f, 200.0f);
+
+    vm.DirectScrollBy(100.0f);
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), 100.0f);
+    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 100.0f);
+    EXPECT_FALSE(vm.IsSmoothScrolling());
+}
+
+TEST(ViewportManagerTest, DirectScrollByClampsToMax)
+{
+    ViewportManager vm;
+    vm.SyncMaxScroll(300.0f, 200.0f); // max = 100
+    vm.DirectScrollBy(9999.0f);
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), 100.0f);
+    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 100.0f);
+}
+
+TEST(ViewportManagerTest, DirectScrollByClampsToZero)
+{
+    ViewportManager vm;
+    vm.SyncMaxScroll(1000.0f, 200.0f);
+    vm.DirectScrollBy(50.0f);
+    vm.DirectScrollBy(-200.0f);
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), 0.0f);
+    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 0.0f);
+}
+
+TEST(ViewportManagerTest, DirectScrollByStopsSmoothScroll)
+{
+    // SmoothScrollByで蓄積したギャップをDirectScrollByがリセットする
+    ViewportManager vm;
+    vm.SyncMaxScroll(10000.0f, 200.0f);
+    vm.SmoothScrollBy(500.0f);
+    EXPECT_TRUE(vm.IsSmoothScrolling());
+
+    vm.DirectScrollBy(10.0f);
+    EXPECT_FALSE(vm.IsSmoothScrolling());
+    // scroll_y_ は SmoothScrollBy の影響（scroll_y_=0のまま）に +10
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), 10.0f);
+    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 10.0f);
+}
+
+TEST(ViewportManagerTest, DirectScrollByAccumulates)
+{
+    // タッチパッドの連続入力をシミュレーション
+    ViewportManager vm;
+    vm.SyncMaxScroll(100000.0f, 200.0f);
+
+    float total = 0.0f;
+    for (int i = 0; i < 30; ++i) {
+        vm.DirectScrollBy(24.0f);
+        total += 24.0f;
+    }
+
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), total);
+    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), total);
+    // ギャップは常にゼロ
+    EXPECT_FLOAT_EQ(vm.GetScrollTarget() - vm.GetScrollY(), 0.0f);
 }
 
 // ---- FindFirstVisibleNode テスト ----

@@ -177,6 +177,7 @@ private:
     void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();
     void InvalidateMdPane(const PaneRect& md_rect);
+    void InvalidateHitPositions() noexcept;
     void ScrollTo(float position);
     void SmoothScrollBy(float delta);
     void UpdateSmoothScroll();

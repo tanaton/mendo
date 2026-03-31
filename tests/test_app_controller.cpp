@@ -170,15 +170,17 @@ TEST_F(AppControllerTest, UnknownCtrlKeyProducesNoAction) {
 // HandleMouseWheel — MDペインのスクロール
 // ═══════════════════════════════════════════════
 
-TEST_F(AppControllerTest, WheelUpInMdPaneSmoothScrolls) {
+TEST_F(AppControllerTest, WheelUpInMdPaneDirectScrolls)
+{
     auto a = ctrl_.HandleMouseWheel({120, false, PaneZone::MdPane});
-    auto& s = GetSingleAction<SmoothScrollByAction>(a);
+    auto& s = GetSingleAction<DirectScrollByAction>(a);
     EXPECT_FLOAT_EQ(s.delta, -120.0f * 0.8f);
 }
 
-TEST_F(AppControllerTest, WheelDownInMdPaneSmoothScrolls) {
+TEST_F(AppControllerTest, WheelDownInMdPaneDirectScrolls)
+{
     auto a = ctrl_.HandleMouseWheel({-120, false, PaneZone::MdPane});
-    auto& s = GetSingleAction<SmoothScrollByAction>(a);
+    auto& s = GetSingleAction<DirectScrollByAction>(a);
     EXPECT_FLOAT_EQ(s.delta, 120.0f * 0.8f);
 }
 
@@ -203,7 +205,7 @@ TEST_F(AppControllerTest, WheelInTocPaneScrollsTocPane) {
 TEST_F(AppControllerTest, WheelOnSplitterScrollsMdPane) {
     auto a = ctrl_.HandleMouseWheel({120, false, PaneZone::Splitter1});
     ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<SmoothScrollByAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<DirectScrollByAction>(a[0]));
 }
 
 // ═══════════════════════════════════════════════

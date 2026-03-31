@@ -14,11 +14,16 @@ void App::UpdateScrollBar()
     Invalidate();
 }
 
+void App::InvalidateHitPositions() noexcept
+{
+    last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
+    last_copy_hit_pos_ = { LONG_MIN, LONG_MIN };
+}
+
 void App::ScrollTo(float position)
 {
     viewport_.ScrollTo(position);
-    last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
-    last_copy_hit_pos_ = { LONG_MIN, LONG_MIN };
+    InvalidateHitPositions();
 }
 
 void App::SmoothScrollBy(float delta)
@@ -28,8 +33,7 @@ void App::SmoothScrollBy(float delta)
 
     if (!was_scrolling && viewport_.IsSmoothScrolling()) {
         last_scroll_time_ = std::chrono::steady_clock::now();
-        last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
-        last_copy_hit_pos_ = { LONG_MIN, LONG_MIN };
+        InvalidateHitPositions();
     }
     // WM_PAINTループでスクロールを駆動するため再描画を要求
     if (viewport_.IsSmoothScrolling()) {

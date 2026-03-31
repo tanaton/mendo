@@ -26,8 +26,8 @@ enum class ScrollType { LineUp, LineDown, PageUp, PageDown, Home, End };
 // キーボード/スクロールバースクロール (Shellがtypeから具体的なdeltaを算出)
 struct KeyScrollAction { ScrollType type; };
 
-// マウスホイールのスムーズスクロール (事前計算済みdelta)
-struct SmoothScrollByAction { float delta; };
+// ホイール/タッチパッドの直接スクロール (アニメーションなし)
+struct DirectScrollByAction { float delta; };
 
 // ペイン (ファイル/目次) スクロール
 struct ScrollPaneAction { PaneZone pane; float delta; };
@@ -51,7 +51,7 @@ struct ShowHelpAction {};
 
 using AppAction = std::variant<
     KeyScrollAction,
-    SmoothScrollByAction,
+    DirectScrollByAction,
     ScrollPaneAction,
     CopyClipboardAction,
     SelectAllAction,

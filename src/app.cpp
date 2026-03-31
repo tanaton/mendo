@@ -910,8 +910,10 @@ void App::ExecuteActions(const ActionList& actions)
                     case ScrollType::End:      SmoothScrollBy(viewport_.GetMaxScroll() - viewport_.GetScrollY()); break;
                 }
             },
-            [this](const SmoothScrollByAction& a) {
-                SmoothScrollBy(a.delta);
+            [this](const DirectScrollByAction& a) {
+                viewport_.DirectScrollBy(a.delta);
+                InvalidateHitPositions();
+                Invalidate();
             },
             [this](const ScrollPaneAction& a) {
                 auto pane_layout = GetPaneLayout();
