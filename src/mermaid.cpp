@@ -313,7 +313,7 @@ void MermaidRenderer::SetupWorker(int index)
                     if (!ready_) {
                         ready_ = true;
                         if (on_all_ready_) {
-                            const auto cb = std::move(on_all_ready_);
+                            auto cb = std::move(on_all_ready_);
                             cb();
                         }
                     }

@@ -1104,7 +1104,7 @@ void App::SaveLastFilePath()
 
 std::pmr::wstring App::LoadLastFilePath() const
 {
-    const std::pmr::wstring path = config_.LoadWString("Session", "LastFile");
+    std::pmr::wstring path = config_.LoadWString("Session", "LastFile");
     if (path.empty()) {
         return {};
     }
