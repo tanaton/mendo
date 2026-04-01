@@ -4,10 +4,12 @@
 #include <windowsx.h>
 #include <shellscalingapi.h>
 #include <dwmapi.h>
+#include <commctrl.h>
 #include <climits>
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "comctl32.lib")
 
 static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 
@@ -47,6 +49,15 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 
     if (!app_.Init(hwnd_)) {
         return false;
+    }
+
+    // 検索用の非表示EDITコントロールを作成（IME対応のため）
+    search_edit_ = CreateWindowExW(0, L"EDIT", L"",
+        WS_CHILD | ES_AUTOHSCROLL,
+        0, 0, 1, 1,
+        hwnd_, nullptr, hInstance, nullptr);
+    if (search_edit_) {
+        SetWindowSubclass(search_edit_, SearchEditProc, 0, reinterpret_cast<DWORD_PTR>(this));
     }
 
     InitSystemMenu();
@@ -192,6 +203,7 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
             return HTSYSMENU;  // システムメニュー表示（ダブルクリックで閉じる）
         case TitleBarHitZone::Help:
         case TitleBarHitZone::ThemeToggle:
+        case TitleBarHitZone::Search:
         case TitleBarHitZone::FileToggle:
         case TitleBarHitZone::TocToggle:
         case TitleBarHitZone::Minimize:
@@ -340,6 +352,29 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_KEYDOWN:
         app_.OnKeyDown(wParam);
+        return 0;
+
+    case WM_COMMAND:
+        if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == search_edit_) {
+            wchar_t buf[512];
+            const int len = GetWindowTextW(search_edit_, buf, std::ranges::size(buf));
+            app_.OnSearchTextChanged(std::wstring_view(buf, len));
+        }
+        return 0;
+
+    case App::WM_APP_SEARCH_FOCUS:
+        if (search_edit_) {
+            SetFocus(search_edit_);
+            // テキストを全選択（再表示時にすぐ上書き入力できるように）
+            SendMessageW(search_edit_, EM_SETSEL, 0, -1);
+        }
+        return 0;
+
+    case App::WM_APP_SEARCH_UNFOCUS:
+        SetFocus(hwnd_);
+        if (wParam == App::SEARCH_UNFOCUS_FILE_SWITCH && search_edit_) {
+            SetWindowTextW(search_edit_, L"");
+        }
         return 0;
 
     case WM_XBUTTONDOWN: {
@@ -509,4 +544,59 @@ void Win32Window::RestoreScrollPosition()
     }
     const int offset = config::GetInt("Session", "ScrollOffset", 0, -100000, 100000);
     app_.SetPendingRestoreNode(node, offset);
+}
+
+// ============================================================
+// 検索EDITコントロールのサブクラスプロシージャ
+// ============================================================
+
+LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData)
+{
+    auto* self = reinterpret_cast<Win32Window*>(dwRefData);
+
+    if (msg == WM_KEYDOWN) {
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+
+        switch (wParam) {
+        case VK_ESCAPE:
+            self->app_.OnSearchClose();
+            SetFocus(self->hwnd_);
+            return 0;
+        case VK_RETURN:
+            if (shift) {
+                self->app_.OnSearchPrev();
+            }
+            else {
+                self->app_.OnSearchNext();
+            }
+            return 0;
+        case VK_F3:
+            if (shift) {
+                self->app_.OnSearchPrev();
+            }
+            else {
+                self->app_.OnSearchNext();
+            }
+            return 0;
+        case 'F':
+            if (ctrl) {
+                // Ctrl+F: 検索バーを閉じる（トグル）
+                self->app_.OnSearchClose();
+                SetFocus(self->hwnd_);
+                return 0;
+            }
+            break;
+        case 'A':
+            if (ctrl) {
+                // Ctrl+A: EDIT内の全選択（メインウィンドウに伝播しない）
+                SendMessageW(hwnd, EM_SETSEL, 0, -1);
+                return 0;
+            }
+            break;
+        }
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
 }

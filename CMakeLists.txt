@@ -90,6 +90,7 @@ add_library(mendo_core STATIC
     src/context_menu.cpp
     src/image_loader.cpp
     src/task_scheduler.cpp
+    src/search_state.cpp
 )
 target_include_directories(mendo_core PUBLIC src third_party/md4c)
 target_compile_definitions(mendo_core PUBLIC

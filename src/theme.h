@@ -70,6 +70,15 @@ struct Theme {
     float splitter_width;
     float pane_font_size;
 
+    // 検索
+    D2D1_COLOR_F search_bar_bg_color;
+    D2D1_COLOR_F search_bar_border_color;
+    D2D1_COLOR_F search_input_bg_color;
+    D2D1_COLOR_F search_input_text_color;
+    D2D1_COLOR_F search_highlight_color;          // 全マッチ（黄色系半透明）
+    D2D1_COLOR_F search_highlight_current_color;  // 現在マッチ（オレンジ系）
+    D2D1_COLOR_F search_no_match_bg_color;        // マッチなし時の入力背景
+
     // ズーム（1.0 = 100%）
     float zoom = 1.0f;
 

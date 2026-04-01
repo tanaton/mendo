@@ -6,6 +6,7 @@
 #include "pane.h"
 #include "ui_constants.h"
 #include "memory_resource.h"
+#include "search_state.h"
 
 // HitTestTextRange をバッファ再利用付きで呼び出し、取得件数を返す。
 inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT32 length,
@@ -49,6 +50,11 @@ public:
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
     }
     constexpr void SetFormats(const Formats& fmts) noexcept { formats_ = fmts; }
+    void SetSearchMatches(const std::vector<SearchMatch>* matches, int current_index) noexcept
+    {
+        search_matches_ = matches;
+        current_match_index_ = current_index;
+    }
 
     // Markdownコンテンツペインのすべての描画コマンドを生成する。
     // 内部バッファへの参照を返す。次回呼び出しまで有効。
@@ -87,8 +93,13 @@ private:
         int node_count, float offset_x, float content_width,
         int first_visible, float viewport_bottom);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
+    void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout,
+        uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color);
     void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout,
         uint32_t start, uint32_t length, float origin_x, float origin_y);
+    void GenSearchHighlights(DrawCommandList& cmds, IDWriteTextLayout* layout,
+        int node_index, float origin_x, float origin_y,
+        int table_row = -1, int table_col = -1);
 
     const Theme* theme_ = nullptr;
     Formats formats_;
@@ -96,6 +107,9 @@ private:
     // フレーム毎にリセットする monotonic リソースで描画コマンドを管理
     MonotonicResource frame_resource_{ 128 * 1024 };
     DrawCommandList cmds_{ frame_resource_.resource() };
+
+    const std::vector<SearchMatch>* search_matches_ = nullptr;
+    int current_match_index_ = -1;
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
     D2D1_COLOR_F cached_stripe_color_{};

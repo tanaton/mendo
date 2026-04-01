@@ -33,6 +33,8 @@ enum class BrushId : uint8_t {
     TitleBarCloseRed, TitleBarCloseWhite,
     PaneBg, Splitter, PaneItemHover, PaneItemActive,
     ScrollbarThumb, Overlay,
+    SearchBarBg, SearchBarBorder, SearchInputBg, SearchInputText,
+    SearchHighlight, SearchHighlightCurrent, SearchNoMatchBg,
     Count
 };
 
@@ -59,6 +61,9 @@ struct TitleBarRenderState {
     D2D1_RECT_F theme_btn_rect{};
     bool theme_btn_hovered = false;
     bool is_dark_mode = false;
+    D2D1_RECT_F search_btn_rect{};
+    bool search_btn_hovered = false;
+    bool search_active = false;
     D2D1_RECT_F file_btn_rect{};
     bool file_btn_hovered = false;
     bool file_pane_visible = false;
@@ -109,6 +114,25 @@ struct PaneCache {
     void Reset() noexcept { bitmap_rt.Reset(); cached_bitmap.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
 };
 
+// 検索バー描画パラメータ
+struct SearchBarRenderState {
+    bool visible = false;
+    std::wstring_view query;
+    int current_match = -1;    // 0-based、-1 = マッチなし
+    int total_matches = 0;
+    bool has_focus = false;
+    bool caret_visible = false; // キャレット（点滅制御）
+    // チェックボックス状態
+    bool case_sensitive = false;
+    bool highlight_enabled = true;
+    // 検索バー内のボタンホバー状態
+    bool up_btn_hovered = false;
+    bool down_btn_hovered = false;
+    bool close_btn_hovered = false;
+    bool case_btn_hovered = false;
+    bool highlight_btn_hovered = false;
+};
+
 // Renderer::Render に渡す全パラメータをまとめた構造体。
 struct RenderParams {
     std::pmr::vector<Node>& nodes;
@@ -125,6 +149,7 @@ struct RenderParams {
     int hovered_copy_node = -1;
     const GestureRenderState& gesture;
     const ToastRenderState& toast;
+    const SearchBarRenderState& search_bar;
     bool has_dirty_nodes = false;
 };
 
@@ -161,6 +186,11 @@ public:
     // コールバックには新しいレンダーターゲットのポインタが渡される。
     void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
 
+    void SetSearchMatches(const std::vector<SearchMatch>* matches, int current_index) noexcept
+    {
+        cmd_generator_.SetSearchMatches(matches, current_index);
+    }
+
     constexpr void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }
     constexpr void InvalidateTocPaneCache() noexcept { toc_pane_cache_.dirty = true; }
 
@@ -186,6 +216,7 @@ private:
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
     void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
+    void DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect);
 
     D2DRenderBackend backend_;
     // 簡易アクセサ（600行の描画コード内で冗長なbackend_.Get...を避けるため）
@@ -225,6 +256,9 @@ private:
         Microsoft::WRL::ComPtr<IDWriteTextFormat> nav_button;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> gesture_overlay;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> toast_text;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> search_input;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> search_count;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> search_icon;
     };
     TextFormats fmt_;
 

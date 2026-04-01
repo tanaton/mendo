@@ -277,6 +277,9 @@ TitleBarRenderState App::BuildTitleBarRenderState(float window_width) const
     tb.theme_btn_rect = titlebar_.GetThemeToggleButton().rect;
     tb.theme_btn_hovered = titlebar_.GetThemeToggleButton().hovered;
     tb.is_dark_mode = theme_service_.IsDarkMode();
+    tb.search_btn_rect = titlebar_.GetSearchButton().rect;
+    tb.search_btn_hovered = titlebar_.GetSearchButton().hovered;
+    tb.search_active = search_state_.IsVisible();
     tb.file_btn_rect = titlebar_.GetFileToggleButton().rect;
     tb.file_btn_hovered = titlebar_.GetFileToggleButton().hovered;
     tb.file_pane_visible = panes_.IsFilePaneVisible();
@@ -304,6 +307,25 @@ ToastRenderState App::BuildToastRenderState() const
     ts.alpha = toast_.GetRenderAlpha();
     ts.message = toast_.GetMessage();
     return ts;
+}
+
+SearchBarRenderState App::BuildSearchBarRenderState() const
+{
+    SearchBarRenderState sb;
+    sb.visible = search_state_.IsVisible();
+    sb.query = search_state_.GetQuery();
+    sb.current_match = search_state_.GetCurrentMatchIndex();
+    sb.total_matches = search_state_.GetMatchCount();
+    sb.has_focus = search_has_focus_;
+    sb.caret_visible = search_has_focus_ && search_caret_visible_;
+    sb.case_sensitive = search_state_.IsCaseSensitive();
+    sb.highlight_enabled = search_state_.IsHighlightEnabled();
+    sb.up_btn_hovered = (search_bar_hover_ == SearchBarHover::Up);
+    sb.down_btn_hovered = (search_bar_hover_ == SearchBarHover::Down);
+    sb.close_btn_hovered = (search_bar_hover_ == SearchBarHover::Close);
+    sb.case_btn_hovered = (search_bar_hover_ == SearchBarHover::CaseSensitive);
+    sb.highlight_btn_hovered = (search_bar_hover_ == SearchBarHover::Highlight);
+    return sb;
 }
 
 // ============================================================
@@ -361,17 +383,25 @@ void App::OnPaint()
     const auto sp = BuildSidePaneState(layout);
     const auto tb = BuildTitleBarRenderState(cached_window_width_for_layout_);
     const auto ts = BuildToastRenderState();
+    const auto sb = BuildSearchBarRenderState();
 
     if (file_load_service_.IsLoading()) {
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
     }
     else {
+        // 検索マッチ情報をコマンドジェネレータに設定
+        if (search_state_.IsVisible() && search_state_.IsHighlightEnabled() && !search_state_.GetMatches().empty()) {
+            renderer_.SetSearchMatches(&search_state_.GetMatches(), search_state_.GetCurrentMatchIndex());
+        } else {
+            renderer_.SetSearchMatches(nullptr, -1);
+        }
+
         renderer_.Render({
             doc_.GetNodesMut(), layout_cache_,
             viewport_.GetScrollY(), layout_service_->GetTotalHeight(),
             viewport_.GetSelection(), layout.md_rect, sp, tb,
             nav_service_.CanGoBack(), nav_service_.CanGoForward(),
-            static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts,
+            static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts, sb,
             layout_service_->HasDirtyNodes()
             });
     }
@@ -511,6 +541,9 @@ void App::DoLoadMarkdownFile()
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
 
     viewport_.ClearSelection();
+    search_state_.Reset();
+    // ファイル切替時はEDITコントロールのテキストもクリア
+    PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, SEARCH_UNFOCUS_FILE_SWITCH, 0);
     active_toc_index_ = -1;
     mermaid_renderer_.CancelPending();
     image_loader_.CancelPending();
@@ -665,6 +698,15 @@ void App::DoReloadCurrentFile()
         viewport_.SetScrollTarget(desired_scroll);
         SyncMaxScroll(md_height);
         UpdateScrollBar();
+
+        // 検索バー表示中なら再検索
+        if (search_state_.IsVisible() && !search_state_.GetQuery().empty()) {
+            search_state_.ExecuteSearch(doc_.GetNodes());
+            if (search_state_.GetMatchCount() > 0) {
+                search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
+            }
+        }
+
         Invalidate();
 
         // OSが同一セーブ操作で複数イベントを送るため、処理完了時点から
@@ -956,7 +998,11 @@ void App::ExecuteActions(const ActionList& actions)
                 SelectAll();
             },
             [this](const ClearSelectionAction&) {
-                ClearSelection();
+                if (search_state_.IsVisible()) {
+                    OnSearchClose();
+                } else {
+                    ClearSelection();
+                }
             },
             [this](const TogglePaneAction& a) {
                 if (a.file_pane) {
@@ -1004,6 +1050,18 @@ void App::ExecuteActions(const ActionList& actions)
                     PushNavHistory();
                 }
                 LoadHelpDocument();
+            },
+            [this](const OpenSearchBarAction&) {
+                OnSearchOpen();
+            },
+            [this](const CloseSearchBarAction&) {
+                OnSearchClose();
+            },
+            [this](const SearchNextAction&) {
+                OnSearchNext();
+            },
+            [this](const SearchPrevAction&) {
+                OnSearchPrev();
             },
             }, action);
     }
@@ -1061,6 +1119,17 @@ void App::HandleTimer(UINT_PTR timer_id)
         Invalidate();
         break;
     }
+    case TIMER_SEARCH_CARET: {
+        search_caret_visible_ = !search_caret_visible_;
+        if (search_has_focus_) {
+            // 検索バー領域のみ再描画（全画面再描画を回避）
+            const auto& layout = GetPaneLayout();
+            const auto& r = layout.md_rect;
+            const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
+            InvalidatePane(search_area);
+        }
+        break;
+    }
     default: break;
     }
 }
@@ -1102,6 +1171,123 @@ void App::OnDestroy()
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
     KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
     KillTimer(hwnd_, TIMER_TOAST);
+    KillTimer(hwnd_, TIMER_SEARCH_CARET);
+}
+
+// ============================================================
+// 検索
+// ============================================================
+
+void App::OnSearchOpen()
+{
+    if (search_state_.IsVisible()) {
+        // 既に表示中ならトグルで閉じる
+        OnSearchClose();
+        return;
+    }
+    search_state_.Show();
+    search_has_focus_ = true;
+    search_caret_visible_ = true;
+
+    // 前回のクエリが残っている場合は検索を再実行
+    if (!search_state_.GetQuery().empty()) {
+        search_state_.ExecuteSearch(doc_.GetNodes());
+        if (search_state_.GetMatchCount() > 0) {
+            search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
+        }
+    }
+
+    // キャレット点滅タイマー開始（システムのカーソル点滅速度を使用）
+    const UINT blink_time = GetCaretBlinkTime();
+    if (blink_time > 0 && blink_time != INFINITE) {
+        SetTimer(hwnd_, TIMER_SEARCH_CARET, blink_time, nullptr);
+    }
+    PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, 0, 0);
+    Invalidate();
+}
+
+void App::OnSearchClose()
+{
+    search_state_.Hide();
+    search_bar_hover_ = SearchBarHover::None;
+    search_has_focus_ = false;
+    search_caret_visible_ = false;
+    KillTimer(hwnd_, TIMER_SEARCH_CARET);
+    PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, 0, 0);
+    Invalidate();
+}
+
+void App::OnSearchNext()
+{
+    search_state_.NextMatch();
+    ScrollToCurrentMatch();
+    Invalidate();
+}
+
+void App::OnSearchPrev()
+{
+    search_state_.PrevMatch();
+    ScrollToCurrentMatch();
+    Invalidate();
+}
+
+void App::OnSearchTextChanged(std::wstring_view text)
+{
+    search_state_.SetQuery(text);
+    search_state_.ExecuteSearch(doc_.GetNodes());
+    if (search_state_.GetMatchCount() > 0) {
+        search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
+        ScrollToCurrentMatch();
+    }
+    Invalidate();
+}
+
+void App::OnToggleCaseSensitive()
+{
+    search_state_.ToggleCaseSensitive();
+    if (!search_state_.GetQuery().empty()) {
+        search_state_.ExecuteSearch(doc_.GetNodes());
+        if (search_state_.GetMatchCount() > 0) {
+            search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
+        }
+    }
+    Invalidate();
+}
+
+void App::OnToggleHighlight()
+{
+    search_state_.ToggleHighlightEnabled();
+    Invalidate();
+}
+
+void App::ScrollToCurrentMatch()
+{
+    const int idx = search_state_.GetCurrentMatchIndex();
+    if (idx < 0 || idx >= search_state_.GetMatchCount()) {
+        return;
+    }
+    const auto& match = search_state_.GetMatches()[idx];
+    if (match.node_index < 0 || match.node_index >= static_cast<int>(layout_cache_.size())) {
+        return;
+    }
+
+    const auto& entry = layout_cache_[match.node_index];
+    const float match_y = entry.y_position;
+    const auto& pane_layout = GetPaneLayout();
+    const float viewport_height = pane_layout.md_rect.height;
+    const float effective_bottom = viewport_.GetScrollY() + viewport_height
+        - (search_state_.IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
+    const float scroll_y = viewport_.GetScrollY();
+
+    // マッチが可視範囲外の場合のみスクロール（アニメーションなし）
+    if (match_y < scroll_y || match_y + entry.height > effective_bottom) {
+        const float target = std::max(0.0f, match_y - viewport_height / 3.0f);
+        StopSmoothScroll();
+        viewport_.SetScrollY(target);
+        viewport_.SetScrollTarget(target);
+        SyncMaxScroll(viewport_height);
+        InvalidateHitPositions();
+    }
 }
 
 // ============================================================

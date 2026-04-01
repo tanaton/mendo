@@ -215,6 +215,9 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         }
     }
 
+    // 検索マッチのハイライト
+    GenSearchHighlights(cmds, entry.text_layout.Get(), node_index, x, entry.y_position);
+
     // メインテキスト
     cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(x, entry.y_position), entry.text_layout.Get(), base_color });
 
@@ -368,6 +371,10 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             if (r < entry.cell_inline_code_bgs.size() && c < entry.cell_inline_code_bgs[r].size()) {
                 GenInlineCodeBgs(cmds, entry.cell_inline_code_bgs[r][c], text_x, text_y, theme_->code_bg_color);
             }
+
+            // 検索マッチのハイライト（テーブルセル）
+            GenSearchHighlights(cmds, cell_layout, node_index, text_x, text_y,
+                static_cast<int>(r), static_cast<int>(c));
 
             GenTableCellContent(cmds, cell, cell_layout, text_x, text_y, has_selection, sel_start, sel_end, flat_offset);
 
@@ -568,17 +575,14 @@ void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds,
     }
 }
 
-void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,
+void CommandGenerator::EmitHighlightRects(DrawCommandList& cmds,
     IDWriteTextLayout* layout, uint32_t start, uint32_t length,
-    float origin_x, float origin_y)
+    float origin_x, float origin_y, D2D1_COLOR_F color)
 {
     if (!layout || length == 0) {
         return;
     }
     const UINT32 count = FetchHitTestMetrics(layout, start, length, hit_test_buffer_);
-    if (count == 0) {
-        return;
-    }
     for (UINT32 i = 0; i < count; i++) {
         cmds.emplace_back(FillRectCmd{
             D2D1::RectF(
@@ -586,6 +590,44 @@ void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,
                 origin_y + hit_test_buffer_[i].top,
                 origin_x + hit_test_buffer_[i].left + hit_test_buffer_[i].width,
                 origin_y + hit_test_buffer_[i].top + hit_test_buffer_[i].height),
-            SELECTION_COLOR });
+            color });
+    }
+}
+
+void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,
+    IDWriteTextLayout* layout, uint32_t start, uint32_t length,
+    float origin_x, float origin_y)
+{
+    EmitHighlightRects(cmds, layout, start, length, origin_x, origin_y, SELECTION_COLOR);
+}
+
+void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, IDWriteTextLayout* layout,
+    int node_index, float origin_x, float origin_y,
+    int table_row, int table_col)
+{
+    if (!layout || !search_matches_ || search_matches_->empty()) {
+        return;
+    }
+
+    const auto& matches = *search_matches_;
+    for (int mi = 0; mi < static_cast<int>(matches.size()); mi++) {
+        const auto& m = matches[mi];
+        if (m.node_index < node_index) {
+            continue;
+        }
+        if (m.node_index > node_index) {
+            break;
+        }
+        if (table_row >= 0 && (m.table_row != table_row || m.table_col != table_col)) {
+            continue;
+        }
+        if (table_row < 0 && m.table_row >= 0) {
+            continue;
+        }
+
+        const D2D1_COLOR_F color = (mi == current_match_index_)
+            ? theme_->search_highlight_current_color
+            : theme_->search_highlight_color;
+        EmitHighlightRects(cmds, layout, m.start, m.length, origin_x, origin_y, color);
     }
 }

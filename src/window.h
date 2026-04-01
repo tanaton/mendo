@@ -27,7 +27,11 @@ private:
     void SaveWindowPlacement();
     bool RestoreWindowPlacement(int nCmdShow);
 
+    static LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+        UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+
     HWND hwnd_ = nullptr;
+    HWND search_edit_ = nullptr;
     bool in_sys_menu_ = false;   // システムメニューのモーダルループ中フラグ
     App app_;
 };

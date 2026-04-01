@@ -48,6 +48,10 @@ struct ToggleDarkModeAction {};
 struct NavigateBackAction {};
 struct NavigateForwardAction {};
 struct ShowHelpAction {};
+struct OpenSearchBarAction {};
+struct CloseSearchBarAction {};
+struct SearchNextAction {};
+struct SearchPrevAction {};
 
 using AppAction = std::variant<
     KeyScrollAction,
@@ -63,7 +67,11 @@ using AppAction = std::variant<
     ToggleDarkModeAction,
     NavigateBackAction,
     NavigateForwardAction,
-    ShowHelpAction
+    ShowHelpAction,
+    OpenSearchBarAction,
+    CloseSearchBarAction,
+    SearchNextAction,
+    SearchPrevAction
 >;
 
 using ActionList = std::pmr::vector<AppAction>;

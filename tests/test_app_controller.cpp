@@ -257,3 +257,25 @@ TEST_F(AppControllerTest, CtrlAltLeftProducesNoAction) {
     auto a = ctrl_.HandleKeyDown({VK_LEFT, true, false, true});
     EXPECT_TRUE(a.empty());
 }
+
+// ═══════════════════════════════════════════════
+// HandleKeyDown — 検索ショートカット
+// ═══════════════════════════════════════════════
+
+TEST_F(AppControllerTest, CtrlFReturnsOpenSearchBar) {
+    auto a = ctrl_.HandleKeyDown({'F', true, false});
+    ASSERT_EQ(a.size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<OpenSearchBarAction>(a[0]));
+}
+
+TEST_F(AppControllerTest, CtrlGReturnsSearchNext) {
+    auto a = ctrl_.HandleKeyDown({'G', true, false});
+    ASSERT_EQ(a.size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<SearchNextAction>(a[0]));
+}
+
+TEST_F(AppControllerTest, CtrlShiftGReturnsSearchPrev) {
+    auto a = ctrl_.HandleKeyDown({'G', true, true});
+    ASSERT_EQ(a.size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<SearchPrevAction>(a[0]));
+}

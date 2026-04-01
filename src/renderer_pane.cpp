@@ -325,6 +325,12 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         tb.theme_btn_hovered, BrushId::TitleBarButtonHover,
         BrushId::TitleBarText, text_alpha);
 
+    // 検索ボタン（active > hover の優先度）
+    drawButton(tb.search_btn_rect, L"\uE721",
+        tb.search_active || tb.search_btn_hovered,
+        tb.search_active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText, text_alpha);
+
     // ペイン切替ボタン（active > hover の優先度）
     drawButton(tb.file_btn_rect, L"\uE8B7",
         tb.file_pane_visible || tb.file_btn_hovered,
@@ -380,3 +386,149 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     }
 }
 
+void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect)
+{
+    if (!rt() || !sb.visible) {
+        return;
+    }
+
+    const auto sbl = ComputeSearchBarLayout(md_pane_rect.x, md_pane_rect.width,
+        md_pane_rect.y + md_pane_rect.height, !sb.query.empty());
+
+    // 背景
+    const D2D1_RECT_F bar_rect = D2D1::RectF(md_pane_rect.x, sbl.bar_top,
+        md_pane_rect.x + md_pane_rect.width, sbl.bar_bottom);
+    rt()->FillRectangle(bar_rect, Brush(BrushId::SearchBarBg));
+
+    // 上ボーダー
+    rt()->DrawLine(
+        D2D1::Point2F(bar_rect.left, sbl.bar_top),
+        D2D1::Point2F(bar_rect.right, sbl.bar_top),
+        Brush(BrushId::SearchBarBorder), 1.0f);
+
+    // 検索アイコン
+    if (fmt_.search_icon) {
+        auto* brush = Brush(BrushId::SearchInputText);
+        if (brush) {
+            brush->SetOpacity(0.6f);
+            rt()->DrawText(L"\uE721", 1, fmt_.search_icon.Get(), sbl.icon_rect, brush);
+            brush->SetOpacity(1.0f);
+        }
+    }
+
+    // 入力フィールド背景
+    const D2D1_ROUNDED_RECT input_rrect = D2D1::RoundedRect(sbl.input_rect, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER);
+    const bool no_match = !sb.query.empty() && sb.total_matches == 0;
+    rt()->FillRoundedRectangle(input_rrect, Brush(no_match ? BrushId::SearchNoMatchBg : BrushId::SearchInputBg));
+
+    // ボーダー（フォーカス時はリンク色で強調）
+    if (sb.has_focus) {
+        auto* focus_brush = Brush(BrushId::Link);
+        if (focus_brush) {
+            rt()->DrawRoundedRectangle(input_rrect, focus_brush, 1.5f);
+        }
+    } else {
+        auto* border_brush = Brush(BrushId::SearchBarBorder);
+        if (border_brush) {
+            border_brush->SetOpacity(0.5f);
+            rt()->DrawRoundedRectangle(input_rrect, border_brush, 1.0f);
+            border_brush->SetOpacity(1.0f);
+        }
+    }
+
+    // 入力テキスト
+    const float text_left = sbl.input_rect.left + 6.0f;
+    float text_end_x = text_left;
+    if (fmt_.search_input && !sb.query.empty()) {
+        const D2D1_RECT_F text_rect = D2D1::RectF(
+            text_left, sbl.input_rect.top,
+            sbl.input_rect.right - 4.0f, sbl.input_rect.bottom);
+        rt()->DrawText(
+            sb.query.data(), static_cast<UINT32>(sb.query.size()),
+            fmt_.search_input.Get(), text_rect, Brush(BrushId::SearchInputText));
+
+        // テキスト幅を計測してキャレット位置を決定
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> measure_layout;
+        if (backend_.GetDWriteFactory()) {
+            const float input_h = sbl.input_rect.bottom - sbl.input_rect.top;
+            backend_.GetDWriteFactory()->CreateTextLayout(
+                sb.query.data(), static_cast<UINT32>(sb.query.size()),
+                fmt_.search_input.Get(),
+                sbl.input_rect.right - text_left, input_h,
+                &measure_layout);
+            if (measure_layout) {
+                DWRITE_TEXT_METRICS metrics{};
+                measure_layout->GetMetrics(&metrics);
+                text_end_x = text_left + metrics.width;
+            }
+        }
+    }
+
+    // キャレット描画
+    if (sb.caret_visible) {
+        const float caret_x = std::min(text_end_x + 1.0f, sbl.input_rect.right - 4.0f);
+        rt()->DrawLine(
+            D2D1::Point2F(caret_x, sbl.input_rect.top + 3.0f),
+            D2D1::Point2F(caret_x, sbl.input_rect.bottom - 3.0f),
+            Brush(BrushId::SearchInputText), 1.0f);
+    }
+
+    // ボタン描画ヘルパー
+    auto drawIconBtn = [&](const D2D1_RECT_F& r, const wchar_t* icon, bool hovered, float alpha = 1.0f) {
+        if (hovered) {
+            rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),
+                Brush(BrushId::TitleBarButtonHover));
+        }
+        if (fmt_.search_icon) {
+            auto* brush = Brush(BrushId::SearchInputText);
+            if (brush) {
+                brush->SetOpacity(alpha);
+                rt()->DrawText(icon, 1, fmt_.search_icon.Get(), r, brush);
+                brush->SetOpacity(1.0f);
+            }
+        }
+    };
+
+    auto drawToggleBtn = [&](const D2D1_RECT_F& r, const wchar_t* label, UINT32 len,
+        IDWriteTextFormat* fmt, bool checked, bool hovered) {
+        if (hovered || checked) {
+            rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),
+                Brush(checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover));
+        }
+        if (fmt) {
+            auto* brush = Brush(BrushId::SearchInputText);
+            if (brush) {
+                brush->SetOpacity(checked ? 1.0f : 0.5f);
+                rt()->DrawText(label, len, fmt, r, brush);
+                brush->SetOpacity(1.0f);
+            }
+        }
+    };
+
+    const float nav_alpha = sb.total_matches > 0 ? 1.0f : 0.3f;
+    drawIconBtn(sbl.up_btn, L"\uE70E", sb.up_btn_hovered, nav_alpha);
+    drawIconBtn(sbl.down_btn, L"\uE70D", sb.down_btn_hovered, nav_alpha);
+
+    // マッチカウント
+    if (fmt_.search_count && !sb.query.empty()) {
+        wchar_t count_text[32];
+        if (sb.total_matches == 0) {
+            wcscpy_s(count_text, L"0");
+        } else {
+            swprintf_s(count_text, L"%d / %d", sb.current_match + 1, sb.total_matches);
+        }
+        auto* brush = Brush(BrushId::SearchInputText);
+        if (brush) {
+            brush->SetOpacity(0.7f);
+            rt()->DrawText(count_text, static_cast<UINT32>(wcslen(count_text)),
+                fmt_.search_count.Get(), sbl.count_rect, brush);
+            brush->SetOpacity(1.0f);
+        }
+    }
+
+    drawToggleBtn(sbl.case_btn, L"Aa", 2, fmt_.search_count.Get(),
+        sb.case_sensitive, sb.case_btn_hovered);
+    drawToggleBtn(sbl.highlight_btn, L"\uE7E6", 1, fmt_.search_icon.Get(),
+        sb.highlight_enabled, sb.highlight_btn_hovered);
+    drawIconBtn(sbl.close_btn, L"\uE8BB", sb.close_btn_hovered);
+}

@@ -151,8 +151,9 @@ bool App::OnRButtonUp(int px, int py)
 
 void App::OnRButtonMove(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) { return; }
-
+    if (!renderer_.GetRenderTarget()) {
+        return;
+    }
     const auto dip = PixelToDip(px, py);
     gesture_.OnMouseMove(dip.x, dip.y);
 
@@ -216,7 +217,9 @@ bool App::TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& 
         panes_.StartDrag(target);
         bool dirty = false;
         HandleScrollbarClick(dip_y, scroll_info, scroll, dirty);
-        if (dirty) { (renderer_.*invalidate)(); }
+        if (dirty) {
+            (renderer_.*invalidate)();
+        }
         return true;
     }
     return false;
@@ -302,7 +305,9 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
 
 void App::OnLButtonDown(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) { return; }
+    if (!renderer_.GetRenderTarget()) {
+        return;
+    }
 
     const auto dip = PixelToDip(px, py);
 
@@ -314,6 +319,10 @@ void App::OnLButtonDown(int px, int py)
                 PushNavHistory();
             }
             LoadHelpDocument();
+            return;
+        }
+        if (tb_zone == TitleBarHitZone::Search) {
+            OnSearchOpen();
             return;
         }
         if (tb_zone == TitleBarHitZone::ThemeToggle) {
@@ -366,6 +375,36 @@ void App::OnLButtonDown(int px, int py)
         HandleTocPaneClick(dip.x, dip.y, pane_layout);
         return;
     case PaneZone::MdPane: {
+        // 検索バーのクリック処理
+        if (search_state_.IsVisible()) {
+            const auto& r = pane_layout.md_rect;
+            const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !search_state_.GetQuery().empty());
+            if (dip.y >= sbl.bar_top) {
+                if (PointInRect(dip.x, dip.y, sbl.up_btn)) {
+                    OnSearchPrev();
+                    return;
+                }
+                if (PointInRect(dip.x, dip.y, sbl.down_btn)) {
+                    OnSearchNext();
+                    return;
+                }
+                if (PointInRect(dip.x, dip.y, sbl.case_btn)) {
+                    OnToggleCaseSensitive();
+                    return;
+                }
+                if (PointInRect(dip.x, dip.y, sbl.highlight_btn)) {
+                    OnToggleHighlight();
+                    return;
+                }
+                if (PointInRect(dip.x, dip.y, sbl.close_btn)) {
+                    OnSearchClose();
+                    return;
+                }
+                PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, 0, 0);
+                return;
+            }
+        }
+
         const auto nav_hit = hit_test_.NavButtonHitTest(dip.x, dip.y, pane_layout.md_rect);
         if (nav_hit == NavButtonHover::Back) {
             NavigateBack();
@@ -442,8 +481,7 @@ void App::OnLButtonUp(int px, int py)
         panes_.EndDrag();
         RECT rc;
         GetClientRect(hwnd_, &rc);
-        OnResize(static_cast<UINT>(rc.right - rc.left),
-            static_cast<UINT>(rc.bottom - rc.top));
+        OnResize(static_cast<UINT>(rc.right - rc.left), static_cast<UINT>(rc.bottom - rc.top));
         return;
     }
 
@@ -451,7 +489,11 @@ void App::OnLButtonUp(int px, int py)
         const auto hit = HitTest(px, py);
         if (hit.node_index >= 0) {
             viewport_.SetSelection(TextSelection::MakeOrdered(
-                viewport_.GetAnchorNode(), viewport_.GetAnchorPos(), hit.node_index, hit.text_pos));
+                viewport_.GetAnchorNode(),
+                viewport_.GetAnchorPos(),
+                hit.node_index,
+                hit.text_pos
+            ));
         }
         viewport_.SetDragging(false);
 
@@ -472,7 +514,9 @@ void App::OnLButtonUp(int px, int py)
 void App::OnMouseMove(int px, int py)
 {
     auto* rt = renderer_.GetRenderTarget();
-    if (!rt) { return; }
+    if (!rt) {
+        return;
+    }
 
     const auto dip = PixelToDip(px, py);
     const float dip_x = dip.x;
@@ -526,7 +570,9 @@ void App::OnMouseMove(int px, int py)
     }
 
     // MDペイン: ドラッグ選択
-    if (!viewport_.IsDragging()) { return; }
+    if (!viewport_.IsDragging()) {
+        return;
+    }
     const auto hit = HitTest(px, py);
     if (hit.node_index >= 0) {
         viewport_.SetSelection(TextSelection::MakeOrdered(
@@ -538,7 +584,9 @@ void App::OnMouseMove(int px, int py)
 
 void App::OnMouseHover(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) { return; }
+    if (!renderer_.GetRenderTarget()) {
+        return;
+    }
 
     const auto dip = PixelToDip(px, py);
     const float dip_x = dip.x;
@@ -636,6 +684,42 @@ void App::OnMouseHover(int px, int py)
 
 void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
 {
+    // 検索バー上のホバー処理
+    if (search_state_.IsVisible()) {
+        const auto& r = pane_layout.md_rect;
+        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !search_state_.GetQuery().empty());
+        const auto old_hover = search_bar_hover_;
+        search_bar_hover_ = SearchBarHover::None;
+
+        if (dip_y >= sbl.bar_top) {
+            if (PointInRect(dip_x, dip_y, sbl.up_btn)) {
+                search_bar_hover_ = SearchBarHover::Up;
+            }
+            else if (PointInRect(dip_x, dip_y, sbl.down_btn)) {
+                search_bar_hover_ = SearchBarHover::Down;
+            }
+            else if (PointInRect(dip_x, dip_y, sbl.case_btn)) {
+                search_bar_hover_ = SearchBarHover::CaseSensitive;
+            }
+            else if (PointInRect(dip_x, dip_y, sbl.highlight_btn)) {
+                search_bar_hover_ = SearchBarHover::Highlight;
+            }
+            else if (PointInRect(dip_x, dip_y, sbl.close_btn)) {
+                search_bar_hover_ = SearchBarHover::Close;
+            }
+
+            SetCursor(cursor_arrow_);
+            if (search_bar_hover_ != old_hover) {
+                Invalidate();
+            }
+            return;
+        }
+
+        if (old_hover != SearchBarHover::None) {
+            Invalidate();
+        }
+    }
+
     // スクロールバー領域では矢印カーソル
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
         SetCursor(cursor_arrow_);

@@ -20,6 +20,14 @@ ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const
         case 'C': actions.emplace_back(CopyClipboardAction{}); break;
         case 'A': actions.emplace_back(SelectAllAction{}); break;
         case 'O': actions.emplace_back(OpenFileAction{}); break;
+        case 'F': actions.emplace_back(OpenSearchBarAction{}); break;
+        case 'G':
+            if (event.shift) {
+                actions.emplace_back(SearchPrevAction{});
+            } else {
+                actions.emplace_back(SearchNextAction{});
+            }
+            break;
         case '1': actions.emplace_back(TogglePaneAction{ true }); break;
         case '2': actions.emplace_back(TogglePaneAction{ false }); break;
         case VK_OEM_PLUS:

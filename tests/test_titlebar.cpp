@@ -54,10 +54,16 @@ TEST_F(TitleBarTest, ThemeToggleIsLeftOfHelp) {
     EXPECT_FLOAT_EQ(theme.rect.right, help.rect.left);
 }
 
-TEST_F(TitleBarTest, TocToggleIsLeftOfThemeToggle) {
+TEST_F(TitleBarTest, SearchIsLeftOfThemeToggle) {
     auto& theme = tb_.GetThemeToggleButton();
+    auto& search = tb_.GetSearchButton();
+    EXPECT_FLOAT_EQ(search.rect.right, theme.rect.left);
+}
+
+TEST_F(TitleBarTest, TocToggleIsLeftOfSearch) {
+    auto& search = tb_.GetSearchButton();
     auto& toc = tb_.GetTocToggleButton();
-    EXPECT_FLOAT_EQ(toc.rect.right, theme.rect.left);
+    EXPECT_FLOAT_EQ(toc.rect.right, search.rect.left);
 }
 
 TEST_F(TitleBarTest, FileToggleIsLeftOfTocToggle) {
@@ -73,6 +79,7 @@ TEST_F(TitleBarTest, AllButtonsUseFullHeight) {
     };
     check(tb_.GetHelpButton());
     check(tb_.GetThemeToggleButton());
+    check(tb_.GetSearchButton());
     check(tb_.GetFileToggleButton());
     check(tb_.GetTocToggleButton());
     check(tb_.GetMinimizeButton());
@@ -95,6 +102,7 @@ TEST_F(TitleBarTest, PaneToggleButtonWidth) {
     };
     check(tb_.GetHelpButton());
     check(tb_.GetThemeToggleButton());
+    check(tb_.GetSearchButton());
     check(tb_.GetFileToggleButton());
     check(tb_.GetTocToggleButton());
 }
@@ -169,6 +177,13 @@ TEST_F(TitleBarTest, HitTestThemeToggle) {
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::ThemeToggle);
 }
 
+TEST_F(TitleBarTest, HitTestSearchButton) {
+    auto& btn = tb_.GetSearchButton();
+    float cx = (btn.rect.left + btn.rect.right) / 2.0f;
+    float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
+    EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Search);
+}
+
 TEST_F(TitleBarTest, HitTestHelpButton) {
     auto& btn = tb_.GetHelpButton();
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
@@ -233,6 +248,7 @@ TEST_F(TitleBarTest, SetHoveredNoneClearsAll) {
     tb_.SetHovered(TitleBarHitZone::None);
     EXPECT_FALSE(tb_.GetHelpButton().hovered);
     EXPECT_FALSE(tb_.GetThemeToggleButton().hovered);
+    EXPECT_FALSE(tb_.GetSearchButton().hovered);
     EXPECT_FALSE(tb_.GetFileToggleButton().hovered);
     EXPECT_FALSE(tb_.GetTocToggleButton().hovered);
     EXPECT_FALSE(tb_.GetMinimizeButton().hovered);
@@ -245,6 +261,7 @@ TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton) {
         int count = 0;
         if (tb_.GetHelpButton().hovered) { ++count; }
         if (tb_.GetThemeToggleButton().hovered) { ++count; }
+        if (tb_.GetSearchButton().hovered) { ++count; }
         if (tb_.GetFileToggleButton().hovered) { ++count; }
         if (tb_.GetTocToggleButton().hovered) { ++count; }
         if (tb_.GetMinimizeButton().hovered) { ++count; }
@@ -255,6 +272,7 @@ TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton) {
 
     TitleBarHitZone zones[] = {
         TitleBarHitZone::Help, TitleBarHitZone::ThemeToggle,
+        TitleBarHitZone::Search,
         TitleBarHitZone::FileToggle, TitleBarHitZone::TocToggle,
         TitleBarHitZone::Minimize, TitleBarHitZone::Maximize,
         TitleBarHitZone::Close,
@@ -275,6 +293,7 @@ TEST_F(TitleBarTest, ButtonsDoNotOverlap) {
     Rect rects[] = {
         { tb_.GetHelpButton().rect.left,          tb_.GetHelpButton().rect.right },
         { tb_.GetThemeToggleButton().rect.left,   tb_.GetThemeToggleButton().rect.right },
+        { tb_.GetSearchButton().rect.left,        tb_.GetSearchButton().rect.right },
         { tb_.GetFileToggleButton().rect.left,    tb_.GetFileToggleButton().rect.right },
         { tb_.GetTocToggleButton().rect.left,     tb_.GetTocToggleButton().rect.right },
         { tb_.GetMinimizeButton().rect.left,      tb_.GetMinimizeButton().rect.right },
