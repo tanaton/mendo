@@ -199,6 +199,9 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     // インラインコードの背景
     GenInlineCodeBgs(cmds, entry.inline_code_bgs, x, entry.y_position, theme_->code_bg_color);
 
+    // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
+    GenSearchHighlights(cmds, entry.text_layout.Get(), node_index, x, entry.y_position);
+
     // 選択範囲のハイライト
     if (selection.active && node_index >= selection.start_node && node_index <= selection.end_node) {
         uint32_t sel_start = 0;
@@ -214,9 +217,6 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                 sel_start, sel_end - sel_start, x, entry.y_position);
         }
     }
-
-    // 検索マッチのハイライト
-    GenSearchHighlights(cmds, entry.text_layout.Get(), node_index, x, entry.y_position);
 
     // メインテキスト
     cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(x, entry.y_position), entry.text_layout.Get(), base_color });

@@ -53,12 +53,14 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         return false;
     }
 
-    // 検索用の非表示EDITコントロールを作成（IME対応のため）
-    search_edit_ = CreateWindowExW(0, L"EDIT", L"",
-        WS_CHILD | ES_AUTOHSCROLL,
+    // 検索用EDITコントロールを作成（IME対応のため）
+    // WS_VISIBLE + WS_EX_LAYERED(alpha=0) で、フォーカス/IMEが確実に動作しつつ視覚的に透明にする
+    search_edit_ = CreateWindowExW(WS_EX_LAYERED, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
         0, 0, 1, 1,
         hwnd_, nullptr, hInstance, nullptr);
     if (search_edit_) {
+        SetLayeredWindowAttributes(search_edit_, 0, 0, LWA_ALPHA);
         SetWindowSubclass(search_edit_, SearchEditProc, 0, reinterpret_cast<DWORD_PTR>(this));
     }
 
@@ -597,9 +599,19 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
             return 0;
         case 'F':
             if (ctrl) {
-                // Ctrl+F: 検索バーを閉じる（トグル）
                 self->app_.OnSearchClose();
                 SetFocus(self->hwnd_);
+                return 0;
+            }
+            break;
+        case 'G':
+            if (ctrl) {
+                if (shift) {
+                    self->app_.OnSearchPrev();
+                }
+                else {
+                    self->app_.OnSearchNext();
+                }
                 return 0;
             }
             break;
