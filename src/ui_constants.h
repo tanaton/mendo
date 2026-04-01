@@ -91,6 +91,8 @@ inline constexpr float SEARCH_BTN_SIZE = 28.0f;
 inline constexpr float SEARCH_BAR_GAP = 4.0f;
 inline constexpr float SEARCH_BAR_CORNER = 4.0f;
 inline constexpr float SEARCH_INPUT_HEIGHT = 24.0f;
+inline constexpr float SEARCH_INPUT_TEXT_PAD_LEFT = 6.0f;
+inline constexpr float SEARCH_INPUT_TEXT_PAD_RIGHT = 4.0f;
 inline constexpr float SEARCH_MATCH_COUNT_WIDTH = 80.0f;
 
 // 検索バーの各要素の矩形を保持する構造体。

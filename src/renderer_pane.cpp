@@ -436,37 +436,37 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         }
     }
 
-    // 入力テキスト
-    const float text_left = sbl.input_rect.left + 6.0f;
-    float text_end_x = text_left;
-    if (fmt_.search_input && !sb.query.empty()) {
-        const D2D1_RECT_F text_rect = D2D1::RectF(
-            text_left, sbl.input_rect.top,
-            sbl.input_rect.right - 4.0f, sbl.input_rect.bottom);
-        rt()->DrawText(
+    // 入力テキスト（レイアウトを1回だけ作成し、描画とキャレット計測を共用）
+    const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
+    float caret_x = text_left;
+    if (fmt_.search_input && !sb.query.empty() && backend_.GetDWriteFactory()) {
+        const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
+        const float input_h = sbl.input_rect.bottom - sbl.input_rect.top;
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
+        backend_.GetDWriteFactory()->CreateTextLayout(
             sb.query.data(), static_cast<UINT32>(sb.query.size()),
-            fmt_.search_input.Get(), text_rect, Brush(BrushId::SearchInputText));
+            fmt_.search_input.Get(), input_w, input_h, &text_layout);
+        if (text_layout) {
+            rt()->DrawTextLayout(
+                D2D1::Point2F(text_left, sbl.input_rect.top),
+                text_layout.Get(), Brush(BrushId::SearchInputText));
 
-        // テキスト幅を計測してキャレット位置を決定
-        Microsoft::WRL::ComPtr<IDWriteTextLayout> measure_layout;
-        if (backend_.GetDWriteFactory()) {
-            const float input_h = sbl.input_rect.bottom - sbl.input_rect.top;
-            backend_.GetDWriteFactory()->CreateTextLayout(
-                sb.query.data(), static_cast<UINT32>(sb.query.size()),
-                fmt_.search_input.Get(),
-                sbl.input_rect.right - text_left, input_h,
-                &measure_layout);
-            if (measure_layout) {
-                DWRITE_TEXT_METRICS metrics{};
-                measure_layout->GetMetrics(&metrics);
-                text_end_x = text_left + metrics.width;
+            int effective_pos = sb.caret_pos;
+            const int text_len = static_cast<int>(sb.query.size());
+            if (effective_pos < 0 || effective_pos > text_len) {
+                effective_pos = text_len;
             }
+            FLOAT px, py;
+            DWRITE_HIT_TEST_METRICS htm{};
+            text_layout->HitTestTextPosition(
+                static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
+            caret_x = text_left + px;
         }
     }
 
     // キャレット描画
     if (sb.caret_visible) {
-        const float caret_x = std::min(text_end_x + 1.0f, sbl.input_rect.right - 4.0f);
+        caret_x = std::min(caret_x + 1.0f, sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT);
         rt()->DrawLine(
             D2D1::Point2F(caret_x, sbl.input_rect.top + 3.0f),
             D2D1::Point2F(caret_x, sbl.input_rect.bottom - 3.0f),
@@ -531,4 +531,22 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     drawToggleBtn(sbl.highlight_btn, L"\uE7E6", 1, fmt_.search_icon.Get(),
         sb.highlight_enabled, sb.highlight_btn_hovered);
     drawIconBtn(sbl.close_btn, L"\uE8BB", sb.close_btn_hovered);
+}
+
+int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const
+{
+    if (query.empty() || !fmt_.search_input || !backend_.GetDWriteFactory()) {
+        return 0;
+    }
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    backend_.GetDWriteFactory()->CreateTextLayout(
+        query.data(), static_cast<UINT32>(query.size()),
+        fmt_.search_input.Get(), max_width, SEARCH_INPUT_HEIGHT, &layout);
+    if (!layout) {
+        return 0;
+    }
+    BOOL is_trailing, is_inside;
+    DWRITE_HIT_TEST_METRICS htm{};
+    layout->HitTestPoint(local_x, 0.0f, &is_trailing, &is_inside, &htm);
+    return static_cast<int>(htm.textPosition) + (is_trailing ? 1 : 0);
 }

@@ -400,7 +400,15 @@ void App::OnLButtonDown(int px, int py)
                     OnSearchClose();
                     return;
                 }
-                PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, 0, 0);
+                if (PointInRect(dip.x, dip.y, sbl.input_rect)) {
+                    const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
+                    const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
+                    const int pos = renderer_.HitTestSearchInput(
+                        search_state_.GetQuery(), dip.x - text_left, input_w);
+                    PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, App::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
+                    return;
+                }
+                PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, App::SEARCH_FOCUS_SELECT_ALL, 0);
                 return;
             }
         }
@@ -708,7 +716,12 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
                 search_bar_hover_ = SearchBarHover::Close;
             }
 
-            SetCursor(cursor_arrow_);
+            if (PointInRect(dip_x, dip_y, sbl.input_rect)) {
+                SetCursor(cursor_ibeam_);
+            }
+            else {
+                SetCursor(cursor_arrow_);
+            }
             if (search_bar_hover_ != old_hover) {
                 Invalidate();
             }

@@ -29,6 +29,8 @@ private:
 
     static LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
         UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+    void RepositionSearchEdit();
+    void SyncSearchCaretFromEdit();
 
     HWND hwnd_ = nullptr;
     HWND search_edit_ = nullptr;

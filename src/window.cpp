@@ -5,11 +5,13 @@
 #include <shellscalingapi.h>
 #include <dwmapi.h>
 #include <commctrl.h>
+#include <imm.h>
 #include <climits>
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "imm32.lib")
 
 static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 
@@ -234,6 +236,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_SIZE:
         app_.OnResize(LOWORD(lParam), HIWORD(lParam));
+        RepositionSearchEdit();
         return 0;
 
     case WM_ACTIVATE:
@@ -356,17 +359,28 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_COMMAND:
         if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == search_edit_) {
-            wchar_t buf[512];
-            const int len = GetWindowTextW(search_edit_, buf, std::ranges::size(buf));
-            app_.OnSearchTextChanged(std::wstring_view(buf, len));
+            const int text_len = GetWindowTextLengthW(search_edit_);
+            std::wstring buf(static_cast<size_t>(std::max(text_len, 0)), L'\0');
+            const int copied = GetWindowTextW(search_edit_, buf.data(), text_len + 1);
+            buf.resize(static_cast<size_t>(std::max(copied, 0)));
+            app_.OnSearchTextChanged(buf);
+            SyncSearchCaretFromEdit();
+            return 0;
         }
-        return 0;
+        break;
 
     case App::WM_APP_SEARCH_FOCUS:
         if (search_edit_) {
+            RepositionSearchEdit();
             SetFocus(search_edit_);
-            // テキストを全選択（再表示時にすぐ上書き入力できるように）
-            SendMessageW(search_edit_, EM_SETSEL, 0, -1);
+            if (wParam == App::SEARCH_FOCUS_SET_CARET) {
+                const auto pos = static_cast<int>(lParam);
+                SendMessageW(search_edit_, EM_SETSEL, pos, pos);
+            }
+            else {
+                SendMessageW(search_edit_, EM_SETSEL, 0, -1);
+            }
+            SyncSearchCaretFromEdit();
         }
         return 0;
 
@@ -443,8 +457,9 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     default:
-        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        break;
     }
+    return DefWindowProcW(hwnd_, msg, wParam, lParam);
 }
 
 // ============================================================
@@ -592,11 +607,57 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (ctrl) {
                 // Ctrl+A: EDIT内の全選択（メインウィンドウに伝播しない）
                 SendMessageW(hwnd, EM_SETSEL, 0, -1);
+                self->SyncSearchCaretFromEdit();
                 return 0;
             }
             break;
         }
+
+        // 方向キー等: DefSubclassProcに処理させた後、キャレット位置を同期
+        LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+        self->SyncSearchCaretFromEdit();
+        return result;
+    }
+
+    // IME変換候補ウィンドウを入力フィールドの下に配置
+    if (msg == WM_IME_STARTCOMPOSITION) {
+        HIMC himc = ImmGetContext(hwnd);
+        if (himc) {
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            COMPOSITIONFORM cf{};
+            cf.dwStyle = CFS_POINT;
+            cf.ptCurrentPos = { 0, rc.bottom - rc.top };
+            ImmSetCompositionWindow(himc, &cf);
+            CANDIDATEFORM cdf{};
+            cdf.dwIndex = 0;
+            cdf.dwStyle = CFS_CANDIDATEPOS;
+            cdf.ptCurrentPos = { 0, rc.bottom - rc.top };
+            ImmSetCandidateWindow(himc, &cdf);
+            ImmReleaseContext(hwnd, himc);
+        }
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void Win32Window::RepositionSearchEdit()
+{
+    if (!search_edit_ || !app_.IsSearchBarVisible()) {
+        return;
+    }
+    const RECT rc = app_.GetSearchEditRect();
+    SetWindowPos(search_edit_, nullptr, rc.left, rc.top,
+        rc.right - rc.left, rc.bottom - rc.top,
+        SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void Win32Window::SyncSearchCaretFromEdit()
+{
+    if (!search_edit_) {
+        return;
+    }
+    DWORD sel_start, sel_end;
+    SendMessageW(search_edit_, EM_GETSEL, reinterpret_cast<WPARAM>(&sel_start), reinterpret_cast<LPARAM>(&sel_end));
+    app_.SetSearchCaretPos(static_cast<int>(sel_end));
 }

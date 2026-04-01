@@ -318,6 +318,7 @@ SearchBarRenderState App::BuildSearchBarRenderState() const
     sb.total_matches = search_state_.GetMatchCount();
     sb.has_focus = search_has_focus_;
     sb.caret_visible = search_has_focus_ && search_caret_visible_;
+    sb.caret_pos = search_caret_pos_;
     sb.case_sensitive = search_state_.IsCaseSensitive();
     sb.highlight_enabled = search_state_.IsHighlightEnabled();
     sb.up_btn_hovered = (search_bar_hover_ == SearchBarHover::Up);
@@ -1122,11 +1123,7 @@ void App::HandleTimer(UINT_PTR timer_id)
     case TIMER_SEARCH_CARET: {
         search_caret_visible_ = !search_caret_visible_;
         if (search_has_focus_) {
-            // 検索バー領域のみ再描画（全画面再描画を回避）
-            const auto& layout = GetPaneLayout();
-            const auto& r = layout.md_rect;
-            const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
-            InvalidatePane(search_area);
+            InvalidateSearchBar();
         }
         break;
     }
@@ -1188,6 +1185,7 @@ void App::OnSearchOpen()
     search_state_.Show();
     search_has_focus_ = true;
     search_caret_visible_ = true;
+    search_caret_pos_ = -1;
 
     // 前回のクエリが残っている場合は検索を再実行
     if (!search_state_.GetQuery().empty()) {
@@ -1197,12 +1195,8 @@ void App::OnSearchOpen()
         }
     }
 
-    // キャレット点滅タイマー開始（システムのカーソル点滅速度を使用）
-    const UINT blink_time = GetCaretBlinkTime();
-    if (blink_time > 0 && blink_time != INFINITE) {
-        SetTimer(hwnd_, TIMER_SEARCH_CARET, blink_time, nullptr);
-    }
-    PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, 0, 0);
+    RestartSearchCaretBlink();
+    PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SELECT_ALL, 0);
     Invalidate();
 }
 
@@ -1260,6 +1254,53 @@ void App::OnToggleHighlight()
     Invalidate();
 }
 
+void App::SetSearchCaretPos(int pos) noexcept
+{
+    if (search_caret_pos_ == pos) {
+        return;
+    }
+    search_caret_pos_ = pos;
+    if (search_has_focus_) {
+        search_caret_visible_ = true;
+        RestartSearchCaretBlink();
+        InvalidateSearchBar();
+    }
+}
+
+RECT App::GetSearchEditRect() const
+{
+    if (!search_state_.IsVisible()) {
+        return { 0, 0, 1, 1 };
+    }
+    const auto& layout = GetPaneLayout();
+    const auto& r = layout.md_rect;
+    const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !search_state_.GetQuery().empty());
+    const float s = cached_dpi_scale_;
+    return {
+        static_cast<LONG>(sbl.input_rect.left * s),
+        static_cast<LONG>(sbl.input_rect.top * s),
+        static_cast<LONG>(sbl.input_rect.right * s),
+        static_cast<LONG>(sbl.input_rect.bottom * s),
+    };
+}
+
+void App::InvalidateSearchBar()
+{
+    const auto& layout = GetPaneLayout();
+    const auto& r = layout.md_rect;
+    const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
+    InvalidatePane(search_area);
+}
+
+void App::RestartSearchCaretBlink()
+{
+    KillTimer(hwnd_, TIMER_SEARCH_CARET);
+    const UINT blink_time = GetCaretBlinkTime();
+    if (blink_time > 0 && blink_time != INFINITE) {
+        SetTimer(hwnd_, TIMER_SEARCH_CARET, blink_time, nullptr);
+    }
+}
+
 void App::ScrollToCurrentMatch()
 {
     const int idx = search_state_.GetCurrentMatchIndex();
@@ -1275,17 +1316,18 @@ void App::ScrollToCurrentMatch()
     const float match_y = entry.y_position;
     const auto& pane_layout = GetPaneLayout();
     const float viewport_height = pane_layout.md_rect.height;
-    const float effective_bottom = viewport_.GetScrollY() + viewport_height
+    const float visible_height = viewport_height
         - (search_state_.IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
+    const float effective_bottom = viewport_.GetScrollY() + visible_height;
     const float scroll_y = viewport_.GetScrollY();
 
     // マッチが可視範囲外の場合のみスクロール（アニメーションなし）
     if (match_y < scroll_y || match_y + entry.height > effective_bottom) {
-        const float target = std::max(0.0f, match_y - viewport_height / 3.0f);
+        const float target = std::max(0.0f, match_y - visible_height / 3.0f);
         StopSmoothScroll();
         viewport_.SetScrollY(target);
         viewport_.SetScrollTarget(target);
-        SyncMaxScroll(viewport_height);
+        SyncMaxScroll(visible_height);
         InvalidateHitPositions();
     }
 }

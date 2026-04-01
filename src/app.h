@@ -97,6 +97,8 @@ public:
     bool IsSearchBarVisible() const noexcept { return search_state_.IsVisible(); }
     void OnToggleCaseSensitive();
     void OnToggleHighlight();
+    void SetSearchCaretPos(int pos) noexcept;
+    RECT GetSearchEditRect() const;
 
     // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
     void SetPendingRestoreNode(int node, int offset) noexcept
@@ -227,6 +229,8 @@ private:
     // 検索
     void OnSearchOpen();
     void ScrollToCurrentMatch();
+    void InvalidateSearchBar();
+    void RestartSearchCaretBlink();
 
     // OnPaint用のレンダーステート構築ヘルパー
     GestureRenderState BuildGestureRenderState() const;
@@ -258,6 +262,8 @@ public:
     static constexpr UINT WM_APP_RELOAD_FILE = WM_APP + 3;
     static constexpr UINT WM_APP_SEARCH_FOCUS = WM_APP + 4;
     static constexpr UINT WM_APP_SEARCH_UNFOCUS = WM_APP + 5;
+    static constexpr WPARAM SEARCH_FOCUS_SELECT_ALL = 0;
+    static constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;
     static constexpr WPARAM SEARCH_UNFOCUS_CLOSE = 0;
     static constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
 
@@ -339,6 +345,7 @@ private:
     SearchBarHover search_bar_hover_ = SearchBarHover::None;
     bool search_caret_visible_ = false;
     bool search_has_focus_ = false;
+    int search_caret_pos_ = -1;
 
     // カスタムコンテキストメニュー
     ContextMenu ctx_menu_;

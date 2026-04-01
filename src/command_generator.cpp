@@ -610,11 +610,10 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, IDWriteTextLay
     }
 
     const auto& matches = *search_matches_;
-    for (int mi = 0; mi < static_cast<int>(matches.size()); mi++) {
+    auto it = std::lower_bound(matches.begin(), matches.end(), node_index,
+        [](const SearchMatch& m, int idx) { return m.node_index < idx; });
+    for (int mi = static_cast<int>(it - matches.begin()); mi < static_cast<int>(matches.size()); mi++) {
         const auto& m = matches[mi];
-        if (m.node_index < node_index) {
-            continue;
-        }
         if (m.node_index > node_index) {
             break;
         }

@@ -122,6 +122,7 @@ struct SearchBarRenderState {
     int total_matches = 0;
     bool has_focus = false;
     bool caret_visible = false; // キャレット（点滅制御）
+    int caret_pos = -1;         // キャレット位置（-1 = テキスト末尾）
     // チェックボックス状態
     bool case_sensitive = false;
     bool highlight_enabled = true;
@@ -186,6 +187,7 @@ public:
     // コールバックには新しいレンダーターゲットのポインタが渡される。
     void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
 
+    int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const;
     void SetSearchMatches(const std::vector<SearchMatch>* matches, int current_index) noexcept
     {
         cmd_generator_.SetSearchMatches(matches, current_index);
