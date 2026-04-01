@@ -132,6 +132,13 @@ void Renderer::RecreateBrushes()
         {BrushId::ScrollbarThumb,   is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, thumb_alpha)
                                             : D2D1::ColorF(0.0f, 0.0f, 0.0f, thumb_alpha)},
         {BrushId::Overlay,          D2D1::ColorF(0, 0, 0, 1.0f)},
+        {BrushId::SearchBarBg,      theme_.search_bar_bg_color},
+        {BrushId::SearchBarBorder,  theme_.search_bar_border_color},
+        {BrushId::SearchInputBg,    theme_.search_input_bg_color},
+        {BrushId::SearchInputText,  theme_.search_input_text_color},
+        {BrushId::SearchHighlight,  theme_.search_highlight_color},
+        {BrushId::SearchHighlightCurrent, theme_.search_highlight_current_color},
+        {BrushId::SearchNoMatchBg,  theme_.search_no_match_bg_color},
     };
 
     for (const auto& s : specs) {
@@ -242,6 +249,9 @@ void Renderer::RecreatePaneFormats()
         { &fmt_.nav_button,       body_font, W,                            theme_.pane_font_size,         L"ja-jp", TA_CTR,  PA_CTR, true  },
         { &fmt_.gesture_overlay,  body_font, DWRITE_FONT_WEIGHT_BOLD,      32.0f * theme_.zoom,           L"ja-JP", TA_CTR,  PA_CTR, false },
         { &fmt_.toast_text,       body_font, DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size * 1.1f,  L"ja-JP", TA_CTR,  PA_CTR, true  },
+        { &fmt_.search_input,     body_font, W,                            theme_.pane_font_size,         L"ja-jp", TA_LEAD, PA_CTR, true  },
+        { &fmt_.search_count,     body_font, W,                            theme_.pane_font_size * 0.9f,  L"ja-jp", TA_CTR,  PA_CTR, true  },
+        { &fmt_.search_icon,      icon_font, W,                            14.0f,                         L"en-us", TA_CTR,  PA_CTR, true  },
     };
 
     for (const auto& s : specs) {
@@ -543,6 +553,11 @@ void Renderer::Render(const RenderParams& p)
     // トースト通知
     if (p.toast.visible) {
         DrawToastOverlay(p.toast, p.md_pane_rect);
+    }
+
+    // 検索バー
+    if (p.search_bar.visible) {
+        DrawSearchBar(p.search_bar, p.md_pane_rect);
     }
 
     // Markdownペインのカスタムスクロールバー

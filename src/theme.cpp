@@ -140,6 +140,15 @@ Theme GetLightTheme()
     t.pane_item_hover_color = Color(0xe8e8e8);
     t.pane_item_active_color = Color(0xd0e0f0);
 
+    // 検索
+    t.search_bar_bg_color = Color(0xf0f0f0);
+    t.search_bar_border_color = Color(0xcccccc);
+    t.search_input_bg_color = Color(0xffffff);
+    t.search_input_text_color = Color(0x1a1a1a);
+    t.search_highlight_color = D2D1::ColorF(1.0f, 0.92f, 0.0f, 0.4f);
+    t.search_highlight_current_color = D2D1::ColorF(1.0f, 0.55f, 0.0f, 0.6f);
+    t.search_no_match_bg_color = D2D1::ColorF(1.0f, 0.8f, 0.8f, 1.0f);
+
     return t;
 }
 
@@ -191,6 +200,15 @@ Theme GetDarkTheme()
     t.splitter_color = Color(0x3c3c3c);
     t.pane_item_hover_color = Color(0x2a2d2e);
     t.pane_item_active_color = Color(0x094771);
+
+    // 検索
+    t.search_bar_bg_color = Color(0x2d2d2d);
+    t.search_bar_border_color = Color(0x444444);
+    t.search_input_bg_color = Color(0x3c3c3c);
+    t.search_input_text_color = Color(0xd4d4d4);
+    t.search_highlight_color = D2D1::ColorF(0.8f, 0.7f, 0.0f, 0.35f);
+    t.search_highlight_current_color = D2D1::ColorF(1.0f, 0.5f, 0.0f, 0.55f);
+    t.search_no_match_bg_color = D2D1::ColorF(0.5f, 0.15f, 0.15f, 1.0f);
 
     return t;
 }

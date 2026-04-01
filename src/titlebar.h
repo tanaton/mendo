@@ -9,6 +9,7 @@ enum class TitleBarHitZone {
     Icon,        // アプリアイコン（システムメニュー）
     Help,        // ヘルプボタン
     ThemeToggle, // ダークモード切替ボタン
+    Search,      // 検索ボタン
     FileToggle,  // ファイルペイン切替ボタン
     TocToggle,   // 目次ペイン切替ボタン
     Minimize,    // 最小化ボタン
@@ -57,7 +58,11 @@ public:
         theme_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
         right -= BUTTON_WIDTH;
 
-        // ペイン切替ボタン（ダークモード切替ボタンの左隣に配置）
+        // 検索ボタン（ダークモード切替ボタンの左隣に配置）
+        search_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
+        right -= BUTTON_WIDTH;
+
+        // ペイン切替ボタン（検索ボタンの左隣に配置）
         toc_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
         right -= BUTTON_WIDTH;
         file_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
@@ -94,6 +99,9 @@ public:
         if (PointInRect(dip_x, dip_y, toc_toggle_.rect)) {
             return TitleBarHitZone::TocToggle;
         }
+        if (PointInRect(dip_x, dip_y, search_.rect)) {
+            return TitleBarHitZone::Search;
+        }
         if (PointInRect(dip_x, dip_y, theme_toggle_.rect)) {
             return TitleBarHitZone::ThemeToggle;
         }
@@ -116,6 +124,7 @@ public:
         hovered_ = zone;
         help_.hovered = (zone == TitleBarHitZone::Help);
         theme_toggle_.hovered = (zone == TitleBarHitZone::ThemeToggle);
+        search_.hovered = (zone == TitleBarHitZone::Search);
         file_toggle_.hovered = (zone == TitleBarHitZone::FileToggle);
         toc_toggle_.hovered = (zone == TitleBarHitZone::TocToggle);
         minimize_.hovered = (zone == TitleBarHitZone::Minimize);
@@ -127,6 +136,7 @@ public:
     constexpr TitleBarHitZone GetHovered() const noexcept { return hovered_; }
     constexpr const TitleBarButton& GetHelpButton() const noexcept { return help_; }
     constexpr const TitleBarButton& GetThemeToggleButton() const noexcept { return theme_toggle_; }
+    constexpr const TitleBarButton& GetSearchButton() const noexcept { return search_; }
     constexpr const TitleBarButton& GetFileToggleButton() const noexcept { return file_toggle_; }
     constexpr const TitleBarButton& GetTocToggleButton() const noexcept { return toc_toggle_; }
     constexpr const TitleBarButton& GetMinimizeButton() const noexcept { return minimize_; }
@@ -138,6 +148,7 @@ public:
 private:
     TitleBarButton help_;
     TitleBarButton theme_toggle_;
+    TitleBarButton search_;
     TitleBarButton file_toggle_;
     TitleBarButton toc_toggle_;
     TitleBarButton minimize_;

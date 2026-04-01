@@ -4,10 +4,14 @@
 #include <windowsx.h>
 #include <shellscalingapi.h>
 #include <dwmapi.h>
+#include <commctrl.h>
+#include <imm.h>
 #include <climits>
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "imm32.lib")
 
 static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 
@@ -47,6 +51,17 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 
     if (!app_.Init(hwnd_)) {
         return false;
+    }
+
+    // 検索用EDITコントロールを作成（IME対応のため）
+    // WS_VISIBLE + WS_EX_LAYERED(alpha=0) で、フォーカス/IMEが確実に動作しつつ視覚的に透明にする
+    search_edit_ = CreateWindowExW(WS_EX_LAYERED, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+        0, 0, 1, 1,
+        hwnd_, nullptr, hInstance, nullptr);
+    if (search_edit_) {
+        SetLayeredWindowAttributes(search_edit_, 0, 0, LWA_ALPHA);
+        SetWindowSubclass(search_edit_, SearchEditProc, 0, reinterpret_cast<DWORD_PTR>(this));
     }
 
     InitSystemMenu();
@@ -192,6 +207,7 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
             return HTSYSMENU;  // システムメニュー表示（ダブルクリックで閉じる）
         case TitleBarHitZone::Help:
         case TitleBarHitZone::ThemeToggle:
+        case TitleBarHitZone::Search:
         case TitleBarHitZone::FileToggle:
         case TitleBarHitZone::TocToggle:
         case TitleBarHitZone::Minimize:
@@ -222,6 +238,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_SIZE:
         app_.OnResize(LOWORD(lParam), HIWORD(lParam));
+        RepositionSearchEdit();
         return 0;
 
     case WM_ACTIVATE:
@@ -342,6 +359,40 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_.OnKeyDown(wParam);
         return 0;
 
+    case WM_COMMAND:
+        if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == search_edit_) {
+            const int text_len = GetWindowTextLengthW(search_edit_);
+            std::wstring buf(static_cast<size_t>(std::max(text_len, 0)), L'\0');
+            const int copied = GetWindowTextW(search_edit_, buf.data(), text_len + 1);
+            buf.resize(static_cast<size_t>(std::max(copied, 0)));
+            app_.OnSearchTextChanged(buf);
+            SyncSearchCaretFromEdit();
+            return 0;
+        }
+        break;
+
+    case App::WM_APP_SEARCH_FOCUS:
+        if (search_edit_) {
+            RepositionSearchEdit();
+            SetFocus(search_edit_);
+            if (wParam == App::SEARCH_FOCUS_SET_CARET) {
+                const auto pos = static_cast<int>(lParam);
+                SendMessageW(search_edit_, EM_SETSEL, pos, pos);
+            }
+            else {
+                SendMessageW(search_edit_, EM_SETSEL, 0, -1);
+            }
+            SyncSearchCaretFromEdit();
+        }
+        return 0;
+
+    case App::WM_APP_SEARCH_UNFOCUS:
+        SetFocus(hwnd_);
+        if (wParam == App::SEARCH_UNFOCUS_FILE_SWITCH && search_edit_) {
+            SetWindowTextW(search_edit_, L"");
+        }
+        return 0;
+
     case WM_XBUTTONDOWN: {
         const WORD button = GET_XBUTTON_WPARAM(wParam);
         if (button == XBUTTON1) {
@@ -408,8 +459,9 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     default:
-        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        break;
     }
+    return DefWindowProcW(hwnd_, msg, wParam, lParam);
 }
 
 // ============================================================
@@ -509,4 +561,115 @@ void Win32Window::RestoreScrollPosition()
     }
     const int offset = config::GetInt("Session", "ScrollOffset", 0, -100000, 100000);
     app_.SetPendingRestoreNode(node, offset);
+}
+
+// ============================================================
+// 検索EDITコントロールのサブクラスプロシージャ
+// ============================================================
+
+LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData)
+{
+    auto* self = reinterpret_cast<Win32Window*>(dwRefData);
+
+    if (msg == WM_KEYDOWN) {
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+
+        switch (wParam) {
+        case VK_ESCAPE:
+            self->app_.OnSearchClose();
+            SetFocus(self->hwnd_);
+            return 0;
+        case VK_RETURN:
+            if (shift) {
+                self->app_.OnSearchPrev();
+            }
+            else {
+                self->app_.OnSearchNext();
+            }
+            return 0;
+        case VK_F3:
+            if (shift) {
+                self->app_.OnSearchPrev();
+            }
+            else {
+                self->app_.OnSearchNext();
+            }
+            return 0;
+        case 'F':
+            if (ctrl) {
+                self->app_.OnSearchClose();
+                SetFocus(self->hwnd_);
+                return 0;
+            }
+            break;
+        case 'G':
+            if (ctrl) {
+                if (shift) {
+                    self->app_.OnSearchPrev();
+                }
+                else {
+                    self->app_.OnSearchNext();
+                }
+                return 0;
+            }
+            break;
+        case 'A':
+            if (ctrl) {
+                // Ctrl+A: EDIT内の全選択（メインウィンドウに伝播しない）
+                SendMessageW(hwnd, EM_SETSEL, 0, -1);
+                self->SyncSearchCaretFromEdit();
+                return 0;
+            }
+            break;
+        }
+
+        // 方向キー等: DefSubclassProcに処理させた後、キャレット位置を同期
+        LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+        self->SyncSearchCaretFromEdit();
+        return result;
+    }
+
+    // IME変換候補ウィンドウを入力フィールドの下に配置
+    if (msg == WM_IME_STARTCOMPOSITION) {
+        HIMC himc = ImmGetContext(hwnd);
+        if (himc) {
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            COMPOSITIONFORM cf{};
+            cf.dwStyle = CFS_POINT;
+            cf.ptCurrentPos = { 0, rc.bottom - rc.top };
+            ImmSetCompositionWindow(himc, &cf);
+            CANDIDATEFORM cdf{};
+            cdf.dwIndex = 0;
+            cdf.dwStyle = CFS_CANDIDATEPOS;
+            cdf.ptCurrentPos = { 0, rc.bottom - rc.top };
+            ImmSetCandidateWindow(himc, &cdf);
+            ImmReleaseContext(hwnd, himc);
+        }
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void Win32Window::RepositionSearchEdit()
+{
+    if (!search_edit_ || !app_.IsSearchBarVisible()) {
+        return;
+    }
+    const RECT rc = app_.GetSearchEditRect();
+    SetWindowPos(search_edit_, nullptr, rc.left, rc.top,
+        rc.right - rc.left, rc.bottom - rc.top,
+        SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void Win32Window::SyncSearchCaretFromEdit()
+{
+    if (!search_edit_) {
+        return;
+    }
+    DWORD sel_start, sel_end;
+    SendMessageW(search_edit_, EM_GETSEL, reinterpret_cast<WPARAM>(&sel_start), reinterpret_cast<LPARAM>(&sel_end));
+    app_.SetSearchCaretPos(static_cast<int>(sel_end));
 }

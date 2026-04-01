@@ -83,6 +83,73 @@ inline float SnapScrollToPixel(float scroll_y, float dpi_scale) noexcept {
     return std::round(scroll_y * dpi_scale) / dpi_scale;
 }
 
+// 検索バーの定数（DIP単位）
+inline constexpr float SEARCH_BAR_HEIGHT = 36.0f;
+inline constexpr float SEARCH_BAR_PADDING = 6.0f;
+inline constexpr float SEARCH_INPUT_MAX_WIDTH = 400.0f;
+inline constexpr float SEARCH_BTN_SIZE = 28.0f;
+inline constexpr float SEARCH_BAR_GAP = 4.0f;
+inline constexpr float SEARCH_BAR_CORNER = 4.0f;
+inline constexpr float SEARCH_INPUT_HEIGHT = 24.0f;
+inline constexpr float SEARCH_INPUT_TEXT_PAD_LEFT = 6.0f;
+inline constexpr float SEARCH_INPUT_TEXT_PAD_RIGHT = 4.0f;
+inline constexpr float SEARCH_MATCH_COUNT_WIDTH = 80.0f;
+
+// 検索バーの各要素の矩形を保持する構造体。
+// 描画・ヒットテスト・ホバー判定の3箇所で共有し、レイアウト計算の重複を防ぐ。
+struct SearchBarLayout {
+    D2D1_RECT_F input_rect{};
+    D2D1_RECT_F up_btn{};
+    D2D1_RECT_F down_btn{};
+    D2D1_RECT_F count_rect{};
+    D2D1_RECT_F case_btn{};
+    D2D1_RECT_F highlight_btn{};
+    D2D1_RECT_F close_btn{};
+    D2D1_RECT_F icon_rect{};
+    float bar_top = 0.0f;
+    float bar_bottom = 0.0f;
+};
+
+inline SearchBarLayout ComputeSearchBarLayout(float md_left, float md_width, float md_bottom, bool has_query) noexcept
+{
+    SearchBarLayout l;
+    const float bar_left = md_left;
+    const float bar_right = md_left + md_width;
+    l.bar_top = md_bottom - SEARCH_BAR_HEIGHT;
+    l.bar_bottom = md_bottom;
+
+    const float btn = SEARCH_BTN_SIZE;
+    const float gap = SEARCH_BAR_GAP;
+    const float input_h = SEARCH_INPUT_HEIGHT;
+    const float center_y = l.bar_top + (SEARCH_BAR_HEIGHT - input_h) / 2.0f;
+
+    float x = bar_left + SEARCH_BAR_PADDING;
+    l.icon_rect = D2D1::RectF(x, l.bar_top, x + btn, l.bar_bottom);
+    x += btn + gap;
+
+    const float input_w = std::min(SEARCH_INPUT_MAX_WIDTH, (bar_right - bar_left) * 0.5f);
+    l.input_rect = D2D1::RectF(x, center_y, x + input_w, center_y + input_h);
+    x += input_w + gap;
+
+    l.up_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
+    x += btn + gap;
+    l.down_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
+    x += btn + gap;
+
+    if (has_query) {
+        l.count_rect = D2D1::RectF(x, l.bar_top, x + SEARCH_MATCH_COUNT_WIDTH, l.bar_bottom);
+        x += SEARCH_MATCH_COUNT_WIDTH + gap;
+    }
+
+    l.case_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
+    x += btn + gap;
+    l.highlight_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
+    x += btn + gap;
+    l.close_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
+
+    return l;
+}
+
 // コードブロック背景の右上を基準にコピーボタンの矩形を返す。
 // block_right: コードブロック背景の右端, block_top: コードブロック背景の上端
 inline D2D1_RECT_F CopyButtonRect(float block_right, float block_top) noexcept {
