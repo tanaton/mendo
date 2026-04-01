@@ -98,6 +98,7 @@ public:
     void OnToggleCaseSensitive();
     void OnToggleHighlight();
     void SetSearchCaretPos(int pos) noexcept;
+    void SetImeComposition(std::wstring_view comp);
     RECT GetSearchEditRect() const;
 
     // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
@@ -346,6 +347,7 @@ private:
     bool search_caret_visible_ = false;
     bool search_has_focus_ = false;
     int search_caret_pos_ = -1;
+    std::wstring ime_composition_;
 
     // カスタムコンテキストメニュー
     ContextMenu ctx_menu_;

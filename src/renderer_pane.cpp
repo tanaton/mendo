@@ -437,24 +437,62 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     }
 
     // 入力テキスト（レイアウトを1回だけ作成し、描画とキャレット計測を共用）
+    // IMEコンポジション中は確定済みテキスト+変換中テキストを合成して表示
     const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
     float caret_x = text_left;
-    if (fmt_.search_input && !sb.query.empty() && backend_.GetDWriteFactory()) {
+
+    const bool has_comp = !sb.ime_composition.empty();
+    std::wstring display_buf;
+    std::wstring_view display_text = sb.query;
+    int comp_start = 0;
+    const int comp_len = static_cast<int>(sb.ime_composition.size());
+
+    if (has_comp) {
+        int insert_pos = sb.caret_pos;
+        const int qlen = static_cast<int>(sb.query.size());
+        if (insert_pos < 0 || insert_pos > qlen) {
+            insert_pos = qlen;
+        }
+        comp_start = insert_pos;
+        display_buf.reserve(sb.query.size() + sb.ime_composition.size());
+        display_buf.append(sb.query.data(), static_cast<size_t>(insert_pos));
+        display_buf.append(sb.ime_composition);
+        display_buf.append(sb.query.data() + insert_pos, sb.query.size() - static_cast<size_t>(insert_pos));
+        display_text = display_buf;
+    }
+
+    if (fmt_.search_input && !display_text.empty() && backend_.GetDWriteFactory()) {
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
         const float input_h = sbl.input_rect.bottom - sbl.input_rect.top;
         Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
         backend_.GetDWriteFactory()->CreateTextLayout(
-            sb.query.data(), static_cast<UINT32>(sb.query.size()),
+            display_text.data(), static_cast<UINT32>(display_text.size()),
             fmt_.search_input.Get(), input_w, input_h, &text_layout);
         if (text_layout) {
+            // コンポジション文字列に下線を付与
+            if (has_comp) {
+                const DWRITE_TEXT_RANGE range = {
+                    static_cast<UINT32>(comp_start),
+                    static_cast<UINT32>(comp_len)
+                };
+                text_layout->SetUnderline(TRUE, range);
+            }
+
             rt()->DrawTextLayout(
                 D2D1::Point2F(text_left, sbl.input_rect.top),
                 text_layout.Get(), Brush(BrushId::SearchInputText));
 
-            int effective_pos = sb.caret_pos;
-            const int text_len = static_cast<int>(sb.query.size());
-            if (effective_pos < 0 || effective_pos > text_len) {
-                effective_pos = text_len;
+            // キャレット位置計算: コンポジション中はその末尾、それ以外は通常のキャレット位置
+            int effective_pos;
+            if (has_comp) {
+                effective_pos = comp_start + comp_len;
+            }
+            else {
+                effective_pos = sb.caret_pos;
+                const int text_len = static_cast<int>(display_text.size());
+                if (effective_pos < 0 || effective_pos > text_len) {
+                    effective_pos = text_len;
+                }
             }
             FLOAT px, py;
             DWRITE_HIT_TEST_METRICS htm{};
@@ -464,8 +502,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         }
     }
 
-    // キャレット描画
-    if (sb.caret_visible) {
+    // キャレット描画（コンポジション中はIME側がキャレットを表示するため非表示）
+    if (sb.caret_visible && !has_comp) {
         caret_x = std::min(caret_x + 1.0f, sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT);
         rt()->DrawLine(
             D2D1::Point2F(caret_x, sbl.input_rect.top + 3.0f),

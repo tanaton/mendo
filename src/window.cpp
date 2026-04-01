@@ -635,17 +635,54 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (himc) {
             RECT rc;
             GetClientRect(hwnd, &rc);
+
+            // キャレット位置のX座標を取得
+            DWORD sel_end = 0;
+            SendMessageW(hwnd, EM_GETSEL, 0, reinterpret_cast<LPARAM>(&sel_end));
+            LONG caret_x = 0;
+            if (sel_end > 0) {
+                LRESULT pos = SendMessageW(hwnd, EM_POSFROMCHAR, sel_end - 1, 0);
+                if (pos != -1) {
+                    caret_x = static_cast<SHORT>(LOWORD(pos)) + 8;
+                }
+            }
+
+            const POINT ime_pos = { caret_x, rc.bottom - rc.top };
             COMPOSITIONFORM cf{};
             cf.dwStyle = CFS_POINT;
-            cf.ptCurrentPos = { 0, rc.bottom - rc.top };
+            cf.ptCurrentPos = ime_pos;
             ImmSetCompositionWindow(himc, &cf);
             CANDIDATEFORM cdf{};
             cdf.dwIndex = 0;
             cdf.dwStyle = CFS_CANDIDATEPOS;
-            cdf.ptCurrentPos = { 0, rc.bottom - rc.top };
+            cdf.ptCurrentPos = ime_pos;
             ImmSetCandidateWindow(himc, &cdf);
             ImmReleaseContext(hwnd, himc);
         }
+        // DefSubclassProcに渡すと非表示EDITのデフォルト処理で位置が上書きされるため、ここでreturn
+        return 0;
+    }
+
+    // IMEコンポジション文字列をD2D描画用に取得
+    if (msg == WM_IME_COMPOSITION && (lParam & GCS_COMPSTR)) {
+        HIMC himc = ImmGetContext(hwnd);
+        if (himc) {
+            const int bytes = ImmGetCompositionStringW(himc, GCS_COMPSTR, nullptr, 0);
+            if (bytes > 0) {
+                std::wstring comp(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
+                ImmGetCompositionStringW(himc, GCS_COMPSTR, comp.data(), static_cast<DWORD>(bytes));
+                self->app_.SetImeComposition(comp);
+            }
+            else {
+                self->app_.SetImeComposition(L"");
+            }
+            ImmReleaseContext(hwnd, himc);
+        }
+    }
+
+    // IME変換終了時にコンポジション文字列をクリア
+    if (msg == WM_IME_ENDCOMPOSITION) {
+        self->app_.SetImeComposition(L"");
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);

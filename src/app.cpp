@@ -319,6 +319,7 @@ SearchBarRenderState App::BuildSearchBarRenderState() const
     sb.has_focus = search_has_focus_;
     sb.caret_visible = search_has_focus_ && search_caret_visible_;
     sb.caret_pos = search_caret_pos_;
+    sb.ime_composition = ime_composition_;
     sb.case_sensitive = search_state_.IsCaseSensitive();
     sb.highlight_enabled = search_state_.IsHighlightEnabled();
     sb.up_btn_hovered = (search_bar_hover_ == SearchBarHover::Up);
@@ -1206,6 +1207,7 @@ void App::OnSearchClose()
     search_bar_hover_ = SearchBarHover::None;
     search_has_focus_ = false;
     search_caret_visible_ = false;
+    ime_composition_.clear();
     KillTimer(hwnd_, TIMER_SEARCH_CARET);
     PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, 0, 0);
     Invalidate();
@@ -1263,6 +1265,17 @@ void App::SetSearchCaretPos(int pos) noexcept
     if (search_has_focus_) {
         search_caret_visible_ = true;
         RestartSearchCaretBlink();
+        InvalidateSearchBar();
+    }
+}
+
+void App::SetImeComposition(std::wstring_view comp)
+{
+    if (ime_composition_ == comp) {
+        return;
+    }
+    ime_composition_ = comp;
+    if (search_has_focus_) {
         InvalidateSearchBar();
     }
 }
