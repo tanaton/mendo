@@ -74,25 +74,30 @@ void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_
     }
 }
 
-void SearchState::NextMatch()
+bool SearchState::NextMatch()
 {
     if (matches_.empty()) {
-        return;
+        return false;
     }
-    current_match_ = (current_match_ + 1) % static_cast<int>(matches_.size());
+    const int next = current_match_ + 1;
+    const bool wrapped = next >= static_cast<int>(matches_.size());
+    current_match_ = wrapped ? 0 : next;
+    return wrapped;
 }
 
-void SearchState::PrevMatch()
+bool SearchState::PrevMatch()
 {
     if (matches_.empty()) {
-        return;
+        return false;
     }
-    if (current_match_ <= 0) {
+    const bool wrapped = current_match_ <= 0;
+    if (wrapped) {
         current_match_ = static_cast<int>(matches_.size()) - 1;
     }
     else {
         current_match_--;
     }
+    return wrapped;
 }
 
 void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache)

@@ -377,6 +377,11 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
                 const auto pos = static_cast<int>(lParam);
                 SendMessageW(search_edit_, EM_SETSEL, pos, pos);
             }
+            else if (wParam == App::SEARCH_FOCUS_SET_SELECTION) {
+                const int anchor = GET_X_LPARAM(lParam);
+                const int caret = GET_Y_LPARAM(lParam);
+                SendMessageW(search_edit_, EM_SETSEL, anchor, caret);
+            }
             else {
                 SendMessageW(search_edit_, EM_SETSEL, 0, -1);
             }
@@ -570,6 +575,11 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
 {
     auto* self = reinterpret_cast<Win32Window*>(dwRefData);
 
+    // 単行EDITは\rを受け取るとビープ音を鳴らすので抑制
+    if (msg == WM_CHAR && wParam == L'\r') {
+        return 0;
+    }
+
     if (msg == WM_KEYDOWN) {
         const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
@@ -706,5 +716,5 @@ void Win32Window::SyncSearchCaretFromEdit()
     }
     DWORD sel_start, sel_end;
     SendMessageW(search_edit_, EM_GETSEL, reinterpret_cast<WPARAM>(&sel_start), reinterpret_cast<LPARAM>(&sel_end));
-    app_.SetSearchCaretPos(static_cast<int>(sel_end));
+    app_.SetSearchSelection(static_cast<int>(sel_start), static_cast<int>(sel_end));
 }

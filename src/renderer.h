@@ -123,6 +123,7 @@ struct SearchBarRenderState {
     bool has_focus = false;
     bool caret_visible = false; // キャレット（点滅制御）
     int caret_pos = -1;         // キャレット位置（-1 = テキスト末尾）
+    int selection_start = -1;   // 選択開始位置（caret_posと異なる場合、選択範囲あり）
     std::wstring_view ime_composition; // IME変換中のコンポジション文字列
     // チェックボックス状態
     bool case_sensitive = false;
