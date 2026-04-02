@@ -826,10 +826,6 @@ void App::OnImageLoadComplete()
 
 void App::RequestMermaidRenders()
 {
-    if (!mermaid_renderer_.IsReady()) {
-        return;
-    }
-
     const float viewport_width = GetMarkdownPaneWidth();
     const float content_width = viewport_width
         - renderer_.GetTheme().margin_left

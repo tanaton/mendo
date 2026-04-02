@@ -500,10 +500,9 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
 
     // ファイルキャッシュを確認
     if (file_cache_) {
-        const uint64_t fkey = HashCode(node.text, max_width, dark_mode);
         MermaidFileCache::CacheEntry fentry;
         std::vector<uint8_t> png_data;
-        if (file_cache_->Lookup(fkey, fentry, png_data)) {
+        if (file_cache_->Lookup(hash, fentry, png_data)) {
             auto stream = CreateMemoryStream(png_data.data(), png_data.size());
             if (stream) {
                 Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
@@ -531,6 +530,13 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
                 }
             }
         }
+    }
+
+    // WebView2未初期化ならキューには追加しない。
+    // on_ready コールバックで RequestMermaidRenders が再度呼ばれるため、
+    // その時点でキャッシュミス分がキューに入る。
+    if (!ready_) {
+        return;
     }
 
     // リクエストをキューに追加
