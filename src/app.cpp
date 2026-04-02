@@ -1222,7 +1222,7 @@ void App::OnSearchClose()
 
 void App::OnSearchNext()
 {
-    if (search_state_.NextMatch()) {
+    if (search_state_.NextMatch() && search_state_.GetMatchCount() > 1) {
         MessageBeep(MB_OK);
     }
     ScrollToCurrentMatch();
@@ -1231,7 +1231,7 @@ void App::OnSearchNext()
 
 void App::OnSearchPrev()
 {
-    if (search_state_.PrevMatch()) {
+    if (search_state_.PrevMatch() && search_state_.GetMatchCount() > 1) {
         MessageBeep(MB_OK);
     }
     ScrollToCurrentMatch();
