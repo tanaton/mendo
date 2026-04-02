@@ -1057,10 +1057,18 @@ void App::ExecuteActions(const ActionList& actions)
                 OnSearchClose();
             },
             [this](const SearchNextAction&) {
-                OnSearchNext();
+                if (!search_state_.IsVisible()) {
+                    OnSearchOpen();
+                } else {
+                    OnSearchNext();
+                }
             },
             [this](const SearchPrevAction&) {
-                OnSearchPrev();
+                if (!search_state_.IsVisible()) {
+                    OnSearchOpen();
+                } else {
+                    OnSearchPrev();
+                }
             },
             }, action);
     }
