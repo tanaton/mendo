@@ -570,6 +570,11 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
 {
     auto* self = reinterpret_cast<Win32Window*>(dwRefData);
 
+    // 単行EDITは\rを受け取るとビープ音を鳴らすので抑制
+    if (msg == WM_CHAR && wParam == L'\r') {
+        return 0;
+    }
+
     if (msg == WM_KEYDOWN) {
         const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;

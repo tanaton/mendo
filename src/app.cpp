@@ -1215,14 +1215,18 @@ void App::OnSearchClose()
 
 void App::OnSearchNext()
 {
-    search_state_.NextMatch();
+    if (search_state_.NextMatch()) {
+        MessageBeep(MB_OK);
+    }
     ScrollToCurrentMatch();
     Invalidate();
 }
 
 void App::OnSearchPrev()
 {
-    search_state_.PrevMatch();
+    if (search_state_.PrevMatch()) {
+        MessageBeep(MB_OK);
+    }
     ScrollToCurrentMatch();
     Invalidate();
 }

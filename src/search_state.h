@@ -39,8 +39,8 @@ public:
 
     void SetQuery(std::wstring_view query);
     void ExecuteSearch(const std::pmr::vector<Node>& nodes);
-    void NextMatch();
-    void PrevMatch();
+    bool NextMatch();   // ラップしたらtrueを返す
+    bool PrevMatch();   // ラップしたらtrueを返す
 
     // スクロール位置に最も近いマッチを現在マッチとして選択
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache);

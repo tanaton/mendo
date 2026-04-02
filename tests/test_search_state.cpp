@@ -308,14 +308,14 @@ TEST(SearchStateTest, NextMatchCycles) {
     // 初期状態は -1
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 
-    s.NextMatch();
+    EXPECT_FALSE(s.NextMatch());  // -1→0は初回移動（ラップではない）
     EXPECT_EQ(s.GetCurrentMatchIndex(), 0);
-    s.NextMatch();
+    EXPECT_FALSE(s.NextMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), 1);
-    s.NextMatch();
+    EXPECT_FALSE(s.NextMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), 2);
     // ラップアラウンド
-    s.NextMatch();
+    EXPECT_TRUE(s.NextMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), 0);
 }
 
@@ -327,27 +327,27 @@ TEST(SearchStateTest, PrevMatchCycles) {
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 3);
 
-    // -1からPrevで最後へ
-    s.PrevMatch();
+    // -1からPrevで最後へ（ラップ）
+    EXPECT_TRUE(s.PrevMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), 2);
-    s.PrevMatch();
+    EXPECT_FALSE(s.PrevMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), 1);
-    s.PrevMatch();
+    EXPECT_FALSE(s.PrevMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), 0);
     // ラップアラウンド
-    s.PrevMatch();
+    EXPECT_TRUE(s.PrevMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), 2);
 }
 
 TEST(SearchStateTest, NextMatchNoOpWhenEmpty) {
     SearchState s;
-    s.NextMatch();
+    EXPECT_FALSE(s.NextMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
 
 TEST(SearchStateTest, PrevMatchNoOpWhenEmpty) {
     SearchState s;
-    s.PrevMatch();
+    EXPECT_FALSE(s.PrevMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
 
