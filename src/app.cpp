@@ -319,6 +319,7 @@ SearchBarRenderState App::BuildSearchBarRenderState() const
     sb.has_focus = search_has_focus_;
     sb.caret_visible = search_has_focus_ && search_caret_visible_;
     sb.caret_pos = search_caret_pos_;
+    sb.selection_start = search_selection_start_;
     sb.ime_composition = ime_composition_;
     sb.case_sensitive = search_state_.IsCaseSensitive();
     sb.highlight_enabled = search_state_.IsHighlightEnabled();
@@ -1144,6 +1145,7 @@ void App::OnAppReloadFile()
 
 void App::OnCaptureChanged()
 {
+    search_dragging_ = false;
     if (gesture_.GetPhase() != GesturePhase::Idle) {
         gesture_.Reset();
         Invalidate();
@@ -1187,6 +1189,7 @@ void App::OnSearchOpen()
     search_has_focus_ = true;
     search_caret_visible_ = true;
     search_caret_pos_ = -1;
+    search_selection_start_ = -1;
 
     // 前回のクエリが残っている場合は検索を再実行
     if (!search_state_.GetQuery().empty()) {
@@ -1260,12 +1263,13 @@ void App::OnToggleHighlight()
     Invalidate();
 }
 
-void App::SetSearchCaretPos(int pos) noexcept
+void App::SetSearchSelection(int sel_start, int sel_end) noexcept
 {
-    if (search_caret_pos_ == pos) {
+    if (search_caret_pos_ == sel_end && search_selection_start_ == sel_start) {
         return;
     }
-    search_caret_pos_ = pos;
+    search_caret_pos_ = sel_end;
+    search_selection_start_ = sel_start;
     if (search_has_focus_) {
         search_caret_visible_ = true;
         RestartSearchCaretBlink();

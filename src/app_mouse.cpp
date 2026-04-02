@@ -405,6 +405,9 @@ void App::OnLButtonDown(int px, int py)
                     const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
                     const int pos = renderer_.HitTestSearchInput(
                         search_state_.GetQuery(), dip.x - text_left, input_w);
+                    search_dragging_ = true;
+                    search_drag_anchor_ = pos;
+                    SetCapture(hwnd_);
                     PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, App::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
                     return;
                 }
@@ -480,6 +483,12 @@ void App::OnLButtonDown(int px, int py)
 
 void App::OnLButtonUp(int px, int py)
 {
+    if (search_dragging_) {
+        search_dragging_ = false;
+        ReleaseCapture();
+        return;
+    }
+
     ReleaseCapture();
 
     if (panes_.GetDragTarget() != PaneController::DragTarget::None) {
@@ -530,6 +539,22 @@ void App::OnMouseMove(int px, int py)
     const float dip_x = dip.x;
     const auto size = rt->GetSize();
     const float splitter_w = renderer_.GetTheme().splitter_width;
+
+    // 検索バー内ドラッグ選択
+    if (search_dragging_) {
+        const auto layout = GetPaneLayout();
+        const auto& r = layout.md_rect;
+        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !search_state_.GetQuery().empty());
+        const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
+        const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
+        const int pos = renderer_.HitTestSearchInput(
+            search_state_.GetQuery(), dip.x - text_left, input_w);
+        if (pos != search_caret_pos_ || search_drag_anchor_ != search_selection_start_) {
+            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, App::SEARCH_FOCUS_SET_SELECTION,
+                MAKELPARAM(search_drag_anchor_, pos));
+        }
+        return;
+    }
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::Splitter1) {
         panes_.DragSplitter1To(dip_x, size.width, splitter_w);

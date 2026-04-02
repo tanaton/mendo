@@ -478,6 +478,34 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
                 text_layout->SetUnderline(TRUE, range);
             }
 
+            // 選択範囲のハイライト描画（テキストの背面に描画）
+            const int text_len = static_cast<int>(display_text.size());
+            const bool has_selection = !has_comp
+                && sb.selection_start >= 0 && sb.caret_pos >= 0
+                && sb.selection_start != sb.caret_pos;
+            if (has_selection) {
+                int sel_min = std::min(sb.selection_start, sb.caret_pos);
+                int sel_max = std::max(sb.selection_start, sb.caret_pos);
+                sel_min = std::clamp(sel_min, 0, text_len);
+                sel_max = std::clamp(sel_max, 0, text_len);
+                if (sel_min < sel_max) {
+                    // 単一行テキストなのでメトリクスは1つで十分
+                    DWRITE_HIT_TEST_METRICS htm_sel{};
+                    UINT32 actual = 0;
+                    text_layout->HitTestTextRange(
+                        static_cast<UINT32>(sel_min),
+                        static_cast<UINT32>(sel_max - sel_min),
+                        text_left, sbl.input_rect.top,
+                        &htm_sel, 1, &actual);
+                    if (actual > 0) {
+                        const D2D1_RECT_F sel_rect = D2D1::RectF(
+                            htm_sel.left, sbl.input_rect.top + 2.0f,
+                            htm_sel.left + htm_sel.width, sbl.input_rect.bottom - 2.0f);
+                        rt()->FillRectangle(sel_rect, Brush(BrushId::Selection));
+                    }
+                }
+            }
+
             rt()->DrawTextLayout(
                 D2D1::Point2F(text_left, sbl.input_rect.top),
                 text_layout.Get(), Brush(BrushId::SearchInputText));
@@ -489,7 +517,6 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
             }
             else {
                 effective_pos = sb.caret_pos;
-                const int text_len = static_cast<int>(display_text.size());
                 if (effective_pos < 0 || effective_pos > text_len) {
                     effective_pos = text_len;
                 }

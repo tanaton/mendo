@@ -97,7 +97,7 @@ public:
     bool IsSearchBarVisible() const noexcept { return search_state_.IsVisible(); }
     void OnToggleCaseSensitive();
     void OnToggleHighlight();
-    void SetSearchCaretPos(int pos) noexcept;
+    void SetSearchSelection(int sel_start, int sel_end) noexcept;
     void SetImeComposition(std::wstring_view comp);
     RECT GetSearchEditRect() const;
 
@@ -265,6 +265,7 @@ public:
     static constexpr UINT WM_APP_SEARCH_UNFOCUS = WM_APP + 5;
     static constexpr WPARAM SEARCH_FOCUS_SELECT_ALL = 0;
     static constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;
+    static constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2;  // lParam = MAKELPARAM(anchor, caret)
     static constexpr WPARAM SEARCH_UNFOCUS_CLOSE = 0;
     static constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
 
@@ -347,6 +348,9 @@ private:
     bool search_caret_visible_ = false;
     bool search_has_focus_ = false;
     int search_caret_pos_ = -1;
+    int search_selection_start_ = -1;
+    bool search_dragging_ = false;
+    int search_drag_anchor_ = 0;
     std::wstring ime_composition_;
 
     // カスタムコンテキストメニュー
