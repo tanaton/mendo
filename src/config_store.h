@@ -22,7 +22,7 @@ void Load();
 void Save();
 
 // メモリ上のデータをクリアする（テスト用）。
-void Clear();
+void Clear() noexcept;
 
 // ---- 型付きアクセサ（メモリ上のマップを読み書き） ----
 

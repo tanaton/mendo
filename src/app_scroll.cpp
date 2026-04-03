@@ -82,7 +82,7 @@ void App::SyncMaxScroll(float md_pane_height)
     viewport_.SyncMaxScroll(total, md_pane_height);
 }
 
-int App::FindFirstVisibleNode() const
+int App::FindFirstVisibleNode() const noexcept
 {
     return viewport_.FindFirstVisibleNode(layout_cache_, doc_.GetNodes().size());
 }

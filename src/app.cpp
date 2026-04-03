@@ -127,7 +127,7 @@ bool App::Init(HWND hwnd)
 // ヘルパー
 // ============================================================
 
-App::DipPoint App::PixelToDip(int px, int py) const
+App::DipPoint App::PixelToDip(int px, int py) const noexcept
 {
     return { px / cached_dpi_scale_, py / cached_dpi_scale_ };
 }

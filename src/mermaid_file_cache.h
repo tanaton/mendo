@@ -78,7 +78,7 @@ private:
     void LoadIndex();
     void EvictIfNeeded(uint32_t new_png_size);
     void RemoveLruEntry(int64_t timestamp, uint64_t key);
-    static int64_t Now();
+    static int64_t Now() noexcept;
 
     std::filesystem::path cache_dir_override_;
     float stored_dpr_ = 0.0f;

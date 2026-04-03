@@ -123,7 +123,7 @@ int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view a
     return -1;
 }
 
-WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos)
+WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
 {
     WordBoundary result;
     if (text.empty()) {

@@ -79,7 +79,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_
     }
 }
 
-bool SearchState::NextMatch()
+bool SearchState::NextMatch() noexcept
 {
     if (matches_.empty()) {
         return false;
@@ -90,7 +90,7 @@ bool SearchState::NextMatch()
     return wrapped;
 }
 
-bool SearchState::PrevMatch()
+bool SearchState::PrevMatch() noexcept
 {
     if (matches_.empty()) {
         return false;

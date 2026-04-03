@@ -131,9 +131,9 @@ public:
 
     // カスタムタイトルバー
     float GetTitleBarHeightDip() const noexcept { return titlebar_.GetHeight(); }
-    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const { return titlebar_.HitTest(dip_x, dip_y); }
+    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept { return titlebar_.HitTest(dip_x, dip_y); }
     bool IsOverMdScrollbar(float dip_x, float dip_y) const;
-    bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const;
+    bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const noexcept;
     void OnActivate(bool active);
 
 private:
@@ -152,7 +152,7 @@ private:
 
     // DIP変換
     struct DipPoint { float x, y; };
-    DipPoint PixelToDip(int px, int py) const;
+    DipPoint PixelToDip(int px, int py) const noexcept;
 
     // ヒットテスト
     using HitResult = HitTestService::HitResult;
@@ -200,7 +200,7 @@ private:
     void UpdateSmoothScroll();
     void StopSmoothScroll();
     void SyncMaxScroll(float md_pane_height);
-    int FindFirstVisibleNode() const;
+    int FindFirstVisibleNode() const noexcept;
     void OnResizeEnd();
     void RefreshPaneLayout();
     void RefreshFilePane();

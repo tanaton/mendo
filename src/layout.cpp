@@ -8,7 +8,7 @@ static constexpr float MIN_COLUMN_WIDTH = 30.0f;
 static constexpr float COLUMN_WIDTH_PADDING = 4.0f;
 static constexpr float Y_POSITION_EPSILON = 0.01f; // Y座標の早期終了判定用許容誤差（DIP単位）
 
-static float GetSpacingAbove(NodeType type, const Theme& theme)
+static float GetSpacingAbove(NodeType type, const Theme& theme) noexcept
 {
     switch (type) {
     case NodeType::Heading:
@@ -21,7 +21,7 @@ static float GetSpacingAbove(NodeType type, const Theme& theme)
     }
 }
 
-static float GetSpacingBelow(NodeType type, const Theme& theme)
+static float GetSpacingBelow(NodeType type, const Theme& theme) noexcept
 {
     switch (type) {
     case NodeType::Heading:
@@ -98,7 +98,7 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
     return text;
 }
 
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme)
+void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) noexcept
 {
     // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
     // DirectWriteを一切呼ばないため、数千ノードでも数百マイクロ秒で完了する。
@@ -156,7 +156,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
 }
 
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after)
+    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after) noexcept
 {
     YPositionResult result;
     result.has_dirty_nodes = has_earlier_dirty;

@@ -87,8 +87,8 @@ private:
 
 public:
     // ヒットテスト
-    int HitTest(float x, float y) const;
-    int NavHitTest(float x, float y) const;
+    int HitTest(float x, float y) const noexcept;
+    int NavHitTest(float x, float y) const noexcept;
 
     // テスト用アクセサ
     const std::vector<Item>& GetItems() const noexcept { return items_; }

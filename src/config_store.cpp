@@ -110,7 +110,7 @@ void Save()
     }
 }
 
-void Clear()
+void Clear() noexcept
 {
     g_data.clear();
 }

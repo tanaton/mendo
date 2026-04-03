@@ -319,7 +319,7 @@ void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& c
     }
 }
 
-ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const
+ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexcept
 {
     static constexpr BrushId SYNTAX_MAP[] = {
         BrushId::Text,                // Plain（未使用、フォールバックとしてテキストブラシを返す）

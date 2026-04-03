@@ -54,7 +54,7 @@ std::filesystem::path MermaidFileCache::GetIndexPath() const
     return dir / L"index.bin";
 }
 
-int64_t MermaidFileCache::Now()
+int64_t MermaidFileCache::Now() noexcept
 {
     return std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();

@@ -1032,7 +1032,7 @@ void App::CopyCodeBlockToClipboard(int node_index) const
     SetClipboardText(nodes[node_index].text);
 }
 
-bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const
+bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept
 {
     if (!layout_service_) {
         return false;

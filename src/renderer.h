@@ -233,7 +233,7 @@ private:
         return brushes_[static_cast<size_t>(id)].Get();
     }
 
-    ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
+    ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;
     void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry,
         float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void RecreateBrushes();

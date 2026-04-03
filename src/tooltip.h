@@ -145,7 +145,7 @@ public:
     void ResetTarget() noexcept { current_ = {}; }
 
 private:
-    void Destroy()
+    void Destroy() noexcept
     {
         if (hwnd_) {
             DestroyWindow(hwnd_);

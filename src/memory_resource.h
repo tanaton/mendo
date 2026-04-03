@@ -40,7 +40,7 @@ public:
     std::pmr::memory_resource* resource() noexcept { return &monotonic_; }
 
     // 確保済みメモリを再利用可能な状態にリセットする
-    void Reset() { monotonic_.release(); }
+    void Reset() noexcept { monotonic_.release(); }
 
 private:
     // buffer_ は monotonic_ より先に宣言し、monotonic_ より後に破棄されるようにする

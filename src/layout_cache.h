@@ -71,7 +71,7 @@ public:
 
     // すべてのテキストレイアウトとエフェクトを無効化する（テーマ/ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
-    void InvalidateAllLayouts()
+    void InvalidateAllLayouts() noexcept
     {
         for (auto& e : entries_) {
             e.text_layout.Reset();
@@ -84,7 +84,7 @@ public:
 
     // すべてのテキストレイアウトとエフェクトを無効化し、Mermaid図のビットマップもリセットする。
     // ダークモード切替時に使用。
-    void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes)
+    void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes) noexcept
     {
         InvalidateAllLayouts(); // effects_generation_ は InvalidateAllLayouts 内で更新済み
         for (size_t i = 0; i < nodes.size() && i < diagrams_.size(); ++i) {
@@ -95,7 +95,7 @@ public:
     }
 
     // すべてのエントリをダーティとしてマークし、レイアウトをリセットする（DPI 変更時）。
-    void MarkAllDirty()
+    void MarkAllDirty() noexcept
     {
         for (auto& e : entries_) {
             e.layout_dirty = true;

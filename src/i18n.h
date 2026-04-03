@@ -153,7 +153,7 @@ inline const Strings* g_strings = &kJa;
 
 // 起動時に1回呼び出す。config_lang が "ja"/"en" なら直接選択、
 // 空または未知の場合は OS の UI 言語から自動判定する。
-inline void Init(std::wstring_view config_lang)
+inline void Init(std::wstring_view config_lang) noexcept
 {
     if (config_lang == L"en") {
         g_strings = &kEn;

@@ -467,7 +467,7 @@ void MermaidRenderer::ClearPendingQueue() noexcept
     pending_requests_.swap(empty);
 }
 
-uint64_t MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const
+uint64_t MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const noexcept
 {
     const int qw = mermaid_util::QuantizeWidth(max_width);
     return mermaid_util::CombinedHash(code, qw, dark_mode);
