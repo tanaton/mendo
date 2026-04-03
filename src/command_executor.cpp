@@ -94,6 +94,6 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             [&](const SetTransformCmd& c) {
                 rt->SetTransform(c.transform);
             },
-        }, cmd);
+            }, cmd);
     }
 }

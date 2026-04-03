@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "i18n.h"
 #include "pane_layout.h"
 #include "ui_constants.h"
 #include <algorithm>
@@ -171,7 +172,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
     constexpr float icon_col_width = 24.0f;
 
     DrawSidePaneImpl(file_pane_cache_, rt(), rect, scroll,
-        static_cast<int>(entries.size()), L"ファイル", theme_,
+        static_cast<int>(entries.size()), i18n::S().pane_header_files, theme_,
         Brush(BrushId::Splitter), Brush(BrushId::Text),
         Brush(BrushId::ScrollbarThumb), fmt_.pane_header.Get(),
         fmt_.pane_icon.Get(), Brush(BrushId::PaneItemHover), close_hovered,
@@ -220,7 +221,7 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
     const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index)
 {
     DrawSidePaneImpl(toc_pane_cache_, rt(), rect, scroll,
-        static_cast<int>(entries.size()), L"目次", theme_,
+        static_cast<int>(entries.size()), i18n::S().pane_header_toc, theme_,
         Brush(BrushId::Splitter), Brush(BrushId::Text),
         Brush(BrushId::ScrollbarThumb), fmt_.pane_header.Get(),
         fmt_.pane_icon.Get(), Brush(BrushId::PaneItemHover), close_hovered,
@@ -427,7 +428,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         if (focus_brush) {
             rt()->DrawRoundedRectangle(input_rrect, focus_brush, 1.5f);
         }
-    } else {
+    }
+    else {
         auto* border_brush = Brush(BrushId::SearchBarBorder);
         if (border_brush) {
             border_brush->SetOpacity(0.5f);
@@ -579,7 +581,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         wchar_t count_text[32];
         if (sb.total_matches == 0) {
             wcscpy_s(count_text, L"0");
-        } else {
+        }
+        else {
             swprintf_s(count_text, L"%d / %d", sb.current_match + 1, sb.total_matches);
         }
         auto* brush = Brush(BrushId::SearchInputText);

@@ -1,5 +1,6 @@
 #include "window.h"
 #include "config_store.h"
+#include "i18n.h"
 #include "memory_resource.h"
 #include <windows.h>
 #include <shellapi.h>
@@ -26,6 +27,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     InitCommonControlsEx(&icc);
 
     config::Load();
+    i18n::Init(config::GetWString("General", "Language"));
 
     Win32Window window;
     if (!window.Create(hInstance, nCmdShow)) {

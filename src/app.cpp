@@ -1,6 +1,7 @@
 #include "app.h"
 #include "parser.h"
 #include "resource.h"
+#include "i18n.h"
 #include "pane_layout.h"
 #include "document_utils.h"
 #include "mermaid_util.h"
@@ -404,7 +405,8 @@ void App::OnPaint()
         // 検索マッチ情報をコマンドジェネレータに設定
         if (search_state_.IsVisible() && search_state_.IsHighlightEnabled() && !search_state_.GetMatches().empty()) {
             renderer_.SetSearchMatches(&search_state_.GetMatches(), search_state_.GetCurrentMatchIndex());
-        } else {
+        }
+        else {
             renderer_.SetSearchMatches(nullptr, -1);
         }
 
@@ -498,7 +500,7 @@ void App::LoadHelpDocument()
         return;
     }
 
-    const auto rc = LoadRcData(IDR_HELP_MD);
+    const auto rc = LoadRcData(i18n::S().help_resource_id);
     if (rc.empty()) {
         return;
     }
@@ -598,7 +600,8 @@ void App::DoLoadMarkdownFile()
                 layout_cache_[node].y_position + static_cast<float>(pending_restore_offset_));
         }
         pending_restore_node_ = -1;
-    } else if (pending_nav_scroll_y_ >= 0.0f) {
+    }
+    else if (pending_nav_scroll_y_ >= 0.0f) {
         scroll_y = pending_nav_scroll_y_;
         pending_nav_scroll_y_ = -1.0f;
     }
@@ -771,7 +774,8 @@ int App::ApplyCachedImages()
         std::wstring abs_str;
         if (cache_it != resolved_image_paths_.end()) {
             abs_str = cache_it->second;
-        } else {
+        }
+        else {
             std::filesystem::path img_path(node.image_data->src);
             if (img_path.is_relative()) {
                 img_path = std::filesystem::path(doc_dir) / img_path;
@@ -1008,7 +1012,8 @@ void App::ExecuteActions(const ActionList& actions)
             [this](const ClearSelectionAction&) {
                 if (search_state_.IsVisible()) {
                     OnSearchClose();
-                } else {
+                }
+                else {
                     ClearSelection();
                 }
             },
@@ -1068,14 +1073,16 @@ void App::ExecuteActions(const ActionList& actions)
             [this](const SearchNextAction&) {
                 if (!search_state_.IsVisible()) {
                     OnSearchOpen();
-                } else {
+                }
+                else {
                     OnSearchNext();
                 }
             },
             [this](const SearchPrevAction&) {
                 if (!search_state_.IsVisible()) {
                     OnSearchOpen();
-                } else {
+                }
+                else {
                     OnSearchPrev();
                 }
             },
@@ -1183,6 +1190,7 @@ void App::OnDestroy()
     SaveLastFilePath();
     SavePaneState();
     SaveScrollPosition();
+    config_.SaveWString("General", "Language", i18n::GetLangKey());
     KillTimer(hwnd_, TIMER_FILE_WATCH);
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
     KillTimer(hwnd_, TIMER_LOADING_ANIM);

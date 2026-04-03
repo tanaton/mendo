@@ -1,5 +1,6 @@
 #include "window.h"
 #include "config_store.h"
+#include "i18n.h"
 #include "resource.h"
 #include <windowsx.h>
 #include <shellscalingapi.h>
@@ -489,7 +490,7 @@ void Win32Window::InitSystemMenu()
     const HMENU menu = GetSystemMenu(hwnd_, FALSE);
     if (menu) {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, SC_RESET_WINDOW, L"ウィンドウ位置をリセット(&R)");
+        AppendMenuW(menu, MF_STRING, SC_RESET_WINDOW, i18n::S().menu_reset_window.data());
     }
 }
 

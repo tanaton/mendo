@@ -1,4 +1,5 @@
 #include "app.h"
+#include "i18n.h"
 #include "pane_layout.h"
 #include "document_utils.h"
 #include "ui_constants.h"
@@ -290,7 +291,7 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
         else if (!file_entry.is_current) {
             if (GetFileAttributesW(file_entry.full_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
                 RefreshFilePane();
-                ShowToast(L"ファイルが見つかりません");
+                ShowToast(i18n::S().toast_file_not_found);
                 return;
             }
             PushNavHistory();
@@ -658,18 +659,19 @@ void App::OnMouseHover(int px, int py)
             InvalidateTitleBar();
         }
         // タイトルバーボタンのツールチップ
+        const auto& ls = i18n::S();
         TooltipTarget tt;
         switch (tb_zone) {
-        case TitleBarHitZone::Help:        tt = { TooltipTarget::Zone::TitleBarButton, L"ヘルプ (F1)" }; break;
-        case TitleBarHitZone::ThemeToggle: tt = { TooltipTarget::Zone::TitleBarButton, L"ダーク/ライトモード切替" }; break;
-        case TitleBarHitZone::Search:      tt = { TooltipTarget::Zone::TitleBarButton, L"検索 (Ctrl+F)" }; break;
-        case TitleBarHitZone::FileToggle:  tt = { TooltipTarget::Zone::TitleBarButton, L"ファイルペイン (Ctrl+1)" }; break;
-        case TitleBarHitZone::TocToggle:   tt = { TooltipTarget::Zone::TitleBarButton, L"目次ペイン (Ctrl+2)" }; break;
-        case TitleBarHitZone::Minimize:    tt = { TooltipTarget::Zone::TitleBarButton, L"最小化" }; break;
+        case TitleBarHitZone::Help:        tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_help }; break;
+        case TitleBarHitZone::ThemeToggle: tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_theme_toggle }; break;
+        case TitleBarHitZone::Search:      tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_search }; break;
+        case TitleBarHitZone::FileToggle:  tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_file_pane }; break;
+        case TitleBarHitZone::TocToggle:   tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_toc_pane }; break;
+        case TitleBarHitZone::Minimize:    tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_minimize }; break;
         case TitleBarHitZone::Maximize:
-            tt = { TooltipTarget::Zone::TitleBarButton, IsZoomed(hwnd_) ? L"元に戻す" : L"最大化" };
+            tt = { TooltipTarget::Zone::TitleBarButton, IsZoomed(hwnd_) ? ls.tooltip_restore : ls.tooltip_maximize };
             break;
-        case TitleBarHitZone::Close:       tt = { TooltipTarget::Zone::TitleBarButton, L"閉じる" }; break;
+        case TitleBarHitZone::Close:       tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_close }; break;
         default: break;
         }
         UpdateTooltip(tt, px, py);
@@ -729,11 +731,13 @@ void App::OnMouseHover(int px, int py)
             TooltipTarget tt;
             if (close_hit) {
                 tt.zone = TooltipTarget::Zone::FilePaneButton;
-                tt.text = L"閉じる";
-            } else if (refresh_hit) {
+                tt.text = i18n::S().tooltip_pane_close;
+            }
+            else if (refresh_hit) {
                 tt.zone = TooltipTarget::Zone::FilePaneButton;
-                tt.text = L"更新";
-            } else if (new_file_hover >= 0 && new_file_hover < static_cast<int>(file_explorer_.GetEntries().size())) {
+                tt.text = i18n::S().tooltip_pane_refresh;
+            }
+            else if (new_file_hover >= 0 && new_file_hover < static_cast<int>(file_explorer_.GetEntries().size())) {
                 tt.zone = TooltipTarget::Zone::FilePaneItem;
                 tt.text = file_explorer_.GetEntries()[new_file_hover].full_path;
             }
@@ -757,8 +761,9 @@ void App::OnMouseHover(int px, int py)
             TooltipTarget tt;
             if (close_hit) {
                 tt.zone = TooltipTarget::Zone::TocPaneButton;
-                tt.text = L"閉じる";
-            } else if (new_toc_hover >= 0 && new_toc_hover < static_cast<int>(doc_.GetToc().GetEntries().size())) {
+                tt.text = i18n::S().tooltip_pane_close;
+            }
+            else if (new_toc_hover >= 0 && new_toc_hover < static_cast<int>(doc_.GetToc().GetEntries().size())) {
                 tt.zone = TooltipTarget::Zone::TocPaneItem;
                 tt.text = doc_.GetToc().GetEntries()[new_toc_hover].text;
             }
@@ -822,13 +827,14 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
             }
             // 検索バーボタンのツールチップ
             {
+                const auto& ls = i18n::S();
                 TooltipTarget tt;
                 switch (search_bar_hover_) {
-                case SearchBarHover::Up:            tt = { TooltipTarget::Zone::SearchBarButton, L"前のマッチ (Shift+Enter)" }; break;
-                case SearchBarHover::Down:          tt = { TooltipTarget::Zone::SearchBarButton, L"次のマッチ (Enter)" }; break;
-                case SearchBarHover::CaseSensitive: tt = { TooltipTarget::Zone::SearchBarButton, L"大文字/小文字を区別" }; break;
-                case SearchBarHover::Highlight:     tt = { TooltipTarget::Zone::SearchBarButton, L"全マッチをハイライト" }; break;
-                case SearchBarHover::Close:         tt = { TooltipTarget::Zone::SearchBarButton, L"閉じる (Esc)" }; break;
+                case SearchBarHover::Up:            tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev }; break;
+                case SearchBarHover::Down:          tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next }; break;
+                case SearchBarHover::CaseSensitive: tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case }; break;
+                case SearchBarHover::Highlight:     tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight }; break;
+                case SearchBarHover::Close:         tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close }; break;
                 default: break;
                 }
                 UpdateTooltip(tt, px, py);
@@ -862,9 +868,10 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
             TooltipTarget tt;
             tt.zone = TooltipTarget::Zone::NavButton;
             if (nav_hit == NavButtonHover::Back) {
-                tt.text = L"戻る (Alt+←)";
-            } else {
-                tt.text = L"進む (Alt+→)";
+                tt.text = i18n::S().tooltip_nav_back;
+            }
+            else {
+                tt.text = i18n::S().tooltip_nav_forward;
             }
             UpdateTooltip(tt, px, py);
         }
@@ -895,7 +902,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     }
     if (hovered_copy_node_ >= 0) {
         SetCursor(cursor_hand_);
-        UpdateTooltip({ TooltipTarget::Zone::CopyButton, L"コピー" }, px, py);
+        UpdateTooltip({ TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy }, px, py);
         return;
     }
 
@@ -913,7 +920,8 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         if (link.has_value()) {
             tt.zone = TooltipTarget::Zone::MdLink;
             tt.text = *link;
-        } else if (hit.node_index >= 0) {
+        }
+        else if (hit.node_index >= 0) {
             const auto& nodes = doc_.GetNodes();
             const auto& node = nodes[hit.node_index];
             if (node.type == NodeType::Image && node.has_image()) {

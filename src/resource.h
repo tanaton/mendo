@@ -14,3 +14,4 @@
 // 埋め込みリソース
 #define IDR_MERMAID_JS_GZ 301
 #define IDR_HELP_MD       302
+#define IDR_HELP_EN_MD    303

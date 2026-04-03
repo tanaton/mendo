@@ -5,7 +5,7 @@
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <windows.h>
-#include <string>
+#include <string_view>
 #include <vector>
 
 
@@ -48,7 +48,7 @@ public:
     struct Item {
         ItemType type = ItemType::Text;
         int id = 0;
-        std::wstring text;
+        std::wstring_view text;
         bool enabled = true;
         bool checked = false;
         D2D1_RECT_F rect{};
