@@ -1,6 +1,7 @@
 #include "app.h"
 #include "parser.h"
 #include "resource.h"
+#include "i18n.h"
 #include "pane_layout.h"
 #include "document_utils.h"
 #include "mermaid_util.h"
@@ -498,7 +499,7 @@ void App::LoadHelpDocument()
         return;
     }
 
-    const auto rc = LoadRcData(IDR_HELP_MD);
+    const auto rc = LoadRcData(i18n::S().help_resource_id);
     if (rc.empty()) {
         return;
     }
@@ -1183,6 +1184,7 @@ void App::OnDestroy()
     SaveLastFilePath();
     SavePaneState();
     SaveScrollPosition();
+    config_.SaveWString("General", "Language", i18n::GetLangKey());
     KillTimer(hwnd_, TIMER_FILE_WATCH);
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
     KillTimer(hwnd_, TIMER_LOADING_ANIM);

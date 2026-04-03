@@ -37,6 +37,7 @@ add_executable(mendo_tests
     test_image.cpp
     test_help.cpp
     test_search_state.cpp
+    test_locale.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

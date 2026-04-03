@@ -3,6 +3,7 @@
 #include <commctrl.h>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 // ApplyDarkModeToWindow は app.h で宣言済み（循環回避のため前方宣言）
 void ApplyDarkModeToWindow(HWND hwnd, bool dark);
@@ -26,6 +27,9 @@ struct TooltipTarget {
 
     Zone zone = Zone::None;
     std::wstring text;
+
+    TooltipTarget() = default;
+    TooltipTarget(Zone z, std::wstring_view t) : zone(z), text(t) {}
 
     bool operator==(const TooltipTarget&) const = default;
     bool IsEmpty() const noexcept { return zone == Zone::None; }

@@ -1,4 +1,5 @@
 #include "command_generator.h"
+#include "i18n.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <format>
@@ -570,8 +571,8 @@ void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds,
     const D2D1_RECT_F bg = D2D1::RectF(x, y, x + w, y + h);
     cmds.emplace_back(FillRoundedRectCmd{ bg, 4.0f, 4.0f, theme_->code_bg_color });
     if (formats_.placeholder_text) {
-        constexpr wchar_t kText[] = L"Loading...";
-        cmds.emplace_back(DrawTextCmd::Make(kText, static_cast<UINT32>(std::ranges::size(kText) - 1), bg, formats_.placeholder_text, theme_->blockquote_text_color));
+        const auto loading_text = i18n::S().loading;
+        cmds.emplace_back(DrawTextCmd::Make(loading_text.data(), static_cast<UINT32>(loading_text.size()), bg, formats_.placeholder_text, theme_->blockquote_text_color));
     }
 }
 

@@ -1,4 +1,5 @@
 #include "context_menu.h"
+#include "i18n.h"
 #include "ui_constants.h"
 #include <cmath>
 
@@ -303,15 +304,16 @@ void ContextMenu::BuildItems(const ContextMenuParams& params)
 
     items_.emplace_back(ItemType::Separator);
 
+    const auto& ls = i18n::S();
     if (params.show_file_items) {
-        items_.emplace_back(ItemType::Text, IDM_EDIT_FILE, L"エディタで開く", params.has_file, false);
-        items_.emplace_back(ItemType::Text, IDM_COPY, L"コピー", params.has_selection, false);
+        items_.emplace_back(ItemType::Text, IDM_EDIT_FILE, ls.menu_edit_file, params.has_file, false);
+        items_.emplace_back(ItemType::Text, IDM_COPY, ls.menu_copy, params.has_selection, false);
         items_.emplace_back(ItemType::Separator);
     }
-    items_.emplace_back(ItemType::Text, IDM_TOGGLE_DARK_MODE, L"ダークモード", true, params.dark_mode_checked);
+    items_.emplace_back(ItemType::Text, IDM_TOGGLE_DARK_MODE, ls.menu_dark_mode, true, params.dark_mode_checked);
     items_.emplace_back(ItemType::Separator);
-    items_.emplace_back(ItemType::Text, IDM_TOGGLE_FILE_PANE, L"ファイルペイン", true, params.file_pane_checked);
-    items_.emplace_back(ItemType::Text, IDM_TOGGLE_TOC_PANE, L"目次ペイン", true, params.toc_pane_checked);
+    items_.emplace_back(ItemType::Text, IDM_TOGGLE_FILE_PANE, ls.menu_file_pane, true, params.file_pane_checked);
+    items_.emplace_back(ItemType::Text, IDM_TOGGLE_TOC_PANE, ls.menu_toc_pane, true, params.toc_pane_checked);
 }
 
 // ============================================================
@@ -328,7 +330,7 @@ void ContextMenu::ComputeLayout()
         }
         ComPtr<IDWriteTextLayout> layout;
         dwrite_factory_->CreateTextLayout(
-            item.text.c_str(), static_cast<UINT32>(item.text.size()),
+            item.text.data(), static_cast<UINT32>(item.text.size()),
             fmt_text_.Get(), 1000.0f, 100.0f, &layout);
         if (layout) {
             DWRITE_TEXT_METRICS metrics{};
@@ -554,7 +556,7 @@ void ContextMenu::DrawTextItem(const Item& item)
             item.rect.left + PAD_X, item.rect.top,
             item.rect.right - 8.0f, item.rect.bottom
         };
-        rt_->DrawText(item.text.c_str(), static_cast<UINT32>(item.text.size()), fmt_text_.Get(), text_rc, brush);
+        rt_->DrawText(item.text.data(), static_cast<UINT32>(item.text.size()), fmt_text_.Get(), text_rc, brush);
     }
 }
 

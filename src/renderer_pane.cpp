@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "i18n.h"
 #include "pane_layout.h"
 #include "ui_constants.h"
 #include <algorithm>
@@ -171,7 +172,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
     constexpr float icon_col_width = 24.0f;
 
     DrawSidePaneImpl(file_pane_cache_, rt(), rect, scroll,
-        static_cast<int>(entries.size()), L"ファイル", theme_,
+        static_cast<int>(entries.size()), i18n::S().pane_header_files, theme_,
         Brush(BrushId::Splitter), Brush(BrushId::Text),
         Brush(BrushId::ScrollbarThumb), fmt_.pane_header.Get(),
         fmt_.pane_icon.Get(), Brush(BrushId::PaneItemHover), close_hovered,
@@ -220,7 +221,7 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
     const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index)
 {
     DrawSidePaneImpl(toc_pane_cache_, rt(), rect, scroll,
-        static_cast<int>(entries.size()), L"目次", theme_,
+        static_cast<int>(entries.size()), i18n::S().pane_header_toc, theme_,
         Brush(BrushId::Splitter), Brush(BrushId::Text),
         Brush(BrushId::ScrollbarThumb), fmt_.pane_header.Get(),
         fmt_.pane_icon.Get(), Brush(BrushId::PaneItemHover), close_hovered,
