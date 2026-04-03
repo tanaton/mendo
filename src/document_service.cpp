@@ -49,7 +49,7 @@ void DocumentService::ResetDebounceTick() noexcept
 
 bool DocumentService::NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept
 {
-    static constexpr DWORD LOADING_ANIM_THRESHOLD = 128 * 1024;
+    static constexpr DWORD LOADING_ANIM_THRESHOLD = 16 * 1024 * 1024;
     WIN32_FILE_ATTRIBUTE_DATA attr{};
     if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)
         && attr.nFileSizeHigh == 0 && attr.nFileSizeLow <= LOADING_ANIM_THRESHOLD) {
