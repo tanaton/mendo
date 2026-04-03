@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 #include "layout_cache.h"
 
-TEST(LayoutCacheTest, InvalidateAllLayouts) {
+TEST(LayoutCacheTest, InvalidateAllLayouts)
+{
     LayoutCache cache;
     cache.Resize(3);
 
@@ -22,7 +23,8 @@ TEST(LayoutCacheTest, InvalidateAllLayouts) {
     }
 }
 
-TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions) {
+TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
+{
     LayoutCache cache;
     cache.Resize(2);
     cache[0].y_position = 100.0f;
@@ -39,7 +41,8 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions) {
     EXPECT_FLOAT_EQ(cache[1].height, 30.0f);
 }
 
-TEST(LayoutCacheTest, MarkAllDirty) {
+TEST(LayoutCacheTest, MarkAllDirty)
+{
     LayoutCache cache;
     cache.Resize(3);
 
@@ -55,7 +58,8 @@ TEST(LayoutCacheTest, MarkAllDirty) {
     }
 }
 
-TEST(LayoutCacheTest, InvalidateEmptyCache) {
+TEST(LayoutCacheTest, InvalidateEmptyCache)
+{
     LayoutCache cache;
     cache.Resize(0);
 
@@ -66,7 +70,8 @@ TEST(LayoutCacheTest, InvalidateEmptyCache) {
 
 // ズーム時に使用されるInvalidateAllLayoutsがダイアグラムのビットマップ/サイズを
 // 保持することを検証する（ズーム→復帰でMermaid図が消える問題の再発防止）。
-TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesDiagramEntries) {
+TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesDiagramEntries)
+{
     LayoutCache cache;
     cache.Resize(2);
 

@@ -3,21 +3,24 @@
 #include "toc.h"
 #include "parser.h"
 
-TEST(Toc, EmptyDocument) {
+TEST(Toc, EmptyDocument)
+{
     std::pmr::vector<Node> nodes;
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
     EXPECT_TRUE(toc.GetEntries().empty());
 }
 
-TEST(Toc, NoHeadings) {
+TEST(Toc, NoHeadings)
+{
     auto nodes = ParseMarkdown("Just a paragraph.\n\n- List item\n\n> Quote");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
     EXPECT_TRUE(toc.GetEntries().empty());
 }
 
-TEST(Toc, SingleHeading) {
+TEST(Toc, SingleHeading)
+{
     auto nodes = ParseMarkdown("# Title");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -27,7 +30,8 @@ TEST(Toc, SingleHeading) {
     EXPECT_EQ(toc.GetEntries()[0].anchor_id, L"title");
 }
 
-TEST(Toc, MultipleHeadings) {
+TEST(Toc, MultipleHeadings)
+{
     auto nodes = ParseMarkdown(
         "# First\n\n## Second\n\n### Third\n\nParagraph\n\n## Another"
     );
@@ -40,7 +44,8 @@ TEST(Toc, MultipleHeadings) {
     EXPECT_EQ(toc.GetEntries()[3].heading_level, 2);
 }
 
-TEST(Toc, HeadingTextPreserved) {
+TEST(Toc, HeadingTextPreserved)
+{
     auto nodes = ParseMarkdown("## Hello World");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -48,7 +53,8 @@ TEST(Toc, HeadingTextPreserved) {
     EXPECT_EQ(toc.GetEntries()[0].text, L"Hello World");
 }
 
-TEST(Toc, AnchorIdPreserved) {
+TEST(Toc, AnchorIdPreserved)
+{
     auto nodes = ParseMarkdown("## コードブロック");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -56,7 +62,8 @@ TEST(Toc, AnchorIdPreserved) {
     EXPECT_EQ(toc.GetEntries()[0].anchor_id, L"コードブロック");
 }
 
-TEST(Toc, RebuildClearsPrevious) {
+TEST(Toc, RebuildClearsPrevious)
+{
     auto nodes1 = ParseMarkdown("# A\n\n## B");
     auto nodes2 = ParseMarkdown("# X");
 
@@ -71,7 +78,8 @@ TEST(Toc, RebuildClearsPrevious) {
 
 // ---- HitTest ----
 
-TEST(Toc, HitTestValidIndex) {
+TEST(Toc, HitTestValidIndex)
+{
     auto nodes = ParseMarkdown("# A\n\n## B\n\n### C");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -81,7 +89,8 @@ TEST(Toc, HitTestValidIndex) {
     EXPECT_EQ(toc.HitTest(56.0f, 28.0f), 2);
 }
 
-TEST(Toc, HitTestOutOfRange) {
+TEST(Toc, HitTestOutOfRange)
+{
     auto nodes = ParseMarkdown("# A");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -90,21 +99,24 @@ TEST(Toc, HitTestOutOfRange) {
     EXPECT_EQ(toc.HitTest(100.0f, 28.0f), -1);
 }
 
-TEST(Toc, HitTestZeroItemHeight) {
+TEST(Toc, HitTestZeroItemHeight)
+{
     auto nodes = ParseMarkdown("# A");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
     EXPECT_EQ(toc.HitTest(10.0f, 0.0f), -1);
 }
 
-TEST(Toc, HitTestEmpty) {
+TEST(Toc, HitTestEmpty)
+{
     TableOfContents toc;
     EXPECT_EQ(toc.HitTest(0.0f, 28.0f), -1);
 }
 
 // ---- 追加エッジケース ----
 
-TEST(Toc, DuplicateHeadingText) {
+TEST(Toc, DuplicateHeadingText)
+{
     auto nodes = ParseMarkdown("# Title\n\nSome text\n\n# Title\n\nMore text\n\n## Title");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -117,7 +129,8 @@ TEST(Toc, DuplicateHeadingText) {
     EXPECT_NE(toc.GetEntries()[0].anchor_id, toc.GetEntries()[1].anchor_id);
 }
 
-TEST(Toc, ManyHeadings) {
+TEST(Toc, ManyHeadings)
+{
     std::string md;
     for (int i = 0; i < 100; i++) {
         md += "## Heading " + std::to_string(i) + "\n\ntext\n\n";
@@ -128,7 +141,8 @@ TEST(Toc, ManyHeadings) {
     EXPECT_EQ(toc.GetEntries().size(), 100u);
 }
 
-TEST(Toc, HeadingLevelsPreserved) {
+TEST(Toc, HeadingLevelsPreserved)
+{
     auto nodes = ParseMarkdown(
         "# L1\n\n## L2\n\n### L3\n\n#### L4\n\n##### L5\n\n###### L6"
     );
@@ -140,7 +154,8 @@ TEST(Toc, HeadingLevelsPreserved) {
     }
 }
 
-TEST(Toc, HitTestBoundary) {
+TEST(Toc, HitTestBoundary)
+{
     auto nodes = ParseMarkdown("# A\n\n## B");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -149,7 +164,8 @@ TEST(Toc, HitTestBoundary) {
     EXPECT_EQ(toc.HitTest(28.0f, 28.0f), 1);
 }
 
-TEST(Toc, HitTestNegativeItemHeight) {
+TEST(Toc, HitTestNegativeItemHeight)
+{
     auto nodes = ParseMarkdown("# A");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -158,7 +174,8 @@ TEST(Toc, HitTestNegativeItemHeight) {
 
 // ---- node_index ----
 
-TEST(Toc, NodeIndexRecorded) {
+TEST(Toc, NodeIndexRecorded)
+{
     auto nodes = ParseMarkdown("Para\n\n# First\n\nMore text\n\n## Second");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -170,7 +187,8 @@ TEST(Toc, NodeIndexRecorded) {
     EXPECT_GT(toc.GetEntries()[1].node_index, toc.GetEntries()[0].node_index);
 }
 
-TEST(Toc, NodeIndexOrderPreserved) {
+TEST(Toc, NodeIndexOrderPreserved)
+{
     auto nodes = ParseMarkdown("# A\n\n## B\n\n### C");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -182,13 +200,15 @@ TEST(Toc, NodeIndexOrderPreserved) {
 
 // ---- FindActiveIndex ----
 
-TEST(Toc, FindActiveIndexEmpty) {
+TEST(Toc, FindActiveIndexEmpty)
+{
     TableOfContents toc;
     LayoutCache cache;
     EXPECT_EQ(toc.FindActiveIndex(cache, 0.0f), -1);
 }
 
-TEST(Toc, FindActiveIndexBeforeFirstHeading) {
+TEST(Toc, FindActiveIndexBeforeFirstHeading)
+{
     auto nodes = ParseMarkdown("Para\n\n# Title");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -204,7 +224,8 @@ TEST(Toc, FindActiveIndexBeforeFirstHeading) {
     EXPECT_EQ(toc.FindActiveIndex(cache, 0.0f), -1);
 }
 
-TEST(Toc, FindActiveIndexAtHeading) {
+TEST(Toc, FindActiveIndexAtHeading)
+{
     auto nodes = ParseMarkdown("# First\n\nText\n\n## Second");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
@@ -228,7 +249,8 @@ TEST(Toc, FindActiveIndexAtHeading) {
     EXPECT_EQ(toc.FindActiveIndex(cache, 300.0f), 1);
 }
 
-TEST(Toc, FindActiveIndexManyHeadings) {
+TEST(Toc, FindActiveIndexManyHeadings)
+{
     std::string md;
     for (int i = 0; i < 10; ++i) {
         md += "## H" + std::to_string(i) + "\n\nText\n\n";
@@ -253,7 +275,8 @@ TEST(Toc, FindActiveIndexManyHeadings) {
 }
 
 // margin付きのFindActiveIndex: TOCリンククリック時に正しい見出しがアクティブになることを確認
-TEST(Toc, FindActiveIndexWithMargin) {
+TEST(Toc, FindActiveIndexWithMargin)
+{
     auto nodes = ParseMarkdown("# First\n\nText\n\n## Second");
     TableOfContents toc;
     toc.BuildFromNodes(nodes);

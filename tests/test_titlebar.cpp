@@ -5,7 +5,8 @@
 
 class TitleBarTest : public ::testing::Test {
 protected:
-    void SetUp() override {
+    void SetUp() override
+    {
         tb_.UpdateLayout(WINDOW_WIDTH);
     }
     static constexpr float WINDOW_WIDTH = 800.0f;
@@ -16,7 +17,8 @@ protected:
 // 基本定数
 // ═══════════════════════════════════════════════
 
-TEST_F(TitleBarTest, HeightIsBaseHeight) {
+TEST_F(TitleBarTest, HeightIsBaseHeight)
+{
     EXPECT_FLOAT_EQ(tb_.GetHeight(), TitleBar::BASE_HEIGHT);
 }
 
@@ -24,55 +26,64 @@ TEST_F(TitleBarTest, HeightIsBaseHeight) {
 // UpdateLayout — ボタン配置
 // ═══════════════════════════════════════════════
 
-TEST_F(TitleBarTest, CloseButtonIsAtRightEdge) {
+TEST_F(TitleBarTest, CloseButtonIsAtRightEdge)
+{
     auto& btn = tb_.GetCloseButton();
     EXPECT_FLOAT_EQ(btn.rect.right, WINDOW_WIDTH);
     EXPECT_FLOAT_EQ(btn.rect.left, WINDOW_WIDTH - TitleBar::CAPTION_BTN_WIDTH);
 }
 
-TEST_F(TitleBarTest, MaximizeButtonIsLeftOfClose) {
+TEST_F(TitleBarTest, MaximizeButtonIsLeftOfClose)
+{
     auto& close = tb_.GetCloseButton();
     auto& maximize = tb_.GetMaximizeButton();
     EXPECT_FLOAT_EQ(maximize.rect.right, close.rect.left);
 }
 
-TEST_F(TitleBarTest, MinimizeButtonIsLeftOfMaximize) {
+TEST_F(TitleBarTest, MinimizeButtonIsLeftOfMaximize)
+{
     auto& maximize = tb_.GetMaximizeButton();
     auto& minimize = tb_.GetMinimizeButton();
     EXPECT_FLOAT_EQ(minimize.rect.right, maximize.rect.left);
 }
 
-TEST_F(TitleBarTest, HelpButtonIsLeftOfMinimize) {
+TEST_F(TitleBarTest, HelpButtonIsLeftOfMinimize)
+{
     auto& minimize = tb_.GetMinimizeButton();
     auto& help = tb_.GetHelpButton();
     EXPECT_FLOAT_EQ(help.rect.right, minimize.rect.left);
 }
 
-TEST_F(TitleBarTest, ThemeToggleIsLeftOfHelp) {
+TEST_F(TitleBarTest, ThemeToggleIsLeftOfHelp)
+{
     auto& help = tb_.GetHelpButton();
     auto& theme = tb_.GetThemeToggleButton();
     EXPECT_FLOAT_EQ(theme.rect.right, help.rect.left);
 }
 
-TEST_F(TitleBarTest, SearchIsLeftOfThemeToggle) {
+TEST_F(TitleBarTest, SearchIsLeftOfThemeToggle)
+{
     auto& theme = tb_.GetThemeToggleButton();
     auto& search = tb_.GetSearchButton();
     EXPECT_FLOAT_EQ(search.rect.right, theme.rect.left);
 }
 
-TEST_F(TitleBarTest, TocToggleIsLeftOfSearch) {
+TEST_F(TitleBarTest, TocToggleIsLeftOfSearch)
+{
     auto& search = tb_.GetSearchButton();
     auto& toc = tb_.GetTocToggleButton();
     EXPECT_FLOAT_EQ(toc.rect.right, search.rect.left);
 }
 
-TEST_F(TitleBarTest, FileToggleIsLeftOfTocToggle) {
+TEST_F(TitleBarTest, FileToggleIsLeftOfTocToggle)
+{
     auto& toc = tb_.GetTocToggleButton();
     auto& file = tb_.GetFileToggleButton();
     EXPECT_FLOAT_EQ(file.rect.right, toc.rect.left);
 }
 
-TEST_F(TitleBarTest, AllButtonsUseFullHeight) {
+TEST_F(TitleBarTest, AllButtonsUseFullHeight)
+{
     auto check = [](const TitleBarButton& btn) {
         EXPECT_FLOAT_EQ(btn.rect.top, 0.0f);
         EXPECT_FLOAT_EQ(btn.rect.bottom, TitleBar::BASE_HEIGHT);
@@ -87,7 +98,8 @@ TEST_F(TitleBarTest, AllButtonsUseFullHeight) {
     check(tb_.GetCloseButton());
 }
 
-TEST_F(TitleBarTest, CaptionButtonWidth) {
+TEST_F(TitleBarTest, CaptionButtonWidth)
+{
     auto check = [](const TitleBarButton& btn) {
         EXPECT_FLOAT_EQ(btn.rect.right - btn.rect.left, TitleBar::CAPTION_BTN_WIDTH);
     };
@@ -96,7 +108,8 @@ TEST_F(TitleBarTest, CaptionButtonWidth) {
     check(tb_.GetCloseButton());
 }
 
-TEST_F(TitleBarTest, PaneToggleButtonWidth) {
+TEST_F(TitleBarTest, PaneToggleButtonWidth)
+{
     auto check = [](const TitleBarButton& btn) {
         EXPECT_FLOAT_EQ(btn.rect.right - btn.rect.left, TitleBar::BUTTON_WIDTH);
     };
@@ -107,19 +120,22 @@ TEST_F(TitleBarTest, PaneToggleButtonWidth) {
     check(tb_.GetTocToggleButton());
 }
 
-TEST_F(TitleBarTest, TitleTextRectStartsAfterIcon) {
+TEST_F(TitleBarTest, TitleTextRectStartsAfterIcon)
+{
     auto& rect = tb_.GetTitleTextRect();
     float expected = TitleBar::ICON_LEFT_MARGIN + TitleBar::ICON_SIZE + TitleBar::ICON_RIGHT_GAP;
     EXPECT_FLOAT_EQ(rect.left, expected);
 }
 
-TEST_F(TitleBarTest, TitleTextRectEndsAtFileToggleButton) {
+TEST_F(TitleBarTest, TitleTextRectEndsAtFileToggleButton)
+{
     auto& rect = tb_.GetTitleTextRect();
     auto& file = tb_.GetFileToggleButton();
     EXPECT_FLOAT_EQ(rect.right, file.rect.left);
 }
 
-TEST_F(TitleBarTest, LayoutUpdatesOnWindowResize) {
+TEST_F(TitleBarTest, LayoutUpdatesOnWindowResize)
+{
     tb_.UpdateLayout(1200.0f);
     auto& btn = tb_.GetCloseButton();
     EXPECT_FLOAT_EQ(btn.rect.right, 1200.0f);
@@ -129,69 +145,79 @@ TEST_F(TitleBarTest, LayoutUpdatesOnWindowResize) {
 // HitTest
 // ═══════════════════════════════════════════════
 
-TEST_F(TitleBarTest, HitTestOutsideTitleBar) {
+TEST_F(TitleBarTest, HitTestOutsideTitleBar)
+{
     EXPECT_EQ(tb_.HitTest(400.0f, -1.0f), TitleBarHitZone::None);
     EXPECT_EQ(tb_.HitTest(400.0f, TitleBar::BASE_HEIGHT), TitleBarHitZone::None);
     EXPECT_EQ(tb_.HitTest(400.0f, 100.0f), TitleBarHitZone::None);
 }
 
-TEST_F(TitleBarTest, HitTestCloseButton) {
+TEST_F(TitleBarTest, HitTestCloseButton)
+{
     auto& btn = tb_.GetCloseButton();
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
     float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Close);
 }
 
-TEST_F(TitleBarTest, HitTestMaximizeButton) {
+TEST_F(TitleBarTest, HitTestMaximizeButton)
+{
     auto& btn = tb_.GetMaximizeButton();
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
     float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Maximize);
 }
 
-TEST_F(TitleBarTest, HitTestMinimizeButton) {
+TEST_F(TitleBarTest, HitTestMinimizeButton)
+{
     auto& btn = tb_.GetMinimizeButton();
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
     float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Minimize);
 }
 
-TEST_F(TitleBarTest, HitTestFileToggle) {
+TEST_F(TitleBarTest, HitTestFileToggle)
+{
     auto& btn = tb_.GetFileToggleButton();
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
     float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::FileToggle);
 }
 
-TEST_F(TitleBarTest, HitTestTocToggle) {
+TEST_F(TitleBarTest, HitTestTocToggle)
+{
     auto& btn = tb_.GetTocToggleButton();
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
     float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::TocToggle);
 }
 
-TEST_F(TitleBarTest, HitTestThemeToggle) {
+TEST_F(TitleBarTest, HitTestThemeToggle)
+{
     auto& btn = tb_.GetThemeToggleButton();
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
     float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::ThemeToggle);
 }
 
-TEST_F(TitleBarTest, HitTestSearchButton) {
+TEST_F(TitleBarTest, HitTestSearchButton)
+{
     auto& btn = tb_.GetSearchButton();
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
     float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Search);
 }
 
-TEST_F(TitleBarTest, HitTestHelpButton) {
+TEST_F(TitleBarTest, HitTestHelpButton)
+{
     auto& btn = tb_.GetHelpButton();
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
     float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Help);
 }
 
-TEST_F(TitleBarTest, HitTestCaptionArea) {
+TEST_F(TitleBarTest, HitTestCaptionArea)
+{
     // タイトルテキスト領域の中央 — どのボタンにも属さない
     auto& rect = tb_.GetTitleTextRect();
     float cx = (rect.left + rect.right) / 2.0f;
@@ -199,13 +225,15 @@ TEST_F(TitleBarTest, HitTestCaptionArea) {
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Caption);
 }
 
-TEST_F(TitleBarTest, HitTestButtonBoundaryLeft) {
+TEST_F(TitleBarTest, HitTestButtonBoundaryLeft)
+{
     // ボタンの左端ちょうどはボタン内
     auto& btn = tb_.GetCloseButton();
     EXPECT_EQ(tb_.HitTest(btn.rect.left, TitleBar::BASE_HEIGHT / 2.0f), TitleBarHitZone::Close);
 }
 
-TEST_F(TitleBarTest, HitTestButtonBoundaryRight) {
+TEST_F(TitleBarTest, HitTestButtonBoundaryRight)
+{
     // ボタンの右端ちょうどはボタン外（half-open interval）
     auto& btn = tb_.GetMinimizeButton();
     // right の直前のピクセルはMinimize内
@@ -218,24 +246,28 @@ TEST_F(TitleBarTest, HitTestButtonBoundaryRight) {
 // SetHovered
 // ═══════════════════════════════════════════════
 
-TEST_F(TitleBarTest, InitialHoverIsNone) {
+TEST_F(TitleBarTest, InitialHoverIsNone)
+{
     EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::None);
     EXPECT_FALSE(tb_.GetFileToggleButton().hovered);
     EXPECT_FALSE(tb_.GetCloseButton().hovered);
 }
 
-TEST_F(TitleBarTest, SetHoveredReturnsTrueOnChange) {
+TEST_F(TitleBarTest, SetHoveredReturnsTrueOnChange)
+{
     EXPECT_TRUE(tb_.SetHovered(TitleBarHitZone::Close));
     EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::Close);
     EXPECT_TRUE(tb_.GetCloseButton().hovered);
 }
 
-TEST_F(TitleBarTest, SetHoveredReturnsFalseOnSame) {
+TEST_F(TitleBarTest, SetHoveredReturnsFalseOnSame)
+{
     tb_.SetHovered(TitleBarHitZone::Close);
     EXPECT_FALSE(tb_.SetHovered(TitleBarHitZone::Close));
 }
 
-TEST_F(TitleBarTest, SetHoveredClearsPrevious) {
+TEST_F(TitleBarTest, SetHoveredClearsPrevious)
+{
     tb_.SetHovered(TitleBarHitZone::Close);
     tb_.SetHovered(TitleBarHitZone::Minimize);
     EXPECT_FALSE(tb_.GetCloseButton().hovered);
@@ -243,7 +275,8 @@ TEST_F(TitleBarTest, SetHoveredClearsPrevious) {
     EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::Minimize);
 }
 
-TEST_F(TitleBarTest, SetHoveredNoneClearsAll) {
+TEST_F(TitleBarTest, SetHoveredNoneClearsAll)
+{
     tb_.SetHovered(TitleBarHitZone::FileToggle);
     tb_.SetHovered(TitleBarHitZone::None);
     EXPECT_FALSE(tb_.GetHelpButton().hovered);
@@ -256,7 +289,8 @@ TEST_F(TitleBarTest, SetHoveredNoneClearsAll) {
     EXPECT_FALSE(tb_.GetCloseButton().hovered);
 }
 
-TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton) {
+TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton)
+{
     auto countHovered = [&]() {
         int count = 0;
         if (tb_.GetHelpButton().hovered) { ++count; }
@@ -287,7 +321,8 @@ TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton) {
 // ボタンが重ならないことの検証
 // ═══════════════════════════════════════════════
 
-TEST_F(TitleBarTest, ButtonsDoNotOverlap) {
+TEST_F(TitleBarTest, ButtonsDoNotOverlap)
+{
     // 全ボタンの矩形を収集して、左端でソートし隣接確認
     struct Rect { float left; float right; };
     Rect rects[] = {
@@ -310,7 +345,8 @@ TEST_F(TitleBarTest, ButtonsDoNotOverlap) {
     }
 }
 
-TEST_F(TitleBarTest, TitleTextDoesNotOverlapButtons) {
+TEST_F(TitleBarTest, TitleTextDoesNotOverlapButtons)
+{
     auto& title = tb_.GetTitleTextRect();
     auto& file = tb_.GetFileToggleButton().rect;
     EXPECT_LE(title.right, file.left);
@@ -321,7 +357,8 @@ TEST_F(TitleBarTest, TitleTextDoesNotOverlapButtons) {
 // 狭いウィンドウでのレイアウト安全性
 // ═══════════════════════════════════════════════
 
-TEST_F(TitleBarTest, NarrowWindowTitleTextDoesNotGoNegativeWidth) {
+TEST_F(TitleBarTest, NarrowWindowTitleTextDoesNotGoNegativeWidth)
+{
     // 全ボタンが収まらないほど狭いウィンドウ
     tb_.UpdateLayout(100.0f);
     auto& rect = tb_.GetTitleTextRect();

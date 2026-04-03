@@ -15,7 +15,8 @@ protected:
     ComPtr<IDWriteTextFormat> fmt_;
     Theme theme_;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         theme_ = GetLightTheme();
 
         HRESULT hr = DWriteCreateFactory(
@@ -40,21 +41,25 @@ protected:
     }
 };
 
-TEST_F(NavButtonFormatTest, HorizontalAlignmentIsCenter) {
+TEST_F(NavButtonFormatTest, HorizontalAlignmentIsCenter)
+{
     EXPECT_EQ(fmt_->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
-TEST_F(NavButtonFormatTest, VerticalAlignmentIsCenter) {
+TEST_F(NavButtonFormatTest, VerticalAlignmentIsCenter)
+{
     EXPECT_EQ(fmt_->GetParagraphAlignment(), DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 }
 
-TEST_F(NavButtonFormatTest, WordWrappingIsDisabled) {
+TEST_F(NavButtonFormatTest, WordWrappingIsDisabled)
+{
     EXPECT_EQ(fmt_->GetWordWrapping(), DWRITE_WORD_WRAPPING_NO_WRAP);
 }
 
 // 矢印グリフが計測可能で、中央揃え時にゼロでないメトリクスを生成することを検証する。
-TEST_F(NavButtonFormatTest, ArrowGlyphsHaveNonZeroSize) {
-    const wchar_t* arrows[] = {L"\x25C0", L"\x25B6"};  // ◀ ▶
+TEST_F(NavButtonFormatTest, ArrowGlyphsHaveNonZeroSize)
+{
+    const wchar_t* arrows[] = { L"\x25C0", L"\x25B6" };  // ◀ ▶
 
     for (const auto* arrow : arrows) {
         ComPtr<IDWriteTextLayout> layout;
@@ -74,7 +79,8 @@ TEST_F(NavButtonFormatTest, ArrowGlyphsHaveNonZeroSize) {
 }
 
 // グリフがレイアウトボックス内の中央に配置されることを検証する。
-TEST_F(NavButtonFormatTest, ArrowGlyphIsCenteredInLayoutBox) {
+TEST_F(NavButtonFormatTest, ArrowGlyphIsCenteredInLayoutBox)
+{
     constexpr float BOX_SIZE = 32.0f;
 
     ComPtr<IDWriteTextLayout> layout;

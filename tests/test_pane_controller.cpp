@@ -10,19 +10,22 @@ protected:
 // 表示状態
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, DefaultVisibility) {
+TEST_F(PaneControllerTest, DefaultVisibility)
+{
     EXPECT_TRUE(panes_.IsFilePaneVisible());
     EXPECT_TRUE(panes_.IsTocPaneVisible());
 }
 
-TEST_F(PaneControllerTest, ToggleFilePane) {
+TEST_F(PaneControllerTest, ToggleFilePane)
+{
     panes_.ToggleFilePane();
     EXPECT_FALSE(panes_.IsFilePaneVisible());
     panes_.ToggleFilePane();
     EXPECT_TRUE(panes_.IsFilePaneVisible());
 }
 
-TEST_F(PaneControllerTest, ToggleTocPane) {
+TEST_F(PaneControllerTest, ToggleTocPane)
+{
     panes_.ToggleTocPane();
     EXPECT_FALSE(panes_.IsTocPaneVisible());
 }
@@ -31,17 +34,20 @@ TEST_F(PaneControllerTest, ToggleTocPane) {
 // 幅
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, DefaultWidths) {
+TEST_F(PaneControllerTest, DefaultWidths)
+{
     EXPECT_FLOAT_EQ(panes_.GetFilePaneWidth(), PaneController::PANE_DEFAULT_WIDTH);
     EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), PaneController::PANE_DEFAULT_WIDTH);
 }
 
-TEST_F(PaneControllerTest, SetWidthClampedToMin) {
+TEST_F(PaneControllerTest, SetWidthClampedToMin)
+{
     panes_.SetFilePaneWidth(10.0f);
     EXPECT_GE(panes_.GetFilePaneWidth(), PaneController::PANE_MIN_WIDTH);
 }
 
-TEST_F(PaneControllerTest, SetWidthAcceptsLargeValue) {
+TEST_F(PaneControllerTest, SetWidthAcceptsLargeValue)
+{
     panes_.SetTocPaneWidth(500.0f);
     EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), 500.0f);
 }
@@ -50,35 +56,41 @@ TEST_F(PaneControllerTest, SetWidthAcceptsLargeValue) {
 // ペインスクロール
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, ScrollFilePaneByPositive) {
+TEST_F(PaneControllerTest, ScrollFilePaneByPositive)
+{
     bool changed = panes_.ScrollFilePaneBy(50.0f, 200.0f);
     EXPECT_TRUE(changed);
     EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 50.0f);
     EXPECT_FLOAT_EQ(panes_.FileScroll().max_scroll, 200.0f);
 }
 
-TEST_F(PaneControllerTest, ScrollFilePaneClampsToMax) {
+TEST_F(PaneControllerTest, ScrollFilePaneClampsToMax)
+{
     panes_.ScrollFilePaneBy(500.0f, 200.0f);
     EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 200.0f);
 }
 
-TEST_F(PaneControllerTest, ScrollFilePaneClampsToZero) {
+TEST_F(PaneControllerTest, ScrollFilePaneClampsToZero)
+{
     panes_.ScrollFilePaneBy(-50.0f, 200.0f);
     EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 0.0f);
 }
 
-TEST_F(PaneControllerTest, ScrollFilePaneNoChangeReturnsFalse) {
+TEST_F(PaneControllerTest, ScrollFilePaneNoChangeReturnsFalse)
+{
     bool changed = panes_.ScrollFilePaneBy(-10.0f, 200.0f);
     EXPECT_FALSE(changed);  // すでに0の位置にいる
 }
 
-TEST_F(PaneControllerTest, ScrollTocPaneByPositive) {
+TEST_F(PaneControllerTest, ScrollTocPaneByPositive)
+{
     bool changed = panes_.ScrollTocPaneBy(30.0f, 100.0f);
     EXPECT_TRUE(changed);
     EXPECT_FLOAT_EQ(panes_.TocScroll().scroll_y, 30.0f);
 }
 
-TEST_F(PaneControllerTest, ResetScrollStates) {
+TEST_F(PaneControllerTest, ResetScrollStates)
+{
     panes_.ScrollFilePaneBy(50.0f, 200.0f);
     panes_.ScrollTocPaneBy(30.0f, 100.0f);
     panes_.ResetScrollStates();
@@ -90,22 +102,26 @@ TEST_F(PaneControllerTest, ResetScrollStates) {
 // ホバー
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, HoverDefaultNegativeOne) {
+TEST_F(PaneControllerTest, HoverDefaultNegativeOne)
+{
     EXPECT_EQ(panes_.GetHoveredFileIndex(), -1);
     EXPECT_EQ(panes_.GetHoveredTocIndex(), -1);
 }
 
-TEST_F(PaneControllerTest, SetHoverReturnsTrueOnChange) {
+TEST_F(PaneControllerTest, SetHoverReturnsTrueOnChange)
+{
     EXPECT_TRUE(panes_.SetHoveredFileIndex(3));
     EXPECT_EQ(panes_.GetHoveredFileIndex(), 3);
 }
 
-TEST_F(PaneControllerTest, SetHoverReturnsFalseOnSame) {
+TEST_F(PaneControllerTest, SetHoverReturnsFalseOnSame)
+{
     panes_.SetHoveredFileIndex(3);
     EXPECT_FALSE(panes_.SetHoveredFileIndex(3));
 }
 
-TEST_F(PaneControllerTest, SetHoverTocReturnsTrueOnChange) {
+TEST_F(PaneControllerTest, SetHoverTocReturnsTrueOnChange)
+{
     EXPECT_TRUE(panes_.SetHoveredTocIndex(5));
     EXPECT_EQ(panes_.GetHoveredTocIndex(), 5);
 }
@@ -114,18 +130,21 @@ TEST_F(PaneControllerTest, SetHoverTocReturnsTrueOnChange) {
 // ドラッグ
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, DragDefaultNone) {
+TEST_F(PaneControllerTest, DragDefaultNone)
+{
     EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::None);
 }
 
-TEST_F(PaneControllerTest, StartEndDrag) {
+TEST_F(PaneControllerTest, StartEndDrag)
+{
     panes_.StartDrag(PaneController::DragTarget::Splitter1);
     EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::Splitter1);
     panes_.EndDrag();
     EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::None);
 }
 
-TEST_F(PaneControllerTest, DragScrollOffset) {
+TEST_F(PaneControllerTest, DragScrollOffset)
+{
     panes_.SetDragScrollOffset(12.5f);
     EXPECT_FLOAT_EQ(panes_.GetDragScrollOffset(), 12.5f);
 }
@@ -134,12 +153,14 @@ TEST_F(PaneControllerTest, DragScrollOffset) {
 // スプリッタードラッグ制約
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, DragSplitter1RespectsMinWidth) {
+TEST_F(PaneControllerTest, DragSplitter1RespectsMinWidth)
+{
     panes_.DragSplitter1To(10.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetFilePaneWidth(), PaneController::PANE_MIN_WIDTH);
 }
 
-TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth) {
+TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth)
+{
     // 両ペイン表示時: file(960) + splitter(4) + toc(220) + splitter(4) = 1188
     // MDペインに残るのは12のみ(< 200)なので、制約されるべき
     panes_.DragSplitter1To(960.0f, 1200.0f, 4.0f);
@@ -147,13 +168,15 @@ TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth) {
     EXPECT_GE(remaining, PaneController::MD_PANE_MIN_WIDTH);
 }
 
-TEST_F(PaneControllerTest, DragSplitter2RespectsMinWidth) {
+TEST_F(PaneControllerTest, DragSplitter2RespectsMinWidth)
+{
     // 目次の左端位置はレイアウトに依存する; 非常に小さくドラッグ
     panes_.DragSplitter2To(panes_.GetFilePaneWidth() + 4.0f + 10.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetTocPaneWidth(), PaneController::PANE_MIN_WIDTH);
 }
 
-TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth) {
+TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth)
+{
     // 目次ペインの幅を非常に大きくドラッグ
     panes_.DragSplitter2To(1190.0f, 1200.0f, 4.0f);
     float layout_width = panes_.GetFilePaneWidth() + 4.0f + panes_.GetTocPaneWidth() + 4.0f;
@@ -165,7 +188,8 @@ TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth) {
 // ズーム
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, ApplyZoomScalesWidths) {
+TEST_F(PaneControllerTest, ApplyZoomScalesWidths)
+{
     float old_file = panes_.GetFilePaneWidth();
     float old_toc = panes_.GetTocPaneWidth();
     panes_.ApplyZoom(2.0f);
@@ -173,7 +197,8 @@ TEST_F(PaneControllerTest, ApplyZoomScalesWidths) {
     EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), old_toc * 2.0f);
 }
 
-TEST_F(PaneControllerTest, ApplyZoomScalesScrollPositions) {
+TEST_F(PaneControllerTest, ApplyZoomScalesScrollPositions)
+{
     panes_.ScrollFilePaneBy(50.0f, 200.0f);
     panes_.ApplyZoom(1.5f);
     EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 75.0f);
@@ -184,7 +209,8 @@ TEST_F(PaneControllerTest, ApplyZoomScalesScrollPositions) {
 // レイアウト計算
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, ComputeLayoutBothPanes) {
+TEST_F(PaneControllerTest, ComputeLayoutBothPanes)
+{
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     // ファイルペインはx=0から開始
     EXPECT_FLOAT_EQ(layout.file_rect.x, 0.0f);
@@ -193,19 +219,22 @@ TEST_F(PaneControllerTest, ComputeLayoutBothPanes) {
     EXPECT_GT(layout.md_rect.width, 0.0f);
 }
 
-TEST_F(PaneControllerTest, ComputeLayoutNoFilePane) {
+TEST_F(PaneControllerTest, ComputeLayoutNoFilePane)
+{
     panes_.ToggleFilePane();
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
     EXPECT_GT(layout.md_rect.width, 0.0f);
 }
 
-TEST_F(PaneControllerTest, DetectZoneMdPane) {
+TEST_F(PaneControllerTest, DetectZoneMdPane)
+{
     auto zone = panes_.DetectZone(800.0f, 1200.0f, 800.0f, 4.0f);
     EXPECT_EQ(zone, PaneZone::MdPane);
 }
 
-TEST_F(PaneControllerTest, DetectZoneFilePane) {
+TEST_F(PaneControllerTest, DetectZoneFilePane)
+{
     auto zone = panes_.DetectZone(10.0f, 1200.0f, 800.0f, 4.0f);
     EXPECT_EQ(zone, PaneZone::FilePane);
 }
@@ -214,14 +243,16 @@ TEST_F(PaneControllerTest, DetectZoneFilePane) {
 // DetectZone — 追加ゾーン
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, DetectZoneSplitter1) {
+TEST_F(PaneControllerTest, DetectZoneSplitter1)
+{
     // Splitter1はファイルペインの直後
     float file_w = panes_.GetFilePaneWidth(); // 220
     auto zone = panes_.DetectZone(file_w + 2.0f, 1200.0f, 800.0f, 4.0f);
     EXPECT_EQ(zone, PaneZone::Splitter1);
 }
 
-TEST_F(PaneControllerTest, DetectZoneTocPane) {
+TEST_F(PaneControllerTest, DetectZoneTocPane)
+{
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     float toc_mid = layout.toc_rect.x + layout.toc_rect.width * 0.5f;
     auto zone = panes_.DetectZone(toc_mid, 1200.0f, 800.0f, 4.0f);
@@ -232,14 +263,16 @@ TEST_F(PaneControllerTest, DetectZoneTocPane) {
 // スプリッタードラッグ — ファイルペイン非表示時
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, DragSplitter1WithFilePaneHidden) {
+TEST_F(PaneControllerTest, DragSplitter1WithFilePaneHidden)
+{
     panes_.ToggleFilePane(); // ファイルペインを非表示
     // 非表示のファイルペインでsplitter1をドラッグしても正しくクランプされるべき
     panes_.DragSplitter1To(300.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetFilePaneWidth(), PaneController::PANE_MIN_WIDTH);
 }
 
-TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden) {
+TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden)
+{
     panes_.ToggleTocPane(); // 目次ペインを非表示
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     panes_.DragSplitter2To(1000.0f, 1200.0f, 4.0f);
@@ -250,7 +283,8 @@ TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden) {
 // ComputeLayout — 各種構成
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, ComputeLayoutNoPanes) {
+TEST_F(PaneControllerTest, ComputeLayoutNoPanes)
+{
     panes_.ToggleFilePane();
     panes_.ToggleTocPane();
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
@@ -260,7 +294,8 @@ TEST_F(PaneControllerTest, ComputeLayoutNoPanes) {
     EXPECT_GT(layout.md_rect.width, 0.0f);
 }
 
-TEST_F(PaneControllerTest, ComputeLayoutOnlyTocPane) {
+TEST_F(PaneControllerTest, ComputeLayoutOnlyTocPane)
+{
     panes_.ToggleFilePane(); // ファイルペインを非表示
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
@@ -268,7 +303,8 @@ TEST_F(PaneControllerTest, ComputeLayoutOnlyTocPane) {
     EXPECT_GT(layout.md_rect.width, 0.0f);
 }
 
-TEST_F(PaneControllerTest, ComputeLayoutOnlyFilePane) {
+TEST_F(PaneControllerTest, ComputeLayoutOnlyFilePane)
+{
     panes_.ToggleTocPane(); // 目次ペインを非表示
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     EXPECT_GT(layout.file_rect.width, 0.0f);
@@ -280,7 +316,8 @@ TEST_F(PaneControllerTest, ComputeLayoutOnlyFilePane) {
 // スクロール — ファイルペインと目次ペインの複合
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, ScrollBothPanesIndependently) {
+TEST_F(PaneControllerTest, ScrollBothPanesIndependently)
+{
     panes_.ScrollFilePaneBy(100.0f, 500.0f);
     panes_.ScrollTocPaneBy(50.0f, 300.0f);
     EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 100.0f);
@@ -291,7 +328,8 @@ TEST_F(PaneControllerTest, ScrollBothPanesIndependently) {
 // ズーム — スケールとスクロールの相互作用
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, ApplyZoomHalf) {
+TEST_F(PaneControllerTest, ApplyZoomHalf)
+{
     panes_.ScrollFilePaneBy(100.0f, 500.0f);
     panes_.ScrollTocPaneBy(60.0f, 300.0f);
     float old_file_w = panes_.GetFilePaneWidth();
@@ -307,7 +345,8 @@ TEST_F(PaneControllerTest, ApplyZoomHalf) {
 
 // 500%ズームで両ペイン表示時、MDペインの実効コンテンツ幅が0以下になりうることを検証。
 // RequestMermaidRendersはこの状態でスキップする必要がある。
-TEST_F(PaneControllerTest, ExtremeZoomMdContentWidthCanBeZeroOrNegative) {
+TEST_F(PaneControllerTest, ExtremeZoomMdContentWidthCanBeZeroOrNegative)
+{
     // 5倍ズームを模擬: ペイン幅を5倍にする
     panes_.ApplyZoom(5.0f);
 
@@ -327,7 +366,8 @@ TEST_F(PaneControllerTest, ExtremeZoomMdContentWidthCanBeZeroOrNegative) {
 }
 
 // 元のズームに戻した後、MDペインのコンテンツ幅が正常に復帰することを検証。
-TEST_F(PaneControllerTest, ZoomRestoreMdContentWidthPositive) {
+TEST_F(PaneControllerTest, ZoomRestoreMdContentWidthPositive)
+{
     panes_.ApplyZoom(5.0f);
     panes_.ApplyZoom(1.0f / 5.0f);  // 元に戻す
 
@@ -346,7 +386,8 @@ TEST_F(PaneControllerTest, ZoomRestoreMdContentWidthPositive) {
 // ドラッグターゲットの種類
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, DragTargetAllTypes) {
+TEST_F(PaneControllerTest, DragTargetAllTypes)
+{
     panes_.StartDrag(PaneController::DragTarget::FileScrollbar);
     EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::FileScrollbar);
     panes_.EndDrag();
@@ -365,21 +406,24 @@ TEST_F(PaneControllerTest, DragTargetAllTypes) {
 // 表示状態の直接設定
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, SetFilePaneVisible) {
+TEST_F(PaneControllerTest, SetFilePaneVisible)
+{
     panes_.SetFilePaneVisible(false);
     EXPECT_FALSE(panes_.IsFilePaneVisible());
     panes_.SetFilePaneVisible(true);
     EXPECT_TRUE(panes_.IsFilePaneVisible());
 }
 
-TEST_F(PaneControllerTest, SetTocPaneVisible) {
+TEST_F(PaneControllerTest, SetTocPaneVisible)
+{
     panes_.SetTocPaneVisible(false);
     EXPECT_FALSE(panes_.IsTocPaneVisible());
     panes_.SetTocPaneVisible(true);
     EXPECT_TRUE(panes_.IsTocPaneVisible());
 }
 
-TEST_F(PaneControllerTest, SetVisibleAffectsLayout) {
+TEST_F(PaneControllerTest, SetVisibleAffectsLayout)
+{
     panes_.SetFilePaneVisible(false);
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
@@ -390,38 +434,45 @@ TEST_F(PaneControllerTest, SetVisibleAffectsLayout) {
 // 閉じるボタンのホバー状態
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, CloseHoverDefaultFalse) {
+TEST_F(PaneControllerTest, CloseHoverDefaultFalse)
+{
     EXPECT_FALSE(panes_.IsFileCloseHovered());
     EXPECT_FALSE(panes_.IsTocCloseHovered());
 }
 
-TEST_F(PaneControllerTest, SetFileCloseHoveredReturnsTrueOnChange) {
+TEST_F(PaneControllerTest, SetFileCloseHoveredReturnsTrueOnChange)
+{
     EXPECT_TRUE(panes_.SetFileCloseHovered(true));
     EXPECT_TRUE(panes_.IsFileCloseHovered());
 }
 
-TEST_F(PaneControllerTest, SetFileCloseHoveredReturnsFalseOnSame) {
+TEST_F(PaneControllerTest, SetFileCloseHoveredReturnsFalseOnSame)
+{
     panes_.SetFileCloseHovered(true);
     EXPECT_FALSE(panes_.SetFileCloseHovered(true));
 }
 
-TEST_F(PaneControllerTest, SetFileCloseHoveredReset) {
+TEST_F(PaneControllerTest, SetFileCloseHoveredReset)
+{
     panes_.SetFileCloseHovered(true);
     EXPECT_TRUE(panes_.SetFileCloseHovered(false));
     EXPECT_FALSE(panes_.IsFileCloseHovered());
 }
 
-TEST_F(PaneControllerTest, SetTocCloseHoveredReturnsTrueOnChange) {
+TEST_F(PaneControllerTest, SetTocCloseHoveredReturnsTrueOnChange)
+{
     EXPECT_TRUE(panes_.SetTocCloseHovered(true));
     EXPECT_TRUE(panes_.IsTocCloseHovered());
 }
 
-TEST_F(PaneControllerTest, SetTocCloseHoveredReturnsFalseOnSame) {
+TEST_F(PaneControllerTest, SetTocCloseHoveredReturnsFalseOnSame)
+{
     panes_.SetTocCloseHovered(true);
     EXPECT_FALSE(panes_.SetTocCloseHovered(true));
 }
 
-TEST_F(PaneControllerTest, FileAndTocCloseHoverIndependent) {
+TEST_F(PaneControllerTest, FileAndTocCloseHoverIndependent)
+{
     panes_.SetFileCloseHovered(true);
     panes_.SetTocCloseHovered(true);
     EXPECT_TRUE(panes_.IsFileCloseHovered());
@@ -435,27 +486,32 @@ TEST_F(PaneControllerTest, FileAndTocCloseHoverIndependent) {
 // 更新ボタンのホバー状態
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, RefreshHoverDefaultFalse) {
+TEST_F(PaneControllerTest, RefreshHoverDefaultFalse)
+{
     EXPECT_FALSE(panes_.IsFileRefreshHovered());
 }
 
-TEST_F(PaneControllerTest, SetFileRefreshHoveredReturnsTrueOnChange) {
+TEST_F(PaneControllerTest, SetFileRefreshHoveredReturnsTrueOnChange)
+{
     EXPECT_TRUE(panes_.SetFileRefreshHovered(true));
     EXPECT_TRUE(panes_.IsFileRefreshHovered());
 }
 
-TEST_F(PaneControllerTest, SetFileRefreshHoveredReturnsFalseOnSame) {
+TEST_F(PaneControllerTest, SetFileRefreshHoveredReturnsFalseOnSame)
+{
     panes_.SetFileRefreshHovered(true);
     EXPECT_FALSE(panes_.SetFileRefreshHovered(true));
 }
 
-TEST_F(PaneControllerTest, SetFileRefreshHoveredReset) {
+TEST_F(PaneControllerTest, SetFileRefreshHoveredReset)
+{
     panes_.SetFileRefreshHovered(true);
     EXPECT_TRUE(panes_.SetFileRefreshHovered(false));
     EXPECT_FALSE(panes_.IsFileRefreshHovered());
 }
 
-TEST_F(PaneControllerTest, RefreshAndCloseHoverIndependent) {
+TEST_F(PaneControllerTest, RefreshAndCloseHoverIndependent)
+{
     panes_.SetFileCloseHovered(true);
     panes_.SetFileRefreshHovered(true);
     EXPECT_TRUE(panes_.IsFileCloseHovered());
@@ -469,7 +525,8 @@ TEST_F(PaneControllerTest, RefreshAndCloseHoverIndependent) {
 // 表示切替時のホバー状態リセット
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, ToggleFilePaneResetsHover) {
+TEST_F(PaneControllerTest, ToggleFilePaneResetsHover)
+{
     panes_.SetHoveredFileIndex(3);
     panes_.SetFileCloseHovered(true);
     panes_.SetFileRefreshHovered(true);
@@ -479,7 +536,8 @@ TEST_F(PaneControllerTest, ToggleFilePaneResetsHover) {
     EXPECT_FALSE(panes_.IsFileRefreshHovered());
 }
 
-TEST_F(PaneControllerTest, ToggleTocPaneResetsHover) {
+TEST_F(PaneControllerTest, ToggleTocPaneResetsHover)
+{
     panes_.SetHoveredTocIndex(5);
     panes_.SetTocCloseHovered(true);
     panes_.ToggleTocPane();
@@ -487,7 +545,8 @@ TEST_F(PaneControllerTest, ToggleTocPaneResetsHover) {
     EXPECT_FALSE(panes_.IsTocCloseHovered());
 }
 
-TEST_F(PaneControllerTest, SetFilePaneVisibleResetsHoverOnChange) {
+TEST_F(PaneControllerTest, SetFilePaneVisibleResetsHoverOnChange)
+{
     panes_.SetHoveredFileIndex(2);
     panes_.SetFileCloseHovered(true);
     panes_.SetFileRefreshHovered(true);
@@ -497,7 +556,8 @@ TEST_F(PaneControllerTest, SetFilePaneVisibleResetsHoverOnChange) {
     EXPECT_FALSE(panes_.IsFileRefreshHovered());
 }
 
-TEST_F(PaneControllerTest, SetFilePaneVisibleNoResetOnSameValue) {
+TEST_F(PaneControllerTest, SetFilePaneVisibleNoResetOnSameValue)
+{
     panes_.SetHoveredFileIndex(2);
     panes_.SetFileCloseHovered(true);
     panes_.SetFileRefreshHovered(true);
@@ -507,7 +567,8 @@ TEST_F(PaneControllerTest, SetFilePaneVisibleNoResetOnSameValue) {
     EXPECT_TRUE(panes_.IsFileRefreshHovered());
 }
 
-TEST_F(PaneControllerTest, SetTocPaneVisibleResetsHoverOnChange) {
+TEST_F(PaneControllerTest, SetTocPaneVisibleResetsHoverOnChange)
+{
     panes_.SetHoveredTocIndex(4);
     panes_.SetTocCloseHovered(true);
     panes_.SetTocPaneVisible(false);
@@ -519,7 +580,8 @@ TEST_F(PaneControllerTest, SetTocPaneVisibleResetsHoverOnChange) {
 // PANE_DEFAULT_WIDTH定数
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, DefaultWidthConstant) {
+TEST_F(PaneControllerTest, DefaultWidthConstant)
+{
     EXPECT_FLOAT_EQ(PaneController::PANE_DEFAULT_WIDTH, 220.0f);
     EXPECT_GT(PaneController::PANE_DEFAULT_WIDTH, PaneController::PANE_MIN_WIDTH);
 }

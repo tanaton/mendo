@@ -8,67 +8,82 @@
 // DetectLanguage テスト
 // ============================================================
 
-TEST(Syntax, DetectLanguageCpp) {
+TEST(Syntax, DetectLanguageCpp)
+{
     EXPECT_EQ(DetectLanguage(L"cpp"), SyntaxLanguage::Cpp);
 }
 
-TEST(Syntax, DetectLanguageC) {
+TEST(Syntax, DetectLanguageC)
+{
     EXPECT_EQ(DetectLanguage(L"c"), SyntaxLanguage::Cpp);
 }
 
-TEST(Syntax, DetectLanguageCPlusPlus) {
+TEST(Syntax, DetectLanguageCPlusPlus)
+{
     EXPECT_EQ(DetectLanguage(L"c++"), SyntaxLanguage::Cpp);
 }
 
-TEST(Syntax, DetectLanguageCxx) {
+TEST(Syntax, DetectLanguageCxx)
+{
     EXPECT_EQ(DetectLanguage(L"cxx"), SyntaxLanguage::Cpp);
 }
 
-TEST(Syntax, DetectLanguageH) {
+TEST(Syntax, DetectLanguageH)
+{
     EXPECT_EQ(DetectLanguage(L"h"), SyntaxLanguage::Cpp);
 }
 
-TEST(Syntax, DetectLanguageHpp) {
+TEST(Syntax, DetectLanguageHpp)
+{
     EXPECT_EQ(DetectLanguage(L"hpp"), SyntaxLanguage::Cpp);
 }
 
-TEST(Syntax, DetectLanguagePython) {
+TEST(Syntax, DetectLanguagePython)
+{
     EXPECT_EQ(DetectLanguage(L"python"), SyntaxLanguage::Python);
 }
 
-TEST(Syntax, DetectLanguagePy) {
+TEST(Syntax, DetectLanguagePy)
+{
     EXPECT_EQ(DetectLanguage(L"py"), SyntaxLanguage::Python);
 }
 
-TEST(Syntax, DetectLanguageJavaScript) {
+TEST(Syntax, DetectLanguageJavaScript)
+{
     EXPECT_EQ(DetectLanguage(L"javascript"), SyntaxLanguage::JavaScript);
 }
 
-TEST(Syntax, DetectLanguageJs) {
+TEST(Syntax, DetectLanguageJs)
+{
     EXPECT_EQ(DetectLanguage(L"js"), SyntaxLanguage::JavaScript);
 }
 
-TEST(Syntax, DetectLanguageTs) {
+TEST(Syntax, DetectLanguageTs)
+{
     EXPECT_EQ(DetectLanguage(L"typescript"), SyntaxLanguage::TypeScript);
     EXPECT_EQ(DetectLanguage(L"ts"), SyntaxLanguage::TypeScript);
 }
 
-TEST(Syntax, DetectLanguageJsx) {
+TEST(Syntax, DetectLanguageJsx)
+{
     EXPECT_EQ(DetectLanguage(L"jsx"), SyntaxLanguage::JavaScript);
     EXPECT_EQ(DetectLanguage(L"tsx"), SyntaxLanguage::TypeScript);
 }
 
-TEST(Syntax, DetectLanguageUnknown) {
+TEST(Syntax, DetectLanguageUnknown)
+{
     EXPECT_EQ(DetectLanguage(L"java"), SyntaxLanguage::None);
     EXPECT_EQ(DetectLanguage(L"ruby"), SyntaxLanguage::None);
     EXPECT_EQ(DetectLanguage(L"swift"), SyntaxLanguage::None);
 }
 
-TEST(Syntax, DetectLanguageEmpty) {
+TEST(Syntax, DetectLanguageEmpty)
+{
     EXPECT_EQ(DetectLanguage(L""), SyntaxLanguage::None);
 }
 
-TEST(Syntax, DetectLanguageCaseInsensitive) {
+TEST(Syntax, DetectLanguageCaseInsensitive)
+{
     EXPECT_EQ(DetectLanguage(L"CPP"), SyntaxLanguage::Cpp);
     EXPECT_EQ(DetectLanguage(L"Python"), SyntaxLanguage::Python);
     EXPECT_EQ(DetectLanguage(L"JavaScript"), SyntaxLanguage::JavaScript);
@@ -81,7 +96,8 @@ TEST(Syntax, DetectLanguageCaseInsensitive) {
     EXPECT_EQ(DetectLanguage(L"CMD"), SyntaxLanguage::Cmd);
 }
 
-TEST(Syntax, DetectLanguageWithExtraInfo) {
+TEST(Syntax, DetectLanguageWithExtraInfo)
+{
     // md4cは言語の後に追加テキストを含むinfo文字列を提供する場合がある
     EXPECT_EQ(DetectLanguage(L"cpp some-extra"), SyntaxLanguage::Cpp);
     EXPECT_EQ(DetectLanguage(L"python\ttab-separated"), SyntaxLanguage::Python);
@@ -91,18 +107,21 @@ TEST(Syntax, DetectLanguageWithExtraInfo) {
 // Tokenize - 基本テスト
 // ============================================================
 
-TEST(Syntax, EmptyTextReturnsEmpty) {
+TEST(Syntax, EmptyTextReturnsEmpty)
+{
     auto tokens = Tokenize(L"", SyntaxLanguage::Cpp);
     EXPECT_TRUE(tokens.empty());
 }
 
-TEST(Syntax, NoneLanguageReturnsEmpty) {
+TEST(Syntax, NoneLanguageReturnsEmpty)
+{
     auto tokens = Tokenize(L"int main() {}", SyntaxLanguage::None);
     EXPECT_TRUE(tokens.empty());
 }
 
 // ヘルパー: トークンがテキスト全体を連続的にカバーしていることを確認
-void AssertTokensCoverText(const std::pmr::vector<SyntaxToken>& tokens, size_t text_length) {
+void AssertTokensCoverText(const std::pmr::vector<SyntaxToken>& tokens, size_t text_length)
+{
     if (text_length == 0) {
         EXPECT_TRUE(tokens.empty());
         return;
@@ -125,7 +144,8 @@ void AssertTokensCoverText(const std::pmr::vector<SyntaxToken>& tokens, size_t t
 }
 
 // ヘルパー: 指定された種類の最初のトークンを検索
-const SyntaxToken* FindToken(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type) {
+const SyntaxToken* FindToken(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type)
+{
     for (const auto& t : tokens) {
         if (t.type == type) {
             return &t;
@@ -135,7 +155,8 @@ const SyntaxToken* FindToken(const std::pmr::vector<SyntaxToken>& tokens, Syntax
 }
 
 // ヘルパー: 指定された種類のトークン数をカウント
-int CountTokens(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type) {
+int CountTokens(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type)
+{
     int count = 0;
     for (const auto& t : tokens) {
         if (t.type == type) count++;
@@ -144,23 +165,27 @@ int CountTokens(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType typ
 }
 
 // ヘルパー: トークンのテキストを取得
-std::wstring GetTokenText(const std::wstring& text, const SyntaxToken& token) {
+std::wstring GetTokenText(const std::wstring& text, const SyntaxToken& token)
+{
     return text.substr(token.start, token.length);
 }
 
-TEST(Syntax, TokensCoverEntireTextCpp) {
+TEST(Syntax, TokensCoverEntireTextCpp)
+{
     std::wstring code = L"int main() { return 0; }";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
 }
 
-TEST(Syntax, TokensCoverEntireTextPython) {
+TEST(Syntax, TokensCoverEntireTextPython)
+{
     std::wstring code = L"def hello():\n    print('world')";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
 }
 
-TEST(Syntax, TokensCoverEntireTextJs) {
+TEST(Syntax, TokensCoverEntireTextJs)
+{
     std::wstring code = L"const f = () => { return 42; };";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
@@ -170,7 +195,8 @@ TEST(Syntax, TokensCoverEntireTextJs) {
 // C/C++ トークン化
 // ============================================================
 
-TEST(Syntax, CppKeywords) {
+TEST(Syntax, CppKeywords)
+{
     std::wstring code = L"if else while for return";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -183,14 +209,16 @@ TEST(Syntax, CppKeywords) {
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 5);
 }
 
-TEST(Syntax, CppTypes) {
+TEST(Syntax, CppTypes)
+{
     std::wstring code = L"int float double bool";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 4);
 }
 
-TEST(Syntax, CppSingleLineComment) {
+TEST(Syntax, CppSingleLineComment)
+{
     std::wstring code = L"x = 1; // comment\ny = 2;";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -199,7 +227,8 @@ TEST(Syntax, CppSingleLineComment) {
     EXPECT_EQ(GetTokenText(code, *comment), L"// comment");
 }
 
-TEST(Syntax, CppMultiLineComment) {
+TEST(Syntax, CppMultiLineComment)
+{
     std::wstring code = L"/* multi\nline\ncomment */";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -207,7 +236,8 @@ TEST(Syntax, CppMultiLineComment) {
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
 }
 
-TEST(Syntax, CppStringDouble) {
+TEST(Syntax, CppStringDouble)
+{
     std::wstring code = L"x = \"hello world\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -216,7 +246,8 @@ TEST(Syntax, CppStringDouble) {
     EXPECT_EQ(GetTokenText(code, *str), L"\"hello world\"");
 }
 
-TEST(Syntax, CppStringSingle) {
+TEST(Syntax, CppStringSingle)
+{
     std::wstring code = L"c = 'x'";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -225,7 +256,8 @@ TEST(Syntax, CppStringSingle) {
     EXPECT_EQ(GetTokenText(code, *str), L"'x'");
 }
 
-TEST(Syntax, CppStringEscape) {
+TEST(Syntax, CppStringEscape)
+{
     std::wstring code = L"s = \"hello\\\"world\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -234,7 +266,8 @@ TEST(Syntax, CppStringEscape) {
     EXPECT_EQ(GetTokenText(code, *str), L"\"hello\\\"world\"");
 }
 
-TEST(Syntax, CppNumberInteger) {
+TEST(Syntax, CppNumberInteger)
+{
     std::wstring code = L"x = 42";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -243,7 +276,8 @@ TEST(Syntax, CppNumberInteger) {
     EXPECT_EQ(GetTokenText(code, *num), L"42");
 }
 
-TEST(Syntax, CppNumberHex) {
+TEST(Syntax, CppNumberHex)
+{
     std::wstring code = L"x = 0xFF";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
@@ -251,7 +285,8 @@ TEST(Syntax, CppNumberHex) {
     EXPECT_EQ(GetTokenText(code, *num), L"0xFF");
 }
 
-TEST(Syntax, CppNumberFloat) {
+TEST(Syntax, CppNumberFloat)
+{
     std::wstring code = L"x = 3.14f";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
@@ -259,7 +294,8 @@ TEST(Syntax, CppNumberFloat) {
     EXPECT_EQ(GetTokenText(code, *num), L"3.14f");
 }
 
-TEST(Syntax, CppNumberBinary) {
+TEST(Syntax, CppNumberBinary)
+{
     std::wstring code = L"x = 0b1010";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
@@ -267,7 +303,8 @@ TEST(Syntax, CppNumberBinary) {
     EXPECT_EQ(GetTokenText(code, *num), L"0b1010");
 }
 
-TEST(Syntax, CppPreprocessorInclude) {
+TEST(Syntax, CppPreprocessorInclude)
+{
     std::wstring code = L"#include <stdio.h>";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -275,7 +312,8 @@ TEST(Syntax, CppPreprocessorInclude) {
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Preprocessor);
 }
 
-TEST(Syntax, CppPreprocessorDefine) {
+TEST(Syntax, CppPreprocessorDefine)
+{
     std::wstring code = L"#define MAX 100";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -283,7 +321,8 @@ TEST(Syntax, CppPreprocessorDefine) {
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Preprocessor);
 }
 
-TEST(Syntax, CppPreprocessorNotAtLineStart) {
+TEST(Syntax, CppPreprocessorNotAtLineStart)
+{
     // コードの後の#はプリプロセッサではないべき
     std::wstring code = L"x = a #";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
@@ -291,7 +330,8 @@ TEST(Syntax, CppPreprocessorNotAtLineStart) {
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Preprocessor), 0);
 }
 
-TEST(Syntax, CppFunctionCall) {
+TEST(Syntax, CppFunctionCall)
+{
     std::wstring code = L"foo(42)";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -300,7 +340,8 @@ TEST(Syntax, CppFunctionCall) {
     EXPECT_EQ(GetTokenText(code, *func), L"foo");
 }
 
-TEST(Syntax, CppFunctionCallWithSpace) {
+TEST(Syntax, CppFunctionCallWithSpace)
+{
     std::wstring code = L"bar (x)";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* func = FindToken(tokens, SyntaxTokenType::Function);
@@ -308,7 +349,8 @@ TEST(Syntax, CppFunctionCallWithSpace) {
     EXPECT_EQ(GetTokenText(code, *func), L"bar");
 }
 
-TEST(Syntax, CppKeywordNotFunction) {
+TEST(Syntax, CppKeywordNotFunction)
+{
     // (の後に続くキーワードは関数ではなくキーワードのままであるべき
     std::wstring code = L"if (x)";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
@@ -318,7 +360,8 @@ TEST(Syntax, CppKeywordNotFunction) {
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Function), 0);
 }
 
-TEST(Syntax, CppComplexCode) {
+TEST(Syntax, CppComplexCode)
+{
     std::wstring code = L"#include <iostream>\n\nint main() {\n    // Hello\n    std::cout << \"Hello\" << 42;\n    return 0;\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -336,21 +379,24 @@ TEST(Syntax, CppComplexCode) {
 // Python トークン化
 // ============================================================
 
-TEST(Syntax, PythonKeywords) {
+TEST(Syntax, PythonKeywords)
+{
     std::wstring code = L"if else while for return def class";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 7);
 }
 
-TEST(Syntax, PythonTypes) {
+TEST(Syntax, PythonTypes)
+{
     std::wstring code = L"int float str bool list dict";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 6);
 }
 
-TEST(Syntax, PythonComment) {
+TEST(Syntax, PythonComment)
+{
     std::wstring code = L"x = 1  # comment\ny = 2";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
@@ -359,7 +405,8 @@ TEST(Syntax, PythonComment) {
     EXPECT_EQ(GetTokenText(code, *comment), L"# comment");
 }
 
-TEST(Syntax, PythonTripleQuoteDouble) {
+TEST(Syntax, PythonTripleQuoteDouble)
+{
     std::wstring code = L"s = \"\"\"hello\nworld\"\"\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
@@ -368,7 +415,8 @@ TEST(Syntax, PythonTripleQuoteDouble) {
     EXPECT_EQ(GetTokenText(code, *str), L"\"\"\"hello\nworld\"\"\"");
 }
 
-TEST(Syntax, PythonTripleQuoteSingle) {
+TEST(Syntax, PythonTripleQuoteSingle)
+{
     std::wstring code = L"s = '''docstring'''";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
@@ -377,7 +425,8 @@ TEST(Syntax, PythonTripleQuoteSingle) {
     EXPECT_EQ(GetTokenText(code, *str), L"'''docstring'''");
 }
 
-TEST(Syntax, PythonDefFunction) {
+TEST(Syntax, PythonDefFunction)
+{
     std::wstring code = L"def foo():";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
@@ -389,14 +438,16 @@ TEST(Syntax, PythonDefFunction) {
     EXPECT_EQ(GetTokenText(code, *func), L"foo");
 }
 
-TEST(Syntax, PythonTrueFalseNone) {
+TEST(Syntax, PythonTrueFalseNone)
+{
     std::wstring code = L"x = True\ny = False\nz = None";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 3);
 }
 
-TEST(Syntax, PythonFString) {
+TEST(Syntax, PythonFString)
+{
     std::wstring code = L"f\"hello {name}\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
@@ -405,7 +456,8 @@ TEST(Syntax, PythonFString) {
     ASSERT_NE(str, nullptr);
 }
 
-TEST(Syntax, PythonComplexCode) {
+TEST(Syntax, PythonComplexCode)
+{
     std::wstring code = L"def greet(name: str) -> str:\n    # Greeting\n    return f\"Hello, {name}!\"\n\nprint(greet(\"World\"))";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
@@ -421,21 +473,24 @@ TEST(Syntax, PythonComplexCode) {
 // JavaScript トークン化
 // ============================================================
 
-TEST(Syntax, JsKeywords) {
+TEST(Syntax, JsKeywords)
+{
     std::wstring code = L"if else while for return const let var function";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 9);
 }
 
-TEST(Syntax, JsTypes) {
+TEST(Syntax, JsTypes)
+{
     std::wstring code = L"Array Map Set Promise";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 4);
 }
 
-TEST(Syntax, JsSingleLineComment) {
+TEST(Syntax, JsSingleLineComment)
+{
     std::wstring code = L"// comment\nx = 1";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
@@ -444,7 +499,8 @@ TEST(Syntax, JsSingleLineComment) {
     EXPECT_EQ(GetTokenText(code, *comment), L"// comment");
 }
 
-TEST(Syntax, JsMultiLineComment) {
+TEST(Syntax, JsMultiLineComment)
+{
     std::wstring code = L"/* block\ncomment */";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
@@ -452,7 +508,8 @@ TEST(Syntax, JsMultiLineComment) {
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
 }
 
-TEST(Syntax, JsTemplateLiteral) {
+TEST(Syntax, JsTemplateLiteral)
+{
     std::wstring code = L"`hello ${name}`";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
@@ -461,7 +518,8 @@ TEST(Syntax, JsTemplateLiteral) {
     EXPECT_EQ(GetTokenText(code, *str), L"`hello ${name}`");
 }
 
-TEST(Syntax, JsTemplateLiteralMultiLine) {
+TEST(Syntax, JsTemplateLiteralMultiLine)
+{
     std::wstring code = L"`line1\nline2\nline3`";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
@@ -469,7 +527,8 @@ TEST(Syntax, JsTemplateLiteralMultiLine) {
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::String);
 }
 
-TEST(Syntax, JsArrowFunction) {
+TEST(Syntax, JsArrowFunction)
+{
     std::wstring code = L"const f = () => 42";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
@@ -481,14 +540,16 @@ TEST(Syntax, JsArrowFunction) {
     EXPECT_EQ(GetTokenText(code, *num), L"42");
 }
 
-TEST(Syntax, JsTrueFalseNull) {
+TEST(Syntax, JsTrueFalseNull)
+{
     std::wstring code = L"true false null undefined";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 4);
 }
 
-TEST(Syntax, JsComplexCode) {
+TEST(Syntax, JsComplexCode)
+{
     std::wstring code = L"async function fetchData(url) {\n  // Fetch data\n  const resp = await fetch(url);\n  return resp.json();\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
@@ -502,7 +563,8 @@ TEST(Syntax, JsComplexCode) {
 // エッジケース
 // ============================================================
 
-TEST(Syntax, OnlyWhitespace) {
+TEST(Syntax, OnlyWhitespace)
+{
     std::wstring code = L"   \n\t  \n  ";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -511,27 +573,31 @@ TEST(Syntax, OnlyWhitespace) {
     }
 }
 
-TEST(Syntax, OnlyOperators) {
+TEST(Syntax, OnlyOperators)
+{
     std::wstring code = L"+ - * / = == != < > <= >=";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
 }
 
-TEST(Syntax, UnterminatedString) {
+TEST(Syntax, UnterminatedString)
+{
     // 閉じられていない文字列が無限ループを引き起こさないべき
     std::wstring code = L"x = \"unterminated\ny = 1";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
 }
 
-TEST(Syntax, UnterminatedBlockComment) {
+TEST(Syntax, UnterminatedBlockComment)
+{
     std::wstring code = L"/* never closed";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
 }
 
-TEST(Syntax, NumberAtEndOfText) {
+TEST(Syntax, NumberAtEndOfText)
+{
     std::wstring code = L"x = 123";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -540,7 +606,8 @@ TEST(Syntax, NumberAtEndOfText) {
     EXPECT_EQ(GetTokenText(code, *num), L"123");
 }
 
-TEST(Syntax, DotNotANumber) {
+TEST(Syntax, DotNotANumber)
+{
     // 単独のドットは数値として扱われないべき
     std::wstring code = L"a.b";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
@@ -548,7 +615,8 @@ TEST(Syntax, DotNotANumber) {
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Number), 0);
 }
 
-TEST(Syntax, MultipleLinesOfCode) {
+TEST(Syntax, MultipleLinesOfCode)
+{
     std::wstring code =
         L"int x = 10;\n"
         L"float y = 3.14f;\n"
@@ -569,44 +637,51 @@ TEST(Syntax, MultipleLinesOfCode) {
 // パーサー統合: 言語抽出
 // ============================================================
 
-TEST(Syntax, ParserExtractsLanguageCpp) {
+TEST(Syntax, ParserExtractsLanguageCpp)
+{
     auto nodes = ParseMarkdown("```cpp\nint x = 1;\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
 }
 
-TEST(Syntax, ParserExtractsLanguagePython) {
+TEST(Syntax, ParserExtractsLanguagePython)
+{
     auto nodes = ParseMarkdown("```python\ndef foo(): pass\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Python);
 }
 
-TEST(Syntax, ParserExtractsLanguageJs) {
+TEST(Syntax, ParserExtractsLanguageJs)
+{
     auto nodes = ParseMarkdown("```js\nconst x = 1;\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::JavaScript);
 }
 
-TEST(Syntax, ParserNoLanguage) {
+TEST(Syntax, ParserNoLanguage)
+{
     auto nodes = ParseMarkdown("```\nplain code\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::None);
 }
 
-TEST(Syntax, ParserExtractsLanguageRust) {
+TEST(Syntax, ParserExtractsLanguageRust)
+{
     auto nodes = ParseMarkdown("```rust\nfn main() {}\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Rust);
 }
 
-TEST(Syntax, ParserUnknownLanguage) {
+TEST(Syntax, ParserUnknownLanguage)
+{
     auto nodes = ParseMarkdown("```java\nclass Main {}\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::None);
 }
 
-TEST(Syntax, ParserCaseInsensitiveLanguage) {
+TEST(Syntax, ParserCaseInsensitiveLanguage)
+{
     auto nodes = ParseMarkdown("```CPP\nint x;\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
@@ -615,12 +690,14 @@ TEST(Syntax, ParserCaseInsensitiveLanguage) {
 // ---- 追加エッジケース ----
 
 // Mermaid検出
-TEST(Syntax, DetectLanguageMermaid) {
+TEST(Syntax, DetectLanguageMermaid)
+{
     EXPECT_EQ(DetectLanguage(L"mermaid"), SyntaxLanguage::Mermaid);
 }
 
 // C++ 生文字列
-TEST(Syntax, CppRawString) {
+TEST(Syntax, CppRawString)
+{
     auto tokens = Tokenize(L"R\"(hello)\"", SyntaxLanguage::Cpp);
     // 生文字列を単一の文字列トークンとして検出すべき
     bool has_string = false;
@@ -633,7 +710,8 @@ TEST(Syntax, CppRawString) {
 }
 
 // C++ 8進数
-TEST(Syntax, CppNumberOctal) {
+TEST(Syntax, CppNumberOctal)
+{
     auto tokens = Tokenize(L"0o77", SyntaxLanguage::Cpp);
     bool has_number = false;
     for (const auto& t : tokens) {
@@ -643,7 +721,8 @@ TEST(Syntax, CppNumberOctal) {
 }
 
 // C++ 数値サフィックス
-TEST(Syntax, CppNumberWithSuffix) {
+TEST(Syntax, CppNumberWithSuffix)
+{
     auto tokens = Tokenize(L"42ULL", SyntaxLanguage::Cpp);
     bool has_number = false;
     for (const auto& t : tokens) {
@@ -657,7 +736,8 @@ TEST(Syntax, CppNumberWithSuffix) {
 }
 
 // Python デコレータ
-TEST(Syntax, PythonDecorator) {
+TEST(Syntax, PythonDecorator)
+{
     auto tokens = Tokenize(L"@staticmethod\ndef foo():\n    pass", SyntaxLanguage::Python);
     // "@"は特別に処理されないが、"def"と"pass"はキーワードであるべき
     bool has_def = false;
@@ -674,7 +754,8 @@ TEST(Syntax, PythonDecorator) {
 }
 
 // JavaScript BigInt
-TEST(Syntax, JsBigIntNumber) {
+TEST(Syntax, JsBigIntNumber)
+{
     auto tokens = Tokenize(L"42n", SyntaxLanguage::JavaScript);
     bool has_number = false;
     for (const auto& t : tokens) {
@@ -687,20 +768,23 @@ TEST(Syntax, JsBigIntNumber) {
 }
 
 // 空のコードブロック
-TEST(Syntax, TokenizeEmptyCpp) {
+TEST(Syntax, TokenizeEmptyCpp)
+{
     auto tokens = Tokenize(L"", SyntaxLanguage::Cpp);
     EXPECT_TRUE(tokens.empty());
 }
 
 // 単一文字
-TEST(Syntax, TokenizeSingleKeyword) {
+TEST(Syntax, TokenizeSingleKeyword)
+{
     auto tokens = Tokenize(L"if", SyntaxLanguage::Cpp);
     ASSERT_EQ(tokens.size(), 1u);
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Keyword);
 }
 
 // C++ テキスト末尾の行コメント（改行なし）
-TEST(Syntax, CppCommentEol) {
+TEST(Syntax, CppCommentEol)
+{
     auto tokens = Tokenize(L"int x; // comment", SyntaxLanguage::Cpp);
     bool has_comment = false;
     for (const auto& t : tokens) {
@@ -710,7 +794,8 @@ TEST(Syntax, CppCommentEol) {
 }
 
 // ドットで始まる浮動小数点数
-TEST(Syntax, NumberStartsWithDot) {
+TEST(Syntax, NumberStartsWithDot)
+{
     auto tokens = Tokenize(L".5f", SyntaxLanguage::Cpp);
     bool has_number = false;
     for (const auto& t : tokens) {
@@ -720,7 +805,8 @@ TEST(Syntax, NumberStartsWithDot) {
 }
 
 // C++ 行継続付きプリプロセッサ
-TEST(Syntax, CppPreprocessorContinuation) {
+TEST(Syntax, CppPreprocessorContinuation)
+{
     auto tokens = Tokenize(L"#define FOO \\\n    bar", SyntaxLanguage::Cpp);
     // 行継続をまたぐ単一のプリプロセッサトークンであるべき
     bool has_prep = false;
@@ -733,12 +819,14 @@ TEST(Syntax, CppPreprocessorContinuation) {
 }
 
 // Tsx拡張子の検出
-TEST(Syntax, DetectLanguageTsx) {
+TEST(Syntax, DetectLanguageTsx)
+{
     EXPECT_EQ(DetectLanguage(L"tsx"), SyntaxLanguage::TypeScript);
 }
 
 // 不明な拡張子の検出
-TEST(Syntax, DetectLanguageRuby) {
+TEST(Syntax, DetectLanguageRuby)
+{
     EXPECT_EQ(DetectLanguage(L"ruby"), SyntaxLanguage::None);
 }
 
@@ -746,15 +834,18 @@ TEST(Syntax, DetectLanguageRuby) {
 // 追加の言語拡張子
 // ============================================================
 
-TEST(Syntax, DetectLanguageCc) {
+TEST(Syntax, DetectLanguageCc)
+{
     EXPECT_EQ(DetectLanguage(L"cc"), SyntaxLanguage::Cpp);
 }
 
-TEST(Syntax, DetectLanguageHxx) {
+TEST(Syntax, DetectLanguageHxx)
+{
     EXPECT_EQ(DetectLanguage(L"hxx"), SyntaxLanguage::Cpp);
 }
 
-TEST(Syntax, DetectLanguageMermaidCaseInsensitive) {
+TEST(Syntax, DetectLanguageMermaidCaseInsensitive)
+{
     EXPECT_EQ(DetectLanguage(L"Mermaid"), SyntaxLanguage::Mermaid);
     EXPECT_EQ(DetectLanguage(L"MERMAID"), SyntaxLanguage::Mermaid);
 }
@@ -763,7 +854,8 @@ TEST(Syntax, DetectLanguageMermaidCaseInsensitive) {
 // Mermaidトークン化は空を返す（キーワードテーブルなし）
 // ============================================================
 
-TEST(Syntax, MermaidLanguageReturnsEmpty) {
+TEST(Syntax, MermaidLanguageReturnsEmpty)
+{
     // Mermaidは現在の実装ではトークナイザーを持たない
     auto tokens = Tokenize(L"graph TD; A-->B;", SyntaxLanguage::Mermaid);
     EXPECT_TRUE(tokens.empty());
@@ -773,7 +865,8 @@ TEST(Syntax, MermaidLanguageReturnsEmpty) {
 // 数値のエッジケース
 // ============================================================
 
-TEST(Syntax, CppNumberExponent) {
+TEST(Syntax, CppNumberExponent)
+{
     std::wstring code = L"1.5e10";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -782,7 +875,8 @@ TEST(Syntax, CppNumberExponent) {
     EXPECT_EQ(GetTokenText(code, *num), L"1.5e10");
 }
 
-TEST(Syntax, CppNumberExponentNegative) {
+TEST(Syntax, CppNumberExponentNegative)
+{
     std::wstring code = L"2.0e-3";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -791,7 +885,8 @@ TEST(Syntax, CppNumberExponentNegative) {
     EXPECT_EQ(GetTokenText(code, *num), L"2.0e-3");
 }
 
-TEST(Syntax, CppNumberDigitSeparator) {
+TEST(Syntax, CppNumberDigitSeparator)
+{
     std::wstring code = L"1'000'000";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -800,7 +895,8 @@ TEST(Syntax, CppNumberDigitSeparator) {
     EXPECT_EQ(GetTokenText(code, *num), L"1'000'000");
 }
 
-TEST(Syntax, CppHexDigitSeparator) {
+TEST(Syntax, CppHexDigitSeparator)
+{
     std::wstring code = L"0xFF'FF";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
@@ -812,7 +908,8 @@ TEST(Syntax, CppHexDigitSeparator) {
 // C++ デリミタ付き生文字列
 // ============================================================
 
-TEST(Syntax, CppRawStringWithDelimiter) {
+TEST(Syntax, CppRawStringWithDelimiter)
+{
     std::wstring code = LR"(R"delim(hello "world")delim")";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     // Rは別の識別子として出力され、その後に生文字列が続く
@@ -826,7 +923,8 @@ TEST(Syntax, CppRawStringWithDelimiter) {
 // Python 閉じられていないトリプルクォート
 // ============================================================
 
-TEST(Syntax, PythonUnterminatedTripleQuote) {
+TEST(Syntax, PythonUnterminatedTripleQuote)
+{
     std::wstring code = L"s = \"\"\"never closed";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
@@ -838,14 +936,16 @@ TEST(Syntax, PythonUnterminatedTripleQuote) {
 // C++ モダンキーワード
 // ============================================================
 
-TEST(Syntax, CppModernKeywords) {
+TEST(Syntax, CppModernKeywords)
+{
     std::wstring code = L"constexpr consteval constinit concept requires co_await co_return co_yield";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 8);
 }
 
-TEST(Syntax, CppCastKeywords) {
+TEST(Syntax, CppCastKeywords)
+{
     std::wstring code = L"static_cast dynamic_cast reinterpret_cast const_cast";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -856,14 +956,16 @@ TEST(Syntax, CppCastKeywords) {
 // C++ STL型
 // ============================================================
 
-TEST(Syntax, CppStlTypes) {
+TEST(Syntax, CppStlTypes)
+{
     std::wstring code = L"vector map optional variant span unique_ptr shared_ptr";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 7);
 }
 
-TEST(Syntax, CppWin32Types) {
+TEST(Syntax, CppWin32Types)
+{
     std::wstring code = L"HRESULT BOOL DWORD HWND LRESULT";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -874,7 +976,8 @@ TEST(Syntax, CppWin32Types) {
 // Python 例外型
 // ============================================================
 
-TEST(Syntax, PythonExceptionTypes) {
+TEST(Syntax, PythonExceptionTypes)
+{
     std::wstring code = L"ValueError TypeError KeyError IndexError RuntimeError";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
@@ -885,14 +988,16 @@ TEST(Syntax, PythonExceptionTypes) {
 // JavaScript グローバル
 // ============================================================
 
-TEST(Syntax, JsGlobalTypes) {
+TEST(Syntax, JsGlobalTypes)
+{
     std::wstring code = L"console document window JSON Math";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
 }
 
-TEST(Syntax, JsAsyncAwait) {
+TEST(Syntax, JsAsyncAwait)
+{
     std::wstring code = L"async await";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
@@ -904,7 +1009,8 @@ TEST(Syntax, JsAsyncAwait) {
 // トリガーされないべき（例: RENDER"hello"）
 // ============================================================
 
-TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR) {
+TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR)
+{
     std::wstring code = L"RENDER\"hello\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -930,7 +1036,8 @@ TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR) {
     EXPECT_TRUE(found_string) << "\"hello\"が文字列トークンとして見つかるべき";
 }
 
-TEST(Syntax, CppRawStringStandaloneRStillWorks) {
+TEST(Syntax, CppRawStringStandaloneRStillWorks)
+{
     // 単独のR"(...)"は依然として生文字列として認識されるべき
     std::wstring code = L"R\"(hello)\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
@@ -939,7 +1046,8 @@ TEST(Syntax, CppRawStringStandaloneRStillWorks) {
     EXPECT_GT(str->length, 5u);
 }
 
-TEST(Syntax, CppRawStringAfterSpaceR) {
+TEST(Syntax, CppRawStringAfterSpaceR)
+{
     // "x R\"(test)\"" — スペースの後のRは動作すべき
     std::wstring code = L"x R\"(test)\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
@@ -951,7 +1059,8 @@ TEST(Syntax, CppRawStringAfterSpaceR) {
 // バグ #22: 閉じられていないブロックコメントは最後の文字を含むべき
 // ============================================================
 
-TEST(Syntax, UnterminatedBlockCommentCoversAllText) {
+TEST(Syntax, UnterminatedBlockCommentCoversAllText)
+{
     std::wstring code = L"/* unterminated comment";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -960,7 +1069,8 @@ TEST(Syntax, UnterminatedBlockCommentCoversAllText) {
     EXPECT_EQ(tokens[0].length, static_cast<uint32_t>(code.size()));
 }
 
-TEST(Syntax, UnterminatedBlockCommentEndsWithStar) {
+TEST(Syntax, UnterminatedBlockCommentEndsWithStar)
+{
     // エッジケース: コメントが*で終わるが/がない
     std::wstring code = L"/* test *";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
@@ -970,7 +1080,8 @@ TEST(Syntax, UnterminatedBlockCommentEndsWithStar) {
     EXPECT_EQ(tokens[0].length, static_cast<uint32_t>(code.size()));
 }
 
-TEST(Syntax, TerminatedBlockCommentStillWorks) {
+TEST(Syntax, TerminatedBlockCommentStillWorks)
+{
     std::wstring code = L"/* ok */ x";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
@@ -983,26 +1094,30 @@ TEST(Syntax, TerminatedBlockCommentStillWorks) {
 // Go トークン化
 // ============================================================
 
-TEST(Syntax, DetectLanguageGo) {
+TEST(Syntax, DetectLanguageGo)
+{
     EXPECT_EQ(DetectLanguage(L"go"), SyntaxLanguage::Go);
     EXPECT_EQ(DetectLanguage(L"golang"), SyntaxLanguage::Go);
 }
 
-TEST(Syntax, GoKeywords) {
+TEST(Syntax, GoKeywords)
+{
     std::wstring code = L"if else for return func defer go";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 7);
 }
 
-TEST(Syntax, GoTypes) {
+TEST(Syntax, GoTypes)
+{
     std::wstring code = L"int float64 string bool error";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
 }
 
-TEST(Syntax, GoLineComment) {
+TEST(Syntax, GoLineComment)
+{
     std::wstring code = L"x := 1 // comment\ny := 2";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
@@ -1011,7 +1126,8 @@ TEST(Syntax, GoLineComment) {
     EXPECT_EQ(GetTokenText(code, *comment), L"// comment");
 }
 
-TEST(Syntax, GoBlockComment) {
+TEST(Syntax, GoBlockComment)
+{
     std::wstring code = L"/* multi\nline */";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
@@ -1019,7 +1135,8 @@ TEST(Syntax, GoBlockComment) {
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
 }
 
-TEST(Syntax, GoBacktickRawString) {
+TEST(Syntax, GoBacktickRawString)
+{
     std::wstring code = L"`raw\\nstring`";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
@@ -1028,7 +1145,8 @@ TEST(Syntax, GoBacktickRawString) {
     EXPECT_EQ(GetTokenText(code, *str), L"`raw\\nstring`");
 }
 
-TEST(Syntax, GoBacktickRawStringWithBackslash) {
+TEST(Syntax, GoBacktickRawStringWithBackslash)
+{
     // Goの生文字列はバックスラッシュをエスケープとして扱わないので、`c:\`は有効
     std::wstring code = L"`c:\\`";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
@@ -1038,7 +1156,8 @@ TEST(Syntax, GoBacktickRawStringWithBackslash) {
     EXPECT_EQ(GetTokenText(code, *str), L"`c:\\`");
 }
 
-TEST(Syntax, GoBacktickRawStringTrailingBackslash) {
+TEST(Syntax, GoBacktickRawStringTrailingBackslash)
+{
     // 生文字列末尾のバックスラッシュが閉じバッククォートをスキップしないことを確認
     std::wstring code = L"s := `path\\` + x";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
@@ -1048,14 +1167,16 @@ TEST(Syntax, GoBacktickRawStringTrailingBackslash) {
     EXPECT_EQ(GetTokenText(code, *str), L"`path\\`");
 }
 
-TEST(Syntax, GoNilTrueFalse) {
+TEST(Syntax, GoNilTrueFalse)
+{
     std::wstring code = L"nil true false iota";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 4);
 }
 
-TEST(Syntax, GoComplexCode) {
+TEST(Syntax, GoComplexCode)
+{
     std::wstring code = L"package main\n\nimport \"fmt\"\n\nfunc main() {\n    // Hello\n    fmt.Println(\"Hello\")\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
@@ -1066,7 +1187,8 @@ TEST(Syntax, GoComplexCode) {
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Function), 1);   // main
 }
 
-TEST(Syntax, TokensCoverEntireTextGo) {
+TEST(Syntax, TokensCoverEntireTextGo)
+{
     std::wstring code = L"func hello(name string) error {\n    return nil\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
@@ -1076,26 +1198,30 @@ TEST(Syntax, TokensCoverEntireTextGo) {
 // Rust トークン化
 // ============================================================
 
-TEST(Syntax, DetectLanguageRust) {
+TEST(Syntax, DetectLanguageRust)
+{
     EXPECT_EQ(DetectLanguage(L"rust"), SyntaxLanguage::Rust);
     EXPECT_EQ(DetectLanguage(L"rs"), SyntaxLanguage::Rust);
 }
 
-TEST(Syntax, RustKeywords) {
+TEST(Syntax, RustKeywords)
+{
     std::wstring code = L"fn let mut if else match return";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 7);
 }
 
-TEST(Syntax, RustTypes) {
+TEST(Syntax, RustTypes)
+{
     std::wstring code = L"i32 u64 f64 bool String Vec Option Result";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 8);
 }
 
-TEST(Syntax, RustLineComment) {
+TEST(Syntax, RustLineComment)
+{
     std::wstring code = L"let x = 1; // comment";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
@@ -1103,7 +1229,8 @@ TEST(Syntax, RustLineComment) {
     ASSERT_NE(comment, nullptr);
 }
 
-TEST(Syntax, RustBlockComment) {
+TEST(Syntax, RustBlockComment)
+{
     std::wstring code = L"/* block\ncomment */";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
@@ -1111,7 +1238,8 @@ TEST(Syntax, RustBlockComment) {
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
 }
 
-TEST(Syntax, RustStringDouble) {
+TEST(Syntax, RustStringDouble)
+{
     std::wstring code = L"let s = \"hello\";";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
@@ -1120,7 +1248,8 @@ TEST(Syntax, RustStringDouble) {
     EXPECT_EQ(GetTokenText(code, *str), L"\"hello\"");
 }
 
-TEST(Syntax, RustSingleQuoteNotString) {
+TEST(Syntax, RustSingleQuoteNotString)
+{
     // Rustではシングルクォートはライフタイム('a)と文字リテラル('x')に使用される。
     // ライフタイムの問題を避けるためシングルクォート文字列はスキップする。
     std::wstring code = L"fn foo<'a>(x: &'a str) {}";
@@ -1131,21 +1260,24 @@ TEST(Syntax, RustSingleQuoteNotString) {
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 1);    // str
 }
 
-TEST(Syntax, RustSomeNoneOkErr) {
+TEST(Syntax, RustSomeNoneOkErr)
+{
     std::wstring code = L"Some None Ok Err";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 4);
 }
 
-TEST(Syntax, RustAsyncAwait) {
+TEST(Syntax, RustAsyncAwait)
+{
     std::wstring code = L"async await";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 2);
 }
 
-TEST(Syntax, RustComplexCode) {
+TEST(Syntax, RustComplexCode)
+{
     std::wstring code = L"use std::io;\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    let x: i32 = 42;\n    // comment\n    println!(\"Hello {}\", x);\n    Ok(())\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
@@ -1157,7 +1289,8 @@ TEST(Syntax, RustComplexCode) {
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Number), 1);     // 42
 }
 
-TEST(Syntax, TokensCoverEntireTextRust) {
+TEST(Syntax, TokensCoverEntireTextRust)
+{
     std::wstring code = L"struct Point { x: f64, y: f64 }";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
@@ -1167,27 +1300,31 @@ TEST(Syntax, TokensCoverEntireTextRust) {
 // TypeScript トークン化
 // ============================================================
 
-TEST(Syntax, DetectLanguageTypeScript) {
+TEST(Syntax, DetectLanguageTypeScript)
+{
     EXPECT_EQ(DetectLanguage(L"typescript"), SyntaxLanguage::TypeScript);
     EXPECT_EQ(DetectLanguage(L"ts"), SyntaxLanguage::TypeScript);
     EXPECT_EQ(DetectLanguage(L"tsx"), SyntaxLanguage::TypeScript);
 }
 
-TEST(Syntax, TsKeywordsInclJsKeywords) {
+TEST(Syntax, TsKeywordsInclJsKeywords)
+{
     std::wstring code = L"if else while for return const let var function";
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 9);
 }
 
-TEST(Syntax, TsSpecificKeywords) {
+TEST(Syntax, TsSpecificKeywords)
+{
     std::wstring code = L"interface type enum namespace declare abstract readonly";
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 7);
 }
 
-TEST(Syntax, TsSpecificTypes) {
+TEST(Syntax, TsSpecificTypes)
+{
     // voidはキーワード（JSから継承）なので、型には含まれない
     std::wstring code = L"any unknown never number string boolean";
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
@@ -1195,14 +1332,16 @@ TEST(Syntax, TsSpecificTypes) {
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 6);
 }
 
-TEST(Syntax, TsUtilityTypes) {
+TEST(Syntax, TsUtilityTypes)
+{
     std::wstring code = L"Record Partial Required Readonly Pick Omit";
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 6);
 }
 
-TEST(Syntax, TsTemplateLiteral) {
+TEST(Syntax, TsTemplateLiteral)
+{
     std::wstring code = L"`hello ${name}`";
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
@@ -1210,7 +1349,8 @@ TEST(Syntax, TsTemplateLiteral) {
     ASSERT_NE(str, nullptr);
 }
 
-TEST(Syntax, TsComplexCode) {
+TEST(Syntax, TsComplexCode)
+{
     std::wstring code = L"interface User {\n  name: string;\n  age: number;\n}\n\nconst greet = (user: User): string => {\n  return `Hello, ${user.name}`;\n};";
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
@@ -1220,7 +1360,8 @@ TEST(Syntax, TsComplexCode) {
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::String), 1);     // template literal
 }
 
-TEST(Syntax, TokensCoverEntireTextTs) {
+TEST(Syntax, TokensCoverEntireTextTs)
+{
     std::wstring code = L"type Props = { value: number; onChange: (v: number) => void; };";
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
@@ -1230,28 +1371,32 @@ TEST(Syntax, TokensCoverEntireTextTs) {
 // Bash トークン化
 // ============================================================
 
-TEST(Syntax, DetectLanguageBash) {
+TEST(Syntax, DetectLanguageBash)
+{
     EXPECT_EQ(DetectLanguage(L"bash"), SyntaxLanguage::Bash);
     EXPECT_EQ(DetectLanguage(L"sh"), SyntaxLanguage::Bash);
     EXPECT_EQ(DetectLanguage(L"zsh"), SyntaxLanguage::Bash);
     EXPECT_EQ(DetectLanguage(L"shell"), SyntaxLanguage::Bash);
 }
 
-TEST(Syntax, BashKeywords) {
+TEST(Syntax, BashKeywords)
+{
     std::wstring code = L"if then else elif fi for while do done";
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 9);
 }
 
-TEST(Syntax, BashBuiltins) {
+TEST(Syntax, BashBuiltins)
+{
     std::wstring code = L"echo printf read cd pwd";
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
 }
 
-TEST(Syntax, BashHashComment) {
+TEST(Syntax, BashHashComment)
+{
     std::wstring code = L"x=1  # comment\ny=2";
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
@@ -1260,7 +1405,8 @@ TEST(Syntax, BashHashComment) {
     EXPECT_EQ(GetTokenText(code, *comment), L"# comment");
 }
 
-TEST(Syntax, BashString) {
+TEST(Syntax, BashString)
+{
     std::wstring code = L"echo \"hello world\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
@@ -1269,7 +1415,8 @@ TEST(Syntax, BashString) {
     EXPECT_EQ(GetTokenText(code, *str), L"\"hello world\"");
 }
 
-TEST(Syntax, BashBacktick) {
+TEST(Syntax, BashBacktick)
+{
     std::wstring code = L"result=`ls -la`";
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
@@ -1277,7 +1424,8 @@ TEST(Syntax, BashBacktick) {
     ASSERT_NE(str, nullptr);
 }
 
-TEST(Syntax, BashComplexCode) {
+TEST(Syntax, BashComplexCode)
+{
     std::wstring code = L"#!/bin/bash\n# Script\nfor f in *.txt; do\n    echo \"$f\"\ndone";
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
@@ -1287,7 +1435,8 @@ TEST(Syntax, BashComplexCode) {
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::String), 1);
 }
 
-TEST(Syntax, TokensCoverEntireTextBash) {
+TEST(Syntax, TokensCoverEntireTextBash)
+{
     std::wstring code = L"if [ -f \"$1\" ]; then\n    echo \"exists\"\nfi";
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
@@ -1297,34 +1446,39 @@ TEST(Syntax, TokensCoverEntireTextBash) {
 // PowerShell トークン化
 // ============================================================
 
-TEST(Syntax, DetectLanguagePowerShell) {
+TEST(Syntax, DetectLanguagePowerShell)
+{
     EXPECT_EQ(DetectLanguage(L"powershell"), SyntaxLanguage::PowerShell);
     EXPECT_EQ(DetectLanguage(L"pwsh"), SyntaxLanguage::PowerShell);
     EXPECT_EQ(DetectLanguage(L"ps1"), SyntaxLanguage::PowerShell);
 }
 
-TEST(Syntax, PwshKeywords) {
+TEST(Syntax, PwshKeywords)
+{
     std::wstring code = L"if else foreach while function return";
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 6);
 }
 
-TEST(Syntax, PwshKeywordsCaseInsensitive) {
+TEST(Syntax, PwshKeywordsCaseInsensitive)
+{
     std::wstring code = L"If Else ForEach WHILE Function RETURN";
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 6);
 }
 
-TEST(Syntax, PwshTypes) {
+TEST(Syntax, PwshTypes)
+{
     std::wstring code = L"int string bool array hashtable";
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
 }
 
-TEST(Syntax, PwshHashComment) {
+TEST(Syntax, PwshHashComment)
+{
     std::wstring code = L"$x = 1  # comment\n$y = 2";
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
@@ -1332,7 +1486,8 @@ TEST(Syntax, PwshHashComment) {
     ASSERT_NE(comment, nullptr);
 }
 
-TEST(Syntax, PwshAngleBlockComment) {
+TEST(Syntax, PwshAngleBlockComment)
+{
     std::wstring code = L"<# block\ncomment #>";
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
@@ -1340,7 +1495,8 @@ TEST(Syntax, PwshAngleBlockComment) {
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
 }
 
-TEST(Syntax, PwshAngleBlockCommentUnterminated) {
+TEST(Syntax, PwshAngleBlockCommentUnterminated)
+{
     std::wstring code = L"<# never closed";
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
@@ -1349,7 +1505,8 @@ TEST(Syntax, PwshAngleBlockCommentUnterminated) {
     EXPECT_EQ(tokens[0].length, static_cast<uint32_t>(code.size()));
 }
 
-TEST(Syntax, PwshString) {
+TEST(Syntax, PwshString)
+{
     std::wstring code = L"\"hello world\"";
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
@@ -1357,7 +1514,8 @@ TEST(Syntax, PwshString) {
     ASSERT_NE(str, nullptr);
 }
 
-TEST(Syntax, PwshComplexCode) {
+TEST(Syntax, PwshComplexCode)
+{
     std::wstring code = L"<# Script #>\nfunction Get-Item {\n    param([string]$Path)\n    # Do work\n    return $Path\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
@@ -1366,7 +1524,8 @@ TEST(Syntax, PwshComplexCode) {
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 2);   // function, param, return
 }
 
-TEST(Syntax, TokensCoverEntireTextPwsh) {
+TEST(Syntax, TokensCoverEntireTextPwsh)
+{
     std::wstring code = L"if ($x -eq 1) { Write-Host \"hello\" }";
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
@@ -1376,28 +1535,32 @@ TEST(Syntax, TokensCoverEntireTextPwsh) {
 // Cmd トークン化
 // ============================================================
 
-TEST(Syntax, DetectLanguageCmd) {
+TEST(Syntax, DetectLanguageCmd)
+{
     EXPECT_EQ(DetectLanguage(L"cmd"), SyntaxLanguage::Cmd);
     EXPECT_EQ(DetectLanguage(L"bat"), SyntaxLanguage::Cmd);
     EXPECT_EQ(DetectLanguage(L"batch"), SyntaxLanguage::Cmd);
     EXPECT_EQ(DetectLanguage(L"dosbatch"), SyntaxLanguage::Cmd);
 }
 
-TEST(Syntax, CmdKeywords) {
+TEST(Syntax, CmdKeywords)
+{
     std::wstring code = L"if else for do goto call set echo";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 8);
 }
 
-TEST(Syntax, CmdKeywordsCaseInsensitive) {
+TEST(Syntax, CmdKeywordsCaseInsensitive)
+{
     std::wstring code = L"IF ELSE FOR DO GOTO CALL SET ECHO";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 8);
 }
 
-TEST(Syntax, CmdRemComment) {
+TEST(Syntax, CmdRemComment)
+{
     std::wstring code = L"REM this is a comment\nset x=1";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
@@ -1406,7 +1569,8 @@ TEST(Syntax, CmdRemComment) {
     EXPECT_EQ(GetTokenText(code, *comment), L"REM this is a comment");
 }
 
-TEST(Syntax, CmdRemCommentCaseInsensitive) {
+TEST(Syntax, CmdRemCommentCaseInsensitive)
+{
     std::wstring code = L"rem comment here";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
@@ -1414,7 +1578,8 @@ TEST(Syntax, CmdRemCommentCaseInsensitive) {
     ASSERT_NE(comment, nullptr);
 }
 
-TEST(Syntax, CmdRemNotAtLineStart) {
+TEST(Syntax, CmdRemNotAtLineStart)
+{
     // 行の途中のREMはコメントではなくキーワードであるべき
     std::wstring code = L"echo REM";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
@@ -1423,7 +1588,8 @@ TEST(Syntax, CmdRemNotAtLineStart) {
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Comment), 0);
 }
 
-TEST(Syntax, CmdDoubleColonComment) {
+TEST(Syntax, CmdDoubleColonComment)
+{
     std::wstring code = L":: this is a comment\nset x=1";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
@@ -1432,7 +1598,8 @@ TEST(Syntax, CmdDoubleColonComment) {
     EXPECT_EQ(GetTokenText(code, *comment), L":: this is a comment");
 }
 
-TEST(Syntax, CmdDoubleColonNotAtLineStart) {
+TEST(Syntax, CmdDoubleColonNotAtLineStart)
+{
     // 行頭でない::はコメントとして扱われないべき
     std::wstring code = L"x::y";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
@@ -1440,7 +1607,8 @@ TEST(Syntax, CmdDoubleColonNotAtLineStart) {
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Comment), 0);
 }
 
-TEST(Syntax, CmdString) {
+TEST(Syntax, CmdString)
+{
     std::wstring code = L"echo \"hello world\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
@@ -1448,14 +1616,16 @@ TEST(Syntax, CmdString) {
     ASSERT_NE(str, nullptr);
 }
 
-TEST(Syntax, CmdTypes) {
+TEST(Syntax, CmdTypes)
+{
     std::wstring code = L"dir copy move del mkdir";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
 }
 
-TEST(Syntax, CmdComplexCode) {
+TEST(Syntax, CmdComplexCode)
+{
     std::wstring code = L"@echo off\nREM Build script\nfor %%f in (*.cpp) do (\n    echo Building %%f\n)\npause";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
@@ -1464,7 +1634,8 @@ TEST(Syntax, CmdComplexCode) {
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3);   // echo, for, do, echo, pause
 }
 
-TEST(Syntax, TokensCoverEntireTextCmd) {
+TEST(Syntax, TokensCoverEntireTextCmd)
+{
     std::wstring code = L"if exist \"file.txt\" (\n    del \"file.txt\"\n)";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
@@ -1474,31 +1645,36 @@ TEST(Syntax, TokensCoverEntireTextCmd) {
 // パーサー統合: 新言語
 // ============================================================
 
-TEST(Syntax, ParserExtractsLanguageGo) {
+TEST(Syntax, ParserExtractsLanguageGo)
+{
     auto nodes = ParseMarkdown("```go\nfunc main() {}\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Go);
 }
 
-TEST(Syntax, ParserExtractsLanguageTs) {
+TEST(Syntax, ParserExtractsLanguageTs)
+{
     auto nodes = ParseMarkdown("```typescript\nconst x: number = 1;\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::TypeScript);
 }
 
-TEST(Syntax, ParserExtractsLanguageBash) {
+TEST(Syntax, ParserExtractsLanguageBash)
+{
     auto nodes = ParseMarkdown("```bash\necho hello\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Bash);
 }
 
-TEST(Syntax, ParserExtractsLanguagePwsh) {
+TEST(Syntax, ParserExtractsLanguagePwsh)
+{
     auto nodes = ParseMarkdown("```powershell\nWrite-Host hello\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::PowerShell);
 }
 
-TEST(Syntax, ParserExtractsLanguageCmd) {
+TEST(Syntax, ParserExtractsLanguageCmd)
+{
     auto nodes = ParseMarkdown("```cmd\necho hello\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cmd);

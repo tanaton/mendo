@@ -16,15 +16,18 @@ protected:
     LayoutEngine engine_;
     Theme theme_;
 
-    static void SetUpTestSuite() {
+    static void SetUpTestSuite()
+    {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     }
 
-    static void TearDownTestSuite() {
+    static void TearDownTestSuite()
+    {
         CoUninitialize();
     }
 
-    void SetUp() override {
+    void SetUp() override
+    {
         HRESULT hr = DWriteCreateFactory(
             DWRITE_FACTORY_TYPE_SHARED,
             __uuidof(IDWriteFactory),
@@ -37,7 +40,8 @@ protected:
     }
 };
 
-TEST_F(LayoutTest, EmptyNodesProduceZeroHeight) {
+TEST_F(LayoutTest, EmptyNodesProduceZeroHeight)
+{
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -45,7 +49,8 @@ TEST_F(LayoutTest, EmptyNodesProduceZeroHeight) {
     EXPECT_FLOAT_EQ(engine_.GetTotalHeight(), theme_.margin_top * 2);
 }
 
-TEST_F(LayoutTest, SingleParagraphHasPositiveHeight) {
+TEST_F(LayoutTest, SingleParagraphHasPositiveHeight)
+{
     auto nodes = ParseMarkdown("Hello world");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -54,7 +59,8 @@ TEST_F(LayoutTest, SingleParagraphHasPositiveHeight) {
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
-TEST_F(LayoutTest, HeadingIsTallerThanParagraph) {
+TEST_F(LayoutTest, HeadingIsTallerThanParagraph)
+{
     auto heading_nodes = ParseMarkdown("# Big Title");
     LayoutCache heading_cache;
     heading_cache.Resize(heading_nodes.size());
@@ -72,7 +78,8 @@ TEST_F(LayoutTest, HeadingIsTallerThanParagraph) {
     EXPECT_GT(heading_height, para_height);
 }
 
-TEST_F(LayoutTest, YPositionsIncreaseMonotonically) {
+TEST_F(LayoutTest, YPositionsIncreaseMonotonically)
+{
     auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -84,7 +91,8 @@ TEST_F(LayoutTest, YPositionsIncreaseMonotonically) {
     }
 }
 
-TEST_F(LayoutTest, NodesDoNotOverlap) {
+TEST_F(LayoutTest, NodesDoNotOverlap)
+{
     auto nodes = ParseMarkdown("# Heading\n\nParagraph\n\n---\n\n- List");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -97,7 +105,8 @@ TEST_F(LayoutTest, NodesDoNotOverlap) {
     }
 }
 
-TEST_F(LayoutTest, NarrowViewportWrapsText) {
+TEST_F(LayoutTest, NarrowViewportWrapsText)
+{
     auto nodes_wide = ParseMarkdown("This is a somewhat long paragraph that should wrap.");
     LayoutCache cache_wide;
     cache_wide.Resize(nodes_wide.size());
@@ -116,7 +125,8 @@ TEST_F(LayoutTest, NarrowViewportWrapsText) {
     EXPECT_GE(narrow_height, wide_height);
 }
 
-TEST_F(LayoutTest, LayoutDirtyFlagCleared) {
+TEST_F(LayoutTest, LayoutDirtyFlagCleared)
+{
     auto nodes = ParseMarkdown("Test");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -125,7 +135,8 @@ TEST_F(LayoutTest, LayoutDirtyFlagCleared) {
     EXPECT_FALSE(cache[0].layout_dirty);
 }
 
-TEST_F(LayoutTest, TextLayoutCreated) {
+TEST_F(LayoutTest, TextLayoutCreated)
+{
     auto nodes = ParseMarkdown("Test paragraph");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -133,7 +144,8 @@ TEST_F(LayoutTest, TextLayoutCreated) {
     EXPECT_NE(cache[0].text_layout.Get(), nullptr);
 }
 
-TEST_F(LayoutTest, HorizontalRuleHasNoTextLayout) {
+TEST_F(LayoutTest, HorizontalRuleHasNoTextLayout)
+{
     auto nodes = ParseMarkdown("---");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -142,7 +154,8 @@ TEST_F(LayoutTest, HorizontalRuleHasNoTextLayout) {
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
-TEST_F(LayoutTest, CodeBlockTextLayout) {
+TEST_F(LayoutTest, CodeBlockTextLayout)
+{
     auto nodes = ParseMarkdown("```\ncode\n```");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -150,7 +163,8 @@ TEST_F(LayoutTest, CodeBlockTextLayout) {
     EXPECT_NE(cache[0].text_layout.Get(), nullptr);
 }
 
-TEST_F(LayoutTest, TableLayout) {
+TEST_F(LayoutTest, TableLayout)
+{
     auto nodes = ParseMarkdown(
         "| A | B |\n"
         "|---|---|\n"
@@ -165,7 +179,8 @@ TEST_F(LayoutTest, TableLayout) {
     EXPECT_FALSE(cache[0].col_widths.empty());
 }
 
-TEST_F(LayoutTest, TableCellLayoutsCreated) {
+TEST_F(LayoutTest, TableCellLayoutsCreated)
+{
     auto nodes = ParseMarkdown(
         "| A | B |\n"
         "|---|---|\n"
@@ -184,7 +199,8 @@ TEST_F(LayoutTest, TableCellLayoutsCreated) {
     }
 }
 
-TEST_F(LayoutTest, TableCellLinkHasUnderline) {
+TEST_F(LayoutTest, TableCellLinkHasUnderline)
+{
     auto nodes = ParseMarkdown(
         "| Text | Link |\n"
         "|------|------|\n"
@@ -216,7 +232,8 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline) {
     EXPECT_TRUE(has_link_run);
 }
 
-TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize) {
+TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize)
+{
     auto nodes = ParseMarkdown("# H1\n\n## H2\n\n### H3");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -227,7 +244,8 @@ TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize) {
     EXPECT_GE(cache[1].height, cache[2].height);
 }
 
-TEST_F(LayoutTest, TotalHeightWithManyNodes) {
+TEST_F(LayoutTest, TotalHeightWithManyNodes)
+{
     std::string md;
     for (int i = 0; i < 100; i++) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
@@ -247,7 +265,8 @@ TEST_F(LayoutTest, TotalHeightWithManyNodes) {
 
 // ---- ProcessDirtyBatch テスト ----
 
-TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes) {
+TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
+{
     auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD\n\nE");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -267,7 +286,8 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes) {
     }
 }
 
-TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch) {
+TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch)
+{
     // 多数の段落を作成
     std::string md;
     for (int i = 0; i < 50; i++) {
@@ -290,7 +310,8 @@ TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch) {
 
 // ---- 幅変更の検出 ----
 
-TEST_F(LayoutTest, WidthChangeRecomputesLayouts) {
+TEST_F(LayoutTest, WidthChangeRecomputesLayouts)
+{
     auto nodes = ParseMarkdown("This is a paragraph with some text that might wrap differently.");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -306,7 +327,8 @@ TEST_F(LayoutTest, WidthChangeRecomputesLayouts) {
 
 // ---- 空のテーブル ----
 
-TEST_F(LayoutTest, EmptyTableMinimalHeight) {
+TEST_F(LayoutTest, EmptyTableMinimalHeight)
+{
     Node node;
     node.type = NodeType::Table;
     node.ensure_table();
@@ -323,7 +345,8 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight) {
 
 // ---- インデントされたノード ----
 
-TEST_F(LayoutTest, IndentedNodesHaveNarrowerWidth) {
+TEST_F(LayoutTest, IndentedNodesHaveNarrowerWidth)
+{
     auto nodes_plain = ParseMarkdown("This is a somewhat long paragraph that wraps.");
     LayoutCache cache_plain;
     cache_plain.Resize(nodes_plain.size());
@@ -344,7 +367,8 @@ TEST_F(LayoutTest, IndentedNodesHaveNarrowerWidth) {
 
 // ---- ブロック引用のレイアウト ----
 
-TEST_F(LayoutTest, BlockQuoteLayout) {
+TEST_F(LayoutTest, BlockQuoteLayout)
+{
     auto nodes = ParseMarkdown("> Quoted text here");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -356,7 +380,8 @@ TEST_F(LayoutTest, BlockQuoteLayout) {
 
 // ---- コードブロックの折り返し無効 ----
 
-TEST_F(LayoutTest, CodeBlockDoesNotWrap) {
+TEST_F(LayoutTest, CodeBlockDoesNotWrap)
+{
     std::string long_line = "```\n";
     for (int i = 0; i < 50; i++) long_line += "long_word ";
     long_line += "\n```";
@@ -375,7 +400,8 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap) {
 
 // ---- 見出しの間隔 ----
 
-TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow) {
+TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow)
+{
     auto nodes = ParseMarkdown("Paragraph\n\n# Heading\n\nAnother paragraph");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -401,9 +427,10 @@ TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow) {
 
 // ---- ComputeColumnWidths テスト ----
 
-TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide) {
+TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide)
+{
     // 自然幅の合計300、利用可能幅150のみ -> 比例配分
-    std::pmr::vector<float> natural = {100.0f, 100.0f, 100.0f};
+    std::pmr::vector<float> natural = { 100.0f, 100.0f, 100.0f };
     auto widths = ComputeColumnWidths(natural, 150.0f, 3);
     ASSERT_EQ(widths.size(), 3u);
     // 自然幅が等しいため、すべての列が均等な幅を得ること
@@ -414,9 +441,10 @@ TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide) {
     EXPECT_NEAR(total, 150.0f, 1.0f);
 }
 
-TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits) {
+TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits)
+{
     // 自然幅の合計30、利用可能幅300 -> 均等配分
-    std::pmr::vector<float> natural = {10.0f, 10.0f, 10.0f};
+    std::pmr::vector<float> natural = { 10.0f, 10.0f, 10.0f };
     auto widths = ComputeColumnWidths(natural, 300.0f, 3);
     ASSERT_EQ(widths.size(), 3u);
     // 均等配分: 各列は少なくとも100であること
@@ -426,9 +454,10 @@ TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits) {
     }
 }
 
-TEST(ComputeColumnWidthsTest, MinimumWidthEnforced) {
+TEST(ComputeColumnWidthsTest, MinimumWidthEnforced)
+{
     // 非常に小さな利用可能スペース
-    std::pmr::vector<float> natural = {200.0f, 200.0f};
+    std::pmr::vector<float> natural = { 200.0f, 200.0f };
     auto widths = ComputeColumnWidths(natural, 40.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
     // 最小幅は30
@@ -437,24 +466,27 @@ TEST(ComputeColumnWidthsTest, MinimumWidthEnforced) {
     }
 }
 
-TEST(ComputeColumnWidthsTest, UnequalNaturalWidths) {
+TEST(ComputeColumnWidthsTest, UnequalNaturalWidths)
+{
     // 列Aは列Bよりはるかに広い
-    std::pmr::vector<float> natural = {300.0f, 100.0f};
+    std::pmr::vector<float> natural = { 300.0f, 100.0f };
     auto widths = ComputeColumnWidths(natural, 200.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
     // 列Aは列Bよりも大きな割合を得ること
     EXPECT_GT(widths[0], widths[1]);
 }
 
-TEST(ComputeColumnWidthsTest, SingleColumn) {
-    std::pmr::vector<float> natural = {50.0f};
+TEST(ComputeColumnWidthsTest, SingleColumn)
+{
+    std::pmr::vector<float> natural = { 50.0f };
     auto widths = ComputeColumnWidths(natural, 200.0f, 1);
     ASSERT_EQ(widths.size(), 1u);
     EXPECT_GE(widths[0], 50.0f);
 }
 
-TEST(ComputeColumnWidthsTest, ZeroNaturalWidths) {
-    std::pmr::vector<float> natural = {0.0f, 0.0f};
+TEST(ComputeColumnWidthsTest, ZeroNaturalWidths)
+{
+    std::pmr::vector<float> natural = { 0.0f, 0.0f };
     auto widths = ComputeColumnWidths(natural, 200.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
     // それでも有効な幅を生成すること
@@ -465,59 +497,66 @@ TEST(ComputeColumnWidthsTest, ZeroNaturalWidths) {
 
 // ---- BuildLinearizedTableText テスト ----
 
-TEST(BuildLinearizedTableTextTest, EmptyRows) {
+TEST(BuildLinearizedTableTextTest, EmptyRows)
+{
     std::pmr::vector<TableRow> rows;
     auto text = BuildLinearizedTableText(rows);
     EXPECT_TRUE(text.empty());
 }
 
-TEST(BuildLinearizedTableTextTest, SingleCell) {
+TEST(BuildLinearizedTableTextTest, SingleCell)
+{
     TableRow row;
-    row.cells.emplace_back(TableCell{L"hello"});
-    auto text = BuildLinearizedTableText({row});
+    row.cells.emplace_back(TableCell{ L"hello" });
+    auto text = BuildLinearizedTableText({ row });
     EXPECT_EQ(text, L"hello");
 }
 
-TEST(BuildLinearizedTableTextTest, TabSeparatedCells) {
+TEST(BuildLinearizedTableTextTest, TabSeparatedCells)
+{
     TableRow row;
-    row.cells.emplace_back(TableCell{L"A"});
-    row.cells.emplace_back(TableCell{L"B"});
-    row.cells.emplace_back(TableCell{L"C"});
-    auto text = BuildLinearizedTableText({row});
+    row.cells.emplace_back(TableCell{ L"A" });
+    row.cells.emplace_back(TableCell{ L"B" });
+    row.cells.emplace_back(TableCell{ L"C" });
+    auto text = BuildLinearizedTableText({ row });
     EXPECT_EQ(text, L"A\tB\tC");
 }
 
-TEST(BuildLinearizedTableTextTest, NewlineSeparatedRows) {
+TEST(BuildLinearizedTableTextTest, NewlineSeparatedRows)
+{
     TableRow row1;
-    row1.cells.emplace_back(TableCell{L"A"});
-    row1.cells.emplace_back(TableCell{L"B"});
+    row1.cells.emplace_back(TableCell{ L"A" });
+    row1.cells.emplace_back(TableCell{ L"B" });
     TableRow row2;
-    row2.cells.emplace_back(TableCell{L"1"});
-    row2.cells.emplace_back(TableCell{L"2"});
-    auto text = BuildLinearizedTableText({row1, row2});
+    row2.cells.emplace_back(TableCell{ L"1" });
+    row2.cells.emplace_back(TableCell{ L"2" });
+    auto text = BuildLinearizedTableText({ row1, row2 });
     EXPECT_EQ(text, L"A\tB\n1\t2");
 }
 
-TEST(BuildLinearizedTableTextTest, NoTrailingNewline) {
+TEST(BuildLinearizedTableTextTest, NoTrailingNewline)
+{
     TableRow row;
-    row.cells.emplace_back(TableCell{L"x"});
-    auto text = BuildLinearizedTableText({row});
+    row.cells.emplace_back(TableCell{ L"x" });
+    auto text = BuildLinearizedTableText({ row });
     EXPECT_FALSE(text.empty());
     EXPECT_NE(text.back(), L'\n');
 }
 
-TEST(BuildLinearizedTableTextTest, EmptyCells) {
+TEST(BuildLinearizedTableTextTest, EmptyCells)
+{
     TableRow row;
-    row.cells.emplace_back(TableCell{L""});
-    row.cells.emplace_back(TableCell{L"B"});
-    row.cells.emplace_back(TableCell{L""});
-    auto text = BuildLinearizedTableText({row});
+    row.cells.emplace_back(TableCell{ L"" });
+    row.cells.emplace_back(TableCell{ L"B" });
+    row.cells.emplace_back(TableCell{ L"" });
+    auto text = BuildLinearizedTableText({ row });
     EXPECT_EQ(text, L"\tB\t");
 }
 
 // ---- RecomputeYPositions テスト ----
 
-TEST(RecomputeYPositionsTest, EmptyNodes) {
+TEST(RecomputeYPositionsTest, EmptyNodes)
+{
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     Theme theme = GetLightTheme();
@@ -528,13 +567,15 @@ TEST(RecomputeYPositionsTest, EmptyNodes) {
 
 // ---- ComputeTotalContentHeight テスト ----
 
-TEST(ComputeTotalContentHeightTest, EmptyNodesReturnsZero) {
+TEST(ComputeTotalContentHeightTest, EmptyNodesReturnsZero)
+{
     LayoutCache cache;
     // node_count == 0 で size_t のアンダーフローが起きないこと。0を返すべき。
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 0, 10.0f), 0.0f);
 }
 
-TEST(ComputeTotalContentHeightTest, SingleNode) {
+TEST(ComputeTotalContentHeightTest, SingleNode)
+{
     LayoutCache cache;
     cache.Resize(1);
     cache[0].y_position = 15.0f;
@@ -542,7 +583,8 @@ TEST(ComputeTotalContentHeightTest, SingleNode) {
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 1, 15.0f), 80.0f);
 }
 
-TEST(ComputeTotalContentHeightTest, MultipleNodes) {
+TEST(ComputeTotalContentHeightTest, MultipleNodes)
+{
     LayoutCache cache;
     cache.Resize(3);
     cache[0].y_position = 10.0f;  cache[0].height = 20.0f;
@@ -552,7 +594,8 @@ TEST(ComputeTotalContentHeightTest, MultipleNodes) {
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 3, 10.0f), 115.0f);
 }
 
-TEST(RecomputeYPositionsTest, SingleParagraph) {
+TEST(RecomputeYPositionsTest, SingleParagraph)
+{
     Node node;
     node.type = NodeType::Paragraph;
     std::pmr::vector<Node> nodes;
@@ -569,7 +612,8 @@ TEST(RecomputeYPositionsTest, SingleParagraph) {
     EXPECT_FALSE(result.has_dirty_nodes);
 }
 
-TEST(RecomputeYPositionsTest, HeadingSpacing) {
+TEST(RecomputeYPositionsTest, HeadingSpacing)
+{
     Node para;
     para.type = NodeType::Paragraph;
 
@@ -606,7 +650,8 @@ TEST(RecomputeYPositionsTest, HeadingSpacing) {
     EXPECT_FLOAT_EQ(cache[2].y_position, heading_bottom);
 }
 
-TEST(RecomputeYPositionsTest, DetectsDirtyNodes) {
+TEST(RecomputeYPositionsTest, DetectsDirtyNodes)
+{
     Node clean;
     clean.type = NodeType::Paragraph;
 
@@ -629,7 +674,8 @@ TEST(RecomputeYPositionsTest, DetectsDirtyNodes) {
     EXPECT_TRUE(result.has_dirty_nodes);
 }
 
-TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY) {
+TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY)
+{
     std::pmr::vector<Node> nodes;
     for (int i = 0; i < 10; i++) {
         Node node;
@@ -652,7 +698,8 @@ TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY) {
 
 // ---- EnsureVisibleLayout テスト ----
 
-TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes) {
+TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
+{
     // 複数の段落を作成し、ある幅でフルレイアウトを実行
     std::string md;
     for (int i = 0; i < 20; i++) {
@@ -689,7 +736,8 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes) {
     }
 }
 
-TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean) {
+TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean)
+{
     auto nodes = ParseMarkdown("Hello world");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -700,7 +748,8 @@ TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean) {
     EXPECT_FALSE(updated);
 }
 
-TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes) {
+TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes)
+{
     std::string md;
     for (int i = 0; i < 30; i++) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
@@ -729,7 +778,8 @@ TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes) {
     EXPECT_LE(dirty_after, dirty_before);
 }
 
-TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions) {
+TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions)
+{
     std::string md;
     for (int i = 0; i < 10; i++) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
@@ -753,7 +803,8 @@ TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions) {
     }
 }
 
-TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight) {
+TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
+{
     std::string md;
     for (int i = 0; i < 10; i++) {
         md += "Paragraph " + std::to_string(i) + "\n\n";
@@ -775,7 +826,8 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight) {
 
 // ---- RecomputeYPositions 追加テスト ----
 
-TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing) {
+TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing)
+{
     Theme theme = GetLightTheme();
     Node h1;
     h1.type = NodeType::Heading;
@@ -800,11 +852,12 @@ TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing) {
 
     // 2番目の見出し: 最初の見出しの後 + heading_spacing_below + heading_spacing_above
     float expected_y = cache[0].y_position + cache[0].height
-                     + theme.heading_spacing_below + theme.heading_spacing_above;
+        + theme.heading_spacing_below + theme.heading_spacing_above;
     EXPECT_FLOAT_EQ(cache[1].y_position, expected_y);
 }
 
-TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions) {
+TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
+{
     Theme theme = GetLightTheme();
     std::pmr::vector<Node> nodes;
 
@@ -824,7 +877,7 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions) {
 
     LayoutCache cache;
     cache.Resize(nodes.size());
-    float heights[] = {20.0f, 30.0f, 50.0f, 5.0f, 18.0f, 25.0f, 60.0f};
+    float heights[] = { 20.0f, 30.0f, 50.0f, 5.0f, 18.0f, 25.0f, 60.0f };
     for (size_t i = 0; i < nodes.size(); i++) {
         cache[i].height = heights[i];
         cache[i].layout_dirty = false;
@@ -844,7 +897,8 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions) {
 
 // ---- FindFirstVisibleNodeIndex テスト（layout_cache.h のフリー関数） ----
 
-static LayoutCache MakeSimpleCache(int count, float node_height) {
+static LayoutCache MakeSimpleCache(int count, float node_height)
+{
     LayoutCache cache;
     cache.Resize(count);
     float y = 0.0f;
@@ -856,43 +910,50 @@ static LayoutCache MakeSimpleCache(int count, float node_height) {
     return cache;
 }
 
-TEST(FindFirstVisibleNodeIndex, AtStart) {
+TEST(FindFirstVisibleNodeIndex, AtStart)
+{
     auto cache = MakeSimpleCache(10, 50.0f);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 0.0f), 0);
 }
 
-TEST(FindFirstVisibleNodeIndex, MidDocument) {
+TEST(FindFirstVisibleNodeIndex, MidDocument)
+{
     auto cache = MakeSimpleCache(10, 50.0f);
     // viewport_top = 120 → ノード2 (y=100, bottom=150) が最初の可視ノード
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 120.0f), 2);
 }
 
-TEST(FindFirstVisibleNodeIndex, ExactBoundary) {
+TEST(FindFirstVisibleNodeIndex, ExactBoundary)
+{
     auto cache = MakeSimpleCache(10, 50.0f);
     // viewport_top = 50 → ノード0はy=50で終了、ノード1はy=50で開始
     // ノード0の下端(50) == viewport_top(50)なので除外される
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 50.0f), 1);
 }
 
-TEST(FindFirstVisibleNodeIndex, PastEnd) {
+TEST(FindFirstVisibleNodeIndex, PastEnd)
+{
     auto cache = MakeSimpleCache(5, 50.0f);
     // viewport_top = 300、すべてのノードはy=250で終了
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 5, 300.0f), 5);
 }
 
-TEST(FindFirstVisibleNodeIndex, EmptyCache) {
+TEST(FindFirstVisibleNodeIndex, EmptyCache)
+{
     LayoutCache cache;
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 0, 0.0f), 0);
 }
 
-TEST(FindFirstVisibleNodeIndex, SingleNode) {
+TEST(FindFirstVisibleNodeIndex, SingleNode)
+{
     auto cache = MakeSimpleCache(1, 100.0f);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 0.0f), 0);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 50.0f), 0);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 100.0f), 1); // ノードを過ぎた位置
 }
 
-TEST(FindFirstVisibleNodeIndex, LastNodeVisible) {
+TEST(FindFirstVisibleNodeIndex, LastNodeVisible)
+{
     auto cache = MakeSimpleCache(10, 50.0f);
     // viewport_top = 449 → ノード8は450で終了、まだ可視
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 449.0f), 8);
@@ -900,7 +961,8 @@ TEST(FindFirstVisibleNodeIndex, LastNodeVisible) {
 
 // ---- コードブロックの上下マージン ----
 
-TEST(RecomputeYPositionsTest, CodeBlockHasSpacingAbove) {
+TEST(RecomputeYPositionsTest, CodeBlockHasSpacingAbove)
+{
     Theme theme = GetLightTheme();
     Node para;
     para.type = NodeType::Paragraph;
@@ -925,7 +987,8 @@ TEST(RecomputeYPositionsTest, CodeBlockHasSpacingAbove) {
     EXPECT_FLOAT_EQ(gap, theme.paragraph_spacing + theme.code_block_spacing_above);
 }
 
-TEST(RecomputeYPositionsTest, CodeBlockHasSpacingBelow) {
+TEST(RecomputeYPositionsTest, CodeBlockHasSpacingBelow)
+{
     Theme theme = GetLightTheme();
     Node code;
     code.type = NodeType::CodeBlock;
@@ -952,7 +1015,8 @@ TEST(RecomputeYPositionsTest, CodeBlockHasSpacingBelow) {
 
 // ---- 引用ブロックの上部マージン ----
 
-TEST(RecomputeYPositionsTest, BlockQuoteHasSpacingAbove) {
+TEST(RecomputeYPositionsTest, BlockQuoteHasSpacingAbove)
+{
     Theme theme = GetLightTheme();
     Node para;
     para.type = NodeType::Paragraph;
@@ -979,7 +1043,8 @@ TEST(RecomputeYPositionsTest, BlockQuoteHasSpacingAbove) {
 
 // ---- リスト項目のスペーシング ----
 
-TEST(RecomputeYPositionsTest, ListItemUsesListItemSpacing) {
+TEST(RecomputeYPositionsTest, ListItemUsesListItemSpacing)
+{
     Theme theme = GetLightTheme();
     Node li1;
     li1.type = NodeType::ListItem;
@@ -1002,7 +1067,8 @@ TEST(RecomputeYPositionsTest, ListItemUsesListItemSpacing) {
     EXPECT_FLOAT_EQ(gap, theme.list_item_spacing);
 }
 
-TEST(RecomputeYPositionsTest, TaskListItemUsesListItemSpacing) {
+TEST(RecomputeYPositionsTest, TaskListItemUsesListItemSpacing)
+{
     Theme theme = GetLightTheme();
     Node tli1;
     tli1.type = NodeType::TaskListItem;
@@ -1027,7 +1093,8 @@ TEST(RecomputeYPositionsTest, TaskListItemUsesListItemSpacing) {
 
 // ---- from_index による途中再開 ----
 
-TEST(RecomputeYPositionsTest, FromIndexCodeBlock) {
+TEST(RecomputeYPositionsTest, FromIndexCodeBlock)
+{
     Theme theme = GetLightTheme();
     Node code;
     code.type = NodeType::CodeBlock;
@@ -1053,7 +1120,8 @@ TEST(RecomputeYPositionsTest, FromIndexCodeBlock) {
     EXPECT_FLOAT_EQ(cache[1].y_position, expected_y1);
 }
 
-TEST(RecomputeYPositionsTest, FromIndexListItem) {
+TEST(RecomputeYPositionsTest, FromIndexListItem)
+{
     Theme theme = GetLightTheme();
     Node li;
     li.type = NodeType::ListItem;
@@ -1081,7 +1149,8 @@ TEST(RecomputeYPositionsTest, FromIndexListItem) {
 
 // ---- 見出し内インラインコードのフォントサイズ ----
 
-TEST_F(LayoutTest, InlineCodeInHeadingAllLevels) {
+TEST_F(LayoutTest, InlineCodeInHeadingAllLevels)
+{
     for (int level = 1; level <= 6; ++level) {
         std::string md(level, '#');
         md += " Test `code`";
@@ -1111,7 +1180,8 @@ TEST_F(LayoutTest, InlineCodeInHeadingAllLevels) {
     }
 }
 
-TEST_F(LayoutTest, InlineCodeInParagraphUsesCodeFontSize) {
+TEST_F(LayoutTest, InlineCodeInParagraphUsesCodeFontSize)
+{
     // 段落内のインラインコードは従来通り font_size_code を使うこと
     auto nodes = ParseMarkdown("Hello `code` world");
     LayoutCache cache;
@@ -1133,7 +1203,8 @@ TEST_F(LayoutTest, InlineCodeInParagraphUsesCodeFontSize) {
     }
 }
 
-TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont) {
+TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont)
+{
     // 見出し内のインラインコードはフォントサイズは見出しと同じだが、フォントファミリーはモノスペースであること
     auto nodes = ParseMarkdown("# Hello `code`");
     LayoutCache cache;
@@ -1156,7 +1227,8 @@ TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont) {
     }
 }
 
-TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout) {
+TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
+{
     auto nodes = ParseMarkdown("- Item text here");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -1172,8 +1244,8 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout) {
 
     CommandGenerator gen;
     gen.SetTheme(&theme_);
-    gen.SetFormats({nullptr, nullptr, nullptr});
-    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    gen.SetFormats({ nullptr, nullptr, nullptr });
+    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     for (const auto& cmd : cmds) {

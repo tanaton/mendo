@@ -20,7 +20,8 @@ using Microsoft::WRL::ComPtr;
 // パーサーテスト: 画像ノードの生成
 // ============================================================
 
-TEST(ParserImage, ImageOnlyParagraphBecomesImageNode) {
+TEST(ParserImage, ImageOnlyParagraphBecomesImageNode)
+{
     auto nodes = ParseMarkdown("![alt text](image.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
@@ -28,28 +29,32 @@ TEST(ParserImage, ImageOnlyParagraphBecomesImageNode) {
     EXPECT_EQ(nodes[0].text, L"alt text");
 }
 
-TEST(ParserImage, ImageWithRelativePath) {
+TEST(ParserImage, ImageWithRelativePath)
+{
     auto nodes = ParseMarkdown("![photo](./images/photo.jpg)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data->src, L"./images/photo.jpg");
 }
 
-TEST(ParserImage, ImageWithAbsolutePath) {
+TEST(ParserImage, ImageWithAbsolutePath)
+{
     auto nodes = ParseMarkdown("![img](C:/Users/test/pic.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data->src, L"C:/Users/test/pic.png");
 }
 
-TEST(ParserImage, ImageWithHttpUrl) {
+TEST(ParserImage, ImageWithHttpUrl)
+{
     auto nodes = ParseMarkdown("![logo](https://example.com/logo.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data->src, L"https://example.com/logo.png");
 }
 
-TEST(ParserImage, ImageWithEmptyAlt) {
+TEST(ParserImage, ImageWithEmptyAlt)
+{
     auto nodes = ParseMarkdown("![](image.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
@@ -57,20 +62,23 @@ TEST(ParserImage, ImageWithEmptyAlt) {
     EXPECT_TRUE(nodes[0].text.empty());
 }
 
-TEST(ParserImage, ImageWithTitle) {
+TEST(ParserImage, ImageWithTitle)
+{
     auto nodes = ParseMarkdown("![alt](image.png \"My Title\")");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data->src, L"image.png");
 }
 
-TEST(ParserImage, ImageAltTextPreserved) {
+TEST(ParserImage, ImageAltTextPreserved)
+{
     auto nodes = ParseMarkdown("![Hello World](pic.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].text, L"Hello World");
 }
 
-TEST(ParserImage, ImageDefaultDimensionsZero) {
+TEST(ParserImage, ImageDefaultDimensionsZero)
+{
     auto nodes = ParseMarkdown("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_FLOAT_EQ(nodes[0].image_data->width, 0.0f);
@@ -79,7 +87,8 @@ TEST(ParserImage, ImageDefaultDimensionsZero) {
 
 // ---- 画像が段落に混在するケース ----
 
-TEST(ParserImage, ImageWithSurroundingTextStillConverts) {
+TEST(ParserImage, ImageWithSurroundingTextStillConverts)
+{
     // 現在の実装では、画像を含む段落は全体がImageノードに変換される
     auto nodes = ParseMarkdown("before ![alt](img.png) after");
     ASSERT_EQ(nodes.size(), 1u);
@@ -87,7 +96,8 @@ TEST(ParserImage, ImageWithSurroundingTextStillConverts) {
     EXPECT_EQ(nodes[0].image_data->src, L"img.png");
 }
 
-TEST(ParserImage, MultipleImagesLastOneWins) {
+TEST(ParserImage, MultipleImagesLastOneWins)
+{
     auto nodes = ParseMarkdown("![a](first.png) ![b](second.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
@@ -97,14 +107,16 @@ TEST(ParserImage, MultipleImagesLastOneWins) {
 
 // ---- ブロック要素内の画像 ----
 
-TEST(ParserImage, ImageInBlockquoteBecomesImageNode) {
+TEST(ParserImage, ImageInBlockquoteBecomesImageNode)
+{
     auto nodes = ParseMarkdown("> ![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data->src, L"img.png");
 }
 
-TEST(ParserImage, ImageInTightListStaysListItem) {
+TEST(ParserImage, ImageInTightListStaysListItem)
+{
     // タイトリスト内の画像はP生成されないため、ListItem のまま
     auto nodes = ParseMarkdown("- ![alt](img.png)");
     ASSERT_GE(nodes.size(), 1u);
@@ -114,7 +126,8 @@ TEST(ParserImage, ImageInTightListStaysListItem) {
     EXPECT_EQ(nodes[0].image_data->src, L"img.png");
 }
 
-TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph) {
+TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph)
+{
     // 画像を含むリスト項目の後の段落が Image に変換されないこと
     auto nodes = ParseMarkdown("- ![alt](img.png)\n\nNormal paragraph");
     bool found_para = false;
@@ -128,7 +141,8 @@ TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph) {
     EXPECT_TRUE(found_para) << "後続の段落ノードが存在すること";
 }
 
-TEST(ParserImage, ImageInTaskListStaysTaskListItem) {
+TEST(ParserImage, ImageInTaskListStaysTaskListItem)
+{
     auto nodes = ParseMarkdown("- [x] ![alt](img.png)");
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
@@ -136,14 +150,16 @@ TEST(ParserImage, ImageInTaskListStaysTaskListItem) {
 
 // ---- 画像がない場合 ----
 
-TEST(ParserImage, ParagraphWithoutImageStaysParagraph) {
+TEST(ParserImage, ParagraphWithoutImageStaysParagraph)
+{
     auto nodes = ParseMarkdown("Just text");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_FALSE(nodes[0].has_image());
 }
 
-TEST(ParserImage, LinkDoesNotTriggerImage) {
+TEST(ParserImage, LinkDoesNotTriggerImage)
+{
     auto nodes = ParseMarkdown("[link text](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
@@ -152,7 +168,8 @@ TEST(ParserImage, LinkDoesNotTriggerImage) {
 
 // ---- 複数ノード内の画像 ----
 
-TEST(ParserImage, ImageBetweenParagraphs) {
+TEST(ParserImage, ImageBetweenParagraphs)
+{
     auto nodes = ParseMarkdown("Before\n\n![alt](img.png)\n\nAfter");
     ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
@@ -160,7 +177,8 @@ TEST(ParserImage, ImageBetweenParagraphs) {
     EXPECT_EQ(nodes[2].type, NodeType::Paragraph);
 }
 
-TEST(ParserImage, MultipleImageParagraphs) {
+TEST(ParserImage, MultipleImageParagraphs)
+{
     auto nodes = ParseMarkdown("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)");
     ASSERT_EQ(nodes.size(), 3u);
     for (size_t i = 0; i < 3; i++) {
@@ -173,21 +191,24 @@ TEST(ParserImage, MultipleImageParagraphs) {
 
 // ---- エッジケース ----
 
-TEST(ParserImage, ImageWithSpecialCharsInPath) {
+TEST(ParserImage, ImageWithSpecialCharsInPath)
+{
     auto nodes = ParseMarkdown("![alt](path%20with%20spaces/img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data->src, L"path%20with%20spaces/img.png");
 }
 
-TEST(ParserImage, ImageWithJapaneseAltText) {
+TEST(ParserImage, ImageWithJapaneseAltText)
+{
     auto nodes = ParseMarkdown("![日本語のaltテキスト](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].text, L"日本語のaltテキスト");
 }
 
-TEST(ParserImage, ImageWithJapanesePath) {
+TEST(ParserImage, ImageWithJapanesePath)
+{
     auto nodes = ParseMarkdown("![alt](画像/テスト.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].image_data->src, L"画像/テスト.png");
@@ -203,13 +224,15 @@ protected:
     LayoutEngine engine_;
     Theme theme_;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         theme_ = GetLightTheme();
         ASSERT_TRUE(engine_.Init(&mock_, theme_));
     }
 };
 
-TEST_F(ImageLayoutTest, ImagePlaceholderHeight) {
+TEST_F(ImageLayoutTest, ImagePlaceholderHeight)
+{
     auto nodes = ParseMarkdown("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
@@ -222,7 +245,8 @@ TEST_F(ImageLayoutTest, ImagePlaceholderHeight) {
     EXPECT_FALSE(cache[0].layout_dirty);
 }
 
-TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight) {
+TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight)
+{
     auto nodes = ParseMarkdown("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     // 画像読み込み後のサイズをシミュレート
@@ -237,7 +261,8 @@ TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight) {
     EXPECT_FLOAT_EQ(cache[0].height, 300.0f);
 }
 
-TEST_F(ImageLayoutTest, WideImageScaledDown) {
+TEST_F(ImageLayoutTest, WideImageScaledDown)
+{
     auto nodes = ParseMarkdown("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     // コンテンツ幅より大きい画像
@@ -253,7 +278,8 @@ TEST_F(ImageLayoutTest, WideImageScaledDown) {
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
-TEST_F(ImageLayoutTest, SmallImageNotScaledUp) {
+TEST_F(ImageLayoutTest, SmallImageNotScaledUp)
+{
     auto nodes = ParseMarkdown("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     nodes[0].image_data->width = 100.0f;
@@ -267,7 +293,8 @@ TEST_F(ImageLayoutTest, SmallImageNotScaledUp) {
     EXPECT_FLOAT_EQ(cache[0].height, 80.0f);
 }
 
-TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange) {
+TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
+{
     auto nodes = ParseMarkdown("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     nodes[0].image_data->width = 1600.0f;
@@ -287,7 +314,8 @@ TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange) {
     EXPECT_LT(h_narrow, h_wide);
 }
 
-TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap) {
+TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
+{
     auto nodes = ParseMarkdown("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)");
     for (auto& n : nodes) {
         n.image_data->width = 200.0f;
@@ -304,7 +332,8 @@ TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap) {
     }
 }
 
-TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap) {
+TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
+{
     auto nodes = ParseMarkdown("Text before\n\n![alt](img.png)\n\nText after");
     ASSERT_EQ(nodes.size(), 3u);
     nodes[1].image_data->width = 400.0f;
@@ -320,7 +349,8 @@ TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap) {
     }
 }
 
-TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder) {
+TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
+{
     auto nodes = ParseMarkdown("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     // image_width/heightはデフォルトの0.0f
@@ -333,7 +363,8 @@ TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder) {
     EXPECT_GT(cache[0].height, 0.0f) << "プレースホルダー高さが設定されるべき";
 }
 
-TEST_F(ImageLayoutTest, ImageAspectRatioPreserved) {
+TEST_F(ImageLayoutTest, ImageAspectRatioPreserved)
+{
     auto nodes = ParseMarkdown("![alt](img.png)");
     nodes[0].image_data->width = 1000.0f;
     nodes[0].image_data->height = 500.0f;
@@ -363,16 +394,19 @@ protected:
     ImageLoader loader_;
     std::filesystem::path temp_dir_;
 
-    static void SetUpTestSuite() {
+    static void SetUpTestSuite()
+    {
         HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         ASSERT_TRUE(SUCCEEDED(hr)) << "COM初期化に失敗";
     }
 
-    static void TearDownTestSuite() {
+    static void TearDownTestSuite()
+    {
         CoUninitialize();
     }
 
-    void SetUp() override {
+    void SetUp() override
+    {
         // D2Dファクトリ作成
         HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
             d2d_factory_.GetAddressOf());
@@ -402,7 +436,8 @@ protected:
         std::filesystem::create_directories(temp_dir_);
     }
 
-    void TearDown() override {
+    void TearDown() override
+    {
         loader_.ClearCache();
         std::error_code ec;
         std::filesystem::remove_all(temp_dir_, ec);
@@ -483,14 +518,16 @@ protected:
         return SUCCEEDED(hr);
     }
 
-    std::wstring GetTestImagePath(const std::wstring& filename) {
+    std::wstring GetTestImagePath(const std::wstring& filename)
+    {
         return (temp_dir_ / filename).wstring();
     }
 };
 
 // ---- 正常系: 画像フォーマット ----
 
-TEST_F(ImageLoaderTest, LoadPng) {
+TEST_F(ImageLoaderTest, LoadPng)
+{
     ASSERT_TRUE(CreateTestImage(L"test.png", GUID_ContainerFormatPng, 100, 80));
     DiagramEntry entry;
     EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"test.png"), entry));
@@ -499,7 +536,8 @@ TEST_F(ImageLoaderTest, LoadPng) {
     EXPECT_FLOAT_EQ(entry.height, 80.0f);
 }
 
-TEST_F(ImageLoaderTest, LoadBmp) {
+TEST_F(ImageLoaderTest, LoadBmp)
+{
     ASSERT_TRUE(CreateTestImage(L"test.bmp", GUID_ContainerFormatBmp, 50, 50));
     DiagramEntry entry;
     EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"test.bmp"), entry));
@@ -508,7 +546,8 @@ TEST_F(ImageLoaderTest, LoadBmp) {
     EXPECT_FLOAT_EQ(entry.height, 50.0f);
 }
 
-TEST_F(ImageLoaderTest, LoadJpeg) {
+TEST_F(ImageLoaderTest, LoadJpeg)
+{
     ASSERT_TRUE(CreateTestImage(L"test.jpg", GUID_ContainerFormatJpeg, 200, 150));
     DiagramEntry entry;
     EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"test.jpg"), entry));
@@ -517,7 +556,8 @@ TEST_F(ImageLoaderTest, LoadJpeg) {
     EXPECT_FLOAT_EQ(entry.height, 150.0f);
 }
 
-TEST_F(ImageLoaderTest, LoadLargeImage) {
+TEST_F(ImageLoaderTest, LoadLargeImage)
+{
     ASSERT_TRUE(CreateTestImage(L"large.png", GUID_ContainerFormatPng, 4096, 2048));
     DiagramEntry entry;
     EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"large.png"), entry));
@@ -526,7 +566,8 @@ TEST_F(ImageLoaderTest, LoadLargeImage) {
     EXPECT_FLOAT_EQ(entry.height, 2048.0f);
 }
 
-TEST_F(ImageLoaderTest, LoadOneByOneImage) {
+TEST_F(ImageLoaderTest, LoadOneByOneImage)
+{
     ASSERT_TRUE(CreateTestImage(L"tiny.png", GUID_ContainerFormatPng, 1, 1));
     DiagramEntry entry;
     EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"tiny.png"), entry));
@@ -537,7 +578,8 @@ TEST_F(ImageLoaderTest, LoadOneByOneImage) {
 
 // ---- 正常系: キャッシュ動作 ----
 
-TEST_F(ImageLoaderTest, CacheHitReturnsSameBitmap) {
+TEST_F(ImageLoaderTest, CacheHitReturnsSameBitmap)
+{
     ASSERT_TRUE(CreateTestImage(L"cached.png", GUID_ContainerFormatPng, 64, 64));
     auto path = GetTestImagePath(L"cached.png");
 
@@ -551,7 +593,8 @@ TEST_F(ImageLoaderTest, CacheHitReturnsSameBitmap) {
     EXPECT_EQ(entry1.bitmap.Get(), entry2.bitmap.Get());
 }
 
-TEST_F(ImageLoaderTest, DifferentPathsDifferentBitmaps) {
+TEST_F(ImageLoaderTest, DifferentPathsDifferentBitmaps)
+{
     ASSERT_TRUE(CreateTestImage(L"img1.png", GUID_ContainerFormatPng, 32, 32));
     ASSERT_TRUE(CreateTestImage(L"img2.png", GUID_ContainerFormatPng, 64, 64));
 
@@ -564,7 +607,8 @@ TEST_F(ImageLoaderTest, DifferentPathsDifferentBitmaps) {
     EXPECT_FLOAT_EQ(entry2.width, 64.0f);
 }
 
-TEST_F(ImageLoaderTest, ClearCacheInvalidatesEntries) {
+TEST_F(ImageLoaderTest, ClearCacheInvalidatesEntries)
+{
     ASSERT_TRUE(CreateTestImage(L"clear.png", GUID_ContainerFormatPng, 40, 40));
     auto path = GetTestImagePath(L"clear.png");
 
@@ -583,13 +627,15 @@ TEST_F(ImageLoaderTest, ClearCacheInvalidatesEntries) {
 
 // ---- 異常系: ファイルが存在しない ----
 
-TEST_F(ImageLoaderTest, NonExistentFileReturnsFalse) {
+TEST_F(ImageLoaderTest, NonExistentFileReturnsFalse)
+{
     DiagramEntry entry;
     EXPECT_FALSE(loader_.LoadImage(L"C:\\nonexistent\\path\\image.png", entry));
     EXPECT_FALSE(entry.bitmap);
 }
 
-TEST_F(ImageLoaderTest, EmptyPathReturnsFalse) {
+TEST_F(ImageLoaderTest, EmptyPathReturnsFalse)
+{
     DiagramEntry entry;
     EXPECT_FALSE(loader_.LoadImage(L"", entry));
     EXPECT_FALSE(entry.bitmap);
@@ -597,7 +643,8 @@ TEST_F(ImageLoaderTest, EmptyPathReturnsFalse) {
 
 // ---- 異常系: 壊れた画像ファイル ----
 
-TEST_F(ImageLoaderTest, CorruptedPngReturnsFalse) {
+TEST_F(ImageLoaderTest, CorruptedPngReturnsFalse)
+{
     auto path = temp_dir_ / L"corrupt.png";
     // PNGヘッダの途中で切れたデータ
     std::ofstream f(path, std::ios::binary);
@@ -609,7 +656,8 @@ TEST_F(ImageLoaderTest, CorruptedPngReturnsFalse) {
     EXPECT_FALSE(entry.bitmap);
 }
 
-TEST_F(ImageLoaderTest, EmptyFileReturnsFalse) {
+TEST_F(ImageLoaderTest, EmptyFileReturnsFalse)
+{
     auto path = temp_dir_ / L"empty.png";
     std::ofstream f(path, std::ios::binary);
     f.close();
@@ -619,7 +667,8 @@ TEST_F(ImageLoaderTest, EmptyFileReturnsFalse) {
     EXPECT_FALSE(entry.bitmap);
 }
 
-TEST_F(ImageLoaderTest, RandomBytesReturnsFalse) {
+TEST_F(ImageLoaderTest, RandomBytesReturnsFalse)
+{
     auto path = temp_dir_ / L"random.png";
     std::ofstream f(path, std::ios::binary);
     const char garbage[] = "This is not an image file at all!";
@@ -631,7 +680,8 @@ TEST_F(ImageLoaderTest, RandomBytesReturnsFalse) {
     EXPECT_FALSE(entry.bitmap);
 }
 
-TEST_F(ImageLoaderTest, TruncatedJpegReturnsFalse) {
+TEST_F(ImageLoaderTest, TruncatedJpegReturnsFalse)
+{
     // JPEG SOIマーカーのみの不完全データ
     auto path = temp_dir_ / L"truncated.jpg";
     std::ofstream f(path, std::ios::binary);
@@ -645,7 +695,8 @@ TEST_F(ImageLoaderTest, TruncatedJpegReturnsFalse) {
 
 // ---- 異常系: 非画像ファイル ----
 
-TEST_F(ImageLoaderTest, TextFileReturnsFalse) {
+TEST_F(ImageLoaderTest, TextFileReturnsFalse)
+{
     auto path = temp_dir_ / L"readme.txt";
     std::ofstream f(path);
     f << "Hello, World!";
@@ -656,7 +707,8 @@ TEST_F(ImageLoaderTest, TextFileReturnsFalse) {
     EXPECT_FALSE(entry.bitmap);
 }
 
-TEST_F(ImageLoaderTest, HtmlFileReturnsFalse) {
+TEST_F(ImageLoaderTest, HtmlFileReturnsFalse)
+{
     auto path = temp_dir_ / L"page.html";
     std::ofstream f(path);
     f << "<html><body>test</body></html>";
@@ -669,7 +721,8 @@ TEST_F(ImageLoaderTest, HtmlFileReturnsFalse) {
 
 // ---- 異常系: 未初期化の状態 ----
 
-TEST_F(ImageLoaderTest, UninitializedLoaderReturnsFalse) {
+TEST_F(ImageLoaderTest, UninitializedLoaderReturnsFalse)
+{
     ImageLoader uninitialized;
     ASSERT_TRUE(CreateTestImage(L"valid.png", GUID_ContainerFormatPng, 10, 10));
 
@@ -678,7 +731,8 @@ TEST_F(ImageLoaderTest, UninitializedLoaderReturnsFalse) {
     EXPECT_FALSE(entry.bitmap);
 }
 
-TEST_F(ImageLoaderTest, NullRenderTargetReturnsFalse) {
+TEST_F(ImageLoaderTest, NullRenderTargetReturnsFalse)
+{
     ImageLoader loader_null;
     loader_null.Init(nullptr);
 
@@ -688,7 +742,8 @@ TEST_F(ImageLoaderTest, NullRenderTargetReturnsFalse) {
 
 // ---- 異常系: エントリの状態保証 ----
 
-TEST_F(ImageLoaderTest, FailedLoadDoesNotModifyExistingEntry) {
+TEST_F(ImageLoaderTest, FailedLoadDoesNotModifyExistingEntry)
+{
     DiagramEntry entry;
     entry.width = 999.0f;
     entry.height = 888.0f;
@@ -704,12 +759,14 @@ TEST_F(ImageLoaderTest, FailedLoadDoesNotModifyExistingEntry) {
 
 // ---- GetCachedImage テスト ----
 
-TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseWhenNotCached) {
+TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseWhenNotCached)
+{
     DiagramEntry entry;
     EXPECT_FALSE(loader_.GetCachedImage(L"C:\\not_cached.png", entry));
 }
 
-TEST_F(ImageLoaderTest, GetCachedImageReturnsTrueAfterLoadImage) {
+TEST_F(ImageLoaderTest, GetCachedImageReturnsTrueAfterLoadImage)
+{
     ASSERT_TRUE(CreateTestImage(L"cached_test.png", GUID_ContainerFormatPng, 120, 90));
     auto path = GetTestImagePath(L"cached_test.png");
 
@@ -725,7 +782,8 @@ TEST_F(ImageLoaderTest, GetCachedImageReturnsTrueAfterLoadImage) {
     EXPECT_FLOAT_EQ(entry2.height, 90.0f);
 }
 
-TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseAfterClearCache) {
+TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseAfterClearCache)
+{
     ASSERT_TRUE(CreateTestImage(L"clear_test.png", GUID_ContainerFormatPng, 30, 30));
     auto path = GetTestImagePath(L"clear_test.png");
 
@@ -738,20 +796,23 @@ TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseAfterClearCache) {
 
 // ---- Shutdown テスト ----
 
-TEST_F(ImageLoaderTest, ShutdownWithoutInitAsyncIsNoOp) {
+TEST_F(ImageLoaderTest, ShutdownWithoutInitAsyncIsNoOp)
+{
     ImageLoader loader;
     loader.Init(render_target_.Get());
     loader.Shutdown();  // InitAsync 未呼び出しでもクラッシュしないこと
 }
 
-TEST_F(ImageLoaderTest, CancelPendingIsNoOp) {
+TEST_F(ImageLoaderTest, CancelPendingIsNoOp)
+{
     // CancelPending が空の状態でもクラッシュしないこと
     loader_.CancelPending();
 }
 
 // ---- ファイルロック回避テスト ----
 
-TEST_F(ImageLoaderTest, FileNotLockedAfterSyncLoad) {
+TEST_F(ImageLoaderTest, FileNotLockedAfterSyncLoad)
+{
     ASSERT_TRUE(CreateTestImage(L"lock_test.png", GUID_ContainerFormatPng, 64, 64));
     auto path = GetTestImagePath(L"lock_test.png");
 
@@ -768,7 +829,8 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterSyncLoad) {
     }
 }
 
-TEST_F(ImageLoaderTest, FileCanBeDeletedAfterLoad) {
+TEST_F(ImageLoaderTest, FileCanBeDeletedAfterLoad)
+{
     ASSERT_TRUE(CreateTestImage(L"deletable.png", GUID_ContainerFormatPng, 32, 32));
     auto path = GetTestImagePath(L"deletable.png");
 
@@ -781,7 +843,8 @@ TEST_F(ImageLoaderTest, FileCanBeDeletedAfterLoad) {
         << "画像読み込み後にファイルを削除できなかった: " << ec.message();
 }
 
-TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad) {
+TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
+{
     // 壊れた画像でも読み込み後にファイルがロックされないこと
     auto path = temp_dir_ / L"bad_lock.png";
     {
@@ -811,16 +874,19 @@ protected:
     ComPtr<IWICImagingFactory> wic_factory_;
     std::filesystem::path temp_dir_;
 
-    static void SetUpTestSuite() {
+    static void SetUpTestSuite()
+    {
         HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         ASSERT_TRUE(SUCCEEDED(hr)) << "COM初期化に失敗";
     }
 
-    static void TearDownTestSuite() {
+    static void TearDownTestSuite()
+    {
         CoUninitialize();
     }
 
-    void SetUp() override {
+    void SetUp() override
+    {
         HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
             d2d_factory_.GetAddressOf());
         ASSERT_TRUE(SUCCEEDED(hr));
@@ -835,13 +901,15 @@ protected:
         std::filesystem::create_directories(temp_dir_);
     }
 
-    void TearDown() override {
+    void TearDown() override
+    {
         std::error_code ec;
         std::filesystem::remove_all(temp_dir_, ec);
     }
 
     // 指定DPIのレンダーターゲットを作成
-    ComPtr<ID2D1RenderTarget> CreateRenderTargetWithDpi(float dpi) {
+    ComPtr<ID2D1RenderTarget> CreateRenderTargetWithDpi(float dpi)
+    {
         ComPtr<IWICBitmap> wic_bitmap;
         wic_factory_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA,
             WICBitmapCacheOnLoad, &wic_bitmap);
@@ -855,7 +923,8 @@ protected:
         return rt;
     }
 
-    bool CreateTestImage(const std::wstring& filename, UINT width, UINT height) {
+    bool CreateTestImage(const std::wstring& filename, UINT width, UINT height)
+    {
         auto path = temp_dir_ / filename;
         ComPtr<IWICBitmapEncoder> encoder;
         HRESULT hr = wic_factory_->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
@@ -892,12 +961,14 @@ protected:
         return SUCCEEDED(encoder->Commit());
     }
 
-    std::wstring GetTestImagePath(const std::wstring& filename) {
+    std::wstring GetTestImagePath(const std::wstring& filename)
+    {
         return (temp_dir_ / filename).wstring();
     }
 };
 
-TEST_F(ImageLoaderDpiTest, At96DpiSizeEqualsPixels) {
+TEST_F(ImageLoaderDpiTest, At96DpiSizeEqualsPixels)
+{
     auto rt = CreateRenderTargetWithDpi(96.0f);
     ASSERT_TRUE(rt);
 
@@ -912,7 +983,8 @@ TEST_F(ImageLoaderDpiTest, At96DpiSizeEqualsPixels) {
     EXPECT_FLOAT_EQ(entry.height, 100.0f);
 }
 
-TEST_F(ImageLoaderDpiTest, At144DpiSizeDividedByScale) {
+TEST_F(ImageLoaderDpiTest, At144DpiSizeDividedByScale)
+{
     // 150% スケーリング (144 DPI)
     auto rt = CreateRenderTargetWithDpi(144.0f);
     ASSERT_TRUE(rt);
@@ -928,7 +1000,8 @@ TEST_F(ImageLoaderDpiTest, At144DpiSizeDividedByScale) {
     EXPECT_NEAR(entry.height, 100.0f, 0.1f);
 }
 
-TEST_F(ImageLoaderDpiTest, At192DpiSizeDividedByScale) {
+TEST_F(ImageLoaderDpiTest, At192DpiSizeDividedByScale)
+{
     // 200% スケーリング (192 DPI)
     auto rt = CreateRenderTargetWithDpi(192.0f);
     ASSERT_TRUE(rt);
@@ -944,7 +1017,8 @@ TEST_F(ImageLoaderDpiTest, At192DpiSizeDividedByScale) {
     EXPECT_FLOAT_EQ(entry.height, 100.0f);
 }
 
-TEST_F(ImageLoaderDpiTest, At120DpiSizeDividedByScale) {
+TEST_F(ImageLoaderDpiTest, At120DpiSizeDividedByScale)
+{
     // 125% スケーリング (120 DPI)
     auto rt = CreateRenderTargetWithDpi(120.0f);
     ASSERT_TRUE(rt);
@@ -960,7 +1034,8 @@ TEST_F(ImageLoaderDpiTest, At120DpiSizeDividedByScale) {
     EXPECT_NEAR(entry.height, 80.0f, 0.1f);
 }
 
-TEST_F(ImageLoaderDpiTest, CacheReturnsDipSize) {
+TEST_F(ImageLoaderDpiTest, CacheReturnsDipSize)
+{
     auto rt = CreateRenderTargetWithDpi(144.0f);
     ASSERT_TRUE(rt);
 
@@ -992,11 +1067,13 @@ protected:
     // コールバック発火を検知するためのカウンター
     static std::atomic<int> callback_count_;
 
-    static void OnComplete(void* /*ctx*/) {
+    static void OnComplete(void* /*ctx*/)
+    {
         callback_count_.fetch_add(1);
     }
 
-    void SetUp() override {
+    void SetUp() override
+    {
         ImageLoaderTest::SetUp();
         callback_count_.store(0);
         scheduler_.Init(2);
@@ -1005,13 +1082,15 @@ protected:
         loader_.InitAsync(nullptr, 0, scheduler_);
     }
 
-    void TearDown() override {
+    void TearDown() override
+    {
         scheduler_.Shutdown();
         ImageLoaderTest::TearDown();
     }
 
     // ワーカーの処理完了を待つ（最大 timeout_ms ミリ秒）
-    bool WaitForResults(int expected_count, int timeout_ms = 5000) {
+    bool WaitForResults(int expected_count, int timeout_ms = 5000)
+    {
         auto deadline = std::chrono::steady_clock::now()
             + std::chrono::milliseconds(timeout_ms);
         while (std::chrono::steady_clock::now() < deadline) {
@@ -1027,9 +1106,10 @@ protected:
     }
 };
 
-std::atomic<int> ImageLoaderAsyncTest::callback_count_{0};
+std::atomic<int> ImageLoaderAsyncTest::callback_count_{ 0 };
 
-TEST_F(ImageLoaderAsyncTest, AsyncLoadPopulatesCache) {
+TEST_F(ImageLoaderAsyncTest, AsyncLoadPopulatesCache)
+{
     ASSERT_TRUE(CreateTestImage(L"async.png", GUID_ContainerFormatPng, 120, 90));
     auto path = GetTestImagePath(L"async.png");
 
@@ -1043,7 +1123,8 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadPopulatesCache) {
     EXPECT_FLOAT_EQ(entry.height, 90.0f);
 }
 
-TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored) {
+TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored)
+{
     ASSERT_TRUE(CreateTestImage(L"dup.png", GUID_ContainerFormatPng, 50, 50));
     auto path = GetTestImagePath(L"dup.png");
 
@@ -1057,7 +1138,8 @@ TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored) {
     EXPECT_EQ(callback_count_.load(), 1);
 }
 
-TEST_F(ImageLoaderAsyncTest, MultiplePathsAllCached) {
+TEST_F(ImageLoaderAsyncTest, MultiplePathsAllCached)
+{
     ASSERT_TRUE(CreateTestImage(L"a.png", GUID_ContainerFormatPng, 10, 10));
     ASSERT_TRUE(CreateTestImage(L"b.png", GUID_ContainerFormatPng, 20, 20));
     auto path_a = GetTestImagePath(L"a.png");
@@ -1076,7 +1158,8 @@ TEST_F(ImageLoaderAsyncTest, MultiplePathsAllCached) {
     EXPECT_FLOAT_EQ(entry_b.width, 20.0f);
 }
 
-TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad) {
+TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad)
+{
     ASSERT_TRUE(CreateTestImage(L"async_lock.png", GUID_ContainerFormatPng, 80, 60));
     auto path = GetTestImagePath(L"async_lock.png");
 
@@ -1093,7 +1176,8 @@ TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad) {
     }
 }
 
-TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent) {
+TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent)
+{
     // 非同期パスでも DPI 補正が適用されることを確認
     // 既存ローダーを停止し、144 DPI のレンダーターゲットで再初期化
     loader_.Shutdown();
@@ -1129,7 +1213,8 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent) {
     EXPECT_NEAR(entry.height, 100.0f, 0.1f);
 }
 
-TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue) {
+TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue)
+{
     ASSERT_TRUE(CreateTestImage(L"cancel.png", GUID_ContainerFormatPng, 30, 30));
     auto path = GetTestImagePath(L"cancel.png");
 
@@ -1147,7 +1232,8 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue) {
 
 // ---- スレッドプールテスト ----
 
-TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly) {
+TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)
+{
     // ワーカー数を超える画像を同時にリクエストし、全て正しくキャッシュされること
     constexpr int kImageCount = 8;
     std::vector<std::wstring> paths;
@@ -1174,7 +1260,8 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly) {
     }
 }
 
-TEST_F(ImageLoaderAsyncTest, ShutdownDuringHeavyLoad) {
+TEST_F(ImageLoaderAsyncTest, ShutdownDuringHeavyLoad)
+{
     // 大量のリクエスト中に Shutdown してもクラッシュしないこと
     constexpr int kImageCount = 10;
     for (int i = 0; i < kImageCount; ++i) {
@@ -1187,7 +1274,8 @@ TEST_F(ImageLoaderAsyncTest, ShutdownDuringHeavyLoad) {
     loader_.Shutdown();
 }
 
-TEST_F(ImageLoaderAsyncTest, ReinitAfterShutdownWithHeavyLoad) {
+TEST_F(ImageLoaderAsyncTest, ReinitAfterShutdownWithHeavyLoad)
+{
     // Shutdown 後に再度 InitAsync して正常に動作すること
     constexpr int kImageCount = 6;
     for (int i = 0; i < kImageCount; ++i) {
@@ -1217,7 +1305,8 @@ TEST_F(ImageLoaderAsyncTest, ReinitAfterShutdownWithHeavyLoad) {
     EXPECT_FLOAT_EQ(entry.height, 55.0f);
 }
 
-TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload) {
+TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
+{
     // 大量リクエスト中にキャンセルし、その後に新たなリクエストが処理されること
     constexpr int kImageCount = 8;
     for (int i = 0; i < kImageCount; ++i) {

@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 #include "document.h"
 
-TEST(DocumentTest, DefaultIsEmpty) {
+TEST(DocumentTest, DefaultIsEmpty)
+{
     Document doc;
     EXPECT_TRUE(doc.IsEmpty());
     EXPECT_TRUE(doc.GetFilePath().empty());
@@ -9,7 +10,8 @@ TEST(DocumentTest, DefaultIsEmpty) {
     EXPECT_TRUE(doc.GetToc().GetEntries().empty());
 }
 
-TEST(DocumentTest, FromMarkdownBasic) {
+TEST(DocumentTest, FromMarkdownBasic)
+{
     auto doc = Document::FromMarkdown("# Hello\nworld", L"C:\\test.md");
     EXPECT_FALSE(doc.IsEmpty());
     EXPECT_EQ(doc.GetFilePath(), L"C:\\test.md");
@@ -19,39 +21,46 @@ TEST(DocumentTest, FromMarkdownBasic) {
     EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"Hello");
 }
 
-TEST(DocumentTest, FromMarkdownEmpty) {
+TEST(DocumentTest, FromMarkdownEmpty)
+{
     auto doc = Document::FromMarkdown("", L"C:\\empty.md");
     EXPECT_TRUE(doc.IsEmpty());
     EXPECT_EQ(doc.GetFilePath(), L"C:\\empty.md");
 }
 
-TEST(DocumentTest, GetDirectory) {
+TEST(DocumentTest, GetDirectory)
+{
     auto doc = Document::FromMarkdown("test", L"C:\\dir\\sub\\file.md");
     EXPECT_EQ(doc.GetDirectory(), L"C:\\dir\\sub");
 }
 
-TEST(DocumentTest, GetDirectoryForwardSlash) {
+TEST(DocumentTest, GetDirectoryForwardSlash)
+{
     auto doc = Document::FromMarkdown("test", L"C:/dir/file.md");
     EXPECT_EQ(doc.GetDirectory(), L"C:/dir");
 }
 
-TEST(DocumentTest, GetDirectoryEmpty) {
+TEST(DocumentTest, GetDirectoryEmpty)
+{
     Document doc;
     EXPECT_TRUE(doc.GetDirectory().empty());
 }
 
-TEST(DocumentTest, GetDirectoryNoSlash) {
+TEST(DocumentTest, GetDirectoryNoSlash)
+{
     auto doc = Document::FromMarkdown("test", L"file.md");
     EXPECT_TRUE(doc.GetDirectory().empty());
 }
 
-TEST(DocumentTest, SetFilePath) {
+TEST(DocumentTest, SetFilePath)
+{
     Document doc;
     doc.SetFilePath(L"C:\\new\\path.md");
     EXPECT_EQ(doc.GetFilePath(), L"C:\\new\\path.md");
 }
 
-TEST(DocumentTest, ReplaceContent) {
+TEST(DocumentTest, ReplaceContent)
+{
     auto doc = Document::FromMarkdown("# First", L"C:\\test.md");
     EXPECT_FALSE(doc.GetToc().GetEntries().empty());
     EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"First");
@@ -67,7 +76,8 @@ TEST(DocumentTest, ReplaceContent) {
     EXPECT_EQ(doc.GetFilePath(), L"C:\\test.md");
 }
 
-TEST(DocumentTest, GetNodesMut) {
+TEST(DocumentTest, GetNodesMut)
+{
     auto doc = Document::FromMarkdown("hello", L"test.md");
     ASSERT_FALSE(doc.IsEmpty());
 
@@ -79,22 +89,26 @@ TEST(DocumentTest, GetNodesMut) {
 
 // ---- GetRawUtf8 ----
 
-TEST(DocumentTest, GetRawUtf8FromMarkdown) {
+TEST(DocumentTest, GetRawUtf8FromMarkdown)
+{
     auto doc = Document::FromMarkdown("# Hello\nworld", L"test.md");
     EXPECT_EQ(doc.GetRawUtf8(), "# Hello\nworld");
 }
 
-TEST(DocumentTest, GetRawUtf8Empty) {
+TEST(DocumentTest, GetRawUtf8Empty)
+{
     auto doc = Document::FromMarkdown("", L"test.md");
     EXPECT_TRUE(doc.GetRawUtf8().empty());
 }
 
-TEST(DocumentTest, GetRawUtf8Default) {
+TEST(DocumentTest, GetRawUtf8Default)
+{
     Document doc;
     EXPECT_TRUE(doc.GetRawUtf8().empty());
 }
 
-TEST(DocumentTest, GetRawUtf8AfterReplace) {
+TEST(DocumentTest, GetRawUtf8AfterReplace)
+{
     auto doc = Document::FromMarkdown("old content", L"test.md");
     EXPECT_EQ(doc.GetRawUtf8(), "old content");
 
@@ -102,13 +116,15 @@ TEST(DocumentTest, GetRawUtf8AfterReplace) {
     EXPECT_EQ(doc.GetRawUtf8(), "new content");
 }
 
-TEST(DocumentTest, GetRawUtf8Utf8Content) {
+TEST(DocumentTest, GetRawUtf8Utf8Content)
+{
     std::pmr::string utf8 = "# 日本語テスト\n\nこんにちは";
     auto doc = Document::FromMarkdown(utf8, L"test.md");
     EXPECT_EQ(doc.GetRawUtf8(), utf8);
 }
 
-TEST(DocumentTest, GetRawUtf8PreservedAcrossMultipleReplaces) {
+TEST(DocumentTest, GetRawUtf8PreservedAcrossMultipleReplaces)
+{
     auto doc = Document::FromMarkdown("v1", L"test.md");
     EXPECT_EQ(doc.GetRawUtf8(), "v1");
 
@@ -119,7 +135,8 @@ TEST(DocumentTest, GetRawUtf8PreservedAcrossMultipleReplaces) {
     EXPECT_EQ(doc.GetRawUtf8(), "v3");
 }
 
-TEST(DocumentTest, GetRawUtf8IndependentOfNodes) {
+TEST(DocumentTest, GetRawUtf8IndependentOfNodes)
+{
     // ノードの変更が raw_utf8_ に影響しないことを確認
     auto doc = Document::FromMarkdown("hello", L"test.md");
     doc.GetNodesMut()[0].text = L"modified";
@@ -127,7 +144,8 @@ TEST(DocumentTest, GetRawUtf8IndependentOfNodes) {
     EXPECT_EQ(doc.GetRawUtf8(), "hello");
 }
 
-TEST(DocumentTest, RawUtf8SourceOffsetConsistency) {
+TEST(DocumentTest, RawUtf8SourceOffsetConsistency)
+{
     // raw_utf8_ 内のオフセットがノードの source_offset と一致することを確認
     std::pmr::string md = "# Title\n\nBody text";
     auto doc = Document::FromMarkdown(md, L"test.md");

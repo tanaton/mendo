@@ -8,7 +8,8 @@ protected:
 
 // ─── 初期状態 ───
 
-TEST_F(MouseGestureTest, InitiallyIdle) {
+TEST_F(MouseGestureTest, InitiallyIdle)
+{
     EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
     EXPECT_EQ(gesture_.GetDirection(), GestureDirection::None);
     EXPECT_FALSE(gesture_.IsGestureActive());
@@ -18,7 +19,8 @@ TEST_F(MouseGestureTest, InitiallyIdle) {
 
 // ─── 小さな移動 → コンテキストメニュー ───
 
-TEST_F(MouseGestureTest, SmallMoveThenReleaseShowsContextMenu) {
+TEST_F(MouseGestureTest, SmallMoveThenReleaseShowsContextMenu)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Pressed);
 
@@ -34,7 +36,8 @@ TEST_F(MouseGestureTest, SmallMoveThenReleaseShowsContextMenu) {
 
 // ─── 移動なし → コンテキストメニュー ───
 
-TEST_F(MouseGestureTest, NoMoveThenReleaseShowsContextMenu) {
+TEST_F(MouseGestureTest, NoMoveThenReleaseShowsContextMenu)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     auto result = gesture_.OnRButtonUp();
     EXPECT_EQ(result, GestureResult::ShowContextMenu);
@@ -42,7 +45,8 @@ TEST_F(MouseGestureTest, NoMoveThenReleaseShowsContextMenu) {
 
 // ─── 右ジェスチャー → 進む ───
 
-TEST_F(MouseGestureTest, RightGestureReturnsForward) {
+TEST_F(MouseGestureTest, RightGestureReturnsForward)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     gesture_.OnMouseMove(200.0f, 100.0f);  // 右に100px
     EXPECT_TRUE(gesture_.IsGestureActive());
@@ -57,7 +61,8 @@ TEST_F(MouseGestureTest, RightGestureReturnsForward) {
 
 // ─── 左ジェスチャー → 戻る ───
 
-TEST_F(MouseGestureTest, LeftGestureReturnsBack) {
+TEST_F(MouseGestureTest, LeftGestureReturnsBack)
+{
     gesture_.OnRButtonDown(200.0f, 100.0f);
     gesture_.OnMouseMove(50.0f, 100.0f);  // 左に150px
     EXPECT_TRUE(gesture_.IsGestureActive());
@@ -71,7 +76,8 @@ TEST_F(MouseGestureTest, LeftGestureReturnsBack) {
 
 // ─── 垂直移動 → None ───
 
-TEST_F(MouseGestureTest, VerticalGestureReturnsNone) {
+TEST_F(MouseGestureTest, VerticalGestureReturnsNone)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     gesture_.OnMouseMove(100.0f, 200.0f);  // 下に100px
     // トラッキングに入るが、方向はNone（|dx| <= |dy|）
@@ -86,7 +92,8 @@ TEST_F(MouseGestureTest, VerticalGestureReturnsNone) {
 
 // ─── トラッキング中に方向が決定されたらオーバーレイ表示 ───
 
-TEST_F(MouseGestureTest, OverlayVisibleDuringTrackingWithDirection) {
+TEST_F(MouseGestureTest, OverlayVisibleDuringTrackingWithDirection)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     gesture_.OnMouseMove(200.0f, 100.0f);  // 右
     EXPECT_TRUE(gesture_.IsGestureActive());
@@ -94,14 +101,16 @@ TEST_F(MouseGestureTest, OverlayVisibleDuringTrackingWithDirection) {
     EXPECT_FLOAT_EQ(gesture_.GetOverlayAlpha(), 1.0f);
 }
 
-TEST_F(MouseGestureTest, OverlayHiddenDuringTrackingWithNoDirection) {
+TEST_F(MouseGestureTest, OverlayHiddenDuringTrackingWithNoDirection)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     gesture_.OnMouseMove(100.0f, 200.0f);  // 垂直 → 方向なし
     EXPECT_TRUE(gesture_.IsGestureActive());
     EXPECT_FALSE(gesture_.IsOverlayVisible());
 }
 
-TEST_F(MouseGestureTest, OverlayTogglesAsDirectionChanges) {
+TEST_F(MouseGestureTest, OverlayTogglesAsDirectionChanges)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     // 右に移動 → オーバーレイ表示
     gesture_.OnMouseMove(200.0f, 100.0f);
@@ -117,7 +126,8 @@ TEST_F(MouseGestureTest, OverlayTogglesAsDirectionChanges) {
     EXPECT_EQ(gesture_.GetDirection(), GestureDirection::Left);
 }
 
-TEST_F(MouseGestureTest, OverlayGoneAfterRButtonUp) {
+TEST_F(MouseGestureTest, OverlayGoneAfterRButtonUp)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     gesture_.OnMouseMove(200.0f, 100.0f);
     EXPECT_TRUE(gesture_.IsOverlayVisible());
@@ -129,7 +139,8 @@ TEST_F(MouseGestureTest, OverlayGoneAfterRButtonUp) {
 
 // ─── 斜め移動の閾値 ───
 
-TEST_F(MouseGestureTest, DiagonalWithMoreHorizontalIsDirectional) {
+TEST_F(MouseGestureTest, DiagonalWithMoreHorizontalIsDirectional)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     // 右に50px、下に20px → |dx| > |dy|、距離 > 閾値
     gesture_.OnMouseMove(150.0f, 120.0f);
@@ -138,7 +149,8 @@ TEST_F(MouseGestureTest, DiagonalWithMoreHorizontalIsDirectional) {
     EXPECT_TRUE(gesture_.IsOverlayVisible());
 }
 
-TEST_F(MouseGestureTest, DiagonalWithMoreVerticalIsNone) {
+TEST_F(MouseGestureTest, DiagonalWithMoreVerticalIsNone)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     // 右に20px、下に50px → |dx| <= |dy|
     gesture_.OnMouseMove(120.0f, 150.0f);
@@ -149,7 +161,8 @@ TEST_F(MouseGestureTest, DiagonalWithMoreVerticalIsNone) {
 
 // ─── 軌跡ポイントの蓄積 ───
 
-TEST_F(MouseGestureTest, TrailPointsAccumulate) {
+TEST_F(MouseGestureTest, TrailPointsAccumulate)
+{
     gesture_.OnRButtonDown(0.0f, 0.0f);
     EXPECT_EQ(gesture_.GetTrailPoints().size(), 1u);  // 開始点
 
@@ -165,7 +178,8 @@ TEST_F(MouseGestureTest, TrailPointsAccumulate) {
     EXPECT_GE(gesture_.GetTrailPoints().size(), 3u);
 }
 
-TEST_F(MouseGestureTest, TrailSubsamplingSkipsTinyMoves) {
+TEST_F(MouseGestureTest, TrailSubsamplingSkipsTinyMoves)
+{
     gesture_.OnRButtonDown(0.0f, 0.0f);
     gesture_.OnMouseMove(40.0f, 0.0f);  // トラッキング開始
 
@@ -180,7 +194,8 @@ TEST_F(MouseGestureTest, TrailSubsamplingSkipsTinyMoves) {
 
 // ─── リセットですべての状態をクリア ───
 
-TEST_F(MouseGestureTest, ResetClearsEverything) {
+TEST_F(MouseGestureTest, ResetClearsEverything)
+{
     gesture_.OnRButtonDown(100.0f, 100.0f);
     gesture_.OnMouseMove(200.0f, 100.0f);
     EXPECT_TRUE(gesture_.IsOverlayVisible());
@@ -196,14 +211,16 @@ TEST_F(MouseGestureTest, ResetClearsEverything) {
 
 // ─── Idle状態でRButtonUpするとNoneを返す ───
 
-TEST_F(MouseGestureTest, RButtonUpInIdleReturnsNone) {
+TEST_F(MouseGestureTest, RButtonUpInIdleReturnsNone)
+{
     auto result = gesture_.OnRButtonUp();
     EXPECT_EQ(result, GestureResult::None);
 }
 
 // ─── Idle状態でのMouseMoveは無視される ───
 
-TEST_F(MouseGestureTest, MouseMoveInIdleIsIgnored) {
+TEST_F(MouseGestureTest, MouseMoveInIdleIsIgnored)
+{
     gesture_.OnMouseMove(100.0f, 100.0f);
     EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
     EXPECT_TRUE(gesture_.GetTrailPoints().empty());

@@ -5,7 +5,8 @@
 #include "types.h"
 
 // ヘルパー: 等間隔に配置されたノードで単純なLayoutCacheを構築する。
-static LayoutCache MakeTestCache(int count, float node_height = 50.0f) {
+static LayoutCache MakeTestCache(int count, float node_height = 50.0f)
+{
     LayoutCache cache;
     cache.Resize(count);
     float y = 0.0f;
@@ -19,21 +20,24 @@ static LayoutCache MakeTestCache(int count, float node_height = 50.0f) {
 
 // ---- スクロールテスト ----
 
-TEST(ViewportManagerTest, ScrollToClampsToZero) {
+TEST(ViewportManagerTest, ScrollToClampsToZero)
+{
     ViewportManager vm;
     vm.SyncMaxScroll(1000.0f, 500.0f); // max_scroll = 500
     vm.ScrollTo(-100.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 0.0f);
 }
 
-TEST(ViewportManagerTest, ScrollToClampsToMax) {
+TEST(ViewportManagerTest, ScrollToClampsToMax)
+{
     ViewportManager vm;
     vm.SyncMaxScroll(1000.0f, 500.0f); // max_scroll = 500
     vm.ScrollTo(9999.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 500.0f);
 }
 
-TEST(ViewportManagerTest, SyncMaxScrollClampsExistingScroll) {
+TEST(ViewportManagerTest, SyncMaxScrollClampsExistingScroll)
+{
     ViewportManager vm;
     vm.SyncMaxScroll(1000.0f, 200.0f); // max = 800
     vm.ScrollTo(600.0f);
@@ -45,7 +49,8 @@ TEST(ViewportManagerTest, SyncMaxScrollClampsExistingScroll) {
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 300.0f);
 }
 
-TEST(ViewportManagerTest, SyncMaxScrollNoNegative) {
+TEST(ViewportManagerTest, SyncMaxScrollNoNegative)
+{
     ViewportManager vm;
     vm.SyncMaxScroll(100.0f, 500.0f); // コンテンツがビューポートより小さい
     EXPECT_FLOAT_EQ(vm.GetMaxScroll(), 0.0f);
@@ -53,7 +58,8 @@ TEST(ViewportManagerTest, SyncMaxScrollNoNegative) {
 
 // ---- スムーススクロールテスト ----
 
-TEST(ViewportManagerTest, SmoothScrollActivates) {
+TEST(ViewportManagerTest, SmoothScrollActivates)
+{
     ViewportManager vm;
     vm.SyncMaxScroll(1000.0f, 200.0f);
     EXPECT_FALSE(vm.IsSmoothScrolling());
@@ -63,7 +69,8 @@ TEST(ViewportManagerTest, SmoothScrollActivates) {
     EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 100.0f);
 }
 
-TEST(ViewportManagerTest, SmoothScrollConverges) {
+TEST(ViewportManagerTest, SmoothScrollConverges)
+{
     ViewportManager vm;
     vm.SyncMaxScroll(10000.0f, 200.0f);
     vm.SmoothScrollBy(400.0f);
@@ -78,14 +85,16 @@ TEST(ViewportManagerTest, SmoothScrollConverges) {
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 400.0f);
 }
 
-TEST(ViewportManagerTest, SmoothScrollClampedTarget) {
+TEST(ViewportManagerTest, SmoothScrollClampedTarget)
+{
     ViewportManager vm;
     vm.SyncMaxScroll(300.0f, 200.0f); // max = 100
     vm.SmoothScrollBy(9999.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 100.0f);
 }
 
-TEST(ViewportManagerTest, StopSmoothScroll) {
+TEST(ViewportManagerTest, StopSmoothScroll)
+{
     ViewportManager vm;
     vm.SyncMaxScroll(1000.0f, 200.0f);
     vm.SmoothScrollBy(200.0f);
@@ -98,7 +107,8 @@ TEST(ViewportManagerTest, StopSmoothScroll) {
 
 // ---- デルタタイム対応スムーススクロールテスト ----
 
-TEST(ViewportManagerTest, SmoothScrollWithDeltaTimeConverges) {
+TEST(ViewportManagerTest, SmoothScrollWithDeltaTimeConverges)
+{
     ViewportManager vm;
     vm.SyncMaxScroll(10000.0f, 200.0f);
     vm.SmoothScrollBy(400.0f);
@@ -115,7 +125,8 @@ TEST(ViewportManagerTest, SmoothScrollWithDeltaTimeConverges) {
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 400.0f);
 }
 
-TEST(ViewportManagerTest, SmoothScrollFrameRateIndependence) {
+TEST(ViewportManagerTest, SmoothScrollFrameRateIndependence)
+{
     // 同じスクロール量を異なるフレームレートで実行し、同一時間後のスクロール位置が近いことを確認
     auto simulate = [](float dt_ms, int frames) {
         ViewportManager vm;
@@ -135,7 +146,8 @@ TEST(ViewportManagerTest, SmoothScrollFrameRateIndependence) {
     EXPECT_NEAR(pos_60fps, pos_144fps, 1000.0f * 0.05f);
 }
 
-TEST(ViewportManagerTest, SmoothScrollReferenceDtMatchesLegacy) {
+TEST(ViewportManagerTest, SmoothScrollReferenceDtMatchesLegacy)
+{
     // 基準フレーム時間(16ms)での呼び出しは引数なし版と同一結果
     ViewportManager vm1, vm2;
     vm1.SyncMaxScroll(10000.0f, 200.0f);
@@ -150,7 +162,8 @@ TEST(ViewportManagerTest, SmoothScrollReferenceDtMatchesLegacy) {
     }
 }
 
-TEST(ViewportManagerTest, SmoothScrollLargeDeltaTimeClamped) {
+TEST(ViewportManagerTest, SmoothScrollLargeDeltaTimeClamped)
+{
     // 大きなデルタタイムでもクラッシュや発散しない
     ViewportManager vm;
     vm.SyncMaxScroll(10000.0f, 200.0f);
@@ -244,7 +257,8 @@ TEST(ViewportManagerTest, DirectScrollByAccumulates)
 
 // ---- FindFirstVisibleNode テスト ----
 
-TEST(ViewportManagerTest, FindFirstVisibleNodeStart) {
+TEST(ViewportManagerTest, FindFirstVisibleNodeStart)
+{
     ViewportManager vm;
     auto cache = MakeTestCache(10, 50.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
@@ -252,7 +266,8 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeStart) {
     EXPECT_EQ(vm.FindFirstVisibleNode(cache, 10), 0);
 }
 
-TEST(ViewportManagerTest, FindFirstVisibleNodeMiddle) {
+TEST(ViewportManagerTest, FindFirstVisibleNodeMiddle)
+{
     ViewportManager vm;
     auto cache = MakeTestCache(10, 50.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
@@ -260,7 +275,8 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeMiddle) {
     EXPECT_EQ(vm.FindFirstVisibleNode(cache, 10), 2);
 }
 
-TEST(ViewportManagerTest, FindFirstVisibleNodeEnd) {
+TEST(ViewportManagerTest, FindFirstVisibleNodeEnd)
+{
     ViewportManager vm;
     auto cache = MakeTestCache(10, 50.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
@@ -269,7 +285,8 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeEnd) {
     EXPECT_GE(idx, 6);
 }
 
-TEST(ViewportManagerTest, FindFirstVisibleNodeEmpty) {
+TEST(ViewportManagerTest, FindFirstVisibleNodeEmpty)
+{
     ViewportManager vm;
     LayoutCache cache;
     EXPECT_EQ(vm.FindFirstVisibleNode(cache, 0), -1);
@@ -277,7 +294,8 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeEmpty) {
 
 // ---- AnchorCompensateScroll テスト ----
 
-TEST(ViewportManagerTest, AnchorCompensateScroll) {
+TEST(ViewportManagerTest, AnchorCompensateScroll)
+{
     ViewportManager vm;
     auto cache = MakeTestCache(5, 100.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
@@ -294,7 +312,8 @@ TEST(ViewportManagerTest, AnchorCompensateScroll) {
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 130.0f);
 }
 
-TEST(ViewportManagerTest, AnchorCompensateNegativeIndex) {
+TEST(ViewportManagerTest, AnchorCompensateNegativeIndex)
+{
     ViewportManager vm;
     auto cache = MakeTestCache(3, 100.0f);
     vm.SyncMaxScroll(300.0f, 100.0f);
@@ -306,7 +325,8 @@ TEST(ViewportManagerTest, AnchorCompensateNegativeIndex) {
 
 // ---- 選択テスト ----
 
-TEST(ViewportManagerTest, ClearSelection) {
+TEST(ViewportManagerTest, ClearSelection)
+{
     ViewportManager vm;
     vm.SetAnchor(3, 10);
     vm.SetDragging(true);
@@ -318,7 +338,8 @@ TEST(ViewportManagerTest, ClearSelection) {
     EXPECT_FALSE(vm.IsDragging());
 }
 
-TEST(ViewportManagerTest, SelectAll) {
+TEST(ViewportManagerTest, SelectAll)
+{
     std::pmr::vector<Node> nodes(3);
     nodes[0].text = L"hello";
     nodes[1].text = L"world";
@@ -334,7 +355,8 @@ TEST(ViewportManagerTest, SelectAll) {
     EXPECT_EQ(vm.GetSelection().end_pos, 3u);
 }
 
-TEST(ViewportManagerTest, SelectAllEmpty) {
+TEST(ViewportManagerTest, SelectAllEmpty)
+{
     std::pmr::vector<Node> nodes;
     ViewportManager vm;
     vm.SelectAll(nodes);
@@ -343,14 +365,16 @@ TEST(ViewportManagerTest, SelectAllEmpty) {
 
 // ---- ズームテスト ----
 
-TEST(ViewportManagerTest, ZoomInReturnsNewZoom) {
+TEST(ViewportManagerTest, ZoomInReturnsNewZoom)
+{
     ViewportManager vm; // starts at ZOOM_DEFAULT_INDEX (1.0)
     float z = vm.ZoomIn();
     EXPECT_GT(z, 1.0f);
     EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX + 1);
 }
 
-TEST(ViewportManagerTest, ZoomOutReturnsNewZoom) {
+TEST(ViewportManagerTest, ZoomOutReturnsNewZoom)
+{
     ViewportManager vm;
     float z = vm.ZoomOut();
     EXPECT_LT(z, 1.0f);
@@ -358,7 +382,8 @@ TEST(ViewportManagerTest, ZoomOutReturnsNewZoom) {
     EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX - 1);
 }
 
-TEST(ViewportManagerTest, ZoomInAtMaxReturnsZero) {
+TEST(ViewportManagerTest, ZoomInAtMaxReturnsZero)
+{
     ViewportManager vm;
     // 最大までズーム
     for (int i = 0; i < 50; ++i) vm.ZoomIn();
@@ -366,7 +391,8 @@ TEST(ViewportManagerTest, ZoomInAtMaxReturnsZero) {
     EXPECT_FLOAT_EQ(z, 0.0f);
 }
 
-TEST(ViewportManagerTest, ZoomOutAtMinReturnsZero) {
+TEST(ViewportManagerTest, ZoomOutAtMinReturnsZero)
+{
     ViewportManager vm;
     // 最小までズーム
     for (int i = 0; i < 50; ++i) vm.ZoomOut();
@@ -374,7 +400,8 @@ TEST(ViewportManagerTest, ZoomOutAtMinReturnsZero) {
     EXPECT_FLOAT_EQ(z, 0.0f);
 }
 
-TEST(ViewportManagerTest, ZoomResetFromNonDefault) {
+TEST(ViewportManagerTest, ZoomResetFromNonDefault)
+{
     ViewportManager vm;
     vm.ZoomIn();
     vm.ZoomIn();
@@ -383,7 +410,8 @@ TEST(ViewportManagerTest, ZoomResetFromNonDefault) {
     EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX);
 }
 
-TEST(ViewportManagerTest, ZoomResetAlreadyDefault) {
+TEST(ViewportManagerTest, ZoomResetAlreadyDefault)
+{
     ViewportManager vm;
     float z = vm.ZoomReset();
     EXPECT_FLOAT_EQ(z, 0.0f); // 変更不要
@@ -391,7 +419,8 @@ TEST(ViewportManagerTest, ZoomResetAlreadyDefault) {
 
 // ---- スクロールバー追跡テスト ----
 
-TEST(ViewportManagerTest, ScrollbarTracking) {
+TEST(ViewportManagerTest, ScrollbarTracking)
+{
     ViewportManager vm;
     EXPECT_FALSE(vm.IsScrollbarTracking());
     vm.SetScrollbarTracking(true);
@@ -400,7 +429,8 @@ TEST(ViewportManagerTest, ScrollbarTracking) {
 
 // ---- バグ #17: AnchorCompensateScrollの非負クランプ ----
 
-TEST(ViewportManagerTest, AnchorCompensateScrollClampsNegative) {
+TEST(ViewportManagerTest, AnchorCompensateScrollClampsNegative)
+{
     ViewportManager vm;
     auto cache = MakeTestCache(5, 100.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
@@ -418,7 +448,8 @@ TEST(ViewportManagerTest, AnchorCompensateScrollClampsNegative) {
     EXPECT_GE(vm.GetScrollTarget(), 0.0f);
 }
 
-TEST(ViewportManagerTest, AnchorCompensateScrollPositiveShiftOk) {
+TEST(ViewportManagerTest, AnchorCompensateScrollPositiveShiftOk)
+{
     ViewportManager vm;
     auto cache = MakeTestCache(5, 100.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
@@ -433,7 +464,8 @@ TEST(ViewportManagerTest, AnchorCompensateScrollPositiveShiftOk) {
 
 // ---- セッション復元テスト（ノードベーススクロール復元） ----
 
-TEST(ViewportManagerTest, ScrollRestoreRoundTrip) {
+TEST(ViewportManagerTest, ScrollRestoreRoundTrip)
+{
     // ノード+オフセットで保存→復元すると元のスクロール位置を再現できる
     ViewportManager vm;
     auto cache = MakeTestCache(10, 50.0f); // total=500
@@ -448,7 +480,8 @@ TEST(ViewportManagerTest, ScrollRestoreRoundTrip) {
     EXPECT_FLOAT_EQ(restored, 125.0f);
 }
 
-TEST(ViewportManagerTest, ScrollRestoreResilientToHeightChange) {
+TEST(ViewportManagerTest, ScrollRestoreResilientToHeightChange)
+{
     // 画像未読み込み→読み込み後でレイアウトが変わっても正しいノードを指す
     ViewportManager vm;
     auto cache = MakeTestCache(10, 50.0f);
@@ -477,7 +510,8 @@ TEST(ViewportManagerTest, ScrollRestoreResilientToHeightChange) {
     EXPECT_FLOAT_EQ(restored, 350.0f);
 }
 
-TEST(ViewportManagerTest, ScrollRestoreWithPartialNodeVisibility) {
+TEST(ViewportManagerTest, ScrollRestoreWithPartialNodeVisibility)
+{
     // ノードの途中で保存した場合、オフセットがノード内の位置を再現する
     ViewportManager vm;
     auto cache = MakeTestCache(10, 100.0f); // total=1000
@@ -493,7 +527,8 @@ TEST(ViewportManagerTest, ScrollRestoreWithPartialNodeVisibility) {
     EXPECT_FLOAT_EQ(restored, 350.0f);
 }
 
-TEST(ViewportManagerTest, ScrollRestoreNodeClampedToSize) {
+TEST(ViewportManagerTest, ScrollRestoreNodeClampedToSize)
+{
     // 保存されたノードインデックスが現在のノード数を超える場合は最終ノードに制限
     auto cache = MakeTestCache(5, 100.0f);
     int saved_node = 8; // 5個しかないので超過
@@ -504,7 +539,8 @@ TEST(ViewportManagerTest, ScrollRestoreNodeClampedToSize) {
     EXPECT_FLOAT_EQ(restored, 400.0f);
 }
 
-TEST(ViewportManagerTest, ScrollRestoreAtDocumentStart) {
+TEST(ViewportManagerTest, ScrollRestoreAtDocumentStart)
+{
     ViewportManager vm;
     auto cache = MakeTestCache(10, 50.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
@@ -520,7 +556,8 @@ TEST(ViewportManagerTest, ScrollRestoreAtDocumentStart) {
     EXPECT_FLOAT_EQ(restored, 0.0f);
 }
 
-TEST(ViewportManagerTest, ScrollRestoreAtDocumentEnd) {
+TEST(ViewportManagerTest, ScrollRestoreAtDocumentEnd)
+{
     ViewportManager vm;
     auto cache = MakeTestCache(10, 50.0f); // total=500
     vm.SyncMaxScroll(500.0f, 200.0f);      // max_scroll=300
@@ -533,7 +570,8 @@ TEST(ViewportManagerTest, ScrollRestoreAtDocumentEnd) {
     EXPECT_FLOAT_EQ(restored, 300.0f);
 }
 
-TEST(ViewportManagerTest, ScrollRestoreAnchorCompensationAfterHeightChange) {
+TEST(ViewportManagerTest, ScrollRestoreAnchorCompensationAfterHeightChange)
+{
     // ノードベース復元後に画像読み込みでアンカー補正が正しく機能する
     ViewportManager vm;
     auto cache = MakeTestCache(10, 50.0f);

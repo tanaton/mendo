@@ -15,15 +15,18 @@ protected:
     ContextMenu menu_;
     Theme theme_;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         theme_ = GetLightTheme();
     }
 
-    void Build(const ContextMenuParams& params) {
+    void Build(const ContextMenuParams& params)
+    {
         menu_.TestBuildItems(params);
     }
 
-    ContextMenuParams MakeParams(bool show_file = true) {
+    ContextMenuParams MakeParams(bool show_file = true)
+    {
         ContextMenuParams p;
         p.theme = &theme_;
         p.dpi_scale = 1.0f;
@@ -39,46 +42,54 @@ protected:
 
 // ─── 項目構築: MdPaneの場合 ───
 
-TEST_F(ContextMenuTest, MdPaneItemCount) {
+TEST_F(ContextMenuTest, MdPaneItemCount)
+{
     Build(MakeParams(true));
     // NavRow, Sep, EditFile, Copy, Sep, DarkMode, Sep, FilePane, TocPane = 9項目
     EXPECT_EQ(menu_.GetItems().size(), 9u);
 }
 
-TEST_F(ContextMenuTest, FirstItemIsNavRow) {
+TEST_F(ContextMenuTest, FirstItemIsNavRow)
+{
     Build(MakeParams(true));
     EXPECT_EQ(menu_.GetItems()[0].type, ContextMenu::ItemType::NavRow);
 }
 
-TEST_F(ContextMenuTest, SecondItemIsSeparator) {
+TEST_F(ContextMenuTest, SecondItemIsSeparator)
+{
     Build(MakeParams(true));
     EXPECT_EQ(menu_.GetItems()[1].type, ContextMenu::ItemType::Separator);
 }
 
-TEST_F(ContextMenuTest, EditFileItemHasCorrectId) {
+TEST_F(ContextMenuTest, EditFileItemHasCorrectId)
+{
     Build(MakeParams(true));
     EXPECT_EQ(menu_.GetItems()[2].id, IDM_EDIT_FILE);
 }
 
-TEST_F(ContextMenuTest, CopyItemHasCorrectId) {
+TEST_F(ContextMenuTest, CopyItemHasCorrectId)
+{
     Build(MakeParams(true));
     EXPECT_EQ(menu_.GetItems()[3].id, IDM_COPY);
 }
 
-TEST_F(ContextMenuTest, DarkModeItemHasCorrectId) {
+TEST_F(ContextMenuTest, DarkModeItemHasCorrectId)
+{
     Build(MakeParams(true));
     EXPECT_EQ(menu_.GetItems()[5].id, IDM_TOGGLE_DARK_MODE);
 }
 
 // ─── 項目構築: 非MdPaneの場合 ───
 
-TEST_F(ContextMenuTest, NonMdPaneItemCount) {
+TEST_F(ContextMenuTest, NonMdPaneItemCount)
+{
     Build(MakeParams(false));
     // NavRow, Sep, DarkMode, Sep, FilePane, TocPane = 6項目
     EXPECT_EQ(menu_.GetItems().size(), 6u);
 }
 
-TEST_F(ContextMenuTest, NonMdPaneHasNoCopyOrEdit) {
+TEST_F(ContextMenuTest, NonMdPaneHasNoCopyOrEdit)
+{
     Build(MakeParams(false));
     for (const auto& item : menu_.GetItems()) {
         EXPECT_NE(item.id, IDM_EDIT_FILE);
@@ -88,61 +99,70 @@ TEST_F(ContextMenuTest, NonMdPaneHasNoCopyOrEdit) {
 
 // ─── 項目の有効/無効状態 ───
 
-TEST_F(ContextMenuTest, EditFileDisabledWhenNoFile) {
+TEST_F(ContextMenuTest, EditFileDisabledWhenNoFile)
+{
     auto p = MakeParams(true);
     p.has_file = false;
     Build(p);
     EXPECT_FALSE(menu_.GetItems()[2].enabled);
 }
 
-TEST_F(ContextMenuTest, CopyDisabledWhenNoSelection) {
+TEST_F(ContextMenuTest, CopyDisabledWhenNoSelection)
+{
     auto p = MakeParams(true);
     p.has_selection = false;
     Build(p);
     EXPECT_FALSE(menu_.GetItems()[3].enabled);
 }
 
-TEST_F(ContextMenuTest, DarkModeCheckedState) {
+TEST_F(ContextMenuTest, DarkModeCheckedState)
+{
     auto p = MakeParams(true);
     p.dark_mode_checked = true;
     Build(p);
     EXPECT_TRUE(menu_.GetItems()[5].checked);
 }
 
-TEST_F(ContextMenuTest, DarkModeUncheckedState) {
+TEST_F(ContextMenuTest, DarkModeUncheckedState)
+{
     Build(MakeParams(true));
     EXPECT_FALSE(menu_.GetItems()[5].checked);
 }
 
-TEST_F(ContextMenuTest, NavBackEnabled) {
+TEST_F(ContextMenuTest, NavBackEnabled)
+{
     auto p = MakeParams(true);
     p.can_go_back = true;
     Build(p);
     EXPECT_TRUE(menu_.GetNavLayout().back_enabled);
 }
 
-TEST_F(ContextMenuTest, NavBackDisabled) {
+TEST_F(ContextMenuTest, NavBackDisabled)
+{
     auto p = MakeParams(true);
     p.can_go_back = false;
     Build(p);
     EXPECT_FALSE(menu_.GetNavLayout().back_enabled);
 }
 
-TEST_F(ContextMenuTest, NavForwardEnabled) {
+TEST_F(ContextMenuTest, NavForwardEnabled)
+{
     auto p = MakeParams(true);
     p.can_go_forward = true;
     Build(p);
     EXPECT_TRUE(menu_.GetNavLayout().fwd_enabled);
 }
 
-TEST_F(ContextMenuTest, NavForwardDisabled) {
+TEST_F(ContextMenuTest, NavForwardDisabled)
+{
     auto p = MakeParams(true);
     p.can_go_forward = false;
     Build(p);
     EXPECT_FALSE(menu_.GetNavLayout().fwd_enabled);
 }
 
-TEST_F(ContextMenuTest, DarkModeItemAlwaysEnabled) {
+TEST_F(ContextMenuTest, DarkModeItemAlwaysEnabled)
+{
     Build(MakeParams(true));
     // DarkModeは常にenabled
     for (const auto& item : menu_.GetItems()) {
@@ -154,45 +174,52 @@ TEST_F(ContextMenuTest, DarkModeItemAlwaysEnabled) {
 
 // ─── ファイルペイン/目次ペイン表示切替 ───
 
-TEST_F(ContextMenuTest, FilePaneItemHasCorrectId) {
+TEST_F(ContextMenuTest, FilePaneItemHasCorrectId)
+{
     Build(MakeParams(true));
     EXPECT_EQ(menu_.GetItems()[7].id, IDM_TOGGLE_FILE_PANE);
 }
 
-TEST_F(ContextMenuTest, TocPaneItemHasCorrectId) {
+TEST_F(ContextMenuTest, TocPaneItemHasCorrectId)
+{
     Build(MakeParams(true));
     EXPECT_EQ(menu_.GetItems()[8].id, IDM_TOGGLE_TOC_PANE);
 }
 
-TEST_F(ContextMenuTest, FilePaneCheckedWhenVisible) {
+TEST_F(ContextMenuTest, FilePaneCheckedWhenVisible)
+{
     auto p = MakeParams(true);
     p.file_pane_checked = true;
     Build(p);
     EXPECT_TRUE(menu_.GetItems()[7].checked);
 }
 
-TEST_F(ContextMenuTest, FilePaneUncheckedWhenHidden) {
+TEST_F(ContextMenuTest, FilePaneUncheckedWhenHidden)
+{
     auto p = MakeParams(true);
     p.file_pane_checked = false;
     Build(p);
     EXPECT_FALSE(menu_.GetItems()[7].checked);
 }
 
-TEST_F(ContextMenuTest, TocPaneCheckedWhenVisible) {
+TEST_F(ContextMenuTest, TocPaneCheckedWhenVisible)
+{
     auto p = MakeParams(true);
     p.toc_pane_checked = true;
     Build(p);
     EXPECT_TRUE(menu_.GetItems()[8].checked);
 }
 
-TEST_F(ContextMenuTest, TocPaneUncheckedWhenHidden) {
+TEST_F(ContextMenuTest, TocPaneUncheckedWhenHidden)
+{
     auto p = MakeParams(true);
     p.toc_pane_checked = false;
     Build(p);
     EXPECT_FALSE(menu_.GetItems()[8].checked);
 }
 
-TEST_F(ContextMenuTest, PaneItemsAlwaysEnabled) {
+TEST_F(ContextMenuTest, PaneItemsAlwaysEnabled)
+{
     Build(MakeParams(true));
     for (const auto& item : menu_.GetItems()) {
         if (item.id == IDM_TOGGLE_FILE_PANE || item.id == IDM_TOGGLE_TOC_PANE) {
@@ -201,7 +228,8 @@ TEST_F(ContextMenuTest, PaneItemsAlwaysEnabled) {
     }
 }
 
-TEST_F(ContextMenuTest, PaneItemsPresentInNonMdPane) {
+TEST_F(ContextMenuTest, PaneItemsPresentInNonMdPane)
+{
     Build(MakeParams(false));
     bool found_file = false, found_toc = false;
     for (const auto& item : menu_.GetItems()) {
@@ -221,7 +249,8 @@ protected:
     static ComPtr<IDWriteFactory> dwrite_;
     static ComPtr<ID2D1Factory> d2d_;
 
-    static void SetUpTestSuite() {
+    static void SetUpTestSuite()
+    {
         HRESULT hr = DWriteCreateFactory(
             DWRITE_FACTORY_TYPE_SHARED,
             __uuidof(IDWriteFactory),
@@ -233,7 +262,8 @@ protected:
         ASSERT_NE(d2d_.Get(), nullptr);
     }
 
-    static void TearDownTestSuite() {
+    static void TearDownTestSuite()
+    {
         dwrite_.Reset();
         d2d_.Reset();
     }
@@ -241,18 +271,21 @@ protected:
     ContextMenu menu_;
     Theme theme_;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         theme_ = GetLightTheme();
         menu_.Init(d2d_.Get(), dwrite_.Get());
     }
 
-    void BuildAndLayout(const ContextMenuParams& params) {
+    void BuildAndLayout(const ContextMenuParams& params)
+    {
         menu_.TestBuildItems(params);
         menu_.TestCreateTextFormats(*params.theme);
         menu_.TestComputeLayout();
     }
 
-    ContextMenuParams MakeParams(bool show_file = true) {
+    ContextMenuParams MakeParams(bool show_file = true)
+    {
         ContextMenuParams p;
         p.theme = &theme_;
         p.dpi_scale = 1.0f;
@@ -270,22 +303,26 @@ ComPtr<ID2D1Factory> ContextMenuLayoutTest::d2d_;
 
 // ─── メニューサイズ ───
 
-TEST_F(ContextMenuLayoutTest, MenuWidthIsPositive) {
+TEST_F(ContextMenuLayoutTest, MenuWidthIsPositive)
+{
     BuildAndLayout(MakeParams());
     EXPECT_GT(menu_.GetMenuWidth(), 0.0f);
 }
 
-TEST_F(ContextMenuLayoutTest, MenuHeightIsPositive) {
+TEST_F(ContextMenuLayoutTest, MenuHeightIsPositive)
+{
     BuildAndLayout(MakeParams());
     EXPECT_GT(menu_.GetMenuHeight(), 0.0f);
 }
 
-TEST_F(ContextMenuLayoutTest, MenuWidthAtLeast160) {
+TEST_F(ContextMenuLayoutTest, MenuWidthAtLeast160)
+{
     BuildAndLayout(MakeParams());
     EXPECT_GE(menu_.GetMenuWidth(), 160.0f);
 }
 
-TEST_F(ContextMenuLayoutTest, NonMdPaneMenuIsShorter) {
+TEST_F(ContextMenuLayoutTest, NonMdPaneMenuIsShorter)
+{
     BuildAndLayout(MakeParams(true));
     float full_h = menu_.GetMenuHeight();
 
@@ -297,7 +334,8 @@ TEST_F(ContextMenuLayoutTest, NonMdPaneMenuIsShorter) {
 
 // ─── 項目矩形 ───
 
-TEST_F(ContextMenuLayoutTest, AllItemsHavePositiveHeight) {
+TEST_F(ContextMenuLayoutTest, AllItemsHavePositiveHeight)
+{
     BuildAndLayout(MakeParams());
     for (const auto& item : menu_.GetItems()) {
         EXPECT_LT(item.rect.top, item.rect.bottom)
@@ -305,7 +343,8 @@ TEST_F(ContextMenuLayoutTest, AllItemsHavePositiveHeight) {
     }
 }
 
-TEST_F(ContextMenuLayoutTest, ItemsSpanFullWidth) {
+TEST_F(ContextMenuLayoutTest, ItemsSpanFullWidth)
+{
     BuildAndLayout(MakeParams());
     float w = menu_.GetMenuWidth();
     for (const auto& item : menu_.GetItems()) {
@@ -314,7 +353,8 @@ TEST_F(ContextMenuLayoutTest, ItemsSpanFullWidth) {
     }
 }
 
-TEST_F(ContextMenuLayoutTest, ItemsDoNotOverlapVertically) {
+TEST_F(ContextMenuLayoutTest, ItemsDoNotOverlapVertically)
+{
     BuildAndLayout(MakeParams());
     const auto& items = menu_.GetItems();
     for (size_t i = 1; i < items.size(); ++i) {
@@ -323,7 +363,8 @@ TEST_F(ContextMenuLayoutTest, ItemsDoNotOverlapVertically) {
     }
 }
 
-TEST_F(ContextMenuLayoutTest, ItemsFitWithinMenuHeight) {
+TEST_F(ContextMenuLayoutTest, ItemsFitWithinMenuHeight)
+{
     BuildAndLayout(MakeParams());
     float h = menu_.GetMenuHeight();
     for (const auto& item : menu_.GetItems()) {
@@ -333,7 +374,8 @@ TEST_F(ContextMenuLayoutTest, ItemsFitWithinMenuHeight) {
 
 // ─── ナビゲーションボタン配置 ───
 
-TEST_F(ContextMenuLayoutTest, NavButtonsHavePositiveSize) {
+TEST_F(ContextMenuLayoutTest, NavButtonsHavePositiveSize)
+{
     BuildAndLayout(MakeParams());
     auto& nav = menu_.GetNavLayout();
     EXPECT_LT(nav.back_rect.left, nav.back_rect.right);
@@ -342,7 +384,8 @@ TEST_F(ContextMenuLayoutTest, NavButtonsHavePositiveSize) {
     EXPECT_LT(nav.fwd_rect.top, nav.fwd_rect.bottom);
 }
 
-TEST_F(ContextMenuLayoutTest, NavButtonsAreEqualSize) {
+TEST_F(ContextMenuLayoutTest, NavButtonsAreEqualSize)
+{
     BuildAndLayout(MakeParams());
     auto& nav = menu_.GetNavLayout();
     float bw = nav.back_rect.right - nav.back_rect.left;
@@ -353,20 +396,23 @@ TEST_F(ContextMenuLayoutTest, NavButtonsAreEqualSize) {
     EXPECT_FLOAT_EQ(bh, fh);
 }
 
-TEST_F(ContextMenuLayoutTest, NavButtonsDoNotOverlap) {
+TEST_F(ContextMenuLayoutTest, NavButtonsDoNotOverlap)
+{
     BuildAndLayout(MakeParams());
     auto& nav = menu_.GetNavLayout();
     EXPECT_LE(nav.back_rect.right, nav.fwd_rect.left);
 }
 
-TEST_F(ContextMenuLayoutTest, NavButtonsHaveGap) {
+TEST_F(ContextMenuLayoutTest, NavButtonsHaveGap)
+{
     BuildAndLayout(MakeParams());
     auto& nav = menu_.GetNavLayout();
     float gap = nav.fwd_rect.left - nav.back_rect.right;
     EXPECT_GT(gap, 0.0f);
 }
 
-TEST_F(ContextMenuLayoutTest, NavButtonsCenteredHorizontally) {
+TEST_F(ContextMenuLayoutTest, NavButtonsCenteredHorizontally)
+{
     BuildAndLayout(MakeParams());
     auto& nav = menu_.GetNavLayout();
     float w = menu_.GetMenuWidth();
@@ -374,7 +420,8 @@ TEST_F(ContextMenuLayoutTest, NavButtonsCenteredHorizontally) {
     EXPECT_NEAR(btn_center, w / 2.0f, 1.0f);
 }
 
-TEST_F(ContextMenuLayoutTest, NavButtonsAreWithinNavRow) {
+TEST_F(ContextMenuLayoutTest, NavButtonsAreWithinNavRow)
+{
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
     auto& nav = menu_.GetNavLayout();
@@ -388,7 +435,8 @@ TEST_F(ContextMenuLayoutTest, NavButtonsAreWithinNavRow) {
 
 // ─── ヒットテスト ───
 
-TEST_F(ContextMenuLayoutTest, HitTestOnEditFile) {
+TEST_F(ContextMenuLayoutTest, HitTestOnEditFile)
+{
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
     // EditFileは3番目（index 2）
@@ -397,7 +445,8 @@ TEST_F(ContextMenuLayoutTest, HitTestOnEditFile) {
     EXPECT_EQ(menu_.HitTest(cx, cy), IDM_EDIT_FILE);
 }
 
-TEST_F(ContextMenuLayoutTest, HitTestOnCopy) {
+TEST_F(ContextMenuLayoutTest, HitTestOnCopy)
+{
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
     float cx = (items[3].rect.left + items[3].rect.right) / 2.0f;
@@ -405,7 +454,8 @@ TEST_F(ContextMenuLayoutTest, HitTestOnCopy) {
     EXPECT_EQ(menu_.HitTest(cx, cy), IDM_COPY);
 }
 
-TEST_F(ContextMenuLayoutTest, HitTestOnDarkMode) {
+TEST_F(ContextMenuLayoutTest, HitTestOnDarkMode)
+{
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
     // DarkModeはindex 5
@@ -414,7 +464,8 @@ TEST_F(ContextMenuLayoutTest, HitTestOnDarkMode) {
     EXPECT_EQ(menu_.HitTest(cx, cy), IDM_TOGGLE_DARK_MODE);
 }
 
-TEST_F(ContextMenuLayoutTest, HitTestOnSeparatorReturnsZero) {
+TEST_F(ContextMenuLayoutTest, HitTestOnSeparatorReturnsZero)
+{
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
     // 2番目（index 1）はセパレータ
@@ -423,7 +474,8 @@ TEST_F(ContextMenuLayoutTest, HitTestOnSeparatorReturnsZero) {
     EXPECT_EQ(menu_.HitTest(cx, cy), 0);
 }
 
-TEST_F(ContextMenuLayoutTest, HitTestOutsideReturnsZero) {
+TEST_F(ContextMenuLayoutTest, HitTestOutsideReturnsZero)
+{
     BuildAndLayout(MakeParams());
     EXPECT_EQ(menu_.HitTest(-10.0f, -10.0f), 0);
     EXPECT_EQ(menu_.HitTest(9999.0f, 9999.0f), 0);
@@ -431,7 +483,8 @@ TEST_F(ContextMenuLayoutTest, HitTestOutsideReturnsZero) {
 
 // ─── ナビゲーションヒットテスト ───
 
-TEST_F(ContextMenuLayoutTest, NavHitTestOnBackButton) {
+TEST_F(ContextMenuLayoutTest, NavHitTestOnBackButton)
+{
     BuildAndLayout(MakeParams());
     auto& nav = menu_.GetNavLayout();
     float cx = (nav.back_rect.left + nav.back_rect.right) / 2.0f;
@@ -439,7 +492,8 @@ TEST_F(ContextMenuLayoutTest, NavHitTestOnBackButton) {
     EXPECT_EQ(menu_.NavHitTest(cx, cy), IDM_NAV_BACK);
 }
 
-TEST_F(ContextMenuLayoutTest, NavHitTestOnForwardButton) {
+TEST_F(ContextMenuLayoutTest, NavHitTestOnForwardButton)
+{
     BuildAndLayout(MakeParams());
     auto& nav = menu_.GetNavLayout();
     float cx = (nav.fwd_rect.left + nav.fwd_rect.right) / 2.0f;
@@ -447,7 +501,8 @@ TEST_F(ContextMenuLayoutTest, NavHitTestOnForwardButton) {
     EXPECT_EQ(menu_.NavHitTest(cx, cy), IDM_NAV_FORWARD);
 }
 
-TEST_F(ContextMenuLayoutTest, NavHitTestBetweenButtonsReturnsZero) {
+TEST_F(ContextMenuLayoutTest, NavHitTestBetweenButtonsReturnsZero)
+{
     BuildAndLayout(MakeParams());
     auto& nav = menu_.GetNavLayout();
     float gap_x = (nav.back_rect.right + nav.fwd_rect.left) / 2.0f;
@@ -455,7 +510,8 @@ TEST_F(ContextMenuLayoutTest, NavHitTestBetweenButtonsReturnsZero) {
     EXPECT_EQ(menu_.NavHitTest(gap_x, cy), 0);
 }
 
-TEST_F(ContextMenuLayoutTest, NavHitTestDisabledBackReturnsZero) {
+TEST_F(ContextMenuLayoutTest, NavHitTestDisabledBackReturnsZero)
+{
     auto p = MakeParams();
     p.can_go_back = false;
     BuildAndLayout(p);
@@ -465,7 +521,8 @@ TEST_F(ContextMenuLayoutTest, NavHitTestDisabledBackReturnsZero) {
     EXPECT_EQ(menu_.NavHitTest(cx, cy), 0);
 }
 
-TEST_F(ContextMenuLayoutTest, NavHitTestDisabledForwardReturnsZero) {
+TEST_F(ContextMenuLayoutTest, NavHitTestDisabledForwardReturnsZero)
+{
     auto p = MakeParams();
     p.can_go_forward = false;
     BuildAndLayout(p);
@@ -475,14 +532,16 @@ TEST_F(ContextMenuLayoutTest, NavHitTestDisabledForwardReturnsZero) {
     EXPECT_EQ(menu_.NavHitTest(cx, cy), 0);
 }
 
-TEST_F(ContextMenuLayoutTest, NavHitTestOutsideReturnsZero) {
+TEST_F(ContextMenuLayoutTest, NavHitTestOutsideReturnsZero)
+{
     BuildAndLayout(MakeParams());
     EXPECT_EQ(menu_.NavHitTest(-10.0f, -10.0f), 0);
 }
 
 // ─── ペイン表示切替項目のヒットテスト ───
 
-TEST_F(ContextMenuLayoutTest, HitTestOnFilePane) {
+TEST_F(ContextMenuLayoutTest, HitTestOnFilePane)
+{
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
     // FilePaneはindex 7
@@ -491,7 +550,8 @@ TEST_F(ContextMenuLayoutTest, HitTestOnFilePane) {
     EXPECT_EQ(menu_.HitTest(cx, cy), IDM_TOGGLE_FILE_PANE);
 }
 
-TEST_F(ContextMenuLayoutTest, HitTestOnTocPane) {
+TEST_F(ContextMenuLayoutTest, HitTestOnTocPane)
+{
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
     // TocPaneはindex 8

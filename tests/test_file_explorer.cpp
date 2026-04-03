@@ -11,7 +11,8 @@ class FileExplorerTest : public ::testing::Test {
 protected:
     fs::path temp_dir_;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         wchar_t tmp[MAX_PATH];
         GetTempPathW(MAX_PATH, tmp);
         // テストごとに一意のディレクトリを使用（CTest並列実行での競合を防止）
@@ -23,26 +24,30 @@ protected:
         fs::create_directories(temp_dir_);
     }
 
-    void TearDown() override {
+    void TearDown() override
+    {
         std::error_code ec;
         fs::remove_all(temp_dir_, ec);
     }
 
-    void CreateFile(const std::wstring& name, const std::string& content = "") {
+    void CreateFile(const std::wstring& name, const std::string& content = "")
+    {
         auto path = temp_dir_ / name;
         std::ofstream f(path, std::ios::binary);
         f.write(content.data(), content.size());
         f.close();
     }
 
-    void CreateDir(const std::wstring& name) {
+    void CreateDir(const std::wstring& name)
+    {
         fs::create_directories(temp_dir_ / name);
     }
 };
 
 // ---- 基本的な列挙 ----
 
-TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly) {
+TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly)
+{
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
     // ".." 親エントリのみ
@@ -54,7 +59,8 @@ TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly) {
 
 // ---- Bug #23: パスの正規化（末尾のバックスラッシュ） ----
 
-TEST_F(FileExplorerTest, TrailingBackslashNormalized) {
+TEST_F(FileExplorerTest, TrailingBackslashNormalized)
+{
     CreateFile(L"test.md");
     FileExplorer explorer;
 
@@ -72,7 +78,8 @@ TEST_F(FileExplorerTest, TrailingBackslashNormalized) {
     EXPECT_EQ(count1, count2);
 }
 
-TEST_F(FileExplorerTest, TrailingSlashDoesNotCreateDoubleBackslash) {
+TEST_F(FileExplorerTest, TrailingSlashDoesNotCreateDoubleBackslash)
+{
     CreateFile(L"hello.md");
     FileExplorer explorer;
 
@@ -93,7 +100,8 @@ TEST_F(FileExplorerTest, TrailingSlashDoesNotCreateDoubleBackslash) {
     EXPECT_TRUE(found_md);
 }
 
-TEST_F(FileExplorerTest, ShowsMdFiles) {
+TEST_F(FileExplorerTest, ShowsMdFiles)
+{
     CreateFile(L"readme.md");
     CreateFile(L"notes.md");
 
@@ -105,7 +113,8 @@ TEST_F(FileExplorerTest, ShowsMdFiles) {
     EXPECT_EQ(entries.size(), 3u);
 }
 
-TEST_F(FileExplorerTest, ShowsMarkdownExtension) {
+TEST_F(FileExplorerTest, ShowsMarkdownExtension)
+{
     CreateFile(L"doc.markdown");
 
     FileExplorer explorer;
@@ -117,7 +126,8 @@ TEST_F(FileExplorerTest, ShowsMarkdownExtension) {
     EXPECT_EQ(entries[1].filename, L"doc.markdown");
 }
 
-TEST_F(FileExplorerTest, ShowsMkdExtension) {
+TEST_F(FileExplorerTest, ShowsMkdExtension)
+{
     CreateFile(L"doc.mkd");
 
     FileExplorer explorer;
@@ -128,7 +138,8 @@ TEST_F(FileExplorerTest, ShowsMkdExtension) {
     EXPECT_EQ(entries[1].filename, L"doc.mkd");
 }
 
-TEST_F(FileExplorerTest, HidesNonMarkdownFiles) {
+TEST_F(FileExplorerTest, HidesNonMarkdownFiles)
+{
     CreateFile(L"readme.md");
     CreateFile(L"image.png");
     CreateFile(L"data.json");
@@ -142,7 +153,8 @@ TEST_F(FileExplorerTest, HidesNonMarkdownFiles) {
     EXPECT_EQ(entries.size(), 2u);
 }
 
-TEST_F(FileExplorerTest, ShowsDirectories) {
+TEST_F(FileExplorerTest, ShowsDirectories)
+{
     CreateDir(L"subdir");
     CreateFile(L"test.md");
 
@@ -154,7 +166,8 @@ TEST_F(FileExplorerTest, ShowsDirectories) {
     EXPECT_EQ(entries.size(), 3u);
 }
 
-TEST_F(FileExplorerTest, DirectoriesBeforeFiles) {
+TEST_F(FileExplorerTest, DirectoriesBeforeFiles)
+{
     CreateFile(L"aaa.md");
     CreateDir(L"zzz_dir");
 
@@ -169,7 +182,8 @@ TEST_F(FileExplorerTest, DirectoriesBeforeFiles) {
     EXPECT_FALSE(entries[2].is_directory);
 }
 
-TEST_F(FileExplorerTest, EntriesSortedCaseInsensitive) {
+TEST_F(FileExplorerTest, EntriesSortedCaseInsensitive)
+{
     CreateFile(L"Bbb.md");
     CreateFile(L"aaa.md");
     CreateFile(L"ccc.md");
@@ -185,7 +199,8 @@ TEST_F(FileExplorerTest, EntriesSortedCaseInsensitive) {
     EXPECT_EQ(entries[3].filename, L"ccc.md");
 }
 
-TEST_F(FileExplorerTest, CaseInsensitiveMdExtension) {
+TEST_F(FileExplorerTest, CaseInsensitiveMdExtension)
+{
     CreateFile(L"upper.MD");
 
     FileExplorer explorer;
@@ -197,7 +212,8 @@ TEST_F(FileExplorerTest, CaseInsensitiveMdExtension) {
 
 // ---- SetCurrentFile テスト ----
 
-TEST_F(FileExplorerTest, SetCurrentFileMarksEntry) {
+TEST_F(FileExplorerTest, SetCurrentFileMarksEntry)
+{
     CreateFile(L"a.md");
     CreateFile(L"b.md");
 
@@ -212,14 +228,16 @@ TEST_F(FileExplorerTest, SetCurrentFileMarksEntry) {
         if (e.filename == L"b.md") {
             EXPECT_TRUE(e.is_current);
             found = true;
-        } else {
+        }
+        else {
             EXPECT_FALSE(e.is_current);
         }
     }
     EXPECT_TRUE(found);
 }
 
-TEST_F(FileExplorerTest, SetCurrentFileDoesNotMarkDirectories) {
+TEST_F(FileExplorerTest, SetCurrentFileDoesNotMarkDirectories)
+{
     CreateDir(L"subdir");
 
     FileExplorer explorer;
@@ -235,7 +253,8 @@ TEST_F(FileExplorerTest, SetCurrentFileDoesNotMarkDirectories) {
 
 // ---- ヒットテスト ----
 
-TEST_F(FileExplorerTest, HitTestValidIndex) {
+TEST_F(FileExplorerTest, HitTestValidIndex)
+{
     CreateFile(L"a.md");
     CreateFile(L"b.md");
 
@@ -248,7 +267,8 @@ TEST_F(FileExplorerTest, HitTestValidIndex) {
     EXPECT_EQ(explorer.HitTest(56.0f, 28.0f), 2);
 }
 
-TEST_F(FileExplorerTest, HitTestOutOfRange) {
+TEST_F(FileExplorerTest, HitTestOutOfRange)
+{
     CreateFile(L"a.md");
 
     FileExplorer explorer;
@@ -258,7 +278,8 @@ TEST_F(FileExplorerTest, HitTestOutOfRange) {
     EXPECT_EQ(explorer.HitTest(1000.0f, 28.0f), -1);
 }
 
-TEST_F(FileExplorerTest, HitTestZeroItemHeight) {
+TEST_F(FileExplorerTest, HitTestZeroItemHeight)
+{
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
     EXPECT_EQ(explorer.HitTest(10.0f, 0.0f), -1);
@@ -266,7 +287,8 @@ TEST_F(FileExplorerTest, HitTestZeroItemHeight) {
 
 // ---- 初回起動シナリオ（ファイル未選択でディレクトリ表示） ----
 
-TEST_F(FileExplorerTest, SetDirectoryWithoutCurrentFileHasNoCurrent) {
+TEST_F(FileExplorerTest, SetDirectoryWithoutCurrentFileHasNoCurrent)
+{
     CreateFile(L"a.md");
     CreateFile(L"b.md");
 
@@ -279,7 +301,8 @@ TEST_F(FileExplorerTest, SetDirectoryWithoutCurrentFileHasNoCurrent) {
     }
 }
 
-TEST_F(FileExplorerTest, SetDirectoryWithCurrentWorkingDirectory) {
+TEST_F(FileExplorerTest, SetDirectoryWithCurrentWorkingDirectory)
+{
     // 実際のカレントディレクトリを使用するシナリオ（初回起動を模倣）
     wchar_t cwd[MAX_PATH];
     ASSERT_NE(GetCurrentDirectoryW(MAX_PATH, cwd), 0u);
@@ -294,7 +317,8 @@ TEST_F(FileExplorerTest, SetDirectoryWithCurrentWorkingDirectory) {
     EXPECT_TRUE(explorer.GetEntries()[0].is_parent);
 }
 
-TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches) {
+TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches)
+{
     // 初回起動でcwdを表示した後、ファイルのあるディレクトリに切り替えるシナリオ
     CreateFile(L"test.md");
 
@@ -304,11 +328,11 @@ TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches) {
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
-    EXPECT_EQ(std::wstring_view{explorer.GetDirectory()}, std::wstring_view{temp_dir_.wstring()});
+    EXPECT_EQ(std::wstring_view{ explorer.GetDirectory() }, std::wstring_view{ temp_dir_.wstring() });
 
     // 別ディレクトリに切り替え
     explorer.SetDirectory(other_dir.wstring());
-    EXPECT_EQ(std::wstring_view{explorer.GetDirectory()}, std::wstring_view{other_dir.wstring()});
+    EXPECT_EQ(std::wstring_view{ explorer.GetDirectory() }, std::wstring_view{ other_dir.wstring() });
 
     // 新しいディレクトリの内容が表示されること
     bool found_other = false;
@@ -324,7 +348,8 @@ TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches) {
 
 // ---- リフレッシュ / SetDirectory ----
 
-TEST_F(FileExplorerTest, SetDirectorySamePathNoRefresh) {
+TEST_F(FileExplorerTest, SetDirectorySamePathNoRefresh)
+{
     CreateFile(L"a.md");
 
     FileExplorer explorer;
@@ -336,7 +361,8 @@ TEST_F(FileExplorerTest, SetDirectorySamePathNoRefresh) {
     EXPECT_EQ(explorer.GetEntries().size(), count1);
 }
 
-TEST_F(FileExplorerTest, RefreshPicksUpNewFiles) {
+TEST_F(FileExplorerTest, RefreshPicksUpNewFiles)
+{
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
     size_t before = explorer.GetEntries().size();
@@ -347,7 +373,8 @@ TEST_F(FileExplorerTest, RefreshPicksUpNewFiles) {
     EXPECT_EQ(explorer.GetEntries().size(), before + 1);
 }
 
-TEST_F(FileExplorerTest, FullPathIsCorrect) {
+TEST_F(FileExplorerTest, FullPathIsCorrect)
+{
     CreateFile(L"test.md");
 
     FileExplorer explorer;
@@ -357,15 +384,16 @@ TEST_F(FileExplorerTest, FullPathIsCorrect) {
     for (const auto& e : explorer.GetEntries()) {
         if (e.filename == L"test.md") {
             std::wstring expected = temp_dir_.wstring() + L"\\" + L"test.md";
-            EXPECT_EQ(std::wstring_view{e.full_path}, std::wstring_view{expected});
+            EXPECT_EQ(std::wstring_view{ e.full_path }, std::wstring_view{ expected });
             found = true;
         }
     }
     EXPECT_TRUE(found);
 }
 
-TEST_F(FileExplorerTest, GetDirectoryReturnsSetPath) {
+TEST_F(FileExplorerTest, GetDirectoryReturnsSetPath)
+{
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
-    EXPECT_EQ(std::wstring_view{explorer.GetDirectory()}, std::wstring_view{temp_dir_.wstring()});
+    EXPECT_EQ(std::wstring_view{ explorer.GetDirectory() }, std::wstring_view{ temp_dir_.wstring() });
 }

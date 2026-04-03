@@ -15,7 +15,8 @@ protected:
     HitTestService hit_test_;
     Theme theme_;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         theme_ = GetLightTheme();
         ASSERT_TRUE(engine_.Init(&mock_, theme_));
     }
@@ -26,7 +27,8 @@ protected:
     };
 
     // Markdown をパースしてレイアウトを計算するヘルパー
-    ParseResult Parse(const std::string& md, float viewport_w = 800.0f) {
+    ParseResult Parse(const std::string& md, float viewport_w = 800.0f)
+    {
         ParseResult r;
         r.nodes = ParseMarkdown(md);
         r.cache.Resize(r.nodes.size());
@@ -36,7 +38,8 @@ protected:
 
     // コードブロックのコピーボタン中心座標をスクリーンピクセルで返すヘルパー
     // dpi_scale=1, md_pane_left=0 前提
-    std::pair<int, int> CopyBtnCenter(const ParseResult& pr, int node_index, float viewport_w = 800.0f) {
+    std::pair<int, int> CopyBtnCenter(const ParseResult& pr, int node_index, float viewport_w = 800.0f)
+    {
         const auto& node = pr.nodes[node_index];
         const auto& entry = pr.cache[node_index];
         float indent = node.indent_level * theme_.indent_width;
@@ -51,13 +54,14 @@ protected:
         float cy = (btn.top + btn.bottom) * 0.5f;
         // scroll_y=0, dpi=1 のため dip == pixel。ただし HitTest は dip_y = screen_y + scroll_y なので
         // screen_y = dip_y - scroll_y = dip_y (scroll_y=0)
-        return {static_cast<int>(cx), static_cast<int>(cy)};
+        return { static_cast<int>(cx), static_cast<int>(cy) };
     }
 };
 
 // ---- CopyButtonRect ----
 
-TEST_F(CopyButtonTest, CopyButtonRectHasCorrectSize) {
+TEST_F(CopyButtonTest, CopyButtonRectHasCorrectSize)
+{
     D2D1_RECT_F r = CopyButtonRect(100.0f, 10.0f);
     float w = r.right - r.left;
     float h = r.bottom - r.top;
@@ -65,7 +69,8 @@ TEST_F(CopyButtonTest, CopyButtonRectHasCorrectSize) {
     EXPECT_FLOAT_EQ(h, COPY_BTN_SIZE);
 }
 
-TEST_F(CopyButtonTest, CopyButtonRectIsInsideBlockTopRight) {
+TEST_F(CopyButtonTest, CopyButtonRectIsInsideBlockTopRight)
+{
     float block_right = 500.0f;
     float block_top = 100.0f;
     D2D1_RECT_F r = CopyButtonRect(block_right, block_top);
@@ -77,7 +82,8 @@ TEST_F(CopyButtonTest, CopyButtonRectIsInsideBlockTopRight) {
 
 // ---- CopyButtonHitTest ----
 
-TEST_F(CopyButtonTest, HitOnCopyButtonReturnsNodeIndex) {
+TEST_F(CopyButtonTest, HitOnCopyButtonReturnsNodeIndex)
+{
     auto pr = Parse("```\nsome code\n```");
     // コードブロックのノードインデックスを特定
     int code_idx = -1;
@@ -93,7 +99,8 @@ TEST_F(CopyButtonTest, HitOnCopyButtonReturnsNodeIndex) {
     EXPECT_EQ(result, code_idx);
 }
 
-TEST_F(CopyButtonTest, HitOutsideCopyButtonReturnsNegative) {
+TEST_F(CopyButtonTest, HitOutsideCopyButtonReturnsNegative)
+{
     auto pr = Parse("```\nsome code\n```");
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     // 明らかにボタン外の座標（左上端）
@@ -102,7 +109,8 @@ TEST_F(CopyButtonTest, HitOutsideCopyButtonReturnsNegative) {
     EXPECT_EQ(result, -1);
 }
 
-TEST_F(CopyButtonTest, NonCodeBlockReturnsNegative) {
+TEST_F(CopyButtonTest, NonCodeBlockReturnsNegative)
+{
     auto pr = Parse("Just a paragraph");
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     // ドキュメント中央をクリック
@@ -111,7 +119,8 @@ TEST_F(CopyButtonTest, NonCodeBlockReturnsNegative) {
     EXPECT_EQ(result, -1);
 }
 
-TEST_F(CopyButtonTest, MermaidBlockReturnsNegative) {
+TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
+{
     auto pr = Parse("```mermaid\ngraph TD\n```");
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     // Mermaidブロックがある場合でもコピーボタンは無効
@@ -127,7 +136,8 @@ TEST_F(CopyButtonTest, MermaidBlockReturnsNegative) {
     }
 }
 
-TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne) {
+TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne)
+{
     auto pr = Parse("```\nfirst\n```\n\n```\nsecond\n```");
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
 
@@ -153,7 +163,8 @@ TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne) {
     EXPECT_EQ(r2, code_indices[1]);
 }
 
-TEST_F(CopyButtonTest, EmptyDocumentReturnsNegative) {
+TEST_F(CopyButtonTest, EmptyDocumentReturnsNegative)
+{
     auto pr = Parse("");
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     int result = hit_test_.CopyButtonHitTest(
@@ -161,7 +172,8 @@ TEST_F(CopyButtonTest, EmptyDocumentReturnsNegative) {
     EXPECT_EQ(result, -1);
 }
 
-TEST_F(CopyButtonTest, ScrolledViewportHitTest) {
+TEST_F(CopyButtonTest, ScrolledViewportHitTest)
+{
     // 多くの段落の後にコードブロックを配置
     std::string md;
     for (int i = 0; i < 30; i++) md += "Paragraph " + std::to_string(i) + "\n\n";

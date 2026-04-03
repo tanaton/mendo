@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 #include "theme.h"
 
-TEST(Theme, LightThemeHasPositiveFontSizes) {
+TEST(Theme, LightThemeHasPositiveFontSizes)
+{
     Theme t = GetLightTheme();
     EXPECT_GT(t.font_size_body, 0.0f);
     for (int i = 0; i < 6; ++i) {
@@ -10,7 +11,8 @@ TEST(Theme, LightThemeHasPositiveFontSizes) {
     EXPECT_GT(t.font_size_code, 0.0f);
 }
 
-TEST(Theme, HeadingSizesDecrease) {
+TEST(Theme, HeadingSizesDecrease)
+{
     Theme t = GetLightTheme();
     EXPECT_GT(t.font_size_h[0], t.font_size_h[1]);
     EXPECT_GT(t.font_size_h[1], t.font_size_h[2]);
@@ -19,7 +21,8 @@ TEST(Theme, HeadingSizesDecrease) {
     EXPECT_GE(t.font_size_h[4], t.font_size_h[5]);
 }
 
-TEST(Theme, GetHeadingSizeReturnsCorrectLevel) {
+TEST(Theme, GetHeadingSizeReturnsCorrectLevel)
+{
     Theme t = GetLightTheme();
     EXPECT_EQ(t.GetHeadingSize(1), t.font_size_h[0]);
     EXPECT_EQ(t.GetHeadingSize(2), t.font_size_h[1]);
@@ -29,14 +32,16 @@ TEST(Theme, GetHeadingSizeReturnsCorrectLevel) {
     EXPECT_EQ(t.GetHeadingSize(6), t.font_size_h[5]);
 }
 
-TEST(Theme, GetHeadingSizeInvalidLevelReturnsBody) {
+TEST(Theme, GetHeadingSizeInvalidLevelReturnsBody)
+{
     Theme t = GetLightTheme();
     EXPECT_EQ(t.GetHeadingSize(0), t.font_size_body);
     EXPECT_EQ(t.GetHeadingSize(7), t.font_size_body);
     EXPECT_EQ(t.GetHeadingSize(-1), t.font_size_body);
 }
 
-TEST(Theme, PositiveMargins) {
+TEST(Theme, PositiveMargins)
+{
     Theme t = GetLightTheme();
     EXPECT_GT(t.margin_left, 0.0f);
     EXPECT_GT(t.margin_right, 0.0f);
@@ -45,13 +50,15 @@ TEST(Theme, PositiveMargins) {
     EXPECT_GT(t.indent_width, 0.0f);
 }
 
-TEST(Theme, FontFamilyNotEmpty) {
+TEST(Theme, FontFamilyNotEmpty)
+{
     Theme t = GetLightTheme();
     EXPECT_GT(t.font_family.size(), 0u);
     EXPECT_GT(t.monospace_font.size(), 0u);
 }
 
-TEST(Theme, BackgroundColorIsWhite) {
+TEST(Theme, BackgroundColorIsWhite)
+{
     Theme t = GetLightTheme();
     EXPECT_FLOAT_EQ(t.bg_color.r, 1.0f);
     EXPECT_FLOAT_EQ(t.bg_color.g, 1.0f);
@@ -60,7 +67,8 @@ TEST(Theme, BackgroundColorIsWhite) {
 
 // ---- ダークテーマテスト ----
 
-TEST(Theme, DarkThemeHasPositiveFontSizes) {
+TEST(Theme, DarkThemeHasPositiveFontSizes)
+{
     Theme t = GetDarkTheme();
     EXPECT_GT(t.font_size_body, 0.0f);
     for (int i = 0; i < 6; ++i) {
@@ -69,7 +77,8 @@ TEST(Theme, DarkThemeHasPositiveFontSizes) {
     EXPECT_GT(t.font_size_code, 0.0f);
 }
 
-TEST(Theme, DarkThemeHeadingSizesDecrease) {
+TEST(Theme, DarkThemeHeadingSizesDecrease)
+{
     Theme t = GetDarkTheme();
     EXPECT_GT(t.font_size_h[0], t.font_size_h[1]);
     EXPECT_GT(t.font_size_h[1], t.font_size_h[2]);
@@ -78,7 +87,8 @@ TEST(Theme, DarkThemeHeadingSizesDecrease) {
     EXPECT_GE(t.font_size_h[4], t.font_size_h[5]);
 }
 
-TEST(Theme, DarkThemeBackgroundIsDark) {
+TEST(Theme, DarkThemeBackgroundIsDark)
+{
     Theme t = GetDarkTheme();
     // ダークテーマは暗い背景（低いRGB値）を持つべき
     EXPECT_LT(t.bg_color.r, 0.3f);
@@ -86,7 +96,8 @@ TEST(Theme, DarkThemeBackgroundIsDark) {
     EXPECT_LT(t.bg_color.b, 0.3f);
 }
 
-TEST(Theme, DarkThemeTextIsLight) {
+TEST(Theme, DarkThemeTextIsLight)
+{
     Theme t = GetDarkTheme();
     // ダークテーマのテキストは明るい（高いRGB値）べき
     EXPECT_GT(t.text_color.r, 0.7f);
@@ -94,7 +105,8 @@ TEST(Theme, DarkThemeTextIsLight) {
     EXPECT_GT(t.text_color.b, 0.7f);
 }
 
-TEST(Theme, DarkThemePositiveMargins) {
+TEST(Theme, DarkThemePositiveMargins)
+{
     Theme t = GetDarkTheme();
     EXPECT_GT(t.margin_left, 0.0f);
     EXPECT_GT(t.margin_right, 0.0f);
@@ -103,13 +115,15 @@ TEST(Theme, DarkThemePositiveMargins) {
     EXPECT_GT(t.indent_width, 0.0f);
 }
 
-TEST(Theme, DarkThemeFontFamilyNotEmpty) {
+TEST(Theme, DarkThemeFontFamilyNotEmpty)
+{
     Theme t = GetDarkTheme();
     EXPECT_GT(t.font_family.size(), 0u);
     EXPECT_GT(t.monospace_font.size(), 0u);
 }
 
-TEST(Theme, DarkAndLightHaveSameFontSizes) {
+TEST(Theme, DarkAndLightHaveSameFontSizes)
+{
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
     EXPECT_FLOAT_EQ(light.font_size_body, dark.font_size_body);
@@ -117,7 +131,8 @@ TEST(Theme, DarkAndLightHaveSameFontSizes) {
     EXPECT_FLOAT_EQ(light.font_size_code, dark.font_size_code);
 }
 
-TEST(Theme, DarkAndLightHaveSameSpacing) {
+TEST(Theme, DarkAndLightHaveSameSpacing)
+{
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
     EXPECT_FLOAT_EQ(light.margin_left, dark.margin_left);
@@ -129,7 +144,8 @@ TEST(Theme, DarkAndLightHaveSameSpacing) {
 
 // ---- ApplyCommonLayout 整合性テスト ----
 
-TEST(Theme, DarkAndLightHaveSameIndentation) {
+TEST(Theme, DarkAndLightHaveSameIndentation)
+{
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
     EXPECT_FLOAT_EQ(light.indent_width, dark.indent_width);
@@ -137,7 +153,8 @@ TEST(Theme, DarkAndLightHaveSameIndentation) {
     EXPECT_FLOAT_EQ(light.code_block_padding, dark.code_block_padding);
 }
 
-TEST(Theme, DarkAndLightHaveSamePaneLayout) {
+TEST(Theme, DarkAndLightHaveSamePaneLayout)
+{
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
     EXPECT_FLOAT_EQ(light.splitter_width, dark.splitter_width);
@@ -145,7 +162,8 @@ TEST(Theme, DarkAndLightHaveSamePaneLayout) {
     EXPECT_FLOAT_EQ(light.pane_header_height, dark.pane_header_height);
 }
 
-TEST(Theme, DarkAndLightHaveSameAllHeadingSizes) {
+TEST(Theme, DarkAndLightHaveSameAllHeadingSizes)
+{
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
     for (int i = 0; i < 6; ++i) {
@@ -153,13 +171,15 @@ TEST(Theme, DarkAndLightHaveSameAllHeadingSizes) {
     }
 }
 
-TEST(Theme, GetHeadingSizeLargeLevel) {
+TEST(Theme, GetHeadingSizeLargeLevel)
+{
     Theme t = GetLightTheme();
     EXPECT_EQ(t.GetHeadingSize(100), t.font_size_body);
     EXPECT_EQ(t.GetHeadingSize(-100), t.font_size_body);
 }
 
-TEST(Theme, DarkAndLightDifferentColors) {
+TEST(Theme, DarkAndLightDifferentColors)
+{
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
     // 背景色は異なるべき
@@ -168,7 +188,8 @@ TEST(Theme, DarkAndLightDifferentColors) {
     EXPECT_NE(light.text_color.r, dark.text_color.r);
 }
 
-TEST(Theme, LightThemeTextIsDark) {
+TEST(Theme, LightThemeTextIsDark)
+{
     Theme t = GetLightTheme();
     EXPECT_LT(t.text_color.r, 0.3f);
     EXPECT_LT(t.text_color.g, 0.3f);
@@ -177,7 +198,8 @@ TEST(Theme, LightThemeTextIsDark) {
 
 // ---- ApplyZoom テスト ----
 
-TEST(Theme, ApplyZoomScalesFonts) {
+TEST(Theme, ApplyZoomScalesFonts)
+{
     Theme t = GetLightTheme();
     float original_body = t.font_size_body;
     float original_h1 = t.font_size_h[0];
@@ -191,7 +213,8 @@ TEST(Theme, ApplyZoomScalesFonts) {
     EXPECT_FLOAT_EQ(t.zoom, 2.0f);
 }
 
-TEST(Theme, ApplyZoomScalesMargins) {
+TEST(Theme, ApplyZoomScalesMargins)
+{
     Theme t = GetLightTheme();
     float original_left = t.margin_left;
     float original_spacing = t.paragraph_spacing;
@@ -202,7 +225,8 @@ TEST(Theme, ApplyZoomScalesMargins) {
     EXPECT_NEAR(t.paragraph_spacing, original_spacing * 1.5f, 0.01f);
 }
 
-TEST(Theme, ApplyZoomScalesPaneSizes) {
+TEST(Theme, ApplyZoomScalesPaneSizes)
+{
     Theme t = GetLightTheme();
     float original_item_h = t.pane_item_height;
     float original_pane_font = t.pane_font_size;
@@ -213,7 +237,8 @@ TEST(Theme, ApplyZoomScalesPaneSizes) {
     EXPECT_NEAR(t.pane_font_size, original_pane_font * 1.25f, 0.01f);
 }
 
-TEST(Theme, ApplyZoomTwiceIsMultiplicative) {
+TEST(Theme, ApplyZoomTwiceIsMultiplicative)
+{
     Theme t = GetLightTheme();
     float original_body = t.font_size_body;
 
@@ -224,7 +249,8 @@ TEST(Theme, ApplyZoomTwiceIsMultiplicative) {
     EXPECT_FLOAT_EQ(t.zoom, 3.0f);
 }
 
-TEST(Theme, ApplyZoomResetToOne) {
+TEST(Theme, ApplyZoomResetToOne)
+{
     Theme t = GetLightTheme();
     float original_body = t.font_size_body;
 
@@ -236,7 +262,8 @@ TEST(Theme, ApplyZoomResetToOne) {
 
 // ---- バグ #12: ApplyZoom ゼロガード ----
 
-TEST(Theme, ApplyZoomZeroIsNoOp) {
+TEST(Theme, ApplyZoomZeroIsNoOp)
+{
     Theme t = GetLightTheme();
     float original_body = t.font_size_body;
     float original_zoom = t.zoom;
@@ -248,7 +275,8 @@ TEST(Theme, ApplyZoomZeroIsNoOp) {
     EXPECT_FLOAT_EQ(t.zoom, original_zoom);
 }
 
-TEST(Theme, ApplyZoomNegativeIsNoOp) {
+TEST(Theme, ApplyZoomNegativeIsNoOp)
+{
     Theme t = GetLightTheme();
     float original_body = t.font_size_body;
 
@@ -259,7 +287,8 @@ TEST(Theme, ApplyZoomNegativeIsNoOp) {
 
 // ---- バグ #20: ApplyZoom ドリフト防止 ----
 
-TEST(Theme, ApplyZoomFromBaseNoDrift) {
+TEST(Theme, ApplyZoomFromBaseNoDrift)
+{
     // ベース再構築によるズームイン/アウトの繰り返しをシミュレーション（修正アプローチ）
     Theme base = GetLightTheme();
     float base_body = base.font_size_body;
@@ -277,7 +306,8 @@ TEST(Theme, ApplyZoomFromBaseNoDrift) {
     EXPECT_FLOAT_EQ(restored.margin_left, base_margin);
 }
 
-TEST(Theme, ApplyZoomRepeatedRoundTripsAccumulateDrift) {
+TEST(Theme, ApplyZoomRepeatedRoundTripsAccumulateDrift)
+{
     // ベース再構築アプローチが必要な理由を示す:
     // インクリメンタルなApplyZoomは多くのサイクルで精度を失う
     Theme t = GetLightTheme();
@@ -299,7 +329,8 @@ TEST(Theme, ApplyZoomRepeatedRoundTripsAccumulateDrift) {
 
 // ---- GitHub Alerts テーマ色テスト ----
 
-TEST(Theme, LightThemeAlertColorsAreDefined) {
+TEST(Theme, LightThemeAlertColorsAreDefined)
+{
     Theme t = GetLightTheme();
     for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         // 各Alert色がゼロでない（黒一色でない）ことを確認
@@ -309,7 +340,8 @@ TEST(Theme, LightThemeAlertColorsAreDefined) {
     }
 }
 
-TEST(Theme, DarkThemeAlertColorsAreDefined) {
+TEST(Theme, DarkThemeAlertColorsAreDefined)
+{
     Theme t = GetDarkTheme();
     for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         float sum = t.alert_color[i].r + t.alert_color[i].g + t.alert_color[i].b;
@@ -318,7 +350,8 @@ TEST(Theme, DarkThemeAlertColorsAreDefined) {
     }
 }
 
-TEST(Theme, AlertBgColorsHaveAlpha) {
+TEST(Theme, AlertBgColorsHaveAlpha)
+{
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
     for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
@@ -330,26 +363,28 @@ TEST(Theme, AlertBgColorsHaveAlpha) {
     }
 }
 
-TEST(Theme, LightAndDarkAlertColorsDiffer) {
+TEST(Theme, LightAndDarkAlertColorsDiffer)
+{
     Theme light = GetLightTheme();
     Theme dark = GetDarkTheme();
     for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         // ライトとダークでAlert色が異なるべき
         bool same = (light.alert_color[i].r == dark.alert_color[i].r)
-                 && (light.alert_color[i].g == dark.alert_color[i].g)
-                 && (light.alert_color[i].b == dark.alert_color[i].b);
+            && (light.alert_color[i].g == dark.alert_color[i].g)
+            && (light.alert_color[i].b == dark.alert_color[i].b);
         EXPECT_FALSE(same) << "alert_color[" << i << "] はライトとダークで異なるべき";
     }
 }
 
-TEST(Theme, AlertColorsAreDistinct) {
+TEST(Theme, AlertColorsAreDistinct)
+{
     Theme t = GetLightTheme();
     // 5種のAlert色が互いに異なることを確認
     for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         for (size_t j = i + 1; j < ALERT_TYPE_COUNT; ++j) {
             bool same = (t.alert_color[i].r == t.alert_color[j].r)
-                     && (t.alert_color[i].g == t.alert_color[j].g)
-                     && (t.alert_color[i].b == t.alert_color[j].b);
+                && (t.alert_color[i].g == t.alert_color[j].g)
+                && (t.alert_color[i].b == t.alert_color[j].b);
             EXPECT_FALSE(same) << "alert_color[" << i << "] と [" << j << "] は異なるべき";
         }
     }

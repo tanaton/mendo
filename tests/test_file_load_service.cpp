@@ -4,35 +4,40 @@
 class FileLoadServiceTest : public ::testing::Test {
 protected:
     FileLoader loader_;
-    DocumentService doc_service_{loader_};
-    FileLoadService service_{doc_service_};
+    DocumentService doc_service_{ loader_ };
+    FileLoadService service_{ doc_service_ };
 };
 
-TEST_F(FileLoadServiceTest, InitiallyNotLoading) {
+TEST_F(FileLoadServiceTest, InitiallyNotLoading)
+{
     EXPECT_FALSE(service_.IsLoading());
     EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
 }
 
-TEST_F(FileLoadServiceTest, StartLoading) {
+TEST_F(FileLoadServiceTest, StartLoading)
+{
     service_.StartLoading(L"test.md");
     EXPECT_TRUE(service_.IsLoading());
     EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
     EXPECT_EQ(service_.GetLoadingPath(), L"test.md");
 }
 
-TEST_F(FileLoadServiceTest, StopLoading) {
+TEST_F(FileLoadServiceTest, StopLoading)
+{
     service_.StartLoading(L"test.md");
     service_.StopLoading();
     EXPECT_FALSE(service_.IsLoading());
 }
 
-TEST_F(FileLoadServiceTest, TickLoadingAnimation) {
+TEST_F(FileLoadServiceTest, TickLoadingAnimation)
+{
     service_.StartLoading(L"test.md");
     service_.TickLoadingAnimation();
     EXPECT_GT(service_.GetLoadingAngle(), 0.0f);
 }
 
-TEST_F(FileLoadServiceTest, TickLoadingAnimationWraps) {
+TEST_F(FileLoadServiceTest, TickLoadingAnimationWraps)
+{
     service_.StartLoading(L"test.md");
     // 一周するのに十分な回数ティック（2*pi / 0.15 ≈ 42）
     for (int i = 0; i < 50; ++i) {
@@ -42,12 +47,14 @@ TEST_F(FileLoadServiceTest, TickLoadingAnimationWraps) {
     EXPECT_LT(service_.GetLoadingAngle(), 6.2831853f);
 }
 
-TEST_F(FileLoadServiceTest, SetLoadingPath) {
+TEST_F(FileLoadServiceTest, SetLoadingPath)
+{
     service_.SetLoadingPath(L"path/to/file.md");
     EXPECT_EQ(service_.GetLoadingPath(), L"path/to/file.md");
 }
 
-TEST_F(FileLoadServiceTest, ExecuteLoadNonexistentFile) {
+TEST_F(FileLoadServiceTest, ExecuteLoadNonexistentFile)
+{
     Document doc;
     LayoutCache cache;
     service_.SetLoadingPath(L"nonexistent_file.md");
@@ -56,14 +63,16 @@ TEST_F(FileLoadServiceTest, ExecuteLoadNonexistentFile) {
     EXPECT_FALSE(service_.IsLoading());
 }
 
-TEST_F(FileLoadServiceTest, ExecuteReloadEmptyPath) {
+TEST_F(FileLoadServiceTest, ExecuteReloadEmptyPath)
+{
     Document doc;
     LayoutCache cache;
     bool result = service_.ExecuteReload(doc, cache);
     EXPECT_FALSE(result);
 }
 
-TEST_F(FileLoadServiceTest, LoadStopsAnimation) {
+TEST_F(FileLoadServiceTest, LoadStopsAnimation)
+{
     service_.StartLoading(L"nonexistent.md");
     EXPECT_TRUE(service_.IsLoading());
 
@@ -75,7 +84,8 @@ TEST_F(FileLoadServiceTest, LoadStopsAnimation) {
 
 // ---- リロード時ローディングアニメーション関連テスト ----
 
-TEST_F(FileLoadServiceTest, StartLoadingForReload) {
+TEST_F(FileLoadServiceTest, StartLoadingForReload)
+{
     // リロード用にStartLoadingを呼んでもアニメーション状態が正しく初期化される
     service_.StartLoading(L"reload_target.md");
     EXPECT_TRUE(service_.IsLoading());
@@ -83,7 +93,8 @@ TEST_F(FileLoadServiceTest, StartLoadingForReload) {
     EXPECT_EQ(service_.GetLoadingPath(), L"reload_target.md");
 }
 
-TEST_F(FileLoadServiceTest, StopLoadingBeforeReload) {
+TEST_F(FileLoadServiceTest, StopLoadingBeforeReload)
+{
     // ローディングアニメーション開始後にStopLoadingで停止し、
     // その後ExecuteReloadが正常に動作する
     service_.StartLoading(L"test.md");
@@ -100,7 +111,8 @@ TEST_F(FileLoadServiceTest, StopLoadingBeforeReload) {
     EXPECT_FALSE(service_.ExecuteReload(doc, cache));
 }
 
-TEST_F(FileLoadServiceTest, ReloadDoesNotAffectLoadingState) {
+TEST_F(FileLoadServiceTest, ReloadDoesNotAffectLoadingState)
+{
     // ExecuteReloadはloading_フラグを変更しない
     service_.StartLoading(L"test.md");
     EXPECT_TRUE(service_.IsLoading());
@@ -112,7 +124,8 @@ TEST_F(FileLoadServiceTest, ReloadDoesNotAffectLoadingState) {
     EXPECT_TRUE(service_.IsLoading());
 }
 
-TEST_F(FileLoadServiceTest, StartLoadingResetsAngle) {
+TEST_F(FileLoadServiceTest, StartLoadingResetsAngle)
+{
     // 2回目のStartLoadingでアングルがリセットされる
     service_.StartLoading(L"first.md");
     for (int i = 0; i < 10; ++i) {

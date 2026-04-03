@@ -16,7 +16,8 @@ public:
     bool RecreateFormats() override { return true; }
     void UpdateTheme(const Theme&) noexcept override {}
 
-    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) override {
+    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) override
+    {
         if (node.type == NodeType::HorizontalRule) {
             entry.height = 10.0f;
             entry.layout_dirty = false;
@@ -45,7 +46,8 @@ public:
                     h *= max_width / w;
                 }
                 entry.height = h;
-            } else if (entry.height <= 0) {
+            }
+            else if (entry.height <= 0) {
                 entry.height = 60.0f; // プレースホルダー高さ
             }
             entry.layout_dirty = false;
@@ -75,7 +77,8 @@ public:
         entry.effects_applied = false;
     }
 
-    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) override {
+    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) override
+    {
         if (!node.has_table() || node.table_rows().empty()) {
             entry.height = 0;
             entry.layout_dirty = false;

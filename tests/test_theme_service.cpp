@@ -4,22 +4,26 @@
 class ThemeServiceTest : public ::testing::Test {
 protected:
     ConfigService config_;
-    ThemeService service_{config_};
+    ThemeService service_{ config_ };
 
-    void SetUp() override {
+    void SetUp() override
+    {
         config::Clear();
     }
 
-    void TearDown() override {
+    void TearDown() override
+    {
         config::Clear();
     }
 };
 
-TEST_F(ThemeServiceTest, InitiallyLightMode) {
+TEST_F(ThemeServiceTest, InitiallyLightMode)
+{
     EXPECT_FALSE(service_.IsDarkMode());
 }
 
-TEST_F(ThemeServiceTest, ToggleDarkMode) {
+TEST_F(ThemeServiceTest, ToggleDarkMode)
+{
     bool result = service_.ToggleDarkMode();
     EXPECT_TRUE(result);
     EXPECT_TRUE(service_.IsDarkMode());
@@ -29,7 +33,8 @@ TEST_F(ThemeServiceTest, ToggleDarkMode) {
     EXPECT_FALSE(service_.IsDarkMode());
 }
 
-TEST_F(ThemeServiceTest, CreateThemeLightMode) {
+TEST_F(ThemeServiceTest, CreateThemeLightMode)
+{
     Theme theme = service_.CreateTheme();
     Theme expected = GetLightTheme();
     EXPECT_EQ(theme.bg_color.r, expected.bg_color.r);
@@ -37,7 +42,8 @@ TEST_F(ThemeServiceTest, CreateThemeLightMode) {
     EXPECT_EQ(theme.bg_color.b, expected.bg_color.b);
 }
 
-TEST_F(ThemeServiceTest, CreateThemeDarkMode) {
+TEST_F(ThemeServiceTest, CreateThemeDarkMode)
+{
     service_.ToggleDarkMode();
     Theme theme = service_.CreateTheme();
     Theme expected = GetDarkTheme();
@@ -46,18 +52,21 @@ TEST_F(ThemeServiceTest, CreateThemeDarkMode) {
     EXPECT_EQ(theme.bg_color.b, expected.bg_color.b);
 }
 
-TEST_F(ThemeServiceTest, CreateThemeDefaultZoom) {
+TEST_F(ThemeServiceTest, CreateThemeDefaultZoom)
+{
     Theme theme = service_.CreateTheme(ZOOM_DEFAULT_INDEX);
     EXPECT_FLOAT_EQ(theme.zoom, 1.0f);
 }
 
-TEST_F(ThemeServiceTest, CreateThemeWithZoom) {
+TEST_F(ThemeServiceTest, CreateThemeWithZoom)
+{
     // Use zoom index 12 (2.00x)
     Theme theme = service_.CreateTheme(12);
     EXPECT_FLOAT_EQ(theme.zoom, ZOOM_STEPS[12]);
 }
 
-TEST_F(ThemeServiceTest, CreateThemeDarkModeWithZoom) {
+TEST_F(ThemeServiceTest, CreateThemeDarkModeWithZoom)
+{
     service_.ToggleDarkMode();
     Theme theme = service_.CreateTheme(12);
 
@@ -67,7 +76,8 @@ TEST_F(ThemeServiceTest, CreateThemeDarkModeWithZoom) {
     EXPECT_EQ(theme.bg_color.r, expected.bg_color.r);
 }
 
-TEST_F(ThemeServiceTest, LoadZoomIndexDefault) {
+TEST_F(ThemeServiceTest, LoadZoomIndexDefault)
+{
     int idx = service_.LoadZoomIndex();
     EXPECT_GE(idx, 0);
     EXPECT_LT(idx, ZOOM_STEP_COUNT);

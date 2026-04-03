@@ -14,27 +14,30 @@ protected:
     CommandGenerator gen_;
     Theme theme_;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         theme_ = GetLightTheme();
         ASSERT_TRUE(engine_.Init(&mock_, theme_));
         gen_.SetTheme(&theme_);
-        gen_.SetFormats({nullptr, nullptr, nullptr, nullptr}); // モックテストでは実際のDWriteフォーマットなし
+        gen_.SetFormats({ nullptr, nullptr, nullptr, nullptr }); // モックテストでは実際のDWriteフォーマットなし
     }
 
     // ヘルパー: Markdownをパースし、レイアウトを計算し、MDペイン用のコマンドを生成する。
-    DrawCommandList Generate(const std::string& md, float viewport_w = 800.0f) {
+    DrawCommandList Generate(const std::string& md, float viewport_w = 800.0f)
+    {
         auto nodes = ParseMarkdown(md);
         LayoutCache cache;
         cache.Resize(nodes.size());
         engine_.ComputeLayout(nodes, cache, viewport_w);
-        PaneRect md_pane{0, 0, viewport_w, 2000.0f};
+        PaneRect md_pane{ 0, 0, viewport_w, 2000.0f };
         return gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
     }
 };
 
 // ---- 構造テスト ----
 
-TEST_F(CmdGenTest, EmptyDocumentProducesClipAndTransformOnly) {
+TEST_F(CmdGenTest, EmptyDocumentProducesClipAndTransformOnly)
+{
     auto cmds = Generate("");
     // 期待値: PushClip, SetTransform, SetTransform(単位行列), PopClip
     ASSERT_GE(cmds.size(), 4u);
@@ -42,7 +45,8 @@ TEST_F(CmdGenTest, EmptyDocumentProducesClipAndTransformOnly) {
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
 }
 
-TEST_F(CmdGenTest, PushClipAndPopClipArePaired) {
+TEST_F(CmdGenTest, PushClipAndPopClipArePaired)
+{
     auto cmds = Generate("Hello\n\n---\n\nWorld");
     int push = 0, pop = 0;
     for (const auto& cmd : cmds) {
@@ -53,7 +57,8 @@ TEST_F(CmdGenTest, PushClipAndPopClipArePaired) {
     EXPECT_EQ(pop, 1);
 }
 
-TEST_F(CmdGenTest, TransformsArePaired) {
+TEST_F(CmdGenTest, TransformsArePaired)
+{
     auto cmds = Generate("Hello");
     int transforms = 0;
     for (const auto& cmd : cmds) {
@@ -64,7 +69,8 @@ TEST_F(CmdGenTest, TransformsArePaired) {
 
 // ---- 水平線 ----
 
-TEST_F(CmdGenTest, HorizontalRuleGeneratesDrawLine) {
+TEST_F(CmdGenTest, HorizontalRuleGeneratesDrawLine)
+{
     auto cmds = Generate("---");
     int line_count = 0;
     for (const auto& cmd : cmds) {
@@ -75,7 +81,8 @@ TEST_F(CmdGenTest, HorizontalRuleGeneratesDrawLine) {
 
 // ---- コードブロック ----
 
-TEST_F(CmdGenTest, CodeBlockGeneratesRoundedRectBackground) {
+TEST_F(CmdGenTest, CodeBlockGeneratesRoundedRectBackground)
+{
     auto cmds = Generate("```\ncode\n```");
     int rounded_count = 0;
     for (const auto& cmd : cmds) {
@@ -86,7 +93,8 @@ TEST_F(CmdGenTest, CodeBlockGeneratesRoundedRectBackground) {
 
 // ---- テーブル ----
 
-TEST_F(CmdGenTest, TableGeneratesLinesAndRects) {
+TEST_F(CmdGenTest, TableGeneratesLinesAndRects)
+{
     auto cmds = Generate("| A | B |\n|---|---|\n| 1 | 2 |");
     int lines = 0, rects = 0;
     for (const auto& cmd : cmds) {
@@ -100,7 +108,8 @@ TEST_F(CmdGenTest, TableGeneratesLinesAndRects) {
 
 // ---- リスト項目 ----
 
-TEST_F(CmdGenTest, UnorderedListGeneratesFillEllipse) {
+TEST_F(CmdGenTest, UnorderedListGeneratesFillEllipse)
+{
     auto cmds = Generate("- Item");
     int ellipses = 0;
     for (const auto& cmd : cmds) {
@@ -109,7 +118,8 @@ TEST_F(CmdGenTest, UnorderedListGeneratesFillEllipse) {
     EXPECT_GE(ellipses, 1);
 }
 
-TEST_F(CmdGenTest, NestedListGeneratesDrawEllipse) {
+TEST_F(CmdGenTest, NestedListGeneratesDrawEllipse)
+{
     auto cmds = Generate("- Item\n  - Sub");
     int outline_ellipses = 0;
     for (const auto& cmd : cmds) {
@@ -120,7 +130,8 @@ TEST_F(CmdGenTest, NestedListGeneratesDrawEllipse) {
 
 // ---- 引用ブロック ----
 
-TEST_F(CmdGenTest, BlockQuoteGeneratesBarLine) {
+TEST_F(CmdGenTest, BlockQuoteGeneratesBarLine)
+{
     auto cmds = Generate("> Quote");
     int lines = 0;
     for (const auto& cmd : cmds) {
@@ -133,7 +144,8 @@ TEST_F(CmdGenTest, BlockQuoteGeneratesBarLine) {
     EXPECT_GE(lines, 1);
 }
 
-TEST_F(CmdGenTest, MultiLineBlockQuoteGeneratesSingleBar) {
+TEST_F(CmdGenTest, MultiLineBlockQuoteGeneratesSingleBar)
+{
     auto cmds = Generate("> Line 1\n>\n> Line 2");
     int vertical_lines = 0;
     for (const auto& cmd : cmds) {
@@ -146,7 +158,8 @@ TEST_F(CmdGenTest, MultiLineBlockQuoteGeneratesSingleBar) {
     EXPECT_EQ(vertical_lines, 1) << "複数行の引用ブロックは1本の統合されたバーのみ生成するべき";
 }
 
-TEST_F(CmdGenTest, MultiLineAlertGeneratesSingleBarAndBackground) {
+TEST_F(CmdGenTest, MultiLineAlertGeneratesSingleBarAndBackground)
+{
     auto cmds = Generate("> [!NOTE]\n> Line 1\n>\n> Line 2");
     int vertical_lines = 0;
     int rounded_rects = 0;
@@ -166,7 +179,8 @@ TEST_F(CmdGenTest, MultiLineAlertGeneratesSingleBarAndBackground) {
 
 // ---- ビューポートカリング ----
 
-TEST_F(CmdGenTest, ViewportCullingExcludesOffscreenNodes) {
+TEST_F(CmdGenTest, ViewportCullingExcludesOffscreenNodes)
+{
     // 多数の水平線を作成。text_layoutがなくてもDrawLineCmdを生成する。
     std::string md;
     for (int i = 0; i < 50; i++) md += "---\n\n";
@@ -176,11 +190,11 @@ TEST_F(CmdGenTest, ViewportCullingExcludesOffscreenNodes) {
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
     // 小さなビューポートを使用: [0, 100) -> 少数のノードのみ表示されるべき
-    PaneRect md_pane{0, 0, 800.0f, 100.0f};
+    PaneRect md_pane{ 0, 0, 800.0f, 100.0f };
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     // フルビューポートではより多くのコマンドがあるべき
-    PaneRect md_pane_full{0, 0, 800.0f, 50000.0f};
+    PaneRect md_pane_full{ 0, 0, 800.0f, 50000.0f };
     auto cmds_full = gen_.GenerateMdPane(nodes, cache, md_pane_full, 0.0f, TextSelection{});
 
     EXPECT_LT(cmds.size(), cmds_full.size());
@@ -188,7 +202,8 @@ TEST_F(CmdGenTest, ViewportCullingExcludesOffscreenNodes) {
 
 // ---- DrawLineCmdのプロパティ ----
 
-TEST_F(CmdGenTest, HorizontalRuleColorMatchesTheme) {
+TEST_F(CmdGenTest, HorizontalRuleColorMatchesTheme)
+{
     auto cmds = Generate("---");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -202,7 +217,8 @@ TEST_F(CmdGenTest, HorizontalRuleColorMatchesTheme) {
 
 // ---- 複数ノード ----
 
-TEST_F(CmdGenTest, MixedContentGeneratesVariousCommands) {
+TEST_F(CmdGenTest, MixedContentGeneratesVariousCommands)
+{
     auto cmds = Generate("# Heading\n\nParagraph\n\n---\n\n- List\n\n> Quote\n\n```\ncode\n```");
     // すべてのノード種別からのコマンドがあるべき
     bool has_line = false, has_ellipse = false, has_rounded = false;
@@ -218,7 +234,8 @@ TEST_F(CmdGenTest, MixedContentGeneratesVariousCommands) {
 
 // ---- 番号付きリスト ----
 
-TEST_F(CmdGenTest, OrderedListGeneratesDrawText) {
+TEST_F(CmdGenTest, OrderedListGeneratesDrawText)
+{
     auto cmds = Generate("1. First\n2. Second\n3. Third");
     // 番号付きリストは箇条書きの楕円を生成しないべき
     int fill_ellipses = 0;
@@ -230,7 +247,8 @@ TEST_F(CmdGenTest, OrderedListGeneratesDrawText) {
 
 // ---- タスクリスト ----
 
-TEST_F(CmdGenTest, TaskListItemGeneratesNoEllipse) {
+TEST_F(CmdGenTest, TaskListItemGeneratesNoEllipse)
+{
     auto cmds = Generate("- [x] Done\n- [ ] Not done");
     // タスクリスト項目は箇条書きの楕円を生成しないべき
     int fill_ellipses = 0;
@@ -242,7 +260,8 @@ TEST_F(CmdGenTest, TaskListItemGeneratesNoEllipse) {
 
 // ---- 選択ハイライト ----
 
-TEST_F(CmdGenTest, SelectionGeneratesFillRects) {
+TEST_F(CmdGenTest, SelectionGeneratesFillRects)
+{
     auto nodes = ParseMarkdown("Hello world paragraph");
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -255,7 +274,7 @@ TEST_F(CmdGenTest, SelectionGeneratesFillRects) {
     sel.end_node = 0;
     sel.end_pos = 5;
 
-    PaneRect pane{0, 0, 800.0f, 2000.0f};
+    PaneRect pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen_.GenerateMdPane(nodes, cache, pane, 0.0f, sel);
 
     // モック計測器ではtext_layoutがnullなので選択矩形は生成されない
@@ -267,7 +286,8 @@ TEST_F(CmdGenTest, SelectionGeneratesFillRects) {
 
 // ---- スクロール済みビューポート ----
 
-TEST_F(CmdGenTest, ScrolledViewportCullsTopNodes) {
+TEST_F(CmdGenTest, ScrolledViewportCullsTopNodes)
+{
     // 複数の段落を作成
     std::string md;
     for (int i = 0; i < 20; i++) md += "Paragraph " + std::to_string(i) + "\n\n";
@@ -280,7 +300,7 @@ TEST_F(CmdGenTest, ScrolledViewportCullsTopNodes) {
     float total = engine_.GetTotalHeight();
     float half_scroll = total * 0.5f;
 
-    PaneRect pane{0, 0, 800.0f, 200.0f};
+    PaneRect pane{ 0, 0, 800.0f, 200.0f };
     auto cmds_top = gen_.GenerateMdPane(nodes, cache, pane, 0.0f, TextSelection{});
     auto cmds_mid = gen_.GenerateMdPane(nodes, cache, pane, half_scroll, TextSelection{});
 
@@ -291,7 +311,8 @@ TEST_F(CmdGenTest, ScrolledViewportCullsTopNodes) {
 
 // ---- 言語指定付きコードブロック ----
 
-TEST_F(CmdGenTest, CodeBlockWithLanguageGeneratesBackground) {
+TEST_F(CmdGenTest, CodeBlockWithLanguageGeneratesBackground)
+{
     auto cmds = Generate("```cpp\nint x = 42;\n```");
     int rounded_count = 0;
     for (const auto& cmd : cmds) {
@@ -302,7 +323,8 @@ TEST_F(CmdGenTest, CodeBlockWithLanguageGeneratesBackground) {
 
 // ---- 複数の水平線 ----
 
-TEST_F(CmdGenTest, MultipleHorizontalRulesGenerateMultipleLines) {
+TEST_F(CmdGenTest, MultipleHorizontalRulesGenerateMultipleLines)
+{
     auto cmds = Generate("---\n\n---\n\n---");
     int line_count = 0;
     for (const auto& cmd : cmds) {
@@ -313,7 +335,8 @@ TEST_F(CmdGenTest, MultipleHorizontalRulesGenerateMultipleLines) {
 
 // ---- 引用ブロックのバー色がテーマと一致 ----
 
-TEST_F(CmdGenTest, BlockQuoteBarColorMatchesTheme) {
+TEST_F(CmdGenTest, BlockQuoteBarColorMatchesTheme)
+{
     auto cmds = Generate("> Quote text");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -330,7 +353,8 @@ TEST_F(CmdGenTest, BlockQuoteBarColorMatchesTheme) {
 
 // ---- ダークテーマテスト ----
 
-TEST_F(CmdGenTest, DarkThemeTableGeneratesCommands) {
+TEST_F(CmdGenTest, DarkThemeTableGeneratesCommands)
+{
     theme_ = GetDarkTheme();
     gen_.SetTheme(&theme_);
     ASSERT_TRUE(engine_.Init(&mock_, theme_));
@@ -345,7 +369,8 @@ TEST_F(CmdGenTest, DarkThemeTableGeneratesCommands) {
 
 // ---- 空のテーブル ----
 
-TEST_F(CmdGenTest, EmptyDocumentNoExtraCommands) {
+TEST_F(CmdGenTest, EmptyDocumentNoExtraCommands)
+{
     auto cmds = Generate("");
     // clip/transformコマンドのみで、描画コマンドはない
     for (size_t i = 1; i < cmds.size() - 1; i++) {
@@ -359,7 +384,8 @@ TEST_F(CmdGenTest, EmptyDocumentNoExtraCommands) {
 
 // ---- GitHub Alerts ----
 
-TEST_F(CmdGenTest, AlertGeneratesColoredBar) {
+TEST_F(CmdGenTest, AlertGeneratesColoredBar)
+{
     auto cmds = Generate("> [!NOTE]\n> Alert content");
     // Alertのバーは垂直線で、通常のblockquoteとは異なる色を持つべき
     bool found_alert_bar = false;
@@ -380,7 +406,8 @@ TEST_F(CmdGenTest, AlertGeneratesColoredBar) {
     EXPECT_TRUE(found_alert_bar) << "Alert のバーは通常の blockquote とは異なる色であるべき";
 }
 
-TEST_F(CmdGenTest, AlertGeneratesBackground) {
+TEST_F(CmdGenTest, AlertGeneratesBackground)
+{
     auto cmds = Generate("> [!WARNING]\n> Be careful");
     // Alertは角丸四角形の背景を生成するべき
     int rounded_count = 0;
@@ -390,7 +417,8 @@ TEST_F(CmdGenTest, AlertGeneratesBackground) {
     EXPECT_GE(rounded_count, 1) << "Alert は背景の角丸四角形を生成するべき";
 }
 
-TEST_F(CmdGenTest, AlertBarColorMatchesTheme) {
+TEST_F(CmdGenTest, AlertBarColorMatchesTheme)
+{
     auto cmds = Generate("> [!NOTE]\n> text");
     // Note の色は theme_.alert_color[0]
     for (const auto& cmd : cmds) {
@@ -409,7 +437,8 @@ TEST_F(CmdGenTest, AlertBarColorMatchesTheme) {
     FAIL() << "Note のバー色が theme_.alert_color[0] と一致するべき";
 }
 
-TEST_F(CmdGenTest, RegularBlockquoteStillUsesOriginalColor) {
+TEST_F(CmdGenTest, RegularBlockquoteStillUsesOriginalColor)
+{
     auto cmds = Generate("> Normal quote");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -424,7 +453,8 @@ TEST_F(CmdGenTest, RegularBlockquoteStillUsesOriginalColor) {
     FAIL() << "Regular blockquote は垂直バー線を生成し、その色が theme_.blockquote_bar_color と一致するべき";
 }
 
-TEST_F(CmdGenTest, AllAlertTypesGenerateCommands) {
+TEST_F(CmdGenTest, AllAlertTypesGenerateCommands)
+{
     const char* alerts[] = {
         "> [!NOTE]\n> n",
         "> [!TIP]\n> t",
@@ -444,7 +474,8 @@ TEST_F(CmdGenTest, AllAlertTypesGenerateCommands) {
 
 // ---- 見出し下線 ----
 
-TEST_F(CmdGenTest, H1GeneratesUnderline) {
+TEST_F(CmdGenTest, H1GeneratesUnderline)
+{
     auto cmds = Generate("# Heading 1");
     int hlines = 0;
     for (const auto& cmd : cmds) {
@@ -458,7 +489,8 @@ TEST_F(CmdGenTest, H1GeneratesUnderline) {
     EXPECT_GE(hlines, 1) << "h1 は下線の水平線を生成するべき";
 }
 
-TEST_F(CmdGenTest, H2GeneratesUnderline) {
+TEST_F(CmdGenTest, H2GeneratesUnderline)
+{
     auto cmds = Generate("## Heading 2");
     int hlines = 0;
     for (const auto& cmd : cmds) {
@@ -471,7 +503,8 @@ TEST_F(CmdGenTest, H2GeneratesUnderline) {
     EXPECT_GE(hlines, 1) << "h2 は下線の水平線を生成するべき";
 }
 
-TEST_F(CmdGenTest, H3DoesNotGenerateUnderline) {
+TEST_F(CmdGenTest, H3DoesNotGenerateUnderline)
+{
     auto cmds = Generate("### Heading 3");
     int hlines = 0;
     for (const auto& cmd : cmds) {
@@ -484,7 +517,8 @@ TEST_F(CmdGenTest, H3DoesNotGenerateUnderline) {
     EXPECT_EQ(hlines, 0) << "h3 は下線を生成しないべき";
 }
 
-TEST_F(CmdGenTest, HeadingUnderlineColorMatchesTheme) {
+TEST_F(CmdGenTest, HeadingUnderlineColorMatchesTheme)
+{
     auto cmds = Generate("# Title");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -500,7 +534,8 @@ TEST_F(CmdGenTest, HeadingUnderlineColorMatchesTheme) {
     FAIL() << "見出し下線が見つからない";
 }
 
-TEST_F(CmdGenTest, H2UnderlineThicknessMatchesTheme) {
+TEST_F(CmdGenTest, H2UnderlineThicknessMatchesTheme)
+{
     auto cmds = Generate("## Heading 2");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -517,7 +552,8 @@ TEST_F(CmdGenTest, H2UnderlineThicknessMatchesTheme) {
 // ---- コピーボタン ----
 
 // formats_.copy_btn_icon が null の場合、コピーボタン用の DrawTextCmd は生成されない
-TEST_F(CmdGenTest, CodeBlockNoCopyButtonWithoutIconFont) {
+TEST_F(CmdGenTest, CodeBlockNoCopyButtonWithoutIconFont)
+{
     auto cmds = Generate("```\ncode\n```");
     int text_cmd_count = 0;
     for (const auto& cmd : cmds) {
@@ -527,7 +563,8 @@ TEST_F(CmdGenTest, CodeBlockNoCopyButtonWithoutIconFont) {
 }
 
 // 非コードブロックノードはコピーボタンのコマンドを生成しない
-TEST_F(CmdGenTest, NonCodeBlockNoCopyButton) {
+TEST_F(CmdGenTest, NonCodeBlockNoCopyButton)
+{
     auto cmds = Generate("Hello world");
     int text_cmd_count = 0;
     for (const auto& cmd : cmds) {
@@ -538,12 +575,13 @@ TEST_F(CmdGenTest, NonCodeBlockNoCopyButton) {
 
 // ---- リスト箇条書き記号の垂直位置 ----
 
-TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine) {
+TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine)
+{
     auto nodes = ParseMarkdown("- Item");
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     // text_layout が null のフォールバック: first_line_h = font_size_body * 1.3
@@ -558,12 +596,13 @@ TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine) {
     FAIL() << "FillEllipseCmd が見つからない";
 }
 
-TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine) {
+TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
+{
     auto nodes = ParseMarkdown("- A\n  - B");
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     float expected_y0 = cache[0].y_position + theme_.font_size_body * 1.3f * 0.5f;
@@ -584,12 +623,13 @@ TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine) {
 }
 
 // hovered_copy_node パラメータが GenerateMdPane に渡せることの検証
-TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted) {
+TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted)
+{
     auto nodes = ParseMarkdown("```\ncode\n```");
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     // hovered_copy_node=0 を渡してもクラッシュしない
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, -1, 0);
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
@@ -598,13 +638,14 @@ TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted) {
 
 // ---- 図・画像プレースホルダー ----
 
-TEST_F(CmdGenTest, ImageWithoutBitmapGeneratesPlaceholder) {
+TEST_F(CmdGenTest, ImageWithoutBitmapGeneratesPlaceholder)
+{
     auto nodes = ParseMarkdown("![alt](image.png)");
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     // bitmapを設定しない → プレースホルダーが描画されるべき
-    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     int rounded_count = 0;
@@ -616,13 +657,14 @@ TEST_F(CmdGenTest, ImageWithoutBitmapGeneratesPlaceholder) {
     EXPECT_GE(rounded_count, 1) << "ビットマップ未設定の画像はプレースホルダー背景を描画するべき";
 }
 
-TEST_F(CmdGenTest, MermaidWithoutBitmapGeneratesPlaceholder) {
+TEST_F(CmdGenTest, MermaidWithoutBitmapGeneratesPlaceholder)
+{
     auto nodes = ParseMarkdown("```mermaid\ngraph TD\n  A-->B\n```");
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     // bitmapを設定しない → プレースホルダーが描画されるべき
-    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     int rounded_count = 0;
@@ -634,12 +676,13 @@ TEST_F(CmdGenTest, MermaidWithoutBitmapGeneratesPlaceholder) {
     EXPECT_GE(rounded_count, 1) << "ビットマップ未設定のMermaidはプレースホルダー背景を描画するべき";
 }
 
-TEST_F(CmdGenTest, PlaceholderBgUsesCodeBgColor) {
+TEST_F(CmdGenTest, PlaceholderBgUsesCodeBgColor)
+{
     auto nodes = ParseMarkdown("![alt](image.png)");
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    PaneRect md_pane{0, 0, 800.0f, 2000.0f};
+    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     for (const auto& cmd : cmds) {

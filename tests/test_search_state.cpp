@@ -47,7 +47,8 @@ static LayoutCache MakeCache(int count, float node_height = 100.0f)
 // 表示/非表示の基本操作
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, InitiallyNotVisible) {
+TEST(SearchStateTest, InitiallyNotVisible)
+{
     SearchState s;
     EXPECT_FALSE(s.IsVisible());
     EXPECT_TRUE(s.GetQuery().empty());
@@ -55,7 +56,8 @@ TEST(SearchStateTest, InitiallyNotVisible) {
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
 
-TEST(SearchStateTest, ShowAndHide) {
+TEST(SearchStateTest, ShowAndHide)
+{
     SearchState s;
     s.Show();
     EXPECT_TRUE(s.IsVisible());
@@ -63,7 +65,8 @@ TEST(SearchStateTest, ShowAndHide) {
     EXPECT_FALSE(s.IsVisible());
 }
 
-TEST(SearchStateTest, HidePreservesQuery) {
+TEST(SearchStateTest, HidePreservesQuery)
+{
     SearchState s;
     s.Show();
     s.SetQuery(L"hello");
@@ -71,7 +74,8 @@ TEST(SearchStateTest, HidePreservesQuery) {
     EXPECT_EQ(s.GetQuery(), L"hello");
 }
 
-TEST(SearchStateTest, HideClearsMatches) {
+TEST(SearchStateTest, HideClearsMatches)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"hello world"));
     SearchState s;
@@ -84,7 +88,8 @@ TEST(SearchStateTest, HideClearsMatches) {
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
 
-TEST(SearchStateTest, ResetClearsQueryAndMatches) {
+TEST(SearchStateTest, ResetClearsQueryAndMatches)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"hello"));
     SearchState s;
@@ -101,7 +106,8 @@ TEST(SearchStateTest, ResetClearsQueryAndMatches) {
 // 基本検索（大文字小文字無視）
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, EmptyQueryProducesNoMatches) {
+TEST(SearchStateTest, EmptyQueryProducesNoMatches)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"hello"));
     SearchState s;
@@ -110,7 +116,8 @@ TEST(SearchStateTest, EmptyQueryProducesNoMatches) {
     EXPECT_EQ(s.GetMatchCount(), 0);
 }
 
-TEST(SearchStateTest, SingleMatch) {
+TEST(SearchStateTest, SingleMatch)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"Hello World"));
     SearchState s;
@@ -122,7 +129,8 @@ TEST(SearchStateTest, SingleMatch) {
     EXPECT_EQ(s.GetMatches()[0].length, 5u);
 }
 
-TEST(SearchStateTest, MultipleMatchesInOneNode) {
+TEST(SearchStateTest, MultipleMatchesInOneNode)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"abcabcabc"));
     SearchState s;
@@ -134,7 +142,8 @@ TEST(SearchStateTest, MultipleMatchesInOneNode) {
     EXPECT_EQ(s.GetMatches()[2].start, 6u);
 }
 
-TEST(SearchStateTest, MatchesAcrossMultipleNodes) {
+TEST(SearchStateTest, MatchesAcrossMultipleNodes)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"first test"));
     nodes.push_back(MakeTextNode(L"no match here"));
@@ -147,7 +156,8 @@ TEST(SearchStateTest, MatchesAcrossMultipleNodes) {
     EXPECT_EQ(s.GetMatches()[1].node_index, 2);
 }
 
-TEST(SearchStateTest, CaseInsensitiveByDefault) {
+TEST(SearchStateTest, CaseInsensitiveByDefault)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"Hello HELLO hello"));
     SearchState s;
@@ -156,7 +166,8 @@ TEST(SearchStateTest, CaseInsensitiveByDefault) {
     EXPECT_EQ(s.GetMatchCount(), 3);
 }
 
-TEST(SearchStateTest, NoMatchReturnsEmpty) {
+TEST(SearchStateTest, NoMatchReturnsEmpty)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"hello world"));
     SearchState s;
@@ -165,7 +176,8 @@ TEST(SearchStateTest, NoMatchReturnsEmpty) {
     EXPECT_EQ(s.GetMatchCount(), 0);
 }
 
-TEST(SearchStateTest, EmptyNodesProducesNoMatches) {
+TEST(SearchStateTest, EmptyNodesProducesNoMatches)
+{
     std::pmr::vector<Node> nodes;
     SearchState s;
     s.SetQuery(L"hello");
@@ -173,7 +185,8 @@ TEST(SearchStateTest, EmptyNodesProducesNoMatches) {
     EXPECT_EQ(s.GetMatchCount(), 0);
 }
 
-TEST(SearchStateTest, EmptyTextNodeSkipped) {
+TEST(SearchStateTest, EmptyTextNodeSkipped)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L""));
     nodes.push_back(MakeTextNode(L"hello"));
@@ -188,12 +201,14 @@ TEST(SearchStateTest, EmptyTextNodeSkipped) {
 // 大文字小文字区別
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, CaseSensitiveDefaultOff) {
+TEST(SearchStateTest, CaseSensitiveDefaultOff)
+{
     SearchState s;
     EXPECT_FALSE(s.IsCaseSensitive());
 }
 
-TEST(SearchStateTest, CaseSensitiveToggle) {
+TEST(SearchStateTest, CaseSensitiveToggle)
+{
     SearchState s;
     s.ToggleCaseSensitive();
     EXPECT_TRUE(s.IsCaseSensitive());
@@ -201,7 +216,8 @@ TEST(SearchStateTest, CaseSensitiveToggle) {
     EXPECT_FALSE(s.IsCaseSensitive());
 }
 
-TEST(SearchStateTest, CaseSensitiveMatchesExact) {
+TEST(SearchStateTest, CaseSensitiveMatchesExact)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"Hello HELLO hello"));
     SearchState s;
@@ -212,7 +228,8 @@ TEST(SearchStateTest, CaseSensitiveMatchesExact) {
     EXPECT_EQ(s.GetMatches()[0].start, 0u);
 }
 
-TEST(SearchStateTest, CaseSensitiveNoMatch) {
+TEST(SearchStateTest, CaseSensitiveNoMatch)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"HELLO"));
     SearchState s;
@@ -226,12 +243,14 @@ TEST(SearchStateTest, CaseSensitiveNoMatch) {
 // ハイライトON/OFF
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, HighlightDefaultOn) {
+TEST(SearchStateTest, HighlightDefaultOn)
+{
     SearchState s;
     EXPECT_TRUE(s.IsHighlightEnabled());
 }
 
-TEST(SearchStateTest, HighlightToggle) {
+TEST(SearchStateTest, HighlightToggle)
+{
     SearchState s;
     s.ToggleHighlightEnabled();
     EXPECT_FALSE(s.IsHighlightEnabled());
@@ -243,7 +262,8 @@ TEST(SearchStateTest, HighlightToggle) {
 // テーブル検索
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, TableCellMatch) {
+TEST(SearchStateTest, TableCellMatch)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTableNode(L"hello", L"world"));
     SearchState s;
@@ -257,7 +277,8 @@ TEST(SearchStateTest, TableCellMatch) {
     EXPECT_EQ(s.GetMatches()[0].length, 5u);
 }
 
-TEST(SearchStateTest, TableMultipleCellMatches) {
+TEST(SearchStateTest, TableMultipleCellMatches)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTableNode(L"test one", L"test two"));
     SearchState s;
@@ -268,7 +289,8 @@ TEST(SearchStateTest, TableMultipleCellMatches) {
     EXPECT_EQ(s.GetMatches()[1].table_col, 1);
 }
 
-TEST(SearchStateTest, TableCaseSensitiveMatch) {
+TEST(SearchStateTest, TableCaseSensitiveMatch)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTableNode(L"Hello", L"hello"));
     SearchState s;
@@ -279,7 +301,8 @@ TEST(SearchStateTest, TableCaseSensitiveMatch) {
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
 }
 
-TEST(SearchStateTest, MixedNodeAndTableMatches) {
+TEST(SearchStateTest, MixedNodeAndTableMatches)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"find me"));
     nodes.push_back(MakeTableNode(L"find here", L"no"));
@@ -297,7 +320,8 @@ TEST(SearchStateTest, MixedNodeAndTableMatches) {
 // マッチナビゲーション
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, NextMatchCycles) {
+TEST(SearchStateTest, NextMatchCycles)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"aaa"));
     SearchState s;
@@ -319,7 +343,8 @@ TEST(SearchStateTest, NextMatchCycles) {
     EXPECT_EQ(s.GetCurrentMatchIndex(), 0);
 }
 
-TEST(SearchStateTest, PrevMatchCycles) {
+TEST(SearchStateTest, PrevMatchCycles)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"aaa"));
     SearchState s;
@@ -339,13 +364,15 @@ TEST(SearchStateTest, PrevMatchCycles) {
     EXPECT_EQ(s.GetCurrentMatchIndex(), 2);
 }
 
-TEST(SearchStateTest, NextMatchNoOpWhenEmpty) {
+TEST(SearchStateTest, NextMatchNoOpWhenEmpty)
+{
     SearchState s;
     EXPECT_FALSE(s.NextMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
 
-TEST(SearchStateTest, PrevMatchNoOpWhenEmpty) {
+TEST(SearchStateTest, PrevMatchNoOpWhenEmpty)
+{
     SearchState s;
     EXPECT_FALSE(s.PrevMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
@@ -355,7 +382,8 @@ TEST(SearchStateTest, PrevMatchNoOpWhenEmpty) {
 // SetCurrentMatchNear
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstAfterScroll) {
+TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstAfterScroll)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"first match"));
     nodes.push_back(MakeTextNode(L"second match"));
@@ -370,7 +398,8 @@ TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstAfterScroll) {
     EXPECT_EQ(s.GetCurrentMatchIndex(), 2);  // node2 @ y=200
 }
 
-TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstWhenAllAbove) {
+TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstWhenAllAbove)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"match"));
     SearchState s;
@@ -383,7 +412,8 @@ TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstWhenAllAbove) {
     EXPECT_EQ(s.GetCurrentMatchIndex(), 0);  // フォールバック
 }
 
-TEST(SearchStateTest, SetCurrentMatchNearNoMatches) {
+TEST(SearchStateTest, SetCurrentMatchNearNoMatches)
+{
     SearchState s;
     LayoutCache cache;
     s.SetCurrentMatchNear(0.0f, cache);
@@ -394,7 +424,8 @@ TEST(SearchStateTest, SetCurrentMatchNearNoMatches) {
 // 再検索（クエリ変更後の再実行）
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, ReExecuteSearchUpdatesMatches) {
+TEST(SearchStateTest, ReExecuteSearchUpdatesMatches)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"abc def abc"));
 
@@ -409,7 +440,8 @@ TEST(SearchStateTest, ReExecuteSearchUpdatesMatches) {
     EXPECT_EQ(s.GetMatches()[0].start, 4u);
 }
 
-TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange) {
+TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"Abc abc ABC"));
 
@@ -428,7 +460,8 @@ TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange) {
 // 日本語テキスト
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, JapaneseTextSearch) {
+TEST(SearchStateTest, JapaneseTextSearch)
+{
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode(L"これはテストです。テスト完了。"));
     SearchState s;
@@ -444,7 +477,8 @@ TEST(SearchStateTest, JapaneseTextSearch) {
 // HorizontalRule/Imageなどテキストなしノードのスキップ
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, NonTextNodesSkipped) {
+TEST(SearchStateTest, NonTextNodesSkipped)
+{
     std::pmr::vector<Node> nodes;
     Node hr;
     hr.type = NodeType::HorizontalRule;
@@ -461,7 +495,8 @@ TEST(SearchStateTest, NonTextNodesSkipped) {
 // 画像・Mermaidノードの検索除外
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, ImageNodeExcludedFromSearch) {
+TEST(SearchStateTest, ImageNodeExcludedFromSearch)
+{
     std::pmr::vector<Node> nodes;
     Node img;
     img.type = NodeType::Image;
@@ -476,7 +511,8 @@ TEST(SearchStateTest, ImageNodeExcludedFromSearch) {
     EXPECT_EQ(s.GetMatches()[0].node_index, 1);
 }
 
-TEST(SearchStateTest, MermaidCodeBlockExcludedFromSearch) {
+TEST(SearchStateTest, MermaidCodeBlockExcludedFromSearch)
+{
     std::pmr::vector<Node> nodes;
     Node mermaid;
     mermaid.type = NodeType::CodeBlock;
@@ -492,7 +528,8 @@ TEST(SearchStateTest, MermaidCodeBlockExcludedFromSearch) {
     EXPECT_EQ(s.GetMatches()[0].node_index, 1);
 }
 
-TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch) {
+TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch)
+{
     std::pmr::vector<Node> nodes;
     Node code;
     code.type = NodeType::CodeBlock;

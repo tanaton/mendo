@@ -5,52 +5,62 @@
 // PointInRect
 // ═══════════════════════════════════════════════
 
-TEST(PointInRectTest, InsideRect) {
+TEST(PointInRectTest, InsideRect)
+{
     D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
     EXPECT_TRUE(PointInRect(30.0f, 40.0f, r));
 }
 
-TEST(PointInRectTest, OnLeftEdgeIsInside) {
+TEST(PointInRectTest, OnLeftEdgeIsInside)
+{
     D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
     EXPECT_TRUE(PointInRect(10.0f, 40.0f, r));
 }
 
-TEST(PointInRectTest, OnTopEdgeIsInside) {
+TEST(PointInRectTest, OnTopEdgeIsInside)
+{
     D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
     EXPECT_TRUE(PointInRect(30.0f, 20.0f, r));
 }
 
-TEST(PointInRectTest, OnRightEdgeIsOutside) {
+TEST(PointInRectTest, OnRightEdgeIsOutside)
+{
     D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
     EXPECT_FALSE(PointInRect(50.0f, 40.0f, r));
 }
 
-TEST(PointInRectTest, OnBottomEdgeIsOutside) {
+TEST(PointInRectTest, OnBottomEdgeIsOutside)
+{
     D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
     EXPECT_FALSE(PointInRect(30.0f, 60.0f, r));
 }
 
-TEST(PointInRectTest, OutsideLeft) {
+TEST(PointInRectTest, OutsideLeft)
+{
     D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
     EXPECT_FALSE(PointInRect(5.0f, 40.0f, r));
 }
 
-TEST(PointInRectTest, OutsideAbove) {
+TEST(PointInRectTest, OutsideAbove)
+{
     D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
     EXPECT_FALSE(PointInRect(30.0f, 10.0f, r));
 }
 
-TEST(PointInRectTest, TopLeftCorner) {
+TEST(PointInRectTest, TopLeftCorner)
+{
     D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
     EXPECT_TRUE(PointInRect(10.0f, 20.0f, r));
 }
 
-TEST(PointInRectTest, BottomRightCornerIsOutside) {
+TEST(PointInRectTest, BottomRightCornerIsOutside)
+{
     D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
     EXPECT_FALSE(PointInRect(50.0f, 60.0f, r));
 }
 
-TEST(PointInRectTest, ZeroSizeRect) {
+TEST(PointInRectTest, ZeroSizeRect)
+{
     D2D1_RECT_F r = D2D1::RectF(10.0f, 10.0f, 10.0f, 10.0f);
     EXPECT_FALSE(PointInRect(10.0f, 10.0f, r));
 }
@@ -60,21 +70,24 @@ TEST(PointInRectTest, ZeroSizeRect) {
 // ═══════════════════════════════════════════════
 
 // 整数値はスナップしても変わらない
-TEST(SnapScrollToPixelTest, IntegerValueUnchanged_100Percent) {
+TEST(SnapScrollToPixelTest, IntegerValueUnchanged_100Percent)
+{
     EXPECT_FLOAT_EQ(SnapScrollToPixel(10.0f, 1.0f), 10.0f);
     EXPECT_FLOAT_EQ(SnapScrollToPixel(0.0f, 1.0f), 0.0f);
     EXPECT_FLOAT_EQ(SnapScrollToPixel(999.0f, 1.0f), 999.0f);
 }
 
 // 100% DPI: サブピクセル値は最寄りの整数にスナップされる
-TEST(SnapScrollToPixelTest, SubPixelSnaps_100Percent) {
+TEST(SnapScrollToPixelTest, SubPixelSnaps_100Percent)
+{
     EXPECT_FLOAT_EQ(SnapScrollToPixel(10.3f, 1.0f), 10.0f);
     EXPECT_FLOAT_EQ(SnapScrollToPixel(10.7f, 1.0f), 11.0f);
     EXPECT_FLOAT_EQ(SnapScrollToPixel(10.5f, 1.0f), 11.0f); // std::round は0.5を0から離れる方向に丸める
 }
 
 // 150% DPI: 物理ピクセル境界 = 1/1.5 DIP刻み
-TEST(SnapScrollToPixelTest, SubPixelSnaps_150Percent) {
+TEST(SnapScrollToPixelTest, SubPixelSnaps_150Percent)
+{
     float scale = 1.5f;
     EXPECT_FLOAT_EQ(SnapScrollToPixel(10.0f, scale), 10.0f);
     EXPECT_NEAR(SnapScrollToPixel(10.2f, scale), 10.0f, 1e-5f);
@@ -82,7 +95,8 @@ TEST(SnapScrollToPixelTest, SubPixelSnaps_150Percent) {
 }
 
 // 200% DPI: 物理ピクセル境界 = 0.5 DIP刻み
-TEST(SnapScrollToPixelTest, SubPixelSnaps_200Percent) {
+TEST(SnapScrollToPixelTest, SubPixelSnaps_200Percent)
+{
     float scale = 2.0f;
     EXPECT_FLOAT_EQ(SnapScrollToPixel(10.0f, scale), 10.0f);
     EXPECT_FLOAT_EQ(SnapScrollToPixel(10.3f, scale), 10.5f);
@@ -91,34 +105,39 @@ TEST(SnapScrollToPixelTest, SubPixelSnaps_200Percent) {
 }
 
 // 200% DPI: ピクセル境界上の値はそのまま保持される
-TEST(SnapScrollToPixelTest, HalfDipValuesPreserved_200Percent) {
+TEST(SnapScrollToPixelTest, HalfDipValuesPreserved_200Percent)
+{
     float scale = 2.0f;
     EXPECT_FLOAT_EQ(SnapScrollToPixel(10.5f, scale), 10.5f);
     EXPECT_FLOAT_EQ(SnapScrollToPixel(11.0f, scale), 11.0f);
 }
 
 // ゼロは常にゼロ
-TEST(SnapScrollToPixelTest, ZeroRemainsZero) {
+TEST(SnapScrollToPixelTest, ZeroRemainsZero)
+{
     EXPECT_FLOAT_EQ(SnapScrollToPixel(0.0f, 1.0f), 0.0f);
     EXPECT_FLOAT_EQ(SnapScrollToPixel(0.0f, 1.5f), 0.0f);
     EXPECT_FLOAT_EQ(SnapScrollToPixel(0.0f, 2.0f), 0.0f);
 }
 
 // 大きい値でも正しくスナップされる
-TEST(SnapScrollToPixelTest, LargeValueSnaps) {
+TEST(SnapScrollToPixelTest, LargeValueSnaps)
+{
     EXPECT_FLOAT_EQ(SnapScrollToPixel(12345.3f, 1.0f), 12345.0f);
     EXPECT_FLOAT_EQ(SnapScrollToPixel(12345.7f, 1.0f), 12346.0f);
 }
 
 // 125% DPI: 整数DIPが非整数物理ピクセルになるケース
-TEST(SnapScrollToPixelTest, SubPixelSnaps_125Percent) {
+TEST(SnapScrollToPixelTest, SubPixelSnaps_125Percent)
+{
     float scale = 1.25f;
     // 10.0 * 1.25 = 12.5 → std::round(12.5) = 13 → 13 / 1.25 = 10.4
     EXPECT_NEAR(SnapScrollToPixel(10.0f, scale), 10.4f, 1e-5f);
 }
 
 // スムーススクロール補間で生成される典型的な端数値
-TEST(SnapScrollToPixelTest, SmoothScrollInterpolationValues) {
+TEST(SnapScrollToPixelTest, SmoothScrollInterpolationValues)
+{
     float scale = 1.0f;
     EXPECT_FLOAT_EQ(SnapScrollToPixel(25.0f, scale), 25.0f);
     EXPECT_FLOAT_EQ(SnapScrollToPixel(43.75f, scale), 44.0f);
@@ -126,7 +145,8 @@ TEST(SnapScrollToPixelTest, SmoothScrollInterpolationValues) {
 }
 
 // スナップ前後でスクロール差が1物理ピクセル未満であることを確認
-TEST(SnapScrollToPixelTest, SnapErrorWithinOnePixel) {
+TEST(SnapScrollToPixelTest, SnapErrorWithinOnePixel)
+{
     float scales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
     for (float scale : scales) {
         for (float v = 0.0f; v < 100.0f; v += 0.1f) {
@@ -142,7 +162,8 @@ TEST(SnapScrollToPixelTest, SnapErrorWithinOnePixel) {
 // PaneCloseButtonRect
 // ═══════════════════════════════════════════════
 
-TEST(PaneCloseButtonRectTest, ButtonFitsInHeader) {
+TEST(PaneCloseButtonRectTest, ButtonFitsInHeader)
+{
     float pane_width = 220.0f;
     float header_height = 32.0f;
     auto r = PaneCloseButtonRect(pane_width, header_height);
@@ -153,28 +174,32 @@ TEST(PaneCloseButtonRectTest, ButtonFitsInHeader) {
     EXPECT_LE(r.bottom, header_height);
 }
 
-TEST(PaneCloseButtonRectTest, ButtonIsSquare) {
+TEST(PaneCloseButtonRectTest, ButtonIsSquare)
+{
     auto r = PaneCloseButtonRect(220.0f, 32.0f);
     float width = r.right - r.left;
     float height = r.bottom - r.top;
     EXPECT_FLOAT_EQ(width, height);
 }
 
-TEST(PaneCloseButtonRectTest, ButtonIsOnRightSide) {
+TEST(PaneCloseButtonRectTest, ButtonIsOnRightSide)
+{
     float pane_width = 220.0f;
     auto r = PaneCloseButtonRect(pane_width, 32.0f);
     float center_x = (r.left + r.right) / 2.0f;
     EXPECT_GT(center_x, pane_width / 2.0f);
 }
 
-TEST(PaneCloseButtonRectTest, ButtonIsVerticallyCentered) {
+TEST(PaneCloseButtonRectTest, ButtonIsVerticallyCentered)
+{
     float header_height = 32.0f;
     auto r = PaneCloseButtonRect(220.0f, header_height);
     float center_y = (r.top + r.bottom) / 2.0f;
     EXPECT_NEAR(center_y, header_height / 2.0f, 0.01f);
 }
 
-TEST(PaneCloseButtonRectTest, ButtonSizeScalesWithHeaderHeight) {
+TEST(PaneCloseButtonRectTest, ButtonSizeScalesWithHeaderHeight)
+{
     auto r1 = PaneCloseButtonRect(220.0f, 32.0f);
     auto r2 = PaneCloseButtonRect(220.0f, 64.0f);
     float size1 = r1.right - r1.left;
@@ -182,7 +207,8 @@ TEST(PaneCloseButtonRectTest, ButtonSizeScalesWithHeaderHeight) {
     EXPECT_GT(size2, size1);
 }
 
-TEST(PaneCloseButtonRectTest, ButtonPositionAdaptsToWidth) {
+TEST(PaneCloseButtonRectTest, ButtonPositionAdaptsToWidth)
+{
     auto r1 = PaneCloseButtonRect(200.0f, 32.0f);
     auto r2 = PaneCloseButtonRect(400.0f, 32.0f);
     // ボタンサイズは同じだが、右寄せなので位置が異なる
@@ -196,7 +222,8 @@ TEST(PaneCloseButtonRectTest, ButtonPositionAdaptsToWidth) {
 // PaneRefreshButtonRect
 // ═══════════════════════════════════════════════
 
-TEST(PaneRefreshButtonRectTest, ButtonFitsInHeader) {
+TEST(PaneRefreshButtonRectTest, ButtonFitsInHeader)
+{
     float pane_width = 220.0f;
     float header_height = 32.0f;
     auto r = PaneRefreshButtonRect(pane_width, header_height);
@@ -207,14 +234,16 @@ TEST(PaneRefreshButtonRectTest, ButtonFitsInHeader) {
     EXPECT_LE(r.bottom, header_height);
 }
 
-TEST(PaneRefreshButtonRectTest, ButtonIsSquare) {
+TEST(PaneRefreshButtonRectTest, ButtonIsSquare)
+{
     auto r = PaneRefreshButtonRect(220.0f, 32.0f);
     float width = r.right - r.left;
     float height = r.bottom - r.top;
     EXPECT_FLOAT_EQ(width, height);
 }
 
-TEST(PaneRefreshButtonRectTest, SameSizeAsCloseButton) {
+TEST(PaneRefreshButtonRectTest, SameSizeAsCloseButton)
+{
     float pane_width = 220.0f;
     float header_height = 32.0f;
     auto close = PaneCloseButtonRect(pane_width, header_height);
@@ -224,7 +253,8 @@ TEST(PaneRefreshButtonRectTest, SameSizeAsCloseButton) {
     EXPECT_FLOAT_EQ(close_size, refresh_size);
 }
 
-TEST(PaneRefreshButtonRectTest, PositionedLeftOfCloseButton) {
+TEST(PaneRefreshButtonRectTest, PositionedLeftOfCloseButton)
+{
     float pane_width = 220.0f;
     float header_height = 32.0f;
     auto close = PaneCloseButtonRect(pane_width, header_height);
@@ -232,14 +262,16 @@ TEST(PaneRefreshButtonRectTest, PositionedLeftOfCloseButton) {
     EXPECT_LT(refresh.right, close.left);
 }
 
-TEST(PaneRefreshButtonRectTest, ButtonIsVerticallyCentered) {
+TEST(PaneRefreshButtonRectTest, ButtonIsVerticallyCentered)
+{
     float header_height = 32.0f;
     auto r = PaneRefreshButtonRect(220.0f, header_height);
     float center_y = (r.top + r.bottom) / 2.0f;
     EXPECT_NEAR(center_y, header_height / 2.0f, 0.01f);
 }
 
-TEST(PaneRefreshButtonRectTest, NoOverlapWithCloseButton) {
+TEST(PaneRefreshButtonRectTest, NoOverlapWithCloseButton)
+{
     float pane_width = 220.0f;
     float header_height = 32.0f;
     auto close = PaneCloseButtonRect(pane_width, header_height);
@@ -248,7 +280,8 @@ TEST(PaneRefreshButtonRectTest, NoOverlapWithCloseButton) {
     EXPECT_LE(refresh.right, close.left);
 }
 
-TEST(PaneRefreshButtonRectTest, ButtonPositionAdaptsToWidth) {
+TEST(PaneRefreshButtonRectTest, ButtonPositionAdaptsToWidth)
+{
     auto r1 = PaneRefreshButtonRect(200.0f, 32.0f);
     auto r2 = PaneRefreshButtonRect(400.0f, 32.0f);
     // ボタンサイズは同じだが、位置が異なる
@@ -258,7 +291,8 @@ TEST(PaneRefreshButtonRectTest, ButtonPositionAdaptsToWidth) {
     EXPECT_GT(r2.left, r1.left);
 }
 
-TEST(PaneRefreshButtonRectTest, ButtonSizeScalesWithHeaderHeight) {
+TEST(PaneRefreshButtonRectTest, ButtonSizeScalesWithHeaderHeight)
+{
     auto r1 = PaneRefreshButtonRect(220.0f, 32.0f);
     auto r2 = PaneRefreshButtonRect(220.0f, 64.0f);
     float size1 = r1.right - r1.left;

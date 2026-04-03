@@ -8,32 +8,37 @@
 // ExtractSelectedText
 // ============================================================
 
-TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty) {
+TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
+{
     auto nodes = ParseMarkdown("Hello world");
     TextSelection sel;
     sel.active = false;
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
 }
 
-TEST(ExtractSelectedText, SingleNodeFullSelection) {
+TEST(ExtractSelectedText, SingleNodeFullSelection)
+{
     auto nodes = ParseMarkdown("Hello world");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].text.size()));
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Hello world");
 }
 
-TEST(ExtractSelectedText, SingleNodePartialSelection) {
+TEST(ExtractSelectedText, SingleNodePartialSelection)
+{
     auto nodes = ParseMarkdown("Hello world");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Hello");
 }
 
-TEST(ExtractSelectedText, SingleNodeMiddleSelection) {
+TEST(ExtractSelectedText, SingleNodeMiddleSelection)
+{
     auto nodes = ParseMarkdown("Hello world");
     auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"world");
 }
 
-TEST(ExtractSelectedText, MultipleNodesFullSelection) {
+TEST(ExtractSelectedText, MultipleNodesFullSelection)
+{
     auto nodes = ParseMarkdown("First\n\nSecond\n\nThird");
     ASSERT_EQ(nodes.size(), 3u);
     auto sel = TextSelection::MakeOrdered(
@@ -44,7 +49,8 @@ TEST(ExtractSelectedText, MultipleNodesFullSelection) {
     EXPECT_NE(result.find(L"Third"), std::wstring::npos);
 }
 
-TEST(ExtractSelectedText, MultipleNodesPartialSelection) {
+TEST(ExtractSelectedText, MultipleNodesPartialSelection)
+{
     auto nodes = ParseMarkdown("First\n\nSecond\n\nThird");
     ASSERT_EQ(nodes.size(), 3u);
     // "First"の途中から"Third"の途中まで選択
@@ -55,7 +61,8 @@ TEST(ExtractSelectedText, MultipleNodesPartialSelection) {
     EXPECT_NE(result.find(L"Thi"), std::wstring::npos);
 }
 
-TEST(ExtractSelectedText, NewlineBetweenNodes) {
+TEST(ExtractSelectedText, NewlineBetweenNodes)
+{
     auto nodes = ParseMarkdown("A\n\nB");
     ASSERT_EQ(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(
@@ -65,21 +72,24 @@ TEST(ExtractSelectedText, NewlineBetweenNodes) {
     EXPECT_NE(result.find(L"\r\n"), std::wstring::npos);
 }
 
-TEST(ExtractSelectedText, EmptyNodes) {
+TEST(ExtractSelectedText, EmptyNodes)
+{
     std::pmr::vector<Node> nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
     // 範囲外のノード - クラッシュしないこと
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
 }
 
-TEST(ExtractSelectedText, EndBeyondTextSize) {
+TEST(ExtractSelectedText, EndBeyondTextSize)
+{
     auto nodes = ParseMarkdown("Short");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 1000);
     // end_posがテキストサイズを超える場合はクランプされるべき
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Short");
 }
 
-TEST(ExtractSelectedText, JapaneseText) {
+TEST(ExtractSelectedText, JapaneseText)
+{
     auto nodes = ParseMarkdown("日本語テスト");
     auto sel = TextSelection::MakeOrdered(
         0, 0, 0, static_cast<uint32_t>(nodes[0].text.size()));
@@ -90,14 +100,16 @@ TEST(ExtractSelectedText, JapaneseText) {
 // FindLinkAtPosition
 // ============================================================
 
-TEST(FindLinkAtPosition, NoLinks) {
+TEST(FindLinkAtPosition, NoLinks)
+{
     auto nodes = ParseMarkdown("plain text");
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 0);
     EXPECT_FALSE(result.has_value());
 }
 
-TEST(FindLinkAtPosition, LinkFound) {
+TEST(FindLinkAtPosition, LinkFound)
+{
     auto nodes = ParseMarkdown("[click](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     // リンクテキスト内の位置
@@ -106,7 +118,8 @@ TEST(FindLinkAtPosition, LinkFound) {
     EXPECT_EQ(result.value(), L"https://example.com");
 }
 
-TEST(FindLinkAtPosition, PositionOutsideLink) {
+TEST(FindLinkAtPosition, PositionOutsideLink)
+{
     auto nodes = ParseMarkdown("before [link](https://example.com) after");
     ASSERT_EQ(nodes.size(), 1u);
     // "before"テキスト内の位置（リンクではないはず）
@@ -114,7 +127,8 @@ TEST(FindLinkAtPosition, PositionOutsideLink) {
     EXPECT_FALSE(result.has_value());
 }
 
-TEST(FindLinkAtPosition, InternalLink) {
+TEST(FindLinkAtPosition, InternalLink)
+{
     auto nodes = ParseMarkdown("[section](#my-section)");
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 0);
@@ -122,7 +136,8 @@ TEST(FindLinkAtPosition, InternalLink) {
     EXPECT_EQ(result.value(), L"#my-section");
 }
 
-TEST(FindLinkAtPosition, PositionAtLinkBoundary) {
+TEST(FindLinkAtPosition, PositionAtLinkBoundary)
+{
     auto nodes = ParseMarkdown("[link](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     // リンクの最後の文字の位置
@@ -131,14 +146,16 @@ TEST(FindLinkAtPosition, PositionAtLinkBoundary) {
     ASSERT_TRUE(result.has_value());
 }
 
-TEST(FindLinkAtPosition, PositionBeyondText) {
+TEST(FindLinkAtPosition, PositionBeyondText)
+{
     auto nodes = ParseMarkdown("[link](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 9999);
     EXPECT_FALSE(result.has_value());
 }
 
-TEST(FindLinkAtPosition, EmptyNode) {
+TEST(FindLinkAtPosition, EmptyNode)
+{
     Node node;
     auto result = FindLinkAtPosition(node, 0);
     EXPECT_FALSE(result.has_value());
@@ -148,49 +165,57 @@ TEST(FindLinkAtPosition, EmptyNode) {
 // FindAnchorNodeIndex
 // ============================================================
 
-TEST(FindAnchorNodeIndex, EmptyNodes) {
+TEST(FindAnchorNodeIndex, EmptyNodes)
+{
     std::pmr::vector<Node> nodes;
     EXPECT_EQ(FindAnchorNodeIndex(nodes, L"test"), -1);
 }
 
-TEST(FindAnchorNodeIndex, EmptyAnchor) {
+TEST(FindAnchorNodeIndex, EmptyAnchor)
+{
     auto nodes = ParseMarkdown("# Title");
     EXPECT_EQ(FindAnchorNodeIndex(nodes, L""), -1);
 }
 
-TEST(FindAnchorNodeIndex, FindExistingAnchor) {
+TEST(FindAnchorNodeIndex, FindExistingAnchor)
+{
     auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section");
     ASSERT_GE(nodes.size(), 3u);
     int idx = FindAnchorNodeIndex(nodes, L"title");
     EXPECT_EQ(idx, 0);
 }
 
-TEST(FindAnchorNodeIndex, FindSecondHeading) {
+TEST(FindAnchorNodeIndex, FindSecondHeading)
+{
     auto nodes = ParseMarkdown("# First\n\nParagraph\n\n## Second");
     int idx = FindAnchorNodeIndex(nodes, L"second");
     EXPECT_GE(idx, 0);
     EXPECT_EQ(nodes[idx].text, L"Second");
 }
 
-TEST(FindAnchorNodeIndex, CaseInsensitiveSearch) {
+TEST(FindAnchorNodeIndex, CaseInsensitiveSearch)
+{
     auto nodes = ParseMarkdown("# Hello World");
     // アンカーは"hello-world"、大文字で検索
     int idx = FindAnchorNodeIndex(nodes, L"Hello-World");
     EXPECT_EQ(idx, 0);
 }
 
-TEST(FindAnchorNodeIndex, NotFound) {
+TEST(FindAnchorNodeIndex, NotFound)
+{
     auto nodes = ParseMarkdown("# Title");
     EXPECT_EQ(FindAnchorNodeIndex(nodes, L"nonexistent"), -1);
 }
 
-TEST(FindAnchorNodeIndex, CjkAnchor) {
+TEST(FindAnchorNodeIndex, CjkAnchor)
+{
     auto nodes = ParseMarkdown("## コードブロック");
     int idx = FindAnchorNodeIndex(nodes, L"コードブロック");
     EXPECT_EQ(idx, 0);
 }
 
-TEST(FindAnchorNodeIndex, SkipsNonHeadings) {
+TEST(FindAnchorNodeIndex, SkipsNonHeadings)
+{
     auto nodes = ParseMarkdown("Paragraph\n\n# Heading");
     int idx = FindAnchorNodeIndex(nodes, L"heading");
     EXPECT_GE(idx, 0);
@@ -201,57 +226,66 @@ TEST(FindAnchorNodeIndex, SkipsNonHeadings) {
 // FindWordBoundaries
 // ============================================================
 
-TEST(FindWordBoundaries, EmptyText) {
+TEST(FindWordBoundaries, EmptyText)
+{
     auto result = FindWordBoundaries(L"", 0);
     EXPECT_FALSE(result.found);
 }
 
-TEST(FindWordBoundaries, SingleWord) {
+TEST(FindWordBoundaries, SingleWord)
+{
     auto result = FindWordBoundaries(L"hello", 2);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 5u);
 }
 
-TEST(FindWordBoundaries, WordAtStart) {
+TEST(FindWordBoundaries, WordAtStart)
+{
     auto result = FindWordBoundaries(L"hello world", 0);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 5u);
 }
 
-TEST(FindWordBoundaries, WordAtEnd) {
+TEST(FindWordBoundaries, WordAtEnd)
+{
     auto result = FindWordBoundaries(L"hello world", 6);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 6u);
     EXPECT_EQ(result.end, 11u);
 }
 
-TEST(FindWordBoundaries, PositionOnSpace) {
+TEST(FindWordBoundaries, PositionOnSpace)
+{
     auto result = FindWordBoundaries(L"hello world", 5);
     EXPECT_FALSE(result.found);
 }
 
-TEST(FindWordBoundaries, PositionOnPunctuation) {
+TEST(FindWordBoundaries, PositionOnPunctuation)
+{
     auto result = FindWordBoundaries(L"hello, world", 5);
     EXPECT_FALSE(result.found);
 }
 
-TEST(FindWordBoundaries, WordWithUnderscore) {
+TEST(FindWordBoundaries, WordWithUnderscore)
+{
     auto result = FindWordBoundaries(L"my_variable = 1", 3);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 11u);
 }
 
-TEST(FindWordBoundaries, WordWithNumbers) {
+TEST(FindWordBoundaries, WordWithNumbers)
+{
     auto result = FindWordBoundaries(L"var123 = x", 3);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 6u);
 }
 
-TEST(FindWordBoundaries, PositionBeyondEnd) {
+TEST(FindWordBoundaries, PositionBeyondEnd)
+{
     auto result = FindWordBoundaries(L"hello", 100);
     // 最後の文字にクランプされるべき
     ASSERT_TRUE(result.found);
@@ -259,14 +293,16 @@ TEST(FindWordBoundaries, PositionBeyondEnd) {
     EXPECT_EQ(result.end, 5u);
 }
 
-TEST(FindWordBoundaries, NonAlphanumericAtPosition) {
+TEST(FindWordBoundaries, NonAlphanumericAtPosition)
+{
     // CJK文字はIsCharAlphaNumericWで単語文字として扱われないため
     // ダブルクリックでは選択されないべき
     auto result = FindWordBoundaries(L"テスト test", 0);
     EXPECT_FALSE(result.found);
 }
 
-TEST(FindWordBoundaries, AsciiWordAfterCjk) {
+TEST(FindWordBoundaries, AsciiWordAfterCjk)
+{
     // CJKの後のASCII単語をクリックすると動作するべき
     auto result = FindWordBoundaries(L"テスト test", 4);
     ASSERT_TRUE(result.found);
@@ -278,27 +314,33 @@ TEST(FindWordBoundaries, AsciiWordAfterCjk) {
 // ExtractFilename
 // ============================================================
 
-TEST(ExtractFilename, EmptyPath) {
+TEST(ExtractFilename, EmptyPath)
+{
     EXPECT_TRUE(ExtractFilename(L"").empty());
 }
 
-TEST(ExtractFilename, BackslashPath) {
+TEST(ExtractFilename, BackslashPath)
+{
     EXPECT_EQ(ExtractFilename(L"C:\\Users\\test\\file.md"), L"file.md");
 }
 
-TEST(ExtractFilename, ForwardSlashPath) {
+TEST(ExtractFilename, ForwardSlashPath)
+{
     EXPECT_EQ(ExtractFilename(L"C:/Users/test/file.md"), L"file.md");
 }
 
-TEST(ExtractFilename, FilenameOnly) {
+TEST(ExtractFilename, FilenameOnly)
+{
     EXPECT_EQ(ExtractFilename(L"file.md"), L"file.md");
 }
 
-TEST(ExtractFilename, TrailingSeparator) {
+TEST(ExtractFilename, TrailingSeparator)
+{
     EXPECT_EQ(ExtractFilename(L"C:\\dir\\"), L"");
 }
 
-TEST(ExtractFilename, JapaneseFilename) {
+TEST(ExtractFilename, JapaneseFilename)
+{
     EXPECT_EQ(ExtractFilename(L"C:\\ドキュメント\\ファイル.md"), L"ファイル.md");
 }
 
@@ -306,15 +348,18 @@ TEST(ExtractFilename, JapaneseFilename) {
 // BuildTitleString
 // ============================================================
 
-TEST(BuildTitleString, EmptyPath) {
+TEST(BuildTitleString, EmptyPath)
+{
     EXPECT_EQ(BuildTitleString(L""), L"mendo");
 }
 
-TEST(BuildTitleString, WithPath) {
+TEST(BuildTitleString, WithPath)
+{
     EXPECT_EQ(BuildTitleString(L"C:\\dir\\test.md"), L"test.md - mendo");
 }
 
-TEST(BuildTitleString, FilenameOnly) {
+TEST(BuildTitleString, FilenameOnly)
+{
     EXPECT_EQ(BuildTitleString(L"readme.md"), L"readme.md - mendo");
 }
 
@@ -324,7 +369,8 @@ TEST(BuildTitleString, FilenameOnly) {
 
 // ---- ExtractSelectedText 追加テスト ----
 
-TEST(ExtractSelectedText, SelectionSpanningTableNode) {
+TEST(ExtractSelectedText, SelectionSpanningTableNode)
+{
     // テーブル型ノード（線形化テキストを持つ）でのテスト
     Node table_node;
     table_node.type = NodeType::Table;
@@ -343,7 +389,8 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode) {
     EXPECT_EQ(result, L"A\tB");
 }
 
-TEST(ExtractSelectedText, StartNodeOutOfRange) {
+TEST(ExtractSelectedText, StartNodeOutOfRange)
+{
     std::pmr::vector<Node> nodes;
     Node n;
     n.text = L"hello";
@@ -361,7 +408,8 @@ TEST(ExtractSelectedText, StartNodeOutOfRange) {
     EXPECT_FALSE(result.empty());
 }
 
-TEST(ExtractSelectedText, EndNodeOutOfRange) {
+TEST(ExtractSelectedText, EndNodeOutOfRange)
+{
     std::pmr::vector<Node> nodes;
     Node n;
     n.text = L"hello";
@@ -381,7 +429,8 @@ TEST(ExtractSelectedText, EndNodeOutOfRange) {
 
 // ---- FindLinkAtPosition 追加テスト ----
 
-TEST(FindLinkAtPosition, MultipleLinkRuns) {
+TEST(FindLinkAtPosition, MultipleLinkRuns)
+{
     Node node;
     node.text = L"link1 link2";
 
@@ -396,7 +445,7 @@ TEST(FindLinkAtPosition, MultipleLinkRuns) {
     r2.start = 6; r2.length = 5;
     r2.link_url_index = 1;
 
-    node.runs = {r1, r2};
+    node.runs = { r1, r2 };
 
     auto result1 = FindLinkAtPosition(node, 2);
     ASSERT_TRUE(result1.has_value());
@@ -413,7 +462,8 @@ TEST(FindLinkAtPosition, MultipleLinkRuns) {
 
 // ---- FindLinkAtPosition: テーブルセル内のリンク ----
 
-TEST(FindLinkAtPosition, TableCellLinkFound) {
+TEST(FindLinkAtPosition, TableCellLinkFound)
+{
     // セル(1, 1)にリンクを持つテーブルノードを構築:
     // | Name | URL     |
     // | foo  | [bar](https://example.com) |
@@ -468,7 +518,8 @@ TEST(FindLinkAtPosition, TableCellLinkFound) {
     EXPECT_FALSE(no_link2.has_value());
 }
 
-TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown) {
+TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown)
+{
     auto nodes = ParseMarkdown(
         "| Text | Link |\n"
         "|------|------|\n"
@@ -491,7 +542,8 @@ TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown) {
     EXPECT_TRUE(has_link);
 }
 
-TEST(FindLinkAtPosition, TableCellInternalLink) {
+TEST(FindLinkAtPosition, TableCellInternalLink)
+{
     Node node;
     node.type = NodeType::Table;
 
@@ -512,7 +564,8 @@ TEST(FindLinkAtPosition, TableCellInternalLink) {
     EXPECT_EQ(*result, L"#my-section");
 }
 
-TEST(FindLinkAtPosition, TablePositionOnSeparator) {
+TEST(FindLinkAtPosition, TablePositionOnSeparator)
+{
     // タブ/改行区切り上の位置ではリンクを返さないべき
     Node node;
     node.type = NodeType::Table;
@@ -547,7 +600,8 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator) {
 
 // ---- FindAnchorNodeIndex 追加テスト ----
 
-TEST(FindAnchorNodeIndex, DuplicateAnchors) {
+TEST(FindAnchorNodeIndex, DuplicateAnchors)
+{
     std::pmr::vector<Node> nodes;
 
     Node h1;
@@ -567,19 +621,22 @@ TEST(FindAnchorNodeIndex, DuplicateAnchors) {
 
 // ---- FindWordBoundaries 追加テスト ----
 
-TEST(FindWordBoundaries, SingleCharWord) {
+TEST(FindWordBoundaries, SingleCharWord)
+{
     auto result = FindWordBoundaries(L"a", 0);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 1u);
 }
 
-TEST(FindWordBoundaries, AllSpaces) {
+TEST(FindWordBoundaries, AllSpaces)
+{
     auto result = FindWordBoundaries(L"   ", 1);
     EXPECT_FALSE(result.found);
 }
 
-TEST(FindWordBoundaries, MixedPunctuationAndWords) {
+TEST(FindWordBoundaries, MixedPunctuationAndWords)
+{
     auto result = FindWordBoundaries(L"(hello)", 3);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 1u);
@@ -588,11 +645,13 @@ TEST(FindWordBoundaries, MixedPunctuationAndWords) {
 
 // ---- ExtractFilename 追加テスト ----
 
-TEST(ExtractFilename, UncPath) {
+TEST(ExtractFilename, UncPath)
+{
     EXPECT_EQ(ExtractFilename(L"\\\\server\\share\\file.md"), L"file.md");
 }
 
-TEST(ExtractFilename, MixedSeparators) {
+TEST(ExtractFilename, MixedSeparators)
+{
     EXPECT_EQ(ExtractFilename(L"C:\\dir/subdir\\file.md"), L"file.md");
 }
 
@@ -600,43 +659,53 @@ TEST(ExtractFilename, MixedSeparators) {
 // FindFirstDifference
 // ============================================================
 
-TEST(FindFirstDifference, IdenticalStrings) {
+TEST(FindFirstDifference, IdenticalStrings)
+{
     EXPECT_EQ(FindFirstDifference("hello", "hello"), std::string_view::npos);
 }
 
-TEST(FindFirstDifference, BothEmpty) {
+TEST(FindFirstDifference, BothEmpty)
+{
     EXPECT_EQ(FindFirstDifference("", ""), std::string_view::npos);
 }
 
-TEST(FindFirstDifference, DifferentFirstByte) {
+TEST(FindFirstDifference, DifferentFirstByte)
+{
     EXPECT_EQ(FindFirstDifference("abc", "xbc"), 0u);
 }
 
-TEST(FindFirstDifference, DifferentMiddle) {
+TEST(FindFirstDifference, DifferentMiddle)
+{
     EXPECT_EQ(FindFirstDifference("abcdef", "abcXef"), 3u);
 }
 
-TEST(FindFirstDifference, DifferentLastByte) {
+TEST(FindFirstDifference, DifferentLastByte)
+{
     EXPECT_EQ(FindFirstDifference("abc", "abX"), 2u);
 }
 
-TEST(FindFirstDifference, NewLongerThanOld) {
+TEST(FindFirstDifference, NewLongerThanOld)
+{
     EXPECT_EQ(FindFirstDifference("abc", "abcdef"), 3u);
 }
 
-TEST(FindFirstDifference, OldLongerThanNew) {
+TEST(FindFirstDifference, OldLongerThanNew)
+{
     EXPECT_EQ(FindFirstDifference("abcdef", "abc"), 3u);
 }
 
-TEST(FindFirstDifference, EmptyOld) {
+TEST(FindFirstDifference, EmptyOld)
+{
     EXPECT_EQ(FindFirstDifference("", "new"), 0u);
 }
 
-TEST(FindFirstDifference, EmptyNew) {
+TEST(FindFirstDifference, EmptyNew)
+{
     EXPECT_EQ(FindFirstDifference("old", ""), 0u);
 }
 
-TEST(FindFirstDifference, Utf8Content) {
+TEST(FindFirstDifference, Utf8Content)
+{
     // UTF-8: "う"=E3 81 86, "え"=E3 81 88 → 先頭2バイト共通、3バイト目で差分
     std::string a = "あいう";
     std::string b = "あいえ";
@@ -648,19 +717,22 @@ TEST(FindFirstDifference, Utf8Content) {
 // FindNodeBySourceOffset
 // ============================================================
 
-TEST(FindNodeBySourceOffset, EmptyNodes) {
+TEST(FindNodeBySourceOffset, EmptyNodes)
+{
     std::pmr::vector<Node> nodes;
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), -1);
 }
 
-TEST(FindNodeBySourceOffset, SingleNode) {
+TEST(FindNodeBySourceOffset, SingleNode)
+{
     std::pmr::vector<Node> nodes(1);
     nodes[0].source_offset = 0;
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), 0);
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 100), 0);
 }
 
-TEST(FindNodeBySourceOffset, OffsetBeforeAllNodes) {
+TEST(FindNodeBySourceOffset, OffsetBeforeAllNodes)
+{
     std::pmr::vector<Node> nodes(2);
     nodes[0].source_offset = 10;
     nodes[1].source_offset = 20;
@@ -668,7 +740,8 @@ TEST(FindNodeBySourceOffset, OffsetBeforeAllNodes) {
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), -1);
 }
 
-TEST(FindNodeBySourceOffset, ExactMatch) {
+TEST(FindNodeBySourceOffset, ExactMatch)
+{
     std::pmr::vector<Node> nodes(3);
     nodes[0].source_offset = 0;
     nodes[1].source_offset = 10;
@@ -677,7 +750,8 @@ TEST(FindNodeBySourceOffset, ExactMatch) {
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 25), 2);
 }
 
-TEST(FindNodeBySourceOffset, BetweenNodes) {
+TEST(FindNodeBySourceOffset, BetweenNodes)
+{
     std::pmr::vector<Node> nodes(3);
     nodes[0].source_offset = 0;
     nodes[1].source_offset = 10;
@@ -686,7 +760,8 @@ TEST(FindNodeBySourceOffset, BetweenNodes) {
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 15), 1);
 }
 
-TEST(FindNodeBySourceOffset, SkipsUnsetOffsets) {
+TEST(FindNodeBySourceOffset, SkipsUnsetOffsets)
+{
     std::pmr::vector<Node> nodes(3);
     nodes[0].source_offset = 0;
     nodes[1].source_offset = UINT32_MAX; // 未設定（HorizontalRule等）
@@ -697,7 +772,8 @@ TEST(FindNodeBySourceOffset, SkipsUnsetOffsets) {
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 20), 2);
 }
 
-TEST(FindNodeBySourceOffset, ParsedMarkdown) {
+TEST(FindNodeBySourceOffset, ParsedMarkdown)
+{
     auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section");
     ASSERT_GE(nodes.size(), 3u);
     // 各ノードが有効な source_offset を持つ
@@ -710,7 +786,8 @@ TEST(FindNodeBySourceOffset, ParsedMarkdown) {
     EXPECT_EQ(nodes[1].source_offset, 9u);
 }
 
-TEST(FindNodeBySourceOffset, LastNodeForLargeOffset) {
+TEST(FindNodeBySourceOffset, LastNodeForLargeOffset)
+{
     std::pmr::vector<Node> nodes(3);
     nodes[0].source_offset = 0;
     nodes[1].source_offset = 100;
@@ -719,7 +796,8 @@ TEST(FindNodeBySourceOffset, LastNodeForLargeOffset) {
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 999), 2);
 }
 
-TEST(FindNodeBySourceOffset, AllUnsetOffsets) {
+TEST(FindNodeBySourceOffset, AllUnsetOffsets)
+{
     // 全ノードが UINT32_MAX（テキストなし）→ 該当なし
     std::pmr::vector<Node> nodes(3);
     nodes[0].source_offset = UINT32_MAX;
@@ -728,7 +806,8 @@ TEST(FindNodeBySourceOffset, AllUnsetOffsets) {
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 50), -1);
 }
 
-TEST(FindNodeBySourceOffset, MixedWithHorizontalRules) {
+TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
+{
     // パース結果で HorizontalRule が混在するケース
     auto nodes = ParseMarkdown("AAA\n\n---\n\nBBB");
     ASSERT_GE(nodes.size(), 3u);
@@ -761,7 +840,8 @@ static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new
     return FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
 }
 
-TEST(DiffToNode, EditMiddleParagraph) {
+TEST(DiffToNode, EditMiddleParagraph)
+{
     // 2番目の段落を編集
     std::string old_md = "First\n\nSecond\n\nThird";
     std::string new_md = "First\n\nModified\n\nThird";
@@ -771,21 +851,24 @@ TEST(DiffToNode, EditMiddleParagraph) {
     EXPECT_EQ(nodes[node].text, L"Modified");
 }
 
-TEST(DiffToNode, EditFirstParagraph) {
+TEST(DiffToNode, EditFirstParagraph)
+{
     std::string old_md = "Hello\n\nWorld";
     std::string new_md = "Changed\n\nWorld";
     int node = SimulateEditAndFindNode(old_md, new_md);
     EXPECT_EQ(node, 0);
 }
 
-TEST(DiffToNode, EditLastParagraph) {
+TEST(DiffToNode, EditLastParagraph)
+{
     std::string old_md = "First\n\nSecond\n\nThird";
     std::string new_md = "First\n\nSecond\n\nChanged";
     int node = SimulateEditAndFindNode(old_md, new_md);
     EXPECT_EQ(node, 2); // 最後の段落
 }
 
-TEST(DiffToNode, InsertNewParagraph) {
+TEST(DiffToNode, InsertNewParagraph)
+{
     // 段落を挿入
     std::string old_md = "Before\n\nAfter";
     std::string new_md = "Before\n\nInserted\n\nAfter";
@@ -796,7 +879,8 @@ TEST(DiffToNode, InsertNewParagraph) {
     EXPECT_EQ(nodes[node].text, L"Inserted");
 }
 
-TEST(DiffToNode, DeleteParagraph) {
+TEST(DiffToNode, DeleteParagraph)
+{
     // 段落を削除
     std::string old_md = "First\n\nRemoveMe\n\nLast";
     std::string new_md = "First\n\nLast";
@@ -807,7 +891,8 @@ TEST(DiffToNode, DeleteParagraph) {
     EXPECT_LE(node, 1); // "First" or "Last"
 }
 
-TEST(DiffToNode, AppendToEnd) {
+TEST(DiffToNode, AppendToEnd)
+{
     std::string old_md = "Existing";
     std::string new_md = "Existing\n\nAppended";
     int node = SimulateEditAndFindNode(old_md, new_md);
@@ -818,7 +903,8 @@ TEST(DiffToNode, AppendToEnd) {
     EXPECT_LE(node, 1);
 }
 
-TEST(DiffToNode, EditInCodeBlock) {
+TEST(DiffToNode, EditInCodeBlock)
+{
     // コードブロック内の編集
     std::string old_md = "text\n\n```\nold code\n```\n\nend";
     std::string new_md = "text\n\n```\nnew code\n```\n\nend";
@@ -828,7 +914,8 @@ TEST(DiffToNode, EditInCodeBlock) {
     EXPECT_EQ(nodes[node].type, NodeType::CodeBlock);
 }
 
-TEST(DiffToNode, EditInListItem) {
+TEST(DiffToNode, EditInListItem)
+{
     // リストアイテムの編集
     std::string old_md = "- first\n- second\n- third";
     std::string new_md = "- first\n- changed\n- third";
@@ -838,7 +925,8 @@ TEST(DiffToNode, EditInListItem) {
     EXPECT_EQ(nodes[node].text, L"changed");
 }
 
-TEST(DiffToNode, EditHeading) {
+TEST(DiffToNode, EditHeading)
+{
     // 見出しテキストの編集
     std::string old_md = "# Old Title\n\nBody";
     std::string new_md = "# New Title\n\nBody";
@@ -846,12 +934,14 @@ TEST(DiffToNode, EditHeading) {
     EXPECT_EQ(node, 0); // 見出しノード
 }
 
-TEST(DiffToNode, NoChange) {
+TEST(DiffToNode, NoChange)
+{
     std::string md = "Same content";
     EXPECT_EQ(SimulateEditAndFindNode(md, md), -1);
 }
 
-TEST(DiffToNode, EditInBlockQuote) {
+TEST(DiffToNode, EditInBlockQuote)
+{
     std::string old_md = "normal\n\n> old quote\n\nafter";
     std::string new_md = "normal\n\n> new quote\n\nafter";
     int node = SimulateEditAndFindNode(old_md, new_md);
@@ -860,7 +950,8 @@ TEST(DiffToNode, EditInBlockQuote) {
     EXPECT_EQ(nodes[node].type, NodeType::BlockQuote);
 }
 
-TEST(DiffToNode, EditWithJapanese) {
+TEST(DiffToNode, EditWithJapanese)
+{
     // 日本語テキストの編集
     std::string old_md = "# はじめに\n\n旧テキスト\n\nおわり";
     std::string new_md = "# はじめに\n\n新テキスト\n\nおわり";
@@ -872,7 +963,8 @@ TEST(DiffToNode, EditWithJapanese) {
     EXPECT_EQ(node, 1); // 2番目の段落
 }
 
-TEST(DiffToNode, EditInTable) {
+TEST(DiffToNode, EditInTable)
+{
     std::string old_md =
         "| A | B |\n"
         "|---|---|\n"
@@ -887,14 +979,16 @@ TEST(DiffToNode, EditInTable) {
     EXPECT_EQ(nodes[node].type, NodeType::Table);
 }
 
-TEST(DiffToNode, LargeDocumentMiddleEdit) {
+TEST(DiffToNode, LargeDocumentMiddleEdit)
+{
     // 多数のノードを持つ文書の中間を編集
     std::string old_md, new_md;
     for (int i = 0; i < 100; ++i) {
         old_md += "Paragraph " + std::to_string(i) + "\n\n";
         if (i == 50) {
             new_md += "CHANGED paragraph 50\n\n";
-        } else {
+        }
+        else {
             new_md += "Paragraph " + std::to_string(i) + "\n\n";
         }
     }
