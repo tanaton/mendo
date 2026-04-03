@@ -30,11 +30,8 @@ public:
         LARGE_INTEGER end;
         QueryPerformanceCounter(&end);
 
-        LARGE_INTEGER freq;
-        QueryPerformanceFrequency(&freq);
-
         const double elapsed_us = static_cast<double>(end.QuadPart - start_.QuadPart)
-            * 1'000'000.0 / static_cast<double>(freq.QuadPart);
+            * 1'000'000.0 / static_cast<double>(Frequency().QuadPart);
 
         wchar_t buf[256];
         if (elapsed_us >= 1000.0) {
@@ -50,6 +47,16 @@ public:
     ScopedProfileTimer& operator=(const ScopedProfileTimer&) = delete;
 
 private:
+    static const LARGE_INTEGER& Frequency() noexcept
+    {
+        static const LARGE_INTEGER freq = [] {
+            LARGE_INTEGER f;
+            QueryPerformanceFrequency(&f);
+            return f;
+        }();
+        return freq;
+    }
+
     const wchar_t* label_;
     LARGE_INTEGER start_;
 };

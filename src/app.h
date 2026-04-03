@@ -223,7 +223,7 @@ private:
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
-    void RequestMermaidRenders();
+    void RequestMermaidRenders(bool visible_only = false);
     void OnMermaidRenderComplete();
     void LoadImages();
     void OnImageLoadComplete();

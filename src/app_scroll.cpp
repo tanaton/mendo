@@ -178,6 +178,11 @@ void App::OnDeferredLayout()
 
     if (!more) {
         KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
+
+        // 遅延レイアウト完了: 全ノードのY位置が確定したので、
+        // 初回ロード時にスキップされたオフスクリーンMermaidノードを処理する
+        RequestMermaidRenders();
+
         UpdateScrollBar();
         Invalidate();
     }

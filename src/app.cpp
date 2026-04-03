@@ -534,7 +534,19 @@ void App::LoadHelpDocument()
     panes_.ResetScrollStates();
     renderer_.InvalidateTocPaneCache();
 
-    UpdateLayoutAndScroll(0.0f);
+    // ビューポート優先レイアウト + 遅延処理
+    viewport_.SetScrollY(0.0f);
+    viewport_.SetScrollTarget(0.0f);
+    {
+        const auto pane_layout = GetPaneLayout();
+        layout_service_->ViewportLayout(doc_, layout_cache_,
+            pane_layout.md_rect.width, pane_layout.md_rect.height);
+        SyncMaxScroll(pane_layout.md_rect.height);
+    }
+    UpdateScrollBar();
+    Invalidate();
+    ScheduleDeferredLayoutIfNeeded();
+
     UpdateTitleBar();
 }
 
@@ -594,27 +606,22 @@ void App::DoLoadMarkdownFile()
     renderer_.InvalidateFilePaneCache();
     renderer_.InvalidateTocPaneCache();
 
-    // 中間レイアウト: キャッシュ済みの画像/Mermaid高さを反映するための前段階
-    {
-        MENDO_PROFILE("FullLayout(Initial)");
-        const auto pane_layout = GetPaneLayout();
-        layout_service_->FullLayout(doc_, layout_cache_, pane_layout.md_rect.width);
-    }
+    // ビューポート優先レイアウト: 可視範囲のみ計測し、残りは遅延処理に委ねる。
+    // FullLayoutの代わりにViewportLayoutを使うことで初回表示までの時間を大幅に短縮する。
+    const auto pane_layout = GetPaneLayout();
+    const float md_width = pane_layout.md_rect.width;
+    const float md_height = pane_layout.md_rect.height;
 
-    // キャッシュ済みリソースを適用（正確な高さを反映）
-    {
-        MENDO_PROFILE("LoadImages");
-        LoadImages();
-    }
-    {
-        MENDO_PROFILE("RequestMermaidRenders");
-        RequestMermaidRenders();
-    }
-
-    // スクロール位置の復元（キャッシュ反映後の正確な高さで計算）
+    // スクロール位置の復元
     float scroll_y = 0.0f;
     if (pending_restore_node_ >= 0) {
-        // セッション復元: ノードのY座標+オフセットからスクロール位置を計算
+        // cache.Reset()直後はY座標が全て0のため、DirectWriteを使わない
+        // 軽量パスでノード高さとY座標を推定する（O(n)の算術演算のみ）。
+        // 遅延レイアウトのアンカー補償により正確な位置へ収束する。
+        {
+            MENDO_PROFILE("EstimateNodeHeights");
+            EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
+        }
         const int node = std::min(pending_restore_node_,
             static_cast<int>(layout_cache_.size()) - 1);
         if (node >= 0) {
@@ -627,10 +634,35 @@ void App::DoLoadMarkdownFile()
         scroll_y = pending_nav_scroll_y_;
         pending_nav_scroll_y_ = -1.0f;
     }
+
+    // スクロール位置を設定してからViewportLayoutを呼ぶことで、
+    // 復元先の可視範囲のノードが計測される
+    viewport_.SetScrollY(scroll_y);
+    viewport_.SetScrollTarget(scroll_y);
+
     {
-        MENDO_PROFILE("UpdateLayoutAndScroll");
-        UpdateLayoutAndScroll(scroll_y);
+        MENDO_PROFILE("ViewportLayout(Initial)");
+        layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
     }
+
+    // キャッシュ済みリソースを適用（画像/Mermaidの正確な高さを反映）
+    {
+        MENDO_PROFILE("LoadImages");
+        LoadImages();
+    }
+    {
+        MENDO_PROFILE("RequestMermaidRenders(visible)");
+        RequestMermaidRenders(true);
+    }
+
+    // キャッシュ適用後にスクロール範囲を確定
+    SyncMaxScroll(md_height);
+    UpdateScrollBar();
+    Invalidate();
+
+    // 残りのダーティノードを遅延レイアウトで処理
+    ScheduleDeferredLayoutIfNeeded();
+
     UpdateTitleBar();
 
     doc_service_.StartWatching(doc_.GetFilePath(), [this]() {
@@ -695,76 +727,78 @@ void App::DoReloadCurrentFile()
     }
     layout_cache_.Reset(doc_.GetNodes().size(), false);
 
-    {
-        renderer_.InvalidateTocPaneCache();
+    renderer_.InvalidateTocPaneCache();
 
-        // レイアウト計算（プレースホルダー高さで初期レイアウト）
-        const auto pane_layout = GetPaneLayout();
-        const float md_width = pane_layout.md_rect.width;
-        const float md_height = pane_layout.md_rect.height;
-        {
-            MENDO_PROFILE("Reload::FullLayout");
-            layout_service_->FullLayout(doc_, layout_cache_, md_width);
-        }
+    const auto pane_layout = GetPaneLayout();
+    const float md_width = pane_layout.md_rect.width;
+    const float md_height = pane_layout.md_rect.height;
 
-        // キャッシュ済み画像/Mermaidを適用してY位置を正確にする
-        // （RequestRender内でキャッシュヒット時に同期的にheightが更新される）
-        LoadImages();
-        RequestMermaidRenders();
+    // 変更箇所のスクロール位置を決定（プレースホルダー高さベースの推定）
+    float desired_scroll = old_scroll;
+    const auto& new_content = doc_.GetRawUtf8();
+    const auto& nodes = doc_.GetNodes();
 
-        // 変更箇所のスクロール位置を決定
-        // （画像/Mermaid適用後の正確なY位置を使用）
-        float desired_scroll = old_scroll;
-        const auto& new_content = doc_.GetRawUtf8();
-        const auto& nodes = doc_.GetNodes();
+    if (diff_pos != std::string_view::npos && !nodes.empty()) {
+        const int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
+        if (changed_node >= 0 && changed_node < static_cast<int>(layout_cache_.size())) {
+            float node_y = layout_cache_[changed_node].y_position;
+            const float node_h = layout_cache_[changed_node].height;
 
-        if (diff_pos != std::string_view::npos && !nodes.empty()) {
-            const int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
-            if (changed_node >= 0 && changed_node < static_cast<int>(layout_cache_.size())) {
-                float node_y = layout_cache_[changed_node].y_position;
-                const float node_h = layout_cache_[changed_node].height;
-
-                // ノード内での相対位置を推定してY座標を補正
-                const uint32_t node_start = nodes[changed_node].source_offset;
-                if (node_start != UINT32_MAX) {
-                    uint32_t next_start = static_cast<uint32_t>(new_content.size());
-                    for (int i = changed_node + 1; i < static_cast<int>(nodes.size()); ++i) {
-                        if (nodes[i].source_offset != UINT32_MAX && nodes[i].source_offset > node_start) {
-                            next_start = nodes[i].source_offset;
-                            break;
-                        }
-                    }
-                    if (next_start > node_start) {
-                        const float fraction = static_cast<float>(diff_pos - node_start)
-                            / static_cast<float>(next_start - node_start);
-                        node_y += node_h * std::min(fraction, 1.0f);
+            // ノード内での相対位置を推定してY座標を補正
+            const uint32_t node_start = nodes[changed_node].source_offset;
+            if (node_start != UINT32_MAX) {
+                uint32_t next_start = static_cast<uint32_t>(new_content.size());
+                for (int i = changed_node + 1; i < static_cast<int>(nodes.size()); ++i) {
+                    if (nodes[i].source_offset != UINT32_MAX && nodes[i].source_offset > node_start) {
+                        next_start = nodes[i].source_offset;
+                        break;
                     }
                 }
-
-                const float margin = md_height * 0.2f;
-                desired_scroll = std::max(0.0f, node_y - margin);
+                if (next_start > node_start) {
+                    const float fraction = static_cast<float>(diff_pos - node_start)
+                        / static_cast<float>(next_start - node_start);
+                    node_y += node_h * std::min(fraction, 1.0f);
+                }
             }
+
+            const float margin = md_height * 0.2f;
+            desired_scroll = std::max(0.0f, node_y - margin);
         }
-
-        viewport_.SetScrollY(desired_scroll);
-        viewport_.SetScrollTarget(desired_scroll);
-        SyncMaxScroll(md_height);
-        UpdateScrollBar();
-
-        // 検索バー表示中なら再検索
-        if (search_state_.IsVisible() && !search_state_.GetQuery().empty()) {
-            search_state_.ExecuteSearch(doc_.GetNodes());
-            if (search_state_.GetMatchCount() > 0) {
-                search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
-            }
-        }
-
-        Invalidate();
-
-        // OSが同一セーブ操作で複数イベントを送るため、処理完了時点から
-        // デバウンスを再計測しないと重複リロードが発生する
-        doc_service_.ResetDebounceTick();
     }
+
+    // スクロール位置を設定してからViewportLayoutを呼ぶことで、
+    // 変更箇所周辺の可視ノードが計測される
+    viewport_.SetScrollY(desired_scroll);
+    viewport_.SetScrollTarget(desired_scroll);
+
+    {
+        MENDO_PROFILE("Reload::ViewportLayout");
+        layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
+    }
+
+    // キャッシュ済み画像/Mermaidを適用してY位置を正確にする
+    LoadImages();
+    RequestMermaidRenders(true);
+
+    SyncMaxScroll(md_height);
+    UpdateScrollBar();
+
+    // 検索バー表示中なら再検索
+    if (search_state_.IsVisible() && !search_state_.GetQuery().empty()) {
+        search_state_.ExecuteSearch(doc_.GetNodes());
+        if (search_state_.GetMatchCount() > 0) {
+            search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
+        }
+    }
+
+    Invalidate();
+
+    // 残りのダーティノードを遅延レイアウトで処理
+    ScheduleDeferredLayoutIfNeeded();
+
+    // OSが同一セーブ操作で複数イベントを送るため、処理完了時点から
+    // デバウンスを再計測しないと重複リロードが発生する
+    doc_service_.ResetDebounceTick();
 }
 
 void App::UpdateTitleBar()
@@ -874,7 +908,7 @@ void App::OnImageLoadComplete()
     }
 }
 
-void App::RequestMermaidRenders()
+void App::RequestMermaidRenders(bool visible_only)
 {
     const float viewport_width = GetMarkdownPaneWidth();
     const float content_width = viewport_width
@@ -912,11 +946,25 @@ void App::RequestMermaidRenders()
     }
     last_mermaid_content_width_ = content_width;
 
+    // visible_only: ファイルキャッシュLookup（ディスクI/O+WICデコード）が重いため、
+    // 初回ロード/リロード時は可視範囲のMermaidノードのみ処理し、
+    // 残りは遅延レイアウト完了後に処理する。
+    const float viewport_top = viewport_.GetScrollY();
+    const float viewport_bottom = viewport_top + GetPaneLayout().md_rect.height;
+
     for (size_t i : doc_.GetMermaidNodeIndices()) {
         auto& node = doc_.GetNodesMut()[i];
         auto& diagram = layout_cache_.GetDiagram(i);
         if (diagram.bitmap) {
             continue;
+        }
+
+        if (visible_only) {
+            const float y = layout_cache_[i].y_position;
+            const float h = layout_cache_[i].height;
+            if (y + h < viewport_top || y > viewport_bottom) {
+                continue;
+            }
         }
 
         mermaid_renderer_.RequestRender(node, layout_cache_[i], diagram,
