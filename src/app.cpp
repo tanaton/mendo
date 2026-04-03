@@ -733,7 +733,10 @@ void App::DoReloadCurrentFile()
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
 
-    // 変更箇所のスクロール位置を決定（プレースホルダー高さベースの推定）
+    // Reset直後はheight/y_positionが全て0のため、軽量推定でY座標を確定させる
+    EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
+
+    // 変更箇所のスクロール位置を決定（推定高さベース）
     float desired_scroll = old_scroll;
     const auto& new_content = doc_.GetRawUtf8();
     const auto& nodes = doc_.GetNodes();

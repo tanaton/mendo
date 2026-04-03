@@ -1,5 +1,6 @@
 #include "layout.h"
 #include <algorithm>
+#include <cassert>
 
 // マジックナンバーの名前付き定数
 static constexpr float MIN_COLUMN_WIDTH = 30.0f;
@@ -100,6 +101,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
     // DirectWriteを一切呼ばないため、数千ノードでも数百マイクロ秒で完了する。
     // layout_dirtyフラグは変更しない（後続のViewportLayoutが正しく計測できるようにする）。
+    assert(cache.size() >= nodes.size());
     const float line_height = theme.font_size_body * 1.5f;
 
     float y = theme.margin_top;
@@ -118,9 +120,13 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
             h = std::max(h, line_height);
             break;
         }
-        case NodeType::Table:
-            h = line_height * static_cast<float>(std::max(static_cast<size_t>(1), node.table_rows().size()));
+        case NodeType::Table: {
+            const size_t row_count = node.has_table()
+                ? std::max(static_cast<size_t>(1), node.table_rows().size())
+                : static_cast<size_t>(1);
+            h = line_height * static_cast<float>(row_count);
             break;
+        }
         case NodeType::Image:
             h = std::max(60.0f, theme.font_size_body * 3.0f);
             break;
