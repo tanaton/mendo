@@ -428,7 +428,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         if (focus_brush) {
             rt()->DrawRoundedRectangle(input_rrect, focus_brush, 1.5f);
         }
-    } else {
+    }
+    else {
         auto* border_brush = Brush(BrushId::SearchBarBorder);
         if (border_brush) {
             border_brush->SetOpacity(0.5f);
@@ -580,7 +581,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         wchar_t count_text[32];
         if (sb.total_matches == 0) {
             wcscpy_s(count_text, L"0");
-        } else {
+        }
+        else {
             swprintf_s(count_text, L"%d / %d", sb.current_match + 1, sb.total_matches);
         }
         auto* brush = Brush(BrushId::SearchInputText);

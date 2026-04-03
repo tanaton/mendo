@@ -732,10 +732,12 @@ void App::OnMouseHover(int px, int py)
             if (close_hit) {
                 tt.zone = TooltipTarget::Zone::FilePaneButton;
                 tt.text = i18n::S().tooltip_pane_close;
-            } else if (refresh_hit) {
+            }
+            else if (refresh_hit) {
                 tt.zone = TooltipTarget::Zone::FilePaneButton;
                 tt.text = i18n::S().tooltip_pane_refresh;
-            } else if (new_file_hover >= 0 && new_file_hover < static_cast<int>(file_explorer_.GetEntries().size())) {
+            }
+            else if (new_file_hover >= 0 && new_file_hover < static_cast<int>(file_explorer_.GetEntries().size())) {
                 tt.zone = TooltipTarget::Zone::FilePaneItem;
                 tt.text = file_explorer_.GetEntries()[new_file_hover].full_path;
             }
@@ -760,7 +762,8 @@ void App::OnMouseHover(int px, int py)
             if (close_hit) {
                 tt.zone = TooltipTarget::Zone::TocPaneButton;
                 tt.text = i18n::S().tooltip_pane_close;
-            } else if (new_toc_hover >= 0 && new_toc_hover < static_cast<int>(doc_.GetToc().GetEntries().size())) {
+            }
+            else if (new_toc_hover >= 0 && new_toc_hover < static_cast<int>(doc_.GetToc().GetEntries().size())) {
                 tt.zone = TooltipTarget::Zone::TocPaneItem;
                 tt.text = doc_.GetToc().GetEntries()[new_toc_hover].text;
             }
@@ -866,7 +869,8 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
             tt.zone = TooltipTarget::Zone::NavButton;
             if (nav_hit == NavButtonHover::Back) {
                 tt.text = i18n::S().tooltip_nav_back;
-            } else {
+            }
+            else {
                 tt.text = i18n::S().tooltip_nav_forward;
             }
             UpdateTooltip(tt, px, py);
@@ -916,7 +920,8 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         if (link.has_value()) {
             tt.zone = TooltipTarget::Zone::MdLink;
             tt.text = *link;
-        } else if (hit.node_index >= 0) {
+        }
+        else if (hit.node_index >= 0) {
             const auto& nodes = doc_.GetNodes();
             const auto& node = nodes[hit.node_index];
             if (node.type == NodeType::Image && node.has_image()) {

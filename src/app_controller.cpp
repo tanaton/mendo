@@ -24,7 +24,8 @@ ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const
         case 'G':
             if (event.shift) {
                 actions.emplace_back(SearchPrevAction{});
-            } else {
+            }
+            else {
                 actions.emplace_back(SearchNextAction{});
             }
             break;
@@ -54,7 +55,8 @@ ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const
     case VK_F3:
         if (event.shift) {
             actions.emplace_back(SearchPrevAction{});
-        } else {
+        }
+        else {
             actions.emplace_back(SearchNextAction{});
         }
         break;

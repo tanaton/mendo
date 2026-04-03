@@ -405,7 +405,8 @@ void App::OnPaint()
         // 検索マッチ情報をコマンドジェネレータに設定
         if (search_state_.IsVisible() && search_state_.IsHighlightEnabled() && !search_state_.GetMatches().empty()) {
             renderer_.SetSearchMatches(&search_state_.GetMatches(), search_state_.GetCurrentMatchIndex());
-        } else {
+        }
+        else {
             renderer_.SetSearchMatches(nullptr, -1);
         }
 
@@ -599,7 +600,8 @@ void App::DoLoadMarkdownFile()
                 layout_cache_[node].y_position + static_cast<float>(pending_restore_offset_));
         }
         pending_restore_node_ = -1;
-    } else if (pending_nav_scroll_y_ >= 0.0f) {
+    }
+    else if (pending_nav_scroll_y_ >= 0.0f) {
         scroll_y = pending_nav_scroll_y_;
         pending_nav_scroll_y_ = -1.0f;
     }
@@ -772,7 +774,8 @@ int App::ApplyCachedImages()
         std::wstring abs_str;
         if (cache_it != resolved_image_paths_.end()) {
             abs_str = cache_it->second;
-        } else {
+        }
+        else {
             std::filesystem::path img_path(node.image_data->src);
             if (img_path.is_relative()) {
                 img_path = std::filesystem::path(doc_dir) / img_path;
@@ -1009,7 +1012,8 @@ void App::ExecuteActions(const ActionList& actions)
             [this](const ClearSelectionAction&) {
                 if (search_state_.IsVisible()) {
                     OnSearchClose();
-                } else {
+                }
+                else {
                     ClearSelection();
                 }
             },
@@ -1069,14 +1073,16 @@ void App::ExecuteActions(const ActionList& actions)
             [this](const SearchNextAction&) {
                 if (!search_state_.IsVisible()) {
                     OnSearchOpen();
-                } else {
+                }
+                else {
                     OnSearchNext();
                 }
             },
             [this](const SearchPrevAction&) {
                 if (!search_state_.IsVisible()) {
                     OnSearchOpen();
-                } else {
+                }
+                else {
                     OnSearchPrev();
                 }
             },

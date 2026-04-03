@@ -100,7 +100,7 @@ inline constexpr Strings kJa = {
     // トースト
     L"ファイルが見つかりません",
     // ローディング
-    L"Loading...",
+    L"読み込み中...",
     // ヘルプリソースID
     IDR_HELP_MD,
 };
