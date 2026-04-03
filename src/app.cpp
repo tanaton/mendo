@@ -174,6 +174,9 @@ void App::OnActivate(bool active)
         window_active_ = active;
         InvalidateTitleBar();
     }
+    if (!active) {
+        ClearTooltip();
+    }
 }
 
 // ============================================================

@@ -76,6 +76,7 @@ public:
 
     // ボタン押下なしのマウスホバー処理
     void OnMouseHover(int px, int py);
+    void OnMouseLeave();
     void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const ::PaneLayout& layout);
 
     // マウスXボタンによるナビゲーション
@@ -371,6 +372,7 @@ private:
     // ツールチップ
     Tooltip tooltip_;
     void UpdateTooltip(const TooltipTarget& target, int px, int py);
+    void ClearTooltip();
 
     // スムーススクロールのフレーム間タイミング
     std::chrono::steady_clock::time_point last_scroll_time_{};

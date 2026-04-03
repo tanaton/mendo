@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <commctrl.h>
+#include <cstdint>
 #include <string>
 
 // ApplyDarkModeToWindow は app.h で宣言済み（循環回避のため前方宣言）
@@ -104,8 +105,11 @@ public:
         ti.lpszText = const_cast<LPWSTR>(current_.text.c_str());
         SendMessageW(hwnd_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
 
+        // カーソル下にオフセット（DPIスケーリング対応）
+        const UINT dpi = GetDpiForWindow(parent_);
+        const int offset_y = MulDiv(20, dpi, 96);
         SendMessageW(hwnd_, TTM_TRACKPOSITION, 0,
-            MAKELPARAM(show_pos_.x, show_pos_.y + 20));
+            MAKELPARAM(show_pos_.x, show_pos_.y + offset_y));
 
         SendMessageW(hwnd_, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&ti));
         visible_ = true;

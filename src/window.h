@@ -35,5 +35,6 @@ private:
     HWND hwnd_ = nullptr;
     HWND search_edit_ = nullptr;
     bool in_sys_menu_ = false;   // システムメニューのモーダルループ中フラグ
+    bool tracking_mouse_ = false; // TrackMouseEvent によるマウス追跡中フラグ
     App app_;
 };

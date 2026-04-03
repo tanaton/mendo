@@ -44,6 +44,18 @@ void App::UpdateTooltip(const TooltipTarget& target, int px, int py)
     }
 }
 
+void App::ClearTooltip()
+{
+    KillTimer(hwnd_, TIMER_TOOLTIP);
+    tooltip_.Hide();
+    tooltip_.ResetTarget();
+}
+
+void App::OnMouseLeave()
+{
+    ClearTooltip();
+}
+
 void App::RefreshFilePane()
 {
     file_explorer_.Refresh();
