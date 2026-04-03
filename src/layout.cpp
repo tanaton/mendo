@@ -1,5 +1,6 @@
 #include "layout.h"
 #include <algorithm>
+#include <cassert>
 
 // マジックナンバーの名前付き定数
 static constexpr float MIN_COLUMN_WIDTH = 30.0f;
@@ -93,6 +94,63 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
         }
     }
     return text;
+}
+
+void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme)
+{
+    // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
+    // DirectWriteを一切呼ばないため、数千ノードでも数百マイクロ秒で完了する。
+    // layout_dirtyフラグは変更しない（後続のViewportLayoutが正しく計測できるようにする）。
+    assert(cache.size() >= nodes.size());
+    const float line_height = theme.font_size_body * 1.5f;
+
+    float y = theme.margin_top;
+    for (size_t i = 0; i < nodes.size(); i++) {
+        const auto& node = nodes[i];
+        float h;
+        switch (node.type) {
+        case NodeType::Heading: {
+            const int level = std::clamp(node.heading_level, 1, 6) - 1;
+            h = theme.font_size_h[level] * 1.5f;
+            break;
+        }
+        case NodeType::CodeBlock: {
+            const int lines = 1 + static_cast<int>(std::count(node.text.begin(), node.text.end(), L'\n'));
+            h = theme.font_size_code * 1.3f * static_cast<float>(lines);
+            h = std::max(h, line_height);
+            break;
+        }
+        case NodeType::Table: {
+            const size_t row_count = node.has_table()
+                ? std::max(static_cast<size_t>(1), node.table_rows().size())
+                : static_cast<size_t>(1);
+            h = line_height * static_cast<float>(row_count);
+            break;
+        }
+        case NodeType::Image:
+            h = std::max(60.0f, theme.font_size_body * 3.0f);
+            break;
+        case NodeType::HorizontalRule:
+            h = theme.paragraph_spacing + theme.hr_thickness;
+            break;
+        default:
+            // テキストの行数からおおよその高さを推定
+            if (node.text.empty()) {
+                h = theme.paragraph_spacing;
+            }
+            else {
+                const int lines = 1 + static_cast<int>(std::count(node.text.begin(), node.text.end(), L'\n'));
+                h = line_height * static_cast<float>(lines);
+            }
+            break;
+        }
+
+        y += GetSpacingAbove(node.type, theme);
+        cache[i].height = h;
+        cache[i].y_position = y;
+        y += h;
+        y += GetSpacingBelow(node.type, theme);
+    }
 }
 
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,

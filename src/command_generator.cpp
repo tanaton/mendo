@@ -528,6 +528,15 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
                 bar_indent = nodes[j].indent_level;
             }
             j++;
+            // ビューポート外に大きく超えたグループ末尾の走査を打ち切る。
+            // バーや背景はクリップ領域で切られるため、描画結果に影響しない。
+            if (group_bottom > viewport_bottom) {
+                // グループ末尾までスキップ
+                while (j < node_count && nodes[j].blockquote_group == group) {
+                    j++;
+                }
+                break;
+            }
         }
 
         if (bar_indent < 0) {

@@ -192,7 +192,6 @@ private:
 
     // レイアウト / スクロール
     void ScheduleDeferredLayoutIfNeeded();
-    void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();
     void InvalidateMdPane(const PaneRect& md_rect);
     void InvalidateHitPositions() noexcept;
@@ -223,7 +222,7 @@ private:
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
-    void RequestMermaidRenders();
+    void RequestMermaidRenders(bool visible_only = false);
     void OnMermaidRenderComplete();
     void LoadImages();
     void OnImageLoadComplete();
