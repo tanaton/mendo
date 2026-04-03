@@ -1,6 +1,7 @@
 #include "renderer.h"
 #include "resource.h"
 #include "ui_constants.h"
+#include "profiler.h"
 #include <algorithm>
 #include <cmath>
 
@@ -524,6 +525,7 @@ void Renderer::Render(const RenderParams& p)
     // レイアウト世代と可視範囲が前回と同一ならスキップする（静止時の不要な走査を回避）。
     const uint32_t effects_gen = p.cache.GetEffectsGeneration();
     if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || viewport_bottom != last_effects_bottom_) {
+        MENDO_PROFILE("ApplyVisibleEffects");
         ApplyVisibleEffects(p.nodes, p.cache, first_visible, viewport_bottom);
         last_effects_gen_ = effects_gen;
         last_effects_first_ = first_visible;
@@ -532,8 +534,14 @@ void Renderer::Render(const RenderParams& p)
 
     // Markdownコンテンツペインの描画コマンドを生成・実行。
     const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
-    const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered_copy_node, dpi_scale);
-    cmd_executor_.Execute(cmds, rt());
+    {
+        MENDO_PROFILE("GenerateMdPane");
+        const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered_copy_node, dpi_scale);
+        {
+            MENDO_PROFILE("CommandExecutor::Execute");
+            cmd_executor_.Execute(cmds, rt());
+        }
+    }
 
     // ナビゲーションオーバーレイボタン（戻る/進む）を描画
     if (p.can_go_back || p.can_go_forward) {

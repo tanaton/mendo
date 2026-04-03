@@ -25,6 +25,7 @@
 #endif
 
 #include "utility.h"
+#include "profiler.h"
 
 void ApplyDarkModeToWindow(HWND hwnd, bool dark)
 {
@@ -347,6 +348,8 @@ SearchBarRenderState App::BuildSearchBarRenderState() const
 
 void App::OnPaint()
 {
+    MENDO_PROFILE("OnPaint");
+
     // スムーススクロール中は描画前にデルタタイムでスクロール位置を進める。
     // SetTimerではなくWM_PAINTループで駆動することでディスプレイのリフレッシュレートに追従する。
     if (viewport_.IsSmoothScrolling()) {
@@ -361,8 +364,12 @@ void App::OnPaint()
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
         const auto anchor = SaveAnchor();
 
-        const bool updated = layout_service_->EnsureVisibleLayout(
-            doc_, layout_cache_, layout.md_rect.width, layout.md_rect.height);
+        bool updated;
+        {
+            MENDO_PROFILE("EnsureVisibleLayout");
+            updated = layout_service_->EnsureVisibleLayout(
+                doc_, layout_cache_, layout.md_rect.width, layout.md_rect.height);
+        }
 
         if (updated) {
             RestoreAnchor(anchor, layout.md_rect.height);
@@ -410,14 +417,17 @@ void App::OnPaint()
             renderer_.SetSearchMatches(nullptr, -1);
         }
 
-        renderer_.Render({
-            doc_.GetNodesMut(), layout_cache_,
-            viewport_.GetScrollY(), layout_service_->GetTotalHeight(),
-            viewport_.GetSelection(), layout.md_rect, sp, tb,
-            nav_service_.CanGoBack(), nav_service_.CanGoForward(),
-            static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts, sb,
-            layout_service_->HasDirtyNodes()
-            });
+        {
+            MENDO_PROFILE("Renderer::Render");
+            renderer_.Render({
+                doc_.GetNodesMut(), layout_cache_,
+                viewport_.GetScrollY(), layout_service_->GetTotalHeight(),
+                viewport_.GetSelection(), layout.md_rect, sp, tb,
+                nav_service_.CanGoBack(), nav_service_.CanGoForward(),
+                static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts, sb,
+                layout_service_->HasDirtyNodes()
+                });
+        }
     }
 
     EndPaint(hwnd_, &ps);
@@ -546,6 +556,8 @@ void App::LoadMarkdownFile(std::wstring_view path)
 
 void App::DoLoadMarkdownFile()
 {
+    MENDO_PROFILE("DoLoadMarkdownFile");
+
     // ヘルプ仮想パスの場合は専用ルートへ
     if (IsHelpPath(file_load_service_.GetLoadingPath())) {
         LoadHelpDocument();
@@ -564,9 +576,12 @@ void App::DoLoadMarkdownFile()
     renderer_.ShrinkBuffers();
     resolved_image_paths_.clear();
 
-    if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
-        Invalidate();
-        return;
+    {
+        MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
+        if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
+            Invalidate();
+            return;
+        }
     }
 
     const std::pmr::wstring dir = doc_.GetDirectory();
@@ -581,13 +596,20 @@ void App::DoLoadMarkdownFile()
 
     // 中間レイアウト: キャッシュ済みの画像/Mermaid高さを反映するための前段階
     {
+        MENDO_PROFILE("FullLayout(Initial)");
         const auto pane_layout = GetPaneLayout();
         layout_service_->FullLayout(doc_, layout_cache_, pane_layout.md_rect.width);
     }
 
     // キャッシュ済みリソースを適用（正確な高さを反映）
-    LoadImages();
-    RequestMermaidRenders();
+    {
+        MENDO_PROFILE("LoadImages");
+        LoadImages();
+    }
+    {
+        MENDO_PROFILE("RequestMermaidRenders");
+        RequestMermaidRenders();
+    }
 
     // スクロール位置の復元（キャッシュ反映後の正確な高さで計算）
     float scroll_y = 0.0f;
@@ -605,7 +627,10 @@ void App::DoLoadMarkdownFile()
         scroll_y = pending_nav_scroll_y_;
         pending_nav_scroll_y_ = -1.0f;
     }
-    UpdateLayoutAndScroll(scroll_y);
+    {
+        MENDO_PROFILE("UpdateLayoutAndScroll");
+        UpdateLayoutAndScroll(scroll_y);
+    }
     UpdateTitleBar();
 
     doc_service_.StartWatching(doc_.GetFilePath(), [this]() {
@@ -637,6 +662,8 @@ void App::ReloadCurrentFile()
 
 void App::DoReloadCurrentFile()
 {
+    MENDO_PROFILE("DoReloadCurrentFile");
+
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
     file_load_service_.StopLoading();
     active_toc_index_ = -1;
@@ -652,13 +679,20 @@ void App::DoReloadCurrentFile()
     resolved_image_paths_.clear();
 
     // ファイルを読み込み、旧コンテンツとの差分位置をコピーなしで計算
-    std::pmr::string new_utf8 = FileLoader::LoadFile(doc_.GetFilePath());
+    std::pmr::string new_utf8;
+    {
+        MENDO_PROFILE("Reload::LoadFile");
+        new_utf8 = FileLoader::LoadFile(doc_.GetFilePath());
+    }
     const size_t diff_pos = FindFirstDifference(
         std::string_view(doc_.GetRawUtf8()),
         std::string_view(new_utf8));
 
     // ドキュメントを新コンテンツで更新
-    doc_.ReplaceFromMarkdown(std::move(new_utf8));
+    {
+        MENDO_PROFILE("Reload::ReplaceFromMarkdown");
+        doc_.ReplaceFromMarkdown(std::move(new_utf8));
+    }
     layout_cache_.Reset(doc_.GetNodes().size(), false);
 
     {
@@ -668,7 +702,10 @@ void App::DoReloadCurrentFile()
         const auto pane_layout = GetPaneLayout();
         const float md_width = pane_layout.md_rect.width;
         const float md_height = pane_layout.md_rect.height;
-        layout_service_->FullLayout(doc_, layout_cache_, md_width);
+        {
+            MENDO_PROFILE("Reload::FullLayout");
+            layout_service_->FullLayout(doc_, layout_cache_, md_width);
+        }
 
         // キャッシュ済み画像/Mermaidを適用してY位置を正確にする
         // （RequestRender内でキャッシュヒット時に同期的にheightが更新される）

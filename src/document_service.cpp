@@ -1,12 +1,20 @@
 #include "document_service.h"
+#include "profiler.h"
 
 bool DocumentService::LoadFile(const std::pmr::wstring& path, Document& doc)
 {
-    std::pmr::string content = FileLoader::LoadFile(path);
+    std::pmr::string content;
+    {
+        MENDO_PROFILE("FileLoader::LoadFile");
+        content = FileLoader::LoadFile(path);
+    }
     if (content.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return false;
     }
-    doc = Document::FromMarkdown(std::move(content), path);
+    {
+        MENDO_PROFILE("Document::FromMarkdown");
+        doc = Document::FromMarkdown(std::move(content), path);
+    }
     return true;
 }
 

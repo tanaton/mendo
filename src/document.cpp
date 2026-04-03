@@ -1,6 +1,7 @@
 #include "document.h"
 #include "document_utils.h"
 #include "parser.h"
+#include "profiler.h"
 #include <filesystem>
 
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
@@ -8,10 +9,22 @@ Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
     Document doc;
     doc.file_path_ = path;
     doc.raw_utf8_ = std::move(utf8);
-    doc.nodes_ = ParseMarkdown(doc.raw_utf8_);
-    doc.toc_.BuildFromNodes(doc.nodes_);
-    doc.BuildAnchorIndex();
-    doc.BuildSpecialNodeIndices();
+    {
+        MENDO_PROFILE("ParseMarkdown");
+        doc.nodes_ = ParseMarkdown(doc.raw_utf8_);
+    }
+    {
+        MENDO_PROFILE("BuildFromNodes(TOC)");
+        doc.toc_.BuildFromNodes(doc.nodes_);
+    }
+    {
+        MENDO_PROFILE("BuildAnchorIndex");
+        doc.BuildAnchorIndex();
+    }
+    {
+        MENDO_PROFILE("BuildSpecialNodeIndices");
+        doc.BuildSpecialNodeIndices();
+    }
     return doc;
 }
 

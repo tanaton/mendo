@@ -1,5 +1,6 @@
 #include "app.h"
 #include "pane_layout.h"
+#include "profiler.h"
 #include <windows.h>
 #include <algorithm>
 #include <cmath>
@@ -123,13 +124,18 @@ void App::ScheduleDeferredLayoutIfNeeded()
 
 void App::OnResizeEnd()
 {
+    MENDO_PROFILE("OnResizeEnd");
+
     KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
 
-    layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
+    {
+        MENDO_PROFILE("ViewportLayout(Resize)");
+        layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
+    }
 
     SyncMaxScroll(md_height);
     UpdateScrollBar();
@@ -150,12 +156,18 @@ void App::RefreshPaneLayout()
 
 void App::OnDeferredLayout()
 {
+    MENDO_PROFILE("OnDeferredLayout");
+
     const auto anchor = SaveAnchor();
 
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
-    const bool more = layout_service_->ProcessDirtyBatch(doc_, layout_cache_, md_width, 200);
+    bool more;
+    {
+        MENDO_PROFILE("ProcessDirtyBatch");
+        more = layout_service_->ProcessDirtyBatch(doc_, layout_cache_, md_width, 200);
+    }
 
     if (!viewport_.IsScrollbarTracking()) {
         RestoreAnchor(anchor, md_height);
@@ -173,10 +185,15 @@ void App::OnDeferredLayout()
 
 void App::UpdateLayoutAndScroll(float desired_scroll)
 {
+    MENDO_PROFILE("UpdateLayoutAndScroll");
+
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
-    layout_service_->FullLayout(doc_, layout_cache_, md_width);
+    {
+        MENDO_PROFILE("FullLayout(UpdateScroll)");
+        layout_service_->FullLayout(doc_, layout_cache_, md_width);
+    }
 
     viewport_.SetScrollY(desired_scroll);
     viewport_.SetScrollTarget(desired_scroll);
