@@ -12,26 +12,22 @@ public:
     // ---- スクロール ----
 
     constexpr float GetScrollY() const noexcept { return scroll_y_; }
-    constexpr float GetScrollTarget() const noexcept { return scroll_target_; }
     constexpr float GetMaxScroll() const noexcept { return max_scroll_; }
 
     constexpr void ScrollTo(float position) noexcept
     {
         scroll_y_ = std::clamp(position, 0.0f, max_scroll_);
-        scroll_target_ = scroll_y_;
     }
 
     constexpr void DirectScrollBy(float delta) noexcept
     {
         scroll_y_ = std::clamp(scroll_y_ + delta, 0.0f, max_scroll_);
-        scroll_target_ = scroll_y_;
     }
 
     constexpr void SyncMaxScroll(float total_height, float viewport_height) noexcept
     {
         max_scroll_ = std::max(0.0f, total_height - viewport_height);
         scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
-        scroll_target_ = std::clamp(scroll_target_, 0.0f, max_scroll_);
     }
 
     // 下端がscroll_y_より下にある最初のノードを見つける。
@@ -49,12 +45,10 @@ public:
         }
         const float shift = cache[anchor_idx].y_position - anchor_y_before;
         scroll_y_ = std::max(0.0f, scroll_y_ + shift);
-        scroll_target_ = std::max(0.0f, scroll_target_ + shift);
         // 注意: 呼び出し側はこの後SyncMaxScroll()を呼ぶ必要がある
     }
 
     constexpr void SetScrollY(float y) noexcept { scroll_y_ = y; }
-    constexpr void SetScrollTarget(float t) noexcept { scroll_target_ = t; }
 
     constexpr bool IsScrollbarTracking() const noexcept { return is_scrollbar_tracking_; }
     constexpr void SetScrollbarTracking(bool v) noexcept { is_scrollbar_tracking_ = v; }
@@ -129,7 +123,6 @@ public:
 private:
     // スクロール状態
     float scroll_y_ = 0.0f;
-    float scroll_target_ = 0.0f;
     float max_scroll_ = 0.0f;
     bool is_scrollbar_tracking_ = false;
 

@@ -524,7 +524,6 @@ void App::LoadHelpDocument()
 
     // ビューポート優先レイアウト + 遅延処理
     viewport_.SetScrollY(0.0f);
-    viewport_.SetScrollTarget(0.0f);
     {
         const auto pane_layout = GetPaneLayout();
         layout_service_->ViewportLayout(doc_, layout_cache_,
@@ -626,7 +625,6 @@ void App::DoLoadMarkdownFile()
     // スクロール位置を設定してからViewportLayoutを呼ぶことで、
     // 復元先の可視範囲のノードが計測される
     viewport_.SetScrollY(scroll_y);
-    viewport_.SetScrollTarget(scroll_y);
 
     {
         MENDO_PROFILE("ViewportLayout(Initial)");
@@ -760,7 +758,6 @@ void App::DoReloadCurrentFile()
     // スクロール位置を設定してからViewportLayoutを呼ぶことで、
     // 変更箇所周辺の可視ノードが計測される
     viewport_.SetScrollY(desired_scroll);
-    viewport_.SetScrollTarget(desired_scroll);
 
     {
         MENDO_PROFILE("Reload::ViewportLayout");
@@ -1475,7 +1472,6 @@ void App::ScrollToCurrentMatch()
     if (match_y < scroll_y || match_y + entry.height > effective_bottom) {
         const float target = std::max(0.0f, match_y - visible_height / 3.0f);
         viewport_.SetScrollY(target);
-        viewport_.SetScrollTarget(target);
         SyncMaxScroll(visible_height);
         InvalidateHitPositions();
     }

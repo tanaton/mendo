@@ -74,7 +74,6 @@ void App::RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale)
         float anchor_y_after = layout_cache_[anchor.idx].y_position;
         viewport_.SetScrollY(anchor_y_after + anchor.offset * offset_scale);
     }
-    viewport_.SetScrollTarget(viewport_.GetScrollY());
 }
 
 // ============================================================

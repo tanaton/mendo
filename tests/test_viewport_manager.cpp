@@ -63,7 +63,6 @@ TEST(ViewportManagerTest, DirectScrollByMovesPosition)
 
     vm.DirectScrollBy(100.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 100.0f);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 100.0f);
 }
 
 TEST(ViewportManagerTest, DirectScrollByClampsToMax)
@@ -72,7 +71,6 @@ TEST(ViewportManagerTest, DirectScrollByClampsToMax)
     vm.SyncMaxScroll(300.0f, 200.0f); // max = 100
     vm.DirectScrollBy(9999.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 100.0f);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 100.0f);
 }
 
 TEST(ViewportManagerTest, DirectScrollByClampsToZero)
@@ -82,7 +80,6 @@ TEST(ViewportManagerTest, DirectScrollByClampsToZero)
     vm.DirectScrollBy(50.0f);
     vm.DirectScrollBy(-200.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 0.0f);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 0.0f);
 }
 
 TEST(ViewportManagerTest, DirectScrollByAccumulates)
@@ -98,9 +95,6 @@ TEST(ViewportManagerTest, DirectScrollByAccumulates)
     }
 
     EXPECT_FLOAT_EQ(vm.GetScrollY(), total);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), total);
-    // ギャップは常にゼロ
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget() - vm.GetScrollY(), 0.0f);
 }
 
 // ---- FindFirstVisibleNode テスト ----
@@ -293,7 +287,6 @@ TEST(ViewportManagerTest, AnchorCompensateScrollClampsNegative)
 
     // scroll_yは-150ではなく0にクランプされるべき
     EXPECT_GE(vm.GetScrollY(), 0.0f);
-    EXPECT_GE(vm.GetScrollTarget(), 0.0f);
 }
 
 TEST(ViewportManagerTest, AnchorCompensateScrollPositiveShiftOk)
