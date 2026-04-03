@@ -11,9 +11,6 @@ public:
     {
     }
 
-    // 全レイアウト計算（初回ロード時）
-    void FullLayout(Document& doc, LayoutCache& cache, float width);
-
     // ビューポート優先レイアウト（リサイズ時）
     void ViewportLayout(Document& doc, LayoutCache& cache, float width, float height);
 

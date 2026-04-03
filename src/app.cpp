@@ -594,7 +594,6 @@ void App::DoLoadMarkdownFile()
     renderer_.InvalidateTocPaneCache();
 
     // ビューポート優先レイアウト: 可視範囲のみ計測し、残りは遅延処理に委ねる。
-    // FullLayoutの代わりにViewportLayoutを使うことで初回表示までの時間を大幅に短縮する。
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;

@@ -196,12 +196,6 @@ void Renderer::UpdateLayoutTheme()
     layout_.RecreateFormats();
 }
 
-void Renderer::LayoutAllNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
-{
-    const float content_width = std::max(0.0f, viewport_width - theme_.margin_left - theme_.margin_right);
-    layout_.LayoutNodes(nodes, cache, content_width);
-}
-
 ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
     const wchar_t* family, DWRITE_FONT_WEIGHT weight,
     float size, const wchar_t* locale)

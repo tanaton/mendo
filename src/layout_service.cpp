@@ -1,10 +1,5 @@
 #include "layout_service.h"
 
-void LayoutService::FullLayout(Document& doc, LayoutCache& cache, float width)
-{
-    engine_.ComputeLayout(doc.GetNodesMut(), cache, width);
-}
-
 void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float width, float height)
 {
     const float viewport_top = viewport_.GetScrollY();
