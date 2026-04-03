@@ -196,9 +196,6 @@ private:
     void InvalidateMdPane(const PaneRect& md_rect);
     void InvalidateHitPositions() noexcept;
     void ScrollTo(float position);
-    void SmoothScrollBy(float delta);
-    void UpdateSmoothScroll();
-    void StopSmoothScroll();
     void SyncMaxScroll(float md_pane_height);
     int FindFirstVisibleNode() const noexcept;
     void OnResizeEnd();
@@ -374,7 +371,4 @@ private:
     Tooltip tooltip_;
     void UpdateTooltip(const TooltipTarget& target, int px, int py);
     void ClearTooltip();
-
-    // スムーススクロールのフレーム間タイミング
-    std::chrono::steady_clock::time_point last_scroll_time_{};
 };

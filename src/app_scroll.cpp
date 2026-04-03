@@ -3,7 +3,6 @@
 #include "profiler.h"
 #include <windows.h>
 #include <algorithm>
-#include <cmath>
 
 // ============================================================
 // スクロールバー・スクロール
@@ -28,31 +27,6 @@ void App::ScrollTo(float position)
     InvalidateHitPositions();
 }
 
-void App::SmoothScrollBy(float delta)
-{
-    const bool was_scrolling = viewport_.IsSmoothScrolling();
-    viewport_.SmoothScrollBy(delta);
-
-    if (!was_scrolling && viewport_.IsSmoothScrolling()) {
-        last_scroll_time_ = std::chrono::steady_clock::now();
-        InvalidateHitPositions();
-    }
-    // WM_PAINTループでスクロールを駆動するため再描画を要求
-    if (viewport_.IsSmoothScrolling()) {
-        const auto layout = GetPaneLayout();
-        InvalidateMdPane(layout.md_rect);
-    }
-}
-
-void App::UpdateSmoothScroll()
-{
-    const auto now = std::chrono::steady_clock::now();
-    const float dt_ms = std::chrono::duration<float, std::milli>(now - last_scroll_time_).count();
-    last_scroll_time_ = now;
-
-    viewport_.UpdateSmoothScroll(dt_ms);
-}
-
 void App::InvalidateMdPane(const PaneRect& md_rect)
 {
     if (!renderer_.GetRenderTarget()) {
@@ -66,14 +40,6 @@ void App::InvalidateMdPane(const PaneRect& md_rect)
     rc.right = static_cast<LONG>((md_rect.x + md_rect.width) * scale) + 1;
     rc.bottom = static_cast<LONG>(md_rect.height * scale) + 1;
     InvalidateRect(hwnd_, &rc, FALSE);
-}
-
-void App::StopSmoothScroll()
-{
-    if (!viewport_.IsSmoothScrolling()) {
-        return;
-    }
-    viewport_.StopSmoothScroll();
 }
 
 void App::SyncMaxScroll(float md_pane_height)

@@ -350,12 +350,6 @@ void App::OnPaint()
 {
     MENDO_PROFILE("OnPaint");
 
-    // スムーススクロール中は描画前にデルタタイムでスクロール位置を進める。
-    // SetTimerではなくWM_PAINTループで駆動することでディスプレイのリフレッシュレートに追従する。
-    if (viewport_.IsSmoothScrolling()) {
-        UpdateSmoothScroll();
-    }
-
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
 
@@ -431,11 +425,6 @@ void App::OnPaint()
     }
 
     EndPaint(hwnd_, &ps);
-
-    // スクロール継続中なら次フレームの再描画を要求（WM_PAINTループを維持）
-    if (viewport_.IsSmoothScrolling()) {
-        InvalidateMdPane(layout.md_rect);
-    }
 }
 
 void App::OnResize(UINT width, UINT height)
@@ -491,7 +480,6 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 void App::OnEnterSizeMove()
 {
     is_sizing_ = true;
-    StopSmoothScroll();
 }
 
 void App::OnExitSizeMove()
@@ -1052,15 +1040,20 @@ void App::ExecuteActions(const ActionList& actions)
     for (const auto& action : actions) {
         std::visit(overloaded{
             [this](const KeyScrollAction& a) {
+                const float old_scroll = viewport_.GetScrollY();
                 const auto pane_layout = GetPaneLayout();
                 const float page_size = pane_layout.md_rect.height;
                 switch (a.type) {
-                    case ScrollType::LineUp:   SmoothScrollBy(-40.0f); break;
-                    case ScrollType::LineDown: SmoothScrollBy(40.0f); break;
-                    case ScrollType::PageUp:   SmoothScrollBy(-page_size * 0.9f); break;
-                    case ScrollType::PageDown: SmoothScrollBy(page_size * 0.9f); break;
-                    case ScrollType::Home:     SmoothScrollBy(-viewport_.GetScrollY()); break;
-                    case ScrollType::End:      SmoothScrollBy(viewport_.GetMaxScroll() - viewport_.GetScrollY()); break;
+                    case ScrollType::LineUp:   viewport_.DirectScrollBy(-40.0f); break;
+                    case ScrollType::LineDown: viewport_.DirectScrollBy(40.0f); break;
+                    case ScrollType::PageUp:   viewport_.DirectScrollBy(-page_size * 0.9f); break;
+                    case ScrollType::PageDown: viewport_.DirectScrollBy(page_size * 0.9f); break;
+                    case ScrollType::Home:     viewport_.ScrollTo(0.0f); break;
+                    case ScrollType::End:      viewport_.ScrollTo(viewport_.GetMaxScroll()); break;
+                }
+                if (viewport_.GetScrollY() != old_scroll) {
+                    InvalidateHitPositions();
+                    Invalidate();
                 }
             },
             [this](const DirectScrollByAction& a) {
@@ -1478,10 +1471,9 @@ void App::ScrollToCurrentMatch()
     const float effective_bottom = viewport_.GetScrollY() + visible_height;
     const float scroll_y = viewport_.GetScrollY();
 
-    // マッチが可視範囲外の場合のみスクロール（アニメーションなし）
+    // マッチが可視範囲外の場合のみスクロール
     if (match_y < scroll_y || match_y + entry.height > effective_bottom) {
         const float target = std::max(0.0f, match_y - visible_height / 3.0f);
-        StopSmoothScroll();
         viewport_.SetScrollY(target);
         viewport_.SetScrollTarget(target);
         SyncMaxScroll(visible_height);
