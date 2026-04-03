@@ -83,10 +83,10 @@ void FileExplorer::Refresh()
     FindClose(hFind);
 
     // ディレクトリとファイルをそれぞれ大文字小文字無視でソート
-    std::sort(dirs.begin(), dirs.end(), [](const FileEntry& a, const FileEntry& b) {
+    std::ranges::sort(dirs, [](const FileEntry& a, const FileEntry& b) {
         return _wcsicmp(a.filename.c_str(), b.filename.c_str()) < 0;
     });
-    std::sort(files.begin(), files.end(), [](const FileEntry& a, const FileEntry& b) {
+    std::ranges::sort(files, [](const FileEntry& a, const FileEntry& b) {
         return _wcsicmp(a.filename.c_str(), b.filename.c_str()) < 0;
     });
 
