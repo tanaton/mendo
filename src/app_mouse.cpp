@@ -31,6 +31,19 @@ bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float h
 
 } // namespace
 
+// target が変化した場合にタイマーを再設定し、None なら非表示にする。
+void App::UpdateTooltip(const TooltipTarget& target, int px, int py)
+{
+    POINT screen_pos = { px, py };
+    ClientToScreen(hwnd_, &screen_pos);
+    if (tooltip_.Update(target, screen_pos)) {
+        SetTimer(hwnd_, TIMER_TOOLTIP, 500, nullptr);
+    }
+    else if (target.IsEmpty()) {
+        KillTimer(hwnd_, TIMER_TOOLTIP);
+    }
+}
+
 void App::RefreshFilePane()
 {
     file_explorer_.Refresh();
@@ -632,6 +645,22 @@ void App::OnMouseHover(int px, int py)
         if (titlebar_.SetHovered(tb_zone)) {
             InvalidateTitleBar();
         }
+        // タイトルバーボタンのツールチップ
+        TooltipTarget tt;
+        switch (tb_zone) {
+        case TitleBarHitZone::Help:        tt = { TooltipTarget::Zone::TitleBarButton, L"ヘルプ (F1)" }; break;
+        case TitleBarHitZone::ThemeToggle: tt = { TooltipTarget::Zone::TitleBarButton, L"ダーク/ライトモード切替" }; break;
+        case TitleBarHitZone::Search:      tt = { TooltipTarget::Zone::TitleBarButton, L"検索 (Ctrl+F)" }; break;
+        case TitleBarHitZone::FileToggle:  tt = { TooltipTarget::Zone::TitleBarButton, L"ファイルペイン (Ctrl+1)" }; break;
+        case TitleBarHitZone::TocToggle:   tt = { TooltipTarget::Zone::TitleBarButton, L"目次ペイン (Ctrl+2)" }; break;
+        case TitleBarHitZone::Minimize:    tt = { TooltipTarget::Zone::TitleBarButton, L"最小化" }; break;
+        case TitleBarHitZone::Maximize:
+            tt = { TooltipTarget::Zone::TitleBarButton, IsZoomed(hwnd_) ? L"元に戻す" : L"最大化" };
+            break;
+        case TitleBarHitZone::Close:       tt = { TooltipTarget::Zone::TitleBarButton, L"閉じる" }; break;
+        default: break;
+        }
+        UpdateTooltip(tt, px, py);
         return;
     }
     // タイトルバー外に出たらホバーをリセット
@@ -665,6 +694,7 @@ void App::OnMouseHover(int px, int py)
     case PaneZone::Splitter1:
     case PaneZone::Splitter2:
         SetCursor(cursor_sizewe_);
+        UpdateTooltip({}, px, py);
         break;
     case PaneZone::FilePane: {
         const float header_h = renderer_.GetTheme().pane_header_height;
@@ -682,6 +712,21 @@ void App::OnMouseHover(int px, int py)
         const float content_top = pane_layout.file_rect.y + header_h;
         const float local_y = dip_y - content_top + panes_.FileScroll().scroll_y;
         new_file_hover = file_explorer_.HitTest(local_y, renderer_.GetTheme().pane_item_height);
+        // ファイルペインのツールチップ
+        {
+            TooltipTarget tt;
+            if (close_hit) {
+                tt.zone = TooltipTarget::Zone::FilePaneButton;
+                tt.text = L"閉じる";
+            } else if (refresh_hit) {
+                tt.zone = TooltipTarget::Zone::FilePaneButton;
+                tt.text = L"更新";
+            } else if (new_file_hover >= 0 && new_file_hover < static_cast<int>(file_explorer_.GetEntries().size())) {
+                tt.zone = TooltipTarget::Zone::FilePaneItem;
+                tt.text = file_explorer_.GetEntries()[new_file_hover].full_path;
+            }
+            UpdateTooltip(tt, px, py);
+        }
         break;
     }
     case PaneZone::TocPane: {
@@ -695,6 +740,18 @@ void App::OnMouseHover(int px, int py)
         const float content_top = pane_layout.toc_rect.y + header_h;
         const float local_y = dip_y - content_top + panes_.TocScroll().scroll_y;
         new_toc_hover = doc_.GetToc().HitTest(local_y, renderer_.GetTheme().pane_item_height);
+        // 目次ペインのツールチップ
+        {
+            TooltipTarget tt;
+            if (close_hit) {
+                tt.zone = TooltipTarget::Zone::TocPaneButton;
+                tt.text = L"閉じる";
+            } else if (new_toc_hover >= 0 && new_toc_hover < static_cast<int>(doc_.GetToc().GetEntries().size())) {
+                tt.zone = TooltipTarget::Zone::TocPaneItem;
+                tt.text = doc_.GetToc().GetEntries()[new_toc_hover].text;
+            }
+            UpdateTooltip(tt, px, py);
+        }
         break;
     }
     case PaneZone::MdPane:
@@ -702,6 +759,7 @@ void App::OnMouseHover(int px, int py)
         break;
     default:
         SetCursor(cursor_arrow_);
+        UpdateTooltip({}, px, py);
         break;
     }
 
@@ -750,6 +808,19 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
             if (search_bar_hover_ != old_hover) {
                 Invalidate();
             }
+            // 検索バーボタンのツールチップ
+            {
+                TooltipTarget tt;
+                switch (search_bar_hover_) {
+                case SearchBarHover::Up:            tt = { TooltipTarget::Zone::SearchBarButton, L"前のマッチ (Shift+Enter)" }; break;
+                case SearchBarHover::Down:          tt = { TooltipTarget::Zone::SearchBarButton, L"次のマッチ (Enter)" }; break;
+                case SearchBarHover::CaseSensitive: tt = { TooltipTarget::Zone::SearchBarButton, L"大文字/小文字を区別" }; break;
+                case SearchBarHover::Highlight:     tt = { TooltipTarget::Zone::SearchBarButton, L"全マッチをハイライト" }; break;
+                case SearchBarHover::Close:         tt = { TooltipTarget::Zone::SearchBarButton, L"閉じる (Esc)" }; break;
+                default: break;
+                }
+                UpdateTooltip(tt, px, py);
+            }
             return;
         }
 
@@ -761,6 +832,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     // スクロールバー領域では矢印カーソル
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
         SetCursor(cursor_arrow_);
+        UpdateTooltip({}, px, py);
         return;
     }
 
@@ -772,6 +844,17 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         SetCursor(cursor_hand_);
         if (nav_hit != old_nav_hover) {
             InvalidateMdPane(pane_layout.md_rect);
+        }
+        // ナビゲーションボタンのツールチップ
+        {
+            TooltipTarget tt;
+            tt.zone = TooltipTarget::Zone::NavButton;
+            if (nav_hit == NavButtonHover::Back) {
+                tt.text = L"戻る (Alt+←)";
+            } else {
+                tt.text = L"進む (Alt+→)";
+            }
+            UpdateTooltip(tt, px, py);
         }
         return;
     }
@@ -800,9 +883,11 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     }
     if (hovered_copy_node_ >= 0) {
         SetCursor(cursor_hand_);
+        UpdateTooltip({ TooltipTarget::Zone::CopyButton, L"コピー" }, px, py);
         return;
     }
 
+    // リンク・画像のヒットテスト
     const int dx = px - last_md_hit_pos_.x;
     const int dy = py - last_md_hit_pos_.y;
     if (dx * dx + dy * dy > HOVER_THROTTLE_DISTANCE_SQ) {
@@ -810,6 +895,25 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         const auto link = GetLinkAtHit(hit);
         last_md_cursor_hand_ = link.has_value();
         last_md_hit_pos_ = { px, py };
+
+        // リンクまたは画像のツールチップ
+        TooltipTarget tt;
+        if (link.has_value()) {
+            tt.zone = TooltipTarget::Zone::MdLink;
+            tt.text = *link;
+        } else if (hit.node_index >= 0) {
+            const auto& nodes = doc_.GetNodes();
+            const auto& node = nodes[hit.node_index];
+            if (node.type == NodeType::Image && node.has_image()) {
+                tt.zone = TooltipTarget::Zone::MdImage;
+                if (!node.text.empty()) {
+                    tt.text = node.text;
+                    tt.text += L"\n";
+                }
+                tt.text += node.image_data->src;
+            }
+        }
+        UpdateTooltip(tt, px, py);
     }
     SetCursor(last_md_cursor_hand_ ? cursor_hand_ : cursor_ibeam_);
 }
