@@ -24,7 +24,7 @@ public:
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
 
     // ダイアグラム反映後の Y 位置再計算
-    void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme);
+    void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept;
 
     // ダーティノードが残っているか
     constexpr bool HasDirtyNodes() const noexcept { return engine_.HasDirtyNodes(); }

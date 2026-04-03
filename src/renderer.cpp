@@ -159,12 +159,12 @@ void Renderer::SetTheme(const Theme& theme)
     RecreateBrushes();
 }
 
-void Renderer::Resize(UINT width, UINT height)
+void Renderer::Resize(UINT width, UINT height) noexcept
 {
     backend_.Resize(width, height);
 }
 
-void Renderer::SetDpi(float dpi)
+void Renderer::SetDpi(float dpi) noexcept
 {
     backend_.SetDpi(dpi);
     // 新しいDPIでペインキャッシュを再作成

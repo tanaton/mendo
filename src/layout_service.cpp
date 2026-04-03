@@ -24,7 +24,7 @@ bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float
     return engine_.EnsureVisibleLayout(doc.GetNodesMut(), cache, width, viewport_top, viewport_bottom);
 }
 
-void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme)
+void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept
 {
     const auto result = RecomputeYPositions(doc.GetNodesMut(), cache, theme);
     engine_.SetTotalHeight(result.total_height);

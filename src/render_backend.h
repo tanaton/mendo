@@ -11,8 +11,8 @@ public:
     virtual ~IRenderBackend() = default;
 
     virtual bool Init(HWND hwnd) = 0;
-    virtual void Resize(UINT width, UINT height) = 0;
-    virtual void SetDpi(float dpi) = 0;
+    virtual void Resize(UINT width, UINT height) noexcept = 0;
+    virtual void SetDpi(float dpi) noexcept = 0;
     virtual float GetDpi() const noexcept = 0;
     virtual bool RecreateRenderTarget() = 0;
 
@@ -23,5 +23,5 @@ public:
     virtual HWND GetHwnd() const noexcept = 0;
 
     // スワップチェーンのPresent。EndDraw後に呼び出す。
-    virtual void Present() = 0;
+    virtual void Present() noexcept = 0;
 };

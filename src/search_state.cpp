@@ -105,7 +105,7 @@ bool SearchState::PrevMatch() noexcept
     return wrapped;
 }
 
-void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache)
+void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept
 {
     if (matches_.empty()) {
         current_match_ = -1;

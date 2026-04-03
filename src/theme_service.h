@@ -18,7 +18,7 @@ public:
     Theme CreateTheme(int zoom_index) const;
 
     // ダークモードを切り替える。新しいdark_mode状態を返す。
-    bool ToggleDarkMode();
+    bool ToggleDarkMode() noexcept;
 
     // ---- 永続化 ----
 

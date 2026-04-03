@@ -2,7 +2,7 @@
 #include "ui_constants.h"
 
 // 指定された行・列までのフラットテキストオフセットを計算する。
-static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int target_col)
+static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int target_col) noexcept
 {
     uint32_t offset = 0;
     for (size_t r = 0; r < node.table_rows().size(); r++) {

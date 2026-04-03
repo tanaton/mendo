@@ -159,9 +159,9 @@ struct RenderParams {
 class Renderer {
 public:
     bool Init(HWND hwnd);
-    void Resize(UINT width, UINT height);
+    void Resize(UINT width, UINT height) noexcept;
     void Render(const RenderParams& params);
-    void SetDpi(float dpi);
+    void SetDpi(float dpi) noexcept;
     void DrawLoading(float angle,
         const PaneRect& md_pane_rect,
         const SidePaneState& side_panes,
