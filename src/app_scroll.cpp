@@ -188,22 +188,3 @@ void App::OnDeferredLayout()
     }
 }
 
-void App::UpdateLayoutAndScroll(float desired_scroll)
-{
-    MENDO_PROFILE("UpdateLayoutAndScroll");
-
-    const auto pane_layout = GetPaneLayout();
-    const float md_width = pane_layout.md_rect.width;
-    const float md_height = pane_layout.md_rect.height;
-    {
-        MENDO_PROFILE("FullLayout(UpdateScroll)");
-        layout_service_->FullLayout(doc_, layout_cache_, md_width);
-    }
-
-    viewport_.SetScrollY(desired_scroll);
-    viewport_.SetScrollTarget(desired_scroll);
-    SyncMaxScroll(md_height);
-
-    UpdateScrollBar();
-    Invalidate();
-}

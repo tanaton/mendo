@@ -192,7 +192,6 @@ private:
 
     // レイアウト / スクロール
     void ScheduleDeferredLayoutIfNeeded();
-    void UpdateLayoutAndScroll(float desired_scroll);
     void UpdateScrollBar();
     void InvalidateMdPane(const PaneRect& md_rect);
     void InvalidateHitPositions() noexcept;

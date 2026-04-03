@@ -1227,6 +1227,299 @@ TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont)
     }
 }
 
+// ========================================================
+// EstimateNodeHeights テスト
+// ========================================================
+
+TEST(EstimateNodeHeightsTest, EmptyNodes)
+{
+    std::pmr::vector<Node> nodes;
+    LayoutCache cache;
+    Theme theme = GetLightTheme();
+    EstimateNodeHeights(nodes, cache, theme);
+    // 空でもクラッシュしないこと
+}
+
+TEST(EstimateNodeHeightsTest, SingleParagraph)
+{
+    Node node;
+    node.type = NodeType::Paragraph;
+    node.text = L"Hello world";
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(node));
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    Theme theme = GetLightTheme();
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    EXPECT_GT(cache[0].height, 0.0f);
+    EXPECT_GE(cache[0].y_position, theme.margin_top);
+}
+
+TEST(EstimateNodeHeightsTest, YPositionsIncreaseMonotonically)
+{
+    auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    Theme theme = GetLightTheme();
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    for (size_t i = 1; i < nodes.size(); i++) {
+        EXPECT_GT(cache[i].y_position, cache[i - 1].y_position)
+            << "ノード " << i << " のy_positionがノード " << (i - 1) << " より大きいこと";
+    }
+}
+
+TEST(EstimateNodeHeightsTest, NodesDoNotOverlap)
+{
+    auto nodes = ParseMarkdown("# Heading\n\nParagraph\n\n---\n\n- List");
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    Theme theme = GetLightTheme();
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    for (size_t i = 1; i < nodes.size(); i++) {
+        float prev_bottom = cache[i - 1].y_position + cache[i - 1].height;
+        EXPECT_LE(prev_bottom, cache[i].y_position)
+            << "ノード " << (i - 1) << " がノード " << i << " と重なっている";
+    }
+}
+
+TEST(EstimateNodeHeightsTest, HeadingHeightScalesWithLevel)
+{
+    Theme theme = GetLightTheme();
+
+    // H1とH3を推定して、H1の方が高いことを確認
+    Node h1;
+    h1.type = NodeType::Heading;
+    h1.heading_level = 1;
+    h1.text = L"Title";
+
+    Node h3;
+    h3.type = NodeType::Heading;
+    h3.heading_level = 3;
+    h3.text = L"Title";
+
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(h1));
+    nodes.emplace_back(std::move(h3));
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    EXPECT_GT(cache[0].height, cache[1].height);
+}
+
+TEST(EstimateNodeHeightsTest, CodeBlockScalesWithLineCount)
+{
+    Theme theme = GetLightTheme();
+
+    Node short_code;
+    short_code.type = NodeType::CodeBlock;
+    short_code.text = L"line1";
+
+    Node long_code;
+    long_code.type = NodeType::CodeBlock;
+    long_code.text = L"line1\nline2\nline3\nline4\nline5";
+
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(short_code));
+    nodes.emplace_back(std::move(long_code));
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    EXPECT_GT(cache[1].height, cache[0].height);
+}
+
+TEST(EstimateNodeHeightsTest, HorizontalRuleHasFixedHeight)
+{
+    Theme theme = GetLightTheme();
+    Node hr;
+    hr.type = NodeType::HorizontalRule;
+
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(hr));
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    EXPECT_FLOAT_EQ(cache[0].height, theme.paragraph_spacing + theme.hr_thickness);
+}
+
+TEST(EstimateNodeHeightsTest, ImageHasMinimumHeight)
+{
+    Theme theme = GetLightTheme();
+    Node img;
+    img.type = NodeType::Image;
+
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(img));
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    EXPECT_GE(cache[0].height, 60.0f);
+}
+
+TEST(EstimateNodeHeightsTest, TableScalesWithRowCount)
+{
+    Theme theme = GetLightTheme();
+
+    Node table1;
+    table1.type = NodeType::Table;
+    table1.ensure_table();
+    table1.table_rows().push_back(TableRow{});
+
+    Node table3;
+    table3.type = NodeType::Table;
+    table3.ensure_table();
+    table3.table_rows().push_back(TableRow{});
+    table3.table_rows().push_back(TableRow{});
+    table3.table_rows().push_back(TableRow{});
+
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(table1));
+    nodes.emplace_back(std::move(table3));
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    EXPECT_GT(cache[1].height, cache[0].height);
+}
+
+TEST(EstimateNodeHeightsTest, EmptyTextNodeUsesSpacing)
+{
+    Theme theme = GetLightTheme();
+    Node node;
+    node.type = NodeType::Paragraph;
+    // textは空
+
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(node));
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    EXPECT_FLOAT_EQ(cache[0].height, theme.paragraph_spacing);
+}
+
+TEST(EstimateNodeHeightsTest, MultilineParagraphScalesWithLines)
+{
+    Theme theme = GetLightTheme();
+
+    Node single;
+    single.type = NodeType::Paragraph;
+    single.text = L"one line";
+
+    Node multi;
+    multi.type = NodeType::Paragraph;
+    multi.text = L"line1\nline2\nline3";
+
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(single));
+    nodes.emplace_back(std::move(multi));
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    EXPECT_GT(cache[1].height, cache[0].height);
+}
+
+TEST(EstimateNodeHeightsTest, LayoutDirtyNotChanged)
+{
+    Theme theme = GetLightTheme();
+    Node node;
+    node.type = NodeType::Paragraph;
+    node.text = L"test";
+
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(node));
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    // layout_dirty はデフォルトで true
+    ASSERT_TRUE(cache[0].layout_dirty);
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    // EstimateNodeHeights は layout_dirty を変更しないこと
+    EXPECT_TRUE(cache[0].layout_dirty);
+}
+
+TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
+{
+    Theme theme = GetLightTheme();
+    std::pmr::vector<Node> nodes;
+
+    auto add_node = [&](NodeType type, const wchar_t* text = L"content") {
+        Node n;
+        n.type = type;
+        n.text = text;
+        if (type == NodeType::Heading) {
+            n.heading_level = 2;
+        }
+        if (type == NodeType::Table) {
+            n.ensure_table();
+            n.table_rows().push_back(TableRow{});
+        }
+        nodes.emplace_back(std::move(n));
+    };
+
+    add_node(NodeType::Paragraph);
+    add_node(NodeType::Heading);
+    add_node(NodeType::CodeBlock);
+    add_node(NodeType::HorizontalRule, L"");
+    add_node(NodeType::ListItem);
+    add_node(NodeType::BlockQuote);
+    add_node(NodeType::Table);
+    add_node(NodeType::TaskListItem);
+    add_node(NodeType::Image, L"");
+
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    EstimateNodeHeights(nodes, cache, theme);
+
+    for (size_t i = 0; i < nodes.size(); i++) {
+        EXPECT_GT(cache[i].height, 0.0f)
+            << "ノードタイプ " << static_cast<int>(nodes[i].type) << " の高さが正であること";
+    }
+}
+
+TEST_F(LayoutTest, EstimateVsActualHeightReasonableRange)
+{
+    // 推定値がDirectWrite実測値と比べて極端に乖離しないことを確認する
+    auto nodes = ParseMarkdown("# Heading\n\nParagraph text\n\n```\ncode\n```\n\n---");
+    LayoutCache est_cache;
+    est_cache.Resize(nodes.size());
+
+    LayoutCache actual_cache;
+    actual_cache.Resize(nodes.size());
+
+    EstimateNodeHeights(nodes, est_cache, theme_);
+    engine_.ComputeLayout(nodes, actual_cache, 800.0f);
+
+    for (size_t i = 0; i < nodes.size(); i++) {
+        // 推定値は実測値の0.2倍〜5倍の範囲内であること
+        if (actual_cache[i].height > 0.0f) {
+            float ratio = est_cache[i].height / actual_cache[i].height;
+            EXPECT_GT(ratio, 0.2f) << "ノード " << i << " の推定値が実測値に対して小さすぎる";
+            EXPECT_LT(ratio, 5.0f) << "ノード " << i << " の推定値が実測値に対して大きすぎる";
+        }
+    }
+}
+
 TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
 {
     auto nodes = ParseMarkdown("- Item text here");
