@@ -40,6 +40,11 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
             }
         }
         else if (!node.text.empty()) {
+            // ビットマップ描画ノードはテキストハイライト不可のため検索対象外
+            if (node.type == NodeType::Image
+                || (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid)) {
+                continue;
+            }
             FindMatches(std::wstring_view(node.text.data(), node.text.size()),
                 lower_query, i);
         }
