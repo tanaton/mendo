@@ -5,7 +5,7 @@ void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes)
 {
     entries_.clear();
     entries_.reserve(std::ranges::count_if(nodes,
-        [](const Node& n) noexcept { return n.type == NodeType::Heading; }));
+        [](const Node& n) static noexcept { return n.type == NodeType::Heading; }));
     for (size_t i = 0; i < nodes.size(); ++i) {
         if (nodes[i].type != NodeType::Heading) {
             continue;

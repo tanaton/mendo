@@ -314,7 +314,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     }
 
     // セル範囲の flat_offset を進めるヘルパー
-    const auto advance_flat_offset = [](uint32_t& offset, const TableRow& row, size_t from, size_t to) {
+    const auto advance_flat_offset = [](uint32_t& offset, const TableRow& row, size_t from, size_t to) static noexcept {
         for (size_t c = from; c < to; c++) {
             offset += static_cast<uint32_t>(row.cells[c].text.size());
             if (c + 1 < row.cells.size()) {

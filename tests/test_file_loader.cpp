@@ -200,7 +200,7 @@ TEST_F(FileLoaderTest, WatcherDestructorDoesNotCrash)
     auto path = WriteFile(L"destructor.md", "content");
     {
         FileLoader loader;
-        loader.StartWatching(path.native().c_str(), []() {});
+        loader.StartWatching(path.native().c_str(), []() static {});
         // デストラクタで安全に監視が停止されること
     }
 }

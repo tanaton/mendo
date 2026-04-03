@@ -4,7 +4,7 @@
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
 static bool IsSafeUrlScheme(std::wstring_view url) noexcept
 {
-    const auto starts_with_i = [](std::wstring_view s, std::wstring_view prefix) noexcept {
+    const auto starts_with_i = [](std::wstring_view s, std::wstring_view prefix) static noexcept {
         if (s.size() < prefix.size()) {
             return false;
         }

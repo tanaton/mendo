@@ -68,7 +68,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_
         auto it = text.begin();
         while (it != text.end()) {
             it = std::search(it, text.end(), lower_query.begin(), lower_query.end(),
-                [](wchar_t a, wchar_t b) { return static_cast<wchar_t>(std::towlower(a)) == b; });
+                [](wchar_t a, wchar_t b) static noexcept { return static_cast<wchar_t>(std::towlower(a)) == b; });
             if (it == text.end()) {
                 break;
             }

@@ -133,7 +133,7 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
         pos = static_cast<uint32_t>(text.size()) - 1;
     }
 
-    const auto is_word_char = [](wchar_t c) {
+    const auto is_word_char = [](wchar_t c) static noexcept {
         return IsCharAlphaNumericW(c) || c == L'_';
     };
 

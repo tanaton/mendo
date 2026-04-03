@@ -128,7 +128,7 @@ TEST(ViewportManagerTest, SmoothScrollWithDeltaTimeConverges)
 TEST(ViewportManagerTest, SmoothScrollFrameRateIndependence)
 {
     // 同じスクロール量を異なるフレームレートで実行し、同一時間後のスクロール位置が近いことを確認
-    auto simulate = [](float dt_ms, int frames) {
+    auto simulate = [](float dt_ms, int frames) static noexcept {
         ViewportManager vm;
         vm.SyncMaxScroll(10000.0f, 200.0f);
         vm.SmoothScrollBy(1000.0f);

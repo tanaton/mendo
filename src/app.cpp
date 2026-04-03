@@ -877,7 +877,7 @@ int App::ApplyCachedImages()
         }
         else {
             image_loader_.RequestLoadAsync(abs_str,
-                [](void* ctx) { static_cast<App*>(ctx)->OnImageLoadComplete(); },
+                [](void* ctx) static { static_cast<App*>(ctx)->OnImageLoadComplete(); },
                 this);
         }
     }
@@ -969,7 +969,7 @@ void App::RequestMermaidRenders(bool visible_only)
 
         mermaid_renderer_.RequestRender(node, layout_cache_[i], diagram,
             content_width, theme_service_.IsDarkMode(),
-            [](void* ctx) { static_cast<App*>(ctx)->OnMermaidRenderComplete(); },
+            [](void* ctx) static { static_cast<App*>(ctx)->OnMermaidRenderComplete(); },
             this);
     }
 }
