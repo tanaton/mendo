@@ -109,6 +109,12 @@ bool App::Init(HWND hwnd)
 
     ctx_menu_.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 
+    // ツールチップを初期化
+    tooltip_.Init(hwnd_);
+    if (theme_service_.IsDarkMode()) {
+        tooltip_.ApplyDarkMode(true);
+    }
+
     // ファイル監視タイマーを設定 (250ms毎にチェック)
     SetTimer(hwnd_, TIMER_FILE_WATCH, 250, nullptr);
 
@@ -167,6 +173,9 @@ void App::OnActivate(bool active)
     if (window_active_ != active) {
         window_active_ = active;
         InvalidateTitleBar();
+    }
+    if (!active) {
+        ClearTooltip();
     }
 }
 
@@ -1133,6 +1142,10 @@ void App::HandleTimer(UINT_PTR timer_id)
         }
         break;
     }
+    case TIMER_TOOLTIP:
+        KillTimer(hwnd_, TIMER_TOOLTIP);
+        tooltip_.Show();
+        break;
     default: break;
     }
 }
@@ -1176,6 +1189,7 @@ void App::OnDestroy()
     KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
     KillTimer(hwnd_, TIMER_TOAST);
     KillTimer(hwnd_, TIMER_SEARCH_CARET);
+    KillTimer(hwnd_, TIMER_TOOLTIP);
 }
 
 // ============================================================

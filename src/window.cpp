@@ -288,6 +288,14 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_MOUSEMOVE:
+        if (!tracking_mouse_) {
+            TRACKMOUSEEVENT tme{};
+            tme.cbSize = sizeof(tme);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd_;
+            TrackMouseEvent(&tme);
+            tracking_mouse_ = true;
+        }
         if (wParam & MK_LBUTTON) {
             app_.OnMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         }
@@ -297,6 +305,11 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         else {
             app_.OnMouseHover(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         }
+        return 0;
+
+    case WM_MOUSELEAVE:
+        tracking_mouse_ = false;
+        app_.OnMouseLeave();
         return 0;
 
     case WM_SETCURSOR:

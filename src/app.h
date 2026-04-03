@@ -28,6 +28,7 @@
 #include "file_load_service.h"
 #include "context_menu.h"
 #include "search_state.h"
+#include "tooltip.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <chrono>
@@ -75,6 +76,7 @@ public:
 
     // ボタン押下なしのマウスホバー処理
     void OnMouseHover(int px, int py);
+    void OnMouseLeave();
     void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const ::PaneLayout& layout);
 
     // マウスXボタンによるナビゲーション
@@ -258,6 +260,7 @@ public:
     static constexpr UINT_PTR TIMER_SWIPE_OVERLAY = 5;
     static constexpr UINT_PTR TIMER_TOAST = 6;
     static constexpr UINT_PTR TIMER_SEARCH_CARET = 7;
+    static constexpr UINT_PTR TIMER_TOOLTIP = 8;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
     static constexpr UINT WM_APP_IMAGE_LOADED = WM_APP + 2;
     static constexpr UINT WM_APP_RELOAD_FILE = WM_APP + 3;
@@ -365,6 +368,11 @@ private:
     // トースト通知
     ToastNotifier toast_;
     void ShowToast(std::wstring_view message);
+
+    // ツールチップ
+    Tooltip tooltip_;
+    void UpdateTooltip(const TooltipTarget& target, int px, int py);
+    void ClearTooltip();
 
     // スムーススクロールのフレーム間タイミング
     std::chrono::steady_clock::time_point last_scroll_time_{};

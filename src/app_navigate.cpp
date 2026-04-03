@@ -102,7 +102,9 @@ void App::ToggleDarkMode()
     const auto anchor = SaveAnchor();
 
     renderer_.SetTheme(theme_service_.CreateTheme(viewport_.GetZoomIndex()));
-    ApplyDarkModeToWindow(hwnd_, theme_service_.IsDarkMode());
+    const bool dark = theme_service_.IsDarkMode();
+    ApplyDarkModeToWindow(hwnd_, dark);
+    tooltip_.ApplyDarkMode(dark);
 
     // 全レイアウトとMermaid図を一括で無効化
     layout_cache_.InvalidateAllWithDiagrams(doc_.GetNodes());

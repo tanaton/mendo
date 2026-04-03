@@ -456,3 +456,53 @@ TEST(SearchStateTest, NonTextNodesSkipped) {
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 1);
 }
+
+// ═══════════════════════════════════════════════
+// 画像・Mermaidノードの検索除外
+// ═══════════════════════════════════════════════
+
+TEST(SearchStateTest, ImageNodeExcludedFromSearch) {
+    std::pmr::vector<Node> nodes;
+    Node img;
+    img.type = NodeType::Image;
+    img.text.assign(L"alt text with keyword");
+    nodes.push_back(std::move(img));
+    nodes.push_back(MakeTextNode(L"keyword in paragraph"));
+    SearchState s;
+    s.SetQuery(L"keyword");
+    s.ExecuteSearch(nodes);
+    // 画像ノードのaltテキストはマッチしない（段落のみマッチ）
+    ASSERT_EQ(s.GetMatchCount(), 1);
+    EXPECT_EQ(s.GetMatches()[0].node_index, 1);
+}
+
+TEST(SearchStateTest, MermaidCodeBlockExcludedFromSearch) {
+    std::pmr::vector<Node> nodes;
+    Node mermaid;
+    mermaid.type = NodeType::CodeBlock;
+    mermaid.code_language = SyntaxLanguage::Mermaid;
+    mermaid.text.assign(L"graph TD; A-->B");
+    nodes.push_back(std::move(mermaid));
+    nodes.push_back(MakeTextNode(L"graph description"));
+    SearchState s;
+    s.SetQuery(L"graph");
+    s.ExecuteSearch(nodes);
+    // Mermaidコードブロックはマッチしない（段落のみマッチ）
+    ASSERT_EQ(s.GetMatchCount(), 1);
+    EXPECT_EQ(s.GetMatches()[0].node_index, 1);
+}
+
+TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch) {
+    std::pmr::vector<Node> nodes;
+    Node code;
+    code.type = NodeType::CodeBlock;
+    code.code_language = SyntaxLanguage::Cpp;
+    code.text.assign(L"int main()");
+    nodes.push_back(std::move(code));
+    SearchState s;
+    s.SetQuery(L"main");
+    s.ExecuteSearch(nodes);
+    // Mermaid以外のコードブロックは通常通り検索対象
+    ASSERT_EQ(s.GetMatchCount(), 1);
+    EXPECT_EQ(s.GetMatches()[0].node_index, 0);
+}

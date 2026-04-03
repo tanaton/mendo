@@ -18,6 +18,7 @@ void App::InvalidateHitPositions() noexcept
 {
     last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
     last_copy_hit_pos_ = { LONG_MIN, LONG_MIN };
+    ClearTooltip();
 }
 
 void App::ScrollTo(float position)
