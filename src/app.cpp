@@ -788,10 +788,7 @@ void App::DoReloadCurrentFile()
 
     // 検索バー表示中なら再検索
     if (search_state_.IsVisible() && !search_state_.GetQuery().empty()) {
-        search_state_.ExecuteSearch(doc_.GetNodes());
-        if (search_state_.GetMatchCount() > 0) {
-            search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
-        }
+        RunSearchAndLocate();
     }
 
     Invalidate();
@@ -1241,6 +1238,11 @@ void App::HandleTimer(UINT_PTR timer_id)
         KillTimer(hwnd_, TIMER_TOOLTIP);
         tooltip_.Show();
         break;
+    case TIMER_SEARCH_DEBOUNCE:
+        KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
+        RunSearchAndLocate(true);
+        Invalidate();
+        break;
     default: break;
     }
 }
@@ -1285,12 +1287,24 @@ void App::OnDestroy()
     KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
     KillTimer(hwnd_, TIMER_TOAST);
     KillTimer(hwnd_, TIMER_SEARCH_CARET);
+    KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
     KillTimer(hwnd_, TIMER_TOOLTIP);
 }
 
 // ============================================================
 // 検索
 // ============================================================
+
+void App::RunSearchAndLocate(bool scroll_to_match)
+{
+    search_state_.ExecuteSearch(doc_.GetNodes());
+    if (search_state_.GetMatchCount() > 0) {
+        search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
+        if (scroll_to_match) {
+            ScrollToCurrentMatch();
+        }
+    }
+}
 
 void App::OnSearchOpen()
 {
@@ -1307,10 +1321,7 @@ void App::OnSearchOpen()
 
     // 前回のクエリが残っている場合は検索を再実行
     if (!search_state_.GetQuery().empty()) {
-        search_state_.ExecuteSearch(doc_.GetNodes());
-        if (search_state_.GetMatchCount() > 0) {
-            search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
-        }
+        RunSearchAndLocate();
     }
 
     RestartSearchCaretBlink();
@@ -1326,6 +1337,7 @@ void App::OnSearchClose()
     search_caret_visible_ = false;
     ime_composition_.clear();
     KillTimer(hwnd_, TIMER_SEARCH_CARET);
+    KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
     PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, 0, 0);
     Invalidate();
 }
@@ -1351,22 +1363,32 @@ void App::OnSearchPrev()
 void App::OnSearchTextChanged(std::wstring_view text)
 {
     search_state_.SetQuery(text);
-    search_state_.ExecuteSearch(doc_.GetNodes());
-    if (search_state_.GetMatchCount() > 0) {
-        search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
-        ScrollToCurrentMatch();
+    KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
+
+    if (text.empty()) {
+        // 空クエリ: 即座に結果をクリア
+        search_state_.ExecuteSearch(doc_.GetNodes());
+        Invalidate();
+        return;
     }
+
+    // 小規模ドキュメント（≤1000ノード）: 即座に検索実行
+    if (doc_.GetNodes().size() <= 1000) {
+        RunSearchAndLocate(true);
+        Invalidate();
+        return;
+    }
+
+    // 大規模ドキュメント: デバウンスで連続入力中の再検索を抑制
     Invalidate();
+    SetTimer(hwnd_, TIMER_SEARCH_DEBOUNCE, 150, nullptr);
 }
 
 void App::OnToggleCaseSensitive()
 {
     search_state_.ToggleCaseSensitive();
     if (!search_state_.GetQuery().empty()) {
-        search_state_.ExecuteSearch(doc_.GetNodes());
-        if (search_state_.GetMatchCount() > 0) {
-            search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
-        }
+        RunSearchAndLocate();
     }
     Invalidate();
 }

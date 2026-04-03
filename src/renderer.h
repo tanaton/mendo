@@ -204,7 +204,7 @@ public:
 private:
     // 描画前パス: レイアウトに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-        int first_visible, float viewport_bottom);
+        int first_visible, float viewport_top, float viewport_bottom);
 
     void DrawSidePanes(const SidePaneState& sp);
     void DrawTitleBar(const TitleBarRenderState& tb);
@@ -234,7 +234,8 @@ private:
     }
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
-    void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry);
+    void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry,
+        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void RecreateBrushes();
     void RecreatePaneFormats();
     Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(

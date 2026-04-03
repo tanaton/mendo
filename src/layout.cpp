@@ -1,10 +1,12 @@
 #include "layout.h"
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 // マジックナンバーの名前付き定数
 static constexpr float MIN_COLUMN_WIDTH = 30.0f;
 static constexpr float COLUMN_WIDTH_PADDING = 4.0f;
+static constexpr float Y_POSITION_EPSILON = 0.01f; // Y座標の早期終了判定用許容誤差（DIP単位）
 
 static float GetSpacingAbove(NodeType type, const Theme& theme)
 {
@@ -177,7 +179,7 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
 
         // 早期終了: safe_exit_after 以降でY位置が一致すれば、
         // 以降のノードのY位置は変わらない。
-        if (i > safe_exit_after && entry.y_position == y) {
+        if (i > safe_exit_after && std::abs(entry.y_position - y) < Y_POSITION_EPSILON) {
             // 残りのダーティノードを確認（Y更新より軽量なフラグチェックのみ）
             if (!result.has_dirty_nodes) {
                 for (size_t j = i; j < nodes.size(); j++) {

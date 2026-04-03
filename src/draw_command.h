@@ -36,7 +36,7 @@ struct DrawTextLayoutCmd {
 };
 
 struct DrawTextCmd {
-    static constexpr size_t MAX_TEXT = 12;
+    static constexpr size_t MAX_TEXT = 10;
     wchar_t text[MAX_TEXT];
     uint8_t text_len = 0;
     D2D1_RECT_F rect;

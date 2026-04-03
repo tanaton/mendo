@@ -230,6 +230,7 @@ private:
 
     // 検索
     void OnSearchOpen();
+    void RunSearchAndLocate(bool scroll_to_match = false);
     void ScrollToCurrentMatch();
     void InvalidateSearchBar();
     void RestartSearchCaretBlink();
@@ -260,6 +261,7 @@ public:
     static constexpr UINT_PTR TIMER_TOAST = 6;
     static constexpr UINT_PTR TIMER_SEARCH_CARET = 7;
     static constexpr UINT_PTR TIMER_TOOLTIP = 8;
+    static constexpr UINT_PTR TIMER_SEARCH_DEBOUNCE = 9;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
     static constexpr UINT WM_APP_IMAGE_LOADED = WM_APP + 2;
     static constexpr UINT WM_APP_RELOAD_FILE = WM_APP + 3;
