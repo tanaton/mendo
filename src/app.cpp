@@ -613,9 +613,7 @@ void App::DoLoadMarkdownFile()
         // 行数ベースの推定は実際の描画サイズと大きく乖離し得るため、
         // キャッシュ済みの正確な高さを使うことでスクロール復元時のジャンプを防ぐ。
         {
-            const float content_width = md_width
-                - renderer_.GetTheme().margin_left
-                - renderer_.GetTheme().margin_right;
+            const float content_width = renderer_.GetTheme().ContentWidth(md_width);
             const bool dark_mode = theme_service_.IsDarkMode();
             const auto& nodes = doc_.GetNodes();
             for (size_t i : doc_.GetMermaidNodeIndices()) {
@@ -824,9 +822,7 @@ int App::ApplyCachedImages()
     }
 
     const float viewport_width = GetMarkdownPaneWidth();
-    const float content_width = viewport_width
-        - renderer_.GetTheme().margin_left
-        - renderer_.GetTheme().margin_right;
+    const float content_width = renderer_.GetTheme().ContentWidth(viewport_width);
     if (content_width <= 0.0f) {
         return 0;
     }
@@ -915,9 +911,7 @@ void App::OnImageLoadComplete()
 void App::RequestMermaidRenders(bool visible_only)
 {
     const float viewport_width = GetMarkdownPaneWidth();
-    const float content_width = viewport_width
-        - renderer_.GetTheme().margin_left
-        - renderer_.GetTheme().margin_right;
+    const float content_width = renderer_.GetTheme().ContentWidth(viewport_width);
 
     // コンテンツ幅が0以下の場合（ズームでMDペインが極小になった場合など）は
     // 不正な幅でレンダリングしないようスキップする。

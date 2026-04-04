@@ -452,8 +452,7 @@ void App::OnLButtonDown(int px, int py)
             return;
         }
         // コピーボタンのクリック判定（クリック位置で再判定）
-        const float content_width = pane_layout.md_rect.width
-            - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right;
+        const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
         const auto copy_node = hit_test_.CopyButtonHitTest(
             doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
             viewport_.GetScrollY(), pane_layout.md_rect.x,
@@ -887,8 +886,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         const int cdy = py - last_copy_hit_pos_.y;
         if (cdx * cdx + cdy * cdy > HOVER_THROTTLE_DISTANCE_SQ) {
             last_copy_hit_pos_ = { px, py };
-            const float content_width = pane_layout.md_rect.width
-                - renderer_.GetTheme().margin_left - renderer_.GetTheme().margin_right;
+            const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
             const int old_copy_hover = hovered_copy_node_;
             hovered_copy_node_ = hit_test_.CopyButtonHitTest(
                 doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),

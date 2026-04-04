@@ -63,7 +63,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const float viewport_top = scroll_y;
     const float viewport_bottom = scroll_y + md_pane_rect.height;
     const float offset_x = theme_->margin_left;
-    const float md_content_width = md_pane_rect.width - theme_->margin_left - theme_->margin_right;
+    const float md_content_width = theme_->ContentWidth(md_pane_rect.width);
 
     // 最初の可視ノードを二分探索で検索（事前計算済みのインデックスがあればそれを使用）
     const int node_count = static_cast<int>(nodes.size());

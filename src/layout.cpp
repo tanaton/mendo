@@ -234,7 +234,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 
     last_viewport_width_ = viewport_width;
 
-    const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    const float content_width = theme_->ContentWidth(viewport_width);
     float y = theme_->margin_top;
     bool any_dirty = false;
     bool any_height_changed = false;
@@ -304,14 +304,14 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
 {
     last_viewport_width_ = 0.0f; // 幅の変更検出を強制する
-    ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right);
+    ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right); // 逆変換: content→viewport
 }
 
 bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width,
     float viewport_top, float viewport_bottom)
 {
-    const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    const float content_width = theme_->ContentWidth(viewport_width);
     bool any_updated = false;
     int last_measured = -1;
 
@@ -345,7 +345,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width, int batch_size)
 {
-    const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    const float content_width = theme_->ContentWidth(viewport_width);
     int processed = 0;
     size_t first_dirty = nodes.size();
     size_t last_processed = 0;
