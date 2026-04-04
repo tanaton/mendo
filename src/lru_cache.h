@@ -47,6 +47,10 @@ public:
     // 容量超過時は最も古いエントリを自動的に破棄する。
     void Insert(const Key& key, Value value)
     {
+        if (max_entries_ == 0) {
+            return;
+        }
+
         auto it = map_.find(key);
         if (it != map_.end()) {
             it->second->value = std::move(value);

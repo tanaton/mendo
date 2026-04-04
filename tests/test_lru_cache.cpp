@@ -134,3 +134,27 @@ TEST(LruCache, SizeOne)
     ASSERT_NE(v, nullptr);
     EXPECT_EQ(*v, 200);
 }
+
+TEST(LruCache, SizeZero)
+{
+    LruCache<int, int> cache(0);
+    cache.Insert(1, 100);
+    EXPECT_EQ(cache.Size(), 0u);
+    EXPECT_EQ(cache.Find(1), nullptr);
+    EXPECT_FALSE(cache.Contains(1));
+}
+
+TEST(LruCache, SetMaxSizeToZero)
+{
+    LruCache<int, int> cache(3);
+    cache.Insert(1, 100);
+    cache.Insert(2, 200);
+    EXPECT_EQ(cache.Size(), 2u);
+
+    cache.SetMaxSize(0);
+    EXPECT_EQ(cache.Size(), 0u);
+
+    // SetMaxSize(0)後のInsertは無視される
+    cache.Insert(3, 300);
+    EXPECT_EQ(cache.Size(), 0u);
+}

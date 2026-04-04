@@ -61,6 +61,10 @@ void FileWatcher::BeginRead()
         nullptr,
         &overlapped_,
         nullptr);
+
+    if (!read_pending_) {
+        StopWatching();
+    }
 }
 
 void FileWatcher::StopWatching() noexcept
