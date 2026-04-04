@@ -357,6 +357,11 @@ void App::OnPaint()
 
     const auto& layout = GetPaneLayout();
     if (!file_load_service_.IsLoading()) {
+        // 完了済みデコード結果とキャッシュ済みリソースを描画前に適用する。
+        // WM_APP_IMAGE_LOADED が WM_PAINT より後にキューされている場合でも
+        // プレースホルダーの表示を回避できる。
+        FlushPendingResources();
+
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
         const auto anchor = SaveAnchor();
 
@@ -921,7 +926,7 @@ void App::OnImageLoadComplete()
     }
 }
 
-void App::RequestMermaidRenders()
+int App::RequestMermaidRenders()
 {
     const float viewport_width = GetMarkdownPaneWidth();
     const float content_width = renderer_.GetTheme().ContentWidth(viewport_width);
@@ -930,7 +935,7 @@ void App::RequestMermaidRenders()
     // 不正な幅でレンダリングしないようスキップする。
     // last_mermaid_content_width_ を更新しないことで、復帰時の幅変更検出を正しく保つ。
     if (content_width <= 0.0f) {
-        return;
+        return 0;
     }
 
     if (last_mermaid_content_width_ > 0.0f &&
@@ -957,12 +962,16 @@ void App::RequestMermaidRenders()
     }
     last_mermaid_content_width_ = content_width;
 
-    // 可視範囲のMermaidノードのみ処理する。
-    // ファイルキャッシュLookup（ディスクI/O+WICデコード）が重いため、
-    // 遠方のノードはスクロール時に遅延読み込みする。
+    // 先読みバッファ付きで Mermaid ノードを処理する。
+    // メモリキャッシュ・ファイルキャッシュヒット時は同期的に適用されるため、
+    // ビューポートに入る前に描画を完了できる。
     const float viewport_top = viewport_.GetScrollY();
-    const float viewport_bottom = viewport_top + GetPaneLayout().md_rect.height;
+    const float viewport_height = GetPaneLayout().md_rect.height;
+    const float buffer = viewport_height * PREFETCH_BUFFER_SCREENS;
+    const float range_top = viewport_top - buffer;
+    const float range_bottom = viewport_top + viewport_height + buffer;
 
+    int applied = 0;
     for (size_t i : doc_.GetMermaidNodeIndices()) {
         auto& node = doc_.GetNodesMut()[i];
         auto& diagram = layout_cache_.GetDiagram(i);
@@ -970,7 +979,7 @@ void App::RequestMermaidRenders()
             continue;
         }
 
-        if (IsOffscreen(layout_cache_[i].y_position, layout_cache_[i].height, viewport_top, viewport_bottom)) {
+        if (viewport_height > 0.0f && IsOffscreen(layout_cache_[i].y_position, layout_cache_[i].height, range_top, range_bottom)) {
             continue;
         }
 
@@ -978,7 +987,11 @@ void App::RequestMermaidRenders()
             content_width, theme_service_.IsDarkMode(),
             [](void* ctx) static { static_cast<App*>(ctx)->OnMermaidRenderComplete(); },
             this);
+        if (diagram.bitmap) {
+            ++applied;
+        }
     }
+    return applied;
 }
 
 void App::OnMermaidRenderComplete()
@@ -1125,7 +1138,10 @@ void App::EvictOffscreenBitmaps()
         evict_text_layout(i);
     }
 
-    // 画像: DiagramEntry と ImageLoader キャッシュの両方から解放
+    // 画像: DiagramEntry のビットマップ参照のみ解放する。
+    // ImageLoader キャッシュは LRU（kMaxCacheEntries=16）に管理を委ね、
+    // スクロールで再び可視範囲に入った際に GetCachedImage() で
+    // ディスクI/O なしに即座に再適用できるようにする。
     for (size_t i : doc_.GetImageNodeIndices()) {
         auto& diagram = layout_cache_.GetDiagram(i);
         if (!diagram.bitmap) {
@@ -1133,10 +1149,6 @@ void App::EvictOffscreenBitmaps()
         }
         if (IsOffscreen(layout_cache_[i].y_position, layout_cache_[i].height, evict_top, evict_bottom)) {
             diagram.bitmap.Reset();
-            const auto path_it = resolved_image_paths_.find(i);
-            if (path_it != resolved_image_paths_.end()) {
-                image_loader_.RemoveCached(path_it->second);
-            }
         }
     }
 
@@ -1160,8 +1172,30 @@ void App::EvictOffscreenBitmaps()
     }
 }
 
+void App::FlushPendingResources()
+{
+    // 完了した非同期画像デコードを ImageLoader キャッシュに反映
+    image_loader_.ProcessCompletedDecodes();
+
+    bool changed = (ApplyCachedImages() > 0);
+
+    // Mermaid のキャッシュヒット時コールバック (OnMermaidRenderComplete) が
+    // ヒットごとに RecomputeAfterDiagram を呼ぶのを抑制し、一括で処理する
+    mermaid_batch_loading_ = true;
+    changed |= (RequestMermaidRenders() > 0);
+    mermaid_batch_loading_ = false;
+
+    if (changed) {
+        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+    }
+}
+
 void App::ScheduleBitmapManage()
 {
+    // デバウンスを待たずに先読み範囲のリソースを即座に適用する。
+    // 連続スクロール中でもキャッシュ済み画像/Mermaid図が次の WM_PAINT で描画される。
+    FlushPendingResources();
+    // エビクションはデバウンスして遅延実行（高頻度で走ると重いため）
     SetTimer(hwnd_, TIMER_BITMAP_MANAGE, 150, nullptr);
 }
 
@@ -1170,11 +1204,7 @@ void App::OnBitmapManageTimer()
     KillTimer(hwnd_, TIMER_BITMAP_MANAGE);
 
     EvictOffscreenBitmaps();
-
-    if (ApplyCachedImages() > 0) {
-        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-    }
-    RequestMermaidRenders();     // Mermaid: 可視範囲のみ（メモリ/ファイルキャッシュ経由）
+    FlushPendingResources();
 
     Invalidate();
 }

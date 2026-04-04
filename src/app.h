@@ -220,7 +220,7 @@ private:
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
-    void RequestMermaidRenders();
+    int RequestMermaidRenders();
     void OnMermaidRenderComplete();
     void CancelMermaidBatch();
     void ScheduleMermaidBatch();
@@ -228,6 +228,7 @@ private:
     void LoadImages();
     void OnImageLoadComplete();
     int ApplyCachedImages();
+    void FlushPendingResources();
     void EvictOffscreenBitmaps();
     void ScheduleBitmapManage();
     void OnBitmapManageTimer();
