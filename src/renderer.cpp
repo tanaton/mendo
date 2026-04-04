@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "syntax.h"
 #include "resource.h"
 #include "ui_constants.h"
 #include "profiler.h"
@@ -332,7 +333,7 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexc
     return Brush(SYNTAX_MAP[idx]);
 }
 
-void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry,
+void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
     float viewport_top, float viewport_bottom)
 {
     // テーブルノード: ビューポートカリング付きの増分処理を行う。
@@ -427,6 +428,9 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry,
 
     // コードブロックにシンタックスハイライトを適用
     if (node.type == NodeType::CodeBlock) {
+        if (node.syntax_tokens.empty() && node.code_language != SyntaxLanguage::None) {
+            node.syntax_tokens = Tokenize(node.text, node.code_language);
+        }
         for (const auto& token : node.syntax_tokens) {
             if (token.type == SyntaxTokenType::Plain) {
                 continue;

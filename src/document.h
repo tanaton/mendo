@@ -41,8 +41,7 @@ public:
     constexpr const std::pmr::vector<size_t>& GetMermaidNodeIndices() const noexcept { return mermaid_node_indices_; }
 
 private:
-    void BuildAnchorIndex();
-    void BuildSpecialNodeIndices();
+    void BuildIndices();
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;

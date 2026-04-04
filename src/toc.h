@@ -24,6 +24,9 @@ public:
     // 見つからない場合は -1 を返す。
     int FindActiveIndex(const LayoutCache& cache, float scroll_y, float margin = 0.0f) const noexcept;
 
+    void Clear() noexcept { entries_.clear(); }
+    void AddEntry(const Node& node, int node_index);
+
 private:
     std::pmr::vector<TocEntry> entries_;
 };

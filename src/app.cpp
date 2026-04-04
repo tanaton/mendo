@@ -581,7 +581,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
         SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
         Invalidate();
         UpdateWindow(hwnd_);
-        PostMessage(hwnd_, WM_APP_LOAD_FILE, 0, 0);
+        file_load_service_.StartAsyncLoad(scheduler_, hwnd_, WM_APP_PARSE_COMPLETE);
     }
 }
 
@@ -597,16 +597,6 @@ void App::DoLoadMarkdownFile()
 
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
 
-    viewport_.ClearSelection();
-    search_bar_ctrl_.Reset();
-    // ファイル切替時はEDITコントロールのテキストもクリア
-    PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, SEARCH_UNFOCUS_FILE_SWITCH, 0);
-    active_toc_index_ = -1;
-    resource_manager_.CancelMermaidBatch();
-    image_loader_.CancelPending();
-    renderer_.ShrinkBuffers();
-    resource_manager_.ClearResolvedPaths();
-
     {
         MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
         if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
@@ -614,6 +604,37 @@ void App::DoLoadMarkdownFile()
             return;
         }
     }
+
+    FinishLoadMarkdownFile();
+}
+
+void App::OnParseComplete()
+{
+    KillTimer(hwnd_, TIMER_LOADING_ANIM);
+    file_load_service_.StopLoading();
+
+    auto result = file_load_service_.TakeAsyncResult();
+    if (!result) {
+        Invalidate();
+        return;
+    }
+
+    doc_ = std::move(*result);
+    layout_cache_.Reset(doc_.GetNodes().size());
+
+    FinishLoadMarkdownFile();
+}
+
+void App::FinishLoadMarkdownFile()
+{
+    viewport_.ClearSelection();
+    search_bar_ctrl_.Reset();
+    PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, SEARCH_UNFOCUS_FILE_SWITCH, 0);
+    active_toc_index_ = -1;
+    resource_manager_.CancelMermaidBatch();
+    image_loader_.CancelPending();
+    renderer_.ShrinkBuffers();
+    resource_manager_.ClearResolvedPaths();
 
     const std::pmr::wstring dir = doc_.GetDirectory();
     if (!dir.empty()) {
@@ -704,7 +725,7 @@ void App::ReloadCurrentFile()
         SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
         Invalidate();
         UpdateWindow(hwnd_);
-        PostMessage(hwnd_, WM_APP_RELOAD_FILE, 0, 0);
+        file_load_service_.StartAsyncLoad(scheduler_, hwnd_, WM_APP_PARSE_COMPLETE);
     }
     else {
         DoReloadCurrentFile();

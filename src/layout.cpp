@@ -121,7 +121,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
             break;
         }
         case NodeType::CodeBlock: {
-            const int lines = 1 + static_cast<int>(std::ranges::count(node.text, L'\n'));
+            const int lines = 1 + node.line_count;
             h = theme.font_size_code * 1.3f * static_cast<float>(lines);
             h = std::max(h, line_height);
             break;
@@ -145,7 +145,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
                 h = theme.paragraph_spacing;
             }
             else {
-                const int lines = 1 + static_cast<int>(std::ranges::count(node.text, L'\n'));
+                const int lines = 1 + node.line_count;
                 h = line_height * static_cast<float>(lines);
             }
             break;

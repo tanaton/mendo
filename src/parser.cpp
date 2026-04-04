@@ -8,6 +8,7 @@
 #include <charconv>
 #include <format>
 #include <iterator>
+#include <algorithm>
 
 std::pmr::wstring GenerateAnchorId(std::wstring_view text)
 {
@@ -168,6 +169,12 @@ struct ParseContext {
         const uint32_t start = static_cast<uint32_t>(current_node->text.size());
         current_node->text.append(text);
         current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
+
+        for (const wchar_t c : text) {
+            if (c == L'\n') {
+                current_node->line_count++;
+            }
+        }
     }
 
     // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する。
@@ -313,14 +320,11 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         // 末尾の改行があれば除去
         if (ctx->current_node && !ctx->current_node->text.empty() && ctx->current_node->text.back() == L'\n') {
             ctx->current_node->text.pop_back();
+            ctx->current_node->line_count--;
             if (!ctx->current_node->runs.empty()) {
                 auto& last = ctx->current_node->runs.back();
                 if (last.length > 0) last.length--;
             }
-        }
-        // レイアウトパスの度にではなく、パース時に一度だけトークン化する
-        if (ctx->current_node && ctx->current_node->code_language != SyntaxLanguage::None) {
-            ctx->current_node->syntax_tokens = Tokenize(ctx->current_node->text, ctx->current_node->code_language);
         }
         break;
 
@@ -701,6 +705,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     node.runs = std::move(new_runs);
     node.alert_type = type;
     node.alert_label_length = static_cast<uint32_t>(full_label_len);
+    node.line_count = static_cast<int>(std::ranges::count(node.text, L'\n'));
 }
 
 } // namespace

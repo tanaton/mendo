@@ -475,6 +475,10 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_.OnAppImageLoaded();
         return 0;
 
+    case App::WM_APP_PARSE_COMPLETE:
+        app_.OnParseComplete();
+        return 0;
+
     case WM_SYSCOMMAND:
         if ((wParam & 0xFFF0) == SC_RESET_WINDOW) {
             ResetWindowPlacement();

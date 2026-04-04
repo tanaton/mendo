@@ -3,7 +3,6 @@
 #include "parser.h"
 #include "profiler.h"
 #include <filesystem>
-#include <ranges>
 
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
@@ -15,16 +14,8 @@ Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
         doc.nodes_ = ParseMarkdown(doc.raw_utf8_);
     }
     {
-        MENDO_PROFILE("BuildFromNodes(TOC)");
-        doc.toc_.BuildFromNodes(doc.nodes_);
-    }
-    {
-        MENDO_PROFILE("BuildAnchorIndex");
-        doc.BuildAnchorIndex();
-    }
-    {
-        MENDO_PROFILE("BuildSpecialNodeIndices");
-        doc.BuildSpecialNodeIndices();
+        MENDO_PROFILE("BuildIndices");
+        doc.BuildIndices();
     }
     return doc;
 }
@@ -41,9 +32,7 @@ std::pmr::wstring Document::GetDirectory() const
 void Document::ReplaceContent(std::pmr::vector<Node> new_nodes)
 {
     nodes_ = std::move(new_nodes);
-    toc_.BuildFromNodes(nodes_);
-    BuildAnchorIndex();
-    BuildSpecialNodeIndices();
+    BuildIndices();
 }
 
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)
@@ -62,28 +51,33 @@ int Document::FindAnchorIndex(std::wstring_view anchor) const
     return (it != anchor_index_.end()) ? it->second : -1;
 }
 
-void Document::BuildAnchorIndex()
+void Document::BuildIndices()
 {
+    toc_.Clear();
     anchor_index_.clear();
-    for (const auto& [i, node] : nodes_ | std::views::enumerate) {
-        if (node.type == NodeType::Heading && !node.anchor_id.empty()) {
-            anchor_index_.emplace(node.anchor_id, static_cast<int>(i));
-        }
-    }
-}
-
-void Document::BuildSpecialNodeIndices()
-{
     image_node_indices_.clear();
     mermaid_node_indices_.clear();
+
     const auto node_count = nodes_.size();
     for (size_t i = 0; i < node_count; i++) {
         const auto& node = nodes_[i];
-        if (node.type == NodeType::Image) {
+        switch (node.type) {
+        case NodeType::Heading:
+            toc_.AddEntry(node, static_cast<int>(i));
+            if (!node.anchor_id.empty()) {
+                anchor_index_.emplace(node.anchor_id, static_cast<int>(i));
+            }
+            break;
+        case NodeType::Image:
             image_node_indices_.emplace_back(i);
-        }
-        else if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
-            mermaid_node_indices_.emplace_back(i);
+            break;
+        case NodeType::CodeBlock:
+            if (node.code_language == SyntaxLanguage::Mermaid) {
+                mermaid_node_indices_.emplace_back(i);
+            }
+            break;
+        default:
+            break;
         }
     }
 }
