@@ -215,6 +215,7 @@ private:
     void ReloadCurrentFile();
     void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
+    void ApplyMermaidCacheHeights(float md_width);
     void UpdateTitleBar();
     void SaveLastFilePath();
     void SavePaneState();
