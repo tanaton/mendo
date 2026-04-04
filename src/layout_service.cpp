@@ -7,9 +7,9 @@ void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float widt
     engine_.ComputeLayout(doc.GetNodesMut(), cache, width, viewport_top, viewport_bottom);
 }
 
-bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size)
+bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us)
 {
-    return engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size);
+    return engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, time_budget_us);
 }
 
 bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height)

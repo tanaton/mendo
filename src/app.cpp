@@ -8,6 +8,7 @@
 #include "layout.h"
 #include <windowsx.h>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <variant>
 #include <filesystem>
@@ -66,7 +67,7 @@ bool App::Init(HWND hwnd)
 
     // Mermaidレンダラーを初期化 (WebView2、非同期)
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
-        RequestMermaidRenders();
+        ScheduleMermaidBatch();
     });
 
     // 画像ローダーを初期化（WICファクトリはバックエンドと共有）
@@ -507,7 +508,7 @@ void App::LoadHelpDocument()
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
     file_load_service_.StopLoading();
     viewport_.ClearSelection();
-    mermaid_renderer_.CancelPending();
+    CancelMermaidBatch();
     image_loader_.CancelPending();
     renderer_.ShrinkBuffers();
     resolved_image_paths_.clear();
@@ -571,7 +572,7 @@ void App::DoLoadMarkdownFile()
     // ファイル切替時はEDITコントロールのテキストもクリア
     PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, SEARCH_UNFOCUS_FILE_SWITCH, 0);
     active_toc_index_ = -1;
-    mermaid_renderer_.CancelPending();
+    CancelMermaidBatch();
     image_loader_.CancelPending();
     renderer_.ShrinkBuffers();
     resolved_image_paths_.clear();
@@ -709,7 +710,7 @@ void App::DoReloadCurrentFile()
 
     const float old_scroll = viewport_.GetScrollY();
 
-    mermaid_renderer_.CancelPending();
+    CancelMermaidBatch();
     image_loader_.CancelPending();
     resolved_image_paths_.clear();
 
@@ -974,11 +975,83 @@ void App::RequestMermaidRenders(bool visible_only)
 
 void App::OnMermaidRenderComplete()
 {
+    if (mermaid_batch_loading_) {
+        return;
+    }
     const auto anchor = SaveAnchor();
     layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
     const auto layout = GetPaneLayout();
     RestoreAnchor(anchor, layout.md_rect.height);
     Invalidate();
+}
+
+void App::CancelMermaidBatch()
+{
+    mermaid_renderer_.CancelPending();
+    KillTimer(hwnd_, TIMER_MERMAID_BATCH);
+}
+
+void App::ScheduleMermaidBatch()
+{
+    mermaid_batch_next_ = 0;
+    SetTimer(hwnd_, TIMER_MERMAID_BATCH, 16, nullptr);
+}
+
+void App::ProcessMermaidBatch()
+{
+    MENDO_PROFILE("ProcessMermaidBatch");
+
+    const float viewport_width = GetMarkdownPaneWidth();
+    const float content_width = renderer_.GetTheme().ContentWidth(viewport_width);
+    if (content_width <= 0.0f) {
+        KillTimer(hwnd_, TIMER_MERMAID_BATCH);
+        return;
+    }
+
+    const bool dark_mode = theme_service_.IsDarkMode();
+    const auto& indices = doc_.GetMermaidNodeIndices();
+    const auto anchor = SaveAnchor();
+    bool any_loaded = false;
+
+    const auto start = std::chrono::steady_clock::now();
+
+    // mermaid_batch_loading_ は RequestRender 内の同期キャッシュヒット時に
+    // OnMermaidRenderComplete が再入呼び出しされるのを抑制する。
+    mermaid_batch_loading_ = true;
+    while (mermaid_batch_next_ < indices.size()) {
+        const size_t i = indices[mermaid_batch_next_];
+        auto& node = doc_.GetNodesMut()[i];
+        auto& diagram = layout_cache_.GetDiagram(i);
+
+        if (!diagram.bitmap) {
+            mermaid_renderer_.RequestRender(node, layout_cache_[i], diagram,
+                content_width, dark_mode,
+                [](void* ctx) static { static_cast<App*>(ctx)->OnMermaidRenderComplete(); },
+                this);
+            if (diagram.bitmap) {
+                any_loaded = true;
+            }
+        }
+
+        mermaid_batch_next_++;
+
+        const auto elapsed = std::chrono::steady_clock::now() - start;
+        if (std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() >= BATCH_TIME_BUDGET_US) {
+            break;
+        }
+    }
+    mermaid_batch_loading_ = false;
+
+    if (any_loaded) {
+        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+        const auto layout = GetPaneLayout();
+        RestoreAnchor(anchor, layout.md_rect.height);
+        Invalidate();
+    }
+
+    if (mermaid_batch_next_ >= indices.size()) {
+        KillTimer(hwnd_, TIMER_MERMAID_BATCH);
+    }
 }
 
 // ============================================================
@@ -1197,6 +1270,7 @@ void App::OnDropFiles(HDROP hDrop)
 
 void App::HandleTimer(UINT_PTR timer_id)
 {
+    MENDO_PROFILE("HandleTimer");
     switch (timer_id) {
     case TIMER_FILE_WATCH:     doc_service_.CheckForChanges(); break;
     case TIMER_DEFERRED_LAYOUT: OnDeferredLayout(); break;
@@ -1248,6 +1322,9 @@ void App::HandleTimer(UINT_PTR timer_id)
         RunSearchAndLocate(true);
         Invalidate();
         break;
+    case TIMER_MERMAID_BATCH:
+        ProcessMermaidBatch();
+        break;
     default: break;
     }
 }
@@ -1294,6 +1371,7 @@ void App::OnDestroy()
     KillTimer(hwnd_, TIMER_SEARCH_CARET);
     KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
     KillTimer(hwnd_, TIMER_TOOLTIP);
+    KillTimer(hwnd_, TIMER_MERMAID_BATCH);
 }
 
 // ============================================================

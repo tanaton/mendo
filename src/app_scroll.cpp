@@ -132,8 +132,17 @@ void App::OnDeferredLayout()
     bool more;
     {
         MENDO_PROFILE("ProcessDirtyBatch");
-        more = layout_service_->ProcessDirtyBatch(doc_, layout_cache_, md_width, 200);
+        more = layout_service_->ProcessDirtyBatch(doc_, layout_cache_, md_width, 200, BATCH_TIME_BUDGET_US);
     }
+
+#if MENDO_PROFILE_ENABLED
+    {
+        wchar_t buf[128];
+        _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"[mendo-profile] DeferredLayout: more=%d dirty=%d\n",
+            more ? 1 : 0, layout_service_->HasDirtyNodes() ? 1 : 0);
+        OutputDebugStringW(buf);
+    }
+#endif
 
     if (!viewport_.IsScrollbarTracking()) {
         // 中間バッチではアンカー補償のみ行い、SyncMaxScrollのクランプを遅延させる。
@@ -149,11 +158,10 @@ void App::OnDeferredLayout()
     if (!more) {
         KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
-        // 遅延レイアウト完了: オフスクリーンMermaidノードを処理する。
-        // キャッシュ済みMermaidは同期的にOnMermaidRenderCompleteが呼ばれ、
-        // 高さが更新される。SyncMaxScrollはその後に呼ぶことで、
-        // 推定高さに基づく不当なクランプを防ぐ。
-        RequestMermaidRenders();
+        // 遅延レイアウト完了: Mermaidファイルキャッシュからの読み込みを
+        // 時間予算付きバッチで処理する。同期ディスクI/O + PNGデコードが
+        // UIスレッドを長時間ブロックするのを防ぐ。
+        ScheduleMermaidBatch();
 
         // 全レイアウト確定後に前回セッションの生のscroll_yを適用する
         if (pending_restore_scroll_y_ >= 0) {
