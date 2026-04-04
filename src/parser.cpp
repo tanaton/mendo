@@ -79,6 +79,8 @@ struct ParseContext {
     // UTF-8 → Wide変換用の再利用可能バッファ
     std::pmr::wstring text_buffer;
 
+    std::string utf8_accum;
+
     // ブロックコンテキスト追跡
     int indent_level = 0;
     bool in_code_block = false;
@@ -174,6 +176,14 @@ struct ParseContext {
             if (c == L'\n') {
                 current_node->line_count++;
             }
+        }
+    }
+
+    void FlushUtf8()
+    {
+        if (!utf8_accum.empty()) {
+            AppendUtf8(utf8_accum);
+            utf8_accum.clear();
         }
     }
 
@@ -314,6 +324,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
 
+    ctx->FlushUtf8();
+
     switch (type) {
     case MD_BLOCK_CODE:
         ctx->in_code_block = false;
@@ -406,6 +418,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
 
+    ctx->FlushUtf8();
     ctx->span_stack.push(ctx->current_span);
 
     switch (type) {
@@ -446,6 +459,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
+
+    ctx->FlushUtf8();
 
     if (type == MD_SPAN_IMG) {
         if (ctx->current_node && !ctx->pending_image_src.empty()) {
@@ -535,18 +550,21 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     switch (type) {
     case MD_TEXT_NORMAL:
     case MD_TEXT_CODE:
-        ctx->AppendUtf8(std::string_view{ text, static_cast<size_t>(size) });
+        ctx->utf8_accum.append(text, static_cast<size_t>(size));
         break;
 
     case MD_TEXT_ENTITY:
+        ctx->FlushUtf8();
         ResolveHtmlEntity(ctx, std::string_view{ text, static_cast<size_t>(size) });
         break;
 
     case MD_TEXT_BR:
+        ctx->FlushUtf8();
         ctx->AppendText(std::wstring_view{ L"\n", 1 });
         break;
 
     case MD_TEXT_SOFTBR:
+        ctx->FlushUtf8();
         ctx->AppendText(std::wstring_view{ L" ", 1 });
         break;
 
@@ -742,6 +760,7 @@ std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text)
 {
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
+    ctx.utf8_accum.reserve(4096);
 
     MD_PARSER parser{};
     parser.abi_version = 0;

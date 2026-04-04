@@ -1321,10 +1321,12 @@ TEST(EstimateNodeHeightsTest, CodeBlockScalesWithLineCount)
     Node short_code;
     short_code.type = NodeType::CodeBlock;
     short_code.text = L"line1";
+    short_code.line_count = 0;
 
     Node long_code;
     long_code.type = NodeType::CodeBlock;
     long_code.text = L"line1\nline2\nline3\nline4\nline5";
+    long_code.line_count = 4;
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(short_code));
@@ -1420,10 +1422,12 @@ TEST(EstimateNodeHeightsTest, MultilineParagraphScalesWithLines)
     Node single;
     single.type = NodeType::Paragraph;
     single.text = L"one line";
+    single.line_count = 0;
 
     Node multi;
     multi.type = NodeType::Paragraph;
     multi.text = L"line1\nline2\nline3";
+    multi.line_count = 2;
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(single));

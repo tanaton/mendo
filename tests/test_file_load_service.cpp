@@ -87,3 +87,23 @@ TEST_F(FileLoadServiceTest, StartLoadingResetsAngle)
     service_.StartLoading(L"second.md");
     EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
 }
+
+TEST_F(FileLoadServiceTest, TakeAsyncResultReturnsNulloptWhenEmpty)
+{
+    auto result = service_.TakeAsyncResult();
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST_F(FileLoadServiceTest, TakeAsyncResultReturnsNulloptAfterConsume)
+{
+    // 結果がない状態で2回呼んでも安全
+    EXPECT_FALSE(service_.TakeAsyncResult().has_value());
+    EXPECT_FALSE(service_.TakeAsyncResult().has_value());
+}
+
+TEST_F(FileLoadServiceTest, CancelAsyncLoadDoesNotCrash)
+{
+    // 非同期ロードが進行中でなくてもキャンセルは安全
+    service_.CancelAsyncLoad();
+    EXPECT_FALSE(service_.TakeAsyncResult().has_value());
+}

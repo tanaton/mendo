@@ -1299,3 +1299,170 @@ TEST(Parser, SourceOffsetTaskList)
     EXPECT_EQ(nodes[0].source_offset, 6u);
     EXPECT_EQ(nodes[1].source_offset, 17u); // "- [x] done\n- [ ] " = 17
 }
+
+// ---- line_count ----
+
+TEST(Parser, LineCountSingleLine)
+{
+    auto nodes = ParseMarkdown("Hello world");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].line_count, 0);
+}
+
+TEST(Parser, LineCountCodeBlock)
+{
+    auto nodes = ParseMarkdown("```\na\nb\nc\n```");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
+    // "a\nb\nc" → 2個の改行（末尾の\nはパーサーが除去する）
+    EXPECT_EQ(nodes[0].line_count, 2);
+}
+
+TEST(Parser, LineCountMultilineParagraph)
+{
+    // softbreakは空白に変換されるため改行にならない
+    auto nodes = ParseMarkdown("line1\nline2\nline3");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].line_count, 0);
+}
+
+TEST(Parser, LineCountHardBreak)
+{
+    // 末尾2スペース+改行 = hard break → \n
+    auto nodes = ParseMarkdown("line1  \nline2  \nline3");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].line_count, 2);
+}
+
+TEST(Parser, LineCountEmptyCodeBlock)
+{
+    auto nodes = ParseMarkdown("```\n\n```");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
+    EXPECT_EQ(nodes[0].line_count, 0);
+}
+
+TEST(Parser, LineCountLargeCodeBlock)
+{
+    std::string md = "```\n";
+    for (int i = 0; i < 100; i++) {
+        md += "line " + std::to_string(i) + "\n";
+    }
+    md += "```";
+    auto nodes = ParseMarkdown(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    // 100行 → 99個の改行（末尾の\nが除去される）
+    EXPECT_EQ(nodes[0].line_count, 99);
+}
+
+// ---- 遅延トークン化 ----
+
+TEST(Parser, SyntaxTokensEmptyAfterParse)
+{
+    auto nodes = ParseMarkdown("```cpp\nint x = 42;\n```");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
+    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
+    // パース時にはトークン化されないことを確認（レンダラーで遅延実行）
+    EXPECT_TRUE(nodes[0].syntax_tokens.empty());
+}
+
+TEST(Parser, SyntaxTokensEmptyForMermaid)
+{
+    auto nodes = ParseMarkdown("```mermaid\ngraph TD\n```");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Mermaid);
+    EXPECT_TRUE(nodes[0].syntax_tokens.empty());
+}
+
+// ---- UTF-8バッチ変換 ----
+
+TEST(Parser, Utf8BatchPlainText)
+{
+    auto nodes = ParseMarkdown("Hello world, this is a test.");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"Hello world, this is a test.");
+}
+
+TEST(Parser, Utf8BatchWithSpanBoundary)
+{
+    auto nodes = ParseMarkdown("before **bold** after");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"before bold after");
+    ASSERT_GE(nodes[0].runs.size(), 3u);
+    EXPECT_FALSE(nodes[0].runs[0].bold);
+    EXPECT_TRUE(nodes[0].runs[1].bold);
+    EXPECT_FALSE(nodes[0].runs[2].bold);
+}
+
+TEST(Parser, Utf8BatchWithEntity)
+{
+    auto nodes = ParseMarkdown("a &amp; b");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"a & b");
+}
+
+TEST(Parser, Utf8BatchWithSoftBreak)
+{
+    auto nodes = ParseMarkdown("line1\nline2");
+    ASSERT_EQ(nodes.size(), 1u);
+    // softbreak → space
+    EXPECT_EQ(nodes[0].text, L"line1 line2");
+}
+
+TEST(Parser, Utf8BatchWithHardBreak)
+{
+    auto nodes = ParseMarkdown("line1  \nline2");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"line1\nline2");
+}
+
+TEST(Parser, Utf8BatchMultibyteUtf8)
+{
+    auto nodes = ParseMarkdown("日本語テスト");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"日本語テスト");
+}
+
+TEST(Parser, Utf8BatchMixedAsciiAndMultibyte)
+{
+    auto nodes = ParseMarkdown("Hello **世界** test");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"Hello 世界 test");
+    ASSERT_GE(nodes[0].runs.size(), 3u);
+    EXPECT_TRUE(nodes[0].runs[1].bold);
+}
+
+TEST(Parser, Utf8BatchCodeBlockContent)
+{
+    auto nodes = ParseMarkdown("```\nint x = 0;\nfloat y = 1.0;\n```");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
+    EXPECT_EQ(nodes[0].text, L"int x = 0;\nfloat y = 1.0;");
+}
+
+TEST(Parser, Utf8BatchEntityBetweenText)
+{
+    auto nodes = ParseMarkdown("a&lt;b&gt;c");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"a<b>c");
+}
+
+TEST(Parser, Utf8BatchNestedFormatting)
+{
+    auto nodes = ParseMarkdown("***bold and italic***");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].text, L"bold and italic");
+    ASSERT_GE(nodes[0].runs.size(), 1u);
+    EXPECT_TRUE(nodes[0].runs[0].bold);
+    EXPECT_TRUE(nodes[0].runs[0].italic);
+}
+
+TEST(Parser, Utf8BatchLinkText)
+{
+    auto nodes = ParseMarkdown("before [link text](https://example.com) after");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_NE(nodes[0].text.find(L"before"), std::wstring::npos);
+    EXPECT_NE(nodes[0].text.find(L"link text"), std::wstring::npos);
+    EXPECT_NE(nodes[0].text.find(L"after"), std::wstring::npos);
+}
