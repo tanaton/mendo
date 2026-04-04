@@ -138,7 +138,7 @@ void App::OnDeferredLayout()
 #if MENDO_PROFILE_ENABLED
     {
         wchar_t buf[128];
-        _snwprintf_s(buf, _TRUNCATE, L"[mendo-profile] DeferredLayout: more=%d dirty=%d\n",
+        _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"[mendo-profile] DeferredLayout: more=%d dirty=%d\n",
             more ? 1 : 0, layout_service_->HasDirtyNodes() ? 1 : 0);
         OutputDebugStringW(buf);
     }
