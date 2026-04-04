@@ -57,6 +57,11 @@ graph TB
         CM[ContextMenu<br>カスタムコンテキストメニュー]
         TN[ToastNotifier<br>トースト通知]
         SD[SwipeDetector<br>スワイプ検出]
+        SS[SearchState<br>検索状態管理]
+        I18N[i18n<br>国際化]
+        TT[Tooltip<br>ツールチップ]
+        MFC[MermaidFileCache<br>Mermaid永続キャッシュ]
+        TSK[TaskScheduler<br>ワーカースレッドプール]
     end
 
     subgraph 外部ライブラリ
@@ -99,6 +104,11 @@ graph TB
     APP --> CM
     APP --> TN
     APP --> SD
+    APP --> SS
+    APP --> I18N
+    APP --> TT
+    APP --> MFC
+    MFC --> TSK
     W --> O
 ```
 
@@ -139,6 +149,7 @@ graph LR
         TOC[TableOfContents]
         DU[DocumentUtils]
         TN_L[ToastNotifier]
+        SS_L[SearchState]
     end
 
     subgraph データ層
@@ -159,6 +170,10 @@ graph LR
         AE[AppEvents]
         UC[UIConstants]
         MR_L[MemoryResource]
+        I18N_L[i18n]
+        INI_L[IniParser]
+        SC_L[StringConvert]
+        TSK_L[TaskScheduler]
     end
 
     W --> APP
@@ -317,6 +332,16 @@ private:
 
     // トースト通知
     ToastNotifier      toast_;
+
+    // 検索
+    SearchState        search_state_;
+
+    // ツールチップ
+    Tooltip            tooltip_;
+
+    // タスクスケジューラ & Mermaidファイルキャッシュ
+    TaskScheduler      scheduler_;
+    MermaidFileCache   file_cache_;
 };
 ```
 
@@ -351,7 +376,12 @@ flowchart TD
     TIMER --> FWATCH[OnFileWatchTimer]
     TIMER --> DEFER[OnDeferredLayoutTimer]
     TIMER --> LANIM[OnLoadingAnimTimer]
+    TIMER --> SCARET[OnSearchCaretTimer]
+    TIMER --> TTIP[OnTooltipTimer]
+    TIMER --> SDEB[OnSearchDebounceTimer]
     W -->|WM_APP+2| IMGLD[App::OnAppImageLoaded]
+    W -->|WM_APP+4| SFOCUS[検索バーフォーカス]
+    W -->|WM_APP+5| SUNFOCUS[検索バーアンフォーカス]
 ```
 
 #### 3.2.4 キーボードショートカット
@@ -370,6 +400,11 @@ flowchart TD
 | `Ctrl+マウスホイール` | ズームイン/アウト | ホイール方向で増減 |
 | `Alt+←` | ナビゲーション戻る | ブラウザスタイル |
 | `Alt+→` | ナビゲーション進む | ブラウザスタイル |
+| `Ctrl+F` | 検索バー表示 | インクリメンタル検索を開く |
+| `Ctrl+G` | 次の検索結果 | 次の一致へジャンプ |
+| `Ctrl+Shift+G` | 前の検索結果 | 前の一致へジャンプ |
+| `F3` | 次の検索結果 | `Ctrl+G` と同等 |
+| `Shift+F3` | 前の検索結果 | `Ctrl+Shift+G` と同等 |
 | `F5` | 再読み込み | 現在のファイルを再パース |
 | `↑` / `↓` | 1行スクロール | 上下移動 |
 | `Home` | 先頭へ移動 | scroll_y = 0 |
@@ -406,12 +441,14 @@ public:
 
 ```cpp
 using AppAction = std::variant<
-    KeyScrollAction, SmoothScrollByAction, ScrollPaneAction,
+    KeyScrollAction, DirectScrollByAction, ScrollPaneAction,
     CopyClipboardAction, SelectAllAction, ClearSelectionAction,
     TogglePaneAction, ZoomAction,
     ReloadFileAction, OpenFileAction, ToggleDarkModeAction,
     NavigateBackAction, NavigateForwardAction,
-    ShowHelpAction
+    ShowHelpAction,
+    OpenSearchBarAction, CloseSearchBarAction,
+    SearchNextAction, SearchPrevAction
 >;
 ```
 
@@ -468,6 +505,7 @@ sequenceDiagram
 - **取り消し線** (`~~strike~~`) → ~~取り消し線の例~~
 - **インラインコード** (`` `code` ``) → `inline code`
 - **リンク** (`[text](url)`) → [mendo GitHub](https://github.com/example)
+- **画像** (`![alt](path)`) → 非同期読み込み・表示
 - **太字+斜体** (`***both***`) → ***太字かつ斜体***
 
 #### 3.3.3 アンカーID生成ルール
@@ -502,15 +540,15 @@ sequenceDiagram
 ```mermaid
 flowchart TB
     START[LayoutService 呼出し] --> MODE{モード}
-    MODE -->|FullLayout| FULL[全ノード計測]
     MODE -->|ViewportLayout| VIEWPORT[可視ノード優先計測]
     MODE -->|ProcessDirtyBatch| BATCH[ダーティバッチ処理]
     MODE -->|EnsureVisibleLayout| ENSURE[可視領域保証]
+    MODE -->|RecomputeAfterDiagram| RECOMP[ダイアグラム反映後<br>Y位置再計算]
 
-    FULL --> MEASURE[ITextMeasurer::MeasureNode<br>per node]
-    VIEWPORT --> MEASURE
+    VIEWPORT --> MEASURE[ITextMeasurer::MeasureNode<br>per node]
     BATCH --> MEASURE
     ENSURE --> MEASURE
+    RECOMP --> YPOS
 
     MEASURE --> CACHE[LayoutCache に格納<br>height, text_layout]
     CACHE --> YPOS[RecomputeYPositions<br>Y座標累積計算]
@@ -637,10 +675,11 @@ public:
 9. コピーボタン（コードブロックホバー時）
 10. マウスジェスチャトレイル & 方向オーバーレイ
 11. スワイプオーバーレイ（`SwipeDetector` による方向表示）
-12. カスタムタイトルバー（`TitleBar`）
-13. コンテキストメニュー（`ContextMenu` — モーダルポップアップ）
-14. トースト通知（`ToastNotifier`）
-15. ローディングアニメーション
+12. 検索バー（`SearchState` — 下部ドッキング）
+13. カスタムタイトルバー（`TitleBar`）
+14. コンテキストメニュー（`ContextMenu` — モーダルポップアップ）
+15. トースト通知（`ToastNotifier`）
+16. ローディングアニメーション
 
 ---
 
@@ -673,6 +712,13 @@ struct Theme {
     // ペイン
     D2D1_COLOR_F pane_bg_color, splitter_color;
     D2D1_COLOR_F pane_item_hover_color, pane_item_active_color;
+
+    // 検索バー
+    D2D1_COLOR_F search_bar_bg_color, search_bar_border_color;
+    D2D1_COLOR_F search_input_bg_color, search_input_text_color;
+    D2D1_COLOR_F search_highlight_color;          // 全一致箇所（黄色半透明）
+    D2D1_COLOR_F search_highlight_current_color;  // 現在の一致（オレンジ）
+    D2D1_COLOR_F search_no_match_bg_color;        // 一致なし時の背景
 
     // フォント
     std::wstring font_family;      // "Yu Gothic UI"
@@ -710,6 +756,7 @@ struct Theme {
     float GetHeadingUnderlineThickness(int level) const noexcept;
     bool IsDark() const noexcept;
     void ApplyZoom(float new_zoom) noexcept;
+    constexpr float ContentWidth(float viewport_width) const noexcept;
 };
 ```
 
@@ -846,12 +893,13 @@ class DocumentService {
 public:
     explicit DocumentService(FileLoader& loader) noexcept;
 
-    bool LoadFile(const std::wstring& path, Document& doc);
+    bool LoadFile(const std::pmr::wstring& path, Document& doc);
     bool ReloadFile(Document& doc);
-    void StartWatching(const std::wstring& path, FileLoader::ChangeCallback cb);
+    void StartWatching(const std::pmr::wstring& path, FileLoader::ChangeCallback cb);
     void StopWatching() noexcept;
     void CheckForChanges();
-    static bool NeedsLoadingAnimation(const std::wstring& path) noexcept;
+    void ResetDebounceTick() noexcept;
+    static bool NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept;
 };
 ```
 
@@ -860,15 +908,16 @@ public:
 ```cpp
 class FileLoadService {
 public:
-    explicit FileLoadService(DocumentService& doc_service) noexcept;
+    explicit constexpr FileLoadService(DocumentService& doc_service) noexcept;
 
-    bool IsLoading() const noexcept;
-    float GetLoadingAngle() const noexcept;
-    void StartLoading(const std::wstring& path);
+    constexpr bool IsLoading() const noexcept;
+    constexpr float GetLoadingAngle() const noexcept;
+    void StartLoading(std::wstring_view path);
     void StopLoading() noexcept;
     void TickLoadingAnimation() noexcept;
     bool ExecuteLoad(Document& doc, LayoutCache& cache);
-    bool ExecuteReload(Document& doc, LayoutCache& cache);
+    constexpr std::wstring_view GetLoadingPath() const noexcept;
+    constexpr void SetLoadingPath(std::wstring_view path);
 };
 ```
 
@@ -914,7 +963,11 @@ sequenceDiagram
     end
 ```
 
-#### 3.9.2 初期化
+#### 3.9.2 永続キャッシュ
+
+`MermaidFileCache` と連携し、レンダリング結果を PNG としてファイルシステムに永続化する。キャッシュヒット時は WebView2 を経由せず即座にビットマップを返す。詳細は [3.26 MermaidFileCache](#326-mermaidfilecache--mermaid-ダイアグラム永続キャッシュ) を参照。
+
+#### 3.9.3 初期化
 
 1. 非表示ポップアップウィンドウを作成
 2. WebView2環境を非同期初期化
@@ -1064,7 +1117,7 @@ public:
 stateDiagram-v2
     [*] --> Idle
 
-    Idle --> Scrolling : マウスホイール / PageUp/Down / キー入力
+    Idle --> Scrolling : マウスホイール
     Idle --> Dragging : スクロールバーつまみドラッグ開始
     Idle --> Navigating : TOC項目クリック / 内部リンク
 
@@ -1196,37 +1249,70 @@ public:
 
 ### 3.15 ConfigStore / ConfigService — 設定永続化
 
-#### 3.15.1 保存先
+#### 3.15.1 保存先・形式
 
 ```
-%LOCALAPPDATA%\mendo\
+%LOCALAPPDATA%\mendo\config.ini
 ```
+
+設定は **INI形式** のファイルに一元管理される。`IniParser` で読み書きし、セクション＋キーの2階層でアクセスする。
 
 #### 3.15.2 保存項目
 
-| 項目 | ファイル名 | 型 | 既定値 |
-|:-----|:----------|:---|:------|
-| ダークモード | `dark_mode.txt` | `bool` | `false` |
-| ズームインデックス | `zoom_level.txt` | `int` | `7` (1.00x) |
-| 最後に開いたファイルパス | `last_file.txt` | `wstring` | 空文字列 |
-| ファイルペイン幅 | `pane_file_width.txt` | `int` | `220` (DIP) |
-| TOCペイン幅 | `pane_toc_width.txt` | `int` | `220` (DIP) |
-| ファイルペイン表示 | `pane_show_file.txt` | `bool` | `true` |
-| TOCペイン表示 | `pane_show_toc.txt` | `bool` | `true` |
+| セクション | キー | 型 | 既定値 | 説明 |
+|:-----------|:-----|:---|:------|:-----|
+| `View` | `DarkMode` | `bool` | `false` | ダークモード |
+| `View` | `ZoomLevel` | `int` | `7` (1.00x) | ズームインデックス |
+| `Session` | `LastFile` | `wstring` | 空文字列 | 最後に開いたファイルパス |
+| `Session` | `ScrollNode` | `int` | `0` | スクロール位置（ノードインデックス） |
+| `Session` | `ScrollOffset` | `int` | `0` | スクロール位置（オフセット） |
+| `Session` | `ScrollY` | `int` | `0` | スクロール位置（Y座標） |
+| `Pane` | `ShowFile` | `bool` | `true` | ファイルペイン表示 |
+| `Pane` | `ShowToc` | `bool` | `true` | TOCペイン表示 |
+| `Pane` | `FileWidth` | `int` | `220` (DIP) | ファイルペイン幅 |
+| `Pane` | `TocWidth` | `int` | `220` (DIP) | TOCペイン幅 |
+| `Window` | `X` | `int` | `0` | ウィンドウX座標 |
+| `Window` | `Y` | `int` | `0` | ウィンドウY座標 |
+| `Window` | `Width` | `int` | `0` | ウィンドウ幅 |
+| `Window` | `Height` | `int` | `0` | ウィンドウ高さ |
+| `Window` | `Maximized` | `bool` | `false` | 最大化状態 |
+| `General` | `Language` | `wstring` | 空（OS検出） | UI言語（`ja` / `en`） |
 
-#### 3.15.3 ConfigService
+#### 3.15.3 ConfigStore（名前空間関数）
+
+```cpp
+namespace config {
+    void SetConfigDirOverride(const std::filesystem::path& dir); // テスト用
+    std::filesystem::path GetConfigDir();
+    std::filesystem::path GetConfigPath(std::wstring_view filename);
+
+    void Load();   // INIファイルをメモリに読み込み（起動時1回）
+    void Save();   // メモリ上のデータをディスクに書き込み
+    void Clear() noexcept; // テスト用
+
+    void SetBool(std::string_view section, std::string_view key, bool value);
+    bool GetBool(std::string_view section, std::string_view key, bool default_value = false);
+    void SetInt(std::string_view section, std::string_view key, int value);
+    int GetInt(std::string_view section, std::string_view key, int default_value, int min_val, int max_val);
+    void SetWString(std::string_view section, std::string_view key, std::wstring_view value);
+    std::pmr::wstring GetWString(std::string_view section, std::string_view key);
+}
+```
+
+#### 3.15.4 ConfigService
 
 `ConfigService` は `ConfigStore` の名前空間関数をラップし、テスト時のモック差し替えを可能にする。
 
 ```cpp
 class ConfigService {
 public:
-    void SaveBool(const wchar_t* key, bool value);
-    bool LoadBool(const wchar_t* key, bool default_value = false) const;
-    void SaveInt(const wchar_t* key, int value);
-    int LoadInt(const wchar_t* key, int def, int min_v, int max_v) const;
-    void SaveWString(const wchar_t* key, std::wstring_view value);
-    std::pmr::wstring LoadWString(const wchar_t* key) const;
+    void SaveBool(std::string_view section, std::string_view key, bool value);
+    bool LoadBool(std::string_view section, std::string_view key, bool default_value = false) const;
+    void SaveInt(std::string_view section, std::string_view key, int value);
+    int LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const;
+    void SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
+    std::pmr::wstring LoadWString(std::string_view section, std::string_view key) const;
+    void Flush(); // メモリ上のデータをディスクに書き出す
 };
 ```
 
@@ -1236,11 +1322,11 @@ public:
 
 #### 3.16.1 概要
 
-`TitleBar` はWin32の標準タイトルバーを置き換えるカスタムタイトルバーを管理する。ヘルプボタン、ダークモード切替ボタン、ファイルペイン/TOCペインのトグルボタン、最小化/最大化/閉じるボタンを含む。
+`TitleBar` はWin32の標準タイトルバーを置き換えるカスタムタイトルバーを管理する。ヘルプボタン、ダークモード切替ボタン、検索ボタン、ファイルペイン/TOCペインのトグルボタン、最小化/最大化/閉じるボタンを含む。
 
 ```cpp
 enum class TitleBarHitZone {
-    None, Caption, Help, ThemeToggle,
+    None, Caption, Help, ThemeToggle, Search,
     FileToggle, TocToggle,
     Minimize, Maximize, Close
 };
@@ -1268,6 +1354,7 @@ public:
 
     const TitleBarButton& GetHelpButton() const noexcept;
     const TitleBarButton& GetThemeToggleButton() const noexcept;
+    const TitleBarButton& GetSearchButton() const noexcept;
     const TitleBarButton& GetFileToggleButton() const noexcept;
     const TitleBarButton& GetTocToggleButton() const noexcept;
     const TitleBarButton& GetMinimizeButton() const noexcept;
@@ -1497,6 +1584,232 @@ public:
 
 ---
 
+### 3.23 SearchState — 検索機能
+
+#### 3.23.1 概要
+
+`SearchState` はプラットフォーム非依存の検索状態管理を担当する。クエリ文字列、一致リスト、現在選択中の一致インデックス、大文字小文字区別、ハイライト切替を管理する。
+
+```cpp
+struct SearchMatch {
+    int node_index;
+    uint32_t start;
+    uint32_t length;
+    int table_row = -1;  // テーブルセル内の一致
+    int table_col = -1;
+};
+
+class SearchState {
+public:
+    bool IsVisible() const noexcept;
+    void Show() noexcept;
+    void Hide() noexcept;
+    void Reset() noexcept;
+
+    const std::wstring& GetQuery() const noexcept;
+    const std::vector<SearchMatch>& GetMatches() const noexcept;
+    int GetCurrentMatchIndex() const noexcept;
+    int GetMatchCount() const noexcept;
+
+    bool IsCaseSensitive() const noexcept;
+    void ToggleCaseSensitive() noexcept;
+    bool IsHighlightEnabled() const noexcept;
+    void ToggleHighlightEnabled() noexcept;
+
+    void SetQuery(std::wstring_view query);
+    void ExecuteSearch(const std::pmr::vector<Node>& nodes);
+    bool NextMatch() noexcept;   // ラップ時 true
+    bool PrevMatch() noexcept;   // ラップ時 true
+    void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
+};
+```
+
+#### 3.23.2 検索バーUI
+
+検索バーはビューポート下部にドッキングされ、以下のコントロールを含む。
+
+- テキスト入力（IME対応）
+- 前へ / 次へ ボタン
+- 大文字小文字区別トグル
+- ハイライト切替トグル
+- 閉じるボタン
+- 一致件数表示（`X / Y`）
+
+#### 3.23.3 ハイライト色
+
+| 対象 | 色 | アルファ |
+|:-----|:---|:--------|
+| 現在の一致 | `#FF8C00` (オレンジ) | 60% |
+| その他の一致 | `#FFEB00` (黄色) | 40% |
+| 一致なし入力背景 | `#FFD0D0` (薄赤) | — |
+
+---
+
+### 3.24 i18n — 国際化
+
+#### 3.24.1 概要
+
+`i18n` 名前空間はUI文字列のローカライズを提供する。日本語（`ja`）と英語（`en`）の2言語をサポートする。
+
+```cpp
+namespace i18n {
+    enum class Lang : uint8_t { Ja, En };
+
+    struct Strings {
+        std::wstring_view tooltip_help;
+        std::wstring_view tooltip_theme_toggle;
+        std::wstring_view tooltip_search;
+        // ... 25+ のUI文字列 ...
+        UINT help_resource_id;
+    };
+
+    void Init(std::wstring_view config_lang) noexcept;
+    const Strings& S() noexcept;
+    std::wstring_view GetLangKey() noexcept;
+}
+```
+
+言語が未設定の場合、OS の UI 言語（`GetUserDefaultUILanguage`）から自動検出する。`i18n::S()` でグローバルに文字列セットにアクセスできる。
+
+---
+
+### 3.25 IniParser — INI ファイルパーサ
+
+ヘッダオンリーの軽量INIパーサ。`[Section]` と `Key=Value` 形式をサポートし、`;` / `#` コメントを無視する。
+
+```cpp
+namespace ini {
+    using IniData = std::map<std::string,
+                             std::map<std::string, std::string, std::less<>>,
+                             std::less<>>;
+
+    IniData Parse(std::string_view text);
+    std::string Serialize(const IniData& data);
+}
+```
+
+`ConfigStore` が内部で使用する。
+
+---
+
+### 3.26 MermaidFileCache — Mermaid ダイアグラム永続キャッシュ
+
+#### 3.26.1 概要
+
+`MermaidFileCache` はレンダリング済みの Mermaid ダイアグラム（PNG）をファイルシステムに永続化する。量子化幅（100px 単位）、LRU エビクション、バックグラウンド非同期書き込みをサポートする。
+
+```cpp
+class MermaidFileCache {
+public:
+    void Init(float current_dpr, TaskScheduler& scheduler);
+    bool Lookup(uint64_t key, CacheEntry& entry, std::vector<uint8_t>& png_data);
+    bool LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept;
+    void StoreAsync(uint64_t key, float css_width, float css_height,
+                    std::vector<uint8_t> png_data);
+    void SaveIndex();
+    void ClearAll();
+    void Shutdown();
+    size_t EntryCount() const noexcept;
+    uint64_t TotalSize() const noexcept;
+};
+```
+
+#### 3.26.2 キャッシュパラメータ
+
+| パラメータ | 値 | 説明 |
+|:----------|:---|:-----|
+| 最大エントリ数 | 4096 | LRU エビクション閾値 |
+| 最大合計サイズ | 1GB | ディスク使用量上限 |
+| インデックスマジック | `MEMC` | バイナリインデックスファイル識別子 |
+| インデックスバージョン | 1 | フォーマットバージョン |
+
+DPR（デバイスピクセル比）の不一致を検出した場合、キャッシュ全体をクリアする。
+
+---
+
+### 3.27 TaskScheduler — タスクスケジューラ
+
+汎用ワーカースレッドプール。`MermaidFileCache` の非同期書き込みなどに使用する。
+
+```cpp
+class TaskScheduler {
+public:
+    void Init(int thread_count);
+    void Post(std::function<void()> task);  // スレッドセーフ
+    void Shutdown();
+};
+```
+
+各ワーカースレッドは `CoInitializeEx(COINIT_MULTITHREADED)` を自動呼び出しする。`Init()` / `Shutdown()` は UI スレッドから、`Post()` は任意スレッドから呼び出し可能。
+
+---
+
+### 3.28 Tooltip — ツールチップ
+
+#### 3.28.1 概要
+
+`Tooltip` は Win32 の `TOOLTIPS_CLASS` を `TTF_TRACK` モードでラップし、マウスホバー時のツールチップを表示する。
+
+```cpp
+struct TooltipTarget {
+    enum class Zone : uint8_t {
+        None, TitleBarButton, SearchBarButton, FilePaneItem,
+        FilePaneButton, TocPaneItem, TocPaneButton, MdLink,
+        MdImage, CopyButton, NavButton
+    };
+    Zone zone = Zone::None;
+    std::wstring text;
+    bool operator==(const TooltipTarget&) const = default;
+    bool IsEmpty() const noexcept;
+};
+
+class Tooltip {
+public:
+    void Init(HWND parent);
+    bool Update(const TooltipTarget& target, POINT screen_pos);
+    void Show();
+    void Hide();
+    void ApplyDarkMode(bool dark);
+    void ResetTarget() noexcept;
+};
+```
+
+最大幅 600px、カーソルから 20px 下にオフセット、DPI スケーリング対応。
+
+---
+
+### 3.29 StringConvert — 文字列変換ユーティリティ
+
+UTF-8 ↔ ワイド文字変換のヘッダオンリーユーティリティ。
+
+```cpp
+namespace string_convert {
+    std::pmr::wstring Utf8ToWide(std::string_view utf8);
+    std::string WideToUtf8(std::wstring_view wide);
+}
+```
+
+Windows の `MultiByteToWideChar` / `WideCharToMultiByte` を使用。変換失敗時は空文字列を返す。
+
+---
+
+### 3.30 Profiler — パフォーマンス計測
+
+デバッグモード用のスコープタイマー。`OutputDebugString` で経過時間を出力する。
+
+```cpp
+class ScopedProfileTimer {
+    explicit ScopedProfileTimer(const wchar_t* label) noexcept;
+    ~ScopedProfileTimer() noexcept; // 経過時間を出力
+};
+
+#define MENDO_PROFILE(label) ScopedProfileTimer ...
+```
+
+`MENDO_PROFILE_ENABLED = 0` で無効化される。RAII ベースで自動スコープ計測。
+
+---
+
 ## 4. データ構造
 
 ### 4.1 Node
@@ -1513,13 +1826,26 @@ classDiagram
         +bool task_checked
         +AlertType alert_type
         +uint32_t alert_label_length
+        +uint32_t source_offset
         +int blockquote_group
         +wstring text
         +vector~TextRun~ runs
         +wstring anchor_id
         +SyntaxLanguage code_language
         +vector~SyntaxToken~ syntax_tokens
-        +vector~TableRow~ table_rows
+        +vector~wstring~ link_urls
+        +unique_ptr~NodeTableData~ table_data
+        +unique_ptr~NodeImageData~ image_data
+    }
+
+    class NodeTableData {
+        +vector~TableRow~ rows
+    }
+
+    class NodeImageData {
+        +wstring src
+        +float width
+        +float height
     }
 
     class TextRun {
@@ -1529,7 +1855,8 @@ classDiagram
         +bool italic
         +bool code
         +bool strikethrough
-        +optional~wstring~ link_url
+        +int16_t link_url_index
+        +has_link() bool
     }
 
     class TableRow {
@@ -1550,8 +1877,10 @@ classDiagram
     }
 
     Node "1" --> "*" TextRun
-    Node "1" --> "*" TableRow
+    Node "1" --> "0..1" NodeTableData
+    Node "1" --> "0..1" NodeImageData
     Node "1" --> "*" SyntaxToken
+    NodeTableData "1" --> "*" TableRow
     TableRow "1" --> "*" TableCell
     TableCell "1" --> "*" TextRun
 ```
@@ -1634,6 +1963,7 @@ graph TD
     NT --> BQ[BlockQuote<br>引用]
     NT --> TBL[Table<br>テーブル]
     NT --> TLI[TaskListItem<br>タスクリスト項目]
+    NT --> IMG[Image<br>画像]
 ```
 
 ### 4.5 AlertType 列挙型
@@ -1688,7 +2018,9 @@ flowchart TD
     REG --> WND[CreateWindowExW<br>WS_EX_ACCEPTFILES]
     WND --> INIT[App::Init]
     INIT --> D2D[Renderer::Init<br>D2DRenderBackend + Brushes + Formats]
-    D2D --> MERM[MermaidRenderer::Init<br>WebView2 非同期初期化]
+    D2D --> CFGLOAD[config::Load<br>INIファイル読み込み]
+    CFGLOAD --> I18NINIT[i18n::Init<br>言語設定初期化]
+    I18NINIT --> MERM[MermaidRenderer::Init<br>WebView2 非同期初期化]
     MERM --> CFG[ThemeService::LoadDarkMode<br>ズーム & ダークモード復元]
     CFG --> TIMER[SetTimer<br>ファイル監視 250ms]
     TIMER --> LAST{前回ファイル<br>あり？}
@@ -1722,7 +2054,7 @@ flowchart TD
     MCHK -->|Yes| MREQ[MermaidRenderer::RequestRender<br>非同期ビットマップ生成]
     MCHK -->|No| LAYOUT
 
-    MREQ --> LAYOUT[LayoutService::FullLayout]
+    MREQ --> LAYOUT[LayoutService::ViewportLayout]
     LAYOUT --> TXTL[ITextMeasurer::MeasureNode<br>per node]
     TXTL --> YPOS[Y座標計算<br>RecomputeYPositions]
     YPOS --> SYNC[ViewportManager::SyncMaxScroll]
@@ -1754,6 +2086,7 @@ sequenceDiagram
     R->>R: DrawNavButtons()
     R->>R: DrawGestureOverlay()
     R->>R: DrawSwipeOverlay()
+    R->>R: DrawSearchBar()
     R->>R: DrawTitleBar()
     Note right of R: ContextMenuはモーダル<br>ポップアップで別途描画
     R->>R: DrawToast()
@@ -1817,7 +2150,7 @@ ctest --test-dir build --output-on-failure -C Release
 |:-----------|:-----|:-----|
 | `mendo_core` | 静的ライブラリ | テスト可能なコアロジック（WinMain・ウィンドウ・レンダラを含まない） |
 | `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
-| `mendo_tests` | テスト | 全テストを含む単一バイナリ（35テストソース） |
+| `mendo_tests` | テスト | 全テストを含む単一バイナリ（39テストソース） |
 
 ### 6.4 MSVC ビルド最適化
 
@@ -1840,11 +2173,11 @@ ctest --test-dir build --output-on-failure -C Release
 - 単一テストバイナリ `mendo_tests` に全テストをリンク
 - `gtest_add_tests` で CTest に登録
 
-### 7.2 テストソースファイル（35ファイル）
+### 7.2 テストソースファイル（39ファイル）
 
 ```mermaid
 pie title テストカバレッジ（ファイル数ベース）
-    "テスト済みモジュール" : 35
+    "テスト済みモジュール" : 39
     "UIコード（テスト対象外）" : 7
 ```
 
@@ -1889,6 +2222,10 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_context_menu.cpp` | ContextMenu |
 | `test_image.cpp` | ImageLoader |
 | `test_help.cpp` | ヘルプドキュメント |
+| `test_search_state.cpp` | SearchState |
+| `test_ini_parser.cpp` | IniParser |
+| `test_locale.cpp` | i18n ロケール |
+| `test_mermaid_file_cache.cpp` | MermaidFileCache |
 
 ### 7.4 主要テストケース
 
@@ -1941,6 +2278,32 @@ pie title テストカバレッジ（ファイル数ベース）
 
 - [x] ヘルプパス判定（`IsHelpPath`）
 - [x] ヘルプドキュメントの読み込み
+
+#### 検索テスト
+
+- [x] 検索バーの表示/非表示切替
+- [x] クエリによるテキスト検索と一致件数
+- [x] 次/前の一致へのナビゲーション（ラップアラウンド）
+- [x] 大文字小文字区別の切替
+- [x] テーブルセル内の検索
+- [x] スクロール位置に基づく最近接一致の選択
+
+#### IniParser テスト
+
+- [x] セクション・キー・値のパースとシリアライズ
+- [x] コメント行の無視
+- [x] 空白のトリミング
+
+#### ローカライズテスト
+
+- [x] 日本語・英語の文字列セット初期化
+- [x] OS言語からの自動検出
+
+#### Mermaid キャッシュテスト
+
+- [x] キャッシュの保存と読み込み
+- [x] LRU エビクション
+- [x] DPR 不一致時のクリア
 
 #### ビューポートテスト
 
@@ -2095,6 +2458,17 @@ src/
 ├── mermaid.cpp             # WebView2 ダイアグラム描画
 ├── mermaid_util.h          # Mermaid ヘルパー宣言
 ├── mermaid_util.cpp        # Mermaid ヘルパー実装
+├── mermaid_file_cache.h    # MermaidFileCache 宣言 (永続ダイアグラムキャッシュ)
+├── mermaid_file_cache.cpp  # MermaidFileCache 実装
+├── search_state.h          # SearchState 宣言 (検索状態管理)
+├── search_state.cpp        # SearchState 実装
+├── i18n.h                  # 国際化 (日本語/英語UI文字列)
+├── ini_parser.h            # INIファイルパーサ (ヘッダオンリー)
+├── task_scheduler.h        # TaskScheduler 宣言 (ワーカースレッドプール)
+├── task_scheduler.cpp      # TaskScheduler 実装
+├── tooltip.h               # Tooltip 宣言 (ホバーツールチップ)
+├── string_convert.h        # UTF-8 ↔ ワイド文字変換 (ヘッダオンリー)
+├── profiler.h              # パフォーマンス計測マクロ (デバッグ用)
 └── resource.h              # リソース ID
 ```
 
@@ -2180,6 +2554,10 @@ src/
 - [x] カスタムコンテキストメニュー
 - [x] 非同期画像読み込み
 - [x] ヘルプドキュメント
+- [x] 検索機能
+- [x] 国際化 (i18n)
+- [x] Mermaid ファイルキャッシュ
+- [x] ツールチップ
 - [ ] パフォーマンス最適化
 - [ ] ドキュメント整備
 
@@ -2820,6 +3198,14 @@ exit /b 0
 | 31 | ContextMenu | context_menu.h/cpp | D2D, Theme | あり |
 | 32 | ImageLoader | image_loader.h/cpp | WIC, D2D | あり |
 | 33 | MemoryResource | memory_resource.h | PMR | なし |
+| 34 | SearchState | search_state.h/cpp | Types, LayoutCache | あり |
+| 35 | i18n | i18n.h | なし | あり |
+| 36 | IniParser | ini_parser.h | なし | あり |
+| 37 | MermaidFileCache | mermaid_file_cache.h/cpp | TaskScheduler | あり |
+| 38 | TaskScheduler | task_scheduler.h/cpp | なし | なし |
+| 39 | Tooltip | tooltip.h | Win32 API | なし |
+| 40 | StringConvert | string_convert.h | Win32 API | なし |
+| 41 | Profiler | profiler.h | Win32 API | なし |
 
 ---
 
