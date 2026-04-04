@@ -344,16 +344,18 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry,
         }
 
         const bool first_pass = !entry.effects_applied;
+        const auto& rows = node.table_rows();
+        const auto row_count = rows.size();
         if (first_pass) {
             entry.effects_applied = true;
-            entry.cell_inline_code_bgs.resize(node.table_rows().size());
+            entry.cell_inline_code_bgs.resize(row_count);
         }
 
         const float border = TABLE_BORDER_WIDTH;
         float row_y = entry.y_position;
 
-        for (size_t r = 0; r < node.table_rows().size(); r++) {
-            const auto& row = node.table_rows()[r];
+        for (size_t r = 0; r < row_count; r++) {
+            const auto& row = rows[r];
             const float row_h = (r < entry.row_heights.size())
                 ? entry.row_heights[r] : (theme_.font_size_body * 1.4f);
             const float row_bottom = row_y + row_h + border;
@@ -375,7 +377,8 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry,
                 entry.cell_inline_code_bgs[r].resize(row.cells.size());
             }
 
-            for (size_t c = 0; c < row.cells.size(); c++) {
+            const auto col_count = row.cells.size();
+            for (size_t c = 0; c < col_count; c++) {
                 IDWriteTextLayout* cell_layout = nullptr;
                 if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
                     cell_layout = entry.cell_layouts[r][c].Get();
@@ -732,8 +735,9 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
         return;
     }
 
+    const auto point_count = points.size();
     sink->BeginFigure(D2D1::Point2F(points[0].x, points[0].y), D2D1_FIGURE_BEGIN_HOLLOW);
-    for (size_t i = 1; i < points.size(); i++) {
+    for (size_t i = 1; i < point_count; i++) {
         sink->AddLine(D2D1::Point2F(points[i].x, points[i].y));
     }
     sink->EndFigure(D2D1_FIGURE_END_OPEN);

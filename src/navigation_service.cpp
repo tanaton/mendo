@@ -8,7 +8,8 @@ static bool IsSafeUrlScheme(std::wstring_view url) noexcept
         if (s.size() < prefix.size()) {
             return false;
         }
-        for (size_t i = 0; i < prefix.size(); i++) {
+        const auto prefix_len = prefix.size();
+        for (size_t i = 0; i < prefix_len; i++) {
             wchar_t a = s[i], b = prefix[i];
             if (a >= L'A' && a <= L'Z') {
                 a += L'a' - L'A';

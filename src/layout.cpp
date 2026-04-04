@@ -3,6 +3,7 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <ranges>
 
 // マジックナンバーの名前付き定数
 static constexpr float MIN_COLUMN_WIDTH = 30.0f;
@@ -48,10 +49,8 @@ std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natur
     std::pmr::vector<float> widths(col_count);
     available_width = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
-    float total_natural = 0;
-    for (float w : natural_widths) {
-        total_natural += w;
-    }
+    const float total_natural = std::ranges::fold_left(natural_widths, 0.0f,
+        [](float a, float b) static noexcept { return a + b; });
 
     if (total_natural > 0 && total_natural > available_width) {
         for (size_t c = 0; c < col_count; c++) {
@@ -69,30 +68,33 @@ std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natur
 
 std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows)
 {
+    const auto row_count = rows.size();
     size_t total = 0;
-    for (size_t r = 0; r < rows.size(); r++) {
+    for (size_t r = 0; r < row_count; r++) {
         const auto& row = rows[r];
-        for (size_t c = 0; c < row.cells.size(); c++) {
+        const auto col_count = row.cells.size();
+        for (size_t c = 0; c < col_count; c++) {
             if (c > 0) {
                 total++;
             }
             total += row.cells[c].text.size();
         }
-        if (r + 1 < rows.size()) {
+        if (r + 1 < row_count) {
             total++;
         }
     }
     std::pmr::wstring text;
     text.reserve(total);
-    for (size_t r = 0; r < rows.size(); r++) {
+    for (size_t r = 0; r < row_count; r++) {
         const auto& row = rows[r];
-        for (size_t c = 0; c < row.cells.size(); c++) {
+        const auto col_count = row.cells.size();
+        for (size_t c = 0; c < col_count; c++) {
             if (c > 0) {
                 text += L'\t';
             }
             text += row.cells[c].text;
         }
-        if (r + 1 < rows.size()) {
+        if (r + 1 < row_count) {
             text += L'\n';
         }
     }
@@ -106,9 +108,10 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     // layout_dirtyフラグは変更しない（後続のViewportLayoutが正しく計測できるようにする）。
     assert(cache.size() >= nodes.size());
     const float line_height = theme.font_size_body * 1.5f;
+    const auto node_count = nodes.size();
 
     float y = theme.margin_top;
-    for (size_t i = 0; i < nodes.size(); i++) {
+    for (size_t i = 0; i < node_count; i++) {
         const auto& node = nodes[i];
         float h;
         switch (node.type) {
@@ -161,16 +164,17 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
 {
     YPositionResult result;
     result.has_dirty_nodes = has_earlier_dirty;
+    const auto node_count = nodes.size();
     float y = theme.margin_top;
 
     // 途中から開始する場合、前のノードの終了位置から再開する。
-    if (from_index > 0 && from_index < nodes.size()) {
+    if (from_index > 0 && from_index < node_count) {
         auto& prev = cache[from_index - 1];
         y = prev.y_position + prev.height;
         y += GetSpacingBelow(nodes[from_index - 1].type, theme);
     }
 
-    for (size_t i = from_index; i < nodes.size(); i++) {
+    for (size_t i = from_index; i < node_count; i++) {
         auto& entry = cache[i];
         if (entry.layout_dirty) {
             result.has_dirty_nodes = true;
@@ -183,14 +187,11 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
         if (i > safe_exit_after && std::abs(entry.y_position - y) < Y_POSITION_EPSILON) {
             // 残りのダーティノードを確認（Y更新より軽量なフラグチェックのみ）
             if (!result.has_dirty_nodes) {
-                for (size_t j = i; j < nodes.size(); j++) {
-                    if (cache[j].layout_dirty) {
-                        result.has_dirty_nodes = true;
-                        break;
-                    }
-                }
+                result.has_dirty_nodes = std::ranges::any_of(
+                    std::views::iota(i, node_count),
+                    [&cache](size_t j) { return cache[j].layout_dirty; });
             }
-            const size_t last_idx = nodes.size() - 1;
+            const size_t last_idx = node_count - 1;
             result.total_height = cache[last_idx].y_position + cache[last_idx].height
                 + GetSpacingBelow(nodes[last_idx].type, theme) + theme.margin_top;
             return result;
@@ -228,7 +229,8 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     float viewport_width,
     float viewport_top, float viewport_bottom)
 {
-    cache.Resize(nodes.size());
+    const auto node_count = nodes.size();
+    cache.Resize(node_count);
 
     const bool width_changed = (viewport_width != last_viewport_width_);
     const bool partial = (viewport_top >= 0.0f);
@@ -242,7 +244,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     bool any_measured = false;
     bool broke_early = false;
 
-    for (size_t i = 0; i < nodes.size(); i++) {
+    for (size_t i = 0; i < node_count; i++) {
         auto& node = nodes[i];
         auto& entry = cache[i];
         const float indent = node.indent_level * theme_->indent_width;
@@ -317,9 +319,10 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
     int last_measured = -1;
 
     // 下端が viewport_top 以上の最初のノードを見つける
-    const int lo = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
+    const auto node_count = nodes.size();
+    const int lo = FindFirstVisibleNodeIndex(cache, node_count, viewport_top);
 
-    for (int i = lo; i < static_cast<int>(nodes.size()); i++) {
+    for (int i = lo; i < static_cast<int>(node_count); i++) {
         auto& entry = cache[i];
         if (entry.y_position > viewport_bottom) {
             break;
@@ -348,8 +351,9 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
     float viewport_top, float viewport_height, float buffer_screens)
 {
     const float content_width = theme_->ContentWidth(viewport_width);
+    const auto node_count = nodes.size();
     int processed = 0;
-    size_t first_dirty = nodes.size();
+    size_t first_dirty = node_count;
     size_t last_processed = 0;
 
     const bool has_viewport_limit = (viewport_top >= 0.0f && viewport_height > 0.0f);
@@ -363,7 +367,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
     // 二重 O(n) スキャンを回避するため。
     bool any_nearby_dirty_skipped = false;
 
-    for (size_t i = 0; i < nodes.size(); i++) {
+    for (size_t i = 0; i < node_count; i++) {
         auto& entry = cache[i];
         if (!entry.layout_dirty) {
             continue;

@@ -294,10 +294,11 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
 
-    float table_width = border;
-    for (float cw : entry.col_widths) {
-        table_width += cw + cell_padding * 2.0f + border;
-    }
+    const float table_width = std::ranges::fold_left(
+        entry.col_widths,
+        border,
+        [cell_padding, border](float acc, float cw) noexcept { return acc + cw + cell_padding * 2.0f + border; }
+    );
 
     bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
     uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(node.text.size());

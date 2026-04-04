@@ -6,14 +6,14 @@ void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes)
     entries_.clear();
     entries_.reserve(std::ranges::count_if(nodes,
         [](const Node& n) static noexcept { return n.type == NodeType::Heading; }));
-    for (size_t i = 0; i < nodes.size(); ++i) {
-        if (nodes[i].type != NodeType::Heading) {
+    for (const auto& [i, node] : nodes | std::views::enumerate) {
+        if (node.type != NodeType::Heading) {
             continue;
         }
         TocEntry entry;
-        entry.text = nodes[i].text;
-        entry.anchor_id = nodes[i].anchor_id;
-        entry.heading_level = nodes[i].heading_level;
+        entry.text = node.text;
+        entry.anchor_id = node.anchor_id;
+        entry.heading_level = node.heading_level;
         entry.node_index = static_cast<int>(i);
         entries_.emplace_back(std::move(entry));
     }

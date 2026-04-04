@@ -135,7 +135,8 @@ struct ParseContext {
             const auto& url = link_urls[static_cast<size_t>(current_span.link_url_index)];
             // ノードのURLプール内で重複を検索し、なければ追加
             int16_t node_idx = -1;
-            for (size_t i = 0; i < current_node->link_urls.size(); i++) {
+            const auto url_count = current_node->link_urls.size();
+            for (size_t i = 0; i < url_count; i++) {
                 if (current_node->link_urls[i] == url) {
                     node_idx = static_cast<int16_t>(i);
                     break;
@@ -588,7 +589,8 @@ bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept
     if (a.size() != b.size()) {
         return false;
     }
-    for (size_t i = 0; i < a.size(); i++) {
+    const auto len = a.size();
+    for (size_t i = 0; i < len; i++) {
         const wchar_t ca = (a[i] >= L'a' && a[i] <= L'z') ? (a[i] - L'a' + L'A') : a[i];
         const wchar_t cb = (b[i] >= L'a' && b[i] <= L'z') ? (b[i] - L'a' + L'A') : b[i];
         if (ca != cb) {
@@ -705,7 +707,8 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
 
 void DetectAlerts(std::pmr::vector<Node>& nodes)
 {
-    for (size_t i = 0; i < nodes.size(); i++) {
+    const auto node_count = nodes.size();
+    for (size_t i = 0; i < node_count; i++) {
         if (nodes[i].type != NodeType::BlockQuote) {
             continue;
         }
@@ -720,7 +723,7 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
         // 同一 blockquote_group の後続ノードにも同じ alert_type を伝播
         // ノード種別に依存せず、グループIDで判定する（リスト等も含む）
         size_t j = i + 1;
-        for (; j < nodes.size(); j++) {
+        for (; j < node_count; j++) {
             if (nodes[j].blockquote_group != group) {
                 break;
             }

@@ -5,6 +5,7 @@
 #include <format>
 #include <algorithm>
 #include <iterator>
+#include <ranges>
 
 std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
     const TextSelection& selection)
@@ -60,20 +61,23 @@ static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node,
     uint32_t& local_pos)
 {
     uint32_t offset = 0;
-    for (size_t r = 0; r < node.table_rows().size(); r++) {
-        const auto& row = node.table_rows()[r];
-        for (size_t c = 0; c < row.cells.size(); c++) {
+    const auto& rows = node.table_rows();
+    const auto row_count = rows.size();
+    for (size_t r = 0; r < row_count; r++) {
+        const auto& row = rows[r];
+        const auto col_count = row.cells.size();
+        for (size_t c = 0; c < col_count; c++) {
             const uint32_t cell_len = static_cast<uint32_t>(row.cells[c].text.size());
             if (text_pos >= offset && text_pos < offset + cell_len) {
                 local_pos = text_pos - offset;
                 return &row.cells[c].runs;
             }
             offset += cell_len;
-            if (c + 1 < row.cells.size()) {
+            if (c + 1 < col_count) {
                 offset++; // タブ区切り
             }
         }
-        if (r + 1 < node.table_rows().size()) {
+        if (r + 1 < row_count) {
             offset++; // 改行区切り
         }
     }
@@ -94,14 +98,10 @@ std::pmr::wstring ToLowerAscii(std::wstring_view text)
 {
     std::pmr::wstring result;
     result.reserve(text.size());
-    for (wchar_t c : text) {
-        if (c >= L'A' && c <= L'Z') {
-            result += static_cast<wchar_t>(c - L'A' + L'a');
-        }
-        else {
-            result += c;
-        }
-    }
+    std::ranges::transform(text, std::back_inserter(result),
+        [](wchar_t c) static noexcept -> wchar_t {
+            return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+        });
     return result;
 }
 
@@ -114,10 +114,9 @@ int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view a
     // 比較のためアンカーを小文字に変換
     const std::pmr::wstring target = ToLowerAscii(anchor);
 
-    for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
-        const auto& node = nodes[i];
+    for (const auto& [i, node] : nodes | std::views::enumerate) {
         if (node.type == NodeType::Heading && node.anchor_id == target) {
-            return i;
+            return static_cast<int>(i);
         }
     }
     return -1;

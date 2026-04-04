@@ -1,6 +1,7 @@
 #include "search_state.h"
 #include <algorithm>
 #include <cwctype>
+#include <iterator>
 
 void SearchState::SetQuery(std::wstring_view query)
 {
@@ -20,18 +21,20 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     std::wstring lower_query;
     if (!case_sensitive_) {
         lower_query.reserve(query_.size());
-        for (wchar_t ch : query_) {
-            lower_query.push_back(static_cast<wchar_t>(std::towlower(ch)));
-        }
+        std::ranges::transform(query_, std::back_inserter(lower_query),
+            [](wchar_t ch) static noexcept { return static_cast<wchar_t>(std::towlower(ch)); });
     }
 
-    for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
+    const auto node_count = static_cast<int>(nodes.size());
+    for (int i = 0; i < node_count; i++) {
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
             const auto& rows = node.table_rows();
-            for (int r = 0; r < static_cast<int>(rows.size()); r++) {
+            const auto row_count = static_cast<int>(rows.size());
+            for (int r = 0; r < row_count; r++) {
                 const auto& cells = rows[r].cells;
-                for (int c = 0; c < static_cast<int>(cells.size()); c++) {
+                const auto col_count = static_cast<int>(cells.size());
+                for (int c = 0; c < col_count; c++) {
                     if (!cells[c].text.empty()) {
                         FindMatches(std::wstring_view(cells[c].text.data(), cells[c].text.size()),
                             lower_query, i, r, c);

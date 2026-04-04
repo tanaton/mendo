@@ -1,22 +1,26 @@
 #include "hit_test_service.h"
 #include "ui_constants.h"
+#include <ranges>
 
 // 指定された行・列までのフラットテキストオフセットを計算する。
 static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int target_col) noexcept
 {
     uint32_t offset = 0;
-    for (size_t r = 0; r < node.table_rows().size(); r++) {
-        const auto& row_cells = node.table_rows()[r].cells;
-        for (size_t c = 0; c < row_cells.size(); c++) {
+    auto& rows = node.table_rows();
+    const auto row_count = rows.size();
+    for (size_t r = 0; r < row_count; r++) {
+        const auto& row_cells = rows[r].cells;
+        const auto col_count = row_cells.size();
+        for (size_t c = 0; c < col_count; c++) {
             if (static_cast<int>(r) == target_row && static_cast<int>(c) == target_col) {
                 return offset;
             }
             offset += static_cast<uint32_t>(row_cells[c].text.size());
-            if (c + 1 < row_cells.size()) {
+            if (c + 1 < col_count) {
                 offset++;
             }
         }
-        if (r + 1 < node.table_rows().size()) {
+        if (r + 1 < row_count) {
             offset++;
         }
     }
@@ -85,10 +89,10 @@ HitTestService::HitResult HitTestService::HitTest(
     }
 
     // 全ノードより下をクリック → 最後のノードの末尾を選択
-    for (int i = static_cast<int>(nodes.size()) - 1; i >= 0; i--) {
-        if (!nodes[i].text.empty()) {
-            result.node_index = i;
-            result.text_pos = static_cast<uint32_t>(nodes[i].text.size());
+    for (const auto& [i, node] : nodes | std::views::enumerate | std::views::reverse) {
+        if (!node.text.empty()) {
+            result.node_index = static_cast<int>(i);
+            result.text_pos = static_cast<uint32_t>(node.text.size());
             return result;
         }
     }
@@ -112,7 +116,8 @@ HitTestService::HitResult HitTestService::HitTestTable(
     // クリックされた行を特定
     float ry = entry.y_position;
     int hit_row = -1;
-    for (size_t r = 0; r < node.table_rows().size(); r++) {
+    const auto row_count = node.table_rows().size();
+    for (size_t r = 0; r < row_count; r++) {
         const float row_h = (r < entry.row_heights.size()) ? entry.row_heights[r] : (theme.font_size_body * 1.4f);
         const float row_bottom = ry + row_h + border;
         if (dip_y < row_bottom) {
@@ -129,7 +134,8 @@ HitTestService::HitResult HitTestService::HitTestTable(
     // クリックされた列を特定
     float cx = base_x + border;
     int hit_col = static_cast<int>(entry.col_widths.size()) - 1; // デフォルトは最後の列
-    for (size_t c = 0; c < entry.col_widths.size(); c++) {
+    const auto col_count = entry.col_widths.size();
+    for (size_t c = 0; c < col_count; c++) {
         const float col_right = cx + entry.col_widths[c] + cell_padding * 2.0f;
         if (dip_x < col_right) {
             hit_col = static_cast<int>(c);

@@ -87,7 +87,8 @@ public:
     void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes) noexcept
     {
         InvalidateAllLayouts(); // effects_generation_ は InvalidateAllLayouts 内で更新済み
-        for (size_t i = 0; i < nodes.size() && i < diagrams_.size(); ++i) {
+        const auto count = std::min(nodes.size(), diagrams_.size());
+        for (size_t i = 0; i < count; ++i) {
             if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
                 diagrams_[i].bitmap.Reset();
             }

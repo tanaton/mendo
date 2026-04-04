@@ -1,6 +1,7 @@
 #include "config_store.h"
 #include "ini_parser.h"
 #include "string_convert.h"
+#include <algorithm>
 #include <charconv>
 #include <fstream>
 #include <shlobj.h>
@@ -41,10 +42,10 @@ std::filesystem::path GetConfigPath(std::wstring_view filename)
     if (filename.empty()) {
         return {};
     }
-    for (wchar_t c : filename) {
-        if (c == L'\\' || c == L'/' || c == L':') {
-            return {};
-        }
+    if (std::ranges::any_of(filename, [](wchar_t c) static noexcept {
+        return c == L'\\' || c == L'/' || c == L':';
+    })) {
+        return {};
     }
     if (filename.find(L"..") != std::wstring_view::npos) {
         return {};

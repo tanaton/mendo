@@ -15,9 +15,9 @@
 #include <filesystem>
 
 void ResourceManager::Init(Document& doc, LayoutCache& cache, ViewportManager& viewport,
-                            ImageLoader& image_loader, MermaidRenderer& mermaid,
-                            ThemeService& theme_service, Renderer& renderer,
-                            Callbacks cb)
+    ImageLoader& image_loader, MermaidRenderer& mermaid,
+    ThemeService& theme_service, Renderer& renderer,
+    Callbacks cb)
 {
     doc_ = &doc;
     cache_ = &cache;

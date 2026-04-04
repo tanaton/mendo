@@ -66,8 +66,7 @@ bool App::Init(HWND hwnd)
     mermaid_renderer_.SetFileCache(&file_cache_);
 
     // リソースマネージャを初期化
-    resource_manager_.Init(doc_, layout_cache_, viewport_,
-        image_loader_, mermaid_renderer_, theme_service_, renderer_, {
+    resource_manager_.Init(doc_, layout_cache_, viewport_, image_loader_, mermaid_renderer_, theme_service_, renderer_, {
         .invalidate = [this]() { Invalidate(); },
         .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
         .kill_timer = [this](UINT_PTR id) { KillTimer(hwnd_, id); },
@@ -87,7 +86,7 @@ bool App::Init(HWND hwnd)
             RestoreAnchor(anchor, layout.md_rect.height);
             Invalidate();
         },
-    });
+        });
 
     // Mermaidレンダラーを初期化 (WebView2、非同期)
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
@@ -141,13 +140,11 @@ bool App::Init(HWND hwnd)
     }
 
     // 検索バーコントローラを初期化
-    search_bar_ctrl_.Init(search_state_, viewport_, layout_cache_, {
-        .invalidate = [this]() { Invalidate(); },
+    search_bar_ctrl_.Init(search_state_, viewport_, layout_cache_, { .invalidate = [this]() { Invalidate(); },
         .invalidate_search_bar = [this]() {
             const auto& layout = GetPaneLayout();
             const auto& r = layout.md_rect;
-            const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT,
-                                        r.width, SEARCH_BAR_HEIGHT };
+            const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
             InvalidatePane(search_area);
         },
         .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
@@ -156,12 +153,10 @@ bool App::Init(HWND hwnd)
             PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SELECT_ALL, 0);
         },
         .focus_set_caret = [this](int pos) {
-            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_CARET,
-                        static_cast<LPARAM>(pos));
+            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
         },
         .focus_set_selection = [this](int anchor, int caret) {
-            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_SELECTION,
-                        MAKELPARAM(anchor, caret));
+            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(anchor, caret));
         },
         .unfocus = [this]() {
             PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, 0, 0);
@@ -173,7 +168,7 @@ bool App::Init(HWND hwnd)
             SyncMaxScroll(visible_h);
             InvalidateHitPositions();
         },
-    });
+        });
 
     // ファイル監視タイマーを設定 (250ms毎にチェック)
     SetTimer(hwnd_, TIMER_FILE_WATCH, 250, nullptr);
@@ -795,7 +790,8 @@ void App::DoReloadCurrentFile()
             const uint32_t node_start = nodes[changed_node].source_offset;
             if (node_start != UINT32_MAX) {
                 uint32_t next_start = static_cast<uint32_t>(new_content.size());
-                for (int i = changed_node + 1; i < static_cast<int>(nodes.size()); ++i) {
+                const auto node_count = static_cast<int>(nodes.size());
+                for (int i = changed_node + 1; i < node_count; ++i) {
                     if (nodes[i].source_offset != UINT32_MAX && nodes[i].source_offset > node_start) {
                         next_start = nodes[i].source_offset;
                         break;

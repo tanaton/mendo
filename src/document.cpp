@@ -3,6 +3,7 @@
 #include "parser.h"
 #include "profiler.h"
 #include <filesystem>
+#include <ranges>
 
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
@@ -64,10 +65,9 @@ int Document::FindAnchorIndex(std::wstring_view anchor) const
 void Document::BuildAnchorIndex()
 {
     anchor_index_.clear();
-    for (int i = 0; i < static_cast<int>(nodes_.size()); i++) {
-        const auto& node = nodes_[i];
+    for (const auto& [i, node] : nodes_ | std::views::enumerate) {
         if (node.type == NodeType::Heading && !node.anchor_id.empty()) {
-            anchor_index_.emplace(node.anchor_id, i);
+            anchor_index_.emplace(node.anchor_id, static_cast<int>(i));
         }
     }
 }
@@ -76,7 +76,8 @@ void Document::BuildSpecialNodeIndices()
 {
     image_node_indices_.clear();
     mermaid_node_indices_.clear();
-    for (size_t i = 0; i < nodes_.size(); i++) {
+    const auto node_count = nodes_.size();
+    for (size_t i = 0; i < node_count; i++) {
         const auto& node = nodes_[i];
         if (node.type == NodeType::Image) {
             image_node_indices_.emplace_back(i);
