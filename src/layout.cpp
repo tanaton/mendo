@@ -344,19 +344,32 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 }
 
 bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    float viewport_width, int batch_size, int time_budget_us)
+    float viewport_width, int batch_size, int time_budget_us,
+    float viewport_top, float viewport_height)
 {
     const float content_width = theme_->ContentWidth(viewport_width);
     int processed = 0;
     size_t first_dirty = nodes.size();
     size_t last_processed = 0;
 
+    const bool has_viewport_limit = (viewport_top >= 0.0f && viewport_height > 0.0f);
+    const float limit_top = has_viewport_limit ? viewport_top - viewport_height * 5.0f : 0.0f;
+    const float limit_bottom = has_viewport_limit ? viewport_top + viewport_height + viewport_height * 5.0f : 0.0f;
+
     const bool has_budget = (time_budget_us > 0);
     const auto start = has_budget ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
+    // メインループ中にビューポート付近にスキップされたダーティノードがあるか追跡する。
+    // 二重 O(n) スキャンを回避するため。
+    bool any_nearby_dirty_skipped = false;
 
     for (size_t i = 0; i < nodes.size(); i++) {
         auto& entry = cache[i];
         if (!entry.layout_dirty) {
+            continue;
+        }
+
+        if (has_viewport_limit && IsOffscreen(entry.y_position, entry.height, limit_top, limit_bottom)) {
             continue;
         }
 
@@ -365,6 +378,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
         if (has_budget && processed > 0) {
             const auto elapsed = std::chrono::steady_clock::now() - start;
             if (std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() >= time_budget_us) {
+                any_nearby_dirty_skipped = true;
                 break;
             }
         }
@@ -377,6 +391,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
         last_processed = i;
 
         if (++processed >= batch_size) {
+            any_nearby_dirty_skipped = true;
             break;
         }
     }
@@ -390,6 +405,12 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
     const auto result = RecomputeYPositions(nodes, cache, *theme_, first_dirty, false, last_processed);
     total_height_ = result.total_height;
     has_dirty_nodes_ = result.has_dirty_nodes;
+
+    // ビューポート制限時: 付近のダーティノードが全て処理済みなら完了とみなす。
+    // 遠方のダーティノードはスクロール時に EnsureVisibleLayout で処理される。
+    if (has_viewport_limit && has_dirty_nodes_ && !any_nearby_dirty_skipped) {
+        has_dirty_nodes_ = false;
+    }
 
     // すべてのダーティノードが処理されたら last_viewport_width_ を更新する
     if (!has_dirty_nodes_) {

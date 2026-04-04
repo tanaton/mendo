@@ -126,6 +126,13 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_
     return cache[last].y_position + cache[last].height + margin_top;
 }
 
+// ノードの Y 範囲 [y, y+h) が [range_top, range_bottom] と重ならない場合 true を返す。
+// ビューポート外判定の共通ヘルパー。
+constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom) noexcept
+{
+    return y + h < range_top || y > range_bottom;
+}
+
 // 下端が viewport_top 以上の最初のノードを二分探索で見つける。
 // 最初の可視候補ノードのインデックスを返す。該当なしの場合は node_count を返す。
 constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) noexcept

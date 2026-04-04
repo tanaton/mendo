@@ -39,6 +39,7 @@ void App::NavigateToAnchor(std::wstring_view anchor)
     viewport_.ScrollTo(target_y);
     UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
+    ScheduleBitmapManage();
 }
 
 void App::PushNavHistory()
@@ -60,6 +61,7 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result)
     const auto layout = GetPaneLayout();
     UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
+    ScheduleBitmapManage();
 }
 
 void App::NavigateBack()

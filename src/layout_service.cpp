@@ -7,8 +7,13 @@ void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float widt
     engine_.ComputeLayout(doc.GetNodesMut(), cache, width, viewport_top, viewport_bottom);
 }
 
-bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us)
+bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us,
+    float viewport_height)
 {
+    if (viewport_height > 0.0f) {
+        const float vp_top = viewport_.GetScrollY();
+        return engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, time_budget_us, vp_top, viewport_height);
+    }
     return engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, time_budget_us);
 }
 

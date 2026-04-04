@@ -45,6 +45,7 @@ public:
     void CancelPending();
 
     void ClearCache() noexcept { cache_.clear(); }
+    void RemoveCached(const std::wstring& abs_path) { cache_.erase(abs_path); }
 
     // 保留中のリクエストをキャンセルする（CancelPendingと同等）。
     void Shutdown();
@@ -54,6 +55,7 @@ private:
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
+        mutable uint64_t last_access = 0;
     };
 
     struct DecodeResult {
@@ -67,10 +69,14 @@ private:
     };
 
     void GetDpiScale(float& scale_x, float& scale_y) const;
+    void EvictLruIfNeeded();
+
+    static constexpr size_t kMaxCacheEntries = 16;
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
     std::unordered_map<std::wstring, CachedImage> cache_;
+    mutable uint64_t access_counter_ = 0;
 
     // 非同期読み込み
     HWND hwnd_ = nullptr;

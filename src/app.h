@@ -220,7 +220,7 @@ private:
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
-    void RequestMermaidRenders(bool visible_only = false);
+    void RequestMermaidRenders();
     void OnMermaidRenderComplete();
     void CancelMermaidBatch();
     void ScheduleMermaidBatch();
@@ -228,6 +228,9 @@ private:
     void LoadImages();
     void OnImageLoadComplete();
     int ApplyCachedImages();
+    void EvictOffscreenBitmaps();
+    void ScheduleBitmapManage();
+    void OnBitmapManageTimer();
 
     // 検索
     void OnSearchOpen();
@@ -264,6 +267,10 @@ public:
     static constexpr UINT_PTR TIMER_TOOLTIP = 8;
     static constexpr UINT_PTR TIMER_SEARCH_DEBOUNCE = 9;
     static constexpr UINT_PTR TIMER_MERMAID_BATCH = 10;
+    static constexpr UINT_PTR TIMER_BITMAP_MANAGE = 11;
+    // ビューポート外リソース解放のバッファ倍率（±N画面）
+    static constexpr float EVICT_BUFFER_SCREENS = 5.0f;     // eviction / 遅延レイアウト: ±5画面 = 計11画面
+    static constexpr float PREFETCH_BUFFER_SCREENS = 3.0f;   // 画像先読み: ±3画面 = 計7画面
     // バッチ処理の時間予算（マイクロ秒）。16msフレーム内でレンダリング等の余地を残す。
     static constexpr int BATCH_TIME_BUDGET_US = 6000;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
