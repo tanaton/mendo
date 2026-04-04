@@ -1,11 +1,11 @@
 #pragma once
 #include "layout_cache.h"
+#include "lru_cache.h"
 #include <d2d1.h>
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <windows.h>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include <mutex>
@@ -44,9 +44,9 @@ public:
     // 保留中のリクエストと完了結果をすべて破棄する。
     void CancelPending();
 
-    void ClearCache() noexcept { cache_.clear(); }
-    void RemoveCached(const std::wstring& abs_path) { cache_.erase(abs_path); }
-    size_t CacheSize() const noexcept { return cache_.size(); }
+    void ClearCache() noexcept { cache_.Clear(); }
+    void RemoveCached(const std::wstring& abs_path) { cache_.Erase(abs_path); }
+    size_t CacheSize() const noexcept { return cache_.Size(); }
 
     // テスト用: ビットマップなしのダミーエントリをキャッシュに挿入する。
     void InsertCacheEntry(const std::wstring& path, float width, float height);
@@ -59,7 +59,6 @@ private:
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
-        mutable uint64_t last_access = 0;
     };
 
     struct DecodeResult {
@@ -73,14 +72,12 @@ private:
     };
 
     void GetDpiScale(float& scale_x, float& scale_y) const;
-    void EvictLruIfNeeded();
 
     static constexpr size_t kMaxCacheEntries = 128;
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
-    std::unordered_map<std::wstring, CachedImage> cache_;
-    mutable uint64_t access_counter_ = 0;
+    LruCache<std::wstring, CachedImage> cache_{ kMaxCacheEntries };
 
     // 非同期読み込み
     HWND hwnd_ = nullptr;

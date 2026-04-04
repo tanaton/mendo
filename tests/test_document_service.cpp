@@ -2,6 +2,7 @@
 #include <memory_resource>
 #include <string_view>
 #include "document_service.h"
+#include "file_watcher.h"
 #include <fstream>
 #include <filesystem>
 
@@ -27,13 +28,13 @@ protected:
     }
 
     std::filesystem::path test_dir_;
-    FileLoader loader_;
+    FileWatcher watcher_;
 };
 
 TEST_F(DocumentServiceTest, LoadFileSuccess)
 {
     auto path = CreateTestFile("test.md", "# Hello\nWorld");
-    DocumentService service(loader_);
+    DocumentService service(watcher_);
     Document doc;
 
     EXPECT_TRUE(service.LoadFile(path, doc));
@@ -44,7 +45,7 @@ TEST_F(DocumentServiceTest, LoadFileSuccess)
 
 TEST_F(DocumentServiceTest, LoadFileNotFound)
 {
-    DocumentService service(loader_);
+    DocumentService service(watcher_);
     Document doc;
 
     std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
@@ -55,7 +56,7 @@ TEST_F(DocumentServiceTest, LoadFileNotFound)
 TEST_F(DocumentServiceTest, ReloadFile)
 {
     auto path = CreateTestFile("reload.md", "# First");
-    DocumentService service(loader_);
+    DocumentService service(watcher_);
     Document doc;
 
     EXPECT_TRUE(service.LoadFile(path, doc));
@@ -75,7 +76,7 @@ TEST_F(DocumentServiceTest, ReloadFile)
 
 TEST_F(DocumentServiceTest, ReloadEmptyPathFails)
 {
-    DocumentService service(loader_);
+    DocumentService service(watcher_);
     Document doc;
 
     EXPECT_FALSE(service.ReloadFile(doc));
@@ -97,6 +98,6 @@ TEST_F(DocumentServiceTest, NeedsLoadingAnimationNonexistent)
 TEST_F(DocumentServiceTest, ResetDebounceTick)
 {
     // DocumentService経由でResetDebounceTickが安全に呼べること
-    DocumentService service(loader_);
+    DocumentService service(watcher_);
     service.ResetDebounceTick();
 }

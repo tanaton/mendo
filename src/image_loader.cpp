@@ -92,12 +92,10 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
     }
 
     // キャッシュ確認
-    const auto it = cache_.find(abs_path);
-    if (it != cache_.end()) {
-        it->second.last_access = ++access_counter_;
-        out.bitmap = it->second.bitmap;
-        out.width = it->second.width;
-        out.height = it->second.height;
+    if (auto* cached_ptr = cache_.Find(abs_path)) {
+        out.bitmap = cached_ptr->bitmap;
+        out.width = cached_ptr->width;
+        out.height = cached_ptr->height;
         return true;
     }
 
@@ -155,24 +153,20 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
     cached.bitmap = bitmap;
     cached.width = static_cast<float>(w) / scale_x;
     cached.height = static_cast<float>(h) / scale_y;
-    cached.last_access = ++access_counter_;
-    cache_[abs_path] = cached;
-    EvictLruIfNeeded();
 
     out.bitmap = bitmap;
     out.width = cached.width;
     out.height = cached.height;
+    cache_.Insert(abs_path, std::move(cached));
     return true;
 }
 
 bool ImageLoader::GetCachedImage(const std::wstring& abs_path, DiagramEntry& out) const
 {
-    const auto it = cache_.find(abs_path);
-    if (it != cache_.end()) {
-        it->second.last_access = ++access_counter_;
-        out.bitmap = it->second.bitmap;
-        out.width = it->second.width;
-        out.height = it->second.height;
+    if (const auto* cached_ptr = cache_.Find(abs_path)) {
+        out.bitmap = cached_ptr->bitmap;
+        out.width = cached_ptr->width;
+        out.height = cached_ptr->height;
         return true;
     }
     return false;
@@ -275,7 +269,7 @@ void ImageLoader::ProcessCompletedDecodes()
 
     for (auto& r : results) {
         if (r.success && r.converter && render_target_) {
-            if (!cache_.contains(r.path)) {
+            if (!cache_.Contains(r.path)) {
                 Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
                 const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.converter.Get(), &bitmap);
                 if (SUCCEEDED(hr) && bitmap) {
@@ -283,8 +277,7 @@ void ImageLoader::ProcessCompletedDecodes()
                     cached.bitmap = bitmap;
                     cached.width = r.width / scale_x;
                     cached.height = r.height / scale_y;
-                    cached.last_access = ++access_counter_;
-                    cache_[r.path] = cached;
+                    cache_.Insert(r.path, std::move(cached));
                 }
             }
         }
@@ -293,23 +286,8 @@ void ImageLoader::ProcessCompletedDecodes()
         last_data = r.user_data;
     }
 
-    EvictLruIfNeeded();
-
     if (last_cb) {
         last_cb(last_data);
-    }
-}
-
-void ImageLoader::EvictLruIfNeeded()
-{
-    while (cache_.size() > kMaxCacheEntries) {
-        auto oldest = cache_.begin();
-        for (auto it = cache_.begin(); it != cache_.end(); ++it) {
-            if (it->second.last_access < oldest->second.last_access) {
-                oldest = it;
-            }
-        }
-        cache_.erase(oldest);
     }
 }
 
@@ -318,9 +296,7 @@ void ImageLoader::InsertCacheEntry(const std::wstring& path, float width, float 
     CachedImage cached;
     cached.width = width;
     cached.height = height;
-    cached.last_access = ++access_counter_;
-    cache_[path] = cached;
-    EvictLruIfNeeded();
+    cache_.Insert(path, std::move(cached));
 }
 
 void ImageLoader::CancelPending()

@@ -5,6 +5,7 @@
 #include "mermaid.h"
 #include "image_loader.h"
 #include "file_loader.h"
+#include "file_watcher.h"
 #include "file_explorer.h"
 #include "document.h"
 #include "document_service.h"
@@ -28,6 +29,11 @@
 #include "file_load_service.h"
 #include "context_menu.h"
 #include "search_state.h"
+#include "search_bar_controller.h"
+#include "resource_manager.h"
+#include "scroll_restoration.h"
+#include "cursor_manager.h"
+#include "hover_throttle.h"
 #include "tooltip.h"
 #include <windows.h>
 #include <shellapi.h>
@@ -103,12 +109,13 @@ public:
     void SetImeComposition(std::wstring_view comp);
     RECT GetSearchEditRect() const;
 
+    // 検索バーコントローラへのアクセス（app_mouse.cppでのドラッグ/ホバー処理用）
+    SearchBarController& GetSearchBarCtrl() noexcept { return search_bar_ctrl_; }
+
     // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
     void SetPendingRestoreNode(int node, int offset, int scroll_y = -1) noexcept
     {
-        pending_restore_node_ = node;
-        pending_restore_offset_ = offset;
-        pending_restore_scroll_y_ = scroll_y;
+        scroll_restore_.SetNodeRestore(node, offset, scroll_y);
     }
 
     // サイズ変更状態
@@ -208,6 +215,7 @@ private:
     void ReloadCurrentFile();
     void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
+    void ApplyMermaidCacheHeights(float md_width);
     void UpdateTitleBar();
     void SaveLastFilePath();
     void SavePaneState();
@@ -220,25 +228,9 @@ private:
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
-    int RequestMermaidRenders();
-    void OnMermaidRenderComplete();
-    void CancelMermaidBatch();
-    void ScheduleMermaidBatch();
-    void ProcessMermaidBatch();
-    void LoadImages();
-    void OnImageLoadComplete();
-    int ApplyCachedImages();
-    void FlushPendingResources();
-    void EvictOffscreenBitmaps();
-    void ScheduleBitmapManage();
-    void OnBitmapManageTimer();
 
     // 検索
     void OnSearchOpen();
-    void RunSearchAndLocate(bool scroll_to_match = false);
-    void ScrollToCurrentMatch();
-    void InvalidateSearchBar();
-    void RestartSearchCaretBlink();
 
     // OnPaint用のレンダーステート構築ヘルパー
     GestureRenderState BuildGestureRenderState() const;
@@ -264,16 +256,13 @@ public:
     static constexpr UINT_PTR TIMER_LOADING_ANIM = 4;
     static constexpr UINT_PTR TIMER_SWIPE_OVERLAY = 5;
     static constexpr UINT_PTR TIMER_TOAST = 6;
-    static constexpr UINT_PTR TIMER_SEARCH_CARET = 7;
+    static constexpr UINT_PTR TIMER_SEARCH_CARET = SearchBarController::TIMER_CARET;
     static constexpr UINT_PTR TIMER_TOOLTIP = 8;
-    static constexpr UINT_PTR TIMER_SEARCH_DEBOUNCE = 9;
-    static constexpr UINT_PTR TIMER_MERMAID_BATCH = 10;
-    static constexpr UINT_PTR TIMER_BITMAP_MANAGE = 11;
-    // ビューポート外リソース解放のバッファ倍率（±N画面）
-    static constexpr float EVICT_BUFFER_SCREENS = 5.0f;     // eviction / 遅延レイアウト: ±5画面 = 計11画面
-    static constexpr float PREFETCH_BUFFER_SCREENS = 3.0f;   // 画像先読み: ±3画面 = 計7画面
-    // バッチ処理の時間予算（マイクロ秒）。16msフレーム内でレンダリング等の余地を残す。
-    static constexpr int BATCH_TIME_BUDGET_US = 6000;
+    static constexpr UINT_PTR TIMER_SEARCH_DEBOUNCE = SearchBarController::TIMER_DEBOUNCE;
+    static constexpr UINT_PTR TIMER_MERMAID_BATCH = ResourceManager::TIMER_MERMAID_BATCH;
+    static constexpr UINT_PTR TIMER_BITMAP_MANAGE = ResourceManager::TIMER_BITMAP_MANAGE;
+    static constexpr float EVICT_BUFFER_SCREENS = ResourceManager::EVICT_BUFFER_SCREENS;
+    static constexpr int BATCH_TIME_BUDGET_US = ResourceManager::BATCH_TIME_BUDGET_US;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
     static constexpr UINT WM_APP_IMAGE_LOADED = WM_APP + 2;
     static constexpr UINT WM_APP_RELOAD_FILE = WM_APP + 3;
@@ -290,16 +279,8 @@ private:
     HWND hwnd_ = nullptr;
     float cached_dpi_scale_ = 1.0f;
 
-    // キャッシュ済みシステムカーソル
-    HCURSOR cursor_arrow_ = nullptr;
-    HCURSOR cursor_hand_ = nullptr;
-    HCURSOR cursor_ibeam_ = nullptr;
-    HCURSOR cursor_sizewe_ = nullptr;
-
-    // ヒットテストのスロットリング
-    POINT last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
-    bool last_md_cursor_hand_ = false;
-    POINT last_copy_hit_pos_ = { LONG_MIN, LONG_MIN };
+    CursorManager cursors_;
+    HoverThrottle hover_throttle_;
 
     // コアサービス
     Renderer renderer_;
@@ -307,8 +288,8 @@ private:
     MermaidFileCache file_cache_;         // mermaid_renderer_より先に宣言（破棄順序の保証）
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
-    FileLoader file_loader_;
-    DocumentService doc_service_{ file_loader_ };
+    FileWatcher file_watcher_;
+    DocumentService doc_service_{ file_watcher_ };
     AppController controller_;
     ConfigService config_;
     ThemeService theme_service_{ config_ };
@@ -336,12 +317,7 @@ private:
     SwipeDetector swipe_detector_;
     HitTestService hit_test_;
 
-    float last_mermaid_content_width_ = 0.0f;
-    bool mermaid_batch_loading_ = false;
-    size_t mermaid_batch_next_ = 0;
-
-    // 画像パス解決キャッシュ（canonical() のディスクI/Oを回避）
-    std::unordered_map<size_t, std::wstring> resolved_image_paths_;
+    ResourceManager resource_manager_;
 
     // PaneLayout キャッシュ（ウィンドウサイズ・ペイン状態が変わるまで再利用）
     mutable ::PaneLayout cached_pane_layout_{};
@@ -352,25 +328,11 @@ private:
     using NavButtonHover = HitTestService::NavButtonHover;
     NavButtonHover nav_hover_ = NavButtonHover::None;
 
-    // 戻る/進むナビゲーション時の遅延スクロール復元用
-    float pending_nav_scroll_y_ = -1.0f;
-
-    // セッション復元時のノードベーススクロール復元用
-    int pending_restore_node_ = -1;
-    int pending_restore_offset_ = 0;
-    int pending_restore_scroll_y_ = -1; // 遅延レイアウト完了後に適用する生のscroll_y
+    ScrollRestoration scroll_restore_;
 
     // 検索
     SearchState search_state_;
-    enum class SearchBarHover : uint8_t { None, Up, Down, Close, CaseSensitive, Highlight };
-    SearchBarHover search_bar_hover_ = SearchBarHover::None;
-    bool search_caret_visible_ = false;
-    bool search_has_focus_ = false;
-    int search_caret_pos_ = -1;
-    int search_selection_start_ = -1;
-    bool search_dragging_ = false;
-    int search_drag_anchor_ = 0;
-    std::wstring ime_composition_;
+    SearchBarController search_bar_ctrl_;
 
     // カスタムコンテキストメニュー
     ContextMenu ctx_menu_;
