@@ -30,9 +30,6 @@ public:
     // 成功時にtrueを返す。呼び出し元はdocからディレクトリ/ファイルパスを参照すること。
     bool ExecuteLoad(Document& doc, LayoutCache& cache);
 
-    // 現在のファイルをリロード。
-    bool ExecuteReload(Document& doc, LayoutCache& cache);
-
     // ---- パスアクセス ----
 
     constexpr std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }

@@ -104,10 +104,11 @@ public:
     RECT GetSearchEditRect() const;
 
     // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
-    void SetPendingRestoreNode(int node, int offset) noexcept
+    void SetPendingRestoreNode(int node, int offset, int scroll_y = -1) noexcept
     {
         pending_restore_node_ = node;
         pending_restore_offset_ = offset;
+        pending_restore_scroll_y_ = scroll_y;
     }
 
     // サイズ変更状態
@@ -131,9 +132,9 @@ public:
 
     // カスタムタイトルバー
     float GetTitleBarHeightDip() const noexcept { return titlebar_.GetHeight(); }
-    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const { return titlebar_.HitTest(dip_x, dip_y); }
+    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept { return titlebar_.HitTest(dip_x, dip_y); }
     bool IsOverMdScrollbar(float dip_x, float dip_y) const;
-    bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const;
+    bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const noexcept;
     void OnActivate(bool active);
 
 private:
@@ -152,7 +153,7 @@ private:
 
     // DIP変換
     struct DipPoint { float x, y; };
-    DipPoint PixelToDip(int px, int py) const;
+    DipPoint PixelToDip(int px, int py) const noexcept;
 
     // ヒットテスト
     using HitResult = HitTestService::HitResult;
@@ -196,11 +197,8 @@ private:
     void InvalidateMdPane(const PaneRect& md_rect);
     void InvalidateHitPositions() noexcept;
     void ScrollTo(float position);
-    void SmoothScrollBy(float delta);
-    void UpdateSmoothScroll();
-    void StopSmoothScroll();
     void SyncMaxScroll(float md_pane_height);
-    int FindFirstVisibleNode() const;
+    int FindFirstVisibleNode() const noexcept;
     void OnResizeEnd();
     void RefreshPaneLayout();
     void RefreshFilePane();
@@ -230,6 +228,7 @@ private:
 
     // 検索
     void OnSearchOpen();
+    void RunSearchAndLocate(bool scroll_to_match = false);
     void ScrollToCurrentMatch();
     void InvalidateSearchBar();
     void RestartSearchCaretBlink();
@@ -260,6 +259,7 @@ public:
     static constexpr UINT_PTR TIMER_TOAST = 6;
     static constexpr UINT_PTR TIMER_SEARCH_CARET = 7;
     static constexpr UINT_PTR TIMER_TOOLTIP = 8;
+    static constexpr UINT_PTR TIMER_SEARCH_DEBOUNCE = 9;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
     static constexpr UINT WM_APP_IMAGE_LOADED = WM_APP + 2;
     static constexpr UINT WM_APP_RELOAD_FILE = WM_APP + 3;
@@ -342,6 +342,7 @@ private:
     // セッション復元時のノードベーススクロール復元用
     int pending_restore_node_ = -1;
     int pending_restore_offset_ = 0;
+    int pending_restore_scroll_y_ = -1; // 遅延レイアウト完了後に適用する生のscroll_y
 
     // 検索
     SearchState search_state_;
@@ -372,7 +373,4 @@ private:
     Tooltip tooltip_;
     void UpdateTooltip(const TooltipTarget& target, int px, int py);
     void ClearTooltip();
-
-    // スムーススクロールのフレーム間タイミング
-    std::chrono::steady_clock::time_point last_scroll_time_{};
 };

@@ -19,7 +19,7 @@ Theme ThemeService::CreateTheme(int zoom_index) const
     return theme;
 }
 
-bool ThemeService::ToggleDarkMode()
+bool ThemeService::ToggleDarkMode() noexcept
 {
     dark_mode_ = !dark_mode_;
     return dark_mode_;

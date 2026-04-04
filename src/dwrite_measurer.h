@@ -21,7 +21,7 @@ public:
 
 private:
     bool CreateAllFormats();
-    IDWriteTextFormat* GetTextFormat(const Node& node);
+    IDWriteTextFormat* GetTextFormat(const Node& node) noexcept;
     void ApplyCellRunFormatting(IDWriteTextLayout* layout, const std::pmr::vector<TextRun>& runs);
     void MeasureTableCells(Node& node, NodeLayoutEntry& entry,
         std::pmr::vector<float>& natural_widths);

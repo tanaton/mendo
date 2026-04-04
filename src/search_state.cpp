@@ -68,7 +68,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_
         auto it = text.begin();
         while (it != text.end()) {
             it = std::search(it, text.end(), lower_query.begin(), lower_query.end(),
-                [](wchar_t a, wchar_t b) { return static_cast<wchar_t>(std::towlower(a)) == b; });
+                [](wchar_t a, wchar_t b) static noexcept { return static_cast<wchar_t>(std::towlower(a)) == b; });
             if (it == text.end()) {
                 break;
             }
@@ -79,7 +79,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_
     }
 }
 
-bool SearchState::NextMatch()
+bool SearchState::NextMatch() noexcept
 {
     if (matches_.empty()) {
         return false;
@@ -90,7 +90,7 @@ bool SearchState::NextMatch()
     return wrapped;
 }
 
-bool SearchState::PrevMatch()
+bool SearchState::PrevMatch() noexcept
 {
     if (matches_.empty()) {
         return false;
@@ -105,20 +105,25 @@ bool SearchState::PrevMatch()
     return wrapped;
 }
 
-void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache)
+void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept
 {
     if (matches_.empty()) {
         current_match_ = -1;
         return;
     }
 
-    for (int i = 0; i < static_cast<int>(matches_.size()); i++) {
-        const int ni = matches_[i].node_index;
+    // matches_ は node_index 昇順 → cache[ni].y_position も単調増加のため二分探索を使用
+    int lo = 0, hi = static_cast<int>(matches_.size());
+    while (lo < hi) {
+        const int mid = lo + (hi - lo) / 2;
+        const int ni = matches_[mid].node_index;
         if (ni < static_cast<int>(cache.size()) && cache[ni].y_position >= scroll_y) {
-            current_match_ = i;
-            return;
+            hi = mid;
+        }
+        else {
+            lo = mid + 1;
         }
     }
 
-    current_match_ = 0;
+    current_match_ = (lo < static_cast<int>(matches_.size())) ? lo : 0;
 }

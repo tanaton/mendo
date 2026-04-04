@@ -82,6 +82,10 @@ struct Theme {
     // ズーム（1.0 = 100%）
     float zoom = 1.0f;
 
+    constexpr float ContentWidth(float viewport_width) const noexcept
+    {
+        return viewport_width - margin_left - margin_right;
+    }
     float GetHeadingSize(int level) const noexcept;
     constexpr float GetHeadingUnderlineThickness(int level) const noexcept
     {

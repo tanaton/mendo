@@ -31,7 +31,7 @@ struct WordBoundary {
 // テキスト内の指定位置周辺の単語境界を検索する。
 // 「単語文字」は英数字またはアンダースコア。
 // 位置が単語文字上にあれば {start, end, true} を返し、そうでなければ {0, 0, false} を返す。
-WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos);
+WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept;
 
 // ASCII範囲の大文字を小文字に変換する。
 [[nodiscard]] std::pmr::wstring ToLowerAscii(std::wstring_view text);

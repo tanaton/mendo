@@ -9,11 +9,11 @@
 class D2DRenderBackend final : public IRenderBackend {
 public:
     bool Init(HWND hwnd) override;
-    void Resize(UINT width, UINT height) override;
-    void SetDpi(float dpi) override;
+    void Resize(UINT width, UINT height) noexcept override;
+    void SetDpi(float dpi) noexcept override;
     float GetDpi() const noexcept override { return dpi_; }
     bool RecreateRenderTarget() override;
-    void Present() override;
+    void Present() noexcept override;
 
     ID2D1Factory* GetD2DFactory() const noexcept override { return d2d_factory_.Get(); }
     ID2D1DeviceContext* GetRenderTarget() const noexcept override { return device_context_.Get(); }

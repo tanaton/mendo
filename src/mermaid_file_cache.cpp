@@ -54,9 +54,9 @@ std::filesystem::path MermaidFileCache::GetIndexPath() const
     return dir / L"index.bin";
 }
 
-int64_t MermaidFileCache::Now()
+int64_t MermaidFileCache::Now() noexcept
 {
-    return std::chrono::duration_cast<std::chrono::seconds>(
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
@@ -238,6 +238,17 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, std::vector<uint8
     RemoveLruEntry(old_time, key);
     lru_order_.emplace(new_time, key);
 
+    return true;
+}
+
+bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept
+{
+    const auto it = index_.find(key);
+    if (it == index_.end()) {
+        return false;
+    }
+    entry.css_width = it->second.css_width;
+    entry.css_height = it->second.css_height;
     return true;
 }
 

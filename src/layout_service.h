@@ -11,9 +11,6 @@ public:
     {
     }
 
-    // 全レイアウト計算（初回ロード時）
-    void FullLayout(Document& doc, LayoutCache& cache, float width);
-
     // ビューポート優先レイアウト（リサイズ時）
     void ViewportLayout(Document& doc, LayoutCache& cache, float width, float height);
 
@@ -24,7 +21,7 @@ public:
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
 
     // ダイアグラム反映後の Y 位置再計算
-    void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme);
+    void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept;
 
     // ダーティノードが残っているか
     constexpr bool HasDirtyNodes() const noexcept { return engine_.HasDirtyNodes(); }

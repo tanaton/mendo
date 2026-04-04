@@ -36,6 +36,10 @@ public:
     // last_usedタイムスタンプも更新される。
     bool Lookup(uint64_t key, CacheEntry& entry, std::vector<uint8_t>& png_data);
 
+    // インデックスからCSSサイズのみを取得する（ディスクI/O無し）。
+    // スクロール位置復元時の高さ推定に使用する。
+    bool LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept;
+
     // PNGファイルをバックグラウンドスレッドで非同期に書き出す。
     // インデックスエントリは即座に追加される。
     void StoreAsync(uint64_t key, float css_width, float css_height,
@@ -78,7 +82,7 @@ private:
     void LoadIndex();
     void EvictIfNeeded(uint32_t new_png_size);
     void RemoveLruEntry(int64_t timestamp, uint64_t key);
-    static int64_t Now();
+    static int64_t Now() noexcept;
 
     std::filesystem::path cache_dir_override_;
     float stored_dpr_ = 0.0f;

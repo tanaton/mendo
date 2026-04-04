@@ -170,7 +170,7 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
     return true;
 }
 
-void D2DRenderBackend::Resize(UINT width, UINT height)
+void D2DRenderBackend::Resize(UINT width, UINT height) noexcept
 {
     if (!swap_chain_ || !device_context_) {
         return;
@@ -188,7 +188,7 @@ void D2DRenderBackend::Resize(UINT width, UINT height)
     }
 }
 
-void D2DRenderBackend::SetDpi(float dpi)
+void D2DRenderBackend::SetDpi(float dpi) noexcept
 {
     dpi_ = dpi;
     if (device_context_) {
@@ -196,7 +196,7 @@ void D2DRenderBackend::SetDpi(float dpi)
     }
 }
 
-void D2DRenderBackend::Present()
+void D2DRenderBackend::Present() noexcept
 {
     if (swap_chain_) {
         swap_chain_->Present(1, 0);

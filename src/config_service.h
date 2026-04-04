@@ -6,7 +6,7 @@
 
 class ConfigService {
 public:
-    ConfigService() = default;
+    ConfigService() noexcept = default;
 
     void SaveBool(std::string_view section, std::string_view key, bool value) { config::SetBool(section, key, value); }
     bool LoadBool(std::string_view section, std::string_view key, bool default_value = false) const { return config::GetBool(section, key, default_value); }

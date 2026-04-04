@@ -564,7 +564,7 @@ void ContextMenu::DrawTextItem(const Item& item)
 // ヒットテスト
 // ============================================================
 
-int ContextMenu::HitTest(float x, float y) const
+int ContextMenu::HitTest(float x, float y) const noexcept
 {
     for (const auto& item : items_) {
         if (item.type != ItemType::Text || item.id == 0) {
@@ -577,7 +577,7 @@ int ContextMenu::HitTest(float x, float y) const
     return 0;
 }
 
-int ContextMenu::NavHitTest(float x, float y) const
+int ContextMenu::NavHitTest(float x, float y) const noexcept
 {
     if (nav_layout_.back_enabled && PointInRect(x, y, nav_layout_.back_rect)) {
         return IDM_NAV_BACK;

@@ -3,7 +3,6 @@
 #include "layout_cache.h"
 #include "theme.h"
 #include <algorithm>
-#include <cmath>
 #include <memory_resource>
 
 // スクロール、選択、ズームの純粋な状態管理。
@@ -13,71 +12,22 @@ public:
     // ---- スクロール ----
 
     constexpr float GetScrollY() const noexcept { return scroll_y_; }
-    constexpr float GetScrollTarget() const noexcept { return scroll_target_; }
     constexpr float GetMaxScroll() const noexcept { return max_scroll_; }
-    constexpr bool IsSmoothScrolling() const noexcept { return smooth_scrolling_; }
 
     constexpr void ScrollTo(float position) noexcept
     {
         scroll_y_ = std::clamp(position, 0.0f, max_scroll_);
-        scroll_target_ = scroll_y_;
     }
 
-    constexpr void SmoothScrollBy(float delta) noexcept
-    {
-        scroll_target_ = std::clamp(scroll_target_ + delta, 0.0f, max_scroll_);
-        smooth_scrolling_ = true;
-    }
-
-    // ホイール/タッチパッド用: ターゲットと現在位置を同時に移動し、ギャップを作らない。
-    // 残存するスムーススクロールのギャップもリセットする。
     constexpr void DirectScrollBy(float delta) noexcept
     {
         scroll_y_ = std::clamp(scroll_y_ + delta, 0.0f, max_scroll_);
-        scroll_target_ = scroll_y_;
-        smooth_scrolling_ = false;
-    }
-
-    // スムーススクロール補間を1フレーム進める。
-    // スクロールがまだ継続中の場合trueを返す。
-    // dt_ms: 前フレームからの経過時間（ミリ秒）。フレームレート非依存の補間を行う。
-    bool UpdateSmoothScroll(float dt_ms) noexcept
-    {
-        // 極端に大きなデルタタイムを防止（ウィンドウ最小化等）
-        dt_ms = std::min(dt_ms, MAX_DELTA_MS);
-        const float diff = scroll_target_ - scroll_y_;
-        if (std::abs(diff) < SCROLL_EPSILON) {
-            scroll_y_ = scroll_target_;
-            smooth_scrolling_ = false;
-            return false;
-        }
-        const float factor = 1.0f - std::pow(1.0f - SCROLL_SPEED, dt_ms / SCROLL_REFERENCE_DT);
-        const float movement = diff * factor;
-        scroll_y_ += movement;
-        scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
-        return true;
-    }
-
-    // 基準フレーム時間（16ms ≈ 60fps）でのオーバーロード。
-    bool UpdateSmoothScroll() noexcept
-    {
-        return UpdateSmoothScroll(SCROLL_REFERENCE_DT);
-    }
-
-    constexpr void StopSmoothScroll() noexcept
-    {
-        if (!smooth_scrolling_) {
-            return;
-        }
-        scroll_y_ = scroll_target_;
-        smooth_scrolling_ = false;
     }
 
     constexpr void SyncMaxScroll(float total_height, float viewport_height) noexcept
     {
         max_scroll_ = std::max(0.0f, total_height - viewport_height);
         scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
-        scroll_target_ = std::clamp(scroll_target_, 0.0f, max_scroll_);
     }
 
     // 下端がscroll_y_より下にある最初のノードを見つける。
@@ -95,12 +45,10 @@ public:
         }
         const float shift = cache[anchor_idx].y_position - anchor_y_before;
         scroll_y_ = std::max(0.0f, scroll_y_ + shift);
-        scroll_target_ = std::max(0.0f, scroll_target_ + shift);
         // 注意: 呼び出し側はこの後SyncMaxScroll()を呼ぶ必要がある
     }
 
     constexpr void SetScrollY(float y) noexcept { scroll_y_ = y; }
-    constexpr void SetScrollTarget(float t) noexcept { scroll_target_ = t; }
 
     constexpr bool IsScrollbarTracking() const noexcept { return is_scrollbar_tracking_; }
     constexpr void SetScrollbarTracking(bool v) noexcept { is_scrollbar_tracking_ = v; }
@@ -172,17 +120,10 @@ public:
         return 0.0f;
     }
 
-    static constexpr float SCROLL_SPEED = 0.25f;
-    static constexpr float SCROLL_EPSILON = 1.5f;
-    static constexpr float SCROLL_REFERENCE_DT = 16.0f; // 基準フレーム時間（ms）
-    static constexpr float MAX_DELTA_MS = 100.0f;       // デルタタイム上限（ms）
-
 private:
     // スクロール状態
     float scroll_y_ = 0.0f;
-    float scroll_target_ = 0.0f;
     float max_scroll_ = 0.0f;
-    bool smooth_scrolling_ = false;
     bool is_scrollbar_tracking_ = false;
 
     // 選択状態

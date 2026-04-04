@@ -1,10 +1,5 @@
 #include "layout_service.h"
 
-void LayoutService::FullLayout(Document& doc, LayoutCache& cache, float width)
-{
-    engine_.ComputeLayout(doc.GetNodesMut(), cache, width);
-}
-
 void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float width, float height)
 {
     const float viewport_top = viewport_.GetScrollY();
@@ -24,7 +19,7 @@ bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float
     return engine_.EnsureVisibleLayout(doc.GetNodesMut(), cache, width, viewport_top, viewport_bottom);
 }
 
-void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme)
+void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept
 {
     const auto result = RecomputeYPositions(doc.GetNodesMut(), cache, theme);
     engine_.SetTotalHeight(result.total_height);

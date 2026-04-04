@@ -31,14 +31,3 @@ bool FileLoadService::ExecuteLoad(Document& doc, LayoutCache& cache)
     cache.Reset(doc.GetNodes().size());
     return true;
 }
-
-bool FileLoadService::ExecuteReload(Document& doc, LayoutCache& cache)
-{
-    if (doc.GetFilePath().empty()) {
-        return false;
-    }
-
-    doc_service_.ReloadFile(doc);
-    cache.Reset(doc.GetNodes().size(), false);
-    return true;
-}

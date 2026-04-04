@@ -353,7 +353,7 @@ void MermaidRenderer::SetupWorker(int index)
         // ナビゲーションを制限: app.local以外へのナビゲーションをブロック
         w.webview->add_NavigationStarting(
             Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
-                [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static->HRESULT {
             LPWSTR uri = nullptr;
             if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
                 if (wcsncmp(uri, L"https://app.local/", 18) != 0 &&
@@ -369,7 +369,7 @@ void MermaidRenderer::SetupWorker(int index)
         // 新規ウィンドウの要求を全てブロック
         w.webview->add_NewWindowRequested(
             Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
-                [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
+                [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static->HRESULT {
             args->put_Handled(TRUE);
             return S_OK;
         }).Get(), nullptr);
@@ -467,10 +467,9 @@ void MermaidRenderer::ClearPendingQueue() noexcept
     pending_requests_.swap(empty);
 }
 
-uint64_t MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const
+uint64_t MermaidRenderer::HashCode(std::wstring_view code, float max_width, bool dark_mode) const noexcept
 {
-    const int qw = mermaid_util::QuantizeWidth(max_width);
-    return mermaid_util::CombinedHash(code, qw, dark_mode);
+    return mermaid_util::HashCode(code, max_width, dark_mode);
 }
 
 void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,

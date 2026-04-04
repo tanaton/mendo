@@ -133,8 +133,8 @@ struct Node {
     std::unique_ptr<NodeImageData> image_data;
 
     // テーブル行への便利アクセサ
-    std::pmr::vector<TableRow>& table_rows() { return table_data->rows; }
-    const std::pmr::vector<TableRow>& table_rows() const { return table_data->rows; }
+    std::pmr::vector<TableRow>& table_rows() noexcept { return table_data->rows; }
+    const std::pmr::vector<TableRow>& table_rows() const noexcept { return table_data->rows; }
     void ensure_table() { if (!table_data) { table_data = std::make_unique<NodeTableData>(); } }
     bool has_table() const noexcept { return table_data != nullptr; }
 

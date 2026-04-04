@@ -123,7 +123,7 @@ int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view a
     return -1;
 }
 
-WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos)
+WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
 {
     WordBoundary result;
     if (text.empty()) {
@@ -133,7 +133,7 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos)
         pos = static_cast<uint32_t>(text.size()) - 1;
     }
 
-    const auto is_word_char = [](wchar_t c) {
+    const auto is_word_char = [](wchar_t c) static noexcept {
         return IsCharAlphaNumericW(c) || c == L'_';
     };
 

@@ -5,6 +5,7 @@
 #include "pane_layout.h"
 #include "document_utils.h"
 #include "mermaid_util.h"
+#include "layout.h"
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
@@ -127,7 +128,7 @@ bool App::Init(HWND hwnd)
 // ヘルパー
 // ============================================================
 
-App::DipPoint App::PixelToDip(int px, int py) const
+App::DipPoint App::PixelToDip(int px, int py) const noexcept
 {
     return { px / cached_dpi_scale_, py / cached_dpi_scale_ };
 }
@@ -350,12 +351,6 @@ void App::OnPaint()
 {
     MENDO_PROFILE("OnPaint");
 
-    // スムーススクロール中は描画前にデルタタイムでスクロール位置を進める。
-    // SetTimerではなくWM_PAINTループで駆動することでディスプレイのリフレッシュレートに追従する。
-    if (viewport_.IsSmoothScrolling()) {
-        UpdateSmoothScroll();
-    }
-
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
 
@@ -431,11 +426,6 @@ void App::OnPaint()
     }
 
     EndPaint(hwnd_, &ps);
-
-    // スクロール継続中なら次フレームの再描画を要求（WM_PAINTループを維持）
-    if (viewport_.IsSmoothScrolling()) {
-        InvalidateMdPane(layout.md_rect);
-    }
 }
 
 void App::OnResize(UINT width, UINT height)
@@ -491,7 +481,6 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 void App::OnEnterSizeMove()
 {
     is_sizing_ = true;
-    StopSmoothScroll();
 }
 
 void App::OnExitSizeMove()
@@ -536,7 +525,6 @@ void App::LoadHelpDocument()
 
     // ビューポート優先レイアウト + 遅延処理
     viewport_.SetScrollY(0.0f);
-    viewport_.SetScrollTarget(0.0f);
     {
         const auto pane_layout = GetPaneLayout();
         layout_service_->ViewportLayout(doc_, layout_cache_,
@@ -607,7 +595,6 @@ void App::DoLoadMarkdownFile()
     renderer_.InvalidateTocPaneCache();
 
     // ビューポート優先レイアウト: 可視範囲のみ計測し、残りは遅延処理に委ねる。
-    // FullLayoutの代わりにViewportLayoutを使うことで初回表示までの時間を大幅に短縮する。
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
@@ -621,6 +608,23 @@ void App::DoLoadMarkdownFile()
         {
             MENDO_PROFILE("EstimateNodeHeights");
             EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
+        }
+        // Mermaidブロックの推定高さをファイルキャッシュの実測値で上書きする。
+        // 行数ベースの推定は実際の描画サイズと大きく乖離し得るため、
+        // キャッシュ済みの正確な高さを使うことでスクロール復元時のジャンプを防ぐ。
+        {
+            const float content_width = renderer_.GetTheme().ContentWidth(md_width);
+            const bool dark_mode = theme_service_.IsDarkMode();
+            const auto& nodes = doc_.GetNodes();
+            for (size_t i : doc_.GetMermaidNodeIndices()) {
+                const auto hash = mermaid_util::HashCode(
+                    nodes[i].text, content_width, dark_mode);
+                MermaidFileCache::CacheEntry fentry;
+                if (file_cache_.LookupDimensions(hash, fentry)) {
+                    layout_cache_[i].height = fentry.css_height;
+                }
+            }
+            RecomputeYPositions(doc_.GetNodesMut(), layout_cache_, renderer_.GetTheme());
         }
         const int node = std::min(pending_restore_node_,
             static_cast<int>(layout_cache_.size()) - 1);
@@ -638,7 +642,6 @@ void App::DoLoadMarkdownFile()
     // スクロール位置を設定してからViewportLayoutを呼ぶことで、
     // 復元先の可視範囲のノードが計測される
     viewport_.SetScrollY(scroll_y);
-    viewport_.SetScrollTarget(scroll_y);
 
     {
         MENDO_PROFILE("ViewportLayout(Initial)");
@@ -772,7 +775,6 @@ void App::DoReloadCurrentFile()
     // スクロール位置を設定してからViewportLayoutを呼ぶことで、
     // 変更箇所周辺の可視ノードが計測される
     viewport_.SetScrollY(desired_scroll);
-    viewport_.SetScrollTarget(desired_scroll);
 
     {
         MENDO_PROFILE("Reload::ViewportLayout");
@@ -788,10 +790,7 @@ void App::DoReloadCurrentFile()
 
     // 検索バー表示中なら再検索
     if (search_state_.IsVisible() && !search_state_.GetQuery().empty()) {
-        search_state_.ExecuteSearch(doc_.GetNodes());
-        if (search_state_.GetMatchCount() > 0) {
-            search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
-        }
+        RunSearchAndLocate();
     }
 
     Invalidate();
@@ -823,9 +822,7 @@ int App::ApplyCachedImages()
     }
 
     const float viewport_width = GetMarkdownPaneWidth();
-    const float content_width = viewport_width
-        - renderer_.GetTheme().margin_left
-        - renderer_.GetTheme().margin_right;
+    const float content_width = renderer_.GetTheme().ContentWidth(viewport_width);
     if (content_width <= 0.0f) {
         return 0;
     }
@@ -880,7 +877,7 @@ int App::ApplyCachedImages()
         }
         else {
             image_loader_.RequestLoadAsync(abs_str,
-                [](void* ctx) { static_cast<App*>(ctx)->OnImageLoadComplete(); },
+                [](void* ctx) static { static_cast<App*>(ctx)->OnImageLoadComplete(); },
                 this);
         }
     }
@@ -914,9 +911,7 @@ void App::OnImageLoadComplete()
 void App::RequestMermaidRenders(bool visible_only)
 {
     const float viewport_width = GetMarkdownPaneWidth();
-    const float content_width = viewport_width
-        - renderer_.GetTheme().margin_left
-        - renderer_.GetTheme().margin_right;
+    const float content_width = renderer_.GetTheme().ContentWidth(viewport_width);
 
     // コンテンツ幅が0以下の場合（ズームでMDペインが極小になった場合など）は
     // 不正な幅でレンダリングしないようスキップする。
@@ -972,7 +967,7 @@ void App::RequestMermaidRenders(bool visible_only)
 
         mermaid_renderer_.RequestRender(node, layout_cache_[i], diagram,
             content_width, theme_service_.IsDarkMode(),
-            [](void* ctx) { static_cast<App*>(ctx)->OnMermaidRenderComplete(); },
+            [](void* ctx) static { static_cast<App*>(ctx)->OnMermaidRenderComplete(); },
             this);
     }
 }
@@ -1055,18 +1050,25 @@ void App::ExecuteActions(const ActionList& actions)
     for (const auto& action : actions) {
         std::visit(overloaded{
             [this](const KeyScrollAction& a) {
+                pending_restore_scroll_y_ = -1;
+                const float old_scroll = viewport_.GetScrollY();
                 const auto pane_layout = GetPaneLayout();
                 const float page_size = pane_layout.md_rect.height;
                 switch (a.type) {
-                    case ScrollType::LineUp:   SmoothScrollBy(-40.0f); break;
-                    case ScrollType::LineDown: SmoothScrollBy(40.0f); break;
-                    case ScrollType::PageUp:   SmoothScrollBy(-page_size * 0.9f); break;
-                    case ScrollType::PageDown: SmoothScrollBy(page_size * 0.9f); break;
-                    case ScrollType::Home:     SmoothScrollBy(-viewport_.GetScrollY()); break;
-                    case ScrollType::End:      SmoothScrollBy(viewport_.GetMaxScroll() - viewport_.GetScrollY()); break;
+                    case ScrollType::LineUp:   viewport_.DirectScrollBy(-40.0f); break;
+                    case ScrollType::LineDown: viewport_.DirectScrollBy(40.0f); break;
+                    case ScrollType::PageUp:   viewport_.DirectScrollBy(-page_size * 0.9f); break;
+                    case ScrollType::PageDown: viewport_.DirectScrollBy(page_size * 0.9f); break;
+                    case ScrollType::Home:     viewport_.ScrollTo(0.0f); break;
+                    case ScrollType::End:      viewport_.ScrollTo(viewport_.GetMaxScroll()); break;
+                }
+                if (viewport_.GetScrollY() != old_scroll) {
+                    InvalidateHitPositions();
+                    Invalidate();
                 }
             },
             [this](const DirectScrollByAction& a) {
+                pending_restore_scroll_y_ = -1;
                 viewport_.DirectScrollBy(a.delta);
                 InvalidateHitPositions();
                 Invalidate();
@@ -1241,6 +1243,11 @@ void App::HandleTimer(UINT_PTR timer_id)
         KillTimer(hwnd_, TIMER_TOOLTIP);
         tooltip_.Show();
         break;
+    case TIMER_SEARCH_DEBOUNCE:
+        KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
+        RunSearchAndLocate(true);
+        Invalidate();
+        break;
     default: break;
     }
 }
@@ -1285,12 +1292,24 @@ void App::OnDestroy()
     KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
     KillTimer(hwnd_, TIMER_TOAST);
     KillTimer(hwnd_, TIMER_SEARCH_CARET);
+    KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
     KillTimer(hwnd_, TIMER_TOOLTIP);
 }
 
 // ============================================================
 // 検索
 // ============================================================
+
+void App::RunSearchAndLocate(bool scroll_to_match)
+{
+    search_state_.ExecuteSearch(doc_.GetNodes());
+    if (search_state_.GetMatchCount() > 0) {
+        search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
+        if (scroll_to_match) {
+            ScrollToCurrentMatch();
+        }
+    }
+}
 
 void App::OnSearchOpen()
 {
@@ -1307,10 +1326,7 @@ void App::OnSearchOpen()
 
     // 前回のクエリが残っている場合は検索を再実行
     if (!search_state_.GetQuery().empty()) {
-        search_state_.ExecuteSearch(doc_.GetNodes());
-        if (search_state_.GetMatchCount() > 0) {
-            search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
-        }
+        RunSearchAndLocate();
     }
 
     RestartSearchCaretBlink();
@@ -1326,6 +1342,7 @@ void App::OnSearchClose()
     search_caret_visible_ = false;
     ime_composition_.clear();
     KillTimer(hwnd_, TIMER_SEARCH_CARET);
+    KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
     PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, 0, 0);
     Invalidate();
 }
@@ -1351,22 +1368,32 @@ void App::OnSearchPrev()
 void App::OnSearchTextChanged(std::wstring_view text)
 {
     search_state_.SetQuery(text);
-    search_state_.ExecuteSearch(doc_.GetNodes());
-    if (search_state_.GetMatchCount() > 0) {
-        search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
-        ScrollToCurrentMatch();
+    KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
+
+    if (text.empty()) {
+        // 空クエリ: 即座に結果をクリア
+        search_state_.ExecuteSearch(doc_.GetNodes());
+        Invalidate();
+        return;
     }
+
+    // 小規模ドキュメント（≤1000ノード）: 即座に検索実行
+    if (doc_.GetNodes().size() <= 1000) {
+        RunSearchAndLocate(true);
+        Invalidate();
+        return;
+    }
+
+    // 大規模ドキュメント: デバウンスで連続入力中の再検索を抑制
     Invalidate();
+    SetTimer(hwnd_, TIMER_SEARCH_DEBOUNCE, 150, nullptr);
 }
 
 void App::OnToggleCaseSensitive()
 {
     search_state_.ToggleCaseSensitive();
     if (!search_state_.GetQuery().empty()) {
-        search_state_.ExecuteSearch(doc_.GetNodes());
-        if (search_state_.GetMatchCount() > 0) {
-            search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
-        }
+        RunSearchAndLocate();
     }
     Invalidate();
 }
@@ -1456,12 +1483,10 @@ void App::ScrollToCurrentMatch()
     const float effective_bottom = viewport_.GetScrollY() + visible_height;
     const float scroll_y = viewport_.GetScrollY();
 
-    // マッチが可視範囲外の場合のみスクロール（アニメーションなし）
+    // マッチが可視範囲外の場合のみスクロール
     if (match_y < scroll_y || match_y + entry.height > effective_bottom) {
         const float target = std::max(0.0f, match_y - visible_height / 3.0f);
-        StopSmoothScroll();
         viewport_.SetScrollY(target);
-        viewport_.SetScrollTarget(target);
         SyncMaxScroll(visible_height);
         InvalidateHitPositions();
     }
@@ -1551,4 +1576,6 @@ void App::SaveScrollPosition()
     const int offset = static_cast<int>(std::lround(viewport_.GetScrollY() - node_y));
     config_.SaveInt("Session", "ScrollNode", node);
     config_.SaveInt("Session", "ScrollOffset", offset);
+    // 遅延レイアウト完了後に正確な位置を復元するための生のscroll_y
+    config_.SaveInt("Session", "ScrollY", static_cast<int>(std::lround(viewport_.GetScrollY())));
 }

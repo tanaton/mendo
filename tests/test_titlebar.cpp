@@ -84,7 +84,7 @@ TEST_F(TitleBarTest, FileToggleIsLeftOfTocToggle)
 
 TEST_F(TitleBarTest, AllButtonsUseFullHeight)
 {
-    auto check = [](const TitleBarButton& btn) {
+    auto check = [](const TitleBarButton& btn) static  {
         EXPECT_FLOAT_EQ(btn.rect.top, 0.0f);
         EXPECT_FLOAT_EQ(btn.rect.bottom, TitleBar::BASE_HEIGHT);
     };
@@ -100,7 +100,7 @@ TEST_F(TitleBarTest, AllButtonsUseFullHeight)
 
 TEST_F(TitleBarTest, CaptionButtonWidth)
 {
-    auto check = [](const TitleBarButton& btn) {
+    auto check = [](const TitleBarButton& btn) static {
         EXPECT_FLOAT_EQ(btn.rect.right - btn.rect.left, TitleBar::CAPTION_BTN_WIDTH);
     };
     check(tb_.GetMinimizeButton());
@@ -110,7 +110,7 @@ TEST_F(TitleBarTest, CaptionButtonWidth)
 
 TEST_F(TitleBarTest, PaneToggleButtonWidth)
 {
-    auto check = [](const TitleBarButton& btn) {
+    auto check = [](const TitleBarButton& btn) static {
         EXPECT_FLOAT_EQ(btn.rect.right - btn.rect.left, TitleBar::BUTTON_WIDTH);
     };
     check(tb_.GetHelpButton());
@@ -337,7 +337,7 @@ TEST_F(TitleBarTest, ButtonsDoNotOverlap)
     };
     // leftでソート
     std::sort(std::begin(rects), std::end(rects),
-        [](const Rect& a, const Rect& b) { return a.left < b.left; });
+        [](const Rect& a, const Rect& b) static noexcept { return a.left < b.left; });
 
     for (size_t i = 1; i < std::size(rects); ++i) {
         EXPECT_LE(rects[i - 1].right, rects[i].left)

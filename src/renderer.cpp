@@ -159,12 +159,12 @@ void Renderer::SetTheme(const Theme& theme)
     RecreateBrushes();
 }
 
-void Renderer::Resize(UINT width, UINT height)
+void Renderer::Resize(UINT width, UINT height) noexcept
 {
     backend_.Resize(width, height);
 }
 
-void Renderer::SetDpi(float dpi)
+void Renderer::SetDpi(float dpi) noexcept
 {
     backend_.SetDpi(dpi);
     // 新しいDPIでペインキャッシュを再作成
@@ -194,12 +194,6 @@ void Renderer::UpdateLayoutTheme()
 {
     layout_.UpdateTheme(theme_);
     layout_.RecreateFormats();
-}
-
-void Renderer::LayoutAllNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
-{
-    const float content_width = std::max(0.0f, viewport_width - theme_.margin_left - theme_.margin_right);
-    layout_.LayoutNodes(nodes, cache, content_width);
 }
 
 ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
@@ -307,18 +301,19 @@ void Renderer::RecreatePaneFormats()
 // ノード描画ロジックはCommandGeneratorに抽出済み。
 // D2Dブラシが必要なApplyNodeEffectsのみ描画前パスとしてここに残る。
 
-void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, int first_visible, float viewport_bottom)
+void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
+    int first_visible, float viewport_top, float viewport_bottom)
 {
     const int node_count = static_cast<int>(nodes.size());
     for (int i = first_visible; i < node_count; i++) {
         if (cache[i].y_position > viewport_bottom) {
             break;
         }
-        ApplyNodeEffects(nodes[i], cache[i]);
+        ApplyNodeEffects(nodes[i], cache[i], viewport_top, viewport_bottom);
     }
 }
 
-ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const
+ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexcept
 {
     static constexpr BrushId SYNTAX_MAP[] = {
         BrushId::Text,                // Plain（未使用、フォールバックとしてテキストブラシを返す）
@@ -337,24 +332,49 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const
     return Brush(SYNTAX_MAP[idx]);
 }
 
-void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
+void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry,
+    float viewport_top, float viewport_bottom)
 {
-    if (entry.effects_applied) {
-        return;
-    }
-    entry.effects_applied = true;
-
-    // 画像ノード: テキストエフェクト不要
-    if (node.type == NodeType::Image) {
-        return;
-    }
-
-    // テーブルセル: セルレイアウトにリンク色を適用し、インラインコード背景を計算
+    // テーブルノード: ビューポートカリング付きの増分処理を行う。
+    // リンク色は全行に適用（軽量・冪等）、インラインコード背景は可視行のみ計算する。
     if (node.type == NodeType::Table) {
-        entry.cell_inline_code_bgs.resize(node.table_rows().size());
+        if (!node.has_table() || node.table_rows().empty()) {
+            entry.effects_applied = true;
+            return;
+        }
+
+        const bool first_pass = !entry.effects_applied;
+        if (first_pass) {
+            entry.effects_applied = true;
+            entry.cell_inline_code_bgs.resize(node.table_rows().size());
+        }
+
+        const float border = TABLE_BORDER_WIDTH;
+        float row_y = entry.y_position;
+
         for (size_t r = 0; r < node.table_rows().size(); r++) {
             const auto& row = node.table_rows()[r];
-            entry.cell_inline_code_bgs[r].resize(row.cells.size());
+            const float row_h = (r < entry.row_heights.size())
+                ? entry.row_heights[r] : (theme_.font_size_body * 1.4f);
+            const float row_bottom = row_y + row_h + border;
+
+            const bool row_visible = (viewport_top < 0.0f)
+                || (row_bottom >= viewport_top && row_y <= viewport_bottom);
+            const bool bgs_done = (r < entry.cell_inline_code_bgs.size())
+                && (entry.cell_inline_code_bgs[r].size() == row.cells.size());
+            const bool need_bgs = row_visible && !bgs_done;
+
+            // 2回目以降: インラインコード背景の計算が不要な行はスキップ
+            if (!first_pass && !need_bgs) {
+                row_y = row_bottom;
+                continue;
+            }
+
+            // この行のインラインコード背景を計算する場合のみ内側ベクターを確保
+            if (need_bgs && r < entry.cell_inline_code_bgs.size()) {
+                entry.cell_inline_code_bgs[r].resize(row.cells.size());
+            }
+
             for (size_t c = 0; c < row.cells.size(); c++) {
                 IDWriteTextLayout* cell_layout = nullptr;
                 if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
@@ -364,24 +384,37 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry)
                     continue;
                 }
                 for (const auto& run : row.cells[c].runs) {
-                    if (run.has_link()) {
+                    // リンク色: 初回パスで全行に適用（軽量・冪等）
+                    if (first_pass && run.has_link()) {
                         const DWRITE_TEXT_RANGE range{ run.start, run.length };
                         cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                     }
-                    if (run.code && run.length > 0) {
+                    // インラインコード背景: 可視かつ未計算の行のみ
+                    if (need_bgs && run.code && run.length > 0) {
                         const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length, hit_test_buffer_);
-                        for (UINT32 i = 0; i < count; i++) {
+                        for (UINT32 hi = 0; hi < count; hi++) {
                             entry.cell_inline_code_bgs[r][c].emplace_back(
-                                hit_test_buffer_[i].left,
-                                hit_test_buffer_[i].top,
-                                hit_test_buffer_[i].width,
-                                hit_test_buffer_[i].height
+                                hit_test_buffer_[hi].left,
+                                hit_test_buffer_[hi].top,
+                                hit_test_buffer_[hi].width,
+                                hit_test_buffer_[hi].height
                             );
                         }
                     }
                 }
             }
+            row_y = row_bottom;
         }
+        return;
+    }
+
+    if (entry.effects_applied) {
+        return;
+    }
+    entry.effects_applied = true;
+
+    // 画像ノード: テキストエフェクト不要
+    if (node.type == NodeType::Image) {
         return;
     }
 
@@ -526,7 +559,7 @@ void Renderer::Render(const RenderParams& p)
     const uint32_t effects_gen = p.cache.GetEffectsGeneration();
     if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || viewport_bottom != last_effects_bottom_) {
         MENDO_PROFILE("ApplyVisibleEffects");
-        ApplyVisibleEffects(p.nodes, p.cache, first_visible, viewport_bottom);
+        ApplyVisibleEffects(p.nodes, p.cache, first_visible, viewport_top, viewport_bottom);
         last_effects_gen_ = effects_gen;
         last_effects_first_ = first_visible;
         last_effects_bottom_ = viewport_bottom;

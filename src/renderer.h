@@ -159,9 +159,9 @@ struct RenderParams {
 class Renderer {
 public:
     bool Init(HWND hwnd);
-    void Resize(UINT width, UINT height);
+    void Resize(UINT width, UINT height) noexcept;
     void Render(const RenderParams& params);
-    void SetDpi(float dpi);
+    void SetDpi(float dpi) noexcept;
     void DrawLoading(float angle,
         const PaneRect& md_pane_rect,
         const SidePaneState& side_panes,
@@ -182,9 +182,6 @@ public:
     // LayoutEngineのテーマを更新しフォーマットを再作成する。
     void UpdateLayoutTheme();
 
-    // ビューポート幅からマージンを差し引いてLayoutEngineでノードをレイアウトする。
-    void LayoutAllNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
-
     // デバイスロスト後にD2Dレンダーターゲットが再作成された際に呼び出されるコールバックを設定。
     // コールバックには新しいレンダーターゲットのポインタが渡される。
     void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
@@ -204,7 +201,7 @@ public:
 private:
     // 描画前パス: レイアウトに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-        int first_visible, float viewport_bottom);
+        int first_visible, float viewport_top, float viewport_bottom);
 
     void DrawSidePanes(const SidePaneState& sp);
     void DrawTitleBar(const TitleBarRenderState& tb);
@@ -233,8 +230,9 @@ private:
         return brushes_[static_cast<size_t>(id)].Get();
     }
 
-    ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const;
-    void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry);
+    ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;
+    void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry,
+        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void RecreateBrushes();
     void RecreatePaneFormats();
     Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(

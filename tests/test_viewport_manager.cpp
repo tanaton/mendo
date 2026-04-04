@@ -56,142 +56,6 @@ TEST(ViewportManagerTest, SyncMaxScrollNoNegative)
     EXPECT_FLOAT_EQ(vm.GetMaxScroll(), 0.0f);
 }
 
-// ---- スムーススクロールテスト ----
-
-TEST(ViewportManagerTest, SmoothScrollActivates)
-{
-    ViewportManager vm;
-    vm.SyncMaxScroll(1000.0f, 200.0f);
-    EXPECT_FALSE(vm.IsSmoothScrolling());
-
-    vm.SmoothScrollBy(100.0f);
-    EXPECT_TRUE(vm.IsSmoothScrolling());
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 100.0f);
-}
-
-TEST(ViewportManagerTest, SmoothScrollConverges)
-{
-    ViewportManager vm;
-    vm.SyncMaxScroll(10000.0f, 200.0f);
-    vm.SmoothScrollBy(400.0f);
-
-    // 収束に十分なフレーム数を実行
-    for (int i = 0; i < 200; ++i) {
-        bool active = vm.UpdateSmoothScroll();
-        if (!active) break;
-    }
-
-    EXPECT_FALSE(vm.IsSmoothScrolling());
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 400.0f);
-}
-
-TEST(ViewportManagerTest, SmoothScrollClampedTarget)
-{
-    ViewportManager vm;
-    vm.SyncMaxScroll(300.0f, 200.0f); // max = 100
-    vm.SmoothScrollBy(9999.0f);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 100.0f);
-}
-
-TEST(ViewportManagerTest, StopSmoothScroll)
-{
-    ViewportManager vm;
-    vm.SyncMaxScroll(1000.0f, 200.0f);
-    vm.SmoothScrollBy(200.0f);
-    vm.UpdateSmoothScroll();
-
-    vm.StopSmoothScroll();
-    EXPECT_FALSE(vm.IsSmoothScrolling());
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), vm.GetScrollTarget());
-}
-
-// ---- デルタタイム対応スムーススクロールテスト ----
-
-TEST(ViewportManagerTest, SmoothScrollWithDeltaTimeConverges)
-{
-    ViewportManager vm;
-    vm.SyncMaxScroll(10000.0f, 200.0f);
-    vm.SmoothScrollBy(400.0f);
-
-    // 7ms刻み（≈144fps）で収束を確認
-    for (int i = 0; i < 500; ++i) {
-        bool active = vm.UpdateSmoothScroll(7.0f);
-        if (!active) {
-            break;
-        }
-    }
-
-    EXPECT_FALSE(vm.IsSmoothScrolling());
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 400.0f);
-}
-
-TEST(ViewportManagerTest, SmoothScrollFrameRateIndependence)
-{
-    // 同じスクロール量を異なるフレームレートで実行し、同一時間後のスクロール位置が近いことを確認
-    auto simulate = [](float dt_ms, int frames) {
-        ViewportManager vm;
-        vm.SyncMaxScroll(10000.0f, 200.0f);
-        vm.SmoothScrollBy(1000.0f);
-        for (int i = 0; i < frames; ++i) {
-            vm.UpdateSmoothScroll(dt_ms);
-        }
-        return vm.GetScrollY();
-    };
-
-    // 160ms分のシミュレーション: 60fps(10フレーム) vs 144fps(23フレーム)
-    float pos_60fps = simulate(16.0f, 10);
-    float pos_144fps = simulate(6.957f, 23);  // 23 * 6.957 ≈ 160ms
-
-    // 同一時間経過後のスクロール位置は近似すべき（誤差5%以内）
-    EXPECT_NEAR(pos_60fps, pos_144fps, 1000.0f * 0.05f);
-}
-
-TEST(ViewportManagerTest, SmoothScrollReferenceDtMatchesLegacy)
-{
-    // 基準フレーム時間(16ms)での呼び出しは引数なし版と同一結果
-    ViewportManager vm1, vm2;
-    vm1.SyncMaxScroll(10000.0f, 200.0f);
-    vm2.SyncMaxScroll(10000.0f, 200.0f);
-    vm1.SmoothScrollBy(500.0f);
-    vm2.SmoothScrollBy(500.0f);
-
-    for (int i = 0; i < 30; ++i) {
-        vm1.UpdateSmoothScroll();
-        vm2.UpdateSmoothScroll(ViewportManager::SCROLL_REFERENCE_DT);
-        EXPECT_NEAR(vm1.GetScrollY(), vm2.GetScrollY(), 1e-3f);
-    }
-}
-
-TEST(ViewportManagerTest, SmoothScrollLargeDeltaTimeClamped)
-{
-    // 大きなデルタタイムでもクラッシュや発散しない
-    ViewportManager vm;
-    vm.SyncMaxScroll(10000.0f, 200.0f);
-    vm.SmoothScrollBy(500.0f);
-
-    vm.UpdateSmoothScroll(1000.0f); // 1秒分の大きなデルタ
-    EXPECT_GE(vm.GetScrollY(), 0.0f);
-    EXPECT_LE(vm.GetScrollY(), 10000.0f);
-}
-
-TEST(ViewportManagerTest, SmoothScrollLargeGapConverges)
-{
-    // 大きなギャップがあっても最終的にターゲットに収束する
-    ViewportManager vm;
-    vm.SyncMaxScroll(10000.0f, 200.0f);
-    vm.SmoothScrollBy(2000.0f);
-
-    for (int i = 0; i < 500; ++i) {
-        bool active = vm.UpdateSmoothScroll(16.0f);
-        if (!active) {
-            break;
-        }
-    }
-
-    EXPECT_FALSE(vm.IsSmoothScrolling());
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 2000.0f);
-}
-
 TEST(ViewportManagerTest, DirectScrollByMovesPosition)
 {
     ViewportManager vm;
@@ -199,8 +63,6 @@ TEST(ViewportManagerTest, DirectScrollByMovesPosition)
 
     vm.DirectScrollBy(100.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 100.0f);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 100.0f);
-    EXPECT_FALSE(vm.IsSmoothScrolling());
 }
 
 TEST(ViewportManagerTest, DirectScrollByClampsToMax)
@@ -209,7 +71,6 @@ TEST(ViewportManagerTest, DirectScrollByClampsToMax)
     vm.SyncMaxScroll(300.0f, 200.0f); // max = 100
     vm.DirectScrollBy(9999.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 100.0f);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 100.0f);
 }
 
 TEST(ViewportManagerTest, DirectScrollByClampsToZero)
@@ -219,22 +80,6 @@ TEST(ViewportManagerTest, DirectScrollByClampsToZero)
     vm.DirectScrollBy(50.0f);
     vm.DirectScrollBy(-200.0f);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 0.0f);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 0.0f);
-}
-
-TEST(ViewportManagerTest, DirectScrollByStopsSmoothScroll)
-{
-    // SmoothScrollByで蓄積したギャップをDirectScrollByがリセットする
-    ViewportManager vm;
-    vm.SyncMaxScroll(10000.0f, 200.0f);
-    vm.SmoothScrollBy(500.0f);
-    EXPECT_TRUE(vm.IsSmoothScrolling());
-
-    vm.DirectScrollBy(10.0f);
-    EXPECT_FALSE(vm.IsSmoothScrolling());
-    // scroll_y_ は SmoothScrollBy の影響（scroll_y_=0のまま）に +10
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 10.0f);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), 10.0f);
 }
 
 TEST(ViewportManagerTest, DirectScrollByAccumulates)
@@ -250,9 +95,6 @@ TEST(ViewportManagerTest, DirectScrollByAccumulates)
     }
 
     EXPECT_FLOAT_EQ(vm.GetScrollY(), total);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget(), total);
-    // ギャップは常にゼロ
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget() - vm.GetScrollY(), 0.0f);
 }
 
 // ---- FindFirstVisibleNode テスト ----
@@ -445,7 +287,6 @@ TEST(ViewportManagerTest, AnchorCompensateScrollClampsNegative)
 
     // scroll_yは-150ではなく0にクランプされるべき
     EXPECT_GE(vm.GetScrollY(), 0.0f);
-    EXPECT_GE(vm.GetScrollTarget(), 0.0f);
 }
 
 TEST(ViewportManagerTest, AnchorCompensateScrollPositiveShiftOk)

@@ -69,7 +69,7 @@ bool DWriteTextMeasurer::RecreateFormats()
     return CreateAllFormats();
 }
 
-IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node)
+IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) noexcept
 {
     if (node.type == NodeType::CodeBlock) {
         return fmt_code_.Get();

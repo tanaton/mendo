@@ -63,7 +63,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const float viewport_top = scroll_y;
     const float viewport_bottom = scroll_y + md_pane_rect.height;
     const float offset_x = theme_->margin_left;
-    const float md_content_width = md_pane_rect.width - theme_->margin_left - theme_->margin_right;
+    const float md_content_width = theme_->ContentWidth(md_pane_rect.width);
 
     // 最初の可視ノードを二分探索で検索（事前計算済みのインデックスがあればそれを使用）
     const int node_count = static_cast<int>(nodes.size());
@@ -314,7 +314,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     }
 
     // セル範囲の flat_offset を進めるヘルパー
-    const auto advance_flat_offset = [](uint32_t& offset, const TableRow& row, size_t from, size_t to) {
+    const auto advance_flat_offset = [](uint32_t& offset, const TableRow& row, size_t from, size_t to) static noexcept {
         for (size_t c = from; c < to; c++) {
             offset += static_cast<uint32_t>(row.cells[c].text.size());
             if (c + 1 < row.cells.size()) {

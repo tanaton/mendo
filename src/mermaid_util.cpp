@@ -33,7 +33,7 @@ std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
     return result;
 }
 
-uint64_t mermaid_util::HashRaw(std::wstring_view input)
+uint64_t mermaid_util::HashRaw(std::wstring_view input) noexcept
 {
     uint64_t hash = 14695981039346656037ULL;
     for (wchar_t c : input) {
@@ -48,7 +48,7 @@ std::pmr::wstring mermaid_util::SimpleHash(std::wstring_view input)
     return PmrFormat(L"{:016x}", HashRaw(input));
 }
 
-uint64_t mermaid_util::CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode)
+uint64_t mermaid_util::CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode) noexcept
 {
     // コード全体をコピーせず、直接ハッシュして幅・モードをミックスする
     uint64_t h = HashRaw(code);
@@ -68,4 +68,9 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
         return 100;
     }
     return static_cast<int>(std::ceil(max_width / 100.0f)) * 100;
+}
+
+uint64_t mermaid_util::HashCode(std::wstring_view code, float max_width, bool dark_mode) noexcept
+{
+    return CombinedHash(code, QuantizeWidth(max_width), dark_mode);
 }

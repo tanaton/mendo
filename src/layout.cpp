@@ -1,12 +1,14 @@
 #include "layout.h"
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 // マジックナンバーの名前付き定数
 static constexpr float MIN_COLUMN_WIDTH = 30.0f;
 static constexpr float COLUMN_WIDTH_PADDING = 4.0f;
+static constexpr float Y_POSITION_EPSILON = 0.01f; // Y座標の早期終了判定用許容誤差（DIP単位）
 
-static float GetSpacingAbove(NodeType type, const Theme& theme)
+static float GetSpacingAbove(NodeType type, const Theme& theme) noexcept
 {
     switch (type) {
     case NodeType::Heading:
@@ -19,7 +21,7 @@ static float GetSpacingAbove(NodeType type, const Theme& theme)
     }
 }
 
-static float GetSpacingBelow(NodeType type, const Theme& theme)
+static float GetSpacingBelow(NodeType type, const Theme& theme) noexcept
 {
     switch (type) {
     case NodeType::Heading:
@@ -96,7 +98,7 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
     return text;
 }
 
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme)
+void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) noexcept
 {
     // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
     // DirectWriteを一切呼ばないため、数千ノードでも数百マイクロ秒で完了する。
@@ -154,7 +156,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
 }
 
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after)
+    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after) noexcept
 {
     YPositionResult result;
     result.has_dirty_nodes = has_earlier_dirty;
@@ -177,7 +179,7 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
 
         // 早期終了: safe_exit_after 以降でY位置が一致すれば、
         // 以降のノードのY位置は変わらない。
-        if (i > safe_exit_after && entry.y_position == y) {
+        if (i > safe_exit_after && std::abs(entry.y_position - y) < Y_POSITION_EPSILON) {
             // 残りのダーティノードを確認（Y更新より軽量なフラグチェックのみ）
             if (!result.has_dirty_nodes) {
                 for (size_t j = i; j < nodes.size(); j++) {
@@ -232,7 +234,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 
     last_viewport_width_ = viewport_width;
 
-    const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    const float content_width = theme_->ContentWidth(viewport_width);
     float y = theme_->margin_top;
     bool any_dirty = false;
     bool any_height_changed = false;
@@ -302,14 +304,14 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
 {
     last_viewport_width_ = 0.0f; // 幅の変更検出を強制する
-    ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right);
+    ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right); // 逆変換: content→viewport
 }
 
 bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width,
     float viewport_top, float viewport_bottom)
 {
-    const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    const float content_width = theme_->ContentWidth(viewport_width);
     bool any_updated = false;
     int last_measured = -1;
 
@@ -343,7 +345,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width, int batch_size)
 {
-    const float content_width = viewport_width - theme_->margin_left - theme_->margin_right;
+    const float content_width = theme_->ContentWidth(viewport_width);
     int processed = 0;
     size_t first_dirty = nodes.size();
     size_t last_processed = 0;
