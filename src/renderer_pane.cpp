@@ -170,14 +170,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
     const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered)
 {
     constexpr float icon_col_width = 24.0f;
-
-    DrawSidePaneImpl(file_pane_cache_, rt(), rect, scroll,
-        static_cast<int>(entries.size()), i18n::S().pane_header_files, theme_,
-        Brush(BrushId::Splitter), Brush(BrushId::Text),
-        Brush(BrushId::ScrollbarThumb), fmt_.pane_header.Get(),
-        fmt_.pane_icon.Get(), Brush(BrushId::PaneItemHover), close_hovered,
-        true, refresh_hovered,
-        [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
+    auto draw_item = [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
 
         const D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, width, item_y + theme_.pane_item_height);
@@ -214,19 +207,32 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
                 D2D1_DRAW_TEXT_OPTIONS_CLIP
             );
         }
-    });
+    };
+    DrawSidePaneImpl(
+        file_pane_cache_,
+        rt(),
+        rect,
+        scroll,
+        static_cast<int>(entries.size()),
+        i18n::S().pane_header_files,
+        theme_,
+        Brush(BrushId::Splitter),
+        Brush(BrushId::Text),
+        Brush(BrushId::ScrollbarThumb),
+        fmt_.pane_header.Get(),
+        fmt_.pane_icon.Get(),
+        Brush(BrushId::PaneItemHover),
+        close_hovered,
+        true,
+        refresh_hovered,
+        draw_item
+    );
 }
 
 void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
     const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index)
 {
-    DrawSidePaneImpl(toc_pane_cache_, rt(), rect, scroll,
-        static_cast<int>(entries.size()), i18n::S().pane_header_toc, theme_,
-        Brush(BrushId::Splitter), Brush(BrushId::Text),
-        Brush(BrushId::ScrollbarThumb), fmt_.pane_header.Get(),
-        fmt_.pane_icon.Get(), Brush(BrushId::PaneItemHover), close_hovered,
-        false, false,
-        [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
+    auto draw_item = [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
 
         if (i == active_index || i == hovered_index) {
@@ -255,7 +261,26 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
                 1.5f
             );
         }
-    });
+    };
+    DrawSidePaneImpl(
+        toc_pane_cache_,
+        rt(),
+        rect,
+        scroll,
+        static_cast<int>(entries.size()),
+        i18n::S().pane_header_toc,
+        theme_,
+        Brush(BrushId::Splitter),
+        Brush(BrushId::Text),
+        Brush(BrushId::ScrollbarThumb),
+        fmt_.pane_header.Get(),
+        fmt_.pane_icon.Get(),
+        Brush(BrushId::PaneItemHover),
+        close_hovered,
+        false,
+        false,
+        draw_item
+    );
 }
 
 void Renderer::DrawSplitter(float x, float top, float bottom)
@@ -317,52 +342,87 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     };
 
     // ヘルプボタン
-    drawButton(tb.help_btn_rect, L"\uE897",
-        tb.help_btn_hovered, BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText, text_alpha);
-
+    drawButton(
+        tb.help_btn_rect,
+        L"\uE897",
+        tb.help_btn_hovered,
+        BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText,
+        text_alpha
+    );
     // ダークモード切替ボタン（ダーク時: 太陽アイコン、ライト時: 月アイコン）
-    drawButton(tb.theme_btn_rect, tb.is_dark_mode ? L"\uE706" : L"\uE708",
-        tb.theme_btn_hovered, BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText, text_alpha);
-
+    drawButton(
+        tb.theme_btn_rect,
+        tb.is_dark_mode ? L"\uE706" : L"\uE708",
+        tb.theme_btn_hovered,
+        BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText,
+        text_alpha
+    );
     // 検索ボタン（active > hover の優先度）
-    drawButton(tb.search_btn_rect, L"\uE721",
+    drawButton(
+        tb.search_btn_rect,
+        L"\uE721",
         tb.search_active || tb.search_btn_hovered,
         tb.search_active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText, text_alpha);
-
+        BrushId::TitleBarText,
+        text_alpha
+    );
     // ペイン切替ボタン（active > hover の優先度）
-    drawButton(tb.file_btn_rect, L"\uE8B7",
+    drawButton(
+        tb.file_btn_rect,
+        L"\uE8B7",
         tb.file_pane_visible || tb.file_btn_hovered,
         tb.file_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText, text_alpha);
-
-    drawButton(tb.toc_btn_rect, L"\uE8FD",
+        BrushId::TitleBarText,
+        text_alpha
+    );
+    drawButton(
+        tb.toc_btn_rect,
+        L"\uE8FD",
         tb.toc_pane_visible || tb.toc_btn_hovered,
         tb.toc_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText, text_alpha);
-
+        BrushId::TitleBarText,
+        text_alpha
+    );
     // キャプションボタン
-    drawButton(tb.minimize_btn_rect, L"\uE921",
-        tb.minimize_btn_hovered, BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText, text_alpha);
+    drawButton(
+        tb.minimize_btn_rect,
+        L"\uE921",
+        tb.minimize_btn_hovered,
+        BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText,
+        text_alpha
+    );
 
     const wchar_t max_icon[]{ tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
-    drawButton(tb.maximize_btn_rect, max_icon,
-        tb.maximize_btn_hovered, BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText, text_alpha);
-
+    drawButton(
+        tb.maximize_btn_rect,
+        max_icon,
+        tb.maximize_btn_hovered,
+        BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText,
+        text_alpha
+    );
     // 閉じるボタン（ホバー時は赤背景＋白アイコン）
     if (tb.close_btn_hovered) {
-        drawButton(tb.close_btn_rect, L"\uE8BB",
-            true, BrushId::TitleBarCloseRed,
-            BrushId::TitleBarCloseWhite, 1.0f);
+        drawButton(
+            tb.close_btn_rect, L"\uE8BB",
+            true,
+            BrushId::TitleBarCloseRed,
+            BrushId::TitleBarCloseWhite,
+            1.0f
+        );
     }
     else {
-        drawButton(tb.close_btn_rect, L"\uE8BB",
-            false, BrushId::TitleBarButtonHover,
-            BrushId::TitleBarText, text_alpha);
+        drawButton(
+            tb.close_btn_rect,
+            L"\uE8BB",
+            false,
+            BrushId::TitleBarButtonHover,
+            BrushId::TitleBarText,
+            text_alpha
+        );
     }
 
     // アプリアイコン
@@ -381,7 +441,8 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
                 static_cast<UINT32>(tb.title_text.size()),
                 fmt_.titlebar_text.Get(),
                 tb.title_text_rect,
-                brush);
+                brush
+            );
             brush->SetOpacity(1.0f);
         }
     }
@@ -393,19 +454,28 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         return;
     }
 
-    const auto sbl = ComputeSearchBarLayout(md_pane_rect.x, md_pane_rect.width,
-        md_pane_rect.y + md_pane_rect.height, !sb.query.empty());
+    const auto sbl = ComputeSearchBarLayout(
+        md_pane_rect.x, md_pane_rect.width,
+        md_pane_rect.y + md_pane_rect.height,
+        !sb.query.empty()
+    );
 
     // 背景
-    const D2D1_RECT_F bar_rect = D2D1::RectF(md_pane_rect.x, sbl.bar_top,
-        md_pane_rect.x + md_pane_rect.width, sbl.bar_bottom);
+    const D2D1_RECT_F bar_rect = D2D1::RectF(
+        md_pane_rect.x,
+        sbl.bar_top,
+        md_pane_rect.x + md_pane_rect.width,
+        sbl.bar_bottom
+    );
     rt()->FillRectangle(bar_rect, Brush(BrushId::SearchBarBg));
 
     // 上ボーダー
     rt()->DrawLine(
         D2D1::Point2F(bar_rect.left, sbl.bar_top),
         D2D1::Point2F(bar_rect.right, sbl.bar_top),
-        Brush(BrushId::SearchBarBorder), 1.0f);
+        Brush(BrushId::SearchBarBorder),
+        1.0f
+    );
 
     // 検索アイコン
     if (fmt_.search_icon) {
@@ -559,8 +629,10 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     auto drawToggleBtn = [&](const D2D1_RECT_F& r, const wchar_t* label, UINT32 len,
         IDWriteTextFormat* fmt, bool checked, bool hovered) {
         if (hovered || checked) {
-            rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),
-                Brush(checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover));
+            rt()->FillRoundedRectangle(
+                D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),
+                Brush(checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover)
+            );
         }
         if (fmt) {
             auto* brush = Brush(BrushId::SearchInputText);
@@ -588,16 +660,13 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         auto* brush = Brush(BrushId::SearchInputText);
         if (brush) {
             brush->SetOpacity(0.7f);
-            rt()->DrawText(count_text, static_cast<UINT32>(wcslen(count_text)),
-                fmt_.search_count.Get(), sbl.count_rect, brush);
+            rt()->DrawText(count_text, static_cast<UINT32>(wcslen(count_text)), fmt_.search_count.Get(), sbl.count_rect, brush);
             brush->SetOpacity(1.0f);
         }
     }
 
-    drawToggleBtn(sbl.case_btn, L"Aa", 2, fmt_.search_count.Get(),
-        sb.case_sensitive, sb.case_btn_hovered);
-    drawToggleBtn(sbl.highlight_btn, L"\uE7E6", 1, fmt_.search_icon.Get(),
-        sb.highlight_enabled, sb.highlight_btn_hovered);
+    drawToggleBtn(sbl.case_btn, L"Aa", 2, fmt_.search_count.Get(), sb.case_sensitive, sb.case_btn_hovered);
+    drawToggleBtn(sbl.highlight_btn, L"\uE7E6", 1, fmt_.search_icon.Get(), sb.highlight_enabled, sb.highlight_btn_hovered);
     drawIconBtn(sbl.close_btn, L"\uE8BB", sb.close_btn_hovered);
 }
 

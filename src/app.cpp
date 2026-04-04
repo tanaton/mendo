@@ -314,11 +314,12 @@ GestureRenderState App::BuildGestureRenderState() const
 SidePaneState App::BuildSidePaneState(const ::PaneLayout& layout) const
 {
     return { layout.file_rect, layout.toc_rect,
-             file_explorer_.GetEntries(), panes_.FileScroll(), panes_.GetHoveredFileIndex(),
-             doc_.GetToc().GetEntries(), panes_.TocScroll(), panes_.GetHoveredTocIndex(),
+             file_explorer_.GetEntries(), panes_.FileScroll(),
+             doc_.GetToc().GetEntries(), panes_.TocScroll(),
+             panes_.GetHoveredFileIndex(), panes_.GetHoveredTocIndex(), active_toc_index_,
              panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible(),
              panes_.IsFileCloseHovered(), panes_.IsFileRefreshHovered(),
-             panes_.IsTocCloseHovered(), active_toc_index_ };
+             panes_.IsTocCloseHovered() };
 }
 
 TitleBarRenderState App::BuildTitleBarRenderState(float window_width) const
@@ -446,10 +447,10 @@ void App::OnPaint()
             MENDO_PROFILE("Renderer::Render");
             renderer_.Render({
                 doc_.GetNodesMut(), layout_cache_,
+                viewport_.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
                 viewport_.GetScrollY(), layout_service_->GetTotalHeight(),
-                viewport_.GetSelection(), layout.md_rect, sp, tb,
+                static_cast<int>(nav_hover_), hovered_copy_node_,
                 nav_service_.CanGoBack(), nav_service_.CanGoForward(),
-                static_cast<int>(nav_hover_), hovered_copy_node_, gs, ts, sb,
                 layout_service_->HasDirtyNodes()
                 });
         }

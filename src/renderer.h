@@ -39,11 +39,11 @@ enum class BrushId : uint8_t {
 };
 
 struct GestureRenderState {
-    bool trail_active = false;
     const std::pmr::deque<GesturePoint>* trail_points = nullptr;
-    bool overlay_visible = false;
     int direction = 0;   // -1=Left(戻る), 1=Right(進む)
     float overlay_alpha = 0.0f;
+    bool trail_active = false;
+    bool overlay_visible = false;
 };
 
 struct ToastRenderState {
@@ -54,51 +54,57 @@ struct ToastRenderState {
 
 // タイトルバー描画パラメータ。
 struct TitleBarRenderState {
-    float height = 0.0f;
-    float window_width = 0.0f;
+    // --- 8バイトアライメント ---
+    std::wstring_view title_text;
+    // --- 4バイトアライメント (D2D1_RECT_F = 4×float) ---
     D2D1_RECT_F help_btn_rect{};
-    bool help_btn_hovered = false;
     D2D1_RECT_F theme_btn_rect{};
-    bool theme_btn_hovered = false;
-    bool is_dark_mode = false;
     D2D1_RECT_F search_btn_rect{};
-    bool search_btn_hovered = false;
-    bool search_active = false;
     D2D1_RECT_F file_btn_rect{};
-    bool file_btn_hovered = false;
-    bool file_pane_visible = false;
     D2D1_RECT_F toc_btn_rect{};
-    bool toc_btn_hovered = false;
-    bool toc_pane_visible = false;
     D2D1_RECT_F minimize_btn_rect{};
-    bool minimize_btn_hovered = false;
     D2D1_RECT_F maximize_btn_rect{};
-    bool maximize_btn_hovered = false;
-    bool is_maximized = false;
     D2D1_RECT_F close_btn_rect{};
-    bool close_btn_hovered = false;
     D2D1_RECT_F icon_rect{};
     D2D1_RECT_F title_text_rect{};
-    std::wstring_view title_text;
+    float height = 0.0f;
+    float window_width = 0.0f;
+    // --- 1バイトアライメント ---
+    bool help_btn_hovered = false;
+    bool theme_btn_hovered = false;
+    bool is_dark_mode = false;
+    bool search_btn_hovered = false;
+    bool search_active = false;
+    bool file_btn_hovered = false;
+    bool file_pane_visible = false;
+    bool toc_btn_hovered = false;
+    bool toc_pane_visible = false;
+    bool minimize_btn_hovered = false;
+    bool maximize_btn_hovered = false;
+    bool is_maximized = false;
+    bool close_btn_hovered = false;
     bool window_active = true;
 };
 
-// サイドペイン描画パラメータを一つの構造体にまとめたもの。
+// ���イドペイン描画パラメータを一つの構造体にまとめたもの。
 struct SidePaneState {
+    // --- 8バイトアライメント (参照 = ポインタ) ---
     const PaneRect& file_pane_rect;
     const PaneRect& toc_pane_rect;
     const std::pmr::vector<FileEntry>& file_entries;
     const ScrollState& file_scroll;
-    int hovered_file_index;
     const std::pmr::vector<TocEntry>& toc_entries;
     const ScrollState& toc_scroll;
+    // --- 4バイトアライメント ---
+    int hovered_file_index;
     int hovered_toc_index;
+    int active_toc_index;
+    // --- 1バイトアライメント ---
     bool show_file_pane;
     bool show_toc_pane;
     bool file_close_hovered;
     bool file_refresh_hovered;
     bool toc_close_hovered;
-    int active_toc_index;
 };
 
 // ペインビットマップキャッシュ — サイドペインはオフスクリーンビットマップに描画され、
@@ -116,15 +122,18 @@ struct PaneCache {
 
 // 検索バー描画パラメータ
 struct SearchBarRenderState {
-    bool visible = false;
+    // --- 8バイトアライメント ---
     std::wstring_view query;
+    std::wstring_view ime_composition; // IME変換中のコンポジション文字列
+    // --- 4バイトアライメント ---
     int current_match = -1;    // 0-based、-1 = マッチなし
     int total_matches = 0;
-    bool has_focus = false;
-    bool caret_visible = false; // キャレット（点滅制御）
     int caret_pos = -1;         // キャレット位置（-1 = テキスト末尾）
     int selection_start = -1;   // 選択開始位置（caret_posと異なる場合、選択範囲あり）
-    std::wstring_view ime_composition; // IME変換中のコンポジション文字列
+    // --- 1バイトアライメント ---
+    bool visible = false;
+    bool has_focus = false;
+    bool caret_visible = false; // キャレット（点滅制御）
     // チェックボックス状態
     bool case_sensitive = false;
     bool highlight_enabled = true;
@@ -138,21 +147,24 @@ struct SearchBarRenderState {
 
 // Renderer::Render に渡す全パラメータをまとめた構造体。
 struct RenderParams {
+    // --- 8バイ���アライメント (参照 = ポインタ) ---
     std::pmr::vector<Node>& nodes;
     LayoutCache& cache;
-    float scroll_y = 0.0f;
-    float total_content_height = 0.0f;
     const TextSelection& selection;
     const PaneRect& md_pane_rect;
     const SidePaneState& side_panes;
     const TitleBarRenderState& titlebar;
-    bool can_go_back = false;
-    bool can_go_forward = false;
-    int nav_hovered = 0;
-    int hovered_copy_node = -1;
     const GestureRenderState& gesture;
     const ToastRenderState& toast;
     const SearchBarRenderState& search_bar;
+    // --- 4バイトアライメント ---
+    float scroll_y = 0.0f;
+    float total_content_height = 0.0f;
+    int nav_hovered = 0;
+    int hovered_copy_node = -1;
+    // --- 1��イトアライメント ---
+    bool can_go_back = false;
+    bool can_go_forward = false;
     bool has_dirty_nodes = false;
 };
 
@@ -167,7 +179,8 @@ public:
         const SidePaneState& side_panes,
         const TitleBarRenderState& titlebar,
         const GestureRenderState& gesture = {},
-        const ToastRenderState& toast = {});
+        const ToastRenderState& toast = {}
+    );
 
     ID2D1RenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
     ID2D1Factory* GetD2DFactory() const noexcept { return backend_.GetD2DFactory(); }
@@ -206,14 +219,10 @@ private:
     void DrawSidePanes(const SidePaneState& sp);
     void DrawTitleBar(const TitleBarRenderState& tb);
     void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes);
-    void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
-        const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered);
-    void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
-        const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index);
+    void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered);
+    void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index);
     void DrawSplitter(float x, float top, float bottom);
-    void DrawNavOverlay(const PaneRect& md_pane_rect,
-        bool can_back, bool can_forward,
-        int hovered);  // 0=なし, 1=戻る, 2=進む
+    void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, int hovered);  // 0=なし, 1=戻る, 2=進む
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
     void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
@@ -231,13 +240,10 @@ private:
     }
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;
-    void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry,
-        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
+    void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void RecreateBrushes();
     void RecreatePaneFormats();
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(
-        const wchar_t* family, DWRITE_FONT_WEIGHT weight,
-        float size, const wchar_t* locale);
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size, const wchar_t* locale);
     bool CheckEndDraw();
     bool RecreateRenderTarget();
 

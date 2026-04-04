@@ -259,8 +259,8 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     for (size_t r = 0; r < row_count; r++) {
         auto& row = rows[r];
         float row_height = theme_->font_size_body * 1.4f;
-        const auto col_count = row.cells.size();
-        for (size_t c = 0; c < col_count; c++) {
+        const auto cell_count = row.cells.size();
+        for (size_t c = 0; c < cell_count; c++) {
             auto& cell = row.cells[c];
             const float cw = (c < entry.col_widths.size()) ? entry.col_widths[c] : DEFAULT_COLUMN_WIDTH;
 
@@ -327,9 +327,9 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
             // キャッシュなし: 既存レイアウトから自然幅を再取得
             std::pmr::vector<float> natural_widths(col_count, 0.0f);
             for (size_t r = 0; r < row_count; r++) {
-                const auto col_count = rows[r].cells.size();
+                const auto cell_count = rows[r].cells.size();
                 const auto cell_layout_count = entry.cell_layouts[r].size();
-                for (size_t c = 0; c < col_count && c < cell_layout_count; c++) {
+                for (size_t c = 0; c < cell_count && c < cell_layout_count; c++) {
                     if (entry.cell_layouts[r][c]) {
                         entry.cell_layouts[r][c]->SetMaxWidth(CODE_BLOCK_NO_WRAP_WIDTH);
                         DWRITE_TEXT_METRICS metrics{};
