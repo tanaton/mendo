@@ -256,7 +256,7 @@ SearchBarController::HoverZone SearchBarController::UpdateHover(
     }
 
     if (hover_ != old_hover) {
-        cb_.invalidate();
+        cb_.invalidate_search_bar();
     }
     return hover_;
 }

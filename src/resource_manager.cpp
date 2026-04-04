@@ -69,8 +69,8 @@ int ResourceManager::ApplyCachedImages()
         }
 
         // 解決済みパスのキャッシュを確認し、ディスクI/Oを回避
-        const auto cache_it = resolved_image_paths_.find(i);
-        if (cache_it == resolved_image_paths_.end()) {
+        auto [path_it, inserted] = resolved_image_paths_.try_emplace(i);
+        if (inserted) {
             std::filesystem::path img_path(node.image_data->src);
             if (img_path.is_relative()) {
                 img_path = std::filesystem::path(doc_dir) / img_path;
@@ -79,11 +79,12 @@ int ResourceManager::ApplyCachedImages()
             std::error_code ec;
             const auto abs_path = std::filesystem::canonical(img_path, ec);
             if (ec) {
+                resolved_image_paths_.erase(path_it);
                 continue;
             }
-            resolved_image_paths_[i] = abs_path.wstring();
+            path_it->second = abs_path.wstring();
         }
-        const std::wstring& abs_str = resolved_image_paths_[i];
+        const std::wstring& abs_str = path_it->second;
 
         if (image_loader_->GetCachedImage(abs_str, diagram)) {
             node.image_data->width = diagram.width;
@@ -123,6 +124,7 @@ void ResourceManager::OnAppImageLoaded()
 
 void ResourceManager::OnImageLoadComplete()
 {
+    pending_flush_ = true;
     if (ApplyCachedImages() > 0) {
         cb_.recompute_layout_anchored();
     }
@@ -195,6 +197,7 @@ void ResourceManager::OnMermaidRenderComplete()
     if (mermaid_batch_loading_) {
         return;
     }
+    pending_flush_ = true;
     cb_.recompute_layout_anchored();
 }
 
@@ -350,7 +353,14 @@ void ResourceManager::EvictOffscreenBitmaps()
 
 void ResourceManager::FlushPendingResources()
 {
+    // 完了した非同期デコード結果をキャッシュに格納する。
+    // 結果がある場合はコールバック経由で pending_flush_ が設定される。
     image_loader_->ProcessCompletedDecodes();
+
+    if (!pending_flush_) {
+        return;
+    }
+    pending_flush_ = false;
 
     bool changed = (ApplyCachedImages() > 0);
 
@@ -365,6 +375,7 @@ void ResourceManager::FlushPendingResources()
 
 void ResourceManager::ScheduleBitmapManage()
 {
+    pending_flush_ = true;  // スクロールで新たに可視になったノードをスキャンする
     FlushPendingResources();
     cb_.set_timer(TIMER_BITMAP_MANAGE, 150);
 }
@@ -374,6 +385,7 @@ void ResourceManager::OnBitmapManageTimer()
     cb_.kill_timer(TIMER_BITMAP_MANAGE);
 
     EvictOffscreenBitmaps();
+    pending_flush_ = true;  // evict後に可視範囲のリソースを再読み込みする
     FlushPendingResources();
 
     cb_.invalidate();

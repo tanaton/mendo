@@ -80,4 +80,5 @@ private:
     bool mermaid_batch_loading_ = false;
     size_t mermaid_batch_next_ = 0;
     std::unordered_map<size_t, std::wstring> resolved_image_paths_;
+    bool pending_flush_ = false;
 };
