@@ -104,10 +104,11 @@ public:
     RECT GetSearchEditRect() const;
 
     // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
-    void SetPendingRestoreNode(int node, int offset) noexcept
+    void SetPendingRestoreNode(int node, int offset, int scroll_y = -1) noexcept
     {
         pending_restore_node_ = node;
         pending_restore_offset_ = offset;
+        pending_restore_scroll_y_ = scroll_y;
     }
 
     // サイズ変更状態
@@ -341,6 +342,7 @@ private:
     // セッション復元時のノードベーススクロール復元用
     int pending_restore_node_ = -1;
     int pending_restore_offset_ = 0;
+    int pending_restore_scroll_y_ = -1; // 遅延レイアウト完了後に適用する生のscroll_y
 
     // 検索
     SearchState search_state_;

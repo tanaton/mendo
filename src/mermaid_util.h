@@ -23,4 +23,7 @@ int ComputeWorkerCount(unsigned int processor_count) noexcept;
 // 幅を100px単位に量子化する（ファイルキャッシュのキー用）。
 // 結果は常に100以上の100の倍数。
 int QuantizeWidth(float max_width) noexcept;
+
+// 幅を量子化してからキャッシュキーのハッシュを計算する。
+uint64_t HashCode(std::wstring_view code, float max_width, bool dark_mode) noexcept;
 }

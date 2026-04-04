@@ -36,6 +36,10 @@ public:
     // last_usedタイムスタンプも更新される。
     bool Lookup(uint64_t key, CacheEntry& entry, std::vector<uint8_t>& png_data);
 
+    // インデックスからCSSサイズのみを取得する（ディスクI/O無し）。
+    // スクロール位置復元時の高さ推定に使用する。
+    bool LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept;
+
     // PNGファイルをバックグラウンドスレッドで非同期に書き出す。
     // インデックスエントリは即座に追加される。
     void StoreAsync(uint64_t key, float css_width, float css_height,

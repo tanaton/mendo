@@ -5,6 +5,7 @@
 #include "pane_layout.h"
 #include "document_utils.h"
 #include "mermaid_util.h"
+#include "layout.h"
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
@@ -608,6 +609,25 @@ void App::DoLoadMarkdownFile()
             MENDO_PROFILE("EstimateNodeHeights");
             EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
         }
+        // Mermaidブロックの推定高さをファイルキャッシュの実測値で上書きする。
+        // 行数ベースの推定は実際の描画サイズと大きく乖離し得るため、
+        // キャッシュ済みの正確な高さを使うことでスクロール復元時のジャンプを防ぐ。
+        {
+            const float content_width = md_width
+                - renderer_.GetTheme().margin_left
+                - renderer_.GetTheme().margin_right;
+            const bool dark_mode = theme_service_.IsDarkMode();
+            const auto& nodes = doc_.GetNodes();
+            for (size_t i : doc_.GetMermaidNodeIndices()) {
+                const auto hash = mermaid_util::HashCode(
+                    nodes[i].text, content_width, dark_mode);
+                MermaidFileCache::CacheEntry fentry;
+                if (file_cache_.LookupDimensions(hash, fentry)) {
+                    layout_cache_[i].height = fentry.css_height;
+                }
+            }
+            RecomputeYPositions(doc_.GetNodesMut(), layout_cache_, renderer_.GetTheme());
+        }
         const int node = std::min(pending_restore_node_,
             static_cast<int>(layout_cache_.size()) - 1);
         if (node >= 0) {
@@ -1036,6 +1056,7 @@ void App::ExecuteActions(const ActionList& actions)
     for (const auto& action : actions) {
         std::visit(overloaded{
             [this](const KeyScrollAction& a) {
+                pending_restore_scroll_y_ = -1;
                 const float old_scroll = viewport_.GetScrollY();
                 const auto pane_layout = GetPaneLayout();
                 const float page_size = pane_layout.md_rect.height;
@@ -1053,6 +1074,7 @@ void App::ExecuteActions(const ActionList& actions)
                 }
             },
             [this](const DirectScrollByAction& a) {
+                pending_restore_scroll_y_ = -1;
                 viewport_.DirectScrollBy(a.delta);
                 InvalidateHitPositions();
                 Invalidate();
@@ -1560,4 +1582,6 @@ void App::SaveScrollPosition()
     const int offset = static_cast<int>(std::lround(viewport_.GetScrollY() - node_y));
     config_.SaveInt("Session", "ScrollNode", node);
     config_.SaveInt("Session", "ScrollOffset", offset);
+    // 遅延レイアウト完了後に正確な位置を復元するための生のscroll_y
+    config_.SaveInt("Session", "ScrollY", static_cast<int>(std::lround(viewport_.GetScrollY())));
 }

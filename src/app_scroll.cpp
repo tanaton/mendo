@@ -23,6 +23,7 @@ void App::InvalidateHitPositions() noexcept
 
 void App::ScrollTo(float position)
 {
+    pending_restore_scroll_y_ = -1;
     viewport_.ScrollTo(position);
     InvalidateHitPositions();
 }
@@ -135,7 +136,11 @@ void App::OnDeferredLayout()
     }
 
     if (!viewport_.IsScrollbarTracking()) {
-        RestoreAnchor(anchor, md_height);
+        // 中間バッチではアンカー補償のみ行い、SyncMaxScrollのクランプを遅延させる。
+        // ビューポート後のノードが計測されるとtotal_heightが縮小し、中間的な
+        // max_scrollに基づくクランプでscroll_yが不当に引き下げられるのを防ぐ。
+        // 最終バッチでもMermaidレンダリング後までクランプを遅延させる（後述）。
+        viewport_.AnchorCompensateScroll(anchor.idx, anchor.y_before, layout_cache_);
     }
     else {
         SyncMaxScroll(md_height);
@@ -144,9 +149,19 @@ void App::OnDeferredLayout()
     if (!more) {
         KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
 
-        // 遅延レイアウト完了: 全ノードのY位置が確定したので、
-        // 初回ロード時にスキップされたオフスクリーンMermaidノードを処理する
+        // 遅延レイアウト完了: オフスクリーンMermaidノードを処理する。
+        // キャッシュ済みMermaidは同期的にOnMermaidRenderCompleteが呼ばれ、
+        // 高さが更新される。SyncMaxScrollはその後に呼ぶことで、
+        // 推定高さに基づく不当なクランプを防ぐ。
         RequestMermaidRenders();
+
+        // 全レイアウト確定後に前回セッションの生のscroll_yを適用する
+        if (pending_restore_scroll_y_ >= 0) {
+            viewport_.SetScrollY(static_cast<float>(pending_restore_scroll_y_));
+            pending_restore_scroll_y_ = -1;
+        }
+
+        SyncMaxScroll(md_height);
 
         UpdateScrollBar();
         Invalidate();

@@ -540,3 +540,66 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
     EXPECT_FALSE(cache_.Lookup(2, entry, out));
     EXPECT_TRUE(cache_.Lookup(3, entry, out));
 }
+
+// ═══════════════════════════════════════════════
+// LookupDimensions — ディスクI/O無しのサイズ取得
+// ═══════════════════════════════════════════════
+
+TEST_F(MermaidFileCacheTest, LookupDimensionsReturnsStoredSize)
+{
+    InitCache();
+
+    cache_.StoreAsync(1, 400.0f, 300.0f, MakeDummyPng(256));
+
+    MermaidFileCache::CacheEntry entry;
+    EXPECT_TRUE(cache_.LookupDimensions(1, entry));
+    EXPECT_EQ(entry.css_width, 400.0f);
+    EXPECT_EQ(entry.css_height, 300.0f);
+}
+
+TEST_F(MermaidFileCacheTest, LookupDimensionsMissReturnsFalse)
+{
+    InitCache();
+
+    MermaidFileCache::CacheEntry entry;
+    EXPECT_FALSE(cache_.LookupDimensions(99999, entry));
+}
+
+TEST_F(MermaidFileCacheTest, LookupDimensionsSurvivesPersistence)
+{
+    InitCache();
+
+    cache_.StoreAsync(42, 800.0f, 600.0f, MakeDummyPng(512));
+    FlushAndReopen();
+
+    MermaidFileCache::CacheEntry entry;
+    EXPECT_TRUE(cache_.LookupDimensions(42, entry));
+    EXPECT_EQ(entry.css_width, 800.0f);
+    EXPECT_EQ(entry.css_height, 600.0f);
+}
+
+TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
+{
+    // LookupDimensionsはLRUタイムスタンプを更新しないことを確認する。
+    // エビクション対象の選択に影響しないため、推定専用の軽量パスとして安全。
+    cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
+    InitCache();
+
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(100));
+    EXPECT_EQ(cache_.EntryCount(), 2u);
+
+    // key=1をLookupDimensionsで参照（LRUは更新されないはず）
+    MermaidFileCache::CacheEntry entry;
+    EXPECT_TRUE(cache_.LookupDimensions(1, entry));
+
+    // key=3を追加 → LRU未更新のkey=1が最古として削除されるはず
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    cache_.StoreAsync(3, 300.0f, 150.0f, MakeDummyPng(100));
+    EXPECT_EQ(cache_.EntryCount(), 2u);
+
+    EXPECT_FALSE(cache_.LookupDimensions(1, entry));
+    EXPECT_TRUE(cache_.LookupDimensions(2, entry));
+    EXPECT_TRUE(cache_.LookupDimensions(3, entry));
+}

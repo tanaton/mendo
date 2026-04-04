@@ -69,3 +69,8 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
     }
     return static_cast<int>(std::ceil(max_width / 100.0f)) * 100;
 }
+
+uint64_t mermaid_util::HashCode(std::wstring_view code, float max_width, bool dark_mode) noexcept
+{
+    return CombinedHash(code, QuantizeWidth(max_width), dark_mode);
+}
