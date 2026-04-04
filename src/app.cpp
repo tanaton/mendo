@@ -790,7 +790,25 @@ void App::DoReloadCurrentFile()
     // Reset直後はheight/y_positionが全て0のため、軽量推定でY座標を確定させる
     EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
 
-    // 変更箇所のスクロール位置を決定（推定高さベース）
+    // Mermaidブロックの推定高さをファイルキャッシュの実測値で上書きする。
+    // 行数ベースの推定は実際の描画サイズと大きく乖離し得るため、
+    // キャッシュ済みの正確な高さを使うことでスクロール位置のずれを防ぐ。
+    {
+        const float content_width = renderer_.GetTheme().ContentWidth(md_width);
+        const bool dark_mode = theme_service_.IsDarkMode();
+        const auto& nodes_ref = doc_.GetNodes();
+        for (size_t i : doc_.GetMermaidNodeIndices()) {
+            const auto hash = mermaid_util::HashCode(
+                nodes_ref[i].text, content_width, dark_mode);
+            MermaidFileCache::CacheEntry fentry;
+            if (file_cache_.LookupDimensions(hash, fentry)) {
+                layout_cache_[i].height = fentry.css_height;
+            }
+        }
+        RecomputeYPositions(doc_.GetNodesMut(), layout_cache_, renderer_.GetTheme());
+    }
+
+    // 変更箇所のスクロール位置を決定
     float desired_scroll = old_scroll;
     const auto& new_content = doc_.GetRawUtf8();
     const auto& nodes = doc_.GetNodes();
