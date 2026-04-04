@@ -222,6 +222,9 @@ private:
 
     void RequestMermaidRenders(bool visible_only = false);
     void OnMermaidRenderComplete();
+    void CancelMermaidBatch();
+    void ScheduleMermaidBatch();
+    void ProcessMermaidBatch();
     void LoadImages();
     void OnImageLoadComplete();
     int ApplyCachedImages();
@@ -260,6 +263,9 @@ public:
     static constexpr UINT_PTR TIMER_SEARCH_CARET = 7;
     static constexpr UINT_PTR TIMER_TOOLTIP = 8;
     static constexpr UINT_PTR TIMER_SEARCH_DEBOUNCE = 9;
+    static constexpr UINT_PTR TIMER_MERMAID_BATCH = 10;
+    // バッチ処理の時間予算（マイクロ秒）。16msフレーム内でレンダリング等の余地を残す。
+    static constexpr int BATCH_TIME_BUDGET_US = 6000;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
     static constexpr UINT WM_APP_IMAGE_LOADED = WM_APP + 2;
     static constexpr UINT WM_APP_RELOAD_FILE = WM_APP + 3;
@@ -323,6 +329,8 @@ private:
     HitTestService hit_test_;
 
     float last_mermaid_content_width_ = 0.0f;
+    bool mermaid_batch_loading_ = false;
+    size_t mermaid_batch_next_ = 0;
 
     // 画像パス解決キャッシュ（canonical() のディスクI/Oを回避）
     std::unordered_map<size_t, std::wstring> resolved_image_paths_;

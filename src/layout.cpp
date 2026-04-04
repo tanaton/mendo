@@ -1,6 +1,7 @@
 #include "layout.h"
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 
 // マジックナンバーの名前付き定数
@@ -343,17 +344,29 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 }
 
 bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    float viewport_width, int batch_size)
+    float viewport_width, int batch_size, int time_budget_us)
 {
     const float content_width = theme_->ContentWidth(viewport_width);
     int processed = 0;
     size_t first_dirty = nodes.size();
     size_t last_processed = 0;
 
+    const bool has_budget = (time_budget_us > 0);
+    const auto start = has_budget ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
     for (size_t i = 0; i < nodes.size(); i++) {
         auto& entry = cache[i];
         if (!entry.layout_dirty) {
             continue;
+        }
+
+        // 時間予算チェック: MeasureNodeの前に判定し、超過分を抑える。
+        // 最低1ノードは処理する（進行を保証）。
+        if (has_budget && processed > 0) {
+            const auto elapsed = std::chrono::steady_clock::now() - start;
+            if (std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() >= time_budget_us) {
+                break;
+            }
         }
 
         if (first_dirty == nodes.size()) {
