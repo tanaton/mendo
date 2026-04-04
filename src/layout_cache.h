@@ -126,8 +126,8 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_
     return cache[last].y_position + cache[last].height + margin_top;
 }
 
-// ノードの Y 範囲 [y, y+h) が [range_top, range_bottom] と重ならない場合 true を返す。
-// ビューポート外判定の共通ヘルパー。
+// ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。
+// 端が接している場合（y+h == range_top 等）は重なり扱い（false）。
 constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom) noexcept
 {
     return y + h < range_top || y > range_bottom;

@@ -132,7 +132,7 @@ void App::OnDeferredLayout()
     bool more;
     {
         MENDO_PROFILE("ProcessDirtyBatch");
-        more = layout_service_->ProcessDirtyBatch(doc_, layout_cache_, md_width, 200, BATCH_TIME_BUDGET_US, md_height);
+        more = layout_service_->ProcessDirtyBatch(doc_, layout_cache_, md_width, 200, BATCH_TIME_BUDGET_US, md_height, EVICT_BUFFER_SCREENS);
     }
 
 #if MENDO_PROFILE_ENABLED

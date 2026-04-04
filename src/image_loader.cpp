@@ -313,6 +313,16 @@ void ImageLoader::EvictLruIfNeeded()
     }
 }
 
+void ImageLoader::InsertCacheEntry(const std::wstring& path, float width, float height)
+{
+    CachedImage cached;
+    cached.width = width;
+    cached.height = height;
+    cached.last_access = ++access_counter_;
+    cache_[path] = cached;
+    EvictLruIfNeeded();
+}
+
 void ImageLoader::CancelPending()
 {
     cancel_gen_.fetch_add(1);

@@ -46,6 +46,10 @@ public:
 
     void ClearCache() noexcept { cache_.clear(); }
     void RemoveCached(const std::wstring& abs_path) { cache_.erase(abs_path); }
+    size_t CacheSize() const noexcept { return cache_.size(); }
+
+    // テスト用: ビットマップなしのダミーエントリをキャッシュに挿入する。
+    void InsertCacheEntry(const std::wstring& path, float width, float height);
 
     // 保留中のリクエストをキャンセルする（CancelPendingと同等）。
     void Shutdown();

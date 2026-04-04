@@ -42,6 +42,47 @@ TEST_F(ImageLoaderLruTest, RemoveCachedDoesNotCrashOnMissingKey)
     loader_.RemoveCached(L"nonexistent.png");
 }
 
+TEST_F(ImageLoaderLruTest, EvictsOldestWhenExceedingMaxEntries)
+{
+    // kMaxCacheEntries を超えたら最古のエントリが削除される
+    const size_t max_entries = 128; // kMaxCacheEntries
+
+    for (size_t i = 0; i < max_entries; i++) {
+        loader_.InsertCacheEntry(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+    }
+    EXPECT_EQ(loader_.CacheSize(), max_entries);
+
+    // 1つ追加すると最古 (img_0) が削除される
+    loader_.InsertCacheEntry(L"overflow.png", 100.0f, 100.0f);
+    EXPECT_EQ(loader_.CacheSize(), max_entries);
+
+    DiagramEntry out;
+    EXPECT_FALSE(loader_.GetCachedImage(L"img_0.png", out));
+    EXPECT_TRUE(loader_.GetCachedImage(L"overflow.png", out));
+}
+
+TEST_F(ImageLoaderLruTest, RecentlyAccessedEntrysSurvivesEviction)
+{
+    // アクセスしたエントリは LRU エビクションで生き残る
+    const size_t max_entries = 128;
+
+    for (size_t i = 0; i < max_entries; i++) {
+        loader_.InsertCacheEntry(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+    }
+
+    // img_0 にアクセスして最新にする
+    DiagramEntry out;
+    EXPECT_TRUE(loader_.GetCachedImage(L"img_0.png", out));
+
+    // 1つ追加 → img_0 ではなく img_1（最古）が削除される
+    loader_.InsertCacheEntry(L"new.png", 100.0f, 100.0f);
+    EXPECT_EQ(loader_.CacheSize(), max_entries);
+
+    EXPECT_TRUE(loader_.GetCachedImage(L"img_0.png", out));
+    EXPECT_FALSE(loader_.GetCachedImage(L"img_1.png", out));
+    EXPECT_TRUE(loader_.GetCachedImage(L"new.png", out));
+}
+
 // ============================================================
 // LayoutCache ビューポート外 eviction テスト
 // ============================================================

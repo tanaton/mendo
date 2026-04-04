@@ -41,7 +41,8 @@ public:
     void LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
     bool ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
         float viewport_width, int batch_size, int time_budget_us = 0,
-        float viewport_top = -1.0f, float viewport_height = -1.0f);
+        float viewport_top = -1.0f, float viewport_height = -1.0f,
+        float buffer_screens = 5.0f);
     bool EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top, float viewport_bottom);
     constexpr bool HasDirtyNodes() const noexcept { return has_dirty_nodes_; }

@@ -345,7 +345,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 
 bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width, int batch_size, int time_budget_us,
-    float viewport_top, float viewport_height)
+    float viewport_top, float viewport_height, float buffer_screens)
 {
     const float content_width = theme_->ContentWidth(viewport_width);
     int processed = 0;
@@ -353,8 +353,8 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
     size_t last_processed = 0;
 
     const bool has_viewport_limit = (viewport_top >= 0.0f && viewport_height > 0.0f);
-    const float limit_top = has_viewport_limit ? viewport_top - viewport_height * 5.0f : 0.0f;
-    const float limit_bottom = has_viewport_limit ? viewport_top + viewport_height + viewport_height * 5.0f : 0.0f;
+    const float limit_top = has_viewport_limit ? viewport_top - viewport_height * buffer_screens : 0.0f;
+    const float limit_bottom = has_viewport_limit ? viewport_top + viewport_height + viewport_height * buffer_screens : 0.0f;
 
     const bool has_budget = (time_budget_us > 0);
     const auto start = has_budget ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};

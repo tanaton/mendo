@@ -660,7 +660,7 @@ void App::DoLoadMarkdownFile()
         LoadImages();
     }
     {
-        MENDO_PROFILE("RequestMermaidRenders(visible)");
+        MENDO_PROFILE("RequestMermaidRenders");
         RequestMermaidRenders();
     }
 
