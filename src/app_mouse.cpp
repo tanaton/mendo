@@ -517,13 +517,17 @@ void App::OnLButtonUp(int px, int py)
     ReleaseCapture();
 
     if (panes_.GetDragTarget() != PaneController::DragTarget::None) {
-        if (panes_.GetDragTarget() == PaneController::DragTarget::MdScrollbar) {
+        const bool was_md_scrollbar = (panes_.GetDragTarget() == PaneController::DragTarget::MdScrollbar);
+        if (was_md_scrollbar) {
             viewport_.SetScrollbarTracking(false);
         }
         panes_.EndDrag();
         RECT rc;
         GetClientRect(hwnd_, &rc);
         OnResize(static_cast<UINT>(rc.right - rc.left), static_cast<UINT>(rc.bottom - rc.top));
+        if (was_md_scrollbar) {
+            ScheduleBitmapManage();
+        }
         return;
     }
 

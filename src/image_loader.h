@@ -45,6 +45,11 @@ public:
     void CancelPending();
 
     void ClearCache() noexcept { cache_.clear(); }
+    void RemoveCached(const std::wstring& abs_path) { cache_.erase(abs_path); }
+    size_t CacheSize() const noexcept { return cache_.size(); }
+
+    // テスト用: ビットマップなしのダミーエントリをキャッシュに挿入する。
+    void InsertCacheEntry(const std::wstring& path, float width, float height);
 
     // 保留中のリクエストをキャンセルする（CancelPendingと同等）。
     void Shutdown();
@@ -54,6 +59,7 @@ private:
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
+        mutable uint64_t last_access = 0;
     };
 
     struct DecodeResult {
@@ -67,16 +73,20 @@ private:
     };
 
     void GetDpiScale(float& scale_x, float& scale_y) const;
+    void EvictLruIfNeeded();
+
+    static constexpr size_t kMaxCacheEntries = 128;
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
     std::unordered_map<std::wstring, CachedImage> cache_;
+    mutable uint64_t access_counter_ = 0;
 
     // 非同期読み込み
     HWND hwnd_ = nullptr;
     UINT msg_id_ = 0;
     TaskScheduler* scheduler_ = nullptr;
-    std::atomic<uint32_t> cancel_gen_{0};
+    std::atomic<uint32_t> cancel_gen_{ 0 };
     std::mutex pending_mutex_;
     std::unordered_set<std::wstring> pending_paths_;
 

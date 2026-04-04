@@ -15,7 +15,9 @@ public:
     void ViewportLayout(Document& doc, LayoutCache& cache, float width, float height);
 
     // ダーティバッチ処理（遅延レイアウト）
-    bool ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us = 0);
+    // viewport_height > 0 の場合、ビューポート付近のダーティノードのみ処理する。
+    bool ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us = 0,
+        float viewport_height = -1.0f, float buffer_screens = 5.0f);
 
     // 可視領域のレイアウト保証（OnPaint 時）
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);

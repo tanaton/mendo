@@ -12,7 +12,7 @@
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "shlwapi.lib")
 
-static constexpr size_t MAX_CACHE_ENTRIES = 4096;
+static constexpr size_t MAX_CACHE_ENTRIES = 64;
 
 static std::span<const std::byte> LoadMermaidJsGzFromResource()
 {
