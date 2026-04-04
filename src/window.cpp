@@ -113,7 +113,7 @@ int Win32Window::RunMessageLoop()
             * 1000.0 / static_cast<double>(freq.QuadPart);
         if (dispatch_ms > 16.0) {
             wchar_t buf[256];
-            _snwprintf_s(buf, _countof(buf), _TRUNCATE,
+            _snwprintf_s(buf, std::ranges::size(buf), _TRUNCATE,
                 L"[mendo-profile] SLOW MSG 0x%04X hwnd=%p: %.2f ms\n",
                 msg.message, msg.hwnd, dispatch_ms);
             OutputDebugStringW(buf);
