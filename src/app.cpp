@@ -767,29 +767,47 @@ void App::DoReloadCurrentFile()
         std::string_view(doc_.GetRawUtf8()),
         std::string_view(new_utf8));
 
+    // 差分がなければリロード不要。エディタの保存操作が複数の通知を
+    // 発生させた場合に、レイアウトキャッシュの不要なリセットを防ぐ。
+    if (diff_pos == std::string_view::npos) {
+        doc_service_.ResetDebounceTick();
+        return;
+    }
+
+    // ドキュメントを新コンテンツで更新
+    {
+        MENDO_PROFILE("Reload::ReplaceFromMarkdown");
+        doc_.ReplaceFromMarkdown(std::move(new_utf8));
+    }
+    layout_cache_.Reset(doc_.GetNodes().size(), false);
+
+    renderer_.InvalidateTocPaneCache();
+
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
 
-    // 変更箇所のスクロール位置を、リセット前の旧レイアウト（精密なY座標）から取得する。
-    // リセット後の推定高さベースだと精密レイアウトとの誤差が大きく、
-    // 2回目以降のリロードでスクロール位置がずれる原因になる。
+    // Reset直後はheight/y_positionが全て0のため、軽量推定でY座標を確定させる
+    EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
+
+    // 変更箇所のスクロール位置を決定（推定高さベース）
     float desired_scroll = old_scroll;
-    if (diff_pos != std::string_view::npos && !doc_.GetNodes().empty()) {
-        const auto& old_nodes = doc_.GetNodes();
-        const auto& old_content = doc_.GetRawUtf8();
-        const int changed_node = FindNodeBySourceOffset(old_nodes, static_cast<uint32_t>(diff_pos));
+    const auto& new_content = doc_.GetRawUtf8();
+    const auto& nodes = doc_.GetNodes();
+
+    {
+        const int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
         if (changed_node >= 0 && changed_node < static_cast<int>(layout_cache_.size())) {
             float node_y = layout_cache_[changed_node].y_position;
             const float node_h = layout_cache_[changed_node].height;
 
             // ノード内での相対位置を推定してY座標を補正
-            const uint32_t node_start = old_nodes[changed_node].source_offset;
+            const uint32_t node_start = nodes[changed_node].source_offset;
             if (node_start != UINT32_MAX) {
-                uint32_t next_start = static_cast<uint32_t>(old_content.size());
-                for (int i = changed_node + 1; i < static_cast<int>(old_nodes.size()); ++i) {
-                    if (old_nodes[i].source_offset != UINT32_MAX && old_nodes[i].source_offset > node_start) {
-                        next_start = old_nodes[i].source_offset;
+                uint32_t next_start = static_cast<uint32_t>(new_content.size());
+                for (int i = changed_node + 1; i < static_cast<int>(nodes.size()); ++i) {
+                    if (nodes[i].source_offset != UINT32_MAX && nodes[i].source_offset > node_start) {
+                        next_start = nodes[i].source_offset;
                         break;
                     }
                 }
@@ -804,18 +822,6 @@ void App::DoReloadCurrentFile()
             desired_scroll = std::max(0.0f, node_y - margin);
         }
     }
-
-    // ドキュメントを新コンテンツで更新
-    {
-        MENDO_PROFILE("Reload::ReplaceFromMarkdown");
-        doc_.ReplaceFromMarkdown(std::move(new_utf8));
-    }
-    layout_cache_.Reset(doc_.GetNodes().size(), false);
-
-    renderer_.InvalidateTocPaneCache();
-
-    // Reset直後はheight/y_positionが全て0のため、軽量推定でY座標を確定させる
-    EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
 
     // スクロール位置を設定してからViewportLayoutを呼ぶことで、
     // 変更箇所周辺の可視ノードが計測される
