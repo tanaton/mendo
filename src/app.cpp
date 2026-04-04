@@ -1139,7 +1139,7 @@ void App::EvictOffscreenBitmaps()
     }
 
     // 画像: DiagramEntry のビットマップ参照のみ解放する。
-    // ImageLoader キャッシュは LRU（kMaxCacheEntries=16）に管理を委ね、
+    // ImageLoader キャッシュは LRU（kMaxCacheEntries）に管理を委ね、
     // スクロールで再び可視範囲に入った際に GetCachedImage() で
     // ディスクI/O なしに即座に再適用できるようにする。
     for (size_t i : doc_.GetImageNodeIndices()) {

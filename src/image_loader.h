@@ -71,7 +71,7 @@ private:
     void GetDpiScale(float& scale_x, float& scale_y) const;
     void EvictLruIfNeeded();
 
-    static constexpr size_t kMaxCacheEntries = 16;
+    static constexpr size_t kMaxCacheEntries = 128;
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
@@ -82,7 +82,7 @@ private:
     HWND hwnd_ = nullptr;
     UINT msg_id_ = 0;
     TaskScheduler* scheduler_ = nullptr;
-    std::atomic<uint32_t> cancel_gen_{0};
+    std::atomic<uint32_t> cancel_gen_{ 0 };
     std::mutex pending_mutex_;
     std::unordered_set<std::wstring> pending_paths_;
 
