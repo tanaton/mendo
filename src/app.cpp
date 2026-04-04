@@ -61,11 +61,9 @@ bool App::Init(HWND hwnd)
     scheduler_.Init(mermaid_util::ComputeWorkerCount(
         std::thread::hardware_concurrency()));
 
-    // Mermaidファイルキャッシュを初期化
     file_cache_.Init(cached_dpi_scale_, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
-    // リソースマネージャを初期化
     resource_manager_.Init(doc_, layout_cache_, viewport_, image_loader_, mermaid_renderer_, theme_service_, renderer_, {
         .invalidate = [this]() { Invalidate(); },
         .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
@@ -88,12 +86,10 @@ bool App::Init(HWND hwnd)
         },
         });
 
-    // Mermaidレンダラーを初期化 (WebView2、非同期)
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
         resource_manager_.ScheduleMermaidBatch();
     });
 
-    // 画像ローダーを初期化（WICファクトリはバックエンドと共有）
     image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory());
     image_loader_.InitAsync(hwnd_, WM_APP_IMAGE_LOADED, scheduler_);
 
@@ -106,7 +102,6 @@ bool App::Init(HWND hwnd)
         resource_manager_.LoadImages();
     });
 
-    // 保存済みのダークモードとズーム設定を適用
     theme_service_.LoadDarkMode();
     viewport_.SetZoomIndex(theme_service_.LoadZoomIndex());
     if (theme_service_.IsDarkMode() || viewport_.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
@@ -119,10 +114,8 @@ bool App::Init(HWND hwnd)
         ApplyDarkModeToWindow(hwnd_, true);
     }
 
-    // システムカーソルをキャッシュ
     cursors_.Init();
 
-    // タイトルバーのレイアウト初期化
     {
         const auto* rt = renderer_.GetRenderTarget();
         const float window_w = rt ? rt->GetSize().width : 1600.0f;
@@ -133,13 +126,11 @@ bool App::Init(HWND hwnd)
 
     ctx_menu_.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 
-    // ツールチップを初期化
     tooltip_.Init(hwnd_);
     if (theme_service_.IsDarkMode()) {
         tooltip_.ApplyDarkMode(true);
     }
 
-    // 検索バーコントローラを初期化
     search_bar_ctrl_.Init(search_state_, viewport_, layout_cache_, { .invalidate = [this]() { Invalidate(); },
         .invalidate_search_bar = [this]() {
             const auto& layout = GetPaneLayout();
@@ -170,7 +161,6 @@ bool App::Init(HWND hwnd)
         },
         });
 
-    // ファイル監視タイマーを設定 (250ms毎にチェック)
     SetTimer(hwnd_, TIMER_FILE_WATCH, 250, nullptr);
 
     return true;

@@ -12,11 +12,14 @@ namespace {
 
 bool IsEditableTextFile(std::wstring_view path)
 {
+    if (IsMarkdownFile(path)) {
+        return true;
+    }
     auto ext = std::filesystem::path(path).extension().wstring();
     for (auto& c : ext) {
         c = std::towlower(c);
     }
-    return ext == L".md" || ext == L".markdown" || ext == L".mkd" || ext == L".txt";
+    return ext == L".txt";
 }
 
 // ペインヘッダー内のボタンがクリックされたか判定する。

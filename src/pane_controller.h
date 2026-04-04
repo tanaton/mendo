@@ -30,19 +30,8 @@ public:
             toc_close_hovered_ = false;
         }
     }
-    constexpr void ToggleFilePane() noexcept
-    {
-        show_file_ = !show_file_;
-        hovered_file_ = -1;
-        file_close_hovered_ = false;
-        file_refresh_hovered_ = false;
-    }
-    constexpr void ToggleTocPane() noexcept
-    {
-        show_toc_ = !show_toc_;
-        hovered_toc_ = -1;
-        toc_close_hovered_ = false;
-    }
+    constexpr void ToggleFilePane() noexcept { SetFilePaneVisible(!show_file_); }
+    constexpr void ToggleTocPane() noexcept { SetTocPaneVisible(!show_toc_); }
 
     // ---- 幅 ----
     constexpr float GetFilePaneWidth() const noexcept { return file_width_; }
