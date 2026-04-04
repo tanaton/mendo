@@ -1,4 +1,5 @@
 #include "document_service.h"
+#include "file_loader.h"
 #include "profiler.h"
 
 bool DocumentService::LoadFile(const std::pmr::wstring& path, Document& doc)
@@ -27,24 +28,24 @@ bool DocumentService::ReloadFile(Document& doc)
     return true;
 }
 
-void DocumentService::StartWatching(const std::pmr::wstring& path, FileLoader::ChangeCallback cb)
+void DocumentService::StartWatching(const std::pmr::wstring& path, FileWatcher::ChangeCallback cb)
 {
-    loader_.StartWatching(path, std::move(cb));
+    watcher_.StartWatching(path, std::move(cb));
 }
 
 void DocumentService::StopWatching() noexcept
 {
-    loader_.StopWatching();
+    watcher_.StopWatching();
 }
 
 void DocumentService::CheckForChanges()
 {
-    loader_.CheckForChanges();
+    watcher_.CheckForChanges();
 }
 
 void DocumentService::ResetDebounceTick() noexcept
 {
-    loader_.ResetDebounceTick();
+    watcher_.ResetDebounceTick();
 }
 
 bool DocumentService::NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept

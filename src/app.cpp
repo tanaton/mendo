@@ -65,9 +65,33 @@ bool App::Init(HWND hwnd)
     file_cache_.Init(cached_dpi_scale_, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
+    // リソースマネージャを初期化
+    resource_manager_.Init(doc_, layout_cache_, viewport_,
+        image_loader_, mermaid_renderer_, theme_service_, renderer_, {
+        .invalidate = [this]() { Invalidate(); },
+        .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
+        .kill_timer = [this](UINT_PTR id) { KillTimer(hwnd_, id); },
+        .get_content_width = [this]() -> float {
+            return renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
+        },
+        .get_viewport_height = [this]() -> float {
+            return GetPaneLayout().md_rect.height;
+        },
+        .recompute_layout = [this]() {
+            layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+        },
+        .recompute_layout_anchored = [this]() {
+            const auto anchor = SaveAnchor();
+            layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+            const auto layout = GetPaneLayout();
+            RestoreAnchor(anchor, layout.md_rect.height);
+            Invalidate();
+        },
+    });
+
     // Mermaidレンダラーを初期化 (WebView2、非同期)
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
-        ScheduleMermaidBatch();
+        resource_manager_.ScheduleMermaidBatch();
     });
 
     // 画像ローダーを初期化（WICファクトリはバックエンドと共有）
@@ -80,7 +104,7 @@ bool App::Init(HWND hwnd)
         image_loader_.CancelPending();
         image_loader_.SetRenderTarget(new_rt);
         image_loader_.ClearCache();
-        LoadImages();
+        resource_manager_.LoadImages();
     });
 
     // 保存済みのダークモードとズーム設定を適用
@@ -97,10 +121,7 @@ bool App::Init(HWND hwnd)
     }
 
     // システムカーソルをキャッシュ
-    cursor_arrow_ = LoadCursorW(nullptr, IDC_ARROW);
-    cursor_hand_ = LoadCursorW(nullptr, IDC_HAND);
-    cursor_ibeam_ = LoadCursorW(nullptr, IDC_IBEAM);
-    cursor_sizewe_ = LoadCursorW(nullptr, IDC_SIZEWE);
+    cursors_.Init();
 
     // タイトルバーのレイアウト初期化
     {
@@ -118,6 +139,41 @@ bool App::Init(HWND hwnd)
     if (theme_service_.IsDarkMode()) {
         tooltip_.ApplyDarkMode(true);
     }
+
+    // 検索バーコントローラを初期化
+    search_bar_ctrl_.Init(search_state_, viewport_, layout_cache_, {
+        .invalidate = [this]() { Invalidate(); },
+        .invalidate_search_bar = [this]() {
+            const auto& layout = GetPaneLayout();
+            const auto& r = layout.md_rect;
+            const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT,
+                                        r.width, SEARCH_BAR_HEIGHT };
+            InvalidatePane(search_area);
+        },
+        .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
+        .kill_timer = [this](UINT_PTR id) { KillTimer(hwnd_, id); },
+        .focus_select_all = [this]() {
+            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SELECT_ALL, 0);
+        },
+        .focus_set_caret = [this](int pos) {
+            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_CARET,
+                        static_cast<LPARAM>(pos));
+        },
+        .focus_set_selection = [this](int anchor, int caret) {
+            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_SELECTION,
+                        MAKELPARAM(anchor, caret));
+        },
+        .unfocus = [this]() {
+            PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, 0, 0);
+        },
+        .get_md_pane_height = [this]() -> float {
+            return GetPaneLayout().md_rect.height;
+        },
+        .on_scroll_changed = [this](float visible_h) {
+            SyncMaxScroll(visible_h);
+            InvalidateHitPositions();
+        },
+    });
 
     // ファイル監視タイマーを設定 (250ms毎にチェック)
     SetTimer(hwnd_, TIMER_FILE_WATCH, 250, nullptr);
@@ -324,24 +380,7 @@ ToastRenderState App::BuildToastRenderState() const
 
 SearchBarRenderState App::BuildSearchBarRenderState() const
 {
-    SearchBarRenderState sb;
-    sb.visible = search_state_.IsVisible();
-    sb.query = search_state_.GetQuery();
-    sb.current_match = search_state_.GetCurrentMatchIndex();
-    sb.total_matches = search_state_.GetMatchCount();
-    sb.has_focus = search_has_focus_;
-    sb.caret_visible = search_has_focus_ && search_caret_visible_;
-    sb.caret_pos = search_caret_pos_;
-    sb.selection_start = search_selection_start_;
-    sb.ime_composition = ime_composition_;
-    sb.case_sensitive = search_state_.IsCaseSensitive();
-    sb.highlight_enabled = search_state_.IsHighlightEnabled();
-    sb.up_btn_hovered = (search_bar_hover_ == SearchBarHover::Up);
-    sb.down_btn_hovered = (search_bar_hover_ == SearchBarHover::Down);
-    sb.close_btn_hovered = (search_bar_hover_ == SearchBarHover::Close);
-    sb.case_btn_hovered = (search_bar_hover_ == SearchBarHover::CaseSensitive);
-    sb.highlight_btn_hovered = (search_bar_hover_ == SearchBarHover::Highlight);
-    return sb;
+    return search_bar_ctrl_.BuildRenderState();
 }
 
 // ============================================================
@@ -360,7 +399,7 @@ void App::OnPaint()
         // 完了済みデコード結果とキャッシュ済みリソースを描画前に適用する。
         // WM_APP_IMAGE_LOADED が WM_PAINT より後にキューされている場合でも
         // プレースホルダーの表示を回避できる。
-        FlushPendingResources();
+        resource_manager_.FlushPendingResources();
 
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
         const auto anchor = SaveAnchor();
@@ -513,10 +552,10 @@ void App::LoadHelpDocument()
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
     file_load_service_.StopLoading();
     viewport_.ClearSelection();
-    CancelMermaidBatch();
+    resource_manager_.CancelMermaidBatch();
     image_loader_.CancelPending();
     renderer_.ShrinkBuffers();
-    resolved_image_paths_.clear();
+    resource_manager_.ClearResolvedPaths();
     doc_service_.StopWatching();
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
@@ -573,14 +612,14 @@ void App::DoLoadMarkdownFile()
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
 
     viewport_.ClearSelection();
-    search_state_.Reset();
+    search_bar_ctrl_.Reset();
     // ファイル切替時はEDITコントロールのテキストもクリア
     PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, SEARCH_UNFOCUS_FILE_SWITCH, 0);
     active_toc_index_ = -1;
-    CancelMermaidBatch();
+    resource_manager_.CancelMermaidBatch();
     image_loader_.CancelPending();
     renderer_.ShrinkBuffers();
-    resolved_image_paths_.clear();
+    resource_manager_.ClearResolvedPaths();
 
     {
         MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
@@ -607,7 +646,7 @@ void App::DoLoadMarkdownFile()
 
     // スクロール位置の復元
     float scroll_y = 0.0f;
-    if (pending_restore_node_ >= 0) {
+    if (scroll_restore_.HasNodeRestore()) {
         // cache.Reset()直後はY座標が全て0のため、DirectWriteを使わない
         // 軽量パスでノード高さとY座標を推定する（O(n)の算術演算のみ）。
         // 遅延レイアウトのアンカー補償により正確な位置へ収束する。
@@ -632,17 +671,16 @@ void App::DoLoadMarkdownFile()
             }
             RecomputeYPositions(doc_.GetNodesMut(), layout_cache_, renderer_.GetTheme());
         }
-        const int node = std::min(pending_restore_node_,
+        const int node = std::min(scroll_restore_.pending_restore_node,
             static_cast<int>(layout_cache_.size()) - 1);
         if (node >= 0) {
             scroll_y = std::max(0.0f,
-                layout_cache_[node].y_position + static_cast<float>(pending_restore_offset_));
+                layout_cache_[node].y_position + static_cast<float>(scroll_restore_.pending_restore_offset));
         }
-        pending_restore_node_ = -1;
+        scroll_restore_.ClearNodeRestore();
     }
-    else if (pending_nav_scroll_y_ >= 0.0f) {
-        scroll_y = pending_nav_scroll_y_;
-        pending_nav_scroll_y_ = -1.0f;
+    else if (scroll_restore_.HasNavScroll()) {
+        scroll_y = scroll_restore_.ConsumeNavScroll();
     }
 
     // スクロール位置を設定してからViewportLayoutを呼ぶことで、
@@ -657,11 +695,11 @@ void App::DoLoadMarkdownFile()
     // キャッシュ済みリソースを適用（画像/Mermaidの正確な高さを反映）
     {
         MENDO_PROFILE("LoadImages");
-        LoadImages();
+        resource_manager_.LoadImages();
     }
     {
         MENDO_PROFILE("RequestMermaidRenders");
-        RequestMermaidRenders();
+        resource_manager_.RequestMermaidRenders();
     }
 
     // キャッシュ適用後にスクロール範囲を確定
@@ -715,9 +753,9 @@ void App::DoReloadCurrentFile()
 
     const float old_scroll = viewport_.GetScrollY();
 
-    CancelMermaidBatch();
+    resource_manager_.CancelMermaidBatch();
     image_loader_.CancelPending();
-    resolved_image_paths_.clear();
+    resource_manager_.ClearResolvedPaths();
 
     // ファイルを読み込み、旧コンテンツとの差分位置をコピーなしで計算
     std::pmr::string new_utf8;
@@ -788,15 +826,15 @@ void App::DoReloadCurrentFile()
     }
 
     // キャッシュ済み画像/Mermaidを適用してY位置を正確にする
-    LoadImages();
-    RequestMermaidRenders();
+    resource_manager_.LoadImages();
+    resource_manager_.RequestMermaidRenders();
 
     SyncMaxScroll(md_height);
     UpdateScrollBar();
 
     // 検索バー表示中なら再検索
     if (search_state_.IsVisible() && !search_state_.GetQuery().empty()) {
-        RunSearchAndLocate();
+        search_bar_ctrl_.RunSearchAndLocate(doc_.GetNodes());
     }
 
     Invalidate();
@@ -818,395 +856,10 @@ void App::UpdateTitleBar()
     InvalidateTitleBar();
 }
 
-// キャッシュ済み画像を DiagramEntry に反映する。
-// 戻り値: キャッシュから反映できた画像の数
-int App::ApplyCachedImages()
-{
-    const std::wstring doc_dir{ doc_.GetDirectory() };
-    if (doc_dir.empty()) {
-        return 0;
-    }
-
-    const float viewport_width = GetMarkdownPaneWidth();
-    const float content_width = renderer_.GetTheme().ContentWidth(viewport_width);
-    if (content_width <= 0.0f) {
-        return 0;
-    }
-
-    const float viewport_top = viewport_.GetScrollY();
-    const float viewport_height = GetPaneLayout().md_rect.height;
-    const float buffer = viewport_height * PREFETCH_BUFFER_SCREENS;
-    const float range_top = viewport_top - buffer;
-    const float range_bottom = viewport_top + viewport_height + buffer;
-
-    int applied = 0;
-    auto& nodes = doc_.GetNodesMut();
-    for (size_t i : doc_.GetImageNodeIndices()) {
-        auto& node = nodes[i];
-        auto& diagram = layout_cache_.GetDiagram(i);
-        if (diagram.bitmap) {
-            continue;
-        }
-
-        if (!node.has_image() || node.image_data->src.find(L"://") != std::pmr::wstring::npos) {
-            continue;
-        }
-
-        if (viewport_height > 0.0f && IsOffscreen(layout_cache_[i].y_position, layout_cache_[i].height, range_top, range_bottom)) {
-            continue;
-        }
-
-        // 解決済みパスのキャッシュを確認し、ディスクI/Oを回避
-        const auto cache_it = resolved_image_paths_.find(i);
-        std::wstring abs_str;
-        if (cache_it != resolved_image_paths_.end()) {
-            abs_str = cache_it->second;
-        }
-        else {
-            std::filesystem::path img_path(node.image_data->src);
-            if (img_path.is_relative()) {
-                img_path = std::filesystem::path(doc_dir) / img_path;
-            }
-
-            std::error_code ec;
-            const auto abs_path = std::filesystem::canonical(img_path, ec);
-            if (ec) {
-                continue;
-            }
-            abs_str = abs_path.wstring();
-            resolved_image_paths_[i] = abs_str;
-        }
-
-        if (image_loader_.GetCachedImage(abs_str, diagram)) {
-            node.image_data->width = diagram.width;
-            node.image_data->height = diagram.height;
-
-            const float indent = node.indent_level * renderer_.GetTheme().indent_width;
-            const float node_width = content_width - indent;
-            float h = diagram.height;
-            if (diagram.width > node_width && diagram.width > 0) {
-                h *= node_width / diagram.width;
-            }
-            layout_cache_[i].height = h;
-            layout_cache_[i].layout_dirty = false;
-            ++applied;
-        }
-        else {
-            image_loader_.RequestLoadAsync(abs_str,
-                [](void* ctx) static { static_cast<App*>(ctx)->OnImageLoadComplete(); },
-                this);
-        }
-    }
-    return applied;
-}
-
-void App::LoadImages()
-{
-    // ビューポート付近の画像のみ読み込み、遠方の画像はスクロール時に遅延読み込みする
-    if (ApplyCachedImages() > 0) {
-        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-        Invalidate();
-    }
-}
-
+// OnAppImageLoaded / OnAppReloadFile はWM_APPメッセージ経由でresource_manager_に委譲
 void App::OnAppImageLoaded()
 {
-    image_loader_.ProcessCompletedDecodes();
-}
-
-void App::OnImageLoadComplete()
-{
-    // ビューポート付近の画像のみ反映し、遠方のノードへの再読み込み連鎖を防ぐ
-    if (ApplyCachedImages() > 0) {
-        const auto anchor = SaveAnchor();
-        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-        const auto layout = GetPaneLayout();
-        RestoreAnchor(anchor, layout.md_rect.height);
-        Invalidate();
-    }
-}
-
-int App::RequestMermaidRenders()
-{
-    const float viewport_width = GetMarkdownPaneWidth();
-    const float content_width = renderer_.GetTheme().ContentWidth(viewport_width);
-
-    // コンテンツ幅が0以下の場合（ズームでMDペインが極小になった場合など）は
-    // 不正な幅でレンダリングしないようスキップする。
-    // last_mermaid_content_width_ を更新しないことで、復帰時の幅変更検出を正しく保つ。
-    if (content_width <= 0.0f) {
-        return 0;
-    }
-
-    if (last_mermaid_content_width_ > 0.0f &&
-        mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_)) {
-        // 図のサイズが新旧どちらのコンテンツ幅より小さければ
-        // ビューポートに制約されていないため再生成不要
-        const float min_width = std::min(content_width, last_mermaid_content_width_);
-        bool any_invalidated = false;
-        for (size_t i : doc_.GetMermaidNodeIndices()) {
-            auto& diagram = layout_cache_.GetDiagram(i);
-            if (diagram.bitmap && diagram.width > 0 &&
-                diagram.width + 1.0f < min_width) {
-                continue;
-            }
-            diagram.bitmap.Reset();
-            diagram.width = 0;
-            diagram.height = 0;
-            any_invalidated = true;
-        }
-        if (any_invalidated) {
-            mermaid_renderer_.ClearCache();
-        }
-        mermaid_renderer_.ClearPendingQueue();
-    }
-    last_mermaid_content_width_ = content_width;
-
-    // 先読みバッファ付きで Mermaid ノードを処理する。
-    // メモリキャッシュ・ファイルキャッシュヒット時は同期的に適用されるため、
-    // ビューポートに入る前に描画を完了できる。
-    const float viewport_top = viewport_.GetScrollY();
-    const float viewport_height = GetPaneLayout().md_rect.height;
-    const float buffer = viewport_height * PREFETCH_BUFFER_SCREENS;
-    const float range_top = viewport_top - buffer;
-    const float range_bottom = viewport_top + viewport_height + buffer;
-
-    int applied = 0;
-    for (size_t i : doc_.GetMermaidNodeIndices()) {
-        auto& node = doc_.GetNodesMut()[i];
-        auto& diagram = layout_cache_.GetDiagram(i);
-        if (diagram.bitmap) {
-            continue;
-        }
-
-        if (viewport_height > 0.0f && IsOffscreen(layout_cache_[i].y_position, layout_cache_[i].height, range_top, range_bottom)) {
-            continue;
-        }
-
-        mermaid_renderer_.RequestRender(node, layout_cache_[i], diagram,
-            content_width, theme_service_.IsDarkMode(),
-            [](void* ctx) static { static_cast<App*>(ctx)->OnMermaidRenderComplete(); },
-            this);
-        if (diagram.bitmap) {
-            ++applied;
-        }
-    }
-    return applied;
-}
-
-void App::OnMermaidRenderComplete()
-{
-    if (mermaid_batch_loading_) {
-        return;
-    }
-    const auto anchor = SaveAnchor();
-    layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-    const auto layout = GetPaneLayout();
-    RestoreAnchor(anchor, layout.md_rect.height);
-    Invalidate();
-}
-
-void App::CancelMermaidBatch()
-{
-    mermaid_renderer_.CancelPending();
-    KillTimer(hwnd_, TIMER_MERMAID_BATCH);
-}
-
-void App::ScheduleMermaidBatch()
-{
-    mermaid_batch_next_ = 0;
-    SetTimer(hwnd_, TIMER_MERMAID_BATCH, 16, nullptr);
-}
-
-void App::ProcessMermaidBatch()
-{
-    MENDO_PROFILE("ProcessMermaidBatch");
-
-    const float viewport_width = GetMarkdownPaneWidth();
-    const float content_width = renderer_.GetTheme().ContentWidth(viewport_width);
-    if (content_width <= 0.0f) {
-        KillTimer(hwnd_, TIMER_MERMAID_BATCH);
-        return;
-    }
-
-    const float viewport_top = viewport_.GetScrollY();
-    const float viewport_height = GetPaneLayout().md_rect.height;
-    const float buffer = viewport_height * EVICT_BUFFER_SCREENS;
-    const float range_top = viewport_top - buffer;
-    const float range_bottom = viewport_top + viewport_height + buffer;
-
-    const bool dark_mode = theme_service_.IsDarkMode();
-    const auto& indices = doc_.GetMermaidNodeIndices();
-    const auto anchor = SaveAnchor();
-    bool any_loaded = false;
-
-    const auto start = std::chrono::steady_clock::now();
-
-    // mermaid_batch_loading_ は RequestRender 内の同期キャッシュヒット時に
-    // OnMermaidRenderComplete が再入呼び出しされるのを抑制する。
-    mermaid_batch_loading_ = true;
-    while (mermaid_batch_next_ < indices.size()) {
-        const size_t i = indices[mermaid_batch_next_];
-
-        if (viewport_height > 0.0f && IsOffscreen(layout_cache_[i].y_position, layout_cache_[i].height, range_top, range_bottom)) {
-            mermaid_batch_next_++;
-            continue;
-        }
-
-        auto& node = doc_.GetNodesMut()[i];
-        auto& diagram = layout_cache_.GetDiagram(i);
-
-        if (!diagram.bitmap) {
-            mermaid_renderer_.RequestRender(node, layout_cache_[i], diagram,
-                content_width, dark_mode,
-                [](void* ctx) static { static_cast<App*>(ctx)->OnMermaidRenderComplete(); },
-                this);
-            if (diagram.bitmap) {
-                any_loaded = true;
-            }
-        }
-
-        mermaid_batch_next_++;
-
-        const auto elapsed = std::chrono::steady_clock::now() - start;
-        if (std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() >= BATCH_TIME_BUDGET_US) {
-            break;
-        }
-    }
-    mermaid_batch_loading_ = false;
-
-    if (any_loaded) {
-        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-        const auto layout = GetPaneLayout();
-        RestoreAnchor(anchor, layout.md_rect.height);
-        Invalidate();
-    }
-
-    if (mermaid_batch_next_ >= indices.size()) {
-        KillTimer(hwnd_, TIMER_MERMAID_BATCH);
-    }
-}
-
-// ============================================================
-// ビューポート外リソースの解放 / 再読み込み
-// ============================================================
-
-void App::EvictOffscreenBitmaps()
-{
-    const float viewport_top = viewport_.GetScrollY();
-    const float viewport_height = GetPaneLayout().md_rect.height;
-    if (viewport_height <= 0.0f) {
-        return;
-    }
-
-    const float buffer = viewport_height * EVICT_BUFFER_SCREENS;
-    const float evict_top = viewport_top - buffer;
-    const float evict_bottom = viewport_top + viewport_height + buffer;
-
-    const size_t node_count = doc_.GetNodes().size();
-
-    // テキストレイアウトの解放（最大のメモリ消費源）
-    // y_position と height は保持し、layout_dirty を設定する。
-    // スクロール時に EnsureVisibleLayout で再作成される。
-    // 二分探索で保持範囲の前後のみ走査する。
-    const int first_keep = FindFirstVisibleNodeIndex(layout_cache_, node_count, evict_top);
-    int last_keep = first_keep;
-    for (int i = first_keep; i < static_cast<int>(node_count); i++) {
-        if (layout_cache_[i].y_position > evict_bottom) {
-            break;
-        }
-        last_keep = i + 1;
-    }
-
-    auto evict_text_layout = [&](size_t i) {
-        auto& entry = layout_cache_[i];
-        if (!entry.text_layout && entry.cell_layouts.empty()) {
-            return;
-        }
-        entry.text_layout.Reset();
-        entry.effects_applied = false;
-        entry.inline_code_bgs.clear();
-        entry.cell_layouts.clear();
-        entry.cell_inline_code_bgs.clear();
-        entry.layout_dirty = true;
-    };
-
-    for (size_t i = 0; i < static_cast<size_t>(first_keep); i++) {
-        evict_text_layout(i);
-    }
-    for (size_t i = static_cast<size_t>(last_keep); i < node_count; i++) {
-        evict_text_layout(i);
-    }
-
-    // 画像: DiagramEntry のビットマップ参照のみ解放する。
-    // ImageLoader キャッシュは LRU（kMaxCacheEntries）に管理を委ね、
-    // スクロールで再び可視範囲に入った際に GetCachedImage() で
-    // ディスクI/O なしに即座に再適用できるようにする。
-    for (size_t i : doc_.GetImageNodeIndices()) {
-        auto& diagram = layout_cache_.GetDiagram(i);
-        if (!diagram.bitmap) {
-            continue;
-        }
-        if (IsOffscreen(layout_cache_[i].y_position, layout_cache_[i].height, evict_top, evict_bottom)) {
-            diagram.bitmap.Reset();
-        }
-    }
-
-    // Mermaid: DiagramEntry を解放し、メモリキャッシュ全体をクリア
-    bool any_mermaid_evicted = false;
-    for (size_t i : doc_.GetMermaidNodeIndices()) {
-        auto& diagram = layout_cache_.GetDiagram(i);
-        if (!diagram.bitmap) {
-            continue;
-        }
-        if (IsOffscreen(layout_cache_[i].y_position, layout_cache_[i].height, evict_top, evict_bottom)) {
-            diagram.bitmap.Reset();
-            any_mermaid_evicted = true;
-        }
-    }
-    if (any_mermaid_evicted) {
-        // メモリキャッシュをクリア。可視ノードの DiagramEntry は ComPtr で
-        // ビットマップを保持し続けるため、表示には影響しない。
-        // ファイルキャッシュがバックアップとして機能する。
-        mermaid_renderer_.ClearCache();
-    }
-}
-
-void App::FlushPendingResources()
-{
-    // 完了した非同期画像デコードを ImageLoader キャッシュに反映
-    image_loader_.ProcessCompletedDecodes();
-
-    bool changed = (ApplyCachedImages() > 0);
-
-    // Mermaid のキャッシュヒット時コールバック (OnMermaidRenderComplete) が
-    // ヒットごとに RecomputeAfterDiagram を呼ぶのを抑制し、一括で処理する
-    mermaid_batch_loading_ = true;
-    changed |= (RequestMermaidRenders() > 0);
-    mermaid_batch_loading_ = false;
-
-    if (changed) {
-        layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-    }
-}
-
-void App::ScheduleBitmapManage()
-{
-    // デバウンスを待たずに先読み範囲のリソースを即座に適用する。
-    // 連続スクロール中でもキャッシュ済み画像/Mermaid図が次の WM_PAINT で描画される。
-    FlushPendingResources();
-    // エビクションはデバウンスして遅延実行（高頻度で走ると重いため）
-    SetTimer(hwnd_, TIMER_BITMAP_MANAGE, 150, nullptr);
-}
-
-void App::OnBitmapManageTimer()
-{
-    KillTimer(hwnd_, TIMER_BITMAP_MANAGE);
-
-    EvictOffscreenBitmaps();
-    FlushPendingResources();
-
-    Invalidate();
+    resource_manager_.OnAppImageLoaded();
 }
 
 // ============================================================
@@ -1278,7 +931,7 @@ void App::ExecuteActions(const ActionList& actions)
     for (const auto& action : actions) {
         std::visit(overloaded{
             [this](const KeyScrollAction& a) {
-                pending_restore_scroll_y_ = -1;
+                scroll_restore_.pending_restore_scroll_y = -1;
                 const float old_scroll = viewport_.GetScrollY();
                 const auto pane_layout = GetPaneLayout();
                 const float page_size = pane_layout.md_rect.height;
@@ -1293,15 +946,15 @@ void App::ExecuteActions(const ActionList& actions)
                 if (viewport_.GetScrollY() != old_scroll) {
                     InvalidateHitPositions();
                     Invalidate();
-                    ScheduleBitmapManage();
+                    resource_manager_.ScheduleBitmapManage();
                 }
             },
             [this](const DirectScrollByAction& a) {
-                pending_restore_scroll_y_ = -1;
+                scroll_restore_.pending_restore_scroll_y = -1;
                 viewport_.DirectScrollBy(a.delta);
                 InvalidateHitPositions();
                 Invalidate();
-                ScheduleBitmapManage();
+                resource_manager_.ScheduleBitmapManage();
             },
             [this](const ScrollPaneAction& a) {
                 const auto pane_layout = GetPaneLayout();
@@ -1330,8 +983,8 @@ void App::ExecuteActions(const ActionList& actions)
                 SelectAll();
             },
             [this](const ClearSelectionAction&) {
-                if (search_state_.IsVisible()) {
-                    OnSearchClose();
+                if (search_bar_ctrl_.GetState().IsVisible()) {
+                    search_bar_ctrl_.OnClose();
                 }
                 else {
                     ClearSelection();
@@ -1385,25 +1038,25 @@ void App::ExecuteActions(const ActionList& actions)
                 LoadHelpDocument();
             },
             [this](const OpenSearchBarAction&) {
-                OnSearchOpen();
+                search_bar_ctrl_.OnOpen(doc_.GetNodes());
             },
             [this](const CloseSearchBarAction&) {
-                OnSearchClose();
+                search_bar_ctrl_.OnClose();
             },
             [this](const SearchNextAction&) {
-                if (!search_state_.IsVisible()) {
-                    OnSearchOpen();
+                if (!search_bar_ctrl_.GetState().IsVisible()) {
+                    search_bar_ctrl_.OnOpen(doc_.GetNodes());
                 }
                 else {
-                    OnSearchNext();
+                    search_bar_ctrl_.OnNext();
                 }
             },
             [this](const SearchPrevAction&) {
-                if (!search_state_.IsVisible()) {
-                    OnSearchOpen();
+                if (!search_bar_ctrl_.GetState().IsVisible()) {
+                    search_bar_ctrl_.OnOpen(doc_.GetNodes());
                 }
                 else {
-                    OnSearchPrev();
+                    search_bar_ctrl_.OnPrev();
                 }
             },
             }, action);
@@ -1464,10 +1117,7 @@ void App::HandleTimer(UINT_PTR timer_id)
         break;
     }
     case TIMER_SEARCH_CARET: {
-        search_caret_visible_ = !search_caret_visible_;
-        if (search_has_focus_) {
-            InvalidateSearchBar();
-        }
+        search_bar_ctrl_.OnCaretBlinkTimer();
         break;
     }
     case TIMER_TOOLTIP:
@@ -1475,15 +1125,13 @@ void App::HandleTimer(UINT_PTR timer_id)
         tooltip_.Show();
         break;
     case TIMER_SEARCH_DEBOUNCE:
-        KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
-        RunSearchAndLocate(true);
-        Invalidate();
+        search_bar_ctrl_.OnDebounceTimer(doc_.GetNodes());
         break;
     case TIMER_MERMAID_BATCH:
-        ProcessMermaidBatch();
+        resource_manager_.ProcessMermaidBatch();
         break;
     case TIMER_BITMAP_MANAGE:
-        OnBitmapManageTimer();
+        resource_manager_.OnBitmapManageTimer();
         break;
     default: break;
     }
@@ -1501,7 +1149,7 @@ void App::OnAppReloadFile()
 
 void App::OnCaptureChanged()
 {
-    search_dragging_ = false;
+    search_bar_ctrl_.OnCaptureChanged();
     if (gesture_.GetPhase() != GesturePhase::Idle) {
         gesture_.Reset();
         Invalidate();
@@ -1539,133 +1187,49 @@ void App::OnDestroy()
 // 検索
 // ============================================================
 
-void App::RunSearchAndLocate(bool scroll_to_match)
-{
-    search_state_.ExecuteSearch(doc_.GetNodes());
-    if (search_state_.GetMatchCount() > 0) {
-        search_state_.SetCurrentMatchNear(viewport_.GetScrollY(), layout_cache_);
-        if (scroll_to_match) {
-            ScrollToCurrentMatch();
-        }
-    }
-}
-
 void App::OnSearchOpen()
 {
-    if (search_state_.IsVisible()) {
-        // 既に表示中ならトグルで閉じる
-        OnSearchClose();
-        return;
-    }
-    search_state_.Show();
-    search_has_focus_ = true;
-    search_caret_visible_ = true;
-    search_caret_pos_ = -1;
-    search_selection_start_ = -1;
-
-    // 前回のクエリが残っている場合は検索を再実行
-    if (!search_state_.GetQuery().empty()) {
-        RunSearchAndLocate();
-    }
-
-    RestartSearchCaretBlink();
-    PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SELECT_ALL, 0);
-    Invalidate();
+    search_bar_ctrl_.OnOpen(doc_.GetNodes());
 }
 
 void App::OnSearchClose()
 {
-    search_state_.Hide();
-    search_bar_hover_ = SearchBarHover::None;
-    search_has_focus_ = false;
-    search_caret_visible_ = false;
-    ime_composition_.clear();
-    KillTimer(hwnd_, TIMER_SEARCH_CARET);
-    KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
-    PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, 0, 0);
-    Invalidate();
+    search_bar_ctrl_.OnClose();
 }
 
 void App::OnSearchNext()
 {
-    if (search_state_.NextMatch() && search_state_.GetMatchCount() > 1) {
-        MessageBeep(MB_OK);
-    }
-    ScrollToCurrentMatch();
-    Invalidate();
+    search_bar_ctrl_.OnNext();
 }
 
 void App::OnSearchPrev()
 {
-    if (search_state_.PrevMatch() && search_state_.GetMatchCount() > 1) {
-        MessageBeep(MB_OK);
-    }
-    ScrollToCurrentMatch();
-    Invalidate();
+    search_bar_ctrl_.OnPrev();
 }
 
 void App::OnSearchTextChanged(std::wstring_view text)
 {
-    search_state_.SetQuery(text);
-    KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
-
-    if (text.empty()) {
-        // 空クエリ: 即座に結果をクリア
-        search_state_.ExecuteSearch(doc_.GetNodes());
-        Invalidate();
-        return;
-    }
-
-    // 小規模ドキュメント（≤1000ノード）: 即座に検索実行
-    if (doc_.GetNodes().size() <= 1000) {
-        RunSearchAndLocate(true);
-        Invalidate();
-        return;
-    }
-
-    // 大規模ドキュメント: デバウンスで連続入力中の再検索を抑制
-    Invalidate();
-    SetTimer(hwnd_, TIMER_SEARCH_DEBOUNCE, 150, nullptr);
+    search_bar_ctrl_.OnTextChanged(text, doc_.GetNodes());
 }
 
 void App::OnToggleCaseSensitive()
 {
-    search_state_.ToggleCaseSensitive();
-    if (!search_state_.GetQuery().empty()) {
-        RunSearchAndLocate();
-    }
-    Invalidate();
+    search_bar_ctrl_.OnToggleCaseSensitive(doc_.GetNodes());
 }
 
 void App::OnToggleHighlight()
 {
-    search_state_.ToggleHighlightEnabled();
-    Invalidate();
+    search_bar_ctrl_.OnToggleHighlight();
 }
 
 void App::SetSearchSelection(int sel_start, int sel_end) noexcept
 {
-    if (search_caret_pos_ == sel_end && search_selection_start_ == sel_start) {
-        return;
-    }
-    search_caret_pos_ = sel_end;
-    search_selection_start_ = sel_start;
-    if (search_has_focus_) {
-        search_caret_visible_ = true;
-        RestartSearchCaretBlink();
-        InvalidateSearchBar();
-    }
+    search_bar_ctrl_.SetSelection(sel_start, sel_end);
 }
 
 void App::SetImeComposition(std::wstring_view comp)
 {
-    if (ime_composition_ == comp) {
-        return;
-    }
-    ime_composition_ = comp;
-    if (search_has_focus_) {
-        InvalidateSearchBar();
-    }
+    search_bar_ctrl_.SetImeComposition(comp);
 }
 
 RECT App::GetSearchEditRect() const
@@ -1683,52 +1247,6 @@ RECT App::GetSearchEditRect() const
         static_cast<LONG>(sbl.input_rect.right * s),
         static_cast<LONG>(sbl.input_rect.bottom * s),
     };
-}
-
-void App::InvalidateSearchBar()
-{
-    const auto& layout = GetPaneLayout();
-    const auto& r = layout.md_rect;
-    const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
-    InvalidatePane(search_area);
-}
-
-void App::RestartSearchCaretBlink()
-{
-    KillTimer(hwnd_, TIMER_SEARCH_CARET);
-    const UINT blink_time = GetCaretBlinkTime();
-    if (blink_time > 0 && blink_time != INFINITE) {
-        SetTimer(hwnd_, TIMER_SEARCH_CARET, blink_time, nullptr);
-    }
-}
-
-void App::ScrollToCurrentMatch()
-{
-    const int idx = search_state_.GetCurrentMatchIndex();
-    if (idx < 0 || idx >= search_state_.GetMatchCount()) {
-        return;
-    }
-    const auto& match = search_state_.GetMatches()[idx];
-    if (match.node_index < 0 || match.node_index >= static_cast<int>(layout_cache_.size())) {
-        return;
-    }
-
-    const auto& entry = layout_cache_[match.node_index];
-    const float match_y = entry.y_position;
-    const auto& pane_layout = GetPaneLayout();
-    const float viewport_height = pane_layout.md_rect.height;
-    const float visible_height = viewport_height
-        - (search_state_.IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
-    const float effective_bottom = viewport_.GetScrollY() + visible_height;
-    const float scroll_y = viewport_.GetScrollY();
-
-    // マッチが可視範囲外の場合のみスクロール
-    if (match_y < scroll_y || match_y + entry.height > effective_bottom) {
-        const float target = std::max(0.0f, match_y - visible_height / 3.0f);
-        viewport_.SetScrollY(target);
-        SyncMaxScroll(visible_height);
-        InvalidateHitPositions();
-    }
 }
 
 // ============================================================

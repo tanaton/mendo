@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "file_loader.h"
+#include "file_watcher.h"
 #include <fstream>
 #include <filesystem>
 
@@ -32,10 +33,10 @@ protected:
     }
 
     // 非同期ファイル監視のポーリングを待つヘルパー
-    bool PollForChange(FileLoader& loader, int max_ms = 2000)
+    bool PollForChange(FileWatcher& watcher, int max_ms = 2000)
     {
         for (int elapsed = 0; elapsed < max_ms; elapsed += 50) {
-            loader.CheckForChanges();
+            watcher.CheckForChanges();
             Sleep(50);
         }
         return true;
@@ -98,9 +99,9 @@ TEST_F(FileLoaderTest, WatcherDetectsChange)
 {
     auto path = WriteFile(L"watch.md", "original");
 
-    FileLoader loader;
+    FileWatcher watcher;
     bool changed = false;
-    loader.StartWatching(path.native().c_str(), [&]() { changed = true; });
+    watcher.StartWatching(path.native().c_str(), [&]() { changed = true; });
 
     // 異なるタイムスタンプを確保するため、少し待ってからファイルを変更
     Sleep(300);
@@ -109,7 +110,7 @@ TEST_F(FileLoaderTest, WatcherDetectsChange)
     // 非同期通知をポーリングで待つ
     for (int i = 0; i < 40 && !changed; i++) {
         Sleep(50);
-        loader.CheckForChanges();
+        watcher.CheckForChanges();
     }
     EXPECT_TRUE(changed);
 }
@@ -118,13 +119,13 @@ TEST_F(FileLoaderTest, WatcherDoesNotFireWithoutChange)
 {
     auto path = WriteFile(L"nochange.md", "content");
 
-    FileLoader loader;
+    FileWatcher watcher;
     bool changed = false;
-    loader.StartWatching(path.native().c_str(), [&]() { changed = true; });
+    watcher.StartWatching(path.native().c_str(), [&]() { changed = true; });
 
     // 少し待ってからチェック（変更なしなので発火しないはず）
     Sleep(100);
-    loader.CheckForChanges();
+    watcher.CheckForChanges();
     EXPECT_FALSE(changed);
 }
 
@@ -132,15 +133,15 @@ TEST_F(FileLoaderTest, StopWatchingPreventsCallback)
 {
     auto path = WriteFile(L"stop.md", "content");
 
-    FileLoader loader;
+    FileWatcher watcher;
     bool changed = false;
-    loader.StartWatching(path.native().c_str(), [&]() { changed = true; });
-    loader.StopWatching();
+    watcher.StartWatching(path.native().c_str(), [&]() { changed = true; });
+    watcher.StopWatching();
 
     Sleep(300);
     WriteFile(L"stop.md", "modified");
     Sleep(100);
-    loader.CheckForChanges();
+    watcher.CheckForChanges();
     EXPECT_FALSE(changed);
 }
 
@@ -168,12 +169,12 @@ TEST_F(FileLoaderTest, WatcherRestartOnNewFile)
     auto path1 = WriteFile(L"watch1.md", "content1");
     auto path2 = WriteFile(L"watch2.md", "content2");
 
-    FileLoader loader;
+    FileWatcher watcher;
     int change_count = 0;
-    loader.StartWatching(path1.native().c_str(), [&]() { change_count++; });
+    watcher.StartWatching(path1.native().c_str(), [&]() { change_count++; });
 
     // 別のファイルの監視に切り替え
-    loader.StartWatching(path2.native().c_str(), [&]() { change_count++; });
+    watcher.StartWatching(path2.native().c_str(), [&]() { change_count++; });
 
     // 元のファイルを変更 - コールバックが発火しないこと
     Sleep(300);
@@ -181,7 +182,7 @@ TEST_F(FileLoaderTest, WatcherRestartOnNewFile)
     // watch1の変更通知を拾いつつ、ファイル名フィルタで弾くことを確認
     for (int i = 0; i < 20; i++) {
         Sleep(50);
-        loader.CheckForChanges();
+        watcher.CheckForChanges();
     }
     EXPECT_EQ(change_count, 0);
 
@@ -190,7 +191,7 @@ TEST_F(FileLoaderTest, WatcherRestartOnNewFile)
     WriteFile(L"watch2.md", "modified2");
     for (int i = 0; i < 40 && change_count == 0; i++) {
         Sleep(50);
-        loader.CheckForChanges();
+        watcher.CheckForChanges();
     }
     EXPECT_EQ(change_count, 1);
 }
@@ -199,8 +200,8 @@ TEST_F(FileLoaderTest, WatcherDestructorDoesNotCrash)
 {
     auto path = WriteFile(L"destructor.md", "content");
     {
-        FileLoader loader;
-        loader.StartWatching(path.native().c_str(), []() static {});
+        FileWatcher watcher;
+        watcher.StartWatching(path.native().c_str(), []() static {});
         // デストラクタで安全に監視が停止されること
     }
 }
@@ -217,17 +218,17 @@ TEST_F(FileLoaderTest, FileWithNewlines)
 TEST_F(FileLoaderTest, ResetDebounceTickWithoutWatching)
 {
     // 監視未開始でも安全に呼べること
-    FileLoader loader;
-    loader.ResetDebounceTick();
+    FileWatcher watcher;
+    watcher.ResetDebounceTick();
 }
 
 TEST_F(FileLoaderTest, ResetDebounceSuppressesDuplicateChange)
 {
     auto path = WriteFile(L"debounce.md", "original");
 
-    FileLoader loader;
+    FileWatcher watcher;
     int change_count = 0;
-    loader.StartWatching(path.native().c_str(), [&]() { change_count++; });
+    watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
 
     // 初期デバウンスを過ぎるまで待つ
     Sleep(300);
@@ -236,12 +237,12 @@ TEST_F(FileLoaderTest, ResetDebounceSuppressesDuplicateChange)
     WriteFile(L"debounce.md", "modified1");
     for (int i = 0; i < 40 && change_count == 0; i++) {
         Sleep(50);
-        loader.CheckForChanges();
+        watcher.CheckForChanges();
     }
     ASSERT_EQ(change_count, 1);
 
     // デバウンスをリセット（DoReloadCurrentFile完了をシミュレート）
-    loader.ResetDebounceTick();
+    watcher.ResetDebounceTick();
 
     // すぐにファイルを変更（OSの重複通知をシミュレート）
     WriteFile(L"debounce.md", "modified2");
@@ -249,7 +250,7 @@ TEST_F(FileLoaderTest, ResetDebounceSuppressesDuplicateChange)
     // デバウンス期間内（200ms以内）にポーリング → 抑制されるはず
     for (int i = 0; i < 3; i++) {
         Sleep(50);
-        loader.CheckForChanges();
+        watcher.CheckForChanges();
     }
     EXPECT_EQ(change_count, 1);
 }
@@ -258,15 +259,15 @@ TEST_F(FileLoaderTest, ChangeDetectedAfterResetDebounceExpires)
 {
     auto path = WriteFile(L"debounce2.md", "original");
 
-    FileLoader loader;
+    FileWatcher watcher;
     int change_count = 0;
-    loader.StartWatching(path.native().c_str(), [&]() { change_count++; });
+    watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
 
     // 初期デバウンスを過ぎるまで待つ
     Sleep(300);
 
     // デバウンスをリセット
-    loader.ResetDebounceTick();
+    watcher.ResetDebounceTick();
 
     // デバウンス期間が過ぎるのを待つ
     Sleep(300);
@@ -275,7 +276,7 @@ TEST_F(FileLoaderTest, ChangeDetectedAfterResetDebounceExpires)
     WriteFile(L"debounce2.md", "modified");
     for (int i = 0; i < 40 && change_count == 0; i++) {
         Sleep(50);
-        loader.CheckForChanges();
+        watcher.CheckForChanges();
     }
     EXPECT_EQ(change_count, 1);
 }

@@ -39,7 +39,7 @@ void App::NavigateToAnchor(std::wstring_view anchor)
     viewport_.ScrollTo(target_y);
     UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
-    ScheduleBitmapManage();
+    resource_manager_.ScheduleBitmapManage();
 }
 
 void App::PushNavHistory()
@@ -53,7 +53,7 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result)
         return;
     }
     if (result.type == NavigationService::NavigateResult::Type::LoadFile) {
-        pending_nav_scroll_y_ = result.scroll_y;
+        scroll_restore_.pending_nav_scroll_y = result.scroll_y;
         LoadMarkdownFile(result.target);
         return;
     }
@@ -61,7 +61,7 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result)
     const auto layout = GetPaneLayout();
     UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
-    ScheduleBitmapManage();
+    resource_manager_.ScheduleBitmapManage();
 }
 
 void App::NavigateBack()
@@ -90,7 +90,7 @@ void App::FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale)
     RestoreAnchorWithScale(anchor, offset_scale);
 
     SyncMaxScroll(md_height);
-    RequestMermaidRenders();
+    resource_manager_.RequestMermaidRenders();
     ScheduleDeferredLayoutIfNeeded();
     UpdateScrollBar();
     Invalidate();

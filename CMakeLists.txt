@@ -91,6 +91,8 @@ add_library(mendo_core STATIC
     src/image_loader.cpp
     src/task_scheduler.cpp
     src/search_state.cpp
+    src/search_bar_controller.cpp
+    src/file_watcher.cpp
 )
 target_include_directories(mendo_core PUBLIC src third_party/md4c)
 target_compile_definitions(mendo_core PUBLIC
@@ -128,6 +130,7 @@ add_executable(mendo WIN32
     src/app_navigate.cpp
     src/renderer.cpp
     src/renderer_pane.cpp
+    src/resource_manager.cpp
     src/d2d_render_backend.cpp
     src/mermaid.cpp
     res/mendo.rc

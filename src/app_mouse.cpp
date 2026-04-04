@@ -431,8 +431,7 @@ void App::OnLButtonDown(int px, int py)
                     const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
                     const int pos = renderer_.HitTestSearchInput(
                         search_state_.GetQuery(), dip.x - text_left, input_w);
-                    search_dragging_ = true;
-                    search_drag_anchor_ = pos;
+                    search_bar_ctrl_.StartDrag(pos);
                     SetCapture(hwnd_);
                     PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, App::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
                     return;
@@ -508,8 +507,8 @@ void App::OnLButtonDown(int px, int py)
 
 void App::OnLButtonUp(int px, int py)
 {
-    if (search_dragging_) {
-        search_dragging_ = false;
+    if (search_bar_ctrl_.IsDragging()) {
+        search_bar_ctrl_.EndDrag();
         ReleaseCapture();
         return;
     }
@@ -526,7 +525,7 @@ void App::OnLButtonUp(int px, int py)
         GetClientRect(hwnd_, &rc);
         OnResize(static_cast<UINT>(rc.right - rc.left), static_cast<UINT>(rc.bottom - rc.top));
         if (was_md_scrollbar) {
-            ScheduleBitmapManage();
+            resource_manager_.ScheduleBitmapManage();
         }
         return;
     }
@@ -570,7 +569,7 @@ void App::OnMouseMove(int px, int py)
     const float splitter_w = renderer_.GetTheme().splitter_width;
 
     // 検索バー内ドラッグ選択
-    if (search_dragging_) {
+    if (search_bar_ctrl_.IsDragging()) {
         const auto layout = GetPaneLayout();
         const auto& r = layout.md_rect;
         const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !search_state_.GetQuery().empty());
@@ -578,9 +577,10 @@ void App::OnMouseMove(int px, int py)
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
         const int pos = renderer_.HitTestSearchInput(
             search_state_.GetQuery(), dip.x - text_left, input_w);
-        if (pos != search_caret_pos_ || search_drag_anchor_ != search_selection_start_) {
+        if (pos != search_bar_ctrl_.GetCaretPos() ||
+            search_bar_ctrl_.GetDragAnchor() != search_bar_ctrl_.GetSelectionStart()) {
             PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, App::SEARCH_FOCUS_SET_SELECTION,
-                MAKELPARAM(search_drag_anchor_, pos));
+                MAKELPARAM(search_bar_ctrl_.GetDragAnchor(), pos));
         }
         return;
     }
@@ -657,7 +657,7 @@ void App::OnMouseHover(int px, int py)
     // タイトルバーのホバー処理
     if (dip_y < titlebar_.GetHeight()) {
         const auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
-        SetCursor(cursor_arrow_);
+        SetCursor(cursors_.Arrow());
         if (titlebar_.SetHovered(tb_zone)) {
             InvalidateTitleBar();
         }
@@ -710,14 +710,14 @@ void App::OnMouseHover(int px, int py)
     switch (zone) {
     case PaneZone::Splitter1:
     case PaneZone::Splitter2:
-        SetCursor(cursor_sizewe_);
+        SetCursor(cursors_.SizeWE());
         UpdateTooltip({}, px, py);
         break;
     case PaneZone::FilePane: {
         const float header_h = renderer_.GetTheme().pane_header_height;
         const bool close_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.file_rect, header_h, PaneCloseButtonRect);
         const bool refresh_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.file_rect, header_h, PaneRefreshButtonRect);
-        SetCursor((close_hit || refresh_hit) ? cursor_hand_ : cursor_arrow_);
+        SetCursor((close_hit || refresh_hit) ? cursors_.Hand() : cursors_.Arrow());
         {
             bool changed = panes_.SetFileCloseHovered(close_hit);
             changed |= panes_.SetFileRefreshHovered(refresh_hit);
@@ -751,7 +751,7 @@ void App::OnMouseHover(int px, int py)
     case PaneZone::TocPane: {
         const float header_h = renderer_.GetTheme().pane_header_height;
         const bool close_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.toc_rect, header_h, PaneCloseButtonRect);
-        SetCursor(close_hit ? cursor_hand_ : cursor_arrow_);
+        SetCursor(close_hit ? cursors_.Hand() : cursors_.Arrow());
         if (panes_.SetTocCloseHovered(close_hit)) {
             renderer_.InvalidateTocPaneCache();
             InvalidatePane(pane_layout.toc_rect);
@@ -778,7 +778,7 @@ void App::OnMouseHover(int px, int py)
         HandleMdPaneHover(dip_x, dip_y, px, py, pane_layout);
         break;
     default:
-        SetCursor(cursor_arrow_);
+        SetCursor(cursors_.Arrow());
         UpdateTooltip({}, px, py);
         break;
     }
@@ -799,45 +799,28 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     if (search_state_.IsVisible()) {
         const auto& r = pane_layout.md_rect;
         const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !search_state_.GetQuery().empty());
-        const auto old_hover = search_bar_hover_;
-        search_bar_hover_ = SearchBarHover::None;
+        const auto old_hover = search_bar_ctrl_.GetHover();
 
         if (dip_y >= sbl.bar_top) {
-            if (PointInRect(dip_x, dip_y, sbl.up_btn)) {
-                search_bar_hover_ = SearchBarHover::Up;
-            }
-            else if (PointInRect(dip_x, dip_y, sbl.down_btn)) {
-                search_bar_hover_ = SearchBarHover::Down;
-            }
-            else if (PointInRect(dip_x, dip_y, sbl.case_btn)) {
-                search_bar_hover_ = SearchBarHover::CaseSensitive;
-            }
-            else if (PointInRect(dip_x, dip_y, sbl.highlight_btn)) {
-                search_bar_hover_ = SearchBarHover::Highlight;
-            }
-            else if (PointInRect(dip_x, dip_y, sbl.close_btn)) {
-                search_bar_hover_ = SearchBarHover::Close;
-            }
+            const auto hover = search_bar_ctrl_.UpdateHover(dip_x, dip_y, sbl);
 
             if (PointInRect(dip_x, dip_y, sbl.input_rect)) {
-                SetCursor(cursor_ibeam_);
+                SetCursor(cursors_.IBeam());
             }
             else {
-                SetCursor(cursor_arrow_);
-            }
-            if (search_bar_hover_ != old_hover) {
-                Invalidate();
+                SetCursor(cursors_.Arrow());
             }
             // 検索バーボタンのツールチップ
             {
+                using HZ = SearchBarController::HoverZone;
                 const auto& ls = i18n::S();
                 TooltipTarget tt;
-                switch (search_bar_hover_) {
-                case SearchBarHover::Up:            tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev }; break;
-                case SearchBarHover::Down:          tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next }; break;
-                case SearchBarHover::CaseSensitive: tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case }; break;
-                case SearchBarHover::Highlight:     tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight }; break;
-                case SearchBarHover::Close:         tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close }; break;
+                switch (hover) {
+                case HZ::Up:            tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev }; break;
+                case HZ::Down:          tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next }; break;
+                case HZ::CaseSensitive: tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case }; break;
+                case HZ::Highlight:     tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight }; break;
+                case HZ::Close:         tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close }; break;
                 default: break;
                 }
                 UpdateTooltip(tt, px, py);
@@ -845,14 +828,15 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
             return;
         }
 
-        if (old_hover != SearchBarHover::None) {
+        if (old_hover != SearchBarController::HoverZone::None) {
+            search_bar_ctrl_.ResetHover();
             Invalidate();
         }
     }
 
     // スクロールバー領域では矢印カーソル
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
-        SetCursor(cursor_arrow_);
+        SetCursor(cursors_.Arrow());
         UpdateTooltip({}, px, py);
         return;
     }
@@ -862,7 +846,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     nav_hover_ = nav_hit;
     if (nav_hit != NavButtonHover::None) {
         hovered_copy_node_ = -1;
-        SetCursor(cursor_hand_);
+        SetCursor(cursors_.Hand());
         if (nav_hit != old_nav_hover) {
             InvalidateMdPane(pane_layout.md_rect);
         }
@@ -886,10 +870,10 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
 
     // コピーボタンのホバー判定（距離スロットリングで不要な再計算を回避）
     {
-        const int cdx = px - last_copy_hit_pos_.x;
-        const int cdy = py - last_copy_hit_pos_.y;
+        const int cdx = px - hover_throttle_.last_copy_hit_pos.x;
+        const int cdy = py - hover_throttle_.last_copy_hit_pos.y;
         if (cdx * cdx + cdy * cdy > HOVER_THROTTLE_DISTANCE_SQ) {
-            last_copy_hit_pos_ = { px, py };
+            hover_throttle_.last_copy_hit_pos = { px, py };
             const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
             const int old_copy_hover = hovered_copy_node_;
             hovered_copy_node_ = hit_test_.CopyButtonHitTest(
@@ -903,19 +887,19 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         }
     }
     if (hovered_copy_node_ >= 0) {
-        SetCursor(cursor_hand_);
+        SetCursor(cursors_.Hand());
         UpdateTooltip({ TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy }, px, py);
         return;
     }
 
     // リンク・画像のヒットテスト
-    const int dx = px - last_md_hit_pos_.x;
-    const int dy = py - last_md_hit_pos_.y;
+    const int dx = px - hover_throttle_.last_md_hit_pos.x;
+    const int dy = py - hover_throttle_.last_md_hit_pos.y;
     if (dx * dx + dy * dy > HOVER_THROTTLE_DISTANCE_SQ) {
         const auto hit = HitTest(px, py);
         const auto link = GetLinkAtHit(hit);
-        last_md_cursor_hand_ = link.has_value();
-        last_md_hit_pos_ = { px, py };
+        hover_throttle_.last_md_cursor_hand = link.has_value();
+        hover_throttle_.last_md_hit_pos = { px, py };
 
         // リンクまたは画像のツールチップ
         TooltipTarget tt;
@@ -937,7 +921,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         }
         UpdateTooltip(tt, px, py);
     }
-    SetCursor(last_md_cursor_hand_ ? cursor_hand_ : cursor_ibeam_);
+    SetCursor(hover_throttle_.last_md_cursor_hand ? cursors_.Hand() : cursors_.IBeam());
 }
 
 void App::OnLButtonDblClk(int px, int py)

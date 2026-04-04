@@ -1,40 +1,14 @@
 #pragma once
 #include <string>
-#include <functional>
+#include <memory_resource>
 #include <windows.h>
 
 // ファイル読み込みの最大サイズ（256MB）。FileLoader / ImageLoader で共有。
 inline constexpr LONGLONG MAX_FILE_SIZE = 256LL * 1024 * 1024;
 
+// ファイル読み込みユーティリティ（静的メソッドのみ）。
 class FileLoader {
 public:
-    ~FileLoader();
-
     static std::pmr::string LoadFile(const std::pmr::wstring& path);
     static std::pmr::wstring OpenFileDialog(HWND owner);
-
-    // ファイル監視（ReadDirectoryChangesW による非同期監視）
-    using ChangeCallback = std::function<void()>;
-    void StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback);
-    void StopWatching() noexcept;
-    void CheckForChanges();
-    void ResetDebounceTick() noexcept;
-
-private:
-    void BeginRead();
-
-    std::pmr::wstring watch_path_;
-    std::pmr::wstring watch_filename_; // 監視対象のファイル名部分
-    ChangeCallback on_change_;
-    bool watching_ = false;
-
-    // ReadDirectoryChangesW 用
-    HANDLE dir_handle_ = INVALID_HANDLE_VALUE;
-    OVERLAPPED overlapped_{};
-    alignas(DWORD) char change_buf_[4096]{};
-    bool read_pending_ = false;
-
-    // デバウンス: リロード後の一定時間内の変更を無視
-    ULONGLONG last_reload_tick_ = 0;
-    static constexpr DWORD DEBOUNCE_MS = 200;
 };

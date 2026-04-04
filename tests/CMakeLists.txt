@@ -39,6 +39,7 @@ add_executable(mendo_tests
     test_search_state.cpp
     test_locale.cpp
     test_memory_eviction.cpp
+    test_lru_cache.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

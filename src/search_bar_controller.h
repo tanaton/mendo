@@ -1,0 +1,107 @@
+#pragma once
+#include "search_state.h"
+#include "ui_constants.h"
+#include <functional>
+#include <string>
+#include <string_view>
+#include <windows.h>
+
+class ViewportManager;
+class LayoutCache;
+struct SearchBarRenderState;
+
+// 検索バーのUI状態管理。
+// SearchState（ドメインロジック）を参照で保持し、検索バー固有の
+// UIステート（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。
+// Win32依存の操作はコールバック経由でAppに委譲する。
+class SearchBarController {
+public:
+    enum class HoverZone : uint8_t {
+        None, Up, Down, Close, CaseSensitive, Highlight
+    };
+
+    // Win32操作をAppから注入するコールバック群
+    struct Callbacks {
+        std::function<void()> invalidate;                  // ウィンドウ全体の再描画
+        std::function<void()> invalidate_search_bar;       // 検索バー領域のみ再描画
+        std::function<void(UINT_PTR, UINT)> set_timer;     // SetTimer(id, ms)
+        std::function<void(UINT_PTR)> kill_timer;          // KillTimer(id)
+        std::function<void()> focus_select_all;            // 検索テキスト全選択でフォーカス
+        std::function<void(int)> focus_set_caret;          // キャレット位置指定でフォーカス
+        std::function<void(int, int)> focus_set_selection; // anchor,caret指定でフォーカス
+        std::function<void()> unfocus;                     // フォーカス解除
+        std::function<float()> get_md_pane_height;         // Markdownペイン高さ取得
+        std::function<void(float)> on_scroll_changed;      // スクロール変更後処理(visible_h)
+    };
+
+    // タイマーID（App::HandleTimerでのルーティング用）
+    static constexpr UINT_PTR TIMER_CARET = 7;
+    static constexpr UINT_PTR TIMER_DEBOUNCE = 9;
+
+    SearchBarController() = default;
+    void Init(SearchState& state, ViewportManager& viewport,
+              LayoutCache& cache, Callbacks cb);
+
+    // --- イベントハンドラ ---
+    void OnOpen(const std::pmr::vector<Node>& nodes);
+    void OnClose();
+    void OnNext();
+    void OnPrev();
+    void OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes);
+    void OnToggleCaseSensitive(const std::pmr::vector<Node>& nodes);
+    void OnToggleHighlight();
+    void SetSelection(int sel_start, int sel_end) noexcept;
+    void SetImeComposition(std::wstring_view comp);
+
+    // --- タイマーハンドラ ---
+    void OnCaretBlinkTimer();
+    void OnDebounceTimer(const std::pmr::vector<Node>& nodes);
+
+    // --- 検索実行 ---
+    void RunSearchAndLocate(const std::pmr::vector<Node>& nodes,
+                            bool scroll_to_match = false);
+    void ScrollToCurrentMatch();
+
+    // --- ファイル切替時リセット ---
+    void Reset();
+
+    // --- ドラッグ選択（検索入力テキスト） ---
+    bool IsDragging() const noexcept { return dragging_; }
+    void StartDrag(int anchor_pos) noexcept;
+    void EndDrag() noexcept { dragging_ = false; }
+    int GetDragAnchor() const noexcept { return drag_anchor_; }
+    void OnCaptureChanged() noexcept { dragging_ = false; }
+
+    // --- ホバー管理 ---
+    HoverZone UpdateHover(float dip_x, float dip_y, const SearchBarLayout& sbl);
+    HoverZone GetHover() const noexcept { return hover_; }
+    void ResetHover() noexcept { hover_ = HoverZone::None; }
+
+    // --- レンダー状態構築 ---
+    SearchBarRenderState BuildRenderState() const;
+
+    // --- アクセサ ---
+    const SearchState& GetState() const noexcept { return *state_; }
+    SearchState& GetStateMut() noexcept { return *state_; }
+    bool HasFocus() const noexcept { return has_focus_; }
+    int GetCaretPos() const noexcept { return caret_pos_; }
+    int GetSelectionStart() const noexcept { return selection_start_; }
+    const std::wstring& GetImeComposition() const noexcept { return ime_composition_; }
+
+private:
+    void RestartCaretBlink();
+
+    SearchState* state_ = nullptr;
+    ViewportManager* viewport_ = nullptr;
+    LayoutCache* cache_ = nullptr;
+    Callbacks cb_;
+
+    HoverZone hover_ = HoverZone::None;
+    bool caret_visible_ = false;
+    bool has_focus_ = false;
+    int caret_pos_ = -1;
+    int selection_start_ = -1;
+    bool dragging_ = false;
+    int drag_anchor_ = 0;
+    std::wstring ime_composition_;
+};

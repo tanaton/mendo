@@ -16,14 +16,13 @@ void App::UpdateScrollBar()
 
 void App::InvalidateHitPositions() noexcept
 {
-    last_md_hit_pos_ = { LONG_MIN, LONG_MIN };
-    last_copy_hit_pos_ = { LONG_MIN, LONG_MIN };
+    hover_throttle_.Reset();
     ClearTooltip();
 }
 
 void App::ScrollTo(float position)
 {
-    pending_restore_scroll_y_ = -1;
+    scroll_restore_.pending_restore_scroll_y = -1;
     viewport_.ScrollTo(position);
     InvalidateHitPositions();
 }
@@ -109,7 +108,7 @@ void App::OnResizeEnd()
 
     ScheduleDeferredLayoutIfNeeded();
 
-    RequestMermaidRenders();
+    resource_manager_.RequestMermaidRenders();
 }
 
 void App::RefreshPaneLayout()
@@ -161,12 +160,12 @@ void App::OnDeferredLayout()
         // 遅延レイアウト完了: Mermaidファイルキャッシュからの読み込みを
         // 時間予算付きバッチで処理する。同期ディスクI/O + PNGデコードが
         // UIスレッドを長時間ブロックするのを防ぐ。
-        ScheduleMermaidBatch();
+        resource_manager_.ScheduleMermaidBatch();
 
         // 全レイアウト確定後に前回セッションの生のscroll_yを適用する
-        if (pending_restore_scroll_y_ >= 0) {
-            viewport_.SetScrollY(static_cast<float>(pending_restore_scroll_y_));
-            pending_restore_scroll_y_ = -1;
+        if (scroll_restore_.pending_restore_scroll_y >= 0) {
+            viewport_.SetScrollY(static_cast<float>(scroll_restore_.pending_restore_scroll_y));
+            scroll_restore_.pending_restore_scroll_y = -1;
         }
 
         SyncMaxScroll(md_height);

@@ -1,10 +1,11 @@
 #include <gtest/gtest.h>
 #include "file_load_service.h"
+#include "file_watcher.h"
 
 class FileLoadServiceTest : public ::testing::Test {
 protected:
-    FileLoader loader_;
-    DocumentService doc_service_{ loader_ };
+    FileWatcher watcher_;
+    DocumentService doc_service_{ watcher_ };
     FileLoadService service_{ doc_service_ };
 };
 

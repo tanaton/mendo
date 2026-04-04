@@ -1,10 +1,10 @@
 #pragma once
 #include "document.h"
-#include "file_loader.h"
+#include "file_watcher.h"
 
 class DocumentService {
 public:
-    explicit DocumentService(FileLoader& loader) noexcept : loader_(loader) {}
+    explicit DocumentService(FileWatcher& watcher) noexcept : watcher_(watcher) {}
 
     // ファイルを読み込み、Document を構築。成功時 true。
     bool LoadFile(const std::pmr::wstring& path, Document& doc);
@@ -13,7 +13,7 @@ public:
     bool ReloadFile(Document& doc);
 
     // ファイル監視
-    void StartWatching(const std::pmr::wstring& path, FileLoader::ChangeCallback cb);
+    void StartWatching(const std::pmr::wstring& path, FileWatcher::ChangeCallback cb);
     void StopWatching() noexcept;
     void CheckForChanges();
     void ResetDebounceTick() noexcept;
@@ -22,5 +22,5 @@ public:
     static bool NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept;
 
 private:
-    FileLoader& loader_;
+    FileWatcher& watcher_;
 };
