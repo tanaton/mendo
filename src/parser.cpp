@@ -220,17 +220,35 @@ struct ParseContext {
             return;
         }
         // ノード: Wide長のみ計算してtext_utf8に蓄積
-        const int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+        // ASCII高速パス: 非ASCII（0x80以上）バイトが無ければバイト長＝ワイド長
+        int wlen;
+        int newline_count = 0;
+        size_t scan = 0;
+        for (; scan < text.size(); ++scan) {
+            if (static_cast<unsigned char>(text[scan]) >= 0x80) {
+                break;
+            }
+            if (text[scan] == '\n') {
+                newline_count++;
+            }
+        }
+        if (scan == text.size()) {
+            wlen = static_cast<int>(text.size());
+        }
+        else {
+            wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+            for (; scan < text.size(); ++scan) {
+                if (text[scan] == '\n') {
+                    newline_count++;
+                }
+            }
+        }
         if (wlen > 0) {
             const uint32_t start = node_wide_offset;
             current_node->text_utf8.append(text);
             node_wide_offset += static_cast<uint32_t>(wlen);
             current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(wlen)));
-            for (const char c : text) {
-                if (c == '\n') {
-                    current_node->line_count++;
-                }
-            }
+            current_node->line_count += newline_count;
         }
     }
 };
@@ -643,16 +661,16 @@ const wchar_t* GetAlertIcon(AlertType type) noexcept
 
 namespace {
 
-// 大文字小文字を無視して wstring_view を比較する（ASCII範囲のみ）
-bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept
+// 大文字小文字を無視して string_view を比較する（ASCII範囲のみ）
+bool AsciiCaseEqual(std::string_view a, std::string_view b) noexcept
 {
     if (a.size() != b.size()) {
         return false;
     }
     const auto len = a.size();
     for (size_t i = 0; i < len; i++) {
-        const wchar_t ca = (a[i] >= L'a' && a[i] <= L'z') ? (a[i] - L'a' + L'A') : a[i];
-        const wchar_t cb = (b[i] >= L'a' && b[i] <= L'z') ? (b[i] - L'a' + L'A') : b[i];
+        const char ca = (a[i] >= 'a' && a[i] <= 'z') ? (a[i] - 'a' + 'A') : a[i];
+        const char cb = (b[i] >= 'a' && b[i] <= 'z') ? (b[i] - 'a' + 'A') : b[i];
         if (ca != cb) {
             return false;
         }
@@ -660,34 +678,35 @@ bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept
     return true;
 }
 
-// テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す。
+// テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す（UTF-8版）。
 // marker_end には ']' の次の位置（スペース/改行をスキップ済み）を設定する。
-AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
+// マーカーは全てASCIIなので、バイトオフセット＝ワイド文字オフセット。
+AlertType DetectAlertMarker(std::string_view text, size_t& marker_end)
 {
-    if (text.size() < 3 || text[0] != L'[' || text[1] != L'!') {
+    if (text.size() < 3 || text[0] != '[' || text[1] != '!') {
         return AlertType::None;
     }
-    const auto close = text.find(L']');
-    if (close == std::wstring_view::npos || close <= 2) {
+    const auto close = text.find(']');
+    if (close == std::string_view::npos || close <= 2) {
         return AlertType::None;
     }
 
     const auto type_str = text.substr(2, close - 2);
 
     AlertType type = AlertType::None;
-    if (AsciiCaseEqual(type_str, L"NOTE")) {
+    if (AsciiCaseEqual(type_str, "NOTE")) {
         type = AlertType::Note;
     }
-    else if (AsciiCaseEqual(type_str, L"TIP")) {
+    else if (AsciiCaseEqual(type_str, "TIP")) {
         type = AlertType::Tip;
     }
-    else if (AsciiCaseEqual(type_str, L"IMPORTANT")) {
+    else if (AsciiCaseEqual(type_str, "IMPORTANT")) {
         type = AlertType::Important;
     }
-    else if (AsciiCaseEqual(type_str, L"WARNING")) {
+    else if (AsciiCaseEqual(type_str, "WARNING")) {
         type = AlertType::Warning;
     }
-    else if (AsciiCaseEqual(type_str, L"CAUTION")) {
+    else if (AsciiCaseEqual(type_str, "CAUTION")) {
         type = AlertType::Caution;
     }
 
@@ -697,7 +716,7 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
 
     marker_end = close + 1;
     // マーカー直後のスペースまたは改行を1つスキップ
-    if (marker_end < text.size() && (text[marker_end] == L' ' || text[marker_end] == L'\n')) {
+    if (marker_end < text.size() && (text[marker_end] == ' ' || text[marker_end] == '\n')) {
         marker_end++;
     }
     return type;
@@ -775,7 +794,7 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
             continue;
         }
         size_t marker_end = 0;
-        const AlertType type = DetectAlertMarker(nodes[i].GetText(), marker_end);
+        const AlertType type = DetectAlertMarker(nodes[i].text_utf8, marker_end);
         if (type == AlertType::None) {
             continue;
         }

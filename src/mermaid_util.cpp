@@ -43,6 +43,16 @@ uint64_t mermaid_util::HashRaw(std::wstring_view input) noexcept
     return hash;
 }
 
+uint64_t mermaid_util::HashRaw(std::string_view input) noexcept
+{
+    uint64_t hash = 14695981039346656037ULL;
+    for (char c : input) {
+        hash ^= static_cast<uint64_t>(static_cast<unsigned char>(c));
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
 std::pmr::wstring mermaid_util::SimpleHash(std::wstring_view input)
 {
     return PmrFormat(L"{:016x}", HashRaw(input));
@@ -51,6 +61,14 @@ std::pmr::wstring mermaid_util::SimpleHash(std::wstring_view input)
 uint64_t mermaid_util::CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode) noexcept
 {
     // コード全体をコピーせず、直接ハッシュして幅・モードをミックスする
+    uint64_t h = HashRaw(code);
+    h ^= static_cast<uint64_t>(max_width_int) * 1099511628211ULL;
+    h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL;
+    return h;
+}
+
+uint64_t mermaid_util::CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept
+{
     uint64_t h = HashRaw(code);
     h ^= static_cast<uint64_t>(max_width_int) * 1099511628211ULL;
     h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL;
@@ -71,6 +89,11 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
 }
 
 uint64_t mermaid_util::HashCode(std::wstring_view code, float max_width, bool dark_mode) noexcept
+{
+    return CombinedHash(code, QuantizeWidth(max_width), dark_mode);
+}
+
+uint64_t mermaid_util::HashCode(std::string_view code, float max_width, bool dark_mode) noexcept
 {
     return CombinedHash(code, QuantizeWidth(max_width), dark_mode);
 }

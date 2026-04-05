@@ -136,6 +136,12 @@ struct Node {
     AlertType alert_type = AlertType::None;
     SyntaxLanguage code_language = SyntaxLanguage::None;
 
+    // テキストが存在するか（遅延変換を発火させずに両表現をチェック）
+    bool HasText() const noexcept
+    {
+        return !text_utf8.empty() || (text_valid_ && !text_.empty());
+    }
+
     // テキスト取得（text_utf8からの遅延変換付き）
     const std::pmr::wstring& GetText() const
     {

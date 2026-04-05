@@ -859,8 +859,7 @@ void App::ApplyMermaidCacheHeights(float md_width)
     const auto& nodes = doc_.GetNodes();
     bool any_applied = false;
     for (size_t i : doc_.GetMermaidNodeIndices()) {
-        const auto hash = mermaid_util::HashCode(
-            nodes[i].GetText(), content_width, dark_mode);
+        const auto hash = mermaid_util::HashCode(nodes[i].text_utf8, content_width, dark_mode);
         MermaidFileCache::CacheEntry fentry;
         if (file_cache_.LookupDimensions(hash, fentry)) {
             layout_cache_[i].height = fentry.css_height;
@@ -931,8 +930,7 @@ void App::OnMouseHWheel(short delta)
 
     // 入力のたびにコミットタイマーをリセット。
     // 指を離して COMMIT_TIMEOUT_MS 経過後に Commit() でナビゲーション判定する。
-    SetTimer(hwnd_, TIMER_SWIPE_OVERLAY,
-        static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS), nullptr);
+    SetTimer(hwnd_, TIMER_SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS), nullptr);
 
     if (had_overlay != swipe_detector_.IsOverlayVisible()
         || old_direction != swipe_detector_.GetOverlayDirection()) {
@@ -967,6 +965,7 @@ void App::ExecuteActions(const ActionList& actions)
                     case ScrollType::PageDown: viewport_.DirectScrollBy(page_size * 0.9f); break;
                     case ScrollType::Home:     viewport_.ScrollTo(0.0f); break;
                     case ScrollType::End:      viewport_.ScrollTo(viewport_.GetMaxScroll()); break;
+                    default:                   break;
                 }
                 if (viewport_.GetScrollY() != old_scroll) {
                     InvalidateHitPositions();
