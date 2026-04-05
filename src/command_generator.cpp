@@ -206,7 +206,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     // 選択範囲のハイライト
     if (selection.active && node_index >= selection.start_node && node_index <= selection.end_node) {
         uint32_t sel_start = 0;
-        uint32_t sel_end = static_cast<uint32_t>(node.text.size());
+        uint32_t sel_end = static_cast<uint32_t>(node.GetText().size());
         if (node_index == selection.start_node) {
             sel_start = selection.start_pos;
         }
@@ -301,7 +301,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     );
 
     bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
-    uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(node.text.size());
+    uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(node.GetText().size());
     if (has_selection) {
         if (node_index == selection.start_node) {
             sel_start = selection.start_pos;

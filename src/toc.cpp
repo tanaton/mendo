@@ -7,16 +7,20 @@ void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes)
     entries_.reserve(std::ranges::count_if(nodes,
         [](const Node& n) static noexcept { return n.type == NodeType::Heading; }));
     for (const auto& [i, node] : nodes | std::views::enumerate) {
-        if (node.type != NodeType::Heading) {
-            continue;
+        if (node.type == NodeType::Heading) {
+            AddEntry(node, static_cast<int>(i));
         }
-        TocEntry entry;
-        entry.text = node.text;
-        entry.anchor_id = node.anchor_id;
-        entry.heading_level = node.heading_level;
-        entry.node_index = static_cast<int>(i);
-        entries_.emplace_back(std::move(entry));
     }
+}
+
+void TableOfContents::AddEntry(const Node& node, int node_index)
+{
+    TocEntry entry;
+    entry.text = node.GetText();
+    entry.anchor_id = node.anchor_id;
+    entry.heading_level = node.heading_level;
+    entry.node_index = node_index;
+    entries_.emplace_back(std::move(entry));
 }
 
 int TableOfContents::HitTest(float local_y, float item_height) const noexcept

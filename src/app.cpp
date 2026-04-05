@@ -581,7 +581,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
         SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
         Invalidate();
         UpdateWindow(hwnd_);
-        PostMessage(hwnd_, WM_APP_LOAD_FILE, 0, 0);
+        file_load_service_.StartAsyncLoad(scheduler_, hwnd_, WM_APP_PARSE_COMPLETE);
     }
 }
 
@@ -597,16 +597,6 @@ void App::DoLoadMarkdownFile()
 
     KillTimer(hwnd_, TIMER_LOADING_ANIM);
 
-    viewport_.ClearSelection();
-    search_bar_ctrl_.Reset();
-    // ファイル切替時はEDITコントロールのテキストもクリア
-    PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, SEARCH_UNFOCUS_FILE_SWITCH, 0);
-    active_toc_index_ = -1;
-    resource_manager_.CancelMermaidBatch();
-    image_loader_.CancelPending();
-    renderer_.ShrinkBuffers();
-    resource_manager_.ClearResolvedPaths();
-
     {
         MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
         if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
@@ -614,6 +604,37 @@ void App::DoLoadMarkdownFile()
             return;
         }
     }
+
+    FinishLoadMarkdownFile();
+}
+
+void App::OnParseComplete()
+{
+    KillTimer(hwnd_, TIMER_LOADING_ANIM);
+    file_load_service_.StopLoading();
+
+    auto result = file_load_service_.TakeAsyncResult();
+    if (!result) {
+        Invalidate();
+        return;
+    }
+
+    doc_ = std::move(*result);
+    layout_cache_.Reset(doc_.GetNodes().size());
+
+    FinishLoadMarkdownFile();
+}
+
+void App::FinishLoadMarkdownFile()
+{
+    viewport_.ClearSelection();
+    search_bar_ctrl_.Reset();
+    PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, SEARCH_UNFOCUS_FILE_SWITCH, 0);
+    active_toc_index_ = -1;
+    resource_manager_.CancelMermaidBatch();
+    image_loader_.CancelPending();
+    renderer_.ShrinkBuffers();
+    resource_manager_.ClearResolvedPaths();
 
     const std::pmr::wstring dir = doc_.GetDirectory();
     if (!dir.empty()) {
@@ -704,7 +725,7 @@ void App::ReloadCurrentFile()
         SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
         Invalidate();
         UpdateWindow(hwnd_);
-        PostMessage(hwnd_, WM_APP_RELOAD_FILE, 0, 0);
+        file_load_service_.StartAsyncLoad(scheduler_, hwnd_, WM_APP_PARSE_COMPLETE);
     }
     else {
         DoReloadCurrentFile();
@@ -838,8 +859,7 @@ void App::ApplyMermaidCacheHeights(float md_width)
     const auto& nodes = doc_.GetNodes();
     bool any_applied = false;
     for (size_t i : doc_.GetMermaidNodeIndices()) {
-        const auto hash = mermaid_util::HashCode(
-            nodes[i].text, content_width, dark_mode);
+        const auto hash = mermaid_util::HashCode(nodes[i].text_utf8, content_width, dark_mode);
         MermaidFileCache::CacheEntry fentry;
         if (file_cache_.LookupDimensions(hash, fentry)) {
             layout_cache_[i].height = fentry.css_height;
@@ -910,8 +930,7 @@ void App::OnMouseHWheel(short delta)
 
     // 入力のたびにコミットタイマーをリセット。
     // 指を離して COMMIT_TIMEOUT_MS 経過後に Commit() でナビゲーション判定する。
-    SetTimer(hwnd_, TIMER_SWIPE_OVERLAY,
-        static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS), nullptr);
+    SetTimer(hwnd_, TIMER_SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS), nullptr);
 
     if (had_overlay != swipe_detector_.IsOverlayVisible()
         || old_direction != swipe_detector_.GetOverlayDirection()) {
@@ -946,6 +965,7 @@ void App::ExecuteActions(const ActionList& actions)
                     case ScrollType::PageDown: viewport_.DirectScrollBy(page_size * 0.9f); break;
                     case ScrollType::Home:     viewport_.ScrollTo(0.0f); break;
                     case ScrollType::End:      viewport_.ScrollTo(viewport_.GetMaxScroll()); break;
+                    default:                   break;
                 }
                 if (viewport_.GetScrollY() != old_scroll) {
                     InvalidateHitPositions();

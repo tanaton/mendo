@@ -125,7 +125,7 @@ TEST(NodeTest, DefaultState)
     EXPECT_EQ(node.indent_level, 0);
     EXPECT_EQ(node.list_number, 0);
     EXPECT_FALSE(node.task_checked);
-    EXPECT_TRUE(node.text.empty());
+    EXPECT_TRUE(node.GetText().empty());
     EXPECT_TRUE(node.runs.empty());
     EXPECT_TRUE(node.anchor_id.empty());
     EXPECT_EQ(node.code_language, SyntaxLanguage::None);

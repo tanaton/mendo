@@ -8,6 +8,7 @@
 #include <charconv>
 #include <format>
 #include <iterator>
+#include <algorithm>
 
 std::pmr::wstring GenerateAnchorId(std::wstring_view text)
 {
@@ -70,6 +71,12 @@ struct ParseContext {
 
     std::pmr::vector<Node> nodes;
 
+    // パース中に構築する特殊ノードインデックス（BuildIndicesのO(n)走査を除去）
+    std::pmr::vector<size_t> heading_indices;
+    std::pmr::vector<size_t> image_indices;
+    std::pmr::vector<size_t> mermaid_indices;
+    size_t current_node_index = 0;
+
     // パース一時データには monotonic リソースを使用
     std::stack<SpanState, std::pmr::deque<SpanState>> span_stack{
         std::pmr::deque<SpanState>{parse_resource.resource()} };
@@ -77,6 +84,8 @@ struct ParseContext {
 
     // UTF-8 → Wide変換用の再利用可能バッファ
     std::pmr::wstring text_buffer;
+
+    std::string utf8_accum;
 
     // ブロックコンテキスト追跡
     int indent_level = 0;
@@ -98,6 +107,7 @@ struct ParseContext {
 
     // 現在構築中のノード
     Node* current_node = nullptr;
+    uint32_t node_wide_offset = 0; // 現在ノードのWide文字オフセット（TextRun用）
 
     // リンクURL格納: SpanStateではインデックスのみ保持し、push/popでの文字列コピーを回避
     std::pmr::vector<std::pmr::wstring> link_urls{ parse_resource.resource() };
@@ -116,7 +126,10 @@ struct ParseContext {
         nodes.emplace_back();
         current_node = &nodes.back();
         current_node->type = type;
+        current_node_index = nodes.size() - 1;
+        // text_valid_ はデフォルト false なので明示的な無効化は不要
         current_node->indent_level = indent_level;
+        node_wide_offset = 0;
         if (blockquote_depth > 0 && !blockquote_group_stack.empty()) {
             current_node->blockquote_group = blockquote_group_stack.top();
         }
@@ -151,27 +164,47 @@ struct ParseContext {
         return run;
     }
 
+    // テーブルセルにWideテキストを追加（セルはWideのまま維持）
+    void AppendTextToCell(std::wstring_view text)
+    {
+        const uint32_t start = static_cast<uint32_t>(current_cell->text.size());
+        current_cell->text.append(text);
+        current_cell->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
+    }
+
+    // ノードにWideテキストを追加（Wide→UTF-8変換してtext_utf8に蓄積、BR/SOFTBR/Entity用）
     void AppendText(std::wstring_view text)
     {
-        // テーブルセル内の場合、ノードではなくセルに追加
         if (current_cell) {
-            const uint32_t start = static_cast<uint32_t>(current_cell->text.size());
-            current_cell->text.append(text);
-            current_cell->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
+            AppendTextToCell(text);
             return;
         }
-
         if (!current_node) {
             return;
         }
-
-        const uint32_t start = static_cast<uint32_t>(current_node->text.size());
-        current_node->text.append(text);
+        const auto utf8 = string_convert::WideToUtf8(text);
+        const uint32_t start = node_wide_offset;
+        current_node->text_utf8.append(utf8);
+        node_wide_offset += static_cast<uint32_t>(text.size());
         current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
+        for (const wchar_t c : text) {
+            if (c == L'\n') {
+                current_node->line_count++;
+            }
+        }
     }
 
-    // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する。
-    void AppendUtf8(std::string_view text)
+    // 蓄積UTF-8をフラッシュ
+    void FlushUtf8()
+    {
+        if (!utf8_accum.empty()) {
+            AppendUtf8(utf8_accum);
+            utf8_accum.clear();
+        }
+    }
+
+    // テーブルセルにUTF-8テキストをWide変換して追加
+    void AppendUtf8ToCell(std::string_view text)
     {
         const int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
         if (wlen > 0) {
@@ -179,7 +212,50 @@ struct ParseContext {
                 const int written = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf, static_cast<int>(count));
                 return (written > 0) ? static_cast<size_t>(written) : 0;
             });
-            AppendText(text_buffer);
+            AppendTextToCell(text_buffer);
+        }
+    }
+
+    // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する（エンティティ等用）
+    void AppendUtf8(std::string_view text)
+    {
+        if (current_cell) {
+            AppendUtf8ToCell(text);
+            return;
+        }
+        if (!current_node) {
+            return;
+        }
+        // ノード: Wide長のみ計算してtext_utf8に蓄積
+        // ASCII高速パス: 非ASCII（0x80以上）バイトが無ければバイト長＝ワイド長
+        int wlen;
+        int newline_count = 0;
+        size_t scan = 0;
+        for (; scan < text.size(); ++scan) {
+            if (static_cast<unsigned char>(text[scan]) >= 0x80) {
+                break;
+            }
+            if (text[scan] == '\n') {
+                newline_count++;
+            }
+        }
+        if (scan == text.size()) {
+            wlen = static_cast<int>(text.size());
+        }
+        else {
+            wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+            for (; scan < text.size(); ++scan) {
+                if (text[scan] == '\n') {
+                    newline_count++;
+                }
+            }
+        }
+        if (wlen > 0) {
+            const uint32_t start = node_wide_offset;
+            current_node->text_utf8.append(text);
+            node_wide_offset += static_cast<uint32_t>(wlen);
+            current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(wlen)));
+            current_node->line_count += newline_count;
         }
     }
 };
@@ -307,20 +383,25 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
 
+    ctx->FlushUtf8();
+
     switch (type) {
     case MD_BLOCK_CODE:
         ctx->in_code_block = false;
-        // 末尾の改行があれば除去
-        if (ctx->current_node && !ctx->current_node->text.empty() && ctx->current_node->text.back() == L'\n') {
-            ctx->current_node->text.pop_back();
+        // 末尾の改行があれば除去（text_utf8に対して操作）
+        if (ctx->current_node && !ctx->current_node->text_utf8.empty() && ctx->current_node->text_utf8.back() == '\n') {
+            ctx->current_node->text_utf8.pop_back();
+            ctx->current_node->line_count--;
+            ctx->node_wide_offset--;
             if (!ctx->current_node->runs.empty()) {
                 auto& last = ctx->current_node->runs.back();
-                if (last.length > 0) last.length--;
+                if (last.length > 0) {
+                    last.length--;
+                }
             }
         }
-        // レイアウトパスの度にではなく、パース時に一度だけトークン化する
-        if (ctx->current_node && ctx->current_node->code_language != SyntaxLanguage::None) {
-            ctx->current_node->syntax_tokens = Tokenize(ctx->current_node->text, ctx->current_node->code_language);
+        if (ctx->current_node && ctx->current_node->code_language == SyntaxLanguage::Mermaid) {
+            ctx->mermaid_indices.emplace_back(ctx->current_node_index);
         }
         break;
 
@@ -363,7 +444,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_H:
         if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
-            std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->text);
+            // 見出しテキストをWideに変換してアンカーID生成（見出しは少数なのでコスト小）
+            std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->GetText());
             const auto it = ctx->anchor_counts.find(base_id);
             const int count = (it != ctx->anchor_counts.end()) ? it->second : 0;
             if (count > 0) {
@@ -374,6 +456,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
                 ctx->current_node->anchor_id = base_id;
             }
             ctx->anchor_counts[std::move(base_id)] = count + 1;
+            ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
         ctx->current_node = nullptr;
         break;
@@ -383,6 +466,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             && (ctx->current_node->type == NodeType::Paragraph
                 || ctx->current_node->type == NodeType::BlockQuote)) {
             ctx->current_node->type = NodeType::Image;
+            ctx->image_indices.emplace_back(ctx->current_node_index);
         }
         ctx->current_node = nullptr;
         break;
@@ -402,6 +486,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
 
+    ctx->FlushUtf8();
     ctx->span_stack.push(ctx->current_span);
 
     switch (type) {
@@ -442,6 +527,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
+
+    ctx->FlushUtf8();
 
     if (type == MD_SPAN_IMG) {
         if (ctx->current_node && !ctx->pending_image_src.empty()) {
@@ -531,18 +618,21 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     switch (type) {
     case MD_TEXT_NORMAL:
     case MD_TEXT_CODE:
-        ctx->AppendUtf8(std::string_view{ text, static_cast<size_t>(size) });
+        ctx->utf8_accum.append(text, static_cast<size_t>(size));
         break;
 
     case MD_TEXT_ENTITY:
+        ctx->FlushUtf8();
         ResolveHtmlEntity(ctx, std::string_view{ text, static_cast<size_t>(size) });
         break;
 
     case MD_TEXT_BR:
+        ctx->FlushUtf8();
         ctx->AppendText(std::wstring_view{ L"\n", 1 });
         break;
 
     case MD_TEXT_SOFTBR:
+        ctx->FlushUtf8();
         ctx->AppendText(std::wstring_view{ L" ", 1 });
         break;
 
@@ -583,16 +673,16 @@ const wchar_t* GetAlertIcon(AlertType type) noexcept
 
 namespace {
 
-// 大文字小文字を無視して wstring_view を比較する（ASCII範囲のみ）
-bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept
+// 大文字小文字を無視して string_view を比較する（ASCII範囲のみ）
+bool AsciiCaseEqual(std::string_view a, std::string_view b) noexcept
 {
     if (a.size() != b.size()) {
         return false;
     }
     const auto len = a.size();
     for (size_t i = 0; i < len; i++) {
-        const wchar_t ca = (a[i] >= L'a' && a[i] <= L'z') ? (a[i] - L'a' + L'A') : a[i];
-        const wchar_t cb = (b[i] >= L'a' && b[i] <= L'z') ? (b[i] - L'a' + L'A') : b[i];
+        const char ca = (a[i] >= 'a' && a[i] <= 'z') ? (a[i] - 'a' + 'A') : a[i];
+        const char cb = (b[i] >= 'a' && b[i] <= 'z') ? (b[i] - 'a' + 'A') : b[i];
         if (ca != cb) {
             return false;
         }
@@ -600,34 +690,35 @@ bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept
     return true;
 }
 
-// テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す。
+// テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す（UTF-8版）。
 // marker_end には ']' の次の位置（スペース/改行をスキップ済み）を設定する。
-AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
+// マーカーは全てASCIIなので、バイトオフセット＝ワイド文字オフセット。
+AlertType DetectAlertMarker(std::string_view text, size_t& marker_end)
 {
-    if (text.size() < 3 || text[0] != L'[' || text[1] != L'!') {
+    if (text.size() < 3 || text[0] != '[' || text[1] != '!') {
         return AlertType::None;
     }
-    const auto close = text.find(L']');
-    if (close == std::wstring_view::npos || close <= 2) {
+    const auto close = text.find(']');
+    if (close == std::string_view::npos || close <= 2) {
         return AlertType::None;
     }
 
     const auto type_str = text.substr(2, close - 2);
 
     AlertType type = AlertType::None;
-    if (AsciiCaseEqual(type_str, L"NOTE")) {
+    if (AsciiCaseEqual(type_str, "NOTE")) {
         type = AlertType::Note;
     }
-    else if (AsciiCaseEqual(type_str, L"TIP")) {
+    else if (AsciiCaseEqual(type_str, "TIP")) {
         type = AlertType::Tip;
     }
-    else if (AsciiCaseEqual(type_str, L"IMPORTANT")) {
+    else if (AsciiCaseEqual(type_str, "IMPORTANT")) {
         type = AlertType::Important;
     }
-    else if (AsciiCaseEqual(type_str, L"WARNING")) {
+    else if (AsciiCaseEqual(type_str, "WARNING")) {
         type = AlertType::Warning;
     }
-    else if (AsciiCaseEqual(type_str, L"CAUTION")) {
+    else if (AsciiCaseEqual(type_str, "CAUTION")) {
         type = AlertType::Caution;
     }
 
@@ -637,7 +728,7 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
 
     marker_end = close + 1;
     // マーカー直後のスペースまたは改行を1つスキップ
-    if (marker_end < text.size() && (text[marker_end] == L' ' || text[marker_end] == L'\n')) {
+    if (marker_end < text.size() && (text[marker_end] == ' ' || text[marker_end] == '\n')) {
         marker_end++;
     }
     return type;
@@ -652,13 +743,14 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     const wchar_t* const icon = GetAlertIcon(type);
     const size_t icon_len = std::wcslen(icon);
 
-    const bool has_content = (marker_end < node.text.size());
+    const auto& current_text = node.GetText();
+    const bool has_content = (marker_end < current_text.size());
 
     // 新しいテキストを構築: "[icon] Label" (+ "\n \n" + 残りテキスト)
     const size_t icon_prefix_len = icon_len + 1; // アイコン文字列 + スペース
     const size_t full_label_len = icon_prefix_len + label_len;
     std::pmr::wstring new_text;
-    new_text.reserve(full_label_len + 4 + (has_content ? node.text.size() - marker_end : 0));
+    new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
     new_text.append(icon, icon_len);
     new_text += L' ';
     new_text.append(label, label_len);
@@ -667,7 +759,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     if (has_content) {
         new_text += L'\n';
         new_content_start = full_label_len + 1;
-        new_text.append(node.text.c_str() + marker_end, node.text.size() - marker_end);
+        new_text.append(current_text.c_str() + marker_end, current_text.size() - marker_end);
     }
 
     // TextRun の調整
@@ -697,7 +789,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
         new_runs.emplace_back(adjusted);
     }
 
-    node.text = std::move(new_text);
+    node.SetText(new_text);
     node.runs = std::move(new_runs);
     node.alert_type = type;
     node.alert_label_length = static_cast<uint32_t>(full_label_len);
@@ -713,7 +805,7 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
             continue;
         }
         size_t marker_end = 0;
-        const AlertType type = DetectAlertMarker(nodes[i].text, marker_end);
+        const AlertType type = DetectAlertMarker(nodes[i].text_utf8, marker_end);
         if (type == AlertType::None) {
             continue;
         }
@@ -733,10 +825,11 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
     }
 }
 
-std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text)
+ParseResult ParseMarkdown(std::string_view markdown_text)
 {
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
+    ctx.utf8_accum.reserve(4096);
 
     MD_PARSER parser{};
     parser.abi_version = 0;
@@ -751,5 +844,10 @@ std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text)
 
     DetectAlerts(ctx.nodes);
 
-    return std::move(ctx.nodes);
+    ParseResult result;
+    result.nodes = std::move(ctx.nodes);
+    result.heading_indices = std::move(ctx.heading_indices);
+    result.image_indices = std::move(ctx.image_indices);
+    result.mermaid_indices = std::move(ctx.mermaid_indices);
+    return result;
 }

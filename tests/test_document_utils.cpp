@@ -10,7 +10,7 @@
 
 TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 {
-    auto nodes = ParseMarkdown("Hello world");
+    auto nodes = ParseMarkdown("Hello world").nodes;
     TextSelection sel;
     sel.active = false;
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
@@ -18,31 +18,31 @@ TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 
 TEST(ExtractSelectedText, SingleNodeFullSelection)
 {
-    auto nodes = ParseMarkdown("Hello world");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].text.size()));
+    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Hello world");
 }
 
 TEST(ExtractSelectedText, SingleNodePartialSelection)
 {
-    auto nodes = ParseMarkdown("Hello world");
+    auto nodes = ParseMarkdown("Hello world").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Hello");
 }
 
 TEST(ExtractSelectedText, SingleNodeMiddleSelection)
 {
-    auto nodes = ParseMarkdown("Hello world");
+    auto nodes = ParseMarkdown("Hello world").nodes;
     auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"world");
 }
 
 TEST(ExtractSelectedText, MultipleNodesFullSelection)
 {
-    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird");
+    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird").nodes;
     ASSERT_EQ(nodes.size(), 3u);
     auto sel = TextSelection::MakeOrdered(
-        0, 0, 2, static_cast<uint32_t>(nodes[2].text.size()));
+        0, 0, 2, static_cast<uint32_t>(nodes[2].GetText().size()));
     auto result = ExtractSelectedText(nodes, sel);
     EXPECT_NE(result.find(L"First"), std::wstring::npos);
     EXPECT_NE(result.find(L"Second"), std::wstring::npos);
@@ -51,7 +51,7 @@ TEST(ExtractSelectedText, MultipleNodesFullSelection)
 
 TEST(ExtractSelectedText, MultipleNodesPartialSelection)
 {
-    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird");
+    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird").nodes;
     ASSERT_EQ(nodes.size(), 3u);
     // "First"の途中から"Third"の途中まで選択
     auto sel = TextSelection::MakeOrdered(0, 2, 2, 3);
@@ -63,10 +63,10 @@ TEST(ExtractSelectedText, MultipleNodesPartialSelection)
 
 TEST(ExtractSelectedText, NewlineBetweenNodes)
 {
-    auto nodes = ParseMarkdown("A\n\nB");
+    auto nodes = ParseMarkdown("A\n\nB").nodes;
     ASSERT_EQ(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(
-        0, 0, 1, static_cast<uint32_t>(nodes[1].text.size()));
+        0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     auto result = ExtractSelectedText(nodes, sel);
     // ノード間に\r\nが含まれるべき
     EXPECT_NE(result.find(L"\r\n"), std::wstring::npos);
@@ -82,7 +82,7 @@ TEST(ExtractSelectedText, EmptyNodes)
 
 TEST(ExtractSelectedText, EndBeyondTextSize)
 {
-    auto nodes = ParseMarkdown("Short");
+    auto nodes = ParseMarkdown("Short").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 1000);
     // end_posがテキストサイズを超える場合はクランプされるべき
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Short");
@@ -90,9 +90,9 @@ TEST(ExtractSelectedText, EndBeyondTextSize)
 
 TEST(ExtractSelectedText, JapaneseText)
 {
-    auto nodes = ParseMarkdown("日本語テスト");
+    auto nodes = ParseMarkdown("日本語テスト").nodes;
     auto sel = TextSelection::MakeOrdered(
-        0, 0, 0, static_cast<uint32_t>(nodes[0].text.size()));
+        0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"日本語テスト");
 }
 
@@ -102,7 +102,7 @@ TEST(ExtractSelectedText, JapaneseText)
 
 TEST(FindLinkAtPosition, NoLinks)
 {
-    auto nodes = ParseMarkdown("plain text");
+    auto nodes = ParseMarkdown("plain text").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 0);
     EXPECT_FALSE(result.has_value());
@@ -110,7 +110,7 @@ TEST(FindLinkAtPosition, NoLinks)
 
 TEST(FindLinkAtPosition, LinkFound)
 {
-    auto nodes = ParseMarkdown("[click](https://example.com)");
+    auto nodes = ParseMarkdown("[click](https://example.com)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // リンクテキスト内の位置
     auto result = FindLinkAtPosition(nodes[0], 0);
@@ -120,7 +120,7 @@ TEST(FindLinkAtPosition, LinkFound)
 
 TEST(FindLinkAtPosition, PositionOutsideLink)
 {
-    auto nodes = ParseMarkdown("before [link](https://example.com) after");
+    auto nodes = ParseMarkdown("before [link](https://example.com) after").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // "before"テキスト内の位置（リンクではないはず）
     auto result = FindLinkAtPosition(nodes[0], 0);
@@ -129,7 +129,7 @@ TEST(FindLinkAtPosition, PositionOutsideLink)
 
 TEST(FindLinkAtPosition, InternalLink)
 {
-    auto nodes = ParseMarkdown("[section](#my-section)");
+    auto nodes = ParseMarkdown("[section](#my-section)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 0);
     ASSERT_TRUE(result.has_value());
@@ -138,17 +138,17 @@ TEST(FindLinkAtPosition, InternalLink)
 
 TEST(FindLinkAtPosition, PositionAtLinkBoundary)
 {
-    auto nodes = ParseMarkdown("[link](https://example.com)");
+    auto nodes = ParseMarkdown("[link](https://example.com)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // リンクの最後の文字の位置
-    uint32_t last_pos = static_cast<uint32_t>(nodes[0].text.size()) - 1;
+    uint32_t last_pos = static_cast<uint32_t>(nodes[0].GetText().size()) - 1;
     auto result = FindLinkAtPosition(nodes[0], last_pos);
     ASSERT_TRUE(result.has_value());
 }
 
 TEST(FindLinkAtPosition, PositionBeyondText)
 {
-    auto nodes = ParseMarkdown("[link](https://example.com)");
+    auto nodes = ParseMarkdown("[link](https://example.com)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 9999);
     EXPECT_FALSE(result.has_value());
@@ -173,13 +173,13 @@ TEST(FindAnchorNodeIndex, EmptyNodes)
 
 TEST(FindAnchorNodeIndex, EmptyAnchor)
 {
-    auto nodes = ParseMarkdown("# Title");
+    auto nodes = ParseMarkdown("# Title").nodes;
     EXPECT_EQ(FindAnchorNodeIndex(nodes, L""), -1);
 }
 
 TEST(FindAnchorNodeIndex, FindExistingAnchor)
 {
-    auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section");
+    auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section").nodes;
     ASSERT_GE(nodes.size(), 3u);
     int idx = FindAnchorNodeIndex(nodes, L"title");
     EXPECT_EQ(idx, 0);
@@ -187,15 +187,15 @@ TEST(FindAnchorNodeIndex, FindExistingAnchor)
 
 TEST(FindAnchorNodeIndex, FindSecondHeading)
 {
-    auto nodes = ParseMarkdown("# First\n\nParagraph\n\n## Second");
+    auto nodes = ParseMarkdown("# First\n\nParagraph\n\n## Second").nodes;
     int idx = FindAnchorNodeIndex(nodes, L"second");
     EXPECT_GE(idx, 0);
-    EXPECT_EQ(nodes[idx].text, L"Second");
+    EXPECT_EQ(nodes[idx].GetText(), L"Second");
 }
 
 TEST(FindAnchorNodeIndex, CaseInsensitiveSearch)
 {
-    auto nodes = ParseMarkdown("# Hello World");
+    auto nodes = ParseMarkdown("# Hello World").nodes;
     // アンカーは"hello-world"、大文字で検索
     int idx = FindAnchorNodeIndex(nodes, L"Hello-World");
     EXPECT_EQ(idx, 0);
@@ -203,20 +203,20 @@ TEST(FindAnchorNodeIndex, CaseInsensitiveSearch)
 
 TEST(FindAnchorNodeIndex, NotFound)
 {
-    auto nodes = ParseMarkdown("# Title");
+    auto nodes = ParseMarkdown("# Title").nodes;
     EXPECT_EQ(FindAnchorNodeIndex(nodes, L"nonexistent"), -1);
 }
 
 TEST(FindAnchorNodeIndex, CjkAnchor)
 {
-    auto nodes = ParseMarkdown("## コードブロック");
+    auto nodes = ParseMarkdown("## コードブロック").nodes;
     int idx = FindAnchorNodeIndex(nodes, L"コードブロック");
     EXPECT_EQ(idx, 0);
 }
 
 TEST(FindAnchorNodeIndex, SkipsNonHeadings)
 {
-    auto nodes = ParseMarkdown("Paragraph\n\n# Heading");
+    auto nodes = ParseMarkdown("Paragraph\n\n# Heading").nodes;
     int idx = FindAnchorNodeIndex(nodes, L"heading");
     EXPECT_GE(idx, 0);
     EXPECT_EQ(nodes[idx].type, NodeType::Heading);
@@ -374,7 +374,7 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode)
     // テーブル型ノード（線形化テキストを持つ）でのテスト
     Node table_node;
     table_node.type = NodeType::Table;
-    table_node.text = L"A\tB\n1\t2";
+    table_node.SetText(L"A\tB\n1\t2");
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(table_node));
@@ -393,7 +393,7 @@ TEST(ExtractSelectedText, StartNodeOutOfRange)
 {
     std::pmr::vector<Node> nodes;
     Node n;
-    n.text = L"hello";
+    n.SetText(L"hello");
     nodes.emplace_back(std::move(n));
 
     TextSelection sel;
@@ -412,7 +412,7 @@ TEST(ExtractSelectedText, EndNodeOutOfRange)
 {
     std::pmr::vector<Node> nodes;
     Node n;
-    n.text = L"hello";
+    n.SetText(L"hello");
     nodes.emplace_back(std::move(n));
 
     TextSelection sel;
@@ -432,7 +432,7 @@ TEST(ExtractSelectedText, EndNodeOutOfRange)
 TEST(FindLinkAtPosition, MultipleLinkRuns)
 {
     Node node;
-    node.text = L"link1 link2";
+    node.SetText(L"link1 link2");
 
     node.link_urls.emplace_back(L"https://a.com");
     node.link_urls.emplace_back(L"https://b.com");
@@ -502,7 +502,7 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
     //          0123 4567 8901 2345
     // "Name" = オフセット 0-3, タブ 4, "URL" = 5-7, 改行 8
     // "foo" = オフセット 9-11, タブ 12, "bar" = 13-15
-    node.text = L"Name\tURL\nfoo\tbar";
+    node.SetText(L"Name\tURL\nfoo\tbar");
 
     // "bar"内の位置（オフセット13）でリンクが見つかるべき
     auto result = FindLinkAtPosition(node, 13);
@@ -524,7 +524,7 @@ TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown)
         "| Text | Link |\n"
         "|------|------|\n"
         "| hello | [click](https://example.com) |"
-    );
+    ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
 
@@ -557,7 +557,7 @@ TEST(FindLinkAtPosition, TableCellInternalLink)
     node.ensure_table();
     node.table_rows().emplace_back(row);
 
-    node.text = L"section";
+    node.SetText(L"section");
 
     auto result = FindLinkAtPosition(node, 3);
     ASSERT_TRUE(result.has_value());
@@ -586,7 +586,7 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator)
     node.table_rows().emplace_back(row);
 
     // 線形化: "A\tB" → オフセット 0=A, 1=タブ, 2=B
-    node.text = L"A\tB";
+    node.SetText(L"A\tB");
 
     // タブ区切り（オフセット1）はどのセルにもマッチしないべき
     auto result = FindLinkAtPosition(node, 1);
@@ -774,7 +774,7 @@ TEST(FindNodeBySourceOffset, SkipsUnsetOffsets)
 
 TEST(FindNodeBySourceOffset, ParsedMarkdown)
 {
-    auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section");
+    auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section").nodes;
     ASSERT_GE(nodes.size(), 3u);
     // 各ノードが有効な source_offset を持つ
     for (const auto& n : nodes) {
@@ -809,7 +809,7 @@ TEST(FindNodeBySourceOffset, AllUnsetOffsets)
 TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 {
     // パース結果で HorizontalRule が混在するケース
-    auto nodes = ParseMarkdown("AAA\n\n---\n\nBBB");
+    auto nodes = ParseMarkdown("AAA\n\n---\n\nBBB").nodes;
     ASSERT_GE(nodes.size(), 3u);
     // "AAA" offset=0, "---" offset=UINT32_MAX, "BBB" offset=10
     EXPECT_EQ(nodes[0].source_offset, 0u);
@@ -833,7 +833,7 @@ static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new
     if (diff_pos == std::string_view::npos) {
         return -1;
     }
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     if (nodes.empty()) {
         return -1;
     }
@@ -846,9 +846,9 @@ TEST(DiffToNode, EditMiddleParagraph)
     std::string old_md = "First\n\nSecond\n\nThird";
     std::string new_md = "First\n\nModified\n\nThird";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     EXPECT_EQ(node, 1); // 2番目の段落
-    EXPECT_EQ(nodes[node].text, L"Modified");
+    EXPECT_EQ(nodes[node].GetText(), L"Modified");
 }
 
 TEST(DiffToNode, EditFirstParagraph)
@@ -873,10 +873,10 @@ TEST(DiffToNode, InsertNewParagraph)
     std::string old_md = "Before\n\nAfter";
     std::string new_md = "Before\n\nInserted\n\nAfter";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
     // 挿入位置のノード（"Inserted" または "Before"の次）
-    EXPECT_EQ(nodes[node].text, L"Inserted");
+    EXPECT_EQ(nodes[node].GetText(), L"Inserted");
 }
 
 TEST(DiffToNode, DeleteParagraph)
@@ -887,7 +887,7 @@ TEST(DiffToNode, DeleteParagraph)
     int node = SimulateEditAndFindNode(old_md, new_md);
     ASSERT_GE(node, 0);
     // diff_pos=7（"RemoveMe" vs "Last"の開始位置）→ "Last"(offset=7)か"First"
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     EXPECT_LE(node, 1); // "First" or "Last"
 }
 
@@ -896,7 +896,7 @@ TEST(DiffToNode, AppendToEnd)
     std::string old_md = "Existing";
     std::string new_md = "Existing\n\nAppended";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
     // diff_pos=8（old の末尾）→ "Existing"(offset=0)を返す
     // "Appended" の offset=10 > 8 なので "Existing" がマッチ
@@ -909,7 +909,7 @@ TEST(DiffToNode, EditInCodeBlock)
     std::string old_md = "text\n\n```\nold code\n```\n\nend";
     std::string new_md = "text\n\n```\nnew code\n```\n\nend";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
     EXPECT_EQ(nodes[node].type, NodeType::CodeBlock);
 }
@@ -920,9 +920,9 @@ TEST(DiffToNode, EditInListItem)
     std::string old_md = "- first\n- second\n- third";
     std::string new_md = "- first\n- changed\n- third";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
-    EXPECT_EQ(nodes[node].text, L"changed");
+    EXPECT_EQ(nodes[node].GetText(), L"changed");
 }
 
 TEST(DiffToNode, EditHeading)
@@ -945,7 +945,7 @@ TEST(DiffToNode, EditInBlockQuote)
     std::string old_md = "normal\n\n> old quote\n\nafter";
     std::string new_md = "normal\n\n> new quote\n\nafter";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
     EXPECT_EQ(nodes[node].type, NodeType::BlockQuote);
 }
@@ -956,7 +956,7 @@ TEST(DiffToNode, EditWithJapanese)
     std::string old_md = "# はじめに\n\n旧テキスト\n\nおわり";
     std::string new_md = "# はじめに\n\n新テキスト\n\nおわり";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
     // "# はじめに\n\n" = 2 + 15 + 2 = 19バイト
     // diff_pos は "新" vs "旧" の位置
@@ -974,7 +974,7 @@ TEST(DiffToNode, EditInTable)
         "|---|---|\n"
         "| X | 2 |";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
     EXPECT_EQ(nodes[node].type, NodeType::Table);
 }
@@ -993,7 +993,7 @@ TEST(DiffToNode, LargeDocumentMiddleEdit)
         }
     }
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md);
+    auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
-    EXPECT_EQ(nodes[node].text, L"CHANGED paragraph 50");
+    EXPECT_EQ(nodes[node].GetText(), L"CHANGED paragraph 50");
 }

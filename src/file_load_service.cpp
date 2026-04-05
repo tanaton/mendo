@@ -1,4 +1,6 @@
 #include "file_load_service.h"
+#include "file_loader.h"
+#include "profiler.h"
 #include "ui_constants.h"
 
 void FileLoadService::StartLoading(std::wstring_view path)
@@ -30,4 +32,53 @@ bool FileLoadService::ExecuteLoad(Document& doc, LayoutCache& cache)
     }
     cache.Reset(doc.GetNodes().size());
     return true;
+}
+
+void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id)
+{
+    {
+        const std::lock_guard lock(async_mutex_);
+        async_result_.reset();
+    }
+    const uint32_t gen = async_gen_.fetch_add(1, std::memory_order_relaxed) + 1;
+    const std::pmr::wstring path = loading_path_;
+
+    scheduler.Post([this, path, hwnd, msg_id, gen] {
+        if (async_gen_.load(std::memory_order_relaxed) != gen) {
+            return;
+        }
+
+        std::pmr::string content = FileLoader::LoadFile(path);
+        if (content.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            if (async_gen_.load(std::memory_order_relaxed) == gen) {
+                PostMessage(hwnd, msg_id, 0, 0);
+            }
+            return;
+        }
+
+        if (async_gen_.load(std::memory_order_relaxed) != gen) {
+            return;
+        }
+
+        Document doc = Document::FromMarkdown(std::move(content), path);
+
+        if (async_gen_.load(std::memory_order_relaxed) != gen) {
+            return;
+        }
+
+        {
+            const std::lock_guard lock(async_mutex_);
+            async_result_.emplace(std::move(doc));
+        }
+
+        PostMessage(hwnd, msg_id, 0, 0);
+    });
+}
+
+std::optional<Document> FileLoadService::TakeAsyncResult()
+{
+    const std::lock_guard lock(async_mutex_);
+    auto result = std::move(async_result_);
+    async_result_.reset();
+    return result;
 }

@@ -94,6 +94,7 @@ public:
     void OnAppLoadFile();
     void OnAppReloadFile();
     void OnAppImageLoaded();
+    void OnParseComplete();
     void OnCaptureChanged();
     void OnDestroy();
 
@@ -215,6 +216,7 @@ private:
     void ReloadCurrentFile();
     void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
+    void FinishLoadMarkdownFile();
     void ApplyMermaidCacheHeights(float md_width);
     void UpdateTitleBar();
     void SaveLastFilePath();
@@ -268,6 +270,7 @@ public:
     static constexpr UINT WM_APP_RELOAD_FILE = WM_APP + 3;
     static constexpr UINT WM_APP_SEARCH_FOCUS = WM_APP + 4;
     static constexpr UINT WM_APP_SEARCH_UNFOCUS = WM_APP + 5;
+    static constexpr UINT WM_APP_PARSE_COMPLETE = WM_APP + 6;
     static constexpr WPARAM SEARCH_FOCUS_SELECT_ALL = 0;
     static constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;
     static constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2;  // lParam = MAKELPARAM(anchor, caret)

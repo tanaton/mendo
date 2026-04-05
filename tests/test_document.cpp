@@ -66,8 +66,7 @@ TEST(DocumentTest, ReplaceContent)
     EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"First");
 
     // 新しいコンテンツで置き換え
-    auto doc2 = Document::FromMarkdown("# Second\n## Sub", L"");
-    doc.ReplaceContent(std::move(doc2.GetNodesMut()));
+    doc.ReplaceContent(ParseMarkdown("# Second\n## Sub"));
 
     // TOCが再構築されるべき
     EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);
@@ -83,8 +82,8 @@ TEST(DocumentTest, GetNodesMut)
 
     // 可変参照を通じてノードを変更
     auto& nodes = doc.GetNodesMut();
-    nodes[0].text = L"modified";
-    EXPECT_EQ(doc.GetNodes()[0].text, L"modified");
+    nodes[0].SetText(L"modified");
+    EXPECT_EQ(doc.GetNodes()[0].GetText(), L"modified");
 }
 
 // ---- GetRawUtf8 ----
@@ -139,7 +138,7 @@ TEST(DocumentTest, GetRawUtf8IndependentOfNodes)
 {
     // ノードの変更が raw_utf8_ に影響しないことを確認
     auto doc = Document::FromMarkdown("hello", L"test.md");
-    doc.GetNodesMut()[0].text = L"modified";
+    doc.GetNodesMut()[0].SetText(L"modified");
     // raw_utf8_ はパース入力のまま
     EXPECT_EQ(doc.GetRawUtf8(), "hello");
 }
@@ -160,4 +159,62 @@ TEST(DocumentTest, RawUtf8SourceOffsetConsistency)
             EXPECT_LT(n.source_offset, static_cast<uint32_t>(raw.size()));
         }
     }
+}
+
+// ---- BuildIndices統合テスト ----
+
+TEST(DocumentTest, BuildIndicesAnchorIndex)
+{
+    auto doc = Document::FromMarkdown("# First\n\n## Second\n\ntext", L"test.md");
+    EXPECT_EQ(doc.FindAnchorIndex(L"first"), 0);
+    EXPECT_EQ(doc.FindAnchorIndex(L"second"), 1);
+    EXPECT_EQ(doc.FindAnchorIndex(L"nonexistent"), -1);
+}
+
+TEST(DocumentTest, BuildIndicesImageNodes)
+{
+    auto doc = Document::FromMarkdown("text\n\n![alt](img.png)\n\nmore text", L"test.md");
+    const auto& images = doc.GetImageNodeIndices();
+    EXPECT_EQ(images.size(), 1u);
+}
+
+TEST(DocumentTest, BuildIndicesMermaidNodes)
+{
+    auto doc = Document::FromMarkdown("```mermaid\ngraph TD\n```\n\n```cpp\nint x;\n```", L"test.md");
+    const auto& mermaids = doc.GetMermaidNodeIndices();
+    EXPECT_EQ(mermaids.size(), 1u);
+    // cppコードブロックはMermaidインデックスに含まれない
+    const auto& nodes = doc.GetNodes();
+    EXPECT_EQ(nodes[mermaids[0]].code_language, SyntaxLanguage::Mermaid);
+}
+
+TEST(DocumentTest, BuildIndicesTocAndAnchorConsistent)
+{
+    auto doc = Document::FromMarkdown("# A\n\n## B\n\n### C", L"test.md");
+    const auto& toc = doc.GetToc().GetEntries();
+    ASSERT_EQ(toc.size(), 3u);
+    // TOCエントリのnode_indexがアンカーインデックスと一致
+    for (const auto& entry : toc) {
+        const int anchor_idx = doc.FindAnchorIndex(entry.anchor_id);
+        EXPECT_EQ(anchor_idx, entry.node_index);
+    }
+}
+
+TEST(DocumentTest, BuildIndicesAfterReplaceContent)
+{
+    auto doc = Document::FromMarkdown("# Old", L"test.md");
+    EXPECT_EQ(doc.GetToc().GetEntries().size(), 1u);
+    EXPECT_EQ(doc.FindAnchorIndex(L"old"), 0);
+
+    doc.ReplaceContent(ParseMarkdown("# New\n\n## Sub"));
+    EXPECT_EQ(doc.GetToc().GetEntries().size(), 2u);
+    EXPECT_EQ(doc.FindAnchorIndex(L"old"), -1);
+    EXPECT_EQ(doc.FindAnchorIndex(L"new"), 0);
+}
+
+TEST(DocumentTest, BuildIndicesNoSpecialNodes)
+{
+    auto doc = Document::FromMarkdown("just a paragraph", L"test.md");
+    EXPECT_TRUE(doc.GetImageNodeIndices().empty());
+    EXPECT_TRUE(doc.GetMermaidNodeIndices().empty());
 }

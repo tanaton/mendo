@@ -103,7 +103,7 @@ private:
     void DoCapturePreview(int worker_idx);
     void OnCaptureComplete(int worker_idx, uint64_t code_hash, IStream* png_stream);
     void FinishWorkerRequest(Worker& worker);
-    uint64_t HashCode(std::wstring_view code, float max_width, bool dark_mode) const noexcept;
+    uint64_t HashCode(std::string_view code_utf8, float max_width, bool dark_mode) const noexcept;
     HRESULT CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
         float* width, float* height);
 

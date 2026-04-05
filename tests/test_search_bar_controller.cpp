@@ -43,7 +43,7 @@ protected:
     {
         Node n;
         n.type = NodeType::Paragraph;
-        n.text.assign(text);
+        n.SetText(text);
         return n;
     }
 

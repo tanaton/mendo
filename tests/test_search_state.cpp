@@ -8,7 +8,7 @@ static Node MakeTextNode(const wchar_t* text)
 {
     Node n;
     n.type = NodeType::Paragraph;
-    n.text.assign(text);
+    n.SetText(text);
     return n;
 }
 
@@ -500,7 +500,7 @@ TEST(SearchStateTest, ImageNodeExcludedFromSearch)
     std::pmr::vector<Node> nodes;
     Node img;
     img.type = NodeType::Image;
-    img.text.assign(L"alt text with keyword");
+    img.SetText(L"alt text with keyword");
     nodes.push_back(std::move(img));
     nodes.push_back(MakeTextNode(L"keyword in paragraph"));
     SearchState s;
@@ -517,7 +517,7 @@ TEST(SearchStateTest, MermaidCodeBlockExcludedFromSearch)
     Node mermaid;
     mermaid.type = NodeType::CodeBlock;
     mermaid.code_language = SyntaxLanguage::Mermaid;
-    mermaid.text.assign(L"graph TD; A-->B");
+    mermaid.SetText(L"graph TD; A-->B");
     nodes.push_back(std::move(mermaid));
     nodes.push_back(MakeTextNode(L"graph description"));
     SearchState s;
@@ -534,7 +534,7 @@ TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch)
     Node code;
     code.type = NodeType::CodeBlock;
     code.code_language = SyntaxLanguage::Cpp;
-    code.text.assign(L"int main()");
+    code.SetText(L"int main()");
     nodes.push_back(std::move(code));
     SearchState s;
     s.SetQuery(L"main");

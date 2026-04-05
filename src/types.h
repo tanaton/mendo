@@ -5,6 +5,7 @@
 #include <memory>
 #include <memory_resource>
 #include "syntax.h"
+#include "string_convert.h"
 
 enum class NodeType : uint8_t {
     Heading,
@@ -63,20 +64,28 @@ struct TextSelection {
     uint32_t end_pos = 0;
     bool active = false;
 
-    constexpr void Clear() noexcept { start_node = end_node = -1; active = false; }
+    constexpr void Clear() noexcept
+    {
+        start_node = -1;
+        end_node = -1;
+        active = false;
+    }
 
     // アンカー/キャレットをドキュメント順で start <= end に正規化する
-    static constexpr TextSelection MakeOrdered(int node_a, uint32_t pos_a,
-        int node_b, uint32_t pos_b) noexcept
+    static constexpr TextSelection MakeOrdered(int node_a, uint32_t pos_a, int node_b, uint32_t pos_b) noexcept
     {
         TextSelection s;
         if (node_a < node_b || (node_a == node_b && pos_a <= pos_b)) {
-            s.start_node = node_a; s.start_pos = pos_a;
-            s.end_node = node_b;   s.end_pos = pos_b;
+            s.start_node = node_a;
+            s.start_pos = pos_a;
+            s.end_node = node_b;
+            s.end_pos = pos_b;
         }
         else {
-            s.start_node = node_b; s.start_pos = pos_b;
-            s.end_node = node_a;   s.end_pos = pos_a;
+            s.start_node = node_b;
+            s.start_pos = pos_b;
+            s.end_node = node_a;
+            s.end_pos = pos_a;
         }
         s.active = (s.start_node != s.end_node || s.start_pos != s.end_pos);
         return s;
@@ -108,8 +117,7 @@ struct NodeImageData {
 };
 
 struct Node {
-    // --- 8バイトアライメント ---
-    std::pmr::wstring text;
+    std::pmr::string text_utf8;        // テキスト主記憶（UTF-8、パーサーが設定）
     std::pmr::vector<TextRun> runs;
     std::pmr::wstring anchor_id;   // 見出し用: 内部リンク向けGitHubスタイルのスラグ
     std::pmr::vector<SyntaxToken> syntax_tokens;
@@ -123,19 +131,53 @@ struct Node {
     // 画像データ（type == Image の場合のみ確保、それ以外は nullptr）
     std::unique_ptr<NodeImageData> image_data;
 
-    // --- 4バイトアライメント ---
     int heading_level = 0;
     int indent_level = 0;
     int list_number = 0;      // 0 = 順序なし, >0 = 順序付きリスト番号
     uint32_t alert_label_length = 0; // ラベル部分の文字数（描画エフェクト適用範囲）
     uint32_t source_offset = UINT32_MAX; // ソースUTF-8内のバイトオフセット（未設定時UINT32_MAX）
     int blockquote_group = -1;       // 同一 MD_BLOCK_QUOTE 内のノードを識別するグループID
+    int line_count = 0;              // テキスト内の改行数（パース時にカウント済み）
 
-    // --- 1バイトアライメント ---
     NodeType type = NodeType::Paragraph;
     bool task_checked = false;
     AlertType alert_type = AlertType::None;
     SyntaxLanguage code_language = SyntaxLanguage::None;
+
+    // テキストが存在するか（遅延変換を発火させずに両表現をチェック）
+    bool HasText() const noexcept
+    {
+        return !text_utf8.empty() || (text_valid_ && !text_.empty());
+    }
+
+    // テキスト取得（text_utf8からの遅延変換付き）
+    const std::pmr::wstring& GetText() const
+    {
+        if (!text_valid_) {
+            if (!text_utf8.empty()) {
+                text_ = string_convert::Utf8ToWide(text_utf8);
+            }
+            else {
+                text_.clear();
+            }
+            text_valid_ = true;
+        }
+        return text_;
+    }
+
+    // Wideテキストを直接設定
+    void SetText(std::wstring_view s)
+    {
+        text_.assign(s.data(), s.size());
+        text_valid_ = true;
+        text_utf8.clear();
+        line_count = 0;
+        for (wchar_t ch : s) {
+            if (ch == L'\n') {
+                ++line_count;
+            }
+        }
+    }
 
     // テーブル行への便利アクセサ
     std::pmr::vector<TableRow>& table_rows() noexcept { return table_data->rows; }
@@ -146,4 +188,8 @@ struct Node {
     // 画像への便利アクセサ
     void ensure_image() { if (!image_data) { image_data = std::make_unique<NodeImageData>(); } }
     bool has_image() const noexcept { return image_data != nullptr; }
+
+private:
+    mutable std::pmr::wstring text_;    // Wideキャッシュ（GetText()で遅延変換）
+    mutable bool text_valid_ = false;   // text_ が最新ならtrue
 };

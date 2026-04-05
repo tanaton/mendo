@@ -54,7 +54,7 @@ public:
             return;
         }
 
-        const auto& text = node.text;
+        const auto& text = node.GetText();
         if (text.empty()) {
             entry.height = line_height * 0.5f;
             entry.layout_dirty = false;
