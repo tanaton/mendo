@@ -607,17 +607,16 @@ void App::FinishLoadMarkdownFile()
 
     // スクロール位置の復元
     float scroll_y = 0.0f;
-    if (scroll_restore_.HasNodeRestore()) {
-        // cache.Reset()直後はY座標が全て0のため、DirectWriteを使わない
-        // 軽量パスでノード高さとY座標を推定する（O(n)の算術演算のみ）。
-        // 遅延レイアウトのアンカー補償により正確な位置へ収束する。
-        {
-            MENDO_PROFILE("EstimateNodeHeights");
-            EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
-        }
-        // Mermaidブロックの推定高さをファイルキャッシュの実測値で上書きし、
-        // スクロール復元時のジャンプを防ぐ
+
+    // cache.Reset()直後は全ノードの高さが0のため、スクロール復元前に
+    // ノード高さを推定し、Mermaidキャッシュの実測値で補正する
+    if (scroll_restore_.HasNodeRestore() || scroll_restore_.HasNavScroll()) {
+        MENDO_PROFILE("EstimateNodeHeights");
+        EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
         ApplyMermaidCacheHeights(md_width);
+    }
+
+    if (scroll_restore_.HasNodeRestore()) {
         const int node = std::min(scroll_restore_.pending_restore_node,
             static_cast<int>(layout_cache_.size()) - 1);
         if (node >= 0) {
@@ -630,13 +629,19 @@ void App::FinishLoadMarkdownFile()
         scroll_y = scroll_restore_.ConsumeNavScroll();
     }
 
-    // スクロール位置を設定してからViewportLayoutを呼ぶことで、
-    // 復元先の可視範囲のノードが計測される
     viewport_.SetScrollY(scroll_y);
+
+    // 推定→計測の高さ差をアンカー補償
+    const bool need_anchor = (scroll_y > 0.0f);
+    const auto anchor = need_anchor ? SaveAnchor() : AnchorState{};
 
     {
         MENDO_PROFILE("ViewportLayout(Initial)");
         layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
+    }
+
+    if (need_anchor) {
+        viewport_.AnchorCompensateScroll(anchor.idx, anchor.y_before, layout_cache_);
     }
 
     // キャッシュ済みリソースを適用（画像/Mermaidの正確な高さを反映）
