@@ -92,12 +92,10 @@ struct ParseContext {
     bool in_code_block = false;
     int blockquote_depth = 0;
     int blockquote_group_counter = 0;           // グループID生成用
-    std::stack<int, std::pmr::deque<int>> blockquote_group_stack{
-        std::pmr::deque<int>{parse_resource.resource()} }; // ネスト追跡用
+    std::stack<int, std::pmr::deque<int>> blockquote_group_stack{ std::pmr::deque<int>{ parse_resource.resource() } }; // ネスト追跡用
 
     // リスト追跡
-    std::stack<int, std::pmr::deque<int>> list_counter{
-        std::pmr::deque<int>{parse_resource.resource()} }; // 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
+    std::stack<int, std::pmr::deque<int>> list_counter{ std::pmr::deque<int>{ parse_resource.resource() } }; // 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
 
     // テーブル追跡
     bool in_table = false;
@@ -182,9 +180,13 @@ struct ParseContext {
         if (!current_node) {
             return;
         }
-        const auto utf8 = string_convert::WideToUtf8(text);
         const uint32_t start = node_wide_offset;
-        current_node->text_utf8.append(utf8);
+        const int utf8_len = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+        if (utf8_len > 0) {
+            const size_t old_size = current_node->text_utf8.size();
+            current_node->text_utf8.resize(old_size + static_cast<size_t>(utf8_len));
+            WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), current_node->text_utf8.data() + old_size, utf8_len, nullptr, nullptr);
+        }
         node_wide_offset += static_cast<uint32_t>(text.size());
         current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
         for (const wchar_t c : text) {
@@ -446,16 +448,12 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
             // 見出しテキストをWideに変換してアンカーID生成（見出しは少数なのでコスト小）
             std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->GetText());
-            const auto it = ctx->anchor_counts.find(base_id);
-            const int count = (it != ctx->anchor_counts.end()) ? it->second : 0;
+            auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
+            const int count = it->second++;
+            ctx->current_node->anchor_id.assign(it->first.data(), it->first.size());
             if (count > 0) {
-                ctx->current_node->anchor_id = base_id;
                 std::format_to(std::back_inserter(ctx->current_node->anchor_id), L"-{}", count);
             }
-            else {
-                ctx->current_node->anchor_id = base_id;
-            }
-            ctx->anchor_counts[std::move(base_id)] = count + 1;
             ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
         ctx->current_node = nullptr;

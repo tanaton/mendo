@@ -19,6 +19,7 @@ struct TableLayoutData {
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
     std::pmr::vector<float> natural_col_widths; // リサイズ高速パス用キャッシュ
+    std::pmr::vector<uint32_t> row_flat_offsets; // 各行の線形化テキスト先頭オフセット（ヒットテスト高速化用）
 };
 
 struct NodeLayoutEntry {
@@ -50,9 +51,11 @@ class LayoutCache {
 public:
     constexpr void Resize(size_t node_count)
     {
-        entries_.resize(node_count);
-        diagrams_.resize(node_count);
-        effects_generation_++;
+        if (entries_.size() != node_count) {
+            entries_.resize(node_count);
+            diagrams_.resize(node_count);
+            effects_generation_++;
+        }
     }
 
     // 既存のエントリをすべてクリアし、デフォルト値でリサイズする。

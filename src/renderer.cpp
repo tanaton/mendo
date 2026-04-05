@@ -36,6 +36,7 @@ bool Renderer::Init(HWND hwnd)
 
     cmd_generator_.SetTheme(&theme_);
     cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
+    cmd_generator_.SetSharedHitTestBuffer(&hit_test_buffer_);
 
     return true;
 }
@@ -428,12 +429,8 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
     }
 
     // コードブロックにシンタックスハイライトを適用
+    // トークン化はMeasureNode（レイアウトパス）で事前実行済み
     if (node.type == NodeType::CodeBlock) {
-        if (node.syntax_tokens.empty() &&
-            node.code_language != SyntaxLanguage::None &&
-            node.code_language != SyntaxLanguage::Mermaid) {
-            node.syntax_tokens = Tokenize(node.GetText(), node.code_language);
-        }
         for (const auto& token : node.syntax_tokens) {
             if (token.type == SyntaxTokenType::Plain) {
                 continue;

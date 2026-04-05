@@ -203,6 +203,14 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
 
+    // コードブロックのシンタックストークン化をレイアウトパスで事前実行する。
+    // 描画パス（ApplyNodeEffects）での遅延トークン化を排除し、フレーム落ちを防止する。
+    if (node.type == NodeType::CodeBlock && node.syntax_tokens.empty() &&
+        node.code_language != SyntaxLanguage::None &&
+        node.code_language != SyntaxLanguage::Mermaid) {
+        node.syntax_tokens = Tokenize(text, node.code_language);
+    }
+
     entry.text_layout = std::move(layout);
     entry.height = metrics.height;
     entry.layout_dirty = false;
@@ -287,6 +295,25 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     if (node.GetText().empty()) {
         node.SetText(BuildLinearizedTableText(node.table_rows()));
     }
+
+    // 行ごとのフラットテキストオフセットをプリコンピュート（ヒットテスト高速化用）
+    tl.row_flat_offsets.resize(row_count);
+    uint32_t flat_offset = 0;
+    for (size_t r = 0; r < row_count; r++) {
+        tl.row_flat_offsets[r] = flat_offset;
+        const auto& row = rows[r];
+        const auto cell_count = row.cells.size();
+        for (size_t c = 0; c < cell_count; c++) {
+            flat_offset += static_cast<uint32_t>(row.cells[c].text.size());
+            if (c + 1 < cell_count) {
+                flat_offset++; // タブ区切り
+            }
+        }
+        if (r + 1 < row_count) {
+            flat_offset++; // 改行区切り
+        }
+    }
+
     entry.height = total_height;
     entry.layout_dirty = false;
 }

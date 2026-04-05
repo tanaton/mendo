@@ -22,8 +22,11 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     std::wstring lower_query;
     if (!case_sensitive_) {
         lower_query.reserve(query_.size());
-        std::ranges::transform(query_, std::back_inserter(lower_query),
-            [](wchar_t ch) static noexcept { return static_cast<wchar_t>(std::towlower(ch)); });
+        std::ranges::transform(
+            query_,
+            std::back_inserter(lower_query),
+            [](wchar_t ch) static noexcept { return static_cast<wchar_t>(std::towlower(ch)); }
+        );
     }
 
     const auto node_count = static_cast<int>(nodes.size());
@@ -37,20 +40,17 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
                 const auto col_count = static_cast<int>(cells.size());
                 for (int c = 0; c < col_count && matches_.size() < kMaxMatches; c++) {
                     if (!cells[c].text.empty()) {
-                        FindMatches(std::wstring_view(cells[c].text.data(), cells[c].text.size()),
-                            lower_query, i, r, c);
+                        FindMatches(std::wstring_view(cells[c].text.data(), cells[c].text.size()), lower_query, i, r, c);
                     }
                 }
             }
         }
         else if (const auto& text = node.GetText(); !text.empty()) {
             // ビットマップ描画ノードはテキストハイライト不可のため検索対象外
-            if (node.type == NodeType::Image
-                || (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid)) {
+            if (node.type == NodeType::Image || (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid)) {
                 continue;
             }
-            FindMatches(std::wstring_view(text.data(), text.size()),
-                lower_query, i);
+            FindMatches(std::wstring_view(text.data(), text.size()), lower_query, i);
         }
     }
     matches_truncated_ = (matches_.size() >= kMaxMatches);
@@ -69,17 +69,16 @@ void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_
         }
     }
     else {
-        // 割り当てなしの大文字小文字無視検索: std::search + towlower 比較
-        auto it = text.begin();
-        while (matches_.size() < kMaxMatches && it != text.end()) {
-            it = std::search(it, text.end(), lower_query.begin(), lower_query.end(),
-                [](wchar_t a, wchar_t b) static noexcept { return static_cast<wchar_t>(std::towlower(a)) == b; });
-            if (it == text.end()) {
-                break;
-            }
-            const auto pos = static_cast<uint32_t>(std::distance(text.begin(), it));
-            matches_.push_back({ node_index, pos, query_len, table_row, table_col });
-            it += query_len;
+        // テキスト全体を一括で小文字変換し、find()で検索する。
+        // std::search + towlower の文字単位呼び出しよりも高速。
+        lower_text_buf_.resize(text.size());
+        std::transform(text.begin(), text.end(), lower_text_buf_.begin(), [](wchar_t ch) static noexcept { return static_cast<wchar_t>(std::towlower(ch)); });
+        const std::wstring_view lower_text(lower_text_buf_.data(), lower_text_buf_.size());
+
+        size_t pos = 0;
+        while (matches_.size() < kMaxMatches && (pos = lower_text.find(lower_query, pos)) != std::wstring_view::npos) {
+            matches_.push_back({ node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col });
+            pos += query_len;
         }
     }
 }

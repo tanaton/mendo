@@ -212,7 +212,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         const wchar_t icon = node.task_checked ? L'\u2611' : L'\u2610'; // ☑ / ☐
         const float icon_size = theme_->font_size_body;
         const float cb_x = x - theme_->list_bullet_offset;
-        cmds.emplace_back(DrawTextCmd::Make(
+        cmds.emplace_back(MakeTextCmd(
             &icon, 1,
             D2D1::RectF(cb_x, entry.y_position, cb_x + icon_size, entry.y_position + icon_size * TASK_CHECKBOX_HEIGHT_FACTOR),
             formats_.icon_font,
@@ -270,7 +270,7 @@ void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
         ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
     const wchar_t icon = L'\uE8C8';
-    cmds.emplace_back(DrawTextCmd::Make(&icon, 1, btn, formats_.copy_btn_icon, icon_color));
+    cmds.emplace_back(MakeTextCmd(&icon, 1, btn, formats_.copy_btn_icon, icon_color));
 }
 
 void CommandGenerator::GenListBullet(DrawCommandList& cmds,
@@ -280,16 +280,16 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
         // 順序付きリストの番号（1行目に合わせて配置）
         if (formats_.list_number) {
             const float first_line_h = GetFirstLineHeight(entry.text_layout.Get(), theme_->font_size_body);
-            wchar_t num_buf[DrawTextCmd::MAX_TEXT];
-            const auto fmt_result = std::format_to_n(num_buf, DrawTextCmd::MAX_TEXT, L"{}.", node.list_number);
-            const size_t num_len = std::min(static_cast<size_t>(fmt_result.size), static_cast<size_t>(DrawTextCmd::MAX_TEXT));
+            wchar_t num_buf[16];
+            const auto fmt_result = std::format_to_n(num_buf, std::size(num_buf), L"{}.", node.list_number);
+            const size_t num_len = std::min(static_cast<size_t>(fmt_result.size), std::size(num_buf));
             const D2D1_RECT_F num_rect = D2D1::RectF(
                 x - theme_->list_bullet_offset - LIST_NUMBER_PAD_RIGHT,
                 entry.y_position,
                 x - LIST_NUMBER_PAD_LEFT,
                 entry.y_position + first_line_h
             );
-            cmds.emplace_back(DrawTextCmd::Make(num_buf, num_len, num_rect, formats_.list_number, theme_->text_color));
+            cmds.emplace_back(MakeTextCmd(num_buf, num_len, num_rect, formats_.list_number, theme_->text_color));
         }
     }
     else {
@@ -407,7 +407,7 @@ void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds,
     cmds.emplace_back(FillRoundedRectCmd{ bg, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color });
     if (formats_.placeholder_text) {
         const auto loading_text = i18n::S().loading;
-        cmds.emplace_back(DrawTextCmd::Make(loading_text.data(), static_cast<UINT32>(loading_text.size()), bg, formats_.placeholder_text, theme_->blockquote_text_color));
+        cmds.emplace_back(MakeTextCmd(loading_text.data(), loading_text.size(), bg, formats_.placeholder_text, theme_->blockquote_text_color));
     }
 }
 
@@ -418,14 +418,15 @@ void CommandGenerator::EmitHighlightRects(DrawCommandList& cmds,
     if (!layout || length == 0) {
         return;
     }
-    const UINT32 count = FetchHitTestMetrics(layout, start, length, hit_test_buffer_);
+    auto& buf = GetHitTestBuffer();
+    const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     for (UINT32 i = 0; i < count; i++) {
         cmds.emplace_back(FillRectCmd{
             D2D1::RectF(
-                origin_x + hit_test_buffer_[i].left,
-                origin_y + hit_test_buffer_[i].top,
-                origin_x + hit_test_buffer_[i].left + hit_test_buffer_[i].width,
-                origin_y + hit_test_buffer_[i].top + hit_test_buffer_[i].height),
+                origin_x + buf[i].left,
+                origin_y + buf[i].top,
+                origin_x + buf[i].left + buf[i].width,
+                origin_y + buf[i].top + buf[i].height),
             color });
     }
 }

@@ -7,6 +7,7 @@
 #include "ui_constants.h"
 #include "memory_resource.h"
 #include "search_state.h"
+#include <cassert>
 
 // HitTestTextRange をバッファ再利用付きで呼び出し、取得件数を返す。
 inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT32 length,
@@ -54,7 +55,9 @@ public:
     };
 
     // ファイル切替時にバッファを縮小する
-    void ShrinkBuffers() { hit_test_buffer_.shrink_to_fit(); }
+    void ShrinkBuffers() { if (!shared_hit_test_buffer_) { hit_test_buffer_.shrink_to_fit(); } }
+
+    void SetSharedHitTestBuffer(std::pmr::vector<DWRITE_HIT_TEST_METRICS>* buf) noexcept { shared_hit_test_buffer_ = buf; }
 
     constexpr void SetTheme(const Theme* theme) noexcept
     {
@@ -127,7 +130,31 @@ private:
     const std::vector<SearchMatch>* search_matches_ = nullptr;
     int current_match_index_ = -1;
 
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS>* shared_hit_test_buffer_ = nullptr;
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS>& GetHitTestBuffer() noexcept
+    {
+        return shared_hit_test_buffer_ ? *shared_hit_test_buffer_ : hit_test_buffer_;
+    }
+
+    DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len,
+        D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col)
+    {
+        assert(len <= 255 && "DrawTextCmd text exceeds uint8_t range");
+        DrawTextCmd c{};
+        c.text_len = static_cast<uint8_t>((std::min)(len, size_t(255)));
+        if (c.text_len > 0) {
+            auto* buf = static_cast<wchar_t*>(frame_resource_.resource()->allocate(
+                c.text_len * sizeof(wchar_t), alignof(wchar_t)));
+            std::char_traits<wchar_t>::copy(buf, src, c.text_len);
+            c.text = buf;
+        }
+        c.rect = r;
+        c.format = fmt;
+        c.color = col;
+        return c;
+    }
+
     D2D1_COLOR_F cached_stripe_color_{};
     bool cached_is_dark_ = false;
 };

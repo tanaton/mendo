@@ -36,24 +36,11 @@ struct DrawTextLayoutCmd {
 };
 
 struct DrawTextCmd {
-    static constexpr size_t MAX_TEXT = 12;
-    wchar_t text[MAX_TEXT];
+    const wchar_t* text = nullptr; // 非所有; ライフタイムはMonotonicResourceが管理。
+    IDWriteTextFormat* format = nullptr; // 非所有; ライフタイムはRendererが管理。
+    D2D1_RECT_F rect{};
+    D2D1_COLOR_F color{};
     uint8_t text_len = 0;
-    D2D1_RECT_F rect;
-    IDWriteTextFormat* format; // 非所有; ライフタイムはRendererが管理。
-    D2D1_COLOR_F color;
-
-    static DrawTextCmd Make(const wchar_t* src, size_t len,
-        D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col) noexcept
-    {
-        DrawTextCmd c{};
-        c.text_len = static_cast<uint8_t>((std::min)(len, MAX_TEXT));
-        std::char_traits<wchar_t>::copy(c.text, src, c.text_len);
-        c.rect = r;
-        c.format = fmt;
-        c.color = col;
-        return c;
-    }
 };
 
 struct DrawBitmapCmd {

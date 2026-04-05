@@ -160,7 +160,6 @@ struct Node {
                 text_ = string_convert::Utf8ToWide(text_utf8);
                 if (type != NodeType::CodeBlock) {
                     text_utf8.clear();
-                    text_utf8.shrink_to_fit();
                 }
             }
             else {

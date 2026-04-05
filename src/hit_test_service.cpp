@@ -24,10 +24,30 @@ float NodeIndent(const Node& node, const Theme& theme) noexcept
 } // namespace
 
 // 指定された行・列までのフラットテキストオフセットを計算する。
-static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int target_col) noexcept
+// プリコンピュート済みのrow_flat_offsetsがあれば行スキャンを省略し、
+// 対象行内のセルのみスキャンする（O(rows*cols) → O(cols)）。
+static uint32_t ComputeTableFlatOffset(const Node& node, const NodeLayoutEntry& entry,
+    int target_row, int target_col) noexcept
 {
+    const auto& rows = node.table_rows();
+
+    // プリコンピュート済みオフセットを使用（レイアウト計算時に構築済み）
+    if (entry.has_table_layout() && target_row >= 0 &&
+        static_cast<size_t>(target_row) < entry.table_layout->row_flat_offsets.size()) {
+        uint32_t offset = entry.table_layout->row_flat_offsets[target_row];
+        const auto& row_cells = rows[target_row].cells;
+        const auto col_count = row_cells.size();
+        for (size_t c = 0; c < col_count && static_cast<int>(c) < target_col; c++) {
+            offset += static_cast<uint32_t>(row_cells[c].text.size());
+            if (c + 1 < col_count) {
+                offset++;
+            }
+        }
+        return offset;
+    }
+
+    // フォールバック: 全走査
     uint32_t offset = 0;
-    auto& rows = node.table_rows();
     const auto row_count = rows.size();
     for (size_t r = 0; r < row_count; r++) {
         const auto& row_cells = rows[r].cells;
@@ -170,7 +190,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     }
 
     // セル (hit_row, hit_col) のフラットテキストオフセットを計算
-    const uint32_t flat_offset = ComputeTableFlatOffset(node, hit_row, hit_col);
+    const uint32_t flat_offset = ComputeTableFlatOffset(node, entry, hit_row, hit_col);
 
     // セルのテキストレイアウト内でヒットテスト
     const size_t r = static_cast<size_t>(hit_row);

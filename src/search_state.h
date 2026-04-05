@@ -19,8 +19,22 @@ class SearchState {
 public:
     bool IsVisible() const noexcept { return visible_; }
     void Show() noexcept { visible_ = true; }
-    void Hide() noexcept { visible_ = false; current_match_ = -1; matches_.clear(); matches_truncated_ = false; }
-    void Reset() noexcept { current_match_ = -1; matches_.clear(); query_.clear(); matches_truncated_ = false; }
+    void Hide() noexcept
+    {
+        visible_ = false;
+        current_match_ = -1;
+        matches_.clear();
+        matches_truncated_ = false;
+        lower_text_buf_ = {};
+    }
+    void Reset() noexcept
+    {
+        current_match_ = -1;
+        matches_.clear();
+        query_.clear();
+        matches_truncated_ = false;
+        lower_text_buf_ = {};
+    }
 
     const std::wstring& GetQuery() const noexcept { return query_; }
     const std::vector<SearchMatch>& GetMatches() const noexcept { return matches_; }
@@ -45,13 +59,13 @@ public:
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
 
 private:
-    void FindMatches(std::wstring_view text, const std::wstring& lower_query,
-        int node_index, int table_row = -1, int table_col = -1);
+    void FindMatches(std::wstring_view text, const std::wstring& lower_query, int node_index, int table_row = -1, int table_col = -1);
 
     static constexpr size_t kMaxMatches = 10000;
 
     std::wstring query_;
     std::vector<SearchMatch> matches_;
+    std::wstring lower_text_buf_; // 大文字小文字無視検索用の再利用可能バッファ
     int current_match_ = -1;
     bool visible_ = false;
     bool case_sensitive_ = false;
