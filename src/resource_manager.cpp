@@ -305,14 +305,13 @@ void ResourceManager::EvictOffscreenBitmaps()
 
     auto evict_text_layout = [&](size_t i) {
         auto& entry = (*cache_)[i];
-        if (!entry.text_layout && entry.cell_layouts.empty()) {
+        if (!entry.text_layout && !entry.has_table_layout()) {
             return;
         }
         entry.text_layout.Reset();
         entry.effects_applied = false;
         entry.inline_code_bgs.clear();
-        entry.cell_layouts.clear();
-        entry.cell_inline_code_bgs.clear();
+        entry.table_layout.reset();
         entry.layout_dirty = true;
     };
 

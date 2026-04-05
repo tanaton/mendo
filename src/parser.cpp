@@ -85,7 +85,7 @@ struct ParseContext {
     // UTF-8 → Wide変換用の再利用可能バッファ
     std::pmr::wstring text_buffer;
 
-    std::string utf8_accum;
+    std::pmr::string utf8_accum{ parse_resource.resource() };
 
     // ブロックコンテキスト追跡
     int indent_level = 0;

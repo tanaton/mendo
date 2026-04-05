@@ -12,8 +12,6 @@
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "shlwapi.lib")
 
-static constexpr size_t MAX_CACHE_ENTRIES = 64;
-
 static std::span<const std::byte> LoadMermaidJsGzFromResource()
 {
     return LoadRcData(IDR_MERMAID_JS_GZ);
@@ -438,12 +436,12 @@ void MermaidRenderer::SetupWorker(int index)
 void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
 {
     render_target_ = render_target;
-    cache_.clear();
+    cache_.Clear();
 }
 
 void MermaidRenderer::ClearCache()
 {
-    cache_.clear();
+    cache_.Clear();
 }
 
 void MermaidRenderer::CancelPending()
@@ -484,12 +482,11 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     const auto hash = HashCode(node.text_utf8, max_width, dark_mode);
 
     // まずメモリキャッシュを確認
-    const auto it = cache_.find(hash);
-    if (it != cache_.end()) {
-        diagram_entry.bitmap = it->second.bitmap;
-        diagram_entry.width = it->second.width;
-        diagram_entry.height = it->second.height;
-        layout_entry.height = it->second.height;
+    if (const auto* cached = cache_.Find(hash)) {
+        diagram_entry.bitmap = cached->bitmap;
+        diagram_entry.width = cached->width;
+        diagram_entry.height = cached->height;
+        layout_entry.height = cached->height;
         layout_entry.layout_dirty = false;
         if (on_complete) {
             on_complete(user_data);
@@ -513,14 +510,8 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
                     layout_entry.height = fentry.css_height;
                     layout_entry.layout_dirty = false;
 
-                    // メモリキャッシュにも格納
-                    if (cache_.size() < MAX_CACHE_ENTRIES) {
-                        CachedBitmap cached;
-                        cached.bitmap = bitmap;
-                        cached.width = fentry.css_width;
-                        cached.height = fentry.css_height;
-                        cache_[hash] = cached;
-                    }
+                    // メモリキャッシュにも格納（LRUで自動エビクション）
+                    cache_.Insert(hash, CachedBitmap{ bitmap, fentry.css_width, fentry.css_height });
 
                     if (on_complete) {
                         on_complete(user_data);
@@ -565,13 +556,12 @@ void MermaidRenderer::ProcessQueue()
     // アイドル状態のワーカーが見つかれば順次ディスパッチする。
     while (!pending_requests_.empty()) {
         auto& front = pending_requests_.front();
-        const auto it = cache_.find(front.code_hash);
-        if (it != cache_.end()) {
+        if (const auto* hit = cache_.Find(front.code_hash)) {
             // キャッシュヒット: WebView2を経由せずにエントリを更新
-            front.diagram_entry->bitmap = it->second.bitmap;
-            front.diagram_entry->width = it->second.width;
-            front.diagram_entry->height = it->second.height;
-            front.layout_entry->height = it->second.height;
+            front.diagram_entry->bitmap = hit->bitmap;
+            front.diagram_entry->width = hit->width;
+            front.diagram_entry->height = hit->height;
+            front.layout_entry->height = hit->height;
             front.layout_entry->layout_dirty = false;
             const auto cb = front.on_complete;
             const auto cb_data = front.on_complete_data;
@@ -772,15 +762,8 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
             draw_h = bh;
         }
 
-        // キャッシュに格納（エントリ数上限を超えたら任意のエントリを削除）
-        if (cache_.size() >= MAX_CACHE_ENTRIES) {
-            cache_.erase(cache_.begin());
-        }
-        CachedBitmap cached;
-        cached.bitmap = bitmap;
-        cached.width = draw_w;
-        cached.height = draw_h;
-        cache_[code_hash] = cached;
+        // キャッシュに格納（LRUで自動エビクション）
+        cache_.Insert(code_hash, CachedBitmap{ bitmap, draw_w, draw_h });
 
         // レイアウト/ダイアグラムエントリを更新
         if (w.current_request.diagram_entry) {

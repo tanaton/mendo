@@ -18,6 +18,6 @@ public:
     virtual void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) = 0;
 
     // テーブルセルのレイアウトを作成・計測する。
-    // entry.cell_layouts, entry.col_widths, entry.row_heights, entry.height, entry.layout_dirty を設定する。
+    // entry.table_layout->cell_layouts/col_widths/row_heights, entry.height, entry.layout_dirty を設定する。
     virtual void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) = 0;
 };

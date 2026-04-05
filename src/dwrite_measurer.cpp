@@ -217,6 +217,7 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
     IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
     auto& rows = node.table_rows();
     const auto row_count = rows.size();
+    auto& tl = *entry.table_layout;
 
     for (size_t r = 0; r < row_count; r++) {
         auto& row = rows[r];
@@ -231,12 +232,12 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
             dwrite_->CreateTextLayout(
                 cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
                 cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
-                &entry.cell_layouts[r][c]);
+                &tl.cell_layouts[r][c]);
 
-            if (entry.cell_layouts[r][c]) {
-                ApplyCellRunFormatting(entry.cell_layouts[r][c].Get(), cell.runs);
+            if (tl.cell_layouts[r][c]) {
+                ApplyCellRunFormatting(tl.cell_layouts[r][c].Get(), cell.runs);
                 DWRITE_TEXT_METRICS metrics{};
-                entry.cell_layouts[r][c]->GetMetrics(&metrics);
+                tl.cell_layouts[r][c]->GetMetrics(&metrics);
                 natural_widths[c] = std::max(natural_widths[c], metrics.width);
             }
         }
@@ -248,10 +249,11 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
 {
     const float cell_padding = TABLE_CELL_PADDING;
     const float border_width = TABLE_BORDER_WIDTH;
+    auto& tl = *entry.table_layout;
 
     const float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width
         - static_cast<float>(col_count) * cell_padding * 2.0f;
-    entry.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
+    tl.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
 
     float total_height = border_width;
     auto& rows = node.table_rows();
@@ -262,23 +264,23 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         const auto cell_count = row.cells.size();
         for (size_t c = 0; c < cell_count; c++) {
             auto& cell = row.cells[c];
-            const float cw = (c < entry.col_widths.size()) ? entry.col_widths[c] : DEFAULT_COLUMN_WIDTH;
+            const float cw = (c < tl.col_widths.size()) ? tl.col_widths[c] : DEFAULT_COLUMN_WIDTH;
 
-            if (entry.cell_layouts[r][c]) {
-                entry.cell_layouts[r][c]->SetMaxWidth(cw);
+            if (tl.cell_layouts[r][c]) {
+                tl.cell_layouts[r][c]->SetMaxWidth(cw);
                 if (cell.align == 1) {
-                    entry.cell_layouts[r][c]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                    tl.cell_layouts[r][c]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 }
                 else if (cell.align == 2) {
-                    entry.cell_layouts[r][c]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+                    tl.cell_layouts[r][c]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
                 }
 
                 DWRITE_TEXT_METRICS metrics{};
-                entry.cell_layouts[r][c]->GetMetrics(&metrics);
+                tl.cell_layouts[r][c]->GetMetrics(&metrics);
                 row_height = std::max(row_height, metrics.height + cell_padding * 2.0f);
             }
         }
-        entry.row_heights[r] = row_height;
+        tl.row_heights[r] = row_height;
         total_height += row_height + border_width;
     }
 
@@ -312,40 +314,41 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     }
 
     entry.effects_applied = false;
-    entry.cell_inline_code_bgs.clear();
-    entry.row_heights.resize(row_count);
+    auto& tl = entry.ensure_table_layout();
+    tl.cell_inline_code_bgs.clear();
+    tl.row_heights.resize(row_count);
 
     // セルレイアウトが既に存在する場合は第1パス（テキストレイアウト作成）をスキップし、
     // 列幅の再計算のみ行う（リサイズ時の高速パス）。
-    const bool has_existing_layouts = !entry.cell_layouts.empty() && (entry.cell_layouts.size() == row_count);
+    const bool has_existing_layouts = !tl.cell_layouts.empty() && (tl.cell_layouts.size() == row_count);
     if (has_existing_layouts) {
         // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
-        if (entry.natural_col_widths.size() == col_count) {
-            FinalizeTableLayout(node, entry, max_width, col_count, entry.natural_col_widths);
+        if (tl.natural_col_widths.size() == col_count) {
+            FinalizeTableLayout(node, entry, max_width, col_count, tl.natural_col_widths);
         }
         else {
             // キャッシュなし: 既存レイアウトから自然幅を再取得
             std::pmr::vector<float> natural_widths(col_count, 0.0f);
             for (size_t r = 0; r < row_count; r++) {
                 const auto cell_count = rows[r].cells.size();
-                const auto cell_layout_count = entry.cell_layouts[r].size();
+                const auto cell_layout_count = tl.cell_layouts[r].size();
                 for (size_t c = 0; c < cell_count && c < cell_layout_count; c++) {
-                    if (entry.cell_layouts[r][c]) {
-                        entry.cell_layouts[r][c]->SetMaxWidth(CODE_BLOCK_NO_WRAP_WIDTH);
+                    if (tl.cell_layouts[r][c]) {
+                        tl.cell_layouts[r][c]->SetMaxWidth(CODE_BLOCK_NO_WRAP_WIDTH);
                         DWRITE_TEXT_METRICS metrics{};
-                        entry.cell_layouts[r][c]->GetMetrics(&metrics);
+                        tl.cell_layouts[r][c]->GetMetrics(&metrics);
                         natural_widths[c] = std::max(natural_widths[c], metrics.width);
                     }
                 }
             }
-            entry.natural_col_widths = natural_widths;
+            tl.natural_col_widths = natural_widths;
             FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
         }
     }
     else {
-        entry.cell_layouts.resize(row_count);
+        tl.cell_layouts.resize(row_count);
         for (size_t r = 0; r < row_count; r++) {
-            entry.cell_layouts[r].resize(rows[r].cells.size());
+            tl.cell_layouts[r].resize(rows[r].cells.size());
         }
 
         // 第1パス: テキストレイアウトを作成し、自然な幅を計測
@@ -353,7 +356,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         MeasureTableCells(node, entry, natural_widths);
 
         // 自然幅をキャッシュ（リサイズ高速パス用）
-        entry.natural_col_widths = natural_widths;
+        tl.natural_col_widths = natural_widths;
 
         // 第2パス: 列幅を設定し、行の高さを計測
         FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
