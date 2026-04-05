@@ -26,6 +26,22 @@ inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT3
     return count;
 }
 
+// インラインコードの背景矩形を描画する。
+inline void GenInlineCodeBgs(DrawCommandList& cmds,
+    const std::pmr::vector<InlineCodeBg>& bgs,
+    float origin_x, float origin_y, D2D1_COLOR_F color)
+{
+    for (const auto& bg : bgs) {
+        const D2D1_RECT_F rect = D2D1::RectF(
+            origin_x + bg.left - INLINE_CODE_PAD_X,
+            origin_y + bg.top - INLINE_CODE_PAD_Y,
+            origin_x + bg.left + bg.width + INLINE_CODE_PAD_X,
+            origin_y + bg.top + bg.height + INLINE_CODE_PAD_Y
+        );
+        cmds.emplace_back(FillRoundedRectCmd{ rect, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
+    }
+}
+
 // ドキュメントデータとビューポート状態から DrawCommandList を生成する。
 // 「何を描画するか」と「どう描画するか」（エグゼキュータ）を分離する。
 class CommandGenerator {

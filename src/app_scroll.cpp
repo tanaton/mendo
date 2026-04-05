@@ -76,6 +76,18 @@ void App::RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale)
     }
 }
 
+void App::HandleSidePaneScrollDrag(float dip_y, const PaneRect& rect,
+    float total_content, ScrollState& scroll,
+    void (Renderer::*invalidate)())
+{
+    const auto info = ComputePaneScrollInfo(rect, total_content);
+    bool dirty = false;
+    HandleScrollbarDrag(dip_y, info, scroll, dirty);
+    if (dirty) {
+        (renderer_.*invalidate)();
+    }
+}
+
 // ============================================================
 // 遅延レイアウト
 // ============================================================

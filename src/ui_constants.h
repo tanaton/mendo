@@ -51,6 +51,31 @@ inline constexpr float COPY_BTN_SIZE = 28.0f;
 inline constexpr float COPY_BTN_MARGIN = 6.0f;
 inline constexpr float COPY_BTN_CORNER = 4.0f;
 
+inline constexpr float INLINE_CODE_PAD_X = 3.0f;
+inline constexpr float INLINE_CODE_PAD_Y = 2.0f;
+inline constexpr float INLINE_CODE_CORNER = 3.0f;
+inline constexpr float CODE_BLOCK_CORNER = 4.0f;
+
+inline constexpr float LIST_BULLET_RADIUS = 3.0f;
+inline constexpr float LIST_BULLET_X_FACTOR = 0.6f;
+inline constexpr float LIST_NUMBER_PAD_LEFT = 4.0f;
+inline constexpr float LIST_NUMBER_PAD_RIGHT = 8.0f;
+
+inline constexpr float TASK_CHECKBOX_HEIGHT_FACTOR = 1.5f;
+inline constexpr float TABLE_ROW_HEIGHT_FACTOR = 1.4f;
+
+// DirectWriteメトリクス取得失敗時の代替値
+inline constexpr float FALLBACK_LINE_HEIGHT_FACTOR = 1.3f;
+
+// ツールチップ表示遅延 (ms)
+inline constexpr UINT TOOLTIP_DELAY_MS = 500;
+
+// ファイル監視タイマー間隔 (ms)
+inline constexpr UINT FILE_WATCH_INTERVAL_MS = 250;
+
+// クリック判定距離の二乗（ドラッグ選択とクリックを区別するための閾値）
+inline constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
+
 // 点が矩形内にあるか判定する（D2D規約に合わせ右辺・下辺は排他的）。
 inline constexpr bool PointInRect(float x, float y, const D2D1_RECT_F& r) noexcept {
     return x >= r.left && x < r.right && y >= r.top && y < r.bottom;

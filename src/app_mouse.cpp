@@ -33,6 +33,68 @@ bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float h
     return PointInRect(local_x, local_y, button_rect_fn(rect.width, header_height));
 }
 
+// タイトルバーボタンに対応するツールチップを返す。
+TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximized) noexcept
+{
+    const auto& ls = i18n::S();
+    switch (zone) {
+    case TitleBarHitZone::Help:        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_help };
+    case TitleBarHitZone::ThemeToggle: return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_theme_toggle };
+    case TitleBarHitZone::Search:      return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_search };
+    case TitleBarHitZone::FileToggle:  return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_file_pane };
+    case TitleBarHitZone::TocToggle:   return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_toc_pane };
+    case TitleBarHitZone::Minimize:    return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_minimize };
+    case TitleBarHitZone::Maximize:    return { TooltipTarget::Zone::TitleBarButton, is_maximized ? ls.tooltip_restore : ls.tooltip_maximize };
+    case TitleBarHitZone::Close:       return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_close };
+    default: return {};
+    }
+}
+
+// サイドペインのヘッダーボタンホバー処理結果。
+struct PaneHoverResult {
+    int hovered_index = -1;
+    TooltipTarget tooltip;
+    bool button_changed = false;
+    bool any_button_hit = false;
+};
+
+// サイドペインの共通ホバー処理。
+// ヘッダーボタンのホバー状態を更新し、コンテンツ領域のアイテムヒットテストを行う。
+template<typename SetCloseHoveredFn, typename SetRefreshHoveredFn,
+         typename HitTestFn, typename BuildTooltipFn>
+PaneHoverResult ProcessSidePaneHover(
+    float dip_x, float dip_y,
+    const PaneRect& rect, float header_h, float item_height,
+    bool has_refresh_btn, float scroll_y,
+    SetCloseHoveredFn&& set_close_hovered,
+    SetRefreshHoveredFn&& set_refresh_hovered,
+    HitTestFn&& hit_test_fn,
+    BuildTooltipFn&& build_tooltip)
+{
+    PaneHoverResult result;
+
+    const bool close_hit = HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneCloseButtonRect);
+    bool refresh_hit = false;
+    if (has_refresh_btn) {
+        refresh_hit = HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneRefreshButtonRect);
+    }
+    result.any_button_hit = close_hit || refresh_hit;
+
+    bool changed = set_close_hovered(close_hit);
+    if (has_refresh_btn) {
+        changed |= set_refresh_hovered(refresh_hit);
+    }
+    result.button_changed = changed;
+
+    const float content_top = rect.y + header_h;
+    const float local_y = dip_y - content_top + scroll_y;
+    result.hovered_index = hit_test_fn(local_y, item_height);
+
+    result.tooltip = build_tooltip(close_hit, refresh_hit, result.hovered_index);
+
+    return result;
+}
+
 } // namespace
 
 // target が変化した場合にタイマーを再設定し、None なら非表示にする。
@@ -41,7 +103,7 @@ void App::UpdateTooltip(const TooltipTarget& target, int px, int py)
     POINT screen_pos = { px, py };
     ClientToScreen(hwnd_, &screen_pos);
     if (tooltip_.Update(target, screen_pos)) {
-        SetTimer(hwnd_, TIMER_TOOLTIP, 500, nullptr);
+        SetTimer(hwnd_, TIMER_TOOLTIP, TOOLTIP_DELAY_MS, nullptr);
     }
     else if (target.IsEmpty()) {
         KillTimer(hwnd_, TIMER_TOOLTIP);
@@ -547,7 +609,7 @@ void App::OnLButtonUp(int px, int py)
 
         const int dx = px - viewport_.GetClickStartX();
         const int dy = py - viewport_.GetClickStartY();
-        if (!viewport_.GetSelection().active && (dx * dx + dy * dy) < 25) {
+        if (!viewport_.GetSelection().active && (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ) {
             const auto link = GetLinkAtHit(hit);
             if (link.has_value()) {
                 HandleLinkClick(link.value());
@@ -597,21 +659,15 @@ void App::OnMouseMove(int px, int py)
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::FileScrollbar) {
         const auto layout = GetPaneLayout();
-        const float total_content = static_cast<float>(file_explorer_.GetEntries().size()) * renderer_.GetTheme().pane_item_height;
-        const auto info = ComputePaneScrollInfo(layout.file_rect, total_content);
-        bool dirty = false;
-        HandleScrollbarDrag(dip.y, info, panes_.FileScroll(), dirty);
-        if (dirty) { renderer_.InvalidateFilePaneCache(); }
+        const float total = static_cast<float>(file_explorer_.GetEntries().size()) * renderer_.GetTheme().pane_item_height;
+        HandleSidePaneScrollDrag(dip.y, layout.file_rect, total, panes_.FileScroll(), &Renderer::InvalidateFilePaneCache);
         return;
     }
 
     if (panes_.GetDragTarget() == PaneController::DragTarget::TocScrollbar) {
         const auto layout = GetPaneLayout();
-        const float total_content = static_cast<float>(doc_.GetToc().GetEntries().size()) * renderer_.GetTheme().pane_item_height;
-        const auto info = ComputePaneScrollInfo(layout.toc_rect, total_content);
-        bool dirty = false;
-        HandleScrollbarDrag(dip.y, info, panes_.TocScroll(), dirty);
-        if (dirty) { renderer_.InvalidateTocPaneCache(); }
+        const float total = static_cast<float>(doc_.GetToc().GetEntries().size()) * renderer_.GetTheme().pane_item_height;
+        HandleSidePaneScrollDrag(dip.y, layout.toc_rect, total, panes_.TocScroll(), &Renderer::InvalidateTocPaneCache);
         return;
     }
 
@@ -664,23 +720,7 @@ void App::OnMouseHover(int px, int py)
         if (titlebar_.SetHovered(tb_zone)) {
             InvalidateTitleBar();
         }
-        // タイトルバーボタンのツールチップ
-        const auto& ls = i18n::S();
-        TooltipTarget tt;
-        switch (tb_zone) {
-        case TitleBarHitZone::Help:        tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_help }; break;
-        case TitleBarHitZone::ThemeToggle: tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_theme_toggle }; break;
-        case TitleBarHitZone::Search:      tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_search }; break;
-        case TitleBarHitZone::FileToggle:  tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_file_pane }; break;
-        case TitleBarHitZone::TocToggle:   tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_toc_pane }; break;
-        case TitleBarHitZone::Minimize:    tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_minimize }; break;
-        case TitleBarHitZone::Maximize:
-            tt = { TooltipTarget::Zone::TitleBarButton, IsZoomed(hwnd_) ? ls.tooltip_restore : ls.tooltip_maximize };
-            break;
-        case TitleBarHitZone::Close:       tt = { TooltipTarget::Zone::TitleBarButton, ls.tooltip_close }; break;
-        default: break;
-        }
-        UpdateTooltip(tt, px, py);
+        UpdateTooltip(BuildTitleBarTooltip(tb_zone, IsZoomed(hwnd_)), px, py);
         return;
     }
     // タイトルバー外に出たらホバーをリセット
@@ -718,63 +758,53 @@ void App::OnMouseHover(int px, int py)
         break;
     case PaneZone::FilePane: {
         const float header_h = renderer_.GetTheme().pane_header_height;
-        const bool close_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.file_rect, header_h, PaneCloseButtonRect);
-        const bool refresh_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.file_rect, header_h, PaneRefreshButtonRect);
-        SetCursor((close_hit || refresh_hit) ? cursors_.Hand() : cursors_.Arrow());
-        {
-            bool changed = panes_.SetFileCloseHovered(close_hit);
-            changed |= panes_.SetFileRefreshHovered(refresh_hit);
-            if (changed) {
-                renderer_.InvalidateFilePaneCache();
-                InvalidatePane(pane_layout.file_rect);
-            }
+        const auto& entries = file_explorer_.GetEntries();
+        const auto hr = ProcessSidePaneHover(dip_x, dip_y,
+            pane_layout.file_rect, header_h, renderer_.GetTheme().pane_item_height,
+            true, panes_.FileScroll().scroll_y,
+            [this](bool v) { return panes_.SetFileCloseHovered(v); },
+            [this](bool v) { return panes_.SetFileRefreshHovered(v); },
+            [this](float y, float h) { return file_explorer_.HitTest(y, h); },
+            [&](bool close_hit, bool refresh_hit, int idx) -> TooltipTarget {
+                if (close_hit) { return { TooltipTarget::Zone::FilePaneButton, i18n::S().tooltip_pane_close }; }
+                if (refresh_hit) { return { TooltipTarget::Zone::FilePaneButton, i18n::S().tooltip_pane_refresh }; }
+                if (idx >= 0 && idx < static_cast<int>(entries.size())) {
+                    return { TooltipTarget::Zone::FilePaneItem, entries[idx].full_path };
+                }
+                return {};
+            });
+        SetCursor(hr.any_button_hit ? cursors_.Hand() : cursors_.Arrow());
+        if (hr.button_changed) {
+            renderer_.InvalidateFilePaneCache();
+            InvalidatePane(pane_layout.file_rect);
         }
-        const float content_top = pane_layout.file_rect.y + header_h;
-        const float local_y = dip_y - content_top + panes_.FileScroll().scroll_y;
-        new_file_hover = file_explorer_.HitTest(local_y, renderer_.GetTheme().pane_item_height);
-        // ファイルペインのツールチップ
-        {
-            TooltipTarget tt;
-            if (close_hit) {
-                tt.zone = TooltipTarget::Zone::FilePaneButton;
-                tt.text = i18n::S().tooltip_pane_close;
-            }
-            else if (refresh_hit) {
-                tt.zone = TooltipTarget::Zone::FilePaneButton;
-                tt.text = i18n::S().tooltip_pane_refresh;
-            }
-            else if (new_file_hover >= 0 && new_file_hover < static_cast<int>(file_explorer_.GetEntries().size())) {
-                tt.zone = TooltipTarget::Zone::FilePaneItem;
-                tt.text = file_explorer_.GetEntries()[new_file_hover].full_path;
-            }
-            UpdateTooltip(tt, px, py);
-        }
+        new_file_hover = hr.hovered_index;
+        UpdateTooltip(hr.tooltip, px, py);
         break;
     }
     case PaneZone::TocPane: {
         const float header_h = renderer_.GetTheme().pane_header_height;
-        const bool close_hit = HitPaneHeaderButton(dip_x, dip_y, pane_layout.toc_rect, header_h, PaneCloseButtonRect);
-        SetCursor(close_hit ? cursors_.Hand() : cursors_.Arrow());
-        if (panes_.SetTocCloseHovered(close_hit)) {
+        const auto& toc_entries = doc_.GetToc().GetEntries();
+        const auto hr = ProcessSidePaneHover(dip_x, dip_y,
+            pane_layout.toc_rect, header_h, renderer_.GetTheme().pane_item_height,
+            false, panes_.TocScroll().scroll_y,
+            [this](bool v) { return panes_.SetTocCloseHovered(v); },
+            [](bool) { return false; },
+            [this](float y, float h) { return doc_.GetToc().HitTest(y, h); },
+            [&](bool close_hit, bool, int idx) -> TooltipTarget {
+                if (close_hit) { return { TooltipTarget::Zone::TocPaneButton, i18n::S().tooltip_pane_close }; }
+                if (idx >= 0 && idx < static_cast<int>(toc_entries.size())) {
+                    return { TooltipTarget::Zone::TocPaneItem, toc_entries[idx].text };
+                }
+                return {};
+            });
+        SetCursor(hr.any_button_hit ? cursors_.Hand() : cursors_.Arrow());
+        if (hr.button_changed) {
             renderer_.InvalidateTocPaneCache();
             InvalidatePane(pane_layout.toc_rect);
         }
-        const float content_top = pane_layout.toc_rect.y + header_h;
-        const float local_y = dip_y - content_top + panes_.TocScroll().scroll_y;
-        new_toc_hover = doc_.GetToc().HitTest(local_y, renderer_.GetTheme().pane_item_height);
-        // 目次ペインのツールチップ
-        {
-            TooltipTarget tt;
-            if (close_hit) {
-                tt.zone = TooltipTarget::Zone::TocPaneButton;
-                tt.text = i18n::S().tooltip_pane_close;
-            }
-            else if (new_toc_hover >= 0 && new_toc_hover < static_cast<int>(doc_.GetToc().GetEntries().size())) {
-                tt.zone = TooltipTarget::Zone::TocPaneItem;
-                tt.text = doc_.GetToc().GetEntries()[new_toc_hover].text;
-            }
-            UpdateTooltip(tt, px, py);
-        }
+        new_toc_hover = hr.hovered_index;
+        UpdateTooltip(hr.tooltip, px, py);
         break;
     }
     case PaneZone::MdPane:

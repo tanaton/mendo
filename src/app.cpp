@@ -6,6 +6,7 @@
 #include "document_utils.h"
 #include "mermaid_util.h"
 #include "layout.h"
+#include "ui_constants.h"
 #include <windowsx.h>
 #include <algorithm>
 #include <chrono>
@@ -55,7 +56,7 @@ bool App::Init(HWND hwnd)
 
     // PixelToDip用にDPIスケールをキャッシュ (OnDpiChangedで更新)
     const float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
-    cached_dpi_scale_ = (init_dpi > 0.0f) ? (init_dpi / 96.0f) : 1.0f;
+    cached_dpi_scale_ = (init_dpi > 0.0f) ? (init_dpi / DEFAULT_DPI) : 1.0f;
 
     // タスクスケジューラを初期化（画像デコード・キャッシュ書き込み共用）
     scheduler_.Init(mermaid_util::ComputeWorkerCount(
@@ -64,27 +65,8 @@ bool App::Init(HWND hwnd)
     file_cache_.Init(cached_dpi_scale_, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
-    resource_manager_.Init(doc_, layout_cache_, viewport_, image_loader_, mermaid_renderer_, theme_service_, renderer_, {
-        .invalidate = [this]() { Invalidate(); },
-        .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
-        .kill_timer = [this](UINT_PTR id) { KillTimer(hwnd_, id); },
-        .get_content_width = [this]() -> float {
-            return renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
-        },
-        .get_viewport_height = [this]() -> float {
-            return GetPaneLayout().md_rect.height;
-        },
-        .recompute_layout = [this]() {
-            layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-        },
-        .recompute_layout_anchored = [this]() {
-            const auto anchor = SaveAnchor();
-            layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
-            const auto layout = GetPaneLayout();
-            RestoreAnchor(anchor, layout.md_rect.height);
-            Invalidate();
-        },
-        });
+    resource_manager_.Init(doc_, layout_cache_, viewport_, image_loader_, mermaid_renderer_,
+        theme_service_, renderer_, BuildResourceManagerCallbacks());
 
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
         resource_manager_.ScheduleMermaidBatch();
@@ -131,37 +113,9 @@ bool App::Init(HWND hwnd)
         tooltip_.ApplyDarkMode(true);
     }
 
-    search_bar_ctrl_.Init(search_state_, viewport_, layout_cache_, { .invalidate = [this]() { Invalidate(); },
-        .invalidate_search_bar = [this]() {
-            const auto& layout = GetPaneLayout();
-            const auto& r = layout.md_rect;
-            const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
-            InvalidatePane(search_area);
-        },
-        .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
-        .kill_timer = [this](UINT_PTR id) { KillTimer(hwnd_, id); },
-        .focus_select_all = [this]() {
-            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SELECT_ALL, 0);
-        },
-        .focus_set_caret = [this](int pos) {
-            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
-        },
-        .focus_set_selection = [this](int anchor, int caret) {
-            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(anchor, caret));
-        },
-        .unfocus = [this]() {
-            PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, 0, 0);
-        },
-        .get_md_pane_height = [this]() -> float {
-            return GetPaneLayout().md_rect.height;
-        },
-        .on_scroll_changed = [this](float visible_h) {
-            SyncMaxScroll(visible_h);
-            InvalidateHitPositions();
-        },
-        });
+    search_bar_ctrl_.Init(search_state_, viewport_, layout_cache_, BuildSearchBarCallbacks());
 
-    SetTimer(hwnd_, TIMER_FILE_WATCH, 250, nullptr);
+    SetTimer(hwnd_, TIMER_FILE_WATCH, FILE_WATCH_INTERVAL_MS, nullptr);
 
     return true;
 }
@@ -1207,55 +1161,6 @@ void App::OnDestroy()
     KillTimer(hwnd_, TIMER_MERMAID_BATCH);
 }
 
-// ============================================================
-// 検索
-// ============================================================
-
-void App::OnSearchOpen()
-{
-    search_bar_ctrl_.OnOpen(doc_.GetNodes());
-}
-
-void App::OnSearchClose()
-{
-    search_bar_ctrl_.OnClose();
-}
-
-void App::OnSearchNext()
-{
-    search_bar_ctrl_.OnNext();
-}
-
-void App::OnSearchPrev()
-{
-    search_bar_ctrl_.OnPrev();
-}
-
-void App::OnSearchTextChanged(std::wstring_view text)
-{
-    search_bar_ctrl_.OnTextChanged(text, doc_.GetNodes());
-}
-
-void App::OnToggleCaseSensitive()
-{
-    search_bar_ctrl_.OnToggleCaseSensitive(doc_.GetNodes());
-}
-
-void App::OnToggleHighlight()
-{
-    search_bar_ctrl_.OnToggleHighlight();
-}
-
-void App::SetSearchSelection(int sel_start, int sel_end) noexcept
-{
-    search_bar_ctrl_.SetSelection(sel_start, sel_end);
-}
-
-void App::SetImeComposition(std::wstring_view comp)
-{
-    search_bar_ctrl_.SetImeComposition(comp);
-}
-
 RECT App::GetSearchEditRect() const
 {
     if (!search_state_.IsVisible()) {
@@ -1279,27 +1184,14 @@ RECT App::GetSearchEditRect() const
 
 void App::SaveLastFilePath()
 {
-    if (doc_.GetFilePath().empty() || IsHelpPath(doc_.GetFilePath())) {
-        return;
+    if (!IsHelpPath(doc_.GetFilePath())) {
+        session_.SaveLastFilePath(doc_.GetFilePath());
     }
-    config_.SaveWString("Session", "LastFile", doc_.GetFilePath());
 }
 
 std::pmr::wstring App::LoadLastFilePath() const
 {
-    std::pmr::wstring path = config_.LoadWString("Session", "LastFile");
-    if (path.empty()) {
-        return {};
-    }
-    // 安全なローカルファイルパスであることを検証
-    // UNCパス (\\server\...) やデバイスパス (\\.\, \\?\) をブロック
-    if (path.size() >= 2 && path[0] == L'\\' && path[1] == L'\\') {
-        return {};
-    }
-    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
-        return {};
-    }
-    return path;
+    return session_.LoadLastFilePath();
 }
 
 void App::ShowDirectory(std::wstring_view dir_path)
@@ -1315,36 +1207,19 @@ void App::ShowDirectory(std::wstring_view dir_path)
 
 void App::SavePaneState()
 {
-    config_.SaveBool("Pane", "ShowFile", panes_.IsFilePaneVisible());
-    config_.SaveBool("Pane", "ShowToc", panes_.IsTocPaneVisible());
-    config_.SaveInt("Pane", "FileWidth", static_cast<int>(std::lround(panes_.GetFilePaneWidth())));
-    config_.SaveInt("Pane", "TocWidth", static_cast<int>(std::lround(panes_.GetTocPaneWidth())));
+    session_.SavePaneState(panes_);
 }
 
 void App::LoadPaneState()
 {
-    panes_.SetFilePaneVisible(config_.LoadBool("Pane", "ShowFile", true));
-    panes_.SetTocPaneVisible(config_.LoadBool("Pane", "ShowToc", true));
-
-    constexpr int kDefaultWidth = static_cast<int>(PaneController::PANE_DEFAULT_WIDTH);
-    constexpr int kMinWidth = static_cast<int>(PaneController::PANE_MIN_WIDTH);
-
-    // クライアント幅に基づいて有効な最大ペイン幅を計算する
-    int dynamic_max = kDefaultWidth;
+    float client_width = 0.0f;
     if (hwnd_) {
         RECT rc{};
         if (GetClientRect(hwnd_, &rc)) {
-            const int client_width = rc.right - rc.left;
-            if (client_width > 0) {
-                dynamic_max = std::max(kMinWidth, client_width - kMinWidth);
-            }
+            client_width = static_cast<float>(rc.right - rc.left);
         }
     }
-
-    panes_.SetFilePaneWidth(static_cast<float>(
-        config_.LoadInt("Pane", "FileWidth", kDefaultWidth, kMinWidth, dynamic_max)));
-    panes_.SetTocPaneWidth(static_cast<float>(
-        config_.LoadInt("Pane", "TocWidth", kDefaultWidth, kMinWidth, dynamic_max)));
+    session_.LoadPaneState(panes_, client_width);
 }
 
 void App::SaveScrollPosition()
@@ -1353,10 +1228,68 @@ void App::SaveScrollPosition()
     if (node < 0) {
         return;
     }
-    const float node_y = layout_cache_[node].y_position;
-    const int offset = static_cast<int>(std::lround(viewport_.GetScrollY() - node_y));
-    config_.SaveInt("Session", "ScrollNode", node);
-    config_.SaveInt("Session", "ScrollOffset", offset);
-    // 遅延レイアウト完了後に正確な位置を復元するための生のscroll_y
-    config_.SaveInt("Session", "ScrollY", static_cast<int>(std::lround(viewport_.GetScrollY())));
+    session_.SaveScrollPosition(node, viewport_.GetScrollY(), layout_cache_[node].y_position);
+}
+
+// ============================================================
+// Init用コールバック構築
+// ============================================================
+
+ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
+{
+    return {
+        .invalidate = [this]() { Invalidate(); },
+        .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
+        .kill_timer = [this](UINT_PTR id) { KillTimer(hwnd_, id); },
+        .get_content_width = [this]() -> float {
+            return renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
+        },
+        .get_viewport_height = [this]() -> float {
+            return GetPaneLayout().md_rect.height;
+        },
+        .recompute_layout = [this]() {
+            layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+        },
+        .recompute_layout_anchored = [this]() {
+            const auto anchor = SaveAnchor();
+            layout_service_->RecomputeAfterDiagram(doc_, layout_cache_, renderer_.GetTheme());
+            const auto layout = GetPaneLayout();
+            RestoreAnchor(anchor, layout.md_rect.height);
+            Invalidate();
+        },
+    };
+}
+
+SearchBarController::Callbacks App::BuildSearchBarCallbacks()
+{
+    return {
+        .invalidate = [this]() { Invalidate(); },
+        .invalidate_search_bar = [this]() {
+            const auto& layout = GetPaneLayout();
+            const auto& r = layout.md_rect;
+            const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
+            InvalidatePane(search_area);
+        },
+        .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
+        .kill_timer = [this](UINT_PTR id) { KillTimer(hwnd_, id); },
+        .focus_select_all = [this]() {
+            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SELECT_ALL, 0);
+        },
+        .focus_set_caret = [this](int pos) {
+            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
+        },
+        .focus_set_selection = [this](int anchor, int caret) {
+            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(anchor, caret));
+        },
+        .unfocus = [this]() {
+            PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, 0, 0);
+        },
+        .get_md_pane_height = [this]() -> float {
+            return GetPaneLayout().md_rect.height;
+        },
+        .on_scroll_changed = [this](float visible_h) {
+            SyncMaxScroll(visible_h);
+            InvalidateHitPositions();
+        },
+    };
 }

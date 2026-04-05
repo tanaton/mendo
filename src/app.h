@@ -32,6 +32,7 @@
 #include "search_bar_controller.h"
 #include "resource_manager.h"
 #include "scroll_restoration.h"
+#include "session_service.h"
 #include "cursor_manager.h"
 #include "hover_throttle.h"
 #include "tooltip.h"
@@ -99,15 +100,15 @@ public:
     void OnDestroy();
 
     // 検索（Win32Windowから呼ばれるコールバック）
-    void OnSearchTextChanged(std::wstring_view text);
-    void OnSearchClose();
-    void OnSearchNext();
-    void OnSearchPrev();
+    void OnSearchTextChanged(std::wstring_view text) { search_bar_ctrl_.OnTextChanged(text, doc_.GetNodes()); }
+    void OnSearchClose() { search_bar_ctrl_.OnClose(); }
+    void OnSearchNext() { search_bar_ctrl_.OnNext(); }
+    void OnSearchPrev() { search_bar_ctrl_.OnPrev(); }
     bool IsSearchBarVisible() const noexcept { return search_state_.IsVisible(); }
-    void OnToggleCaseSensitive();
-    void OnToggleHighlight();
-    void SetSearchSelection(int sel_start, int sel_end) noexcept;
-    void SetImeComposition(std::wstring_view comp);
+    void OnToggleCaseSensitive() { search_bar_ctrl_.OnToggleCaseSensitive(doc_.GetNodes()); }
+    void OnToggleHighlight() { search_bar_ctrl_.OnToggleHighlight(); }
+    void SetSearchSelection(int sel_start, int sel_end) noexcept { search_bar_ctrl_.SetSelection(sel_start, sel_end); }
+    void SetImeComposition(std::wstring_view comp) { search_bar_ctrl_.SetImeComposition(comp); }
     RECT GetSearchEditRect() const;
 
     // 検索バーコントローラへのアクセス（app_mouse.cppでのドラッグ/ホバー処理用）
@@ -148,6 +149,10 @@ public:
 private:
     // AppControllerが返すアクションを実行
     void ExecuteActions(const ActionList& actions);
+
+    // Init用コールバック構築ヘルパー
+    ResourceManager::Callbacks BuildResourceManagerCallbacks();
+    SearchBarController::Callbacks BuildSearchBarCallbacks();
 
     // アンカーベースのスクロール位置保存/復元
     struct AnchorState {
@@ -199,6 +204,11 @@ private:
     void HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
         ScrollState& scroll, bool& cache_dirty);
 
+    // サイドペイン スクロールバードラッグ共通処理
+    void HandleSidePaneScrollDrag(float dip_y, const PaneRect& rect,
+        float total_content, ScrollState& scroll,
+        void (Renderer::*invalidate)());
+
     // レイアウト / スクロール
     void ScheduleDeferredLayoutIfNeeded();
     void UpdateScrollBar();
@@ -232,7 +242,7 @@ private:
 
 
     // 検索
-    void OnSearchOpen();
+    void OnSearchOpen() { search_bar_ctrl_.OnOpen(doc_.GetNodes()); }
 
     // OnPaint用のレンダーステート構築ヘルパー
     GestureRenderState BuildGestureRenderState() const;
@@ -296,6 +306,7 @@ private:
     AppController controller_;
     ConfigService config_;
     ThemeService theme_service_{ config_ };
+    SessionService session_{ config_ };
     FileLoadService file_load_service_{ doc_service_ };
 
     // ドメイン状態

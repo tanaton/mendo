@@ -70,6 +70,7 @@ add_library(mendo_core STATIC
     src/layout_service.cpp
     src/dwrite_measurer.cpp
     src/command_generator.cpp
+    src/command_gen_table.cpp
     src/command_executor.cpp
     src/file_loader.cpp
     src/theme.cpp
@@ -92,6 +93,7 @@ add_library(mendo_core STATIC
     src/task_scheduler.cpp
     src/search_state.cpp
     src/search_bar_controller.cpp
+    src/session_service.cpp
     src/file_watcher.cpp
 )
 target_include_directories(mendo_core PUBLIC src third_party/md4c)

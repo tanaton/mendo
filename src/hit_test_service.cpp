@@ -2,6 +2,27 @@
 #include "ui_constants.h"
 #include <ranges>
 
+namespace {
+
+// 物理ピクセルをMDペインローカルのDIP座標に変換する。
+struct PaneDip { float x, y; };
+PaneDip ScreenToPaneDip(int screen_x, int screen_y,
+    float dpi_scale, float md_pane_left, float scroll_y) noexcept
+{
+    return {
+        screen_x / dpi_scale - md_pane_left,
+        screen_y / dpi_scale + scroll_y
+    };
+}
+
+// ノードのインデント幅を返す。
+float NodeIndent(const Node& node, const Theme& theme) noexcept
+{
+    return node.indent_level * theme.indent_width;
+}
+
+} // namespace
+
 // 指定された行・列までのフラットテキストオフセットを計算する。
 static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int target_col) noexcept
 {
@@ -42,12 +63,7 @@ HitTestService::HitResult HitTestService::HitTest(
         return result;
     }
 
-    // 物理ピクセルをDIPに変換
-    float dip_x = screen_x / dpi_scale;
-    const float dip_y = screen_y / dpi_scale + scroll_y;
-
-    // MDペインの位置でオフセット
-    dip_x -= md_pane_left;
+    const auto [dip_x, dip_y] = ScreenToPaneDip(screen_x, screen_y, dpi_scale, md_pane_left, scroll_y);
 
     // dip_yを含むノードを二分探索で検索
     int lo = 0, hi = static_cast<int>(nodes.size()) - 1;
@@ -72,7 +88,7 @@ HitTestService::HitResult HitTestService::HitTest(
         }
 
         if (entry.text_layout) {
-            const float indent = node.indent_level * theme.indent_width;
+            const float indent = NodeIndent(node, theme);
             const float local_x = dip_x - theme.margin_left - indent;
             const float local_y = dip_y - entry.y_position;
 
@@ -108,7 +124,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     HitResult result;
     result.node_index = node_index;
 
-    const float indent = node.indent_level * theme.indent_width;
+    const float indent = NodeIndent(node, theme);
     const float base_x = theme.margin_left + indent;
     const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
@@ -124,7 +140,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     int hit_row = -1;
     const auto row_count = node.table_rows().size();
     for (size_t r = 0; r < row_count; r++) {
-        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme.font_size_body * 1.4f);
+        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR);
         const float row_bottom = ry + row_h + border;
         if (dip_y < row_bottom) {
             hit_row = static_cast<int>(r);
@@ -172,7 +188,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
 
         float cell_y = entry.y_position;
         for (size_t rr = 0; rr < r; rr++) {
-            const float rh = (rr < tl.row_heights.size()) ? tl.row_heights[rr] : (theme.font_size_body * 1.4f);
+            const float rh = (rr < tl.row_heights.size()) ? tl.row_heights[rr] : (theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR);
             cell_y += rh + border;
         }
         const float cell_text_y = cell_y + cell_padding;
@@ -206,9 +222,7 @@ int HitTestService::CopyButtonHitTest(
         return -1;
     }
 
-    // 物理ピクセルをDIPに変換（ドキュメント空間）
-    const float dip_x = screen_x / dpi_scale - md_pane_left;
-    const float dip_y = screen_y / dpi_scale + scroll_y;
+    const auto [dip_x, dip_y] = ScreenToPaneDip(screen_x, screen_y, dpi_scale, md_pane_left, scroll_y);
 
     // コピーボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
     const float btn_left_bound = theme.margin_left + content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
@@ -235,7 +249,7 @@ int HitTestService::CopyButtonHitTest(
             continue;
         }
 
-        const float indent = node.indent_level * theme.indent_width;
+        const float indent = NodeIndent(node, theme);
         const float x = theme.margin_left + indent;
         const float w = content_width - indent;
         const float pad = theme.code_block_padding;

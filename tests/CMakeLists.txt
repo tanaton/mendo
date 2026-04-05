@@ -43,6 +43,7 @@ add_executable(mendo_tests
     test_scroll_restoration.cpp
     test_hover_throttle.cpp
     test_search_bar_controller.cpp
+    test_session_service.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE
