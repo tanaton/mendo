@@ -216,6 +216,7 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline)
 
     // データ行の2番目のセルにはリンクランがあり、下線が適用されていること
     const auto& cell = nodes[0].table_rows()[1].cells[1];
+    ASSERT_TRUE(cache[0].has_table_layout());
     auto& cell_layout = cache[0].table_layout->cell_layouts[1][1];
     ASSERT_NE(cell_layout.Get(), nullptr);
 
