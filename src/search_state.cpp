@@ -30,15 +30,15 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     }
 
     const auto node_count = static_cast<int>(nodes.size());
-    for (int i = 0; i < node_count && matches_.size() < kMaxMatches; i++) {
+    for (int i = 0; i < node_count; i++) {
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
             const auto& rows = node.table_rows();
             const auto row_count = static_cast<int>(rows.size());
-            for (int r = 0; r < row_count && matches_.size() < kMaxMatches; r++) {
+            for (int r = 0; r < row_count; r++) {
                 const auto& cells = rows[r].cells;
                 const auto col_count = static_cast<int>(cells.size());
-                for (int c = 0; c < col_count && matches_.size() < kMaxMatches; c++) {
+                for (int c = 0; c < col_count; c++) {
                     if (!cells[c].text.empty()) {
                         FindMatches(std::wstring_view(cells[c].text.data(), cells[c].text.size()), lower_query, i, r, c);
                     }
@@ -56,9 +56,11 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     matches_truncated_ = (matches_.size() >= kMaxMatches);
 }
 
-void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_query,
-    int node_index, int table_row, int table_col)
+void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_query, int node_index, int table_row, int table_col)
 {
+    if (matches_.size() >= kMaxMatches) {
+        return;
+    }
     const uint32_t query_len = static_cast<uint32_t>(query_.size());
 
     if (case_sensitive_) {
