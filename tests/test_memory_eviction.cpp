@@ -36,12 +36,6 @@ TEST_F(ImageLoaderLruTest, ClearCacheRemovesAllEntries)
     EXPECT_FALSE(loader_.GetCachedImage(L"any.png", out));
 }
 
-TEST_F(ImageLoaderLruTest, RemoveCachedDoesNotCrashOnMissingKey)
-{
-    // 存在しないキーの削除でクラッシュしないこと
-    loader_.RemoveCached(L"nonexistent.png");
-}
-
 TEST_F(ImageLoaderLruTest, EvictsOldestWhenExceedingMaxEntries)
 {
     // kMaxCacheEntries を超えたら最古のエントリが削除される

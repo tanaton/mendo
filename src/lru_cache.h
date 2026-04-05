@@ -69,16 +69,6 @@ public:
         map_[key] = order_.begin();
     }
 
-    // エントリを削除する。
-    void Erase(const Key& key)
-    {
-        auto it = map_.find(key);
-        if (it != map_.end()) {
-            order_.erase(it->second);
-            map_.erase(it);
-        }
-    }
-
     void Clear()
     {
         order_.clear();
@@ -88,16 +78,6 @@ public:
     size_t Size() const noexcept { return map_.size(); }
     bool Empty() const noexcept { return map_.empty(); }
     size_t MaxSize() const noexcept { return max_entries_; }
-
-    void SetMaxSize(size_t max_entries)
-    {
-        max_entries_ = max_entries;
-        while (map_.size() > max_entries_) {
-            auto& oldest = order_.back();
-            map_.erase(oldest.key);
-            order_.pop_back();
-        }
-    }
 
 private:
     struct Entry {

@@ -26,8 +26,6 @@ public:
     const std::vector<SearchMatch>& GetMatches() const noexcept { return matches_; }
     int GetCurrentMatchIndex() const noexcept { return current_match_; }
     int GetMatchCount() const noexcept { return static_cast<int>(matches_.size()); }
-    bool IsMatchesTruncated() const noexcept { return matches_truncated_; }
-
     // 大文字小文字の区別
     bool IsCaseSensitive() const noexcept { return case_sensitive_; }
     void SetCaseSensitive(bool v) noexcept { case_sensitive_ = v; }
