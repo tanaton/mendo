@@ -50,6 +50,9 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
 
         std::pmr::string content = FileLoader::LoadFile(path);
         if (content.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            if (async_gen_.load(std::memory_order_relaxed) == gen) {
+                PostMessage(hwnd, msg_id, 0, 0);
+            }
             return;
         }
 

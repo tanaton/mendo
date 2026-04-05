@@ -171,6 +171,12 @@ struct Node {
         text_.assign(s.data(), s.size());
         text_valid_ = true;
         text_utf8.clear();
+        line_count = 0;
+        for (wchar_t ch : s) {
+            if (ch == L'\n') {
+                ++line_count;
+            }
+        }
     }
 
     // テーブル行への便利アクセサ

@@ -793,7 +793,6 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     node.runs = std::move(new_runs);
     node.alert_type = type;
     node.alert_label_length = static_cast<uint32_t>(full_label_len);
-    node.line_count = static_cast<int>(std::ranges::count(node.GetText(), L'\n'));
 }
 
 } // namespace
