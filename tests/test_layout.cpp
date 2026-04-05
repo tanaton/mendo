@@ -176,7 +176,8 @@ TEST_F(LayoutTest, TableLayout)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
     EXPECT_GT(cache[0].height, 0.0f);
-    EXPECT_FALSE(cache[0].col_widths.empty());
+    ASSERT_TRUE(cache[0].has_table_layout());
+    EXPECT_FALSE(cache[0].table_layout->col_widths.empty());
 }
 
 TEST_F(LayoutTest, TableCellLayoutsCreated)
@@ -189,7 +190,8 @@ TEST_F(LayoutTest, TableCellLayoutsCreated)
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    const auto& cell_layouts = cache[0].cell_layouts;
+    ASSERT_TRUE(cache[0].has_table_layout());
+    const auto& cell_layouts = cache[0].table_layout->cell_layouts;
     for (size_t r = 0; r < cell_layouts.size(); r++) {
         for (size_t c = 0; c < cell_layouts[r].size(); c++) {
             if (!nodes[0].table_rows()[r].cells[c].text.empty()) {
@@ -214,7 +216,7 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline)
 
     // データ行の2番目のセルにはリンクランがあり、下線が適用されていること
     const auto& cell = nodes[0].table_rows()[1].cells[1];
-    auto& cell_layout = cache[0].cell_layouts[1][1];
+    auto& cell_layout = cache[0].table_layout->cell_layouts[1][1];
     ASSERT_NE(cell_layout.Get(), nullptr);
 
     // セル内にリンクランが存在することを確認

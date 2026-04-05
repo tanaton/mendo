@@ -339,7 +339,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
     // テーブルノード: ビューポートカリング付きの増分処理を行う。
     // リンク色は全行に適用（軽量・冪等）、インラインコード背景は可視行のみ計算する。
     if (node.type == NodeType::Table) {
-        if (!node.has_table() || node.table_rows().empty()) {
+        if (!node.has_table() || node.table_rows().empty() || !entry.has_table_layout()) {
             entry.effects_applied = true;
             return;
         }
@@ -347,9 +347,10 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
         const bool first_pass = !entry.effects_applied;
         const auto& rows = node.table_rows();
         const auto row_count = rows.size();
+        auto& tl = *entry.table_layout;
         if (first_pass) {
             entry.effects_applied = true;
-            entry.cell_inline_code_bgs.resize(row_count);
+            tl.cell_inline_code_bgs.resize(row_count);
         }
 
         const float border = TABLE_BORDER_WIDTH;
@@ -357,14 +358,14 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
 
         for (size_t r = 0; r < row_count; r++) {
             const auto& row = rows[r];
-            const float row_h = (r < entry.row_heights.size())
-                ? entry.row_heights[r] : (theme_.font_size_body * 1.4f);
+            const float row_h = (r < tl.row_heights.size())
+                ? tl.row_heights[r] : (theme_.font_size_body * 1.4f);
             const float row_bottom = row_y + row_h + border;
 
             const bool row_visible = (viewport_top < 0.0f)
                 || (row_bottom >= viewport_top && row_y <= viewport_bottom);
-            const bool bgs_done = (r < entry.cell_inline_code_bgs.size())
-                && (entry.cell_inline_code_bgs[r].size() == row.cells.size());
+            const bool bgs_done = (r < tl.cell_inline_code_bgs.size())
+                && (tl.cell_inline_code_bgs[r].size() == row.cells.size());
             const bool need_bgs = row_visible && !bgs_done;
 
             // 2回目以降: インラインコード背景の計算が不要な行はスキップ
@@ -374,15 +375,15 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
             }
 
             // この行のインラインコード背景を計算する場合のみ内側ベクターを確保
-            if (need_bgs && r < entry.cell_inline_code_bgs.size()) {
-                entry.cell_inline_code_bgs[r].resize(row.cells.size());
+            if (need_bgs && r < tl.cell_inline_code_bgs.size()) {
+                tl.cell_inline_code_bgs[r].resize(row.cells.size());
             }
 
             const auto col_count = row.cells.size();
             for (size_t c = 0; c < col_count; c++) {
                 IDWriteTextLayout* cell_layout = nullptr;
-                if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
-                    cell_layout = entry.cell_layouts[r][c].Get();
+                if (r < tl.cell_layouts.size() && c < tl.cell_layouts[r].size()) {
+                    cell_layout = tl.cell_layouts[r][c].Get();
                 }
                 if (!cell_layout) {
                     continue;
@@ -397,7 +398,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
                     if (need_bgs && run.code && run.length > 0) {
                         const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length, hit_test_buffer_);
                         for (UINT32 hi = 0; hi < count; hi++) {
-                            entry.cell_inline_code_bgs[r][c].emplace_back(
+                            tl.cell_inline_code_bgs[r][c].emplace_back(
                                 hit_test_buffer_[hi].left,
                                 hit_test_buffer_[hi].top,
                                 hit_test_buffer_[hi].width,

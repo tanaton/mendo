@@ -113,12 +113,18 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
 
+    if (!entry.has_table_layout()) {
+        result.text_pos = static_cast<uint32_t>(node.GetText().size());
+        return result;
+    }
+    const auto& tl = *entry.table_layout;
+
     // クリックされた行を特定
     float ry = entry.y_position;
     int hit_row = -1;
     const auto row_count = node.table_rows().size();
     for (size_t r = 0; r < row_count; r++) {
-        const float row_h = (r < entry.row_heights.size()) ? entry.row_heights[r] : (theme.font_size_body * 1.4f);
+        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme.font_size_body * 1.4f);
         const float row_bottom = ry + row_h + border;
         if (dip_y < row_bottom) {
             hit_row = static_cast<int>(r);
@@ -133,15 +139,15 @@ HitTestService::HitResult HitTestService::HitTestTable(
 
     // クリックされた列を特定
     float cx = base_x + border;
-    int hit_col = static_cast<int>(entry.col_widths.size()) - 1; // デフォルトは最後の列
-    const auto col_count = entry.col_widths.size();
+    int hit_col = static_cast<int>(tl.col_widths.size()) - 1; // デフォルトは最後の列
+    const auto col_count = tl.col_widths.size();
     for (size_t c = 0; c < col_count; c++) {
-        const float col_right = cx + entry.col_widths[c] + cell_padding * 2.0f;
+        const float col_right = cx + tl.col_widths[c] + cell_padding * 2.0f;
         if (dip_x < col_right) {
             hit_col = static_cast<int>(c);
             break;
         }
-        cx += entry.col_widths[c] + cell_padding * 2.0f + border;
+        cx += tl.col_widths[c] + cell_padding * 2.0f + border;
     }
     if (hit_col < 0) {
         hit_col = 0;
@@ -154,19 +160,19 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const size_t r = static_cast<size_t>(hit_row);
     const size_t c = static_cast<size_t>(hit_col);
     IDWriteTextLayout* cell_layout = nullptr;
-    if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
-        cell_layout = entry.cell_layouts[r][c].Get();
+    if (r < tl.cell_layouts.size() && c < tl.cell_layouts[r].size()) {
+        cell_layout = tl.cell_layouts[r][c].Get();
     }
     if (cell_layout) {
         float cell_x = base_x + border;
         for (size_t cc = 0; cc < c; cc++) {
-            cell_x += entry.col_widths[cc] + cell_padding * 2.0f + border;
+            cell_x += tl.col_widths[cc] + cell_padding * 2.0f + border;
         }
         const float cell_text_x = cell_x + cell_padding;
 
         float cell_y = entry.y_position;
         for (size_t rr = 0; rr < r; rr++) {
-            const float rh = (rr < entry.row_heights.size()) ? entry.row_heights[rr] : (theme.font_size_body * 1.4f);
+            const float rh = (rr < tl.row_heights.size()) ? tl.row_heights[rr] : (theme.font_size_body * 1.4f);
             cell_y += rh + border;
         }
         const float cell_text_y = cell_y + cell_padding;

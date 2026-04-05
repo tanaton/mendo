@@ -287,15 +287,16 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     int node_index, float offset_x, const TextSelection& selection,
     float viewport_top, float viewport_bottom)
 {
-    if (node.table_rows().empty() || entry.col_widths.empty()) {
+    if (node.table_rows().empty() || !entry.has_table_layout() || entry.table_layout->col_widths.empty()) {
         return;
     }
 
     const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
+    const auto& tl = *entry.table_layout;
 
     const float table_width = std::ranges::fold_left(
-        entry.col_widths,
+        tl.col_widths,
         border,
         [cell_padding, border](float acc, float cw) noexcept { return acc + cw + cell_padding * 2.0f + border; }
     );
@@ -329,7 +330,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
     for (size_t r = 0; r < node.table_rows().size(); r++) {
         const auto& row = node.table_rows()[r];
-        const float row_h = (r < entry.row_heights.size()) ? entry.row_heights[r] : (theme_->font_size_body * 1.4f);
+        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_->font_size_body * 1.4f);
 
         const float row_bottom = y + row_h + border;
         if (row_bottom < viewport_top || y > viewport_bottom) {
@@ -351,10 +352,10 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
         // セルを描画
         float cx = offset_x + border;
-        const size_t drawn_cols = std::min(row.cells.size(), entry.col_widths.size());
+        const size_t drawn_cols = std::min(row.cells.size(), tl.col_widths.size());
         for (size_t c = 0; c < drawn_cols; c++) {
             const auto& cell = row.cells[c];
-            const float cw = entry.col_widths[c];
+            const float cw = tl.col_widths[c];
 
             // 垂直の罫線
             cmds.emplace_back(DrawLineCmd{
@@ -365,13 +366,13 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             const float text_y = y + cell_padding;
 
             IDWriteTextLayout* cell_layout = nullptr;
-            if (r < entry.cell_layouts.size() && c < entry.cell_layouts[r].size()) {
-                cell_layout = entry.cell_layouts[r][c].Get();
+            if (r < tl.cell_layouts.size() && c < tl.cell_layouts[r].size()) {
+                cell_layout = tl.cell_layouts[r][c].Get();
             }
 
             // セルのインラインコード背景
-            if (r < entry.cell_inline_code_bgs.size() && c < entry.cell_inline_code_bgs[r].size()) {
-                GenInlineCodeBgs(cmds, entry.cell_inline_code_bgs[r][c], text_x, text_y, theme_->code_bg_color);
+            if (r < tl.cell_inline_code_bgs.size() && c < tl.cell_inline_code_bgs[r].size()) {
+                GenInlineCodeBgs(cmds, tl.cell_inline_code_bgs[r][c], text_x, text_y, theme_->code_bg_color);
             }
 
             // 検索マッチのハイライト（テーブルセル）

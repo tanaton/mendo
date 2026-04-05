@@ -117,7 +117,7 @@ struct NodeImageData {
 };
 
 struct Node {
-    std::pmr::string text_utf8;        // テキスト主記憶（UTF-8、パーサーが設定）
+    mutable std::pmr::string text_utf8; // テキスト主記憶（UTF-8、パーサーが設定。GetText()後に解放される場合あり）
     std::pmr::vector<TextRun> runs;
     std::pmr::wstring anchor_id;   // 見出し用: 内部リンク向けGitHubスタイルのスラグ
     std::pmr::vector<SyntaxToken> syntax_tokens;
@@ -151,11 +151,17 @@ struct Node {
     }
 
     // テキスト取得（text_utf8からの遅延変換付き）
+    // 変換後、CodeBlock以外のノードではtext_utf8を解放してメモリを削減する。
+    // CodeBlockはMermaidハッシュ計算でtext_utf8を直接参照するため保持する。
     const std::pmr::wstring& GetText() const
     {
         if (!text_valid_) {
             if (!text_utf8.empty()) {
                 text_ = string_convert::Utf8ToWide(text_utf8);
+                if (type != NodeType::CodeBlock) {
+                    text_utf8.clear();
+                    text_utf8.shrink_to_fit();
+                }
             }
             else {
                 text_.clear();

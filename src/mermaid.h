@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 #include <functional>
-#include <unordered_map>
+#include "lru_cache.h"
 #include <queue>
 #include <span>
 #include <memory_resource>
@@ -121,13 +121,14 @@ private:
 
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
 
-    // キャッシュ: code_hash -> {bitmap, width, height}
+    // キャッシュ: code_hash -> {bitmap, width, height}（LRU、最大64エントリ）
     struct CachedBitmap {
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
     };
-    std::pmr::unordered_map<uint64_t, CachedBitmap> cache_;
+    static constexpr size_t kMaxCacheEntries = 64;
+    LruCache<uint64_t, CachedBitmap> cache_{ kMaxCacheEntries };
 
     MermaidFileCache* file_cache_ = nullptr;
 };

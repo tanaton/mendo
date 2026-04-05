@@ -12,6 +12,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
 {
     matches_.clear();
     current_match_ = -1;
+    matches_truncated_ = false;
 
     if (query_.empty()) {
         return;
@@ -26,15 +27,15 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     }
 
     const auto node_count = static_cast<int>(nodes.size());
-    for (int i = 0; i < node_count; i++) {
+    for (int i = 0; i < node_count && matches_.size() < kMaxMatches; i++) {
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
             const auto& rows = node.table_rows();
             const auto row_count = static_cast<int>(rows.size());
-            for (int r = 0; r < row_count; r++) {
+            for (int r = 0; r < row_count && matches_.size() < kMaxMatches; r++) {
                 const auto& cells = rows[r].cells;
                 const auto col_count = static_cast<int>(cells.size());
-                for (int c = 0; c < col_count; c++) {
+                for (int c = 0; c < col_count && matches_.size() < kMaxMatches; c++) {
                     if (!cells[c].text.empty()) {
                         FindMatches(std::wstring_view(cells[c].text.data(), cells[c].text.size()),
                             lower_query, i, r, c);
@@ -52,6 +53,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
                 lower_query, i);
         }
     }
+    matches_truncated_ = (matches_.size() >= kMaxMatches);
 }
 
 void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_query,
@@ -61,7 +63,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_
 
     if (case_sensitive_) {
         size_t pos = 0;
-        while ((pos = text.find(query_, pos)) != std::wstring_view::npos) {
+        while (matches_.size() < kMaxMatches && (pos = text.find(query_, pos)) != std::wstring_view::npos) {
             matches_.push_back({ node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col });
             pos += query_len;
         }
@@ -69,7 +71,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_
     else {
         // 割り当てなしの大文字小文字無視検索: std::search + towlower 比較
         auto it = text.begin();
-        while (it != text.end()) {
+        while (matches_.size() < kMaxMatches && it != text.end()) {
             it = std::search(it, text.end(), lower_query.begin(), lower_query.end(),
                 [](wchar_t a, wchar_t b) static noexcept { return static_cast<wchar_t>(std::towlower(a)) == b; });
             if (it == text.end()) {

@@ -91,11 +91,12 @@ public:
         }
         if (col_count == 0) { entry.layout_dirty = false; return; }
 
-        entry.col_widths.assign(col_count, max_width / static_cast<float>(col_count));
-        entry.row_heights.assign(node.table_rows().size(), table_row_height);
-        entry.cell_layouts.resize(node.table_rows().size());
+        auto& tl = entry.ensure_table_layout();
+        tl.col_widths.assign(col_count, max_width / static_cast<float>(col_count));
+        tl.row_heights.assign(node.table_rows().size(), table_row_height);
+        tl.cell_layouts.resize(node.table_rows().size());
         for (size_t r = 0; r < node.table_rows().size(); r++) {
-            entry.cell_layouts[r].resize(node.table_rows()[r].cells.size());
+            tl.cell_layouts[r].resize(node.table_rows()[r].cells.size());
         }
 
         float total = table_border;

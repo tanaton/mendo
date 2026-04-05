@@ -12,6 +12,15 @@ struct InlineCodeBg {
     float left, top, width, height;
 };
 
+// テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）
+struct TableLayoutData {
+    std::pmr::vector<std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>>> cell_layouts; // [行][列]
+    std::pmr::vector<std::pmr::vector<std::pmr::vector<InlineCodeBg>>> cell_inline_code_bgs; // [行][列][]
+    std::pmr::vector<float> col_widths;
+    std::pmr::vector<float> row_heights;
+    std::pmr::vector<float> natural_col_widths; // リサイズ高速パス用キャッシュ
+};
+
 struct NodeLayoutEntry {
     float y_position = 0.0f;
     float height = 0.0f;
@@ -19,13 +28,16 @@ struct NodeLayoutEntry {
     bool layout_dirty = true;
     bool effects_applied = false;
     std::pmr::vector<InlineCodeBg> inline_code_bgs;
+    std::unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
 
-    // テーブルレイアウトデータ
-    std::pmr::vector<std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>>> cell_layouts; // [行][列]
-    std::pmr::vector<std::pmr::vector<std::pmr::vector<InlineCodeBg>>> cell_inline_code_bgs; // [行][列][]
-    std::pmr::vector<float> col_widths;
-    std::pmr::vector<float> row_heights;
-    std::pmr::vector<float> natural_col_widths; // リサイズ高速パス用キャッシュ
+    TableLayoutData& ensure_table_layout()
+    {
+        if (!table_layout) {
+            table_layout = std::make_unique<TableLayoutData>();
+        }
+        return *table_layout;
+    }
+    bool has_table_layout() const noexcept { return table_layout != nullptr; }
 };
 
 struct DiagramEntry {
@@ -77,7 +89,9 @@ public:
             e.text_layout.Reset();
             e.effects_applied = false;
             e.inline_code_bgs.clear();
-            e.cell_inline_code_bgs.clear();
+            if (e.table_layout) {
+                e.table_layout->cell_inline_code_bgs.clear();
+            }
         }
         effects_generation_++;
     }
