@@ -429,7 +429,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
     // コードブロックにシンタックスハイライトを適用
     if (node.type == NodeType::CodeBlock) {
         if (node.syntax_tokens.empty() && node.code_language != SyntaxLanguage::None) {
-            node.syntax_tokens = Tokenize(node.text, node.code_language);
+            node.syntax_tokens = Tokenize(node.GetText(), node.code_language);
         }
         for (const auto& token : node.syntax_tokens) {
             if (token.type == SyntaxTokenType::Plain) {

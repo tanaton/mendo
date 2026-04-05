@@ -24,7 +24,7 @@ static uint32_t ComputeTableFlatOffset(const Node& node, int target_row, int tar
             offset++;
         }
     }
-    return static_cast<uint32_t>(node.text.size());
+    return static_cast<uint32_t>(node.GetText().size());
 }
 
 HitTestService::HitResult HitTestService::HitTest(
@@ -90,9 +90,9 @@ HitTestService::HitResult HitTestService::HitTest(
 
     // 全ノードより下をクリック → 最後のノードの末尾を選択
     for (const auto& [i, node] : nodes | std::views::enumerate | std::views::reverse) {
-        if (!node.text.empty()) {
+        if (const auto& text = node.GetText(); !text.empty()) {
             result.node_index = static_cast<int>(i);
-            result.text_pos = static_cast<uint32_t>(node.text.size());
+            result.text_pos = static_cast<uint32_t>(text.size());
             return result;
         }
     }
@@ -127,7 +127,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
         ry += row_h + border;
     }
     if (hit_row < 0) {
-        result.text_pos = static_cast<uint32_t>(node.text.size());
+        result.text_pos = static_cast<uint32_t>(node.GetText().size());
         return result;
     }
 

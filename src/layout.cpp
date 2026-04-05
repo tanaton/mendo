@@ -141,7 +141,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
             break;
         default:
             // テキストの行数からおおよその高さを推定
-            if (node.text.empty()) {
+            if (node.GetText().empty()) {
                 h = theme.paragraph_spacing;
             }
             else {

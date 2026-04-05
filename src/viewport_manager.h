@@ -85,7 +85,7 @@ public:
         }
         const int last = static_cast<int>(nodes.size()) - 1;
         selection_ = TextSelection::MakeOrdered(
-            0, 0, last, static_cast<uint32_t>(nodes[last].text.size()));
+            0, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
     }
 
     // ---- ズーム ----

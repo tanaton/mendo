@@ -151,7 +151,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         return;
     }
 
-    const auto& text = node.text;
+    const auto& text = node.GetText();
     if (text.empty()) {
         entry.height = theme_->paragraph_spacing;
         entry.layout_dirty = false;
@@ -282,8 +282,8 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         total_height += row_height + border_width;
     }
 
-    if (node.text.empty()) {
-        node.text = BuildLinearizedTableText(node.table_rows());
+    if (node.GetText().empty()) {
+        node.SetText(BuildLinearizedTableText(node.table_rows()));
     }
     entry.height = total_height;
     entry.layout_dirty = false;

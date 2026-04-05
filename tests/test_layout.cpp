@@ -1244,7 +1244,7 @@ TEST(EstimateNodeHeightsTest, SingleParagraph)
 {
     Node node;
     node.type = NodeType::Paragraph;
-    node.text = L"Hello world";
+    node.SetText(L"Hello world");
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
     LayoutCache cache;
@@ -1296,12 +1296,12 @@ TEST(EstimateNodeHeightsTest, HeadingHeightScalesWithLevel)
     Node h1;
     h1.type = NodeType::Heading;
     h1.heading_level = 1;
-    h1.text = L"Title";
+    h1.SetText(L"Title");
 
     Node h3;
     h3.type = NodeType::Heading;
     h3.heading_level = 3;
-    h3.text = L"Title";
+    h3.SetText(L"Title");
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(h1));
@@ -1320,12 +1320,12 @@ TEST(EstimateNodeHeightsTest, CodeBlockScalesWithLineCount)
 
     Node short_code;
     short_code.type = NodeType::CodeBlock;
-    short_code.text = L"line1";
+    short_code.SetText(L"line1");
     short_code.line_count = 0;
 
     Node long_code;
     long_code.type = NodeType::CodeBlock;
-    long_code.text = L"line1\nline2\nline3\nline4\nline5";
+    long_code.SetText(L"line1\nline2\nline3\nline4\nline5");
     long_code.line_count = 4;
 
     std::pmr::vector<Node> nodes;
@@ -1421,12 +1421,12 @@ TEST(EstimateNodeHeightsTest, MultilineParagraphScalesWithLines)
 
     Node single;
     single.type = NodeType::Paragraph;
-    single.text = L"one line";
+    single.SetText(L"one line");
     single.line_count = 0;
 
     Node multi;
     multi.type = NodeType::Paragraph;
-    multi.text = L"line1\nline2\nline3";
+    multi.SetText(L"line1\nline2\nline3");
     multi.line_count = 2;
 
     std::pmr::vector<Node> nodes;
@@ -1445,7 +1445,7 @@ TEST(EstimateNodeHeightsTest, LayoutDirtyNotChanged)
     Theme theme = GetLightTheme();
     Node node;
     node.type = NodeType::Paragraph;
-    node.text = L"test";
+    node.SetText(L"test");
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
@@ -1469,7 +1469,7 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
     auto add_node = [&](NodeType type, const wchar_t* text = L"content") {
         Node n;
         n.type = type;
-        n.text = text;
+        n.SetText(text);
         if (type == NodeType::Heading) {
             n.heading_level = 2;
         }

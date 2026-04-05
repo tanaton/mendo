@@ -860,7 +860,7 @@ void App::ApplyMermaidCacheHeights(float md_width)
     bool any_applied = false;
     for (size_t i : doc_.GetMermaidNodeIndices()) {
         const auto hash = mermaid_util::HashCode(
-            nodes[i].text, content_width, dark_mode);
+            nodes[i].GetText(), content_width, dark_mode);
         MermaidFileCache::CacheEntry fentry;
         if (file_cache_.LookupDimensions(hash, fentry)) {
             layout_cache_[i].height = fentry.css_height;

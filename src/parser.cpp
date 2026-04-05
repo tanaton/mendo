@@ -101,6 +101,7 @@ struct ParseContext {
 
     // 現在構築中のノード
     Node* current_node = nullptr;
+    uint32_t node_wide_offset = 0; // 現在ノードのWide文字オフセット（TextRun用）
 
     // リンクURL格納: SpanStateではインデックスのみ保持し、push/popでの文字列コピーを回避
     std::pmr::vector<std::pmr::wstring> link_urls{ parse_resource.resource() };
@@ -119,7 +120,9 @@ struct ParseContext {
         nodes.emplace_back();
         current_node = &nodes.back();
         current_node->type = type;
+        // text_valid_ はデフォルト false なので明示的な無効化は不要
         current_node->indent_level = indent_level;
+        node_wide_offset = 0;
         if (blockquote_depth > 0 && !blockquote_group_stack.empty()) {
             current_node->blockquote_group = blockquote_group_stack.top();
         }
@@ -154,24 +157,29 @@ struct ParseContext {
         return run;
     }
 
+    // テーブルセルにWideテキストを追加（セルはWideのまま維持）
+    void AppendTextToCell(std::wstring_view text)
+    {
+        const uint32_t start = static_cast<uint32_t>(current_cell->text.size());
+        current_cell->text.append(text);
+        current_cell->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
+    }
+
+    // ノードにWideテキストを追加（Wide→UTF-8変換してtext_utf8に蓄積、BR/SOFTBR/Entity用）
     void AppendText(std::wstring_view text)
     {
-        // テーブルセル内の場合、ノードではなくセルに追加
         if (current_cell) {
-            const uint32_t start = static_cast<uint32_t>(current_cell->text.size());
-            current_cell->text.append(text);
-            current_cell->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
+            AppendTextToCell(text);
             return;
         }
-
         if (!current_node) {
             return;
         }
-
-        const uint32_t start = static_cast<uint32_t>(current_node->text.size());
-        current_node->text.append(text);
+        const auto utf8 = string_convert::WideToUtf8(text);
+        const uint32_t start = node_wide_offset;
+        current_node->text_utf8.append(utf8);
+        node_wide_offset += static_cast<uint32_t>(text.size());
         current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
-
         for (const wchar_t c : text) {
             if (c == L'\n') {
                 current_node->line_count++;
@@ -179,6 +187,7 @@ struct ParseContext {
         }
     }
 
+    // 蓄積UTF-8をフラッシュ
     void FlushUtf8()
     {
         if (!utf8_accum.empty()) {
@@ -187,8 +196,8 @@ struct ParseContext {
         }
     }
 
-    // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する。
-    void AppendUtf8(std::string_view text)
+    // テーブルセルにUTF-8テキストをWide変換して追加
+    void AppendUtf8ToCell(std::string_view text)
     {
         const int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
         if (wlen > 0) {
@@ -196,7 +205,32 @@ struct ParseContext {
                 const int written = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf, static_cast<int>(count));
                 return (written > 0) ? static_cast<size_t>(written) : 0;
             });
-            AppendText(text_buffer);
+            AppendTextToCell(text_buffer);
+        }
+    }
+
+    // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する（エンティティ等用）
+    void AppendUtf8(std::string_view text)
+    {
+        if (current_cell) {
+            AppendUtf8ToCell(text);
+            return;
+        }
+        if (!current_node) {
+            return;
+        }
+        // ノード: Wide長のみ計算してtext_utf8に蓄積
+        const int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+        if (wlen > 0) {
+            const uint32_t start = node_wide_offset;
+            current_node->text_utf8.append(text);
+            node_wide_offset += static_cast<uint32_t>(wlen);
+            current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(wlen)));
+            for (const char c : text) {
+                if (c == '\n') {
+                    current_node->line_count++;
+                }
+            }
         }
     }
 };
@@ -329,13 +363,16 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     switch (type) {
     case MD_BLOCK_CODE:
         ctx->in_code_block = false;
-        // 末尾の改行があれば除去
-        if (ctx->current_node && !ctx->current_node->text.empty() && ctx->current_node->text.back() == L'\n') {
-            ctx->current_node->text.pop_back();
+        // 末尾の改行があれば除去（text_utf8に対して操作）
+        if (ctx->current_node && !ctx->current_node->text_utf8.empty() && ctx->current_node->text_utf8.back() == '\n') {
+            ctx->current_node->text_utf8.pop_back();
             ctx->current_node->line_count--;
+            ctx->node_wide_offset--;
             if (!ctx->current_node->runs.empty()) {
                 auto& last = ctx->current_node->runs.back();
-                if (last.length > 0) last.length--;
+                if (last.length > 0) {
+                    last.length--;
+                }
             }
         }
         break;
@@ -379,7 +416,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_H:
         if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
-            std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->text);
+            // 見出しテキストをWideに変換してアンカーID生成（見出しは少数なのでコスト小）
+            std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->GetText());
             const auto it = ctx->anchor_counts.find(base_id);
             const int count = (it != ctx->anchor_counts.end()) ? it->second : 0;
             if (count > 0) {
@@ -674,13 +712,14 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     const wchar_t* const icon = GetAlertIcon(type);
     const size_t icon_len = std::wcslen(icon);
 
-    const bool has_content = (marker_end < node.text.size());
+    const auto& current_text = node.GetText();
+    const bool has_content = (marker_end < current_text.size());
 
     // 新しいテキストを構築: "[icon] Label" (+ "\n \n" + 残りテキスト)
     const size_t icon_prefix_len = icon_len + 1; // アイコン文字列 + スペース
     const size_t full_label_len = icon_prefix_len + label_len;
     std::pmr::wstring new_text;
-    new_text.reserve(full_label_len + 4 + (has_content ? node.text.size() - marker_end : 0));
+    new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
     new_text.append(icon, icon_len);
     new_text += L' ';
     new_text.append(label, label_len);
@@ -689,7 +728,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     if (has_content) {
         new_text += L'\n';
         new_content_start = full_label_len + 1;
-        new_text.append(node.text.c_str() + marker_end, node.text.size() - marker_end);
+        new_text.append(current_text.c_str() + marker_end, current_text.size() - marker_end);
     }
 
     // TextRun の調整
@@ -719,11 +758,11 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
         new_runs.emplace_back(adjusted);
     }
 
-    node.text = std::move(new_text);
+    node.SetText(new_text);
     node.runs = std::move(new_runs);
     node.alert_type = type;
     node.alert_label_length = static_cast<uint32_t>(full_label_len);
-    node.line_count = static_cast<int>(std::ranges::count(node.text, L'\n'));
+    node.line_count = static_cast<int>(std::ranges::count(node.GetText(), L'\n'));
 }
 
 } // namespace
@@ -736,7 +775,7 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
             continue;
         }
         size_t marker_end = 0;
-        const AlertType type = DetectAlertMarker(nodes[i].text, marker_end);
+        const AlertType type = DetectAlertMarker(nodes[i].GetText(), marker_end);
         if (type == AlertType::None) {
             continue;
         }

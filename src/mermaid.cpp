@@ -481,7 +481,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         return;
     }
 
-    const auto hash = HashCode(node.text, max_width, dark_mode);
+    const auto hash = HashCode(node.GetText(), max_width, dark_mode);
 
     // まずメモリキャッシュを確認
     const auto it = cache_.find(hash);
@@ -641,7 +641,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         L"renderMermaid('{}', {}, 0)"
         L".then(function(r){{window.chrome.webview.postMessage('render-result:{}:'+r);}})"
         L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
-        mermaid_util::JsEscape(worker.current_request.node->text),
+        mermaid_util::JsEscape(worker.current_request.node->GetText()),
         worker.current_request.dark_mode ? L"true" : L"false",
         worker.current_request.request_id, worker.current_request.request_id);
 
@@ -796,7 +796,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
         // ファイルキャッシュに非同期で保存
         if (file_cache_ && w.current_request.node) {
             const uint64_t fkey = HashCode(
-                w.current_request.node->text, w.current_request.max_width, w.current_request.dark_mode);
+                w.current_request.node->GetText(), w.current_request.max_width, w.current_request.dark_mode);
             auto png_bytes = ReadAllStreamBytes(png_stream);
             if (!png_bytes.empty()) {
                 file_cache_->StoreAsync(fkey, draw_w, draw_h, std::move(png_bytes));

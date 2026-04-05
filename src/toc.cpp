@@ -16,7 +16,7 @@ void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes)
 void TableOfContents::AddEntry(const Node& node, int node_index)
 {
     TocEntry entry;
-    entry.text = node.text;
+    entry.text = node.GetText();
     entry.anchor_id = node.anchor_id;
     entry.heading_level = node.heading_level;
     entry.node_index = node_index;

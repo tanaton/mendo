@@ -19,7 +19,7 @@ std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
         if (i < 0 || i >= static_cast<int>(nodes.size())) {
             continue;
         }
-        const auto& text = nodes[i].text;
+        const auto& text = nodes[i].GetText();
 
         uint32_t start = 0;
         uint32_t end = static_cast<uint32_t>(text.size());

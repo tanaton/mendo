@@ -915,8 +915,9 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
             const auto& node = nodes[hit.node_index];
             if (node.type == NodeType::Image && node.has_image()) {
                 tt.zone = TooltipTarget::Zone::MdImage;
-                if (!node.text.empty()) {
-                    tt.text = node.text;
+                const auto& alt = node.GetText();
+                if (!alt.empty()) {
+                    tt.text = alt;
                     tt.text += L"\n";
                 }
                 tt.text += node.image_data->src;
@@ -941,7 +942,7 @@ void App::OnLButtonDblClk(int px, int py)
     if (hit.node_index < 0) {
         return;
     }
-    const auto& text = doc_.GetNodes()[hit.node_index].text;
+    const auto& text = doc_.GetNodes()[hit.node_index].GetText();
     if (text.empty()) {
         return;
     }
@@ -1018,7 +1019,7 @@ void App::CopyCodeBlockToClipboard(int node_index) const
     if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
         return;
     }
-    SetClipboardText(nodes[node_index].text);
+    SetClipboardText(nodes[node_index].GetText());
 }
 
 bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept

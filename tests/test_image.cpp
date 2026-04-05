@@ -26,7 +26,7 @@ TEST(ParserImage, ImageOnlyParagraphBecomesImageNode)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data->src, L"image.png");
-    EXPECT_EQ(nodes[0].text, L"alt text");
+    EXPECT_EQ(nodes[0].GetText(), L"alt text");
 }
 
 TEST(ParserImage, ImageWithRelativePath)
@@ -59,7 +59,7 @@ TEST(ParserImage, ImageWithEmptyAlt)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data->src, L"image.png");
-    EXPECT_TRUE(nodes[0].text.empty());
+    EXPECT_TRUE(nodes[0].GetText().empty());
 }
 
 TEST(ParserImage, ImageWithTitle)
@@ -74,7 +74,7 @@ TEST(ParserImage, ImageAltTextPreserved)
 {
     auto nodes = ParseMarkdown("![Hello World](pic.png)");
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].text, L"Hello World");
+    EXPECT_EQ(nodes[0].GetText(), L"Hello World");
 }
 
 TEST(ParserImage, ImageDefaultDimensionsZero)
@@ -204,7 +204,7 @@ TEST(ParserImage, ImageWithJapaneseAltText)
     auto nodes = ParseMarkdown("![日本語のaltテキスト](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].text, L"日本語のaltテキスト");
+    EXPECT_EQ(nodes[0].GetText(), L"日本語のaltテキスト");
 }
 
 TEST(ParserImage, ImageWithJapanesePath)

@@ -83,8 +83,8 @@ TEST(DocumentTest, GetNodesMut)
 
     // 可変参照を通じてノードを変更
     auto& nodes = doc.GetNodesMut();
-    nodes[0].text = L"modified";
-    EXPECT_EQ(doc.GetNodes()[0].text, L"modified");
+    nodes[0].SetText(L"modified");
+    EXPECT_EQ(doc.GetNodes()[0].GetText(), L"modified");
 }
 
 // ---- GetRawUtf8 ----
@@ -139,7 +139,7 @@ TEST(DocumentTest, GetRawUtf8IndependentOfNodes)
 {
     // ノードの変更が raw_utf8_ に影響しないことを確認
     auto doc = Document::FromMarkdown("hello", L"test.md");
-    doc.GetNodesMut()[0].text = L"modified";
+    doc.GetNodesMut()[0].SetText(L"modified");
     // raw_utf8_ はパース入力のまま
     EXPECT_EQ(doc.GetRawUtf8(), "hello");
 }
