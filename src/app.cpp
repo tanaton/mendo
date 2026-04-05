@@ -610,7 +610,8 @@ void App::FinishLoadMarkdownFile()
 
     // cache.Reset()直後は全ノードの高さが0のため、スクロール復元前に
     // ノード高さを推定し、Mermaidキャッシュの実測値で補正する
-    if (scroll_restore_.HasNodeRestore() || scroll_restore_.HasNavScroll()) {
+    if (scroll_restore_.HasNodeRestore()
+        || (scroll_restore_.HasNavScroll() && scroll_restore_.pending_nav_scroll_y > 0.0f)) {
         MENDO_PROFILE("EstimateNodeHeights");
         EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
         ApplyMermaidCacheHeights(md_width);
