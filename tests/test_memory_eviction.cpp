@@ -170,7 +170,7 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
     for (int i = 0; i < 100; i++) {
         md += "paragraph " + std::to_string(i) + "\n\n";
     }
-    auto nodes = ParseMarkdown(md);
+    auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GT(nodes.size(), 50u);
 
     LayoutCache cache;
@@ -214,7 +214,7 @@ TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
     for (int i = 0; i < 50; i++) {
         md += "paragraph " + std::to_string(i) + "\n\n";
     }
-    auto nodes = ParseMarkdown(md);
+    auto nodes = ParseMarkdown(md).nodes;
 
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -240,7 +240,7 @@ TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
     for (int i = 0; i < 100; i++) {
         md += "paragraph " + std::to_string(i) + "\n\n";
     }
-    auto nodes = ParseMarkdown(md);
+    auto nodes = ParseMarkdown(md).nodes;
 
     LayoutCache cache;
     cache.Resize(nodes.size());

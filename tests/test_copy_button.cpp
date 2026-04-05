@@ -21,16 +21,16 @@ protected:
         ASSERT_TRUE(engine_.Init(&mock_, theme_));
     }
 
-    struct ParseResult {
+    struct ParsedLayout {
         std::pmr::vector<Node> nodes;
         LayoutCache cache;
     };
 
     // Markdown をパースしてレイアウトを計算するヘルパー
-    ParseResult Parse(const std::string& md, float viewport_w = 800.0f)
+    ParsedLayout Parse(const std::string& md, float viewport_w = 800.0f)
     {
-        ParseResult r;
-        r.nodes = ParseMarkdown(md);
+        ParsedLayout r;
+        r.nodes = ParseMarkdown(md).nodes;
         r.cache.Resize(r.nodes.size());
         engine_.ComputeLayout(r.nodes, r.cache, viewport_w);
         return r;
@@ -38,7 +38,7 @@ protected:
 
     // コードブロックのコピーボタン中心座標をスクリーンピクセルで返すヘルパー
     // dpi_scale=1, md_pane_left=0 前提
-    std::pair<int, int> CopyBtnCenter(const ParseResult& pr, int node_index, float viewport_w = 800.0f)
+    std::pair<int, int> CopyBtnCenter(const ParsedLayout& pr, int node_index, float viewport_w = 800.0f)
     {
         const auto& node = pr.nodes[node_index];
         const auto& entry = pr.cache[node_index];

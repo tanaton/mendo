@@ -25,7 +25,7 @@ protected:
     // ヘルパー: Markdownをパースし、レイアウトを計算し、MDペイン用のコマンドを生成する。
     DrawCommandList Generate(const std::string& md, float viewport_w = 800.0f)
     {
-        auto nodes = ParseMarkdown(md);
+        auto nodes = ParseMarkdown(md).nodes;
         LayoutCache cache;
         cache.Resize(nodes.size());
         engine_.ComputeLayout(nodes, cache, viewport_w);
@@ -184,7 +184,7 @@ TEST_F(CmdGenTest, ViewportCullingExcludesOffscreenNodes)
     // 多数の水平線を作成。text_layoutがなくてもDrawLineCmdを生成する。
     std::string md;
     for (int i = 0; i < 50; i++) md += "---\n\n";
-    auto nodes = ParseMarkdown(md);
+    auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -262,7 +262,7 @@ TEST_F(CmdGenTest, TaskListItemGeneratesNoEllipse)
 
 TEST_F(CmdGenTest, SelectionGeneratesFillRects)
 {
-    auto nodes = ParseMarkdown("Hello world paragraph");
+    auto nodes = ParseMarkdown("Hello world paragraph").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -292,7 +292,7 @@ TEST_F(CmdGenTest, ScrolledViewportCullsTopNodes)
     std::string md;
     for (int i = 0; i < 20; i++) md += "Paragraph " + std::to_string(i) + "\n\n";
 
-    auto nodes = ParseMarkdown(md);
+    auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -577,7 +577,7 @@ TEST_F(CmdGenTest, NonCodeBlockNoCopyButton)
 
 TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine)
 {
-    auto nodes = ParseMarkdown("- Item");
+    auto nodes = ParseMarkdown("- Item").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -598,7 +598,7 @@ TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine)
 
 TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
 {
-    auto nodes = ParseMarkdown("- A\n  - B");
+    auto nodes = ParseMarkdown("- A\n  - B").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -625,7 +625,7 @@ TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
 // hovered_copy_node パラメータが GenerateMdPane に渡せることの検証
 TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted)
 {
-    auto nodes = ParseMarkdown("```\ncode\n```");
+    auto nodes = ParseMarkdown("```\ncode\n```").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -640,7 +640,7 @@ TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted)
 
 TEST_F(CmdGenTest, ImageWithoutBitmapGeneratesPlaceholder)
 {
-    auto nodes = ParseMarkdown("![alt](image.png)");
+    auto nodes = ParseMarkdown("![alt](image.png)").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -659,7 +659,7 @@ TEST_F(CmdGenTest, ImageWithoutBitmapGeneratesPlaceholder)
 
 TEST_F(CmdGenTest, MermaidWithoutBitmapGeneratesPlaceholder)
 {
-    auto nodes = ParseMarkdown("```mermaid\ngraph TD\n  A-->B\n```");
+    auto nodes = ParseMarkdown("```mermaid\ngraph TD\n  A-->B\n```").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -678,7 +678,7 @@ TEST_F(CmdGenTest, MermaidWithoutBitmapGeneratesPlaceholder)
 
 TEST_F(CmdGenTest, PlaceholderBgUsesCodeBgColor)
 {
-    auto nodes = ParseMarkdown("![alt](image.png)");
+    auto nodes = ParseMarkdown("![alt](image.png)").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);

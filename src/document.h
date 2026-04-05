@@ -1,6 +1,7 @@
 #pragma once
 #include "types.h"
 #include "toc.h"
+#include "parser.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -27,7 +28,7 @@ public:
     constexpr void SetFilePath(std::wstring_view path) { file_path_ = path; }
 
     // 内容の差し替え（再パース時）
-    void ReplaceContent(std::pmr::vector<Node> new_nodes);
+    void ReplaceContent(ParseResult&& result);
 
     // Markdown文字列から内容を再パース（パスは保持）
     void ReplaceFromMarkdown(std::pmr::string utf8);
@@ -41,7 +42,7 @@ public:
     constexpr const std::pmr::vector<size_t>& GetMermaidNodeIndices() const noexcept { return mermaid_node_indices_; }
 
 private:
-    void BuildIndices();
+    void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;

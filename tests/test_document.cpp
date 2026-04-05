@@ -66,8 +66,7 @@ TEST(DocumentTest, ReplaceContent)
     EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"First");
 
     // 新しいコンテンツで置き換え
-    auto doc2 = Document::FromMarkdown("# Second\n## Sub", L"");
-    doc.ReplaceContent(std::move(doc2.GetNodesMut()));
+    doc.ReplaceContent(ParseMarkdown("# Second\n## Sub"));
 
     // TOCが再構築されるべき
     EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);
@@ -207,8 +206,7 @@ TEST(DocumentTest, BuildIndicesAfterReplaceContent)
     EXPECT_EQ(doc.GetToc().GetEntries().size(), 1u);
     EXPECT_EQ(doc.FindAnchorIndex(L"old"), 0);
 
-    auto doc2 = Document::FromMarkdown("# New\n\n## Sub", L"");
-    doc.ReplaceContent(std::move(doc2.GetNodesMut()));
+    doc.ReplaceContent(ParseMarkdown("# New\n\n## Sub"));
     EXPECT_EQ(doc.GetToc().GetEntries().size(), 2u);
     EXPECT_EQ(doc.FindAnchorIndex(L"old"), -1);
     EXPECT_EQ(doc.FindAnchorIndex(L"new"), 0);

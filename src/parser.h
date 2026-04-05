@@ -5,7 +5,15 @@
 #include <vector>
 #include <memory_resource>
 
-[[nodiscard]] std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text);
+// パーサーの出力: ノード本体と、パース中に構築された特殊ノードインデックス
+struct ParseResult {
+    std::pmr::vector<Node> nodes;
+    std::pmr::vector<size_t> heading_indices;
+    std::pmr::vector<size_t> image_indices;
+    std::pmr::vector<size_t> mermaid_indices;
+};
+
+[[nodiscard]] ParseResult ParseMarkdown(std::string_view markdown_text);
 
 // 見出しテキストからGitHubスタイルのアンカースラグを生成する（テスト用に公開）
 [[nodiscard]] std::pmr::wstring GenerateAnchorId(std::wstring_view text);

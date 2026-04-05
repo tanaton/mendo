@@ -71,6 +71,12 @@ struct ParseContext {
 
     std::pmr::vector<Node> nodes;
 
+    // パース中に構築する特殊ノードインデックス（BuildIndicesのO(n)走査を除去）
+    std::pmr::vector<size_t> heading_indices;
+    std::pmr::vector<size_t> image_indices;
+    std::pmr::vector<size_t> mermaid_indices;
+    size_t current_node_index = 0;
+
     // パース一時データには monotonic リソースを使用
     std::stack<SpanState, std::pmr::deque<SpanState>> span_stack{
         std::pmr::deque<SpanState>{parse_resource.resource()} };
@@ -120,6 +126,7 @@ struct ParseContext {
         nodes.emplace_back();
         current_node = &nodes.back();
         current_node->type = type;
+        current_node_index = nodes.size() - 1;
         // text_valid_ はデフォルト false なので明示的な無効化は不要
         current_node->indent_level = indent_level;
         node_wide_offset = 0;
@@ -393,6 +400,9 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
                 }
             }
         }
+        if (ctx->current_node && ctx->current_node->code_language == SyntaxLanguage::Mermaid) {
+            ctx->mermaid_indices.emplace_back(ctx->current_node_index);
+        }
         break;
 
     case MD_BLOCK_QUOTE:
@@ -446,6 +456,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
                 ctx->current_node->anchor_id = base_id;
             }
             ctx->anchor_counts[std::move(base_id)] = count + 1;
+            ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
         ctx->current_node = nullptr;
         break;
@@ -455,6 +466,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             && (ctx->current_node->type == NodeType::Paragraph
                 || ctx->current_node->type == NodeType::BlockQuote)) {
             ctx->current_node->type = NodeType::Image;
+            ctx->image_indices.emplace_back(ctx->current_node_index);
         }
         ctx->current_node = nullptr;
         break;
@@ -814,7 +826,7 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
     }
 }
 
-std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text)
+ParseResult ParseMarkdown(std::string_view markdown_text)
 {
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
@@ -833,5 +845,10 @@ std::pmr::vector<Node> ParseMarkdown(std::string_view markdown_text)
 
     DetectAlerts(ctx.nodes);
 
-    return std::move(ctx.nodes);
+    ParseResult result;
+    result.nodes = std::move(ctx.nodes);
+    result.heading_indices = std::move(ctx.heading_indices);
+    result.image_indices = std::move(ctx.image_indices);
+    result.mermaid_indices = std::move(ctx.mermaid_indices);
+    return result;
 }
