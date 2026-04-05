@@ -9,8 +9,8 @@ IDI_APP_ICON ICON "mendo.ico"
 
 // Version info
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION    0,1,1,4
-PRODUCTVERSION 0,1,1,4
+FILEVERSION    0,1,2,0
+PRODUCTVERSION 0,1,2,0
 FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
 FILEFLAGS      0
 FILEOS         VOS_NT_WINDOWS32
@@ -22,11 +22,11 @@ BEGIN
         BLOCK "041104b0"
         BEGIN
             VALUE "FileDescription", "mendo - Insanely Fast Markdown Viewer"
-            VALUE "FileVersion", "0.1.1.4"
+            VALUE "FileVersion", "0.1.2.0"
             VALUE "InternalName", "mendo"
             VALUE "OriginalFilename", "mendo.exe"
             VALUE "ProductName", "mendo"
-            VALUE "ProductVersion", "0.1.1.4"
+            VALUE "ProductVersion", "0.1.2.0"
         END
     END
     BLOCK "VarFileInfo"
