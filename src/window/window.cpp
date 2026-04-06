@@ -2,6 +2,7 @@
 #include "config_store.h"
 #include "i18n.h"
 #include "resource.h"
+#include "ui_constants.h"
 #include <windowsx.h>
 #include <shellscalingapi.h>
 #include <dwmapi.h>
@@ -43,7 +44,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         L"mendo",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        1600, 900,
+        DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT,
         nullptr, nullptr, hInstance, this);
 
     if (!hwnd_) {
@@ -409,15 +410,15 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         }
         break;
 
-    case App::WM_APP_SEARCH_FOCUS:
+    case app_msg::SEARCH_FOCUS:
         if (search_edit_) {
             RepositionSearchEdit();
             SetFocus(search_edit_);
-            if (wParam == App::SEARCH_FOCUS_SET_CARET) {
+            if (wParam == app_param::SEARCH_FOCUS_SET_CARET) {
                 const auto pos = static_cast<int>(lParam);
                 SendMessageW(search_edit_, EM_SETSEL, pos, pos);
             }
-            else if (wParam == App::SEARCH_FOCUS_SET_SELECTION) {
+            else if (wParam == app_param::SEARCH_FOCUS_SET_SELECTION) {
                 const int anchor = GET_X_LPARAM(lParam);
                 const int caret = GET_Y_LPARAM(lParam);
                 SendMessageW(search_edit_, EM_SETSEL, anchor, caret);
@@ -429,9 +430,9 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         }
         return 0;
 
-    case App::WM_APP_SEARCH_UNFOCUS:
+    case app_msg::SEARCH_UNFOCUS:
         SetFocus(hwnd_);
-        if (wParam == App::SEARCH_UNFOCUS_FILE_SWITCH && search_edit_) {
+        if (wParam == app_param::SEARCH_UNFOCUS_FILE_SWITCH && search_edit_) {
             SetWindowTextW(search_edit_, L"");
         }
         return 0;
@@ -463,19 +464,19 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_.HandleTimer(wParam);
         return 0;
 
-    case App::WM_APP_LOAD_FILE:
+    case app_msg::LOAD_FILE:
         app_.OnAppLoadFile();
         return 0;
 
-    case App::WM_APP_RELOAD_FILE:
+    case app_msg::RELOAD_FILE:
         app_.OnAppReloadFile();
         return 0;
 
-    case App::WM_APP_IMAGE_LOADED:
+    case app_msg::IMAGE_LOADED:
         app_.OnAppImageLoaded();
         return 0;
 
-    case App::WM_APP_PARSE_COMPLETE:
+    case app_msg::PARSE_COMPLETE:
         app_.OnParseComplete();
         return 0;
 
@@ -537,10 +538,8 @@ void Win32Window::ResetWindowPlacement()
     const int work_w = work.right - work.left;
     const int work_h = work.bottom - work.top;
 
-    constexpr int DEFAULT_W = 1600;
-    constexpr int DEFAULT_H = 900;
-    const int w = std::min(DEFAULT_W, work_w);
-    const int h = std::min(DEFAULT_H, work_h);
+    const int w = std::min(DEFAULT_WINDOW_WIDTH, work_w);
+    const int h = std::min(DEFAULT_WINDOW_HEIGHT, work_h);
     const int x = work.left + (work_w - w) / 2;
     const int y = work.top + (work_h - h) / 2;
 

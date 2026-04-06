@@ -4,23 +4,9 @@
 #include "document_utils.h"
 #include "ui_constants.h"
 #include "resource.h"
-#include <shellapi.h>
 #include <cwctype>
-#include <filesystem>
 
 namespace {
-
-bool IsEditableTextFile(std::wstring_view path)
-{
-    if (IsMarkdownFile(path)) {
-        return true;
-    }
-    auto ext = std::filesystem::path(path).extension().wstring();
-    for (auto& c : ext) {
-        c = std::towlower(c);
-    }
-    return ext == L".txt";
-}
 
 // ペインヘッダー内のボタンがクリックされたか判定する。
 bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height, D2D1_RECT_F(*button_rect_fn)(float, float) noexcept)
@@ -61,7 +47,7 @@ struct PaneHoverResult {
 // サイドペインの共通ホバー処理。
 // ヘッダーボタンのホバー状態を更新し、コンテンツ領域のアイテムヒットテストを行う。
 template<typename SetCloseHoveredFn, typename SetRefreshHoveredFn,
-         typename HitTestFn, typename BuildTooltipFn>
+    typename HitTestFn, typename BuildTooltipFn>
 PaneHoverResult ProcessSidePaneHover(
     float dip_x, float dip_y,
     const PaneRect& rect, float header_h, float item_height,
@@ -103,16 +89,16 @@ void App::UpdateTooltip(const TooltipTarget& target, int px, int py)
     POINT screen_pos = { px, py };
     ClientToScreen(hwnd_, &screen_pos);
     if (tooltip_.Update(target, screen_pos)) {
-        SetTimer(hwnd_, TIMER_TOOLTIP, TOOLTIP_DELAY_MS, nullptr);
+        SetTimer(hwnd_, app_timer::TOOLTIP, TOOLTIP_DELAY_MS, nullptr);
     }
     else if (target.IsEmpty()) {
-        KillTimer(hwnd_, TIMER_TOOLTIP);
+        KillTimer(hwnd_, app_timer::TOOLTIP);
     }
 }
 
 void App::ClearTooltip()
 {
-    KillTimer(hwnd_, TIMER_TOOLTIP);
+    KillTimer(hwnd_, app_timer::TOOLTIP);
     tooltip_.Hide();
     tooltip_.ResetTarget();
 }
@@ -135,57 +121,6 @@ void App::RefreshFilePane()
 // ============================================================
 // コンテキストメニュー
 // ============================================================
-
-void App::OnContextMenu(int screen_x, int screen_y)
-{
-    POINT client_pt{ screen_x, screen_y };
-    ScreenToClient(hwnd_, &client_pt);
-    const auto dip = PixelToDip(client_pt.x, client_pt.y);
-    const auto zone = PaneAtPoint(dip.x, dip.y);
-
-    ContextMenuParams params;
-    params.screen_x = screen_x;
-    params.screen_y = screen_y;
-    params.dpi_scale = cached_dpi_scale_;
-    params.can_go_back = nav_history_.CanGoBack();
-    params.can_go_forward = nav_history_.CanGoForward();
-    params.has_file = !doc_.GetFilePath().empty();
-    params.has_selection = viewport_.GetSelection().active && viewport_.GetSelection().start_node >= 0;
-    params.dark_mode_checked = theme_service_.IsDarkMode();
-    params.file_pane_checked = panes_.IsFilePaneVisible();
-    params.toc_pane_checked = panes_.IsTocPaneVisible();
-    params.show_file_items = (zone == PaneZone::MdPane);
-    params.theme = &renderer_.GetTheme();
-
-    const int cmd = ctx_menu_.Show(hwnd_, params);
-
-    if (cmd == IDM_NAV_BACK) {
-        NavigateBack();
-    }
-    else if (cmd == IDM_NAV_FORWARD) {
-        NavigateForward();
-    }
-    else if (cmd == IDM_EDIT_FILE) {
-        const auto& file_path = doc_.GetFilePath();
-        if (IsEditableTextFile(file_path)) {
-            ShellExecuteW(hwnd_, L"open", file_path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-        }
-    }
-    else if (cmd == IDM_COPY) {
-        CopySelectionToClipboard();
-    }
-    else if (cmd == IDM_TOGGLE_DARK_MODE) {
-        ToggleDarkMode();
-    }
-    else if (cmd == IDM_TOGGLE_FILE_PANE) {
-        panes_.ToggleFilePane();
-        RefreshPaneLayout();
-    }
-    else if (cmd == IDM_TOGGLE_TOC_PANE) {
-        panes_.ToggleTocPane();
-        RefreshPaneLayout();
-    }
-}
 
 // ============================================================
 // 右クリックジェスチャー
@@ -498,10 +433,10 @@ void App::OnLButtonDown(int px, int py)
                         search_state_.GetQuery(), dip.x - text_left, input_w);
                     search_bar_ctrl_.StartDrag(pos);
                     SetCapture(hwnd_);
-                    PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, App::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
+                    PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
                     return;
                 }
-                PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, App::SEARCH_FOCUS_SELECT_ALL, 0);
+                PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
                 return;
             }
         }
@@ -644,7 +579,7 @@ void App::OnMouseMove(int px, int py)
             search_state_.GetQuery(), dip.x - text_left, input_w);
         if (pos != search_bar_ctrl_.GetCaretPos() ||
             search_bar_ctrl_.GetDragAnchor() != search_bar_ctrl_.GetSelectionStart()) {
-            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, App::SEARCH_FOCUS_SET_SELECTION,
+            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION,
                 MAKELPARAM(search_bar_ctrl_.GetDragAnchor(), pos));
         }
         return;
@@ -766,13 +701,26 @@ void App::OnMouseHover(int px, int py)
             [this](bool v) { return panes_.SetFileRefreshHovered(v); },
             [this](float y, float h) { return file_explorer_.HitTest(y, h); },
             [&](bool close_hit, bool refresh_hit, int idx) -> TooltipTarget {
-                if (close_hit) { return { TooltipTarget::Zone::FilePaneButton, i18n::S().tooltip_pane_close }; }
-                if (refresh_hit) { return { TooltipTarget::Zone::FilePaneButton, i18n::S().tooltip_pane_refresh }; }
-                if (idx >= 0 && idx < static_cast<int>(entries.size())) {
-                    return { TooltipTarget::Zone::FilePaneItem, entries[idx].full_path };
-                }
-                return {};
-            });
+            if (close_hit) {
+                return {
+                    TooltipTarget::Zone::FilePaneButton,
+                    i18n::S().tooltip_pane_close
+                };
+            }
+            if (refresh_hit) {
+                return {
+                    TooltipTarget::Zone::FilePaneButton,
+                    i18n::S().tooltip_pane_refresh
+                };
+            }
+            if (idx >= 0 && idx < static_cast<int>(entries.size())) {
+                return {
+                    TooltipTarget::Zone::FilePaneItem,
+                    entries[idx].full_path
+                };
+            }
+            return {};
+        });
         SetCursor(hr.any_button_hit ? cursors_.Hand() : cursors_.Arrow());
         if (hr.button_changed) {
             renderer_.InvalidateFilePaneCache();
@@ -792,12 +740,12 @@ void App::OnMouseHover(int px, int py)
             [](bool) { return false; },
             [this](float y, float h) { return doc_.GetToc().HitTest(y, h); },
             [&](bool close_hit, bool, int idx) -> TooltipTarget {
-                if (close_hit) { return { TooltipTarget::Zone::TocPaneButton, i18n::S().tooltip_pane_close }; }
-                if (idx >= 0 && idx < static_cast<int>(toc_entries.size())) {
-                    return { TooltipTarget::Zone::TocPaneItem, toc_entries[idx].text };
-                }
-                return {};
-            });
+            if (close_hit) { return { TooltipTarget::Zone::TocPaneButton, i18n::S().tooltip_pane_close }; }
+            if (idx >= 0 && idx < static_cast<int>(toc_entries.size())) {
+                return { TooltipTarget::Zone::TocPaneItem, toc_entries[idx].text };
+            }
+            return {};
+        });
         SetCursor(hr.any_button_hit ? cursors_.Hand() : cursors_.Arrow());
         if (hr.button_changed) {
             renderer_.InvalidateTocPaneCache();
@@ -956,100 +904,6 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         UpdateTooltip(tt, px, py);
     }
     SetCursor(hover_throttle_.last_md_cursor_hand ? cursors_.Hand() : cursors_.IBeam());
-}
-
-void App::OnLButtonDblClk(int px, int py)
-{
-    if (!renderer_.GetRenderTarget()) {
-        return;
-    }
-    const auto dip = PixelToDip(px, py);
-    const auto zone = PaneAtPoint(dip.x, dip.y);
-    if (zone != PaneZone::MdPane) {
-        return;
-    }
-    const auto hit = HitTest(px, py);
-    if (hit.node_index < 0) {
-        return;
-    }
-    const auto& text = doc_.GetNodes()[hit.node_index].GetText();
-    if (text.empty()) {
-        return;
-    }
-    const auto wb = FindWordBoundaries(text, hit.text_pos);
-    if (!wb.found) {
-        return;
-    }
-
-    viewport_.SetAnchor(hit.node_index, wb.start);
-    viewport_.SetSelection(TextSelection::MakeOrdered(hit.node_index, wb.start, hit.node_index, wb.end));
-    const auto layout = GetPaneLayout();
-    InvalidateMdPane(layout.md_rect);
-}
-
-// ============================================================
-// 選択 / クリップボード
-// ============================================================
-
-void App::ClearSelection()
-{
-    viewport_.ClearSelection();
-    const auto layout = GetPaneLayout();
-    InvalidateMdPane(layout.md_rect);
-}
-
-void App::SelectAll()
-{
-    viewport_.SelectAll(doc_.GetNodes());
-    const auto layout = GetPaneLayout();
-    InvalidateMdPane(layout.md_rect);
-}
-
-void App::SetClipboardText(std::wstring_view text) const
-{
-    if (text.empty()) {
-        return;
-    }
-    if (!OpenClipboard(hwnd_)) {
-        return;
-    }
-    EmptyClipboard();
-
-    const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-    const HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (hMem) {
-        void* ptr = GlobalLock(hMem);
-        if (ptr) {
-            memcpy(ptr, text.data(), text.size() * sizeof(wchar_t));
-            static_cast<wchar_t*>(ptr)[text.size()] = L'\0';
-            GlobalUnlock(hMem);
-            if (!SetClipboardData(CF_UNICODETEXT, hMem)) {
-                GlobalFree(hMem);
-            }
-        }
-        else {
-            GlobalFree(hMem);
-        }
-    }
-    CloseClipboard();
-}
-
-void App::CopySelectionToClipboard() const
-{
-    if (!viewport_.GetSelection().active) {
-        return;
-    }
-    const std::pmr::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
-    SetClipboardText(result);
-}
-
-void App::CopyCodeBlockToClipboard(int node_index) const
-{
-    const auto& nodes = doc_.GetNodes();
-    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
-        return;
-    }
-    SetClipboardText(nodes[node_index].GetText());
 }
 
 bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept

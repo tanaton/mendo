@@ -60,43 +60,60 @@ if(MSVC)
     set_target_properties(md4c PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
+# ---- サブディレクトリ定義 ----
+set(MENDO_SRC_DIRS
+    src src/app src/window src/core src/render src/layout
+    src/ui src/input src/io src/mermaid src/nav src/theme src/util
+)
+
 # ---- コアライブラリ（テスト可能なコード、WinMain/ウィンドウなし） ----
 add_library(mendo_core STATIC
-    src/document.cpp
-    src/document_service.cpp
-    src/hit_test_service.cpp
-    src/parser.cpp
-    src/layout.cpp
-    src/layout_service.cpp
-    src/dwrite_measurer.cpp
-    src/command_generator.cpp
-    src/command_gen_table.cpp
-    src/command_executor.cpp
-    src/file_loader.cpp
-    src/theme.cpp
-    src/syntax.cpp
-    src/file_explorer.cpp
-    src/toc.cpp
-    src/document_utils.cpp
-    src/pane_layout.cpp
-    src/mermaid_util.cpp
-    src/mermaid_file_cache.cpp
-    src/config_store.cpp
-    src/app_controller.cpp
-    src/pane_controller.cpp
-    src/nav_history.cpp
-    src/navigation_service.cpp
-    src/theme_service.cpp
-    src/file_load_service.cpp
-    src/context_menu.cpp
-    src/image_loader.cpp
-    src/task_scheduler.cpp
-    src/search_state.cpp
-    src/search_bar_controller.cpp
-    src/session_service.cpp
-    src/file_watcher.cpp
+    # core - ドキュメントモデル・パース
+    src/core/document.cpp
+    src/core/document_service.cpp
+    src/core/document_utils.cpp
+    src/core/parser.cpp
+    src/core/toc.cpp
+    src/core/syntax.cpp
+    # layout - レイアウト計算
+    src/layout/layout.cpp
+    src/layout/layout_service.cpp
+    src/layout/dwrite_measurer.cpp
+    # render - 描画パイプライン
+    src/render/command_generator.cpp
+    src/render/command_gen_table.cpp
+    src/render/command_executor.cpp
+    # ui - UIコンポーネント
+    src/ui/pane_layout.cpp
+    src/ui/pane_controller.cpp
+    src/ui/context_menu.cpp
+    src/ui/search_state.cpp
+    src/ui/search_bar_controller.cpp
+    # input - 入力処理
+    src/input/hit_test_service.cpp
+    # io - ファイルI/O・永続化
+    src/io/file_loader.cpp
+    src/io/file_explorer.cpp
+    src/io/file_load_service.cpp
+    src/io/config_store.cpp
+    src/io/image_loader.cpp
+    src/io/session_service.cpp
+    src/io/file_watcher.cpp
+    # mermaid - Mermaid図表サポート
+    src/mermaid/mermaid_util.cpp
+    src/mermaid/mermaid_file_cache.cpp
+    # nav - ナビゲーション
+    src/nav/nav_history.cpp
+    src/nav/navigation_service.cpp
+    # theme - テーマ管理
+    src/theme/theme.cpp
+    src/theme/theme_service.cpp
+    # app - アプリケーション制御
+    src/app/app_controller.cpp
+    # util - ユーティリティ
+    src/util/task_scheduler.cpp
 )
-target_include_directories(mendo_core PUBLIC src third_party/md4c)
+target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS} third_party/md4c)
 target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
     $<$<CONFIG:Release>:MENDO_PROFILE_ENABLED=0>
@@ -125,16 +142,22 @@ add_custom_target(mermaid_gz DEPENDS "${MERMAID_JS_GZ}")
 # ---- メイン実行ファイル ----
 add_executable(mendo WIN32
     src/main.cpp
-    src/window.cpp
-    src/app.cpp
-    src/app_scroll.cpp
-    src/app_mouse.cpp
-    src/app_navigate.cpp
-    src/renderer.cpp
-    src/renderer_pane.cpp
-    src/resource_manager.cpp
-    src/d2d_render_backend.cpp
-    src/mermaid.cpp
+    src/window/window.cpp
+    src/app/app.cpp
+    src/app/app_scroll.cpp
+    src/app/app_mouse.cpp
+    src/app/app_navigate.cpp
+    src/app/app_context_menu.cpp
+    src/app/app_clipboard.cpp
+    src/app/app_render_state.cpp
+    src/app/resource_manager.cpp
+    src/render/renderer.cpp
+    src/render/renderer_pane.cpp
+    src/render/renderer_titlebar.cpp
+    src/render/renderer_overlay.cpp
+    src/render/renderer_search.cpp
+    src/render/d2d_render_backend.cpp
+    src/mermaid/mermaid.cpp
     res/mendo.rc
 )
 add_dependencies(mendo mermaid_gz)

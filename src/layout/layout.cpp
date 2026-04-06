@@ -248,7 +248,9 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                     const float old_height = entry.height;
                     measurer_->MeasureNode(node, entry, node_width);
                     any_measured = true;
-                    if (entry.height != old_height) any_height_changed = true;
+                    if (entry.height != old_height) {
+                        any_height_changed = true;
+                    }
                 }
                 else {
                     entry.layout_dirty = true;

@@ -1,4 +1,5 @@
 #include "app.h"
+#include "file_loader.h"
 #include "parser.h"
 #include "resource.h"
 #include "i18n.h"
@@ -73,7 +74,7 @@ bool App::Init(HWND hwnd)
     });
 
     image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory());
-    image_loader_.InitAsync(hwnd_, WM_APP_IMAGE_LOADED, scheduler_);
+    image_loader_.InitAsync(hwnd_, app_msg::IMAGE_LOADED, scheduler_);
 
     // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、各ローダーを更新
     renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
@@ -115,7 +116,7 @@ bool App::Init(HWND hwnd)
 
     search_bar_ctrl_.Init(search_state_, viewport_, layout_cache_, BuildSearchBarCallbacks());
 
-    SetTimer(hwnd_, TIMER_FILE_WATCH, FILE_WATCH_INTERVAL_MS, nullptr);
+    SetTimer(hwnd_, app_timer::FILE_WATCH, FILE_WATCH_INTERVAL_MS, nullptr);
 
     return true;
 }
@@ -246,83 +247,6 @@ float App::GetMarkdownPaneWidth() const
 // OnPaint用のレンダーステート構築ヘルパー
 // ============================================================
 
-GestureRenderState App::BuildGestureRenderState() const
-{
-    GestureRenderState gs;
-    gs.trail_active = gesture_.IsGestureActive();
-    gs.trail_points = &gesture_.GetTrailPoints();
-    gs.overlay_visible = gesture_.IsOverlayVisible();
-    gs.direction = (gesture_.GetDirection() == GestureDirection::Left) ? -1
-        : (gesture_.GetDirection() == GestureDirection::Right) ? 1 : 0;
-    gs.overlay_alpha = gesture_.GetOverlayAlpha();
-
-    // タッチパッドスワイプのオーバーレイ（マウスジェスチャーが非アクティブの場合のみ）
-    if (!gs.overlay_visible && swipe_detector_.IsOverlayVisible()) {
-        gs.overlay_visible = true;
-        gs.direction = swipe_detector_.GetOverlayDirection();
-        gs.overlay_alpha = swipe_detector_.GetOverlayAlpha();
-    }
-    return gs;
-}
-
-SidePaneState App::BuildSidePaneState(const ::PaneLayout& layout) const
-{
-    return { layout.file_rect, layout.toc_rect,
-             file_explorer_.GetEntries(), panes_.FileScroll(),
-             doc_.GetToc().GetEntries(), panes_.TocScroll(),
-             panes_.GetHoveredFileIndex(), panes_.GetHoveredTocIndex(), active_toc_index_,
-             panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible(),
-             panes_.IsFileCloseHovered(), panes_.IsFileRefreshHovered(),
-             panes_.IsTocCloseHovered() };
-}
-
-TitleBarRenderState App::BuildTitleBarRenderState(float window_width) const
-{
-    TitleBarRenderState tb;
-    tb.height = titlebar_.GetHeight();
-    tb.window_width = window_width;
-    tb.help_btn_rect = titlebar_.GetHelpButton().rect;
-    tb.help_btn_hovered = titlebar_.GetHelpButton().hovered;
-    tb.theme_btn_rect = titlebar_.GetThemeToggleButton().rect;
-    tb.theme_btn_hovered = titlebar_.GetThemeToggleButton().hovered;
-    tb.is_dark_mode = theme_service_.IsDarkMode();
-    tb.search_btn_rect = titlebar_.GetSearchButton().rect;
-    tb.search_btn_hovered = titlebar_.GetSearchButton().hovered;
-    tb.search_active = search_state_.IsVisible();
-    tb.file_btn_rect = titlebar_.GetFileToggleButton().rect;
-    tb.file_btn_hovered = titlebar_.GetFileToggleButton().hovered;
-    tb.file_pane_visible = panes_.IsFilePaneVisible();
-    tb.toc_btn_rect = titlebar_.GetTocToggleButton().rect;
-    tb.toc_btn_hovered = titlebar_.GetTocToggleButton().hovered;
-    tb.toc_pane_visible = panes_.IsTocPaneVisible();
-    tb.minimize_btn_rect = titlebar_.GetMinimizeButton().rect;
-    tb.minimize_btn_hovered = titlebar_.GetMinimizeButton().hovered;
-    tb.maximize_btn_rect = titlebar_.GetMaximizeButton().rect;
-    tb.maximize_btn_hovered = titlebar_.GetMaximizeButton().hovered;
-    tb.is_maximized = IsZoomed(hwnd_) != FALSE;
-    tb.close_btn_rect = titlebar_.GetCloseButton().rect;
-    tb.close_btn_hovered = titlebar_.GetCloseButton().hovered;
-    tb.icon_rect = titlebar_.GetIconRect();
-    tb.title_text_rect = titlebar_.GetTitleTextRect();
-    tb.title_text = cached_title_text_;
-    tb.window_active = window_active_;
-    return tb;
-}
-
-ToastRenderState App::BuildToastRenderState() const
-{
-    ToastRenderState ts;
-    ts.visible = toast_.IsVisible();
-    ts.alpha = toast_.GetRenderAlpha();
-    ts.message = toast_.GetMessage();
-    return ts;
-}
-
-SearchBarRenderState App::BuildSearchBarRenderState() const
-{
-    return search_bar_ctrl_.BuildRenderState();
-}
-
 // ============================================================
 // 描画 / リサイズ
 // ============================================================
@@ -337,7 +261,7 @@ void App::OnPaint()
     const auto& layout = GetPaneLayout();
     if (!file_load_service_.IsLoading()) {
         // 完了済みデコード結果とキャッシュ済みリソースを描画前に適用する。
-        // WM_APP_IMAGE_LOADED が WM_PAINT より後にキューされている場合でも
+        // app_msg::IMAGE_LOADED が WM_PAINT より後にキューされている場合でも
         // プレースホルダーの表示を回避できる。
         resource_manager_.FlushPendingResources();
 
@@ -489,7 +413,7 @@ void App::LoadHelpDocument()
         return;
     }
 
-    KillTimer(hwnd_, TIMER_LOADING_ANIM);
+    KillTimer(hwnd_, app_timer::LOADING_ANIM);
     file_load_service_.StopLoading();
     viewport_.ClearSelection();
     resource_manager_.CancelMermaidBatch();
@@ -532,10 +456,10 @@ void App::LoadMarkdownFile(std::wstring_view path)
     }
     else {
         file_load_service_.StartLoading(path_str);
-        SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
+        SetTimer(hwnd_, app_timer::LOADING_ANIM, 16, nullptr);
         Invalidate();
         UpdateWindow(hwnd_);
-        file_load_service_.StartAsyncLoad(scheduler_, hwnd_, WM_APP_PARSE_COMPLETE);
+        file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE);
     }
 }
 
@@ -549,7 +473,7 @@ void App::DoLoadMarkdownFile()
         return;
     }
 
-    KillTimer(hwnd_, TIMER_LOADING_ANIM);
+    KillTimer(hwnd_, app_timer::LOADING_ANIM);
 
     {
         MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
@@ -564,7 +488,7 @@ void App::DoLoadMarkdownFile()
 
 void App::OnParseComplete()
 {
-    KillTimer(hwnd_, TIMER_LOADING_ANIM);
+    KillTimer(hwnd_, app_timer::LOADING_ANIM);
     file_load_service_.StopLoading();
 
     auto result = file_load_service_.TakeAsyncResult();
@@ -583,7 +507,7 @@ void App::FinishLoadMarkdownFile()
 {
     viewport_.ClearSelection();
     search_bar_ctrl_.Reset();
-    PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, SEARCH_UNFOCUS_FILE_SWITCH, 0);
+    PostMessage(hwnd_, app_msg::SEARCH_UNFOCUS, app_param::SEARCH_UNFOCUS_FILE_SWITCH, 0);
     active_toc_index_ = -1;
     resource_manager_.CancelMermaidBatch();
     image_loader_.CancelPending();
@@ -682,10 +606,10 @@ void App::ReloadCurrentFile()
 
     if (DocumentService::NeedsLoadingAnimation(doc_.GetFilePath())) {
         file_load_service_.StartLoading(doc_.GetFilePath());
-        SetTimer(hwnd_, TIMER_LOADING_ANIM, 16, nullptr);
+        SetTimer(hwnd_, app_timer::LOADING_ANIM, 16, nullptr);
         Invalidate();
         UpdateWindow(hwnd_);
-        file_load_service_.StartAsyncLoad(scheduler_, hwnd_, WM_APP_PARSE_COMPLETE);
+        file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE);
     }
     else {
         DoReloadCurrentFile();
@@ -696,7 +620,7 @@ void App::DoReloadCurrentFile()
 {
     MENDO_PROFILE("DoReloadCurrentFile");
 
-    KillTimer(hwnd_, TIMER_LOADING_ANIM);
+    KillTimer(hwnd_, app_timer::LOADING_ANIM);
     file_load_service_.StopLoading();
     active_toc_index_ = -1;
 
@@ -861,7 +785,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
         const bool had_overlay = swipe_detector_.IsOverlayVisible();
         swipe_detector_.NotifyVScroll(GetTickCount64());
         if (had_overlay) {
-            KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
+            KillTimer(hwnd_, app_timer::SWIPE_OVERLAY);
             Invalidate();
         }
     }
@@ -890,7 +814,7 @@ void App::OnMouseHWheel(short delta)
 
     // 入力のたびにコミットタイマーをリセット。
     // 指を離して COMMIT_TIMEOUT_MS 経過後に Commit() でナビゲーション判定する。
-    SetTimer(hwnd_, TIMER_SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS), nullptr);
+    SetTimer(hwnd_, app_timer::SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS), nullptr);
 
     if (had_overlay != swipe_detector_.IsOverlayVisible()
         || old_direction != swipe_detector_.GetOverlayDirection()) {
@@ -919,10 +843,10 @@ void App::ExecuteActions(const ActionList& actions)
                 const auto pane_layout = GetPaneLayout();
                 const float page_size = pane_layout.md_rect.height;
                 switch (a.type) {
-                    case ScrollType::LineUp:   viewport_.DirectScrollBy(-40.0f); break;
-                    case ScrollType::LineDown: viewport_.DirectScrollBy(40.0f); break;
-                    case ScrollType::PageUp:   viewport_.DirectScrollBy(-page_size * 0.9f); break;
-                    case ScrollType::PageDown: viewport_.DirectScrollBy(page_size * 0.9f); break;
+                    case ScrollType::LineUp:   viewport_.DirectScrollBy(-SCROLL_LINE_AMOUNT); break;
+                    case ScrollType::LineDown: viewport_.DirectScrollBy(SCROLL_LINE_AMOUNT); break;
+                    case ScrollType::PageUp:   viewport_.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR); break;
+                    case ScrollType::PageDown: viewport_.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR); break;
                     case ScrollType::Home:     viewport_.ScrollTo(0.0f); break;
                     case ScrollType::End:      viewport_.ScrollTo(viewport_.GetMaxScroll()); break;
                     default:                   break;
@@ -1066,13 +990,13 @@ void App::HandleTimer(UINT_PTR timer_id)
 {
     MENDO_PROFILE("HandleTimer");
     switch (timer_id) {
-    case TIMER_FILE_WATCH:     doc_service_.CheckForChanges(); break;
-    case TIMER_DEFERRED_LAYOUT: OnDeferredLayout(); break;
-    case TIMER_LOADING_ANIM:
+    case app_timer::FILE_WATCH:     doc_service_.CheckForChanges(); break;
+    case app_timer::DEFERRED_LAYOUT: OnDeferredLayout(); break;
+    case app_timer::LOADING_ANIM:
         file_load_service_.TickLoadingAnimation();
         Invalidate();
         break;
-    case TIMER_SWIPE_OVERLAY: {
+    case app_timer::SWIPE_OVERLAY: {
         const auto result = swipe_detector_.Commit();
         bool need_redraw = false;
         switch (result) {
@@ -1087,37 +1011,37 @@ void App::HandleTimer(UINT_PTR timer_id)
         default:
             break;
         }
-        KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
+        KillTimer(hwnd_, app_timer::SWIPE_OVERLAY);
         if (need_redraw) {
             Invalidate();
         }
         break;
     }
-    case TIMER_TOAST: {
+    case app_timer::TOAST: {
         if (!toast_.Tick()) {
-            KillTimer(hwnd_, TIMER_TOAST);
+            KillTimer(hwnd_, app_timer::TOAST);
         }
         Invalidate();
         break;
     }
-    case TIMER_SEARCH_CARET: {
+    case app_timer::SEARCH_CARET: {
         search_bar_ctrl_.OnCaretBlinkTimer();
         break;
     }
-    case TIMER_TOOLTIP:
-        KillTimer(hwnd_, TIMER_TOOLTIP);
+    case app_timer::TOOLTIP:
+        KillTimer(hwnd_, app_timer::TOOLTIP);
         tooltip_.Show();
         break;
-    case TIMER_SEARCH_DEBOUNCE:
+    case app_timer::SEARCH_DEBOUNCE:
         search_bar_ctrl_.OnDebounceTimer(doc_.GetNodes());
         break;
-    case TIMER_MERMAID_BATCH:
+    case app_timer::MERMAID_BATCH:
         resource_manager_.ProcessMermaidBatch();
         break;
-    case TIMER_BITMAP_MANAGE:
+    case app_timer::BITMAP_MANAGE:
         resource_manager_.OnBitmapManageTimer();
         break;
-    case TIMER_MERMAID_INIT_RETRY:
+    case app_timer::MERMAID_INIT_RETRY:
         mermaid_renderer_.OnInitRetryTimer();
         break;
     default: break;
@@ -1146,7 +1070,7 @@ void App::OnCaptureChanged()
 void App::ShowToast(std::wstring_view message)
 {
     toast_.Show(message);
-    SetTimer(hwnd_, TIMER_TOAST, 16, nullptr);
+    SetTimer(hwnd_, app_timer::TOAST, 16, nullptr);
     Invalidate();
 }
 
@@ -1162,17 +1086,17 @@ void App::OnDestroy()
     SavePaneState();
     SaveScrollPosition();
     config_.SaveWString("General", "Language", i18n::GetLangKey());
-    KillTimer(hwnd_, TIMER_FILE_WATCH);
-    KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
-    KillTimer(hwnd_, TIMER_LOADING_ANIM);
-    KillTimer(hwnd_, TIMER_SWIPE_OVERLAY);
-    KillTimer(hwnd_, TIMER_TOAST);
-    KillTimer(hwnd_, TIMER_SEARCH_CARET);
-    KillTimer(hwnd_, TIMER_SEARCH_DEBOUNCE);
-    KillTimer(hwnd_, TIMER_TOOLTIP);
-    KillTimer(hwnd_, TIMER_BITMAP_MANAGE);
-    KillTimer(hwnd_, TIMER_MERMAID_BATCH);
-    KillTimer(hwnd_, TIMER_MERMAID_INIT_RETRY);
+    KillTimer(hwnd_, app_timer::FILE_WATCH);
+    KillTimer(hwnd_, app_timer::DEFERRED_LAYOUT);
+    KillTimer(hwnd_, app_timer::LOADING_ANIM);
+    KillTimer(hwnd_, app_timer::SWIPE_OVERLAY);
+    KillTimer(hwnd_, app_timer::TOAST);
+    KillTimer(hwnd_, app_timer::SEARCH_CARET);
+    KillTimer(hwnd_, app_timer::SEARCH_DEBOUNCE);
+    KillTimer(hwnd_, app_timer::TOOLTIP);
+    KillTimer(hwnd_, app_timer::BITMAP_MANAGE);
+    KillTimer(hwnd_, app_timer::MERMAID_BATCH);
+    KillTimer(hwnd_, app_timer::MERMAID_INIT_RETRY);
 }
 
 RECT App::GetSearchEditRect() const
@@ -1287,16 +1211,16 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
         .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
         .kill_timer = [this](UINT_PTR id) { KillTimer(hwnd_, id); },
         .focus_select_all = [this]() {
-            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SELECT_ALL, 0);
+            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
         },
         .focus_set_caret = [this](int pos) {
-            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
+            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
         },
         .focus_set_selection = [this](int anchor, int caret) {
-            PostMessage(hwnd_, WM_APP_SEARCH_FOCUS, SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(anchor, caret));
+            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(anchor, caret));
         },
         .unfocus = [this]() {
-            PostMessage(hwnd_, WM_APP_SEARCH_UNFOCUS, 0, 0);
+            PostMessage(hwnd_, app_msg::SEARCH_UNFOCUS, 0, 0);
         },
         .get_md_pane_height = [this]() -> float {
             return GetPaneLayout().md_rect.height;

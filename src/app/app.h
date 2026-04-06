@@ -1,10 +1,10 @@
 #pragma once
+#include "app_constants.h"
 #include "renderer.h"
 #include "task_scheduler.h"
 #include "mermaid_file_cache.h"
 #include "mermaid.h"
 #include "image_loader.h"
-#include "file_loader.h"
 #include "file_watcher.h"
 #include "file_explorer.h"
 #include "document.h"
@@ -38,14 +38,11 @@
 #include "tooltip.h"
 #include <windows.h>
 #include <shellapi.h>
-#include <chrono>
 #include <string>
 #include <string_view>
-#include <vector>
 #include <optional>
 #include <memory>
 #include <memory_resource>
-#include <unordered_map>
 
 // ウィンドウのタイトルバーとスクロールバーにダークモードスタイルを適用する。
 void ApplyDarkModeToWindow(HWND hwnd, bool dark);
@@ -260,33 +257,6 @@ private:
 
     // テーマ/ズーム変更後の共通後処理（ViewportLayout→スクロール復元→再描画）
     void FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale);
-
-public:
-    // タイマーID (メッセージルーティング用にWin32Windowと共有)
-    static constexpr UINT_PTR TIMER_FILE_WATCH = 2;
-    static constexpr UINT_PTR TIMER_DEFERRED_LAYOUT = 3;
-    static constexpr UINT_PTR TIMER_LOADING_ANIM = 4;
-    static constexpr UINT_PTR TIMER_SWIPE_OVERLAY = 5;
-    static constexpr UINT_PTR TIMER_TOAST = 6;
-    static constexpr UINT_PTR TIMER_SEARCH_CARET = SearchBarController::TIMER_CARET;
-    static constexpr UINT_PTR TIMER_TOOLTIP = 8;
-    static constexpr UINT_PTR TIMER_SEARCH_DEBOUNCE = SearchBarController::TIMER_DEBOUNCE;
-    static constexpr UINT_PTR TIMER_MERMAID_BATCH = ResourceManager::TIMER_MERMAID_BATCH;
-    static constexpr UINT_PTR TIMER_BITMAP_MANAGE = ResourceManager::TIMER_BITMAP_MANAGE;
-    static constexpr UINT_PTR TIMER_MERMAID_INIT_RETRY = MermaidRenderer::TIMER_INIT_RETRY;
-    static constexpr float EVICT_BUFFER_SCREENS = ResourceManager::EVICT_BUFFER_SCREENS;
-    static constexpr int BATCH_TIME_BUDGET_US = ResourceManager::BATCH_TIME_BUDGET_US;
-    static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;
-    static constexpr UINT WM_APP_IMAGE_LOADED = WM_APP + 2;
-    static constexpr UINT WM_APP_RELOAD_FILE = WM_APP + 3;
-    static constexpr UINT WM_APP_SEARCH_FOCUS = WM_APP + 4;
-    static constexpr UINT WM_APP_SEARCH_UNFOCUS = WM_APP + 5;
-    static constexpr UINT WM_APP_PARSE_COMPLETE = WM_APP + 6;
-    static constexpr WPARAM SEARCH_FOCUS_SELECT_ALL = 0;
-    static constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;
-    static constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2;  // lParam = MAKELPARAM(anchor, caret)
-    static constexpr WPARAM SEARCH_UNFOCUS_CLOSE = 0;
-    static constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
 
 private:
     // Win32ハンドル

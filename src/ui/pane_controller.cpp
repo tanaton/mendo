@@ -62,7 +62,9 @@ void PaneController::DragSplitter1To(float dip_x, float total_width, float split
     file_width_ = std::clamp(dip_x, PANE_MIN_WIDTH, total_width);
 
     float used = file_width_ + splitter_w;
-    if (show_toc_) used += toc_width_ + splitter_w;
+    if (show_toc_) {
+        used += toc_width_ + splitter_w;
+    }
     if (total_width - used < MD_PANE_MIN_WIDTH) {
         file_width_ = total_width - MD_PANE_MIN_WIDTH - splitter_w;
         if (show_toc_) {

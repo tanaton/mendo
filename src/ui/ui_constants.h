@@ -175,6 +175,28 @@ inline SearchBarLayout ComputeSearchBarLayout(float md_left, float md_width, flo
     return l;
 }
 
+// デフォルトウィンドウサイズ（ピクセル）
+inline constexpr int DEFAULT_WINDOW_WIDTH = 1600;
+inline constexpr int DEFAULT_WINDOW_HEIGHT = 900;
+
+// キーボードスクロール量（DIP）
+inline constexpr float SCROLL_LINE_AMOUNT = 40.0f;
+inline constexpr float SCROLL_PAGE_FACTOR = 0.9f;
+
+// ジェスチャーオーバーレイのサイズ（DIP）
+inline constexpr float GESTURE_OVERLAY_WIDTH = 280.0f;
+inline constexpr float GESTURE_OVERLAY_HEIGHT = 80.0f;
+inline constexpr float GESTURE_OVERLAY_CORNER = 12.0f;
+
+// トーストオーバーレイのサイズ（DIP）
+inline constexpr float TOAST_OVERLAY_WIDTH = 320.0f;
+inline constexpr float TOAST_OVERLAY_HEIGHT = 48.0f;
+inline constexpr float TOAST_OVERLAY_CORNER = 8.0f;
+inline constexpr float TOAST_OVERLAY_BOTTOM_OFFSET = 16.0f;
+
+// ジェスチャー軌跡のスタイル
+inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
+
 // コードブロック背景の右上を基準にコピーボタンの矩形を返す。
 // block_right: コードブロック背景の右端, block_top: コードブロック背景の上端
 inline D2D1_RECT_F CopyButtonRect(float block_right, float block_top) noexcept {

@@ -95,7 +95,7 @@ void App::HandleSidePaneScrollDrag(float dip_y, const PaneRect& rect,
 void App::ScheduleDeferredLayoutIfNeeded()
 {
     if (layout_service_->HasDirtyNodes()) {
-        SetTimer(hwnd_, TIMER_DEFERRED_LAYOUT, 16, nullptr);
+        SetTimer(hwnd_, app_timer::DEFERRED_LAYOUT, 16, nullptr);
     }
 }
 
@@ -103,7 +103,7 @@ void App::OnResizeEnd()
 {
     MENDO_PROFILE("OnResizeEnd");
 
-    KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
+    KillTimer(hwnd_, app_timer::DEFERRED_LAYOUT);
 
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
@@ -143,7 +143,7 @@ void App::OnDeferredLayout()
     bool more;
     {
         MENDO_PROFILE("ProcessDirtyBatch");
-        more = layout_service_->ProcessDirtyBatch(doc_, layout_cache_, md_width, 200, BATCH_TIME_BUDGET_US, md_height, EVICT_BUFFER_SCREENS);
+        more = layout_service_->ProcessDirtyBatch(doc_, layout_cache_, md_width, 200, ResourceManager::BATCH_TIME_BUDGET_US, md_height, ResourceManager::EVICT_BUFFER_SCREENS);
     }
 
 #if MENDO_PROFILE_ENABLED
@@ -167,7 +167,7 @@ void App::OnDeferredLayout()
     }
 
     if (!more) {
-        KillTimer(hwnd_, TIMER_DEFERRED_LAYOUT);
+        KillTimer(hwnd_, app_timer::DEFERRED_LAYOUT);
 
         // 遅延レイアウト完了: Mermaidファイルキャッシュからの読み込みを
         // 時間予算付きバッチで処理する。同期ディスクI/O + PNGデコードが
