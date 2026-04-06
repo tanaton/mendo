@@ -65,6 +65,12 @@ public:
     // リサイズ時に古い幅のリクエストを破棄するために使用する。
     void ClearPendingQueue() noexcept;
 
+    // WebView2初期化リトライのタイマーハンドラ
+    void OnInitRetryTimer();
+
+    // タイマーID（App側でルーティングする）
+    static constexpr UINT_PTR TIMER_INIT_RETRY = 12;
+
 private:
     struct RenderRequest {
         Node* node = nullptr;
@@ -91,11 +97,13 @@ private:
         Microsoft::WRL::ComPtr<ICoreWebView2> webview;
         RenderRequest current_request;
         float dpr = 1.0f;
+        int init_retries = 0;
         bool rendering = false;
         bool ready = false;
     };
 
     static int ComputeWorkerCount() noexcept;
+    void CreateWebView2Environment();
     void SetupWorker(int index);
     void ProcessQueue();
     void RenderInWorker(Worker& worker);
@@ -131,4 +139,9 @@ private:
     LruCache<uint64_t, CachedBitmap> cache_{ kMaxCacheEntries };
 
     MermaidFileCache* file_cache_ = nullptr;
+
+    // WebView2環境生成リトライ
+    static constexpr int kMaxEnvRetries = 3;
+    static constexpr int kMaxWorkerRetries = 3;
+    int env_retry_count_ = 0;
 };

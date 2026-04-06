@@ -1117,6 +1117,9 @@ void App::HandleTimer(UINT_PTR timer_id)
     case TIMER_BITMAP_MANAGE:
         resource_manager_.OnBitmapManageTimer();
         break;
+    case TIMER_MERMAID_INIT_RETRY:
+        mermaid_renderer_.OnInitRetryTimer();
+        break;
     default: break;
     }
 }
@@ -1149,7 +1152,11 @@ void App::ShowToast(std::wstring_view message)
 
 void App::OnDestroy()
 {
+    // スケジューラを停止してキュー済み書き込みを完了させた後、
+    // file_cacheのscheduler_をnullにして遅延COMコールバックからの
+    // 新規ポストを防ぐ。
     scheduler_.Shutdown();
+    file_cache_.Shutdown();
     file_cache_.SaveIndex();
     SaveLastFilePath();
     SavePaneState();
@@ -1165,6 +1172,7 @@ void App::OnDestroy()
     KillTimer(hwnd_, TIMER_TOOLTIP);
     KillTimer(hwnd_, TIMER_BITMAP_MANAGE);
     KillTimer(hwnd_, TIMER_MERMAID_BATCH);
+    KillTimer(hwnd_, TIMER_MERMAID_INIT_RETRY);
 }
 
 RECT App::GetSearchEditRect() const
