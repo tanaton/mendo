@@ -294,10 +294,19 @@ void App::OnPaint()
                 const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
                 const float total = static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height;
                 const auto info = ComputeScrollInfo(layout.toc_rect, theme.pane_header_height, total);
-                float& sy = panes_.TocScroll().scroll_y;
-                if (item_y < sy || item_y + theme.pane_item_height > sy + info.content_height) {
-                    sy = std::clamp(item_y - info.content_height * 0.5f, 0.0f, info.max_scroll);
-                    panes_.TocScroll().max_scroll = info.max_scroll;
+                auto& toc_scroll = panes_.TocScroll();
+                toc_scroll.max_scroll = info.max_scroll;
+                float& sy = toc_scroll.scroll_y;
+                sy = std::clamp(sy, 0.0f, info.max_scroll);
+                if (info.content_height > 0.0f) {
+                    // フォーカスを表示領域の5等分中、区画2〜4(1/5〜4/5)に留める
+                    const float zone_upper = info.content_height * (1.0f / 5.0f);
+                    const float zone_lower = info.content_height * (4.0f / 5.0f);
+                    if (item_y < sy + zone_upper) {
+                        sy = std::clamp(item_y - zone_upper, 0.0f, info.max_scroll);
+                    } else if (item_y + theme.pane_item_height > sy + zone_lower) {
+                        sy = std::clamp(item_y + theme.pane_item_height - zone_lower, 0.0f, info.max_scroll);
+                    }
                 }
             }
         }
