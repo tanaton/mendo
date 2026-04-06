@@ -331,6 +331,7 @@ void MermaidRenderer::SetupWorker(int index)
                         w.dpr = dpr;
                     }
                     w.ready = true;
+                    w.init_retries = 0;
                     // 最初のワーカーが準備完了した時点でon_readyを呼び出す。
                     // 残りのワーカーは準備でき次第プールに参加する。
                     if (!ready_) {

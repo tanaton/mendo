@@ -1152,10 +1152,11 @@ void App::ShowToast(std::wstring_view message)
 
 void App::OnDestroy()
 {
-    // 保留書き込みを無効化してからスケジューラを停止する。
-    // 逆順だとShutdown()後のWebView2 COMコールバックが不整合を起こす。
-    file_cache_.Shutdown();
+    // スケジューラを停止してキュー済み書き込みを完了させた後、
+    // file_cacheのscheduler_をnullにして遅延COMコールバックからの
+    // 新規ポストを防ぐ。
     scheduler_.Shutdown();
+    file_cache_.Shutdown();
     file_cache_.SaveIndex();
     SaveLastFilePath();
     SavePaneState();
