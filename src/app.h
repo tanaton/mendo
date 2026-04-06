@@ -273,6 +273,7 @@ public:
     static constexpr UINT_PTR TIMER_SEARCH_DEBOUNCE = SearchBarController::TIMER_DEBOUNCE;
     static constexpr UINT_PTR TIMER_MERMAID_BATCH = ResourceManager::TIMER_MERMAID_BATCH;
     static constexpr UINT_PTR TIMER_BITMAP_MANAGE = ResourceManager::TIMER_BITMAP_MANAGE;
+    static constexpr UINT_PTR TIMER_MERMAID_INIT_RETRY = MermaidRenderer::TIMER_INIT_RETRY;
     static constexpr float EVICT_BUFFER_SCREENS = ResourceManager::EVICT_BUFFER_SCREENS;
     static constexpr int BATCH_TIME_BUDGET_US = ResourceManager::BATCH_TIME_BUDGET_US;
     static constexpr UINT WM_APP_LOAD_FILE = WM_APP + 1;

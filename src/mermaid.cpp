@@ -170,6 +170,9 @@ static std::pmr::wstring GetWebView2UserDataFolder()
 // オフスクリーンWebView2ホストのウィンドウクラス名
 static const wchar_t* kMermaidHostClass = L"mendo_MermaidHost";
 
+// 仮想ホストURL
+static constexpr wchar_t kAppLocalIndexUrl[] = L"https://app.local/index.html";
+
 // ---- MermaidRendererの実装 ----
 
 int MermaidRenderer::ComputeWorkerCount() noexcept
@@ -245,6 +248,11 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
         return;
     }
 
+    CreateWebView2Environment();
+}
+
+void MermaidRenderer::CreateWebView2Environment()
+{
     const std::pmr::wstring user_data = GetWebView2UserDataFolder();
 
     // 共有WebView2環境を作成し、各ワーカーのコントローラーを初期化する
@@ -253,8 +261,15 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
         if (FAILED(result) || !env) {
+            // 前回プロセスがユーザーデータフォルダをまだ解放していない場合など
+            // に失敗する。タイマーで遅延リトライする。
+            if (env_retry_count_ < kMaxEnvRetries && hwnd_) {
+                ++env_retry_count_;
+                SetTimer(hwnd_, TIMER_INIT_RETRY, 500, nullptr);
+            }
             return S_OK;
         }
+        env_retry_count_ = 0;
         webview_env_ = env;
 
         // 全ワーカーのコントローラーを並行して作成する
@@ -263,6 +278,14 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
         }
         return S_OK;
     }).Get());
+}
+
+void MermaidRenderer::OnInitRetryTimer()
+{
+    KillTimer(hwnd_, TIMER_INIT_RETRY);
+    if (!webview_env_ && worker_count_ > 0) {
+        CreateWebView2Environment();
+    }
 }
 
 void MermaidRenderer::SetupWorker(int index)
@@ -340,6 +363,13 @@ void MermaidRenderer::SetupWorker(int index)
                     const auto id = static_cast<unsigned int>(std::wcstoul(msg + 13, &end, 10));
                     if (id == w.current_request.request_id) {
                         FinishWorkerRequest(w);
+                    }
+                }
+                else if (wcscmp(msg, L"mermaid-failed") == 0) {
+                    // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
+                    if (w.init_retries < kMaxWorkerRetries && w.webview) {
+                        ++w.init_retries;
+                        w.webview->Navigate(kAppLocalIndexUrl);
                     }
                 }
                 CoTaskMemFree(msg);
@@ -427,7 +457,7 @@ void MermaidRenderer::SetupWorker(int index)
 
         // 仮想ホストにナビゲートする（HTML + JSは上記ハンドラにより
         // メモリから配信される）。
-        w.webview->Navigate(L"https://app.local/index.html");
+        w.webview->Navigate(kAppLocalIndexUrl);
 
         return S_OK;
     }).Get());
