@@ -87,6 +87,10 @@ public:
     void OnXButtonBack();
     void OnXButtonForward();
 
+    // ファイル変更イベント（メッセージループから呼ばれる）
+    HANDLE GetFileWatchEvent() const noexcept { return doc_service_.GetFileWatchEvent(); }
+    void OnFileWatchEvent();
+
     // タイマーコールバック
     void HandleTimer(UINT_PTR timer_id);
     void OnAppLoadFile();

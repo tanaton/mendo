@@ -6,7 +6,8 @@
 
 // ReadDirectoryChangesW によるファイル変更監視。
 // 指定ファイルの親ディレクトリを監視し、対象ファイルの変更を検出してコールバックを呼ぶ。
-// デバウンス機能付き。
+// 変更検出後はコールバック呼び出しを一時停止し、ResumeWatching() で再開する。
+// 一時停止中も I/O は継続し、追加の変更は蓄積される。
 class FileWatcher {
 public:
     ~FileWatcher();
@@ -19,7 +20,14 @@ public:
     void StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback);
     void StopWatching() noexcept;
     void CheckForChanges();
-    void ResetDebounceTick() noexcept;
+
+    // 変更検出後に一時停止した監視を再開する。
+    // リロード完了後に呼び出すこと。
+    void ResumeWatching();
+
+    // MsgWaitForMultipleObjects に渡す待機ハンドルを返す。
+    // 監視中でなければ nullptr を返す。
+    HANDLE GetEventHandle() const noexcept;
 
 private:
     void BeginRead();
@@ -32,7 +40,6 @@ private:
     OVERLAPPED overlapped_{};
     alignas(DWORD) char change_buf_[4096]{};
     bool read_pending_ = false;
-
-    ULONGLONG last_reload_tick_ = 0;
-    static constexpr DWORD DEBOUNCE_MS = 200;
+    bool paused_ = false;
+    bool pending_change_ = false;
 };

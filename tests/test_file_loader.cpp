@@ -213,70 +213,100 @@ TEST_F(FileLoaderTest, FileWithNewlines)
     EXPECT_EQ(content, "line1\r\nline2\r\nline3");
 }
 
-// ---- デバウンスリセットテスト ----
+// ---- 監視一時停止 / ResumeWatching テスト ----
 
-TEST_F(FileLoaderTest, ResetDebounceTickWithoutWatching)
+TEST_F(FileLoaderTest, ResumeWatchingWithoutWatching)
 {
     // 監視未開始でも安全に呼べること
     FileWatcher watcher;
-    watcher.ResetDebounceTick();
+    watcher.ResumeWatching();
 }
 
-TEST_F(FileLoaderTest, ResetDebounceSuppressesDuplicateChange)
+TEST_F(FileLoaderTest, WatchPausedAfterChangeDetected)
 {
-    auto path = WriteFile(L"debounce.md", "original");
+    auto path = WriteFile(L"pause.md", "original");
 
     FileWatcher watcher;
     int change_count = 0;
     watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
 
-    // 初期デバウンスを過ぎるまで待つ
-    Sleep(300);
-
     // ファイルを変更して検出を待つ
-    WriteFile(L"debounce.md", "modified1");
+    Sleep(300);
+    WriteFile(L"pause.md", "modified1");
     for (int i = 0; i < 40 && change_count == 0; i++) {
         Sleep(50);
         watcher.CheckForChanges();
     }
     ASSERT_EQ(change_count, 1);
 
-    // デバウンスをリセット（DoReloadCurrentFile完了をシミュレート）
-    watcher.ResetDebounceTick();
-
-    // すぐにファイルを変更（OSの重複通知をシミュレート）
-    WriteFile(L"debounce.md", "modified2");
-
-    // デバウンス期間内（200ms以内）にポーリング → 抑制されるはず
-    for (int i = 0; i < 3; i++) {
+    // 変更検出後は一時停止（コールバック抑制、I/Oは継続）
+    // 追加の保存はコールバックを呼ばず蓄積される
+    Sleep(300);
+    WriteFile(L"pause.md", "modified2");
+    for (int i = 0; i < 40; i++) {
         Sleep(50);
         watcher.CheckForChanges();
     }
     EXPECT_EQ(change_count, 1);
+
+    // ResumeWatching で蓄積された変更が通知される
+    watcher.ResumeWatching();
+    EXPECT_EQ(change_count, 2);
 }
 
-TEST_F(FileLoaderTest, ChangeDetectedAfterResetDebounceExpires)
+TEST_F(FileLoaderTest, ResumeWatchingReenablesDetection)
 {
-    auto path = WriteFile(L"debounce2.md", "original");
+    auto path = WriteFile(L"resume.md", "original");
 
     FileWatcher watcher;
     int change_count = 0;
     watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
 
-    // 初期デバウンスを過ぎるまで待つ
+    // 最初の変更を検出
     Sleep(300);
-
-    // デバウンスをリセット
-    watcher.ResetDebounceTick();
-
-    // デバウンス期間が過ぎるのを待つ
-    Sleep(300);
-
-    // ファイルを変更 → デバウンス切れなので検出されるはず
-    WriteFile(L"debounce2.md", "modified");
+    WriteFile(L"resume.md", "modified1");
     for (int i = 0; i < 40 && change_count == 0; i++) {
         Sleep(50);
         watcher.CheckForChanges();
     }
-    EXPECT_EQ(change_count, 1);
+    ASSERT_EQ(change_count, 1);
+
+    // 監視を再開（リロード完了をシミュレート）
+    watcher.ResumeWatching();
+    EXPECT_NE(watcher.GetEventHandle(), nullptr);
+
+    // 2回目の変更を検出
+    Sleep(300);
+    WriteFile(L"resume.md", "modified2");
+    for (int i = 0; i < 40 && change_count == 1; i++) {
+        Sleep(50);
+        watcher.CheckForChanges();
+    }
+    EXPECT_EQ(change_count, 2);
+}
+
+// ---- GetEventHandle テスト ----
+
+TEST_F(FileLoaderTest, GetEventHandleNullWhenNotWatching)
+{
+    FileWatcher watcher;
+    EXPECT_EQ(watcher.GetEventHandle(), nullptr);
+}
+
+TEST_F(FileLoaderTest, GetEventHandleValidWhileWatching)
+{
+    auto path = WriteFile(L"evthandle.md", "content");
+    FileWatcher watcher;
+    watcher.StartWatching(path.native().c_str(), []() static {});
+    EXPECT_NE(watcher.GetEventHandle(), nullptr);
+}
+
+TEST_F(FileLoaderTest, GetEventHandleNullAfterStopWatching)
+{
+    auto path = WriteFile(L"evtstop.md", "content");
+    FileWatcher watcher;
+    watcher.StartWatching(path.native().c_str(), []() static {});
+    EXPECT_NE(watcher.GetEventHandle(), nullptr);
+    watcher.StopWatching();
+    EXPECT_EQ(watcher.GetEventHandle(), nullptr);
 }

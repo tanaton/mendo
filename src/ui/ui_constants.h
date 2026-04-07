@@ -70,9 +70,6 @@ inline constexpr float FALLBACK_LINE_HEIGHT_FACTOR = 1.3f;
 // ツールチップ表示遅延 (ms)
 inline constexpr UINT TOOLTIP_DELAY_MS = 500;
 
-// ファイル監視タイマー間隔 (ms)
-inline constexpr UINT FILE_WATCH_INTERVAL_MS = 250;
-
 // クリック判定距離の二乗（ドラッグ選択とクリックを区別するための閾値）
 inline constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
 

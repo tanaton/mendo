@@ -10,7 +10,6 @@ void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallba
 {
     StopWatching();
     on_change_ = std::move(callback);
-    last_reload_tick_ = GetTickCount64();
 
     const std::filesystem::path p(file_path);
     watch_filename_ = std::pmr::wstring{ p.filename().native() };
@@ -57,7 +56,7 @@ void FileWatcher::BeginRead()
         change_buf_,
         sizeof(change_buf_),
         FALSE,
-        FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_FILE_NAME,
+        FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME,
         nullptr,
         &overlapped_,
         nullptr);
@@ -82,6 +81,8 @@ void FileWatcher::StopWatching() noexcept
         dir_handle_ = INVALID_HANDLE_VALUE;
     }
     watching_ = false;
+    paused_ = false;
+    pending_change_ = false;
     on_change_ = nullptr;
 }
 
@@ -93,20 +94,23 @@ void FileWatcher::CheckForChanges()
 
     DWORD bytes_returned = 0;
     if (!GetOverlappedResult(dir_handle_, &overlapped_, &bytes_returned, FALSE)) {
+        if (GetLastError() != ERROR_IO_INCOMPLETE) {
+            read_pending_ = false;
+            StopWatching();
+        }
         return;
     }
 
     read_pending_ = false;
 
-    const ULONGLONG now = GetTickCount64();
-    const bool debounced = (now - last_reload_tick_ < DEBOUNCE_MS);
-
     bool target_changed = false;
-    if (bytes_returned > 0 && !debounced) {
+    if (bytes_returned > 0) {
         auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(change_buf_);
         for (;;) {
             const std::wstring_view changed_name(info->FileName, info->FileNameLength / sizeof(wchar_t));
-            if (changed_name.size() == watch_filename_.size() &&
+            if (info->Action != FILE_ACTION_REMOVED &&
+                info->Action != FILE_ACTION_RENAMED_OLD_NAME &&
+                changed_name.size() == watch_filename_.size() &&
                 _wcsnicmp(changed_name.data(), watch_filename_.c_str(), changed_name.size()) == 0) {
                 target_changed = true;
                 break;
@@ -119,17 +123,35 @@ void FileWatcher::CheckForChanges()
         }
     }
 
-    BeginRead();
-
     if (target_changed) {
-        last_reload_tick_ = now;
+        if (paused_) {
+            pending_change_ = true;
+        } else {
+            paused_ = true;
+            if (on_change_) {
+                on_change_();
+            }
+        }
+    }
+    BeginRead();
+}
+
+HANDLE FileWatcher::GetEventHandle() const noexcept
+{
+    return (watching_ && read_pending_) ? overlapped_.hEvent : nullptr;
+}
+
+void FileWatcher::ResumeWatching()
+{
+    if (!watching_) {
+        return;
+    }
+    paused_ = false;
+    if (pending_change_) {
+        pending_change_ = false;
+        paused_ = true;
         if (on_change_) {
             on_change_();
         }
     }
-}
-
-void FileWatcher::ResetDebounceTick() noexcept
-{
-    last_reload_tick_ = GetTickCount64();
 }

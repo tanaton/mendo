@@ -87,41 +87,58 @@ void Win32Window::UpdateDwmFrame()
 int Win32Window::RunMessageLoop()
 {
     MSG msg{};
-    BOOL ret;
 
 #if MENDO_PROFILE_ENABLED
     LARGE_INTEGER freq;
     QueryPerformanceFrequency(&freq);
 #endif
 
-    while ((ret = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
-        if (ret == -1) {
-            break;
+    for (;;) {
+        // イベントハンドルは DispatchMessageW 中に変わりうるため毎回取得
+        const HANDLE evt = app_.GetFileWatchEvent();
+        const DWORD count = evt ? 1 : 0;
+
+        const DWORD wait = MsgWaitForMultipleObjects(
+            count, evt ? &evt : nullptr,
+            FALSE, INFINITE, QS_ALLINPUT);
+
+        if (wait == WAIT_FAILED) {
+            // ハンドル無効時のビジーループ防止
+            MsgWaitForMultipleObjects(0, nullptr, FALSE, INFINITE, QS_ALLINPUT);
+        }
+        else if (wait < WAIT_OBJECT_0 + count) {
+            app_.OnFileWatchEvent();
         }
 
+        // キューのメッセージをすべて排出
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) {
+                return static_cast<int>(msg.wParam);
+            }
+
 #if MENDO_PROFILE_ENABLED
-        LARGE_INTEGER dispatch_start;
-        QueryPerformanceCounter(&dispatch_start);
+            LARGE_INTEGER dispatch_start;
+            QueryPerformanceCounter(&dispatch_start);
 #endif
 
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
 
 #if MENDO_PROFILE_ENABLED
-        LARGE_INTEGER dispatch_end;
-        QueryPerformanceCounter(&dispatch_end);
-        const double dispatch_ms = static_cast<double>(dispatch_end.QuadPart - dispatch_start.QuadPart)
-            * 1000.0 / static_cast<double>(freq.QuadPart);
-        if (dispatch_ms > 16.0) {
-            wchar_t buf[256];
-            _snwprintf_s(buf, std::ranges::size(buf), _TRUNCATE,
-                L"[mendo-profile] SLOW MSG 0x%04X hwnd=%p: %.2f ms\n",
-                msg.message, msg.hwnd, dispatch_ms);
-            OutputDebugStringW(buf);
+            LARGE_INTEGER dispatch_end;
+            QueryPerformanceCounter(&dispatch_end);
+            const double dispatch_ms = static_cast<double>(dispatch_end.QuadPart - dispatch_start.QuadPart)
+                * 1000.0 / static_cast<double>(freq.QuadPart);
+            if (dispatch_ms > 16.0) {
+                wchar_t buf[256];
+                _snwprintf_s(buf, std::ranges::size(buf), _TRUNCATE,
+                    L"[mendo-profile] SLOW MSG 0x%04X hwnd=%p: %.2f ms\n",
+                    msg.message, msg.hwnd, dispatch_ms);
+                OutputDebugStringW(buf);
+            }
+#endif
         }
-#endif
     }
-    return static_cast<int>(msg.wParam);
 }
 
 LRESULT CALLBACK Win32Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
