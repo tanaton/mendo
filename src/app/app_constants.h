@@ -9,7 +9,6 @@
 // 各IDは一意であり、変更する際は全IDの重複がないことを確認すること。
 // サブコンポーネントが定義する定数から導出し、値の二重管理を防ぐ。
 namespace app_timer {
-    inline constexpr UINT_PTR FILE_WATCH          = 2;
     inline constexpr UINT_PTR DEFERRED_LAYOUT     = 3;
     inline constexpr UINT_PTR LOADING_ANIM        = 4;
     inline constexpr UINT_PTR SWIPE_OVERLAY       = 5;

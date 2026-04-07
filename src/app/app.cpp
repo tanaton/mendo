@@ -116,8 +116,6 @@ bool App::Init(HWND hwnd)
 
     search_bar_ctrl_.Init(search_state_, viewport_, layout_cache_, BuildSearchBarCallbacks());
 
-    SetTimer(hwnd_, app_timer::FILE_WATCH, FILE_WATCH_INTERVAL_MS, nullptr);
-
     return true;
 }
 
@@ -656,7 +654,7 @@ void App::DoReloadCurrentFile()
     // 差分がなければリロード不要。エディタの保存操作が複数の通知を
     // 発生させた場合に、レイアウトキャッシュの不要なリセットを防ぐ。
     if (diff_pos == std::string_view::npos) {
-        doc_service_.ResetDebounceTick();
+        doc_service_.ResumeWatching();
         return;
     }
 
@@ -740,9 +738,8 @@ void App::DoReloadCurrentFile()
     // 残りのダーティノードを遅延レイアウトで処理
     ScheduleDeferredLayoutIfNeeded();
 
-    // OSが同一セーブ操作で複数イベントを送るため、処理完了時点から
-    // デバウンスを再計測しないと重複リロードが発生する
-    doc_service_.ResetDebounceTick();
+    // リロード完了まで一時停止していたファイル監視を再開する
+    doc_service_.ResumeWatching();
 }
 
 void App::ApplyMermaidCacheHeights(float md_width)
@@ -995,11 +992,15 @@ void App::OnDropFiles(HDROP hDrop)
     DragFinish(hDrop);
 }
 
+void App::OnFileWatchEvent()
+{
+    doc_service_.CheckForChanges();
+}
+
 void App::HandleTimer(UINT_PTR timer_id)
 {
     MENDO_PROFILE("HandleTimer");
     switch (timer_id) {
-    case app_timer::FILE_WATCH:     doc_service_.CheckForChanges(); break;
     case app_timer::DEFERRED_LAYOUT: OnDeferredLayout(); break;
     case app_timer::LOADING_ANIM:
         file_load_service_.TickLoadingAnimation();
@@ -1095,7 +1096,6 @@ void App::OnDestroy()
     SavePaneState();
     SaveScrollPosition();
     config_.SaveWString("General", "Language", i18n::GetLangKey());
-    KillTimer(hwnd_, app_timer::FILE_WATCH);
     KillTimer(hwnd_, app_timer::DEFERRED_LAYOUT);
     KillTimer(hwnd_, app_timer::LOADING_ANIM);
     KillTimer(hwnd_, app_timer::SWIPE_OVERLAY);

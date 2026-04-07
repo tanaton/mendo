@@ -10,7 +10,6 @@ void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallba
 {
     StopWatching();
     on_change_ = std::move(callback);
-    last_reload_tick_ = GetTickCount64();
 
     const std::filesystem::path p(file_path);
     watch_filename_ = std::pmr::wstring{ p.filename().native() };
@@ -98,11 +97,8 @@ void FileWatcher::CheckForChanges()
 
     read_pending_ = false;
 
-    const ULONGLONG now = GetTickCount64();
-    const bool debounced = (now - last_reload_tick_ < DEBOUNCE_MS);
-
     bool target_changed = false;
-    if (bytes_returned > 0 && !debounced) {
+    if (bytes_returned > 0) {
         auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(change_buf_);
         for (;;) {
             const std::wstring_view changed_name(info->FileName, info->FileNameLength / sizeof(wchar_t));
@@ -119,17 +115,25 @@ void FileWatcher::CheckForChanges()
         }
     }
 
-    BeginRead();
-
     if (target_changed) {
-        last_reload_tick_ = now;
+        // リロード完了後に ResumeWatching() で再開される
         if (on_change_) {
             on_change_();
         }
     }
+    else {
+        BeginRead();
+    }
 }
 
-void FileWatcher::ResetDebounceTick() noexcept
+HANDLE FileWatcher::GetEventHandle() const noexcept
 {
-    last_reload_tick_ = GetTickCount64();
+    return (watching_ && read_pending_) ? overlapped_.hEvent : nullptr;
+}
+
+void FileWatcher::ResumeWatching()
+{
+    if (watching_ && !read_pending_) {
+        BeginRead();
+    }
 }

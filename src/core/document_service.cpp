@@ -43,9 +43,9 @@ void DocumentService::CheckForChanges()
     watcher_.CheckForChanges();
 }
 
-void DocumentService::ResetDebounceTick() noexcept
+void DocumentService::ResumeWatching()
 {
-    watcher_.ResetDebounceTick();
+    watcher_.ResumeWatching();
 }
 
 bool DocumentService::NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept

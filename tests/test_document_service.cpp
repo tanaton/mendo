@@ -95,9 +95,9 @@ TEST_F(DocumentServiceTest, NeedsLoadingAnimationNonexistent)
     EXPECT_TRUE(DocumentService::NeedsLoadingAnimation(nonexistent));
 }
 
-TEST_F(DocumentServiceTest, ResetDebounceTick)
+TEST_F(DocumentServiceTest, ResumeWatching)
 {
-    // DocumentService経由でResetDebounceTickが安全に呼べること
+    // DocumentService経由でResumeWatchingが安全に呼べること
     DocumentService service(watcher_);
-    service.ResetDebounceTick();
+    service.ResumeWatching();
 }
