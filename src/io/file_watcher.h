@@ -6,7 +6,8 @@
 
 // ReadDirectoryChangesW によるファイル変更監視。
 // 指定ファイルの親ディレクトリを監視し、対象ファイルの変更を検出してコールバックを呼ぶ。
-// 変更検出後は監視を一時停止し、ResumeWatching() で再開する。
+// 変更検出後はコールバック呼び出しを一時停止し、ResumeWatching() で再開する。
+// 一時停止中も I/O は継続し、追加の変更は蓄積される。
 class FileWatcher {
 public:
     ~FileWatcher();
@@ -39,4 +40,6 @@ private:
     OVERLAPPED overlapped_{};
     alignas(DWORD) char change_buf_[4096]{};
     bool read_pending_ = false;
+    bool paused_ = false;
+    bool pending_change_ = false;
 };

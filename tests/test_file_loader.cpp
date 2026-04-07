@@ -239,8 +239,19 @@ TEST_F(FileLoaderTest, WatchPausedAfterChangeDetected)
     }
     ASSERT_EQ(change_count, 1);
 
-    // 変更検出後は監視が一時停止（read_pending_ == false）
-    EXPECT_EQ(watcher.GetEventHandle(), nullptr);
+    // 変更検出後は一時停止（コールバック抑制、I/Oは継続）
+    // 追加の保存はコールバックを呼ばず蓄積される
+    Sleep(300);
+    WriteFile(L"pause.md", "modified2");
+    for (int i = 0; i < 40; i++) {
+        Sleep(50);
+        watcher.CheckForChanges();
+    }
+    EXPECT_EQ(change_count, 1);
+
+    // ResumeWatching で蓄積された変更が通知される
+    watcher.ResumeWatching();
+    EXPECT_EQ(change_count, 2);
 }
 
 TEST_F(FileLoaderTest, ResumeWatchingReenablesDetection)

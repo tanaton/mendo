@@ -302,7 +302,8 @@ void App::OnPaint()
                     const float zone_lower = info.content_height * (4.0f / 5.0f);
                     if (item_y < sy + zone_upper) {
                         sy = std::clamp(item_y - zone_upper, 0.0f, info.max_scroll);
-                    } else if (item_y + theme.pane_item_height > sy + zone_lower) {
+                    }
+                    else if (item_y + theme.pane_item_height > sy + zone_lower) {
                         sy = std::clamp(item_y + theme.pane_item_height - zone_lower, 0.0f, info.max_scroll);
                     }
                 }
