@@ -1,5 +1,6 @@
 #pragma once
 #include "types.h"
+#include "layout_cache.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -49,6 +50,23 @@ inline bool IsHelpPath(std::wstring_view path) noexcept { return path == HELP_PA
 
 // source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
 [[nodiscard]] int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_offset) noexcept;
+
+// diff_pos が短い方の末尾と一致するかを判定する。
+// 片方がもう片方の prefix であり、ファイルの伸縮（エディタの中間書き込み状態）を示す。
+[[nodiscard]] inline bool IsPrefixOnlyDiff(size_t diff_pos, size_t old_size, size_t new_size) noexcept
+{
+    return diff_pos == std::min(old_size, new_size);
+}
+
+// diff 位置のノードに基づくスクロールY座標を計算する。
+// ノードが見つからない場合は fallback_scroll を返す。
+[[nodiscard]] float CalcScrollYForDiff(
+    const std::pmr::vector<Node>& nodes,
+    const LayoutCache& cache,
+    std::string_view content,
+    size_t diff_pos,
+    float viewport_height,
+    float fallback_scroll) noexcept;
 
 // フルファイルパスからファイル名部分を抽出する。
 // 例: "C:\\dir\\file.md" -> "file.md"

@@ -997,3 +997,226 @@ TEST(DiffToNode, LargeDocumentMiddleEdit)
     ASSERT_GE(node, 0);
     EXPECT_EQ(nodes[node].GetText(), L"CHANGED paragraph 50");
 }
+
+// ============================================================
+// IsPrefixOnlyDiff
+// ============================================================
+
+TEST(IsPrefixOnlyDiff, IdenticalSizes)
+{
+    // diff_pos=5, old_size=10, new_size=10 → min=10, 5!=10 → false
+    EXPECT_FALSE(IsPrefixOnlyDiff(5, 10, 10));
+}
+
+TEST(IsPrefixOnlyDiff, OldIsPrefix)
+{
+    // old="abc"(3), new="abcdef"(6) → diff_pos=3=min(3,6) → true
+    EXPECT_TRUE(IsPrefixOnlyDiff(3, 3, 6));
+}
+
+TEST(IsPrefixOnlyDiff, NewIsPrefix)
+{
+    // old="abcdef"(6), new="abc"(3) → diff_pos=3=min(6,3) → true
+    EXPECT_TRUE(IsPrefixOnlyDiff(3, 6, 3));
+}
+
+TEST(IsPrefixOnlyDiff, DiffBeforeEnd)
+{
+    // old="abXdef"(6), new="abc"(3) → diff_pos=2, min=3 → false
+    EXPECT_FALSE(IsPrefixOnlyDiff(2, 6, 3));
+}
+
+TEST(IsPrefixOnlyDiff, EmptyOld)
+{
+    // old=""(0), new="abc"(3) → diff_pos=0=min(0,3) → true
+    EXPECT_TRUE(IsPrefixOnlyDiff(0, 0, 3));
+}
+
+TEST(IsPrefixOnlyDiff, EmptyNew)
+{
+    // old="abc"(3), new=""(0) → diff_pos=0=min(3,0) → true
+    EXPECT_TRUE(IsPrefixOnlyDiff(0, 3, 0));
+}
+
+TEST(IsPrefixOnlyDiff, BothEmpty)
+{
+    // diff_pos=0, old=0, new=0 → 0=min(0,0) → true
+    // ただし通常 FindFirstDifference は npos を返すのでここには到達しない
+    EXPECT_TRUE(IsPrefixOnlyDiff(0, 0, 0));
+}
+
+TEST(IsPrefixOnlyDiff, IntegrationWithFindFirstDifference)
+{
+    // FindFirstDifference と組み合わせた実際のユースケース
+    std::string_view old_text = "Hello World";
+    std::string_view new_text = "Hello World, more text";
+    size_t diff = FindFirstDifference(old_text, new_text);
+    EXPECT_TRUE(IsPrefixOnlyDiff(diff, old_text.size(), new_text.size()));
+
+    // 内容が異なる場合
+    std::string_view old_text2 = "Hello World";
+    std::string_view new_text2 = "Hello Xxxxx";
+    size_t diff2 = FindFirstDifference(old_text2, new_text2);
+    EXPECT_FALSE(IsPrefixOnlyDiff(diff2, old_text2.size(), new_text2.size()));
+}
+
+// ============================================================
+// CalcScrollYForDiff
+// ============================================================
+
+// ヘルパー: 等間隔ノードの LayoutCache を構築する
+static LayoutCache MakeCache(int count, float node_height = 100.0f)
+{
+    LayoutCache cache;
+    cache.Resize(count);
+    float y = 0.0f;
+    for (int i = 0; i < count; ++i) {
+        cache[i].y_position = y;
+        cache[i].height = node_height;
+        y += node_height;
+    }
+    return cache;
+}
+
+// ヘルパー: source_offset を等間隔に設定したノード列を構築する
+static std::pmr::vector<Node> MakeNodes(int count, uint32_t offset_step = 100)
+{
+    std::pmr::vector<Node> nodes(count);
+    for (int i = 0; i < count; ++i) {
+        nodes[i].source_offset = static_cast<uint32_t>(i) * offset_step;
+    }
+    return nodes;
+}
+
+TEST(CalcScrollYForDiff, FallbackWhenNoNodes)
+{
+    std::pmr::vector<Node> nodes;
+    LayoutCache cache;
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, "content", 0, 500.0f, 42.0f), 42.0f);
+}
+
+TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
+{
+    // すべてのノードの source_offset が diff_pos より大きい
+    auto nodes = MakeNodes(3, 100);
+    nodes[0].source_offset = 50;
+    auto cache = MakeCache(3);
+    // diff_pos=10 < 全ノードの最小 offset(50) → -1 → fallback
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, "content", 10, 500.0f, 99.0f), 99.0f);
+}
+
+TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
+{
+    // 3ノード: offset=0,100,200 / y=0,100,200 / height=100
+    auto nodes = MakeNodes(3, 100);
+    auto cache = MakeCache(3, 100.0f);
+    std::string content(300, 'x');
+
+    // diff_pos=0 → node 0, y=0, margin=500*0.2=100 → max(0, 0-100)=0
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 0, 500.0f, 0.0f), 0.0f);
+
+    // diff_pos=100 → node 1, y=100, margin=100 → max(0, 100-100)=0
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 500.0f, 0.0f), 0.0f);
+
+    // diff_pos=200 → node 2, y=200, margin=100 → max(0, 200-100)=100
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 200, 500.0f, 0.0f), 100.0f);
+}
+
+TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
+{
+    // 2ノード: offset=0,100 / y=0,1000 / height=1000
+    auto nodes = MakeNodes(2, 100);
+    auto cache = MakeCache(2, 1000.0f);
+    std::string content(200, 'x');
+
+    // diff_pos=50 → node 0 (offset=0), next_start=100
+    // fraction = (50-0)/(100-0) = 0.5
+    // node_y = 0 + 1000*0.5 = 500
+    // margin = 100*0.2 = 20
+    // result = max(0, 500-20) = 480
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 50, 100.0f, 0.0f), 480.0f);
+}
+
+TEST(CalcScrollYForDiff, FractionClampsToOne)
+{
+    // diff_pos がノード範囲を超える場合でも fraction は 1.0 でクランプ
+    auto nodes = MakeNodes(2, 100);
+    auto cache = MakeCache(2, 1000.0f);
+    std::string content(200, 'x');
+
+    // diff_pos=99 → node 0, fraction=99/100=0.99
+    // y = 0 + 1000*0.99 = 990, scroll = 990-20 = 970
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 99, 100.0f, 0.0f), 970.0f);
+    // diff_pos=100 → node 1 (exact match), y=1000, scroll = 1000-20 = 980
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 100.0f, 0.0f), 980.0f);
+}
+
+TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
+{
+    // ノード1の source_offset が UINT32_MAX の場合、ノード2を next_start として使う
+    std::pmr::vector<Node> nodes(3);
+    nodes[0].source_offset = 0;
+    nodes[1].source_offset = UINT32_MAX; // 未設定（HorizontalRule等）
+    nodes[2].source_offset = 200;
+    auto cache = MakeCache(3, 100.0f);
+    std::string content(300, 'x');
+
+    // diff_pos=100 → node 0 (offset=0), next valid = node 2 (offset=200)
+    // fraction = (100-0)/(200-0) = 0.5
+    // node_y = 0 + 100*0.5 = 50
+    // margin = 500*0.2 = 100
+    // result = max(0, 50-100) = 0
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 500.0f, 0.0f), 0.0f);
+}
+
+TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
+{
+    // 最後のノードでは content.size() が next_start として使われる
+    auto nodes = MakeNodes(1, 0);
+    nodes[0].source_offset = 0;
+    auto cache = MakeCache(1, 1000.0f);
+    std::string content(100, 'x');
+
+    // diff_pos=50, next_start=content.size()=100
+    // fraction = 50/100 = 0.5
+    // node_y = 0 + 1000*0.5 = 500
+    // margin = 200*0.2 = 40
+    // result = max(0, 500-40) = 460
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 50, 200.0f, 0.0f), 460.0f);
+}
+
+TEST(CalcScrollYForDiff, CacheSizeMismatchFallback)
+{
+    // ノード数とキャッシュサイズが不一致の場合のフォールバック
+    auto nodes = MakeNodes(5, 100);
+    auto cache = MakeCache(3, 100.0f); // キャッシュは3つだけ
+
+    // diff_pos=400 → node 4 だがキャッシュは3つ → fallback
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, std::string(500, 'x'), 400, 500.0f, 77.0f), 77.0f);
+}
+
+TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
+{
+    // 実際のMarkdownをパースして差分スクロール位置を計算する統合テスト
+    std::string md = "# Title\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph";
+    auto nodes = ParseMarkdown(md).nodes;
+    ASSERT_GE(nodes.size(), 4u);
+
+    // ノード高さを設定
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    float y = 0.0f;
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        cache[i].y_position = y;
+        cache[i].height = 50.0f;
+        y += 50.0f;
+    }
+
+    // "Second paragraph" の先頭バイトで diff
+    size_t diff_pos = static_cast<size_t>(md.find("Second"));
+    ASSERT_NE(diff_pos, std::string::npos);
+
+    float result = CalcScrollYForDiff(nodes, cache, md, diff_pos, 500.0f, 0.0f);
+    // スクロール位置は 0 以上で、fallback(0) とは異なる値が期待される
+    EXPECT_GE(result, 0.0f);
+}

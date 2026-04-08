@@ -524,7 +524,7 @@ void App::OnParseComplete()
 
     // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
     // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
-    const bool is_prefix_only = (diff_pos == std::min(old_view.size(), new_view.size()));
+    const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
     if (is_prefix_only) {
         reload_diff_pos_ = std::string_view::npos;
         // HasNodeRestore をクリアし、NavScroll 経由で旧スクロール位置を復元する
@@ -734,7 +734,7 @@ void App::DoReloadCurrentFile()
     // 変更箇所のスクロール位置を決定
     // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
     // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
-    const bool is_prefix_only = (diff_pos == std::min(old_view.size(), new_view.size()));
+    const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
     const float desired_scroll = is_prefix_only
         ? old_scroll
         : CalcScrollForDiff(diff_pos, md_height, old_scroll);
@@ -773,40 +773,11 @@ void App::DoReloadCurrentFile()
 
 float App::CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const
 {
-    const auto& nodes = doc_.GetNodes();
-    const auto& content = doc_.GetRawUtf8();
-    const int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
-
-    MENDO_TRACEF(L"CalcScrollForDiff: changed_node=%d node_count=%zu diff_pos=%zu",
-        changed_node, nodes.size(), diff_pos);
-
-    if (changed_node < 0 || changed_node >= static_cast<int>(layout_cache_.size())) {
-        return fallback_scroll;
-    }
-
-    float node_y = layout_cache_[changed_node].y_position;
-    const float node_h = layout_cache_[changed_node].height;
-
-    // ノード内での相対位置を推定してY座標を補正
-    const uint32_t node_start = nodes[changed_node].source_offset;
-    if (node_start != UINT32_MAX) {
-        uint32_t next_start = static_cast<uint32_t>(content.size());
-        const auto node_count = static_cast<int>(nodes.size());
-        for (int i = changed_node + 1; i < node_count; ++i) {
-            if (nodes[i].source_offset != UINT32_MAX && nodes[i].source_offset > node_start) {
-                next_start = nodes[i].source_offset;
-                break;
-            }
-        }
-        if (next_start > node_start) {
-            const float fraction = static_cast<float>(diff_pos - node_start)
-                / static_cast<float>(next_start - node_start);
-            node_y += node_h * std::min(fraction, 1.0f);
-        }
-    }
-
-    const float margin = viewport_height * 0.2f;
-    return std::max(0.0f, node_y - margin);
+    MENDO_TRACEF(L"CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, doc_.GetNodes().size());
+    return CalcScrollYForDiff(
+        doc_.GetNodes(), layout_cache_,
+        std::string_view(doc_.GetRawUtf8()),
+        diff_pos, viewport_height, fallback_scroll);
 }
 
 void App::ApplyMermaidCacheHeights(float md_width)
