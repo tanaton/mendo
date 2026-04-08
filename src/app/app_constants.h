@@ -20,6 +20,7 @@ inline constexpr UINT_PTR SEARCH_DEBOUNCE = SearchBarController::TIMER_DEBOUNCE;
 inline constexpr UINT_PTR MERMAID_BATCH = ResourceManager::TIMER_MERMAID_BATCH;
 inline constexpr UINT_PTR BITMAP_MANAGE = ResourceManager::TIMER_BITMAP_MANAGE;
 inline constexpr UINT_PTR MERMAID_INIT_RETRY = MermaidRenderer::TIMER_INIT_RETRY;
+inline constexpr UINT_PTR FILE_RELOAD_DEBOUNCE = 13;
 
 } // namespace app_timer
 

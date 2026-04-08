@@ -65,8 +65,17 @@ private:
 #define MENDO_PROFILE_CONCAT(a, b) MENDO_PROFILE_CONCAT2(a, b)
 #define MENDO_PROFILE(label) ScopedProfileTimer MENDO_PROFILE_CONCAT(_mendo_timer_, __LINE__)(L##label)
 
+#define MENDO_TRACE(msg) OutputDebugStringW(L"[mendo-reload] " msg L"\n")
+#define MENDO_TRACEF(fmt, ...) do { \
+    wchar_t _mendo_buf[256]; \
+    _snwprintf_s(_mendo_buf, _TRUNCATE, L"[mendo-reload] " fmt L"\n", __VA_ARGS__); \
+    OutputDebugStringW(_mendo_buf); \
+} while(0)
+
 #else
 
 #define MENDO_PROFILE(label) ((void)0)
+#define MENDO_TRACE(msg) ((void)0)
+#define MENDO_TRACEF(fmt, ...) ((void)0)
 
 #endif
