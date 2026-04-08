@@ -2,6 +2,7 @@
 #include <memory_resource>
 #include <string_view>
 #include "document_utils.h"
+#include "layout_cache.h"
 #include "parser.h"
 
 // ============================================================

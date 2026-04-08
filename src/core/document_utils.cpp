@@ -1,4 +1,5 @@
 #include "document_utils.h"
+#include "layout_cache.h"
 #include <windows.h>
 #include <cwctype>
 #include <filesystem>

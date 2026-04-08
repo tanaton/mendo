@@ -1,12 +1,13 @@
 #pragma once
 #include "types.h"
-#include "layout_cache.h"
 #include <string>
 #include <string_view>
 #include <vector>
 #include <optional>
 #include <cstdint>
 #include <memory_resource>
+
+class LayoutCache;
 
 // 選択範囲に基づいてノードから選択テキストを抽出する。
 // ノード間を \r\n で連結したテキストを返す。
