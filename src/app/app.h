@@ -337,6 +337,11 @@ private:
     size_t reload_diff_pos_ = std::string_view::npos;
     float reload_old_scroll_ = 0.0f;
 
+    // エディタの truncate→rewrite 2段階保存検出用。
+    // prefix-only shrink をスキップし、次回リロードで元コンテンツとの
+    // 正確な差分を検出する。
+    bool pending_prefix_shrink_ = false;
+
     // トースト通知
     ToastNotifier toast_;
     void ShowToast(std::wstring_view message);
