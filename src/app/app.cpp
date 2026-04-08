@@ -533,34 +533,17 @@ void App::OnParseComplete()
         // エディタの truncate→rewrite 2段階保存の前半（ファイル縮小）を検出。
         // doc_ を更新せず元のコンテンツを保持することで、次のリロードで
         // 「元コンテンツ vs 最終コンテンツ」の正確な差分を検出できるようにする。
-        if (is_prefix_only && new_view.size() < old_view.size() && !pending_prefix_shrink_) {
-            pending_prefix_shrink_ = true;
-            SetTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE, 500, nullptr);
-            doc_service_.ResumeWatching();
-            Invalidate();
+        if (ShouldDeferForTruncateRewrite(is_prefix_only, old_view.size(), new_view.size())) {
             return;
         }
-        pending_prefix_shrink_ = false;
 
         if (is_prefix_only) {
             // prefix-only はファイル末尾の伸縮のみ。prefix 部分のノード列は
             // 同一なので、旧キャッシュの実測高さ・text_layout をそのまま保持する。
             // Reset() + EstimateNodeHeights() だと推定高さの累積誤差で
             // 大規模ファイル後半のスクロール位置が大きくずれる。
-            const size_t old_node_count = layout_cache_.size();
             doc_ = std::move(*result);
-            const size_t new_node_count = doc_.GetNodes().size();
-            layout_cache_.Resize(new_node_count);
-
-            // Resize で追加された新エントリは y_position=0 のため、
-            // 二分探索の単調性が壊れる。旧コンテンツ末尾に配置して修正する。
-            if (new_node_count > old_node_count && old_node_count > 0) {
-                const float end_y = layout_cache_[old_node_count - 1].y_position
-                    + layout_cache_[old_node_count - 1].height;
-                for (size_t i = old_node_count; i < new_node_count; i++) {
-                    layout_cache_[i].y_position = end_y;
-                }
-            }
+            layout_cache_.ResizePreservingPrefix(doc_.GetNodes().size());
 
             renderer_.InvalidateTocPaneCache();
 
@@ -721,9 +704,14 @@ void App::ReloadCurrentFile()
         MENDO_TRACE("ReloadCurrentFile: async path (large file)");
         reload_old_scroll_ = viewport_.GetScrollY();
         file_load_service_.StartLoading(doc_.GetFilePath());
-        SetTimer(hwnd_, app_timer::LOADING_ANIM, 16, nullptr);
-        Invalidate();
-        UpdateWindow(hwnd_);
+        // pending_prefix_shrink_ 中はローディングアニメーションを表示しない。
+        // エディタの truncate→rewrite の中間状態をスキップしているだけなので、
+        // 画面を白くして再描画する必要がない。
+        if (!pending_prefix_shrink_) {
+            SetTimer(hwnd_, app_timer::LOADING_ANIM, 16, nullptr);
+            Invalidate();
+            UpdateWindow(hwnd_);
+        }
         file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE);
     }
     else {
@@ -777,13 +765,9 @@ void App::DoReloadCurrentFile()
 
     // エディタの truncate→rewrite 2段階保存の前半（ファイル縮小）を検出。
     // doc_ を更新せず元のコンテンツを保持し、次のリロードで正確な差分を検出する。
-    if (is_prefix_only && new_view.size() < old_view.size() && !pending_prefix_shrink_) {
-        pending_prefix_shrink_ = true;
-        SetTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE, 500, nullptr);
-        doc_service_.ResumeWatching();
+    if (ShouldDeferForTruncateRewrite(is_prefix_only, old_view.size(), new_view.size())) {
         return;
     }
-    pending_prefix_shrink_ = false;
 
     // ドキュメントを新コンテンツで更新
     {
@@ -791,21 +775,9 @@ void App::DoReloadCurrentFile()
         doc_.ReplaceFromMarkdown(std::move(new_utf8));
     }
 
-    const size_t old_node_count = layout_cache_.size();
-
     if (is_prefix_only) {
         // prefix 部分のノード列は同一なので旧キャッシュの実測高さを保持する
-        const size_t new_node_count = doc_.GetNodes().size();
-        layout_cache_.Resize(new_node_count);
-
-        // Resize で追加された新エントリの y_position=0 は二分探索を壊すため修正
-        if (new_node_count > old_node_count && old_node_count > 0) {
-            const float end_y = layout_cache_[old_node_count - 1].y_position
-                + layout_cache_[old_node_count - 1].height;
-            for (size_t i = old_node_count; i < new_node_count; i++) {
-                layout_cache_[i].y_position = end_y;
-            }
-        }
+        layout_cache_.ResizePreservingPrefix(doc_.GetNodes().size());
     } else {
         layout_cache_.Reset(doc_.GetNodes().size(), false);
         EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
@@ -857,6 +829,17 @@ void App::DoReloadCurrentFile()
 
     // リロード完了まで一時停止していたファイル監視を再開する
     doc_service_.ResumeWatching();
+}
+
+bool App::ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size)
+{
+    if (is_prefix_only && new_size < old_size && !pending_prefix_shrink_) {
+        pending_prefix_shrink_ = true;
+        doc_service_.ResumeWatching();
+        return true;
+    }
+    pending_prefix_shrink_ = false;
+    return false;
 }
 
 float App::CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const

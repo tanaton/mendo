@@ -230,6 +230,7 @@ private:
     void FinishLoadMarkdownFile();
     float CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const;
     void ApplyMermaidCacheHeights(float md_width);
+    bool ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size);
     void UpdateTitleBar();
     void SaveLastFilePath();
     void SavePaneState();

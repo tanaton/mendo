@@ -58,6 +58,21 @@ public:
         }
     }
 
+    // prefix 部分のキャッシュを保持したままリサイズする。
+    // 追加エントリの y_position を旧末尾に配置し、二分探索の単調性を維持する。
+    void ResizePreservingPrefix(size_t new_node_count)
+    {
+        const size_t old_count = entries_.size();
+        Resize(new_node_count);
+        if (new_node_count > old_count && old_count > 0) {
+            const float end_y = entries_[old_count - 1].y_position
+                + entries_[old_count - 1].height;
+            for (size_t i = old_count; i < new_node_count; i++) {
+                entries_[i].y_position = end_y;
+            }
+        }
+    }
+
     // 既存のエントリをすべてクリアし、デフォルト値でリサイズする。
     // shrink=true (デフォルト): ファイル切り替え時に古い容量を解放する。
     // shrink=false: リロード時に容量を保持し、同サイズファイルの再確保を回避する。
