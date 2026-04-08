@@ -257,7 +257,11 @@ void App::OnPaint()
     BeginPaint(hwnd_, &ps);
 
     const auto& layout = GetPaneLayout();
-    if (!file_load_service_.IsLoading()) {
+    // pending_prefix_shrink_ 中は loading_ が true でも旧コンテンツを表示する。
+    // エディタの truncate→rewrite 中間状態をスキップしているだけなので、
+    // ローディング画面を表示する必要がない。
+    const bool show_loading = file_load_service_.IsLoading() && !pending_prefix_shrink_;
+    if (!show_loading) {
         // 完了済みデコード結果とキャッシュ済みリソースを描画前に適用する。
         // app_msg::IMAGE_LOADED が WM_PAINT より後にキューされている場合でも
         // プレースホルダーの表示を回避できる。
@@ -279,7 +283,7 @@ void App::OnPaint()
     }
     // 目次ペインの同期: mdペインのスクロール位置からアクティブ見出しを判定し、
     // 目次ペインを自動スクロールする
-    if (panes_.IsTocPaneVisible() && !file_load_service_.IsLoading()) {
+    if (panes_.IsTocPaneVisible() && !show_loading) {
         const float toc_margin = layout.md_rect.y + renderer_.GetTheme().heading_spacing_above;
         const int new_active = doc_.GetToc().FindActiveIndex(layout_cache_, viewport_.GetScrollY(), toc_margin);
         if (new_active != active_toc_index_) {
@@ -317,7 +321,7 @@ void App::OnPaint()
     const auto ts = BuildToastRenderState();
     const auto sb = BuildSearchBarRenderState();
 
-    if (file_load_service_.IsLoading()) {
+    if (show_loading) {
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
     }
     else {
@@ -458,6 +462,7 @@ void App::LoadHelpDocument()
 void App::LoadMarkdownFile(std::wstring_view path)
 {
     KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
+    pending_prefix_shrink_ = false;
     const std::pmr::wstring path_str{ path };
     if (!DocumentService::NeedsLoadingAnimation(path_str)) {
         file_load_service_.SetLoadingPath(path_str);
@@ -520,6 +525,7 @@ void App::OnParseComplete()
 
         if (diff_pos == std::string_view::npos) {
             // 差分なし → リロード不要、監視再開
+            pending_prefix_shrink_ = false;
             doc_service_.ResumeWatching();
             Invalidate();
             return;
@@ -528,14 +534,49 @@ void App::OnParseComplete()
         // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
         // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
         const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
+
+        // エディタの truncate→rewrite 2段階保存の前半（ファイル縮小）を検出。
+        // doc_ を更新せず元のコンテンツを保持することで、次のリロードで
+        // 「元コンテンツ vs 最終コンテンツ」の正確な差分を検出できるようにする。
+        if (ShouldDeferForTruncateRewrite(is_prefix_only, old_view.size(), new_view.size())) {
+            return;
+        }
+
         if (is_prefix_only) {
-            reload_diff_pos_ = std::string_view::npos;
-            scroll_restore_.ClearNodeRestore();
-            scroll_restore_.pending_nav_scroll_y = reload_old_scroll_;
+            // prefix-only はファイル末尾の伸縮のみ。prefix 部分のノード列は
+            // 同一なので、旧キャッシュの実測高さ・text_layout をそのまま保持する。
+            // Reset() + EstimateNodeHeights() だと推定高さの累積誤差で
+            // 大規模ファイル後半のスクロール位置が大きくずれる。
+            resource_manager_.CancelMermaidBatch();
+            doc_ = std::move(*result);
+            layout_cache_.ResizePreservingPrefix(doc_.GetNodes().size());
+
+            renderer_.InvalidateTocPaneCache();
+
+            const auto pane_layout = GetPaneLayout();
+            const float md_width = pane_layout.md_rect.width;
+            const float md_height = pane_layout.md_rect.height;
+
+            viewport_.SetScrollY(reload_old_scroll_);
+            layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
+
+            resource_manager_.LoadImages();
+            resource_manager_.RequestMermaidRenders();
+
+            SyncMaxScroll(md_height);
+            UpdateScrollBar();
+
+            if (search_state_.IsVisible() && !search_state_.GetQuery().empty()) {
+                search_bar_ctrl_.RunSearchAndLocate(doc_.GetNodes());
+            }
+
+            Invalidate();
+            ScheduleDeferredLayoutIfNeeded();
+            doc_service_.ResumeWatching();
+            return;
         }
-        else {
-            reload_diff_pos_ = diff_pos;
-        }
+
+        reload_diff_pos_ = diff_pos;
     }
     else {
         // 別ファイルの非同期ロードではリロード用の差分スクロールを使わない
@@ -669,9 +710,14 @@ void App::ReloadCurrentFile()
         MENDO_TRACE("ReloadCurrentFile: async path (large file)");
         reload_old_scroll_ = viewport_.GetScrollY();
         file_load_service_.StartLoading(doc_.GetFilePath());
-        SetTimer(hwnd_, app_timer::LOADING_ANIM, 16, nullptr);
-        Invalidate();
-        UpdateWindow(hwnd_);
+        // pending_prefix_shrink_ 中はローディングアニメーションを表示しない。
+        // エディタの truncate→rewrite の中間状態をスキップしているだけなので、
+        // 画面を白くして再描画する必要がない。
+        if (!pending_prefix_shrink_) {
+            SetTimer(hwnd_, app_timer::LOADING_ANIM, 16, nullptr);
+            Invalidate();
+            UpdateWindow(hwnd_);
+        }
         file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE);
     }
     else {
@@ -714,7 +760,19 @@ void App::DoReloadCurrentFile()
     // 差分がなければリロード不要。エディタの保存操作が複数の通知を
     // 発生させた場合に、レイアウトキャッシュの不要なリセットを防ぐ。
     if (diff_pos == std::string_view::npos) {
+        pending_prefix_shrink_ = false;
         doc_service_.ResumeWatching();
+        return;
+    }
+
+    // 変更箇所のスクロール位置を決定
+    // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
+    // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
+    const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
+
+    // エディタの truncate→rewrite 2段階保存の前半（ファイル縮小）を検出。
+    // doc_ を更新せず元のコンテンツを保持し、次のリロードで正確な差分を検出する。
+    if (ShouldDeferForTruncateRewrite(is_prefix_only, old_view.size(), new_view.size())) {
         return;
     }
 
@@ -723,7 +781,14 @@ void App::DoReloadCurrentFile()
         MENDO_PROFILE("Reload::ReplaceFromMarkdown");
         doc_.ReplaceFromMarkdown(std::move(new_utf8));
     }
-    layout_cache_.Reset(doc_.GetNodes().size(), false);
+
+    if (is_prefix_only) {
+        // prefix 部分のノード列は同一なので旧キャッシュの実測高さを保持する
+        layout_cache_.ResizePreservingPrefix(doc_.GetNodes().size());
+    } else {
+        layout_cache_.Reset(doc_.GetNodes().size(), false);
+        EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
+    }
 
     renderer_.InvalidateTocPaneCache();
 
@@ -731,17 +796,12 @@ void App::DoReloadCurrentFile()
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
 
-    // Reset直後はheight/y_positionが全て0のため、軽量推定でY座標を確定させる
-    EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
+    if (!is_prefix_only) {
+        // Mermaidブロックの推定高さをファイルキャッシュの実測値で上書きし、
+        // スクロール位置のずれを防ぐ
+        ApplyMermaidCacheHeights(md_width);
+    }
 
-    // Mermaidブロックの推定高さをファイルキャッシュの実測値で上書きし、
-    // スクロール位置のずれを防ぐ
-    ApplyMermaidCacheHeights(md_width);
-
-    // 変更箇所のスクロール位置を決定
-    // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
-    // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
-    const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
     const float desired_scroll = is_prefix_only
         ? old_scroll
         : CalcScrollForDiff(diff_pos, md_height, old_scroll);
@@ -776,6 +836,19 @@ void App::DoReloadCurrentFile()
 
     // リロード完了まで一時停止していたファイル監視を再開する
     doc_service_.ResumeWatching();
+}
+
+bool App::ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size)
+{
+    if (is_prefix_only && new_size < old_size) {
+        // prefix-only shrink が連続する場合もすべて defer する。
+        // エディタによっては truncate が複数回発生してから rewrite されることがある。
+        pending_prefix_shrink_ = true;
+        doc_service_.ResumeWatching();
+        return true;
+    }
+    pending_prefix_shrink_ = false;
+    return false;
 }
 
 float App::CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const

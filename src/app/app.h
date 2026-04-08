@@ -230,6 +230,7 @@ private:
     void FinishLoadMarkdownFile();
     float CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const;
     void ApplyMermaidCacheHeights(float md_width);
+    bool ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size);
     void UpdateTitleBar();
     void SaveLastFilePath();
     void SavePaneState();
@@ -336,6 +337,11 @@ private:
     // 非同期リロード時の差分スクロール用
     size_t reload_diff_pos_ = std::string_view::npos;
     float reload_old_scroll_ = 0.0f;
+
+    // エディタの truncate→rewrite 2段階保存検出用。
+    // prefix-only shrink をスキップし、次回リロードで元コンテンツとの
+    // 正確な差分を検出する。
+    bool pending_prefix_shrink_ = false;
 
     // トースト通知
     ToastNotifier toast_;
