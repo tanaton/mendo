@@ -457,6 +457,7 @@ void App::LoadHelpDocument()
 
 void App::LoadMarkdownFile(std::wstring_view path)
 {
+    KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
     const std::pmr::wstring path_str{ path };
     if (!DocumentService::NeedsLoadingAnimation(path_str)) {
         file_load_service_.SetLoadingPath(path_str);
@@ -501,8 +502,44 @@ void App::OnParseComplete()
 
     auto result = file_load_service_.TakeAsyncResult();
     if (!result) {
+        MENDO_TRACE("OnParseComplete: no result (cancelled?)");
         Invalidate();
         return;
+    }
+
+    // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
+    // 非同期のファイルオープンでも OnParseComplete() が使われるため、
+    // 別ファイル読み込み時は差分ロジックをスキップする。
+    if (_wcsicmp(result->GetFilePath().c_str(), doc_.GetFilePath().c_str()) == 0) {
+        const std::string_view old_view(doc_.GetRawUtf8());
+        const std::string_view new_view(result->GetRawUtf8());
+        const size_t diff_pos = FindFirstDifference(old_view, new_view);
+
+        MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu",
+            result->GetNodes().size(), diff_pos, old_view.size(), new_view.size());
+
+        if (diff_pos == std::string_view::npos) {
+            // 差分なし → リロード不要、監視再開
+            doc_service_.ResumeWatching();
+            Invalidate();
+            return;
+        }
+
+        // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
+        // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
+        const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
+        if (is_prefix_only) {
+            reload_diff_pos_ = std::string_view::npos;
+            scroll_restore_.ClearNodeRestore();
+            scroll_restore_.pending_nav_scroll_y = reload_old_scroll_;
+        }
+        else {
+            reload_diff_pos_ = diff_pos;
+        }
+    }
+    else {
+        // 別ファイルの非同期ロードではリロード用の差分スクロールを使わない
+        reload_diff_pos_ = std::string_view::npos;
     }
 
     doc_ = std::move(*result);
@@ -540,16 +577,29 @@ void App::FinishLoadMarkdownFile()
     // スクロール位置の復元
     float scroll_y = 0.0f;
 
+    const bool has_reload_diff = (reload_diff_pos_ != std::string_view::npos);
+
+    MENDO_TRACEF("FinishLoad: has_reload_diff=%d HasNodeRestore=%d HasNavScroll=%d nav_scroll_y=%.1f",
+        has_reload_diff ? 1 : 0,
+        scroll_restore_.HasNodeRestore() ? 1 : 0,
+        scroll_restore_.HasNavScroll() ? 1 : 0,
+        scroll_restore_.HasNavScroll() ? scroll_restore_.pending_nav_scroll_y : -1.0f);
+
     // cache.Reset()直後は全ノードの高さが0のため、スクロール復元前に
     // ノード高さを推定し、Mermaidキャッシュの実測値で補正する
-    if (scroll_restore_.HasNodeRestore()
+    if (has_reload_diff
+        || scroll_restore_.HasNodeRestore()
         || (scroll_restore_.HasNavScroll() && scroll_restore_.pending_nav_scroll_y > 0.0f)) {
         MENDO_PROFILE("EstimateNodeHeights");
         EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
         ApplyMermaidCacheHeights(md_width);
     }
 
-    if (scroll_restore_.HasNodeRestore()) {
+    if (has_reload_diff) {
+        scroll_y = CalcScrollForDiff(reload_diff_pos_, md_height, reload_old_scroll_);
+        reload_diff_pos_ = std::string_view::npos;
+    }
+    else if (scroll_restore_.HasNodeRestore()) {
         const int node = std::min(scroll_restore_.pending_restore_node,
             static_cast<int>(layout_cache_.size()) - 1);
         if (node >= 0) {
@@ -561,6 +611,8 @@ void App::FinishLoadMarkdownFile()
     else if (scroll_restore_.HasNavScroll()) {
         scroll_y = scroll_restore_.ConsumeNavScroll();
     }
+
+    MENDO_TRACEF("FinishLoad: scroll_y=%.1f (0=top of file)", scroll_y);
 
     viewport_.SetScrollY(scroll_y);
 
@@ -598,7 +650,8 @@ void App::FinishLoadMarkdownFile()
     UpdateTitleBar();
 
     doc_service_.StartWatching(doc_.GetFilePath(), [this]() {
-        ReloadCurrentFile();
+        KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
+        SetTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE, 200, nullptr);
     });
 }
 
@@ -613,6 +666,8 @@ void App::ReloadCurrentFile()
     }
 
     if (DocumentService::NeedsLoadingAnimation(doc_.GetFilePath())) {
+        MENDO_TRACE("ReloadCurrentFile: async path (large file)");
+        reload_old_scroll_ = viewport_.GetScrollY();
         file_load_service_.StartLoading(doc_.GetFilePath());
         SetTimer(hwnd_, app_timer::LOADING_ANIM, 16, nullptr);
         Invalidate();
@@ -620,6 +675,7 @@ void App::ReloadCurrentFile()
         file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE);
     }
     else {
+        MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");
         DoReloadCurrentFile();
     }
 }
@@ -648,9 +704,12 @@ void App::DoReloadCurrentFile()
         MENDO_PROFILE("Reload::LoadFile");
         new_utf8 = FileLoader::LoadFile(doc_.GetFilePath());
     }
-    const size_t diff_pos = FindFirstDifference(
-        std::string_view(doc_.GetRawUtf8()),
-        std::string_view(new_utf8));
+    const std::string_view old_view(doc_.GetRawUtf8());
+    const std::string_view new_view(new_utf8);
+    const size_t diff_pos = FindFirstDifference(old_view, new_view);
+
+    MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu old_scroll=%.1f",
+        diff_pos, old_view.size(), new_view.size(), old_scroll);
 
     // 差分がなければリロード不要。エディタの保存操作が複数の通知を
     // 発生させた場合に、レイアウトキャッシュの不要なリセットを防ぐ。
@@ -680,38 +739,14 @@ void App::DoReloadCurrentFile()
     ApplyMermaidCacheHeights(md_width);
 
     // 変更箇所のスクロール位置を決定
-    float desired_scroll = old_scroll;
-    const auto& new_content = doc_.GetRawUtf8();
-    const auto& nodes = doc_.GetNodes();
+    // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
+    // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
+    const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
+    const float desired_scroll = is_prefix_only
+        ? old_scroll
+        : CalcScrollForDiff(diff_pos, md_height, old_scroll);
 
-    {
-        const int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
-        if (changed_node >= 0 && changed_node < static_cast<int>(layout_cache_.size())) {
-            float node_y = layout_cache_[changed_node].y_position;
-            const float node_h = layout_cache_[changed_node].height;
-
-            // ノード内での相対位置を推定してY座標を補正
-            const uint32_t node_start = nodes[changed_node].source_offset;
-            if (node_start != UINT32_MAX) {
-                uint32_t next_start = static_cast<uint32_t>(new_content.size());
-                const auto node_count = static_cast<int>(nodes.size());
-                for (int i = changed_node + 1; i < node_count; ++i) {
-                    if (nodes[i].source_offset != UINT32_MAX && nodes[i].source_offset > node_start) {
-                        next_start = nodes[i].source_offset;
-                        break;
-                    }
-                }
-                if (next_start > node_start) {
-                    const float fraction = static_cast<float>(diff_pos - node_start)
-                        / static_cast<float>(next_start - node_start);
-                    node_y += node_h * std::min(fraction, 1.0f);
-                }
-            }
-
-            const float margin = md_height * 0.2f;
-            desired_scroll = std::max(0.0f, node_y - margin);
-        }
-    }
+    MENDO_TRACEF("DoReload: desired_scroll=%.1f old_scroll=%.1f", desired_scroll, old_scroll);
 
     // スクロール位置を設定してからViewportLayoutを呼ぶことで、
     // 変更箇所周辺の可視ノードが計測される
@@ -741,6 +776,15 @@ void App::DoReloadCurrentFile()
 
     // リロード完了まで一時停止していたファイル監視を再開する
     doc_service_.ResumeWatching();
+}
+
+float App::CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const
+{
+    MENDO_TRACEF("CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, doc_.GetNodes().size());
+    return CalcScrollYForDiff(
+        doc_.GetNodes(), layout_cache_,
+        std::string_view(doc_.GetRawUtf8()),
+        diff_pos, viewport_height, fallback_scroll);
 }
 
 void App::ApplyMermaidCacheHeights(float md_width)
@@ -995,6 +1039,7 @@ void App::OnDropFiles(HDROP hDrop)
 
 void App::OnFileWatchEvent()
 {
+    MENDO_TRACE("OnFileWatchEvent: file change detected");
     doc_service_.CheckForChanges();
 }
 
@@ -1055,6 +1100,10 @@ void App::HandleTimer(UINT_PTR timer_id)
     case app_timer::MERMAID_INIT_RETRY:
         mermaid_renderer_.OnInitRetryTimer();
         break;
+    case app_timer::FILE_RELOAD_DEBOUNCE:
+        KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
+        ReloadCurrentFile();
+        break;
     default: break;
     }
 }
@@ -1107,6 +1156,7 @@ void App::OnDestroy()
     KillTimer(hwnd_, app_timer::BITMAP_MANAGE);
     KillTimer(hwnd_, app_timer::MERMAID_BATCH);
     KillTimer(hwnd_, app_timer::MERMAID_INIT_RETRY);
+    KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
 }
 
 RECT App::GetSearchEditRect() const

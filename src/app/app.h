@@ -228,6 +228,7 @@ private:
     void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
     void FinishLoadMarkdownFile();
+    float CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const;
     void ApplyMermaidCacheHeights(float md_width);
     void UpdateTitleBar();
     void SaveLastFilePath();
@@ -331,6 +332,10 @@ private:
 
     // 目次ペインの現在アクティブな見出しインデックス
     int active_toc_index_ = -1;
+
+    // 非同期リロード時の差分スクロール用
+    size_t reload_diff_pos_ = std::string_view::npos;
+    float reload_old_scroll_ = 0.0f;
 
     // トースト通知
     ToastNotifier toast_;
