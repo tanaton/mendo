@@ -507,32 +507,39 @@ void App::OnParseComplete()
         return;
     }
 
-    // 旧ドキュメントとの差分位置を計算（リロード時のみ有効）
-    const std::string_view old_view(doc_.GetRawUtf8());
-    const std::string_view new_view(result->GetRawUtf8());
-    const size_t diff_pos = FindFirstDifference(old_view, new_view);
+    // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
+    // 非同期のファイルオープンでも OnParseComplete() が使われるため、
+    // 別ファイル読み込み時は差分ロジックをスキップする。
+    if (result->GetFilePath() == doc_.GetFilePath()) {
+        const std::string_view old_view(doc_.GetRawUtf8());
+        const std::string_view new_view(result->GetRawUtf8());
+        const size_t diff_pos = FindFirstDifference(old_view, new_view);
 
-    MENDO_TRACEF(L"OnParseComplete: node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu",
-        result->GetNodes().size(), diff_pos, old_view.size(), new_view.size());
+        MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu",
+            result->GetNodes().size(), diff_pos, old_view.size(), new_view.size());
 
-    if (diff_pos == std::string_view::npos) {
-        // 差分なし → リロード不要、監視再開
-        doc_service_.ResumeWatching();
-        Invalidate();
-        return;
-    }
+        if (diff_pos == std::string_view::npos) {
+            // 差分なし → リロード不要、監視再開
+            doc_service_.ResumeWatching();
+            Invalidate();
+            return;
+        }
 
-    // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
-    // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
-    const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
-    if (is_prefix_only) {
-        reload_diff_pos_ = std::string_view::npos;
-        // HasNodeRestore をクリアし、NavScroll 経由で旧スクロール位置を復元する
-        scroll_restore_.ClearNodeRestore();
-        scroll_restore_.pending_nav_scroll_y = reload_old_scroll_;
+        // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
+        // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
+        const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
+        if (is_prefix_only) {
+            reload_diff_pos_ = std::string_view::npos;
+            scroll_restore_.ClearNodeRestore();
+            scroll_restore_.pending_nav_scroll_y = reload_old_scroll_;
+        }
+        else {
+            reload_diff_pos_ = diff_pos;
+        }
     }
     else {
-        reload_diff_pos_ = diff_pos;
+        // 別ファイルの非同期ロードではリロード用の差分スクロールを使わない
+        reload_diff_pos_ = std::string_view::npos;
     }
 
     doc_ = std::move(*result);
@@ -572,7 +579,7 @@ void App::FinishLoadMarkdownFile()
 
     const bool has_reload_diff = (reload_diff_pos_ != std::string_view::npos);
 
-    MENDO_TRACEF(L"FinishLoad: has_reload_diff=%d HasNodeRestore=%d HasNavScroll=%d nav_scroll_y=%.1f",
+    MENDO_TRACEF("FinishLoad: has_reload_diff=%d HasNodeRestore=%d HasNavScroll=%d nav_scroll_y=%.1f",
         has_reload_diff ? 1 : 0,
         scroll_restore_.HasNodeRestore() ? 1 : 0,
         scroll_restore_.HasNavScroll() ? 1 : 0,
@@ -605,7 +612,7 @@ void App::FinishLoadMarkdownFile()
         scroll_y = scroll_restore_.ConsumeNavScroll();
     }
 
-    MENDO_TRACEF(L"FinishLoad: scroll_y=%.1f (0=top of file)", scroll_y);
+    MENDO_TRACEF("FinishLoad: scroll_y=%.1f (0=top of file)", scroll_y);
 
     viewport_.SetScrollY(scroll_y);
 
@@ -701,7 +708,7 @@ void App::DoReloadCurrentFile()
     const std::string_view new_view(new_utf8);
     const size_t diff_pos = FindFirstDifference(old_view, new_view);
 
-    MENDO_TRACEF(L"DoReload: diff_pos=%zu old_size=%zu new_size=%zu old_scroll=%.1f",
+    MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu old_scroll=%.1f",
         diff_pos, old_view.size(), new_view.size(), old_scroll);
 
     // 差分がなければリロード不要。エディタの保存操作が複数の通知を
@@ -739,7 +746,7 @@ void App::DoReloadCurrentFile()
         ? old_scroll
         : CalcScrollForDiff(diff_pos, md_height, old_scroll);
 
-    MENDO_TRACEF(L"DoReload: desired_scroll=%.1f old_scroll=%.1f", desired_scroll, old_scroll);
+    MENDO_TRACEF("DoReload: desired_scroll=%.1f old_scroll=%.1f", desired_scroll, old_scroll);
 
     // スクロール位置を設定してからViewportLayoutを呼ぶことで、
     // 変更箇所周辺の可視ノードが計測される
@@ -773,7 +780,7 @@ void App::DoReloadCurrentFile()
 
 float App::CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const
 {
-    MENDO_TRACEF(L"CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, doc_.GetNodes().size());
+    MENDO_TRACEF("CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, doc_.GetNodes().size());
     return CalcScrollYForDiff(
         doc_.GetNodes(), layout_cache_,
         std::string_view(doc_.GetRawUtf8()),
