@@ -257,7 +257,11 @@ void App::OnPaint()
     BeginPaint(hwnd_, &ps);
 
     const auto& layout = GetPaneLayout();
-    if (!file_load_service_.IsLoading()) {
+    // pending_prefix_shrink_ 中は loading_ が true でも旧コンテンツを表示する。
+    // エディタの truncate→rewrite 中間状態をスキップしているだけなので、
+    // ローディング画面を表示する必要がない。
+    const bool show_loading = file_load_service_.IsLoading() && !pending_prefix_shrink_;
+    if (!show_loading) {
         // 完了済みデコード結果とキャッシュ済みリソースを描画前に適用する。
         // app_msg::IMAGE_LOADED が WM_PAINT より後にキューされている場合でも
         // プレースホルダーの表示を回避できる。
@@ -279,7 +283,7 @@ void App::OnPaint()
     }
     // 目次ペインの同期: mdペインのスクロール位置からアクティブ見出しを判定し、
     // 目次ペインを自動スクロールする
-    if (panes_.IsTocPaneVisible() && !file_load_service_.IsLoading()) {
+    if (panes_.IsTocPaneVisible() && !show_loading) {
         const float toc_margin = layout.md_rect.y + renderer_.GetTheme().heading_spacing_above;
         const int new_active = doc_.GetToc().FindActiveIndex(layout_cache_, viewport_.GetScrollY(), toc_margin);
         if (new_active != active_toc_index_) {
@@ -317,7 +321,7 @@ void App::OnPaint()
     const auto ts = BuildToastRenderState();
     const auto sb = BuildSearchBarRenderState();
 
-    if (file_load_service_.IsLoading()) {
+    if (show_loading) {
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
     }
     else {
@@ -521,6 +525,7 @@ void App::OnParseComplete()
 
         if (diff_pos == std::string_view::npos) {
             // 差分なし → リロード不要、監視再開
+            pending_prefix_shrink_ = false;
             doc_service_.ResumeWatching();
             Invalidate();
             return;
@@ -542,6 +547,7 @@ void App::OnParseComplete()
             // 同一なので、旧キャッシュの実測高さ・text_layout をそのまま保持する。
             // Reset() + EstimateNodeHeights() だと推定高さの累積誤差で
             // 大規模ファイル後半のスクロール位置が大きくずれる。
+            resource_manager_.CancelMermaidBatch();
             doc_ = std::move(*result);
             layout_cache_.ResizePreservingPrefix(doc_.GetNodes().size());
 
@@ -754,6 +760,7 @@ void App::DoReloadCurrentFile()
     // 差分がなければリロード不要。エディタの保存操作が複数の通知を
     // 発生させた場合に、レイアウトキャッシュの不要なリセットを防ぐ。
     if (diff_pos == std::string_view::npos) {
+        pending_prefix_shrink_ = false;
         doc_service_.ResumeWatching();
         return;
     }
@@ -833,7 +840,9 @@ void App::DoReloadCurrentFile()
 
 bool App::ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size)
 {
-    if (is_prefix_only && new_size < old_size && !pending_prefix_shrink_) {
+    if (is_prefix_only && new_size < old_size) {
+        // prefix-only shrink が連続する場合もすべて defer する。
+        // エディタによっては truncate が複数回発生してから rewrite されることがある。
         pending_prefix_shrink_ = true;
         doc_service_.ResumeWatching();
         return true;
