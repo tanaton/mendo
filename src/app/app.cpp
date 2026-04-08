@@ -510,7 +510,7 @@ void App::OnParseComplete()
     // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
     // 非同期のファイルオープンでも OnParseComplete() が使われるため、
     // 別ファイル読み込み時は差分ロジックをスキップする。
-    if (result->GetFilePath() == doc_.GetFilePath()) {
+    if (_wcsicmp(result->GetFilePath().c_str(), doc_.GetFilePath().c_str()) == 0) {
         const std::string_view old_view(doc_.GetRawUtf8());
         const std::string_view new_view(result->GetRawUtf8());
         const size_t diff_pos = FindFirstDifference(old_view, new_view);
