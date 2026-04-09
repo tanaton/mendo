@@ -14,6 +14,8 @@ add_executable(mendo_tests
     test_pane_layout.cpp
     test_mermaid_util.cpp
     test_mermaid_file_cache.cpp
+    test_mermaid_renderer.cpp
+    ../src/mermaid/mermaid.cpp
     test_ini_parser.cpp
     test_config_store.cpp
     test_viewport_manager.cpp
@@ -46,8 +48,10 @@ add_executable(mendo_tests
     test_session_service.cpp
 )
 
+target_include_directories(mendo_tests PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})
 target_link_libraries(mendo_tests PRIVATE
     mendo_core
+    "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
     GTest::gtest_main
 )
 target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)

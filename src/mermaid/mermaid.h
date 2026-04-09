@@ -71,6 +71,10 @@ public:
     // タイマーID（App側でルーティングする）
     static constexpr UINT_PTR TIMER_INIT_RETRY = 12;
 
+#ifdef MENDO_TESTING
+    constexpr bool IsInitialized() const noexcept { return initialized_; }
+#endif
+
 private:
     struct RenderRequest {
         Node* node = nullptr;
@@ -103,6 +107,7 @@ private:
     };
 
     static int ComputeWorkerCount() noexcept;
+    void EnsureInitialized();
     void CreateWebView2Environment();
     void SetupWorker(int index);
     void ProcessQueue();
@@ -123,6 +128,7 @@ private:
 
     Worker workers_[kMaxWorkers];
     int worker_count_ = 0;
+    bool initialized_ = false;
     bool ready_ = false;
     unsigned int request_counter_ = 0;
     std::function<void()> on_all_ready_; // 最初のワーカー準備完了時に1回だけ呼び出す
