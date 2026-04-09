@@ -184,14 +184,25 @@ int MermaidRenderer::ComputeWorkerCount() noexcept
 
 MermaidRenderer::~MermaidRenderer()
 {
+    Shutdown();
+}
+
+void MermaidRenderer::Shutdown()
+{
     for (int i = 0; i < worker_count_; i++) {
         if (workers_[i].controller) {
             workers_[i].controller->Close();
+            workers_[i].controller.Reset();
+        }
+        if (workers_[i].webview) {
+            workers_[i].webview.Reset();
         }
         if (workers_[i].hwnd) {
             DestroyWindow(workers_[i].hwnd);
+            workers_[i].hwnd = nullptr;
         }
     }
+    worker_count_ = 0;
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,

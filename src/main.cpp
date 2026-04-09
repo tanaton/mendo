@@ -29,45 +29,48 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     config::Load();
     i18n::Init(config::GetWString("General", "Language"));
 
-    Win32Window window;
-    if (!window.Create(hInstance, nCmdShow)) {
-        CoUninitialize();
-        return 1;
-    }
+    int result;
+    {
+        Win32Window window;
+        if (!window.Create(hInstance, nCmdShow)) {
+            CoUninitialize();
+            return 1;
+        }
 
-    // コマンドラインでファイルが指定されていればそれを読み込み、なければ前回のファイルを復元
-    // CommandLineToArgvWで正規のパースを行い、引用符やスペースを正しく処理する
-    std::wstring_view initial_path;
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (argv && argc > 1) {
-        initial_path = argv[1];
-    }
+        // コマンドラインでファイルが指定されていればそれを読み込み、なければ前回のファイルを復元
+        // CommandLineToArgvWで正規のパースを行い、引用符やスペースを正しく処理する
+        std::wstring_view initial_path;
+        int argc = 0;
+        LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+        if (argv && argc > 1) {
+            initial_path = argv[1];
+        }
 
-    if (!initial_path.empty()) {
-        window.LoadMarkdownFile(initial_path);
-    }
-    else {
-        const std::pmr::wstring last = window.LoadLastFilePath();
-        if (!last.empty()) {
-            window.RestoreScrollPosition();
-            window.LoadMarkdownFile(last);
+        if (!initial_path.empty()) {
+            window.LoadMarkdownFile(initial_path);
         }
         else {
-            // 初回起動または前回ファイルが存在しない場合、ヘルプを表示
-            wchar_t cwd[MAX_PATH];
-            if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
-                window.ShowDirectory(cwd);
+            const std::pmr::wstring last = window.LoadLastFilePath();
+            if (!last.empty()) {
+                window.RestoreScrollPosition();
+                window.LoadMarkdownFile(last);
             }
-            window.LoadHelpDocument();
+            else {
+                // 初回起動または前回ファイルが存在しない場合、ヘルプを表示
+                wchar_t cwd[MAX_PATH];
+                if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
+                    window.ShowDirectory(cwd);
+                }
+                window.LoadHelpDocument();
+            }
         }
-    }
 
-    if (argv) {
-        LocalFree(argv);
-    }
+        if (argv) {
+            LocalFree(argv);
+        }
 
-    const int result = window.RunMessageLoop();
+        result = window.RunMessageLoop();
+    } // Win32Window破棄（COMオブジェクト解放）をCoUninitializeの前に完了させる
 
     CoUninitialize();
     return result;
