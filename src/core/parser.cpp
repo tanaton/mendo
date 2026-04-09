@@ -121,6 +121,10 @@ struct ParseContext {
 
     void BeginNode(NodeType type)
     {
+        // タイトリストではP blockのEnter/Leaveコールバックがスキップされるため、
+        // サブリスト開始時に蓄積テキストが未フラッシュのまま残る場合がある。
+        // 新しいノード作成前にフラッシュして、現在のノードにテキストを確定させる。
+        FlushUtf8();
         nodes.emplace_back();
         current_node = &nodes.back();
         current_node->type = type;
