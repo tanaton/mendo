@@ -33,13 +33,8 @@ void App::InvalidateMdPane(const PaneRect& md_rect)
         Invalidate();
         return;
     }
-    const float scale = cached_dpi_scale_;
-    RECT rc;
-    rc.left = static_cast<LONG>(md_rect.x * scale);
-    rc.top = 0;
-    rc.right = static_cast<LONG>((md_rect.x + md_rect.width) * scale) + 1;
-    rc.bottom = static_cast<LONG>(md_rect.height * scale) + 1;
-    InvalidateRect(hwnd_, &rc, FALSE);
+    // MDペインはタイトルバーを含む縦ストリップ全体を無効化する
+    InvalidatePane(PaneRect{ md_rect.x, 0.0f, md_rect.width, md_rect.y + md_rect.height });
 }
 
 void App::SyncMaxScroll(float md_pane_height)

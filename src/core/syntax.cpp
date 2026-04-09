@@ -1,8 +1,6 @@
 #include "syntax.h"
-#include "document_utils.h"
 #include <algorithm>
-#include <unordered_set>
-#include <memory_resource>
+#include <set>
 
 namespace {
 
@@ -51,7 +49,7 @@ bool IsAtLineStart(std::wstring_view text, size_t pos)
 
 // ---- キーワードテーブル ----
 
-using KeywordSet = std::pmr::unordered_set<std::wstring_view>;
+using KeywordSet = std::set<std::wstring_view>;
 
 KeywordSet MergeKeywords(const KeywordSet& base, std::initializer_list<std::wstring_view> extra)
 {
@@ -475,7 +473,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     size_t i = 0;
     uint32_t plain_start = 0;
     bool in_plain = false;
-    std::pmr::wstring ci_buf; // case_insensitive用の再利用バッファ
+    std::wstring ci_buf; // case_insensitive用の再利用バッファ
 
     const auto flush_plain = [&]() {
         if (in_plain && static_cast<uint32_t>(i) > plain_start) {
@@ -605,8 +603,8 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                 // デリミタを検索: R"DELIM( ... )DELIM"
                 const size_t paren = text.find(L'(', i + 1);
                 if (paren != std::wstring_view::npos) {
-                    const std::pmr::wstring delim{ text.substr(i + 1, paren - i - 1) };
-                    const std::pmr::wstring end_marker = L")" + delim + L"\"";
+                    const std::wstring delim{ text.substr(i + 1, paren - i - 1) };
+                    const std::wstring end_marker = L")" + delim + L"\"";
                     const size_t end_pos = text.find(std::wstring_view{ end_marker }, paren + 1);
                     if (end_pos != std::wstring_view::npos) {
                         i = end_pos + end_marker.size();
@@ -782,14 +780,13 @@ SyntaxLanguage DetectLanguage(std::wstring_view info_string)
     }
 
     // 最初の単語を抽出して小文字に変換
-    std::pmr::wstring lang;
+    std::wstring lang;
     for (wchar_t c : info_string) {
         if (c == L' ' || c == L'\t') {
             break;
         }
-        lang += c;
+        lang += (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
     }
-    lang = ToLowerAscii(lang);
 
     if (lang == L"c" || lang == L"cpp" || lang == L"c++" || lang == L"cxx" ||
         lang == L"h" || lang == L"hpp" || lang == L"cc" || lang == L"hxx") {
