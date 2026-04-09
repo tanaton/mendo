@@ -194,10 +194,26 @@ inline constexpr float TOAST_OVERLAY_BOTTOM_OFFSET = 16.0f;
 // ジェスチャー軌跡のスタイル
 inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
-// コードブロック背景の右上を基準にコピーボタンの矩形を返す。
-// block_right: コードブロック背景の右端, block_top: コードブロック背景の上端
-inline D2D1_RECT_F CopyButtonRect(float block_right, float block_top) noexcept {
-    const float bx = block_right - COPY_BTN_MARGIN - COPY_BTN_SIZE;
-    const float by = block_top + COPY_BTN_MARGIN;
+// 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
+// anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
+inline D2D1_RECT_F CopyButtonRect(float anchor_right, float anchor_top) noexcept {
+    const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+    const float by = anchor_top + COPY_BTN_MARGIN;
     return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);
+}
+
+// Mermaidダイアグラムのビットマップ描画矩形を計算する（スケーリング＋中央寄せ）。
+// CommandGenerator（描画）とHitTestService（クリック検出）の間で共有される。
+inline D2D1_RECT_F MermaidBitmapRect(float diagram_w, float diagram_h,
+    float x, float cw, float y) noexcept
+{
+    float draw_w = diagram_w;
+    float draw_h = diagram_h;
+    if (draw_w > cw && draw_w > 0) {
+        const float scale = cw / draw_w;
+        draw_h *= scale;
+        draw_w = cw;
+    }
+    const float dx = x + (cw - draw_w) * 0.5f;
+    return D2D1::RectF(dx, y, dx + draw_w, y + draw_h);
 }

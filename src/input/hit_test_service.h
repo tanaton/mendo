@@ -45,4 +45,16 @@ public:
         float md_pane_height,
         float dpi_scale,
         int screen_x, int screen_y) const noexcept;
+
+    // Mermaidダイアグラムの保存ボタンのヒットテスト。
+    // ヒットしたダイアグラムのノードインデックスを返す（-1=なし）。
+    int SaveButtonHitTest(const std::pmr::vector<Node>& nodes,
+        const LayoutCache& cache,
+        const Theme& theme,
+        float scroll_y,
+        float md_pane_left,
+        float content_width,
+        float md_pane_height,
+        float dpi_scale,
+        int screen_x, int screen_y) const noexcept;
 };

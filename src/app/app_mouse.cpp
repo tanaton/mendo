@@ -461,6 +461,16 @@ void App::OnLButtonDown(int px, int py)
             CopyCodeBlockToClipboard(copy_node);
             return;
         }
+        // 保存ボタンのクリック判定
+        const auto save_node = hit_test_.SaveButtonHitTest(
+            doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
+            viewport_.GetScrollY(), pane_layout.md_rect.x,
+            content_width, pane_layout.md_rect.height,
+            cached_dpi_scale_, px, py);
+        if (save_node >= 0) {
+            SaveDiagramAsPng(save_node);
+            return;
+        }
         // MDペインスクロールバーのクリック判定
         if (layout_service_) {
             float total_h = layout_service_->GetTotalHeight();
@@ -827,6 +837,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     nav_hover_ = nav_hit;
     if (nav_hit != NavButtonHover::None) {
         hovered_copy_node_ = -1;
+        hovered_save_node_ = -1;
         SetCursor(cursors_.Hand());
         if (nav_hit != old_nav_hover) {
             InvalidateMdPane(pane_layout.md_rect);
@@ -849,13 +860,13 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         InvalidateMdPane(pane_layout.md_rect);
     }
 
-    // コピーボタンのホバー判定（距離スロットリングで不要な再計算を回避）
+    // コピー/保存ボタンのホバー判定（距離スロットリングで不要な再計算を回避）
+    const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
     {
         const int cdx = px - hover_throttle_.last_copy_hit_pos.x;
         const int cdy = py - hover_throttle_.last_copy_hit_pos.y;
         if (cdx * cdx + cdy * cdy > HOVER_THROTTLE_DISTANCE_SQ) {
             hover_throttle_.last_copy_hit_pos = { px, py };
-            const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
             const int old_copy_hover = hovered_copy_node_;
             hovered_copy_node_ = hit_test_.CopyButtonHitTest(
                 doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
@@ -870,6 +881,28 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     if (hovered_copy_node_ >= 0) {
         SetCursor(cursors_.Hand());
         UpdateTooltip({ TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy }, px, py);
+        return;
+    }
+
+    {
+        const int sdx = px - hover_throttle_.last_save_hit_pos.x;
+        const int sdy = py - hover_throttle_.last_save_hit_pos.y;
+        if (sdx * sdx + sdy * sdy > HOVER_THROTTLE_DISTANCE_SQ) {
+            hover_throttle_.last_save_hit_pos = { px, py };
+            const int old_save_hover = hovered_save_node_;
+            hovered_save_node_ = hit_test_.SaveButtonHitTest(
+                doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
+                viewport_.GetScrollY(), pane_layout.md_rect.x,
+                content_width, pane_layout.md_rect.height,
+                cached_dpi_scale_, px, py);
+            if (hovered_save_node_ != old_save_hover) {
+                InvalidateMdPane(pane_layout.md_rect);
+            }
+        }
+    }
+    if (hovered_save_node_ >= 0) {
+        SetCursor(cursors_.Hand());
+        UpdateTooltip({ TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image }, px, py);
         return;
     }
 

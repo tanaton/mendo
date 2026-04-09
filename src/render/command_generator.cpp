@@ -23,6 +23,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const TextSelection& selection,
     int first_visible,
     int hovered_copy_node,
+    int hovered_save_node,
     float dpi_scale)
 {
     // 古いコマンドリストを破棄し、monotonic リソースをリセットして再利用する。
@@ -67,7 +68,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         }
         GenerateNode(cmds, nodes[i], cache[i], cache.GetDiagram(i),
             i, offset_x, viewport_top, viewport_bottom,
-            selection, md_content_width, hovered_copy_node);
+            selection, md_content_width, hovered_copy_node, hovered_save_node);
     }
 
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
@@ -79,7 +80,8 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
     int node_index, float offset_x, float viewport_top, float viewport_bottom,
     const TextSelection& selection, float content_width,
-    int hovered_copy_node)
+    int hovered_copy_node,
+    int hovered_save_node)
 {
     // ビューポート外のノードをカリング
     // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
@@ -123,17 +125,9 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     case NodeType::CodeBlock:
         if (node.code_language == SyntaxLanguage::Mermaid) {
             if (diagram.bitmap) {
-                float draw_w = diagram.width;
-                float draw_h = diagram.height;
-                if (draw_w > cw && draw_w > 0) {
-                    const float scale = cw / draw_w;
-                    draw_h *= scale;
-                    draw_w = cw;
-                }
-                const float dx = x + (cw - draw_w) * 0.5f;
-                cmds.emplace_back(DrawBitmapCmd{
-                    diagram.bitmap.Get(),
-                    D2D1::RectF(dx, entry.y_position, dx + draw_w, entry.y_position + draw_h) });
+                const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
+                cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), bmp });
+                GenSaveButton(cmds, bmp.right, bmp.top, node_index == hovered_save_node);
             }
             else {
                 GenDiagramPlaceholder(cmds, x, entry.y_position, cw, entry.height);
@@ -254,7 +248,22 @@ void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
 
     const float pad = theme_->code_block_padding;
     const D2D1_RECT_F btn = CopyButtonRect(x + w, entry.y_position - pad);
+    GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
+}
 
+void CommandGenerator::GenSaveButton(DrawCommandList& cmds,
+    float bitmap_right, float bitmap_top, bool is_hovered)
+{
+    if (!formats_.copy_btn_icon) {
+        return;
+    }
+    const D2D1_RECT_F btn = CopyButtonRect(bitmap_right, bitmap_top);
+    GenOverlayButton(cmds, btn, L'\uE896', is_hovered);
+}
+
+void CommandGenerator::GenOverlayButton(DrawCommandList& cmds,
+    D2D1_RECT_F btn, wchar_t icon, bool is_hovered)
+{
     const float bg_alpha = is_hovered
         ? (cached_is_dark_ ? 0.30f : 0.15f)
         : (cached_is_dark_ ? 0.10f : 0.05f);
@@ -269,7 +278,6 @@ void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
     const D2D1_COLOR_F icon_color = cached_is_dark_
         ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
         : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
-    const wchar_t icon = L'\uE8C8';
     cmds.emplace_back(MakeTextCmd(&icon, 1, btn, formats_.copy_btn_icon, icon_color));
 }
 

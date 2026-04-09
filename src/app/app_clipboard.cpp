@@ -1,6 +1,10 @@
 #include "app.h"
 #include "document_utils.h"
 #include "pane_layout.h"
+#include "mermaid_util.h"
+#include "mermaid_file_cache.h"
+#include "i18n.h"
+#include <commdlg.h>
 
 void App::OnLButtonDblClk(int px, int py)
 {
@@ -94,4 +98,54 @@ void App::CopyCodeBlockToClipboard(int node_index) const
         return;
     }
     SetClipboardText(nodes[node_index].GetText());
+}
+
+void App::SaveDiagramAsPng(int node_index)
+{
+    const auto& nodes = doc_.GetNodes();
+    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
+        return;
+    }
+    const auto& node = nodes[node_index];
+    if (node.type != NodeType::CodeBlock || node.code_language != SyntaxLanguage::Mermaid) {
+        return;
+    }
+
+    // ファイルキャッシュからPNGデータを取得
+    const float md_width = renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
+    const bool dark = renderer_.GetTheme().IsDark();
+    const uint64_t key = mermaid_util::HashCode(node.text_utf8, md_width, dark);
+
+    MermaidFileCache::CacheEntry entry;
+    std::vector<uint8_t> png_data;
+    if (!file_cache_.Lookup(key, entry, png_data) || png_data.empty()) {
+        return;
+    }
+
+    // 保存先をユーザーに選択させる
+    wchar_t filename[MAX_PATH] = L"diagram.png";
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = hwnd_;
+    ofn.lpstrFilter = L"PNG Image\0*.png\0All Files\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    ofn.lpstrDefExt = L"png";
+
+    if (!GetSaveFileNameW(&ofn)) {
+        return;
+    }
+
+    // PNGデータをファイルに書き出す
+    HANDLE hFile = CreateFileW(filename, GENERIC_WRITE, 0, nullptr,
+        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    DWORD written = 0;
+    WriteFile(hFile, png_data.data(), static_cast<DWORD>(png_data.size()), &written, nullptr);
+    CloseHandle(hFile);
+
+    ShowToast(i18n::S().toast_image_saved);
 }

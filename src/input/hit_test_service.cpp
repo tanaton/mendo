@@ -285,6 +285,62 @@ int HitTestService::CopyButtonHitTest(
     return -1;
 }
 
+int HitTestService::SaveButtonHitTest(
+    const std::pmr::vector<Node>& nodes,
+    const LayoutCache& cache,
+    const Theme& theme,
+    float scroll_y,
+    float md_pane_left,
+    float content_width,
+    float md_pane_height,
+    float dpi_scale,
+    int screen_x, int screen_y) const noexcept
+{
+    if (nodes.empty()) {
+        return -1;
+    }
+
+    const auto [dip_x, dip_y] = ScreenToPaneDip(screen_x, screen_y, dpi_scale, md_pane_left, scroll_y);
+
+    // 保存ボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
+    const float btn_left_bound = theme.margin_left + content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+    if (dip_x < btn_left_bound) {
+        return -1;
+    }
+
+    const float viewport_top = scroll_y;
+    const float viewport_bottom = scroll_y + md_pane_height;
+
+    const int first = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
+    const int count = static_cast<int>(nodes.size());
+    for (int i = first; i < count; i++) {
+        if (cache[i].y_position > viewport_bottom) {
+            break;
+        }
+
+        const auto& node = nodes[i];
+        if (node.type != NodeType::CodeBlock || node.code_language != SyntaxLanguage::Mermaid) {
+            continue;
+        }
+
+        const auto& diagram = cache.GetDiagram(i);
+        if (!diagram.bitmap) {
+            continue;
+        }
+
+        const float indent = NodeIndent(node, theme);
+        const float x = theme.margin_left + indent;
+        const float cw = content_width - indent;
+
+        const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, cache[i].y_position);
+        const D2D1_RECT_F btn = CopyButtonRect(bmp.right, bmp.top);
+        if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 HitTestService::NavButtonHover HitTestService::NavButtonHitTest(
     float dip_x, float dip_y, const PaneRect& md_rect) const noexcept
 {

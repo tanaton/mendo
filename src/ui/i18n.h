@@ -37,6 +37,9 @@ struct Strings {
     // コピーボタン tooltip
     std::wstring_view tooltip_copy;
 
+    // 保存ボタン tooltip
+    std::wstring_view tooltip_save_image;
+
     // コンテキストメニュー
     std::wstring_view menu_edit_file;
     std::wstring_view menu_copy;
@@ -53,6 +56,7 @@ struct Strings {
 
     // トースト
     std::wstring_view toast_file_not_found;
+    std::wstring_view toast_image_saved;
 
     // ローディング
     std::wstring_view loading;
@@ -86,6 +90,8 @@ inline constexpr Strings kJa = {
     L"進む (Alt+\u2192)",
     // コピーボタン tooltip
     L"コピー",
+    // 保存ボタン tooltip
+    L"画像を保存",
     // コンテキストメニュー
     L"エディタで開く",
     L"コピー",
@@ -99,6 +105,7 @@ inline constexpr Strings kJa = {
     L"ウィンドウ位置をリセット(&R)",
     // トースト
     L"ファイルが見つかりません",
+    L"画像を保存しました",
     // ローディング
     L"読み込み中...",
     // ヘルプリソースID
@@ -130,6 +137,8 @@ inline constexpr Strings kEn = {
     L"Forward (Alt+\u2192)",
     // コピーボタン tooltip
     L"Copy",
+    // 保存ボタン tooltip
+    L"Save Image",
     // コンテキストメニュー
     L"Open in Editor",
     L"Copy",
@@ -143,6 +152,7 @@ inline constexpr Strings kEn = {
     L"Reset Window Position (&R)",
     // トースト
     L"File not found",
+    L"Image saved",
     // ローディング
     L"Loading...",
     // ヘルプリソースID
