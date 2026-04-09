@@ -1219,7 +1219,6 @@ void App::OnDestroy()
     // メッセージループが生きているうちにWebView2を閉じる。
     // デストラクタではメッセージループが停止済みのため、
     // WebView2のClose()がブロックしてハングする。
-    mermaid_renderer_.CancelPending();
     mermaid_renderer_.Shutdown();
 
     // スケジューラを停止してキュー済み書き込みを完了させた後、

@@ -189,6 +189,8 @@ MermaidRenderer::~MermaidRenderer()
 
 void MermaidRenderer::Shutdown()
 {
+    CancelPending();
+
     for (int i = 0; i < worker_count_; i++) {
         if (workers_[i].controller) {
             workers_[i].controller->Close();
@@ -203,6 +205,9 @@ void MermaidRenderer::Shutdown()
         }
     }
     worker_count_ = 0;
+    webview_env_.Reset();
+    ready_ = false;
+    initialized_ = false;
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
