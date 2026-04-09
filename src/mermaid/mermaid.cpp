@@ -200,15 +200,24 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
     hwnd_ = hwnd;
     render_target_ = render_target;
     on_all_ready_ = std::move(on_ready);
-    worker_count_ = ComputeWorkerCount();
 
-    // PNGデコード用のWICファクトリを作成
+    // PNGデコード用のWICファクトリを作成（ファイルキャッシュからの復元に必要）
     CoCreateInstance(
         CLSID_WICImagingFactory,
         nullptr,
         CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&wic_factory_)
     );
+}
+
+void MermaidRenderer::EnsureInitialized()
+{
+    if (initialized_) {
+        return;
+    }
+    initialized_ = true;
+
+    worker_count_ = ComputeWorkerCount();
 
     // オフスクリーンでWebView2をホストする非表示ポップアップウィンドウを登録・作成する。
     // WebView2はCapturePreviewでコンテンツをレンダリングするためにIsVisible=TRUEが必要なため、
@@ -557,6 +566,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     // on_ready コールバックで RequestMermaidRenders が再度呼ばれるため、
     // その時点でキャッシュミス分がキューに入る。
     if (!ready_) {
+        EnsureInitialized();
         return;
     }
 
