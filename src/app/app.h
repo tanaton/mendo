@@ -190,7 +190,9 @@ private:
     void SelectAll();
     void ClearSelection();
 
-    // ペインクリックハンドラ (OnLButtonDownから抽出)
+    // クリックハンドラ (OnLButtonDownから抽出)
+    bool HandleTitleBarClick(float dip_x, float dip_y);
+    void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
     void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     bool TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& rect,

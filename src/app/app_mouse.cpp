@@ -81,6 +81,30 @@ PaneHoverResult ProcessSidePaneHover(
     return result;
 }
 
+// サイドペインのヘッダー領域のクリック処理を共通化。
+// ヘッダー領域内のクリックを消費した場合 true を返す（ボタン外も含む）。
+template<typename ToggleFn, typename RefreshFn>
+bool ProcessSidePaneHeaderClick(
+    float dip_x, float dip_y,
+    const PaneRect& rect, float header_h,
+    bool has_refresh_btn,
+    ToggleFn&& toggle_fn,
+    RefreshFn&& refresh_fn)
+{
+    if (dip_y - rect.y >= header_h) {
+        return false;
+    }
+    if (HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneCloseButtonRect)) {
+        toggle_fn();
+        return true;
+    }
+    if (has_refresh_btn && HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneRefreshButtonRect)) {
+        refresh_fn();
+        return true;
+    }
+    return true; // ヘッダー領域内だがボタン外 — 消費済みとして扱う
+}
+
 } // namespace
 
 // target が変化した場合にタイマーを再設定し、None なら非表示にする。
@@ -255,14 +279,9 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
 {
     const auto& theme = renderer_.GetTheme();
 
-    if (dip_y - layout.file_rect.y < theme.pane_header_height) {
-        if (HitPaneHeaderButton(dip_x, dip_y, layout.file_rect, theme.pane_header_height, PaneCloseButtonRect)) {
-            panes_.ToggleFilePane();
-            RefreshPaneLayout();
-        }
-        else if (HitPaneHeaderButton(dip_x, dip_y, layout.file_rect, theme.pane_header_height, PaneRefreshButtonRect)) {
-            RefreshFilePane();
-        }
+    if (ProcessSidePaneHeaderClick(dip_x, dip_y, layout.file_rect, theme.pane_header_height, true,
+        [this]() { panes_.ToggleFilePane(); RefreshPaneLayout(); },
+        [this]() { RefreshFilePane(); })) {
         return;
     }
 
@@ -304,11 +323,9 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
 {
     const auto& theme = renderer_.GetTheme();
 
-    if (dip_y - layout.toc_rect.y < theme.pane_header_height) {
-        if (HitPaneHeaderButton(dip_x, dip_y, layout.toc_rect, theme.pane_header_height, PaneCloseButtonRect)) {
-            panes_.ToggleTocPane();
-            RefreshPaneLayout();
-        }
+    if (ProcessSidePaneHeaderClick(dip_x, dip_y, layout.toc_rect, theme.pane_header_height, false,
+        [this]() { panes_.ToggleTocPane(); RefreshPaneLayout(); },
+        []() {})) {
         return;
     }
 
@@ -329,6 +346,164 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
     }
 }
 
+bool App::HandleTitleBarClick(float dip_x, float dip_y)
+{
+    if (dip_y >= titlebar_.GetHeight()) {
+        return false;
+    }
+
+    const auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
+    if (tb_zone == TitleBarHitZone::Help) {
+        if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
+            PushNavHistory();
+        }
+        LoadHelpDocument();
+        return true;
+    }
+    if (tb_zone == TitleBarHitZone::Search) {
+        OnSearchOpen();
+        return true;
+    }
+    if (tb_zone == TitleBarHitZone::ThemeToggle) {
+        ToggleDarkMode();
+        return true;
+    }
+    if (tb_zone == TitleBarHitZone::FileToggle || tb_zone == TitleBarHitZone::TocToggle) {
+        if (tb_zone == TitleBarHitZone::FileToggle) {
+            panes_.ToggleFilePane();
+        }
+        else {
+            panes_.ToggleTocPane();
+        }
+        RefreshPaneLayout();
+        return true;
+    }
+    if (tb_zone == TitleBarHitZone::Minimize) {
+        ShowWindow(hwnd_, SW_MINIMIZE);
+        return true;
+    }
+    if (tb_zone == TitleBarHitZone::Maximize) {
+        ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE);
+        return true;
+    }
+    if (tb_zone == TitleBarHitZone::Close) {
+        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+        return true;
+    }
+    return true;  // タイトルバーの他の領域はWM_NCHITTESTで処理済み
+}
+
+void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
+{
+    // 検索バーのクリック処理
+    if (search_state_.IsVisible()) {
+        const auto& r = pane_layout.md_rect;
+        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !search_state_.GetQuery().empty());
+        if (dip_y >= sbl.bar_top) {
+            if (PointInRect(dip_x, dip_y, sbl.up_btn)) {
+                OnSearchPrev();
+                return;
+            }
+            if (PointInRect(dip_x, dip_y, sbl.down_btn)) {
+                OnSearchNext();
+                return;
+            }
+            if (PointInRect(dip_x, dip_y, sbl.case_btn)) {
+                OnToggleCaseSensitive();
+                return;
+            }
+            if (PointInRect(dip_x, dip_y, sbl.highlight_btn)) {
+                OnToggleHighlight();
+                return;
+            }
+            if (PointInRect(dip_x, dip_y, sbl.close_btn)) {
+                OnSearchClose();
+                return;
+            }
+            if (PointInRect(dip_x, dip_y, sbl.input_rect)) {
+                const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
+                const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
+                const int pos = renderer_.HitTestSearchInput(
+                    search_state_.GetQuery(), dip_x - text_left, input_w);
+                search_bar_ctrl_.StartDrag(pos);
+                SetCapture(hwnd_);
+                PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
+                return;
+            }
+            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
+            return;
+        }
+    }
+
+    const auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
+    if (nav_hit == NavButtonHover::Back) {
+        NavigateBack();
+        return;
+    }
+    if (nav_hit == NavButtonHover::Forward) {
+        NavigateForward();
+        return;
+    }
+    // コピーボタンのクリック判定（クリック位置で再判定）
+    const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
+    const auto copy_node = hit_test_.CopyButtonHitTest(
+        doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
+        viewport_.GetScrollY(), pane_layout.md_rect.x,
+        content_width, pane_layout.md_rect.height,
+        cached_dpi_scale_, px, py);
+    if (copy_node >= 0) {
+        CopyCodeBlockToClipboard(copy_node);
+        return;
+    }
+    // 保存ボタンのクリック判定
+    const auto save_node = hit_test_.SaveButtonHitTest(
+        doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
+        viewport_.GetScrollY(), pane_layout.md_rect.x,
+        content_width, pane_layout.md_rect.height,
+        cached_dpi_scale_, px, py);
+    if (save_node >= 0) {
+        SaveDiagramAsPng(save_node);
+        return;
+    }
+    // MDペインスクロールバーのクリック判定
+    if (layout_service_) {
+        float total_h = layout_service_->GetTotalHeight();
+        float viewport_h = pane_layout.md_rect.height;
+        if (total_h > viewport_h) {
+            const float sb_left = pane_layout.md_rect.x + pane_layout.md_rect.width
+                - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+            if (dip_x >= sb_left - PANE_SCROLLBAR_HIT_PADDING) {
+                SetCapture(hwnd_);
+                panes_.StartDrag(PaneController::DragTarget::MdScrollbar);
+                viewport_.SetScrollbarTracking(true);
+                const auto info = ComputeScrollInfo(pane_layout.md_rect, 0.0f, total_h);
+                const float thumb_y = ComputeThumbY(info, viewport_.GetScrollY());
+                if (dip_y >= thumb_y && dip_y <= thumb_y + info.thumb_height) {
+                    panes_.SetDragScrollOffset(dip_y - thumb_y);
+                }
+                else {
+                    panes_.SetDragScrollOffset(info.thumb_height * 0.5f);
+                    const float new_thumb_y = dip_y - panes_.GetDragScrollOffset();
+                    ScrollTo(ScrollFromThumbY(info, new_thumb_y));
+                    Invalidate();
+                }
+                return;
+            }
+        }
+    }
+
+    // MDペイン: 選択ロジック
+    SetCapture(hwnd_);
+    viewport_.SetClickStart(px, py);
+    auto hit = HitTest(px, py);
+    if (hit.node_index >= 0) {
+        viewport_.SetAnchor(hit.node_index, hit.text_pos);
+        viewport_.SetDragging(true);
+        viewport_.GetSelectionMut().Clear();
+        InvalidateMdPane(pane_layout.md_rect);
+    }
+}
+
 void App::OnLButtonDown(int px, int py)
 {
     if (!renderer_.GetRenderTarget()) {
@@ -337,47 +512,8 @@ void App::OnLButtonDown(int px, int py)
 
     const auto dip = PixelToDip(px, py);
 
-    // タイトルバーボタンのクリック処理
-    if (dip.y < titlebar_.GetHeight()) {
-        const auto tb_zone = titlebar_.HitTest(dip.x, dip.y);
-        if (tb_zone == TitleBarHitZone::Help) {
-            if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
-                PushNavHistory();
-            }
-            LoadHelpDocument();
-            return;
-        }
-        if (tb_zone == TitleBarHitZone::Search) {
-            OnSearchOpen();
-            return;
-        }
-        if (tb_zone == TitleBarHitZone::ThemeToggle) {
-            ToggleDarkMode();
-            return;
-        }
-        if (tb_zone == TitleBarHitZone::FileToggle || tb_zone == TitleBarHitZone::TocToggle) {
-            if (tb_zone == TitleBarHitZone::FileToggle) {
-                panes_.ToggleFilePane();
-            }
-            else {
-                panes_.ToggleTocPane();
-            }
-            RefreshPaneLayout();
-            return;
-        }
-        if (tb_zone == TitleBarHitZone::Minimize) {
-            ShowWindow(hwnd_, SW_MINIMIZE);
-            return;
-        }
-        if (tb_zone == TitleBarHitZone::Maximize) {
-            ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE);
-            return;
-        }
-        if (tb_zone == TitleBarHitZone::Close) {
-            PostMessageW(hwnd_, WM_CLOSE, 0, 0);
-            return;
-        }
-        return;  // タイトルバーの他の領域はWM_NCHITTESTで処理済み
+    if (HandleTitleBarClick(dip.x, dip.y)) {
+        return;
     }
 
     const auto pane_layout = GetPaneLayout();
@@ -400,118 +536,11 @@ void App::OnLButtonDown(int px, int py)
     case PaneZone::TocPane:
         HandleTocPaneClick(dip.x, dip.y, pane_layout);
         return;
-    case PaneZone::MdPane: {
-        // 検索バーのクリック処理
-        if (search_state_.IsVisible()) {
-            const auto& r = pane_layout.md_rect;
-            const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !search_state_.GetQuery().empty());
-            if (dip.y >= sbl.bar_top) {
-                if (PointInRect(dip.x, dip.y, sbl.up_btn)) {
-                    OnSearchPrev();
-                    return;
-                }
-                if (PointInRect(dip.x, dip.y, sbl.down_btn)) {
-                    OnSearchNext();
-                    return;
-                }
-                if (PointInRect(dip.x, dip.y, sbl.case_btn)) {
-                    OnToggleCaseSensitive();
-                    return;
-                }
-                if (PointInRect(dip.x, dip.y, sbl.highlight_btn)) {
-                    OnToggleHighlight();
-                    return;
-                }
-                if (PointInRect(dip.x, dip.y, sbl.close_btn)) {
-                    OnSearchClose();
-                    return;
-                }
-                if (PointInRect(dip.x, dip.y, sbl.input_rect)) {
-                    const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
-                    const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
-                    const int pos = renderer_.HitTestSearchInput(
-                        search_state_.GetQuery(), dip.x - text_left, input_w);
-                    search_bar_ctrl_.StartDrag(pos);
-                    SetCapture(hwnd_);
-                    PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
-                    return;
-                }
-                PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
-                return;
-            }
-        }
-
-        const auto nav_hit = hit_test_.NavButtonHitTest(dip.x, dip.y, pane_layout.md_rect);
-        if (nav_hit == NavButtonHover::Back) {
-            NavigateBack();
-            return;
-        }
-        if (nav_hit == NavButtonHover::Forward) {
-            NavigateForward();
-            return;
-        }
-        // コピーボタンのクリック判定（クリック位置で再判定）
-        const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
-        const auto copy_node = hit_test_.CopyButtonHitTest(
-            doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
-            viewport_.GetScrollY(), pane_layout.md_rect.x,
-            content_width, pane_layout.md_rect.height,
-            cached_dpi_scale_, px, py);
-        if (copy_node >= 0) {
-            CopyCodeBlockToClipboard(copy_node);
-            return;
-        }
-        // 保存ボタンのクリック判定
-        const auto save_node = hit_test_.SaveButtonHitTest(
-            doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
-            viewport_.GetScrollY(), pane_layout.md_rect.x,
-            content_width, pane_layout.md_rect.height,
-            cached_dpi_scale_, px, py);
-        if (save_node >= 0) {
-            SaveDiagramAsPng(save_node);
-            return;
-        }
-        // MDペインスクロールバーのクリック判定
-        if (layout_service_) {
-            float total_h = layout_service_->GetTotalHeight();
-            float viewport_h = pane_layout.md_rect.height;
-            if (total_h > viewport_h) {
-                const float sb_left = pane_layout.md_rect.x + pane_layout.md_rect.width
-                    - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
-                if (dip.x >= sb_left - PANE_SCROLLBAR_HIT_PADDING) {
-                    SetCapture(hwnd_);
-                    panes_.StartDrag(PaneController::DragTarget::MdScrollbar);
-                    viewport_.SetScrollbarTracking(true);
-                    const auto info = ComputeScrollInfo(pane_layout.md_rect, 0.0f, total_h);
-                    const float thumb_y = ComputeThumbY(info, viewport_.GetScrollY());
-                    if (dip.y >= thumb_y && dip.y <= thumb_y + info.thumb_height) {
-                        panes_.SetDragScrollOffset(dip.y - thumb_y);
-                    }
-                    else {
-                        panes_.SetDragScrollOffset(info.thumb_height * 0.5f);
-                        const float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
-                        ScrollTo(ScrollFromThumbY(info, new_thumb_y));
-                        Invalidate();
-                    }
-                    return;
-                }
-            }
-        }
-        break;
-    }
+    case PaneZone::MdPane:
+        HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout);
+        return;
     default:
         return;
-    }
-
-    // MDペイン: 選択ロジック
-    SetCapture(hwnd_);
-    viewport_.SetClickStart(px, py);
-    auto hit = HitTest(px, py);
-    if (hit.node_index >= 0) {
-        viewport_.SetAnchor(hit.node_index, hit.text_pos);
-        viewport_.SetDragging(true);
-        viewport_.GetSelectionMut().Clear();
-        InvalidateMdPane(pane_layout.md_rect);
     }
 }
 
