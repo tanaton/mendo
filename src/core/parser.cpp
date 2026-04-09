@@ -354,18 +354,17 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         break;
 
     case MD_BLOCK_TR:
-        if (ctx->current_node && ctx->current_node->type == NodeType::Table) {
-            ctx->current_node->ensure_table();
-            ctx->current_node->table_rows().emplace_back();
+        if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Table) {
+            cn->ensure_table();
+            cn->table_rows().emplace_back();
         }
         break;
 
     case MD_BLOCK_TH:
     case MD_BLOCK_TD: {
-        if (ctx->current_node && ctx->current_node->type == NodeType::Table && ctx->current_node->has_table() && !ctx->current_node->table_rows().empty()) {
-            auto& row = ctx->current_node->table_rows().back();
-            row.cells.emplace_back();
-            ctx->current_cell = &row.cells.back();
+        if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Table && cn->has_table() && !cn->table_rows().empty()) {
+            auto& row = cn->table_rows().back();
+            ctx->current_cell = &row.cells.emplace_back();
             ctx->current_cell->is_header = (type == MD_BLOCK_TH);
             if (detail) {
                 auto* const td = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
@@ -388,25 +387,26 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     ctx->FlushUtf8();
 
     switch (type) {
-    case MD_BLOCK_CODE:
+    case MD_BLOCK_CODE: {
+        auto* cn = ctx->current_node;
         ctx->in_code_block = false;
         // 末尾の改行があれば除去（text_utf8に対して操作）
-        if (ctx->current_node && !ctx->current_node->text_utf8.empty() && ctx->current_node->text_utf8.back() == '\n') {
-            ctx->current_node->text_utf8.pop_back();
-            ctx->current_node->line_count--;
+        if (cn && !cn->text_utf8.empty() && cn->text_utf8.back() == '\n') {
+            cn->text_utf8.pop_back();
+            cn->line_count--;
             ctx->node_wide_offset--;
-            if (!ctx->current_node->runs.empty()) {
-                auto& last = ctx->current_node->runs.back();
+            if (!cn->runs.empty()) {
+                auto& last = cn->runs.back();
                 if (last.length > 0) {
                     last.length--;
                 }
             }
         }
-        if (ctx->current_node && ctx->current_node->code_language == SyntaxLanguage::Mermaid) {
+        if (cn && cn->code_language == SyntaxLanguage::Mermaid) {
             ctx->mermaid_indices.emplace_back(ctx->current_node_index);
         }
         break;
-
+    }
     case MD_BLOCK_QUOTE:
         if (ctx->blockquote_depth > 0) {
             ctx->blockquote_depth--;
@@ -445,14 +445,14 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
 
     case MD_BLOCK_H:
-        if (ctx->current_node && ctx->current_node->type == NodeType::Heading) {
+        if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
             // 見出しテキストをWideに変換してアンカーID生成（見出しは少数なのでコスト小）
-            std::pmr::wstring base_id = GenerateAnchorId(ctx->current_node->GetText());
+            std::pmr::wstring base_id = GenerateAnchorId(cn->GetText());
             auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
             const int count = it->second++;
-            ctx->current_node->anchor_id.assign(it->first.data(), it->first.size());
+            cn->anchor_id.assign(it->first.data(), it->first.size());
             if (count > 0) {
-                std::format_to(std::back_inserter(ctx->current_node->anchor_id), L"-{}", count);
+                std::format_to(std::back_inserter(cn->anchor_id), L"-{}", count);
             }
             ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
@@ -460,10 +460,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
     case MD_BLOCK_P:
         // 画像を含む段落/引用ブロックを Image ノードに変換
-        if (ctx->current_node && ctx->current_node->has_image() && !ctx->current_node->image_data->src.empty()
-            && (ctx->current_node->type == NodeType::Paragraph
-                || ctx->current_node->type == NodeType::BlockQuote)) {
-            ctx->current_node->type = NodeType::Image;
+        if (auto* cn = ctx->current_node; cn && cn->has_image() && !cn->image_data->src.empty() && (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote)) {
+            cn->type = NodeType::Image;
             ctx->image_indices.emplace_back(ctx->current_node_index);
         }
         ctx->current_node = nullptr;
@@ -529,9 +527,9 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
     ctx->FlushUtf8();
 
     if (type == MD_SPAN_IMG) {
-        if (ctx->current_node && !ctx->pending_image_src.empty()) {
-            ctx->current_node->ensure_image();
-            ctx->current_node->image_data->src = ctx->pending_image_src;
+        if (auto* cn = ctx->current_node; cn && !ctx->pending_image_src.empty()) {
+            cn->ensure_image();
+            cn->image_data->src = ctx->pending_image_src;
         }
         ctx->pending_image_src.clear();
     }
