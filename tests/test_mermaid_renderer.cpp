@@ -21,7 +21,6 @@ protected:
         CoUninitialize();
     }
 
-    // テスト用のMermaidノードを作成する
     static Node MakeMermaidNode(const char* code)
     {
         Node node;
@@ -31,7 +30,6 @@ protected:
         return node;
     }
 
-    // テスト用の非Mermaidノードを作成する
     static Node MakeNonMermaidNode()
     {
         Node node;
@@ -101,9 +99,8 @@ TEST_F(MermaidRendererTest, MermaidCacheMissTriggersInit)
 
     renderer_->RequestRender(node, layout, diagram, 800.0f, false, nullptr, nullptr);
 
-    // キャッシュミス → EnsureInitialized() が呼ばれる
     EXPECT_TRUE(renderer_->IsInitialized());
-    // ただしWebView2の非同期初期化が完了するまではReadyにはならない
+    // WebView2の非同期初期化が完了するまではReadyにはならない
     EXPECT_FALSE(renderer_->IsReady());
 }
 
@@ -120,7 +117,6 @@ TEST_F(MermaidRendererTest, MultipleRequestsDoNotReinitialize)
     NodeLayoutEntry layout{};
     DiagramEntry diagram{};
 
-    // 2回呼んでもクラッシュしない（EnsureInitializedの冪等性）
     renderer_->RequestRender(node1, layout, diagram, 800.0f, false, nullptr, nullptr);
     renderer_->RequestRender(node2, layout, diagram, 800.0f, false, nullptr, nullptr);
 
@@ -137,7 +133,6 @@ TEST_F(MermaidRendererTest, RequestRenderBeforeInitIsSafe)
     NodeLayoutEntry layout{};
     DiagramEntry diagram{};
 
-    // Init()を呼ばずにRequestRenderしてもクラッシュしない
     renderer_->RequestRender(node, layout, diagram, 800.0f, false, nullptr, nullptr);
 
     EXPECT_FALSE(renderer_->IsReady());

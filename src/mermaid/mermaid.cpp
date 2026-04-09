@@ -253,12 +253,12 @@ void MermaidRenderer::EnsureInitialized()
     }
 
     if (worker_count_ == 0) {
+        initialized_ = true;
         return;
     }
 
-    // ワーカーウィンドウが作成できた時点で初期化済みとする。
-    // WebView2環境の生成失敗は CreateWebView2Environment 内の
-    // タイマーリトライで対処される。
+    // WebView2環境の生成失敗はタイマーリトライで対処されるため、
+    // ワーカーウィンドウ作成完了時点で初期化済みとする。
     initialized_ = true;
     CreateWebView2Environment();
 }
