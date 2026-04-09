@@ -73,7 +73,7 @@ void App::RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale)
 
 void App::HandleSidePaneScrollDrag(float dip_y, const PaneRect& rect,
     float total_content, ScrollState& scroll,
-    void (Renderer::*invalidate)())
+    void (Renderer::* invalidate)())
 {
     const auto info = ComputePaneScrollInfo(rect, total_content);
     bool dirty = false;
@@ -170,9 +170,9 @@ void App::OnDeferredLayout()
         resource_manager_.ScheduleMermaidBatch();
 
         // 全レイアウト確定後に前回セッションの生のscroll_yを適用する
-        if (scroll_restore_.pending_restore_scroll_y >= 0) {
-            viewport_.SetScrollY(static_cast<float>(scroll_restore_.pending_restore_scroll_y));
-            scroll_restore_.pending_restore_scroll_y = -1;
+        if (scroll_restore_.pending_restore_scroll_y >= 0.0f) {
+            viewport_.SetScrollY(scroll_restore_.pending_restore_scroll_y);
+            scroll_restore_.pending_restore_scroll_y = -1.0f;
         }
 
         SyncMaxScroll(md_height);

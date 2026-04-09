@@ -116,7 +116,7 @@ public:
     SearchBarController& GetSearchBarCtrl() noexcept { return search_bar_ctrl_; }
 
     // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
-    void SetPendingRestoreNode(int node, int offset, int scroll_y = -1) noexcept
+    void SetPendingRestoreNode(int node, int offset, float scroll_y = -1.0f) noexcept
     {
         scroll_restore_.SetNodeRestore(node, offset, scroll_y);
     }

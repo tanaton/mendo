@@ -652,7 +652,7 @@ void App::FinishLoadMarkdownFile()
     else if (scroll_restore_.HasNavScroll()) {
         scroll_y = scroll_restore_.ConsumeNavScroll();
         // 遅延レイアウトのドリフト補正用（セッション復元と同じ仕組み）
-        scroll_restore_.pending_restore_scroll_y = static_cast<int>(std::lround(scroll_y));
+        scroll_restore_.pending_restore_scroll_y = scroll_y;
     }
     else {
         // 新規ファイルオープン: 前回ナビゲーションの残留値をクリア
@@ -791,7 +791,8 @@ void App::DoReloadCurrentFile()
     if (is_prefix_only) {
         // prefix 部分のノード列は同一なので旧キャッシュの実測高さを保持する
         layout_cache_.ResizePreservingPrefix(doc_.GetNodes().size());
-    } else {
+    }
+    else {
         layout_cache_.Reset(doc_.GetNodes().size(), false);
         EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
     }

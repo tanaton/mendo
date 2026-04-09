@@ -7,7 +7,7 @@ struct ScrollRestoration {
     float pending_nav_scroll_y = -1.0f;
     int pending_restore_node = -1;
     int pending_restore_offset = 0;
-    int pending_restore_scroll_y = -1;  // 遅延レイアウト完了後に適用する生のscroll_y
+    float pending_restore_scroll_y = -1.0f;  // 遅延レイアウト完了後に適用する生のscroll_y
 
     bool HasNavScroll() const noexcept { return pending_nav_scroll_y >= 0.0f; }
     bool HasNodeRestore() const noexcept { return pending_restore_node >= 0; }
@@ -19,7 +19,7 @@ struct ScrollRestoration {
         return v;
     }
 
-    void SetNodeRestore(int node, int offset, int scroll_y = -1) noexcept
+    void SetNodeRestore(int node, int offset, float scroll_y = -1.0f) noexcept
     {
         pending_restore_node = node;
         pending_restore_offset = offset;
@@ -37,6 +37,6 @@ struct ScrollRestoration {
         pending_nav_scroll_y = -1.0f;
         pending_restore_node = -1;
         pending_restore_offset = 0;
-        pending_restore_scroll_y = -1;
+        pending_restore_scroll_y = -1.0f;
     }
 };

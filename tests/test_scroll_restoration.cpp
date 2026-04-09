@@ -105,8 +105,8 @@ TEST(ScrollRestoration, NavRestoreThenSetPendingScrollY)
     EXPECT_FALSE(sr.HasNavScroll());
 
     // App側が遅延レイアウトのドリフト補正用に設定する
-    sr.pending_restore_scroll_y = static_cast<int>(std::lround(scroll_y));
-    EXPECT_EQ(sr.pending_restore_scroll_y, 500);
+    sr.pending_restore_scroll_y = scroll_y;
+    EXPECT_FLOAT_EQ(sr.pending_restore_scroll_y, 500.3f);
 }
 
 TEST(ScrollRestoration, Reset)
