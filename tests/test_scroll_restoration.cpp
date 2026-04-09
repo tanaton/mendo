@@ -109,19 +109,6 @@ TEST(ScrollRestoration, NavRestoreThenSetPendingScrollY)
     EXPECT_EQ(sr.pending_restore_scroll_y, 500);
 }
 
-// 新規ファイルオープン時に前回ナビゲーションの残留値をクリアするシナリオ
-TEST(ScrollRestoration, StaleNavValueClearedOnFreshOpen)
-{
-    ScrollRestoration sr;
-
-    // ナビゲーション復元でpending_restore_scroll_yが設定された状態
-    sr.pending_restore_scroll_y = 500;
-
-    // 新規ファイルオープン時にクリア
-    sr.pending_restore_scroll_y = -1;
-    EXPECT_EQ(sr.pending_restore_scroll_y, -1);
-}
-
 TEST(ScrollRestoration, Reset)
 {
     ScrollRestoration sr;
