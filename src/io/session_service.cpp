@@ -44,19 +44,19 @@ void SessionService::LoadPaneState(PaneController& panes, float client_width)
     panes.SetFilePaneVisible(config_.LoadBool("Pane", "ShowFile", true));
     panes.SetTocPaneVisible(config_.LoadBool("Pane", "ShowToc", true));
 
-    constexpr int kDefaultWidth = static_cast<int>(PaneController::PANE_DEFAULT_WIDTH);
-    constexpr int kMinWidth = static_cast<int>(PaneController::PANE_MIN_WIDTH);
+    constexpr int DEFAULT_WIDTH = static_cast<int>(PaneController::PANE_DEFAULT_WIDTH);
+    constexpr int MIN_WIDTH = static_cast<int>(PaneController::PANE_MIN_WIDTH);
 
     // クライアント幅に基づいて有効な最大ペイン幅を計算する
-    int dynamic_max = kDefaultWidth;
+    int dynamic_max = DEFAULT_WIDTH;
     if (client_width > 0.0f) {
-        dynamic_max = std::max(kMinWidth, static_cast<int>(client_width) - kMinWidth);
+        dynamic_max = std::max(MIN_WIDTH, static_cast<int>(client_width) - MIN_WIDTH);
     }
 
     panes.SetFilePaneWidth(static_cast<float>(
-        config_.LoadInt("Pane", "FileWidth", kDefaultWidth, kMinWidth, dynamic_max)));
+        config_.LoadInt("Pane", "FileWidth", DEFAULT_WIDTH, MIN_WIDTH, dynamic_max)));
     panes.SetTocPaneWidth(static_cast<float>(
-        config_.LoadInt("Pane", "TocWidth", kDefaultWidth, kMinWidth, dynamic_max)));
+        config_.LoadInt("Pane", "TocWidth", DEFAULT_WIDTH, MIN_WIDTH, dynamic_max)));
 }
 
 void SessionService::SaveScrollPosition(int node, float scroll_y, float node_y)

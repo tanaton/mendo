@@ -48,8 +48,8 @@ public:
 
     // ---- パスアクセス ----
 
-    constexpr std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }
-    constexpr void SetLoadingPath(std::wstring_view path) { loading_path_ = path; }
+    std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }
+    void SetLoadingPath(std::wstring_view path) { loading_path_ = path; }
 
 private:
     DocumentService& doc_service_;

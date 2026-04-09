@@ -53,35 +53,6 @@ TEST_F(DocumentServiceTest, LoadFileNotFound)
     EXPECT_TRUE(doc.IsEmpty());
 }
 
-TEST_F(DocumentServiceTest, ReloadFile)
-{
-    auto path = CreateTestFile("reload.md", "# First");
-    DocumentService service(watcher_);
-    Document doc;
-
-    EXPECT_TRUE(service.LoadFile(path, doc));
-    EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"First");
-
-    // ファイルを変更
-    {
-        std::ofstream ofs(std::filesystem::path(path.c_str()), std::ios::binary);
-        ofs << "# Second\n## Sub";
-    }
-
-    EXPECT_TRUE(service.ReloadFile(doc));
-    EXPECT_EQ(std::wstring_view{ doc.GetFilePath() }, std::wstring_view{ path });
-    EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);
-    EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"Second");
-}
-
-TEST_F(DocumentServiceTest, ReloadEmptyPathFails)
-{
-    DocumentService service(watcher_);
-    Document doc;
-
-    EXPECT_FALSE(service.ReloadFile(doc));
-}
-
 TEST_F(DocumentServiceTest, NeedsLoadingAnimationSmallFile)
 {
     auto path = CreateTestFile("small.md", "# Small");

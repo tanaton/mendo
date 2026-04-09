@@ -53,19 +53,19 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
             FindMatches(std::wstring_view(text.data(), text.size()), lower_query, i);
         }
     }
-    matches_truncated_ = (matches_.size() >= kMaxMatches);
+    matches_truncated_ = (matches_.size() >= MAX_MATCHES);
 }
 
 void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_query, int node_index, int table_row, int table_col)
 {
-    if (matches_.size() >= kMaxMatches) {
+    if (matches_.size() >= MAX_MATCHES) {
         return;
     }
     const uint32_t query_len = static_cast<uint32_t>(query_.size());
 
     if (case_sensitive_) {
         size_t pos = 0;
-        while (matches_.size() < kMaxMatches && (pos = text.find(query_, pos)) != std::wstring_view::npos) {
+        while (matches_.size() < MAX_MATCHES && (pos = text.find(query_, pos)) != std::wstring_view::npos) {
             matches_.push_back({ node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col });
             pos += query_len;
         }
@@ -78,7 +78,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_
         const std::wstring_view lower_text(lower_text_buf_.data(), lower_text_buf_.size());
 
         size_t pos = 0;
-        while (matches_.size() < kMaxMatches && (pos = lower_text.find(lower_query, pos)) != std::wstring_view::npos) {
+        while (matches_.size() < MAX_MATCHES && (pos = lower_text.find(lower_query, pos)) != std::wstring_view::npos) {
             matches_.push_back({ node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col });
             pos += query_len;
         }

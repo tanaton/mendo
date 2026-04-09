@@ -64,10 +64,10 @@ public:
     uint64_t TotalSize() const noexcept { return total_size_; }
 
 private:
-    static constexpr uint32_t kMagic = 0x4D454D43u;   // "MEMC"
-    static constexpr uint32_t kVersion = 1;
-    static constexpr size_t kDefaultMaxEntries = 4096;
-    static constexpr uint64_t kDefaultMaxTotalSize = 1ULL * 1024 * 1024 * 1024; // 1GB
+    static constexpr uint32_t MAGIC = 0x4D454D43u;   // "MEMC"
+    static constexpr uint32_t VERSION = 1;
+    static constexpr size_t DEFAULT_MAX_ENTRIES = 4096;
+    static constexpr uint64_t DEFAULT_MAX_TOTAL_SIZE = 1ULL * 1024 * 1024 * 1024; // 1GB
 
     struct IndexEntry {
         float css_width = 0.0f;
@@ -94,8 +94,8 @@ private:
     std::multimap<int64_t, uint64_t> lru_order_;
     uint64_t total_size_ = 0;
 
-    size_t max_entries_ = kDefaultMaxEntries;
-    uint64_t max_total_size_ = kDefaultMaxTotalSize;
+    size_t max_entries_ = DEFAULT_MAX_ENTRIES;
+    uint64_t max_total_size_ = DEFAULT_MAX_TOTAL_SIZE;
 
     // バックグラウンド書き込み
     TaskScheduler* scheduler_ = nullptr;

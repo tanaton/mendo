@@ -9,9 +9,6 @@ public:
     // ファイルを読み込み、Document を構築。成功時 true。
     bool LoadFile(const std::pmr::wstring& path, Document& doc);
 
-    // 現在のファイルを再読み込み
-    bool ReloadFile(Document& doc);
-
     // ファイル監視
     void StartWatching(const std::pmr::wstring& path, FileWatcher::ChangeCallback cb);
     void StopWatching() noexcept;

@@ -4,27 +4,18 @@
 
 bool DocumentService::LoadFile(const std::pmr::wstring& path, Document& doc)
 {
-    std::pmr::string content;
+    std::expected<std::pmr::string, FileLoadError> result;
     {
         MENDO_PROFILE("FileLoader::LoadFile");
-        content = FileLoader::LoadFile(path);
+        result = FileLoader::LoadFile(path);
     }
-    if (content.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (!result) {
         return false;
     }
     {
         MENDO_PROFILE("Document::FromMarkdown");
-        doc = Document::FromMarkdown(std::move(content), path);
+        doc = Document::FromMarkdown(std::move(*result), path);
     }
-    return true;
-}
-
-bool DocumentService::ReloadFile(Document& doc)
-{
-    if (doc.GetFilePath().empty()) {
-        return false;
-    }
-    doc.ReplaceFromMarkdown(FileLoader::LoadFile(doc.GetFilePath()));
     return true;
 }
 

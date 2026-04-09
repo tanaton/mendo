@@ -1,5 +1,4 @@
 #pragma once
-#include "app_constants.h"
 #include "renderer.h"
 #include "task_scheduler.h"
 #include "mermaid_file_cache.h"
@@ -9,12 +8,12 @@
 #include "file_explorer.h"
 #include "document.h"
 #include "document_service.h"
+#include "document_utils.h"
 #include "hit_test_service.h"
 #include "pane.h"
 #include "pane_layout.h"
 #include "pane_controller.h"
 #include "titlebar.h"
-#include "document_utils.h"
 #include "layout_cache.h"
 #include "layout_service.h"
 #include "viewport_manager.h"
@@ -235,6 +234,10 @@ private:
     void ApplyMermaidCacheHeights(float md_width);
     bool ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size);
     void UpdateTitleBar();
+
+    // ファイル読み込み/リロード共通ヘルパー
+    void CancelPendingResources();
+    void FinalizeLayout(float md_pane_height);
     void SaveLastFilePath();
     void SavePaneState();
     void LoadPaneState();

@@ -5,25 +5,30 @@
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "comdlg32.lib")
 
-std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path)
+std::expected<std::pmr::string, FileLoadError> FileLoader::LoadFile(const std::pmr::wstring& path)
 {
     // エディタがファイルを開いている間も読み取れるよう FILE_SHARE_READ | FILE_SHARE_WRITE を指定
     const HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
-        return {};
+        return std::unexpected(FileLoadError::NotFound);
     }
 
     LARGE_INTEGER size;
-    if (!GetFileSizeEx(hFile, &size) || size.QuadPart == 0) {
+    if (!GetFileSizeEx(hFile, &size)) {
         CloseHandle(hFile);
-        return {};
+        return std::unexpected(FileLoadError::ReadFailed);
+    }
+
+    if (size.QuadPart == 0) {
+        CloseHandle(hFile);
+        return std::pmr::string{};
     }
 
     if (size.QuadPart > MAX_FILE_SIZE) {
         CloseHandle(hFile);
-        return {};
+        return std::unexpected(FileLoadError::TooLarge);
     }
 
     // UTF-8 BOMを先に検出し、全内容の memmove を回避する
@@ -52,7 +57,7 @@ std::pmr::string FileLoader::LoadFile(const std::pmr::wstring& path)
     CloseHandle(hFile);
 
     if (!ok) {
-        return {};
+        return std::unexpected(FileLoadError::ReadFailed);
     }
 
     return content;

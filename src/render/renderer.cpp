@@ -275,19 +275,19 @@ void Renderer::RecreatePaneFormats()
     if (fmt_.nav_button) {
         auto* dw = backend_.GetDWriteFactory();
         if (dw) {
-            static const wchar_t kBack[] = L"\x25C0";
-            static const wchar_t kForward[] = L"\x25B6";
-            dw->CreateTextLayout(kBack, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
-            dw->CreateTextLayout(kForward, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
+            static const wchar_t BACK_ICON[] = L"\x25C0";
+            static const wchar_t FORWARD_ICON[] = L"\x25B6";
+            dw->CreateTextLayout(BACK_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
+            dw->CreateTextLayout(FORWARD_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
         }
     }
     if (fmt_.gesture_overlay) {
         auto* dw = backend_.GetDWriteFactory();
         if (dw) {
-            static const wchar_t kGestureBack[] = L"\x2190 \x623B\x308B";
-            static const wchar_t kGestureForward[] = L"\x2192 \x9032\x3080";
-            dw->CreateTextLayout(kGestureBack, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_back_layout_);
-            dw->CreateTextLayout(kGestureForward, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_forward_layout_);
+            static const wchar_t GESTURE_BACK[] = L"\x2190 \x623B\x308B";
+            static const wchar_t GESTURE_FORWARD[] = L"\x2192 \x9032\x3080";
+            dw->CreateTextLayout(GESTURE_BACK, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_back_layout_);
+            dw->CreateTextLayout(GESTURE_FORWARD, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_forward_layout_);
         }
     }
 
