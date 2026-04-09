@@ -36,7 +36,7 @@ void App::NavigateToAnchor(std::wstring_view anchor)
     const auto layout = GetPaneLayout();
     float target_y = layout_cache_[idx].y_position - renderer_.GetTheme().heading_spacing_above - layout.md_rect.y;
     target_y = std::max(0.0f, target_y);
-    viewport_.ScrollTo(target_y);
+    ScrollTo(target_y);
     UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
     resource_manager_.ScheduleBitmapManage();
@@ -57,7 +57,7 @@ void App::ApplyNavigateResult(const NavigationService::NavigateResult& result)
         LoadMarkdownFile(result.target);
         return;
     }
-    viewport_.ScrollTo(result.scroll_y);
+    ScrollTo(result.scroll_y);
     const auto layout = GetPaneLayout();
     UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
