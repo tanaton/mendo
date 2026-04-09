@@ -83,6 +83,7 @@ public:
         const TextSelection& selection,
         int first_visible = -1,
         int hovered_copy_node = -1,
+        int hovered_save_node = -1,
         float dpi_scale = 1.0f);
 
 private:
@@ -90,7 +91,8 @@ private:
         const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
         int node_index, float offset_x, float viewport_top, float viewport_bottom,
         const TextSelection& selection, float content_width,
-        int hovered_copy_node);
+        int hovered_copy_node,
+        int hovered_save_node);
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
@@ -104,8 +106,10 @@ private:
         bool has_selection, uint32_t sel_start, uint32_t sel_end,
         uint32_t flat_offset);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
+    void GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
     void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry,
         float x, float w, bool is_hovered);
+    void GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
         const std::pmr::vector<Node>& nodes, const LayoutCache& cache,

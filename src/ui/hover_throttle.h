@@ -8,10 +8,12 @@ struct HoverThrottle {
     POINT last_md_hit_pos = { LONG_MIN, LONG_MIN };
     bool last_md_cursor_hand = false;
     POINT last_copy_hit_pos = { LONG_MIN, LONG_MIN };
+    POINT last_save_hit_pos = { LONG_MIN, LONG_MIN };
 
     void Reset() noexcept
     {
         last_md_hit_pos = { LONG_MIN, LONG_MIN };
         last_copy_hit_pos = { LONG_MIN, LONG_MIN };
+        last_save_hit_pos = { LONG_MIN, LONG_MIN };
     }
 };

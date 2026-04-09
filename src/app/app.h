@@ -186,6 +186,7 @@ private:
     void SetClipboardText(std::wstring_view text) const;
     void CopySelectionToClipboard() const;
     void CopyCodeBlockToClipboard(int node_index) const;
+    void SaveDiagramAsPng(int node_index);
     void SelectAll();
     void ClearSelection();
 
@@ -330,6 +331,8 @@ private:
 
     // コードブロック コピーボタン
     int hovered_copy_node_ = -1;
+    // Mermaidダイアグラム 保存ボタン
+    int hovered_save_node_ = -1;
 
     // 目次ペインの現在アクティブな見出しインデックス
     int active_toc_index_ = -1;

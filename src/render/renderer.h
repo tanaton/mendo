@@ -162,6 +162,7 @@ struct RenderParams {
     float total_content_height = 0.0f;
     int nav_hovered = 0;
     int hovered_copy_node = -1;
+    int hovered_save_node = -1;
     // --- 1��イトアライメント ---
     bool can_go_back = false;
     bool can_go_forward = false;
