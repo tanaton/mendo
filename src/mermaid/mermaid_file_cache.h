@@ -2,7 +2,6 @@
 #include <cstdint>
 #include <vector>
 #include <filesystem>
-#include <unordered_map>
 #include <map>
 #include <atomic>
 
@@ -89,7 +88,7 @@ private:
     float current_dpr_ = 0.0f;
 
     // インデックス: key → エントリメタデータ
-    std::unordered_map<uint64_t, IndexEntry> index_;
+    std::map<uint64_t, IndexEntry> index_;
     // LRU順序: last_used → keys（O(log n) での最古エントリ特定用）
     std::multimap<int64_t, uint64_t> lru_order_;
     uint64_t total_size_ = 0;

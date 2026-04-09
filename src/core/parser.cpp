@@ -4,7 +4,7 @@
 #include "memory_resource.h"
 #include "md4c.h"
 #include <stack>
-#include <unordered_map>
+#include <map>
 #include <charconv>
 #include <format>
 #include <iterator>
@@ -111,7 +111,7 @@ struct ParseContext {
     std::pmr::vector<std::pmr::wstring> link_urls{ parse_resource.resource() };
 
     // アンカーIDの一意性追跡: スラグ -> 出現回数
-    std::pmr::unordered_map<std::pmr::wstring, int> anchor_counts{ parse_resource.resource() };
+    std::pmr::map<std::pmr::wstring, int> anchor_counts{ parse_resource.resource() };
 
     // 画像スパン追跡
     std::pmr::wstring pending_image_src{ parse_resource.resource() };

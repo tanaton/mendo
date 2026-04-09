@@ -1,5 +1,5 @@
 #pragma once
-#include <unordered_map>
+#include <map>
 #include <string>
 #include <functional>
 #include <windows.h>
@@ -79,6 +79,6 @@ private:
     float last_mermaid_content_width_ = 0.0f;
     bool mermaid_batch_loading_ = false;
     size_t mermaid_batch_next_ = 0;
-    std::unordered_map<size_t, std::wstring> resolved_image_paths_;
+    std::map<size_t, std::wstring> resolved_image_paths_;
     bool pending_flush_ = false;
 };

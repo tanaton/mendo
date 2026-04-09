@@ -6,7 +6,7 @@
 #include <wrl/client.h>
 #include <windows.h>
 #include <string>
-#include <unordered_set>
+#include <set>
 #include <vector>
 #include <mutex>
 #include <atomic>
@@ -84,7 +84,7 @@ private:
     TaskScheduler* scheduler_ = nullptr;
     std::atomic<uint32_t> cancel_gen_{ 0 };
     std::mutex pending_mutex_;
-    std::unordered_set<std::wstring> pending_paths_;
+    std::set<std::wstring> pending_paths_;
 
     std::mutex result_mutex_;
     std::vector<DecodeResult> completed_;
