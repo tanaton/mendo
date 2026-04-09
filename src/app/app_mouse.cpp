@@ -490,7 +490,7 @@ void App::OnLButtonDown(int px, int py)
                     else {
                         panes_.SetDragScrollOffset(info.thumb_height * 0.5f);
                         const float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
-                        viewport_.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
+                        ScrollTo(ScrollFromThumbY(info, new_thumb_y));
                         Invalidate();
                     }
                     return;
@@ -622,7 +622,7 @@ void App::OnMouseMove(int px, int py)
             const float total_h = layout_service_->GetTotalHeight();
             const auto info = ComputeScrollInfo(layout.md_rect, 0.0f, total_h);
             const float new_thumb_y = dip.y - panes_.GetDragScrollOffset();
-            viewport_.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
+            ScrollTo(ScrollFromThumbY(info, new_thumb_y));
             Invalidate();
         }
         return;
