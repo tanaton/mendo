@@ -144,8 +144,11 @@ void App::SaveDiagramAsPng(int node_index)
         return;
     }
     DWORD written = 0;
-    WriteFile(hFile, png_data.data(), static_cast<DWORD>(png_data.size()), &written, nullptr);
+    const DWORD size = static_cast<DWORD>(png_data.size());
+    const BOOL ok = WriteFile(hFile, png_data.data(), size, &written, nullptr);
     CloseHandle(hFile);
 
-    ShowToast(i18n::S().toast_image_saved);
+    if (ok && written == size) {
+        ShowToast(i18n::S().toast_image_saved);
+    }
 }

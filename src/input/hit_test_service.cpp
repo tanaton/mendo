@@ -302,12 +302,6 @@ int HitTestService::SaveButtonHitTest(
 
     const auto [dip_x, dip_y] = ScreenToPaneDip(screen_x, screen_y, dpi_scale, md_pane_left, scroll_y);
 
-    // 保存ボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
-    const float btn_left_bound = theme.margin_left + content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
-    if (dip_x < btn_left_bound) {
-        return -1;
-    }
-
     const float viewport_top = scroll_y;
     const float viewport_bottom = scroll_y + md_pane_height;
 
