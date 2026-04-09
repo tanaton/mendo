@@ -651,6 +651,12 @@ void App::FinishLoadMarkdownFile()
     }
     else if (scroll_restore_.HasNavScroll()) {
         scroll_y = scroll_restore_.ConsumeNavScroll();
+        // 遅延レイアウトのドリフト補正用（セッション復元と同じ仕組み）
+        scroll_restore_.pending_restore_scroll_y = static_cast<int>(std::lround(scroll_y));
+    }
+    else {
+        // 新規ファイルオープン: 前回ナビゲーションの残留値をクリア
+        scroll_restore_.pending_restore_scroll_y = -1;
     }
 
     MENDO_TRACEF("FinishLoad: scroll_y=%.1f (0=top of file)", scroll_y);
