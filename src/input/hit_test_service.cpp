@@ -277,7 +277,7 @@ int HitTestService::CopyButtonHitTest(
         const float block_right = x + w;
         const float block_top = cache[i].y_position - pad;
 
-        const D2D1_RECT_F btn = CopyButtonRect(block_right, block_top);
+        const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
         if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
             return i;
         }
@@ -327,7 +327,7 @@ int HitTestService::SaveButtonHitTest(
         const float cw = content_width - indent;
 
         const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, cache[i].y_position);
-        const D2D1_RECT_F btn = CopyButtonRect(bmp.right, bmp.top);
+        const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top);
         if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
             return i;
         }

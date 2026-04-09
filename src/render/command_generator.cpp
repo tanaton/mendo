@@ -247,7 +247,7 @@ void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
     }
 
     const float pad = theme_->code_block_padding;
-    const D2D1_RECT_F btn = CopyButtonRect(x + w, entry.y_position - pad);
+    const D2D1_RECT_F btn = OverlayButtonRect(x + w, entry.y_position - pad);
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 
@@ -257,7 +257,7 @@ void CommandGenerator::GenSaveButton(DrawCommandList& cmds,
     if (!formats_.copy_btn_icon) {
         return;
     }
-    const D2D1_RECT_F btn = CopyButtonRect(bitmap_right, bitmap_top);
+    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top);
     GenOverlayButton(cmds, btn, L'\uE896', is_hovered);
 }
 

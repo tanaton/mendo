@@ -151,4 +151,7 @@ void App::SaveDiagramAsPng(int node_index)
     if (ok && written == size) {
         ShowToast(i18n::S().toast_image_saved);
     }
+    else {
+        DeleteFileW(filename);
+    }
 }

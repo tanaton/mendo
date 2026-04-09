@@ -196,7 +196,7 @@ inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
 // anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
-inline D2D1_RECT_F CopyButtonRect(float anchor_right, float anchor_top) noexcept {
+inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top) noexcept {
     const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE;
     const float by = anchor_top + COPY_BTN_MARGIN;
     return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);

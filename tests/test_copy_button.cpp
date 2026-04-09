@@ -5,7 +5,7 @@
 #include "mock_text_measurer.h"
 #include "parser.h"
 
-// CopyButtonRect ユーティリティ関数と HitTestService::CopyButtonHitTest のテスト。
+// OverlayButtonRect ユーティリティ関数と HitTestService::CopyButtonHitTest のテスト。
 // MockTextMeasurer を使用するため DirectWrite / COM は不要。
 
 class CopyButtonTest : public ::testing::Test {
@@ -49,7 +49,7 @@ protected:
         float pad = theme_.code_block_padding;
         float block_right = x + w;
         float block_top = entry.y_position - pad;
-        D2D1_RECT_F btn = CopyButtonRect(block_right, block_top);
+        D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
         float cx = (btn.left + btn.right) * 0.5f;
         float cy = (btn.top + btn.bottom) * 0.5f;
         // scroll_y=0, dpi=1 のため dip == pixel。ただし HitTest は dip_y = screen_y + scroll_y なので
@@ -58,11 +58,11 @@ protected:
     }
 };
 
-// ---- CopyButtonRect ----
+// ---- OverlayButtonRect ----
 
 TEST_F(CopyButtonTest, CopyButtonRectHasCorrectSize)
 {
-    D2D1_RECT_F r = CopyButtonRect(100.0f, 10.0f);
+    D2D1_RECT_F r = OverlayButtonRect(100.0f, 10.0f);
     float w = r.right - r.left;
     float h = r.bottom - r.top;
     EXPECT_FLOAT_EQ(w, COPY_BTN_SIZE);
@@ -73,7 +73,7 @@ TEST_F(CopyButtonTest, CopyButtonRectIsInsideBlockTopRight)
 {
     float block_right = 500.0f;
     float block_top = 100.0f;
-    D2D1_RECT_F r = CopyButtonRect(block_right, block_top);
+    D2D1_RECT_F r = OverlayButtonRect(block_right, block_top);
     // ボタンの右端はブロック右端から COPY_BTN_MARGIN 内側
     EXPECT_FLOAT_EQ(r.right, block_right - COPY_BTN_MARGIN);
     // ボタンの上端はブロック上端から COPY_BTN_MARGIN 下
@@ -198,7 +198,7 @@ TEST_F(CopyButtonTest, ScrolledViewportHitTest)
     float cw = content_width - indent;
     float x = theme_.margin_left + indent;
     float pad = theme_.code_block_padding;
-    D2D1_RECT_F btn = CopyButtonRect(x + cw, entry.y_position - pad);
+    D2D1_RECT_F btn = OverlayButtonRect(x + cw, entry.y_position - pad);
     // screen_y = dip_y - scroll_y (dpi=1)
     int sx = static_cast<int>((btn.left + btn.right) * 0.5f);
     int sy = static_cast<int>((btn.top + btn.bottom) * 0.5f - scroll_y);
