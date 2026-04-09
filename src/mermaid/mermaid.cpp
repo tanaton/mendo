@@ -215,7 +215,6 @@ void MermaidRenderer::EnsureInitialized()
     if (initialized_) {
         return;
     }
-    initialized_ = true;
 
     worker_count_ = ComputeWorkerCount();
 
@@ -257,6 +256,10 @@ void MermaidRenderer::EnsureInitialized()
         return;
     }
 
+    // ワーカーウィンドウが作成できた時点で初期化済みとする。
+    // WebView2環境の生成失敗は CreateWebView2Environment 内の
+    // タイマーリトライで対処される。
+    initialized_ = true;
     CreateWebView2Environment();
 }
 

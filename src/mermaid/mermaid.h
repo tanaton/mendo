@@ -71,6 +71,10 @@ public:
     // タイマーID（App側でルーティングする）
     static constexpr UINT_PTR TIMER_INIT_RETRY = 12;
 
+#ifdef MENDO_TESTING
+    constexpr bool IsInitialized() const noexcept { return initialized_; }
+#endif
+
 private:
     struct RenderRequest {
         Node* node = nullptr;
