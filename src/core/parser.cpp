@@ -188,8 +188,9 @@ struct ParseContext {
         const int utf8_len = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
         if (utf8_len > 0) {
             const size_t old_size = current_node->text_utf8.size();
-            current_node->text_utf8.resize(old_size + static_cast<size_t>(utf8_len));
-            WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), current_node->text_utf8.data() + old_size, utf8_len, nullptr, nullptr);
+            current_node->text_utf8.resize_and_overwrite(old_size + static_cast<size_t>(utf8_len), [&](char* buf, size_t count) -> size_t {
+                return old_size + static_cast<size_t>(WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf + old_size, static_cast<int>(count - old_size), nullptr, nullptr));
+            });
         }
         node_wide_offset += static_cast<uint32_t>(text.size());
         current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
