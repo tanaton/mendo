@@ -1,5 +1,6 @@
 #include "file_explorer.h"
 #include "document_utils.h"
+#include "win_handle.h"
 #include <algorithm>
 #include <filesystem>
 
@@ -42,8 +43,8 @@ void FileExplorer::Refresh()
     const std::filesystem::path dir_base{ directory_ };
     const auto pattern = dir_base / L"*";
     WIN32_FIND_DATAW fd;
-    const HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
-    if (hFind == INVALID_HANDLE_VALUE) {
+    UniqueFindHandle hFind{ FindFirstFileW(pattern.c_str(), &fd) };
+    if (!hFind) {
         return;
     }
 
@@ -78,9 +79,7 @@ void FileExplorer::Refresh()
             entry.full_path.assign((dir_base / fd.cFileName).native());
             files.emplace_back(std::move(entry));
         }
-    } while (FindNextFileW(hFind, &fd));
-
-    FindClose(hFind);
+    } while (FindNextFileW(hFind.get(), &fd));
 
     // ディレクトリとファイルをそれぞれ大文字小文字無視でソート
     std::ranges::sort(dirs, [](const FileEntry& a, const FileEntry& b) static noexcept {

@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory_resource>
 #include <windows.h>
+#include "win_handle.h"
 
 // ReadDirectoryChangesW によるファイル変更監視。
 // 指定ファイルの親ディレクトリを監視し、対象ファイルの変更を検出してコールバックを呼ぶ。
@@ -36,7 +37,8 @@ private:
     ChangeCallback on_change_;
     bool watching_ = false;
 
-    HANDLE dir_handle_ = INVALID_HANDLE_VALUE;
+    UniqueHandle dir_handle_;
+    UniqueEventHandle event_;          // overlapped_.hEvent のオーナー（StartWatching で同期）
     OVERLAPPED overlapped_{};
     alignas(DWORD) char change_buf_[4096]{};
     bool read_pending_ = false;

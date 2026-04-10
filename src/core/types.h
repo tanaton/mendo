@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <memory_resource>
+#include <algorithm>
 #include "syntax.h"
 #include "string_convert.h"
 
@@ -170,18 +171,21 @@ struct Node {
         return text_;
     }
 
+    // const wchar_t* からの呼び出し（リテラル文字列等）をオーバーロード解決で曖昧にしないための委譲
+    void SetText(const wchar_t* s) { SetText(std::wstring_view{ s }); }
+
     // Wideテキストを直接設定
     void SetText(std::wstring_view s)
     {
         text_.assign(s.data(), s.size());
-        text_valid_ = true;
-        text_utf8.clear();
-        line_count = 0;
-        for (wchar_t ch : s) {
-            if (ch == L'\n') {
-                ++line_count;
-            }
-        }
+        FinalizeSetText();
+    }
+
+    // Wideテキストをムーブで設定（コピー回避）
+    void SetText(std::pmr::wstring&& s) noexcept
+    {
+        text_ = std::move(s);
+        FinalizeSetText();
     }
 
     // テーブル行への便利アクセサ
@@ -205,6 +209,13 @@ struct Node {
     bool has_image() const noexcept { return image_data != nullptr; }
 
 private:
+    void FinalizeSetText() noexcept
+    {
+        text_valid_ = true;
+        text_utf8.clear();
+        line_count = static_cast<int>(std::count(text_.begin(), text_.end(), L'\n'));
+    }
+
     mutable std::pmr::wstring text_;    // Wideキャッシュ（GetText()で遅延変換）
     mutable bool text_valid_ = false;   // text_ が最新ならtrue
 };

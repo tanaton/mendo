@@ -67,6 +67,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 
     InitSystemMenu();
     UpdateDwmFrame();
+    UpdateDpiMetricsCache();
 
     if (!RestoreWindowPlacement(nCmdShow)) {
         ShowWindow(hwnd_, nCmdShow);
@@ -74,6 +75,19 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     UpdateWindow(hwnd_);
 
     return true;
+}
+
+void Win32Window::UpdateDpiMetricsCache()
+{
+    if (!hwnd_) {
+        return;
+    }
+    const UINT dpi = GetDpiForWindow(hwnd_);
+    cached_nchit_border_ = MulDiv(4, dpi, 96);
+    cached_nchit_frame_y_ = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
+        + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    cached_nchit_right_border_ = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
+        + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 }
 
 void Win32Window::UpdateDwmFrame()
@@ -193,14 +207,9 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
 
     // 非最大化時のリサイズ枠判定（細めの枠でスクロールバーと干渉しないようにする）
     if (!IsZoomed(hwnd_)) {
-        const UINT dpi = GetDpiForWindow(hwnd_);
-        const int border = MulDiv(4, dpi, 96);
-        // 上端はタイトルバーがないため標準のフレーム厚を使う
-        const int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
-            + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-        // 右辺はシステム標準幅で広めに確保（スクロールバーとの共存）
-        const int right_border = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
-            + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+        const int border = cached_nchit_border_;
+        const int frame_y = cached_nchit_frame_y_;
+        const int right_border = cached_nchit_right_border_;
 
         RECT rc;
         GetClientRect(hwnd_, &rc);
@@ -475,6 +484,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         const auto* suggested = reinterpret_cast<const RECT*>(lParam);
         app_.OnDpiChanged(dpi, suggested);
         UpdateDwmFrame();
+        UpdateDpiMetricsCache();
         return 0;
     }
 

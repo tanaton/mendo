@@ -66,7 +66,7 @@ public:
         }
 
         order_.push_front({ key, std::move(value) });
-        map_[key] = order_.begin();
+        map_.emplace(key, order_.begin());
     }
 
     void Clear()

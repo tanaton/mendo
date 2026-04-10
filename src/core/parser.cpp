@@ -294,8 +294,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->BeginNode(NodeType::CodeBlock);
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            const std::pmr::wstring lang_str = Utf8ToWide(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
-            ctx->current_node->code_language = DetectLanguage(lang_str);
+            ctx->current_node->code_language = DetectLanguage(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
         }
         break;
     }
@@ -530,7 +529,7 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
     if (type == MD_SPAN_IMG) {
         if (auto* cn = ctx->current_node; cn && !ctx->pending_image_src.empty()) {
             cn->ensure_image();
-            cn->image_data->src = ctx->pending_image_src;
+            cn->image_data->src = std::move(ctx->pending_image_src);
         }
         ctx->pending_image_src.clear();
     }
@@ -786,7 +785,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
         new_runs.emplace_back(adjusted);
     }
 
-    node.SetText(new_text);
+    node.SetText(std::move(new_text));
     node.runs = std::move(new_runs);
     node.alert_type = type;
     node.alert_label_length = static_cast<uint32_t>(full_label_len);
@@ -827,6 +826,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
     ctx.utf8_accum.reserve(4096);
+    ctx.nodes.reserve(std::max<size_t>(64, markdown_text.size() / 64));
 
     MD_PARSER parser{};
     parser.abi_version = 0;

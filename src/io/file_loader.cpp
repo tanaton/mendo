@@ -1,4 +1,5 @@
 #include "file_loader.h"
+#include "win_handle.h"
 #include <shlwapi.h>
 #include <commdlg.h>
 
@@ -8,26 +9,23 @@
 std::expected<std::pmr::string, FileLoadError> FileLoader::LoadFile(const std::pmr::wstring& path)
 {
     // エディタがファイルを開いている間も読み取れるよう FILE_SHARE_READ | FILE_SHARE_WRITE を指定
-    const HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ,
+    UniqueHandle hFile{ CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) {
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr) };
+    if (!hFile) {
         return std::unexpected(FileLoadError::NotFound);
     }
 
     LARGE_INTEGER size;
-    if (!GetFileSizeEx(hFile, &size)) {
-        CloseHandle(hFile);
+    if (!GetFileSizeEx(hFile.get(), &size)) {
         return std::unexpected(FileLoadError::ReadFailed);
     }
 
     if (size.QuadPart == 0) {
-        CloseHandle(hFile);
         return std::pmr::string{};
     }
 
     if (size.QuadPart > MAX_FILE_SIZE) {
-        CloseHandle(hFile);
         return std::unexpected(FileLoadError::TooLarge);
     }
 
@@ -37,13 +35,13 @@ std::expected<std::pmr::string, FileLoadError> FileLoader::LoadFile(const std::p
     if (file_size >= 3) {
         unsigned char bom[3]{};
         DWORD bom_read = 0;
-        if (ReadFile(hFile, bom, 3, &bom_read, nullptr) && bom_read == 3 &&
+        if (ReadFile(hFile.get(), bom, 3, &bom_read, nullptr) && bom_read == 3 &&
             bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) {
             bom_skip = 3;
         }
         else {
             // BOMなし: ファイル先頭に巻き戻す
-            SetFilePointer(hFile, 0, nullptr, FILE_BEGIN);
+            SetFilePointer(hFile.get(), 0, nullptr, FILE_BEGIN);
         }
     }
 
@@ -51,10 +49,9 @@ std::expected<std::pmr::string, FileLoadError> FileLoader::LoadFile(const std::p
     DWORD bytesRead = 0;
     BOOL ok = FALSE;
     content.resize_and_overwrite(file_size - bom_skip, [&](char* buf, size_t count) -> size_t {
-        ok = ReadFile(hFile, buf, static_cast<DWORD>(count), &bytesRead, nullptr);
+        ok = ReadFile(hFile.get(), buf, static_cast<DWORD>(count), &bytesRead, nullptr);
         return ok ? bytesRead : 0;
     });
-    CloseHandle(hFile);
 
     if (!ok) {
         return std::unexpected(FileLoadError::ReadFailed);

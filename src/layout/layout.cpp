@@ -219,10 +219,12 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     const auto node_count = nodes.size();
     cache.Resize(node_count);
 
-    const bool width_changed = (viewport_width != last_viewport_width_);
+    const bool width_changed = std::abs(viewport_width - last_viewport_width_) > 0.5f;
     const bool partial = (viewport_top >= 0.0f);
 
-    last_viewport_width_ = viewport_width;
+    if (width_changed) {
+        last_viewport_width_ = viewport_width;
+    }
 
     const float content_width = theme_->ContentWidth(viewport_width);
     float y = theme_->margin_top;
