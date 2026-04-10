@@ -826,7 +826,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
     ctx.utf8_accum.reserve(4096);
-    ctx.nodes.reserve(std::max<size_t>(64, markdown_text.size() / 64));
+    ctx.nodes.reserve(std::clamp(markdown_text.size() / 64, size_t{ 64 }, size_t{ 8192 }));
 
     MD_PARSER parser{};
     parser.abi_version = 0;

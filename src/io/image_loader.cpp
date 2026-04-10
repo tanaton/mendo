@@ -31,6 +31,9 @@ static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path
     }
 
     void* ptr = GlobalLock(hMem.get());
+    if (!ptr) {
+        return nullptr;
+    }
     DWORD bytesRead = 0;
     const BOOL ok = ReadFile(hFile.get(), ptr, static_cast<DWORD>(alloc_size), &bytesRead, nullptr);
     GlobalUnlock(hMem.get());
