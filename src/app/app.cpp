@@ -527,7 +527,9 @@ void App::OnParseComplete()
 
     auto result = file_load_service_.TakeAsyncResult();
     if (!result) {
-        MENDO_TRACE("OnParseComplete: no result (cancelled?)");
+        MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
+        // LoadFile失敗時、FileWatcherがpausedのまま残るのを防ぐ
+        doc_service_.ResumeWatching();
         Invalidate();
         return;
     }
