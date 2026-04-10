@@ -1,4 +1,5 @@
 #include "window.h"
+#include "app_constants.h"
 #include "config_store.h"
 #include "i18n.h"
 #include "resource.h"

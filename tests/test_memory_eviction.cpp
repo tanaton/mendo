@@ -38,8 +38,8 @@ TEST_F(ImageLoaderLruTest, ClearCacheRemovesAllEntries)
 
 TEST_F(ImageLoaderLruTest, EvictsOldestWhenExceedingMaxEntries)
 {
-    // kMaxCacheEntries を超えたら最古のエントリが削除される
-    const size_t max_entries = 128; // kMaxCacheEntries
+    // MAX_CACHE_ENTRIES を超えたら最古のエントリが削除される
+    const size_t max_entries = 128; // MAX_CACHE_ENTRIES
 
     for (size_t i = 0; i < max_entries; i++) {
         loader_.InsertCacheEntry(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);

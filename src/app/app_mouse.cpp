@@ -1,4 +1,5 @@
 #include "app.h"
+#include "app_constants.h"
 #include "i18n.h"
 #include "pane_layout.h"
 #include "document_utils.h"

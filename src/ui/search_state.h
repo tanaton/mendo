@@ -61,7 +61,7 @@ public:
 private:
     void FindMatches(std::wstring_view text, const std::wstring& lower_query, int node_index, int table_row = -1, int table_col = -1);
 
-    static constexpr size_t kMaxMatches = 10000;
+    static constexpr size_t MAX_MATCHES = 10000;
 
     std::wstring query_;
     std::vector<SearchMatch> matches_;

@@ -48,8 +48,8 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
             return;
         }
 
-        std::pmr::string content = FileLoader::LoadFile(path);
-        if (content.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        auto load_result = FileLoader::LoadFile(path);
+        if (!load_result) {
             if (async_gen_.load(std::memory_order_relaxed) == gen) {
                 PostMessage(hwnd, msg_id, 0, 0);
             }
@@ -60,7 +60,7 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
             return;
         }
 
-        Document doc = Document::FromMarkdown(std::move(content), path);
+        Document doc = Document::FromMarkdown(std::move(*load_result), path);
 
         if (async_gen_.load(std::memory_order_relaxed) != gen) {
             return;

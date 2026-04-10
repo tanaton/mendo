@@ -1,4 +1,5 @@
 #include "app.h"
+#include "app_constants.h"
 #include "pane_layout.h"
 #include "profiler.h"
 #include <windows.h>

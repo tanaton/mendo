@@ -95,7 +95,7 @@ private:
         unsigned int request_id = 0; // リクエスト固有のID（JS側のpostMessageと照合）
     };
 
-    static constexpr int kMaxWorkers = 4;
+    static constexpr int MAX_WORKERS = 4;
 
     // WebView2ワーカー: 各ワーカーが独立したWebView2インスタンスを持ち、
     // 1つのダイアグラムを非同期レンダリングできる。
@@ -130,7 +130,7 @@ private:
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> webview_env_;
     std::span<const std::byte> cached_mermaid_gz_; // Win32リソースから直接参照するgzip圧縮済みmermaid.js
 
-    Worker workers_[kMaxWorkers];
+    Worker workers_[MAX_WORKERS];
     int worker_count_ = 0;
     bool initialized_ = false;
     bool ready_ = false;
@@ -145,13 +145,13 @@ private:
         float width = 0.0f;
         float height = 0.0f;
     };
-    static constexpr size_t kMaxCacheEntries = 64;
-    LruCache<uint64_t, CachedBitmap> cache_{ kMaxCacheEntries };
+    static constexpr size_t MAX_CACHE_ENTRIES = 64;
+    LruCache<uint64_t, CachedBitmap> cache_{ MAX_CACHE_ENTRIES };
 
     MermaidFileCache* file_cache_ = nullptr;
 
     // WebView2環境生成リトライ
-    static constexpr int kMaxEnvRetries = 3;
-    static constexpr int kMaxWorkerRetries = 3;
+    static constexpr int MAX_ENV_RETRIES = 3;
+    static constexpr int MAX_WORKER_RETRIES = 3;
     int env_retry_count_ = 0;
 };

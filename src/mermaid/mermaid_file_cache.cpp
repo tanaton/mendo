@@ -119,11 +119,11 @@ void MermaidFileCache::LoadIndex()
     ifs.read(reinterpret_cast<char*>(&dpr), 4);
     ifs.read(reinterpret_cast<char*>(&count), 4);
 
-    if (!ifs || magic != kMagic || version != kVersion) {
+    if (!ifs || magic != MAGIC || version != VERSION) {
         return;
     }
     // 異常なエントリ数を拒否
-    if (count > kDefaultMaxEntries * 2) {
+    if (count > DEFAULT_MAX_ENTRIES * 2) {
         return;
     }
 
@@ -170,8 +170,8 @@ void MermaidFileCache::SaveIndex()
         return;
     }
 
-    const uint32_t magic = kMagic;
-    const uint32_t version = kVersion;
+    const uint32_t magic = MAGIC;
+    const uint32_t version = VERSION;
     const uint32_t count = static_cast<uint32_t>(index_.size());
 
     ofs.write(reinterpret_cast<const char*>(&magic), 4);

@@ -46,51 +46,58 @@ protected:
 TEST_F(FileLoaderTest, LoadsUtf8File)
 {
     auto path = WriteFile(L"test.md", "Hello, World!");
-    auto content = FileLoader::LoadFile(path.native().c_str());
-    EXPECT_EQ(content, "Hello, World!");
+    auto result = FileLoader::LoadFile(path.native().c_str());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "Hello, World!");
 }
 
 TEST_F(FileLoaderTest, LoadsMultilineFile)
 {
     auto path = WriteFile(L"multi.md", "line1\nline2\nline3");
-    auto content = FileLoader::LoadFile(path.native().c_str());
-    EXPECT_EQ(content, "line1\nline2\nline3");
+    auto result = FileLoader::LoadFile(path.native().c_str());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "line1\nline2\nline3");
 }
 
 TEST_F(FileLoaderTest, StripsUtf8Bom)
 {
     std::string bom = "\xEF\xBB\xBF" "Hello";
     auto path = WriteFile(L"bom.md", bom);
-    auto content = FileLoader::LoadFile(path.native().c_str());
-    EXPECT_EQ(content, "Hello");
+    auto result = FileLoader::LoadFile(path.native().c_str());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "Hello");
 }
 
-TEST_F(FileLoaderTest, NonExistentFileReturnsEmpty)
+TEST_F(FileLoaderTest, NonExistentFileReturnsError)
 {
-    auto content = FileLoader::LoadFile(L"C:\\nonexistent_file_12345.md");
-    EXPECT_TRUE(content.empty());
+    auto result = FileLoader::LoadFile(L"C:\\nonexistent_file_12345.md");
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), FileLoadError::NotFound);
 }
 
 TEST_F(FileLoaderTest, EmptyFileReturnsEmpty)
 {
     auto path = WriteFile(L"empty.md", "");
-    auto content = FileLoader::LoadFile(path.native().c_str());
-    EXPECT_TRUE(content.empty());
+    auto result = FileLoader::LoadFile(path.native().c_str());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->empty());
 }
 
 TEST_F(FileLoaderTest, LoadsJapaneseUtf8)
 {
     auto path = WriteFile(L"jp.md", "日本語テスト");
-    auto content = FileLoader::LoadFile(path.native().c_str());
-    EXPECT_EQ(content, "日本語テスト");
+    auto result = FileLoader::LoadFile(path.native().c_str());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "日本語テスト");
 }
 
 TEST_F(FileLoaderTest, BomOnlyFileReturnsEmpty)
 {
     std::string bom_only = "\xEF\xBB\xBF";
     auto path = WriteFile(L"bomonly.md", bom_only);
-    auto content = FileLoader::LoadFile(path.native().c_str());
-    EXPECT_TRUE(content.empty());
+    auto result = FileLoader::LoadFile(path.native().c_str());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->empty());
 }
 
 // ---- ファイル監視テスト ----
@@ -152,16 +159,18 @@ TEST_F(FileLoaderTest, LargeFile)
     // 1MBのファイルを作成
     std::string large_content(1024 * 1024, 'A');
     auto path = WriteFile(L"large.md", large_content);
-    auto content = FileLoader::LoadFile(path.native().c_str());
-    EXPECT_EQ(content.size(), large_content.size());
+    auto result = FileLoader::LoadFile(path.native().c_str());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->size(), large_content.size());
 }
 
 TEST_F(FileLoaderTest, FileWithOnlyBomAndContent)
 {
     std::string bom_content = "\xEF\xBB\xBF# Title\n\nContent";
     auto path = WriteFile(L"bomcontent.md", bom_content);
-    auto content = FileLoader::LoadFile(path.native().c_str());
-    EXPECT_EQ(content, "# Title\n\nContent");
+    auto result = FileLoader::LoadFile(path.native().c_str());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "# Title\n\nContent");
 }
 
 TEST_F(FileLoaderTest, WatcherRestartOnNewFile)
@@ -209,8 +218,9 @@ TEST_F(FileLoaderTest, WatcherDestructorDoesNotCrash)
 TEST_F(FileLoaderTest, FileWithNewlines)
 {
     auto path = WriteFile(L"newlines.md", "line1\r\nline2\r\nline3");
-    auto content = FileLoader::LoadFile(path.native().c_str());
-    EXPECT_EQ(content, "line1\r\nline2\r\nline3");
+    auto result = FileLoader::LoadFile(path.native().c_str());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "line1\r\nline2\r\nline3");
 }
 
 // ---- 監視一時停止 / ResumeWatching テスト ----

@@ -20,7 +20,7 @@ static std::span<const std::byte> LoadMermaidJsGzFromResource()
 // 仮想ホスト経由で配信される小さなHTMLテンプレート。mermaid.jsは別の
 // <script src>として読み込まれるため、HTMLは2MBのNavigateToString制限を
 // 十分に下回る。両リソースはWebResourceRequestedによりインプロセスで配信される。
-static const char kMermaidHtml[] = R"HTML(<!DOCTYPE html>
+static const char MERMAID_HTML[] = R"HTML(<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -168,10 +168,10 @@ static std::pmr::wstring GetWebView2UserDataFolder()
 }
 
 // オフスクリーンWebView2ホストのウィンドウクラス名
-static const wchar_t* kMermaidHostClass = L"mendo_MermaidHost";
+static const wchar_t* MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
 // 仮想ホストURL
-static constexpr wchar_t kAppLocalIndexUrl[] = L"https://app.local/index.html";
+static constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
 
 // ---- MermaidRendererの実装 ----
 
@@ -243,7 +243,7 @@ void MermaidRenderer::EnsureInitialized()
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = DefWindowProcW;
         wc.hInstance = GetModuleHandleW(nullptr);
-        wc.lpszClassName = kMermaidHostClass;
+        wc.lpszClassName = MERMAID_HOST_CLASS;
         RegisterClassExW(&wc);
         class_registered = true;
     }
@@ -252,7 +252,7 @@ void MermaidRenderer::EnsureInitialized()
     for (int i = 0; i < worker_count_; i++) {
         workers_[i].hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-            kMermaidHostClass,
+            MERMAID_HOST_CLASS,
             L"",
             WS_POPUP,
             -32000, -32000,     // 画面外の遠い位置
@@ -291,7 +291,7 @@ void MermaidRenderer::CreateWebView2Environment()
         if (FAILED(result) || !env) {
             // 前回プロセスがユーザーデータフォルダをまだ解放していない場合など
             // に失敗する。タイマーで遅延リトライする。
-            if (env_retry_count_ < kMaxEnvRetries && hwnd_) {
+            if (env_retry_count_ < MAX_ENV_RETRIES && hwnd_) {
                 ++env_retry_count_;
                 SetTimer(hwnd_, TIMER_INIT_RETRY, 500, nullptr);
             }
@@ -396,9 +396,9 @@ void MermaidRenderer::SetupWorker(int index)
                 }
                 else if (wcscmp(msg, L"mermaid-failed") == 0) {
                     // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
-                    if (w.init_retries < kMaxWorkerRetries && w.webview) {
+                    if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
                         ++w.init_retries;
-                        w.webview->Navigate(kAppLocalIndexUrl);
+                        w.webview->Navigate(APP_LOCAL_INDEX_URL);
                     }
                 }
                 CoTaskMemFree(msg);
@@ -471,7 +471,7 @@ void MermaidRenderer::SetupWorker(int index)
             }
             else {
                 // その他のパスにはHTMLテンプレートを配信する
-                stream = CreateMemoryStream(kMermaidHtml, sizeof(kMermaidHtml) - 1);
+                stream = CreateMemoryStream(MERMAID_HTML, sizeof(MERMAID_HTML) - 1);
                 headers = L"Content-Type: text/html; charset=utf-8";
             }
 
@@ -486,7 +486,7 @@ void MermaidRenderer::SetupWorker(int index)
 
         // 仮想ホストにナビゲートする（HTML + JSは上記ハンドラにより
         // メモリから配信される）。
-        w.webview->Navigate(kAppLocalIndexUrl);
+        w.webview->Navigate(APP_LOCAL_INDEX_URL);
 
         return S_OK;
     }).Get());

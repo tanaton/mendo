@@ -72,11 +72,11 @@ private:
 
     void GetDpiScale(float& scale_x, float& scale_y) const;
 
-    static constexpr size_t kMaxCacheEntries = 128;
+    static constexpr size_t MAX_CACHE_ENTRIES = 128;
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
-    LruCache<std::wstring, CachedImage> cache_{ kMaxCacheEntries };
+    LruCache<std::wstring, CachedImage> cache_{ MAX_CACHE_ENTRIES };
 
     // 非同期読み込み
     HWND hwnd_ = nullptr;

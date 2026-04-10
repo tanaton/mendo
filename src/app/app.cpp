@@ -1,4 +1,5 @@
 #include "app.h"
+#include "app_constants.h"
 #include "file_loader.h"
 #include "parser.h"
 #include "resource.h"
@@ -160,6 +161,27 @@ void App::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
     scroll.max_scroll = info.max_scroll;
     cache_dirty = true;
     Invalidate();
+}
+
+// ============================================================
+// ファイル読み込み/リロード共通ヘルパー
+// ============================================================
+
+void App::CancelPendingResources()
+{
+    resource_manager_.CancelMermaidBatch();
+    image_loader_.CancelPending();
+    resource_manager_.ClearResolvedPaths();
+}
+
+void App::FinalizeLayout(float md_pane_height)
+{
+    resource_manager_.LoadImages();
+    resource_manager_.RequestMermaidRenders();
+    SyncMaxScroll(md_pane_height);
+    UpdateScrollBar();
+    Invalidate();
+    ScheduleDeferredLayoutIfNeeded();
 }
 
 // ============================================================
@@ -428,10 +450,8 @@ void App::LoadHelpDocument()
     KillTimer(hwnd_, app_timer::LOADING_ANIM);
     file_load_service_.StopLoading();
     viewport_.ClearSelection();
-    resource_manager_.CancelMermaidBatch();
-    image_loader_.CancelPending();
+    CancelPendingResources();
     renderer_.ShrinkBuffers();
-    resource_manager_.ClearResolvedPaths();
     doc_service_.StopWatching();
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
@@ -560,18 +580,12 @@ void App::OnParseComplete()
             viewport_.SetScrollY(reload_old_scroll_);
             layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
 
-            resource_manager_.LoadImages();
-            resource_manager_.RequestMermaidRenders();
-
-            SyncMaxScroll(md_height);
-            UpdateScrollBar();
+            FinalizeLayout(md_height);
 
             if (search_state_.IsVisible() && !search_state_.GetQuery().empty()) {
                 search_bar_ctrl_.RunSearchAndLocate(doc_.GetNodes());
             }
 
-            Invalidate();
-            ScheduleDeferredLayoutIfNeeded();
             doc_service_.ResumeWatching();
             return;
         }
@@ -595,10 +609,8 @@ void App::FinishLoadMarkdownFile()
     search_bar_ctrl_.Reset();
     PostMessage(hwnd_, app_msg::SEARCH_UNFOCUS, app_param::SEARCH_UNFOCUS_FILE_SWITCH, 0);
     active_toc_index_ = -1;
-    resource_manager_.CancelMermaidBatch();
-    image_loader_.CancelPending();
+    CancelPendingResources();
     renderer_.ShrinkBuffers();
-    resource_manager_.ClearResolvedPaths();
 
     const std::pmr::wstring dir = doc_.GetDirectory();
     if (!dir.empty()) {
@@ -676,23 +688,7 @@ void App::FinishLoadMarkdownFile()
         viewport_.AnchorCompensateScroll(anchor.idx, anchor.y_before, layout_cache_);
     }
 
-    // キャッシュ済みリソースを適用（画像/Mermaidの正確な高さを反映）
-    {
-        MENDO_PROFILE("LoadImages");
-        resource_manager_.LoadImages();
-    }
-    {
-        MENDO_PROFILE("RequestMermaidRenders");
-        resource_manager_.RequestMermaidRenders();
-    }
-
-    // キャッシュ適用後にスクロール範囲を確定
-    SyncMaxScroll(md_height);
-    UpdateScrollBar();
-    Invalidate();
-
-    // 残りのダーティノードを遅延レイアウトで処理
-    ScheduleDeferredLayoutIfNeeded();
+    FinalizeLayout(md_height);
 
     UpdateTitleBar();
 
@@ -746,16 +742,18 @@ void App::DoReloadCurrentFile()
 
     const float old_scroll = viewport_.GetScrollY();
 
-    resource_manager_.CancelMermaidBatch();
-    image_loader_.CancelPending();
-    resource_manager_.ClearResolvedPaths();
+    CancelPendingResources();
 
     // ファイルを読み込み、旧コンテンツとの差分位置をコピーなしで計算
-    std::pmr::string new_utf8;
-    {
+    auto load_result = [this]() {
         MENDO_PROFILE("Reload::LoadFile");
-        new_utf8 = FileLoader::LoadFile(doc_.GetFilePath());
+        return FileLoader::LoadFile(doc_.GetFilePath());
+    }();
+    if (!load_result) {
+        doc_service_.ResumeWatching();
+        return;
     }
+    std::pmr::string new_utf8 = std::move(*load_result);
     const std::string_view old_view(doc_.GetRawUtf8());
     const std::string_view new_view(new_utf8);
     const size_t diff_pos = FindFirstDifference(old_view, new_view);
@@ -824,22 +822,12 @@ void App::DoReloadCurrentFile()
         layout_service_->ViewportLayout(doc_, layout_cache_, md_width, md_height);
     }
 
-    // キャッシュ済み画像/Mermaidを適用してY位置を正確にする
-    resource_manager_.LoadImages();
-    resource_manager_.RequestMermaidRenders();
-
-    SyncMaxScroll(md_height);
-    UpdateScrollBar();
+    FinalizeLayout(md_height);
 
     // 検索バー表示中なら再検索
     if (search_state_.IsVisible() && !search_state_.GetQuery().empty()) {
         search_bar_ctrl_.RunSearchAndLocate(doc_.GetNodes());
     }
-
-    Invalidate();
-
-    // 残りのダーティノードを遅延レイアウトで処理
-    ScheduleDeferredLayoutIfNeeded();
 
     // リロード完了まで一時停止していたファイル監視を再開する
     doc_service_.ResumeWatching();
@@ -1231,17 +1219,21 @@ void App::OnDestroy()
     SavePaneState();
     SaveScrollPosition();
     config_.SaveWString("General", "Language", i18n::GetLangKey());
-    KillTimer(hwnd_, app_timer::DEFERRED_LAYOUT);
-    KillTimer(hwnd_, app_timer::LOADING_ANIM);
-    KillTimer(hwnd_, app_timer::SWIPE_OVERLAY);
-    KillTimer(hwnd_, app_timer::TOAST);
-    KillTimer(hwnd_, app_timer::SEARCH_CARET);
-    KillTimer(hwnd_, app_timer::SEARCH_DEBOUNCE);
-    KillTimer(hwnd_, app_timer::TOOLTIP);
-    KillTimer(hwnd_, app_timer::BITMAP_MANAGE);
-    KillTimer(hwnd_, app_timer::MERMAID_BATCH);
-    KillTimer(hwnd_, app_timer::MERMAID_INIT_RETRY);
-    KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
+    for (UINT_PTR id : {
+        app_timer::DEFERRED_LAYOUT,
+        app_timer::LOADING_ANIM,
+        app_timer::SWIPE_OVERLAY,
+        app_timer::TOAST,
+        app_timer::SEARCH_CARET,
+        app_timer::SEARCH_DEBOUNCE,
+        app_timer::TOOLTIP,
+        app_timer::BITMAP_MANAGE,
+        app_timer::MERMAID_BATCH,
+        app_timer::MERMAID_INIT_RETRY,
+        app_timer::FILE_RELOAD_DEBOUNCE,
+    }) {
+        KillTimer(hwnd_, id);
+    }
 }
 
 RECT App::GetSearchEditRect() const
