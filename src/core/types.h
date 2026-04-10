@@ -187,11 +187,21 @@ struct Node {
     // テーブル行への便利アクセサ
     std::pmr::vector<TableRow>& table_rows() noexcept { return table_data->rows; }
     const std::pmr::vector<TableRow>& table_rows() const noexcept { return table_data->rows; }
-    void ensure_table() { if (!table_data) { table_data = std::make_unique<NodeTableData>(); } }
+    void ensure_table()
+    {
+        if (!table_data) {
+            table_data = std::make_unique<NodeTableData>();
+        }
+    }
     bool has_table() const noexcept { return table_data != nullptr; }
 
     // 画像への便利アクセサ
-    void ensure_image() { if (!image_data) { image_data = std::make_unique<NodeImageData>(); } }
+    void ensure_image()
+    {
+        if (!image_data) {
+            image_data = std::make_unique<NodeImageData>();
+        }
+    }
     bool has_image() const noexcept { return image_data != nullptr; }
 
 private:

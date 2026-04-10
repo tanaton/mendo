@@ -284,12 +284,8 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_P:
         if (!ctx->in_code_block) {
-            if (ctx->blockquote_depth > 0) {
-                ctx->BeginNode(NodeType::BlockQuote);
-            }
-            else {
-                ctx->BeginNode(NodeType::Paragraph);
-            }
+            const auto node_type = (ctx->blockquote_depth > 0) ? NodeType::BlockQuote : NodeType::Paragraph;
+            ctx->BeginNode(node_type);
         }
         break;
 

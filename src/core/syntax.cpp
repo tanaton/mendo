@@ -551,8 +551,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         }
 
         // 3b. ダブルコロンコメント: 行頭の::（cmd）
-        if (cfg.double_colon_comment && c == L':' && i + 1 < text.size() && text[i + 1] == L':' &&
-            IsAtLineStart(text, i)) {
+        if (cfg.double_colon_comment && c == L':' && i + 1 < text.size() && text[i + 1] == L':' && IsAtLineStart(text, i)) {
             flush_plain();
             const size_t start = i;
             while (i < text.size() && text[i] != L'\n') {
@@ -578,8 +577,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         }
 
         // 4. トリプルクォート文字列（Python）
-        if (cfg.triple_quote && (c == L'"' || c == L'\'') &&
-            i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
+        if (cfg.triple_quote && (c == L'"' || c == L'\'') && i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
             flush_plain();
             const size_t start = i;
             i = ScanTripleQuote(text, i, c);
@@ -590,8 +588,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         // 5. 文字列リテラル
         if (c == L'"' || (c == L'\'' && !cfg.skip_single_quote)) {
             // C++生文字列の確認: R"(...)"
-            if (c == L'"' && i > 0 && text[i - 1] == L'R' &&
-                (i < 2 || !IsIdentChar(text[i - 2]))) {
+            if (c == L'"' && i > 0 && text[i - 1] == L'R' && (i < 2 || !IsIdentChar(text[i - 2]))) {
                 // 調整: Rは既にプレーンバッファにあるので除去する。
                 if (in_plain) {
                     if (static_cast<uint32_t>(i - 1) > plain_start) {
@@ -722,48 +719,59 @@ static const LanguageDef LANGUAGE_DEFS[] = {
     {&EmptyKeywords, &EmptyKeywords, {}},
     // C++
     {&CppKeywords, &CppTypes, {
-        .line_comment_slash = true, .block_comment = true,
+        .line_comment_slash = true,
+        .block_comment = true,
         .preprocessor = true,
     }},
     // Python
     {&PythonKeywords, &PythonTypes, {
-        .hash_comment = true, .triple_quote = true,
+        .hash_comment = true,
+        .triple_quote = true,
     }},
     // JavaScript
     {&JsKeywords, &JsTypes, {
-        .line_comment_slash = true, .block_comment = true,
+        .line_comment_slash = true,
+        .block_comment = true,
         .backtick_string = true,
     }},
     // Mermaid（トークン化しない）
     {&EmptyKeywords, &EmptyKeywords, {}},
     // Go
     {&GoKeywords, &GoTypes, {
-        .line_comment_slash = true, .block_comment = true,
-        .backtick_string = true, .raw_backtick = true,
+        .line_comment_slash = true,
+        .block_comment = true,
+        .backtick_string = true,
+        .raw_backtick = true,
     }},
     // Rust
     {&RustKeywords, &RustTypes, {
-        .line_comment_slash = true, .block_comment = true,
+        .line_comment_slash = true,
+        .block_comment = true,
         .skip_single_quote = true,
     }},
     // TypeScript
     {&TsKeywords, &TsTypes, {
-        .line_comment_slash = true, .block_comment = true,
+        .line_comment_slash = true,
+        .block_comment = true,
         .backtick_string = true,
     }},
     // Bash
     {&BashKeywords, &BashTypes, {
-        .hash_comment = true, .backtick_string = true,
+        .hash_comment = true,
+        .backtick_string = true,
     }},
     // PowerShell
     {&PwshKeywords, &PwshTypes, {
-        .hash_comment = true, .angle_block_comment = true,
+        .hash_comment = true,
+        .angle_block_comment = true,
         .case_insensitive = true,
     }},
     // Cmd
     {&CmdKeywords, &CmdTypes, {
-        .double_colon_comment = true, .rem_comment = true,
-        .case_insensitive = true, .skip_single_quote = true,
+        .double_colon_comment = true,
+        .rem_comment = true,
+        .case_insensitive = true,
+        .skip_single_quote = true,
     }},
 };
 

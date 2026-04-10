@@ -8,8 +8,7 @@
 #include <iterator>
 #include <ranges>
 
-std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes,
-    const TextSelection& selection)
+std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes, const TextSelection& selection)
 {
     if (!selection.active) {
         return {};
@@ -101,8 +100,8 @@ std::pmr::wstring ToLowerAscii(std::wstring_view text)
     result.reserve(text.size());
     std::ranges::transform(text, std::back_inserter(result),
         [](wchar_t c) static noexcept -> wchar_t {
-            return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
-        });
+        return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+    });
     return result;
 }
 
