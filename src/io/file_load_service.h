@@ -2,12 +2,13 @@
 #include "document_service.h"
 #include "document.h"
 #include "layout_cache.h"
-#include "layout.h"
 #include "task_scheduler.h"
 #include <string>
 #include <optional>
 #include <mutex>
 #include <atomic>
+
+struct Theme;
 
 // ワーカースレッドでのパース結果（Document + 推定高さ済み LayoutCache）
 struct AsyncLoadResult {

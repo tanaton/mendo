@@ -69,7 +69,8 @@ TEST_F(DocumentServiceTest, NeedsAsyncLoadLargeFile)
 
 TEST_F(DocumentServiceTest, NeedsAsyncLoadNonexistent)
 {
-    std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
+    auto ws = (test_dir_ / "nonexistent_async.md").wstring();
+    std::pmr::wstring nonexistent{ std::wstring_view{ws} };
     EXPECT_TRUE(DocumentService::NeedsAsyncLoad(nonexistent));
 }
 
@@ -81,8 +82,8 @@ TEST_F(DocumentServiceTest, NeedsLoadingAnimationSmallFile)
 
 TEST_F(DocumentServiceTest, NeedsLoadingAnimationNonexistent)
 {
-    // 存在しないファイルはアニメーション必要と報告（サイズを判定できないため）
-    std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
+    auto ws = (test_dir_ / "nonexistent_anim.md").wstring();
+    std::pmr::wstring nonexistent{ std::wstring_view{ws} };
     EXPECT_TRUE(DocumentService::NeedsLoadingAnimation(nonexistent));
 }
 

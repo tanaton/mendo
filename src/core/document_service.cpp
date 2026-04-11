@@ -53,14 +53,14 @@ static bool ExceedsFileSize(const std::pmr::wstring& path, DWORD threshold) noex
 
 bool DocumentService::NeedsAsyncLoad(const std::pmr::wstring& path) noexcept
 {
-    // 64KB 以上: パースに数十ms以上かかりUIブロックが体感される
+    // 64KB 超: パースに数十ms以上かかりUIブロックが体感される
     static constexpr DWORD ASYNC_LOAD_THRESHOLD = 64 * 1024;
     return ExceedsFileSize(path, ASYNC_LOAD_THRESHOLD);
 }
 
 bool DocumentService::NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept
 {
-    // 16MB 以上: パースに数秒かかるためスピナーを表示する
+    // 16MB 超: パースに数秒かかるためスピナーを表示する
     static constexpr DWORD LOADING_ANIM_THRESHOLD = 16 * 1024 * 1024;
     return ExceedsFileSize(path, LOADING_ANIM_THRESHOLD);
 }
