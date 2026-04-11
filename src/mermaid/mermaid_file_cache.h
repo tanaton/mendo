@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <vector>
 #include <filesystem>
 #include <unordered_map>
@@ -28,13 +29,19 @@ public:
         float css_height = 0.0f;
     };
 
+    // サイズ付きバイトバッファ
+    struct PngBlob {
+        std::unique_ptr<uint8_t[]> data;
+        size_t size = 0;
+    };
+
     // キャッシュを初期化し、インデックスをディスクから読み込む。
     // current_dprが保存済みDPRと異なる場合、キャッシュを全削除する。
     void Init(float current_dpr, TaskScheduler& scheduler);
 
     // キャッシュされたPNGを検索する。見つかった場合trueを返す。
     // last_usedタイムスタンプも更新される。
-    bool Lookup(uint64_t key, CacheEntry& entry, std::vector<uint8_t>& png_data);
+    bool Lookup(uint64_t key, CacheEntry& entry, PngBlob& png);
 
     // インデックスからCSSサイズのみを取得する（ディスクI/O無し）。
     // スクロール位置復元時の高さ推定に使用する。
@@ -42,8 +49,7 @@ public:
 
     // PNGファイルをバックグラウンドスレッドで非同期に書き出す。
     // インデックスエントリは即座に追加される。
-    void StoreAsync(uint64_t key, float css_width, float css_height,
-        std::vector<uint8_t> png_data);
+    void StoreAsync(uint64_t key, float css_width, float css_height, std::vector<uint8_t> png_data);
 
     // インデックスをディスクに保存する（アプリ終了時に呼び出す）。
     void SaveIndex();
@@ -77,6 +83,7 @@ private:
     };
 
     std::filesystem::path GetCacheDir() const;
+    std::filesystem::path GetPngPath(const std::filesystem::path& dir, uint64_t key) const;
     std::filesystem::path GetPngPath(uint64_t key) const;
     std::filesystem::path GetIndexPath() const;
     void LoadIndex();
@@ -99,5 +106,5 @@ private:
 
     // バックグラウンド書き込み
     TaskScheduler* scheduler_ = nullptr;
-    std::atomic<uint32_t> write_gen_{0};
+    std::atomic<uint32_t> write_gen_{ 0 };
 };

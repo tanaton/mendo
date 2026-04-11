@@ -1,9 +1,9 @@
 #include "config_store.h"
 #include "ini_parser.h"
 #include "string_convert.h"
+#include "file_io.h"
 #include <algorithm>
 #include <charconv>
-#include <fstream>
 #include <shlobj.h>
 
 #pragma comment(lib, "shell32.lib")
@@ -69,11 +69,11 @@ void Load()
     }
 
     const auto ini_path = dir / L"settings.ini";
-    std::ifstream ifs(ini_path, std::ios::binary);
-    if (ifs) {
-        const std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        g_data = ini::Parse(content);
+    auto [buf, size] = ReadAllBytes(ini_path);
+    if (!buf) {
+        return;
     }
+    g_data = ini::Parse(std::string_view(reinterpret_cast<const char*>(buf.get()), size));
 }
 
 void Save()
@@ -88,15 +88,8 @@ void Save()
     const auto tmp_path = dir / L"settings.ini.tmp";
 
     const std::string content = ini::Serialize(g_data);
-    {
-        std::ofstream ofs(tmp_path, std::ios::binary);
-        if (!ofs) {
-            return;
-        }
-        ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
-        if (!ofs) {
-            return;
-        }
+    if (!WriteAllBytes(tmp_path, content.data(), content.size())) {
+        return;
     }
 
     std::error_code ec;
@@ -104,10 +97,7 @@ void Save()
     if (ec) {
         // renameが失敗した場合（クロスボリューム等）、直接書き込み
         std::filesystem::remove(tmp_path, ec);
-        std::ofstream ofs(ini_path, std::ios::binary);
-        if (ofs) {
-            ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
-        }
+        WriteAllBytes(ini_path, content.data(), content.size());
     }
 }
 
