@@ -58,10 +58,18 @@ graph TB
         TN[ToastNotifier<br>トースト通知]
         SD[SwipeDetector<br>スワイプ検出]
         SS[SearchState<br>検索状態管理]
+        SBC[SearchBarController<br>検索バーUI制御]
         I18N[i18n<br>国際化]
         TT[Tooltip<br>ツールチップ]
         MFC[MermaidFileCache<br>Mermaid永続キャッシュ]
         TSK[TaskScheduler<br>ワーカースレッドプール]
+        FW[FileWatcher<br>ファイル変更監視]
+        SES[SessionService<br>セッション永続化]
+        RM[ResourceManager<br>リソース管理]
+        CM[CursorManager<br>カーソル管理]
+        HT[HoverThrottle<br>ホバースロットリング]
+        SR[ScrollRestoration<br>スクロール位置復元]
+        LC[LruCache<br>LRUキャッシュ]
     end
 
     subgraph 外部ライブラリ
@@ -105,10 +113,18 @@ graph TB
     APP --> TN
     APP --> SD
     APP --> SS
+    APP --> SBC
     APP --> I18N
     APP --> TT
     APP --> MFC
     MFC --> TSK
+    APP --> FW
+    APP --> SES
+    APP --> RM
+    APP --> CM
+    APP --> HT
+    APP --> SR
+    MFC --> LC
     W --> O
 ```
 
@@ -136,6 +152,8 @@ graph LR
         LS[LayoutService]
         HTS[HitTestService]
         IL_L[ImageLoader]
+        RM_L[ResourceManager]
+        SES_L[SessionService]
     end
 
     subgraph ドメイン層
@@ -150,6 +168,10 @@ graph LR
         DU[DocumentUtils]
         TN_L[ToastNotifier]
         SS_L[SearchState]
+        SBC_L[SearchBarController]
+        SR_L[ScrollRestoration]
+        CM_L2[CursorManager]
+        HT_L[HoverThrottle]
     end
 
     subgraph データ層
@@ -157,6 +179,7 @@ graph LR
         L[LayoutEngine]
         LC[LayoutCache]
         FL[FileLoader]
+        FW_L[FileWatcher]
         DS[DocumentService]
         CS[ConfigStore]
     end
@@ -174,6 +197,8 @@ graph LR
         INI_L[IniParser]
         SC_L[StringConvert]
         TSK_L[TaskScheduler]
+        LRC_L[LruCache]
+        WH_L[WinHandle]
     end
 
     W --> APP
@@ -295,19 +320,21 @@ private:
     // Win32ハンドル
     HWND               hwnd_ = nullptr;
     float              cached_dpi_scale_ = 1.0f;
-    HCURSOR            cursor_arrow_, cursor_hand_;
-    HCURSOR            cursor_ibeam_, cursor_sizewe_;
+    CursorManager      cursors_;
 
     // コアサービス
     Renderer           renderer_;
     MermaidRenderer    mermaid_renderer_;
     ImageLoader        image_loader_;
     FileLoader         file_loader_;
+    FileWatcher        file_watcher_;
     DocumentService    doc_service_;
     AppController      controller_;
     ConfigService      config_;
     ThemeService       theme_service_;
     FileLoadService    file_load_service_;
+    SessionService     session_service_;
+    ResourceManager    resource_manager_;
 
     // ドメイン状態
     Document           doc_;
@@ -326,6 +353,7 @@ private:
     MouseGesture       gesture_;
     SwipeDetector      swipe_detector_;
     HitTestService     hit_test_;
+    HoverThrottle      hover_throttle_;
 
     // カスタムコンテキストメニュー
     ContextMenu        ctx_menu_;
@@ -335,9 +363,13 @@ private:
 
     // 検索
     SearchState        search_state_;
+    SearchBarController search_bar_;
 
     // ツールチップ
     Tooltip            tooltip_;
+
+    // スクロール位置復元
+    ScrollRestoration  scroll_restoration_;
 
     // タスクスケジューラ & Mermaidファイルキャッシュ
     TaskScheduler      scheduler_;
@@ -441,6 +473,7 @@ public:
 
 ```cpp
 using AppAction = std::variant<
+    NoOpAction,
     KeyScrollAction, DirectScrollByAction, ScrollPaneAction,
     CopyClipboardAction, SelectAllAction, ClearSelectionAction,
     TogglePaneAction, ZoomAction,
@@ -626,10 +659,18 @@ sequenceDiagram
 
 ```cpp
 using DrawCommand = std::variant<
-    ClearCmd, FillRectCmd, FillRoundedRectCmd,
-    DrawLineCmd, DrawTextLayoutCmd, DrawTextCmd,
-    DrawBitmapCmd, FillEllipseCmd, DrawEllipseCmd,
-    PushClipCmd, PopClipCmd, SetTransformCmd
+    ClearCmd,
+    FillRectCmd,
+    FillRoundedRectCmd,
+    DrawLineCmd,
+    DrawTextLayoutCmd,
+    DrawTextCmd,
+    DrawBitmapCmd,
+    FillEllipseCmd,
+    DrawEllipseCmd,
+    PushClipCmd,
+    PopClipCmd,
+    SetTransformCmd
 >;
 ```
 
@@ -673,13 +714,14 @@ public:
 7. スクロールバー
 8. ナビゲーションボタン（戻る/進むオーバーレイ）
 9. コピーボタン（コードブロックホバー時）
-10. マウスジェスチャトレイル & 方向オーバーレイ
-11. スワイプオーバーレイ（`SwipeDetector` による方向表示）
-12. 検索バー（`SearchState` — 下部ドッキング）
-13. カスタムタイトルバー（`TitleBar`）
-14. コンテキストメニュー（`ContextMenu` — モーダルポップアップ）
-15. トースト通知（`ToastNotifier`）
-16. ローディングアニメーション
+10. 保存ボタン（Mermaidダイアグラムホバー時）
+11. マウスジェスチャトレイル & 方向オーバーレイ
+12. スワイプオーバーレイ（`SwipeDetector` による方向表示）
+13. 検索バー（`SearchBarController` — 下部ドッキング）
+14. カスタムタイトルバー（`TitleBar`）
+15. コンテキストメニュー（`ContextMenu` — モーダルポップアップ）
+16. トースト通知（`ToastNotifier`）
+17. ローディングアニメーション
 
 ---
 
@@ -879,12 +921,24 @@ flowchart LR
 - 共有モード: `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`
 - 他プロセスが編集中でも読み取り可能
 
-#### 3.8.2 ファイル監視
+#### 3.8.2 ファイル監視（FileWatcher）
 
-- **方式**: ポーリング（250msインターバルの `WM_TIMER`）
-- **検出方法**: ファイルの最終書き込み時刻を比較
-- **デバウンス**: 変更検出後、一定時間（数百ms）待機してから再読み込み
+- **方式**: `ReadDirectoryChangesW` による非同期ディレクトリ監視
+- **検出方法**: 対象ファイルの親ディレクトリを監視し、ファイル名が一致する変更を検出
+- **デバウンス**: 変更検出後、一時停止し `ResumeWatching()` で再開
 - **用途**: エディタでMarkdownを編集しながらリアルタイムプレビュー
+
+```cpp
+class FileWatcher {
+public:
+    using ChangeCallback = std::function<void()>;
+    void StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback);
+    void StopWatching() noexcept;
+    void CheckForChanges();
+    void ResumeWatching();
+    HANDLE GetWaitHandle() const noexcept;
+};
+```
 
 #### 3.8.3 DocumentService — ファイル読み込みオーケストレーション
 
@@ -1242,6 +1296,11 @@ public:
     enum class NavButtonHover { None, Back, Forward };
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y,
                                      const PaneRect& md_rect) const noexcept;
+
+    // Mermaidダイアグラム保存ボタンのヒットテスト
+    // ヒットしたダイアグラムのノードインデックスを返す（-1=なし）。
+    int SaveButtonHitTest(const std::pmr::vector<Node>& nodes,
+        const LayoutCache& cache, ...) const noexcept;
 };
 ```
 
@@ -1322,11 +1381,11 @@ public:
 
 #### 3.16.1 概要
 
-`TitleBar` はWin32の標準タイトルバーを置き換えるカスタムタイトルバーを管理する。ヘルプボタン、ダークモード切替ボタン、検索ボタン、ファイルペイン/TOCペインのトグルボタン、最小化/最大化/閉じるボタンを含む。
+`TitleBar` はWin32の標準タイトルバーを置き換えるカスタムタイトルバーを管理する。ファイルを開くボタン、検索ボタン、ダークモード切替ボタン、ヘルプボタン、ファイルペイン/TOCペインのトグルボタン、最小化/最大化/閉じるボタンを含む。ボタンは左側グループ（アイコンの右）と右側グループ（ウィンドウ右端）に分かれる。
 
 ```cpp
 enum class TitleBarHitZone {
-    None, Caption, Help, ThemeToggle, Search,
+    None, Caption, Icon, OpenFile, Help, ThemeToggle, Search,
     FileToggle, TocToggle,
     Minimize, Maximize, Close
 };
@@ -1352,6 +1411,7 @@ public:
     bool SetHovered(TitleBarHitZone zone) noexcept;
     TitleBarHitZone GetHovered() const noexcept;
 
+    const TitleBarButton& GetOpenFileButton() const noexcept;
     const TitleBarButton& GetHelpButton() const noexcept;
     const TitleBarButton& GetThemeToggleButton() const noexcept;
     const TitleBarButton& GetSearchButton() const noexcept;
@@ -1363,6 +1423,22 @@ public:
     const D2D1_RECT_F& GetIconRect() const noexcept;
     const D2D1_RECT_F& GetTitleTextRect() const noexcept;
 };
+```
+
+#### 3.16.2 ボタンレイアウト
+
+ボタンは左側グループと右側グループに分かれて配置される。
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ [Icon] [Open] [Search] [Theme] [Help] ←タイトル→ [File] [TOC] [─][□][×] │
+│  左側グループ                                        右側グループ        │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+- **左側グループ**（アイコンの右から配置）: OpenFile → Search → ThemeToggle → Help
+- **右側グループ**（右端から配置）: Close ← Maximize ← Minimize ← TocToggle ← FileToggle
+- **タイトルテキスト領域**: 左側グループの右端から FileToggle の左端まで
 ```
 
 ---
@@ -1656,10 +1732,27 @@ namespace i18n {
     enum class Lang : uint8_t { Ja, En };
 
     struct Strings {
+        // タイトルバー tooltip
+        std::wstring_view tooltip_open_file;
         std::wstring_view tooltip_help;
         std::wstring_view tooltip_theme_toggle;
         std::wstring_view tooltip_search;
-        // ... 25+ のUI文字列 ...
+        std::wstring_view tooltip_file_pane;
+        std::wstring_view tooltip_toc_pane;
+        std::wstring_view tooltip_minimize;
+        std::wstring_view tooltip_maximize;
+        std::wstring_view tooltip_restore;
+        std::wstring_view tooltip_close;
+        // ペインボタン / 検索バー / ナビゲーション tooltip
+        // コピーボタン / 保存ボタン tooltip
+        std::wstring_view tooltip_save_image;
+        // コンテキストメニュー / ペインヘッダー
+        // システムメニュー
+        std::wstring_view menu_reset_window;
+        // トースト
+        std::wstring_view toast_file_not_found;
+        std::wstring_view toast_image_saved;
+        // ローディング / ヘルプリソースID
         UINT help_resource_id;
     };
 
@@ -1755,7 +1848,7 @@ struct TooltipTarget {
     enum class Zone : uint8_t {
         None, TitleBarButton, SearchBarButton, FilePaneItem,
         FilePaneButton, TocPaneItem, TocPaneButton, MdLink,
-        MdImage, CopyButton, NavButton
+        MdImage, CopyButton, SaveButton, NavButton
     };
     Zone zone = Zone::None;
     std::wstring text;
@@ -1807,6 +1900,184 @@ class ScopedProfileTimer {
 ```
 
 `MENDO_PROFILE_ENABLED = 0` で無効化される。RAII ベースで自動スコープ計測。
+
+---
+
+### 3.31 SearchBarController — 検索バーUI制御
+
+#### 3.31.1 概要
+
+`SearchBarController` は検索バーのUI状態管理を担当する。`SearchState`（ドメインロジック）を参照で保持し、検索バー固有のUIステート（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。Win32依存の操作はコールバック経由で App に委譲する。
+
+```cpp
+class SearchBarController {
+public:
+    enum class HoverZone : uint8_t {
+        None, Up, Down, Close, CaseSensitive, Highlight
+    };
+
+    struct Callbacks {
+        std::function<void()> invalidate;
+        std::function<void()> invalidate_search_bar;
+        std::function<void(UINT_PTR, UINT)> set_timer;
+        std::function<void(UINT_PTR)> kill_timer;
+        std::function<void()> focus_select_all;
+        std::function<void(int)> focus_set_caret;
+        std::function<void(int, int)> focus_set_selection;
+        std::function<void()> unfocus;
+        std::function<float()> get_md_pane_height;
+        std::function<void(float)> on_scroll_changed;
+    };
+
+    static constexpr UINT_PTR TIMER_CARET = 7;
+    static constexpr UINT_PTR TIMER_DEBOUNCE = 9;
+};
+```
+
+---
+
+### 3.32 SessionService — セッション永続化
+
+`SessionService` はセッション状態（最後に開いたファイル、ペイン構成、スクロール位置）の永続化を担当する。
+
+```cpp
+class SessionService {
+public:
+    explicit SessionService(ConfigService& config) noexcept;
+
+    void SaveLastFilePath(std::wstring_view path);
+    std::pmr::wstring LoadLastFilePath() const;
+
+    void SavePaneState(const PaneController& panes);
+    void LoadPaneState(PaneController& panes, float client_width);
+
+    struct ScrollPosition {
+        int node = -1;
+        int offset = 0;
+        int raw_y = 0;
+    };
+    void SaveScrollPosition(int node, float scroll_y, float node_y);
+    ScrollPosition LoadScrollPosition() const;
+};
+```
+
+---
+
+### 3.33 ResourceManager — リソース管理
+
+`ResourceManager` は画像・Mermaidリソースのライフサイクル管理を担当し、App から画像読み込み、Mermaidバッチ処理、ビットマップ解放の責務を分離する。
+
+```cpp
+class ResourceManager {
+public:
+    struct Callbacks {
+        std::function<void()> invalidate;
+        std::function<void(UINT_PTR, UINT)> set_timer;
+        std::function<void(UINT_PTR)> kill_timer;
+        std::function<float()> get_content_width;
+        std::function<float()> get_viewport_height;
+        std::function<void()> recompute_layout;
+        std::function<void()> recompute_layout_anchored;
+    };
+
+    static constexpr UINT_PTR TIMER_MERMAID_BATCH = 10;
+    static constexpr UINT_PTR TIMER_BITMAP_MANAGE = 11;
+};
+```
+
+---
+
+### 3.34 ScrollRestoration — スクロール位置復元
+
+`ScrollRestoration` はナビゲーション時の遅延スクロールとセッション復元時のノードベース復元を統合する値型。
+
+```cpp
+struct ScrollRestoration {
+    float pending_nav_scroll_y = -1.0f;
+    int pending_restore_node = -1;
+    int pending_restore_offset = 0;
+    float pending_restore_scroll_y = -1.0f;
+
+    bool HasNavScroll() const noexcept;
+    bool HasNodeRestore() const noexcept;
+    float ConsumeNavScroll() noexcept;
+};
+```
+
+---
+
+### 3.35 CursorManager — カーソル管理
+
+`CursorManager` はシステムカーソルハンドルのキャッシュ。`LoadCursorW` の呼び出しを初期化時に一度だけ行う。
+
+```cpp
+class CursorManager {
+public:
+    void Init() noexcept;
+    HCURSOR Arrow() const noexcept;
+    HCURSOR Hand() const noexcept;
+    HCURSOR IBeam() const noexcept;
+    HCURSOR SizeWE() const noexcept;
+};
+```
+
+---
+
+### 3.36 HoverThrottle — ホバースロットリング
+
+`HoverThrottle` はヒットテストのスロットリング状態を管理する。マウス位置が一定距離以上動いた場合のみヒットテストを再実行する。
+
+```cpp
+struct HoverThrottle {
+    POINT last_md_hit_pos;
+    bool last_md_cursor_hand;
+    POINT last_copy_hit_pos;
+    POINT last_save_hit_pos;
+    void Reset() noexcept;
+};
+```
+
+---
+
+### 3.37 LruCache — LRU キャッシュ
+
+固定サイズの LRU (Least Recently Used) キャッシュ。O(1) の検索・挿入・削除。`MermaidFileCache` のインメモリキャッシュなどで使用する。
+
+```cpp
+template <typename Key, typename Value>
+class LruCache {
+public:
+    explicit LruCache(size_t max_entries);
+    Value* Find(const Key& key);
+    void Insert(const Key& key, Value value);
+    void Erase(const Key& key);
+    void Clear();
+    size_t Size() const noexcept;
+};
+```
+
+---
+
+### 3.38 WinHandle — RAII リソースラッパー
+
+ポリシーベースの汎用 RAII リソースラッパー。Traits で `type`, `invalid()`, `close(type)` を定義する。
+
+```cpp
+template<typename Traits>
+class UniqueResource {
+public:
+    explicit UniqueResource(handle_t h) noexcept;
+    explicit operator bool() const noexcept;
+    handle_t get() const noexcept;
+    handle_t release() noexcept;
+    void reset(handle_t h = Traits::invalid()) noexcept;
+};
+
+// 定義済みハンドル型
+using UniqueHandle = UniqueResource<HandleTraits>;       // CloseHandle
+using UniqueFileHandle = UniqueResource<FileHandleTraits>; // CloseHandle (INVALID_HANDLE_VALUE)
+using UniqueGlobalLock = UniqueResource<GlobalLockTraits>; // GlobalUnlock
+```
 
 ---
 
@@ -2022,8 +2293,8 @@ flowchart TD
     CFGLOAD --> I18NINIT[i18n::Init<br>言語設定初期化]
     I18NINIT --> MERM[MermaidRenderer::Init<br>WebView2 非同期初期化]
     MERM --> CFG[ThemeService::LoadDarkMode<br>ズーム & ダークモード復元]
-    CFG --> TIMER[SetTimer<br>ファイル監視 250ms]
-    TIMER --> LAST{前回ファイル<br>あり？}
+    CFG --> FWATCH[FileWatcher::StartWatching<br>ファイル変更監視]
+    FWATCH --> LAST{前回ファイル<br>あり？}
     LAST -->|Yes| LOAD[LoadMarkdownFile]
     LAST -->|No| SHOW[ウィンドウ表示]
     LOAD --> SHOW
@@ -2150,7 +2421,7 @@ ctest --test-dir build --output-on-failure -C Release
 |:-----------|:-----|:-----|
 | `mendo_core` | 静的ライブラリ | テスト可能なコアロジック（WinMain・ウィンドウ・レンダラを含まない） |
 | `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
-| `mendo_tests` | テスト | 全テストを含む単一バイナリ（39テストソース） |
+| `mendo_tests` | テスト | 全テストを含む単一バイナリ（45テストソース） |
 
 ### 6.4 MSVC ビルド最適化
 
@@ -2173,11 +2444,11 @@ ctest --test-dir build --output-on-failure -C Release
 - 単一テストバイナリ `mendo_tests` に全テストをリンク
 - `gtest_add_tests` で CTest に登録
 
-### 7.2 テストソースファイル（39ファイル）
+### 7.2 テストソースファイル（45ファイル）
 
 ```mermaid
 pie title テストカバレッジ（ファイル数ベース）
-    "テスト済みモジュール" : 39
+    "テスト済みモジュール" : 45
     "UIコード（テスト対象外）" : 7
 ```
 
@@ -2223,9 +2494,16 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_image.cpp` | ImageLoader |
 | `test_help.cpp` | ヘルプドキュメント |
 | `test_search_state.cpp` | SearchState |
+| `test_search_bar_controller.cpp` | SearchBarController |
 | `test_ini_parser.cpp` | IniParser |
 | `test_locale.cpp` | i18n ロケール |
 | `test_mermaid_file_cache.cpp` | MermaidFileCache |
+| `test_mermaid_renderer.cpp` | MermaidRenderer ユーティリティ |
+| `test_hover_throttle.cpp` | HoverThrottle |
+| `test_session_service.cpp` | SessionService |
+| `test_lru_cache.cpp` | LruCache |
+| `test_scroll_restoration.cpp` | ScrollRestoration |
+| `test_memory_eviction.cpp` | メモリエビクション |
 
 ### 7.4 主要テストケース
 
@@ -2312,6 +2590,30 @@ pie title テストカバレッジ（ファイル数ベース）
 - [x] 選択の全選択/クリア
 - [x] max_scroll の同期
 
+#### SearchBarController テスト
+
+- [x] 検索バーUI状態管理
+- [x] キャレット・選択状態
+
+#### SessionService テスト
+
+- [x] セッション状態の保存と復元
+- [x] スクロール位置の永続化
+
+#### LruCache テスト
+
+- [x] LRUエビクション
+- [x] Find/Insert/Erase操作
+
+#### ScrollRestoration テスト
+
+- [x] ナビゲーション遅延スクロール
+- [x] ノードベース復元
+
+#### HoverThrottle テスト
+
+- [x] ヒットテストスロットリング
+
 ---
 
 ## 8. DPI対応仕様
@@ -2375,101 +2677,96 @@ flowchart LR
 
 ```
 src/
-├── main.cpp                # エントリポイント (wWinMain)
-├── window.h                # Win32Window 宣言
-├── window.cpp              # Win32Window 実装 (薄い Win32 ラッパー)
-├── app.h                   # App 宣言
-├── app.cpp                 # App 実装 (アプリケーション統括)
-├── app_navigate.cpp        # App ナビゲーション処理
-├── app_mouse.cpp           # App マウスイベント処理
-├── app_scroll.cpp          # App スクロール処理
-├── app_controller.h        # AppController 宣言 (イベント→アクション変換)
-├── app_controller.cpp      # AppController 実装
-├── app_events.h            # イベント型 & アクション型定義
-├── renderer.h              # Renderer 宣言
-├── renderer.cpp            # Direct2D 描画実装
-├── renderer_pane.cpp       # ペイン描画
-├── render_backend.h        # IRenderBackend インターフェース
-├── d2d_render_backend.h    # D2DRenderBackend 宣言
-├── d2d_render_backend.cpp  # D2DRenderBackend 実装
-├── draw_command.h          # DrawCommand variant 型定義
-├── command_generator.h     # CommandGenerator 宣言
-├── command_generator.cpp   # 描画コマンド生成
-├── command_executor.h      # CommandExecutor 宣言
-├── command_executor.cpp    # 描画コマンド実行
-├── parser.h                # Parser 宣言
-├── parser.cpp              # Markdown パース実装
-├── layout.h                # LayoutEngine 宣言
-├── layout.cpp              # テキスト計測実装
-├── layout_service.h        # LayoutService 宣言
-├── layout_service.cpp      # レイアウト統括
-├── layout_cache.h          # LayoutCache 宣言 (レイアウトデータ分離)
-├── text_measurer.h         # ITextMeasurer インターフェース
-├── dwrite_measurer.h       # DWriteTextMeasurer 宣言
-├── dwrite_measurer.cpp     # DirectWrite テキスト計測実装
-├── types.h                 # コアデータ構造 (Node, TextRun, etc.)
-├── document.h              # Document 宣言
-├── document.cpp            # Document 実装
-├── document_service.h      # DocumentService 宣言
-├── document_service.cpp    # ファイル読み込みオーケストレーション
-├── theme.h                 # Theme 宣言
-├── theme.cpp               # テーマ定義
-├── theme_service.h         # ThemeService 宣言
-├── theme_service.cpp       # テーマ管理サービス
-├── syntax.h                # Syntax 宣言
-├── syntax.cpp              # シンタックスハイライト実装
-├── file_loader.h           # FileLoader 宣言
-├── file_loader.cpp         # ファイル I/O 実装
-├── file_load_service.h     # FileLoadService 宣言
-├── file_load_service.cpp   # ファイルロード制御 & アニメーション
-├── file_explorer.h         # FileExplorer 宣言
-├── file_explorer.cpp       # ファイルブラウザ実装
-├── toc.h                   # TableOfContents 宣言
-├── toc.cpp                 # 目次生成実装
-├── pane.h                  # ペインデータ構造 (PaneRect, ScrollState)
-├── pane_layout.h           # PaneLayout / PaneZone 宣言
-├── pane_layout.cpp         # ペインレイアウト計算
-├── pane_controller.h       # PaneController 宣言
-├── pane_controller.cpp     # ペイン状態管理
-├── document_utils.h        # DocumentUtils 宣言
-├── document_utils.cpp      # テキスト操作ユーティリティ
-├── viewport_manager.h      # ViewportManager 宣言 (スクロール/選択/ズーム)
-├── navigation_service.h    # NavigationService 宣言
-├── navigation_service.cpp  # リンク & 履歴ナビゲーション
-├── nav_history.h           # NavHistory 宣言
-├── nav_history.cpp         # ブラウザスタイル履歴
-├── mouse_gesture.h         # MouseGesture 宣言 (右ドラッグジェスチャ)
-├── swipe_detector.h        # SwipeDetector 宣言 (タッチパッドスワイプ検出)
-├── titlebar.h              # TitleBar 宣言 (カスタムタイトルバー)
-├── toast_notifier.h        # ToastNotifier 宣言 (トースト通知)
-├── context_menu.h          # ContextMenu 宣言 (カスタムコンテキストメニュー)
-├── context_menu.cpp        # ContextMenu 実装
-├── image_loader.h          # ImageLoader 宣言 (非同期画像読み込み)
-├── image_loader.cpp        # ImageLoader 実装
-├── ui_constants.h          # UI定数 & ヘルパー関数
-├── memory_resource.h       # PMRメモリリソース管理
-├── utility.h               # ユーティリティ関数
-├── hit_test_service.h      # HitTestService 宣言
-├── hit_test_service.cpp    # ヒットテスト
-├── config_store.h          # ConfigStore 宣言
-├── config_store.cpp        # 設定永続化実装
-├── config_service.h        # ConfigService 宣言 (設定ラッパー)
-├── mermaid.h               # MermaidRenderer 宣言
-├── mermaid.cpp             # WebView2 ダイアグラム描画
-├── mermaid_util.h          # Mermaid ヘルパー宣言
-├── mermaid_util.cpp        # Mermaid ヘルパー実装
-├── mermaid_file_cache.h    # MermaidFileCache 宣言 (永続ダイアグラムキャッシュ)
-├── mermaid_file_cache.cpp  # MermaidFileCache 実装
-├── search_state.h          # SearchState 宣言 (検索状態管理)
-├── search_state.cpp        # SearchState 実装
-├── i18n.h                  # 国際化 (日本語/英語UI文字列)
-├── ini_parser.h            # INIファイルパーサ (ヘッダオンリー)
-├── task_scheduler.h        # TaskScheduler 宣言 (ワーカースレッドプール)
-├── task_scheduler.cpp      # TaskScheduler 実装
-├── tooltip.h               # Tooltip 宣言 (ホバーツールチップ)
-├── string_convert.h        # UTF-8 ↔ ワイド文字変換 (ヘッダオンリー)
-├── profiler.h              # パフォーマンス計測マクロ (デバッグ用)
-└── resource.h              # リソース ID
+├── main.cpp                      # エントリポイント (wWinMain)
+├── app/                          # アプリケーション層
+│   ├── app.h / app.cpp           # App 実装 (アプリケーション統括)
+│   ├── app_navigate.cpp          # App ナビゲーション処理
+│   ├── app_mouse.cpp             # App マウスイベント処理
+│   ├── app_scroll.cpp            # App スクロール処理
+│   ├── app_clipboard.cpp         # App クリップボード・画像保存処理
+│   ├── app_context_menu.cpp      # App コンテキストメニュー処理
+│   ├── app_render_state.cpp      # App 描画状態構築
+│   ├── app_controller.h / .cpp   # AppController (イベント→アクション変換)
+│   ├── app_events.h              # イベント型 & アクション型定義
+│   ├── app_constants.h           # タイマーID・カスタムメッセージ定数
+│   └── resource_manager.h / .cpp # ResourceManager (画像・Mermaidリソース管理)
+├── window/                       # ウィンドウ層
+│   ├── window.h / window.cpp     # Win32Window 実装 (薄い Win32 ラッパー)
+├── render/                       # 描画層
+│   ├── renderer.h / renderer.cpp # Direct2D 描画実装
+│   ├── renderer_pane.cpp         # ペイン描画
+│   ├── renderer_titlebar.cpp     # タイトルバー描画
+│   ├── renderer_search.cpp       # 検索バー描画
+│   ├── renderer_overlay.cpp      # オーバーレイ描画
+│   ├── render_backend.h          # IRenderBackend インターフェース
+│   ├── d2d_render_backend.h / .cpp # D2DRenderBackend 実装
+│   ├── draw_command.h            # DrawCommand variant 型定義
+│   ├── command_generator.h / .cpp # 描画コマンド生成
+│   ├── command_gen_table.cpp     # テーブル描画コマンド生成
+│   └── command_executor.h / .cpp # 描画コマンド実行
+├── core/                         # コアドメイン
+│   ├── types.h                   # コアデータ構造 (Node, TextRun, etc.)
+│   ├── parser.h / parser.cpp     # Markdown パース実装
+│   ├── document.h / document.cpp # Document 実装
+│   ├── document_service.h / .cpp # ファイル読み込みオーケストレーション
+│   ├── document_utils.h / .cpp   # テキスト操作ユーティリティ
+│   ├── toc.h / toc.cpp           # 目次生成実装
+│   └── syntax.h / syntax.cpp     # シンタックスハイライト実装
+├── layout/                       # レイアウト層
+│   ├── layout.h / layout.cpp     # LayoutEngine テキスト計測実装
+│   ├── layout_service.h / .cpp   # レイアウト統括
+│   ├── layout_cache.h            # LayoutCache (レイアウトデータ分離)
+│   ├── text_measurer.h           # ITextMeasurer インターフェース
+│   └── dwrite_measurer.h / .cpp  # DirectWrite テキスト計測実装
+├── theme/                        # テーマ層
+│   ├── theme.h / theme.cpp       # テーマ定義
+│   └── theme_service.h / .cpp    # テーマ管理サービス
+├── nav/                          # ナビゲーション層
+│   ├── navigation_service.h / .cpp # リンク & 履歴ナビゲーション
+│   └── nav_history.h / .cpp      # ブラウザスタイル履歴
+├── input/                        # 入力処理層
+│   ├── hit_test_service.h / .cpp # ヒットテスト
+│   ├── mouse_gesture.h           # MouseGesture (右ドラッグジェスチャ)
+│   └── swipe_detector.h          # SwipeDetector (タッチパッドスワイプ検出)
+├── io/                           # I/O層
+│   ├── file_loader.h / .cpp      # ファイル I/O 実装
+│   ├── file_watcher.h / .cpp     # ファイル変更監視 (ReadDirectoryChangesW)
+│   ├── file_load_service.h / .cpp # ファイルロード制御 & アニメーション
+│   ├── file_explorer.h / .cpp    # ファイルブラウザ実装
+│   ├── image_loader.h / .cpp     # ImageLoader (非同期画像読み込み)
+│   ├── config_store.h / .cpp     # ConfigStore 設定永続化実装
+│   ├── config_service.h          # ConfigService (設定ラッパー)
+│   ├── session_service.h / .cpp  # SessionService (セッション永続化)
+│   └── ini_parser.h              # INIファイルパーサ (ヘッダオンリー)
+├── mermaid/                      # Mermaid層
+│   ├── mermaid.h / mermaid.cpp   # MermaidRenderer (WebView2 ダイアグラム描画)
+│   ├── mermaid_util.h / .cpp     # Mermaid ヘルパー
+│   └── mermaid_file_cache.h / .cpp # MermaidFileCache (永続ダイアグラムキャッシュ)
+├── ui/                           # UI層
+│   ├── titlebar.h                # TitleBar (カスタムタイトルバー)
+│   ├── context_menu.h / .cpp     # ContextMenu (カスタムコンテキストメニュー)
+│   ├── toast_notifier.h          # ToastNotifier (トースト通知)
+│   ├── tooltip.h                 # Tooltip (ホバーツールチップ)
+│   ├── search_state.h / .cpp     # SearchState (検索状態管理)
+│   ├── search_bar_controller.h / .cpp # SearchBarController (検索バーUI制御)
+│   ├── viewport_manager.h        # ViewportManager (スクロール/選択/ズーム)
+│   ├── pane.h                    # ペインデータ構造 (PaneRect, ScrollState)
+│   ├── pane_layout.h / .cpp      # PaneLayout / PaneZone
+│   ├── pane_controller.h / .cpp  # PaneController ペイン状態管理
+│   ├── cursor_manager.h          # CursorManager (カーソルキャッシュ)
+│   ├── hover_throttle.h          # HoverThrottle (ホバースロットリング)
+│   ├── scroll_restoration.h      # ScrollRestoration (スクロール位置復元)
+│   ├── ui_constants.h            # UI定数 & ヘルパー関数
+│   ├── i18n.h                    # 国際化 (日本語/英語UI文字列)
+│   └── resource.h                # リソース ID
+└── util/                         # ユーティリティ層
+    ├── memory_resource.h         # PMRメモリリソース管理
+    ├── utility.h                 # ユーティリティ関数
+    ├── string_convert.h          # UTF-8 ↔ ワイド文字変換 (ヘッダオンリー)
+    ├── task_scheduler.h / .cpp   # TaskScheduler (ワーカースレッドプール)
+    ├── lru_cache.h               # LruCache (汎用LRUキャッシュ)
+    ├── win_handle.h              # UniqueResource (RAIIハンドルラッパー)
+    └── profiler.h                # パフォーマンス計測マクロ (デバッグ用)
 ```
 
 ### 付録B: 依存ライブラリ
@@ -2558,6 +2855,13 @@ src/
 - [x] 国際化 (i18n)
 - [x] Mermaid ファイルキャッシュ
 - [x] ツールチップ
+- [x] タイトルバーにファイルを開くボタン追加
+- [x] Mermaidダイアグラム保存ボタン
+- [x] ファイル監視をReadDirectoryChangesWに移行
+- [x] セッションサービス分離
+- [x] 検索バーコントローラ分離
+- [x] LRUキャッシュ汎用化
+- [x] RAIIハンドルラッパー導入
 - [ ] パフォーマンス最適化
 - [ ] ドキュメント整備
 
@@ -3206,6 +3510,15 @@ exit /b 0
 | 39 | Tooltip | tooltip.h | Win32 API | なし |
 | 40 | StringConvert | string_convert.h | Win32 API | なし |
 | 41 | Profiler | profiler.h | Win32 API | なし |
+| 42 | SearchBarController | search_bar_controller.h/cpp | SearchState | あり |
+| 43 | SessionService | session_service.h/cpp | ConfigService | あり |
+| 44 | ResourceManager | resource_manager.h/cpp | ImageLoader, MermaidRenderer | なし |
+| 45 | FileWatcher | file_watcher.h/cpp | Win32 API | なし |
+| 46 | CursorManager | cursor_manager.h | Win32 API | なし |
+| 47 | HoverThrottle | hover_throttle.h | なし | あり |
+| 48 | ScrollRestoration | scroll_restoration.h | なし | あり |
+| 49 | LruCache | lru_cache.h | なし | あり |
+| 50 | WinHandle | win_handle.h | Win32 API | なし |
 
 ---
 

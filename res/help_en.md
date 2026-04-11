@@ -5,7 +5,7 @@ A lightweight, high-speed Markdown viewer.
 ## Opening Files
 
 - Drag & drop a file onto the window
-- Press `Ctrl+O` to open a file dialog
+- Press `Ctrl+O` or click the open file button in the title bar to open a file dialog
 - Click a file in the left file pane
 
 ## Scrolling
@@ -53,5 +53,6 @@ A lightweight, high-speed Markdown viewer.
 
 - **TOC Pane**: Click a heading in the right-side TOC to jump to it
 - **Code Block Copy**: Click the copy button at the top-right of a code block
+- **Diagram Save**: Click the save button at the top-right of a Mermaid diagram to save as PNG
 - **Dark Mode**: Toggle from the right-click menu
 - **Pane Resizing**: Drag the pane border to resize

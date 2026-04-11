@@ -1114,7 +1114,9 @@ void App::HandleTimer(UINT_PTR timer_id)
 {
     MENDO_PROFILE("HandleTimer");
     switch (timer_id) {
-    case app_timer::DEFERRED_LAYOUT: OnDeferredLayout(); break;
+    case app_timer::DEFERRED_LAYOUT:
+        OnDeferredLayout();
+        break;
     case app_timer::LOADING_ANIM:
         file_load_service_.TickLoadingAnimation();
         Invalidate();

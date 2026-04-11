@@ -77,10 +77,18 @@ struct SetTransformCmd {
 // ---- バリアント + リスト ----
 
 using DrawCommand = std::variant<
-    ClearCmd, FillRectCmd, FillRoundedRectCmd,
-    DrawLineCmd, DrawTextLayoutCmd, DrawTextCmd,
-    DrawBitmapCmd, FillEllipseCmd, DrawEllipseCmd,
-    PushClipCmd, PopClipCmd, SetTransformCmd
+    ClearCmd,
+    FillRectCmd,
+    FillRoundedRectCmd,
+    DrawLineCmd,
+    DrawTextLayoutCmd,
+    DrawTextCmd,
+    DrawBitmapCmd,
+    FillEllipseCmd,
+    DrawEllipseCmd,
+    PushClipCmd,
+    PopClipCmd,
+    SetTransformCmd
 >;
 
 using DrawCommandList = std::pmr::vector<DrawCommand>;
