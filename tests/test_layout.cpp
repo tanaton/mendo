@@ -191,11 +191,12 @@ TEST_F(LayoutTest, TableCellLayoutsCreated)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_TRUE(cache[0].has_table_layout());
-    const auto& cell_layouts = cache[0].table_layout->cell_layouts;
-    for (size_t r = 0; r < cell_layouts.size(); r++) {
-        for (size_t c = 0; c < cell_layouts[r].size(); c++) {
-            if (!nodes[0].table_rows()[r].cells[c].text.empty()) {
-                EXPECT_NE(cell_layouts[r][c].Get(), nullptr);
+    const auto& tl = *cache[0].table_layout;
+    const auto& rows = nodes[0].table_rows();
+    for (size_t r = 0; r < rows.size(); r++) {
+        for (size_t c = 0; c < rows[r].cells.size(); c++) {
+            if (!rows[r].cells[c].text.empty()) {
+                EXPECT_NE(tl.GetCellLayout(r, c), nullptr);
             }
         }
     }
@@ -217,8 +218,8 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline)
     // データ行の2番目のセルにはリンクランがあり、下線が適用されていること
     const auto& cell = nodes[0].table_rows()[1].cells[1];
     ASSERT_TRUE(cache[0].has_table_layout());
-    auto& cell_layout = cache[0].table_layout->cell_layouts[1][1];
-    ASSERT_NE(cell_layout.Get(), nullptr);
+    IDWriteTextLayout* cell_layout = cache[0].table_layout->GetCellLayout(1, 1);
+    ASSERT_NE(cell_layout, nullptr);
 
     // セル内にリンクランが存在することを確認
     bool has_link_run = false;
@@ -1169,7 +1170,7 @@ TEST_F(LayoutTest, InlineCodeInHeadingAllLevels)
 
         bool found_code_run = false;
         for (const auto& run : nodes[0].runs) {
-            if (run.code) {
+            if (run.code()) {
                 found_code_run = true;
                 float code_font_size = 0.0f;
                 DWRITE_TEXT_RANGE range{};
@@ -1196,7 +1197,7 @@ TEST_F(LayoutTest, InlineCodeInParagraphUsesCodeFontSize)
     ASSERT_NE(cache[0].text_layout.Get(), nullptr);
 
     for (const auto& run : nodes[0].runs) {
-        if (run.code) {
+        if (run.code()) {
             float code_font_size = 0.0f;
             DWRITE_TEXT_RANGE range{};
             cache[0].text_layout->GetFontSize(run.start, &code_font_size, &range);
@@ -1218,7 +1219,7 @@ TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont)
     ASSERT_NE(cache[0].text_layout.Get(), nullptr);
 
     for (const auto& run : nodes[0].runs) {
-        if (run.code) {
+        if (run.code()) {
             WCHAR font_name[256] = {};
             DWRITE_TEXT_RANGE range{};
             HRESULT hr = cache[0].text_layout->GetFontFamilyName(

@@ -195,10 +195,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     // セルのテキストレイアウト内でヒットテスト
     const size_t r = static_cast<size_t>(hit_row);
     const size_t c = static_cast<size_t>(hit_col);
-    IDWriteTextLayout* cell_layout = nullptr;
-    if (r < tl.cell_layouts.size() && c < tl.cell_layouts[r].size()) {
-        cell_layout = tl.cell_layouts[r][c].Get();
-    }
+    IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
     if (cell_layout) {
         float cell_x = base_x + border;
         for (size_t cc = 0; cc < c; cc++) {

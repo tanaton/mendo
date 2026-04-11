@@ -19,7 +19,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     }
 
     // 大文字小文字無視の場合、クエリの小文字変換をループ外で1回だけ行う
-    std::wstring lower_query;
+    std::pmr::wstring lower_query;
     if (!case_sensitive_) {
         lower_query.reserve(query_.size());
         std::ranges::transform(
@@ -56,7 +56,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     matches_truncated_ = (matches_.size() >= MAX_MATCHES);
 }
 
-void SearchState::FindMatches(std::wstring_view text, const std::wstring& lower_query, int node_index, int table_row, int table_col)
+void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& lower_query, int node_index, int table_row, int table_col)
 {
     if (matches_.size() >= MAX_MATCHES) {
         return;

@@ -345,7 +345,8 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
     const int idx = doc_.GetToc().HitTest(local_y, theme.pane_item_height);
     if (idx >= 0 && idx < static_cast<int>(doc_.GetToc().GetEntries().size())) {
         PushNavHistory();
-        NavigateToAnchor(doc_.GetToc().GetEntries()[idx].anchor_id);
+        const auto& toc_entry = doc_.GetToc().GetEntries()[idx];
+        NavigateToAnchor(doc_.GetNodes()[toc_entry.node_index].anchor_id());
     }
 }
 
@@ -757,7 +758,7 @@ void App::OnMouseHover(int px, int py)
             [&](bool close_hit, bool, int idx) -> TooltipTarget {
             if (close_hit) { return { TooltipTarget::Zone::TocPaneButton, i18n::S().tooltip_pane_close }; }
             if (idx >= 0 && idx < static_cast<int>(toc_entries.size())) {
-                return { TooltipTarget::Zone::TocPaneItem, toc_entries[idx].text };
+                return { TooltipTarget::Zone::TocPaneItem, std::wstring(doc_.GetNodes()[toc_entries[idx].node_index].GetText()) };
             }
             return {};
         });

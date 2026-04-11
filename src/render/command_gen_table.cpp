@@ -121,14 +121,11 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             const float text_x = cx + cell_padding;
             const float text_y = y + cell_padding;
 
-            IDWriteTextLayout* cell_layout = nullptr;
-            if (r < tl.cell_layouts.size() && c < tl.cell_layouts[r].size()) {
-                cell_layout = tl.cell_layouts[r][c].Get();
-            }
+            IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
 
             // セルのインラインコード背景
-            if (r < tl.cell_inline_code_bgs.size() && c < tl.cell_inline_code_bgs[r].size()) {
-                GenInlineCodeBgs(cmds, tl.cell_inline_code_bgs[r][c], text_x, text_y, theme_->code_bg_color);
+            if (const size_t ci = tl.CellIndex(r, c); ci < tl.cell_inline_code_bgs.size()) {
+                GenInlineCodeBgs(cmds, tl.cell_inline_code_bgs[ci], text_x, text_y, theme_->code_bg_color);
             }
 
             // 検索マッチのハイライト（テーブルセル）

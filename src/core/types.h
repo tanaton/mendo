@@ -47,13 +47,58 @@ constexpr size_t AlertColorIndex(AlertType t) noexcept
 struct TextRun {
     uint32_t start = 0;
     uint32_t length = 0;
-    bool bold = false;
-    bool italic = false;
-    bool code = false;
-    bool strikethrough = false;
     int16_t link_url_index = -1; // -1 = リンクなし, >= 0 = Node::link_urls へのインデックス
 
+    constexpr bool bold() const noexcept { return flags & BOLD; }
+    constexpr bool italic() const noexcept { return flags & ITALIC; }
+    constexpr bool code() const noexcept { return flags & CODE; }
+    constexpr bool strikethrough() const noexcept { return flags & STRIKETHROUGH; }
     constexpr bool has_link() const noexcept { return link_url_index >= 0; }
+
+    constexpr void set_bold(bool v) noexcept
+    {
+        if (v) {
+            flags |= BOLD;
+        }
+        else {
+            flags &= ~BOLD;
+        }
+    }
+    constexpr void set_italic(bool v) noexcept
+    {
+        if (v) {
+            flags |= ITALIC;
+        }
+        else {
+            flags &= ~ITALIC;
+        }
+    }
+    constexpr void set_code(bool v) noexcept
+    {
+        if (v) {
+            flags |= CODE;
+        }
+        else {
+            flags &= ~CODE;
+        }
+    }
+    constexpr void set_strikethrough(bool v) noexcept
+    {
+        if (v) {
+            flags |= STRIKETHROUGH;
+        }
+        else {
+            flags &= ~STRIKETHROUGH;
+        }
+    }
+
+private:
+    static constexpr uint8_t BOLD = 0x01;
+    static constexpr uint8_t ITALIC = 0x02;
+    static constexpr uint8_t CODE = 0x04;
+    static constexpr uint8_t STRIKETHROUGH = 0x08;
+
+    uint8_t flags = 0;
 };
 
 // テキスト選択: 位置は (node_index, char_offset) のペアで表す。
@@ -110,6 +155,16 @@ struct NodeTableData {
     std::pmr::vector<TableRow> rows;
 };
 
+// 見出し専用データ（Headingノードのみ確保してメモリを節約）
+struct NodeHeadingData {
+    std::pmr::wstring anchor_id; // 内部リンク向けGitHubスタイルのスラグ
+};
+
+// コードブロック専用データ（CodeBlockノードのみ確保してメモリを節約）
+struct NodeCodeData {
+    std::pmr::vector<SyntaxToken> syntax_tokens;
+};
+
 // 画像専用データ（Imageノードのみ確保）
 struct NodeImageData {
     std::pmr::wstring src;     // 画像ソースパス（Markdown内の記述）
@@ -120,8 +175,6 @@ struct NodeImageData {
 struct Node {
     mutable std::pmr::string text_utf8; // テキスト主記憶（UTF-8、パーサーが設定。GetText()後に解放される場合あり）
     std::pmr::vector<TextRun> runs;
-    std::pmr::wstring anchor_id;   // 見出し用: 内部リンク向けGitHubスタイルのスラグ
-    std::pmr::vector<SyntaxToken> syntax_tokens;
 
     // runs および table_data->rows 内の TextRun::link_url_index が参照するリンクURLプール
     std::pmr::vector<std::pmr::wstring> link_urls;
@@ -131,6 +184,12 @@ struct Node {
 
     // 画像データ（type == Image の場合のみ確保、それ以外は nullptr）
     std::unique_ptr<NodeImageData> image_data;
+
+    // 見出しデータ（type == Heading の場合のみ確保、それ以外は nullptr）
+    std::unique_ptr<NodeHeadingData> heading_data;
+
+    // コードブロックデータ（type == CodeBlock の場合のみ確保、それ以外は nullptr）
+    std::unique_ptr<NodeCodeData> code_data;
 
     int heading_level = 0;
     int indent_level = 0;
@@ -207,6 +266,45 @@ struct Node {
         }
     }
     bool has_image() const noexcept { return image_data != nullptr; }
+
+    // 見出しへの便利アクセサ
+    void ensure_heading()
+    {
+        if (!heading_data) {
+            heading_data = std::make_unique<NodeHeadingData>();
+        }
+    }
+    bool has_heading() const noexcept { return heading_data != nullptr; }
+    // アンカーIDへの安全アクセス。Headingでなければ空文字列を返す。
+    // 注: 戻り値は heading_data のライフタイムに依存する。
+    std::wstring_view anchor_id() const noexcept
+    {
+        return heading_data ? std::wstring_view(heading_data->anchor_id) : std::wstring_view{};
+    }
+
+    // コードブロックへの便利アクセサ
+    void ensure_code()
+    {
+        if (!code_data) {
+            code_data = std::make_unique<NodeCodeData>();
+        }
+    }
+    bool has_code() const noexcept { return code_data != nullptr; }
+    const std::pmr::vector<SyntaxToken>& syntax_tokens() const noexcept
+    {
+        // code_data が nullptr の場合のみ呼ばれる想定だが、安全のためガード
+        if (code_data) {
+            return code_data->syntax_tokens;
+        }
+        // 空のベクターを返す（CodeBlock以外では syntax_tokens() は呼ばれない設計）
+        static const std::pmr::vector<SyntaxToken> empty;
+        return empty;
+    }
+    std::pmr::vector<SyntaxToken>& syntax_tokens_mut()
+    {
+        ensure_code();
+        return code_data->syntax_tokens;
+    }
 
 private:
     void FinalizeSetText() noexcept

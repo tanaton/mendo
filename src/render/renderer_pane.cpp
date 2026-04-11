@@ -198,9 +198,10 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
 
         if (fmt_.pane_item) {
             const D2D1_RECT_F text_rect = D2D1::RectF(4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
+            const wchar_t* name = entry.GetDisplayName();
             rt->DrawText(
-                entry.filename.c_str(),
-                static_cast<UINT32>(entry.filename.size()),
+                name,
+                static_cast<UINT32>(wcslen(name)),
                 fmt_.pane_item.Get(),
                 text_rect,
                 Brush(BrushId::Text),
@@ -229,8 +230,8 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
     );
 }
 
-void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect,
-    const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index)
+void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes,
+    const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index)
 {
     auto draw_item = [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
@@ -245,7 +246,8 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect
         if (fmt_.pane_item) {
             const D2D1_RECT_F text_rect = D2D1::RectF(
                 8.0f + indent, item_y, width - 4.0f, item_y + theme_.pane_item_height);
-            rt->DrawText(entry.text.c_str(), static_cast<UINT32>(entry.text.size()),
+            const auto& text = nodes[entry.node_index].GetText();
+            rt->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
                 fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
                 D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }

@@ -18,7 +18,7 @@ TEST(DocumentTest, FromMarkdownBasic)
     EXPECT_GE(doc.GetNodes().size(), 2u);
     // TOCに見出しが含まれるべき
     EXPECT_FALSE(doc.GetToc().GetEntries().empty());
-    EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"Hello");
+    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), L"Hello");
 }
 
 TEST(DocumentTest, FromMarkdownEmpty)
@@ -63,14 +63,14 @@ TEST(DocumentTest, ReplaceContent)
 {
     auto doc = Document::FromMarkdown("# First", L"C:\\test.md");
     EXPECT_FALSE(doc.GetToc().GetEntries().empty());
-    EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"First");
+    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), L"First");
 
     // 新しいコンテンツで置き換え
     doc.ReplaceContent(ParseMarkdown("# Second\n## Sub"));
 
     // TOCが再構築されるべき
     EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);
-    EXPECT_EQ(doc.GetToc().GetEntries()[0].text, L"Second");
+    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), L"Second");
     // ファイルパスは変更されないべき
     EXPECT_EQ(doc.GetFilePath(), L"C:\\test.md");
 }
@@ -195,7 +195,8 @@ TEST(DocumentTest, BuildIndicesTocAndAnchorConsistent)
     ASSERT_EQ(toc.size(), 3u);
     // TOCエントリのnode_indexがアンカーインデックスと一致
     for (const auto& entry : toc) {
-        const int anchor_idx = doc.FindAnchorIndex(entry.anchor_id);
+        const auto& anchor = doc.GetNodes()[entry.node_index].anchor_id();
+        const int anchor_idx = doc.FindAnchorIndex(anchor);
         EXPECT_EQ(anchor_idx, entry.node_index);
     }
 }

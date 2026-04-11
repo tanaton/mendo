@@ -68,14 +68,14 @@ TEST(Parser, HeadingAnchorId)
 {
     auto nodes = ParseMarkdown("# Hello World").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].anchor_id, L"hello-world");
+    EXPECT_EQ(nodes[0].anchor_id(), L"hello-world");
 }
 
 TEST(Parser, HeadingAnchorIdCjk)
 {
     auto nodes = ParseMarkdown("## コードブロック").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].anchor_id, L"コードブロック");
+    EXPECT_EQ(nodes[0].anchor_id(), L"コードブロック");
 }
 
 // ---- インライン書式 ----
@@ -86,8 +86,8 @@ TEST(Parser, BoldText)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].GetText(), L"bold");
     ASSERT_GE(nodes[0].runs.size(), 1u);
-    EXPECT_TRUE(nodes[0].runs[0].bold);
-    EXPECT_FALSE(nodes[0].runs[0].italic);
+    EXPECT_TRUE(nodes[0].runs[0].bold());
+    EXPECT_FALSE(nodes[0].runs[0].italic());
 }
 
 TEST(Parser, ItalicText)
@@ -96,8 +96,8 @@ TEST(Parser, ItalicText)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].GetText(), L"italic");
     ASSERT_GE(nodes[0].runs.size(), 1u);
-    EXPECT_TRUE(nodes[0].runs[0].italic);
-    EXPECT_FALSE(nodes[0].runs[0].bold);
+    EXPECT_TRUE(nodes[0].runs[0].italic());
+    EXPECT_FALSE(nodes[0].runs[0].bold());
 }
 
 TEST(Parser, BoldItalicText)
@@ -105,8 +105,8 @@ TEST(Parser, BoldItalicText)
     auto nodes = ParseMarkdown("***bolditalic***").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
-    EXPECT_TRUE(nodes[0].runs[0].bold);
-    EXPECT_TRUE(nodes[0].runs[0].italic);
+    EXPECT_TRUE(nodes[0].runs[0].bold());
+    EXPECT_TRUE(nodes[0].runs[0].italic());
 }
 
 TEST(Parser, InlineCode)
@@ -115,7 +115,7 @@ TEST(Parser, InlineCode)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].GetText(), L"code");
     ASSERT_GE(nodes[0].runs.size(), 1u);
-    EXPECT_TRUE(nodes[0].runs[0].code);
+    EXPECT_TRUE(nodes[0].runs[0].code());
 }
 
 TEST(Parser, StrikethroughText)
@@ -123,7 +123,7 @@ TEST(Parser, StrikethroughText)
     auto nodes = ParseMarkdown("~~deleted~~").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
-    EXPECT_TRUE(nodes[0].runs[0].strikethrough);
+    EXPECT_TRUE(nodes[0].runs[0].strikethrough());
 }
 
 TEST(Parser, MixedFormattingPreservesOrder)
@@ -132,9 +132,9 @@ TEST(Parser, MixedFormattingPreservesOrder)
     ASSERT_EQ(nodes.size(), 1u);
     // 少なくとも3つのランを持つべき: "normal ", "bold", " normal"
     ASSERT_GE(nodes[0].runs.size(), 3u);
-    EXPECT_FALSE(nodes[0].runs[0].bold);
-    EXPECT_TRUE(nodes[0].runs[1].bold);
-    EXPECT_FALSE(nodes[0].runs[2].bold);
+    EXPECT_FALSE(nodes[0].runs[0].bold());
+    EXPECT_TRUE(nodes[0].runs[1].bold());
+    EXPECT_FALSE(nodes[0].runs[2].bold());
 }
 
 // ---- リンク ----
@@ -614,7 +614,7 @@ TEST(Parser, TableCellWithBold)
     // 2番目のヘッダーセルは太字ランを持つべき
     bool has_bold = false;
     for (const auto& run : header.cells[1].runs) {
-        if (run.bold) has_bold = true;
+        if (run.bold()) has_bold = true;
     }
     EXPECT_TRUE(has_bold);
 }
@@ -697,7 +697,7 @@ TEST(Parser, TableCellWithBoldLink)
 
     bool has_bold_link = false;
     for (const auto& run : cell.runs) {
-        if (run.bold && run.has_link()) {
+        if (run.bold() && run.has_link()) {
             has_bold_link = true;
         }
     }
@@ -759,7 +759,7 @@ TEST(Parser, MultipleHeadingsHaveAnchors)
     auto nodes = ParseMarkdown("# A\n\n## B\n\n### C").nodes;
     for (const auto& node : nodes) {
         if (node.type == NodeType::Heading) {
-            EXPECT_FALSE(node.anchor_id.empty())
+            EXPECT_FALSE(node.anchor_id().empty())
                 << "見出しにアンカーがない";
         }
     }
@@ -773,7 +773,7 @@ TEST(Parser, BoldLink)
     ASSERT_EQ(nodes.size(), 1u);
     bool has_bold_link = false;
     for (const auto& run : nodes[0].runs) {
-        if (run.bold && run.has_link()) {
+        if (run.bold() && run.has_link()) {
             has_bold_link = true;
         }
     }
@@ -786,18 +786,18 @@ TEST(Parser, DuplicateHeadingAnchorsAreUnique)
 {
     auto nodes = ParseMarkdown("# Title\n\n## Title\n\n### Title").nodes;
     ASSERT_EQ(nodes.size(), 3u);
-    EXPECT_EQ(nodes[0].anchor_id, L"title");
-    EXPECT_EQ(nodes[1].anchor_id, L"title-1");
-    EXPECT_EQ(nodes[2].anchor_id, L"title-2");
+    EXPECT_EQ(nodes[0].anchor_id(), L"title");
+    EXPECT_EQ(nodes[1].anchor_id(), L"title-1");
+    EXPECT_EQ(nodes[2].anchor_id(), L"title-2");
 }
 
 TEST(Parser, DuplicateAnchorsWithDifferentText)
 {
     auto nodes = ParseMarkdown("# A\n\n## B\n\n### A").nodes;
     ASSERT_EQ(nodes.size(), 3u);
-    EXPECT_EQ(nodes[0].anchor_id, L"a");
-    EXPECT_EQ(nodes[1].anchor_id, L"b");
-    EXPECT_EQ(nodes[2].anchor_id, L"a-1");
+    EXPECT_EQ(nodes[0].anchor_id(), L"a");
+    EXPECT_EQ(nodes[1].anchor_id(), L"b");
+    EXPECT_EQ(nodes[2].anchor_id(), L"a-1");
 }
 
 // ---- 数値HTMLエンティティ ----
@@ -972,7 +972,7 @@ TEST(Parser, AlertLabelIsBold)
     ASSERT_GE(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
     // 最初のランはラベル部分で太字であるべき
-    EXPECT_TRUE(nodes[0].runs[0].bold);
+    EXPECT_TRUE(nodes[0].runs[0].bold());
     EXPECT_EQ(nodes[0].runs[0].start, 0u);
     EXPECT_EQ(nodes[0].runs[0].length, nodes[0].alert_label_length);
 }
@@ -1097,8 +1097,8 @@ TEST(Parser, AlertWithInlineFormatting)
     // フォーマット用のランがあるべき
     bool has_bold = false, has_code = false;
     for (const auto& run : nodes[0].runs) {
-        if (run.bold && run.start > 0) has_bold = true; // ラベル以外の太字
-        if (run.code) has_code = true;
+        if (run.bold() && run.start > 0) has_bold = true; // ラベル以外の太字
+        if (run.code()) has_code = true;
     }
     EXPECT_TRUE(has_bold);
     EXPECT_TRUE(has_code);
@@ -1364,7 +1364,7 @@ TEST(Parser, SyntaxTokensEmptyAfterParse)
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
     // パース時にはトークン化されないことを確認（レンダラーで遅延実行）
-    EXPECT_TRUE(nodes[0].syntax_tokens.empty());
+    EXPECT_TRUE(nodes[0].syntax_tokens().empty());
 }
 
 TEST(Parser, SyntaxTokensEmptyForMermaid)
@@ -1372,7 +1372,7 @@ TEST(Parser, SyntaxTokensEmptyForMermaid)
     auto nodes = ParseMarkdown("```mermaid\ngraph TD\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Mermaid);
-    EXPECT_TRUE(nodes[0].syntax_tokens.empty());
+    EXPECT_TRUE(nodes[0].syntax_tokens().empty());
 }
 
 // ---- UTF-8バッチ変換 ----
@@ -1390,9 +1390,9 @@ TEST(Parser, Utf8BatchWithSpanBoundary)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].GetText(), L"before bold after");
     ASSERT_GE(nodes[0].runs.size(), 3u);
-    EXPECT_FALSE(nodes[0].runs[0].bold);
-    EXPECT_TRUE(nodes[0].runs[1].bold);
-    EXPECT_FALSE(nodes[0].runs[2].bold);
+    EXPECT_FALSE(nodes[0].runs[0].bold());
+    EXPECT_TRUE(nodes[0].runs[1].bold());
+    EXPECT_FALSE(nodes[0].runs[2].bold());
 }
 
 TEST(Parser, Utf8BatchWithEntity)
@@ -1430,7 +1430,7 @@ TEST(Parser, Utf8BatchMixedAsciiAndMultibyte)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].GetText(), L"Hello 世界 test");
     ASSERT_GE(nodes[0].runs.size(), 3u);
-    EXPECT_TRUE(nodes[0].runs[1].bold);
+    EXPECT_TRUE(nodes[0].runs[1].bold());
 }
 
 TEST(Parser, Utf8BatchCodeBlockContent)
@@ -1454,8 +1454,8 @@ TEST(Parser, Utf8BatchNestedFormatting)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].GetText(), L"bold and italic");
     ASSERT_GE(nodes[0].runs.size(), 1u);
-    EXPECT_TRUE(nodes[0].runs[0].bold);
-    EXPECT_TRUE(nodes[0].runs[0].italic);
+    EXPECT_TRUE(nodes[0].runs[0].bold());
+    EXPECT_TRUE(nodes[0].runs[0].italic());
 }
 
 TEST(Parser, Utf8BatchLinkText)
