@@ -189,6 +189,24 @@ TEST_F(TitleBarTest, HitTestMinimizeButton)
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Minimize);
 }
 
+TEST_F(TitleBarTest, HitTestOpenFileButton)
+{
+    auto& btn = tb_.GetOpenFileButton();
+    float cx = (btn.rect.left + btn.rect.right) / 2.0f;
+    float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
+    EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::OpenFile);
+}
+
+TEST_F(TitleBarTest, HitTestOpenFileButtonBoundary)
+{
+    auto& btn = tb_.GetOpenFileButton();
+    float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
+    // 左端ちょうどはボタン内
+    EXPECT_EQ(tb_.HitTest(btn.rect.left, cy), TitleBarHitZone::OpenFile);
+    // 右端の直前はボタン内
+    EXPECT_EQ(tb_.HitTest(btn.rect.right - 0.01f, cy), TitleBarHitZone::OpenFile);
+}
+
 TEST_F(TitleBarTest, HitTestFileToggle)
 {
     auto& btn = tb_.GetFileToggleButton();
