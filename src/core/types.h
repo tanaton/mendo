@@ -217,7 +217,7 @@ struct Node {
     {
         if (!text_valid_) {
             if (!text_utf8.empty()) {
-                text_ = string_convert::Utf8ToWide(text_utf8);
+                string_convert::Utf8ToWide(text_utf8, text_);
                 if (type != NodeType::CodeBlock) {
                     text_utf8.clear();
                 }

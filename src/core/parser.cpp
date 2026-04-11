@@ -213,12 +213,8 @@ struct ParseContext {
     // テーブルセルにUTF-8テキストをWide変換して追加
     void AppendUtf8ToCell(std::string_view text)
     {
-        const int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-        if (wlen > 0) {
-            text_buffer.resize_and_overwrite(static_cast<size_t>(wlen), [text](wchar_t* buf, size_t count) -> size_t {
-                const int written = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf, static_cast<int>(count));
-                return (written > 0) ? static_cast<size_t>(written) : 0;
-            });
+        Utf8ToWide(text, text_buffer);
+        if (!text_buffer.empty()) {
             AppendTextToCell(text_buffer);
         }
     }
