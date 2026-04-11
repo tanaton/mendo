@@ -92,11 +92,9 @@ void Save()
         return;
     }
 
-    std::error_code ec;
-    std::filesystem::rename(tmp_path, ini_path, ec);
-    if (ec) {
+    if (!MoveFileExW(tmp_path.c_str(), ini_path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
         // renameが失敗した場合（クロスボリューム等）、直接書き込み
-        std::filesystem::remove(tmp_path, ec);
+        DeleteFileW(tmp_path.c_str());
         WriteAllBytes(ini_path, content.data(), content.size());
     }
 }

@@ -1,15 +1,24 @@
 #pragma once
 #include "win_handle.h"
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <utility>
 
 // ファイルを全て読み込む。失敗時は{nullptr, 0}を返す。
-inline std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(const std::filesystem::path& path)
+// out_errorが非nullの場合、CreateFileW失敗時のGetLastError()を格納する。
+inline std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
+    const std::filesystem::path& path, DWORD* out_error = nullptr)
 {
+    if (out_error) {
+        *out_error = 0;
+    }
     UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
     if (!hFile) {
+        if (out_error) {
+            *out_error = GetLastError();
+        }
         return {};
     }
     LARGE_INTEGER file_size;

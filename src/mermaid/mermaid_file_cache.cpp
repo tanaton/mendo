@@ -214,10 +214,9 @@ void MermaidFileCache::SaveIndex()
         return;
     }
 
-    std::filesystem::rename(tmp_path, path, ec);
-    if (ec) {
+    if (!MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
         // renameが失敗した場合、直接書き込み
-        std::filesystem::remove(tmp_path, ec);
+        DeleteFileW(tmp_path.c_str());
         WriteAllBytes(path, buf.get(), buf_size);
     }
 }
@@ -234,17 +233,20 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
         return false;
     }
 
-    auto [data, data_size] = ReadAllBytes(path);
+    DWORD read_error = 0;
+    auto [data, data_size] = ReadAllBytes(path, &read_error);
     if (!data) {
-        // ファイルが存在しない or 読み取り失敗 → 古いインデックスエントリを除去
-        if (total_size_ >= it->second.png_size) {
-            total_size_ -= it->second.png_size;
+        // ファイルが確実に存在しない場合のみインデックスエントリを除去する。
+        // 共有違反など一時的なエラーではエントリを保持する。
+        if (read_error == ERROR_FILE_NOT_FOUND || read_error == ERROR_PATH_NOT_FOUND) {
+            if (total_size_ >= it->second.png_size) {
+                total_size_ -= it->second.png_size;
+            } else {
+                total_size_ = 0;
+            }
+            RemoveLruEntry(it->second.last_used, key);
+            index_.erase(it);
         }
-        else {
-            total_size_ = 0;
-        }
-        RemoveLruEntry(it->second.last_used, key);
-        index_.erase(it);
         return false;
     }
     png.data = std::move(data);
