@@ -10,7 +10,9 @@ class DocumentServiceTest : public ::testing::Test {
 protected:
     void SetUp() override
     {
-        test_dir_ = std::filesystem::temp_directory_path() / "mendo_doc_service_test";
+        auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+        test_dir_ = std::filesystem::temp_directory_path()
+            / ("mendo_doc_service_test_" + std::string(info->name()));
         std::filesystem::create_directories(test_dir_);
     }
     void TearDown() override
