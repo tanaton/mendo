@@ -37,5 +37,6 @@ struct SyntaxToken {
 };
 
 SyntaxLanguage DetectLanguage(std::wstring_view info_string);
+SyntaxLanguage DetectLanguage(std::string_view info_string);
 
 std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language);

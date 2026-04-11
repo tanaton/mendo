@@ -32,9 +32,17 @@ private:
     void RepositionSearchEdit();
     void SyncSearchCaretFromEdit();
 
+    void UpdateDpiMetricsCache();
+
     HWND hwnd_ = nullptr;
     HWND search_edit_ = nullptr;
     bool in_sys_menu_ = false;   // システムメニューのモーダルループ中フラグ
     bool tracking_mouse_ = false; // TrackMouseEvent によるマウス追跡中フラグ
+
+    // WM_NCHITTEST用DPIメトリクスキャッシュ（WM_DPICHANGED時に更新）
+    int cached_nchit_border_ = 4;
+    int cached_nchit_frame_y_ = 8;
+    int cached_nchit_right_border_ = 8;
+
     App app_;
 };

@@ -383,9 +383,9 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         MeasureTableCells(node, entry, natural_widths);
 
         // 自然幅をキャッシュ（リサイズ高速パス用）
-        tl.natural_col_widths = natural_widths;
+        tl.natural_col_widths = std::move(natural_widths);
 
         // 第2パス: 列幅を設定し、行の高さを計測
-        FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
+        FinalizeTableLayout(node, entry, max_width, col_count, tl.natural_col_widths);
     }
 }

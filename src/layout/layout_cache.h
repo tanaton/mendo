@@ -108,7 +108,9 @@ public:
             e.effects_applied = false;
             e.inline_code_bgs.clear();
             if (e.table_layout) {
+                e.table_layout->cell_layouts.clear();
                 e.table_layout->cell_inline_code_bgs.clear();
+                e.table_layout->natural_col_widths.clear();
             }
         }
         effects_generation_++;
@@ -133,6 +135,10 @@ public:
         for (auto& e : entries_) {
             e.layout_dirty = true;
             e.text_layout.Reset();
+            if (e.table_layout) {
+                e.table_layout->cell_layouts.clear();
+                e.table_layout->natural_col_widths.clear();
+            }
         }
         effects_generation_++;
     }

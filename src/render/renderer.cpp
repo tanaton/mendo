@@ -570,7 +570,7 @@ void Renderer::Render(const RenderParams& p)
     // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     // レイアウト世代と可視範囲が前回と同一ならスキップする（静止時の不要な走査を回避）。
     const uint32_t effects_gen = p.cache.GetEffectsGeneration();
-    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || viewport_bottom != last_effects_bottom_) {
+    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || std::abs(viewport_bottom - last_effects_bottom_) > 0.5f) {
         MENDO_PROFILE("ApplyVisibleEffects");
         ApplyVisibleEffects(p.nodes, p.cache, first_visible, viewport_top, viewport_bottom);
         last_effects_gen_ = effects_gen;

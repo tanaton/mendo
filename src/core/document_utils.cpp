@@ -97,10 +97,12 @@ std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t t
 std::pmr::wstring ToLowerAscii(std::wstring_view text)
 {
     std::pmr::wstring result;
-    result.reserve(text.size());
-    std::ranges::transform(text, std::back_inserter(result),
-        [](wchar_t c) static noexcept -> wchar_t {
-        return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+    result.resize_and_overwrite(text.size(), [&text](wchar_t* buf, size_t count) noexcept -> size_t {
+        for (size_t i = 0; i < count; ++i) {
+            const wchar_t c = text[i];
+            buf[i] = (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+        }
+        return count;
     });
     return result;
 }

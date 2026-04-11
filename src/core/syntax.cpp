@@ -781,54 +781,79 @@ static_assert(std::size(LANGUAGE_DEFS) == static_cast<size_t>(SyntaxLanguage::Cm
 
 // ---- 公開API ----
 
-SyntaxLanguage DetectLanguage(std::wstring_view info_string)
+SyntaxLanguage DetectLanguage(std::string_view info_string)
 {
     if (info_string.empty()) {
         return SyntaxLanguage::None;
     }
 
-    // 最初の単語を抽出して小文字に変換
-    std::wstring lang;
-    for (wchar_t c : info_string) {
-        if (c == L' ' || c == L'\t') {
+    // 最初の単語を抽出してASCII小文字に変換（スタックバッファで割り当て回避）
+    char lang_buf[32];
+    size_t lang_len = 0;
+    for (char c : info_string) {
+        if (c == ' ' || c == '\t') {
             break;
         }
-        lang += (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+        if (lang_len >= sizeof(lang_buf) - 1) {
+            break;
+        }
+        lang_buf[lang_len++] = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
     }
+    const std::string_view lang(lang_buf, lang_len);
 
-    if (lang == L"c" || lang == L"cpp" || lang == L"c++" || lang == L"cxx" ||
-        lang == L"h" || lang == L"hpp" || lang == L"cc" || lang == L"hxx") {
+    if (lang == "c" || lang == "cpp" || lang == "c++" || lang == "cxx" ||
+        lang == "h" || lang == "hpp" || lang == "cc" || lang == "hxx") {
         return SyntaxLanguage::Cpp;
     }
-    if (lang == L"python" || lang == L"py") {
+    if (lang == "python" || lang == "py") {
         return SyntaxLanguage::Python;
     }
-    if (lang == L"javascript" || lang == L"js" || lang == L"jsx") {
+    if (lang == "javascript" || lang == "js" || lang == "jsx") {
         return SyntaxLanguage::JavaScript;
     }
-    if (lang == L"typescript" || lang == L"ts" || lang == L"tsx") {
+    if (lang == "typescript" || lang == "ts" || lang == "tsx") {
         return SyntaxLanguage::TypeScript;
     }
-    if (lang == L"mermaid") {
+    if (lang == "mermaid") {
         return SyntaxLanguage::Mermaid;
     }
-    if (lang == L"go" || lang == L"golang") {
+    if (lang == "go" || lang == "golang") {
         return SyntaxLanguage::Go;
     }
-    if (lang == L"rust" || lang == L"rs") {
+    if (lang == "rust" || lang == "rs") {
         return SyntaxLanguage::Rust;
     }
-    if (lang == L"bash" || lang == L"sh" || lang == L"zsh" || lang == L"shell") {
+    if (lang == "bash" || lang == "sh" || lang == "zsh" || lang == "shell") {
         return SyntaxLanguage::Bash;
     }
-    if (lang == L"powershell" || lang == L"pwsh" || lang == L"ps1") {
+    if (lang == "powershell" || lang == "pwsh" || lang == "ps1") {
         return SyntaxLanguage::PowerShell;
     }
-    if (lang == L"cmd" || lang == L"bat" || lang == L"batch" || lang == L"dosbatch") {
+    if (lang == "cmd" || lang == "bat" || lang == "batch" || lang == "dosbatch") {
         return SyntaxLanguage::Cmd;
     }
 
     return SyntaxLanguage::None;
+}
+
+SyntaxLanguage DetectLanguage(std::wstring_view info_string)
+{
+    if (info_string.empty()) {
+        return SyntaxLanguage::None;
+    }
+    // 言語名は全てASCIIなのでnarrowに変換してstring_view版に委譲
+    char buf[32];
+    size_t len = 0;
+    for (wchar_t c : info_string) {
+        if (c == L' ' || c == L'\t') {
+            break;
+        }
+        if (len >= sizeof(buf) - 1 || c > 0x7F) {
+            break;
+        }
+        buf[len++] = static_cast<char>(c);
+    }
+    return DetectLanguage(std::string_view(buf, len));
 }
 
 std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language)

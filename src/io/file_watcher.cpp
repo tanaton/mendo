@@ -19,26 +19,27 @@ void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallba
         return;
     }
 
-    dir_handle_ = CreateFileW(
+    dir_handle_.reset(CreateFileW(
         dir.c_str(),
         FILE_LIST_DIRECTORY,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr,
         OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
-        nullptr);
+        nullptr));
 
-    if (dir_handle_ == INVALID_HANDLE_VALUE) {
+    if (!dir_handle_) {
+        return;
+    }
+
+    event_.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    if (!event_) {
+        dir_handle_.reset();
         return;
     }
 
     overlapped_ = {};
-    overlapped_.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!overlapped_.hEvent) {
-        CloseHandle(dir_handle_);
-        dir_handle_ = INVALID_HANDLE_VALUE;
-        return;
-    }
+    overlapped_.hEvent = event_.get();
 
     watching_ = true;
     BeginRead();
@@ -46,13 +47,13 @@ void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallba
 
 void FileWatcher::BeginRead()
 {
-    if (dir_handle_ == INVALID_HANDLE_VALUE) {
+    if (!dir_handle_) {
         return;
     }
 
     ResetEvent(overlapped_.hEvent);
     read_pending_ = ReadDirectoryChangesW(
-        dir_handle_,
+        dir_handle_.get(),
         change_buf_,
         sizeof(change_buf_),
         FALSE,
@@ -68,18 +69,13 @@ void FileWatcher::BeginRead()
 
 void FileWatcher::StopWatching() noexcept
 {
-    if (read_pending_ && dir_handle_ != INVALID_HANDLE_VALUE) {
-        CancelIo(dir_handle_);
+    if (read_pending_ && dir_handle_) {
+        CancelIo(dir_handle_.get());
         read_pending_ = false;
     }
-    if (overlapped_.hEvent) {
-        CloseHandle(overlapped_.hEvent);
-        overlapped_ = {};
-    }
-    if (dir_handle_ != INVALID_HANDLE_VALUE) {
-        CloseHandle(dir_handle_);
-        dir_handle_ = INVALID_HANDLE_VALUE;
-    }
+    event_.reset();
+    overlapped_ = {};
+    dir_handle_.reset();
     watching_ = false;
     paused_ = false;
     pending_change_ = false;
@@ -88,12 +84,12 @@ void FileWatcher::StopWatching() noexcept
 
 void FileWatcher::CheckForChanges()
 {
-    if (!watching_ || !read_pending_ || dir_handle_ == INVALID_HANDLE_VALUE) {
+    if (!watching_ || !read_pending_ || !dir_handle_) {
         return;
     }
 
     DWORD bytes_returned = 0;
-    if (!GetOverlappedResult(dir_handle_, &overlapped_, &bytes_returned, FALSE)) {
+    if (!GetOverlappedResult(dir_handle_.get(), &overlapped_, &bytes_returned, FALSE)) {
         if (GetLastError() != ERROR_IO_INCOMPLETE) {
             read_pending_ = false;
             StopWatching();

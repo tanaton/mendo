@@ -3,6 +3,7 @@
 #include "pane_layout.h"
 #include "mermaid_util.h"
 #include "mermaid_file_cache.h"
+#include "win_handle.h"
 #include "i18n.h"
 #include <commdlg.h>
 
@@ -64,19 +65,16 @@ void App::SetClipboardText(std::wstring_view text) const
     EmptyClipboard();
 
     const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-    const HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
     if (hMem) {
-        void* ptr = GlobalLock(hMem);
+        void* ptr = GlobalLock(hMem.get());
         if (ptr) {
             memcpy(ptr, text.data(), text.size() * sizeof(wchar_t));
             static_cast<wchar_t*>(ptr)[text.size()] = L'\0';
-            GlobalUnlock(hMem);
-            if (!SetClipboardData(CF_UNICODETEXT, hMem)) {
-                GlobalFree(hMem);
+            GlobalUnlock(hMem.get());
+            if (SetClipboardData(CF_UNICODETEXT, hMem.get())) {
+                hMem.release(); // クリップボードに所有権移譲
             }
-        }
-        else {
-            GlobalFree(hMem);
         }
     }
     CloseClipboard();
@@ -138,15 +136,15 @@ void App::SaveDiagramAsPng(int node_index)
     }
 
     // PNGデータをファイルに書き出す
-    HANDLE hFile = CreateFileW(filename, GENERIC_WRITE, 0, nullptr,
-        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) {
+    UniqueHandle hFile{ CreateFileW(filename, GENERIC_WRITE, 0, nullptr,
+        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr) };
+    if (!hFile) {
         return;
     }
     DWORD written = 0;
     const DWORD size = static_cast<DWORD>(png_data.size());
-    const BOOL ok = WriteFile(hFile, png_data.data(), size, &written, nullptr);
-    CloseHandle(hFile);
+    const BOOL ok = WriteFile(hFile.get(), png_data.data(), size, &written, nullptr);
+    hFile.reset(); // DeleteFileW の前にファイルを閉じる
 
     if (ok && written == size) {
         ShowToast(i18n::S().toast_image_saved);
