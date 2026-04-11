@@ -6,6 +6,6 @@
 // Shell (MainWindow) が実行する。
 class AppController {
 public:
-    ActionList HandleKeyDown(const KeyDownEvent& event) const;
-    ActionList HandleMouseWheel(const MouseWheelEvent& event) const;
+    AppAction HandleKeyDown(const KeyDownEvent& event) const;
+    AppAction HandleMouseWheel(const MouseWheelEvent& event) const;
 };

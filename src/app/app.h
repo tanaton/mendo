@@ -148,7 +148,7 @@ public:
 
 private:
     // AppControllerが返すアクションを実行
-    void ExecuteActions(const ActionList& actions);
+    void ExecuteAction(const AppAction& action);
 
     // Init用コールバック構築ヘルパー
     ResourceManager::Callbacks BuildResourceManagerCallbacks();

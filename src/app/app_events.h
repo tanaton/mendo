@@ -1,8 +1,6 @@
 #pragma once
 #include "pane_layout.h"
 #include <variant>
-#include <vector>
-#include <memory_resource>
 
 // ──── イベント (プラットフォーム非依存のユーザー入力) ────
 
@@ -52,8 +50,10 @@ struct OpenSearchBarAction {};
 struct CloseSearchBarAction {};
 struct SearchNextAction {};
 struct SearchPrevAction {};
+struct NoOpAction {};
 
 using AppAction = std::variant<
+    NoOpAction,
     KeyScrollAction,
     DirectScrollByAction,
     ScrollPaneAction,
@@ -74,4 +74,3 @@ using AppAction = std::variant<
     SearchPrevAction
 >;
 
-using ActionList = std::pmr::vector<AppAction>;

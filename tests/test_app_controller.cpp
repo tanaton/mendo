@@ -7,13 +7,12 @@ protected:
     AppController ctrl_;
 };
 
-// ─── ヘルパー: 期待する型の単一アクションを取得 ───
+// ─── ヘルパー: 期待する型のアクションを取得 ───
 
 template <typename T>
-const T& GetSingleAction(const ActionList& actions)
+const T& GetAction(const AppAction& action)
 {
-    EXPECT_EQ(actions.size(), 1u);
-    return std::get<T>(actions.at(0));
+    return std::get<T>(action);
 }
 
 // ═══════════════════════════════════════════════
@@ -23,42 +22,42 @@ const T& GetSingleAction(const ActionList& actions)
 TEST_F(AppControllerTest, ArrowUpReturnsLineUp)
 {
     auto a = ctrl_.HandleKeyDown({ VK_UP, false, false });
-    auto& s = GetSingleAction<KeyScrollAction>(a);
+    auto& s = GetAction<KeyScrollAction>(a);
     EXPECT_EQ(s.type, ScrollType::LineUp);
 }
 
 TEST_F(AppControllerTest, ArrowDownReturnsLineDown)
 {
     auto a = ctrl_.HandleKeyDown({ VK_DOWN, false, false });
-    auto& s = GetSingleAction<KeyScrollAction>(a);
+    auto& s = GetAction<KeyScrollAction>(a);
     EXPECT_EQ(s.type, ScrollType::LineDown);
 }
 
 TEST_F(AppControllerTest, PageUpReturnsPageUp)
 {
     auto a = ctrl_.HandleKeyDown({ VK_PRIOR, false, false });
-    auto& s = GetSingleAction<KeyScrollAction>(a);
+    auto& s = GetAction<KeyScrollAction>(a);
     EXPECT_EQ(s.type, ScrollType::PageUp);
 }
 
 TEST_F(AppControllerTest, PageDownReturnsPageDown)
 {
     auto a = ctrl_.HandleKeyDown({ VK_NEXT, false, false });
-    auto& s = GetSingleAction<KeyScrollAction>(a);
+    auto& s = GetAction<KeyScrollAction>(a);
     EXPECT_EQ(s.type, ScrollType::PageDown);
 }
 
 TEST_F(AppControllerTest, HomeReturnsHome)
 {
     auto a = ctrl_.HandleKeyDown({ VK_HOME, false, false });
-    auto& s = GetSingleAction<KeyScrollAction>(a);
+    auto& s = GetAction<KeyScrollAction>(a);
     EXPECT_EQ(s.type, ScrollType::Home);
 }
 
 TEST_F(AppControllerTest, EndReturnsEnd)
 {
     auto a = ctrl_.HandleKeyDown({ VK_END, false, false });
-    auto& s = GetSingleAction<KeyScrollAction>(a);
+    auto& s = GetAction<KeyScrollAction>(a);
     EXPECT_EQ(s.type, ScrollType::End);
 }
 
@@ -69,22 +68,19 @@ TEST_F(AppControllerTest, EndReturnsEnd)
 TEST_F(AppControllerTest, F1ReturnsShowHelp)
 {
     auto a = ctrl_.HandleKeyDown({ VK_F1, false, false });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<ShowHelpAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<ShowHelpAction>(a));
 }
 
 TEST_F(AppControllerTest, F5ReturnsReload)
 {
     auto a = ctrl_.HandleKeyDown({ VK_F5, false, false });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<ReloadFileAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<ReloadFileAction>(a));
 }
 
 TEST_F(AppControllerTest, EscapeReturnsClearSelection)
 {
     auto a = ctrl_.HandleKeyDown({ VK_ESCAPE, false, false });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<ClearSelectionAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<ClearSelectionAction>(a));
 }
 
 // ═══════════════════════════════════════════════
@@ -94,77 +90,74 @@ TEST_F(AppControllerTest, EscapeReturnsClearSelection)
 TEST_F(AppControllerTest, CtrlCReturnsCopy)
 {
     auto a = ctrl_.HandleKeyDown({ 'C', true, false });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<CopyClipboardAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<CopyClipboardAction>(a));
 }
 
 TEST_F(AppControllerTest, CtrlAReturnsSelectAll)
 {
     auto a = ctrl_.HandleKeyDown({ 'A', true, false });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<SelectAllAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<SelectAllAction>(a));
 }
 
 TEST_F(AppControllerTest, CtrlOReturnsOpenFile)
 {
     auto a = ctrl_.HandleKeyDown({ 'O', true, false });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<OpenFileAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<OpenFileAction>(a));
 }
 
 TEST_F(AppControllerTest, Ctrl1ReturnsToggleFilePane)
 {
     auto a = ctrl_.HandleKeyDown({ '1', true, false });
-    auto& t = GetSingleAction<TogglePaneAction>(a);
+    auto& t = GetAction<TogglePaneAction>(a);
     EXPECT_TRUE(t.file_pane);
 }
 
 TEST_F(AppControllerTest, Ctrl2ReturnsToggleTocPane)
 {
     auto a = ctrl_.HandleKeyDown({ '2', true, false });
-    auto& t = GetSingleAction<TogglePaneAction>(a);
+    auto& t = GetAction<TogglePaneAction>(a);
     EXPECT_FALSE(t.file_pane);
 }
 
 TEST_F(AppControllerTest, CtrlPlusReturnsZoomIn)
 {
     auto a = ctrl_.HandleKeyDown({ VK_OEM_PLUS, true, false });
-    auto& z = GetSingleAction<ZoomAction>(a);
+    auto& z = GetAction<ZoomAction>(a);
     EXPECT_EQ(z.direction, 1);
 }
 
 TEST_F(AppControllerTest, CtrlNumpadPlusReturnsZoomIn)
 {
     auto a = ctrl_.HandleKeyDown({ VK_ADD, true, false });
-    auto& z = GetSingleAction<ZoomAction>(a);
+    auto& z = GetAction<ZoomAction>(a);
     EXPECT_EQ(z.direction, 1);
 }
 
 TEST_F(AppControllerTest, CtrlMinusReturnsZoomOut)
 {
     auto a = ctrl_.HandleKeyDown({ VK_OEM_MINUS, true, false });
-    auto& z = GetSingleAction<ZoomAction>(a);
+    auto& z = GetAction<ZoomAction>(a);
     EXPECT_EQ(z.direction, -1);
 }
 
 TEST_F(AppControllerTest, CtrlNumpadMinusReturnsZoomOut)
 {
     auto a = ctrl_.HandleKeyDown({ VK_SUBTRACT, true, false });
-    auto& z = GetSingleAction<ZoomAction>(a);
+    auto& z = GetAction<ZoomAction>(a);
     EXPECT_EQ(z.direction, -1);
 }
 
 TEST_F(AppControllerTest, Ctrl0ReturnsZoomReset)
 {
     auto a = ctrl_.HandleKeyDown({ '0', true, false });
-    auto& z = GetSingleAction<ZoomAction>(a);
+    auto& z = GetAction<ZoomAction>(a);
     EXPECT_EQ(z.direction, 0);
 }
 
 TEST_F(AppControllerTest, CtrlNumpad0ReturnsZoomReset)
 {
     auto a = ctrl_.HandleKeyDown({ VK_NUMPAD0, true, false });
-    auto& z = GetSingleAction<ZoomAction>(a);
+    auto& z = GetAction<ZoomAction>(a);
     EXPECT_EQ(z.direction, 0);
 }
 
@@ -175,19 +168,19 @@ TEST_F(AppControllerTest, CtrlNumpad0ReturnsZoomReset)
 TEST_F(AppControllerTest, UnknownKeyProducesNoAction)
 {
     auto a = ctrl_.HandleKeyDown({ 'Z', false, false });
-    EXPECT_TRUE(a.empty());
+    EXPECT_TRUE(std::holds_alternative<NoOpAction>(a));
 }
 
 TEST_F(AppControllerTest, CWithoutCtrlProducesNoAction)
 {
     auto a = ctrl_.HandleKeyDown({ 'C', false, false });
-    EXPECT_TRUE(a.empty());
+    EXPECT_TRUE(std::holds_alternative<NoOpAction>(a));
 }
 
 TEST_F(AppControllerTest, UnknownCtrlKeyProducesNoAction)
 {
     auto a = ctrl_.HandleKeyDown({ 'Z', true, false });
-    EXPECT_TRUE(a.empty());
+    EXPECT_TRUE(std::holds_alternative<NoOpAction>(a));
 }
 
 // ═══════════════════════════════════════════════
@@ -197,14 +190,14 @@ TEST_F(AppControllerTest, UnknownCtrlKeyProducesNoAction)
 TEST_F(AppControllerTest, WheelUpInMdPaneDirectScrolls)
 {
     auto a = ctrl_.HandleMouseWheel({ 120, false, PaneZone::MdPane });
-    auto& s = GetSingleAction<DirectScrollByAction>(a);
+    auto& s = GetAction<DirectScrollByAction>(a);
     EXPECT_FLOAT_EQ(s.delta, -120.0f * 0.8f);
 }
 
 TEST_F(AppControllerTest, WheelDownInMdPaneDirectScrolls)
 {
     auto a = ctrl_.HandleMouseWheel({ -120, false, PaneZone::MdPane });
-    auto& s = GetSingleAction<DirectScrollByAction>(a);
+    auto& s = GetAction<DirectScrollByAction>(a);
     EXPECT_FLOAT_EQ(s.delta, 120.0f * 0.8f);
 }
 
@@ -215,7 +208,7 @@ TEST_F(AppControllerTest, WheelDownInMdPaneDirectScrolls)
 TEST_F(AppControllerTest, WheelInFilePaneScrollsFilePane)
 {
     auto a = ctrl_.HandleMouseWheel({ 120, false, PaneZone::FilePane });
-    auto& s = GetSingleAction<ScrollPaneAction>(a);
+    auto& s = GetAction<ScrollPaneAction>(a);
     EXPECT_EQ(s.pane, PaneZone::FilePane);
     EXPECT_FLOAT_EQ(s.delta, -120.0f * 0.8f);
 }
@@ -223,7 +216,7 @@ TEST_F(AppControllerTest, WheelInFilePaneScrollsFilePane)
 TEST_F(AppControllerTest, WheelInTocPaneScrollsTocPane)
 {
     auto a = ctrl_.HandleMouseWheel({ -120, false, PaneZone::TocPane });
-    auto& s = GetSingleAction<ScrollPaneAction>(a);
+    auto& s = GetAction<ScrollPaneAction>(a);
     EXPECT_EQ(s.pane, PaneZone::TocPane);
     EXPECT_FLOAT_EQ(s.delta, 120.0f * 0.8f);
 }
@@ -231,8 +224,7 @@ TEST_F(AppControllerTest, WheelInTocPaneScrollsTocPane)
 TEST_F(AppControllerTest, WheelOnSplitterScrollsMdPane)
 {
     auto a = ctrl_.HandleMouseWheel({ 120, false, PaneZone::Splitter1 });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<DirectScrollByAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<DirectScrollByAction>(a));
 }
 
 // ═══════════════════════════════════════════════
@@ -242,14 +234,14 @@ TEST_F(AppControllerTest, WheelOnSplitterScrollsMdPane)
 TEST_F(AppControllerTest, CtrlWheelUpZoomsIn)
 {
     auto a = ctrl_.HandleMouseWheel({ 120, true, PaneZone::MdPane });
-    auto& z = GetSingleAction<ZoomAction>(a);
+    auto& z = GetAction<ZoomAction>(a);
     EXPECT_EQ(z.direction, 1);
 }
 
 TEST_F(AppControllerTest, CtrlWheelDownZoomsOut)
 {
     auto a = ctrl_.HandleMouseWheel({ -120, true, PaneZone::MdPane });
-    auto& z = GetSingleAction<ZoomAction>(a);
+    auto& z = GetAction<ZoomAction>(a);
     EXPECT_EQ(z.direction, -1);
 }
 
@@ -257,8 +249,7 @@ TEST_F(AppControllerTest, CtrlWheelIgnoresZone)
 {
     // Ctrl+ホイールはどのペインでもズームする
     auto a = ctrl_.HandleMouseWheel({ 120, true, PaneZone::FilePane });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<ZoomAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<ZoomAction>(a));
 }
 
 // ═══════════════════════════════════════════════
@@ -268,28 +259,26 @@ TEST_F(AppControllerTest, CtrlWheelIgnoresZone)
 TEST_F(AppControllerTest, AltLeftReturnsNavigateBack)
 {
     auto a = ctrl_.HandleKeyDown({ VK_LEFT, false, false, true });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<NavigateBackAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<NavigateBackAction>(a));
 }
 
 TEST_F(AppControllerTest, AltRightReturnsNavigateForward)
 {
     auto a = ctrl_.HandleKeyDown({ VK_RIGHT, false, false, true });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<NavigateForwardAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<NavigateForwardAction>(a));
 }
 
 TEST_F(AppControllerTest, AltUpProducesNoAction)
 {
     auto a = ctrl_.HandleKeyDown({ VK_UP, false, false, true });
-    EXPECT_TRUE(a.empty());
+    EXPECT_TRUE(std::holds_alternative<NoOpAction>(a));
 }
 
 TEST_F(AppControllerTest, CtrlAltLeftProducesNoAction)
 {
     // Ctrl+Altではナビゲーションが発動しないこと
     auto a = ctrl_.HandleKeyDown({ VK_LEFT, true, false, true });
-    EXPECT_TRUE(a.empty());
+    EXPECT_TRUE(std::holds_alternative<NoOpAction>(a));
 }
 
 // ═══════════════════════════════════════════════
@@ -299,20 +288,17 @@ TEST_F(AppControllerTest, CtrlAltLeftProducesNoAction)
 TEST_F(AppControllerTest, CtrlFReturnsOpenSearchBar)
 {
     auto a = ctrl_.HandleKeyDown({ 'F', true, false });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<OpenSearchBarAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<OpenSearchBarAction>(a));
 }
 
 TEST_F(AppControllerTest, CtrlGReturnsSearchNext)
 {
     auto a = ctrl_.HandleKeyDown({ 'G', true, false });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<SearchNextAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<SearchNextAction>(a));
 }
 
 TEST_F(AppControllerTest, CtrlShiftGReturnsSearchPrev)
 {
     auto a = ctrl_.HandleKeyDown({ 'G', true, true });
-    ASSERT_EQ(a.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<SearchPrevAction>(a[0]));
+    EXPECT_TRUE(std::holds_alternative<SearchPrevAction>(a));
 }

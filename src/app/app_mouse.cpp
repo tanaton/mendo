@@ -358,12 +358,12 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
     const auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
     // アクションシステム経由でディスパッチ（Ctrl+Oなどのキーボード操作と同じパスを通す）
     switch (tb_zone) {
-    case TitleBarHitZone::OpenFile:    ExecuteActions({{OpenFileAction{}}}); return true;
-    case TitleBarHitZone::Help:        ExecuteActions({{ShowHelpAction{}}}); return true;
-    case TitleBarHitZone::Search:      ExecuteActions({{OpenSearchBarAction{}}}); return true;
-    case TitleBarHitZone::ThemeToggle: ExecuteActions({{ToggleDarkModeAction{}}}); return true;
-    case TitleBarHitZone::FileToggle:  ExecuteActions({{TogglePaneAction{true}}}); return true;
-    case TitleBarHitZone::TocToggle:   ExecuteActions({{TogglePaneAction{false}}}); return true;
+    case TitleBarHitZone::OpenFile:    ExecuteAction(OpenFileAction{}); return true;
+    case TitleBarHitZone::Help:        ExecuteAction(ShowHelpAction{}); return true;
+    case TitleBarHitZone::Search:      ExecuteAction(OpenSearchBarAction{}); return true;
+    case TitleBarHitZone::ThemeToggle: ExecuteAction(ToggleDarkModeAction{}); return true;
+    case TitleBarHitZone::FileToggle:  ExecuteAction(TogglePaneAction{true}); return true;
+    case TitleBarHitZone::TocToggle:   ExecuteAction(TogglePaneAction{false}); return true;
     default: break;
     }
     if (tb_zone == TitleBarHitZone::Minimize) {

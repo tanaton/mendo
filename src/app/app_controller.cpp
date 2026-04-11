@@ -2,93 +2,81 @@
 #include "ui_constants.h"
 #include <windows.h>
 
-ActionList AppController::HandleKeyDown(const KeyDownEvent& event) const
+AppAction AppController::HandleKeyDown(const KeyDownEvent& event) const
 {
-    ActionList actions;
-
     // Alt+矢印キー: 戻る/進むナビゲーション
     if (event.alt && !event.ctrl) {
         switch (event.key) {
-        case VK_LEFT:  actions.emplace_back(NavigateBackAction{}); break;
-        case VK_RIGHT: actions.emplace_back(NavigateForwardAction{}); break;
+        case VK_LEFT:  return NavigateBackAction{};
+        case VK_RIGHT: return NavigateForwardAction{};
         }
-        return actions;
+        return NoOpAction{};
     }
 
     if (event.ctrl) {
         switch (event.key) {
-        case 'C': actions.emplace_back(CopyClipboardAction{}); break;
-        case 'A': actions.emplace_back(SelectAllAction{}); break;
-        case 'O': actions.emplace_back(OpenFileAction{}); break;
-        case 'F': actions.emplace_back(OpenSearchBarAction{}); break;
+        case 'C': return CopyClipboardAction{};
+        case 'A': return SelectAllAction{};
+        case 'O': return OpenFileAction{};
+        case 'F': return OpenSearchBarAction{};
         case 'G':
             if (event.shift) {
-                actions.emplace_back(SearchPrevAction{});
+                return SearchPrevAction{};
             }
             else {
-                actions.emplace_back(SearchNextAction{});
+                return SearchNextAction{};
             }
-            break;
-        case '1': actions.emplace_back(TogglePaneAction{ true }); break;
-        case '2': actions.emplace_back(TogglePaneAction{ false }); break;
+        case '1': return TogglePaneAction{ true };
+        case '2': return TogglePaneAction{ false };
         case VK_OEM_PLUS:
         case VK_ADD:
-            actions.emplace_back(ZoomAction{ 1 }); break;
+            return ZoomAction{ 1 };
         case VK_OEM_MINUS:
         case VK_SUBTRACT:
-            actions.emplace_back(ZoomAction{ -1 }); break;
+            return ZoomAction{ -1 };
         case '0':
         case VK_NUMPAD0:
-            actions.emplace_back(ZoomAction{ 0 }); break;
+            return ZoomAction{ 0 };
         }
-        return actions;
+        return NoOpAction{};
     }
 
     switch (event.key) {
-    case VK_UP:    actions.emplace_back(KeyScrollAction{ ScrollType::LineUp }); break;
-    case VK_DOWN:  actions.emplace_back(KeyScrollAction{ ScrollType::LineDown }); break;
-    case VK_PRIOR: actions.emplace_back(KeyScrollAction{ ScrollType::PageUp }); break;
-    case VK_NEXT:  actions.emplace_back(KeyScrollAction{ ScrollType::PageDown }); break;
-    case VK_HOME:  actions.emplace_back(KeyScrollAction{ ScrollType::Home }); break;
-    case VK_END:   actions.emplace_back(KeyScrollAction{ ScrollType::End }); break;
-    case VK_F1:    actions.emplace_back(ShowHelpAction{}); break;
+    case VK_UP:    return KeyScrollAction{ ScrollType::LineUp };
+    case VK_DOWN:  return KeyScrollAction{ ScrollType::LineDown };
+    case VK_PRIOR: return KeyScrollAction{ ScrollType::PageUp };
+    case VK_NEXT:  return KeyScrollAction{ ScrollType::PageDown };
+    case VK_HOME:  return KeyScrollAction{ ScrollType::Home };
+    case VK_END:   return KeyScrollAction{ ScrollType::End };
+    case VK_F1:    return ShowHelpAction{};
     case VK_F3:
         if (event.shift) {
-            actions.emplace_back(SearchPrevAction{});
+            return SearchPrevAction{};
         }
         else {
-            actions.emplace_back(SearchNextAction{});
+            return SearchNextAction{};
         }
-        break;
-    case VK_F5:    actions.emplace_back(ReloadFileAction{}); break;
-    case VK_ESCAPE: actions.emplace_back(ClearSelectionAction{}); break;
+    case VK_F5:    return ReloadFileAction{};
+    case VK_ESCAPE: return ClearSelectionAction{};
     }
 
-    return actions;
+    return NoOpAction{};
 }
 
-ActionList AppController::HandleMouseWheel(const MouseWheelEvent& event) const
+AppAction AppController::HandleMouseWheel(const MouseWheelEvent& event) const
 {
-    ActionList actions;
-
     if (event.ctrl) {
-        actions.emplace_back(ZoomAction{ event.delta > 0 ? 1 : -1 });
-        return actions;
+        return ZoomAction{ event.delta > 0 ? 1 : -1 };
     }
 
     const float scroll_amount = -event.delta * MOUSE_WHEEL_SCROLL_MULTIPLIER;
 
     switch (event.zone) {
     case PaneZone::FilePane:
-        actions.emplace_back(ScrollPaneAction{ PaneZone::FilePane, scroll_amount });
-        break;
+        return ScrollPaneAction{ PaneZone::FilePane, scroll_amount };
     case PaneZone::TocPane:
-        actions.emplace_back(ScrollPaneAction{ PaneZone::TocPane, scroll_amount });
-        break;
+        return ScrollPaneAction{ PaneZone::TocPane, scroll_amount };
     default:
-        actions.emplace_back(DirectScrollByAction{ scroll_amount });
-        break;
+        return DirectScrollByAction{ scroll_amount };
     }
-
-    return actions;
 }

@@ -916,7 +916,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
 
     if (ctrl) {
         const MouseWheelEvent event{ delta, true, PaneZone::MdPane };
-        ExecuteActions(controller_.HandleMouseWheel(event));
+        ExecuteAction(controller_.HandleMouseWheel(event));
         return;
     }
 
@@ -927,7 +927,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
         panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible());
 
     const MouseWheelEvent event{ delta, false, zone };
-    ExecuteActions(controller_.HandleMouseWheel(event));
+    ExecuteAction(controller_.HandleMouseWheel(event));
 }
 
 void App::OnMouseHWheel(short delta)
@@ -954,145 +954,144 @@ void App::OnKeyDown(WPARAM key)
         (GetKeyState(VK_SHIFT) & 0x8000) != 0,
         (GetKeyState(VK_MENU) & 0x8000) != 0
     };
-    ExecuteActions(controller_.HandleKeyDown(event));
+    ExecuteAction(controller_.HandleKeyDown(event));
 }
 
-void App::ExecuteActions(const ActionList& actions)
+void App::ExecuteAction(const AppAction& action)
 {
-    for (const auto& action : actions) {
-        std::visit(overloaded{
-            [this](const KeyScrollAction& a) {
-                scroll_restore_.pending_restore_scroll_y = -1;
-                const float old_scroll = viewport_.GetScrollY();
-                const auto pane_layout = GetPaneLayout();
-                const float page_size = pane_layout.md_rect.height;
-                switch (a.type) {
-                    case ScrollType::LineUp:   viewport_.DirectScrollBy(-SCROLL_LINE_AMOUNT); break;
-                    case ScrollType::LineDown: viewport_.DirectScrollBy(SCROLL_LINE_AMOUNT); break;
-                    case ScrollType::PageUp:   viewport_.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR); break;
-                    case ScrollType::PageDown: viewport_.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR); break;
-                    case ScrollType::Home:     viewport_.ScrollTo(0.0f); break;
-                    case ScrollType::End:      viewport_.ScrollTo(viewport_.GetMaxScroll()); break;
-                    default:                   break;
-                }
-                if (viewport_.GetScrollY() != old_scroll) {
-                    InvalidateHitPositions();
-                    Invalidate();
-                    resource_manager_.ScheduleBitmapManage();
-                }
-            },
-            [this](const DirectScrollByAction& a) {
-                scroll_restore_.pending_restore_scroll_y = -1;
-                viewport_.DirectScrollBy(a.delta);
+    std::visit(overloaded{
+        [](const NoOpAction&) {},
+        [this](const KeyScrollAction& a) {
+            scroll_restore_.pending_restore_scroll_y = -1;
+            const float old_scroll = viewport_.GetScrollY();
+            const auto pane_layout = GetPaneLayout();
+            const float page_size = pane_layout.md_rect.height;
+            switch (a.type) {
+                case ScrollType::LineUp:   viewport_.DirectScrollBy(-SCROLL_LINE_AMOUNT); break;
+                case ScrollType::LineDown: viewport_.DirectScrollBy(SCROLL_LINE_AMOUNT); break;
+                case ScrollType::PageUp:   viewport_.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR); break;
+                case ScrollType::PageDown: viewport_.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR); break;
+                case ScrollType::Home:     viewport_.ScrollTo(0.0f); break;
+                case ScrollType::End:      viewport_.ScrollTo(viewport_.GetMaxScroll()); break;
+                default:                   break;
+            }
+            if (viewport_.GetScrollY() != old_scroll) {
                 InvalidateHitPositions();
                 Invalidate();
                 resource_manager_.ScheduleBitmapManage();
-            },
-            [this](const ScrollPaneAction& a) {
-                const auto pane_layout = GetPaneLayout();
-                const auto& theme = renderer_.GetTheme();
-                if (a.pane == PaneZone::FilePane) {
-                    const float max_file_scroll = std::max(0.0f,
-                        static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height
-                        - (pane_layout.file_rect.height - theme.pane_header_height));
-                    if (panes_.ScrollFilePaneBy(a.delta, max_file_scroll)) {
-                        renderer_.InvalidateFilePaneCache();
-                        Invalidate();
-                    }
+            }
+        },
+        [this](const DirectScrollByAction& a) {
+            scroll_restore_.pending_restore_scroll_y = -1;
+            viewport_.DirectScrollBy(a.delta);
+            InvalidateHitPositions();
+            Invalidate();
+            resource_manager_.ScheduleBitmapManage();
+        },
+        [this](const ScrollPaneAction& a) {
+            const auto pane_layout = GetPaneLayout();
+            const auto& theme = renderer_.GetTheme();
+            if (a.pane == PaneZone::FilePane) {
+                const float max_file_scroll = std::max(0.0f,
+                    static_cast<float>(file_explorer_.GetEntries().size()) * theme.pane_item_height
+                    - (pane_layout.file_rect.height - theme.pane_header_height));
+                if (panes_.ScrollFilePaneBy(a.delta, max_file_scroll)) {
+                    renderer_.InvalidateFilePaneCache();
+                    Invalidate();
                 }
-                else if (a.pane == PaneZone::TocPane) {
-                    const float max_toc_scroll = std::max(0.0f, static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height - (pane_layout.toc_rect.height - theme.pane_header_height));
-                    if (panes_.ScrollTocPaneBy(a.delta, max_toc_scroll)) {
-                        renderer_.InvalidateTocPaneCache();
-                        Invalidate();
-                    }
+            }
+            else if (a.pane == PaneZone::TocPane) {
+                const float max_toc_scroll = std::max(0.0f, static_cast<float>(doc_.GetToc().GetEntries().size()) * theme.pane_item_height - (pane_layout.toc_rect.height - theme.pane_header_height));
+                if (panes_.ScrollTocPaneBy(a.delta, max_toc_scroll)) {
+                    renderer_.InvalidateTocPaneCache();
+                    Invalidate();
                 }
-            },
-            [this](const CopyClipboardAction&) {
-                CopySelectionToClipboard();
-            },
-            [this](const SelectAllAction&) {
-                SelectAll();
-            },
-            [this](const ClearSelectionAction&) {
-                if (search_bar_ctrl_.GetState().IsVisible()) {
-                    search_bar_ctrl_.OnClose();
-                }
-                else {
-                    ClearSelection();
-                }
-            },
-            [this](const TogglePaneAction& a) {
-                if (a.file_pane) {
-                    panes_.ToggleFilePane();
-                }
-                else {
-                    panes_.ToggleTocPane();
-                }
-                RefreshPaneLayout();
-            },
-            [this](const ZoomAction& a) {
-                if (a.direction > 0) {
-                    ZoomIn();
-                }
-                else if (a.direction < 0) {
-                    ZoomOut();
-                }
-                else {
-                    ZoomReset();
-                }
-            },
-            [this](const ReloadFileAction&) {
-                ReloadCurrentFile();
-            },
-            [this](const OpenFileAction&) {
-                const auto path = FileLoader::OpenFileDialog(hwnd_);
-                if (!path.empty()) {
-                    if (!doc_.GetFilePath().empty()) {
-                        PushNavHistory();
-                    }
-                    LoadMarkdownFile(path);
-                }
-            },
-            [this](const ToggleDarkModeAction&) {
-                ToggleDarkMode();
-            },
-            [this](const NavigateBackAction&) {
-                NavigateBack();
-            },
-            [this](const NavigateForwardAction&) {
-                NavigateForward();
-            },
-            [this](const ShowHelpAction&) {
-                if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
+            }
+        },
+        [this](const CopyClipboardAction&) {
+            CopySelectionToClipboard();
+        },
+        [this](const SelectAllAction&) {
+            SelectAll();
+        },
+        [this](const ClearSelectionAction&) {
+            if (search_bar_ctrl_.GetState().IsVisible()) {
+                search_bar_ctrl_.OnClose();
+            }
+            else {
+                ClearSelection();
+            }
+        },
+        [this](const TogglePaneAction& a) {
+            if (a.file_pane) {
+                panes_.ToggleFilePane();
+            }
+            else {
+                panes_.ToggleTocPane();
+            }
+            RefreshPaneLayout();
+        },
+        [this](const ZoomAction& a) {
+            if (a.direction > 0) {
+                ZoomIn();
+            }
+            else if (a.direction < 0) {
+                ZoomOut();
+            }
+            else {
+                ZoomReset();
+            }
+        },
+        [this](const ReloadFileAction&) {
+            ReloadCurrentFile();
+        },
+        [this](const OpenFileAction&) {
+            const auto path = FileLoader::OpenFileDialog(hwnd_);
+            if (!path.empty()) {
+                if (!doc_.GetFilePath().empty()) {
                     PushNavHistory();
                 }
-                LoadHelpDocument();
-            },
-            [this](const OpenSearchBarAction&) {
+                LoadMarkdownFile(path);
+            }
+        },
+        [this](const ToggleDarkModeAction&) {
+            ToggleDarkMode();
+        },
+        [this](const NavigateBackAction&) {
+            NavigateBack();
+        },
+        [this](const NavigateForwardAction&) {
+            NavigateForward();
+        },
+        [this](const ShowHelpAction&) {
+            if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
+                PushNavHistory();
+            }
+            LoadHelpDocument();
+        },
+        [this](const OpenSearchBarAction&) {
+            search_bar_ctrl_.OnOpen(doc_.GetNodes());
+        },
+        [this](const CloseSearchBarAction&) {
+            search_bar_ctrl_.OnClose();
+        },
+        [this](const SearchNextAction&) {
+            if (!search_bar_ctrl_.GetState().IsVisible()) {
                 search_bar_ctrl_.OnOpen(doc_.GetNodes());
-            },
-            [this](const CloseSearchBarAction&) {
-                search_bar_ctrl_.OnClose();
-            },
-            [this](const SearchNextAction&) {
-                if (!search_bar_ctrl_.GetState().IsVisible()) {
-                    search_bar_ctrl_.OnOpen(doc_.GetNodes());
-                }
-                else {
-                    search_bar_ctrl_.OnNext();
-                }
-            },
-            [this](const SearchPrevAction&) {
-                if (!search_bar_ctrl_.GetState().IsVisible()) {
-                    search_bar_ctrl_.OnOpen(doc_.GetNodes());
-                }
-                else {
-                    search_bar_ctrl_.OnPrev();
-                }
-            },
-            }, action);
-    }
+            }
+            else {
+                search_bar_ctrl_.OnNext();
+            }
+        },
+        [this](const SearchPrevAction&) {
+            if (!search_bar_ctrl_.GetState().IsVisible()) {
+                search_bar_ctrl_.OnOpen(doc_.GetNodes());
+            }
+            else {
+                search_bar_ctrl_.OnPrev();
+            }
+        },
+        }, action);
 }
 
 void App::OnDropFiles(HDROP hDrop)
@@ -1226,16 +1225,16 @@ void App::OnDestroy()
     config_.SaveWString("General", "Language", i18n::GetLangKey());
     for (UINT_PTR id : {
         app_timer::DEFERRED_LAYOUT,
-        app_timer::LOADING_ANIM,
-        app_timer::SWIPE_OVERLAY,
-        app_timer::TOAST,
-        app_timer::SEARCH_CARET,
-        app_timer::SEARCH_DEBOUNCE,
-        app_timer::TOOLTIP,
-        app_timer::BITMAP_MANAGE,
-        app_timer::MERMAID_BATCH,
-        app_timer::MERMAID_INIT_RETRY,
-        app_timer::FILE_RELOAD_DEBOUNCE,
+            app_timer::LOADING_ANIM,
+            app_timer::SWIPE_OVERLAY,
+            app_timer::TOAST,
+            app_timer::SEARCH_CARET,
+            app_timer::SEARCH_DEBOUNCE,
+            app_timer::TOOLTIP,
+            app_timer::BITMAP_MANAGE,
+            app_timer::MERMAID_BATCH,
+            app_timer::MERMAID_INIT_RETRY,
+            app_timer::FILE_RELOAD_DEBOUNCE,
     }) {
         KillTimer(hwnd_, id);
     }
