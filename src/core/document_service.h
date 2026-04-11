@@ -16,7 +16,10 @@ public:
     void ResumeWatching();
     HANDLE GetFileWatchEvent() const noexcept { return watcher_.GetEventHandle(); }
 
-    // 大きいファイルかどうか（ローディングアニメ判定用）
+    // パース時間がUIブロックとして体感されるサイズか（非同期ロード判定用）
+    static bool NeedsAsyncLoad(const std::pmr::wstring& path) noexcept;
+
+    // 非常に大きいファイルか（ローディングアニメーション表示判定用）
     static bool NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept;
 
 private:

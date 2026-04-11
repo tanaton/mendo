@@ -2,11 +2,18 @@
 #include "document_service.h"
 #include "document.h"
 #include "layout_cache.h"
+#include "layout.h"
 #include "task_scheduler.h"
 #include <string>
 #include <optional>
 #include <mutex>
 #include <atomic>
+
+// ワーカースレッドでのパース結果（Document + 推定高さ済み LayoutCache）
+struct AsyncLoadResult {
+    Document doc;
+    LayoutCache cache;
+};
 
 // ファイル読み込みのオーケストレーションとローディングアニメーション状態を管理。
 // Win32非依存 — 完全にテスト可能。
@@ -36,12 +43,13 @@ public:
 
     // ---- 非同期ファイル読み込み ----
 
-    // ワーカースレッドでファイル読み込み+パースを実行し、完了時にPostMessageで通知する。
-    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id);
+    // ワーカースレッドでファイル読み込み+パース+推定高さ計算を実行し、完了時にPostMessageで通知する。
+    // theme は推定高さ計算用にコピーされる（ワーカースレッドでの安全なアクセスのため）。
+    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme);
 
-    // ワーカースレッドで生成されたDocumentを取り出す（UIスレッドから呼ぶ）。
+    // ワーカースレッドで生成された結果を取り出す（UIスレッドから呼ぶ）。
     // 結果がない場合はnulloptを返す。
-    std::optional<Document> TakeAsyncResult();
+    std::optional<AsyncLoadResult> TakeAsyncResult();
 
     // 進行中の非同期読み込みをキャンセルする。
     void CancelAsyncLoad() noexcept { async_gen_.fetch_add(1, std::memory_order_relaxed); }
@@ -59,6 +67,6 @@ private:
 
     // 非同期読み込み用
     std::mutex async_mutex_;
-    std::optional<Document> async_result_;
+    std::optional<AsyncLoadResult> async_result_;
     std::atomic<uint32_t> async_gen_{ 0 };
 };

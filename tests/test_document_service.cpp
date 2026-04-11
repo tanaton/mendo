@@ -53,6 +53,26 @@ TEST_F(DocumentServiceTest, LoadFileNotFound)
     EXPECT_TRUE(doc.IsEmpty());
 }
 
+TEST_F(DocumentServiceTest, NeedsAsyncLoadSmallFile)
+{
+    auto path = CreateTestFile("small.md", "# Small");
+    EXPECT_FALSE(DocumentService::NeedsAsyncLoad(path));
+}
+
+TEST_F(DocumentServiceTest, NeedsAsyncLoadLargeFile)
+{
+    // 64KB超のファイルは非同期ロード判定
+    std::string content(65 * 1024, 'x');
+    auto path = CreateTestFile("large.md", content);
+    EXPECT_TRUE(DocumentService::NeedsAsyncLoad(path));
+}
+
+TEST_F(DocumentServiceTest, NeedsAsyncLoadNonexistent)
+{
+    std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
+    EXPECT_TRUE(DocumentService::NeedsAsyncLoad(nonexistent));
+}
+
 TEST_F(DocumentServiceTest, NeedsLoadingAnimationSmallFile)
 {
     auto path = CreateTestFile("small.md", "# Small");
