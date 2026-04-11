@@ -4,6 +4,7 @@
 #include "mermaid_util.h"
 #include <filesystem>
 #include <fstream>
+#include <cstring>
 #include <memory>
 #include <thread>
 #include <chrono>
@@ -84,11 +85,12 @@ TEST_F(MermaidFileCacheTest, StoreAndLookupRoundTrip)
     FlushAndReopen();
 
     MermaidFileCache::CacheEntry entry;
-    std::vector<uint8_t> out;
+    MermaidFileCache::PngBlob out;
     EXPECT_TRUE(cache_.Lookup(key, entry, out));
     EXPECT_EQ(entry.css_width, 400.0f);
     EXPECT_EQ(entry.css_height, 300.0f);
-    EXPECT_EQ(out, png);
+    ASSERT_EQ(out.size, png.size());
+    EXPECT_EQ(std::memcmp(out.data.get(), png.data(), out.size), 0);
 }
 
 TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)
@@ -96,7 +98,7 @@ TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)
     InitCache();
 
     MermaidFileCache::CacheEntry entry;
-    std::vector<uint8_t> out;
+    MermaidFileCache::PngBlob out;
     EXPECT_FALSE(cache_.Lookup(99999, entry, out));
 }
 
@@ -156,7 +158,7 @@ TEST_F(MermaidFileCacheTest, LookupCleansUpStaleIndexEntry)
     std::filesystem::remove(temp_dir_ / name);
 
     MermaidFileCache::CacheEntry entry;
-    std::vector<uint8_t> out;
+    MermaidFileCache::PngBlob out;
     EXPECT_FALSE(cache_.Lookup(42, entry, out));
     // 古いインデックスエントリが削除されていること
     EXPECT_EQ(cache_.EntryCount(), 0u);
@@ -188,7 +190,7 @@ TEST_F(MermaidFileCacheTest, EvictsOldestWhenMaxEntriesExceeded)
     FlushAndReopen();
 
     MermaidFileCache::CacheEntry entry;
-    std::vector<uint8_t> out;
+    MermaidFileCache::PngBlob out;
     EXPECT_FALSE(cache_.Lookup(1, entry, out));
     EXPECT_TRUE(cache_.Lookup(2, entry, out));
     EXPECT_TRUE(cache_.Lookup(3, entry, out));
@@ -277,16 +279,16 @@ TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
     EXPECT_EQ(fresh->EntryCount(), 2u);
 
     MermaidFileCache::CacheEntry entry;
-    std::vector<uint8_t> out;
+    MermaidFileCache::PngBlob out;
     EXPECT_TRUE(fresh->Lookup(100, entry, out));
     EXPECT_EQ(entry.css_width, 640.0f);
     EXPECT_EQ(entry.css_height, 480.0f);
-    EXPECT_EQ(out.size(), 1024u);
+    EXPECT_EQ(out.size, 1024u);
 
     EXPECT_TRUE(fresh->Lookup(200, entry, out));
     EXPECT_EQ(entry.css_width, 320.0f);
     EXPECT_EQ(entry.css_height, 240.0f);
-    EXPECT_EQ(out.size(), 512u);
+    EXPECT_EQ(out.size, 512u);
 }
 
 TEST_F(MermaidFileCacheTest, LoadIndexWithInvalidMagicIgnoresFile)
@@ -452,7 +454,7 @@ TEST_F(MermaidFileCacheTest, ClearAllRemovesEverything)
 
     // ファイルも削除されていること
     MermaidFileCache::CacheEntry entry;
-    std::vector<uint8_t> out;
+    MermaidFileCache::PngBlob out;
     EXPECT_FALSE(cache_.Lookup(1, entry, out));
     EXPECT_FALSE(cache_.Lookup(2, entry, out));
 }
@@ -491,7 +493,7 @@ TEST_F(MermaidFileCacheTest, OperationsWithoutInitAreNoOp)
     uninit.SetCacheDir(temp_dir_);
 
     MermaidFileCache::CacheEntry entry;
-    std::vector<uint8_t> out;
+    MermaidFileCache::PngBlob out;
     EXPECT_FALSE(uninit.Lookup(1, entry, out));
 
     uninit.SaveIndex();
@@ -526,7 +528,7 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
 
     // key=1をLookupしてタイムスタンプを更新（key=2より新しくなる）
     MermaidFileCache::CacheEntry entry;
-    std::vector<uint8_t> out;
+    MermaidFileCache::PngBlob out;
     EXPECT_TRUE(cache_.Lookup(1, entry, out));
 
     // key=3を追加 → key=2が最古なのでkey=2が削除される

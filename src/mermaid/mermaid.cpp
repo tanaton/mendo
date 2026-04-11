@@ -556,9 +556,9 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     // ファイルキャッシュを確認
     if (file_cache_) {
         MermaidFileCache::CacheEntry fentry;
-        std::vector<uint8_t> png_data;
-        if (file_cache_->Lookup(hash, fentry, png_data)) {
-            auto stream = CreateMemoryStream(png_data.data(), png_data.size());
+        MermaidFileCache::PngBlob png;
+        if (file_cache_->Lookup(hash, fentry, png)) {
+            auto stream = CreateMemoryStream(png.data.get(), png.size);
             if (stream) {
                 Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
                 float bw = 0, bh = 0;

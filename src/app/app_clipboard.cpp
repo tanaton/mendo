@@ -4,6 +4,7 @@
 #include "mermaid_util.h"
 #include "mermaid_file_cache.h"
 #include "win_handle.h"
+#include "file_io.h"
 #include "i18n.h"
 #include <commdlg.h>
 
@@ -115,8 +116,8 @@ void App::SaveDiagramAsPng(int node_index)
     const uint64_t key = mermaid_util::HashCode(node.text_utf8, md_width, dark);
 
     MermaidFileCache::CacheEntry entry;
-    std::vector<uint8_t> png_data;
-    if (!file_cache_.Lookup(key, entry, png_data) || png_data.empty()) {
+    MermaidFileCache::PngBlob png;
+    if (!file_cache_.Lookup(key, entry, png) || png.size == 0) {
         return;
     }
 
@@ -136,20 +137,9 @@ void App::SaveDiagramAsPng(int node_index)
     }
 
     // PNGデータをファイルに書き出す
-    UniqueHandle hFile{ CreateFileW(filename, GENERIC_WRITE, 0, nullptr,
-        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr) };
-    if (!hFile) {
-        return;
-    }
-    DWORD written = 0;
-    const DWORD size = static_cast<DWORD>(png_data.size());
-    const BOOL ok = WriteFile(hFile.get(), png_data.data(), size, &written, nullptr);
-    hFile.reset(); // DeleteFileW の前にファイルを閉じる
-
-    if (ok && written == size) {
+    if (WriteAllBytes(filename, png.data.get(), png.size)) {
         ShowToast(i18n::S().toast_image_saved);
-    }
-    else {
+    } else {
         DeleteFileW(filename);
     }
 }
