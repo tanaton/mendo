@@ -28,16 +28,17 @@ inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT3
 }
 
 // インラインコードの背景矩形を描画する。
+// bgsにはパディング適用済みのレイアウト原点相対矩形が格納されている。
 inline void GenInlineCodeBgs(DrawCommandList& cmds,
     const std::pmr::vector<InlineCodeBg>& bgs,
     float origin_x, float origin_y, D2D1_COLOR_F color)
 {
     for (const auto& bg : bgs) {
         const D2D1_RECT_F rect = D2D1::RectF(
-            origin_x + bg.left - INLINE_CODE_PAD_X,
-            origin_y + bg.top - INLINE_CODE_PAD_Y,
-            origin_x + bg.left + bg.width + INLINE_CODE_PAD_X,
-            origin_y + bg.top + bg.height + INLINE_CODE_PAD_Y
+            origin_x + bg.left,
+            origin_y + bg.top,
+            origin_x + bg.right,
+            origin_y + bg.bottom
         );
         cmds.emplace_back(FillRoundedRectCmd{ rect, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
     }
@@ -74,7 +75,7 @@ public:
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
     }
     constexpr void SetFormats(const Formats& fmts) noexcept { formats_ = fmts; }
-    void SetSearchMatches(const std::vector<SearchMatch>* matches, int current_index) noexcept
+    void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index) noexcept
     {
         search_matches_ = matches;
         current_match_index_ = current_index;
@@ -136,7 +137,7 @@ private:
     MonotonicResource frame_resource_{ 128 * 1024 };
     DrawCommandList cmds_{ frame_resource_.resource() };
 
-    const std::vector<SearchMatch>* search_matches_ = nullptr;
+    const std::pmr::vector<SearchMatch>* search_matches_ = nullptr;
     int current_match_index_ = -1;
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS>* shared_hit_test_buffer_ = nullptr;

@@ -127,7 +127,7 @@ TEST(NodeTest, DefaultState)
     EXPECT_FALSE(node.task_checked);
     EXPECT_TRUE(node.GetText().empty());
     EXPECT_TRUE(node.runs.empty());
-    EXPECT_TRUE(node.anchor_id.empty());
+    EXPECT_TRUE(node.anchor_id().empty());
     EXPECT_EQ(node.code_language, SyntaxLanguage::None);
     EXPECT_FALSE(node.has_table());
 }
@@ -139,9 +139,9 @@ TEST(TextRun, DefaultState)
     TextRun run;
     EXPECT_EQ(run.start, 0u);
     EXPECT_EQ(run.length, 0u);
-    EXPECT_FALSE(run.bold);
-    EXPECT_FALSE(run.italic);
-    EXPECT_FALSE(run.code);
-    EXPECT_FALSE(run.strikethrough);
+    EXPECT_FALSE(run.bold());
+    EXPECT_FALSE(run.italic());
+    EXPECT_FALSE(run.code());
+    EXPECT_FALSE(run.strikethrough());
     EXPECT_FALSE(run.has_link());
 }

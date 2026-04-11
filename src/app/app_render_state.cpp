@@ -23,7 +23,7 @@ SidePaneState App::BuildSidePaneState(const ::PaneLayout& layout) const
 {
     return { layout.file_rect, layout.toc_rect,
              file_explorer_.GetEntries(), panes_.FileScroll(),
-             doc_.GetToc().GetEntries(), panes_.TocScroll(),
+             doc_.GetToc().GetEntries(), doc_.GetNodes(), panes_.TocScroll(),
              panes_.GetHoveredFileIndex(), panes_.GetHoveredTocIndex(), active_toc_index_,
              panes_.IsFilePaneVisible(), panes_.IsTocPaneVisible(),
              panes_.IsFileCloseHovered(), panes_.IsFileRefreshHovered(),

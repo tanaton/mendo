@@ -18,6 +18,7 @@ struct NavEntry {
 
 // ブラウザスタイルの戻る/進むナビゲーション履歴。
 // 純粋なロジックのみ、Win32依存なし — 完全にテスト可能。
+// 内部ではパスをインターン化し、同一パスの重複保持を回避する。
 class NavHistory {
 public:
     // ナビゲーション前の現在の状態を記録する。
@@ -41,8 +42,23 @@ public:
     void Clear() noexcept;
 
     static constexpr size_t MAX_HISTORY = 1024;
+    static constexpr size_t MAX_PATH_POOL = UINT32_MAX; // path_index が uint32_t のため
 
 private:
-    std::pmr::deque<NavEntry> back_stack_;
-    std::pmr::deque<NavEntry> forward_stack_;
+    // 内部エントリ: パスインデックス + スクロール位置（8バイト）
+    struct InternalEntry {
+        uint32_t path_index = 0;
+        float scroll_y = 0.0f;
+    };
+
+    // パスをインターン化し、インデックスを返す
+    uint32_t InternPath(std::wstring_view path);
+
+    // NavEntry ↔ InternalEntry 変換
+    InternalEntry ToInternal(const NavEntry& e) { return { InternPath(e.file_path), e.scroll_y }; }
+    NavEntry ToExternal(const InternalEntry& e) const;
+
+    std::pmr::vector<std::pmr::wstring> path_pool_;
+    std::pmr::deque<InternalEntry> back_stack_;
+    std::pmr::deque<InternalEntry> forward_stack_;
 };

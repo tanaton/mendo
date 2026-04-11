@@ -142,10 +142,10 @@ struct ParseContext {
         TextRun run;
         run.start = start;
         run.length = length;
-        run.bold = current_span.bold;
-        run.italic = current_span.italic;
-        run.code = current_span.code;
-        run.strikethrough = current_span.strikethrough;
+        run.set_bold(current_span.bold);
+        run.set_italic(current_span.italic);
+        run.set_code(current_span.code);
+        run.set_strikethrough(current_span.strikethrough);
         if (current_span.link_url_index >= 0 && current_node) {
             const auto& url = link_urls[static_cast<size_t>(current_span.link_url_index)];
             // ノードのURLプール内で重複を検索し、なければ追加
@@ -450,9 +450,10 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             std::pmr::wstring base_id = GenerateAnchorId(cn->GetText());
             auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
             const int count = it->second++;
-            cn->anchor_id.assign(it->first.data(), it->first.size());
+            cn->ensure_heading();
+            cn->heading_data->anchor_id.assign(it->first.data(), it->first.size());
             if (count > 0) {
-                std::format_to(std::back_inserter(cn->anchor_id), L"-{}", count);
+                std::format_to(std::back_inserter(cn->heading_data->anchor_id), L"-{}", count);
             }
             ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
@@ -766,7 +767,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     TextRun label_run;
     label_run.start = 0;
     label_run.length = static_cast<uint32_t>(full_label_len);
-    label_run.bold = true;
+    label_run.set_bold(true);
     new_runs.emplace_back(label_run);
 
     // 元のランを調整（マーカー部分を除外）

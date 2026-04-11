@@ -8,18 +8,28 @@
 #include <cassert>
 
 
-struct InlineCodeBg {
-    float left, top, width, height;
-};
+// インラインコードの背景矩形（レイアウト原点からの相対座標、パディング適用済み）
+using InlineCodeBg = D2D1_RECT_F;
 
 // テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）
 struct TableLayoutData {
-    std::pmr::vector<std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>>> cell_layouts; // [行][列]
-    std::pmr::vector<std::pmr::vector<std::pmr::vector<InlineCodeBg>>> cell_inline_code_bgs; // [行][列][]
+    std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]
+    std::pmr::vector<std::pmr::vector<InlineCodeBg>> cell_inline_code_bgs; // フラット配列 [行 * col_count + 列][]
+    size_t col_count = 0; // cell_layoutsのストライド
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
     std::pmr::vector<float> natural_col_widths; // リサイズ高速パス用キャッシュ
     std::pmr::vector<uint32_t> row_flat_offsets; // 各行の線形化テキスト先頭オフセット（ヒットテスト高速化用）
+
+    // フラットインデックスへの変換
+    constexpr size_t CellIndex(size_t row, size_t col) const noexcept { return row * col_count + col; }
+
+    // セルレイアウトの安全アクセス
+    IDWriteTextLayout* GetCellLayout(size_t row, size_t col) const noexcept
+    {
+        const size_t idx = CellIndex(row, col);
+        return (idx < cell_layouts.size()) ? cell_layouts[idx].Get() : nullptr;
+    }
 };
 
 struct NodeLayoutEntry {
@@ -111,6 +121,7 @@ public:
                 e.table_layout->cell_layouts.clear();
                 e.table_layout->cell_inline_code_bgs.clear();
                 e.table_layout->natural_col_widths.clear();
+                e.table_layout->col_count = 0;
             }
         }
         effects_generation_++;
@@ -138,6 +149,7 @@ public:
             if (e.table_layout) {
                 e.table_layout->cell_layouts.clear();
                 e.table_layout->natural_col_widths.clear();
+                e.table_layout->col_count = 0;
             }
         }
         effects_generation_++;

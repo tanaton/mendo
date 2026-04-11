@@ -6,11 +6,21 @@
 #include <memory_resource>
 
 struct FileEntry {
-    std::pmr::wstring filename;
     std::pmr::wstring full_path;
     bool is_current = false;
     bool is_directory = false;
     bool is_parent = false;  // ".." エントリ
+
+    // 表示名を返す（full_pathの末尾ファイル名、".."エントリは"..") 。
+    // 戻り値はfull_pathの内部バッファまたはリテラルを指すためnull終端。
+    const wchar_t* GetDisplayName() const noexcept
+    {
+        if (is_parent) {
+            return L"..";
+        }
+        const auto pos = full_path.find_last_of(L"\\/");
+        return (pos != full_path.npos) ? full_path.c_str() + pos + 1 : full_path.c_str();
+    }
 };
 
 class FileExplorer {

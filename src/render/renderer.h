@@ -96,6 +96,7 @@ struct SidePaneState {
     const std::pmr::vector<FileEntry>& file_entries;
     const ScrollState& file_scroll;
     const std::pmr::vector<TocEntry>& toc_entries;
+    const std::pmr::vector<Node>& nodes; // TocEntryからのテキスト参照用
     const ScrollState& toc_scroll;
     // --- 4バイトアライメント ---
     int hovered_file_index;
@@ -203,7 +204,7 @@ public:
     void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
 
     int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const;
-    void SetSearchMatches(const std::vector<SearchMatch>* matches, int current_index) noexcept
+    void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index) noexcept
     {
         cmd_generator_.SetSearchMatches(matches, current_index);
     }
@@ -223,7 +224,7 @@ private:
     void DrawTitleBar(const TitleBarRenderState& tb);
     void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes);
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered);
-    void DrawToc(const std::pmr::vector<TocEntry>& entries, const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index);
+    void DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes, const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index);
     void DrawSplitter(float x, float top, float bottom);
     void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, int hovered);  // 0=なし, 1=戻る, 2=進む
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);

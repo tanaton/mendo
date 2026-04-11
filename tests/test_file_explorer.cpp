@@ -54,7 +54,7 @@ TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly)
     auto& entries = explorer.GetEntries();
     ASSERT_EQ(entries.size(), 1u);
     EXPECT_TRUE(entries[0].is_parent);
-    EXPECT_EQ(entries[0].filename, L"..");
+    EXPECT_EQ(std::wstring_view(entries[0].GetDisplayName()), L"..");
 }
 
 // ---- Bug #23: パスの正規化（末尾のバックスラッシュ） ----
@@ -89,7 +89,7 @@ TEST_F(FileExplorerTest, TrailingSlashDoesNotCreateDoubleBackslash)
     // .mdファイルが問題なく見つかること
     bool found_md = false;
     for (const auto& entry : explorer.GetEntries()) {
-        if (entry.filename == L"hello.md") {
+        if (std::wstring_view(entry.GetDisplayName()) == L"hello.md") {
             found_md = true;
             // full_pathに二重バックスラッシュが含まれないこと
             EXPECT_EQ(entry.full_path.find(L"\\\\"), std::wstring::npos)
@@ -123,7 +123,7 @@ TEST_F(FileExplorerTest, ShowsMarkdownExtension)
 
     // ".." + markdownファイル1つ
     EXPECT_EQ(entries.size(), 2u);
-    EXPECT_EQ(entries[1].filename, L"doc.markdown");
+    EXPECT_EQ(std::wstring_view(entries[1].GetDisplayName()), L"doc.markdown");
 }
 
 TEST_F(FileExplorerTest, ShowsMkdExtension)
@@ -135,7 +135,7 @@ TEST_F(FileExplorerTest, ShowsMkdExtension)
     auto& entries = explorer.GetEntries();
 
     EXPECT_EQ(entries.size(), 2u);
-    EXPECT_EQ(entries[1].filename, L"doc.mkd");
+    EXPECT_EQ(std::wstring_view(entries[1].GetDisplayName()), L"doc.mkd");
 }
 
 TEST_F(FileExplorerTest, HidesNonMarkdownFiles)
@@ -194,9 +194,9 @@ TEST_F(FileExplorerTest, EntriesSortedCaseInsensitive)
 
     // ".."エントリをスキップ
     ASSERT_GE(entries.size(), 4u);
-    EXPECT_EQ(entries[1].filename, L"aaa.md");
-    EXPECT_EQ(entries[2].filename, L"Bbb.md");
-    EXPECT_EQ(entries[3].filename, L"ccc.md");
+    EXPECT_EQ(std::wstring_view(entries[1].GetDisplayName()), L"aaa.md");
+    EXPECT_EQ(std::wstring_view(entries[2].GetDisplayName()), L"Bbb.md");
+    EXPECT_EQ(std::wstring_view(entries[3].GetDisplayName()), L"ccc.md");
 }
 
 TEST_F(FileExplorerTest, CaseInsensitiveMdExtension)
@@ -225,7 +225,7 @@ TEST_F(FileExplorerTest, SetCurrentFileMarksEntry)
     auto& entries = explorer.GetEntries();
     bool found = false;
     for (const auto& e : entries) {
-        if (e.filename == L"b.md") {
+        if (std::wstring_view(e.GetDisplayName()) == L"b.md") {
             EXPECT_TRUE(e.is_current);
             found = true;
         }
@@ -337,11 +337,11 @@ TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches)
     // 新しいディレクトリの内容が表示されること
     bool found_other = false;
     for (const auto& e : explorer.GetEntries()) {
-        if (e.filename == L"other.md") {
+        if (std::wstring_view(e.GetDisplayName()) == L"other.md") {
             found_other = true;
         }
         // 前のディレクトリのファイルがないこと
-        EXPECT_NE(e.filename, L"test.md");
+        EXPECT_NE(std::wstring_view(e.GetDisplayName()), L"test.md");
     }
     EXPECT_TRUE(found_other);
 }
@@ -382,7 +382,7 @@ TEST_F(FileExplorerTest, FullPathIsCorrect)
 
     bool found = false;
     for (const auto& e : explorer.GetEntries()) {
-        if (e.filename == L"test.md") {
+        if (std::wstring_view(e.GetDisplayName()) == L"test.md") {
             std::wstring expected = temp_dir_.wstring() + L"\\" + L"test.md";
             EXPECT_EQ(std::wstring_view{ e.full_path }, std::wstring_view{ expected });
             found = true;

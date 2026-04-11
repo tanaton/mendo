@@ -7,10 +7,8 @@
 #include <ranges>
 
 struct TocEntry {
-    std::pmr::wstring text;
-    std::pmr::wstring anchor_id;
-    int heading_level = 1;
     int node_index = -1;
+    int heading_level = 1;
 };
 
 class TableOfContents {

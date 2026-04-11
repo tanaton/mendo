@@ -25,9 +25,9 @@ TEST(Toc, SingleHeading)
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
     ASSERT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(toc.GetEntries()[0].text, L"Title");
+    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), L"Title");
     EXPECT_EQ(toc.GetEntries()[0].heading_level, 1);
-    EXPECT_EQ(toc.GetEntries()[0].anchor_id, L"title");
+    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].anchor_id(), L"title");
 }
 
 TEST(Toc, MultipleHeadings)
@@ -50,7 +50,7 @@ TEST(Toc, HeadingTextPreserved)
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
     ASSERT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(toc.GetEntries()[0].text, L"Hello World");
+    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), L"Hello World");
 }
 
 TEST(Toc, AnchorIdPreserved)
@@ -59,7 +59,7 @@ TEST(Toc, AnchorIdPreserved)
     TableOfContents toc;
     toc.BuildFromNodes(nodes);
     ASSERT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(toc.GetEntries()[0].anchor_id, L"コードブロック");
+    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].anchor_id(), L"コードブロック");
 }
 
 TEST(Toc, RebuildClearsPrevious)
@@ -73,7 +73,7 @@ TEST(Toc, RebuildClearsPrevious)
 
     toc.BuildFromNodes(nodes2);
     EXPECT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(toc.GetEntries()[0].text, L"X");
+    EXPECT_EQ(nodes2[toc.GetEntries()[0].node_index].GetText(), L"X");
 }
 
 // ---- HitTest ----
@@ -123,10 +123,11 @@ TEST(Toc, DuplicateHeadingText)
     ASSERT_EQ(toc.GetEntries().size(), 3u);
     // すべて同じテキストを持つべき
     for (const auto& entry : toc.GetEntries()) {
-        EXPECT_EQ(entry.text, L"Title");
+        EXPECT_EQ(nodes[entry.node_index].GetText(), L"Title");
     }
     // ただしanchor_idは一意であるべき（パーサーリファクタリング後）
-    EXPECT_NE(toc.GetEntries()[0].anchor_id, toc.GetEntries()[1].anchor_id);
+    EXPECT_NE(nodes[toc.GetEntries()[0].node_index].anchor_id(),
+              nodes[toc.GetEntries()[1].node_index].anchor_id());
 }
 
 TEST(Toc, ManyHeadings)

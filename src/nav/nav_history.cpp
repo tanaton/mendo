@@ -1,8 +1,22 @@
 #include "nav_history.h"
 
+uint32_t NavHistory::InternPath(std::wstring_view path)
+{
+    if (const auto iter = std::ranges::find(path_pool_, path); iter != path_pool_.end()) {
+        return static_cast<uint32_t>(std::ranges::distance(path_pool_.begin(), iter));
+    }
+    path_pool_.emplace_back(path);
+    return static_cast<uint32_t>(path_pool_.size() - 1);
+}
+
+NavEntry NavHistory::ToExternal(const InternalEntry& e) const
+{
+    return NavEntry(path_pool_[e.path_index], e.scroll_y);
+}
+
 void NavHistory::Push(const NavEntry& current)
 {
-    back_stack_.emplace_back(current);
+    back_stack_.emplace_back(ToInternal(current));
     forward_stack_.clear();
 
     // 履歴サイズを制限（dequeなのでpop_frontはO(1)）
@@ -17,11 +31,11 @@ bool NavHistory::GoBack(const NavEntry& current, NavEntry& out)
         return false;
     }
 
-    forward_stack_.emplace_back(current);
+    forward_stack_.emplace_back(ToInternal(current));
     if (forward_stack_.size() > MAX_HISTORY) {
         forward_stack_.pop_front();
     }
-    out = std::move(back_stack_.back());
+    out = ToExternal(back_stack_.back());
     back_stack_.pop_back();
     return true;
 }
@@ -32,8 +46,8 @@ bool NavHistory::GoForward(const NavEntry& current, NavEntry& out)
         return false;
     }
 
-    back_stack_.emplace_back(current);
-    out = std::move(forward_stack_.back());
+    back_stack_.emplace_back(ToInternal(current));
+    out = ToExternal(forward_stack_.back());
     forward_stack_.pop_back();
     return true;
 }
@@ -42,4 +56,5 @@ void NavHistory::Clear() noexcept
 {
     back_stack_.clear();
     forward_stack_.clear();
+    path_pool_.clear();
 }

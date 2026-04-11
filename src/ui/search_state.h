@@ -36,8 +36,8 @@ public:
         lower_text_buf_ = {};
     }
 
-    const std::wstring& GetQuery() const noexcept { return query_; }
-    const std::vector<SearchMatch>& GetMatches() const noexcept { return matches_; }
+    const std::pmr::wstring& GetQuery() const noexcept { return query_; }
+    const std::pmr::vector<SearchMatch>& GetMatches() const noexcept { return matches_; }
     int GetCurrentMatchIndex() const noexcept { return current_match_; }
     int GetMatchCount() const noexcept { return static_cast<int>(matches_.size()); }
     // 大文字小文字の区別
@@ -59,13 +59,13 @@ public:
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
 
 private:
-    void FindMatches(std::wstring_view text, const std::wstring& lower_query, int node_index, int table_row = -1, int table_col = -1);
+    void FindMatches(std::wstring_view text, const std::pmr::wstring& lower_query, int node_index, int table_row = -1, int table_col = -1);
 
     static constexpr size_t MAX_MATCHES = 10000;
 
-    std::wstring query_;
-    std::vector<SearchMatch> matches_;
-    std::wstring lower_text_buf_; // 大文字小文字無視検索用の再利用可能バッファ
+    std::pmr::wstring query_;
+    std::pmr::vector<SearchMatch> matches_;
+    std::pmr::wstring lower_text_buf_; // 大文字小文字無視検索用の再利用可能バッファ
     int current_match_ = -1;
     bool visible_ = false;
     bool case_sensitive_ = false;

@@ -31,7 +31,6 @@ void FileExplorer::Refresh()
         const auto parent = dir_path.parent_path();
         if (parent != dir_path) {
             FileEntry pe;
-            pe.filename = L"..";
             pe.full_path.assign(parent.native());
             pe.is_directory = true;
             pe.is_parent = true;
@@ -68,14 +67,12 @@ void FileExplorer::Refresh()
 
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             FileEntry entry;
-            entry.filename = fd.cFileName;
             entry.full_path.assign((dir_base / fd.cFileName).native());
             entry.is_directory = true;
             dirs.emplace_back(std::move(entry));
         }
         else if (IsMarkdownFile(fd.cFileName)) {
             FileEntry entry;
-            entry.filename = fd.cFileName;
             entry.full_path.assign((dir_base / fd.cFileName).native());
             files.emplace_back(std::move(entry));
         }
@@ -83,10 +80,10 @@ void FileExplorer::Refresh()
 
     // ディレクトリとファイルをそれぞれ大文字小文字無視でソート
     std::ranges::sort(dirs, [](const FileEntry& a, const FileEntry& b) static noexcept {
-        return _wcsicmp(a.filename.c_str(), b.filename.c_str()) < 0;
+        return _wcsicmp(a.GetDisplayName(), b.GetDisplayName()) < 0;
     });
     std::ranges::sort(files, [](const FileEntry& a, const FileEntry& b) static noexcept {
-        return _wcsicmp(a.filename.c_str(), b.filename.c_str()) < 0;
+        return _wcsicmp(a.GetDisplayName(), b.GetDisplayName()) < 0;
     });
 
     // 追加: ディレクトリを先に、次にファイル

@@ -334,6 +334,17 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexc
     return Brush(SYNTAX_MAP[idx]);
 }
 
+// DWRITE_HIT_TEST_METRICS からパディング適用済みの InlineCodeBg を生成する。
+static InlineCodeBg MakeInlineCodeBg(const DWRITE_HIT_TEST_METRICS& m) noexcept
+{
+    return D2D1::RectF(
+        m.left - INLINE_CODE_PAD_X,
+        m.top - INLINE_CODE_PAD_Y,
+        m.left + m.width + INLINE_CODE_PAD_X,
+        m.top + m.height + INLINE_CODE_PAD_Y
+    );
+}
+
 void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
     float viewport_top, float viewport_bottom)
 {
@@ -348,7 +359,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
     auto& tl = *entry.table_layout;
     if (first_pass) {
         entry.effects_applied = true;
-        tl.cell_inline_code_bgs.resize(row_count);
+        tl.cell_inline_code_bgs.resize(row_count * tl.col_count);
     }
 
     const float border = TABLE_BORDER_WIDTH;
@@ -362,8 +373,33 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
 
         const bool row_visible = (viewport_top < 0.0f)
             || (row_bottom >= viewport_top && row_y <= viewport_bottom);
-        const bool bgs_done = (r < tl.cell_inline_code_bgs.size())
-            && (tl.cell_inline_code_bgs[r].size() == row.cells.size());
+        // 2回目以降のパスではオフスクリーン行の背景走査をスキップ
+        if (!first_pass && !row_visible) {
+            row_y = row_bottom;
+            continue;
+        }
+        // 行の全セルを走査済みかを判定: 行のフラット範囲が確保されており、
+        // いずれかのセルに背景があるか、全セルが空(インラインコードなし)なら完了とみなす。
+        bool bgs_done = false;
+        if (!first_pass && tl.CellIndex(r, 0) < tl.cell_inline_code_bgs.size()) {
+            // first_pass でリサイズ済みなのでフラグとして先頭セルの capacity を利用:
+            // first_pass 後に need_bgs=true で走査されたセルは push_back か reserve(0) で
+            // 容量が 0 でなくなるが、ここでは簡便にインラインコードランの有無で判定する。
+            bgs_done = true;
+            const auto cc = row.cells.size();
+            for (size_t c = 0; c < cc; c++) {
+                // インラインコードランを持つセルに背景がなければ未処理
+                for (const auto& run : row.cells[c].runs) {
+                    if (run.code() && run.length > 0 && tl.cell_inline_code_bgs[tl.CellIndex(r, c)].empty()) {
+                        bgs_done = false;
+                        break;
+                    }
+                }
+                if (!bgs_done) {
+                    break;
+                }
+            }
+        }
         const bool need_bgs = row_visible && !bgs_done;
 
         // 2回目以降: インラインコード背景の計算が不要な行はスキップ
@@ -372,17 +408,9 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
             continue;
         }
 
-        // この行のインラインコード背景を計算する場合のみ内側ベクターを確保
-        if (need_bgs && r < tl.cell_inline_code_bgs.size()) {
-            tl.cell_inline_code_bgs[r].resize(row.cells.size());
-        }
-
         const auto col_count = row.cells.size();
         for (size_t c = 0; c < col_count; c++) {
-            IDWriteTextLayout* cell_layout = nullptr;
-            if (r < tl.cell_layouts.size() && c < tl.cell_layouts[r].size()) {
-                cell_layout = tl.cell_layouts[r][c].Get();
-            }
+            IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
             if (!cell_layout) {
                 continue;
             }
@@ -393,15 +421,10 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
                     cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                 }
                 // インラインコード背景: 可視かつ未計算の行のみ
-                if (need_bgs && run.code && run.length > 0) {
+                if (need_bgs && run.code() && run.length > 0) {
                     const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length, hit_test_buffer_);
                     for (UINT32 hi = 0; hi < count; hi++) {
-                        tl.cell_inline_code_bgs[r][c].emplace_back(
-                            hit_test_buffer_[hi].left,
-                            hit_test_buffer_[hi].top,
-                            hit_test_buffer_[hi].width,
-                            hit_test_buffer_[hi].height
-                        );
+                        tl.cell_inline_code_bgs[tl.CellIndex(r, c)].push_back(MakeInlineCodeBg(hit_test_buffer_[hi]));
                     }
                 }
             }
@@ -437,7 +460,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
     // コードブロックにシンタックスハイライトを適用
     // トークン化はMeasureNode（レイアウトパス）で事前実行済み
     if (node.type == NodeType::CodeBlock) {
-        for (const auto& token : node.syntax_tokens) {
+        for (const auto& token : node.syntax_tokens()) {
             if (token.type == SyntaxTokenType::Plain) {
                 continue;
             }
@@ -470,15 +493,10 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
             entry.text_layout->SetUnderline(TRUE, range);
             entry.text_layout->SetDrawingEffect(Brush(BrushId::Link), range);
         }
-        if (run.code && node.type != NodeType::CodeBlock && run.length > 0) {
+        if (run.code() && node.type != NodeType::CodeBlock && run.length > 0) {
             const UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length, hit_test_buffer_);
             for (UINT32 i = 0; i < count; i++) {
-                entry.inline_code_bgs.emplace_back(
-                    hit_test_buffer_[i].left,
-                    hit_test_buffer_[i].top,
-                    hit_test_buffer_[i].width,
-                    hit_test_buffer_[i].height
-                );
+                entry.inline_code_bgs.push_back(MakeInlineCodeBg(hit_test_buffer_[i]));
             }
         }
     }
@@ -493,7 +511,7 @@ void Renderer::DrawSidePanes(const SidePaneState& sp)
         DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
     }
     if (sp.show_toc_pane) {
-        DrawToc(sp.toc_entries, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index, sp.toc_close_hovered, sp.active_toc_index);
+        DrawToc(sp.toc_entries, sp.nodes, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index, sp.toc_close_hovered, sp.active_toc_index);
         DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, sp.toc_pane_rect.y, sp.toc_pane_rect.y + sp.toc_pane_rect.height);
     }
 }

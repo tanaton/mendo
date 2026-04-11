@@ -94,10 +94,8 @@ public:
         auto& tl = entry.ensure_table_layout();
         tl.col_widths.assign(col_count, max_width / static_cast<float>(col_count));
         tl.row_heights.assign(node.table_rows().size(), table_row_height);
-        tl.cell_layouts.resize(node.table_rows().size());
-        for (size_t r = 0; r < node.table_rows().size(); r++) {
-            tl.cell_layouts[r].resize(node.table_rows()[r].cells.size());
-        }
+        tl.col_count = col_count;
+        tl.cell_layouts.resize(node.table_rows().size() * col_count);
 
         float total = table_border;
         for (size_t r = 0; r < node.table_rows().size(); r++) {

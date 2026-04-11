@@ -117,7 +117,7 @@ int FindAnchorNodeIndex(const std::pmr::vector<Node>& nodes, std::wstring_view a
     const std::pmr::wstring target = ToLowerAscii(anchor);
 
     for (const auto& [i, node] : nodes | std::views::enumerate) {
-        if (node.type == NodeType::Heading && node.anchor_id == target) {
+        if (node.type == NodeType::Heading && node.anchor_id() == target) {
             return static_cast<int>(i);
         }
     }
