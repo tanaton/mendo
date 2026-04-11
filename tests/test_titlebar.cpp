@@ -47,32 +47,43 @@ TEST_F(TitleBarTest, MinimizeButtonIsLeftOfMaximize)
     EXPECT_FLOAT_EQ(minimize.rect.right, maximize.rect.left);
 }
 
-TEST_F(TitleBarTest, HelpButtonIsLeftOfMinimize)
+// 左側ボタン群: Icon | OpenFile | Search | ThemeToggle | Help
+
+TEST_F(TitleBarTest, OpenFileIsRightOfIcon)
+{
+    auto& open_file = tb_.GetOpenFileButton();
+    float expected_left = TitleBar::ICON_LEFT_MARGIN + TitleBar::ICON_SIZE + TitleBar::ICON_RIGHT_GAP;
+    EXPECT_FLOAT_EQ(open_file.rect.left, expected_left);
+}
+
+TEST_F(TitleBarTest, SearchIsRightOfOpenFile)
+{
+    auto& open_file = tb_.GetOpenFileButton();
+    auto& search = tb_.GetSearchButton();
+    EXPECT_FLOAT_EQ(search.rect.left, open_file.rect.right);
+}
+
+TEST_F(TitleBarTest, ThemeToggleIsRightOfSearch)
+{
+    auto& search = tb_.GetSearchButton();
+    auto& theme = tb_.GetThemeToggleButton();
+    EXPECT_FLOAT_EQ(theme.rect.left, search.rect.right);
+}
+
+TEST_F(TitleBarTest, HelpIsRightOfThemeToggle)
+{
+    auto& theme = tb_.GetThemeToggleButton();
+    auto& help = tb_.GetHelpButton();
+    EXPECT_FLOAT_EQ(help.rect.left, theme.rect.right);
+}
+
+// 右側ボタン群: FileToggle | TocToggle | Minimize | Maximize | Close
+
+TEST_F(TitleBarTest, TocToggleIsLeftOfMinimize)
 {
     auto& minimize = tb_.GetMinimizeButton();
-    auto& help = tb_.GetHelpButton();
-    EXPECT_FLOAT_EQ(help.rect.right, minimize.rect.left);
-}
-
-TEST_F(TitleBarTest, ThemeToggleIsLeftOfHelp)
-{
-    auto& help = tb_.GetHelpButton();
-    auto& theme = tb_.GetThemeToggleButton();
-    EXPECT_FLOAT_EQ(theme.rect.right, help.rect.left);
-}
-
-TEST_F(TitleBarTest, SearchIsLeftOfThemeToggle)
-{
-    auto& theme = tb_.GetThemeToggleButton();
-    auto& search = tb_.GetSearchButton();
-    EXPECT_FLOAT_EQ(search.rect.right, theme.rect.left);
-}
-
-TEST_F(TitleBarTest, TocToggleIsLeftOfSearch)
-{
-    auto& search = tb_.GetSearchButton();
     auto& toc = tb_.GetTocToggleButton();
-    EXPECT_FLOAT_EQ(toc.rect.right, search.rect.left);
+    EXPECT_FLOAT_EQ(toc.rect.right, minimize.rect.left);
 }
 
 TEST_F(TitleBarTest, FileToggleIsLeftOfTocToggle)
@@ -88,6 +99,7 @@ TEST_F(TitleBarTest, AllButtonsUseFullHeight)
         EXPECT_FLOAT_EQ(btn.rect.top, 0.0f);
         EXPECT_FLOAT_EQ(btn.rect.bottom, TitleBar::BASE_HEIGHT);
     };
+    check(tb_.GetOpenFileButton());
     check(tb_.GetHelpButton());
     check(tb_.GetThemeToggleButton());
     check(tb_.GetSearchButton());
@@ -113,6 +125,7 @@ TEST_F(TitleBarTest, PaneToggleButtonWidth)
     auto check = [](const TitleBarButton& btn) static {
         EXPECT_FLOAT_EQ(btn.rect.right - btn.rect.left, TitleBar::BUTTON_WIDTH);
     };
+    check(tb_.GetOpenFileButton());
     check(tb_.GetHelpButton());
     check(tb_.GetThemeToggleButton());
     check(tb_.GetSearchButton());
@@ -120,11 +133,11 @@ TEST_F(TitleBarTest, PaneToggleButtonWidth)
     check(tb_.GetTocToggleButton());
 }
 
-TEST_F(TitleBarTest, TitleTextRectStartsAfterIcon)
+TEST_F(TitleBarTest, TitleTextRectStartsAfterLeftButtons)
 {
     auto& rect = tb_.GetTitleTextRect();
-    float expected = TitleBar::ICON_LEFT_MARGIN + TitleBar::ICON_SIZE + TitleBar::ICON_RIGHT_GAP;
-    EXPECT_FLOAT_EQ(rect.left, expected);
+    auto& help = tb_.GetHelpButton();
+    EXPECT_FLOAT_EQ(rect.left, help.rect.right);
 }
 
 TEST_F(TitleBarTest, TitleTextRectEndsAtFileToggleButton)
@@ -174,6 +187,24 @@ TEST_F(TitleBarTest, HitTestMinimizeButton)
     float cx = (btn.rect.left + btn.rect.right) / 2.0f;
     float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Minimize);
+}
+
+TEST_F(TitleBarTest, HitTestOpenFileButton)
+{
+    auto& btn = tb_.GetOpenFileButton();
+    float cx = (btn.rect.left + btn.rect.right) / 2.0f;
+    float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
+    EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::OpenFile);
+}
+
+TEST_F(TitleBarTest, HitTestOpenFileButtonBoundary)
+{
+    auto& btn = tb_.GetOpenFileButton();
+    float cy = (btn.rect.top + btn.rect.bottom) / 2.0f;
+    // 左端ちょうどはボタン内
+    EXPECT_EQ(tb_.HitTest(btn.rect.left, cy), TitleBarHitZone::OpenFile);
+    // 右端の直前はボタン内
+    EXPECT_EQ(tb_.HitTest(btn.rect.right - 0.01f, cy), TitleBarHitZone::OpenFile);
 }
 
 TEST_F(TitleBarTest, HitTestFileToggle)
@@ -279,6 +310,7 @@ TEST_F(TitleBarTest, SetHoveredNoneClearsAll)
 {
     tb_.SetHovered(TitleBarHitZone::FileToggle);
     tb_.SetHovered(TitleBarHitZone::None);
+    EXPECT_FALSE(tb_.GetOpenFileButton().hovered);
     EXPECT_FALSE(tb_.GetHelpButton().hovered);
     EXPECT_FALSE(tb_.GetThemeToggleButton().hovered);
     EXPECT_FALSE(tb_.GetSearchButton().hovered);
@@ -293,6 +325,7 @@ TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton)
 {
     auto countHovered = [&]() {
         int count = 0;
+        if (tb_.GetOpenFileButton().hovered) { ++count; }
         if (tb_.GetHelpButton().hovered) { ++count; }
         if (tb_.GetThemeToggleButton().hovered) { ++count; }
         if (tb_.GetSearchButton().hovered) { ++count; }
@@ -305,6 +338,7 @@ TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton)
     };
 
     TitleBarHitZone zones[] = {
+        TitleBarHitZone::OpenFile,
         TitleBarHitZone::Help, TitleBarHitZone::ThemeToggle,
         TitleBarHitZone::Search,
         TitleBarHitZone::FileToggle, TitleBarHitZone::TocToggle,
@@ -326,6 +360,7 @@ TEST_F(TitleBarTest, ButtonsDoNotOverlap)
     // 全ボタンの矩形を収集して、左端でソートし隣接確認
     struct Rect { float left; float right; };
     Rect rects[] = {
+        { tb_.GetOpenFileButton().rect.left,      tb_.GetOpenFileButton().rect.right },
         { tb_.GetHelpButton().rect.left,          tb_.GetHelpButton().rect.right },
         { tb_.GetThemeToggleButton().rect.left,   tb_.GetThemeToggleButton().rect.right },
         { tb_.GetSearchButton().rect.left,        tb_.GetSearchButton().rect.right },
@@ -348,9 +383,10 @@ TEST_F(TitleBarTest, ButtonsDoNotOverlap)
 TEST_F(TitleBarTest, TitleTextDoesNotOverlapButtons)
 {
     auto& title = tb_.GetTitleTextRect();
+    auto& help = tb_.GetHelpButton().rect;
     auto& file = tb_.GetFileToggleButton().rect;
+    EXPECT_GE(title.left, help.right);
     EXPECT_LE(title.right, file.left);
-    EXPECT_GE(title.left, 0.0f);
 }
 
 // ═══════════════════════════════════════════════

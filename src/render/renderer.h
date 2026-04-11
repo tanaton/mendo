@@ -57,6 +57,7 @@ struct TitleBarRenderState {
     // --- 8バイトアライメント ---
     std::wstring_view title_text;
     // --- 4バイトアライメント (D2D1_RECT_F = 4×float) ---
+    D2D1_RECT_F open_file_btn_rect{};
     D2D1_RECT_F help_btn_rect{};
     D2D1_RECT_F theme_btn_rect{};
     D2D1_RECT_F search_btn_rect{};
@@ -70,6 +71,7 @@ struct TitleBarRenderState {
     float height = 0.0f;
     float window_width = 0.0f;
     // --- 1バイトアライメント ---
+    bool open_file_btn_hovered = false;
     bool help_btn_hovered = false;
     bool theme_btn_hovered = false;
     bool is_dark_mode = false;

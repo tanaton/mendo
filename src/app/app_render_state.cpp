@@ -35,6 +35,8 @@ TitleBarRenderState App::BuildTitleBarRenderState(float window_width) const
     TitleBarRenderState tb;
     tb.height = titlebar_.GetHeight();
     tb.window_width = window_width;
+    tb.open_file_btn_rect = titlebar_.GetOpenFileButton().rect;
+    tb.open_file_btn_hovered = titlebar_.GetOpenFileButton().hovered;
     tb.help_btn_rect = titlebar_.GetHelpButton().rect;
     tb.help_btn_hovered = titlebar_.GetHelpButton().hovered;
     tb.theme_btn_rect = titlebar_.GetThemeToggleButton().rect;

@@ -7,6 +7,7 @@ enum class TitleBarHitZone {
     None,        // タイトルバー外
     Caption,     // ドラッグ可能領域
     Icon,        // アプリアイコン（システムメニュー）
+    OpenFile,    // ファイルを開くボタン
     Help,        // ヘルプボタン
     ThemeToggle, // ダークモード切替ボタン
     Search,      // 検索ボタン
@@ -41,7 +42,23 @@ public:
     // ウィンドウ幅からボタン位置を計算
     void UpdateLayout(float window_width_dip) noexcept
     {
-        // キャプションボタン（右端から配置、全高を使用）
+        // ── 左側ボタン群（アイコンの右から配置）──
+        // アイコン位置（タイトルバー左端、垂直中央）
+        const float icon_top = (BASE_HEIGHT - ICON_SIZE) / 2.0f;
+        icon_rect_ = D2D1::RectF(ICON_LEFT_MARGIN, icon_top,
+            ICON_LEFT_MARGIN + ICON_SIZE, icon_top + ICON_SIZE);
+
+        float left = ICON_LEFT_MARGIN + ICON_SIZE + ICON_RIGHT_GAP;
+        open_file_.rect = D2D1::RectF(left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT);
+        left += BUTTON_WIDTH;
+        search_.rect = D2D1::RectF(left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT);
+        left += BUTTON_WIDTH;
+        theme_toggle_.rect = D2D1::RectF(left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT);
+        left += BUTTON_WIDTH;
+        help_.rect = D2D1::RectF(left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT);
+        left += BUTTON_WIDTH;
+
+        // ── 右側ボタン群（右端から配置）──
         float right = window_width_dip;
         close_.rect = D2D1::RectF(right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT);
         right -= CAPTION_BTN_WIDTH;
@@ -50,32 +67,14 @@ public:
         minimize_.rect = D2D1::RectF(right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT);
         right -= CAPTION_BTN_WIDTH;
 
-        // ヘルプボタン（最小化ボタンの左隣に配置）
-        help_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
-        right -= BUTTON_WIDTH;
-
-        // ダークモード切替ボタン（ヘルプボタンの左隣に配置）
-        theme_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
-        right -= BUTTON_WIDTH;
-
-        // 検索ボタン（ダークモード切替ボタンの左隣に配置）
-        search_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
-        right -= BUTTON_WIDTH;
-
-        // ペイン切替ボタン（検索ボタンの左隣に配置）
+        // ペイン切替ボタン（最小化ボタンの左隣から配置）
         toc_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
         right -= BUTTON_WIDTH;
         file_toggle_.rect = D2D1::RectF(right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT);
 
-        // アイコン位置（タイトルバー左端、垂直中央）
-        const float icon_top = (BASE_HEIGHT - ICON_SIZE) / 2.0f;
-        icon_rect_ = D2D1::RectF(ICON_LEFT_MARGIN, icon_top,
-            ICON_LEFT_MARGIN + ICON_SIZE, icon_top + ICON_SIZE);
-
-        // タイトルテキスト領域（アイコンの右からファイル切替ボタンの左まで）
-        const float title_left = ICON_LEFT_MARGIN + ICON_SIZE + ICON_RIGHT_GAP;
+        // タイトルテキスト領域（左側ボタンの右からファイル切替ボタンの左まで）
         const float title_right = file_toggle_.rect.left;
-        title_text_rect_ = D2D1::RectF(title_left, 0.0f, (title_right > title_left) ? title_right : title_left, BASE_HEIGHT);
+        title_text_rect_ = D2D1::RectF(left, 0.0f, (title_right > left) ? title_right : left, BASE_HEIGHT);
     }
 
     // DIP座標でヒットテスト
@@ -93,11 +92,9 @@ public:
         if (PointInRect(dip_x, dip_y, minimize_.rect)) {
             return TitleBarHitZone::Minimize;
         }
-        if (PointInRect(dip_x, dip_y, file_toggle_.rect)) {
-            return TitleBarHitZone::FileToggle;
-        }
-        if (PointInRect(dip_x, dip_y, toc_toggle_.rect)) {
-            return TitleBarHitZone::TocToggle;
+        // 左側ボタン群
+        if (PointInRect(dip_x, dip_y, open_file_.rect)) {
+            return TitleBarHitZone::OpenFile;
         }
         if (PointInRect(dip_x, dip_y, search_.rect)) {
             return TitleBarHitZone::Search;
@@ -107,6 +104,13 @@ public:
         }
         if (PointInRect(dip_x, dip_y, help_.rect)) {
             return TitleBarHitZone::Help;
+        }
+        // 右側ボタン群
+        if (PointInRect(dip_x, dip_y, file_toggle_.rect)) {
+            return TitleBarHitZone::FileToggle;
+        }
+        if (PointInRect(dip_x, dip_y, toc_toggle_.rect)) {
+            return TitleBarHitZone::TocToggle;
         }
         // アイコン領域（クリックしやすいようアイコン右のギャップまで含む）
         if (dip_x < icon_rect_.right + ICON_RIGHT_GAP) {
@@ -122,6 +126,7 @@ public:
             return false;
         }
         hovered_ = zone;
+        open_file_.hovered = (zone == TitleBarHitZone::OpenFile);
         help_.hovered = (zone == TitleBarHitZone::Help);
         theme_toggle_.hovered = (zone == TitleBarHitZone::ThemeToggle);
         search_.hovered = (zone == TitleBarHitZone::Search);
@@ -134,6 +139,7 @@ public:
     }
 
     constexpr TitleBarHitZone GetHovered() const noexcept { return hovered_; }
+    constexpr const TitleBarButton& GetOpenFileButton() const noexcept { return open_file_; }
     constexpr const TitleBarButton& GetHelpButton() const noexcept { return help_; }
     constexpr const TitleBarButton& GetThemeToggleButton() const noexcept { return theme_toggle_; }
     constexpr const TitleBarButton& GetSearchButton() const noexcept { return search_; }
@@ -146,6 +152,7 @@ public:
     constexpr const D2D1_RECT_F& GetTitleTextRect() const noexcept { return title_text_rect_; }
 
 private:
+    TitleBarButton open_file_;
     TitleBarButton help_;
     TitleBarButton theme_toggle_;
     TitleBarButton search_;
