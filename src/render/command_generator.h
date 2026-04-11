@@ -55,7 +55,12 @@ public:
     };
 
     // ファイル切替時にバッファを縮小する
-    void ShrinkBuffers() { if (!shared_hit_test_buffer_) { hit_test_buffer_.shrink_to_fit(); } }
+    void ShrinkBuffers()
+    {
+        if (!shared_hit_test_buffer_) {
+            hit_test_buffer_.shrink_to_fit();
+        }
+    }
 
     void SetSharedHitTestBuffer(std::pmr::vector<DWRITE_HIT_TEST_METRICS>* buf) noexcept { shared_hit_test_buffer_ = buf; }
 
