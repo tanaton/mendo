@@ -109,56 +109,56 @@ TEST_F(AppControllerTest, Ctrl1ReturnsToggleFilePane)
 {
     auto a = ctrl_.HandleKeyDown({ '1', true, false });
     auto& t = GetAction<TogglePaneAction>(a);
-    EXPECT_TRUE(t.file_pane);
+    EXPECT_EQ(t.target, PaneTarget::File);
 }
 
 TEST_F(AppControllerTest, Ctrl2ReturnsToggleTocPane)
 {
     auto a = ctrl_.HandleKeyDown({ '2', true, false });
     auto& t = GetAction<TogglePaneAction>(a);
-    EXPECT_FALSE(t.file_pane);
+    EXPECT_EQ(t.target, PaneTarget::Toc);
 }
 
 TEST_F(AppControllerTest, CtrlPlusReturnsZoomIn)
 {
     auto a = ctrl_.HandleKeyDown({ VK_OEM_PLUS, true, false });
     auto& z = GetAction<ZoomAction>(a);
-    EXPECT_EQ(z.direction, 1);
+    EXPECT_EQ(z.direction, ZoomDirection::In);
 }
 
 TEST_F(AppControllerTest, CtrlNumpadPlusReturnsZoomIn)
 {
     auto a = ctrl_.HandleKeyDown({ VK_ADD, true, false });
     auto& z = GetAction<ZoomAction>(a);
-    EXPECT_EQ(z.direction, 1);
+    EXPECT_EQ(z.direction, ZoomDirection::In);
 }
 
 TEST_F(AppControllerTest, CtrlMinusReturnsZoomOut)
 {
     auto a = ctrl_.HandleKeyDown({ VK_OEM_MINUS, true, false });
     auto& z = GetAction<ZoomAction>(a);
-    EXPECT_EQ(z.direction, -1);
+    EXPECT_EQ(z.direction, ZoomDirection::Out);
 }
 
 TEST_F(AppControllerTest, CtrlNumpadMinusReturnsZoomOut)
 {
     auto a = ctrl_.HandleKeyDown({ VK_SUBTRACT, true, false });
     auto& z = GetAction<ZoomAction>(a);
-    EXPECT_EQ(z.direction, -1);
+    EXPECT_EQ(z.direction, ZoomDirection::Out);
 }
 
 TEST_F(AppControllerTest, Ctrl0ReturnsZoomReset)
 {
     auto a = ctrl_.HandleKeyDown({ '0', true, false });
     auto& z = GetAction<ZoomAction>(a);
-    EXPECT_EQ(z.direction, 0);
+    EXPECT_EQ(z.direction, ZoomDirection::Reset);
 }
 
 TEST_F(AppControllerTest, CtrlNumpad0ReturnsZoomReset)
 {
     auto a = ctrl_.HandleKeyDown({ VK_NUMPAD0, true, false });
     auto& z = GetAction<ZoomAction>(a);
-    EXPECT_EQ(z.direction, 0);
+    EXPECT_EQ(z.direction, ZoomDirection::Reset);
 }
 
 // ═══════════════════════════════════════════════
@@ -235,14 +235,14 @@ TEST_F(AppControllerTest, CtrlWheelUpZoomsIn)
 {
     auto a = ctrl_.HandleMouseWheel({ 120, true, PaneZone::MdPane });
     auto& z = GetAction<ZoomAction>(a);
-    EXPECT_EQ(z.direction, 1);
+    EXPECT_EQ(z.direction, ZoomDirection::In);
 }
 
 TEST_F(AppControllerTest, CtrlWheelDownZoomsOut)
 {
     auto a = ctrl_.HandleMouseWheel({ -120, true, PaneZone::MdPane });
     auto& z = GetAction<ZoomAction>(a);
-    EXPECT_EQ(z.direction, -1);
+    EXPECT_EQ(z.direction, ZoomDirection::Out);
 }
 
 TEST_F(AppControllerTest, CtrlWheelIgnoresZone)
@@ -284,6 +284,18 @@ TEST_F(AppControllerTest, CtrlAltLeftProducesNoAction)
 // ═══════════════════════════════════════════════
 // HandleKeyDown — 検索ショートカット
 // ═══════════════════════════════════════════════
+
+TEST_F(AppControllerTest, F3ReturnsSearchNext)
+{
+    auto a = ctrl_.HandleKeyDown({ VK_F3, false, false });
+    EXPECT_TRUE(std::holds_alternative<SearchNextAction>(a));
+}
+
+TEST_F(AppControllerTest, ShiftF3ReturnsSearchPrev)
+{
+    auto a = ctrl_.HandleKeyDown({ VK_F3, false, true });
+    EXPECT_TRUE(std::holds_alternative<SearchPrevAction>(a));
+}
 
 TEST_F(AppControllerTest, CtrlFReturnsOpenSearchBar)
 {

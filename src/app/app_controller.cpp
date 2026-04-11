@@ -26,17 +26,17 @@ AppAction AppController::HandleKeyDown(const KeyDownEvent& event) const
             else {
                 return SearchNextAction{};
             }
-        case '1': return TogglePaneAction{ true };
-        case '2': return TogglePaneAction{ false };
+        case '1': return TogglePaneAction{ PaneTarget::File };
+        case '2': return TogglePaneAction{ PaneTarget::Toc };
         case VK_OEM_PLUS:
         case VK_ADD:
-            return ZoomAction{ 1 };
+            return ZoomAction{ ZoomDirection::In };
         case VK_OEM_MINUS:
         case VK_SUBTRACT:
-            return ZoomAction{ -1 };
+            return ZoomAction{ ZoomDirection::Out };
         case '0':
         case VK_NUMPAD0:
-            return ZoomAction{ 0 };
+            return ZoomAction{ ZoomDirection::Reset };
         }
         return NoOpAction{};
     }
@@ -66,7 +66,7 @@ AppAction AppController::HandleKeyDown(const KeyDownEvent& event) const
 AppAction AppController::HandleMouseWheel(const MouseWheelEvent& event) const
 {
     if (event.ctrl) {
-        return ZoomAction{ event.delta > 0 ? 1 : -1 };
+        return ZoomAction{ event.delta > 0 ? ZoomDirection::In : ZoomDirection::Out };
     }
 
     const float scroll_amount = -event.delta * MOUSE_WHEEL_SCROLL_MULTIPLIER;

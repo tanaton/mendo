@@ -904,20 +904,18 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
         return;
     }
 
-    // 軸ロック用: 縦スクロール発生をスワイプ検出器に通知
-    if (!ctrl) {
-        const bool had_overlay = swipe_detector_.IsOverlayVisible();
-        swipe_detector_.NotifyVScroll(GetTickCount64());
-        if (had_overlay) {
-            KillTimer(hwnd_, app_timer::SWIPE_OVERLAY);
-            Invalidate();
-        }
-    }
-
     if (ctrl) {
         const MouseWheelEvent event{ delta, true, PaneZone::MdPane };
         ExecuteAction(controller_.HandleMouseWheel(event));
         return;
+    }
+
+    // 軸ロック用: 縦スクロール発生をスワイプ検出器に通知
+    const bool had_overlay = swipe_detector_.IsOverlayVisible();
+    swipe_detector_.NotifyVScroll(GetTickCount64());
+    if (had_overlay) {
+        KillTimer(hwnd_, app_timer::SWIPE_OVERLAY);
+        Invalidate();
     }
 
     const auto dip = PixelToDip(px, py);
@@ -1023,23 +1021,17 @@ void App::ExecuteAction(const AppAction& action)
             }
         },
         [this](const TogglePaneAction& a) {
-            if (a.file_pane) {
-                panes_.ToggleFilePane();
-            }
-            else {
-                panes_.ToggleTocPane();
+            switch (a.target) {
+            case PaneTarget::File: panes_.ToggleFilePane(); break;
+            case PaneTarget::Toc:  panes_.ToggleTocPane();  break;
             }
             RefreshPaneLayout();
         },
         [this](const ZoomAction& a) {
-            if (a.direction > 0) {
-                ZoomIn();
-            }
-            else if (a.direction < 0) {
-                ZoomOut();
-            }
-            else {
-                ZoomReset();
+            switch (a.direction) {
+            case ZoomDirection::In:    ZoomIn();    break;
+            case ZoomDirection::Out:   ZoomOut();   break;
+            case ZoomDirection::Reset: ZoomReset(); break;
             }
         },
         [this](const ReloadFileAction&) {
@@ -1076,21 +1068,25 @@ void App::ExecuteAction(const AppAction& action)
             search_bar_ctrl_.OnClose();
         },
         [this](const SearchNextAction&) {
-            EnsureSearchBarOpen();
-            search_bar_ctrl_.OnNext();
+            if (EnsureSearchBarOpen()) {
+                search_bar_ctrl_.OnNext();
+            }
         },
         [this](const SearchPrevAction&) {
-            EnsureSearchBarOpen();
-            search_bar_ctrl_.OnPrev();
+            if (EnsureSearchBarOpen()) {
+                search_bar_ctrl_.OnPrev();
+            }
         },
         }, action);
 }
 
-void App::EnsureSearchBarOpen()
+bool App::EnsureSearchBarOpen()
 {
-    if (!search_bar_ctrl_.GetState().IsVisible()) {
-        search_bar_ctrl_.OnOpen(doc_.GetNodes());
+    if (search_bar_ctrl_.GetState().IsVisible()) {
+        return true;
     }
+    search_bar_ctrl_.OnOpen(doc_.GetNodes());
+    return false;
 }
 
 void App::OnDropFiles(HDROP hDrop)

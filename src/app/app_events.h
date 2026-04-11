@@ -35,10 +35,12 @@ struct SelectAllAction {};
 struct ClearSelectionAction {};
 
 // サイドペインの切り替え
-struct TogglePaneAction { bool file_pane; };   // true = ファイル, false = 目次
+enum class PaneTarget { File, Toc };
+struct TogglePaneAction { PaneTarget target; };
 
-// ズーム: -1 = 縮小, 0 = リセット, +1 = 拡大
-struct ZoomAction { int direction; };
+// ズーム操作
+enum class ZoomDirection { In, Out, Reset };
+struct ZoomAction { ZoomDirection direction; };
 
 struct ReloadFileAction {};
 struct OpenFileAction {};

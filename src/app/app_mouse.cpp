@@ -356,29 +356,19 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
     }
 
     const auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
-    // アクションシステム経由でディスパッチ（Ctrl+Oなどのキーボード操作と同じパスを通す）
     switch (tb_zone) {
-    case TitleBarHitZone::OpenFile:    ExecuteAction(OpenFileAction{}); return true;
-    case TitleBarHitZone::Help:        ExecuteAction(ShowHelpAction{}); return true;
-    case TitleBarHitZone::Search:      ExecuteAction(OpenSearchBarAction{}); return true;
-    case TitleBarHitZone::ThemeToggle: ExecuteAction(ToggleDarkModeAction{}); return true;
-    case TitleBarHitZone::FileToggle:  ExecuteAction(TogglePaneAction{true}); return true;
-    case TitleBarHitZone::TocToggle:   ExecuteAction(TogglePaneAction{false}); return true;
-    default: break;
+    case TitleBarHitZone::OpenFile:    ExecuteAction(OpenFileAction{}); break;
+    case TitleBarHitZone::Help:        ExecuteAction(ShowHelpAction{}); break;
+    case TitleBarHitZone::Search:      ExecuteAction(OpenSearchBarAction{}); break;
+    case TitleBarHitZone::ThemeToggle: ExecuteAction(ToggleDarkModeAction{}); break;
+    case TitleBarHitZone::FileToggle:  ExecuteAction(TogglePaneAction{ PaneTarget::File }); break;
+    case TitleBarHitZone::TocToggle:   ExecuteAction(TogglePaneAction{ PaneTarget::Toc }); break;
+    case TitleBarHitZone::Minimize:    ShowWindow(hwnd_, SW_MINIMIZE); break;
+    case TitleBarHitZone::Maximize:    ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE); break;
+    case TitleBarHitZone::Close:       PostMessageW(hwnd_, WM_CLOSE, 0, 0); break;
+    default: break;  // タイトルバーの他の領域はWM_NCHITTESTで処理済み
     }
-    if (tb_zone == TitleBarHitZone::Minimize) {
-        ShowWindow(hwnd_, SW_MINIMIZE);
-        return true;
-    }
-    if (tb_zone == TitleBarHitZone::Maximize) {
-        ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE);
-        return true;
-    }
-    if (tb_zone == TitleBarHitZone::Close) {
-        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
-        return true;
-    }
-    return true;  // タイトルバーの他の領域はWM_NCHITTESTで処理済み
+    return true;
 }
 
 void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
@@ -411,8 +401,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
             if (PointInRect(dip_x, dip_y, sbl.input_rect)) {
                 const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
                 const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
-                const int pos = renderer_.HitTestSearchInput(
-                    search_state_.GetQuery(), dip_x - text_left, input_w);
+                const int pos = renderer_.HitTestSearchInput(search_state_.GetQuery(), dip_x - text_left, input_w);
                 search_bar_ctrl_.StartDrag(pos);
                 SetCapture(hwnd_);
                 PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
@@ -458,8 +447,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         float total_h = layout_service_->GetTotalHeight();
         float viewport_h = pane_layout.md_rect.height;
         if (total_h > viewport_h) {
-            const float sb_left = pane_layout.md_rect.x + pane_layout.md_rect.width
-                - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+            const float sb_left = pane_layout.md_rect.x + pane_layout.md_rect.width - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
             if (dip_x >= sb_left - PANE_SCROLLBAR_HIT_PADDING) {
                 SetCapture(hwnd_);
                 panes_.StartDrag(PaneController::DragTarget::MdScrollbar);

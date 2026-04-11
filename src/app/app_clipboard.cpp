@@ -69,7 +69,7 @@ void App::SetClipboardText(std::wstring_view text) const
     if (hMem) {
         void* ptr = GlobalLock(hMem.get());
         if (ptr) {
-            memcpy(ptr, text.data(), text.size() * sizeof(wchar_t));
+            std::char_traits<wchar_t>::copy(static_cast<wchar_t*>(ptr), text.data(), text.size());
             static_cast<wchar_t*>(ptr)[text.size()] = L'\0';
             GlobalUnlock(hMem.get());
             if (SetClipboardData(CF_UNICODETEXT, hMem.get())) {
