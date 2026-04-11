@@ -373,6 +373,11 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
 
         const bool row_visible = (viewport_top < 0.0f)
             || (row_bottom >= viewport_top && row_y <= viewport_bottom);
+        // 2回目以降のパスではオフスクリーン行の背景走査をスキップ
+        if (!first_pass && !row_visible) {
+            row_y = row_bottom;
+            continue;
+        }
         // 行の全セルを走査済みかを判定: 行のフラット範囲が確保されており、
         // いずれかのセルに背景があるか、全セルが空(インラインコードなし)なら完了とみなす。
         bool bgs_done = false;

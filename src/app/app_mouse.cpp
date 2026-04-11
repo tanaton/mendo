@@ -758,7 +758,7 @@ void App::OnMouseHover(int px, int py)
             [&](bool close_hit, bool, int idx) -> TooltipTarget {
             if (close_hit) { return { TooltipTarget::Zone::TocPaneButton, i18n::S().tooltip_pane_close }; }
             if (idx >= 0 && idx < static_cast<int>(toc_entries.size())) {
-                return { TooltipTarget::Zone::TocPaneItem, std::wstring(doc_.GetNodes()[toc_entries[idx].node_index].GetText()) };
+                return { TooltipTarget::Zone::TocPaneItem, doc_.GetNodes()[toc_entries[idx].node_index].GetText() };
             }
             return {};
         });

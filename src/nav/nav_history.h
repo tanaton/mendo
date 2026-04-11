@@ -42,6 +42,7 @@ public:
     void Clear() noexcept;
 
     static constexpr size_t MAX_HISTORY = 1024;
+    static constexpr size_t MAX_PATH_POOL = UINT16_MAX; // path_index が uint16_t のため
 
 private:
     // 内部エントリ: パスインデックス + スクロール位置（8バイト）

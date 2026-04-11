@@ -2,10 +2,17 @@
 
 uint16_t NavHistory::InternPath(std::wstring_view path)
 {
-    for (uint16_t i = 0; i < path_pool_.size(); ++i) {
+    const auto pool_size = path_pool_.size();
+    for (size_t i = 0; i < pool_size; ++i) {
         if (path_pool_[i] == path) {
-            return i;
+            return static_cast<uint16_t>(i);
         }
+    }
+    // プールが上限に達した場合、全履歴をリセットして再インターンする
+    if (pool_size >= MAX_PATH_POOL) {
+        back_stack_.clear();
+        forward_stack_.clear();
+        path_pool_.clear();
     }
     path_pool_.emplace_back(path);
     return static_cast<uint16_t>(path_pool_.size() - 1);
