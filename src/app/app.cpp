@@ -479,21 +479,29 @@ void App::LoadHelpDocument()
     UpdateTitleBar();
 }
 
+void App::BeginAsyncLoad(const std::pmr::wstring& path)
+{
+    file_load_service_.SetLoadingPath(path);
+    if (DocumentService::NeedsLoadingAnimation(path) && !pending_prefix_shrink_) {
+        file_load_service_.StartLoading(path);
+        SetTimer(hwnd_, app_timer::LOADING_ANIM, 16, nullptr);
+        Invalidate();
+        UpdateWindow(hwnd_);
+    }
+    file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme());
+}
+
 void App::LoadMarkdownFile(std::wstring_view path)
 {
     KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
     pending_prefix_shrink_ = false;
     const std::pmr::wstring path_str{ path };
-    if (!DocumentService::NeedsLoadingAnimation(path_str)) {
+    if (!DocumentService::NeedsAsyncLoad(path_str)) {
         file_load_service_.SetLoadingPath(path_str);
         DoLoadMarkdownFile();
     }
     else {
-        file_load_service_.StartLoading(path_str);
-        SetTimer(hwnd_, app_timer::LOADING_ANIM, 16, nullptr);
-        Invalidate();
-        UpdateWindow(hwnd_);
-        file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE);
+        BeginAsyncLoad(path_str);
     }
 }
 
@@ -537,13 +545,13 @@ void App::OnParseComplete()
     // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
     // 非同期のファイルオープンでも OnParseComplete() が使われるため、
     // 別ファイル読み込み時は差分ロジックをスキップする。
-    if (_wcsicmp(result->GetFilePath().c_str(), doc_.GetFilePath().c_str()) == 0) {
+    if (_wcsicmp(result->doc.GetFilePath().c_str(), doc_.GetFilePath().c_str()) == 0) {
         const std::string_view old_view(doc_.GetRawUtf8());
-        const std::string_view new_view(result->GetRawUtf8());
+        const std::string_view new_view(result->doc.GetRawUtf8());
         const size_t diff_pos = FindFirstDifference(old_view, new_view);
 
         MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu",
-            result->GetNodes().size(), diff_pos, old_view.size(), new_view.size());
+            result->doc.GetNodes().size(), diff_pos, old_view.size(), new_view.size());
 
         if (diff_pos == std::string_view::npos) {
             // 差分なし → リロード不要、監視再開
@@ -570,7 +578,7 @@ void App::OnParseComplete()
             // Reset() + EstimateNodeHeights() だと推定高さの累積誤差で
             // 大規模ファイル後半のスクロール位置が大きくずれる。
             resource_manager_.CancelMermaidBatch();
-            doc_ = std::move(*result);
+            doc_ = std::move(result->doc);
             layout_cache_.ResizePreservingPrefix(doc_.GetNodes().size());
 
             renderer_.InvalidateTocPaneCache();
@@ -599,13 +607,13 @@ void App::OnParseComplete()
         reload_diff_pos_ = std::string_view::npos;
     }
 
-    doc_ = std::move(*result);
-    layout_cache_.Reset(doc_.GetNodes().size());
+    doc_ = std::move(result->doc);
+    layout_cache_ = std::move(result->cache);
 
-    FinishLoadMarkdownFile();
+    FinishLoadMarkdownFile(/* heights_estimated = */ true);
 }
 
-void App::FinishLoadMarkdownFile()
+void App::FinishLoadMarkdownFile(bool heights_estimated)
 {
     viewport_.ClearSelection();
     search_bar_ctrl_.Reset();
@@ -634,19 +642,22 @@ void App::FinishLoadMarkdownFile()
 
     const bool has_reload_diff = (reload_diff_pos_ != std::string_view::npos);
 
-    MENDO_TRACEF("FinishLoad: has_reload_diff=%d HasNodeRestore=%d HasNavScroll=%d nav_scroll_y=%.1f",
+    MENDO_TRACEF("FinishLoad: has_reload_diff=%d HasNodeRestore=%d HasNavScroll=%d nav_scroll_y=%.1f heights_estimated=%d",
         has_reload_diff ? 1 : 0,
         scroll_restore_.HasNodeRestore() ? 1 : 0,
         scroll_restore_.HasNavScroll() ? 1 : 0,
-        scroll_restore_.HasNavScroll() ? scroll_restore_.pending_nav_scroll_y : -1.0f);
+        scroll_restore_.HasNavScroll() ? scroll_restore_.pending_nav_scroll_y : -1.0f,
+        heights_estimated ? 1 : 0);
 
     // cache.Reset()直後は全ノードの高さが0のため、スクロール復元前に
     // ノード高さを推定し、Mermaidキャッシュの実測値で補正する
     if (has_reload_diff
         || scroll_restore_.HasNodeRestore()
         || (scroll_restore_.HasNavScroll() && scroll_restore_.pending_nav_scroll_y > 0.0f)) {
-        MENDO_PROFILE("EstimateNodeHeights");
-        EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
+        if (!heights_estimated) {
+            MENDO_PROFILE("EstimateNodeHeights");
+            EstimateNodeHeights(doc_.GetNodes(), layout_cache_, renderer_.GetTheme());
+        }
         ApplyMermaidCacheHeights(md_width);
     }
 
@@ -702,7 +713,8 @@ void App::FinishLoadMarkdownFile()
 
 void App::ReloadCurrentFile()
 {
-    if (doc_.GetFilePath().empty() || IsHelpPath(doc_.GetFilePath())) {
+    const auto& path = doc_.GetFilePath();
+    if (path.empty() || IsHelpPath(path)) {
         return;
     }
     // ローディングアニメーション表示中は重複リロードを抑制
@@ -710,19 +722,10 @@ void App::ReloadCurrentFile()
         return;
     }
 
-    if (DocumentService::NeedsLoadingAnimation(doc_.GetFilePath())) {
-        MENDO_TRACE("ReloadCurrentFile: async path (large file)");
+    if (DocumentService::NeedsAsyncLoad(path)) {
+        MENDO_TRACE("ReloadCurrentFile: async path");
         reload_old_scroll_ = viewport_.GetScrollY();
-        file_load_service_.StartLoading(doc_.GetFilePath());
-        // pending_prefix_shrink_ 中はローディングアニメーションを表示しない。
-        // エディタの truncate→rewrite の中間状態をスキップしているだけなので、
-        // 画面を白くして再描画する必要がない。
-        if (!pending_prefix_shrink_) {
-            SetTimer(hwnd_, app_timer::LOADING_ANIM, 16, nullptr);
-            Invalidate();
-            UpdateWindow(hwnd_);
-        }
-        file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE);
+        BeginAsyncLoad(path);
     }
     else {
         MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");

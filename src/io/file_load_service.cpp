@@ -1,5 +1,6 @@
 #include "file_load_service.h"
 #include "file_loader.h"
+#include "layout.h"
 #include "profiler.h"
 #include "ui_constants.h"
 
@@ -34,7 +35,7 @@ bool FileLoadService::ExecuteLoad(Document& doc, LayoutCache& cache)
     return true;
 }
 
-void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id)
+void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme)
 {
     {
         const std::lock_guard lock(async_mutex_);
@@ -43,7 +44,7 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
     const uint32_t gen = async_gen_.fetch_add(1, std::memory_order_relaxed) + 1;
     const std::pmr::wstring path = loading_path_;
 
-    scheduler.Post([this, path, hwnd, msg_id, gen] {
+    scheduler.Post([this, path, hwnd, msg_id, gen, theme] {
         if (async_gen_.load(std::memory_order_relaxed) != gen) {
             return;
         }
@@ -66,16 +67,20 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
             return;
         }
 
+        LayoutCache cache;
+        cache.Reset(doc.GetNodes().size(), /* shrink = */ false);
+        EstimateNodeHeights(doc.GetNodes(), cache, theme);
+
         {
             const std::lock_guard lock(async_mutex_);
-            async_result_.emplace(std::move(doc));
+            async_result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache) });
         }
 
         PostMessage(hwnd, msg_id, 0, 0);
     });
 }
 
-std::optional<Document> FileLoadService::TakeAsyncResult()
+std::optional<AsyncLoadResult> FileLoadService::TakeAsyncResult()
 {
     const std::lock_guard lock(async_mutex_);
     auto result = std::move(async_result_);
