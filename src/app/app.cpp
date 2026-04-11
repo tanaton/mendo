@@ -1076,22 +1076,21 @@ void App::ExecuteAction(const AppAction& action)
             search_bar_ctrl_.OnClose();
         },
         [this](const SearchNextAction&) {
-            if (!search_bar_ctrl_.GetState().IsVisible()) {
-                search_bar_ctrl_.OnOpen(doc_.GetNodes());
-            }
-            else {
-                search_bar_ctrl_.OnNext();
-            }
+            EnsureSearchBarOpen();
+            search_bar_ctrl_.OnNext();
         },
         [this](const SearchPrevAction&) {
-            if (!search_bar_ctrl_.GetState().IsVisible()) {
-                search_bar_ctrl_.OnOpen(doc_.GetNodes());
-            }
-            else {
-                search_bar_ctrl_.OnPrev();
-            }
+            EnsureSearchBarOpen();
+            search_bar_ctrl_.OnPrev();
         },
         }, action);
+}
+
+void App::EnsureSearchBarOpen()
+{
+    if (!search_bar_ctrl_.GetState().IsVisible()) {
+        search_bar_ctrl_.OnOpen(doc_.GetNodes());
+    }
 }
 
 void App::OnDropFiles(HDROP hDrop)

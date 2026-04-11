@@ -149,6 +149,7 @@ public:
 private:
     // AppControllerが返すアクションを実行
     void ExecuteAction(const AppAction& action);
+    void EnsureSearchBarOpen();
 
     // Init用コールバック構築ヘルパー
     ResourceManager::Callbacks BuildResourceManagerCallbacks();
