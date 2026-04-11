@@ -27,6 +27,15 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         }
     };
 
+    // ファイルを開くボタン
+    drawButton(
+        tb.open_file_btn_rect,
+        L"\uE838",
+        tb.open_file_btn_hovered,
+        BrushId::TitleBarButtonHover,
+        BrushId::TitleBarText,
+        text_alpha
+    );
     // ヘルプボタン
     drawButton(
         tb.help_btn_rect,

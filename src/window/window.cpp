@@ -258,6 +258,7 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
         switch (zone) {
         case TitleBarHitZone::Icon:
             return HTSYSMENU;  // システムメニュー表示（ダブルクリックで閉じる）
+        case TitleBarHitZone::OpenFile:
         case TitleBarHitZone::Help:
         case TitleBarHitZone::ThemeToggle:
         case TitleBarHitZone::Search:

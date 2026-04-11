@@ -9,6 +9,7 @@ enum class Lang : uint8_t { Ja, En };
 
 struct Strings {
     // タイトルバー tooltip
+    std::wstring_view tooltip_open_file;
     std::wstring_view tooltip_help;
     std::wstring_view tooltip_theme_toggle;
     std::wstring_view tooltip_search;
@@ -67,6 +68,7 @@ struct Strings {
 
 inline constexpr Strings kJa = {
     // タイトルバー tooltip
+    L"ファイルを開く (Ctrl+O)",
     L"ヘルプ (F1)",
     L"ダーク/ライトモード切替",
     L"検索 (Ctrl+F)",
@@ -114,6 +116,7 @@ inline constexpr Strings kJa = {
 
 inline constexpr Strings kEn = {
     // タイトルバー tooltip
+    L"Open File (Ctrl+O)",
     L"Help (F1)",
     L"Toggle Dark/Light Mode",
     L"Search (Ctrl+F)",

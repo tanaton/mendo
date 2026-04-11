@@ -1,5 +1,6 @@
 #include "app.h"
 #include "app_constants.h"
+#include "app_events.h"
 #include "i18n.h"
 #include "pane_layout.h"
 #include "document_utils.h"
@@ -25,6 +26,7 @@ TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximized) noex
 {
     const auto& ls = i18n::S();
     switch (zone) {
+    case TitleBarHitZone::OpenFile:    return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_open_file };
     case TitleBarHitZone::Help:        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_help };
     case TitleBarHitZone::ThemeToggle: return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_theme_toggle };
     case TitleBarHitZone::Search:      return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_search };
@@ -354,30 +356,15 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
     }
 
     const auto tb_zone = titlebar_.HitTest(dip_x, dip_y);
-    if (tb_zone == TitleBarHitZone::Help) {
-        if (!doc_.GetFilePath().empty() && !IsHelpPath(doc_.GetFilePath())) {
-            PushNavHistory();
-        }
-        LoadHelpDocument();
-        return true;
-    }
-    if (tb_zone == TitleBarHitZone::Search) {
-        OnSearchOpen();
-        return true;
-    }
-    if (tb_zone == TitleBarHitZone::ThemeToggle) {
-        ToggleDarkMode();
-        return true;
-    }
-    if (tb_zone == TitleBarHitZone::FileToggle || tb_zone == TitleBarHitZone::TocToggle) {
-        if (tb_zone == TitleBarHitZone::FileToggle) {
-            panes_.ToggleFilePane();
-        }
-        else {
-            panes_.ToggleTocPane();
-        }
-        RefreshPaneLayout();
-        return true;
+    // アクションシステム経由でディスパッチ（Ctrl+Oなどのキーボード操作と同じパスを通す）
+    switch (tb_zone) {
+    case TitleBarHitZone::OpenFile:    ExecuteActions({{OpenFileAction{}}}); return true;
+    case TitleBarHitZone::Help:        ExecuteActions({{ShowHelpAction{}}}); return true;
+    case TitleBarHitZone::Search:      ExecuteActions({{OpenSearchBarAction{}}}); return true;
+    case TitleBarHitZone::ThemeToggle: ExecuteActions({{ToggleDarkModeAction{}}}); return true;
+    case TitleBarHitZone::FileToggle:  ExecuteActions({{TogglePaneAction{true}}}); return true;
+    case TitleBarHitZone::TocToggle:   ExecuteActions({{TogglePaneAction{false}}}); return true;
+    default: break;
     }
     if (tb_zone == TitleBarHitZone::Minimize) {
         ShowWindow(hwnd_, SW_MINIMIZE);
