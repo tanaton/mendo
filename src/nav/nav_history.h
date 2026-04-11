@@ -42,17 +42,17 @@ public:
     void Clear() noexcept;
 
     static constexpr size_t MAX_HISTORY = 1024;
-    static constexpr size_t MAX_PATH_POOL = UINT16_MAX; // path_index が uint16_t のため
+    static constexpr size_t MAX_PATH_POOL = UINT32_MAX; // path_index が uint32_t のため
 
 private:
     // 内部エントリ: パスインデックス + スクロール位置（8バイト）
     struct InternalEntry {
-        uint16_t path_index = 0;
+        uint32_t path_index = 0;
         float scroll_y = 0.0f;
     };
 
     // パスをインターン化し、インデックスを返す
-    uint16_t InternPath(std::wstring_view path);
+    uint32_t InternPath(std::wstring_view path);
 
     // NavEntry ↔ InternalEntry 変換
     InternalEntry ToInternal(const NavEntry& e) { return { InternPath(e.file_path), e.scroll_y }; }
