@@ -18,19 +18,19 @@ Webブラウザを使わず、Direct2D/DirectWriteによる自前レンダリン
 
 ```
 cmake -B build
-cmake --build build --config Release -- /v:q /nologo
+MSYS_NO_PATHCONV=1 cmake --build build --config Release -- /v:q /nologo
 ```
 
 テストなしでビルドする場合:
 ```
 cmake -B build -DMENDO_BUILD_TESTS=OFF
-cmake --build build --config Release -- /v:q /nologo
+MSYS_NO_PATHCONV=1 cmake --build build --config Release -- /v:q /nologo
 ```
 
 ## テスト実行
 
 ```
-cmake --build build --config Release -- /v:q /nologo
+MSYS_NO_PATHCONV=1 cmake --build build --config Release -- /v:q /nologo
 ctest --test-dir build --output-on-failure -C Release -j0 2>&1 | grep -vE "^\s*(Start|[0-9]+/[0-9]+.*Passed)"
 ```
 

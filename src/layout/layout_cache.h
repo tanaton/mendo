@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 #include <d2d1.h>
 #include <dwrite.h>
+#include <algorithm>
 #include <cassert>
 
 
@@ -102,6 +103,11 @@ public:
     }
 
     constexpr size_t size() const noexcept { return entries_.size(); }
+
+    using const_iterator = std::pmr::vector<NodeLayoutEntry>::const_iterator;
+
+    constexpr const_iterator cbegin() const noexcept { return entries_.begin(); }
+    constexpr const_iterator cend() const noexcept { return entries_.end(); }
 
     constexpr NodeLayoutEntry& operator[](size_t i) noexcept
     {
@@ -204,15 +210,10 @@ constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom
 // 最初の可視候補ノードのインデックスを返す。該当なしの場合は node_count を返す。
 constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) noexcept
 {
-    int lo = 0, hi = static_cast<int>(node_count);
-    while (lo < hi) {
-        const int mid = (lo + hi) / 2;
-        if (cache[mid].y_position + cache[mid].height <= viewport_top) {
-            lo = mid + 1;
-        }
-        else {
-            hi = mid;
-        }
-    }
-    return lo;
+    const auto first = cache.cbegin();
+    const auto last = first + static_cast<ptrdiff_t>(node_count);
+    const auto it = std::ranges::partition_point(first, last, [viewport_top](const NodeLayoutEntry& e) {
+        return e.y_position + e.height <= viewport_top;
+    });
+    return static_cast<int>(it - first);
 }

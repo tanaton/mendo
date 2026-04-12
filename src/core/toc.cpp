@@ -36,19 +36,12 @@ int TableOfContents::FindActiveIndex(const LayoutCache& cache, float scroll_y, f
     if (n == 0) {
         return -1;
     }
-    // 二分探索: cache[entries_[i].node_index].y_position <= scroll_y + margin を満たす最大の i を求める
+    // cache[entries_[i].node_index].y_position <= scroll_y + margin を満たす最大の i を求める。
     // margin はMDペイン上端オフセット＋見出し上部余白で、画面上端に近い見出しを正しくアクティブにする。
     const float threshold = scroll_y + margin;
-    int lo = 0, hi = n;
-    while (lo < hi) {
-        const int mid = lo + (hi - lo) / 2;
-        const int ni = entries_[mid].node_index;
-        if (ni >= 0 && ni < static_cast<int>(cache.size()) && cache[ni].y_position <= threshold) {
-            lo = mid + 1;
-        }
-        else {
-            hi = mid;
-        }
-    }
-    return lo - 1;
+    const auto it = std::ranges::partition_point(entries_, [&](const TocEntry& e) {
+        return e.node_index >= 0 && e.node_index < static_cast<int>(cache.size())
+            && cache[e.node_index].y_position <= threshold;
+    });
+    return (it != entries_.begin()) ? static_cast<int>(std::prev(it) - entries_.begin()) : -1;
 }

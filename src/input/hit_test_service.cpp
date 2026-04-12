@@ -79,19 +79,13 @@ HitTestService::HitResult HitTestService::HitTest(
 
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
 
-    // dip_yを含むノードを二分探索で検索
-    int lo = 0, hi = static_cast<int>(ctx.nodes.size()) - 1;
-    int candidate = -1;
-    while (lo <= hi) {
-        int mid = (lo + hi) / 2;
-        if (ctx.cache[mid].y_position <= dip_y) {
-            candidate = mid;
-            lo = mid + 1;
-        }
-        else {
-            hi = mid - 1;
-        }
-    }
+    // dip_yを含むノードを検索
+    const auto first = ctx.cache.cbegin();
+    const auto last = first + static_cast<ptrdiff_t>(ctx.nodes.size());
+    const auto it = std::ranges::partition_point(first, last, [dip_y](const NodeLayoutEntry& e) {
+        return e.y_position <= dip_y;
+    });
+    const int candidate = (it != first) ? static_cast<int>(std::prev(it) - first) : -1;
 
     if (candidate >= 0 && dip_y <= ctx.cache[candidate].y_position + ctx.cache[candidate].height) {
         const auto& node = ctx.nodes[candidate];
