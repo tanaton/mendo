@@ -40,8 +40,7 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCel
 
 void CommandGenerator::GenTable(DrawCommandList& cmds,
     const Node& node, const NodeLayoutEntry& entry,
-    int node_index, float offset_x, const TextSelection& selection,
-    float viewport_top, float viewport_bottom)
+    int node_index, float offset_x)
 {
     if (node.table_rows().empty() || !entry.has_table_layout() || entry.table_layout->col_widths.empty()) {
         return;
@@ -50,6 +49,9 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
     const auto& tl = *entry.table_layout;
+    const auto& selection = *frame_selection_;
+    const float viewport_top = frame_viewport_top_;
+    const float viewport_bottom = frame_viewport_bottom_;
 
     const float table_width = std::ranges::fold_left(
         tl.col_widths,

@@ -66,7 +66,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& l
     if (case_sensitive_) {
         size_t pos = 0;
         while (matches_.size() < MAX_MATCHES && (pos = text.find(query_, pos)) != std::wstring_view::npos) {
-            matches_.push_back({ node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col });
+            matches_.emplace_back(node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col);
             pos += query_len;
         }
     }
@@ -81,7 +81,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& l
 
         size_t pos = 0;
         while (matches_.size() < MAX_MATCHES && (pos = lower_text.find(lower_query, pos)) != std::wstring_view::npos) {
-            matches_.push_back({ node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col });
+            matches_.emplace_back(node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col);
             pos += query_len;
         }
     }

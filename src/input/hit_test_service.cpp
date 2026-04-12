@@ -1,5 +1,6 @@
 #include "hit_test_service.h"
 #include "ui_constants.h"
+#include <cassert>
 #include <ranges>
 
 namespace {
@@ -69,28 +70,21 @@ static uint32_t ComputeTableFlatOffset(const Node& node, const NodeLayoutEntry& 
 }
 
 HitTestService::HitResult HitTestService::HitTest(
-    const std::pmr::vector<Node>& nodes,
-    const LayoutCache& cache,
-    const Theme& theme,
-    float scroll_y,
-    float md_pane_left,
-    float dpi_scale,
-    int screen_x, int screen_y) const noexcept
+    const MdPaneHitContext& ctx) const noexcept
 {
-
     HitResult result;
-    if (nodes.empty()) {
+    if (ctx.nodes.empty()) {
         return result;
     }
 
-    const auto [dip_x, dip_y] = ScreenToPaneDip(screen_x, screen_y, dpi_scale, md_pane_left, scroll_y);
+    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
 
     // dip_yを含むノードを二分探索で検索
-    int lo = 0, hi = static_cast<int>(nodes.size()) - 1;
+    int lo = 0, hi = static_cast<int>(ctx.nodes.size()) - 1;
     int candidate = -1;
     while (lo <= hi) {
         int mid = (lo + hi) / 2;
-        if (cache[mid].y_position <= dip_y) {
+        if (ctx.cache[mid].y_position <= dip_y) {
             candidate = mid;
             lo = mid + 1;
         }
@@ -99,17 +93,17 @@ HitTestService::HitResult HitTestService::HitTest(
         }
     }
 
-    if (candidate >= 0 && dip_y <= cache[candidate].y_position + cache[candidate].height) {
-        const auto& node = nodes[candidate];
-        const auto& entry = cache[candidate];
+    if (candidate >= 0 && dip_y <= ctx.cache[candidate].y_position + ctx.cache[candidate].height) {
+        const auto& node = ctx.nodes[candidate];
+        const auto& entry = ctx.cache[candidate];
 
         if (node.type == NodeType::Table) {
-            return HitTestTable(node, entry, candidate, theme, dip_x, dip_y);
+            return HitTestTable(node, entry, candidate, ctx.theme, dip_x, dip_y);
         }
 
         if (entry.text_layout) {
-            const float indent = NodeIndent(node, theme);
-            const float local_x = dip_x - theme.margin_left - indent;
+            const float indent = NodeIndent(node, ctx.theme);
+            const float local_x = dip_x - ctx.theme.margin_left - indent;
             const float local_y = dip_y - entry.y_position;
 
             BOOL is_trailing = FALSE;
@@ -125,7 +119,7 @@ HitTestService::HitResult HitTestService::HitTest(
     }
 
     // 全ノードより下をクリック → 最後のノードの末尾を選択
-    for (const auto& [i, node] : nodes | std::views::enumerate | std::views::reverse) {
+    for (const auto& [i, node] : ctx.nodes | std::views::enumerate | std::views::reverse) {
         if (const auto& text = node.GetText(); !text.empty()) {
             result.node_index = static_cast<int>(i);
             result.text_pos = static_cast<uint32_t>(text.size());
@@ -224,41 +218,34 @@ HitTestService::HitResult HitTestService::HitTestTable(
     return result;
 }
 
-int HitTestService::CopyButtonHitTest(
-    const std::pmr::vector<Node>& nodes,
-    const LayoutCache& cache,
-    const Theme& theme,
-    float scroll_y,
-    float md_pane_left,
-    float content_width,
-    float md_pane_height,
-    float dpi_scale,
-    int screen_x, int screen_y) const noexcept
+int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept
 {
-    if (nodes.empty()) {
+    assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
+    assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
+    if (ctx.nodes.empty()) {
         return -1;
     }
 
-    const auto [dip_x, dip_y] = ScreenToPaneDip(screen_x, screen_y, dpi_scale, md_pane_left, scroll_y);
+    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
 
     // コピーボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
-    const float btn_left_bound = theme.margin_left + content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+    const float btn_left_bound = ctx.theme.margin_left + ctx.content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
     if (dip_x < btn_left_bound) {
         return -1;
     }
 
-    const float viewport_top = scroll_y;
-    const float viewport_bottom = scroll_y + md_pane_height;
+    const float viewport_top = ctx.scroll_y;
+    const float viewport_bottom = ctx.scroll_y + ctx.md_pane_height;
 
     // 可視範囲のコードブロックを検索
-    const int first = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
-    const int count = static_cast<int>(nodes.size());
+    const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
+    const int count = static_cast<int>(ctx.nodes.size());
     for (int i = first; i < count; i++) {
-        if (cache[i].y_position - theme.code_block_padding > viewport_bottom) {
+        if (ctx.cache[i].y_position - ctx.theme.code_block_padding > viewport_bottom) {
             break;
         }
 
-        const auto& node = nodes[i];
+        const auto& node = ctx.nodes[i];
         if (node.type != NodeType::CodeBlock) {
             continue;
         }
@@ -266,13 +253,13 @@ int HitTestService::CopyButtonHitTest(
             continue;
         }
 
-        const float indent = NodeIndent(node, theme);
-        const float x = theme.margin_left + indent;
-        const float w = content_width - indent;
-        const float pad = theme.code_block_padding;
+        const float indent = NodeIndent(node, ctx.theme);
+        const float x = ctx.theme.margin_left + indent;
+        const float w = ctx.content_width - indent;
+        const float pad = ctx.theme.code_block_padding;
 
         const float block_right = x + w;
-        const float block_top = cache[i].y_position - pad;
+        const float block_top = ctx.cache[i].y_position - pad;
 
         const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
         if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
@@ -282,48 +269,41 @@ int HitTestService::CopyButtonHitTest(
     return -1;
 }
 
-int HitTestService::SaveButtonHitTest(
-    const std::pmr::vector<Node>& nodes,
-    const LayoutCache& cache,
-    const Theme& theme,
-    float scroll_y,
-    float md_pane_left,
-    float content_width,
-    float md_pane_height,
-    float dpi_scale,
-    int screen_x, int screen_y) const noexcept
+int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept
 {
-    if (nodes.empty()) {
+    assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
+    assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
+    if (ctx.nodes.empty()) {
         return -1;
     }
 
-    const auto [dip_x, dip_y] = ScreenToPaneDip(screen_x, screen_y, dpi_scale, md_pane_left, scroll_y);
+    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
 
-    const float viewport_top = scroll_y;
-    const float viewport_bottom = scroll_y + md_pane_height;
+    const float viewport_top = ctx.scroll_y;
+    const float viewport_bottom = ctx.scroll_y + ctx.md_pane_height;
 
-    const int first = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
-    const int count = static_cast<int>(nodes.size());
+    const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
+    const int count = static_cast<int>(ctx.nodes.size());
     for (int i = first; i < count; i++) {
-        if (cache[i].y_position > viewport_bottom) {
+        if (ctx.cache[i].y_position > viewport_bottom) {
             break;
         }
 
-        const auto& node = nodes[i];
+        const auto& node = ctx.nodes[i];
         if (node.type != NodeType::CodeBlock || node.code_language != SyntaxLanguage::Mermaid) {
             continue;
         }
 
-        const auto& diagram = cache.GetDiagram(i);
+        const auto& diagram = ctx.cache.GetDiagram(i);
         if (!diagram.bitmap) {
             continue;
         }
 
-        const float indent = NodeIndent(node, theme);
-        const float x = theme.margin_left + indent;
-        const float cw = content_width - indent;
+        const float indent = NodeIndent(node, ctx.theme);
+        const float x = ctx.theme.margin_left + indent;
+        const float cw = ctx.content_width - indent;
 
-        const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, cache[i].y_position);
+        const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, ctx.cache[i].y_position);
         const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top);
         if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
             return i;

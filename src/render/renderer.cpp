@@ -383,7 +383,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
         bool bgs_done = false;
         if (!first_pass && tl.CellIndex(r, 0) < tl.cell_inline_code_bgs.size()) {
             // first_pass でリサイズ済みなのでフラグとして先頭セルの capacity を利用:
-            // first_pass 後に need_bgs=true で走査されたセルは push_back か reserve(0) で
+            // first_pass 後に need_bgs=true で走査されたセルは emplace_back か reserve(0) で
             // 容量が 0 でなくなるが、ここでは簡便にインラインコードランの有無で判定する。
             bgs_done = true;
             const auto cc = row.cells.size();
@@ -424,7 +424,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
                 if (need_bgs && run.code() && run.length > 0) {
                     const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length, hit_test_buffer_);
                     for (UINT32 hi = 0; hi < count; hi++) {
-                        tl.cell_inline_code_bgs[tl.CellIndex(r, c)].push_back(MakeInlineCodeBg(hit_test_buffer_[hi]));
+                        tl.cell_inline_code_bgs[tl.CellIndex(r, c)].emplace_back(MakeInlineCodeBg(hit_test_buffer_[hi]));
                     }
                 }
             }
@@ -496,7 +496,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
         if (run.code() && node.type != NodeType::CodeBlock && run.length > 0) {
             const UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length, hit_test_buffer_);
             for (UINT32 i = 0; i < count; i++) {
-                entry.inline_code_bgs.push_back(MakeInlineCodeBg(hit_test_buffer_[i]));
+                entry.inline_code_bgs.emplace_back(MakeInlineCodeBg(hit_test_buffer_[i]));
             }
         }
     }

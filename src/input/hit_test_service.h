@@ -8,6 +8,22 @@
 #include <string>
 #include <memory_resource>
 
+// MDペインのヒットテストに必要なコンテキスト情報。
+// ドキュメントデータ、ビューポート状態、マウス位置をまとめる。
+struct MdPaneHitContext {
+    const std::pmr::vector<Node>& nodes;
+    const LayoutCache& cache;
+    const Theme& theme;
+    float scroll_y;
+    float md_pane_left;
+    float dpi_scale;
+    int screen_x;
+    int screen_y;
+    // ボタンヒットテスト用（HitTestでは未使用）
+    float content_width = 0.0f;
+    float md_pane_height = 0.0f;
+};
+
 class HitTestService {
 public:
     struct HitResult {
@@ -16,13 +32,7 @@ public:
     };
 
     // Md ペイン内のヒットテスト
-    HitResult HitTest(const std::pmr::vector<Node>& nodes,
-        const LayoutCache& cache,
-        const Theme& theme,
-        float scroll_y,
-        float md_pane_left,
-        float dpi_scale,
-        int screen_x, int screen_y) const noexcept;
+    HitResult HitTest(const MdPaneHitContext& ctx) const noexcept;
 
     // テーブルセル内のヒットテスト
     HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
@@ -36,25 +46,9 @@ public:
 
     // コードブロックのコピーボタンのヒットテスト。
     // ヒットしたコードブロックのノードインデックスを返す（-1=なし）。
-    int CopyButtonHitTest(const std::pmr::vector<Node>& nodes,
-        const LayoutCache& cache,
-        const Theme& theme,
-        float scroll_y,
-        float md_pane_left,
-        float content_width,
-        float md_pane_height,
-        float dpi_scale,
-        int screen_x, int screen_y) const noexcept;
+    int CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
 
     // Mermaidダイアグラムの保存ボタンのヒットテスト。
     // ヒットしたダイアグラムのノードインデックスを返す（-1=なし）。
-    int SaveButtonHitTest(const std::pmr::vector<Node>& nodes,
-        const LayoutCache& cache,
-        const Theme& theme,
-        float scroll_y,
-        float md_pane_left,
-        float content_width,
-        float md_pane_height,
-        float dpi_scale,
-        int screen_x, int screen_y) const noexcept;
+    int SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
 };
