@@ -40,7 +40,7 @@ public:
     // ---- ファイル読み込み ----
 
     // 保存されたローディングパスを使ってファイル読み込みを実行。
-    // 成功時にdoc/cacheを更新しvoidを返す。失敗時にFileLoadErrorを返す。
+    // 成功時はdoc/cacheを更新したうえで値を持つexpectedを返し、失敗時はFileLoadErrorを返す。
     std::expected<void, FileLoadError> ExecuteLoad(Document& doc, LayoutCache& cache);
 
     // ---- 非同期ファイル読み込み ----

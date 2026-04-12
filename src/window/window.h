@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <string>
+#include <string_view>
 #include <memory>
 #include <memory_resource>
 

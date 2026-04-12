@@ -51,7 +51,7 @@ TEST_F(DocumentServiceTest, LoadFileNotFound)
 
     std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
     auto result = service.LoadFile(nonexistent);
-    EXPECT_FALSE(result.has_value());
+    ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), FileLoadError::NotFound);
 }
 
