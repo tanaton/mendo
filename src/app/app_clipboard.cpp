@@ -41,44 +41,9 @@ void App::OnLButtonDblClk(int px, int py)
 // 選択 / クリップボード
 // ============================================================
 
-void App::ClearSelection()
-{
-    state_.viewport.ClearSelection();
-    const auto layout = GetPaneLayout();
-    InvalidateMdPane(layout.md_rect);
-}
-
-void App::SelectAll()
-{
-    state_.viewport.SelectAll(state_.doc.GetNodes());
-    const auto layout = GetPaneLayout();
-    InvalidateMdPane(layout.md_rect);
-}
-
 void App::SetClipboardText(std::wstring_view text) const
 {
-    if (text.empty()) {
-        return;
-    }
-    if (!OpenClipboard(hwnd_)) {
-        return;
-    }
-    EmptyClipboard();
-
-    const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-    UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
-    if (hMem) {
-        void* ptr = GlobalLock(hMem.get());
-        if (ptr) {
-            std::char_traits<wchar_t>::copy(static_cast<wchar_t*>(ptr), text.data(), text.size());
-            static_cast<wchar_t*>(ptr)[text.size()] = L'\0';
-            GlobalUnlock(hMem.get());
-            if (SetClipboardData(CF_UNICODETEXT, hMem.get())) {
-                hMem.release(); // クリップボードに所有権移譲
-            }
-        }
-    }
-    CloseClipboard();
+    WriteClipboardText(hwnd_, text);
 }
 
 void App::CopySelectionToClipboard() const

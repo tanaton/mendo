@@ -1042,8 +1042,8 @@ void App::Dispatch(const AppAction& action)
             LoadHelpDocument();
         },
         // ---- マウスイベント系 ----
-        [this](const LButtonDownAction& a) { OnLButtonDown(static_cast<int>(a.dip_x * cached_dpi_scale_), static_cast<int>(a.dip_y * cached_dpi_scale_)); },
-        [this](const LButtonUpAction& a) { OnLButtonUp(static_cast<int>(a.dip_x * cached_dpi_scale_), static_cast<int>(a.dip_y * cached_dpi_scale_)); },
+        [this](const LButtonDownAction& a) { OnLButtonDown(a.px, a.py); },
+        [this](const LButtonUpAction& a) { OnLButtonUp(a.px, a.py); },
         [this](const MouseMoveAction& a) { OnMouseMove(a.px, a.py); },
         [this](const MouseHoverAction& a) { OnMouseHover(a.px, a.py); },
         [this](const LButtonDblClkAction& a) { OnLButtonDblClk(a.px, a.py); },

@@ -86,20 +86,14 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
             state.search_bar_ctrl.OnClose();
         },
         [&](const SearchNextAction&) {
-            if (state.search_state.IsVisible()) {
-                state.search_bar_ctrl.OnNext();
-            }
-            else {
-                state.search_bar_ctrl.OnOpen(state.doc.GetNodes());
-            }
+            state.search_state.IsVisible()
+                ? state.search_bar_ctrl.OnNext()
+                : state.search_bar_ctrl.OnOpen(state.doc.GetNodes());
         },
         [&](const SearchPrevAction&) {
-            if (state.search_state.IsVisible()) {
-                state.search_bar_ctrl.OnPrev();
-            }
-            else {
-                state.search_bar_ctrl.OnOpen(state.doc.GetNodes());
-            }
+            state.search_state.IsVisible()
+                ? state.search_bar_ctrl.OnPrev()
+                : state.search_bar_ctrl.OnOpen(state.doc.GetNodes());
         },
         [&](const SearchTextChangedAction& a) {
             state.search_bar_ctrl.OnTextChanged(a.text, state.doc.GetNodes());

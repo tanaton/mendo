@@ -1,6 +1,7 @@
 #pragma once
 #include "pane.h"
 #include "tooltip.h"
+#include <algorithm>
 #include <variant>
 #include <string>
 #include <memory_resource>
@@ -113,10 +114,7 @@ using SideEffectList = std::pmr::vector<SideEffect>;
 // ヘルパー: 副作用リストに特定の副作用型が含まれるかチェック
 template<typename T>
 bool HasEffect(const SideEffectList& effects) noexcept {
-    for (const auto& e : effects) {
-        if (std::holds_alternative<T>(e)) {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::any_of(effects, [](const auto& e) {
+        return std::holds_alternative<T>(e);
+    });
 }

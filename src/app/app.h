@@ -174,8 +174,6 @@ private:
     void CopySelectionToClipboard() const;
     void CopyCodeBlockToClipboard(int node_index) const;
     void SaveDiagramAsPng(int node_index);
-    void SelectAll();
-    void ClearSelection();
 
     // クリックハンドラ (OnLButtonDownから抽出)
     bool HandleTitleBarClick(float dip_x, float dip_y);

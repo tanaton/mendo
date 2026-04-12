@@ -41,23 +41,7 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
                 // TODO: カーソル変更実装
             },
             [this](const effect::ClipboardWrite& e) {
-                if (e.text.empty() || !OpenClipboard(hwnd_)) {
-                    return;
-                }
-                EmptyClipboard();
-                const size_t bytes = (e.text.size() + 1) * sizeof(wchar_t);
-                UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
-                if (hMem) {
-                    if (auto* dest = static_cast<wchar_t*>(GlobalLock(hMem.get()))) {
-                        std::char_traits<wchar_t>::copy(dest, e.text.data(), e.text.size());
-                        dest[e.text.size()] = L'\0';
-                        GlobalUnlock(hMem.get());
-                        if (SetClipboardData(CF_UNICODETEXT, hMem.get())) {
-                            hMem.release();
-                        }
-                    }
-                }
-                CloseClipboard();
+                WriteClipboardText(hwnd_, e.text);
             },
             [](const effect::ShellOpen& e) {
                 ShellExecuteW(nullptr, L"open", e.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);

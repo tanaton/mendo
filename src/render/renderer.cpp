@@ -597,7 +597,6 @@ void Renderer::Render(const RenderParams& p)
     // 最初の可視ノードを検索（一度だけ実行し、エフェクトとコマンド生成で共有）。
     // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
     const float viewport_top = p.scroll_y;
-    const float viewport_bottom = p.scroll_y + p.md_pane_rect.height;
     const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
 
     // NOTE: ApplyVisibleEffects は Render() の前に PrepareVisibleEffects() で実行済み。
