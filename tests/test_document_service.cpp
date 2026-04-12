@@ -37,22 +37,22 @@ TEST_F(DocumentServiceTest, LoadFileSuccess)
 {
     auto path = CreateTestFile("test.md", "# Hello\nWorld");
     DocumentService service(watcher_);
-    Document doc;
 
-    EXPECT_TRUE(service.LoadFile(path, doc));
-    EXPECT_FALSE(doc.IsEmpty());
-    EXPECT_EQ(std::wstring_view{ doc.GetFilePath() }, std::wstring_view{ path });
-    EXPECT_FALSE(doc.GetToc().GetEntries().empty());
+    auto result = service.LoadFile(path);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_FALSE(result->IsEmpty());
+    EXPECT_EQ(std::wstring_view{ result->GetFilePath() }, std::wstring_view{ path });
+    EXPECT_FALSE(result->GetToc().GetEntries().empty());
 }
 
 TEST_F(DocumentServiceTest, LoadFileNotFound)
 {
     DocumentService service(watcher_);
-    Document doc;
 
     std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
-    EXPECT_FALSE(service.LoadFile(nonexistent, doc));
-    EXPECT_TRUE(doc.IsEmpty());
+    auto result = service.LoadFile(nonexistent);
+    EXPECT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), FileLoadError::NotFound);
 }
 
 TEST_F(DocumentServiceTest, NeedsAsyncLoadSmallFile)

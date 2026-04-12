@@ -59,8 +59,9 @@ TEST_F(FileLoadServiceTest, ExecuteLoadNonexistentFile)
     Document doc;
     LayoutCache cache;
     service_.SetLoadingPath(L"nonexistent_file.md");
-    bool result = service_.ExecuteLoad(doc, cache);
-    EXPECT_FALSE(result);
+    auto result = service_.ExecuteLoad(doc, cache);
+    EXPECT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), FileLoadError::NotFound);
     EXPECT_FALSE(service_.IsLoading());
 }
 
@@ -71,7 +72,7 @@ TEST_F(FileLoadServiceTest, LoadStopsAnimation)
 
     Document doc;
     LayoutCache cache;
-    service_.ExecuteLoad(doc, cache);
+    (void)service_.ExecuteLoad(doc, cache);
     EXPECT_FALSE(service_.IsLoading());
 }
 

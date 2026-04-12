@@ -57,6 +57,8 @@ struct Strings {
 
     // トースト
     std::wstring_view toast_file_not_found;
+    std::wstring_view toast_file_too_large;
+    std::wstring_view toast_file_read_failed;
     std::wstring_view toast_image_saved;
 
     // ローディング
@@ -107,6 +109,8 @@ inline constexpr Strings kJa = {
     L"ウィンドウ位置をリセット(&R)",
     // トースト
     L"ファイルが見つかりません",
+    L"ファイルが大きすぎます",
+    L"ファイルの読み込みに失敗しました",
     L"画像を保存しました",
     // ローディング
     L"読み込み中...",
@@ -155,6 +159,8 @@ inline constexpr Strings kEn = {
     L"Reset Window Position (&R)",
     // トースト
     L"File not found",
+    L"File is too large",
+    L"Failed to read file",
     L"Image saved",
     // ローディング
     L"Loading...",

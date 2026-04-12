@@ -1,17 +1,23 @@
 #pragma once
-#include "app.h"
 #include <windows.h>
 #include <string>
+#include <memory>
+#include <memory_resource>
+
+class App;
 
 class Win32Window {
 public:
+    Win32Window();
+    ~Win32Window();
+
     bool Create(HINSTANCE hInstance, int nCmdShow);
     int RunMessageLoop();
 
-    void LoadMarkdownFile(std::wstring_view path) { app_.LoadMarkdownFile(path); }
-    void LoadHelpDocument() { app_.LoadHelpDocument(); }
-    std::pmr::wstring LoadLastFilePath() const { return app_.LoadLastFilePath(); }
-    void ShowDirectory(std::wstring_view dir_path) { app_.ShowDirectory(dir_path); }
+    void LoadMarkdownFile(std::wstring_view path);
+    void LoadHelpDocument();
+    std::pmr::wstring LoadLastFilePath() const;
+    void ShowDirectory(std::wstring_view dir_path);
 
     // 前回セッションのスクロール位置を復元する（LoadMarkdownFileの前に呼ぶ）
     void RestoreScrollPosition();
@@ -44,5 +50,5 @@ private:
     int cached_nchit_frame_y_ = 8;
     int cached_nchit_right_border_ = 8;
 
-    App app_;
+    std::unique_ptr<App> app_;
 };

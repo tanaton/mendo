@@ -2,7 +2,7 @@
 #include "file_loader.h"
 #include "profiler.h"
 
-bool DocumentService::LoadFile(const std::pmr::wstring& path, Document& doc)
+std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path)
 {
     std::expected<std::pmr::string, FileLoadError> result;
     {
@@ -10,13 +10,10 @@ bool DocumentService::LoadFile(const std::pmr::wstring& path, Document& doc)
         result = FileLoader::LoadFile(path);
     }
     if (!result) {
-        return false;
+        return std::unexpected(result.error());
     }
-    {
-        MENDO_PROFILE("Document::FromMarkdown");
-        doc = Document::FromMarkdown(std::move(*result), path);
-    }
-    return true;
+    MENDO_PROFILE("Document::FromMarkdown");
+    return Document::FromMarkdown(std::move(*result), path);
 }
 
 void DocumentService::StartWatching(const std::pmr::wstring& path, FileWatcher::ChangeCallback cb)

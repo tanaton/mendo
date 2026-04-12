@@ -1,6 +1,9 @@
 #include "syntax.h"
 #include <algorithm>
-#include <set>
+#include <array>
+#include <span>
+
+using namespace std::literals;
 
 namespace {
 
@@ -48,254 +51,193 @@ bool IsAtLineStart(std::wstring_view text, size_t pos)
 }
 
 // ---- キーワードテーブル ----
+// ソート済み配列 + std::ranges::binary_search でヒープ確保を完全に排除。
+// MakeSorted は consteval なのでソート順はコンパイル時に確定する。
 
-using KeywordSet = std::set<std::wstring_view>;
+using KeywordTable = std::span<const std::wstring_view>;
 
-KeywordSet MergeKeywords(const KeywordSet& base, std::initializer_list<std::wstring_view> extra)
+template<size_t N>
+consteval std::array<std::wstring_view, N> MakeSorted(std::array<std::wstring_view, N> arr)
 {
-    KeywordSet result = base;
-    result.insert(extra);
-    return result;
+    std::ranges::sort(arr);
+    return arr;
 }
 
-const KeywordSet& CppKeywords()
-{
-    static const KeywordSet s{
-        L"auto", L"break", L"case", L"catch", L"class", L"const", L"consteval",
-        L"constexpr", L"constinit", L"continue", L"co_await", L"co_return", L"co_yield",
-        L"decltype", L"default", L"delete", L"do", L"else", L"enum", L"explicit",
-        L"export", L"extern", L"false", L"for", L"friend", L"goto", L"if", L"inline",
-        L"mutable", L"namespace", L"new", L"noexcept", L"nullptr", L"operator",
-        L"private", L"protected", L"public", L"register", L"return",
-        L"sizeof", L"static", L"static_assert", L"static_cast", L"dynamic_cast",
-        L"reinterpret_cast", L"const_cast",
-        L"struct", L"switch", L"template", L"this", L"throw", L"true", L"try",
-        L"typedef", L"typeid", L"typename", L"union", L"using", L"virtual",
-        L"void", L"volatile", L"while", L"override", L"final",
-        L"concept", L"requires", L"module", L"import"
-    };
-    return s;
-}
+static constexpr auto CPP_KEYWORDS = MakeSorted(std::array{
+    L"auto"sv, L"break"sv, L"case"sv, L"catch"sv, L"class"sv, L"co_await"sv,
+    L"co_return"sv, L"co_yield"sv, L"concept"sv, L"const"sv, L"const_cast"sv,
+    L"consteval"sv, L"constexpr"sv, L"constinit"sv, L"continue"sv, L"decltype"sv,
+    L"default"sv, L"delete"sv, L"do"sv, L"dynamic_cast"sv, L"else"sv, L"enum"sv,
+    L"explicit"sv, L"export"sv, L"extern"sv, L"false"sv, L"final"sv, L"for"sv,
+    L"friend"sv, L"goto"sv, L"if"sv, L"import"sv, L"inline"sv, L"module"sv,
+    L"mutable"sv, L"namespace"sv, L"new"sv, L"noexcept"sv, L"nullptr"sv,
+    L"operator"sv, L"override"sv, L"private"sv, L"protected"sv, L"public"sv,
+    L"register"sv, L"reinterpret_cast"sv, L"requires"sv, L"return"sv,
+    L"sizeof"sv, L"static"sv, L"static_assert"sv, L"static_cast"sv,
+    L"struct"sv, L"switch"sv, L"template"sv, L"this"sv, L"throw"sv, L"true"sv,
+    L"try"sv, L"typedef"sv, L"typeid"sv, L"typename"sv, L"union"sv, L"using"sv,
+    L"virtual"sv, L"void"sv, L"volatile"sv, L"while"sv,
+});
 
-const KeywordSet& CppTypes()
-{
-    static const KeywordSet s{
-        L"int", L"long", L"short", L"char", L"float", L"double", L"bool",
-        L"unsigned", L"signed", L"size_t", L"ptrdiff_t",
-        L"uint8_t", L"uint16_t", L"uint32_t", L"uint64_t",
-        L"int8_t", L"int16_t", L"int32_t", L"int64_t",
-        L"wchar_t", L"char8_t", L"char16_t", L"char32_t",
-        L"string", L"wstring", L"string_view", L"wstring_view",
-        L"vector", L"map", L"unordered_map", L"set", L"unordered_set",
-        L"array", L"pair", L"tuple", L"optional", L"variant", L"span",
-        L"unique_ptr", L"shared_ptr", L"weak_ptr",
-        L"HRESULT", L"BOOL", L"DWORD", L"UINT", L"LPARAM", L"WPARAM", L"HWND",
-        L"LRESULT", L"HANDLE", L"HINSTANCE", L"RECT", L"POINT", L"SIZE"
-    };
-    return s;
-}
+static constexpr auto CPP_TYPES = MakeSorted(std::array{
+    L"BOOL"sv, L"DWORD"sv, L"HANDLE"sv, L"HINSTANCE"sv, L"HRESULT"sv, L"HWND"sv,
+    L"LPARAM"sv, L"LRESULT"sv, L"POINT"sv, L"RECT"sv, L"SIZE"sv, L"UINT"sv, L"WPARAM"sv,
+    L"array"sv, L"bool"sv, L"char"sv, L"char16_t"sv, L"char32_t"sv, L"char8_t"sv,
+    L"double"sv, L"float"sv, L"int"sv, L"int16_t"sv, L"int32_t"sv, L"int64_t"sv,
+    L"int8_t"sv, L"long"sv, L"map"sv, L"optional"sv, L"pair"sv, L"ptrdiff_t"sv,
+    L"set"sv, L"shared_ptr"sv, L"short"sv, L"signed"sv, L"size_t"sv, L"span"sv,
+    L"string"sv, L"string_view"sv, L"tuple"sv, L"uint16_t"sv, L"uint32_t"sv,
+    L"uint64_t"sv, L"uint8_t"sv, L"unique_ptr"sv, L"unordered_map"sv, L"unordered_set"sv,
+    L"unsigned"sv, L"variant"sv, L"vector"sv, L"wchar_t"sv, L"weak_ptr"sv,
+    L"wstring"sv, L"wstring_view"sv,
+});
 
-const KeywordSet& PythonKeywords()
-{
-    static const KeywordSet s{
-        L"and", L"as", L"assert", L"async", L"await", L"break", L"class",
-        L"continue", L"def", L"del", L"elif", L"else", L"except", L"finally",
-        L"for", L"from", L"global", L"if", L"import", L"in", L"is", L"lambda",
-        L"nonlocal", L"not", L"or", L"pass", L"raise", L"return", L"try",
-        L"while", L"with", L"yield", L"True", L"False", L"None"
-    };
-    return s;
-}
+static constexpr auto PYTHON_KEYWORDS = MakeSorted(std::array{
+    L"False"sv, L"None"sv, L"True"sv,
+    L"and"sv, L"as"sv, L"assert"sv, L"async"sv, L"await"sv, L"break"sv, L"class"sv,
+    L"continue"sv, L"def"sv, L"del"sv, L"elif"sv, L"else"sv, L"except"sv, L"finally"sv,
+    L"for"sv, L"from"sv, L"global"sv, L"if"sv, L"import"sv, L"in"sv, L"is"sv,
+    L"lambda"sv, L"nonlocal"sv, L"not"sv, L"or"sv, L"pass"sv, L"raise"sv,
+    L"return"sv, L"try"sv, L"while"sv, L"with"sv, L"yield"sv,
+});
 
-const KeywordSet& PythonTypes()
-{
-    static const KeywordSet s{
-        L"int", L"float", L"str", L"bool", L"list", L"dict", L"set", L"tuple",
-        L"bytes", L"bytearray", L"object", L"type", L"range", L"complex",
-        L"frozenset", L"memoryview", L"property", L"classmethod", L"staticmethod",
-        L"Exception", L"ValueError", L"TypeError", L"KeyError", L"IndexError",
-        L"RuntimeError", L"StopIteration", L"OSError", L"IOError"
-    };
-    return s;
-}
+static constexpr auto PYTHON_TYPES = MakeSorted(std::array{
+    L"Exception"sv, L"IOError"sv, L"IndexError"sv, L"KeyError"sv, L"OSError"sv,
+    L"RuntimeError"sv, L"StopIteration"sv, L"TypeError"sv, L"ValueError"sv,
+    L"bool"sv, L"bytearray"sv, L"bytes"sv, L"classmethod"sv, L"complex"sv,
+    L"dict"sv, L"float"sv, L"frozenset"sv, L"int"sv, L"list"sv, L"memoryview"sv,
+    L"object"sv, L"property"sv, L"range"sv, L"set"sv, L"staticmethod"sv,
+    L"str"sv, L"tuple"sv, L"type"sv,
+});
 
-const KeywordSet& JsKeywords()
-{
-    static const KeywordSet s{
-        L"break", L"case", L"catch", L"class", L"const", L"continue",
-        L"debugger", L"default", L"delete", L"do", L"else", L"export",
-        L"extends", L"finally", L"for", L"function", L"if", L"import",
-        L"in", L"instanceof", L"let", L"new", L"of", L"return", L"static",
-        L"super", L"switch", L"this", L"throw", L"try", L"typeof", L"var",
-        L"void", L"while", L"with", L"yield", L"async", L"await", L"from", L"as"
-    };
-    return s;
-}
+static constexpr auto JS_KEYWORDS = MakeSorted(std::array{
+    L"as"sv, L"async"sv, L"await"sv, L"break"sv, L"case"sv, L"catch"sv, L"class"sv,
+    L"const"sv, L"continue"sv, L"debugger"sv, L"default"sv, L"delete"sv, L"do"sv,
+    L"else"sv, L"export"sv, L"extends"sv, L"finally"sv, L"for"sv, L"from"sv,
+    L"function"sv, L"if"sv, L"import"sv, L"in"sv, L"instanceof"sv, L"let"sv,
+    L"new"sv, L"of"sv, L"return"sv, L"static"sv, L"super"sv, L"switch"sv, L"this"sv,
+    L"throw"sv, L"try"sv, L"typeof"sv, L"var"sv, L"void"sv, L"while"sv, L"with"sv,
+    L"yield"sv,
+});
 
-const KeywordSet& JsTypes()
-{
-    static const KeywordSet s{
-        L"Array", L"Boolean", L"Date", L"Error", L"Function", L"Map",
-        L"Number", L"Object", L"Promise", L"RegExp", L"Set", L"String",
-        L"Symbol", L"BigInt", L"WeakMap", L"WeakSet", L"Proxy", L"Reflect",
-        L"undefined", L"null", L"true", L"false", L"NaN", L"Infinity",
-        L"console", L"document", L"window", L"globalThis", L"JSON", L"Math"
-    };
-    return s;
-}
+static constexpr auto JS_TYPES = MakeSorted(std::array{
+    L"Array"sv, L"BigInt"sv, L"Boolean"sv, L"Date"sv, L"Error"sv, L"Function"sv,
+    L"Infinity"sv, L"JSON"sv, L"Map"sv, L"Math"sv, L"NaN"sv, L"Number"sv,
+    L"Object"sv, L"Promise"sv, L"Proxy"sv, L"Reflect"sv, L"RegExp"sv, L"Set"sv,
+    L"String"sv, L"Symbol"sv, L"WeakMap"sv, L"WeakSet"sv,
+    L"console"sv, L"document"sv, L"false"sv, L"globalThis"sv, L"null"sv, L"true"sv,
+    L"undefined"sv, L"window"sv,
+});
 
-// ---- Go ----
+static constexpr auto GO_KEYWORDS = MakeSorted(std::array{
+    L"break"sv, L"case"sv, L"chan"sv, L"const"sv, L"continue"sv, L"default"sv,
+    L"defer"sv, L"else"sv, L"fallthrough"sv, L"for"sv, L"func"sv, L"go"sv,
+    L"goto"sv, L"if"sv, L"import"sv, L"interface"sv, L"map"sv, L"package"sv,
+    L"range"sv, L"return"sv, L"select"sv, L"struct"sv, L"switch"sv, L"type"sv,
+    L"var"sv,
+});
 
-const KeywordSet& GoKeywords()
-{
-    static const KeywordSet s{
-        L"break", L"case", L"chan", L"const", L"continue", L"default", L"defer",
-        L"else", L"fallthrough", L"for", L"func", L"go", L"goto", L"if", L"import",
-        L"interface", L"map", L"package", L"range", L"return", L"select", L"struct",
-        L"switch", L"type", L"var"
-    };
-    return s;
-}
+static constexpr auto GO_TYPES = MakeSorted(std::array{
+    L"any"sv, L"bool"sv, L"byte"sv, L"comparable"sv, L"complex128"sv, L"complex64"sv,
+    L"error"sv, L"false"sv, L"float32"sv, L"float64"sv, L"int"sv, L"int16"sv,
+    L"int32"sv, L"int64"sv, L"int8"sv, L"iota"sv, L"nil"sv, L"rune"sv, L"string"sv,
+    L"true"sv, L"uint"sv, L"uint16"sv, L"uint32"sv, L"uint64"sv, L"uint8"sv,
+    L"uintptr"sv,
+});
 
-const KeywordSet& GoTypes()
-{
-    static const KeywordSet s{
-        L"bool", L"byte", L"complex64", L"complex128", L"error",
-        L"float32", L"float64", L"int", L"int8", L"int16", L"int32", L"int64",
-        L"rune", L"string", L"uint", L"uint8", L"uint16", L"uint32", L"uint64",
-        L"uintptr", L"any", L"comparable",
-        L"true", L"false", L"nil", L"iota"
-    };
-    return s;
-}
+static constexpr auto RUST_KEYWORDS = MakeSorted(std::array{
+    L"Self"sv,
+    L"as"sv, L"async"sv, L"await"sv, L"break"sv, L"const"sv, L"continue"sv,
+    L"crate"sv, L"dyn"sv, L"else"sv, L"enum"sv, L"extern"sv, L"false"sv, L"fn"sv,
+    L"for"sv, L"if"sv, L"impl"sv, L"in"sv, L"let"sv, L"loop"sv, L"macro_rules"sv,
+    L"match"sv, L"mod"sv, L"move"sv, L"mut"sv, L"pub"sv, L"ref"sv, L"return"sv,
+    L"self"sv, L"static"sv, L"struct"sv, L"super"sv, L"trait"sv, L"true"sv,
+    L"type"sv, L"unsafe"sv, L"use"sv, L"where"sv, L"while"sv, L"yield"sv,
+});
 
-// ---- Rust ----
+static constexpr auto RUST_TYPES = MakeSorted(std::array{
+    L"Arc"sv, L"BTreeMap"sv, L"BTreeSet"sv, L"Box"sv, L"Cell"sv, L"Cow"sv,
+    L"Err"sv, L"HashMap"sv, L"HashSet"sv, L"LinkedList"sv, L"None"sv, L"Ok"sv,
+    L"Option"sv, L"PhantomData"sv, L"Pin"sv, L"Rc"sv, L"RefCell"sv, L"Result"sv,
+    L"Some"sv, L"String"sv, L"Vec"sv, L"VecDeque"sv,
+    L"bool"sv, L"char"sv, L"f32"sv, L"f64"sv, L"i128"sv, L"i16"sv, L"i32"sv,
+    L"i64"sv, L"i8"sv, L"isize"sv, L"str"sv, L"u128"sv, L"u16"sv, L"u32"sv,
+    L"u64"sv, L"u8"sv, L"usize"sv,
+});
 
-const KeywordSet& RustKeywords()
-{
-    static const KeywordSet s{
-        L"as", L"async", L"await", L"break", L"const", L"continue", L"crate",
-        L"dyn", L"else", L"enum", L"extern", L"false", L"fn", L"for", L"if",
-        L"impl", L"in", L"let", L"loop", L"match", L"mod", L"move", L"mut",
-        L"pub", L"ref", L"return", L"self", L"Self", L"static", L"struct",
-        L"super", L"trait", L"true", L"type", L"unsafe", L"use", L"where",
-        L"while", L"yield", L"macro_rules"
-    };
-    return s;
-}
+// TypeScript = JS + TS固有キーワード（マージ済み）
+static constexpr auto TS_KEYWORDS = MakeSorted(std::array{
+    L"abstract"sv, L"as"sv, L"asserts"sv, L"async"sv, L"await"sv, L"break"sv,
+    L"case"sv, L"catch"sv, L"class"sv, L"const"sv, L"continue"sv, L"debugger"sv,
+    L"declare"sv, L"default"sv, L"delete"sv, L"do"sv, L"else"sv, L"enum"sv,
+    L"export"sv, L"extends"sv, L"finally"sv, L"for"sv, L"from"sv, L"function"sv,
+    L"if"sv, L"implements"sv, L"import"sv, L"in"sv, L"infer"sv, L"instanceof"sv,
+    L"interface"sv, L"is"sv, L"keyof"sv, L"let"sv, L"module"sv, L"namespace"sv,
+    L"new"sv, L"of"sv, L"override"sv, L"readonly"sv, L"return"sv, L"satisfies"sv,
+    L"static"sv, L"super"sv, L"switch"sv, L"this"sv, L"throw"sv, L"try"sv,
+    L"type"sv, L"typeof"sv, L"var"sv, L"void"sv, L"while"sv, L"with"sv, L"yield"sv,
+});
 
-const KeywordSet& RustTypes()
-{
-    static const KeywordSet s{
-        L"bool", L"char", L"f32", L"f64", L"i8", L"i16", L"i32", L"i64", L"i128",
-        L"isize", L"str", L"u8", L"u16", L"u32", L"u64", L"u128", L"usize",
-        L"String", L"Vec", L"Box", L"Rc", L"Arc", L"Cell", L"RefCell",
-        L"Option", L"Result", L"Some", L"None", L"Ok", L"Err",
-        L"HashMap", L"HashSet", L"BTreeMap", L"BTreeSet", L"VecDeque",
-        L"LinkedList", L"Cow", L"Pin", L"PhantomData"
-    };
-    return s;
-}
+static constexpr auto TS_TYPES = MakeSorted(std::array{
+    L"Array"sv, L"Awaited"sv, L"BigInt"sv, L"Boolean"sv, L"Capitalize"sv,
+    L"ConstructorParameters"sv, L"Date"sv, L"Error"sv, L"Exclude"sv, L"Extract"sv,
+    L"Function"sv, L"Infinity"sv, L"InstanceType"sv, L"JSON"sv, L"Lowercase"sv,
+    L"Map"sv, L"Math"sv, L"NaN"sv, L"NonNullable"sv, L"Number"sv, L"Object"sv,
+    L"Omit"sv, L"Parameters"sv, L"Partial"sv, L"Pick"sv, L"Promise"sv, L"Proxy"sv,
+    L"Readonly"sv, L"Record"sv, L"Reflect"sv, L"RegExp"sv, L"Required"sv,
+    L"ReturnType"sv, L"Set"sv, L"String"sv, L"Symbol"sv, L"ThisType"sv,
+    L"Uncapitalize"sv, L"Uppercase"sv, L"WeakMap"sv, L"WeakSet"sv,
+    L"any"sv, L"bigint"sv, L"boolean"sv, L"console"sv, L"document"sv, L"false"sv,
+    L"globalThis"sv, L"never"sv, L"null"sv, L"number"sv, L"object"sv, L"string"sv,
+    L"symbol"sv, L"true"sv, L"undefined"sv, L"unknown"sv, L"window"sv,
+});
 
-// ---- TypeScript（JSのスーパーセット） ----
+static constexpr auto BASH_KEYWORDS = MakeSorted(std::array{
+    L"break"sv, L"case"sv, L"continue"sv, L"declare"sv, L"do"sv, L"done"sv,
+    L"elif"sv, L"else"sv, L"esac"sv, L"eval"sv, L"exec"sv, L"exit"sv, L"export"sv,
+    L"fi"sv, L"for"sv, L"function"sv, L"if"sv, L"in"sv, L"local"sv, L"readonly"sv,
+    L"return"sv, L"select"sv, L"set"sv, L"shift"sv, L"source"sv, L"then"sv,
+    L"time"sv, L"trap"sv, L"typeset"sv, L"unset"sv, L"until"sv, L"while"sv,
+});
 
-const KeywordSet& TsKeywords()
-{
-    static const KeywordSet s = MergeKeywords(JsKeywords(), {
-        L"abstract", L"declare", L"enum", L"implements", L"infer",
-        L"interface", L"is", L"keyof", L"namespace", L"override",
-        L"readonly", L"satisfies", L"type", L"module", L"asserts"
-        });
-    return s;
-}
+static constexpr auto BASH_TYPES = MakeSorted(std::array{
+    L"alias"sv, L"builtin"sv, L"cd"sv, L"command"sv, L"echo"sv, L"false"sv,
+    L"getopts"sv, L"let"sv, L"mapfile"sv, L"printf"sv, L"pwd"sv, L"read"sv,
+    L"readarray"sv, L"test"sv, L"true"sv, L"type"sv, L"unalias"sv, L"which"sv,
+});
 
-const KeywordSet& TsTypes()
-{
-    static const KeywordSet s = MergeKeywords(JsTypes(), {
-        L"any", L"unknown", L"never", L"number", L"string", L"boolean",
-        L"symbol", L"bigint", L"object",
-        L"Record", L"Partial", L"Required", L"Readonly", L"Pick", L"Omit",
-        L"Exclude", L"Extract", L"NonNullable", L"ReturnType", L"Parameters",
-        L"InstanceType", L"Awaited", L"Uppercase", L"Lowercase",
-        L"Capitalize", L"Uncapitalize", L"ThisType", L"ConstructorParameters"
-        });
-    return s;
-}
+// PowerShell（大文字小文字を区別しないマッチングのためキーワードは小文字で格納）
+static constexpr auto PWSH_KEYWORDS = MakeSorted(std::array{
+    L"begin"sv, L"break"sv, L"catch"sv, L"class"sv, L"continue"sv, L"data"sv,
+    L"do"sv, L"dynamicparam"sv, L"else"sv, L"elseif"sv, L"end"sv, L"enum"sv,
+    L"exit"sv, L"filter"sv, L"finally"sv, L"for"sv, L"foreach"sv, L"from"sv,
+    L"function"sv, L"hidden"sv, L"if"sv, L"in"sv, L"inlinescript"sv, L"param"sv,
+    L"process"sv, L"return"sv, L"static"sv, L"switch"sv, L"throw"sv, L"trap"sv,
+    L"try"sv, L"until"sv, L"using"sv, L"while"sv, L"workflow"sv,
+});
 
-// ---- Bash ----
+static constexpr auto PWSH_TYPES = MakeSorted(std::array{
+    L"array"sv, L"bool"sv, L"byte"sv, L"char"sv, L"datetime"sv, L"decimal"sv,
+    L"double"sv, L"false"sv, L"float"sv, L"hashtable"sv, L"int"sv, L"long"sv,
+    L"null"sv, L"regex"sv, L"scriptblock"sv, L"string"sv, L"timespan"sv,
+    L"true"sv, L"void"sv, L"xml"sv,
+});
 
-const KeywordSet& BashKeywords()
-{
-    static const KeywordSet s{
-        L"if", L"then", L"else", L"elif", L"fi", L"case", L"esac",
-        L"for", L"while", L"until", L"do", L"done", L"in", L"function",
-        L"select", L"time", L"return", L"exit", L"break", L"continue",
-        L"declare", L"local", L"export", L"readonly", L"typeset", L"unset",
-        L"shift", L"source", L"eval", L"exec", L"trap", L"set"
-    };
-    return s;
-}
+// Cmd（大文字小文字を区別しないマッチングのためキーワードは小文字で格納）
+static constexpr auto CMD_KEYWORDS = MakeSorted(std::array{
+    L"call"sv, L"defined"sv, L"do"sv, L"echo"sv, L"else"sv, L"endlocal"sv,
+    L"equ"sv, L"errorlevel"sv, L"exist"sv, L"exit"sv, L"for"sv, L"geq"sv,
+    L"goto"sv, L"gtr"sv, L"if"sv, L"in"sv, L"leq"sv, L"lss"sv, L"neq"sv,
+    L"not"sv, L"off"sv, L"on"sv, L"pause"sv, L"rem"sv, L"set"sv, L"setlocal"sv,
+});
 
-const KeywordSet& BashTypes()
-{
-    static const KeywordSet s{
-        L"echo", L"printf", L"read", L"test", L"true", L"false",
-        L"cd", L"pwd", L"alias", L"unalias", L"type", L"which",
-        L"command", L"builtin", L"let", L"getopts", L"mapfile", L"readarray"
-    };
-    return s;
-}
-
-// ---- PowerShell（大文字小文字を区別しないマッチングのためキーワードは小文字で格納） ----
-
-const KeywordSet& PwshKeywords()
-{
-    static const KeywordSet s{
-        L"begin", L"break", L"catch", L"class", L"continue", L"data",
-        L"do", L"dynamicparam", L"else", L"elseif", L"end", L"enum",
-        L"exit", L"filter", L"finally", L"for", L"foreach", L"from",
-        L"function", L"hidden", L"if", L"in", L"inlinescript", L"param",
-        L"process", L"return", L"static", L"switch", L"throw", L"trap",
-        L"try", L"until", L"using", L"while", L"workflow"
-    };
-    return s;
-}
-
-const KeywordSet& PwshTypes()
-{
-    static const KeywordSet s{
-        L"int", L"long", L"float", L"double", L"decimal", L"bool",
-        L"byte", L"string", L"char", L"array", L"hashtable", L"xml",
-        L"datetime", L"timespan", L"regex", L"scriptblock", L"void",
-        L"null", L"true", L"false"
-    };
-    return s;
-}
-
-// ---- Cmd（大文字小文字を区別しないマッチングのためキーワードは小文字で格納） ----
-
-const KeywordSet& CmdKeywords()
-{
-    static const KeywordSet s{
-        L"if", L"else", L"for", L"do", L"goto", L"call", L"set",
-        L"setlocal", L"endlocal", L"echo", L"pause", L"exit", L"rem",
-        L"not", L"exist", L"defined", L"equ", L"neq", L"lss", L"leq",
-        L"gtr", L"geq", L"errorlevel", L"off", L"on", L"in"
-    };
-    return s;
-}
-
-const KeywordSet& CmdTypes()
-{
-    static const KeywordSet s{
-        L"dir", L"copy", L"move", L"del", L"ren", L"rename",
-        L"mkdir", L"md", L"rmdir", L"rd", L"type", L"find", L"findstr",
-        L"sort", L"more", L"cls", L"title", L"color", L"start",
-        L"taskkill", L"tasklist", L"reg", L"sc", L"net", L"netsh",
-        L"ping", L"ipconfig", L"ver", L"attrib", L"xcopy", L"robocopy"
-    };
-    return s;
-}
+static constexpr auto CMD_TYPES = MakeSorted(std::array{
+    L"attrib"sv, L"cls"sv, L"color"sv, L"copy"sv, L"del"sv, L"dir"sv, L"find"sv,
+    L"findstr"sv, L"ipconfig"sv, L"md"sv, L"mkdir"sv, L"more"sv, L"move"sv,
+    L"net"sv, L"netsh"sv, L"ping"sv, L"rd"sv, L"reg"sv, L"ren"sv, L"rename"sv,
+    L"rmdir"sv, L"robocopy"sv, L"sc"sv, L"sort"sv, L"start"sv, L"taskkill"sv,
+    L"tasklist"sv, L"title"sv, L"type"sv, L"ver"sv, L"xcopy"sv,
+});
 
 // ---- レキサーヘルパー ----
 
@@ -463,8 +405,8 @@ struct LexerConfig {
 
 std::pmr::vector<SyntaxToken> TokenizeGeneric(
     std::wstring_view text,
-    const KeywordSet& keywords,
-    const KeywordSet& types,
+    KeywordTable keywords,
+    KeywordTable types,
     const LexerConfig& cfg
 )
 {
@@ -673,10 +615,10 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             }
 
             SyntaxTokenType tt = SyntaxTokenType::Plain;
-            if (keywords.count(lookup_word)) {
+            if (std::ranges::binary_search(keywords, lookup_word)) {
                 tt = SyntaxTokenType::Keyword;
             }
-            else if (types.count(lookup_word)) {
+            else if (std::ranges::binary_search(types, lookup_word)) {
                 tt = SyntaxTokenType::Type;
             }
             else if (IsFollowedByParen(text, i)) {
@@ -699,75 +641,68 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
 // ---- 言語定義テーブル ----
 
 struct LanguageDef {
-    const KeywordSet& (*keywords)();
-    const KeywordSet& (*types)();
+    KeywordTable keywords;
+    KeywordTable types;
     LexerConfig config;
 };
-
-// プレースホルダーエントリ（None, Mermaid）用の空キーワードセット。
-const KeywordSet& EmptyKeywords()
-{
-    static const KeywordSet s;
-    return s;
-}
 
 // SyntaxLanguage列挙値でインデックス。
 // None=0, Cpp=1, Python=2, JavaScript=3, Mermaid=4,
 // Go=5, Rust=6, TypeScript=7, Bash=8, PowerShell=9, Cmd=10
 static const LanguageDef LANGUAGE_DEFS[] = {
     // なし
-    {&EmptyKeywords, &EmptyKeywords, {}},
+    {{}, {}, {}},
     // C++
-    {&CppKeywords, &CppTypes, {
+    {CPP_KEYWORDS, CPP_TYPES, {
         .line_comment_slash = true,
         .block_comment = true,
         .preprocessor = true,
     }},
     // Python
-    {&PythonKeywords, &PythonTypes, {
+    {PYTHON_KEYWORDS, PYTHON_TYPES, {
         .hash_comment = true,
         .triple_quote = true,
     }},
     // JavaScript
-    {&JsKeywords, &JsTypes, {
+    {JS_KEYWORDS, JS_TYPES, {
         .line_comment_slash = true,
         .block_comment = true,
         .backtick_string = true,
     }},
     // Mermaid（トークン化しない）
-    {&EmptyKeywords, &EmptyKeywords, {}},
+    {{}, {}, {}},
     // Go
-    {&GoKeywords, &GoTypes, {
+    {GO_KEYWORDS, GO_TYPES, {
         .line_comment_slash = true,
         .block_comment = true,
         .backtick_string = true,
         .raw_backtick = true,
     }},
     // Rust
-    {&RustKeywords, &RustTypes, {
+    {RUST_KEYWORDS, RUST_TYPES, {
         .line_comment_slash = true,
         .block_comment = true,
         .skip_single_quote = true,
     }},
     // TypeScript
-    {&TsKeywords, &TsTypes, {
+    {TS_KEYWORDS, TS_TYPES, {
         .line_comment_slash = true,
         .block_comment = true,
         .backtick_string = true,
     }},
     // Bash
-    {&BashKeywords, &BashTypes, {
+    {BASH_KEYWORDS, BASH_TYPES, {
         .hash_comment = true,
         .backtick_string = true,
     }},
     // PowerShell
-    {&PwshKeywords, &PwshTypes, {
+    {PWSH_KEYWORDS, PWSH_TYPES, {
         .hash_comment = true,
         .angle_block_comment = true,
         .case_insensitive = true,
     }},
     // Cmd
-    {&CmdKeywords, &CmdTypes, {
+    {CMD_KEYWORDS, CMD_TYPES, {
         .double_colon_comment = true,
         .rem_comment = true,
         .case_insensitive = true,
@@ -864,5 +799,5 @@ std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage la
         return {};
     }
     const auto& def = LANGUAGE_DEFS[idx];
-    return TokenizeGeneric(text, def.keywords(), def.types(), def.config);
+    return TokenizeGeneric(text, def.keywords, def.types, def.config);
 }

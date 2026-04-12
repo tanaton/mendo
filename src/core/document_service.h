@@ -1,13 +1,15 @@
 #pragma once
 #include "document.h"
 #include "file_watcher.h"
+#include "file_loader.h"
+#include <expected>
 
 class DocumentService {
 public:
     explicit DocumentService(FileWatcher& watcher) noexcept : watcher_(watcher) {}
 
-    // ファイルを読み込み、Document を構築。成功時 true。
-    bool LoadFile(const std::pmr::wstring& path, Document& doc);
+    // ファイルを読み込み、Document を構築。
+    std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path);
 
     // ファイル監視
     void StartWatching(const std::pmr::wstring& path, FileWatcher::ChangeCallback cb);
