@@ -88,15 +88,15 @@ public:
     void OnDestroy();
 
     // 検索（Win32Windowから呼ばれるコールバック）— Reducer経由で状態変更
-    void OnSearchTextChanged(std::wstring_view text) { Dispatch(SearchTextChangedAction{std::pmr::wstring{text}}); }
+    void OnSearchTextChanged(std::wstring_view text) { Dispatch(SearchTextChangedAction{ std::pmr::wstring{text} }); }
     void OnSearchClose() { Dispatch(CloseSearchBarAction{}); }
     void OnSearchNext() { Dispatch(SearchNextAction{}); }
     void OnSearchPrev() { Dispatch(SearchPrevAction{}); }
     bool IsSearchBarVisible() const noexcept { return state_.search_state.IsVisible(); }
     void OnToggleCaseSensitive() { Dispatch(ToggleCaseSensitiveAction{}); }
     void OnToggleHighlight() { Dispatch(ToggleHighlightAction{}); }
-    void SetSearchSelection(int sel_start, int sel_end) { Dispatch(SearchSelectionAction{sel_start, sel_end}); }
-    void SetImeComposition(std::wstring_view comp) { Dispatch(ImeCompositionAction{std::pmr::wstring{comp}}); }
+    void SetSearchSelection(int sel_start, int sel_end) { Dispatch(SearchSelectionAction{ sel_start, sel_end }); }
+    void SetImeComposition(std::wstring_view comp) { Dispatch(ImeCompositionAction{ std::pmr::wstring{comp} }); }
     RECT GetSearchEditRect() const;
 
     // 検索バーコントローラへのアクセス（app_mouse.cppでのドラッグ/ホバー処理用）
@@ -132,7 +132,7 @@ public:
     TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept { return state_.titlebar.HitTest(dip_x, dip_y); }
     bool IsOverMdScrollbar(float dip_x, float dip_y) const;
     bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const noexcept;
-    void OnActivate(bool active) { Dispatch(ActivateAction{active}); }
+    void OnActivate(bool active) { Dispatch(ActivateAction{ active }); }
 
 private:
     // AppControllerが返すアクションを実行
@@ -196,7 +196,7 @@ private:
     // サイドペイン スクロールバードラッグ共通処理
     void HandleSidePaneScrollDrag(float dip_y, const PaneRect& rect,
         float total_content, ScrollState& scroll,
-        void (Renderer::*invalidate)());
+        void (Renderer::* invalidate)());
 
     // レイアウト / スクロール
     void ScheduleDeferredLayoutIfNeeded();
@@ -222,6 +222,9 @@ private:
     bool ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size);
     void UpdateTitleBar();
 
+    // リロード共通処理: 差分分析後のレイアウト更新・スクロール復元・検索再実行
+    void FinishReload(bool is_prefix_only, size_t diff_pos, float old_scroll);
+
     // ファイル読み込み/リロード共通ヘルパー
     void CancelPendingResources();
     void FinalizeLayout(float md_pane_height);
@@ -239,6 +242,14 @@ private:
 
     // 検索
     void OnSearchOpen() { state_.search_bar_ctrl.OnOpen(state_.doc.GetNodes()); }
+
+    // Reducer 用テーマ定数キャッシュの同期
+    void SyncPaneThemeCache();
+
+    // Dispatch() 内のインラインハンドラから抽出したヘルパー
+    void HandleOpenFile();
+    void HandleShowHelp();
+    void HandleDropFile(std::wstring_view path);
 
     // ダークモード / ズーム (theme_service_に委譲)
     void ToggleDarkMode();

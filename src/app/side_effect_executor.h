@@ -20,12 +20,14 @@ public:
         std::function<void(std::wstring_view)> load_file;
         std::function<void()> reload_file;
         std::function<void()> open_file_dialog;
+        std::function<void(PaneZone)> invalidate_pane_cache;
+        std::function<void()> refresh_pane_layout;
     };
 
     void Init(HWND hwnd, ResourceManager& resource_manager,
-              CursorManager& cursors, DocumentService& doc_service,
-              ConfigService& config, AppState& state,
-              LayoutService& layout_service, Callbacks cb);
+        CursorManager& cursors, DocumentService& doc_service,
+        ConfigService& config, AppState& state,
+        LayoutService& layout_service, Callbacks cb);
     void Execute(const SideEffectList& effects);
 
 private:

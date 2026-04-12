@@ -1,5 +1,6 @@
 #pragma once
 #include "pane.h"
+#include "pane_layout.h"
 #include "tooltip.h"
 #include <algorithm>
 #include <variant>
@@ -70,12 +71,16 @@ struct LoadImages {};
 struct RequestMermaidRenders {};
 struct CancelMermaidBatch {};
 
+// ---- ペインキャッシュ ----
+struct InvalidatePaneCache { PaneZone pane; };
+struct RefreshPaneLayout {};
+
 // ---- ダークモード ----
 struct ApplyDarkMode { bool dark; };
 
 } // namespace effect
 
-using SideEffect = std::variant<
+using SideEffect = std::variant <
     effect::InvalidateWindow,
     effect::InvalidateRect,
     effect::InvalidateTitleBar,
@@ -106,14 +111,17 @@ using SideEffect = std::variant<
     effect::LoadImages,
     effect::RequestMermaidRenders,
     effect::CancelMermaidBatch,
+    effect::InvalidatePaneCache,
+    effect::RefreshPaneLayout,
     effect::ApplyDarkMode
->;
+> ;
 
 using SideEffectList = std::pmr::vector<SideEffect>;
 
 // ヘルパー: 副作用リストに特定の副作用型が含まれるかチェック
 template<typename T>
-bool HasEffect(const SideEffectList& effects) noexcept {
+bool HasEffect(const SideEffectList& effects) noexcept
+{
     return std::ranges::any_of(effects, [](const auto& e) {
         return std::holds_alternative<T>(e);
     });

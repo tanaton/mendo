@@ -65,4 +65,9 @@ struct AppState {
     mutable PaneLayout cached_pane_layout{};
     mutable float cached_window_width_for_layout = 0.0f;
     mutable bool pane_layout_valid = false;
+
+    // テーマから取得したペイン定数のキャッシュ（ズーム変更時に更新）。
+    // Reducer がペインスクロールの max_scroll を計算するために使用する。
+    float cached_pane_item_height = 28.0f;
+    float cached_pane_header_height = 32.0f;
 };

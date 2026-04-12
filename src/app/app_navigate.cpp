@@ -1,6 +1,5 @@
 #include "app.h"
 #include "document_utils.h"
-#include <shellapi.h>
 #include <algorithm>
 
 // ============================================================
@@ -18,9 +17,12 @@ void App::HandleLinkClick(std::wstring_view url)
         PushNavHistory();
         NavigateToAnchor(result.target);
         break;
-    case NavigationService::NavigateResult::Type::ExternalUrl:
-        ShellExecuteW(hwnd_, L"open", result.target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    case NavigationService::NavigateResult::Type::ExternalUrl: {
+        SideEffectList effects;
+        effects.emplace_back(effect::ShellOpen{ std::pmr::wstring{result.target} });
+        effect_executor_.Execute(effects);
         break;
+    }
     default:
         break;
     }
@@ -78,8 +80,17 @@ void App::NavigateForward()
 // ダークモード
 // ============================================================
 
+void App::SyncPaneThemeCache()
+{
+    const auto& theme = renderer_.GetTheme();
+    state_.cached_pane_item_height = theme.pane_item_height;
+    state_.cached_pane_header_height = theme.pane_header_height;
+}
+
 void App::FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale)
 {
+    SyncPaneThemeCache();
+
     auto layout = GetPaneLayout();
     float md_width = layout.md_rect.width;
     float md_height = layout.md_rect.height;

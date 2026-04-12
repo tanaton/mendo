@@ -166,7 +166,7 @@ struct ParseContext {
         return run;
     }
 
-    // テーブルセルにWideテキストを追加（セルはWideのまま維持）
+    // テーブルセルにWideテキストを追加（AppendText/AppendUtf8から委譲される）
     void AppendTextToCell(std::wstring_view text)
     {
         const uint32_t start = static_cast<uint32_t>(current_cell->text.size());
@@ -174,7 +174,9 @@ struct ParseContext {
         current_cell->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
     }
 
-    // ノードにWideテキストを追加（Wide→UTF-8変換してtext_utf8に蓄積、BR/SOFTBR/Entity用）
+    // Wideテキストを現在のノードまたはセルに追加する。
+    // セル内なら AppendTextToCell に委譲。
+    // ノードなら Wide→UTF-8 変換して text_utf8 に蓄積する（BR/SOFTBR/Entity用）。
     void AppendText(std::wstring_view text)
     {
         if (current_cell) {
@@ -210,7 +212,7 @@ struct ParseContext {
         }
     }
 
-    // テーブルセルにUTF-8テキストをWide変換して追加
+    // テーブルセルにUTF-8テキストをWide変換して追加（AppendUtf8から委譲される）
     void AppendUtf8ToCell(std::string_view text)
     {
         Utf8ToWide(text, text_buffer);
@@ -219,7 +221,9 @@ struct ParseContext {
         }
     }
 
-    // UTF-8テキストをワイド文字に変換し、現在のノード/セルに追加する（エンティティ等用）
+    // UTF-8テキストを現在のノードまたはセルに追加する。
+    // セル内なら AppendUtf8ToCell に委譲（Wide変換が必要）。
+    // ノードなら text_utf8 に直接蓄積し、Wide長のみ計算する（遅延変換で高速化）。
     void AppendUtf8(std::string_view text)
     {
         if (current_cell) {

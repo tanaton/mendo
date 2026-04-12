@@ -21,6 +21,58 @@ float NodeIndent(const Node& node, const Theme& theme) noexcept
     return node.indent_level * theme.indent_width;
 }
 
+// テーブル内のクリック座標からヒットした行を特定する。
+// 見つかった場合は行インデックスとその行の上端Y座標を返す。
+struct TableRowHit { int row; float row_top_y; };
+TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry,
+    const Theme& theme, float dip_y) noexcept
+{
+    if (!entry.has_table_layout()) {
+        return { -1, 0.0f };
+    }
+    const auto& tl = *entry.table_layout;
+    const float border = TABLE_BORDER_WIDTH;
+    float ry = entry.y_position;
+    const auto row_count = node.table_rows().size();
+    for (size_t r = 0; r < row_count; r++) {
+        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR);
+        const float row_bottom = ry + row_h + border;
+        if (dip_y < row_bottom) {
+            return { static_cast<int>(r), ry };
+        }
+        ry += row_h + border;
+    }
+    return { -1, 0.0f };
+}
+
+// テーブル内のクリック座標からヒットした列を特定する。
+// 見つからない場合は最終列を返す。
+// cell_left_x にはヒットしたセルの左端X座標（パディング含まず）を書き込む。
+int FindTableCol(const TableLayoutData& tl, float base_x, float dip_x,
+    float& cell_left_x) noexcept
+{
+    const float cell_padding = TABLE_CELL_PADDING;
+    const float border = TABLE_BORDER_WIDTH;
+    float cx = base_x + border;
+    const auto col_count = tl.col_widths.size();
+    for (size_t c = 0; c < col_count; c++) {
+        const float col_right = cx + tl.col_widths[c] + cell_padding * 2.0f;
+        if (dip_x < col_right) {
+            cell_left_x = cx;
+            return static_cast<int>(c);
+        }
+        cx += tl.col_widths[c] + cell_padding * 2.0f + border;
+    }
+    // 最終列にフォールバック
+    if (col_count > 0) {
+        // cx は最終列の右端を過ぎているので巻き戻す
+        cell_left_x = cx - tl.col_widths[col_count - 1] - cell_padding * 2.0f - border;
+        return static_cast<int>(col_count - 1);
+    }
+    cell_left_x = base_x + border;
+    return 0;
+}
+
 } // namespace
 
 // 指定された行・列までのフラットテキストオフセットを計算する。
@@ -130,50 +182,23 @@ HitTestService::HitResult HitTestService::HitTestTable(
     HitResult result;
     result.node_index = node_index;
 
-    const float indent = NodeIndent(node, theme);
-    const float base_x = theme.margin_left + indent;
-    const float cell_padding = TABLE_CELL_PADDING;
-    const float border = TABLE_BORDER_WIDTH;
-
     if (!entry.has_table_layout()) {
         result.text_pos = static_cast<uint32_t>(node.GetText().size());
         return result;
     }
     const auto& tl = *entry.table_layout;
 
-    // クリックされた行を特定
-    float ry = entry.y_position;
-    int hit_row = -1;
-    const auto row_count = node.table_rows().size();
-    for (size_t r = 0; r < row_count; r++) {
-        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR);
-        const float row_bottom = ry + row_h + border;
-        if (dip_y < row_bottom) {
-            hit_row = static_cast<int>(r);
-            break;
-        }
-        ry += row_h + border;
-    }
+    const float indent = NodeIndent(node, theme);
+    const float base_x = theme.margin_left + indent;
+
+    const auto [hit_row, row_top_y] = FindTableRow(node, entry, theme, dip_y);
     if (hit_row < 0) {
         result.text_pos = static_cast<uint32_t>(node.GetText().size());
         return result;
     }
 
-    // クリックされた列を特定
-    float cx = base_x + border;
-    int hit_col = static_cast<int>(tl.col_widths.size()) - 1; // デフォルトは最後の列
-    const auto col_count = tl.col_widths.size();
-    for (size_t c = 0; c < col_count; c++) {
-        const float col_right = cx + tl.col_widths[c] + cell_padding * 2.0f;
-        if (dip_x < col_right) {
-            hit_col = static_cast<int>(c);
-            break;
-        }
-        cx += tl.col_widths[c] + cell_padding * 2.0f + border;
-    }
-    if (hit_col < 0) {
-        hit_col = 0;
-    }
+    float cell_left_x = 0.0f;
+    const int hit_col = FindTableCol(tl, base_x, dip_x, cell_left_x);
 
     // セル (hit_row, hit_col) のフラットテキストオフセットを計算
     const uint32_t flat_offset = ComputeTableFlatOffset(node, entry, hit_row, hit_col);
@@ -183,24 +208,14 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const size_t c = static_cast<size_t>(hit_col);
     IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
     if (cell_layout) {
-        float cell_x = base_x + border;
-        for (size_t cc = 0; cc < c; cc++) {
-            cell_x += tl.col_widths[cc] + cell_padding * 2.0f + border;
-        }
-        const float cell_text_x = cell_x + cell_padding;
-
-        float cell_y = entry.y_position;
-        for (size_t rr = 0; rr < r; rr++) {
-            const float rh = (rr < tl.row_heights.size()) ? tl.row_heights[rr] : (theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR);
-            cell_y += rh + border;
-        }
-        const float cell_text_y = cell_y + cell_padding;
+        const float text_x = cell_left_x + TABLE_CELL_PADDING;
+        const float text_y = row_top_y + TABLE_CELL_PADDING;
 
         BOOL is_trailing = FALSE, is_inside = FALSE;
         DWRITE_HIT_TEST_METRICS metrics{};
         cell_layout->HitTestPoint(
-            dip_x - cell_text_x,
-            dip_y - cell_text_y,
+            dip_x - text_x,
+            dip_y - text_y,
             &is_trailing,
             &is_inside,
             &metrics

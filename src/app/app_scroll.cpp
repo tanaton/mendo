@@ -91,7 +91,7 @@ void App::HandleSidePaneScrollDrag(float dip_y, const PaneRect& rect,
 void App::ScheduleDeferredLayoutIfNeeded()
 {
     if (layout_service_->HasDirtyNodes()) {
-        SetTimer(hwnd_, app_timer::DEFERRED_LAYOUT, 16, nullptr);
+        SetTimer(hwnd_, app_timer::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS, nullptr);
     }
 }
 
