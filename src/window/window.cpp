@@ -1,4 +1,5 @@
 #include "window.h"
+#include "app.h"
 #include "app_constants.h"
 #include "config_store.h"
 #include "i18n.h"
@@ -21,6 +22,14 @@ static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 // システムメニュー（タスクバー右クリック）のカスタムコマンドID
 // 0xF000以上はシステム予約（SC_KEYMENU=0xF100等）のため、下位4bitが0のカスタム値を使う
 static constexpr UINT SC_RESET_WINDOW = 0x0010;
+
+Win32Window::Win32Window() : app_(std::make_unique<App>()) {}
+Win32Window::~Win32Window() = default;
+
+void Win32Window::LoadMarkdownFile(std::wstring_view path) { app_->LoadMarkdownFile(path); }
+void Win32Window::LoadHelpDocument() { app_->LoadHelpDocument(); }
+std::pmr::wstring Win32Window::LoadLastFilePath() const { return app_->LoadLastFilePath(); }
+void Win32Window::ShowDirectory(std::wstring_view dir_path) { app_->ShowDirectory(dir_path); }
 
 bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 {
@@ -52,7 +61,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         return false;
     }
 
-    if (!app_.Init(hwnd_)) {
+    if (!app_->Init(hwnd_)) {
         return false;
     }
 
@@ -110,7 +119,7 @@ int Win32Window::RunMessageLoop()
 
     for (;;) {
         // イベントハンドルは DispatchMessageW 中に変わりうるため毎回取得
-        const HANDLE evt = app_.GetFileWatchEvent();
+        const HANDLE evt = app_->GetFileWatchEvent();
         const DWORD count = evt ? 1 : 0;
 
         const DWORD wait = MsgWaitForMultipleObjects(
@@ -122,7 +131,7 @@ int Win32Window::RunMessageLoop()
             MsgWaitForMultipleObjects(0, nullptr, FALSE, INFINITE, QS_ALLINPUT);
         }
         else if (wait < WAIT_OBJECT_0 + count) {
-            app_.OnFileWatchEvent();
+            app_->OnFileWatchEvent();
         }
 
         // キューのメッセージをすべて排出
@@ -238,8 +247,8 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
         if (pt.x >= rc.right - right_border) {
             // 内側部分のみスクロールバーを優先、最外側borderはリサイズを優先
             if (pt.x < rc.right - border) {
-                const float dpi_scale = app_.GetDpiScale();
-                if (app_.IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
+                const float dpi_scale = app_->GetDpiScale();
+                if (app_->IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
                     return HTCLIENT;
                 }
             }
@@ -248,13 +257,13 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
     }
 
     // タイトルバー領域のヒットテスト
-    const float dpi_scale = app_.GetDpiScale();
+    const float dpi_scale = app_->GetDpiScale();
     const float dip_x = pt.x / dpi_scale;
     const float dip_y = pt.y / dpi_scale;
-    const float titlebar_height = app_.GetTitleBarHeightDip();
+    const float titlebar_height = app_->GetTitleBarHeightDip();
 
     if (dip_y < titlebar_height) {
-        const auto zone = app_.TitleBarHitTest(dip_x, dip_y);
+        const auto zone = app_->TitleBarHitTest(dip_x, dip_y);
         switch (zone) {
         case TitleBarHitZone::Icon:
             return HTSYSMENU;  // システムメニュー表示（ダブルクリックで閉じる）
@@ -287,24 +296,24 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return OnNcHitTest(lParam);
 
     case WM_PAINT:
-        app_.OnPaint();
+        app_->OnPaint();
         return 0;
 
     case WM_SIZE:
-        app_.OnResize(LOWORD(lParam), HIWORD(lParam));
+        app_->OnResize(LOWORD(lParam), HIWORD(lParam));
         RepositionSearchEdit();
         return 0;
 
     case WM_ACTIVATE:
-        app_.OnActivate(LOWORD(wParam) != WA_INACTIVE);
+        app_->OnActivate(LOWORD(wParam) != WA_INACTIVE);
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     case WM_ENTERSIZEMOVE:
-        app_.OnEnterSizeMove();
+        app_->OnEnterSizeMove();
         return 0;
 
     case WM_EXITSIZEMOVE:
-        app_.OnExitSizeMove();
+        app_->OnExitSizeMove();
         return 0;
 
     case WM_NCLBUTTONDOWN:
@@ -321,7 +330,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         if (in_sys_menu_) {
             return 0;
         }
-        if (!app_.OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
+        if (!app_->OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
         }
         return 0;
@@ -330,17 +339,17 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         if (in_sys_menu_) {
             return 0;
         }
-        if (!app_.OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
+        if (!app_->OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
         }
         return 0;
 
     case WM_LBUTTONDOWN:
-        app_.OnLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        app_->OnLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         return 0;
 
     case WM_LBUTTONUP:
-        app_.OnLButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        app_->OnLButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         return 0;
 
     case WM_MOUSEMOVE:
@@ -353,19 +362,19 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
             tracking_mouse_ = true;
         }
         if (wParam & MK_LBUTTON) {
-            app_.OnMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            app_->OnMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         }
         else if (wParam & MK_RBUTTON) {
-            app_.OnRButtonMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            app_->OnRButtonMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         }
         else {
-            app_.OnMouseHover(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            app_->OnMouseHover(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         }
         return 0;
 
     case WM_MOUSELEAVE:
         tracking_mouse_ = false;
-        app_.OnMouseLeave();
+        app_->OnMouseLeave();
         return 0;
 
     case WM_SETCURSOR:
@@ -375,7 +384,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     case WM_LBUTTONDBLCLK:
-        app_.OnLButtonDblClk(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        app_->OnLButtonDblClk(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         return 0;
 
     case WM_MOUSEWHEEL: {
@@ -383,21 +392,21 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         const bool ctrl = (LOWORD(wParam) & MK_CONTROL) != 0;
 
         if (ctrl) {
-            app_.OnMouseWheel(0, 0, wheel_delta, true);
+            app_->OnMouseWheel(0, 0, wheel_delta, true);
         }
         else {
             POINT pt;
             pt.x = GET_X_LPARAM(lParam);
             pt.y = GET_Y_LPARAM(lParam);
             ScreenToClient(hwnd_, &pt);
-            app_.OnMouseWheel(pt.x, pt.y, wheel_delta);
+            app_->OnMouseWheel(pt.x, pt.y, wheel_delta);
         }
         return 0;
     }
 
     case WM_MOUSEHWHEEL: {
         const short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        app_.OnMouseHWheel(wheel_delta);
+        app_->OnMouseHWheel(wheel_delta);
         return 0;
     }
 
@@ -412,18 +421,18 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         if (sx != -1 || sy != -1) {
             POINT pt = { sx, sy };
             ScreenToClient(hwnd_, &pt);
-            const float dpi_scale = app_.GetDpiScale();
+            const float dpi_scale = app_->GetDpiScale();
             const float dip_y = pt.y / dpi_scale;
-            if (dip_y < app_.GetTitleBarHeightDip()) {
+            if (dip_y < app_->GetTitleBarHeightDip()) {
                 return 0;
             }
         }
-        app_.OnContextMenu(sx, sy);
+        app_->OnContextMenu(sx, sy);
         return 0;
     }
 
     case WM_KEYDOWN:
-        app_.OnKeyDown(wParam);
+        app_->OnKeyDown(wParam);
         return 0;
 
     case WM_COMMAND:
@@ -432,7 +441,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
             std::wstring buf(static_cast<size_t>(std::max(text_len, 0)), L'\0');
             const int copied = GetWindowTextW(search_edit_, buf.data(), text_len + 1);
             buf.resize(static_cast<size_t>(std::max(copied, 0)));
-            app_.OnSearchTextChanged(buf);
+            app_->OnSearchTextChanged(buf);
             SyncSearchCaretFromEdit();
             return 0;
         }
@@ -468,45 +477,45 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_XBUTTONDOWN: {
         const WORD button = GET_XBUTTON_WPARAM(wParam);
         if (button == XBUTTON1) {
-            app_.OnXButtonBack();
+            app_->OnXButtonBack();
         }
         else if (button == XBUTTON2) {
-            app_.OnXButtonForward();
+            app_->OnXButtonForward();
         }
         return TRUE;
     }
 
     case WM_DROPFILES:
-        app_.OnDropFiles(reinterpret_cast<HDROP>(wParam));
+        app_->OnDropFiles(reinterpret_cast<HDROP>(wParam));
         return 0;
 
     case WM_DPICHANGED: {
         const UINT dpi = HIWORD(wParam);
         const auto* suggested = reinterpret_cast<const RECT*>(lParam);
-        app_.OnDpiChanged(dpi, suggested);
+        app_->OnDpiChanged(dpi, suggested);
         UpdateDwmFrame();
         UpdateDpiMetricsCache();
         return 0;
     }
 
     case WM_TIMER:
-        app_.HandleTimer(wParam);
+        app_->HandleTimer(wParam);
         return 0;
 
     case app_msg::LOAD_FILE:
-        app_.OnAppLoadFile();
+        app_->OnAppLoadFile();
         return 0;
 
     case app_msg::RELOAD_FILE:
-        app_.OnAppReloadFile();
+        app_->OnAppReloadFile();
         return 0;
 
     case app_msg::IMAGE_LOADED:
-        app_.OnAppImageLoaded();
+        app_->OnAppImageLoaded();
         return 0;
 
     case app_msg::PARSE_COMPLETE:
-        app_.OnParseComplete();
+        app_->OnParseComplete();
         return 0;
 
     case WM_SYSCOMMAND:
@@ -517,12 +526,12 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     case WM_CAPTURECHANGED:
-        app_.OnCaptureChanged();
+        app_->OnCaptureChanged();
         return 0;
 
     case WM_DESTROY:
         SaveWindowPlacement();
-        app_.OnDestroy();
+        app_->OnDestroy();
         config::Save();
         PostQuitMessage(0);
         return 0;
@@ -636,7 +645,7 @@ void Win32Window::RestoreScrollPosition()
     }
     const int offset = config::GetInt("Session", "ScrollOffset", 0, -100000, 100000);
     const int scroll_y = config::GetInt("Session", "ScrollY", -1, -1, 100000000);
-    app_.SetPendingRestoreNode(node, offset, static_cast<float>(scroll_y));
+    app_->SetPendingRestoreNode(node, offset, static_cast<float>(scroll_y));
 }
 
 // ============================================================
@@ -659,28 +668,28 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
 
         switch (wParam) {
         case VK_ESCAPE:
-            self->app_.OnSearchClose();
+            self->app_->OnSearchClose();
             SetFocus(self->hwnd_);
             return 0;
         case VK_RETURN:
             if (shift) {
-                self->app_.OnSearchPrev();
+                self->app_->OnSearchPrev();
             }
             else {
-                self->app_.OnSearchNext();
+                self->app_->OnSearchNext();
             }
             return 0;
         case VK_F3:
             if (shift) {
-                self->app_.OnSearchPrev();
+                self->app_->OnSearchPrev();
             }
             else {
-                self->app_.OnSearchNext();
+                self->app_->OnSearchNext();
             }
             return 0;
         case 'F':
             if (ctrl) {
-                self->app_.OnSearchClose();
+                self->app_->OnSearchClose();
                 SetFocus(self->hwnd_);
                 return 0;
             }
@@ -688,10 +697,10 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
         case 'G':
             if (ctrl) {
                 if (shift) {
-                    self->app_.OnSearchPrev();
+                    self->app_->OnSearchPrev();
                 }
                 else {
-                    self->app_.OnSearchNext();
+                    self->app_->OnSearchNext();
                 }
                 return 0;
             }
@@ -754,10 +763,10 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (bytes > 0) {
                 std::wstring comp(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
                 ImmGetCompositionStringW(himc, GCS_COMPSTR, comp.data(), static_cast<DWORD>(bytes));
-                self->app_.SetImeComposition(comp);
+                self->app_->SetImeComposition(comp);
             }
             else {
-                self->app_.SetImeComposition(L"");
+                self->app_->SetImeComposition(L"");
             }
             ImmReleaseContext(hwnd, himc);
         }
@@ -765,7 +774,7 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
 
     // IME変換終了時にコンポジション文字列をクリア
     if (msg == WM_IME_ENDCOMPOSITION) {
-        self->app_.SetImeComposition(L"");
+        self->app_->SetImeComposition(L"");
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);
@@ -773,10 +782,10 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
 
 void Win32Window::RepositionSearchEdit()
 {
-    if (!search_edit_ || !app_.IsSearchBarVisible()) {
+    if (!search_edit_ || !app_->IsSearchBarVisible()) {
         return;
     }
-    const RECT rc = app_.GetSearchEditRect();
+    const RECT rc = app_->GetSearchEditRect();
     SetWindowPos(search_edit_, nullptr, rc.left, rc.top,
         rc.right - rc.left, rc.bottom - rc.top,
         SWP_NOZORDER | SWP_NOACTIVATE);
@@ -789,5 +798,5 @@ void Win32Window::SyncSearchCaretFromEdit()
     }
     DWORD sel_start, sel_end;
     SendMessageW(search_edit_, EM_GETSEL, reinterpret_cast<WPARAM>(&sel_start), reinterpret_cast<LPARAM>(&sel_end));
-    app_.SetSearchSelection(static_cast<int>(sel_start), static_cast<int>(sel_end));
+    app_->SetSearchSelection(static_cast<int>(sel_start), static_cast<int>(sel_end));
 }

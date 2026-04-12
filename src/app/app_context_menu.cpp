@@ -44,30 +44,35 @@ void App::OnContextMenu(int screen_x, int screen_y)
 
     const int cmd = ctx_menu_.Show(hwnd_, params);
 
-    if (cmd == IDM_NAV_BACK) {
+    switch (cmd) {
+    case IDM_NAV_BACK:
         NavigateBack();
-    }
-    else if (cmd == IDM_NAV_FORWARD) {
+        break;
+    case IDM_NAV_FORWARD:
         NavigateForward();
-    }
-    else if (cmd == IDM_EDIT_FILE) {
+        break;
+    case IDM_EDIT_FILE: {
         const auto& file_path = doc_.GetFilePath();
         if (IsEditableTextFile(file_path)) {
             ShellExecuteW(hwnd_, L"open", file_path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
+        break;
     }
-    else if (cmd == IDM_COPY) {
+    case IDM_COPY:
         CopySelectionToClipboard();
-    }
-    else if (cmd == IDM_TOGGLE_DARK_MODE) {
+        break;
+    case IDM_TOGGLE_DARK_MODE:
         ToggleDarkMode();
-    }
-    else if (cmd == IDM_TOGGLE_FILE_PANE) {
+        break;
+    case IDM_TOGGLE_FILE_PANE:
         panes_.ToggleFilePane();
         RefreshPaneLayout();
-    }
-    else if (cmd == IDM_TOGGLE_TOC_PANE) {
+        break;
+    case IDM_TOGGLE_TOC_PANE:
         panes_.ToggleTocPane();
         RefreshPaneLayout();
+        break;
+    default:
+        break;
     }
 }

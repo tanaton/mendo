@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <string_view>
 #include <memory_resource>
 #include <expected>
 #include <windows.h>
@@ -13,6 +14,18 @@ enum class FileLoadError {
     TooLarge,    // ファイルサイズが MAX_FILE_SIZE を超過
     ReadFailed,  // 読み込み中のI/Oエラー
 };
+
+// FileLoadError に対応するローカライズ済みメッセージを返す。
+// i18n.h に依存しないよう、呼び出し側が Strings を渡す設計。
+inline std::wstring_view FileLoadErrorMessage(FileLoadError e, const auto& strings) noexcept
+{
+    switch (e) {
+    case FileLoadError::NotFound:   return strings.toast_file_not_found;
+    case FileLoadError::TooLarge:   return strings.toast_file_too_large;
+    case FileLoadError::ReadFailed: return strings.toast_file_read_failed;
+    default:                        return strings.toast_file_not_found;
+    }
+}
 
 // ファイル読み込みユーティリティ（静的メソッドのみ）。
 class FileLoader {

@@ -5,6 +5,7 @@
 #include "task_scheduler.h"
 #include <string>
 #include <optional>
+#include <expected>
 #include <mutex>
 #include <atomic>
 
@@ -39,8 +40,8 @@ public:
     // ---- ファイル読み込み ----
 
     // 保存されたローディングパスを使ってファイル読み込みを実行。
-    // 成功時にtrueを返す。呼び出し元はdocからディレクトリ/ファイルパスを参照すること。
-    bool ExecuteLoad(Document& doc, LayoutCache& cache);
+    // 成功時はdoc/cacheを更新したうえで値を持つexpectedを返し、失敗時はFileLoadErrorを返す。
+    std::expected<void, FileLoadError> ExecuteLoad(Document& doc, LayoutCache& cache);
 
     // ---- 非同期ファイル読み込み ----
 

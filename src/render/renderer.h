@@ -56,35 +56,27 @@ struct ToastRenderState {
 struct TitleBarRenderState {
     // --- 8バイトアライメント ---
     std::wstring_view title_text;
-    // --- 4バイトアライメント (D2D1_RECT_F = 4×float) ---
-    D2D1_RECT_F open_file_btn_rect{};
-    D2D1_RECT_F help_btn_rect{};
-    D2D1_RECT_F theme_btn_rect{};
-    D2D1_RECT_F search_btn_rect{};
-    D2D1_RECT_F file_btn_rect{};
-    D2D1_RECT_F toc_btn_rect{};
-    D2D1_RECT_F minimize_btn_rect{};
-    D2D1_RECT_F maximize_btn_rect{};
-    D2D1_RECT_F close_btn_rect{};
+    // --- TitleBarButton (D2D1_RECT_F + bool) ---
+    TitleBarButton open_file;
+    TitleBarButton help;
+    TitleBarButton theme_toggle;
+    TitleBarButton search;
+    TitleBarButton file_toggle;
+    TitleBarButton toc_toggle;
+    TitleBarButton minimize;
+    TitleBarButton maximize;
+    TitleBarButton close;
+    // --- 4バイトアライメント ---
     D2D1_RECT_F icon_rect{};
     D2D1_RECT_F title_text_rect{};
     float height = 0.0f;
     float window_width = 0.0f;
     // --- 1バイトアライメント ---
-    bool open_file_btn_hovered = false;
-    bool help_btn_hovered = false;
-    bool theme_btn_hovered = false;
     bool is_dark_mode = false;
-    bool search_btn_hovered = false;
     bool search_active = false;
-    bool file_btn_hovered = false;
     bool file_pane_visible = false;
-    bool toc_btn_hovered = false;
     bool toc_pane_visible = false;
-    bool minimize_btn_hovered = false;
-    bool maximize_btn_hovered = false;
     bool is_maximized = false;
-    bool close_btn_hovered = false;
     bool window_active = true;
 };
 

@@ -55,48 +55,21 @@ struct TextRun {
     constexpr bool strikethrough() const noexcept { return flags & STRIKETHROUGH; }
     constexpr bool has_link() const noexcept { return link_url_index >= 0; }
 
-    constexpr void set_bold(bool v) noexcept
-    {
-        if (v) {
-            flags |= BOLD;
-        }
-        else {
-            flags &= ~BOLD;
-        }
-    }
-    constexpr void set_italic(bool v) noexcept
-    {
-        if (v) {
-            flags |= ITALIC;
-        }
-        else {
-            flags &= ~ITALIC;
-        }
-    }
-    constexpr void set_code(bool v) noexcept
-    {
-        if (v) {
-            flags |= CODE;
-        }
-        else {
-            flags &= ~CODE;
-        }
-    }
-    constexpr void set_strikethrough(bool v) noexcept
-    {
-        if (v) {
-            flags |= STRIKETHROUGH;
-        }
-        else {
-            flags &= ~STRIKETHROUGH;
-        }
-    }
+    constexpr void set_bold(bool v) noexcept { set_flag(BOLD, v); }
+    constexpr void set_italic(bool v) noexcept { set_flag(ITALIC, v); }
+    constexpr void set_code(bool v) noexcept { set_flag(CODE, v); }
+    constexpr void set_strikethrough(bool v) noexcept { set_flag(STRIKETHROUGH, v); }
 
 private:
     static constexpr uint8_t BOLD = 0x01;
     static constexpr uint8_t ITALIC = 0x02;
     static constexpr uint8_t CODE = 0x04;
     static constexpr uint8_t STRIKETHROUGH = 0x08;
+
+    constexpr void set_flag(uint8_t mask, bool v) noexcept
+    {
+        flags = v ? (flags | mask) : static_cast<uint8_t>(flags & ~mask);
+    }
 
     uint8_t flags = 0;
 };

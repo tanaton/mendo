@@ -24,15 +24,17 @@ void FileLoadService::TickLoadingAnimation() noexcept
     }
 }
 
-bool FileLoadService::ExecuteLoad(Document& doc, LayoutCache& cache)
+std::expected<void, FileLoadError> FileLoadService::ExecuteLoad(Document& doc, LayoutCache& cache)
 {
     StopLoading();
 
-    if (!doc_service_.LoadFile(loading_path_, doc)) {
-        return false;
+    auto result = doc_service_.LoadFile(loading_path_);
+    if (!result) {
+        return std::unexpected(result.error());
     }
+    doc = std::move(*result);
     cache.Reset(doc.GetNodes().size());
-    return true;
+    return {};
 }
 
 void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme)

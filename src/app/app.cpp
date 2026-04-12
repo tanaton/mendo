@@ -519,7 +519,9 @@ void App::DoLoadMarkdownFile()
 
     {
         MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
-        if (!file_load_service_.ExecuteLoad(doc_, layout_cache_)) {
+        auto load_result = file_load_service_.ExecuteLoad(doc_, layout_cache_);
+        if (!load_result) {
+            ShowToast(FileLoadErrorMessage(load_result.error(), i18n::S()));
             Invalidate();
             return;
         }

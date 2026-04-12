@@ -669,18 +669,10 @@ namespace {
 // 大文字小文字を無視して string_view を比較する（ASCII範囲のみ）
 bool AsciiCaseEqual(std::string_view a, std::string_view b) noexcept
 {
-    if (a.size() != b.size()) {
-        return false;
-    }
-    const auto len = a.size();
-    for (size_t i = 0; i < len; i++) {
-        const char ca = (a[i] >= 'a' && a[i] <= 'z') ? (a[i] - 'a' + 'A') : a[i];
-        const char cb = (b[i] >= 'a' && b[i] <= 'z') ? (b[i] - 'a' + 'A') : b[i];
-        if (ca != cb) {
-            return false;
-        }
-    }
-    return true;
+    constexpr auto to_upper = [](char c) noexcept -> char {
+        return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
+    };
+    return std::ranges::equal(a, b, {}, to_upper, to_upper);
 }
 
 // テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す（UTF-8版）。
