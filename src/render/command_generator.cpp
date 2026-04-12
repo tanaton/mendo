@@ -46,42 +46,40 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const float snapped_y = SnapScrollToPixel(scroll_y, dpi_scale);
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Translation(md_pane_rect.x, -snapped_y) });
 
-    const float viewport_top = scroll_y;
-    const float viewport_bottom = scroll_y + md_pane_rect.height;
-    const float offset_x = theme_->margin_left;
-    const float md_content_width = theme_->ContentWidth(md_pane_rect.width);
+    frame_offset_x_ = theme_->margin_left;
+    frame_viewport_top_ = scroll_y;
+    frame_viewport_bottom_ = scroll_y + md_pane_rect.height;
+    frame_content_width_ = theme_->ContentWidth(md_pane_rect.width);
+    frame_selection_ = &selection;
+    frame_hovered_copy_node_ = hovered_copy_node;
+    frame_hovered_save_node_ = hovered_save_node;
 
     // 最初の可視ノードを二分探索で検索（事前計算済みのインデックスがあればそれを使用）
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
-        first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
+        first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), frame_viewport_top_);
     }
 
     // 同一 blockquote_group のノードをまとめてバー/背景を描画する。
     // ノード単体ごとではなく一括で描画することで、複数行の引用ブロックが連続した見た目になる。
-    GenBlockQuoteGroupDecorations(cmds, nodes, cache, node_count,
-        offset_x, md_content_width, first_visible, viewport_bottom);
+    GenBlockQuoteGroupDecorations(cmds, nodes, cache, node_count, first_visible);
 
     for (int i = first_visible; i < node_count; i++) {
-        if (cache[i].y_position > viewport_bottom) {
+        if (cache[i].y_position > frame_viewport_bottom_) {
             break;
         }
-        GenerateNode(cmds, nodes[i], cache[i], cache.GetDiagram(i),
-            i, offset_x, viewport_top, viewport_bottom,
-            selection, md_content_width, hovered_copy_node, hovered_save_node);
+        GenerateNode(cmds, nodes[i], cache[i], cache.GetDiagram(i), i);
     }
 
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
     cmds.emplace_back(PopClipCmd{});
+    frame_selection_ = nullptr;
     return cmds_;
 }
 
 void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
-    int node_index, float offset_x, float viewport_top, float viewport_bottom,
-    const TextSelection& selection, float content_width,
-    int hovered_copy_node,
-    int hovered_save_node)
+    int node_index)
 {
     // ビューポート外のノードをカリング
     // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
@@ -89,13 +87,13 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     if (node.type == NodeType::Heading && node.heading_level <= 2) {
         node_bottom += theme_->heading_spacing_below * 0.5f + theme_->GetHeadingUnderlineThickness(node.heading_level);
     }
-    if (node_bottom < viewport_top || entry.y_position > viewport_bottom) {
+    if (node_bottom < frame_viewport_top_ || entry.y_position > frame_viewport_bottom_) {
         return;
     }
 
     const float indent = node.indent_level * theme_->indent_width;
-    const float x = offset_x + indent;
-    const float cw = content_width - indent;
+    const float x = frame_offset_x_ + indent;
+    const float cw = frame_content_width_ - indent;
 
     switch (node.type) {
     case NodeType::HorizontalRule:
@@ -119,7 +117,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         return;
 
     case NodeType::Table:
-        GenTable(cmds, node, entry, node_index, x, selection, viewport_top, viewport_bottom);
+        GenTable(cmds, node, entry, node_index, x);
         return;
 
     case NodeType::CodeBlock:
@@ -127,7 +125,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
                 cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), bmp });
-                GenSaveButton(cmds, bmp.right, bmp.top, node_index == hovered_save_node);
+                GenSaveButton(cmds, bmp.right, bmp.top, node_index == frame_hovered_save_node_);
             }
             else {
                 GenDiagramPlaceholder(cmds, x, entry.y_position, cw, entry.height);
@@ -135,7 +133,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             return;
         }
         GenCodeBlockBg(cmds, entry, x, cw);
-        GenCopyButton(cmds, entry, x, cw, node_index == hovered_copy_node);
+        GenCopyButton(cmds, entry, x, cw, node_index == frame_hovered_copy_node_);
         break;
 
     case NodeType::ListItem:
@@ -183,6 +181,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     GenSearchHighlights(cmds, entry.text_layout.Get(), node_index, x, entry.y_position);
 
     // 選択範囲のハイライト
+    const auto& selection = *frame_selection_;
     if (selection.active && node_index >= selection.start_node && node_index <= selection.end_node) {
         uint32_t sel_start = 0;
         uint32_t sel_end = static_cast<uint32_t>(node.GetText().size());
@@ -317,9 +316,11 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
 
 void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
     const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
-    int node_count, float offset_x, float content_width,
-    int first_visible, float viewport_bottom)
+    int node_count, int first_visible)
 {
+    const float offset_x = frame_offset_x_;
+    const float content_width = frame_content_width_;
+    const float viewport_bottom = frame_viewport_bottom_;
     static constexpr float BAR_EXTEND = 2.0f;
     static constexpr float ALERT_BG_PAD = 4.0f;
     static constexpr float ALERT_BG_CORNER = 4.0f;

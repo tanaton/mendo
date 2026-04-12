@@ -232,16 +232,11 @@ void App::OnXButtonForward()
 App::HitResult App::HitTest(int screen_x, int screen_y) const
 {
     const auto pane_layout = GetPaneLayout();
-    return hit_test_.HitTest(
-        doc_.GetNodes(),
-        layout_cache_,
-        renderer_.GetTheme(),
-        viewport_.GetScrollY(),
-        pane_layout.md_rect.x,
-        cached_dpi_scale_,
-        screen_x,
-        screen_y
-    );
+    return hit_test_.HitTest({
+        doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
+        viewport_.GetScrollY(), pane_layout.md_rect.x,
+        cached_dpi_scale_, screen_x, screen_y
+    });
 }
 
 std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const
@@ -424,21 +419,19 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     }
     // コピーボタンのクリック判定（クリック位置で再判定）
     const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
-    const auto copy_node = hit_test_.CopyButtonHitTest(
+    const MdPaneHitContext hit_ctx{
         doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
         viewport_.GetScrollY(), pane_layout.md_rect.x,
-        content_width, pane_layout.md_rect.height,
-        cached_dpi_scale_, px, py);
+        cached_dpi_scale_, px, py,
+        content_width, pane_layout.md_rect.height
+    };
+    const auto copy_node = hit_test_.CopyButtonHitTest(hit_ctx);
     if (copy_node >= 0) {
         CopyCodeBlockToClipboard(copy_node);
         return;
     }
     // 保存ボタンのクリック判定
-    const auto save_node = hit_test_.SaveButtonHitTest(
-        doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
-        viewport_.GetScrollY(), pane_layout.md_rect.x,
-        content_width, pane_layout.md_rect.height,
-        cached_dpi_scale_, px, py);
+    const auto save_node = hit_test_.SaveButtonHitTest(hit_ctx);
     if (save_node >= 0) {
         SaveDiagramAsPng(save_node);
         return;
@@ -868,17 +861,19 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
 
     // コピー/保存ボタンのホバー判定（距離スロットリングで不要な再計算を回避）
     const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
+    const MdPaneHitContext hit_ctx{
+        doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
+        viewport_.GetScrollY(), pane_layout.md_rect.x,
+        cached_dpi_scale_, px, py,
+        content_width, pane_layout.md_rect.height
+    };
     {
         const int cdx = px - hover_throttle_.last_copy_hit_pos.x;
         const int cdy = py - hover_throttle_.last_copy_hit_pos.y;
         if (cdx * cdx + cdy * cdy > HOVER_THROTTLE_DISTANCE_SQ) {
             hover_throttle_.last_copy_hit_pos = { px, py };
             const int old_copy_hover = hovered_copy_node_;
-            hovered_copy_node_ = hit_test_.CopyButtonHitTest(
-                doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
-                viewport_.GetScrollY(), pane_layout.md_rect.x,
-                content_width, pane_layout.md_rect.height,
-                cached_dpi_scale_, px, py);
+            hovered_copy_node_ = hit_test_.CopyButtonHitTest(hit_ctx);
             if (hovered_copy_node_ != old_copy_hover) {
                 InvalidateMdPane(pane_layout.md_rect);
             }
@@ -896,11 +891,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         if (sdx * sdx + sdy * sdy > HOVER_THROTTLE_DISTANCE_SQ) {
             hover_throttle_.last_save_hit_pos = { px, py };
             const int old_save_hover = hovered_save_node_;
-            hovered_save_node_ = hit_test_.SaveButtonHitTest(
-                doc_.GetNodes(), layout_cache_, renderer_.GetTheme(),
-                viewport_.GetScrollY(), pane_layout.md_rect.x,
-                content_width, pane_layout.md_rect.height,
-                cached_dpi_scale_, px, py);
+            hovered_save_node_ = hit_test_.SaveButtonHitTest(hit_ctx);
             if (hovered_save_node_ != old_save_hover) {
                 InvalidateMdPane(pane_layout.md_rect);
             }

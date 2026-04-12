@@ -95,15 +95,11 @@ public:
 private:
     void GenerateNode(DrawCommandList& cmds,
         const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
-        int node_index, float offset_x, float viewport_top, float viewport_bottom,
-        const TextSelection& selection, float content_width,
-        int hovered_copy_node,
-        int hovered_save_node);
+        int node_index);
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
-        int node_index, float x, const TextSelection& selection,
-        float viewport_top, float viewport_bottom);
+        int node_index, float x);
     void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row,
         float x, float y, float table_width, float row_h, float border);
     void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,
@@ -119,8 +115,7 @@ private:
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
         const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
-        int node_count, float offset_x, float content_width,
-        int first_visible, float viewport_bottom);
+        int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
     void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout,
         uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color);
@@ -167,4 +162,14 @@ private:
 
     D2D1_COLOR_F cached_stripe_color_{};
     bool cached_is_dark_ = false;
+
+    // GenerateMdPane のスコープ内で不変のフレーム単位コンテキスト。
+    // GenerateNode 等の private 関数から参照される。
+    float frame_offset_x_ = 0.0f;
+    float frame_viewport_top_ = 0.0f;
+    float frame_viewport_bottom_ = 0.0f;
+    float frame_content_width_ = 0.0f;
+    const TextSelection* frame_selection_ = nullptr;
+    int frame_hovered_copy_node_ = -1;
+    int frame_hovered_save_node_ = -1;
 };

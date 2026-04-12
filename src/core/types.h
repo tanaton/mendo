@@ -236,7 +236,7 @@ struct Node {
     // Wideテキストを直接設定
     void SetText(std::wstring_view s)
     {
-        text_.assign(s.data(), s.size());
+        text_.assign(s);
         FinalizeSetText();
     }
 
