@@ -531,7 +531,7 @@ uint64_t MermaidRenderer::HashCode(std::string_view code_utf8, float max_width, 
 void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode,
-    Callback on_complete, void* user_data)
+    Callback on_complete)
 {
     if (node.code_language != SyntaxLanguage::Mermaid) {
         return;
@@ -547,7 +547,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         layout_entry.height = cached->height;
         layout_entry.layout_dirty = false;
         if (on_complete) {
-            on_complete(user_data);
+            on_complete();
         }
         return;
     }
@@ -572,7 +572,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
                     cache_.Insert(hash, CachedBitmap{ bitmap, fentry.css_width, fentry.css_height });
 
                     if (on_complete) {
-                        on_complete(user_data);
+                        on_complete();
                     }
                     return;
                 }
@@ -595,8 +595,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     req.diagram_entry = &diagram_entry;
     req.max_width = max_width;
     req.dark_mode = dark_mode;
-    req.on_complete = on_complete;
-    req.on_complete_data = user_data;
+    req.on_complete = std::move(on_complete);
     req.code_hash = hash;
     pending_requests_.push(std::move(req));
 
@@ -622,11 +621,10 @@ void MermaidRenderer::ProcessQueue()
             front.diagram_entry->height = hit->height;
             front.layout_entry->height = hit->height;
             front.layout_entry->layout_dirty = false;
-            const auto cb = front.on_complete;
-            const auto cb_data = front.on_complete_data;
+            auto cb = std::move(front.on_complete);
             pending_requests_.pop();
             if (cb) {
-                cb(cb_data);
+                cb();
             }
             continue;
         }
@@ -655,11 +653,10 @@ void MermaidRenderer::ProcessQueue()
 void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
     worker.rendering = false;
-    const auto cb = worker.current_request.on_complete;
-    const auto cb_data = worker.current_request.on_complete_data;
+    auto cb = std::move(worker.current_request.on_complete);
     worker.current_request = {};
     if (cb) {
-        cb(cb_data);
+        cb();
     }
     ProcessQueue();
 }

@@ -10,13 +10,14 @@
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <functional>
 
 
 class TaskScheduler;
 
 class ImageLoader {
 public:
-    using Callback = void(*)(void*);
+    using Callback = std::move_only_function<void()>;
 
     ~ImageLoader();
 
@@ -33,8 +34,7 @@ public:
     bool GetCachedImage(const std::wstring& abs_path, DiagramEntry& out) const;
 
     // 非同期読み込みをキューに追加する。重複パスは無視される。
-    void RequestLoadAsync(const std::wstring& abs_path,
-        Callback on_complete, void* user_data);
+    void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete);
 
     // UI スレッドから呼び出す: 完了した WIC デコード結果を D2D ビットマップに変換し、
     // キャッシュに格納する。バッチ内の最後の結果のコールバックのみを1回発火する
@@ -65,8 +65,7 @@ private:
         Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
         float width = 0.0f;
         float height = 0.0f;
-        Callback on_complete = nullptr;
-        void* user_data = nullptr;
+        Callback on_complete;
         bool success = false;
     };
 

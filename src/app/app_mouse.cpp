@@ -11,14 +11,15 @@
 namespace {
 
 // ペインヘッダー内のボタンがクリックされたか判定する。
-bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height, D2D1_RECT_F(*button_rect_fn)(float, float) noexcept)
+template <auto ButtonRectFn>
+bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height)
 {
     const float local_x = dip_x - rect.x;
     const float local_y = dip_y - rect.y;
     if (local_y >= header_height) {
         return false;
     }
-    return PointInRect(local_x, local_y, button_rect_fn(rect.width, header_height));
+    return PointInRect(local_x, local_y, ButtonRectFn(rect.width, header_height));
 }
 
 // タイトルバーボタンに対応するツールチップを返す。
@@ -62,10 +63,10 @@ PaneHoverResult ProcessSidePaneHover(
 {
     PaneHoverResult result;
 
-    const bool close_hit = HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneCloseButtonRect);
+    const bool close_hit = HitPaneHeaderButton<PaneCloseButtonRect>(dip_x, dip_y, rect, header_h);
     bool refresh_hit = false;
     if (has_refresh_btn) {
-        refresh_hit = HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneRefreshButtonRect);
+        refresh_hit = HitPaneHeaderButton<PaneRefreshButtonRect>(dip_x, dip_y, rect, header_h);
     }
     result.any_button_hit = close_hit || refresh_hit;
 
@@ -97,11 +98,11 @@ bool ProcessSidePaneHeaderClick(
     if (dip_y - rect.y >= header_h) {
         return false;
     }
-    if (HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneCloseButtonRect)) {
+    if (HitPaneHeaderButton<PaneCloseButtonRect>(dip_x, dip_y, rect, header_h)) {
         toggle_fn();
         return true;
     }
-    if (has_refresh_btn && HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneRefreshButtonRect)) {
+    if (has_refresh_btn && HitPaneHeaderButton<PaneRefreshButtonRect>(dip_x, dip_y, rect, header_h)) {
         refresh_fn();
         return true;
     }

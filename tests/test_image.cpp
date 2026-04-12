@@ -1067,7 +1067,7 @@ protected:
     // コールバック発火を検知するためのカウンター
     static std::atomic<int> callback_count_;
 
-    static void OnComplete(void* /*ctx*/)
+    static void OnComplete()
     {
         callback_count_.fetch_add(1);
     }
@@ -1113,7 +1113,7 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadPopulatesCache)
     ASSERT_TRUE(CreateTestImage(L"async.png", GUID_ContainerFormatPng, 120, 90));
     auto path = GetTestImagePath(L"async.png");
 
-    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    loader_.RequestLoadAsync(path, OnComplete);
     ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
 
     DiagramEntry entry;
@@ -1129,8 +1129,8 @@ TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored)
     auto path = GetTestImagePath(L"dup.png");
 
     // 同じパスを2回リクエスト — 重複は無視される
-    loader_.RequestLoadAsync(path, OnComplete, nullptr);
-    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    loader_.RequestLoadAsync(path, OnComplete);
+    loader_.RequestLoadAsync(path, OnComplete);
 
     ASSERT_TRUE(WaitForResults(1));
 
@@ -1145,8 +1145,8 @@ TEST_F(ImageLoaderAsyncTest, MultiplePathsAllCached)
     auto path_a = GetTestImagePath(L"a.png");
     auto path_b = GetTestImagePath(L"b.png");
 
-    loader_.RequestLoadAsync(path_a, OnComplete, nullptr);
-    loader_.RequestLoadAsync(path_b, OnComplete, nullptr);
+    loader_.RequestLoadAsync(path_a, OnComplete);
+    loader_.RequestLoadAsync(path_b, OnComplete);
 
     // 少なくとも1回コールバックが来るのを待つ
     ASSERT_TRUE(WaitForResults(1));
@@ -1163,7 +1163,7 @@ TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad)
     ASSERT_TRUE(CreateTestImage(L"async_lock.png", GUID_ContainerFormatPng, 80, 60));
     auto path = GetTestImagePath(L"async_lock.png");
 
-    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    loader_.RequestLoadAsync(path, OnComplete);
     ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
 
     // 非同期読み込み完了後、書き込みモードでファイルを開けること
@@ -1202,7 +1202,7 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent)
     ASSERT_TRUE(CreateTestImage(L"async_dpi.png", GUID_ContainerFormatPng, 300, 150));
     auto path = GetTestImagePath(L"async_dpi.png");
 
-    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    loader_.RequestLoadAsync(path, OnComplete);
     ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
 
     DiagramEntry entry;
@@ -1218,7 +1218,7 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue)
     ASSERT_TRUE(CreateTestImage(L"cancel.png", GUID_ContainerFormatPng, 30, 30));
     auto path = GetTestImagePath(L"cancel.png");
 
-    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    loader_.RequestLoadAsync(path, OnComplete);
     loader_.CancelPending();
 
     // キャンセル後、短時間待ってもコールバックが来ないこと
@@ -1246,7 +1246,7 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)
     }
 
     for (auto& p : paths) {
-        loader_.RequestLoadAsync(p, OnComplete, nullptr);
+        loader_.RequestLoadAsync(p, OnComplete);
     }
 
     ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
@@ -1267,7 +1267,7 @@ TEST_F(ImageLoaderAsyncTest, ShutdownDuringHeavyLoad)
     for (int i = 0; i < kImageCount; ++i) {
         auto name = L"heavy_" + std::to_wstring(i) + L".png";
         ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 100, 100));
-        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete, nullptr);
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete);
     }
 
     // 処理途中で即座にシャットダウン — デッドロックやクラッシュが起きないこと
@@ -1281,7 +1281,7 @@ TEST_F(ImageLoaderAsyncTest, ReinitAfterShutdownWithHeavyLoad)
     for (int i = 0; i < kImageCount; ++i) {
         auto name = L"reinit_a_" + std::to_wstring(i) + L".png";
         ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 40, 40));
-        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete, nullptr);
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete);
     }
 
     loader_.Shutdown();
@@ -1296,7 +1296,7 @@ TEST_F(ImageLoaderAsyncTest, ReinitAfterShutdownWithHeavyLoad)
     ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 77, 55));
     auto path = GetTestImagePath(name);
 
-    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    loader_.RequestLoadAsync(path, OnComplete);
     ASSERT_TRUE(WaitForResults(1)) << "再初期化後の非同期読み込みが完了しなかった";
 
     DiagramEntry entry;
@@ -1312,7 +1312,7 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
     for (int i = 0; i < kImageCount; ++i) {
         auto name = L"cancel_heavy_" + std::to_wstring(i) + L".png";
         ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 50, 50));
-        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete, nullptr);
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete);
     }
 
     loader_.CancelPending();
@@ -1322,7 +1322,7 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
     ASSERT_TRUE(CreateTestImage(L"after_cancel.png", GUID_ContainerFormatPng, 88, 66));
     auto path = GetTestImagePath(L"after_cancel.png");
 
-    loader_.RequestLoadAsync(path, OnComplete, nullptr);
+    loader_.RequestLoadAsync(path, OnComplete);
 
     // キャンセル直後は進行中だったワーカーの結果が先に返る可能性があるため、
     // コールバック回数ではなく対象画像がキャッシュされるまで直接ポーリングする
