@@ -176,7 +176,10 @@ void MermaidFileCache::LoadIndex()
         }
 
         index_[record.key] = IndexEntry{
-            record.css_width, record.css_height, record.png_size, record.last_used
+            record.css_width,
+            record.css_height,
+            record.png_size,
+            record.last_used
         };
         lru_order_.emplace(record.last_used, record.key);
         total_size_ += record.png_size;
@@ -241,7 +244,8 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
         if (read_error == ERROR_FILE_NOT_FOUND || read_error == ERROR_PATH_NOT_FOUND) {
             if (total_size_ >= it->second.png_size) {
                 total_size_ -= it->second.png_size;
-            } else {
+            }
+            else {
                 total_size_ = 0;
             }
             RemoveLruEntry(it->second.last_used, key);
@@ -328,9 +332,7 @@ void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
 {
     const auto dir = GetCacheDir();
 
-    while ((index_.size() >= max_entries_ ||
-        total_size_ + new_png_size > max_total_size_) &&
-        !lru_order_.empty()) {
+    while ((index_.size() >= max_entries_ || total_size_ + new_png_size > max_total_size_) && !lru_order_.empty()) {
         // LRU: multimapの先頭が最も古いエントリ（O(1)）
         const auto oldest_lru = lru_order_.begin();
         const uint64_t evict_key = oldest_lru->second;

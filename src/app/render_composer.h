@@ -10,8 +10,7 @@ GestureRenderState BuildGestureState(const AppState& state);
 
 SidePaneState BuildSidePaneState(const AppState& state, const PaneLayout& layout);
 
-TitleBarRenderState BuildTitleBarState(const AppState& state,
-    float window_width, bool is_dark_mode, bool is_maximized);
+TitleBarRenderState BuildTitleBarState(const AppState& state, float window_width, bool is_dark_mode, bool is_maximized);
 
 ToastRenderState BuildToastState(const AppState& state);
 

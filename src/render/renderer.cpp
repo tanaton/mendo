@@ -46,8 +46,7 @@ void Renderer::LoadAppIconBitmap()
     app_icon_bitmap_.Reset();
 
     const HMODULE hModule = GetModuleHandleW(nullptr);
-    const HICON hIcon = static_cast<HICON>(LoadImageW(
-        hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
+    const HICON hIcon = static_cast<HICON>(LoadImageW(hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
     if (!hIcon) {
         return;
     }
@@ -385,12 +384,10 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
 
     for (size_t r = 0; r < row_count; r++) {
         const auto& row = rows[r];
-        const float row_h = (r < tl.row_heights.size())
-            ? tl.row_heights[r] : (theme_.font_size_body * 1.4f);
+        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_.font_size_body * 1.4f);
         const float row_bottom = row_y + row_h + border;
 
-        const bool row_visible = (viewport_top < 0.0f)
-            || (row_bottom >= viewport_top && row_y <= viewport_bottom);
+        const bool row_visible = (viewport_top < 0.0f) || (row_bottom >= viewport_top && row_y <= viewport_bottom);
         // 2回目以降のパスではオフスクリーン行の背景走査をスキップ
         if (!first_pass && !row_visible) {
             row_y = row_bottom;

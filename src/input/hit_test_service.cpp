@@ -7,8 +7,7 @@ namespace {
 
 // 物理ピクセルをMDペインローカルのDIP座標に変換する。
 struct PaneDip { float x, y; };
-PaneDip ScreenToPaneDip(int screen_x, int screen_y,
-    float dpi_scale, float md_pane_left, float scroll_y) noexcept
+PaneDip ScreenToPaneDip(int screen_x, int screen_y, float dpi_scale, float md_pane_left, float scroll_y) noexcept
 {
     return {
         screen_x / dpi_scale - md_pane_left,
@@ -27,8 +26,7 @@ float NodeIndent(const Node& node, const Theme& theme) noexcept
 // 指定された行・列までのフラットテキストオフセットを計算する。
 // プリコンピュート済みのrow_flat_offsetsがあれば行スキャンを省略し、
 // 対象行内のセルのみスキャンする（O(rows*cols) → O(cols)）。
-static uint32_t ComputeTableFlatOffset(const Node& node, const NodeLayoutEntry& entry,
-    int target_row, int target_col) noexcept
+static uint32_t ComputeTableFlatOffset(const Node& node, const NodeLayoutEntry& entry, int target_row, int target_col) noexcept
 {
     const auto& rows = node.table_rows();
 
@@ -201,8 +199,12 @@ HitTestService::HitResult HitTestService::HitTestTable(
         BOOL is_trailing = FALSE, is_inside = FALSE;
         DWRITE_HIT_TEST_METRICS metrics{};
         cell_layout->HitTestPoint(
-            dip_x - cell_text_x, dip_y - cell_text_y,
-            &is_trailing, &is_inside, &metrics);
+            dip_x - cell_text_x,
+            dip_y - cell_text_y,
+            &is_trailing,
+            &is_inside,
+            &metrics
+        );
 
         result.text_pos = flat_offset + metrics.textPosition + (is_trailing ? 1 : 0);
     }

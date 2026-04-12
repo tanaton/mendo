@@ -39,8 +39,7 @@ public:
     static constexpr UINT_PTR TIMER_DEBOUNCE = 9;
 
     SearchBarController() = default;
-    void Init(SearchState& state, ViewportManager& viewport,
-              LayoutCache& cache, Callbacks cb);
+    void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Callbacks cb);
 
     // --- イベントハンドラ ---
     void OnOpen(const std::pmr::vector<Node>& nodes);
@@ -59,7 +58,7 @@ public:
 
     // --- 検索実行 ---
     void RunSearchAndLocate(const std::pmr::vector<Node>& nodes,
-                            bool scroll_to_match = false);
+        bool scroll_to_match = false);
     void ScrollToCurrentMatch();
 
     // --- ファイル切替時リセット ---

@@ -236,7 +236,7 @@ App::HitResult App::HitTest(int screen_x, int screen_y) const
         state_.doc.GetNodes(), state_.layout_cache, renderer_.GetTheme(),
         state_.viewport.GetScrollY(), pane_layout.md_rect.x,
         cached_dpi_scale_, screen_x, screen_y
-    });
+        });
 }
 
 std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const
@@ -353,16 +353,35 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
 
     const auto tb_zone = state_.titlebar.HitTest(dip_x, dip_y);
     switch (tb_zone) {
-    case TitleBarHitZone::OpenFile:    Dispatch(OpenFileAction{}); break;
-    case TitleBarHitZone::Help:        Dispatch(ShowHelpAction{}); break;
-    case TitleBarHitZone::Search:      Dispatch(OpenSearchBarAction{}); break;
-    case TitleBarHitZone::ThemeToggle: Dispatch(ToggleDarkModeAction{}); break;
-    case TitleBarHitZone::FileToggle:  Dispatch(TogglePaneAction{ PaneTarget::File }); break;
-    case TitleBarHitZone::TocToggle:   Dispatch(TogglePaneAction{ PaneTarget::Toc }); break;
-    case TitleBarHitZone::Minimize:    ShowWindow(hwnd_, SW_MINIMIZE); break;
-    case TitleBarHitZone::Maximize:    ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE); break;
-    case TitleBarHitZone::Close:       PostMessageW(hwnd_, WM_CLOSE, 0, 0); break;
-    default: break;  // タイトルバーの他の領域はWM_NCHITTESTで処理済み
+    case TitleBarHitZone::OpenFile:
+        Dispatch(OpenFileAction{});
+        break;
+    case TitleBarHitZone::Help:
+        Dispatch(ShowHelpAction{});
+        break;
+    case TitleBarHitZone::Search:
+        Dispatch(OpenSearchBarAction{});
+        break;
+    case TitleBarHitZone::ThemeToggle:
+        Dispatch(ToggleDarkModeAction{});
+        break;
+    case TitleBarHitZone::FileToggle:
+        Dispatch(TogglePaneAction{ PaneTarget::File });
+        break;
+    case TitleBarHitZone::TocToggle:
+        Dispatch(TogglePaneAction{ PaneTarget::Toc });
+        break;
+    case TitleBarHitZone::Minimize:
+        ShowWindow(hwnd_, SW_MINIMIZE);
+        break;
+    case TitleBarHitZone::Maximize:
+        ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE);
+        break;
+    case TitleBarHitZone::Close:
+        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+        break;
+    default: // タイトルバーの他の領域はWM_NCHITTESTで処理済み
+        break;
     }
     return true;
 }
@@ -487,9 +506,13 @@ void App::OnLButtonDown(int px, int py)
     }
 
     const auto pane_layout = GetPaneLayout();
-    const auto zone = DetectPaneZone(dip.x, pane_layout,
+    const auto zone = DetectPaneZone(
+        dip.x,
+        pane_layout,
         renderer_.GetTheme().splitter_width,
-        state_.panes.IsFilePaneVisible(), state_.panes.IsTocPaneVisible());
+        state_.panes.IsFilePaneVisible(),
+        state_.panes.IsTocPaneVisible()
+    );
 
     switch (zone) {
     case PaneZone::Splitter1:
@@ -584,12 +607,10 @@ void App::OnMouseMove(int px, int py)
         const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search_state.GetQuery().empty());
         const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
-        const int pos = renderer_.HitTestSearchInput(
-            state_.search_state.GetQuery(), dip.x - text_left, input_w);
+        const int pos = renderer_.HitTestSearchInput(state_.search_state.GetQuery(), dip.x - text_left, input_w);
         if (pos != state_.search_bar_ctrl.GetCaretPos() ||
             state_.search_bar_ctrl.GetDragAnchor() != state_.search_bar_ctrl.GetSelectionStart()) {
-            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION,
-                MAKELPARAM(state_.search_bar_ctrl.GetDragAnchor(), pos));
+            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(state_.search_bar_ctrl.GetDragAnchor(), pos));
         }
         return;
     }
@@ -641,7 +662,11 @@ void App::OnMouseMove(int px, int py)
     const auto hit = HitTest(px, py);
     if (hit.node_index >= 0) {
         state_.viewport.SetSelection(TextSelection::MakeOrdered(
-            state_.viewport.GetAnchorNode(), state_.viewport.GetAnchorPos(), hit.node_index, hit.text_pos));
+            state_.viewport.GetAnchorNode(),
+            state_.viewport.GetAnchorPos(),
+            hit.node_index,
+            hit.text_pos
+        ));
         const auto layout = GetPaneLayout();
         InvalidateMdPane(layout.md_rect);
     }
@@ -673,9 +698,13 @@ void App::OnMouseHover(int px, int py)
     }
 
     const auto pane_layout = GetPaneLayout();
-    const auto zone = DetectPaneZone(dip_x, pane_layout,
+    const auto zone = DetectPaneZone(
+        dip_x,
+        pane_layout,
         renderer_.GetTheme().splitter_width,
-        state_.panes.IsFilePaneVisible(), state_.panes.IsTocPaneVisible());
+        state_.panes.IsFilePaneVisible(),
+        state_.panes.IsTocPaneVisible()
+    );
 
     int new_file_hover = -1;
     int new_toc_hover = -1;
@@ -806,12 +835,23 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
                 const auto& ls = i18n::S();
                 TooltipTarget tt;
                 switch (hover) {
-                case HZ::Up:            tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev }; break;
-                case HZ::Down:          tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next }; break;
-                case HZ::CaseSensitive: tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case }; break;
-                case HZ::Highlight:     tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight }; break;
-                case HZ::Close:         tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close }; break;
-                default: break;
+                case HZ::Up:
+                    tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev };
+                    break;
+                case HZ::Down:
+                    tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next };
+                    break;
+                case HZ::CaseSensitive:
+                    tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case };
+                    break;
+                case HZ::Highlight:
+                    tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight };
+                    break;
+                case HZ::Close:
+                    tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close };
+                    break;
+                default:
+                    break;
                 }
                 UpdateTooltip(tt, px, py);
             }

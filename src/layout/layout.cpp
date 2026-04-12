@@ -49,8 +49,11 @@ std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natur
     std::pmr::vector<float> widths(col_count);
     available_width = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
-    const float total_natural = std::ranges::fold_left(natural_widths, 0.0f,
-        [](float a, float b) static noexcept { return a + b; });
+    const float total_natural = std::ranges::fold_left(
+        natural_widths,
+        0.0f,
+        [](float a, float b) static noexcept { return a + b; }
+    );
 
     if (total_natural > 0 && total_natural > available_width) {
         for (size_t c = 0; c < col_count; c++) {
@@ -176,11 +179,11 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
             if (!result.has_dirty_nodes) {
                 result.has_dirty_nodes = std::ranges::any_of(
                     std::views::iota(i, node_count),
-                    [&cache](size_t j) { return cache[j].layout_dirty; });
+                    [&cache](size_t j) { return cache[j].layout_dirty; }
+                );
             }
             const size_t last_idx = node_count - 1;
-            result.total_height = cache[last_idx].y_position + cache[last_idx].height
-                + GetSpacingBelow(nodes[last_idx].type, theme) + theme.margin_top;
+            result.total_height = cache[last_idx].y_position + cache[last_idx].height + GetSpacingBelow(nodes[last_idx].type, theme) + theme.margin_top;
             return result;
         }
 

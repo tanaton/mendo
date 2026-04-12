@@ -169,8 +169,13 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
             cached_toast_text_ = toast.message;
             cached_toast_layout_.Reset();
             backend_.GetDWriteFactory()->CreateTextLayout(
-                cached_toast_text_.data(), static_cast<UINT32>(cached_toast_text_.size()),
-                fmt_.toast_text.Get(), TOAST_OVERLAY_WIDTH, TOAST_OVERLAY_HEIGHT, &cached_toast_layout_);
+                cached_toast_text_.data(),
+                static_cast<UINT32>(cached_toast_text_.size()),
+                fmt_.toast_text.Get(),
+                TOAST_OVERLAY_WIDTH,
+                TOAST_OVERLAY_HEIGHT,
+                &cached_toast_layout_
+            );
         }
         if (cached_toast_layout_) {
             Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));

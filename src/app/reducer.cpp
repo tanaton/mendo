@@ -17,20 +17,31 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
 
     std::visit(overloaded{
         [](const NoOpAction&) {},
-
-        // ==== スクロール系 ====
         [&](const KeyScrollAction& a) {
             state.scroll_restore.pending_restore_scroll_y = -1;
             const float old_scroll = state.viewport.GetScrollY();
             const float page_size = state.cached_pane_layout.md_rect.height;
             switch (a.type) {
-                case ScrollType::LineUp:   state.viewport.DirectScrollBy(-SCROLL_LINE_AMOUNT); break;
-                case ScrollType::LineDown: state.viewport.DirectScrollBy(SCROLL_LINE_AMOUNT); break;
-                case ScrollType::PageUp:   state.viewport.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR); break;
-                case ScrollType::PageDown: state.viewport.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR); break;
-                case ScrollType::Home:     state.viewport.ScrollTo(0.0f); break;
-                case ScrollType::End:      state.viewport.ScrollTo(state.viewport.GetMaxScroll()); break;
-                default:                   break;
+            case ScrollType::LineUp:
+                state.viewport.DirectScrollBy(-SCROLL_LINE_AMOUNT);
+                break;
+            case ScrollType::LineDown:
+                state.viewport.DirectScrollBy(SCROLL_LINE_AMOUNT);
+                break;
+            case ScrollType::PageUp:
+                state.viewport.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR);
+                break;
+            case ScrollType::PageDown:
+                state.viewport.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR);
+                break;
+            case ScrollType::Home:
+                state.viewport.ScrollTo(0.0f);
+                break;
+            case ScrollType::End:
+                state.viewport.ScrollTo(state.viewport.GetMaxScroll());
+                break;
+            default:
+                break;
             }
             emit_scroll_effects(old_scroll);
         },
@@ -40,8 +51,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
             state.viewport.DirectScrollBy(a.delta);
             emit_scroll_effects(old_scroll);
         },
-
-        // ==== 選択系 ====
         [&](const SelectAllAction&) {
             state.viewport.SelectAll(state.doc.GetNodes());
             effects.emplace_back(effect::InvalidateWindow{});
@@ -49,13 +58,12 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ClearSelectionAction&) {
             if (state.search_state.IsVisible()) {
                 state.search_state.Hide();
-            } else {
+            }
+            else {
                 state.viewport.ClearSelection();
             }
             effects.emplace_back(effect::InvalidateWindow{});
         },
-
-        // ==== システムイベント系 ====
         [&](const ActivateAction& a) {
             if (state.window_active != a.active) {
                 state.window_active = a.active;
@@ -71,8 +79,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const MouseLeaveAction&) {
             effects.emplace_back(effect::ClearTooltip{});
         },
-
-        // ==== 検索系 ====
         [&](const OpenSearchBarAction&) {
             state.search_bar_ctrl.OnOpen(state.doc.GetNodes());
         },
@@ -82,14 +88,16 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const SearchNextAction&) {
             if (state.search_state.IsVisible()) {
                 state.search_bar_ctrl.OnNext();
-            } else {
+            }
+            else {
                 state.search_bar_ctrl.OnOpen(state.doc.GetNodes());
             }
         },
         [&](const SearchPrevAction&) {
             if (state.search_state.IsVisible()) {
                 state.search_bar_ctrl.OnPrev();
-            } else {
+            }
+            else {
                 state.search_bar_ctrl.OnOpen(state.doc.GetNodes());
             }
         },
@@ -108,10 +116,8 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ImeCompositionAction& a) {
             state.search_bar_ctrl.SetImeComposition(a.text);
         },
-
-        // ==== 未処理（App::Dispatch のフォールバックで処理） ====
         [](const auto&) {},
-    }, action);
+        }, action);
 
     return effects;
 }

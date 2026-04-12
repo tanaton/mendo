@@ -93,37 +93,22 @@ public:
         float dpi_scale = 1.0f);
 
 private:
-    void GenerateNode(DrawCommandList& cmds,
-        const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
-        int node_index);
+    void GenerateNode(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index);
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
-    void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry,
-        int node_index, float x);
-    void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row,
-        float x, float y, float table_width, float row_h, float border);
-    void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,
-        IDWriteTextLayout* cell_layout,
-        float text_x, float text_y,
-        bool has_selection, uint32_t sel_start, uint32_t sel_end,
-        uint32_t flat_offset);
+    void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x);
+    void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border);
+    void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell, IDWriteTextLayout* cell_layout, float text_x, float text_y, bool has_selection, uint32_t sel_start, uint32_t sel_end, uint32_t flat_offset);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
-    void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry,
-        float x, float w, bool is_hovered);
+    void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered);
     void GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
-    void GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
-        const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
-        int node_count, int first_visible);
+    void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
-    void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout,
-        uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color);
-    void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout,
-        uint32_t start, uint32_t length, float origin_x, float origin_y);
-    void GenSearchHighlights(DrawCommandList& cmds, IDWriteTextLayout* layout,
-        int node_index, float origin_x, float origin_y,
-        int table_row = -1, int table_col = -1);
+    void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color);
+    void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y);
+    void GenSearchHighlights(DrawCommandList& cmds, IDWriteTextLayout* layout, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
 
     const Theme* theme_ = nullptr;
     Formats formats_;
@@ -142,8 +127,7 @@ private:
         return shared_hit_test_buffer_ ? *shared_hit_test_buffer_ : hit_test_buffer_;
     }
 
-    DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len,
-        D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col)
+    DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len, D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col)
     {
         assert(len <= 255 && "DrawTextCmd text exceeds uint8_t range");
         DrawTextCmd c{};
