@@ -187,21 +187,6 @@ void App::FinalizeLayout(float md_pane_height)
 }
 
 // ============================================================
-// カスタムタイトルバー
-// ============================================================
-
-void App::OnActivate(bool active)
-{
-    if (state_.window_active != active) {
-        state_.window_active = active;
-        InvalidateTitleBar();
-    }
-    if (!active) {
-        ClearTooltip();
-    }
-}
-
-// ============================================================
 // ペインレイアウト
 // ============================================================
 
@@ -425,21 +410,6 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested)
         suggested->right - suggested->left,
         suggested->bottom - suggested->top,
         SWP_NOZORDER | SWP_NOACTIVATE);
-}
-
-// ============================================================
-// サイズ変更状態
-// ============================================================
-
-void App::OnEnterSizeMove()
-{
-    state_.is_sizing = true;
-}
-
-void App::OnExitSizeMove()
-{
-    state_.is_sizing = false;
-    OnResizeEnd();
 }
 
 // ============================================================
@@ -997,9 +967,6 @@ void App::Dispatch(const AppAction& action)
                 }
             }
         },
-        [this](const CopyClipboardAction&) {
-            CopySelectionToClipboard();
-        },
         [this](const TogglePaneAction& a) {
             switch (a.target) {
             case PaneTarget::File: state_.panes.ToggleFilePane(); break;
@@ -1063,10 +1030,7 @@ void App::Dispatch(const AppAction& action)
         // ---- システムイベント系 ----
         [this](const ResizeAction& a) { OnResize(a.width, a.height); },
         [this](const DpiChangedAction& a) { OnDpiChanged(a.dpi, &a.suggested); },
-        [this](const ExitSizeMoveAction&) {
-            state_.is_sizing = false;
-            OnResizeEnd();
-        },
+        [this](const ExitSizeMoveAction&) { OnResizeEnd(); },
         [this](const CaptureChangedAction&) { OnCaptureChanged(); },
         [this](const DestroyAction&) { OnDestroy(); },
         // ---- タイマー・非同期系 ----

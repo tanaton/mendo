@@ -22,7 +22,8 @@
 #include <memory_resource>
 
 // アプリケーションの全状態を集約する構造体。
-// Win32ハンドルやサービスオブジェクトは含まない — 純粋な状態のみ。
+// Win32ハンドルは含まない。状態に加えて一部のコントローラ
+// (ContextMenu, HitTestService, SearchBarController) を含む。
 // Reducer パターンの入出力として使用する。
 struct AppState {
     // ---- ドメイン状態 ----

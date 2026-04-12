@@ -1,10 +1,18 @@
 #include "reducer.h"
+#include "document_utils.h"
 #include "ui_constants.h"
 #include "utility.h"
 
 SideEffectList Reduce(AppState& state, const AppAction& action)
 {
     SideEffectList effects;
+
+    // ツールチップを非表示にしてタイマーを解除する共通処理
+    const auto clear_tooltip = [&]() {
+        state.tooltip.Hide();
+        state.tooltip.ResetTarget();
+        effects.emplace_back(effect::ClearTooltip{});
+    };
 
     // スクロール位置が変化した場合の共通副作用を発行する
     const auto emit_scroll_effects = [&](float old_scroll) {
@@ -64,20 +72,29 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
             }
             effects.emplace_back(effect::InvalidateWindow{});
         },
+        [&](const CopyClipboardAction&) {
+            if (state.viewport.GetSelection().active) {
+                effects.emplace_back(effect::ClipboardWrite{
+                    ExtractSelectedText(state.doc.GetNodes(), state.viewport.GetSelection())});
+            }
+        },
         [&](const ActivateAction& a) {
             if (state.window_active != a.active) {
                 state.window_active = a.active;
                 effects.emplace_back(effect::InvalidateTitleBar{});
             }
             if (!a.active) {
-                effects.emplace_back(effect::ClearTooltip{});
+                clear_tooltip();
             }
         },
         [&](const EnterSizeMoveAction&) {
             state.is_sizing = true;
         },
+        [&](const ExitSizeMoveAction&) {
+            state.is_sizing = false;
+        },
         [&](const MouseLeaveAction&) {
-            effects.emplace_back(effect::ClearTooltip{});
+            clear_tooltip();
         },
         [&](const OpenSearchBarAction&) {
             state.search_bar_ctrl.OnOpen(state.doc.GetNodes());

@@ -1,5 +1,6 @@
 #include "side_effect_executor.h"
 #include "resource_manager.h"
+#include "app_constants.h"
 #include "win_handle.h"
 #include "utility.h"
 #include <shellapi.h>
@@ -73,8 +74,8 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             [](const effect::ShowTooltip&) {
                 // TODO
             },
-            [](const effect::ClearTooltip&) {
-                // TODO
+            [this](const effect::ClearTooltip&) {
+                ::KillTimer(hwnd_, app_timer::TOOLTIP);
             },
             [](const effect::ShowToast&) {
                 // TODO

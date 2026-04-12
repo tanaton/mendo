@@ -130,11 +130,6 @@ void App::ClearTooltip()
     state_.tooltip.ResetTarget();
 }
 
-void App::OnMouseLeave()
-{
-    ClearTooltip();
-}
-
 void App::RefreshFilePane()
 {
     state_.file_explorer.Refresh();

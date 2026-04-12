@@ -64,7 +64,7 @@ public:
 
     // ボタン押下なしのマウスホバー処理
     void OnMouseHover(int px, int py);
-    void OnMouseLeave();
+    void OnMouseLeave() { Dispatch(MouseLeaveAction{}); }
     void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const ::PaneLayout& layout);
 
     // マウスXボタンによるナビゲーション
@@ -87,16 +87,16 @@ public:
     void OnCaptureChanged();
     void OnDestroy();
 
-    // 検索（Win32Windowから呼ばれるコールバック）
-    void OnSearchTextChanged(std::wstring_view text) { state_.search_bar_ctrl.OnTextChanged(text, state_.doc.GetNodes()); }
-    void OnSearchClose() { state_.search_bar_ctrl.OnClose(); }
-    void OnSearchNext() { state_.search_bar_ctrl.OnNext(); }
-    void OnSearchPrev() { state_.search_bar_ctrl.OnPrev(); }
+    // 検索（Win32Windowから呼ばれるコールバック）— Reducer経由で状態変更
+    void OnSearchTextChanged(std::wstring_view text) { Dispatch(SearchTextChangedAction{std::pmr::wstring{text}}); }
+    void OnSearchClose() { Dispatch(CloseSearchBarAction{}); }
+    void OnSearchNext() { Dispatch(SearchNextAction{}); }
+    void OnSearchPrev() { Dispatch(SearchPrevAction{}); }
     bool IsSearchBarVisible() const noexcept { return state_.search_state.IsVisible(); }
-    void OnToggleCaseSensitive() { state_.search_bar_ctrl.OnToggleCaseSensitive(state_.doc.GetNodes()); }
-    void OnToggleHighlight() { state_.search_bar_ctrl.OnToggleHighlight(); }
-    void SetSearchSelection(int sel_start, int sel_end) noexcept { state_.search_bar_ctrl.SetSelection(sel_start, sel_end); }
-    void SetImeComposition(std::wstring_view comp) { state_.search_bar_ctrl.SetImeComposition(comp); }
+    void OnToggleCaseSensitive() { Dispatch(ToggleCaseSensitiveAction{}); }
+    void OnToggleHighlight() { Dispatch(ToggleHighlightAction{}); }
+    void SetSearchSelection(int sel_start, int sel_end) { Dispatch(SearchSelectionAction{sel_start, sel_end}); }
+    void SetImeComposition(std::wstring_view comp) { Dispatch(ImeCompositionAction{std::pmr::wstring{comp}}); }
     RECT GetSearchEditRect() const;
 
     // 検索バーコントローラへのアクセス（app_mouse.cppでのドラッグ/ホバー処理用）
@@ -108,9 +108,9 @@ public:
         state_.scroll_restore.SetNodeRestore(node, offset, scroll_y);
     }
 
-    // サイズ変更状態
-    void OnEnterSizeMove();
-    void OnExitSizeMove();
+    // サイズ変更状態 — Reducer経由で状態変更
+    void OnEnterSizeMove() { Dispatch(EnterSizeMoveAction{}); }
+    void OnExitSizeMove() { Dispatch(ExitSizeMoveAction{}); }
 
     // WM_SETCURSOR用のカーソル状態
     bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
@@ -132,7 +132,7 @@ public:
     TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept { return state_.titlebar.HitTest(dip_x, dip_y); }
     bool IsOverMdScrollbar(float dip_x, float dip_y) const;
     bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const noexcept;
-    void OnActivate(bool active);
+    void OnActivate(bool active) { Dispatch(ActivateAction{active}); }
 
 private:
     // AppControllerが返すアクションを実行
