@@ -31,10 +31,13 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         },
         [&](const DirectScrollByAction& a) {
             state.scroll_restore.pending_restore_scroll_y = -1;
+            const float old_scroll = state.viewport.GetScrollY();
             state.viewport.DirectScrollBy(a.delta);
-            state.hover_throttle.Reset();
-            effects.emplace_back(effect::InvalidateWindow{});
-            effects.emplace_back(effect::BitmapManage{});
+            if (state.viewport.GetScrollY() != old_scroll) {
+                state.hover_throttle.Reset();
+                effects.emplace_back(effect::InvalidateWindow{});
+                effects.emplace_back(effect::BitmapManage{});
+            }
         },
 
         // ==== 選択系 ====

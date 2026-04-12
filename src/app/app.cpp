@@ -969,51 +969,14 @@ void App::OnKeyDown(WPARAM key)
 
 void App::Dispatch(const AppAction& action)
 {
-    // Reducer が処理するアクションはパイプラインで処理
-    if (std::holds_alternative<KeyScrollAction>(action)
-        || std::holds_alternative<DirectScrollByAction>(action)
-        || std::holds_alternative<SelectAllAction>(action)
-        || std::holds_alternative<ClearSelectionAction>(action)
-        || std::holds_alternative<ActivateAction>(action)
-        || std::holds_alternative<EnterSizeMoveAction>(action)
-        || std::holds_alternative<MouseLeaveAction>(action)
-        || std::holds_alternative<SearchTextChangedAction>(action)
-        || std::holds_alternative<SearchCloseAction>(action)
-        || std::holds_alternative<ToggleCaseSensitiveAction>(action)
-        || std::holds_alternative<ToggleHighlightAction>(action)
-        || std::holds_alternative<SearchSelectionAction>(action)
-        || std::holds_alternative<ImeCompositionAction>(action)
-        || std::holds_alternative<NoOpAction>(action)
-        || std::holds_alternative<OpenSearchBarAction>(action)
-        || std::holds_alternative<CloseSearchBarAction>(action)
-        || std::holds_alternative<SearchNextAction>(action)
-        || std::holds_alternative<SearchPrevAction>(action)) {
-        auto effects = Reduce(state_, action);
-        effect_executor_.Execute(effects);
-        return;
-    }
+    // Reducer はすべてのアクションを受け取る。
+    // 処理対象のアクションは状態を更新し副作用を返す。
+    // 対象外のアクションは no-op で空の副作用リストを返す。
+    auto effects = Reduce(state_, action);
+    effect_executor_.Execute(effects);
 
-    // Reducer で処理済みのアクションは到達しないが、std::visit の網羅性のために空ハンドラを用意
+    // Reducer が処理しないアクションは std::visit で処理
     std::visit(overloaded{
-        [](const NoOpAction&) {},
-        [](const KeyScrollAction&) {},
-        [](const DirectScrollByAction&) {},
-        [](const SelectAllAction&) {},
-        [](const ClearSelectionAction&) {},
-        [](const ActivateAction&) {},
-        [](const EnterSizeMoveAction&) {},
-        [](const OpenSearchBarAction&) {},
-        [](const CloseSearchBarAction&) {},
-        [](const SearchNextAction&) {},
-        [](const SearchPrevAction&) {},
-        [](const SearchTextChangedAction&) {},
-        [](const SearchCloseAction&) {},
-        [](const ToggleCaseSensitiveAction&) {},
-        [](const ToggleHighlightAction&) {},
-        [](const SearchSelectionAction&) {},
-        [](const ImeCompositionAction&) {},
-        [](const MouseLeaveAction&) {},
-        // ---- Dispatch で処理するアクション ----
         [this](const ScrollPaneAction& a) {
             const auto pane_layout = GetPaneLayout();
             const auto& theme = renderer_.GetTheme();
@@ -1111,6 +1074,8 @@ void App::Dispatch(const AppAction& action)
         [this](const FileWatchAction&) { OnFileWatchEvent(); },
         [this](const ParseCompleteAction&) { OnParseComplete(); },
         [this](const ImageLoadedAction&) { OnAppImageLoaded(); },
+        // Reducer で処理済みのアクションはここでは何もしない
+        [](const auto&) {},
         }, action);
 }
 
