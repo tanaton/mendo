@@ -17,11 +17,11 @@ class SideEffectExecutor {
 public:
     // App のメソッドチェーンに依存する複雑な操作のコールバック
     struct Callbacks {
-        std::function<void(std::wstring_view)> load_file;
-        std::function<void()> reload_file;
-        std::function<void()> open_file_dialog;
-        std::function<void(PaneZone)> invalidate_pane_cache;
-        std::function<void()> refresh_pane_layout;
+        std::move_only_function<void(std::wstring_view)> load_file;
+        std::move_only_function<void()> reload_file;
+        std::move_only_function<void()> open_file_dialog;
+        std::move_only_function<void(PaneZone)> invalidate_pane_cache;
+        std::move_only_function<void()> refresh_pane_layout;
     };
 
     void Init(HWND hwnd, ResourceManager& resource_manager,

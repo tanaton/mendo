@@ -17,14 +17,14 @@ class Renderer;
 class ResourceManager {
 public:
     struct Callbacks {
-        std::function<void()> invalidate;
-        std::function<void(UINT_PTR, UINT)> set_timer;
-        std::function<void(UINT_PTR)> kill_timer;
-        std::function<float()> get_content_width;    // theme.ContentWidth(pane_width)
-        std::function<float()> get_viewport_height;  // pane_layout.md_rect.height
+        std::move_only_function<void()> invalidate;
+        std::move_only_function<void(UINT_PTR, UINT)> set_timer;
+        std::move_only_function<void(UINT_PTR)> kill_timer;
+        std::move_only_function<float()> get_content_width;
+        std::move_only_function<float()> get_viewport_height;
         // レイアウト再計算
-        std::function<void()> recompute_layout;           // RecomputeAfterDiagram
-        std::function<void()> recompute_layout_anchored;  // anchor付き: 保存→再計算→復元→Invalidate
+        std::move_only_function<void()> recompute_layout;           // RecomputeAfterDiagram
+        std::move_only_function<void()> recompute_layout_anchored;  // anchor付き: 保存→再計算→復元→Invalidate
     };
 
     static constexpr UINT_PTR TIMER_MERMAID_BATCH = 10;

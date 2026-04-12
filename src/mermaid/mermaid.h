@@ -32,8 +32,7 @@ public:
     // レンダラーを初期化する。hwndはメインアプリウィンドウ。
     // render_targetはD2Dビットマップの作成に使用する。
     // on_readyはWebView2の初期化完了時にUIスレッドで呼び出される。
-    void Init(HWND hwnd, ID2D1RenderTarget* render_target,
-        std::function<void()> on_ready);
+    void Init(HWND hwnd, ID2D1RenderTarget* render_target, std::move_only_function<void()> on_ready);
 
     // WebView2が初期化済みでレンダリング可能な場合にtrueを返す。
     constexpr bool IsReady() const noexcept { return ready_; }
@@ -135,7 +134,7 @@ private:
     bool initialized_ = false;
     bool ready_ = false;
     unsigned int request_counter_ = 0;
-    std::function<void()> on_all_ready_; // 最初のワーカー準備完了時に1回だけ呼び出す
+    std::move_only_function<void()> on_all_ready_; // 最初のワーカー準備完了時に1回だけ呼び出す
 
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
 

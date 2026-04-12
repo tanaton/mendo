@@ -210,8 +210,7 @@ void MermaidRenderer::Shutdown()
     initialized_ = false;
 }
 
-void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target,
-    std::function<void()> on_ready)
+void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, std::move_only_function<void()> on_ready)
 {
     hwnd_ = hwnd;
     render_target_ = render_target;
