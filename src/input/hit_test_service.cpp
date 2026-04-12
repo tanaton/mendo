@@ -45,9 +45,9 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry,
     return { -1, 0.0f };
 }
 
-// テーブル内のクリック座標からヒットした列を特定する。
-// 見つからない場合は最終列を返す。
-// cell_left_x にはヒットしたセルの左端X座標（パディング含まず）を書き込む。
+// テーブル内のクリック座標か��ヒットした列を特���する。
+// 見つからない場合は最終列を返す（列数0の場合は0を返す）。
+// cell_left_x にはヒットしたセ���の左端X座標���パディング含まず）を書き込む。
 int FindTableCol(const TableLayoutData& tl, float base_x, float dip_x,
     float& cell_left_x) noexcept
 {

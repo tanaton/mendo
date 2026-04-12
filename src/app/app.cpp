@@ -982,9 +982,10 @@ void App::HandleDropFile(std::wstring_view path)
 
 void App::Dispatch(const AppAction& action)
 {
-    // Reducer はすべてのアクションを受け取る。
-    // 処理対象のアクションは状態を更新し副作用を返す。
-    // 対象外のアクションは no-op で空の副作用リストを返す。
+    // Reducer が cached_pane_layout を参照するため、最新レイアウトを保証する。
+    // キャッシュ済みなら O(1) で返る。
+    GetPaneLayout();
+
     auto effects = Reduce(state_, action);
     effect_executor_.Execute(effects);
 

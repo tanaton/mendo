@@ -91,7 +91,10 @@ static std::optional<WicDecodeResult> DecodeFromStream(
     }
 
     UINT w = 0, h = 0;
-    frame->GetSize(&w, &h);
+    hr = frame->GetSize(&w, &h);
+    if (FAILED(hr)) {
+        return std::nullopt;
+    }
 
     return WicDecodeResult{ converter, w, h };
 }

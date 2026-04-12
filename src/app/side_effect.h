@@ -80,7 +80,7 @@ struct ApplyDarkMode { bool dark; };
 
 } // namespace effect
 
-using SideEffect = std::variant <
+using SideEffect = std::variant<
     effect::InvalidateWindow,
     effect::InvalidateRect,
     effect::InvalidateTitleBar,

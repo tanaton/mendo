@@ -487,7 +487,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     }
 
     // WM_APP+N カスタム通知メッセージ
-    if (msg >= WM_APP && msg < WM_APP + 16) {
+    if (msg >= WM_APP && msg < app_msg::END) {
         return HandleAppNotification(msg, wParam, lParam);
     }
 
