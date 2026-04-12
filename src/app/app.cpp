@@ -70,7 +70,20 @@ bool App::Init(HWND hwnd)
 
     resource_manager_.Init(state_.doc, state_.layout_cache, state_.viewport, image_loader_, mermaid_renderer_,
         theme_service_, renderer_, BuildResourceManagerCallbacks());
-    effect_executor_.Init(hwnd_, resource_manager_);
+    effect_executor_.Init(hwnd_, resource_manager_, cursors_, doc_service_, config_,
+        state_, *layout_service_, {
+            .load_file = [this](std::wstring_view path) { LoadMarkdownFile(path); },
+            .reload_file = [this]() { ReloadCurrentFile(); },
+            .open_file_dialog = [this]() {
+                const auto path = FileLoader::OpenFileDialog(hwnd_);
+                if (!path.empty()) {
+                    if (!state_.doc.GetFilePath().empty()) {
+                        PushNavHistory();
+                    }
+                    LoadMarkdownFile(path);
+                }
+            },
+        });
 
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
         resource_manager_.ScheduleMermaidBatch();

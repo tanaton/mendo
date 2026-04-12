@@ -1,14 +1,33 @@
 #include "side_effect_executor.h"
 #include "resource_manager.h"
+#include "cursor_manager.h"
+#include "document_service.h"
+#include "config_service.h"
+#include "app_state.h"
+#include "layout_service.h"
 #include "app_constants.h"
 #include "win_handle.h"
 #include "utility.h"
+#include "ui_constants.h"
+#include "file_io.h"
 #include <shellapi.h>
 
-void SideEffectExecutor::Init(HWND hwnd, ResourceManager& resource_manager) noexcept
+// app.h のインクルードは循環依存を招くため前方宣言で代替
+void ApplyDarkModeToWindow(HWND hwnd, bool dark);
+
+void SideEffectExecutor::Init(HWND hwnd, ResourceManager& resource_manager,
+    CursorManager& cursors, DocumentService& doc_service,
+    ConfigService& config, AppState& state,
+    LayoutService& layout_service, Callbacks cb)
 {
     hwnd_ = hwnd;
     resource_manager_ = &resource_manager;
+    cursors_ = &cursors;
+    doc_service_ = &doc_service;
+    config_ = &config;
+    state_ = &state;
+    layout_service_ = &layout_service;
+    cb_ = std::move(cb);
 }
 
 void SideEffectExecutor::Execute(const SideEffectList& effects)
@@ -18,12 +37,10 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             [this](const effect::InvalidateWindow&) {
                 InvalidateRect(hwnd_, nullptr, FALSE);
             },
-            [this](const effect::InvalidateRect&) {
-                // TODO: 部分 Invalidate 実装
+            [this](const effect::InvalidateRect&) { // TODO: 部分 Invalidate 実装
                 InvalidateRect(hwnd_, nullptr, FALSE);
             },
             [this](const effect::InvalidateTitleBar&) {
-                // タイトルバー領域のみ再描画
                 InvalidateRect(hwnd_, nullptr, FALSE);
             },
             [this](const effect::SetTimer& e) {
@@ -38,8 +55,25 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             [this](const effect::ReleaseCapture&) {
                 ::ReleaseCapture();
             },
-            [](const effect::SetCursor&) {
-                // TODO: カーソル変更実装
+            [this](const effect::SetCursor& e) {
+                HCURSOR cursor = nullptr;
+                switch (e.type) {
+                case effect::CursorType::Arrow:
+                    cursor = cursors_->Arrow();
+                    break;
+                case effect::CursorType::Hand:
+                    cursor = cursors_->Hand();
+                    break;
+                case effect::CursorType::IBeam:
+                    cursor = cursors_->IBeam();
+                    break;
+                case effect::CursorType::SizeWE:
+                    cursor = cursors_->SizeWE();
+                    break;
+                }
+                if (cursor) {
+                    ::SetCursor(cursor);
+                }
             },
             [this](const effect::ClipboardWrite& e) {
                 WriteClipboardText(hwnd_, e.text);
@@ -53,63 +87,77 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             [this](const effect::PostMessage& e) {
                 PostMessageW(hwnd_, e.msg, e.wp, e.lp);
             },
-            [](const effect::SetWindowTitle&) {
-                // TODO
+            [this](const effect::SetWindowTitle& e) {
+                SetWindowTextW(hwnd_, e.title.c_str());
             },
-            [](const effect::LoadFile&) {
-                // TODO: ファイル読み込みは App が処理
+            [this](const effect::LoadFile& e) {
+                cb_.load_file(e.path);
             },
-            [](const effect::ReloadFile&) {
-                // TODO
+            [this](const effect::ReloadFile&) {
+                cb_.reload_file();
             },
-            [](const effect::OpenFileDialog&) {
-                // TODO
+            [this](const effect::OpenFileDialog&) {
+                cb_.open_file_dialog();
             },
-            [](const effect::SaveFile&) {
-                // TODO
+            [](const effect::SaveFile& e) {
+                WriteAllBytes(std::filesystem::path(e.path), e.data.data(), e.data.size());
             },
-            [](const effect::SaveConfig&) {
-                // TODO
+            [this](const effect::SaveConfig&) {
+                config_->Flush();
             },
-            [](const effect::ShowTooltip&) {
-                // TODO
+            [this](const effect::ShowTooltip& e) {
+                POINT screen_pos = { e.px, e.py };
+                ClientToScreen(hwnd_, &screen_pos);
+                if (state_->tooltip.Update(e.target, screen_pos)) {
+                    ::SetTimer(hwnd_, app_timer::TOOLTIP, TOOLTIP_DELAY_MS, nullptr);
+                }
+                else if (e.target.IsEmpty()) {
+                    ::KillTimer(hwnd_, app_timer::TOOLTIP);
+                }
             },
             [this](const effect::ClearTooltip&) {
                 ::KillTimer(hwnd_, app_timer::TOOLTIP);
             },
-            [](const effect::ShowToast&) {
-                // TODO
+            [this](const effect::ShowToast& e) {
+                state_->toast.Show(e.message);
+                ::SetTimer(hwnd_, app_timer::TOAST, 16, nullptr);
+                InvalidateRect(hwnd_, nullptr, FALSE);
             },
-            [](const effect::DeferredLayout&) {
-                // TODO
+            [this](const effect::DeferredLayout&) {
+                if (layout_service_->HasDirtyNodes()) {
+                    ::SetTimer(hwnd_, app_timer::DEFERRED_LAYOUT, 16, nullptr);
+                }
             },
             [this](const effect::BitmapManage&) {
                 resource_manager_->ScheduleBitmapManage();
             },
-            [](const effect::MermaidBatch&) {
-                // TODO
+            [this](const effect::MermaidBatch&) {
+                resource_manager_->ScheduleMermaidBatch();
             },
-            [](const effect::StartFileWatch&) {
-                // TODO
+            [this](const effect::StartFileWatch& e) {
+                doc_service_->StartWatching(e.path, [hwnd = hwnd_]() {
+                    ::KillTimer(hwnd, app_timer::FILE_RELOAD_DEBOUNCE);
+                    ::SetTimer(hwnd, app_timer::FILE_RELOAD_DEBOUNCE, 200, nullptr);
+                });
             },
-            [](const effect::StopFileWatch&) {
-                // TODO
+            [this](const effect::StopFileWatch&) {
+                doc_service_->StopWatching();
             },
-            [](const effect::ResumeFileWatch&) {
-                // TODO
+            [this](const effect::ResumeFileWatch&) {
+                doc_service_->ResumeWatching();
             },
-            [](const effect::LoadImages&) {
-                // TODO
+            [this](const effect::LoadImages&) {
+                resource_manager_->LoadImages();
             },
-            [](const effect::RequestMermaidRenders&) {
-                // TODO
+            [this](const effect::RequestMermaidRenders&) {
+                resource_manager_->RequestMermaidRenders();
             },
-            [](const effect::CancelMermaidBatch&) {
-                // TODO
+            [this](const effect::CancelMermaidBatch&) {
+                resource_manager_->CancelMermaidBatch();
             },
-            [](const effect::ApplyDarkMode&) {
-                // TODO
+            [this](const effect::ApplyDarkMode& e) {
+                ApplyDarkModeToWindow(hwnd_, e.dark);
             },
-        }, effect);
+            }, effect);
     }
 }
