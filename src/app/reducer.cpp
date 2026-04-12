@@ -17,6 +17,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
     // スクロール位置が変化した場合の共通副作用を発行する
     const auto emit_scroll_effects = [&](float old_scroll) {
         if (state.viewport.GetScrollY() != old_scroll) {
+            clear_tooltip();
             state.hover_throttle.Reset();
             effects.emplace_back(effect::InvalidateWindow{});
             effects.emplace_back(effect::BitmapManage{});

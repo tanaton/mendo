@@ -32,7 +32,7 @@ void SideEffectExecutor::Init(HWND hwnd, ResourceManager& resource_manager,
 
 void SideEffectExecutor::Execute(const SideEffectList& effects)
 {
-    for (const auto& effect : effects) {
+    for (const auto& e : effects) {
         std::visit(overloaded{
             [this](const effect::InvalidateWindow&) {
                 InvalidateRect(hwnd_, nullptr, FALSE);
@@ -158,6 +158,6 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             [this](const effect::ApplyDarkMode& e) {
                 ApplyDarkModeToWindow(hwnd_, e.dark);
             },
-            }, effect);
+            }, e);
     }
 }
