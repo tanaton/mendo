@@ -218,8 +218,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     return result;
 }
 
-int HitTestService::CopyButtonHitTest(
-    const MdPaneHitContext& ctx) const noexcept
+int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept
 {
     assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
     assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
@@ -270,8 +269,7 @@ int HitTestService::CopyButtonHitTest(
     return -1;
 }
 
-int HitTestService::SaveButtonHitTest(
-    const MdPaneHitContext& ctx) const noexcept
+int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept
 {
     assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
     assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
