@@ -286,46 +286,10 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
     return HTCLIENT;
 }
 
-LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
+// マウス入力メッセージを処理する。
+LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
-    case WM_NCCALCSIZE:
-        return OnNcCalcSize(wParam, lParam);
-
-    case WM_NCHITTEST:
-        return OnNcHitTest(lParam);
-
-    case WM_PAINT:
-        app_->OnPaint();
-        return 0;
-
-    case WM_SIZE:
-        app_->OnResize(LOWORD(lParam), HIWORD(lParam));
-        RepositionSearchEdit();
-        return 0;
-
-    case WM_ACTIVATE:
-        app_->OnActivate(LOWORD(wParam) != WA_INACTIVE);
-        return DefWindowProcW(hwnd_, msg, wParam, lParam);
-
-    case WM_ENTERSIZEMOVE:
-        app_->OnEnterSizeMove();
-        return 0;
-
-    case WM_EXITSIZEMOVE:
-        app_->OnExitSizeMove();
-        return 0;
-
-    case WM_NCLBUTTONDOWN:
-        // システムメニュー表示時はフラグを立て、モーダルループ中の右クリック競合を防ぐ
-        if (wParam == HTSYSMENU) {
-            in_sys_menu_ = true;
-            const auto r = DefWindowProcW(hwnd_, msg, wParam, lParam);
-            in_sys_menu_ = false;
-            return r;
-        }
-        return DefWindowProcW(hwnd_, msg, wParam, lParam);
-
     case WM_RBUTTONDOWN:
         if (in_sys_menu_) {
             return 0;
@@ -431,21 +395,42 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
 
-    case WM_KEYDOWN:
-        app_->OnKeyDown(wParam);
+    case WM_XBUTTONDOWN: {
+        const WORD button = GET_XBUTTON_WPARAM(wParam);
+        if (button == XBUTTON1) {
+            app_->OnXButtonBack();
+        }
+        else if (button == XBUTTON2) {
+            app_->OnXButtonForward();
+        }
+        return TRUE;
+    }
+
+    default:
+        break;
+    }
+    return DefWindowProcW(hwnd_, msg, wParam, lParam);
+}
+
+// WM_APP+N カスタム通知メッセージを処理する。
+LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+    case app_msg::LOAD_FILE:
+        app_->OnAppLoadFile();
         return 0;
 
-    case WM_COMMAND:
-        if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == search_edit_) {
-            const int text_len = GetWindowTextLengthW(search_edit_);
-            std::wstring buf(static_cast<size_t>(std::max(text_len, 0)), L'\0');
-            const int copied = GetWindowTextW(search_edit_, buf.data(), text_len + 1);
-            buf.resize(static_cast<size_t>(std::max(copied, 0)));
-            app_->OnSearchTextChanged(buf);
-            SyncSearchCaretFromEdit();
-            return 0;
-        }
-        break;
+    case app_msg::RELOAD_FILE:
+        app_->OnAppReloadFile();
+        return 0;
+
+    case app_msg::IMAGE_LOADED:
+        app_->OnAppImageLoaded();
+        return 0;
+
+    case app_msg::PARSE_COMPLETE:
+        app_->OnParseComplete();
+        return 0;
 
     case app_msg::SEARCH_FOCUS:
         if (search_edit_) {
@@ -474,16 +459,91 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         }
         return 0;
 
-    case WM_XBUTTONDOWN: {
-        const WORD button = GET_XBUTTON_WPARAM(wParam);
-        if (button == XBUTTON1) {
-            app_->OnXButtonBack();
-        }
-        else if (button == XBUTTON2) {
-            app_->OnXButtonForward();
-        }
-        return TRUE;
+    default:
+        break;
     }
+    return DefWindowProcW(hwnd_, msg, wParam, lParam);
+}
+
+LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    // マウス入力メッセージ
+    switch (msg) {
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_MOUSEMOVE:
+    case WM_MOUSELEAVE:
+    case WM_SETCURSOR:
+    case WM_LBUTTONDBLCLK:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+    case WM_CONTEXTMENU:
+    case WM_XBUTTONDOWN:
+        return HandleMouseMessage(msg, wParam, lParam);
+    default:
+        break;
+    }
+
+    // WM_APP+N カスタム通知メッセージ
+    if (msg >= WM_APP && msg < app_msg::END) {
+        return HandleAppNotification(msg, wParam, lParam);
+    }
+
+    switch (msg) {
+    case WM_NCCALCSIZE:
+        return OnNcCalcSize(wParam, lParam);
+
+    case WM_NCHITTEST:
+        return OnNcHitTest(lParam);
+
+    case WM_PAINT:
+        app_->OnPaint();
+        return 0;
+
+    case WM_SIZE:
+        app_->OnResize(LOWORD(lParam), HIWORD(lParam));
+        RepositionSearchEdit();
+        return 0;
+
+    case WM_ACTIVATE:
+        app_->OnActivate(LOWORD(wParam) != WA_INACTIVE);
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
+    case WM_ENTERSIZEMOVE:
+        app_->OnEnterSizeMove();
+        return 0;
+
+    case WM_EXITSIZEMOVE:
+        app_->OnExitSizeMove();
+        return 0;
+
+    case WM_NCLBUTTONDOWN:
+        // システムメニュー表示時はフラグを立て、モーダルループ中の右クリック競合を防ぐ
+        if (wParam == HTSYSMENU) {
+            in_sys_menu_ = true;
+            const auto r = DefWindowProcW(hwnd_, msg, wParam, lParam);
+            in_sys_menu_ = false;
+            return r;
+        }
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
+    case WM_KEYDOWN:
+        app_->OnKeyDown(wParam);
+        return 0;
+
+    case WM_COMMAND:
+        if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == search_edit_) {
+            const int text_len = GetWindowTextLengthW(search_edit_);
+            std::wstring buf(static_cast<size_t>(std::max(text_len, 0)), L'\0');
+            const int copied = GetWindowTextW(search_edit_, buf.data(), text_len + 1);
+            buf.resize(static_cast<size_t>(std::max(copied, 0)));
+            app_->OnSearchTextChanged(buf);
+            SyncSearchCaretFromEdit();
+            return 0;
+        }
+        break;
 
     case WM_DROPFILES:
         app_->OnDropFiles(reinterpret_cast<HDROP>(wParam));
@@ -500,22 +560,6 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_TIMER:
         app_->HandleTimer(wParam);
-        return 0;
-
-    case app_msg::LOAD_FILE:
-        app_->OnAppLoadFile();
-        return 0;
-
-    case app_msg::RELOAD_FILE:
-        app_->OnAppReloadFile();
-        return 0;
-
-    case app_msg::IMAGE_LOADED:
-        app_->OnAppImageLoaded();
-        return 0;
-
-    case app_msg::PARSE_COMPLETE:
-        app_->OnParseComplete();
         return 0;
 
     case WM_SYSCOMMAND:

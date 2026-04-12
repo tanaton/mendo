@@ -22,6 +22,10 @@ inline constexpr UINT_PTR BITMAP_MANAGE = ResourceManager::TIMER_BITMAP_MANAGE;
 inline constexpr UINT_PTR MERMAID_INIT_RETRY = MermaidRenderer::TIMER_INIT_RETRY;
 inline constexpr UINT_PTR FILE_RELOAD_DEBOUNCE = 13;
 
+// タイマー間隔 (ms)
+inline constexpr UINT FRAME_INTERVAL_MS = 16;              // ~60fps アニメーション用
+inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200;       // ファイル変更通知のデバウンス
+
 } // namespace app_timer
 
 namespace app_msg {
@@ -32,6 +36,9 @@ inline constexpr UINT RELOAD_FILE = WM_APP + 3;
 inline constexpr UINT SEARCH_FOCUS = WM_APP + 4;
 inline constexpr UINT SEARCH_UNFOCUS = WM_APP + 5;
 inline constexpr UINT PARSE_COMPLETE = WM_APP + 6;
+
+// カスタムメッセージの上限（この値未満が有効範囲）
+inline constexpr UINT END = WM_APP + 7;
 
 } // namespace app_msg
 

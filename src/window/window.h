@@ -28,6 +28,8 @@ private:
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);
     LRESULT OnNcHitTest(LPARAM lParam);
+    LRESULT HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam);
+    LRESULT HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam);
     void UpdateDwmFrame();
     void InitSystemMenu();
     void ResetWindowPlacement();

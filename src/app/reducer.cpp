@@ -24,8 +24,44 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         }
     };
 
+    // ペインの max_scroll を計算するヘルパー
+    const auto calc_pane_max_scroll = [&](PaneZone pane) -> float {
+        const float item_h = state.cached_pane_item_height;
+        const float header_h = state.cached_pane_header_height;
+        if (pane == PaneZone::FilePane) {
+            const float total = static_cast<float>(state.file_explorer.GetEntries().size()) * item_h;
+            return std::max(0.0f, total - (state.cached_pane_layout.file_rect.height - header_h));
+        }
+        else {
+            const float total = static_cast<float>(state.doc.GetToc().GetEntries().size()) * item_h;
+            return std::max(0.0f, total - (state.cached_pane_layout.toc_rect.height - header_h));
+        }
+    };
+
     std::visit(overloaded{
         [](const NoOpAction&) {},
+        [&](const ScrollPaneAction& a) {
+            if (a.pane == PaneZone::FilePane) {
+                if (state.panes.ScrollFilePaneBy(a.delta, calc_pane_max_scroll(PaneZone::FilePane))) {
+                    effects.emplace_back(effect::InvalidatePaneCache{PaneZone::FilePane});
+                    effects.emplace_back(effect::InvalidateWindow{});
+                }
+            }
+            else if (a.pane == PaneZone::TocPane) {
+                if (state.panes.ScrollTocPaneBy(a.delta, calc_pane_max_scroll(PaneZone::TocPane))) {
+                    effects.emplace_back(effect::InvalidatePaneCache{PaneZone::TocPane});
+                    effects.emplace_back(effect::InvalidateWindow{});
+                }
+            }
+        },
+        [&](const TogglePaneAction& a) {
+            switch (a.target) {
+            case PaneTarget::File: state.panes.ToggleFilePane(); break;
+            case PaneTarget::Toc:  state.panes.ToggleTocPane();  break;
+            }
+            state.pane_layout_valid = false;
+            effects.emplace_back(effect::RefreshPaneLayout{});
+        },
         [&](const KeyScrollAction& a) {
             state.scroll_restore.pending_restore_scroll_y = -1;
             const float old_scroll = state.viewport.GetScrollY();

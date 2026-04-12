@@ -120,12 +120,12 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             },
             [this](const effect::ShowToast& e) {
                 state_->toast.Show(e.message);
-                ::SetTimer(hwnd_, app_timer::TOAST, 16, nullptr);
+                ::SetTimer(hwnd_, app_timer::TOAST, app_timer::FRAME_INTERVAL_MS, nullptr);
                 InvalidateRect(hwnd_, nullptr, FALSE);
             },
             [this](const effect::DeferredLayout&) {
                 if (layout_service_->HasDirtyNodes()) {
-                    ::SetTimer(hwnd_, app_timer::DEFERRED_LAYOUT, 16, nullptr);
+                    ::SetTimer(hwnd_, app_timer::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS, nullptr);
                 }
             },
             [this](const effect::BitmapManage&) {
@@ -137,7 +137,7 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             [this](const effect::StartFileWatch& e) {
                 doc_service_->StartWatching(e.path, [hwnd = hwnd_]() {
                     ::KillTimer(hwnd, app_timer::FILE_RELOAD_DEBOUNCE);
-                    ::SetTimer(hwnd, app_timer::FILE_RELOAD_DEBOUNCE, 200, nullptr);
+                    ::SetTimer(hwnd, app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS, nullptr);
                 });
             },
             [this](const effect::StopFileWatch&) {
@@ -154,6 +154,12 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             },
             [this](const effect::CancelMermaidBatch&) {
                 resource_manager_->CancelMermaidBatch();
+            },
+            [this](const effect::InvalidatePaneCache& e) {
+                cb_.invalidate_pane_cache(e.pane);
+            },
+            [this](const effect::RefreshPaneLayout&) {
+                cb_.refresh_pane_layout();
             },
             [this](const effect::ApplyDarkMode& e) {
                 ApplyDarkModeToWindow(hwnd_, e.dark);

@@ -3,6 +3,7 @@
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "win_handle.h"
+#include <optional>
 #include <shlwapi.h>
 
 #pragma comment(lib, "shlwapi.lib")
@@ -48,6 +49,54 @@ static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path
     }
     hMem.release(); // CreateStreamOnHGlobal(TRUE) が所有権を取得
     return stream;
+}
+
+// WIC デコードパイプラインの共通処理。
+// IStream から画像をデコードし、FormatConverter とピクセルサイズを返す。
+// LoadImage（同期）と RequestLoadAsync（非同期）の両方から使用される。
+struct WicDecodeResult {
+    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+    UINT pixel_width = 0;
+    UINT pixel_height = 0;
+};
+
+static std::optional<WicDecodeResult> DecodeFromStream(
+    IWICImagingFactory* wic, IStream* stream)
+{
+    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
+    HRESULT hr = wic->CreateDecoderFromStream(
+        stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
+    if (FAILED(hr)) {
+        return std::nullopt;
+    }
+
+    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr)) {
+        return std::nullopt;
+    }
+
+    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+    hr = wic->CreateFormatConverter(&converter);
+    if (FAILED(hr)) {
+        return std::nullopt;
+    }
+
+    hr = converter->Initialize(
+        frame.Get(), GUID_WICPixelFormat32bppPBGRA,
+        WICBitmapDitherTypeNone, nullptr, 0.0f,
+        WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) {
+        return std::nullopt;
+    }
+
+    UINT w = 0, h = 0;
+    hr = frame->GetSize(&w, &h);
+    if (FAILED(hr)) {
+        return std::nullopt;
+    }
+
+    return WicDecodeResult{ converter, w, h };
 }
 
 ImageLoader::~ImageLoader()
@@ -116,45 +165,16 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
         return false;
     }
 
-    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = wic_factory_->CreateDecoderFromStream(
-        stream.Get(),
-        nullptr,
-        WICDecodeMetadataCacheOnLoad,
-        &decoder
-    );
-    if (FAILED(hr)) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    hr = decoder->GetFrame(0, &frame);
-    if (FAILED(hr)) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    hr = wic_factory_->CreateFormatConverter(&converter);
-    if (FAILED(hr)) {
-        return false;
-    }
-
-    hr = converter->Initialize(
-        frame.Get(), GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone, nullptr, 0.0f,
-        WICBitmapPaletteTypeCustom);
-    if (FAILED(hr)) {
+    const auto decoded = DecodeFromStream(wic_factory_.Get(), stream.Get());
+    if (!decoded) {
         return false;
     }
 
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    hr = render_target_->CreateBitmapFromWicBitmap(converter.Get(), &bitmap);
+    const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(decoded->converter.Get(), &bitmap);
     if (FAILED(hr)) {
         return false;
     }
-
-    UINT w = 0, h = 0;
-    frame->GetSize(&w, &h);
 
     // ピクセルサイズを DIP に変換
     float scale_x, scale_y;
@@ -162,8 +182,8 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
 
     CachedImage cached;
     cached.bitmap = bitmap;
-    cached.width = static_cast<float>(w) / scale_x;
-    cached.height = static_cast<float>(h) / scale_y;
+    cached.width = static_cast<float>(decoded->pixel_width) / scale_x;
+    cached.height = static_cast<float>(decoded->pixel_height) / scale_y;
 
     out.bitmap = bitmap;
     out.width = cached.width;
@@ -210,30 +230,12 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
 
         if (wic_factory_) {
             const auto stream = ReadFileToStream(path);
-            Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-            HRESULT hr = stream ? wic_factory_->CreateDecoderFromStream(
-                stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder) : E_FAIL;
-
-            if (SUCCEEDED(hr)) {
-                Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-                hr = decoder->GetFrame(0, &frame);
-                if (SUCCEEDED(hr)) {
-                    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-                    hr = wic_factory_->CreateFormatConverter(&converter);
-                    if (SUCCEEDED(hr)) {
-                        hr = converter->Initialize(
-                            frame.Get(), GUID_WICPixelFormat32bppPBGRA,
-                            WICBitmapDitherTypeNone, nullptr, 0.0f,
-                            WICBitmapPaletteTypeCustom);
-                        if (SUCCEEDED(hr)) {
-                            UINT w = 0, h = 0;
-                            frame->GetSize(&w, &h);
-                            result.converter = converter;
-                            result.width = static_cast<float>(w);
-                            result.height = static_cast<float>(h);
-                            result.success = true;
-                        }
-                    }
+            if (stream) {
+                if (const auto decoded = DecodeFromStream(wic_factory_.Get(), stream.Get())) {
+                    result.converter = decoded->converter;
+                    result.width = static_cast<float>(decoded->pixel_width);
+                    result.height = static_cast<float>(decoded->pixel_height);
+                    result.success = true;
                 }
             }
         }

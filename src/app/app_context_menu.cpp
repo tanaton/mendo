@@ -65,12 +65,10 @@ void App::OnContextMenu(int screen_x, int screen_y)
         ToggleDarkMode();
         break;
     case IDM_TOGGLE_FILE_PANE:
-        state_.panes.ToggleFilePane();
-        RefreshPaneLayout();
+        Dispatch(TogglePaneAction{ PaneTarget::File });
         break;
     case IDM_TOGGLE_TOC_PANE:
-        state_.panes.ToggleTocPane();
-        RefreshPaneLayout();
+        Dispatch(TogglePaneAction{ PaneTarget::Toc });
         break;
     default:
         break;
