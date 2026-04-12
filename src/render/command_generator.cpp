@@ -435,8 +435,8 @@ void CommandGenerator::EmitHighlightRects(DrawCommandList& cmds,
                 origin_x + buf[i].left,
                 origin_y + buf[i].top,
                 origin_x + buf[i].left + buf[i].width,
-                origin_y + buf[i].top + buf[i].height),
-            color });
+                origin_y + buf[i].top + buf[i].height
+            ), color });
     }
 }
 

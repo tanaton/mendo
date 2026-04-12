@@ -93,8 +93,13 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         const float input_h = sbl.input_rect.bottom - sbl.input_rect.top;
         Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
         backend_.GetDWriteFactory()->CreateTextLayout(
-            display_text.data(), static_cast<UINT32>(display_text.size()),
-            fmt_.search_input.Get(), input_w, input_h, &text_layout);
+            display_text.data(),
+            static_cast<UINT32>(display_text.size()),
+            fmt_.search_input.Get(),
+            input_w,
+            input_h,
+            &text_layout
+        );
         if (text_layout) {
             // コンポジション文字列に下線を付与
             if (has_comp) {
@@ -126,8 +131,11 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
                         &htm_sel, 1, &actual);
                     if (actual > 0) {
                         const D2D1_RECT_F sel_rect = D2D1::RectF(
-                            htm_sel.left, sbl.input_rect.top + 2.0f,
-                            htm_sel.left + htm_sel.width, sbl.input_rect.bottom - 2.0f);
+                            htm_sel.left,
+                            sbl.input_rect.top + 2.0f,
+                            htm_sel.left + htm_sel.width,
+                            sbl.input_rect.bottom - 2.0f
+                        );
                         rt()->FillRectangle(sel_rect, Brush(BrushId::Selection));
                     }
                 }
@@ -135,7 +143,9 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
             rt()->DrawTextLayout(
                 D2D1::Point2F(text_left, sbl.input_rect.top),
-                text_layout.Get(), Brush(BrushId::SearchInputText));
+                text_layout.Get(),
+                Brush(BrushId::SearchInputText)
+            );
 
             // キャレット位置計算: コンポジション中はその末尾、それ以外は通常のキャレット位置
             int effective_pos;
@@ -150,8 +160,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
             }
             FLOAT px, py;
             DWRITE_HIT_TEST_METRICS htm{};
-            text_layout->HitTestTextPosition(
-                static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
+            text_layout->HitTestTextPosition(static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
             caret_x = text_left + px;
         }
     }
@@ -162,14 +171,15 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         rt()->DrawLine(
             D2D1::Point2F(caret_x, sbl.input_rect.top + 3.0f),
             D2D1::Point2F(caret_x, sbl.input_rect.bottom - 3.0f),
-            Brush(BrushId::SearchInputText), 1.0f);
+            Brush(BrushId::SearchInputText),
+            1.0f
+        );
     }
 
     // ボタン描画ヘルパー
     auto drawIconBtn = [&](const D2D1_RECT_F& r, const wchar_t* icon, bool hovered, float alpha = 1.0f) {
         if (hovered) {
-            rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),
-                Brush(BrushId::TitleBarButtonHover));
+            rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER), Brush(BrushId::TitleBarButtonHover));
         }
         if (fmt_.search_icon) {
             auto* brush = Brush(BrushId::SearchInputText);
@@ -232,8 +242,13 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
     }
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
     backend_.GetDWriteFactory()->CreateTextLayout(
-        query.data(), static_cast<UINT32>(query.size()),
-        fmt_.search_input.Get(), max_width, SEARCH_INPUT_HEIGHT, &layout);
+        query.data(),
+        static_cast<UINT32>(query.size()),
+        fmt_.search_input.Get(),
+        max_width,
+        SEARCH_INPUT_HEIGHT,
+        &layout
+    );
     if (!layout) {
         return 0;
     }

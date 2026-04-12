@@ -20,9 +20,7 @@ static bool IsSafeUrlScheme(std::wstring_view url) noexcept
         }
         return true;
     };
-    return starts_with_i(url, L"http://")
-        || starts_with_i(url, L"https://")
-        || starts_with_i(url, L"mailto:");
+    return starts_with_i(url, L"http://") || starts_with_i(url, L"https://") || starts_with_i(url, L"mailto:");
 }
 
 NavigationService::NavigateResult NavigationService::HandleLinkClick(std::wstring_view url, [[maybe_unused]] std::wstring_view current_file)

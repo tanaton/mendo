@@ -5,8 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
-void SearchBarController::Init(SearchState& state, ViewportManager& viewport,
-                                LayoutCache& cache, Callbacks cb)
+void SearchBarController::Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Callbacks cb)
 {
     state_ = &state;
     viewport_ = &viewport;
@@ -71,8 +70,7 @@ void SearchBarController::OnPrev()
     cb_.invalidate();
 }
 
-void SearchBarController::OnTextChanged(std::wstring_view text,
-                                         const std::pmr::vector<Node>& nodes)
+void SearchBarController::OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes)
 {
     state_->SetQuery(text);
     cb_.kill_timer(TIMER_DEBOUNCE);
@@ -95,8 +93,7 @@ void SearchBarController::OnTextChanged(std::wstring_view text,
     cb_.set_timer(TIMER_DEBOUNCE, 150);
 }
 
-void SearchBarController::OnToggleCaseSensitive(
-    const std::pmr::vector<Node>& nodes)
+void SearchBarController::OnToggleCaseSensitive(const std::pmr::vector<Node>& nodes)
 {
     state_->ToggleCaseSensitive();
     if (!state_->GetQuery().empty()) {
@@ -231,8 +228,7 @@ void SearchBarController::StartDrag(int anchor_pos) noexcept
 // ホバー管理
 // ============================================================
 
-SearchBarController::HoverZone SearchBarController::UpdateHover(
-    float dip_x, float dip_y, const SearchBarLayout& sbl)
+SearchBarController::HoverZone SearchBarController::UpdateHover(float dip_x, float dip_y, const SearchBarLayout& sbl)
 {
     const auto old_hover = hover_;
     hover_ = HoverZone::None;

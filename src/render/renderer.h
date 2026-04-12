@@ -142,9 +142,9 @@ struct SearchBarRenderState {
 
 // Renderer::Render に渡す全パラメータをまとめた構造体。
 struct RenderParams {
-    // --- 8バイ���アライメント (参照 = ポインタ) ---
-    std::pmr::vector<Node>& nodes;
-    LayoutCache& cache;
+    // --- 8バイトアライメント (参照 = ポインタ) ---
+    const std::pmr::vector<Node>& nodes;
+    const LayoutCache& cache;
     const TextSelection& selection;
     const PaneRect& md_pane_rect;
     const SidePaneState& side_panes;
@@ -207,8 +207,12 @@ public:
     // ファイル切替時にヒットテストバッファ等を縮小する
     void ShrinkBuffers() { hit_test_buffer_.shrink_to_fit(); cmd_generator_.ShrinkBuffers(); }
 
+    // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
+    // Render() の前に呼ぶことで、RenderParams を const にできる。
+    void PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
+        float scroll_y, float md_pane_height);
+
 private:
-    // 描画前パス: レイアウトに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
         int first_visible, float viewport_top, float viewport_bottom);
 

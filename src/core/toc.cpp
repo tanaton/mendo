@@ -40,8 +40,7 @@ int TableOfContents::FindActiveIndex(const LayoutCache& cache, float scroll_y, f
     // margin はMDペイン上端オフセット＋見出し上部余白で、画面上端に近い見出しを正しくアクティブにする。
     const float threshold = scroll_y + margin;
     const auto it = std::ranges::partition_point(entries_, [&](const TocEntry& e) noexcept {
-        return e.node_index >= 0 && e.node_index < static_cast<int>(cache.size())
-            && cache[e.node_index].y_position <= threshold;
+        return e.node_index >= 0 && e.node_index < static_cast<int>(cache.size()) && cache[e.node_index].y_position <= threshold;
     });
     return (it != entries_.begin()) ? static_cast<int>(std::prev(it) - entries_.begin()) : -1;
 }

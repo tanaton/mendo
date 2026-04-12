@@ -61,14 +61,22 @@ public:
 
     constexpr int GetAnchorNode() const noexcept { return anchor_node_; }
     constexpr uint32_t GetAnchorPos() const noexcept { return anchor_pos_; }
-    constexpr void SetAnchor(int node, uint32_t pos) noexcept { anchor_node_ = node; anchor_pos_ = pos; }
+    constexpr void SetAnchor(int node, uint32_t pos) noexcept
+    {
+        anchor_node_ = node;
+        anchor_pos_ = pos;
+    }
 
     constexpr bool IsDragging() const noexcept { return is_dragging_; }
     constexpr void SetDragging(bool v) noexcept { is_dragging_ = v; }
 
     constexpr int GetClickStartX() const noexcept { return click_start_x_; }
     constexpr int GetClickStartY() const noexcept { return click_start_y_; }
-    constexpr void SetClickStart(int x, int y) noexcept { click_start_x_ = x; click_start_y_ = y; }
+    constexpr void SetClickStart(int x, int y) noexcept
+    {
+        click_start_x_ = x;
+        click_start_y_ = y;
+    }
 
     constexpr void ClearSelection() noexcept
     {

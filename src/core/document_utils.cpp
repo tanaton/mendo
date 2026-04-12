@@ -44,9 +44,7 @@ std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes, const
     return result;
 }
 
-static std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>& runs,
-    const std::pmr::vector<std::pmr::wstring>& link_urls,
-    uint32_t pos)
+static std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>& runs, const std::pmr::vector<std::pmr::wstring>& link_urls, uint32_t pos)
 {
     for (const auto& run : runs) {
         if (run.has_link() && (pos >= run.start) && (pos < run.start + run.length)) {
@@ -56,9 +54,7 @@ static std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<Te
     return std::nullopt;
 }
 
-static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node,
-    uint32_t text_pos,
-    uint32_t& local_pos)
+static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node, uint32_t text_pos, uint32_t& local_pos)
 {
     uint32_t offset = 0;
     const auto& rows = node.table_rows();

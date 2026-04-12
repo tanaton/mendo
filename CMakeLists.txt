@@ -110,6 +110,7 @@ add_library(mendo_core STATIC
     src/theme/theme_service.cpp
     # app - アプリケーション制御
     src/app/app_controller.cpp
+    src/app/reducer.cpp
     # util - ユーティリティ
     src/util/task_scheduler.cpp
 )
@@ -149,8 +150,9 @@ add_executable(mendo WIN32
     src/app/app_navigate.cpp
     src/app/app_context_menu.cpp
     src/app/app_clipboard.cpp
-    src/app/app_render_state.cpp
+    src/app/render_composer.cpp
     src/app/resource_manager.cpp
+    src/app/side_effect_executor.cpp
     src/render/renderer.cpp
     src/render/renderer_pane.cpp
     src/render/renderer_titlebar.cpp

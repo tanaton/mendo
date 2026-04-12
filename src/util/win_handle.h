@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <string_view>
 
 // ポリシーベースの汎用 RAII リソースラッパー。
 // Traits は type, invalid(), close(type) を定義する。
@@ -77,3 +78,26 @@ struct GlobalMemTraits {
     static void close(type h) noexcept { GlobalFree(h); }
 };
 using UniqueGlobalMem = UniqueResource<GlobalMemTraits>;
+
+// クリップボードにテキストを書き込む共通ユーティリティ。
+// App::SetClipboardText と SideEffectExecutor の両方から使用される。
+inline void WriteClipboardText(HWND hwnd, std::wstring_view text) noexcept
+{
+    if (text.empty() || !OpenClipboard(hwnd)) {
+        return;
+    }
+    EmptyClipboard();
+    const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+    UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
+    if (hMem) {
+        if (auto* dest = static_cast<wchar_t*>(GlobalLock(hMem.get()))) {
+            std::char_traits<wchar_t>::copy(dest, text.data(), text.size());
+            dest[text.size()] = L'\0';
+            GlobalUnlock(hMem.get());
+            if (SetClipboardData(CF_UNICODETEXT, hMem.get())) {
+                hMem.release();
+            }
+        }
+    }
+    CloseClipboard();
+}

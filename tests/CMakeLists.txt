@@ -46,6 +46,7 @@ add_executable(mendo_tests
     test_hover_throttle.cpp
     test_search_bar_controller.cpp
     test_session_service.cpp
+    test_reducer.cpp
 )
 
 target_include_directories(mendo_tests PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})

@@ -46,8 +46,7 @@ void Renderer::LoadAppIconBitmap()
     app_icon_bitmap_.Reset();
 
     const HMODULE hModule = GetModuleHandleW(nullptr);
-    const HICON hIcon = static_cast<HICON>(LoadImageW(
-        hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
+    const HICON hIcon = static_cast<HICON>(LoadImageW(hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
     if (!hIcon) {
         return;
     }
@@ -303,6 +302,24 @@ void Renderer::RecreatePaneFormats()
 // ノード描画ロジックはCommandGeneratorに抽出済み。
 // D2Dブラシが必要なApplyNodeEffectsのみ描画前パスとしてここに残る。
 
+void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
+    float scroll_y, float md_pane_height)
+{
+    const float viewport_top = scroll_y;
+    const float viewport_bottom = scroll_y + md_pane_height;
+    const int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
+
+    const uint32_t effects_gen = cache.GetEffectsGeneration();
+    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_
+        || std::abs(viewport_bottom - last_effects_bottom_) > 0.5f) {
+        MENDO_PROFILE("PrepareVisibleEffects");
+        ApplyVisibleEffects(nodes, cache, first_visible, viewport_top, viewport_bottom);
+        last_effects_gen_ = effects_gen;
+        last_effects_first_ = first_visible;
+        last_effects_bottom_ = viewport_bottom;
+    }
+}
+
 void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     int first_visible, float viewport_top, float viewport_bottom)
 {
@@ -367,12 +384,10 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
 
     for (size_t r = 0; r < row_count; r++) {
         const auto& row = rows[r];
-        const float row_h = (r < tl.row_heights.size())
-            ? tl.row_heights[r] : (theme_.font_size_body * 1.4f);
+        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_.font_size_body * 1.4f);
         const float row_bottom = row_y + row_h + border;
 
-        const bool row_visible = (viewport_top < 0.0f)
-            || (row_bottom >= viewport_top && row_y <= viewport_bottom);
+        const bool row_visible = (viewport_top < 0.0f) || (row_bottom >= viewport_top && row_y <= viewport_bottom);
         // 2回目以降のパスではオフスクリーン行の背景走査をスキップ
         if (!first_pass && !row_visible) {
             row_y = row_bottom;
@@ -579,22 +594,9 @@ void Renderer::Render(const RenderParams& p)
 
     DrawSidePanes(p.side_panes);
 
-    // 最初の可視ノードを検索（一度だけ実行し、エフェクトとコマンド生成で共有）。
-    // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
+    // 最初の可視ノードを検索（ヒットテストとの座標一致のためスナップ前の scroll_y を使う）。
     const float viewport_top = p.scroll_y;
-    const float viewport_bottom = p.scroll_y + p.md_pane_rect.height;
     const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
-
-    // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
-    // レイアウト世代と可視範囲が前回と同一ならスキップする（静止時の不要な走査を回避）。
-    const uint32_t effects_gen = p.cache.GetEffectsGeneration();
-    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || std::abs(viewport_bottom - last_effects_bottom_) > 0.5f) {
-        MENDO_PROFILE("ApplyVisibleEffects");
-        ApplyVisibleEffects(p.nodes, p.cache, first_visible, viewport_top, viewport_bottom);
-        last_effects_gen_ = effects_gen;
-        last_effects_first_ = first_visible;
-        last_effects_bottom_ = viewport_bottom;
-    }
 
     // Markdownコンテンツペインの描画コマンドを生成・実行。
     const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;

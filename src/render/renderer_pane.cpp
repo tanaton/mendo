@@ -160,8 +160,7 @@ static void DrawSidePaneImpl(
 
     // キャッシュされたビットマップを転送
     if (cache.cached_bitmap) {
-        const D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y,
-            rect.x + rect.width, rect.y + rect.height);
+        const D2D1_RECT_F dest = D2D1::RectF(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
         main_rt->DrawBitmap(cache.cached_bitmap.Get(), dest);
     }
 }
