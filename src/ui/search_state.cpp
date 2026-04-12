@@ -121,7 +121,7 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
     }
 
     // matches_ は node_index 昇順 → cache[ni].y_position も単調増加のため二分探索を使用
-    const auto it = std::ranges::partition_point(matches_, [&](const SearchMatch& m) {
+    const auto it = std::ranges::partition_point(matches_, [&](const SearchMatch& m) noexcept {
         return m.node_index >= static_cast<int>(cache.size()) || cache[m.node_index].y_position < scroll_y;
     });
     current_match_ = (it != matches_.end()) ? static_cast<int>(it - matches_.begin()) : 0;

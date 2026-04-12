@@ -212,7 +212,7 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_co
 {
     const auto first = cache.cbegin();
     const auto last = first + static_cast<ptrdiff_t>(node_count);
-    const auto it = std::ranges::partition_point(first, last, [viewport_top](const NodeLayoutEntry& e) {
+    const auto it = std::ranges::partition_point(first, last, [viewport_top](const NodeLayoutEntry& e) noexcept {
         return e.y_position + e.height <= viewport_top;
     });
     return static_cast<int>(it - first);

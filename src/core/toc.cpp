@@ -39,7 +39,7 @@ int TableOfContents::FindActiveIndex(const LayoutCache& cache, float scroll_y, f
     // cache[entries_[i].node_index].y_position <= scroll_y + margin を満たす最大の i を求める。
     // margin はMDペイン上端オフセット＋見出し上部余白で、画面上端に近い見出しを正しくアクティブにする。
     const float threshold = scroll_y + margin;
-    const auto it = std::ranges::partition_point(entries_, [&](const TocEntry& e) {
+    const auto it = std::ranges::partition_point(entries_, [&](const TocEntry& e) noexcept {
         return e.node_index >= 0 && e.node_index < static_cast<int>(cache.size())
             && cache[e.node_index].y_position <= threshold;
     });

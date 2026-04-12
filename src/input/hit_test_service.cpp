@@ -82,7 +82,7 @@ HitTestService::HitResult HitTestService::HitTest(
     // dip_yを含むノードを検索
     const auto first = ctx.cache.cbegin();
     const auto last = first + static_cast<ptrdiff_t>(ctx.nodes.size());
-    const auto it = std::ranges::partition_point(first, last, [dip_y](const NodeLayoutEntry& e) {
+    const auto it = std::ranges::partition_point(first, last, [dip_y](const NodeLayoutEntry& e) noexcept {
         return e.y_position <= dip_y;
     });
     const int candidate = (it != first) ? static_cast<int>(std::prev(it) - first) : -1;
