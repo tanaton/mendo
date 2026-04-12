@@ -6,6 +6,15 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
 {
     SideEffectList effects;
 
+    // スクロール位置が変化した場合の共通副作用を発行する
+    const auto emit_scroll_effects = [&](float old_scroll) {
+        if (state.viewport.GetScrollY() != old_scroll) {
+            state.hover_throttle.Reset();
+            effects.emplace_back(effect::InvalidateWindow{});
+            effects.emplace_back(effect::BitmapManage{});
+        }
+    };
+
     std::visit(overloaded{
         [](const NoOpAction&) {},
 
@@ -23,21 +32,13 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
                 case ScrollType::End:      state.viewport.ScrollTo(state.viewport.GetMaxScroll()); break;
                 default:                   break;
             }
-            if (state.viewport.GetScrollY() != old_scroll) {
-                state.hover_throttle.Reset();
-                effects.emplace_back(effect::InvalidateWindow{});
-                effects.emplace_back(effect::BitmapManage{});
-            }
+            emit_scroll_effects(old_scroll);
         },
         [&](const DirectScrollByAction& a) {
             state.scroll_restore.pending_restore_scroll_y = -1;
             const float old_scroll = state.viewport.GetScrollY();
             state.viewport.DirectScrollBy(a.delta);
-            if (state.viewport.GetScrollY() != old_scroll) {
-                state.hover_throttle.Reset();
-                effects.emplace_back(effect::InvalidateWindow{});
-                effects.emplace_back(effect::BitmapManage{});
-            }
+            emit_scroll_effects(old_scroll);
         },
 
         // ==== 選択系 ====
@@ -94,9 +95,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         },
         [&](const SearchTextChangedAction& a) {
             state.search_bar_ctrl.OnTextChanged(a.text, state.doc.GetNodes());
-        },
-        [&](const SearchCloseAction&) {
-            state.search_bar_ctrl.OnClose();
         },
         [&](const ToggleCaseSensitiveAction&) {
             state.search_bar_ctrl.OnToggleCaseSensitive(state.doc.GetNodes());

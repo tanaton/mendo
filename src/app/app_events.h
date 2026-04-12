@@ -94,7 +94,6 @@ struct ImageLoadedAction {};
 // ──── アクション: 検索系 ────
 
 struct SearchTextChangedAction { std::pmr::wstring text; };
-struct SearchCloseAction {};
 struct ToggleCaseSensitiveAction {};
 struct ToggleHighlightAction {};
 struct SearchSelectionAction { int sel_start; int sel_end; };
@@ -153,7 +152,6 @@ using AppAction = std::variant<
     ImageLoadedAction,
     // 検索系
     SearchTextChangedAction,
-    SearchCloseAction,
     ToggleCaseSensitiveAction,
     ToggleHighlightAction,
     SearchSelectionAction,
