@@ -22,7 +22,7 @@ void App::OnLButtonDblClk(int px, int py)
     if (hit.node_index < 0) {
         return;
     }
-    const auto& text = doc_.GetNodes()[hit.node_index].GetText();
+    const auto& text = state_.doc.GetNodes()[hit.node_index].GetText();
     if (text.empty()) {
         return;
     }
@@ -31,8 +31,8 @@ void App::OnLButtonDblClk(int px, int py)
         return;
     }
 
-    viewport_.SetAnchor(hit.node_index, wb.start);
-    viewport_.SetSelection(TextSelection::MakeOrdered(hit.node_index, wb.start, hit.node_index, wb.end));
+    state_.viewport.SetAnchor(hit.node_index, wb.start);
+    state_.viewport.SetSelection(TextSelection::MakeOrdered(hit.node_index, wb.start, hit.node_index, wb.end));
     const auto layout = GetPaneLayout();
     InvalidateMdPane(layout.md_rect);
 }
@@ -43,14 +43,14 @@ void App::OnLButtonDblClk(int px, int py)
 
 void App::ClearSelection()
 {
-    viewport_.ClearSelection();
+    state_.viewport.ClearSelection();
     const auto layout = GetPaneLayout();
     InvalidateMdPane(layout.md_rect);
 }
 
 void App::SelectAll()
 {
-    viewport_.SelectAll(doc_.GetNodes());
+    state_.viewport.SelectAll(state_.doc.GetNodes());
     const auto layout = GetPaneLayout();
     InvalidateMdPane(layout.md_rect);
 }
@@ -83,16 +83,16 @@ void App::SetClipboardText(std::wstring_view text) const
 
 void App::CopySelectionToClipboard() const
 {
-    if (!viewport_.GetSelection().active) {
+    if (!state_.viewport.GetSelection().active) {
         return;
     }
-    const std::pmr::wstring result = ExtractSelectedText(doc_.GetNodes(), viewport_.GetSelection());
+    const std::pmr::wstring result = ExtractSelectedText(state_.doc.GetNodes(), state_.viewport.GetSelection());
     SetClipboardText(result);
 }
 
 void App::CopyCodeBlockToClipboard(int node_index) const
 {
-    const auto& nodes = doc_.GetNodes();
+    const auto& nodes = state_.doc.GetNodes();
     if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
         return;
     }
@@ -101,7 +101,7 @@ void App::CopyCodeBlockToClipboard(int node_index) const
 
 void App::SaveDiagramAsPng(int node_index)
 {
-    const auto& nodes = doc_.GetNodes();
+    const auto& nodes = state_.doc.GetNodes();
     if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
         return;
     }

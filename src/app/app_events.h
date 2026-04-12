@@ -1,6 +1,9 @@
 #pragma once
 #include "pane_layout.h"
 #include <variant>
+#include <string>
+#include <memory_resource>
+#include <windows.h>
 
 // ──── イベント (プラットフォーム非依存のユーザー入力) ────
 
@@ -17,7 +20,7 @@ struct MouseWheelEvent {
     PaneZone zone = PaneZone::MdPane;
 };
 
-// ──── アクション (アプリが実行すべき操作) ────
+// ──── アクション: コマンド系 (アプリが実行すべき操作) ────
 
 enum class ScrollType { LineUp, LineDown, PageUp, PageDown, Home, End };
 
@@ -54,7 +57,53 @@ struct SearchNextAction {};
 struct SearchPrevAction {};
 struct NoOpAction {};
 
+// ──── アクション: マウスイベント系 ────
+
+struct LButtonDownAction { float dip_x; float dip_y; int px; int py; };
+struct LButtonUpAction { float dip_x; float dip_y; int px; int py; };
+struct MouseMoveAction { float dip_x; float dip_y; int px; int py; };
+struct MouseHoverAction { float dip_x; float dip_y; int px; int py; };
+struct LButtonDblClkAction { float dip_x; float dip_y; int px; int py; };
+struct RButtonDownAction { float dip_x; float dip_y; };
+struct RButtonUpAction { float dip_x; float dip_y; int px; int py; };
+struct RButtonMoveAction { float dip_x; float dip_y; };
+struct ContextMenuAction { int screen_x; int screen_y; };
+struct MouseLeaveAction {};
+struct XButtonBackAction {};
+struct XButtonForwardAction {};
+struct HWheelAction { short delta; };
+struct DropFilesAction { std::pmr::wstring path; };
+
+// ──── アクション: システムイベント系 ────
+
+struct ResizeAction { UINT width; UINT height; };
+struct DpiChangedAction { UINT dpi; RECT suggested; };
+struct ActivateAction { bool active; };
+struct EnterSizeMoveAction {};
+struct ExitSizeMoveAction {};
+struct CaptureChangedAction {};
+struct DestroyAction {};
+
+// ──── アクション: タイマー・非同期コールバック系 ────
+
+struct TimerAction { UINT_PTR timer_id; };
+struct FileWatchAction {};
+struct ParseCompleteAction {};
+struct ImageLoadedAction {};
+
+// ──── アクション: 検索系 ────
+
+struct SearchTextChangedAction { std::pmr::wstring text; };
+struct SearchCloseAction {};
+struct ToggleCaseSensitiveAction {};
+struct ToggleHighlightAction {};
+struct SearchSelectionAction { int sel_start; int sel_end; };
+struct ImeCompositionAction { std::pmr::wstring text; };
+
+// ──── AppAction: 全アクションの統一型 ────
+
 using AppAction = std::variant<
+    // コマンド系
     NoOpAction,
     KeyScrollAction,
     DirectScrollByAction,
@@ -73,6 +122,41 @@ using AppAction = std::variant<
     OpenSearchBarAction,
     CloseSearchBarAction,
     SearchNextAction,
-    SearchPrevAction
+    SearchPrevAction,
+    // マウスイベント系
+    LButtonDownAction,
+    LButtonUpAction,
+    MouseMoveAction,
+    MouseHoverAction,
+    LButtonDblClkAction,
+    RButtonDownAction,
+    RButtonUpAction,
+    RButtonMoveAction,
+    ContextMenuAction,
+    MouseLeaveAction,
+    XButtonBackAction,
+    XButtonForwardAction,
+    HWheelAction,
+    DropFilesAction,
+    // システムイベント系
+    ResizeAction,
+    DpiChangedAction,
+    ActivateAction,
+    EnterSizeMoveAction,
+    ExitSizeMoveAction,
+    CaptureChangedAction,
+    DestroyAction,
+    // タイマー・非同期系
+    TimerAction,
+    FileWatchAction,
+    ParseCompleteAction,
+    ImageLoadedAction,
+    // 検索系
+    SearchTextChangedAction,
+    SearchCloseAction,
+    ToggleCaseSensitiveAction,
+    ToggleHighlightAction,
+    SearchSelectionAction,
+    ImeCompositionAction
 >;
 

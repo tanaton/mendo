@@ -303,6 +303,24 @@ void Renderer::RecreatePaneFormats()
 // ノード描画ロジックはCommandGeneratorに抽出済み。
 // D2Dブラシが必要なApplyNodeEffectsのみ描画前パスとしてここに残る。
 
+void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
+    float scroll_y, float md_pane_height)
+{
+    const float viewport_top = scroll_y;
+    const float viewport_bottom = scroll_y + md_pane_height;
+    const int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
+
+    const uint32_t effects_gen = cache.GetEffectsGeneration();
+    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_
+        || std::abs(viewport_bottom - last_effects_bottom_) > 0.5f) {
+        MENDO_PROFILE("PrepareVisibleEffects");
+        ApplyVisibleEffects(nodes, cache, first_visible, viewport_top, viewport_bottom);
+        last_effects_gen_ = effects_gen;
+        last_effects_first_ = first_visible;
+        last_effects_bottom_ = viewport_bottom;
+    }
+}
+
 void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
     int first_visible, float viewport_top, float viewport_bottom)
 {
@@ -585,16 +603,8 @@ void Renderer::Render(const RenderParams& p)
     const float viewport_bottom = p.scroll_y + p.md_pane_rect.height;
     const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
 
-    // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
-    // レイアウト世代と可視範囲が前回と同一ならスキップする（静止時の不要な走査を回避）。
-    const uint32_t effects_gen = p.cache.GetEffectsGeneration();
-    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || std::abs(viewport_bottom - last_effects_bottom_) > 0.5f) {
-        MENDO_PROFILE("ApplyVisibleEffects");
-        ApplyVisibleEffects(p.nodes, p.cache, first_visible, viewport_top, viewport_bottom);
-        last_effects_gen_ = effects_gen;
-        last_effects_first_ = first_visible;
-        last_effects_bottom_ = viewport_bottom;
-    }
+    // NOTE: ApplyVisibleEffects は Render() の前に PrepareVisibleEffects() で実行済み。
+    // RenderParams は const なので、ここでは描画のみ行う。
 
     // Markdownコンテンツペインの描画コマンドを生成・実行。
     const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;

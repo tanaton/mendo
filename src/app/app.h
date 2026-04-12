@@ -1,40 +1,25 @@
 #pragma once
+#include "app_state.h"
+#include "reducer.h"
+#include "side_effect_executor.h"
 #include "renderer.h"
 #include "task_scheduler.h"
 #include "mermaid_file_cache.h"
 #include "mermaid.h"
 #include "image_loader.h"
 #include "file_watcher.h"
-#include "file_explorer.h"
-#include "document.h"
 #include "document_service.h"
 #include "document_utils.h"
-#include "hit_test_service.h"
 #include "pane.h"
-#include "pane_layout.h"
-#include "pane_controller.h"
-#include "titlebar.h"
-#include "layout_cache.h"
 #include "layout_service.h"
-#include "viewport_manager.h"
 #include "app_controller.h"
-#include "nav_history.h"
 #include "navigation_service.h"
-#include "mouse_gesture.h"
-#include "swipe_detector.h"
-#include "toast_notifier.h"
 #include "config_service.h"
 #include "theme_service.h"
 #include "file_load_service.h"
-#include "context_menu.h"
-#include "search_state.h"
-#include "search_bar_controller.h"
 #include "resource_manager.h"
-#include "scroll_restoration.h"
 #include "session_service.h"
 #include "cursor_manager.h"
-#include "hover_throttle.h"
-#include "tooltip.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -88,6 +73,9 @@ public:
 
     // ファイル変更イベント（メッセージループから呼ばれる）
     HANDLE GetFileWatchEvent() const noexcept { return doc_service_.GetFileWatchEvent(); }
+    // state_ への参照アクセサ（app_*.cpp からの移行期に使用）
+    AppState& State() noexcept { return state_; }
+    const AppState& State() const noexcept { return state_; }
     void OnFileWatchEvent();
 
     // タイマーコールバック
@@ -100,24 +88,24 @@ public:
     void OnDestroy();
 
     // 検索（Win32Windowから呼ばれるコールバック）
-    void OnSearchTextChanged(std::wstring_view text) { search_bar_ctrl_.OnTextChanged(text, doc_.GetNodes()); }
-    void OnSearchClose() { search_bar_ctrl_.OnClose(); }
-    void OnSearchNext() { search_bar_ctrl_.OnNext(); }
-    void OnSearchPrev() { search_bar_ctrl_.OnPrev(); }
-    bool IsSearchBarVisible() const noexcept { return search_state_.IsVisible(); }
-    void OnToggleCaseSensitive() { search_bar_ctrl_.OnToggleCaseSensitive(doc_.GetNodes()); }
-    void OnToggleHighlight() { search_bar_ctrl_.OnToggleHighlight(); }
-    void SetSearchSelection(int sel_start, int sel_end) noexcept { search_bar_ctrl_.SetSelection(sel_start, sel_end); }
-    void SetImeComposition(std::wstring_view comp) { search_bar_ctrl_.SetImeComposition(comp); }
+    void OnSearchTextChanged(std::wstring_view text) { state_.search_bar_ctrl.OnTextChanged(text, state_.doc.GetNodes()); }
+    void OnSearchClose() { state_.search_bar_ctrl.OnClose(); }
+    void OnSearchNext() { state_.search_bar_ctrl.OnNext(); }
+    void OnSearchPrev() { state_.search_bar_ctrl.OnPrev(); }
+    bool IsSearchBarVisible() const noexcept { return state_.search_state.IsVisible(); }
+    void OnToggleCaseSensitive() { state_.search_bar_ctrl.OnToggleCaseSensitive(state_.doc.GetNodes()); }
+    void OnToggleHighlight() { state_.search_bar_ctrl.OnToggleHighlight(); }
+    void SetSearchSelection(int sel_start, int sel_end) noexcept { state_.search_bar_ctrl.SetSelection(sel_start, sel_end); }
+    void SetImeComposition(std::wstring_view comp) { state_.search_bar_ctrl.SetImeComposition(comp); }
     RECT GetSearchEditRect() const;
 
     // 検索バーコントローラへのアクセス（app_mouse.cppでのドラッグ/ホバー処理用）
-    SearchBarController& GetSearchBarCtrl() noexcept { return search_bar_ctrl_; }
+    SearchBarController& GetSearchBarCtrl() noexcept { return state_.search_bar_ctrl; }
 
     // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
     void SetPendingRestoreNode(int node, int offset, float scroll_y = -1.0f) noexcept
     {
-        scroll_restore_.SetNodeRestore(node, offset, scroll_y);
+        state_.scroll_restore.SetNodeRestore(node, offset, scroll_y);
     }
 
     // サイズ変更状態
@@ -140,16 +128,15 @@ public:
     constexpr float GetDpiScale() const noexcept { return cached_dpi_scale_; }
 
     // カスタムタイトルバー
-    float GetTitleBarHeightDip() const noexcept { return titlebar_.GetHeight(); }
-    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept { return titlebar_.HitTest(dip_x, dip_y); }
+    float GetTitleBarHeightDip() const noexcept { return state_.titlebar.GetHeight(); }
+    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept { return state_.titlebar.HitTest(dip_x, dip_y); }
     bool IsOverMdScrollbar(float dip_x, float dip_y) const;
     bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const noexcept;
     void OnActivate(bool active);
 
 private:
     // AppControllerが返すアクションを実行
-    void ExecuteAction(const AppAction& action);
-    bool EnsureSearchBarOpen();
+    void Dispatch(const AppAction& action);
 
     // Init用コールバック構築ヘルパー
     ResourceManager::Callbacks BuildResourceManagerCallbacks();
@@ -247,20 +234,13 @@ private:
 
     // ペインレイアウト（結果はキャッシュされる）
     const ::PaneLayout& GetPaneLayout() const;
-    void InvalidatePaneLayoutCache() noexcept { pane_layout_valid_ = false; }
+    void InvalidatePaneLayoutCache() noexcept { state_.pane_layout_valid = false; }
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
 
     // 検索
-    void OnSearchOpen() { search_bar_ctrl_.OnOpen(doc_.GetNodes()); }
-
-    // OnPaint用のレンダーステート構築ヘルパー
-    GestureRenderState BuildGestureRenderState() const;
-    SidePaneState BuildSidePaneState(const ::PaneLayout& layout) const;
-    TitleBarRenderState BuildTitleBarRenderState(float window_width) const;
-    ToastRenderState BuildToastRenderState() const;
-    SearchBarRenderState BuildSearchBarRenderState() const;
+    void OnSearchOpen() { state_.search_bar_ctrl.OnOpen(state_.doc.GetNodes()); }
 
     // ダークモード / ズーム (theme_service_に委譲)
     void ToggleDarkMode();
@@ -278,7 +258,6 @@ private:
     float cached_dpi_scale_ = 1.0f;
 
     CursorManager cursors_;
-    HoverThrottle hover_throttle_;
 
     // コアサービス
     Renderer renderer_;
@@ -294,71 +273,19 @@ private:
     SessionService session_{ config_ };
     FileLoadService file_load_service_{ doc_service_ };
 
-    // ドメイン状態
-    Document doc_;
-    LayoutCache layout_cache_;
-    ViewportManager viewport_;
+    // ---- 全状態を集約 ----
+    AppState state_;
+
+    // ---- サービス（状態ではなく振る舞い） ----
+    NavigationService nav_service_{ state_.nav_history };
     std::optional<LayoutService> layout_service_;
-
-    bool is_sizing_ = false;
-
-    // カスタムタイトルバー
-    TitleBar titlebar_;
-    bool window_active_ = true;
-    std::pmr::wstring cached_title_text_ = L"mendo";
-
-    // 3ペイン状態
-    FileExplorer file_explorer_;
-    PaneController panes_;
-    NavHistory nav_history_;
-    NavigationService nav_service_{ nav_history_ };
-    MouseGesture gesture_;
-    SwipeDetector swipe_detector_;
-    HitTestService hit_test_;
-
     ResourceManager resource_manager_;
+    SideEffectExecutor effect_executor_;
 
-    // PaneLayout キャッシュ（ウィンドウサイズ・ペイン状態が変わるまで再利用）
-    mutable ::PaneLayout cached_pane_layout_{};
-    mutable float cached_window_width_for_layout_ = 0.0f;
-    mutable bool pane_layout_valid_ = false;
-
-    // ナビゲーションオーバーレイ
+    // NavButtonHover エイリアス
     using NavButtonHover = HitTestService::NavButtonHover;
-    NavButtonHover nav_hover_ = NavButtonHover::None;
 
-    ScrollRestoration scroll_restore_;
-
-    // 検索
-    SearchState search_state_;
-    SearchBarController search_bar_ctrl_;
-
-    // カスタムコンテキストメニュー
-    ContextMenu ctx_menu_;
-
-    // コードブロック コピーボタン
-    int hovered_copy_node_ = -1;
-    // Mermaidダイアグラム 保存ボタン
-    int hovered_save_node_ = -1;
-
-    // 目次ペインの現在アクティブな見出しインデックス
-    int active_toc_index_ = -1;
-
-    // 非同期リロード時の差分スクロール用
-    size_t reload_diff_pos_ = std::string_view::npos;
-    float reload_old_scroll_ = 0.0f;
-
-    // エディタの truncate→rewrite 2段階保存検出用。
-    // prefix-only shrink をスキップし、次回リロードで元コンテンツとの
-    // 正確な差分を検出する。
-    bool pending_prefix_shrink_ = false;
-
-    // トースト通知
-    ToastNotifier toast_;
     void ShowToast(std::wstring_view message);
-
-    // ツールチップ
-    Tooltip tooltip_;
     void UpdateTooltip(const TooltipTarget& target, int px, int py);
     void ClearTooltip();
 };
