@@ -74,7 +74,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& l
         // テキスト全体を一括で小文字変換し、find()で検索する。
         // std::search + towlower の文字単位呼び出しよりも高速。
         lower_text_buf_.resize_and_overwrite(text.size(), [&text](wchar_t* buf, size_t count) noexcept -> size_t {
-            std::transform(text.begin(), text.end(), buf, [](wchar_t ch) static noexcept { return static_cast<wchar_t>(std::towlower(ch)); });
+            std::ranges::transform(text, buf, [](wchar_t ch) static noexcept { return static_cast<wchar_t>(std::towlower(ch)); });
             return count;
         });
         const std::wstring_view lower_text(lower_text_buf_.data(), lower_text_buf_.size());

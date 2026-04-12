@@ -311,7 +311,7 @@ private:
     {
         text_valid_ = true;
         text_utf8.clear();
-        line_count = static_cast<int>(std::count(text_.begin(), text_.end(), L'\n'));
+        line_count = static_cast<int>(std::ranges::count(text_, L'\n'));
     }
 
     mutable std::pmr::wstring text_;    // Wideキャッシュ（GetText()で遅延変換）

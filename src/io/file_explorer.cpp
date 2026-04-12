@@ -3,6 +3,7 @@
 #include "win_handle.h"
 #include <algorithm>
 #include <filesystem>
+#include <iterator>
 
 void FileExplorer::SetDirectory(std::wstring_view dir_path)
 {
@@ -87,8 +88,9 @@ void FileExplorer::Refresh()
     });
 
     // 追加: ディレクトリを先に、次にファイル
-    entries_.insert(entries_.end(), std::make_move_iterator(dirs.begin()), std::make_move_iterator(dirs.end()));
-    entries_.insert(entries_.end(), std::make_move_iterator(files.begin()), std::make_move_iterator(files.end()));
+    entries_.reserve(entries_.size() + dirs.size() + files.size());
+    std::ranges::move(dirs, std::back_inserter(entries_));
+    std::ranges::move(files, std::back_inserter(entries_));
 }
 
 int FileExplorer::HitTest(float local_y, float item_height) const noexcept

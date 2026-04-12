@@ -169,7 +169,7 @@ bool IsMarkdownFile(std::wstring_view path)
 
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
 {
-    const auto [it_old, it_new] = std::mismatch(old_text.begin(), old_text.end(), new_text.begin(), new_text.end());
+    const auto [it_old, it_new] = std::ranges::mismatch(old_text, new_text);
     if (it_old == old_text.end() && it_new == new_text.end()) {
         return std::string_view::npos;
     }
