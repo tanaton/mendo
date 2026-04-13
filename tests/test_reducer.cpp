@@ -154,8 +154,14 @@ TEST_F(ReducerTest, MouseLeave_ClearsTooltip) {
 
 // ---- 未処理アクションテスト ----
 
-TEST_F(ReducerTest, UnhandledAction_EmptyEffects) {
-    // Reducer が処理しないアクションは空の副作用リストを返す
+TEST_F(ReducerTest, ReloadFileAction_EmitsReloadEffect) {
     auto effects = Reduce(state, ReloadFileAction{});
+    EXPECT_EQ(effects.size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<effect::ReloadFile>(effects[0]));
+}
+
+TEST_F(ReducerTest, NoOpAction_EmptyEffects) {
+    // NoOpAction は空の副作用リストを返す
+    auto effects = Reduce(state, NoOpAction{});
     EXPECT_TRUE(effects.empty());
 }

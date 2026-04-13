@@ -13,7 +13,6 @@
 #include "pane.h"
 #include "layout_service.h"
 #include "app_controller.h"
-#include "navigation_service.h"
 #include "config_service.h"
 #include "theme_service.h"
 #include "file_load_service.h"
@@ -73,9 +72,6 @@ public:
 
     // ファイル変更イベント（メッセージループから呼ばれる）
     HANDLE GetFileWatchEvent() const noexcept { return doc_service_.GetFileWatchEvent(); }
-    // state_ への参照アクセサ（app_*.cpp からの移行期に使用）
-    AppState& State() noexcept { return state_; }
-    const AppState& State() const noexcept { return state_; }
     void OnFileWatchEvent();
 
     // タイマーコールバック
@@ -125,7 +121,7 @@ public:
     void InvalidateTitleBar() noexcept;
 
     // Win32Windowのカーソル/再描画用にDPIスケールを公開
-    constexpr float GetDpiScale() const noexcept { return cached_dpi_scale_; }
+    constexpr float GetDpiScale() const noexcept { return state_.cached_dpi_scale; }
 
     // カスタムタイトルバー
     float GetTitleBarHeightDip() const noexcept { return state_.titlebar.GetHeight(); }
@@ -142,12 +138,7 @@ private:
     ResourceManager::Callbacks BuildResourceManagerCallbacks();
     SearchBarController::Callbacks BuildSearchBarCallbacks();
 
-    // アンカーベースのスクロール位置保存/復元
-    struct AnchorState {
-        int idx = -1;
-        float y_before = 0.0f;
-        float offset = 0.0f;
-    };
+    // アンカーベースのスクロール位置保存/復元 (AnchorState は app_state.h で定義)
     AnchorState SaveAnchor() const;
     void RestoreAnchor(const AnchorState& anchor, float md_pane_height);
     void RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale);
@@ -164,9 +155,6 @@ private:
     // リンク・アンカーナビゲーション
     void HandleLinkClick(std::wstring_view url);
     void NavigateToAnchor(std::wstring_view anchor);
-    void ApplyNavigateResult(const NavigationService::NavigateResult& result);
-    void NavigateBack();
-    void NavigateForward();
     void PushNavHistory();
 
     // クリップボード・選択
@@ -239,24 +227,11 @@ private:
     ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
     float GetMarkdownPaneWidth() const;
 
-
-    // 検索
-    void OnSearchOpen() { state_.search_bar_ctrl.OnOpen(state_.doc.GetNodes()); }
-
     // Reducer 用テーマ定数キャッシュの同期
     void SyncPaneThemeCache();
 
-    // Dispatch() 内のインラインハンドラから抽出したヘルパー
-    void HandleOpenFile();
-    void HandleShowHelp();
-    void HandleDropFile(std::wstring_view path);
-
     // ダークモード / ズーム (theme_service_に委譲)
-    void ToggleDarkMode();
-    void ZoomIn();
-    void ZoomOut();
-    void ZoomReset();
-    void ApplyZoom(float new_zoom);
+    void HandleApplyThemeChange(const effect::ApplyThemeChange& e);
 
     // テーマ/ズーム変更後の共通後処理（ViewportLayout→スクロール復元→再描画）
     void FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale);
@@ -264,7 +239,6 @@ private:
 private:
     // Win32ハンドル
     HWND hwnd_ = nullptr;
-    float cached_dpi_scale_ = 1.0f;
 
     CursorManager cursors_;
 
@@ -286,7 +260,6 @@ private:
     AppState state_;
 
     // ---- サービス（状態ではなく振る舞い） ----
-    NavigationService nav_service_{ state_.nav_history };
     std::optional<LayoutService> layout_service_;
     ResourceManager resource_manager_;
     SideEffectExecutor effect_executor_;

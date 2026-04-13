@@ -41,6 +41,7 @@ void App::InvalidateMdPane(const PaneRect& md_rect)
 void App::SyncMaxScroll(float md_pane_height)
 {
     const float total = layout_service_->GetTotalHeight();
+    state_.cached_total_height = total;
     state_.viewport.SyncMaxScroll(total, md_pane_height);
 }
 
@@ -49,13 +50,9 @@ int App::FindFirstVisibleNode() const noexcept
     return state_.viewport.FindFirstVisibleNode(state_.layout_cache, state_.doc.GetNodes().size());
 }
 
-App::AnchorState App::SaveAnchor() const
+AnchorState App::SaveAnchor() const
 {
-    AnchorState a;
-    a.idx = FindFirstVisibleNode();
-    a.y_before = (a.idx >= 0) ? state_.layout_cache[a.idx].y_position : 0.0f;
-    a.offset = state_.viewport.GetScrollY() - a.y_before;
-    return a;
+    return SaveAnchorFromState(state_);
 }
 
 void App::RestoreAnchor(const AnchorState& anchor, float md_pane_height)

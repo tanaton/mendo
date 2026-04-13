@@ -6,7 +6,6 @@
 #include "document_utils.h"
 #include "ui_constants.h"
 #include "resource.h"
-#include <cwctype>
 
 namespace {
 
@@ -184,11 +183,11 @@ bool App::OnRButtonUp(int px, int py)
         break;
     }
     case GestureResult::Back:
-        NavigateBack();
+        Dispatch(NavigateBackAction{});
         Invalidate();
         break;
     case GestureResult::Forward:
-        NavigateForward();
+        Dispatch(NavigateForwardAction{});
         Invalidate();
         break;
     case GestureResult::None:
@@ -213,12 +212,12 @@ void App::OnRButtonMove(int px, int py)
 
 void App::OnXButtonBack()
 {
-    NavigateBack();
+    Dispatch(XButtonBackAction{});
 }
 
 void App::OnXButtonForward()
 {
-    NavigateForward();
+    Dispatch(XButtonForwardAction{});
 }
 
 // ============================================================
@@ -231,7 +230,7 @@ App::HitResult App::HitTest(int screen_x, int screen_y) const
     return state_.hit_test.HitTest({
         state_.doc.GetNodes(), state_.layout_cache, renderer_.GetTheme(),
         state_.viewport.GetScrollY(), pane_layout.md_rect.x,
-        cached_dpi_scale_, screen_x, screen_y
+        state_.cached_dpi_scale, screen_x, screen_y
         });
 }
 
@@ -425,11 +424,11 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
 
     const auto nav_hit = state_.hit_test.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
     if (nav_hit == NavButtonHover::Back) {
-        NavigateBack();
+        Dispatch(NavigateBackAction{});
         return;
     }
     if (nav_hit == NavButtonHover::Forward) {
-        NavigateForward();
+        Dispatch(NavigateForwardAction{});
         return;
     }
     // コピーボタンのクリック判定（クリック位置で再判定）
@@ -437,7 +436,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     const MdPaneHitContext hit_ctx{
         state_.doc.GetNodes(), state_.layout_cache, renderer_.GetTheme(),
         state_.viewport.GetScrollY(), pane_layout.md_rect.x,
-        cached_dpi_scale_, px, py,
+        state_.cached_dpi_scale, px, py,
         content_width, pane_layout.md_rect.height
     };
     const auto copy_node = state_.hit_test.CopyButtonHitTest(hit_ctx);
@@ -900,7 +899,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     const MdPaneHitContext hit_ctx{
         state_.doc.GetNodes(), state_.layout_cache, renderer_.GetTheme(),
         state_.viewport.GetScrollY(), pane_layout.md_rect.x,
-        cached_dpi_scale_, px, py,
+        state_.cached_dpi_scale, px, py,
         content_width, pane_layout.md_rect.height
     };
     {

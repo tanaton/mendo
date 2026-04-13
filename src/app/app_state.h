@@ -21,6 +21,24 @@
 #include <string_view>
 #include <memory_resource>
 
+// スクロール位置のアンカー。レイアウト無効化の前に保存し、復元に使用する。
+struct AnchorState {
+    int idx = -1;
+    float y_before = 0.0f;
+    float offset = 0.0f;
+};
+
+// Reducer がテーマ定数を参照するためのキャッシュ。
+struct ThemeConstants {
+    float pane_item_height = 28.0f;
+    float pane_header_height = 32.0f;
+    float splitter_width = 4.0f;
+    float margin_left = 0.0f;
+    float margin_right = 0.0f;
+    float heading_spacing_above = 0.0f;
+    float zoom = 1.0f;
+};
+
 // アプリケーションの全状態を集約する構造体。
 // Win32ハンドルは含まない。状態に加えて一部のコントローラ
 // (ContextMenu, HitTestService, SearchBarController) を含む。
@@ -66,8 +84,16 @@ struct AppState {
     mutable float cached_window_width_for_layout = 0.0f;
     mutable bool pane_layout_valid = false;
 
-    // テーマから取得したペイン定数のキャッシュ（ズーム変更時に更新）。
-    // Reducer がペインスクロールの max_scroll を計算するために使用する。
-    float cached_pane_item_height = 28.0f;
-    float cached_pane_header_height = 32.0f;
+    // テーマから取得した定数のキャッシュ（ズーム/テーマ変更時に更新）。
+    // Reducer がペインスクロールの max_scroll 計算等に使用する。
+    ThemeConstants cached_theme;
+
+    // DPIスケール（ピクセル→DIP変換用）。OnDpiChanged で更新。
+    float cached_dpi_scale = 1.0f;
+
+    // ドキュメント総高さのキャッシュ。ViewportLayout 後に更新。
+    float cached_total_height = 0.0f;
 };
+
+// 現在のスクロール位置からアンカーを保存する。Reducer と App の共通ヘルパー。
+AnchorState SaveAnchorFromState(const AppState& state) noexcept;

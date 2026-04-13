@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "document.h"
 #include "document_utils.h"
-#include "navigation_service.h"
+#include "nav_history.h"
 
 // ═══════════════════════════════════════════════
 // IsHelpPath
@@ -64,44 +64,44 @@ TEST(HelpDocumentTest, HelpPathIsNotMarkdownFile)
 class HelpNavigationTest : public ::testing::Test {
 protected:
     NavHistory history_;
-    NavigationService service_{ history_ };
 };
 
 TEST_F(HelpNavigationTest, GoBackFromHelpToFile)
 {
-    service_.PushHistory(L"C:\\file.md", 50.0f);
+    history_.Push(NavEntry{ L"C:\\file.md", 50.0f });
 
-    auto result = service_.GoBack(HELP_PATH, 0.0f);
-    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::LoadFile);
-    EXPECT_EQ(result.target, L"C:\\file.md");
-    EXPECT_FLOAT_EQ(result.scroll_y, 50.0f);
+    NavEntry out;
+    ASSERT_TRUE(history_.GoBack(NavEntry{ HELP_PATH, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"C:\\file.md");
+    EXPECT_FLOAT_EQ(out.scroll_y, 50.0f);
 }
 
 TEST_F(HelpNavigationTest, GoForwardFromFileToHelp)
 {
-    service_.PushHistory(L"C:\\file.md", 50.0f);
+    history_.Push(NavEntry{ L"C:\\file.md", 50.0f });
 
-    service_.GoBack(HELP_PATH, 0.0f);
+    NavEntry back_out;
+    history_.GoBack(NavEntry{ HELP_PATH, 0.0f }, back_out);
 
-    auto result = service_.GoForward(L"C:\\file.md", 50.0f);
-    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::LoadFile);
-    EXPECT_EQ(std::wstring_view(result.target), HELP_PATH);
-    EXPECT_FLOAT_EQ(result.scroll_y, 0.0f);
+    NavEntry fwd_out;
+    ASSERT_TRUE(history_.GoForward(NavEntry{ L"C:\\file.md", 50.0f }, fwd_out));
+    EXPECT_EQ(std::wstring_view(fwd_out.file_path), HELP_PATH);
+    EXPECT_FLOAT_EQ(fwd_out.scroll_y, 0.0f);
 }
 
 TEST_F(HelpNavigationTest, PushHelpThenGoBack)
 {
-    service_.PushHistory(HELP_PATH, 0.0f);
+    history_.Push(NavEntry{ HELP_PATH, 0.0f });
 
-    auto result = service_.GoBack(L"C:\\file.md", 100.0f);
-    EXPECT_EQ(result.type, NavigationService::NavigateResult::Type::LoadFile);
-    EXPECT_EQ(std::wstring_view(result.target), HELP_PATH);
+    NavEntry out;
+    ASSERT_TRUE(history_.GoBack(NavEntry{ L"C:\\file.md", 100.0f }, out));
+    EXPECT_EQ(std::wstring_view(out.file_path), HELP_PATH);
 }
 
 TEST_F(HelpNavigationTest, HelpPathInHistoryCanGoBack)
 {
-    service_.PushHistory(HELP_PATH, 0.0f);
-    EXPECT_TRUE(service_.CanGoBack());
+    history_.Push(NavEntry{ HELP_PATH, 0.0f });
+    EXPECT_TRUE(history_.CanGoBack());
 }
 
 // ═══════════════════════════════════════════════
