@@ -26,6 +26,7 @@ public:
         std::move_only_function<void(float)> renderer_set_dpi;
         std::move_only_function<void()> clear_file_cache;
         std::move_only_function<void()> perform_resize_end;
+        std::move_only_function<void()> perform_sizing_update;
         std::move_only_function<void(const effect::ApplyThemeChange&)> apply_theme_change;
         std::move_only_function<void()> process_deferred_layout;
         std::move_only_function<void()> tick_loading_animation;

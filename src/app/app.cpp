@@ -106,6 +106,12 @@ bool App::Init(HWND hwnd)
             .perform_resize_end = [this]() {
                 OnResizeEnd();
             },
+            .perform_sizing_update = [this]() {
+                const auto& sizing_layout = GetPaneLayout();
+                SyncMaxScroll(sizing_layout.md_rect.height);
+                UpdateScrollBar();
+                Invalidate();
+            },
             .apply_theme_change = [this](const effect::ApplyThemeChange& e) {
                 HandleApplyThemeChange(e);
             },

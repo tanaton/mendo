@@ -105,6 +105,7 @@ struct SetWindowPosition { int x; int y; int cx; int cy; };
 
 // ---- リサイズ ----
 struct PerformResizeEnd {};
+struct PerformSizingUpdate {};
 
 // ---- タイマー処理委譲 ----
 struct ProcessDeferredLayout {};
@@ -168,6 +169,7 @@ using SideEffect = std::variant<
     effect::SetWindowPosition,
     effect::ClearFileCache,
     effect::PerformResizeEnd,
+    effect::PerformSizingUpdate,
     effect::ApplyThemeChange,
     effect::ProcessDeferredLayout,
     effect::TickLoadingAnimation,

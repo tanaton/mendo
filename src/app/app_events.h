@@ -2,6 +2,7 @@
 #include "pane_layout.h"
 #include <variant>
 #include <string>
+#include <cstdint>
 #include <memory_resource>
 #include <windows.h>
 

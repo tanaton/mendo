@@ -311,10 +311,8 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
             const float window_w_dip = a.width / state.cached_dpi_scale;
             state.titlebar.UpdateLayout(window_w_dip);
             if (state.is_sizing) {
-                // sizing中は簡易更新: max_scroll 同期 + 再描画のみ
-                state.viewport.SyncMaxScroll(state.cached_total_height,
-                    state.cached_pane_layout.md_rect.height);
-                effects.emplace_back(effect::InvalidateWindow{});
+                // sizing中は簡易更新: RendererResize 後に PaneLayout 再計算 → max_scroll 同期
+                effects.emplace_back(effect::PerformSizingUpdate{});
             }
             else {
                 effects.emplace_back(effect::PerformResizeEnd{});

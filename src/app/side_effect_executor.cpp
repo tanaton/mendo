@@ -185,6 +185,9 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             [this](const effect::PerformResizeEnd&) {
                 cb_.perform_resize_end();
             },
+            [this](const effect::PerformSizingUpdate&) {
+                cb_.perform_sizing_update();
+            },
             [this](const effect::ApplyThemeChange& e) {
                 cb_.apply_theme_change(e);
             },
