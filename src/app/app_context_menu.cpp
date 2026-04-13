@@ -31,7 +31,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
     ContextMenuParams params;
     params.screen_x = screen_x;
     params.screen_y = screen_y;
-    params.dpi_scale = cached_dpi_scale_;
+    params.dpi_scale = state_.cached_dpi_scale;
     params.can_go_back = state_.nav_history.CanGoBack();
     params.can_go_forward = state_.nav_history.CanGoForward();
     params.has_file = !state_.doc.GetFilePath().empty();
@@ -46,10 +46,10 @@ void App::OnContextMenu(int screen_x, int screen_y)
 
     switch (cmd) {
     case IDM_NAV_BACK:
-        NavigateBack();
+        Dispatch(NavigateBackAction{});
         break;
     case IDM_NAV_FORWARD:
-        NavigateForward();
+        Dispatch(NavigateForwardAction{});
         break;
     case IDM_EDIT_FILE: {
         const auto& file_path = state_.doc.GetFilePath();
@@ -62,7 +62,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         CopySelectionToClipboard();
         break;
     case IDM_TOGGLE_DARK_MODE:
-        ToggleDarkMode();
+        Dispatch(ToggleDarkModeAction{});
         break;
     case IDM_TOGGLE_FILE_PANE:
         Dispatch(TogglePaneAction{ PaneTarget::File });

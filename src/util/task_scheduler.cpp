@@ -16,7 +16,7 @@ void TaskScheduler::Init(int thread_count)
     }
 }
 
-void TaskScheduler::Post(std::function<void()> task)
+void TaskScheduler::Post(std::move_only_function<void()> task)
 {
     {
         const std::lock_guard lock(mutex_);
@@ -45,7 +45,7 @@ void TaskScheduler::WorkerLoop()
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
     while (true) {
-        std::function<void()> task;
+        std::move_only_function<void()> task;
         {
             std::unique_lock lock(mutex_);
             cv_.wait(lock, [this] {

@@ -101,9 +101,7 @@ int ResourceManager::ApplyCachedImages()
             ++applied;
         }
         else {
-            image_loader_->RequestLoadAsync(abs_str,
-                [](void* ctx) static { static_cast<ResourceManager*>(ctx)->OnImageLoadComplete(); },
-                this);
+            image_loader_->RequestLoadAsync(abs_str, [this] { OnImageLoadComplete(); });
         }
     }
     return applied;
@@ -183,8 +181,7 @@ int ResourceManager::RequestMermaidRenders()
 
         mermaid_->RequestRender(node, (*cache_)[i], diagram,
             content_width, theme_service_->IsDarkMode(),
-            [](void* ctx) static { static_cast<ResourceManager*>(ctx)->OnMermaidRenderComplete(); },
-            this);
+            [this] { OnMermaidRenderComplete(); });
         if (diagram.bitmap) {
             ++applied;
         }
@@ -250,8 +247,7 @@ void ResourceManager::ProcessMermaidBatch()
         if (!diagram.bitmap) {
             mermaid_->RequestRender(node, (*cache_)[i], diagram,
                 content_width, dark_mode,
-                [](void* ctx) static { static_cast<ResourceManager*>(ctx)->OnMermaidRenderComplete(); },
-                this);
+                [this] { OnMermaidRenderComplete(); });
             if (diagram.bitmap) {
                 any_loaded = true;
             }

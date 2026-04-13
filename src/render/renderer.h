@@ -193,7 +193,7 @@ public:
 
     // デバイスロスト後にD2Dレンダーターゲットが再作成された際に呼び出されるコールバックを設定。
     // コールバックには新しいレンダーターゲットのポインタが渡される。
-    void SetDeviceLostCallback(std::function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
+    void SetDeviceLostCallback(std::move_only_function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
 
     int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const;
     void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index) noexcept
@@ -294,5 +294,5 @@ private:
     LayoutEngine layout_;
     CommandGenerator cmd_generator_;
     CommandExecutor cmd_executor_;
-    std::function<void(ID2D1RenderTarget*)> on_device_lost_;
+    std::move_only_function<void(ID2D1RenderTarget*)> on_device_lost_;
 };

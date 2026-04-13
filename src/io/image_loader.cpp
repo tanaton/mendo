@@ -203,8 +203,7 @@ bool ImageLoader::GetCachedImage(const std::wstring& abs_path, DiagramEntry& out
     return false;
 }
 
-void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
-    Callback on_complete, void* user_data)
+void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_complete)
 {
     {
         const std::lock_guard lock(pending_mutex_);
@@ -218,15 +217,14 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path,
     }
 
     const uint32_t gen = cancel_gen_.load();
-    scheduler_->Post([this, path = abs_path, on_complete, user_data, gen] {
+    scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen]() mutable {
         if (cancel_gen_.load() != gen) {
             return;
         }
 
         DecodeResult result;
         result.path = path;
-        result.on_complete = on_complete;
-        result.user_data = user_data;
+        result.on_complete = std::move(on_complete);
 
         if (wic_factory_) {
             const auto stream = ReadFileToStream(path);
@@ -274,8 +272,7 @@ void ImageLoader::ProcessCompletedDecodes()
         }
     }
 
-    Callback last_cb = nullptr;
-    void* last_data = nullptr;
+    Callback last_cb;
 
     float scale_x, scale_y;
     GetDpiScale(scale_x, scale_y);
@@ -295,12 +292,11 @@ void ImageLoader::ProcessCompletedDecodes()
             }
         }
 
-        last_cb = r.on_complete;
-        last_data = r.user_data;
+        last_cb = std::move(r.on_complete);
     }
 
     if (last_cb) {
-        last_cb(last_data);
+        last_cb();
     }
 }
 

@@ -1,39 +1,15 @@
 #pragma once
-#include "nav_history.h"
-#include "document_utils.h"
 #include <string>
 #include <string_view>
-#include <vector>
 #include <memory_resource>
 
-class NavigationService {
-public:
-    explicit NavigationService(NavHistory& history) noexcept : history_(history) {}
-
-    struct NavigateResult {
-        enum class Type { None, Anchor, ExternalUrl, LoadFile };
-        Type type = Type::None;
-        std::pmr::wstring target;
-        float scroll_y = 0.0f;
-    };
-
-    // リンククリック処理。結果を返すだけで副作用は起こさない。
-    NavigateResult HandleLinkClick(std::wstring_view url,
-        std::wstring_view current_file);
-
-    // 戻る
-    NavigateResult GoBack(std::wstring_view current_file, float scroll_y);
-
-    // 進む
-    NavigateResult GoForward(std::wstring_view current_file, float scroll_y);
-
-    // 履歴にプッシュ
-    void PushHistory(std::wstring_view file, float scroll_y);
-
-    bool CanGoBack() const noexcept { return history_.CanGoBack(); }
-    bool CanGoForward() const noexcept { return history_.CanGoForward(); }
-
-private:
-    NavigateResult MakeResultFromEntry(NavEntry&& entry, std::wstring_view current_file);
-    NavHistory& history_;
+// リンククリックの結果を表す値型。
+// URLスキーム検証とアンカー判定のみを行い、副作用は持たない。
+struct LinkClickResult {
+    enum class Type { None, Anchor, ExternalUrl };
+    Type type = Type::None;
+    std::pmr::wstring target;
 };
+
+// リンククリック処理。URLの種類を判定して結果を返す。副作用は起こさない。
+LinkClickResult HandleLinkClick(std::wstring_view url);

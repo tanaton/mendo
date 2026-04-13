@@ -17,7 +17,7 @@ public:
     FileWatcher& operator=(const FileWatcher&) = delete;
     FileWatcher() = default;
 
-    using ChangeCallback = std::function<void()>;
+    using ChangeCallback = std::move_only_function<void()>;
     void StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback);
     void StopWatching() noexcept;
     void CheckForChanges();

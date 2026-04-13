@@ -23,7 +23,7 @@ public:
     void Init(int thread_count);
 
     // タスクをキューに追加する。任意のワーカースレッドで実行される。
-    void Post(std::function<void()> task);
+    void Post(std::move_only_function<void()> task);
 
     // キューに残っているタスクをすべて処理してからワーカースレッドを終了する。
     void Shutdown();
@@ -32,7 +32,7 @@ private:
     void WorkerLoop();
 
     std::vector<std::thread> workers_;
-    std::queue<std::function<void()>> queue_;
+    std::queue<std::move_only_function<void()>> queue_;
     std::mutex mutex_;
     std::condition_variable cv_;
     std::atomic<bool> shutdown_{false};

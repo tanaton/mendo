@@ -22,16 +22,16 @@ public:
 
     // Win32操作をAppから注入するコールバック群
     struct Callbacks {
-        std::function<void()> invalidate;                  // ウィンドウ全体の再描画
-        std::function<void()> invalidate_search_bar;       // 検索バー領域のみ再描画
-        std::function<void(UINT_PTR, UINT)> set_timer;     // SetTimer(id, ms)
-        std::function<void(UINT_PTR)> kill_timer;          // KillTimer(id)
-        std::function<void()> focus_select_all;            // 検索テキスト全選択でフォーカス
-        std::function<void(int)> focus_set_caret;          // キャレット位置指定でフォーカス
-        std::function<void(int, int)> focus_set_selection; // anchor,caret指定でフォーカス
-        std::function<void()> unfocus;                     // フォーカス解除
-        std::function<float()> get_md_pane_height;         // Markdownペイン高さ取得
-        std::function<void(float)> on_scroll_changed;      // スクロール変更後処理(visible_h)
+        std::move_only_function<void()> invalidate;                  // ウィンドウ全体の再描画
+        std::move_only_function<void()> invalidate_search_bar;       // 検索バー領域のみ再描画
+        std::move_only_function<void(UINT_PTR, UINT)> set_timer;     // SetTimer(id, ms)
+        std::move_only_function<void(UINT_PTR)> kill_timer;          // KillTimer(id)
+        std::move_only_function<void()> focus_select_all;            // 検索テキスト全選択でフォーカス
+        std::move_only_function<void(int)> focus_set_caret;          // キャレット位置指定でフォーカス
+        std::move_only_function<void(int, int)> focus_set_selection; // anchor,caret指定でフォーカス
+        std::move_only_function<void()> unfocus;                     // フォーカス解除
+        std::move_only_function<float()> get_md_pane_height;         // Markdownペイン高さ取得
+        std::move_only_function<void(float)> on_scroll_changed;      // スクロール変更後処理(visible_h)
     };
 
     // タイマーID（App::HandleTimerでのルーティング用）

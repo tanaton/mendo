@@ -2,6 +2,7 @@
 #include "pane_layout.h"
 #include <variant>
 #include <string>
+#include <cstdint>
 #include <memory_resource>
 #include <windows.h>
 
@@ -22,28 +23,53 @@ struct MouseWheelEvent {
 
 // ──── アクション: コマンド系 (アプリが実行すべき操作) ────
 
-enum class ScrollType { LineUp, LineDown, PageUp, PageDown, Home, End };
+enum class ScrollType {
+    LineUp,
+    LineDown,
+    PageUp,
+    PageDown,
+    Home,
+    End
+};
 
 // キーボード/スクロールバースクロール (Shellがtypeから具体的なdeltaを算出)
-struct KeyScrollAction { ScrollType type; };
+struct KeyScrollAction {
+    ScrollType type;
+};
 
 // ホイール/タッチパッドの直接スクロール (アニメーションなし)
-struct DirectScrollByAction { float delta; };
+struct DirectScrollByAction {
+    float delta;
+};
 
 // ペイン (ファイル/目次) スクロール
-struct ScrollPaneAction { PaneZone pane; float delta; };
+struct ScrollPaneAction {
+    PaneZone pane;
+    float delta;
+};
 
 struct CopyClipboardAction {};
 struct SelectAllAction {};
 struct ClearSelectionAction {};
 
 // サイドペインの切り替え
-enum class PaneTarget { File, Toc };
-struct TogglePaneAction { PaneTarget target; };
+enum class PaneTarget {
+    File,
+    Toc
+};
+struct TogglePaneAction {
+    PaneTarget target;
+};
 
 // ズーム操作
-enum class ZoomDirection { In, Out, Reset };
-struct ZoomAction { ZoomDirection direction; };
+enum class ZoomDirection {
+    In,
+    Out,
+    Reset
+};
+struct ZoomAction {
+    ZoomDirection direction;
+};
 
 struct ReloadFileAction {};
 struct OpenFileAction {};
@@ -59,26 +85,82 @@ struct NoOpAction {};
 
 // ──── アクション: マウスイベント系 ────
 
-struct LButtonDownAction { float dip_x; float dip_y; int px; int py; };
-struct LButtonUpAction { float dip_x; float dip_y; int px; int py; };
-struct MouseMoveAction { float dip_x; float dip_y; int px; int py; };
-struct MouseHoverAction { float dip_x; float dip_y; int px; int py; };
-struct LButtonDblClkAction { float dip_x; float dip_y; int px; int py; };
-struct RButtonDownAction { float dip_x; float dip_y; int px; int py; };
-struct RButtonUpAction { float dip_x; float dip_y; int px; int py; };
-struct RButtonMoveAction { float dip_x; float dip_y; int px; int py; };
-struct ContextMenuAction { int screen_x; int screen_y; };
+struct LButtonDownAction {
+    float dip_x;
+    float dip_y;
+    int px;
+    int py;
+};
+struct LButtonUpAction {
+    float dip_x;
+    float dip_y;
+    int px;
+    int py;
+};
+struct MouseMoveAction {
+    float dip_x;
+    float dip_y;
+    int px;
+    int py;
+};
+struct MouseHoverAction {
+    float dip_x;
+    float dip_y;
+    int px;
+    int py;
+};
+struct LButtonDblClkAction {
+    float dip_x;
+    float dip_y;
+    int px;
+    int py;
+};
+struct RButtonDownAction {
+    float dip_x;
+    float dip_y;
+    int px;
+    int py;
+};
+struct RButtonUpAction {
+    float dip_x;
+    float dip_y;
+    int px;
+    int py;
+};
+struct RButtonMoveAction {
+    float dip_x;
+    float dip_y;
+    int px;
+    int py;
+};
+struct ContextMenuAction {
+    int screen_x;
+    int screen_y;
+};
 struct MouseLeaveAction {};
 struct XButtonBackAction {};
 struct XButtonForwardAction {};
-struct HWheelAction { short delta; };
-struct DropFilesAction { std::pmr::wstring path; };
+struct HWheelAction {
+    short delta;
+    uint64_t tick;
+};
+struct DropFilesAction {
+    std::pmr::wstring path;
+};
 
 // ──── アクション: システムイベント系 ────
 
-struct ResizeAction { UINT width; UINT height; };
-struct DpiChangedAction { UINT dpi; RECT suggested; };
-struct ActivateAction { bool active; };
+struct ResizeAction {
+    UINT width;
+    UINT height;
+};
+struct DpiChangedAction {
+    UINT dpi;
+    RECT suggested;
+};
+struct ActivateAction {
+    bool active;
+};
 struct EnterSizeMoveAction {};
 struct ExitSizeMoveAction {};
 struct CaptureChangedAction {};
@@ -86,18 +168,27 @@ struct DestroyAction {};
 
 // ──── アクション: タイマー・非同期コールバック系 ────
 
-struct TimerAction { UINT_PTR timer_id; };
+struct TimerAction {
+    UINT_PTR timer_id;
+};
 struct FileWatchAction {};
 struct ParseCompleteAction {};
 struct ImageLoadedAction {};
 
 // ──── アクション: 検索系 ────
 
-struct SearchTextChangedAction { std::pmr::wstring text; };
+struct SearchTextChangedAction {
+    std::pmr::wstring text;
+};
 struct ToggleCaseSensitiveAction {};
 struct ToggleHighlightAction {};
-struct SearchSelectionAction { int sel_start; int sel_end; };
-struct ImeCompositionAction { std::pmr::wstring text; };
+struct SearchSelectionAction {
+    int sel_start;
+    int sel_end;
+};
+struct ImeCompositionAction {
+    std::pmr::wstring text;
+};
 
 // ──── AppAction: 全アクションの統一型 ────
 

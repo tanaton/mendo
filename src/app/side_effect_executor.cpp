@@ -164,6 +164,60 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             [this](const effect::ApplyDarkMode& e) {
                 ApplyDarkModeToWindow(hwnd_, e.dark);
             },
+            [this](const effect::CheckFileChanges&) {
+                doc_service_->CheckForChanges();
+            },
+            [this](const effect::NotifyImageLoaded&) {
+                resource_manager_->OnAppImageLoaded();
+            },
+            [this](const effect::RendererResize& e) {
+                cb_.renderer_resize(e.width, e.height);
+            },
+            [this](const effect::RendererSetDpi& e) {
+                cb_.renderer_set_dpi(e.dpi);
+            },
+            [this](const effect::SetWindowPosition& e) {
+                SetWindowPos(hwnd_, nullptr, e.x, e.y, e.cx, e.cy, SWP_NOZORDER | SWP_NOACTIVATE);
+            },
+            [this](const effect::ClearFileCache&) {
+                cb_.clear_file_cache();
+            },
+            [this](const effect::PerformResizeEnd&) {
+                cb_.perform_resize_end();
+            },
+            [this](const effect::PerformSizingUpdate&) {
+                cb_.perform_sizing_update();
+            },
+            [this](const effect::ApplyThemeChange& e) {
+                cb_.apply_theme_change(e);
+            },
+            [this](const effect::ProcessDeferredLayout&) {
+                cb_.process_deferred_layout();
+            },
+            [this](const effect::TickLoadingAnimation&) {
+                cb_.tick_loading_animation();
+            },
+            [this](const effect::ProcessMermaidBatchTimer&) {
+                cb_.process_mermaid_batch_timer();
+            },
+            [this](const effect::ProcessBitmapManage&) {
+                cb_.process_bitmap_manage();
+            },
+            [this](const effect::MermaidInitRetry&) {
+                cb_.mermaid_init_retry();
+            },
+            [this](const effect::Destroy&) {
+                cb_.destroy();
+            },
+            [this](const effect::HandleParseComplete&) {
+                cb_.handle_parse_complete();
+            },
+            [this](const effect::HandleMouseEvent& e) {
+                cb_.handle_mouse_event(e.type, e.px, e.py);
+            },
+            [this](const effect::HandleContextMenu& e) {
+                cb_.handle_context_menu(e.screen_x, e.screen_y);
+            },
             }, e);
     }
 }

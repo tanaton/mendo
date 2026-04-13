@@ -59,13 +59,13 @@ bool App::Init(HWND hwnd)
 
     // PixelToDip用にDPIスケールをキャッシュ (OnDpiChangedで更新)
     const float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
-    cached_dpi_scale_ = (init_dpi > 0.0f) ? (init_dpi / DEFAULT_DPI) : 1.0f;
+    state_.cached_dpi_scale = (init_dpi > 0.0f) ? (init_dpi / DEFAULT_DPI) : 1.0f;
 
     // タスクスケジューラを初期化（画像デコード・キャッシュ書き込み共用）
     scheduler_.Init(mermaid_util::ComputeWorkerCount(
         std::thread::hardware_concurrency()));
 
-    file_cache_.Init(cached_dpi_scale_, scheduler_);
+    file_cache_.Init(state_.cached_dpi_scale, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
     resource_manager_.Init(state_.doc, state_.layout_cache, state_.viewport, image_loader_, mermaid_renderer_,
@@ -93,6 +93,63 @@ bool App::Init(HWND hwnd)
             },
             .refresh_pane_layout = [this]() {
                 RefreshPaneLayout();
+            },
+            .renderer_resize = [this](UINT w, UINT h) {
+                renderer_.Resize(w, h);
+            },
+            .renderer_set_dpi = [this](float dpi) {
+                renderer_.SetDpi(dpi);
+            },
+            .clear_file_cache = [this]() {
+                file_cache_.ClearAll();
+            },
+            .perform_resize_end = [this]() {
+                OnResizeEnd();
+            },
+            .perform_sizing_update = [this]() {
+                const auto& sizing_layout = GetPaneLayout();
+                SyncMaxScroll(sizing_layout.md_rect.height);
+                UpdateScrollBar();
+                Invalidate();
+            },
+            .apply_theme_change = [this](const effect::ApplyThemeChange& e) {
+                HandleApplyThemeChange(e);
+            },
+            .process_deferred_layout = [this]() {
+                OnDeferredLayout();
+            },
+            .tick_loading_animation = [this]() {
+                file_load_service_.TickLoadingAnimation();
+            },
+            .process_mermaid_batch_timer = [this]() {
+                resource_manager_.ProcessMermaidBatch();
+            },
+            .process_bitmap_manage = [this]() {
+                resource_manager_.OnBitmapManageTimer();
+            },
+            .mermaid_init_retry = [this]() {
+                mermaid_renderer_.OnInitRetryTimer();
+            },
+            .destroy = [this]() {
+                OnDestroy();
+            },
+            .handle_parse_complete = [this]() {
+                OnParseComplete();
+            },
+            .handle_mouse_event = [this](effect::MouseEventType type, int px, int py) {
+                switch (type) {
+                case effect::MouseEventType::LButtonDown:  OnLButtonDown(px, py);  break;
+                case effect::MouseEventType::LButtonUp:    OnLButtonUp(px, py);    break;
+                case effect::MouseEventType::MouseMove:    OnMouseMove(px, py);    break;
+                case effect::MouseEventType::MouseHover:   OnMouseHover(px, py);   break;
+                case effect::MouseEventType::LButtonDblClk: OnLButtonDblClk(px, py); break;
+                case effect::MouseEventType::RButtonDown:  OnRButtonDown(px, py);  break;
+                case effect::MouseEventType::RButtonUp:    OnRButtonUp(px, py);    break;
+                case effect::MouseEventType::RButtonMove:  OnRButtonMove(px, py);  break;
+                }
+            },
+            .handle_context_menu = [this](int sx, int sy) {
+                OnContextMenu(sx, sy);
             },
         }
     );
@@ -155,7 +212,7 @@ bool App::Init(HWND hwnd)
 
 App::DipPoint App::PixelToDip(int px, int py) const noexcept
 {
-    return { px / cached_dpi_scale_, py / cached_dpi_scale_ };
+    return { px / state_.cached_dpi_scale, py / state_.cached_dpi_scale };
 }
 
 PaneScrollInfo App::ComputePaneScrollInfo(
@@ -237,7 +294,7 @@ const PaneLayout& App::GetPaneLayout() const
 
 void App::InvalidatePane(const PaneRect& rect) noexcept
 {
-    const float scale = cached_dpi_scale_;
+    const float scale = state_.cached_dpi_scale;
     RECT rc;
     rc.left = static_cast<LONG>(rect.x * scale);
     rc.top = static_cast<LONG>(rect.y * scale);
@@ -276,10 +333,6 @@ float App::GetMarkdownPaneWidth() const
     const auto layout = GetPaneLayout();
     return layout.md_rect.width;
 }
-
-// ============================================================
-// OnPaint用のレンダーステート構築ヘルパー
-// ============================================================
 
 // ============================================================
 // 描画 / リサイズ
@@ -384,7 +437,7 @@ void App::OnPaint()
                 state_.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
                 state_.viewport.GetScrollY(), layout_service_->GetTotalHeight(),
                 static_cast<int>(state_.nav_hover), state_.hovered_copy_node, state_.hovered_save_node,
-                nav_service_.CanGoBack(), nav_service_.CanGoForward(),
+                state_.nav_history.CanGoBack(), state_.nav_history.CanGoForward(),
                 layout_service_->HasDirtyNodes()
                 });
         }
@@ -395,48 +448,12 @@ void App::OnPaint()
 
 void App::OnResize(UINT width, UINT height)
 {
-    if (width == 0 || height == 0) {
-        return;
-    }
-
-    InvalidatePaneLayoutCache();
-    renderer_.Resize(width, height);
-
-    // タイトルバーボタン位置を再計算
-    {
-        const float window_w_dip = width / cached_dpi_scale_;
-        state_.titlebar.UpdateLayout(window_w_dip);
-    }
-
-    if (state_.is_sizing) {
-        const auto sizing_layout = GetPaneLayout();
-        const float sizing_h = sizing_layout.md_rect.height;
-        SyncMaxScroll(sizing_h);
-        UpdateScrollBar();
-        Invalidate();
-        return;
-    }
-
-    OnResizeEnd();
+    Dispatch(ResizeAction{ width, height });
 }
 
 void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 {
-    cached_dpi_scale_ = static_cast<float>(dpi) / 96.0f;
-    if (cached_dpi_scale_ <= 0.0f) {
-        cached_dpi_scale_ = 1.0f;
-    }
-    renderer_.SetDpi(static_cast<float>(dpi));
-
-    InvalidatePaneLayoutCache();
-    state_.layout_cache.MarkAllDirty();
-    file_cache_.ClearAll();
-
-    SetWindowPos(hwnd_, nullptr,
-        suggested->left, suggested->top,
-        suggested->right - suggested->left,
-        suggested->bottom - suggested->top,
-        SWP_NOZORDER | SWP_NOACTIVATE);
+    Dispatch(DpiChangedAction{ dpi, *suggested });
 }
 
 // ============================================================
@@ -889,7 +906,7 @@ void App::UpdateTitleBar()
 // OnAppImageLoaded / OnAppReloadFile はWM_APPメッセージ経由でresource_manager_に委譲
 void App::OnAppImageLoaded()
 {
-    resource_manager_.OnAppImageLoaded();
+    Dispatch(ImageLoadedAction{});
 }
 
 // ============================================================
@@ -928,18 +945,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
 
 void App::OnMouseHWheel(short delta)
 {
-    const bool had_overlay = state_.swipe_detector.IsOverlayVisible();
-    const int old_direction = state_.swipe_detector.GetOverlayDirection();
-    state_.swipe_detector.OnHWheel(delta, GetTickCount64());
-
-    // 入力のたびにコミットタイマーをリセット。
-    // 指を離して COMMIT_TIMEOUT_MS 経過後に Commit() でナビゲーション判定する。
-    SetTimer(hwnd_, app_timer::SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS), nullptr);
-
-    if (had_overlay != state_.swipe_detector.IsOverlayVisible()
-        || old_direction != state_.swipe_detector.GetOverlayDirection()) {
-        Invalidate();
-    }
+    Dispatch(HWheelAction{ delta, GetTickCount64() });
 }
 
 void App::OnKeyDown(WPARAM key)
@@ -953,33 +959,6 @@ void App::OnKeyDown(WPARAM key)
     Dispatch(controller_.HandleKeyDown(event));
 }
 
-void App::HandleOpenFile()
-{
-    const auto path = FileLoader::OpenFileDialog(hwnd_);
-    if (!path.empty()) {
-        if (!state_.doc.GetFilePath().empty()) {
-            PushNavHistory();
-        }
-        LoadMarkdownFile(path);
-    }
-}
-
-void App::HandleShowHelp()
-{
-    if (!state_.doc.GetFilePath().empty() && !IsHelpPath(state_.doc.GetFilePath())) {
-        PushNavHistory();
-    }
-    LoadHelpDocument();
-}
-
-void App::HandleDropFile(std::wstring_view path)
-{
-    if (!state_.doc.GetFilePath().empty()) {
-        PushNavHistory();
-    }
-    LoadMarkdownFile(path);
-}
-
 void App::Dispatch(const AppAction& action)
 {
     // Reducer が cached_pane_layout を参照するため、最新レイアウトを保証する。
@@ -988,51 +967,6 @@ void App::Dispatch(const AppAction& action)
 
     auto effects = Reduce(state_, action);
     effect_executor_.Execute(effects);
-
-    // Reducer が処理しないアクションはハンドラメソッドに委譲
-    std::visit(overloaded{
-        // ---- コマンド系 ----
-        [this](const ZoomAction& a) {
-            switch (a.direction) {
-            case ZoomDirection::In:    ZoomIn();    break;
-            case ZoomDirection::Out:   ZoomOut();   break;
-            case ZoomDirection::Reset: ZoomReset(); break;
-            }
-        },
-        [this](const ReloadFileAction&) { ReloadCurrentFile(); },
-        [this](const OpenFileAction&) { HandleOpenFile(); },
-        [this](const ToggleDarkModeAction&) { ToggleDarkMode(); },
-        [this](const NavigateBackAction&) { NavigateBack(); },
-        [this](const NavigateForwardAction&) { NavigateForward(); },
-        [this](const ShowHelpAction&) { HandleShowHelp(); },
-        // ---- マウスイベント系 ----
-        [this](const LButtonDownAction& a) { OnLButtonDown(a.px, a.py); },
-        [this](const LButtonUpAction& a) { OnLButtonUp(a.px, a.py); },
-        [this](const MouseMoveAction& a) { OnMouseMove(a.px, a.py); },
-        [this](const MouseHoverAction& a) { OnMouseHover(a.px, a.py); },
-        [this](const LButtonDblClkAction& a) { OnLButtonDblClk(a.px, a.py); },
-        [this](const RButtonDownAction& a) { OnRButtonDown(a.px, a.py); },
-        [this](const RButtonUpAction& a) { OnRButtonUp(a.px, a.py); },
-        [this](const RButtonMoveAction& a) { OnRButtonMove(a.px, a.py); },
-        [this](const ContextMenuAction& a) { OnContextMenu(a.screen_x, a.screen_y); },
-        [this](const XButtonBackAction&) { NavigateBack(); },
-        [this](const XButtonForwardAction&) { NavigateForward(); },
-        [this](const HWheelAction& a) { OnMouseHWheel(a.delta); },
-        [this](const DropFilesAction& a) { HandleDropFile(a.path); },
-        // ---- システムイベント系 ----
-        [this](const ResizeAction& a) { OnResize(a.width, a.height); },
-        [this](const DpiChangedAction& a) { OnDpiChanged(a.dpi, &a.suggested); },
-        [this](const ExitSizeMoveAction&) { OnResizeEnd(); },
-        [this](const CaptureChangedAction&) { OnCaptureChanged(); },
-        [this](const DestroyAction&) { OnDestroy(); },
-        // ---- タイマー・非同期系 ----
-        [this](const TimerAction& a) { HandleTimer(a.timer_id); },
-        [this](const FileWatchAction&) { OnFileWatchEvent(); },
-        [this](const ParseCompleteAction&) { OnParseComplete(); },
-        [this](const ImageLoadedAction&) { OnAppImageLoaded(); },
-        // Reducer で処理済みのアクションはここでは何もしない
-        [](const auto&) {},
-        }, action);
 }
 
 void App::OnDropFiles(HDROP hDrop)
@@ -1041,7 +975,7 @@ void App::OnDropFiles(HDROP hDrop)
     if (required > 0) {
         std::pmr::wstring path(required, L'\0');
         if (DragQueryFileW(hDrop, 0, path.data(), required + 1)) {
-            HandleDropFile(path);
+            Dispatch(DropFilesAction{ std::move(path) });
         }
     }
     DragFinish(hDrop);
@@ -1049,75 +983,12 @@ void App::OnDropFiles(HDROP hDrop)
 
 void App::OnFileWatchEvent()
 {
-    MENDO_TRACE("OnFileWatchEvent: file change detected");
-    doc_service_.CheckForChanges();
+    Dispatch(FileWatchAction{});
 }
 
 void App::HandleTimer(UINT_PTR timer_id)
 {
-    MENDO_PROFILE("HandleTimer");
-    switch (timer_id) {
-    case app_timer::DEFERRED_LAYOUT:
-        OnDeferredLayout();
-        break;
-    case app_timer::LOADING_ANIM:
-        file_load_service_.TickLoadingAnimation();
-        Invalidate();
-        break;
-    case app_timer::SWIPE_OVERLAY: {
-        const auto result = state_.swipe_detector.Commit();
-        bool need_redraw = false;
-        switch (result) {
-        case SwipeResult::Back:
-            NavigateBack();
-            need_redraw = true;
-            break;
-        case SwipeResult::Forward:
-            NavigateForward();
-            need_redraw = true;
-            break;
-        default:
-            break;
-        }
-        KillTimer(hwnd_, app_timer::SWIPE_OVERLAY);
-        if (need_redraw) {
-            Invalidate();
-        }
-        break;
-    }
-    case app_timer::TOAST: {
-        if (!state_.toast.Tick()) {
-            KillTimer(hwnd_, app_timer::TOAST);
-        }
-        Invalidate();
-        break;
-    }
-    case app_timer::SEARCH_CARET: {
-        state_.search_bar_ctrl.OnCaretBlinkTimer();
-        break;
-    }
-    case app_timer::TOOLTIP:
-        KillTimer(hwnd_, app_timer::TOOLTIP);
-        state_.tooltip.Show();
-        break;
-    case app_timer::SEARCH_DEBOUNCE:
-        state_.search_bar_ctrl.OnDebounceTimer(state_.doc.GetNodes());
-        break;
-    case app_timer::MERMAID_BATCH:
-        resource_manager_.ProcessMermaidBatch();
-        break;
-    case app_timer::BITMAP_MANAGE:
-        resource_manager_.OnBitmapManageTimer();
-        break;
-    case app_timer::MERMAID_INIT_RETRY:
-        mermaid_renderer_.OnInitRetryTimer();
-        break;
-    case app_timer::FILE_RELOAD_DEBOUNCE:
-        KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
-        ReloadCurrentFile();
-        break;
-    default: break;
-    }
+    Dispatch(TimerAction{ timer_id });
 }
 
 void App::OnAppLoadFile()
@@ -1132,11 +1003,7 @@ void App::OnAppReloadFile()
 
 void App::OnCaptureChanged()
 {
-    state_.search_bar_ctrl.OnCaptureChanged();
-    if (state_.gesture.GetPhase() != GesturePhase::Idle) {
-        state_.gesture.Reset();
-        Invalidate();
-    }
+    Dispatch(CaptureChangedAction{});
 }
 
 void App::ShowToast(std::wstring_view message)
@@ -1188,7 +1055,7 @@ RECT App::GetSearchEditRect() const
     const auto& layout = GetPaneLayout();
     const auto& r = layout.md_rect;
     const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search_state.GetQuery().empty());
-    const float s = cached_dpi_scale_;
+    const float s = state_.cached_dpi_scale;
     return {
         static_cast<LONG>(sbl.input_rect.left * s),
         static_cast<LONG>(sbl.input_rect.top * s),

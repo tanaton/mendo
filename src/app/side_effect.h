@@ -75,8 +75,56 @@ struct CancelMermaidBatch {};
 struct InvalidatePaneCache { PaneZone pane; };
 struct RefreshPaneLayout {};
 
-// ---- ダークモード ----
+// ---- テーマ・ダークモード ----
 struct ApplyDarkMode { bool dark; };
+
+// テーマ/ズーム変更の複合副作用。
+// Reducer が SaveAnchor + 状態変更を行った後、executor がレンダラー適用 + レイアウトを実行する。
+struct ApplyThemeChange {
+    enum class Type { Zoom, DarkMode };
+    Type type;
+    int anchor_idx;
+    float anchor_y_before;
+    float anchor_offset;
+    float offset_scale;   // Zoom: zoom_ratio, DarkMode: 1.0f
+    float new_zoom;       // Zoom 用: 新しいズーム値
+    int zoom_index;       // Zoom 用: ズームインデックス（設定保存用）
+};
+
+// ---- ファイル監視・リソース ----
+struct CheckFileChanges {};
+struct NotifyImageLoaded {};
+struct ClearFileCache {};
+
+// ---- レンダラー操作 ----
+struct RendererResize { UINT width; UINT height; };
+struct RendererSetDpi { float dpi; };
+
+// ---- ウィンドウ操作（追加） ----
+struct SetWindowPosition { int x; int y; int cx; int cy; };
+
+// ---- リサイズ ----
+struct PerformResizeEnd {};
+struct PerformSizingUpdate {};
+
+// ---- タイマー処理委譲 ----
+struct ProcessDeferredLayout {};
+struct TickLoadingAnimation {};
+struct ProcessMermaidBatchTimer {};
+struct ProcessBitmapManage {};
+struct MermaidInitRetry {};
+
+// ---- ライフサイクル ----
+struct Destroy {};
+struct HandleParseComplete {};
+
+// ---- マウスイベント委譲 ----
+enum class MouseEventType {
+    LButtonDown, LButtonUp, MouseMove, MouseHover, LButtonDblClk,
+    RButtonDown, RButtonUp, RButtonMove,
+};
+struct HandleMouseEvent { MouseEventType type; int px; int py; };
+struct HandleContextMenu { int screen_x; int screen_y; };
 
 } // namespace effect
 
@@ -113,8 +161,26 @@ using SideEffect = std::variant<
     effect::CancelMermaidBatch,
     effect::InvalidatePaneCache,
     effect::RefreshPaneLayout,
-    effect::ApplyDarkMode
-> ;
+    effect::ApplyDarkMode,
+    effect::CheckFileChanges,
+    effect::NotifyImageLoaded,
+    effect::RendererResize,
+    effect::RendererSetDpi,
+    effect::SetWindowPosition,
+    effect::ClearFileCache,
+    effect::PerformResizeEnd,
+    effect::PerformSizingUpdate,
+    effect::ApplyThemeChange,
+    effect::ProcessDeferredLayout,
+    effect::TickLoadingAnimation,
+    effect::ProcessMermaidBatchTimer,
+    effect::ProcessBitmapManage,
+    effect::MermaidInitRetry,
+    effect::Destroy,
+    effect::HandleParseComplete,
+    effect::HandleMouseEvent,
+    effect::HandleContextMenu
+>;
 
 using SideEffectList = std::pmr::vector<SideEffect>;
 

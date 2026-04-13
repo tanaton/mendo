@@ -80,7 +80,7 @@ TEST_F(MermaidRendererTest, NonMermaidNodeDoesNotTriggerInit)
     NodeLayoutEntry layout{};
     DiagramEntry diagram{};
 
-    renderer_->RequestRender(node, layout, diagram, 800.0f, false, nullptr, nullptr);
+    renderer_->RequestRender(node, layout, diagram, 800.0f, false, nullptr);
 
     EXPECT_FALSE(renderer_->IsInitialized());
 }
@@ -97,7 +97,7 @@ TEST_F(MermaidRendererTest, MermaidCacheMissTriggersInit)
     NodeLayoutEntry layout{};
     DiagramEntry diagram{};
 
-    renderer_->RequestRender(node, layout, diagram, 800.0f, false, nullptr, nullptr);
+    renderer_->RequestRender(node, layout, diagram, 800.0f, false, nullptr);
 
     EXPECT_TRUE(renderer_->IsInitialized());
     // WebView2の非同期初期化が完了するまではReadyにはならない
@@ -117,8 +117,8 @@ TEST_F(MermaidRendererTest, MultipleRequestsDoNotReinitialize)
     NodeLayoutEntry layout{};
     DiagramEntry diagram{};
 
-    renderer_->RequestRender(node1, layout, diagram, 800.0f, false, nullptr, nullptr);
-    renderer_->RequestRender(node2, layout, diagram, 800.0f, false, nullptr, nullptr);
+    renderer_->RequestRender(node1, layout, diagram, 800.0f, false, nullptr);
+    renderer_->RequestRender(node2, layout, diagram, 800.0f, false, nullptr);
 
     EXPECT_TRUE(renderer_->IsInitialized());
 }
@@ -133,7 +133,7 @@ TEST_F(MermaidRendererTest, RequestRenderBeforeInitIsSafe)
     NodeLayoutEntry layout{};
     DiagramEntry diagram{};
 
-    renderer_->RequestRender(node, layout, diagram, 800.0f, false, nullptr, nullptr);
+    renderer_->RequestRender(node, layout, diagram, 800.0f, false, nullptr);
 
     EXPECT_FALSE(renderer_->IsReady());
 }

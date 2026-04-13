@@ -1,32 +1,15 @@
 #pragma once
-#include <windows.h>
-#include <cstdint>
+#include "timer_ids.h"
 #include "search_bar_controller.h"
 #include "resource_manager.h"
 #include "mermaid.h"
 
-// App とWin32Window 間で共有されるタイマーID・カスタムメッセージ定数。
-// 各IDは一意であり、変更する際は全IDの重複がないことを確認すること。
-// サブコンポーネントが定義する定数から導出し、値の二重管理を防ぐ。
-namespace app_timer {
-
-inline constexpr UINT_PTR DEFERRED_LAYOUT = 3;
-inline constexpr UINT_PTR LOADING_ANIM = 4;
-inline constexpr UINT_PTR SWIPE_OVERLAY = 5;
-inline constexpr UINT_PTR TOAST = 6;
-inline constexpr UINT_PTR SEARCH_CARET = SearchBarController::TIMER_CARET;
-inline constexpr UINT_PTR TOOLTIP = 8;
-inline constexpr UINT_PTR SEARCH_DEBOUNCE = SearchBarController::TIMER_DEBOUNCE;
-inline constexpr UINT_PTR MERMAID_BATCH = ResourceManager::TIMER_MERMAID_BATCH;
-inline constexpr UINT_PTR BITMAP_MANAGE = ResourceManager::TIMER_BITMAP_MANAGE;
-inline constexpr UINT_PTR MERMAID_INIT_RETRY = MermaidRenderer::TIMER_INIT_RETRY;
-inline constexpr UINT_PTR FILE_RELOAD_DEBOUNCE = 13;
-
-// タイマー間隔 (ms)
-inline constexpr UINT FRAME_INTERVAL_MS = 16;              // ~60fps アニメーション用
-inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200;       // ファイル変更通知のデバウンス
-
-} // namespace app_timer
+// タイマーIDはtimer_ids.hで定義。コンポーネント定数との一致をコンパイル時検証する。
+static_assert(app_timer::SEARCH_CARET == SearchBarController::TIMER_CARET);
+static_assert(app_timer::SEARCH_DEBOUNCE == SearchBarController::TIMER_DEBOUNCE);
+static_assert(app_timer::MERMAID_BATCH == ResourceManager::TIMER_MERMAID_BATCH);
+static_assert(app_timer::BITMAP_MANAGE == ResourceManager::TIMER_BITMAP_MANAGE);
+static_assert(app_timer::MERMAID_INIT_RETRY == MermaidRenderer::TIMER_INIT_RETRY);
 
 namespace app_msg {
 
