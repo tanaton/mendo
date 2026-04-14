@@ -561,7 +561,7 @@ void App::OnCaptureChanged()
 
 void App::ShowToast(std::wstring_view message)
 {
-    effect_executor_.ExecuteOne(effect::ShowToast{ std::pmr::wstring{message} });
+    effect_executor_.ExecuteOne(effect::ShowToast{ std::wstring{message} });
 }
 
 void App::OnDestroy()

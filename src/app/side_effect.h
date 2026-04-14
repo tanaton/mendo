@@ -54,7 +54,7 @@ struct SaveConfig {};
 // ---- ツールチップ・トースト ----
 struct ShowTooltip { TooltipTarget target; int px; int py; };
 struct ClearTooltip {};
-struct ShowToast { std::pmr::wstring message; };
+struct ShowToast { std::wstring message; };
 
 // ---- レイアウト ----
 struct DeferredLayout {};
