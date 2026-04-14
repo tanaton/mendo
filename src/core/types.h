@@ -183,10 +183,10 @@ struct Node {
         return !text_utf8.empty() || (text_valid_ && !text_.empty());
     }
 
-    // テキスト取得（text_utf8からの遅延変換付き）
-    // 変換後、CodeBlock以外のノードではtext_utf8を解放してメモリを削減する。
-    // CodeBlockはMermaidハッシュ計算でtext_utf8を直接参照するため保持する。
-    const std::pmr::wstring& GetText() const
+    // 明示的なUTF-8→Wide変換。パース完了後に一括呼び出しすることで、
+    // 描画時の暗黙的な変換とメモリ解放を排除する。
+    // CodeBlock以外ではtext_utf8を解放（Mermaidハッシュ計算で直接参照するCodeBlockは保持）。
+    void EnsureTextConverted() const
     {
         if (!text_valid_) {
             if (!text_utf8.empty()) {
@@ -200,6 +200,12 @@ struct Node {
             }
             text_valid_ = true;
         }
+    }
+
+    // テキスト取得。EnsureTextConverted() が事前に呼ばれていれば O(1) で返る。
+    const std::pmr::wstring& GetText() const
+    {
+        EnsureTextConverted();
         return text_;
     }
 

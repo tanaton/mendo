@@ -108,7 +108,7 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
             [this](const effect::ShowTooltip& e) {
                 POINT screen_pos = { e.px, e.py };
                 ClientToScreen(hwnd_, &screen_pos);
-                if (state_->tooltip.Update(e.target, screen_pos)) {
+                if (state_->interaction.tooltip.Update(e.target, screen_pos)) {
                     ::SetTimer(hwnd_, app_timer::TOOLTIP, TOOLTIP_DELAY_MS, nullptr);
                 }
                 else if (e.target.IsEmpty()) {
@@ -119,7 +119,7 @@ void SideEffectExecutor::Execute(const SideEffectList& effects)
                 ::KillTimer(hwnd_, app_timer::TOOLTIP);
             },
             [this](const effect::ShowToast& e) {
-                state_->toast.Show(e.message);
+                state_->interaction.toast.Show(e.message);
                 ::SetTimer(hwnd_, app_timer::TOAST, app_timer::FRAME_INTERVAL_MS, nullptr);
                 InvalidateRect(hwnd_, nullptr, FALSE);
             },

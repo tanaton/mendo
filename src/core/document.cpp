@@ -36,6 +36,12 @@ void Document::ReplaceContent(ParseResult&& result)
     image_node_indices_ = std::move(result.image_indices);
     mermaid_node_indices_ = std::move(result.mermaid_indices);
     BuildHeadingIndices(result.heading_indices);
+
+    // パース直後にUTF-8→Wide一括変換を行い、描画時の暗黙的変換を排除する。
+    // CodeBlock以外のノードでは変換後にtext_utf8を解放してメモリを削減する。
+    for (auto& node : nodes_) {
+        node.EnsureTextConverted();
+    }
 }
 
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)

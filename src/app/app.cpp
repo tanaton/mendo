@@ -55,20 +55,20 @@ bool App::Init(HWND hwnd)
         return false;
     }
 
-    layout_service_.emplace(renderer_.GetLayout(), state_.viewport);
+    layout_service_.emplace(renderer_.GetLayout(), state_.view.viewport);
 
     // PixelToDip用にDPIスケールをキャッシュ (OnDpiChangedで更新)
     const float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
-    state_.cached_dpi_scale = (init_dpi > 0.0f) ? (init_dpi / DEFAULT_DPI) : 1.0f;
+    state_.window.cached_dpi_scale = (init_dpi > 0.0f) ? (init_dpi / DEFAULT_DPI) : 1.0f;
 
     // タスクスケジューラを初期化（画像デコード・キャッシュ書き込み共用）
     scheduler_.Init(mermaid_util::ComputeWorkerCount(
         std::thread::hardware_concurrency()));
 
-    file_cache_.Init(state_.cached_dpi_scale, scheduler_);
+    file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
-    resource_manager_.Init(state_.doc, state_.layout_cache, state_.viewport, image_loader_, mermaid_renderer_,
+    resource_manager_.Init(state_.document.doc, state_.document.layout_cache, state_.view.viewport, image_loader_, mermaid_renderer_,
         theme_service_, renderer_, BuildResourceManagerCallbacks());
     effect_executor_.Init(hwnd_, resource_manager_, cursors_, doc_service_, config_,
         state_, *layout_service_, {
@@ -77,7 +77,7 @@ bool App::Init(HWND hwnd)
             .open_file_dialog = [this]() {
                 const auto path = FileLoader::OpenFileDialog(hwnd_);
                 if (!path.empty()) {
-                    if (!state_.doc.GetFilePath().empty()) {
+                    if (!state_.document.doc.GetFilePath().empty()) {
                         PushNavHistory();
                     }
                     LoadMarkdownFile(path);
@@ -171,11 +171,11 @@ bool App::Init(HWND hwnd)
     });
 
     theme_service_.LoadDarkMode();
-    state_.viewport.SetZoomIndex(theme_service_.LoadZoomIndex());
-    if (theme_service_.IsDarkMode() || state_.viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
-        renderer_.SetTheme(theme_service_.CreateTheme(state_.viewport.GetZoomIndex()));
-        if (state_.viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
-            state_.panes.ApplyZoom(state_.viewport.GetCurrentZoom());
+    state_.view.viewport.SetZoomIndex(theme_service_.LoadZoomIndex());
+    if (theme_service_.IsDarkMode() || state_.view.viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
+        renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()));
+        if (state_.view.viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
+            state_.view.panes.ApplyZoom(state_.view.viewport.GetCurrentZoom());
         }
     }
     if (theme_service_.IsDarkMode()) {
@@ -189,19 +189,19 @@ bool App::Init(HWND hwnd)
     {
         const auto* rt = renderer_.GetRenderTarget();
         const float window_w = rt ? rt->GetSize().width : 1600.0f;
-        state_.titlebar.UpdateLayout(window_w);
+        state_.window.titlebar.UpdateLayout(window_w);
     }
 
     LoadPaneState();
 
     state_.ctx_menu.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 
-    state_.tooltip.Init(hwnd_);
+    state_.interaction.tooltip.Init(hwnd_);
     if (theme_service_.IsDarkMode()) {
-        state_.tooltip.ApplyDarkMode(true);
+        state_.interaction.tooltip.ApplyDarkMode(true);
     }
 
-    state_.search_bar_ctrl.Init(state_.search_state, state_.viewport, state_.layout_cache, BuildSearchBarCallbacks());
+    state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, BuildSearchBarCallbacks());
 
     return true;
 }
@@ -212,7 +212,7 @@ bool App::Init(HWND hwnd)
 
 App::DipPoint App::PixelToDip(int px, int py) const noexcept
 {
-    return { px / state_.cached_dpi_scale, py / state_.cached_dpi_scale };
+    return { px / state_.window.cached_dpi_scale, py / state_.window.cached_dpi_scale };
 }
 
 PaneScrollInfo App::ComputePaneScrollInfo(
@@ -227,11 +227,11 @@ void App::HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
     const float thumb_y = ComputeThumbY(info, scroll.scroll_y);
 
     if (dip_y >= thumb_y && dip_y <= thumb_y + info.thumb_height) {
-        state_.panes.SetDragScrollOffset(dip_y - thumb_y);
+        state_.view.panes.SetDragScrollOffset(dip_y - thumb_y);
     }
     else {
-        state_.panes.SetDragScrollOffset(info.thumb_height * 0.5f);
-        const float new_thumb_y = dip_y - state_.panes.GetDragScrollOffset();
+        state_.view.panes.SetDragScrollOffset(info.thumb_height * 0.5f);
+        const float new_thumb_y = dip_y - state_.view.panes.GetDragScrollOffset();
         scroll.scroll_y = ScrollFromThumbY(info, new_thumb_y);
         scroll.max_scroll = info.max_scroll;
         cache_dirty = true;
@@ -242,7 +242,7 @@ void App::HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
 void App::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
     ScrollState& scroll, bool& cache_dirty)
 {
-    const float new_thumb_y = dip_y - state_.panes.GetDragScrollOffset();
+    const float new_thumb_y = dip_y - state_.view.panes.GetDragScrollOffset();
     scroll.scroll_y = ScrollFromThumbY(info, new_thumb_y);
     scroll.max_scroll = info.max_scroll;
     cache_dirty = true;
@@ -274,7 +274,7 @@ void App::FinalizeLayout(float md_pane_height)
 // ペインレイアウト
 // ============================================================
 
-const PaneLayout& App::GetPaneLayout() const
+const PaneLayout& App::GetPaneLayout()
 {
     if (!state_.pane_layout_valid) {
         auto* rt = renderer_.GetRenderTarget();
@@ -284,8 +284,8 @@ const PaneLayout& App::GetPaneLayout() const
         }
         const auto size = rt->GetSize();
         state_.cached_window_width_for_layout = size.width;
-        const float tb_h = state_.titlebar.GetHeight();
-        state_.cached_pane_layout = state_.panes.ComputeLayout(size.width, size.height,
+        const float tb_h = state_.window.titlebar.GetHeight();
+        state_.cached_pane_layout = state_.view.panes.ComputeLayout(size.width, size.height,
             renderer_.GetTheme().splitter_width, tb_h);
         state_.pane_layout_valid = true;
     }
@@ -294,7 +294,7 @@ const PaneLayout& App::GetPaneLayout() const
 
 void App::InvalidatePane(const PaneRect& rect) noexcept
 {
-    const float scale = state_.cached_dpi_scale;
+    const float scale = state_.window.cached_dpi_scale;
     RECT rc;
     rc.left = static_cast<LONG>(rect.x * scale);
     rc.top = static_cast<LONG>(rect.y * scale);
@@ -305,7 +305,7 @@ void App::InvalidatePane(const PaneRect& rect) noexcept
 
 void App::InvalidateTitleBar() noexcept
 {
-    const float tb_h = state_.titlebar.GetHeight();
+    const float tb_h = state_.window.titlebar.GetHeight();
     if (tb_h <= 0.0f) {
         return;
     }
@@ -317,18 +317,18 @@ void App::InvalidateTitleBar() noexcept
     InvalidatePane(PaneRect{ 0.0f, 0.0f, state_.cached_window_width_for_layout, tb_h });
 }
 
-PaneZone App::PaneAtPoint(float dip_x, [[maybe_unused]] float dip_y) const
+PaneZone App::PaneAtPoint(float dip_x, [[maybe_unused]] float dip_y)
 {
     const auto* rt = renderer_.GetRenderTarget();
     if (!rt) {
         return PaneZone::None;
     }
     const auto size = rt->GetSize();
-    return state_.panes.DetectZone(dip_x, size.width, size.height,
+    return state_.view.panes.DetectZone(dip_x, size.width, size.height,
         renderer_.GetTheme().splitter_width);
 }
 
-float App::GetMarkdownPaneWidth() const
+float App::GetMarkdownPaneWidth()
 {
     const auto layout = GetPaneLayout();
     return layout.md_rect.width;
@@ -363,7 +363,7 @@ void App::OnPaint()
         {
             MENDO_PROFILE("EnsureVisibleLayout");
             updated = layout_service_->EnsureVisibleLayout(
-                state_.doc, state_.layout_cache, layout.md_rect.width, layout.md_rect.height);
+                state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
         }
 
         if (updated) {
@@ -372,9 +372,9 @@ void App::OnPaint()
     }
     // 目次ペインの同期: mdペインのスクロール位置からアクティブ見出しを判定し、
     // 目次ペインを自動スクロールする
-    if (state_.panes.IsTocPaneVisible() && !show_loading) {
+    if (state_.view.panes.IsTocPaneVisible() && !show_loading) {
         const float toc_margin = layout.md_rect.y + renderer_.GetTheme().heading_spacing_above;
-        const int new_active = state_.doc.GetToc().FindActiveIndex(state_.layout_cache, state_.viewport.GetScrollY(), toc_margin);
+        const int new_active = state_.document.doc.GetToc().FindActiveIndex(state_.document.layout_cache, state_.view.viewport.GetScrollY(), toc_margin);
         if (new_active != state_.active_toc_index) {
             state_.active_toc_index = new_active;
             renderer_.InvalidateTocPaneCache();
@@ -383,9 +383,9 @@ void App::OnPaint()
             if (new_active >= 0) {
                 const auto& theme = renderer_.GetTheme();
                 const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
-                const float total = static_cast<float>(state_.doc.GetToc().GetEntries().size()) * theme.pane_item_height;
+                const float total = static_cast<float>(state_.document.doc.GetToc().GetEntries().size()) * theme.pane_item_height;
                 const auto info = ComputeScrollInfo(layout.toc_rect, theme.pane_header_height, total);
-                auto& toc_scroll = state_.panes.TocScroll();
+                auto& toc_scroll = state_.view.panes.TocScroll();
                 toc_scroll.max_scroll = info.max_scroll;
                 float& sy = toc_scroll.scroll_y;
                 sy = std::clamp(sy, 0.0f, info.max_scroll);
@@ -418,8 +418,8 @@ void App::OnPaint()
     }
     else {
         // 検索マッチ情報をコマンドジェネレータに設定
-        if (state_.search_state.IsVisible() && state_.search_state.IsHighlightEnabled() && !state_.search_state.GetMatches().empty()) {
-            renderer_.SetSearchMatches(&state_.search_state.GetMatches(), state_.search_state.GetCurrentMatchIndex());
+        if (state_.search.search_state.IsVisible() && state_.search.search_state.IsHighlightEnabled() && !state_.search.search_state.GetMatches().empty()) {
+            renderer_.SetSearchMatches(&state_.search.search_state.GetMatches(), state_.search.search_state.GetCurrentMatchIndex());
         }
         else {
             renderer_.SetSearchMatches(nullptr, -1);
@@ -427,17 +427,17 @@ void App::OnPaint()
 
         // 描画前パス: 可視ノードに描画エフェクトを適用（Render の前に実行）
         renderer_.PrepareVisibleEffects(
-            state_.doc.GetNodesMut(), state_.layout_cache,
-            state_.viewport.GetScrollY(), layout.md_rect.height);
+            state_.document.doc.GetNodesMut(), state_.document.layout_cache,
+            state_.view.viewport.GetScrollY(), layout.md_rect.height);
 
         {
             MENDO_PROFILE("Renderer::Render");
             renderer_.Render({
-                state_.doc.GetNodes(), state_.layout_cache,
-                state_.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
-                state_.viewport.GetScrollY(), layout_service_->GetTotalHeight(),
-                static_cast<int>(state_.nav_hover), state_.hovered_copy_node, state_.hovered_save_node,
-                state_.nav_history.CanGoBack(), state_.nav_history.CanGoForward(),
+                state_.document.doc.GetNodes(), state_.document.layout_cache,
+                state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
+                state_.view.viewport.GetScrollY(), layout_service_->GetTotalHeight(),
+                static_cast<int>(state_.interaction.nav_hover), state_.interaction.hovered_copy_node, state_.interaction.hovered_save_node,
+                state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
                 layout_service_->HasDirtyNodes()
                 });
         }
@@ -454,459 +454,6 @@ void App::OnResize(UINT width, UINT height)
 void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 {
     Dispatch(DpiChangedAction{ dpi, *suggested });
-}
-
-// ============================================================
-// ファイル読み込み
-// ============================================================
-
-void App::LoadHelpDocument()
-{
-    if (IsHelpPath(state_.doc.GetFilePath())) {
-        return;
-    }
-
-    const auto rc = LoadRcData(i18n::S().help_resource_id);
-    if (rc.empty()) {
-        return;
-    }
-
-    KillTimer(hwnd_, app_timer::LOADING_ANIM);
-    file_load_service_.StopLoading();
-    state_.viewport.ClearSelection();
-    CancelPendingResources();
-    renderer_.ShrinkBuffers();
-    doc_service_.StopWatching();
-
-    std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
-    state_.doc = Document::FromMarkdown(std::move(utf8), HELP_PATH);
-    state_.layout_cache.Reset(state_.doc.GetNodes().size());
-
-    state_.file_explorer.SetCurrentFile(L"");
-    renderer_.InvalidateFilePaneCache();
-
-    state_.panes.ResetScrollStates();
-    renderer_.InvalidateTocPaneCache();
-
-    // ビューポート優先レイアウト + 遅延処理
-    state_.viewport.SetScrollY(0.0f);
-    {
-        const auto pane_layout = GetPaneLayout();
-        layout_service_->ViewportLayout(state_.doc, state_.layout_cache,
-            pane_layout.md_rect.width, pane_layout.md_rect.height);
-        SyncMaxScroll(pane_layout.md_rect.height);
-    }
-    UpdateScrollBar();
-    Invalidate();
-    ScheduleDeferredLayoutIfNeeded();
-
-    UpdateTitleBar();
-}
-
-void App::BeginAsyncLoad(const std::pmr::wstring& path)
-{
-    file_load_service_.SetLoadingPath(path);
-    if (DocumentService::NeedsLoadingAnimation(path) && !state_.pending_prefix_shrink) {
-        file_load_service_.StartLoading(path);
-        SetTimer(hwnd_, app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS, nullptr);
-        Invalidate();
-        UpdateWindow(hwnd_);
-    }
-    file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme());
-}
-
-void App::LoadMarkdownFile(std::wstring_view path)
-{
-    KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
-    state_.pending_prefix_shrink = false;
-    // 仮想パスは NeedsAsyncLoad が true を返し非同期ロードが失敗するため、
-    // 先に検出して同期ロードに回す。
-    if (IsHelpPath(path)) {
-        LoadHelpDocument();
-        return;
-    }
-    const std::pmr::wstring path_str{ path };
-    if (!DocumentService::NeedsAsyncLoad(path_str)) {
-        file_load_service_.SetLoadingPath(path_str);
-        DoLoadMarkdownFile();
-    }
-    else {
-        BeginAsyncLoad(path_str);
-    }
-}
-
-void App::DoLoadMarkdownFile()
-{
-    MENDO_PROFILE("DoLoadMarkdownFile");
-
-    // ヘルプ仮想パスの場合は専用ルートへ
-    if (IsHelpPath(file_load_service_.GetLoadingPath())) {
-        LoadHelpDocument();
-        return;
-    }
-
-    KillTimer(hwnd_, app_timer::LOADING_ANIM);
-
-    {
-        MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
-        auto load_result = file_load_service_.ExecuteLoad(state_.doc, state_.layout_cache);
-        if (!load_result) {
-            ShowToast(FileLoadErrorMessage(load_result.error(), i18n::S()));
-            Invalidate();
-            return;
-        }
-    }
-
-    FinishLoadMarkdownFile();
-}
-
-void App::OnParseComplete()
-{
-    KillTimer(hwnd_, app_timer::LOADING_ANIM);
-    file_load_service_.StopLoading();
-
-    auto result = file_load_service_.TakeAsyncResult();
-    if (!result) {
-        MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
-        // LoadFile失敗時、FileWatcherがpausedのまま残るのを防ぐ
-        doc_service_.ResumeWatching();
-        Invalidate();
-        return;
-    }
-
-    // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
-    // 非同期のファイルオープンでも OnParseComplete() が使われるため、
-    // 別ファイル読み込み時は差分ロジックをスキップする。
-    if (_wcsicmp(result->doc.GetFilePath().c_str(), state_.doc.GetFilePath().c_str()) == 0) {
-        const std::string_view old_view(state_.doc.GetRawUtf8());
-        const std::string_view new_view(result->doc.GetRawUtf8());
-        const size_t diff_pos = FindFirstDifference(old_view, new_view);
-
-        MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu",
-            result->doc.GetNodes().size(), diff_pos, old_view.size(), new_view.size());
-
-        if (diff_pos == std::string_view::npos) {
-            // 差分なし → リロード不要、監視再開
-            state_.pending_prefix_shrink = false;
-            doc_service_.ResumeWatching();
-            Invalidate();
-            return;
-        }
-
-        // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
-        // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
-        const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
-
-        // エディタの truncate→rewrite 2段階保存の前半（ファイル縮小）を検出。
-        // state_.doc を更新せず元のコンテンツを保持することで、次のリロードで
-        // 「元コンテンツ vs 最終コンテンツ」の正確な差分を検出できるようにする。
-        if (ShouldDeferForTruncateRewrite(is_prefix_only, old_view.size(), new_view.size())) {
-            return;
-        }
-
-        if (is_prefix_only) {
-            // prefix-only はファイル末尾の伸縮のみ。FinishReload が
-            // ResizePreservingPrefix で旧キャッシュの実測高さを保持する。
-            resource_manager_.CancelMermaidBatch();
-            state_.doc = std::move(result->doc);
-            FinishReload(true, diff_pos, state_.reload_old_scroll);
-            return;
-        }
-
-        state_.reload_diff_pos = diff_pos;
-    }
-    else {
-        // 別ファイルの非同期ロードではリロード用の差分スクロールを使わない
-        state_.reload_diff_pos = std::string_view::npos;
-    }
-
-    state_.doc = std::move(result->doc);
-    state_.layout_cache = std::move(result->cache);
-
-    FinishLoadMarkdownFile(/* heights_estimated = */ true);
-}
-
-void App::FinishLoadMarkdownFile(bool heights_estimated)
-{
-    state_.viewport.ClearSelection();
-    state_.search_bar_ctrl.Reset();
-    PostMessage(hwnd_, app_msg::SEARCH_UNFOCUS, app_param::SEARCH_UNFOCUS_FILE_SWITCH, 0);
-    state_.active_toc_index = -1;
-    CancelPendingResources();
-    renderer_.ShrinkBuffers();
-
-    const std::pmr::wstring dir = state_.doc.GetDirectory();
-    if (!dir.empty()) {
-        state_.file_explorer.SetDirectory(dir);
-        state_.file_explorer.SetCurrentFile(state_.doc.GetFilePath());
-    }
-
-    state_.panes.ResetScrollStates();
-    renderer_.InvalidateFilePaneCache();
-    renderer_.InvalidateTocPaneCache();
-
-    // ビューポート優先レイアウト: 可視範囲のみ計測し、残りは遅延処理に委ねる。
-    const auto pane_layout = GetPaneLayout();
-    const float md_width = pane_layout.md_rect.width;
-    const float md_height = pane_layout.md_rect.height;
-
-    // スクロール位置の復元
-    float scroll_y = 0.0f;
-
-    const bool has_reload_diff = (state_.reload_diff_pos != std::string_view::npos);
-
-    MENDO_TRACEF("FinishLoad: has_reload_diff=%d HasNodeRestore=%d HasNavScroll=%d nav_scroll_y=%.1f heights_estimated=%d",
-        has_reload_diff ? 1 : 0,
-        state_.scroll_restore.HasNodeRestore() ? 1 : 0,
-        state_.scroll_restore.HasNavScroll() ? 1 : 0,
-        state_.scroll_restore.HasNavScroll() ? state_.scroll_restore.pending_nav_scroll_y : -1.0f,
-        heights_estimated ? 1 : 0);
-
-    // cache.Reset()直後は全ノードの高さが0のため、スクロール復元前に
-    // ノード高さを推定し、Mermaidキャッシュの実測値で補正する
-    if (has_reload_diff
-        || state_.scroll_restore.HasNodeRestore()
-        || (state_.scroll_restore.HasNavScroll() && state_.scroll_restore.pending_nav_scroll_y > 0.0f)) {
-        if (!heights_estimated) {
-            MENDO_PROFILE("EstimateNodeHeights");
-            EstimateNodeHeights(state_.doc.GetNodes(), state_.layout_cache, renderer_.GetTheme());
-        }
-        ApplyMermaidCacheHeights(md_width);
-    }
-
-    if (has_reload_diff) {
-        scroll_y = CalcScrollForDiff(state_.reload_diff_pos, md_height, state_.reload_old_scroll);
-        state_.reload_diff_pos = std::string_view::npos;
-    }
-    else if (state_.scroll_restore.HasNodeRestore()) {
-        const int node = std::min(state_.scroll_restore.pending_restore_node,
-            static_cast<int>(state_.layout_cache.size()) - 1);
-        if (node >= 0) {
-            scroll_y = std::max(0.0f,
-                state_.layout_cache[node].y_position + static_cast<float>(state_.scroll_restore.pending_restore_offset));
-        }
-        state_.scroll_restore.ClearNodeRestore();
-    }
-    else if (state_.scroll_restore.HasNavScroll()) {
-        scroll_y = state_.scroll_restore.ConsumeNavScroll();
-        // 遅延レイアウトのドリフト補正用（セッション復元と同じ仕組み）
-        state_.scroll_restore.pending_restore_scroll_y = scroll_y;
-    }
-    else {
-        // 新規ファイルオープン: 前回ナビゲーションの残留値をクリア
-        state_.scroll_restore.pending_restore_scroll_y = -1;
-    }
-
-    MENDO_TRACEF("FinishLoad: scroll_y=%.1f (0=top of file)", scroll_y);
-
-    state_.viewport.SetScrollY(scroll_y);
-
-    // 推定→計測の高さ差をアンカー補償
-    const bool need_anchor = (scroll_y > 0.0f);
-    const auto anchor = need_anchor ? SaveAnchor() : AnchorState{};
-
-    {
-        MENDO_PROFILE("ViewportLayout(Initial)");
-        layout_service_->ViewportLayout(state_.doc, state_.layout_cache, md_width, md_height);
-    }
-
-    if (need_anchor) {
-        state_.viewport.AnchorCompensateScroll(anchor.idx, anchor.y_before, state_.layout_cache);
-    }
-
-    FinalizeLayout(md_height);
-
-    UpdateTitleBar();
-
-    doc_service_.StartWatching(state_.doc.GetFilePath(), [this]() {
-        KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
-        SetTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS, nullptr);
-    });
-}
-
-void App::ReloadCurrentFile()
-{
-    const auto& path = state_.doc.GetFilePath();
-    if (path.empty() || IsHelpPath(path)) {
-        return;
-    }
-    // ローディングアニメーション表示中は重複リロードを抑制
-    if (file_load_service_.IsLoading()) {
-        return;
-    }
-
-    if (DocumentService::NeedsAsyncLoad(path)) {
-        MENDO_TRACE("ReloadCurrentFile: async path");
-        state_.reload_old_scroll = state_.viewport.GetScrollY();
-        BeginAsyncLoad(path);
-    }
-    else {
-        MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");
-        DoReloadCurrentFile();
-    }
-}
-
-void App::DoReloadCurrentFile()
-{
-    MENDO_PROFILE("DoReloadCurrentFile");
-
-    KillTimer(hwnd_, app_timer::LOADING_ANIM);
-    file_load_service_.StopLoading();
-    state_.active_toc_index = -1;
-
-    if (state_.doc.GetFilePath().empty()) {
-        return;
-    }
-
-    const float old_scroll = state_.viewport.GetScrollY();
-
-    CancelPendingResources();
-
-    // ファイルを読み込み、旧コンテンツとの差分位置をコピーなしで計算
-    auto load_result = [this]() {
-        MENDO_PROFILE("Reload::LoadFile");
-        return FileLoader::LoadFile(state_.doc.GetFilePath());
-    }();
-    if (!load_result) {
-        doc_service_.ResumeWatching();
-        return;
-    }
-    std::pmr::string new_utf8 = std::move(*load_result);
-    const std::string_view old_view(state_.doc.GetRawUtf8());
-    const std::string_view new_view(new_utf8);
-    const size_t diff_pos = FindFirstDifference(old_view, new_view);
-
-    MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu old_scroll=%.1f",
-        diff_pos, old_view.size(), new_view.size(), old_scroll);
-
-    // 差分がなければリロード不要。エディタの保存操作が複数の通知を
-    // 発生させた場合に、レイアウトキャッシュの不要なリセットを防ぐ。
-    if (diff_pos == std::string_view::npos) {
-        state_.pending_prefix_shrink = false;
-        doc_service_.ResumeWatching();
-        return;
-    }
-
-    // 変更箇所のスクロール位置を決定
-    // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
-    // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
-    const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
-
-    // エディタの truncate→rewrite 2段階保存の前半（ファイル縮小）を検出。
-    // state_.doc を更新せず元のコンテンツを保持し、次のリロードで正確な差分を検出する。
-    if (ShouldDeferForTruncateRewrite(is_prefix_only, old_view.size(), new_view.size())) {
-        return;
-    }
-
-    // ドキュメントを新コンテンツで更新
-    {
-        MENDO_PROFILE("Reload::ReplaceFromMarkdown");
-        state_.doc.ReplaceFromMarkdown(std::move(new_utf8));
-    }
-
-    FinishReload(is_prefix_only, diff_pos, old_scroll);
-}
-
-// DoReloadCurrentFile / OnParseComplete 共通のリロード後処理。
-// ドキュメントは更新済みの状態で呼ばれる。
-// is_prefix_only: ファイル末尾の伸縮のみか
-// diff_pos: 差分開始位置 (prefix-only の場合は使用しない)
-// old_scroll: リロード前のスクロール位置
-void App::FinishReload(bool is_prefix_only, size_t diff_pos, float old_scroll)
-{
-    if (is_prefix_only) {
-        state_.layout_cache.ResizePreservingPrefix(state_.doc.GetNodes().size());
-    }
-    else {
-        state_.layout_cache.Reset(state_.doc.GetNodes().size(), false);
-        EstimateNodeHeights(state_.doc.GetNodes(), state_.layout_cache, renderer_.GetTheme());
-    }
-
-    renderer_.InvalidateTocPaneCache();
-
-    const auto pane_layout = GetPaneLayout();
-    const float md_width = pane_layout.md_rect.width;
-    const float md_height = pane_layout.md_rect.height;
-
-    if (!is_prefix_only) {
-        // Mermaidブロックの推定高さをファイルキャッシュの実測値で上書きし、
-        // スクロール位置のずれを防ぐ
-        ApplyMermaidCacheHeights(md_width);
-    }
-
-    const float desired_scroll = is_prefix_only
-        ? old_scroll
-        : CalcScrollForDiff(diff_pos, md_height, old_scroll);
-
-    MENDO_TRACEF("FinishReload: desired_scroll=%.1f old_scroll=%.1f is_prefix_only=%d",
-        desired_scroll, old_scroll, is_prefix_only ? 1 : 0);
-
-    // スクロール位置を設定してからViewportLayoutを呼ぶことで、
-    // 変更箇所周辺の可視ノードが優先的に計測される
-    state_.viewport.SetScrollY(desired_scroll);
-
-    {
-        MENDO_PROFILE("Reload::ViewportLayout");
-        layout_service_->ViewportLayout(state_.doc, state_.layout_cache, md_width, md_height);
-    }
-
-    FinalizeLayout(md_height);
-
-    if (state_.search_state.IsVisible() && !state_.search_state.GetQuery().empty()) {
-        state_.search_bar_ctrl.RunSearchAndLocate(state_.doc.GetNodes());
-    }
-
-    doc_service_.ResumeWatching();
-}
-
-bool App::ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size)
-{
-    if (is_prefix_only && new_size < old_size) {
-        // prefix-only shrink が連続する場合もすべて defer する。
-        // エディタによっては truncate が複数回発生してから rewrite されることがある。
-        state_.pending_prefix_shrink = true;
-        doc_service_.ResumeWatching();
-        return true;
-    }
-    state_.pending_prefix_shrink = false;
-    return false;
-}
-
-float App::CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const
-{
-    MENDO_TRACEF("CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, state_.doc.GetNodes().size());
-    return CalcScrollYForDiff(
-        state_.doc.GetNodes(), state_.layout_cache,
-        std::string_view(state_.doc.GetRawUtf8()),
-        diff_pos, viewport_height, fallback_scroll);
-}
-
-void App::ApplyMermaidCacheHeights(float md_width)
-{
-    const float content_width = renderer_.GetTheme().ContentWidth(md_width);
-    const bool dark_mode = theme_service_.IsDarkMode();
-    const auto& nodes = state_.doc.GetNodes();
-    bool any_applied = false;
-    for (size_t i : state_.doc.GetMermaidNodeIndices()) {
-        const auto hash = mermaid_util::HashCode(nodes[i].text_utf8, content_width, dark_mode);
-        MermaidFileCache::CacheEntry fentry;
-        if (file_cache_.LookupDimensions(hash, fentry)) {
-            state_.layout_cache[i].height = fentry.css_height;
-            any_applied = true;
-        }
-    }
-    if (any_applied) {
-        RecomputeYPositions(state_.doc.GetNodesMut(), state_.layout_cache, renderer_.GetTheme());
-    }
-}
-
-void App::UpdateTitleBar()
-{
-    const int zoom_percent = static_cast<int>(ZOOM_STEPS[state_.viewport.GetZoomIndex()] * 100.0f + 0.5f);
-    auto title = BuildTitleString(state_.doc.GetFilePath(), zoom_percent);
-    SetWindowTextW(hwnd_, title.c_str());
-    state_.cached_title_text = std::move(title);
-    InvalidateTitleBar();
 }
 
 // OnAppImageLoaded / OnAppReloadFile はWM_APPメッセージ経由でresource_manager_に委譲
@@ -932,8 +479,8 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
     }
 
     // 軸ロック用: 縦スクロール発生をスワイプ検出器に通知
-    const bool had_overlay = state_.swipe_detector.IsOverlayVisible();
-    state_.swipe_detector.NotifyVScroll(GetTickCount64());
+    const bool had_overlay = state_.interaction.swipe_detector.IsOverlayVisible();
+    state_.interaction.swipe_detector.NotifyVScroll(GetTickCount64());
     if (had_overlay) {
         KillTimer(hwnd_, app_timer::SWIPE_OVERLAY);
         Invalidate();
@@ -943,7 +490,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
     const auto pane_layout = GetPaneLayout();
     const auto zone = DetectPaneZone(dip.x, pane_layout,
         renderer_.GetTheme().splitter_width,
-        state_.panes.IsFilePaneVisible(), state_.panes.IsTocPaneVisible());
+        state_.view.panes.IsFilePaneVisible(), state_.view.panes.IsTocPaneVisible());
 
     const MouseWheelEvent event{ delta, false, zone };
     Dispatch(controller_.HandleMouseWheel(event));
@@ -1014,7 +561,7 @@ void App::OnCaptureChanged()
 
 void App::ShowToast(std::wstring_view message)
 {
-    state_.toast.Show(message);
+    state_.interaction.toast.Show(message);
     SetTimer(hwnd_, app_timer::TOAST, app_timer::FRAME_INTERVAL_MS, nullptr);
     Invalidate();
 }
@@ -1053,15 +600,15 @@ void App::OnDestroy()
     }
 }
 
-RECT App::GetSearchEditRect() const
+RECT App::GetSearchEditRect()
 {
-    if (!state_.search_state.IsVisible()) {
+    if (!state_.search.search_state.IsVisible()) {
         return { 0, 0, 1, 1 };
     }
     const auto& layout = GetPaneLayout();
     const auto& r = layout.md_rect;
-    const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search_state.GetQuery().empty());
-    const float s = state_.cached_dpi_scale;
+    const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
+    const float s = state_.window.cached_dpi_scale;
     return {
         static_cast<LONG>(sbl.input_rect.left * s),
         static_cast<LONG>(sbl.input_rect.top * s),
@@ -1076,8 +623,8 @@ RECT App::GetSearchEditRect() const
 
 void App::SaveLastFilePath()
 {
-    if (!IsHelpPath(state_.doc.GetFilePath())) {
-        session_.SaveLastFilePath(state_.doc.GetFilePath());
+    if (!IsHelpPath(state_.document.doc.GetFilePath())) {
+        session_.SaveLastFilePath(state_.document.doc.GetFilePath());
     }
 }
 
@@ -1099,7 +646,7 @@ void App::ShowDirectory(std::wstring_view dir_path)
 
 void App::SavePaneState()
 {
-    session_.SavePaneState(state_.panes);
+    session_.SavePaneState(state_.view.panes);
 }
 
 void App::LoadPaneState()
@@ -1111,7 +658,7 @@ void App::LoadPaneState()
             client_width = static_cast<float>(rc.right - rc.left);
         }
     }
-    session_.LoadPaneState(state_.panes, client_width);
+    session_.LoadPaneState(state_.view.panes, client_width);
 }
 
 void App::SaveScrollPosition()
@@ -1120,7 +667,7 @@ void App::SaveScrollPosition()
     if (node < 0) {
         return;
     }
-    session_.SaveScrollPosition(node, state_.viewport.GetScrollY(), state_.layout_cache[node].y_position);
+    session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), state_.document.layout_cache[node].y_position);
 }
 
 // ============================================================
@@ -1140,11 +687,11 @@ ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
             return GetPaneLayout().md_rect.height;
         },
         .recompute_layout = [this]() {
-            layout_service_->RecomputeAfterDiagram(state_.doc, state_.layout_cache, renderer_.GetTheme());
+            layout_service_->RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, renderer_.GetTheme());
         },
         .recompute_layout_anchored = [this]() {
             const auto anchor = SaveAnchor();
-            layout_service_->RecomputeAfterDiagram(state_.doc, state_.layout_cache, renderer_.GetTheme());
+            layout_service_->RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, renderer_.GetTheme());
             const auto layout = GetPaneLayout();
             RestoreAnchor(anchor, layout.md_rect.height);
             Invalidate();

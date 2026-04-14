@@ -1,6 +1,5 @@
 #include "app.h"
 #include "document_utils.h"
-#include "pane_layout.h"
 #include "mermaid_util.h"
 #include "mermaid_file_cache.h"
 #include "win_handle.h"
@@ -27,7 +26,7 @@ void App::OnLButtonDblClk(int px, int py)
     if (hit.node_index < 0) {
         return;
     }
-    const auto& text = state_.doc.GetNodes()[hit.node_index].GetText();
+    const auto& text = state_.document.doc.GetNodes()[hit.node_index].GetText();
     if (text.empty()) {
         return;
     }
@@ -36,8 +35,8 @@ void App::OnLButtonDblClk(int px, int py)
         return;
     }
 
-    state_.viewport.SetAnchor(hit.node_index, wb.start);
-    state_.viewport.SetSelection(TextSelection::MakeOrdered(hit.node_index, wb.start, hit.node_index, wb.end));
+    state_.view.viewport.SetAnchor(hit.node_index, wb.start);
+    state_.view.viewport.SetSelection(TextSelection::MakeOrdered(hit.node_index, wb.start, hit.node_index, wb.end));
     const auto layout = GetPaneLayout();
     InvalidateMdPane(layout.md_rect);
 }
@@ -53,16 +52,16 @@ void App::SetClipboardText(std::wstring_view text) const
 
 void App::CopySelectionToClipboard() const
 {
-    if (!state_.viewport.GetSelection().active) {
+    if (!state_.view.viewport.GetSelection().active) {
         return;
     }
-    const std::pmr::wstring result = ExtractSelectedText(state_.doc.GetNodes(), state_.viewport.GetSelection());
+    const std::pmr::wstring result = ExtractSelectedText(state_.document.doc.GetNodes(), state_.view.viewport.GetSelection());
     SetClipboardText(result);
 }
 
 void App::CopyCodeBlockToClipboard(int node_index) const
 {
-    const auto& nodes = state_.doc.GetNodes();
+    const auto& nodes = state_.document.doc.GetNodes();
     if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
         return;
     }
@@ -71,7 +70,7 @@ void App::CopyCodeBlockToClipboard(int node_index) const
 
 void App::SaveDiagramAsPng(int node_index)
 {
-    const auto& nodes = state_.doc.GetNodes();
+    const auto& nodes = state_.document.doc.GetNodes();
     if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
         return;
     }
