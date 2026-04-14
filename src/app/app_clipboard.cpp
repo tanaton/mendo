@@ -14,6 +14,11 @@ void App::OnLButtonDblClk(int px, int py)
         return;
     }
     const auto dip = PixelToDip(px, py);
+    // CS_DBLCLKS により連続クリックの2回目は WM_LBUTTONDBLCLK になるため、
+    // タイトルバーボタンのクリックを先に処理する。
+    if (HandleTitleBarClick(dip.x, dip.y)) {
+        return;
+    }
     const auto zone = PaneAtPoint(dip.x, dip.y);
     if (zone != PaneZone::MdPane) {
         return;

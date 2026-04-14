@@ -519,6 +519,12 @@ void App::LoadMarkdownFile(std::wstring_view path)
 {
     KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
     state_.pending_prefix_shrink = false;
+    // 仮想パスは NeedsAsyncLoad が true を返し非同期ロードが失敗するため、
+    // 先に検出して同期ロードに回す。
+    if (IsHelpPath(path)) {
+        LoadHelpDocument();
+        return;
+    }
     const std::pmr::wstring path_str{ path };
     if (!DocumentService::NeedsAsyncLoad(path_str)) {
         file_load_service_.SetLoadingPath(path_str);
