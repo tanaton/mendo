@@ -70,9 +70,6 @@ public:
         return self.end();
     }
 
-    constexpr auto& keys(this auto& self) noexcept { return self.c.keys; }
-    constexpr auto& values(this auto& self) noexcept { return self.c.values; }
-
     constexpr bool contains(const key_type& key) const noexcept {
         const auto key_it{ find_key(key) };
         return key_it != c.keys.cend() && *key_it == key;
