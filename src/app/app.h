@@ -144,7 +144,7 @@ private:
 
     // ヒットテスト
     using HitResult = HitTestService::HitResult;
-    HitResult HitTest(int screen_x, int screen_y) const;
+    HitResult HitTest(int screen_x, int screen_y);
     std::optional<std::pmr::wstring> GetLinkAtHit(const HitResult& hit) const;
 
     // リンク・アンカーナビゲーション

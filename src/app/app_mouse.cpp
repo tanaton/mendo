@@ -224,11 +224,12 @@ void App::OnXButtonForward()
 // ヒットテスト
 // ============================================================
 
-App::HitResult App::HitTest(int screen_x, int screen_y) const
+App::HitResult App::HitTest(int screen_x, int screen_y)
 {
+    const auto& layout = GetPaneLayout();
     return state_.hit_test.HitTest({
         state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme(),
-        state_.view.viewport.GetScrollY(), state_.cached_pane_layout.md_rect.x,
+        state_.view.viewport.GetScrollY(), layout.md_rect.x,
         state_.window.cached_dpi_scale, screen_x, screen_y
         });
 }
