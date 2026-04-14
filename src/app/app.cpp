@@ -561,9 +561,7 @@ void App::OnCaptureChanged()
 
 void App::ShowToast(std::wstring_view message)
 {
-    state_.interaction.toast.Show(message);
-    SetTimer(hwnd_, app_timer::TOAST, app_timer::FRAME_INTERVAL_MS, nullptr);
-    Invalidate();
+    effect_executor_.ExecuteOne(effect::ShowToast{ std::pmr::wstring{message} });
 }
 
 void App::OnDestroy()

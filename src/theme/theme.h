@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include "types.h"
+#include "theme_constants.h"
 
 struct Theme {
     // 色
@@ -92,6 +93,9 @@ struct Theme {
         return (level == 2) ? h2_underline_thickness : hr_thickness;
     }
     constexpr bool IsDark() const noexcept { return (bg_color.r + bg_color.g + bg_color.b) < 1.5f; }
+
+    // Reducer用のテーマ定数キャッシュを生成する。
+    ThemeConstants ToReducerConstants() const noexcept;
 
     // すべてのスケーラブルなサイズ（フォントサイズ、マージン、スペーシング）にズーム倍率を適用する。
     // `zoom` を変更した後に呼び出して派生値を更新する。

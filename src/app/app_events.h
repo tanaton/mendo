@@ -86,50 +86,34 @@ struct NoOpAction {};
 // ──── アクション: マウスイベント系 ────
 
 struct LButtonDownAction {
-    float dip_x;
-    float dip_y;
     int px;
     int py;
 };
 struct LButtonUpAction {
-    float dip_x;
-    float dip_y;
     int px;
     int py;
 };
 struct MouseMoveAction {
-    float dip_x;
-    float dip_y;
     int px;
     int py;
 };
 struct MouseHoverAction {
-    float dip_x;
-    float dip_y;
     int px;
     int py;
 };
 struct LButtonDblClkAction {
-    float dip_x;
-    float dip_y;
     int px;
     int py;
 };
 struct RButtonDownAction {
-    float dip_x;
-    float dip_y;
     int px;
     int py;
 };
 struct RButtonUpAction {
-    float dip_x;
-    float dip_y;
     int px;
     int py;
 };
 struct RButtonMoveAction {
-    float dip_x;
-    float dip_y;
     int px;
     int py;
 };
