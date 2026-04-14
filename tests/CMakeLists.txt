@@ -62,6 +62,3 @@ target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)
 if(MSVC)
     target_compile_options(mendo_tests PRIVATE /W4 /utf-8)
 endif()
-
-include(GoogleTest)
-gtest_add_tests(TARGET mendo_tests)

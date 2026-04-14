@@ -119,7 +119,7 @@ cmake --build build --config Release
 
 ```
 cmake --build build --config Release
-ctest --test-dir build --output-on-failure -C Release
+build/tests/Release/mendo_tests.exe
 ```
 
 ## 使い方
