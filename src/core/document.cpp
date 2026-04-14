@@ -63,7 +63,7 @@ void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indic
         const auto& node = nodes_[i];
         toc_.AddEntry(node, static_cast<int>(i));
         if (!node.anchor_id().empty()) {
-            anchor_index_.emplace(std::pmr::wstring(node.anchor_id()), static_cast<int>(i));
+            anchor_index_.try_emplace(std::pmr::wstring(node.anchor_id()), static_cast<int>(i));
         }
     }
 }

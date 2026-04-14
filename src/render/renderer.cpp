@@ -377,6 +377,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
     if (first_pass) {
         entry.effects_applied = true;
         tl.cell_inline_code_bgs.resize(row_count * tl.col_count);
+        tl.row_bgs_computed.resize(row_count, 0);
     }
 
     const float border = TABLE_BORDER_WIDTH;
@@ -393,28 +394,8 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
             row_y = row_bottom;
             continue;
         }
-        // 行の全セルを走査済みかを判定: 行のフラット範囲が確保されており、
-        // いずれかのセルに背景があるか、全セルが空(インラインコードなし)なら完了とみなす。
-        bool bgs_done = false;
-        if (!first_pass && tl.CellIndex(r, 0) < tl.cell_inline_code_bgs.size()) {
-            // first_pass でリサイズ済みなのでフラグとして先頭セルの capacity を利用:
-            // first_pass 後に need_bgs=true で走査されたセルは emplace_back か reserve(0) で
-            // 容量が 0 でなくなるが、ここでは簡便にインラインコードランの有無で判定する。
-            bgs_done = true;
-            const auto cc = row.cells.size();
-            for (size_t c = 0; c < cc; c++) {
-                // インラインコードランを持つセルに背景がなければ未処理
-                for (const auto& run : row.cells[c].runs) {
-                    if (run.code() && run.length > 0 && tl.cell_inline_code_bgs[tl.CellIndex(r, c)].empty()) {
-                        bgs_done = false;
-                        break;
-                    }
-                }
-                if (!bgs_done) {
-                    break;
-                }
-            }
-        }
+        // row_bgs_computed フラグで O(1) 判定（O(cells × runs) の走査を排除）
+        const bool bgs_done = !first_pass && r < tl.row_bgs_computed.size() && tl.row_bgs_computed[r];
         const bool need_bgs = row_visible && !bgs_done;
 
         // 2回目以降: インラインコード背景の計算が不要な行はスキップ
@@ -443,6 +424,10 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
                     }
                 }
             }
+        }
+        // この行のインラインコード背景計算が完了したことを記録
+        if (need_bgs && r < tl.row_bgs_computed.size()) {
+            tl.row_bgs_computed[r] = true;
         }
         row_y = row_bottom;
     }

@@ -11,8 +11,9 @@
 
 void App::UpdateScrollBar()
 {
-    // カスタムスクロールバーはRenderer側で描画するため、再描画をトリガーするのみ
-    Invalidate();
+    // カスタムスクロールバーはRenderer側で描画するため、MDペインの再描画をトリガーするのみ
+    const auto& layout = GetPaneLayout();
+    InvalidateMdPane(layout.md_rect);
 }
 
 void App::InvalidateHitPositions() noexcept

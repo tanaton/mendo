@@ -79,12 +79,12 @@ int ResourceManager::ApplyCachedImages()
             std::error_code ec;
             const auto abs_path = std::filesystem::canonical(img_path, ec);
             if (ec) {
-                resolved_image_paths_.erase(path_it);
+                resolved_image_paths_.erase(i);
                 continue;
             }
-            path_it->second = abs_path.wstring();
+            std::get<1>(*path_it) = abs_path.wstring();
         }
-        const std::wstring& abs_str = path_it->second;
+        const std::wstring& abs_str = std::get<1>(*path_it);
 
         if (image_loader_->GetCachedImage(abs_str, diagram)) {
             node.image_data->width = diagram.width;
