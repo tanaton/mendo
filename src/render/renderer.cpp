@@ -2,6 +2,7 @@
 #include "syntax.h"
 #include "resource.h"
 #include "ui_constants.h"
+#include "wic_util.h"
 #include "profiler.h"
 #include <algorithm>
 #include <cmath>
@@ -65,15 +66,8 @@ void Renderer::LoadAppIconBitmap()
         return;
     }
 
-    ComPtr<IWICFormatConverter> converter;
-    hr = wic->CreateFormatConverter(&converter);
-    if (FAILED(hr)) {
-        return;
-    }
-
-    hr = converter->Initialize(wic_bitmap.Get(), GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeMedianCut);
-    if (FAILED(hr)) {
+    auto converter = wic_util::ConvertBitmapSource(wic, wic_bitmap.Get());
+    if (!converter) {
         return;
     }
 

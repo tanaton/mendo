@@ -1,16 +1,15 @@
 #include "mermaid.h"
+#include "config_store.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_util.h"
 #include "utility.h"
+#include "wic_util.h"
 #include "resource.h"
-#include <shlwapi.h>
-#include <shlobj.h>
 #include <wrl/event.h>
 #include <filesystem>
 #include <functional>
 
 #pragma comment(lib, "windowscodecs.lib")
-#pragma comment(lib, "shlwapi.lib")
 
 static std::span<const std::byte> LoadMermaidJsGzFromResource()
 {
@@ -157,12 +156,11 @@ static Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size
 
 static std::pmr::wstring GetWebView2UserDataFolder()
 {
-    wchar_t* appdata = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
+    const auto base = config::GetConfigDir();
+    if (base.empty()) {
         return L"";
     }
-    const auto path = std::filesystem::path(appdata) / L"mendo" / L"WebView2Data";
-    CoTaskMemFree(appdata);
+    const auto path = base / L"WebView2Data";
     std::filesystem::create_directories(path);
     return std::pmr::wstring{ path.native() };
 }
@@ -210,19 +208,24 @@ void MermaidRenderer::Shutdown()
     initialized_ = false;
 }
 
-void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, std::move_only_function<void()> on_ready)
+void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
+    std::move_only_function<void()> on_ready)
 {
     hwnd_ = hwnd;
     render_target_ = render_target;
     on_all_ready_ = std::move(on_ready);
 
-    // PNGデコード用のWICファクトリを作成（ファイルキャッシュからの復元に必要）
-    CoCreateInstance(
-        CLSID_WICImagingFactory,
-        nullptr,
-        CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic_factory_)
-    );
+    // PNGデコード用のWICファクトリ（D2DRenderBackendから共有）
+    if (wic) {
+        wic_factory_ = wic;
+    } else {
+        CoCreateInstance(
+            CLSID_WICImagingFactory,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&wic_factory_)
+        );
+    }
 }
 
 void MermaidRenderer::EnsureInitialized()
@@ -856,42 +859,17 @@ HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap*
     const LARGE_INTEGER zero = {};
     stream->Seek(zero, STREAM_SEEK_SET, nullptr);
 
-    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = wic_factory_->CreateDecoderFromStream(
-        stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
+    const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream);
+    if (!decoded) {
+        return E_FAIL;
+    }
+
+    const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(decoded->converter.Get(), bitmap);
     if (FAILED(hr)) {
         return hr;
     }
 
-    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    hr = decoder->GetFrame(0, &frame);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    hr = wic_factory_->CreateFormatConverter(&converter);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = converter->Initialize(
-        frame.Get(), GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone, nullptr, 0.0f,
-        WICBitmapPaletteTypeCustom);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = render_target_->CreateBitmapFromWicBitmap(converter.Get(), bitmap);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    UINT w = 0, h = 0;
-    frame->GetSize(&w, &h);
-    *width = static_cast<float>(w);
-    *height = static_cast<float>(h);
-
+    *width = static_cast<float>(decoded->pixel_width);
+    *height = static_cast<float>(decoded->pixel_height);
     return S_OK;
 }

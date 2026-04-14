@@ -70,6 +70,8 @@ private:
     };
 
     void GetDpiScale(float& scale_x, float& scale_y) const;
+    std::pair<float, float> CreateAndCacheImage(const std::wstring& path,
+        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, UINT pixel_width, UINT pixel_height);
 
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
 
