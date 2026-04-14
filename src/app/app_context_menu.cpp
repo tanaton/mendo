@@ -59,7 +59,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         break;
     }
     case IDM_COPY:
-        CopySelectionToClipboard();
+        Dispatch(CopyClipboardAction{});
         break;
     case IDM_TOGGLE_DARK_MODE:
         Dispatch(ToggleDarkModeAction{});

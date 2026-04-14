@@ -56,16 +56,7 @@ void App::PushNavHistory()
 
 void App::SyncPaneThemeCache()
 {
-    const auto& theme = renderer_.GetTheme();
-    state_.window.cached_theme = ThemeConstants{
-        .pane_item_height = theme.pane_item_height,
-        .pane_header_height = theme.pane_header_height,
-        .splitter_width = theme.splitter_width,
-        .margin_left = theme.margin_left,
-        .margin_right = theme.margin_right,
-        .heading_spacing_above = theme.heading_spacing_above,
-        .zoom = theme.zoom,
-    };
+    state_.window.cached_theme = renderer_.GetTheme().ToReducerConstants();
 }
 
 void App::FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale)

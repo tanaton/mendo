@@ -44,6 +44,7 @@ public:
         ConfigService& config, AppState& state,
         LayoutService& layout_service, Callbacks cb);
     void Execute(const SideEffectList& effects);
+    void ExecuteOne(const SideEffect& e);
 
 private:
     HWND hwnd_ = nullptr;

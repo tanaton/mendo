@@ -17,6 +17,7 @@
 #include "hit_test_service.h"
 #include "hover_throttle.h"
 #include "pane_layout.h"
+#include "theme_constants.h"
 #include <string>
 #include <string_view>
 #include <memory_resource>
@@ -26,17 +27,6 @@ struct AnchorState {
     int idx = -1;
     float y_before = 0.0f;
     float offset = 0.0f;
-};
-
-// Reducer がテーマ定数を参照するためのキャッシュ。
-struct ThemeConstants {
-    float pane_item_height = 28.0f;
-    float pane_header_height = 32.0f;
-    float splitter_width = 4.0f;
-    float margin_left = 0.0f;
-    float margin_right = 0.0f;
-    float heading_spacing_above = 0.0f;
-    float zoom = 1.0f;
 };
 
 // ---- ドメイン状態: ドキュメントとレイアウトキャッシュ ----
