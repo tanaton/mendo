@@ -31,13 +31,13 @@ void App::HandleLinkClick(std::wstring_view url)
 
 void App::NavigateToAnchor(std::wstring_view anchor)
 {
-    const int idx = state_.doc.FindAnchorIndex(anchor);
+    const int idx = state_.document.doc.FindAnchorIndex(anchor);
     if (idx < 0) {
         return;
     }
 
     const auto layout = GetPaneLayout();
-    float target_y = state_.layout_cache[idx].y_position - renderer_.GetTheme().heading_spacing_above - layout.md_rect.y;
+    float target_y = state_.document.layout_cache[idx].y_position - renderer_.GetTheme().heading_spacing_above - layout.md_rect.y;
     target_y = std::max(0.0f, target_y);
     ScrollTo(target_y);
     UpdateScrollBar();
@@ -47,7 +47,7 @@ void App::NavigateToAnchor(std::wstring_view anchor)
 
 void App::PushNavHistory()
 {
-    state_.nav_history.Push(NavEntry{ state_.doc.GetFilePath(), state_.viewport.GetScrollY() });
+    state_.view.nav_history.Push(NavEntry{ state_.document.doc.GetFilePath(), state_.view.viewport.GetScrollY() });
 }
 
 // ============================================================
@@ -57,7 +57,7 @@ void App::PushNavHistory()
 void App::SyncPaneThemeCache()
 {
     const auto& theme = renderer_.GetTheme();
-    state_.cached_theme = ThemeConstants{
+    state_.window.cached_theme = ThemeConstants{
         .pane_item_height = theme.pane_item_height,
         .pane_header_height = theme.pane_header_height,
         .splitter_width = theme.splitter_width,
@@ -77,7 +77,7 @@ void App::FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale)
     float md_height = layout.md_rect.height;
 
     // 表示領域を優先的にレイアウトし、残りは遅延処理に委ねる
-    layout_service_->ViewportLayout(state_.doc, state_.layout_cache, md_width, md_height);
+    layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
 
     RestoreAnchorWithScale(anchor, offset_scale);
 
@@ -102,10 +102,10 @@ void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
     else {
         // DarkMode
         theme_service_.ToggleDarkMode();
-        renderer_.SetTheme(theme_service_.CreateTheme(state_.viewport.GetZoomIndex()));
+        renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()));
         const bool dark = theme_service_.IsDarkMode();
         ApplyDarkModeToWindow(hwnd_, dark);
-        state_.tooltip.ApplyDarkMode(dark);
+        state_.interaction.tooltip.ApplyDarkMode(dark);
         mermaid_renderer_.CancelPending();
         mermaid_renderer_.ClearCache();
         FinishThemeOrZoomChange(anchor, e.offset_scale);

@@ -7,10 +7,8 @@
 #include "mermaid_file_cache.h"
 #include "mermaid.h"
 #include "image_loader.h"
-#include "file_watcher.h"
 #include "document_service.h"
 #include "document_utils.h"
-#include "pane.h"
 #include "layout_service.h"
 #include "app_controller.h"
 #include "config_service.h"
@@ -88,20 +86,17 @@ public:
     void OnSearchClose() { Dispatch(CloseSearchBarAction{}); }
     void OnSearchNext() { Dispatch(SearchNextAction{}); }
     void OnSearchPrev() { Dispatch(SearchPrevAction{}); }
-    bool IsSearchBarVisible() const noexcept { return state_.search_state.IsVisible(); }
+    bool IsSearchBarVisible() const noexcept { return state_.search.search_state.IsVisible(); }
     void OnToggleCaseSensitive() { Dispatch(ToggleCaseSensitiveAction{}); }
     void OnToggleHighlight() { Dispatch(ToggleHighlightAction{}); }
     void SetSearchSelection(int sel_start, int sel_end) { Dispatch(SearchSelectionAction{ sel_start, sel_end }); }
     void SetImeComposition(std::wstring_view comp) { Dispatch(ImeCompositionAction{ std::pmr::wstring{comp} }); }
-    RECT GetSearchEditRect() const;
-
-    // 検索バーコントローラへのアクセス（app_mouse.cppでのドラッグ/ホバー処理用）
-    SearchBarController& GetSearchBarCtrl() noexcept { return state_.search_bar_ctrl; }
+    RECT GetSearchEditRect();
 
     // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
     void SetPendingRestoreNode(int node, int offset, float scroll_y = -1.0f) noexcept
     {
-        state_.scroll_restore.SetNodeRestore(node, offset, scroll_y);
+        state_.view.scroll_restore.SetNodeRestore(node, offset, scroll_y);
     }
 
     // サイズ変更状態 — Reducer経由で状態変更
@@ -121,12 +116,12 @@ public:
     void InvalidateTitleBar() noexcept;
 
     // Win32Windowのカーソル/再描画用にDPIスケールを公開
-    constexpr float GetDpiScale() const noexcept { return state_.cached_dpi_scale; }
+    constexpr float GetDpiScale() const noexcept { return state_.window.cached_dpi_scale; }
 
     // カスタムタイトルバー
-    float GetTitleBarHeightDip() const noexcept { return state_.titlebar.GetHeight(); }
-    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept { return state_.titlebar.HitTest(dip_x, dip_y); }
-    bool IsOverMdScrollbar(float dip_x, float dip_y) const;
+    float GetTitleBarHeightDip() const noexcept { return state_.window.titlebar.GetHeight(); }
+    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept { return state_.window.titlebar.HitTest(dip_x, dip_y); }
+    bool IsOverMdScrollbar(float dip_x, float dip_y);
     bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const noexcept;
     void OnActivate(bool active) { Dispatch(ActivateAction{ active }); }
 
@@ -149,7 +144,7 @@ private:
 
     // ヒットテスト
     using HitResult = HitTestService::HitResult;
-    HitResult HitTest(int screen_x, int screen_y) const;
+    HitResult HitTest(int screen_x, int screen_y);
     std::optional<std::pmr::wstring> GetLinkAtHit(const HitResult& hit) const;
 
     // リンク・アンカーナビゲーション
@@ -222,10 +217,10 @@ private:
     void SaveScrollPosition();
 
     // ペインレイアウト（結果はキャッシュされる）
-    const ::PaneLayout& GetPaneLayout() const;
+    const ::PaneLayout& GetPaneLayout();
     void InvalidatePaneLayoutCache() noexcept { state_.pane_layout_valid = false; }
-    ::PaneZone PaneAtPoint(float dip_x, float dip_y) const;
-    float GetMarkdownPaneWidth() const;
+    ::PaneZone PaneAtPoint(float dip_x, float dip_y);
+    float GetMarkdownPaneWidth();
 
     // Reducer 用テーマ定数キャッシュの同期
     void SyncPaneThemeCache();

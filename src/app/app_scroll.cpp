@@ -18,14 +18,14 @@ void App::UpdateScrollBar()
 
 void App::InvalidateHitPositions() noexcept
 {
-    state_.hover_throttle.Reset();
+    state_.interaction.hover_throttle.Reset();
     ClearTooltip();
 }
 
 void App::ScrollTo(float position)
 {
-    state_.scroll_restore.pending_restore_scroll_y = -1;
-    state_.viewport.ScrollTo(position);
+    state_.view.scroll_restore.pending_restore_scroll_y = -1;
+    state_.view.viewport.ScrollTo(position);
     InvalidateHitPositions();
 }
 
@@ -42,13 +42,13 @@ void App::InvalidateMdPane(const PaneRect& md_rect)
 void App::SyncMaxScroll(float md_pane_height)
 {
     const float total = layout_service_->GetTotalHeight();
-    state_.cached_total_height = total;
-    state_.viewport.SyncMaxScroll(total, md_pane_height);
+    state_.view.cached_total_height = total;
+    state_.view.viewport.SyncMaxScroll(total, md_pane_height);
 }
 
 int App::FindFirstVisibleNode() const noexcept
 {
-    return state_.viewport.FindFirstVisibleNode(state_.layout_cache, state_.doc.GetNodes().size());
+    return state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size());
 }
 
 AnchorState App::SaveAnchor() const
@@ -58,15 +58,15 @@ AnchorState App::SaveAnchor() const
 
 void App::RestoreAnchor(const AnchorState& anchor, float md_pane_height)
 {
-    state_.viewport.AnchorCompensateScroll(anchor.idx, anchor.y_before, state_.layout_cache);
+    state_.view.viewport.AnchorCompensateScroll(anchor.idx, anchor.y_before, state_.document.layout_cache);
     SyncMaxScroll(md_pane_height);
 }
 
 void App::RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale)
 {
-    if (anchor.idx >= 0 && anchor.idx < static_cast<int>(state_.doc.GetNodes().size())) {
-        float anchor_y_after = state_.layout_cache[anchor.idx].y_position;
-        state_.viewport.SetScrollY(anchor_y_after + anchor.offset * offset_scale);
+    if (anchor.idx >= 0 && anchor.idx < static_cast<int>(state_.document.doc.GetNodes().size())) {
+        float anchor_y_after = state_.document.layout_cache[anchor.idx].y_position;
+        state_.view.viewport.SetScrollY(anchor_y_after + anchor.offset * offset_scale);
     }
 }
 
@@ -105,7 +105,7 @@ void App::OnResizeEnd()
 
     {
         MENDO_PROFILE("ViewportLayout(Resize)");
-        layout_service_->ViewportLayout(state_.doc, state_.layout_cache, md_width, md_height);
+        layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
     }
 
     SyncMaxScroll(md_height);
@@ -137,7 +137,7 @@ void App::OnDeferredLayout()
     bool more;
     {
         MENDO_PROFILE("ProcessDirtyBatch");
-        more = layout_service_->ProcessDirtyBatch(state_.doc, state_.layout_cache, md_width, 200, ResourceManager::BATCH_TIME_BUDGET_US, md_height, ResourceManager::EVICT_BUFFER_SCREENS);
+        more = layout_service_->ProcessDirtyBatch(state_.document.doc, state_.document.layout_cache, md_width, 200, ResourceManager::BATCH_TIME_BUDGET_US, md_height, ResourceManager::EVICT_BUFFER_SCREENS);
     }
 
 #if MENDO_PROFILE_ENABLED
@@ -149,12 +149,12 @@ void App::OnDeferredLayout()
     }
 #endif
 
-    if (!state_.viewport.IsScrollbarTracking()) {
+    if (!state_.view.viewport.IsScrollbarTracking()) {
         // 中間バッチではアンカー補償のみ行い、SyncMaxScrollのクランプを遅延させる。
         // ビューポート後のノードが計測されるとtotal_heightが縮小し、中間的な
         // max_scrollに基づくクランプでscroll_yが不当に引き下げられるのを防ぐ。
         // 最終バッチでもMermaidレンダリング後までクランプを遅延させる（後述）。
-        state_.viewport.AnchorCompensateScroll(anchor.idx, anchor.y_before, state_.layout_cache);
+        state_.view.viewport.AnchorCompensateScroll(anchor.idx, anchor.y_before, state_.document.layout_cache);
     }
     else {
         SyncMaxScroll(md_height);
@@ -169,9 +169,9 @@ void App::OnDeferredLayout()
         resource_manager_.ScheduleMermaidBatch();
 
         // 全レイアウト確定後に前回セッションの生のscroll_yを適用する
-        if (state_.scroll_restore.pending_restore_scroll_y >= 0.0f) {
-            state_.viewport.SetScrollY(state_.scroll_restore.pending_restore_scroll_y);
-            state_.scroll_restore.pending_restore_scroll_y = -1.0f;
+        if (state_.view.scroll_restore.pending_restore_scroll_y >= 0.0f) {
+            state_.view.viewport.SetScrollY(state_.view.scroll_restore.pending_restore_scroll_y);
+            state_.view.scroll_restore.pending_restore_scroll_y = -1.0f;
         }
 
         SyncMaxScroll(md_height);

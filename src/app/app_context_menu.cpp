@@ -31,14 +31,14 @@ void App::OnContextMenu(int screen_x, int screen_y)
     ContextMenuParams params;
     params.screen_x = screen_x;
     params.screen_y = screen_y;
-    params.dpi_scale = state_.cached_dpi_scale;
-    params.can_go_back = state_.nav_history.CanGoBack();
-    params.can_go_forward = state_.nav_history.CanGoForward();
-    params.has_file = !state_.doc.GetFilePath().empty();
-    params.has_selection = state_.viewport.GetSelection().active && state_.viewport.GetSelection().start_node >= 0;
+    params.dpi_scale = state_.window.cached_dpi_scale;
+    params.can_go_back = state_.view.nav_history.CanGoBack();
+    params.can_go_forward = state_.view.nav_history.CanGoForward();
+    params.has_file = !state_.document.doc.GetFilePath().empty();
+    params.has_selection = state_.view.viewport.GetSelection().active && state_.view.viewport.GetSelection().start_node >= 0;
     params.dark_mode_checked = theme_service_.IsDarkMode();
-    params.file_pane_checked = state_.panes.IsFilePaneVisible();
-    params.toc_pane_checked = state_.panes.IsTocPaneVisible();
+    params.file_pane_checked = state_.view.panes.IsFilePaneVisible();
+    params.toc_pane_checked = state_.view.panes.IsTocPaneVisible();
     params.show_file_items = (zone == PaneZone::MdPane);
     params.theme = &renderer_.GetTheme();
 
@@ -52,7 +52,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         Dispatch(NavigateForwardAction{});
         break;
     case IDM_EDIT_FILE: {
-        const auto& file_path = state_.doc.GetFilePath();
+        const auto& file_path = state_.document.doc.GetFilePath();
         if (IsEditableTextFile(file_path)) {
             ShellExecuteW(hwnd_, L"open", file_path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }

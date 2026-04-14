@@ -145,6 +145,7 @@ add_executable(mendo WIN32
     src/main.cpp
     src/window/window.cpp
     src/app/app.cpp
+    src/app/app_file.cpp
     src/app/app_scroll.cpp
     src/app/app_mouse.cpp
     src/app/app_navigate.cpp

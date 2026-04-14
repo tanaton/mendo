@@ -39,60 +39,76 @@ struct ThemeConstants {
     float zoom = 1.0f;
 };
 
+// ---- ドメイン状態: ドキュメントとレイアウトキャッシュ ----
+struct DocumentState {
+    Document doc;
+    LayoutCache layout_cache;
+};
+
+// ---- 表示・スクロール・ペインの状態 ----
+struct ViewState {
+    ViewportManager viewport;
+    PaneController panes;
+    ScrollRestoration scroll_restore;
+    NavHistory nav_history;
+    float cached_total_height = 0.0f;
+};
+
+// ---- ユーザー入力・操作の状態 ----
+struct InteractionState {
+    MouseGesture gesture;
+    SwipeDetector swipe_detector;
+    HoverThrottle hover_throttle;
+    Tooltip tooltip;
+    ToastNotifier toast;
+    int hovered_copy_node = -1;
+    int hovered_save_node = -1;
+    HitTestService::NavButtonHover nav_hover = HitTestService::NavButtonHover::None;
+};
+
+// ---- 検索の状態 ----
+struct SearchGroup {
+    SearchState search_state;
+    SearchBarController search_bar_ctrl;
+};
+
+// ---- ウィンドウ・テーマの状態 ----
+struct WindowState {
+    TitleBar titlebar;
+    bool is_sizing = false;
+    bool window_active = true;
+    float cached_dpi_scale = 1.0f;
+    ThemeConstants cached_theme;
+};
+
 // アプリケーションの全状態を集約する構造体。
 // Win32ハンドルは含まない。状態に加えて一部のコントローラ
 // (ContextMenu, HitTestService, SearchBarController) を含む。
 // Reducer パターンの入出力として使用する。
 struct AppState {
-    // ---- ドメイン状態 ----
-    Document doc;
-    LayoutCache layout_cache;
-    ViewportManager viewport;
+    // ---- サブグループ ----
+    DocumentState document;
+    ViewState view;
+    InteractionState interaction;
+    SearchGroup search;
+    WindowState window;
 
-    // ---- UI状態 ----
-    PaneController panes;
-    SearchState search_state;
-    SearchBarController search_bar_ctrl;
-    NavHistory nav_history;
+    // ---- UIコンポーネント ----
     FileExplorer file_explorer;
-    MouseGesture gesture;
-    SwipeDetector swipe_detector;
-    TitleBar titlebar;
-    ToastNotifier toast;
-    Tooltip tooltip;
-    ScrollRestoration scroll_restore;
     ContextMenu ctx_menu;
     HitTestService hit_test;
-    HoverThrottle hover_throttle;
-
-    // ---- フラグ類 ----
-    bool is_sizing = false;
-    bool window_active = true;
-    int hovered_copy_node = -1;
-    int hovered_save_node = -1;
     int active_toc_index = -1;
-    HitTestService::NavButtonHover nav_hover = HitTestService::NavButtonHover::None;
 
     // ---- リロード管理 ----
     size_t reload_diff_pos = std::string_view::npos;
     float reload_old_scroll = 0.0f;
     bool pending_prefix_shrink = false;
 
-    // ---- キャッシュ ----
+    // ---- ペインレイアウトキャッシュ ----
     std::pmr::wstring cached_title_text = L"mendo";
-    mutable PaneLayout cached_pane_layout{};
-    mutable float cached_window_width_for_layout = 0.0f;
-    mutable bool pane_layout_valid = false;
-
-    // テーマから取得した定数のキャッシュ（ズーム/テーマ変更時に更新）。
-    // Reducer がペインスクロールの max_scroll 計算等に使用する。
-    ThemeConstants cached_theme;
-
-    // DPIスケール（ピクセル→DIP変換用）。OnDpiChanged で更新。
-    float cached_dpi_scale = 1.0f;
-
-    // ドキュメント総高さのキャッシュ。ViewportLayout 後に更新。
-    float cached_total_height = 0.0f;
+    PaneLayout cached_pane_layout{};
+    float cached_window_width_for_layout = 0.0f;
+    bool pane_layout_valid = false;
 };
 
 // 現在のスクロール位置からアンカーを保存する。Reducer と App の共通ヘルパー。
