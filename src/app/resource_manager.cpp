@@ -70,6 +70,7 @@ int ResourceManager::ApplyCachedImages()
 
         // 解決済みパスのキャッシュを確認し、ディスクI/Oを回避
         auto [path_it, inserted] = resolved_image_paths_.try_emplace(i);
+        auto& abs_str = std::get<1>(*path_it);
         if (inserted) {
             std::filesystem::path img_path(node.image_data->src);
             if (img_path.is_relative()) {
@@ -79,12 +80,11 @@ int ResourceManager::ApplyCachedImages()
             std::error_code ec;
             const auto abs_path = std::filesystem::canonical(img_path, ec);
             if (ec) {
-                resolved_image_paths_.erase(path_it);
+                resolved_image_paths_.erase(i);
                 continue;
             }
-            path_it->second = abs_path.wstring();
+            abs_str = abs_path.wstring();
         }
-        const std::wstring& abs_str = path_it->second;
 
         if (image_loader_->GetCachedImage(abs_str, diagram)) {
             node.image_data->width = diagram.width;

@@ -1,49 +1,52 @@
 #pragma once
-#include <list>
-#include <unordered_map>
+#include <vector>
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
 
 // 固定サイズの LRU (Least Recently Used) キャッシュ。
-// Find() でアクセスするとアクセス順が更新される。
+// キーと値を連続メモリ上に保持し、CPU キャッシュの局所性を最大化する。
+// Find() でアクセスするとアクセス世代が更新される。
 // 容量超過時は最も古いエントリが自動的に破棄される。
-// O(1) の検索・挿入・削除。
-// スレッド安全ではない。const Find() も内部の順序を変更するため、
+// 検索は O(n) だが、エントリ数が数百以下であれば
+// std::list ベースの O(1) LRU よりキャッシュラインの恩恵で高速。
+// スレッド安全ではない。const Find() も内部の世代を変更するため、
 // 複数スレッドからの同時アクセスには外部で排他制御が必要。
 template <typename Key, typename Value>
 class LruCache {
 public:
-    explicit LruCache(size_t max_entries) : max_entries_(max_entries) {}
-
-    // キーに対応する値を検索し、見つかった場合はアクセス順を更新する。
-    Value* Find(const Key& key)
+    explicit LruCache(size_t max_entries) : max_entries_(max_entries)
     {
-        auto it = map_.find(key);
-        if (it == map_.end()) {
-            return nullptr;
-        }
-        // 先頭に移動（最近使用）
-        order_.splice(order_.begin(), order_, it->second);
-        return &it->second->value;
+        keys_.reserve(max_entries);
+        values_.reserve(max_entries);
+        generations_.reserve(max_entries);
     }
 
-    const Value* Find(const Key& key) const
+    // キーに対応する値を検索し、見つかった場合はアクセス世代を更新する。
+    // const 版も世代を更新する（mutable）。
+    auto* Find(this auto& self, const Key& key)
     {
-        auto it = map_.find(key);
-        if (it == map_.end()) {
-            return nullptr;
+        for (size_t i = 0; i < self.size_; i++) {
+            if (self.keys_[i] == key) {
+                self.generations_[i] = ++self.generation_counter_;
+                return &self.values_[i];
+            }
         }
-        // const版でもアクセス順は更新する（mutableなorder_）
-        order_.splice(order_.begin(), order_, it->second);
-        return &it->second->value;
+        return decltype(&self.values_[0]){ nullptr };
     }
 
-    // キーが存在するかチェック（アクセス順は更新しない）。
+    // キーが存在するかチェック（アクセス世代は更新しない）。
     bool Contains(const Key& key) const
     {
-        return map_.find(key) != map_.end();
+        for (size_t i = 0; i < size_; i++) {
+            if (keys_[i] == key) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    // エントリを挿入する。既存キーの場合は値を上書きしてアクセス順を更新する。
+    // エントリを挿入する。既存キーの場合は値を上書きしてアクセス世代を更新する。
     // 容量超過時は最も古いエントリを自動的に破棄する。
     void Insert(const Key& key, Value value)
     {
@@ -51,42 +54,62 @@ public:
             return;
         }
 
-        auto it = map_.find(key);
-        if (it != map_.end()) {
-            it->second->value = std::move(value);
-            order_.splice(order_.begin(), order_, it->second);
+        // 既存キーの更新
+        for (size_t i = 0; i < size_; i++) {
+            if (keys_[i] == key) {
+                values_[i] = std::move(value);
+                generations_[i] = ++generation_counter_;
+                return;
+            }
+        }
+
+        // 容量超過時は最古エントリを破棄して上書き
+        if (size_ >= max_entries_) {
+            const size_t oldest = FindOldestIndex();
+            keys_[oldest] = key;
+            values_[oldest] = std::move(value);
+            generations_[oldest] = ++generation_counter_;
             return;
         }
 
-        // 容量超過時は最古エントリを破棄
-        if (map_.size() >= max_entries_) {
-            auto& oldest = order_.back();
-            map_.erase(oldest.key);
-            order_.pop_back();
-        }
-
-        order_.push_front({ key, std::move(value) });
-        map_.emplace(key, order_.begin());
+        // 新規追加
+        keys_.push_back(key);
+        values_.push_back(std::move(value));
+        generations_.push_back(++generation_counter_);
+        ++size_;
     }
 
     void Clear()
     {
-        order_.clear();
-        map_.clear();
+        keys_.clear();
+        values_.clear();
+        generations_.clear();
+        size_ = 0;
+        generation_counter_ = 0;
     }
 
-    size_t Size() const noexcept { return map_.size(); }
-    bool Empty() const noexcept { return map_.empty(); }
+    size_t Size() const noexcept { return size_; }
+    bool Empty() const noexcept { return size_ == 0; }
     size_t MaxSize() const noexcept { return max_entries_; }
 
 private:
-    struct Entry {
-        Key key;
-        Value value;
-    };
+    size_t FindOldestIndex() const noexcept
+    {
+        size_t oldest = 0;
+        uint64_t min_gen = generations_[0];
+        for (size_t i = 1; i < size_; i++) {
+            if (generations_[i] < min_gen) {
+                min_gen = generations_[i];
+                oldest = i;
+            }
+        }
+        return oldest;
+    }
 
-    mutable std::list<Entry> order_;   // front=最新, back=最古
-    // splice はイテレータを無効化しないため、map_ のイテレータは常に有効
-    std::unordered_map<Key, typename std::list<Entry>::iterator> map_;
+    std::vector<Key> keys_;
+    std::vector<Value> values_;
+    mutable std::vector<uint64_t> generations_;
+    mutable uint64_t generation_counter_ = 0;
+    size_t size_ = 0;
     size_t max_entries_;
 };

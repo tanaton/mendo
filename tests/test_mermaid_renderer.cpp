@@ -62,7 +62,7 @@ TEST_F(MermaidRendererTest, DefaultConstructionNotInitialized)
 
 TEST_F(MermaidRendererTest, InitDoesNotStartWebView2)
 {
-    renderer_->Init(nullptr, nullptr, nullptr);
+    renderer_->Init(nullptr, nullptr, nullptr, nullptr);
 
     EXPECT_FALSE(renderer_->IsReady());
     EXPECT_FALSE(renderer_->IsInitialized());
@@ -74,7 +74,7 @@ TEST_F(MermaidRendererTest, InitDoesNotStartWebView2)
 
 TEST_F(MermaidRendererTest, NonMermaidNodeDoesNotTriggerInit)
 {
-    renderer_->Init(nullptr, nullptr, nullptr);
+    renderer_->Init(nullptr, nullptr, nullptr, nullptr);
 
     auto node = MakeNonMermaidNode();
     NodeLayoutEntry layout{};
@@ -91,7 +91,7 @@ TEST_F(MermaidRendererTest, NonMermaidNodeDoesNotTriggerInit)
 
 TEST_F(MermaidRendererTest, MermaidCacheMissTriggersInit)
 {
-    renderer_->Init(nullptr, nullptr, nullptr);
+    renderer_->Init(nullptr, nullptr, nullptr, nullptr);
 
     auto node = MakeMermaidNode("graph TD; A-->B;");
     NodeLayoutEntry layout{};
@@ -110,7 +110,7 @@ TEST_F(MermaidRendererTest, MermaidCacheMissTriggersInit)
 
 TEST_F(MermaidRendererTest, MultipleRequestsDoNotReinitialize)
 {
-    renderer_->Init(nullptr, nullptr, nullptr);
+    renderer_->Init(nullptr, nullptr, nullptr, nullptr);
 
     auto node1 = MakeMermaidNode("graph TD; A-->B;");
     auto node2 = MakeMermaidNode("graph LR; X-->Y;");
@@ -144,7 +144,7 @@ TEST_F(MermaidRendererTest, RequestRenderBeforeInitIsSafe)
 
 TEST_F(MermaidRendererTest, CancelPendingBeforeInitIsSafe)
 {
-    renderer_->Init(nullptr, nullptr, nullptr);
+    renderer_->Init(nullptr, nullptr, nullptr, nullptr);
     renderer_->CancelPending();
     renderer_->ClearPendingQueue();
 
@@ -153,7 +153,7 @@ TEST_F(MermaidRendererTest, CancelPendingBeforeInitIsSafe)
 
 TEST_F(MermaidRendererTest, ClearCacheBeforeInitIsSafe)
 {
-    renderer_->Init(nullptr, nullptr, nullptr);
+    renderer_->Init(nullptr, nullptr, nullptr, nullptr);
     renderer_->ClearCache();
 
     EXPECT_FALSE(renderer_->IsInitialized());

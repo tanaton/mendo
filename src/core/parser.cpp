@@ -148,12 +148,14 @@ struct ParseContext {
         run.set_strikethrough(current_span.strikethrough);
         if (current_span.link_url_index >= 0 && current_node) {
             const auto& url = link_urls[static_cast<size_t>(current_span.link_url_index)];
-            // ノードのURLプール内で重複を検索し、なければ追加
+            // ノードのURLプール内で重複を検索し、なければ追加。
+            // 同一リンク内のテキストは連続呼び出しされるため、末尾から逆走査して
+            // 直近の一致を最速で検出する（O(n²) → 実質 O(1) の高速パス）。
             int16_t node_idx = -1;
             const auto url_count = current_node->link_urls.size();
-            for (size_t i = 0; i < url_count; i++) {
-                if (current_node->link_urls[i] == url) {
-                    node_idx = static_cast<int16_t>(i);
+            for (size_t i = url_count; i > 0; i--) {
+                if (current_node->link_urls[i - 1] == url) {
+                    node_idx = static_cast<int16_t>(i - 1);
                     break;
                 }
             }

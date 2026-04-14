@@ -92,11 +92,16 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
         const float row_bottom = y + row_h + border;
         if (row_bottom < viewport_top || y > viewport_bottom) {
-            advance_flat_offset(flat_offset, row, 0, row.cells.size());
-            y = row_bottom;
-            if (r + 1 < node.table_rows().size()) {
-                flat_offset++;
+            // プリコンピュート済みの行オフセットを使い、O(cells) の走査を O(1) に削減
+            if (r + 1 < node.table_rows().size() && r + 1 < tl.row_flat_offsets.size()) {
+                flat_offset = tl.row_flat_offsets[r + 1];
+            } else {
+                advance_flat_offset(flat_offset, row, 0, row.cells.size());
+                if (r + 1 < node.table_rows().size()) {
+                    flat_offset++;
+                }
             }
+            y = row_bottom;
             continue;
         }
 

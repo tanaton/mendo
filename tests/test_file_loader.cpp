@@ -32,14 +32,14 @@ protected:
         return path;
     }
 
-    // 非同期ファイル監視のポーリングを待つヘルパー
-    bool PollForChange(FileWatcher& watcher, int max_ms = 2000)
+    // イベントハンドルを使って変更通知を待つヘルパー
+    void WaitForEvent(FileWatcher& watcher, int timeout_ms = 2000)
     {
-        for (int elapsed = 0; elapsed < max_ms; elapsed += 50) {
-            watcher.CheckForChanges();
-            Sleep(50);
+        HANDLE h = watcher.GetEventHandle();
+        if (h) {
+            WaitForSingleObject(h, static_cast<DWORD>(timeout_ms));
         }
-        return true;
+        watcher.CheckForChanges();
     }
 };
 
@@ -110,15 +110,9 @@ TEST_F(FileLoaderTest, WatcherDetectsChange)
     bool changed = false;
     watcher.StartWatching(path.native().c_str(), [&]() { changed = true; });
 
-    // 異なるタイムスタンプを確保するため、少し待ってからファイルを変更
-    Sleep(300);
+    Sleep(100);
     WriteFile(L"watch.md", "modified");
-
-    // 非同期通知をポーリングで待つ
-    for (int i = 0; i < 40 && !changed; i++) {
-        Sleep(50);
-        watcher.CheckForChanges();
-    }
+    WaitForEvent(watcher);
     EXPECT_TRUE(changed);
 }
 
@@ -145,9 +139,8 @@ TEST_F(FileLoaderTest, StopWatchingPreventsCallback)
     watcher.StartWatching(path.native().c_str(), [&]() { changed = true; });
     watcher.StopWatching();
 
-    Sleep(300);
     WriteFile(L"stop.md", "modified");
-    Sleep(100);
+    Sleep(50);
     watcher.CheckForChanges();
     EXPECT_FALSE(changed);
 }
@@ -185,23 +178,18 @@ TEST_F(FileLoaderTest, WatcherRestartOnNewFile)
     // 別のファイルの監視に切り替え
     watcher.StartWatching(path2.native().c_str(), [&]() { change_count++; });
 
-    // 元のファイルを変更 - コールバックが発火しないこと
-    Sleep(300);
+    // 元のファイルを変更 - ファイル名フィルタでコールバックが発火しないこと
+    Sleep(100);
     WriteFile(L"watch1.md", "modified1");
-    // watch1の変更通知を拾いつつ、ファイル名フィルタで弾くことを確認
-    for (int i = 0; i < 20; i++) {
-        Sleep(50);
-        watcher.CheckForChanges();
+    for (int i = 0; i < 10; i++) {
+        WaitForEvent(watcher, 100);
     }
     EXPECT_EQ(change_count, 0);
 
     // 新しいファイルを変更 - コールバックが発火すること
-    Sleep(300);
+    Sleep(100);
     WriteFile(L"watch2.md", "modified2");
-    for (int i = 0; i < 40 && change_count == 0; i++) {
-        Sleep(50);
-        watcher.CheckForChanges();
-    }
+    WaitForEvent(watcher);
     EXPECT_EQ(change_count, 1);
 }
 
@@ -240,23 +228,15 @@ TEST_F(FileLoaderTest, WatchPausedAfterChangeDetected)
     int change_count = 0;
     watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
 
-    // ファイルを変更して検出を待つ
-    Sleep(300);
+    Sleep(100);
     WriteFile(L"pause.md", "modified1");
-    for (int i = 0; i < 40 && change_count == 0; i++) {
-        Sleep(50);
-        watcher.CheckForChanges();
-    }
+    WaitForEvent(watcher);
     ASSERT_EQ(change_count, 1);
 
     // 変更検出後は一時停止（コールバック抑制、I/Oは継続）
-    // 追加の保存はコールバックを呼ばず蓄積される
-    Sleep(300);
+    Sleep(100);
     WriteFile(L"pause.md", "modified2");
-    for (int i = 0; i < 40; i++) {
-        Sleep(50);
-        watcher.CheckForChanges();
-    }
+    WaitForEvent(watcher, 500);
     EXPECT_EQ(change_count, 1);
 
     // ResumeWatching で蓄積された変更が通知される
@@ -272,26 +252,17 @@ TEST_F(FileLoaderTest, ResumeWatchingReenablesDetection)
     int change_count = 0;
     watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
 
-    // 最初の変更を検出
-    Sleep(300);
+    Sleep(100);
     WriteFile(L"resume.md", "modified1");
-    for (int i = 0; i < 40 && change_count == 0; i++) {
-        Sleep(50);
-        watcher.CheckForChanges();
-    }
+    WaitForEvent(watcher);
     ASSERT_EQ(change_count, 1);
 
-    // 監視を再開（リロード完了をシミュレート）
     watcher.ResumeWatching();
     EXPECT_NE(watcher.GetEventHandle(), nullptr);
 
-    // 2回目の変更を検出
-    Sleep(300);
+    Sleep(100);
     WriteFile(L"resume.md", "modified2");
-    for (int i = 0; i < 40 && change_count == 1; i++) {
-        Sleep(50);
-        watcher.CheckForChanges();
-    }
+    WaitForEvent(watcher);
     EXPECT_EQ(change_count, 2);
 }
 

@@ -83,8 +83,8 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) noexcept
     return fmt_body_.Get();
 }
 
-void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
-    const std::pmr::vector<TextRun>& runs)
+void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout,
+    const std::pmr::vector<TextRun>& runs, std::optional<NodeType> node_type)
 {
     for (const auto& run : runs) {
         const DWRITE_TEXT_RANGE range{ run.start, run.length };
@@ -95,13 +95,21 @@ void DWriteTextMeasurer::ApplyCellRunFormatting(IDWriteTextLayout* layout,
             layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
         }
         if (run.code()) {
-            layout->SetFontFamilyName(theme_->monospace_font.c_str(), range);
-            layout->SetFontSize(theme_->font_size_code, range);
+            // CodeBlock 内ではインラインコードフォーマットを適用しない
+            if (!node_type || *node_type != NodeType::CodeBlock) {
+                layout->SetFontFamilyName(theme_->monospace_font.c_str(), range);
+                // Heading 内ではコードフォントサイズを変更しない（見出しサイズを維持）
+                if (!node_type || *node_type != NodeType::Heading) {
+                    layout->SetFontSize(theme_->font_size_code, range);
+                }
+            }
         }
         if (run.strikethrough()) {
             layout->SetStrikethrough(TRUE, range);
         }
-        if (run.has_link()) {
+        // テーブルセル（node_type なし）ではリンクの下線を適用する。
+        // 通常ノードではApplyNodeEffects（描画パス）で下線＋色を一括適用するため、ここではスキップ。
+        if (!node_type && run.has_link()) {
             layout->SetUnderline(TRUE, range);
         }
     }
@@ -173,24 +181,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     }
 
     // ラン単位のフォーマットを適用
-    for (const auto& run : node.runs) {
-        const DWRITE_TEXT_RANGE range{ run.start, run.length };
-        if (run.bold()) {
-            layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, range);
-        }
-        if (run.italic()) {
-            layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
-        }
-        if (run.code() && node.type != NodeType::CodeBlock) {
-            layout->SetFontFamilyName(theme_->monospace_font.c_str(), range);
-            if (node.type != NodeType::Heading) {
-                layout->SetFontSize(theme_->font_size_code, range);
-            }
-        }
-        if (run.strikethrough()) {
-            layout->SetStrikethrough(TRUE, range);
-        }
-    }
+    ApplyRunFormatting(layout.Get(), node.runs, node.type);
 
     // Alert ノード: アイコン文字のフォントウェイトを設定
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None
@@ -244,7 +235,7 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
                 &tl.cell_layouts[ci]);
 
             if (tl.cell_layouts[ci]) {
-                ApplyCellRunFormatting(tl.cell_layouts[ci].Get(), cell.runs);
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), cell.runs, std::nullopt);
                 DWRITE_TEXT_METRICS metrics{};
                 tl.cell_layouts[ci]->GetMetrics(&metrics);
                 natural_widths[c] = std::max(natural_widths[c], metrics.width);

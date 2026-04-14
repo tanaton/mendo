@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "search_state.h"
-#include "layout_cache.h"
+#include "test_helpers.h"
 #include <memory_resource>
 
 // ヘルパー: テキストを持つ単純なNodeを作成
@@ -27,20 +27,6 @@ static Node MakeTableNode(const wchar_t* cell0, const wchar_t* cell1)
     row.cells.push_back(std::move(c1));
     n.table_data->rows.push_back(std::move(row));
     return n;
-}
-
-// ヘルパー: LayoutCacheを構築
-static LayoutCache MakeCache(int count, float node_height = 100.0f)
-{
-    LayoutCache cache;
-    cache.Resize(count);
-    float y = 0.0f;
-    for (int i = 0; i < count; ++i) {
-        cache[i].y_position = y;
-        cache[i].height = node_height;
-        y += node_height;
-    }
-    return cache;
 }
 
 // ═══════════════════════════════════════════════
@@ -393,7 +379,7 @@ TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstAfterScroll)
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 3);
 
-    auto cache = MakeCache(3, 100.0f);  // y=0,100,200
+    auto cache = MakeUniformCache(3, 100.0f);  // y=0,100,200
     s.SetCurrentMatchNear(150.0f, cache);
     EXPECT_EQ(s.GetCurrentMatchIndex(), 2);  // node2 @ y=200
 }
@@ -407,7 +393,7 @@ TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstWhenAllAbove)
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
 
-    auto cache = MakeCache(1, 100.0f);  // y=0
+    auto cache = MakeUniformCache(1, 100.0f);  // y=0
     s.SetCurrentMatchNear(500.0f, cache);
     EXPECT_EQ(s.GetCurrentMatchIndex(), 0);  // フォールバック
 }

@@ -2,8 +2,8 @@
 #include "file_loader.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
+#include "wic_util.h"
 #include "win_handle.h"
-#include <optional>
 #include <shlwapi.h>
 
 #pragma comment(lib, "shlwapi.lib")
@@ -51,53 +51,6 @@ static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path
     return stream;
 }
 
-// WIC デコードパイプラインの共通処理。
-// IStream から画像をデコードし、FormatConverter とピクセルサイズを返す。
-// LoadImage（同期）と RequestLoadAsync（非同期）の両方から使用される。
-struct WicDecodeResult {
-    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    UINT pixel_width = 0;
-    UINT pixel_height = 0;
-};
-
-static std::optional<WicDecodeResult> DecodeFromStream(
-    IWICImagingFactory* wic, IStream* stream)
-{
-    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = wic->CreateDecoderFromStream(
-        stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
-    if (FAILED(hr)) {
-        return std::nullopt;
-    }
-
-    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    hr = decoder->GetFrame(0, &frame);
-    if (FAILED(hr)) {
-        return std::nullopt;
-    }
-
-    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    hr = wic->CreateFormatConverter(&converter);
-    if (FAILED(hr)) {
-        return std::nullopt;
-    }
-
-    hr = converter->Initialize(
-        frame.Get(), GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone, nullptr, 0.0f,
-        WICBitmapPaletteTypeCustom);
-    if (FAILED(hr)) {
-        return std::nullopt;
-    }
-
-    UINT w = 0, h = 0;
-    hr = frame->GetSize(&w, &h);
-    if (FAILED(hr)) {
-        return std::nullopt;
-    }
-
-    return WicDecodeResult{ converter, w, h };
-}
 
 ImageLoader::~ImageLoader()
 {
@@ -165,7 +118,7 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
         return false;
     }
 
-    const auto decoded = DecodeFromStream(wic_factory_.Get(), stream.Get());
+    const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get());
     if (!decoded) {
         return false;
     }
@@ -176,19 +129,11 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
         return false;
     }
 
-    // ピクセルサイズを DIP に変換
-    float scale_x, scale_y;
-    GetDpiScale(scale_x, scale_y);
-
-    CachedImage cached;
-    cached.bitmap = bitmap;
-    cached.width = static_cast<float>(decoded->pixel_width) / scale_x;
-    cached.height = static_cast<float>(decoded->pixel_height) / scale_y;
-
+    // ピクセルサイズを DIP に変換してキャッシュに登録
+    const auto [width, height] = CreateAndCacheImage(abs_path, bitmap, decoded->pixel_width, decoded->pixel_height);
     out.bitmap = bitmap;
-    out.width = cached.width;
-    out.height = cached.height;
-    cache_.Insert(abs_path, std::move(cached));
+    out.width = width;
+    out.height = height;
     return true;
 }
 
@@ -229,7 +174,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
         if (wic_factory_) {
             const auto stream = ReadFileToStream(path);
             if (stream) {
-                if (const auto decoded = DecodeFromStream(wic_factory_.Get(), stream.Get())) {
+                if (const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get())) {
                     result.converter = decoded->converter;
                     result.width = static_cast<float>(decoded->pixel_width);
                     result.height = static_cast<float>(decoded->pixel_height);
@@ -274,20 +219,14 @@ void ImageLoader::ProcessCompletedDecodes()
 
     Callback last_cb;
 
-    float scale_x, scale_y;
-    GetDpiScale(scale_x, scale_y);
-
     for (auto& r : results) {
         if (r.success && r.converter && render_target_) {
             if (!cache_.Contains(r.path)) {
                 Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
                 const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.converter.Get(), &bitmap);
                 if (SUCCEEDED(hr) && bitmap) {
-                    CachedImage cached;
-                    cached.bitmap = bitmap;
-                    cached.width = r.width / scale_x;
-                    cached.height = r.height / scale_y;
-                    cache_.Insert(r.path, std::move(cached));
+                    CreateAndCacheImage(r.path, std::move(bitmap),
+                        static_cast<UINT>(r.width), static_cast<UINT>(r.height));
                 }
             }
         }
@@ -306,6 +245,24 @@ void ImageLoader::InsertCacheEntry(const std::wstring& path, float width, float 
     cached.width = width;
     cached.height = height;
     cache_.Insert(path, std::move(cached));
+}
+
+std::pair<float, float> ImageLoader::CreateAndCacheImage(
+    const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap,
+    UINT pixel_width, UINT pixel_height)
+{
+    float scale_x, scale_y;
+    GetDpiScale(scale_x, scale_y);
+
+    CachedImage cached;
+    cached.bitmap = std::move(bitmap);
+    cached.width = static_cast<float>(pixel_width) / scale_x;
+    cached.height = static_cast<float>(pixel_height) / scale_y;
+
+    const float w = cached.width;
+    const float h = cached.height;
+    cache_.Insert(path, std::move(cached));
+    return { w, h };
 }
 
 void ImageLoader::CancelPending()

@@ -4,6 +4,7 @@
 #include "command_generator.h"
 #include "dwrite_measurer.h"
 #include "parser.h"
+#include "test_helpers.h"
 #include <dwrite.h>
 #include <wrl/client.h>
 
@@ -901,35 +902,22 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
 
 // ---- FindFirstVisibleNodeIndex テスト（layout_cache.h のフリー関数） ----
 
-static LayoutCache MakeSimpleCache(int count, float node_height)
-{
-    LayoutCache cache;
-    cache.Resize(count);
-    float y = 0.0f;
-    for (int i = 0; i < count; ++i) {
-        cache[i].y_position = y;
-        cache[i].height = node_height;
-        y += node_height;
-    }
-    return cache;
-}
-
 TEST(FindFirstVisibleNodeIndex, AtStart)
 {
-    auto cache = MakeSimpleCache(10, 50.0f);
+    auto cache = MakeUniformCache(10, 50.0f);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 0.0f), 0);
 }
 
 TEST(FindFirstVisibleNodeIndex, MidDocument)
 {
-    auto cache = MakeSimpleCache(10, 50.0f);
+    auto cache = MakeUniformCache(10, 50.0f);
     // viewport_top = 120 → ノード2 (y=100, bottom=150) が最初の可視ノード
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 120.0f), 2);
 }
 
 TEST(FindFirstVisibleNodeIndex, ExactBoundary)
 {
-    auto cache = MakeSimpleCache(10, 50.0f);
+    auto cache = MakeUniformCache(10, 50.0f);
     // viewport_top = 50 → ノード0はy=50で終了、ノード1はy=50で開始
     // ノード0の下端(50) == viewport_top(50)なので除外される
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 50.0f), 1);
@@ -937,7 +925,7 @@ TEST(FindFirstVisibleNodeIndex, ExactBoundary)
 
 TEST(FindFirstVisibleNodeIndex, PastEnd)
 {
-    auto cache = MakeSimpleCache(5, 50.0f);
+    auto cache = MakeUniformCache(5, 50.0f);
     // viewport_top = 300、すべてのノードはy=250で終了
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 5, 300.0f), 5);
 }
@@ -950,7 +938,7 @@ TEST(FindFirstVisibleNodeIndex, EmptyCache)
 
 TEST(FindFirstVisibleNodeIndex, SingleNode)
 {
-    auto cache = MakeSimpleCache(1, 100.0f);
+    auto cache = MakeUniformCache(1, 100.0f);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 0.0f), 0);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 50.0f), 0);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 100.0f), 1); // ノードを過ぎた位置
@@ -958,7 +946,7 @@ TEST(FindFirstVisibleNodeIndex, SingleNode)
 
 TEST(FindFirstVisibleNodeIndex, LastNodeVisible)
 {
-    auto cache = MakeSimpleCache(10, 50.0f);
+    auto cache = MakeUniformCache(10, 50.0f);
     // viewport_top = 449 → ノード8は450で終了、まだ可視
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 449.0f), 8);
 }

@@ -47,6 +47,8 @@ add_executable(mendo_tests
     test_search_bar_controller.cpp
     test_session_service.cpp
     test_reducer.cpp
+    test_flat_map.cpp
+    test_string_convert.cpp
 )
 
 target_include_directories(mendo_tests PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})
@@ -60,6 +62,3 @@ target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)
 if(MSVC)
     target_compile_options(mendo_tests PRIVATE /W4 /utf-8)
 endif()
-
-include(GoogleTest)
-gtest_add_tests(TARGET mendo_tests)

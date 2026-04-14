@@ -21,6 +21,7 @@ struct TableLayoutData {
     std::pmr::vector<float> row_heights;
     std::pmr::vector<float> natural_col_widths; // リサイズ高速パス用キャッシュ
     std::pmr::vector<uint32_t> row_flat_offsets; // 各行の線形化テキスト先頭オフセット（ヒットテスト高速化用）
+    std::pmr::vector<uint8_t> row_bgs_computed; // 各行のインラインコード背景計算済みフラグ
 
     // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept { return row * col_count + col; }
@@ -142,6 +143,7 @@ public:
             if (e.table_layout) {
                 e.table_layout->cell_layouts.clear();
                 e.table_layout->cell_inline_code_bgs.clear();
+                e.table_layout->row_bgs_computed.clear();
                 e.table_layout->natural_col_widths.clear();
                 e.table_layout->col_count = 0;
             }
@@ -170,6 +172,7 @@ public:
             e.text_layout.Reset();
             if (e.table_layout) {
                 e.table_layout->cell_layouts.clear();
+                e.table_layout->row_bgs_computed.clear();
                 e.table_layout->natural_col_widths.clear();
                 e.table_layout->col_count = 0;
             }

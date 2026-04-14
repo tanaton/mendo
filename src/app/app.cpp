@@ -154,7 +154,7 @@ bool App::Init(HWND hwnd)
         }
     );
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), [this]() {
+    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(), [this]() {
         resource_manager_.ScheduleMermaidBatch();
     });
 
