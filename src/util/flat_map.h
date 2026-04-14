@@ -31,7 +31,8 @@ private:
     containers c;
 
     // キーを探す。end以外が返った際はキーと戻り値が一致することを比較して確定すること。
-    constexpr auto find_key(this auto& self, const key_type& key) noexcept {
+    constexpr auto find_key(this auto& self, const key_type& key) noexcept
+    {
         auto iter = self.c.keys.begin();
         const auto end = self.c.keys.end();
         if (self.c.keys.size() < linear_search_threshold) {
@@ -46,23 +47,29 @@ private:
     }
 
 public:
-    constexpr auto zip(this auto& self) noexcept {
+    constexpr auto zip(this auto& self) noexcept
+    {
         return std::ranges::zip_view{ self.c.keys, self.c.values };
     }
-    constexpr auto begin(this auto& self) noexcept {
+    constexpr auto begin(this auto& self) noexcept
+    {
         return self.zip().begin();
     }
-    constexpr auto end(this auto& self) noexcept {
+    constexpr auto end(this auto& self) noexcept
+    {
         return self.zip().end();
     }
-    constexpr auto cbegin() const noexcept {
+    constexpr auto cbegin() const noexcept
+    {
         return zip().cbegin();
     }
-    constexpr auto cend() const noexcept {
+    constexpr auto cend() const noexcept
+    {
         return zip().cend();
     }
 
-    constexpr auto find(this auto& self, const key_type& key) noexcept {
+    constexpr auto find(this auto& self, const key_type& key) noexcept
+    {
         const auto key_it = self.find_key(key);
         if (key_it != self.c.keys.end() && *key_it == key) {
             return self.begin() + (key_it - self.c.keys.begin());
@@ -70,48 +77,51 @@ public:
         return self.end();
     }
 
-    constexpr bool contains(const key_type& key) const noexcept {
+    constexpr bool contains(const key_type& key) const noexcept
+    {
         const auto key_it{ find_key(key) };
         return key_it != c.keys.cend() && *key_it == key;
     }
-    constexpr bool empty() const noexcept {
+    constexpr bool empty() const noexcept
+    {
         return c.keys.empty();
     }
-    constexpr size_t size() const noexcept {
+    constexpr size_t size() const noexcept
+    {
         return c.keys.size();
     }
-    constexpr void clear() noexcept {
+    constexpr void clear() noexcept
+    {
         c.keys.clear();
         c.values.clear();
     }
-    constexpr void reserve(size_t n) {
+    constexpr void reserve(size_t n)
+    {
         c.keys.reserve(n);
         c.values.reserve(n);
     }
-    constexpr void shrink_to_fit() {
+    constexpr void shrink_to_fit()
+    {
         c.keys.shrink_to_fit();
         c.values.shrink_to_fit();
     }
 
     template <class... Args>
-    constexpr auto try_emplace(const key_type& key, Args&&... args) {
+    constexpr auto try_emplace(const key_type& key, Args&&... args)
+    {
         const auto key_it{ find_key(key) };
         const auto dist{ key_it - c.keys.begin() };
         if (key_it != c.keys.end() && *key_it == key) {
             return std::pair{ begin() + dist, false };
         }
         c.keys.insert(key_it, key);
-        try {
-            c.values.emplace(c.values.begin() + dist, std::forward<Args>(args)...);
-        } catch (...) {
-            c.keys.erase(c.keys.begin() + dist);
-            throw;
-        }
+        c.values.emplace(c.values.begin() + dist, std::forward<Args>(args)...);
         return std::pair{ begin() + dist, true };
     }
 
     template <class M>
-    constexpr auto insert_or_assign(const key_type& key, M&& m) {
+    constexpr auto insert_or_assign(const key_type& key, M&& m)
+    {
         const auto key_it{ find_key(key) };
         const auto dist{ key_it - c.keys.begin() };
         if (key_it != c.keys.end() && *key_it == key) {
@@ -119,17 +129,13 @@ public:
             return std::pair{ begin() + dist, false };
         }
         c.keys.insert(key_it, key);
-        try {
-            c.values.emplace(c.values.begin() + dist, std::forward<M>(m));
-        } catch (...) {
-            c.keys.erase(c.keys.begin() + dist);
-            throw;
-        }
+        c.values.emplace(c.values.begin() + dist, std::forward<M>(m));
         return std::pair{ begin() + dist, true };
     }
 
     template <class Iterator>
-    constexpr auto erase(const Iterator it) {
+    constexpr auto erase(const Iterator it)
+    {
         if (auto e{ end() }; it == e) {
             return e;
         }
@@ -139,7 +145,8 @@ public:
         return begin() + dist;
     }
 
-    constexpr auto erase(const key_type& key) {
+    constexpr auto erase(const key_type& key)
+    {
         const auto key_it{ find_key(key) };
         if (key_it != c.keys.end() && *key_it == key) {
             const auto dist{ key_it - c.keys.begin() };
@@ -150,7 +157,8 @@ public:
         return end();
     }
 
-    constexpr void swap(FlatMap& other) noexcept {
+    constexpr void swap(FlatMap& other) noexcept
+    {
         std::ranges::swap(c.keys, other.c.keys);
         std::ranges::swap(c.values, other.c.values);
     }
