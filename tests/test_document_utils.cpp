@@ -2,7 +2,7 @@
 #include <memory_resource>
 #include <string_view>
 #include "document_utils.h"
-#include "layout_cache.h"
+#include "test_helpers.h"
 #include "parser.h"
 
 // ============================================================
@@ -1067,20 +1067,6 @@ TEST(IsPrefixOnlyDiff, IntegrationWithFindFirstDifference)
 // CalcScrollYForDiff
 // ============================================================
 
-// ヘルパー: 等間隔ノードの LayoutCache を構築する
-static LayoutCache MakeCache(int count, float node_height = 100.0f)
-{
-    LayoutCache cache;
-    cache.Resize(count);
-    float y = 0.0f;
-    for (int i = 0; i < count; ++i) {
-        cache[i].y_position = y;
-        cache[i].height = node_height;
-        y += node_height;
-    }
-    return cache;
-}
-
 // ヘルパー: source_offset を等間隔に設定したノード列を構築する
 static std::pmr::vector<Node> MakeNodes(int count, uint32_t offset_step = 100)
 {
@@ -1103,7 +1089,7 @@ TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
     // すべてのノードの source_offset が diff_pos より大きい
     auto nodes = MakeNodes(3, 100);
     nodes[0].source_offset = 50;
-    auto cache = MakeCache(3);
+    auto cache = MakeUniformCache(3);
     // diff_pos=10 < 全ノードの最小 offset(50) → -1 → fallback
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, "content", 10, 500.0f, 99.0f), 99.0f);
 }
@@ -1112,7 +1098,7 @@ TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
 {
     // 3ノード: offset=0,100,200 / y=0,100,200 / height=100
     auto nodes = MakeNodes(3, 100);
-    auto cache = MakeCache(3, 100.0f);
+    auto cache = MakeUniformCache(3, 100.0f);
     std::string content(300, 'x');
 
     // diff_pos=0 → node 0, y=0, margin=500*0.2=100 → max(0, 0-100)=0
@@ -1129,7 +1115,7 @@ TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
 {
     // 2ノード: offset=0,100 / y=0,1000 / height=1000
     auto nodes = MakeNodes(2, 100);
-    auto cache = MakeCache(2, 1000.0f);
+    auto cache = MakeUniformCache(2, 1000.0f);
     std::string content(200, 'x');
 
     // diff_pos=50 → node 0 (offset=0), next_start=100
@@ -1144,7 +1130,7 @@ TEST(CalcScrollYForDiff, FractionClampsToOne)
 {
     // diff_pos がノード範囲を超える場合でも fraction は 1.0 でクランプ
     auto nodes = MakeNodes(2, 100);
-    auto cache = MakeCache(2, 1000.0f);
+    auto cache = MakeUniformCache(2, 1000.0f);
     std::string content(200, 'x');
 
     // diff_pos=99 → node 0, fraction=99/100=0.99
@@ -1161,7 +1147,7 @@ TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
     nodes[0].source_offset = 0;
     nodes[1].source_offset = UINT32_MAX; // 未設定（HorizontalRule等）
     nodes[2].source_offset = 200;
-    auto cache = MakeCache(3, 100.0f);
+    auto cache = MakeUniformCache(3, 100.0f);
     std::string content(300, 'x');
 
     // diff_pos=100 → node 0 (offset=0), next valid = node 2 (offset=200)
@@ -1177,7 +1163,7 @@ TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
     // 最後のノードでは content.size() が next_start として使われる
     auto nodes = MakeNodes(1, 0);
     nodes[0].source_offset = 0;
-    auto cache = MakeCache(1, 1000.0f);
+    auto cache = MakeUniformCache(1, 1000.0f);
     std::string content(100, 'x');
 
     // diff_pos=50, next_start=content.size()=100
@@ -1192,7 +1178,7 @@ TEST(CalcScrollYForDiff, CacheSizeMismatchFallback)
 {
     // ノード数とキャッシュサイズが不一致の場合のフォールバック
     auto nodes = MakeNodes(5, 100);
-    auto cache = MakeCache(3, 100.0f); // キャッシュは3つだけ
+    auto cache = MakeUniformCache(3, 100.0f); // キャッシュは3つだけ
 
     // diff_pos=400 → node 4 だがキャッシュは3つ → fallback
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, std::string(500, 'x'), 400, 500.0f, 77.0f), 77.0f);
@@ -1222,4 +1208,142 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
     float result = CalcScrollYForDiff(nodes, cache, md, diff_pos, 500.0f, 0.0f);
     // スクロール位置は 0 以上で、fallback(0) とは異なる値が期待される
     EXPECT_GE(result, 0.0f);
+}
+
+// ============================================================
+// ToLowerAscii
+// ============================================================
+
+TEST(ToLowerAscii, AllUppercase)
+{
+    EXPECT_EQ(ToLowerAscii(L"HELLO"), L"hello");
+}
+
+TEST(ToLowerAscii, AllLowercase)
+{
+    EXPECT_EQ(ToLowerAscii(L"hello"), L"hello");
+}
+
+TEST(ToLowerAscii, MixedCase)
+{
+    EXPECT_EQ(ToLowerAscii(L"HeLLo WoRLd"), L"hello world");
+}
+
+TEST(ToLowerAscii, Empty)
+{
+    EXPECT_TRUE(ToLowerAscii(L"").empty());
+}
+
+TEST(ToLowerAscii, NonAsciiUnchanged)
+{
+    EXPECT_EQ(ToLowerAscii(L"日本語"), L"日本語");
+}
+
+TEST(ToLowerAscii, DigitsAndSymbols)
+{
+    EXPECT_EQ(ToLowerAscii(L"ABC-123_XYZ"), L"abc-123_xyz");
+}
+
+TEST(ToLowerAscii, BoundaryChars)
+{
+    // A(0x41)の直前@(0x40)、Z(0x5A)の直後[(0x5B)は変換されないこと
+    EXPECT_EQ(ToLowerAscii(L"@A[Z"), L"@a[z");
+}
+
+// ============================================================
+// IsMarkdownFile
+// ============================================================
+
+TEST(IsMarkdownFile, DotMd)
+{
+    EXPECT_TRUE(IsMarkdownFile(L"readme.md"));
+}
+
+TEST(IsMarkdownFile, DotMarkdown)
+{
+    EXPECT_TRUE(IsMarkdownFile(L"doc.markdown"));
+}
+
+TEST(IsMarkdownFile, DotMkd)
+{
+    EXPECT_TRUE(IsMarkdownFile(L"notes.mkd"));
+}
+
+TEST(IsMarkdownFile, UpperCaseExtension)
+{
+    EXPECT_TRUE(IsMarkdownFile(L"README.MD"));
+}
+
+TEST(IsMarkdownFile, MixedCaseExtension)
+{
+    EXPECT_TRUE(IsMarkdownFile(L"test.Markdown"));
+}
+
+TEST(IsMarkdownFile, FullPath)
+{
+    EXPECT_TRUE(IsMarkdownFile(L"C:\\Users\\user\\Documents\\file.md"));
+}
+
+TEST(IsMarkdownFile, NotMarkdown)
+{
+    EXPECT_FALSE(IsMarkdownFile(L"test.txt"));
+}
+
+TEST(IsMarkdownFile, NoExtension)
+{
+    EXPECT_FALSE(IsMarkdownFile(L"readme"));
+}
+
+TEST(IsMarkdownFile, EmptyPath)
+{
+    EXPECT_FALSE(IsMarkdownFile(L""));
+}
+
+TEST(IsMarkdownFile, DotOnly)
+{
+    EXPECT_FALSE(IsMarkdownFile(L"."));
+}
+
+TEST(IsMarkdownFile, SimilarExtension)
+{
+    EXPECT_FALSE(IsMarkdownFile(L"file.mdd"));
+}
+
+TEST(IsMarkdownFile, HtmlFile)
+{
+    EXPECT_FALSE(IsMarkdownFile(L"page.html"));
+}
+
+TEST(IsMarkdownFile, DotInDirectory)
+{
+    EXPECT_TRUE(IsMarkdownFile(L"C:\\my.project\\docs\\readme.md"));
+}
+
+// ============================================================
+// IsHelpPath
+// ============================================================
+
+TEST(IsHelpPath, CorrectPath)
+{
+    EXPECT_TRUE(IsHelpPath(L"mendo://help"));
+}
+
+TEST(IsHelpPath, WrongPath)
+{
+    EXPECT_FALSE(IsHelpPath(L"mendo://other"));
+}
+
+TEST(IsHelpPath, EmptyPath)
+{
+    EXPECT_FALSE(IsHelpPath(L""));
+}
+
+TEST(IsHelpPath, PartialMatch)
+{
+    EXPECT_FALSE(IsHelpPath(L"mendo://hel"));
+}
+
+TEST(IsHelpPath, CaseSensitive)
+{
+    EXPECT_FALSE(IsHelpPath(L"MENDO://HELP"));
 }
