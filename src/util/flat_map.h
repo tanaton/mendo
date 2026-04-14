@@ -101,7 +101,12 @@ public:
             return std::pair{ begin() + dist, false };
         }
         c.keys.insert(key_it, key);
-        c.values.emplace(c.values.begin() + dist, std::forward<Args>(args)...);
+        try {
+            c.values.emplace(c.values.begin() + dist, std::forward<Args>(args)...);
+        } catch (...) {
+            c.keys.erase(c.keys.begin() + dist);
+            throw;
+        }
         return std::pair{ begin() + dist, true };
     }
 
@@ -114,7 +119,12 @@ public:
             return std::pair{ begin() + dist, false };
         }
         c.keys.insert(key_it, key);
-        c.values.emplace(c.values.begin() + dist, std::forward<M>(m));
+        try {
+            c.values.emplace(c.values.begin() + dist, std::forward<M>(m));
+        } catch (...) {
+            c.keys.erase(c.keys.begin() + dist);
+            throw;
+        }
         return std::pair{ begin() + dist, true };
     }
 

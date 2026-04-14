@@ -97,6 +97,9 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
                 flat_offset = tl.row_flat_offsets[r + 1];
             } else {
                 advance_flat_offset(flat_offset, row, 0, row.cells.size());
+                if (r + 1 < node.table_rows().size()) {
+                    flat_offset++;
+                }
             }
             y = row_bottom;
             continue;
