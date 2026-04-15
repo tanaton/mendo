@@ -116,7 +116,7 @@ void FileWatcher::CheckForChanges()
                 break;
             }
             auto* next = reinterpret_cast<char*>(info) + info->NextEntryOffset;
-            if (next + sizeof(FILE_NOTIFY_INFORMATION) > buf_end) {
+            if (next + offsetof(FILE_NOTIFY_INFORMATION, FileName) > buf_end) {
                 break;
             }
             info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(next);

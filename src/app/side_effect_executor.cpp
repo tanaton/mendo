@@ -36,10 +36,6 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         [this](const effect::InvalidateWindow&) {
             InvalidateRect(hwnd_, nullptr, FALSE);
         },
-        [this](const effect::InvalidateRect&) {
-            // 現在は全面再描画。部分 Invalidate は描画負荷が問題になった時点で検討する。
-            InvalidateRect(hwnd_, nullptr, FALSE);
-        },
         [this](const effect::InvalidateTitleBar&) {
             InvalidateRect(hwnd_, nullptr, FALSE);
         },

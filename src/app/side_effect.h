@@ -16,7 +16,6 @@ namespace effect {
 
 // ---- 描画 ----
 struct InvalidateWindow {};
-struct InvalidateRect { PaneRect rect; };
 struct InvalidateTitleBar {};
 
 // ---- タイマー ----
@@ -130,7 +129,6 @@ struct HandleContextMenu { int screen_x; int screen_y; };
 
 using SideEffect = std::variant<
     effect::InvalidateWindow,
-    effect::InvalidateRect,
     effect::InvalidateTitleBar,
     effect::SetTimer,
     effect::KillTimer,
