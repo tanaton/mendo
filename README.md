@@ -1,6 +1,6 @@
 # mendo - かんたんMarkdownビュアー
 
-MarkdownをDirect2D/DirectWriteで直接描画するWindowsアプリです。
+軽量で単一の実行ファイルで動作するMarkdownビューア。ファイルをドラッグ＆ドロップするだけで、すぐに使えます。
 
 **[English](README.en.md)**
 
