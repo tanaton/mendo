@@ -11,6 +11,6 @@ NestedInstallerFiles:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/tanaton/mendo/releases/download/v0.1.2.5/mendo.zip
-    InstallerSha256: PLACEHOLDER
+    InstallerSha256: 14A3ACF2A22083AB595B1AF494D3CE8F7D9417568B29C5E654C384E81A247D4E
 ManifestType: installer
 ManifestVersion: 1.9.0
