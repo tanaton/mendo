@@ -33,13 +33,16 @@ jobs:
         with:
           name: mendo
 
+      - name: Create zip archive
+        run: zip mendo.zip mendo.exe
+
       - name: Generate SHA256 checksum
-        run: sha256sum mendo.exe > mendo.exe.sha256
+        run: sha256sum mendo.zip > mendo.zip.sha256
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            mendo.exe
-            mendo.exe.sha256
+            mendo.zip
+            mendo.zip.sha256
           generate_release_notes: true

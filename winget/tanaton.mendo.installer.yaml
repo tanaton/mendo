@@ -1,0 +1,16 @@
+# Created using winget CLI
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0
+
+PackageIdentifier: tanaton.mendo
+PackageVersion: 0.1.2.4
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: mendo.exe
+    PortableCommandAlias: mendo
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/tanaton/mendo/releases/download/v0.1.2.4/mendo.zip
+    InstallerSha256: PLACEHOLDER
+ManifestType: installer
+ManifestVersion: 1.9.0
