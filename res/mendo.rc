@@ -24,6 +24,17 @@ BEGIN
             VALUE "FileDescription", "mendo - Insanely Fast Markdown Viewer"
             VALUE "FileVersion", "0.1.2.4"
             VALUE "InternalName", "mendo"
+            VALUE "LegalCopyright", "Copyright (c) 2025 tanaton"
+            VALUE "OriginalFilename", "mendo.exe"
+            VALUE "ProductName", "mendo"
+            VALUE "ProductVersion", "0.1.2.4"
+        END
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription", "mendo - Insanely Fast Markdown Viewer"
+            VALUE "FileVersion", "0.1.2.4"
+            VALUE "InternalName", "mendo"
+            VALUE "LegalCopyright", "Copyright (c) 2025 tanaton"
             VALUE "OriginalFilename", "mendo.exe"
             VALUE "ProductName", "mendo"
             VALUE "ProductVersion", "0.1.2.4"
@@ -31,7 +42,7 @@ BEGIN
     END
     BLOCK "VarFileInfo"
     BEGIN
-        VALUE "Translation", 0x0411, 1200
+        VALUE "Translation", 0x0411, 1200, 0x0409, 1200
     END
 END
 

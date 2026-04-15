@@ -1,8 +1,8 @@
-![mendoのアイコン](./res/mendo_256x256.png)
-
 # mendo - かんたんMarkdownビュアー
 
 MarkdownをDirect2D/DirectWriteで直接描画するWindowsアプリです。
+
+**[English](README.en.md)**
 
 ![mendoのようす](./example/image/mendo_light.png)
 
@@ -145,4 +145,6 @@ mendo.exe [ファイルパス]
 
 ## ライセンス
 
-MIT
+[MIT](LICENSE)
+
+サードパーティライブラリのライセンスについては [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) を参照してください。

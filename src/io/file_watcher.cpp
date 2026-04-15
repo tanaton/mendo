@@ -101,6 +101,7 @@ void FileWatcher::CheckForChanges()
 
     bool target_changed = false;
     if (bytes_returned > 0) {
+        const auto* buf_end = reinterpret_cast<const char*>(change_buf_) + bytes_returned;
         auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(change_buf_);
         for (;;) {
             const std::wstring_view changed_name(info->FileName, info->FileNameLength / sizeof(wchar_t));
@@ -114,8 +115,11 @@ void FileWatcher::CheckForChanges()
             if (info->NextEntryOffset == 0) {
                 break;
             }
-            info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(
-                reinterpret_cast<char*>(info) + info->NextEntryOffset);
+            auto* next = reinterpret_cast<char*>(info) + info->NextEntryOffset;
+            if (next + sizeof(FILE_NOTIFY_INFORMATION) > buf_end) {
+                break;
+            }
+            info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(next);
         }
     }
 
