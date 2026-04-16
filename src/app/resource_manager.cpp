@@ -132,11 +132,11 @@ void ResourceManager::OnImageLoadComplete()
 // Mermaidリソース
 // ============================================================
 
-int ResourceManager::RequestMermaidRenders()
+void ResourceManager::InvalidateMermaidForWidthChange()
 {
     const float content_width = cb_.get_content_width();
     if (content_width <= 0.0f) {
-        return 0;
+        return;
     }
 
     if (last_mermaid_content_width_ > 0.0f &&
@@ -160,6 +160,16 @@ int ResourceManager::RequestMermaidRenders()
         mermaid_->ClearPendingQueue();
     }
     last_mermaid_content_width_ = content_width;
+}
+
+int ResourceManager::RequestMermaidRenders()
+{
+    InvalidateMermaidForWidthChange();
+
+    const float content_width = cb_.get_content_width();
+    if (content_width <= 0.0f) {
+        return 0;
+    }
 
     const float viewport_top = viewport_->GetScrollY();
     const float viewport_height = cb_.get_viewport_height();

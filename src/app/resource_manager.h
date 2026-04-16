@@ -49,6 +49,7 @@ public:
 
     // --- Mermaidリソース ---
     int RequestMermaidRenders();
+    void InvalidateMermaidForWidthChange();
     void OnMermaidRenderComplete();
     void CancelMermaidBatch();
     void ScheduleMermaidBatch();
