@@ -81,7 +81,7 @@ TEST(ScrollRestoration, ClearNodeRestore)
 }
 
 // ConsumeNavScrollはpending_restore_scroll_yに影響しない。
-// 呼び出し側（App）がナビゲーション復元時に別途設定する責務を持つ。
+// ナビゲーション復帰ではアンカー補償に任せるため、Appは設定しない。
 TEST(ScrollRestoration, ConsumeNavScrollDoesNotAffectPendingRestoreScrollY)
 {
     ScrollRestoration sr;
@@ -92,9 +92,10 @@ TEST(ScrollRestoration, ConsumeNavScrollDoesNotAffectPendingRestoreScrollY)
     EXPECT_EQ(sr.pending_restore_scroll_y, 1200);
 }
 
-// ナビゲーション復元のシナリオ:
-// ConsumeNavScroll後にpending_restore_scroll_yを設定し、
-// 遅延レイアウト完了時のドリフト補正に使う。
+// ScrollRestoration APIテスト:
+// ConsumeNavScroll後にpending_restore_scroll_yを手動設定できることを確認。
+// 注: ナビゲーション復帰時はAppが設定しない（アンカー補償に委ねる）。
+// セッション復元時のみ SetNodeRestore 経由で設定される。
 TEST(ScrollRestoration, NavRestoreThenSetPendingScrollY)
 {
     ScrollRestoration sr;
@@ -104,7 +105,7 @@ TEST(ScrollRestoration, NavRestoreThenSetPendingScrollY)
     EXPECT_FLOAT_EQ(scroll_y, 500.3f);
     EXPECT_FALSE(sr.HasNavScroll());
 
-    // App側が遅延レイアウトのドリフト補正用に設定する
+    // API上は手動設定可能（セッション復元で使用）
     sr.pending_restore_scroll_y = scroll_y;
     EXPECT_FLOAT_EQ(sr.pending_restore_scroll_y, 500.3f);
 }

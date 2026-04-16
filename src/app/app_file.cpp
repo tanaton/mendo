@@ -242,8 +242,8 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     }
     else if (state_.view.scroll_restore.HasNavScroll()) {
         scroll_y = state_.view.scroll_restore.ConsumeNavScroll();
-        // 遅延レイアウトのドリフト補正用（セッション復元と同じ仕組み）
-        state_.view.scroll_restore.pending_restore_scroll_y = scroll_y;
+        // ナビゲーション復帰では pending_restore_scroll_y を設定しない。
+        // 遅延レイアウト後のずれ補正はアンカー補償に委ねる。
     }
     else {
         // 新規ファイルオープン: 前回ナビゲーションの残留値をクリア
