@@ -8,7 +8,6 @@
 #include "mermaid.h"
 #include "image_loader.h"
 #include "document_service.h"
-#include "document_utils.h"
 #include "layout_service.h"
 #include "app_controller.h"
 #include "config_service.h"
@@ -36,10 +35,6 @@ public:
     void LoadHelpDocument();
     std::pmr::wstring LoadLastFilePath() const;
     void ShowDirectory(std::wstring_view dir_path);
-
-    // ヘルプ用仮想パス（document_utils.h の定義を委譲）
-    static constexpr std::wstring_view HELP_PATH = ::HELP_PATH;
-    static bool IsHelpPath(std::wstring_view path) noexcept { return ::IsHelpPath(path); }
 
     // Win32Windowから呼び出されるイベントハンドラ
     void OnPaint();
