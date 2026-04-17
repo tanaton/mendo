@@ -139,14 +139,13 @@ TEST_F(MermaidRendererTest, RequestRenderBeforeInitIsSafe)
 }
 
 // ═══════════════════════════════════════════════
-// CancelPending / ClearPendingQueue / ClearCache は初期化前でも安全
+// CancelPending / ClearCache は初期化前でも安全
 // ═══════════════════════════════════════════════
 
 TEST_F(MermaidRendererTest, CancelPendingBeforeInitIsSafe)
 {
     renderer_->Init(nullptr, nullptr, nullptr, nullptr);
     renderer_->CancelPending();
-    renderer_->ClearPendingQueue();
 
     EXPECT_FALSE(renderer_->IsInitialized());
 }
