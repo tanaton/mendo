@@ -114,8 +114,6 @@ void App::OnResizeEnd()
 
     ScheduleDeferredLayoutIfNeeded();
 
-    // RequestMermaidRenders は同期I/Oでブロックするため、バッチ経由で処理する
-    resource_manager_.InvalidateMermaidForWidthChange();
     resource_manager_.ScheduleMermaidBatch();
 }
 

@@ -224,6 +224,8 @@ void ResourceManager::ProcessMermaidBatch()
 {
     MENDO_PROFILE("ProcessMermaidBatch");
 
+    InvalidateMermaidForWidthChange();
+
     const float content_width = cb_.get_content_width();
     if (content_width <= 0.0f) {
         cb_.kill_timer(TIMER_MERMAID_BATCH);
