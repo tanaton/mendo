@@ -103,9 +103,6 @@ public:
     void OnEnterSizeMove() { Dispatch(EnterSizeMoveAction{}); }
     void OnExitSizeMove() { Dispatch(ExitSizeMoveAction{}); }
 
-    // WM_SETCURSOR用のカーソル状態
-    bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
-
     // ウィンドウ全体の再描画を要求する
     void Invalidate() noexcept { InvalidateRect(hwnd_, nullptr, FALSE); }
 

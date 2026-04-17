@@ -63,9 +63,6 @@ public:
     // --- ファイル切替時クリーンアップ ---
     void ClearResolvedPaths() noexcept { resolved_image_paths_.clear(); }
 
-    // --- バッチ状態 ---
-    bool IsBatchLoading() const noexcept { return mermaid_batch_loading_; }
-
 private:
     void InvalidateMermaidForWidthChange(float content_width);
 

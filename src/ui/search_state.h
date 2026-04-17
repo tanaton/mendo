@@ -47,7 +47,6 @@ public:
 
     // ハイライト表示のON/OFF
     bool IsHighlightEnabled() const noexcept { return highlight_enabled_; }
-    void SetHighlightEnabled(bool v) noexcept { highlight_enabled_ = v; }
     void ToggleHighlightEnabled() noexcept { highlight_enabled_ = !highlight_enabled_; }
 
     void SetQuery(std::wstring_view query);
