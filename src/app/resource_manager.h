@@ -49,7 +49,6 @@ public:
 
     // --- Mermaidリソース ---
     int RequestMermaidRenders();
-    void InvalidateMermaidForWidthChange();
     void OnMermaidRenderComplete();
     void CancelMermaidBatch();
     void ScheduleMermaidBatch();
@@ -68,6 +67,8 @@ public:
     bool IsBatchLoading() const noexcept { return mermaid_batch_loading_; }
 
 private:
+    void InvalidateMermaidForWidthChange(float content_width);
+
     Document* doc_ = nullptr;
     LayoutCache* cache_ = nullptr;
     ViewportManager* viewport_ = nullptr;

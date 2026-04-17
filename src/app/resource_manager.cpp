@@ -132,9 +132,8 @@ void ResourceManager::OnImageLoadComplete()
 // Mermaidリソース
 // ============================================================
 
-void ResourceManager::InvalidateMermaidForWidthChange()
+void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
 {
-    const float content_width = cb_.get_content_width();
     if (content_width <= 0.0f) {
         return;
     }
@@ -157,16 +156,17 @@ void ResourceManager::InvalidateMermaidForWidthChange()
         if (any_invalidated) {
             mermaid_->ClearCache();
         }
-        mermaid_->ClearPendingQueue();
+        // 旧幅で処理中のin-flightリクエストを無効化し、完了時に旧bitmapで上書きされるのを防ぐ
+        mermaid_->CancelPending();
     }
     last_mermaid_content_width_ = content_width;
 }
 
 int ResourceManager::RequestMermaidRenders()
 {
-    InvalidateMermaidForWidthChange();
-
     const float content_width = cb_.get_content_width();
+    InvalidateMermaidForWidthChange(content_width);
+
     if (content_width <= 0.0f) {
         return 0;
     }
@@ -224,9 +224,9 @@ void ResourceManager::ProcessMermaidBatch()
 {
     MENDO_PROFILE("ProcessMermaidBatch");
 
-    InvalidateMermaidForWidthChange();
-
     const float content_width = cb_.get_content_width();
+    InvalidateMermaidForWidthChange(content_width);
+
     if (content_width <= 0.0f) {
         cb_.kill_timer(TIMER_MERMAID_BATCH);
         return;
