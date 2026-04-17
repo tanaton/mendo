@@ -114,7 +114,7 @@ void App::OnResizeEnd()
 
     ScheduleDeferredLayoutIfNeeded();
 
-    resource_manager_.RequestMermaidRenders();
+    resource_manager_.ScheduleMermaidBatch();
 }
 
 void App::RefreshPaneLayout()
