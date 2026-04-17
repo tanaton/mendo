@@ -80,8 +80,6 @@ public:
     SearchBarRenderState BuildRenderState() const;
 
     // --- アクセサ ---
-    const SearchState& GetState() const noexcept { return *state_; }
-    SearchState& GetStateMut() noexcept { return *state_; }
     bool HasFocus() const noexcept { return has_focus_; }
     int GetCaretPos() const noexcept { return caret_pos_; }
     int GetSelectionStart() const noexcept { return selection_start_; }

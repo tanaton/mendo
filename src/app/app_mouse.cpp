@@ -150,7 +150,7 @@ void App::RefreshFilePane()
 
 bool App::OnRButtonDown(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) {
+    if (!IsRenderReady()) {
         return false;
     }
     if (state_.view.viewport.IsDragging()) {
@@ -199,7 +199,7 @@ bool App::OnRButtonUp(int px, int py)
 
 void App::OnRButtonMove(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) {
+    if (!IsRenderReady()) {
         return;
     }
     const auto dip = PixelToDip(px, py);
@@ -490,7 +490,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
 
 void App::OnLButtonDown(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) {
+    if (!IsRenderReady()) {
         return;
     }
 
@@ -669,7 +669,7 @@ void App::OnMouseMove(int px, int py)
 
 void App::OnMouseHover(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) {
+    if (!IsRenderReady()) {
         return;
     }
 

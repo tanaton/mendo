@@ -103,7 +103,7 @@ public:
     void OnEnterSizeMove() { Dispatch(EnterSizeMoveAction{}); }
     void OnExitSizeMove() { Dispatch(ExitSizeMoveAction{}); }
 
-    // WM_SETCURSOR用のカーソル状態
+    // D2D レンダーターゲットが初期化済みか。処理前のガードに使う
     bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
 
     // ウィンドウ全体の再描画を要求する

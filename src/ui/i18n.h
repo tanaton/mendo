@@ -5,8 +5,6 @@
 
 namespace i18n {
 
-enum class Lang : uint8_t { Ja, En };
-
 struct Strings {
     // タイトルバー tooltip
     std::wstring_view tooltip_open_file;
