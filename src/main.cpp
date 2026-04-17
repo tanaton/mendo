@@ -37,17 +37,18 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
             return 1;
         }
 
-        // コマンドラインでファイルが指定されていればそれを読み込み、なければ前回のファイルを復元
-        // CommandLineToArgvWで正規のパースを行い、引用符やスペースを正しく処理する
-        std::wstring_view initial_path;
+        // コマンドラインで有効なファイルが指定されていればそれを読み込み、
+        // なければ前回のファイルを復元、それも無ければヘルプを表示する。
+        // CommandLineToArgvWで正規のパースを行い、引用符やスペースを正しく処理する。
+        // 引数が存在しないファイル/フラグ文字列（例: --version）でも確実にヘルプへ
+        // 落ちるよう、GetFileAttributesW で実在を検証する。
         int argc = 0;
         LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-        if (argv && argc > 1) {
-            initial_path = argv[1];
-        }
+        const bool has_valid_file = argv && argc > 1 && argv[1][0] != L'\0'
+            && GetFileAttributesW(argv[1]) != INVALID_FILE_ATTRIBUTES;
 
-        if (!initial_path.empty()) {
-            window.LoadMarkdownFile(initial_path);
+        if (has_valid_file) {
+            window.LoadMarkdownFile(argv[1]);
         }
         else {
             const std::pmr::wstring last = window.LoadLastFilePath();
