@@ -73,6 +73,7 @@ add_library(mendo_core STATIC
     src/core/document_service.cpp
     src/core/document_utils.cpp
     src/core/parser.cpp
+    src/core/parser_alerts.cpp
     src/core/toc.cpp
     src/core/syntax.cpp
     # layout - レイアウト計算
@@ -145,9 +146,14 @@ add_executable(mendo WIN32
     src/main.cpp
     src/window/window.cpp
     src/app/app.cpp
+    src/app/app_init.cpp
     src/app/app_file.cpp
     src/app/app_scroll.cpp
     src/app/app_mouse.cpp
+    src/app/app_mouse_gesture.cpp
+    src/app/app_mouse_hover.cpp
+    src/app/app_mouse_md_pane.cpp
+    src/app/app_mouse_side_pane.cpp
     src/app/app_navigate.cpp
     src/app/app_context_menu.cpp
     src/app/app_clipboard.cpp
