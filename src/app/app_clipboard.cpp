@@ -9,7 +9,7 @@
 
 void App::OnLButtonDblClk(int px, int py)
 {
-    if (!renderer_.GetRenderTarget()) {
+    if (!IsRenderReady()) {
         return;
     }
     const auto dip = PixelToDip(px, py);

@@ -31,7 +31,7 @@ void App::ScrollTo(float position)
 
 void App::InvalidateMdPane(const PaneRect& md_rect)
 {
-    if (!renderer_.GetRenderTarget()) {
+    if (!IsRenderReady()) {
         Invalidate();
         return;
     }

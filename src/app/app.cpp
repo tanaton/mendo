@@ -468,7 +468,7 @@ void App::OnAppImageLoaded()
 
 void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
 {
-    if (!renderer_.GetRenderTarget()) {
+    if (!IsRenderReady()) {
         return;
     }
 

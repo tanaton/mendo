@@ -76,6 +76,8 @@ private:
     Callbacks cb_;
 
     float last_mermaid_content_width_ = 0.0f;
+    // バッチ/フラッシュ中の OnMermaidRenderComplete 再入ガード。
+    // 同期的にレンダー完了が連鎖した場合に recompute_layout_anchored が毎回走るのを抑止する。
     bool mermaid_batch_loading_ = false;
     size_t mermaid_batch_next_ = 0;
     FlatMap<size_t, std::wstring> resolved_image_paths_;
