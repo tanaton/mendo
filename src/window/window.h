@@ -47,6 +47,7 @@ private:
     HWND search_edit_ = nullptr;
     bool in_sys_menu_ = false;   // システムメニューのモーダルループ中フラグ
     bool tracking_mouse_ = false; // TrackMouseEvent によるマウス追跡中フラグ
+    bool was_minimized_ = false;  // 直前が最小化状態だったかのフラグ（復元時の同期描画ガード用）
 
     // WM_NCHITTEST用DPIメトリクスキャッシュ（WM_DPICHANGED時に更新）
     int cached_nchit_border_ = 4;
