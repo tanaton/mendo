@@ -61,11 +61,12 @@ private:
     struct WStringHash {
         using is_transparent = void;
         size_t operator()(std::wstring_view sv) const noexcept { return std::hash<std::wstring_view>{}(sv); }
-        size_t operator()(const std::pmr::wstring& s) const noexcept { return std::hash<std::wstring_view>{}(std::wstring_view{ s.data(), s.size() }); }
     };
 
-    std::pmr::vector<std::pmr::wstring> path_pool_;
-    std::pmr::unordered_map<std::pmr::wstring, uint32_t, WStringHash, std::equal_to<>> path_index_;
+    // path_pool_ は deque にして emplace_back での参照安定性を保証し、
+    // path_index_ のキー (std::wstring_view) が pool 内の文字列を指し続けるようにする。
+    std::pmr::deque<std::pmr::wstring> path_pool_;
+    std::pmr::unordered_map<std::wstring_view, uint32_t, WStringHash, std::equal_to<>> path_index_;
     std::pmr::deque<InternalEntry> back_stack_;
     std::pmr::deque<InternalEntry> forward_stack_;
 };

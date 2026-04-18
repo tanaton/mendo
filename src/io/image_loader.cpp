@@ -150,13 +150,6 @@ bool ImageLoader::GetCachedImage(const std::wstring& abs_path, DiagramEntry& out
 
 void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_complete)
 {
-    if (cache_.Contains(abs_path)) {
-        if (on_complete) {
-            on_complete();
-        }
-        return;
-    }
-
     {
         const std::lock_guard lock(pending_mutex_);
         if (!pending_paths_.insert(abs_path).second) {

@@ -49,6 +49,9 @@ void FileExplorer::Refresh()
     }
 
     struct SortSlot {
+        // ASCII A-Z のみ小文字化した比較キー。_wcsicmp は Unicode 大小無視だったが
+        // ローカルファイル名の実用上の並びは ASCII 大小無視で十分なため、
+        // ソート前処理コストを削減する Schwartzian transform を優先する。
         std::pmr::wstring sort_key;
         FileEntry entry;
     };

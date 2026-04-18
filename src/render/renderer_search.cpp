@@ -102,9 +102,9 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
             && std::equal(cached_search_text_.begin(), cached_search_text_.end(), display_text.begin());
         if (cache_hit) {
             text_layout = cached_search_layout_;
-            // 前フレームで IME 合成下線を付けた場合のみクリアする
-            // （IME 非アクティブ継続時は毎フレーム SetUnderline を発行しない）
-            if (cached_search_has_underline_ && !has_comp) {
+            // 前フレームの下線範囲と異なる可能性があるため、キャッシュ上に下線が残っていれば
+            // 常に全体をクリアする。IME 非アクティブ継続時はクリアも発行されない。
+            if (cached_search_has_underline_) {
                 text_layout->SetUnderline(FALSE, DWRITE_TEXT_RANGE{ 0, static_cast<UINT32>(cached_search_text_.size()) });
                 cached_search_has_underline_ = false;
             }
