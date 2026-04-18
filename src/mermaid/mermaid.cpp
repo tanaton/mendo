@@ -71,6 +71,7 @@ static std::pmr::wstring GetWebView2UserDataFolder()
 static const wchar_t* MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
 // 仮想ホストURL
+static constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 static constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
 
 // ---- MermaidRendererの実装 ----
@@ -316,8 +317,8 @@ void MermaidRenderer::SetupWorker(int index)
                 [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static->HRESULT {
             LPWSTR uri = nullptr;
             if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
-                if (wcsncmp(uri, L"https://app.local/", 18) != 0 &&
-                    wcscmp(uri, L"about:blank") != 0) {
+                const std::wstring_view u(uri);
+                if (!u.starts_with(APP_LOCAL_ORIGIN_PREFIX) && u != L"about:blank") {
                     args->put_Cancel(TRUE);
                 }
                 CoTaskMemFree(uri);
@@ -354,7 +355,7 @@ void MermaidRenderer::SetupWorker(int index)
             // https://app.local/ 以外へのリクエストをブロックする。
             // NavigationStartingと判定ロジックを揃え、app.local.evil.comのような
             // 部分一致によるサブドメイン経由の経路を塞ぐ。
-            if (url.compare(0, 18, L"https://app.local/") != 0) {
+            if (!std::wstring_view(url).starts_with(APP_LOCAL_ORIGIN_PREFIX)) {
                 Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
                 webview_env_->CreateWebResourceResponse(nullptr, 403, L"Blocked", L"", &response);
                 args->put_Response(response.Get());
