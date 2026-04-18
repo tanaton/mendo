@@ -12,7 +12,6 @@
 #include <functional>
 #include "lru_cache.h"
 #include <queue>
-#include <span>
 #include <memory_resource>
 
 
@@ -123,7 +122,6 @@ private:
     ID2D1RenderTarget* render_target_ = nullptr;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> webview_env_;
-    std::span<const std::byte> cached_mermaid_gz_; // Win32リソースから直接参照するgzip圧縮済みmermaid.js
 
     Worker workers_[MAX_WORKERS];
     int worker_count_ = 0;

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; }
+  body { background: white; }
+  body.dark { background: #1e1e1e; }
+  #container { display: block; }
+</style>
+<script>
+  let currentTheme = null;
+  let renderCount = 0;
+
+  function mermaidReady() {
+    return typeof mermaid !== 'undefined' && typeof mermaid.render === 'function';
+  }
+
+  async function renderMermaid(code, isDark, maxWidth) {
+    try {
+      if (!mermaidReady()) {
+        return JSON.stringify({ ok: false, error: 'mermaid not loaded' });
+      }
+      const wantTheme = isDark ? 'dark' : 'default';
+      document.body.className = isDark ? 'dark' : '';
+      if (currentTheme !== wantTheme) {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: wantTheme,
+          securityLevel: 'strict'
+        });
+        currentTheme = wantTheme;
+      }
+      const container = document.getElementById('container');
+      container.innerHTML = '';
+      document.body.style.width = '';
+      container.style.maxWidth = '';
+      renderCount++;
+      const id = 'mmd-' + renderCount;
+      const { svg } = await mermaid.render(id, code);
+      container.innerHTML = svg;
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const svgEl = container.querySelector('svg');
+      if (svgEl) {
+        const rect = svgEl.getBoundingClientRect();
+        return JSON.stringify({
+          width: Math.ceil(rect.width),
+          height: Math.ceil(rect.height),
+          dpr: window.devicePixelRatio || 1,
+          ok: true
+        });
+      }
+      return JSON.stringify({ ok: false, error: 'SVG not found' });
+    } catch (e) {
+      return JSON.stringify({ ok: false, error: e.message || String(e) });
+    }
+  }
+
+  (async function() {
+    try {
+      const resp = await fetch('https://app.local/mermaid.min.js.gz');
+      const ds = new DecompressionStream('gzip');
+      const text = await new Response(resp.body.pipeThrough(ds)).text();
+      const blob = new Blob([text], {type: 'application/javascript'});
+      const url = URL.createObjectURL(blob);
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+      URL.revokeObjectURL(url);
+      var dpr = window.devicePixelRatio || 1;
+      window.chrome.webview.postMessage(
+        mermaidReady() ? ('mermaid-ready:' + dpr) : 'mermaid-failed');
+    } catch(e) {
+      window.chrome.webview.postMessage('mermaid-failed');
+    }
+  })();
+</script>
+</head>
+<body>
+<div id="container"></div>
+</body>
+</html>

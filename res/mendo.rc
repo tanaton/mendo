@@ -39,6 +39,9 @@ END
 // Embedded mermaid.js (gzip compressed) for offline rendering
 IDR_MERMAID_JS_GZ RCDATA "..\\third_party\\mermaid\\mermaid.min.js.gz"
 
+// Embedded HTML template for mermaid rendering host
+IDR_MERMAID_HTML RCDATA "mermaid.html"
+
 // Embedded help documents (UTF-8 Markdown)
 IDR_HELP_MD    RCDATA "help_ja.md"
 IDR_HELP_EN_MD RCDATA "help_en.md"

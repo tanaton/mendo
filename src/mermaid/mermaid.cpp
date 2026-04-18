@@ -11,104 +11,6 @@
 
 #pragma comment(lib, "windowscodecs.lib")
 
-static std::span<const std::byte> LoadMermaidJsGzFromResource()
-{
-    return LoadRcData(IDR_MERMAID_JS_GZ);
-}
-
-// 仮想ホスト経由で配信される小さなHTMLテンプレート。mermaid.jsは別の
-// <script src>として読み込まれるため、HTMLは2MBのNavigateToString制限を
-// 十分に下回る。両リソースはWebResourceRequestedによりインプロセスで配信される。
-static const char MERMAID_HTML[] = R"HTML(<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  html, body { margin: 0; padding: 0; overflow: hidden; }
-  body { background: white; }
-  body.dark { background: #1e1e1e; }
-  #container { display: block; }
-</style>
-<script>
-  let currentTheme = null;
-  let renderCount = 0;
-
-  function mermaidReady() {
-    return typeof mermaid !== 'undefined' && typeof mermaid.render === 'function';
-  }
-
-  async function renderMermaid(code, isDark, maxWidth) {
-    try {
-      if (!mermaidReady()) {
-        return JSON.stringify({ ok: false, error: 'mermaid not loaded' });
-      }
-      const wantTheme = isDark ? 'dark' : 'default';
-      document.body.className = isDark ? 'dark' : '';
-      if (currentTheme !== wantTheme) {
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: wantTheme,
-          securityLevel: 'strict'
-        });
-        currentTheme = wantTheme;
-      }
-      const container = document.getElementById('container');
-      container.innerHTML = '';
-      // 以前の幅制約をリセット
-      document.body.style.width = '';
-      container.style.maxWidth = '';
-      renderCount++;
-      const id = 'mmd-' + renderCount;
-      const { svg } = await mermaid.render(id, code);
-      container.innerHTML = svg;
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-      const svgEl = container.querySelector('svg');
-      if (svgEl) {
-        const rect = svgEl.getBoundingClientRect();
-        return JSON.stringify({
-          width: Math.ceil(rect.width),
-          height: Math.ceil(rect.height),
-          dpr: window.devicePixelRatio || 1,
-          ok: true
-        });
-      }
-      return JSON.stringify({ ok: false, error: 'SVG not found' });
-    } catch (e) {
-      return JSON.stringify({ ok: false, error: e.message || String(e) });
-    }
-  }
-
-  // DecompressionStream APIを使ってgzip圧縮されたmermaid.jsを読み込む
-  (async function() {
-    try {
-      const resp = await fetch('https://app.local/mermaid.min.js.gz');
-      const ds = new DecompressionStream('gzip');
-      const text = await new Response(resp.body.pipeThrough(ds)).text();
-      const blob = new Blob([text], {type: 'application/javascript'});
-      const url = URL.createObjectURL(blob);
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = url;
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
-      URL.revokeObjectURL(url);
-      var dpr = window.devicePixelRatio || 1;
-      window.chrome.webview.postMessage(
-        mermaidReady() ? ('mermaid-ready:' + dpr) : 'mermaid-failed');
-    } catch(e) {
-      window.chrome.webview.postMessage('mermaid-failed');
-    }
-  })();
-</script>
-</head>
-<body>
-<div id="container"></div>
-</body>
-</html>
-)HTML";
-
 // IStreamから全バイトを読み出す（ファイルキャッシュ保存用）。
 static std::vector<uint8_t> ReadAllStreamBytes(IStream* stream)
 {
@@ -208,8 +110,7 @@ void MermaidRenderer::Shutdown()
     initialized_ = false;
 }
 
-void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
-    std::move_only_function<void()> on_ready)
+void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic, std::move_only_function<void()> on_ready)
 {
     hwnd_ = hwnd;
     render_target_ = render_target;
@@ -218,7 +119,8 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImag
     // PNGデコード用のWICファクトリ（D2DRenderBackendから共有）
     if (wic) {
         wic_factory_ = wic;
-    } else {
+    }
+    else {
         CoCreateInstance(
             CLSID_WICImagingFactory,
             nullptr,
@@ -406,8 +308,7 @@ void MermaidRenderer::SetupWorker(int index)
                 CoTaskMemFree(msg);
             }
             return S_OK;
-        }).Get(),
-            nullptr);
+        }).Get(), nullptr);
 
         // ナビゲーションを制限: app.local以外へのナビゲーションをブロック
         w.webview->add_NavigationStarting(
@@ -422,8 +323,7 @@ void MermaidRenderer::SetupWorker(int index)
                 CoTaskMemFree(uri);
             }
             return S_OK;
-        }).Get(),
-            nullptr);
+        }).Get(), nullptr);
 
         // 新規ウィンドウの要求を全てブロック
         w.webview->add_NewWindowRequested(
@@ -463,17 +363,15 @@ void MermaidRenderer::SetupWorker(int index)
             const wchar_t* headers = nullptr;
 
             if (url.find(L"/mermaid.min.js.gz") != std::pmr::wstring::npos) {
-                // gzip圧縮されたmermaid.js（キャッシュ済み）を配信する。JSがDecompressionStreamで展開する
-                if (cached_mermaid_gz_.empty()) {
-                    cached_mermaid_gz_ = LoadMermaidJsGzFromResource();
-                }
-                const auto& gz = cached_mermaid_gz_;
+                // gzip圧縮されたmermaid.jsを配信する。JSがDecompressionStreamで展開する
+                const auto gz = LoadRcData(IDR_MERMAID_JS_GZ);
                 stream = CreateMemoryStream(gz.data(), gz.size());
                 headers = L"Content-Type: application/gzip";
             }
             else {
-                // その他のパスにはHTMLテンプレートを配信する
-                stream = CreateMemoryStream(MERMAID_HTML, sizeof(MERMAID_HTML) - 1);
+                // その他のパスにはHTMLテンプレート（res/mermaid.html）を配信する
+                const auto html = LoadRcData(IDR_MERMAID_HTML);
+                stream = CreateMemoryStream(html.data(), html.size());
                 headers = L"Content-Type: text/html; charset=utf-8";
             }
 
@@ -675,8 +573,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     const int h_phys = static_cast<int>(4096 * worker.dpr);
     const RECT bounds = { 0, 0, vp_phys, h_phys };
     worker.controller->put_Bounds(bounds);
-    SetWindowPos(worker.hwnd, nullptr, -32000, -32000, vp_phys, h_phys,
-        SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(worker.hwnd, nullptr, -32000, -32000, vp_phys, h_phys, SWP_NOZORDER | SWP_NOACTIVATE);
 
     // Mermaidをレンダリングする（maxWidth=0はCSS制約なし、ビューポートが制約する）
     // リクエストIDをpostMessageに含め、C++側でコールバックとリクエストを照合する
@@ -747,8 +644,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
     w.controller->put_Bounds(capBounds);
 
     // ホストポップアップウィンドウも同じサイズにリサイズする
-    SetWindowPos(w.hwnd, nullptr, -32000, -32000, cw, ch,
-        SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(w.hwnd, nullptr, -32000, -32000, cw, ch, SWP_NOZORDER | SWP_NOACTIVATE);
 
     // rAFを使ってWebViewが新しいサイズで再レンダリングするのを待ち、
     // postMessageでシグナルを送る（Promise-awaitの問題を回避する）。
