@@ -507,15 +507,18 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         // （例: 237×39）を通知してくる。そのままResizeBuffersを呼ぶとスワップチェーンが
         // その小サイズになり、DWM合成時にアプリサイズへ引き伸ばされてフラッシュになる。
         if (wParam == SIZE_MINIMIZED) {
+            was_minimized_ = true;
             return 0;
         }
         app_->OnResize(LOWORD(lParam), HIWORD(lParam));
         RepositionSearchEdit();
         // ResizeBuffers直後のバックバッファは未定義。DWMが復元アニメーション中に
         // その未定義フレームを合成してしまう前に、同期的にWM_PAINTを走らせて
-        // 新フレームをPresentしておく。
-        if (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED) {
+        // 新フレームをPresentしておく。対話的リサイズでは不要なので、
+        // 最小化からの復元時に限定する。
+        if (was_minimized_ && (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED)) {
             UpdateWindow(hwnd_);
+            was_minimized_ = false;
         }
         return 0;
 
