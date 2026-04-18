@@ -1,5 +1,6 @@
 #include "command_generator.h"
 #include "i18n.h"
+#include "layout.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <format>
@@ -97,6 +98,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     const float indent = node.indent_level * theme_->indent_width;
     const float x = frame_offset_x_ + indent;
     const float cw = frame_content_width_ - indent;
+    const float text_x = x + NodeTextXOffset(node, *theme_);
 
     switch (node.type) {
     case NodeType::HorizontalRule:
@@ -178,10 +180,10 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     }
 
     // インラインコードの背景
-    GenInlineCodeBgs(cmds, entry.inline_code_bgs, x, entry.y_position, theme_->code_bg_color);
+    GenInlineCodeBgs(cmds, entry.inline_code_bgs, text_x, entry.y_position, theme_->code_bg_color);
 
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
-    GenSearchHighlights(cmds, entry.text_layout.Get(), node_index, x, entry.y_position);
+    GenSearchHighlights(cmds, entry.text_layout.Get(), node_index, text_x, entry.y_position);
 
     // 選択範囲のハイライト
     const auto& selection = *frame_selection_;
@@ -196,12 +198,12 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         }
         if (sel_end > sel_start) {
             GenSelectionHighlight(cmds, entry.text_layout.Get(),
-                sel_start, sel_end - sel_start, x, entry.y_position);
+                sel_start, sel_end - sel_start, text_x, entry.y_position);
         }
     }
 
     // メインテキスト
-    cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(x, entry.y_position), entry.text_layout.Get(), base_color });
+    cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, entry.y_position), entry.text_layout.Get(), base_color });
 
     // タスクリストのチェックボックス
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {
@@ -233,7 +235,7 @@ void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds,
 {
     const float pad = theme_->code_block_padding;
     const D2D1_RECT_F bg_rect = D2D1::RectF(
-        x - pad,
+        x,
         entry.y_position - pad,
         x + w,
         entry.y_position + entry.height + pad

@@ -6,6 +6,14 @@
 #include <dwrite.h>
 #include <memory_resource>
 
+// コードブロック本文の左端を背景内側にオフセットする量（段落は 0）。
+// 描画側（command_generator）と入力側（hit_test_service）で座標空間がずれないよう
+// 単一のソースに集約する。
+[[nodiscard]] inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
+{
+    return (node.type == NodeType::CodeBlock) ? theme.code_block_padding : 0.0f;
+}
+
 // テーブルの自然幅（実測値）と利用可能な幅から列幅を計算する。
 // 最終的な列幅のベクターを返す。
 [[nodiscard]] std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natural_widths,
