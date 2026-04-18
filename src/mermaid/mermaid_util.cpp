@@ -4,6 +4,7 @@
 #include <cmath>
 #include <format>
 #include <iterator>
+#include <ranges>
 
 std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
 {
@@ -35,22 +36,16 @@ std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
 
 uint64_t mermaid_util::HashRaw(std::wstring_view input) noexcept
 {
-    uint64_t hash = 14695981039346656037ULL;
-    for (wchar_t c : input) {
-        hash ^= static_cast<uint64_t>(c);
-        hash *= 1099511628211ULL;
-    }
-    return hash;
+    return std::ranges::fold_left(input, 14695981039346656037ULL, [](uint64_t h, wchar_t c) static noexcept {
+        return (h ^ static_cast<uint64_t>(c)) * 1099511628211ULL;
+    });
 }
 
 uint64_t mermaid_util::HashRaw(std::string_view input) noexcept
 {
-    uint64_t hash = 14695981039346656037ULL;
-    for (char c : input) {
-        hash ^= static_cast<uint64_t>(static_cast<unsigned char>(c));
-        hash *= 1099511628211ULL;
-    }
-    return hash;
+    return std::ranges::fold_left(input, 14695981039346656037ULL, [](uint64_t h, char c) static noexcept {
+        return (h ^ static_cast<uint64_t>(static_cast<unsigned char>(c))) * 1099511628211ULL;
+    });
 }
 
 std::pmr::wstring mermaid_util::SimpleHash(std::wstring_view input)

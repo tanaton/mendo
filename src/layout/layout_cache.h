@@ -7,6 +7,7 @@
 #include <dwrite.h>
 #include <algorithm>
 #include <cassert>
+#include <ranges>
 
 
 // インラインコードの背景矩形（レイアウト原点からの相対座標、パディング適用済み）
@@ -169,9 +170,9 @@ public:
     void InvalidateMermaidBitmaps(const std::pmr::vector<Node>& nodes) noexcept
     {
         const auto count = std::min(nodes.size(), diagrams_.size());
-        for (size_t i = 0; i < count; ++i) {
-            if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
-                diagrams_[i].bitmap.Reset();
+        for (const auto& [idx, node] : nodes | std::views::take(count) | std::views::enumerate) {
+            if (node.code_language == SyntaxLanguage::Mermaid) {
+                diagrams_[static_cast<size_t>(idx)].bitmap.Reset();
             }
         }
     }

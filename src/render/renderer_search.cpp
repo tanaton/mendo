@@ -1,6 +1,7 @@
 #include "renderer.h"
 #include "ui_constants.h"
 #include <algorithm>
+#include <ranges>
 #include <wrl/client.h>
 
 void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect)
@@ -98,8 +99,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         const bool cache_hit = cached_search_layout_
             && cached_search_width_ == input_w
             && cached_search_height_ == input_h
-            && cached_search_text_.size() == display_text.size()
-            && std::equal(cached_search_text_.begin(), cached_search_text_.end(), display_text.begin());
+            && std::ranges::equal(cached_search_text_, display_text);
         if (cache_hit) {
             text_layout = cached_search_layout_;
             // 前フレームの下線範囲と異なる可能性があるため、キャッシュ上に下線が残っていれば
@@ -271,8 +271,7 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
     // （IME コンポジションが無く、query と表示テキストが一致）を高速パスに。
     const bool cache_hit = cached_search_layout_
         && cached_search_width_ == max_width
-        && cached_search_text_.size() == query.size()
-        && std::equal(cached_search_text_.begin(), cached_search_text_.end(), query.begin());
+        && std::ranges::equal(cached_search_text_, query);
     if (cache_hit) {
         layout = cached_search_layout_;
     }

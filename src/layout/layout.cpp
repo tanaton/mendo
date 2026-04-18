@@ -56,14 +56,14 @@ std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natur
     );
 
     if (total_natural > 0 && total_natural > available_width) {
-        for (size_t c = 0; c < col_count; c++) {
-            widths[c] = std::max(MIN_COLUMN_WIDTH, available_width * natural_widths[c] / total_natural);
+        for (auto [w, nw] : std::views::zip(widths, natural_widths) | std::views::take(col_count)) {
+            w = std::max(MIN_COLUMN_WIDTH, available_width * nw / total_natural);
         }
     }
     else {
         const float even = available_width / static_cast<float>(col_count);
-        for (size_t c = 0; c < col_count; c++) {
-            widths[c] = std::max(natural_widths[c] + COLUMN_WIDTH_PADDING, even);
+        for (auto [w, nw] : std::views::zip(widths, natural_widths) | std::views::take(col_count)) {
+            w = std::max(nw + COLUMN_WIDTH_PADDING, even);
         }
     }
     return widths;
@@ -75,16 +75,15 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
     // 概算でreserveし、1パスで構築する（二重走査を回避）
     std::pmr::wstring text;
     text.reserve(row_count * 64); // 行あたり平均64文字の概算
-    for (size_t r = 0; r < row_count; r++) {
-        const auto& row = rows[r];
-        const auto col_count = row.cells.size();
-        for (size_t c = 0; c < col_count; c++) {
+    const auto last_row = static_cast<ptrdiff_t>(row_count) - 1;
+    for (const auto& [r, row] : rows | std::views::enumerate) {
+        for (const auto& [c, cell] : row.cells | std::views::enumerate) {
             if (c > 0) {
                 text += L'\t';
             }
-            text += row.cells[c].text;
+            text += cell.text;
         }
-        if (r + 1 < row_count) {
+        if (r < last_row) {
             text += L'\n';
         }
     }
