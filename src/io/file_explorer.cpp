@@ -96,8 +96,12 @@ void FileExplorer::Refresh()
 
     // 追加: ディレクトリを先に、次にファイル
     entries_.reserve(entries_.size() + dirs.size() + files.size());
-    for (auto& s : dirs) entries_.emplace_back(std::move(s.entry));
-    for (auto& s : files) entries_.emplace_back(std::move(s.entry));
+    for (auto& s : dirs) {
+        entries_.emplace_back(std::move(s.entry));
+    }
+    for (auto& s : files) {
+        entries_.emplace_back(std::move(s.entry));
+    }
 }
 
 int FileExplorer::HitTest(float local_y, float item_height) const noexcept
