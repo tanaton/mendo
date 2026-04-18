@@ -195,6 +195,8 @@ private:
     void DoLoadMarkdownFile();
     void BeginAsyncLoad(const std::pmr::wstring& path);
     void FinishLoadMarkdownFile(bool heights_estimated = false);
+    // ロード失敗時のフォールバック: 初回起動で空画面になるのを避けるためヘルプを表示する
+    void HandleLoadFailureFallback();
     float CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const;
     void ApplyMermaidCacheHeights(float md_width);
     bool ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size);

@@ -105,12 +105,22 @@ void App::DoLoadMarkdownFile()
         auto load_result = file_load_service_.ExecuteLoad(state_.document.doc, state_.document.layout_cache);
         if (!load_result) {
             ShowToast(FileLoadErrorMessage(load_result.error(), i18n::S()));
-            Invalidate();
+            HandleLoadFailureFallback();
             return;
         }
     }
 
     FinishLoadMarkdownFile();
+}
+
+void App::HandleLoadFailureFallback()
+{
+    if (state_.document.doc.IsEmpty()) {
+        LoadHelpDocument();
+    }
+    else {
+        Invalidate();
+    }
 }
 
 void App::OnParseComplete()
@@ -123,7 +133,7 @@ void App::OnParseComplete()
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
         // LoadFile失敗時、FileWatcherがpausedのまま残るのを防ぐ
         doc_service_.ResumeWatching();
-        Invalidate();
+        HandleLoadFailureFallback();
         return;
     }
 
