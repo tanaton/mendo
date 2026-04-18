@@ -1,24 +1,17 @@
 #include "navigation_service.h"
+#include <algorithm>
+#include <ranges>
 
 // ShellExecuteWに渡しても安全なURLスキームかどうかを判定する。
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
 static bool IsSafeUrlScheme(std::wstring_view url) noexcept
 {
-    const auto starts_with_i = [](std::wstring_view s, std::wstring_view prefix) static noexcept {
-        if (s.size() < prefix.size()) {
-            return false;
-        }
-        const auto prefix_len = prefix.size();
-        for (size_t i = 0; i < prefix_len; i++) {
-            wchar_t a = s[i], b = prefix[i];
-            if (a >= L'A' && a <= L'Z') {
-                a += L'a' - L'A';
-            }
-            if (a != b) {
-                return false;
-            }
-        }
-        return true;
+    const auto to_lower = [](wchar_t c) static noexcept {
+        return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c + (L'a' - L'A')) : c;
+    };
+    const auto starts_with_i = [&](std::wstring_view s, std::wstring_view prefix) noexcept {
+        return s.size() >= prefix.size()
+            && std::ranges::equal(s | std::views::take(prefix.size()), prefix, {}, to_lower, to_lower);
     };
     return starts_with_i(url, L"http://") || starts_with_i(url, L"https://") || starts_with_i(url, L"mailto:");
 }

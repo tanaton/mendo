@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <ranges>
 
 // 固定サイズの LRU (Least Recently Used) キャッシュ。
 // キーと値を連続メモリ上に保持し、CPU キャッシュの局所性を最大化する。
@@ -36,14 +37,10 @@ public:
     }
 
     // キーが存在するかチェック（アクセス世代は更新しない）。
+    // 有効エントリは [0, size_) の範囲に限定する（他メソッドと同じ論理サイズ）。
     bool Contains(const Key& key) const
     {
-        for (size_t i = 0; i < size_; i++) {
-            if (keys_[i] == key) {
-                return true;
-            }
-        }
-        return false;
+        return std::ranges::contains(keys_ | std::views::take(size_), key);
     }
 
     // エントリを挿入する。既存キーの場合は値を上書きしてアクセス世代を更新する。

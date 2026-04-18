@@ -46,34 +46,34 @@ std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes, const
 
 static std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>& runs, const std::pmr::vector<std::pmr::wstring>& link_urls, uint32_t pos)
 {
-    for (const auto& run : runs) {
-        if (run.has_link() && (pos >= run.start) && (pos < run.start + run.length)) {
-            return link_urls[static_cast<size_t>(run.link_url_index)];
-        }
+    const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
+        return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
+    });
+    if (it == runs.end()) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return link_urls[static_cast<size_t>(it->link_url_index)];
 }
 
 static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node, uint32_t text_pos, uint32_t& local_pos)
 {
     uint32_t offset = 0;
     const auto& rows = node.table_rows();
-    const auto row_count = rows.size();
-    for (size_t r = 0; r < row_count; r++) {
-        const auto& row = rows[r];
-        const auto col_count = row.cells.size();
-        for (size_t c = 0; c < col_count; c++) {
-            const uint32_t cell_len = static_cast<uint32_t>(row.cells[c].text.size());
+    const auto last_row = static_cast<ptrdiff_t>(rows.size()) - 1;
+    for (const auto& [r, row] : rows | std::views::enumerate) {
+        const auto last_col = static_cast<ptrdiff_t>(row.cells.size()) - 1;
+        for (const auto& [c, cell] : row.cells | std::views::enumerate) {
+            const uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
             if (text_pos >= offset && text_pos < offset + cell_len) {
                 local_pos = text_pos - offset;
-                return &row.cells[c].runs;
+                return &cell.runs;
             }
             offset += cell_len;
-            if (c + 1 < col_count) {
+            if (c < last_col) {
                 offset++; // タブ区切り
             }
         }
-        if (r + 1 < row_count) {
+        if (r < last_row) {
             offset++; // 改行区切り
         }
     }
