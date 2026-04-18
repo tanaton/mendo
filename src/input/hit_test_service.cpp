@@ -1,4 +1,5 @@
 #include "hit_test_service.h"
+#include "layout.h"
 #include "ui_constants.h"
 #include <cassert>
 #include <ranges>
@@ -183,7 +184,7 @@ HitTestService::HitResult HitTestService::HitTest(
 
         if (entry.text_layout) {
             const float indent = NodeIndent(node, ctx.theme);
-            const float local_x = dip_x - ctx.theme.margin_left - indent;
+            const float local_x = dip_x - ctx.theme.margin_left - indent - NodeTextXOffset(node, ctx.theme);
             const float local_y = dip_y - entry.y_position;
 
             BOOL is_trailing = FALSE;
