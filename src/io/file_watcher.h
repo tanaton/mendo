@@ -40,7 +40,7 @@ private:
     UniqueHandle dir_handle_;
     UniqueEventHandle event_;          // overlapped_.hEvent のオーナー（StartWatching で同期）
     OVERLAPPED overlapped_{};
-    alignas(DWORD) char change_buf_[4096]{};
+    alignas(DWORD) char change_buf_[32768]{};
     bool read_pending_ = false;
     bool paused_ = false;
     bool pending_change_ = false;

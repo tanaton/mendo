@@ -111,6 +111,7 @@ private:
     void ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewport_top, float viewport_bottom);
     void ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void RecreateBrushes();
+    void InvalidateBrushes() noexcept;
     void RecreatePaneFormats();
     Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size, const wchar_t* locale);
     bool CheckEndDraw();
@@ -145,6 +146,15 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_forward_layout_;  // "→ 進む" のキャッシュ済みレイアウト
     Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_toast_layout_;
     std::pmr::wstring cached_toast_text_;
+
+    // 検索バーの入力テキストレイアウトキャッシュ。display_text/width/height が
+    // 一致すれば使い回す。キャレット点滅や同一入力継続中の毎フレーム
+    // CreateTextLayout を抑止する。
+    mutable Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_search_layout_;
+    mutable std::pmr::wstring cached_search_text_;
+    mutable float cached_search_width_ = -1.0f;
+    mutable float cached_search_height_ = -1.0f;
+    mutable bool cached_search_has_underline_ = false;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;
     void LoadAppIconBitmap();
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;

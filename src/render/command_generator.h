@@ -152,6 +152,8 @@ private:
     float frame_offset_x_ = 0.0f;
     float frame_viewport_top_ = 0.0f;
     float frame_viewport_bottom_ = 0.0f;
+    float frame_viewport_left_ = 0.0f;   // offset_x 相対の左端（= 0）
+    float frame_viewport_right_ = 0.0f;  // offset_x 相対の右端
     float frame_content_width_ = 0.0f;
     const TextSelection* frame_selection_ = nullptr;
     int frame_hovered_copy_node_ = -1;

@@ -3,6 +3,7 @@
 #include <string_view>
 #include <deque>
 #include <memory_resource>
+#include <unordered_map>
 
 // 単一のナビゲーション履歴エントリ: ファイルパス + スクロール位置。
 struct NavEntry {
@@ -57,7 +58,14 @@ private:
     InternalEntry ToInternal(const NavEntry& e) { return { InternPath(e.file_path), e.scroll_y }; }
     NavEntry ToExternal(const InternalEntry& e) const;
 
+    struct WStringHash {
+        using is_transparent = void;
+        size_t operator()(std::wstring_view sv) const noexcept { return std::hash<std::wstring_view>{}(sv); }
+        size_t operator()(const std::pmr::wstring& s) const noexcept { return std::hash<std::wstring_view>{}(std::wstring_view{ s.data(), s.size() }); }
+    };
+
     std::pmr::vector<std::pmr::wstring> path_pool_;
+    std::pmr::unordered_map<std::pmr::wstring, uint32_t, WStringHash, std::equal_to<>> path_index_;
     std::pmr::deque<InternalEntry> back_stack_;
     std::pmr::deque<InternalEntry> forward_stack_;
 };

@@ -48,8 +48,12 @@ void FileExplorer::Refresh()
         return;
     }
 
-    std::pmr::vector<FileEntry> dirs;
-    std::pmr::vector<FileEntry> files;
+    struct SortSlot {
+        std::pmr::wstring sort_key;
+        FileEntry entry;
+    };
+    std::pmr::vector<SortSlot> dirs;
+    std::pmr::vector<SortSlot> files;
     static constexpr size_t MAX_ENTRIES = 4096;
 
     do {
@@ -67,30 +71,30 @@ void FileExplorer::Refresh()
         }
 
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            FileEntry entry;
-            entry.full_path.assign((dir_base / fd.cFileName).native());
-            entry.is_directory = true;
-            dirs.emplace_back(std::move(entry));
+            SortSlot slot;
+            slot.sort_key = ToLowerAscii(fd.cFileName);
+            slot.entry.full_path.assign((dir_base / fd.cFileName).native());
+            slot.entry.is_directory = true;
+            dirs.emplace_back(std::move(slot));
         }
         else if (IsMarkdownFile(fd.cFileName)) {
-            FileEntry entry;
-            entry.full_path.assign((dir_base / fd.cFileName).native());
-            files.emplace_back(std::move(entry));
+            SortSlot slot;
+            slot.sort_key = ToLowerAscii(fd.cFileName);
+            slot.entry.full_path.assign((dir_base / fd.cFileName).native());
+            files.emplace_back(std::move(slot));
         }
     } while (FindNextFileW(hFind.get(), &fd));
 
-    // ディレクトリとファイルをそれぞれ大文字小文字無視でソート
-    std::ranges::sort(dirs, [](const FileEntry& a, const FileEntry& b) static noexcept {
-        return _wcsicmp(a.GetDisplayName(), b.GetDisplayName()) < 0;
-    });
-    std::ranges::sort(files, [](const FileEntry& a, const FileEntry& b) static noexcept {
-        return _wcsicmp(a.GetDisplayName(), b.GetDisplayName()) < 0;
-    });
+    auto by_key = [](const SortSlot& a, const SortSlot& b) static noexcept {
+        return a.sort_key < b.sort_key;
+    };
+    std::ranges::sort(dirs, by_key);
+    std::ranges::sort(files, by_key);
 
     // 追加: ディレクトリを先に、次にファイル
     entries_.reserve(entries_.size() + dirs.size() + files.size());
-    std::ranges::move(dirs, std::back_inserter(entries_));
-    std::ranges::move(files, std::back_inserter(entries_));
+    for (auto& s : dirs) entries_.emplace_back(std::move(s.entry));
+    for (auto& s : files) entries_.emplace_back(std::move(s.entry));
 }
 
 int FileExplorer::HitTest(float local_y, float item_height) const noexcept

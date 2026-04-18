@@ -149,11 +149,15 @@ struct ParseContext {
         if (current_span.link_url_index >= 0 && current_node) {
             const auto& url = link_urls[static_cast<size_t>(current_span.link_url_index)];
             // ノードのURLプール内で重複を検索し、なければ追加。
-            // 同一リンク内のテキストは連続呼び出しされるため、末尾から逆走査して
-            // 直近の一致を最速で検出する（O(n²) → 実質 O(1) の高速パス）。
+            // 同一リンク内のテキストは連続呼び出しされるため末尾一致が最多だが、
+            // 異種URLが混在すると末尾逆走査は O(n²) に退化する。
+            // 直近数件のみ比較する制限付き逆走査に切り替え、閾値超過時は重複追加を許容する
+            // （link_url_index は int16_t で十分な余裕があり、機能上は同値）。
+            constexpr size_t LINEAR_SCAN_LIMIT = 8;
             int16_t node_idx = -1;
             const auto url_count = current_node->link_urls.size();
-            for (size_t i = url_count; i > 0; i--) {
+            const auto scan_start = url_count > LINEAR_SCAN_LIMIT ? url_count - LINEAR_SCAN_LIMIT : 0;
+            for (size_t i = url_count; i > scan_start; i--) {
                 if (current_node->link_urls[i - 1] == url) {
                     node_idx = static_cast<int16_t>(i - 1);
                     break;
@@ -504,7 +508,9 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
         if (a->href.text && a->href.size > 0) {
-            ctx->link_urls.emplace_back(Utf8ToWide(std::string_view{ a->href.text, static_cast<size_t>(a->href.size) }));
+            ctx->link_urls.emplace_back();
+            Utf8ToWide(std::string_view{ a->href.text, static_cast<size_t>(a->href.size) },
+                ctx->link_urls.back());
             ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
         }
         break;
@@ -512,7 +518,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_IMG: {
         auto* const img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
         if (img->src.text && img->src.size > 0) {
-            ctx->pending_image_src = Utf8ToWide(std::string_view{ img->src.text, static_cast<size_t>(img->src.size) });
+            Utf8ToWide(std::string_view{ img->src.text, static_cast<size_t>(img->src.size) },
+                ctx->pending_image_src);
         }
         break;
     }

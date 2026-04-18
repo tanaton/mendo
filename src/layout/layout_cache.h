@@ -22,6 +22,11 @@ struct TableLayoutData {
     std::pmr::vector<float> natural_col_widths; // リサイズ高速パス用キャッシュ
     std::pmr::vector<uint32_t> row_flat_offsets; // 各行の線形化テキスト先頭オフセット（ヒットテスト高速化用）
     std::pmr::vector<uint8_t> row_bgs_computed; // 各行のインラインコード背景計算済みフラグ
+    // ヒットテスト高速化用の累積オフセット。
+    // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
+    // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
+    std::pmr::vector<float> row_cum_y;
+    std::pmr::vector<float> col_cum_x;
 
     // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept { return row * col_count + col; }
@@ -156,6 +161,13 @@ public:
     void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes) noexcept
     {
         InvalidateAllLayouts(); // effects_generation_ は InvalidateAllLayouts 内で更新済み
+        InvalidateMermaidBitmaps(nodes);
+    }
+
+    // Mermaid ノードのビットマップのみを無効化する。
+    // ダークモード切替時に text_layout とエフェクトを保持したまま図だけ再描画したい場合に使う。
+    void InvalidateMermaidBitmaps(const std::pmr::vector<Node>& nodes) noexcept
+    {
         const auto count = std::min(nodes.size(), diagrams_.size());
         for (size_t i = 0; i < count; ++i) {
             if (nodes[i].code_language == SyntaxLanguage::Mermaid) {

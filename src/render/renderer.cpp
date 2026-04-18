@@ -81,10 +81,6 @@ void Renderer::RecreateBrushes()
         return;
     }
 
-    for (auto& b : brushes_) {
-        b.Reset();
-    }
-
     const bool is_dark = theme_.IsDark();
 
     const float stripe_alpha = is_dark ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
@@ -137,8 +133,23 @@ void Renderer::RecreateBrushes()
         {BrushId::SearchNoMatchBg,  theme_.search_no_match_bg_color},
     };
 
+    // 既存ブラシには SetColor のみ、未生成のものだけ CreateSolidColorBrush。
+    // テーマ切替時の 40+ 個の COM オブジェクト再生成を回避する。
     for (const auto& s : specs) {
-        render_target_->CreateSolidColorBrush(s.color, &brushes_[static_cast<size_t>(s.id)]);
+        auto& brush = brushes_[static_cast<size_t>(s.id)];
+        if (brush) {
+            brush->SetColor(s.color);
+        }
+        else {
+            render_target_->CreateSolidColorBrush(s.color, &brush);
+        }
+    }
+}
+
+void Renderer::InvalidateBrushes() noexcept
+{
+    for (auto& b : brushes_) {
+        b.Reset();
     }
 }
 
@@ -265,6 +276,11 @@ void Renderer::RecreatePaneFormats()
     gesture_forward_layout_.Reset();
     cached_toast_layout_.Reset();
     cached_toast_text_.clear();
+    cached_search_layout_.Reset();
+    cached_search_text_.clear();
+    cached_search_width_ = -1.0f;
+    cached_search_height_ = -1.0f;
+    cached_search_has_underline_ = false;
     if (fmt_.nav_button) {
         auto* dw = backend_.GetDWriteFactory();
         if (dw) {
@@ -642,6 +658,8 @@ bool Renderer::RecreateRenderTarget()
         return false;
     }
 
+    // 旧レンダーターゲットに紐付いたブラシは全て無効化し、RecreateBrushes で再生成する
+    InvalidateBrushes();
     RecreateBrushes();
     LoadAppIconBitmap();
     file_pane_cache_.Reset();

@@ -13,6 +13,12 @@ void App::OnMouseHover(int px, int py)
         return;
     }
 
+    // OS から同一座標の WM_MOUSEMOVE が連続して届くことがあるため、
+    // 完全同一座標なら後段の zone 判定・ヒットテストを全てスキップする。
+    if (state_.interaction.hover_throttle.ShouldSkipSameDispatch(px, py)) {
+        return;
+    }
+
     const auto dip = PixelToDip(px, py);
     const float dip_x = dip.x;
     const float dip_y = dip.y;

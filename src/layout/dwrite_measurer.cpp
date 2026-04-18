@@ -289,6 +289,26 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         node.SetText(BuildLinearizedTableText(node.table_rows()));
     }
 
+    // ヒットテスト高速化: 行Y累積と列X累積を事前計算
+    tl.row_cum_y.resize(row_count + 1);
+    {
+        float ry = 0.0f;
+        for (size_t r = 0; r < row_count; r++) {
+            tl.row_cum_y[r] = ry;
+            ry += tl.row_heights[r] + border_width;
+        }
+        tl.row_cum_y[row_count] = ry;
+    }
+    tl.col_cum_x.resize(col_count + 1);
+    {
+        float cx = border_width;
+        for (size_t c = 0; c < col_count; c++) {
+            tl.col_cum_x[c] = cx;
+            cx += tl.col_widths[c] + cell_padding * 2.0f + border_width;
+        }
+        tl.col_cum_x[col_count] = cx;
+    }
+
     // 行ごとのフラットテキストオフセットをプリコンピュート（ヒットテスト高速化用）
     tl.row_flat_offsets.resize(row_count);
     uint32_t flat_offset = 0;

@@ -31,9 +31,29 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry,
         return { -1, 0.0f };
     }
     const auto& tl = *entry.table_layout;
+    const auto row_count = node.table_rows().size();
+    if (row_count == 0) {
+        return { -1, 0.0f };
+    }
+
+    // 事前計算された累積Y配列で二分探索。
+    // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ（サイズ row_count+1）。
+    if (tl.row_cum_y.size() == row_count + 1) {
+        const float local_y = dip_y - entry.y_position;
+        const auto it = std::ranges::upper_bound(tl.row_cum_y, local_y);
+        if (it == tl.row_cum_y.begin()) {
+            return { -1, 0.0f };
+        }
+        const auto idx = std::ranges::distance(tl.row_cum_y.begin(), it) - 1;
+        if (static_cast<size_t>(idx) >= row_count) {
+            return { -1, 0.0f };
+        }
+        return { static_cast<int>(idx), entry.y_position + tl.row_cum_y[static_cast<size_t>(idx)] };
+    }
+
+    // フォールバック: 線形走査
     const float border = TABLE_BORDER_WIDTH;
     float ry = entry.y_position;
-    const auto row_count = node.table_rows().size();
     for (size_t r = 0; r < row_count; r++) {
         const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR);
         const float row_bottom = ry + row_h + border;
@@ -51,10 +71,28 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry,
 int FindTableCol(const TableLayoutData& tl, float base_x, float dip_x,
     float& cell_left_x) noexcept
 {
+    const auto col_count = tl.col_widths.size();
+
+    // 事前計算された累積X配列で二分探索。
+    // col_cum_x[c] = base_x からの列 c の左端までの累積幅（サイズ col_count+1）。
+    if (col_count > 0 && tl.col_cum_x.size() == col_count + 1) {
+        const float local_x = dip_x - base_x;
+        auto it = std::ranges::upper_bound(tl.col_cum_x, local_x);
+        if (it == tl.col_cum_x.begin()) {
+            ++it; // base_x + border より左の場合は最初の列にクランプ
+        }
+        size_t idx = static_cast<size_t>(std::ranges::distance(tl.col_cum_x.begin(), it) - 1);
+        if (idx >= col_count) {
+            idx = col_count - 1; // 最終列にクランプ
+        }
+        cell_left_x = base_x + tl.col_cum_x[idx];
+        return static_cast<int>(idx);
+    }
+
+    // フォールバック: 線形走査
     const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
     float cx = base_x + border;
-    const auto col_count = tl.col_widths.size();
     for (size_t c = 0; c < col_count; c++) {
         const float col_right = cx + tl.col_widths[c] + cell_padding * 2.0f;
         if (dip_x < col_right) {
@@ -63,9 +101,7 @@ int FindTableCol(const TableLayoutData& tl, float base_x, float dip_x,
         }
         cx += tl.col_widths[c] + cell_padding * 2.0f + border;
     }
-    // 最終列にフォールバック
     if (col_count > 0) {
-        // cx は最終列の右端を過ぎているので巻き戻す
         cell_left_x = cx - tl.col_widths[col_count - 1] - cell_padding * 2.0f - border;
         return static_cast<int>(col_count - 1);
     }
