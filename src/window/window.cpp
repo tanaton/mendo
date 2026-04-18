@@ -503,8 +503,20 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_SIZE:
+        // Windows 11 は SIZE_MINIMIZED 時に (0,0) ではなくタスクバーサムネイル寸法
+        // （例: 237×39）を通知してくる。そのままResizeBuffersを呼ぶとスワップチェーンが
+        // その小サイズになり、DWM合成時にアプリサイズへ引き伸ばされてフラッシュになる。
+        if (wParam == SIZE_MINIMIZED) {
+            return 0;
+        }
         app_->OnResize(LOWORD(lParam), HIWORD(lParam));
         RepositionSearchEdit();
+        // ResizeBuffers直後のバックバッファは未定義。DWMが復元アニメーション中に
+        // その未定義フレームを合成してしまう前に、同期的にWM_PAINTを走らせて
+        // 新フレームをPresentしておく。
+        if (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED) {
+            UpdateWindow(hwnd_);
+        }
         return 0;
 
     case WM_ACTIVATE:
