@@ -16,6 +16,7 @@ add_executable(mendo_tests
     test_mermaid_file_cache.cpp
     test_mermaid_renderer.cpp
     ../src/mermaid/mermaid.cpp
+    ../src/app/render_composer.cpp
     test_ini_parser.cpp
     test_config_store.cpp
     test_viewport_manager.cpp
@@ -49,6 +50,15 @@ add_executable(mendo_tests
     test_reducer.cpp
     test_flat_map.cpp
     test_string_convert.cpp
+    test_render_composer.cpp
+    test_file_io.cpp
+    test_utility.cpp
+    test_tooltip_target.cpp
+    test_task_scheduler.cpp
+    test_side_effect_executor.cpp
+    test_command_generator_frame.cpp
+    ../src/app/side_effect_executor.cpp
+    ../src/app/resource_manager.cpp
 )
 
 target_include_directories(mendo_tests PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})
