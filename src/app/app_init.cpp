@@ -226,6 +226,8 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
         .on_scroll_changed = [this](float visible_h) {
             SyncMaxScroll(visible_h);
             InvalidateHitPositions();
+            // Why: 検索ヒット移動で可視化されたmermaid/画像の描画要求を出す (issue #102)
+            resource_manager_.ScheduleBitmapManage();
         },
     };
 }
