@@ -37,9 +37,10 @@ public:
     }
 
     // キーが存在するかチェック（アクセス世代は更新しない）。
+    // 有効エントリは [0, size_) の範囲に限定する（他メソッドと同じ論理サイズ）。
     bool Contains(const Key& key) const
     {
-        return std::ranges::contains(keys_, key);
+        return std::ranges::contains(keys_ | std::views::take(size_), key);
     }
 
     // エントリを挿入する。既存キーの場合は値を上書きしてアクセス世代を更新する。
