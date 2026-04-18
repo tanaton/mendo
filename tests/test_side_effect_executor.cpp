@@ -301,19 +301,14 @@ TEST_F(SideEffectExecutorTest, ExecuteEmptyListIsNoop)
     EXPECT_EQ(destroy_count_, 0);
 }
 
-// HWND=nullptr で Win32 API 呼び出し分岐（InvalidateRect/ShowWindow/PostMessage/
-// SetWindowText/SetWindowPos）が内部で失敗終了することの確認。
-// メッセージ定数は傍受されにくい WM_USER+α を使う（WM_CLOSE 等はテストハーネスの
-// メッセージポンプと干渉しうるため避ける）。
-// CursorManager 未初期化ルートの SetCursor もここでまとめて走らせる。
-TEST_F(SideEffectExecutorTest, Win32EffectsWithNullHwndDoNotCrash)
+// HWND=nullptr の executor に対して、ウィンドウ対象の Win32 API を発火させる
+// 副作用はここでは実行しない。nullptr は API によって特別扱いされ（例:
+// InvalidateRect(nullptr, ...) は全ウィンドウを再描画、PostMessageW(nullptr, ...)
+// はスレッドメッセージ投稿）、画面全体の invalidation などグローバル副作用や
+// 他テストとの干渉を招きうるため。
+// ここでは HWND に依存しない CursorManager 未初期化ルートの SetCursor のみ確認する。
+TEST_F(SideEffectExecutorTest, SetCursorEffectsWithNullHwndDoNotCrash)
 {
-    exec_.ExecuteOne(effect::InvalidateWindow{});
-    exec_.ExecuteOne(effect::InvalidateTitleBar{});
-    exec_.ExecuteOne(effect::ShowWindowCmd{1});
-    exec_.ExecuteOne(effect::PostMessage{WM_USER + 42, 0, 0});
-    exec_.ExecuteOne(effect::SetWindowTitle{std::pmr::wstring{L"hello"}});
-    exec_.ExecuteOne(effect::SetWindowPosition{10, 20, 800, 600});
     exec_.ExecuteOne(effect::SetCursor{effect::CursorType::Arrow});
     exec_.ExecuteOne(effect::SetCursor{effect::CursorType::Hand});
     exec_.ExecuteOne(effect::SetCursor{effect::CursorType::IBeam});

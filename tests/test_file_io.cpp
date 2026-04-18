@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "file_io.h"
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
