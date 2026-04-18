@@ -406,6 +406,52 @@ TEST(SearchStateTest, SetCurrentMatchNearNoMatches)
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
 
+// issue #97: 縦長テーブル内で下方にスクロール中にマッチを確定する際、
+// ブロック先頭 Y ではなく該当行の Y を評価してマッチを選択する。
+TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
+{
+    // 3 行 1 列のテーブル。各行に "hit" が 1 件ずつ含まれる。
+    Node table;
+    table.type = NodeType::Table;
+    table.ensure_table();
+    for (int r = 0; r < 3; r++) {
+        TableRow row;
+        TableCell c;
+        c.text.assign(L"hit");
+        row.cells.push_back(std::move(c));
+        table.table_data->rows.push_back(std::move(row));
+    }
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(std::move(table));
+
+    SearchState s;
+    s.SetQuery(L"hit");
+    s.ExecuteSearch(nodes);
+    ASSERT_EQ(s.GetMatchCount(), 3);
+
+    // ブロックは y=0, 各行は高さ 100 → 行Y = 0, 100, 200
+    LayoutCache cache;
+    cache.Resize(1);
+    cache[0].y_position = 0.0f;
+    cache[0].height = 300.0f;
+    auto& tl = cache[0].ensure_table_layout();
+    tl.row_heights = {100.0f, 100.0f, 100.0f};
+    tl.row_cum_y = {0.0f, 100.0f, 200.0f, 300.0f};
+
+    // scroll_y=150 → 行2(y=200) の先頭マッチを選ぶ。
+    // ブロック先頭 Y (=0) だけを見る旧実装だと 3 件目以降を探して 0 にフォールバックしていた。
+    s.SetCurrentMatchNear(150.0f, cache);
+    EXPECT_EQ(s.GetCurrentMatchIndex(), 2);
+
+    // scroll_y=50 → 行1(y=100) のマッチ。
+    s.SetCurrentMatchNear(50.0f, cache);
+    EXPECT_EQ(s.GetCurrentMatchIndex(), 1);
+
+    // テーブル全体より下にスクロールしても必ずどこかにフォールバック。
+    s.SetCurrentMatchNear(1000.0f, cache);
+    EXPECT_EQ(s.GetCurrentMatchIndex(), 0);
+}
+
 // ═══════════════════════════════════════════════
 // 再検索（クエリ変更後の再実行）
 // ═══════════════════════════════════════════════

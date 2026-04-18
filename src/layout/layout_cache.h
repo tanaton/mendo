@@ -57,6 +57,31 @@ struct NodeLayoutEntry {
         return *table_layout;
     }
     bool has_table_layout() const noexcept { return table_layout != nullptr; }
+
+    // table_row に対応する絶対 Y。行情報が無ければ y_position にフォールバックする。
+    // row_cum_y は row_count+1 要素（末尾は合計高さ）なので、行として有効なのは [0, row_heights.size()) のみ。
+    float GetTableRowY(int table_row) const noexcept
+    {
+        if (table_row >= 0 && has_table_layout()) {
+            const auto row = static_cast<size_t>(table_row);
+            if (row < table_layout->row_heights.size() && row < table_layout->row_cum_y.size()) {
+                return y_position + table_layout->row_cum_y[row];
+            }
+        }
+        return y_position;
+    }
+
+    // table_row の高さ。行情報が無ければエントリ全体の高さにフォールバックする。
+    float GetTableRowHeight(int table_row) const noexcept
+    {
+        if (table_row >= 0 && has_table_layout()) {
+            const auto row = static_cast<size_t>(table_row);
+            if (row < table_layout->row_heights.size()) {
+                return table_layout->row_heights[row];
+            }
+        }
+        return height;
+    }
 };
 
 struct DiagramEntry {

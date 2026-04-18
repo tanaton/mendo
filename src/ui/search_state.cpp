@@ -120,9 +120,11 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
         return;
     }
 
-    // matches_ は node_index 昇順 → cache[ni].y_position も単調増加のため二分探索を使用
+    // matches_ は node_index 昇順、同一テーブル内では (row, col) 昇順で追加されるため
+    // GetTableRowY(m.table_row) も単調非減少となり二分探索が使える (issue #97)。
     const auto it = std::ranges::partition_point(matches_, [&](const SearchMatch& m) noexcept {
-        return m.node_index >= static_cast<int>(cache.size()) || cache[m.node_index].y_position < scroll_y;
+        return m.node_index >= static_cast<int>(cache.size())
+            || cache[m.node_index].GetTableRowY(m.table_row) < scroll_y;
     });
     current_match_ = (it != matches_.end()) ? static_cast<int>(it - matches_.begin()) : 0;
 }

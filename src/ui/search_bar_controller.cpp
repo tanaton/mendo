@@ -181,7 +181,9 @@ void SearchBarController::ScrollToCurrentMatch()
     }
 
     const auto& entry = (*cache_)[match.node_index];
-    const float match_y = entry.y_position;
+    // Why: 長いテーブルがウィンドウより縦長の場合、ブロック先頭に合わせるとヒット行が画面外になる (issue #97)
+    const float match_y = entry.GetTableRowY(match.table_row);
+    const float match_h = entry.GetTableRowHeight(match.table_row);
     const float md_pane_height = cb_.get_md_pane_height();
     const float visible_height = md_pane_height
         - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
@@ -189,7 +191,7 @@ void SearchBarController::ScrollToCurrentMatch()
     const float effective_bottom = scroll_y + visible_height;
 
     // マッチが可視範囲外の場合のみスクロール
-    if (match_y < scroll_y || match_y + entry.height > effective_bottom) {
+    if (match_y < scroll_y || match_y + match_h > effective_bottom) {
         const float target = std::max(0.0f, match_y - visible_height / 3.0f);
         viewport_->SetScrollY(target);
         cb_.on_scroll_changed(visible_height);
