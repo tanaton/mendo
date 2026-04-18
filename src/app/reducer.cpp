@@ -459,7 +459,12 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ImeCompositionAction& a) { state.search.search_bar_ctrl.SetImeComposition(a.text); },
 
         // ---- マウスイベント（SideEffect経由で委譲） ----
-        [&](const MouseLeaveAction&) { ClearTooltip(state, effects); },
+        [&](const MouseLeaveAction&) {
+            // 再侵入時に同一座標の最初の WM_MOUSEMOVE が ShouldSkipSameDispatch で
+            // 弾かれるとカーソル/ツールチップの復帰が遅れるため、hover 状態もリセットする
+            state.interaction.hover_throttle.Reset();
+            ClearTooltip(state, effects);
+        },
         [&](const CaptureChangedAction&) { ReduceCaptureChanged(state, effects); },
         [&](const LButtonDownAction& a) { effects.emplace_back(effect::HandleMouseEvent{ effect::MouseEventType::LButtonDown, a.px, a.py }); },
         [&](const LButtonUpAction& a) { effects.emplace_back(effect::HandleMouseEvent{ effect::MouseEventType::LButtonUp, a.px, a.py }); },

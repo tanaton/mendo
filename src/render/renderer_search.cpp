@@ -91,23 +91,49 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     if (fmt_.search_input && !display_text.empty() && backend_.GetDWriteFactory()) {
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
         const float input_h = sbl.input_rect.bottom - sbl.input_rect.top;
+
+        // 同一テキスト・同一サイズなら前回のレイアウトを使い回す。
+        // キャレット点滅で毎フレーム再描画されても CreateTextLayout を避ける。
         Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
-        backend_.GetDWriteFactory()->CreateTextLayout(
-            display_text.data(),
-            static_cast<UINT32>(display_text.size()),
-            fmt_.search_input.Get(),
-            input_w,
-            input_h,
-            &text_layout
-        );
+        const bool cache_hit = cached_search_layout_
+            && cached_search_width_ == input_w
+            && cached_search_height_ == input_h
+            && cached_search_text_.size() == display_text.size()
+            && std::equal(cached_search_text_.begin(), cached_search_text_.end(), display_text.begin());
+        if (cache_hit) {
+            text_layout = cached_search_layout_;
+            // 前フレームの下線範囲と異なる可能性があるため、キャッシュ上に下線が残っていれば
+            // 常に全体をクリアする。IME 非アクティブ継続時はクリアも発行されない。
+            if (cached_search_has_underline_) {
+                text_layout->SetUnderline(FALSE, DWRITE_TEXT_RANGE{ 0, static_cast<UINT32>(cached_search_text_.size()) });
+                cached_search_has_underline_ = false;
+            }
+        }
+        else {
+            backend_.GetDWriteFactory()->CreateTextLayout(
+                display_text.data(),
+                static_cast<UINT32>(display_text.size()),
+                fmt_.search_input.Get(),
+                input_w,
+                input_h,
+                &text_layout
+            );
+            if (text_layout) {
+                cached_search_layout_ = text_layout;
+                cached_search_text_.assign(display_text);
+                cached_search_width_ = input_w;
+                cached_search_height_ = input_h;
+                cached_search_has_underline_ = false;
+            }
+        }
         if (text_layout) {
-            // コンポジション文字列に下線を付与
             if (has_comp) {
                 const DWRITE_TEXT_RANGE range = {
                     static_cast<UINT32>(comp_start),
                     static_cast<UINT32>(comp_len)
                 };
                 text_layout->SetUnderline(TRUE, range);
+                cached_search_has_underline_ = true;
             }
 
             // 選択範囲のハイライト描画（テキストの背面に描画）
@@ -241,14 +267,25 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
         return 0;
     }
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    backend_.GetDWriteFactory()->CreateTextLayout(
-        query.data(),
-        static_cast<UINT32>(query.size()),
-        fmt_.search_input.Get(),
-        max_width,
-        SEARCH_INPUT_HEIGHT,
-        &layout
-    );
+    // DrawSearchBar が直前に作成した cached_search_layout_ を再利用できるケース
+    // （IME コンポジションが無く、query と表示テキストが一致）を高速パスに。
+    const bool cache_hit = cached_search_layout_
+        && cached_search_width_ == max_width
+        && cached_search_text_.size() == query.size()
+        && std::equal(cached_search_text_.begin(), cached_search_text_.end(), query.begin());
+    if (cache_hit) {
+        layout = cached_search_layout_;
+    }
+    else {
+        backend_.GetDWriteFactory()->CreateTextLayout(
+            query.data(),
+            static_cast<UINT32>(query.size()),
+            fmt_.search_input.Get(),
+            max_width,
+            SEARCH_INPUT_HEIGHT,
+            &layout
+        );
+    }
     if (!layout) {
         return 0;
     }

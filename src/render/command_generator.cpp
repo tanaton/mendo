@@ -49,6 +49,9 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     frame_offset_x_ = theme_->margin_left;
     frame_viewport_top_ = scroll_y;
     frame_viewport_bottom_ = scroll_y + md_pane_rect.height;
+    // 水平カリング範囲: ペイン内ローカル座標で margin_left を起点とした相対値
+    frame_viewport_left_ = -theme_->margin_left;
+    frame_viewport_right_ = md_pane_rect.width - theme_->margin_left;
     frame_content_width_ = theme_->ContentWidth(md_pane_rect.width);
     frame_selection_ = &selection;
     frame_hovered_copy_node_ = hovered_copy_node;

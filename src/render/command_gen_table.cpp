@@ -113,33 +113,39 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
             theme_->hr_color, border });
 
-        // セルを描画
+        // セルを描画（可視列のみコマンド生成、画面外は flat_offset のみ進める）
+        const float cull_left = offset_x + frame_viewport_left_;
+        const float cull_right = offset_x + frame_viewport_right_;
         float cx = offset_x + border;
         const size_t drawn_cols = std::min(row.cells.size(), tl.col_widths.size());
         for (size_t c = 0; c < drawn_cols; c++) {
             const auto& cell = row.cells[c];
             const float cw = tl.col_widths[c];
+            const float col_right = cx + cw + cell_padding * 2.0f;
+            const bool col_visible = (col_right >= cull_left) && (cx - border <= cull_right);
 
-            // 垂直の罫線
-            cmds.emplace_back(DrawLineCmd{
-                D2D1::Point2F(cx - border, y), D2D1::Point2F(cx - border, y + row_h + border),
-                theme_->hr_color, border });
+            if (col_visible) {
+                // 垂直の罫線
+                cmds.emplace_back(DrawLineCmd{
+                    D2D1::Point2F(cx - border, y), D2D1::Point2F(cx - border, y + row_h + border),
+                    theme_->hr_color, border });
 
-            const float text_x = cx + cell_padding;
-            const float text_y = y + cell_padding;
+                const float text_x = cx + cell_padding;
+                const float text_y = y + cell_padding;
 
-            IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
+                IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
 
-            // セルのインラインコード背景
-            if (const size_t ci = tl.CellIndex(r, c); ci < tl.cell_inline_code_bgs.size()) {
-                GenInlineCodeBgs(cmds, tl.cell_inline_code_bgs[ci], text_x, text_y, theme_->code_bg_color);
+                // セルのインラインコード背景
+                if (const size_t ci = tl.CellIndex(r, c); ci < tl.cell_inline_code_bgs.size()) {
+                    GenInlineCodeBgs(cmds, tl.cell_inline_code_bgs[ci], text_x, text_y, theme_->code_bg_color);
+                }
+
+                // 検索マッチのハイライト（テーブルセル）
+                GenSearchHighlights(cmds, cell_layout, node_index, text_x, text_y,
+                    static_cast<int>(r), static_cast<int>(c));
+
+                GenTableCellContent(cmds, cell, cell_layout, text_x, text_y, has_selection, sel_start, sel_end, flat_offset);
             }
-
-            // 検索マッチのハイライト（テーブルセル）
-            GenSearchHighlights(cmds, cell_layout, node_index, text_x, text_y,
-                static_cast<int>(r), static_cast<int>(c));
-
-            GenTableCellContent(cmds, cell, cell_layout, text_x, text_y, has_selection, sel_start, sel_end, flat_offset);
 
             flat_offset += static_cast<uint32_t>(cell.text.size());
             if (c + 1 < row.cells.size()) {

@@ -2,11 +2,13 @@
 
 uint32_t NavHistory::InternPath(std::wstring_view path)
 {
-    if (const auto iter = std::ranges::find(path_pool_, path); iter != path_pool_.end()) {
-        return static_cast<uint32_t>(std::ranges::distance(path_pool_.begin(), iter));
+    if (const auto it = path_index_.find(path); it != path_index_.end()) {
+        return it->second;
     }
-    path_pool_.emplace_back(path);
-    return static_cast<uint32_t>(path_pool_.size() - 1);
+    const auto idx = static_cast<uint32_t>(path_pool_.size());
+    auto& stored = path_pool_.emplace_back(path);
+    path_index_.emplace(std::wstring_view{ stored.data(), stored.size() }, idx);
+    return idx;
 }
 
 NavEntry NavHistory::ToExternal(const InternalEntry& e) const
@@ -57,4 +59,5 @@ void NavHistory::Clear() noexcept
     back_stack_.clear();
     forward_stack_.clear();
     path_pool_.clear();
+    path_index_.clear();
 }

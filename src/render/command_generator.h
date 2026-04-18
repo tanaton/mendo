@@ -152,6 +152,11 @@ private:
     float frame_offset_x_ = 0.0f;
     float frame_viewport_top_ = 0.0f;
     float frame_viewport_bottom_ = 0.0f;
+    // フレーム座標系でのビューポート左右端。各セル x を frame_offset_x_ と
+    // 合成したあとカリング判定に使う。GenerateMdPane で
+    // -theme_->margin_left / md_pane_rect.width - theme_->margin_left を設定。
+    float frame_viewport_left_ = 0.0f;
+    float frame_viewport_right_ = 0.0f;
     float frame_content_width_ = 0.0f;
     const TextSelection* frame_selection_ = nullptr;
     int frame_hovered_copy_node_ = -1;
