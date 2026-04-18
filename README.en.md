@@ -6,6 +6,14 @@ A lightweight, single-EXE Markdown viewer — just drop a file and start reading
 
 ![mendo screenshot](./example/image/mendo_light.png)
 
+## Installation
+
+Install via [winget](https://learn.microsoft.com/windows/package-manager/winget/):
+
+```
+winget install tanaton.mendo
+```
+
 ## Features
 
 - **Browser-less rendering** — Direct2D + DirectWrite native rendering

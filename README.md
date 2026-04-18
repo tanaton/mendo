@@ -6,6 +6,14 @@
 
 ![mendoのようす](./example/image/mendo_light.png)
 
+## インストール
+
+[winget](https://learn.microsoft.com/windows/package-manager/winget/) でインストールできます。
+
+```
+winget install tanaton.mendo
+```
+
 ## 特徴
 
 - **ブラウザレス描画** — Direct2D + DirectWrite による自前レンダリング
