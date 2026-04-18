@@ -351,31 +351,40 @@ void MermaidRenderer::SetupWorker(int index)
             const std::pmr::wstring url(uri ? uri : L"");
             CoTaskMemFree(uri);
 
-            // app.local以外へのリクエストをブロック（fetch/XHR等）
-            if (url.find(L"app.local") == std::pmr::wstring::npos) {
+            // https://app.local/ 以外へのリクエストをブロックする。
+            // NavigationStartingと判定ロジックを揃え、app.local.evil.comのような
+            // 部分一致によるサブドメイン経由の経路を塞ぐ。
+            if (url.compare(0, 18, L"https://app.local/") != 0) {
                 Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
                 webview_env_->CreateWebResourceResponse(nullptr, 403, L"Blocked", L"", &response);
                 args->put_Response(response.Get());
                 return S_OK;
             }
 
-            Microsoft::WRL::ComPtr<IStream> stream;
+            std::span<const std::byte> payload;
             const wchar_t* headers = nullptr;
 
             if (url.find(L"/mermaid.min.js.gz") != std::pmr::wstring::npos) {
                 // gzip圧縮されたmermaid.jsを配信する。JSがDecompressionStreamで展開する
-                const auto gz = LoadRcData(IDR_MERMAID_JS_GZ);
-                stream = CreateMemoryStream(gz.data(), gz.size());
+                payload = LoadRcData(IDR_MERMAID_JS_GZ);
                 headers = L"Content-Type: application/gzip";
             }
             else {
                 // その他のパスにはHTMLテンプレート（res/mermaid.html）を配信する
-                const auto html = LoadRcData(IDR_MERMAID_HTML);
-                stream = CreateMemoryStream(html.data(), html.size());
+                payload = LoadRcData(IDR_MERMAID_HTML);
                 headers = L"Content-Type: text/html; charset=utf-8";
             }
 
-            if (stream && headers) {
+            // リソースが見つからない場合は空ボディを200で返さず500を返して失敗を明示する
+            if (payload.empty()) {
+                Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
+                webview_env_->CreateWebResourceResponse(nullptr, 500, L"Resource missing", L"", &response);
+                args->put_Response(response.Get());
+                return S_OK;
+            }
+
+            const auto stream = CreateMemoryStream(payload.data(), payload.size());
+            if (stream) {
                 Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
                 webview_env_->CreateWebResourceResponse(stream.Get(), 200, L"OK", headers, &response);
                 args->put_Response(response.Get());
