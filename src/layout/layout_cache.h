@@ -190,13 +190,13 @@ public:
         InvalidateMermaidBitmaps(nodes);
     }
 
-    // Mermaid ノードのビットマップのみを無効化する。
+    // ダイアグラム系ノードのビットマップを無効化する。
     // ダークモード切替時に text_layout とエフェクトを保持したまま図だけ再描画したい場合に使う。
     void InvalidateMermaidBitmaps(const std::pmr::vector<Node>& nodes) noexcept
     {
         const auto count = std::min(nodes.size(), diagrams_.size());
         for (const auto& [idx, node] : nodes | std::views::take(count) | std::views::enumerate) {
-            if (node.code_language == SyntaxLanguage::Mermaid) {
+            if (IsDiagramLanguage(node.code_language)) {
                 diagrams_[static_cast<size_t>(idx)].bitmap.Reset();
             }
         }

@@ -132,8 +132,8 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         return;
     }
 
-    // Mermaidブロック: ビットマップがレンダリングされるまでのプレースホルダー高さ
-    if (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid) {
+    // ダイアグラム系コードブロック: ビットマップがレンダリングされるまでのプレースホルダー高さ
+    if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language)) {
         if (entry.height <= 0) {
             entry.height = std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
         }
@@ -198,7 +198,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     // 描画パス（ApplyNodeEffects）での遅延トークン化を排除し、フレーム落ちを防止する。
     if (node.type == NodeType::CodeBlock && node.syntax_tokens().empty() &&
         node.code_language != SyntaxLanguage::None &&
-        node.code_language != SyntaxLanguage::Mermaid) {
+        !IsDiagramLanguage(node.code_language)) {
         node.syntax_tokens_mut() = Tokenize(text, node.code_language);
     }
 

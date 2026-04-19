@@ -628,7 +628,7 @@ std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage la
 {
     const auto idx = static_cast<size_t>(language);
     if (text.empty() || language == SyntaxLanguage::None ||
-        language == SyntaxLanguage::Mermaid || idx >= std::size(LANGUAGE_DEFS)) {
+        IsDiagramLanguage(language) || idx >= std::size(LANGUAGE_DEFS)) {
         return {};
     }
     const auto& def = LANGUAGE_DEFS[idx];
