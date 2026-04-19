@@ -880,17 +880,17 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
 TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing)
 {
     Theme theme = GetLightTheme();
-    Node h1;
-    h1.type = NodeType::Heading;
-    h1.heading_level = 3;  // テスト名は h1/h2 だがspacing分岐を避けて h3 に統一
+    Node heading_a;
+    heading_a.type = NodeType::Heading;
+    heading_a.heading_level = 3;
 
-    Node h2;
-    h2.type = NodeType::Heading;
-    h2.heading_level = 3;
+    Node heading_b;
+    heading_b.type = NodeType::Heading;
+    heading_b.heading_level = 3;
 
     std::pmr::vector<Node> nodes;
-    nodes.emplace_back(std::move(h1));
-    nodes.emplace_back(std::move(h2));
+    nodes.emplace_back(std::move(heading_a));
+    nodes.emplace_back(std::move(heading_b));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 40.0f;
