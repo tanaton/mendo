@@ -624,6 +624,7 @@ TEST(RecomputeYPositionsTest, HeadingSpacing)
 
     Node heading;
     heading.type = NodeType::Heading;
+    heading.heading_level = 3;  // h3はheading_spacing_below（下線なし）を使う
 
     Node para2;
     para2.type = NodeType::Paragraph;
@@ -653,6 +654,51 @@ TEST(RecomputeYPositionsTest, HeadingSpacing)
     // 見出しの後: paragraph_spacingではなくheading_spacing_below
     float heading_bottom = cache[1].y_position + cache[1].height + theme.heading_spacing_below;
     EXPECT_FLOAT_EQ(cache[2].y_position, heading_bottom);
+}
+
+TEST(RecomputeYPositionsTest, H1H2UseLargerSpacingBelow)
+{
+    // h1/h2 は下線を描くため heading_spacing_below_h1h2 が使われ、
+    // h3以降は heading_spacing_below が使われることを検証する。
+    Node h1;
+    h1.type = NodeType::Heading;
+    h1.heading_level = 1;
+
+    Node p1;
+    p1.type = NodeType::Paragraph;
+
+    Node h3;
+    h3.type = NodeType::Heading;
+    h3.heading_level = 3;
+
+    Node p2;
+    p2.type = NodeType::Paragraph;
+
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(h1));
+    nodes.emplace_back(std::move(p1));
+    nodes.emplace_back(std::move(h3));
+    nodes.emplace_back(std::move(p2));
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    cache[0].height = 40.0f; cache[0].layout_dirty = false;
+    cache[1].height = 20.0f; cache[1].layout_dirty = false;
+    cache[2].height = 30.0f; cache[2].layout_dirty = false;
+    cache[3].height = 20.0f; cache[3].layout_dirty = false;
+
+    Theme theme = GetLightTheme();
+    RecomputeYPositions(nodes, cache, theme);
+
+    // h1 の後: heading_spacing_below_h1h2 が使われる
+    float h1_gap = cache[1].y_position - (cache[0].y_position + cache[0].height);
+    EXPECT_FLOAT_EQ(h1_gap, theme.heading_spacing_below_h1h2);
+
+    // h3 の後: heading_spacing_below（h3以降用）が使われる
+    float h3_gap = cache[3].y_position - (cache[2].y_position + cache[2].height);
+    EXPECT_FLOAT_EQ(h3_gap, theme.heading_spacing_below);
+
+    // 両者は実際に異なる値であること（テスト対象の分岐が意味を持つ前提）
+    EXPECT_GT(theme.heading_spacing_below_h1h2, theme.heading_spacing_below);
 }
 
 TEST(RecomputeYPositionsTest, DetectsDirtyNodes)
@@ -834,15 +880,17 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
 TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing)
 {
     Theme theme = GetLightTheme();
-    Node h1;
-    h1.type = NodeType::Heading;
+    Node heading_a;
+    heading_a.type = NodeType::Heading;
+    heading_a.heading_level = 3;
 
-    Node h2;
-    h2.type = NodeType::Heading;
+    Node heading_b;
+    heading_b.type = NodeType::Heading;
+    heading_b.heading_level = 3;
 
     std::pmr::vector<Node> nodes;
-    nodes.emplace_back(std::move(h1));
-    nodes.emplace_back(std::move(h2));
+    nodes.emplace_back(std::move(heading_a));
+    nodes.emplace_back(std::move(heading_b));
     LayoutCache cache;
     cache.Resize(nodes.size());
     cache[0].height = 40.0f;

@@ -140,6 +140,7 @@ TEST(Theme, DarkAndLightHaveSameSpacing)
     EXPECT_FLOAT_EQ(light.paragraph_spacing, dark.paragraph_spacing);
     EXPECT_FLOAT_EQ(light.heading_spacing_above, dark.heading_spacing_above);
     EXPECT_FLOAT_EQ(light.heading_spacing_below, dark.heading_spacing_below);
+    EXPECT_FLOAT_EQ(light.heading_spacing_below_h1h2, dark.heading_spacing_below_h1h2);
 }
 
 // ---- ApplyCommonLayout 整合性テスト ----

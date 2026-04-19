@@ -5,6 +5,10 @@
 #include <algorithm>
 #include <format>
 
+// h1/h2 見出し下線を描画するY座標を heading_spacing_below_h1h2 のこの比率で決める。
+// 値を小さくすると下線は見出し文字に近づき、下線と次行の間隔が広がる。
+static constexpr float HEADING_UNDERLINE_OFFSET_RATIO = 0.25f;
+
 static float GetFirstLineHeight(IDWriteTextLayout* layout, float font_size)
 {
     float h = font_size * FALLBACK_LINE_HEIGHT_FACTOR;
@@ -89,7 +93,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
     float node_bottom = entry.y_position + entry.height;
     if (node.type == NodeType::Heading && node.heading_level <= 2) {
-        node_bottom += theme_->heading_spacing_below * 0.5f + theme_->GetHeadingUnderlineThickness(node.heading_level);
+        node_bottom += theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO + theme_->GetHeadingUnderlineThickness(node.heading_level);
     }
     if (node_bottom < frame_viewport_top_ || entry.y_position > frame_viewport_bottom_) {
         return;
@@ -151,7 +155,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         break;
     case NodeType::Heading:
         if (node.heading_level <= 2) {
-            const float line_y = entry.y_position + entry.height + theme_->heading_spacing_below * 0.5f;
+            const float line_y = entry.y_position + entry.height + theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO;
             cmds.emplace_back(DrawLineCmd{
                 D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
                 theme_->hr_color, theme_->GetHeadingUnderlineThickness(node.heading_level) });
