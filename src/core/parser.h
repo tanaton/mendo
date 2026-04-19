@@ -10,7 +10,8 @@ struct ParseResult {
     std::pmr::vector<Node> nodes;
     std::pmr::vector<size_t> heading_indices;
     std::pmr::vector<size_t> image_indices;
-    std::pmr::vector<size_t> mermaid_indices;
+    // ビットマップレンダリング対象（Mermaid / LatexMath など IsDiagramLanguage() を満たすコードブロック）
+    std::pmr::vector<size_t> diagram_indices;
 };
 
 [[nodiscard]] ParseResult ParseMarkdown(std::string_view markdown_text);

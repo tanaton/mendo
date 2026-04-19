@@ -866,6 +866,99 @@ TEST(Parser, MermaidCodeBlock)
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Mermaid);
 }
 
+// ---- LaTeX display math ($$...$$) ----
+
+TEST(Parser, LatexDisplayMathSingleLinePromotedToCodeBlock)
+{
+    auto result = ParseMarkdown("$$E = mc^2$$");
+    ASSERT_EQ(result.nodes.size(), 1u);
+    EXPECT_EQ(result.nodes[0].type, NodeType::CodeBlock);
+    EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[0].text_utf8, "E = mc^2");
+    // diagram_indices に登録される（描画パイプラインに流すため）
+    ASSERT_EQ(result.diagram_indices.size(), 1u);
+    EXPECT_EQ(result.diagram_indices[0], 0u);
+}
+
+TEST(Parser, LatexDisplayMathWithOtherContentFallsBackToText)
+{
+    // 段落内に数式以外の内容があるときは昇格せず、テキストとして残す
+    auto nodes = ParseMarkdown("before $$x+y$$ after").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
+    // フォールバック時は $$ 区切りが復元されていること
+    const std::wstring text(nodes[0].GetText());
+    EXPECT_NE(text.find(L"$$x+y$$"), std::wstring::npos);
+}
+
+TEST(Parser, LatexMultipleDisplayMathInOneParagraphFallsBackToText)
+{
+    // 1段落に2つ以上の $$...$$ があるときは昇格しない
+    auto nodes = ParseMarkdown("$$a$$ $$b$$").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+}
+
+TEST(Parser, LatexInlineMathRemainsAsText)
+{
+    // インライン $...$ は昇格対象外。$ 記号を含む元のテキストとして扱う
+    auto nodes = ParseMarkdown("value is $x$ here").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
+    const std::wstring text(nodes[0].GetText());
+    EXPECT_NE(text.find(L"$x$"), std::wstring::npos);
+}
+
+TEST(Parser, LatexDisplayMathInBlockquoteNotPromoted)
+{
+    // blockquote 内の $$...$$ は引用文脈維持のため昇格しない
+    auto nodes = ParseMarkdown("> $$y=x$$").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+}
+
+TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
+{
+    // "The price is $5 or $10." のような金額表記は LaTeX ではなくテキストとして扱う。
+    // md4c は `$` の直後に空白・数字・記号が続く場合などインライン数式として解釈しないため、
+    // フラグ有効化で既存のドル記号テキストが壊れないことを確認する。
+    auto nodes = ParseMarkdown("The price is $5 or $10.").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
+    const std::wstring text(nodes[0].GetText());
+    EXPECT_NE(text.find(L"$5"), std::wstring::npos);
+    EXPECT_NE(text.find(L"$10"), std::wstring::npos);
+}
+
+TEST(Parser, LatexDisplayMathMultiline)
+{
+    // 複数行にわたる $$...$$ でも昇格される（中身はパーサがそのまま保持）
+    auto result = ParseMarkdown("$$\nE = mc^2\n$$");
+    ASSERT_EQ(result.nodes.size(), 1u);
+    EXPECT_EQ(result.nodes[0].type, NodeType::CodeBlock);
+    EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
+    // 中身に 'E = mc^2' が含まれること（md4c の改行扱いに依存するが、式本体は保持される）
+    const auto& body = result.nodes[0].text_utf8;
+    EXPECT_NE(body.find("E = mc^2"), std::string::npos);
+}
+
+TEST(Parser, LatexDisplayMathSurroundingParagraphs)
+{
+    // 前後に通常段落がある場合も、純粋な $$...$$ 段落のみ昇格される
+    auto result = ParseMarkdown("before\n\n$$E=mc^2$$\n\nafter");
+    ASSERT_EQ(result.nodes.size(), 3u);
+    EXPECT_EQ(result.nodes[0].type, NodeType::Paragraph);
+    EXPECT_EQ(result.nodes[1].type, NodeType::CodeBlock);
+    EXPECT_EQ(result.nodes[1].code_language, SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[1].text_utf8, "E=mc^2");
+    EXPECT_EQ(result.nodes[2].type, NodeType::Paragraph);
+    ASSERT_EQ(result.diagram_indices.size(), 1u);
+    EXPECT_EQ(result.diagram_indices[0], 1u);
+}
+
 // ---- 特殊文字を含むURL ----
 
 TEST(Parser, LinkWithSpecialCharsInUrl)

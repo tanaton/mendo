@@ -178,14 +178,14 @@ TEST(DocumentTest, BuildIndicesImageNodes)
     EXPECT_EQ(images.size(), 1u);
 }
 
-TEST(DocumentTest, BuildIndicesMermaidNodes)
+TEST(DocumentTest, BuildIndicesDiagramNodes)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD\n```\n\n```cpp\nint x;\n```", L"test.md");
-    const auto& mermaids = doc.GetMermaidNodeIndices();
-    EXPECT_EQ(mermaids.size(), 1u);
-    // cppコードブロックはMermaidインデックスに含まれない
+    const auto& diagrams = doc.GetDiagramNodeIndices();
+    EXPECT_EQ(diagrams.size(), 1u);
+    // cppコードブロックはダイアグラムインデックスに含まれない
     const auto& nodes = doc.GetNodes();
-    EXPECT_EQ(nodes[mermaids[0]].code_language, SyntaxLanguage::Mermaid);
+    EXPECT_EQ(nodes[diagrams[0]].code_language, SyntaxLanguage::Mermaid);
 }
 
 TEST(DocumentTest, BuildIndicesTocAndAnchorConsistent)
@@ -217,5 +217,5 @@ TEST(DocumentTest, BuildIndicesNoSpecialNodes)
 {
     auto doc = Document::FromMarkdown("just a paragraph", L"test.md");
     EXPECT_TRUE(doc.GetImageNodeIndices().empty());
-    EXPECT_TRUE(doc.GetMermaidNodeIndices().empty());
+    EXPECT_TRUE(doc.GetDiagramNodeIndices().empty());
 }

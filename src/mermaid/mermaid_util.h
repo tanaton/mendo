@@ -3,7 +3,18 @@
 #include <string_view>
 #include <cstdint>
 
+struct Node;
+
 namespace mermaid_util {
+
+// LaTeX 原文を mermaid flowchart の1ノードラベルでラップする。
+// style でノードの枠と背景を非表示にし、数式のみが見えるようにする。
+std::pmr::wstring BuildLatexFlowchartCode(std::wstring_view latex);
+
+// ダイアグラムノード用キャッシュキー。言語種別に応じたソルトを内部で混ぜ、
+// 同じ UTF-8 コンテンツの Mermaid / LatexMath がキー衝突しないようにする。
+uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept;
+
 // wstringをJavaScript文字列リテラルとして安全に埋め込むためにエスケープする。
 std::pmr::wstring JsEscape(std::wstring_view input);
 

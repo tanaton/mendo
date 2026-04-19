@@ -47,7 +47,8 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
         }
         else if (const auto& text = node.GetText(); !text.empty()) {
             // ビットマップ描画ノードはテキストハイライト不可のため検索対象外
-            if (node.type == NodeType::Image || (node.type == NodeType::CodeBlock && node.code_language == SyntaxLanguage::Mermaid)) {
+            if (node.type == NodeType::Image ||
+                (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language))) {
                 continue;
             }
             FindMatches(std::wstring_view(text.data(), text.size()), lower_query, i);

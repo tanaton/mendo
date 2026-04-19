@@ -438,11 +438,11 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     float max_width, bool dark_mode,
     Callback on_complete)
 {
-    if (node.code_language != SyntaxLanguage::Mermaid) {
+    if (!IsDiagramLanguage(node.code_language)) {
         return;
     }
 
-    const auto hash = HashCode(node.text_utf8, max_width, dark_mode);
+    const auto hash = mermaid_util::NodeDiagramHash(node, max_width, dark_mode);
 
     // まずメモリキャッシュを確認
     if (const auto* cached = cache_.Find(hash)) {
@@ -586,12 +586,24 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     SetWindowPos(worker.hwnd, nullptr, -32000, -32000, vp_phys, h_phys, SWP_NOZORDER | SWP_NOACTIVATE);
 
     // Mermaidをレンダリングする（maxWidth=0はCSS制約なし、ビューポートが制約する）
+    // LatexMath ノードは flowchart ラッパに変換してから JS に渡す。
     // リクエストIDをpostMessageに含め、C++側でコールバックとリクエストを照合する
+    const Node& src_node = *worker.current_request.node;
+    std::pmr::wstring code_storage;
+    std::wstring_view code_view;
+    if (src_node.code_language == SyntaxLanguage::LatexMath) {
+        code_storage = mermaid_util::BuildLatexFlowchartCode(src_node.GetText());
+        code_view = code_storage;
+    }
+    else {
+        code_view = src_node.GetText();
+    }
+
     const auto js = PmrFormat(
         L"renderMermaid('{}', {}, 0)"
         L".then(function(r){{window.chrome.webview.postMessage('render-result:{}:'+r);}})"
         L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
-        mermaid_util::JsEscape(worker.current_request.node->GetText()),
+        mermaid_util::JsEscape(code_view),
         worker.current_request.dark_mode ? L"true" : L"false",
         worker.current_request.request_id, worker.current_request.request_id);
 
@@ -737,7 +749,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
 
         // ファイルキャッシュに非同期で保存
         if (file_cache_ && w.current_request.node) {
-            const uint64_t fkey = HashCode(w.current_request.node->text_utf8, w.current_request.max_width, w.current_request.dark_mode);
+            const uint64_t fkey = mermaid_util::NodeDiagramHash(*w.current_request.node, w.current_request.max_width, w.current_request.dark_mode);
             auto png_bytes = ReadAllStreamBytes(png_stream);
             if (!png_bytes.empty()) {
                 file_cache_->StoreAsync(fkey, draw_w, draw_h, std::move(png_bytes));

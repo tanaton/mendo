@@ -142,7 +142,7 @@ void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
         mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_)) {
         const float min_width = std::min(content_width, last_mermaid_content_width_);
         bool any_invalidated = false;
-        for (size_t i : doc_->GetMermaidNodeIndices()) {
+        for (size_t i : doc_->GetDiagramNodeIndices()) {
             auto& diagram = cache_->GetDiagram(i);
             if (diagram.bitmap && diagram.width > 0 &&
                 diagram.width + 1.0f < min_width) {
@@ -178,7 +178,7 @@ int ResourceManager::RequestMermaidRenders()
     const float range_bottom = viewport_top + viewport_height + buffer;
 
     int applied = 0;
-    for (size_t i : doc_->GetMermaidNodeIndices()) {
+    for (size_t i : doc_->GetDiagramNodeIndices()) {
         auto& node = doc_->GetNodesMut()[i];
         auto& diagram = cache_->GetDiagram(i);
         if (diagram.bitmap) {
@@ -239,7 +239,7 @@ void ResourceManager::ProcessMermaidBatch()
     const float range_bottom = viewport_top + viewport_height + buffer;
 
     const bool dark_mode = theme_service_->IsDarkMode();
-    const auto& indices = doc_->GetMermaidNodeIndices();
+    const auto& indices = doc_->GetDiagramNodeIndices();
     bool any_loaded = false;
 
     const auto start = std::chrono::steady_clock::now();
@@ -343,7 +343,7 @@ void ResourceManager::EvictOffscreenBitmaps()
 
     // Mermaidビットマップの解放
     bool any_mermaid_evicted = false;
-    for (size_t i : doc_->GetMermaidNodeIndices()) {
+    for (size_t i : doc_->GetDiagramNodeIndices()) {
         auto& diagram = cache_->GetDiagram(i);
         if (!diagram.bitmap) {
             continue;

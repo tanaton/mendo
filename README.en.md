@@ -18,6 +18,7 @@ winget install tanaton.mendo
 
 - **Zero-HTML rendering** — Markdown is drawn directly with Direct2D + DirectWrite, never converted to HTML
 - **Mermaid diagrams** — Render `mermaid` code blocks as diagrams (via offscreen WebView2)
+- **LaTeX math** — Render `$$...$$` block equations with KaTeX. Only paragraphs consisting solely of a `$$...$$` block are rendered; paragraphs mixing math with other text are shown as plain text.
 - **Fully offline** — Mermaid.js and other resources are embedded in the executable; no network connection required
 - **File watching** — Auto-reload on external file changes
 - **Syntax highlighting** — C++, Python, JavaScript, Go, Rust, PowerShell, Bash, cmd
@@ -40,6 +41,7 @@ winget install tanaton.mendo
 | Fenced code blocks | Supported (with syntax highlighting) |
 | Images (PNG / JPEG / BMP) | Supported (async loading) |
 | Mermaid diagrams | Supported (WebView2 rendering) |
+| LaTeX math (`$$...$$`) | Supported for block equations only. Rendered when the paragraph consists solely of a `$$...$$` block; mixed paragraphs fall back to plain text. |
 | GitHub Alerts | Supported (Note / Tip / Important / Warning / Caution) |
 | Links (external / page anchors) | Supported |
 | Ordered / Unordered lists | Supported (nested) |

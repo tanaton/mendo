@@ -297,7 +297,8 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         if (node.type != NodeType::CodeBlock) {
             continue;
         }
-        if (node.code_language == SyntaxLanguage::Mermaid) {
+        // ダイアグラム系 (Mermaid / LatexMath) はコピーボタン非対応
+        if (IsDiagramLanguage(node.code_language)) {
             continue;
         }
 
@@ -338,7 +339,7 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         }
 
         const auto& node = ctx.nodes[i];
-        if (node.type != NodeType::CodeBlock || node.code_language != SyntaxLanguage::Mermaid) {
+        if (node.type != NodeType::CodeBlock || !IsDiagramLanguage(node.code_language)) {
             continue;
         }
 

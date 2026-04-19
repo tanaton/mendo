@@ -459,8 +459,8 @@ void App::ApplyMermaidCacheHeights(float md_width)
     const bool dark_mode = theme_service_.IsDarkMode();
     const auto& nodes = state_.document.doc.GetNodes();
     bool any_applied = false;
-    for (size_t i : state_.document.doc.GetMermaidNodeIndices()) {
-        const auto hash = mermaid_util::HashCode(nodes[i].text_utf8, content_width, dark_mode);
+    for (size_t i : state_.document.doc.GetDiagramNodeIndices()) {
+        const auto hash = mermaid_util::NodeDiagramHash(nodes[i], content_width, dark_mode);
         MermaidFileCache::CacheEntry fentry;
         if (file_cache_.LookupDimensions(hash, fentry)) {
             state_.document.layout_cache[i].height = fentry.css_height;

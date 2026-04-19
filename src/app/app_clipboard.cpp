@@ -75,14 +75,14 @@ void App::SaveDiagramAsPng(int node_index)
         return;
     }
     const auto& node = nodes[node_index];
-    if (node.type != NodeType::CodeBlock || node.code_language != SyntaxLanguage::Mermaid) {
+    if (node.type != NodeType::CodeBlock || !IsDiagramLanguage(node.code_language)) {
         return;
     }
 
     // ファイルキャッシュからPNGデータを取得
     const float md_width = renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
     const bool dark = renderer_.GetTheme().IsDark();
-    const uint64_t key = mermaid_util::HashCode(node.text_utf8, md_width, dark);
+    const uint64_t key = mermaid_util::NodeDiagramHash(node, md_width, dark);
 
     MermaidFileCache::CacheEntry entry;
     MermaidFileCache::PngBlob png;

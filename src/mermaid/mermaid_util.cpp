@@ -1,4 +1,5 @@
 #include "mermaid_util.h"
+#include "types.h"
 #include "utility.h"
 #include <algorithm>
 #include <cmath>
@@ -91,4 +92,41 @@ uint64_t mermaid_util::HashCode(std::wstring_view code, float max_width, bool da
 uint64_t mermaid_util::HashCode(std::string_view code, float max_width, bool dark_mode) noexcept
 {
     return CombinedHash(code, QuantizeWidth(max_width), dark_mode);
+}
+
+std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
+{
+    // mermaid ラベル内で特殊文字をエスケープする:
+    //   "  → #quot;  (ラベル終端の " と衝突)
+    //   ]  → #93;    (ラベル終端の ] と衝突)
+    //   \r, \n → 空白 (ラベル構文上改行不可)
+    std::pmr::wstring result;
+    result.reserve(latex.size() + 80);
+    result.append(L"flowchart LR\n    A[\"$$");
+    for (const wchar_t c : latex) {
+        switch (c) {
+        case L'"':  result.append(L"#quot;"); break;
+        case L']':  result.append(L"#93;"); break;
+        case L'\r': // fallthrough
+        case L'\n':
+            result.push_back(L' ');
+            break;
+        default:
+            result.push_back(c);
+            break;
+        }
+    }
+    result.append(L"$$\"]\n    style A fill:none,stroke:none");
+    return result;
+}
+
+uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept
+{
+    // LatexMath を Mermaid とキャッシュ衝突させないためのソルト（任意の定数）。
+    constexpr uint64_t LATEX_MATH_HASH_SALT = 0xA1B2C3D4E5F60718ULL;
+    uint64_t h = HashCode(node.text_utf8, max_width, dark_mode);
+    if (node.code_language == SyntaxLanguage::LatexMath) {
+        h ^= LATEX_MATH_HASH_SALT;
+    }
+    return h;
 }

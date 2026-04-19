@@ -74,7 +74,7 @@ struct ParseContext {
     // パース中に構築する特殊ノードインデックス（BuildIndicesのO(n)走査を除去）
     std::pmr::vector<size_t> heading_indices;
     std::pmr::vector<size_t> image_indices;
-    std::pmr::vector<size_t> mermaid_indices;
+    std::pmr::vector<size_t> diagram_indices;
     size_t current_node_index = 0;
 
     // パース一時データには monotonic リソースを使用
@@ -115,6 +115,12 @@ struct ParseContext {
 
     // 画像スパン追跡
     std::pmr::wstring pending_image_src{ parse_resource.resource() };
+
+    // display math スパンが 1 個だけで他の内容が無い段落を LatexMath コードブロックに昇格する状態
+    bool in_display_math = false;
+    int paragraph_display_math_count = 0;
+    bool paragraph_has_other_content = false;
+    std::pmr::string display_math_buf{ parse_resource.resource() };
 
     // md_parse() に渡した入力バッファ先頭ポインタ（source_offset 計算用）
     const char* markdown_base = nullptr;
@@ -293,6 +299,10 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
             const auto node_type = (ctx->blockquote_depth > 0) ? NodeType::BlockQuote : NodeType::Paragraph;
             ctx->BeginNode(node_type);
         }
+        ctx->paragraph_display_math_count = 0;
+        ctx->paragraph_has_other_content = false;
+        ctx->display_math_buf.clear();
+        ctx->in_display_math = false;
         break;
 
     case MD_BLOCK_CODE: {
@@ -409,7 +419,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             }
         }
         if (cn && cn->code_language == SyntaxLanguage::Mermaid) {
-            ctx->mermaid_indices.emplace_back(ctx->current_node_index);
+            ctx->diagram_indices.emplace_back(ctx->current_node_index);
         }
         break;
     }
@@ -471,6 +481,20 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             cn->type = NodeType::Image;
             ctx->image_indices.emplace_back(ctx->current_node_index);
         }
+        // blockquote 内は引用文脈を保ちたいため Paragraph のみ昇格対象
+        else if (auto* math_node = ctx->current_node;
+            math_node && ctx->paragraph_display_math_count == 1 &&
+            !ctx->paragraph_has_other_content &&
+            !ctx->display_math_buf.empty() &&
+            math_node->type == NodeType::Paragraph) {
+            math_node->type = NodeType::CodeBlock;
+            math_node->code_language = SyntaxLanguage::LatexMath;
+            math_node->text_utf8.assign(ctx->display_math_buf.data(), ctx->display_math_buf.size());
+            math_node->runs.clear();
+            math_node->line_count = static_cast<int>(std::ranges::count(math_node->text_utf8, '\n'));
+            ctx->node_wide_offset = 0;
+            ctx->diagram_indices.emplace_back(ctx->current_node_index);
+        }
         ctx->current_node = nullptr;
         break;
     case MD_BLOCK_LI:
@@ -495,15 +519,19 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     switch (type) {
     case MD_SPAN_STRONG:
         ctx->current_span.bold = true;
+        ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_EM:
         ctx->current_span.italic = true;
+        ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_CODE:
         ctx->current_span.code = true;
+        ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_DEL:
         ctx->current_span.strikethrough = true;
+        ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
@@ -513,6 +541,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
                 ctx->link_urls.back());
             ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
         }
+        ctx->paragraph_has_other_content = true;
         break;
     }
     case MD_SPAN_IMG: {
@@ -521,9 +550,27 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
             Utf8ToWide(std::string_view{ img->src.text, static_cast<size_t>(img->src.size) },
                 ctx->pending_image_src);
         }
+        ctx->paragraph_has_other_content = true;
         break;
     }
+    case MD_SPAN_LATEXMATH_DISPLAY:
+        // "$$" はフォールバックテキスト用。昇格対象でなくなった時点で has_other_content を立てる
+        ctx->in_display_math = true;
+        ctx->AppendUtf8(std::string_view{ "$$", 2 });
+        if (ctx->paragraph_display_math_count == 0 && !ctx->paragraph_has_other_content) {
+            ctx->display_math_buf.clear();
+        }
+        else {
+            ctx->paragraph_has_other_content = true;
+        }
+        break;
+    case MD_SPAN_LATEXMATH:
+        // インライン $...$ は昇格対象外。元の "$" を復元してテキストとして残す
+        ctx->AppendUtf8(std::string_view{ "$", 1 });
+        ctx->paragraph_has_other_content = true;
+        break;
     default:
+        ctx->paragraph_has_other_content = true;
         break;
     }
 
@@ -542,6 +589,14 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
             cn->image_data->src = std::move(ctx->pending_image_src);
         }
         ctx->pending_image_src.clear();
+    }
+    else if (type == MD_SPAN_LATEXMATH_DISPLAY) {
+        ctx->in_display_math = false;
+        ctx->AppendUtf8(std::string_view{ "$$", 2 });
+        ctx->paragraph_display_math_count++;
+    }
+    else if (type == MD_SPAN_LATEXMATH) {
+        ctx->AppendUtf8(std::string_view{ "$", 1 });
     }
 
     if (!ctx->span_stack.empty()) {
@@ -624,20 +679,40 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     switch (type) {
     case MD_TEXT_NORMAL:
     case MD_TEXT_CODE:
+        if (!ctx->in_display_math) {
+            ctx->paragraph_has_other_content = true;
+        }
         ctx->utf8_accum.append(text, static_cast<size_t>(size));
         break;
 
+    case MD_TEXT_LATEXMATH:
+        ctx->utf8_accum.append(text, static_cast<size_t>(size));
+        if (ctx->in_display_math && ctx->paragraph_display_math_count == 0 &&
+            !ctx->paragraph_has_other_content) {
+            ctx->display_math_buf.append(text, static_cast<size_t>(size));
+        }
+        break;
+
     case MD_TEXT_ENTITY:
+        if (!ctx->in_display_math) {
+            ctx->paragraph_has_other_content = true;
+        }
         ctx->FlushUtf8();
         ResolveHtmlEntity(ctx, std::string_view{ text, static_cast<size_t>(size) });
         break;
 
     case MD_TEXT_BR:
+        if (!ctx->in_display_math) {
+            ctx->paragraph_has_other_content = true;
+        }
         ctx->FlushUtf8();
         ctx->AppendText(std::wstring_view{ L"\n", 1 });
         break;
 
     case MD_TEXT_SOFTBR:
+        if (!ctx->in_display_math) {
+            ctx->paragraph_has_other_content = true;
+        }
         ctx->FlushUtf8();
         ctx->AppendText(std::wstring_view{ L" ", 1 });
         break;
@@ -660,7 +735,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
 
     MD_PARSER parser{};
     parser.abi_version = 0;
-    parser.flags = MD_DIALECT_GITHUB;
+    parser.flags = MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS;
     parser.enter_block = OnEnterBlock;
     parser.leave_block = OnLeaveBlock;
     parser.enter_span = OnEnterSpan;
@@ -675,6 +750,6 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     result.nodes = std::move(ctx.nodes);
     result.heading_indices = std::move(ctx.heading_indices);
     result.image_indices = std::move(ctx.image_indices);
-    result.mermaid_indices = std::move(ctx.mermaid_indices);
+    result.diagram_indices = std::move(ctx.diagram_indices);
     return result;
 }

@@ -39,7 +39,8 @@ public:
 
     // 特殊ノードインデックスの高速アクセス
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept { return image_node_indices_; }
-    constexpr const std::pmr::vector<size_t>& GetMermaidNodeIndices() const noexcept { return mermaid_node_indices_; }
+    // Mermaid / LatexMath など IsDiagramLanguage() を満たすコードブロックのノードインデックス
+    constexpr const std::pmr::vector<size_t>& GetDiagramNodeIndices() const noexcept { return diagram_node_indices_; }
 
 private:
     void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
@@ -50,5 +51,5 @@ private:
     TableOfContents toc_;
     std::pmr::map<std::pmr::wstring, int> anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
-    std::pmr::vector<size_t> mermaid_node_indices_;
+    std::pmr::vector<size_t> diagram_node_indices_;
 };

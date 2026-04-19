@@ -18,6 +18,7 @@ winget install tanaton.mendo
 
 - **ゼロHTMLレンダリング** — MarkdownをHTMLに変換せず、Direct2D + DirectWrite で直接描画
 - **Mermaidダイアグラム** — `mermaid` コードブロックを図として表示（WebView2によるオフスクリーンレンダリング）
+- **LaTeX数式** — `$$...$$` のブロック数式を KaTeX で描画（`$$...$$` のみからなる段落が対象。テキストと混在する段落は通常テキスト表示）
 - **完全オフライン動作** — Mermaid.js 等のリソースも実行ファイルに同梱、ネットワーク接続不要
 - **ファイル監視** — 編集中のファイルを自動検出してライブリロード
 - **シンタックスハイライト** — C++, Python, JavaScript, Go, Rust, pwsh, bash, cmd のコードブロックを色分け表示
@@ -40,6 +41,7 @@ winget install tanaton.mendo
 | コードブロック (フェンス) | ✅ シンタックスハイライト付き |
 | 画像 (PNG / JPEG / BMP) | ✅ 非同期読み込み |
 | Mermaidダイアグラム | ✅ WebView2でレンダリング |
+| LaTeX数式 (`$$...$$`) | ✅ ブロック数式のみ。段落が `$$...$$` のみで構成される場合に描画、他のテキストと混在する段落はテキスト表示 |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | リンク (外部 / ページ内アンカー) | ✅ |
 | 順序付きリスト / 箇条書き | ✅ ネスト対応 |

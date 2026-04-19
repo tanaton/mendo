@@ -130,7 +130,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         return;
 
     case NodeType::CodeBlock:
-        if (node.code_language == SyntaxLanguage::Mermaid) {
+        if (IsDiagramLanguage(node.code_language)) {
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
                 cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), bmp });
