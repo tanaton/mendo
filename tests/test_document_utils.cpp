@@ -207,7 +207,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockWithSyntaxTokensWrapsInSpans)
 
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<span style=\"color:#AF00DB\">int</span>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<span style=\"color:#af00db\">int</span>"), std::wstring::npos);
     EXPECT_NE(html.find(L"<span style=\"color:#098658\">42</span>"), std::wstring::npos);
     // その他の Plain 区間は素のテキスト
     EXPECT_NE(html.find(L" x = "), std::wstring::npos);
@@ -246,10 +246,10 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel, /*dark_mode=*/true);
     // ダーク用の色（VS Code Dark+ 相当）が使われる
-    EXPECT_NE(html.find(L"<span style=\"color:#C586C0\">int</span>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<span style=\"color:#B5CEA8\">42</span>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<span style=\"color:#c586c0\">int</span>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<span style=\"color:#b5cea8\">42</span>"), std::wstring::npos);
     // ライト用の色は混ざらない
-    EXPECT_EQ(html.find(L"#AF00DB"), std::wstring::npos);
+    EXPECT_EQ(html.find(L"#af00db"), std::wstring::npos);
     EXPECT_EQ(html.find(L"#098658"), std::wstring::npos);
     // コードブロック背景がダーク色
     EXPECT_NE(html.find(L"background-color:#2d2d2d"), std::wstring::npos);

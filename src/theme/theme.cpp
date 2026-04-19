@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "theme_palette.h"
 
 static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) noexcept
 {
@@ -114,8 +115,8 @@ Theme GetLightTheme()
     t.bg_color = Color(0xFFFFFF);
     t.text_color = Color(0x24292e);
     t.heading_color = Color(0x1a1a1a);
-    t.code_bg_color = Color(0xf6f8fa);
-    t.code_text_color = Color(0x24292e);
+    t.code_bg_color = Color(theme_palette::kLight.code_bg);
+    t.code_text_color = Color(theme_palette::kLight.code_text);
     t.link_color = Color(0x0366d6);
     t.hr_color = Color(0xd0d0d0);
     t.blockquote_bar_color = Color(0xdfe2e5);
@@ -134,13 +135,13 @@ Theme GetLightTheme()
     t.alert_bg_color[4] = Color(0xffebe9, 0.4f); // Caution bg
 
     // シンタックスハイライト
-    t.syntax_keyword = Color(0xAF00DB);  // 紫
-    t.syntax_type = Color(0x267F99);  // ティール
-    t.syntax_string = Color(0xA31515);  // 暗い赤
-    t.syntax_number = Color(0x098658);  // 緑
-    t.syntax_comment = Color(0x008000);  // 緑
-    t.syntax_preprocessor = Color(0x795E26);  // 茶
-    t.syntax_function = Color(0x795E26);  // 茶
+    t.syntax_keyword = Color(theme_palette::kLight.syntax_keyword);
+    t.syntax_type = Color(theme_palette::kLight.syntax_type);
+    t.syntax_string = Color(theme_palette::kLight.syntax_string);
+    t.syntax_number = Color(theme_palette::kLight.syntax_number);
+    t.syntax_comment = Color(theme_palette::kLight.syntax_comment);
+    t.syntax_preprocessor = Color(theme_palette::kLight.syntax_preprocessor);
+    t.syntax_function = Color(theme_palette::kLight.syntax_function);
 
     ApplyCommonLayout(t);
 
@@ -175,8 +176,8 @@ Theme GetDarkTheme()
     t.bg_color = Color(0x1e1e1e);
     t.text_color = Color(0xd4d4d4);
     t.heading_color = Color(0xe0e0e0);
-    t.code_bg_color = Color(0x2d2d2d);
-    t.code_text_color = Color(0xd4d4d4);
+    t.code_bg_color = Color(theme_palette::kDark.code_bg);
+    t.code_text_color = Color(theme_palette::kDark.code_text);
     t.link_color = Color(0x569cd6);
     t.hr_color = Color(0x404040);
     t.blockquote_bar_color = Color(0x505050);
@@ -195,13 +196,13 @@ Theme GetDarkTheme()
     t.alert_bg_color[4] = Color(0x2e0b0d, 0.5f); // Caution bg
 
     // シンタックスハイライト（VS Code Dark+風）
-    t.syntax_keyword = Color(0xC586C0);
-    t.syntax_type = Color(0x4EC9B0);
-    t.syntax_string = Color(0xCE9178);
-    t.syntax_number = Color(0xB5CEA8);
-    t.syntax_comment = Color(0x6A9955);
-    t.syntax_preprocessor = Color(0xDCDCAA);
-    t.syntax_function = Color(0xDCDCAA);
+    t.syntax_keyword = Color(theme_palette::kDark.syntax_keyword);
+    t.syntax_type = Color(theme_palette::kDark.syntax_type);
+    t.syntax_string = Color(theme_palette::kDark.syntax_string);
+    t.syntax_number = Color(theme_palette::kDark.syntax_number);
+    t.syntax_comment = Color(theme_palette::kDark.syntax_comment);
+    t.syntax_preprocessor = Color(theme_palette::kDark.syntax_preprocessor);
+    t.syntax_function = Color(theme_palette::kDark.syntax_function);
 
     ApplyCommonLayout(t);
 
