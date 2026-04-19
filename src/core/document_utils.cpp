@@ -70,37 +70,6 @@ struct InlineState {
     bool operator==(const InlineState&) const = default;
 };
 
-// runs は start 昇順・非重複で並ぶ前提。pos を単調増加で呼び出しつつ
-// run_idx を更新していくため、AppendNodeInlineHtml 全体で O(N + M)。
-// 危険なスキーム (file://, javascript: 等) のリンクはここで -1 に落とす。
-InlineState ResolveInlineState(
-    const std::pmr::vector<TextRun>& runs,
-    const std::pmr::vector<std::pmr::wstring>& link_urls,
-    uint32_t pos,
-    size_t& run_idx)
-{
-    while (run_idx < runs.size() && runs[run_idx].start + runs[run_idx].length <= pos) {
-        ++run_idx;
-    }
-    InlineState s;
-    if (run_idx >= runs.size() || pos < runs[run_idx].start) {
-        return s;
-    }
-    const auto& r = runs[run_idx];
-    s.bold = r.bold();
-    s.italic = r.italic();
-    s.code = r.code();
-    s.strike = r.strikethrough();
-    s.link_url_index = r.link_url_index;
-    if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
-        const auto& url = link_urls[static_cast<size_t>(s.link_url_index)];
-        if (!IsSafeUrlScheme(url)) {
-            s.link_url_index = -1;
-        }
-    }
-    return s;
-}
-
 // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
 void OpenInlineTags(std::pmr::wstring& out, const InlineState& s,
     const std::pmr::vector<std::pmr::wstring>& link_urls)
@@ -125,6 +94,8 @@ void CloseInlineTags(std::pmr::wstring& out, const InlineState& s)
     if (s.link_url_index >= 0) { out.append(L"</a>"); }
 }
 
+// runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
+// 同一 state 区間の比較と IsSafeUrlScheme を run あたり 1 回に抑える。
 void AppendNodeInlineHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end)
 {
     const auto& text = node.GetText();
@@ -134,31 +105,67 @@ void AppendNodeInlineHtml(std::pmr::wstring& out, const Node& node, uint32_t sta
     if (start >= end) {
         return;
     }
+    const auto& runs = node.runs;
+    const auto& link_urls = node.link_urls;
+
     InlineState current;
     bool tags_open = false;
     size_t run_idx = 0;
-    for (uint32_t i = start; i < end; ++i) {
-        const InlineState s = ResolveInlineState(node.runs, node.link_urls, i, run_idx);
+    uint32_t pos = start;
+
+    while (pos < end) {
+        while (run_idx < runs.size() && runs[run_idx].start + runs[run_idx].length <= pos) {
+            ++run_idx;
+        }
+
+        InlineState s;
+        uint32_t segment_end;
+        if (run_idx >= runs.size() || pos < runs[run_idx].start) {
+            segment_end = (run_idx < runs.size()) ? std::min(end, runs[run_idx].start) : end;
+        }
+        else {
+            const auto& r = runs[run_idx];
+            s.bold = r.bold();
+            s.italic = r.italic();
+            s.code = r.code();
+            s.strike = r.strikethrough();
+            s.link_url_index = r.link_url_index;
+            if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
+                if (!IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)])) {
+                    s.link_url_index = -1;
+                }
+            }
+            segment_end = std::min(end, r.start + r.length);
+        }
+
         if (!(s == current)) {
             if (tags_open) {
                 CloseInlineTags(out, current);
             }
             current = s;
-            OpenInlineTags(out, current, node.link_urls);
+            OpenInlineTags(out, current, link_urls);
             tags_open = true;
         }
-        const wchar_t c = text[i];
-        if (c == L'\n') {
-            if (tags_open) {
-                CloseInlineTags(out, current);
-                tags_open = false;
+
+        for (uint32_t i = pos; i < segment_end; ++i) {
+            const wchar_t c = text[i];
+            if (c == L'\n') {
+                if (tags_open) {
+                    CloseInlineTags(out, current);
+                    tags_open = false;
+                }
+                out.append(L"<br>");
+                continue;
             }
-            out.append(L"<br>");
-            current = InlineState{};
-            continue;
+            if (!tags_open) {
+                OpenInlineTags(out, current, link_urls);
+                tags_open = true;
+            }
+            AppendHtmlEscaped(out, std::wstring_view(&c, 1));
         }
-        AppendHtmlEscaped(out, std::wstring_view(&c, 1));
+        pos = segment_end;
     }
+
     if (tags_open) {
         CloseInlineTags(out, current);
     }

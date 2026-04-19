@@ -250,7 +250,6 @@ TEST(ExtractSelectedTextAsHtml, OrderedTaskListWrapsInOl)
 
 TEST(ExtractSelectedTextAsHtml, UnsafeSchemeLinkIsStripped)
 {
-    // javascript: は既存の IsSafeUrlScheme でブロックされる
     auto nodes = ParseMarkdown("[click](javascript:alert(1))").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -278,7 +277,6 @@ TEST(ExtractSelectedTextAsHtml, MailtoLinkIsKept)
 
 TEST(ExtractSelectedTextAsHtml, InternalAnchorLinkIsStripped)
 {
-    // # アンカーは外部アプリに貼っても機能しないのでリンクタグは除去
     auto nodes = ParseMarkdown("[sec](#section)").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
