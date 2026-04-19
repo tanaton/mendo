@@ -24,7 +24,6 @@ void App::InvalidateHitPositions() noexcept
 
 void App::ScrollTo(float position)
 {
-    state_.view.scroll_restore.pending_restore_scroll_y = -1;
     state_.view.viewport.ScrollTo(position);
     InvalidateHitPositions();
 }
@@ -167,12 +166,6 @@ void App::OnDeferredLayout()
         // 時間予算付きバッチで処理する。同期ディスクI/O + PNGデコードが
         // UIスレッドを長時間ブロックするのを防ぐ。
         resource_manager_.ScheduleMermaidBatch();
-
-        // 全レイアウト確定後に前回セッションの生のscroll_yを適用する
-        if (state_.view.scroll_restore.pending_restore_scroll_y >= 0.0f) {
-            state_.view.viewport.SetScrollY(state_.view.scroll_restore.pending_restore_scroll_y);
-            state_.view.scroll_restore.pending_restore_scroll_y = -1.0f;
-        }
 
         SyncMaxScroll(md_height);
 

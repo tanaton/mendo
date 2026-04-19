@@ -61,7 +61,6 @@ void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
         effects.emplace_back(effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
-        state.view.scroll_restore.pending_restore_scroll_y = -1;
         state.view.viewport.ScrollTo(entry.scroll_y);
         state.interaction.hover_throttle.Reset();
         ClearTooltip(state, effects);
@@ -92,7 +91,6 @@ void ReduceNavigateForward(AppState& state, SideEffectList& effects)
 
 void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAction& a)
 {
-    state.view.scroll_restore.pending_restore_scroll_y = -1;
     const float old_scroll = state.view.viewport.GetScrollY();
     const float page_size = state.cached_pane_layout.md_rect.height;
     switch (a.type) {
@@ -122,7 +120,6 @@ void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAc
 
 void ReduceDirectScrollBy(AppState& state, SideEffectList& effects, const DirectScrollByAction& a)
 {
-    state.view.scroll_restore.pending_restore_scroll_y = -1;
     const float old_scroll = state.view.viewport.GetScrollY();
     state.view.viewport.DirectScrollBy(a.delta);
     EmitScrollEffects(state, effects, old_scroll);

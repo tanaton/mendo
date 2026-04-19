@@ -18,7 +18,6 @@ public:
     struct ScrollPosition {
         int node = -1;
         int offset = 0;
-        int raw_y = 0;
     };
     void SaveScrollPosition(int node, float scroll_y, float node_y);
     ScrollPosition LoadScrollPosition() const;

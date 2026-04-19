@@ -89,9 +89,9 @@ public:
     RECT GetSearchEditRect();
 
     // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
-    void SetPendingRestoreNode(int node, int offset, float scroll_y = -1.0f) noexcept
+    void SetPendingRestoreNode(int node, int offset) noexcept
     {
-        state_.view.scroll_restore.SetNodeRestore(node, offset, scroll_y);
+        state_.view.scroll_restore.SetNodeRestore(node, offset);
     }
 
     // サイズ変更状態 — Reducer経由で状態変更

@@ -64,8 +64,6 @@ void SessionService::SaveScrollPosition(int node, float scroll_y, float node_y)
     const int offset = static_cast<int>(std::lround(scroll_y - node_y));
     config_.SaveInt("Session", "ScrollNode", node);
     config_.SaveInt("Session", "ScrollOffset", offset);
-    // 遅延レイアウト完了後に正確な位置を復元するための生のscroll_y
-    config_.SaveInt("Session", "ScrollY", static_cast<int>(std::lround(scroll_y)));
 }
 
 SessionService::ScrollPosition SessionService::LoadScrollPosition() const
@@ -73,6 +71,5 @@ SessionService::ScrollPosition SessionService::LoadScrollPosition() const
     return {
         .node = config_.LoadInt("Session", "ScrollNode", -1, -1, 1000000),
         .offset = config_.LoadInt("Session", "ScrollOffset", 0, -1000000, 1000000),
-        .raw_y = config_.LoadInt("Session", "ScrollY", 0, 0, 10000000),
     };
 }

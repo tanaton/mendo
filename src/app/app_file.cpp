@@ -252,13 +252,6 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     }
     else if (state_.view.scroll_restore.HasNavScroll()) {
         scroll_y = state_.view.scroll_restore.ConsumeNavScroll();
-        // 残留 pending_restore_scroll_y が遅延レイアウト完了時に適用され、
-        // ナビゲーション復帰スクロールを上書きするのを防ぐ。
-        state_.view.scroll_restore.pending_restore_scroll_y = -1.0f;
-    }
-    else {
-        // 新規ファイルオープン: 前回ナビゲーションの残留値をクリア
-        state_.view.scroll_restore.pending_restore_scroll_y = -1;
     }
 
     MENDO_TRACEF("FinishLoad: scroll_y=%.1f (0=top of file)", scroll_y);
