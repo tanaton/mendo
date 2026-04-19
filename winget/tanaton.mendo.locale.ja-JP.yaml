@@ -10,7 +10,7 @@ PackageUrl: https://github.com/tanaton/mendo
 License: MIT
 LicenseUrl: https://github.com/tanaton/mendo/blob/main/LICENSE
 ShortDescription: Windows向け高速・省メモリMarkdownビュアー
-Description: Webブラウザを使わず、Direct2D/DirectWriteによる自前レンダリングでWindows向け高速Markdownビュアーを実現するネイティブアプリケーション。
+Description: Direct2D/DirectWriteを使用して直接描画を行うMarkdownビュアー。高速な動作と低メモリ使用量を実現しています。
 Tags:
   - markdown
   - viewer

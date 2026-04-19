@@ -1,6 +1,6 @@
-# mendo - Simple Markdown Viewer for Windows
+# mendo - Fast and simple Markdown viewer
 
-A lightweight, single-EXE Markdown viewer — just drop a file and start reading.
+A native Windows Markdown viewer that renders directly using Direct2D/DirectWrite, achieving fast performance and low memory usage.
 
 **[Japanese / 日本語](README.md)**
 
@@ -17,7 +17,6 @@ winget install tanaton.mendo
 ## Features
 
 - **Browser-less rendering** — Direct2D + DirectWrite native rendering
-- **Single EXE** — Statically linked CRT, no runtime dependencies
 - **3-pane layout** — File explorer / Table of contents / Markdown content
 - **File explorer** — Browse files and folders in the same directory
 - **Table of contents (TOC)** — Auto-extracted headings with click-to-jump and hover highlight
