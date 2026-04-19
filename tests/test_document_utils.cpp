@@ -256,7 +256,6 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
     EXPECT_NE(html.find(L"color:#d4d4d4"), std::wstring::npos);
 }
 
-
 // テーブルノードは node.GetText() の線形化テキストがレイアウトパス後にのみ埋まるため、
 // テストではダミーの線形化テキストを設定して selection.active を立てる。
 static TextSelection MakeTableFullSelection(Node& table)
