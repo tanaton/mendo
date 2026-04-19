@@ -28,6 +28,7 @@ ThemeConstants Theme::ToReducerConstants() const noexcept
         .margin_right = margin_right,
         .heading_spacing_above = heading_spacing_above,
         .zoom = zoom,
+        .is_dark = IsDark(),
     };
 }
 
