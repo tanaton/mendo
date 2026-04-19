@@ -187,12 +187,12 @@ public:
     void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes) noexcept
     {
         InvalidateAllLayouts(); // effects_generation_ は InvalidateAllLayouts 内で更新済み
-        InvalidateMermaidBitmaps(nodes);
+        InvalidateDiagramBitmaps(nodes);
     }
 
     // ダイアグラム系ノードのビットマップを無効化する。
     // ダークモード切替時に text_layout とエフェクトを保持したまま図だけ再描画したい場合に使う。
-    void InvalidateMermaidBitmaps(const std::pmr::vector<Node>& nodes) noexcept
+    void InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept
     {
         const auto count = std::min(nodes.size(), diagrams_.size());
         for (const auto& [idx, node] : nodes | std::views::take(count) | std::views::enumerate) {

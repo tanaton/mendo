@@ -74,7 +74,7 @@ struct ParseContext {
     // パース中に構築する特殊ノードインデックス（BuildIndicesのO(n)走査を除去）
     std::pmr::vector<size_t> heading_indices;
     std::pmr::vector<size_t> image_indices;
-    std::pmr::vector<size_t> mermaid_indices;
+    std::pmr::vector<size_t> diagram_indices;
     size_t current_node_index = 0;
 
     // パース一時データには monotonic リソースを使用
@@ -419,7 +419,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             }
         }
         if (cn && cn->code_language == SyntaxLanguage::Mermaid) {
-            ctx->mermaid_indices.emplace_back(ctx->current_node_index);
+            ctx->diagram_indices.emplace_back(ctx->current_node_index);
         }
         break;
     }
@@ -493,7 +493,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             math_node->runs.clear();
             math_node->line_count = static_cast<int>(std::ranges::count(math_node->text_utf8, '\n'));
             ctx->node_wide_offset = 0;
-            ctx->mermaid_indices.emplace_back(ctx->current_node_index);
+            ctx->diagram_indices.emplace_back(ctx->current_node_index);
         }
         ctx->current_node = nullptr;
         break;
@@ -750,6 +750,6 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     result.nodes = std::move(ctx.nodes);
     result.heading_indices = std::move(ctx.heading_indices);
     result.image_indices = std::move(ctx.image_indices);
-    result.mermaid_indices = std::move(ctx.mermaid_indices);
+    result.diagram_indices = std::move(ctx.diagram_indices);
     return result;
 }

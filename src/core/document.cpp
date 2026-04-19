@@ -34,7 +34,7 @@ void Document::ReplaceContent(ParseResult&& result)
 {
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
-    mermaid_node_indices_ = std::move(result.mermaid_indices);
+    diagram_node_indices_ = std::move(result.diagram_indices);
     BuildHeadingIndices(result.heading_indices);
 
     // パース直後にUTF-8→Wide一括変換を行い、描画時の暗黙的変換を排除する。

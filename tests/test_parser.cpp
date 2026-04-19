@@ -875,9 +875,9 @@ TEST(Parser, LatexDisplayMathSingleLinePromotedToCodeBlock)
     EXPECT_EQ(result.nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes[0].text_utf8, "E = mc^2");
-    // mermaid_indices に登録される（描画パイプラインに流すため）
-    ASSERT_EQ(result.mermaid_indices.size(), 1u);
-    EXPECT_EQ(result.mermaid_indices[0], 0u);
+    // diagram_indices に登録される（描画パイプラインに流すため）
+    ASSERT_EQ(result.diagram_indices.size(), 1u);
+    EXPECT_EQ(result.diagram_indices[0], 0u);
 }
 
 TEST(Parser, LatexDisplayMathWithOtherContentFallsBackToText)
@@ -919,6 +919,20 @@ TEST(Parser, LatexDisplayMathInBlockquoteNotPromoted)
     EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
 }
 
+TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
+{
+    // "The price is $5 or $10." のような金額表記は LaTeX ではなくテキストとして扱う。
+    // md4c は `$` の直後に空白・数字・記号が続く場合などインライン数式として解釈しないため、
+    // フラグ有効化で既存のドル記号テキストが壊れないことを確認する。
+    auto nodes = ParseMarkdown("The price is $5 or $10.").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
+    const std::wstring text(nodes[0].GetText());
+    EXPECT_NE(text.find(L"$5"), std::wstring::npos);
+    EXPECT_NE(text.find(L"$10"), std::wstring::npos);
+}
+
 TEST(Parser, LatexDisplayMathMultiline)
 {
     // 複数行にわたる $$...$$ でも昇格される（中身はパーサがそのまま保持）
@@ -941,8 +955,8 @@ TEST(Parser, LatexDisplayMathSurroundingParagraphs)
     EXPECT_EQ(result.nodes[1].code_language, SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes[1].text_utf8, "E=mc^2");
     EXPECT_EQ(result.nodes[2].type, NodeType::Paragraph);
-    ASSERT_EQ(result.mermaid_indices.size(), 1u);
-    EXPECT_EQ(result.mermaid_indices[0], 1u);
+    ASSERT_EQ(result.diagram_indices.size(), 1u);
+    EXPECT_EQ(result.diagram_indices[0], 1u);
 }
 
 // ---- 特殊文字を含むURL ----
