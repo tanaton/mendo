@@ -374,7 +374,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
             ctx->current_cell->is_header = (type == MD_BLOCK_TH);
             if (detail) {
                 auto* const td = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
-                ctx->current_cell->align = static_cast<int>(td->align);
+                ctx->current_cell->align = static_cast<TableAlign>(td->align);
             }
         }
         break;

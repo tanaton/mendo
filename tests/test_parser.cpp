@@ -409,9 +409,9 @@ TEST(Parser, TableAlignment)
     ASSERT_GE(nodes[0].table_rows().size(), 2u);
     const auto& row = nodes[0].table_rows()[1];
     ASSERT_EQ(row.cells.size(), 3u);
-    EXPECT_EQ(row.cells[0].align, 1); // MD_ALIGN_LEFT
-    EXPECT_EQ(row.cells[1].align, 2); // MD_ALIGN_CENTER
-    EXPECT_EQ(row.cells[2].align, 3); // MD_ALIGN_RIGHT
+    EXPECT_EQ(row.cells[0].align, TableAlign::Left);
+    EXPECT_EQ(row.cells[1].align, TableAlign::Center);
+    EXPECT_EQ(row.cells[2].align, TableAlign::Right);
 }
 
 TEST(Parser, TableMultipleRows)

@@ -298,10 +298,6 @@ void AppendCodeBlockHtml(std::pmr::wstring& out, const Node& node, uint32_t star
     out.append(kClose);
 }
 
-// cell.align は md4c の MD_ALIGN（0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT）をそのまま保持。
-inline constexpr int kTableAlignCenter = 2;
-inline constexpr int kTableAlignRight = 3;
-
 // <thead> と <tbody> の排他的切替を管理する RAII スコープ。
 // 行が header / data に切り替わるとき前セクションを自動で閉じ、スコープ終了時に
 // 最後のセクションも閉じるため、in_thead/in_tbody フラグを持ち回す必要がない。
@@ -345,8 +341,8 @@ constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cel
     constexpr std::wstring_view kOpenDark  = LR"( style="border:1px solid #3c3c3c;padding:6px 13px)";
     out.append(dark_mode ? kOpenDark : kOpenLight);
     switch (cell.align) {
-    case kTableAlignCenter: out.append(L";text-align:center"); break;
-    case kTableAlignRight:  out.append(L";text-align:right"); break;
+    case TableAlign::Center: out.append(L";text-align:center"); break;
+    case TableAlign::Right:  out.append(L";text-align:right"); break;
     default: break;
     }
     out.append(L";\"");
