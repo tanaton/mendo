@@ -16,18 +16,17 @@ winget install tanaton.mendo
 
 ## Features
 
-- **Browser-less rendering** — Direct2D + DirectWrite native rendering
-- **3-pane layout** — File explorer / Table of contents / Markdown content
-- **File explorer** — Browse files and folders in the same directory
-- **Table of contents (TOC)** — Auto-extracted headings with click-to-jump and hover highlight
+- **Zero-HTML rendering** — Markdown is drawn directly with Direct2D + DirectWrite, never converted to HTML
 - **Mermaid diagrams** — Render `mermaid` code blocks as diagrams (via offscreen WebView2)
-- **Dark mode** — Toggle between light and dark themes
+- **Fully offline** — Mermaid.js and other resources are embedded in the executable; no network connection required
+- **File watching** — Auto-reload on external file changes
 - **Syntax highlighting** — C++, Python, JavaScript, Go, Rust, PowerShell, Bash, cmd
 - **Navigation history** — `Alt+Left/Right`, mouse side buttons, mouse gestures, touchpad swipe with scroll position restoration
 - **Image display** — PNG, JPEG, BMP and more
 - **Zoom** — `Ctrl++` / `Ctrl+-` / `Ctrl+Mouse wheel` (0.25x to 5.00x, 17 levels)
-- **File watching** — Auto-reload on external file changes
 - **Drag & Drop** — Drop `.md` files onto the window to open
+- **3-pane layout** — File explorer / Table of contents / Markdown content
+- **Dark mode** — Toggle between light and dark themes
 - **Persistent settings** — Dark mode, zoom level, last opened file saved to `%LOCALAPPDATA%\mendo\`
 
 ## Supported Markdown Elements
