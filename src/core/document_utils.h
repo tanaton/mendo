@@ -13,6 +13,12 @@ class LayoutCache;
 // ノード間を \r\n で連結したテキストを返す。
 [[nodiscard]] std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes, const TextSelection& selection);
 
+// 選択範囲を HTML フラグメントに変換する。
+// 見出し/段落/リスト/引用/コードブロック/インライン強調/リンクを HTML タグへ変換する。
+// テーブルと画像は暫定的に <pre> で線形化テキストをそのまま出力する。
+// 戻り値は CF_HTML のフラグメント部（<!--StartFragment--> と <!--EndFragment--> の間に入る本文）。
+[[nodiscard]] std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, const TextSelection& selection);
+
 // ノードのラン内の指定テキスト位置にあるリンクURLを検索する。
 // リンクラン内の位置であればリンクURLを返し、そうでなければnulloptを返す。
 [[nodiscard]] std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos);

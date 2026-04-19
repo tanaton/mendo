@@ -38,6 +38,7 @@ A lightweight, high-speed Markdown viewer.
 |---|---|
 | `Ctrl+O` | Open file |
 | `Ctrl+C` | Copy selected text |
+| `Ctrl+Shift+C` | Copy selected text as formatted (HTML) |
 | `Ctrl+A` | Select all |
 | `Ctrl+1` | Toggle file pane |
 | `Ctrl+2` | Toggle TOC pane |
@@ -53,6 +54,7 @@ A lightweight, high-speed Markdown viewer.
 
 - **TOC Pane**: Click a heading in the right-side TOC to jump to it
 - **Code Block Copy**: Click the copy button at the top-right of a code block
+- **Copy as HTML**: Press `Ctrl+Shift+C` or select "Copy as HTML" from the right-click menu to put HTML rich text on the clipboard while preserving headings, emphasis, links, and more. Pasting into Word or Outlook keeps the formatting.
 - **Diagram Save**: Click the save button at the top-right of a Mermaid diagram to save as PNG
 - **Dark Mode**: Toggle from the right-click menu
 - **Pane Resizing**: Drag the pane border to resize

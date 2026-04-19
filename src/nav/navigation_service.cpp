@@ -4,7 +4,7 @@
 
 // ShellExecuteWに渡しても安全なURLスキームかどうかを判定する。
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
-static bool IsSafeUrlScheme(std::wstring_view url) noexcept
+bool IsSafeUrlScheme(std::wstring_view url) noexcept
 {
     const auto to_lower = [](wchar_t c) static noexcept {
         return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c + (L'a' - L'A')) : c;

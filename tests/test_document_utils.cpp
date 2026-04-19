@@ -98,6 +98,193 @@ TEST(ExtractSelectedText, JapaneseText)
 }
 
 // ============================================================
+// ExtractSelectedTextAsHtml
+// ============================================================
+
+TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
+{
+    auto nodes = ParseMarkdown("Hello").nodes;
+    TextSelection sel;
+    sel.active = false;
+    EXPECT_TRUE(ExtractSelectedTextAsHtml(nodes, sel).empty());
+}
+
+TEST(ExtractSelectedTextAsHtml, ParagraphWrapsInPTag)
+{
+    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), L"<p>Hello world</p>");
+}
+
+TEST(ExtractSelectedTextAsHtml, HeadingLevels)
+{
+    auto nodes = ParseMarkdown("## Section").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), L"<h2>Section</h2>");
+}
+
+TEST(ExtractSelectedTextAsHtml, BoldAndItalic)
+{
+    auto nodes = ParseMarkdown("**bold** and *italic*").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<strong>bold</strong>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<em>italic</em>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, InlineCode)
+{
+    auto nodes = ParseMarkdown("text `code` more").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<code>code</code>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, LinkProducesAnchor)
+{
+    auto nodes = ParseMarkdown("[click](https://example.com)").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<a href=\"https://example.com\">click</a>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
+{
+    Node n;
+    n.type = NodeType::Paragraph;
+    n.SetText(L"a<b&c>d\"e'f");
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(n));
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel),
+        L"<p>a&lt;b&amp;c&gt;d&quot;e&#39;f</p>");
+}
+
+TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
+{
+    auto nodes = ParseMarkdown("```\nint x = 1 < 2;\n```").nodes;
+    ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<pre><code>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"&lt;"), std::wstring::npos);
+    EXPECT_NE(html.find(L"</code></pre>"), std::wstring::npos);
+    // コードブロック内ではインラインタグ化しない
+    EXPECT_EQ(html.find(L"<strong>"), std::wstring::npos);
+    EXPECT_EQ(html.find(L"<em>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, UnorderedListWrapsInUl)
+{
+    auto nodes = ParseMarkdown("- one\n- two").nodes;
+    ASSERT_GE(nodes.size(), 2u);
+    auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<ul>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<li>one</li>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<li>two</li>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"</ul>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, OrderedListWrapsInOl)
+{
+    auto nodes = ParseMarkdown("1. first\n2. second").nodes;
+    ASSERT_GE(nodes.size(), 2u);
+    auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<ol>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<li>first</li>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<li>second</li>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"</ol>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, BlockQuote)
+{
+    auto nodes = ParseMarkdown("> quoted text").nodes;
+    ASSERT_EQ(nodes[0].type, NodeType::BlockQuote);
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<blockquote>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"</blockquote>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"quoted text"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, HorizontalRule)
+{
+    auto nodes = ParseMarkdown("before\n\n---\n\nafter").nodes;
+    ASSERT_GE(nodes.size(), 3u);
+    ASSERT_EQ(nodes[1].type, NodeType::HorizontalRule);
+    auto sel = TextSelection::MakeOrdered(0, 0, 2, static_cast<uint32_t>(nodes[2].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<hr>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, MultiParagraph)
+{
+    auto nodes = ParseMarkdown("First\n\nSecond").nodes;
+    ASSERT_EQ(nodes.size(), 2u);
+    auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel),
+        L"<p>First</p><p>Second</p>");
+}
+
+TEST(ExtractSelectedTextAsHtml, PartialSelectionInParagraph)
+{
+    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), L"<p>world</p>");
+}
+
+TEST(ExtractSelectedTextAsHtml, OrderedTaskListWrapsInOl)
+{
+    auto nodes = ParseMarkdown("1. [ ] first\n2. [x] second").nodes;
+    ASSERT_GE(nodes.size(), 2u);
+    ASSERT_EQ(nodes[0].type, NodeType::TaskListItem);
+    ASSERT_EQ(nodes[1].type, NodeType::TaskListItem);
+    auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<ol>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"</ol>"), std::wstring::npos);
+    EXPECT_EQ(html.find(L"<ul>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, UnsafeSchemeLinkIsStripped)
+{
+    auto nodes = ParseMarkdown("[click](javascript:alert(1))").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
+    EXPECT_EQ(html.find(L"javascript"), std::wstring::npos);
+    EXPECT_NE(html.find(L"click"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, FileSchemeLinkIsStripped)
+{
+    auto nodes = ParseMarkdown("[open](file:///C:/secret.txt)").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
+    EXPECT_NE(html.find(L"open"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, MailtoLinkIsKept)
+{
+    auto nodes = ParseMarkdown("[mail](mailto:user@example.com)").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<a href=\"mailto:user@example.com\">mail</a>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, InternalAnchorLinkIsStripped)
+{
+    auto nodes = ParseMarkdown("[sec](#section)").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
+    EXPECT_NE(html.find(L"sec"), std::wstring::npos);
+}
+
+// ============================================================
 // FindLinkAtPosition
 // ============================================================
 

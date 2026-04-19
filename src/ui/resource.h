@@ -10,6 +10,7 @@
 #define IDM_NAV_FORWARD      205
 #define IDM_TOGGLE_FILE_PANE 206
 #define IDM_TOGGLE_TOC_PANE  207
+#define IDM_COPY_FORMATTED   208
 
 // 埋め込みリソース
 #define IDR_MERMAID_JS_GZ 301

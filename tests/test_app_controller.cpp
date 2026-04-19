@@ -93,6 +93,12 @@ TEST_F(AppControllerTest, CtrlCReturnsCopy)
     EXPECT_TRUE(std::holds_alternative<CopyClipboardAction>(a));
 }
 
+TEST_F(AppControllerTest, CtrlShiftCReturnsCopyFormatted)
+{
+    auto a = ctrl_.HandleKeyDown({ 'C', true, true });
+    EXPECT_TRUE(std::holds_alternative<CopyFormattedClipboardAction>(a));
+}
+
 TEST_F(AppControllerTest, CtrlAReturnsSelectAll)
 {
     auto a = ctrl_.HandleKeyDown({ 'A', true, false });

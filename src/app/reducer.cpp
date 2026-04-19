@@ -183,6 +183,19 @@ void ReduceCopyClipboard(const AppState& state, SideEffectList& effects)
     }
 }
 
+void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects)
+{
+    const auto& sel = state.view.viewport.GetSelection();
+    if (!sel.active) {
+        return;
+    }
+    const auto& nodes = state.document.doc.GetNodes();
+    effects.emplace_back(effect::ClipboardWriteHtml{
+        ExtractSelectedTextAsHtml(nodes, sel),
+        ExtractSelectedText(nodes, sel)
+    });
+}
+
 // ============================================================
 // ズーム・テーマ
 // ============================================================
@@ -431,6 +444,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const SelectAllAction&) { ReduceSelectAll(state, effects); },
         [&](const ClearSelectionAction&) { ReduceClearSelection(state, effects); },
         [&](const CopyClipboardAction&) { ReduceCopyClipboard(state, effects); },
+        [&](const CopyFormattedClipboardAction&) { ReduceCopyFormattedClipboard(state, effects); },
 
         // ---- ズーム・テーマ ----
         [&](const ZoomAction& a) { ReduceZoom(state, effects, a); },

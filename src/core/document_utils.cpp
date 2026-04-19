@@ -1,5 +1,6 @@
 #include "document_utils.h"
 #include "layout_cache.h"
+#include "navigation_service.h"
 #include <windows.h>
 #include <cwctype>
 #include <filesystem>
@@ -44,6 +45,156 @@ std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes, const
     return result;
 }
 
+namespace {
+
+void AppendHtmlEscaped(std::pmr::wstring& out, std::wstring_view text)
+{
+    for (const wchar_t c : text) {
+        switch (c) {
+        case L'&': out.append(L"&amp;"); break;
+        case L'<': out.append(L"&lt;"); break;
+        case L'>': out.append(L"&gt;"); break;
+        case L'"': out.append(L"&quot;"); break;
+        case L'\'': out.append(L"&#39;"); break;
+        default: out.push_back(c); break;
+        }
+    }
+}
+
+struct InlineState {
+    bool bold = false;
+    bool italic = false;
+    bool code = false;
+    bool strike = false;
+    int16_t link_url_index = -1;
+    bool operator==(const InlineState&) const = default;
+};
+
+// 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
+void OpenInlineTags(std::pmr::wstring& out, const InlineState& s,
+    const std::pmr::vector<std::pmr::wstring>& link_urls)
+{
+    if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
+        out.append(L"<a href=\"");
+        AppendHtmlEscaped(out, link_urls[static_cast<size_t>(s.link_url_index)]);
+        out.append(L"\">");
+    }
+    if (s.bold) { out.append(L"<strong>"); }
+    if (s.italic) { out.append(L"<em>"); }
+    if (s.strike) { out.append(L"<s>"); }
+    if (s.code) { out.append(L"<code>"); }
+}
+
+void CloseInlineTags(std::pmr::wstring& out, const InlineState& s)
+{
+    if (s.code) { out.append(L"</code>"); }
+    if (s.strike) { out.append(L"</s>"); }
+    if (s.italic) { out.append(L"</em>"); }
+    if (s.bold) { out.append(L"</strong>"); }
+    if (s.link_url_index >= 0) { out.append(L"</a>"); }
+}
+
+// runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
+// 同一 state 区間の比較と IsSafeUrlScheme を run あたり 1 回に抑える。
+void AppendNodeInlineHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end)
+{
+    const auto& text = node.GetText();
+    if (end > text.size()) {
+        end = static_cast<uint32_t>(text.size());
+    }
+    if (start >= end) {
+        return;
+    }
+    const auto& runs = node.runs;
+    const auto& link_urls = node.link_urls;
+
+    InlineState current;
+    bool tags_open = false;
+    size_t run_idx = 0;
+    uint32_t pos = start;
+
+    while (pos < end) {
+        while (run_idx < runs.size() && runs[run_idx].start + runs[run_idx].length <= pos) {
+            ++run_idx;
+        }
+
+        InlineState s;
+        uint32_t segment_end;
+        if (run_idx >= runs.size() || pos < runs[run_idx].start) {
+            segment_end = (run_idx < runs.size()) ? std::min(end, runs[run_idx].start) : end;
+        }
+        else {
+            const auto& r = runs[run_idx];
+            s.bold = r.bold();
+            s.italic = r.italic();
+            s.code = r.code();
+            s.strike = r.strikethrough();
+            s.link_url_index = r.link_url_index;
+            if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
+                if (!IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)])) {
+                    s.link_url_index = -1;
+                }
+            }
+            segment_end = std::min(end, r.start + r.length);
+        }
+
+        if (!(s == current)) {
+            if (tags_open) {
+                CloseInlineTags(out, current);
+            }
+            current = s;
+            OpenInlineTags(out, current, link_urls);
+            tags_open = true;
+        }
+
+        for (uint32_t i = pos; i < segment_end; ++i) {
+            const wchar_t c = text[i];
+            if (c == L'\n') {
+                if (tags_open) {
+                    CloseInlineTags(out, current);
+                    tags_open = false;
+                }
+                out.append(L"<br>");
+                continue;
+            }
+            if (!tags_open) {
+                OpenInlineTags(out, current, link_urls);
+                tags_open = true;
+            }
+            AppendHtmlEscaped(out, std::wstring_view(&c, 1));
+        }
+        pos = segment_end;
+    }
+
+    if (tags_open) {
+        CloseInlineTags(out, current);
+    }
+}
+
+void AppendHeadingOpenTag(std::pmr::wstring& out, int level)
+{
+    std::format_to(std::back_inserter(out), L"<h{}>", level);
+}
+
+void AppendHeadingCloseTag(std::pmr::wstring& out, int level)
+{
+    std::format_to(std::back_inserter(out), L"</h{}>", level);
+}
+
+bool IsListNode(const Node& n) noexcept
+{
+    return n.type == NodeType::ListItem || n.type == NodeType::TaskListItem;
+}
+
+// 順序付きリスト内の項目なら true。TaskListItem も親リストに応じて
+// list_number が設定されるため両タイプを対象とする。
+bool IsOrderedList(const Node& n) noexcept
+{
+    return IsListNode(n) && n.list_number > 0;
+}
+
+} // namespace
+
 static std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>& runs, const std::pmr::vector<std::pmr::wstring>& link_urls, uint32_t pos)
 {
     const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
@@ -78,6 +229,116 @@ static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node, uint
         }
     }
     return nullptr;
+}
+
+std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, const TextSelection& selection)
+{
+    if (!selection.active) {
+        return {};
+    }
+
+    std::pmr::wstring out;
+    size_t estimated = 0;
+    for (int i = selection.start_node; i <= selection.end_node; ++i) {
+        if (i >= 0 && i < static_cast<int>(nodes.size())) {
+            estimated += nodes[i].GetText().size();
+        }
+    }
+    out.reserve(estimated * 2 + 32);
+
+    const wchar_t* list_close_tag = nullptr;
+    auto close_list = [&]() {
+        if (list_close_tag) {
+            out.append(list_close_tag);
+            list_close_tag = nullptr;
+        }
+    };
+
+    for (int i = selection.start_node; i <= selection.end_node; ++i) {
+        if (i < 0 || i >= static_cast<int>(nodes.size())) {
+            continue;
+        }
+        const auto& node = nodes[i];
+        const auto& text = node.GetText();
+
+        uint32_t start = 0;
+        uint32_t end = static_cast<uint32_t>(text.size());
+        if (i == selection.start_node) { start = selection.start_pos; }
+        if (i == selection.end_node) { end = selection.end_pos; }
+        if (end > text.size()) { end = static_cast<uint32_t>(text.size()); }
+
+        if (IsListNode(node)) {
+            const wchar_t* want_close = IsOrderedList(node) ? L"</ol>" : L"</ul>";
+            if (list_close_tag != want_close) {
+                close_list();
+                out.append(IsOrderedList(node) ? L"<ol>" : L"<ul>");
+                list_close_tag = want_close;
+            }
+        }
+        else {
+            close_list();
+        }
+
+        switch (node.type) {
+        case NodeType::Heading: {
+            const int level = std::clamp(node.heading_level, 1, 6);
+            AppendHeadingOpenTag(out, level);
+            AppendNodeInlineHtml(out, node, start, end);
+            AppendHeadingCloseTag(out, level);
+            break;
+        }
+        case NodeType::Paragraph: {
+            out.append(L"<p>");
+            AppendNodeInlineHtml(out, node, start, end);
+            out.append(L"</p>");
+            break;
+        }
+        case NodeType::CodeBlock: {
+            out.append(L"<pre><code>");
+            if (start < end) {
+                AppendHtmlEscaped(out, std::wstring_view(text).substr(start, end - start));
+            }
+            out.append(L"</code></pre>");
+            break;
+        }
+        case NodeType::BlockQuote: {
+            out.append(L"<blockquote>");
+            AppendNodeInlineHtml(out, node, start, end);
+            out.append(L"</blockquote>");
+            break;
+        }
+        case NodeType::ListItem: {
+            out.append(L"<li>");
+            AppendNodeInlineHtml(out, node, start, end);
+            out.append(L"</li>");
+            break;
+        }
+        case NodeType::TaskListItem: {
+            out.append(node.task_checked
+                ? L"<li><input type=\"checkbox\" checked disabled> "
+                : L"<li><input type=\"checkbox\" disabled> ");
+            AppendNodeInlineHtml(out, node, start, end);
+            out.append(L"</li>");
+            break;
+        }
+        case NodeType::HorizontalRule: {
+            out.append(L"<hr>");
+            break;
+        }
+        case NodeType::Table:
+        case NodeType::Image: {
+            // テーブルと画像は未対応: 線形化テキストを <pre> で出力
+            out.append(L"<pre>");
+            if (start < end) {
+                AppendHtmlEscaped(out, std::wstring_view(text).substr(start, end - start));
+            }
+            out.append(L"</pre>");
+            break;
+        }
+        }
+    }
+    close_list();
+    return out;
 }
 
 std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t text_pos)

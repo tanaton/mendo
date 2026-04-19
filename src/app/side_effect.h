@@ -32,6 +32,7 @@ struct SetCursor { CursorType type; };
 
 // ---- クリップボード ----
 struct ClipboardWrite { std::pmr::wstring text; };
+struct ClipboardWriteHtml { std::pmr::wstring html; std::pmr::wstring plain; };
 
 // ---- 外部プログラム ----
 struct ShellOpen { std::pmr::wstring url; };
@@ -136,6 +137,7 @@ using SideEffect = std::variant<
     effect::ReleaseCapture,
     effect::SetCursor,
     effect::ClipboardWrite,
+    effect::ClipboardWriteHtml,
     effect::ShellOpen,
     effect::ShowWindowCmd,
     effect::PostMessage,
