@@ -703,8 +703,7 @@ void Win32Window::RestoreScrollPosition()
         return;
     }
     const int offset = config::GetInt("Session", "ScrollOffset", 0, -100000, 100000);
-    const int scroll_y = config::GetInt("Session", "ScrollY", -1, -1, 100000000);
-    app_->SetPendingRestoreNode(node, offset, static_cast<float>(scroll_y));
+    app_->SetPendingRestoreNode(node, offset);
 }
 
 // ============================================================

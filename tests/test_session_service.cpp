@@ -59,7 +59,6 @@ TEST_F(SessionServiceTest, SaveAndLoadScrollPosition)
     const auto pos = session_.LoadScrollPosition();
     EXPECT_EQ(pos.node, 5);
     EXPECT_EQ(pos.offset, 50);       // lround(350 - 300)
-    EXPECT_EQ(pos.raw_y, 350);       // lround(350)
 }
 
 // ---- SaveLastFilePath / LoadLastFilePath ----
