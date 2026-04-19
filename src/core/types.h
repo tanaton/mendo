@@ -116,7 +116,7 @@ struct TableCell {
     std::pmr::wstring text;
     std::pmr::vector<TextRun> runs;
     bool is_header = false;
-    int align = 0; // 0=左寄せ, 1=中央寄せ, 2=右寄せ (MD_ALIGN由来)
+    int align = 0; // MD_ALIGN: 0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT
 };
 
 struct TableRow {
