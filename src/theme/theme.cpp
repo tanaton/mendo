@@ -89,7 +89,7 @@ static void ApplyCommonLayout(Theme& t)
     t.paragraph_spacing = 12.0f;
     t.list_item_spacing = 6.0f;
     t.heading_spacing_above = 12.0f;
-    t.heading_spacing_below = 10.0f;
+    t.heading_spacing_below = 16.0f;
     t.code_block_spacing_above = 8.0f;
     t.code_block_padding = 12.0f;
     t.indent_width = 24.0f;
