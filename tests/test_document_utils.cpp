@@ -4,6 +4,7 @@
 #include "document_utils.h"
 #include "test_helpers.h"
 #include "parser.h"
+#include "syntax.h"
 
 // ============================================================
 // ExtractSelectedText
@@ -166,12 +167,149 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<pre><code>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<pre"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<code>"), std::wstring::npos);
     EXPECT_NE(html.find(L"&lt;"), std::wstring::npos);
     EXPECT_NE(html.find(L"</code></pre>"), std::wstring::npos);
     // コードブロック内ではインラインタグ化しない
     EXPECT_EQ(html.find(L"<strong>"), std::wstring::npos);
     EXPECT_EQ(html.find(L"<em>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
+{
+    // 言語指定なし -> syntax_tokens が空 -> span タグは付かない
+    auto nodes = ParseMarkdown("```\nplain text\n```").nodes;
+    ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_EQ(html.find(L"<span"), std::wstring::npos);
+    EXPECT_NE(html.find(L"plain text"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, CodeBlockWithSyntaxTokensWrapsInSpans)
+{
+    // syntax_tokens を手動でセットし、span による色付けが行われることを確認
+    auto nodes = ParseMarkdown("```cpp\nint x = 42;\n```").nodes;
+    ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
+    auto& n = nodes[0];
+    const std::wstring_view text = n.GetText();
+    ASSERT_FALSE(text.empty());
+    // "int" を Keyword, "42" を Number としてマーク
+    auto& tokens = n.syntax_tokens_mut();
+    tokens.clear();
+    const auto int_pos = static_cast<uint32_t>(text.find(L"int"));
+    const auto num_pos = static_cast<uint32_t>(text.find(L"42"));
+    ASSERT_NE(int_pos, static_cast<uint32_t>(std::wstring::npos));
+    ASSERT_NE(num_pos, static_cast<uint32_t>(std::wstring::npos));
+    tokens.push_back(SyntaxToken{ int_pos, 3u, SyntaxTokenType::Keyword });
+    tokens.push_back(SyntaxToken{ num_pos, 2u, SyntaxTokenType::Number });
+
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<span style=\"color:#AF00DB\">int</span>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<span style=\"color:#098658\">42</span>"), std::wstring::npos);
+    // その他の Plain 区間は素のテキスト
+    EXPECT_NE(html.find(L" x = "), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
+{
+    auto nodes = ParseMarkdown("```cpp\na<b\n```").nodes;
+    auto& n = nodes[0];
+    const std::wstring_view text = n.GetText();
+    auto& tokens = n.syntax_tokens_mut();
+    tokens.clear();
+    // 全体を文字列トークンとしてマーク
+    tokens.push_back(SyntaxToken{ 0u, static_cast<uint32_t>(text.size()),
+                                   SyntaxTokenType::String });
+
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    // span 内のテキストも HTML エスケープされる
+    EXPECT_NE(html.find(L"&lt;"), std::wstring::npos);
+    EXPECT_EQ(html.find(L"a<b"), std::wstring::npos);
+}
+
+// テーブルノードは node.GetText() の線形化テキストがレイアウトパス後にのみ埋まるため、
+// テストではダミーの線形化テキストを設定して selection.active を立てる。
+static TextSelection MakeTableFullSelection(Node& table)
+{
+    if (table.GetText().empty()) {
+        table.SetText(L"table");
+    }
+    return TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(table.GetText().size()));
+}
+
+TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
+{
+    auto nodes = ParseMarkdown(
+        "| A | B |\n"
+        "|---|---|\n"
+        "| 1 | 2 |"
+    ).nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    auto sel = MakeTableFullSelection(nodes[0]);
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<table"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<thead>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<th"), std::wstring::npos);
+    EXPECT_NE(html.find(L">A</th>"), std::wstring::npos);
+    EXPECT_NE(html.find(L">B</th>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"</thead>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<tbody>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<td"), std::wstring::npos);
+    EXPECT_NE(html.find(L">1</td>"), std::wstring::npos);
+    EXPECT_NE(html.find(L">2</td>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"</tbody>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"</table>"), std::wstring::npos);
+    // フォールバックの <pre> は使われないこと
+    EXPECT_EQ(html.find(L"<pre>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
+{
+    auto nodes = ParseMarkdown(
+        "| L | C | R |\n"
+        "|:--|:--:|--:|\n"
+        "| a | b | c |"
+    ).nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    auto sel = MakeTableFullSelection(nodes[0]);
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"text-align:center;"), std::wstring::npos);
+    EXPECT_NE(html.find(L"text-align:right;"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
+{
+    auto nodes = ParseMarkdown(
+        "| A | B |\n"
+        "|---|---|\n"
+        "| **bold** | [link](https://example.com) |"
+    ).nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    auto sel = MakeTableFullSelection(nodes[0]);
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<strong>bold</strong>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<a href=\"https://example.com\">link</a>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
+{
+    // table_data が空のノードに対しては <pre> フォールバックで出力される。
+    Node n;
+    n.type = NodeType::Table;
+    n.SetText(L"fallback");
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(n));
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_EQ(html.find(L"<table"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<pre>fallback</pre>"), std::wstring::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, UnorderedListWrapsInUl)

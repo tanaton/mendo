@@ -1,11 +1,13 @@
 #include "document_utils.h"
 #include "layout_cache.h"
 #include "navigation_service.h"
+#include "syntax.h"
 #include <windows.h>
 #include <cwctype>
 #include <filesystem>
 #include <format>
 #include <algorithm>
+#include <array>
 #include <iterator>
 #include <ranges>
 
@@ -47,7 +49,7 @@ std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes, const
 
 namespace {
 
-void AppendHtmlEscaped(std::pmr::wstring& out, std::wstring_view text)
+constexpr void AppendHtmlEscaped(std::pmr::wstring& out, std::wstring_view text)
 {
     for (const wchar_t c : text) {
         switch (c) {
@@ -70,46 +72,80 @@ struct InlineState {
     bool operator==(const InlineState&) const = default;
 };
 
-// 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
-void OpenInlineTags(std::pmr::wstring& out, const InlineState& s,
-    const std::pmr::vector<std::pmr::wstring>& link_urls)
-{
-    if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
-        out.append(L"<a href=\"");
-        AppendHtmlEscaped(out, link_urls[static_cast<size_t>(s.link_url_index)]);
-        out.append(L"\">");
-    }
-    if (s.bold) { out.append(L"<strong>"); }
-    if (s.italic) { out.append(L"<em>"); }
-    if (s.strike) { out.append(L"<s>"); }
-    if (s.code) { out.append(L"<code>"); }
-}
+// 開いたインラインタグを入れ子順に管理し、閉じ忘れを防ぐスコープヘルパー。
+// 最大深さは <a><strong><em><s><code> の 5 段で、ヒープ割り当てなし。
+class InlineTagScope {
+public:
+    constexpr explicit InlineTagScope(std::pmr::wstring& out) noexcept : out_(out) {}
+    InlineTagScope(const InlineTagScope&) = delete;
+    InlineTagScope& operator=(const InlineTagScope&) = delete;
+    constexpr ~InlineTagScope() { CloseAll(); }
 
-void CloseInlineTags(std::pmr::wstring& out, const InlineState& s)
-{
-    if (s.code) { out.append(L"</code>"); }
-    if (s.strike) { out.append(L"</s>"); }
-    if (s.italic) { out.append(L"</em>"); }
-    if (s.bold) { out.append(L"</strong>"); }
-    if (s.link_url_index >= 0) { out.append(L"</a>"); }
-}
+    // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
+    // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
+    constexpr void Open(const InlineState& s, const std::pmr::vector<std::pmr::wstring>& link_urls)
+    {
+        if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
+            out_.append(L"<a href=\"");
+            AppendHtmlEscaped(out_, link_urls[static_cast<size_t>(s.link_url_index)]);
+            out_.append(L"\">");
+            Push(L"</a>");
+        }
+        if (s.bold) {
+            out_.append(L"<strong>");
+            Push(L"</strong>");
+        }
+        if (s.italic) {
+            out_.append(L"<em>");
+            Push(L"</em>");
+        }
+        if (s.strike) {
+            out_.append(L"<s>");
+            Push(L"</s>");
+        }
+        if (s.code) {
+            out_.append(L"<code>");
+            Push(L"</code>");
+        }
+    }
+
+    constexpr void CloseAll() noexcept
+    {
+        while (count_ > 0) {
+            out_.append(close_stack_[--count_]);
+        }
+    }
+
+    constexpr bool IsOpen() const noexcept { return count_ > 0; }
+
+private:
+    constexpr void Push(std::wstring_view close_tag) noexcept
+    {
+        close_stack_[count_++] = close_tag;
+    }
+
+    std::pmr::wstring& out_;
+    std::array<std::wstring_view, 5> close_stack_{};
+    size_t count_ = 0;
+};
 
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
 // 同一 state 区間の比較と IsSafeUrlScheme を run あたり 1 回に抑える。
-void AppendNodeInlineHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end)
+constexpr void AppendInlineHtml(std::pmr::wstring& out,
+    std::wstring_view text,
+    const std::pmr::vector<TextRun>& runs,
+    const std::pmr::vector<std::pmr::wstring>& link_urls,
+    uint32_t start, uint32_t end)
 {
-    const auto& text = node.GetText();
     if (end > text.size()) {
         end = static_cast<uint32_t>(text.size());
     }
     if (start >= end) {
         return;
     }
-    const auto& runs = node.runs;
-    const auto& link_urls = node.link_urls;
 
+    InlineTagScope scope(out);
     InlineState current;
-    bool tags_open = false;
     size_t run_idx = 0;
     uint32_t pos = start;
 
@@ -139,36 +175,216 @@ void AppendNodeInlineHtml(std::pmr::wstring& out, const Node& node, uint32_t sta
         }
 
         if (!(s == current)) {
-            if (tags_open) {
-                CloseInlineTags(out, current);
-            }
+            scope.CloseAll();
             current = s;
-            OpenInlineTags(out, current, link_urls);
-            tags_open = true;
+            scope.Open(current, link_urls);
         }
 
         for (uint32_t i = pos; i < segment_end; ++i) {
             const wchar_t c = text[i];
             if (c == L'\n') {
-                if (tags_open) {
-                    CloseInlineTags(out, current);
-                    tags_open = false;
-                }
+                scope.CloseAll();
                 out.append(L"<br>");
                 continue;
             }
-            if (!tags_open) {
-                OpenInlineTags(out, current, link_urls);
-                tags_open = true;
+            if (!scope.IsOpen()) {
+                scope.Open(current, link_urls);
             }
             AppendHtmlEscaped(out, std::wstring_view(&c, 1));
         }
         pos = segment_end;
     }
+}
 
-    if (tags_open) {
-        CloseInlineTags(out, current);
+void AppendNodeInlineHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end)
+{
+    AppendInlineHtml(out, node.GetText(), node.runs, node.link_urls, start, end);
+}
+
+// シンタックスハイライト用のライトテーマ相当色（VS Code Light 風）を、
+// span タグの prefix として事前組み立てて返す。Plain は空で「色付けなし」を示す。
+// コピー先の背景色がわからないため、最も汎用性の高いライト色に固定する。
+constexpr std::wstring_view SyntaxSpanPrefix(SyntaxTokenType type) noexcept
+{
+    switch (type) {
+    case SyntaxTokenType::Keyword:      return L"<span style=\"color:#AF00DB\">";
+    case SyntaxTokenType::Type:         return L"<span style=\"color:#267F99\">";
+    case SyntaxTokenType::String:       return L"<span style=\"color:#A31515\">";
+    case SyntaxTokenType::Number:       return L"<span style=\"color:#098658\">";
+    case SyntaxTokenType::Comment:      return L"<span style=\"color:#008000\">";
+    case SyntaxTokenType::Preprocessor: return L"<span style=\"color:#795E26\">";
+    case SyntaxTokenType::Function:     return L"<span style=\"color:#795E26\">";
+    default:                            return {};
     }
+}
+
+constexpr void AppendSyntaxHighlightedSpan(std::pmr::wstring& out, std::wstring_view chunk, SyntaxTokenType type)
+{
+    const auto prefix = SyntaxSpanPrefix(type);
+    if (prefix.empty()) {
+        AppendHtmlEscaped(out, chunk);
+        return;
+    }
+    out.append(prefix);
+    AppendHtmlEscaped(out, chunk);
+    out.append(L"</span>");
+}
+
+void AppendCodeBlockHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end)
+{
+    constexpr std::wstring_view kOpen =
+        LR"(<pre style="background-color:#f6f8fa;padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;"><code>)";
+    constexpr std::wstring_view kClose = L"</code></pre>";
+
+    out.append(kOpen);
+    const auto& text = node.GetText();
+    if (end > text.size()) {
+        end = static_cast<uint32_t>(text.size());
+    }
+    if (start < end) {
+        const std::wstring_view text_view{ text };
+        const auto& tokens = node.syntax_tokens();
+        if (tokens.empty()) {
+            AppendHtmlEscaped(out, text_view.substr(start, end - start));
+        }
+        else {
+            // tokens は start 昇順・連続配置の前提。Plain 区間は span を省略する。
+            uint32_t pos = start;
+            for (const auto& tok : tokens) {
+                const uint32_t tok_end = tok.start + tok.length;
+                if (tok_end <= pos) {
+                    continue;
+                }
+                if (tok.start >= end) {
+                    break;
+                }
+                if (tok.start > pos) {
+                    const uint32_t plain_end = std::min(tok.start, end);
+                    AppendHtmlEscaped(out, text_view.substr(pos, plain_end - pos));
+                    pos = plain_end;
+                    if (pos >= end) {
+                        break;
+                    }
+                }
+                const uint32_t seg_start = std::max(pos, tok.start);
+                const uint32_t seg_end = std::min(tok_end, end);
+                if (seg_start < seg_end) {
+                    const auto chunk = text_view.substr(seg_start, seg_end - seg_start);
+                    if (tok.type == SyntaxTokenType::Plain) {
+                        AppendHtmlEscaped(out, chunk);
+                    }
+                    else {
+                        AppendSyntaxHighlightedSpan(out, chunk, tok.type);
+                    }
+                    pos = seg_end;
+                }
+            }
+            if (pos < end) {
+                AppendHtmlEscaped(out, text_view.substr(pos, end - pos));
+            }
+        }
+    }
+    out.append(kClose);
+}
+
+// cell.align は md4c の MD_ALIGN（0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT）をそのまま保持。
+inline constexpr int kTableAlignCenter = 2;
+inline constexpr int kTableAlignRight = 3;
+
+// <thead> と <tbody> の排他的切替を管理する RAII スコープ。
+// 行が header / data に切り替わるとき前セクションを自動で閉じ、スコープ終了時に
+// 最後のセクションも閉じるため、in_thead/in_tbody フラグを持ち回す必要がない。
+class TableSectionScope {
+public:
+    constexpr explicit TableSectionScope(std::pmr::wstring& out) noexcept : out_(out) {}
+    constexpr ~TableSectionScope() { Close(); }
+    TableSectionScope(const TableSectionScope&) = delete;
+    TableSectionScope& operator=(const TableSectionScope&) = delete;
+
+    constexpr void EnterThead() { Enter(L"<thead>", L"</thead>"); }
+    constexpr void EnterTbody() { Enter(L"<tbody>", L"</tbody>"); }
+
+private:
+    constexpr void Enter(std::wstring_view open_tag, std::wstring_view close_tag)
+    {
+        if (close_tag_ == close_tag) {
+            return;
+        }
+        Close();
+        out_.append(open_tag);
+        close_tag_ = close_tag;
+    }
+    constexpr void Close() noexcept
+    {
+        if (!close_tag_.empty()) {
+            out_.append(close_tag_);
+            close_tag_ = {};
+        }
+    }
+
+    std::pmr::wstring& out_;
+    std::wstring_view close_tag_{};
+};
+
+constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cell)
+{
+    // 共通の border+padding を先に出し、align 指定があれば追加して閉じる。
+    constexpr std::wstring_view kOpen = LR"( style="border:1px solid #d0d7de;padding:6px 13px)";
+    out.append(kOpen);
+    switch (cell.align) {
+    case kTableAlignCenter: out.append(L";text-align:center"); break;
+    case kTableAlignRight:  out.append(L";text-align:right"); break;
+    default: break;
+    }
+    out.append(L";\"");
+}
+
+// テーブルノードは常に <table> 構造で出力する。
+// node.GetText() の線形化テキストはレイアウトパスで初めて埋まるため、
+// ここで start/end による部分選択判定は行わない（全体出力が実用的）。
+void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end)
+{
+    if (!node.has_table() || node.table_rows().empty()) {
+        // テーブルデータがない場合はフラットテキストを <pre> で出力
+        const auto& text = node.GetText();
+        if (end > text.size()) {
+            end = static_cast<uint32_t>(text.size());
+        }
+        out.append(L"<pre>");
+        if (start < end) {
+            AppendHtmlEscaped(out, std::wstring_view(text).substr(start, end - start));
+        }
+        out.append(L"</pre>");
+        return;
+    }
+
+    out.append(LR"(<table style="border-collapse:collapse;">)");
+    {
+        TableSectionScope section(out);
+        for (const auto& row : node.table_rows()) {
+            const bool header_row = !row.cells.empty() && row.cells[0].is_header;
+            if (header_row) {
+                section.EnterThead();
+            }
+            else {
+                section.EnterTbody();
+            }
+
+            const std::wstring_view open_tag = header_row ? L"<th" : L"<td";
+            const std::wstring_view close_tag = header_row ? L"</th>" : L"</td>";
+            out.append(L"<tr>");
+            for (const auto& cell : row.cells) {
+                out.append(open_tag);
+                AppendTableCellStyle(out, cell);
+                out.append(L">");
+                AppendInlineHtml(out, cell.text, cell.runs, node.link_urls, 0,
+                    static_cast<uint32_t>(cell.text.size()));
+                out.append(close_tag);
+            }
+            out.append(L"</tr>");
+        }
+    }
+    out.append(L"</table>");
 }
 
 void AppendHeadingOpenTag(std::pmr::wstring& out, int level)
@@ -181,14 +397,14 @@ void AppendHeadingCloseTag(std::pmr::wstring& out, int level)
     std::format_to(std::back_inserter(out), L"</h{}>", level);
 }
 
-bool IsListNode(const Node& n) noexcept
+constexpr bool IsListNode(const Node& n) noexcept
 {
     return n.type == NodeType::ListItem || n.type == NodeType::TaskListItem;
 }
 
 // 順序付きリスト内の項目なら true。TaskListItem も親リストに応じて
 // list_number が設定されるため両タイプを対象とする。
-bool IsOrderedList(const Node& n) noexcept
+constexpr bool IsOrderedList(const Node& n) noexcept
 {
     return IsListNode(n) && n.list_number > 0;
 }
@@ -244,7 +460,9 @@ std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
             estimated += nodes[i].GetText().size();
         }
     }
-    out.reserve(estimated * 2 + 32);
+    // シンタックスハイライトの span やテーブルの style 属性でタグのオーバーヘッドが増えるため、
+    // 平均的なドキュメントが一回の allocation で収まるよう多めに確保する。
+    out.reserve(estimated * 3 + 128);
 
     const wchar_t* list_close_tag = nullptr;
     auto close_list = [&]() {
@@ -263,9 +481,15 @@ std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
 
         uint32_t start = 0;
         uint32_t end = static_cast<uint32_t>(text.size());
-        if (i == selection.start_node) { start = selection.start_pos; }
-        if (i == selection.end_node) { end = selection.end_pos; }
-        if (end > text.size()) { end = static_cast<uint32_t>(text.size()); }
+        if (i == selection.start_node) {
+            start = selection.start_pos;
+        }
+        if (i == selection.end_node) {
+            end = selection.end_pos;
+        }
+        if (end > text.size()) {
+            end = static_cast<uint32_t>(text.size());
+        }
 
         if (IsListNode(node)) {
             const wchar_t* want_close = IsOrderedList(node) ? L"</ol>" : L"</ul>";
@@ -287,54 +511,45 @@ std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
             AppendHeadingCloseTag(out, level);
             break;
         }
-        case NodeType::Paragraph: {
+        case NodeType::Paragraph:
             out.append(L"<p>");
             AppendNodeInlineHtml(out, node, start, end);
             out.append(L"</p>");
             break;
-        }
-        case NodeType::CodeBlock: {
-            out.append(L"<pre><code>");
-            if (start < end) {
-                AppendHtmlEscaped(out, std::wstring_view(text).substr(start, end - start));
-            }
-            out.append(L"</code></pre>");
+        case NodeType::CodeBlock:
+            AppendCodeBlockHtml(out, node, start, end);
             break;
-        }
-        case NodeType::BlockQuote: {
+        case NodeType::BlockQuote:
             out.append(L"<blockquote>");
             AppendNodeInlineHtml(out, node, start, end);
             out.append(L"</blockquote>");
             break;
-        }
-        case NodeType::ListItem: {
+        case NodeType::ListItem:
             out.append(L"<li>");
             AppendNodeInlineHtml(out, node, start, end);
             out.append(L"</li>");
             break;
-        }
-        case NodeType::TaskListItem: {
+        case NodeType::TaskListItem:
             out.append(node.task_checked
                 ? L"<li><input type=\"checkbox\" checked disabled> "
                 : L"<li><input type=\"checkbox\" disabled> ");
             AppendNodeInlineHtml(out, node, start, end);
             out.append(L"</li>");
             break;
-        }
-        case NodeType::HorizontalRule: {
+        case NodeType::HorizontalRule:
             out.append(L"<hr>");
             break;
-        }
         case NodeType::Table:
-        case NodeType::Image: {
-            // テーブルと画像は未対応: 線形化テキストを <pre> で出力
+            AppendTableHtml(out, node, start, end);
+            break;
+        case NodeType::Image:
+            // 画像は未対応: 線形化テキストを <pre> で出力
             out.append(L"<pre>");
             if (start < end) {
                 AppendHtmlEscaped(out, std::wstring_view(text).substr(start, end - start));
             }
             out.append(L"</pre>");
             break;
-        }
         }
     }
     close_list();
