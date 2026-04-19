@@ -45,8 +45,8 @@ protected:
 TEST_F(ContextMenuTest, MdPaneItemCount)
 {
     Build(MakeParams(true));
-    // NavRow, Sep, EditFile, Copy, Sep, DarkMode, Sep, FilePane, TocPane = 9項目
-    EXPECT_EQ(menu_.GetItems().size(), 9u);
+    // NavRow, Sep, EditFile, Copy, CopyFormatted, Sep, DarkMode, Sep, FilePane, TocPane = 10項目
+    EXPECT_EQ(menu_.GetItems().size(), 10u);
 }
 
 TEST_F(ContextMenuTest, FirstItemIsNavRow)
@@ -73,10 +73,16 @@ TEST_F(ContextMenuTest, CopyItemHasCorrectId)
     EXPECT_EQ(menu_.GetItems()[3].id, IDM_COPY);
 }
 
+TEST_F(ContextMenuTest, CopyFormattedItemHasCorrectId)
+{
+    Build(MakeParams(true));
+    EXPECT_EQ(menu_.GetItems()[4].id, IDM_COPY_FORMATTED);
+}
+
 TEST_F(ContextMenuTest, DarkModeItemHasCorrectId)
 {
     Build(MakeParams(true));
-    EXPECT_EQ(menu_.GetItems()[5].id, IDM_TOGGLE_DARK_MODE);
+    EXPECT_EQ(menu_.GetItems()[6].id, IDM_TOGGLE_DARK_MODE);
 }
 
 // ─── 項目構築: 非MdPaneの場合 ───
@@ -94,6 +100,7 @@ TEST_F(ContextMenuTest, NonMdPaneHasNoCopyOrEdit)
     for (const auto& item : menu_.GetItems()) {
         EXPECT_NE(item.id, IDM_EDIT_FILE);
         EXPECT_NE(item.id, IDM_COPY);
+        EXPECT_NE(item.id, IDM_COPY_FORMATTED);
     }
 }
 
@@ -115,18 +122,26 @@ TEST_F(ContextMenuTest, CopyDisabledWhenNoSelection)
     EXPECT_FALSE(menu_.GetItems()[3].enabled);
 }
 
+TEST_F(ContextMenuTest, CopyFormattedDisabledWhenNoSelection)
+{
+    auto p = MakeParams(true);
+    p.has_selection = false;
+    Build(p);
+    EXPECT_FALSE(menu_.GetItems()[4].enabled);
+}
+
 TEST_F(ContextMenuTest, DarkModeCheckedState)
 {
     auto p = MakeParams(true);
     p.dark_mode_checked = true;
     Build(p);
-    EXPECT_TRUE(menu_.GetItems()[5].checked);
+    EXPECT_TRUE(menu_.GetItems()[6].checked);
 }
 
 TEST_F(ContextMenuTest, DarkModeUncheckedState)
 {
     Build(MakeParams(true));
-    EXPECT_FALSE(menu_.GetItems()[5].checked);
+    EXPECT_FALSE(menu_.GetItems()[6].checked);
 }
 
 TEST_F(ContextMenuTest, NavBackEnabled)
@@ -177,13 +192,13 @@ TEST_F(ContextMenuTest, DarkModeItemAlwaysEnabled)
 TEST_F(ContextMenuTest, FilePaneItemHasCorrectId)
 {
     Build(MakeParams(true));
-    EXPECT_EQ(menu_.GetItems()[7].id, IDM_TOGGLE_FILE_PANE);
+    EXPECT_EQ(menu_.GetItems()[8].id, IDM_TOGGLE_FILE_PANE);
 }
 
 TEST_F(ContextMenuTest, TocPaneItemHasCorrectId)
 {
     Build(MakeParams(true));
-    EXPECT_EQ(menu_.GetItems()[8].id, IDM_TOGGLE_TOC_PANE);
+    EXPECT_EQ(menu_.GetItems()[9].id, IDM_TOGGLE_TOC_PANE);
 }
 
 TEST_F(ContextMenuTest, FilePaneCheckedWhenVisible)
@@ -191,7 +206,7 @@ TEST_F(ContextMenuTest, FilePaneCheckedWhenVisible)
     auto p = MakeParams(true);
     p.file_pane_checked = true;
     Build(p);
-    EXPECT_TRUE(menu_.GetItems()[7].checked);
+    EXPECT_TRUE(menu_.GetItems()[8].checked);
 }
 
 TEST_F(ContextMenuTest, FilePaneUncheckedWhenHidden)
@@ -199,7 +214,7 @@ TEST_F(ContextMenuTest, FilePaneUncheckedWhenHidden)
     auto p = MakeParams(true);
     p.file_pane_checked = false;
     Build(p);
-    EXPECT_FALSE(menu_.GetItems()[7].checked);
+    EXPECT_FALSE(menu_.GetItems()[8].checked);
 }
 
 TEST_F(ContextMenuTest, TocPaneCheckedWhenVisible)
@@ -207,7 +222,7 @@ TEST_F(ContextMenuTest, TocPaneCheckedWhenVisible)
     auto p = MakeParams(true);
     p.toc_pane_checked = true;
     Build(p);
-    EXPECT_TRUE(menu_.GetItems()[8].checked);
+    EXPECT_TRUE(menu_.GetItems()[9].checked);
 }
 
 TEST_F(ContextMenuTest, TocPaneUncheckedWhenHidden)
@@ -215,7 +230,7 @@ TEST_F(ContextMenuTest, TocPaneUncheckedWhenHidden)
     auto p = MakeParams(true);
     p.toc_pane_checked = false;
     Build(p);
-    EXPECT_FALSE(menu_.GetItems()[8].checked);
+    EXPECT_FALSE(menu_.GetItems()[9].checked);
 }
 
 TEST_F(ContextMenuTest, PaneItemsAlwaysEnabled)
@@ -454,13 +469,22 @@ TEST_F(ContextMenuLayoutTest, HitTestOnCopy)
     EXPECT_EQ(menu_.HitTest(cx, cy), IDM_COPY);
 }
 
+TEST_F(ContextMenuLayoutTest, HitTestOnCopyFormatted)
+{
+    BuildAndLayout(MakeParams());
+    auto& items = menu_.GetItems();
+    float cx = (items[4].rect.left + items[4].rect.right) / 2.0f;
+    float cy = (items[4].rect.top + items[4].rect.bottom) / 2.0f;
+    EXPECT_EQ(menu_.HitTest(cx, cy), IDM_COPY_FORMATTED);
+}
+
 TEST_F(ContextMenuLayoutTest, HitTestOnDarkMode)
 {
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
-    // DarkModeはindex 5
-    float cx = (items[5].rect.left + items[5].rect.right) / 2.0f;
-    float cy = (items[5].rect.top + items[5].rect.bottom) / 2.0f;
+    // DarkModeはindex 6
+    float cx = (items[6].rect.left + items[6].rect.right) / 2.0f;
+    float cy = (items[6].rect.top + items[6].rect.bottom) / 2.0f;
     EXPECT_EQ(menu_.HitTest(cx, cy), IDM_TOGGLE_DARK_MODE);
 }
 
@@ -544,9 +568,9 @@ TEST_F(ContextMenuLayoutTest, HitTestOnFilePane)
 {
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
-    // FilePaneはindex 7
-    float cx = (items[7].rect.left + items[7].rect.right) / 2.0f;
-    float cy = (items[7].rect.top + items[7].rect.bottom) / 2.0f;
+    // FilePaneはindex 8
+    float cx = (items[8].rect.left + items[8].rect.right) / 2.0f;
+    float cy = (items[8].rect.top + items[8].rect.bottom) / 2.0f;
     EXPECT_EQ(menu_.HitTest(cx, cy), IDM_TOGGLE_FILE_PANE);
 }
 
@@ -554,8 +578,8 @@ TEST_F(ContextMenuLayoutTest, HitTestOnTocPane)
 {
     BuildAndLayout(MakeParams());
     auto& items = menu_.GetItems();
-    // TocPaneはindex 8
-    float cx = (items[8].rect.left + items[8].rect.right) / 2.0f;
-    float cy = (items[8].rect.top + items[8].rect.bottom) / 2.0f;
+    // TocPaneはindex 9
+    float cx = (items[9].rect.left + items[9].rect.right) / 2.0f;
+    float cy = (items[9].rect.top + items[9].rect.bottom) / 2.0f;
     EXPECT_EQ(menu_.HitTest(cx, cy), IDM_TOGGLE_TOC_PANE);
 }

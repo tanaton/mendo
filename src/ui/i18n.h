@@ -42,6 +42,7 @@ struct Strings {
     // コンテキストメニュー
     std::wstring_view menu_edit_file;
     std::wstring_view menu_copy;
+    std::wstring_view menu_copy_formatted;
     std::wstring_view menu_dark_mode;
     std::wstring_view menu_file_pane;
     std::wstring_view menu_toc_pane;
@@ -97,6 +98,7 @@ inline constexpr Strings kJa = {
     // コンテキストメニュー
     L"エディタで開く",
     L"コピー",
+    L"書式付きコピー",
     L"ダークモード",
     L"ファイルペイン",
     L"目次ペイン",
@@ -147,6 +149,7 @@ inline constexpr Strings kEn = {
     // コンテキストメニュー
     L"Open in Editor",
     L"Copy",
+    L"Copy as HTML",
     L"Dark Mode",
     L"File Pane",
     L"TOC Pane",

@@ -308,6 +308,7 @@ void ContextMenu::BuildItems(const ContextMenuParams& params)
     if (params.show_file_items) {
         items_.emplace_back(ItemType::Text, IDM_EDIT_FILE, ls.menu_edit_file, params.has_file, false);
         items_.emplace_back(ItemType::Text, IDM_COPY, ls.menu_copy, params.has_selection, false);
+        items_.emplace_back(ItemType::Text, IDM_COPY_FORMATTED, ls.menu_copy_formatted, params.has_selection, false);
         items_.emplace_back(ItemType::Separator);
     }
     items_.emplace_back(ItemType::Text, IDM_TOGGLE_DARK_MODE, ls.menu_dark_mode, true, params.dark_mode_checked);

@@ -1,6 +1,8 @@
 #pragma once
 #include <windows.h>
 #include <string_view>
+#include <string>
+#include "string_convert.h"
 
 // ポリシーベースの汎用 RAII リソースラッパー。
 // Traits は type, invalid(), close(type) を定義する。
@@ -99,5 +101,103 @@ inline void WriteClipboardText(HWND hwnd, std::wstring_view text) noexcept
             }
         }
     }
+    CloseClipboard();
+}
+
+// CF_HTML 形式のクリップボード用ペイロードを構築する。
+// HTML Format 仕様: https://learn.microsoft.com/windows/win32/dataxchg/html-clipboard-format
+// fragment_utf8 は <!--StartFragment--> と <!--EndFragment--> の間に挟まれる UTF-8 HTML。
+// ヘッダ内の各オフセットは UTF-8 バイト位置で 10 桁ゼロ埋め。
+inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
+{
+    constexpr std::string_view kBeforeStartHtml = "Version:0.9\r\nStartHTML:";
+    constexpr std::string_view kBeforeEndHtml = "\r\nEndHTML:";
+    constexpr std::string_view kBeforeStartFragment = "\r\nStartFragment:";
+    constexpr std::string_view kBeforeEndFragment = "\r\nEndFragment:";
+    constexpr std::string_view kHeaderSuffix = "\r\n";
+    constexpr std::string_view kDigitPlaceholder = "0000000000";
+    constexpr std::string_view kHtmlPrefix =
+        "<html>\r\n<body>\r\n<!--StartFragment-->";
+    constexpr std::string_view kHtmlSuffix =
+        "<!--EndFragment-->\r\n</body>\r\n</html>";
+
+    constexpr size_t kStartHtmlDigits = kBeforeStartHtml.size();
+    constexpr size_t kEndHtmlDigits = kStartHtmlDigits + kDigitPlaceholder.size() + kBeforeEndHtml.size();
+    constexpr size_t kStartFragmentDigits = kEndHtmlDigits + kDigitPlaceholder.size() + kBeforeStartFragment.size();
+    constexpr size_t kEndFragmentDigits = kStartFragmentDigits + kDigitPlaceholder.size() + kBeforeEndFragment.size();
+    constexpr size_t kHeaderSize = kEndFragmentDigits + kDigitPlaceholder.size() + kHeaderSuffix.size();
+
+    std::string payload;
+    payload.reserve(kHeaderSize + kHtmlPrefix.size() + fragment_utf8.size() + kHtmlSuffix.size());
+    payload.append(kBeforeStartHtml).append(kDigitPlaceholder);
+    payload.append(kBeforeEndHtml).append(kDigitPlaceholder);
+    payload.append(kBeforeStartFragment).append(kDigitPlaceholder);
+    payload.append(kBeforeEndFragment).append(kDigitPlaceholder);
+    payload.append(kHeaderSuffix);
+    const size_t start_html = payload.size();
+    payload.append(kHtmlPrefix);
+    const size_t start_fragment = payload.size();
+    payload.append(fragment_utf8);
+    const size_t end_fragment = payload.size();
+    payload.append(kHtmlSuffix);
+    const size_t end_html = payload.size();
+
+    auto write_offset = [&payload](size_t digit_offset, size_t value) noexcept {
+        char buf[11];
+        std::snprintf(buf, sizeof(buf), "%010zu", value);
+        std::char_traits<char>::copy(&payload[digit_offset], buf, 10);
+    };
+    write_offset(kStartHtmlDigits, start_html);
+    write_offset(kEndHtmlDigits, end_html);
+    write_offset(kStartFragmentDigits, start_fragment);
+    write_offset(kEndFragmentDigits, end_fragment);
+    return payload;
+}
+
+// クリップボードに CF_HTML（書式付き）と CF_UNICODETEXT（プレーンテキスト）を同時に書き込む。
+// fragment_html: <!--StartFragment--> と <!--EndFragment--> の間に入る HTML 断片（Wide 文字列）。
+// plain_text:    書式付きに対応していないアプリ向けのフォールバック。
+inline void WriteClipboardHtml(HWND hwnd, std::wstring_view fragment_html, std::wstring_view plain_text) noexcept
+{
+    if (fragment_html.empty() && plain_text.empty()) {
+        return;
+    }
+    if (!OpenClipboard(hwnd)) {
+        return;
+    }
+    EmptyClipboard();
+
+    if (!fragment_html.empty()) {
+        const std::string fragment_utf8 = string_convert::WideToUtf8(fragment_html);
+        const std::string payload = BuildCfHtmlPayload(fragment_utf8);
+        UniqueGlobalMem hHtml{ GlobalAlloc(GMEM_MOVEABLE, payload.size() + 1) };
+        if (hHtml) {
+            if (auto* dest = static_cast<char*>(GlobalLock(hHtml.get()))) {
+                std::char_traits<char>::copy(dest, payload.data(), payload.size());
+                dest[payload.size()] = '\0';
+                GlobalUnlock(hHtml.get());
+                const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
+                if (cf_html != 0 && SetClipboardData(cf_html, hHtml.get())) {
+                    hHtml.release();
+                }
+            }
+        }
+    }
+
+    if (!plain_text.empty()) {
+        const size_t bytes = (plain_text.size() + 1) * sizeof(wchar_t);
+        UniqueGlobalMem hText{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
+        if (hText) {
+            if (auto* dest = static_cast<wchar_t*>(GlobalLock(hText.get()))) {
+                std::char_traits<wchar_t>::copy(dest, plain_text.data(), plain_text.size());
+                dest[plain_text.size()] = L'\0';
+                GlobalUnlock(hText.get());
+                if (SetClipboardData(CF_UNICODETEXT, hText.get())) {
+                    hText.release();
+                }
+            }
+        }
+    }
+
     CloseClipboard();
 }

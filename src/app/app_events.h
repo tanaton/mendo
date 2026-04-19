@@ -49,6 +49,7 @@ struct ScrollPaneAction {
 };
 
 struct CopyClipboardAction {};
+struct CopyFormattedClipboardAction {};
 struct SelectAllAction {};
 struct ClearSelectionAction {};
 
@@ -183,6 +184,7 @@ using AppAction = std::variant<
     DirectScrollByAction,
     ScrollPaneAction,
     CopyClipboardAction,
+    CopyFormattedClipboardAction,
     SelectAllAction,
     ClearSelectionAction,
     TogglePaneAction,

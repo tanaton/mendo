@@ -54,6 +54,7 @@ winget install tanaton.mendo
 |---|---|
 | `Ctrl+O` | Open file |
 | `Ctrl+C` | Copy selected text |
+| `Ctrl+Shift+C` | Copy selected text as formatted (HTML) |
 | `Ctrl+A` | Select all |
 | `Ctrl+F` | Find |
 | `Ctrl+1` | Toggle file explorer |
@@ -90,6 +91,7 @@ winget install tanaton.mendo
 | Left / Right buttons | Back / Forward |
 | Open in editor | Open current file in default editor |
 | Copy | Copy selected text (when text is selected) |
+| Copy as HTML | Copy selected text as HTML rich text. Preserves formatting when pasted into Word, Outlook, etc. (when text is selected) |
 | Dark mode | Toggle light/dark theme |
 
 ## Screenshots

@@ -15,7 +15,11 @@ AppAction AppController::HandleKeyDown(const KeyDownEvent& event) const
 
     if (event.ctrl) {
         switch (event.key) {
-        case 'C': return CopyClipboardAction{};
+        case 'C':
+            if (event.shift) {
+                return CopyFormattedClipboardAction{};
+            }
+            return CopyClipboardAction{};
         case 'A': return SelectAllAction{};
         case 'O': return OpenFileAction{};
         case 'F': return OpenSearchBarAction{};

@@ -74,6 +74,9 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         [this](const effect::ClipboardWrite& e) {
             WriteClipboardText(hwnd_, e.text);
         },
+        [this](const effect::ClipboardWriteHtml& e) {
+            WriteClipboardHtml(hwnd_, e.html, e.plain);
+        },
         [](const effect::ShellOpen& e) {
             ShellExecuteW(nullptr, L"open", e.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         },
