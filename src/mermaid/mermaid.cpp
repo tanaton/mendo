@@ -355,7 +355,7 @@ void MermaidRenderer::SetupWorker(int index)
             // https://app.local/ 以外へのリクエストをブロックする。
             // NavigationStartingと判定ロジックを揃え、app.local.evil.comのような
             // 部分一致によるサブドメイン経由の経路を塞ぐ。
-            if (!std::wstring_view(url).starts_with(APP_LOCAL_ORIGIN_PREFIX)) {
+            if (!url.starts_with(APP_LOCAL_ORIGIN_PREFIX)) {
                 Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
                 webview_env_->CreateWebResourceResponse(nullptr, 403, L"Blocked", L"", &response);
                 args->put_Response(response.Get());
