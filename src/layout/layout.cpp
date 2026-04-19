@@ -10,9 +10,9 @@ static constexpr float MIN_COLUMN_WIDTH = 30.0f;
 static constexpr float COLUMN_WIDTH_PADDING = 4.0f;
 static constexpr float Y_POSITION_EPSILON = 0.01f; // Y座標の早期終了判定用許容誤差（DIP単位）
 
-static float GetSpacingAbove(NodeType type, const Theme& theme) noexcept
+static float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
 {
-    switch (type) {
+    switch (node.type) {
     case NodeType::Heading:
         return theme.heading_spacing_above;
     case NodeType::CodeBlock:
@@ -23,11 +23,14 @@ static float GetSpacingAbove(NodeType type, const Theme& theme) noexcept
     }
 }
 
-static float GetSpacingBelow(NodeType type, const Theme& theme) noexcept
+static float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
 {
-    switch (type) {
+    switch (node.type) {
     case NodeType::Heading:
-        return theme.heading_spacing_below;
+        // h1/h2 は下線を描くため、下線と次行の余白を確保すべく大きめの値を返す。
+        return (node.heading_level <= 2)
+            ? theme.heading_spacing_below_h1h2
+            : theme.heading_spacing_below;
     case NodeType::CodeBlock:
     case NodeType::Image:
         return theme.paragraph_spacing + theme.code_block_spacing_above;
@@ -140,11 +143,11 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
             break;
         }
 
-        y += GetSpacingAbove(node.type, theme);
+        y += GetSpacingAbove(node, theme);
         cache[i].height = h;
         cache[i].y_position = y;
         y += h;
-        y += GetSpacingBelow(node.type, theme);
+        y += GetSpacingBelow(node, theme);
     }
 }
 
@@ -160,7 +163,7 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
     if (from_index > 0 && from_index < node_count) {
         auto& prev = cache[from_index - 1];
         y = prev.y_position + prev.height;
-        y += GetSpacingBelow(nodes[from_index - 1].type, theme);
+        y += GetSpacingBelow(nodes[from_index - 1], theme);
     }
 
     for (size_t i = from_index; i < node_count; i++) {
@@ -169,7 +172,7 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
             result.has_dirty_nodes = true;
         }
 
-        y += GetSpacingAbove(nodes[i].type, theme);
+        y += GetSpacingAbove(nodes[i], theme);
 
         // 早期終了: safe_exit_after 以降でY位置が一致すれば、
         // 以降のノードのY位置は変わらない。
@@ -182,14 +185,14 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
                 );
             }
             const size_t last_idx = node_count - 1;
-            result.total_height = cache[last_idx].y_position + cache[last_idx].height + GetSpacingBelow(nodes[last_idx].type, theme) + theme.margin_top;
+            result.total_height = cache[last_idx].y_position + cache[last_idx].height + GetSpacingBelow(nodes[last_idx], theme) + theme.margin_top;
             return result;
         }
 
         entry.y_position = y;
         y += entry.height;
 
-        y += GetSpacingBelow(nodes[i].type, theme);
+        y += GetSpacingBelow(nodes[i], theme);
     }
 
     result.total_height = y + theme.margin_top;
@@ -271,10 +274,10 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         }
 
         // このパスで直接 Y 位置を設定する
-        y += GetSpacingAbove(node.type, *theme_);
+        y += GetSpacingAbove(node, *theme_);
         entry.y_position = y;
         y += entry.height;
-        y += GetSpacingBelow(node.type, *theme_);
+        y += GetSpacingBelow(node, *theme_);
 
         // 早期終了: 部分モードで幅の変更がなく、ビューポートを超えた後に
         // 高さの変更もなければ、残りの Y 位置は変わらない。

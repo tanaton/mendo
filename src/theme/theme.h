@@ -46,7 +46,8 @@ struct Theme {
     float paragraph_spacing;
     float list_item_spacing;
     float heading_spacing_above;
-    float heading_spacing_below;
+    float heading_spacing_below;         // h3〜h6（下線なし）の下マージン
+    float heading_spacing_below_h1h2;    // h1/h2（下線あり）の下マージン — 下線と次行の余白を確保するため大きめ
     float code_block_spacing_above;
     float code_block_padding;
     float indent_width;
