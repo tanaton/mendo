@@ -2,6 +2,7 @@
 #include "layout_cache.h"
 #include "navigation_service.h"
 #include "syntax.h"
+#include "theme_palette.h"
 #include <windows.h>
 #include <cwctype>
 #include <filesystem>
@@ -209,31 +210,45 @@ void AppendNodeInlineHtml(std::pmr::wstring& out, const Node& node, uint32_t sta
     AppendInlineHtml(out, node.GetText(), node.runs, node.link_urls, start, end);
 }
 
-// シンタックスハイライト用 span の prefix を、ライト / ダークテーマで切り替えて返す。
-// ライト: VS Code Light 風、ダーク: VS Code Dark+ 風。Plain は空で「色付けなし」。
-constexpr std::wstring_view SyntaxSpanPrefix(SyntaxTokenType type, bool dark) noexcept
+constexpr void AppendHexColor(std::pmr::wstring& out, uint32_t rgb)
+{
+    constexpr wchar_t kDigits[] = L"0123456789abcdef";
+    out.push_back(L'#');
+    out.push_back(kDigits[(rgb >> 20) & 0xF]);
+    out.push_back(kDigits[(rgb >> 16) & 0xF]);
+    out.push_back(kDigits[(rgb >> 12) & 0xF]);
+    out.push_back(kDigits[(rgb >> 8) & 0xF]);
+    out.push_back(kDigits[(rgb >> 4) & 0xF]);
+    out.push_back(kDigits[rgb & 0xF]);
+}
+
+constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type,
+    const theme_palette::SharedColors& palette) noexcept
 {
     switch (type) {
-    case SyntaxTokenType::Keyword:      return dark ? L"<span style=\"color:#C586C0\">" : L"<span style=\"color:#AF00DB\">";
-    case SyntaxTokenType::Type:         return dark ? L"<span style=\"color:#4EC9B0\">" : L"<span style=\"color:#267F99\">";
-    case SyntaxTokenType::String:       return dark ? L"<span style=\"color:#CE9178\">" : L"<span style=\"color:#A31515\">";
-    case SyntaxTokenType::Number:       return dark ? L"<span style=\"color:#B5CEA8\">" : L"<span style=\"color:#098658\">";
-    case SyntaxTokenType::Comment:      return dark ? L"<span style=\"color:#6A9955\">" : L"<span style=\"color:#008000\">";
-    case SyntaxTokenType::Preprocessor: return dark ? L"<span style=\"color:#DCDCAA\">" : L"<span style=\"color:#795E26\">";
-    case SyntaxTokenType::Function:     return dark ? L"<span style=\"color:#DCDCAA\">" : L"<span style=\"color:#795E26\">";
-    default:                            return {};
+    case SyntaxTokenType::Keyword:      return palette.syntax_keyword;
+    case SyntaxTokenType::Type:         return palette.syntax_type;
+    case SyntaxTokenType::String:       return palette.syntax_string;
+    case SyntaxTokenType::Number:       return palette.syntax_number;
+    case SyntaxTokenType::Comment:      return palette.syntax_comment;
+    case SyntaxTokenType::Preprocessor: return palette.syntax_preprocessor;
+    case SyntaxTokenType::Function:     return palette.syntax_function;
+    default:                            return std::nullopt;
     }
 }
 
 constexpr void AppendSyntaxHighlightedSpan(std::pmr::wstring& out, std::wstring_view chunk,
     SyntaxTokenType type, bool dark_mode)
 {
-    const auto prefix = SyntaxSpanPrefix(type, dark_mode);
-    if (prefix.empty()) {
+    const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
+    const auto color = SyntaxTokenColor(type, palette);
+    if (!color) {
         AppendHtmlEscaped(out, chunk);
         return;
     }
-    out.append(prefix);
+    out.append(L"<span style=\"color:");
+    AppendHexColor(out, *color);
+    out.append(L"\">");
     AppendHtmlEscaped(out, chunk);
     out.append(L"</span>");
 }
@@ -241,13 +256,19 @@ constexpr void AppendSyntaxHighlightedSpan(std::pmr::wstring& out, std::wstring_
 void AppendCodeBlockHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end,
     bool dark_mode)
 {
-    constexpr std::wstring_view kOpenLight =
-        LR"(<pre style="background-color:#f6f8fa;padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;"><code>)";
-    constexpr std::wstring_view kOpenDark =
-        LR"(<pre style="background-color:#2d2d2d;color:#d4d4d4;padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;"><code>)";
+    constexpr std::wstring_view kStyleTail =
+        LR"(;padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;"><code>)";
     constexpr std::wstring_view kClose = L"</code></pre>";
 
-    out.append(dark_mode ? kOpenDark : kOpenLight);
+    const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
+    out.append(L"<pre style=\"background-color:");
+    AppendHexColor(out, palette.code_bg);
+    // ダーク時のみテキスト色を明示する（ライトは呼び出し側の親要素の色を継承）。
+    if (dark_mode) {
+        out.append(L";color:");
+        AppendHexColor(out, palette.code_text);
+    }
+    out.append(kStyleTail);
     const auto& text = node.GetText();
     if (end > text.size()) {
         end = static_cast<uint32_t>(text.size());
@@ -337,9 +358,10 @@ private:
 constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cell, bool dark_mode)
 {
     // 共通の border+padding を先に出し、align 指定があれば追加して閉じる。
-    constexpr std::wstring_view kOpenLight = LR"( style="border:1px solid #d0d7de;padding:6px 13px)";
-    constexpr std::wstring_view kOpenDark  = LR"( style="border:1px solid #3c3c3c;padding:6px 13px)";
-    out.append(dark_mode ? kOpenDark : kOpenLight);
+    const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
+    out.append(LR"( style="border:1px solid )");
+    AppendHexColor(out, palette.table_border);
+    out.append(L";padding:6px 13px");
     switch (cell.align) {
     case TableAlign::Center: out.append(L";text-align:center"); break;
     case TableAlign::Right:  out.append(L";text-align:right"); break;
