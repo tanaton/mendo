@@ -235,6 +235,57 @@ TEST(ExtractSelectedTextAsHtml, PartialSelectionInParagraph)
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), L"<p>world</p>");
 }
 
+TEST(ExtractSelectedTextAsHtml, OrderedTaskListWrapsInOl)
+{
+    auto nodes = ParseMarkdown("1. [ ] first\n2. [x] second").nodes;
+    ASSERT_GE(nodes.size(), 2u);
+    ASSERT_EQ(nodes[0].type, NodeType::TaskListItem);
+    ASSERT_EQ(nodes[1].type, NodeType::TaskListItem);
+    auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<ol>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"</ol>"), std::wstring::npos);
+    EXPECT_EQ(html.find(L"<ul>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, UnsafeSchemeLinkIsStripped)
+{
+    // javascript: は既存の IsSafeUrlScheme でブロックされる
+    auto nodes = ParseMarkdown("[click](javascript:alert(1))").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
+    EXPECT_EQ(html.find(L"javascript"), std::wstring::npos);
+    EXPECT_NE(html.find(L"click"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, FileSchemeLinkIsStripped)
+{
+    auto nodes = ParseMarkdown("[open](file:///C:/secret.txt)").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
+    EXPECT_NE(html.find(L"open"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, MailtoLinkIsKept)
+{
+    auto nodes = ParseMarkdown("[mail](mailto:user@example.com)").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find(L"<a href=\"mailto:user@example.com\">mail</a>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, InternalAnchorLinkIsStripped)
+{
+    // # アンカーは外部アプリに貼っても機能しないのでリンクタグは除去
+    auto nodes = ParseMarkdown("[sec](#section)").nodes;
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
+    EXPECT_NE(html.find(L"sec"), std::wstring::npos);
+}
+
 // ============================================================
 // FindLinkAtPosition
 // ============================================================

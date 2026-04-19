@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <string_view>
 #include <string>
+#include <cstdio>
 #include "string_convert.h"
 
 // ポリシーベースの汎用 RAII リソースラッパー。

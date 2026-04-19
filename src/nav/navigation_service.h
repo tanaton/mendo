@@ -13,3 +13,7 @@ struct LinkClickResult {
 
 // リンククリック処理。URLの種類を判定して結果を返す。副作用は起こさない。
 LinkClickResult HandleLinkClick(std::wstring_view url);
+
+// ShellExecuteW に渡しても安全な URL スキームか判定する。
+// http / https / mailto のみ許可し、file://, javascript: などはブロック。
+bool IsSafeUrlScheme(std::wstring_view url) noexcept;

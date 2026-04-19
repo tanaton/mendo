@@ -1,5 +1,6 @@
 #include "document_utils.h"
 #include "layout_cache.h"
+#include "navigation_service.h"
 #include <windows.h>
 #include <cwctype>
 #include <filesystem>
@@ -69,21 +70,32 @@ struct InlineState {
     bool operator==(const InlineState&) const = default;
 };
 
-// runs は start 昇順・非重複で並ぶ前提。start が pos を超えた時点で早期 break。
-InlineState ResolveInlineState(const std::pmr::vector<TextRun>& runs, uint32_t pos)
+// runs は start 昇順・非重複で並ぶ前提。pos を単調増加で呼び出しつつ
+// run_idx を更新していくため、AppendNodeInlineHtml 全体で O(N + M)。
+// 危険なスキーム (file://, javascript: 等) のリンクはここで -1 に落とす。
+InlineState ResolveInlineState(
+    const std::pmr::vector<TextRun>& runs,
+    const std::pmr::vector<std::pmr::wstring>& link_urls,
+    uint32_t pos,
+    size_t& run_idx)
 {
+    while (run_idx < runs.size() && runs[run_idx].start + runs[run_idx].length <= pos) {
+        ++run_idx;
+    }
     InlineState s;
-    for (const auto& r : runs) {
-        if (r.start > pos) {
-            break;
-        }
-        if (pos < r.start + r.length) {
-            s.bold = r.bold();
-            s.italic = r.italic();
-            s.code = r.code();
-            s.strike = r.strikethrough();
-            s.link_url_index = r.link_url_index;
-            return s;
+    if (run_idx >= runs.size() || pos < runs[run_idx].start) {
+        return s;
+    }
+    const auto& r = runs[run_idx];
+    s.bold = r.bold();
+    s.italic = r.italic();
+    s.code = r.code();
+    s.strike = r.strikethrough();
+    s.link_url_index = r.link_url_index;
+    if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
+        const auto& url = link_urls[static_cast<size_t>(s.link_url_index)];
+        if (!IsSafeUrlScheme(url)) {
+            s.link_url_index = -1;
         }
     }
     return s;
@@ -124,8 +136,9 @@ void AppendNodeInlineHtml(std::pmr::wstring& out, const Node& node, uint32_t sta
     }
     InlineState current;
     bool tags_open = false;
+    size_t run_idx = 0;
     for (uint32_t i = start; i < end; ++i) {
-        const InlineState s = ResolveInlineState(node.runs, i);
+        const InlineState s = ResolveInlineState(node.runs, node.link_urls, i, run_idx);
         if (!(s == current)) {
             if (tags_open) {
                 CloseInlineTags(out, current);
@@ -161,14 +174,16 @@ void AppendHeadingCloseTag(std::pmr::wstring& out, int level)
     std::format_to(std::back_inserter(out), L"</h{}>", level);
 }
 
-bool IsOrderedList(const Node& n) noexcept
-{
-    return n.type == NodeType::ListItem && n.list_number > 0;
-}
-
 bool IsListNode(const Node& n) noexcept
 {
     return n.type == NodeType::ListItem || n.type == NodeType::TaskListItem;
+}
+
+// 順序付きリスト内の項目なら true。TaskListItem も親リストに応じて
+// list_number が設定されるため両タイプを対象とする。
+bool IsOrderedList(const Node& n) noexcept
+{
+    return IsListNode(n) && n.list_number > 0;
 }
 
 } // namespace
