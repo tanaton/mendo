@@ -276,9 +276,11 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
 
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
 
-    // 通常コードブロックのボタンは x+w に張り付くため、WM_MOUSEMOVE の大半を早期棄却する。
-    // LatexMath はビットマップ幅に依存する位置のため、この早期棄却は適用しない。
-    const float default_btn_left_bound = ctx.theme.margin_left + ctx.content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+    // コピーボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
+    const float btn_left_bound = ctx.theme.margin_left + ctx.content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+    if (dip_x < btn_left_bound) {
+        return -1;
+    }
 
     const float viewport_top = ctx.scroll_y;
     const float viewport_bottom = ctx.scroll_y + ctx.md_pane_height;
@@ -295,35 +297,20 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         if (node.type != NodeType::CodeBlock) {
             continue;
         }
-        // Mermaid はコピーボタン非対応（ダイアグラム描画のみ）
-        if (node.code_language == SyntaxLanguage::Mermaid) {
+        // ダイアグラム系 (Mermaid / LatexMath) はコピーボタン非対応
+        if (IsDiagramLanguage(node.code_language)) {
             continue;
         }
 
-        D2D1_RECT_F btn;
-        if (node.code_language == SyntaxLanguage::LatexMath) {
-            const auto& diagram = ctx.cache.GetDiagram(i);
-            if (!diagram.bitmap) {
-                continue;
-            }
-            const float indent = NodeIndent(node, ctx.theme);
-            const float xx = ctx.theme.margin_left + indent;
-            const float cw = ctx.content_width - indent;
-            const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, xx, cw, ctx.cache[i].y_position);
-            const float copy_right = bmp.right - COPY_BTN_SIZE - COPY_BTN_MARGIN;
-            btn = OverlayButtonRect(copy_right, bmp.top);
-        }
-        else {
-            if (dip_x < default_btn_left_bound) {
-                continue;
-            }
-            const float indent = NodeIndent(node, ctx.theme);
-            const float x = ctx.theme.margin_left + indent;
-            const float w = ctx.content_width - indent;
-            const float pad = ctx.theme.code_block_padding;
-            btn = OverlayButtonRect(x + w, ctx.cache[i].y_position - pad);
-        }
+        const float indent = NodeIndent(node, ctx.theme);
+        const float x = ctx.theme.margin_left + indent;
+        const float w = ctx.content_width - indent;
+        const float pad = ctx.theme.code_block_padding;
 
+        const float block_right = x + w;
+        const float block_top = ctx.cache[i].y_position - pad;
+
+        const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
         if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
             return i;
         }

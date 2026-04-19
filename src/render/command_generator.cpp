@@ -135,11 +135,6 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
                 cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), bmp });
                 GenSaveButton(cmds, bmp.right, bmp.top, node_index == frame_hovered_save_node_);
-                // LatexMath は原文をコピー可能にするため、保存ボタンの左側に追加する
-                if (node.code_language == SyntaxLanguage::LatexMath) {
-                    const float copy_right = bmp.right - COPY_BTN_SIZE - COPY_BTN_MARGIN;
-                    GenCopyButtonAt(cmds, copy_right, bmp.top, node_index == frame_hovered_copy_node_);
-                }
             }
             else {
                 GenDiagramPlaceholder(cmds, x, entry.y_position, cw, entry.height);
@@ -255,16 +250,11 @@ void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds,
 void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
     const NodeLayoutEntry& entry, float x, float w, bool is_hovered)
 {
-    GenCopyButtonAt(cmds, x + w, entry.y_position - theme_->code_block_padding, is_hovered);
-}
-
-void CommandGenerator::GenCopyButtonAt(DrawCommandList& cmds,
-    float anchor_right, float anchor_top, bool is_hovered)
-{
     if (!formats_.copy_btn_icon) {
         return;
     }
-    const D2D1_RECT_F btn = OverlayButtonRect(anchor_right, anchor_top);
+    const float pad = theme_->code_block_padding;
+    const D2D1_RECT_F btn = OverlayButtonRect(x + w, entry.y_position - pad);
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 
