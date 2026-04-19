@@ -1,9 +1,10 @@
 #pragma once
 #include <cstdint>
 
-// 描画（Direct2D）とHTMLクリップボードコピーの両方で参照される色を一元定義する。
-// 0xRRGGBB 形式の uint32_t で保持し、D2D1_COLOR_F と L"#rrggbb" のどちらの形式にも変換できる。
-// theme.cpp は D2D1_COLOR_F へ、document_utils.cpp は hex 文字列へ、同じ値を参照する。
+// 描画（Direct2D）と HTML クリップボードコピーで利用する色を一元定義する。
+// 0xRRGGBB 形式の uint32_t で保持し、D2D1_COLOR_F や L"#rrggbb" 文字列へ変換して参照する。
+// すべての色が両方から参照されるとは限らない（例: table_border は現状 HTML のみ）が、
+// 将来的な共有を見越して同じ palette に集約する。
 namespace theme_palette {
 
 struct SharedColors {
