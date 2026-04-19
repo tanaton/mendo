@@ -8,6 +8,7 @@
 #include <format>
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <iterator>
 #include <ranges>
 
@@ -79,12 +80,15 @@ public:
     constexpr explicit InlineTagScope(std::pmr::wstring& out) noexcept : out_(out) {}
     InlineTagScope(const InlineTagScope&) = delete;
     InlineTagScope& operator=(const InlineTagScope&) = delete;
-    constexpr ~InlineTagScope() { CloseAll(); }
+    ~InlineTagScope() { CloseAll(); }
 
     // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
     // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
+    // Plain な state（タグが一つも立たない）でも applied_ を立て、同じ state 内の
+    // 2文字目以降で Open() を再呼び出ししないようにする。
     constexpr void Open(const InlineState& s, const std::pmr::vector<std::pmr::wstring>& link_urls)
     {
+        applied_ = true;
         if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
             out_.append(L"<a href=\"");
             AppendHtmlEscaped(out_, link_urls[static_cast<size_t>(s.link_url_index)]);
@@ -109,24 +113,28 @@ public:
         }
     }
 
-    constexpr void CloseAll() noexcept
+    // out_.append() は bad_alloc を投げうるため noexcept にはしない。
+    constexpr void CloseAll()
     {
+        applied_ = false;
         while (count_ > 0) {
             out_.append(close_stack_[--count_]);
         }
     }
 
-    constexpr bool IsOpen() const noexcept { return count_ > 0; }
+    constexpr bool IsApplied() const noexcept { return applied_; }
 
 private:
     constexpr void Push(std::wstring_view close_tag) noexcept
     {
+        assert(count_ < close_stack_.size());
         close_stack_[count_++] = close_tag;
     }
 
     std::pmr::wstring& out_;
     std::array<std::wstring_view, 5> close_stack_{};
     size_t count_ = 0;
+    bool applied_ = false;
 };
 
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
@@ -187,7 +195,7 @@ constexpr void AppendInlineHtml(std::pmr::wstring& out,
                 out.append(L"<br>");
                 continue;
             }
-            if (!scope.IsOpen()) {
+            if (!scope.IsApplied()) {
                 scope.Open(current, link_urls);
             }
             AppendHtmlEscaped(out, std::wstring_view(&c, 1));
@@ -300,7 +308,7 @@ inline constexpr int kTableAlignRight = 3;
 class TableSectionScope {
 public:
     constexpr explicit TableSectionScope(std::pmr::wstring& out) noexcept : out_(out) {}
-    constexpr ~TableSectionScope() { Close(); }
+    ~TableSectionScope() { Close(); }
     TableSectionScope(const TableSectionScope&) = delete;
     TableSectionScope& operator=(const TableSectionScope&) = delete;
 
@@ -317,7 +325,8 @@ private:
         out_.append(open_tag);
         close_tag_ = close_tag;
     }
-    constexpr void Close() noexcept
+    // out_.append() は bad_alloc を投げうるため noexcept にはしない。
+    constexpr void Close()
     {
         if (!close_tag_.empty()) {
             out_.append(close_tag_);
