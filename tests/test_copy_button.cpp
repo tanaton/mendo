@@ -136,6 +136,26 @@ TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
     }
 }
 
+TEST_F(CopyButtonTest, LatexMathBlockReturnsNegative)
+{
+    // LatexMath ブロックも Mermaid 同様コピーボタン非対応
+    auto pr = Parse("$$E = mc^2$$");
+    float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
+    int latex_idx = -1;
+    for (size_t i = 0; i < pr.nodes.size(); i++) {
+        if (pr.nodes[i].type == NodeType::CodeBlock &&
+            pr.nodes[i].code_language == SyntaxLanguage::LatexMath) {
+            latex_idx = static_cast<int>(i);
+            break;
+        }
+    }
+    ASSERT_GE(latex_idx, 0);
+    auto [cx, cy] = CopyBtnCenter(pr, latex_idx);
+    int result = hit_test_.CopyButtonHitTest(
+        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx, cy, content_width, 2000.0f });
+    EXPECT_EQ(result, -1);
+}
+
 TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne)
 {
     auto pr = Parse("```\nfirst\n```\n\n```\nsecond\n```");

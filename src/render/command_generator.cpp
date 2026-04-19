@@ -253,6 +253,7 @@ void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
     if (!formats_.copy_btn_icon) {
         return;
     }
+
     const float pad = theme_->code_block_padding;
     const D2D1_RECT_F btn = OverlayButtonRect(x + w, entry.y_position - pad);
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
