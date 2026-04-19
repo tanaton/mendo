@@ -269,11 +269,10 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
             const size_t ci = tl.CellIndex(r, c);
             if (tl.cell_layouts[ci]) {
                 tl.cell_layouts[ci]->SetMaxWidth(cw);
-                // cell.align は md4c の MD_ALIGN（0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT）。
-                if (cell.align == 2) {
+                if (cell.align == TableAlign::Center) {
                     tl.cell_layouts[ci]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 }
-                else if (cell.align == 3) {
+                else if (cell.align == TableAlign::Right) {
                     tl.cell_layouts[ci]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
                 }
 

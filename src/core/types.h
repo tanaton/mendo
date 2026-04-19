@@ -111,12 +111,21 @@ struct TextSelection {
     }
 };
 
+// md4c の MD_ALIGN と値を一致させる（0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT）。
+// parser では static_cast<TableAlign>(td->align) で直接変換できる。
+enum class TableAlign : uint8_t {
+    Default = 0,
+    Left    = 1,
+    Center  = 2,
+    Right   = 3,
+};
+
 // テーブルセルデータ（純粋なドメインデータ — レイアウトキャッシュなし）
 struct TableCell {
     std::pmr::wstring text;
     std::pmr::vector<TextRun> runs;
     bool is_header = false;
-    int align = 0; // MD_ALIGN: 0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT
+    TableAlign align = TableAlign::Default;
 };
 
 struct TableRow {
