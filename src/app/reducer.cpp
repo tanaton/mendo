@@ -191,7 +191,7 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
     }
     const auto& nodes = state.document.doc.GetNodes();
     effects.emplace_back(effect::ClipboardWriteHtml{
-        ExtractSelectedTextAsHtml(nodes, sel),
+        ExtractSelectedTextAsHtml(nodes, sel, state.window.cached_theme.is_dark),
         ExtractSelectedText(nodes, sel)
     });
 }

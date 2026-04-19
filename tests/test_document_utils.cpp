@@ -231,6 +231,32 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
     EXPECT_EQ(html.find(L"a<b"), std::wstring::npos);
 }
 
+TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
+{
+    auto nodes = ParseMarkdown("```cpp\nint x = 42;\n```").nodes;
+    auto& n = nodes[0];
+    const std::wstring_view text = n.GetText();
+    auto& tokens = n.syntax_tokens_mut();
+    tokens.clear();
+    const auto int_pos = static_cast<uint32_t>(text.find(L"int"));
+    const auto num_pos = static_cast<uint32_t>(text.find(L"42"));
+    tokens.push_back(SyntaxToken{ int_pos, 3u, SyntaxTokenType::Keyword });
+    tokens.push_back(SyntaxToken{ num_pos, 2u, SyntaxTokenType::Number });
+
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel, /*dark_mode=*/true);
+    // ダーク用の色（VS Code Dark+ 相当）が使われる
+    EXPECT_NE(html.find(L"<span style=\"color:#C586C0\">int</span>"), std::wstring::npos);
+    EXPECT_NE(html.find(L"<span style=\"color:#B5CEA8\">42</span>"), std::wstring::npos);
+    // ライト用の色は混ざらない
+    EXPECT_EQ(html.find(L"#AF00DB"), std::wstring::npos);
+    EXPECT_EQ(html.find(L"#098658"), std::wstring::npos);
+    // コードブロック背景がダーク色
+    EXPECT_NE(html.find(L"background-color:#2d2d2d"), std::wstring::npos);
+    EXPECT_NE(html.find(L"color:#d4d4d4"), std::wstring::npos);
+}
+
+
 // テーブルノードは node.GetText() の線形化テキストがレイアウトパス後にのみ埋まるため、
 // テストではダミーの線形化テキストを設定して selection.active を立てる。
 static TextSelection MakeTableFullSelection(Node& table)
@@ -296,6 +322,20 @@ TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_NE(html.find(L"<strong>bold</strong>"), std::wstring::npos);
     EXPECT_NE(html.find(L"<a href=\"https://example.com\">link</a>"), std::wstring::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
+{
+    auto nodes = ParseMarkdown(
+        "| A | B |\n"
+        "|---|---|\n"
+        "| 1 | 2 |"
+    ).nodes;
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    auto sel = MakeTableFullSelection(nodes[0]);
+    auto html = ExtractSelectedTextAsHtml(nodes, sel, /*dark_mode=*/true);
+    EXPECT_NE(html.find(L"border:1px solid #3c3c3c"), std::wstring::npos);
+    EXPECT_EQ(html.find(L"#d0d7de"), std::wstring::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)

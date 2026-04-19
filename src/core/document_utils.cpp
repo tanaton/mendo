@@ -201,26 +201,26 @@ void AppendNodeInlineHtml(std::pmr::wstring& out, const Node& node, uint32_t sta
     AppendInlineHtml(out, node.GetText(), node.runs, node.link_urls, start, end);
 }
 
-// シンタックスハイライト用のライトテーマ相当色（VS Code Light 風）を、
-// span タグの prefix として事前組み立てて返す。Plain は空で「色付けなし」を示す。
-// コピー先の背景色がわからないため、最も汎用性の高いライト色に固定する。
-constexpr std::wstring_view SyntaxSpanPrefix(SyntaxTokenType type) noexcept
+// シンタックスハイライト用 span の prefix を、ライト / ダークテーマで切り替えて返す。
+// ライト: VS Code Light 風、ダーク: VS Code Dark+ 風。Plain は空で「色付けなし」。
+constexpr std::wstring_view SyntaxSpanPrefix(SyntaxTokenType type, bool dark) noexcept
 {
     switch (type) {
-    case SyntaxTokenType::Keyword:      return L"<span style=\"color:#AF00DB\">";
-    case SyntaxTokenType::Type:         return L"<span style=\"color:#267F99\">";
-    case SyntaxTokenType::String:       return L"<span style=\"color:#A31515\">";
-    case SyntaxTokenType::Number:       return L"<span style=\"color:#098658\">";
-    case SyntaxTokenType::Comment:      return L"<span style=\"color:#008000\">";
-    case SyntaxTokenType::Preprocessor: return L"<span style=\"color:#795E26\">";
-    case SyntaxTokenType::Function:     return L"<span style=\"color:#795E26\">";
+    case SyntaxTokenType::Keyword:      return dark ? L"<span style=\"color:#C586C0\">" : L"<span style=\"color:#AF00DB\">";
+    case SyntaxTokenType::Type:         return dark ? L"<span style=\"color:#4EC9B0\">" : L"<span style=\"color:#267F99\">";
+    case SyntaxTokenType::String:       return dark ? L"<span style=\"color:#CE9178\">" : L"<span style=\"color:#A31515\">";
+    case SyntaxTokenType::Number:       return dark ? L"<span style=\"color:#B5CEA8\">" : L"<span style=\"color:#098658\">";
+    case SyntaxTokenType::Comment:      return dark ? L"<span style=\"color:#6A9955\">" : L"<span style=\"color:#008000\">";
+    case SyntaxTokenType::Preprocessor: return dark ? L"<span style=\"color:#DCDCAA\">" : L"<span style=\"color:#795E26\">";
+    case SyntaxTokenType::Function:     return dark ? L"<span style=\"color:#DCDCAA\">" : L"<span style=\"color:#795E26\">";
     default:                            return {};
     }
 }
 
-constexpr void AppendSyntaxHighlightedSpan(std::pmr::wstring& out, std::wstring_view chunk, SyntaxTokenType type)
+constexpr void AppendSyntaxHighlightedSpan(std::pmr::wstring& out, std::wstring_view chunk,
+    SyntaxTokenType type, bool dark_mode)
 {
-    const auto prefix = SyntaxSpanPrefix(type);
+    const auto prefix = SyntaxSpanPrefix(type, dark_mode);
     if (prefix.empty()) {
         AppendHtmlEscaped(out, chunk);
         return;
@@ -230,13 +230,16 @@ constexpr void AppendSyntaxHighlightedSpan(std::pmr::wstring& out, std::wstring_
     out.append(L"</span>");
 }
 
-void AppendCodeBlockHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end)
+void AppendCodeBlockHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end,
+    bool dark_mode)
 {
-    constexpr std::wstring_view kOpen =
+    constexpr std::wstring_view kOpenLight =
         LR"(<pre style="background-color:#f6f8fa;padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;"><code>)";
+    constexpr std::wstring_view kOpenDark =
+        LR"(<pre style="background-color:#2d2d2d;color:#d4d4d4;padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;"><code>)";
     constexpr std::wstring_view kClose = L"</code></pre>";
 
-    out.append(kOpen);
+    out.append(dark_mode ? kOpenDark : kOpenLight);
     const auto& text = node.GetText();
     if (end > text.size()) {
         end = static_cast<uint32_t>(text.size());
@@ -274,7 +277,7 @@ void AppendCodeBlockHtml(std::pmr::wstring& out, const Node& node, uint32_t star
                         AppendHtmlEscaped(out, chunk);
                     }
                     else {
-                        AppendSyntaxHighlightedSpan(out, chunk, tok.type);
+                        AppendSyntaxHighlightedSpan(out, chunk, tok.type, dark_mode);
                     }
                     pos = seg_end;
                 }
@@ -326,11 +329,12 @@ private:
     std::wstring_view close_tag_{};
 };
 
-constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cell)
+constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cell, bool dark_mode)
 {
     // 共通の border+padding を先に出し、align 指定があれば追加して閉じる。
-    constexpr std::wstring_view kOpen = LR"( style="border:1px solid #d0d7de;padding:6px 13px)";
-    out.append(kOpen);
+    constexpr std::wstring_view kOpenLight = LR"( style="border:1px solid #d0d7de;padding:6px 13px)";
+    constexpr std::wstring_view kOpenDark  = LR"( style="border:1px solid #3c3c3c;padding:6px 13px)";
+    out.append(dark_mode ? kOpenDark : kOpenLight);
     switch (cell.align) {
     case kTableAlignCenter: out.append(L";text-align:center"); break;
     case kTableAlignRight:  out.append(L";text-align:right"); break;
@@ -342,7 +346,8 @@ constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cel
 // テーブルノードは常に <table> 構造で出力する。
 // node.GetText() の線形化テキストはレイアウトパスで初めて埋まるため、
 // ここで start/end による部分選択判定は行わない（全体出力が実用的）。
-void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end)
+void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end,
+    bool dark_mode)
 {
     if (!node.has_table() || node.table_rows().empty()) {
         // テーブルデータがない場合はフラットテキストを <pre> で出力
@@ -375,7 +380,7 @@ void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, u
             out.append(L"<tr>");
             for (const auto& cell : row.cells) {
                 out.append(open_tag);
-                AppendTableCellStyle(out, cell);
+                AppendTableCellStyle(out, cell, dark_mode);
                 out.append(L">");
                 AppendInlineHtml(out, cell.text, cell.runs, node.link_urls, 0,
                     static_cast<uint32_t>(cell.text.size()));
@@ -447,7 +452,8 @@ static const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node, uint
     return nullptr;
 }
 
-std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, const TextSelection& selection)
+std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
+    const TextSelection& selection, bool dark_mode)
 {
     if (!selection.active) {
         return {};
@@ -517,7 +523,7 @@ std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
             out.append(L"</p>");
             break;
         case NodeType::CodeBlock:
-            AppendCodeBlockHtml(out, node, start, end);
+            AppendCodeBlockHtml(out, node, start, end, dark_mode);
             break;
         case NodeType::BlockQuote:
             out.append(L"<blockquote>");
@@ -540,7 +546,7 @@ std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
             out.append(L"<hr>");
             break;
         case NodeType::Table:
-            AppendTableHtml(out, node, start, end);
+            AppendTableHtml(out, node, start, end, dark_mode);
             break;
         case NodeType::Image:
             // 画像は未対応: 線形化テキストを <pre> で出力

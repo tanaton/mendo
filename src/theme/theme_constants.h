@@ -9,4 +9,5 @@ struct ThemeConstants {
     float margin_right = 0.0f;
     float heading_spacing_above = 0.0f;
     float zoom = 1.0f;
+    bool is_dark = false;
 };
