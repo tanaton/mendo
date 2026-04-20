@@ -372,7 +372,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                 if (paren != std::wstring_view::npos) {
                     const std::wstring delim{ text.substr(i + 1, paren - i - 1) };
                     const std::wstring end_marker = L")" + delim + L"\"";
-                    const size_t end_pos = text.find(std::wstring_view{ end_marker }, paren + 1);
+                    const size_t end_pos = text.find(end_marker, paren + 1);
                     if (end_pos != std::wstring_view::npos) {
                         i = end_pos + end_marker.size();
                     }

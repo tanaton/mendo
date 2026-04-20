@@ -7,7 +7,7 @@ uint32_t NavHistory::InternPath(std::wstring_view path)
     }
     const auto idx = static_cast<uint32_t>(path_pool_.size());
     auto& stored = path_pool_.emplace_back(path);
-    path_index_.emplace(std::wstring_view{ stored.data(), stored.size() }, idx);
+    path_index_.emplace(stored, idx);
     return idx;
 }
 

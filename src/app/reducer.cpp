@@ -674,7 +674,7 @@ void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, co
 void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const FilePaneFileClickedAction& a)
 {
     PushCurrentNavEntry(state);
-    effects.emplace_back(effect::LoadFile{ std::pmr::wstring(a.full_path) });
+    effects.emplace_back(effect::LoadFile{ a.full_path });
 }
 
 // ============================================================
@@ -707,7 +707,7 @@ void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAc
     if (!state.document.doc.GetFilePath().empty()) {
         PushCurrentNavEntry(state);
     }
-    effects.emplace_back(effect::LoadFile{ std::pmr::wstring(a.path) });
+    effects.emplace_back(effect::LoadFile{ a.path });
 }
 
 void ReduceShowHelp(AppState& state, SideEffectList& effects)

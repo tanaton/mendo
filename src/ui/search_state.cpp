@@ -40,7 +40,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
                 const auto col_count = static_cast<int>(cells.size());
                 for (int c = 0; c < col_count; c++) {
                     if (!cells[c].text.empty()) {
-                        FindMatches(std::wstring_view(cells[c].text.data(), cells[c].text.size()), lower_query, i, r, c);
+                        FindMatches(cells[c].text, lower_query, i, r, c);
                     }
                 }
             }
@@ -51,7 +51,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
                 (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language))) {
                 continue;
             }
-            FindMatches(std::wstring_view(text.data(), text.size()), lower_query, i);
+            FindMatches(text, lower_query, i);
         }
     }
     matches_truncated_ = (matches_.size() >= MAX_MATCHES);

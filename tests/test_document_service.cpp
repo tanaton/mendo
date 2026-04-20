@@ -26,7 +26,7 @@ protected:
         std::ofstream ofs(path, std::ios::binary);
         ofs << content;
         auto ws = path.wstring();
-        return std::pmr::wstring{ std::wstring_view{ws} };
+        return std::pmr::wstring{ ws };
     }
 
     std::filesystem::path test_dir_;
@@ -72,7 +72,7 @@ TEST_F(DocumentServiceTest, NeedsAsyncLoadLargeFile)
 TEST_F(DocumentServiceTest, NeedsAsyncLoadNonexistent)
 {
     auto ws = (test_dir_ / "nonexistent_async.md").wstring();
-    std::pmr::wstring nonexistent{ std::wstring_view{ws} };
+    std::pmr::wstring nonexistent{ ws };
     EXPECT_TRUE(DocumentService::NeedsAsyncLoad(nonexistent));
 }
 
@@ -85,7 +85,7 @@ TEST_F(DocumentServiceTest, NeedsLoadingAnimationSmallFile)
 TEST_F(DocumentServiceTest, NeedsLoadingAnimationNonexistent)
 {
     auto ws = (test_dir_ / "nonexistent_anim.md").wstring();
-    std::pmr::wstring nonexistent{ std::wstring_view{ws} };
+    std::pmr::wstring nonexistent{ ws };
     EXPECT_TRUE(DocumentService::NeedsLoadingAnimation(nonexistent));
 }
 

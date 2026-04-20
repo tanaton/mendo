@@ -20,7 +20,7 @@ void App::HandleLinkClick(std::wstring_view url)
         break;
     case LinkClickResult::Type::ExternalUrl: {
         SideEffectList effects;
-        effects.emplace_back(effect::ShellOpen{ std::pmr::wstring{result.target} });
+        effects.emplace_back(effect::ShellOpen{ result.target });
         effect_executor_.Execute(effects);
         break;
     }

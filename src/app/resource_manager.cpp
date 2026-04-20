@@ -257,9 +257,7 @@ void ResourceManager::ProcessMermaidBatch()
         auto& diagram = cache_->GetDiagram(i);
 
         if (!diagram.bitmap) {
-            mermaid_->RequestRender(node, (*cache_)[i], diagram,
-                content_width, dark_mode,
-                [this] { OnMermaidRenderComplete(); });
+            mermaid_->RequestRender(node, (*cache_)[i], diagram, content_width, dark_mode, [this] { OnMermaidRenderComplete(); });
             if (diagram.bitmap) {
                 any_loaded = true;
             }

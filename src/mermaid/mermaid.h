@@ -32,8 +32,7 @@ public:
     // render_targetはD2Dビットマップの作成に使用する。
     // wicはPNGデコード用のWICファクトリ（nullの場合は内部で作成する）。
     // on_readyはWebView2の初期化完了時にUIスレッドで呼び出される。
-    void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
-        std::move_only_function<void()> on_ready);
+    void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic, std::move_only_function<void()> on_ready);
 
     // WebView2が初期化済みでレンダリング可能な場合にtrueを返す。
     constexpr bool IsReady() const noexcept { return ready_; }
@@ -43,9 +42,7 @@ public:
     // Mermaidコードブロックのレンダリングを要求する。
     // 完了時、ダイアグラムエントリのbitmap/width/heightとレイアウトエントリの
     // height/layout_dirtyが設定され、on_completeがUIスレッドで呼び出される。
-    void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry,
-        float max_width, bool dark_mode,
-        Callback on_complete);
+    void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete);
 
     // D2Dレンダーターゲットを更新する（例：リサイズ後）。
     void SetRenderTarget(ID2D1RenderTarget* render_target);

@@ -87,8 +87,7 @@ std::filesystem::path MermaidFileCache::GetIndexPath() const
 
 int64_t MermaidFileCache::Now() noexcept
 {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
 void MermaidFileCache::RemoveLruEntry(int64_t timestamp, uint64_t key)
@@ -280,8 +279,7 @@ bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry) const n
     return true;
 }
 
-void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height,
-    std::vector<uint8_t> png_data)
+void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height, std::vector<uint8_t> png_data)
 {
     if (png_data.empty()) {
         return;

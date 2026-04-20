@@ -139,8 +139,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
             new_save_hover = state_.hit_test.SaveButtonHitTest(hit_ctx);
         }
     }
-    if (new_copy_hover != state_.interaction.hovered_copy_node
-        || new_save_hover != state_.interaction.hovered_save_node) {
+    if (new_copy_hover != state_.interaction.hovered_copy_node || new_save_hover != state_.interaction.hovered_save_node) {
         Dispatch(MdPaneButtonHoverChangedAction{ new_copy_hover, new_save_hover });
     }
 
@@ -261,9 +260,14 @@ void App::OnMouseHover(int px, int py)
     case PaneZone::FilePane: {
         const float header_h = renderer_.GetTheme().pane_header_height;
         const auto& entries = state_.file_explorer.GetEntries();
-        const auto hr = ProcessSidePaneHover(dip_x, dip_y,
-            pane_layout.file_rect, header_h, renderer_.GetTheme().pane_item_height,
-            true, state_.view.panes.FileScroll().scroll_y,
+        const auto hr = ProcessSidePaneHover(
+            dip_x,
+            dip_y,
+            pane_layout.file_rect,
+            header_h,
+            renderer_.GetTheme().pane_item_height,
+            true,
+            state_.view.panes.FileScroll().scroll_y,
             [this](bool v) { return state_.view.panes.SetFileCloseHovered(v); },
             [this](bool v) { return state_.view.panes.SetFileRefreshHovered(v); },
             [this](float y, float h) { return state_.file_explorer.HitTest(y, h); },
@@ -300,9 +304,14 @@ void App::OnMouseHover(int px, int py)
     case PaneZone::TocPane: {
         const float header_h = renderer_.GetTheme().pane_header_height;
         const auto& toc_entries = state_.document.doc.GetToc().GetEntries();
-        const auto hr = ProcessSidePaneHover(dip_x, dip_y,
-            pane_layout.toc_rect, header_h, renderer_.GetTheme().pane_item_height,
-            false, state_.view.panes.TocScroll().scroll_y,
+        const auto hr = ProcessSidePaneHover(
+            dip_x,
+            dip_y,
+            pane_layout.toc_rect,
+            header_h,
+            renderer_.GetTheme().pane_item_height,
+            false,
+            state_.view.panes.TocScroll().scroll_y,
             [this](bool v) { return state_.view.panes.SetTocCloseHovered(v); },
             [](bool) { return false; },
             [this](float y, float h) { return state_.document.doc.GetToc().HitTest(y, h); },
