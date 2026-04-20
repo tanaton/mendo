@@ -39,7 +39,10 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         return last_brush_;
     }
     if (brush_pool_.size() >= MAX_POOLED_BRUSHES) {
+        // clear で既存ブラシを破棄するので、直近キャッシュもダングリング防止に無効化
         brush_pool_.clear();
+        last_key_ = 0xFFFFFFFFu;
+        last_brush_ = nullptr;
     }
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
     if (FAILED(rt->CreateSolidColorBrush(color, &brush)) || !brush) {

@@ -7,6 +7,7 @@
 #include <map>
 #include <unordered_map>
 #include <charconv>
+#include <climits>
 #include <format>
 #include <iterator>
 #include <algorithm>
@@ -194,7 +195,8 @@ struct ParseContext {
             return;
         }
         const uint32_t start = node_wide_offset;
-        if (!text.empty()) {
+        // AppendText は BR/SOFTBR/Entity 用で短い入力前提。INT_MAX/3 超は安全のためスキップ
+        if (!text.empty() && text.size() <= static_cast<size_t>(INT_MAX) / 3) {
             const size_t old_size = current_node->text_utf8.size();
             const size_t max_bytes = text.size() * 3;
             current_node->text_utf8.resize_and_overwrite(old_size + max_bytes, [&](char* buf, size_t count) -> size_t {

@@ -366,6 +366,9 @@ void ResourceManager::FlushPendingResources()
         return;
     }
     pending_flush_ = false;
+    // last_flush_time_ は ScheduleBitmapManage 以外の経路（OnBitmapManageTimer 等）
+    // からのフラッシュでも一元的に更新する
+    last_flush_time_ = std::chrono::steady_clock::now();
 
     bool changed = (ApplyCachedImages() > 0);
 
@@ -388,7 +391,6 @@ void ResourceManager::ScheduleBitmapManage()
     pending_flush_ = true;
     if (since_last >= 50) {
         FlushPendingResources();
-        last_flush_time_ = now;
     }
     cb_.set_timer(TIMER_BITMAP_MANAGE, 150);
 }

@@ -37,10 +37,15 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
             InvalidateRect(hwnd_, nullptr, FALSE);
         },
         [this](const effect::InvalidateTitleBar&) {
+            if (!state_) {
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return;
+            }
             RECT client;
             GetClientRect(hwnd_, &client);
-            const float dpi_scale = state_ ? state_->window.cached_dpi_scale : 1.0f;
-            RECT tb_rect{ 0, 0, client.right, static_cast<LONG>(state_->window.titlebar.GetHeight() * dpi_scale + 0.5f) };
+            const float dpi_scale = state_->window.cached_dpi_scale;
+            RECT tb_rect{ 0, 0, client.right,
+                static_cast<LONG>(state_->window.titlebar.GetHeight() * dpi_scale + 0.5f) };
             InvalidateRect(hwnd_, &tb_rect, FALSE);
         },
         [this](const effect::SetTimer& e) {
