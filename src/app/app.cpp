@@ -94,8 +94,7 @@ const PaneLayout& App::GetPaneLayout()
         const auto size = rt->GetSize();
         state_.cached_window_width_for_layout = size.width;
         const float tb_h = state_.window.titlebar.GetHeight();
-        state_.cached_pane_layout = state_.view.panes.ComputeLayout(size.width, size.height,
-            renderer_.GetTheme().splitter_width, tb_h);
+        state_.cached_pane_layout = state_.view.panes.ComputeLayout(size.width, size.height, renderer_.GetTheme().splitter_width, tb_h);
         state_.pane_layout_valid = true;
     }
     return state_.cached_pane_layout;

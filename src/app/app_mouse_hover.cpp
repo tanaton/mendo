@@ -316,7 +316,9 @@ void App::OnMouseHover(int px, int py)
             [](bool) { return false; },
             [this](float y, float h) { return state_.document.doc.GetToc().HitTest(y, h); },
             [&](bool close_hit, bool, int idx) -> TooltipTarget {
-            if (close_hit) { return { TooltipTarget::Zone::TocPaneButton, i18n::S().tooltip_pane_close }; }
+            if (close_hit) {
+                return { TooltipTarget::Zone::TocPaneButton, i18n::S().tooltip_pane_close };
+            }
             if (idx >= 0 && idx < static_cast<int>(toc_entries.size())) {
                 return { TooltipTarget::Zone::TocPaneItem, state_.document.doc.GetNodes()[toc_entries[idx].node_index].GetText() };
             }
