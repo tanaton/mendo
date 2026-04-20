@@ -1081,6 +1081,90 @@ TEST(FindFirstDifference, Utf8Content)
 }
 
 // ============================================================
+// AnalyzeReloadDiff
+// ============================================================
+
+TEST(AnalyzeReloadDiff, IdenticalContentReturnsNoChange)
+{
+    const auto d = AnalyzeReloadDiff("hello world", "hello world");
+    EXPECT_EQ(d.op, ReloadOp::NoChange);
+    EXPECT_EQ(d.diff_pos, std::string_view::npos);
+}
+
+TEST(AnalyzeReloadDiff, BothEmptyReturnsNoChange)
+{
+    const auto d = AnalyzeReloadDiff("", "");
+    EXPECT_EQ(d.op, ReloadOp::NoChange);
+    EXPECT_EQ(d.diff_pos, std::string_view::npos);
+}
+
+TEST(AnalyzeReloadDiff, AppendedSuffixIsPrefixGrowth)
+{
+    // 末尾に追記 → prefix-only growth（スクロール維持）
+    const auto d = AnalyzeReloadDiff("abc", "abcdef");
+    EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
+    EXPECT_EQ(d.diff_pos, 3u);
+}
+
+TEST(AnalyzeReloadDiff, EmptyToContentIsPrefixGrowth)
+{
+    // 空ファイル → 何か書いた。prefix-only growth として扱う。
+    const auto d = AnalyzeReloadDiff("", "new content");
+    EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
+    EXPECT_EQ(d.diff_pos, 0u);
+}
+
+TEST(AnalyzeReloadDiff, TruncatedSuffixIsDeferPrefixShrink)
+{
+    // 末尾が消えた = truncate。エディタの truncate→rewrite 前半の可能性があるため defer。
+    const auto d = AnalyzeReloadDiff("abcdef", "abc");
+    EXPECT_EQ(d.op, ReloadOp::DeferPrefixShrink);
+    EXPECT_EQ(d.diff_pos, 3u);
+}
+
+TEST(AnalyzeReloadDiff, ContentToEmptyIsDeferPrefixShrink)
+{
+    // 全消去も truncate → rewrite の前半とみなして defer する
+    const auto d = AnalyzeReloadDiff("old content", "");
+    EXPECT_EQ(d.op, ReloadOp::DeferPrefixShrink);
+    EXPECT_EQ(d.diff_pos, 0u);
+}
+
+TEST(AnalyzeReloadDiff, MiddleChangeIsFullReload)
+{
+    // 中間バイトが変わった。prefix-only ではないので全体リロード。
+    const auto d = AnalyzeReloadDiff("abcdef", "abcXef");
+    EXPECT_EQ(d.op, ReloadOp::FullReload);
+    EXPECT_EQ(d.diff_pos, 3u);
+}
+
+TEST(AnalyzeReloadDiff, FirstByteChangeIsFullReload)
+{
+    // 先頭で差分があれば必ず FullReload（同一長さなので prefix-only にならない）。
+    const auto d = AnalyzeReloadDiff("abc", "Xbc");
+    EXPECT_EQ(d.op, ReloadOp::FullReload);
+    EXPECT_EQ(d.diff_pos, 0u);
+}
+
+TEST(AnalyzeReloadDiff, LengthChangedWithMiddleDiffIsFullReload)
+{
+    // 途中で差分があり、かつ長さも変わる → prefix-only ではなく FullReload。
+    const auto d = AnalyzeReloadDiff("abcdef", "abcYYYz");
+    EXPECT_EQ(d.op, ReloadOp::FullReload);
+    EXPECT_EQ(d.diff_pos, 3u);
+}
+
+TEST(AnalyzeReloadDiff, Utf8SuffixAppendedIsPrefixGrowth)
+{
+    // UTF-8 バイト列での末尾追記も prefix-only growth として扱える
+    const std::string old_text = "あいう";
+    const std::string new_text = "あいうえお";
+    const auto d = AnalyzeReloadDiff(old_text, new_text);
+    EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
+    EXPECT_EQ(d.diff_pos, 9u); // "あいう" = 9 バイト
+}
+
+// ============================================================
 // FindNodeBySourceOffset
 // ============================================================
 

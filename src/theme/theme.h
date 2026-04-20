@@ -2,7 +2,7 @@
 #include <d2d1.h>
 #include <cstdint>
 #include <string>
-#include "types.h"
+#include "document_types.h"
 #include "theme_constants.h"
 
 struct Theme {

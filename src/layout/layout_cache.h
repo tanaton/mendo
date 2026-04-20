@@ -1,5 +1,5 @@
 #pragma once
-#include "types.h"
+#include "document_types.h"
 #include <vector>
 #include <memory_resource>
 #include <wrl/client.h>

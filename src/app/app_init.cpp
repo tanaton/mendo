@@ -97,20 +97,8 @@ bool App::Init(HWND hwnd)
             .handle_parse_complete = [this]() {
                 OnParseComplete();
             },
-            .handle_mouse_event = [this](effect::MouseEventType type, int px, int py) {
-                switch (type) {
-                case effect::MouseEventType::LButtonDown:  OnLButtonDown(px, py);  break;
-                case effect::MouseEventType::LButtonUp:    OnLButtonUp(px, py);    break;
-                case effect::MouseEventType::MouseMove:    OnMouseMove(px, py);    break;
-                case effect::MouseEventType::MouseHover:   OnMouseHover(px, py);   break;
-                case effect::MouseEventType::LButtonDblClk: OnLButtonDblClk(px, py); break;
-                case effect::MouseEventType::RButtonDown:  OnRButtonDown(px, py);  break;
-                case effect::MouseEventType::RButtonUp:    OnRButtonUp(px, py);    break;
-                case effect::MouseEventType::RButtonMove:  OnRButtonMove(px, py);  break;
-                }
-            },
-            .handle_context_menu = [this](int sx, int sy) {
-                OnContextMenu(sx, sy);
+            .show_context_menu = [this](int x, int y) {
+                OnContextMenu(x, y);
             },
         }
     );

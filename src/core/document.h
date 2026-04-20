@@ -1,5 +1,5 @@
 #pragma once
-#include "types.h"
+#include "document_types.h"
 #include "toc.h"
 #include "parser.h"
 #include <string>

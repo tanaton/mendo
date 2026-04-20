@@ -58,34 +58,6 @@ PaneScrollInfo App::ComputePaneScrollInfo(
     return ComputeScrollInfo(rect, renderer_.GetTheme().pane_header_height, total_content);
 }
 
-void App::HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
-    ScrollState& scroll, bool& cache_dirty)
-{
-    const float thumb_y = ComputeThumbY(info, scroll.scroll_y);
-
-    if (dip_y >= thumb_y && dip_y <= thumb_y + info.thumb_height) {
-        state_.view.panes.SetDragScrollOffset(dip_y - thumb_y);
-    }
-    else {
-        state_.view.panes.SetDragScrollOffset(info.thumb_height * 0.5f);
-        const float new_thumb_y = dip_y - state_.view.panes.GetDragScrollOffset();
-        scroll.scroll_y = ScrollFromThumbY(info, new_thumb_y);
-        scroll.max_scroll = info.max_scroll;
-        cache_dirty = true;
-        Invalidate();
-    }
-}
-
-void App::HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
-    ScrollState& scroll, bool& cache_dirty)
-{
-    const float new_thumb_y = dip_y - state_.view.panes.GetDragScrollOffset();
-    scroll.scroll_y = ScrollFromThumbY(info, new_thumb_y);
-    scroll.max_scroll = info.max_scroll;
-    cache_dirty = true;
-    Invalidate();
-}
-
 // ============================================================
 // ファイル読み込み/リロード共通ヘルパー
 // ============================================================
@@ -290,7 +262,14 @@ void App::OnResize(UINT width, UINT height)
 
 void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 {
-    Dispatch(DpiChangedAction{ dpi, *suggested });
+    // Win32 の RECT を platform-agnostic な PixelRect に詰め替える。
+    const PixelRect rc{
+        static_cast<int32_t>(suggested->left),
+        static_cast<int32_t>(suggested->top),
+        static_cast<int32_t>(suggested->right),
+        static_cast<int32_t>(suggested->bottom),
+    };
+    Dispatch(DpiChangedAction{ static_cast<uint32_t>(dpi), rc });
 }
 
 // OnAppImageLoaded / OnAppReloadFile はWM_APPメッセージ経由でresource_manager_に委譲

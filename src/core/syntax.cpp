@@ -49,11 +49,6 @@ bool IsHexDigit(wchar_t c)
     return IsDigit(c) || (c >= L'a' && c <= L'f') || (c >= L'A' && c <= L'F');
 }
 
-bool IsWhitespace(wchar_t c)
-{
-    return c == L' ' || c == L'\t' || c == L'\n' || c == L'\r';
-}
-
 bool IsAtLineStart(std::wstring_view text, size_t pos)
 {
     if (pos == 0) { return true; }

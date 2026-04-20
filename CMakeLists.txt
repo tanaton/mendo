@@ -82,7 +82,6 @@ add_library(mendo_core STATIC
     src/layout/dwrite_measurer.cpp
     # render - 描画パイプライン
     src/render/command_generator.cpp
-    src/render/command_gen_table.cpp
     src/render/command_executor.cpp
     # ui - UIコンポーネント
     src/ui/pane_layout.cpp
@@ -111,6 +110,7 @@ add_library(mendo_core STATIC
     src/theme/theme_service.cpp
     # app - アプリケーション制御
     src/app/app_controller.cpp
+    src/app/app_state.cpp
     src/app/reducer.cpp
     # util - ユーティリティ
     src/util/task_scheduler.cpp
@@ -150,10 +150,8 @@ add_executable(mendo WIN32
     src/app/app_file.cpp
     src/app/app_scroll.cpp
     src/app/app_mouse.cpp
-    src/app/app_mouse_gesture.cpp
+    src/app/app_mouse_click.cpp
     src/app/app_mouse_hover.cpp
-    src/app/app_mouse_md_pane.cpp
-    src/app/app_mouse_side_pane.cpp
     src/app/app_navigate.cpp
     src/app/app_context_menu.cpp
     src/app/app_clipboard.cpp
@@ -161,6 +159,7 @@ add_executable(mendo WIN32
     src/app/resource_manager.cpp
     src/app/side_effect_executor.cpp
     src/render/renderer.cpp
+    src/render/renderer_resources.cpp
     src/render/renderer_pane.cpp
     src/render/renderer_titlebar.cpp
     src/render/renderer_overlay.cpp

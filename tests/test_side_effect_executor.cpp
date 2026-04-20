@@ -48,10 +48,8 @@ protected:
     int mermaid_init_retry_count_ = 0;
     int destroy_count_ = 0;
     int handle_parse_complete_count_ = 0;
-    struct MouseEventRecord { effect::MouseEventType type; int px; int py; };
-    std::vector<MouseEventRecord> mouse_events_;
-    std::pair<int, int> last_context_menu_{0, 0};
-    int context_menu_count_ = 0;
+    std::pair<int, int> last_context_menu_pos_{0, 0};
+    int show_context_menu_count_ = 0;
 
     SideEffectExecutor::Callbacks MakeCallbacks()
     {
@@ -87,12 +85,9 @@ protected:
             .mermaid_init_retry = [this] { mermaid_init_retry_count_++; },
             .destroy = [this] { destroy_count_++; },
             .handle_parse_complete = [this] { handle_parse_complete_count_++; },
-            .handle_mouse_event = [this](effect::MouseEventType t, int px, int py) {
-                mouse_events_.push_back({t, px, py});
-            },
-            .handle_context_menu = [this](int x, int y) {
-                last_context_menu_ = {x, y};
-                context_menu_count_++;
+            .show_context_menu = [this](int x, int y) {
+                last_context_menu_pos_ = {x, y};
+                show_context_menu_count_++;
             },
         };
     }
@@ -235,23 +230,11 @@ TEST_F(SideEffectExecutorTest, HandleParseCompleteDispatchesToCallback)
     EXPECT_EQ(handle_parse_complete_count_, 1);
 }
 
-TEST_F(SideEffectExecutorTest, HandleMouseEventForwardsAllFields)
+TEST_F(SideEffectExecutorTest, ShowContextMenuForwardsScreenPosition)
 {
-    exec_.ExecuteOne(effect::HandleMouseEvent{effect::MouseEventType::LButtonDown, 100, 200});
-    exec_.ExecuteOne(effect::HandleMouseEvent{effect::MouseEventType::MouseMove, 150, 250});
-    ASSERT_EQ(mouse_events_.size(), 2u);
-    EXPECT_EQ(mouse_events_[0].type, effect::MouseEventType::LButtonDown);
-    EXPECT_EQ(mouse_events_[0].px, 100);
-    EXPECT_EQ(mouse_events_[0].py, 200);
-    EXPECT_EQ(mouse_events_[1].type, effect::MouseEventType::MouseMove);
-    EXPECT_EQ(mouse_events_[1].px, 150);
-}
-
-TEST_F(SideEffectExecutorTest, HandleContextMenuForwardsScreenCoords)
-{
-    exec_.ExecuteOne(effect::HandleContextMenu{800, 600});
-    EXPECT_EQ(context_menu_count_, 1);
-    EXPECT_EQ(last_context_menu_, std::make_pair(800, 600));
+    exec_.ExecuteOne(effect::ShowContextMenu{150, 200});
+    EXPECT_EQ(show_context_menu_count_, 1);
+    EXPECT_EQ(last_context_menu_pos_, std::make_pair(150, 200));
 }
 
 // ═══════════════════════════════════════════════

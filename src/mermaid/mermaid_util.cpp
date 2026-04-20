@@ -1,5 +1,5 @@
 #include "mermaid_util.h"
-#include "types.h"
+#include "document_types.h"
 #include "utility.h"
 #include <algorithm>
 #include <cmath>

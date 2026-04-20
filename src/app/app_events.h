@@ -1,10 +1,21 @@
 #pragma once
 #include "pane_layout.h"
+#include "nav_button.h"
+#include "pane_controller.h"
+#include "tooltip_target.h"
 #include <variant>
 #include <string>
 #include <cstdint>
 #include <memory_resource>
-#include <windows.h>
+
+// プラットフォーム非依存のピクセル矩形。App::OnDpiChanged 境界で
+// Win32 の RECT から各フィールドの値をコピーして生成する。
+struct PixelRect {
+    int32_t left;
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+};
 
 // ──── イベント (プラットフォーム非依存のユーザー入力) ────
 
@@ -86,45 +97,83 @@ struct NoOpAction {};
 
 // ──── アクション: マウスイベント系 ────
 
-struct LButtonDownAction {
-    int px;
-    int py;
+struct MouseLeaveAction {};
+struct MdPaneNavHoverAction {
+    NavButtonHover nav_hover;
 };
-struct LButtonUpAction {
-    int px;
-    int py;
+struct MdPaneButtonHoverChangedAction {
+    int hovered_copy_node;
+    int hovered_save_node;
 };
-struct MouseMoveAction {
-    int px;
-    int py;
+struct SplitterDragStartedAction {
+    PaneController::DragTarget target;
 };
-struct MouseHoverAction {
-    int px;
-    int py;
+struct SplitterDragMovedAction {
+    PaneController::DragTarget target;
+    float dip_x;
+    float window_width;
 };
-struct LButtonDblClkAction {
-    int px;
-    int py;
+struct SplitterDragEndedAction {};
+struct SearchInputDragStartedAction {
+    int caret_pos;
 };
-struct RButtonDownAction {
-    int px;
-    int py;
+struct SearchInputDragMovedAction {
+    int caret_pos;
 };
-struct RButtonUpAction {
-    int px;
-    int py;
+struct SearchInputDragEndedAction {};
+struct MdScrollbarDragStartedAction {
+    float dip_y;
+    float total_height;
 };
-struct RButtonMoveAction {
-    int px;
-    int py;
+struct MdScrollbarDragMovedAction {
+    float dip_y;
+    float total_height;
 };
-struct ContextMenuAction {
+struct MdScrollbarDragEndedAction {};
+struct PaneScrollbarDragStartedAction {
+    PaneTarget pane;
+    float dip_y;
+};
+struct PaneScrollbarDragMovedAction {
+    PaneTarget pane;
+    float dip_y;
+};
+struct PaneScrollbarDragEndedAction {};
+struct TextSelectionStartedAction {
+    int node_index;
+    uint32_t text_pos;
+    int click_x;
+    int click_y;
+};
+struct TextSelectionMovedAction {
+    int node_index;
+    uint32_t text_pos;
+};
+struct TextSelectionEndedAction {
+    int end_node_index;
+    uint32_t end_text_pos;
+};
+struct RightClickGestureStartedAction {
+    float dip_x;
+    float dip_y;
+};
+struct RightClickGestureMovedAction {
+    float dip_x;
+    float dip_y;
+};
+struct RightClickGestureCompletedAction {
     int screen_x;
     int screen_y;
 };
-struct MouseLeaveAction {};
-struct XButtonBackAction {};
-struct XButtonForwardAction {};
+struct FilePaneDirectoryClickedAction {
+    std::pmr::wstring full_path;
+};
+struct FilePaneFileClickedAction {
+    std::pmr::wstring full_path;
+};
+struct TocItemClickedAction {
+    std::pmr::wstring anchor_id;
+};
 struct HWheelAction {
     short delta;
     uint64_t tick;
@@ -133,15 +182,26 @@ struct DropFilesAction {
     std::pmr::wstring path;
 };
 
+// ツールチップ更新（ホバー対象が変わった時に発行）。
+// target.IsEmpty() なら非表示要求。px/py はクライアント座標。
+struct UpdateTooltipAction {
+    TooltipTarget target;
+    int px;
+    int py;
+};
+
+// ツールチップを即時クリア（タイマー停止 + 状態リセット）。
+struct ClearTooltipAction {};
+
 // ──── アクション: システムイベント系 ────
 
 struct ResizeAction {
-    UINT width;
-    UINT height;
+    uint32_t width;
+    uint32_t height;
 };
 struct DpiChangedAction {
-    UINT dpi;
-    RECT suggested;
+    uint32_t dpi;
+    PixelRect suggested;
 };
 struct ActivateAction {
     bool active;
@@ -154,7 +214,7 @@ struct DestroyAction {};
 // ──── アクション: タイマー・非同期コールバック系 ────
 
 struct TimerAction {
-    UINT_PTR timer_id;
+    uintptr_t timer_id;
 };
 struct FileWatchAction {};
 struct ParseCompleteAction {};
@@ -200,20 +260,34 @@ using AppAction = std::variant<
     SearchNextAction,
     SearchPrevAction,
     // マウスイベント系
-    LButtonDownAction,
-    LButtonUpAction,
-    MouseMoveAction,
-    MouseHoverAction,
-    LButtonDblClkAction,
-    RButtonDownAction,
-    RButtonUpAction,
-    RButtonMoveAction,
-    ContextMenuAction,
     MouseLeaveAction,
-    XButtonBackAction,
-    XButtonForwardAction,
+    MdPaneNavHoverAction,
+    MdPaneButtonHoverChangedAction,
+    SplitterDragStartedAction,
+    SplitterDragMovedAction,
+    SplitterDragEndedAction,
+    SearchInputDragStartedAction,
+    SearchInputDragMovedAction,
+    SearchInputDragEndedAction,
+    MdScrollbarDragStartedAction,
+    MdScrollbarDragMovedAction,
+    MdScrollbarDragEndedAction,
+    PaneScrollbarDragStartedAction,
+    PaneScrollbarDragMovedAction,
+    PaneScrollbarDragEndedAction,
+    TextSelectionStartedAction,
+    TextSelectionMovedAction,
+    TextSelectionEndedAction,
+    RightClickGestureStartedAction,
+    RightClickGestureMovedAction,
+    RightClickGestureCompletedAction,
+    FilePaneDirectoryClickedAction,
+    FilePaneFileClickedAction,
+    TocItemClickedAction,
     HWheelAction,
     DropFilesAction,
+    UpdateTooltipAction,
+    ClearTooltipAction,
     // システムイベント系
     ResizeAction,
     DpiChangedAction,

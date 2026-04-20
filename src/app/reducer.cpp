@@ -1,17 +1,9 @@
 #include "reducer.h"
+#include "app_messages.h"
 #include "timer_ids.h"
 #include "document_utils.h"
 #include "ui_constants.h"
 #include "utility.h"
-
-AnchorState SaveAnchorFromState(const AppState& state) noexcept
-{
-    AnchorState a;
-    a.idx = state.view.viewport.FindFirstVisibleNode(state.document.layout_cache, state.document.doc.GetNodes().size());
-    a.y_before = (a.idx >= 0) ? state.document.layout_cache[a.idx].y_position : 0.0f;
-    a.offset = state.view.viewport.GetScrollY() - a.y_before;
-    return a;
-}
 
 // ============================================================
 // 共通ヘルパー
@@ -36,18 +28,39 @@ void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scrol
     }
 }
 
-float CalcPaneMaxScroll(const AppState& state, PaneZone pane)
+struct SidePaneContext {
+    const PaneRect& rect;
+    float total_content;
+    PaneScrollInfo info;
+    ScrollState& scroll;
+    PaneController::DragTarget drag_target;
+    PaneZone pane_zone;
+};
+
+SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 {
     const float item_h = state.window.cached_theme.pane_item_height;
     const float header_h = state.window.cached_theme.pane_header_height;
-    if (pane == PaneZone::FilePane) {
+    if (pane == PaneTarget::File) {
         const float total = static_cast<float>(state.file_explorer.GetEntries().size()) * item_h;
-        return std::max(0.0f, total - (state.cached_pane_layout.file_rect.height - header_h));
+        return {
+            state.cached_pane_layout.file_rect,
+            total,
+            ComputeScrollInfo(state.cached_pane_layout.file_rect, header_h, total),
+            state.view.panes.FileScroll(),
+            PaneController::DragTarget::FileScrollbar,
+            PaneZone::FilePane,
+        };
     }
-    else {
-        const float total = static_cast<float>(state.document.doc.GetToc().GetEntries().size()) * item_h;
-        return std::max(0.0f, total - (state.cached_pane_layout.toc_rect.height - header_h));
-    }
+    const float total = static_cast<float>(state.document.doc.GetToc().GetEntries().size()) * item_h;
+    return {
+        state.cached_pane_layout.toc_rect,
+        total,
+        ComputeScrollInfo(state.cached_pane_layout.toc_rect, header_h, total),
+        state.view.panes.TocScroll(),
+        PaneController::DragTarget::TocScrollbar,
+        PaneZone::TocPane,
+    };
 }
 
 // ============================================================
@@ -127,17 +140,23 @@ void ReduceDirectScrollBy(AppState& state, SideEffectList& effects, const Direct
 
 void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPaneAction& a)
 {
+    PaneTarget target;
     if (a.pane == PaneZone::FilePane) {
-        if (state.view.panes.ScrollFilePaneBy(a.delta, CalcPaneMaxScroll(state, PaneZone::FilePane))) {
-            effects.emplace_back(effect::InvalidatePaneCache{ PaneZone::FilePane });
-            effects.emplace_back(effect::InvalidateWindow{});
-        }
+        target = PaneTarget::File;
     }
     else if (a.pane == PaneZone::TocPane) {
-        if (state.view.panes.ScrollTocPaneBy(a.delta, CalcPaneMaxScroll(state, PaneZone::TocPane))) {
-            effects.emplace_back(effect::InvalidatePaneCache{ PaneZone::TocPane });
-            effects.emplace_back(effect::InvalidateWindow{});
-        }
+        target = PaneTarget::Toc;
+    }
+    else {
+        return;
+    }
+    const auto ctx = GetSidePaneContext(state, target);
+    const bool scrolled = (target == PaneTarget::File)
+        ? state.view.panes.ScrollFilePaneBy(a.delta, ctx.info.max_scroll)
+        : state.view.panes.ScrollTocPaneBy(a.delta, ctx.info.max_scroll);
+    if (scrolled) {
+        effects.emplace_back(effect::InvalidatePaneCache{ ctx.pane_zone });
+        effects.emplace_back(effect::InvalidateWindow{});
     }
 }
 
@@ -333,6 +352,352 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
     }
 }
 
+void ReduceMdPaneNavHover(AppState& state, SideEffectList& effects, const MdPaneNavHoverAction& a)
+{
+    if (state.interaction.nav_hover == a.nav_hover) {
+        return;
+    }
+    state.interaction.nav_hover = a.nav_hover;
+    // ナビボタンホバー時は、コピー/保存ボタンホバー状態をクリア（重ならないように）
+    if (a.nav_hover != NavButtonHover::None) {
+        state.interaction.hovered_copy_node = -1;
+        state.interaction.hovered_save_node = -1;
+    }
+    effects.emplace_back(effect::InvalidateWindow{});
+}
+
+void ReduceMdPaneButtonHoverChanged(AppState& state, SideEffectList& effects, const MdPaneButtonHoverChangedAction& a)
+{
+    if (state.interaction.hovered_copy_node == a.hovered_copy_node
+        && state.interaction.hovered_save_node == a.hovered_save_node) {
+        return;
+    }
+    state.interaction.hovered_copy_node = a.hovered_copy_node;
+    state.interaction.hovered_save_node = a.hovered_save_node;
+    effects.emplace_back(effect::InvalidateWindow{});
+}
+
+// ============================================================
+// スプリッタードラッグ
+// ============================================================
+
+void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const SplitterDragStartedAction& a)
+{
+    if (a.target != PaneController::DragTarget::Splitter1
+        && a.target != PaneController::DragTarget::Splitter2) {
+        return;
+    }
+    state.view.panes.StartDrag(a.target);
+    effects.emplace_back(effect::SetCapture{});
+}
+
+void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const SplitterDragMovedAction& a)
+{
+    const float splitter_w = state.window.cached_theme.splitter_width;
+    const float before_file = state.view.panes.GetFilePaneWidth();
+    const float before_toc = state.view.panes.GetTocPaneWidth();
+    if (a.target == PaneController::DragTarget::Splitter1) {
+        state.view.panes.DragSplitter1To(a.dip_x, a.window_width, splitter_w);
+    }
+    else if (a.target == PaneController::DragTarget::Splitter2) {
+        state.view.panes.DragSplitter2To(a.dip_x, a.window_width, splitter_w);
+    }
+    else {
+        return;
+    }
+    if (state.view.panes.GetFilePaneWidth() == before_file
+        && state.view.panes.GetTocPaneWidth() == before_toc) {
+        return;
+    }
+    state.pane_layout_valid = false;
+    effects.emplace_back(effect::InvalidateWindow{});
+}
+
+void ReduceSplitterDragEnded(AppState& state, SideEffectList& effects)
+{
+    const auto drag = state.view.panes.GetDragTarget();
+    if (drag != PaneController::DragTarget::Splitter1
+        && drag != PaneController::DragTarget::Splitter2) {
+        return;
+    }
+    state.view.panes.EndDrag();
+    state.pane_layout_valid = false;
+    effects.emplace_back(effect::ReleaseCapture{});
+    effects.emplace_back(effect::PerformResizeEnd{});
+}
+
+// ============================================================
+// 検索バー入力ドラッグ
+// ============================================================
+
+void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, const SearchInputDragStartedAction& a)
+{
+    state.search.search_bar_ctrl.StartDrag(a.caret_pos);
+    effects.emplace_back(effect::SetCapture{});
+    effects.emplace_back(effect::PostMessage{
+        app_msg::SEARCH_FOCUS,
+        app_param::SEARCH_FOCUS_SET_CARET,
+        static_cast<LPARAM>(a.caret_pos)
+        });
+}
+
+void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const SearchInputDragMovedAction& a)
+{
+    if (!state.search.search_bar_ctrl.IsDragging()) {
+        return;
+    }
+    const auto& ctrl = state.search.search_bar_ctrl;
+    if (a.caret_pos == ctrl.GetCaretPos()
+        && ctrl.GetDragAnchor() == ctrl.GetSelectionStart()) {
+        return;
+    }
+    effects.emplace_back(effect::PostMessage{
+        app_msg::SEARCH_FOCUS,
+        app_param::SEARCH_FOCUS_SET_SELECTION,
+        MAKELPARAM(ctrl.GetDragAnchor(), a.caret_pos)
+        });
+}
+
+void ReduceSearchInputDragEnded(AppState& state, SideEffectList& effects)
+{
+    state.search.search_bar_ctrl.EndDrag();
+    effects.emplace_back(effect::ReleaseCapture{});
+}
+
+// ============================================================
+// MD ペイン スクロールバードラッグ
+// ============================================================
+
+void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, const MdScrollbarDragStartedAction& a)
+{
+    state.view.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
+    state.view.viewport.SetScrollbarTracking(true);
+    effects.emplace_back(effect::SetCapture{});
+
+    const auto& md_rect = state.cached_pane_layout.md_rect;
+    const auto info = ComputeScrollInfo(md_rect, 0.0f, a.total_height);
+    const float thumb_y = ComputeThumbY(info, state.view.viewport.GetScrollY());
+    if (a.dip_y >= thumb_y && a.dip_y <= thumb_y + info.thumb_height) {
+        // つまみ上を掴んだ場合はつかみ位置のオフセットのみ記録してスクロール位置は据え置き。
+        state.view.panes.SetDragScrollOffset(a.dip_y - thumb_y);
+        return;
+    }
+    // つまみ外クリック: つまみ中心にジャンプしてスクロール位置を更新する。
+    state.view.panes.SetDragScrollOffset(info.thumb_height * 0.5f);
+    const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
+    const float old_scroll = state.view.viewport.GetScrollY();
+    state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
+    EmitScrollEffects(state, effects, old_scroll);
+}
+
+void ReduceMdScrollbarDragMoved(AppState& state, SideEffectList& effects, const MdScrollbarDragMovedAction& a)
+{
+    if (state.view.panes.GetDragTarget() != PaneController::DragTarget::MdScrollbar) {
+        return;
+    }
+    const auto& md_rect = state.cached_pane_layout.md_rect;
+    const auto info = ComputeScrollInfo(md_rect, 0.0f, a.total_height);
+    const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
+    const float old_scroll = state.view.viewport.GetScrollY();
+    state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
+    EmitScrollEffects(state, effects, old_scroll);
+}
+
+void ReduceMdScrollbarDragEnded(AppState& state, SideEffectList& effects)
+{
+    if (state.view.panes.GetDragTarget() != PaneController::DragTarget::MdScrollbar) {
+        return;
+    }
+    state.view.viewport.SetScrollbarTracking(false);
+    state.view.panes.EndDrag();
+    effects.emplace_back(effect::ReleaseCapture{});
+    effects.emplace_back(effect::PerformResizeEnd{});
+    effects.emplace_back(effect::BitmapManage{});
+}
+
+// ============================================================
+// サイドペイン (File/Toc) スクロールバードラッグ
+// ============================================================
+
+void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
+{
+    auto ctx = GetSidePaneContext(state, a.pane);
+    if (ctx.total_content <= ctx.info.content_height) {
+        return;
+    }
+    state.view.panes.StartDrag(ctx.drag_target);
+    effects.emplace_back(effect::SetCapture{});
+
+    const float thumb_y = ComputeThumbY(ctx.info, ctx.scroll.scroll_y);
+    if (a.dip_y >= thumb_y && a.dip_y <= thumb_y + ctx.info.thumb_height) {
+        state.view.panes.SetDragScrollOffset(a.dip_y - thumb_y);
+        return;
+    }
+    state.view.panes.SetDragScrollOffset(ctx.info.thumb_height * 0.5f);
+    const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
+    ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
+    ctx.scroll.max_scroll = ctx.info.max_scroll;
+    effects.emplace_back(effect::InvalidatePaneCache{ ctx.pane_zone });
+    effects.emplace_back(effect::InvalidateWindow{});
+}
+
+void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, const PaneScrollbarDragMovedAction& a)
+{
+    auto ctx = GetSidePaneContext(state, a.pane);
+    if (state.view.panes.GetDragTarget() != ctx.drag_target) {
+        return;
+    }
+    const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
+    ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
+    ctx.scroll.max_scroll = ctx.info.max_scroll;
+    effects.emplace_back(effect::InvalidatePaneCache{ ctx.pane_zone });
+    effects.emplace_back(effect::InvalidateWindow{});
+}
+
+void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)
+{
+    const auto drag = state.view.panes.GetDragTarget();
+    if (drag != PaneController::DragTarget::FileScrollbar
+        && drag != PaneController::DragTarget::TocScrollbar) {
+        return;
+    }
+    state.view.panes.EndDrag();
+    effects.emplace_back(effect::ReleaseCapture{});
+}
+
+// ============================================================
+// 本文ペイン テキスト選択ドラッグ
+// ============================================================
+
+void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const TextSelectionStartedAction& a)
+{
+    state.view.viewport.SetClickStart(a.click_x, a.click_y);
+    if (a.node_index < 0) {
+        return;
+    }
+    state.view.viewport.SetAnchor(a.node_index, a.text_pos);
+    state.view.viewport.SetDragging(true);
+    state.view.viewport.GetSelectionMut().Clear();
+    effects.emplace_back(effect::SetCapture{});
+    effects.emplace_back(effect::InvalidateWindow{});
+}
+
+void ReduceTextSelectionMoved(AppState& state, SideEffectList& effects, const TextSelectionMovedAction& a)
+{
+    if (!state.view.viewport.IsDragging() || a.node_index < 0) {
+        return;
+    }
+    state.view.viewport.SetSelection(TextSelection::MakeOrdered(
+        state.view.viewport.GetAnchorNode(),
+        state.view.viewport.GetAnchorPos(),
+        a.node_index,
+        a.text_pos
+    ));
+    effects.emplace_back(effect::InvalidateWindow{});
+}
+
+void ReduceTextSelectionEnded(AppState& state, SideEffectList& effects, const TextSelectionEndedAction& a)
+{
+    if (!state.view.viewport.IsDragging()) {
+        return;
+    }
+    if (a.end_node_index >= 0) {
+        state.view.viewport.SetSelection(TextSelection::MakeOrdered(
+            state.view.viewport.GetAnchorNode(),
+            state.view.viewport.GetAnchorPos(),
+            a.end_node_index,
+            a.end_text_pos
+        ));
+    }
+    state.view.viewport.SetDragging(false);
+    effects.emplace_back(effect::ReleaseCapture{});
+    effects.emplace_back(effect::InvalidateWindow{});
+}
+
+// ============================================================
+// 右クリックジェスチャー
+// ============================================================
+
+void ReduceRightClickGestureStarted(AppState& state, SideEffectList& effects, const RightClickGestureStartedAction& a)
+{
+    state.interaction.gesture.OnRButtonDown(a.dip_x, a.dip_y);
+    effects.emplace_back(effect::SetCapture{});
+}
+
+void ReduceRightClickGestureMoved(AppState& state, SideEffectList& effects, const RightClickGestureMovedAction& a)
+{
+    state.interaction.gesture.OnMouseMove(a.dip_x, a.dip_y);
+    if (state.interaction.gesture.IsGestureActive()) {
+        effects.emplace_back(effect::InvalidateWindow{});
+    }
+}
+
+void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, const RightClickGestureCompletedAction& a)
+{
+    if (state.interaction.gesture.GetPhase() == GesturePhase::Idle) {
+        return;
+    }
+    const auto result = state.interaction.gesture.OnRButtonUp();
+    effects.emplace_back(effect::ReleaseCapture{});
+    switch (result) {
+    case GestureResult::ShowContextMenu:
+        state.interaction.gesture.Reset();
+        effects.emplace_back(effect::ShowContextMenu{ a.screen_x, a.screen_y });
+        break;
+    case GestureResult::Back:
+        ReduceNavigateBack(state, effects);
+        break;
+    case GestureResult::Forward:
+        ReduceNavigateForward(state, effects);
+        break;
+    case GestureResult::None:
+        break;
+    }
+    effects.emplace_back(effect::InvalidateWindow{});
+}
+
+// ============================================================
+// ファイルペイン アイテムクリック
+// ============================================================
+
+void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, const FilePaneDirectoryClickedAction& a)
+{
+    state.file_explorer.SetDirectory(a.full_path);
+    if (!state.document.doc.GetFilePath().empty()) {
+        state.file_explorer.SetCurrentFile(state.document.doc.GetFilePath());
+    }
+    state.view.panes.FileScroll() = {};
+    effects.emplace_back(effect::InvalidatePaneCache{ PaneZone::FilePane });
+    effects.emplace_back(effect::InvalidateWindow{});
+}
+
+void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const FilePaneFileClickedAction& a)
+{
+    PushCurrentNavEntry(state);
+    effects.emplace_back(effect::LoadFile{ std::pmr::wstring(a.full_path) });
+}
+
+// ============================================================
+// TOC アイテムクリック
+// ============================================================
+
+void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a)
+{
+    PushCurrentNavEntry(state);
+
+    const int idx = state.document.doc.FindAnchorIndex(a.anchor_id);
+    if (idx < 0) {
+        return;
+    }
+    const float target_y = std::max(0.0f,
+        state.document.layout_cache[idx].y_position
+        - state.window.cached_theme.heading_spacing_above
+        - state.cached_pane_layout.md_rect.y);
+    state.view.viewport.ScrollTo(target_y);
+    effects.emplace_back(effect::InvalidateWindow{});
+    effects.emplace_back(effect::BitmapManage{});
+}
+
 // ============================================================
 // ファイル・ナビゲーション系アクション
 // ============================================================
@@ -340,7 +705,7 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
 void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAction& a)
 {
     if (!state.document.doc.GetFilePath().empty()) {
-        state.view.nav_history.Push(NavEntry{ state.document.doc.GetFilePath(), state.view.viewport.GetScrollY() });
+        PushCurrentNavEntry(state);
     }
     effects.emplace_back(effect::LoadFile{ std::pmr::wstring(a.path) });
 }
@@ -348,7 +713,7 @@ void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAc
 void ReduceShowHelp(AppState& state, SideEffectList& effects)
 {
     if (!state.document.doc.GetFilePath().empty() && !IsHelpPath(state.document.doc.GetFilePath())) {
-        state.view.nav_history.Push(NavEntry{ state.document.doc.GetFilePath(), state.view.viewport.GetScrollY() });
+        PushCurrentNavEntry(state);
     }
     effects.emplace_back(effect::LoadFile{ std::pmr::wstring(HELP_PATH) });
 }
@@ -469,7 +834,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const SearchSelectionAction& a) { state.search.search_bar_ctrl.SetSelection(a.sel_start, a.sel_end); },
         [&](const ImeCompositionAction& a) { state.search.search_bar_ctrl.SetImeComposition(a.text); },
 
-        // ---- マウスイベント（SideEffect経由で委譲） ----
+        // ---- マウス関連 ----
         [&](const MouseLeaveAction&) {
             // 再侵入時に同一座標の最初の WM_MOUSEMOVE が ShouldSkipSameDispatch で
             // 弾かれるとカーソル/ツールチップの復帰が遅れるため、hover 状態もリセットする
@@ -477,21 +842,40 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
             ClearTooltip(state, effects);
         },
         [&](const CaptureChangedAction&) { ReduceCaptureChanged(state, effects); },
-        [&](const LButtonDownAction& a) { effects.emplace_back(effect::HandleMouseEvent{ effect::MouseEventType::LButtonDown, a.px, a.py }); },
-        [&](const LButtonUpAction& a) { effects.emplace_back(effect::HandleMouseEvent{ effect::MouseEventType::LButtonUp, a.px, a.py }); },
-        [&](const MouseMoveAction& a) { effects.emplace_back(effect::HandleMouseEvent{ effect::MouseEventType::MouseMove, a.px, a.py }); },
-        [&](const MouseHoverAction& a) { effects.emplace_back(effect::HandleMouseEvent{ effect::MouseEventType::MouseHover, a.px, a.py }); },
-        [&](const LButtonDblClkAction& a) { effects.emplace_back(effect::HandleMouseEvent{ effect::MouseEventType::LButtonDblClk, a.px, a.py }); },
-        [&](const RButtonDownAction& a) { effects.emplace_back(effect::HandleMouseEvent{ effect::MouseEventType::RButtonDown, a.px, a.py }); },
-        [&](const RButtonUpAction& a) { effects.emplace_back(effect::HandleMouseEvent{ effect::MouseEventType::RButtonUp, a.px, a.py }); },
-        [&](const RButtonMoveAction& a) { effects.emplace_back(effect::HandleMouseEvent{ effect::MouseEventType::RButtonMove, a.px, a.py }); },
-        [&](const ContextMenuAction& a) { effects.emplace_back(effect::HandleContextMenu{ a.screen_x, a.screen_y }); },
+        [&](const MdPaneNavHoverAction& a) { ReduceMdPaneNavHover(state, effects, a); },
+        [&](const MdPaneButtonHoverChangedAction& a) { ReduceMdPaneButtonHoverChanged(state, effects, a); },
+        [&](const SplitterDragStartedAction& a) { ReduceSplitterDragStarted(state, effects, a); },
+        [&](const SplitterDragMovedAction& a) { ReduceSplitterDragMoved(state, effects, a); },
+        [&](const SplitterDragEndedAction&) { ReduceSplitterDragEnded(state, effects); },
+        [&](const SearchInputDragStartedAction& a) { ReduceSearchInputDragStarted(state, effects, a); },
+        [&](const SearchInputDragMovedAction& a) { ReduceSearchInputDragMoved(state, effects, a); },
+        [&](const SearchInputDragEndedAction&) { ReduceSearchInputDragEnded(state, effects); },
+        [&](const MdScrollbarDragStartedAction& a) { ReduceMdScrollbarDragStarted(state, effects, a); },
+        [&](const MdScrollbarDragMovedAction& a) { ReduceMdScrollbarDragMoved(state, effects, a); },
+        [&](const MdScrollbarDragEndedAction&) { ReduceMdScrollbarDragEnded(state, effects); },
+        [&](const PaneScrollbarDragStartedAction& a) { ReducePaneScrollbarDragStarted(state, effects, a); },
+        [&](const PaneScrollbarDragMovedAction& a) { ReducePaneScrollbarDragMoved(state, effects, a); },
+        [&](const PaneScrollbarDragEndedAction&) { ReducePaneScrollbarDragEnded(state, effects); },
+        [&](const TextSelectionStartedAction& a) { ReduceTextSelectionStarted(state, effects, a); },
+        [&](const TextSelectionMovedAction& a) { ReduceTextSelectionMoved(state, effects, a); },
+        [&](const TextSelectionEndedAction& a) { ReduceTextSelectionEnded(state, effects, a); },
+        [&](const RightClickGestureStartedAction& a) { ReduceRightClickGestureStarted(state, effects, a); },
+        [&](const RightClickGestureMovedAction& a) { ReduceRightClickGestureMoved(state, effects, a); },
+        [&](const RightClickGestureCompletedAction& a) { ReduceRightClickGestureCompleted(state, effects, a); },
+        [&](const FilePaneDirectoryClickedAction& a) { ReduceFilePaneDirectoryClicked(state, effects, a); },
+        [&](const FilePaneFileClickedAction& a) { ReduceFilePaneFileClicked(state, effects, a); },
+        [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, effects, a); },
+        [&](const UpdateTooltipAction& a) {
+            if (a.target == state.interaction.tooltip.GetCurrent()) {
+                return;
+            }
+            effects.emplace_back(effect::ShowTooltip{ a.target, a.px, a.py });
+        },
+        [&](const ClearTooltipAction&) { ClearTooltip(state, effects); },
 
         // ---- ナビゲーション ----
         [&](const NavigateBackAction&) { ReduceNavigateBack(state, effects); },
         [&](const NavigateForwardAction&) { ReduceNavigateForward(state, effects); },
-        [&](const XButtonBackAction&) { ReduceNavigateBack(state, effects); },
-        [&](const XButtonForwardAction&) { ReduceNavigateForward(state, effects); },
 
         // ---- ファイル操作 ----
         [&](const DropFilesAction& a) { ReduceDropFiles(state, effects, a); },

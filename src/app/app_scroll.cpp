@@ -1,5 +1,6 @@
 #include "app.h"
 #include "app_constants.h"
+#include "app_events.h"
 #include "pane_layout.h"
 #include "profiler.h"
 #include <windows.h>
@@ -16,10 +17,10 @@ void App::UpdateScrollBar()
     InvalidateMdPane(layout.md_rect);
 }
 
-void App::InvalidateHitPositions() noexcept
+void App::InvalidateHitPositions()
 {
     state_.interaction.hover_throttle.Reset();
-    ClearTooltip();
+    Dispatch(ClearTooltipAction{});
 }
 
 void App::ScrollTo(float position)
@@ -66,18 +67,6 @@ void App::RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale)
     if (anchor.idx >= 0 && anchor.idx < static_cast<int>(state_.document.doc.GetNodes().size())) {
         float anchor_y_after = state_.document.layout_cache[anchor.idx].y_position;
         state_.view.viewport.SetScrollY(anchor_y_after + anchor.offset * offset_scale);
-    }
-}
-
-void App::HandleSidePaneScrollDrag(float dip_y, const PaneRect& rect,
-    float total_content, ScrollState& scroll,
-    void (Renderer::* invalidate)())
-{
-    const auto info = ComputePaneScrollInfo(rect, total_content);
-    bool dirty = false;
-    HandleScrollbarDrag(dip_y, info, scroll, dirty);
-    if (dirty) {
-        (renderer_.*invalidate)();
     }
 }
 

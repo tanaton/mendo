@@ -211,11 +211,8 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         [this](const effect::HandleParseComplete&) {
             cb_.handle_parse_complete();
         },
-        [this](const effect::HandleMouseEvent& e) {
-            cb_.handle_mouse_event(e.type, e.px, e.py);
-        },
-        [this](const effect::HandleContextMenu& e) {
-            cb_.handle_context_menu(e.screen_x, e.screen_y);
+        [this](const effect::ShowContextMenu& e) {
+            cb_.show_context_menu(e.screen_x, e.screen_y);
         },
         }, e);
 }

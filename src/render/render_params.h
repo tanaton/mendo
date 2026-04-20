@@ -1,6 +1,6 @@
 #pragma once
 // Renderer::Render の引数として渡す各種描画パラメータ構造体。
-#include "types.h"
+#include "document_types.h"
 #include "layout_cache.h"
 #include "file_explorer.h"
 #include "toc.h"
