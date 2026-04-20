@@ -1,23 +1,54 @@
 #include "command_executor.h"
 #include "utility.h"
 
+namespace {
+
+// D2D1_COLOR_F を 8bit RGBA にパックしたキー。テーマ色は 8bit 精度で作られているため十分。
+constexpr uint32_t PackColor(D2D1_COLOR_F c) noexcept
+{
+    const auto quant = [](float v) noexcept -> uint32_t {
+        if (v <= 0.0f) {
+            return 0;
+        }
+        if (v >= 1.0f) {
+            return 255;
+        }
+        return static_cast<uint32_t>(v * 255.0f + 0.5f);
+    };
+    return (quant(c.r) << 24) | (quant(c.g) << 16) | (quant(c.b) << 8) | quant(c.a);
+}
+
+} // namespace
+
 ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color)
 {
     if (rt != bound_rt_) {
-        brush_.Reset();
+        // ブラシは RT 付随リソースなので、RT 切替・デバイス再作成では破棄する
+        brush_pool_.clear();
         bound_rt_ = rt;
-        last_color_ = { -1.0f, -1.0f, -1.0f, -1.0f };
+        last_key_ = 0xFFFFFFFFu;
+        last_brush_ = nullptr;
     }
-    if (!brush_) {
-        rt->CreateSolidColorBrush(color, &brush_);
-        last_color_ = color;
+    const uint32_t key = PackColor(color);
+    if (key == last_key_ && last_brush_) {
+        return last_brush_;
     }
-    else if (color.r != last_color_.r || color.g != last_color_.g ||
-        color.b != last_color_.b || color.a != last_color_.a) {
-        brush_->SetColor(color);
-        last_color_ = color;
+    if (const auto it = brush_pool_.find(key); it != brush_pool_.end()) {
+        last_key_ = key;
+        last_brush_ = it->second.Get();
+        return last_brush_;
     }
-    return brush_.Get();
+    if (brush_pool_.size() >= MAX_POOLED_BRUSHES) {
+        brush_pool_.clear();
+    }
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
+    if (FAILED(rt->CreateSolidColorBrush(color, &brush)) || !brush) {
+        return nullptr;
+    }
+    auto [it, _] = brush_pool_.emplace(key, std::move(brush));
+    last_key_ = key;
+    last_brush_ = it->second.Get();
+    return last_brush_;
 }
 
 void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt)
@@ -68,7 +99,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             },
             [&](const DrawBitmapCmd& c) {
                 if (c.bitmap) {
-                    rt->DrawBitmap(c.bitmap, c.dest, c.opacity);
+                    rt->DrawBitmap(c.bitmap, c.dest, c.opacity, c.interpolation_mode);
                 }
             },
             [&](const FillEllipseCmd& c) {
@@ -86,7 +117,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
                 }
             },
             [&](const PushClipCmd& c) {
-                rt->PushAxisAlignedClip(c.rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                rt->PushAxisAlignedClip(c.rect, D2D1_ANTIALIAS_MODE_ALIASED);
             },
             [&](const PopClipCmd&) {
                 rt->PopAxisAlignedClip();

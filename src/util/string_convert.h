@@ -12,13 +12,10 @@ inline void Utf8ToWide(std::string_view utf8, std::pmr::wstring& out)
         out.clear();
         return;
     }
-    const int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
-    if (wlen <= 0) {
-        out.clear();
-        return;
-    }
-    out.resize_and_overwrite(static_cast<size_t>(wlen), [utf8](wchar_t* buf, size_t count) -> size_t {
-        return static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), buf, static_cast<int>(count)));
+    // wchar 数 <= UTF-8 byte 数 が常に成立するため、上限確保で API 1 回呼び出し
+    out.resize_and_overwrite(utf8.size(), [utf8](wchar_t* buf, size_t count) -> size_t {
+        const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), buf, static_cast<int>(count));
+        return n > 0 ? static_cast<size_t>(n) : 0;
     });
 }
 
@@ -35,13 +32,10 @@ inline void WideToUtf8(std::wstring_view wide, std::string& out)
         out.clear();
         return;
     }
-    const int len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
-    if (len <= 0) {
-        out.clear();
-        return;
-    }
-    out.resize_and_overwrite(static_cast<size_t>(len), [wide](char* buf, size_t count) -> size_t {
-        return static_cast<size_t>(WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), buf, static_cast<int>(count), nullptr, nullptr));
+    // UTF-8 byte 数 <= UTF-16 wchar 数 * 3 が常に成立するため、上限確保で API 1 回呼び出し
+    out.resize_and_overwrite(wide.size() * 3, [wide](char* buf, size_t count) -> size_t {
+        const int n = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), buf, static_cast<int>(count), nullptr, nullptr);
+        return n > 0 ? static_cast<size_t>(n) : 0;
     });
 }
 

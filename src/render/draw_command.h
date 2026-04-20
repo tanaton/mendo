@@ -47,6 +47,7 @@ struct DrawBitmapCmd {
     ID2D1Bitmap* bitmap; // 非所有; ライフタイムはLayoutCache::DiagramEntryが管理。
     D2D1_RECT_F dest;
     float opacity = 1.0f;
+    D2D1_BITMAP_INTERPOLATION_MODE interpolation_mode = D2D1_BITMAP_INTERPOLATION_MODE_LINEAR;
 };
 
 struct FillEllipseCmd {

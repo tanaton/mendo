@@ -164,6 +164,11 @@ HitTestService::HitResult HitTestService::HitTest(
         return result;
     }
 
+    const uint32_t gen = ctx.cache.GetEffectsGeneration();
+    if (last_md_hit_.Matches(ctx, gen)) {
+        return last_md_hit_.result;
+    }
+
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
 
     // dip_yを含むノードを検索
@@ -179,7 +184,9 @@ HitTestService::HitResult HitTestService::HitTest(
         const auto& entry = ctx.cache[candidate];
 
         if (node.type == NodeType::Table) {
-            return HitTestTable(node, entry, candidate, ctx.theme, dip_x, dip_y);
+            result = HitTestTable(node, entry, candidate, ctx.theme, dip_x, dip_y);
+            last_md_hit_.Store(ctx, gen, result);
+            return result;
         }
 
         if (entry.text_layout) {
@@ -195,6 +202,7 @@ HitTestService::HitResult HitTestService::HitTest(
 
             result.node_index = candidate;
             result.text_pos = metrics.textPosition + (is_trailing ? 1 : 0);
+            last_md_hit_.Store(ctx, gen, result);
             return result;
         }
     }
@@ -204,9 +212,10 @@ HitTestService::HitResult HitTestService::HitTest(
         if (const auto& text = node.GetText(); !text.empty()) {
             result.node_index = static_cast<int>(i);
             result.text_pos = static_cast<uint32_t>(text.size());
-            return result;
+            break;
         }
     }
+    last_md_hit_.Store(ctx, gen, result);
     return result;
 }
 
@@ -274,11 +283,17 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         return -1;
     }
 
+    const uint32_t gen = ctx.cache.GetEffectsGeneration();
+    if (last_copy_hit_.Matches(ctx, gen)) {
+        return last_copy_hit_.result;
+    }
+
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
 
     // コピーボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
     const float btn_left_bound = ctx.theme.margin_left + ctx.content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
     if (dip_x < btn_left_bound) {
+        last_copy_hit_.Store(ctx, gen, -1);
         return -1;
     }
 
@@ -312,9 +327,11 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
 
         const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
         if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
+            last_copy_hit_.Store(ctx, gen, i);
             return i;
         }
     }
+    last_copy_hit_.Store(ctx, gen, -1);
     return -1;
 }
 
@@ -324,6 +341,11 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
     assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
     if (ctx.nodes.empty()) {
         return -1;
+    }
+
+    const uint32_t gen = ctx.cache.GetEffectsGeneration();
+    if (last_save_hit_.Matches(ctx, gen)) {
+        return last_save_hit_.result;
     }
 
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
@@ -355,9 +377,11 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, ctx.cache[i].y_position);
         const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top);
         if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
+            last_save_hit_.Store(ctx, gen, i);
             return i;
         }
     }
+    last_save_hit_.Store(ctx, gen, -1);
     return -1;
 }
 

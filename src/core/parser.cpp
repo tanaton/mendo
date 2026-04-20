@@ -5,6 +5,7 @@
 #include "md4c.h"
 #include <stack>
 #include <map>
+#include <unordered_map>
 #include <charconv>
 #include <format>
 #include <iterator>
@@ -110,6 +111,9 @@ struct ParseContext {
     // リンクURL格納: SpanStateではインデックスのみ保持し、push/popでの文字列コピーを回避
     std::pmr::vector<std::pmr::wstring> link_urls{ parse_resource.resource() };
 
+    // BeginNode 毎にクリア。MakeRun から O(1) で重複 URL を検出する
+    std::pmr::unordered_map<std::pmr::wstring, int16_t> current_node_url_map{ parse_resource.resource() };
+
     // アンカーIDの一意性追跡: スラグ -> 出現回数
     std::pmr::map<std::pmr::wstring, int> anchor_counts{ parse_resource.resource() };
 
@@ -141,9 +145,10 @@ struct ParseContext {
         if (blockquote_depth > 0 && !blockquote_group_stack.empty()) {
             current_node->blockquote_group = blockquote_group_stack.top();
         }
+        current_node_url_map.clear();
     }
 
-    TextRun MakeRun(uint32_t start, uint32_t length) const
+    TextRun MakeRun(uint32_t start, uint32_t length)
     {
         TextRun run;
         run.start = start;
@@ -154,24 +159,14 @@ struct ParseContext {
         run.set_strikethrough(current_span.strikethrough);
         if (current_span.link_url_index >= 0 && current_node) {
             const auto& url = link_urls[static_cast<size_t>(current_span.link_url_index)];
-            // ノードのURLプール内で重複を検索し、なければ追加。
-            // 同一リンク内のテキストは連続呼び出しされるため末尾一致が最多だが、
-            // 異種URLが混在すると末尾逆走査は O(n²) に退化する。
-            // 直近数件のみ比較する制限付き逆走査に切り替え、閾値超過時は重複追加を許容する
-            // （link_url_index は int16_t で十分な余裕があり、機能上は同値）。
-            constexpr size_t LINEAR_SCAN_LIMIT = 8;
-            int16_t node_idx = -1;
-            const auto url_count = current_node->link_urls.size();
-            const auto scan_start = url_count > LINEAR_SCAN_LIMIT ? url_count - LINEAR_SCAN_LIMIT : 0;
-            for (size_t i = url_count; i > scan_start; i--) {
-                if (current_node->link_urls[i - 1] == url) {
-                    node_idx = static_cast<int16_t>(i - 1);
-                    break;
-                }
+            int16_t node_idx;
+            if (const auto it = current_node_url_map.find(url); it != current_node_url_map.end()) {
+                node_idx = it->second;
             }
-            if (node_idx < 0) {
+            else {
                 node_idx = static_cast<int16_t>(current_node->link_urls.size());
                 current_node->link_urls.emplace_back(url);
+                current_node_url_map.emplace(url, node_idx);
             }
             run.link_url_index = node_idx;
         }
@@ -199,11 +194,12 @@ struct ParseContext {
             return;
         }
         const uint32_t start = node_wide_offset;
-        const int utf8_len = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-        if (utf8_len > 0) {
+        if (!text.empty()) {
             const size_t old_size = current_node->text_utf8.size();
-            current_node->text_utf8.resize_and_overwrite(old_size + static_cast<size_t>(utf8_len), [&](char* buf, size_t count) -> size_t {
-                return old_size + static_cast<size_t>(WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf + old_size, static_cast<int>(count - old_size), nullptr, nullptr));
+            const size_t max_bytes = text.size() * 3;
+            current_node->text_utf8.resize_and_overwrite(old_size + max_bytes, [&](char* buf, size_t count) -> size_t {
+                const int n = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf + old_size, static_cast<int>(count - old_size), nullptr, nullptr);
+                return old_size + (n > 0 ? static_cast<size_t>(n) : 0);
             });
         }
         node_wide_offset += static_cast<uint32_t>(text.size());
@@ -732,6 +728,9 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     ctx.markdown_base = markdown_text.data();
     ctx.utf8_accum.reserve(4096);
     ctx.nodes.reserve(std::clamp(markdown_text.size() / 64, size_t{ 64 }, size_t{ 8192 }));
+    ctx.heading_indices.reserve(std::clamp(markdown_text.size() / 256, size_t{ 8 }, size_t{ 512 }));
+    ctx.image_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
+    ctx.diagram_indices.reserve(std::clamp(markdown_text.size() / 1024, size_t{ 4 }, size_t{ 128 }));
 
     MD_PARSER parser{};
     parser.abi_version = 0;

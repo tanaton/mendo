@@ -51,4 +51,32 @@ public:
     // Mermaidダイアグラムの保存ボタンのヒットテスト。
     // ヒットしたダイアグラムのノードインデックスを返す（-1=なし）。
     int SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
+
+private:
+    // 同一座標の連続ヒットテストを高速化する結果キャッシュ。
+    // effects_generation が変わると自動で無効化される。
+    template <typename T>
+    struct HitCache {
+        int screen_x = INT_MIN, screen_y = INT_MIN;
+        float scroll_y = 0.0f;
+        uint32_t effects_gen = UINT32_MAX;
+        T result{};
+
+        bool Matches(const MdPaneHitContext& ctx, uint32_t gen) const noexcept
+        {
+            return ctx.screen_x == screen_x && ctx.screen_y == screen_y
+                && ctx.scroll_y == scroll_y && gen == effects_gen;
+        }
+        void Store(const MdPaneHitContext& ctx, uint32_t gen, const T& r) noexcept
+        {
+            screen_x = ctx.screen_x;
+            screen_y = ctx.screen_y;
+            scroll_y = ctx.scroll_y;
+            effects_gen = gen;
+            result = r;
+        }
+    };
+    mutable HitCache<HitResult> last_md_hit_{};
+    mutable HitCache<int> last_copy_hit_{ .result = -1 };
+    mutable HitCache<int> last_save_hit_{ .result = -1 };
 };

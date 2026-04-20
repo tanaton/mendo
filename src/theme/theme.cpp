@@ -108,7 +108,7 @@ static void ApplyCommonLayout(Theme& t)
     t.pane_font_size = 13.0f;
 }
 
-Theme GetLightTheme()
+static Theme BuildLightTheme()
 {
     Theme t{};
 
@@ -169,7 +169,7 @@ Theme GetLightTheme()
     return t;
 }
 
-Theme GetDarkTheme()
+static Theme BuildDarkTheme()
 {
     Theme t{};
 
@@ -228,4 +228,16 @@ Theme GetDarkTheme()
     t.search_no_match_bg_color = D2D1::ColorF(0.5f, 0.15f, 0.15f, 1.0f);
 
     return t;
+}
+
+Theme GetLightTheme()
+{
+    static const Theme kLight = BuildLightTheme();
+    return kLight;
+}
+
+Theme GetDarkTheme()
+{
+    static const Theme kDark = BuildDarkTheme();
+    return kDark;
 }

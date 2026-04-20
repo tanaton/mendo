@@ -2,12 +2,19 @@
 
 uint32_t NavHistory::InternPath(std::wstring_view path)
 {
+    if (last_interned_index_ != UINT32_MAX && last_interned_view_ == path) {
+        return last_interned_index_;
+    }
     if (const auto it = path_index_.find(path); it != path_index_.end()) {
+        last_interned_view_ = it->first;
+        last_interned_index_ = it->second;
         return it->second;
     }
     const auto idx = static_cast<uint32_t>(path_pool_.size());
     auto& stored = path_pool_.emplace_back(path);
     path_index_.emplace(stored, idx);
+    last_interned_view_ = stored;
+    last_interned_index_ = idx;
     return idx;
 }
 
@@ -60,4 +67,6 @@ void NavHistory::Clear() noexcept
     forward_stack_.clear();
     path_pool_.clear();
     path_index_.clear();
+    last_interned_view_ = {};
+    last_interned_index_ = UINT32_MAX;
 }

@@ -90,17 +90,6 @@ int64_t MermaidFileCache::Now() noexcept
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-void MermaidFileCache::RemoveLruEntry(int64_t timestamp, uint64_t key)
-{
-    const auto [lo, hi] = lru_order_.equal_range(timestamp);
-    for (auto iter = lo; iter != hi; ++iter) {
-        if (iter->second == key) {
-            lru_order_.erase(iter);
-            return;
-        }
-    }
-}
-
 void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 {
     scheduler_ = &scheduler;
@@ -174,13 +163,12 @@ void MermaidFileCache::LoadIndex()
             continue;
         }
 
-        index_[record.key] = IndexEntry{
-            record.css_width,
-            record.css_height,
-            record.png_size,
-            record.last_used
-        };
-        lru_order_.emplace(record.last_used, record.key);
+        auto& entry_ref = index_[record.key];
+        entry_ref.css_width = record.css_width;
+        entry_ref.css_height = record.css_height;
+        entry_ref.png_size = record.png_size;
+        entry_ref.last_used = record.last_used;
+        entry_ref.lru_iter = lru_order_.emplace(record.last_used, record.key);
         total_size_ += record.png_size;
     }
 }
@@ -247,7 +235,7 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
             else {
                 total_size_ = 0;
             }
-            RemoveLruEntry(it->second.last_used, key);
+            lru_order_.erase(it->second.lru_iter);
             index_.erase(it);
         }
         return false;
@@ -258,12 +246,11 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
     entry.css_width = it->second.css_width;
     entry.css_height = it->second.css_height;
 
-    // last_usedを更新し、LRU順序を再配置
-    const int64_t old_time = it->second.last_used;
+    // last_usedを更新し、LRU順序を再配置（O(1) で erase/insert）
     const int64_t new_time = Now();
+    lru_order_.erase(it->second.lru_iter);
     it->second.last_used = new_time;
-    RemoveLruEntry(old_time, key);
-    lru_order_.emplace(new_time, key);
+    it->second.lru_iter = lru_order_.emplace(new_time, key);
 
     return true;
 }
@@ -292,16 +279,21 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
     // インデックスエントリを即座に追加・更新
     auto& entry = index_[key];
-    if (entry.png_size > 0 && total_size_ >= entry.png_size) {
-        total_size_ -= entry.png_size;
-        RemoveLruEntry(entry.last_used, key);
+    if (entry.png_size > 0) {
+        if (total_size_ >= entry.png_size) {
+            total_size_ -= entry.png_size;
+        }
+        else {
+            total_size_ = 0;
+        }
+        lru_order_.erase(entry.lru_iter);
     }
     entry.css_width = css_width;
     entry.css_height = css_height;
     entry.png_size = png_size;
     entry.last_used = Now();
     total_size_ += png_size;
-    lru_order_.emplace(entry.last_used, key);
+    entry.lru_iter = lru_order_.emplace(entry.last_used, key);
 
     if (!scheduler_) {
         return;

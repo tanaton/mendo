@@ -22,11 +22,7 @@ bool Renderer::Init(HWND hwnd)
     RecreatePaneFormats();
     LoadAppIconBitmap();
 
-    // 滑らかなジェスチャー軌跡のための丸型キャップと結合
-    const D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(
-        D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
-        D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
-    backend_.GetD2DFactory()->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
+    // gesture_stroke_style_ は DrawGestureTrail 初回呼び出し時に lazy 生成
 
     measurer_.SetFactory(backend_.GetDWriteFactory());
     if (!layout_.Init(&measurer_, theme_)) {

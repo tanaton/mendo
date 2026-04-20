@@ -32,13 +32,10 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     int hovered_save_node,
     float dpi_scale)
 {
-    // 古いコマンドリストを破棄し、monotonic リソースをリセットして再利用する。
-    // clear() で要素を破棄してから Reset() を呼び、新しいリストを作成する。
-    // monotonic_buffer_resource::deallocate は no-op のため、
-    // clear() 後のバッファポインタが残っていても安全。
+    active_buffer_ = 1 - active_buffer_;
     cmds_.clear();
-    frame_resource_.Reset();
-    cmds_ = DrawCommandList{ frame_resource_.resource() };
+    frame_resource().Reset();
+    cmds_ = DrawCommandList{ frame_resource().resource() };
     auto& cmds = cmds_;
 
     // MDペインの境界でクリップ
@@ -202,8 +199,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             sel_end = selection.end_pos;
         }
         if (sel_end > sel_start) {
-            GenSelectionHighlight(cmds, entry.text_layout.Get(),
-                sel_start, sel_end - sel_start, text_x, entry.y_position);
+            GenSelectionHighlight(cmds, entry.text_layout.Get(), sel_start, sel_end - sel_start, text_x, entry.y_position);
         }
     }
 
@@ -419,8 +415,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
     }
 }
 
-void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds,
-    float x, float y, float w, float h)
+void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h)
 {
     const D2D1_RECT_F bg = D2D1::RectF(x, y, x + w, y + h);
     cmds.emplace_back(FillRoundedRectCmd{ bg, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color });
@@ -450,16 +445,12 @@ void CommandGenerator::EmitHighlightRects(DrawCommandList& cmds,
     }
 }
 
-void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds,
-    IDWriteTextLayout* layout, uint32_t start, uint32_t length,
-    float origin_x, float origin_y)
+void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y)
 {
     EmitHighlightRects(cmds, layout, start, length, origin_x, origin_y, SELECTION_COLOR);
 }
 
-void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, IDWriteTextLayout* layout,
-    int node_index, float origin_x, float origin_y,
-    int table_row, int table_col)
+void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, IDWriteTextLayout* layout, int node_index, float origin_x, float origin_y, int table_row, int table_col)
 {
     if (!layout || !search_matches_ || search_matches_->empty()) {
         return;
@@ -488,8 +479,7 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, IDWriteTextLay
 
 // ---- Table generator ----
 
-void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row,
-    float x, float y, float table_width, float row_h, float border)
+void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border)
 {
     if (is_header) {
         cmds.emplace_back(FillRectCmd{
@@ -580,7 +570,8 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             // プリコンピュート済みの行オフセットを使い、O(cells) の走査を O(1) に削減
             if (r + 1 < node.table_rows().size() && r + 1 < tl.row_flat_offsets.size()) {
                 flat_offset = tl.row_flat_offsets[r + 1];
-            } else {
+            }
+            else {
                 advance_flat_offset(flat_offset, row, 0, row.cells.size());
                 if (r + 1 < node.table_rows().size()) {
                     flat_offset++;
@@ -626,8 +617,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
                 }
 
                 // 検索マッチのハイライト（テーブルセル）
-                GenSearchHighlights(cmds, cell_layout, node_index, text_x, text_y,
-                    static_cast<int>(r), static_cast<int>(c));
+                GenSearchHighlights(cmds, cell_layout, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
 
                 GenTableCellContent(cmds, cell, cell_layout, text_x, text_y, has_selection, sel_start, sel_end, flat_offset);
             }

@@ -21,6 +21,8 @@ struct TableLayoutData {
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
     std::pmr::vector<float> natural_col_widths; // リサイズ高速パス用キャッシュ
+    std::pmr::vector<float> cell_heights;        // 各セルに最後に適用した幅での計測高さ
+    std::pmr::vector<float> cell_applied_widths; // 各セルに最後に適用した max_width（変更判定用）
     std::pmr::vector<uint32_t> row_flat_offsets; // 各行の線形化テキスト先頭オフセット（ヒットテスト高速化用）
     std::pmr::vector<uint8_t> row_bgs_computed; // 各行のインラインコード背景計算済みフラグ
     // ヒットテスト高速化用の累積オフセット。
@@ -176,6 +178,8 @@ public:
                 e.table_layout->cell_inline_code_bgs.clear();
                 e.table_layout->row_bgs_computed.clear();
                 e.table_layout->natural_col_widths.clear();
+                e.table_layout->cell_heights.clear();
+                e.table_layout->cell_applied_widths.clear();
                 e.table_layout->col_count = 0;
             }
         }
@@ -212,6 +216,8 @@ public:
                 e.table_layout->cell_layouts.clear();
                 e.table_layout->row_bgs_computed.clear();
                 e.table_layout->natural_col_widths.clear();
+                e.table_layout->cell_heights.clear();
+                e.table_layout->cell_applied_widths.clear();
                 e.table_layout->col_count = 0;
             }
         }

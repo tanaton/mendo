@@ -12,6 +12,8 @@ static constexpr float CODE_BLOCK_NO_WRAP_WIDTH = 10000.0f;
 static constexpr float LAYOUT_MAX_HEIGHT = 100000.0f;
 static constexpr float DEFAULT_COLUMN_WIDTH = 60.0f;
 static constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
+// セル幅がこれ以下の差分なら前回の計測高さを再利用する
+static constexpr float CELL_WIDTH_EPSILON = 0.5f;
 
 static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family,
     float size, DWRITE_FONT_WEIGHT weight,
@@ -83,35 +85,75 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) noexcept
     return fmt_body_.Get();
 }
 
+namespace {
+
+// 隣接する同属性ランを連続 range にマージして emit に渡す。
+// ラン配列は start 昇順で、直前ランの直後に始まる前提。
+template <typename Pred, typename Emit>
+void ForEachAttrRange(const std::pmr::vector<TextRun>& runs, Pred predicate, Emit emit)
+{
+    const size_t n = runs.size();
+    for (size_t i = 0; i < n; ) {
+        if (!predicate(runs[i])) { i++; continue; }
+        const uint32_t range_start = runs[i].start;
+        uint32_t range_end = runs[i].start + runs[i].length;
+        size_t j = i + 1;
+        while (j < n && predicate(runs[j]) && runs[j].start == range_end) {
+            range_end += runs[j].length;
+            j++;
+        }
+        emit(DWRITE_TEXT_RANGE{ range_start, range_end - range_start });
+        i = j;
+    }
+}
+
+} // namespace
+
 void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout,
     const std::pmr::vector<TextRun>& runs, std::optional<NodeType> node_type)
 {
-    for (const auto& run : runs) {
-        const DWRITE_TEXT_RANGE range{ run.start, run.length };
-        if (run.bold()) {
-            layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, range);
-        }
-        if (run.italic()) {
-            layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, range);
-        }
-        if (run.code()) {
-            // CodeBlock 内ではインラインコードフォーマットを適用しない
-            if (!node_type || *node_type != NodeType::CodeBlock) {
-                layout->SetFontFamilyName(theme_->monospace_font.c_str(), range);
-                // Heading 内ではコードフォントサイズを変更しない（見出しサイズを維持）
-                if (!node_type || *node_type != NodeType::Heading) {
-                    layout->SetFontSize(theme_->font_size_code, range);
-                }
+    if (runs.empty()) {
+        return;
+    }
+    const bool apply_code = (!node_type || *node_type != NodeType::CodeBlock);
+    const bool apply_code_size = apply_code && (!node_type || *node_type != NodeType::Heading);
+    const bool apply_link = !node_type;
+
+    ForEachAttrRange(
+        runs,
+        [](const TextRun& r) static noexcept { return r.bold(); },
+        [&](DWRITE_TEXT_RANGE r) { layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, r); }
+    );
+    ForEachAttrRange(
+        runs,
+        [](const TextRun& r) static noexcept { return r.italic(); },
+        [&](DWRITE_TEXT_RANGE r) { layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, r); }
+    );
+
+    if (apply_code) {
+        ForEachAttrRange(
+            runs,
+            [](const TextRun& r) static noexcept { return r.code(); },
+            [&](DWRITE_TEXT_RANGE r) {
+            layout->SetFontFamilyName(theme_->monospace_font.c_str(), r);
+            if (apply_code_size) {
+                layout->SetFontSize(theme_->font_size_code, r);
             }
-        }
-        if (run.strikethrough()) {
-            layout->SetStrikethrough(TRUE, range);
-        }
-        // テーブルセル（node_type なし）ではリンクの下線を適用する。
-        // 通常ノードではApplyNodeEffects（描画パス）で下線＋色を一括適用するため、ここではスキップ。
-        if (!node_type && run.has_link()) {
-            layout->SetUnderline(TRUE, range);
-        }
+        });
+    }
+
+    ForEachAttrRange(
+        runs,
+        [](const TextRun& r) static noexcept { return r.strikethrough(); },
+        [&](DWRITE_TEXT_RANGE r) { layout->SetStrikethrough(TRUE, r); }
+    );
+
+    if (apply_link) {
+        ForEachAttrRange(
+            runs,
+            [](const TextRun& r) static noexcept { return r.has_link(); },
+            [&](DWRITE_TEXT_RANGE r) { layout->SetUnderline(TRUE, r); }
+        );
     }
 }
 
@@ -174,8 +216,13 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
 
     ComPtr<IDWriteTextLayout> layout;
     const HRESULT hr = dwrite_->CreateTextLayout(
-        text.c_str(), static_cast<UINT32>(text.size()),
-        fmt, layout_width, LAYOUT_MAX_HEIGHT, &layout);
+        text.c_str(),
+        static_cast<UINT32>(text.size()),
+        fmt,
+        layout_width,
+        LAYOUT_MAX_HEIGHT,
+        &layout
+    );
     if (FAILED(hr)) {
         return;
     }
@@ -209,8 +256,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     entry.inline_code_bgs.clear();
 }
 
-void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry,
-    std::pmr::vector<float>& natural_widths)
+void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths)
 {
     IDWriteTextFormat* const fmt = fmt_body_.Get();
     IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
@@ -251,9 +297,17 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     const float border_width = TABLE_BORDER_WIDTH;
     auto& tl = *entry.table_layout;
 
-    const float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width
-        - static_cast<float>(col_count) * cell_padding * 2.0f;
+    const float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width - static_cast<float>(col_count) * cell_padding * 2.0f;
     tl.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
+
+    // セル毎の適用幅/高さキャッシュを確保（幅不変なら GetMetrics を省略）
+    const size_t cell_total = tl.cell_layouts.size();
+    if (tl.cell_heights.size() != cell_total) {
+        tl.cell_heights.assign(cell_total, 0.0f);
+    }
+    if (tl.cell_applied_widths.size() != cell_total) {
+        tl.cell_applied_widths.assign(cell_total, -1.0f);
+    }
 
     float total_height = border_width;
     auto& rows = node.table_rows();
@@ -268,17 +322,21 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
 
             const size_t ci = tl.CellIndex(r, c);
             if (tl.cell_layouts[ci]) {
-                tl.cell_layouts[ci]->SetMaxWidth(cw);
-                if (cell.align == TableAlign::Center) {
-                    tl.cell_layouts[ci]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                const bool width_unchanged = std::abs(tl.cell_applied_widths[ci] - cw) < CELL_WIDTH_EPSILON && tl.cell_heights[ci] > 0.0f;
+                if (!width_unchanged) {
+                    tl.cell_layouts[ci]->SetMaxWidth(cw);
+                    if (cell.align == TableAlign::Center) {
+                        tl.cell_layouts[ci]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                    }
+                    else if (cell.align == TableAlign::Right) {
+                        tl.cell_layouts[ci]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+                    }
+                    DWRITE_TEXT_METRICS metrics{};
+                    tl.cell_layouts[ci]->GetMetrics(&metrics);
+                    tl.cell_heights[ci] = metrics.height;
+                    tl.cell_applied_widths[ci] = cw;
                 }
-                else if (cell.align == TableAlign::Right) {
-                    tl.cell_layouts[ci]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-                }
-
-                DWRITE_TEXT_METRICS metrics{};
-                tl.cell_layouts[ci]->GetMetrics(&metrics);
-                row_height = std::max(row_height, metrics.height + cell_padding * 2.0f);
+                row_height = std::max(row_height, tl.cell_heights[ci] + cell_padding * 2.0f);
             }
         }
         tl.row_heights[r] = row_height;

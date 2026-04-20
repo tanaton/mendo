@@ -51,11 +51,9 @@ void TaskScheduler::WorkerLoop()
             cv_.wait(lock, [this] {
                 return !queue_.empty() || shutdown_.load();
             });
+            // predicate から戻った時点で queue に残りがあれば shutdown 中でも処理する
             if (queue_.empty()) {
-                if (shutdown_.load()) {
-                    break;
-                }
-                continue;
+                break;
             }
             task = std::move(queue_.front());
             queue_.pop();

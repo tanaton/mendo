@@ -224,7 +224,9 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     const auto node_count = nodes.size();
     cache.Resize(node_count);
 
-    const bool width_changed = std::abs(viewport_width - last_viewport_width_) > 0.5f;
+    // 小刻みな WM_SIZE で全ノード再レイアウトが頻発するのを防ぐ
+    static constexpr float WIDTH_CHANGE_THRESHOLD = 2.0f;
+    const bool width_changed = std::abs(viewport_width - last_viewport_width_) > WIDTH_CHANGE_THRESHOLD;
     const bool partial = (viewport_top >= 0.0f);
 
     if (width_changed) {
@@ -306,9 +308,7 @@ void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache
     ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right); // 逆変換: content→viewport
 }
 
-bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    float viewport_width,
-    float viewport_top, float viewport_bottom)
+bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
 {
     const float content_width = theme_->ContentWidth(viewport_width);
     bool any_updated = false;

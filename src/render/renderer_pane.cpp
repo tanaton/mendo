@@ -128,7 +128,7 @@ static void DrawSidePaneImpl(
         const float content_top = theme.pane_header_height;
         const float content_height = rect.height - content_top;
         const D2D1_RECT_F clip = D2D1::RectF(0, content_top, rect.width, rect.height);
-        rt->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        rt->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_ALIASED);
         rt->SetTransform(D2D1::Matrix3x2F::Translation(0, -scroll.scroll_y));
 
         // ビューポートカリング
