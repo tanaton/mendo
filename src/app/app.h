@@ -60,8 +60,8 @@ public:
     void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const ::PaneLayout& layout);
 
     // マウスXボタンによるナビゲーション
-    void OnXButtonBack();
-    void OnXButtonForward();
+    void OnXButtonBack() { Dispatch(NavigateBackAction{}); }
+    void OnXButtonForward() { Dispatch(NavigateForwardAction{}); }
 
     // ファイル変更イベント（メッセージループから呼ばれる）
     HANDLE GetFileWatchEvent() const noexcept { return doc_service_.GetFileWatchEvent(); }
@@ -158,29 +158,17 @@ private:
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
     void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);
-    bool TryHandlePaneScrollbarClick(float dip_x, float dip_y, const PaneRect& rect,
-        PaneController::DragTarget target,
-        const PaneScrollInfo& scroll_info,
-        float total_content, ScrollState& scroll,
-        void (Renderer::* invalidate)());
+    static bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect,
+        float total_content, const PaneScrollInfo& scroll_info) noexcept;
 
     // スクロールバーヘルパー
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
-    void HandleScrollbarClick(float dip_y, const PaneScrollInfo& info,
-        ScrollState& scroll, bool& cache_dirty);
-    void HandleScrollbarDrag(float dip_y, const PaneScrollInfo& info,
-        ScrollState& scroll, bool& cache_dirty);
-
-    // サイドペイン スクロールバードラッグ共通処理
-    void HandleSidePaneScrollDrag(float dip_y, const PaneRect& rect,
-        float total_content, ScrollState& scroll,
-        void (Renderer::* invalidate)());
 
     // レイアウト / スクロール
     void ScheduleDeferredLayoutIfNeeded();
     void UpdateScrollBar();
     void InvalidateMdPane(const PaneRect& md_rect);
-    void InvalidateHitPositions() noexcept;
+    void InvalidateHitPositions();
     void ScrollTo(float position);
     void SyncMaxScroll(float md_pane_height);
     int FindFirstVisibleNode() const noexcept;
@@ -199,7 +187,6 @@ private:
     void HandleLoadFailureFallback();
     float CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const;
     void ApplyMermaidCacheHeights(float md_width);
-    bool ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size);
     void UpdateTitleBar();
 
     // リロード共通処理: 差分分析後のレイアウト更新・スクロール復元・検索再実行
@@ -256,10 +243,5 @@ private:
     ResourceManager resource_manager_;
     SideEffectExecutor effect_executor_;
 
-    // NavButtonHover エイリアス
-    using NavButtonHover = HitTestService::NavButtonHover;
-
     void ShowToast(std::wstring_view message);
-    void UpdateTooltip(const TooltipTarget& target, int px, int py);
-    void ClearTooltip();
 };

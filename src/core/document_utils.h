@@ -1,5 +1,5 @@
 #pragma once
-#include "types.h"
+#include "document_types.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -68,6 +68,24 @@ inline bool IsHelpPath(std::wstring_view path) noexcept { return path == HELP_PA
 {
     return diff_pos == std::min(old_size, new_size);
 }
+
+// 同一ファイルのリロード時に取るべき操作を示す。
+enum class ReloadOp : uint8_t {
+    NoChange,           // 差分なし。リロード不要。
+    DeferPrefixShrink,  // prefix-only shrink。truncate→rewrite の前半として defer。
+    PrefixGrowth,       // prefix-only growth。レイアウトキャッシュの prefix を保存して伸張。
+    FullReload,         // 全体差分リロード。
+};
+
+struct ReloadDecision {
+    ReloadOp op;
+    size_t diff_pos;    // NoChange のとき std::string_view::npos、それ以外は差分開始位置。
+};
+
+// 旧/新コンテンツの UTF-8 バイト列を比較し、リロード方針を決定する純粋関数。
+// FindFirstDifference + IsPrefixOnlyDiff + shrink 判定を 1 か所に集約し、
+// OnParseComplete / DoReloadCurrentFile の同一ファイル再読み込み時の分岐を統一する。
+[[nodiscard]] ReloadDecision AnalyzeReloadDiff(std::string_view old_utf8, std::string_view new_utf8) noexcept;
 
 // diff 位置のノードに基づくスクロールY座標を計算する。
 // ノードが見つからない場合は fallback_scroll を返す。

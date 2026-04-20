@@ -53,7 +53,7 @@ struct InteractionState {
     ToastNotifier toast;
     int hovered_copy_node = -1;
     int hovered_save_node = -1;
-    HitTestService::NavButtonHover nav_hover = HitTestService::NavButtonHover::None;
+    NavButtonHover nav_hover = NavButtonHover::None;
 };
 
 // ---- 検索の状態 ----
@@ -103,3 +103,6 @@ struct AppState {
 
 // 現在のスクロール位置からアンカーを保存する。Reducer と App の共通ヘルパー。
 AnchorState SaveAnchorFromState(const AppState& state) noexcept;
+
+// 現在のファイル/スクロール位置をナビゲーション履歴に Push する。
+void PushCurrentNavEntry(AppState& state);

@@ -3,7 +3,6 @@
 #include "navigation_service.h"
 #include "syntax.h"
 #include "theme_palette.h"
-#include <windows.h>
 #include <cwctype>
 #include <filesystem>
 #include <format>
@@ -639,8 +638,13 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
         pos = static_cast<uint32_t>(text.size()) - 1;
     }
 
+    // ダブルクリック単語選択では ASCII 英数 + '_' のみを単語構成文字とする。
+    // CJK 文字は個別の文字として扱い選択対象外（既存 UX を維持）。
     const auto is_word_char = [](wchar_t c) static noexcept {
-        return IsCharAlphaNumericW(c) || c == L'_';
+        return (c >= L'0' && c <= L'9')
+            || (c >= L'A' && c <= L'Z')
+            || (c >= L'a' && c <= L'z')
+            || c == L'_';
     };
 
     if (!is_word_char(text[pos])) {
@@ -679,6 +683,21 @@ size_t FindFirstDifference(std::string_view old_text, std::string_view new_text)
         return std::string_view::npos;
     }
     return static_cast<size_t>(it_old - old_text.begin());
+}
+
+ReloadDecision AnalyzeReloadDiff(std::string_view old_utf8, std::string_view new_utf8) noexcept
+{
+    const size_t diff_pos = FindFirstDifference(old_utf8, new_utf8);
+    if (diff_pos == std::string_view::npos) {
+        return { ReloadOp::NoChange, std::string_view::npos };
+    }
+    if (IsPrefixOnlyDiff(diff_pos, old_utf8.size(), new_utf8.size())) {
+        if (new_utf8.size() < old_utf8.size()) {
+            return { ReloadOp::DeferPrefixShrink, diff_pos };
+        }
+        return { ReloadOp::PrefixGrowth, diff_pos };
+    }
+    return { ReloadOp::FullReload, diff_pos };
 }
 
 int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_offset) noexcept

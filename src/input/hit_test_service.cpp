@@ -361,7 +361,7 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
     return -1;
 }
 
-HitTestService::NavButtonHover HitTestService::NavButtonHitTest(
+NavButtonHover HitTestService::NavButtonHitTest(
     float dip_x, float dip_y, const PaneRect& md_rect) const noexcept
 {
     const float base_x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;

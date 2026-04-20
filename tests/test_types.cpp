@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "types.h"
+#include "document_types.h"
 
 // ---- TextSelection::MakeOrdered ----
 

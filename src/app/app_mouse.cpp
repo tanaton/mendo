@@ -1,30 +1,32 @@
-// マウス入力処理のディスパッチャ。タイトルバー判定とツールチップ更新も集約。
 #include "app.h"
 #include "app_constants.h"
 #include "app_events.h"
-#include "i18n.h"
+#include "document_utils.h"
 #include "pane_layout.h"
 #include "resource.h"
 #include "ui_constants.h"
 
-// target が変化した場合にタイマーを再設定し、None なら非表示にする。
-void App::UpdateTooltip(const TooltipTarget& target, int px, int py)
+// ============================================================
+// ヒットテスト / リンク抽出 (クリック・ホバー双方で使用)
+// ============================================================
+
+App::HitResult App::HitTest(int screen_x, int screen_y)
 {
-    POINT screen_pos = { px, py };
-    ClientToScreen(hwnd_, &screen_pos);
-    if (state_.interaction.tooltip.Update(target, screen_pos)) {
-        SetTimer(hwnd_, app_timer::TOOLTIP, TOOLTIP_DELAY_MS, nullptr);
-    }
-    else if (target.IsEmpty()) {
-        KillTimer(hwnd_, app_timer::TOOLTIP);
-    }
+    const auto& layout = GetPaneLayout();
+    return state_.hit_test.HitTest({
+        state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme(),
+        state_.view.viewport.GetScrollY(), layout.md_rect.x,
+        state_.window.cached_dpi_scale, screen_x, screen_y
+        });
 }
 
-void App::ClearTooltip()
+std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const
 {
-    KillTimer(hwnd_, app_timer::TOOLTIP);
-    state_.interaction.tooltip.Hide();
-    state_.interaction.tooltip.ResetTarget();
+    if (hit.node_index < 0 || hit.node_index >= static_cast<int>(state_.document.doc.GetNodes().size())) {
+        return std::nullopt;
+    }
+
+    return FindLinkAtPosition(state_.document.doc.GetNodes()[hit.node_index], hit.text_pos);
 }
 
 // ============================================================
@@ -99,12 +101,10 @@ void App::OnLButtonDown(int px, int py)
 
     switch (zone) {
     case PaneZone::Splitter1:
-        SetCapture(hwnd_);
-        state_.view.panes.StartDrag(PaneController::DragTarget::Splitter1);
+        Dispatch(SplitterDragStartedAction{ PaneController::DragTarget::Splitter1 });
         return;
     case PaneZone::Splitter2:
-        SetCapture(hwnd_);
-        state_.view.panes.StartDrag(PaneController::DragTarget::Splitter2);
+        Dispatch(SplitterDragStartedAction{ PaneController::DragTarget::Splitter2 });
         return;
     case PaneZone::FilePane:
         HandleFilePaneClick(dip.x, dip.y, pane_layout);
@@ -123,51 +123,38 @@ void App::OnLButtonDown(int px, int py)
 void App::OnLButtonUp(int px, int py)
 {
     if (state_.search.search_bar_ctrl.IsDragging()) {
-        state_.search.search_bar_ctrl.EndDrag();
-        ReleaseCapture();
+        Dispatch(SearchInputDragEndedAction{});
         return;
     }
 
-    ReleaseCapture();
-
-    if (state_.view.panes.GetDragTarget() != PaneController::DragTarget::None) {
-        const bool was_md_scrollbar = (state_.view.panes.GetDragTarget() == PaneController::DragTarget::MdScrollbar);
-        if (was_md_scrollbar) {
-            state_.view.viewport.SetScrollbarTracking(false);
-        }
-        state_.view.panes.EndDrag();
-        RECT rc;
-        GetClientRect(hwnd_, &rc);
-        OnResize(static_cast<UINT>(rc.right - rc.left), static_cast<UINT>(rc.bottom - rc.top));
-        if (was_md_scrollbar) {
-            resource_manager_.ScheduleBitmapManage();
-        }
+    const auto drag_target = state_.view.panes.GetDragTarget();
+    if (drag_target == PaneController::DragTarget::Splitter1
+        || drag_target == PaneController::DragTarget::Splitter2) {
+        Dispatch(SplitterDragEndedAction{});
+        return;
+    }
+    if (drag_target == PaneController::DragTarget::MdScrollbar) {
+        Dispatch(MdScrollbarDragEndedAction{});
+        return;
+    }
+    if (drag_target == PaneController::DragTarget::FileScrollbar
+        || drag_target == PaneController::DragTarget::TocScrollbar) {
+        Dispatch(PaneScrollbarDragEndedAction{});
         return;
     }
 
     if (state_.view.viewport.IsDragging()) {
         const auto hit = HitTest(px, py);
-        if (hit.node_index >= 0) {
-            state_.view.viewport.SetSelection(TextSelection::MakeOrdered(
-                state_.view.viewport.GetAnchorNode(),
-                state_.view.viewport.GetAnchorPos(),
-                hit.node_index,
-                hit.text_pos
-            ));
-        }
-        state_.view.viewport.SetDragging(false);
-
         const int dx = px - state_.view.viewport.GetClickStartX();
         const int dy = py - state_.view.viewport.GetClickStartY();
-        if (!state_.view.viewport.GetSelection().active && (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ) {
+        const bool small_click = (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ;
+        Dispatch(TextSelectionEndedAction{ hit.node_index, hit.text_pos });
+        if (small_click && !state_.view.viewport.GetSelection().active) {
             const auto link = GetLinkAtHit(hit);
             if (link.has_value()) {
                 HandleLinkClick(link.value());
             }
         }
-
-        const auto layout = GetPaneLayout();
-        InvalidateMdPane(layout.md_rect);
     }
 }
 
@@ -185,7 +172,6 @@ void App::OnMouseMove(int px, int py)
     const auto dip = PixelToDip(px, py);
     const float dip_x = dip.x;
     const auto size = rt->GetSize();
-    const float splitter_w = renderer_.GetTheme().splitter_width;
 
     // 検索バー内ドラッグ選択
     if (state_.search.search_bar_ctrl.IsDragging()) {
@@ -195,66 +181,85 @@ void App::OnMouseMove(int px, int py)
         const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
         const int pos = renderer_.HitTestSearchInput(state_.search.search_state.GetQuery(), dip.x - text_left, input_w);
-        if (pos != state_.search.search_bar_ctrl.GetCaretPos() ||
-            state_.search.search_bar_ctrl.GetDragAnchor() != state_.search.search_bar_ctrl.GetSelectionStart()) {
-            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(state_.search.search_bar_ctrl.GetDragAnchor(), pos));
-        }
+        Dispatch(SearchInputDragMovedAction{ pos });
         return;
     }
 
     if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::Splitter1) {
-        state_.view.panes.DragSplitter1To(dip_x, size.width, splitter_w);
-        InvalidatePaneLayoutCache();
-        Invalidate();
+        Dispatch(SplitterDragMovedAction{ PaneController::DragTarget::Splitter1, dip_x, size.width });
         return;
     }
 
     if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::FileScrollbar) {
-        const auto layout = GetPaneLayout();
-        const float total = static_cast<float>(state_.file_explorer.GetEntries().size()) * renderer_.GetTheme().pane_item_height;
-        HandleSidePaneScrollDrag(dip.y, layout.file_rect, total, state_.view.panes.FileScroll(), &Renderer::InvalidateFilePaneCache);
+        Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::File, dip.y });
         return;
     }
 
     if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::TocScrollbar) {
-        const auto layout = GetPaneLayout();
-        const float total = static_cast<float>(state_.document.doc.GetToc().GetEntries().size()) * renderer_.GetTheme().pane_item_height;
-        HandleSidePaneScrollDrag(dip.y, layout.toc_rect, total, state_.view.panes.TocScroll(), &Renderer::InvalidateTocPaneCache);
+        Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::Toc, dip.y });
         return;
     }
 
     if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::MdScrollbar) {
         if (layout_service_) {
-            const auto layout = GetPaneLayout();
-            const float total_h = layout_service_->GetTotalHeight();
-            const auto info = ComputeScrollInfo(layout.md_rect, 0.0f, total_h);
-            const float new_thumb_y = dip.y - state_.view.panes.GetDragScrollOffset();
-            ScrollTo(ScrollFromThumbY(info, new_thumb_y));
-            Invalidate();
+            Dispatch(MdScrollbarDragMovedAction{ dip.y, layout_service_->GetTotalHeight() });
         }
         return;
     }
 
     if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::Splitter2) {
-        state_.view.panes.DragSplitter2To(dip_x, size.width, splitter_w);
-        InvalidatePaneLayoutCache();
-        Invalidate();
+        Dispatch(SplitterDragMovedAction{ PaneController::DragTarget::Splitter2, dip_x, size.width });
         return;
     }
 
-    // MDペイン: ドラッグ選択
     if (!state_.view.viewport.IsDragging()) {
         return;
     }
     const auto hit = HitTest(px, py);
-    if (hit.node_index >= 0) {
-        state_.view.viewport.SetSelection(TextSelection::MakeOrdered(
-            state_.view.viewport.GetAnchorNode(),
-            state_.view.viewport.GetAnchorPos(),
-            hit.node_index,
-            hit.text_pos
-        ));
-        const auto layout = GetPaneLayout();
-        InvalidateMdPane(layout.md_rect);
+    if (hit.node_index < 0) {
+        return;
     }
+    Dispatch(TextSelectionMovedAction{ hit.node_index, hit.text_pos });
 }
+
+// ============================================================
+// R ボタン (ジェスチャー) / X ボタン (ナビゲーション)
+// ============================================================
+
+bool App::OnRButtonDown(int px, int py)
+{
+    if (!IsRenderReady()) {
+        return false;
+    }
+    if (state_.view.viewport.IsDragging()) {
+        return false;
+    }
+    const auto dip = PixelToDip(px, py);
+    const auto zone = PaneAtPoint(dip.x, dip.y);
+    if (zone != PaneZone::MdPane) {
+        return false;
+    }
+    Dispatch(RightClickGestureStartedAction{ dip.x, dip.y });
+    return true;
+}
+
+bool App::OnRButtonUp(int px, int py)
+{
+    if (state_.interaction.gesture.GetPhase() == GesturePhase::Idle) {
+        return false;
+    }
+    POINT pt{ px, py };
+    ClientToScreen(hwnd_, &pt);
+    Dispatch(RightClickGestureCompletedAction{ pt.x, pt.y });
+    return true;
+}
+
+void App::OnRButtonMove(int px, int py)
+{
+    if (!IsRenderReady()) {
+        return;
+    }
+    const auto dip = PixelToDip(px, py);
+    Dispatch(RightClickGestureMovedAction{ dip.x, dip.y });
+}
+

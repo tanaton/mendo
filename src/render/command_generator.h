@@ -1,6 +1,6 @@
 #pragma once
 #include "draw_command.h"
-#include "types.h"
+#include "document_types.h"
 #include "layout_cache.h"
 #include "theme.h"
 #include "pane.h"

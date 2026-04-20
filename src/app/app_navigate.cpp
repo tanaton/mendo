@@ -47,7 +47,7 @@ void App::NavigateToAnchor(std::wstring_view anchor)
 
 void App::PushNavHistory()
 {
-    state_.view.nav_history.Push(NavEntry{ state_.document.doc.GetFilePath(), state_.view.viewport.GetScrollY() });
+    PushCurrentNavEntry(state_);
 }
 
 // ============================================================

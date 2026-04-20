@@ -1,6 +1,7 @@
 #pragma once
-#include "types.h"
+#include "document_types.h"
 #include "layout_cache.h"
+#include "nav_button.h"
 #include "pane.h"
 #include "theme.h"
 #include <dwrite.h>
@@ -41,7 +42,6 @@ public:
         float dip_x, float dip_y) const noexcept;
 
     // ナビゲーションボタンのヒットテスト
-    enum class NavButtonHover { None, Back, Forward };
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept;
 
     // コードブロックのコピーボタンのヒットテスト。

@@ -1,40 +1,10 @@
 #pragma once
+#include "tooltip_target.h"
 #include <windows.h>
 #include <commctrl.h>
-#include <cstdint>
-#include <string>
-#include <string_view>
 
 // ApplyDarkModeToWindow は app.h で宣言済み（循環回避のため前方宣言）
 void ApplyDarkModeToWindow(HWND hwnd, bool dark);
-
-// ツールチップの表示対象を識別する構造体。
-// zone + text の組み合わせでホバー対象の変化を検出する。
-struct TooltipTarget {
-    enum class Zone : uint8_t {
-        None,
-        TitleBarButton,
-        SearchBarButton,
-        FilePaneItem,
-        FilePaneButton,
-        TocPaneItem,
-        TocPaneButton,
-        MdLink,
-        MdImage,
-        CopyButton,
-        SaveButton,
-        NavButton,
-    };
-
-    Zone zone = Zone::None;
-    std::wstring text;
-
-    TooltipTarget() = default;
-    TooltipTarget(Zone z, std::wstring_view t) : zone(z), text(t) {}
-
-    bool operator==(const TooltipTarget&) const = default;
-    bool IsEmpty() const noexcept { return zone == Zone::None; }
-};
 
 // Win32 TOOLTIPS_CLASS を TTF_TRACK モードで管理するラッパー。
 // App 側のホバー検出結果をもとに、ツールチップの表示/非表示を制御する。
@@ -144,6 +114,9 @@ public:
 
     // ターゲットをクリアする（非表示にはしない — Hide() と組み合わせて使う）。
     void ResetTarget() noexcept { current_ = {}; }
+
+    // 現在のターゲット（Reducer 側での変更検出用）。
+    const TooltipTarget& GetCurrent() const noexcept { return current_; }
 
 private:
     void Destroy() noexcept

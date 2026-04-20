@@ -2,7 +2,7 @@
 #include <memory_resource>
 #include "viewport_manager.h"
 #include "test_helpers.h"
-#include "types.h"
+#include "document_types.h"
 
 // ---- スクロールテスト ----
 

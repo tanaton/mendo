@@ -56,6 +56,9 @@ struct ShowTooltip { TooltipTarget target; int px; int py; };
 struct ClearTooltip {};
 struct ShowToast { std::wstring message; };
 
+// ---- コンテキストメニュー ----
+struct ShowContextMenu { int screen_x; int screen_y; };
+
 // ---- レイアウト ----
 struct DeferredLayout {};
 struct BitmapManage {};
@@ -118,14 +121,6 @@ struct MermaidInitRetry {};
 struct Destroy {};
 struct HandleParseComplete {};
 
-// ---- マウスイベント委譲 ----
-enum class MouseEventType {
-    LButtonDown, LButtonUp, MouseMove, MouseHover, LButtonDblClk,
-    RButtonDown, RButtonUp, RButtonMove,
-};
-struct HandleMouseEvent { MouseEventType type; int px; int py; };
-struct HandleContextMenu { int screen_x; int screen_y; };
-
 } // namespace effect
 
 using SideEffect = std::variant<
@@ -150,6 +145,7 @@ using SideEffect = std::variant<
     effect::ShowTooltip,
     effect::ClearTooltip,
     effect::ShowToast,
+    effect::ShowContextMenu,
     effect::DeferredLayout,
     effect::BitmapManage,
     effect::MermaidBatch,
@@ -177,9 +173,7 @@ using SideEffect = std::variant<
     effect::ProcessBitmapManage,
     effect::MermaidInitRetry,
     effect::Destroy,
-    effect::HandleParseComplete,
-    effect::HandleMouseEvent,
-    effect::HandleContextMenu
+    effect::HandleParseComplete
 >;
 
 using SideEffectList = std::pmr::vector<SideEffect>;

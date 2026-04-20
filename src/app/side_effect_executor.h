@@ -35,8 +35,7 @@ public:
         std::move_only_function<void()> mermaid_init_retry;
         std::move_only_function<void()> destroy;
         std::move_only_function<void()> handle_parse_complete;
-        std::move_only_function<void(effect::MouseEventType, int, int)> handle_mouse_event;
-        std::move_only_function<void(int, int)> handle_context_menu;
+        std::move_only_function<void(int, int)> show_context_menu;
     };
 
     void Init(HWND hwnd, ResourceManager& resource_manager,

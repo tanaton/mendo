@@ -143,40 +143,33 @@ void App::OnParseComplete()
     if (_wcsicmp(result->doc.GetFilePath().c_str(), state_.document.doc.GetFilePath().c_str()) == 0) {
         const std::string_view old_view(state_.document.doc.GetRawUtf8());
         const std::string_view new_view(result->doc.GetRawUtf8());
-        const size_t diff_pos = FindFirstDifference(old_view, new_view);
+        const auto decision = AnalyzeReloadDiff(old_view, new_view);
+        state_.pending_prefix_shrink = (decision.op == ReloadOp::DeferPrefixShrink);
 
-        MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu",
-            result->doc.GetNodes().size(), diff_pos, old_view.size(), new_view.size());
+        MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu op=%d",
+            result->doc.GetNodes().size(), decision.diff_pos, old_view.size(), new_view.size(),
+            static_cast<int>(decision.op));
 
-        if (diff_pos == std::string_view::npos) {
-            // 差分なし → リロード不要、監視再開
-            state_.pending_prefix_shrink = false;
+        switch (decision.op) {
+        case ReloadOp::NoChange:
             doc_service_.ResumeWatching();
             Invalidate();
             return;
-        }
-
-        // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
-        // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
-        const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
-
-        // エディタの truncate→rewrite 2段階保存の前半（ファイル縮小）を検出。
-        // state_.document.doc を更新せず元のコンテンツを保持することで、次のリロードで
-        // 「元コンテンツ vs 最終コンテンツ」の正確な差分を検出できるようにする。
-        if (ShouldDeferForTruncateRewrite(is_prefix_only, old_view.size(), new_view.size())) {
+        case ReloadOp::DeferPrefixShrink:
+            // エディタの truncate→rewrite 2段階保存の前半を検出。state_.document.doc を
+            // 更新せず元のコンテンツを保持し、次のリロードで正確な差分を検出できるようにする。
+            doc_service_.ResumeWatching();
             return;
-        }
-
-        if (is_prefix_only) {
-            // prefix-only はファイル末尾の伸縮のみ。FinishReload が
-            // ResizePreservingPrefix で旧キャッシュの実測高さを保持する。
+        case ReloadOp::PrefixGrowth:
+            // 末尾伸張のみ。FinishReload が ResizePreservingPrefix で旧キャッシュの実測高さを保持する。
             resource_manager_.CancelMermaidBatch();
             state_.document.doc = std::move(result->doc);
-            FinishReload(true, diff_pos, state_.reload_old_scroll);
+            FinishReload(true, decision.diff_pos, state_.reload_old_scroll);
             return;
+        case ReloadOp::FullReload:
+            state_.reload_diff_pos = decision.diff_pos;
+            break;
         }
-
-        state_.reload_diff_pos = diff_pos;
     }
     else {
         // 別ファイルの非同期ロードではリロード用の差分スクロールを使わない
@@ -335,37 +328,32 @@ void App::DoReloadCurrentFile()
     std::pmr::string new_utf8 = std::move(*load_result);
     const std::string_view old_view(state_.document.doc.GetRawUtf8());
     const std::string_view new_view(new_utf8);
-    const size_t diff_pos = FindFirstDifference(old_view, new_view);
+    const auto decision = AnalyzeReloadDiff(old_view, new_view);
+    state_.pending_prefix_shrink = (decision.op == ReloadOp::DeferPrefixShrink);
 
-    MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu old_scroll=%.1f",
-        diff_pos, old_view.size(), new_view.size(), old_scroll);
+    MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu old_scroll=%.1f op=%d",
+        decision.diff_pos, old_view.size(), new_view.size(), old_scroll,
+        static_cast<int>(decision.op));
 
-    // 差分がなければリロード不要。エディタの保存操作が複数の通知を
-    // 発生させた場合に、レイアウトキャッシュの不要なリセットを防ぐ。
-    if (diff_pos == std::string_view::npos) {
-        state_.pending_prefix_shrink = false;
+    switch (decision.op) {
+    case ReloadOp::NoChange:
+        // 差分がなければリロード不要。エディタの保存操作が複数の通知を
+        // 発生させた場合に、レイアウトキャッシュの不要なリセットを防ぐ。
         doc_service_.ResumeWatching();
         return;
-    }
-
-    // 変更箇所のスクロール位置を決定
-    // diff_pos が短い方の末尾と一致 = 片方がもう片方のprefixで、
-    // ファイルの伸縮に過ぎない場合はスクロール位置を維持する
-    const bool is_prefix_only = IsPrefixOnlyDiff(diff_pos, old_view.size(), new_view.size());
-
-    // エディタの truncate→rewrite 2段階保存の前半（ファイル縮小）を検出。
-    // state_.document.doc を更新せず元のコンテンツを保持し、次のリロードで正確な差分を検出する。
-    if (ShouldDeferForTruncateRewrite(is_prefix_only, old_view.size(), new_view.size())) {
+    case ReloadOp::DeferPrefixShrink:
+        // エディタの truncate→rewrite 2段階保存の前半（ファイル縮小）を検出。
+        // state_.document.doc を更新せず元のコンテンツを保持し、次のリロードで正確な差分を検出する。
+        doc_service_.ResumeWatching();
         return;
-    }
-
-    // ドキュメントを新コンテンツで更新
-    {
+    case ReloadOp::PrefixGrowth:
+    case ReloadOp::FullReload: {
         MENDO_PROFILE("Reload::ReplaceFromMarkdown");
         state_.document.doc.ReplaceFromMarkdown(std::move(new_utf8));
+        FinishReload(decision.op == ReloadOp::PrefixGrowth, decision.diff_pos, old_scroll);
+        return;
     }
-
-    FinishReload(is_prefix_only, diff_pos, old_scroll);
+    }
 }
 
 // DoReloadCurrentFile / OnParseComplete 共通のリロード後処理。
@@ -423,19 +411,6 @@ void App::FinishReload(bool is_prefix_only, size_t diff_pos, float old_scroll)
 // ============================================================
 // ファイル読み込みヘルパー
 // ============================================================
-
-bool App::ShouldDeferForTruncateRewrite(bool is_prefix_only, size_t old_size, size_t new_size)
-{
-    if (is_prefix_only && new_size < old_size) {
-        // prefix-only shrink が連続する場合もすべて defer する。
-        // エディタによっては truncate が複数回発生してから rewrite されることがある。
-        state_.pending_prefix_shrink = true;
-        doc_service_.ResumeWatching();
-        return true;
-    }
-    state_.pending_prefix_shrink = false;
-    return false;
-}
 
 float App::CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const
 {
