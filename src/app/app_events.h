@@ -8,8 +8,8 @@
 #include <cstdint>
 #include <memory_resource>
 
-// プラットフォーム非依存のピクセル矩形。Win32 の RECT と同じメモリレイアウトを
-// 意図しており、App::OnDpiChanged 境界で const RECT* からフィールド単位でコピーして生成する。
+// プラットフォーム非依存のピクセル矩形。App::OnDpiChanged 境界で
+// Win32 の RECT から各フィールドの値をコピーして生成する。
 struct PixelRect {
     int32_t left;
     int32_t top;
