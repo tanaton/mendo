@@ -2,9 +2,10 @@
 #include "draw_command.h"
 #include <d2d1.h>
 #include <wrl/client.h>
+#include <unordered_map>
 
 // DrawCommandList を Direct2D レンダーターゲット上で実行する。
-// すべての単色描画操作に対して再利用可能な単一ブラシを使用する。
+// 色ごとに ID2D1SolidColorBrush をプールし、SetColor 呼び出しも削減する。
 class CommandExecutor {
 public:
     void Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt);
@@ -12,7 +13,12 @@ public:
 private:
     ID2D1SolidColorBrush* GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color);
 
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_;
+    // ブラシ数が超過したらプールを一掃し、肥大化を防ぐ。
+    // テーマ + UI アクセント色は通常 ~50 個以内に収まる。
+    static constexpr size_t MAX_POOLED_BRUSHES = 256;
+
+    std::unordered_map<uint32_t, Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>> brush_pool_;
     ID2D1RenderTarget* bound_rt_ = nullptr;
-    D2D1_COLOR_F last_color_{ -1.0f, -1.0f, -1.0f, -1.0f };
+    uint32_t last_key_ = 0xFFFFFFFFu;
+    ID2D1SolidColorBrush* last_brush_ = nullptr;
 };

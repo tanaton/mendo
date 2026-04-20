@@ -366,6 +366,9 @@ void ResourceManager::FlushPendingResources()
         return;
     }
     pending_flush_ = false;
+    // last_flush_time_ は ScheduleBitmapManage 以外の経路（OnBitmapManageTimer 等）
+    // からのフラッシュでも一元的に更新する
+    last_flush_time_ = std::chrono::steady_clock::now();
 
     bool changed = (ApplyCachedImages() > 0);
 
@@ -380,8 +383,15 @@ void ResourceManager::FlushPendingResources()
 
 void ResourceManager::ScheduleBitmapManage()
 {
-    pending_flush_ = true;  // スクロールで新たに可視になったノードをスキャンする
-    FlushPendingResources();
+    // 直近 50ms 以内に既に flush していれば再実行を抑止する。
+    // 細かいスクロールで FlushPendingResources が毎フレーム走るのを防ぎ、
+    // タイマー (150ms) 側で集約的に処理する。
+    const auto now = std::chrono::steady_clock::now();
+    const auto since_last = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time_).count();
+    pending_flush_ = true;
+    if (since_last >= 50) {
+        FlushPendingResources();
+    }
     cb_.set_timer(TIMER_BITMAP_MANAGE, 150);
 }
 

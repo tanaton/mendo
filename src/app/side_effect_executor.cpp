@@ -37,7 +37,16 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
             InvalidateRect(hwnd_, nullptr, FALSE);
         },
         [this](const effect::InvalidateTitleBar&) {
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            if (!state_) {
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return;
+            }
+            RECT client;
+            GetClientRect(hwnd_, &client);
+            const float dpi_scale = state_->window.cached_dpi_scale;
+            RECT tb_rect{ 0, 0, client.right,
+                static_cast<LONG>(state_->window.titlebar.GetHeight() * dpi_scale + 0.5f) };
+            InvalidateRect(hwnd_, &tb_rect, FALSE);
         },
         [this](const effect::SetTimer& e) {
             ::SetTimer(hwnd_, e.id, e.ms, nullptr);
@@ -105,7 +114,7 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
             config_->Flush();
         },
         [this](const effect::ShowTooltip& e) {
-            POINT screen_pos = { e.px, e.py };
+            POINT screen_pos{ e.px, e.py };
             ClientToScreen(hwnd_, &screen_pos);
             if (state_->interaction.tooltip.Update(e.target, screen_pos)) {
                 ::SetTimer(hwnd_, app_timer::TOOLTIP, TOOLTIP_DELAY_MS, nullptr);

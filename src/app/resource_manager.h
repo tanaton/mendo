@@ -2,6 +2,7 @@
 #include "flat_map.h"
 #include <string>
 #include <functional>
+#include <chrono>
 #include <windows.h>
 
 class Document;
@@ -82,4 +83,5 @@ private:
     size_t mermaid_batch_next_ = 0;
     FlatMap<size_t, std::wstring> resolved_image_paths_;
     bool pending_flush_ = false;
+    std::chrono::steady_clock::time_point last_flush_time_{};
 };

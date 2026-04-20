@@ -104,6 +104,13 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
     }
 
     Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f));
+    if (!gesture_stroke_style_) {
+        // 滑らかなジェスチャー軌跡のための丸型キャップと結合（初回のみ生成）
+        const D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(
+            D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
+            D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
+        d2d()->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
+    }
     rt()->DrawGeometry(path.Get(), Brush(BrushId::Overlay), GESTURE_TRAIL_STROKE_WIDTH, gesture_stroke_style_.Get());
 }
 

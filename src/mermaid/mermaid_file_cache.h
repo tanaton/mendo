@@ -75,11 +75,14 @@ private:
     static constexpr size_t DEFAULT_MAX_ENTRIES = 4096;
     static constexpr uint64_t DEFAULT_MAX_TOTAL_SIZE = 1ULL * 1024 * 1024 * 1024; // 1GB
 
+    using LruOrder = std::multimap<int64_t, uint64_t>;
+
     struct IndexEntry {
         float css_width = 0.0f;
         float css_height = 0.0f;
         uint32_t png_size = 0;
         int64_t last_used = 0;
+        LruOrder::iterator lru_iter{}; // png_size > 0 なら lru_order_ 内の該当エントリを指す
     };
 
     std::filesystem::path GetCacheDir() const;
@@ -88,7 +91,6 @@ private:
     std::filesystem::path GetIndexPath() const;
     void LoadIndex();
     void EvictIfNeeded(uint32_t new_png_size);
-    void RemoveLruEntry(int64_t timestamp, uint64_t key);
     static int64_t Now() noexcept;
 
     std::filesystem::path cache_dir_override_;
@@ -97,8 +99,8 @@ private:
 
     // インデックス: key → エントリメタデータ（最大4096エントリ）
     std::unordered_map<uint64_t, IndexEntry> index_;
-    // LRU順序: last_used → keys（O(log n) での最古エントリ特定用）
-    std::multimap<int64_t, uint64_t> lru_order_;
+    // LRU順序: last_used → keys（最古エントリは begin() で O(1)）
+    LruOrder lru_order_;
     uint64_t total_size_ = 0;
 
     size_t max_entries_ = DEFAULT_MAX_ENTRIES;

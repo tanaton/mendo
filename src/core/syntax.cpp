@@ -244,6 +244,10 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     uint32_t plain_start = 0;
     bool in_plain = false;
     std::wstring ci_buf; // case_insensitive用の再利用バッファ
+    if (cfg.case_insensitive) {
+        // 典型的なキーワード最長（PowerShell の `ForEach-Object` 等）を事前確保
+        ci_buf.reserve(64);
+    }
 
     const auto flush_plain = [&]() {
         if (in_plain && static_cast<uint32_t>(i) > plain_start) {
@@ -422,22 +426,24 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             const std::wstring_view word(text.data() + start, i - start);
             std::wstring_view lookup_word = word;
             if (cfg.case_insensitive) {
-                // 再利用バッファで小文字化（毎回のメモリ確保を回避）
-                ci_buf.clear();
-                if (ci_buf.capacity() < word.size()) {
-                    ci_buf.reserve(word.size());
-                }
+                // 大文字有無を先行判定し、無ければ word をそのまま使用（ci_buf への書き込み回避）
                 bool has_upper = false;
                 for (wchar_t ch : word) {
                     if (ch >= L'A' && ch <= L'Z') {
                         has_upper = true;
-                        ci_buf += static_cast<wchar_t>(ch - L'A' + L'a');
-                    }
-                    else {
-                        ci_buf += ch;
+                        break;
                     }
                 }
                 if (has_upper) {
+                    ci_buf.clear();
+                    if (ci_buf.capacity() < word.size()) {
+                        ci_buf.reserve(word.size());
+                    }
+                    for (wchar_t ch : word) {
+                        ci_buf += (ch >= L'A' && ch <= L'Z')
+                            ? static_cast<wchar_t>(ch - L'A' + L'a')
+                            : ch;
+                    }
                     lookup_word = ci_buf;
                 }
             }

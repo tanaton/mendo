@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include <map>
+#include <unordered_map>
 #include <memory_resource>
 
 class Document {
@@ -49,7 +49,7 @@ private:
     std::pmr::wstring file_path_;
     std::pmr::string raw_utf8_;
     TableOfContents toc_;
-    std::pmr::map<std::pmr::wstring, int> anchor_index_;
+    std::pmr::unordered_map<std::pmr::wstring, int> anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;
 };

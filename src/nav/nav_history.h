@@ -66,4 +66,8 @@ private:
     std::pmr::map<std::wstring_view, uint32_t> path_index_;
     std::pmr::deque<InternalEntry> back_stack_;
     std::pmr::deque<InternalEntry> forward_stack_;
+
+    // Back→Forward→Back の連続操作で path_index_::find を回避する直前値キャッシュ
+    std::wstring_view last_interned_view_;
+    uint32_t last_interned_index_ = UINT32_MAX;
 };
