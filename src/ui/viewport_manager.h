@@ -72,7 +72,8 @@ public:
     constexpr const ScrollTarget& GetScrollTarget() const noexcept { return scroll_target_; }
 
     // scroll_target が有効な場合、現在のレイアウトキャッシュから scroll_y を再評価する。
-    // クランプは行わない（SyncMaxScroll がクランプを担当する）。
+    // max_scroll によるクランプは行わない（SyncMaxScroll が担当する）。
+    // 負値は NodeOffsetToScrollY 側で 0 に、node はキャッシュ末尾にクランプされる。
     constexpr void ApplyScrollTarget(const LayoutCache& cache) noexcept
     {
         if (!scroll_target_.IsValid()) {
@@ -89,8 +90,13 @@ public:
         if (scroll_target_.IsValid()) {
             return;
         }
-        const int idx = FindFirstVisibleNodeIndex(cache, node_count, scroll_y_);
-        if (idx < static_cast<int>(node_count)) {
+        // 呼び出し側の node_count が過渡状態で cache.size() を超える可能性に備えてクランプ
+        const size_t effective = std::min(node_count, cache.size());
+        if (effective == 0) {
+            return;
+        }
+        const int idx = FindFirstVisibleNodeIndex(cache, effective, scroll_y_);
+        if (idx < static_cast<int>(effective)) {
             scroll_target_ = { idx, scroll_y_ - cache[idx].y_position };
         }
     }
