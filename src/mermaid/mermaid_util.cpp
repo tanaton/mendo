@@ -5,6 +5,7 @@
 #include <cmath>
 #include <format>
 #include <iterator>
+#include <limits>
 #include <ranges>
 
 std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
@@ -147,23 +148,25 @@ mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view b
     if (body.empty() || body[0] < L'0' || body[0] > L'9') {
         return out;
     }
-    // wstring_view は null 終端が保証されないため、数値部分のみを小バッファに取り、
-    // wcstoul で末尾位置も同時に取得する。
-    wchar_t buf[16];
-    const size_t n = (std::min)(body.size(), std::size(buf) - 1);
-    std::char_traits<wchar_t>::copy(buf, body.data(), n);
-    buf[n] = L'\0';
-    wchar_t* end = nullptr;
-    const auto id = static_cast<unsigned int>(std::wcstoul(buf, &end, 10));
-    if (!end || end == buf) {
-        return out;
+    // wstring_view から直接桁を読み取る。unsigned int に収まらない ID は無効扱いにする。
+    constexpr uint64_t kMaxUint = std::numeric_limits<unsigned int>::max();
+    uint64_t acc = 0;
+    size_t i = 0;
+    for (; i < body.size(); ++i) {
+        const wchar_t c = body[i];
+        if (c < L'0' || c > L'9') {
+            break;
+        }
+        acc = acc * 10 + static_cast<uint64_t>(c - L'0');
+        if (acc > kMaxUint) {
+            return out;
+        }
     }
     out.valid = true;
-    out.id = id;
-    const size_t consumed = static_cast<size_t>(end - buf);
-    if (consumed < body.size() && body[consumed] == L':') {
+    out.id = static_cast<unsigned int>(acc);
+    if (i < body.size() && body[i] == L':') {
         out.has_payload = true;
-        out.payload = body.substr(consumed + 1);
+        out.payload = body.substr(i + 1);
     }
     return out;
 }

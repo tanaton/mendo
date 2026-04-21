@@ -100,10 +100,10 @@ bool ContextMenu::Impl::class_registered = false;
 ContextMenu::ContextMenu() : impl_(std::make_unique<Impl>()) {}
 ContextMenu::~ContextMenu() = default;
 
-void ContextMenu::Init(void* d2d_factory, void* dwrite_factory)
+void ContextMenu::Init(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory)
 {
-    impl_->d2d_factory = static_cast<ID2D1Factory*>(d2d_factory);
-    impl_->dwrite_factory = static_cast<IDWriteFactory*>(dwrite_factory);
+    impl_->d2d_factory = d2d_factory;
+    impl_->dwrite_factory = dwrite_factory;
 }
 
 int ContextMenu::HitTest(float x, float y) const noexcept
@@ -136,9 +136,11 @@ float ContextMenu::GetMenuHeight() const noexcept
     return impl_->menu_height;
 }
 
+#ifdef MENDO_TESTING
 void ContextMenu::TestBuildItems(const ContextMenuParams& params) { impl_->BuildItems(params); }
 void ContextMenu::TestCreateTextFormats(const Theme& theme) { impl_->CreateTextFormats(theme); }
 void ContextMenu::TestComputeLayout() { impl_->ComputeLayout(); }
+#endif
 
 // ============================================================
 // ウィンドウクラス登録
@@ -185,14 +187,14 @@ LRESULT CALLBACK ContextMenu::Impl::WndProc(HWND hwnd, UINT msg, WPARAM wParam, 
 // メニュー表示（モーダル）
 // ============================================================
 
-int ContextMenu::Show(void* owner_hwnd, const ContextMenuParams& params)
+int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
 {
     auto& s = *impl_;
     if (!s.d2d_factory || !s.dwrite_factory || !params.theme || params.dpi_scale <= 0.0f) {
         return 0;
     }
 
-    s.owner = static_cast<HWND>(owner_hwnd);
+    s.owner = owner_hwnd;
     s.theme = params.theme;
     s.dpi_scale = params.dpi_scale;
 

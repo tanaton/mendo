@@ -6,6 +6,13 @@
 
 struct Theme;
 
+// Win32 / D2D / DWrite の公開ヘッダ依存を避けるため最小の前方宣言で済ませる。
+// 実体は <windows.h> / <d2d1.h> / <dwrite.h> のものと ABI 互換。
+struct HWND__;
+using HWND = HWND__*;
+struct ID2D1Factory;
+struct IDWriteFactory;
+
 // カスタムコンテキストメニューの表示パラメータ。
 struct ContextMenuParams {
     int screen_x = 0;
@@ -52,28 +59,28 @@ public:
     ContextMenu& operator=(const ContextMenu&) = delete;
 
     // D2D/DWriteファクトリーを受け取り初期化する。Appの初期化時に1回呼ぶ。
-    // 引数は ID2D1Factory* / IDWriteFactory* を void* として受ける（ヘッダ依存を避けるため）。
-    void Init(void* d2d_factory, void* dwrite_factory);
+    void Init(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory);
 
     // メニューを表示しユーザーの選択を待つ（モーダル）。
-    // owner_hwnd は親ウィンドウの HWND を void* として受ける。
     // 戻り値: 選択されたコマンドID（IDM_NAV_BACK等）、キャンセル時は0。
-    int Show(void* owner_hwnd, const ContextMenuParams& params);
+    int Show(HWND owner_hwnd, const ContextMenuParams& params);
 
     // ヒットテスト
     int HitTest(float x, float y) const noexcept;
     int NavHitTest(float x, float y) const noexcept;
 
-    // テスト用アクセサ
+    // レイアウト結果へのアクセサ
     const std::vector<Item>& GetItems() const noexcept;
     const NavRowLayout& GetNavLayout() const noexcept;
     float GetMenuWidth() const noexcept;
     float GetMenuHeight() const noexcept;
 
-    // テスト用アクセサ（ビルド構成に関わらず公開。本番では未使用）。
+#ifdef MENDO_TESTING
+    // テスト専用API。production public API には含めない（mendo_core には常にシンボルが生成される）。
     void TestBuildItems(const ContextMenuParams& params);
     void TestCreateTextFormats(const Theme& theme);
     void TestComputeLayout();
+#endif
 
 private:
     struct Impl;

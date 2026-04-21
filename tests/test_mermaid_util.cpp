@@ -465,3 +465,28 @@ TEST(ParseRequestPrefix, TrailingGarbageWithoutColon)
     EXPECT_EQ(p.id, 42u);
     EXPECT_FALSE(p.has_payload);
 }
+
+TEST(ParseRequestPrefix, OverflowingIdReturnsInvalid)
+{
+    // UINT_MAX (4294967295) を超える ID は無効として扱う
+    auto p = mermaid_util::ParseRequestPrefix(L"4294967296:x");
+    EXPECT_FALSE(p.valid);
+}
+
+TEST(ParseRequestPrefix, VeryLongDigitsOverflowStillInvalid)
+{
+    // 旧実装の 16 文字固定バッファでは先頭だけが残って誤った ID になっていたケース。
+    // 現在は uint64 アキュムレータで溢れを検知して無効化する。
+    auto p = mermaid_util::ParseRequestPrefix(L"99999999999999999999:payload");
+    EXPECT_FALSE(p.valid);
+}
+
+TEST(ParseRequestPrefix, MaxUintBoundary)
+{
+    // UINT_MAX ちょうどは有効
+    auto p = mermaid_util::ParseRequestPrefix(L"4294967295:ok");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 4294967295u);
+    EXPECT_TRUE(p.has_payload);
+    EXPECT_EQ(p.payload, std::wstring_view(L"ok"));
+}

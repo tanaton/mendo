@@ -2,6 +2,11 @@
 #include "tooltip_target.h"
 #include <memory>
 
+// <windows.h> を巻き込まずに HWND を扱うための前方宣言（Windows SDK の
+// DECLARE_HANDLE(HWND) と ABI 互換）。
+struct HWND__;
+using HWND = HWND__*;
+
 // App 側のホバー検出結果をもとに、ツールチップの表示/非表示を制御する。
 class Tooltip {
 public:
@@ -12,8 +17,8 @@ public:
     Tooltip(Tooltip&&) noexcept;
     Tooltip& operator=(Tooltip&&) noexcept;
 
-    // 親ウィンドウ（HWND）を void* で受け取り、ツールチップを作成する。
-    void Init(void* parent_hwnd);
+    // 親ウィンドウを受け取り、ツールチップを作成する。
+    void Init(HWND parent_hwnd);
 
     // ホバー対象が変わったらタイマーのリセットが必要かを返す。
     // screen_x / screen_y: マウスのスクリーン座標（ツールチップ表示位置用）。

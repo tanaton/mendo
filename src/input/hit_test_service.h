@@ -3,6 +3,7 @@
 #include "nav_button.h"
 #include "pane.h"
 #include "theme.h"
+#include <climits>
 #include <memory_resource>
 
 // 参照としてのみ扱うため前方宣言（layout_cache.h は <dwrite.h> を巻き込むため）。

@@ -30,10 +30,10 @@ Tooltip::~Tooltip() = default;
 Tooltip::Tooltip(Tooltip&&) noexcept = default;
 Tooltip& Tooltip::operator=(Tooltip&&) noexcept = default;
 
-void Tooltip::Init(void* parent_hwnd)
+void Tooltip::Init(HWND parent_hwnd)
 {
     auto& s = *impl_;
-    s.parent = static_cast<HWND>(parent_hwnd);
+    s.parent = parent_hwnd;
     s.hwnd = CreateWindowExW(
         WS_EX_TOPMOST,
         TOOLTIPS_CLASSW,
