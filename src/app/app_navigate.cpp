@@ -93,8 +93,9 @@ void App::ViewportLayoutAndCompensate(int anchor_idx, float anchor_y_before)
 
 void App::HandleCompensateScrollAfterLayout(const effect::CompensateScrollAfterLayout& e)
 {
+    // 発行元 Reducer が直後に effect::InvalidateWindow を発行するため
+    // ここで UpdateScrollBar 経由の部分無効化は冗長
     ViewportLayoutAndCompensate(e.anchor_idx, e.anchor_y_before);
-    UpdateScrollBar();
 }
 
 void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
