@@ -1,13 +1,15 @@
 #pragma once
 #include "document_types.h"
-#include "layout_cache.h"
 #include "nav_button.h"
 #include "pane.h"
 #include "theme.h"
-#include <dwrite.h>
-#include <optional>
-#include <string>
 #include <memory_resource>
+
+// LayoutCache / NodeLayoutEntry は参照としてのみ扱うため前方宣言で十分。
+// 実体定義 (layout_cache.h) は <dwrite.h> を巻き込むので、本ヘッダを
+// include する側に dwrite 依存を波及させないためにも .cpp でのみ解決する。
+class LayoutCache;
+struct NodeLayoutEntry;
 
 // MDペインのヒットテストに必要なコンテキスト情報。
 // ドキュメントデータ、ビューポート状態、マウス位置をまとめる。
