@@ -264,3 +264,15 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_co
     });
     return static_cast<int>(it - first);
 }
+
+// (node, offset) → 絶対スクロール位置。
+// 負の node や空キャッシュは 0 を返し、末尾を超える node は最後の要素へクランプする
+// （ドキュメントが縮んでいた場合にトップではなく末尾近くへ復帰する）。
+constexpr float NodeOffsetToScrollY(const LayoutCache& cache, int node, float offset) noexcept
+{
+    if (cache.size() == 0 || node < 0) {
+        return 0.0f;
+    }
+    const int clamped = std::min(node, static_cast<int>(cache.size()) - 1);
+    return std::max(0.0f, cache[clamped].y_position + offset);
+}

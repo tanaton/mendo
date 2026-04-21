@@ -4,6 +4,7 @@
 #include "document_utils.h"
 #include "ui_constants.h"
 #include "utility.h"
+#include <cmath>
 
 // ============================================================
 // 共通ヘルパー
@@ -70,11 +71,11 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
 {
     if (entry.file_path != state.document.doc.GetFilePath() && !entry.file_path.empty()) {
-        state.view.scroll_restore.pending_nav_scroll_y = entry.scroll_y;
+        state.view.scroll_restore.SetNodeRestore(entry.node, static_cast<int>(std::lround(entry.offset)));
         effects.emplace_back(effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
-        state.view.viewport.ScrollTo(entry.scroll_y);
+        state.view.viewport.ScrollTo(NodeOffsetToScrollY(state.document.layout_cache, entry.node, entry.offset));
         state.interaction.hover_throttle.Reset();
         ClearTooltip(state, effects);
         effects.emplace_back(effect::InvalidateWindow{});
@@ -85,7 +86,7 @@ void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
 void ReduceNavigateBack(AppState& state, SideEffectList& effects)
 {
     NavEntry out;
-    if (state.view.nav_history.GoBack(NavEntry{ state.document.doc.GetFilePath(), state.view.viewport.GetScrollY() }, out)) {
+    if (state.view.nav_history.GoBack(CurrentNavEntry(state), out)) {
         ApplyNavResult(state, effects, std::move(out));
     }
 }
@@ -93,7 +94,7 @@ void ReduceNavigateBack(AppState& state, SideEffectList& effects)
 void ReduceNavigateForward(AppState& state, SideEffectList& effects)
 {
     NavEntry out;
-    if (state.view.nav_history.GoForward(NavEntry{ state.document.doc.GetFilePath(), state.view.viewport.GetScrollY() }, out)) {
+    if (state.view.nav_history.GoForward(CurrentNavEntry(state), out)) {
         ApplyNavResult(state, effects, std::move(out));
     }
 }

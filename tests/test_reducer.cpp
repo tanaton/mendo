@@ -226,7 +226,7 @@ TEST_F(ReducerTest, NavigateBack_NoHistory_NoEffects) {
 
 TEST_F(ReducerTest, NavigateBack_DifferentFile_EmitsLoadFile) {
     state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
-    state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 50.0f });
+    state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0, 50.0f });
 
     auto effects = Reduce(state, NavigateBackAction{});
     EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
@@ -234,7 +234,9 @@ TEST_F(ReducerTest, NavigateBack_DifferentFile_EmitsLoadFile) {
 
 TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates) {
     state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\file.md");
-    state.view.nav_history.Push(NavEntry{ L"C:\\file.md", 50.0f });
+    // ノード 0 に対してオフセット 50 → y_position(0) + 50 = 50.0f
+    state.document.layout_cache.Resize(state.document.doc.GetNodes().size());
+    state.view.nav_history.Push(NavEntry{ L"C:\\file.md", 0, 50.0f });
     state.view.viewport.ScrollTo(200.0f);
 
     auto effects = Reduce(state, NavigateBackAction{});
@@ -865,7 +867,7 @@ TEST_F(ReducerTest, RightClickGestureCompleted_Pressed_ShowsContextMenu) {
 TEST_F(ReducerTest, RightClickGestureCompleted_TrackingLeft_NavigatesBack) {
     // 戻り先履歴を用意
     state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
-    state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0.0f });
+    state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0, 0.0f });
 
     state.interaction.gesture.OnRButtonDown(200.0f, 200.0f);
     state.interaction.gesture.OnMouseMove(100.0f, 200.0f); // 左に 100px = 閾値越え
@@ -880,9 +882,9 @@ TEST_F(ReducerTest, RightClickGestureCompleted_TrackingLeft_NavigatesBack) {
 
 TEST_F(ReducerTest, RightClickGestureCompleted_TrackingRight_NavigatesForward) {
     // 前進履歴を用意: page2 からスタート → Push(page1) → GoBack → 前進スタックに page2
-    state.view.nav_history.Push(NavEntry{ L"C:\\page1.md", 0.0f });
+    state.view.nav_history.Push(NavEntry{ L"C:\\page1.md", 0, 0.0f });
     NavEntry tmp;
-    state.view.nav_history.GoBack(NavEntry{ L"C:\\page2.md", 0.0f }, tmp);
+    state.view.nav_history.GoBack(NavEntry{ L"C:\\page2.md", 0, 0.0f }, tmp);
     // 現在ドキュメントを page1（後進結果）に合わせる
     state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\page1.md");
     ASSERT_TRUE(state.view.nav_history.CanGoForward());
