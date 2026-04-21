@@ -5,14 +5,17 @@
 #include <memory_resource>
 #include <map>
 
-// 単一のナビゲーション履歴エントリ: ファイルパス + スクロール位置。
+// 単一のナビゲーション履歴エントリ: ファイルパス + スクロール位置（ノード単位）。
+// ノードインデックスと、そのノードの y_position からのオフセットで位置を表現する。
+// ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。
 struct NavEntry {
     std::pmr::wstring file_path;
-    float scroll_y = 0.0f;
+    int node = -1;
+    float offset = 0.0f;
 
     NavEntry() = default;
-    NavEntry(std::wstring_view fp, float sy = 0.0f)
-        : file_path(fp), scroll_y(sy)
+    NavEntry(std::wstring_view fp, int n = -1, float off = 0.0f)
+        : file_path(fp), node(n), offset(off)
     {
     }
 };
@@ -45,17 +48,18 @@ public:
     static constexpr size_t MAX_HISTORY = 1024;
 
 private:
-    // 内部エントリ: パスインデックス + スクロール位置（8バイト）
+    // 内部エントリ: パスインデックス + ノードインデックス + オフセット（12バイト）
     struct InternalEntry {
         uint32_t path_index = 0;
-        float scroll_y = 0.0f;
+        int node = -1;
+        float offset = 0.0f;
     };
 
     // パスをインターン化し、インデックスを返す
     uint32_t InternPath(std::wstring_view path);
 
     // NavEntry ↔ InternalEntry 変換
-    InternalEntry ToInternal(const NavEntry& e) { return { InternPath(e.file_path), e.scroll_y }; }
+    InternalEntry ToInternal(const NavEntry& e) { return { InternPath(e.file_path), e.node, e.offset }; }
     NavEntry ToExternal(const InternalEntry& e) const;
 
     // path_pool_ は deque にして emplace_back での参照安定性を保証し、

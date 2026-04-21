@@ -264,3 +264,12 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_co
     });
     return static_cast<int>(it - first);
 }
+
+// (node, offset) → 絶対スクロール位置。範囲外/未定義の場合 0 を返す。
+constexpr float NodeOffsetToScrollY(const LayoutCache& cache, int node, float offset) noexcept
+{
+    if (node < 0 || node >= static_cast<int>(cache.size())) {
+        return 0.0f;
+    }
+    return std::max(0.0f, cache[node].y_position + offset);
+}

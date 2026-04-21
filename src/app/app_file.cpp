@@ -211,18 +211,22 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
 
     const bool has_reload_diff = (state_.reload_diff_pos != std::string_view::npos);
 
-    MENDO_TRACEF("FinishLoad: has_reload_diff=%d HasNodeRestore=%d HasNavScroll=%d nav_scroll_y=%.1f heights_estimated=%d",
-        has_reload_diff ? 1 : 0,
-        state_.view.scroll_restore.HasNodeRestore() ? 1 : 0,
-        state_.view.scroll_restore.HasNavScroll() ? 1 : 0,
-        state_.view.scroll_restore.HasNavScroll() ? state_.view.scroll_restore.pending_nav_scroll_y : -1.0f,
-        heights_estimated ? 1 : 0);
+    if (state_.view.scroll_restore.HasNodeRestore()) {
+        MENDO_TRACEF("FinishLoad: has_reload_diff=%d node=%d offset=%d heights_estimated=%d",
+            has_reload_diff ? 1 : 0,
+            state_.view.scroll_restore.pending_restore_node,
+            state_.view.scroll_restore.pending_restore_offset,
+            heights_estimated ? 1 : 0);
+    }
+    else {
+        MENDO_TRACEF("FinishLoad: has_reload_diff=%d (no node restore) heights_estimated=%d",
+            has_reload_diff ? 1 : 0,
+            heights_estimated ? 1 : 0);
+    }
 
     // cache.Reset()直後は全ノードの高さが0のため、スクロール復元前に
     // ノード高さを推定し、Mermaidキャッシュの実測値で補正する
-    if (has_reload_diff
-        || state_.view.scroll_restore.HasNodeRestore()
-        || (state_.view.scroll_restore.HasNavScroll() && state_.view.scroll_restore.pending_nav_scroll_y > 0.0f)) {
+    if (has_reload_diff || state_.view.scroll_restore.HasNodeRestore()) {
         if (!heights_estimated) {
             MENDO_PROFILE("EstimateNodeHeights");
             EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
@@ -235,16 +239,10 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
         state_.reload_diff_pos = std::string_view::npos;
     }
     else if (state_.view.scroll_restore.HasNodeRestore()) {
-        const int node = std::min(state_.view.scroll_restore.pending_restore_node,
-            static_cast<int>(state_.document.layout_cache.size()) - 1);
-        if (node >= 0) {
-            scroll_y = std::max(0.0f,
-                state_.document.layout_cache[node].y_position + static_cast<float>(state_.view.scroll_restore.pending_restore_offset));
-        }
+        scroll_y = NodeOffsetToScrollY(state_.document.layout_cache,
+            state_.view.scroll_restore.pending_restore_node,
+            static_cast<float>(state_.view.scroll_restore.pending_restore_offset));
         state_.view.scroll_restore.ClearNodeRestore();
-    }
-    else if (state_.view.scroll_restore.HasNavScroll()) {
-        scroll_y = state_.view.scroll_restore.ConsumeNavScroll();
     }
 
     MENDO_TRACEF("FinishLoad: scroll_y=%.1f (0=top of file)", scroll_y);

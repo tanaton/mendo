@@ -5,35 +5,9 @@
 TEST(ScrollRestoration, InitialState)
 {
     ScrollRestoration sr;
-    EXPECT_FALSE(sr.HasNavScroll());
     EXPECT_FALSE(sr.HasNodeRestore());
-    EXPECT_FLOAT_EQ(sr.pending_nav_scroll_y, -1.0f);
     EXPECT_EQ(sr.pending_restore_node, -1);
     EXPECT_EQ(sr.pending_restore_offset, 0);
-}
-
-TEST(ScrollRestoration, HasNavScroll)
-{
-    ScrollRestoration sr;
-    EXPECT_FALSE(sr.HasNavScroll());
-
-    sr.pending_nav_scroll_y = 0.0f;
-    EXPECT_TRUE(sr.HasNavScroll());
-
-    sr.pending_nav_scroll_y = 500.0f;
-    EXPECT_TRUE(sr.HasNavScroll());
-}
-
-TEST(ScrollRestoration, ConsumeNavScroll)
-{
-    ScrollRestoration sr;
-    sr.pending_nav_scroll_y = 250.0f;
-    EXPECT_TRUE(sr.HasNavScroll());
-
-    const float v = sr.ConsumeNavScroll();
-    EXPECT_FLOAT_EQ(v, 250.0f);
-    EXPECT_FALSE(sr.HasNavScroll());
-    EXPECT_FLOAT_EQ(sr.pending_nav_scroll_y, -1.0f);
 }
 
 TEST(ScrollRestoration, HasNodeRestore)
@@ -69,13 +43,10 @@ TEST(ScrollRestoration, ClearNodeRestore)
 TEST(ScrollRestoration, Reset)
 {
     ScrollRestoration sr;
-    sr.pending_nav_scroll_y = 100.0f;
     sr.SetNodeRestore(10, 50);
 
     sr.Reset();
-    EXPECT_FALSE(sr.HasNavScroll());
     EXPECT_FALSE(sr.HasNodeRestore());
-    EXPECT_FLOAT_EQ(sr.pending_nav_scroll_y, -1.0f);
     EXPECT_EQ(sr.pending_restore_node, -1);
     EXPECT_EQ(sr.pending_restore_offset, 0);
 }

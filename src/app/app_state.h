@@ -105,3 +105,6 @@ AnchorState SaveAnchorFromState(const AppState& state) noexcept;
 
 // 現在のファイル/スクロール位置をナビゲーション履歴に Push する。
 void PushCurrentNavEntry(AppState& state);
+
+// 現在のファイル/スクロール位置を NavEntry として返す（Push せず）。
+NavEntry CurrentNavEntry(const AppState& state);

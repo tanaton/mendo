@@ -20,7 +20,7 @@ uint32_t NavHistory::InternPath(std::wstring_view path)
 
 NavEntry NavHistory::ToExternal(const InternalEntry& e) const
 {
-    return NavEntry(path_pool_[e.path_index], e.scroll_y);
+    return NavEntry(path_pool_[e.path_index], e.node, e.offset);
 }
 
 void NavHistory::Push(const NavEntry& current)
