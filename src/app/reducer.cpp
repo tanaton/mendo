@@ -4,6 +4,7 @@
 #include "document_utils.h"
 #include "ui_constants.h"
 #include "utility.h"
+#include <cmath>
 
 // ============================================================
 // 共通ヘルパー
@@ -70,7 +71,7 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
 {
     if (entry.file_path != state.document.doc.GetFilePath() && !entry.file_path.empty()) {
-        state.view.scroll_restore.SetNodeRestore(entry.node, static_cast<int>(entry.offset));
+        state.view.scroll_restore.SetNodeRestore(entry.node, static_cast<int>(std::lround(entry.offset)));
         effects.emplace_back(effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
