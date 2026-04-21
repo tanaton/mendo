@@ -76,6 +76,9 @@ bool App::Init(HWND hwnd)
             .apply_theme_change = [this](const effect::ApplyThemeChange& e) {
                 HandleApplyThemeChange(e);
             },
+            .compensate_scroll_after_layout = [this](const effect::CompensateScrollAfterLayout& e) {
+                HandleCompensateScrollAfterLayout(e);
+            },
             .process_deferred_layout = [this]() {
                 OnDeferredLayout();
             },

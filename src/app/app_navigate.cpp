@@ -37,9 +37,11 @@ void App::NavigateToAnchor(std::wstring_view anchor)
     }
 
     const auto layout = GetPaneLayout();
-    float target_y = state_.document.layout_cache[idx].y_position - renderer_.GetTheme().heading_spacing_above - layout.md_rect.y;
+    const float anchor_y_before = state_.document.layout_cache[idx].y_position;
+    float target_y = anchor_y_before - renderer_.GetTheme().heading_spacing_above - layout.md_rect.y;
     target_y = std::max(0.0f, target_y);
     ScrollTo(target_y);
+    ViewportLayoutAndCompensate(idx, anchor_y_before);
     UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
     resource_manager_.ScheduleBitmapManage();
@@ -77,6 +79,23 @@ void App::FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale)
     ScheduleDeferredLayoutIfNeeded();
     UpdateScrollBar();
     Invalidate();
+}
+
+void App::ViewportLayoutAndCompensate(int anchor_idx, float anchor_y_before)
+{
+    const auto layout = GetPaneLayout();
+    const float md_width = layout.md_rect.width;
+    const float md_height = layout.md_rect.height;
+    layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
+    state_.view.viewport.AnchorCompensateScroll(anchor_idx, anchor_y_before, state_.document.layout_cache);
+    SyncMaxScroll(md_height);
+}
+
+void App::HandleCompensateScrollAfterLayout(const effect::CompensateScrollAfterLayout& e)
+{
+    // 発行元 Reducer が直後に effect::InvalidateWindow を発行するため
+    // ここで UpdateScrollBar 経由の部分無効化は冗長
+    ViewportLayoutAndCompensate(e.anchor_idx, e.anchor_y_before);
 }
 
 void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
