@@ -91,7 +91,6 @@ struct AppState {
 
     // ---- リロード管理 ----
     size_t reload_diff_pos = std::string_view::npos;
-    float reload_old_scroll = 0.0f;
     bool pending_prefix_shrink = false;
 
     // ---- ペインレイアウトキャッシュ ----

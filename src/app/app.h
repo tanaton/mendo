@@ -185,12 +185,12 @@ private:
     void FinishLoadMarkdownFile(bool heights_estimated = false);
     // ロード失敗時のフォールバック: 初回起動で空画面になるのを避けるためヘルプを表示する
     void HandleLoadFailureFallback();
-    float CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const;
+    float CalcScrollForDiff(size_t diff_pos, float viewport_height) const;
     void ApplyMermaidCacheHeights(float md_width);
     void UpdateTitleBar();
 
     // リロード共通処理: 差分分析後のレイアウト更新・スクロール復元・検索再実行
-    void FinishReload(bool is_prefix_only, size_t diff_pos, float old_scroll);
+    void FinishReload(bool is_prefix_only, size_t diff_pos);
 
     // ファイル読み込み/リロード共通ヘルパー
     void CancelPendingResources();
