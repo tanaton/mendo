@@ -164,7 +164,7 @@ void App::OnParseComplete()
             // 末尾伸張のみ。FinishReload が ResizePreservingPrefix で旧キャッシュの実測高さを保持する。
             resource_manager_.CancelMermaidBatch();
             state_.document.doc = std::move(result->doc);
-            FinishReload(true, decision.diff_pos, state_.reload_old_scroll);
+            FinishReload(true, decision.diff_pos);
             return;
         case ReloadOp::FullReload:
             state_.reload_diff_pos = decision.diff_pos;
@@ -231,7 +231,7 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     }
 
     if (has_reload_diff) {
-        scroll_y = CalcScrollForDiff(state_.reload_diff_pos, md_height, state_.reload_old_scroll);
+        scroll_y = CalcScrollForDiff(state_.reload_diff_pos, md_height);
         state_.reload_diff_pos = std::string_view::npos;
     }
     else if (state_.view.scroll_restore.HasNodeRestore()) {
@@ -291,7 +291,6 @@ void App::ReloadCurrentFile()
 
     if (DocumentService::NeedsAsyncLoad(path)) {
         MENDO_TRACE("ReloadCurrentFile: async path");
-        state_.reload_old_scroll = state_.view.viewport.GetScrollY();
         BeginAsyncLoad(path);
     }
     else {
@@ -312,8 +311,6 @@ void App::DoReloadCurrentFile()
         return;
     }
 
-    const float old_scroll = state_.view.viewport.GetScrollY();
-
     CancelPendingResources();
 
     // ファイルを読み込み、旧コンテンツとの差分位置をコピーなしで計算
@@ -331,8 +328,8 @@ void App::DoReloadCurrentFile()
     const auto decision = AnalyzeReloadDiff(old_view, new_view);
     state_.pending_prefix_shrink = (decision.op == ReloadOp::DeferPrefixShrink);
 
-    MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu old_scroll=%.1f op=%d",
-        decision.diff_pos, old_view.size(), new_view.size(), old_scroll,
+    MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu op=%d",
+        decision.diff_pos, old_view.size(), new_view.size(),
         static_cast<int>(decision.op));
 
     switch (decision.op) {
@@ -350,7 +347,7 @@ void App::DoReloadCurrentFile()
     case ReloadOp::FullReload: {
         MENDO_PROFILE("Reload::ReplaceFromMarkdown");
         state_.document.doc.ReplaceFromMarkdown(std::move(new_utf8));
-        FinishReload(decision.op == ReloadOp::PrefixGrowth, decision.diff_pos, old_scroll);
+        FinishReload(decision.op == ReloadOp::PrefixGrowth, decision.diff_pos);
         return;
     }
     }
@@ -358,11 +355,10 @@ void App::DoReloadCurrentFile()
 
 // DoReloadCurrentFile / OnParseComplete 共通のリロード後処理。
 // ドキュメントは更新済みの状態で呼ばれる。
-// is_prefix_only: ファイル末尾の伸縮のみか
-// diff_pos: 差分開始位置 (prefix-only の場合は使用しない)
-// old_scroll: リロード前のスクロール位置
-void App::FinishReload(bool is_prefix_only, size_t diff_pos, float old_scroll)
+void App::FinishReload(bool is_prefix_only, size_t diff_pos)
 {
+    const float old_scroll = state_.view.viewport.GetScrollY();
+
     if (is_prefix_only) {
         state_.document.layout_cache.ResizePreservingPrefix(state_.document.doc.GetNodes().size());
     }
@@ -385,7 +381,7 @@ void App::FinishReload(bool is_prefix_only, size_t diff_pos, float old_scroll)
 
     const float desired_scroll = is_prefix_only
         ? old_scroll
-        : CalcScrollForDiff(diff_pos, md_height, old_scroll);
+        : CalcScrollForDiff(diff_pos, md_height);
 
     MENDO_TRACEF("FinishReload: desired_scroll=%.1f old_scroll=%.1f is_prefix_only=%d",
         desired_scroll, old_scroll, is_prefix_only ? 1 : 0);
@@ -412,13 +408,13 @@ void App::FinishReload(bool is_prefix_only, size_t diff_pos, float old_scroll)
 // ファイル読み込みヘルパー
 // ============================================================
 
-float App::CalcScrollForDiff(size_t diff_pos, float viewport_height, float fallback_scroll) const
+float App::CalcScrollForDiff(size_t diff_pos, float viewport_height) const
 {
     MENDO_TRACEF("CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, state_.document.doc.GetNodes().size());
     return CalcScrollYForDiff(
         state_.document.doc.GetNodes(), state_.document.layout_cache,
         std::string_view(state_.document.doc.GetRawUtf8()),
-        diff_pos, viewport_height, fallback_scroll);
+        diff_pos, viewport_height, state_.view.viewport.GetScrollY());
 }
 
 void App::ApplyMermaidCacheHeights(float md_width)
