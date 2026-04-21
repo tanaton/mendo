@@ -31,6 +31,11 @@
 | D-9b | `PaneScrollbarDrag{Started,Moved,Ended}Action`（`PaneTarget` フィールド付き）を追加し、File/Toc スクロールバードラッグを Dispatch 化。`HandleScrollbarClick`/`HandleScrollbarDrag`/`HandleSidePaneScrollDrag`/`TryHandlePaneScrollbarClick` を削除し、`IsOverPaneScrollbar` 静的当たり判定のみ残置。`app_mouse.cpp:OnLButtonUp` の `ReleaseCapture()` 直呼び・`OnResize` 往復を完全排除。合わせて `ReduceTextSelectionStarted` を `node_index<0` で `SetCapture` を発行しないように挙動変更（対応 `ReleaseCapture` 漏れを解消）。`effect::InvalidatePaneCache{ PaneZone }` で pane キャッシュ無効化を副作用化。`test_reducer.cpp` に 7 テスト追加＋既存テスト 1 件を挙動変更に合わせて更新 |
 | 4.2 | ツールチップ更新を Dispatch 化。`UpdateTooltipAction { TooltipTarget, px, py }` / `ClearTooltipAction` を新設し、`app_mouse_hover.cpp`（10 箇所）と `app_scroll.cpp::InvalidateHitPositions` の `UpdateTooltip` / `ClearTooltip` 直呼びを Dispatch に置換。`App::UpdateTooltip` / `App::ClearTooltip` メソッドと `app.h` 宣言を削除。Reducer は `effect::ShowTooltip` / `effect::ClearTooltip` を発行（既存 executor がタイマー＋`tooltip.Update`/`Hide` を実行）。`TooltipTarget` を `tooltip.h` から新ヘッダ `src/ui/tooltip_target.h` に切り出し、`app_events.h` が Win32 を引き込まずに参照できるようにした。`test_reducer.cpp` に 3 テスト追加 |
 | P1-f | `src/input/hit_test_service.h` から `<dwrite.h>` 直 include と `#include "layout_cache.h"` を除去し、`LayoutCache` / `NodeLayoutEntry` を前方宣言化。`MdPaneHitContext::cache` および `HitTestTable(..., const NodeLayoutEntry&, ...)` は参照型のため前方宣言で十分。実体は `hit_test_service.cpp` が `layout.h` 経由で解決。あわせて未使用の `<optional>` / `<string>` を削除。これで `hit_test_service.h` を include するだけでは `<dwrite.h>` が波及しなくなり、Redux 層ヘッダから dwrite 参照を 1 経路閉塞。`app_state.h` は依然 `layout_cache.h`（`<dwrite.h>`）と `context_menu.h`（`<windows.h>`/`<dwrite.h>`/`<d2d1.h>`）を直接 include しており、完全除去には PIMPL 化が必要（保留）。フルテスト 1832 件回帰なし |
+| P1-g | `src/io/file_explorer.h` から `<windows.h>` 直 include を除去。ヘッダ内 inline メソッドは Win32 型を使っていないため、`win_handle.h` 経由で `<windows.h>` を引き込む `.cpp` への移動は不要だった。`test_file_explorer.cpp` が暗黙依存していた `MAX_PATH` / `GetTempPathW` 用の `<windows.h>` を明示 include に変更 |
+| P1-h | `src/ui/tooltip.h` を PIMPL 化し `<windows.h>` / `<commctrl.h>` をヘッダから除去。公開 API の `Init(HWND)` → `Init(void*)`、`Update(target, POINT)` → `Update(target, int screen_x, int screen_y)` に変更。実装を新規 `src/ui/tooltip.cpp` に移動。`side_effect_executor.cpp` および `test_reducer.cpp` の呼び出し側を追随修正 |
+| P1-i | `src/ui/titlebar.h` の公開 API から `D2D1_RECT_F` を除去。新規 `src/ui/dip_rect.h` に `DipRect { float left, top, right, bottom; }` を定義し、`TitleBarButton::rect` / `icon_rect_` / `title_text_rect_` を `DipRect` に置換。`UpdateLayout` / `HitTest` / `SetHovered` の実装を新規 `src/ui/titlebar.cpp` に分離。`render_params.h` の `TitleBarRenderState::icon_rect` / `title_text_rect` も `DipRect` 化し、`ToD2DRect` 変換ヘルパを追加。`renderer_titlebar.cpp` で描画時のみ `D2D1_RECT_F` に変換。`test_titlebar.cpp` はメンバ名互換のため変更不要 |
+| P2-d | `MermaidRenderer::OnRenderResult` のラムダ `find_num` と `"ok":true` 判定を `mermaid_util::ParseJsonNumber` / `ParseJsonTrueFlag` に抽出。WebView2 モック不要な単体テスト対象化。`test_mermaid_util.cpp` に 13 テスト追加 |
+| P2-e | WebView2 メッセージハンドラで重複していた `"<id>:<payload>"` 解析を `mermaid_util::ParseRequestPrefix` に抽出。`RequestPrefix { id, payload, valid, has_payload }` 構造体を返す純粋関数化。`test_mermaid_util.cpp` に 7 テスト追加 |
 
 ---
 
@@ -163,8 +168,27 @@ Reducer と各コンポーネントの密結合は低い（`layout_cache` 3 箇�
 
 ### 6.3 推奨セッション分割
 
-| セッション | 内容 | 特徴 |
+| セッション | 内容 | 特徴 | 状況 |
+|---|---|---|---|
+| 次回 | P1-g / P1-h / P1-i / P2-d / P2-e | 小粒・モック不要・並行実施可能 | 2026-04-21 完了（上表参照） |
+| その次 | P1-j → P1-k | PIMPL の段階的適用 | 未着手 |
+| 別途判断 | P2-f / P2-g | WebView2 モック導入工数の見合いで着手是非を決定 | 未着手 |
+
+---
+
+## 7. 2026-04-21 セッション完了サマリ
+
+ブランチ `refactor/2026-04-21-p1-p2-first-batch` に以下 5 コミット：
+
+| コミット | タスク | 効果 |
 |---|---|---|
-| 次回 | P1-g / P1-h / P1-i / P2-d / P2-e | 小粒・モック不要・並行実施可能 |
-| その次 | P1-j → P1-k | PIMPL の段階的適用 |
-| 別途判断 | P2-f / P2-g | WebView2 モック導入工数の見合いで着手是非を決定 |
+| `51ded2d` | P1-g | `file_explorer.h` から `<windows.h>` 除去 |
+| `a4bf5ad` | P2-d | mermaid JSON 解析 (`find_num` / `ok` 判定) を抽出、13 テスト追加 |
+| `341603a` | P1-h | Tooltip を PIMPL 化、`HWND`/`POINT` を `void*`/`int,int` へ |
+| `26472b3` | P2-e | WebView2 メッセージの ID プレフィックス解析を抽出、7 テスト追加 |
+| `a501650` | P1-i | TitleBar 公開 API の `D2D1_RECT_F` を `DipRect` に置換、`titlebar.h` の `<d2d1.h>` / `ui_constants.h` 依存を除去 |
+
+**成果**：
+- テスト数 1832 → 1852（+20）、全 PASS
+- Redux 層主要ヘッダ（`titlebar.h` / `tooltip.h` / `file_explorer.h` / `hit_test_service.h`）から `<d2d1.h>` / `<dwrite.h>` / `<windows.h>` の直接 include を完全除去
+- `app_state.h` 経由の Win32 依存波及経路のうち、残るのは `LayoutCache`（`<dwrite.h>`）と `ContextMenu`（`<windows.h>`/`<dwrite.h>`/`<d2d1.h>`）のみ（P1-j / P1-k で対応予定）
