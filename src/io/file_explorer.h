@@ -2,7 +2,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include <windows.h>
 #include <memory_resource>
 
 struct FileEntry {

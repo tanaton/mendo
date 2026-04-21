@@ -4,6 +4,7 @@
 #include "file_explorer.h"
 #include <filesystem>
 #include <fstream>
+#include <windows.h>
 
 namespace fs = std::filesystem;
 
