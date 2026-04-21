@@ -22,13 +22,6 @@
 #include <string_view>
 #include <memory_resource>
 
-// スクロール位置のアンカー。レイアウト無効化の前に保存し、復元に使用する。
-struct AnchorState {
-    int idx = -1;
-    float y_before = 0.0f;
-    float offset = 0.0f;
-};
-
 // ---- ドメイン状態: ドキュメントとレイアウトキャッシュ ----
 struct DocumentState {
     Document doc;
@@ -100,8 +93,8 @@ struct AppState {
     bool pane_layout_valid = false;
 };
 
-// 現在のスクロール位置からアンカーを保存する。Reducer と App の共通ヘルパー。
-AnchorState SaveAnchorFromState(const AppState& state) noexcept;
+// 現在の可視先頭ノードから ScrollTarget を合成する。Reducer と App の共通ヘルパー。
+ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept;
 
 // 現在のファイル/スクロール位置をナビゲーション履歴に Push する。
 void PushCurrentNavEntry(AppState& state);

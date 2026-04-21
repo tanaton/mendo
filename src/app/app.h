@@ -128,10 +128,9 @@ private:
     ResourceManager::Callbacks BuildResourceManagerCallbacks();
     SearchBarController::Callbacks BuildSearchBarCallbacks();
 
-    // アンカーベースのスクロール位置保存/復元 (AnchorState は app_state.h で定義)
-    AnchorState SaveAnchor() const;
-    void RestoreAnchor(const AnchorState& anchor, float md_pane_height);
-    void RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale);
+    // 現在可視アンカーから scroll_target を合成（未設定時のみ）。
+    // レイアウト操作の直前に呼び、直後のフックで補償を掛ける。
+    void EnsureScrollTarget();
 
     // DIP変換
     struct DipPoint { float x, y; };
@@ -212,12 +211,8 @@ private:
     // ダークモード / ズーム (theme_service_に委譲)
     void HandleApplyThemeChange(const effect::ApplyThemeChange& e);
 
-    // テーマ/ズーム変更後の共通後処理（ViewportLayout→スクロール復元→再描画）
-    void FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale);
-
-    // ノード指定ジャンプ後の推定→実測誤差補償（TOCクリック・戻る/進む同一ファイル等）
-    void HandleCompensateScrollAfterLayout(const effect::CompensateScrollAfterLayout& e);
-    void ViewportLayoutAndCompensate(int anchor_idx, float anchor_y_before);
+    // テーマ/ズーム変更後の共通後処理（ViewportLayout→scroll_target フックで復元→再描画）
+    void FinishThemeOrZoomChange();
 
 private:
     // Win32ハンドル

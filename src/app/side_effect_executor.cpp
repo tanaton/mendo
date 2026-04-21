@@ -199,9 +199,6 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         [this](const effect::ApplyThemeChange& e) {
             cb_.apply_theme_change(e);
         },
-        [this](const effect::CompensateScrollAfterLayout& e) {
-            cb_.compensate_scroll_after_layout(e);
-        },
         [this](const effect::ProcessDeferredLayout&) {
             cb_.process_deferred_layout();
         },

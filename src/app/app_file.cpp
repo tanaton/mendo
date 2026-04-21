@@ -234,32 +234,30 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
         ApplyMermaidCacheHeights(md_width);
     }
 
+    state_.view.viewport.ClearScrollTarget();
+
     if (has_reload_diff) {
         scroll_y = CalcScrollForDiff(state_.reload_diff_pos, md_height);
         state_.reload_diff_pos = std::string_view::npos;
+        state_.view.viewport.SetScrollY(scroll_y);
     }
     else if (state_.view.scroll_restore.HasNodeRestore()) {
-        scroll_y = NodeOffsetToScrollY(state_.document.layout_cache,
+        state_.view.viewport.SetScrollTarget(
             state_.view.scroll_restore.pending_restore_node,
             static_cast<float>(state_.view.scroll_restore.pending_restore_offset));
+        state_.view.viewport.ApplyScrollTarget(state_.document.layout_cache);
+        scroll_y = state_.view.viewport.GetScrollY();
         state_.view.scroll_restore.ClearNodeRestore();
+    }
+    else {
+        state_.view.viewport.SetScrollY(0.0f);
     }
 
     MENDO_TRACEF("FinishLoad: scroll_y=%.1f (0=top of file)", scroll_y);
 
-    state_.view.viewport.SetScrollY(scroll_y);
-
-    // 推定→計測の高さ差をアンカー補償
-    const bool need_anchor = (scroll_y > 0.0f);
-    const auto anchor = need_anchor ? SaveAnchor() : AnchorState{};
-
     {
         MENDO_PROFILE("ViewportLayout(Initial)");
         layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
-    }
-
-    if (need_anchor) {
-        state_.view.viewport.AnchorCompensateScroll(anchor.idx, anchor.y_before, state_.document.layout_cache);
     }
 
     FinalizeLayout(md_height);
@@ -385,7 +383,9 @@ void App::FinishReload(bool is_prefix_only, size_t diff_pos)
         desired_scroll, old_scroll, is_prefix_only ? 1 : 0);
 
     // スクロール位置を設定してからViewportLayoutを呼ぶことで、
-    // 変更箇所周辺の可視ノードが優先的に計測される
+    // 変更箇所周辺の可視ノードが優先的に計測される。
+    // リロード時は直前の navigation target を破棄し、ピクセル位置で固定する。
+    state_.view.viewport.ClearScrollTarget();
     state_.view.viewport.SetScrollY(desired_scroll);
 
     {

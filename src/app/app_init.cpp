@@ -76,9 +76,6 @@ bool App::Init(HWND hwnd)
             .apply_theme_change = [this](const effect::ApplyThemeChange& e) {
                 HandleApplyThemeChange(e);
             },
-            .compensate_scroll_after_layout = [this](const effect::CompensateScrollAfterLayout& e) {
-                HandleCompensateScrollAfterLayout(e);
-            },
             .process_deferred_layout = [this]() {
                 OnDeferredLayout();
             },
@@ -178,10 +175,10 @@ ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
             layout_service_->RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, renderer_.GetTheme());
         },
         .recompute_layout_anchored = [this]() {
-            const auto anchor = SaveAnchor();
+            EnsureScrollTarget();
             layout_service_->RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, renderer_.GetTheme());
             const auto layout = GetPaneLayout();
-            RestoreAnchor(anchor, layout.md_rect.height);
+            SyncMaxScroll(layout.md_rect.height);
             Invalidate();
         },
     };

@@ -81,25 +81,13 @@ struct RefreshPaneLayout {};
 // ---- テーマ・ダークモード ----
 struct ApplyDarkMode { bool dark; };
 
-// テーマ/ズーム変更の複合副作用。
-// Reducer が SaveAnchor + 状態変更を行った後、executor がレンダラー適用 + レイアウトを実行する。
+// テーマ/ズーム変更の複合副作用。executor がレンダラー適用 + レイアウトを実行する。
+// スクロール位置保持は scroll_target を介して行うのでアンカー情報は含めない。
 struct ApplyThemeChange {
     enum class Type { Zoom, DarkMode };
     Type type;
-    int anchor_idx;
-    float anchor_y_before;
-    float anchor_offset;
-    float offset_scale;   // Zoom: zoom_ratio, DarkMode: 1.0f
     float new_zoom;       // Zoom 用: 新しいズーム値
     int zoom_index;       // Zoom 用: ズームインデックス（設定保存用）
-};
-
-// ノード指定ジャンプ（TOCクリック・戻る/進む同一ファイル）後に発行する補償副作用。
-// Reducer で推定 y_position を基準に ScrollTo した後、executor が ViewportLayout で
-// 目的地周辺を本計測し、推定と実測の差を AnchorCompensateScroll で吸収する。
-struct CompensateScrollAfterLayout {
-    int anchor_idx;
-    float anchor_y_before;
 };
 
 // ---- ファイル監視・リソース ----
@@ -175,7 +163,6 @@ using SideEffect = std::variant<
     effect::PerformResizeEnd,
     effect::PerformSizingUpdate,
     effect::ApplyThemeChange,
-    effect::CompensateScrollAfterLayout,
     effect::ProcessDeferredLayout,
     effect::TickLoadingAnimation,
     effect::ProcessMermaidBatchTimer,

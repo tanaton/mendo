@@ -165,7 +165,7 @@ void App::OnPaint()
         resource_manager_.FlushPendingResources();
 
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
-        const auto anchor = SaveAnchor();
+        EnsureScrollTarget();
 
         bool updated;
         {
@@ -175,7 +175,7 @@ void App::OnPaint()
         }
 
         if (updated) {
-            RestoreAnchor(anchor, layout.md_rect.height);
+            SyncMaxScroll(layout.md_rect.height);
         }
     }
     // 目次ペインの同期: mdペインのスクロール位置からアクティブ見出しを判定し、
