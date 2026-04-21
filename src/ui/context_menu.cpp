@@ -26,11 +26,6 @@ constexpr float MENU_BORDER = 1.0f;
 constexpr wchar_t GLYPH_BACK[] = L"\xE72B";
 constexpr wchar_t GLYPH_FORWARD[] = L"\xE72A";
 constexpr wchar_t GLYPH_CHECKMARK[] = L"\xE73E";
-
-inline D2D1_RECT_F ToD2D(const DipRect& r) noexcept
-{
-    return D2D1_RECT_F{ r.left, r.top, r.right, r.bottom };
-}
 } // namespace
 
 struct ContextMenu::Impl {
@@ -604,7 +599,7 @@ void ContextMenu::Impl::Paint()
 void ContextMenu::Impl::DrawNavRow()
 {
     auto draw_btn = [&](const DipRect& dr, const wchar_t* glyph, bool enabled, bool hovered) {
-        const D2D1_RECT_F rc = ToD2D(dr);
+        const D2D1_RECT_F rc{ dr.left, dr.top, dr.right, dr.bottom };
         if (hovered) {
             const D2D1_ROUNDED_RECT rr = { rc, NAV_BTN_CORNER, NAV_BTN_CORNER };
             rt->FillRoundedRectangle(rr, brush_hover.Get());

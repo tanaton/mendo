@@ -2,7 +2,6 @@
 #include "tooltip_target.h"
 #include <memory>
 
-// Win32 TOOLTIPS_CLASS を TTF_TRACK モードで管理するラッパー。
 // App 側のホバー検出結果をもとに、ツールチップの表示/非表示を制御する。
 class Tooltip {
 public:

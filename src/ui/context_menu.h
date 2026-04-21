@@ -24,7 +24,6 @@ struct ContextMenuParams {
 
 // Win32ポップアップメニューの代わりに自前描画するコンテキストメニュー。
 // 戻る/進むボタンの横並び表示が可能。
-// 実装は PIMPL により隠蔽され、ヘッダは Win32 / D2D / DWrite に依存しない。
 class ContextMenu {
 public:
     // メニュー項目の種類

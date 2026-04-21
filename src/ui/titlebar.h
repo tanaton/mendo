@@ -23,7 +23,7 @@ struct TitleBarButton {
     bool hovered = false;
 };
 
-// カスタムタイトルバーの状態管理（Win32 / D2D 非依存）。
+// カスタムタイトルバーの状態管理。
 // ボタン位置計算・ヒットテスト・ホバー管理を担当。
 class TitleBar {
 public:
