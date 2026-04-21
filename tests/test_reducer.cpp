@@ -175,7 +175,7 @@ TEST_F(ReducerTest, UpdateTooltipAction_SameTargetAsCurrent_NoEffect) {
 TEST_F(ReducerTest, UpdateTooltipAction_ClearsAfterPrevTarget) {
     // 既にターゲットが設定済みなら、空ターゲットへの遷移で ShowTooltip が発行される（Executor でタイマー停止）
     state.interaction.tooltip.Update(
-        TooltipTarget{ TooltipTarget::Zone::MdLink, L"x" }, POINT{ 0, 0 });
+        TooltipTarget{ TooltipTarget::Zone::MdLink, L"x" }, 0, 0);
 
     auto effects = Reduce(state, UpdateTooltipAction{ TooltipTarget{}, 0, 0 });
     ASSERT_EQ(effects.size(), 1u);
@@ -184,7 +184,7 @@ TEST_F(ReducerTest, UpdateTooltipAction_ClearsAfterPrevTarget) {
 
 TEST_F(ReducerTest, ClearTooltipAction_EmitsClearTooltipAndResetsState) {
     state.interaction.tooltip.Update(
-        TooltipTarget{ TooltipTarget::Zone::MdLink, L"x" }, POINT{ 0, 0 });
+        TooltipTarget{ TooltipTarget::Zone::MdLink, L"x" }, 0, 0);
 
     auto effects = Reduce(state, ClearTooltipAction{});
 
