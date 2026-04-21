@@ -39,14 +39,3 @@ TEST(ScrollRestoration, ClearNodeRestore)
     EXPECT_EQ(sr.pending_restore_node, -1);
     EXPECT_EQ(sr.pending_restore_offset, 0);
 }
-
-TEST(ScrollRestoration, Reset)
-{
-    ScrollRestoration sr;
-    sr.SetNodeRestore(10, 50);
-
-    sr.Reset();
-    EXPECT_FALSE(sr.HasNodeRestore());
-    EXPECT_EQ(sr.pending_restore_node, -1);
-    EXPECT_EQ(sr.pending_restore_offset, 0);
-}

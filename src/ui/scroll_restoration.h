@@ -20,10 +20,4 @@ struct ScrollRestoration {
         pending_restore_node = -1;
         pending_restore_offset = 0;
     }
-
-    void Reset() noexcept
-    {
-        pending_restore_node = -1;
-        pending_restore_offset = 0;
-    }
 };
