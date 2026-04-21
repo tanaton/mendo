@@ -120,35 +120,85 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeEmpty)
     EXPECT_EQ(vm.FindFirstVisibleNode(cache, 0), -1);
 }
 
-// ---- AnchorCompensateScroll テスト ----
+// ---- ScrollTarget テスト ----
 
-TEST(ViewportManagerTest, AnchorCompensateScroll)
+TEST(ViewportManagerTest, ScrollTargetAppliesNewYPosition)
 {
+    // レイアウト変更でターゲットノードの y_position が動くと scroll_y も追従する
     ViewportManager vm;
     auto cache = MakeUniformCache(5, 100.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(100.0f);
 
-    float y_before = cache[1].y_position; // 100.0f
+    float offset = vm.GetScrollY() - cache[1].y_position; // 0
+    vm.SetScrollTarget(1, offset);
+
     // レイアウト変更をシミュレーション: ノード1を30下にシフト
     cache[1].y_position = 130.0f;
     cache[2].y_position = 230.0f;
     cache[3].y_position = 330.0f;
     cache[4].y_position = 430.0f;
 
-    vm.AnchorCompensateScroll(1, y_before, cache);
+    vm.ApplyScrollTarget(cache);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 130.0f);
 }
 
-TEST(ViewportManagerTest, AnchorCompensateNegativeIndex)
+TEST(ViewportManagerTest, ApplyScrollTargetIsNoOpWhenInvalid)
 {
     ViewportManager vm;
     auto cache = MakeUniformCache(3, 100.0f);
     vm.SyncMaxScroll(300.0f, 100.0f);
     vm.ScrollTo(50.0f);
     float before = vm.GetScrollY();
-    vm.AnchorCompensateScroll(-1, 0.0f, cache);
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), before); // 変更なし
+    // target 未設定なので何もしない
+    EXPECT_FALSE(vm.HasScrollTarget());
+    vm.ApplyScrollTarget(cache);
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), before);
+}
+
+TEST(ViewportManagerTest, ScrollToInvalidatesScrollTarget)
+{
+    ViewportManager vm;
+    vm.SetScrollTarget(2, 10.0f);
+    EXPECT_TRUE(vm.HasScrollTarget());
+    vm.ScrollTo(100.0f);
+    EXPECT_FALSE(vm.HasScrollTarget());
+}
+
+TEST(ViewportManagerTest, DirectScrollByInvalidatesScrollTarget)
+{
+    ViewportManager vm;
+    vm.SyncMaxScroll(1000.0f, 200.0f);
+    vm.SetScrollTarget(2, 10.0f);
+    vm.DirectScrollBy(50.0f);
+    EXPECT_FALSE(vm.HasScrollTarget());
+}
+
+TEST(ViewportManagerTest, EnsureScrollTargetSynthesizesFromVisibleAnchor)
+{
+    ViewportManager vm;
+    auto cache = MakeUniformCache(5, 100.0f);
+    vm.SyncMaxScroll(500.0f, 200.0f);
+    vm.ScrollTo(150.0f); // ノード1の途中（scroll_y=150, cache[1].y=100）
+
+    vm.EnsureScrollTarget(cache, 5);
+    ASSERT_TRUE(vm.HasScrollTarget());
+    EXPECT_EQ(vm.GetScrollTarget().node, 1);
+    EXPECT_FLOAT_EQ(vm.GetScrollTarget().offset, 50.0f);
+}
+
+TEST(ViewportManagerTest, EnsureScrollTargetPreservesExistingTarget)
+{
+    ViewportManager vm;
+    auto cache = MakeUniformCache(5, 100.0f);
+    vm.SyncMaxScroll(500.0f, 200.0f);
+    vm.SetScrollY(150.0f);
+    vm.SetScrollTarget(3, 25.0f);
+
+    vm.EnsureScrollTarget(cache, 5);
+    // 既存ターゲットは上書きされない
+    EXPECT_EQ(vm.GetScrollTarget().node, 3);
+    EXPECT_FLOAT_EQ(vm.GetScrollTarget().offset, 25.0f);
 }
 
 // ---- 選択テスト ----
@@ -255,37 +305,39 @@ TEST(ViewportManagerTest, ScrollbarTracking)
     EXPECT_TRUE(vm.IsScrollbarTracking());
 }
 
-// ---- バグ #17: AnchorCompensateScrollの非負クランプ ----
+// ---- バグ #17: scroll_y の非負クランプ ----
 
-TEST(ViewportManagerTest, AnchorCompensateScrollClampsNegative)
+TEST(ViewportManagerTest, ApplyScrollTargetClampsNegative)
 {
     ViewportManager vm;
     auto cache = MakeUniformCache(5, 100.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(50.0f);
 
-    float y_before = cache[2].y_position; // 200.0f
+    // target 設定: scroll_y - y_position[2] = 50 - 200 = -150
+    vm.SetScrollTarget(2, vm.GetScrollY() - cache[2].y_position);
+
     // ノード2を上方に300シフトするレイアウト変更をシミュレーション
     // （例: 上にある大きなノードが削除された場合）
     cache[2].y_position = 0.0f;
 
-    vm.AnchorCompensateScroll(2, y_before, cache);
+    vm.ApplyScrollTarget(cache);
 
     // scroll_yは-150ではなく0にクランプされるべき
     EXPECT_GE(vm.GetScrollY(), 0.0f);
 }
 
-TEST(ViewportManagerTest, AnchorCompensateScrollPositiveShiftOk)
+TEST(ViewportManagerTest, ApplyScrollTargetPositiveShiftOk)
 {
     ViewportManager vm;
     auto cache = MakeUniformCache(5, 100.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(100.0f);
 
-    float y_before = cache[1].y_position; // 100.0f
+    vm.SetScrollTarget(1, vm.GetScrollY() - cache[1].y_position);
     cache[1].y_position = 150.0f; // shifted down by 50
 
-    vm.AnchorCompensateScroll(1, y_before, cache);
+    vm.ApplyScrollTarget(cache);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 150.0f);
 }
 
@@ -397,9 +449,9 @@ TEST(ViewportManagerTest, ScrollRestoreAtDocumentEnd)
     EXPECT_FLOAT_EQ(restored, 300.0f);
 }
 
-TEST(ViewportManagerTest, ScrollRestoreAnchorCompensationAfterHeightChange)
+TEST(ViewportManagerTest, ScrollRestoreTargetCompensationAfterHeightChange)
 {
-    // ノードベース復元後に画像読み込みでアンカー補正が正しく機能する
+    // ノードベース復元後に画像読み込みで target 再評価が正しく機能する
     ViewportManager vm;
     auto cache = MakeUniformCache(10, 50.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
@@ -407,18 +459,18 @@ TEST(ViewportManagerTest, ScrollRestoreAnchorCompensationAfterHeightChange)
     // ノード5(y=250)付近にスクロール復元
     int restore_node = 5;
     float restore_offset = 10.0f;
-    float scroll_y = cache[restore_node].y_position + restore_offset; // 260
-    vm.ScrollTo(scroll_y);
+    vm.SetScrollTarget(restore_node, restore_offset);
+    vm.ApplyScrollTarget(cache);
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), 260.0f);
 
     // ノード2の高さが100増加（画像読み込み）→ ノード5が下にシフト
-    float anchor_y_before = cache[5].y_position; // 250
     for (int i = 2; i < 10; ++i) {
         cache[i].y_position += 100.0f;
     }
     cache[2].height = 150.0f;
 
-    // アンカー補正
-    vm.AnchorCompensateScroll(5, anchor_y_before, cache);
+    // target 再評価
+    vm.ApplyScrollTarget(cache);
     // scroll_yが100増加して360になるべき（ノード5が350に移動+オフセット10）
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 360.0f);
 }

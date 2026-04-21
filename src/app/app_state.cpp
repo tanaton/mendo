@@ -1,19 +1,17 @@
 #include "app_state.h"
 
-AnchorState SaveAnchorFromState(const AppState& state) noexcept
+ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 {
     const auto& cache = state.document.layout_cache;
-    AnchorState a;
-    a.idx = state.view.viewport.FindFirstVisibleNode(cache, cache.size());
-    a.y_before = (a.idx >= 0) ? cache[a.idx].y_position : 0.0f;
-    a.offset = state.view.viewport.GetScrollY() - a.y_before;
-    return a;
+    const int node = state.view.viewport.FindFirstVisibleNode(cache, cache.size());
+    const float y_before = (node >= 0) ? cache[node].y_position : 0.0f;
+    return { node, state.view.viewport.GetScrollY() - y_before };
 }
 
 NavEntry CurrentNavEntry(const AppState& state)
 {
-    const AnchorState a = SaveAnchorFromState(state);
-    return NavEntry{ state.document.doc.GetFilePath(), a.idx, a.offset };
+    const ScrollTarget t = SnapshotVisibleTarget(state);
+    return NavEntry{ state.document.doc.GetFilePath(), t.node, t.offset };
 }
 
 void PushCurrentNavEntry(AppState& state)

@@ -51,23 +51,10 @@ int App::FindFirstVisibleNode() const noexcept
     return state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size());
 }
 
-AnchorState App::SaveAnchor() const
+void App::EnsureScrollTarget()
 {
-    return SaveAnchorFromState(state_);
-}
-
-void App::RestoreAnchor(const AnchorState& anchor, float md_pane_height)
-{
-    state_.view.viewport.AnchorCompensateScroll(anchor.idx, anchor.y_before, state_.document.layout_cache);
-    SyncMaxScroll(md_pane_height);
-}
-
-void App::RestoreAnchorWithScale(const AnchorState& anchor, float offset_scale)
-{
-    if (anchor.idx >= 0 && anchor.idx < static_cast<int>(state_.document.doc.GetNodes().size())) {
-        float anchor_y_after = state_.document.layout_cache[anchor.idx].y_position;
-        state_.view.viewport.SetScrollY(anchor_y_after + anchor.offset * offset_scale);
-    }
+    state_.view.viewport.EnsureScrollTarget(
+        state_.document.layout_cache, state_.document.doc.GetNodes().size());
 }
 
 // ============================================================
@@ -90,6 +77,8 @@ void App::OnResizeEnd()
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
+
+    EnsureScrollTarget();
 
     {
         MENDO_PROFILE("ViewportLayout(Resize)");
@@ -117,7 +106,7 @@ void App::OnDeferredLayout()
 {
     MENDO_PROFILE("OnDeferredLayout");
 
-    const auto anchor = SaveAnchor();
+    EnsureScrollTarget();
 
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
@@ -137,14 +126,11 @@ void App::OnDeferredLayout()
     }
 #endif
 
-    if (!state_.view.viewport.IsScrollbarTracking()) {
-        // 中間バッチではアンカー補償のみ行い、SyncMaxScrollのクランプを遅延させる。
-        // ビューポート後のノードが計測されるとtotal_heightが縮小し、中間的な
-        // max_scrollに基づくクランプでscroll_yが不当に引き下げられるのを防ぐ。
-        // 最終バッチでもMermaidレンダリング後までクランプを遅延させる（後述）。
-        state_.view.viewport.AnchorCompensateScroll(anchor.idx, anchor.y_before, state_.document.layout_cache);
-    }
-    else {
+    // 中間バッチでは SyncMaxScroll のクランプを遅延させる。
+    // ビューポート後のノードが計測されると total_height が縮小し、中間的な
+    // max_scroll に基づくクランプで scroll_y が不当に引き下げられるのを防ぐ。
+    // スクロールバートラッキング中はユーザー操作を優先してクランプを反映する。
+    if (state_.view.viewport.IsScrollbarTracking()) {
         SyncMaxScroll(md_height);
     }
 

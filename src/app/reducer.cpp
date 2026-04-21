@@ -75,17 +75,11 @@ void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
         effects.emplace_back(effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
-        const auto& cache = state.document.layout_cache;
-        const bool valid = cache.size() > 0 && entry.node >= 0;
-        const int idx = valid ? std::min(entry.node, static_cast<int>(cache.size()) - 1) : -1;
-        const float anchor_y_before = valid ? cache[idx].y_position : 0.0f;
-
-        state.view.viewport.ScrollTo(NodeOffsetToScrollY(cache, entry.node, entry.offset));
+        auto& cache = state.document.layout_cache;
+        state.view.viewport.SetScrollTarget(entry.node, entry.offset);
+        state.view.viewport.ApplyScrollTarget(cache);
         state.interaction.hover_throttle.Reset();
         ClearTooltip(state, effects);
-        if (valid) {
-            effects.emplace_back(effect::CompensateScrollAfterLayout{ idx, anchor_y_before });
-        }
         effects.emplace_back(effect::InvalidateWindow{});
         effects.emplace_back(effect::BitmapManage{});
     }
@@ -129,9 +123,11 @@ void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAc
         state.view.viewport.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR);
         break;
     case ScrollType::Home:
-        state.view.viewport.ScrollTo(0.0f);
+        state.view.viewport.SetScrollTarget(0, 0.0f);
+        state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
         break;
     case ScrollType::End:
+        // 末尾は max_scroll に依存するためピクセル指定。target は無効化される
         state.view.viewport.ScrollTo(state.view.viewport.GetMaxScroll());
         break;
     default:
@@ -242,17 +238,17 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
     if (new_zoom <= 0.0f) {
         return;
     }
-    const auto anchor = SaveAnchorFromState(state);
+    const auto anchor = SnapshotVisibleTarget(state);
     state.pane_layout_valid = false;
     const float zoom_ratio = new_zoom / state.window.cached_theme.zoom;
     state.view.panes.ApplyZoom(zoom_ratio);
     state.document.layout_cache.InvalidateAllLayouts();
+    if (anchor.IsValid()) {
+        // offset もズーム比でスケールし、ノード内の同じ位置が可視先頭に留まるようにする
+        state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
+    }
     effects.emplace_back(effect::ApplyThemeChange{
         .type = effect::ApplyThemeChange::Type::Zoom,
-        .anchor_idx = anchor.idx,
-        .anchor_y_before = anchor.y_before,
-        .anchor_offset = anchor.offset,
-        .offset_scale = zoom_ratio,
         .new_zoom = new_zoom,
         .zoom_index = state.view.viewport.GetZoomIndex(),
         });
@@ -260,15 +256,15 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
 
 void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
 {
-    const auto anchor = SaveAnchorFromState(state);
+    const auto anchor = SnapshotVisibleTarget(state);
     state.pane_layout_valid = false;
     state.document.layout_cache.InvalidateAllWithDiagrams(state.document.doc.GetNodes());
+    if (anchor.IsValid()) {
+        // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する
+        state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);
+    }
     effects.emplace_back(effect::ApplyThemeChange{
         .type = effect::ApplyThemeChange::Type::DarkMode,
-        .anchor_idx = anchor.idx,
-        .anchor_y_before = anchor.y_before,
-        .anchor_offset = anchor.offset,
-        .offset_scale = 1.0f,
         .new_zoom = 0.0f,
         .zoom_index = state.view.viewport.GetZoomIndex(),
         });
@@ -698,13 +694,11 @@ void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocIte
     if (idx < 0) {
         return;
     }
-    const float anchor_y_before = state.document.layout_cache[idx].y_position;
-    const float target_y = std::max(0.0f,
-        anchor_y_before
-        - state.window.cached_theme.heading_spacing_above
-        - state.cached_pane_layout.md_rect.y);
-    state.view.viewport.ScrollTo(target_y);
-    effects.emplace_back(effect::CompensateScrollAfterLayout{ idx, anchor_y_before });
+    const auto target = MakeHeadingTopTarget(idx,
+        state.window.cached_theme.heading_spacing_above,
+        state.cached_pane_layout.md_rect.y);
+    state.view.viewport.SetScrollTarget(target.node, target.offset);
+    state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
     effects.emplace_back(effect::InvalidateWindow{});
     effects.emplace_back(effect::BitmapManage{});
 }

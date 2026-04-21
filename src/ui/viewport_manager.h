@@ -5,6 +5,23 @@
 #include <algorithm>
 #include <memory_resource>
 
+// スクロール位置の「目的地」を表す値型。
+// node が有効な間、レイアウトが変化するたびに scroll_y = y_position[node] + offset として再評価される。
+// ユーザー発のピクセルスクロールや ClearScrollTarget で無効化される。
+struct ScrollTarget {
+    int node = -1;          // -1 = 無効
+    float offset = 0.0f;    // ノード先頭からのピクセル距離
+
+    constexpr bool IsValid() const noexcept { return node >= 0; }
+};
+
+// 見出しノードを md ペイン上端の heading_spacing_above 分だけ下に配置する ScrollTarget を作る。
+// TOCクリック・#anchor ナビゲーションで共通して使う。
+constexpr ScrollTarget MakeHeadingTopTarget(int node, float heading_spacing_above, float md_pane_top) noexcept
+{
+    return { node, -(heading_spacing_above + md_pane_top) };
+}
+
 // スクロール、選択、ズームの純粋な状態管理。
 // Win32 API依存なし — 完全にテスト可能。
 class ViewportManager {
@@ -14,14 +31,18 @@ public:
     constexpr float GetScrollY() const noexcept { return scroll_y_; }
     constexpr float GetMaxScroll() const noexcept { return max_scroll_; }
 
+    // ピクセル絶対スクロール。scroll_target を無効化する。
     constexpr void ScrollTo(float position) noexcept
     {
         scroll_y_ = std::clamp(position, 0.0f, max_scroll_);
+        scroll_target_ = {};
     }
 
+    // ユーザー発のピクセルスクロール。scroll_target を無効化する。
     constexpr void DirectScrollBy(float delta) noexcept
     {
         scroll_y_ = std::clamp(scroll_y_ + delta, 0.0f, max_scroll_);
+        scroll_target_ = {};
     }
 
     constexpr void SyncMaxScroll(float total_height, float viewport_height) noexcept
@@ -38,16 +59,50 @@ public:
         return idx < static_cast<int>(node_count) ? idx : -1;
     }
 
-    constexpr void AnchorCompensateScroll(int anchor_idx, float anchor_y_before, const LayoutCache& cache) noexcept
+    // scroll_target を明示設定する。内部の scroll_y は更新しないので、
+    // 呼び出し側は直後に ApplyScrollTarget を呼ぶか、レイアウト操作経由のフック
+    // で再評価されるのを待つ必要がある。
+    constexpr void SetScrollTarget(int node, float offset) noexcept
     {
-        if (anchor_idx < 0) {
-            return;
-        }
-        const float shift = cache[anchor_idx].y_position - anchor_y_before;
-        scroll_y_ = std::max(0.0f, scroll_y_ + shift);
-        // 注意: 呼び出し側はこの後SyncMaxScroll()を呼ぶ必要がある
+        scroll_target_ = { node, offset };
     }
 
+    constexpr void ClearScrollTarget() noexcept { scroll_target_ = {}; }
+    constexpr bool HasScrollTarget() const noexcept { return scroll_target_.IsValid(); }
+    constexpr const ScrollTarget& GetScrollTarget() const noexcept { return scroll_target_; }
+
+    // scroll_target が有効な場合、現在のレイアウトキャッシュから scroll_y を再評価する。
+    // max_scroll によるクランプは行わない（SyncMaxScroll が担当する）。
+    // 負値は NodeOffsetToScrollY 側で 0 に、node はキャッシュ末尾にクランプされる。
+    constexpr void ApplyScrollTarget(const LayoutCache& cache) noexcept
+    {
+        if (!scroll_target_.IsValid()) {
+            return;
+        }
+        scroll_y_ = NodeOffsetToScrollY(cache, scroll_target_.node, scroll_target_.offset);
+    }
+
+    // scroll_target が未設定なら、現在の可視先頭ノードから合成する。
+    // レイアウト変化を挟む処理（OnPaint/OnResizeEnd/OnDeferredLayout 等）の直前に呼んで、
+    // 「見ている位置を保つ」挙動を target ベースで表現する。
+    constexpr void EnsureScrollTarget(const LayoutCache& cache, size_t node_count) noexcept
+    {
+        if (scroll_target_.IsValid()) {
+            return;
+        }
+        // 呼び出し側の node_count が過渡状態で cache.size() を超える可能性に備えてクランプ
+        const size_t effective = std::min(node_count, cache.size());
+        if (effective == 0) {
+            return;
+        }
+        const int idx = FindFirstVisibleNodeIndex(cache, effective, scroll_y_);
+        if (idx < static_cast<int>(effective)) {
+            scroll_target_ = { idx, scroll_y_ - cache[idx].y_position };
+        }
+    }
+
+    // target を触らずクランプも掛けない生の scroll_y 書き込み。
+    // max_scroll が未確定な段階（ファイルロード直後など）のシード投入に使う。target との整合は呼び出し側責任。
     constexpr void SetScrollY(float y) noexcept { scroll_y_ = y; }
 
     constexpr bool IsScrollbarTracking() const noexcept { return is_scrollbar_tracking_; }
@@ -133,6 +188,7 @@ private:
     float scroll_y_ = 0.0f;
     float max_scroll_ = 0.0f;
     bool is_scrollbar_tracking_ = false;
+    ScrollTarget scroll_target_{};
 
     // 選択状態
     TextSelection selection_;

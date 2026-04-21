@@ -28,7 +28,6 @@ public:
         std::move_only_function<void()> perform_resize_end;
         std::move_only_function<void()> perform_sizing_update;
         std::move_only_function<void(const effect::ApplyThemeChange&)> apply_theme_change;
-        std::move_only_function<void(const effect::CompensateScrollAfterLayout&)> compensate_scroll_after_layout;
         std::move_only_function<void()> process_deferred_layout;
         std::move_only_function<void()> tick_loading_animation;
         std::move_only_function<void()> process_mermaid_batch_timer;
