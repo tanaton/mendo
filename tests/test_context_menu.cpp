@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "context_menu.h"
 #include "resource.h"
+#include "theme.h"
+#include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 
