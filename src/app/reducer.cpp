@@ -75,9 +75,17 @@ void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
         effects.emplace_back(effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
-        state.view.viewport.ScrollTo(NodeOffsetToScrollY(state.document.layout_cache, entry.node, entry.offset));
+        const auto& cache = state.document.layout_cache;
+        const bool valid = cache.size() > 0 && entry.node >= 0;
+        const int idx = valid ? std::min(entry.node, static_cast<int>(cache.size()) - 1) : -1;
+        const float anchor_y_before = valid ? cache[idx].y_position : 0.0f;
+
+        state.view.viewport.ScrollTo(NodeOffsetToScrollY(cache, entry.node, entry.offset));
         state.interaction.hover_throttle.Reset();
         ClearTooltip(state, effects);
+        if (valid) {
+            effects.emplace_back(effect::CompensateScrollAfterLayout{ idx, anchor_y_before });
+        }
         effects.emplace_back(effect::InvalidateWindow{});
         effects.emplace_back(effect::BitmapManage{});
     }
@@ -690,11 +698,13 @@ void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocIte
     if (idx < 0) {
         return;
     }
+    const float anchor_y_before = state.document.layout_cache[idx].y_position;
     const float target_y = std::max(0.0f,
-        state.document.layout_cache[idx].y_position
+        anchor_y_before
         - state.window.cached_theme.heading_spacing_above
         - state.cached_pane_layout.md_rect.y);
     state.view.viewport.ScrollTo(target_y);
+    effects.emplace_back(effect::CompensateScrollAfterLayout{ idx, anchor_y_before });
     effects.emplace_back(effect::InvalidateWindow{});
     effects.emplace_back(effect::BitmapManage{});
 }

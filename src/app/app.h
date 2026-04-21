@@ -215,6 +215,10 @@ private:
     // テーマ/ズーム変更後の共通後処理（ViewportLayout→スクロール復元→再描画）
     void FinishThemeOrZoomChange(const AnchorState& anchor, float offset_scale);
 
+    // ノード指定ジャンプ後の推定→実測誤差補償（TOCクリック・戻る/進む同一ファイル等）
+    void HandleCompensateScrollAfterLayout(const effect::CompensateScrollAfterLayout& e);
+    void ViewportLayoutAndCompensate(int anchor_idx, float anchor_y_before);
+
 private:
     // Win32ハンドル
     HWND hwnd_ = nullptr;
