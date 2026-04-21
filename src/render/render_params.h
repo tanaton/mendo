@@ -27,10 +27,11 @@ struct ToastRenderState {
 };
 
 // タイトルバー描画パラメータ。
+// 矩形は DipRect で保持し、描画時に ToD2DRect() で D2D1_RECT_F に変換する。
 struct TitleBarRenderState {
     // --- 8バイトアライメント ---
     std::wstring_view title_text;
-    // --- TitleBarButton (D2D1_RECT_F + bool) ---
+    // --- TitleBarButton (DipRect + bool) ---
     TitleBarButton open_file;
     TitleBarButton help;
     TitleBarButton theme_toggle;
@@ -41,8 +42,8 @@ struct TitleBarRenderState {
     TitleBarButton maximize;
     TitleBarButton close;
     // --- 4バイトアライメント ---
-    D2D1_RECT_F icon_rect{};
-    D2D1_RECT_F title_text_rect{};
+    DipRect icon_rect{};
+    DipRect title_text_rect{};
     float height = 0.0f;
     float window_width = 0.0f;
     // --- 1バイトアライメント ---
@@ -53,6 +54,12 @@ struct TitleBarRenderState {
     bool is_maximized = false;
     bool window_active = true;
 };
+
+// DipRect を D2D1_RECT_F に変換するヘルパ。renderer 側で描画時のみ使用する。
+inline D2D1_RECT_F ToD2DRect(const DipRect& r) noexcept
+{
+    return D2D1::RectF(r.left, r.top, r.right, r.bottom);
+}
 
 // サイドペイン描画パラメータを一つの構造体にまとめたもの。
 struct SidePaneState {

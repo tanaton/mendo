@@ -89,6 +89,7 @@ add_library(mendo_core STATIC
     src/ui/context_menu.cpp
     src/ui/search_state.cpp
     src/ui/search_bar_controller.cpp
+    src/ui/titlebar.cpp
     src/ui/tooltip.cpp
     # input - 入力処理
     src/input/hit_test_service.cpp

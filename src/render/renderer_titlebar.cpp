@@ -13,7 +13,8 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     const float text_alpha = tb.window_active ? 1.0f : 0.5f;
 
     // アイコンボタン描画ヘルパー
-    auto drawButton = [&](const D2D1_RECT_F& rect, const wchar_t* icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
+    auto drawButton = [&](const DipRect& dip_rect, const wchar_t* icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
+        const D2D1_RECT_F rect = ToD2DRect(dip_rect);
         if (show_bg) {
             rt()->FillRectangle(rect, Brush(bg_id));
         }
@@ -123,7 +124,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     // アプリアイコン
     if (app_icon_bitmap_) {
         const float icon_alpha = tb.window_active ? 1.0f : 0.5f;
-        rt()->DrawBitmap(app_icon_bitmap_.Get(), tb.icon_rect, icon_alpha,
+        rt()->DrawBitmap(app_icon_bitmap_.Get(), ToD2DRect(tb.icon_rect), icon_alpha,
             D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
 
@@ -136,7 +137,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
                 tb.title_text.data(),
                 static_cast<UINT32>(tb.title_text.size()),
                 fmt_.titlebar_text.Get(),
-                tb.title_text_rect,
+                ToD2DRect(tb.title_text_rect),
                 brush
             );
             brush->SetOpacity(1.0f);
