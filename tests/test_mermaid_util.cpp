@@ -403,3 +403,65 @@ TEST(ParseJsonTrueFlag, KeyWithoutColonReturnsFalse)
     // キー直後にコロンが来ない異常形式は false
     EXPECT_FALSE(mermaid_util::ParseJsonTrueFlag(L"\"ok\" true", L"\"ok\""));
 }
+
+// ============================================================
+// ParseRequestPrefix テスト
+// ============================================================
+
+TEST(ParseRequestPrefix, EmptyReturnsInvalid)
+{
+    auto p = mermaid_util::ParseRequestPrefix(L"");
+    EXPECT_FALSE(p.valid);
+}
+
+TEST(ParseRequestPrefix, NonDigitPrefixReturnsInvalid)
+{
+    auto p = mermaid_util::ParseRequestPrefix(L"abc:123");
+    EXPECT_FALSE(p.valid);
+}
+
+TEST(ParseRequestPrefix, IdOnlyWithoutPayload)
+{
+    auto p = mermaid_util::ParseRequestPrefix(L"42");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 42u);
+    EXPECT_FALSE(p.has_payload);
+    EXPECT_TRUE(p.payload.empty());
+}
+
+TEST(ParseRequestPrefix, IdWithEmptyPayload)
+{
+    // ID の直後に ':' はあるが payload が空のケース
+    auto p = mermaid_util::ParseRequestPrefix(L"7:");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 7u);
+    EXPECT_TRUE(p.has_payload);
+    EXPECT_TRUE(p.payload.empty());
+}
+
+TEST(ParseRequestPrefix, IdWithJsonPayload)
+{
+    auto p = mermaid_util::ParseRequestPrefix(L"123:{\"ok\":true}");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 123u);
+    EXPECT_TRUE(p.has_payload);
+    EXPECT_EQ(p.payload, std::wstring_view(L"{\"ok\":true}"));
+}
+
+TEST(ParseRequestPrefix, LargeId)
+{
+    auto p = mermaid_util::ParseRequestPrefix(L"4294967290:done");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 4294967290u);
+    EXPECT_TRUE(p.has_payload);
+    EXPECT_EQ(p.payload, std::wstring_view(L"done"));
+}
+
+TEST(ParseRequestPrefix, TrailingGarbageWithoutColon)
+{
+    // 数字の直後がコロンでなければ payload は付かない
+    auto p = mermaid_util::ParseRequestPrefix(L"42abc");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 42u);
+    EXPECT_FALSE(p.has_payload);
+}

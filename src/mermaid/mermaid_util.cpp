@@ -141,6 +141,33 @@ float mermaid_util::ParseJsonNumber(std::wstring_view json, std::wstring_view ke
     return std::wcstof(buf, nullptr);
 }
 
+mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view body) noexcept
+{
+    RequestPrefix out;
+    if (body.empty() || body[0] < L'0' || body[0] > L'9') {
+        return out;
+    }
+    // wstring_view は null 終端が保証されないため、数値部分のみを小バッファに取り、
+    // wcstoul で末尾位置も同時に取得する。
+    wchar_t buf[16];
+    const size_t n = (std::min)(body.size(), std::size(buf) - 1);
+    std::char_traits<wchar_t>::copy(buf, body.data(), n);
+    buf[n] = L'\0';
+    wchar_t* end = nullptr;
+    const auto id = static_cast<unsigned int>(std::wcstoul(buf, &end, 10));
+    if (!end || end == buf) {
+        return out;
+    }
+    out.valid = true;
+    out.id = id;
+    const size_t consumed = static_cast<size_t>(end - buf);
+    if (consumed < body.size() && body[consumed] == L':') {
+        out.has_payload = true;
+        out.payload = body.substr(consumed + 1);
+    }
+    return out;
+}
+
 bool mermaid_util::ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept
 {
     // 生成側が "ok":true / "ok": true の両形式を出す可能性があるため両方許容。

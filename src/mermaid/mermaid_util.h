@@ -49,4 +49,17 @@ float ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept;
 
 // 簡易 JSON "key":true 判定。キー直後の空白 1 つまでを許容する。
 bool ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept;
+
+// WebView2 からの "<id>" または "<id>:<payload>" 形式のメッセージ本文から
+// 先頭リクエスト ID と残り payload を取り出す。
+// valid: 先頭が有効な符号なし整数でパースできた場合に true
+// has_payload: "<id>:" の区切りコロンが存在した場合に true
+// payload: コロン直後の view（has_payload=false の場合は空）
+struct RequestPrefix {
+    unsigned int id = 0;
+    std::wstring_view payload;
+    bool valid = false;
+    bool has_payload = false;
+};
+RequestPrefix ParseRequestPrefix(std::wstring_view body) noexcept;
 }
