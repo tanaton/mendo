@@ -325,3 +325,81 @@ TEST(BuildLatexFlowchartCode, PreservesBackslashForKaTeX)
     auto code = mermaid_util::BuildLatexFlowchartCode(L"\\frac{a}{b}");
     EXPECT_NE(code.find(L"$$\\frac{a}{b}$$"), std::wstring::npos);
 }
+
+// ============================================================
+// ParseJsonNumber テスト
+// ============================================================
+
+TEST(ParseJsonNumber, MissingKeyReturnsZero)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(L"{\"ok\":true}", L"\"width\""), 0.0f);
+}
+
+TEST(ParseJsonNumber, EmptyJsonReturnsZero)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(L"", L"\"width\""), 0.0f);
+}
+
+TEST(ParseJsonNumber, BasicInteger)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(L"{\"width\":400}", L"\"width\""), 400.0f);
+}
+
+TEST(ParseJsonNumber, AllowsSpaceAfterColon)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(L"{\"width\": 400}", L"\"width\""), 400.0f);
+}
+
+TEST(ParseJsonNumber, FloatingPoint)
+{
+    EXPECT_FLOAT_EQ(mermaid_util::ParseJsonNumber(L"{\"dpr\":1.5}", L"\"dpr\""), 1.5f);
+}
+
+TEST(ParseJsonNumber, ParsesMultipleKeys)
+{
+    std::wstring_view json = L"{\"width\":100,\"height\":200,\"dpr\":2}";
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(json, L"\"width\""), 100.0f);
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(json, L"\"height\""), 200.0f);
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(json, L"\"dpr\""), 2.0f);
+}
+
+TEST(ParseJsonNumber, KeyAtEndWithoutValueReturnsZero)
+{
+    // 末尾直前に key だけが現れた場合は 0 を返す
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(L"\"width\":", L"\"width\""), 0.0f);
+}
+
+// ============================================================
+// ParseJsonTrueFlag テスト
+// ============================================================
+
+TEST(ParseJsonTrueFlag, MissingKeyReturnsFalse)
+{
+    EXPECT_FALSE(mermaid_util::ParseJsonTrueFlag(L"{\"width\":100}", L"\"ok\""));
+}
+
+TEST(ParseJsonTrueFlag, ExplicitTrue)
+{
+    EXPECT_TRUE(mermaid_util::ParseJsonTrueFlag(L"{\"ok\":true}", L"\"ok\""));
+}
+
+TEST(ParseJsonTrueFlag, AllowsSpaceAfterColon)
+{
+    EXPECT_TRUE(mermaid_util::ParseJsonTrueFlag(L"{\"ok\": true}", L"\"ok\""));
+}
+
+TEST(ParseJsonTrueFlag, ExplicitFalseReturnsFalse)
+{
+    EXPECT_FALSE(mermaid_util::ParseJsonTrueFlag(L"{\"ok\":false}", L"\"ok\""));
+}
+
+TEST(ParseJsonTrueFlag, EmptyJsonReturnsFalse)
+{
+    EXPECT_FALSE(mermaid_util::ParseJsonTrueFlag(L"", L"\"ok\""));
+}
+
+TEST(ParseJsonTrueFlag, KeyWithoutColonReturnsFalse)
+{
+    // キー直後にコロンが来ない異常形式は false
+    EXPECT_FALSE(mermaid_util::ParseJsonTrueFlag(L"\"ok\" true", L"\"ok\""));
+}

@@ -120,6 +120,49 @@ std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
     return result;
 }
 
+float mermaid_util::ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept
+{
+    auto pos = json.find(key);
+    if (pos == std::wstring_view::npos) {
+        return 0.0f;
+    }
+    pos += key.size();
+    while (pos < json.size() && (json[pos] == L':' || json[pos] == L' ')) {
+        pos++;
+    }
+    if (pos >= json.size()) {
+        return 0.0f;
+    }
+    // wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。
+    wchar_t buf[64];
+    const auto num_len = (std::min)(json.size() - pos, std::size(buf) - 1);
+    std::char_traits<wchar_t>::copy(buf, json.data() + pos, num_len);
+    buf[num_len] = L'\0';
+    return std::wcstof(buf, nullptr);
+}
+
+bool mermaid_util::ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept
+{
+    // 生成側が "ok":true / "ok": true の両形式を出す可能性があるため両方許容。
+    auto pos = json.find(key);
+    if (pos == std::wstring_view::npos) {
+        return false;
+    }
+    pos += key.size();
+    if (pos >= json.size() || json[pos] != L':') {
+        return false;
+    }
+    ++pos;
+    if (pos < json.size() && json[pos] == L' ') {
+        ++pos;
+    }
+    constexpr std::wstring_view kTrue = L"true";
+    if (json.size() - pos < kTrue.size()) {
+        return false;
+    }
+    return json.compare(pos, kTrue.size(), kTrue) == 0;
+}
+
 uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept
 {
     // LatexMath を Mermaid とキャッシュ衝突させないためのソルト（任意の定数）。
