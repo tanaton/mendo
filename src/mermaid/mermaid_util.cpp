@@ -5,6 +5,7 @@
 #include <cmath>
 #include <format>
 #include <iterator>
+#include <limits>
 #include <ranges>
 
 std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
@@ -118,6 +119,78 @@ std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
     }
     result.append(L"$$\"]\n    style A fill:none,stroke:none");
     return result;
+}
+
+float mermaid_util::ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept
+{
+    auto pos = json.find(key);
+    if (pos == std::wstring_view::npos) {
+        return 0.0f;
+    }
+    pos += key.size();
+    while (pos < json.size() && (json[pos] == L':' || json[pos] == L' ')) {
+        pos++;
+    }
+    if (pos >= json.size()) {
+        return 0.0f;
+    }
+    // wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。
+    wchar_t buf[64];
+    const auto num_len = (std::min)(json.size() - pos, std::size(buf) - 1);
+    std::char_traits<wchar_t>::copy(buf, json.data() + pos, num_len);
+    buf[num_len] = L'\0';
+    return std::wcstof(buf, nullptr);
+}
+
+mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view body) noexcept
+{
+    RequestPrefix out;
+    if (body.empty() || body[0] < L'0' || body[0] > L'9') {
+        return out;
+    }
+    // wstring_view から直接桁を読み取る。unsigned int に収まらない ID は無効扱いにする。
+    constexpr uint64_t kMaxUint = std::numeric_limits<unsigned int>::max();
+    uint64_t acc = 0;
+    size_t i = 0;
+    for (; i < body.size(); ++i) {
+        const wchar_t c = body[i];
+        if (c < L'0' || c > L'9') {
+            break;
+        }
+        acc = acc * 10 + static_cast<uint64_t>(c - L'0');
+        if (acc > kMaxUint) {
+            return out;
+        }
+    }
+    out.valid = true;
+    out.id = static_cast<unsigned int>(acc);
+    if (i < body.size() && body[i] == L':') {
+        out.has_payload = true;
+        out.payload = body.substr(i + 1);
+    }
+    return out;
+}
+
+bool mermaid_util::ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept
+{
+    // 生成側が "ok":true / "ok": true の両形式を出す可能性があるため両方許容。
+    auto pos = json.find(key);
+    if (pos == std::wstring_view::npos) {
+        return false;
+    }
+    pos += key.size();
+    if (pos >= json.size() || json[pos] != L':') {
+        return false;
+    }
+    ++pos;
+    if (pos < json.size() && json[pos] == L' ') {
+        ++pos;
+    }
+    constexpr std::wstring_view kTrue = L"true";
+    if (json.size() - pos < kTrue.size()) {
+        return false;
+    }
+    return json.compare(pos, kTrue.size(), kTrue) == 0;
 }
 
 uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept

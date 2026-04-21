@@ -277,25 +277,20 @@ void MermaidRenderer::SetupWorker(int index)
                     ProcessQueue();
                 }
                 else if (wcsncmp(msg, L"render-result:", 14) == 0) {
-                    // "render-result:<id>:<json>" からリクエストIDを解析
-                    wchar_t* end = nullptr;
-                    const auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, &end, 10));
-                    if (end && *end == L':' && id == w.current_request.request_id) {
-                        OnRenderResult(index, std::wstring_view(end + 1));
+                    const auto p = mermaid_util::ParseRequestPrefix(msg + 14);
+                    if (p.valid && p.has_payload && p.id == w.current_request.request_id) {
+                        OnRenderResult(index, p.payload);
                     }
                 }
                 else if (wcsncmp(msg, L"capture-ready:", 14) == 0) {
-                    // "capture-ready:<id>" からリクエストIDを解析
-                    const auto id = static_cast<unsigned int>(std::wcstoul(msg + 14, nullptr, 10));
-                    if (id == w.current_request.request_id) {
+                    const auto p = mermaid_util::ParseRequestPrefix(msg + 14);
+                    if (p.valid && p.id == w.current_request.request_id) {
                         DoCapturePreview(index);
                     }
                 }
                 else if (wcsncmp(msg, L"render-error:", 13) == 0) {
-                    // "render-error:<id>:<message>" からリクエストIDを解析
-                    wchar_t* end = nullptr;
-                    const auto id = static_cast<unsigned int>(std::wcstoul(msg + 13, &end, 10));
-                    if (id == w.current_request.request_id) {
+                    const auto p = mermaid_util::ParseRequestPrefix(msg + 13);
+                    if (p.valid && p.id == w.current_request.request_id) {
                         FinishWorkerRequest(w);
                     }
                 }
@@ -616,37 +611,13 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
 
     // jsonはrenderMermaidからの生の文字列。例: {"ok":true,"width":400,"height":300}
     // リクエストIDの照合はメッセージハンドラで実施済み
-    float dw = 0, dh = 0;
-    bool ok = false;
-
-    const auto find_num = [](std::wstring_view json, std::wstring_view key) static -> float {
-        auto pos = json.find(key);
-        if (pos == std::wstring_view::npos) {
-            return 0;
-        }
-        pos += key.size();
-        while (pos < json.size() && (json[pos] == L':' || json[pos] == L' ')) {
-            pos++;
-        }
-        if (pos >= json.size()) {
-            return 0.0f;
-        }
-        // wstring_viewはnull終端が保証されないため、数値部分を切り出してからwcstofに渡す
-        wchar_t buf[64];
-        const auto num_len = (std::min)(json.size() - pos, std::size(buf) - 1);
-        std::char_traits<wchar_t>::copy(buf, json.data() + pos, num_len);
-        buf[num_len] = L'\0';
-        return std::wcstof(buf, nullptr);
-    };
-
-    dw = find_num(json, L"\"width\"");
-    dh = find_num(json, L"\"height\"");
-    float dpr = find_num(json, L"\"dpr\"");
+    const float dw = mermaid_util::ParseJsonNumber(json, L"\"width\"");
+    const float dh = mermaid_util::ParseJsonNumber(json, L"\"height\"");
+    float dpr = mermaid_util::ParseJsonNumber(json, L"\"dpr\"");
     if (dpr <= 0) {
         dpr = 1.0f;
     }
-    ok = json.find(L"\"ok\":true") != std::wstring_view::npos
-        || json.find(L"\"ok\": true") != std::wstring_view::npos;
+    const bool ok = mermaid_util::ParseJsonTrueFlag(json, L"\"ok\"");
 
     if (!ok || dw <= 0 || dh <= 0) {
         FinishWorkerRequest(w);

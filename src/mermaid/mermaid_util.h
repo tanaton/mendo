@@ -40,4 +40,26 @@ int QuantizeWidth(float max_width) noexcept;
 // 幅を量子化してからキャッシュキーのハッシュを計算する。
 uint64_t HashCode(std::wstring_view code, float max_width, bool dark_mode) noexcept;
 uint64_t HashCode(std::string_view code, float max_width, bool dark_mode) noexcept;
+
+// 簡易 JSON 数値抽出。key は引用符込み（例: L"\"width\""）で渡す。
+// 見つからない / 末尾到達時は 0.0f を返す。レンダリング結果の JSON 解析用で
+// ネスト・エスケープ・負数記法には対応しない（送り手側が単一オブジェクトを
+// 返す前提）。
+float ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept;
+
+// 簡易 JSON "key":true 判定。キー直後の空白 1 つまでを許容する。
+bool ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept;
+
+// WebView2 からの "<id>" または "<id>:<payload>" 形式のメッセージ本文から
+// 先頭リクエスト ID と残り payload を取り出す。
+// valid: 先頭が有効な符号なし整数でパースできた場合に true
+// has_payload: "<id>:" の区切りコロンが存在した場合に true
+// payload: コロン直後の view（has_payload=false の場合は空）
+struct RequestPrefix {
+    unsigned int id = 0;
+    std::wstring_view payload;
+    bool valid = false;
+    bool has_payload = false;
+};
+RequestPrefix ParseRequestPrefix(std::wstring_view body) noexcept;
 }

@@ -325,3 +325,168 @@ TEST(BuildLatexFlowchartCode, PreservesBackslashForKaTeX)
     auto code = mermaid_util::BuildLatexFlowchartCode(L"\\frac{a}{b}");
     EXPECT_NE(code.find(L"$$\\frac{a}{b}$$"), std::wstring::npos);
 }
+
+// ============================================================
+// ParseJsonNumber テスト
+// ============================================================
+
+TEST(ParseJsonNumber, MissingKeyReturnsZero)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(L"{\"ok\":true}", L"\"width\""), 0.0f);
+}
+
+TEST(ParseJsonNumber, EmptyJsonReturnsZero)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(L"", L"\"width\""), 0.0f);
+}
+
+TEST(ParseJsonNumber, BasicInteger)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(L"{\"width\":400}", L"\"width\""), 400.0f);
+}
+
+TEST(ParseJsonNumber, AllowsSpaceAfterColon)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(L"{\"width\": 400}", L"\"width\""), 400.0f);
+}
+
+TEST(ParseJsonNumber, FloatingPoint)
+{
+    EXPECT_FLOAT_EQ(mermaid_util::ParseJsonNumber(L"{\"dpr\":1.5}", L"\"dpr\""), 1.5f);
+}
+
+TEST(ParseJsonNumber, ParsesMultipleKeys)
+{
+    std::wstring_view json = L"{\"width\":100,\"height\":200,\"dpr\":2}";
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(json, L"\"width\""), 100.0f);
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(json, L"\"height\""), 200.0f);
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(json, L"\"dpr\""), 2.0f);
+}
+
+TEST(ParseJsonNumber, KeyAtEndWithoutValueReturnsZero)
+{
+    // 末尾直前に key だけが現れた場合は 0 を返す
+    EXPECT_EQ(mermaid_util::ParseJsonNumber(L"\"width\":", L"\"width\""), 0.0f);
+}
+
+// ============================================================
+// ParseJsonTrueFlag テスト
+// ============================================================
+
+TEST(ParseJsonTrueFlag, MissingKeyReturnsFalse)
+{
+    EXPECT_FALSE(mermaid_util::ParseJsonTrueFlag(L"{\"width\":100}", L"\"ok\""));
+}
+
+TEST(ParseJsonTrueFlag, ExplicitTrue)
+{
+    EXPECT_TRUE(mermaid_util::ParseJsonTrueFlag(L"{\"ok\":true}", L"\"ok\""));
+}
+
+TEST(ParseJsonTrueFlag, AllowsSpaceAfterColon)
+{
+    EXPECT_TRUE(mermaid_util::ParseJsonTrueFlag(L"{\"ok\": true}", L"\"ok\""));
+}
+
+TEST(ParseJsonTrueFlag, ExplicitFalseReturnsFalse)
+{
+    EXPECT_FALSE(mermaid_util::ParseJsonTrueFlag(L"{\"ok\":false}", L"\"ok\""));
+}
+
+TEST(ParseJsonTrueFlag, EmptyJsonReturnsFalse)
+{
+    EXPECT_FALSE(mermaid_util::ParseJsonTrueFlag(L"", L"\"ok\""));
+}
+
+TEST(ParseJsonTrueFlag, KeyWithoutColonReturnsFalse)
+{
+    // キー直後にコロンが来ない異常形式は false
+    EXPECT_FALSE(mermaid_util::ParseJsonTrueFlag(L"\"ok\" true", L"\"ok\""));
+}
+
+// ============================================================
+// ParseRequestPrefix テスト
+// ============================================================
+
+TEST(ParseRequestPrefix, EmptyReturnsInvalid)
+{
+    auto p = mermaid_util::ParseRequestPrefix(L"");
+    EXPECT_FALSE(p.valid);
+}
+
+TEST(ParseRequestPrefix, NonDigitPrefixReturnsInvalid)
+{
+    auto p = mermaid_util::ParseRequestPrefix(L"abc:123");
+    EXPECT_FALSE(p.valid);
+}
+
+TEST(ParseRequestPrefix, IdOnlyWithoutPayload)
+{
+    auto p = mermaid_util::ParseRequestPrefix(L"42");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 42u);
+    EXPECT_FALSE(p.has_payload);
+    EXPECT_TRUE(p.payload.empty());
+}
+
+TEST(ParseRequestPrefix, IdWithEmptyPayload)
+{
+    // ID の直後に ':' はあるが payload が空のケース
+    auto p = mermaid_util::ParseRequestPrefix(L"7:");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 7u);
+    EXPECT_TRUE(p.has_payload);
+    EXPECT_TRUE(p.payload.empty());
+}
+
+TEST(ParseRequestPrefix, IdWithJsonPayload)
+{
+    auto p = mermaid_util::ParseRequestPrefix(L"123:{\"ok\":true}");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 123u);
+    EXPECT_TRUE(p.has_payload);
+    EXPECT_EQ(p.payload, std::wstring_view(L"{\"ok\":true}"));
+}
+
+TEST(ParseRequestPrefix, LargeId)
+{
+    auto p = mermaid_util::ParseRequestPrefix(L"4294967290:done");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 4294967290u);
+    EXPECT_TRUE(p.has_payload);
+    EXPECT_EQ(p.payload, std::wstring_view(L"done"));
+}
+
+TEST(ParseRequestPrefix, TrailingGarbageWithoutColon)
+{
+    // 数字の直後がコロンでなければ payload は付かない
+    auto p = mermaid_util::ParseRequestPrefix(L"42abc");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 42u);
+    EXPECT_FALSE(p.has_payload);
+}
+
+TEST(ParseRequestPrefix, OverflowingIdReturnsInvalid)
+{
+    // UINT_MAX (4294967295) を超える ID は無効として扱う
+    auto p = mermaid_util::ParseRequestPrefix(L"4294967296:x");
+    EXPECT_FALSE(p.valid);
+}
+
+TEST(ParseRequestPrefix, VeryLongDigitsOverflowStillInvalid)
+{
+    // 旧実装の 16 文字固定バッファでは先頭だけが残って誤った ID になっていたケース。
+    // 現在は uint64 アキュムレータで溢れを検知して無効化する。
+    auto p = mermaid_util::ParseRequestPrefix(L"99999999999999999999:payload");
+    EXPECT_FALSE(p.valid);
+}
+
+TEST(ParseRequestPrefix, MaxUintBoundary)
+{
+    // UINT_MAX ちょうどは有効
+    auto p = mermaid_util::ParseRequestPrefix(L"4294967295:ok");
+    EXPECT_TRUE(p.valid);
+    EXPECT_EQ(p.id, 4294967295u);
+    EXPECT_TRUE(p.has_payload);
+    EXPECT_EQ(p.payload, std::wstring_view(L"ok"));
+}

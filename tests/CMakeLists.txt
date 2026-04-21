@@ -17,6 +17,7 @@ add_executable(mendo_tests
     test_mermaid_renderer.cpp
     ../src/mermaid/mermaid.cpp
     ../src/app/render_composer.cpp
+    ../src/ui/context_menu.cpp
     test_ini_parser.cpp
     test_config_store.cpp
     test_viewport_manager.cpp

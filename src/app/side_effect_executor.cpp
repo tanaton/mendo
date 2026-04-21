@@ -116,7 +116,7 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         [this](const effect::ShowTooltip& e) {
             POINT screen_pos{ e.px, e.py };
             ClientToScreen(hwnd_, &screen_pos);
-            if (state_->interaction.tooltip.Update(e.target, screen_pos)) {
+            if (state_->interaction.tooltip.Update(e.target, screen_pos.x, screen_pos.y)) {
                 ::SetTimer(hwnd_, app_timer::TOOLTIP, TOOLTIP_DELAY_MS, nullptr);
             }
             else if (e.target.IsEmpty()) {

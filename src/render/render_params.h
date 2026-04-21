@@ -9,6 +9,8 @@
 #include "mouse_gesture.h"
 #include <d2d1.h>
 #include <wrl/client.h>
+#include <bit>
+#include <cstddef>
 #include <memory_resource>
 #include <string_view>
 
@@ -30,7 +32,7 @@ struct ToastRenderState {
 struct TitleBarRenderState {
     // --- 8バイトアライメント ---
     std::wstring_view title_text;
-    // --- TitleBarButton (D2D1_RECT_F + bool) ---
+    // --- 4バイトアライメント ---
     TitleBarButton open_file;
     TitleBarButton help;
     TitleBarButton theme_toggle;
@@ -41,8 +43,8 @@ struct TitleBarRenderState {
     TitleBarButton maximize;
     TitleBarButton close;
     // --- 4バイトアライメント ---
-    D2D1_RECT_F icon_rect{};
-    D2D1_RECT_F title_text_rect{};
+    DipRect icon_rect{};
+    DipRect title_text_rect{};
     float height = 0.0f;
     float window_width = 0.0f;
     // --- 1バイトアライメント ---
@@ -53,6 +55,20 @@ struct TitleBarRenderState {
     bool is_maximized = false;
     bool window_active = true;
 };
+
+// DipRect は D2D1_RECT_F とメンバ順・サイズ・アライメントが同一であることを
+// 静的に保証し、std::bit_cast で安全にビット等価変換する。
+static_assert(sizeof(DipRect) == sizeof(D2D1_RECT_F));
+static_assert(alignof(DipRect) == alignof(D2D1_RECT_F));
+static_assert(offsetof(DipRect, left) == offsetof(D2D1_RECT_F, left));
+static_assert(offsetof(DipRect, top) == offsetof(D2D1_RECT_F, top));
+static_assert(offsetof(DipRect, right) == offsetof(D2D1_RECT_F, right));
+static_assert(offsetof(DipRect, bottom) == offsetof(D2D1_RECT_F, bottom));
+
+inline D2D1_RECT_F ToD2DRect(const DipRect& r) noexcept
+{
+    return std::bit_cast<D2D1_RECT_F>(r);
+}
 
 // サイドペイン描画パラメータを一つの構造体にまとめたもの。
 struct SidePaneState {

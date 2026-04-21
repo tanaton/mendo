@@ -84,11 +84,14 @@ add_library(mendo_core STATIC
     src/render/command_generator.cpp
     src/render/command_executor.cpp
     # ui - UIコンポーネント
+    # context_menu.cpp は MENDO_TESTING によるテスト専用 API を条件付きで
+    # 提供するため、mendo / mendo_tests ターゲット側で個別にコンパイルする。
     src/ui/pane_layout.cpp
     src/ui/pane_controller.cpp
-    src/ui/context_menu.cpp
     src/ui/search_state.cpp
     src/ui/search_bar_controller.cpp
+    src/ui/titlebar.cpp
+    src/ui/tooltip.cpp
     # input - 入力処理
     src/input/hit_test_service.cpp
     # io - ファイルI/O・永続化
@@ -158,6 +161,7 @@ add_executable(mendo WIN32
     src/app/render_composer.cpp
     src/app/resource_manager.cpp
     src/app/side_effect_executor.cpp
+    src/ui/context_menu.cpp
     src/render/renderer.cpp
     src/render/renderer_resources.cpp
     src/render/renderer_pane.cpp
