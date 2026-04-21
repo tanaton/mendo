@@ -95,3 +95,76 @@
 - 変更後にフルテスト（`build/tests/Release/mendo_tests.exe --gtest_brief=1`）で回帰確認
 - `test_reducer.cpp` に新アクションのテスト 2〜3 件追加
 - `app_mouse_*.cpp` から直変更が 1 箇所ずつ消えるのを確認
+
+---
+
+## 6. P1/P2 実施計画（2026-04-21 立案）
+
+### 6.1 P1: Redux 層の `<dwrite.h>` 完全除去
+
+#### 現状調査結果
+`src/app/app_state.h` が値メンバとして抱える 5 コンポーネントが Win32 依存を波及。影響範囲は 7 ファイル（reducer.h/cpp、app.h、side_effect_executor.h/cpp、render_composer.h、テスト 2 件）。
+
+| コンポーネント | Win32 依存の形 | PIMPL 化難度 |
+|---|---|---|
+| `FileExplorer` | `<windows.h>` include のみ。型は Win32 非依存 | 低 |
+| `Tooltip` | `HWND` ポインタメンバのみ | 低 |
+| `TitleBar` | `D2D1_RECT_F` を値で複数保持 | 中 |
+| `ContextMenu` | D2D/DWrite factory 参照・ComPtr 値保持 | 中 |
+| `LayoutCache` | `std::pmr::vector<NodeLayoutEntry>` が ComPtr を値保持。NodeLayoutEntry 再設計必須 | 高 |
+
+Reducer と各コンポーネントの密結合は低い（`layout_cache` 3 箇所 / `file_explorer` 3 箇所 / `context_menu`・`hit_test` は reducer から未使用）。
+
+#### 実施ステップ（難易度昇順）
+
+| # | ステップ | 手法 | 工数 | リスク |
+|---|---|---|---|---|
+| P1-g | `FileExplorer` から Win32 依存を cpp 側へ | 実装を `.cpp` に移し、ヘッダから `<windows.h>` を除去 | 小 | 低 |
+| P1-h | `Tooltip` の PIMPL 化 | `HWND` を `std::unique_ptr<Impl>` で隠蔽 | 小 | 低 |
+| P1-i | `TitleBar` の PIMPL 化 | `D2D1_RECT_F` 値メンバを Impl に隠蔽 | 中 | 低 |
+| P1-j | `ContextMenu` の PIMPL 化 | factory 参照・ComPtr を Impl 側へ。`app.h` public/internal 分離と絡む場合あり | 中 | 中 |
+| P1-k | `LayoutCache` の PIMPL 化 | `NodeLayoutEntry` の再設計が必須。`render/` 配下への影響範囲大 | 大 | 中〜高 |
+
+#### 検証
+- 各ステップ後にフルテスト PASS（現状 1832 件）
+- `grep -l "dwrite" src/app/*.h` が 0 に近づくことを確認
+- `app_state.h` を include する側のコンパイル時間短縮を期待値として確認
+
+#### 判断ポイント
+- P1-g / P1-h / P1-i は独立・低リスク。**先行実施推奨**
+- P1-j は `app.h` public/internal 分離と絡む可能性あり。実装時に再評価
+- P1-k は `render/` への影響範囲が広いため**別セッションで検討**
+
+---
+
+### 6.2 P2: `mermaid.cpp` テスト追加
+
+#### 現状調査結果
+- `MermaidRenderer`（`src/mermaid/mermaid.cpp` 787 行）が `ICoreWebView2Environment` / `Controller` / `ICoreWebView2` を ComPtr で直接保有（95-96 行）
+- `CreateCoreWebView2EnvironmentWithOptions()`（192 行）を直接呼ぶ（DI なし）
+- 非同期コールバック経路: JS Promise → postMessage → WebMessage リッスン（253-336 行）→ `request_id` 照合
+- 既存テスト: `test_mermaid_renderer.cpp`（159 行）が Init 状態遷移・キャッシュミス・冪等性のみ網羅。`test_mermaid_util.cpp` / `test_mermaid_file_cache.cpp` も存在
+
+#### 実施ステップ（着手しやすさ順）
+
+| # | ステップ | 手法 | 工数 | リスク |
+|---|---|---|---|---|
+| P2-d | JSON パーサ抽出 | `OnRenderResult()` の `find_num()`（622-640 行）を `mermaid_util` に抽出し単体テスト | 小 | 低 |
+| P2-e | `RequestTracker` クラス抽出 | `request_counter_` / キュー管理 / キャンセル処理を純粋クラスに分離。モックなしで単体テスト可能 | 中 | 低 |
+| P2-f | `ICoreWebView2Wrapper` インターフェース導入 | `ExecuteScript()` / `CapturePreview()` / WebMessage リッスンをラップ。gmock で代替実装を用意 | 大（1 日以上） | 中 |
+| P2-g | エラー経路テスト追加 | `render-error` ハンドラ（294-300 行）・JSON `ok: false`（648-654 行）の失敗検出を P2-f のモックで再現 | 中 | 中 |
+
+#### 判断ポイント
+- P2-d / P2-e は WebView2 モック不要で先行実施可能。**コスト対効果が高い**
+- P2-f は 1 日以上の工数でユーザー判断が必要（サイレント失敗検出の価値 vs 工数）
+- P2-g は P2-f 完了後に初めて意味を持つ
+
+---
+
+### 6.3 推奨セッション分割
+
+| セッション | 内容 | 特徴 |
+|---|---|---|
+| 次回 | P1-g / P1-h / P1-i / P2-d / P2-e | 小粒・モック不要・並行実施可能 |
+| その次 | P1-j → P1-k | PIMPL の段階的適用 |
+| 別途判断 | P2-f / P2-g | WebView2 モック導入工数の見合いで着手是非を決定 |
