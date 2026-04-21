@@ -36,6 +36,7 @@
 | P1-i | `src/ui/titlebar.h` の公開 API から `D2D1_RECT_F` を除去。新規 `src/ui/dip_rect.h` に `DipRect { float left, top, right, bottom; }` を定義し、`TitleBarButton::rect` / `icon_rect_` / `title_text_rect_` を `DipRect` に置換。`UpdateLayout` / `HitTest` / `SetHovered` の実装を新規 `src/ui/titlebar.cpp` に分離。`render_params.h` の `TitleBarRenderState::icon_rect` / `title_text_rect` も `DipRect` 化し、`ToD2DRect` 変換ヘルパを追加。`renderer_titlebar.cpp` で描画時のみ `D2D1_RECT_F` に変換。`test_titlebar.cpp` はメンバ名互換のため変更不要 |
 | P2-d | `MermaidRenderer::OnRenderResult` のラムダ `find_num` と `"ok":true` 判定を `mermaid_util::ParseJsonNumber` / `ParseJsonTrueFlag` に抽出。WebView2 モック不要な単体テスト対象化。`test_mermaid_util.cpp` に 13 テスト追加 |
 | P2-e | WebView2 メッセージハンドラで重複していた `"<id>:<payload>"` 解析を `mermaid_util::ParseRequestPrefix` に抽出。`RequestPrefix { id, payload, valid, has_payload }` 構造体を返す純粋関数化。`test_mermaid_util.cpp` に 7 テスト追加 |
+| P1-j | `ContextMenu` を PIMPL 化し、`context_menu.h` から `<windows.h>` / `<d2d1.h>` / `<dwrite.h>` / `<wrl/client.h>` を除去。公開 API の `HWND` / `ID2D1Factory*` / `IDWriteFactory*` を `void*` に置換、`Item::rect` / `NavRowLayout::back_rect` / `fwd_rect` を `D2D1_RECT_F` → `DipRect` へ。`Theme` はポインタメンバなので前方宣言化。テスト用の `TestBuildItems` / `TestCreateTextFormats` / `TestComputeLayout` は PIMPL forward として実装を `.cpp` に移動（`#ifdef MENDO_TESTING` ガードは PIMPL 化により維持不可のため廃止）。`app_init.cpp` / `app_context_menu.cpp` の呼び出し側は暗黙変換で追随なし。`tests/test_context_menu.cpp` に `theme.h` / `<d2d1.h>` の明示 include を追加 |
 
 ---
 
@@ -137,8 +138,21 @@ Reducer と各コンポーネントの密結合は低い（`layout_cache` 3 箇�
 
 #### 判断ポイント
 - P1-g / P1-h / P1-i は独立・低リスク。**先行実施推奨**
-- P1-j は `app.h` public/internal 分離と絡む可能性あり。実装時に再評価
+- ~~P1-j は `app.h` public/internal 分離と絡む可能性あり。実装時に再評価~~（2026-04-21 追加セッションで完了。`app.h` 分離は不要だった）
 - P1-k は `render/` への影響範囲が広いため**別セッションで検討**
+
+#### P1-k の再評価（2026-04-21）
+
+調査の結果、`NodeLayoutEntry` / `DiagramEntry` のフィールドアクセスは 18 ファイル 160 箇所に散在：
+- 書き込みアクセスは 5 ファイル（`layout/layout.cpp`、`render/renderer.cpp`、`app/resource_manager.cpp`、`io/image_loader.cpp`、`mermaid/mermaid.cpp`）
+- ヘッダの `<d2d1.h>` / `<dwrite.h>` 依存源は `InlineCodeBg = D2D1_RECT_F` と `ComPtr<IDWriteTextLayout>` / `ComPtr<ID2D1Bitmap>` 値メンバ
+- 完全 PIMPL 化は `NodeLayoutEntry` 全フィールドを get/set アクセサ経由に変更する必要があり、レイアウト計算・描画ホットパスへの影響が大きい
+
+**結論**：現状の密結合を解くメリット（コンパイル時間の数 % 改善）に対して、書き換え範囲とリグレッションリスクが過大。見送りとする。`app_state.h` に残る `<dwrite.h>` 依存は許容する方針。
+
+今後ヘッダ依存を減らすとすれば：
+- (a) `InlineCodeBg` を `DipRect` に置換（render 側も追随、効果は限定的）
+- (b) `NodeLayoutEntry` を完全不透明型化する大規模インターフェース再設計（当面見送り）
 
 ---
 
@@ -171,14 +185,14 @@ Reducer と各コンポーネントの密結合は低い（`layout_cache` 3 箇�
 | セッション | 内容 | 特徴 | 状況 |
 |---|---|---|---|
 | 次回 | P1-g / P1-h / P1-i / P2-d / P2-e | 小粒・モック不要・並行実施可能 | 2026-04-21 完了（上表参照） |
-| その次 | P1-j → P1-k | PIMPL の段階的適用 | 未着手 |
+| その次 | P1-j → P1-k | PIMPL の段階的適用 | 2026-04-21 追加セッションで P1-j 完了、P1-k は見送り確定（上記再評価参照） |
 | 別途判断 | P2-f / P2-g | WebView2 モック導入工数の見合いで着手是非を決定 | 未着手 |
 
 ---
 
 ## 7. 2026-04-21 セッション完了サマリ
 
-ブランチ `refactor/2026-04-21-p1-p2-first-batch` に以下 5 コミット：
+ブランチ `refactor/2026-04-21-p1-p2-first-batch` に以下コミット：
 
 | コミット | タスク | 効果 |
 |---|---|---|
@@ -187,8 +201,9 @@ Reducer と各コンポーネントの密結合は低い（`layout_cache` 3 箇�
 | `341603a` | P1-h | Tooltip を PIMPL 化、`HWND`/`POINT` を `void*`/`int,int` へ |
 | `26472b3` | P2-e | WebView2 メッセージの ID プレフィックス解析を抽出、7 テスト追加 |
 | `a501650` | P1-i | TitleBar 公開 API の `D2D1_RECT_F` を `DipRect` に置換、`titlebar.h` の `<d2d1.h>` / `ui_constants.h` 依存を除去 |
+| (追加セッション) | P1-j | ContextMenu を PIMPL 化、`context_menu.h` から `<windows.h>` / `<d2d1.h>` / `<dwrite.h>` / `<wrl/client.h>` を完全除去 |
 
 **成果**：
 - テスト数 1832 → 1852（+20）、全 PASS
-- Redux 層主要ヘッダ（`titlebar.h` / `tooltip.h` / `file_explorer.h` / `hit_test_service.h`）から `<d2d1.h>` / `<dwrite.h>` / `<windows.h>` の直接 include を完全除去
-- `app_state.h` 経由の Win32 依存波及経路のうち、残るのは `LayoutCache`（`<dwrite.h>`）と `ContextMenu`（`<windows.h>`/`<dwrite.h>`/`<d2d1.h>`）のみ（P1-j / P1-k で対応予定）
+- Redux 層主要ヘッダ（`titlebar.h` / `tooltip.h` / `file_explorer.h` / `hit_test_service.h` / `context_menu.h`）から `<d2d1.h>` / `<dwrite.h>` / `<windows.h>` の直接 include を完全除去
+- `app_state.h` 経由の Win32 依存波及経路のうち、残るのは `LayoutCache`（`<d2d1.h>` / `<dwrite.h>`）のみ。P1-k は影響範囲広大につき見送り確定（§6.1 再評価参照）
