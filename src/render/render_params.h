@@ -9,6 +9,7 @@
 #include "mouse_gesture.h"
 #include <d2d1.h>
 #include <wrl/client.h>
+#include <cstddef>
 #include <memory_resource>
 #include <string_view>
 
@@ -27,11 +28,10 @@ struct ToastRenderState {
 };
 
 // タイトルバー描画パラメータ。
-// 矩形は DipRect で保持し、描画時に ToD2DRect() で D2D1_RECT_F に変換する。
 struct TitleBarRenderState {
     // --- 8バイトアライメント ---
     std::wstring_view title_text;
-    // --- TitleBarButton (DipRect + bool) ---
+    // --- 4バイトアライメント ---
     TitleBarButton open_file;
     TitleBarButton help;
     TitleBarButton theme_toggle;
@@ -55,7 +55,15 @@ struct TitleBarRenderState {
     bool window_active = true;
 };
 
-// DipRect を D2D1_RECT_F に変換するヘルパ。renderer 側で描画時のみ使用する。
+// DipRect は D2D1_RECT_F とメンバ順・サイズ・アライメントが同一で、
+// ToD2DRect() の変換は実質的にビットコピーに縮退する。
+static_assert(sizeof(DipRect) == sizeof(D2D1_RECT_F));
+static_assert(alignof(DipRect) == alignof(D2D1_RECT_F));
+static_assert(offsetof(DipRect, left) == offsetof(D2D1_RECT_F, left));
+static_assert(offsetof(DipRect, top) == offsetof(D2D1_RECT_F, top));
+static_assert(offsetof(DipRect, right) == offsetof(D2D1_RECT_F, right));
+static_assert(offsetof(DipRect, bottom) == offsetof(D2D1_RECT_F, bottom));
+
 inline D2D1_RECT_F ToD2DRect(const DipRect& r) noexcept
 {
     return D2D1::RectF(r.left, r.top, r.right, r.bottom);

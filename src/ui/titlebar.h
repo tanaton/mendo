@@ -25,9 +25,6 @@ struct TitleBarButton {
 
 // カスタムタイトルバーの状態管理（Win32 / D2D 非依存）。
 // ボタン位置計算・ヒットテスト・ホバー管理を担当。
-// 矩形は DipRect（<d2d1.h> 非依存）で保持し、レンダラ側で必要に応じて
-// D2D1_RECT_F へ変換する。これにより app_state.h → titlebar.h 経由での
-// <d2d1.h> 依存波及を遮断する。
 class TitleBar {
 public:
     static constexpr float BASE_HEIGHT = 32.0f;

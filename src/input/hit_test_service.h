@@ -5,9 +5,7 @@
 #include "theme.h"
 #include <memory_resource>
 
-// LayoutCache / NodeLayoutEntry は参照としてのみ扱うため前方宣言で十分。
-// 実体定義 (layout_cache.h) は <dwrite.h> を巻き込むので、本ヘッダを
-// include する側に dwrite 依存を波及させないためにも .cpp でのみ解決する。
+// 参照としてのみ扱うため前方宣言（layout_cache.h は <dwrite.h> を巻き込むため）。
 class LayoutCache;
 struct NodeLayoutEntry;
 

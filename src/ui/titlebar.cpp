@@ -1,12 +1,5 @@
 #include "titlebar.h"
 
-namespace {
-constexpr bool PointInDipRect(float x, float y, const DipRect& r) noexcept
-{
-    return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
-}
-}
-
 void TitleBar::UpdateLayout(float window_width_dip) noexcept
 {
     // ── 左側ボタン群（アイコンの右から配置）──
@@ -49,33 +42,33 @@ TitleBarHitZone TitleBar::HitTest(float dip_x, float dip_y) const noexcept
     if (dip_y < 0.0f || dip_y >= BASE_HEIGHT) {
         return TitleBarHitZone::None;
     }
-    if (PointInDipRect(dip_x, dip_y, close_.rect)) {
+    if (PointInRect(dip_x, dip_y, close_.rect)) {
         return TitleBarHitZone::Close;
     }
-    if (PointInDipRect(dip_x, dip_y, maximize_.rect)) {
+    if (PointInRect(dip_x, dip_y, maximize_.rect)) {
         return TitleBarHitZone::Maximize;
     }
-    if (PointInDipRect(dip_x, dip_y, minimize_.rect)) {
+    if (PointInRect(dip_x, dip_y, minimize_.rect)) {
         return TitleBarHitZone::Minimize;
     }
     // 左側ボタン群
-    if (PointInDipRect(dip_x, dip_y, open_file_.rect)) {
+    if (PointInRect(dip_x, dip_y, open_file_.rect)) {
         return TitleBarHitZone::OpenFile;
     }
-    if (PointInDipRect(dip_x, dip_y, search_.rect)) {
+    if (PointInRect(dip_x, dip_y, search_.rect)) {
         return TitleBarHitZone::Search;
     }
-    if (PointInDipRect(dip_x, dip_y, theme_toggle_.rect)) {
+    if (PointInRect(dip_x, dip_y, theme_toggle_.rect)) {
         return TitleBarHitZone::ThemeToggle;
     }
-    if (PointInDipRect(dip_x, dip_y, help_.rect)) {
+    if (PointInRect(dip_x, dip_y, help_.rect)) {
         return TitleBarHitZone::Help;
     }
     // 右側ボタン群
-    if (PointInDipRect(dip_x, dip_y, file_toggle_.rect)) {
+    if (PointInRect(dip_x, dip_y, file_toggle_.rect)) {
         return TitleBarHitZone::FileToggle;
     }
-    if (PointInDipRect(dip_x, dip_y, toc_toggle_.rect)) {
+    if (PointInRect(dip_x, dip_y, toc_toggle_.rect)) {
         return TitleBarHitZone::TocToggle;
     }
     // アイコン領域（クリックしやすいようアイコン右のギャップまで含む）

@@ -277,21 +277,18 @@ void MermaidRenderer::SetupWorker(int index)
                     ProcessQueue();
                 }
                 else if (wcsncmp(msg, L"render-result:", 14) == 0) {
-                    // "render-result:<id>:<json>" からリクエストIDを解析
                     const auto p = mermaid_util::ParseRequestPrefix(msg + 14);
                     if (p.valid && p.has_payload && p.id == w.current_request.request_id) {
                         OnRenderResult(index, p.payload);
                     }
                 }
                 else if (wcsncmp(msg, L"capture-ready:", 14) == 0) {
-                    // "capture-ready:<id>" からリクエストIDを解析
                     const auto p = mermaid_util::ParseRequestPrefix(msg + 14);
                     if (p.valid && p.id == w.current_request.request_id) {
                         DoCapturePreview(index);
                     }
                 }
                 else if (wcsncmp(msg, L"render-error:", 13) == 0) {
-                    // "render-error:<id>:<message>" からリクエストIDを解析
                     const auto p = mermaid_util::ParseRequestPrefix(msg + 13);
                     if (p.valid && p.id == w.current_request.request_id) {
                         FinishWorkerRequest(w);

@@ -4,10 +4,6 @@
 
 // Win32 TOOLTIPS_CLASS を TTF_TRACK モードで管理するラッパー。
 // App 側のホバー検出結果をもとに、ツールチップの表示/非表示を制御する。
-//
-// PIMPL 化によりヘッダから <windows.h> / <commctrl.h> を追い出し、
-// app_state.h → tooltip.h 経由での Win32 依存波及を遮断している。
-// 実装は tooltip.cpp に全て閉じ込める。
 class Tooltip {
 public:
     Tooltip();
