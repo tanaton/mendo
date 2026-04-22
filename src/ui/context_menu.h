@@ -76,9 +76,10 @@ public:
     float GetMenuHeight() const noexcept;
 
     // テスト補助 API（Impl の BuildItems / CreateTextFormats / ComputeLayout へ
-    // 直接 forward するフックポイント）。定義は mendo_core に含まれるが mendo
-    // 実行体からは未参照のためリンカで除去される。名前空間の "Test" プレフィックス
-    // で意図を明示している。
+    // 直接 forward するフックポイント）。定義は mendo_core に含まれるため
+    // Release/LTCG のように /OPT:REF が効くビルドでは mendo 実行体から未参照で
+    // リンカに除去される可能性があるが、Debug 等の未最適化ビルドではバイナリ
+    // に残り得る。"Test" プレフィックスで用途を明示している。
     void TestBuildItems(const ContextMenuParams& params);
     void TestCreateTextFormats(const Theme& theme);
     void TestComputeLayout();

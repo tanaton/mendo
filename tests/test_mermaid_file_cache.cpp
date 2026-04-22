@@ -615,13 +615,14 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
 // インデックスが指していない PNG）を生み出す原因になっていた。
 TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
 {
-    // ワーカー 0 でスケジューラを再構成し、Post したタスクが
-    // 実行されないようにする（pending 状態で Lookup を確実に走らせる）。
+    // scheduler_ を Shutdown → InitCache → Init(1) で再構成し、
+    // StoreAsync の直後にワーカーが PNG 書き込みを完了する前に
+    // Lookup を走らせる。タイミング上 in-flight を捕捉できないことも
+    // あるが、その場合は LookupDimensions が成功するだけで assertion は
+    // 破綻しない（pending でも完了でも index は残っているべき、という
+    // 契約を検証する）。
     scheduler_.Shutdown();
     InitCache();
-    // scheduler_ が空のまま StoreAsync すると Post 自体スキップされる。
-    // そこで scheduler_ は再起動するが、Post 後のタスク完了前に
-    // Lookup を走らせるため、無効パスを使ってタスクを即時失敗させる方針を取る。
     scheduler_.Init(1);
 
     const uint64_t key = 0x1234567890abcdefULL;
