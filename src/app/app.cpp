@@ -69,6 +69,16 @@ void App::CancelPendingResources()
     resource_manager_.ClearResolvedPaths();
 }
 
+void App::ResetViewForNewDocument()
+{
+    state_.view.viewport.ClearSelection();
+    CancelPendingResources();
+    renderer_.ShrinkBuffers();
+    state_.view.panes.ResetScrollStates();
+    renderer_.InvalidateFilePaneCache();
+    renderer_.InvalidateTocPaneCache();
+}
+
 void App::FinalizeLayout(float md_pane_height)
 {
     resource_manager_.LoadImages();
@@ -159,11 +169,9 @@ void App::OnPaint()
     // ローディング画面を表示する必要がない。
     const bool show_loading = file_load_service_.IsLoading() && !state_.pending_prefix_shrink;
     if (!show_loading) {
-        // 完了済みデコード結果とキャッシュ済みリソースを描画前に適用する。
-        // app_msg::IMAGE_LOADED が WM_PAINT より後にキューされている場合でも
-        // プレースホルダーの表示を回避できる。
-        resource_manager_.FlushPendingResources();
-
+        // FlushPendingResources は描画パスから外し、BITMAP_MANAGE タイマ経由で
+        // 集約実行する（ScheduleBitmapManage の 50ms debounce + 150ms 周期タイマ）。
+        // ロード完了時は OnAppImageLoaded → OnImageLoadComplete で個別反映される。
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
         EnsureScrollTarget();
 
@@ -329,8 +337,10 @@ void App::OnKeyDown(WPARAM key)
 
 void App::Dispatch(const AppAction& action)
 {
-    // Reducer が cached_pane_layout を参照するため、最新レイアウトを保証する。
-    // キャッシュ済みなら O(1) で返る。
+    // reducer が cached_pane_layout（window サイズ / ペイン幅から導出される派生値）を
+    // 参照するため、reducer 呼び出し前に最新化する。これは state の直接変更ではなく
+    // 「派生キャッシュの更新」で、GetPaneLayout はキャッシュ済みなら O(1) で返る。
+    // hybrid モデル下での reducer 入力保証の一部（reducer.h 参照）。
     GetPaneLayout();
 
     auto effects = Reduce(state_, action);
@@ -376,6 +386,9 @@ void App::OnCaptureChanged()
 
 void App::ShowToast(std::wstring_view message)
 {
+    // reducer 経由ではなく effect を直接発火する簡易経路。
+    // toast は state 遷移を伴わない単発副作用で、Action 化しても boilerplate が
+    // 増えるだけなので hybrid モデルの例外として許容している（reducer.h 参照）。
     effect_executor_.ExecuteOne(effect::ShowToast{ std::wstring{message} });
 }
 

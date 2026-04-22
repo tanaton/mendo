@@ -34,6 +34,11 @@ struct YPositionResult {
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index = 0, bool has_earlier_dirty = false, size_t safe_exit_after = SIZE_MAX) noexcept;
 
+// 単一ノードの高さをテーマ定数から推定する（DirectWrite を呼ばない）。
+// 部分レイアウトで MeasureNode をスキップする際の暫定値や、
+// EstimateNodeHeights からも利用される共通実装。
+[[nodiscard]] float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
+
 // DirectWriteを使わず、ノードの種類からおおよその高さを割り当ててY座標を推定する。
 // セッション復元時のスクロール位置計算用（O(n)の算術演算のみ、layout_dirtyは変更しない）。
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) noexcept;

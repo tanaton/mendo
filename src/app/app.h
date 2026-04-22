@@ -2,6 +2,7 @@
 #include "app_state.h"
 #include "reducer.h"
 #include "side_effect_executor.h"
+#include "win32_host_impl.h"
 #include "renderer.h"
 #include "task_scheduler.h"
 #include "mermaid_file_cache.h"
@@ -193,6 +194,9 @@ private:
 
     // ファイル読み込み/リロード共通ヘルパー
     void CancelPendingResources();
+    // 新規ドキュメントロード時の view 状態リセット（選択/保留リソース/
+    // ペイン関連バッファをまとめて初期化）。ファイル切替パス共通の前処理。
+    void ResetViewForNewDocument();
     void FinalizeLayout(float md_pane_height);
     void SaveLastFilePath();
     void SavePaneState();
@@ -240,6 +244,7 @@ private:
     // ---- サービス（状態ではなく振る舞い） ----
     std::optional<LayoutService> layout_service_;
     ResourceManager resource_manager_;
+    Win32Host win32_host_;
     SideEffectExecutor effect_executor_;
 
     void ShowToast(std::wstring_view message);

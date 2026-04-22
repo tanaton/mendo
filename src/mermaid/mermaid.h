@@ -1,6 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
+#include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include <d2d1.h>
 #include <wincodec.h>
@@ -20,10 +21,10 @@ class MermaidFileCache;
 // オフスクリーンWebView2を使ってMermaidダイアグラムコードをID2D1Bitmapにレンダリングする。
 // 複数のWebView2インスタンスを並行稼働させ、複数の図を同時にレンダリングできる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
-class MermaidRenderer {
+class MermaidRenderer : public IMermaidRenderer {
 public:
     MermaidRenderer() = default;
-    ~MermaidRenderer();
+    ~MermaidRenderer() override;
 
     MermaidRenderer(const MermaidRenderer&) = delete;
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
@@ -37,12 +38,12 @@ public:
     // WebView2が初期化済みでレンダリング可能な場合にtrueを返す。
     constexpr bool IsReady() const noexcept { return ready_; }
 
-    using Callback = std::move_only_function<void()>;
+    // IMermaidRenderer::Callback を継承
 
     // Mermaidコードブロックのレンダリングを要求する。
     // 完了時、ダイアグラムエントリのbitmap/width/heightとレイアウトエントリの
     // height/layout_dirtyが設定され、on_completeがUIスレッドで呼び出される。
-    void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete);
+    void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete) override;
 
     // D2Dレンダーターゲットを更新する（例：リサイズ後）。
     void SetRenderTarget(ID2D1RenderTarget* render_target);
@@ -51,7 +52,7 @@ public:
     void SetFileCache(MermaidFileCache* cache) noexcept { file_cache_ = cache; }
 
     // キャッシュされたビットマップをすべてクリアする。
-    void ClearCache();
+    void ClearCache() override;
 
     // WebView2ワーカーを閉じてリソースを解放する。
     // メッセージループが生きているうちに（OnDestroyで）呼び出す。
@@ -59,7 +60,7 @@ public:
 
     // 保留中のリクエストをすべてキャンセルし、処理中のリクエストを無効化する。
     // nodesベクターが置き換えられる前に呼び出す必要がある。
-    void CancelPending();
+    void CancelPending() override;
 
     // WebView2初期化リトライのタイマーハンドラ
     void OnInitRetryTimer();

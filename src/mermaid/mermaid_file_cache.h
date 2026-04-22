@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <unordered_set>
 #include <vector>
 #include <filesystem>
 #include <unordered_map>
@@ -91,6 +93,8 @@ private:
     std::filesystem::path GetIndexPath() const;
     void LoadIndex();
     void EvictIfNeeded(uint32_t new_png_size);
+    // total_size_ から安全に減算する（アンダーフロー時は 0 にクランプ）
+    void DecrementTotalSize(uint32_t png_size) noexcept;
     static int64_t Now() noexcept;
 
     std::filesystem::path cache_dir_override_;
@@ -109,4 +113,10 @@ private:
     // バックグラウンド書き込み
     TaskScheduler* scheduler_ = nullptr;
     std::atomic<uint32_t> write_gen_{ 0 };
+
+    // 書き込み in-flight キーの集合。Lookup が PNG 未着地を stale と
+    // 誤判定して index を消すのを防ぐためのガード。
+    // UI スレッドからもバックグラウンドスレッドからも触るため mutex で保護。
+    mutable std::mutex pending_mutex_;
+    std::unordered_set<uint64_t> pending_writes_;
 };

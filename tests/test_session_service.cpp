@@ -33,19 +33,29 @@ TEST_F(SessionServiceTest, SaveAndLoadPaneState)
     EXPECT_FLOAT_EQ(loaded.GetTocPaneWidth(), 250.0f);
 }
 
-TEST_F(SessionServiceTest, LoadPaneStateFallsBackToDefaultIfOutOfRange)
+TEST_F(SessionServiceTest, LoadPaneStateClampsOutOfRangeValuesToDynamicMax)
 {
-    // 保存値が dynamic_max を超える場合、GetInt の仕様でデフォルト値が返る
+    // 保存値が dynamic_max を超える場合、GetInt はデフォルト値 (PANE_DEFAULT_WIDTH=220) を
+    // 返す。狭いウィンドウでは既定値自体が dynamic_max を超えうるため、
+    // LoadPaneState 側で最終結果も clamp し、Set*PaneWidth に過剰な幅を渡さない。
     config_.SaveInt("Pane", "FileWidth", 500);
     config_.SaveInt("Pane", "TocWidth", 500);
 
     PaneController loaded;
     // client_width=300 → dynamic_max = max(100, 300-100) = 200
-    // 500 > 200 なのでデフォルト値 (PANE_DEFAULT_WIDTH=220) が返るが、
-    // さらに dynamic_max でクランプされないため、SetFilePaneWidth(220) が呼ばれる
     session_.LoadPaneState(loaded, 300.0f);
 
-    // デフォルト値が適用される
+    // dynamic_max=200 で clamp される（fix 前は 220 が漏れていた）
+    EXPECT_FLOAT_EQ(loaded.GetFilePaneWidth(), 200.0f);
+    EXPECT_FLOAT_EQ(loaded.GetTocPaneWidth(), 200.0f);
+}
+
+TEST_F(SessionServiceTest, LoadPaneStateUsesDefaultWhenWindowFitsIt)
+{
+    // 通常幅のウィンドウでは、欠落値は DEFAULT_WIDTH のまま使われる
+    PaneController loaded;
+    session_.LoadPaneState(loaded, 1200.0f);
+
     EXPECT_FLOAT_EQ(loaded.GetFilePaneWidth(), PaneController::PANE_DEFAULT_WIDTH);
     EXPECT_FLOAT_EQ(loaded.GetTocPaneWidth(), PaneController::PANE_DEFAULT_WIDTH);
 }

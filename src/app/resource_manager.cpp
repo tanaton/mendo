@@ -3,20 +3,62 @@
 #include "layout_cache.h"
 #include "viewport_manager.h"
 #include "image_loader.h"
-#include "mermaid.h"
+#include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include "theme_service.h"
-#include "renderer.h"
-#include "layout_service.h"
 #include "profiler.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <iterator>
+
+namespace {
+
+// 単調増加する node-index 配列 (GetImageNodeIndices / GetDiagramNodeIndices の戻り値)
+// から [first_visible_node, last_visible_node_plus_1) と交差する部分範囲を
+// 二分探索で切り出す。全件走査 O(total_media) を O(log total_media + visible_media)
+// まで落とすためのヘルパ。
+struct IndexSlice {
+    std::pmr::vector<size_t>::const_iterator begin;
+    std::pmr::vector<size_t>::const_iterator end;
+};
+
+IndexSlice VisibleSlice(const std::pmr::vector<size_t>& sorted_indices,
+    size_t first_visible_node, size_t last_visible_node_plus_1)
+{
+    const auto b = std::lower_bound(sorted_indices.begin(), sorted_indices.end(), first_visible_node);
+    const auto e = std::lower_bound(b, sorted_indices.end(), last_visible_node_plus_1);
+    return { b, e };
+}
+
+// first_visible / last_visible_plus_1 を一度に算出する。
+// first: 下端が range_top 以上の最初のノード（FindFirstVisibleNodeIndex）。
+// last+1: 上端が range_bottom を超える最初のノード（first からの前方走査、O(visible)）。
+struct VisibleRange {
+    size_t first;
+    size_t last_plus_1;
+};
+
+VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count,
+    float range_top, float range_bottom)
+{
+    const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, range_top));
+    size_t last_plus_1 = first;
+    for (size_t i = first; i < node_count; ++i) {
+        if (cache[i].y_position > range_bottom) {
+            break;
+        }
+        last_plus_1 = i + 1;
+    }
+    return { first, last_plus_1 };
+}
+
+} // namespace
 
 void ResourceManager::Init(Document& doc, LayoutCache& cache, ViewportManager& viewport,
-    ImageLoader& image_loader, MermaidRenderer& mermaid,
-    ThemeService& theme_service, Renderer& renderer,
+    ImageLoader& image_loader, IMermaidRenderer& mermaid,
+    ThemeService& theme_service,
     Callbacks cb)
 {
     doc_ = &doc;
@@ -25,7 +67,6 @@ void ResourceManager::Init(Document& doc, LayoutCache& cache, ViewportManager& v
     image_loader_ = &image_loader;
     mermaid_ = &mermaid;
     theme_service_ = &theme_service;
-    renderer_ = &renderer;
     cb_ = std::move(cb);
 }
 
@@ -50,10 +91,22 @@ int ResourceManager::ApplyCachedImages()
     const float buffer = viewport_height * PREFETCH_BUFFER_SCREENS;
     const float range_top = viewport_top - buffer;
     const float range_bottom = viewport_top + viewport_height + buffer;
+    const float indent_width = cb_.get_indent_width();
+
+    auto& nodes = doc_->GetNodesMut();
+    const auto& image_indices = doc_->GetImageNodeIndices();
+
+    // 全件走査ではなく、可視範囲に intersect する image index のみを走査。
+    // viewport_height <= 0.0f の時は初期化中等なのでレイアウト範囲無視（全件）で従来挙動を保つ。
+    IndexSlice slice{ image_indices.begin(), image_indices.end() };
+    if (viewport_height > 0.0f) {
+        const auto vr = ComputeVisibleNodeRange(*cache_, nodes.size(), range_top, range_bottom);
+        slice = VisibleSlice(image_indices, vr.first, vr.last_plus_1);
+    }
 
     int applied = 0;
-    auto& nodes = doc_->GetNodesMut();
-    for (size_t i : doc_->GetImageNodeIndices()) {
+    for (auto it = slice.begin; it != slice.end; ++it) {
+        const size_t i = *it;
         auto& node = nodes[i];
         auto& diagram = cache_->GetDiagram(i);
         if (diagram.bitmap) {
@@ -61,10 +114,6 @@ int ResourceManager::ApplyCachedImages()
         }
 
         if (!node.has_image() || node.image_data->src.find(L"://") != std::pmr::wstring::npos) {
-            continue;
-        }
-
-        if (viewport_height > 0.0f && IsOffscreen((*cache_)[i].y_position, (*cache_)[i].height, range_top, range_bottom)) {
             continue;
         }
 
@@ -90,7 +139,7 @@ int ResourceManager::ApplyCachedImages()
             node.image_data->width = diagram.width;
             node.image_data->height = diagram.height;
 
-            const float indent = node.indent_level * renderer_->GetTheme().indent_width;
+            const float indent = node.indent_level * indent_width;
             const float node_width = content_width - indent;
             float h = diagram.height;
             if (diagram.width > node_width && diagram.width > 0) {
@@ -142,6 +191,7 @@ void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
         mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_)) {
         const float min_width = std::min(content_width, last_mermaid_content_width_);
         bool any_invalidated = false;
+        // 幅変化 invalidation は全 diagram を対象にする必要がある（不可視分も旧幅ビットマップを持ちうるため）。
         for (size_t i : doc_->GetDiagramNodeIndices()) {
             auto& diagram = cache_->GetDiagram(i);
             if (diagram.bitmap && diagram.width > 0 &&
@@ -177,15 +227,19 @@ int ResourceManager::RequestMermaidRenders()
     const float range_top = viewport_top - buffer;
     const float range_bottom = viewport_top + viewport_height + buffer;
 
+    const auto& diagram_indices = doc_->GetDiagramNodeIndices();
+    IndexSlice slice{ diagram_indices.begin(), diagram_indices.end() };
+    if (viewport_height > 0.0f) {
+        const auto vr = ComputeVisibleNodeRange(*cache_, doc_->GetNodes().size(), range_top, range_bottom);
+        slice = VisibleSlice(diagram_indices, vr.first, vr.last_plus_1);
+    }
+
     int applied = 0;
-    for (size_t i : doc_->GetDiagramNodeIndices()) {
+    for (auto it = slice.begin; it != slice.end; ++it) {
+        const size_t i = *it;
         auto& node = doc_->GetNodesMut()[i];
         auto& diagram = cache_->GetDiagram(i);
         if (diagram.bitmap) {
-            continue;
-        }
-
-        if (viewport_height > 0.0f && IsOffscreen((*cache_)[i].y_position, (*cache_)[i].height, range_top, range_bottom)) {
             continue;
         }
 
@@ -244,14 +298,23 @@ void ResourceManager::ProcessMermaidBatch()
 
     const auto start = std::chrono::steady_clock::now();
 
-    mermaid_batch_loading_ = true;
-    while (mermaid_batch_next_ < indices.size()) {
-        const size_t i = indices[mermaid_batch_next_];
-
-        if (viewport_height > 0.0f && IsOffscreen((*cache_)[i].y_position, (*cache_)[i].height, range_top, range_bottom)) {
-            mermaid_batch_next_++;
-            continue;
+    // バッチ範囲を可視 + buffer の部分レンジに限定する。
+    // mermaid_batch_next_ は indices 内の position（indices[n] が node index）。
+    // 進捗の意味を保ったまま、可視レンジ内のみを走査。
+    size_t slice_end = indices.size();
+    if (viewport_height > 0.0f) {
+        const auto vr = ComputeVisibleNodeRange(*cache_, doc_->GetNodes().size(), range_top, range_bottom);
+        const auto s = VisibleSlice(indices, vr.first, vr.last_plus_1);
+        const size_t slice_start = static_cast<size_t>(s.begin - indices.begin());
+        slice_end = static_cast<size_t>(s.end - indices.begin());
+        if (mermaid_batch_next_ < slice_start) {
+            mermaid_batch_next_ = slice_start;
         }
+    }
+
+    mermaid_batch_loading_ = true;
+    while (mermaid_batch_next_ < slice_end) {
+        const size_t i = indices[mermaid_batch_next_];
 
         auto& node = doc_->GetNodesMut()[i];
         auto& diagram = cache_->GetDiagram(i);
@@ -276,7 +339,7 @@ void ResourceManager::ProcessMermaidBatch()
         cb_.recompute_layout_anchored();
     }
 
-    if (mermaid_batch_next_ >= indices.size()) {
+    if (mermaid_batch_next_ >= slice_end) {
         cb_.kill_timer(TIMER_MERMAID_BATCH);
     }
 }
@@ -328,28 +391,39 @@ void ResourceManager::EvictOffscreenBitmaps()
         evict_text_layout(i);
     }
 
-    // 画像ビットマップの解放
-    for (size_t i : doc_->GetImageNodeIndices()) {
-        auto& diagram = cache_->GetDiagram(i);
-        if (!diagram.bitmap) {
-            continue;
+    // image/diagram bitmap の evict も可視範囲外（[0, first_keep) と
+    // [last_keep, node_count)）だけを走査する。IndexSlice で image/diagram 配列の
+    // 該当部分を切り出して、各々 bitmap をリセット。
+    const auto& image_indices = doc_->GetImageNodeIndices();
+    const auto img_keep = VisibleSlice(image_indices, static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
+    for (auto it = image_indices.begin(); it != img_keep.begin; ++it) {
+        auto& diagram = cache_->GetDiagram(*it);
+        if (diagram.bitmap) {
+            diagram.bitmap.Reset();
         }
-        if (IsOffscreen((*cache_)[i].y_position, (*cache_)[i].height, evict_top, evict_bottom)) {
+    }
+    for (auto it = img_keep.end; it != image_indices.end(); ++it) {
+        auto& diagram = cache_->GetDiagram(*it);
+        if (diagram.bitmap) {
             diagram.bitmap.Reset();
         }
     }
 
-    // Mermaidビットマップの解放
+    const auto& diagram_indices = doc_->GetDiagramNodeIndices();
+    const auto dia_keep = VisibleSlice(diagram_indices, static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
     bool any_mermaid_evicted = false;
-    for (size_t i : doc_->GetDiagramNodeIndices()) {
+    auto evict_mermaid = [&](size_t i) {
         auto& diagram = cache_->GetDiagram(i);
-        if (!diagram.bitmap) {
-            continue;
-        }
-        if (IsOffscreen((*cache_)[i].y_position, (*cache_)[i].height, evict_top, evict_bottom)) {
+        if (diagram.bitmap) {
             diagram.bitmap.Reset();
             any_mermaid_evicted = true;
         }
+    };
+    for (auto it = diagram_indices.begin(); it != dia_keep.begin; ++it) {
+        evict_mermaid(*it);
+    }
+    for (auto it = dia_keep.end; it != diagram_indices.end(); ++it) {
+        evict_mermaid(*it);
     }
     if (any_mermaid_evicted) {
         mermaid_->ClearCache();

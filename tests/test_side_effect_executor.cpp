@@ -1,26 +1,82 @@
 #include <gtest/gtest.h>
 #include "side_effect_executor.h"
+#include "win32_host.h"
+#include "timer_ids.h"
 #include "app_state.h"
 #include "resource_manager.h"
-#include "cursor_manager.h"
 #include "document_service.h"
 #include "config_service.h"
 #include "layout_service.h"
 #include "layout.h"
 #include "file_watcher.h"
 
-// side_effect_executor.cpp が extern 参照するシンボルのダミー。本体は app.cpp。
-// ApplyDarkMode 副作用はテストで発火しないが、LTCG が効かない場合のリンク保険。
+// tooltip.cpp (mendo_core) が extern 参照するシンボルのダミー。本体は app.cpp。
+// テストでは実行されないが、リンク充足のために必要。
 void ApplyDarkModeToWindow(HWND, bool) {}
+
+namespace {
+
+// 副作用発火を記録する IWin32Host mock
+class RecordingWin32Host final : public IWin32Host {
+public:
+    int invalidate_count = 0;
+    std::vector<std::pair<int, int>> invalidate_titlebar_calls;
+    std::vector<std::pair<UINT_PTR, UINT>> set_timer_calls;
+    std::vector<UINT_PTR> kill_timer_calls;
+    int set_capture_count = 0;
+    int release_capture_count = 0;
+    std::vector<effect::CursorType> set_cursor_calls;
+    std::vector<std::wstring> clipboard_text_calls;
+    std::vector<std::pair<std::wstring, std::wstring>> clipboard_html_calls;
+    std::vector<std::wstring> shell_open_calls;
+    std::vector<int> show_window_cmd_calls;
+    std::vector<std::tuple<UINT, WPARAM, LPARAM>> post_message_calls;
+    std::vector<std::wstring> set_window_title_calls;
+    std::vector<std::tuple<int, int, int, int>> set_window_position_calls;
+    std::vector<POINT> client_to_screen_inputs;
+    POINT client_to_screen_translation{ 0, 0 };
+    std::vector<bool> apply_dark_mode_calls;
+
+    void Invalidate() override { invalidate_count++; }
+    void InvalidateTitleBarArea(int width_px, int height_px) override {
+        invalidate_titlebar_calls.emplace_back(width_px, height_px);
+    }
+    void SetTimer(UINT_PTR id, UINT ms) override { set_timer_calls.emplace_back(id, ms); }
+    void KillTimer(UINT_PTR id) override { kill_timer_calls.push_back(id); }
+    void SetCapture() override { set_capture_count++; }
+    void ReleaseCapture() override { release_capture_count++; }
+    void SetCursor(effect::CursorType type) override { set_cursor_calls.push_back(type); }
+    void WriteClipboardText(std::wstring_view text) override { clipboard_text_calls.emplace_back(text); }
+    void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) override {
+        clipboard_html_calls.emplace_back(std::wstring{html}, std::wstring{plain});
+    }
+    void ShellOpen(std::wstring_view url) override { shell_open_calls.emplace_back(url); }
+    void ShowWindowCmd(int cmd) override { show_window_cmd_calls.push_back(cmd); }
+    void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override {
+        post_message_calls.emplace_back(msg, wp, lp);
+    }
+    void SetWindowTitle(std::wstring_view title) override { set_window_title_calls.emplace_back(title); }
+    void SetWindowPosition(int x, int y, int cx, int cy) override {
+        set_window_position_calls.emplace_back(x, y, cx, cy);
+    }
+    POINT ClientToScreen(POINT client_pt) override {
+        client_to_screen_inputs.push_back(client_pt);
+        return { client_pt.x + client_to_screen_translation.x,
+                 client_pt.y + client_to_screen_translation.y };
+    }
+    void ApplyDarkMode(bool dark) override { apply_dark_mode_calls.push_back(dark); }
+};
+
+} // namespace
 
 class SideEffectExecutorTest : public ::testing::Test {
 protected:
     // --- 依存クラスの実体（default-construct） ---
+    RecordingWin32Host host_;
     FileWatcher watcher_;
     DocumentService doc_service_{watcher_};
     ConfigService config_;
     ResourceManager resource_manager_;
-    CursorManager cursors_;
     AppState state_;
     LayoutEngine engine_;
     LayoutService layout_service_{engine_, state_.view.viewport};
@@ -94,7 +150,7 @@ protected:
 
     void SetUp() override
     {
-        exec_.Init(/*hwnd=*/nullptr, resource_manager_, cursors_, doc_service_,
+        exec_.Init(host_, resource_manager_, doc_service_,
                    config_, state_, layout_service_, MakeCallbacks());
     }
 };
@@ -278,16 +334,131 @@ TEST_F(SideEffectExecutorTest, ExecuteEmptyListIsNoop)
     EXPECT_EQ(destroy_count_, 0);
 }
 
-// HWND=nullptr の executor に対して、ウィンドウ対象の Win32 API を発火させる
-// 副作用はここでは実行しない。nullptr は API によって特別扱いされ（例:
-// InvalidateRect(nullptr, ...) は全ウィンドウを再描画、PostMessageW(nullptr, ...)
-// はスレッドメッセージ投稿）、画面全体の invalidation などグローバル副作用や
-// 他テストとの干渉を招きうるため。
-// ここでは HWND に依存しない CursorManager 未初期化ルートの SetCursor のみ確認する。
-TEST_F(SideEffectExecutorTest, SetCursorEffectsWithNullHwndDoNotCrash)
+// ═══════════════════════════════════════════════
+// IWin32Host 経由の副作用（mock で発火を検証）
+// ═══════════════════════════════════════════════
+
+TEST_F(SideEffectExecutorTest, InvalidateWindowCallsHostInvalidate)
+{
+    exec_.ExecuteOne(effect::InvalidateWindow{});
+    EXPECT_EQ(host_.invalidate_count, 1);
+}
+
+TEST_F(SideEffectExecutorTest, SetTimerAndKillTimerForwardToHost)
+{
+    exec_.ExecuteOne(effect::SetTimer{42, 100});
+    exec_.ExecuteOne(effect::KillTimer{42});
+    ASSERT_EQ(host_.set_timer_calls.size(), 1u);
+    EXPECT_EQ(host_.set_timer_calls[0], std::make_pair(UINT_PTR{42}, UINT{100}));
+    ASSERT_EQ(host_.kill_timer_calls.size(), 1u);
+    EXPECT_EQ(host_.kill_timer_calls[0], UINT_PTR{42});
+}
+
+TEST_F(SideEffectExecutorTest, SetCaptureAndReleaseCaptureForwardToHost)
+{
+    exec_.ExecuteOne(effect::SetCapture{});
+    exec_.ExecuteOne(effect::ReleaseCapture{});
+    EXPECT_EQ(host_.set_capture_count, 1);
+    EXPECT_EQ(host_.release_capture_count, 1);
+}
+
+TEST_F(SideEffectExecutorTest, SetCursorForwardsTypeToHost)
 {
     exec_.ExecuteOne(effect::SetCursor{effect::CursorType::Arrow});
     exec_.ExecuteOne(effect::SetCursor{effect::CursorType::Hand});
     exec_.ExecuteOne(effect::SetCursor{effect::CursorType::IBeam});
     exec_.ExecuteOne(effect::SetCursor{effect::CursorType::SizeWE});
+    ASSERT_EQ(host_.set_cursor_calls.size(), 4u);
+    EXPECT_EQ(host_.set_cursor_calls[0], effect::CursorType::Arrow);
+    EXPECT_EQ(host_.set_cursor_calls[1], effect::CursorType::Hand);
+    EXPECT_EQ(host_.set_cursor_calls[2], effect::CursorType::IBeam);
+    EXPECT_EQ(host_.set_cursor_calls[3], effect::CursorType::SizeWE);
+}
+
+TEST_F(SideEffectExecutorTest, ClipboardEffectsForwardToHost)
+{
+    exec_.ExecuteOne(effect::ClipboardWrite{std::pmr::wstring{L"hello"}});
+    exec_.ExecuteOne(effect::ClipboardWriteHtml{std::pmr::wstring{L"<p>html</p>"},
+                                                std::pmr::wstring{L"plain"}});
+    ASSERT_EQ(host_.clipboard_text_calls.size(), 1u);
+    EXPECT_EQ(host_.clipboard_text_calls[0], L"hello");
+    ASSERT_EQ(host_.clipboard_html_calls.size(), 1u);
+    EXPECT_EQ(host_.clipboard_html_calls[0].first, L"<p>html</p>");
+    EXPECT_EQ(host_.clipboard_html_calls[0].second, L"plain");
+}
+
+TEST_F(SideEffectExecutorTest, ShellOpenForwardsUrlToHost)
+{
+    exec_.ExecuteOne(effect::ShellOpen{std::pmr::wstring{L"https://example.com"}});
+    ASSERT_EQ(host_.shell_open_calls.size(), 1u);
+    EXPECT_EQ(host_.shell_open_calls[0], L"https://example.com");
+}
+
+TEST_F(SideEffectExecutorTest, ShowWindowCmdForwardsValueToHost)
+{
+    exec_.ExecuteOne(effect::ShowWindowCmd{SW_MAXIMIZE});
+    ASSERT_EQ(host_.show_window_cmd_calls.size(), 1u);
+    EXPECT_EQ(host_.show_window_cmd_calls[0], SW_MAXIMIZE);
+}
+
+TEST_F(SideEffectExecutorTest, PostMessageForwardsToHost)
+{
+    exec_.ExecuteOne(effect::PostMessage{WM_USER + 1, 7, 13});
+    ASSERT_EQ(host_.post_message_calls.size(), 1u);
+    EXPECT_EQ(std::get<0>(host_.post_message_calls[0]), UINT{WM_USER + 1});
+    EXPECT_EQ(std::get<1>(host_.post_message_calls[0]), WPARAM{7});
+    EXPECT_EQ(std::get<2>(host_.post_message_calls[0]), LPARAM{13});
+}
+
+TEST_F(SideEffectExecutorTest, SetWindowTitleForwardsToHost)
+{
+    exec_.ExecuteOne(effect::SetWindowTitle{std::pmr::wstring{L"mendo — doc.md"}});
+    ASSERT_EQ(host_.set_window_title_calls.size(), 1u);
+    EXPECT_EQ(host_.set_window_title_calls[0], L"mendo — doc.md");
+}
+
+TEST_F(SideEffectExecutorTest, SetWindowPositionForwardsToHost)
+{
+    exec_.ExecuteOne(effect::SetWindowPosition{10, 20, 800, 600});
+    ASSERT_EQ(host_.set_window_position_calls.size(), 1u);
+    EXPECT_EQ(host_.set_window_position_calls[0], std::make_tuple(10, 20, 800, 600));
+}
+
+TEST_F(SideEffectExecutorTest, ApplyDarkModeForwardsFlagToHost)
+{
+    exec_.ExecuteOne(effect::ApplyDarkMode{true});
+    exec_.ExecuteOne(effect::ApplyDarkMode{false});
+    ASSERT_EQ(host_.apply_dark_mode_calls.size(), 2u);
+    EXPECT_TRUE(host_.apply_dark_mode_calls[0]);
+    EXPECT_FALSE(host_.apply_dark_mode_calls[1]);
+}
+
+TEST_F(SideEffectExecutorTest, InvalidateTitleBarComputesRectFromCachedWidthAndDpi)
+{
+    state_.window.cached_dpi_scale = 2.0f;
+    state_.cached_window_width_for_layout = 800.0f;
+    // Titlebar::GetHeight() は constexpr 32.0f を返す。
+    // height: 32.0f * 2.0f + 0.5f = 64.5f → int cast で 64
+    // width:  800.0f * 2.0f → 1600 +1 で 1601 (境界ピクセル切れ防止)
+    exec_.ExecuteOne(effect::InvalidateTitleBar{});
+    ASSERT_EQ(host_.invalidate_titlebar_calls.size(), 1u);
+    EXPECT_EQ(host_.invalidate_titlebar_calls[0], std::make_pair(1601, 64));
+    EXPECT_EQ(host_.invalidate_count, 0);
+}
+
+TEST_F(SideEffectExecutorTest, InvalidateTitleBarFallsBackToFullInvalidateWhenWidthUnknown)
+{
+    state_.window.cached_dpi_scale = 1.0f;
+    state_.cached_window_width_for_layout = 0.0f;
+    exec_.ExecuteOne(effect::InvalidateTitleBar{});
+    EXPECT_TRUE(host_.invalidate_titlebar_calls.empty());
+    EXPECT_EQ(host_.invalidate_count, 1);
+}
+
+TEST_F(SideEffectExecutorTest, ShowToastSchedulesTimerAndInvalidates)
+{
+    exec_.ExecuteOne(effect::ShowToast{L"Copied"});
+    ASSERT_EQ(host_.set_timer_calls.size(), 1u);
+    EXPECT_EQ(host_.set_timer_calls[0].first, UINT_PTR{app_timer::TOAST});
+    EXPECT_EQ(host_.invalidate_count, 1);
 }

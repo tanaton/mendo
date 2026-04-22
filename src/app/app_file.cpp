@@ -26,20 +26,14 @@ void App::LoadHelpDocument()
 
     KillTimer(hwnd_, app_timer::LOADING_ANIM);
     file_load_service_.StopLoading();
-    state_.view.viewport.ClearSelection();
-    CancelPendingResources();
-    renderer_.ShrinkBuffers();
     doc_service_.StopWatching();
+    ResetViewForNewDocument();
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
     state_.document.doc = Document::FromMarkdown(std::move(utf8), HELP_PATH);
     state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size());
 
     state_.file_explorer.SetCurrentFile(L"");
-    renderer_.InvalidateFilePaneCache();
-
-    state_.view.panes.ResetScrollStates();
-    renderer_.InvalidateTocPaneCache();
 
     // ビューポート優先レイアウト + 遅延処理
     state_.view.viewport.SetScrollY(0.0f);
@@ -68,6 +62,10 @@ void App::BeginAsyncLoad(const std::pmr::wstring& path)
     file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme());
 }
 
+// reducer を経由せず App 層で直接実行する。ファイル I/O + 同期/非同期ロード分岐 +
+// パース + レイアウト初期化を含む大きな命令的ワークフローで、hybrid モデル
+// （reducer.h 参照）の service 経路扱い。reducer 化すると effect variant と
+// executor が肥大化するため意図的に分離している。
 void App::LoadMarkdownFile(std::wstring_view path)
 {
     KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
@@ -184,22 +182,16 @@ void App::OnParseComplete()
 
 void App::FinishLoadMarkdownFile(bool heights_estimated)
 {
-    state_.view.viewport.ClearSelection();
+    ResetViewForNewDocument();
     state_.search.search_bar_ctrl.Reset();
     PostMessage(hwnd_, app_msg::SEARCH_UNFOCUS, app_param::SEARCH_UNFOCUS_FILE_SWITCH, 0);
     state_.active_toc_index = -1;
-    CancelPendingResources();
-    renderer_.ShrinkBuffers();
 
     const std::pmr::wstring dir = state_.document.doc.GetDirectory();
     if (!dir.empty()) {
         state_.file_explorer.SetDirectory(dir);
         state_.file_explorer.SetCurrentFile(state_.document.doc.GetFilePath());
     }
-
-    state_.view.panes.ResetScrollStates();
-    renderer_.InvalidateFilePaneCache();
-    renderer_.InvalidateTocPaneCache();
 
     // ビューポート優先レイアウト: 可視範囲のみ計測し、残りは遅延処理に委ねる。
     const auto pane_layout = GetPaneLayout();

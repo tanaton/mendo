@@ -2,6 +2,7 @@
 #include <string>
 #include <string_view>
 #include <deque>
+#include <vector>
 #include <memory_resource>
 #include <map>
 
@@ -45,6 +46,10 @@ public:
 
     void Clear() noexcept;
 
+    // 現在アクティブにインターン化されているパス数（テスト/診断用）。
+    // path_pool_ が永久に伸び続けないことの確認に使う。
+    size_t InternedPathCount() const noexcept { return path_index_.size(); }
+
     static constexpr size_t MAX_HISTORY = 1024;
 
 private:
@@ -55,19 +60,33 @@ private:
         float offset = 0.0f;
     };
 
-    // パスをインターン化し、インデックスを返す
-    uint32_t InternPath(std::wstring_view path);
+    // インターン化スロット。refcount=0 になった時点で text を解放し
+    // free_slots_ に戻して再利用する（path_pool_ 自体は deque で参照安定）。
+    struct PathSlot {
+        std::pmr::wstring text;
+        uint32_t refcount = 0;
+    };
 
-    // NavEntry ↔ InternalEntry 変換
-    InternalEntry ToInternal(const NavEntry& e) { return { InternPath(e.file_path), e.node, e.offset }; }
+    // パスをインターン化し、インデックスを返す（refcount は変更しない）
+    uint32_t InternPath(std::wstring_view path);
+    // 既存スロットの refcount を +1
+    void RetainPath(uint32_t idx) noexcept;
+    // refcount を -1。0 になったらスロットをフリーリストに戻す。
+    void ReleasePath(uint32_t idx) noexcept;
+
+    // NavEntry ↔ InternalEntry 変換（ToInternal は refcount を +1 する）
+    InternalEntry ToInternal(const NavEntry& e);
     NavEntry ToExternal(const InternalEntry& e) const;
 
     // path_pool_ は deque にして emplace_back での参照安定性を保証し、
     // path_index_ のキー (std::wstring_view) が pool 内の文字列を指し続けるようにする。
     // 典型的なセッションのエントリ数は数十〜数百で、文字列ハッシュの計算コストと
     // バケット配列のキャッシュミスを避けられる std::pmr::map のほうが優位。
-    std::pmr::deque<std::pmr::wstring> path_pool_;
+    std::pmr::deque<PathSlot> path_pool_;
     std::pmr::map<std::wstring_view, uint32_t> path_index_;
+    // free_slots_ はスタックとしてのみ使用（push_back/back/pop_back）。
+    // キャッシュ局所性の観点で deque より vector が有利。
+    std::pmr::vector<uint32_t> free_slots_;
     std::pmr::deque<InternalEntry> back_stack_;
     std::pmr::deque<InternalEntry> forward_stack_;
 

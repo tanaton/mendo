@@ -2,17 +2,16 @@
 #include "side_effect.h"
 #include <functional>
 #include <string_view>
-#include <windows.h>
 
+class IWin32Host;
 class ResourceManager;
-class CursorManager;
 class DocumentService;
 class ConfigService;
 class LayoutService;
 struct AppState;
 
 // SideEffectExecutor: Reducer が返した副作用リストを実行する。
-// Win32 API 呼び出し等のプラットフォーム固有処理をカプセル化する。
+// Win32 API 呼び出しは IWin32Host adapter 経由で行い、プラットフォーム依存を隔離する。
 class SideEffectExecutor {
 public:
     // App のメソッドチェーンに依存する複雑な操作のコールバック
@@ -38,17 +37,15 @@ public:
         std::move_only_function<void(int, int)> show_context_menu;
     };
 
-    void Init(HWND hwnd, ResourceManager& resource_manager,
-        CursorManager& cursors, DocumentService& doc_service,
-        ConfigService& config, AppState& state,
-        LayoutService& layout_service, Callbacks cb);
+    void Init(IWin32Host& host, ResourceManager& resource_manager,
+        DocumentService& doc_service, ConfigService& config,
+        AppState& state, LayoutService& layout_service, Callbacks cb);
     void Execute(const SideEffectList& effects);
     void ExecuteOne(const SideEffect& e);
 
 private:
-    HWND hwnd_ = nullptr;
+    IWin32Host* host_ = nullptr;
     ResourceManager* resource_manager_ = nullptr;
-    CursorManager* cursors_ = nullptr;
     DocumentService* doc_service_ = nullptr;
     ConfigService* config_ = nullptr;
     AppState* state_ = nullptr;

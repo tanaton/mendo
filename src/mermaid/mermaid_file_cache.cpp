@@ -228,15 +228,19 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
     if (!data) {
         // ファイルが確実に存在しない場合のみインデックスエントリを除去する。
         // 共有違反など一時的なエラーではエントリを保持する。
+        // また、StoreAsync 直後でバックグラウンド書き込みが in-flight なら
+        // 「未着地＝stale」と早合点せず entry を保持する（次回 Lookup で着地する）。
         if (read_error == ERROR_FILE_NOT_FOUND || read_error == ERROR_PATH_NOT_FOUND) {
-            if (total_size_ >= it->second.png_size) {
-                total_size_ -= it->second.png_size;
+            bool pending = false;
+            {
+                std::lock_guard lock(pending_mutex_);
+                pending = pending_writes_.contains(key);
             }
-            else {
-                total_size_ = 0;
+            if (!pending) {
+                DecrementTotalSize(it->second.png_size);
+                lru_order_.erase(it->second.lru_iter);
+                index_.erase(it);
             }
-            lru_order_.erase(it->second.lru_iter);
-            index_.erase(it);
         }
         return false;
     }
@@ -280,12 +284,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     // インデックスエントリを即座に追加・更新
     auto& entry = index_[key];
     if (entry.png_size > 0) {
-        if (total_size_ >= entry.png_size) {
-            total_size_ -= entry.png_size;
-        }
-        else {
-            total_size_ = 0;
-        }
+        DecrementTotalSize(entry.png_size);
         lru_order_.erase(entry.lru_iter);
     }
     entry.css_width = css_width;
@@ -299,10 +298,28 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         return;
     }
 
+    // 書き込み開始前に in-flight セットへ登録しておく。
+    // Lookup がファイル未着地を stale 扱いで index から消すのを防ぐ。
+    {
+        std::lock_guard lock(pending_mutex_);
+        pending_writes_.insert(key);
+    }
+
     // バックグラウンドスレッドに書き出しを依頼
     const uint32_t gen = write_gen_.load();
     auto path = GetPngPath(key);
-    scheduler_->Post([this, path = std::move(path), data = std::move(png_data), gen] {
+    scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen] {
+        // タスク完遂・キャンセルどちらの場合も pending を必ず解除する
+        struct PendingGuard {
+            MermaidFileCache* self;
+            uint64_t key;
+            ~PendingGuard()
+            {
+                std::lock_guard lock(self->pending_mutex_);
+                self->pending_writes_.erase(key);
+            }
+        } guard{ this, key };
+
         if (write_gen_.load() != gen) {
             return;
         }
@@ -313,6 +330,13 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
         std::error_code ec;
         std::filesystem::create_directories(path.parent_path(), ec);
+
+        // WriteAllBytes 直前でも generation を再確認する。
+        // ClearAll() / Shutdown() 後にディスクへ PNG を "復活" させて
+        // しまう窓を最小化するための最後のガード。
+        if (write_gen_.load() != gen) {
+            return;
+        }
 
         WriteAllBytes(path, data.data(), data.size());
     });
@@ -339,13 +363,18 @@ void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
             std::filesystem::remove(GetPngPath(dir, evict_key), ec);
         }
 
-        if (total_size_ >= it->second.png_size) {
-            total_size_ -= it->second.png_size;
-        }
-        else {
-            total_size_ = 0;
-        }
+        DecrementTotalSize(it->second.png_size);
         index_.erase(it);
+    }
+}
+
+void MermaidFileCache::DecrementTotalSize(uint32_t png_size) noexcept
+{
+    if (total_size_ >= png_size) {
+        total_size_ -= png_size;
+    }
+    else {
+        total_size_ = 0;
     }
 }
 

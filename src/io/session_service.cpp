@@ -1,4 +1,5 @@
 #include "session_service.h"
+#include <algorithm>
 #include <cmath>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -53,10 +54,17 @@ void SessionService::LoadPaneState(PaneController& panes, float client_width)
         dynamic_max = std::max(MIN_WIDTH, static_cast<int>(client_width) - MIN_WIDTH);
     }
 
-    panes.SetFilePaneWidth(static_cast<float>(
-        config_.LoadInt("Pane", "FileWidth", DEFAULT_WIDTH, MIN_WIDTH, dynamic_max)));
-    panes.SetTocPaneWidth(static_cast<float>(
-        config_.LoadInt("Pane", "TocWidth", DEFAULT_WIDTH, MIN_WIDTH, dynamic_max)));
+    // LoadInt は範囲外時に DEFAULT_WIDTH を返すが、その既定値自体が
+    // 狭いウィンドウでは dynamic_max を超えうる。最終結果も clamp してから
+    // 適用し、SetXxxPaneWidth 側の最小値 clamp に過剰な幅が漏れないようにする。
+    const int file_w = std::clamp(
+        config_.LoadInt("Pane", "FileWidth", DEFAULT_WIDTH, MIN_WIDTH, dynamic_max),
+        MIN_WIDTH, dynamic_max);
+    const int toc_w = std::clamp(
+        config_.LoadInt("Pane", "TocWidth", DEFAULT_WIDTH, MIN_WIDTH, dynamic_max),
+        MIN_WIDTH, dynamic_max);
+    panes.SetFilePaneWidth(static_cast<float>(file_w));
+    panes.SetTocPaneWidth(static_cast<float>(toc_w));
 }
 
 void SessionService::SaveScrollPosition(int node, float scroll_y, float node_y)
