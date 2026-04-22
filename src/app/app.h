@@ -193,6 +193,9 @@ private:
 
     // ファイル読み込み/リロード共通ヘルパー
     void CancelPendingResources();
+    // 新規ドキュメントロード時の view 状態リセット（選択/保留リソース/
+    // ペイン関連バッファをまとめて初期化）。ファイル切替パス共通の前処理。
+    void ResetViewForNewDocument();
     void FinalizeLayout(float md_pane_height);
     void SaveLastFilePath();
     void SavePaneState();

@@ -69,6 +69,16 @@ void App::CancelPendingResources()
     resource_manager_.ClearResolvedPaths();
 }
 
+void App::ResetViewForNewDocument()
+{
+    state_.view.viewport.ClearSelection();
+    CancelPendingResources();
+    renderer_.ShrinkBuffers();
+    state_.view.panes.ResetScrollStates();
+    renderer_.InvalidateFilePaneCache();
+    renderer_.InvalidateTocPaneCache();
+}
+
 void App::FinalizeLayout(float md_pane_height)
 {
     resource_manager_.LoadImages();

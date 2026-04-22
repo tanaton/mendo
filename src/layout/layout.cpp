@@ -93,55 +93,51 @@ std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& row
     return text;
 }
 
+float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
+{
+    const float line_height = theme.font_size_body * 1.5f;
+    switch (node.type) {
+    case NodeType::Heading: {
+        const int level = std::clamp(node.heading_level, 1, 6) - 1;
+        return theme.font_size_h[level] * 1.5f;
+    }
+    case NodeType::CodeBlock: {
+        const int lines = 1 + node.line_count;
+        const float h = theme.font_size_code * 1.3f * static_cast<float>(lines);
+        return std::max(h, line_height);
+    }
+    case NodeType::Table: {
+        const size_t row_count = node.has_table()
+            ? std::max(static_cast<size_t>(1), node.table_rows().size())
+            : static_cast<size_t>(1);
+        return line_height * static_cast<float>(row_count);
+    }
+    case NodeType::Image:
+        return std::max(60.0f, theme.font_size_body * 3.0f);
+    case NodeType::HorizontalRule:
+        return theme.paragraph_spacing + theme.hr_thickness;
+    default:
+        // テキストの行数からおおよその高さを推定
+        if (!node.HasText()) {
+            return theme.paragraph_spacing;
+        }
+        const int lines = 1 + node.line_count;
+        return line_height * static_cast<float>(lines);
+    }
+}
+
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) noexcept
 {
     // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
     // DirectWriteを一切呼ばないため、数千ノードでも数百マイクロ秒で完了する。
     // layout_dirtyフラグは変更しない（後続のViewportLayoutが正しく計測できるようにする）。
     assert(cache.size() >= nodes.size());
-    const float line_height = theme.font_size_body * 1.5f;
     const auto node_count = nodes.size();
 
     float y = theme.margin_top;
     for (size_t i = 0; i < node_count; i++) {
         const auto& node = nodes[i];
-        float h;
-        switch (node.type) {
-        case NodeType::Heading: {
-            const int level = std::clamp(node.heading_level, 1, 6) - 1;
-            h = theme.font_size_h[level] * 1.5f;
-            break;
-        }
-        case NodeType::CodeBlock: {
-            const int lines = 1 + node.line_count;
-            h = theme.font_size_code * 1.3f * static_cast<float>(lines);
-            h = std::max(h, line_height);
-            break;
-        }
-        case NodeType::Table: {
-            const size_t row_count = node.has_table()
-                ? std::max(static_cast<size_t>(1), node.table_rows().size())
-                : static_cast<size_t>(1);
-            h = line_height * static_cast<float>(row_count);
-            break;
-        }
-        case NodeType::Image:
-            h = std::max(60.0f, theme.font_size_body * 3.0f);
-            break;
-        case NodeType::HorizontalRule:
-            h = theme.paragraph_spacing + theme.hr_thickness;
-            break;
-        default:
-            // テキストの行数からおおよその高さを推定
-            if (!node.HasText()) {
-                h = theme.paragraph_spacing;
-            }
-            else {
-                const int lines = 1 + node.line_count;
-                h = line_height * static_cast<float>(lines);
-            }
-            break;
-        }
+        const float h = EstimateNodeHeight(node, theme);
 
         y += GetSpacingAbove(node, theme);
         cache[i].height = h;
@@ -262,6 +258,16 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                     }
                 }
                 else {
+                    // 不可視ノードは MeasureNode をスキップするが、entry.height が
+                    // 旧テーマ/ズーム時の値のままだと total_height_ にそれが
+                    // 反映され、直後の SyncMaxScroll が不正確な max_scroll を
+                    // 計算しうる。現テーマでの推定値で素早く更新しておき、
+                    // 厳密値は後続の ProcessDirtyBatch / EnsureVisibleLayout に委ねる。
+                    const float estimated = EstimateNodeHeight(node, *theme_);
+                    if (entry.height != estimated) {
+                        entry.height = estimated;
+                        any_height_changed = true;
+                    }
                     entry.layout_dirty = true;
                 }
             }

@@ -875,6 +875,43 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
     (void)height_before;
 }
 
+// 部分モードで不可視ノードの古い height を引きずらないこと（High-1 回帰）。
+// ズーム/テーマ変更直後の SyncMaxScroll が stale な total_height_ を読まないことを保証する。
+TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
+{
+    std::string md;
+    for (int i = 0; i < 30; i++) {
+        md += "Paragraph " + std::to_string(i) + "\n\n";
+    }
+    auto nodes = ParseMarkdown(md).nodes;
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    // フル幅でフルレイアウト → 全ノード正確な height を持つ
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    const float baseline_total = engine_.GetTotalHeight();
+    ASSERT_GT(baseline_total, 0.0f);
+
+    // 不可視（後方）ノードを「旧テーマで非常に大きかった」状態にしてダーティ化する。
+    // これは zoom-out 直後に invisible 領域だけ stale height が残るケースを模す。
+    const size_t node_count = nodes.size();
+    constexpr float STALE_HEIGHT = 9999.0f;
+    for (size_t i = node_count / 2; i < node_count; i++) {
+        cache[i].height = STALE_HEIGHT;
+        cache[i].layout_dirty = true;
+    }
+
+    // 部分レイアウト：可視範囲は先頭わずかのみ。後方の invisible ダーティ群は
+    // 現テーマでの推定値に置き換わるはずで、stale な巨大 height は混ざらない。
+    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
+    const float total_after = engine_.GetTotalHeight();
+
+    // baseline と同程度（推定誤差ぶんはあり得る）に収束し、stale の合計を
+    // 引きずった巨大値にはならないこと。
+    EXPECT_LT(total_after, baseline_total * 2.0f)
+        << "stale height (=" << STALE_HEIGHT << ") を total_height に取り込んでいる";
+}
+
 // ---- RecomputeYPositions 追加テスト ----
 
 TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing)

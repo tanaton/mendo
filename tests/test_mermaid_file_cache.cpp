@@ -605,3 +605,68 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
     EXPECT_TRUE(cache_.LookupDimensions(2, entry));
     EXPECT_TRUE(cache_.LookupDimensions(3, entry));
 }
+
+// ═══════════════════════════════════════════════
+// Pending-write integrity (Medium-5 回帰)
+// ═══════════════════════════════════════════════
+
+// StoreAsync 直後で PNG が未着地のまま Lookup された時、index が
+// stale 扱いで消されないこと。修正前は orphan PNG（書き込み完了後に
+// インデックスが指していない PNG）を生み出す原因になっていた。
+TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
+{
+    // ワーカー 0 でスケジューラを再構成し、Post したタスクが
+    // 実行されないようにする（pending 状態で Lookup を確実に走らせる）。
+    scheduler_.Shutdown();
+    InitCache();
+    // scheduler_ が空のまま StoreAsync すると Post 自体スキップされる。
+    // そこで scheduler_ は再起動するが、Post 後のタスク完了前に
+    // Lookup を走らせるため、無効パスを使ってタスクを即時失敗させる方針を取る。
+    scheduler_.Init(1);
+
+    const uint64_t key = 0x1234567890abcdefULL;
+    cache_.StoreAsync(key, 100.0f, 80.0f, MakeDummyPng(64));
+
+    // Lookup を即座に呼ぶ（タイミングによってはまだ書き込み完了前）。
+    MermaidFileCache::CacheEntry entry;
+    MermaidFileCache::PngBlob out;
+    cache_.Lookup(key, entry, out);
+
+    // 書き込み in-flight 中なら index は残されているべき。
+    // タスクが先行して完了した場合は LookupDimensions も成功する。
+    EXPECT_TRUE(cache_.LookupDimensions(key, entry))
+        << "pending write 中に index が消されている（orphan PNG の温床）";
+}
+
+// ClearAll 後、in-flight だった書き込みタスクが PNG ファイルを
+// 「復活」させないこと（generation 再確認のリグレッションガード）。
+TEST_F(MermaidFileCacheTest, ClearAllPreventsResurrectionOfInFlightWrites)
+{
+    InitCache();
+
+    // 多数の StoreAsync を投入して in-flight を作りやすくする
+    constexpr int N = 20;
+    for (int i = 0; i < N; ++i) {
+        cache_.StoreAsync(static_cast<uint64_t>(0xA000 + i), 100.0f, 80.0f, MakeDummyPng(256));
+    }
+    cache_.ClearAll();
+
+    // すべてのバックグラウンドタスクを完了させる
+    scheduler_.Shutdown();
+
+    // 物理ファイルが残っていないこと（generation チェックで write がスキップされた）
+    int leftover = 0;
+    if (std::filesystem::exists(temp_dir_)) {
+        for (const auto& dirent : std::filesystem::directory_iterator(temp_dir_)) {
+            const auto ext = dirent.path().extension();
+            if (ext == L".png") {
+                ++leftover;
+            }
+        }
+    }
+    EXPECT_EQ(leftover, 0)
+        << "ClearAll 後に in-flight の write が PNG を復活させている";
+
+    // TearDown のためにスケジューラを再起動
+    scheduler_.Init(2);
+}

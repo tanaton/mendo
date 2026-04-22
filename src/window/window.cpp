@@ -62,6 +62,8 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     }
 
     if (!app_->Init(hwnd_)) {
+        DestroyWindow(hwnd_);
+        hwnd_ = nullptr;
         return false;
     }
 
