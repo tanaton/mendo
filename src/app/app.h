@@ -2,6 +2,7 @@
 #include "app_state.h"
 #include "reducer.h"
 #include "side_effect_executor.h"
+#include "win32_host_impl.h"
 #include "renderer.h"
 #include "task_scheduler.h"
 #include "mermaid_file_cache.h"
@@ -243,6 +244,7 @@ private:
     // ---- サービス（状態ではなく振る舞い） ----
     std::optional<LayoutService> layout_service_;
     ResourceManager resource_manager_;
+    Win32Host win32_host_;
     SideEffectExecutor effect_executor_;
 
     void ShowToast(std::wstring_view message);

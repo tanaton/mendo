@@ -15,9 +15,10 @@ add_executable(mendo_tests
     test_mermaid_util.cpp
     test_mermaid_file_cache.cpp
     test_mermaid_renderer.cpp
+    # mermaid.cpp は WebView2 を深く内包し mendo_core に入らないが、
+    # test_mermaid_renderer.cpp で lazy-init 挙動を検証する必要がある。
+    # ここでのみ直接コンパイルして MermaidRenderer 本体クラスをテストに供給する。
     ../src/mermaid/mermaid.cpp
-    ../src/app/render_composer.cpp
-    ../src/ui/context_menu.cpp
     test_ini_parser.cpp
     test_config_store.cpp
     test_viewport_manager.cpp
@@ -59,8 +60,6 @@ add_executable(mendo_tests
     test_task_scheduler.cpp
     test_side_effect_executor.cpp
     test_command_generator_frame.cpp
-    ../src/app/side_effect_executor.cpp
-    ../src/app/resource_manager.cpp
 )
 
 target_include_directories(mendo_tests PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})

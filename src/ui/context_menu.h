@@ -75,12 +75,13 @@ public:
     float GetMenuWidth() const noexcept;
     float GetMenuHeight() const noexcept;
 
-#ifdef MENDO_TESTING
-    // テスト専用API。production public API には含めない（mendo_core には常にシンボルが生成される）。
+    // テスト補助 API（Impl の BuildItems / CreateTextFormats / ComputeLayout へ
+    // 直接 forward するフックポイント）。定義は mendo_core に含まれるが mendo
+    // 実行体からは未参照のためリンカで除去される。名前空間の "Test" プレフィックス
+    // で意図を明示している。
     void TestBuildItems(const ContextMenuParams& params);
     void TestCreateTextFormats(const Theme& theme);
     void TestComputeLayout();
-#endif
 
 private:
     struct Impl;

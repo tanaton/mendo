@@ -1,28 +1,21 @@
 #include "side_effect_executor.h"
+#include "win32_host.h"
 #include "resource_manager.h"
-#include "cursor_manager.h"
 #include "document_service.h"
 #include "config_service.h"
 #include "app_state.h"
 #include "layout_service.h"
-#include "app_constants.h"
-#include "win_handle.h"
+#include "timer_ids.h"
 #include "utility.h"
 #include "ui_constants.h"
 #include "file_io.h"
-#include <shellapi.h>
 
-// app.h のインクルードは循環依存を招くため前方宣言で代替
-void ApplyDarkModeToWindow(HWND hwnd, bool dark);
-
-void SideEffectExecutor::Init(HWND hwnd, ResourceManager& resource_manager,
-    CursorManager& cursors, DocumentService& doc_service,
-    ConfigService& config, AppState& state,
-    LayoutService& layout_service, Callbacks cb)
+void SideEffectExecutor::Init(IWin32Host& host, ResourceManager& resource_manager,
+    DocumentService& doc_service, ConfigService& config,
+    AppState& state, LayoutService& layout_service, Callbacks cb)
 {
-    hwnd_ = hwnd;
+    host_ = &host;
     resource_manager_ = &resource_manager;
-    cursors_ = &cursors;
     doc_service_ = &doc_service;
     config_ = &config;
     state_ = &state;
@@ -34,69 +27,52 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
 {
     std::visit(overloaded{
         [this](const effect::InvalidateWindow&) {
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            host_->Invalidate();
         },
         [this](const effect::InvalidateTitleBar&) {
-            if (!state_) {
-                InvalidateRect(hwnd_, nullptr, FALSE);
+            if (!state_ || state_->cached_window_width_for_layout <= 0.0f) {
+                host_->Invalidate();
                 return;
             }
-            RECT client;
-            GetClientRect(hwnd_, &client);
             const float dpi_scale = state_->window.cached_dpi_scale;
-            RECT tb_rect{ 0, 0, client.right,
-                static_cast<LONG>(state_->window.titlebar.GetHeight() * dpi_scale + 0.5f) };
-            InvalidateRect(hwnd_, &tb_rect, FALSE);
+            const int width_px = static_cast<int>(
+                state_->cached_window_width_for_layout * dpi_scale) + 1;
+            const int height_px = static_cast<int>(
+                state_->window.titlebar.GetHeight() * dpi_scale + 0.5f);
+            host_->InvalidateTitleBarArea(width_px, height_px);
         },
         [this](const effect::SetTimer& e) {
-            ::SetTimer(hwnd_, e.id, e.ms, nullptr);
+            host_->SetTimer(e.id, e.ms);
         },
         [this](const effect::KillTimer& e) {
-            ::KillTimer(hwnd_, e.id);
+            host_->KillTimer(e.id);
         },
         [this](const effect::SetCapture&) {
-            ::SetCapture(hwnd_);
+            host_->SetCapture();
         },
         [this](const effect::ReleaseCapture&) {
-            ::ReleaseCapture();
+            host_->ReleaseCapture();
         },
         [this](const effect::SetCursor& e) {
-            HCURSOR cursor = nullptr;
-            switch (e.type) {
-            case effect::CursorType::Arrow:
-                cursor = cursors_->Arrow();
-                break;
-            case effect::CursorType::Hand:
-                cursor = cursors_->Hand();
-                break;
-            case effect::CursorType::IBeam:
-                cursor = cursors_->IBeam();
-                break;
-            case effect::CursorType::SizeWE:
-                cursor = cursors_->SizeWE();
-                break;
-            }
-            if (cursor) {
-                ::SetCursor(cursor);
-            }
+            host_->SetCursor(e.type);
         },
         [this](const effect::ClipboardWrite& e) {
-            WriteClipboardText(hwnd_, e.text);
+            host_->WriteClipboardText(e.text);
         },
         [this](const effect::ClipboardWriteHtml& e) {
-            WriteClipboardHtml(hwnd_, e.html, e.plain);
+            host_->WriteClipboardHtml(e.html, e.plain);
         },
-        [](const effect::ShellOpen& e) {
-            ShellExecuteW(nullptr, L"open", e.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        [this](const effect::ShellOpen& e) {
+            host_->ShellOpen(e.url);
         },
         [this](const effect::ShowWindowCmd& e) {
-            ShowWindow(hwnd_, e.cmd);
+            host_->ShowWindowCmd(e.cmd);
         },
         [this](const effect::PostMessage& e) {
-            PostMessageW(hwnd_, e.msg, e.wp, e.lp);
+            host_->PostWindowMessage(e.msg, e.wp, e.lp);
         },
         [this](const effect::SetWindowTitle& e) {
-            SetWindowTextW(hwnd_, e.title.c_str());
+            host_->SetWindowTitle(e.title);
         },
         [this](const effect::LoadFile& e) {
             cb_.load_file(e.path);
@@ -114,26 +90,25 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
             config_->Flush();
         },
         [this](const effect::ShowTooltip& e) {
-            POINT screen_pos{ e.px, e.py };
-            ClientToScreen(hwnd_, &screen_pos);
+            const POINT screen_pos = host_->ClientToScreen({ e.px, e.py });
             if (state_->interaction.tooltip.Update(e.target, screen_pos.x, screen_pos.y)) {
-                ::SetTimer(hwnd_, app_timer::TOOLTIP, TOOLTIP_DELAY_MS, nullptr);
+                host_->SetTimer(app_timer::TOOLTIP, TOOLTIP_DELAY_MS);
             }
             else if (e.target.IsEmpty()) {
-                ::KillTimer(hwnd_, app_timer::TOOLTIP);
+                host_->KillTimer(app_timer::TOOLTIP);
             }
         },
         [this](const effect::ClearTooltip&) {
-            ::KillTimer(hwnd_, app_timer::TOOLTIP);
+            host_->KillTimer(app_timer::TOOLTIP);
         },
         [this](const effect::ShowToast& e) {
             state_->interaction.toast.Show(e.message);
-            ::SetTimer(hwnd_, app_timer::TOAST, app_timer::FRAME_INTERVAL_MS, nullptr);
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            host_->SetTimer(app_timer::TOAST, app_timer::FRAME_INTERVAL_MS);
+            host_->Invalidate();
         },
         [this](const effect::DeferredLayout&) {
             if (layout_service_->HasDirtyNodes()) {
-                ::SetTimer(hwnd_, app_timer::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS, nullptr);
+                host_->SetTimer(app_timer::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
             }
         },
         [this](const effect::BitmapManage&) {
@@ -143,9 +118,9 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
             resource_manager_->ScheduleMermaidBatch();
         },
         [this](const effect::StartFileWatch& e) {
-            doc_service_->StartWatching(e.path, [hwnd = hwnd_]() {
-                ::KillTimer(hwnd, app_timer::FILE_RELOAD_DEBOUNCE);
-                ::SetTimer(hwnd, app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS, nullptr);
+            doc_service_->StartWatching(e.path, [host = host_]() {
+                host->KillTimer(app_timer::FILE_RELOAD_DEBOUNCE);
+                host->SetTimer(app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
             });
         },
         [this](const effect::StopFileWatch&) {
@@ -170,7 +145,7 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
             cb_.refresh_pane_layout();
         },
         [this](const effect::ApplyDarkMode& e) {
-            ApplyDarkModeToWindow(hwnd_, e.dark);
+            host_->ApplyDarkMode(e.dark);
         },
         [this](const effect::CheckFileChanges&) {
             doc_service_->CheckForChanges();
@@ -185,7 +160,7 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
             cb_.renderer_set_dpi(e.dpi);
         },
         [this](const effect::SetWindowPosition& e) {
-            SetWindowPos(hwnd_, nullptr, e.x, e.y, e.cx, e.cy, SWP_NOZORDER | SWP_NOACTIVATE);
+            host_->SetWindowPosition(e.x, e.y, e.cx, e.cy);
         },
         [this](const effect::ClearFileCache&) {
             cb_.clear_file_cache();

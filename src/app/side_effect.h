@@ -10,7 +10,13 @@
 
 // Reducer が返す副作用の型定義。
 // 各副作用は「何をすべきか」をデータとして表現し、
-// SideEffectExecutor が実際の Win32 API 呼び出しに変換する。
+// SideEffectExecutor が IWin32Host adapter / callback 経由で実行する。
+//
+// 本 variant は UI / window / nav / file / render / toast など複数サブシステム
+// にまたがる flat な集合として維持している（hybrid モデル: reducer.h 参照）。
+// subsystem 単位に分割する設計（`render::Effect`, `nav::Effect` ...）は
+// 検討したが、現状の effect 数（~45）では flat 構造でも保守性が成立しており、
+// effect 追加時の変更範囲は executor の 1 箇所 + init wiring に収まっている。
 
 namespace effect {
 

@@ -83,9 +83,16 @@ add_library(mendo_core STATIC
     # render - 描画パイプライン
     src/render/command_generator.cpp
     src/render/command_executor.cpp
+    # app - 描画ステート構築（Win32/D2D 非依存の純粋ロジック）
+    src/app/render_composer.cpp
+    # app - 副作用実行（Win32 API は IWin32Host 経由で隔離）
+    src/app/side_effect_executor.cpp
+    # app - 画像/Mermaid リソース管理（Mermaid 具象は IMermaidRenderer 経由で隔離）
+    src/app/resource_manager.cpp
     # ui - UIコンポーネント
-    # context_menu.cpp は MENDO_TESTING によるテスト専用 API を条件付きで
-    # 提供するため、mendo / mendo_tests ターゲット側で個別にコンパイルする。
+    # context_menu.cpp は Win32/D2D 描画層（本体）と logic 層（mendo_core 入り）に
+    # 分割されており、logic 側のみを mendo_core に含める。
+    src/ui/context_menu_logic.cpp
     src/ui/pane_layout.cpp
     src/ui/pane_controller.cpp
     src/ui/search_state.cpp
@@ -158,9 +165,7 @@ add_executable(mendo WIN32
     src/app/app_navigate.cpp
     src/app/app_context_menu.cpp
     src/app/app_clipboard.cpp
-    src/app/render_composer.cpp
-    src/app/resource_manager.cpp
-    src/app/side_effect_executor.cpp
+    src/app/win32_host_impl.cpp
     src/ui/context_menu.cpp
     src/render/renderer.cpp
     src/render/renderer_resources.cpp

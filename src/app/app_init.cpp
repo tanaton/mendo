@@ -30,8 +30,9 @@ bool App::Init(HWND hwnd)
     mermaid_renderer_.SetFileCache(&file_cache_);
 
     resource_manager_.Init(state_.document.doc, state_.document.layout_cache, state_.view.viewport, image_loader_, mermaid_renderer_,
-        theme_service_, renderer_, BuildResourceManagerCallbacks());
-    effect_executor_.Init(hwnd_, resource_manager_, cursors_, doc_service_, config_,
+        theme_service_, BuildResourceManagerCallbacks());
+    win32_host_.Init(hwnd_, cursors_);
+    effect_executor_.Init(win32_host_, resource_manager_, doc_service_, config_,
         state_, *layout_service_, {
             .load_file = [this](std::wstring_view path) { LoadMarkdownFile(path); },
             .reload_file = [this]() { ReloadCurrentFile(); },
@@ -170,6 +171,9 @@ ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
         },
         .get_viewport_height = [this]() -> float {
             return GetPaneLayout().md_rect.height;
+        },
+        .get_indent_width = [this]() -> float {
+            return renderer_.GetTheme().indent_width;
         },
         .recompute_layout = [this]() {
             layout_service_->RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, renderer_.GetTheme());

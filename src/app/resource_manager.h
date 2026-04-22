@@ -9,9 +9,8 @@ class Document;
 class LayoutCache;
 class ViewportManager;
 class ImageLoader;
-class MermaidRenderer;
+class IMermaidRenderer;
 class ThemeService;
-class Renderer;
 
 // 画像・Mermaidリソースのライフサイクル管理。
 // Appから画像読み込み、Mermaidバッチ処理、ビットマップ解放の責務を分離する。
@@ -23,6 +22,8 @@ public:
         std::move_only_function<void(UINT_PTR)> kill_timer;
         std::move_only_function<float()> get_content_width;
         std::move_only_function<float()> get_viewport_height;
+        // 現在テーマの indent_width（画像の実サイズ計算に使用）
+        std::move_only_function<float()> get_indent_width;
         // レイアウト再計算
         std::move_only_function<void()> recompute_layout;           // RecomputeAfterDiagram
         std::move_only_function<void()> recompute_layout_anchored;  // anchor付き: 保存→再計算→復元→Invalidate
@@ -38,8 +39,8 @@ public:
 
     ResourceManager() = default;
     void Init(Document& doc, LayoutCache& cache, ViewportManager& viewport,
-              ImageLoader& image_loader, MermaidRenderer& mermaid,
-              ThemeService& theme_service, Renderer& renderer,
+              ImageLoader& image_loader, IMermaidRenderer& mermaid,
+              ThemeService& theme_service,
               Callbacks cb);
 
     // --- 画像リソース ---
@@ -71,9 +72,8 @@ private:
     LayoutCache* cache_ = nullptr;
     ViewportManager* viewport_ = nullptr;
     ImageLoader* image_loader_ = nullptr;
-    MermaidRenderer* mermaid_ = nullptr;
+    IMermaidRenderer* mermaid_ = nullptr;
     ThemeService* theme_service_ = nullptr;
-    Renderer* renderer_ = nullptr;
     Callbacks cb_;
 
     float last_mermaid_content_width_ = 0.0f;
