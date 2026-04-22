@@ -91,7 +91,6 @@ inline IniData Parse(std::string_view text)
     return data;
 }
 
-// 構造化データをINIテキストにシリアライズする。
 inline std::string Serialize(const IniData& data)
 {
     std::string result;

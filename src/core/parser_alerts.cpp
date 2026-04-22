@@ -40,9 +40,7 @@ bool AsciiCaseEqual(std::string_view a, std::string_view b) noexcept
     return std::ranges::equal(a, b, {}, to_upper, to_upper);
 }
 
-// テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す（UTF-8版）。
-// marker_end には ']' の次の位置（スペース/改行をスキップ済み）を設定する。
-// マーカーは全てASCIIなので、バイトオフセット＝ワイド文字オフセット。
+// テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す（UTF-8版）
 AlertType DetectAlertMarker(std::string_view text, size_t& marker_end)
 {
     if (text.size() < 3 || text[0] != '[' || text[1] != '!') {

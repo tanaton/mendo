@@ -17,6 +17,7 @@
 #include "resource_manager.h"
 #include "session_service.h"
 #include "cursor_manager.h"
+#include "hit_test_service.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -25,7 +26,6 @@
 #include <memory>
 #include <memory_resource>
 
-// ウィンドウのタイトルバーとスクロールバーにダークモードスタイルを適用する。
 void ApplyDarkModeToWindow(HWND hwnd, bool dark);
 
 class App {
@@ -89,7 +89,6 @@ public:
     void SetImeComposition(std::wstring_view comp) { Dispatch(ImeCompositionAction{ std::pmr::wstring{comp} }); }
     RECT GetSearchEditRect();
 
-    // 前回セッションのスクロール位置復元用（LoadMarkdownFileの前に呼ぶ）
     void SetPendingRestoreNode(int node, int offset) noexcept
     {
         state_.view.scroll_restore.SetNodeRestore(node, offset);
@@ -99,19 +98,10 @@ public:
     void OnEnterSizeMove() { Dispatch(EnterSizeMoveAction{}); }
     void OnExitSizeMove() { Dispatch(ExitSizeMoveAction{}); }
 
-    // D2D レンダーターゲットが初期化済みか。処理前のガードに使う
     bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
-
-    // ウィンドウ全体の再描画を要求する
     void Invalidate() noexcept { InvalidateRect(hwnd_, nullptr, FALSE); }
-
-    // 指定ペイン領域のみ再描画を要求する
     void InvalidatePane(const PaneRect& rect) noexcept;
-
-    // タイトルバー領域のみ再描画を要求する
     void InvalidateTitleBar() noexcept;
-
-    // Win32Windowのカーソル/再描画用にDPIスケールを公開
     constexpr float GetDpiScale() const noexcept { return state_.window.cached_dpi_scale; }
 
     // カスタムタイトルバー
@@ -129,8 +119,6 @@ private:
     ResourceManager::Callbacks BuildResourceManagerCallbacks();
     SearchBarController::Callbacks BuildSearchBarCallbacks();
 
-    // 現在可視アンカーから scroll_target を合成（未設定時のみ）。
-    // レイアウト操作の直前に呼び、直後のフックで補償を掛ける。
     void EnsureScrollTarget();
 
     // DIP変換
@@ -177,25 +165,22 @@ private:
     void RefreshFilePane();
     void OnDeferredLayout();
 
+    void SyncTocActiveAndAutoScroll();
+
     // ファイル読み込み (file_load_service_に委譲)
     void ReloadCurrentFile();
     void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
     void BeginAsyncLoad(const std::pmr::wstring& path);
     void FinishLoadMarkdownFile(bool heights_estimated = false);
-    // ロード失敗時のフォールバック: 初回起動で空画面になるのを避けるためヘルプを表示する
     void HandleLoadFailureFallback();
     float CalcScrollForDiff(size_t diff_pos, float viewport_height) const;
     void ApplyMermaidCacheHeights(float md_width);
     void UpdateTitleBar();
 
-    // リロード共通処理: 差分分析後のレイアウト更新・スクロール復元・検索再実行
     void FinishReload(bool is_prefix_only, size_t diff_pos);
 
-    // ファイル読み込み/リロード共通ヘルパー
     void CancelPendingResources();
-    // 新規ドキュメントロード時の view 状態リセット（選択/保留リソース/
-    // ペイン関連バッファをまとめて初期化）。ファイル切替パス共通の前処理。
     void ResetViewForNewDocument();
     void FinalizeLayout(float md_pane_height);
     void SaveLastFilePath();
@@ -203,19 +188,12 @@ private:
     void LoadPaneState();
     void SaveScrollPosition();
 
-    // ペインレイアウト（結果はキャッシュされる）
     const ::PaneLayout& GetPaneLayout();
     void InvalidatePaneLayoutCache() noexcept { state_.pane_layout_valid = false; }
     ::PaneZone PaneAtPoint(float dip_x, float dip_y);
     float GetMarkdownPaneWidth();
-
-    // Reducer 用テーマ定数キャッシュの同期
     void SyncPaneThemeCache();
-
-    // ダークモード / ズーム (theme_service_に委譲)
     void HandleApplyThemeChange(const effect::ApplyThemeChange& e);
-
-    // テーマ/ズーム変更後の共通後処理（ViewportLayout→scroll_target フックで復元→再描画）
     void FinishThemeOrZoomChange();
 
 private:
@@ -242,6 +220,7 @@ private:
     AppState state_;
 
     // ---- サービス（状態ではなく振る舞い） ----
+    HitTestService hit_test_;
     std::optional<LayoutService> layout_service_;
     ResourceManager resource_manager_;
     Win32Host win32_host_;

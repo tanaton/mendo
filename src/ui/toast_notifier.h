@@ -38,13 +38,8 @@ public:
     }
 
     constexpr bool IsVisible() const noexcept { return alpha_ > 0.0f; }
-
-    // 描画用アルファ値（ホールド期間中は 1.0 にクランプ）
-    float GetRenderAlpha() const noexcept { return std::min(alpha_, 1.0f); }
-
-    // 内部アルファ値（ホールド期間を含む生の値）
+    constexpr float GetRenderAlpha() const noexcept { return std::min(alpha_, 1.0f); }
     constexpr float GetAlpha() const noexcept { return alpha_; }
-
     constexpr std::wstring_view GetMessage() const noexcept { return message_; }
 
 private:

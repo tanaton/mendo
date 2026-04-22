@@ -33,7 +33,6 @@ private:
 };
 
 // テキスト選択: 位置は (node_index, char_offset) のペアで表す。
-// "start" はドキュメント順で常に "end" 以下。
 struct TextSelection {
     int start_node = -1;
     uint32_t start_pos = 0;

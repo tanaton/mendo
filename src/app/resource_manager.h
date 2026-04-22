@@ -22,26 +22,22 @@ public:
         std::move_only_function<void(UINT_PTR)> kill_timer;
         std::move_only_function<float()> get_content_width;
         std::move_only_function<float()> get_viewport_height;
-        // 現在テーマの indent_width（画像の実サイズ計算に使用）
         std::move_only_function<float()> get_indent_width;
-        // レイアウト再計算
-        std::move_only_function<void()> recompute_layout;           // RecomputeAfterDiagram
-        std::move_only_function<void()> recompute_layout_anchored;  // anchor付き: 保存→再計算→復元→Invalidate
+        std::move_only_function<void()> recompute_layout;
+        std::move_only_function<void()> recompute_layout_anchored;
     };
 
     static constexpr UINT_PTR TIMER_MERMAID_BATCH = 10;
     static constexpr UINT_PTR TIMER_BITMAP_MANAGE = 11;
-    // ビューポート外リソース解放のバッファ倍率
     static constexpr float EVICT_BUFFER_SCREENS = 5.0f;
     static constexpr float PREFETCH_BUFFER_SCREENS = 3.0f;
-    // バッチ処理の時間予算（マイクロ秒）
     static constexpr int BATCH_TIME_BUDGET_US = 6000;
 
     ResourceManager() = default;
     void Init(Document& doc, LayoutCache& cache, ViewportManager& viewport,
-              ImageLoader& image_loader, IMermaidRenderer& mermaid,
-              ThemeService& theme_service,
-              Callbacks cb);
+        ImageLoader& image_loader, IMermaidRenderer& mermaid,
+        ThemeService& theme_service,
+        Callbacks cb);
 
     // --- 画像リソース ---
     int ApplyCachedImages();
@@ -77,8 +73,6 @@ private:
     Callbacks cb_;
 
     float last_mermaid_content_width_ = 0.0f;
-    // バッチ/フラッシュ中の OnMermaidRenderComplete 再入ガード。
-    // 同期的にレンダー完了が連鎖した場合に recompute_layout_anchored が毎回走るのを抑止する。
     bool mermaid_batch_loading_ = false;
     size_t mermaid_batch_next_ = 0;
     FlatMap<size_t, std::wstring> resolved_image_paths_;

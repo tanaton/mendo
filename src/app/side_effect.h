@@ -81,13 +81,11 @@ struct RefreshPaneLayout {};
 // ---- テーマ・ダークモード ----
 struct ApplyDarkMode { bool dark; };
 
-// テーマ/ズーム変更の複合副作用。executor がレンダラー適用 + レイアウトを実行する。
-// スクロール位置保持は scroll_target を介して行うのでアンカー情報は含めない。
 struct ApplyThemeChange {
     enum class Type { Zoom, DarkMode };
     Type type;
-    float new_zoom;       // Zoom 用: 新しいズーム値
-    int zoom_index;       // Zoom 用: ズームインデックス（設定保存用）
+    float new_zoom;
+    int zoom_index;
 };
 
 // ---- ファイル監視・リソース ----

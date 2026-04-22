@@ -13,11 +13,8 @@ public:
 
     constexpr bool IsDarkMode() const noexcept { return dark_mode_; }
 
-    // 現在のダークモード状態に基づきテーマを作成する（オプションでズームを適用）。
     Theme CreateTheme() const;
     Theme CreateTheme(int zoom_index) const;
-
-    // ダークモードを切り替える。新しいdark_mode状態を返す。
     bool ToggleDarkMode() noexcept;
 
     // ---- 永続化 ----

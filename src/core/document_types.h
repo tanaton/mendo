@@ -36,7 +36,6 @@ static_assert(static_cast<size_t>(AlertType::Caution) == 5, "AlertType::Caution 
 
 inline constexpr size_t ALERT_TYPE_COUNT = 5;
 
-// AlertType → 0ベースの色/ブラシインデックス。None の場合は ALERT_TYPE_COUNT を返す（範囲外）。
 constexpr size_t AlertColorIndex(AlertType t) noexcept
 {
     if (t == AlertType::None) {
@@ -45,13 +44,12 @@ constexpr size_t AlertColorIndex(AlertType t) noexcept
     return static_cast<size_t>(t) - 1;
 }
 
-// md4c の MD_ALIGN と値を一致させる（0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT）。
-// parser では static_cast<TableAlign>(td->align) で直接変換できる。
+// md4c の MD_ALIGN と値を一致させる（0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT）
 enum class TableAlign : uint8_t {
     Default = 0,
-    Left    = 1,
-    Center  = 2,
-    Right   = 3,
+    Left = 1,
+    Center = 2,
+    Right = 3,
 };
 
 // テーブルセルデータ（純粋なドメインデータ — レイアウトキャッシュなし）
@@ -89,22 +87,13 @@ struct NodeImageData {
 };
 
 struct Node {
-    mutable std::pmr::string text_utf8; // テキスト主記憶（UTF-8、パーサーが設定。GetText()後に解放される場合あり）
+    mutable std::pmr::string text_utf8;
     std::pmr::vector<TextRun> runs;
 
-    // runs および table_data->rows 内の TextRun::link_url_index が参照するリンクURLプール
     std::pmr::vector<std::pmr::wstring> link_urls;
-
-    // テーブルデータ（type == Table の場合のみ確保、それ以外は nullptr）
     std::unique_ptr<NodeTableData> table_data;
-
-    // 画像データ（type == Image の場合のみ確保、それ以外は nullptr）
     std::unique_ptr<NodeImageData> image_data;
-
-    // 見出しデータ（type == Heading の場合のみ確保、それ以外は nullptr）
     std::unique_ptr<NodeHeadingData> heading_data;
-
-    // コードブロックデータ（type == CodeBlock の場合のみ確保、それ以外は nullptr）
     std::unique_ptr<NodeCodeData> code_data;
 
     int heading_level = 0;
@@ -145,31 +134,26 @@ struct Node {
         }
     }
 
-    // テキスト取得。EnsureTextConverted() が事前に呼ばれていれば O(1) で返る。
     const std::pmr::wstring& GetText() const
     {
         EnsureTextConverted();
         return text_;
     }
 
-    // const wchar_t* からの呼び出し（リテラル文字列等）をオーバーロード解決で曖昧にしないための委譲
     void SetText(const wchar_t* s) { SetText(std::wstring_view{ s }); }
 
-    // Wideテキストを直接設定
     void SetText(std::wstring_view s)
     {
         text_.assign(s);
         FinalizeSetText();
     }
 
-    // Wideテキストをムーブで設定（コピー回避）
     void SetText(std::pmr::wstring&& s) noexcept
     {
         text_ = std::move(s);
         FinalizeSetText();
     }
 
-    // テーブル行への便利アクセサ
     std::pmr::vector<TableRow>& table_rows() noexcept { return table_data->rows; }
     const std::pmr::vector<TableRow>& table_rows() const noexcept { return table_data->rows; }
     void ensure_table()
@@ -180,7 +164,6 @@ struct Node {
     }
     bool has_table() const noexcept { return table_data != nullptr; }
 
-    // 画像への便利アクセサ
     void ensure_image()
     {
         if (!image_data) {
@@ -189,7 +172,6 @@ struct Node {
     }
     bool has_image() const noexcept { return image_data != nullptr; }
 
-    // 見出しへの便利アクセサ
     void ensure_heading()
     {
         if (!heading_data) {
@@ -197,28 +179,25 @@ struct Node {
         }
     }
     bool has_heading() const noexcept { return heading_data != nullptr; }
-    // アンカーIDへの安全アクセス。Headingでなければ空文字列を返す。
-    // 注: 戻り値は heading_data のライフタイムに依存する。
+
     std::wstring_view anchor_id() const noexcept
     {
         return heading_data ? std::wstring_view(heading_data->anchor_id) : std::wstring_view{};
     }
 
-    // コードブロックへの便利アクセサ
     void ensure_code()
     {
         if (!code_data) {
             code_data = std::make_unique<NodeCodeData>();
         }
     }
+
     bool has_code() const noexcept { return code_data != nullptr; }
     const std::pmr::vector<SyntaxToken>& syntax_tokens() const noexcept
     {
-        // code_data が nullptr の場合のみ呼ばれる想定だが、安全のためガード
         if (code_data) {
             return code_data->syntax_tokens;
         }
-        // 空のベクターを返す（CodeBlock以外では syntax_tokens() は呼ばれない設計）
         static const std::pmr::vector<SyntaxToken> empty;
         return empty;
     }

@@ -1,14 +1,11 @@
 #pragma once
 #include "document_types.h"
+#include "layout_cache.h"
 #include "nav_button.h"
 #include "pane.h"
 #include "theme.h"
 #include <climits>
 #include <memory_resource>
-
-// 参照としてのみ扱うため前方宣言（layout_cache.h は <dwrite.h> を巻き込むため）。
-class LayoutCache;
-struct NodeLayoutEntry;
 
 // MDペインのヒットテストに必要なコンテキスト情報。
 // ドキュメントデータ、ビューポート状態、マウス位置をまとめる。
@@ -25,6 +22,16 @@ struct MdPaneHitContext {
     float content_width = 0.0f;
     float md_pane_height = 0.0f;
 };
+
+// 物理ピクセルをMDペインローカルのDIP座標に変換する。
+struct PaneDip { float x, y; };
+inline PaneDip ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
+{
+    return {
+        ctx.screen_x / ctx.dpi_scale - ctx.md_pane_left,
+        ctx.screen_y / ctx.dpi_scale + ctx.scroll_y,
+    };
+}
 
 class HitTestService {
 public:
@@ -77,6 +84,49 @@ private:
             result = r;
         }
     };
+
+    // CodeBlock ノードのオーバーレイボタン（Copy/Save）共通ヒットテスト。
+    // キャッシュ照合・座標変換・可視範囲走査を一元化する。Predicate は
+    // `(int index, const Node&, const NodeLayoutEntry&, float dip_x, float dip_y) -> bool`
+    // を返し、true を返したノードの index が結果となる。
+    template <typename Predicate>
+    int HitTestCodeBlockButton(
+        const MdPaneHitContext& ctx,
+        HitCache<int>& cache,
+        Predicate&& matches) const noexcept
+    {
+        if (ctx.nodes.empty()) {
+            return -1;
+        }
+        const uint32_t gen = ctx.cache.GetEffectsGeneration();
+        if (cache.Matches(ctx, gen)) {
+            return cache.result;
+        }
+
+        const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
+
+        const float viewport_top = ctx.scroll_y;
+        const float viewport_bottom = ctx.scroll_y + ctx.md_pane_height;
+        const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
+        const int count = static_cast<int>(ctx.nodes.size());
+        for (int i = first; i < count; i++) {
+            // 早期 break: CopyButton は padding 分だけ y_position の上に出るため padding を引いて比較する。
+            if (ctx.cache[i].y_position - ctx.theme.code_block_padding > viewport_bottom) {
+                break;
+            }
+            const auto& node = ctx.nodes[i];
+            if (node.type != NodeType::CodeBlock) {
+                continue;
+            }
+            if (matches(i, node, ctx.cache[i], dip_x, dip_y)) {
+                cache.Store(ctx, gen, i);
+                return i;
+            }
+        }
+        cache.Store(ctx, gen, -1);
+        return -1;
+    }
+
     mutable HitCache<HitResult> last_md_hit_{};
     mutable HitCache<int> last_copy_hit_{ .result = -1 };
     mutable HitCache<int> last_save_hit_{ .result = -1 };

@@ -89,7 +89,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
 
-    const auto nav_hit = state_.hit_test.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
+    const auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
     Dispatch(MdPaneNavHoverAction{ nav_hit });
     if (nav_hit != NavButtonHover::None) {
         SetCursor(cursors_.Hand());
@@ -119,7 +119,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         const int cdy = py - state_.interaction.hover_throttle.last_copy_hit_pos.y;
         if (cdx * cdx + cdy * cdy > HOVER_THROTTLE_DISTANCE_SQ) {
             state_.interaction.hover_throttle.last_copy_hit_pos = { px, py };
-            new_copy_hover = state_.hit_test.CopyButtonHitTest(hit_ctx);
+            new_copy_hover = hit_test_.CopyButtonHitTest(hit_ctx);
         }
     }
     int new_save_hover = state_.interaction.hovered_save_node;
@@ -128,7 +128,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         const int sdy = py - state_.interaction.hover_throttle.last_save_hit_pos.y;
         if (sdx * sdx + sdy * sdy > HOVER_THROTTLE_DISTANCE_SQ) {
             state_.interaction.hover_throttle.last_save_hit_pos = { px, py };
-            new_save_hover = state_.hit_test.SaveButtonHitTest(hit_ctx);
+            new_save_hover = hit_test_.SaveButtonHitTest(hit_ctx);
         }
     }
     if (new_copy_hover != state_.interaction.hovered_copy_node || new_save_hover != state_.interaction.hovered_save_node) {

@@ -63,14 +63,6 @@ void Renderer::SetDpi(float dpi) noexcept
     toc_pane_cache_.Reset();
 }
 
-void Renderer::ApplyZoom(float new_zoom)
-{
-    theme_.ApplyZoom(new_zoom);
-    UpdateLayoutTheme();
-    RecreatePaneFormats();
-    cmd_generator_.SetTheme(&theme_);
-}
-
 void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
 {
     theme_ = base_theme;

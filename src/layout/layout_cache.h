@@ -118,9 +118,6 @@ public:
         }
     }
 
-    // 既存のエントリをすべてクリアし、デフォルト値でリサイズする。
-    // shrink=true (デフォルト): ファイル切り替え時に古い容量を解放する。
-    // shrink=false: リロード時に容量を保持し、同サイズファイルの再確保を回避する。
     void Reset(size_t node_count, bool shrink = true)
     {
         entries_.clear();
@@ -267,7 +264,6 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_co
 
 // (node, offset) → 絶対スクロール位置。
 // 負の node や空キャッシュは 0 を返し、末尾を超える node は最後の要素へクランプする
-// （ドキュメントが縮んでいた場合にトップではなく末尾近くへ復帰する）。
 constexpr float NodeOffsetToScrollY(const LayoutCache& cache, int node, float offset) noexcept
 {
     if (cache.size() == 0 || node < 0) {

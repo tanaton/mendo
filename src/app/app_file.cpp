@@ -256,6 +256,8 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
 
     UpdateTitleBar();
 
+    SyncTocActiveAndAutoScroll();
+
     doc_service_.StartWatching(state_.document.doc.GetFilePath(), [this]() {
         KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
         SetTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS, nullptr);
@@ -388,8 +390,14 @@ void App::FinishReload(bool is_prefix_only, size_t diff_pos)
     FinalizeLayout(md_height);
 
     if (state_.search.search_state.IsVisible() && !state_.search.search_state.GetQuery().empty()) {
+        // ReplaceFromMarkdown でノード列が再構築されたため、SearchState の lowercase
+        // キャッシュは内容が無効。ポインタ/サイズ一致では PMR プール再利用時に
+        // 偽のヒットを起こすため、ここで明示的に破棄する。
+        state_.search.search_state.InvalidateLowercaseCache();
         state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
     }
+
+    SyncTocActiveAndAutoScroll();
 
     doc_service_.ResumeWatching();
 }

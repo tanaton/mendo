@@ -38,37 +38,41 @@ void Theme::ApplyZoom(float new_zoom) noexcept
     if (new_zoom <= 0.0f || zoom <= 0.0f) {
         return;
     }
-    // 前のズームを元に戻してから新しいズームを適用する
     const float ratio = new_zoom / zoom;
     zoom = new_zoom;
 
-    font_size_body *= ratio;
-    for (int i = 0; i < 6; ++i) {
-        font_size_h[i] *= ratio;
+    // Theme 内の「ズームでスケールする float メンバ」を一元管理する。
+    // 新規のスケーラブルフィールドを追加する際はここに追記すれば
+    // ApplyZoom へのスケール漏れを防げる。
+    static constexpr float Theme::* kScalable[] = {
+        &Theme::font_size_body,
+        &Theme::font_size_code,
+        &Theme::margin_left,
+        &Theme::margin_right,
+        &Theme::margin_top,
+        &Theme::paragraph_spacing,
+        &Theme::list_item_spacing,
+        &Theme::heading_spacing_above,
+        &Theme::heading_spacing_below,
+        &Theme::heading_spacing_below_h1h2,
+        &Theme::code_block_spacing_above,
+        &Theme::code_block_padding,
+        &Theme::indent_width,
+        &Theme::blockquote_bar_width,
+        &Theme::list_bullet_offset,
+        &Theme::hr_thickness,
+        &Theme::h2_underline_thickness,
+        &Theme::pane_item_height,
+        &Theme::pane_header_height,
+        &Theme::splitter_width,
+        &Theme::pane_font_size,
+    };
+    for (float Theme::* field : kScalable) {
+        this->*field *= ratio;
     }
-    font_size_code *= ratio;
-
-    margin_left *= ratio;
-    margin_right *= ratio;
-    margin_top *= ratio;
-    paragraph_spacing *= ratio;
-    list_item_spacing *= ratio;
-    heading_spacing_above *= ratio;
-    heading_spacing_below *= ratio;
-    heading_spacing_below_h1h2 *= ratio;
-    code_block_spacing_above *= ratio;
-    code_block_padding *= ratio;
-    indent_width *= ratio;
-    blockquote_bar_width *= ratio;
-    list_bullet_offset *= ratio;
-    hr_thickness *= ratio;
-    h2_underline_thickness *= ratio;
-
-    // ペインサイズ
-    pane_item_height *= ratio;
-    pane_header_height *= ratio;
-    splitter_width *= ratio;
-    pane_font_size *= ratio;
+    for (auto& f : font_size_h) {
+        f *= ratio;
+    }
 }
 
 // ライトテーマとダークテーマで共有するレイアウト定数

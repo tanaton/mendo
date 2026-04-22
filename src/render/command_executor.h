@@ -13,8 +13,6 @@ public:
 private:
     ID2D1SolidColorBrush* GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color);
 
-    // ブラシ数が超過したらプールを一掃し、肥大化を防ぐ。
-    // テーマ + UI アクセント色は通常 ~50 個以内に収まる。
     static constexpr size_t MAX_POOLED_BRUSHES = 256;
 
     std::unordered_map<uint32_t, Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>> brush_pool_;

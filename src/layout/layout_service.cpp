@@ -26,8 +26,7 @@ bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float
 {
     const float scroll_y = viewport_.GetScrollY();
     const bool updated = engine_.EnsureVisibleLayout(doc.GetNodesMut(), cache, width, scroll_y, scroll_y + height);
-    // updated=false でもレイアウト操作の一貫した契約として target を再適用する
-    // （target 無効時は ApplyScrollTarget 側で早期 return）
+
     viewport_.ApplyScrollTarget(cache);
     return updated;
 }

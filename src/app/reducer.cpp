@@ -214,7 +214,7 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
     effects.emplace_back(effect::ClipboardWriteHtml{
         ExtractSelectedTextAsHtml(nodes, sel, state.window.cached_theme.is_dark),
         ExtractSelectedText(nodes, sel)
-    });
+        });
 }
 
 // ============================================================
@@ -341,7 +341,7 @@ void ReduceSearchStep(AppState& state, bool forward)
 {
     if (state.search.search_state.IsVisible()) {
         forward ? state.search.search_bar_ctrl.OnNext()
-                : state.search.search_bar_ctrl.OnPrev();
+            : state.search.search_bar_ctrl.OnPrev();
     }
     else {
         state.search.search_bar_ctrl.OnOpen(state.document.doc.GetNodes());
@@ -841,8 +841,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
 
         // ---- マウス関連 ----
         [&](const MouseLeaveAction&) {
-            // 再侵入時に同一座標の最初の WM_MOUSEMOVE が ShouldSkipSameDispatch で
-            // 弾かれるとカーソル/ツールチップの復帰が遅れるため、hover 状態もリセットする
             state.interaction.hover_throttle.Reset();
             ClearTooltip(state, effects);
         },

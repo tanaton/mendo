@@ -14,8 +14,8 @@
 #include "tooltip.h"
 #include "scroll_restoration.h"
 #include "context_menu.h"
-#include "hit_test_service.h"
 #include "hover_throttle.h"
+#include "nav_button.h"
 #include "pane_layout.h"
 #include "theme_constants.h"
 #include <string>
@@ -64,10 +64,7 @@ struct WindowState {
     ThemeConstants cached_theme;
 };
 
-// アプリケーションの全状態を集約する構造体。
-// Win32ハンドルは含まない。状態に加えて一部のコントローラ
-// (ContextMenu, HitTestService, SearchBarController) を含む。
-// Reducer パターンの入出力として使用する。
+// アプリケーションの全状態を集約する構造体
 struct AppState {
     // ---- サブグループ ----
     DocumentState document;
@@ -79,7 +76,6 @@ struct AppState {
     // ---- UIコンポーネント ----
     FileExplorer file_explorer;
     ContextMenu ctx_menu;
-    HitTestService hit_test;
     int active_toc_index = -1;
 
     // ---- リロード管理 ----
@@ -93,11 +89,6 @@ struct AppState {
     bool pane_layout_valid = false;
 };
 
-// 現在の可視先頭ノードから ScrollTarget を合成する。Reducer と App の共通ヘルパー。
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept;
-
-// 現在のファイル/スクロール位置をナビゲーション履歴に Push する。
 void PushCurrentNavEntry(AppState& state);
-
-// 現在のファイル/スクロール位置を NavEntry として返す（Push せず）。
 NavEntry CurrentNavEntry(const AppState& state);

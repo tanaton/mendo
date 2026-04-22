@@ -13,7 +13,7 @@
 App::HitResult App::HitTest(int screen_x, int screen_y)
 {
     const auto& layout = GetPaneLayout();
-    return state_.hit_test.HitTest({
+    return hit_test_.HitTest({
         state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme(),
         state_.view.viewport.GetScrollY(), layout.md_rect.x,
         state_.window.cached_dpi_scale, screen_x, screen_y

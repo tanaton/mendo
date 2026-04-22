@@ -6,22 +6,11 @@
 
 namespace config {
 
-// 設定ディレクトリを上書きする（テスト用）。デフォルトに戻すには空のパスを渡す。
 void SetConfigDirOverride(const std::filesystem::path& dir);
-
-// mendoの設定ディレクトリを返す（%LOCALAPPDATA%/mendo）。
 std::filesystem::path GetConfigDir();
-
-// 設定ディレクトリ内のファイルのフルパスを返す（MermaidFileCache等で使用）。
 std::filesystem::path GetConfigPath(std::wstring_view filename);
-
-// INIファイルをディスクからメモリに読み込む。起動時に1回呼ぶ。
 void Load();
-
-// メモリ上のデータをディスクに書き込む。終了時や即時保存時に呼ぶ。
 void Save();
-
-// メモリ上のデータをクリアする（テスト用）。
 void Clear() noexcept;
 
 // ---- 型付きアクセサ（メモリ上のマップを読み書き） ----

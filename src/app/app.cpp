@@ -164,14 +164,8 @@ void App::OnPaint()
     BeginPaint(hwnd_, &ps);
 
     const auto& layout = GetPaneLayout();
-    // state_.pending_prefix_shrink 中は loading_ が true でも旧コンテンツを表示する。
-    // エディタの truncate→rewrite 中間状態をスキップしているだけなので、
-    // ローディング画面を表示する必要がない。
     const bool show_loading = file_load_service_.IsLoading() && !state_.pending_prefix_shrink;
     if (!show_loading) {
-        // FlushPendingResources は描画パスから外し、BITMAP_MANAGE タイマ経由で
-        // 集約実行する（ScheduleBitmapManage の 50ms debounce + 150ms 周期タイマ）。
-        // ロード完了時は OnAppImageLoaded → OnImageLoadComplete で個別反映される。
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
         EnsureScrollTarget();
 
@@ -184,39 +178,6 @@ void App::OnPaint()
 
         if (updated) {
             SyncMaxScroll(layout.md_rect.height);
-        }
-    }
-    // 目次ペインの同期: mdペインのスクロール位置からアクティブ見出しを判定し、
-    // 目次ペインを自動スクロールする
-    if (state_.view.panes.IsTocPaneVisible() && !show_loading) {
-        const float toc_margin = layout.md_rect.y + renderer_.GetTheme().heading_spacing_above;
-        const int new_active = state_.document.doc.GetToc().FindActiveIndex(state_.document.layout_cache, state_.view.viewport.GetScrollY(), toc_margin);
-        if (new_active != state_.active_toc_index) {
-            state_.active_toc_index = new_active;
-            renderer_.InvalidateTocPaneCache();
-
-            // アクティブ見出しが目次ペインの表示範囲外なら自動スクロール
-            if (new_active >= 0) {
-                const auto& theme = renderer_.GetTheme();
-                const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
-                const float total = static_cast<float>(state_.document.doc.GetToc().GetEntries().size()) * theme.pane_item_height;
-                const auto info = ComputeScrollInfo(layout.toc_rect, theme.pane_header_height, total);
-                auto& toc_scroll = state_.view.panes.TocScroll();
-                toc_scroll.max_scroll = info.max_scroll;
-                float& sy = toc_scroll.scroll_y;
-                sy = std::clamp(sy, 0.0f, info.max_scroll);
-                if (info.content_height > 0.0f) {
-                    // フォーカスを表示領域の5等分中、区画2〜4(1/5〜4/5)に留める
-                    const float zone_upper = info.content_height * (1.0f / 5.0f);
-                    const float zone_lower = info.content_height * (4.0f / 5.0f);
-                    if (item_y < sy + zone_upper) {
-                        sy = std::clamp(item_y - zone_upper, 0.0f, info.max_scroll);
-                    }
-                    else if (item_y + theme.pane_item_height > sy + zone_lower) {
-                        sy = std::clamp(item_y + theme.pane_item_height - zone_lower, 0.0f, info.max_scroll);
-                    }
-                }
-            }
         }
     }
 
@@ -337,14 +298,12 @@ void App::OnKeyDown(WPARAM key)
 
 void App::Dispatch(const AppAction& action)
 {
-    // reducer が cached_pane_layout（window サイズ / ペイン幅から導出される派生値）を
-    // 参照するため、reducer 呼び出し前に最新化する。これは state の直接変更ではなく
-    // 「派生キャッシュの更新」で、GetPaneLayout はキャッシュ済みなら O(1) で返る。
-    // hybrid モデル下での reducer 入力保証の一部（reducer.h 参照）。
     GetPaneLayout();
 
     auto effects = Reduce(state_, action);
     effect_executor_.Execute(effects);
+
+    SyncTocActiveAndAutoScroll();
 }
 
 void App::OnDropFiles(HDROP hDrop)
@@ -387,21 +346,12 @@ void App::OnCaptureChanged()
 void App::ShowToast(std::wstring_view message)
 {
     // reducer 経由ではなく effect を直接発火する簡易経路。
-    // toast は state 遷移を伴わない単発副作用で、Action 化しても boilerplate が
-    // 増えるだけなので hybrid モデルの例外として許容している（reducer.h 参照）。
     effect_executor_.ExecuteOne(effect::ShowToast{ std::wstring{message} });
 }
 
 void App::OnDestroy()
 {
-    // メッセージループが生きているうちにWebView2を閉じる。
-    // デストラクタではメッセージループが停止済みのため、
-    // WebView2のClose()がブロックしてハングする。
     mermaid_renderer_.Shutdown();
-
-    // スケジューラを停止してキュー済み書き込みを完了させた後、
-    // file_cacheのscheduler_をnullにして遅延COMコールバックからの
-    // 新規ポストを防ぐ。
     scheduler_.Shutdown();
     file_cache_.Shutdown();
     file_cache_.SaveIndex();

@@ -19,13 +19,8 @@ public:
     TaskScheduler(const TaskScheduler&) = delete;
     TaskScheduler& operator=(const TaskScheduler&) = delete;
 
-    // ワーカースレッドを起動する。
     void Init(int thread_count);
-
-    // タスクをキューに追加する。任意のワーカースレッドで実行される。
     void Post(std::move_only_function<void()> task);
-
-    // キューに残っているタスクをすべて処理してからワーカースレッドを終了する。
     void Shutdown();
 
 private:
@@ -35,5 +30,5 @@ private:
     std::queue<std::move_only_function<void()>> queue_;
     std::mutex mutex_;
     std::condition_variable cv_;
-    std::atomic<bool> shutdown_{false};
+    std::atomic<bool> shutdown_{ false };
 };
