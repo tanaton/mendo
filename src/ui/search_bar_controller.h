@@ -16,10 +16,6 @@ struct SearchBarRenderState;
 // Win32依存の操作はコールバック経由でAppに委譲する。
 class SearchBarController {
 public:
-    enum class HoverZone : uint8_t {
-        None, Up, Down, Close, CaseSensitive, Highlight
-    };
-
     // Win32操作をAppから注入するコールバック群
     struct Callbacks {
         std::move_only_function<void()> invalidate;                  // ウィンドウ全体の再描画
@@ -72,9 +68,9 @@ public:
     void OnCaptureChanged() noexcept { dragging_ = false; }
 
     // --- ホバー管理 ---
-    HoverZone UpdateHover(float dip_x, float dip_y, const SearchBarLayout& sbl);
-    HoverZone GetHover() const noexcept { return hover_; }
-    void ResetHover() noexcept { hover_ = HoverZone::None; }
+    void UpdateHoverFromZone(SearchBarHitZone zone);
+    SearchBarHitZone GetHover() const noexcept { return hover_; }
+    void ResetHover() noexcept { hover_ = SearchBarHitZone::None; }
 
     // --- レンダー状態構築 ---
     SearchBarRenderState BuildRenderState() const;
@@ -93,7 +89,7 @@ private:
     LayoutCache* cache_ = nullptr;
     Callbacks cb_;
 
-    HoverZone hover_ = HoverZone::None;
+    SearchBarHitZone hover_ = SearchBarHitZone::None;
     bool caret_visible_ = false;
     bool has_focus_ = false;
     int caret_pos_ = -1;

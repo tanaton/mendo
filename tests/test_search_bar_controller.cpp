@@ -75,7 +75,7 @@ TEST_F(SearchBarControllerTest, InitialState)
     EXPECT_FALSE(ctrl_.HasFocus());
     EXPECT_EQ(ctrl_.GetCaretPos(), -1);
     EXPECT_EQ(ctrl_.GetSelectionStart(), -1);
-    EXPECT_EQ(ctrl_.GetHover(), SearchBarController::HoverZone::None);
+    EXPECT_EQ(ctrl_.GetHover(), SearchBarHitZone::None);
     EXPECT_FALSE(ctrl_.IsDragging());
     EXPECT_TRUE(ctrl_.GetImeComposition().empty());
 }
@@ -114,7 +114,7 @@ TEST_F(SearchBarControllerTest, OnCloseResetsState)
 
     EXPECT_FALSE(state_.IsVisible());
     EXPECT_FALSE(ctrl_.HasFocus());
-    EXPECT_EQ(ctrl_.GetHover(), SearchBarController::HoverZone::None);
+    EXPECT_EQ(ctrl_.GetHover(), SearchBarHitZone::None);
     EXPECT_GE(unfocus_count_, 1);
 }
 
@@ -287,7 +287,7 @@ TEST_F(SearchBarControllerTest, ResetClearsAll)
     EXPECT_EQ(ctrl_.GetSelectionStart(), -1);
     EXPECT_FALSE(ctrl_.IsDragging());
     EXPECT_TRUE(ctrl_.GetImeComposition().empty());
-    EXPECT_EQ(ctrl_.GetHover(), SearchBarController::HoverZone::None);
+    EXPECT_EQ(ctrl_.GetHover(), SearchBarHitZone::None);
 }
 
 // ═══════════════════════════════════════════════

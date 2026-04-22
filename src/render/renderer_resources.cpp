@@ -192,8 +192,10 @@ void Renderer::RecreatePaneFormats()
     cached_toast_text_.clear();
     cached_search_layout_.Reset();
     cached_search_text_.clear();
+    cached_search_query_.clear();
+    cached_search_ime_comp_.clear();
+    cached_search_caret_pos_ = -1;
     cached_search_width_ = -1.0f;
-    cached_search_height_ = -1.0f;
     cached_search_has_underline_ = false;
     if (fmt_.nav_button) {
         auto* dw = backend_.GetDWriteFactory();

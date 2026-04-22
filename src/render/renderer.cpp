@@ -32,6 +32,8 @@ bool Renderer::Init(HWND hwnd)
     cmd_generator_.SetTheme(&theme_);
     cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
     cmd_generator_.SetSharedHitTestBuffer(&hit_test_buffer_);
+    // 初回描画での拡大 resize を避けるため、共有バッファを事前に予約しておく。
+    hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
 
     return true;
 }

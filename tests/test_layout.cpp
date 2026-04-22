@@ -436,7 +436,8 @@ TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide)
 {
     // 自然幅の合計300、利用可能幅150のみ -> 比例配分
     std::pmr::vector<float> natural = { 100.0f, 100.0f, 100.0f };
-    auto widths = ComputeColumnWidths(natural, 150.0f, 3);
+    std::pmr::vector<float> widths;
+    ComputeColumnWidths(widths, natural, 150.0f, 3);
     ASSERT_EQ(widths.size(), 3u);
     // 自然幅が等しいため、すべての列が均等な幅を得ること
     EXPECT_NEAR(widths[0], widths[1], 0.01f);
@@ -450,7 +451,8 @@ TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits)
 {
     // 自然幅の合計30、利用可能幅300 -> 均等配分
     std::pmr::vector<float> natural = { 10.0f, 10.0f, 10.0f };
-    auto widths = ComputeColumnWidths(natural, 300.0f, 3);
+    std::pmr::vector<float> widths;
+    ComputeColumnWidths(widths, natural, 300.0f, 3);
     ASSERT_EQ(widths.size(), 3u);
     // 均等配分: 各列は少なくとも100であること
     float even = 300.0f / 3.0f;
@@ -463,7 +465,8 @@ TEST(ComputeColumnWidthsTest, MinimumWidthEnforced)
 {
     // 非常に小さな利用可能スペース
     std::pmr::vector<float> natural = { 200.0f, 200.0f };
-    auto widths = ComputeColumnWidths(natural, 40.0f, 2);
+    std::pmr::vector<float> widths;
+    ComputeColumnWidths(widths, natural, 40.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
     // 最小幅は30
     for (auto w : widths) {
@@ -475,7 +478,8 @@ TEST(ComputeColumnWidthsTest, UnequalNaturalWidths)
 {
     // 列Aは列Bよりはるかに広い
     std::pmr::vector<float> natural = { 300.0f, 100.0f };
-    auto widths = ComputeColumnWidths(natural, 200.0f, 2);
+    std::pmr::vector<float> widths;
+    ComputeColumnWidths(widths, natural, 200.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
     // 列Aは列Bよりも大きな割合を得ること
     EXPECT_GT(widths[0], widths[1]);
@@ -484,7 +488,8 @@ TEST(ComputeColumnWidthsTest, UnequalNaturalWidths)
 TEST(ComputeColumnWidthsTest, SingleColumn)
 {
     std::pmr::vector<float> natural = { 50.0f };
-    auto widths = ComputeColumnWidths(natural, 200.0f, 1);
+    std::pmr::vector<float> widths;
+    ComputeColumnWidths(widths, natural, 200.0f, 1);
     ASSERT_EQ(widths.size(), 1u);
     EXPECT_GE(widths[0], 50.0f);
 }
@@ -492,7 +497,8 @@ TEST(ComputeColumnWidthsTest, SingleColumn)
 TEST(ComputeColumnWidthsTest, ZeroNaturalWidths)
 {
     std::pmr::vector<float> natural = { 0.0f, 0.0f };
-    auto widths = ComputeColumnWidths(natural, 200.0f, 2);
+    std::pmr::vector<float> widths;
+    ComputeColumnWidths(widths, natural, 200.0f, 2);
     ASSERT_EQ(widths.size(), 2u);
     // それでも有効な幅を生成すること
     for (auto w : widths) {

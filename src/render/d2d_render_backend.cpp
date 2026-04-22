@@ -1,4 +1,5 @@
 #include "d2d_render_backend.h"
+#include <cstdio>
 
 using Microsoft::WRL::ComPtr;
 
@@ -39,13 +40,21 @@ bool D2DRenderBackend::Init(HWND hwnd)
         return false;
     }
 
-    // WICファクトリを作成（Renderer・ImageLoaderで共有）
-    CoCreateInstance(
+    // WICファクトリを作成（Renderer・ImageLoaderで共有）。
+    // アイコン／画像／ダイアグラムは WIC が無いと機能しないため fail-fast。
+    hr = CoCreateInstance(
         CLSID_WICImagingFactory,
         nullptr,
         CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&wic_factory_)
     );
+    if (FAILED(hr)) {
+        wchar_t msg[128];
+        swprintf_s(msg, L"[mendo] WIC ImagingFactory creation failed (hr=0x%08lX). Aborting backend init.\n",
+            static_cast<unsigned long>(hr));
+        OutputDebugStringW(msg);
+        return false;
+    }
 
     // D3D11デバイスとD2Dデバイスコンテキストを作成
     if (!CreateDeviceResources()) {

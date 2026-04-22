@@ -1,4 +1,5 @@
 #include "image_loader.h"
+#include "file_io.h"
 #include "file_loader.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
@@ -13,19 +14,14 @@
 // 外部エディタ等がファイルを更新できなくなる問題を回避する。
 static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path)
 {
-    UniqueHandle hFile{ CreateFileW(path.c_str(), GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr) };
-    if (!hFile) {
+    auto r = OpenFileForReadShared(
+        std::filesystem::path(path),
+        FILE_SHARE_RW_DELETE, MAX_FILE_SIZE);
+    if (r.error != OpenFileError::None || r.size == 0) {
         return nullptr;
     }
 
-    LARGE_INTEGER size;
-    if (!GetFileSizeEx(hFile.get(), &size) || size.QuadPart == 0 || size.QuadPart > MAX_FILE_SIZE) {
-        return nullptr;
-    }
-
-    const auto alloc_size = static_cast<SIZE_T>(size.QuadPart);
+    const auto alloc_size = static_cast<SIZE_T>(r.size);
     UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, alloc_size) };
     if (!hMem) {
         return nullptr;
@@ -36,7 +32,7 @@ static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path
         return nullptr;
     }
     DWORD bytesRead = 0;
-    const BOOL ok = ReadFile(hFile.get(), ptr, static_cast<DWORD>(alloc_size), &bytesRead, nullptr);
+    const BOOL ok = ReadFile(r.handle.get(), ptr, static_cast<DWORD>(alloc_size), &bytesRead, nullptr);
     GlobalUnlock(hMem.get());
 
     if (!ok || bytesRead != alloc_size) {

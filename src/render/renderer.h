@@ -72,8 +72,13 @@ public:
     constexpr void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }
     constexpr void InvalidateTocPaneCache() noexcept { toc_pane_cache_.dirty = true; }
 
-    // ファイル切替時にヒットテストバッファ等を縮小する
-    void ShrinkBuffers() { hit_test_buffer_.shrink_to_fit(); cmd_generator_.ShrinkBuffers(); }
+    // ファイル切替時にヒットテストバッファ等を縮小する。
+    // 初期容量は次ファイルの描画 hot path で再拡大されないよう事前確保する。
+    void ShrinkBuffers() {
+        hit_test_buffer_.shrink_to_fit();
+        hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
+        cmd_generator_.ShrinkBuffers();
+    }
 
     // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     // Render() の前に呼ぶことで、RenderParams を const にできる。
@@ -147,13 +152,17 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_toast_layout_;
     std::pmr::wstring cached_toast_text_;
 
-    // 検索バーの入力テキストレイアウトキャッシュ。display_text/width/height が
-    // 一致すれば使い回す。キャレット点滅や同一入力継続中の毎フレーム
-    // CreateTextLayout を抑止する。
+    // 検索バーの入力テキストレイアウトキャッシュ。
+    // キー: (query, ime_composition, caret_pos, input 幅)
+    // 値:   cached_search_layout_ と合成済み表示テキスト cached_search_text_。
+    // キャレット点滅や同一入力継続フレームで CreateTextLayout と
+    // 表示テキスト合成の双方を回避する。入力 height は定数なのでキーに含めない。
     mutable Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_search_layout_;
-    mutable std::pmr::wstring cached_search_text_;
+    mutable std::pmr::wstring cached_search_text_;       // 合成後の表示テキスト (IME 未使用時は query と同一)
+    mutable std::pmr::wstring cached_search_query_;      // 直近フレームの sb.query
+    mutable std::pmr::wstring cached_search_ime_comp_;   // 直近フレームの sb.ime_composition
+    mutable int cached_search_caret_pos_ = -1;           // IME 合成時の挿入位置（無いとき -1）
     mutable float cached_search_width_ = -1.0f;
-    mutable float cached_search_height_ = -1.0f;
     mutable bool cached_search_has_underline_ = false;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;
     void LoadAppIconBitmap();
