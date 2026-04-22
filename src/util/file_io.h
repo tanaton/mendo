@@ -21,7 +21,9 @@ enum class OpenFileError : uint8_t {
 
 // CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねた共通ヘルパー。
 // 共有モードと最大サイズは呼び出し側で指定する。
-// 失敗時は handle が空で、error に区分が入る（out_error には最後の GetLastError）。
+// 失敗時は handle が空で、error に区分が入る。
+// out_error は CreateFileW 失敗時のみ GetLastError() を格納する
+// （SizeQueryFailed / TooLarge では更新しない）。
 struct OpenedFile {
     UniqueHandle handle;
     size_t size = 0;
