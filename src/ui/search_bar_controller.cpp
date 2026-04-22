@@ -42,7 +42,7 @@ void SearchBarController::OnOpen(const std::pmr::vector<Node>& nodes)
 void SearchBarController::OnClose()
 {
     state_->Hide();
-    hover_ = HoverZone::None;
+    hover_ = SearchBarHitZone::None;
     has_focus_ = false;
     caret_visible_ = false;
     ime_composition_.clear();
@@ -205,7 +205,7 @@ void SearchBarController::ScrollToCurrentMatch()
 void SearchBarController::Reset()
 {
     state_->Reset();
-    hover_ = HoverZone::None;
+    hover_ = SearchBarHitZone::None;
     has_focus_ = false;
     caret_visible_ = false;
     caret_pos_ = -1;
@@ -230,33 +230,14 @@ void SearchBarController::StartDrag(int anchor_pos) noexcept
 // ホバー管理
 // ============================================================
 
-SearchBarController::HoverZone SearchBarController::UpdateHover(float dip_x, float dip_y, const SearchBarLayout& sbl)
+void SearchBarController::UpdateHoverFromZone(SearchBarHitZone zone)
 {
-    const auto old_hover = hover_;
-    hover_ = HoverZone::None;
-
-    if (dip_y >= sbl.bar_top) {
-        if (PointInRect(dip_x, dip_y, sbl.up_btn)) {
-            hover_ = HoverZone::Up;
-        }
-        else if (PointInRect(dip_x, dip_y, sbl.down_btn)) {
-            hover_ = HoverZone::Down;
-        }
-        else if (PointInRect(dip_x, dip_y, sbl.case_btn)) {
-            hover_ = HoverZone::CaseSensitive;
-        }
-        else if (PointInRect(dip_x, dip_y, sbl.highlight_btn)) {
-            hover_ = HoverZone::Highlight;
-        }
-        else if (PointInRect(dip_x, dip_y, sbl.close_btn)) {
-            hover_ = HoverZone::Close;
-        }
-    }
-
-    if (hover_ != old_hover) {
+    // Input ゾーンはテキスト編集領域でホバー強調は不要なので None に丸める。
+    const auto new_hover = (zone == SearchBarHitZone::Input) ? SearchBarHitZone::None : zone;
+    if (new_hover != hover_) {
+        hover_ = new_hover;
         cb_.invalidate_search_bar();
     }
-    return hover_;
 }
 
 // ============================================================
@@ -277,11 +258,11 @@ SearchBarRenderState SearchBarController::BuildRenderState() const
     sb.ime_composition = ime_composition_;
     sb.case_sensitive = state_->IsCaseSensitive();
     sb.highlight_enabled = state_->IsHighlightEnabled();
-    sb.up_btn_hovered = (hover_ == HoverZone::Up);
-    sb.down_btn_hovered = (hover_ == HoverZone::Down);
-    sb.close_btn_hovered = (hover_ == HoverZone::Close);
-    sb.case_btn_hovered = (hover_ == HoverZone::CaseSensitive);
-    sb.highlight_btn_hovered = (hover_ == HoverZone::Highlight);
+    sb.up_btn_hovered = (hover_ == SearchBarHitZone::Up);
+    sb.down_btn_hovered = (hover_ == SearchBarHitZone::Down);
+    sb.close_btn_hovered = (hover_ == SearchBarHitZone::Close);
+    sb.case_btn_hovered = (hover_ == SearchBarHitZone::CaseSensitive);
+    sb.highlight_btn_hovered = (hover_ == SearchBarHitZone::Highlight);
     return sb;
 }
 

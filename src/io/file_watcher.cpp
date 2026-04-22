@@ -1,4 +1,5 @@
 #include "file_watcher.h"
+#include "file_io.h"
 #include <filesystem>
 
 FileWatcher::~FileWatcher()
@@ -22,7 +23,7 @@ void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallba
     dir_handle_.reset(CreateFileW(
         dir.c_str(),
         FILE_LIST_DIRECTORY,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_SHARE_RW_DELETE,
         nullptr,
         OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,

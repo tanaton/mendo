@@ -298,7 +298,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     auto& tl = *entry.table_layout;
 
     const float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width - static_cast<float>(col_count) * cell_padding * 2.0f;
-    tl.col_widths = ComputeColumnWidths(natural_widths, available, col_count);
+    ComputeColumnWidths(tl.col_widths, natural_widths, available, col_count);
 
     // セル毎の適用幅/高さキャッシュを確保（幅不変なら GetMetrics を省略）
     const size_t cell_total = tl.cell_layouts.size();

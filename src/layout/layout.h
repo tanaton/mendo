@@ -14,9 +14,10 @@
     return (node.type == NodeType::CodeBlock) ? theme.code_block_padding : 0.0f;
 }
 
-// テーブルの自然幅（実測値）と利用可能な幅から列幅を計算する。
-// 最終的な列幅のベクターを返す。
-[[nodiscard]] std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natural_widths,
+// テーブルの自然幅と利用可能幅から列幅を算出し out に書き込む。
+// out は呼び出し側の既存バッファを再利用することで再レイアウト時の再確保を避ける。
+void ComputeColumnWidths(std::pmr::vector<float>& out,
+    const std::pmr::vector<float>& natural_widths,
     float available_width, size_t col_count);
 
 // テーブル行から線形化テキストを構築する（セルはタブ区切り、行は改行区切り）。

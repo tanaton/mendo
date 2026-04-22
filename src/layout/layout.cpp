@@ -46,10 +46,11 @@ static float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
 
 // ---- フリー関数 ----
 
-std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natural_widths,
+void ComputeColumnWidths(std::pmr::vector<float>& out,
+    const std::pmr::vector<float>& natural_widths,
     float available_width, size_t col_count)
 {
-    std::pmr::vector<float> widths(col_count);
+    out.resize(col_count);
     available_width = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
     const float total_natural = std::ranges::fold_left(
@@ -59,17 +60,16 @@ std::pmr::vector<float> ComputeColumnWidths(const std::pmr::vector<float>& natur
     );
 
     if (total_natural > 0 && total_natural > available_width) {
-        for (auto [w, nw] : std::views::zip(widths, natural_widths) | std::views::take(col_count)) {
+        for (auto [w, nw] : std::views::zip(out, natural_widths) | std::views::take(col_count)) {
             w = std::max(MIN_COLUMN_WIDTH, available_width * nw / total_natural);
         }
     }
     else {
         const float even = available_width / static_cast<float>(col_count);
-        for (auto [w, nw] : std::views::zip(widths, natural_widths) | std::views::take(col_count)) {
+        for (auto [w, nw] : std::views::zip(out, natural_widths) | std::views::take(col_count)) {
             w = std::max(nw + COLUMN_WIDTH_PADDING, even);
         }
     }
-    return widths;
 }
 
 std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows)

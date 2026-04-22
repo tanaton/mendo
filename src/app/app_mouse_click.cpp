@@ -18,34 +18,33 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         const auto& r = pane_layout.md_rect;
         const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
         if (dip_y >= sbl.bar_top) {
-            if (PointInRect(dip_x, dip_y, sbl.up_btn)) {
+            switch (HitTestSearchBar(sbl, dip_x, dip_y)) {
+            case SearchBarHitZone::Up:
                 OnSearchPrev();
-                return;
-            }
-            if (PointInRect(dip_x, dip_y, sbl.down_btn)) {
+                break;
+            case SearchBarHitZone::Down:
                 OnSearchNext();
-                return;
-            }
-            if (PointInRect(dip_x, dip_y, sbl.case_btn)) {
+                break;
+            case SearchBarHitZone::CaseSensitive:
                 OnToggleCaseSensitive();
-                return;
-            }
-            if (PointInRect(dip_x, dip_y, sbl.highlight_btn)) {
+                break;
+            case SearchBarHitZone::Highlight:
                 OnToggleHighlight();
-                return;
-            }
-            if (PointInRect(dip_x, dip_y, sbl.close_btn)) {
+                break;
+            case SearchBarHitZone::Close:
                 OnSearchClose();
-                return;
-            }
-            if (PointInRect(dip_x, dip_y, sbl.input_rect)) {
+                break;
+            case SearchBarHitZone::Input: {
                 const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
                 const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
                 const int pos = renderer_.HitTestSearchInput(state_.search.search_state.GetQuery(), dip_x - text_left, input_w);
                 Dispatch(SearchInputDragStartedAction{ pos });
-                return;
+                break;
             }
-            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
+            case SearchBarHitZone::None:
+                PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
+                break;
+            }
             return;
         }
     }

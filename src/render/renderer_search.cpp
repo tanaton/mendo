@@ -70,38 +70,36 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     float caret_x = text_left;
 
     const bool has_comp = !sb.ime_composition.empty();
-    std::wstring display_buf;
-    std::wstring_view display_text = sb.query;
-    int comp_start = 0;
     const int comp_len = static_cast<int>(sb.ime_composition.size());
-
+    int comp_start = 0;
     if (has_comp) {
-        int insert_pos = sb.caret_pos;
         const int qlen = static_cast<int>(sb.query.size());
-        if (insert_pos < 0 || insert_pos > qlen) {
-            insert_pos = qlen;
+        comp_start = sb.caret_pos;
+        if (comp_start < 0 || comp_start > qlen) {
+            comp_start = qlen;
         }
-        comp_start = insert_pos;
-        display_buf.reserve(sb.query.size() + sb.ime_composition.size());
-        display_buf.append(sb.query.data(), static_cast<size_t>(insert_pos));
-        display_buf.append(sb.ime_composition);
-        display_buf.append(sb.query.data() + insert_pos, sb.query.size() - static_cast<size_t>(insert_pos));
-        display_text = display_buf;
     }
+    // キャッシュキーは (query, caret_pos, ime_composition, width, height)。
+    // 表示テキスト (display_buf) の合成はキャッシュミス時まで遅延する。
+    const int key_caret_pos = has_comp ? comp_start : -1;
 
-    if (fmt_.search_input && !display_text.empty() && backend_.GetDWriteFactory()) {
+    std::wstring_view display_text = sb.query;
+    std::pmr::wstring display_buf;
+
+    if (fmt_.search_input && !sb.query.empty() && backend_.GetDWriteFactory()) {
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
         const float input_h = sbl.input_rect.bottom - sbl.input_rect.top;
 
-        // 同一テキスト・同一サイズなら前回のレイアウトを使い回す。
-        // キャレット点滅で毎フレーム再描画されても CreateTextLayout を避ける。
+        // 比較は scalar → 空になりやすい ime_comp → query の順で短絡させる
         Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
         const bool cache_hit = cached_search_layout_
             && cached_search_width_ == input_w
-            && cached_search_height_ == input_h
-            && std::ranges::equal(cached_search_text_, display_text);
+            && cached_search_caret_pos_ == key_caret_pos
+            && cached_search_ime_comp_ == sb.ime_composition
+            && cached_search_query_ == sb.query;
         if (cache_hit) {
             text_layout = cached_search_layout_;
+            display_text = cached_search_text_;
             // 前フレームの下線範囲と異なる可能性があるため、キャッシュ上に下線が残っていれば
             // 常に全体をクリアする。IME 非アクティブ継続時はクリアも発行されない。
             if (cached_search_has_underline_) {
@@ -110,6 +108,14 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
             }
         }
         else {
+            // キャッシュミス時のみ display_buf を合成する。
+            if (has_comp) {
+                display_buf.reserve(sb.query.size() + sb.ime_composition.size());
+                display_buf.append(sb.query.data(), static_cast<size_t>(comp_start));
+                display_buf.append(sb.ime_composition.data(), sb.ime_composition.size());
+                display_buf.append(sb.query.data() + comp_start, sb.query.size() - static_cast<size_t>(comp_start));
+                display_text = display_buf;
+            }
             backend_.GetDWriteFactory()->CreateTextLayout(
                 display_text.data(),
                 static_cast<UINT32>(display_text.size()),
@@ -121,8 +127,10 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
             if (text_layout) {
                 cached_search_layout_ = text_layout;
                 cached_search_text_.assign(display_text);
+                cached_search_query_.assign(sb.query);
+                cached_search_ime_comp_.assign(sb.ime_composition);
+                cached_search_caret_pos_ = key_caret_pos;
                 cached_search_width_ = input_w;
-                cached_search_height_ = input_h;
                 cached_search_has_underline_ = false;
             }
         }
@@ -271,7 +279,8 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
     // （IME コンポジションが無く、query と表示テキストが一致）を高速パスに。
     const bool cache_hit = cached_search_layout_
         && cached_search_width_ == max_width
-        && std::ranges::equal(cached_search_text_, query);
+        && cached_search_caret_pos_ == -1
+        && cached_search_query_ == query;
     if (cache_hit) {
         layout = cached_search_layout_;
     }

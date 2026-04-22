@@ -172,6 +172,43 @@ inline SearchBarLayout ComputeSearchBarLayout(float md_left, float md_width, flo
     return l;
 }
 
+// 検索バーのヒット判定結果。クリック／ホバー／Controller で共有する。
+enum class SearchBarHitZone : uint8_t {
+    None,
+    Up,
+    Down,
+    CaseSensitive,
+    Highlight,
+    Close,
+    Input,
+};
+
+inline SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x, float y) noexcept
+{
+    if (y < sbl.bar_top) {
+        return SearchBarHitZone::None;
+    }
+    if (PointInRect(x, y, sbl.up_btn)) {
+        return SearchBarHitZone::Up;
+    }
+    if (PointInRect(x, y, sbl.down_btn)) {
+        return SearchBarHitZone::Down;
+    }
+    if (PointInRect(x, y, sbl.case_btn)) {
+        return SearchBarHitZone::CaseSensitive;
+    }
+    if (PointInRect(x, y, sbl.highlight_btn)) {
+        return SearchBarHitZone::Highlight;
+    }
+    if (PointInRect(x, y, sbl.close_btn)) {
+        return SearchBarHitZone::Close;
+    }
+    if (PointInRect(x, y, sbl.input_rect)) {
+        return SearchBarHitZone::Input;
+    }
+    return SearchBarHitZone::None;
+}
+
 // デフォルトウィンドウサイズ（ピクセル）
 inline constexpr int DEFAULT_WINDOW_WIDTH = 1600;
 inline constexpr int DEFAULT_WINDOW_HEIGHT = 900;

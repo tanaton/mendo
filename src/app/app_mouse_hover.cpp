@@ -47,44 +47,36 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         const auto old_hover = state_.search.search_bar_ctrl.GetHover();
 
         if (dip_y >= sbl.bar_top) {
-            const auto hover = state_.search.search_bar_ctrl.UpdateHover(dip_x, dip_y, sbl);
+            const auto zone = HitTestSearchBar(sbl, dip_x, dip_y);
+            state_.search.search_bar_ctrl.UpdateHoverFromZone(zone);
 
-            if (PointInRect(dip_x, dip_y, sbl.input_rect)) {
-                SetCursor(cursors_.IBeam());
+            SetCursor(zone == SearchBarHitZone::Input ? cursors_.IBeam() : cursors_.Arrow());
+            const auto& ls = i18n::S();
+            TooltipTarget tt;
+            switch (zone) {
+            case SearchBarHitZone::Up:
+                tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev };
+                break;
+            case SearchBarHitZone::Down:
+                tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next };
+                break;
+            case SearchBarHitZone::CaseSensitive:
+                tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case };
+                break;
+            case SearchBarHitZone::Highlight:
+                tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight };
+                break;
+            case SearchBarHitZone::Close:
+                tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close };
+                break;
+            default:
+                break;
             }
-            else {
-                SetCursor(cursors_.Arrow());
-            }
-            // 検索バーボタンのツールチップ
-            {
-                using HZ = SearchBarController::HoverZone;
-                const auto& ls = i18n::S();
-                TooltipTarget tt;
-                switch (hover) {
-                case HZ::Up:
-                    tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev };
-                    break;
-                case HZ::Down:
-                    tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next };
-                    break;
-                case HZ::CaseSensitive:
-                    tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case };
-                    break;
-                case HZ::Highlight:
-                    tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight };
-                    break;
-                case HZ::Close:
-                    tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close };
-                    break;
-                default:
-                    break;
-                }
-                Dispatch(UpdateTooltipAction{ tt, px, py });
-            }
+            Dispatch(UpdateTooltipAction{ tt, px, py });
             return;
         }
 
-        if (old_hover != SearchBarController::HoverZone::None) {
+        if (old_hover != SearchBarHitZone::None) {
             state_.search.search_bar_ctrl.ResetHover();
             Invalidate();
         }
