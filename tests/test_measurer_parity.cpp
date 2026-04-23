@@ -20,14 +20,20 @@ protected:
     MockTextMeasurer mock_;
     Theme theme_;
 
+    // CoInitializeEx は他スイートで既に別モードで初期化済み (RPC_E_CHANGED_MODE) の
+    // 可能性がある。成功時のみ対応する CoUninitialize を呼び出してカウントを揃える。
+    static inline HRESULT co_init_hr_ = E_UNEXPECTED;
+
     static void SetUpTestSuite()
     {
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        co_init_hr_ = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     }
 
     static void TearDownTestSuite()
     {
-        CoUninitialize();
+        if (SUCCEEDED(co_init_hr_)) {
+            CoUninitialize();
+        }
     }
 
     void SetUp() override
@@ -62,14 +68,21 @@ protected:
 
 private:
     // text_layout が非コピー可能なので、計測前の入力のみを複製する。
+    // SetText は text_utf8 をクリアするため、utf8 のみ保持している src のケースを
+    // 壊さないように text_utf8 と text_ の両経路を使い分ける。
     static Node CloneNode(const Node& src)
     {
         Node n;
         n.type = src.type;
         n.heading_level = src.heading_level;
         n.code_language = src.code_language;
-        n.text_utf8 = src.text_utf8;
-        n.SetText(src.GetText());
+        if (!src.text_utf8.empty()) {
+            n.text_utf8 = src.text_utf8;
+            n.ConvertTextFromUtf8();
+        }
+        else if (!src.GetText().empty()) {
+            n.SetText(src.GetText());
+        }
         n.runs = src.runs;
         if (src.has_image()) {
             n.ensure_image();

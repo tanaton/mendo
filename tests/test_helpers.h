@@ -51,11 +51,19 @@ protected:
     }
 
     // バイナリで temp_dir_ 配下にファイルを作成し、絶対パスを返す。
+    // 失敗時は ADD_FAILURE で即座にテストを落とし、後続テストで原因が追える位置にする。
     std::filesystem::path WriteTempFile(std::wstring_view name, std::string_view content) const
     {
         auto path = temp_dir_ / name;
         std::ofstream f(path, std::ios::binary);
+        if (!f.is_open()) {
+            ADD_FAILURE() << "Failed to open temp file: " << path.string();
+            return path;
+        }
         f.write(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!f.good()) {
+            ADD_FAILURE() << "Failed to write temp file: " << path.string();
+        }
         return path;
     }
 };
