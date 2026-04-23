@@ -51,7 +51,6 @@ protected:
     }
 
     // バイナリで temp_dir_ 配下にファイルを作成し、絶対パスを返す。
-    // 失敗時は ADD_FAILURE で即座にテストを落とし、後続テストで原因が追える位置にする。
     std::filesystem::path WriteTempFile(std::wstring_view name, std::string_view content) const
     {
         auto path = temp_dir_ / name;
@@ -66,4 +65,28 @@ protected:
         }
         return path;
     }
+};
+
+// COM apartment 初期化を管理する基底フィクスチャ。
+// 既に他スイートで別モードで初期化済みのケース (RPC_E_CHANGED_MODE) では
+// CoUninitialize を呼ばずに既存 apartment のカウントを保つ — そうしないと
+// 初期化していないスイートが他スイートの COM 状態を破壊する。
+class ComApartmentTest : public ::testing::Test {
+protected:
+    static void SetUpTestSuite()
+    {
+        co_init_hr_ = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        ASSERT_TRUE(SUCCEEDED(co_init_hr_) || co_init_hr_ == RPC_E_CHANGED_MODE)
+            << "CoInitializeEx failed: 0x" << std::hex << co_init_hr_;
+    }
+
+    static void TearDownTestSuite()
+    {
+        if (SUCCEEDED(co_init_hr_)) {
+            CoUninitialize();
+        }
+    }
+
+private:
+    static inline HRESULT co_init_hr_ = E_UNEXPECTED;
 };

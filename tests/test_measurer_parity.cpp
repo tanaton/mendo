@@ -7,34 +7,19 @@
 #include "dwrite_measurer.h"
 #include "document_types.h"
 #include "layout_cache.h"
+#include "test_helpers.h"
 #include "theme.h"
 #include <dwrite.h>
 #include <wrl/client.h>
 
 using Microsoft::WRL::ComPtr;
 
-class MeasurerParityTest : public ::testing::Test {
+class MeasurerParityTest : public ComApartmentTest {
 protected:
     ComPtr<IDWriteFactory> dwrite_factory_;
     DWriteTextMeasurer dwrite_;
     MockTextMeasurer mock_;
     Theme theme_;
-
-    // CoInitializeEx は他スイートで既に別モードで初期化済み (RPC_E_CHANGED_MODE) の
-    // 可能性がある。成功時のみ対応する CoUninitialize を呼び出してカウントを揃える。
-    static inline HRESULT co_init_hr_ = E_UNEXPECTED;
-
-    static void SetUpTestSuite()
-    {
-        co_init_hr_ = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    }
-
-    static void TearDownTestSuite()
-    {
-        if (SUCCEEDED(co_init_hr_)) {
-            CoUninitialize();
-        }
-    }
 
     void SetUp() override
     {
