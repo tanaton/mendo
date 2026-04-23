@@ -26,7 +26,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
     POINT client_pt{ screen_x, screen_y };
     ScreenToClient(hwnd_, &client_pt);
     const auto dip = PixelToDip(client_pt.x, client_pt.y);
-    const auto zone = PaneAtPoint(dip.x, dip.y);
+    const auto zone = PaneAtPoint(dip.x);
 
     ContextMenuParams params;
     params.screen_x = screen_x;

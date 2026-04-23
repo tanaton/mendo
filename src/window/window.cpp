@@ -288,7 +288,6 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
     return HTCLIENT;
 }
 
-// マウス入力メッセージを処理する。
 LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
@@ -414,7 +413,6 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     return DefWindowProcW(hwnd_, msg, wParam, lParam);
 }
 
-// WM_APP+N カスタム通知メッセージを処理する。
 LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
@@ -788,7 +786,6 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
             RECT rc;
             GetClientRect(hwnd, &rc);
 
-            // キャレット位置のX座標を取得
             DWORD sel_end = 0;
             SendMessageW(hwnd, EM_GETSEL, 0, reinterpret_cast<LPARAM>(&sel_end));
             LONG caret_x = 0;
@@ -832,7 +829,6 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
         }
     }
 
-    // IME変換終了時にコンポジション文字列をクリア
     if (msg == WM_IME_ENDCOMPOSITION) {
         self->app_->SetImeComposition(L"");
     }

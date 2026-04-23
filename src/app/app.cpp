@@ -134,7 +134,7 @@ void App::InvalidateTitleBar() noexcept
     InvalidatePane(PaneRect{ 0.0f, 0.0f, state_.cached_window_width_for_layout, tb_h });
 }
 
-PaneZone App::PaneAtPoint(float dip_x, [[maybe_unused]] float dip_y)
+PaneZone App::PaneAtPoint(float dip_x)
 {
     const auto* rt = renderer_.GetRenderTarget();
     if (!rt) {

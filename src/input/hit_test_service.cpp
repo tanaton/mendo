@@ -161,7 +161,6 @@ HitTestService::HitResult HitTestService::HitTest(
 
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
 
-    // dip_yを含むノードを検索
     const auto first = ctx.cache.cbegin();
     const auto last = first + static_cast<ptrdiff_t>(ctx.nodes.size());
     const auto it = std::ranges::partition_point(first, last, [dip_y](const NodeLayoutEntry& e) noexcept {
@@ -236,10 +235,8 @@ HitTestService::HitResult HitTestService::HitTestTable(
     float cell_left_x = 0.0f;
     const int hit_col = FindTableCol(tl, base_x, dip_x, cell_left_x);
 
-    // セル (hit_row, hit_col) のフラットテキストオフセットを計算
     const uint32_t flat_offset = ComputeTableFlatOffset(node, entry, hit_row, hit_col);
 
-    // セルのテキストレイアウト内でヒットテスト
     const size_t r = static_cast<size_t>(hit_row);
     const size_t c = static_cast<size_t>(hit_col);
     IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);

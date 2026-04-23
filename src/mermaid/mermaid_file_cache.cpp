@@ -107,7 +107,6 @@ void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 
     LoadIndex();
 
-    // 保存済みDPRと現在のDPRが異なる場合、全キャッシュを削除
     if (stored_dpr_ != 0.0f && stored_dpr_ != current_dpr) {
         ClearAll();
     }
@@ -130,7 +129,6 @@ void MermaidFileCache::LoadIndex()
         return;
     }
 
-    // ヘッダー読み込み
     const uint8_t* p = buf.get();
     IndexHeader header;
     std::memcpy(&header, p, sizeof(header));
@@ -278,10 +276,8 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
     const uint32_t png_size = static_cast<uint32_t>(png_data.size());
 
-    // 必要に応じてLRU削除
     EvictIfNeeded(png_size);
 
-    // インデックスエントリを即座に追加・更新
     auto& entry = index_[key];
     if (entry.png_size > 0) {
         DecrementTotalSize(entry.png_size);
@@ -305,7 +301,6 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         pending_writes_.insert(key);
     }
 
-    // バックグラウンドスレッドに書き出しを依頼
     const uint32_t gen = write_gen_.load();
     auto path = GetPngPath(key);
     scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen] {
@@ -357,7 +352,6 @@ void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
             continue;
         }
 
-        // PNGファイルを削除
         if (!dir.empty()) {
             std::error_code ec;
             std::filesystem::remove(GetPngPath(dir, evict_key), ec);
@@ -380,10 +374,8 @@ void MermaidFileCache::DecrementTotalSize(uint32_t png_size) noexcept
 
 void MermaidFileCache::ClearAll()
 {
-    // 保留中の書き込みタスクを無効化
     write_gen_.fetch_add(1);
 
-    // すべてのPNGファイルとインデックスファイルを削除
     const auto dir = GetCacheDir();
     if (!dir.empty()) {
         std::error_code ec;

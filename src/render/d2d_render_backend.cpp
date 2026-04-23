@@ -12,13 +12,11 @@ bool D2DRenderBackend::Init(HWND hwnd)
 {
     hwnd_ = hwnd;
 
-    // このウィンドウのモニターの実際のDPIを取得
     dpi_ = static_cast<float>(GetDpiForWindow(hwnd));
     if (dpi_ == 0.0f) {
         dpi_ = 96.0f;
     }
 
-    // D2D 1.1 ファクトリを作成
     const D2D1_FACTORY_OPTIONS opts{};
     HRESULT hr = D2D1CreateFactory(
         D2D1_FACTORY_TYPE_SINGLE_THREADED,
@@ -30,7 +28,6 @@ bool D2DRenderBackend::Init(HWND hwnd)
         return false;
     }
 
-    // DirectWriteファクトリを作成
     hr = DWriteCreateFactory(
         DWRITE_FACTORY_TYPE_SHARED,
         __uuidof(IDWriteFactory),
@@ -56,7 +53,6 @@ bool D2DRenderBackend::Init(HWND hwnd)
         return false;
     }
 
-    // D3D11デバイスとD2Dデバイスコンテキストを作成
     if (!CreateDeviceResources()) {
         return false;
     }
@@ -66,7 +62,6 @@ bool D2DRenderBackend::Init(HWND hwnd)
 
 bool D2DRenderBackend::CreateDeviceResources()
 {
-    // D3D11 デバイスを作成
     const D3D_FEATURE_LEVEL feature_levels[] = {
         D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0,
@@ -90,20 +85,17 @@ bool D2DRenderBackend::CreateDeviceResources()
         }
     }
 
-    // DXGIデバイスを取得
     ComPtr<IDXGIDevice> dxgi_device;
     hr = d3d_device_.As(&dxgi_device);
     if (FAILED(hr)) {
         return false;
     }
 
-    // D2Dデバイスを作成
     hr = d2d_factory_->CreateDevice(dxgi_device.Get(), &d2d_device_);
     if (FAILED(hr)) {
         return false;
     }
 
-    // D2Dデバイスコンテキストを作成
     hr = d2d_device_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &device_context_);
     if (FAILED(hr)) {
         return false;
@@ -111,7 +103,6 @@ bool D2DRenderBackend::CreateDeviceResources()
 
     device_context_->SetDpi(dpi_, dpi_);
 
-    // DXGIスワップチェーンを作成
     ComPtr<IDXGIAdapter> adapter;
     hr = dxgi_device->GetAdapter(&adapter);
     if (FAILED(hr)) {
@@ -148,7 +139,6 @@ bool D2DRenderBackend::CreateDeviceResources()
         }
     }
 
-    // スワップチェーンのバックバッファからD2Dビットマップを作成
     if (!CreateSwapChainBitmap()) {
         return false;
     }

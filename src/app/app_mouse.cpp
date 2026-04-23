@@ -241,7 +241,7 @@ bool App::OnRButtonDown(int px, int py)
         return false;
     }
     const auto dip = PixelToDip(px, py);
-    const auto zone = PaneAtPoint(dip.x, dip.y);
+    const auto zone = PaneAtPoint(dip.x);
     if (zone != PaneZone::MdPane) {
         return false;
     }

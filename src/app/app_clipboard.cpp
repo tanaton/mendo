@@ -18,7 +18,7 @@ void App::OnLButtonDblClk(int px, int py)
     if (HandleTitleBarClick(dip.x, dip.y)) {
         return;
     }
-    const auto zone = PaneAtPoint(dip.x, dip.y);
+    const auto zone = PaneAtPoint(dip.x);
     if (zone != PaneZone::MdPane) {
         return;
     }
@@ -79,7 +79,6 @@ void App::SaveDiagramAsPng(int node_index)
         return;
     }
 
-    // ファイルキャッシュからPNGデータを取得
     const float md_width = renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
     const bool dark = renderer_.GetTheme().IsDark();
     const uint64_t key = mermaid_util::NodeDiagramHash(node, md_width, dark);
@@ -90,7 +89,6 @@ void App::SaveDiagramAsPng(int node_index)
         return;
     }
 
-    // 保存先をユーザーに選択させる
     wchar_t filename[MAX_PATH] = L"diagram.png";
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);

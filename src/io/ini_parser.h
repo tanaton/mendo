@@ -21,7 +21,6 @@ inline IniData Parse(std::string_view text)
 
     size_t pos = 0;
     while (pos < text.size()) {
-        // 1行を取得
         size_t eol = text.find_first_of("\r\n", pos);
         if (eol == std::string_view::npos) {
             eol = text.size();

@@ -197,7 +197,7 @@ private:
 
     const ::PaneLayout& GetPaneLayout();
     void InvalidatePaneLayoutCache() noexcept { state_.pane_layout_valid = false; }
-    ::PaneZone PaneAtPoint(float dip_x, float dip_y);
+    ::PaneZone PaneAtPoint(float dip_x);
     float GetMarkdownPaneWidth();
     void SyncPaneThemeCache();
     void HandleApplyThemeChange(const effect::ApplyThemeChange& e);

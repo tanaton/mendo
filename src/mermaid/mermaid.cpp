@@ -11,7 +11,6 @@
 
 #pragma comment(lib, "windowscodecs.lib")
 
-// IStreamから全バイトを読み出す（ファイルキャッシュ保存用）。
 static std::vector<uint8_t> ReadAllStreamBytes(IStream* stream)
 {
     if (!stream) {
@@ -38,7 +37,6 @@ static std::vector<uint8_t> ReadAllStreamBytes(IStream* stream)
     return data;
 }
 
-// ヘルパー: 指定されたバイトデータのコピーを含むIStreamを作成する。
 static Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size_t size)
 {
     Microsoft::WRL::ComPtr<IStream> stream;
@@ -54,8 +52,6 @@ static Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size
     return stream;
 }
 
-// ---- ヘルパー ----
-
 static std::pmr::wstring GetWebView2UserDataFolder()
 {
     const auto base = config::GetConfigDir();
@@ -67,14 +63,10 @@ static std::pmr::wstring GetWebView2UserDataFolder()
     return std::pmr::wstring{ path.native() };
 }
 
-// オフスクリーンWebView2ホストのウィンドウクラス名
 static const wchar_t* MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
-// 仮想ホストURL
 static constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 static constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
-
-// ---- MermaidRendererの実装 ----
 
 int MermaidRenderer::ComputeWorkerCount() noexcept
 {
@@ -152,7 +144,6 @@ void MermaidRenderer::EnsureInitialized()
         class_registered = true;
     }
 
-    // 各ワーカー用の隠しウィンドウを作成
     for (int i = 0; i < worker_count_; i++) {
         workers_[i].hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -185,7 +176,6 @@ void MermaidRenderer::CreateWebView2Environment()
 {
     const std::pmr::wstring user_data = GetWebView2UserDataFolder();
 
-    // 共有WebView2環境を作成し、各ワーカーのコントローラーを初期化する
     CreateCoreWebView2EnvironmentWithOptions(
         nullptr, user_data.c_str(), nullptr,
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
@@ -202,7 +192,6 @@ void MermaidRenderer::CreateWebView2Environment()
         env_retry_count_ = 0;
         webview_env_ = env;
 
-        // 全ワーカーのコントローラーを並行して作成する
         for (int i = 0; i < worker_count_; i++) {
             SetupWorker(i);
         }
@@ -232,11 +221,9 @@ void MermaidRenderer::SetupWorker(int index)
         w.controller = controller;
         controller->get_CoreWebView2(&w.webview);
 
-        // ホストウィンドウをWebViewで埋める
         const RECT bounds = { 0, 0, 4096, 4096 };
         controller->put_Bounds(bounds);
 
-        // 不要な機能を無効化する
         Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;
         w.webview->get_Settings(&settings);
         if (settings) {
@@ -246,7 +233,6 @@ void MermaidRenderer::SetupWorker(int index)
             settings->put_AreDefaultScriptDialogsEnabled(FALSE);
         }
 
-        // Webメッセージをリッスンする
         w.webview->add_WebMessageReceived(
             Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                 [this, index](ICoreWebView2*,
@@ -318,7 +304,6 @@ void MermaidRenderer::SetupWorker(int index)
             return S_OK;
         }).Get(), nullptr);
 
-        // 新規ウィンドウの要求を全てブロック
         w.webview->add_NewWindowRequested(
             Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
                 [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static->HRESULT {
@@ -407,13 +392,11 @@ void MermaidRenderer::ClearCache()
 
 void MermaidRenderer::CancelPending()
 {
-    // 保留キューを空にする
     decltype(pending_requests_) empty;
     pending_requests_.swap(empty);
 
-    // 全ワーカーのレンダリング状態をリセットする。
-    // current_requestのrequest_idが0にリセットされるため、
-    // 処理中の非同期コールバックはID不一致で自動的に無視される。
+    // current_request の request_id が 0 に戻るため、処理中の非同期コールバックは
+    // ID 不一致で自動的に無視される。
     for (int i = 0; i < worker_count_; i++) {
         workers_[i].rendering = false;
         workers_[i].current_request = {};
@@ -436,7 +419,6 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
 
     const auto hash = mermaid_util::NodeDiagramHash(node, max_width, dark_mode);
 
-    // まずメモリキャッシュを確認
     if (const auto* cached = cache_.Find(hash)) {
         diagram_entry.bitmap = cached->bitmap;
         diagram_entry.width = cached->width;
@@ -449,7 +431,6 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         return;
     }
 
-    // ファイルキャッシュを確認
     if (file_cache_) {
         MermaidFileCache::CacheEntry fentry;
         MermaidFileCache::PngBlob png;
@@ -465,7 +446,6 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
                     layout_entry.height = fentry.css_height;
                     layout_entry.layout_dirty = false;
 
-                    // メモリキャッシュにも格納（LRUで自動エビクション）
                     cache_.Insert(hash, CachedBitmap{ bitmap, fentry.css_width, fentry.css_height });
 
                     if (on_complete) {
@@ -477,13 +457,11 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         }
     }
 
-    // WebView2未初期化ならキューには追加しない
     if (!lifecycle_.IsReady()) {
         EnsureInitialized();
         return;
     }
 
-    // リクエストをキューに追加
     RenderRequest req;
     req.node = &node;
     req.layout_entry = &layout_entry;
@@ -503,14 +481,11 @@ void MermaidRenderer::ProcessQueue()
         return;
     }
 
-    // キューからリクエストを取り出し、キャッシュヒットならWebView2をスキップする。
     // 同一コードの図が複数あるとき、最初の1つのレンダリング完了後に
     // 残りをキャッシュから即座に解決できる。
-    // アイドル状態のワーカーが見つかれば順次ディスパッチする。
     while (!pending_requests_.empty()) {
         auto& front = pending_requests_.front();
         if (const auto* hit = cache_.Find(front.code_hash)) {
-            // キャッシュヒット: WebView2を経由せずにエントリを更新
             front.diagram_entry->bitmap = hit->bitmap;
             front.diagram_entry->width = hit->width;
             front.diagram_entry->height = hit->height;
@@ -524,7 +499,6 @@ void MermaidRenderer::ProcessQueue()
             continue;
         }
 
-        // アイドル状態のワーカーを探す
         Worker* idle = nullptr;
         for (int i = 0; i < worker_count_; i++) {
             if (workers_[i].ready && !workers_[i].rendering) {
@@ -536,7 +510,6 @@ void MermaidRenderer::ProcessQueue()
             break;  // 全ワーカーがビジー、完了を待つ
         }
 
-        // ワーカーにリクエストをディスパッチ
         idle->current_request = std::move(front);
         pending_requests_.pop();
         idle->current_request.request_id = ++request_counter_;
@@ -631,7 +604,6 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
     const RECT capBounds = { 0, 0, static_cast<LONG>(cw), static_cast<LONG>(ch) };
     w.controller->put_Bounds(capBounds);
 
-    // ホストポップアップウィンドウも同じサイズにリサイズする
     SetWindowPos(w.hwnd, nullptr, -32000, -32000, cw, ch, SWP_NOZORDER | SWP_NOACTIVATE);
 
     // rAFを使ってWebViewが新しいサイズで再レンダリングするのを待ち、
@@ -699,10 +671,8 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
             draw_h = bh;
         }
 
-        // キャッシュに格納（LRUで自動エビクション）
         cache_.Insert(code_hash, CachedBitmap{ bitmap, draw_w, draw_h });
 
-        // レイアウト/ダイアグラムエントリを更新
         if (w.current_request.diagram_entry) {
             w.current_request.diagram_entry->bitmap = bitmap;
             w.current_request.diagram_entry->width = draw_w;
@@ -713,7 +683,6 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
             w.current_request.layout_entry->layout_dirty = false;
         }
 
-        // ファイルキャッシュに非同期で保存
         if (file_cache_ && w.current_request.node) {
             const uint64_t fkey = mermaid_util::NodeDiagramHash(*w.current_request.node, w.current_request.max_width, w.current_request.dark_mode);
             auto png_bytes = ReadAllStreamBytes(png_stream);
@@ -733,7 +702,6 @@ HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap*
         return E_FAIL;
     }
 
-    // 先頭にシーク
     const LARGE_INTEGER zero = {};
     stream->Seek(zero, STREAM_SEEK_SET, nullptr);
 

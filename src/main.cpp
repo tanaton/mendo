@@ -12,15 +12,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     // グローバル同期プールリソースを初期化（最初に呼び出す）
     InitGlobalMemoryResource();
 
-    // モニターごとの DPI v2 を有効化
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-    // COM を初期化
     const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(hr)) {
         return 1;
     }
-    // コモンコントロールを初期化
     INITCOMMONCONTROLSEX icc{};
     icc.dwSize = sizeof(icc);
     icc.dwICC = ICC_STANDARD_CLASSES;

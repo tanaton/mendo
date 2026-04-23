@@ -40,7 +40,6 @@ std::pmr::wstring ExtractSelectedText(const std::pmr::vector<Node>& nodes, const
             }
             result.append(text.data() + start, end - start);
         }
-        // ノード間に改行を追加
         if (i < selection.end_node) {
             result += L"\r\n";
         }
