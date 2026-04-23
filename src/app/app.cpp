@@ -300,9 +300,8 @@ void App::Dispatch(const AppAction& action)
 {
     GetPaneLayout();
 
-    // SyncTocActiveAndAutoScroll は「スクロール位置」または「TOCペイン表示状態」が
-    // 変化したときにのみ実行すれば十分。ホバー/ツールチップ等の高頻度アクションで
-    // partition_point 探索を毎回走らせないよう、前後差分でガードする。
+    // ホバー/ツールチップ等の高頻度アクションで partition_point 探索を
+    // 空回りさせないよう、scroll_y / TOC可視状態の前後差分で同期する。
     const float old_scroll_y = state_.view.viewport.GetScrollY();
     const bool old_toc_visible = state_.view.panes.IsTocPaneVisible();
 
