@@ -87,7 +87,10 @@ struct NodeImageData {
 };
 
 struct Node {
-    mutable std::pmr::string text_utf8;
+    // パース中は UTF-8 文字列を蓄積する一時領域。
+    // ReplaceContent での ConvertTextFromUtf8() 呼び出し後は、
+    // CodeBlock（Mermaidハッシュ計算で参照）以外は解放される。
+    std::pmr::string text_utf8;
     std::pmr::vector<TextRun> runs;
 
     std::pmr::vector<std::pmr::wstring> link_urls;
@@ -109,36 +112,26 @@ struct Node {
     AlertType alert_type = AlertType::None;
     SyntaxLanguage code_language = SyntaxLanguage::None;
 
-    // テキストが存在するか（遅延変換を発火させずに両表現をチェック）
+    // テキストが存在するか（ReplaceContent 前後のどちらでも正しく判定するため両表現をチェック）
     bool HasText() const noexcept
     {
-        return !text_utf8.empty() || (text_valid_ && !text_.empty());
+        return !text_.empty() || !text_utf8.empty();
     }
 
-    // 明示的なUTF-8→Wide変換。パース完了後に一括呼び出しすることで、
-    // 描画時の暗黙的な変換とメモリ解放を排除する。
-    // CodeBlock以外ではtext_utf8を解放（Mermaidハッシュ計算で直接参照するCodeBlockは保持）。
-    void EnsureTextConverted() const
+    // UTF-8→Wide 変換。ReplaceContent で全ノードに対して一度だけ呼び出す契約。
+    // CodeBlock 以外では text_utf8 を解放（Mermaidハッシュ計算で直接参照する CodeBlock は保持）。
+    void ConvertTextFromUtf8()
     {
-        if (!text_valid_) {
-            if (!text_utf8.empty()) {
-                string_convert::Utf8ToWide(text_utf8, text_);
-                if (type != NodeType::CodeBlock) {
-                    text_utf8.clear();
-                }
-            }
-            else {
-                text_.clear();
-            }
-            text_valid_ = true;
+        if (text_utf8.empty()) {
+            return;
+        }
+        string_convert::Utf8ToWide(text_utf8, text_);
+        if (type != NodeType::CodeBlock) {
+            text_utf8.clear();
         }
     }
 
-    const std::pmr::wstring& GetText() const
-    {
-        EnsureTextConverted();
-        return text_;
-    }
+    const std::pmr::wstring& GetText() const noexcept { return text_; }
 
     void SetText(const wchar_t* s) { SetText(std::wstring_view{ s }); }
 
@@ -210,11 +203,9 @@ struct Node {
 private:
     void FinalizeSetText() noexcept
     {
-        text_valid_ = true;
         text_utf8.clear();
         line_count = static_cast<int>(std::ranges::count(text_, L'\n'));
     }
 
-    mutable std::pmr::wstring text_;    // Wideキャッシュ（GetText()で遅延変換）
-    mutable bool text_valid_ = false;   // text_ が最新ならtrue
+    std::pmr::wstring text_;    // Wide テキスト（ConvertTextFromUtf8 / SetText 後に有効）
 };

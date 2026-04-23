@@ -83,8 +83,7 @@ void App::FinalizeLayout(float md_pane_height)
 {
     resource_manager_.LoadImages();
     resource_manager_.RequestMermaidRenders();
-    SyncMaxScroll(md_pane_height);
-    UpdateScrollBar();
+    EmitEffect(effect::SyncMaxScroll{ md_pane_height });
     Invalidate();
     ScheduleDeferredLayoutIfNeeded();
 }
@@ -177,7 +176,7 @@ void App::OnPaint()
         }
 
         if (updated) {
-            SyncMaxScroll(layout.md_rect.height);
+            EmitEffect(effect::SyncMaxScroll{ layout.md_rect.height });
         }
     }
 
@@ -299,19 +298,8 @@ void App::OnKeyDown(WPARAM key)
 void App::Dispatch(const AppAction& action)
 {
     GetPaneLayout();
-
-    // ホバー/ツールチップ等の高頻度アクションで partition_point 探索を
-    // 空回りさせないよう、scroll_y / TOC可視状態の前後差分で同期する。
-    const float old_scroll_y = state_.view.viewport.GetScrollY();
-    const bool old_toc_visible = state_.view.panes.IsTocPaneVisible();
-
     auto effects = Reduce(state_, action);
     effect_executor_.Execute(effects);
-
-    if (state_.view.viewport.GetScrollY() != old_scroll_y
-        || state_.view.panes.IsTocPaneVisible() != old_toc_visible) {
-        SyncTocActiveAndAutoScroll();
-    }
 }
 
 void App::OnDropFiles(HDROP hDrop)

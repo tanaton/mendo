@@ -15,47 +15,18 @@ void App::HandleLinkClick(std::wstring_view url)
     const auto result = ::HandleLinkClick(url);
     switch (result.type) {
     case LinkClickResult::Type::Anchor:
-        PushNavHistory();
-        NavigateToAnchor(result.target);
+        PushCurrentNavEntry(state_);
+        Dispatch(NavigateAnchorAction{ std::pmr::wstring{result.target} });
         break;
     case LinkClickResult::Type::ExternalUrl: {
         SideEffectList effects;
-        effects.emplace_back(effect::ShellOpen{ result.target });
+        PushEffect(effects, effect::ShellOpen{ result.target });
         effect_executor_.Execute(effects);
         break;
     }
     default:
         break;
     }
-}
-
-void App::NavigateToAnchor(std::wstring_view anchor)
-{
-    const int idx = state_.document.doc.FindAnchorIndex(anchor);
-    if (idx < 0) {
-        return;
-    }
-
-    const auto layout = GetPaneLayout();
-    const auto target = MakeHeadingTopTarget(idx, renderer_.GetTheme().heading_spacing_above, layout.md_rect.y);
-    state_.view.viewport.SetScrollTarget(target.node, target.offset);
-
-    const float md_width = layout.md_rect.width;
-    const float md_height = layout.md_rect.height;
-    state_.view.viewport.ApplyScrollTarget(state_.document.layout_cache);
-    layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
-    SyncMaxScroll(md_height);
-
-    UpdateScrollBar();
-    InvalidateMdPane(layout.md_rect);
-    resource_manager_.ScheduleBitmapManage();
-
-    SyncTocActiveAndAutoScroll();
-}
-
-void App::PushNavHistory()
-{
-    PushCurrentNavEntry(state_);
 }
 
 // ============================================================
@@ -76,15 +47,14 @@ void App::FinishThemeOrZoomChange()
     float md_height = layout.md_rect.height;
 
     // 表示領域を優先的にレイアウトし、残りは遅延処理に委ねる
-    layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
+    EmitEffect(effect::ViewportLayout{ md_width, md_height });
 
-    SyncMaxScroll(md_height);
+    EmitEffect(effect::SyncMaxScroll{ md_height });
     resource_manager_.RequestMermaidRenders();
     ScheduleDeferredLayoutIfNeeded();
-    UpdateScrollBar();
     Invalidate();
 
-    SyncTocActiveAndAutoScroll();
+    EmitEffect(effect::SyncTocActive{});
 }
 
 void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)

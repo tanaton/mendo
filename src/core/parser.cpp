@@ -140,7 +140,6 @@ struct ParseContext {
         current_node = &nodes.back();
         current_node->type = type;
         current_node_index = nodes.size() - 1;
-        // text_valid_ はデフォルト false なので明示的な無効化は不要
         current_node->indent_level = indent_level;
         node_wide_offset = 0;
         if (blockquote_depth > 0 && !blockquote_group_stack.empty()) {
@@ -460,7 +459,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_H:
         if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
-            // 見出しテキストをWideに変換してアンカーID生成（見出しは少数なのでコスト小）
+            // 見出しテキストを先行変換してアンカーID生成（ブロック終了時点では未変換のため）
+            cn->ConvertTextFromUtf8();
             std::pmr::wstring base_id = GenerateAnchorId(cn->GetText());
             auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
             const int count = it->second++;
@@ -746,6 +746,12 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
 
     DetectAlerts(ctx.nodes);
+
+    // パース結果は UTF-8→Wide 変換済みで返す（呼び出し側での二重管理を避ける）。
+    // CodeBlock は Mermaidハッシュ計算で text_utf8 を直接参照するため保持される。
+    for (auto& node : ctx.nodes) {
+        node.ConvertTextFromUtf8();
+    }
 
     ParseResult result;
     result.nodes = std::move(ctx.nodes);

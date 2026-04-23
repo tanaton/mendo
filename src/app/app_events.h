@@ -174,6 +174,17 @@ struct FilePaneFileClickedAction {
 struct TocItemClickedAction {
     std::pmr::wstring anchor_id;
 };
+// リンクからのアンカーナビゲーション（アンカー ID / スラグ）。
+struct NavigateAnchorAction {
+    std::pmr::wstring anchor_id;
+};
+
+// ファイルロード完了直後のスクロール位置復元。
+// reload_diff（内容差分による自動スクロール）が優先、次に pending_restore_node（履歴復帰）、最後に先頭。
+struct RestoreScrollAfterLoadAction {
+    bool has_reload_diff;
+    float reload_diff_scroll_y;
+};
 struct HWheelAction {
     short delta;
     uint64_t tick;
@@ -284,6 +295,8 @@ using AppAction = std::variant<
     FilePaneDirectoryClickedAction,
     FilePaneFileClickedAction,
     TocItemClickedAction,
+    NavigateAnchorAction,
+    RestoreScrollAfterLoadAction,
     HWheelAction,
     DropFilesAction,
     UpdateTooltipAction,

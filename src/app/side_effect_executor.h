@@ -32,6 +32,7 @@ public:
         std::move_only_function<void()> destroy;
         std::move_only_function<void()> handle_parse_complete;
         std::move_only_function<void(int, int)> show_context_menu;
+        std::move_only_function<void()> sync_toc_active;
     };
 
     void Init(IWin32Host& host, ResourceManager& resource_manager,
@@ -41,6 +42,15 @@ public:
     void ExecuteOne(const SideEffect& e);
 
 private:
+    // ドメインごとの内側 variant ハンドラ。ExecuteOne から委譲される。
+    void ExecuteUi(const UiEffect& e);
+    void ExecuteWindow(const WindowEffect& e);
+    void ExecuteNavigation(const NavigationEffect& e);
+    void ExecuteLayout(const LayoutEffect& e);
+    void ExecuteResource(const ResourceEffect& e);
+    void ExecuteTimer(const TimerEffect& e);
+    void ExecuteLifecycle(const LifecycleEffect& e);
+
     IWin32Host* host_ = nullptr;
     ResourceManager* resource_manager_ = nullptr;
     DocumentService* doc_service_ = nullptr;

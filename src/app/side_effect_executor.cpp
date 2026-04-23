@@ -8,7 +8,6 @@
 #include "timer_ids.h"
 #include "utility.h"
 #include "ui_constants.h"
-#include "file_io.h"
 
 void SideEffectExecutor::Init(IWin32Host& host, ResourceManager& resource_manager,
     DocumentService& doc_service, ConfigService& config,
@@ -26,6 +25,19 @@ void SideEffectExecutor::Init(IWin32Host& host, ResourceManager& resource_manage
 void SideEffectExecutor::ExecuteOne(const SideEffect& e)
 {
     std::visit(overloaded{
+        [this](const UiEffect& sub) { ExecuteUi(sub); },
+        [this](const WindowEffect& sub) { ExecuteWindow(sub); },
+        [this](const NavigationEffect& sub) { ExecuteNavigation(sub); },
+        [this](const LayoutEffect& sub) { ExecuteLayout(sub); },
+        [this](const ResourceEffect& sub) { ExecuteResource(sub); },
+        [this](const TimerEffect& sub) { ExecuteTimer(sub); },
+        [this](const LifecycleEffect& sub) { ExecuteLifecycle(sub); },
+        }, e);
+}
+
+void SideEffectExecutor::ExecuteUi(const UiEffect& e)
+{
+    std::visit(overloaded{
         [this](const effect::InvalidateWindow&) {
             host_->Invalidate();
         },
@@ -41,41 +53,88 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
                 state_->window.titlebar.GetHeight() * dpi_scale + 0.5f);
             host_->InvalidateTitleBarArea(width_px, height_px);
         },
-        [this](const effect::SetTimer& e) {
-            host_->SetTimer(e.id, e.ms);
-        },
-        [this](const effect::KillTimer& e) {
-            host_->KillTimer(e.id);
-        },
         [this](const effect::SetCapture&) {
             host_->SetCapture();
         },
         [this](const effect::ReleaseCapture&) {
             host_->ReleaseCapture();
         },
-        [this](const effect::SetCursor& e) {
-            host_->SetCursor(e.type);
+        [this](const effect::SetCursor& ev) {
+            host_->SetCursor(ev.type);
         },
-        [this](const effect::ClipboardWrite& e) {
-            host_->WriteClipboardText(e.text);
+        [this](const effect::ClipboardWrite& ev) {
+            host_->WriteClipboardText(ev.text);
         },
-        [this](const effect::ClipboardWriteHtml& e) {
-            host_->WriteClipboardHtml(e.html, e.plain);
+        [this](const effect::ClipboardWriteHtml& ev) {
+            host_->WriteClipboardHtml(ev.html, ev.plain);
         },
-        [this](const effect::ShellOpen& e) {
-            host_->ShellOpen(e.url);
+        [this](const effect::ShowTooltip& ev) {
+            const POINT screen_pos = host_->ClientToScreen({ ev.px, ev.py });
+            if (state_->interaction.tooltip.Update(ev.target, screen_pos.x, screen_pos.y)) {
+                host_->SetTimer(app_timer::TOOLTIP, TOOLTIP_DELAY_MS);
+            }
+            else if (ev.target.IsEmpty()) {
+                host_->KillTimer(app_timer::TOOLTIP);
+            }
         },
-        [this](const effect::ShowWindowCmd& e) {
-            host_->ShowWindowCmd(e.cmd);
+        [this](const effect::ClearTooltip&) {
+            host_->KillTimer(app_timer::TOOLTIP);
         },
-        [this](const effect::PostMessage& e) {
-            host_->PostWindowMessage(e.msg, e.wp, e.lp);
+        [this](const effect::ShowToast& ev) {
+            state_->interaction.toast.Show(ev.message);
+            host_->SetTimer(app_timer::TOAST, app_timer::FRAME_INTERVAL_MS);
+            host_->Invalidate();
         },
-        [this](const effect::SetWindowTitle& e) {
-            host_->SetWindowTitle(e.title);
+        [this](const effect::ShowContextMenu& ev) {
+            cb_.show_context_menu(ev.screen_x, ev.screen_y);
         },
-        [this](const effect::LoadFile& e) {
-            cb_.load_file(e.path);
+        }, e);
+}
+
+void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
+{
+    std::visit(overloaded{
+        [this](const effect::ShowWindowCmd& ev) {
+            host_->ShowWindowCmd(ev.cmd);
+        },
+        [this](const effect::PostMessage& ev) {
+            host_->PostWindowMessage(ev.msg, ev.wp, ev.lp);
+        },
+        [this](const effect::SetWindowTitle& ev) {
+            host_->SetWindowTitle(ev.title);
+        },
+        [this](const effect::SetWindowPosition& ev) {
+            host_->SetWindowPosition(ev.x, ev.y, ev.cx, ev.cy);
+        },
+        [this](const effect::ApplyDarkMode& ev) {
+            host_->ApplyDarkMode(ev.dark);
+        },
+        [this](const effect::ApplyThemeChange& ev) {
+            cb_.apply_theme_change(ev);
+        },
+        [this](const effect::PerformResizeEnd&) {
+            cb_.perform_resize_end();
+        },
+        [this](const effect::PerformSizingUpdate&) {
+            cb_.perform_sizing_update();
+        },
+        [this](const effect::RendererResize& ev) {
+            cb_.renderer_resize(ev.width, ev.height);
+        },
+        [this](const effect::RendererSetDpi& ev) {
+            cb_.renderer_set_dpi(ev.dpi);
+        },
+        }, e);
+}
+
+void SideEffectExecutor::ExecuteNavigation(const NavigationEffect& e)
+{
+    std::visit(overloaded{
+        [this](const effect::ShellOpen& ev) {
+            host_->ShellOpen(ev.url);
+        },
+        [this](const effect::LoadFile& ev) {
+            cb_.load_file(ev.path);
         },
         [this](const effect::ReloadFile&) {
             cb_.reload_file();
@@ -83,29 +142,12 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         [this](const effect::OpenFileDialog&) {
             cb_.open_file_dialog();
         },
-        [](const effect::SaveFile& e) {
-            WriteAllBytes(std::filesystem::path(e.path), e.data.data(), e.data.size());
-        },
-        [this](const effect::SaveConfig&) {
-            config_->Flush();
-        },
-        [this](const effect::ShowTooltip& e) {
-            const POINT screen_pos = host_->ClientToScreen({ e.px, e.py });
-            if (state_->interaction.tooltip.Update(e.target, screen_pos.x, screen_pos.y)) {
-                host_->SetTimer(app_timer::TOOLTIP, TOOLTIP_DELAY_MS);
-            }
-            else if (e.target.IsEmpty()) {
-                host_->KillTimer(app_timer::TOOLTIP);
-            }
-        },
-        [this](const effect::ClearTooltip&) {
-            host_->KillTimer(app_timer::TOOLTIP);
-        },
-        [this](const effect::ShowToast& e) {
-            state_->interaction.toast.Show(e.message);
-            host_->SetTimer(app_timer::TOAST, app_timer::FRAME_INTERVAL_MS);
-            host_->Invalidate();
-        },
+        }, e);
+}
+
+void SideEffectExecutor::ExecuteLayout(const LayoutEffect& e)
+{
+    std::visit(overloaded{
         [this](const effect::DeferredLayout&) {
             if (layout_service_->HasDirtyNodes()) {
                 host_->SetTimer(app_timer::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
@@ -117,8 +159,48 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         [this](const effect::MermaidBatch&) {
             resource_manager_->ScheduleMermaidBatch();
         },
-        [this](const effect::StartFileWatch& e) {
-            doc_service_->StartWatching(e.path, [host = host_]() {
+        [this](const effect::InvalidatePaneCache& ev) {
+            cb_.invalidate_pane_cache(ev.pane);
+        },
+        [this](const effect::RefreshPaneLayout&) {
+            cb_.refresh_pane_layout();
+        },
+        [this](const effect::SyncTocActive&) {
+            cb_.sync_toc_active();
+        },
+        [this](const effect::ViewportLayout& ev) {
+            layout_service_->ViewportLayout(
+                state_->document.doc, state_->document.layout_cache,
+                ev.md_width, ev.md_height);
+        },
+        [this](const effect::SyncMaxScroll& ev) {
+            const float total = layout_service_->GetTotalHeight();
+            state_->view.cached_total_height = total;
+            state_->view.viewport.SyncMaxScroll(total, ev.md_pane_height);
+        },
+        }, e);
+}
+
+void SideEffectExecutor::ExecuteResource(const ResourceEffect& e)
+{
+    std::visit(overloaded{
+        [this](const effect::LoadImages&) {
+            resource_manager_->LoadImages();
+        },
+        [this](const effect::RequestMermaidRenders&) {
+            resource_manager_->RequestMermaidRenders();
+        },
+        [this](const effect::CancelMermaidBatch&) {
+            resource_manager_->CancelMermaidBatch();
+        },
+        [this](const effect::NotifyImageLoaded&) {
+            resource_manager_->OnAppImageLoaded();
+        },
+        [this](const effect::ClearFileCache&) {
+            cb_.clear_file_cache();
+        },
+        [this](const effect::StartFileWatch& ev) {
+            doc_service_->StartWatching(ev.path, [host = host_]() {
                 host->KillTimer(app_timer::FILE_RELOAD_DEBOUNCE);
                 host->SetTimer(app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
             });
@@ -129,50 +211,20 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         [this](const effect::ResumeFileWatch&) {
             doc_service_->ResumeWatching();
         },
-        [this](const effect::LoadImages&) {
-            resource_manager_->LoadImages();
-        },
-        [this](const effect::RequestMermaidRenders&) {
-            resource_manager_->RequestMermaidRenders();
-        },
-        [this](const effect::CancelMermaidBatch&) {
-            resource_manager_->CancelMermaidBatch();
-        },
-        [this](const effect::InvalidatePaneCache& e) {
-            cb_.invalidate_pane_cache(e.pane);
-        },
-        [this](const effect::RefreshPaneLayout&) {
-            cb_.refresh_pane_layout();
-        },
-        [this](const effect::ApplyDarkMode& e) {
-            host_->ApplyDarkMode(e.dark);
-        },
         [this](const effect::CheckFileChanges&) {
             doc_service_->CheckForChanges();
         },
-        [this](const effect::NotifyImageLoaded&) {
-            resource_manager_->OnAppImageLoaded();
+        }, e);
+}
+
+void SideEffectExecutor::ExecuteTimer(const TimerEffect& e)
+{
+    std::visit(overloaded{
+        [this](const effect::SetTimer& ev) {
+            host_->SetTimer(ev.id, ev.ms);
         },
-        [this](const effect::RendererResize& e) {
-            cb_.renderer_resize(e.width, e.height);
-        },
-        [this](const effect::RendererSetDpi& e) {
-            cb_.renderer_set_dpi(e.dpi);
-        },
-        [this](const effect::SetWindowPosition& e) {
-            host_->SetWindowPosition(e.x, e.y, e.cx, e.cy);
-        },
-        [this](const effect::ClearFileCache&) {
-            cb_.clear_file_cache();
-        },
-        [this](const effect::PerformResizeEnd&) {
-            cb_.perform_resize_end();
-        },
-        [this](const effect::PerformSizingUpdate&) {
-            cb_.perform_sizing_update();
-        },
-        [this](const effect::ApplyThemeChange& e) {
-            cb_.apply_theme_change(e);
+        [this](const effect::KillTimer& ev) {
+            host_->KillTimer(ev.id);
         },
         [this](const effect::ProcessDeferredLayout&) {
             cb_.process_deferred_layout();
@@ -189,14 +241,20 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         [this](const effect::MermaidInitRetry&) {
             cb_.mermaid_init_retry();
         },
+        }, e);
+}
+
+void SideEffectExecutor::ExecuteLifecycle(const LifecycleEffect& e)
+{
+    std::visit(overloaded{
+        [this](const effect::SaveConfig&) {
+            config_->Flush();
+        },
         [this](const effect::Destroy&) {
             cb_.destroy();
         },
         [this](const effect::HandleParseComplete&) {
             cb_.handle_parse_complete();
-        },
-        [this](const effect::ShowContextMenu& e) {
-            cb_.show_context_menu(e.screen_x, e.screen_y);
         },
         }, e);
 }

@@ -12,12 +12,18 @@
 
 App::HitResult App::HitTest(int screen_x, int screen_y)
 {
-    const auto& layout = GetPaneLayout();
-    return hit_test_.HitTest({
-        state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme(),
-        state_.view.viewport.GetScrollY(), layout.md_rect.x,
-        state_.window.cached_dpi_scale, screen_x, screen_y
-        });
+    return hit_test_.HitTest(BuildMdPaneHitContext(screen_x, screen_y, GetPaneLayout()));
+}
+
+MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept
+{
+    const auto& theme = renderer_.GetTheme();
+    return MdPaneHitContext{
+        state_.document.doc.GetNodes(), state_.document.layout_cache, theme,
+        state_.view.viewport.GetScrollY(), pane_layout.md_rect.x,
+        state_.window.cached_dpi_scale, px, py,
+        theme.ContentWidth(pane_layout.md_rect.width), pane_layout.md_rect.height
+    };
 }
 
 std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const

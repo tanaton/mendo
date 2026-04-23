@@ -39,11 +39,9 @@ void App::LoadHelpDocument()
     state_.view.viewport.SetScrollY(0.0f);
     {
         const auto pane_layout = GetPaneLayout();
-        layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache,
-            pane_layout.md_rect.width, pane_layout.md_rect.height);
-        SyncMaxScroll(pane_layout.md_rect.height);
+        EmitEffect(effect::ViewportLayout{ pane_layout.md_rect.width, pane_layout.md_rect.height });
+        EmitEffect(effect::SyncMaxScroll{ pane_layout.md_rect.height });
     }
-    UpdateScrollBar();
     Invalidate();
     ScheduleDeferredLayoutIfNeeded();
 
@@ -226,37 +224,27 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
         ApplyMermaidCacheHeights(md_width);
     }
 
-    state_.view.viewport.ClearScrollTarget();
-
+    // CalcScrollForDiff は md_height (layout 値) に依存するため reducer に渡せず、
+    // App 側で先に解決してから Dispatch する。
+    float reload_diff_scroll_y = 0.0f;
     if (has_reload_diff) {
-        scroll_y = CalcScrollForDiff(state_.reload_diff_pos, md_height);
-        state_.reload_diff_pos = std::string_view::npos;
-        state_.view.viewport.SetScrollY(scroll_y);
+        reload_diff_scroll_y = CalcScrollForDiff(state_.reload_diff_pos, md_height);
     }
-    else if (state_.view.scroll_restore.HasNodeRestore()) {
-        state_.view.viewport.SetScrollTarget(
-            state_.view.scroll_restore.pending_restore_node,
-            static_cast<float>(state_.view.scroll_restore.pending_restore_offset));
-        state_.view.viewport.ApplyScrollTarget(state_.document.layout_cache);
-        scroll_y = state_.view.viewport.GetScrollY();
-        state_.view.scroll_restore.ClearNodeRestore();
-    }
-    else {
-        state_.view.viewport.SetScrollY(0.0f);
-    }
+    Dispatch(RestoreScrollAfterLoadAction{ has_reload_diff, reload_diff_scroll_y });
+    scroll_y = state_.view.viewport.GetScrollY();
 
     MENDO_TRACEF("FinishLoad: scroll_y=%.1f (0=top of file)", scroll_y);
 
     {
         MENDO_PROFILE("ViewportLayout(Initial)");
-        layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
+        EmitEffect(effect::ViewportLayout{ md_width, md_height });
     }
 
     FinalizeLayout(md_height);
 
     UpdateTitleBar();
 
-    SyncTocActiveAndAutoScroll();
+    EmitEffect(effect::SyncTocActive{});
 
     doc_service_.StartWatching(state_.document.doc.GetFilePath(), [this]() {
         KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
@@ -384,7 +372,7 @@ void App::FinishReload(bool is_prefix_only, size_t diff_pos)
 
     {
         MENDO_PROFILE("Reload::ViewportLayout");
-        layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
+        EmitEffect(effect::ViewportLayout{ md_width, md_height });
     }
 
     FinalizeLayout(md_height);
@@ -398,7 +386,7 @@ void App::FinishReload(bool is_prefix_only, size_t diff_pos)
         }
     }
 
-    SyncTocActiveAndAutoScroll();
+    EmitEffect(effect::SyncTocActive{});
 
     doc_service_.ResumeWatching();
 }

@@ -107,8 +107,7 @@ void MermaidRenderer::Shutdown()
     }
     worker_count_ = 0;
     webview_env_.Reset();
-    ready_ = false;
-    initialized_ = false;
+    lifecycle_.Reset();
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic, std::move_only_function<void()> on_ready)
@@ -133,7 +132,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImag
 
 void MermaidRenderer::EnsureInitialized()
 {
-    if (initialized_) {
+    if (!lifecycle_.TryMarkInitialized()) {
         return;
     }
 
@@ -174,13 +173,11 @@ void MermaidRenderer::EnsureInitialized()
     }
 
     if (worker_count_ == 0) {
-        initialized_ = true;
         return;
     }
 
     // WebView2環境の生成失敗はタイマーリトライで対処されるため、
-    // ワーカーウィンドウ作成完了時点で初期化済みとする。
-    initialized_ = true;
+    // ワーカーウィンドウ作成完了時点で（initialized は既にマーク済みで）次段へ進む。
     CreateWebView2Environment();
 }
 
@@ -267,8 +264,8 @@ void MermaidRenderer::SetupWorker(int index)
                     w.init_retries = 0;
                     // 最初のワーカーが準備完了した時点でon_readyを呼び出す。
                     // 残りのワーカーは準備でき次第プールに参加する。
-                    if (!ready_) {
-                        ready_ = true;
+                    if (!lifecycle_.IsReady()) {
+                        lifecycle_.MarkReady();
                         if (on_all_ready_) {
                             auto cb = std::move(on_all_ready_);
                             cb();
@@ -481,7 +478,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     }
 
     // WebView2未初期化ならキューには追加しない
-    if (!ready_) {
+    if (!lifecycle_.IsReady()) {
         EnsureInitialized();
         return;
     }
@@ -502,7 +499,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
 
 void MermaidRenderer::ProcessQueue()
 {
-    if (!ready_ || pending_requests_.empty()) {
+    if (!lifecycle_.IsReady() || pending_requests_.empty()) {
         return;
     }
 

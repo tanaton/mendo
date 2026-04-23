@@ -1,6 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
+#include "mermaid_lifecycle.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include <d2d1.h>
@@ -31,7 +32,7 @@ public:
 
     void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic, std::move_only_function<void()> on_ready);
 
-    constexpr bool IsReady() const noexcept { return ready_; }
+    constexpr bool IsReady() const noexcept { return lifecycle_.IsReady(); }
 
     void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
@@ -43,7 +44,7 @@ public:
     static constexpr UINT_PTR TIMER_INIT_RETRY = 12;
 
 #ifdef MENDO_TESTING
-    constexpr bool IsInitialized() const noexcept { return initialized_; }
+    constexpr bool IsInitialized() const noexcept { return lifecycle_.IsInitialized(); }
 #endif
 
 private:
@@ -97,8 +98,7 @@ private:
 
     Worker workers_[MAX_WORKERS];
     int worker_count_ = 0;
-    bool initialized_ = false;
-    bool ready_ = false;
+    mermaid_lifecycle::Lifecycle lifecycle_;
     unsigned int request_counter_ = 0;
     std::move_only_function<void()> on_all_ready_; // 最初のワーカー準備完了時に1回だけ呼び出す
 

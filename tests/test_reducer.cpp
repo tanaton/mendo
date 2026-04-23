@@ -159,11 +159,11 @@ TEST_F(ReducerTest, UpdateTooltipAction_EmitsShowTooltipEffectWithSameTarget) {
     auto effects = Reduce(state, UpdateTooltipAction{ target, 100, 200 });
 
     ASSERT_EQ(effects.size(), 1u);
-    ASSERT_TRUE(std::holds_alternative<effect::ShowTooltip>(effects[0]));
-    const auto& e = std::get<effect::ShowTooltip>(effects[0]);
-    EXPECT_EQ(e.target, target);
-    EXPECT_EQ(e.px, 100);
-    EXPECT_EQ(e.py, 200);
+    const auto* show = GetEffect<effect::ShowTooltip>(effects[0]);
+    ASSERT_NE(show, nullptr);
+    EXPECT_EQ(show->target, target);
+    EXPECT_EQ(show->px, 100);
+    EXPECT_EQ(show->py, 200);
 }
 
 TEST_F(ReducerTest, UpdateTooltipAction_SameTargetAsCurrent_NoEffect) {
@@ -196,7 +196,7 @@ TEST_F(ReducerTest, ClearTooltipAction_EmitsClearTooltipAndResetsState) {
 TEST_F(ReducerTest, ReloadFileAction_EmitsReloadEffect) {
     auto effects = Reduce(state, ReloadFileAction{});
     EXPECT_EQ(effects.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<effect::ReloadFile>(effects[0]));
+    EXPECT_TRUE(HasEffect<effect::ReloadFile>(effects));
 }
 
 TEST_F(ReducerTest, OpenFileAction_EmitsOpenFileDialog) {
@@ -855,7 +855,7 @@ TEST_F(ReducerTest, RightClickGestureCompleted_Pressed_ShowsContextMenu) {
     EXPECT_TRUE(HasEffect<effect::ShowContextMenu>(effects));
     bool found = false;
     for (const auto& e : effects) {
-        if (auto* p = std::get_if<effect::ShowContextMenu>(&e)) {
+        if (auto* p = GetEffect<effect::ShowContextMenu>(e)) {
             found = true;
             EXPECT_EQ(p->screen_x, 400);
             EXPECT_EQ(p->screen_y, 500);

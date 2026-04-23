@@ -112,6 +112,7 @@ add_library(mendo_core STATIC
     # mermaid - Mermaid図表サポート
     src/mermaid/mermaid_util.cpp
     src/mermaid/mermaid_file_cache.cpp
+    src/mermaid/mermaid_lifecycle.cpp
     # nav - ナビゲーション
     src/nav/nav_history.cpp
     src/nav/navigation_service.cpp
