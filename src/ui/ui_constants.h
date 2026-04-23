@@ -23,9 +23,6 @@ inline constexpr float DEFAULT_DPI = 96.0f;
 // マウスホイールスクロールの倍率
 inline constexpr float MOUSE_WHEEL_SCROLL_MULTIPLIER = 0.8f;
 
-// ホバー時のヒットテスト省略判定用の距離の二乗
-inline constexpr int HOVER_THROTTLE_DISTANCE_SQ = 16;
-
 // 目次ペインの見出しレベル毎のインデント幅
 inline constexpr float TOC_INDENT_PER_LEVEL = 12.0f;
 

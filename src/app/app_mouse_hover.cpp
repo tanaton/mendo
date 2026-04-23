@@ -107,23 +107,14 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
 
     // コピー/保存ボタンのホバー判定（距離スロットリングで不要な再計算を回避）
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
+    auto& ht = state_.interaction.hover_throttle;
     int new_copy_hover = state_.interaction.hovered_copy_node;
-    {
-        const int cdx = px - state_.interaction.hover_throttle.last_copy_hit_pos.x;
-        const int cdy = py - state_.interaction.hover_throttle.last_copy_hit_pos.y;
-        if (cdx * cdx + cdy * cdy > HOVER_THROTTLE_DISTANCE_SQ) {
-            state_.interaction.hover_throttle.last_copy_hit_pos = { px, py };
-            new_copy_hover = hit_test_.CopyButtonHitTest(hit_ctx);
-        }
+    if (ht.TryMarkMoved(ht.last_copy_hit_pos, px, py)) {
+        new_copy_hover = hit_test_.CopyButtonHitTest(hit_ctx);
     }
     int new_save_hover = state_.interaction.hovered_save_node;
-    if (new_copy_hover < 0) {
-        const int sdx = px - state_.interaction.hover_throttle.last_save_hit_pos.x;
-        const int sdy = py - state_.interaction.hover_throttle.last_save_hit_pos.y;
-        if (sdx * sdx + sdy * sdy > HOVER_THROTTLE_DISTANCE_SQ) {
-            state_.interaction.hover_throttle.last_save_hit_pos = { px, py };
-            new_save_hover = hit_test_.SaveButtonHitTest(hit_ctx);
-        }
+    if (new_copy_hover < 0 && ht.TryMarkMoved(ht.last_save_hit_pos, px, py)) {
+        new_save_hover = hit_test_.SaveButtonHitTest(hit_ctx);
     }
     if (new_copy_hover != state_.interaction.hovered_copy_node || new_save_hover != state_.interaction.hovered_save_node) {
         Dispatch(MdPaneButtonHoverChangedAction{ new_copy_hover, new_save_hover });
@@ -141,13 +132,10 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     }
 
     // リンク・画像のヒットテスト
-    const int dx = px - state_.interaction.hover_throttle.last_md_hit_pos.x;
-    const int dy = py - state_.interaction.hover_throttle.last_md_hit_pos.y;
-    if (dx * dx + dy * dy > HOVER_THROTTLE_DISTANCE_SQ) {
+    if (ht.TryMarkMoved(ht.last_md_hit_pos, px, py)) {
         const auto hit = HitTest(px, py);
         const auto link = GetLinkAtHit(hit);
-        state_.interaction.hover_throttle.last_md_cursor_hand = link.has_value();
-        state_.interaction.hover_throttle.last_md_hit_pos = { px, py };
+        ht.last_md_cursor_hand = link.has_value();
 
         // リンクまたは画像のツールチップ
         TooltipTarget tt;
@@ -170,7 +158,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         }
         Dispatch(UpdateTooltipAction{ tt, px, py });
     }
-    SetCursor(state_.interaction.hover_throttle.last_md_cursor_hand ? cursors_.Hand() : cursors_.IBeam());
+    SetCursor(ht.last_md_cursor_hand ? cursors_.Hand() : cursors_.IBeam());
 }
 
 // ============================================================

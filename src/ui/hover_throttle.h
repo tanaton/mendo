@@ -2,6 +2,9 @@
 #include <windows.h>
 #include <climits>
 
+// ホバー時のヒットテスト省略判定用の距離の二乗（ピクセル²）
+inline constexpr int HOVER_THROTTLE_DISTANCE_SQ = 16;
+
 // ヒットテストのスロットリング状態。
 // マウス位置が一定距離以上動いた場合のみヒットテストを再実行する。
 struct HoverThrottle {
@@ -29,6 +32,19 @@ struct HoverThrottle {
             return true;
         }
         last_hover_dispatch_pos = { px, py };
+        return false;
+    }
+
+    // 前回チェック位置からの移動距離²がしきい値を超えていれば位置を更新して true を返す。
+    // 返り値 true ならヒットテストを再実行すべきことを意味する。
+    [[nodiscard]] bool TryMarkMoved(POINT& last_pos, int px, int py) noexcept
+    {
+        const int dx = px - last_pos.x;
+        const int dy = py - last_pos.y;
+        if (dx * dx + dy * dy > HOVER_THROTTLE_DISTANCE_SQ) {
+            last_pos = { px, py };
+            return true;
+        }
         return false;
     }
 };
