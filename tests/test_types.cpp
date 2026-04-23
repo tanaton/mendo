@@ -308,18 +308,20 @@ TEST(NodeTest, SetTextClearsUtf8)
     EXPECT_TRUE(node.text_utf8.empty());
 }
 
-TEST(NodeTest, LazyConversionFromUtf8)
+TEST(NodeTest, ConvertsUtf8ToWide)
 {
     Node node;
-    node.text_utf8 = "Lazy conversion";
+    node.text_utf8 = "Explicit conversion";
     EXPECT_TRUE(node.HasText());
-    EXPECT_EQ(node.GetText(), L"Lazy conversion");
+    node.ConvertTextFromUtf8();
+    EXPECT_EQ(node.GetText(), L"Explicit conversion");
 }
 
-TEST(NodeTest, LazyConversionJapanese)
+TEST(NodeTest, ConvertsJapaneseUtf8ToWide)
 {
     Node node;
     node.text_utf8 = "日本語";
+    node.ConvertTextFromUtf8();
     EXPECT_EQ(node.GetText(), L"日本語");
 }
 
@@ -393,22 +395,24 @@ TEST(NodeTest, SyntaxTokensMutCreatesCodeData)
     EXPECT_TRUE(tokens.empty());
 }
 
-TEST(NodeTest, CodeBlockPreservesUtf8OnGetText)
+TEST(NodeTest, CodeBlockPreservesUtf8AfterConversion)
 {
     Node node;
     node.type = NodeType::CodeBlock;
     node.text_utf8 = "code content";
-    node.GetText(); // 遅延変換を発火
-    // CodeBlockはtext_utf8を保持する
+    node.ConvertTextFromUtf8();
+    // CodeBlock は Mermaidハッシュ計算で text_utf8 を直接参照するため保持する
     EXPECT_FALSE(node.text_utf8.empty());
+    EXPECT_EQ(node.GetText(), L"code content");
 }
 
-TEST(NodeTest, ParagraphReleasesUtf8OnGetText)
+TEST(NodeTest, ParagraphReleasesUtf8AfterConversion)
 {
     Node node;
     node.type = NodeType::Paragraph;
     node.text_utf8 = "paragraph content";
-    node.GetText(); // 遅延変換を発火
-    // Paragraph等はtext_utf8を解放する
+    node.ConvertTextFromUtf8();
+    // Paragraph 等は変換後に text_utf8 を解放する
     EXPECT_TRUE(node.text_utf8.empty());
+    EXPECT_EQ(node.GetText(), L"paragraph content");
 }

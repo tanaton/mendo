@@ -157,6 +157,9 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
         if (type == AlertType::None) {
             continue;
         }
+        // マーカー以降のテキストは ASCII のみで UTF-8/wide の位置が一致するため、
+        // Transform 前に wide 変換を済ませて GetText() の結果を使えるようにする。
+        nodes[i].ConvertTextFromUtf8();
         const int group = nodes[i].blockquote_group;
         TransformAlertNode(nodes[i], type, marker_end);
 

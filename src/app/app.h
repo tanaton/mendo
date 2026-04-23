@@ -115,6 +115,16 @@ private:
     // AppControllerが返すアクションを実行
     void Dispatch(const AppAction& action);
 
+    // reducer を介さない経路から effect を単発発火するヘルパー。
+    // App 内で発生する連鎖処理の最後で SyncTocActive 等を emit する際に使う。
+    template <typename T>
+    void EmitEffect(T&& e)
+    {
+        SideEffectList effects;
+        PushEffect(effects, std::forward<T>(e));
+        effect_executor_.Execute(effects);
+    }
+
     // Init用コールバック構築ヘルパー
     ResourceManager::Callbacks BuildResourceManagerCallbacks();
     SearchBarController::Callbacks BuildSearchBarCallbacks();
@@ -129,11 +139,10 @@ private:
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y);
     std::optional<std::pmr::wstring> GetLinkAtHit(const HitResult& hit) const;
+    MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
     // リンク・アンカーナビゲーション
     void HandleLinkClick(std::wstring_view url);
-    void NavigateToAnchor(std::wstring_view anchor);
-    void PushNavHistory();
 
     // クリップボード・選択
     void SetClipboardText(std::wstring_view text) const;
@@ -154,11 +163,9 @@ private:
 
     // レイアウト / スクロール
     void ScheduleDeferredLayoutIfNeeded();
-    void UpdateScrollBar();
     void InvalidateMdPane(const PaneRect& md_rect);
     void InvalidateHitPositions();
     void ScrollTo(float position);
-    void SyncMaxScroll(float md_pane_height);
     int FindFirstVisibleNode() const noexcept;
     void OnResizeEnd();
     void RefreshPaneLayout();

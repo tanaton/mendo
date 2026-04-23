@@ -40,7 +40,7 @@ bool App::Init(HWND hwnd)
                 const auto path = FileLoader::OpenFileDialog(hwnd_);
                 if (!path.empty()) {
                     if (!state_.document.doc.GetFilePath().empty()) {
-                        PushNavHistory();
+                        PushCurrentNavEntry(state_);
                     }
                     LoadMarkdownFile(path);
                 }
@@ -70,8 +70,7 @@ bool App::Init(HWND hwnd)
             },
             .perform_sizing_update = [this]() {
                 const auto& sizing_layout = GetPaneLayout();
-                SyncMaxScroll(sizing_layout.md_rect.height);
-                UpdateScrollBar();
+                EmitEffect(effect::SyncMaxScroll{ sizing_layout.md_rect.height });
                 Invalidate();
             },
             .apply_theme_change = [this](const effect::ApplyThemeChange& e) {
@@ -100,6 +99,9 @@ bool App::Init(HWND hwnd)
             },
             .show_context_menu = [this](int x, int y) {
                 OnContextMenu(x, y);
+            },
+            .sync_toc_active = [this]() {
+                SyncTocActiveAndAutoScroll();
             },
         }
     );
@@ -182,7 +184,7 @@ ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
             EnsureScrollTarget();
             layout_service_->RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, renderer_.GetTheme());
             const auto layout = GetPaneLayout();
-            SyncMaxScroll(layout.md_rect.height);
+            EmitEffect(effect::SyncMaxScroll{ layout.md_rect.height });
             Invalidate();
         },
     };
@@ -216,7 +218,7 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
             return GetPaneLayout().md_rect.height;
         },
         .on_scroll_changed = [this](float visible_h) {
-            SyncMaxScroll(visible_h);
+            EmitEffect(effect::SyncMaxScroll{ visible_h });
             InvalidateHitPositions();
             // Why: 検索ヒット移動で可視化されたmermaid/画像の描画要求を出す (issue #102)
             resource_manager_.ScheduleBitmapManage();

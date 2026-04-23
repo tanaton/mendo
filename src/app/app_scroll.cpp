@@ -11,13 +11,6 @@
 // スクロールバー・スクロール
 // ============================================================
 
-void App::UpdateScrollBar()
-{
-    // カスタムスクロールバーはRenderer側で描画するため、MDペインの再描画をトリガーするのみ
-    const auto& layout = GetPaneLayout();
-    InvalidateMdPane(layout.md_rect);
-}
-
 void App::InvalidateHitPositions()
 {
     state_.interaction.hover_throttle.Reset();
@@ -28,7 +21,7 @@ void App::ScrollTo(float position)
 {
     state_.view.viewport.ScrollTo(position);
     InvalidateHitPositions();
-    SyncTocActiveAndAutoScroll();
+    EmitEffect(effect::SyncTocActive{});
 }
 
 void App::SyncTocActiveAndAutoScroll()
@@ -82,13 +75,6 @@ void App::InvalidateMdPane(const PaneRect& md_rect)
     InvalidatePane(md_rect);
 }
 
-void App::SyncMaxScroll(float md_pane_height)
-{
-    const float total = layout_service_->GetTotalHeight();
-    state_.view.cached_total_height = total;
-    state_.view.viewport.SyncMaxScroll(total, md_pane_height);
-}
-
 int App::FindFirstVisibleNode() const noexcept
 {
     return state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size());
@@ -125,18 +111,17 @@ void App::OnResizeEnd()
 
     {
         MENDO_PROFILE("ViewportLayout(Resize)");
-        layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
+        EmitEffect(effect::ViewportLayout{ md_width, md_height });
     }
 
-    SyncMaxScroll(md_height);
-    UpdateScrollBar();
+    EmitEffect(effect::SyncMaxScroll{ md_height });
     Invalidate();
 
     ScheduleDeferredLayoutIfNeeded();
 
     resource_manager_.ScheduleMermaidBatch();
 
-    SyncTocActiveAndAutoScroll();
+    EmitEffect(effect::SyncTocActive{});
 }
 
 void App::RefreshPaneLayout()
@@ -176,7 +161,7 @@ void App::OnDeferredLayout()
     // max_scroll に基づくクランプで scroll_y が不当に引き下げられるのを防ぐ。
     // スクロールバートラッキング中はユーザー操作を優先してクランプを反映する。
     if (state_.view.viewport.IsScrollbarTracking()) {
-        SyncMaxScroll(md_height);
+        EmitEffect(effect::SyncMaxScroll{ md_height });
     }
 
     if (!more) {
@@ -187,14 +172,12 @@ void App::OnDeferredLayout()
         // UIスレッドを長時間ブロックするのを防ぐ。
         resource_manager_.ScheduleMermaidBatch();
 
-        SyncMaxScroll(md_height);
-
-        UpdateScrollBar();
+        EmitEffect(effect::SyncMaxScroll{ md_height });
         Invalidate();
 
         // 遅延レイアウト確定で layout_cache の y_position が安定したので
         // 目次アクティブ見出しを再同期する。
-        SyncTocActiveAndAutoScroll();
+        EmitEffect(effect::SyncTocActive{});
     }
 }
 

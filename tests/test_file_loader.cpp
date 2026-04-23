@@ -1,35 +1,16 @@
 #include <gtest/gtest.h>
 #include "file_loader.h"
 #include "file_watcher.h"
-#include <fstream>
+#include "test_helpers.h"
 #include <filesystem>
 
 namespace fs = std::filesystem;
 
-class FileLoaderTest : public ::testing::Test {
+class FileLoaderTest : public TempDirTestBase {
 protected:
-    fs::path temp_dir_;
-
-    void SetUp() override
-    {
-        wchar_t tmp[MAX_PATH];
-        GetTempPathW(MAX_PATH, tmp);
-        temp_dir_ = fs::path(tmp) / (L"mendo_test_" + std::to_wstring(GetCurrentProcessId()));
-        fs::create_directories(temp_dir_);
-    }
-
-    void TearDown() override
-    {
-        fs::remove_all(temp_dir_);
-    }
-
     fs::path WriteFile(std::wstring_view name, std::string_view content)
     {
-        auto path = temp_dir_ / name;
-        std::ofstream f(path, std::ios::binary);
-        f.write(content.data(), content.size());
-        f.close();
-        return path;
+        return WriteTempFile(name, content);
     }
 
     // イベントハンドルを使って変更通知を待つヘルパー

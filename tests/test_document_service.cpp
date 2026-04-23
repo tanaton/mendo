@@ -3,33 +3,18 @@
 #include <string_view>
 #include "document_service.h"
 #include "file_watcher.h"
+#include "test_helpers.h"
 #include <fstream>
 #include <filesystem>
 
-class DocumentServiceTest : public ::testing::Test {
+class DocumentServiceTest : public TempDirTestBase {
 protected:
-    void SetUp() override
-    {
-        auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        test_dir_ = std::filesystem::temp_directory_path()
-            / ("mendo_doc_service_test_" + std::string(info->name()));
-        std::filesystem::create_directories(test_dir_);
-    }
-    void TearDown() override
-    {
-        std::filesystem::remove_all(test_dir_);
-    }
-
     std::pmr::wstring CreateTestFile(const std::string& name, const std::string& content)
     {
-        auto path = test_dir_ / name;
-        std::ofstream ofs(path, std::ios::binary);
-        ofs << content;
-        auto ws = path.wstring();
-        return std::pmr::wstring{ ws };
+        const auto path = WriteTempFile(std::filesystem::path(name).wstring(), content);
+        return std::pmr::wstring{ path.wstring() };
     }
 
-    std::filesystem::path test_dir_;
     FileWatcher watcher_;
 };
 
@@ -71,7 +56,7 @@ TEST_F(DocumentServiceTest, NeedsAsyncLoadLargeFile)
 
 TEST_F(DocumentServiceTest, NeedsAsyncLoadNonexistent)
 {
-    auto ws = (test_dir_ / "nonexistent_async.md").wstring();
+    auto ws = (temp_dir_ / "nonexistent_async.md").wstring();
     std::pmr::wstring nonexistent{ ws };
     EXPECT_TRUE(DocumentService::NeedsAsyncLoad(nonexistent));
 }
@@ -84,7 +69,7 @@ TEST_F(DocumentServiceTest, NeedsLoadingAnimationSmallFile)
 
 TEST_F(DocumentServiceTest, NeedsLoadingAnimationNonexistent)
 {
-    auto ws = (test_dir_ / "nonexistent_anim.md").wstring();
+    auto ws = (temp_dir_ / "nonexistent_anim.md").wstring();
     std::pmr::wstring nonexistent{ ws };
     EXPECT_TRUE(DocumentService::NeedsLoadingAnimation(nonexistent));
 }

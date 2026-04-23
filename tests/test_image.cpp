@@ -9,6 +9,7 @@
 #include "mock_text_measurer.h"
 #include "image_loader.h"
 #include "task_scheduler.h"
+#include "test_helpers.h"
 #include <d2d1.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -386,24 +387,13 @@ TEST_F(ImageLayoutTest, ImageAspectRatioPreserved)
 // ImageLoader テスト: WIC による画像読み込み
 // ============================================================
 
-class ImageLoaderTest : public ::testing::Test {
+class ImageLoaderTest : public ComApartmentTest {
 protected:
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<ID2D1RenderTarget> render_target_;
     ImageLoader loader_;
     std::filesystem::path temp_dir_;
-
-    static void SetUpTestSuite()
-    {
-        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        ASSERT_TRUE(SUCCEEDED(hr)) << "COM初期化に失敗";
-    }
-
-    static void TearDownTestSuite()
-    {
-        CoUninitialize();
-    }
 
     void SetUp() override
     {
@@ -868,22 +858,11 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
 // DPI スケーリングテスト: 画像サイズが DIP 単位で返されること
 // ============================================================
 
-class ImageLoaderDpiTest : public ::testing::Test {
+class ImageLoaderDpiTest : public ComApartmentTest {
 protected:
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<IWICImagingFactory> wic_factory_;
     std::filesystem::path temp_dir_;
-
-    static void SetUpTestSuite()
-    {
-        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        ASSERT_TRUE(SUCCEEDED(hr)) << "COM初期化に失敗";
-    }
-
-    static void TearDownTestSuite()
-    {
-        CoUninitialize();
-    }
 
     void SetUp() override
     {

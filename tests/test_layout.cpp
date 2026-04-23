@@ -10,22 +10,12 @@
 
 using Microsoft::WRL::ComPtr;
 
-class LayoutTest : public ::testing::Test {
+class LayoutTest : public ComApartmentTest {
 protected:
     ComPtr<IDWriteFactory> dwrite_;
     DWriteTextMeasurer measurer_;
     LayoutEngine engine_;
     Theme theme_;
-
-    static void SetUpTestSuite()
-    {
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    }
-
-    static void TearDownTestSuite()
-    {
-        CoUninitialize();
-    }
 
     void SetUp() override
     {

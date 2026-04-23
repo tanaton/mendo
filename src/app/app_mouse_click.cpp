@@ -59,13 +59,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
     // コピーボタンのクリック判定（クリック位置で再判定）
-    const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
-    const MdPaneHitContext hit_ctx{
-        state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme(),
-        state_.view.viewport.GetScrollY(), pane_layout.md_rect.x,
-        state_.window.cached_dpi_scale, px, py,
-        content_width, pane_layout.md_rect.height
-    };
+    const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     const auto copy_node = hit_test_.CopyButtonHitTest(hit_ctx);
     if (copy_node >= 0) {
         CopyCodeBlockToClipboard(copy_node);

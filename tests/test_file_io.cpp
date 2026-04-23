@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "file_io.h"
+#include "test_helpers.h"
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -8,24 +9,7 @@
 
 namespace fs = std::filesystem;
 
-class FileIoTest : public ::testing::Test {
-protected:
-    fs::path temp_dir_;
-
-    void SetUp() override
-    {
-        wchar_t tmp[MAX_PATH];
-        GetTempPathW(MAX_PATH, tmp);
-        temp_dir_ = fs::path(tmp) / (L"mendo_file_io_test_" + std::to_wstring(GetCurrentProcessId()));
-        fs::create_directories(temp_dir_);
-    }
-
-    void TearDown() override
-    {
-        std::error_code ec;
-        fs::remove_all(temp_dir_, ec);
-    }
-};
+class FileIoTest : public TempDirTestBase {};
 
 // ═══════════════════════════════════════════════
 // WriteAllBytes + ReadAllBytes ラウンドトリップ

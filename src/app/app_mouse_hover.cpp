@@ -106,13 +106,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     }
 
     // コピー/保存ボタンのホバー判定（距離スロットリングで不要な再計算を回避）
-    const float content_width = renderer_.GetTheme().ContentWidth(pane_layout.md_rect.width);
-    const MdPaneHitContext hit_ctx{
-        state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme(),
-        state_.view.viewport.GetScrollY(), pane_layout.md_rect.x,
-        state_.window.cached_dpi_scale, px, py,
-        content_width, pane_layout.md_rect.height
-    };
+    const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     int new_copy_hover = state_.interaction.hovered_copy_node;
     {
         const int cdx = px - state_.interaction.hover_throttle.last_copy_hit_pos.x;

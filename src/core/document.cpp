@@ -32,16 +32,11 @@ std::pmr::wstring Document::GetDirectory() const
 
 void Document::ReplaceContent(ParseResult&& result)
 {
+    // ParseMarkdown は全ノードの text_utf8→text_ 変換を済ませて返す契約。ここでは再変換しない。
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);
     BuildHeadingIndices(result.heading_indices);
-
-    // パース直後にUTF-8→Wide一括変換を行い、描画時の暗黙的変換を排除する。
-    // CodeBlock以外のノードでは変換後にtext_utf8を解放してメモリを削減する。
-    for (auto& node : nodes_) {
-        node.EnsureTextConverted();
-    }
 }
 
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)

@@ -16,7 +16,7 @@ void ClearTooltip(AppState& state, SideEffectList& effects)
 {
     state.interaction.tooltip.Hide();
     state.interaction.tooltip.ResetTarget();
-    effects.emplace_back(effect::ClearTooltip{});
+    PushEffect(effects, effect::ClearTooltip{});
 }
 
 void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scroll)
@@ -24,9 +24,24 @@ void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scrol
     if (state.view.viewport.GetScrollY() != old_scroll) {
         ClearTooltip(state, effects);
         state.interaction.hover_throttle.Reset();
-        effects.emplace_back(effect::InvalidateWindow{});
-        effects.emplace_back(effect::BitmapManage{});
+        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(effects, effect::BitmapManage{});
+        PushEffect(effects, effect::SyncTocActive{});
     }
+}
+
+// ノード・オフセットをスクロールターゲットとして反映し、関連する副作用 effect を emit する。
+// TOC クリック / ナビゲーション復帰 / アンカー遷移でこの関数を通ることで、
+// tooltip クリア・invalidation・bitmap manage・TOC 同期の並びが常に一貫する。
+void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset)
+{
+    state.view.viewport.SetScrollTarget(node, offset);
+    state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
+    state.interaction.hover_throttle.Reset();
+    ClearTooltip(state, effects);
+    PushEffect(effects, effect::InvalidateWindow{});
+    PushEffect(effects, effect::BitmapManage{});
+    PushEffect(effects, effect::SyncTocActive{});
 }
 
 struct SidePaneContext {
@@ -72,16 +87,10 @@ void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
 {
     if (entry.file_path != state.document.doc.GetFilePath() && !entry.file_path.empty()) {
         state.view.scroll_restore.SetNodeRestore(entry.node, static_cast<int>(std::lround(entry.offset)));
-        effects.emplace_back(effect::LoadFile{ std::move(entry.file_path) });
+        PushEffect(effects, effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
-        auto& cache = state.document.layout_cache;
-        state.view.viewport.SetScrollTarget(entry.node, entry.offset);
-        state.view.viewport.ApplyScrollTarget(cache);
-        state.interaction.hover_throttle.Reset();
-        ClearTooltip(state, effects);
-        effects.emplace_back(effect::InvalidateWindow{});
-        effects.emplace_back(effect::BitmapManage{});
+        ApplyScrollTargetAndEmit(state, effects, entry.node, entry.offset);
     }
 }
 
@@ -160,8 +169,8 @@ void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPane
         ? state.view.panes.ScrollFilePaneBy(a.delta, ctx.info.max_scroll)
         : state.view.panes.ScrollTocPaneBy(a.delta, ctx.info.max_scroll);
     if (scrolled) {
-        effects.emplace_back(effect::InvalidatePaneCache{ ctx.pane_zone });
-        effects.emplace_back(effect::InvalidateWindow{});
+        PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 }
 
@@ -176,13 +185,16 @@ void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePane
     case PaneTarget::Toc:  state.view.panes.ToggleTocPane();  break;
     }
     state.pane_layout_valid = false;
-    effects.emplace_back(effect::RefreshPaneLayout{});
+    PushEffect(effects, effect::RefreshPaneLayout{});
+    if (a.target == PaneTarget::Toc) {
+        PushEffect(effects, effect::SyncTocActive{});
+    }
 }
 
 void ReduceSelectAll(AppState& state, SideEffectList& effects)
 {
     state.view.viewport.SelectAll(state.document.doc.GetNodes());
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceClearSelection(AppState& state, SideEffectList& effects)
@@ -193,13 +205,13 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
     else {
         state.view.viewport.ClearSelection();
     }
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceCopyClipboard(const AppState& state, SideEffectList& effects)
 {
     if (state.view.viewport.GetSelection().active) {
-        effects.emplace_back(effect::ClipboardWrite{
+        PushEffect(effects, effect::ClipboardWrite{
             ExtractSelectedText(state.document.doc.GetNodes(), state.view.viewport.GetSelection()) });
     }
 }
@@ -211,7 +223,7 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
         return;
     }
     const auto& nodes = state.document.doc.GetNodes();
-    effects.emplace_back(effect::ClipboardWriteHtml{
+    PushEffect(effects, effect::ClipboardWriteHtml{
         ExtractSelectedTextAsHtml(nodes, sel, state.window.cached_theme.is_dark),
         ExtractSelectedText(nodes, sel)
         });
@@ -247,7 +259,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
         // offset もズーム比でスケールし、ノード内の同じ位置が可視先頭に留まるようにする
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
     }
-    effects.emplace_back(effect::ApplyThemeChange{
+    PushEffect(effects, effect::ApplyThemeChange{
         .type = effect::ApplyThemeChange::Type::Zoom,
         .new_zoom = new_zoom,
         .zoom_index = state.view.viewport.GetZoomIndex(),
@@ -263,7 +275,7 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
         // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);
     }
-    effects.emplace_back(effect::ApplyThemeChange{
+    PushEffect(effects, effect::ApplyThemeChange{
         .type = effect::ApplyThemeChange::Type::DarkMode,
         .new_zoom = 0.0f,
         .zoom_index = state.view.viewport.GetZoomIndex(),
@@ -278,7 +290,7 @@ void ReduceActivate(AppState& state, SideEffectList& effects, const ActivateActi
 {
     if (state.window.window_active != a.active) {
         state.window.window_active = a.active;
-        effects.emplace_back(effect::InvalidateTitleBar{});
+        PushEffect(effects, effect::InvalidateTitleBar{});
     }
     if (!a.active) {
         ClearTooltip(state, effects);
@@ -291,14 +303,14 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
         return;
     }
     state.pane_layout_valid = false;
-    effects.emplace_back(effect::RendererResize{ a.width, a.height });
+    PushEffect(effects, effect::RendererResize{ a.width, a.height });
     const float window_w_dip = a.width / state.window.cached_dpi_scale;
     state.window.titlebar.UpdateLayout(window_w_dip);
     if (state.window.is_sizing) {
-        effects.emplace_back(effect::PerformSizingUpdate{});
+        PushEffect(effects, effect::PerformSizingUpdate{});
     }
     else {
-        effects.emplace_back(effect::PerformResizeEnd{});
+        PushEffect(effects, effect::PerformResizeEnd{});
     }
 }
 
@@ -310,9 +322,9 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
     }
     state.pane_layout_valid = false;
     state.document.layout_cache.MarkAllDirty();
-    effects.emplace_back(effect::RendererSetDpi{ static_cast<float>(a.dpi) });
-    effects.emplace_back(effect::ClearFileCache{});
-    effects.emplace_back(effect::SetWindowPosition{
+    PushEffect(effects, effect::RendererSetDpi{ static_cast<float>(a.dpi) });
+    PushEffect(effects, effect::ClearFileCache{});
+    PushEffect(effects, effect::SetWindowPosition{
         static_cast<int>(a.suggested.left),
         static_cast<int>(a.suggested.top),
         static_cast<int>(a.suggested.right - a.suggested.left),
@@ -325,11 +337,11 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     const bool had_overlay = state.interaction.swipe_detector.IsOverlayVisible();
     const int old_direction = state.interaction.swipe_detector.GetOverlayDirection();
     state.interaction.swipe_detector.OnHWheel(a.delta, a.tick);
-    effects.emplace_back(effect::SetTimer{ app_timer::SWIPE_OVERLAY,
+    PushEffect(effects, effect::SetTimer{ app_timer::SWIPE_OVERLAY,
         static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
     if (had_overlay != state.interaction.swipe_detector.IsOverlayVisible()
         || old_direction != state.interaction.swipe_detector.GetOverlayDirection()) {
-        effects.emplace_back(effect::InvalidateWindow{});
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 }
 
@@ -353,7 +365,7 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
     state.search.search_bar_ctrl.OnCaptureChanged();
     if (state.interaction.gesture.GetPhase() != GesturePhase::Idle) {
         state.interaction.gesture.Reset();
-        effects.emplace_back(effect::InvalidateWindow{});
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 }
 
@@ -368,7 +380,7 @@ void ReduceMdPaneNavHover(AppState& state, SideEffectList& effects, const MdPane
         state.interaction.hovered_copy_node = -1;
         state.interaction.hovered_save_node = -1;
     }
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceMdPaneButtonHoverChanged(AppState& state, SideEffectList& effects, const MdPaneButtonHoverChangedAction& a)
@@ -379,7 +391,7 @@ void ReduceMdPaneButtonHoverChanged(AppState& state, SideEffectList& effects, co
     }
     state.interaction.hovered_copy_node = a.hovered_copy_node;
     state.interaction.hovered_save_node = a.hovered_save_node;
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 // ============================================================
@@ -393,7 +405,7 @@ void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const S
         return;
     }
     state.view.panes.StartDrag(a.target);
-    effects.emplace_back(effect::SetCapture{});
+    PushEffect(effects, effect::SetCapture{});
 }
 
 void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const SplitterDragMovedAction& a)
@@ -415,7 +427,7 @@ void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const Spl
         return;
     }
     state.pane_layout_valid = false;
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceSplitterDragEnded(AppState& state, SideEffectList& effects)
@@ -427,8 +439,8 @@ void ReduceSplitterDragEnded(AppState& state, SideEffectList& effects)
     }
     state.view.panes.EndDrag();
     state.pane_layout_valid = false;
-    effects.emplace_back(effect::ReleaseCapture{});
-    effects.emplace_back(effect::PerformResizeEnd{});
+    PushEffect(effects, effect::ReleaseCapture{});
+    PushEffect(effects, effect::PerformResizeEnd{});
 }
 
 // ============================================================
@@ -438,8 +450,8 @@ void ReduceSplitterDragEnded(AppState& state, SideEffectList& effects)
 void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, const SearchInputDragStartedAction& a)
 {
     state.search.search_bar_ctrl.StartDrag(a.caret_pos);
-    effects.emplace_back(effect::SetCapture{});
-    effects.emplace_back(effect::PostMessage{
+    PushEffect(effects, effect::SetCapture{});
+    PushEffect(effects, effect::PostMessage{
         app_msg::SEARCH_FOCUS,
         app_param::SEARCH_FOCUS_SET_CARET,
         static_cast<LPARAM>(a.caret_pos)
@@ -456,7 +468,7 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
         && ctrl.GetDragAnchor() == ctrl.GetSelectionStart()) {
         return;
     }
-    effects.emplace_back(effect::PostMessage{
+    PushEffect(effects, effect::PostMessage{
         app_msg::SEARCH_FOCUS,
         app_param::SEARCH_FOCUS_SET_SELECTION,
         MAKELPARAM(ctrl.GetDragAnchor(), a.caret_pos)
@@ -466,7 +478,7 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
 void ReduceSearchInputDragEnded(AppState& state, SideEffectList& effects)
 {
     state.search.search_bar_ctrl.EndDrag();
-    effects.emplace_back(effect::ReleaseCapture{});
+    PushEffect(effects, effect::ReleaseCapture{});
 }
 
 // ============================================================
@@ -477,7 +489,7 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
 {
     state.view.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
     state.view.viewport.SetScrollbarTracking(true);
-    effects.emplace_back(effect::SetCapture{});
+    PushEffect(effects, effect::SetCapture{});
 
     const auto& md_rect = state.cached_pane_layout.md_rect;
     const auto info = ComputeScrollInfo(md_rect, 0.0f, a.total_height);
@@ -515,9 +527,9 @@ void ReduceMdScrollbarDragEnded(AppState& state, SideEffectList& effects)
     }
     state.view.viewport.SetScrollbarTracking(false);
     state.view.panes.EndDrag();
-    effects.emplace_back(effect::ReleaseCapture{});
-    effects.emplace_back(effect::PerformResizeEnd{});
-    effects.emplace_back(effect::BitmapManage{});
+    PushEffect(effects, effect::ReleaseCapture{});
+    PushEffect(effects, effect::PerformResizeEnd{});
+    PushEffect(effects, effect::BitmapManage{});
 }
 
 // ============================================================
@@ -531,7 +543,7 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
         return;
     }
     state.view.panes.StartDrag(ctx.drag_target);
-    effects.emplace_back(effect::SetCapture{});
+    PushEffect(effects, effect::SetCapture{});
 
     const float thumb_y = ComputeThumbY(ctx.info, ctx.scroll.scroll_y);
     if (a.dip_y >= thumb_y && a.dip_y <= thumb_y + ctx.info.thumb_height) {
@@ -542,8 +554,8 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
     ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
     ctx.scroll.max_scroll = ctx.info.max_scroll;
-    effects.emplace_back(effect::InvalidatePaneCache{ ctx.pane_zone });
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, const PaneScrollbarDragMovedAction& a)
@@ -555,8 +567,8 @@ void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, cons
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
     ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
     ctx.scroll.max_scroll = ctx.info.max_scroll;
-    effects.emplace_back(effect::InvalidatePaneCache{ ctx.pane_zone });
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)
@@ -567,7 +579,7 @@ void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)
         return;
     }
     state.view.panes.EndDrag();
-    effects.emplace_back(effect::ReleaseCapture{});
+    PushEffect(effects, effect::ReleaseCapture{});
 }
 
 // ============================================================
@@ -583,8 +595,8 @@ void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const 
     state.view.viewport.SetAnchor(a.node_index, a.text_pos);
     state.view.viewport.SetDragging(true);
     state.view.viewport.GetSelectionMut().Clear();
-    effects.emplace_back(effect::SetCapture{});
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::SetCapture{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceTextSelectionMoved(AppState& state, SideEffectList& effects, const TextSelectionMovedAction& a)
@@ -598,7 +610,7 @@ void ReduceTextSelectionMoved(AppState& state, SideEffectList& effects, const Te
         a.node_index,
         a.text_pos
     ));
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceTextSelectionEnded(AppState& state, SideEffectList& effects, const TextSelectionEndedAction& a)
@@ -615,8 +627,8 @@ void ReduceTextSelectionEnded(AppState& state, SideEffectList& effects, const Te
         ));
     }
     state.view.viewport.SetDragging(false);
-    effects.emplace_back(effect::ReleaseCapture{});
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::ReleaseCapture{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 // ============================================================
@@ -626,14 +638,14 @@ void ReduceTextSelectionEnded(AppState& state, SideEffectList& effects, const Te
 void ReduceRightClickGestureStarted(AppState& state, SideEffectList& effects, const RightClickGestureStartedAction& a)
 {
     state.interaction.gesture.OnRButtonDown(a.dip_x, a.dip_y);
-    effects.emplace_back(effect::SetCapture{});
+    PushEffect(effects, effect::SetCapture{});
 }
 
 void ReduceRightClickGestureMoved(AppState& state, SideEffectList& effects, const RightClickGestureMovedAction& a)
 {
     state.interaction.gesture.OnMouseMove(a.dip_x, a.dip_y);
     if (state.interaction.gesture.IsGestureActive()) {
-        effects.emplace_back(effect::InvalidateWindow{});
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 }
 
@@ -643,11 +655,11 @@ void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, 
         return;
     }
     const auto result = state.interaction.gesture.OnRButtonUp();
-    effects.emplace_back(effect::ReleaseCapture{});
+    PushEffect(effects, effect::ReleaseCapture{});
     switch (result) {
     case GestureResult::ShowContextMenu:
         state.interaction.gesture.Reset();
-        effects.emplace_back(effect::ShowContextMenu{ a.screen_x, a.screen_y });
+        PushEffect(effects, effect::ShowContextMenu{ a.screen_x, a.screen_y });
         break;
     case GestureResult::Back:
         ReduceNavigateBack(state, effects);
@@ -658,7 +670,7 @@ void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, 
     case GestureResult::None:
         break;
     }
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 // ============================================================
@@ -672,35 +684,61 @@ void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, co
         state.file_explorer.SetCurrentFile(state.document.doc.GetFilePath());
     }
     state.view.panes.FileScroll() = {};
-    effects.emplace_back(effect::InvalidatePaneCache{ PaneZone::FilePane });
-    effects.emplace_back(effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidatePaneCache{ PaneZone::FilePane });
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const FilePaneFileClickedAction& a)
 {
     PushCurrentNavEntry(state);
-    effects.emplace_back(effect::LoadFile{ a.full_path });
+    PushEffect(effects, effect::LoadFile{ a.full_path });
 }
 
 // ============================================================
 // TOC アイテムクリック
 // ============================================================
 
-void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a)
+void ScrollToAnchor(AppState& state, SideEffectList& effects, std::wstring_view anchor_id)
 {
-    PushCurrentNavEntry(state);
-
-    const int idx = state.document.doc.FindAnchorIndex(a.anchor_id);
+    const int idx = state.document.doc.FindAnchorIndex(anchor_id);
     if (idx < 0) {
         return;
     }
     const auto target = MakeHeadingTopTarget(idx,
         state.window.cached_theme.heading_spacing_above,
         state.cached_pane_layout.md_rect.y);
-    state.view.viewport.SetScrollTarget(target.node, target.offset);
-    state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
-    effects.emplace_back(effect::InvalidateWindow{});
-    effects.emplace_back(effect::BitmapManage{});
+    ApplyScrollTargetAndEmit(state, effects, target.node, target.offset);
+}
+
+void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a)
+{
+    PushCurrentNavEntry(state);
+    ScrollToAnchor(state, effects, a.anchor_id);
+}
+
+void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const NavigateAnchorAction& a)
+{
+    // nav 履歴の push は呼び出し側 (App::HandleLinkClick) で行われる
+    ScrollToAnchor(state, effects, a.anchor_id);
+}
+
+void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, const RestoreScrollAfterLoadAction& a)
+{
+    state.view.viewport.ClearScrollTarget();
+    if (a.has_reload_diff) {
+        state.view.viewport.SetScrollY(a.reload_diff_scroll_y);
+        state.reload_diff_pos = std::string_view::npos;
+    }
+    else if (state.view.scroll_restore.HasNodeRestore()) {
+        state.view.viewport.SetScrollTarget(
+            state.view.scroll_restore.pending_restore_node,
+            static_cast<float>(state.view.scroll_restore.pending_restore_offset));
+        state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
+        state.view.scroll_restore.ClearNodeRestore();
+    }
+    else {
+        state.view.viewport.SetScrollY(0.0f);
+    }
 }
 
 // ============================================================
@@ -712,7 +750,7 @@ void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAc
     if (!state.document.doc.GetFilePath().empty()) {
         PushCurrentNavEntry(state);
     }
-    effects.emplace_back(effect::LoadFile{ a.path });
+    PushEffect(effects, effect::LoadFile{ a.path });
 }
 
 void ReduceShowHelp(AppState& state, SideEffectList& effects)
@@ -720,7 +758,7 @@ void ReduceShowHelp(AppState& state, SideEffectList& effects)
     if (!state.document.doc.GetFilePath().empty() && !IsHelpPath(state.document.doc.GetFilePath())) {
         PushCurrentNavEntry(state);
     }
-    effects.emplace_back(effect::LoadFile{ std::pmr::wstring(HELP_PATH) });
+    PushEffect(effects, effect::LoadFile{ std::pmr::wstring(HELP_PATH) });
 }
 
 // ============================================================
@@ -732,15 +770,15 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
     switch (a.timer_id) {
     case app_timer::TOAST:
         if (!state.interaction.toast.Tick()) {
-            effects.emplace_back(effect::KillTimer{ app_timer::TOAST });
+            PushEffect(effects, effect::KillTimer{ app_timer::TOAST });
         }
-        effects.emplace_back(effect::InvalidateWindow{});
+        PushEffect(effects, effect::InvalidateWindow{});
         break;
     case app_timer::SEARCH_CARET:
         state.search.search_bar_ctrl.OnCaretBlinkTimer();
         break;
     case app_timer::TOOLTIP:
-        effects.emplace_back(effect::KillTimer{ app_timer::TOOLTIP });
+        PushEffect(effects, effect::KillTimer{ app_timer::TOOLTIP });
         state.interaction.tooltip.Show();
         break;
     case app_timer::SEARCH_DEBOUNCE:
@@ -748,15 +786,15 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         break;
     case app_timer::SWIPE_OVERLAY: {
         const auto result = state.interaction.swipe_detector.Commit();
-        effects.emplace_back(effect::KillTimer{ app_timer::SWIPE_OVERLAY });
+        PushEffect(effects, effect::KillTimer{ app_timer::SWIPE_OVERLAY });
         switch (result) {
         case SwipeResult::Back:
             ReduceNavigateBack(state, effects);
-            effects.emplace_back(effect::InvalidateWindow{});
+            PushEffect(effects, effect::InvalidateWindow{});
             break;
         case SwipeResult::Forward:
             ReduceNavigateForward(state, effects);
-            effects.emplace_back(effect::InvalidateWindow{});
+            PushEffect(effects, effect::InvalidateWindow{});
             break;
         default:
             break;
@@ -764,24 +802,24 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         break;
     }
     case app_timer::DEFERRED_LAYOUT:
-        effects.emplace_back(effect::ProcessDeferredLayout{});
+        PushEffect(effects, effect::ProcessDeferredLayout{});
         break;
     case app_timer::LOADING_ANIM:
-        effects.emplace_back(effect::TickLoadingAnimation{});
-        effects.emplace_back(effect::InvalidateWindow{});
+        PushEffect(effects, effect::TickLoadingAnimation{});
+        PushEffect(effects, effect::InvalidateWindow{});
         break;
     case app_timer::MERMAID_BATCH:
-        effects.emplace_back(effect::ProcessMermaidBatchTimer{});
+        PushEffect(effects, effect::ProcessMermaidBatchTimer{});
         break;
     case app_timer::BITMAP_MANAGE:
-        effects.emplace_back(effect::ProcessBitmapManage{});
+        PushEffect(effects, effect::ProcessBitmapManage{});
         break;
     case app_timer::MERMAID_INIT_RETRY:
-        effects.emplace_back(effect::MermaidInitRetry{});
+        PushEffect(effects, effect::MermaidInitRetry{});
         break;
     case app_timer::FILE_RELOAD_DEBOUNCE:
-        effects.emplace_back(effect::KillTimer{ app_timer::FILE_RELOAD_DEBOUNCE });
-        effects.emplace_back(effect::ReloadFile{});
+        PushEffect(effects, effect::KillTimer{ app_timer::FILE_RELOAD_DEBOUNCE });
+        PushEffect(effects, effect::ReloadFile{});
         break;
     default:
         break;
@@ -822,7 +860,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const EnterSizeMoveAction&) { state.window.is_sizing = true; },
         [&](const ExitSizeMoveAction&) {
             state.window.is_sizing = false;
-            effects.emplace_back(effect::PerformResizeEnd{});
+            PushEffect(effects, effect::PerformResizeEnd{});
         },
         [&](const ResizeAction& a) { ReduceResize(state, effects, a); },
         [&](const DpiChangedAction& a) { ReduceDpiChanged(state, effects, a); },
@@ -868,11 +906,13 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const FilePaneDirectoryClickedAction& a) { ReduceFilePaneDirectoryClicked(state, effects, a); },
         [&](const FilePaneFileClickedAction& a) { ReduceFilePaneFileClicked(state, effects, a); },
         [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, effects, a); },
+        [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, effects, a); },
+        [&](const RestoreScrollAfterLoadAction& a) { ReduceRestoreScrollAfterLoad(state, effects, a); },
         [&](const UpdateTooltipAction& a) {
             if (a.target == state.interaction.tooltip.GetCurrent()) {
                 return;
             }
-            effects.emplace_back(effect::ShowTooltip{ a.target, a.px, a.py });
+            PushEffect(effects, effect::ShowTooltip{ a.target, a.px, a.py });
         },
         [&](const ClearTooltipAction&) { ClearTooltip(state, effects); },
 
@@ -883,17 +923,17 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         // ---- ファイル操作 ----
         [&](const DropFilesAction& a) { ReduceDropFiles(state, effects, a); },
         [&](const ShowHelpAction&) { ReduceShowHelp(state, effects); },
-        [&](const OpenFileAction&) { effects.emplace_back(effect::OpenFileDialog{}); },
-        [&](const ReloadFileAction&) { effects.emplace_back(effect::ReloadFile{}); },
+        [&](const OpenFileAction&) { PushEffect(effects, effect::OpenFileDialog{}); },
+        [&](const ReloadFileAction&) { PushEffect(effects, effect::ReloadFile{}); },
 
         // ---- 非同期・タイマー ----
         [&](const TimerAction& a) { ReduceTimer(state, effects, a); },
-        [&](const FileWatchAction&) { effects.emplace_back(effect::CheckFileChanges{}); },
-        [&](const ImageLoadedAction&) { effects.emplace_back(effect::NotifyImageLoaded{}); },
-        [&](const ParseCompleteAction&) { effects.emplace_back(effect::HandleParseComplete{}); },
+        [&](const FileWatchAction&) { PushEffect(effects, effect::CheckFileChanges{}); },
+        [&](const ImageLoadedAction&) { PushEffect(effects, effect::NotifyImageLoaded{}); },
+        [&](const ParseCompleteAction&) { PushEffect(effects, effect::HandleParseComplete{}); },
 
         // ---- ライフサイクル ----
-        [&](const DestroyAction&) { effects.emplace_back(effect::Destroy{}); },
+        [&](const DestroyAction&) { PushEffect(effects, effect::Destroy{}); },
 
         // ---- 未処理のアクション ----
         [](const auto&) {},
