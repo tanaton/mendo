@@ -17,14 +17,8 @@ public:
     Tooltip(Tooltip&&) noexcept;
     Tooltip& operator=(Tooltip&&) noexcept;
 
-    // 親ウィンドウを受け取り、ツールチップを作成する。
     void Init(HWND parent_hwnd);
-
-    // ホバー対象が変わったらタイマーのリセットが必要かを返す。
-    // screen_x / screen_y: マウスのスクリーン座標（ツールチップ表示位置用）。
-    // 戻り値: タイマーを再設定すべきなら true。
     bool Update(const TooltipTarget& target, int screen_x, int screen_y);
-
     void Show();
     void Hide();
     void ApplyDarkMode(bool dark);

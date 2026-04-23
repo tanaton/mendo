@@ -15,46 +15,23 @@ std::pmr::wstring BuildLatexFlowchartCode(std::wstring_view latex);
 // 同じ UTF-8 コンテンツの Mermaid / LatexMath がキー衝突しないようにする。
 uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept;
 
-// wstringをJavaScript文字列リテラルとして安全に埋め込むためにエスケープする。
 std::pmr::wstring JsEscape(std::wstring_view input);
 
-// FNV-1a 64ビットハッシュ。16文字の16進数wstringとして返す。
 std::pmr::wstring SimpleHash(std::wstring_view input);
 
-// FNV-1a 64ビットハッシュの生の値を返す。
 uint64_t HashRaw(std::wstring_view input) noexcept;
 uint64_t HashRaw(std::string_view input) noexcept;
 
-// 複数の値からキャッシュキーのハッシュを計算する（コード全体のコピーを回避）。
 uint64_t CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode) noexcept;
 uint64_t CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept;
 
-// 論理プロセッサ数からMermaidレンダリング用ワーカー数を計算する。
-// 結果は [2, 4] にクランプされる。
 int ComputeWorkerCount(unsigned int processor_count) noexcept;
-
-// 幅を100px単位に量子化する（ファイルキャッシュのキー用）。
-// 結果は常に100以上の100の倍数。
 int QuantizeWidth(float max_width) noexcept;
-
-// 幅を量子化してからキャッシュキーのハッシュを計算する。
 uint64_t HashCode(std::wstring_view code, float max_width, bool dark_mode) noexcept;
 uint64_t HashCode(std::string_view code, float max_width, bool dark_mode) noexcept;
-
-// 簡易 JSON 数値抽出。key は引用符込み（例: L"\"width\""）で渡す。
-// 見つからない / 末尾到達時は 0.0f を返す。レンダリング結果の JSON 解析用で
-// ネスト・エスケープ・負数記法には対応しない（送り手側が単一オブジェクトを
-// 返す前提）。
 float ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept;
-
-// 簡易 JSON "key":true 判定。キー直後の空白 1 つまでを許容する。
 bool ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept;
 
-// WebView2 からの "<id>" または "<id>:<payload>" 形式のメッセージ本文から
-// 先頭リクエスト ID と残り payload を取り出す。
-// valid: 先頭が有効な符号なし整数でパースできた場合に true
-// has_payload: "<id>:" の区切りコロンが存在した場合に true
-// payload: コロン直後の view（has_payload=false の場合は空）
 struct RequestPrefix {
     unsigned int id = 0;
     std::wstring_view payload;

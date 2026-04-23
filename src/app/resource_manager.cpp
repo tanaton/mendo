@@ -15,10 +15,6 @@
 
 namespace {
 
-// 単調増加する node-index 配列 (GetImageNodeIndices / GetDiagramNodeIndices の戻り値)
-// から [first_visible_node, last_visible_node_plus_1) と交差する部分範囲を
-// 二分探索で切り出す。全件走査 O(total_media) を O(log total_media + visible_media)
-// まで落とすためのヘルパ。
 struct IndexSlice {
     std::pmr::vector<size_t>::const_iterator begin;
     std::pmr::vector<size_t>::const_iterator end;

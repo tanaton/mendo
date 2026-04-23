@@ -37,35 +37,14 @@ public:
         size_t size = 0;
     };
 
-    // キャッシュを初期化し、インデックスをディスクから読み込む。
-    // current_dprが保存済みDPRと異なる場合、キャッシュを全削除する。
     void Init(float current_dpr, TaskScheduler& scheduler);
-
-    // キャッシュされたPNGを検索する。見つかった場合trueを返す。
-    // last_usedタイムスタンプも更新される。
     bool Lookup(uint64_t key, CacheEntry& entry, PngBlob& png);
-
-    // インデックスからCSSサイズのみを取得する（ディスクI/O無し）。
-    // スクロール位置復元時の高さ推定に使用する。
     bool LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept;
-
-    // PNGファイルをバックグラウンドスレッドで非同期に書き出す。
-    // インデックスエントリは即座に追加される。
     void StoreAsync(uint64_t key, float css_width, float css_height, std::vector<uint8_t> png_data);
-
-    // インデックスをディスクに保存する（アプリ終了時に呼び出す）。
     void SaveIndex();
-
-    // すべてのキャッシュファイルとインデックスを削除する。
     void ClearAll();
-
-    // 保留中の書き込みタスクを無効化する。
     void Shutdown();
-
-    // テスト用: キャッシュディレクトリを上書きする。Init()の前に呼び出す。
     void SetCacheDir(const std::filesystem::path& dir);
-
-    // テスト用: エントリ数・サイズ上限を変更する。Init()の前に呼び出す。
     void SetLimits(size_t max_entries, uint64_t max_total_size);
 
     size_t EntryCount() const noexcept { return index_.size(); }
@@ -84,7 +63,7 @@ private:
         float css_height = 0.0f;
         uint32_t png_size = 0;
         int64_t last_used = 0;
-        LruOrder::iterator lru_iter{}; // png_size > 0 なら lru_order_ 内の該当エントリを指す
+        LruOrder::iterator lru_iter{};
     };
 
     std::filesystem::path GetCacheDir() const;
@@ -93,7 +72,6 @@ private:
     std::filesystem::path GetIndexPath() const;
     void LoadIndex();
     void EvictIfNeeded(uint32_t new_png_size);
-    // total_size_ から安全に減算する（アンダーフロー時は 0 にクランプ）
     void DecrementTotalSize(uint32_t png_size) noexcept;
     static int64_t Now() noexcept;
 
@@ -101,9 +79,7 @@ private:
     float stored_dpr_ = 0.0f;
     float current_dpr_ = 0.0f;
 
-    // インデックス: key → エントリメタデータ（最大4096エントリ）
     std::unordered_map<uint64_t, IndexEntry> index_;
-    // LRU順序: last_used → keys（最古エントリは begin() で O(1)）
     LruOrder lru_order_;
     uint64_t total_size_ = 0;
 
@@ -114,9 +90,6 @@ private:
     TaskScheduler* scheduler_ = nullptr;
     std::atomic<uint32_t> write_gen_{ 0 };
 
-    // 書き込み in-flight キーの集合。Lookup が PNG 未着地を stale と
-    // 誤判定して index を消すのを防ぐためのガード。
-    // UI スレッドからもバックグラウンドスレッドからも触るため mutex で保護。
     mutable std::mutex pending_mutex_;
     std::unordered_set<uint64_t> pending_writes_;
 };

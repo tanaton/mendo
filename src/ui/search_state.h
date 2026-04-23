@@ -25,7 +25,7 @@ public:
         current_match_ = -1;
         matches_.clear();
         matches_truncated_ = false;
-        lower_text_buf_ = {};
+        InvalidateLowercaseCache();
     }
     void Reset() noexcept
     {
@@ -33,7 +33,16 @@ public:
         matches_.clear();
         query_.clear();
         matches_truncated_ = false;
-        lower_text_buf_ = {};
+        InvalidateLowercaseCache();
+    }
+
+    // ドキュメントが切り替わった/構造が変わったときに呼ぶ。
+    // 次回 ExecuteSearch 時に lowercase キャッシュが再生成される。
+    void InvalidateLowercaseCache() noexcept
+    {
+        lower_cache_.clear();
+        cached_nodes_ptr_ = nullptr;
+        cached_node_count_ = 0;
     }
 
     const std::pmr::wstring& GetQuery() const noexcept { return query_; }
@@ -53,18 +62,27 @@ public:
     void ExecuteSearch(const std::pmr::vector<Node>& nodes);
     bool NextMatch() noexcept;   // ラップしたらtrueを返す
     bool PrevMatch() noexcept;   // ラップしたらtrueを返す
-
-    // スクロール位置に最も近いマッチを現在マッチとして選択
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
 
 private:
     void FindMatches(std::wstring_view text, const std::pmr::wstring& lower_query, int node_index, int table_row = -1, int table_col = -1);
+    void EnsureLowercaseCache(const std::pmr::vector<Node>& nodes);
 
     static constexpr size_t MAX_MATCHES = 10000;
 
+    // 大文字小文字無視検索の lowercase キャッシュ。
+    // ノード毎に text を lowercase 化した結果を保持する。テーブルノードは
+    // rows[r][c] の2次元配列に格納する（空のノードは空文字列）。
+    struct LowercaseEntry {
+        std::pmr::wstring text;
+        std::pmr::vector<std::pmr::vector<std::pmr::wstring>> table_cells;
+    };
+
     std::pmr::wstring query_;
     std::pmr::vector<SearchMatch> matches_;
-    std::pmr::wstring lower_text_buf_; // 大文字小文字無視検索用の再利用可能バッファ
+    std::pmr::vector<LowercaseEntry> lower_cache_;
+    const Node* cached_nodes_ptr_ = nullptr;
+    size_t cached_node_count_ = 0;
     int current_match_ = -1;
     bool visible_ = false;
     bool case_sensitive_ = false;

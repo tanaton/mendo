@@ -19,8 +19,6 @@ void App::HandleLinkClick(std::wstring_view url)
         NavigateToAnchor(result.target);
         break;
     case LinkClickResult::Type::ExternalUrl: {
-        // reducer を経由せず effect を直接発火する。外部 URL 起動は state 遷移を
-        // 伴わない単発 I/O で、hybrid モデル（reducer.h 参照）の service 経路扱い。
         SideEffectList effects;
         effects.emplace_back(effect::ShellOpen{ result.target });
         effect_executor_.Execute(effects);
@@ -51,6 +49,8 @@ void App::NavigateToAnchor(std::wstring_view anchor)
     UpdateScrollBar();
     InvalidateMdPane(layout.md_rect);
     resource_manager_.ScheduleBitmapManage();
+
+    SyncTocActiveAndAutoScroll();
 }
 
 void App::PushNavHistory()
@@ -83,6 +83,8 @@ void App::FinishThemeOrZoomChange()
     ScheduleDeferredLayoutIfNeeded();
     UpdateScrollBar();
     Invalidate();
+
+    SyncTocActiveAndAutoScroll();
 }
 
 void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)

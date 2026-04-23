@@ -6,16 +6,6 @@
 
 namespace {
 
-// 物理ピクセルをMDペインローカルのDIP座標に変換する。
-struct PaneDip { float x, y; };
-PaneDip ScreenToPaneDip(int screen_x, int screen_y, float dpi_scale, float md_pane_left, float scroll_y) noexcept
-{
-    return {
-        screen_x / dpi_scale - md_pane_left,
-        screen_y / dpi_scale + scroll_y
-    };
-}
-
 // ノードのインデント幅を返す。
 float NodeIndent(const Node& node, const Theme& theme) noexcept
 {
@@ -169,7 +159,7 @@ HitTestService::HitResult HitTestService::HitTest(
         return last_md_hit_.result;
     }
 
-    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
+    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
 
     // dip_yを含むノードを検索
     const auto first = ctx.cache.cbegin();
@@ -279,110 +269,64 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
 {
     assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
     assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
+
     if (ctx.nodes.empty()) {
         return -1;
     }
-
     const uint32_t gen = ctx.cache.GetEffectsGeneration();
     if (last_copy_hit_.Matches(ctx, gen)) {
         return last_copy_hit_.result;
     }
 
-    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
-
     // コピーボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
     const float btn_left_bound = ctx.theme.margin_left + ctx.content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
-    if (dip_x < btn_left_bound) {
+    if (ScreenToPaneDip(ctx).x < btn_left_bound) {
         last_copy_hit_.Store(ctx, gen, -1);
         return -1;
     }
 
-    const float viewport_top = ctx.scroll_y;
-    const float viewport_bottom = ctx.scroll_y + ctx.md_pane_height;
-
-    // 可視範囲のコードブロックを検索
-    const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
-    const int count = static_cast<int>(ctx.nodes.size());
-    for (int i = first; i < count; i++) {
-        if (ctx.cache[i].y_position - ctx.theme.code_block_padding > viewport_bottom) {
-            break;
-        }
-
-        const auto& node = ctx.nodes[i];
-        if (node.type != NodeType::CodeBlock) {
-            continue;
-        }
-        // ダイアグラム系 (Mermaid / LatexMath) はコピーボタン非対応
-        if (IsDiagramLanguage(node.code_language)) {
-            continue;
-        }
-
-        const float indent = NodeIndent(node, ctx.theme);
-        const float x = ctx.theme.margin_left + indent;
-        const float w = ctx.content_width - indent;
-        const float pad = ctx.theme.code_block_padding;
-
-        const float block_right = x + w;
-        const float block_top = ctx.cache[i].y_position - pad;
-
-        const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
-        if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
-            last_copy_hit_.Store(ctx, gen, i);
-            return i;
-        }
-    }
-    last_copy_hit_.Store(ctx, gen, -1);
-    return -1;
+    return HitTestCodeBlockButton(ctx, last_copy_hit_,
+        [&](int /*i*/, const Node& node, const NodeLayoutEntry& entry,
+            float dip_x, float dip_y) noexcept -> bool {
+            // ダイアグラム系 (Mermaid / LatexMath) はコピーボタン非対応
+            if (IsDiagramLanguage(node.code_language)) {
+                return false;
+            }
+            const float indent = NodeIndent(node, ctx.theme);
+            const float x = ctx.theme.margin_left + indent;
+            const float w = ctx.content_width - indent;
+            const float pad = ctx.theme.code_block_padding;
+            const float block_right = x + w;
+            const float block_top = entry.y_position - pad;
+            const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
+            return dip_x >= btn.left && dip_x <= btn.right
+                && dip_y >= btn.top && dip_y <= btn.bottom;
+        });
 }
 
 int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept
 {
     assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
     assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
-    if (ctx.nodes.empty()) {
-        return -1;
-    }
 
-    const uint32_t gen = ctx.cache.GetEffectsGeneration();
-    if (last_save_hit_.Matches(ctx, gen)) {
-        return last_save_hit_.result;
-    }
-
-    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale, ctx.md_pane_left, ctx.scroll_y);
-
-    const float viewport_top = ctx.scroll_y;
-    const float viewport_bottom = ctx.scroll_y + ctx.md_pane_height;
-
-    const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
-    const int count = static_cast<int>(ctx.nodes.size());
-    for (int i = first; i < count; i++) {
-        if (ctx.cache[i].y_position > viewport_bottom) {
-            break;
-        }
-
-        const auto& node = ctx.nodes[i];
-        if (node.type != NodeType::CodeBlock || !IsDiagramLanguage(node.code_language)) {
-            continue;
-        }
-
-        const auto& diagram = ctx.cache.GetDiagram(i);
-        if (!diagram.bitmap) {
-            continue;
-        }
-
-        const float indent = NodeIndent(node, ctx.theme);
-        const float x = ctx.theme.margin_left + indent;
-        const float cw = ctx.content_width - indent;
-
-        const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, ctx.cache[i].y_position);
-        const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top);
-        if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
-            last_save_hit_.Store(ctx, gen, i);
-            return i;
-        }
-    }
-    last_save_hit_.Store(ctx, gen, -1);
-    return -1;
+    return HitTestCodeBlockButton(ctx, last_save_hit_,
+        [&](int i, const Node& node, const NodeLayoutEntry& entry,
+            float dip_x, float dip_y) noexcept -> bool {
+            if (!IsDiagramLanguage(node.code_language)) {
+                return false;
+            }
+            const auto& diagram = ctx.cache.GetDiagram(i);
+            if (!diagram.bitmap) {
+                return false;
+            }
+            const float indent = NodeIndent(node, ctx.theme);
+            const float x = ctx.theme.margin_left + indent;
+            const float cw = ctx.content_width - indent;
+            const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
+            const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top);
+            return dip_x >= btn.left && dip_x <= btn.right
+                && dip_y >= btn.top && dip_y <= btn.bottom;
+        });
 }
 
 NavButtonHover HitTestService::NavButtonHitTest(

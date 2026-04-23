@@ -9,9 +9,6 @@
 
 #pragma comment(lib, "shlwapi.lib")
 
-// ファイルを共有モードでメモリに読み込みIStreamとして返す。
-// CreateDecoderFromFilename はファイルを排他的に開くため、
-// 外部エディタ等がファイルを更新できなくなる問題を回避する。
 static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path)
 {
     auto r = OpenFileForReadShared(
@@ -43,7 +40,7 @@ static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path
     if (FAILED(CreateStreamOnHGlobal(hMem.get(), TRUE, &stream))) {
         return nullptr;
     }
-    hMem.release(); // CreateStreamOnHGlobal(TRUE) が所有権を取得
+    hMem.release();
     return stream;
 }
 

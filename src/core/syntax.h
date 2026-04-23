@@ -17,10 +17,9 @@ enum class SyntaxLanguage : uint8_t {
     Bash,
     PowerShell,
     Cmd,
-    LatexMath    // $$...$$ ブロック。mermaid flowchart にラップして KaTeX 描画する
+    LatexMath
 };
 
-// ビットマップとして描画される（テキストレイアウト・ハイライト・トークナイズ不可）コードブロック言語か。
 constexpr bool IsDiagramLanguage(SyntaxLanguage lang) noexcept
 {
     return lang == SyntaxLanguage::Mermaid || lang == SyntaxLanguage::LatexMath;

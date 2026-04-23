@@ -84,8 +84,6 @@ public:
 
     // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
     // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
-    // Plain な state（タグが一つも立たない）でも applied_ を立て、同じ state 内の
-    // 2文字目以降で Open() を再呼び出ししないようにする。
     constexpr void Open(const InlineState& s, const std::pmr::vector<std::pmr::wstring>& link_urls)
     {
         applied_ = true;
@@ -113,7 +111,6 @@ public:
         }
     }
 
-    // out_.append() は bad_alloc を投げうるため noexcept にはしない。
     constexpr void CloseAll()
     {
         applied_ = false;
@@ -369,9 +366,6 @@ constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cel
     out.append(L";\"");
 }
 
-// テーブルノードは常に <table> 構造で出力する。
-// node.GetText() の線形化テキストはレイアウトパスで初めて埋まるため、
-// ここで start/end による部分選択判定は行わない（全体出力が実用的）。
 void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end,
     bool dark_mode)
 {
@@ -433,8 +427,6 @@ constexpr bool IsListNode(const Node& n) noexcept
     return n.type == NodeType::ListItem || n.type == NodeType::TaskListItem;
 }
 
-// 順序付きリスト内の項目なら true。TaskListItem も親リストに応じて
-// list_number が設定されるため両タイプを対象とする。
 constexpr bool IsOrderedList(const Node& n) noexcept
 {
     return IsListNode(n) && n.list_number > 0;

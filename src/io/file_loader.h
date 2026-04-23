@@ -5,18 +5,16 @@
 #include <expected>
 #include <windows.h>
 
-// ファイル読み込みの最大サイズ（256MB）。FileLoader / ImageLoader で共有。
+// ファイル読み込みの最大サイズ（256MB）。FileLoader / ImageLoader で共有
 inline constexpr LONGLONG MAX_FILE_SIZE = 256LL * 1024 * 1024;
 
-// FileLoader::LoadFile のエラー型。
+// FileLoader::LoadFile のエラー型
 enum class FileLoadError {
     NotFound,    // ファイルが見つからない、またはアクセス拒否
     TooLarge,    // ファイルサイズが MAX_FILE_SIZE を超過
     ReadFailed,  // 読み込み中のI/Oエラー
 };
 
-// FileLoadError に対応するローカライズ済みメッセージを返す。
-// i18n.h に依存しないよう、呼び出し側が Strings を渡す設計。
 inline std::wstring_view FileLoadErrorMessage(FileLoadError e, const auto& strings) noexcept
 {
     switch (e) {
@@ -27,7 +25,7 @@ inline std::wstring_view FileLoadErrorMessage(FileLoadError e, const auto& strin
     }
 }
 
-// ファイル読み込みユーティリティ（静的メソッドのみ）。
+// ファイル読み込みユーティリティ（静的メソッドのみ）
 class FileLoader {
 public:
     static std::expected<std::pmr::string, FileLoadError> LoadFile(const std::pmr::wstring& path);

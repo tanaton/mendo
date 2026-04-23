@@ -256,6 +256,8 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
 
     UpdateTitleBar();
 
+    SyncTocActiveAndAutoScroll();
+
     doc_service_.StartWatching(state_.document.doc.GetFilePath(), [this]() {
         KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
         SetTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS, nullptr);
@@ -387,9 +389,16 @@ void App::FinishReload(bool is_prefix_only, size_t diff_pos)
 
     FinalizeLayout(md_height);
 
-    if (state_.search.search_state.IsVisible() && !state_.search.search_state.GetQuery().empty()) {
-        state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
+    if (state_.search.search_state.IsVisible()) {
+        // PMR プール再利用で (nodes.data(), size) が一致すると古いキャッシュを
+        // 誤用するため、クエリ有無に関わらず明示破棄する。
+        state_.search.search_state.InvalidateLowercaseCache();
+        if (!state_.search.search_state.GetQuery().empty()) {
+            state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
+        }
     }
+
+    SyncTocActiveAndAutoScroll();
 
     doc_service_.ResumeWatching();
 }

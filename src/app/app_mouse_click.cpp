@@ -49,7 +49,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         }
     }
 
-    const auto nav_hit = state_.hit_test.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
+    const auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
     if (nav_hit == NavButtonHover::Back) {
         Dispatch(NavigateBackAction{});
         return;
@@ -66,13 +66,13 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         state_.window.cached_dpi_scale, px, py,
         content_width, pane_layout.md_rect.height
     };
-    const auto copy_node = state_.hit_test.CopyButtonHitTest(hit_ctx);
+    const auto copy_node = hit_test_.CopyButtonHitTest(hit_ctx);
     if (copy_node >= 0) {
         CopyCodeBlockToClipboard(copy_node);
         return;
     }
     // 保存ボタンのクリック判定
-    const auto save_node = state_.hit_test.SaveButtonHitTest(hit_ctx);
+    const auto save_node = hit_test_.SaveButtonHitTest(hit_ctx);
     if (save_node >= 0) {
         SaveDiagramAsPng(save_node);
         return;

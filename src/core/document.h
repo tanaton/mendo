@@ -24,22 +24,11 @@ public:
     const std::pmr::string& GetRawUtf8() const noexcept { return raw_utf8_; }
     std::pmr::wstring GetDirectory() const;
 
-    // ファイルパス設定（LoadMarkdownFile で使用）
     constexpr void SetFilePath(std::wstring_view path) { file_path_ = path; }
-
-    // 内容の差し替え（再パース時）
     void ReplaceContent(ParseResult&& result);
-
-    // Markdown文字列から内容を再パース（パスは保持）
     void ReplaceFromMarkdown(std::pmr::string utf8);
-
-    // アンカーIDに一致する見出しノードのインデックスを O(1) で検索する。
-    // 見つからない場合は -1 を返す。
     int FindAnchorIndex(std::wstring_view anchor) const;
-
-    // 特殊ノードインデックスの高速アクセス
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept { return image_node_indices_; }
-    // Mermaid / LatexMath など IsDiagramLanguage() を満たすコードブロックのノードインデックス
     constexpr const std::pmr::vector<size_t>& GetDiagramNodeIndices() const noexcept { return diagram_node_indices_; }
 
 private:

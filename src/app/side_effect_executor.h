@@ -10,11 +10,8 @@ class ConfigService;
 class LayoutService;
 struct AppState;
 
-// SideEffectExecutor: Reducer が返した副作用リストを実行する。
-// Win32 API 呼び出しは IWin32Host adapter 経由で行い、プラットフォーム依存を隔離する。
 class SideEffectExecutor {
 public:
-    // App のメソッドチェーンに依存する複雑な操作のコールバック
     struct Callbacks {
         std::move_only_function<void(std::wstring_view)> load_file;
         std::move_only_function<void()> reload_file;

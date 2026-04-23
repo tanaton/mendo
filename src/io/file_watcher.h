@@ -5,10 +5,7 @@
 #include <windows.h>
 #include "win_handle.h"
 
-// ReadDirectoryChangesW によるファイル変更監視。
-// 指定ファイルの親ディレクトリを監視し、対象ファイルの変更を検出してコールバックを呼ぶ。
-// 変更検出後はコールバック呼び出しを一時停止し、ResumeWatching() で再開する。
-// 一時停止中も I/O は継続し、追加の変更は蓄積される。
+// ReadDirectoryChangesW によるファイル変更監視
 class FileWatcher {
 public:
     ~FileWatcher();
@@ -22,12 +19,7 @@ public:
     void StopWatching() noexcept;
     void CheckForChanges();
 
-    // 変更検出後に一時停止した監視を再開する。
-    // リロード完了後に呼び出すこと。
     void ResumeWatching();
-
-    // MsgWaitForMultipleObjects に渡す待機ハンドルを返す。
-    // 監視中でなければ nullptr を返す。
     HANDLE GetEventHandle() const noexcept;
 
 private:
@@ -38,7 +30,7 @@ private:
     bool watching_ = false;
 
     UniqueHandle dir_handle_;
-    UniqueEventHandle event_;          // overlapped_.hEvent のオーナー（StartWatching で同期）
+    UniqueEventHandle event_;
     OVERLAPPED overlapped_{};
     alignas(DWORD) char change_buf_[32768]{};
     bool read_pending_ = false;

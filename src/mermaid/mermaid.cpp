@@ -480,9 +480,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         }
     }
 
-    // WebView2未初期化ならキューには追加しない。
-    // on_ready コールバックで RequestMermaidRenders が再度呼ばれるため、
-    // その時点でキャッシュミス分がキューに入る。
+    // WebView2未初期化ならキューには追加しない
     if (!ready_) {
         EnsureInitialized();
         return;

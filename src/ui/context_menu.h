@@ -61,8 +61,7 @@ public:
     // D2D/DWriteファクトリーを受け取り初期化する。Appの初期化時に1回呼ぶ。
     void Init(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory);
 
-    // メニューを表示しユーザーの選択を待つ（モーダル）。
-    // 戻り値: 選択されたコマンドID（IDM_NAV_BACK等）、キャンセル時は0。
+    // メニューを表示しユーザーの選択を待つ（モーダル）
     int Show(HWND owner_hwnd, const ContextMenuParams& params);
 
     // ヒットテスト

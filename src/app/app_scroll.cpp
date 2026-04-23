@@ -3,6 +3,7 @@
 #include "app_events.h"
 #include "pane_layout.h"
 #include "profiler.h"
+#include "toc.h"
 #include <windows.h>
 #include <algorithm>
 
@@ -27,6 +28,48 @@ void App::ScrollTo(float position)
 {
     state_.view.viewport.ScrollTo(position);
     InvalidateHitPositions();
+    SyncTocActiveAndAutoScroll();
+}
+
+void App::SyncTocActiveAndAutoScroll()
+{
+    if (!state_.view.panes.IsTocPaneVisible()) {
+        return;
+    }
+    const auto& layout = GetPaneLayout();
+    const auto& theme = renderer_.GetTheme();
+    const float toc_margin = layout.md_rect.y + theme.heading_spacing_above;
+    const int new_active = state_.document.doc.GetToc().FindActiveIndex(
+        state_.document.layout_cache, state_.view.viewport.GetScrollY(), toc_margin);
+    if (new_active == state_.active_toc_index) {
+        return;
+    }
+    state_.active_toc_index = new_active;
+    renderer_.InvalidateTocPaneCache();
+
+    if (new_active < 0) {
+        return;
+    }
+
+    // アクティブ見出しが目次ペインの表示範囲外なら自動スクロール
+    const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
+    const float total = static_cast<float>(state_.document.doc.GetToc().GetEntries().size()) * theme.pane_item_height;
+    const auto info = ComputePaneScrollInfo(layout.toc_rect, total);
+    auto& toc_scroll = state_.view.panes.TocScroll();
+    toc_scroll.max_scroll = info.max_scroll;
+    float& sy = toc_scroll.scroll_y;
+    sy = std::clamp(sy, 0.0f, info.max_scroll);
+    if (info.content_height > 0.0f) {
+        // フォーカスを表示領域の5等分中、区画2〜4(1/5〜4/5)に留める
+        const float zone_upper = info.content_height * (1.0f / 5.0f);
+        const float zone_lower = info.content_height * (4.0f / 5.0f);
+        if (item_y < sy + zone_upper) {
+            sy = std::clamp(item_y - zone_upper, 0.0f, info.max_scroll);
+        }
+        else if (item_y + theme.pane_item_height > sy + zone_lower) {
+            sy = std::clamp(item_y + theme.pane_item_height - zone_lower, 0.0f, info.max_scroll);
+        }
+    }
 }
 
 void App::InvalidateMdPane(const PaneRect& md_rect)
@@ -35,8 +78,8 @@ void App::InvalidateMdPane(const PaneRect& md_rect)
         Invalidate();
         return;
     }
-    // MDペインはタイトルバーを含む縦ストリップ全体を無効化する
-    InvalidatePane(PaneRect{ md_rect.x, 0.0f, md_rect.width, md_rect.y + md_rect.height });
+    // MDペインは本文領域のみ無効化する。タイトルバーは別途 InvalidateTitleBar() を使う。
+    InvalidatePane(md_rect);
 }
 
 void App::SyncMaxScroll(float md_pane_height)
@@ -92,6 +135,8 @@ void App::OnResizeEnd()
     ScheduleDeferredLayoutIfNeeded();
 
     resource_manager_.ScheduleMermaidBatch();
+
+    SyncTocActiveAndAutoScroll();
 }
 
 void App::RefreshPaneLayout()
@@ -146,6 +191,10 @@ void App::OnDeferredLayout()
 
         UpdateScrollBar();
         Invalidate();
+
+        // 遅延レイアウト確定で layout_cache の y_position が安定したので
+        // 目次アクティブ見出しを再同期する。
+        SyncTocActiveAndAutoScroll();
     }
 }
 

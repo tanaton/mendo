@@ -53,7 +53,8 @@ public:
     constexpr LayoutEngine& GetLayout() noexcept { return layout_; }
     constexpr const Theme& GetTheme() const noexcept { return theme_; }
     void SetTheme(const Theme& theme);
-    void ApplyZoom(float new_zoom);
+    // base theme (zoom=1.0) から再構築して現在 zoom を適用する。
+    // 累積適用による誤差蓄積を避けるため、ズーム変更経路はこの関数に統一する。
     void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
 
     // LayoutEngineのテーマを更新しフォーマットを再作成する。

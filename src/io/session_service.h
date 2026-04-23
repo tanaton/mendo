@@ -4,7 +4,7 @@
 #include <string_view>
 #include <memory_resource>
 
-// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置）の永続化を担当する。
+// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置）の永続化を担当する
 class SessionService {
 public:
     explicit SessionService(ConfigService& config) noexcept : config_(config) {}

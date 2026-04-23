@@ -23,8 +23,6 @@ public:
         generations_.reserve(max_entries);
     }
 
-    // キーに対応する値を検索し、見つかった場合はアクセス世代を更新する。
-    // const 版も世代を更新する（mutable）。
     auto* Find(this auto& self, const Key& key)
     {
         for (size_t i = 0; i < self.size_; i++) {
@@ -36,15 +34,11 @@ public:
         return decltype(&self.values_[0]){ nullptr };
     }
 
-    // キーが存在するかチェック（アクセス世代は更新しない）。
-    // 有効エントリは [0, size_) の範囲に限定する（他メソッドと同じ論理サイズ）。
     bool Contains(const Key& key) const
     {
         return std::ranges::contains(keys_ | std::views::take(size_), key);
     }
 
-    // エントリを挿入する。既存キーの場合は値を上書きしてアクセス世代を更新する。
-    // 容量超過時は最も古いエントリを自動的に破棄する。
     void Insert(const Key& key, Value value)
     {
         if (max_entries_ == 0) {
