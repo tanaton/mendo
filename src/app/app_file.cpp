@@ -389,12 +389,14 @@ void App::FinishReload(bool is_prefix_only, size_t diff_pos)
 
     FinalizeLayout(md_height);
 
-    if (state_.search.search_state.IsVisible() && !state_.search.search_state.GetQuery().empty()) {
+    if (state_.search.search_state.IsVisible()) {
         // ReplaceFromMarkdown でノード列が再構築されたため、SearchState の lowercase
         // キャッシュは内容が無効。ポインタ/サイズ一致では PMR プール再利用時に
-        // 偽のヒットを起こすため、ここで明示的に破棄する。
+        // 偽のヒットを起こすため、クエリが空でもここで明示的に破棄する。
         state_.search.search_state.InvalidateLowercaseCache();
-        state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
+        if (!state_.search.search_state.GetQuery().empty()) {
+            state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
+        }
     }
 
     SyncTocActiveAndAutoScroll();
