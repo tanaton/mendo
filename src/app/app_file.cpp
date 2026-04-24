@@ -36,6 +36,10 @@ void App::LoadHelpDocument()
     state_.file_explorer.SetCurrentFile(L"");
 
     // ビューポート優先レイアウト + 遅延処理
+    // 旧ドキュメントで合成された scroll_target は直後の ViewportLayout →
+    // ApplyScrollTarget で旧ノード位置から scroll_y を再評価してしまうため、
+    // SetScrollY(0) より前に破棄する必要がある。
+    state_.view.viewport.ClearScrollTarget();
     state_.view.viewport.SetScrollY(0.0f);
     {
         const auto pane_layout = GetPaneLayout();
