@@ -27,7 +27,7 @@ public:
         std::move_only_function<void(int, int)> focus_set_selection; // anchor,caret指定でフォーカス
         std::move_only_function<void()> unfocus;                     // フォーカス解除
         std::move_only_function<float()> get_md_pane_height;         // Markdownペイン高さ取得
-        std::move_only_function<void(float)> on_scroll_changed;      // スクロール変更後処理(visible_h)
+        std::move_only_function<void(float)> on_scroll_changed;      // スクロール変更後処理(md_pane_height)
     };
 
     // タイマーID（App::HandleTimerでのルーティング用）

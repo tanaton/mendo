@@ -217,8 +217,8 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
         .get_md_pane_height = [this]() -> float {
             return GetPaneLayout().md_rect.height;
         },
-        .on_scroll_changed = [this](float visible_h) {
-            EmitEffect(effect::SyncMaxScroll{ visible_h });
+        .on_scroll_changed = [this](float md_pane_height) {
+            EmitEffect(effect::SyncMaxScroll{ md_pane_height });
             InvalidateHitPositions();
             // Why: 検索ヒット移動で可視化されたmermaid/画像の描画要求を出す (issue #102)
             resource_manager_.ScheduleBitmapManage();

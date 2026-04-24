@@ -181,9 +181,9 @@ void SearchBarController::ScrollToCurrentMatch()
     }
 
     const auto& entry = (*cache_)[match.node_index];
-    // Why: 長いテーブルがウィンドウより縦長の場合、ブロック先頭に合わせるとヒット行が画面外になる (issue #97)
-    const float match_y = entry.GetTableRowY(match.table_row);
-    const float match_h = entry.GetTableRowHeight(match.table_row);
+    // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
+    //      「次へ」を押してもスクロールしない。match.start を使って行単位の Y を出す。
+    const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start);
     const float md_pane_height = cb_.get_md_pane_height();
     const float visible_height = md_pane_height
         - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
@@ -193,8 +193,11 @@ void SearchBarController::ScrollToCurrentMatch()
     // マッチが可視範囲外の場合のみスクロール
     if (match_y < scroll_y || match_y + match_h > effective_bottom) {
         const float target = std::max(0.0f, match_y - visible_height / 3.0f);
-        viewport_->SetScrollY(target);
-        cb_.on_scroll_changed(visible_height);
+        // Why: ScrollTo は scroll_target_ を無効化してくれる。SetScrollY のままだと、
+        //      直後のレイアウト変化 (Mermaid 読込等) で古い scroll_target から再計算されて
+        //      検索ジャンプが上書きされる恐れがある。
+        viewport_->ScrollTo(target);
+        cb_.on_scroll_changed(md_pane_height);
     }
 }
 

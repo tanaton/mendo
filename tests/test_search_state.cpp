@@ -3,32 +3,6 @@
 #include "test_helpers.h"
 #include <memory_resource>
 
-// ヘルパー: テキストを持つ単純なNodeを作成
-static Node MakeTextNode(const wchar_t* text)
-{
-    Node n;
-    n.type = NodeType::Paragraph;
-    n.SetText(text);
-    return n;
-}
-
-// ヘルパー: テーブルノードを作成（1行2列）
-static Node MakeTableNode(const wchar_t* cell0, const wchar_t* cell1)
-{
-    Node n;
-    n.type = NodeType::Table;
-    n.ensure_table();
-    TableRow row;
-    TableCell c0;
-    c0.text.assign(cell0);
-    row.cells.push_back(std::move(c0));
-    TableCell c1;
-    c1.text.assign(cell1);
-    row.cells.push_back(std::move(c1));
-    n.table_data->rows.push_back(std::move(row));
-    return n;
-}
-
 // ═══════════════════════════════════════════════
 // 表示/非表示の基本操作
 // ═══════════════════════════════════════════════

@@ -4,6 +4,7 @@
 #include "viewport_manager.h"
 #include "layout_cache.h"
 #include "renderer.h"
+#include "test_helpers.h"
 
 // コールバック呼び出しを記録するテストフィクスチャ
 class SearchBarControllerTest : public ::testing::Test {
@@ -34,17 +35,12 @@ protected:
                 last_sel_caret_ = c;
             },
             .unfocus = [this]() { unfocus_count_++; },
-            .get_md_pane_height = []() -> float { return 800.0f; },
-            .on_scroll_changed = [](float) {},
+            .get_md_pane_height = [this]() -> float { return md_pane_height_; },
+            .on_scroll_changed = [this](float v) {
+                last_scroll_changed_value_ = v;
+                on_scroll_changed_count_++;
+            },
         };
-    }
-
-    Node MakeTextNode(const wchar_t* text)
-    {
-        Node n;
-        n.type = NodeType::Paragraph;
-        n.SetText(text);
-        return n;
     }
 
     SearchState state_;
@@ -64,6 +60,9 @@ protected:
     int last_caret_pos_ = -1;
     int last_sel_anchor_ = -1;
     int last_sel_caret_ = -1;
+    float md_pane_height_ = 800.0f;
+    float last_scroll_changed_value_ = -1.0f;
+    int on_scroll_changed_count_ = 0;
 };
 
 // ═══════════════════════════════════════════════
@@ -310,4 +309,124 @@ TEST_F(SearchBarControllerTest, BuildRenderStateReflectsState)
     EXPECT_TRUE(rs.has_focus);
     const int matches = rs.total_matches;
     EXPECT_GE(matches, 1);
+}
+
+// ═══════════════════════════════════════════════
+// ScrollToCurrentMatch の挙動
+// ═══════════════════════════════════════════════
+
+// scroll_target_ がジャンプでクリアされることを保証する。
+// Why: クリアされないと後続の ApplyScrollTarget で検索ジャンプが上書きされる (検索ジャンプ修正)。
+TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode(L"hello"));
+    nodes.push_back(MakeTextNode(L"world hello"));
+
+    cache_.Resize(2);
+    cache_[0].y_position = 0.0f;
+    cache_[0].height = 500.0f;
+    cache_[1].y_position = 500.0f;
+    cache_[1].height = 500.0f;
+
+    viewport_.SyncMaxScroll(1000.0f, 800.0f);
+    viewport_.SetScrollTarget(0, 0.0f);
+    EXPECT_TRUE(viewport_.HasScrollTarget());
+
+    state_.Show();
+    ctrl_.OnTextChanged(L"hello", nodes);
+    ctrl_.OnNext();
+
+    EXPECT_FALSE(viewport_.HasScrollTarget());
+}
+
+// on_scroll_changed には md_rect 全体の高さを渡す。SEARCH_BAR_HEIGHT を引いた値を渡すと
+// 他箇所（SyncMaxScroll）との viewport_height の意味論がブレる。
+TEST_F(SearchBarControllerTest, ScrollToMatchPassesMdPaneHeightToCallback)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode(L"a"));
+    nodes.push_back(MakeTextNode(L"target"));
+
+    cache_.Resize(2);
+    cache_[0].y_position = 0.0f;
+    cache_[0].height = 1000.0f;
+    cache_[1].y_position = 1000.0f;
+    cache_[1].height = 1000.0f;
+
+    viewport_.SyncMaxScroll(2000.0f, md_pane_height_);
+    state_.Show();
+    ctrl_.OnTextChanged(L"target", nodes);
+    on_scroll_changed_count_ = 0;
+    last_scroll_changed_value_ = -1.0f;
+    ctrl_.OnNext();
+
+    ASSERT_GE(on_scroll_changed_count_, 1);
+    EXPECT_FLOAT_EQ(last_scroll_changed_value_, md_pane_height_);
+}
+
+// 同一ノード内でテーブル複数行のマッチを連続で「次へ」したとき、行ごとに scroll_y が進むこと。
+// Why: 行毎の精密な Y が使われず block 先頭に丸まると、複数マッチ間でスクロールが進まない。
+TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
+{
+    Node table;
+    table.type = NodeType::Table;
+    table.ensure_table();
+    for (int r = 0; r < 5; r++) {
+        TableRow row;
+        TableCell c;
+        c.text.assign(L"hit");
+        row.cells.push_back(std::move(c));
+        table.table_data->rows.push_back(std::move(row));
+    }
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(std::move(table));
+
+    cache_.Resize(1);
+    cache_[0].y_position = 0.0f;
+    cache_[0].height = 2000.0f;
+    auto& tl = cache_[0].ensure_table_layout();
+    tl.col_count = 1;
+    tl.row_heights = {400.0f, 400.0f, 400.0f, 400.0f, 400.0f};
+    tl.row_cum_y = {0.0f, 400.0f, 800.0f, 1200.0f, 1600.0f, 2000.0f};
+
+    md_pane_height_ = 600.0f;
+    viewport_.SyncMaxScroll(2000.0f, md_pane_height_);
+
+    state_.Show();
+    ctrl_.OnTextChanged(L"hit", nodes);
+
+    float prev_scroll = viewport_.GetScrollY();
+    int advanced = 0;
+    for (int i = 0; i < 4; i++) {
+        ctrl_.OnNext();
+        const float now = viewport_.GetScrollY();
+        if (now > prev_scroll) {
+            advanced++;
+        }
+        prev_scroll = now;
+    }
+    EXPECT_GE(advanced, 1)
+        << "行ごとに異なる Y に到達でき、最低1回はスクロールが進むこと";
+}
+
+// 現在位置が既に可視範囲内ならスクロールしない（余計な再描画を避ける）。
+TEST_F(SearchBarControllerTest, ScrollToMatchNoOpWhenAlreadyVisible)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode(L"hello"));
+
+    cache_.Resize(1);
+    cache_[0].y_position = 100.0f;
+    cache_[0].height = 50.0f;
+
+    viewport_.SyncMaxScroll(1000.0f, md_pane_height_);
+    state_.Show();
+    ctrl_.OnTextChanged(L"hello", nodes);
+
+    on_scroll_changed_count_ = 0;
+    const float before = viewport_.GetScrollY();
+    ctrl_.OnNext();
+    EXPECT_FLOAT_EQ(viewport_.GetScrollY(), before);
+    EXPECT_EQ(on_scroll_changed_count_, 0);
 }
