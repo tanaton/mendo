@@ -1,6 +1,7 @@
 #include "image_loader.h"
 #include "file_io.h"
 #include "file_loader.h"
+#include "stream_util.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "wic_util.h"
@@ -18,30 +19,7 @@ static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path
         return nullptr;
     }
 
-    const auto alloc_size = static_cast<SIZE_T>(r.size);
-    UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, alloc_size) };
-    if (!hMem) {
-        return nullptr;
-    }
-
-    void* ptr = GlobalLock(hMem.get());
-    if (!ptr) {
-        return nullptr;
-    }
-    DWORD bytesRead = 0;
-    const BOOL ok = ReadFile(r.handle.get(), ptr, static_cast<DWORD>(alloc_size), &bytesRead, nullptr);
-    GlobalUnlock(hMem.get());
-
-    if (!ok || bytesRead != alloc_size) {
-        return nullptr;
-    }
-
-    Microsoft::WRL::ComPtr<IStream> stream;
-    if (FAILED(CreateStreamOnHGlobal(hMem.get(), TRUE, &stream))) {
-        return nullptr;
-    }
-    hMem.release();
-    return stream;
+    return stream_util::CreateMemoryStreamFromFile(r.handle.get(), r.size);
 }
 
 

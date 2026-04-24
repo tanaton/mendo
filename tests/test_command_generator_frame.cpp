@@ -195,7 +195,7 @@ TEST_F(CmdGenFrameTest, SetSearchMatchesWithNullIsSafe)
 {
     Parse("Hello world");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
-    gen_.SetSearchMatches(nullptr, -1);
+    gen_.SetSearchMatches(nullptr, -1, 0);
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
     EXPECT_FALSE(cmds.empty());
 }
@@ -205,7 +205,7 @@ TEST_F(CmdGenFrameTest, SetSearchMatchesWithEmptyProducesNoHighlight)
     Parse("Hello world");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     std::pmr::vector<SearchMatch> matches;
-    gen_.SetSearchMatches(&matches, -1);
+    gen_.SetSearchMatches(&matches, -1, 1);
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
     // マッチ空のため FillRectCmd は選択ハイライト経路以外は生成されない
     // (paragraph text_layout=null なので選択経路も走らない)

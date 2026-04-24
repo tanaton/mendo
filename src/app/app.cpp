@@ -195,10 +195,12 @@ void App::OnPaint()
     else {
         // 検索マッチ情報をコマンドジェネレータに設定
         if (state_.search.search_state.IsVisible() && state_.search.search_state.IsHighlightEnabled() && !state_.search.search_state.GetMatches().empty()) {
-            renderer_.SetSearchMatches(&state_.search.search_state.GetMatches(), state_.search.search_state.GetCurrentMatchIndex());
+            renderer_.SetSearchMatches(&state_.search.search_state.GetMatches(),
+                state_.search.search_state.GetCurrentMatchIndex(),
+                state_.search.search_state.GetGeneration());
         }
         else {
-            renderer_.SetSearchMatches(nullptr, -1);
+            renderer_.SetSearchMatches(nullptr, -1, 0);
         }
 
         // 描画前パス: 可視ノードに描画エフェクトを適用（Render の前に実行）

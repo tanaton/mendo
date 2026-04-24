@@ -16,9 +16,7 @@ void SearchState::SetQuery(std::wstring_view query)
 
 void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
 {
-    matches_.clear();
-    current_match_ = -1;
-    matches_truncated_ = false;
+    ClearMatches();
 
     if (query_.empty()) {
         return;
@@ -35,15 +33,15 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     }
 
     const auto node_count = static_cast<int>(nodes.size());
-    for (int i = 0; i < node_count; i++) {
+    for (int i = 0; i < node_count && matches_.size() < MAX_MATCHES; i++) {
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
             const auto& rows = node.table_rows();
             const auto row_count = static_cast<int>(rows.size());
-            for (int r = 0; r < row_count; r++) {
+            for (int r = 0; r < row_count && matches_.size() < MAX_MATCHES; r++) {
                 const auto& cells = rows[r].cells;
                 const auto col_count = static_cast<int>(cells.size());
-                for (int c = 0; c < col_count; c++) {
+                for (int c = 0; c < col_count && matches_.size() < MAX_MATCHES; c++) {
                     if (!cells[c].text.empty()) {
                         FindMatches(cells[c].text, lower_query, i, r, c);
                     }

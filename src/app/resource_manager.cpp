@@ -113,22 +113,24 @@ int ResourceManager::ApplyCachedImages()
             continue;
         }
 
-        // 解決済みパスのキャッシュを確認し、ディスクI/Oを回避
+        // 解決済みパスのキャッシュを確認し、再計算を回避
         auto [path_it, inserted] = resolved_image_paths_.try_emplace(i);
         auto& abs_str = std::get<1>(*path_it);
         if (inserted) {
+            // canonical() は symlink 解決のためにファイルシステムを叩くので、
+            // UI 同期パスから外すため absolute() + lexically_normal() を使う。
+            // 画像参照が symlink を跨ぐのはレアケースとして許容する。
             std::filesystem::path img_path(node.image_data->src);
             if (img_path.is_relative()) {
                 img_path = std::filesystem::path(doc_dir) / img_path;
             }
-
             std::error_code ec;
-            const auto abs_path = std::filesystem::canonical(img_path, ec);
+            auto abs_path = std::filesystem::absolute(img_path, ec);
             if (ec) {
                 resolved_image_paths_.erase(i);
                 continue;
             }
-            abs_str = abs_path.wstring();
+            abs_str = abs_path.lexically_normal().wstring();
         }
 
         if (image_loader_->GetCachedImage(abs_str, diagram)) {
@@ -378,6 +380,7 @@ void ResourceManager::EvictOffscreenBitmaps()
         entry.inline_code_bgs.clear();
         entry.table_layout.reset();
         entry.layout_dirty = true;
+        entry.invalidate_search_hl_cache();
     };
 
     for (size_t i = 0; i < static_cast<size_t>(first_keep); i++) {

@@ -65,9 +65,9 @@ public:
     void SetDeviceLostCallback(std::move_only_function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
 
     int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const;
-    void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index) noexcept
+    void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index, uint32_t generation) noexcept
     {
-        cmd_generator_.SetSearchMatches(matches, current_index);
+        cmd_generator_.SetSearchMatches(matches, current_index, generation);
     }
 
     constexpr void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }

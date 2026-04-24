@@ -2,6 +2,7 @@
 #include "config_store.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_util.h"
+#include "stream_util.h"
 #include "utility.h"
 #include "wic_util.h"
 #include "resource.h"
@@ -10,47 +11,6 @@
 #include <functional>
 
 #pragma comment(lib, "windowscodecs.lib")
-
-static std::vector<uint8_t> ReadAllStreamBytes(IStream* stream)
-{
-    if (!stream) {
-        return {};
-    }
-
-    STATSTG stat{};
-    if (FAILED(stream->Stat(&stat, STATFLAG_NONAME))) {
-        return {};
-    }
-
-    const auto size = static_cast<size_t>(stat.cbSize.QuadPart);
-    if (size == 0) {
-        return {};
-    }
-
-    const LARGE_INTEGER zero{};
-    stream->Seek(zero, STREAM_SEEK_SET, nullptr);
-
-    std::vector<uint8_t> data(size);
-    ULONG read = 0;
-    stream->Read(data.data(), static_cast<ULONG>(size), &read);
-    data.resize(read);
-    return data;
-}
-
-static Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size_t size)
-{
-    Microsoft::WRL::ComPtr<IStream> stream;
-    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream) {
-        return nullptr;
-    }
-    if (size > 0 && data) {
-        ULONG written = 0;
-        stream->Write(data, static_cast<ULONG>(size), &written);
-        const LARGE_INTEGER zero{};
-        stream->Seek(zero, STREAM_SEEK_SET, nullptr);
-    }
-    return stream;
-}
 
 static std::pmr::wstring GetWebView2UserDataFolder()
 {
@@ -219,7 +179,10 @@ void MermaidRenderer::SetupWorker(int index)
 
         auto& w = workers_[index];
         w.controller = controller;
-        controller->get_CoreWebView2(&w.webview);
+        if (FAILED(controller->get_CoreWebView2(&w.webview)) || !w.webview) {
+            w.controller.Reset();
+            return S_OK;
+        }
 
         const RECT bounds = { 0, 0, 4096, 4096 };
         controller->put_Bounds(bounds);
@@ -361,7 +324,7 @@ void MermaidRenderer::SetupWorker(int index)
                 return S_OK;
             }
 
-            const auto stream = CreateMemoryStream(payload.data(), payload.size());
+            const auto stream = stream_util::CreateMemoryStream(payload.data(), payload.size());
             if (stream) {
                 Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
                 webview_env_->CreateWebResourceResponse(stream.Get(), 200, L"OK", headers, &response);
@@ -435,7 +398,7 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
         MermaidFileCache::CacheEntry fentry;
         MermaidFileCache::PngBlob png;
         if (file_cache_->Lookup(hash, fentry, png)) {
-            auto stream = CreateMemoryStream(png.data.get(), png.size);
+            auto stream = stream_util::CreateMemoryStream(png.data.get(), png.size);
             if (stream) {
                 Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
                 float bw = 0, bh = 0;
@@ -627,8 +590,11 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
     // CapturePreviewコールバックでもリクエストIDを照合し、
     // CancelPending後に到着した古いキャプチャ結果を無視する
     const unsigned int req_id = w.current_request.request_id;
-    Microsoft::WRL::ComPtr<IStream> pngStream;
-    CreateStreamOnHGlobal(nullptr, TRUE, &pngStream);
+    auto pngStream = stream_util::CreateMemoryStream(nullptr, 0);
+    if (!pngStream) {
+        FinishWorkerRequest(w);
+        return;
+    }
 
     const HRESULT hr = w.webview->CapturePreview(
         COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
@@ -685,7 +651,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
 
         if (file_cache_ && w.current_request.node) {
             const uint64_t fkey = mermaid_util::NodeDiagramHash(*w.current_request.node, w.current_request.max_width, w.current_request.dark_mode);
-            auto png_bytes = ReadAllStreamBytes(png_stream);
+            auto png_bytes = stream_util::ReadAllBytes(png_stream);
             if (!png_bytes.empty()) {
                 file_cache_->StoreAsync(fkey, draw_w, draw_h, std::move(png_bytes));
             }
