@@ -71,12 +71,16 @@ private:
 
     // マッチ一覧と関連する世代カウンタ・トランケーションフラグを同時にリセットする。
     // これらは常に一緒に更新しないとキャッシュ有効性判定が壊れるためヘルパに集約している。
+    // 0 は search_hl_gen の未初期化センチネルなので、32bit ラップアラウンドで 0 に
+    // 戻るケースだけはスキップして必ず非ゼロを維持する。
     void ClearMatches() noexcept
     {
         matches_.clear();
         current_match_ = -1;
         matches_truncated_ = false;
-        ++generation_;
+        if (++generation_ == 0) {
+            generation_ = 1;
+        }
     }
 
     static constexpr size_t MAX_MATCHES = 10000;

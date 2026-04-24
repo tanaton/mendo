@@ -44,17 +44,23 @@ inline std::vector<uint8_t> ReadAllBytes(IStream* stream)
 }
 
 // HGLOBAL 上のメモリストリームを作成し、与えられたバイト列を書き込んで先頭に巻き戻す。
-// data == nullptr / size == 0 でも空ストリームを返す。
+// size == 0 は空ストリームを要求する正当なユースケース（WebView2 CapturePreview の
+// 書き込み先バッファ用途）として許容するが、size > 0 && data == nullptr は呼び出し
+// 側バグなので nullptr を返して失敗させる。
 inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size_t size)
 {
+    if (size > 0 && !data) {
+        return nullptr;
+    }
+    if (size > ULONG_MAX) {
+        return nullptr;
+    }
+
     Microsoft::WRL::ComPtr<IStream> stream;
     if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream) {
         return nullptr;
     }
-    if (size > 0 && data) {
-        if (size > ULONG_MAX) {
-            return nullptr;
-        }
+    if (size > 0) {
         ULONG written = 0;
         if (FAILED(stream->Write(data, static_cast<ULONG>(size), &written)) || written != size) {
             return nullptr;
