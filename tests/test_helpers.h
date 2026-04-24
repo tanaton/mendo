@@ -5,8 +5,36 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <windows.h>
+#include "document_types.h"
 #include "layout_cache.h"
+
+// テキスト持ちの Paragraph ノードを作るテスト用ヘルパー。
+inline Node MakeTextNode(const wchar_t* text)
+{
+    Node n;
+    n.type = NodeType::Paragraph;
+    n.SetText(text);
+    return n;
+}
+
+// 1行2列のテーブルノードを作るテスト用ヘルパー。
+inline Node MakeTableNode(const wchar_t* cell0, const wchar_t* cell1)
+{
+    Node n;
+    n.type = NodeType::Table;
+    n.ensure_table();
+    TableRow row;
+    TableCell c0;
+    c0.text.assign(cell0);
+    row.cells.push_back(std::move(c0));
+    TableCell c1;
+    c1.text.assign(cell1);
+    row.cells.push_back(std::move(c1));
+    n.table_data->rows.push_back(std::move(row));
+    return n;
+}
 
 // 等間隔ノードの LayoutCache を構築するテスト用ヘルパー。
 // 複数テストファイルで共通して使用される。

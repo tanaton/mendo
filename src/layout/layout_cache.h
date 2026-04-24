@@ -60,29 +60,40 @@ struct NodeLayoutEntry {
     }
     bool has_table_layout() const noexcept { return table_layout != nullptr; }
 
-    // table_row に対応する絶対 Y。行情報が無ければ y_position にフォールバックする。
+    // マッチの絶対 Y とその行の高さを返す。text_layout（テーブルはセル layout）が
+    // あれば text_offset に対応する行 Y を精密に計算し、無ければ
+    // ブロック先頭/テーブル行先頭の座標にフォールバックする。
+    // Why: 長い段落内の複数マッチで同じブロック先頭 Y に丸まると「次へ」でスクロールしない。
     // row_cum_y は row_count+1 要素（末尾は合計高さ）なので、行として有効なのは [0, row_heights.size()) のみ。
-    float GetTableRowY(int table_row) const noexcept
+    std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset) const noexcept
     {
+        IDWriteTextLayout* layout = nullptr;
+        float base_y = y_position;
+        float fallback_h = height;
+
         if (table_row >= 0 && has_table_layout()) {
             const auto row = static_cast<size_t>(table_row);
             if (row < table_layout->row_heights.size() && row < table_layout->row_cum_y.size()) {
-                return y_position + table_layout->row_cum_y[row];
+                base_y = y_position + table_layout->row_cum_y[row];
+                fallback_h = table_layout->row_heights[row];
+            }
+            if (table_col >= 0) {
+                layout = table_layout->GetCellLayout(row, static_cast<size_t>(table_col));
             }
         }
-        return y_position;
-    }
+        else {
+            layout = text_layout.Get();
+        }
 
-    // table_row の高さ。行情報が無ければエントリ全体の高さにフォールバックする。
-    float GetTableRowHeight(int table_row) const noexcept
-    {
-        if (table_row >= 0 && has_table_layout()) {
-            const auto row = static_cast<size_t>(table_row);
-            if (row < table_layout->row_heights.size()) {
-                return table_layout->row_heights[row];
+        if (layout != nullptr) {
+            FLOAT px = 0.0f, py = 0.0f;
+            DWRITE_HIT_TEST_METRICS htm{};
+            if (SUCCEEDED(layout->HitTestTextPosition(text_offset, FALSE, &px, &py, &htm))) {
+                const float line_h = (htm.height > 0.0f) ? htm.height : fallback_h;
+                return { base_y + py, line_h };
             }
         }
-        return height;
+        return { base_y, fallback_h };
     }
 };
 
