@@ -7,32 +7,20 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         // ブラシは RT 付随リソースなので、RT 切替・デバイス再作成では破棄する
         brush_pool_.clear();
         bound_rt_ = rt;
-        last_key_ = 0xFFFFFFFFu;
-        last_brush_ = nullptr;
     }
     const uint32_t key = command_executor_internal::PackColor(color);
-    if (key == last_key_ && last_brush_) {
-        return last_brush_;
-    }
     if (const auto it = brush_pool_.find(key); it != brush_pool_.end()) {
-        last_key_ = key;
-        last_brush_ = it->second.Get();
-        return last_brush_;
+        return it->second.Get();
     }
     if (brush_pool_.size() >= MAX_POOLED_BRUSHES) {
-        // clear で既存ブラシを破棄するので、直近キャッシュもダングリング防止に無効化
         brush_pool_.clear();
-        last_key_ = 0xFFFFFFFFu;
-        last_brush_ = nullptr;
     }
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
     if (FAILED(rt->CreateSolidColorBrush(color, &brush)) || !brush) {
         return nullptr;
     }
     auto [it, _] = brush_pool_.emplace(key, std::move(brush));
-    last_key_ = key;
-    last_brush_ = it->second.Get();
-    return last_brush_;
+    return it->second.Get();
 }
 
 void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt)
