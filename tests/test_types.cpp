@@ -312,9 +312,13 @@ TEST(NodeTest, ConvertsUtf8ToWide)
 {
     Node node;
     node.text_utf8 = "Explicit conversion";
-    EXPECT_TRUE(node.HasText());
+    // HasText は text_（Wide）のみを判定するため、変換前はまだ false。
+    EXPECT_FALSE(node.HasText());
     node.ConvertTextFromUtf8();
     EXPECT_EQ(node.GetText(), L"Explicit conversion");
+    // 変換後は text_utf8 が解放され、HasText が text_ で true になる。
+    EXPECT_TRUE(node.text_utf8.empty());
+    EXPECT_TRUE(node.HasText());
 }
 
 TEST(NodeTest, ConvertsJapaneseUtf8ToWide)
@@ -395,15 +399,38 @@ TEST(NodeTest, SyntaxTokensMutCreatesCodeData)
     EXPECT_TRUE(tokens.empty());
 }
 
-TEST(NodeTest, CodeBlockPreservesUtf8AfterConversion)
+TEST(NodeTest, MermaidCodeBlockReleasesUtf8AfterConversion)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.text_utf8 = "code content";
+    node.code_language = SyntaxLanguage::Mermaid;
+    node.text_utf8 = "graph TD;A-->B";
     node.ConvertTextFromUtf8();
-    // CodeBlock は Mermaidハッシュ計算で text_utf8 を直接参照するため保持する
-    EXPECT_FALSE(node.text_utf8.empty());
-    EXPECT_EQ(node.GetText(), L"code content");
+    // ハッシュ計算が GetText() ベースになったため、diagram 系 CodeBlock も text_utf8 を解放する
+    EXPECT_TRUE(node.text_utf8.empty());
+    EXPECT_EQ(node.GetText(), L"graph TD;A-->B");
+}
+
+TEST(NodeTest, LatexMathCodeBlockReleasesUtf8AfterConversion)
+{
+    Node node;
+    node.type = NodeType::CodeBlock;
+    node.code_language = SyntaxLanguage::LatexMath;
+    node.text_utf8 = "E = mc^2";
+    node.ConvertTextFromUtf8();
+    EXPECT_TRUE(node.text_utf8.empty());
+    EXPECT_EQ(node.GetText(), L"E = mc^2");
+}
+
+TEST(NodeTest, NonDiagramCodeBlockReleasesUtf8AfterConversion)
+{
+    Node node;
+    node.type = NodeType::CodeBlock;
+    node.code_language = SyntaxLanguage::Cpp;
+    node.text_utf8 = "int main() { return 0; }";
+    node.ConvertTextFromUtf8();
+    EXPECT_TRUE(node.text_utf8.empty());
+    EXPECT_EQ(node.GetText(), L"int main() { return 0; }");
 }
 
 TEST(NodeTest, ParagraphReleasesUtf8AfterConversion)
@@ -412,7 +439,6 @@ TEST(NodeTest, ParagraphReleasesUtf8AfterConversion)
     node.type = NodeType::Paragraph;
     node.text_utf8 = "paragraph content";
     node.ConvertTextFromUtf8();
-    // Paragraph 等は変換後に text_utf8 を解放する
     EXPECT_TRUE(node.text_utf8.empty());
     EXPECT_EQ(node.GetText(), L"paragraph content");
 }

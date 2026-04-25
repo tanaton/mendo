@@ -1,25 +1,6 @@
 #include "command_executor.h"
 #include "utility.h"
 
-namespace {
-
-// D2D1_COLOR_F を 8bit RGBA にパックしたキー。テーマ色は 8bit 精度で作られているため十分。
-constexpr uint32_t PackColor(D2D1_COLOR_F c) noexcept
-{
-    const auto quant = [](float v) noexcept -> uint32_t {
-        if (v <= 0.0f) {
-            return 0;
-        }
-        if (v >= 1.0f) {
-            return 255;
-        }
-        return static_cast<uint32_t>(v * 255.0f + 0.5f);
-    };
-    return (quant(c.r) << 24) | (quant(c.g) << 16) | (quant(c.b) << 8) | quant(c.a);
-}
-
-} // namespace
-
 ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color)
 {
     if (rt != bound_rt_) {
@@ -29,7 +10,7 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         last_key_ = 0xFFFFFFFFu;
         last_brush_ = nullptr;
     }
-    const uint32_t key = PackColor(color);
+    const uint32_t key = command_executor_internal::PackColor(color);
     if (key == last_key_ && last_brush_) {
         return last_brush_;
     }

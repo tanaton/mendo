@@ -874,7 +874,7 @@ TEST(Parser, LatexDisplayMathSingleLinePromotedToCodeBlock)
     ASSERT_EQ(result.nodes.size(), 1u);
     EXPECT_EQ(result.nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
-    EXPECT_EQ(result.nodes[0].text_utf8, "E = mc^2");
+    EXPECT_EQ(result.nodes[0].GetText(), L"E = mc^2");
     // diagram_indices に登録される（描画パイプラインに流すため）
     ASSERT_EQ(result.diagram_indices.size(), 1u);
     EXPECT_EQ(result.diagram_indices[0], 0u);
@@ -941,8 +941,8 @@ TEST(Parser, LatexDisplayMathMultiline)
     EXPECT_EQ(result.nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
     // 中身に 'E = mc^2' が含まれること（md4c の改行扱いに依存するが、式本体は保持される）
-    const auto& body = result.nodes[0].text_utf8;
-    EXPECT_NE(body.find("E = mc^2"), std::string::npos);
+    const auto& body = result.nodes[0].GetText();
+    EXPECT_NE(body.find(L"E = mc^2"), std::wstring::npos);
 }
 
 TEST(Parser, LatexDisplayMathSurroundingParagraphs)
@@ -953,7 +953,7 @@ TEST(Parser, LatexDisplayMathSurroundingParagraphs)
     EXPECT_EQ(result.nodes[0].type, NodeType::Paragraph);
     EXPECT_EQ(result.nodes[1].type, NodeType::CodeBlock);
     EXPECT_EQ(result.nodes[1].code_language, SyntaxLanguage::LatexMath);
-    EXPECT_EQ(result.nodes[1].text_utf8, "E=mc^2");
+    EXPECT_EQ(result.nodes[1].GetText(), L"E=mc^2");
     EXPECT_EQ(result.nodes[2].type, NodeType::Paragraph);
     ASSERT_EQ(result.diagram_indices.size(), 1u);
     EXPECT_EQ(result.diagram_indices[0], 1u);

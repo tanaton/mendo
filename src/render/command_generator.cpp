@@ -605,16 +605,6 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
         }
     }
 
-    // セル範囲の flat_offset を進めるヘルパー
-    const auto advance_flat_offset = [](uint32_t& offset, const TableRow& row, size_t from, size_t to) static noexcept {
-        for (size_t c = from; c < to; c++) {
-            offset += static_cast<uint32_t>(row.cells[c].text.size());
-            if (c + 1 < row.cells.size()) {
-                offset++;
-            }
-        }
-    };
-
     float y = entry.y_position;
     uint32_t flat_offset = 0;
 
@@ -629,7 +619,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
                 flat_offset = tl.row_flat_offsets[r + 1];
             }
             else {
-                advance_flat_offset(flat_offset, row, 0, row.cells.size());
+                TableLayoutData::AdvanceFlatOffsetInRow(row, 0, row.cells.size(), flat_offset);
                 if (r + 1 < node.table_rows().size()) {
                     flat_offset++;
                 }
@@ -686,7 +676,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             cx += cw + cell_padding * 2.0f + border;
         }
 
-        advance_flat_offset(flat_offset, row, drawn_cols, row.cells.size());
+        TableLayoutData::AdvanceFlatOffsetInRow(row, drawn_cols, row.cells.size(), flat_offset);
 
         // 右罫線
         cmds.emplace_back(DrawLineCmd{

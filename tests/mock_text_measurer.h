@@ -92,13 +92,26 @@ public:
         if (col_count == 0) { entry.layout_dirty = false; return; }
 
         auto& tl = entry.ensure_table_layout();
+        const auto row_count = node.table_rows().size();
         tl.col_widths.assign(col_count, max_width / static_cast<float>(col_count));
-        tl.row_heights.assign(node.table_rows().size(), table_row_height);
+        tl.row_heights.assign(row_count, table_row_height);
         tl.col_count = col_count;
-        tl.cell_layouts.resize(node.table_rows().size() * col_count);
+        tl.cell_layouts.resize(row_count * col_count);
+
+        // dwrite_measurer.cpp と同じ規約で行先頭オフセットを埋める。
+        tl.row_flat_offsets.resize(row_count);
+        uint32_t flat_offset = 0;
+        for (size_t r = 0; r < row_count; r++) {
+            tl.row_flat_offsets[r] = flat_offset;
+            TableLayoutData::AdvanceFlatOffsetInRow(node.table_rows()[r], 0,
+                node.table_rows()[r].cells.size(), flat_offset);
+            if (r + 1 < row_count) {
+                flat_offset++;
+            }
+        }
 
         float total = table_border;
-        for (size_t r = 0; r < node.table_rows().size(); r++) {
+        for (size_t r = 0; r < row_count; r++) {
             total += table_row_height + table_border;
         }
         entry.height = total;

@@ -57,6 +57,8 @@ add_executable(mendo_tests
     test_side_effect_executor.cpp
     test_command_generator_frame.cpp
     test_measurer_parity.cpp
+    test_command_executor.cpp
+    test_resource_manager.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE
