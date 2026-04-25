@@ -128,7 +128,6 @@ bool App::Init(HWND hwnd)
         image_loader_.SetRenderTarget(new_rt);
         image_loader_.ClearCache();
         resource_manager_.LoadImages();
-        InvalidatePaintCache();
     });
 
     theme_service_.LoadDarkMode();

@@ -155,51 +155,6 @@ float App::GetMarkdownPaneWidth()
 // 描画 / リサイズ
 // ============================================================
 
-App::PaintFingerprint App::ComputePaintFingerprint(bool show_loading, float md_w, float md_h) const noexcept
-{
-    PaintFingerprint fp{};
-    fp.valid = true;
-    fp.show_loading = show_loading;
-    fp.scroll_y = state_.view.viewport.GetScrollY();
-    fp.md_pane_w = md_w;
-    fp.md_pane_h = md_h;
-    fp.effects_gen = state_.document.layout_cache.GetEffectsGeneration();
-    fp.search_gen = state_.search.search_state.GetGeneration();
-    fp.search_current = state_.search.search_state.GetCurrentMatchIndex();
-    fp.hovered_copy = state_.interaction.hovered_copy_node;
-    fp.hovered_save = state_.interaction.hovered_save_node;
-    fp.nav_hover = static_cast<int>(state_.interaction.nav_hover);
-    fp.file_hover = state_.view.panes.GetHoveredFileIndex();
-    fp.toc_hover = state_.view.panes.GetHoveredTocIndex();
-    const auto& sel = state_.view.viewport.GetSelection();
-    fp.selection_active = sel.active;
-    if (sel.active) {
-        // 変化検出に使う安価なハッシュ（衝突許容）。
-        fp.selection_id = static_cast<uint32_t>(sel.start_node) * 2654435761u
-            ^ sel.start_pos
-            ^ (static_cast<uint32_t>(sel.end_node) * 40503u)
-            ^ (sel.end_pos * 2246822507u);
-    }
-    fp.toast_visible = state_.interaction.toast.IsVisible();
-    fp.toast_alpha = state_.interaction.toast.GetAlpha();
-    fp.gesture_overlay_visible = state_.interaction.gesture.IsOverlayVisible();
-    fp.gesture_trail_active = state_.interaction.gesture.IsGestureActive();
-    fp.gesture_trail_size = state_.interaction.gesture.GetTrailPoints().size();
-    fp.can_back = state_.view.nav_history.CanGoBack();
-    fp.can_fwd = state_.view.nav_history.CanGoForward();
-    fp.window_active = state_.window.window_active;
-    fp.zoomed = IsZoomed(hwnd_) != FALSE;
-    fp.sb_visible = state_.search.search_state.IsVisible();
-    fp.sb_query_size = state_.search.search_state.GetQuery().size();
-    fp.sb_ime_size = state_.search.search_bar_ctrl.GetImeComposition().size();
-    fp.sb_caret = state_.search.search_bar_ctrl.GetCaretPos();
-    fp.sb_case = state_.search.search_state.IsCaseSensitive();
-    fp.sb_highlight = state_.search.search_state.IsHighlightEnabled();
-    fp.dark = theme_service_.IsDarkMode();
-    fp.doc_node_count = state_.document.doc.GetNodes().size();
-    return fp;
-}
-
 void App::OnPaint()
 {
     MENDO_PROFILE("OnPaint");
@@ -223,19 +178,6 @@ void App::OnPaint()
         if (updated) {
             EmitEffect(effect::SyncMaxScroll{ layout.md_rect.height });
         }
-
-        // 前フレームと描画状態が一致したらコマンド生成・実行を skip し、
-        // 連続 MOUSEMOVE や spurious WM_PAINT による無駄な再描画を抑える。
-        const auto fp = ComputePaintFingerprint(show_loading, layout.md_rect.width, layout.md_rect.height);
-        if (last_paint_fp_.valid && last_paint_fp_ == fp) {
-            EndPaint(hwnd_, &ps);
-            return;
-        }
-        last_paint_fp_ = fp;
-    }
-    else {
-        // ローディング中はスピナーアニメで毎フレーム絵が変わるため、skip 判定を無効化する。
-        last_paint_fp_ = {};
     }
 
     const auto gs = render_composer::BuildGestureState(state_);
