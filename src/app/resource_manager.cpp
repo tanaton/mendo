@@ -109,7 +109,7 @@ int ResourceManager::ApplyCachedImages()
             continue;
         }
 
-        if (!node.has_image() || node.image_data->src.find(L"://") != std::pmr::wstring::npos) {
+        if (!node.has_image() || node.image_data()->src.find(L"://") != std::pmr::wstring::npos) {
             continue;
         }
 
@@ -120,7 +120,7 @@ int ResourceManager::ApplyCachedImages()
             // canonical() は symlink 解決のためにファイルシステムを叩くので、
             // UI 同期パスから外すため absolute() + lexically_normal() を使う。
             // 画像参照が symlink を跨ぐのはレアケースとして許容する。
-            std::filesystem::path img_path(node.image_data->src);
+            std::filesystem::path img_path(node.image_data()->src);
             if (img_path.is_relative()) {
                 img_path = std::filesystem::path(doc_dir) / img_path;
             }
@@ -134,8 +134,9 @@ int ResourceManager::ApplyCachedImages()
         }
 
         if (image_loader_->GetCachedImage(abs_str, diagram)) {
-            node.image_data->width = diagram.width;
-            node.image_data->height = diagram.height;
+            auto* img = node.image_data();
+            img->width = diagram.width;
+            img->height = diagram.height;
 
             const float indent = node.indent_level * indent_width;
             const float node_width = content_width - indent;
@@ -370,25 +371,7 @@ void ResourceManager::EvictOffscreenBitmaps()
         last_keep = i + 1;
     }
 
-    auto evict_text_layout = [&](size_t i) {
-        auto& entry = (*cache_)[i];
-        if (!entry.text_layout && !entry.has_table_layout()) {
-            return;
-        }
-        entry.text_layout.Reset();
-        entry.effects_applied = false;
-        entry.inline_code_bgs.clear();
-        entry.table_layout.reset();
-        entry.layout_dirty = true;
-        entry.invalidate_search_hl_cache();
-    };
-
-    for (size_t i = 0; i < static_cast<size_t>(first_keep); i++) {
-        evict_text_layout(i);
-    }
-    for (size_t i = static_cast<size_t>(last_keep); i < node_count; i++) {
-        evict_text_layout(i);
-    }
+    cache_->EvictTextLayouts(static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
 
     // image/diagram bitmap の evict も可視範囲外（[0, first_keep) と
     // [last_keep, node_count)）だけを走査する。IndexSlice で image/diagram 配列の

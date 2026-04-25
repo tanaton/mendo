@@ -38,6 +38,8 @@ void FileExplorer::Refresh()
             entries_.emplace_back(std::move(pe));
         }
     }
+    // ".." はソート対象外で常に先頭。後段ソートはこの範囲を除く。
+    const size_t sort_begin = entries_.size();
 
     // ディレクトリ内の全アイテムを列挙
     const std::filesystem::path dir_base{ directory_ };
@@ -48,12 +50,6 @@ void FileExplorer::Refresh()
         return;
     }
 
-    struct SortSlot {
-        std::pmr::wstring sort_key;
-        FileEntry entry;
-    };
-    std::pmr::vector<SortSlot> dirs;
-    std::pmr::vector<SortSlot> files;
     static constexpr size_t MAX_ENTRIES = 4096;
 
     do {
@@ -66,39 +62,30 @@ void FileExplorer::Refresh()
             continue;
         }
         // エントリ数上限
-        if (dirs.size() + files.size() >= MAX_ENTRIES) {
+        if (entries_.size() - sort_begin >= MAX_ENTRIES) {
             break;
         }
 
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            SortSlot slot;
-            slot.sort_key = ToLowerAscii(fd.cFileName);
-            slot.entry.full_path.assign((dir_base / fd.cFileName).native());
-            slot.entry.is_directory = true;
-            dirs.emplace_back(std::move(slot));
+        const bool is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        if (!is_dir && !IsMarkdownFile(fd.cFileName)) {
+            continue;
         }
-        else if (IsMarkdownFile(fd.cFileName)) {
-            SortSlot slot;
-            slot.sort_key = ToLowerAscii(fd.cFileName);
-            slot.entry.full_path.assign((dir_base / fd.cFileName).native());
-            files.emplace_back(std::move(slot));
-        }
+
+        FileEntry entry;
+        entry.full_path.assign((dir_base / fd.cFileName).native());
+        entry.is_directory = is_dir;
+        entries_.emplace_back(std::move(entry));
     } while (FindNextFileW(hFind.get(), &fd));
 
-    auto by_key = [](const SortSlot& a, const SortSlot& b) static noexcept {
-        return a.sort_key < b.sort_key;
-    };
-    std::ranges::sort(dirs, by_key);
-    std::ranges::sort(files, by_key);
-
-    // 追加: ディレクトリを先に、次にファイル
-    entries_.reserve(entries_.size() + dirs.size() + files.size());
-    for (auto& s : dirs) {
-        entries_.emplace_back(std::move(s.entry));
-    }
-    for (auto& s : files) {
-        entries_.emplace_back(std::move(s.entry));
-    }
+    // ディレクトリ優先 → 表示名 (大小無視) 昇順。
+    // 比較対象は full_path 全体ではなく末尾ファイル名のみ（GetDisplayName）。
+    std::ranges::sort(entries_.begin() + static_cast<ptrdiff_t>(sort_begin), entries_.end(),
+        [](const FileEntry& a, const FileEntry& b) noexcept {
+            if (a.is_directory != b.is_directory) {
+                return a.is_directory > b.is_directory;
+            }
+            return _wcsicmp(a.GetDisplayName(), b.GetDisplayName()) < 0;
+        });
 }
 
 int FileExplorer::HitTest(float local_y, float item_height) const noexcept

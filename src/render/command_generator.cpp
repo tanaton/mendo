@@ -42,10 +42,10 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     int hovered_save_node,
     float dpi_scale)
 {
-    active_buffer_ = 1 - active_buffer_;
-    cmds_.clear();
-    frame_resource().Reset();
-    cmds_ = DrawCommandList{ frame_resource().resource() };
+    // 古いコマンドを destruct してから resource をリセットする。
+    // 順序が逆だと cmds_ 内部ストレージが Reset 済みバッファを指してしまう。
+    cmds_ = DrawCommandList{ frame_resource_.resource() };
+    frame_resource_.Reset();
     auto& cmds = cmds_;
 
     // MDペインの境界でクリップ
@@ -468,10 +468,11 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayo
     }
 
     // キャッシュミス時のみ HitTestTextRange を一括発行。layout 変更時は
-    // invalidate_search_hl_cache() で search_hl_gen=0 にされており、SearchState の
-    // generation は 1 から始まるため、entry.search_hl_gen == search_generation_ のみで
+    // invalidate_search_hl_cache() でキャッシュ自体が破棄されており、SearchState の
+    // generation は 1 から始まるため、cache.gen == search_generation_ のみで
     // キャッシュ有効性を完全判定できる。
-    if (entry.search_hl_gen != search_generation_) {
+    auto& cache = entry.ensure_search_hl_cache();
+    if (cache.gen != search_generation_) {
         size_t node_match_count = 0;
         for (size_t mi = first_global; mi < matches.size(); ++mi) {
             if (matches[mi].node_index != node_index) {
@@ -480,9 +481,9 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayo
             ++node_match_count;
         }
 
-        entry.search_hl_rects.clear();
-        entry.search_hl_rect_ends.clear();
-        entry.search_hl_rect_ends.reserve(node_match_count);
+        cache.rects.clear();
+        cache.rect_ends.clear();
+        cache.rect_ends.reserve(node_match_count);
 
         auto& buf = GetHitTestBuffer();
         for (size_t mi = first_global; mi < first_global + node_match_count; ++mi) {
@@ -497,17 +498,17 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayo
             if (l && m.length > 0) {
                 const UINT32 count = FetchHitTestMetrics(l, m.start, m.length, buf);
                 for (UINT32 k = 0; k < count; ++k) {
-                    entry.search_hl_rects.emplace_back(RectFromHitTest(buf[k]));
+                    cache.rects.emplace_back(RectFromHitTest(buf[k]));
                 }
             }
-            entry.search_hl_rect_ends.push_back(static_cast<uint32_t>(entry.search_hl_rects.size()));
+            cache.rect_ends.push_back(static_cast<uint32_t>(cache.rects.size()));
         }
-        entry.search_hl_gen = search_generation_;
+        cache.gen = search_generation_;
     }
 
     // キャッシュ済みの矩形を origin 加算してコマンド化する。
     // 呼び出し側（セル/ノード本体）に属する match のみ描画する。
-    const size_t node_match_count = entry.search_hl_rect_ends.size();
+    const size_t node_match_count = cache.rect_ends.size();
     for (size_t node_mi = 0; node_mi < node_match_count; ++node_mi) {
         const size_t mi = first_global + node_mi;
         const auto& m = matches[mi];
@@ -518,14 +519,14 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayo
             continue;
         }
 
-        const uint32_t rb = (node_mi == 0) ? 0 : entry.search_hl_rect_ends[node_mi - 1];
-        const uint32_t re = entry.search_hl_rect_ends[node_mi];
+        const uint32_t rb = (node_mi == 0) ? 0 : cache.rect_ends[node_mi - 1];
+        const uint32_t re = cache.rect_ends[node_mi];
 
         const D2D1_COLOR_F color = (static_cast<int>(mi) == current_match_index_)
             ? theme_->search_highlight_current_color
             : theme_->search_highlight_color;
         for (uint32_t k = rb; k < re; ++k) {
-            const auto& r = entry.search_hl_rects[k];
+            const auto& r = cache.rects[k];
             cmds.emplace_back(FillRectCmd{
                 D2D1::RectF(origin_x + r.left, origin_y + r.top,
                             origin_x + r.right, origin_y + r.bottom),

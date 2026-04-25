@@ -153,7 +153,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
                     tt.text = alt;
                     tt.text += L"\n";
                 }
-                tt.text += node.image_data->src;
+                tt.text += node.image_data()->src;
             }
         }
         Dispatch(UpdateTooltipAction{ tt, px, py });

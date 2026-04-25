@@ -69,6 +69,15 @@ struct TableLayoutData {
     }
 };
 
+// 検索ハイライト矩形のフレーム間キャッシュ。
+// match i (ノード内順) の矩形は rects[rect_ends[i-1] ... rect_ends[i]) (i=0 なら 0 始まり)。
+// gen が SearchState の generation と一致する間は HitTestTextRange 再計算をスキップする。
+struct SearchHlCache {
+    std::pmr::vector<D2D1_RECT_F> rects;
+    std::pmr::vector<uint32_t> rect_ends;
+    uint32_t gen = 0;
+};
+
 struct NodeLayoutEntry {
     float y_position = 0.0f;
     float height = 0.0f;
@@ -78,20 +87,20 @@ struct NodeLayoutEntry {
     std::pmr::vector<InlineCodeBg> inline_code_bgs;
     std::unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
 
-    // 検索ハイライト矩形のフレーム間キャッシュ。描画中に書き換える計算結果のため mutable。
-    // SearchState の generation と一致する間は HitTestTextRange を再計算せずに使い回す。
-    // text_layout / cell_layouts が再構築されたら invalidate_search_hl_cache() で破棄する。
-    // rects は layout 相対座標。match i (ノード内順) に対応する矩形は
-    // rects[rect_ends[i-1] ... rect_ends[i]) (i=0 なら先頭から rect_ends[0] まで)。
-    mutable uint32_t search_hl_gen = 0;
-    mutable std::pmr::vector<D2D1_RECT_F> search_hl_rects;
-    mutable std::pmr::vector<uint32_t> search_hl_rect_ends;
+    // 検索ヒットがあるノードでのみ確保される。描画中に書き換えるため mutable。
+    mutable std::unique_ptr<SearchHlCache> search_hl_cache;
+
+    SearchHlCache& ensure_search_hl_cache() const
+    {
+        if (!search_hl_cache) {
+            search_hl_cache = std::make_unique<SearchHlCache>();
+        }
+        return *search_hl_cache;
+    }
 
     void invalidate_search_hl_cache() const noexcept
     {
-        search_hl_gen = 0;
-        search_hl_rects.clear();
-        search_hl_rect_ends.clear();
+        search_hl_cache.reset();
     }
 
     TableLayoutData& ensure_table_layout()
@@ -275,6 +284,27 @@ public:
         }
     }
 
+    // 可視範囲外（[0, first_keep) と [last_keep, size())）のノードについて
+    // text_layout / table_layout / inline_code_bgs / search_hl_cache を破棄する。
+    // y_position と height は維持され、layout_dirty=true で再生成可能な状態にする。
+    // Why: IDWriteTextLayout は内部で glyph buffer / bidi 解析を保持し
+    // 1K 文字あたり 2-5KB。可視外も保持し続けると巨大ドキュメントで数十 MB
+    // のメモリを COM 側に常駐させてしまう。EVICT_BUFFER_SCREENS 分の安全マージン
+    // を取った上で範囲外を解放する。呼び出し側（ResourceManager）は再描画時の
+    // 再生成コストを踏まえてタイマー駆動で間引く。
+    void EvictTextLayouts(size_t first_keep, size_t last_keep) noexcept
+    {
+        const size_t n = entries_.size();
+        const size_t fk = std::min(first_keep, n);
+        const size_t lk = std::min(last_keep, n);
+        for (size_t i = 0; i < fk; ++i) {
+            EvictEntryLayout(entries_[i]);
+        }
+        for (size_t i = lk; i < n; ++i) {
+            EvictEntryLayout(entries_[i]);
+        }
+    }
+
     // すべてのエントリをダーティとしてマークし、レイアウトをリセットする（DPI 変更時）。
     void MarkAllDirty() noexcept
     {
@@ -300,6 +330,19 @@ public:
     void IncrementEffectsGeneration() noexcept { effects_generation_++; }
 
 private:
+    static void EvictEntryLayout(NodeLayoutEntry& e) noexcept
+    {
+        if (!e.text_layout && !e.table_layout) {
+            return;
+        }
+        e.text_layout.Reset();
+        e.effects_applied = false;
+        e.inline_code_bgs.clear();
+        e.table_layout.reset();
+        e.layout_dirty = true;
+        e.invalidate_search_hl_cache();
+    }
+
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<DiagramEntry> diagrams_;
     uint32_t effects_generation_ = 0;

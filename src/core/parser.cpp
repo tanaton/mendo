@@ -89,6 +89,13 @@ struct ParseContext {
 
     std::pmr::string utf8_accum{ parse_resource.resource() };
 
+    // 現在ノード用の UTF-8 蓄積スクラッチ。
+    // 旧設計では Node::text_utf8 として永続フィールドに置いていたが、
+    // パース完了後は不要なメモリが Node に残り続けるため ParseContext 側に移動した。
+    // ノード切り替え時に FinalizeCurrentNode() で Wide 化して current_node->text_ に書き、
+    // クリアして次ノードに使い回す。
+    std::pmr::string current_utf8{ parse_resource.resource() };
+
     // ブロックコンテキスト追跡
     int indent_level = 0;
     bool in_code_block = false;
@@ -130,12 +137,24 @@ struct ParseContext {
     // md_parse() に渡した入力バッファ先頭ポインタ（source_offset 計算用）
     const char* markdown_base = nullptr;
 
+    // 現在ノードの UTF-8 スクラッチを Wide 化して text_ に書き込み、スクラッチを空にする。
+    // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
+    void FinalizeCurrentNode()
+    {
+        FlushUtf8();
+        if (current_node && !current_utf8.empty()) {
+            Utf8ToWide(current_utf8, text_buffer);
+            current_node->SetText(std::wstring_view{ text_buffer });
+        }
+        current_utf8.clear();
+    }
+
     void BeginNode(NodeType type)
     {
         // タイトリストではP blockのEnter/Leaveコールバックがスキップされるため、
         // サブリスト開始時に蓄積テキストが未フラッシュのまま残る場合がある。
-        // 新しいノード作成前にフラッシュして、現在のノードにテキストを確定させる。
-        FlushUtf8();
+        // 新しいノード作成前に Wide 化を確定させて、現在のノードにテキストを書き込む。
+        FinalizeCurrentNode();
         nodes.emplace_back();
         current_node = &nodes.back();
         current_node->type = type;
@@ -196,9 +215,9 @@ struct ParseContext {
         const uint32_t start = node_wide_offset;
         // AppendText は BR/SOFTBR/Entity 用で短い入力前提。INT_MAX/3 超は安全のためスキップ
         if (!text.empty() && text.size() <= static_cast<size_t>(INT_MAX) / 3) {
-            const size_t old_size = current_node->text_utf8.size();
+            const size_t old_size = current_utf8.size();
             const size_t max_bytes = text.size() * 3;
-            current_node->text_utf8.resize_and_overwrite(old_size + max_bytes, [&](char* buf, size_t count) -> size_t {
+            current_utf8.resize_and_overwrite(old_size + max_bytes, [&](char* buf, size_t count) -> size_t {
                 const int n = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf + old_size, static_cast<int>(count - old_size), nullptr, nullptr);
                 return old_size + (n > 0 ? static_cast<size_t>(n) : 0);
             });
@@ -268,7 +287,7 @@ struct ParseContext {
         }
         if (wlen > 0) {
             const uint32_t start = node_wide_offset;
-            current_node->text_utf8.append(text);
+            current_utf8.append(text);
             node_wide_offset += static_cast<uint32_t>(wlen);
             current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(wlen)));
             current_node->line_count += newline_count;
@@ -403,9 +422,9 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     case MD_BLOCK_CODE: {
         auto* cn = ctx->current_node;
         ctx->in_code_block = false;
-        // 末尾の改行があれば除去（text_utf8に対して操作）
-        if (cn && !cn->text_utf8.empty() && cn->text_utf8.back() == '\n') {
-            cn->text_utf8.pop_back();
+        // 末尾の改行があれば除去（current_utf8 スクラッチに対して操作）
+        if (cn && !ctx->current_utf8.empty() && ctx->current_utf8.back() == '\n') {
+            ctx->current_utf8.pop_back();
             cn->line_count--;
             ctx->node_wide_offset--;
             if (!cn->runs.empty()) {
@@ -444,6 +463,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_TABLE:
         ctx->in_table = false;
+        ctx->FinalizeCurrentNode();
         ctx->current_node = nullptr;
         break;
 
@@ -459,15 +479,15 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_H:
         if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
-            // 見出しテキストを先行変換してアンカーID生成（ブロック終了時点では未変換のため）
-            cn->ConvertTextFromUtf8();
+            // 見出しテキストを先行確定してアンカーID生成
+            ctx->FinalizeCurrentNode();
             std::pmr::wstring base_id = GenerateAnchorId(cn->GetText());
             auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
             const int count = it->second++;
-            cn->ensure_heading();
-            cn->heading_data->anchor_id.assign(it->first.data(), it->first.size());
+            auto* hd = cn->ensure_heading();
+            hd->anchor_id.assign(it->first.data(), it->first.size());
             if (count > 0) {
-                std::format_to(std::back_inserter(cn->heading_data->anchor_id), L"-{}", count);
+                std::format_to(std::back_inserter(hd->anchor_id), L"-{}", count);
             }
             ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
@@ -475,7 +495,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
     case MD_BLOCK_P:
         // 画像を含む段落/引用ブロックを Image ノードに変換
-        if (auto* cn = ctx->current_node; cn && cn->has_image() && !cn->image_data->src.empty() && (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote)) {
+        if (auto* cn = ctx->current_node; cn && cn->has_image() && !cn->image_data()->src.empty() && (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote)) {
             cn->type = NodeType::Image;
             ctx->image_indices.emplace_back(ctx->current_node_index);
         }
@@ -487,16 +507,20 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             math_node->type == NodeType::Paragraph) {
             math_node->type = NodeType::CodeBlock;
             math_node->code_language = SyntaxLanguage::LatexMath;
-            math_node->text_utf8.assign(ctx->display_math_buf.data(), ctx->display_math_buf.size());
+            // current_utf8 スクラッチに math 内容を直接書き込み、後段の FinalizeCurrentNode で
+            // Wide 化される。
+            ctx->current_utf8.assign(ctx->display_math_buf.data(), ctx->display_math_buf.size());
             math_node->runs.clear();
-            math_node->line_count = static_cast<int>(std::ranges::count(math_node->text_utf8, '\n'));
+            math_node->line_count = static_cast<int>(std::ranges::count(ctx->current_utf8, '\n'));
             ctx->node_wide_offset = 0;
             ctx->diagram_indices.emplace_back(ctx->current_node_index);
         }
+        ctx->FinalizeCurrentNode();
         ctx->current_node = nullptr;
         break;
     case MD_BLOCK_LI:
     case MD_BLOCK_HR:
+        ctx->FinalizeCurrentNode();
         ctx->current_node = nullptr;
         break;
 
@@ -583,8 +607,7 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 
     if (type == MD_SPAN_IMG) {
         if (auto* cn = ctx->current_node; cn && !ctx->pending_image_src.empty()) {
-            cn->ensure_image();
-            cn->image_data->src = std::move(ctx->pending_image_src);
+            cn->ensure_image()->src = std::move(ctx->pending_image_src);
         }
         ctx->pending_image_src.clear();
     }
@@ -745,10 +768,9 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
 
     md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
 
-    // Alert 検出は Wide テキストを見るため、変換を先に行う。
-    for (auto& node : ctx.nodes) {
-        node.ConvertTextFromUtf8();
-    }
+    // 最後の current_node が残っていれば（典型的には全 OnLeaveBlock で処理済みだが
+    // 安全のため）テキストを確定する。
+    ctx.FinalizeCurrentNode();
 
     DetectAlerts(ctx.nodes);
 

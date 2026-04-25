@@ -118,16 +118,13 @@ private:
     const Theme* theme_ = nullptr;
     Formats formats_;
 
-    // 偶数/奇数フレームで交互に使うダブルバッファ monotonic リソース。
-    // 前フレームのコマンドリストが次フレーム開始時点まで有効に保たれる。
+    // フレーム単位の monotonic リソース。
+    // GenerateMdPane の戻り値は同一スコープ内で即 CommandExecutor::Execute に
+    // 渡されて消費される（renderer.cpp の呼び出しを参照）ため、
+    // 前フレームの内容を生かしておく必要はなくシングルバッファで十分。
     MonotonicResource frame_resource_{ 128 * 1024 };
-    MonotonicResource frame_resource_alt_{ 128 * 1024 };
     DrawCommandList cmds_{ frame_resource_.resource() };
-    int active_buffer_ = 0;
-    MonotonicResource& frame_resource() noexcept
-    {
-        return active_buffer_ == 0 ? frame_resource_ : frame_resource_alt_;
-    }
+    MonotonicResource& frame_resource() noexcept { return frame_resource_; }
 
     const std::pmr::vector<SearchMatch>* search_matches_ = nullptr;
     int current_match_index_ = -1;

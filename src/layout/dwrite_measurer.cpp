@@ -186,9 +186,9 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     // 画像ノード: 元画像サイズが設定済みならコンテンツ幅に合わせてスケール、
     // 未設定ならプレースホルダー高さ
     if (node.type == NodeType::Image) {
-        if (node.has_image() && node.image_data->width > 0 && node.image_data->height > 0) {
-            const float w = node.image_data->width;
-            float h = node.image_data->height;
+        if (const auto* img = node.image_data(); img && img->width > 0 && img->height > 0) {
+            const float w = img->width;
+            float h = img->height;
             if (w > max_width) {
                 h *= max_width / w;
             }

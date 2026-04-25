@@ -972,13 +972,13 @@ TEST(FindAnchorNodeIndex, DuplicateAnchors)
     Node h1;
     h1.type = NodeType::Heading;
     h1.ensure_heading();
-    h1.heading_data->anchor_id = L"title";
+    h1.heading_data()->anchor_id = L"title";
     nodes.emplace_back(std::move(h1));
 
     Node h2;
     h2.type = NodeType::Heading;
     h2.ensure_heading();
-    h2.heading_data->anchor_id = L"title-1";
+    h2.heading_data()->anchor_id = L"title-1";
     nodes.emplace_back(std::move(h2));
 
     // 最初のマッチが優先される

@@ -16,13 +16,18 @@ void TaskScheduler::Init(int thread_count)
     }
 }
 
-void TaskScheduler::Post(std::move_only_function<void()> task)
+bool TaskScheduler::Post(std::move_only_function<void()> task)
 {
     {
         const std::lock_guard lock(mutex_);
+        if (queue_.size() >= MAX_PENDING_TASKS) {
+            OutputDebugStringW(L"[TaskScheduler] queue saturated, dropping task\n");
+            return false;
+        }
         queue_.push(std::move(task));
     }
     cv_.notify_one();
+    return true;
 }
 
 void TaskScheduler::Shutdown()

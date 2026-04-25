@@ -53,7 +53,7 @@ protected:
 
 private:
     // text_layout が非コピー可能なので、計測前の入力のみを複製する。
-    // ParseMarkdown 完了後は text_utf8 が常に空である契約のため、Wide テキスト経路のみ扱う。
+    // ParseMarkdown 完了後は Node のテキストは Wide で完結する契約のため、Wide テキスト経路のみ扱う。
     static Node CloneNode(const Node& src)
     {
         Node n;
@@ -66,7 +66,7 @@ private:
         n.runs = src.runs;
         if (src.has_image()) {
             n.ensure_image();
-            *n.image_data = *src.image_data;
+            *n.image_data() = *src.image_data();
         }
         return n;
     }
@@ -98,8 +98,8 @@ TEST_F(MeasurerParityTest, ImageScalesToMaxWidthIdentically)
     Node node;
     node.type = NodeType::Image;
     node.ensure_image();
-    node.image_data->width = 1200.0f;
-    node.image_data->height = 800.0f;
+    node.image_data()->width = 1200.0f;
+    node.image_data()->height = 800.0f;
 
     const auto h = MeasureBoth(node, 600.0f);
     EXPECT_FLOAT_EQ(h.mock, 400.0f);
@@ -112,8 +112,8 @@ TEST_F(MeasurerParityTest, ImagePreservesOriginalHeightWhenFits)
     Node node;
     node.type = NodeType::Image;
     node.ensure_image();
-    node.image_data->width = 300.0f;
-    node.image_data->height = 200.0f;
+    node.image_data()->width = 300.0f;
+    node.image_data()->height = 200.0f;
 
     const auto h = MeasureBoth(node, 600.0f);
     EXPECT_FLOAT_EQ(h.mock, 200.0f);
