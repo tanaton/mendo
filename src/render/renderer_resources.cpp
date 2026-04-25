@@ -156,7 +156,7 @@ void Renderer::RecreatePaneFormats()
         { &fmt_.copy_btn_icon,    icon_font, W,                            theme_.font_size_body,         L"en-us", TA_CTR,  PA_CTR, true  },
         { &fmt_.list_number,      body_font, W,                            theme_.font_size_body,         L"ja-jp", TA_TAIL, PA_TOP, false },
         { &fmt_.placeholder_text, body_font, W,                            theme_.font_size_body,         L"ja-jp", TA_CTR,  PA_CTR, false },
-        { &fmt_.titlebar_text,    body_font, W,                            theme_.pane_font_size,         L"ja-jp", TA_CTR,  PA_CTR, true  },
+        { &fmt_.titlebar_text,    body_font, W,                            TITLEBAR_TEXT_FONT_SIZE,       L"ja-jp", TA_CTR,  PA_CTR, true  },
         { &fmt_.titlebar_icon,    icon_font, W,                            14.0f,                         L"en-us", TA_CTR,  PA_CTR, true  },
         { &fmt_.pane_icon,        icon_font, W,                            theme_.pane_font_size,         L"en-us", TA_CTR,  PA_CTR, true  },
         { &fmt_.pane_item,        body_font, W,                            theme_.pane_font_size,         L"ja-jp", TA_LEAD, PA_CTR, true  },

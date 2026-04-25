@@ -102,6 +102,10 @@ inline float SnapScrollToPixel(float scroll_y, float dpi_scale) noexcept {
     return std::round(scroll_y * dpi_scale) / dpi_scale;
 }
 
+// タイトルバーのテキストフォントサイズ（DIP）。
+// pane_font_size と共有すると Zoom に追従してしまうため、専用の固定値を用意する。
+inline constexpr float TITLEBAR_TEXT_FONT_SIZE = 13.0f;
+
 // 検索バーの定数（DIP単位）
 inline constexpr float SEARCH_BAR_HEIGHT = 36.0f;
 inline constexpr float SEARCH_BAR_PADDING = 6.0f;
