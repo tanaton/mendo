@@ -44,6 +44,4 @@ private:
 
     std::unordered_map<uint32_t, Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>> brush_pool_;
     ID2D1RenderTarget* bound_rt_ = nullptr;
-    uint32_t last_key_ = 0xFFFFFFFFu;
-    ID2D1SolidColorBrush* last_brush_ = nullptr;
 };
