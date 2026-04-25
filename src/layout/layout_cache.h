@@ -51,6 +51,22 @@ struct NodeLayoutEntry {
     std::pmr::vector<InlineCodeBg> inline_code_bgs;
     std::unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
 
+    // 検索ハイライト矩形のフレーム間キャッシュ。描画中に書き換える計算結果のため mutable。
+    // SearchState の generation と一致する間は HitTestTextRange を再計算せずに使い回す。
+    // text_layout / cell_layouts が再構築されたら invalidate_search_hl_cache() で破棄する。
+    // rects は layout 相対座標。match i (ノード内順) に対応する矩形は
+    // rects[rect_ends[i-1] ... rect_ends[i]) (i=0 なら先頭から rect_ends[0] まで)。
+    mutable uint32_t search_hl_gen = 0;
+    mutable std::pmr::vector<D2D1_RECT_F> search_hl_rects;
+    mutable std::pmr::vector<uint32_t> search_hl_rect_ends;
+
+    void invalidate_search_hl_cache() const noexcept
+    {
+        search_hl_gen = 0;
+        search_hl_rects.clear();
+        search_hl_rect_ends.clear();
+    }
+
     TableLayoutData& ensure_table_layout()
     {
         if (!table_layout) {
@@ -181,6 +197,7 @@ public:
             e.text_layout.Reset();
             e.effects_applied = false;
             e.inline_code_bgs.clear();
+            e.invalidate_search_hl_cache();
             if (e.table_layout) {
                 e.table_layout->cell_layouts.clear();
                 e.table_layout->cell_inline_code_bgs.clear();
@@ -220,6 +237,7 @@ public:
         for (auto& e : entries_) {
             e.layout_dirty = true;
             e.text_layout.Reset();
+            e.invalidate_search_hl_cache();
             if (e.table_layout) {
                 e.table_layout->cell_layouts.clear();
                 e.table_layout->row_bgs_computed.clear();

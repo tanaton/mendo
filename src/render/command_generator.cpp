@@ -10,6 +10,16 @@
 // 値を小さくすると下線は見出し文字に近づき、下線と次行の間隔が広がる。
 static constexpr float HEADING_UNDERLINE_OFFSET_RATIO = 0.25f;
 
+// DWRITE_HIT_TEST_METRICS を origin 加算付きの D2D1_RECT_F に変換する。
+static inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origin_x = 0.0f, float origin_y = 0.0f) noexcept
+{
+    return D2D1::RectF(
+        origin_x + m.left,
+        origin_y + m.top,
+        origin_x + m.left + m.width,
+        origin_y + m.top + m.height);
+}
+
 static float GetFirstLineHeight(IDWriteTextLayout* layout, float font_size)
 {
     float h = font_size * FALLBACK_LINE_HEIGHT_FACTOR;
@@ -185,7 +195,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     GenInlineCodeBgs(cmds, entry.inline_code_bgs, text_x, entry.y_position, theme_->code_bg_color);
 
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
-    GenSearchHighlights(cmds, entry.text_layout.Get(), node_index, text_x, entry.y_position);
+    GenSearchHighlights(cmds, entry, node_index, text_x, entry.y_position);
 
     // 選択範囲のハイライト
     const auto& selection = *frame_selection_;
@@ -435,13 +445,7 @@ void CommandGenerator::EmitHighlightRects(DrawCommandList& cmds,
     auto& buf = GetHitTestBuffer();
     const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     for (UINT32 i = 0; i < count; i++) {
-        cmds.emplace_back(FillRectCmd{
-            D2D1::RectF(
-                origin_x + buf[i].left,
-                origin_y + buf[i].top,
-                origin_x + buf[i].left + buf[i].width,
-                origin_y + buf[i].top + buf[i].height
-            ), color });
+        cmds.emplace_back(FillRectCmd{ RectFromHitTest(buf[i], origin_x, origin_y), color });
     }
 }
 
@@ -450,30 +454,83 @@ void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextL
     EmitHighlightRects(cmds, layout, start, length, origin_x, origin_y, SELECTION_COLOR);
 }
 
-void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, IDWriteTextLayout* layout, int node_index, float origin_x, float origin_y, int table_row, int table_col)
+void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row, int table_col)
 {
-    if (!layout || !search_matches_ || search_matches_->empty()) {
+    if (!search_matches_ || search_matches_->empty()) {
         return;
     }
 
     const auto& matches = *search_matches_;
     auto it = std::ranges::lower_bound(matches, node_index, {}, &SearchMatch::node_index);
-    for (int mi = static_cast<int>(it - matches.begin()); mi < static_cast<int>(matches.size()); mi++) {
+    const size_t first_global = static_cast<size_t>(it - matches.begin());
+    if (first_global >= matches.size() || matches[first_global].node_index != node_index) {
+        return;
+    }
+
+    // キャッシュミス時のみ HitTestTextRange を一括発行。layout 変更時は
+    // invalidate_search_hl_cache() で search_hl_gen=0 にされており、SearchState の
+    // generation は 1 から始まるため、entry.search_hl_gen == search_generation_ のみで
+    // キャッシュ有効性を完全判定できる。
+    if (entry.search_hl_gen != search_generation_) {
+        size_t node_match_count = 0;
+        for (size_t mi = first_global; mi < matches.size(); ++mi) {
+            if (matches[mi].node_index != node_index) {
+                break;
+            }
+            ++node_match_count;
+        }
+
+        entry.search_hl_rects.clear();
+        entry.search_hl_rect_ends.clear();
+        entry.search_hl_rect_ends.reserve(node_match_count);
+
+        auto& buf = GetHitTestBuffer();
+        for (size_t mi = first_global; mi < first_global + node_match_count; ++mi) {
+            const auto& m = matches[mi];
+            IDWriteTextLayout* l = nullptr;
+            if (m.table_row >= 0 && entry.has_table_layout()) {
+                l = entry.table_layout->GetCellLayout(static_cast<size_t>(m.table_row), static_cast<size_t>(m.table_col));
+            }
+            else if (m.table_row < 0) {
+                l = entry.text_layout.Get();
+            }
+            if (l && m.length > 0) {
+                const UINT32 count = FetchHitTestMetrics(l, m.start, m.length, buf);
+                for (UINT32 k = 0; k < count; ++k) {
+                    entry.search_hl_rects.emplace_back(RectFromHitTest(buf[k]));
+                }
+            }
+            entry.search_hl_rect_ends.push_back(static_cast<uint32_t>(entry.search_hl_rects.size()));
+        }
+        entry.search_hl_gen = search_generation_;
+    }
+
+    // キャッシュ済みの矩形を origin 加算してコマンド化する。
+    // 呼び出し側（セル/ノード本体）に属する match のみ描画する。
+    const size_t node_match_count = entry.search_hl_rect_ends.size();
+    for (size_t node_mi = 0; node_mi < node_match_count; ++node_mi) {
+        const size_t mi = first_global + node_mi;
         const auto& m = matches[mi];
-        if (m.node_index > node_index) {
-            break;
-        }
-        if (table_row >= 0 && (m.table_row != table_row || m.table_col != table_col)) {
-            continue;
-        }
-        if (table_row < 0 && m.table_row >= 0) {
+        const bool is_here = (table_row >= 0)
+            ? (m.table_row == table_row && m.table_col == table_col)
+            : (m.table_row < 0);
+        if (!is_here) {
             continue;
         }
 
-        const D2D1_COLOR_F color = (mi == current_match_index_)
+        const uint32_t rb = (node_mi == 0) ? 0 : entry.search_hl_rect_ends[node_mi - 1];
+        const uint32_t re = entry.search_hl_rect_ends[node_mi];
+
+        const D2D1_COLOR_F color = (static_cast<int>(mi) == current_match_index_)
             ? theme_->search_highlight_current_color
             : theme_->search_highlight_color;
-        EmitHighlightRects(cmds, layout, m.start, m.length, origin_x, origin_y, color);
+        for (uint32_t k = rb; k < re; ++k) {
+            const auto& r = entry.search_hl_rects[k];
+            cmds.emplace_back(FillRectCmd{
+                D2D1::RectF(origin_x + r.left, origin_y + r.top,
+                            origin_x + r.right, origin_y + r.bottom),
+                color });
+        }
     }
 }
 
@@ -617,7 +674,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
                 }
 
                 // 検索マッチのハイライト（テーブルセル）
-                GenSearchHighlights(cmds, cell_layout, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
+                GenSearchHighlights(cmds, entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
 
                 GenTableCellContent(cmds, cell, cell_layout, text_x, text_y, has_selection, sel_start, sel_end, flat_offset);
             }

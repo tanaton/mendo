@@ -254,6 +254,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     entry.layout_dirty = false;
     entry.effects_applied = false;
     entry.inline_code_bgs.clear();
+    entry.invalidate_search_hl_cache();
 }
 
 void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths)
@@ -410,6 +411,10 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         entry.layout_dirty = false;
         return;
     }
+
+    // セル layout の再作成 or SetMaxWidth で metrics が変わるため、
+    // 検索ハイライト矩形のキャッシュは捨てる。
+    entry.invalidate_search_hl_cache();
 
     entry.effects_applied = false;
     auto& tl = entry.ensure_table_layout();

@@ -22,19 +22,20 @@ public:
     void Hide() noexcept
     {
         visible_ = false;
-        current_match_ = -1;
-        matches_.clear();
-        matches_truncated_ = false;
+        ClearMatches();
         InvalidateLowercaseCache();
     }
     void Reset() noexcept
     {
-        current_match_ = -1;
-        matches_.clear();
+        ClearMatches();
         query_.clear();
-        matches_truncated_ = false;
         InvalidateLowercaseCache();
     }
+
+    // ExecuteSearch / Hide / Reset のたびにインクリメントされる世代カウンタ。
+    // 描画側が検索ハイライト矩形のキャッシュ有効性判定に使う。0 は未初期化を意味するため
+    // 1 からカウントし始める（search_hl_gen=0 と常に不一致になる）。
+    uint32_t GetGeneration() const noexcept { return generation_; }
 
     // ドキュメントが切り替わった/構造が変わったときに呼ぶ。
     // 次回 ExecuteSearch 時に lowercase キャッシュが再生成される。
@@ -68,6 +69,20 @@ private:
     void FindMatches(std::wstring_view text, const std::pmr::wstring& lower_query, int node_index, int table_row = -1, int table_col = -1);
     void EnsureLowercaseCache(const std::pmr::vector<Node>& nodes);
 
+    // マッチ一覧と関連する世代カウンタ・トランケーションフラグを同時にリセットする。
+    // これらは常に一緒に更新しないとキャッシュ有効性判定が壊れるためヘルパに集約している。
+    // 0 は search_hl_gen の未初期化センチネルなので、32bit ラップアラウンドで 0 に
+    // 戻るケースだけはスキップして必ず非ゼロを維持する。
+    void ClearMatches() noexcept
+    {
+        matches_.clear();
+        current_match_ = -1;
+        matches_truncated_ = false;
+        if (++generation_ == 0) {
+            generation_ = 1;
+        }
+    }
+
     static constexpr size_t MAX_MATCHES = 10000;
 
     // 大文字小文字無視検索の lowercase キャッシュ。
@@ -84,6 +99,7 @@ private:
     const Node* cached_nodes_ptr_ = nullptr;
     size_t cached_node_count_ = 0;
     int current_match_ = -1;
+    uint32_t generation_ = 1;
     bool visible_ = false;
     bool case_sensitive_ = false;
     bool highlight_enabled_ = true;

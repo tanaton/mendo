@@ -79,10 +79,11 @@ public:
             : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
     }
     constexpr void SetFormats(const Formats& fmts) noexcept { formats_ = fmts; }
-    void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index) noexcept
+    void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index, uint32_t generation) noexcept
     {
         search_matches_ = matches;
         current_match_index_ = current_index;
+        search_generation_ = generation;
     }
 
     // Markdownコンテンツペインのすべての描画コマンドを生成する。
@@ -112,7 +113,7 @@ private:
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
     void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color);
     void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y);
-    void GenSearchHighlights(DrawCommandList& cmds, IDWriteTextLayout* layout, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
+    void GenSearchHighlights(DrawCommandList& cmds, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
 
     const Theme* theme_ = nullptr;
     Formats formats_;
@@ -130,6 +131,7 @@ private:
 
     const std::pmr::vector<SearchMatch>* search_matches_ = nullptr;
     int current_match_index_ = -1;
+    uint32_t search_generation_ = 0;
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS>* shared_hit_test_buffer_ = nullptr;
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
