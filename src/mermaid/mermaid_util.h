@@ -12,7 +12,7 @@ namespace mermaid_util {
 std::pmr::wstring BuildLatexFlowchartCode(std::wstring_view latex);
 
 // ダイアグラムノード用キャッシュキー。言語種別に応じたソルトを内部で混ぜ、
-// 同じ UTF-8 コンテンツの Mermaid / LatexMath がキー衝突しないようにする。
+// 同じ Wide テキストの Mermaid / LatexMath がキー衝突しないようにする。
 uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept;
 
 std::pmr::wstring JsEscape(std::wstring_view input);

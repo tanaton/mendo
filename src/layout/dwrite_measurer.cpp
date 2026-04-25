@@ -373,14 +373,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     uint32_t flat_offset = 0;
     for (size_t r = 0; r < row_count; r++) {
         tl.row_flat_offsets[r] = flat_offset;
-        const auto& row = rows[r];
-        const auto cell_count = row.cells.size();
-        for (size_t c = 0; c < cell_count; c++) {
-            flat_offset += static_cast<uint32_t>(row.cells[c].text.size());
-            if (c + 1 < cell_count) {
-                flat_offset++; // タブ区切り
-            }
-        }
+        TableLayoutData::AdvanceFlatOffsetInRow(rows[r], 0, rows[r].cells.size(), flat_offset);
         if (r + 1 < row_count) {
             flat_offset++; // 改行区切り
         }

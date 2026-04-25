@@ -31,42 +31,42 @@ const wchar_t* GetAlertIcon(AlertType type) noexcept
 
 namespace {
 
-// 大文字小文字を無視して string_view を比較する（ASCII範囲のみ）
-bool AsciiCaseEqual(std::string_view a, std::string_view b) noexcept
+// 大文字小文字を無視して比較する。Alert マーカーは GitHub 仕様で ASCII 固定。
+bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept
 {
-    constexpr auto to_upper = [](char c) noexcept -> char {
-        return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
+    constexpr auto to_upper = [](wchar_t c) noexcept -> wchar_t {
+        return (c >= L'a' && c <= L'z') ? static_cast<wchar_t>(c - L'a' + L'A') : c;
     };
     return std::ranges::equal(a, b, {}, to_upper, to_upper);
 }
 
-// テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す（UTF-8版）
-AlertType DetectAlertMarker(std::string_view text, size_t& marker_end)
+// テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す。
+AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
 {
-    if (text.size() < 3 || text[0] != '[' || text[1] != '!') {
+    if (text.size() < 3 || text[0] != L'[' || text[1] != L'!') {
         return AlertType::None;
     }
-    const auto close = text.find(']');
-    if (close == std::string_view::npos || close <= 2) {
+    const auto close = text.find(L']');
+    if (close == std::wstring_view::npos || close <= 2) {
         return AlertType::None;
     }
 
     const auto type_str = text.substr(2, close - 2);
 
     AlertType type = AlertType::None;
-    if (AsciiCaseEqual(type_str, "NOTE")) {
+    if (AsciiCaseEqual(type_str, L"NOTE")) {
         type = AlertType::Note;
     }
-    else if (AsciiCaseEqual(type_str, "TIP")) {
+    else if (AsciiCaseEqual(type_str, L"TIP")) {
         type = AlertType::Tip;
     }
-    else if (AsciiCaseEqual(type_str, "IMPORTANT")) {
+    else if (AsciiCaseEqual(type_str, L"IMPORTANT")) {
         type = AlertType::Important;
     }
-    else if (AsciiCaseEqual(type_str, "WARNING")) {
+    else if (AsciiCaseEqual(type_str, L"WARNING")) {
         type = AlertType::Warning;
     }
-    else if (AsciiCaseEqual(type_str, "CAUTION")) {
+    else if (AsciiCaseEqual(type_str, L"CAUTION")) {
         type = AlertType::Caution;
     }
 
@@ -76,7 +76,7 @@ AlertType DetectAlertMarker(std::string_view text, size_t& marker_end)
 
     marker_end = close + 1;
     // マーカー直後のスペースまたは改行を1つスキップ
-    if (marker_end < text.size() && (text[marker_end] == ' ' || text[marker_end] == '\n')) {
+    if (marker_end < text.size() && (text[marker_end] == L' ' || text[marker_end] == L'\n')) {
         marker_end++;
     }
     return type;
@@ -153,13 +153,10 @@ void DetectAlerts(std::pmr::vector<Node>& nodes)
             continue;
         }
         size_t marker_end = 0;
-        const AlertType type = DetectAlertMarker(nodes[i].text_utf8, marker_end);
+        const AlertType type = DetectAlertMarker(nodes[i].GetText(), marker_end);
         if (type == AlertType::None) {
             continue;
         }
-        // マーカー以降のテキストは ASCII のみで UTF-8/wide の位置が一致するため、
-        // Transform 前に wide 変換を済ませて GetText() の結果を使えるようにする。
-        nodes[i].ConvertTextFromUtf8();
         const int group = nodes[i].blockquote_group;
         TransformAlertNode(nodes[i], type, marker_end);
 

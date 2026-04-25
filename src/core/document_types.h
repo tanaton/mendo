@@ -87,9 +87,8 @@ struct NodeImageData {
 };
 
 struct Node {
-    // パース中は UTF-8 文字列を蓄積する一時領域。
-    // ParseMarkdown 末尾の ConvertTextFromUtf8() 呼び出し後は、
-    // CodeBlock（Mermaidハッシュ計算で参照）以外は解放される。
+    // パース中の md4c コールバック専用の UTF-8 蓄積領域。
+    // ConvertTextFromUtf8() 後は空である契約 — 下流は text_ のみを読む。
     std::pmr::string text_utf8;
     std::pmr::vector<TextRun> runs;
 
@@ -112,25 +111,17 @@ struct Node {
     AlertType alert_type = AlertType::None;
     SyntaxLanguage code_language = SyntaxLanguage::None;
 
-    // テキストが存在するか（ReplaceContent 前後のどちらでも正しく判定するため両表現をチェック）
-    bool HasText() const noexcept
-    {
-        return !text_.empty() || !text_utf8.empty();
-    }
+    bool HasText() const noexcept { return !text_.empty(); }
 
-    // UTF-8→Wide 変換。通常の経路では ParseMarkdown 末尾で全ノードに一括呼び出しされ、
-    // 呼び出し側は ParseResult を「変換済み」として扱える。Node を手動で構築する
-    // テストやアラート前処理など、外部で text_utf8 を直接書く経路では個別に呼ぶ。
-    // CodeBlock 以外では text_utf8 を解放（Mermaidハッシュ計算で直接参照する CodeBlock は保持）。
+    // UTF-8→Wide 変換。ParseMarkdown 末尾で全ノードに一括呼び出しされる。
+    // Node を手動構築する経路（テスト等）では個別に呼ぶ。
     void ConvertTextFromUtf8()
     {
         if (text_utf8.empty()) {
             return;
         }
         string_convert::Utf8ToWide(text_utf8, text_);
-        if (type != NodeType::CodeBlock) {
-            text_utf8.clear();
-        }
+        text_utf8.clear();
     }
 
     const std::pmr::wstring& GetText() const noexcept { return text_; }

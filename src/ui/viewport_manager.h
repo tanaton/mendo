@@ -154,7 +154,12 @@ public:
     // ---- ズーム ----
 
     constexpr int GetZoomIndex() const noexcept { return zoom_index_; }
-    constexpr void SetZoomIndex(int idx) noexcept { zoom_index_ = idx; }
+    // ZOOM_STEPS の有効範囲 [0, ZOOM_STEP_COUNT) に必ずクランプする。
+    // 設定ファイル等の外部入力経路から不正値が来ても out-of-bounds にならない契約を setter 側で保証する。
+    constexpr void SetZoomIndex(int idx) noexcept
+    {
+        zoom_index_ = std::clamp(idx, 0, ZOOM_STEP_COUNT - 1);
+    }
     constexpr float GetCurrentZoom() const noexcept { return ZOOM_STEPS[zoom_index_]; }
 
     // 新しいズーム値を返す。既に上限/下限の場合は0を返す。

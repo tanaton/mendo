@@ -40,6 +40,33 @@ struct TableLayoutData {
         const size_t idx = CellIndex(row, col);
         return (idx < cell_layouts.size()) ? cell_layouts[idx].Get() : nullptr;
     }
+
+    // 行内 [col_from, col_to) のセル幅とタブ区切りだけ flat_offset を進める。
+    // 線形化規約は dwrite_measurer.cpp の row_flat_offsets 構築と一致する。
+    static void AdvanceFlatOffsetInRow(const TableRow& row,
+        size_t col_from, size_t col_to, uint32_t& flat_offset) noexcept
+    {
+        const auto col_count_actual = row.cells.size();
+        const size_t end = std::min(col_to, col_count_actual);
+        for (size_t c = col_from; c < end; c++) {
+            flat_offset += static_cast<uint32_t>(row.cells[c].text.size());
+            if (c + 1 < col_count_actual) {
+                flat_offset++;
+            }
+        }
+    }
+
+    // (row_idx, col) セルの線形化テキスト先頭オフセット。
+    // dwrite_measurer の MeasureTable がレイアウト確定時に row_flat_offsets を必ず埋めるため、
+    // ここでの存在は前提扱い。
+    uint32_t CellFlatOffset(const std::pmr::vector<TableRow>& rows,
+        size_t row_idx, size_t col) const noexcept
+    {
+        assert(row_idx < row_flat_offsets.size());
+        uint32_t offset = row_flat_offsets[row_idx];
+        AdvanceFlatOffsetInRow(rows[row_idx], 0, col, offset);
+        return offset;
+    }
 };
 
 struct NodeLayoutEntry {

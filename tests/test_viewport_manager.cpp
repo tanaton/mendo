@@ -295,6 +295,30 @@ TEST(ViewportManagerTest, ZoomResetAlreadyDefault)
     EXPECT_FLOAT_EQ(z, 0.0f); // 変更不要
 }
 
+TEST(ViewportManagerTest, SetZoomIndexClampsBelowZero)
+{
+    ViewportManager vm;
+    vm.SetZoomIndex(-5);
+    EXPECT_EQ(vm.GetZoomIndex(), 0);
+    EXPECT_FLOAT_EQ(vm.GetCurrentZoom(), ZOOM_STEPS[0]);
+}
+
+TEST(ViewportManagerTest, SetZoomIndexClampsAboveMax)
+{
+    ViewportManager vm;
+    vm.SetZoomIndex(ZOOM_STEP_COUNT + 100);
+    EXPECT_EQ(vm.GetZoomIndex(), ZOOM_STEP_COUNT - 1);
+    EXPECT_FLOAT_EQ(vm.GetCurrentZoom(), ZOOM_STEPS[ZOOM_STEP_COUNT - 1]);
+}
+
+TEST(ViewportManagerTest, SetZoomIndexAcceptsValidValues)
+{
+    ViewportManager vm;
+    vm.SetZoomIndex(3);
+    EXPECT_EQ(vm.GetZoomIndex(), 3);
+    EXPECT_FLOAT_EQ(vm.GetCurrentZoom(), ZOOM_STEPS[3]);
+}
+
 // ---- スクロールバー追跡テスト ----
 
 TEST(ViewportManagerTest, ScrollbarTracking)

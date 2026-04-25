@@ -445,7 +445,7 @@ TEST(ParseRequestPrefix, IdWithJsonPayload)
     EXPECT_TRUE(p.valid);
     EXPECT_EQ(p.id, 123u);
     EXPECT_TRUE(p.has_payload);
-    EXPECT_EQ(p.payload, std::wstring_view(L"{\"ok\":true}"));
+    EXPECT_EQ(p.payload, L"{\"ok\":true}");
 }
 
 TEST(ParseRequestPrefix, LargeId)
@@ -454,7 +454,7 @@ TEST(ParseRequestPrefix, LargeId)
     EXPECT_TRUE(p.valid);
     EXPECT_EQ(p.id, 4294967290u);
     EXPECT_TRUE(p.has_payload);
-    EXPECT_EQ(p.payload, std::wstring_view(L"done"));
+    EXPECT_EQ(p.payload, L"done");
 }
 
 TEST(ParseRequestPrefix, TrailingGarbageWithoutColon)
@@ -488,5 +488,5 @@ TEST(ParseRequestPrefix, MaxUintBoundary)
     EXPECT_TRUE(p.valid);
     EXPECT_EQ(p.id, 4294967295u);
     EXPECT_TRUE(p.has_payload);
-    EXPECT_EQ(p.payload, std::wstring_view(L"ok"));
+    EXPECT_EQ(p.payload, L"ok");
 }

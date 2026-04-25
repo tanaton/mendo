@@ -53,19 +53,14 @@ protected:
 
 private:
     // text_layout が非コピー可能なので、計測前の入力のみを複製する。
-    // SetText は text_utf8 をクリアするため、utf8 のみ保持している src のケースを
-    // 壊さないように text_utf8 と text_ の両経路を使い分ける。
+    // ParseMarkdown 完了後は text_utf8 が常に空である契約のため、Wide テキスト経路のみ扱う。
     static Node CloneNode(const Node& src)
     {
         Node n;
         n.type = src.type;
         n.heading_level = src.heading_level;
         n.code_language = src.code_language;
-        if (!src.text_utf8.empty()) {
-            n.text_utf8 = src.text_utf8;
-            n.ConvertTextFromUtf8();
-        }
-        else if (!src.GetText().empty()) {
+        if (!src.GetText().empty()) {
             n.SetText(src.GetText());
         }
         n.runs = src.runs;

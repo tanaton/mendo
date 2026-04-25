@@ -745,13 +745,12 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
 
     md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
 
-    DetectAlerts(ctx.nodes);
-
-    // パース結果は UTF-8→Wide 変換済みで返す（呼び出し側での二重管理を避ける）。
-    // CodeBlock は Mermaidハッシュ計算で text_utf8 を直接参照するため保持される。
+    // Alert 検出は Wide テキストを見るため、変換を先に行う。
     for (auto& node : ctx.nodes) {
         node.ConvertTextFromUtf8();
     }
+
+    DetectAlerts(ctx.nodes);
 
     ParseResult result;
     result.nodes = std::move(ctx.nodes);

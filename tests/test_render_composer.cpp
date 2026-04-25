@@ -115,7 +115,7 @@ TEST(RenderComposer, TitleBarState_CopiesFlags)
     EXPECT_FLOAT_EQ(tb.window_width, 1024.0f);
     EXPECT_TRUE(tb.is_dark_mode);
     EXPECT_FALSE(tb.is_maximized);
-    EXPECT_EQ(tb.title_text, std::wstring_view(L"example.md"));
+    EXPECT_EQ(tb.title_text, L"example.md");
     EXPECT_FLOAT_EQ(tb.height, state.window.titlebar.GetHeight());
 }
 

@@ -197,7 +197,7 @@ uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool d
 {
     // LatexMath を Mermaid とキャッシュ衝突させないためのソルト（任意の定数）。
     constexpr uint64_t LATEX_MATH_HASH_SALT = 0xA1B2C3D4E5F60718ULL;
-    uint64_t h = HashCode(node.text_utf8, max_width, dark_mode);
+    uint64_t h = HashCode(node.GetText(), max_width, dark_mode);
     if (node.code_language == SyntaxLanguage::LatexMath) {
         h ^= LATEX_MATH_HASH_SALT;
     }
