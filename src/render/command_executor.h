@@ -9,6 +9,7 @@ namespace command_executor_internal {
 
 // D2D1_COLOR_F を 8bit RGBA にパックしたキー。CommandExecutor のブラシキャッシュキーに使う。
 // テーマ色は 8bit 精度で作られているため 8bit 量子化で衝突しない。
+// command_executor.cpp の GetBrush から呼ばれる本番実装の一部のため MENDO_TESTING でガードしない。
 constexpr uint32_t PackColor(D2D1_COLOR_F c) noexcept
 {
     const auto quant = [](float v) noexcept -> uint32_t {
