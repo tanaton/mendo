@@ -100,10 +100,11 @@ protected:
 
     // Markdown を Document に流し込み、対応する LayoutCache をシードしたうえで
     // ResourceManager を初期化する。テストごとに 1 度だけ呼ぶ。
+    // パスは parent_path を持つ形にして ApplyCachedImages の doc_dir.empty() 早期 return を回避する。
     void LoadMarkdown(std::string_view md, float block_height = 100.0f)
     {
         std::pmr::string utf8(md);
-        doc_ = Document::FromMarkdown(std::move(utf8), L"test.md");
+        doc_ = Document::FromMarkdown(std::move(utf8), L"C:\\dir\\test.md");
         cache_ = SeedLayoutCache(doc_.GetNodes().size(), block_height);
         rm_.Init(doc_, cache_, viewport_, image_loader_, mock_mermaid_, theme_service_,
             MakeCallbacks(tracker_));
@@ -137,7 +138,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesReturnsZeroWhenContentWidthIsZero)
 
 TEST_F(ResourceManagerTest, ApplyCachedImagesSkipsRemoteImages)
 {
-    // http:// 等のリモート画像はスキップされる（ImageLoader は呼ばれない）
+    // http:// 等のリモート画像は適用対象にならないため、適用数は 0 のまま。
     LoadMarkdown("![alt](https://example.com/foo.png)\n");
     EXPECT_EQ(rm_.ApplyCachedImages(), 0);
 }

@@ -31,9 +31,10 @@ class CommandExecutor {
 public:
     void Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt);
 
-    // テスト用 inspector。本番コードからは使わない。
+#ifdef MENDO_TESTING
     size_t PoolSizeForTest() const noexcept { return brush_pool_.size(); }
     const ID2D1RenderTarget* BoundRtForTest() const noexcept { return bound_rt_; }
+#endif
 
 private:
     ID2D1SolidColorBrush* GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color);
