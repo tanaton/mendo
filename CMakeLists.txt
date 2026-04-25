@@ -105,7 +105,7 @@ add_library(mendo_core STATIC
     src/io/file_loader.cpp
     src/io/file_explorer.cpp
     src/io/file_load_service.cpp
-    src/io/config_store.cpp
+    src/io/config_service.cpp
     src/io/image_loader.cpp
     src/io/session_service.cpp
     src/io/file_watcher.cpp

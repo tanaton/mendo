@@ -105,16 +105,16 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
 
-    // コピー/保存ボタンのホバー判定（距離スロットリングで不要な再計算を回避）
+    // コピー/保存ボタンのホバー判定（距離 + 時間スロットリングで不要な再計算を回避）。
+    // 1 回の可視ノード走査で Copy/Save 両方を判定する。
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     auto& ht = state_.interaction.hover_throttle;
     int new_copy_hover = state_.interaction.hovered_copy_node;
-    if (ht.TryMarkMoved(ht.last_copy_hit_pos, px, py)) {
-        new_copy_hover = hit_test_.CopyButtonHitTest(hit_ctx);
-    }
     int new_save_hover = state_.interaction.hovered_save_node;
-    if (new_copy_hover < 0 && ht.TryMarkMoved(ht.last_save_hit_pos, px, py)) {
-        new_save_hover = hit_test_.SaveButtonHitTest(hit_ctx);
+    if (ht.TryMarkMoved(ht.last_copy_hit_pos, ht.last_copy_hit_tick, px, py)) {
+        const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
+        new_copy_hover = btn_hit.copy_node;
+        new_save_hover = btn_hit.save_node;
     }
     if (new_copy_hover != state_.interaction.hovered_copy_node || new_save_hover != state_.interaction.hovered_save_node) {
         Dispatch(MdPaneButtonHoverChangedAction{ new_copy_hover, new_save_hover });
@@ -132,7 +132,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     }
 
     // リンク・画像のヒットテスト
-    if (ht.TryMarkMoved(ht.last_md_hit_pos, px, py)) {
+    if (ht.TryMarkMoved(ht.last_md_hit_pos, ht.last_md_hit_tick, px, py)) {
         const auto hit = HitTest(px, py);
         const auto link = GetLinkAtHit(hit);
         ht.last_md_cursor_hand = link.has_value();

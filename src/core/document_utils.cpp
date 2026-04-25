@@ -153,6 +153,12 @@ constexpr void AppendInlineHtml(std::pmr::wstring& out,
     size_t run_idx = 0;
     uint32_t pos = start;
 
+    enum class UrlSafety : uint8_t { Unchecked = 0, Safe = 1, Unsafe = 2 };
+    std::pmr::vector<UrlSafety> url_safety(out.get_allocator().resource());
+    if (!link_urls.empty()) {
+        url_safety.assign(link_urls.size(), UrlSafety::Unchecked);
+    }
+
     while (pos < end) {
         while (run_idx < runs.size() && runs[run_idx].start + runs[run_idx].length <= pos) {
             ++run_idx;
@@ -171,7 +177,11 @@ constexpr void AppendInlineHtml(std::pmr::wstring& out,
             s.strike = r.strikethrough();
             s.link_url_index = r.link_url_index;
             if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
-                if (!IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)])) {
+                const size_t ui = static_cast<size_t>(s.link_url_index);
+                if (url_safety[ui] == UrlSafety::Unchecked) {
+                    url_safety[ui] = IsSafeUrlScheme(link_urls[ui]) ? UrlSafety::Safe : UrlSafety::Unsafe;
+                }
+                if (url_safety[ui] == UrlSafety::Unsafe) {
                     s.link_url_index = -1;
                 }
             }

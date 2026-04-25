@@ -19,8 +19,28 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
     const float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     const float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
 
+    if (fmt_.nav_button) {
+        auto* dw = backend_.GetDWriteFactory();
+        if (dw) {
+            if (!nav_back_layout_) {
+                static const wchar_t BACK_ICON[] = L"\x25C0";
+                dw->CreateTextLayout(BACK_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
+            }
+            if (!nav_forward_layout_) {
+                static const wchar_t FORWARD_ICON[] = L"\x25B6";
+                dw->CreateTextLayout(FORWARD_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
+            }
+        }
+    }
+
+    // SetColor は SetOpacity より重いため、固定色ブラシを is_dark で選んで
+    // 透明度のみ切り替える。
+    ID2D1SolidColorBrush* const overlay_brush = is_dark
+        ? Brush(BrushId::OverlayWhite)
+        : Brush(BrushId::OverlayBlack);
+
     auto drawButton = [&](float x, bool enabled, bool is_hovered, IDWriteTextLayout* arrow_layout) {
-        if (!Brush(BrushId::Overlay)) {
+        if (!overlay_brush) {
             return;
         }
         const D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
@@ -37,13 +57,9 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
             bg_alpha = is_dark ? 0.15f : 0.10f;
         }
 
-        const D2D1_COLOR_F bg_color = is_dark
-            ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha)
-            : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
-
-        Brush(BrushId::Overlay)->SetColor(bg_color);
+        overlay_brush->SetOpacity(bg_alpha);
         const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
-        rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
+        rt()->FillRoundedRectangle(rrect, overlay_brush);
 
         // 矢印テキスト（キャッシュ済みレイアウトを使用）
         float text_alpha;
@@ -57,13 +73,9 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
             text_alpha = is_dark ? 0.6f : 0.5f;
         }
 
-        const D2D1_COLOR_F text_color = is_dark
-            ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
-            : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
-
         if (arrow_layout) {
-            Brush(BrushId::Overlay)->SetColor(text_color);
-            rt()->DrawTextLayout(D2D1::Point2F(x, base_y), arrow_layout, Brush(BrushId::Overlay));
+            overlay_brush->SetOpacity(text_alpha);
+            rt()->DrawTextLayout(D2D1::Point2F(x, base_y), arrow_layout, overlay_brush);
         }
     };
 
@@ -71,6 +83,11 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
     drawButton(base_x, can_back, hovered == 1, nav_back_layout_.Get());
     // 進むボタン (▶)
     drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, nav_forward_layout_.Get());
+
+    if (overlay_brush) {
+        // 共有ブラシの状態が後続の描画に漏れないようリセットする。
+        overlay_brush->SetOpacity(1.0f);
+    }
 }
 
 void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
@@ -116,7 +133,7 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
 
 void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect)
 {
-    if (!rt() || direction == 0 || !Brush(BrushId::Overlay)) {
+    if (!rt() || direction == 0) {
         return;
     }
 
@@ -129,26 +146,42 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2, cx + rect_w / 2, cy + rect_h / 2);
 
-    // 背景（両テーマ共通の半透明ダークオーバーレイ）
-    const D2D1_COLOR_F bg_color = is_dark
-        ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.8f)
-        : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.6f);
+    if (auto* bg_brush = Brush(BrushId::Overlay)) {
+        const D2D1_COLOR_F bg_color = is_dark
+            ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.8f)
+            : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.6f);
+        bg_brush->SetColor(bg_color);
+        const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, GESTURE_OVERLAY_CORNER, GESTURE_OVERLAY_CORNER);
+        rt()->FillRoundedRectangle(rrect, bg_brush);
+    }
 
-    Brush(BrushId::Overlay)->SetColor(bg_color);
-    const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, GESTURE_OVERLAY_CORNER, GESTURE_OVERLAY_CORNER);
-    rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
+    if (fmt_.gesture_overlay) {
+        auto* dw = backend_.GetDWriteFactory();
+        if (dw) {
+            if (!gesture_back_layout_) {
+                static const wchar_t GESTURE_BACK[] = L"\x2190 \x623B\x308B";
+                dw->CreateTextLayout(GESTURE_BACK, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_back_layout_);
+            }
+            if (!gesture_forward_layout_) {
+                static const wchar_t GESTURE_FORWARD[] = L"\x2192 \x9032\x3080";
+                dw->CreateTextLayout(GESTURE_FORWARD, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_forward_layout_);
+            }
+        }
+    }
 
-    // テキスト（両テーマ共通でダークオーバーレイ上に白色、キャッシュ済みレイアウトを使用）
     auto* gesture_layout = (direction < 0) ? gesture_back_layout_.Get() : gesture_forward_layout_.Get();
     if (gesture_layout) {
-        Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
-        rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), gesture_layout, Brush(BrushId::Overlay));
+        if (auto* white = Brush(BrushId::OverlayWhite)) {
+            white->SetOpacity(alpha);
+            rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), gesture_layout, white);
+            white->SetOpacity(1.0f);
+        }
     }
 }
 
 void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect)
 {
-    if (!rt() || toast.message.empty() || !Brush(BrushId::Overlay)) {
+    if (!rt() || toast.message.empty()) {
         return;
     }
 
@@ -162,13 +195,14 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
     const float bottom_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE - TOAST_OVERLAY_BOTTOM_OFFSET;
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, bottom_y - rect_h, cx + rect_w / 2, bottom_y);
 
-    // 半透明ダーク背景
-    const D2D1_COLOR_F bg_color = is_dark
-        ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.85f)
-        : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.7f);
-    Brush(BrushId::Overlay)->SetColor(bg_color);
-    const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, TOAST_OVERLAY_CORNER, TOAST_OVERLAY_CORNER);
-    rt()->FillRoundedRectangle(rrect, Brush(BrushId::Overlay));
+    if (auto* bg_brush = Brush(BrushId::Overlay)) {
+        const D2D1_COLOR_F bg_color = is_dark
+            ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.85f)
+            : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.7f);
+        bg_brush->SetColor(bg_color);
+        const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, TOAST_OVERLAY_CORNER, TOAST_OVERLAY_CORNER);
+        rt()->FillRoundedRectangle(rrect, bg_brush);
+    }
 
     // 白テキスト（キャッシュ済みレイアウトを使用。メッセージ変更時のみ再作成）
     if (fmt_.toast_text) {
@@ -185,8 +219,11 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
             );
         }
         if (cached_toast_layout_) {
-            Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
-            rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), cached_toast_layout_.Get(), Brush(BrushId::Overlay));
+            if (auto* white = Brush(BrushId::OverlayWhite)) {
+                white->SetOpacity(alpha);
+                rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), cached_toast_layout_.Get(), white);
+                white->SetOpacity(1.0f);
+            }
         }
     }
 }

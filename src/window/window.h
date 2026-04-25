@@ -6,10 +6,11 @@
 #include <memory_resource>
 
 class App;
+class ConfigService;
 
 class Win32Window {
 public:
-    Win32Window();
+    explicit Win32Window(ConfigService& config);
     ~Win32Window();
 
     bool Create(HINSTANCE hInstance, int nCmdShow);
@@ -54,5 +55,6 @@ private:
     int cached_nchit_frame_y_ = 8;
     int cached_nchit_right_border_ = 8;
 
+    ConfigService& config_;
     std::unique_ptr<App> app_;
 };

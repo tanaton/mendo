@@ -7,7 +7,6 @@
 #include "mermaid_renderer_interface.h"
 #include "theme_service.h"
 #include "config_service.h"
-#include "config_store.h"
 #include "test_helpers.h"
 #include <vector>
 
@@ -88,16 +87,6 @@ LayoutCache SeedLayoutCache(size_t node_count, float block_height = 100.0f)
 
 class ResourceManagerTest : public ::testing::Test {
 protected:
-    void SetUp() override
-    {
-        config::Clear();
-    }
-
-    void TearDown() override
-    {
-        config::Clear();
-    }
-
     // ApplyCachedImages は doc_dir.empty() で早期 return するため、テスト用ドキュメントパスは
     // parent_path を持つ絶対パスでなければならない。
     static constexpr const wchar_t* kTestDocPath = L"C:\\dir\\test.md";

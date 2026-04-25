@@ -1,7 +1,7 @@
 #include "window.h"
 #include "app.h"
 #include "app_constants.h"
-#include "config_store.h"
+#include "config_service.h"
 #include "i18n.h"
 #include "resource.h"
 #include "ui_constants.h"
@@ -23,7 +23,10 @@ static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 // 0xF000以上はシステム予約（SC_KEYMENU=0xF100等）のため、下位4bitが0のカスタム値を使う
 static constexpr UINT SC_RESET_WINDOW = 0x0010;
 
-Win32Window::Win32Window() : app_(std::make_unique<App>()) {}
+Win32Window::Win32Window(ConfigService& config)
+    : config_(config), app_(std::make_unique<App>(config))
+{
+}
 Win32Window::~Win32Window() = default;
 
 void Win32Window::LoadMarkdownFile(std::wstring_view path) { app_->LoadMarkdownFile(path); }
@@ -591,7 +594,6 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_DESTROY:
         SaveWindowPlacement();
         app_->OnDestroy();
-        config::Save();
         PostQuitMessage(0);
         return 0;
 
@@ -655,28 +657,28 @@ void Win32Window::SaveWindowPlacement()
         return;
     }
     const auto& rc = wp.rcNormalPosition;
-    config::SetInt("Window", "X", rc.left);
-    config::SetInt("Window", "Y", rc.top);
-    config::SetInt("Window", "Width", rc.right - rc.left);
-    config::SetInt("Window", "Height", rc.bottom - rc.top);
+    config_.SaveInt("Window", "X", rc.left);
+    config_.SaveInt("Window", "Y", rc.top);
+    config_.SaveInt("Window", "Width", rc.right - rc.left);
+    config_.SaveInt("Window", "Height", rc.bottom - rc.top);
 
     // 最小化中に閉じた場合も、元が最大化だったかを正しく保存する
     const bool was_maximized = (wp.showCmd == SW_SHOWMAXIMIZED) ||
         ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED));
-    config::SetBool("Window", "Maximized", was_maximized);
+    config_.SaveBool("Window", "Maximized", was_maximized);
 }
 
 bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 {
     // 保存済みのウィンドウサイズを読み込み（なければデフォルト表示へフォールバック）
-    const int w = config::GetInt("Window", "Width", 0, 100, 100000);
-    const int h = config::GetInt("Window", "Height", 0, 100, 100000);
+    const int w = config_.LoadInt("Window", "Width", 0, 100, 100000);
+    const int h = config_.LoadInt("Window", "Height", 0, 100, 100000);
     if (w == 0 || h == 0) {
         return false;
     }
-    const int x = config::GetInt("Window", "X", 0, -100000, 100000);
-    const int y = config::GetInt("Window", "Y", 0, -100000, 100000);
-    const bool maximized = config::GetBool("Window", "Maximized", false);
+    const int x = config_.LoadInt("Window", "X", 0, -100000, 100000);
+    const int y = config_.LoadInt("Window", "Y", 0, -100000, 100000);
+    const bool maximized = config_.LoadBool("Window", "Maximized", false);
 
     WINDOWPLACEMENT wp{};
     wp.length = sizeof(wp);
@@ -698,11 +700,11 @@ bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 
 void Win32Window::RestoreScrollPosition()
 {
-    const int node = config::GetInt("Session", "ScrollNode", -1, -1, 100000000);
+    const int node = config_.LoadInt("Session", "ScrollNode", -1, -1, 100000000);
     if (node < 0) {
         return;
     }
-    const int offset = config::GetInt("Session", "ScrollOffset", 0, -100000, 100000);
+    const int offset = config_.LoadInt("Session", "ScrollOffset", 0, -100000, 100000);
     app_->SetPendingRestoreNode(node, offset);
 }
 

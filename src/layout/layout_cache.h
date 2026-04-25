@@ -238,11 +238,28 @@ public:
         effects_generation_++;
     }
 
-    // すべてのテキストレイアウトとエフェクトを無効化し、Mermaid図のビットマップもリセットする。
-    // ダークモード切替時に使用。
+    // フォント幾何が変わるテーマ変更（ズーム等）用。レイアウトと bitmap の両方を破棄する。
+    // 色のみの変更なら InvalidateEffectsAndDiagramBitmaps の方がレイアウト維持で軽い。
     void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes) noexcept
     {
-        InvalidateAllLayouts(); // effects_generation_ は InvalidateAllLayouts 内で更新済み
+        InvalidateAllLayouts();
+        InvalidateDiagramBitmaps(nodes);
+    }
+
+    // 色のみが変わるテーマ変更（ライト/ダーク切替）用。
+    // 文字幾何 (IDWriteTextLayout / table cell layouts) は維持し、ApplyEffects を再走らせるため
+    // effects_applied フラグだけ落とす。Mermaid bitmap はテーマ色を持つので破棄する。
+    void InvalidateEffectsAndDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept
+    {
+        for (auto& e : entries_) {
+            e.effects_applied = false;
+            e.inline_code_bgs.clear();
+            if (e.table_layout) {
+                e.table_layout->cell_inline_code_bgs.clear();
+                e.table_layout->row_bgs_computed.clear();
+            }
+        }
+        effects_generation_++;
         InvalidateDiagramBitmaps(nodes);
     }
 

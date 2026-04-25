@@ -50,6 +50,15 @@ public:
     size_t EntryCount() const noexcept { return index_.size(); }
     uint64_t TotalSize() const noexcept { return total_size_; }
 
+#ifdef MENDO_TESTING
+    // テスト用: 外部キーから実ファイル名（PNG）を導く。
+    // 内部で DPR を mix した内部キーを使うため。
+    uint64_t InternalKeyForTest(uint64_t external_key) const noexcept
+    {
+        return InternalKey(external_key);
+    }
+#endif
+
 private:
     static constexpr uint32_t MAGIC = 0x4D454D43u;   // "MEMC"
     static constexpr uint32_t VERSION = 1;
@@ -75,7 +84,16 @@ private:
     void DecrementTotalSize(uint32_t png_size) noexcept;
     static int64_t Now() noexcept;
 
-    std::filesystem::path cache_dir_override_;
+    // current_dpr_ を mix した内部キーを返す。DPR ごとにエントリを分離して
+    // DPI 変更/モニタ切替時の全消去を避ける。
+    uint64_t InternalKey(uint64_t external_key) const noexcept
+    {
+        // DPR を 1/100 単位で量子化（典型値 100/125/150/175/200）。
+        const uint32_t dpr_q = static_cast<uint32_t>(current_dpr_ * 100.0f + 0.5f);
+        return external_key ^ (static_cast<uint64_t>(dpr_q) * 0x9E3779B97F4A7C15ULL);
+    }
+
+    std::filesystem::path cache_dir_;
     float stored_dpr_ = 0.0f;
     float current_dpr_ = 0.0f;
 

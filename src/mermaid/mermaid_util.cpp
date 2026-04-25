@@ -79,10 +79,12 @@ int mermaid_util::ComputeWorkerCount(unsigned int processor_count) noexcept
 
 int mermaid_util::QuantizeWidth(float max_width) noexcept
 {
+    // 細かなペイン幅変動でキャッシュミスを連発させない粒度。
+    constexpr int kQuantum = 32;
     if (!(max_width > 0.0f)) {
-        return 100;
+        return kQuantum;
     }
-    return static_cast<int>(std::ceil(max_width / 100.0f)) * 100;
+    return static_cast<int>(std::ceil(max_width / static_cast<float>(kQuantum))) * kQuantum;
 }
 
 uint64_t mermaid_util::HashCode(std::wstring_view code, float max_width, bool dark_mode) noexcept

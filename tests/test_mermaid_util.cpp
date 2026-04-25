@@ -260,28 +260,29 @@ TEST(ComputeWorkerCount, LargeProcessorCountReturnsMaximum)
 // QuantizeWidth
 // ═══════════════════════════════════════════════
 
-TEST(QuantizeWidth, RoundsUpToNearest100)
+TEST(QuantizeWidth, RoundsUpToNearest32)
 {
-    EXPECT_EQ(mermaid_util::QuantizeWidth(750.0f), 800);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(801.0f), 900);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(1.0f), 100);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(99.0f), 100);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(1920.0f), 2000);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(750.0f), 768);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(801.0f), 832);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(1.0f), 32);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(31.0f), 32);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(1920.0f), 1920);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(1921.0f), 1952);
 }
 
 TEST(QuantizeWidth, ExactMultiplesUnchanged)
 {
-    EXPECT_EQ(mermaid_util::QuantizeWidth(100.0f), 100);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(200.0f), 200);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(32.0f), 32);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(64.0f), 64);
     EXPECT_EQ(mermaid_util::QuantizeWidth(800.0f), 800);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(1000.0f), 1000);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(1024.0f), 1024);
 }
 
-TEST(QuantizeWidth, ZeroAndNegativeReturn100)
+TEST(QuantizeWidth, ZeroAndNegativeReturnMinimum)
 {
-    EXPECT_EQ(mermaid_util::QuantizeWidth(0.0f), 100);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(-1.0f), 100);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(-100.0f), 100);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(0.0f), 32);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(-1.0f), 32);
+    EXPECT_EQ(mermaid_util::QuantizeWidth(-100.0f), 32);
 }
 
 // ═══════════════════════════════════════════════

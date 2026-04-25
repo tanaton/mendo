@@ -11,6 +11,7 @@
 #include <WebView2.h>
 #include <string>
 #include <vector>
+#include <filesystem>
 #include <functional>
 #include "lru_cache.h"
 #include <queue>
@@ -30,7 +31,9 @@ public:
     MermaidRenderer(const MermaidRenderer&) = delete;
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
 
-    void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic, std::move_only_function<void()> on_ready);
+    // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
+    void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
+        const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
 
     constexpr bool IsReady() const noexcept { return lifecycle_.IsReady(); }
 
@@ -95,6 +98,7 @@ private:
     ID2D1RenderTarget* render_target_ = nullptr;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> webview_env_;
+    std::pmr::wstring user_data_folder_;
 
     Worker workers_[MAX_WORKERS];
     int worker_count_ = 0;

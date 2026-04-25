@@ -283,6 +283,83 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         });
 }
 
+HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
+    const MdPaneHitContext& ctx) const noexcept
+{
+    assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
+    assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
+
+    CodeBlockButtonHit out;
+    if (ctx.nodes.empty()) {
+        return out;
+    }
+    const uint32_t gen = ctx.cache.GetEffectsGeneration();
+    const bool copy_cached = last_copy_hit_.Matches(ctx, gen);
+    const bool save_cached = last_save_hit_.Matches(ctx, gen);
+    if (copy_cached && save_cached) {
+        out.copy_node = last_copy_hit_.result;
+        out.save_node = last_save_hit_.result;
+        return out;
+    }
+
+    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
+    const float btn_left_bound = ctx.theme.margin_left + ctx.content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+    const bool x_in_copy_band = dip_x >= btn_left_bound;
+
+    const float viewport_top = ctx.scroll_y;
+    const float viewport_bottom = ctx.scroll_y + ctx.md_pane_height;
+    const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
+    const int count = static_cast<int>(ctx.nodes.size());
+
+    int copy_hit = -1;
+    int save_hit = -1;
+    for (int i = first; i < count; i++) {
+        const auto& entry = ctx.cache[i];
+        if (entry.y_position - ctx.theme.code_block_padding > viewport_bottom) {
+            break;
+        }
+        const auto& node = ctx.nodes[i];
+        if (node.type != NodeType::CodeBlock) {
+            continue;
+        }
+        const float indent = NodeIndent(node, ctx.theme);
+        const float x = ctx.theme.margin_left + indent;
+        const float w = ctx.content_width - indent;
+        const float pad = ctx.theme.code_block_padding;
+        if (IsDiagramLanguage(node.code_language)) {
+            if (save_hit < 0) {
+                const auto& diagram = ctx.cache.GetDiagram(i);
+                if (diagram.bitmap) {
+                    const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry.y_position);
+                    const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top);
+                    if (dip_x >= btn.left && dip_x <= btn.right
+                        && dip_y >= btn.top && dip_y <= btn.bottom) {
+                        save_hit = i;
+                    }
+                }
+            }
+        }
+        else if (x_in_copy_band && copy_hit < 0) {
+            const float block_right = x + w;
+            const float block_top = entry.y_position - pad;
+            const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
+            if (dip_x >= btn.left && dip_x <= btn.right
+                && dip_y >= btn.top && dip_y <= btn.bottom) {
+                copy_hit = i;
+            }
+        }
+        if (copy_hit >= 0 && save_hit >= 0) {
+            break;
+        }
+    }
+
+    last_copy_hit_.Store(ctx, gen, copy_hit);
+    last_save_hit_.Store(ctx, gen, save_hit);
+    out.copy_node = copy_hit;
+    out.save_node = save_hit;
+    return out;
+}
+
 NavButtonHover HitTestService::NavButtonHitTest(
     float dip_x, float dip_y, const PaneRect& md_rect) const noexcept
 {

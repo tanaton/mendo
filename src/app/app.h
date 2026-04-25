@@ -30,6 +30,7 @@ void ApplyDarkModeToWindow(HWND hwnd, bool dark);
 
 class App {
 public:
+    explicit App(ConfigService& config) noexcept : config_(config) {}
     bool Init(HWND hwnd);
 
     void LoadMarkdownFile(std::wstring_view path);
@@ -102,6 +103,8 @@ public:
     void Invalidate() noexcept { InvalidateRect(hwnd_, nullptr, FALSE); }
     void InvalidatePane(const PaneRect& rect) noexcept;
     void InvalidateTitleBar() noexcept;
+    // 外部から強制再描画を要求するためのフック（D2D デバイスロスト後など）。
+    void InvalidatePaintCache() noexcept { last_paint_fp_ = {}; }
     constexpr float GetDpiScale() const noexcept { return state_.window.cached_dpi_scale; }
 
     // カスタムタイトルバー
@@ -218,7 +221,7 @@ private:
     FileWatcher file_watcher_;
     DocumentService doc_service_{ file_watcher_ };
     AppController controller_;
-    ConfigService config_;
+    ConfigService& config_;
     ThemeService theme_service_{ config_ };
     SessionService session_{ config_ };
     FileLoadService file_load_service_{ doc_service_ };
@@ -232,6 +235,45 @@ private:
     ResourceManager resource_manager_;
     Win32Host win32_host_;
     SideEffectExecutor effect_executor_;
+
+    // OnPaint で前フレームと一致したらコマンド生成と Render を skip するためのキー。
+    struct PaintFingerprint {
+        bool valid = false;
+        bool show_loading = false;
+        float scroll_y = 0.0f;
+        float md_pane_w = 0.0f;
+        float md_pane_h = 0.0f;
+        uint32_t effects_gen = 0;
+        uint32_t search_gen = 0;
+        int search_current = -1;
+        int hovered_copy = -1;
+        int hovered_save = -1;
+        int nav_hover = 0;
+        int file_hover = -1;
+        int toc_hover = -1;
+        bool selection_active = false;
+        uint32_t selection_id = 0;
+        bool toast_visible = false;
+        float toast_alpha = 0.0f;
+        bool gesture_overlay_visible = false;
+        bool gesture_trail_active = false;
+        size_t gesture_trail_size = 0;
+        bool can_back = false;
+        bool can_fwd = false;
+        bool window_active = false;
+        bool zoomed = false;
+        bool sb_visible = false;
+        size_t sb_query_size = 0;
+        size_t sb_ime_size = 0;
+        int sb_caret = -1;
+        bool sb_case = false;
+        bool sb_highlight = false;
+        bool dark = false;
+        size_t doc_node_count = 0;
+        bool friend operator==(const PaintFingerprint& a, const PaintFingerprint& b) noexcept = default;
+    };
+    PaintFingerprint last_paint_fp_{};
+    PaintFingerprint ComputePaintFingerprint(bool show_loading, float md_w, float md_h) const noexcept;
 
     void ShowToast(std::wstring_view message);
 };

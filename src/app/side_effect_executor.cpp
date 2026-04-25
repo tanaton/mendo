@@ -2,7 +2,6 @@
 #include "win32_host.h"
 #include "resource_manager.h"
 #include "document_service.h"
-#include "config_service.h"
 #include "app_state.h"
 #include "layout_service.h"
 #include "timer_ids.h"
@@ -10,13 +9,12 @@
 #include "ui_constants.h"
 
 void SideEffectExecutor::Init(IWin32Host& host, ResourceManager& resource_manager,
-    DocumentService& doc_service, ConfigService& config,
+    DocumentService& doc_service,
     AppState& state, LayoutService& layout_service, Callbacks cb)
 {
     host_ = &host;
     resource_manager_ = &resource_manager;
     doc_service_ = &doc_service;
-    config_ = &config;
     state_ = &state;
     layout_service_ = &layout_service;
     cb_ = std::move(cb);
@@ -247,9 +245,6 @@ void SideEffectExecutor::ExecuteTimer(const TimerEffect& e)
 void SideEffectExecutor::ExecuteLifecycle(const LifecycleEffect& e)
 {
     std::visit(overloaded{
-        [this](const effect::SaveConfig&) {
-            config_->Flush();
-        },
         [this](const effect::Destroy&) {
             cb_.destroy();
         },

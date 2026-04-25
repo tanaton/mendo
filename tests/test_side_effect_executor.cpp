@@ -151,7 +151,7 @@ protected:
     void SetUp() override
     {
         exec_.Init(host_, resource_manager_, doc_service_,
-                   config_, state_, layout_service_, MakeCallbacks());
+                   state_, layout_service_, MakeCallbacks());
     }
 };
 

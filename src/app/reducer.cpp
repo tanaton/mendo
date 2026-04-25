@@ -270,7 +270,8 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
 {
     const auto anchor = SnapshotVisibleTarget(state);
     state.pane_layout_valid = false;
-    state.document.layout_cache.InvalidateAllWithDiagrams(state.document.doc.GetNodes());
+    // 色のみの変更なのでテキストレイアウトは維持し、effects と Mermaid bitmap のみ破棄する。
+    state.document.layout_cache.InvalidateEffectsAndDiagramBitmaps(state.document.doc.GetNodes());
     if (anchor.IsValid()) {
         // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);

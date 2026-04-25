@@ -1,6 +1,5 @@
 #include "mermaid_file_cache.h"
 #include "task_scheduler.h"
-#include "config_store.h"
 #include "file_io.h"
 #include <algorithm>
 #include <cstring>
@@ -39,7 +38,7 @@ MermaidFileCache::~MermaidFileCache()
 
 void MermaidFileCache::SetCacheDir(const std::filesystem::path& dir)
 {
-    cache_dir_override_ = dir;
+    cache_dir_ = dir;
 }
 
 void MermaidFileCache::SetLimits(size_t max_entries, uint64_t max_total_size)
@@ -50,14 +49,7 @@ void MermaidFileCache::SetLimits(size_t max_entries, uint64_t max_total_size)
 
 std::filesystem::path MermaidFileCache::GetCacheDir() const
 {
-    if (!cache_dir_override_.empty()) {
-        return cache_dir_override_;
-    }
-    const auto base = config::GetConfigDir();
-    if (base.empty()) {
-        return {};
-    }
-    return base / L"MermaidCache";
+    return cache_dir_;
 }
 
 std::filesystem::path MermaidFileCache::GetPngPath(const std::filesystem::path& dir, uint64_t key) const
@@ -107,9 +99,8 @@ void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 
     LoadIndex();
 
-    if (stored_dpr_ != 0.0f && stored_dpr_ != current_dpr) {
-        ClearAll();
-    }
+    // DPR ごとに InternalKey() が別キーに振り分けるため、DPR 不一致でも消去せず
+    // LRU で自然淘汰させる。
     stored_dpr_ = current_dpr;
 }
 
@@ -211,6 +202,7 @@ void MermaidFileCache::SaveIndex()
 
 bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
 {
+    key = InternalKey(key);
     auto it = index_.find(key);
     if (it == index_.end()) {
         return false;
@@ -259,6 +251,7 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
 
 bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept
 {
+    key = InternalKey(key);
     const auto it = index_.find(key);
     if (it == index_.end()) {
         return false;
@@ -273,6 +266,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     if (png_data.empty()) {
         return;
     }
+    key = InternalKey(key);
 
     const uint32_t png_size = static_cast<uint32_t>(png_data.size());
 
