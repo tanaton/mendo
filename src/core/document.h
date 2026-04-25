@@ -38,7 +38,10 @@ private:
     std::pmr::wstring file_path_;
     std::pmr::string raw_utf8_;
     TableOfContents toc_;
-    std::pmr::unordered_map<std::pmr::wstring, int> anchor_index_;
+    // キーは nodes_ 内 NodeHeadingData::anchor_id への view。
+    // BuildHeadingIndices 以降は nodes_ のサイズを変更しないこと（要素アドレスを安定させる）。
+    std::pmr::unordered_map<std::wstring_view, int,
+        std::hash<std::wstring_view>, std::equal_to<>> anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;
 };

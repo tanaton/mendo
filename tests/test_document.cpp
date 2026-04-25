@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "document.h"
+#include <string>
+#include <utility>
 
 TEST(DocumentTest, DefaultIsEmpty)
 {
@@ -218,4 +220,52 @@ TEST(DocumentTest, BuildIndicesNoSpecialNodes)
     auto doc = Document::FromMarkdown("just a paragraph", L"test.md");
     EXPECT_TRUE(doc.GetImageNodeIndices().empty());
     EXPECT_TRUE(doc.GetDiagramNodeIndices().empty());
+}
+
+// ---- C-3: anchor_index_ string_view 化 回帰テスト ----
+
+TEST(DocumentTest, FindAnchorIndexUppercaseQueryNormalized)
+{
+    // parser 側スラグは小文字確定だが、クエリ引数に大文字混在があっても
+    // ToLowerAscii 経由で hit すること。
+    auto doc = Document::FromMarkdown("# Hello World", L"test.md");
+    EXPECT_EQ(doc.FindAnchorIndex(L"hello-world"), 0);
+    EXPECT_EQ(doc.FindAnchorIndex(L"Hello-World"), 0);
+    EXPECT_EQ(doc.FindAnchorIndex(L"HELLO-WORLD"), 0);
+}
+
+TEST(DocumentTest, FindAnchorIndexEmptyQuery)
+{
+    auto doc = Document::FromMarkdown("# Heading", L"test.md");
+    EXPECT_EQ(doc.FindAnchorIndex(L""), -1);
+}
+
+TEST(DocumentTest, FindAnchorIndexAfterDocumentMove)
+{
+    // anchor_index_ は nodes_ 内 wstring への view を保持するため、
+    // Document の move 構築後も nodes_ 要素アドレスが安定していれば lookup が壊れない。
+    auto doc = Document::FromMarkdown("# Alpha\n\n## Beta", L"test.md");
+    Document moved = std::move(doc);
+    EXPECT_EQ(moved.FindAnchorIndex(L"alpha"), 0);
+    EXPECT_EQ(moved.FindAnchorIndex(L"beta"), 1);
+}
+
+TEST(DocumentTest, FindAnchorIndexLargeHeadingSet)
+{
+    // 1000 見出しの合成 Markdown で全 anchor が hit すること（string_view 化のスケール耐性検証）。
+    std::pmr::string md;
+    md.reserve(40 * 1000);
+    for (int i = 0; i < 1000; ++i) {
+        md += "# Heading-";
+        md += std::to_string(i);
+        md += "\n\n";
+    }
+    auto doc = Document::FromMarkdown(std::move(md), L"big.md");
+    const auto& toc = doc.GetToc().GetEntries();
+    ASSERT_EQ(toc.size(), 1000u);
+    for (const auto& entry : toc) {
+        const auto anchor = doc.GetNodes()[entry.node_index].anchor_id();
+        EXPECT_EQ(doc.FindAnchorIndex(anchor), entry.node_index);
+    }
+    EXPECT_EQ(doc.FindAnchorIndex(L"heading-not-present"), -1);
 }
