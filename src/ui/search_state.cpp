@@ -1,13 +1,6 @@
 #include "search_state.h"
+#include "simd_ascii.h"
 #include <algorithm>
-#include <cwctype>
-#include <iterator>
-
-namespace {
-constexpr auto to_lower = [](wchar_t ch) static noexcept {
-    return static_cast<wchar_t>(std::towlower(ch));
-};
-} // namespace
 
 void SearchState::SetQuery(std::wstring_view query)
 {
@@ -25,8 +18,8 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     // 大文字小文字無視の場合、クエリの小文字変換をループ外で1回だけ行う
     std::pmr::wstring lower_query;
     if (!case_sensitive_) {
-        lower_query.reserve(query_.size());
-        std::ranges::transform(query_, std::back_inserter(lower_query), to_lower);
+        lower_query.resize(query_.size());
+        simd_ascii::ToLower(query_.data(), lower_query.data(), query_.size());
         // ドキュメント単位で lowercase 化結果をキャッシュし、入力1文字ごとの
         // 全文再変換コストを除去する。ドキュメント切替時は自動で再生成される。
         EnsureLowercaseCache(nodes);
@@ -82,7 +75,7 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
                     const auto& src = cells[c].text;
                     auto& dst = entry.table_cells[r][c];
                     dst.resize(src.size());
-                    std::ranges::transform(src, dst.begin(), to_lower);
+                    simd_ascii::ToLower(src.data(), dst.data(), src.size());
                 }
             }
         }
@@ -94,7 +87,7 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
             const auto& src = node.GetText();
             auto& dst = entry.text;
             dst.resize(src.size());
-            std::ranges::transform(src, dst.begin(), to_lower);
+            simd_ascii::ToLower(src.data(), dst.data(), src.size());
         }
     }
 
@@ -111,7 +104,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& l
 
     if (case_sensitive_) {
         size_t pos = 0;
-        while (matches_.size() < MAX_MATCHES && (pos = text.find(query_, pos)) != std::wstring_view::npos) {
+        while (matches_.size() < MAX_MATCHES && (pos = simd_ascii::Find(text, query_, pos)) != simd_ascii::npos) {
             matches_.emplace_back(node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col);
             pos += query_len;
         }
@@ -124,7 +117,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& l
             : std::wstring_view{ lower_cache_[node_index].table_cells[table_row][table_col] };
 
         size_t pos = 0;
-        while (matches_.size() < MAX_MATCHES && (pos = lower_text.find(lower_query, pos)) != std::wstring_view::npos) {
+        while (matches_.size() < MAX_MATCHES && (pos = simd_ascii::Find(lower_text, lower_query, pos)) != simd_ascii::npos) {
             matches_.emplace_back(node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col);
             pos += query_len;
         }

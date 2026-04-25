@@ -1,5 +1,6 @@
 #include "syntax.h"
 #include "syntax_keywords.h"
+#include "simd_ascii.h"
 #include <algorithm>
 #include <array>
 #include <span>
@@ -425,27 +426,10 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
 
             const std::wstring_view word(text.data() + start, i - start);
             std::wstring_view lookup_word = word;
-            if (cfg.case_insensitive) {
-                // 大文字有無を先行判定し、無ければ word をそのまま使用（ci_buf への書き込み回避）
-                bool has_upper = false;
-                for (wchar_t ch : word) {
-                    if (ch >= L'A' && ch <= L'Z') {
-                        has_upper = true;
-                        break;
-                    }
-                }
-                if (has_upper) {
-                    ci_buf.clear();
-                    if (ci_buf.capacity() < word.size()) {
-                        ci_buf.reserve(word.size());
-                    }
-                    for (wchar_t ch : word) {
-                        ci_buf += (ch >= L'A' && ch <= L'Z')
-                            ? static_cast<wchar_t>(ch - L'A' + L'a')
-                            : ch;
-                    }
-                    lookup_word = ci_buf;
-                }
+            if (cfg.case_insensitive && simd_ascii::HasAsciiUpper(word.data(), word.size())) {
+                ci_buf.resize(word.size());
+                simd_ascii::AsciiToLowerOnly(word.data(), ci_buf.data(), word.size());
+                lookup_word = ci_buf;
             }
 
             SyntaxTokenType tt = SyntaxTokenType::Plain;
