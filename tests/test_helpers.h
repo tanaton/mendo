@@ -32,7 +32,7 @@ inline Node MakeTableNode(const wchar_t* cell0, const wchar_t* cell1)
     TableCell c1;
     c1.text.assign(cell1);
     row.cells.push_back(std::move(c1));
-    n.table_data->rows.push_back(std::move(row));
+    n.table_data()->rows.push_back(std::move(row));
     return n;
 }
 

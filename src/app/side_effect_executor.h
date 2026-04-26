@@ -6,7 +6,6 @@
 class IWin32Host;
 class ResourceManager;
 class DocumentService;
-class ConfigService;
 class LayoutService;
 struct AppState;
 
@@ -36,7 +35,7 @@ public:
     };
 
     void Init(IWin32Host& host, ResourceManager& resource_manager,
-        DocumentService& doc_service, ConfigService& config,
+        DocumentService& doc_service,
         AppState& state, LayoutService& layout_service, Callbacks cb);
     void Execute(const SideEffectList& effects);
     void ExecuteOne(const SideEffect& e);
@@ -54,7 +53,6 @@ private:
     IWin32Host* host_ = nullptr;
     ResourceManager* resource_manager_ = nullptr;
     DocumentService* doc_service_ = nullptr;
-    ConfigService* config_ = nullptr;
     AppState* state_ = nullptr;
     LayoutService* layout_service_ = nullptr;
     Callbacks cb_;

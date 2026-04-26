@@ -317,20 +317,29 @@ void Renderer::DrawLoading(float angle,
 
     DrawSidePanes(sp);
 
-    // MDペイン中央にスピナーを描画
+    // MDペイン中央にスピナーを描画。
     const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
     const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
-    for (int i = 0; i < spinner::DOT_COUNT; i++) {
-        const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
-        const float dx = cx + spinner::RADIUS * std::cos(a);
-        const float dy = cy + spinner::RADIUS * std::sin(a);
-        const float alpha = 1.0f - i * (spinner::DOT_FADE_FACTOR / spinner::DOT_COUNT);
+    // alpha はドットインデックスのみに依存するためコンパイル時に決定する。
+    static constexpr auto kSpinnerAlphas = []() noexcept {
+        std::array<float, spinner::DOT_COUNT> a{};
+        for (int i = 0; i < spinner::DOT_COUNT; ++i) {
+            a[i] = 1.0f - i * (spinner::DOT_FADE_FACTOR / spinner::DOT_COUNT);
+        }
+        return a;
+    }();
+    if (auto* const text_brush = Brush(BrushId::Text)) {
+        for (int i = 0; i < spinner::DOT_COUNT; i++) {
+            const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
+            const float dx = cx + spinner::RADIUS * std::cos(a);
+            const float dy = cy + spinner::RADIUS * std::sin(a);
 
-        const D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
-        Brush(BrushId::Text)->SetOpacity(alpha);
-        rt()->FillEllipse(ellipse, Brush(BrushId::Text));
+            const D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
+            text_brush->SetOpacity(kSpinnerAlphas[i]);
+            rt()->FillEllipse(ellipse, text_brush);
+        }
+        text_brush->SetOpacity(1.0f);
     }
-    Brush(BrushId::Text)->SetOpacity(1.0f);
 
     // ジェスチャーオーバーレイ（ローディング中でもフェードアウト中は表示）
     if (gesture.overlay_visible && gesture.overlay_alpha > 0.0f) {

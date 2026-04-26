@@ -263,10 +263,17 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                     // 反映され、直後の SyncMaxScroll が不正確な max_scroll を
                     // 計算しうる。現テーマでの推定値で素早く更新しておき、
                     // 厳密値は後続の ProcessDirtyBatch / EnsureVisibleLayout に委ねる。
-                    const float estimated = EstimateNodeHeight(node, *theme_);
-                    if (entry.height != estimated) {
-                        entry.height = estimated;
-                        any_height_changed = true;
+                    // ただしダイアグラム系コードブロックの高さは描画完了時にビットマップ
+                    // 実寸で確定する。テキスト基準の EstimateNodeHeight で上書きすると
+                    // 描画時に bitmap が後続ノードへはみ出すため既存値を維持する。
+                    const bool is_diagram = (node.type == NodeType::CodeBlock
+                        && IsDiagramLanguage(node.code_language));
+                    if (!is_diagram) {
+                        const float estimated = EstimateNodeHeight(node, *theme_);
+                        if (entry.height != estimated) {
+                            entry.height = estimated;
+                            any_height_changed = true;
+                        }
                     }
                     entry.layout_dirty = true;
                 }

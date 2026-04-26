@@ -1,13 +1,6 @@
 #include "search_state.h"
+#include "simd_ascii.h"
 #include <algorithm>
-#include <cwctype>
-#include <iterator>
-
-namespace {
-constexpr auto to_lower = [](wchar_t ch) static noexcept {
-    return static_cast<wchar_t>(std::towlower(ch));
-};
-} // namespace
 
 void SearchState::SetQuery(std::wstring_view query)
 {
@@ -25,8 +18,8 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     // 大文字小文字無視の場合、クエリの小文字変換をループ外で1回だけ行う
     std::pmr::wstring lower_query;
     if (!case_sensitive_) {
-        lower_query.reserve(query_.size());
-        std::ranges::transform(query_, std::back_inserter(lower_query), to_lower);
+        lower_query.resize(query_.size());
+        simd_ascii::ToLower(query_.data(), lower_query.data(), query_.size());
         // ドキュメント単位で lowercase 化結果をキャッシュし、入力1文字ごとの
         // 全文再変換コストを除去する。ドキュメント切替時は自動で再生成される。
         EnsureLowercaseCache(nodes);
@@ -66,35 +59,71 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
         return;
     }
 
-    lower_cache_.clear();
-    lower_cache_.resize(nodes.size());
+    lower_cache_.buffer.clear();
+    lower_cache_.offsets.clear();
+    lower_cache_.tables.clear();
+
+    // バッファ容量の概算: ノード総文字数。reserve で一度に確保しておくと
+    // 連結中の再アロケーションで wstring_view が破綻するのを回避できる。
+    size_t total_chars = 0;
+    for (const auto& node : nodes) {
+        if (node.type != NodeType::Table) {
+            total_chars += node.GetText().size();
+        }
+    }
+    lower_cache_.buffer.reserve(total_chars);
+    lower_cache_.offsets.reserve(nodes.size() + 1);
+    lower_cache_.offsets.push_back(0);
 
     for (size_t i = 0; i < nodes.size(); ++i) {
         const auto& node = nodes[i];
-        auto& entry = lower_cache_[i];
         if (node.type == NodeType::Table && node.has_table()) {
+            // テーブルノードはノード本体のテキストを持たないので空スライス。
+            // セル群は別バッファに連続配置する。
+            lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
+
             const auto& rows = node.table_rows();
-            entry.table_cells.resize(rows.size());
-            for (size_t r = 0; r < rows.size(); ++r) {
-                const auto& cells = rows[r].cells;
-                entry.table_cells[r].resize(cells.size());
-                for (size_t c = 0; c < cells.size(); ++c) {
-                    const auto& src = cells[c].text;
-                    auto& dst = entry.table_cells[r][c];
-                    dst.resize(src.size());
-                    std::ranges::transform(src, dst.begin(), to_lower);
+            const size_t row_count = rows.size();
+            // 行ごとに列数が違う可能性があるため、最大列数を col_count とし、
+            // 不足セルは empty スライスにする。
+            size_t max_cols = 0;
+            size_t total_cell_chars = 0;
+            for (const auto& row : rows) {
+                max_cols = std::max(max_cols, row.cells.size());
+                for (const auto& cell : row.cells) {
+                    total_cell_chars += cell.text.size();
                 }
             }
+            LowercaseTable table;
+            table.col_count = max_cols;
+            table.buffer.reserve(total_cell_chars);
+            table.offsets.reserve(row_count * max_cols + 1);
+            table.offsets.push_back(0);
+            for (size_t r = 0; r < row_count; ++r) {
+                const auto& cells = rows[r].cells;
+                for (size_t c = 0; c < max_cols; ++c) {
+                    if (c < cells.size()) {
+                        const auto& src = cells[c].text;
+                        const size_t prev = table.buffer.size();
+                        table.buffer.resize(prev + src.size());
+                        simd_ascii::ToLower(src.data(), table.buffer.data() + prev, src.size());
+                    }
+                    table.offsets.push_back(static_cast<uint32_t>(table.buffer.size()));
+                }
+            }
+            lower_cache_.tables.emplace(static_cast<int>(i), std::move(table));
         }
         else if (node.type == NodeType::Image ||
             (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language))) {
-            // 検索対象外ノードはキャッシュ不要（空のまま）
+            // 検索対象外ノードは空スライス
+            lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
         }
         else {
             const auto& src = node.GetText();
-            auto& dst = entry.text;
-            dst.resize(src.size());
-            std::ranges::transform(src, dst.begin(), to_lower);
+            const size_t prev = lower_cache_.buffer.size();
+            lower_cache_.buffer.resize(prev + src.size());
+            simd_ascii::ToLower(src.data(), lower_cache_.buffer.data() + prev, src.size());
+            lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
         }
     }
 
@@ -111,7 +140,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& l
 
     if (case_sensitive_) {
         size_t pos = 0;
-        while (matches_.size() < MAX_MATCHES && (pos = text.find(query_, pos)) != std::wstring_view::npos) {
+        while (matches_.size() < MAX_MATCHES && (pos = simd_ascii::Find(text, query_, pos)) != simd_ascii::npos) {
             matches_.emplace_back(node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col);
             pos += query_len;
         }
@@ -120,11 +149,11 @@ void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& l
         // ドキュメント単位でキャッシュした lowercase 文字列を使う。
         // EnsureLowercaseCache が ExecuteSearch 先頭で呼ばれている前提。
         const std::wstring_view lower_text = (table_row < 0)
-            ? std::wstring_view{ lower_cache_[node_index].text }
-            : std::wstring_view{ lower_cache_[node_index].table_cells[table_row][table_col] };
+            ? lower_cache_.GetText(node_index)
+            : lower_cache_.GetCell(node_index, table_row, table_col);
 
         size_t pos = 0;
-        while (matches_.size() < MAX_MATCHES && (pos = lower_text.find(lower_query, pos)) != std::wstring_view::npos) {
+        while (matches_.size() < MAX_MATCHES && (pos = simd_ascii::Find(lower_text, lower_query, pos)) != simd_ascii::npos) {
             matches_.emplace_back(node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col);
             pos += query_len;
         }

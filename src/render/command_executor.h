@@ -27,7 +27,7 @@ constexpr uint32_t PackColor(D2D1_COLOR_F c) noexcept
 } // namespace command_executor_internal
 
 // DrawCommandList を Direct2D レンダーターゲット上で実行する。
-// 色ごとに ID2D1SolidColorBrush をプールし、SetColor 呼び出しも削減する。
+// 色ごとに ID2D1SolidColorBrush をプールし、上限到達時は LRU で 1 エントリだけ追い出す。
 class CommandExecutor {
 public:
     void Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt);
@@ -42,6 +42,12 @@ private:
 
     static constexpr size_t MAX_POOLED_BRUSHES = 256;
 
-    std::unordered_map<uint32_t, Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>> brush_pool_;
+    struct BrushEntry {
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
+        uint64_t last_used = 0;
+    };
+
+    std::unordered_map<uint32_t, BrushEntry> brush_pool_;
+    uint64_t use_counter_ = 0;
     ID2D1RenderTarget* bound_rt_ = nullptr;
 };

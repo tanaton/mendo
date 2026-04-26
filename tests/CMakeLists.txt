@@ -16,7 +16,7 @@ add_executable(mendo_tests
     test_mermaid_file_cache.cpp
     test_mermaid_lifecycle.cpp
     test_ini_parser.cpp
-    test_config_store.cpp
+    test_config_service.cpp
     test_viewport_manager.cpp
     test_text_measurer.cpp
     test_draw_command.cpp
@@ -59,6 +59,7 @@ add_executable(mendo_tests
     test_measurer_parity.cpp
     test_command_executor.cpp
     test_resource_manager.cpp
+    test_simd_ascii.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

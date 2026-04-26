@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <memory_resource>
+#include <unordered_map>
 
 // 検索マッチの位置情報
 struct SearchMatch {
@@ -41,7 +42,9 @@ public:
     // 次回 ExecuteSearch 時に lowercase キャッシュが再生成される。
     void InvalidateLowercaseCache() noexcept
     {
-        lower_cache_.clear();
+        lower_cache_.buffer.clear();
+        lower_cache_.offsets.clear();
+        lower_cache_.tables.clear();
         cached_nodes_ptr_ = nullptr;
         cached_node_count_ = 0;
     }
@@ -86,16 +89,45 @@ private:
     static constexpr size_t MAX_MATCHES = 10000;
 
     // 大文字小文字無視検索の lowercase キャッシュ。
-    // ノード毎に text を lowercase 化した結果を保持する。テーブルノードは
-    // rows[r][c] の2次元配列に格納する（空のノードは空文字列）。
-    struct LowercaseEntry {
-        std::pmr::wstring text;
-        std::pmr::vector<std::pmr::vector<std::pmr::wstring>> table_cells;
+    // メタオーバーヘッドを抑えるため、全ノードの lower text を 1 本の連続バッファに
+    // 詰め、各ノードのスライスを offsets で参照する。
+    // Why: 旧実装では LowercaseEntry を vector<vector<vector<pmr::wstring>>> で
+    // 持っていたため、1 万ノードで pmr::wstring/vector メタだけで ~500KB 死蔵していた。
+    // 連続バッファ化で metadata は offsets の 4B/ノード のみとなり、
+    // CPU キャッシュ効率も向上する。
+    struct LowercaseTable {
+        std::pmr::wstring buffer;
+        std::pmr::vector<uint32_t> offsets; // size = row_count * col_count + 1（末尾 sentinel）
+        size_t col_count = 0;
+    };
+    struct LowercaseCache {
+        std::pmr::wstring buffer;          // 全ノードの lower text を連結
+        std::pmr::vector<uint32_t> offsets; // size = node_count + 1（末尾 sentinel）
+        std::pmr::unordered_map<int, LowercaseTable> tables; // テーブルノードのみ確保
+
+        std::wstring_view GetText(int node_index) const noexcept
+        {
+            const uint32_t b = offsets[node_index];
+            const uint32_t e = offsets[node_index + 1];
+            return std::wstring_view{ buffer.data() + b, e - b };
+        }
+        std::wstring_view GetCell(int node_index, int row, int col) const noexcept
+        {
+            const auto it = tables.find(node_index);
+            if (it == tables.end()) {
+                return {};
+            }
+            const auto& t = it->second;
+            const size_t idx = static_cast<size_t>(row) * t.col_count + static_cast<size_t>(col);
+            const uint32_t b = t.offsets[idx];
+            const uint32_t e = t.offsets[idx + 1];
+            return std::wstring_view{ t.buffer.data() + b, e - b };
+        }
     };
 
     std::pmr::wstring query_;
     std::pmr::vector<SearchMatch> matches_;
-    std::pmr::vector<LowercaseEntry> lower_cache_;
+    LowercaseCache lower_cache_;
     const Node* cached_nodes_ptr_ = nullptr;
     size_t cached_node_count_ = 0;
     int current_match_ = -1;

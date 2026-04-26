@@ -31,7 +31,6 @@ bool ThemeService::ToggleDarkMode() noexcept
 void ThemeService::SaveDarkMode()
 {
     config_.SaveBool("View", "DarkMode", dark_mode_);
-    config_.Flush();
 }
 
 void ThemeService::LoadDarkMode()
@@ -42,7 +41,6 @@ void ThemeService::LoadDarkMode()
 void ThemeService::SaveZoomLevel(int zoom_index)
 {
     config_.SaveInt("View", "ZoomLevel", zoom_index);
-    config_.Flush();
 }
 
 int ThemeService::LoadZoomIndex() const

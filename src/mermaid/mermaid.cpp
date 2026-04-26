@@ -1,5 +1,4 @@
 #include "mermaid.h"
-#include "config_store.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_util.h"
 #include "stream_util.h"
@@ -11,17 +10,6 @@
 #include <functional>
 
 #pragma comment(lib, "windowscodecs.lib")
-
-static std::pmr::wstring GetWebView2UserDataFolder()
-{
-    const auto base = config::GetConfigDir();
-    if (base.empty()) {
-        return L"";
-    }
-    const auto path = base / L"WebView2Data";
-    std::filesystem::create_directories(path);
-    return std::pmr::wstring{ path.native() };
-}
 
 static const wchar_t* MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
@@ -62,10 +50,14 @@ void MermaidRenderer::Shutdown()
     lifecycle_.Reset();
 }
 
-void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic, std::move_only_function<void()> on_ready)
+void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
+    const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready)
 {
     hwnd_ = hwnd;
     render_target_ = render_target;
+    if (!user_data_folder.empty()) {
+        user_data_folder_.assign(user_data_folder.native());
+    }
     on_all_ready_ = std::move(on_ready);
 
     // PNGデコード用のWICファクトリ（D2DRenderBackendから共有）
@@ -134,10 +126,15 @@ void MermaidRenderer::EnsureInitialized()
 
 void MermaidRenderer::CreateWebView2Environment()
 {
-    const std::pmr::wstring user_data = GetWebView2UserDataFolder();
+    const wchar_t* user_data = nullptr;
+    if (!user_data_folder_.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(user_data_folder_, ec);
+        user_data = user_data_folder_.c_str();
+    }
 
     CreateCoreWebView2EnvironmentWithOptions(
-        nullptr, user_data.c_str(), nullptr,
+        nullptr, user_data, nullptr,
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
         if (FAILED(result) || !env) {

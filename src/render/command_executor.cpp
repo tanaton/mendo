@@ -6,21 +6,31 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
     if (rt != bound_rt_) {
         // ブラシは RT 付随リソースなので、RT 切替・デバイス再作成では破棄する
         brush_pool_.clear();
+        use_counter_ = 0;
         bound_rt_ = rt;
     }
     const uint32_t key = command_executor_internal::PackColor(color);
+    const uint64_t now = ++use_counter_;
     if (const auto it = brush_pool_.find(key); it != brush_pool_.end()) {
-        return it->second.Get();
+        it->second.last_used = now;
+        return it->second.brush.Get();
     }
     if (brush_pool_.size() >= MAX_POOLED_BRUSHES) {
-        brush_pool_.clear();
+        // LRU: 全消去によるフレームスパイクを避けるため最古エントリ 1 つだけ追い出す。
+        auto oldest = brush_pool_.begin();
+        for (auto it = std::next(brush_pool_.begin()); it != brush_pool_.end(); ++it) {
+            if (it->second.last_used < oldest->second.last_used) {
+                oldest = it;
+            }
+        }
+        brush_pool_.erase(oldest);
     }
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
     if (FAILED(rt->CreateSolidColorBrush(color, &brush)) || !brush) {
         return nullptr;
     }
-    auto [it, _] = brush_pool_.emplace(key, std::move(brush));
-    return it->second.Get();
+    auto [it, _] = brush_pool_.emplace(key, BrushEntry{ std::move(brush), now });
+    return it->second.brush.Get();
 }
 
 void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt)

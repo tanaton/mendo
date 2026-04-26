@@ -4,13 +4,15 @@
 void TableOfContents::BuildFromNodes(const std::pmr::vector<Node>& nodes)
 {
     entries_.clear();
-    entries_.reserve(std::ranges::count_if(nodes,
-        [](const Node& n) static noexcept { return n.type == NodeType::Heading; }));
+    // 見出し密度の概算で先行 reserve（典型値: 全ノードの 1/16）。外れても vector が
+    // 必要に応じて拡張する。事前に count_if で正確に走査する 2-pass を回避する。
+    entries_.reserve(std::max<size_t>(8, nodes.size() / 16));
     for (const auto& [i, node] : nodes | std::views::enumerate) {
         if (node.type == NodeType::Heading) {
             AddEntry(node, static_cast<int>(i));
         }
     }
+    entries_.shrink_to_fit();
 }
 
 void TableOfContents::AddEntry(const Node& node, int node_index)

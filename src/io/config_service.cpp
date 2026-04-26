@@ -1,43 +1,41 @@
-#include "config_store.h"
-#include "ini_parser.h"
+#include "config_service.h"
 #include "string_convert.h"
 #include "file_io.h"
 #include <algorithm>
 #include <charconv>
+#include <ranges>
 #include <shlobj.h>
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 
-namespace config {
-
-static std::filesystem::path g_config_dir_override;
-static ini::IniData g_data;
-
 // ============================================================
 // ディレクトリ・パスヘルパー
 // ============================================================
 
-void SetConfigDirOverride(const std::filesystem::path& dir)
+void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
 {
-    g_config_dir_override = dir;
+    config_dir_override_ = dir;
 }
 
-std::filesystem::path GetConfigDir()
+std::filesystem::path ConfigService::GetConfigDir() const
 {
-    if (!g_config_dir_override.empty()) {
-        return g_config_dir_override;
+    if (!config_dir_override_.empty()) {
+        return config_dir_override_;
+    }
+    if (!cached_default_dir_.empty()) {
+        return cached_default_dir_;
     }
     wchar_t* appdata = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
         return {};
     }
-    std::filesystem::path dir = std::filesystem::path(appdata) / L"mendo";
+    cached_default_dir_ = std::filesystem::path(appdata) / L"mendo";
     CoTaskMemFree(appdata);
-    return dir;
+    return cached_default_dir_;
 }
 
-std::filesystem::path GetConfigPath(std::wstring_view filename)
+std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) const
 {
     if (filename.empty()) {
         return {};
@@ -58,10 +56,10 @@ std::filesystem::path GetConfigPath(std::wstring_view filename)
 }
 
 // ============================================================
-// Load / Save / Clear
+// Load / Flush / Clear
 // ============================================================
 
-void Load()
+void ConfigService::Load()
 {
     const auto dir = GetConfigDir();
     if (dir.empty()) {
@@ -73,21 +71,25 @@ void Load()
     if (!buf) {
         return;
     }
-    g_data = ini::Parse(std::string_view(reinterpret_cast<const char*>(buf.get()), size));
+    data_ = ini::Parse(std::string_view(reinterpret_cast<const char*>(buf.get()), size));
 }
 
-void Save()
+void ConfigService::Flush()
 {
     const auto dir = GetConfigDir();
     if (dir.empty()) {
         return;
     }
-    std::filesystem::create_directories(dir);
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (ec) {
+        return;
+    }
 
     const auto ini_path = dir / L"settings.ini";
     const auto tmp_path = dir / L"settings.ini.tmp";
 
-    const std::string content = ini::Serialize(g_data);
+    const std::string content = ini::Serialize(data_);
     if (!WriteAllBytes(tmp_path, content.data(), content.size())) {
         return;
     }
@@ -99,19 +101,19 @@ void Save()
     }
 }
 
-void Clear() noexcept
+void ConfigService::Clear() noexcept
 {
-    g_data.clear();
+    data_.clear();
 }
 
 // ============================================================
 // 型付きアクセサ
 // ============================================================
 
-static const std::string* FindValue(std::string_view section, std::string_view key)
+const std::string* ConfigService::FindValue(std::string_view section, std::string_view key) const
 {
-    const auto sit = g_data.find(section);
-    if (sit == g_data.end()) {
+    const auto sit = data_.find(section);
+    if (sit == data_.end()) {
         return nullptr;
     }
     const auto kit = sit->second.find(key);
@@ -121,48 +123,46 @@ static const std::string* FindValue(std::string_view section, std::string_view k
     return &kit->second;
 }
 
-void SetBool(std::string_view section, std::string_view key, bool value)
+void ConfigService::SaveBool(std::string_view section, std::string_view key, bool value)
 {
-    g_data[std::string(section)][std::string(key)] = value ? "1" : "0";
+    data_[std::string(section)][std::string(key)] = value ? "1" : "0";
 }
 
-bool GetBool(std::string_view section, std::string_view key, bool default_value)
+bool ConfigService::LoadBool(std::string_view section, std::string_view key, bool default_value) const
 {
     const auto* val = FindValue(section, key);
     return val ? (*val == "1") : default_value;
 }
 
-void SetInt(std::string_view section, std::string_view key, int value)
+void ConfigService::SaveInt(std::string_view section, std::string_view key, int value)
 {
-    g_data[std::string(section)][std::string(key)] = std::to_string(value);
+    data_[std::string(section)][std::string(key)] = std::to_string(value);
 }
 
-int GetInt(std::string_view section, std::string_view key, int default_value, int min_val, int max_val)
+int ConfigService::LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const
 {
     const auto* val = FindValue(section, key);
     if (!val) {
-        return default_value;
+        return def;
     }
-    int result = default_value;
+    int result = def;
     const auto [ptr, ec] = std::from_chars(val->data(), val->data() + val->size(), result);
     if (ec != std::errc{}) {
-        return default_value;
+        return def;
     }
-    if (result < min_val || result > max_val) {
-        return default_value;
+    if (result < min_v || result > max_v) {
+        return def;
     }
     return result;
 }
 
-void SetWString(std::string_view section, std::string_view key, std::wstring_view value)
+void ConfigService::SaveWString(std::string_view section, std::string_view key, std::wstring_view value)
 {
-    g_data[std::string(section)][std::string(key)] = string_convert::WideToUtf8(value);
+    data_[std::string(section)][std::string(key)] = string_convert::WideToUtf8(value);
 }
 
-std::pmr::wstring GetWString(std::string_view section, std::string_view key)
+std::pmr::wstring ConfigService::LoadWString(std::string_view section, std::string_view key) const
 {
     const auto* val = FindValue(section, key);
     return val ? string_convert::Utf8ToWide(*val) : std::pmr::wstring{};
 }
-
-} // namespace config

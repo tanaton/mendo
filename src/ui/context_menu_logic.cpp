@@ -89,6 +89,12 @@ void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
 
 void ContextMenu::Impl::CreateTextFormats(const Theme& t)
 {
+    if (fmt_text && fmt_icon &&
+        cached_fmt_font_family == t.font_family &&
+        cached_fmt_font_size == t.pane_font_size) {
+        return;
+    }
+
     fmt_text.Reset();
     fmt_icon.Reset();
 
@@ -112,6 +118,9 @@ void ContextMenu::Impl::CreateTextFormats(const Theme& t)
         fmt_icon->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         fmt_icon->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     }
+
+    cached_fmt_font_family.assign(t.font_family.begin(), t.font_family.end());
+    cached_fmt_font_size = t.pane_font_size;
 }
 
 // ============================================================

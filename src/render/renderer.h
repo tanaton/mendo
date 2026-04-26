@@ -27,6 +27,9 @@ enum class BrushId : uint8_t {
     TitleBarCloseRed, TitleBarCloseWhite,
     PaneBg, Splitter, PaneItemHover, PaneItemActive,
     ScrollbarThumb, Overlay,
+    // オーバーレイ用の固定色ブラシ。動的 SetColor は SetOpacity より重いため、
+    // 白基底と黒基底を分けて持って透明度のみ動的に変える。
+    OverlayWhite, OverlayBlack,
     SearchBarBg, SearchBarBorder, SearchInputBg, SearchInputText,
     SearchHighlight, SearchHighlightCurrent, SearchNoMatchBg,
     Count

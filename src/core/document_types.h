@@ -5,6 +5,7 @@
 #include <memory>
 #include <memory_resource>
 #include <algorithm>
+#include <variant>
 #include "syntax.h"
 #include "string_convert.h"
 #include "text_types.h"
@@ -87,16 +88,17 @@ struct NodeImageData {
 };
 
 struct Node {
-    // パース中の md4c コールバック専用の UTF-8 蓄積領域。
-    // ConvertTextFromUtf8() 後は空である契約 — 下流は text_ のみを読む。
-    std::pmr::string text_utf8;
     std::pmr::vector<TextRun> runs;
 
     std::pmr::vector<std::pmr::wstring> link_urls;
-    std::unique_ptr<NodeTableData> table_data;
-    std::unique_ptr<NodeImageData> image_data;
-    std::unique_ptr<NodeHeadingData> heading_data;
-    std::unique_ptr<NodeCodeData> code_data;
+
+    // ノード種別ごとの拡張データ。同時に持てるのは 1 種類のみ。
+    // Why: 旧設計では 4 つの unique_ptr を常に保持していたため、ほとんどのノード
+    // (Paragraph/ListItem 等で 87% を占める) で 32B のポインタ群が null のまま
+    // 死蔵していた。variant に統合することで、データを持つノードでは別ヒープ
+    // への malloc を 1 回省略でき、断片化と allocator オーバーヘッドが減る。
+    using Extra = std::variant<std::monostate, NodeTableData, NodeImageData, NodeHeadingData, NodeCodeData>;
+    Extra extra;
 
     int heading_level = 0;
     int indent_level = 0;
@@ -112,17 +114,6 @@ struct Node {
     SyntaxLanguage code_language = SyntaxLanguage::None;
 
     bool HasText() const noexcept { return !text_.empty(); }
-
-    // UTF-8→Wide 変換。ParseMarkdown 末尾で全ノードに一括呼び出しされる。
-    // Node を手動構築する経路（テスト等）では個別に呼ぶ。
-    void ConvertTextFromUtf8()
-    {
-        if (text_utf8.empty()) {
-            return;
-        }
-        string_convert::Utf8ToWide(text_utf8, text_);
-        text_utf8.clear();
-    }
 
     const std::pmr::wstring& GetText() const noexcept { return text_; }
 
@@ -140,65 +131,79 @@ struct Node {
         FinalizeSetText();
     }
 
-    std::pmr::vector<TableRow>& table_rows() noexcept { return table_data->rows; }
-    const std::pmr::vector<TableRow>& table_rows() const noexcept { return table_data->rows; }
-    void ensure_table()
-    {
-        if (!table_data) {
-            table_data = std::make_unique<NodeTableData>();
-        }
-    }
-    bool has_table() const noexcept { return table_data != nullptr; }
+    // ---- 拡張データへのアクセサ ----
+    // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
+    NodeTableData* table_data() noexcept { return std::get_if<NodeTableData>(&extra); }
+    const NodeTableData* table_data() const noexcept { return std::get_if<NodeTableData>(&extra); }
+    NodeImageData* image_data() noexcept { return std::get_if<NodeImageData>(&extra); }
+    const NodeImageData* image_data() const noexcept { return std::get_if<NodeImageData>(&extra); }
+    NodeHeadingData* heading_data() noexcept { return std::get_if<NodeHeadingData>(&extra); }
+    const NodeHeadingData* heading_data() const noexcept { return std::get_if<NodeHeadingData>(&extra); }
+    NodeCodeData* code_data() noexcept { return std::get_if<NodeCodeData>(&extra); }
+    const NodeCodeData* code_data() const noexcept { return std::get_if<NodeCodeData>(&extra); }
 
-    void ensure_image()
-    {
-        if (!image_data) {
-            image_data = std::make_unique<NodeImageData>();
-        }
-    }
-    bool has_image() const noexcept { return image_data != nullptr; }
+    bool has_table() const noexcept { return std::holds_alternative<NodeTableData>(extra); }
+    bool has_image() const noexcept { return std::holds_alternative<NodeImageData>(extra); }
+    bool has_heading() const noexcept { return std::holds_alternative<NodeHeadingData>(extra); }
+    bool has_code() const noexcept { return std::holds_alternative<NodeCodeData>(extra); }
 
-    void ensure_heading()
+    // ensure_*: 既に同じ型を持っていれば内部参照を、違う型を持っていれば差し替えて新規確保した参照を返す。
+    NodeTableData* ensure_table()
     {
-        if (!heading_data) {
-            heading_data = std::make_unique<NodeHeadingData>();
+        if (!has_table()) {
+            return &extra.emplace<NodeTableData>();
         }
+        return std::get_if<NodeTableData>(&extra);
     }
-    bool has_heading() const noexcept { return heading_data != nullptr; }
+    NodeImageData* ensure_image()
+    {
+        if (!has_image()) {
+            return &extra.emplace<NodeImageData>();
+        }
+        return std::get_if<NodeImageData>(&extra);
+    }
+    NodeHeadingData* ensure_heading()
+    {
+        if (!has_heading()) {
+            return &extra.emplace<NodeHeadingData>();
+        }
+        return std::get_if<NodeHeadingData>(&extra);
+    }
+    NodeCodeData* ensure_code()
+    {
+        if (!has_code()) {
+            return &extra.emplace<NodeCodeData>();
+        }
+        return std::get_if<NodeCodeData>(&extra);
+    }
+
+    std::pmr::vector<TableRow>& table_rows() noexcept { return table_data()->rows; }
+    const std::pmr::vector<TableRow>& table_rows() const noexcept { return table_data()->rows; }
 
     std::wstring_view anchor_id() const noexcept
     {
-        return heading_data ? std::wstring_view(heading_data->anchor_id) : std::wstring_view{};
+        const auto* hd = heading_data();
+        return hd ? std::wstring_view{ hd->anchor_id } : std::wstring_view{};
     }
 
-    void ensure_code()
-    {
-        if (!code_data) {
-            code_data = std::make_unique<NodeCodeData>();
-        }
-    }
-
-    bool has_code() const noexcept { return code_data != nullptr; }
     const std::pmr::vector<SyntaxToken>& syntax_tokens() const noexcept
     {
-        if (code_data) {
-            return code_data->syntax_tokens;
+        if (const auto* cd = code_data()) {
+            return cd->syntax_tokens;
         }
         static const std::pmr::vector<SyntaxToken> empty;
         return empty;
     }
     std::pmr::vector<SyntaxToken>& syntax_tokens_mut()
     {
-        ensure_code();
-        return code_data->syntax_tokens;
+        return ensure_code()->syntax_tokens;
     }
 
 private:
     void FinalizeSetText() noexcept
     {
-        text_utf8.clear();
         line_count = static_cast<int>(std::ranges::count(text_, L'\n'));
     }
 
-    std::pmr::wstring text_;    // Wide テキスト（ConvertTextFromUtf8 / SetText 後に有効）
+    std::pmr::wstring text_;    // Wide テキスト
 };

@@ -84,7 +84,6 @@ struct ProcessBitmapManage {};
 struct MermaidInitRetry {};
 
 // ---- ライフサイクル / 永続化系 ----
-struct SaveConfig {};
 struct Destroy {};
 struct HandleParseComplete {};
 
@@ -160,7 +159,6 @@ using TimerEffect = std::variant<
 >;
 
 using LifecycleEffect = std::variant<
-    effect::SaveConfig,
     effect::Destroy,
     effect::HandleParseComplete
 >;

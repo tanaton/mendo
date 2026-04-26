@@ -1,5 +1,5 @@
 #include "window.h"
-#include "config_store.h"
+#include "config_service.h"
 #include "i18n.h"
 #include "memory_resource.h"
 #include <windows.h>
@@ -23,12 +23,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     icc.dwICC = ICC_STANDARD_CLASSES;
     InitCommonControlsEx(&icc);
 
-    config::Load();
-    i18n::Init(config::GetWString("General", "Language"));
+    ConfigService config;
+    config.Load();
+    i18n::Init(config.LoadWString("General", "Language"));
 
     int result;
     {
-        Win32Window window;
+        Win32Window window(config);
         if (!window.Create(hInstance, nCmdShow)) {
             CoUninitialize();
             return 1;

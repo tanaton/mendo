@@ -26,13 +26,17 @@ bool App::Init(HWND hwnd)
     scheduler_.Init(mermaid_util::ComputeWorkerCount(
         std::thread::hardware_concurrency()));
 
+    const auto config_dir = config_.GetConfigDir();
+    if (!config_dir.empty()) {
+        file_cache_.SetCacheDir(config_dir / L"MermaidCache");
+    }
     file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
     resource_manager_.Init(state_.document.doc, state_.document.layout_cache, state_.view.viewport, image_loader_, mermaid_renderer_,
         theme_service_, BuildResourceManagerCallbacks());
     win32_host_.Init(hwnd_, cursors_);
-    effect_executor_.Init(win32_host_, resource_manager_, doc_service_, config_,
+    effect_executor_.Init(win32_host_, resource_manager_, doc_service_,
         state_, *layout_service_, {
             .load_file = [this](std::wstring_view path) { LoadMarkdownFile(path); },
             .reload_file = [this]() { ReloadCurrentFile(); },
@@ -106,9 +110,13 @@ bool App::Init(HWND hwnd)
         }
     );
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(), [this]() {
-        resource_manager_.ScheduleMermaidBatch();
-    });
+    const auto webview2_data = config_dir.empty()
+        ? std::filesystem::path{}
+        : config_dir / L"WebView2Data";
+    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(),
+        webview2_data, [this]() {
+            resource_manager_.ScheduleMermaidBatch();
+        });
 
     image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory());
     image_loader_.InitAsync(hwnd_, app_msg::IMAGE_LOADED, scheduler_);

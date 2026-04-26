@@ -1,13 +1,9 @@
 #include <gtest/gtest.h>
 #include "session_service.h"
-#include "config_store.h"
+#include "config_service.h"
 
 class SessionServiceTest : public ::testing::Test {
 protected:
-    void SetUp() override
-    {
-        config::Load();
-    }
     ConfigService config_;
     SessionService session_{ config_ };
 };

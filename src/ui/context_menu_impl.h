@@ -7,6 +7,7 @@
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <windows.h>
+#include <string>
 
 namespace context_menu_constants {
 inline constexpr float ITEM_HEIGHT = 28.0f;
@@ -78,6 +79,10 @@ struct ContextMenu::Impl {
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_check;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_text;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_icon;
+
+    // 同一フォントでの Show 連発時に IDWriteTextFormat の再生成を抑止するためのキー。
+    std::wstring cached_fmt_font_family;
+    float cached_fmt_font_size = 0.0f;
 
     const Theme* theme = nullptr;
     float dpi_scale = 1.0f;

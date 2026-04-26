@@ -60,6 +60,13 @@ public:
     // ヒットしたダイアグラムのノードインデックスを返す（-1=なし）。
     int SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
 
+    // 可視ノード走査・座標変換・キャッシュ照合を共有して Copy / Save を一度に判定する。
+    struct CodeBlockButtonHit {
+        int copy_node = -1;
+        int save_node = -1;
+    };
+    CodeBlockButtonHit CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept;
+
 private:
     // 同一座標の連続ヒットテストを高速化する結果キャッシュ。
     // effects_generation が変わると自動で無効化される。

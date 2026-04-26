@@ -357,6 +357,8 @@ void App::OnDestroy()
     SavePaneState();
     SaveScrollPosition();
     config_.SaveWString("General", "Language", i18n::GetLangKey());
+    // すべての設定値の書き出しを1回にまとめてディスクへ flush する。
+    config_.Flush();
     for (UINT_PTR id : {
         app_timer::DEFERRED_LAYOUT,
             app_timer::LOADING_ANIM,

@@ -32,7 +32,7 @@ std::pmr::wstring Document::GetDirectory() const
 
 void Document::ReplaceContent(ParseResult&& result)
 {
-    // ParseMarkdown は全ノードの text_utf8→text_ 変換を済ませて返す契約。ここでは再変換しない。
+    // ParseMarkdown は各ノードの text_ を Wide で確定させて返す契約。ここでは再変換しない。
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);
@@ -50,6 +50,7 @@ int Document::FindAnchorIndex(std::wstring_view anchor) const
     if (anchor.empty()) {
         return -1;
     }
+    // クエリ引数（外部リンク等）は大文字混在の可能性があるため正規化する。
     const std::pmr::wstring target = ToLowerAscii(anchor);
     const auto it = anchor_index_.find(target);
     return (it != anchor_index_.end()) ? it->second : -1;
@@ -59,12 +60,14 @@ void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indic
 {
     toc_.Clear();
     anchor_index_.clear();
+    anchor_index_.reserve(heading_indices.size());
 
     for (size_t i : heading_indices) {
         const auto& node = nodes_[i];
         toc_.AddEntry(node, static_cast<int>(i));
-        if (!node.anchor_id().empty()) {
-            anchor_index_.emplace(std::pmr::wstring(node.anchor_id()), static_cast<int>(i));
+        const auto sv = node.anchor_id();
+        if (!sv.empty()) {
+            anchor_index_.emplace(sv, static_cast<int>(i));
         }
     }
 }

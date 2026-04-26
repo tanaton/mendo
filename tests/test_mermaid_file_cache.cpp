@@ -152,9 +152,9 @@ TEST_F(MermaidFileCacheTest, LookupCleansUpStaleIndexEntry)
     // ファイル書き出し完了 → SaveIndex → 再Init
     FlushAndReopen();
 
-    // PNGファイルを手動削除してからLookup
+    // PNGファイルを手動削除してからLookup（内部キーでファイル名を計算）
     wchar_t name[24];
-    swprintf_s(name, L"%016llx.png", 42ULL);
+    swprintf_s(name, L"%016llx.png", cache_.InternalKeyForTest(42ULL));
     std::filesystem::remove(temp_dir_ / name);
 
     MermaidFileCache::CacheEntry entry;
@@ -225,7 +225,7 @@ TEST_F(MermaidFileCacheTest, EvictsWhenMaxSizeExceeded)
 // DPR不一致によるキャッシュクリア
 // ═══════════════════════════════════════════════
 
-TEST_F(MermaidFileCacheTest, DprMismatchClearsAll)
+TEST_F(MermaidFileCacheTest, DprMismatchSeparatesEntries)
 {
     InitCache(1.0f);
 
@@ -237,11 +237,17 @@ TEST_F(MermaidFileCacheTest, DprMismatchClearsAll)
     cache_.SaveIndex();
     scheduler_.Shutdown();
 
-    // 異なるDPRで再初期化 → 全エントリが削除される
+    // 異なる DPR で再初期化 → エントリは index 上に残るが、別キー扱いとなり
+    // 同じ external key での Lookup はミスになる（DPR ごとに独立してキャッシュ）。
     auto fresh = CreateFreshCache();
     scheduler_.Init(2);
     fresh->Init(2.0f, scheduler_);
-    EXPECT_EQ(fresh->EntryCount(), 0u);
+    EXPECT_EQ(fresh->EntryCount(), 2u);
+
+    MermaidFileCache::CacheEntry entry;
+    MermaidFileCache::PngBlob out;
+    EXPECT_FALSE(fresh->Lookup(1, entry, out));
+    EXPECT_FALSE(fresh->Lookup(2, entry, out));
 }
 
 TEST_F(MermaidFileCacheTest, SameDprPreservesCache)
@@ -473,9 +479,9 @@ TEST_F(MermaidFileCacheTest, AsyncWriteCreatesFile)
     // スケジューラをシャットダウンしてキューを完全に処理する
     scheduler_.Shutdown();
 
-    // PNGファイルが存在すること
+    // PNGファイルが存在すること（内部キーでファイル名を計算）
     wchar_t name[24];
-    swprintf_s(name, L"%016llx.png", 777ULL);
+    swprintf_s(name, L"%016llx.png", cache_.InternalKeyForTest(777ULL));
     EXPECT_TRUE(std::filesystem::exists(temp_dir_ / name));
 
     // TearDownのためにスケジューラを再起動

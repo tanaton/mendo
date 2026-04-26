@@ -16,6 +16,12 @@ struct DecodeResult {
 // IStream から画像をデコードし、GUID_WICPixelFormat32bppPBGRA 形式の
 // FormatConverter とピクセルサイズを返す。
 // image_loader（同期/非同期）と mermaid（PNGキャッシュ復元）の両方から使用される。
+//
+// 注意: IWICFormatConverter は呼び出し元が CreateBitmapFromWicBitmap などで
+// 利用するため、この関数の戻り値の lifetime に渡って保持される。
+// 別スレッド/別呼び出しで Initialize を再呼び出ししてしまうと既存の戻り値が
+// 別ソースを指してしまうため、毎回新規生成する（プールしない）。
+// CreateFormatConverter 自体は CoCreateInstance に比べて軽量。
 inline std::optional<DecodeResult> DecodeFromStream(
     IWICImagingFactory* wic, IStream* stream)
 {

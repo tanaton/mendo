@@ -1,6 +1,5 @@
 #include "mermaid_file_cache.h"
 #include "task_scheduler.h"
-#include "config_store.h"
 #include "file_io.h"
 #include <algorithm>
 #include <cstring>
@@ -39,7 +38,7 @@ MermaidFileCache::~MermaidFileCache()
 
 void MermaidFileCache::SetCacheDir(const std::filesystem::path& dir)
 {
-    cache_dir_override_ = dir;
+    cache_dir_ = dir;
 }
 
 void MermaidFileCache::SetLimits(size_t max_entries, uint64_t max_total_size)
@@ -50,14 +49,7 @@ void MermaidFileCache::SetLimits(size_t max_entries, uint64_t max_total_size)
 
 std::filesystem::path MermaidFileCache::GetCacheDir() const
 {
-    if (!cache_dir_override_.empty()) {
-        return cache_dir_override_;
-    }
-    const auto base = config::GetConfigDir();
-    if (base.empty()) {
-        return {};
-    }
-    return base / L"MermaidCache";
+    return cache_dir_;
 }
 
 std::filesystem::path MermaidFileCache::GetPngPath(const std::filesystem::path& dir, uint64_t key) const
@@ -107,10 +99,8 @@ void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 
     LoadIndex();
 
-    if (stored_dpr_ != 0.0f && stored_dpr_ != current_dpr) {
-        ClearAll();
-    }
-    stored_dpr_ = current_dpr;
+    // DPR ごとに InternalKey() が別キーに振り分けるため、DPR 不一致でも消去せず
+    // LRU で自然淘汰させる。
 }
 
 void MermaidFileCache::LoadIndex()
@@ -142,7 +132,6 @@ void MermaidFileCache::LoadIndex()
         return;
     }
 
-    stored_dpr_ = header.dpr;
     index_.reserve(header.count);
 
     for (uint32_t i = 0; i < header.count; ++i) {
@@ -211,6 +200,7 @@ void MermaidFileCache::SaveIndex()
 
 bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
 {
+    key = InternalKey(key);
     auto it = index_.find(key);
     if (it == index_.end()) {
         return false;
@@ -259,6 +249,7 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
 
 bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept
 {
+    key = InternalKey(key);
     const auto it = index_.find(key);
     if (it == index_.end()) {
         return false;
@@ -273,6 +264,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     if (png_data.empty()) {
         return;
     }
+    key = InternalKey(key);
 
     const uint32_t png_size = static_cast<uint32_t>(png_data.size());
 
@@ -303,7 +295,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
     const uint32_t gen = write_gen_.load();
     auto path = GetPngPath(key);
-    scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen] {
+    const bool posted = scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen] {
         // タスク完遂・キャンセルどちらの場合も pending を必ず解除する
         struct PendingGuard {
             MermaidFileCache* self;
@@ -335,6 +327,12 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
         WriteAllBytes(path, data.data(), data.size());
     });
+    if (!posted) {
+        // Post 失敗時はラムダが走らないので PendingGuard も走らない。
+        // pending_writes_ に key を残すと Lookup が stale 扱いを抑止し続けるため、ここで巻き戻す。
+        std::lock_guard lock(pending_mutex_);
+        pending_writes_.erase(key);
+    }
 }
 
 void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)

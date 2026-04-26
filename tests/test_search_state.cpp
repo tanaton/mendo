@@ -393,7 +393,7 @@ TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
         TableCell c;
         c.text.assign(L"hit");
         row.cells.push_back(std::move(c));
-        table.table_data->rows.push_back(std::move(row));
+        table.table_data()->rows.push_back(std::move(row));
     }
     std::pmr::vector<Node> nodes;
     nodes.push_back(std::move(table));

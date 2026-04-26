@@ -30,6 +30,7 @@ void ApplyDarkModeToWindow(HWND hwnd, bool dark);
 
 class App {
 public:
+    explicit App(ConfigService& config) noexcept : config_(config) {}
     bool Init(HWND hwnd);
 
     void LoadMarkdownFile(std::wstring_view path);
@@ -218,7 +219,7 @@ private:
     FileWatcher file_watcher_;
     DocumentService doc_service_{ file_watcher_ };
     AppController controller_;
-    ConfigService config_;
+    ConfigService& config_;
     ThemeService theme_service_{ config_ };
     SessionService session_{ config_ };
     FileLoadService file_load_service_{ doc_service_ };

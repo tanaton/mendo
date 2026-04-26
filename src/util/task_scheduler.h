@@ -13,6 +13,12 @@
 // Post() はスレッドセーフ。Init() / Shutdown() はUIスレッドから呼び出す。
 class TaskScheduler {
 public:
+    // 同時にキューに保留できるタスク数の上限。
+    // Why: 異常系（巨大ドキュメントの大量画像/Mermaid 要求）でキューが青天井に
+    // 膨らむのを防ぎ、move_only_function キャプチャによるヒープ消費を制限する。
+    // 通常運用では 10 件程度しか保留されないので 1024 は実質上限としては余裕。
+    static constexpr size_t MAX_PENDING_TASKS = 1024;
+
     TaskScheduler() = default;
     ~TaskScheduler();
 
@@ -20,7 +26,12 @@ public:
     TaskScheduler& operator=(const TaskScheduler&) = delete;
 
     void Init(int thread_count);
-    void Post(std::move_only_function<void()> task);
+
+    // タスクを投入する。キューが MAX_PENDING_TASKS に達している場合は
+    // タスクを破棄して false を返し、デバッグ出力に警告を残す。
+    // 呼び出し側は戻り値を無視してもよい（破棄されたタスクは単に未実行）。
+    bool Post(std::move_only_function<void()> task);
+
     void Shutdown();
 
 private:

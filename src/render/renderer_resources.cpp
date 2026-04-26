@@ -87,6 +87,8 @@ void Renderer::RecreateBrushes()
         {BrushId::ScrollbarThumb,   is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, thumb_alpha)
                                             : D2D1::ColorF(0.0f, 0.0f, 0.0f, thumb_alpha)},
         {BrushId::Overlay,          D2D1::ColorF(0, 0, 0, 1.0f)},
+        {BrushId::OverlayWhite,     D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f)},
+        {BrushId::OverlayBlack,     D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f)},
         {BrushId::SearchBarBg,      theme_.search_bar_bg_color},
         {BrushId::SearchBarBorder,  theme_.search_bar_border_color},
         {BrushId::SearchInputBg,    theme_.search_input_bg_color},
@@ -184,6 +186,8 @@ void Renderer::RecreatePaneFormats()
         }
     }
 
+    // 全レイアウトは IDWriteTextFormat にバインドされているため format 再作成と同時に破棄する。
+    // nav / gesture は次回 Draw 時に lazy 再生成（DrawNavOverlay / DrawGestureOverlay 参照）。
     nav_back_layout_.Reset();
     nav_forward_layout_.Reset();
     gesture_back_layout_.Reset();
@@ -197,24 +201,6 @@ void Renderer::RecreatePaneFormats()
     cached_search_caret_pos_ = -1;
     cached_search_width_ = -1.0f;
     cached_search_has_underline_ = false;
-    if (fmt_.nav_button) {
-        auto* dw = backend_.GetDWriteFactory();
-        if (dw) {
-            static const wchar_t BACK_ICON[] = L"\x25C0";
-            static const wchar_t FORWARD_ICON[] = L"\x25B6";
-            dw->CreateTextLayout(BACK_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
-            dw->CreateTextLayout(FORWARD_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
-        }
-    }
-    if (fmt_.gesture_overlay) {
-        auto* dw = backend_.GetDWriteFactory();
-        if (dw) {
-            static const wchar_t GESTURE_BACK[] = L"\x2190 \x623B\x308B";
-            static const wchar_t GESTURE_FORWARD[] = L"\x2192 \x9032\x3080";
-            dw->CreateTextLayout(GESTURE_BACK, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_back_layout_);
-            dw->CreateTextLayout(GESTURE_FORWARD, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_forward_layout_);
-        }
-    }
 
     // ペインキャッシュを無効化して新しいサイズで再描画させる
     file_pane_cache_.Reset();
