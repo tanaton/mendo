@@ -236,7 +236,7 @@ void MermaidRenderer::SetupWorker(int index)
                     if (p.valid && p.id == w.current_request.request_id && w.current_request.svg_only) {
                         std::pmr::wstring svg{ p.has_payload ? p.payload : std::wstring_view{} };
                         if (auto cb = std::move(w.current_request.svg_callback)) {
-                            cb(std::move(svg));
+                            cb(std::move(svg), false);
                         }
                         FinishWorkerRequest(w);
                     }
@@ -246,7 +246,7 @@ void MermaidRenderer::SetupWorker(int index)
                     if (p.valid && p.id == w.current_request.request_id) {
                         if (w.current_request.svg_only) {
                             if (auto cb = std::move(w.current_request.svg_callback)) {
-                                cb(std::pmr::wstring{});
+                                cb(std::pmr::wstring{}, false);
                             }
                         }
                         FinishWorkerRequest(w);
@@ -367,13 +367,13 @@ void MermaidRenderer::ClearCache()
 
 void MermaidRenderer::CancelPending()
 {
-    // SVG 専用リクエストのコールバックは空 SVG で呼んで呼び出し元の状態をリセットさせる。
+    // SVG 専用リクエストのコールバックは cancelled=true で呼び、呼び出し元の状態をリセットさせる。
     // PNG レンダリング (on_complete) は無引数のため呼び出し元側でフラグを持っていない前提。
     while (!pending_requests_.empty()) {
         auto& req = pending_requests_.front();
         if (req.svg_only) {
             if (auto cb = std::move(req.svg_callback)) {
-                cb(std::pmr::wstring{});
+                cb(std::pmr::wstring{}, true);
             }
         }
         pending_requests_.pop();
@@ -385,7 +385,7 @@ void MermaidRenderer::CancelPending()
         auto& w = workers_[i];
         if (w.current_request.svg_only) {
             if (auto cb = std::move(w.current_request.svg_callback)) {
-                cb(std::pmr::wstring{});
+                cb(std::pmr::wstring{}, true);
             }
         }
         w.rendering = false;
@@ -465,17 +465,18 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     ProcessQueue();
 }
 
-void MermaidRenderer::RequestSvg(std::wstring_view code, bool dark_mode, SvgCallback callback)
+void MermaidRenderer::RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
     if (code.empty() || !callback) {
         if (callback) {
-            callback(std::pmr::wstring{});
+            callback(std::pmr::wstring{}, false);
         }
         return;
     }
 
     RenderRequest req;
     req.svg_only = true;
+    req.max_width = max_width;
     req.dark_mode = dark_mode;
     req.svg_callback = std::move(callback);
     req.code_storage.assign(code.begin(), code.end());
@@ -552,7 +553,20 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         return;
     }
 
-    // SVG 専用リクエスト: ビューポートサイズ調整と PNG キャプチャをスキップする。
+    // CSSビューポートがmax_width（DIP）と等しくなるようにWebView2の境界を設定する。
+    // 境界はポップアップウィンドウの物理ピクセル単位で、WebView2は
+    // 内部でdevicePixelRatioで除算してCSSビューポートサイズを求める。
+    // SVG 出力（折返し等）も CSS 幅に依存するため、PNG/SVG 両経路で同じ bounds を使う。
+    int vp_phys = static_cast<int>(std::ceil(worker.current_request.max_width * worker.dpr));
+    if (vp_phys < 1) {
+        vp_phys = 1;
+    }
+    const int h_phys = static_cast<int>(4096 * worker.dpr);
+    const RECT bounds = { 0, 0, vp_phys, h_phys };
+    worker.controller->put_Bounds(bounds);
+    SetWindowPos(worker.hwnd, nullptr, -32000, -32000, vp_phys, h_phys, SWP_NOZORDER | SWP_NOACTIVATE);
+
+    // SVG 専用リクエスト: PNG キャプチャ用の再リサイズはスキップし、SVG 文字列のみ取得する。
     if (worker.current_request.svg_only) {
         const auto js = PmrFormat(
             L"renderMermaidSvg('{}', {})"
@@ -564,18 +578,6 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         worker.webview->ExecuteScript(js.c_str(), nullptr);
         return;
     }
-
-    // CSSビューポートがmax_width（DIP）と等しくなるようにWebView2の境界を設定する。
-    // 境界はポップアップウィンドウの物理ピクセル単位で、WebView2は
-    // 内部でdevicePixelRatioで除算してCSSビューポートサイズを求める。
-    int vp_phys = static_cast<int>(std::ceil(worker.current_request.max_width * worker.dpr));
-    if (vp_phys < 1) {
-        vp_phys = 1;
-    }
-    const int h_phys = static_cast<int>(4096 * worker.dpr);
-    const RECT bounds = { 0, 0, vp_phys, h_phys };
-    worker.controller->put_Bounds(bounds);
-    SetWindowPos(worker.hwnd, nullptr, -32000, -32000, vp_phys, h_phys, SWP_NOZORDER | SWP_NOACTIVATE);
 
     // Mermaidをレンダリングする（maxWidth=0はCSS制約なし、ビューポートが制約する）
     // LatexMath ノードは flowchart ラッパに変換してから JS に渡す。

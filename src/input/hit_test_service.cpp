@@ -384,7 +384,9 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
                 copy_hit = i;
             }
         }
-        if (copy_hit >= 0 && save_hit >= 0 && svg_copy_hit >= 0) {
+        // マウス座標は1点なので、コピー/保存/SVGコピーボタンが同時にヒットすることはない。
+        // 1つでも見つかった時点で残りの可視ノード走査をスキップする。
+        if (copy_hit >= 0 || save_hit >= 0 || svg_copy_hit >= 0) {
             break;
         }
     }

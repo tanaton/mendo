@@ -58,22 +58,19 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         Dispatch(NavigateForwardAction{});
         return;
     }
-    // コピーボタンのクリック判定（クリック位置で再判定）
+    // コードブロック系ボタン（コピー/SVGコピー/保存）を1回の可視ノード走査でまとめて判定。
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
-    const auto copy_node = hit_test_.CopyButtonHitTest(hit_ctx);
-    if (copy_node >= 0) {
-        CopyCodeBlockToClipboard(copy_node);
+    const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
+    if (btn_hit.copy_node >= 0) {
+        CopyCodeBlockToClipboard(btn_hit.copy_node);
         return;
     }
-    const auto svg_copy_node = hit_test_.SvgCopyButtonHitTest(hit_ctx);
-    if (svg_copy_node >= 0) {
-        CopyDiagramAsSvg(svg_copy_node);
+    if (btn_hit.svg_copy_node >= 0) {
+        CopyDiagramAsSvg(btn_hit.svg_copy_node);
         return;
     }
-    // 保存ボタンのクリック判定
-    const auto save_node = hit_test_.SaveButtonHitTest(hit_ctx);
-    if (save_node >= 0) {
-        SaveDiagramAsPng(save_node);
+    if (btn_hit.save_node >= 0) {
+        SaveDiagramAsPng(btn_hit.save_node);
         return;
     }
     // MDペインスクロールバーのクリック判定

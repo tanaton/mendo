@@ -288,7 +288,7 @@ void CommandGenerator::GenSvgCopyButton(DrawCommandList& cmds,
         return;
     }
     const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, 1);
-    GenOverlayButton(cmds, btn, L'', is_hovered);
+    GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 
 void CommandGenerator::GenOverlayButton(DrawCommandList& cmds,

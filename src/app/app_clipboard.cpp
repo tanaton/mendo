@@ -138,9 +138,13 @@ void App::CopyDiagramAsSvg(int node_index)
     ShowToast(i18n::S().toast_svg_copying);
     svg_copy_in_flight_ = true;
 
-    mermaid_renderer_.RequestSvg(node.GetText(), dark,
-        [this, key](std::pmr::wstring svg) {
+    mermaid_renderer_.RequestSvg(node.GetText(), md_width, dark,
+        [this, key](std::pmr::wstring svg, bool cancelled) {
             svg_copy_in_flight_ = false;
+            if (cancelled) {
+                // テーマ変更/幅変更/シャットダウン等によるキャンセル。トーストは出さない。
+                return;
+            }
             if (svg.empty()) {
                 ShowToast(i18n::S().toast_svg_copy_failed);
                 return;

@@ -38,7 +38,7 @@ public:
     constexpr bool IsReady() const noexcept { return lifecycle_.IsReady(); }
 
     void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete) override;
-    void RequestSvg(std::wstring_view code, bool dark_mode, SvgCallback callback) override;
+    void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     void SetFileCache(MermaidFileCache* cache) noexcept { file_cache_ = cache; }
     void ClearCache() override;

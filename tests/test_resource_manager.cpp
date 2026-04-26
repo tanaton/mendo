@@ -32,10 +32,10 @@ public:
         last_dark_mode = dark_mode;
     }
 
-    void RequestSvg(std::wstring_view /*code*/, bool /*dark_mode*/, SvgCallback callback) override
+    void RequestSvg(std::wstring_view /*code*/, float /*max_width*/, bool /*dark_mode*/, SvgCallback callback) override
     {
         if (callback) {
-            callback(std::pmr::wstring{});
+            callback(std::pmr::wstring{}, false);
         }
     }
 
