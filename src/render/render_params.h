@@ -6,6 +6,7 @@
 #include "toc.h"
 #include "titlebar.h"
 #include "pane.h"
+#include "hovered_buttons.h"
 #include "mouse_gesture.h"
 #include <d2d1.h>
 #include <wrl/client.h>
@@ -146,9 +147,7 @@ struct RenderParams {
     float scroll_y = 0.0f;
     float total_content_height = 0.0f;
     int nav_hovered = 0;
-    int hovered_copy_node = -1;
-    int hovered_save_node = -1;
-    int hovered_svg_copy_node = -1;
+    HoveredButtons hovered;
     // --- 1バイトアライメント ---
     bool can_go_back = false;
     bool can_go_forward = false;

@@ -5,11 +5,20 @@
 #include "tooltip.h"
 #include "titlebar.h"
 #include "ui_constants.h"
+#include <concepts>
+#include <type_traits>
 
 namespace mendo::app_mouse {
 
+// ペインヘッダー内のボタン矩形を返す関数（NTTP）の型制約。
+template <auto Fn>
+concept PaneButtonRectFn =
+    std::invocable<decltype(Fn), float, float>
+    && std::convertible_to<std::invoke_result_t<decltype(Fn), float, float>, D2D1_RECT_F>;
+
 // ペインヘッダー内のボタンがクリックされたか判定する。
 template <auto ButtonRectFn>
+    requires PaneButtonRectFn<ButtonRectFn>
 bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height)
 {
     const float local_x = dip_x - rect.x;
@@ -50,6 +59,12 @@ struct PaneHoverResult {
 // ヘッダーボタンのホバー状態を更新し、コンテンツ領域のアイテムヒットテストを行う。
 template<typename SetCloseHoveredFn, typename SetRefreshHoveredFn,
     typename HitTestFn, typename BuildTooltipFn>
+    requires std::predicate<SetCloseHoveredFn&, bool>
+          && std::predicate<SetRefreshHoveredFn&, bool>
+          && std::invocable<HitTestFn&, float, float>
+          && std::convertible_to<std::invoke_result_t<HitTestFn&, float, float>, int>
+          && std::invocable<BuildTooltipFn&, bool, bool, int>
+          && std::convertible_to<std::invoke_result_t<BuildTooltipFn&, bool, bool, int>, TooltipTarget>
 PaneHoverResult ProcessSidePaneHover(
     float dip_x, float dip_y,
     const PaneRect& rect, float header_h, float item_height,
@@ -86,6 +101,7 @@ PaneHoverResult ProcessSidePaneHover(
 // サイドペインのヘッダー領域のクリック処理を共通化。
 // ヘッダー領域内のクリックを消費した場合 true を返す（ボタン外も含む）。
 template<typename ToggleFn, typename RefreshFn>
+    requires std::invocable<ToggleFn&> && std::invocable<RefreshFn&>
 bool ProcessSidePaneHeaderClick(
     float dip_x, float dip_y,
     const PaneRect& rect, float header_h,

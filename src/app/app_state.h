@@ -15,6 +15,7 @@
 #include "scroll_restoration.h"
 #include "context_menu.h"
 #include "hover_throttle.h"
+#include "hovered_buttons.h"
 #include "nav_button.h"
 #include "pane_layout.h"
 #include "theme_constants.h"
@@ -44,9 +45,7 @@ struct InteractionState {
     HoverThrottle hover_throttle;
     Tooltip tooltip;
     ToastNotifier toast;
-    int hovered_copy_node = -1;
-    int hovered_save_node = -1;
-    int hovered_svg_copy_node = -1;
+    HoveredButtons hovered;
     NavButtonHover nav_hover = NavButtonHover::None;
 };
 

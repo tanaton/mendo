@@ -15,6 +15,7 @@
 #include <array>
 #include <memory>
 #include <memory_resource>
+#include <utility>
 
 
 enum class BrushId : uint8_t {
@@ -110,10 +111,10 @@ private:
     ID2D1DeviceContext* rt() const noexcept { return backend_.GetRenderTarget(); }
     ID2D1Factory* d2d() const noexcept { return backend_.GetD2DFactory(); }
 
-    std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, static_cast<size_t>(BrushId::Count)> brushes_;
+    std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)> brushes_;
     ID2D1SolidColorBrush* Brush(BrushId id) const noexcept
     {
-        return brushes_[static_cast<size_t>(id)].Get();
+        return brushes_[std::to_underlying(id)].Get();
     }
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;

@@ -5,6 +5,7 @@
 #include <memory>
 #include <memory_resource>
 #include <algorithm>
+#include <utility>
 #include <variant>
 #include "syntax.h"
 #include "string_convert.h"
@@ -31,9 +32,9 @@ enum class AlertType : uint8_t {
     Caution
 };
 
-static_assert(static_cast<size_t>(AlertType::None) == 0, "AlertType::None must be 0");
-static_assert(static_cast<size_t>(AlertType::Note) == 1, "AlertType::Note must be 1");
-static_assert(static_cast<size_t>(AlertType::Caution) == 5, "AlertType::Caution must be 5");
+static_assert(std::to_underlying(AlertType::None) == 0, "AlertType::None must be 0");
+static_assert(std::to_underlying(AlertType::Note) == 1, "AlertType::Note must be 1");
+static_assert(std::to_underlying(AlertType::Caution) == 5, "AlertType::Caution must be 5");
 
 inline constexpr size_t ALERT_TYPE_COUNT = 5;
 
@@ -42,7 +43,7 @@ constexpr size_t AlertColorIndex(AlertType t) noexcept
     if (t == AlertType::None) {
         return ALERT_TYPE_COUNT;
     }
-    return static_cast<size_t>(t) - 1;
+    return static_cast<size_t>(std::to_underlying(t)) - 1;
 }
 
 // md4c の MD_ALIGN と値を一致させる（0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT）

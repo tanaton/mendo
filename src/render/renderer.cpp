@@ -4,6 +4,7 @@
 #include "profiler.h"
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 using Microsoft::WRL::ComPtr;
 
@@ -126,7 +127,7 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexc
         BrushId::SyntaxPreprocessor,  // プリプロセッサ
         BrushId::SyntaxFunction,      // 関数
     };
-    const auto idx = static_cast<size_t>(type);
+    const auto idx = std::to_underlying(type);
     if (idx >= std::size(SYNTAX_MAP)) {
         return nullptr;
     }
@@ -378,7 +379,7 @@ void Renderer::Render(const RenderParams& p)
     const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
     {
         MENDO_PROFILE("GenerateMdPane");
-        const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered_copy_node, p.hovered_save_node, p.hovered_svg_copy_node, dpi_scale);
+        const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale);
         {
             MENDO_PROFILE("CommandExecutor::Execute");
             cmd_executor_.Execute(cmds, rt());

@@ -378,23 +378,17 @@ void ReduceMdPaneNavHover(AppState& state, SideEffectList& effects, const MdPane
     state.interaction.nav_hover = a.nav_hover;
     // ナビボタンホバー時は、コピー/保存/SVGコピーボタンホバー状態をクリア（重ならないように）
     if (a.nav_hover != NavButtonHover::None) {
-        state.interaction.hovered_copy_node = -1;
-        state.interaction.hovered_save_node = -1;
-        state.interaction.hovered_svg_copy_node = -1;
+        state.interaction.hovered = HoveredButtons{};
     }
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceMdPaneButtonHoverChanged(AppState& state, SideEffectList& effects, const MdPaneButtonHoverChangedAction& a)
 {
-    if (state.interaction.hovered_copy_node == a.hovered_copy_node
-        && state.interaction.hovered_save_node == a.hovered_save_node
-        && state.interaction.hovered_svg_copy_node == a.hovered_svg_copy_node) {
+    if (state.interaction.hovered == a.hovered) {
         return;
     }
-    state.interaction.hovered_copy_node = a.hovered_copy_node;
-    state.interaction.hovered_save_node = a.hovered_save_node;
-    state.interaction.hovered_svg_copy_node = a.hovered_svg_copy_node;
+    state.interaction.hovered = a.hovered;
     PushEffect(effects, effect::InvalidateWindow{});
 }
 

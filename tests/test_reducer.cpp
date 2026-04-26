@@ -374,78 +374,73 @@ TEST_F(ReducerTest, ParseComplete_EmitsHandleParseComplete) {
 TEST_F(ReducerTest, NavHover_NoneToBack_UpdatesStateAndInvalidates) {
     using Hover = NavButtonHover;
     state.interaction.nav_hover = Hover::None;
-    state.interaction.hovered_copy_node = 3;
-    state.interaction.hovered_save_node = 5;
+    state.interaction.hovered = { 3, 5, -1 };
 
     auto effects = Reduce(state, MdPaneNavHoverAction{ Hover::Back });
 
     EXPECT_EQ(state.interaction.nav_hover, Hover::Back);
     // ナビボタンホバー開始でコピー/保存ボタンのホバーはリセット
-    EXPECT_EQ(state.interaction.hovered_copy_node, -1);
-    EXPECT_EQ(state.interaction.hovered_save_node, -1);
+    EXPECT_EQ(state.interaction.hovered.copy, -1);
+    EXPECT_EQ(state.interaction.hovered.save, -1);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, NavHover_BackToNone_UpdatesStateAndInvalidates) {
     using Hover = NavButtonHover;
     state.interaction.nav_hover = Hover::Back;
-    state.interaction.hovered_copy_node = -1;
-    state.interaction.hovered_save_node = -1;
+    state.interaction.hovered = {};
 
     auto effects = Reduce(state, MdPaneNavHoverAction{ Hover::None });
 
     EXPECT_EQ(state.interaction.nav_hover, Hover::None);
     // ナビ離脱時はコピー/保存の状態は触らない
-    EXPECT_EQ(state.interaction.hovered_copy_node, -1);
-    EXPECT_EQ(state.interaction.hovered_save_node, -1);
+    EXPECT_EQ(state.interaction.hovered.copy, -1);
+    EXPECT_EQ(state.interaction.hovered.save, -1);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, NavHover_Unchanged_NoEffect) {
     using Hover = NavButtonHover;
     state.interaction.nav_hover = Hover::Forward;
-    state.interaction.hovered_copy_node = 7;
+    state.interaction.hovered.copy = 7;
 
     auto effects = Reduce(state, MdPaneNavHoverAction{ Hover::Forward });
 
     EXPECT_EQ(state.interaction.nav_hover, Hover::Forward);
     // 同値ならコピー/保存ホバーもそのまま
-    EXPECT_EQ(state.interaction.hovered_copy_node, 7);
+    EXPECT_EQ(state.interaction.hovered.copy, 7);
     EXPECT_TRUE(effects.empty());
 }
 
 // ---- MdPaneButtonHoverChangedAction テスト ----
 
 TEST_F(ReducerTest, ButtonHoverChanged_CopyUpdated_Invalidates) {
-    state.interaction.hovered_copy_node = -1;
-    state.interaction.hovered_save_node = -1;
+    state.interaction.hovered = {};
 
-    auto effects = Reduce(state, MdPaneButtonHoverChangedAction{ 3, -1 });
+    auto effects = Reduce(state, MdPaneButtonHoverChangedAction{ HoveredButtons{ 3, -1, -1 } });
 
-    EXPECT_EQ(state.interaction.hovered_copy_node, 3);
-    EXPECT_EQ(state.interaction.hovered_save_node, -1);
+    EXPECT_EQ(state.interaction.hovered.copy, 3);
+    EXPECT_EQ(state.interaction.hovered.save, -1);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, ButtonHoverChanged_SaveUpdated_Invalidates) {
-    state.interaction.hovered_copy_node = -1;
-    state.interaction.hovered_save_node = -1;
+    state.interaction.hovered = {};
 
-    auto effects = Reduce(state, MdPaneButtonHoverChangedAction{ -1, 5 });
+    auto effects = Reduce(state, MdPaneButtonHoverChangedAction{ HoveredButtons{ -1, 5, -1 } });
 
-    EXPECT_EQ(state.interaction.hovered_copy_node, -1);
-    EXPECT_EQ(state.interaction.hovered_save_node, 5);
+    EXPECT_EQ(state.interaction.hovered.copy, -1);
+    EXPECT_EQ(state.interaction.hovered.save, 5);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, ButtonHoverChanged_Unchanged_NoEffect) {
-    state.interaction.hovered_copy_node = 2;
-    state.interaction.hovered_save_node = 4;
+    state.interaction.hovered = { 2, 4, -1 };
 
-    auto effects = Reduce(state, MdPaneButtonHoverChangedAction{ 2, 4 });
+    auto effects = Reduce(state, MdPaneButtonHoverChangedAction{ HoveredButtons{ 2, 4, -1 } });
 
-    EXPECT_EQ(state.interaction.hovered_copy_node, 2);
-    EXPECT_EQ(state.interaction.hovered_save_node, 4);
+    EXPECT_EQ(state.interaction.hovered.copy, 2);
+    EXPECT_EQ(state.interaction.hovered.save, 4);
     EXPECT_TRUE(effects.empty());
 }
 

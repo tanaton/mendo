@@ -8,6 +8,7 @@
 #include "profiler.h"
 #include "utility.h"
 #include <algorithm>
+#include <utility>
 
 // ============================================================
 // ファイル読み込み
@@ -148,7 +149,7 @@ void App::OnParseComplete()
 
         MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu op=%d",
             result->doc.GetNodes().size(), decision.diff_pos, old_view.size(), new_view.size(),
-            static_cast<int>(decision.op));
+            std::to_underlying(decision.op));
 
         switch (decision.op) {
         case ReloadOp::NoChange:
@@ -312,7 +313,7 @@ void App::DoReloadCurrentFile()
 
     MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu op=%d",
         decision.diff_pos, old_view.size(), new_view.size(),
-        static_cast<int>(decision.op));
+        std::to_underlying(decision.op));
 
     switch (decision.op) {
     case ReloadOp::NoChange:

@@ -3,6 +3,7 @@
 #include "ui_constants.h"
 #include <cassert>
 #include <ranges>
+#include <utility>
 
 namespace {
 
@@ -277,7 +278,8 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
             const float x = ctx.theme.margin_left + indent;
             const float cw = ctx.content_width - indent;
             const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
-            const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top);
+            const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top,
+                std::to_underlying(DiagramButtonSlot::Save));
             return dip_x >= btn.left && dip_x <= btn.right
                 && dip_y >= btn.top && dip_y <= btn.bottom;
         });
@@ -334,14 +336,16 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry.y_position);
                 if (save_hit < 0) {
-                    const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top);
+                    const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top,
+                        std::to_underlying(DiagramButtonSlot::Save));
                     if (dip_x >= btn.left && dip_x <= btn.right
                         && dip_y >= btn.top && dip_y <= btn.bottom) {
                         save_hit = i;
                     }
                 }
                 if (svg_copy_hit < 0 && IsSvgExportable(node.code_language)) {
-                    const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, 1);
+                    const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top,
+                        std::to_underlying(DiagramButtonSlot::SvgCopy));
                     if (dip_x >= btn2.left && dip_x <= btn2.right
                         && dip_y >= btn2.top && dip_y <= btn2.bottom) {
                         svg_copy_hit = i;
