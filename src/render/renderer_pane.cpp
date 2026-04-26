@@ -4,6 +4,7 @@
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
+#include <concepts>
 
 // PaneCacheのビットマップレンダーターゲットが必要なサイズと一致することを確認。
 // キャッシュが使用可能ならtrueを返す。
@@ -55,8 +56,8 @@ static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb
 }
 
 // サイドペイン描画の共通スキャフォールド。
-// DrawItemFnのシグネチャ: void(ID2D1RenderTarget* rt, int index, float item_y, float pane_width)
 template<typename DrawItemFn>
+    requires std::invocable<DrawItemFn&, ID2D1RenderTarget*, int, float, float>
 static void DrawSidePaneImpl(
     PaneCache& cache,
     ID2D1RenderTarget* main_rt,

@@ -4,6 +4,7 @@
 #include "layout_cache.h"
 #include "theme.h"
 #include "pane.h"
+#include "hovered_buttons.h"
 #include "ui_constants.h"
 #include "memory_resource.h"
 #include "search_state.h"
@@ -93,9 +94,7 @@ public:
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
         int first_visible = -1,
-        int hovered_copy_node = -1,
-        int hovered_save_node = -1,
-        int hovered_svg_copy_node = -1,
+        HoveredButtons hovered = {},
         float dpi_scale = 1.0f);
 
 private:
@@ -169,7 +168,5 @@ private:
     float frame_viewport_right_ = 0.0f;
     float frame_content_width_ = 0.0f;
     const TextSelection* frame_selection_ = nullptr;
-    int frame_hovered_copy_node_ = -1;
-    int frame_hovered_save_node_ = -1;
-    int frame_hovered_svg_copy_node_ = -1;
+    HoveredButtons frame_hovered_;
 };

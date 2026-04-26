@@ -233,6 +233,13 @@ inline constexpr float TOAST_OVERLAY_BOTTOM_OFFSET = 16.0f;
 // ジェスチャー軌跡のスタイル
 inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
+// ダイアグラム（Mermaid 等）右上に並ぶオーバーレイボタンのスロット。
+// 値は OverlayButtonRect の button_index に対応し、0 が最も右、左隣に並ぶごとに +1。
+enum class DiagramButtonSlot : int {
+    Save = 0,
+    SvgCopy = 1,
+};
+
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
 // anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
 // button_index: 0=最も右, 1 以降は左隣に COPY_BTN_GAP 分ずれる。

@@ -1,6 +1,7 @@
 #pragma once
 #include "pane_layout.h"
 #include "nav_button.h"
+#include "hovered_buttons.h"
 #include "pane_controller.h"
 #include "tooltip_target.h"
 #include <variant>
@@ -102,9 +103,7 @@ struct MdPaneNavHoverAction {
     NavButtonHover nav_hover;
 };
 struct MdPaneButtonHoverChangedAction {
-    int hovered_copy_node;
-    int hovered_save_node;
-    int hovered_svg_copy_node = -1;
+    HoveredButtons hovered;
 };
 struct SplitterDragStartedAction {
     PaneController::DragTarget target;

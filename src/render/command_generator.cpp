@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <format>
 #include <ranges>
+#include <utility>
 
 // h1/h2 見出し下線を描画するY座標を heading_spacing_below_h1h2 のこの比率で決める。
 // 値を小さくすると下線は見出し文字に近づき、下線と次行の間隔が広がる。
@@ -38,9 +39,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const PaneRect& md_pane_rect, float scroll_y,
     const TextSelection& selection,
     int first_visible,
-    int hovered_copy_node,
-    int hovered_save_node,
-    int hovered_svg_copy_node,
+    HoveredButtons hovered,
     float dpi_scale)
 {
     // 古いコマンドを destruct してから resource をリセットする。
@@ -68,9 +67,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     frame_viewport_right_ = md_pane_rect.width - theme_->margin_left;
     frame_content_width_ = theme_->ContentWidth(md_pane_rect.width);
     frame_selection_ = &selection;
-    frame_hovered_copy_node_ = hovered_copy_node;
-    frame_hovered_save_node_ = hovered_save_node;
-    frame_hovered_svg_copy_node_ = hovered_svg_copy_node;
+    frame_hovered_ = hovered;
 
     // 最初の可視ノードを二分探索で検索（事前計算済みのインデックスがあればそれを使用）
     const int node_count = static_cast<int>(nodes.size());
@@ -144,9 +141,9 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
                 cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), bmp });
-                GenSaveButton(cmds, bmp.right, bmp.top, node_index == frame_hovered_save_node_);
+                GenSaveButton(cmds, bmp.right, bmp.top, node_index == frame_hovered_.save);
                 if (IsSvgExportable(node.code_language)) {
-                    GenSvgCopyButton(cmds, bmp.right, bmp.top, node_index == frame_hovered_svg_copy_node_);
+                    GenSvgCopyButton(cmds, bmp.right, bmp.top, node_index == frame_hovered_.svg_copy);
                 }
             }
             else {
@@ -155,7 +152,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             return;
         }
         GenCodeBlockBg(cmds, entry, x, cw);
-        GenCopyButton(cmds, entry, x, cw, node_index == frame_hovered_copy_node_);
+        GenCopyButton(cmds, entry, x, cw, node_index == frame_hovered_.copy);
         break;
 
     case NodeType::ListItem:
@@ -277,7 +274,8 @@ void CommandGenerator::GenSaveButton(DrawCommandList& cmds,
     if (!formats_.copy_btn_icon) {
         return;
     }
-    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top);
+    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top,
+        std::to_underlying(DiagramButtonSlot::Save));
     GenOverlayButton(cmds, btn, L'\uE896', is_hovered);
 }
 
@@ -287,7 +285,8 @@ void CommandGenerator::GenSvgCopyButton(DrawCommandList& cmds,
     if (!formats_.copy_btn_icon) {
         return;
     }
-    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, 1);
+    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top,
+        std::to_underlying(DiagramButtonSlot::SvgCopy));
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 

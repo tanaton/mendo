@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <iterator>
+#include <utility>
 #include "titlebar.h"
 
 class TitleBarTest : public ::testing::Test {
@@ -347,7 +348,7 @@ TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton)
     };
     for (auto zone : zones) {
         tb_.SetHovered(zone);
-        EXPECT_EQ(countHovered(), 1) << "zone=" << static_cast<int>(zone);
+        EXPECT_EQ(countHovered(), 1) << "zone=" << std::to_underlying(zone);
     }
 }
 

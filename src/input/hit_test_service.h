@@ -5,6 +5,7 @@
 #include "pane.h"
 #include "theme.h"
 #include <climits>
+#include <concepts>
 #include <memory_resource>
 
 // MDペインのヒットテストに必要なコンテキスト情報。
@@ -94,10 +95,9 @@ private:
     };
 
     // CodeBlock ノードのオーバーレイボタン（Copy/Save）共通ヒットテスト。
-    // キャッシュ照合・座標変換・可視範囲走査を一元化する。Predicate は
-    // `(int index, const Node&, const NodeLayoutEntry&, float dip_x, float dip_y) -> bool`
-    // を返し、true を返したノードの index が結果となる。
+    // キャッシュ照合・座標変換・可視範囲走査を一元化し、matches が true を返したノードの index を返す。
     template <typename Predicate>
+        requires std::predicate<Predicate&, int, const Node&, const NodeLayoutEntry&, float, float>
     int HitTestCodeBlockButton(
         const MdPaneHitContext& ctx,
         HitCache<int>& cache,

@@ -2,6 +2,7 @@
 #include "resource.h"
 #include "ui_constants.h"
 #include "wic_util.h"
+#include <utility>
 
 using Microsoft::WRL::ComPtr;
 
@@ -101,7 +102,7 @@ void Renderer::RecreateBrushes()
     // 既存ブラシには SetColor のみ、未生成のものだけ CreateSolidColorBrush。
     // テーマ切替時の 40+ 個の COM オブジェクト再生成を回避する。
     for (const auto& s : specs) {
-        auto& brush = brushes_[static_cast<size_t>(s.id)];
+        auto& brush = brushes_[std::to_underlying(s.id)];
         if (brush) {
             brush->SetColor(s.color);
         }

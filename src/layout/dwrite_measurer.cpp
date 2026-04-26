@@ -4,6 +4,7 @@
 #include "syntax.h"
 #include "ui_constants.h"
 #include <algorithm>
+#include <concepts>
 #include <ranges>
 
 using Microsoft::WRL::ComPtr;
@@ -90,6 +91,8 @@ namespace {
 // 隣接する同属性ランを連続 range にマージして emit に渡す。
 // ラン配列は start 昇順で、直前ランの直後に始まる前提。
 template <typename Pred, typename Emit>
+    requires std::predicate<Pred&, const TextRun&>
+          && std::invocable<Emit&, DWRITE_TEXT_RANGE>
 void ForEachAttrRange(const std::pmr::vector<TextRun>& runs, Pred predicate, Emit emit)
 {
     const size_t n = runs.size();

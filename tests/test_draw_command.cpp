@@ -622,7 +622,7 @@ TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
     EXPECT_EQ(idx, 2) << "親と子の箇条書き記号が1つずつ存在するべき";
 }
 
-// hovered_copy_node パラメータが GenerateMdPane に渡せることの検証
+// HoveredButtons パラメータが GenerateMdPane に渡せることの検証
 TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted)
 {
     auto nodes = ParseMarkdown("```\ncode\n```").nodes;
@@ -630,8 +630,8 @@ TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    // hovered_copy_node=0 を渡してもクラッシュしない
-    auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, -1, 0);
+    // hovered.copy=0 を渡してもクラッシュしない
+    auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, -1, HoveredButtons{ 0, -1, -1 });
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
 }

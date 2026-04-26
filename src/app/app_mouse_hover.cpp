@@ -109,32 +109,26 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     // 1 回の可視ノード走査で 3 つを同時に判定する。
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     auto& ht = state_.interaction.hover_throttle;
-    int new_copy_hover = state_.interaction.hovered_copy_node;
-    int new_save_hover = state_.interaction.hovered_save_node;
-    int new_svg_copy_hover = state_.interaction.hovered_svg_copy_node;
+    HoveredButtons new_hover = state_.interaction.hovered;
     if (ht.TryMarkMoved(ht.last_copy_hit_pos, ht.last_copy_hit_tick, px, py)) {
         const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
-        new_copy_hover = btn_hit.copy_node;
-        new_save_hover = btn_hit.save_node;
-        new_svg_copy_hover = btn_hit.svg_copy_node;
+        new_hover = { btn_hit.copy_node, btn_hit.save_node, btn_hit.svg_copy_node };
     }
-    if (new_copy_hover != state_.interaction.hovered_copy_node
-        || new_save_hover != state_.interaction.hovered_save_node
-        || new_svg_copy_hover != state_.interaction.hovered_svg_copy_node) {
-        Dispatch(MdPaneButtonHoverChangedAction{ new_copy_hover, new_save_hover, new_svg_copy_hover });
+    if (new_hover != state_.interaction.hovered) {
+        Dispatch(MdPaneButtonHoverChangedAction{ new_hover });
     }
 
-    if (new_copy_hover >= 0) {
+    if (new_hover.copy >= 0) {
         SetCursor(cursors_.Hand());
         Dispatch(UpdateTooltipAction{ TooltipTarget{ TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy }, px, py });
         return;
     }
-    if (new_svg_copy_hover >= 0) {
+    if (new_hover.svg_copy >= 0) {
         SetCursor(cursors_.Hand());
         Dispatch(UpdateTooltipAction{ TooltipTarget{ TooltipTarget::Zone::SvgCopyButton, i18n::S().tooltip_copy_svg }, px, py });
         return;
     }
-    if (new_save_hover >= 0) {
+    if (new_hover.save >= 0) {
         SetCursor(cursors_.Hand());
         Dispatch(UpdateTooltipAction{ TooltipTarget{ TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image }, px, py });
         return;

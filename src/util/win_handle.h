@@ -82,6 +82,35 @@ struct GlobalMemTraits {
 };
 using UniqueGlobalMem = UniqueResource<GlobalMemTraits>;
 
+// 末尾 NUL 文字を付加した text を format 形式でクリップボードに登録する。
+// CharT は char または wchar_t を想定。OpenClipboard / EmptyClipboard /
+// CloseClipboard の呼び出しは呼び出し側の責務。
+// 戻り値: SetClipboardData まで成功したら true。
+template <typename CharT>
+inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT> text) noexcept
+{
+    if (format == 0) {
+        return false;
+    }
+    const size_t bytes = (text.size() + 1) * sizeof(CharT);
+    UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
+    if (!hMem) {
+        return false;
+    }
+    auto* dest = static_cast<CharT*>(GlobalLock(hMem.get()));
+    if (!dest) {
+        return false;
+    }
+    std::char_traits<CharT>::copy(dest, text.data(), text.size());
+    dest[text.size()] = CharT{};
+    GlobalUnlock(hMem.get());
+    if (!SetClipboardData(format, hMem.get())) {
+        return false;
+    }
+    hMem.release();
+    return true;
+}
+
 // クリップボードにテキストを書き込む共通ユーティリティ。
 // App::SetClipboardText と SideEffectExecutor の両方から使用される。
 inline void WriteClipboardText(HWND hwnd, std::wstring_view text) noexcept
@@ -90,18 +119,7 @@ inline void WriteClipboardText(HWND hwnd, std::wstring_view text) noexcept
         return;
     }
     EmptyClipboard();
-    const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-    UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
-    if (hMem) {
-        if (auto* dest = static_cast<wchar_t*>(GlobalLock(hMem.get()))) {
-            std::char_traits<wchar_t>::copy(dest, text.data(), text.size());
-            dest[text.size()] = L'\0';
-            GlobalUnlock(hMem.get());
-            if (SetClipboardData(CF_UNICODETEXT, hMem.get())) {
-                hMem.release();
-            }
-        }
-    }
+    SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, text);
     CloseClipboard();
 }
 
@@ -172,34 +190,11 @@ inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
 
     const std::string svg_utf8 = string_convert::WideToUtf8(svg_text);
     if (!svg_utf8.empty()) {
-        UniqueGlobalMem hSvg{ GlobalAlloc(GMEM_MOVEABLE, svg_utf8.size() + 1) };
-        if (hSvg) {
-            if (auto* dest = static_cast<char*>(GlobalLock(hSvg.get()))) {
-                std::char_traits<char>::copy(dest, svg_utf8.data(), svg_utf8.size());
-                dest[svg_utf8.size()] = '\0';
-                GlobalUnlock(hSvg.get());
-                static const UINT cf_svg = RegisterClipboardFormatW(L"image/svg+xml");
-                if (cf_svg != 0 && SetClipboardData(cf_svg, hSvg.get())) {
-                    hSvg.release();
-                    any_set = true;
-                }
-            }
-        }
+        static const UINT cf_svg = RegisterClipboardFormatW(L"image/svg+xml");
+        any_set |= SetClipboardZeroTerminated<char>(cf_svg, svg_utf8);
     }
 
-    const size_t bytes = (svg_text.size() + 1) * sizeof(wchar_t);
-    UniqueGlobalMem hText{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
-    if (hText) {
-        if (auto* dest = static_cast<wchar_t*>(GlobalLock(hText.get()))) {
-            std::char_traits<wchar_t>::copy(dest, svg_text.data(), svg_text.size());
-            dest[svg_text.size()] = L'\0';
-            GlobalUnlock(hText.get());
-            if (SetClipboardData(CF_UNICODETEXT, hText.get())) {
-                hText.release();
-                any_set = true;
-            }
-        }
-    }
+    any_set |= SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, svg_text);
 
     CloseClipboard();
     return any_set;
@@ -221,33 +216,12 @@ inline void WriteClipboardHtml(HWND hwnd, std::wstring_view fragment_html, std::
     if (!fragment_html.empty()) {
         const std::string fragment_utf8 = string_convert::WideToUtf8(fragment_html);
         const std::string payload = BuildCfHtmlPayload(fragment_utf8);
-        UniqueGlobalMem hHtml{ GlobalAlloc(GMEM_MOVEABLE, payload.size() + 1) };
-        if (hHtml) {
-            if (auto* dest = static_cast<char*>(GlobalLock(hHtml.get()))) {
-                std::char_traits<char>::copy(dest, payload.data(), payload.size());
-                dest[payload.size()] = '\0';
-                GlobalUnlock(hHtml.get());
-                const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
-                if (cf_html != 0 && SetClipboardData(cf_html, hHtml.get())) {
-                    hHtml.release();
-                }
-            }
-        }
+        const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
+        SetClipboardZeroTerminated<char>(cf_html, payload);
     }
 
     if (!plain_text.empty()) {
-        const size_t bytes = (plain_text.size() + 1) * sizeof(wchar_t);
-        UniqueGlobalMem hText{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
-        if (hText) {
-            if (auto* dest = static_cast<wchar_t*>(GlobalLock(hText.get()))) {
-                std::char_traits<wchar_t>::copy(dest, plain_text.data(), plain_text.size());
-                dest[plain_text.size()] = L'\0';
-                GlobalUnlock(hText.get());
-                if (SetClipboardData(CF_UNICODETEXT, hText.get())) {
-                    hText.release();
-                }
-            }
-        }
+        SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, plain_text);
     }
 
     CloseClipboard();

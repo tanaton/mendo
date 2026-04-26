@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <span>
+#include <utility>
 
 using namespace std::literals;
 using syntax_keywords::KeywordTable;
@@ -528,7 +529,7 @@ static const LanguageDef LANGUAGE_DEFS[] = {
     }},
 };
 
-static_assert(std::size(LANGUAGE_DEFS) == static_cast<size_t>(SyntaxLanguage::Cmd) + 1, "LANGUAGE_DEFS must cover all SyntaxLanguage values");
+static_assert(std::size(LANGUAGE_DEFS) == std::to_underlying(SyntaxLanguage::Cmd) + 1, "LANGUAGE_DEFS must cover all SyntaxLanguage values");
 
 } // namespace
 
@@ -611,7 +612,7 @@ SyntaxLanguage DetectLanguage(std::wstring_view info_string)
 
 std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language)
 {
-    const auto idx = static_cast<size_t>(language);
+    const auto idx = std::to_underlying(language);
     if (text.empty() || language == SyntaxLanguage::None ||
         IsDiagramLanguage(language) || idx >= std::size(LANGUAGE_DEFS)) {
         return {};
