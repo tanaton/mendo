@@ -155,36 +155,10 @@ inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
     return payload;
 }
 
-// HGLOBAL を確保して任意のバイト列を SetClipboardData する内部ヘルパ。
-// 失敗時は何もしない。成功時はメモリ所有権がクリップボードへ移譲される。
-// クリップボードは事前に OpenClipboard / EmptyClipboard で開かれている前提。
-inline void SetClipboardBytes(UINT format, const void* data, size_t size) noexcept
-{
-    if (format == 0 || size == 0) {
-        return;
-    }
-    UniqueGlobalMem h{ GlobalAlloc(GMEM_MOVEABLE, size) };
-    if (!h) {
-        return;
-    }
-    if (auto* dest = static_cast<char*>(GlobalLock(h.get()))) {
-        std::char_traits<char>::copy(dest, static_cast<const char*>(data), size);
-        GlobalUnlock(h.get());
-        if (SetClipboardData(format, h.get())) {
-            h.release();
-        }
-    }
-}
-
-// SVG をクリップボードに書き込む。Office 系（Word / PowerPoint / Excel 2016+）が
-// 画像として貼り付けるには CF_HTML に <svg> タグを直接埋め込むのが最も互換性が高い
-// （Microsoft Edge / Chromium が採用する方式）。<img> data URI 経由は Office の
-// 一部バージョンでレンダリングが透明になる事象が報告されている。
-//
-// 書き込むフォーマット:
-//   - CF_HTML            : SVG タグそのもの（Office 系がベクタ画像として貼付）
-//   - "image/svg+xml"    : 生 SVG（UTF-8）（Inkscape などベクタ編集アプリ向け）
-//   - CF_UNICODETEXT     : SVG マークアップ原文（テキストエディタ向け）
+// SVG をクリップボードに書き込む。
+// "image/svg+xml": Office (Word/Excel/PowerPoint 2016+) の「形式を選択して貼り付け → SVG」
+//                  および Inkscape などのベクタ編集アプリがベクタ画像として認識する。
+// CF_UNICODETEXT:  テキストエディタへの貼り付けフォールバック（SVG マークアップ原文）。
 inline void WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
 {
     if (svg_text.empty() || !OpenClipboard(hwnd)) {
@@ -193,31 +167,30 @@ inline void WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
     EmptyClipboard();
 
     const std::string svg_utf8 = string_convert::WideToUtf8(svg_text);
-
     if (!svg_utf8.empty()) {
-        // CF_HTML: SVG タグを fragment にそのまま入れる。Office はインライン SVG を
-        // ベクタ画像として認識し、後で「グラフィックに変換」で個別図形に分解できる。
-        const std::string cf_html_payload = BuildCfHtmlPayload(svg_utf8);
-        static const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
-        SetClipboardBytes(cf_html, cf_html_payload.c_str(), cf_html_payload.size() + 1);
-
-        // "image/svg+xml": Inkscape など SVG ネイティブ対応アプリ向け。
-        static const UINT cf_svg = RegisterClipboardFormatW(L"image/svg+xml");
-        SetClipboardBytes(cf_svg, svg_utf8.c_str(), svg_utf8.size() + 1);
+        UniqueGlobalMem hSvg{ GlobalAlloc(GMEM_MOVEABLE, svg_utf8.size() + 1) };
+        if (hSvg) {
+            if (auto* dest = static_cast<char*>(GlobalLock(hSvg.get()))) {
+                std::char_traits<char>::copy(dest, svg_utf8.data(), svg_utf8.size());
+                dest[svg_utf8.size()] = '\0';
+                GlobalUnlock(hSvg.get());
+                static const UINT cf_svg = RegisterClipboardFormatW(L"image/svg+xml");
+                if (cf_svg != 0 && SetClipboardData(cf_svg, hSvg.get())) {
+                    hSvg.release();
+                }
+            }
+        }
     }
 
-    // CF_UNICODETEXT: SVG マークアップ原文（テキストエディタへの貼付用フォールバック）。
-    {
-        const size_t bytes = (svg_text.size() + 1) * sizeof(wchar_t);
-        UniqueGlobalMem hText{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
-        if (hText) {
-            if (auto* dest = static_cast<wchar_t*>(GlobalLock(hText.get()))) {
-                std::char_traits<wchar_t>::copy(dest, svg_text.data(), svg_text.size());
-                dest[svg_text.size()] = L'\0';
-                GlobalUnlock(hText.get());
-                if (SetClipboardData(CF_UNICODETEXT, hText.get())) {
-                    hText.release();
-                }
+    const size_t bytes = (svg_text.size() + 1) * sizeof(wchar_t);
+    UniqueGlobalMem hText{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
+    if (hText) {
+        if (auto* dest = static_cast<wchar_t*>(GlobalLock(hText.get()))) {
+            std::char_traits<wchar_t>::copy(dest, svg_text.data(), svg_text.size());
+            dest[svg_text.size()] = L'\0';
+            GlobalUnlock(hText.get());
+            if (SetClipboardData(CF_UNICODETEXT, hText.get())) {
+                hText.release();
             }
         }
     }
