@@ -73,7 +73,7 @@ graph TB
         RB[D2DRenderBackend<br>D2D/DWriteファクトリ]
     end
 
-    subgraph 外部・OS
+    subgraph "外部・OS"
         MD[md4c]
         WV[WebView2]
         MJ[mermaid.js]
