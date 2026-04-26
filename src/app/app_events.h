@@ -104,6 +104,7 @@ struct MdPaneNavHoverAction {
 struct MdPaneButtonHoverChangedAction {
     int hovered_copy_node;
     int hovered_save_node;
+    int hovered_svg_copy_node = -1;
 };
 struct SplitterDragStartedAction {
     PaneController::DragTarget target;

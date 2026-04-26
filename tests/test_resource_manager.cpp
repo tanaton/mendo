@@ -32,6 +32,13 @@ public:
         last_dark_mode = dark_mode;
     }
 
+    void RequestSvg(std::wstring_view /*code*/, bool /*dark_mode*/, SvgCallback callback) override
+    {
+        if (callback) {
+            callback(std::pmr::wstring{});
+        }
+    }
+
     void CancelPending() override { cancel_pending_count++; }
     void ClearCache() override { clear_cache_count++; }
 };

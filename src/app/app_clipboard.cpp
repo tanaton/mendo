@@ -110,3 +110,43 @@ void App::SaveDiagramAsPng(int node_index)
         DeleteFileW(filename);
     }
 }
+
+void App::CopyDiagramAsSvg(int node_index)
+{
+    const auto& nodes = state_.document.doc.GetNodes();
+    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
+        return;
+    }
+    const auto& node = nodes[node_index];
+    if (node.type != NodeType::CodeBlock || !IsSvgExportable(node.code_language)) {
+        return;
+    }
+    if (svg_copy_in_flight_) {
+        return;
+    }
+
+    const float md_width = renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
+    const bool dark = renderer_.GetTheme().IsDark();
+    const uint64_t key = mermaid_util::NodeDiagramHash(node, md_width, dark);
+
+    if (const auto* hit = svg_cache_.Find(key)) {
+        WriteClipboardSvg(hwnd_, *hit);
+        ShowToast(i18n::S().toast_svg_copied);
+        return;
+    }
+
+    ShowToast(i18n::S().toast_svg_copying);
+    svg_copy_in_flight_ = true;
+
+    mermaid_renderer_.RequestSvg(node.GetText(), dark,
+        [this, key](std::pmr::wstring svg) {
+            svg_copy_in_flight_ = false;
+            if (svg.empty()) {
+                ShowToast(i18n::S().toast_svg_copy_failed);
+                return;
+            }
+            WriteClipboardSvg(hwnd_, svg);
+            svg_cache_.Insert(key, std::move(svg));
+            ShowToast(i18n::S().toast_svg_copied);
+        });
+}

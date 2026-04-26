@@ -9,11 +9,31 @@
   #container { display: block; }
 </style>
 <script>
+  let currentHtmlLabels = null;
   let currentTheme = null;
   let renderCount = 0;
 
   function mermaidReady() {
     return typeof mermaid !== 'undefined' && typeof mermaid.render === 'function';
+  }
+
+  // mermaid.initialize は破壊的にグローバル設定を書き換えるため、
+  // 表示用 (HTML ラベル付き) と SVG エクスポート用 (テキスト要素のみ) を
+  // 都度切り替える。SVG エクスポート時は htmlLabels=false にしないと
+  // <foreignObject> がオフィス SVG レンダラで描画されず文字が消える。
+  function applyMermaidConfig(useHtmlLabels, theme) {
+    if (currentHtmlLabels === useHtmlLabels && currentTheme === theme) {
+      return;
+    }
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: theme,
+      securityLevel: 'strict',
+      flowchart: { htmlLabels: useHtmlLabels },
+      class: { htmlLabels: useHtmlLabels }
+    });
+    currentHtmlLabels = useHtmlLabels;
+    currentTheme = theme;
   }
 
   async function renderMermaid(code, isDark, maxWidth) {
@@ -23,14 +43,7 @@
       }
       const wantTheme = isDark ? 'dark' : 'default';
       document.body.className = isDark ? 'dark' : '';
-      if (currentTheme !== wantTheme) {
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: wantTheme,
-          securityLevel: 'strict'
-        });
-        currentTheme = wantTheme;
-      }
+      applyMermaidConfig(true, wantTheme);
       const container = document.getElementById('container');
       container.innerHTML = '';
       document.body.style.width = '';
@@ -53,6 +66,120 @@
       return JSON.stringify({ ok: false, error: 'SVG not found' });
     } catch (e) {
       return JSON.stringify({ ok: false, error: e.message || String(e) });
+    }
+  }
+
+  // foreignObject の中身を SVG <text> 要素に置換する。
+  // Office (Word/Excel/PowerPoint) の SVG レンダラは <foreignObject> をサポートしないため、
+  // mermaid v11 が htmlLabels:false でも残してしまうラベル foreignObject を変換する必要がある。
+  function inlineForeignObjectsToText(svgEl) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const fos = Array.from(svgEl.querySelectorAll('foreignObject'));
+    for (const fo of fos) {
+      const x = parseFloat(fo.getAttribute('x') || '0');
+      const y = parseFloat(fo.getAttribute('y') || '0');
+      const w = parseFloat(fo.getAttribute('width') || '0');
+      const h = parseFloat(fo.getAttribute('height') || '0');
+      const cx = x + w / 2;
+      const cy = y + h / 2;
+
+      // <br>, <p>, <div> を行区切りとして子孫テキストを抽出。
+      const lines = [];
+      let current = '';
+      const flushLine = () => {
+        if (current.length > 0) { lines.push(current); current = ''; }
+      };
+      function walk(el) {
+        for (const child of el.childNodes) {
+          if (child.nodeType === Node.TEXT_NODE) {
+            current += child.textContent;
+          } else if (child.nodeType === Node.ELEMENT_NODE) {
+            const tag = child.tagName.toLowerCase();
+            if (tag === 'br') {
+              lines.push(current);
+              current = '';
+            } else if (tag === 'p' || tag === 'div') {
+              flushLine();
+              walk(child);
+              flushLine();
+            } else {
+              walk(child);
+            }
+          }
+        }
+      }
+      walk(fo);
+      flushLine();
+      const cleanLines = lines.map(s => s.trim()).filter(s => s.length > 0);
+      if (cleanLines.length === 0) {
+        if (fo.parentNode) fo.parentNode.removeChild(fo);
+        continue;
+      }
+
+      // フォントスタイルを computed style から継承
+      const fontEl = fo.querySelector('.nodeLabel, span, p, div') || fo;
+      const cs = window.getComputedStyle(fontEl);
+      const fontSize = parseFloat(cs.fontSize) || 14;
+      const fontFamily = cs.fontFamily || 'sans-serif';
+      const fontWeight = cs.fontWeight || 'normal';
+      const color = cs.color || '#000';
+      const lineHeight = fontSize * 1.2;
+
+      const text = document.createElementNS(ns, 'text');
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('font-family', fontFamily);
+      text.setAttribute('font-size', String(fontSize));
+      if (fontWeight !== 'normal' && fontWeight !== '400') {
+        text.setAttribute('font-weight', fontWeight);
+      }
+      text.setAttribute('fill', color);
+
+      // dominant-baseline はオフィスSVG実装で挙動が割れるため使わず、
+      // ベースライン位置を fontSize/3 だけ下げて視覚的中央に揃える。
+      const totalHeight = (cleanLines.length - 1) * lineHeight;
+      const startY = cy - totalHeight / 2 + fontSize / 3;
+      for (let i = 0; i < cleanLines.length; i++) {
+        const tspan = document.createElementNS(ns, 'tspan');
+        tspan.setAttribute('x', String(cx));
+        tspan.setAttribute('y', String(startY + i * lineHeight));
+        tspan.textContent = cleanLines[i];
+        text.appendChild(tspan);
+      }
+      if (fo.parentNode) {
+        fo.parentNode.replaceChild(text, fo);
+      }
+    }
+  }
+
+  // 表示用 container を触らず SVG 文字列のみ返す。PNG キャプチャ無し。
+  // 一時コンテナにレンダリングして computed style を読み取り、foreignObject を <text> に置換する。
+  async function renderMermaidSvg(code, isDark) {
+    let temp = null;
+    try {
+      if (!mermaidReady()) {
+        return null;
+      }
+      const wantTheme = isDark ? 'dark' : 'default';
+      applyMermaidConfig(false, wantTheme);
+      renderCount++;
+      const { svg: rawSvg } = await mermaid.render('mmd-svg-' + renderCount, code);
+
+      temp = document.createElement('div');
+      temp.style.cssText = 'position:absolute;left:-99999px;top:-99999px;';
+      temp.innerHTML = rawSvg;
+      document.body.appendChild(temp);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      const svgEl = temp.querySelector('svg');
+      if (!svgEl) {
+        return rawSvg;
+      }
+      inlineForeignObjectsToText(svgEl);
+      return new XMLSerializer().serializeToString(svgEl);
+    } catch (e) {
+      return null;
+    } finally {
+      if (temp && temp.parentNode) temp.parentNode.removeChild(temp);
     }
   }
 

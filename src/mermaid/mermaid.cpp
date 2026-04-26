@@ -231,9 +231,24 @@ void MermaidRenderer::SetupWorker(int index)
                         DoCapturePreview(index);
                     }
                 }
+                else if (wcsncmp(msg, L"svg-result:", 11) == 0) {
+                    const auto p = mermaid_util::ParseRequestPrefix(msg + 11);
+                    if (p.valid && p.id == w.current_request.request_id && w.current_request.svg_only) {
+                        std::pmr::wstring svg{ p.has_payload ? p.payload : std::wstring_view{} };
+                        if (auto cb = std::move(w.current_request.svg_callback)) {
+                            cb(std::move(svg));
+                        }
+                        FinishWorkerRequest(w);
+                    }
+                }
                 else if (wcsncmp(msg, L"render-error:", 13) == 0) {
                     const auto p = mermaid_util::ParseRequestPrefix(msg + 13);
                     if (p.valid && p.id == w.current_request.request_id) {
+                        if (w.current_request.svg_only) {
+                            if (auto cb = std::move(w.current_request.svg_callback)) {
+                                cb(std::pmr::wstring{});
+                            }
+                        }
                         FinishWorkerRequest(w);
                     }
                 }
@@ -435,6 +450,29 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     ProcessQueue();
 }
 
+void MermaidRenderer::RequestSvg(std::wstring_view code, bool dark_mode, SvgCallback callback)
+{
+    if (code.empty() || !callback) {
+        if (callback) {
+            callback(std::pmr::wstring{});
+        }
+        return;
+    }
+
+    RenderRequest req;
+    req.svg_only = true;
+    req.dark_mode = dark_mode;
+    req.svg_callback = std::move(callback);
+    req.code_storage.assign(code.begin(), code.end());
+    pending_requests_.push(std::move(req));
+
+    if (!lifecycle_.IsReady()) {
+        EnsureInitialized();
+        return;
+    }
+    ProcessQueue();
+}
+
 void MermaidRenderer::ProcessQueue()
 {
     if (!lifecycle_.IsReady() || pending_requests_.empty()) {
@@ -445,18 +483,21 @@ void MermaidRenderer::ProcessQueue()
     // 残りをキャッシュから即座に解決できる。
     while (!pending_requests_.empty()) {
         auto& front = pending_requests_.front();
-        if (const auto* hit = cache_.Find(front.code_hash)) {
-            front.diagram_entry->bitmap = hit->bitmap;
-            front.diagram_entry->width = hit->width;
-            front.diagram_entry->height = hit->height;
-            front.layout_entry->height = hit->height;
-            front.layout_entry->layout_dirty = false;
-            auto cb = std::move(front.on_complete);
-            pending_requests_.pop();
-            if (cb) {
-                cb();
+        // SVG 専用リクエストは PNG ビットマップキャッシュとは別物のためスキップしない
+        if (!front.svg_only) {
+            if (const auto* hit = cache_.Find(front.code_hash)) {
+                front.diagram_entry->bitmap = hit->bitmap;
+                front.diagram_entry->width = hit->width;
+                front.diagram_entry->height = hit->height;
+                front.layout_entry->height = hit->height;
+                front.layout_entry->layout_dirty = false;
+                auto cb = std::move(front.on_complete);
+                pending_requests_.pop();
+                if (cb) {
+                    cb();
+                }
+                continue;
             }
-            continue;
         }
 
         Worker* idle = nullptr;
@@ -493,6 +534,19 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
 {
     if (!worker.webview) {
         FinishWorkerRequest(worker);
+        return;
+    }
+
+    // SVG 専用リクエスト: ビューポートサイズ調整と PNG キャプチャをスキップする。
+    if (worker.current_request.svg_only) {
+        const auto js = PmrFormat(
+            L"renderMermaidSvg('{}', {})"
+            L".then(function(s){{window.chrome.webview.postMessage('svg-result:{}:'+(s||''));}})"
+            L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
+            mermaid_util::JsEscape(worker.current_request.code_storage),
+            worker.current_request.dark_mode ? L"true" : L"false",
+            worker.current_request.request_id, worker.current_request.request_id);
+        worker.webview->ExecuteScript(js.c_str(), nullptr);
         return;
     }
 

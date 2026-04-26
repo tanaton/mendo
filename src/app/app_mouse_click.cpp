@@ -65,6 +65,11 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         CopyCodeBlockToClipboard(copy_node);
         return;
     }
+    const auto svg_copy_node = hit_test_.SvgCopyButtonHitTest(hit_ctx);
+    if (svg_copy_node >= 0) {
+        CopyDiagramAsSvg(svg_copy_node);
+        return;
+    }
     // 保存ボタンのクリック判定
     const auto save_node = hit_test_.SaveButtonHitTest(hit_ctx);
     if (save_node >= 0) {

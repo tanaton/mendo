@@ -283,6 +283,32 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         });
 }
 
+int HitTestService::SvgCopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept
+{
+    assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
+    assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
+
+    return HitTestCodeBlockButton(ctx, last_svg_copy_hit_,
+        [&](int i, const Node& node, const NodeLayoutEntry& entry,
+            float dip_x, float dip_y) noexcept -> bool {
+            if (!IsSvgExportable(node.code_language)) {
+                return false;
+            }
+            const auto& diagram = ctx.cache.GetDiagram(i);
+            if (!diagram.bitmap) {
+                return false;
+            }
+            const float indent = NodeIndent(node, ctx.theme);
+            const float x = ctx.theme.margin_left + indent;
+            const float cw = ctx.content_width - indent;
+            const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
+            // 保存ボタン (index 0) の左隣 (index 1)
+            const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, 1);
+            return dip_x >= btn.left && dip_x <= btn.right
+                && dip_y >= btn.top && dip_y <= btn.bottom;
+        });
+}
+
 HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
     const MdPaneHitContext& ctx) const noexcept
 {
@@ -296,9 +322,11 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
     const uint32_t gen = ctx.cache.GetEffectsGeneration();
     const bool copy_cached = last_copy_hit_.Matches(ctx, gen);
     const bool save_cached = last_save_hit_.Matches(ctx, gen);
-    if (copy_cached && save_cached) {
+    const bool svg_cached = last_svg_copy_hit_.Matches(ctx, gen);
+    if (copy_cached && save_cached && svg_cached) {
         out.copy_node = last_copy_hit_.result;
         out.save_node = last_save_hit_.result;
+        out.svg_copy_node = last_svg_copy_hit_.result;
         return out;
     }
 
@@ -313,6 +341,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
 
     int copy_hit = -1;
     int save_hit = -1;
+    int svg_copy_hit = -1;
     for (int i = first; i < count; i++) {
         const auto& entry = ctx.cache[i];
         if (entry.y_position - ctx.theme.code_block_padding > viewport_bottom) {
@@ -327,14 +356,21 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
         const float w = ctx.content_width - indent;
         const float pad = ctx.theme.code_block_padding;
         if (IsDiagramLanguage(node.code_language)) {
-            if (save_hit < 0) {
-                const auto& diagram = ctx.cache.GetDiagram(i);
-                if (diagram.bitmap) {
-                    const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry.y_position);
+            const auto& diagram = ctx.cache.GetDiagram(i);
+            if (diagram.bitmap) {
+                const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry.y_position);
+                if (save_hit < 0) {
                     const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top);
                     if (dip_x >= btn.left && dip_x <= btn.right
                         && dip_y >= btn.top && dip_y <= btn.bottom) {
                         save_hit = i;
+                    }
+                }
+                if (svg_copy_hit < 0 && IsSvgExportable(node.code_language)) {
+                    const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, 1);
+                    if (dip_x >= btn2.left && dip_x <= btn2.right
+                        && dip_y >= btn2.top && dip_y <= btn2.bottom) {
+                        svg_copy_hit = i;
                     }
                 }
             }
@@ -348,15 +384,17 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
                 copy_hit = i;
             }
         }
-        if (copy_hit >= 0 && save_hit >= 0) {
+        if (copy_hit >= 0 && save_hit >= 0 && svg_copy_hit >= 0) {
             break;
         }
     }
 
     last_copy_hit_.Store(ctx, gen, copy_hit);
     last_save_hit_.Store(ctx, gen, save_hit);
+    last_svg_copy_hit_.Store(ctx, gen, svg_copy_hit);
     out.copy_node = copy_hit;
     out.save_node = save_hit;
+    out.svg_copy_node = svg_copy_hit;
     return out;
 }
 

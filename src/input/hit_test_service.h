@@ -60,10 +60,14 @@ public:
     // ヒットしたダイアグラムのノードインデックスを返す（-1=なし）。
     int SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
 
-    // 可視ノード走査・座標変換・キャッシュ照合を共有して Copy / Save を一度に判定する。
+    // Mermaidダイアグラムの SVG コピー ボタンのヒットテスト（Mermaid のみ対象。LatexMath は対象外）。
+    int SvgCopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
+
+    // 可視ノード走査・座標変換・キャッシュ照合を共有して Copy / Save / SvgCopy を一度に判定する。
     struct CodeBlockButtonHit {
         int copy_node = -1;
         int save_node = -1;
+        int svg_copy_node = -1;
     };
     CodeBlockButtonHit CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept;
 
@@ -137,4 +141,5 @@ private:
     mutable HitCache<HitResult> last_md_hit_{};
     mutable HitCache<int> last_copy_hit_{ .result = -1 };
     mutable HitCache<int> last_save_hit_{ .result = -1 };
+    mutable HitCache<int> last_svg_copy_hit_{ .result = -1 };
 };

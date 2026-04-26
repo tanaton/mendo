@@ -40,6 +40,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     int first_visible,
     int hovered_copy_node,
     int hovered_save_node,
+    int hovered_svg_copy_node,
     float dpi_scale)
 {
     // 古いコマンドを destruct してから resource をリセットする。
@@ -69,6 +70,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     frame_selection_ = &selection;
     frame_hovered_copy_node_ = hovered_copy_node;
     frame_hovered_save_node_ = hovered_save_node;
+    frame_hovered_svg_copy_node_ = hovered_svg_copy_node;
 
     // 最初の可視ノードを二分探索で検索（事前計算済みのインデックスがあればそれを使用）
     const int node_count = static_cast<int>(nodes.size());
@@ -143,6 +145,9 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
                 cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), bmp });
                 GenSaveButton(cmds, bmp.right, bmp.top, node_index == frame_hovered_save_node_);
+                if (IsSvgExportable(node.code_language)) {
+                    GenSvgCopyButton(cmds, bmp.right, bmp.top, node_index == frame_hovered_svg_copy_node_);
+                }
             }
             else {
                 GenDiagramPlaceholder(cmds, x, entry.y_position, cw, entry.height);
@@ -274,6 +279,16 @@ void CommandGenerator::GenSaveButton(DrawCommandList& cmds,
     }
     const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top);
     GenOverlayButton(cmds, btn, L'\uE896', is_hovered);
+}
+
+void CommandGenerator::GenSvgCopyButton(DrawCommandList& cmds,
+    float bitmap_right, float bitmap_top, bool is_hovered)
+{
+    if (!formats_.copy_btn_icon) {
+        return;
+    }
+    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, 1);
+    GenOverlayButton(cmds, btn, L'', is_hovered);
 }
 
 void CommandGenerator::GenOverlayButton(DrawCommandList& cmds,

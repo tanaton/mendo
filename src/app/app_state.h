@@ -46,6 +46,7 @@ struct InteractionState {
     ToastNotifier toast;
     int hovered_copy_node = -1;
     int hovered_save_node = -1;
+    int hovered_svg_copy_node = -1;
     NavButtonHover nav_hover = NavButtonHover::None;
 };
 

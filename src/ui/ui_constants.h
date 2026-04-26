@@ -47,6 +47,7 @@ inline constexpr float NAV_BTN_SCROLLBAR_OFFSET = 16.0f;
 inline constexpr float COPY_BTN_SIZE = 28.0f;
 inline constexpr float COPY_BTN_MARGIN = 6.0f;
 inline constexpr float COPY_BTN_CORNER = 4.0f;
+inline constexpr float COPY_BTN_GAP = 4.0f;
 
 inline constexpr float INLINE_CODE_PAD_X = 3.0f;
 inline constexpr float INLINE_CODE_PAD_Y = 2.0f;
@@ -234,8 +235,10 @@ inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
 // anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
-inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top) noexcept {
-    const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE;
+// button_index: 0=最も右, 1 以降は左隣に COPY_BTN_GAP 分ずれる。
+inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, int button_index = 0) noexcept {
+    const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE
+        - static_cast<float>(button_index) * (COPY_BTN_SIZE + COPY_BTN_GAP);
     const float by = anchor_top + COPY_BTN_MARGIN;
     return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);
 }
