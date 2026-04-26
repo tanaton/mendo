@@ -367,14 +367,29 @@ void MermaidRenderer::ClearCache()
 
 void MermaidRenderer::CancelPending()
 {
-    decltype(pending_requests_) empty;
-    pending_requests_.swap(empty);
+    // SVG 専用リクエストのコールバックは空 SVG で呼んで呼び出し元の状態をリセットさせる。
+    // PNG レンダリング (on_complete) は無引数のため呼び出し元側でフラグを持っていない前提。
+    while (!pending_requests_.empty()) {
+        auto& req = pending_requests_.front();
+        if (req.svg_only) {
+            if (auto cb = std::move(req.svg_callback)) {
+                cb(std::pmr::wstring{});
+            }
+        }
+        pending_requests_.pop();
+    }
 
     // current_request の request_id が 0 に戻るため、処理中の非同期コールバックは
     // ID 不一致で自動的に無視される。
     for (int i = 0; i < worker_count_; i++) {
-        workers_[i].rendering = false;
-        workers_[i].current_request = {};
+        auto& w = workers_[i];
+        if (w.current_request.svg_only) {
+            if (auto cb = std::move(w.current_request.svg_callback)) {
+                cb(std::pmr::wstring{});
+            }
+        }
+        w.rendering = false;
+        w.current_request = {};
     }
 }
 

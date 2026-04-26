@@ -16,21 +16,25 @@
     return typeof mermaid !== 'undefined' && typeof mermaid.render === 'function';
   }
 
+  function ensureThemeInitialized(isDark) {
+    const wantTheme = isDark ? 'dark' : 'default';
+    if (currentTheme !== wantTheme) {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: wantTheme,
+        securityLevel: 'strict'
+      });
+      currentTheme = wantTheme;
+    }
+  }
+
   async function renderMermaid(code, isDark, maxWidth) {
     try {
       if (!mermaidReady()) {
         return JSON.stringify({ ok: false, error: 'mermaid not loaded' });
       }
-      const wantTheme = isDark ? 'dark' : 'default';
       document.body.className = isDark ? 'dark' : '';
-      if (currentTheme !== wantTheme) {
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: wantTheme,
-          securityLevel: 'strict'
-        });
-        currentTheme = wantTheme;
-      }
+      ensureThemeInitialized(isDark);
       const container = document.getElementById('container');
       container.innerHTML = '';
       document.body.style.width = '';
@@ -62,15 +66,7 @@
       if (!mermaidReady()) {
         return null;
       }
-      const wantTheme = isDark ? 'dark' : 'default';
-      if (currentTheme !== wantTheme) {
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: wantTheme,
-          securityLevel: 'strict'
-        });
-        currentTheme = wantTheme;
-      }
+      ensureThemeInitialized(isDark);
       renderCount++;
       const { svg } = await mermaid.render('mmd-svg-' + renderCount, code);
       return svg;
