@@ -8,7 +8,7 @@ Webブラウザを使わず、Direct2D/DirectWriteによる自前レンダリン
 
 - **言語**: C++23 (MSVC)
 - **GUI**: Win32 API (`WNDCLASSEXW` + メッセージループ)
-- **描画**: Direct2D (`ID2D1HwndRenderTarget`)
+- **描画**: Direct2D (`ID2D1Factory1` + `ID2D1DeviceContext`)
 - **テキスト**: DirectWrite (`IDWriteTextLayout`)
 - **Markdownパーサ**: md4c (SAX型コールバック、`third_party/md4c/`)
 - **テスト**: Google Test v1.17.0 (FetchContentで取得)
