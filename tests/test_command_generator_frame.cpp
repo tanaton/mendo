@@ -93,7 +93,7 @@ TEST_F(CmdGenFrameTest, TransformSnapsScrollToPixelWithDpi)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     const float scroll_y = 0.3f;
     const float dpi = 2.0f;
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{}, -1, -1, -1, dpi);
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{}, -1, -1, -1, -1, dpi);
 
     const auto* xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_NE(xform, nullptr);

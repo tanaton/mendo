@@ -148,6 +148,7 @@ struct RenderParams {
     int nav_hovered = 0;
     int hovered_copy_node = -1;
     int hovered_save_node = -1;
+    int hovered_svg_copy_node = -1;
     // --- 1バイトアライメント ---
     bool can_go_back = false;
     bool can_go_forward = false;

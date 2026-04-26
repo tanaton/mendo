@@ -215,6 +215,7 @@ void App::OnPaint()
                 state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
                 state_.view.viewport.GetScrollY(), layout_service_->GetTotalHeight(),
                 static_cast<int>(state_.interaction.nav_hover), state_.interaction.hovered_copy_node, state_.interaction.hovered_save_node,
+                state_.interaction.hovered_svg_copy_node,
                 state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
                 layout_service_->HasDirtyNodes()
                 });

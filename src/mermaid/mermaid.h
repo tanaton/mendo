@@ -38,6 +38,7 @@ public:
     constexpr bool IsReady() const noexcept { return lifecycle_.IsReady(); }
 
     void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete) override;
+    void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     void SetFileCache(MermaidFileCache* cache) noexcept { file_cache_ = cache; }
     void ClearCache() override;
@@ -63,6 +64,13 @@ private:
         float css_height = 0.0f;
         float dpr = 1.0f;         // JSから取得したdevicePixelRatio
         unsigned int request_id = 0; // リクエスト固有のID（JS側のpostMessageと照合）
+
+        // SVGクリップボードコピー用リクエスト。true の場合 layout/diagram は使わず、
+        // SVG文字列を svg_callback で返す。
+        bool svg_only = false;
+        SvgCallback svg_callback;
+        // SVG リクエスト時のコード保持（呼び出し側の文字列ライフタイムから切り離す）
+        std::pmr::wstring code_storage;
     };
 
     static constexpr int MAX_WORKERS = 4;
@@ -81,6 +89,9 @@ private:
     };
 
     static int ComputeWorkerCount() noexcept;
+    // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする。
+    // 同じパターン（cancel / render-error / svg-result の各経路）を1か所に集約する。
+    static void InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled);
     void EnsureInitialized();
     void CreateWebView2Environment();
     void SetupWorker(int index);

@@ -18,6 +18,7 @@
 #include "session_service.h"
 #include "cursor_manager.h"
 #include "hit_test_service.h"
+#include "lru_cache.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -150,6 +151,7 @@ private:
     void CopySelectionToClipboard() const;
     void CopyCodeBlockToClipboard(int node_index) const;
     void SaveDiagramAsPng(int node_index);
+    void CopyDiagramAsSvg(int node_index);
 
     // クリックハンドラ (OnLButtonDownから抽出)
     bool HandleTitleBarClick(float dip_x, float dip_y);
@@ -235,4 +237,11 @@ private:
     SideEffectExecutor effect_executor_;
 
     void ShowToast(std::wstring_view message);
+
+    // SVG クリップボードコピーのセッション内 LRU キャッシュ。
+    // キーは PNG キャッシュと同じ NodeDiagramHash。LatexMath は SVG コピー対象外。
+    static constexpr size_t MAX_SVG_CACHE_ENTRIES = 64;
+    LruCache<uint64_t, std::pmr::wstring> svg_cache_{ MAX_SVG_CACHE_ENTRIES };
+    // 連続クリック中の重複リクエスト抑止
+    bool svg_copy_in_flight_ = false;
 };

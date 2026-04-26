@@ -95,6 +95,7 @@ public:
         int first_visible = -1,
         int hovered_copy_node = -1,
         int hovered_save_node = -1,
+        int hovered_svg_copy_node = -1,
         float dpi_scale = 1.0f);
 
 private:
@@ -108,6 +109,7 @@ private:
     void GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
     void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered);
     void GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
+    void GenSvgCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
@@ -169,4 +171,5 @@ private:
     const TextSelection* frame_selection_ = nullptr;
     int frame_hovered_copy_node_ = -1;
     int frame_hovered_save_node_ = -1;
+    int frame_hovered_svg_copy_node_ = -1;
 };

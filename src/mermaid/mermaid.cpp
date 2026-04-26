@@ -6,6 +6,7 @@
 #include "wic_util.h"
 #include "resource.h"
 #include <wrl/event.h>
+#include <cassert>
 #include <filesystem>
 #include <functional>
 
@@ -231,9 +232,18 @@ void MermaidRenderer::SetupWorker(int index)
                         DoCapturePreview(index);
                     }
                 }
+                else if (wcsncmp(msg, L"svg-result:", 11) == 0) {
+                    const auto p = mermaid_util::ParseRequestPrefix(msg + 11);
+                    if (p.valid && p.id == w.current_request.request_id && w.current_request.svg_only) {
+                        std::pmr::wstring svg{ p.has_payload ? p.payload : std::wstring_view{} };
+                        InvokeSvgCallbackIfAny(w.current_request, std::move(svg), false);
+                        FinishWorkerRequest(w);
+                    }
+                }
                 else if (wcsncmp(msg, L"render-error:", 13) == 0) {
                     const auto p = mermaid_util::ParseRequestPrefix(msg + 13);
                     if (p.valid && p.id == w.current_request.request_id) {
+                        InvokeSvgCallbackIfAny(w.current_request, {}, false);
                         FinishWorkerRequest(w);
                     }
                 }
@@ -350,16 +360,32 @@ void MermaidRenderer::ClearCache()
     cache_.Clear();
 }
 
+void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled)
+{
+    if (!req.svg_only) {
+        return;
+    }
+    if (auto cb = std::move(req.svg_callback)) {
+        cb(std::move(svg), cancelled);
+    }
+}
+
 void MermaidRenderer::CancelPending()
 {
-    decltype(pending_requests_) empty;
-    pending_requests_.swap(empty);
+    // SVG 専用リクエストのコールバックは cancelled=true で呼び、呼び出し元の状態をリセットさせる。
+    // PNG レンダリング (on_complete) は無引数のため呼び出し元側でフラグを持っていない前提。
+    while (!pending_requests_.empty()) {
+        InvokeSvgCallbackIfAny(pending_requests_.front(), {}, true);
+        pending_requests_.pop();
+    }
 
     // current_request の request_id が 0 に戻るため、処理中の非同期コールバックは
     // ID 不一致で自動的に無視される。
     for (int i = 0; i < worker_count_; i++) {
-        workers_[i].rendering = false;
-        workers_[i].current_request = {};
+        auto& w = workers_[i];
+        InvokeSvgCallbackIfAny(w.current_request, {}, true);
+        w.rendering = false;
+        w.current_request = {};
     }
 }
 
@@ -435,6 +461,27 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
     ProcessQueue();
 }
 
+void MermaidRenderer::RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback)
+{
+    // 呼び出し元 (App::CopyDiagramAsSvg) は IsSvgExportable と非空コード、有効なコールバックを保証する。
+    assert(callback && "RequestSvg requires a callable SvgCallback");
+    assert(!code.empty() && "RequestSvg requires non-empty code");
+
+    RenderRequest req;
+    req.svg_only = true;
+    req.max_width = max_width;
+    req.dark_mode = dark_mode;
+    req.svg_callback = std::move(callback);
+    req.code_storage.assign(code.begin(), code.end());
+    pending_requests_.push(std::move(req));
+
+    if (!lifecycle_.IsReady()) {
+        EnsureInitialized();
+        return;
+    }
+    ProcessQueue();
+}
+
 void MermaidRenderer::ProcessQueue()
 {
     if (!lifecycle_.IsReady() || pending_requests_.empty()) {
@@ -442,14 +489,16 @@ void MermaidRenderer::ProcessQueue()
     }
 
     // 同一コードの図が複数あるとき、最初の1つのレンダリング完了後に
-    // 残りをキャッシュから即座に解決できる。
+    // 残りをキャッシュから即座に解決できる。SVG 専用リクエストは PNG ビットマップ
+    // キャッシュ対象外なので常にワーカー経由でレンダリングする。
     while (!pending_requests_.empty()) {
         auto& front = pending_requests_.front();
-        if (const auto* hit = cache_.Find(front.code_hash)) {
-            front.diagram_entry->bitmap = hit->bitmap;
-            front.diagram_entry->width = hit->width;
-            front.diagram_entry->height = hit->height;
-            front.layout_entry->height = hit->height;
+        const CachedBitmap* png_hit = front.svg_only ? nullptr : cache_.Find(front.code_hash);
+        if (png_hit) {
+            front.diagram_entry->bitmap = png_hit->bitmap;
+            front.diagram_entry->width = png_hit->width;
+            front.diagram_entry->height = png_hit->height;
+            front.layout_entry->height = png_hit->height;
             front.layout_entry->layout_dirty = false;
             auto cb = std::move(front.on_complete);
             pending_requests_.pop();
@@ -499,6 +548,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     // CSSビューポートがmax_width（DIP）と等しくなるようにWebView2の境界を設定する。
     // 境界はポップアップウィンドウの物理ピクセル単位で、WebView2は
     // 内部でdevicePixelRatioで除算してCSSビューポートサイズを求める。
+    // SVG 出力（折返し等）も CSS 幅に依存するため、PNG/SVG 両経路で同じ bounds を使う。
     int vp_phys = static_cast<int>(std::ceil(worker.current_request.max_width * worker.dpr));
     if (vp_phys < 1) {
         vp_phys = 1;
@@ -507,6 +557,19 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     const RECT bounds = { 0, 0, vp_phys, h_phys };
     worker.controller->put_Bounds(bounds);
     SetWindowPos(worker.hwnd, nullptr, -32000, -32000, vp_phys, h_phys, SWP_NOZORDER | SWP_NOACTIVATE);
+
+    // SVG 専用リクエスト: PNG キャプチャ用の再リサイズはスキップし、SVG 文字列のみ取得する。
+    if (worker.current_request.svg_only) {
+        const auto js = PmrFormat(
+            L"renderMermaidSvg('{}', {})"
+            L".then(function(s){{window.chrome.webview.postMessage('svg-result:{}:'+(s||''));}})"
+            L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
+            mermaid_util::JsEscape(worker.current_request.code_storage),
+            worker.current_request.dark_mode ? L"true" : L"false",
+            worker.current_request.request_id, worker.current_request.request_id);
+        worker.webview->ExecuteScript(js.c_str(), nullptr);
+        return;
+    }
 
     // Mermaidをレンダリングする（maxWidth=0はCSS制約なし、ビューポートが制約する）
     // LatexMath ノードは flowchart ラッパに変換してから JS に渡す。

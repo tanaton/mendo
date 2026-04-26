@@ -155,6 +155,56 @@ inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
     return payload;
 }
 
+// SVG をクリップボードに書き込む。
+// "image/svg+xml": Office (Word/Excel/PowerPoint 2016+) の「形式を選択して貼り付け → SVG」
+//                  および Inkscape などのベクタ編集アプリがベクタ画像として認識する。
+// CF_UNICODETEXT:  テキストエディタへの貼り付けフォールバック（SVG マークアップ原文）。
+// 戻り値: いずれか 1 つ以上のフォーマットが SetClipboardData まで成功したら true。
+//        OpenClipboard / SetClipboardData が全滅したら false（呼び出し側で失敗トースト表示用）。
+inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
+{
+    if (svg_text.empty() || !OpenClipboard(hwnd)) {
+        return false;
+    }
+    EmptyClipboard();
+
+    bool any_set = false;
+
+    const std::string svg_utf8 = string_convert::WideToUtf8(svg_text);
+    if (!svg_utf8.empty()) {
+        UniqueGlobalMem hSvg{ GlobalAlloc(GMEM_MOVEABLE, svg_utf8.size() + 1) };
+        if (hSvg) {
+            if (auto* dest = static_cast<char*>(GlobalLock(hSvg.get()))) {
+                std::char_traits<char>::copy(dest, svg_utf8.data(), svg_utf8.size());
+                dest[svg_utf8.size()] = '\0';
+                GlobalUnlock(hSvg.get());
+                static const UINT cf_svg = RegisterClipboardFormatW(L"image/svg+xml");
+                if (cf_svg != 0 && SetClipboardData(cf_svg, hSvg.get())) {
+                    hSvg.release();
+                    any_set = true;
+                }
+            }
+        }
+    }
+
+    const size_t bytes = (svg_text.size() + 1) * sizeof(wchar_t);
+    UniqueGlobalMem hText{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
+    if (hText) {
+        if (auto* dest = static_cast<wchar_t*>(GlobalLock(hText.get()))) {
+            std::char_traits<wchar_t>::copy(dest, svg_text.data(), svg_text.size());
+            dest[svg_text.size()] = L'\0';
+            GlobalUnlock(hText.get());
+            if (SetClipboardData(CF_UNICODETEXT, hText.get())) {
+                hText.release();
+                any_set = true;
+            }
+        }
+    }
+
+    CloseClipboard();
+    return any_set;
+}
+
 // クリップボードに CF_HTML（書式付き）と CF_UNICODETEXT（プレーンテキスト）を同時に書き込む。
 // fragment_html: <!--StartFragment--> と <!--EndFragment--> の間に入る HTML 断片（Wide 文字列）。
 // plain_text:    書式付きに対応していないアプリ向けのフォールバック。

@@ -39,6 +39,9 @@ struct Strings {
     // 保存ボタン tooltip
     std::wstring_view tooltip_save_image;
 
+    // SVG コピーボタン tooltip
+    std::wstring_view tooltip_copy_svg;
+
     // コンテキストメニュー
     std::wstring_view menu_edit_file;
     std::wstring_view menu_copy;
@@ -59,6 +62,9 @@ struct Strings {
     std::wstring_view toast_file_too_large;
     std::wstring_view toast_file_read_failed;
     std::wstring_view toast_image_saved;
+    std::wstring_view toast_svg_copying;
+    std::wstring_view toast_svg_copied;
+    std::wstring_view toast_svg_copy_failed;
 
     // ローディング
     std::wstring_view loading;
@@ -95,6 +101,8 @@ inline constexpr Strings kJa = {
     L"コピー",
     // 保存ボタン tooltip
     L"画像を保存",
+    // SVG コピーボタン tooltip
+    L"SVGとしてコピー",
     // コンテキストメニュー
     L"エディタで開く",
     L"コピー",
@@ -112,6 +120,9 @@ inline constexpr Strings kJa = {
     L"ファイルが大きすぎます",
     L"ファイルの読み込みに失敗しました",
     L"画像を保存しました",
+    L"SVGをコピー中...",
+    L"SVGをコピーしました",
+    L"SVGのコピーに失敗しました",
     // ローディング
     L"読み込み中...",
     // ヘルプリソースID
@@ -146,6 +157,8 @@ inline constexpr Strings kEn = {
     L"Copy",
     // 保存ボタン tooltip
     L"Save Image",
+    // SVG コピーボタン tooltip
+    L"Copy as SVG",
     // コンテキストメニュー
     L"Open in Editor",
     L"Copy",
@@ -163,6 +176,9 @@ inline constexpr Strings kEn = {
     L"File is too large",
     L"Failed to read file",
     L"Image saved",
+    L"Copying SVG...",
+    L"SVG copied",
+    L"Failed to copy SVG",
     // ローディング
     L"Loading...",
     // ヘルプリソースID

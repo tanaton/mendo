@@ -19,6 +19,7 @@ struct TooltipTarget {
         MdImage,
         CopyButton,
         SaveButton,
+        SvgCopyButton,
         NavButton,
     };
 
