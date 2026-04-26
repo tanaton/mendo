@@ -6,12 +6,22 @@
 
 namespace {
 
-std::wstring ScalarToLower(std::wstring_view s)
+// simd_ascii::ToLower の意味論をスカラで再現する: ASCII は 'A'-'Z'→'a'-'z' を
+// 明示的に行い (locale 非依存)、非 ASCII のみ std::towlower にフォールバックする。
+std::wstring ScalarHybridLower(std::wstring_view s)
 {
     std::wstring r;
     r.reserve(s.size());
     for (wchar_t ch : s) {
-        r.push_back(static_cast<wchar_t>(std::towlower(ch)));
+        if (ch >= L'A' && ch <= L'Z') {
+            r.push_back(static_cast<wchar_t>(ch - L'A' + L'a'));
+        }
+        else if (static_cast<unsigned>(ch) < 0x80) {
+            r.push_back(ch);
+        }
+        else {
+            r.push_back(static_cast<wchar_t>(std::towlower(ch)));
+        }
     }
     return r;
 }
@@ -42,22 +52,23 @@ TEST(SimdAsciiToLowerTest, Empty)
 TEST(SimdAsciiToLowerTest, AllAsciiVariousLengths)
 {
     // 0..40 まで全長で確認 (SSE2 8 文字境界・端数の両方を網羅)
+    // ASCII のみのケースは locale 非依存に必ず 'A'-'Z'→'a'-'z' にする契約。
     const std::wstring_view base = L"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij0123!?@_#";
     for (size_t n = 0; n <= base.size(); ++n) {
         std::wstring src(base.substr(0, n));
         std::wstring dst(n, L'\0');
         simd_ascii::ToLower(src.data(), dst.data(), n);
-        EXPECT_EQ(dst, ScalarToLower(src)) << "n=" << n;
+        EXPECT_EQ(dst, ScalarAsciiToLower(src)) << "n=" << n;
     }
 }
 
 TEST(SimdAsciiToLowerTest, MixedAsciiAndCjk)
 {
-    // 非 ASCII (CJK 等) があるチャンクは std::towlower にフォールバック
+    // ASCII 部分は明示変換、非 ASCII (CJK 等) は std::towlower にフォールバック
     const std::wstring src = L"HELLO 世界 World ＡＢＣ ABCDEFGH"; // 全角と半角混在
     std::wstring dst(src.size(), L'\0');
     simd_ascii::ToLower(src.data(), dst.data(), src.size());
-    EXPECT_EQ(dst, ScalarToLower(src));
+    EXPECT_EQ(dst, ScalarHybridLower(src));
 }
 
 TEST(SimdAsciiToLowerTest, BoundaryAt8)

@@ -80,7 +80,11 @@ void ConfigService::Flush()
     if (dir.empty()) {
         return;
     }
-    std::filesystem::create_directories(dir);
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (ec) {
+        return;
+    }
 
     const auto ini_path = dir / L"settings.ini";
     const auto tmp_path = dir / L"settings.ini.tmp";

@@ -295,7 +295,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
     const uint32_t gen = write_gen_.load();
     auto path = GetPngPath(key);
-    scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen] {
+    const bool posted = scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen] {
         // タスク完遂・キャンセルどちらの場合も pending を必ず解除する
         struct PendingGuard {
             MermaidFileCache* self;
@@ -327,6 +327,12 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
         WriteAllBytes(path, data.data(), data.size());
     });
+    if (!posted) {
+        // Post 失敗時はラムダが走らないので PendingGuard も走らない。
+        // pending_writes_ に key を残すと Lookup が stale 扱いを抑止し続けるため、ここで巻き戻す。
+        std::lock_guard lock(pending_mutex_);
+        pending_writes_.erase(key);
+    }
 }
 
 void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)

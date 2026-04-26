@@ -44,6 +44,13 @@ struct HoverThrottle {
     // 距離 + 時間の二重ガード版。両方を満たした時のみ位置・時刻を更新して true を返す。
     [[nodiscard]] bool TryMarkMoved(POINT& last_pos, DWORD& last_tick, int px, int py) noexcept
     {
+        // 初期値/Reset 後の sentinel (LONG_MIN) は (px - LONG_MIN) で signed int オーバーフロー (UB)
+        // となるため、ここで一度マークして即 true を返す。
+        if (last_pos.x == LONG_MIN) {
+            last_pos = { px, py };
+            last_tick = GetTickCount();
+            return true;
+        }
         const int dx = px - last_pos.x;
         const int dy = py - last_pos.y;
         if (dx * dx + dy * dy <= HOVER_THROTTLE_DISTANCE_SQ) {
@@ -61,6 +68,10 @@ struct HoverThrottle {
     // 距離のみ判定。時間ガードが不要な経路（タイマー駆動など）向け。
     [[nodiscard]] bool TryMarkMoved(POINT& last_pos, int px, int py) noexcept
     {
+        if (last_pos.x == LONG_MIN) {
+            last_pos = { px, py };
+            return true;
+        }
         const int dx = px - last_pos.x;
         const int dy = py - last_pos.y;
         if (dx * dx + dy * dy > HOVER_THROTTLE_DISTANCE_SQ) {

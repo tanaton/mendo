@@ -133,7 +133,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
     }
 
     const uint32_t gen = cancel_gen_.load();
-    scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen]() mutable {
+    const bool posted = scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen]() mutable {
         if (cancel_gen_.load() != gen) {
             return;
         }
@@ -167,6 +167,12 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
             PostMessage(hwnd_, msg_id_, 0, 0);
         }
     });
+    if (!posted) {
+        // Post 失敗時はラムダが ProcessCompletedDecodes 経由で pending_paths_ を消さないため、
+        // ここで巻き戻して再リクエストできるようにする。
+        const std::lock_guard lock(pending_mutex_);
+        pending_paths_.erase(abs_path);
+    }
 }
 
 void ImageLoader::ProcessCompletedDecodes()
