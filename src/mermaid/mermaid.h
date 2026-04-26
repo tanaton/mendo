@@ -89,6 +89,9 @@ private:
     };
 
     static int ComputeWorkerCount() noexcept;
+    // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする。
+    // 同じパターン（cancel / render-error / svg-result の各経路）を1か所に集約する。
+    static void InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled);
     void EnsureInitialized();
     void CreateWebView2Environment();
     void SetupWorker(int index);

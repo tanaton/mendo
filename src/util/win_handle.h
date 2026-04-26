@@ -159,12 +159,16 @@ inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
 // "image/svg+xml": Office (Word/Excel/PowerPoint 2016+) の「形式を選択して貼り付け → SVG」
 //                  および Inkscape などのベクタ編集アプリがベクタ画像として認識する。
 // CF_UNICODETEXT:  テキストエディタへの貼り付けフォールバック（SVG マークアップ原文）。
-inline void WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
+// 戻り値: いずれか 1 つ以上のフォーマットが SetClipboardData まで成功したら true。
+//        OpenClipboard / SetClipboardData が全滅したら false（呼び出し側で失敗トースト表示用）。
+inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
 {
     if (svg_text.empty() || !OpenClipboard(hwnd)) {
-        return;
+        return false;
     }
     EmptyClipboard();
+
+    bool any_set = false;
 
     const std::string svg_utf8 = string_convert::WideToUtf8(svg_text);
     if (!svg_utf8.empty()) {
@@ -177,6 +181,7 @@ inline void WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
                 static const UINT cf_svg = RegisterClipboardFormatW(L"image/svg+xml");
                 if (cf_svg != 0 && SetClipboardData(cf_svg, hSvg.get())) {
                     hSvg.release();
+                    any_set = true;
                 }
             }
         }
@@ -191,11 +196,13 @@ inline void WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
             GlobalUnlock(hText.get());
             if (SetClipboardData(CF_UNICODETEXT, hText.get())) {
                 hText.release();
+                any_set = true;
             }
         }
     }
 
     CloseClipboard();
+    return any_set;
 }
 
 // クリップボードに CF_HTML（書式付き）と CF_UNICODETEXT（プレーンテキスト）を同時に書き込む。

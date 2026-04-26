@@ -6,6 +6,7 @@
 #include "wic_util.h"
 #include "resource.h"
 #include <wrl/event.h>
+#include <cassert>
 #include <filesystem>
 #include <functional>
 
@@ -235,20 +236,14 @@ void MermaidRenderer::SetupWorker(int index)
                     const auto p = mermaid_util::ParseRequestPrefix(msg + 11);
                     if (p.valid && p.id == w.current_request.request_id && w.current_request.svg_only) {
                         std::pmr::wstring svg{ p.has_payload ? p.payload : std::wstring_view{} };
-                        if (auto cb = std::move(w.current_request.svg_callback)) {
-                            cb(std::move(svg), false);
-                        }
+                        InvokeSvgCallbackIfAny(w.current_request, std::move(svg), false);
                         FinishWorkerRequest(w);
                     }
                 }
                 else if (wcsncmp(msg, L"render-error:", 13) == 0) {
                     const auto p = mermaid_util::ParseRequestPrefix(msg + 13);
                     if (p.valid && p.id == w.current_request.request_id) {
-                        if (w.current_request.svg_only) {
-                            if (auto cb = std::move(w.current_request.svg_callback)) {
-                                cb(std::pmr::wstring{}, false);
-                            }
-                        }
+                        InvokeSvgCallbackIfAny(w.current_request, {}, false);
                         FinishWorkerRequest(w);
                     }
                 }
@@ -365,17 +360,22 @@ void MermaidRenderer::ClearCache()
     cache_.Clear();
 }
 
+void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled)
+{
+    if (!req.svg_only) {
+        return;
+    }
+    if (auto cb = std::move(req.svg_callback)) {
+        cb(std::move(svg), cancelled);
+    }
+}
+
 void MermaidRenderer::CancelPending()
 {
     // SVG 専用リクエストのコールバックは cancelled=true で呼び、呼び出し元の状態をリセットさせる。
     // PNG レンダリング (on_complete) は無引数のため呼び出し元側でフラグを持っていない前提。
     while (!pending_requests_.empty()) {
-        auto& req = pending_requests_.front();
-        if (req.svg_only) {
-            if (auto cb = std::move(req.svg_callback)) {
-                cb(std::pmr::wstring{}, true);
-            }
-        }
+        InvokeSvgCallbackIfAny(pending_requests_.front(), {}, true);
         pending_requests_.pop();
     }
 
@@ -383,11 +383,7 @@ void MermaidRenderer::CancelPending()
     // ID 不一致で自動的に無視される。
     for (int i = 0; i < worker_count_; i++) {
         auto& w = workers_[i];
-        if (w.current_request.svg_only) {
-            if (auto cb = std::move(w.current_request.svg_callback)) {
-                cb(std::pmr::wstring{}, true);
-            }
-        }
+        InvokeSvgCallbackIfAny(w.current_request, {}, true);
         w.rendering = false;
         w.current_request = {};
     }
@@ -467,12 +463,9 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
 
 void MermaidRenderer::RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
-    if (code.empty() || !callback) {
-        if (callback) {
-            callback(std::pmr::wstring{}, false);
-        }
-        return;
-    }
+    // 呼び出し元 (App::CopyDiagramAsSvg) は IsSvgExportable と非空コード、有効なコールバックを保証する。
+    assert(callback && "RequestSvg requires a callable SvgCallback");
+    assert(!code.empty() && "RequestSvg requires non-empty code");
 
     RenderRequest req;
     req.svg_only = true;
@@ -496,24 +489,23 @@ void MermaidRenderer::ProcessQueue()
     }
 
     // 同一コードの図が複数あるとき、最初の1つのレンダリング完了後に
-    // 残りをキャッシュから即座に解決できる。
+    // 残りをキャッシュから即座に解決できる。SVG 専用リクエストは PNG ビットマップ
+    // キャッシュ対象外なので常にワーカー経由でレンダリングする。
     while (!pending_requests_.empty()) {
         auto& front = pending_requests_.front();
-        // SVG 専用リクエストは PNG ビットマップキャッシュとは別物のためスキップしない
-        if (!front.svg_only) {
-            if (const auto* hit = cache_.Find(front.code_hash)) {
-                front.diagram_entry->bitmap = hit->bitmap;
-                front.diagram_entry->width = hit->width;
-                front.diagram_entry->height = hit->height;
-                front.layout_entry->height = hit->height;
-                front.layout_entry->layout_dirty = false;
-                auto cb = std::move(front.on_complete);
-                pending_requests_.pop();
-                if (cb) {
-                    cb();
-                }
-                continue;
+        const CachedBitmap* png_hit = front.svg_only ? nullptr : cache_.Find(front.code_hash);
+        if (png_hit) {
+            front.diagram_entry->bitmap = png_hit->bitmap;
+            front.diagram_entry->width = png_hit->width;
+            front.diagram_entry->height = png_hit->height;
+            front.layout_entry->height = png_hit->height;
+            front.layout_entry->layout_dirty = false;
+            auto cb = std::move(front.on_complete);
+            pending_requests_.pop();
+            if (cb) {
+                cb();
             }
+            continue;
         }
 
         Worker* idle = nullptr;

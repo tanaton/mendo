@@ -130,8 +130,8 @@ void App::CopyDiagramAsSvg(int node_index)
     const uint64_t key = mermaid_util::NodeDiagramHash(node, md_width, dark);
 
     if (const auto* hit = svg_cache_.Find(key)) {
-        WriteClipboardSvg(hwnd_, *hit);
-        ShowToast(i18n::S().toast_svg_copied);
+        const bool ok = WriteClipboardSvg(hwnd_, *hit);
+        ShowToast(ok ? i18n::S().toast_svg_copied : i18n::S().toast_svg_copy_failed);
         return;
     }
 
@@ -149,8 +149,10 @@ void App::CopyDiagramAsSvg(int node_index)
                 ShowToast(i18n::S().toast_svg_copy_failed);
                 return;
             }
-            WriteClipboardSvg(hwnd_, svg);
-            svg_cache_.Insert(key, std::move(svg));
-            ShowToast(i18n::S().toast_svg_copied);
+            const bool ok = WriteClipboardSvg(hwnd_, svg);
+            if (ok) {
+                svg_cache_.Insert(key, std::move(svg));
+            }
+            ShowToast(ok ? i18n::S().toast_svg_copied : i18n::S().toast_svg_copy_failed);
         });
 }

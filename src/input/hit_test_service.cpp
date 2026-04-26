@@ -283,32 +283,6 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         });
 }
 
-int HitTestService::SvgCopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept
-{
-    assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
-    assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
-
-    return HitTestCodeBlockButton(ctx, last_svg_copy_hit_,
-        [&](int i, const Node& node, const NodeLayoutEntry& entry,
-            float dip_x, float dip_y) noexcept -> bool {
-            if (!IsSvgExportable(node.code_language)) {
-                return false;
-            }
-            const auto& diagram = ctx.cache.GetDiagram(i);
-            if (!diagram.bitmap) {
-                return false;
-            }
-            const float indent = NodeIndent(node, ctx.theme);
-            const float x = ctx.theme.margin_left + indent;
-            const float cw = ctx.content_width - indent;
-            const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
-            // 保存ボタン (index 0) の左隣 (index 1)
-            const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, 1);
-            return dip_x >= btn.left && dip_x <= btn.right
-                && dip_y >= btn.top && dip_y <= btn.bottom;
-        });
-}
-
 HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
     const MdPaneHitContext& ctx) const noexcept
 {
