@@ -94,7 +94,6 @@ private:
     }
 
     std::filesystem::path cache_dir_;
-    float stored_dpr_ = 0.0f;
     float current_dpr_ = 0.0f;
 
     std::unordered_map<uint64_t, IndexEntry> index_;

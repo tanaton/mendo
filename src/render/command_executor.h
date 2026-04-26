@@ -3,7 +3,6 @@
 #include <d2d1.h>
 #include <wrl/client.h>
 #include <cstdint>
-#include <array>
 #include <unordered_map>
 
 namespace command_executor_internal {

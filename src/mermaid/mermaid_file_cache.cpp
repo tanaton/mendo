@@ -101,7 +101,6 @@ void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 
     // DPR ごとに InternalKey() が別キーに振り分けるため、DPR 不一致でも消去せず
     // LRU で自然淘汰させる。
-    stored_dpr_ = current_dpr;
 }
 
 void MermaidFileCache::LoadIndex()
@@ -133,7 +132,6 @@ void MermaidFileCache::LoadIndex()
         return;
     }
 
-    stored_dpr_ = header.dpr;
     index_.reserve(header.count);
 
     for (uint32_t i = 0; i < header.count; ++i) {

@@ -32,7 +32,7 @@ std::pmr::wstring Document::GetDirectory() const
 
 void Document::ReplaceContent(ParseResult&& result)
 {
-    // ParseMarkdown は全ノードの text_utf8→text_ 変換を済ませて返す契約。ここでは再変換しない。
+    // ParseMarkdown は各ノードの text_ を Wide で確定させて返す契約。ここでは再変換しない。
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);

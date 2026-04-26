@@ -146,14 +146,14 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         else if (hit.node_index >= 0) {
             const auto& nodes = state_.document.doc.GetNodes();
             const auto& node = nodes[hit.node_index];
-            if (node.type == NodeType::Image && node.has_image()) {
+            if (auto* const img = node.image_data(); img && node.type == NodeType::Image) {
                 tt.zone = TooltipTarget::Zone::MdImage;
                 const auto& alt = node.GetText();
                 if (!alt.empty()) {
                     tt.text = alt;
                     tt.text += L"\n";
                 }
-                tt.text += node.image_data()->src;
+                tt.text += img->src;
             }
         }
         Dispatch(UpdateTooltipAction{ tt, px, py });

@@ -124,7 +124,6 @@ private:
     // 前フレームの内容を生かしておく必要はなくシングルバッファで十分。
     MonotonicResource frame_resource_{ 128 * 1024 };
     DrawCommandList cmds_{ frame_resource_.resource() };
-    MonotonicResource& frame_resource() noexcept { return frame_resource_; }
 
     const std::pmr::vector<SearchMatch>* search_matches_ = nullptr;
     int current_match_index_ = -1;
@@ -143,7 +142,7 @@ private:
         DrawTextCmd c{};
         c.text_len = static_cast<uint8_t>((std::min)(len, size_t(255)));
         if (c.text_len > 0) {
-            auto* buf = static_cast<wchar_t*>(frame_resource().resource()->allocate(c.text_len * sizeof(wchar_t), alignof(wchar_t)));
+            auto* buf = static_cast<wchar_t*>(frame_resource_.resource()->allocate(c.text_len * sizeof(wchar_t), alignof(wchar_t)));
             std::char_traits<wchar_t>::copy(buf, src, c.text_len);
             c.text = buf;
         }

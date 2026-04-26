@@ -109,7 +109,8 @@ int ResourceManager::ApplyCachedImages()
             continue;
         }
 
-        if (!node.has_image() || node.image_data()->src.find(L"://") != std::pmr::wstring::npos) {
+        auto* const img = node.image_data();
+        if (!img || img->src.find(L"://") != std::pmr::wstring::npos) {
             continue;
         }
 
@@ -120,7 +121,7 @@ int ResourceManager::ApplyCachedImages()
             // canonical() は symlink 解決のためにファイルシステムを叩くので、
             // UI 同期パスから外すため absolute() + lexically_normal() を使う。
             // 画像参照が symlink を跨ぐのはレアケースとして許容する。
-            std::filesystem::path img_path(node.image_data()->src);
+            std::filesystem::path img_path(img->src);
             if (img_path.is_relative()) {
                 img_path = std::filesystem::path(doc_dir) / img_path;
             }
@@ -134,7 +135,6 @@ int ResourceManager::ApplyCachedImages()
         }
 
         if (image_loader_->GetCachedImage(abs_str, diagram)) {
-            auto* img = node.image_data();
             img->width = diagram.width;
             img->height = diagram.height;
 

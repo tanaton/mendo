@@ -328,19 +328,16 @@ void Renderer::DrawLoading(float angle,
         }
         return a;
     }();
-    auto* const text_brush = Brush(BrushId::Text);
-    for (int i = 0; i < spinner::DOT_COUNT; i++) {
-        const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
-        const float dx = cx + spinner::RADIUS * std::cos(a);
-        const float dy = cy + spinner::RADIUS * std::sin(a);
+    if (auto* const text_brush = Brush(BrushId::Text)) {
+        for (int i = 0; i < spinner::DOT_COUNT; i++) {
+            const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
+            const float dx = cx + spinner::RADIUS * std::cos(a);
+            const float dy = cy + spinner::RADIUS * std::sin(a);
 
-        const D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
-        if (text_brush) {
+            const D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
             text_brush->SetOpacity(kSpinnerAlphas[i]);
             rt()->FillEllipse(ellipse, text_brush);
         }
-    }
-    if (text_brush) {
         text_brush->SetOpacity(1.0f);
     }
 

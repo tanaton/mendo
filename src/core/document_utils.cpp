@@ -1,6 +1,7 @@
 #include "document_utils.h"
 #include "layout_cache.h"
 #include "navigation_service.h"
+#include "simd_ascii.h"
 #include "syntax.h"
 #include "theme_palette.h"
 #include <cwctype>
@@ -603,10 +604,7 @@ std::pmr::wstring ToLowerAscii(std::wstring_view text)
 {
     std::pmr::wstring result;
     result.resize_and_overwrite(text.size(), [&text](wchar_t* buf, size_t count) noexcept -> size_t {
-        for (size_t i = 0; i < count; ++i) {
-            const wchar_t c = text[i];
-            buf[i] = (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
-        }
+        simd_ascii::AsciiToLowerOnly(text.data(), buf, count);
         return count;
     });
     return result;

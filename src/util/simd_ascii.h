@@ -42,8 +42,19 @@ inline __m128i AsciiUpperToLowerAdd(__m128i c) noexcept
 
 // 全文字を小文字化する。ASCII チャンクは SSE2 高速パス、非 ASCII チャンクは
 // std::towlower にフォールバック。dst と src は同サイズで src と重ならないこと。
+// ASCII 部分は SIMD/スカラ どちらの経路を通っても 'A'-'Z'→'a'-'z' に揃える
+// (towlower は locale 依存で、トルコ語では 'I'→'ı'(U+0131) になり得るため明示変換)。
 inline void ToLower(const wchar_t* src, wchar_t* dst, size_t n) noexcept
 {
+    const auto lower_one = [](wchar_t ch) noexcept -> wchar_t {
+        if (ch >= L'A' && ch <= L'Z') {
+            return static_cast<wchar_t>(ch - L'A' + L'a');
+        }
+        if (static_cast<unsigned>(ch) < 0x80) {
+            return ch;
+        }
+        return static_cast<wchar_t>(std::towlower(ch));
+    };
     size_t i = 0;
     while (i + 8 <= n) {
         const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i));
@@ -54,13 +65,13 @@ inline void ToLower(const wchar_t* src, wchar_t* dst, size_t n) noexcept
         }
         else {
             for (size_t k = 0; k < 8; ++k) {
-                dst[i + k] = static_cast<wchar_t>(std::towlower(src[i + k]));
+                dst[i + k] = lower_one(src[i + k]);
             }
         }
         i += 8;
     }
     for (; i < n; ++i) {
-        dst[i] = static_cast<wchar_t>(std::towlower(src[i]));
+        dst[i] = lower_one(src[i]);
     }
 }
 

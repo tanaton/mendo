@@ -202,7 +202,7 @@ struct ParseContext {
 
     // Wideテキストを現在のノードまたはセルに追加する。
     // セル内なら AppendTextToCell に委譲。
-    // ノードなら Wide→UTF-8 変換して text_utf8 に蓄積する（BR/SOFTBR/Entity用）。
+    // ノードなら Wide→UTF-8 変換して current_utf8 スクラッチに蓄積する（BR/SOFTBR/Entity用）。
     void AppendText(std::wstring_view text)
     {
         if (current_cell) {
@@ -251,7 +251,7 @@ struct ParseContext {
 
     // UTF-8テキストを現在のノードまたはセルに追加する。
     // セル内なら AppendUtf8ToCell に委譲（Wide変換が必要）。
-    // ノードなら text_utf8 に直接蓄積し、Wide長のみ計算する（遅延変換で高速化）。
+    // ノードなら current_utf8 スクラッチに直接蓄積し、Wide長のみ計算する（遅延変換で高速化）。
     void AppendUtf8(std::string_view text)
     {
         if (current_cell) {
@@ -261,7 +261,7 @@ struct ParseContext {
         if (!current_node) {
             return;
         }
-        // ノード: Wide長のみ計算してtext_utf8に蓄積
+        // ノード: Wide長のみ計算して current_utf8 に蓄積
         // ASCII高速パス: 非ASCII（0x80以上）バイトが無ければバイト長＝ワイド長
         int wlen;
         int newline_count = 0;

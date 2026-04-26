@@ -13,23 +13,19 @@ struct HoverThrottle {
     POINT last_md_hit_pos = { LONG_MIN, LONG_MIN };
     bool last_md_cursor_hand = false;
     POINT last_copy_hit_pos = { LONG_MIN, LONG_MIN };
-    POINT last_save_hit_pos = { LONG_MIN, LONG_MIN };
     POINT last_hover_dispatch_pos = { LONG_MIN, LONG_MIN };
 
     // 各ターゲット種別のヒットテスト最終実行時刻（GetTickCount）。
     DWORD last_md_hit_tick = 0;
     DWORD last_copy_hit_tick = 0;
-    DWORD last_save_hit_tick = 0;
 
     void Reset() noexcept
     {
         last_md_hit_pos = { LONG_MIN, LONG_MIN };
         last_copy_hit_pos = { LONG_MIN, LONG_MIN };
-        last_save_hit_pos = { LONG_MIN, LONG_MIN };
         last_hover_dispatch_pos = { LONG_MIN, LONG_MIN };
         last_md_hit_tick = 0;
         last_copy_hit_tick = 0;
-        last_save_hit_tick = 0;
     }
 
     // OS の MOUSEMOVE が同一座標で繰り返し届くことがあるため、
