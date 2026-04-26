@@ -7,13 +7,20 @@ inline constexpr int HOVER_THROTTLE_DISTANCE_SQ = 16;
 // MOUSEMOVE バースト時にヒットテストを連発させないための最小経過時間（ミリ秒）。
 inline constexpr DWORD HOVER_THROTTLE_MIN_INTERVAL_MS = 8;
 
+// last_pos の "未設定" sentinel。
+// (px - LONG_MIN) は signed int オーバーフロー (UB) になるため、
+// この値の間は距離計算を行わず即座に "移動した" として扱う。
+inline constexpr POINT kUnsetHoverPos{ LONG_MIN, LONG_MIN };
+
+inline constexpr bool IsUnset(POINT p) noexcept { return p.x == LONG_MIN; }
+
 // ヒットテストのスロットリング状態。
 // マウス位置が一定距離以上動いた場合のみヒットテストを再実行する。
 struct HoverThrottle {
-    POINT last_md_hit_pos = { LONG_MIN, LONG_MIN };
+    POINT last_md_hit_pos = kUnsetHoverPos;
     bool last_md_cursor_hand = false;
-    POINT last_copy_hit_pos = { LONG_MIN, LONG_MIN };
-    POINT last_hover_dispatch_pos = { LONG_MIN, LONG_MIN };
+    POINT last_copy_hit_pos = kUnsetHoverPos;
+    POINT last_hover_dispatch_pos = kUnsetHoverPos;
 
     // 各ターゲット種別のヒットテスト最終実行時刻（GetTickCount）。
     DWORD last_md_hit_tick = 0;
@@ -21,9 +28,9 @@ struct HoverThrottle {
 
     void Reset() noexcept
     {
-        last_md_hit_pos = { LONG_MIN, LONG_MIN };
-        last_copy_hit_pos = { LONG_MIN, LONG_MIN };
-        last_hover_dispatch_pos = { LONG_MIN, LONG_MIN };
+        last_md_hit_pos = kUnsetHoverPos;
+        last_copy_hit_pos = kUnsetHoverPos;
+        last_hover_dispatch_pos = kUnsetHoverPos;
         last_md_hit_tick = 0;
         last_copy_hit_tick = 0;
     }
@@ -44,9 +51,7 @@ struct HoverThrottle {
     // 距離 + 時間の二重ガード版。両方を満たした時のみ位置・時刻を更新して true を返す。
     [[nodiscard]] bool TryMarkMoved(POINT& last_pos, DWORD& last_tick, int px, int py) noexcept
     {
-        // 初期値/Reset 後の sentinel (LONG_MIN) は (px - LONG_MIN) で signed int オーバーフロー (UB)
-        // となるため、ここで一度マークして即 true を返す。
-        if (last_pos.x == LONG_MIN) {
+        if (IsUnset(last_pos)) {
             last_pos = { px, py };
             last_tick = GetTickCount();
             return true;
@@ -68,7 +73,7 @@ struct HoverThrottle {
     // 距離のみ判定。時間ガードが不要な経路（タイマー駆動など）向け。
     [[nodiscard]] bool TryMarkMoved(POINT& last_pos, int px, int py) noexcept
     {
-        if (last_pos.x == LONG_MIN) {
+        if (IsUnset(last_pos)) {
             last_pos = { px, py };
             return true;
         }

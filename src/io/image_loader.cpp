@@ -121,15 +121,15 @@ bool ImageLoader::GetCachedImage(const std::wstring& abs_path, DiagramEntry& out
 
 void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_complete)
 {
+    if (!scheduler_) {
+        return;
+    }
+
     {
         const std::lock_guard lock(pending_mutex_);
         if (!pending_paths_.insert(abs_path).second) {
             return;
         }
-    }
-
-    if (!scheduler_) {
-        return;
     }
 
     const uint32_t gen = cancel_gen_.load();
