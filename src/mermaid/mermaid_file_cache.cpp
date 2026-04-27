@@ -259,7 +259,7 @@ bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry) const n
     return true;
 }
 
-void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height, std::vector<uint8_t> png_data)
+void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height, std::pmr::vector<uint8_t> png_data)
 {
     if (png_data.empty()) {
         return;

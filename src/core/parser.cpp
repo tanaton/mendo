@@ -540,7 +540,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
         if (a->href.text && a->href.size > 0) {
             ctx->link_urls.emplace_back();
-            Utf8ToWide(std::string_view{ a->href.text, static_cast<size_t>(a->href.size) },
+            Utf8ToWide(
+                std::string_view{ a->href.text, static_cast<size_t>(a->href.size) },
                 ctx->link_urls.back());
             ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
         }
@@ -550,7 +551,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_IMG: {
         auto* const img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
         if (img->src.text && img->src.size > 0) {
-            Utf8ToWide(std::string_view{ img->src.text, static_cast<size_t>(img->src.size) },
+            Utf8ToWide(
+                std::string_view{ img->src.text, static_cast<size_t>(img->src.size) },
                 ctx->pending_image_src);
         }
         ctx->paragraph_has_other_content = true;

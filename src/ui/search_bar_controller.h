@@ -2,6 +2,7 @@
 #include "search_state.h"
 #include "ui_constants.h"
 #include <functional>
+#include <memory_resource>
 #include <string>
 #include <string_view>
 #include <windows.h>
@@ -79,7 +80,7 @@ public:
     bool HasFocus() const noexcept { return has_focus_; }
     int GetCaretPos() const noexcept { return caret_pos_; }
     int GetSelectionStart() const noexcept { return selection_start_; }
-    const std::wstring& GetImeComposition() const noexcept { return ime_composition_; }
+    const std::pmr::wstring& GetImeComposition() const noexcept { return ime_composition_; }
 
 private:
     void RestartCaretBlink();
@@ -96,5 +97,5 @@ private:
     int selection_start_ = -1;
     bool dragging_ = false;
     int drag_anchor_ = 0;
-    std::wstring ime_composition_;
+    std::pmr::wstring ime_composition_;
 };

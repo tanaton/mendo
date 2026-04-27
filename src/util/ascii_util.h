@@ -16,17 +16,17 @@ inline constexpr size_t npos = static_cast<size_t>(-1);
 
 // 1 文字 ASCII case 変換ヘルパ。`std::tolower` の locale 依存
 // (トルコ語の I → ı 等) を避けたい用途用。非 ASCII および ASCII 小文字は素通し。
-[[nodiscard]] constexpr wchar_t ToLowerAscii(wchar_t c) noexcept
+constexpr wchar_t ToLowerAscii(wchar_t c) noexcept
 {
     return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
 }
 
-[[nodiscard]] constexpr char ToLowerAscii(char c) noexcept
+constexpr char ToLowerAscii(char c) noexcept
 {
     return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
 }
 
-[[nodiscard]] constexpr wchar_t ToUpperAscii(wchar_t c) noexcept
+constexpr wchar_t ToUpperAscii(wchar_t c) noexcept
 {
     return (c >= L'a' && c <= L'z') ? static_cast<wchar_t>(c - L'a' + L'A') : c;
 }

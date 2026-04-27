@@ -14,7 +14,7 @@ class LayoutCache;
 
 // diff 位置のノードに基づくスクロールY座標を計算する。
 // ノードが見つからない場合は fallback_scroll を返す。
-[[nodiscard]] float CalcScrollYForDiff(
+float CalcScrollYForDiff(
     const std::pmr::vector<Node>& nodes,
     const LayoutCache& cache,
     std::string_view content,

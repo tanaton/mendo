@@ -81,7 +81,7 @@ public:
     void OnDestroy();
 
     // 検索（Win32Windowから呼ばれるコールバック）— Reducer経由で状態変更
-    void OnSearchTextChanged(std::wstring_view text) { Dispatch(SearchTextChangedAction{ std::pmr::wstring{text} }); }
+    void OnSearchTextChanged(std::pmr::wstring text) { Dispatch(SearchTextChangedAction{ std::move(text) }); }
     void OnSearchClose() { Dispatch(CloseSearchBarAction{}); }
     void OnSearchNext() { Dispatch(SearchNextAction{}); }
     void OnSearchPrev() { Dispatch(SearchPrevAction{}); }
@@ -89,7 +89,7 @@ public:
     void OnToggleCaseSensitive() { Dispatch(ToggleCaseSensitiveAction{}); }
     void OnToggleHighlight() { Dispatch(ToggleHighlightAction{}); }
     void SetSearchSelection(int sel_start, int sel_end) { Dispatch(SearchSelectionAction{ sel_start, sel_end }); }
-    void SetImeComposition(std::wstring_view comp) { Dispatch(ImeCompositionAction{ std::pmr::wstring{comp} }); }
+    void SetImeComposition(std::pmr::wstring comp) { Dispatch(ImeCompositionAction{ std::move(comp) }); }
     RECT GetSearchEditRect();
 
     void SetPendingRestoreNode(int node, int offset) noexcept
@@ -182,7 +182,7 @@ private:
     void ReloadCurrentFile();
     void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
-    void BeginAsyncLoad(const std::pmr::wstring& path);
+    void BeginAsyncLoad(std::pmr::wstring path);
     void FinishLoadMarkdownFile(bool heights_estimated = false);
     void HandleLoadFailureFallback();
     float CalcScrollForDiff(size_t diff_pos, float viewport_height) const;

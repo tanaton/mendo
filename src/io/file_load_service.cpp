@@ -4,9 +4,9 @@
 #include "profiler.h"
 #include "ui_constants.h"
 
-void FileLoadService::StartLoading(std::wstring_view path)
+void FileLoadService::StartLoading(std::pmr::wstring path)
 {
-    loading_path_ = path;
+    loading_path_ = std::move(path);
     loading_ = true;
     loading_angle_ = 0.0f;
 }
@@ -44,9 +44,9 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
         async_result_.reset();
     }
     const uint32_t gen = async_gen_.fetch_add(1, std::memory_order_relaxed) + 1;
-    const std::pmr::wstring path = loading_path_;
 
-    scheduler.Post([this, path, hwnd, msg_id, gen, theme] {
+    // ワーカースレッドは loading_path_ に触らないため、capture コピーで安全。
+    scheduler.Post([this, path = loading_path_, hwnd, msg_id, gen, theme] {
         if (async_gen_.load(std::memory_order_relaxed) != gen) {
             return;
         }

@@ -18,10 +18,10 @@ public:
     void SetCursor(effect::CursorType type) override;
     void WriteClipboardText(std::wstring_view text) override;
     void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) override;
-    void ShellOpen(std::wstring_view url) override;
+    void ShellOpen(const std::pmr::wstring& url) override;
     void ShowWindowCmd(int cmd) override;
     void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override;
-    void SetWindowTitle(std::wstring_view title) override;
+    void SetWindowTitle(const std::pmr::wstring& title) override;
     void SetWindowPosition(int x, int y, int cx, int cy) override;
     POINT ClientToScreen(POINT client_pt) override;
     void ApplyDarkMode(bool dark) override;

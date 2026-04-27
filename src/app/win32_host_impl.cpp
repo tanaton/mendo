@@ -1,6 +1,7 @@
 #include "win32_host_impl.h"
 #include "cursor_manager.h"
 #include "win_handle.h"
+#include <memory_resource>
 #include <shellapi.h>
 
 // app.h のインクルードは循環依存を招くため前方宣言で代替
@@ -82,11 +83,9 @@ void Win32Host::WriteClipboardHtml(std::wstring_view html, std::wstring_view pla
     ::WriteClipboardHtml(hwnd_, html, plain);
 }
 
-void Win32Host::ShellOpen(std::wstring_view url)
+void Win32Host::ShellOpen(const std::pmr::wstring& url)
 {
-    // ShellExecuteW は null 終端文字列を要求するため、保持用コピーを作る
-    std::wstring u{ url };
-    ShellExecuteW(nullptr, L"open", u.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 void Win32Host::ShowWindowCmd(int cmd)
@@ -99,10 +98,9 @@ void Win32Host::PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp)
     PostMessageW(hwnd_, msg, wp, lp);
 }
 
-void Win32Host::SetWindowTitle(std::wstring_view title)
+void Win32Host::SetWindowTitle(const std::pmr::wstring& title)
 {
-    std::wstring t{ title };
-    SetWindowTextW(hwnd_, t.c_str());
+    SetWindowTextW(hwnd_, title.c_str());
 }
 
 void Win32Host::SetWindowPosition(int x, int y, int cx, int cy)

@@ -240,6 +240,17 @@ TEST(DocumentTest, FindAnchorIndexEmptyQuery)
     EXPECT_EQ(doc.FindAnchorIndex(L""), -1);
 }
 
+TEST(DocumentTest, FindNormalizedAnchorIndexHitsLowercase)
+{
+    // anchor_id() は parser で小文字 ASCII へ正規化済み。
+    // FindNormalizedAnchorIndex は ToLowerAscii を介さず直接 hit する。
+    auto doc = Document::FromMarkdown("# Hello World", L"test.md");
+    EXPECT_EQ(doc.FindNormalizedAnchorIndex(L"hello-world"), 0);
+    EXPECT_EQ(doc.FindNormalizedAnchorIndex(L""), -1);
+    // 大文字混在は normalized 経路では hit しない（呼び出し側責任の API）。
+    EXPECT_EQ(doc.FindNormalizedAnchorIndex(L"Hello-World"), -1);
+}
+
 TEST(DocumentTest, FindAnchorIndexAfterDocumentMove)
 {
     // anchor_index_ は nodes_ 内 wstring への view を保持するため、

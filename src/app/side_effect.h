@@ -25,7 +25,7 @@ struct ClipboardWrite { std::pmr::wstring text; };
 struct ClipboardWriteHtml { std::pmr::wstring html; std::pmr::wstring plain; };
 struct ShowTooltip { TooltipTarget target; int px; int py; };
 struct ClearTooltip {};
-struct ShowToast { std::wstring message; };
+struct ShowToast { std::pmr::wstring message; };
 struct ShowContextMenu { int screen_x; int screen_y; };
 
 // ---- ウィンドウ / テーマ系 ----

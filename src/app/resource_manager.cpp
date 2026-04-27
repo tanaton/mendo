@@ -75,7 +75,7 @@ void ResourceManager::Init(Document& doc, LayoutCache& cache, ViewportManager& v
 
 int ResourceManager::ApplyCachedImages(bool respect_viewport)
 {
-    const std::wstring doc_dir{ doc_->GetDirectory() };
+    const std::pmr::wstring doc_dir = doc_->GetDirectory();
     if (doc_dir.empty()) {
         return 0;
     }

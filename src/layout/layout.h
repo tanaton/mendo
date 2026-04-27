@@ -7,7 +7,12 @@
 #include <memory_resource>
 
 
-[[nodiscard]] inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
+inline float NodeIndent(const Node& node, const Theme& theme) noexcept
+{
+    return node.indent_level * theme.indent_width;
+}
+
+inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
 {
     return (node.type == NodeType::CodeBlock) ? theme.code_block_padding : 0.0f;
 }
@@ -16,7 +21,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out,
     const std::pmr::vector<float>& natural_widths,
     float available_width, size_t col_count);
 
-[[nodiscard]] std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows);
+std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows);
 
 struct YPositionResult {
     float total_height = 0.0f;
@@ -26,7 +31,7 @@ struct YPositionResult {
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index = 0, bool has_earlier_dirty = false, size_t safe_exit_after = SIZE_MAX) noexcept;
 
-[[nodiscard]] float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
+float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
 
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) noexcept;
 

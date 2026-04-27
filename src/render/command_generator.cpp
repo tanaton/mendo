@@ -106,7 +106,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         return;
     }
 
-    const float indent = node.indent_level * theme_->indent_width;
+    const float indent = NodeIndent(node, *theme_);
     const float x = frame_offset_x_ + indent;
     const float cw = frame_content_width_ - indent;
     const float text_x = x + NodeTextXOffset(node, *theme_);

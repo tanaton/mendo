@@ -107,7 +107,7 @@ private:
         const NodeLayoutEntry& entry, int node_index, float x, float text_x);
 
     // ノードタイプに応じた本文ベースカラーを返す。
-    [[nodiscard]] D2D1_COLOR_F GetNodeBaseColor(const Node& node) const noexcept;
+    D2D1_COLOR_F GetNodeBaseColor(const Node& node) const noexcept;
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x);

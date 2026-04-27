@@ -7,12 +7,6 @@
 
 namespace {
 
-// ノードのインデント幅を返す。
-float NodeIndent(const Node& node, const Theme& theme) noexcept
-{
-    return node.indent_level * theme.indent_width;
-}
-
 // テーブル内のクリック座標からヒットした行を特定する。
 // 見つかった場合は行インデックスとその行の上端Y座標を返す。
 struct TableRowHit { int row; float row_top_y; };

@@ -239,7 +239,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     for (size_t i = 0; i < node_count; i++) {
         auto& node = nodes[i];
         auto& entry = cache[i];
-        const float indent = node.indent_level * theme_->indent_width;
+        const float indent = NodeIndent(node, *theme_);
         const float node_width = content_width - indent;
 
         const bool needs_layout = width_changed || entry.layout_dirty;
@@ -339,7 +339,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         if (!entry.layout_dirty) {
             continue;
         }
-        const float indent = nodes[i].indent_level * theme_->indent_width;
+        const float indent = NodeIndent(nodes[i], *theme_);
         measurer_->MeasureNode(nodes[i], entry, content_width - indent);
         any_updated = true;
         last_measured = i;
@@ -399,7 +399,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
         if (first_dirty == nodes.size()) {
             first_dirty = i;
         }
-        const float indent = nodes[i].indent_level * theme_->indent_width;
+        const float indent = NodeIndent(nodes[i], *theme_);
         measurer_->MeasureNode(nodes[i], entry, content_width - indent);
         last_processed = i;
 

@@ -345,7 +345,7 @@ void App::OnCaptureChanged()
 void App::ShowToast(std::wstring_view message)
 {
     // reducer 経由ではなく effect を直接発火する簡易経路。
-    effect_executor_.ExecuteOne(effect::ShowToast{ std::wstring{message} });
+    effect_executor_.ExecuteOne(effect::ShowToast{ std::pmr::wstring{message} });
 }
 
 void App::OnDestroy()

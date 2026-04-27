@@ -245,7 +245,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     size_t i = 0;
     uint32_t plain_start = 0;
     bool in_plain = false;
-    std::wstring ci_buf; // case_insensitive用の再利用バッファ
+    std::pmr::wstring ci_buf; // case_insensitive用の再利用バッファ
     if (cfg.case_insensitive) {
         // 典型的なキーワード最長（PowerShell の `ForEach-Object` 等）を事前確保
         ci_buf.reserve(64);
@@ -376,8 +376,8 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                 // デリミタを検索: R"DELIM( ... )DELIM"
                 const size_t paren = text.find(L'(', i + 1);
                 if (paren != std::wstring_view::npos) {
-                    const std::wstring delim{ text.substr(i + 1, paren - i - 1) };
-                    const std::wstring end_marker = L")" + delim + L"\"";
+                    const std::pmr::wstring delim{ text.substr(i + 1, paren - i - 1) };
+                    const std::pmr::wstring end_marker = L")" + delim + L"\"";
                     const size_t end_pos = text.find(end_marker, paren + 1);
                     if (end_pos != std::wstring_view::npos) {
                         i = end_pos + end_marker.size();

@@ -110,5 +110,5 @@ inline constexpr int ZOOM_DEFAULT_INDEX = 7; // 1.00f
 
 // プロセス内で 1 度だけ初期化される定数テーマへの参照を返す。
 // 値変更が必要な場合は呼び出し側でコピーして ApplyZoom 等を行うこと。
-[[nodiscard]] const Theme& GetLightTheme();
-[[nodiscard]] const Theme& GetDarkTheme();
+const Theme& GetLightTheme();
+const Theme& GetDarkTheme();

@@ -50,12 +50,12 @@ public:
     void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) override {
         clipboard_html_calls.emplace_back(std::wstring{html}, std::wstring{plain});
     }
-    void ShellOpen(std::wstring_view url) override { shell_open_calls.emplace_back(url); }
+    void ShellOpen(const std::pmr::wstring& url) override { shell_open_calls.emplace_back(std::wstring_view{url}); }
     void ShowWindowCmd(int cmd) override { show_window_cmd_calls.push_back(cmd); }
     void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override {
         post_message_calls.emplace_back(msg, wp, lp);
     }
-    void SetWindowTitle(std::wstring_view title) override { set_window_title_calls.emplace_back(title); }
+    void SetWindowTitle(const std::pmr::wstring& title) override { set_window_title_calls.emplace_back(std::wstring_view{title}); }
     void SetWindowPosition(int x, int y, int cx, int cy) override {
         set_window_position_calls.emplace_back(x, y, cx, cy);
     }

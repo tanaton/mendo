@@ -13,13 +13,13 @@ struct ParseResult {
     std::pmr::vector<size_t> diagram_indices;
 };
 
-[[nodiscard]] ParseResult ParseMarkdown(std::string_view markdown_text);
+ParseResult ParseMarkdown(std::string_view markdown_text);
 
 // BlockQuoteノードからGitHub Alertsを検出し、マーカー除去・ラベル挿入・グルーピングを行う（テスト用に公開）
 void DetectAlerts(std::pmr::vector<Node>& nodes);
 
 // AlertTypeに対応するラベル文字列を返す（テスト用に公開）
-[[nodiscard]] const wchar_t* GetAlertLabel(AlertType type) noexcept;
+const wchar_t* GetAlertLabel(AlertType type) noexcept;
 
 // AlertTypeに対応するアイコン文字列を返す（テスト用に公開）
-[[nodiscard]] const wchar_t* GetAlertIcon(AlertType type) noexcept;
+const wchar_t* GetAlertIcon(AlertType type) noexcept;

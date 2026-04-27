@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory_resource>
 #include <string>
 #include <string_view>
 
@@ -24,7 +25,7 @@ struct TooltipTarget {
     };
 
     Zone zone = Zone::None;
-    std::wstring text;
+    std::pmr::wstring text;
 
     TooltipTarget() = default;
     TooltipTarget(Zone z, std::wstring_view t) : zone(z), text(t) {}

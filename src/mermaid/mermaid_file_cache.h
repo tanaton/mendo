@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <memory_resource>
 #include <mutex>
 #include <unordered_set>
 #include <vector>
@@ -40,7 +41,7 @@ public:
     void Init(float current_dpr, TaskScheduler& scheduler);
     bool Lookup(uint64_t key, CacheEntry& entry, PngBlob& png);
     bool LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept;
-    void StoreAsync(uint64_t key, float css_width, float css_height, std::vector<uint8_t> png_data);
+    void StoreAsync(uint64_t key, float css_width, float css_height, std::pmr::vector<uint8_t> png_data);
     void SaveIndex();
     void ClearAll();
     void Shutdown();
@@ -65,7 +66,7 @@ private:
     static constexpr size_t DEFAULT_MAX_ENTRIES = 4096;
     static constexpr uint64_t DEFAULT_MAX_TOTAL_SIZE = 1ULL * 1024 * 1024 * 1024; // 1GB
 
-    using LruOrder = std::multimap<int64_t, uint64_t>;
+    using LruOrder = std::pmr::multimap<int64_t, uint64_t>;
 
     struct IndexEntry {
         float css_width = 0.0f;
@@ -96,7 +97,7 @@ private:
     std::filesystem::path cache_dir_;
     float current_dpr_ = 0.0f;
 
-    std::unordered_map<uint64_t, IndexEntry> index_;
+    std::pmr::unordered_map<uint64_t, IndexEntry> index_;
     LruOrder lru_order_;
     uint64_t total_size_ = 0;
 
@@ -108,5 +109,5 @@ private:
     std::atomic<uint32_t> write_gen_{ 0 };
 
     mutable std::mutex pending_mutex_;
-    std::unordered_set<uint64_t> pending_writes_;
+    std::pmr::unordered_set<uint64_t> pending_writes_;
 };

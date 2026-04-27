@@ -9,6 +9,7 @@
 #include <cassert>
 #include <filesystem>
 #include <functional>
+#include <memory_resource>
 
 #pragma comment(lib, "windowscodecs.lib")
 
