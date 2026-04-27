@@ -178,8 +178,7 @@ void App::OnParseComplete()
     // 非同期のファイルオープンでも OnParseComplete() が使われるため、
     // 別ファイル読み込み時は差分ロジックをスキップする。
     if (_wcsicmp(result->doc.GetFilePath().c_str(), state_.document.doc.GetFilePath().c_str()) == 0) {
-        if (DeferIfPartialWrite(result->doc.GetFilePath(),
-                result->doc.GetRawUtf8().size())) {
+        if (DeferIfPartialWrite(result->doc.GetFilePath(), result->doc.GetRawUtf8().size())) {
             return;
         }
 
@@ -250,13 +249,21 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     }
 
     // cache.Reset()直後は全ノードの高さが0のため、スクロール復元前に
-    // ノード高さを推定し、Mermaidキャッシュの実測値で補正する
+    // ノード高さを推定し、Mermaid/画像キャッシュの実測値で補正する
     if (has_reload_diff || state_.view.scroll_restore.HasNodeRestore()) {
         if (!heights_estimated) {
             MENDO_PROFILE("EstimateNodeHeights");
             EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
         }
-        ApplyMermaidCacheHeights(md_width);
+        const bool mermaid_applied = ApplyMermaidCacheHeights(md_width);
+        const bool image_applied = resource_manager_.ApplyCachedImagesForReload() > 0;
+        if (mermaid_applied || image_applied) {
+            RecomputeYPositions(
+                state_.document.doc.GetNodesMut(),
+                state_.document.layout_cache,
+                renderer_.GetTheme()
+            );
+        }
     }
 
     // CalcScrollForDiff は md_height (layout 値) に依存するため reducer に渡せず、
@@ -372,9 +379,17 @@ void App::FinishReload(size_t diff_pos)
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
 
-    // Mermaidブロックの推定高さをファイルキャッシュの実測値で上書きし、
-    // スクロール位置のずれを防ぐ
-    ApplyMermaidCacheHeights(md_width);
+    // Mermaid/LaTeX 図と通常画像の推定高さを実測値 (file_cache_ / image_loader メモリキャッシュ) で
+    // 上書きし、CalcScrollForDiff の Y 計算がずれないようにする。
+    const bool mermaid_applied = ApplyMermaidCacheHeights(md_width);
+    const bool image_applied = resource_manager_.ApplyCachedImagesForReload() > 0;
+    if (mermaid_applied || image_applied) {
+        RecomputeYPositions(
+            state_.document.doc.GetNodesMut(),
+            state_.document.layout_cache,
+            renderer_.GetTheme()
+        );
+    }
 
     const float desired_scroll = CalcScrollForDiff(diff_pos, md_height);
 
@@ -425,7 +440,7 @@ float App::CalcScrollForDiff(size_t diff_pos, float viewport_height) const
         diff_pos, viewport_height, state_.view.viewport.GetScrollY());
 }
 
-void App::ApplyMermaidCacheHeights(float md_width)
+bool App::ApplyMermaidCacheHeights(float md_width)
 {
     const float content_width = renderer_.GetTheme().ContentWidth(md_width);
     const bool dark_mode = theme_service_.IsDarkMode();
@@ -439,9 +454,7 @@ void App::ApplyMermaidCacheHeights(float md_width)
             any_applied = true;
         }
     }
-    if (any_applied) {
-        RecomputeYPositions(state_.document.doc.GetNodesMut(), state_.document.layout_cache, renderer_.GetTheme());
-    }
+    return any_applied;
 }
 
 void App::UpdateTitleBar()

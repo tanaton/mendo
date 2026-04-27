@@ -142,6 +142,92 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesReturnsZeroForRemoteImages)
     EXPECT_EQ(rm_.ApplyCachedImages(), 0);
 }
 
+// ---- 画像経路: ApplyCachedImagesForReload (issue #148) ----
+
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesHeightFromCache)
+{
+    LoadMarkdown("# heading\n\n![alt](foo.png)\n");
+    image_loader_.InsertCacheEntry(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
+
+    // 適用前: SeedLayoutCache が block_height=100 で初期化している。
+    const auto& image_indices = doc_.GetImageNodeIndices();
+    ASSERT_EQ(image_indices.size(), 1u);
+    const size_t img_idx = image_indices[0];
+    EXPECT_FLOAT_EQ(cache_[img_idx].height, 100.0f);
+
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
+
+    // content_width=800, image_width=1000 → スケール係数 800/1000、
+    // height=800 * 0.8 = 640
+    EXPECT_FLOAT_EQ(cache_[img_idx].height, 640.0f);
+    EXPECT_FALSE(cache_[img_idx].layout_dirty);
+}
+
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadKeepsHeightWhenWithinContentWidth)
+{
+    LoadMarkdown("![alt](small.png)\n");
+    // content_width=800 より小さい画像はスケール無し。
+    image_loader_.InsertCacheEntry(L"C:\\dir\\small.png", 400.0f, 300.0f);
+
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
+
+    const size_t img_idx = doc_.GetImageNodeIndices()[0];
+    EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
+}
+
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadReturnsZeroWhenCacheMisses)
+{
+    LoadMarkdown("![alt](missing.png)\n");
+    // image_loader_ にキャッシュ未挿入 → 0 件。
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+
+    const size_t img_idx = doc_.GetImageNodeIndices()[0];
+    EXPECT_FLOAT_EQ(cache_[img_idx].height, 100.0f); // SeedLayoutCache の block_height のまま
+}
+
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesBeyondVisibleRange)
+{
+    // issue #148 の本質: 可視範囲外の画像も全件走査して height を更新する。
+    // 画像を 2 個配置し、2 個目を viewport から大きく外して ApplyCachedImages との差を出す。
+    LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
+
+    const auto& image_indices = doc_.GetImageNodeIndices();
+    ASSERT_EQ(image_indices.size(), 2u);
+
+    image_loader_.InsertCacheEntry(L"C:\\dir\\one.png", 400.0f, 300.0f);
+    image_loader_.InsertCacheEntry(L"C:\\dir\\two.png", 400.0f, 250.0f);
+
+    // viewport_height=600, PREFETCH_BUFFER=3 → 範囲は ~[-1800, 2400]。
+    // 2個目は y=3000+ にあり可視範囲外。ApplyCachedImages は 1 件のみ適用。
+    const int visible_applied = rm_.ApplyCachedImages();
+    EXPECT_EQ(visible_applied, 1);
+
+    // 2個目の高さはまだ SeedLayoutCache の block_height=3000 のまま。
+    EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 3000.0f);
+
+    // ApplyCachedImagesForReload は範囲制限を持たないので残りの 1 件も適用する。
+    // 1 個目は ApplyCachedImages で diagram.bitmap がセットされていないのでもう一度適用される。
+    const int reload_applied = rm_.ApplyCachedImagesForReload();
+    EXPECT_EQ(reload_applied, 2);
+    EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 250.0f);
+    EXPECT_FALSE(cache_[image_indices[1]].layout_dirty);
+}
+
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadIgnoresRemoteImages)
+{
+    LoadMarkdown("![alt](https://example.com/foo.png)\n");
+    // リモート画像はキャッシュ参照しない。
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+}
+
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadReturnsZeroWhenContentWidthIsZero)
+{
+    LoadMarkdown("![alt](foo.png)\n");
+    image_loader_.InsertCacheEntry(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
+    tracker_.content_width = 0.0f;
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+}
+
 // ---- Mermaid 経路 ----
 
 TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagram)

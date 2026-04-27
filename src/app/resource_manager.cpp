@@ -39,9 +39,12 @@ struct VisibleRange {
 VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count,
     float range_top, float range_bottom)
 {
-    const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, range_top));
+    // 過渡状態で node_count > cache.size() のとき cache[i] が OOB になるため、
+    // FindFirstVisibleNodeIndex と同じ方針で内部クランプする。
+    const size_t effective = std::min(node_count, cache.size());
+    const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, effective, range_top));
     size_t last_plus_1 = first;
-    for (size_t i = first; i < node_count; ++i) {
+    for (size_t i = first; i < effective; ++i) {
         if (cache[i].y_position > range_bottom) {
             break;
         }
@@ -70,7 +73,7 @@ void ResourceManager::Init(Document& doc, LayoutCache& cache, ViewportManager& v
 // 画像リソース
 // ============================================================
 
-int ResourceManager::ApplyCachedImages()
+int ResourceManager::ApplyCachedImages(bool respect_viewport)
 {
     const std::wstring doc_dir{ doc_->GetDirectory() };
     if (doc_dir.empty()) {
@@ -82,22 +85,24 @@ int ResourceManager::ApplyCachedImages()
         return 0;
     }
 
-    const float viewport_top = viewport_->GetScrollY();
-    const float viewport_height = cb_.get_viewport_height();
-    const float buffer = viewport_height * PREFETCH_BUFFER_SCREENS;
-    const float range_top = viewport_top - buffer;
-    const float range_bottom = viewport_top + viewport_height + buffer;
     const float indent_width = cb_.get_indent_width();
-
     auto& nodes = doc_->GetNodesMut();
     const auto& image_indices = doc_->GetImageNodeIndices();
 
-    // 全件走査ではなく、可視範囲に intersect する image index のみを走査。
+    // 通常描画は可視範囲に intersect する image index のみを走査。
+    // リロード時 (respect_viewport=false) は CalcScrollForDiff の Y 計算用に全件処理する。
     // viewport_height <= 0.0f の時は初期化中等なのでレイアウト範囲無視（全件）で従来挙動を保つ。
     IndexSlice slice{ image_indices.begin(), image_indices.end() };
-    if (viewport_height > 0.0f) {
-        const auto vr = ComputeVisibleNodeRange(*cache_, nodes.size(), range_top, range_bottom);
-        slice = VisibleSlice(image_indices, vr.first, vr.last_plus_1);
+    if (respect_viewport) {
+        const float viewport_height = cb_.get_viewport_height();
+        if (viewport_height > 0.0f) {
+            const float viewport_top = viewport_->GetScrollY();
+            const float buffer = viewport_height * PREFETCH_BUFFER_SCREENS;
+            const float range_top = viewport_top - buffer;
+            const float range_bottom = viewport_top + viewport_height + buffer;
+            const auto vr = ComputeVisibleNodeRange(*cache_, nodes.size(), range_top, range_bottom);
+            slice = VisibleSlice(image_indices, vr.first, vr.last_plus_1);
+        }
     }
 
     int applied = 0;
@@ -148,7 +153,9 @@ int ResourceManager::ApplyCachedImages()
             (*cache_)[i].layout_dirty = false;
             ++applied;
         }
-        else {
+        else if (respect_viewport) {
+            // 通常運用時のみ未キャッシュ画像を非同期ロード起動。
+            // リロード時は後続の LoadImages effect で起動するためスキップ。
             image_loader_->RequestLoadAsync(abs_str, [this] { OnImageLoadComplete(); });
         }
     }

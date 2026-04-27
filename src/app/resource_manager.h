@@ -40,7 +40,10 @@ public:
         Callbacks cb);
 
     // --- 画像リソース ---
-    int ApplyCachedImages();
+    // respect_viewport=true: 可視範囲のみ走査し、未キャッシュは非同期ロード起動。通常描画用。
+    // respect_viewport=false: 全画像を走査、未キャッシュは無視。リロード時のスクロール計算前用。
+    int ApplyCachedImages(bool respect_viewport = true);
+    int ApplyCachedImagesForReload() { return ApplyCachedImages(false); }
     void LoadImages();
     void OnAppImageLoaded();
     void OnImageLoadComplete();
