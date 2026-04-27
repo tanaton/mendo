@@ -80,7 +80,9 @@ struct AppState {
 
     // ---- リロード管理 ----
     size_t reload_diff_pos = std::string_view::npos;
-    bool pending_prefix_shrink = false;
+    // 短縮タイマーで再リロード予約済み (DeferPrefixShrink / partial-read race)。
+    // ローディングアニメーションを抑制するために参照される。
+    bool pending_reload_retry = false;
 
     // ---- ペインレイアウトキャッシュ ----
     std::pmr::wstring cached_title_text = L"mendo";

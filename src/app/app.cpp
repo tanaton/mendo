@@ -164,7 +164,7 @@ void App::OnPaint()
     BeginPaint(hwnd_, &ps);
 
     const auto& layout = GetPaneLayout();
-    const bool show_loading = file_load_service_.IsLoading() && !state_.pending_prefix_shrink;
+    const bool show_loading = file_load_service_.IsLoading() && !state_.pending_reload_retry;
     if (!show_loading) {
         // 現在表示中のダーティなノードを現在の幅でレイアウトする
         EnsureScrollTarget();

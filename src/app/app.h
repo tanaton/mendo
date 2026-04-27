@@ -189,13 +189,20 @@ private:
     void ApplyMermaidCacheHeights(float md_width);
     void UpdateTitleBar();
 
-    void FinishReload(bool is_prefix_only, size_t diff_pos);
+    void FinishReload(size_t diff_pos);
 
-    // pending_prefix_shrink を確定し、NoChange / DeferPrefixShrink なら
+    // pending_reload_retry を確定し、NoChange / DeferPrefixShrink なら
     // ResumeFileWatch を発行して true (= 呼び出し元は早期 return) を返す。
     // PrefixGrowth / FullReload なら false を返し、呼び出し元が
     // decision.op で本格的な reload / load 処理を分岐する。
     bool ApplyReloadDecisionEarly(const ReloadDecision& decision);
+
+    // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
+    // partial-read を検出した時に共通で使う。
+    void DeferReloadRetry();
+
+    // partial-read を検出したら defer して true を返す。
+    bool DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size);
 
     void CancelPendingResources();
     void ResetViewForNewDocument();

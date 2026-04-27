@@ -1659,6 +1659,55 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
     EXPECT_GE(result, 0.0f);
 }
 
+// issue#146 回帰テスト:
+// 末尾追記 (PrefixGrowth) で旧コードが old_scroll を保持していたため、
+// ユーザの編集場所にスクロールしなかった。AnalyzeReloadDiff と
+// CalcScrollYForDiff の組合せで「fallback ではなく diff_pos に対応する
+// 位置を返す」ことを担保する。
+TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
+{
+    // 旧 doc: 3 段落
+    const std::string old_md = "para_one\n\npara_two\n\npara_three";
+    // 新 doc: 末尾に 1 段落追記
+    const std::string new_md = old_md + "\n\npara_four_added";
+
+    // AnalyzeReloadDiff で PrefixGrowth と判定されること
+    const auto decision = AnalyzeReloadDiff(old_md, new_md);
+    ASSERT_EQ(decision.op, ReloadOp::PrefixGrowth);
+    ASSERT_EQ(decision.diff_pos, old_md.size());
+
+    // 新 doc を pipeline で扱うイメージで cache を構築
+    auto nodes = ParseMarkdown(new_md).nodes;
+    ASSERT_GE(nodes.size(), 4u);
+
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    float y = 0.0f;
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        cache[i].y_position = y;
+        cache[i].height = 100.0f;
+        y += 100.0f;
+    }
+    const float last_old_node_y = cache[nodes.size() - 2].y_position;
+    const float appended_node_y = cache[nodes.size() - 1].y_position;
+
+    // ユーザが先頭付近 (scroll_y=0) を見ている状態で末尾追記が起きたシナリオ。
+    // 旧コード (is_prefix_only ? old_scroll : ...) では desired_scroll が
+    // current_scroll(=0) のまま fallback されていた。これが issue#146 の症状。
+    constexpr float viewport_height = 500.0f;
+    constexpr float current_scroll = 0.0f;
+    const float result = CalcScrollYForDiff(nodes, cache, new_md,
+        decision.diff_pos, viewport_height, current_scroll);
+
+    // 修正後: 追記境界 (旧 doc 末尾) 近辺にスクロール。current_scroll とは
+    // 顕著に異なる値が返ること。旧コードでは current_scroll(=0) がそのまま
+    // 返っていたので、「margin 分以上」上回ることで回帰を検出できる。
+    EXPECT_GT(result, current_scroll + viewport_height * 0.2f);
+    // 着地点は最後の旧ノード〜追記ノードの境界付近 (margin で多少上)。
+    EXPECT_GE(result, last_old_node_y - viewport_height * 0.2f);
+    EXPECT_LE(result, appended_node_y);
+}
+
 // ============================================================
 // ToLowerAscii
 // ============================================================

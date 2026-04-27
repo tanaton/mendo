@@ -78,6 +78,21 @@ struct OpenedFile {
     return { std::move(buf), r.size };
 }
 
+// 読み込み済みコンテンツの後にファイルがさらに伸びていれば、エディタ側が
+// 書き込み途中である可能性が高い。BOM の 3 バイトずれ等を吸収するため
+// 16 バイトの許容範囲を持たせる。
+[[nodiscard]] inline bool IsFileLargerThan(const std::filesystem::path& path,
+    size_t reference_size, size_t tolerance = 16) noexcept
+{
+    WIN32_FILE_ATTRIBUTE_DATA attr{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)) {
+        return false;
+    }
+    const uint64_t current_size = (static_cast<uint64_t>(attr.nFileSizeHigh) << 32)
+        | static_cast<uint64_t>(attr.nFileSizeLow);
+    return current_size > static_cast<uint64_t>(reference_size) + tolerance;
+}
+
 // ファイルに全て書き込む。成功時はtrueを返す。
 [[nodiscard]] inline bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
 {
