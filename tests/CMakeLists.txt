@@ -63,6 +63,7 @@ add_executable(mendo_tests
     test_command_executor.cpp
     test_resource_manager.cpp
     test_ascii_util.cpp
+    test_html_entity.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

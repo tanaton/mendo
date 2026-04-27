@@ -38,7 +38,10 @@ std::optional<std::wstring_view> ResolveHtmlEntity(std::string_view entity, wcha
             const auto r = std::from_chars(entity.data() + 2, entity.data() + entity.size() - 1, codepoint, 10);
             valid = (r.ec == std::errc());
         }
-        if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
+        // サロゲート範囲 (U+D800-U+DFFF) は単独で UTF-16 として不正なので除外し、
+        // 呼び出し側で元の utf-8 をそのまま再投入させる。
+        if (valid && codepoint > 0 && codepoint <= 0xFFFF &&
+            !(codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
             buffer[0] = static_cast<wchar_t>(codepoint);
             return std::wstring_view{ buffer, 1 };
         }
