@@ -11,7 +11,9 @@ struct DipRect {
 };
 
 // 点が矩形内にあるか判定する（D2D 規約に合わせ右辺・下辺は排他的）。
-inline constexpr bool PointInRect(float x, float y, const DipRect& r) noexcept
+// `left/top/right/bottom` を持つ任意の矩形型 (DipRect / D2D1_RECT_F 等) に対応する。
+template <class Rect>
+inline constexpr bool PointInRect(float x, float y, const Rect& r) noexcept
 {
     return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
 }

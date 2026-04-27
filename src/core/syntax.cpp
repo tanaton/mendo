@@ -29,8 +29,13 @@ using syntax_keywords::CMD_TYPES;
 
 namespace {
 
+using ascii_util::IsAsciiDigit;
+using ascii_util::IsAsciiHexDigit;
+
 // ---- ヘルパー関数 ----
 
+// 識別子先頭文字: ASCII 英字 + '_' に加え、CJK 等の非 ASCII (>= U+0080) も許可する。
+// ascii_util の純粋 ASCII ヘルパに乗らないので syntax 固有として残す。
 bool IsIdentStart(wchar_t c)
 {
     return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || c == L'_' || c >= 0x80;
@@ -38,17 +43,7 @@ bool IsIdentStart(wchar_t c)
 
 bool IsIdentChar(wchar_t c)
 {
-    return IsIdentStart(c) || (c >= L'0' && c <= L'9');
-}
-
-bool IsDigit(wchar_t c)
-{
-    return c >= L'0' && c <= L'9';
-}
-
-bool IsHexDigit(wchar_t c)
-{
-    return IsDigit(c) || (c >= L'a' && c <= L'f') || (c >= L'A' && c <= L'F');
+    return IsIdentStart(c) || IsAsciiDigit(c);
 }
 
 bool IsAtLineStart(std::wstring_view text, size_t pos)
@@ -132,7 +127,7 @@ size_t ScanNumber(std::wstring_view text, size_t pos)
         wchar_t next = text[i + 1];
         if (next == L'x' || next == L'X') {
             i += 2;
-            while (i < text.size() && (IsHexDigit(text[i]) || text[i] == L'\'')) {
+            while (i < text.size() && (IsAsciiHexDigit(text[i]) || text[i] == L'\'')) {
                 i++;
             }
             // サフィックス
@@ -158,14 +153,14 @@ size_t ScanNumber(std::wstring_view text, size_t pos)
     }
 
     // 整数 / 浮動小数点
-    while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) {
+    while (i < text.size() && (IsAsciiDigit(text[i]) || text[i] == L'\'')) {
         i++;
     }
 
     // 小数点
     if (i < text.size() && text[i] == L'.') {
         i++;
-        while (i < text.size() && (IsDigit(text[i]) || text[i] == L'\'')) {
+        while (i < text.size() && (IsAsciiDigit(text[i]) || text[i] == L'\'')) {
             i++;
         }
     }
@@ -176,7 +171,7 @@ size_t ScanNumber(std::wstring_view text, size_t pos)
         if (i < text.size() && (text[i] == L'+' || text[i] == L'-')) {
             i++;
         }
-        while (i < text.size() && IsDigit(text[i])) {
+        while (i < text.size() && IsAsciiDigit(text[i])) {
             i++;
         }
     }
@@ -409,7 +404,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
         }
 
         // 7. 数値
-        if (IsDigit(c) || (c == L'.' && i + 1 < text.size() && IsDigit(text[i + 1]))) {
+        if (IsAsciiDigit(c) || (c == L'.' && i + 1 < text.size() && IsAsciiDigit(text[i + 1]))) {
             flush_plain();
             const size_t start = i;
             i = ScanNumber(text, i);

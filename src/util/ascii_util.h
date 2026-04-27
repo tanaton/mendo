@@ -31,6 +31,17 @@ constexpr wchar_t ToUpperAscii(wchar_t c) noexcept
     return (c >= L'a' && c <= L'z') ? static_cast<wchar_t>(c - L'a' + L'A') : c;
 }
 
+// 純粋な ASCII 範囲の文字種判定。locale や CJK の影響を受けない。
+constexpr bool IsAsciiDigit(wchar_t c) noexcept
+{
+    return c >= L'0' && c <= L'9';
+}
+
+constexpr bool IsAsciiHexDigit(wchar_t c) noexcept
+{
+    return IsAsciiDigit(c) || (c >= L'a' && c <= L'f') || (c >= L'A' && c <= L'F');
+}
+
 namespace detail {
 
 // 8 wchar_t 入りベクタに非 ASCII (>= 0x80) が含まれているか

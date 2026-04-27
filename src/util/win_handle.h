@@ -82,9 +82,37 @@ struct GlobalMemTraits {
 };
 using UniqueGlobalMem = UniqueResource<GlobalMemTraits>;
 
+// クリップボードを RAII で開閉するセッションガード。
+// コンストラクタで OpenClipboard + EmptyClipboard を行い、
+// デストラクタで CloseClipboard を呼ぶ。OpenClipboard が失敗した場合は
+// `if (session)` が false になり、EmptyClipboard / CloseClipboard は呼ばない。
+class ClipboardSession {
+public:
+    explicit ClipboardSession(HWND hwnd) noexcept
+        : open_(::OpenClipboard(hwnd) != FALSE)
+    {
+        if (open_) {
+            ::EmptyClipboard();
+        }
+    }
+    ~ClipboardSession()
+    {
+        if (open_) {
+            ::CloseClipboard();
+        }
+    }
+    ClipboardSession(const ClipboardSession&) = delete;
+    ClipboardSession& operator=(const ClipboardSession&) = delete;
+
+    explicit operator bool() const noexcept { return open_; }
+
+private:
+    bool open_;
+};
+
 // 末尾 NUL 文字を付加した text を format 形式でクリップボードに登録する。
 // CharT は char または wchar_t を想定。OpenClipboard / EmptyClipboard /
-// CloseClipboard の呼び出しは呼び出し側の責務。
+// CloseClipboard の呼び出しは呼び出し側の責務（ClipboardSession を使うと簡潔）。
 // 戻り値: SetClipboardData まで成功したら true。
 template <typename CharT>
 inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT> text) noexcept
@@ -115,12 +143,14 @@ inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT
 // App::SetClipboardText と SideEffectExecutor の両方から使用される。
 inline void WriteClipboardText(HWND hwnd, std::wstring_view text) noexcept
 {
-    if (text.empty() || !OpenClipboard(hwnd)) {
+    if (text.empty()) {
         return;
     }
-    EmptyClipboard();
+    ClipboardSession session(hwnd);
+    if (!session) {
+        return;
+    }
     SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, text);
-    CloseClipboard();
 }
 
 // CF_HTML 形式のクリップボード用ペイロードを構築する。
@@ -181,10 +211,13 @@ inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
 //        OpenClipboard / SetClipboardData が全滅したら false（呼び出し側で失敗トースト表示用）。
 inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
 {
-    if (svg_text.empty() || !OpenClipboard(hwnd)) {
+    if (svg_text.empty()) {
         return false;
     }
-    EmptyClipboard();
+    ClipboardSession session(hwnd);
+    if (!session) {
+        return false;
+    }
 
     bool any_set = false;
 
@@ -196,7 +229,6 @@ inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
 
     any_set |= SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, svg_text);
 
-    CloseClipboard();
     return any_set;
 }
 
@@ -208,10 +240,10 @@ inline void WriteClipboardHtml(HWND hwnd, std::wstring_view fragment_html, std::
     if (fragment_html.empty() && plain_text.empty()) {
         return;
     }
-    if (!OpenClipboard(hwnd)) {
+    ClipboardSession session(hwnd);
+    if (!session) {
         return;
     }
-    EmptyClipboard();
 
     if (!fragment_html.empty()) {
         const std::string fragment_utf8 = string_convert::WideToUtf8(fragment_html);
@@ -223,6 +255,4 @@ inline void WriteClipboardHtml(HWND hwnd, std::wstring_view fragment_html, std::
     if (!plain_text.empty()) {
         SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, plain_text);
     }
-
-    CloseClipboard();
 }

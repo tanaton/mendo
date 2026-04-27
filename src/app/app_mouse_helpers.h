@@ -1,6 +1,7 @@
 #pragma once
 // app_mouse_*.cpp 群の共通ヘルパー（内部ヘッダ）。
 #include "i18n.h"
+#include "nav_button.h"
 #include "pane_layout.h"
 #include "tooltip.h"
 #include "titlebar.h"
@@ -43,6 +44,31 @@ inline TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximize
     case TitleBarHitZone::Minimize:    return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_minimize };
     case TitleBarHitZone::Maximize:    return { TooltipTarget::Zone::TitleBarButton, is_maximized ? ls.tooltip_restore : ls.tooltip_maximize };
     case TitleBarHitZone::Close:       return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_close };
+    default: return {};
+    }
+}
+
+// 検索バーのボタンに対応するツールチップを返す。
+inline TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
+{
+    const auto& ls = i18n::S();
+    switch (zone) {
+    case SearchBarHitZone::Up:            return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev };
+    case SearchBarHitZone::Down:          return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next };
+    case SearchBarHitZone::CaseSensitive: return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case };
+    case SearchBarHitZone::Highlight:     return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight };
+    case SearchBarHitZone::Close:         return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close };
+    default: return {};
+    }
+}
+
+// MD ペインのナビゲーションボタンに対応するツールチップを返す。
+inline TooltipTarget BuildNavButtonTooltip(NavButtonHover hit) noexcept
+{
+    const auto& ls = i18n::S();
+    switch (hit) {
+    case NavButtonHover::Back:    return { TooltipTarget::Zone::NavButton, ls.tooltip_nav_back };
+    case NavButtonHover::Forward: return { TooltipTarget::Zone::NavButton, ls.tooltip_nav_forward };
     default: return {};
     }
 }

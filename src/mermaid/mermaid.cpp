@@ -18,13 +18,6 @@ static const wchar_t* MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 static constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 static constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
 
-int MermaidRenderer::ComputeWorkerCount() noexcept
-{
-    SYSTEM_INFO si{};
-    GetSystemInfo(&si);
-    return mermaid_util::ComputeWorkerCount(si.dwNumberOfProcessors);
-}
-
 MermaidRenderer::~MermaidRenderer()
 {
     Shutdown();
@@ -82,7 +75,9 @@ void MermaidRenderer::EnsureInitialized()
         return;
     }
 
-    worker_count_ = ComputeWorkerCount();
+    SYSTEM_INFO si{};
+    GetSystemInfo(&si);
+    worker_count_ = mermaid_util::ComputeWorkerCount(si.dwNumberOfProcessors);
 
     // オフスクリーンでWebView2をホストする非表示ポップアップウィンドウを登録・作成する。
     // WebView2はCapturePreviewでコンテンツをレンダリングするためにIsVisible=TRUEが必要なため、
