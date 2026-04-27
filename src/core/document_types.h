@@ -8,7 +8,6 @@
 #include <utility>
 #include <variant>
 #include "syntax.h"
-#include "string_convert.h"
 #include "text_types.h"
 
 enum class NodeType : uint8_t {

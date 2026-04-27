@@ -20,7 +20,7 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: mendo
           path: build/Release/mendo.exe
