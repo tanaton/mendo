@@ -1,5 +1,5 @@
 #include "document_utils.h"
-#include "simd_ascii.h"
+#include "ascii_util.h"
 #include <cstdint>
 #include <cwctype>
 #include <filesystem>
@@ -10,7 +10,7 @@ std::pmr::wstring ToLowerAscii(std::wstring_view text)
 {
     std::pmr::wstring result;
     result.resize_and_overwrite(text.size(), [&text](wchar_t* buf, size_t count) noexcept -> size_t {
-        simd_ascii::AsciiToLowerOnly(text.data(), buf, count);
+        ascii_util::AsciiToLowerOnly(text.data(), buf, count);
         return count;
     });
     return result;

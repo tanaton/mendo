@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "parser.h"
+#include "anchor_slug.h"
 
 TEST(AnchorId, LowercasePassthrough)
 {

@@ -7,12 +7,29 @@
 #include <intrin.h>
 #include <string_view>
 
-// SSE2 ベースの ASCII 文字列ヘルパ。wchar_t (UTF-16 code unit) を 8 文字並列で扱う。
-// 非 ASCII (>= U+0080) を含む場合は std::towlower や逐次比較にフォールバックするので、
-// サロゲートペアやマルチバイト境界を破壊することはない。
-namespace simd_ascii {
+// ASCII 文字列ヘルパ。バルク処理は SSE2 で wchar_t (UTF-16 code unit) を 8 文字並列に扱い、
+// 非 ASCII (>= U+0080) を含むチャンクは std::towlower や逐次比較にフォールバックするので、
+// サロゲートペアやマルチバイト境界を破壊することはない。1 文字版 helper はスカラ constexpr。
+namespace ascii_util {
 
 inline constexpr size_t npos = static_cast<size_t>(-1);
+
+// 1 文字 ASCII case 変換ヘルパ。`std::tolower` の locale 依存
+// (トルコ語の I → ı 等) を避けたい用途用。非 ASCII および ASCII 小文字は素通し。
+[[nodiscard]] constexpr wchar_t ToLowerAscii(wchar_t c) noexcept
+{
+    return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+}
+
+[[nodiscard]] constexpr char ToLowerAscii(char c) noexcept
+{
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+}
+
+[[nodiscard]] constexpr wchar_t ToUpperAscii(wchar_t c) noexcept
+{
+    return (c >= L'a' && c <= L'z') ? static_cast<wchar_t>(c - L'a' + L'A') : c;
+}
 
 namespace detail {
 
@@ -179,4 +196,4 @@ inline size_t Find(std::wstring_view text, std::wstring_view query, size_t start
     return npos;
 }
 
-} // namespace simd_ascii
+} // namespace ascii_util

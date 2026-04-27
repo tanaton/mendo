@@ -1,4 +1,5 @@
 #include "navigation_service.h"
+#include "ascii_util.h"
 #include <algorithm>
 #include <ranges>
 
@@ -6,9 +7,7 @@
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
 bool IsSafeUrlScheme(std::wstring_view url) noexcept
 {
-    const auto to_lower = [](wchar_t c) static noexcept {
-        return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c + (L'a' - L'A')) : c;
-    };
+    constexpr auto to_lower = [](wchar_t c) static noexcept { return ascii_util::ToLowerAscii(c); };
     const auto starts_with_i = [&](std::wstring_view s, std::wstring_view prefix) noexcept {
         return s.size() >= prefix.size()
             && std::ranges::equal(s | std::views::take(prefix.size()), prefix, {}, to_lower, to_lower);

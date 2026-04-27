@@ -90,9 +90,11 @@ set(MENDO_SRC_DIRS
 # ---- コアライブラリ（テスト可能なコード、WinMain/ウィンドウなし） ----
 add_library(mendo_core STATIC
     # core - ドキュメントモデル・パース
+    src/core/anchor_slug.cpp
     src/core/document.cpp
     src/core/document_service.cpp
     src/core/document_utils.cpp
+    src/core/html_entity.cpp
     src/core/parser.cpp
     src/core/parser_alerts.cpp
     src/core/reload_diff.cpp
