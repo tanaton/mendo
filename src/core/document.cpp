@@ -59,6 +59,7 @@ int Document::FindAnchorIndex(std::wstring_view anchor) const
 void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices)
 {
     toc_.Clear();
+    toc_.Reserve(heading_indices.size());
     anchor_index_.clear();
     anchor_index_.reserve(heading_indices.size());
 

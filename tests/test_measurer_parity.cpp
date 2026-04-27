@@ -3,35 +3,16 @@
 // 「どちらも正の高さを返す」「順序性を維持する」「同じスケーリング式を使う」等の
 // 共通ルールを検証することで、片方だけ仕様が変わった際の検出ポイントを残す。
 #include <gtest/gtest.h>
+#include "dwrite_test_base.h"
 #include "mock_text_measurer.h"
-#include "dwrite_measurer.h"
-#include "document_types.h"
-#include "layout_cache.h"
-#include "test_helpers.h"
-#include "theme.h"
-#include <dwrite.h>
-#include <wrl/client.h>
 
-using Microsoft::WRL::ComPtr;
-
-class MeasurerParityTest : public ComApartmentTest {
+class MeasurerParityTest : public DWriteTestBase {
 protected:
-    ComPtr<IDWriteFactory> dwrite_factory_;
-    DWriteTextMeasurer dwrite_;
     MockTextMeasurer mock_;
-    Theme theme_;
 
     void SetUp() override
     {
-        const HRESULT hr = DWriteCreateFactory(
-            DWRITE_FACTORY_TYPE_SHARED,
-            __uuidof(IDWriteFactory),
-            reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
-        ASSERT_TRUE(SUCCEEDED(hr));
-
-        theme_ = GetLightTheme();
-        dwrite_.SetFactory(dwrite_factory_.Get());
-        ASSERT_TRUE(dwrite_.Init(theme_));
+        DWriteTestBase::SetUp();
         ASSERT_TRUE(mock_.Init(theme_));
     }
 
@@ -47,7 +28,7 @@ protected:
         NodeLayoutEntry mock_entry{};
         NodeLayoutEntry dwrite_entry{};
         mock_.MeasureNode(mock_node, mock_entry, max_width);
-        dwrite_.MeasureNode(dw_node, dwrite_entry, max_width);
+        measurer_.MeasureNode(dw_node, dwrite_entry, max_width);
         return { mock_entry.height, dwrite_entry.height };
     }
 

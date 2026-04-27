@@ -13,7 +13,6 @@ struct TocEntry {
 
 class TableOfContents {
 public:
-    void BuildFromNodes(const std::pmr::vector<Node>& nodes);
     const std::pmr::vector<TocEntry>& GetEntries() const noexcept { return entries_; }
     int HitTest(float local_y, float item_height) const noexcept;
 
@@ -22,6 +21,7 @@ public:
     int FindActiveIndex(const LayoutCache& cache, float scroll_y, float margin = 0.0f) const noexcept;
 
     void Clear() noexcept { entries_.clear(); }
+    void Reserve(size_t n) { entries_.reserve(n); }
     void AddEntry(const Node& node, int node_index);
 
 private:

@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
-#include "theme.h"
-#include <dwrite.h>
-#include <wrl/client.h>
+#include "dwrite_test_base.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -9,24 +7,16 @@ using Microsoft::WRL::ComPtr;
 // 水平・垂直の両方向でテキストを中央揃えにすることを検証する。
 // これはRenderer::RecreatePaneFormats()のfmt_nav_button_の設定を再現したもの。
 
-class NavButtonFormatTest : public ::testing::Test {
+class NavButtonFormatTest : public DWriteTestBase {
 protected:
-    ComPtr<IDWriteFactory> factory_;
     ComPtr<IDWriteTextFormat> fmt_;
-    Theme theme_;
 
     void SetUp() override
     {
-        theme_ = GetLightTheme();
-
-        HRESULT hr = DWriteCreateFactory(
-            DWRITE_FACTORY_TYPE_SHARED,
-            __uuidof(IDWriteFactory),
-            reinterpret_cast<IUnknown**>(factory_.GetAddressOf()));
-        ASSERT_TRUE(SUCCEEDED(hr));
+        DWriteTestBase::SetUp();
 
         // Renderer::RecreatePaneFormatsと同じパラメータでフォーマットを作成
-        hr = factory_->CreateTextFormat(
+        HRESULT hr = dwrite_factory_->CreateTextFormat(
             theme_.font_family.c_str(), nullptr,
             DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
@@ -63,7 +53,7 @@ TEST_F(NavButtonFormatTest, ArrowGlyphsHaveNonZeroSize)
 
     for (const auto* arrow : arrows) {
         ComPtr<IDWriteTextLayout> layout;
-        HRESULT hr = factory_->CreateTextLayout(
+        HRESULT hr = dwrite_factory_->CreateTextLayout(
             arrow, 1, fmt_.Get(), 32.0f, 32.0f, &layout);
         ASSERT_TRUE(SUCCEEDED(hr));
 
@@ -84,7 +74,7 @@ TEST_F(NavButtonFormatTest, ArrowGlyphIsCenteredInLayoutBox)
     constexpr float BOX_SIZE = 32.0f;
 
     ComPtr<IDWriteTextLayout> layout;
-    HRESULT hr = factory_->CreateTextLayout(
+    HRESULT hr = dwrite_factory_->CreateTextLayout(
         L"\x25C0", 1, fmt_.Get(), BOX_SIZE, BOX_SIZE, &layout);
     ASSERT_TRUE(SUCCEEDED(hr));
 
