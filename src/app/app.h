@@ -186,7 +186,7 @@ private:
     void FinishLoadMarkdownFile(bool heights_estimated = false);
     void HandleLoadFailureFallback();
     float CalcScrollForDiff(size_t diff_pos, float viewport_height) const;
-    void ApplyMermaidCacheHeights(float md_width);
+    bool ApplyMermaidCacheHeights(float md_width);
     void UpdateTitleBar();
 
     void FinishReload(size_t diff_pos);
