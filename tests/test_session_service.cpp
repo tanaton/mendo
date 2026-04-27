@@ -1,8 +1,9 @@
 #include <gtest/gtest.h>
 #include "session_service.h"
 #include "config_service.h"
+#include "test_helpers.h"
 
-class SessionServiceTest : public ::testing::Test {
+class SessionServiceTest : public TempDirTestBase {
 protected:
     ConfigService config_;
     SessionService session_{ config_ };
@@ -110,8 +111,9 @@ TEST_F(SessionServiceTest, LoadLastFilePathRejectsDevicePathPrefix)
 TEST_F(SessionServiceTest, LoadLastFilePathRejectsNonexistentLocalPath)
 {
     // GetFileAttributesW がパス無効を返す通常パスは弾かれる。
-    config_.SaveWString("Session", "LastFile",
-        L"C:\\__mendo_nonexistent_dir__\\__never__.md");
+    // TempDirTestBase 配下の作成しないファイル名を使い、絶対パスへのフレークを避ける。
+    const auto missing = (temp_dir_ / L"never_created.md").wstring();
+    config_.SaveWString("Session", "LastFile", missing);
     auto path = session_.LoadLastFilePath();
     EXPECT_TRUE(path.empty());
 }
