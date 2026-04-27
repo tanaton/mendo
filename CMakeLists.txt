@@ -155,6 +155,11 @@ if(MSVC)
     target_compile_options(mendo_core PRIVATE /W4 /utf-8)
 endif()
 
+# ---- プリコンパイル済みヘッダー ----
+# `<pch.h>` 形式で指定するのは、CMake が生成する wrapper に絶対パスを書かれると
+# 日本語パス配下では MSVC `/utf-8` と衝突するため。
+target_precompile_headers(mendo_core PRIVATE <pch.h>)
+
 # ---- mermaid.min.jsをgzip圧縮してexeサイズを縮小 ----
 set(MERMAID_JS_SRC "${CMAKE_SOURCE_DIR}/third_party/mermaid/mermaid.min.js")
 set(MERMAID_JS_GZ  "${CMAKE_SOURCE_DIR}/third_party/mermaid/mermaid.min.js.gz")
@@ -205,6 +210,8 @@ if(MSVC)
 endif()
 # 自動生成マニフェストを無効化（RC経由で独自のマニフェストを提供するため）
 set_target_properties(mendo PROPERTIES LINK_FLAGS "/MANIFEST:NO")
+
+target_precompile_headers(mendo REUSE_FROM mendo_core)
 
 # ---- テスト ----
 option(MENDO_BUILD_TESTS "Build tests" ON)
