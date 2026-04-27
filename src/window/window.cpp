@@ -219,76 +219,89 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
     POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
     ScreenToClient(hwnd_, &pt);
 
-    // 非最大化時のリサイズ枠判定（細めの枠でスクロールバーと干渉しないようにする）
-    if (!IsZoomed(hwnd_)) {
-        const int border = cached_nchit_border_;
-        const int frame_y = cached_nchit_frame_y_;
-        const int right_border = cached_nchit_right_border_;
+    if (const LRESULT frame_hit = HitTestResizeFrame(pt); frame_hit != HTNOWHERE) {
+        return frame_hit;
+    }
+    return HitTestTitleBar(pt);
+}
 
-        RECT rc;
-        GetClientRect(hwnd_, &rc);
-
-        if (pt.y < frame_y) {
-            if (pt.x < border) {
-                return HTTOPLEFT;
-            }
-            if (pt.x >= rc.right - right_border) {
-                return HTTOPRIGHT;
-            }
-            return HTTOP;
-        }
-        if (pt.y >= rc.bottom - border) {
-            if (pt.x < border) {
-                return HTBOTTOMLEFT;
-            }
-            if (pt.x >= rc.right - right_border) {
-                return HTBOTTOMRIGHT;
-            }
-            return HTBOTTOM;
-        }
-        if (pt.x < border) {
-            return HTLEFT;
-        }
-        if (pt.x >= rc.right - right_border) {
-            // 内側部分のみスクロールバーを優先、最外側borderはリサイズを優先
-            if (pt.x < rc.right - border) {
-                const float dpi_scale = app_->GetDpiScale();
-                if (app_->IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
-                    return HTCLIENT;
-                }
-            }
-            return HTRIGHT;
-        }
+LRESULT Win32Window::HitTestResizeFrame(POINT pt) const noexcept
+{
+    // 最大化時はリサイズ不可
+    if (IsZoomed(hwnd_)) {
+        return HTNOWHERE;
     }
 
-    // タイトルバー領域のヒットテスト
+    const int border = cached_nchit_border_;
+    const int frame_y = cached_nchit_frame_y_;
+    const int right_border = cached_nchit_right_border_;
+
+    RECT rc;
+    GetClientRect(hwnd_, &rc);
+
+    if (pt.y < frame_y) {
+        if (pt.x < border) {
+            return HTTOPLEFT;
+        }
+        if (pt.x >= rc.right - right_border) {
+            return HTTOPRIGHT;
+        }
+        return HTTOP;
+    }
+    if (pt.y >= rc.bottom - border) {
+        if (pt.x < border) {
+            return HTBOTTOMLEFT;
+        }
+        if (pt.x >= rc.right - right_border) {
+            return HTBOTTOMRIGHT;
+        }
+        return HTBOTTOM;
+    }
+    if (pt.x < border) {
+        return HTLEFT;
+    }
+    // 右辺: スクロールバー領域は HTCLIENT を優先するが、最外側 border はリサイズを優先
+    if (pt.x >= rc.right - right_border) {
+        if (pt.x < rc.right - border) {
+            const float dpi_scale = app_->GetDpiScale();
+            if (app_->IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
+                return HTCLIENT;
+            }
+        }
+        return HTRIGHT;
+    }
+
+    return HTNOWHERE;
+}
+
+LRESULT Win32Window::HitTestTitleBar(POINT pt) const noexcept
+{
     const float dpi_scale = app_->GetDpiScale();
     const float dip_x = pt.x / dpi_scale;
     const float dip_y = pt.y / dpi_scale;
     const float titlebar_height = app_->GetTitleBarHeightDip();
 
-    if (dip_y < titlebar_height) {
-        const auto zone = app_->TitleBarHitTest(dip_x, dip_y);
-        switch (zone) {
-        case TitleBarHitZone::Icon:
-            return HTSYSMENU;  // システムメニュー表示（ダブルクリックで閉じる）
-        case TitleBarHitZone::OpenFile:
-        case TitleBarHitZone::Help:
-        case TitleBarHitZone::ThemeToggle:
-        case TitleBarHitZone::Search:
-        case TitleBarHitZone::FileToggle:
-        case TitleBarHitZone::TocToggle:
-        case TitleBarHitZone::Minimize:
-        case TitleBarHitZone::Maximize:
-        case TitleBarHitZone::Close:
-            return HTCLIENT;  // カスタムボタンはWM_LBUTTONDOWNで処理
-        case TitleBarHitZone::Caption:
-        default:
-            return HTCAPTION;
-        }
+    if (dip_y >= titlebar_height) {
+        return HTCLIENT;
     }
 
-    return HTCLIENT;
+    switch (app_->TitleBarHitTest(dip_x, dip_y)) {
+    case TitleBarHitZone::Icon:
+        return HTSYSMENU;  // システムメニュー表示（ダブルクリックで閉じる）
+    case TitleBarHitZone::OpenFile:
+    case TitleBarHitZone::Help:
+    case TitleBarHitZone::ThemeToggle:
+    case TitleBarHitZone::Search:
+    case TitleBarHitZone::FileToggle:
+    case TitleBarHitZone::TocToggle:
+    case TitleBarHitZone::Minimize:
+    case TitleBarHitZone::Maximize:
+    case TitleBarHitZone::Close:
+        return HTCLIENT;  // カスタムボタンはWM_LBUTTONDOWNで処理
+    case TitleBarHitZone::Caption:
+    default:
+        return HTCAPTION;
+    }
 }
 
 LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)

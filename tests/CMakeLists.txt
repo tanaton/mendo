@@ -31,6 +31,7 @@ add_executable(mendo_tests
     test_layout_cache.cpp
     test_copy_button.cpp
     test_hit_test_service.cpp
+    test_hit_test_service_dwrite.cpp
     test_swipe_detector.cpp
     test_titlebar.cpp
     test_ui_constants.cpp
@@ -56,6 +57,8 @@ add_executable(mendo_tests
     test_task_scheduler.cpp
     test_side_effect_executor.cpp
     test_command_generator_frame.cpp
+    test_command_generator_content.cpp
+    test_command_generator_highlight.cpp
     test_measurer_parity.cpp
     test_command_executor.cpp
     test_resource_manager.cpp

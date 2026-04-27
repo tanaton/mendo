@@ -95,9 +95,9 @@ void ConfigService::Flush()
     }
 
     if (!MoveFileExW(tmp_path.c_str(), ini_path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-        // renameが失敗した場合（クロスボリューム等）、直接書き込み
+        // renameが失敗した場合（クロスボリューム等）、直接書き込み（更なる失敗の救済手段はないので戻り値は破棄）
         DeleteFileW(tmp_path.c_str());
-        WriteAllBytes(ini_path, content.data(), content.size());
+        (void)WriteAllBytes(ini_path, content.data(), content.size());
     }
 }
 

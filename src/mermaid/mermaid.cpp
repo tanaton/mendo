@@ -724,24 +724,20 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
 HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
     float* width, float* height)
 {
-    if (!wic_factory_ || !render_target_ || !stream) {
+    if (!stream || !bitmap || !width || !height) {
         return E_FAIL;
     }
 
     const LARGE_INTEGER zero = {};
     stream->Seek(zero, STREAM_SEEK_SET, nullptr);
 
-    const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream);
-    if (!decoded) {
+    auto created = wic_util::CreateD2DBitmapFromStream(wic_factory_.Get(), render_target_, stream);
+    if (!created) {
         return E_FAIL;
     }
 
-    const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(decoded->converter.Get(), bitmap);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    *width = static_cast<float>(decoded->pixel_width);
-    *height = static_cast<float>(decoded->pixel_height);
+    *bitmap = created->bitmap.Detach();
+    *width = static_cast<float>(created->pixel_width);
+    *height = static_cast<float>(created->pixel_height);
     return S_OK;
 }

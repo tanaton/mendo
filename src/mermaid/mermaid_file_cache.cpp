@@ -192,9 +192,9 @@ void MermaidFileCache::SaveIndex()
     }
 
     if (!MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-        // renameが失敗した場合、直接書き込み
+        // renameが失敗した場合、直接書き込み（更なる失敗の救済手段はないので戻り値は破棄）
         DeleteFileW(tmp_path.c_str());
-        WriteAllBytes(path, buf.get(), buf_size);
+        (void)WriteAllBytes(path, buf.get(), buf_size);
     }
 }
 
@@ -325,7 +325,8 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
             return;
         }
 
-        WriteAllBytes(path, data.data(), data.size());
+        // 書き込み失敗時はキャッシュ未保存のままになるが、再生成可能なので致命的ではない
+        (void)WriteAllBytes(path, data.data(), data.size());
     });
     if (!posted) {
         // Post 失敗時はラムダが走らないので PendingGuard も走らない。

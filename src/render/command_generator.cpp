@@ -175,23 +175,34 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         break;
     }
 
+    GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x);
+}
+
+D2D1_COLOR_F CommandGenerator::GetNodeBaseColor(const Node& node) const noexcept
+{
+    switch (node.type) {
+    case NodeType::Heading:
+        return theme_->heading_color;
+    case NodeType::BlockQuote:
+        return (node.alert_type != AlertType::None)
+            ? theme_->text_color
+            : theme_->blockquote_text_color;
+    case NodeType::CodeBlock:
+        return theme_->code_text_color;
+    default:
+        return theme_->text_color;
+    }
+}
+
+void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds,
+    const Node& node, const NodeLayoutEntry& entry, int node_index,
+    float x, float text_x)
+{
     if (!entry.text_layout) {
         return;
     }
 
-    // ノードタイプに応じたベースカラーを決定
-    D2D1_COLOR_F base_color = theme_->text_color;
-    if (node.type == NodeType::Heading) {
-        base_color = theme_->heading_color;
-    }
-    else if (node.type == NodeType::BlockQuote) {
-        base_color = (node.alert_type != AlertType::None)
-            ? theme_->text_color
-            : theme_->blockquote_text_color;
-    }
-    else if (node.type == NodeType::CodeBlock) {
-        base_color = theme_->code_text_color;
-    }
+    const D2D1_COLOR_F base_color = GetNodeBaseColor(node);
 
     // インラインコードの背景
     GenInlineCodeBgs(cmds, entry.inline_code_bgs, text_x, entry.y_position, theme_->code_bg_color);
@@ -474,55 +485,66 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayo
         return;
     }
 
-    const auto& matches = *search_matches_;
-    auto it = std::ranges::lower_bound(matches, node_index, {}, &SearchMatch::node_index);
-    const size_t first_global = static_cast<size_t>(it - matches.begin());
-    if (first_global >= matches.size() || matches[first_global].node_index != node_index) {
+    const std::span<const SearchMatch> matches = *search_matches_;
+    const auto first_it = std::ranges::lower_bound(matches, node_index, {}, &SearchMatch::node_index);
+    if (first_it == matches.end() || first_it->node_index != node_index) {
         return;
     }
+    // matches は node_index 昇順なので upper_bound で末尾も O(log N) で求める。
+    const auto last_it = std::ranges::upper_bound(matches, node_index, {}, &SearchMatch::node_index);
+    const size_t first_global = static_cast<size_t>(first_it - matches.begin());
+    const size_t node_match_count = static_cast<size_t>(last_it - first_it);
 
+    auto& cache = entry.ensure_search_hl_cache();
+    RebuildSearchHlCache(cache, entry, matches, first_global, node_match_count);
+    EmitSearchHlCommands(cmds, cache, matches, first_global, origin_x, origin_y, table_row, table_col);
+}
+
+void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const NodeLayoutEntry& entry,
+    std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count)
+{
     // キャッシュミス時のみ HitTestTextRange を一括発行。layout 変更時は
     // invalidate_search_hl_cache() でキャッシュ自体が破棄されており、SearchState の
     // generation は 1 から始まるため、cache.gen == search_generation_ のみで
     // キャッシュ有効性を完全判定できる。
-    auto& cache = entry.ensure_search_hl_cache();
-    if (cache.gen != search_generation_) {
-        size_t node_match_count = 0;
-        for (size_t mi = first_global; mi < matches.size(); ++mi) {
-            if (matches[mi].node_index != node_index) {
-                break;
-            }
-            ++node_match_count;
-        }
-
-        cache.rects.clear();
-        cache.rect_ends.clear();
-        cache.rect_ends.reserve(node_match_count);
-
-        auto& buf = GetHitTestBuffer();
-        for (size_t mi = first_global; mi < first_global + node_match_count; ++mi) {
-            const auto& m = matches[mi];
-            IDWriteTextLayout* l = nullptr;
-            if (m.table_row >= 0 && entry.has_table_layout()) {
-                l = entry.table_layout->GetCellLayout(static_cast<size_t>(m.table_row), static_cast<size_t>(m.table_col));
-            }
-            else if (m.table_row < 0) {
-                l = entry.text_layout.Get();
-            }
-            if (l && m.length > 0) {
-                const UINT32 count = FetchHitTestMetrics(l, m.start, m.length, buf);
-                for (UINT32 k = 0; k < count; ++k) {
-                    cache.rects.emplace_back(RectFromHitTest(buf[k]));
-                }
-            }
-            cache.rect_ends.push_back(static_cast<uint32_t>(cache.rects.size()));
-        }
-        cache.gen = search_generation_;
+    if (cache.gen == search_generation_) {
+        return;
     }
 
-    // キャッシュ済みの矩形を origin 加算してコマンド化する。
+    cache.rects.clear();
+    cache.rect_ends.clear();
+    cache.rect_ends.reserve(node_match_count);
+
+    auto& buf = GetHitTestBuffer();
+    for (size_t mi = first_global; mi < first_global + node_match_count; ++mi) {
+        const auto& m = matches[mi];
+        IDWriteTextLayout* l = nullptr;
+        if (m.table_row >= 0 && entry.has_table_layout()) {
+            l = entry.table_layout->GetCellLayout(static_cast<size_t>(m.table_row), static_cast<size_t>(m.table_col));
+        }
+        else if (m.table_row < 0) {
+            l = entry.text_layout.Get();
+        }
+        // m.table_row >= 0 && !has_table_layout() のケースは layout 失効中の
+        // 暫定状態で、l は nullptr のまま空 rect として記録する（次回再構築時に修復）。
+        if (l && m.length > 0) {
+            const UINT32 count = FetchHitTestMetrics(l, m.start, m.length, buf);
+            for (UINT32 k = 0; k < count; ++k) {
+                cache.rects.emplace_back(RectFromHitTest(buf[k]));
+            }
+        }
+        cache.rect_ends.push_back(static_cast<uint32_t>(cache.rects.size()));
+    }
+    cache.gen = search_generation_;
+}
+
+void CommandGenerator::EmitSearchHlCommands(DrawCommandList& cmds, const SearchHlCache& cache,
+    std::span<const SearchMatch> matches, size_t first_global,
+    float origin_x, float origin_y, int table_row, int table_col)
+{
     // 呼び出し側（セル/ノード本体）に属する match のみ描画する。
     const size_t node_match_count = cache.rect_ends.size();
+
     for (size_t node_mi = 0; node_mi < node_match_count; ++node_mi) {
         const size_t mi = first_global + node_mi;
         const auto& m = matches[mi];

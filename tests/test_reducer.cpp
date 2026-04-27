@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "reducer.h"
 #include "document.h"
+#include "app_state.h"
+#include "test_helpers.h"
 
 class ReducerTest : public ::testing::Test {
 protected:
@@ -951,4 +953,131 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates) {
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
+}
+
+// ---- 副作用順序ヘルパーの利用例 (test_helpers.h::HasEffectInOrder) ----
+// EmitScrollEffects は InvalidateWindow → BitmapManage の順で push する契約。
+// 順序が逆転すると BitmapManage 側が古い viewport で動くなどの実害があるため、
+// 並びそのものを検証する。
+TEST_F(ReducerTest, KeyScrollLineDown_EmitsInvalidateBeforeBitmapManage) {
+    auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineDown });
+    EXPECT_TRUE((HasEffectInOrder<effect::InvalidateWindow, effect::BitmapManage>(effects)));
+}
+
+TEST_F(ReducerTest, DirectScrollBy_EmitsInvalidateBeforeBitmapManage) {
+    auto effects = Reduce(state, DirectScrollByAction{ 100.0f });
+    EXPECT_TRUE((HasEffectInOrder<effect::InvalidateWindow, effect::BitmapManage>(effects)));
+}
+
+TEST_F(ReducerTest, Resize_EmitsRendererResizeBeforeSizingUpdate) {
+    state.window.is_sizing = true;
+    auto effects = Reduce(state, ResizeAction{ 1024, 768 });
+    EXPECT_TRUE((HasEffectInOrder<effect::RendererResize, effect::PerformSizingUpdate>(effects)));
+}
+
+// ---- RestoreScrollAfterLoadAction: 3 分岐 ----
+// 仕様 (reducer.cpp::ReduceRestoreScrollAfterLoad):
+//   1. has_reload_diff -> SetScrollY(reload_diff_scroll_y)
+//   2. (else) HasNodeRestore -> SetScrollTarget(node, offset)
+//   3. (else) -> SetScrollY(0)
+// 1 が 2 に優先することも合わせて検証する。
+
+TEST_F(ReducerTest, RestoreScrollAfterLoad_HasReloadDiff_SetsScrollY) {
+    state.reload_diff_pos = 12;  // npos 以外なら何でもよい
+    state.view.viewport.ScrollTo(50.0f);
+
+    Reduce(state, RestoreScrollAfterLoadAction{ true, 250.0f });
+
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 250.0f);
+    EXPECT_EQ(state.reload_diff_pos, std::string_view::npos);  // 消費されてクリアされる
+    EXPECT_FALSE(state.view.viewport.HasScrollTarget());
+}
+
+TEST_F(ReducerTest, RestoreScrollAfterLoad_HasNodeRestore_SetsScrollTarget) {
+    state.document.doc = Document::FromMarkdown(
+        std::pmr::string("# A\n\n# B\n\n# C"), L"test.md");
+    auto& cache = state.document.layout_cache;
+    cache.Resize(state.document.doc.GetNodes().size());
+    cache[0].y_position = 0.0f;
+    cache[1].y_position = 100.0f;
+    cache[2].y_position = 200.0f;
+    state.view.scroll_restore.SetNodeRestore(1, 7);
+
+    Reduce(state, RestoreScrollAfterLoadAction{ false, 0.0f });
+
+    // ApplyScrollTarget 後は scroll_target が消費される実装になり得るため
+    // ScrollY 側で検証する (cache[1].y_position + offset)。
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 107.0f);
+    EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());  // 消費される
+}
+
+TEST_F(ReducerTest, RestoreScrollAfterLoad_NoRestoreInfo_ScrollsToTop) {
+    state.view.viewport.ScrollTo(300.0f);
+
+    Reduce(state, RestoreScrollAfterLoadAction{ false, 0.0f });
+
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+}
+
+TEST_F(ReducerTest, RestoreScrollAfterLoad_HasReloadDiff_TakesPrecedenceOverNodeRestore) {
+    // reload_diff と node_restore が同時に立っている場合は reload_diff が勝つ仕様。
+    state.reload_diff_pos = 5;
+    state.view.scroll_restore.SetNodeRestore(2, 0);
+
+    Reduce(state, RestoreScrollAfterLoadAction{ true, 75.0f });
+
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 75.0f);
+    // node_restore は has_reload_diff 分岐では触られないため残る
+    EXPECT_TRUE(state.view.scroll_restore.HasNodeRestore());
+}
+
+// ---- Zoom / ToggleDarkMode: 可視位置の anchor 保持 ----
+// 期待動作: 可視先頭ノードを SnapshotVisibleTarget で取り、ズーム/モード切替後に
+// SetScrollTarget で同じノードへ戻れるようにする。これが落ちると、ズーム後に
+// 全く別の場所までスクロールが飛ぶという可視的な不具合になる。
+
+TEST_F(ReducerTest, ZoomIn_PreservesScrollAnchorOnVisibleNode) {
+    state.window.cached_theme.zoom = 1.0f;
+    state.document.doc = Document::FromMarkdown(
+        std::pmr::string("# A\n\n# B\n\n# C"), L"test.md");
+    auto& cache = state.document.layout_cache;
+    cache.Resize(state.document.doc.GetNodes().size());
+    for (size_t i = 0; i < cache.size(); ++i) {
+        cache[i].y_position = static_cast<float>(i * 100);
+    }
+    state.view.viewport.ScrollTo(120.0f);  // node 1 が可視先頭
+
+    const auto pre = SnapshotVisibleTarget(state);
+    ASSERT_TRUE(pre.IsValid());
+
+    Reduce(state, ZoomAction{ ZoomDirection::In });
+
+    // ZoomIn 後、可視先頭ノードが scroll_target として保存されている
+    ASSERT_TRUE(state.view.viewport.HasScrollTarget());
+    EXPECT_EQ(state.view.viewport.GetScrollTarget().node, pre.node);
+}
+
+TEST_F(ReducerTest, ZoomReset_AtDefaultIndex_NoEffect) {
+    // ZoomReset は既にデフォルト位置なら 0 を返し、early return する。
+    auto effects = Reduce(state, ZoomAction{ ZoomDirection::Reset });
+    EXPECT_FALSE(HasEffect<effect::ApplyThemeChange>(effects));
+}
+
+TEST_F(ReducerTest, ToggleDarkMode_PreservesScrollAnchorOnVisibleNode) {
+    state.document.doc = Document::FromMarkdown(
+        std::pmr::string("# A\n\n# B\n\n# C"), L"test.md");
+    auto& cache = state.document.layout_cache;
+    cache.Resize(state.document.doc.GetNodes().size());
+    for (size_t i = 0; i < cache.size(); ++i) {
+        cache[i].y_position = static_cast<float>(i * 100);
+    }
+    state.view.viewport.ScrollTo(120.0f);
+
+    const auto pre = SnapshotVisibleTarget(state);
+    ASSERT_TRUE(pre.IsValid());
+
+    Reduce(state, ToggleDarkModeAction{});
+
+    ASSERT_TRUE(state.view.viewport.HasScrollTarget());
+    EXPECT_EQ(state.view.viewport.GetScrollTarget().node, pre.node);
 }

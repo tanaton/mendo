@@ -15,9 +15,9 @@ public:
 
     // テスト用に既定の AppData パスをオーバーライドする。
     void SetConfigDirOverride(const std::filesystem::path& dir);
-    std::filesystem::path GetConfigDir() const;
+    [[nodiscard]] std::filesystem::path GetConfigDir() const;
     // 設定ディレクトリ配下のファイルパスを返す。区切り文字や ".." を含む名前は拒否する。
-    std::filesystem::path GetConfigPath(std::wstring_view filename) const;
+    [[nodiscard]] std::filesystem::path GetConfigPath(std::wstring_view filename) const;
 
     // ---- ディスク永続化 ----
 
@@ -29,16 +29,16 @@ public:
     // ---- 型付きアクセサ（メモリ上のマップを読み書き） ----
 
     void SaveBool(std::string_view section, std::string_view key, bool value);
-    bool LoadBool(std::string_view section, std::string_view key, bool default_value = false) const;
+    [[nodiscard]] bool LoadBool(std::string_view section, std::string_view key, bool default_value = false) const;
 
     void SaveInt(std::string_view section, std::string_view key, int value);
-    int LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const;
+    [[nodiscard]] int LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const;
 
     void SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
-    std::pmr::wstring LoadWString(std::string_view section, std::string_view key) const;
+    [[nodiscard]] std::pmr::wstring LoadWString(std::string_view section, std::string_view key) const;
 
 private:
-    const std::string* FindValue(std::string_view section, std::string_view key) const;
+    [[nodiscard]] const std::string* FindValue(std::string_view section, std::string_view key) const;
 
     std::filesystem::path config_dir_override_;
     // SHGetKnownFolderPath の結果キャッシュ。override 未設定時の問い合わせを 1 回に抑える。

@@ -90,11 +90,9 @@ public:
         if (scroll_target_.IsValid()) {
             return;
         }
-        // 呼び出し側の node_count が過渡状態で cache.size() を超える可能性に備えてクランプ
+        // node_count > cache.size() の過渡状態に備えて effective に揃えてから渡す。
+        // 「該当なし」のときは FindFirstVisibleNodeIndex が effective を返す契約。
         const size_t effective = std::min(node_count, cache.size());
-        if (effective == 0) {
-            return;
-        }
         const int idx = FindFirstVisibleNodeIndex(cache, effective, scroll_y_);
         if (idx < static_cast<int>(effective)) {
             scroll_target_ = { idx, scroll_y_ - cache[idx].y_position };

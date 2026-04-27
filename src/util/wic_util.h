@@ -61,6 +61,32 @@ inline std::optional<DecodeResult> DecodeFromStream(
     return DecodeResult{ std::move(converter), w, h };
 }
 
+struct CreatedBitmap {
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    UINT pixel_width = 0;
+    UINT pixel_height = 0;
+};
+
+// IStream から WIC デコード -> D2D ビットマップ生成までを一括で行う。
+// image_loader（同期）と mermaid（PNGキャッシュ復元）の同型処理を共通化するためのヘルパー。
+inline std::optional<CreatedBitmap> CreateD2DBitmapFromStream(
+    IWICImagingFactory* wic, ID2D1RenderTarget* rt, IStream* stream)
+{
+    if (!wic || !rt || !stream) {
+        return std::nullopt;
+    }
+    auto decoded = DecodeFromStream(wic, stream);
+    if (!decoded) {
+        return std::nullopt;
+    }
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    const HRESULT hr = rt->CreateBitmapFromWicBitmap(decoded->converter.Get(), &bitmap);
+    if (FAILED(hr)) {
+        return std::nullopt;
+    }
+    return CreatedBitmap{ std::move(bitmap), decoded->pixel_width, decoded->pixel_height };
+}
+
 // IWICBitmapSource を GUID_WICPixelFormat32bppPBGRA に変換する。
 // HICON 由来の IWICBitmap など、デコーダを経由しないソースに使用する。
 inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(

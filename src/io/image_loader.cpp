@@ -89,20 +89,14 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
         return false;
     }
 
-    const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get());
-    if (!decoded) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(decoded->converter.Get(), &bitmap);
-    if (FAILED(hr)) {
+    auto created = wic_util::CreateD2DBitmapFromStream(wic_factory_.Get(), render_target_, stream.Get());
+    if (!created) {
         return false;
     }
 
     // ピクセルサイズを DIP に変換してキャッシュに登録
-    const auto [width, height] = CreateAndCacheImage(abs_path, bitmap, decoded->pixel_width, decoded->pixel_height);
-    out.bitmap = bitmap;
+    const auto [width, height] = CreateAndCacheImage(abs_path, created->bitmap, created->pixel_width, created->pixel_height);
+    out.bitmap = std::move(created->bitmap);
     out.width = width;
     out.height = height;
     return true;
