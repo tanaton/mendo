@@ -18,12 +18,9 @@ void App::HandleLinkClick(std::wstring_view url)
         PushCurrentNavEntry(state_);
         Dispatch(NavigateAnchorAction{ std::move(result.target) });
         break;
-    case LinkClickResult::Type::ExternalUrl: {
-        SideEffectList effects;
-        PushEffect(effects, effect::ShellOpen{ std::move(result.target) });
-        effect_executor_.Execute(effects);
+    case LinkClickResult::Type::ExternalUrl:
+        EmitEffect(effect::ShellOpen{ std::move(result.target) });
         break;
-    }
     default:
         break;
     }
