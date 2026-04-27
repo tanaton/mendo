@@ -108,5 +108,7 @@ inline constexpr float ZOOM_STEPS[] = {
 inline constexpr int ZOOM_STEP_COUNT = sizeof(ZOOM_STEPS) / sizeof(ZOOM_STEPS[0]);
 inline constexpr int ZOOM_DEFAULT_INDEX = 7; // 1.00f
 
-[[nodiscard]] Theme GetLightTheme();
-[[nodiscard]] Theme GetDarkTheme();
+// プロセス内で 1 度だけ初期化される定数テーマへの参照を返す。
+// 値変更が必要な場合は呼び出し側でコピーして ApplyZoom 等を行うこと。
+[[nodiscard]] const Theme& GetLightTheme();
+[[nodiscard]] const Theme& GetDarkTheme();

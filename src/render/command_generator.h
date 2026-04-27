@@ -9,6 +9,7 @@
 #include "memory_resource.h"
 #include "search_state.h"
 #include <cassert>
+#include <span>
 
 // HitTestTextRange 初期バッファ容量。1 行中の inline code run が
 // 折り返される想定最大数に合わせる。描画 hot path 中の resize を避けるのが目的。
@@ -100,6 +101,14 @@ public:
 private:
     void GenerateNode(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index);
 
+    // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキスト、
+    // タスクリストチェックボックスを描画する。
+    void GenNodeTextDecorations(DrawCommandList& cmds, const Node& node,
+        const NodeLayoutEntry& entry, int node_index, float x, float text_x);
+
+    // ノードタイプに応じた本文ベースカラーを返す。
+    [[nodiscard]] D2D1_COLOR_F GetNodeBaseColor(const Node& node) const noexcept;
+
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x);
     void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border);
@@ -115,6 +124,17 @@ private:
     void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color);
     void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y);
     void GenSearchHighlights(DrawCommandList& cmds, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
+
+    // 検索ハイライトのキャッシュが古い場合に再構築する。
+    // matches[first_global, first_global + node_match_count) が当該ノードのマッチ。
+    void RebuildSearchHlCache(SearchHlCache& cache, const NodeLayoutEntry& entry,
+        std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count);
+
+    // 構築済みキャッシュから FillRectCmd を発行する。
+    // table_row / table_col に該当するマッチのみ origin に加算して描画。
+    void EmitSearchHlCommands(DrawCommandList& cmds, const SearchHlCache& cache,
+        std::span<const SearchMatch> matches, size_t first_global,
+        float origin_x, float origin_y, int table_row, int table_col);
 
     const Theme* theme_ = nullptr;
     Formats formats_;

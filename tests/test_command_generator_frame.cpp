@@ -1,56 +1,13 @@
 #include <gtest/gtest.h>
-#include "command_generator.h"
-#include "layout.h"
-#include "mock_text_measurer.h"
-#include "parser.h"
+#include "cmd_gen_mock_test_base.h"
 #include "search_state.h"
+#include <algorithm>
 #include <optional>
 #include <variant>
 
 namespace {
 
-class CmdGenFrameTest : public ::testing::Test {
-protected:
-    MockTextMeasurer mock_;
-    LayoutEngine engine_;
-    CommandGenerator gen_;
-    Theme theme_;
-    LayoutCache cache_;
-    std::pmr::vector<Node> nodes_;
-
-    void SetUp() override
-    {
-        theme_ = GetLightTheme();
-        ASSERT_TRUE(engine_.Init(&mock_, theme_));
-        gen_.SetTheme(&theme_);
-        gen_.SetFormats({ nullptr, nullptr, nullptr, nullptr });
-    }
-
-    void Parse(const std::string& md, float viewport_w = 800.0f)
-    {
-        nodes_ = ParseMarkdown(md).nodes;
-        cache_.Resize(nodes_.size());
-        engine_.ComputeLayout(nodes_, cache_, viewport_w);
-    }
-
-    int CountCmd(const DrawCommandList& cmds, auto predicate)
-    {
-        int n = 0;
-        for (const auto& c : cmds) {
-            if (predicate(c)) n++;
-        }
-        return n;
-    }
-};
-
-template <typename T>
-const T* FindFirst(const DrawCommandList& cmds)
-{
-    for (const auto& c : cmds) {
-        if (auto* p = std::get_if<T>(&c)) return p;
-    }
-    return nullptr;
-}
+class CmdGenFrameTest : public CmdGenMockTestBase {};
 
 } // namespace
 
@@ -112,7 +69,7 @@ TEST_F(CmdGenFrameTest, ScrolledBeyondBottomProducesOnlyFrameCommands)
     // 全ノードより下にスクロール → DrawLineCmd なし
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 10000.0f, TextSelection{});
 
-    int draw_lines = CountCmd(cmds, [](const auto& c) {
+    auto draw_lines = std::ranges::count_if(cmds, [](const auto& c) {
         return std::holds_alternative<DrawLineCmd>(c);
     });
     EXPECT_EQ(draw_lines, 0) << "すべてのノードがビューポート下ならDrawLineCmdは生成されない";
@@ -156,7 +113,7 @@ TEST_F(CmdGenFrameTest, FirstVisibleBeyondEndProducesNoContent)
 
     // first_visible がノード数以上 → 本体ループに入らない
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, 999);
-    int draw_lines = CountCmd(cmds, [](const auto& c) {
+    auto draw_lines = std::ranges::count_if(cmds, [](const auto& c) {
         return std::holds_alternative<DrawLineCmd>(c);
     });
     EXPECT_EQ(draw_lines, 0);
@@ -209,7 +166,7 @@ TEST_F(CmdGenFrameTest, SetSearchMatchesWithEmptyProducesNoHighlight)
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
     // マッチ空のため FillRectCmd は選択ハイライト経路以外は生成されない
     // (paragraph text_layout=null なので選択経路も走らない)
-    int fill_rects = CountCmd(cmds, [](const auto& c) {
+    auto fill_rects = std::ranges::count_if(cmds, [](const auto& c) {
         return std::holds_alternative<FillRectCmd>(c);
     });
     EXPECT_EQ(fill_rects, 0);

@@ -30,7 +30,7 @@ struct OpenedFile {
     OpenFileError error = OpenFileError::None;
 };
 
-inline OpenedFile OpenFileForReadShared(const std::filesystem::path& path,
+[[nodiscard]] inline OpenedFile OpenFileForReadShared(const std::filesystem::path& path,
     DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept
 {
     if (out_error) {
@@ -62,7 +62,7 @@ inline OpenedFile OpenFileForReadShared(const std::filesystem::path& path,
 
 // ファイルを全て読み込む。失敗時は{nullptr, 0}を返す。
 // out_errorが非nullの場合、CreateFileW失敗時のGetLastError()を格納する。
-inline std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
+[[nodiscard]] inline std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
     const std::filesystem::path& path, DWORD* out_error = nullptr)
 {
     auto r = OpenFileForReadShared(path, FILE_SHARE_READ, UINT32_MAX, out_error);
@@ -79,7 +79,7 @@ inline std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
 }
 
 // ファイルに全て書き込む。成功時はtrueを返す。
-inline bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
+[[nodiscard]] inline bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
 {
     if (size > UINT32_MAX) {
         return false;

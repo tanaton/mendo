@@ -40,108 +40,87 @@ protected:
 };
 
 // ---- NavButtonHitTest: 純粋な座標計算のみ ----
-
-// 実装と同じ式で Back ボタンの基点 X を算出する。
-static float NavBackButtonX(const PaneRect& md)
-{
-    return md.x + md.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2.0f
-        - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
-}
-
-static float NavButtonY(const PaneRect& md)
-{
-    return md.y + md.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
-}
+// 矩形は src 側の NavBackButtonRect / NavForwardButtonRect を使う。
+// 「式を二重実装するとリファクタ時にテストもズレる」問題を避けるため。
 
 TEST_F(HitTestServiceTest, NavButton_HitBackCenter)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const float bx = NavBackButtonX(md);
-    const float by = NavButtonY(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(bx + NAV_BTN_SIZE * 0.5f,
-        by + NAV_BTN_SIZE * 0.5f, md),
+    const ButtonRect back = NavBackButtonRect(md);
+    EXPECT_EQ(hit_test_.NavButtonHitTest(back.x + back.w * 0.5f,
+        back.y + back.h * 0.5f, md),
         NavButtonHover::Back);
 }
 
 TEST_F(HitTestServiceTest, NavButton_HitForwardCenter)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const float bx = NavBackButtonX(md);
-    const float by = NavButtonY(md);
-    const float fwd_x = bx + NAV_BTN_SIZE + NAV_BTN_GAP;
-    EXPECT_EQ(hit_test_.NavButtonHitTest(fwd_x + NAV_BTN_SIZE * 0.5f,
-        by + NAV_BTN_SIZE * 0.5f, md),
+    const ButtonRect fwd = NavForwardButtonRect(md);
+    EXPECT_EQ(hit_test_.NavButtonHitTest(fwd.x + fwd.w * 0.5f,
+        fwd.y + fwd.h * 0.5f, md),
         NavButtonHover::Forward);
 }
 
 TEST_F(HitTestServiceTest, NavButton_GapBetweenButtonsIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const float bx = NavBackButtonX(md);
-    const float by = NavButtonY(md);
+    const ButtonRect back = NavBackButtonRect(md);
     // Back の右端より NAV_BTN_GAP/2 右（Forward 左端より NAV_BTN_GAP/2 左）
-    const float gx = bx + NAV_BTN_SIZE + NAV_BTN_GAP * 0.5f;
-    EXPECT_EQ(hit_test_.NavButtonHitTest(gx, by + NAV_BTN_SIZE * 0.5f, md),
+    const float gx = back.x + back.w + NAV_BTN_GAP * 0.5f;
+    EXPECT_EQ(hit_test_.NavButtonHitTest(gx, back.y + back.h * 0.5f, md),
         NavButtonHover::None);
 }
 
 TEST_F(HitTestServiceTest, NavButton_AboveRangeIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const float bx = NavBackButtonX(md);
-    const float by = NavButtonY(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(bx + NAV_BTN_SIZE * 0.5f, by - 1.0f, md),
+    const ButtonRect back = NavBackButtonRect(md);
+    EXPECT_EQ(hit_test_.NavButtonHitTest(back.x + back.w * 0.5f, back.y - 1.0f, md),
         NavButtonHover::None);
 }
 
 TEST_F(HitTestServiceTest, NavButton_BelowRangeIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const float bx = NavBackButtonX(md);
-    const float by = NavButtonY(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(bx + NAV_BTN_SIZE * 0.5f,
-        by + NAV_BTN_SIZE + 1.0f, md),
+    const ButtonRect back = NavBackButtonRect(md);
+    EXPECT_EQ(hit_test_.NavButtonHitTest(back.x + back.w * 0.5f,
+        back.y + back.h + 1.0f, md),
         NavButtonHover::None);
 }
 
 TEST_F(HitTestServiceTest, NavButton_LeftOfBackIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const float bx = NavBackButtonX(md);
-    const float by = NavButtonY(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(bx - 1.0f, by + NAV_BTN_SIZE * 0.5f, md),
+    const ButtonRect back = NavBackButtonRect(md);
+    EXPECT_EQ(hit_test_.NavButtonHitTest(back.x - 1.0f, back.y + back.h * 0.5f, md),
         NavButtonHover::None);
 }
 
 TEST_F(HitTestServiceTest, NavButton_RightOfForwardIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const float bx = NavBackButtonX(md);
-    const float by = NavButtonY(md);
-    const float fwd_x = bx + NAV_BTN_SIZE + NAV_BTN_GAP;
-    EXPECT_EQ(hit_test_.NavButtonHitTest(fwd_x + NAV_BTN_SIZE + 1.0f,
-        by + NAV_BTN_SIZE * 0.5f, md),
+    const ButtonRect fwd = NavForwardButtonRect(md);
+    EXPECT_EQ(hit_test_.NavButtonHitTest(fwd.x + fwd.w + 1.0f,
+        fwd.y + fwd.h * 0.5f, md),
         NavButtonHover::None);
 }
 
 TEST_F(HitTestServiceTest, NavButton_BackLeftEdgeIsInclusive)
 {
-    // dip_x == base_x は >= 条件なので Back
+    // dip_x == back.x は ButtonRect::Contains の >= 条件なので Back
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const float bx = NavBackButtonX(md);
-    const float by = NavButtonY(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(bx, by + NAV_BTN_SIZE * 0.5f, md),
+    const ButtonRect back = NavBackButtonRect(md);
+    EXPECT_EQ(hit_test_.NavButtonHitTest(back.x, back.y + back.h * 0.5f, md),
         NavButtonHover::Back);
 }
 
 TEST_F(HitTestServiceTest, NavButton_BackRightEdgeIsInclusive)
 {
-    // dip_x == base_x + NAV_BTN_SIZE も <= 条件なので Back
+    // dip_x == back.x + back.w も <= 条件なので Back
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const float bx = NavBackButtonX(md);
-    const float by = NavButtonY(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(bx + NAV_BTN_SIZE,
-        by + NAV_BTN_SIZE * 0.5f, md),
+    const ButtonRect back = NavBackButtonRect(md);
+    EXPECT_EQ(hit_test_.NavButtonHitTest(back.x + back.w,
+        back.y + back.h * 0.5f, md),
         NavButtonHover::Back);
 }
 
@@ -149,10 +128,9 @@ TEST_F(HitTestServiceTest, NavButton_PositionsWithNonZeroPaneOrigin)
 {
     // MD ペインが原点以外にある場合でも正しく算出されること
     PaneRect md{ 200.0f, 40.0f, 600.0f, 500.0f };
-    const float bx = NavBackButtonX(md);
-    const float by = NavButtonY(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(bx + NAV_BTN_SIZE * 0.5f,
-        by + NAV_BTN_SIZE * 0.5f, md),
+    const ButtonRect back = NavBackButtonRect(md);
+    EXPECT_EQ(hit_test_.NavButtonHitTest(back.x + back.w * 0.5f,
+        back.y + back.h * 0.5f, md),
         NavButtonHover::Back);
 }
 

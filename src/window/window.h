@@ -29,6 +29,10 @@ private:
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);
     LRESULT OnNcHitTest(LPARAM lParam);
+    // リサイズ枠領域のヒットテスト。最大化時は HTNOWHERE を返し、呼び出し元で次の判定へ進む。
+    LRESULT HitTestResizeFrame(POINT pt) const noexcept;
+    // タイトルバー領域のヒットテスト。タイトルバー外なら HTCLIENT を返す。
+    LRESULT HitTestTitleBar(POINT pt) const noexcept;
     LRESULT HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam);
     void UpdateDwmFrame();

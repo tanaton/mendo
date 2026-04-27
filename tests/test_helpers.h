@@ -1,7 +1,9 @@
 #pragma once
 #include <gtest/gtest.h>
+#include <d2d1.h>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -9,6 +11,13 @@
 #include <windows.h>
 #include "document_types.h"
 #include "layout_cache.h"
+#include "side_effect.h"
+
+// 同色判定。完全一致のみ（テストで使う色はテーマ定数なので浮動小数点誤差は問題にならない）。
+constexpr bool ColorEq(D2D1_COLOR_F a, D2D1_COLOR_F b) noexcept
+{
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
 
 // テキスト持ちの Paragraph ノードを作るテスト用ヘルパー。
 inline Node MakeTextNode(const wchar_t* text)
@@ -94,6 +103,54 @@ protected:
         return path;
     }
 };
+
+// SideEffectList の中で型 T が最初に現れる位置を返す。
+// 型 T はいずれかのドメイン variant のメンバである必要がある。
+template <typename T>
+inline std::optional<size_t> IndexOfEffect(const SideEffectList& effects) noexcept
+{
+    for (size_t i = 0; i < effects.size(); ++i) {
+        if (GetEffect<T>(effects[i]) != nullptr) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
+enum class EffectOrdering {
+    Before,   // A が先、B が後
+    After,    // B が先、A が後
+    OnlyA,    // A だけ存在
+    OnlyB,    // B だけ存在
+    Neither   // どちらも無し
+};
+
+// effects 内で A が B より先に現れるか判定する。
+// 順序の意味づけが分岐ごとに違う場合があるので、Before / After 以外も
+// 失敗時に何が起きたかを呼び出し側が EXPECT_EQ で識別できるよう列挙する。
+template <typename A, typename B>
+inline EffectOrdering EffectOrder(const SideEffectList& effects) noexcept
+{
+    const auto a = IndexOfEffect<A>(effects);
+    const auto b = IndexOfEffect<B>(effects);
+    if (!a && !b) {
+        return EffectOrdering::Neither;
+    }
+    if (a && !b) {
+        return EffectOrdering::OnlyA;
+    }
+    if (!a && b) {
+        return EffectOrdering::OnlyB;
+    }
+    return *a < *b ? EffectOrdering::Before : EffectOrdering::After;
+}
+
+// effects 内で A が存在し、かつ B が存在し、A が B より先に現れる場合のみ true。
+template <typename A, typename B>
+inline bool HasEffectInOrder(const SideEffectList& effects) noexcept
+{
+    return EffectOrder<A, B>(effects) == EffectOrdering::Before;
+}
 
 // COM apartment 初期化を管理する基底フィクスチャ。
 // 既に他スイートで別モードで初期化済みのケース (RPC_E_CHANGED_MODE) では

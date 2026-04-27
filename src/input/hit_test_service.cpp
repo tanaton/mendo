@@ -381,22 +381,11 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
 NavButtonHover HitTestService::NavButtonHitTest(
     float dip_x, float dip_y, const PaneRect& md_rect) const noexcept
 {
-    const float base_x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
-    const float base_y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
-
-    if (dip_y < base_y || dip_y > base_y + NAV_BTN_SIZE) {
-        return NavButtonHover::None;
-    }
-
-    // 戻るボタン
-    if (dip_x >= base_x && dip_x <= base_x + NAV_BTN_SIZE) {
+    if (NavBackButtonRect(md_rect).Contains(dip_x, dip_y)) {
         return NavButtonHover::Back;
     }
-    // 進むボタン
-    const float fwd_x = base_x + NAV_BTN_SIZE + NAV_BTN_GAP;
-    if (dip_x >= fwd_x && dip_x <= fwd_x + NAV_BTN_SIZE) {
+    if (NavForwardButtonRect(md_rect).Contains(dip_x, dip_y)) {
         return NavButtonHover::Forward;
     }
-
     return NavButtonHover::None;
 }

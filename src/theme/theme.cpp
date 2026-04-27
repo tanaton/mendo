@@ -234,13 +234,15 @@ static Theme BuildDarkTheme()
     return t;
 }
 
-Theme GetLightTheme()
+// 静的初期化はプロセス終了時に1回だけ走る。Magic statics の保護コストは
+// 関数呼び出しごとの atomic ロードのみで、ホットパスでもほぼ無視できる。
+const Theme& GetLightTheme()
 {
     static const Theme kLight = BuildLightTheme();
     return kLight;
 }
 
-Theme GetDarkTheme()
+const Theme& GetDarkTheme()
 {
     static const Theme kDark = BuildDarkTheme();
     return kDark;

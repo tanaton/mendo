@@ -367,11 +367,13 @@ constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom
 }
 
 // 下端が viewport_top 以上の最初のノードを二分探索で見つける。
-// 最初の可視候補ノードのインデックスを返す。該当なしの場合は node_count を返す。
+// 最初の可視候補ノードのインデックスを返す。該当なしの場合は effective node count を返す。
+// 過渡状態で node_count > cache.size() でも UB にならないよう内部でクランプする。
 constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) noexcept
 {
+    const size_t effective = std::min(node_count, cache.size());
     const auto first = cache.cbegin();
-    const auto last = first + static_cast<ptrdiff_t>(node_count);
+    const auto last = first + static_cast<ptrdiff_t>(effective);
     const auto it = std::ranges::partition_point(first, last, [viewport_top](const NodeLayoutEntry& e) noexcept {
         return e.y_position + e.height <= viewport_top;
     });
