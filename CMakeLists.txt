@@ -55,7 +55,12 @@ if(_mendo_arch MATCHES "^(x64|amd64)$")
 elseif(_mendo_arch MATCHES "^(arm64|aarch64)$")
     set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/arm64")
 else()
-    message(FATAL_ERROR "mendo: unsupported architecture '${_mendo_arch}'. Only x64 and arm64 are supported.")
+    message(FATAL_ERROR
+        "mendo: unsupported architecture '${_mendo_arch}'. "
+        "WebView2 NuGet provides only x64 / arm64 binaries "
+        "(accepted names: x64, AMD64, ARM64, AArch64). "
+        "Visual Studio generator users should pass '-A x64' or '-A ARM64' "
+        "(e.g. 'cmake -A x64 -B build').")
 endif()
 unset(_mendo_arch)
 

@@ -78,7 +78,11 @@ public:
     constexpr explicit InlineTagScope(std::pmr::wstring& out) noexcept : out_(out) {}
     InlineTagScope(const InlineTagScope&) = delete;
     InlineTagScope& operator=(const InlineTagScope&) = delete;
-    ~InlineTagScope() { CloseAll(); }
+    // CloseAll() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
+    ~InlineTagScope() noexcept
+    {
+        try { CloseAll(); } catch (...) {}
+    }
 
     // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
     // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
@@ -329,7 +333,11 @@ void AppendCodeBlockHtml(std::pmr::wstring& out, const Node& node, uint32_t star
 class TableSectionScope {
 public:
     constexpr explicit TableSectionScope(std::pmr::wstring& out) noexcept : out_(out) {}
-    ~TableSectionScope() { Close(); }
+    // Close() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
+    ~TableSectionScope() noexcept
+    {
+        try { Close(); } catch (...) {}
+    }
     TableSectionScope(const TableSectionScope&) = delete;
     TableSectionScope& operator=(const TableSectionScope&) = delete;
 
