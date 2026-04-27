@@ -182,7 +182,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadReturnsZeroWhenCacheMisses
     EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
 
     const size_t img_idx = doc_.GetImageNodeIndices()[0];
-    EXPECT_FLOAT_EQ(cache_[img_idx].height, 100.0f); // placeholder のまま
+    EXPECT_FLOAT_EQ(cache_[img_idx].height, 100.0f); // SeedLayoutCache の block_height のまま
 }
 
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesBeyondVisibleRange)
@@ -202,7 +202,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesBeyondVisibleRange)
     const int visible_applied = rm_.ApplyCachedImages();
     EXPECT_EQ(visible_applied, 1);
 
-    // 2個目の高さはまだ placeholder のまま。
+    // 2個目の高さはまだ SeedLayoutCache の block_height=3000 のまま。
     EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 3000.0f);
 
     // ApplyCachedImagesForReload は範囲制限を持たないので残りの 1 件も適用する。

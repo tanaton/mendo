@@ -39,9 +39,12 @@ struct VisibleRange {
 VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count,
     float range_top, float range_bottom)
 {
-    const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, range_top));
+    // 過渡状態で node_count > cache.size() のとき cache[i] が OOB になるため、
+    // FindFirstVisibleNodeIndex と同じ方針で内部クランプする。
+    const size_t effective = std::min(node_count, cache.size());
+    const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, effective, range_top));
     size_t last_plus_1 = first;
-    for (size_t i = first; i < node_count; ++i) {
+    for (size_t i = first; i < effective; ++i) {
         if (cache[i].y_position > range_bottom) {
             break;
         }
