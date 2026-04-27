@@ -105,14 +105,19 @@ bool App::ApplyReloadDecisionEarly(const ReloadDecision& decision)
 
 void App::DeferReloadRetry()
 {
+    // FileWatcher は paused のままにする。resume すると、リトライ待機中に
+    // 新しいファイル変更通知が来た時に on_change_ が発火して
+    // FILE_RELOAD_DEBOUNCE タイマーを 200ms に上書きしてしまい、短縮リトライの
+    // 意図が失われる。pending_change_ は次回の正常 reload 完了時の
+    // ResumeFileWatch で消費される (一度だけ NoChange の追加サイクルが走る)。
     state_.pending_reload_retry = true;
-    EmitEffect(effect::ResumeFileWatch{});
     EmitEffect(effect::SetTimer{ app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS });
 }
 
 // IsPartialWriteOngoing が真なら DeferReloadRetry を発火し true を返す。
 // OnParseComplete / DoReloadCurrentFile の重複排除用。
-bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size, const char* tag)
+bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size,
+    [[maybe_unused]] const char* tag)
 {
     if (!IsPartialWriteOngoing(path, read_size)) {
         return false;
