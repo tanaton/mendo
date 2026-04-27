@@ -1,5 +1,6 @@
 #include "mermaid_util.h"
 #include "document_types.h"
+#include "syntax.h"
 #include "utility.h"
 #include <algorithm>
 #include <cmath>
@@ -204,4 +205,9 @@ uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool d
         h ^= LATEX_MATH_HASH_SALT;
     }
     return h;
+}
+
+bool mermaid_lifecycle::ShouldTriggerInitForNode(const Node& node) noexcept
+{
+    return node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language);
 }

@@ -5,8 +5,7 @@
 #include "file_explorer.h"
 #include "toc.h"
 #include "titlebar.h"
-#include "pane.h"
-#include "hovered_buttons.h"
+#include "ui_types.h"
 #include "mouse_gesture.h"
 #include <d2d1.h>
 #include <wrl/client.h>

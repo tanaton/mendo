@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "document.h"
 #include "document_utils.h"
-#include "nav_history.h"
+#include "nav.h"
 
 // ═══════════════════════════════════════════════
 // IsHelpPath

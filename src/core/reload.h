@@ -1,8 +1,18 @@
 #pragma once
+// 同一ファイルのリロード判定ロジック。
+// 旧/新コンテンツの UTF-8 バイト列を比較し、リロード方針を決定する純粋関数群と、
+// 差分位置 (UTF-8 バイトオフセット) を対応するノード / スクロール Y 座標へ写像する
+// ルックアップを提供する。OnParseComplete / DoReloadCurrentFile の同一ファイル
+// 再読み込み時の分岐を統一するために 1 か所に集約している。
+#include "document_types.h"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory_resource>
 #include <string_view>
+#include <vector>
+
+class LayoutCache;
 
 // 新旧コンテンツの最初の差分バイトオフセットを返す。同一の場合は npos。
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
@@ -28,6 +38,17 @@ struct ReloadDecision {
 };
 
 // 旧/新コンテンツの UTF-8 バイト列を比較し、リロード方針を決定する純粋関数。
-// FindFirstDifference + IsPrefixOnlyDiff + shrink 判定を 1 か所に集約し、
-// OnParseComplete / DoReloadCurrentFile の同一ファイル再読み込み時の分岐を統一する。
 ReloadDecision AnalyzeReloadDiff(std::string_view old_utf8, std::string_view new_utf8) noexcept;
+
+// source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
+[[nodiscard]] int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_offset) noexcept;
+
+// diff 位置のノードに基づくスクロールY座標を計算する。
+// ノードが見つからない場合は fallback_scroll を返す。
+float CalcScrollYForDiff(
+    const std::pmr::vector<Node>& nodes,
+    const LayoutCache& cache,
+    std::string_view content,
+    size_t diff_pos,
+    float viewport_height,
+    float fallback_scroll) noexcept;

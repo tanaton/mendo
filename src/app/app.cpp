@@ -1,6 +1,7 @@
 #include "app.h"
 #include "app_constants.h"
 #include "render_composer.h"
+#include "search_bar_controller.h"
 #include "file_loader.h"
 #include "parser.h"
 #include "resource.h"
@@ -25,6 +26,12 @@
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "uxtheme.lib")
+
+static_assert(app_timer::SEARCH_CARET == SearchBarController::TIMER_CARET);
+static_assert(app_timer::SEARCH_DEBOUNCE == SearchBarController::TIMER_DEBOUNCE);
+static_assert(app_timer::MERMAID_BATCH == ResourceManager::TIMER_MERMAID_BATCH);
+static_assert(app_timer::BITMAP_MANAGE == ResourceManager::TIMER_BITMAP_MANAGE);
+static_assert(app_timer::MERMAID_INIT_RETRY == MermaidRenderer::TIMER_INIT_RETRY);
 
 // DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 10 1809以降 / Windows 11でサポート)
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE

@@ -1,5 +1,5 @@
 #pragma once
-#include "pane.h"
+#include "ui_types.h"
 #include "pane_layout.h"
 #include "tooltip.h"
 #include <algorithm>

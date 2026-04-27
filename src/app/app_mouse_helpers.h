@@ -1,7 +1,7 @@
 #pragma once
 // app_mouse_*.cpp 群の共通ヘルパー（内部ヘッダ）。
 #include "i18n.h"
-#include "nav_button.h"
+#include "ui_types.h"
 #include "pane_layout.h"
 #include "tooltip.h"
 #include "titlebar.h"

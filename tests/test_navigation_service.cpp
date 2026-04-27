@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "navigation_service.h"
+#include "nav.h"
 
 // HandleLinkClick は自由関数のため、フィクスチャ不要
 TEST(HandleLinkClickTest, HandleAnchorLink)

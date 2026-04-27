@@ -1,5 +1,5 @@
 #pragma once
-#include "dip_rect.h"
+#include "ui_types.h"
 #include <d2d1.h>
 #include <cmath>
 #include <numbers>

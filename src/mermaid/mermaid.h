@@ -1,7 +1,6 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
-#include "mermaid_lifecycle.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include <d2d1.h>

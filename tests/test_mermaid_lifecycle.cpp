@@ -2,7 +2,7 @@
 // mermaid.cpp 本体は WebView2 / Direct2D に依存するため mendo_core に含められないが、
 // 純粋ロジック部分を mermaid_lifecycle に切り出すことでここで単体テストできる。
 #include <gtest/gtest.h>
-#include "mermaid_lifecycle.h"
+#include "mermaid_util.h"
 #include "document_types.h"
 #include "syntax.h"
 

@@ -3,9 +3,11 @@
 #include "layout_cache.h"
 #include "theme.h"
 #include "text_measurer.h"
+#include "viewport_manager.h"
 #include <dwrite.h>
 #include <memory_resource>
 
+class Document;
 
 inline float NodeIndent(const Node& node, const Theme& theme) noexcept
 {
@@ -60,4 +62,28 @@ private:
     float total_height_ = 0.0f;
     float last_viewport_width_ = 0.0f;
     bool has_dirty_nodes_ = false;
+};
+
+// LayoutEngine + ViewportManager の組み合わせを薄くラップして、
+// スクロール target 管理付きのレイアウト操作を提供する。
+class LayoutService {
+public:
+    LayoutService(LayoutEngine& engine, ViewportManager& viewport) noexcept
+        : engine_(engine), viewport_(viewport)
+    {
+    }
+
+    void ViewportLayout(Document& doc, LayoutCache& cache, float width, float height);
+    bool ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us = 0,
+        float viewport_height = -1.0f, float buffer_screens = 5.0f);
+    bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
+    void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept;
+
+    constexpr bool HasDirtyNodes() const noexcept { return engine_.HasDirtyNodes(); }
+    constexpr float GetTotalHeight() const noexcept { return engine_.GetTotalHeight(); }
+    constexpr void SetTotalHeight(float h) noexcept { engine_.SetTotalHeight(h); }
+
+private:
+    LayoutEngine& engine_;
+    ViewportManager& viewport_;
 };

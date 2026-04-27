@@ -1,13 +1,51 @@
 #pragma once
-#include "timer_ids.h"
-#include "app_messages.h"
-#include "search_bar_controller.h"
-#include "resource_manager.h"
-#include "mermaid.h"
+#include <windows.h>
 
-// タイマーIDはtimer_ids.hで定義。コンポーネント定数との一致をコンパイル時検証する。
-static_assert(app_timer::SEARCH_CARET == SearchBarController::TIMER_CARET);
-static_assert(app_timer::SEARCH_DEBOUNCE == SearchBarController::TIMER_DEBOUNCE);
-static_assert(app_timer::MERMAID_BATCH == ResourceManager::TIMER_MERMAID_BATCH);
-static_assert(app_timer::BITMAP_MANAGE == ResourceManager::TIMER_BITMAP_MANAGE);
-static_assert(app_timer::MERMAID_INIT_RETRY == MermaidRenderer::TIMER_INIT_RETRY);
+// Reducer・Win32Window・副作用エグゼキュータが共有する Win32 メッセージ／タイマー
+// 関連の定数。レンダラー非依存に保ち、include 連鎖を浅く保つ。
+// 各 ID は一意であり、変更する際は全 ID の重複がないことを確認すること。
+
+namespace app_timer {
+
+inline constexpr UINT_PTR DEFERRED_LAYOUT = 3;
+inline constexpr UINT_PTR LOADING_ANIM = 4;
+inline constexpr UINT_PTR SWIPE_OVERLAY = 5;
+inline constexpr UINT_PTR TOAST = 6;
+inline constexpr UINT_PTR SEARCH_CARET = 7;
+inline constexpr UINT_PTR TOOLTIP = 8;
+inline constexpr UINT_PTR SEARCH_DEBOUNCE = 9;
+inline constexpr UINT_PTR MERMAID_BATCH = 10;
+inline constexpr UINT_PTR BITMAP_MANAGE = 11;
+inline constexpr UINT_PTR MERMAID_INIT_RETRY = 12;
+inline constexpr UINT_PTR FILE_RELOAD_DEBOUNCE = 13;
+
+// タイマー間隔 (ms)
+inline constexpr UINT FRAME_INTERVAL_MS = 16;              // ~60fps アニメーション用
+inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200;       // ファイル変更通知のデバウンス
+inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;           // truncate→rewrite 検出後の短縮リトライ
+
+} // namespace app_timer
+
+namespace app_msg {
+
+inline constexpr UINT LOAD_FILE = WM_APP + 1;
+inline constexpr UINT IMAGE_LOADED = WM_APP + 2;
+inline constexpr UINT RELOAD_FILE = WM_APP + 3;
+inline constexpr UINT SEARCH_FOCUS = WM_APP + 4;
+inline constexpr UINT SEARCH_UNFOCUS = WM_APP + 5;
+inline constexpr UINT PARSE_COMPLETE = WM_APP + 6;
+
+// カスタムメッセージの上限（この値未満が有効範囲）
+inline constexpr UINT END = WM_APP + 7;
+
+} // namespace app_msg
+
+namespace app_param {
+
+inline constexpr WPARAM SEARCH_FOCUS_SELECT_ALL = 0;
+inline constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;
+inline constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2; // lParam = MAKELPARAM(anchor, caret)
+inline constexpr WPARAM SEARCH_UNFOCUS_CLOSE = 0;
+inline constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
+
+} // namespace app_param

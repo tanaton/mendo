@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "nav_history.h"
+#include "nav.h"
 
 class NavHistoryTest : public ::testing::Test {
 protected:

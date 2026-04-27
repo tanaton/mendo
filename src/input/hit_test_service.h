@@ -1,8 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
-#include "nav_button.h"
-#include "pane.h"
+#include "ui_types.h"
 #include "theme.h"
 #include "ui_constants.h"
 #include <climits>

@@ -1,7 +1,6 @@
 #pragma once
 #include "document_types.h"
-#include "reload_diff.h"
-#include "reload_scroll.h"
+#include "reload.h"
 #include "selection_html.h"
 #include <cstdint>
 #include <memory_resource>
@@ -22,6 +21,10 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept;
 
 // ASCII範囲の大文字を小文字に変換する。
 std::pmr::wstring ToLowerAscii(std::wstring_view text);
+
+// 見出しテキストからGitHubスタイルのアンカースラグを生成する。
+// ASCII は小文字化、空白は '-'、CJK 文字は保持しつつ句読点・記号はスキップする。
+std::pmr::wstring GenerateAnchorId(std::wstring_view text);
 
 // ファイルパスまたはファイル名がMarkdownファイル（.md, .markdown, .mkd）かどうかを判定する。
 // 拡張子の大文字小文字は区別しない。

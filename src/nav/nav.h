@@ -77,3 +77,12 @@ private:
     std::wstring_view last_interned_view_;
     uint32_t last_interned_index_ = UINT32_MAX;
 };
+
+struct LinkClickResult {
+    enum class Type { None, Anchor, ExternalUrl };
+    Type type = Type::None;
+    std::pmr::wstring target;
+};
+
+LinkClickResult HandleLinkClick(std::wstring_view url);
+bool IsSafeUrlScheme(std::wstring_view url) noexcept;

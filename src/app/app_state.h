@@ -5,20 +5,18 @@
 #include "pane_controller.h"
 #include "search_state.h"
 #include "search_bar_controller.h"
-#include "nav_history.h"
+#include "nav.h"
 #include "file_explorer.h"
 #include "mouse_gesture.h"
 #include "swipe_detector.h"
 #include "titlebar.h"
 #include "toast_notifier.h"
 #include "tooltip.h"
-#include "scroll_restoration.h"
+#include "ui_types.h"
 #include "context_menu.h"
 #include "hover_throttle.h"
-#include "hovered_buttons.h"
-#include "nav_button.h"
 #include "pane_layout.h"
-#include "theme_constants.h"
+#include "theme.h"
 #include <string>
 #include <string_view>
 #include <memory_resource>
@@ -92,5 +90,5 @@ struct AppState {
 };
 
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept;
-void PushCurrentNavEntry(AppState& state);
 NavEntry CurrentNavEntry(const AppState& state);
+void PushCurrentNavEntry(AppState& state);

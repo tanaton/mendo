@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <memory_resource>
 
+class PaneController;
+
 // 設定 (settings.ini) のメモリ上マップとディスク永続化を保持する。
 // インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使えば良い。
 class ConfigService {
@@ -44,4 +46,27 @@ private:
     // SHGetKnownFolderPath の結果キャッシュ。override 未設定時の問い合わせを 1 回に抑える。
     mutable std::filesystem::path cached_default_dir_;
     ini::IniData data_;
+};
+
+// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置）の永続化を担当する。
+// ConfigService のセクション "Session" / "Pane" を排他的に扱う薄いラッパ。
+class SessionService {
+public:
+    explicit SessionService(ConfigService& config) noexcept : config_(config) {}
+
+    void SaveLastFilePath(std::wstring_view path);
+    std::pmr::wstring LoadLastFilePath() const;
+
+    void SavePaneState(const PaneController& panes);
+    void LoadPaneState(PaneController& panes, float client_width);
+
+    struct ScrollPosition {
+        int node = -1;
+        int offset = 0;
+    };
+    void SaveScrollPosition(int node, float scroll_y, float node_y);
+    ScrollPosition LoadScrollPosition() const;
+
+private:
+    ConfigService& config_;
 };

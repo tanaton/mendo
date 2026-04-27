@@ -1,5 +1,5 @@
 #pragma once
-#include "pane.h"
+#include "ui_types.h"
 
 // ペイン領域識別子（ある座標がどのペインに属するか）
 enum class PaneZone : int {
