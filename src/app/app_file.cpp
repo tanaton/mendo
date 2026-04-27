@@ -111,13 +111,11 @@ void App::DeferReloadRetry()
     EmitEffect(effect::SetTimer{ app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS });
 }
 
-bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size,
-    [[maybe_unused]] const char* tag)
+bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size)
 {
     if (!IsPartialWriteOngoing(path, read_size)) {
         return false;
     }
-    MENDO_TRACEF("%hs: partial write ongoing, deferring (read_size=%zu)", tag, read_size);
     DeferReloadRetry();
     return true;
 }
@@ -200,7 +198,7 @@ void App::OnParseComplete()
     // 別ファイル読み込み時は差分ロジックをスキップする。
     if (_wcsicmp(result->doc.GetFilePath().c_str(), state_.document.doc.GetFilePath().c_str()) == 0) {
         if (DeferIfPartialWrite(result->doc.GetFilePath(),
-                result->doc.GetRawUtf8().size(), "OnParseComplete")) {
+                result->doc.GetRawUtf8().size())) {
             return;
         }
 
@@ -360,7 +358,7 @@ void App::DoReloadCurrentFile()
     }
     std::pmr::string new_utf8 = std::move(*load_result);
 
-    if (DeferIfPartialWrite(state_.document.doc.GetFilePath(), new_utf8.size(), "DoReload")) {
+    if (DeferIfPartialWrite(state_.document.doc.GetFilePath(), new_utf8.size())) {
         return;
     }
 

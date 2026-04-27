@@ -202,7 +202,7 @@ private:
     void DeferReloadRetry();
 
     // partial-read を検出したら defer して true を返す。
-    bool DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size, const char* tag);
+    bool DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size);
 
     void CancelPendingResources();
     void ResetViewForNewDocument();
