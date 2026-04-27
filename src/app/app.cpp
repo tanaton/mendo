@@ -268,7 +268,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
     const bool had_overlay = state_.interaction.swipe_detector.IsOverlayVisible();
     state_.interaction.swipe_detector.NotifyVScroll(GetTickCount64());
     if (had_overlay) {
-        KillTimer(hwnd_, app_timer::SWIPE_OVERLAY);
+        EmitEffect(effect::KillTimer{ app_timer::SWIPE_OVERLAY });
         Invalidate();
     }
 

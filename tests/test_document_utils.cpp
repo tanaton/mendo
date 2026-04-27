@@ -2,6 +2,7 @@
 #include <memory_resource>
 #include <string_view>
 #include "document_utils.h"
+#include "document_test_helpers.h"
 #include "test_helpers.h"
 #include "parser.h"
 #include "syntax.h"
@@ -533,27 +534,27 @@ TEST(FindLinkAtPosition, EmptyNode)
 TEST(FindAnchorNodeIndex, EmptyNodes)
 {
     std::pmr::vector<Node> nodes;
-    EXPECT_EQ(FindAnchorNodeIndex(nodes, L"test"), -1);
+    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L"test"), -1);
 }
 
 TEST(FindAnchorNodeIndex, EmptyAnchor)
 {
     auto nodes = ParseMarkdown("# Title").nodes;
-    EXPECT_EQ(FindAnchorNodeIndex(nodes, L""), -1);
+    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L""), -1);
 }
 
 TEST(FindAnchorNodeIndex, FindExistingAnchor)
 {
     auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section").nodes;
     ASSERT_GE(nodes.size(), 3u);
-    int idx = FindAnchorNodeIndex(nodes, L"title");
+    int idx = FindAnchorNodeIndexLinear(nodes, L"title");
     EXPECT_EQ(idx, 0);
 }
 
 TEST(FindAnchorNodeIndex, FindSecondHeading)
 {
     auto nodes = ParseMarkdown("# First\n\nParagraph\n\n## Second").nodes;
-    int idx = FindAnchorNodeIndex(nodes, L"second");
+    int idx = FindAnchorNodeIndexLinear(nodes, L"second");
     EXPECT_GE(idx, 0);
     EXPECT_EQ(nodes[idx].GetText(), L"Second");
 }
@@ -562,27 +563,27 @@ TEST(FindAnchorNodeIndex, CaseInsensitiveSearch)
 {
     auto nodes = ParseMarkdown("# Hello World").nodes;
     // アンカーは"hello-world"、大文字で検索
-    int idx = FindAnchorNodeIndex(nodes, L"Hello-World");
+    int idx = FindAnchorNodeIndexLinear(nodes, L"Hello-World");
     EXPECT_EQ(idx, 0);
 }
 
 TEST(FindAnchorNodeIndex, NotFound)
 {
     auto nodes = ParseMarkdown("# Title").nodes;
-    EXPECT_EQ(FindAnchorNodeIndex(nodes, L"nonexistent"), -1);
+    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L"nonexistent"), -1);
 }
 
 TEST(FindAnchorNodeIndex, CjkAnchor)
 {
     auto nodes = ParseMarkdown("## コードブロック").nodes;
-    int idx = FindAnchorNodeIndex(nodes, L"コードブロック");
+    int idx = FindAnchorNodeIndexLinear(nodes, L"コードブロック");
     EXPECT_EQ(idx, 0);
 }
 
 TEST(FindAnchorNodeIndex, SkipsNonHeadings)
 {
     auto nodes = ParseMarkdown("Paragraph\n\n# Heading").nodes;
-    int idx = FindAnchorNodeIndex(nodes, L"heading");
+    int idx = FindAnchorNodeIndexLinear(nodes, L"heading");
     EXPECT_GE(idx, 0);
     EXPECT_EQ(nodes[idx].type, NodeType::Heading);
 }
@@ -982,8 +983,8 @@ TEST(FindAnchorNodeIndex, DuplicateAnchors)
     nodes.emplace_back(std::move(h2));
 
     // 最初のマッチが優先される
-    EXPECT_EQ(FindAnchorNodeIndex(nodes, L"title"), 0);
-    EXPECT_EQ(FindAnchorNodeIndex(nodes, L"title-1"), 1);
+    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L"title"), 0);
+    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L"title-1"), 1);
 }
 
 // ---- FindWordBoundaries 追加テスト ----

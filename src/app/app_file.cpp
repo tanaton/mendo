@@ -25,9 +25,9 @@ void App::LoadHelpDocument()
         return;
     }
 
-    KillTimer(hwnd_, app_timer::LOADING_ANIM);
+    EmitEffect(effect::KillTimer{ app_timer::LOADING_ANIM });
     file_load_service_.StopLoading();
-    doc_service_.StopWatching();
+    EmitEffect(effect::StopFileWatch{});
     ResetViewForNewDocument();
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
@@ -58,11 +58,26 @@ void App::BeginAsyncLoad(const std::pmr::wstring& path)
     file_load_service_.SetLoadingPath(path);
     if (DocumentService::NeedsLoadingAnimation(path) && !state_.pending_prefix_shrink) {
         file_load_service_.StartLoading(path);
-        SetTimer(hwnd_, app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS, nullptr);
+        EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
         Invalidate();
         UpdateWindow(hwnd_);
     }
     file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme());
+}
+
+// DeferPrefixShrink はエディタの truncate→rewrite 2段階保存の前半。
+// state_.document.doc を更新せず保持して、次のリロードで正確な差分を取り直す。
+bool App::ApplyReloadDecisionEarly(const ReloadDecision& decision)
+{
+    state_.pending_prefix_shrink = (decision.op == ReloadOp::DeferPrefixShrink);
+    if (decision.op == ReloadOp::NoChange || decision.op == ReloadOp::DeferPrefixShrink) {
+        EmitEffect(effect::ResumeFileWatch{});
+        if (decision.op == ReloadOp::NoChange) {
+            Invalidate();
+        }
+        return true;
+    }
+    return false;
 }
 
 // reducer を経由せず App 層で直接実行する。ファイル I/O + 同期/非同期ロード分岐 +
@@ -71,7 +86,7 @@ void App::BeginAsyncLoad(const std::pmr::wstring& path)
 // executor が肥大化するため意図的に分離している。
 void App::LoadMarkdownFile(std::wstring_view path)
 {
-    KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
+    EmitEffect(effect::KillTimer{ app_timer::FILE_RELOAD_DEBOUNCE });
     state_.pending_prefix_shrink = false;
     // 仮想パスは NeedsAsyncLoad が true を返し非同期ロードが失敗するため、
     // 先に検出して同期ロードに回す。
@@ -99,7 +114,7 @@ void App::DoLoadMarkdownFile()
         return;
     }
 
-    KillTimer(hwnd_, app_timer::LOADING_ANIM);
+    EmitEffect(effect::KillTimer{ app_timer::LOADING_ANIM });
 
     {
         MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
@@ -126,14 +141,14 @@ void App::HandleLoadFailureFallback()
 
 void App::OnParseComplete()
 {
-    KillTimer(hwnd_, app_timer::LOADING_ANIM);
+    EmitEffect(effect::KillTimer{ app_timer::LOADING_ANIM });
     file_load_service_.StopLoading();
 
     auto result = file_load_service_.TakeAsyncResult();
     if (!result) {
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
         // LoadFile失敗時、FileWatcherがpausedのまま残るのを防ぐ
-        doc_service_.ResumeWatching();
+        EmitEffect(effect::ResumeFileWatch{});
         HandleLoadFailureFallback();
         return;
     }
@@ -145,32 +160,22 @@ void App::OnParseComplete()
         const std::string_view old_view(state_.document.doc.GetRawUtf8());
         const std::string_view new_view(result->doc.GetRawUtf8());
         const auto decision = AnalyzeReloadDiff(old_view, new_view);
-        state_.pending_prefix_shrink = (decision.op == ReloadOp::DeferPrefixShrink);
 
         MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu op=%d",
             result->doc.GetNodes().size(), decision.diff_pos, old_view.size(), new_view.size(),
             std::to_underlying(decision.op));
 
-        switch (decision.op) {
-        case ReloadOp::NoChange:
-            doc_service_.ResumeWatching();
-            Invalidate();
+        if (ApplyReloadDecisionEarly(decision)) {
             return;
-        case ReloadOp::DeferPrefixShrink:
-            // エディタの truncate→rewrite 2段階保存の前半を検出。state_.document.doc を
-            // 更新せず元のコンテンツを保持し、次のリロードで正確な差分を検出できるようにする。
-            doc_service_.ResumeWatching();
-            return;
-        case ReloadOp::PrefixGrowth:
+        }
+        if (decision.op == ReloadOp::PrefixGrowth) {
             // 末尾伸張のみ。FinishReload が ResizePreservingPrefix で旧キャッシュの実測高さを保持する。
             resource_manager_.CancelMermaidBatch();
             state_.document.doc = std::move(result->doc);
             FinishReload(true, decision.diff_pos);
             return;
-        case ReloadOp::FullReload:
-            state_.reload_diff_pos = decision.diff_pos;
-            break;
         }
+        state_.reload_diff_pos = decision.diff_pos;
     }
     else {
         // 別ファイルの非同期ロードではリロード用の差分スクロールを使わない
@@ -251,10 +256,7 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
 
     EmitEffect(effect::SyncTocActive{});
 
-    doc_service_.StartWatching(state_.document.doc.GetFilePath(), [this]() {
-        KillTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE);
-        SetTimer(hwnd_, app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS, nullptr);
-    });
+    EmitEffect(effect::StartFileWatch{ state_.document.doc.GetFilePath() });
 }
 
 // ============================================================
@@ -286,7 +288,7 @@ void App::DoReloadCurrentFile()
 {
     MENDO_PROFILE("DoReloadCurrentFile");
 
-    KillTimer(hwnd_, app_timer::LOADING_ANIM);
+    EmitEffect(effect::KillTimer{ app_timer::LOADING_ANIM });
     file_load_service_.StopLoading();
     state_.active_toc_index = -1;
 
@@ -302,38 +304,24 @@ void App::DoReloadCurrentFile()
         return FileLoader::LoadFile(state_.document.doc.GetFilePath());
     }();
     if (!load_result) {
-        doc_service_.ResumeWatching();
+        EmitEffect(effect::ResumeFileWatch{});
         return;
     }
     std::pmr::string new_utf8 = std::move(*load_result);
     const std::string_view old_view(state_.document.doc.GetRawUtf8());
     const std::string_view new_view(new_utf8);
     const auto decision = AnalyzeReloadDiff(old_view, new_view);
-    state_.pending_prefix_shrink = (decision.op == ReloadOp::DeferPrefixShrink);
 
     MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu op=%d",
         decision.diff_pos, old_view.size(), new_view.size(),
         std::to_underlying(decision.op));
 
-    switch (decision.op) {
-    case ReloadOp::NoChange:
-        // 差分がなければリロード不要。エディタの保存操作が複数の通知を
-        // 発生させた場合に、レイアウトキャッシュの不要なリセットを防ぐ。
-        doc_service_.ResumeWatching();
-        return;
-    case ReloadOp::DeferPrefixShrink:
-        // エディタの truncate→rewrite 2段階保存の前半（ファイル縮小）を検出。
-        // state_.document.doc を更新せず元のコンテンツを保持し、次のリロードで正確な差分を検出する。
-        doc_service_.ResumeWatching();
-        return;
-    case ReloadOp::PrefixGrowth:
-    case ReloadOp::FullReload: {
-        MENDO_PROFILE("Reload::ReplaceFromMarkdown");
-        state_.document.doc.ReplaceFromMarkdown(std::move(new_utf8));
-        FinishReload(decision.op == ReloadOp::PrefixGrowth, decision.diff_pos);
+    if (ApplyReloadDecisionEarly(decision)) {
         return;
     }
-    }
+    MENDO_PROFILE("Reload::ReplaceFromMarkdown");
+    state_.document.doc.ReplaceFromMarkdown(std::move(new_utf8));
+    FinishReload(decision.op == ReloadOp::PrefixGrowth, decision.diff_pos);
 }
 
 // DoReloadCurrentFile / OnParseComplete 共通のリロード後処理。
@@ -393,7 +381,7 @@ void App::FinishReload(bool is_prefix_only, size_t diff_pos)
 
     EmitEffect(effect::SyncTocActive{});
 
-    doc_service_.ResumeWatching();
+    EmitEffect(effect::ResumeFileWatch{});
 }
 
 // ============================================================

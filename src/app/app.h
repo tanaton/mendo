@@ -9,6 +9,7 @@
 #include "mermaid.h"
 #include "image_loader.h"
 #include "document_service.h"
+#include "document_utils.h"
 #include "layout_service.h"
 #include "app_controller.h"
 #include "config_service.h"
@@ -119,12 +120,12 @@ private:
 
     // reducer を介さない経路から effect を単発発火するヘルパー。
     // App 内で発生する連鎖処理の最後で SyncTocActive 等を emit する際に使う。
+    // SideEffectList を作らずに executor の単発 API へ直送し、毎呼び出しの
+    // pmr vector アロケーションを避ける (ホット経路: OnDeferredLayout, OnPaint, OnSizing 等)。
     template <typename T>
     void EmitEffect(T&& e)
     {
-        SideEffectList effects;
-        PushEffect(effects, std::forward<T>(e));
-        effect_executor_.Execute(effects);
+        effect_executor_.ExecuteOne(side_effect_detail::WrapIntoDomain(std::forward<T>(e)));
     }
 
     // Init用コールバック構築ヘルパー
@@ -189,6 +190,12 @@ private:
     void UpdateTitleBar();
 
     void FinishReload(bool is_prefix_only, size_t diff_pos);
+
+    // pending_prefix_shrink を確定し、NoChange / DeferPrefixShrink なら
+    // ResumeFileWatch を発行して true (= 呼び出し元は早期 return) を返す。
+    // PrefixGrowth / FullReload なら false を返し、呼び出し元が
+    // decision.op で本格的な reload / load 処理を分岐する。
+    bool ApplyReloadDecisionEarly(const ReloadDecision& decision);
 
     void CancelPendingResources();
     void ResetViewForNewDocument();

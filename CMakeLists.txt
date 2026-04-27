@@ -38,10 +38,31 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(webview2)
 
-# 展開されたWebView2のヘッダーとライブラリのパスを設定
+# 展開されたWebView2のヘッダーとライブラリのパスを設定。
+# NuGet パッケージは build/native/x64 と build/native/arm64 のみ提供。
+# Visual Studio ジェネレータでは CMAKE_GENERATOR_PLATFORM、それ以外は
+# CMAKE_SYSTEM_PROCESSOR を見て切り替える。
 set(WEBVIEW2_DIR "${webview2_SOURCE_DIR}")
 set(WEBVIEW2_INCLUDE "${WEBVIEW2_DIR}/build/native/include")
-set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/x64")
+if(CMAKE_GENERATOR_PLATFORM)
+    set(_mendo_arch "${CMAKE_GENERATOR_PLATFORM}")
+else()
+    set(_mendo_arch "${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+string(TOLOWER "${_mendo_arch}" _mendo_arch)
+if(_mendo_arch MATCHES "^(x64|amd64)$")
+    set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/x64")
+elseif(_mendo_arch MATCHES "^(arm64|aarch64)$")
+    set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/arm64")
+else()
+    message(FATAL_ERROR
+        "mendo: unsupported architecture '${_mendo_arch}'. "
+        "WebView2 NuGet provides only x64 / arm64 binaries "
+        "(accepted names: x64, AMD64, ARM64, AArch64). "
+        "Visual Studio generator users should pass '-A x64' or '-A ARM64' "
+        "(e.g. 'cmake -A x64 -B build').")
+endif()
+unset(_mendo_arch)
 
 # WIL（Windows Implementation Library）WebView2コールバック用
 FetchContent_Declare(
@@ -74,6 +95,9 @@ add_library(mendo_core STATIC
     src/core/document_utils.cpp
     src/core/parser.cpp
     src/core/parser_alerts.cpp
+    src/core/reload_diff.cpp
+    src/core/reload_scroll.cpp
+    src/core/selection_html.cpp
     src/core/toc.cpp
     src/core/syntax.cpp
     # layout - レイアウト計算

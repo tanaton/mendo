@@ -154,18 +154,12 @@ void ReduceDirectScrollBy(AppState& state, SideEffectList& effects, const Direct
 
 void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPaneAction& a)
 {
-    PaneTarget target;
-    if (a.pane == PaneZone::FilePane) {
-        target = PaneTarget::File;
-    }
-    else if (a.pane == PaneZone::TocPane) {
-        target = PaneTarget::Toc;
-    }
-    else {
+    const auto target = ToPaneTarget(a.pane);
+    if (!target) {
         return;
     }
-    const auto ctx = GetSidePaneContext(state, target);
-    const bool scrolled = (target == PaneTarget::File)
+    const auto ctx = GetSidePaneContext(state, *target);
+    const bool scrolled = (*target == PaneTarget::File)
         ? state.view.panes.ScrollFilePaneBy(a.delta, ctx.info.max_scroll)
         : state.view.panes.ScrollTocPaneBy(a.delta, ctx.info.max_scroll);
     if (scrolled) {

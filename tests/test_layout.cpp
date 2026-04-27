@@ -1,36 +1,10 @@
 #include <gtest/gtest.h>
 #include <memory_resource>
-#include "layout.h"
 #include "command_generator.h"
-#include "dwrite_measurer.h"
+#include "dwrite_test_base.h"
 #include "parser.h"
-#include "test_helpers.h"
-#include <dwrite.h>
-#include <wrl/client.h>
 
-using Microsoft::WRL::ComPtr;
-
-class LayoutTest : public ComApartmentTest {
-protected:
-    ComPtr<IDWriteFactory> dwrite_;
-    DWriteTextMeasurer measurer_;
-    LayoutEngine engine_;
-    Theme theme_;
-
-    void SetUp() override
-    {
-        HRESULT hr = DWriteCreateFactory(
-            DWRITE_FACTORY_TYPE_SHARED,
-            __uuidof(IDWriteFactory),
-            reinterpret_cast<IUnknown**>(dwrite_.GetAddressOf()));
-        ASSERT_TRUE(SUCCEEDED(hr)) << "DirectWriteファクトリの作成に失敗";
-
-        theme_ = GetLightTheme();
-        measurer_.SetFactory(dwrite_.Get());
-        ASSERT_TRUE(measurer_.Init(theme_));
-        ASSERT_TRUE(engine_.Init(&measurer_, theme_));
-    }
-};
+class LayoutTest : public DWriteTestBase {};
 
 TEST_F(LayoutTest, EmptyNodesProduceZeroHeight)
 {
