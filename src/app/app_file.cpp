@@ -1,6 +1,7 @@
 #include "app.h"
 #include "app_constants.h"
 #include "file_loader.h"
+#include "file_io.h"
 #include "i18n.h"
 #include "document_utils.h"
 #include "mermaid_util.h"
@@ -9,26 +10,6 @@
 #include "utility.h"
 #include <algorithm>
 #include <utility>
-#include <windows.h>
-
-namespace {
-
-// 読み込み済みコンテンツの後にファイルがさらに伸びていれば、エディタ側が
-// 書き込み途中である可能性が高い。BOM の 3 バイトずれを吸収するため
-// 16 バイトの許容範囲を持たせる。
-[[nodiscard]] bool IsPartialWriteOngoing(const std::pmr::wstring& path, size_t result_size) noexcept
-{
-    WIN32_FILE_ATTRIBUTE_DATA attr{};
-    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)) {
-        return false;
-    }
-    const uint64_t current_size = (static_cast<uint64_t>(attr.nFileSizeHigh) << 32)
-        | static_cast<uint64_t>(attr.nFileSizeLow);
-    constexpr uint64_t TOLERANCE = 16;
-    return current_size > static_cast<uint64_t>(result_size) + TOLERANCE;
-}
-
-} // namespace
 
 // ============================================================
 // ファイル読み込み
@@ -113,7 +94,7 @@ void App::DeferReloadRetry()
 
 bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size)
 {
-    if (!IsPartialWriteOngoing(path, read_size)) {
+    if (!IsFileLargerThan(path.c_str(), read_size)) {
         return false;
     }
     DeferReloadRetry();
