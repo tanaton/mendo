@@ -443,7 +443,7 @@ void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, cons
 {
     state.search.search_bar_ctrl.StartDrag(a.caret_pos);
     PushEffect(effects, effect::SetCapture{});
-    PushEffect(effects, effect::PostMessage{
+    PushEffect(effects, effect::PostWindowMessage{
         app_msg::SEARCH_FOCUS,
         app_param::SEARCH_FOCUS_SET_CARET,
         static_cast<LPARAM>(a.caret_pos)
@@ -460,7 +460,7 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
         && ctrl.GetDragAnchor() == ctrl.GetSelectionStart()) {
         return;
     }
-    PushEffect(effects, effect::PostMessage{
+    PushEffect(effects, effect::PostWindowMessage{
         app_msg::SEARCH_FOCUS,
         app_param::SEARCH_FOCUS_SET_SELECTION,
         MAKELPARAM(ctrl.GetDragAnchor(), a.caret_pos)

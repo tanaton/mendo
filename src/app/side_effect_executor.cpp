@@ -95,7 +95,7 @@ void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
         [this](const effect::ShowWindowCmd& ev) {
             host_->ShowWindowCmd(ev.cmd);
         },
-        [this](const effect::PostMessage& ev) {
+        [this](const effect::PostWindowMessage& ev) {
             host_->PostWindowMessage(ev.msg, ev.wp, ev.lp);
         },
         [this](const effect::SetWindowTitle& ev) {

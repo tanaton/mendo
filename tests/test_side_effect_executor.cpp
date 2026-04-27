@@ -401,9 +401,9 @@ TEST_F(SideEffectExecutorTest, ShowWindowCmdForwardsValueToHost)
     EXPECT_EQ(host_.show_window_cmd_calls[0], SW_MAXIMIZE);
 }
 
-TEST_F(SideEffectExecutorTest, PostMessageForwardsToHost)
+TEST_F(SideEffectExecutorTest, PostWindowMessageForwardsToHost)
 {
-    exec_.ExecuteOne(effect::PostMessage{WM_USER + 1, 7, 13});
+    exec_.ExecuteOne(effect::PostWindowMessage{WM_USER + 1, 7, 13});
     ASSERT_EQ(host_.post_message_calls.size(), 1u);
     EXPECT_EQ(std::get<0>(host_.post_message_calls[0]), UINT{WM_USER + 1});
     EXPECT_EQ(std::get<1>(host_.post_message_calls[0]), WPARAM{7});
