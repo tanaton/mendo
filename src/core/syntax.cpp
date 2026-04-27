@@ -1,6 +1,6 @@
 #include "syntax.h"
 #include "syntax_keywords.h"
-#include "simd_ascii.h"
+#include "ascii_util.h"
 #include <algorithm>
 #include <array>
 #include <span>
@@ -427,9 +427,9 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
 
             const std::wstring_view word(text.data() + start, i - start);
             std::wstring_view lookup_word = word;
-            if (cfg.case_insensitive && simd_ascii::HasAsciiUpper(word.data(), word.size())) {
+            if (cfg.case_insensitive && ascii_util::HasAsciiUpper(word.data(), word.size())) {
                 ci_buf.resize(word.size());
-                simd_ascii::AsciiToLowerOnly(word.data(), ci_buf.data(), word.size());
+                ascii_util::AsciiToLowerOnly(word.data(), ci_buf.data(), word.size());
                 lookup_word = ci_buf;
             }
 
@@ -551,7 +551,7 @@ SyntaxLanguage DetectLanguage(std::string_view info_string)
         if (lang_len >= sizeof(lang_buf) - 1) {
             break;
         }
-        lang_buf[lang_len++] = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+        lang_buf[lang_len++] = ascii_util::ToLowerAscii(c);
     }
     const std::string_view lang(lang_buf, lang_len);
 

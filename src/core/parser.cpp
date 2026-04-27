@@ -1,4 +1,6 @@
 #include "parser.h"
+#include "anchor_slug.h"
+#include "html_entity.h"
 #include "syntax.h"
 #include "string_convert.h"
 #include "memory_resource.h"
@@ -6,54 +8,10 @@
 #include <stack>
 #include <map>
 #include <unordered_map>
-#include <charconv>
 #include <climits>
 #include <format>
 #include <iterator>
 #include <algorithm>
-
-std::pmr::wstring GenerateAnchorId(std::wstring_view text)
-{
-    std::pmr::wstring slug;
-    slug.reserve(text.size());
-    for (wchar_t c : text) {
-        if (c >= L'A' && c <= L'Z') {
-            slug += static_cast<wchar_t>(c - L'A' + L'a');
-        }
-        else if ((c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9') || c == L'-' || c == L'_') {
-            slug += c;
-        }
-        else if (c == L' ' || c == L'\t') {
-            slug += L'-';
-        }
-        // CJK文字: そのまま保持するが、句読点・記号はスキップ
-        else if (c >= 0x3000) {
-            bool skip = false;
-            // CJK記号と句読点 (U+3000-U+303F): 、。「」【】〈〉 等
-            if (c <= 0x303F) {
-                skip = true;
-            }
-            // 全角ASCII対応の句読点
-            else if (c >= 0xFF01 && c <= 0xFF0F) {
-                skip = true; // ！＂＃…（）＊＋，－．／
-            }
-            else if (c >= 0xFF1A && c <= 0xFF20) {
-                skip = true; // ：；＜＝＞？＠
-            }
-            else if (c >= 0xFF3B && c <= 0xFF40) {
-                skip = true; // ［＼］＾＿｀
-            }
-            else if (c >= 0xFF5B && c <= 0xFF65) {
-                skip = true; // ｛｜｝～…･
-            }
-            if (!skip) {
-                slug += c;
-            }
-        }
-        // その他の文字: スキップ
-    }
-    return slug;
-}
 
 namespace {
 
@@ -295,6 +253,47 @@ struct ParseContext {
     }
 };
 
+// MD_BLOCK_P 終了時、画像 span を含む段落 / 引用ブロックを Image ノードへ昇格させる。
+// 戻り値 true なら他の昇格処理はスキップしてよい。
+bool TryPromoteParagraphToImage(ParseContext* ctx)
+{
+    auto* const cn = ctx->current_node;
+    if (!cn || !cn->has_image() || cn->image_data()->src.empty()) {
+        return false;
+    }
+    if (cn->type != NodeType::Paragraph && cn->type != NodeType::BlockQuote) {
+        return false;
+    }
+    cn->type = NodeType::Image;
+    ctx->image_indices.emplace_back(ctx->current_node_index);
+    return true;
+}
+
+// MD_BLOCK_P 終了時、$$..$$ ブロック数式が単独の段落を LaTeX CodeBlock へ昇格させる。
+// blockquote 内は引用文脈を保ちたいため Paragraph のみ昇格対象。
+bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
+{
+    auto* const node = ctx->current_node;
+    if (!node || node->type != NodeType::Paragraph) {
+        return false;
+    }
+    if (ctx->paragraph_display_math_count != 1 ||
+        ctx->paragraph_has_other_content ||
+        ctx->display_math_buf.empty()) {
+        return false;
+    }
+    node->type = NodeType::CodeBlock;
+    node->code_language = SyntaxLanguage::LatexMath;
+    // current_utf8 スクラッチに math 内容を直接書き込み、後段の FinalizeCurrentNode で
+    // Wide 化される。
+    ctx->current_utf8.assign(ctx->display_math_buf.data(), ctx->display_math_buf.size());
+    node->runs.clear();
+    node->line_count = static_cast<int>(std::ranges::count(ctx->current_utf8, '\n'));
+    ctx->node_wide_offset = 0;
+    ctx->diagram_indices.emplace_back(ctx->current_node_index);
+    return true;
+}
+
 int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
@@ -494,26 +493,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         ctx->current_node = nullptr;
         break;
     case MD_BLOCK_P:
-        // 画像を含む段落/引用ブロックを Image ノードに変換
-        if (auto* cn = ctx->current_node; cn && cn->has_image() && !cn->image_data()->src.empty() && (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote)) {
-            cn->type = NodeType::Image;
-            ctx->image_indices.emplace_back(ctx->current_node_index);
-        }
-        // blockquote 内は引用文脈を保ちたいため Paragraph のみ昇格対象
-        else if (auto* math_node = ctx->current_node;
-            math_node && ctx->paragraph_display_math_count == 1 &&
-            !ctx->paragraph_has_other_content &&
-            !ctx->display_math_buf.empty() &&
-            math_node->type == NodeType::Paragraph) {
-            math_node->type = NodeType::CodeBlock;
-            math_node->code_language = SyntaxLanguage::LatexMath;
-            // current_utf8 スクラッチに math 内容を直接書き込み、後段の FinalizeCurrentNode で
-            // Wide 化される。
-            ctx->current_utf8.assign(ctx->display_math_buf.data(), ctx->display_math_buf.size());
-            math_node->runs.clear();
-            math_node->line_count = static_cast<int>(std::ranges::count(ctx->current_utf8, '\n'));
-            ctx->node_wide_offset = 0;
-            ctx->diagram_indices.emplace_back(ctx->current_node_index);
+        if (!TryPromoteParagraphToImage(ctx)) {
+            TryPromoteParagraphToDisplayMath(ctx);
         }
         ctx->FinalizeCurrentNode();
         ctx->current_node = nullptr;
@@ -628,62 +609,6 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
     return 0;
 }
 
-void ResolveHtmlEntity(ParseContext* ctx, std::string_view entity)
-{
-    const wchar_t* resolved = nullptr;
-    wchar_t single_char = 0;
-    if (entity == "&amp;") {
-        resolved = L"&";
-    }
-    else if (entity == "&lt;") {
-        resolved = L"<";
-    }
-    else if (entity == "&gt;") {
-        resolved = L">";
-    }
-    else if (entity == "&quot;") {
-        resolved = L"\"";
-    }
-    else if (entity == "&apos;") {
-        resolved = L"'";
-    }
-    else if (entity == "&nbsp;") {
-        resolved = L"\u00A0";
-    }
-    else if (entity.size() >= 4 && entity[0] == '&' && entity[1] == '#') {
-        unsigned long codepoint = 0;
-        bool valid = false;
-        if (entity[2] == 'x' || entity[2] == 'X') {
-            const auto result = std::from_chars(entity.data() + 3, entity.data() + entity.size() - 1, codepoint, 16);
-            valid = (result.ec == std::errc());
-        }
-        else {
-            const auto result = std::from_chars(entity.data() + 2, entity.data() + entity.size() - 1, codepoint, 10);
-            valid = (result.ec == std::errc());
-        }
-        if (valid && codepoint > 0 && codepoint <= 0xFFFF) {
-            single_char = static_cast<wchar_t>(codepoint);
-            resolved = &single_char;
-        }
-        else if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
-            // 補助面: UTF-16サロゲートペアを出力
-            const unsigned long adj = codepoint - 0x10000;
-            wchar_t surrogate[2];
-            surrogate[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));
-            surrogate[1] = static_cast<wchar_t>(0xDC00 + (adj & 0x3FF));
-            ctx->AppendText(std::wstring_view{ surrogate, 2 });
-            return;
-        }
-    }
-    if (resolved) {
-        const size_t rlen = (single_char != 0) ? 1 : std::wcslen(resolved);
-        ctx->AppendText(std::wstring_view{ resolved, rlen });
-    }
-    else {
-        ctx->AppendUtf8(entity);
-    }
-}
-
 int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
@@ -714,13 +639,21 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         }
         break;
 
-    case MD_TEXT_ENTITY:
+    case MD_TEXT_ENTITY: {
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
         ctx->FlushUtf8();
-        ResolveHtmlEntity(ctx, std::string_view{ text, static_cast<size_t>(size) });
+        const std::string_view entity{ text, static_cast<size_t>(size) };
+        wchar_t entity_buf[2];
+        if (const auto resolved = ResolveHtmlEntity(entity, entity_buf)) {
+            ctx->AppendText(*resolved);
+        }
+        else {
+            ctx->AppendUtf8(entity);
+        }
         break;
+    }
 
     case MD_TEXT_BR:
         if (!ctx->in_display_math) {

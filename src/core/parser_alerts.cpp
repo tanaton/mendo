@@ -1,6 +1,7 @@
 // GitHub Alerts の検出・変換処理。BlockQuote ノードからマーカー [!TYPE] を検出し、
 // ラベル・アイコンの挿入と同一 blockquote グループへの alert_type 伝播を行う。
 #include "parser.h"
+#include "ascii_util.h"
 #include <algorithm>
 #include <string>
 #include <string_view>
@@ -34,9 +35,7 @@ namespace {
 // 大文字小文字を無視して比較する。Alert マーカーは GitHub 仕様で ASCII 固定。
 bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept
 {
-    constexpr auto to_upper = [](wchar_t c) noexcept -> wchar_t {
-        return (c >= L'a' && c <= L'z') ? static_cast<wchar_t>(c - L'a' + L'A') : c;
-    };
+    constexpr auto to_upper = [](wchar_t c) static noexcept { return ascii_util::ToUpperAscii(c); };
     return std::ranges::equal(a, b, {}, to_upper, to_upper);
 }
 
