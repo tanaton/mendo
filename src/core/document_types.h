@@ -131,6 +131,17 @@ struct Node {
         FinalizeSetText();
     }
 
+    // SetText と異なり line_count を再計算しない。呼び出し側で line_count を維持済みの場合に使う。
+    void SetTextPreservingLineCount(std::wstring_view s)
+    {
+        text_.assign(s);
+    }
+
+    void SetTextPreservingLineCount(std::pmr::wstring&& s) noexcept
+    {
+        text_ = std::move(s);
+    }
+
     // ---- 拡張データへのアクセサ ----
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
     NodeTableData* table_data() noexcept { return std::get_if<NodeTableData>(&extra); }

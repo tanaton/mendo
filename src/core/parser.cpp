@@ -39,11 +39,11 @@ struct ParseContext {
     std::pmr::vector<size_t> heading_indices;
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
+    std::pmr::vector<size_t> blockquote_indices;
     size_t current_node_index = 0;
 
     // パース一時データには monotonic リソースを使用
-    std::stack<SpanState, std::pmr::deque<SpanState>> span_stack{
-        std::pmr::deque<SpanState>{parse_resource.resource()} };
+    std::stack<SpanState, std::pmr::deque<SpanState>> span_stack{ std::pmr::deque<SpanState>{parse_resource.resource()} };
     SpanState current_span;
 
     // UTF-8 → Wide変換用の再利用可能バッファ
@@ -52,10 +52,6 @@ struct ParseContext {
     std::pmr::string utf8_accum{ parse_resource.resource() };
 
     // 現在ノード用の UTF-8 蓄積スクラッチ。
-    // 旧設計では Node::text_utf8 として永続フィールドに置いていたが、
-    // パース完了後は不要なメモリが Node に残り続けるため ParseContext 側に移動した。
-    // ノード切り替え時に FinalizeCurrentNode() で Wide 化して current_node->text_ に書き、
-    // クリアして次ノードに使い回す。
     std::pmr::string current_utf8{ parse_resource.resource() };
 
     // ブロックコンテキスト追跡
@@ -106,7 +102,8 @@ struct ParseContext {
         FlushUtf8();
         if (current_node && !current_utf8.empty()) {
             Utf8ToWide(current_utf8, text_buffer);
-            current_node->SetText(std::wstring_view{ text_buffer });
+            // line_count は AppendText / AppendUtf8 で積算済みなので再走査を避ける。
+            current_node->SetTextPreservingLineCount(text_buffer);
         }
         current_utf8.clear();
     }
@@ -317,6 +314,9 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         if (!ctx->in_code_block) {
             const auto node_type = (ctx->blockquote_depth > 0) ? NodeType::BlockQuote : NodeType::Paragraph;
             ctx->BeginNode(node_type);
+            if (node_type == NodeType::BlockQuote) {
+                ctx->blockquote_indices.emplace_back(ctx->current_node_index);
+            }
         }
         ctx->paragraph_display_math_count = 0;
         ctx->paragraph_has_other_content = false;
@@ -695,6 +695,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     ctx.heading_indices.reserve(std::clamp(markdown_text.size() / 256, size_t{ 8 }, size_t{ 512 }));
     ctx.image_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
     ctx.diagram_indices.reserve(std::clamp(markdown_text.size() / 1024, size_t{ 4 }, size_t{ 128 }));
+    ctx.blockquote_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
 
     MD_PARSER parser{};
     parser.abi_version = 0;
@@ -711,7 +712,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     // 安全のため）テキストを確定する。
     ctx.FinalizeCurrentNode();
 
-    DetectAlerts(ctx.nodes);
+    DetectAlerts(ctx.nodes, std::span<const size_t>{ ctx.blockquote_indices });
 
     ParseResult result;
     result.nodes = std::move(ctx.nodes);
@@ -857,37 +858,47 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     node.alert_label_length = static_cast<uint32_t>(full_label_len);
 }
 
-} // namespace
-
-void DetectAlerts(std::pmr::vector<Node>& nodes)
+// 単一の BlockQuote ノードに対して Alert マーカーを検出・適用し、
+// 同一 blockquote_group の後続ノードに alert_type を伝播する。
+// 既に alert_type が設定されているノードはスキップする（伝播で当たった先頭等）。
+void DetectAlertAt(std::pmr::vector<Node>& nodes, size_t i)
 {
     const auto node_count = nodes.size();
-    for (size_t i = 0; i < node_count; i++) {
-        if (nodes[i].type != NodeType::BlockQuote) {
-            continue;
-        }
-        size_t marker_end = 0;
-        const AlertType type = DetectAlertMarker(nodes[i].GetText(), marker_end);
-        if (type == AlertType::None) {
-            continue;
-        }
-        const int group = nodes[i].blockquote_group;
-        TransformAlertNode(nodes[i], type, marker_end);
+    if (i >= node_count) {
+        return;
+    }
+    auto& node = nodes[i];
+    if (node.type != NodeType::BlockQuote || node.alert_type != AlertType::None) {
+        return;
+    }
+    size_t marker_end = 0;
+    const AlertType type = DetectAlertMarker(node.GetText(), marker_end);
+    if (type == AlertType::None) {
+        return;
+    }
+    const int group = node.blockquote_group;
+    TransformAlertNode(node, type, marker_end);
 
-        // 同一 blockquote_group の後続ノードにも同じ alert_type を伝播
-        // ノード種別に依存せず、グループIDで判定する（リスト等も含む）
-        size_t j = i + 1;
-        for (; j < node_count; j++) {
-            if (nodes[j].blockquote_group != group) {
-                break;
-            }
-            nodes[j].alert_type = type;
+    // 同一 blockquote_group の後続ノードにも同じ alert_type を伝播。
+    // ノード種別に依存せず、グループIDで判定する（リスト等も含む）。
+    for (size_t j = i + 1; j < node_count; j++) {
+        if (nodes[j].blockquote_group != group) {
+            break;
         }
-        i = j - 1; // 伝播済みノードをスキップ
+        nodes[j].alert_type = type;
     }
 }
 
-std::optional<std::wstring_view> ResolveHtmlEntity(std::string_view entity, wchar_t (&buffer)[2])
+} // namespace
+
+void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockquote_indices)
+{
+    for (const size_t i : blockquote_indices) {
+        DetectAlertAt(nodes, i);
+    }
+}
+
+std::optional<std::wstring_view> ResolveHtmlEntity(std::string_view entity, wchar_t(&buffer)[2])
 {
     const wchar_t* literal = nullptr;
     if (entity == "&amp;") {

@@ -3,7 +3,6 @@
 #include <d2d1.h>
 #include <wrl/client.h>
 #include <cstdint>
-#include <memory_resource>
 #include <unordered_map>
 
 namespace command_executor_internal {
@@ -48,7 +47,10 @@ private:
         uint64_t last_used = 0;
     };
 
-    std::pmr::unordered_map<uint32_t, BrushEntry> brush_pool_;
+    // UI スレッド専用のためロック不要。グローバル sync pool を経由しないように
+    // 標準 unordered_map を使う（pmr::unordered_map ではアロケーション毎に
+    // synchronized_pool_resource のミューテックスを取得していた）。
+    std::unordered_map<uint32_t, BrushEntry> brush_pool_;
     uint64_t use_counter_ = 0;
     ID2D1RenderTarget* bound_rt_ = nullptr;
 };

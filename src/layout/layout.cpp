@@ -75,11 +75,10 @@ void ComputeColumnWidths(std::pmr::vector<float>& out,
 
 std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows)
 {
-    const auto row_count = rows.size();
-    // 概算でreserveし、1パスで構築する（二重走査を回避）
     std::pmr::wstring text;
-    text.reserve(row_count * 64); // 行あたり平均64文字の概算
+    const auto row_count = rows.size();
     const auto last_row = static_cast<ptrdiff_t>(row_count) - 1;
+    text.reserve(row_count * 128); // 行あたり平均128文字の概算
     for (const auto& [r, row] : rows | std::views::enumerate) {
         for (const auto& [c, cell] : row.cells | std::views::enumerate) {
             if (c > 0) {
