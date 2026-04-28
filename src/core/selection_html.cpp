@@ -1,7 +1,7 @@
 #include "selection_html.h"
-#include "navigation_service.h"
+#include "nav.h"
 #include "syntax.h"
-#include "theme_palette.h"
+#include "theme.h"
 #include <algorithm>
 #include <array>
 #include <cassert>

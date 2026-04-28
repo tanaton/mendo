@@ -3,8 +3,8 @@
 #include "resource_manager.h"
 #include "document_service.h"
 #include "app_state.h"
-#include "layout_service.h"
-#include "timer_ids.h"
+#include "layout.h"
+#include "app_constants.h"
 #include "utility.h"
 #include "ui_constants.h"
 
@@ -95,7 +95,7 @@ void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
         [this](const effect::ShowWindowCmd& ev) {
             host_->ShowWindowCmd(ev.cmd);
         },
-        [this](const effect::PostMessage& ev) {
+        [this](const effect::PostWindowMessage& ev) {
             host_->PostWindowMessage(ev.msg, ev.wp, ev.lp);
         },
         [this](const effect::SetWindowTitle& ev) {

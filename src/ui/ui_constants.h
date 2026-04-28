@@ -1,4 +1,5 @@
 #pragma once
+#include "ui_types.h"
 #include <d2d1.h>
 #include <cmath>
 #include <numbers>
@@ -70,11 +71,6 @@ inline constexpr UINT TOOLTIP_DELAY_MS = 500;
 
 // クリック判定距離の二乗（ドラッグ選択とクリックを区別するための閾値）
 inline constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
-
-// 点が矩形内にあるか判定する（D2D規約に合わせ右辺・下辺は排他的）。
-inline constexpr bool PointInRect(float x, float y, const D2D1_RECT_F& r) noexcept {
-    return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
-}
 
 // ペインヘッダー閉じるボタンの余白
 inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;

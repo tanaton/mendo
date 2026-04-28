@@ -1,12 +1,11 @@
 #include <gtest/gtest.h>
 #include "side_effect_executor.h"
 #include "win32_host.h"
-#include "timer_ids.h"
+#include "app_constants.h"
 #include "app_state.h"
 #include "resource_manager.h"
 #include "document_service.h"
 #include "config_service.h"
-#include "layout_service.h"
 #include "layout.h"
 #include "file_watcher.h"
 
@@ -50,12 +49,12 @@ public:
     void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) override {
         clipboard_html_calls.emplace_back(std::wstring{html}, std::wstring{plain});
     }
-    void ShellOpen(std::wstring_view url) override { shell_open_calls.emplace_back(url); }
+    void ShellOpen(const std::pmr::wstring& url) override { shell_open_calls.emplace_back(std::wstring_view{url}); }
     void ShowWindowCmd(int cmd) override { show_window_cmd_calls.push_back(cmd); }
     void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override {
         post_message_calls.emplace_back(msg, wp, lp);
     }
-    void SetWindowTitle(std::wstring_view title) override { set_window_title_calls.emplace_back(title); }
+    void SetWindowTitle(const std::pmr::wstring& title) override { set_window_title_calls.emplace_back(std::wstring_view{title}); }
     void SetWindowPosition(int x, int y, int cx, int cy) override {
         set_window_position_calls.emplace_back(x, y, cx, cy);
     }
@@ -401,9 +400,9 @@ TEST_F(SideEffectExecutorTest, ShowWindowCmdForwardsValueToHost)
     EXPECT_EQ(host_.show_window_cmd_calls[0], SW_MAXIMIZE);
 }
 
-TEST_F(SideEffectExecutorTest, PostMessageForwardsToHost)
+TEST_F(SideEffectExecutorTest, PostWindowMessageForwardsToHost)
 {
-    exec_.ExecuteOne(effect::PostMessage{WM_USER + 1, 7, 13});
+    exec_.ExecuteOne(effect::PostWindowMessage{WM_USER + 1, 7, 13});
     ASSERT_EQ(host_.post_message_calls.size(), 1u);
     EXPECT_EQ(std::get<0>(host_.post_message_calls[0]), UINT{WM_USER + 1});
     EXPECT_EQ(std::get<1>(host_.post_message_calls[0]), WPARAM{7});

@@ -1,4 +1,5 @@
 #include "layout.h"
+#include "document.h"
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -239,7 +240,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     for (size_t i = 0; i < node_count; i++) {
         auto& node = nodes[i];
         auto& entry = cache[i];
-        const float indent = node.indent_level * theme_->indent_width;
+        const float indent = NodeIndent(node, *theme_);
         const float node_width = content_width - indent;
 
         const bool needs_layout = width_changed || entry.layout_dirty;
@@ -339,7 +340,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         if (!entry.layout_dirty) {
             continue;
         }
-        const float indent = nodes[i].indent_level * theme_->indent_width;
+        const float indent = NodeIndent(nodes[i], *theme_);
         measurer_->MeasureNode(nodes[i], entry, content_width - indent);
         any_updated = true;
         last_measured = i;
@@ -399,7 +400,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
         if (first_dirty == nodes.size()) {
             first_dirty = i;
         }
-        const float indent = nodes[i].indent_level * theme_->indent_width;
+        const float indent = NodeIndent(nodes[i], *theme_);
         measurer_->MeasureNode(nodes[i], entry, content_width - indent);
         last_processed = i;
 
@@ -430,4 +431,42 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
         last_viewport_width_ = viewport_width;
     }
     return has_dirty_nodes_;
+}
+
+void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float width, float height)
+{
+    const float scroll_y = viewport_.GetScrollY();
+    engine_.ComputeLayout(doc.GetNodesMut(), cache, width, scroll_y, scroll_y + height);
+    viewport_.ApplyScrollTarget(cache);
+}
+
+bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us,
+    float viewport_height, float buffer_screens)
+{
+    bool more;
+    if (viewport_height > 0.0f) {
+        const float vp_top = viewport_.GetScrollY();
+        more = engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, time_budget_us, vp_top, viewport_height, buffer_screens);
+    }
+    else {
+        more = engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, time_budget_us);
+    }
+    viewport_.ApplyScrollTarget(cache);
+    return more;
+}
+
+bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height)
+{
+    const float scroll_y = viewport_.GetScrollY();
+    const bool updated = engine_.EnsureVisibleLayout(doc.GetNodesMut(), cache, width, scroll_y, scroll_y + height);
+
+    viewport_.ApplyScrollTarget(cache);
+    return updated;
+}
+
+void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept
+{
+    const auto result = RecomputeYPositions(doc.GetNodesMut(), cache, theme);
+    engine_.SetTotalHeight(result.total_height);
+    viewport_.ApplyScrollTarget(cache);
 }

@@ -1,6 +1,8 @@
 #pragma once
 #include <vector>
 #include <queue>
+#include <deque>
+#include <memory_resource>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -38,7 +40,7 @@ private:
     void WorkerLoop();
 
     std::vector<std::thread> workers_;
-    std::queue<std::move_only_function<void()>> queue_;
+    std::queue<std::move_only_function<void()>, std::pmr::deque<std::move_only_function<void()>>> queue_;
     std::mutex mutex_;
     std::condition_variable cv_;
     std::atomic<bool> shutdown_{ false };

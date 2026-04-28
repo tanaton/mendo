@@ -54,14 +54,17 @@ void App::LoadHelpDocument()
     UpdateTitleBar();
 }
 
-void App::BeginAsyncLoad(const std::pmr::wstring& path)
+void App::BeginAsyncLoad(std::pmr::wstring path)
 {
-    file_load_service_.SetLoadingPath(path);
-    if (DocumentService::NeedsLoadingAnimation(path) && !state_.pending_reload_retry) {
-        file_load_service_.StartLoading(path);
+    const bool show_anim = DocumentService::NeedsLoadingAnimation(path) && !state_.pending_reload_retry;
+    if (show_anim) {
+        file_load_service_.StartLoading(std::move(path));
         EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
         Invalidate();
         UpdateWindow(hwnd_);
+    }
+    else {
+        file_load_service_.SetLoadingPath(std::move(path));
     }
     file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme());
 }
@@ -115,13 +118,13 @@ void App::LoadMarkdownFile(std::wstring_view path)
         LoadHelpDocument();
         return;
     }
-    const std::pmr::wstring path_str{ path };
+    std::pmr::wstring path_str{ path };
     if (!DocumentService::NeedsAsyncLoad(path_str)) {
-        file_load_service_.SetLoadingPath(path_str);
+        file_load_service_.SetLoadingPath(std::move(path_str));
         DoLoadMarkdownFile();
     }
     else {
-        BeginAsyncLoad(path_str);
+        BeginAsyncLoad(std::move(path_str));
     }
 }
 

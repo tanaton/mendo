@@ -11,6 +11,7 @@
 #include <commctrl.h>
 #include <imm.h>
 #include <climits>
+#include <memory_resource>
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
@@ -567,10 +568,10 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_COMMAND:
         if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == search_edit_) {
             const int text_len = GetWindowTextLengthW(search_edit_);
-            std::wstring buf(static_cast<size_t>(std::max(text_len, 0)), L'\0');
+            std::pmr::wstring buf(static_cast<size_t>(std::max(text_len, 0)), L'\0');
             const int copied = GetWindowTextW(search_edit_, buf.data(), text_len + 1);
             buf.resize(static_cast<size_t>(std::max(copied, 0)));
-            app_->OnSearchTextChanged(buf);
+            app_->OnSearchTextChanged(std::move(buf));
             SyncSearchCaretFromEdit();
             return 0;
         }
@@ -833,9 +834,9 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (himc) {
             const int bytes = ImmGetCompositionStringW(himc, GCS_COMPSTR, nullptr, 0);
             if (bytes > 0) {
-                std::wstring comp(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
+                std::pmr::wstring comp(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
                 ImmGetCompositionStringW(himc, GCS_COMPSTR, comp.data(), static_cast<DWORD>(bytes));
-                self->app_->SetImeComposition(comp);
+                self->app_->SetImeComposition(std::move(comp));
             }
             else {
                 self->app_->SetImeComposition(L"");

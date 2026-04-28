@@ -1,4 +1,5 @@
 #pragma once
+#include <memory_resource>
 #include <string>
 #include <string_view>
 #include <algorithm>
@@ -43,6 +44,6 @@ public:
     constexpr std::wstring_view GetMessage() const noexcept { return message_; }
 
 private:
-    std::wstring message_;
+    std::pmr::wstring message_;
     float alpha_ = 0.0f;
 };

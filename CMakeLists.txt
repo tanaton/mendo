@@ -90,21 +90,16 @@ set(MENDO_SRC_DIRS
 # ---- コアライブラリ（テスト可能なコード、WinMain/ウィンドウなし） ----
 add_library(mendo_core STATIC
     # core - ドキュメントモデル・パース
-    src/core/anchor_slug.cpp
     src/core/document.cpp
     src/core/document_service.cpp
     src/core/document_utils.cpp
-    src/core/html_entity.cpp
     src/core/parser.cpp
-    src/core/parser_alerts.cpp
-    src/core/reload_diff.cpp
-    src/core/reload_scroll.cpp
+    src/core/reload.cpp
     src/core/selection_html.cpp
     src/core/toc.cpp
     src/core/syntax.cpp
     # layout - レイアウト計算
     src/layout/layout.cpp
-    src/layout/layout_service.cpp
     src/layout/dwrite_measurer.cpp
     # render - 描画パイプライン
     src/render/command_generator.cpp
@@ -133,21 +128,17 @@ add_library(mendo_core STATIC
     src/io/file_load_service.cpp
     src/io/config_service.cpp
     src/io/image_loader.cpp
-    src/io/session_service.cpp
     src/io/file_watcher.cpp
     # mermaid - Mermaid図表サポート
     src/mermaid/mermaid_util.cpp
     src/mermaid/mermaid_file_cache.cpp
-    src/mermaid/mermaid_lifecycle.cpp
     # nav - ナビゲーション
-    src/nav/nav_history.cpp
-    src/nav/navigation_service.cpp
+    src/nav/nav.cpp
     # theme - テーマ管理
     src/theme/theme.cpp
     src/theme/theme_service.cpp
     # app - アプリケーション制御
     src/app/app_controller.cpp
-    src/app/app_state.cpp
     src/app/reducer.cpp
     # util - ユーティリティ
     src/util/task_scheduler.cpp
@@ -163,6 +154,11 @@ target_link_libraries(mendo_core PUBLIC
 if(MSVC)
     target_compile_options(mendo_core PRIVATE /W4 /utf-8)
 endif()
+
+# ---- プリコンパイル済みヘッダー ----
+# `<pch.h>` 形式で指定するのは、CMake が生成する wrapper に絶対パスを書かれると
+# 日本語パス配下では MSVC `/utf-8` と衝突するため。
+target_precompile_headers(mendo_core PRIVATE <pch.h>)
 
 # ---- mermaid.min.jsをgzip圧縮してexeサイズを縮小 ----
 set(MERMAID_JS_SRC "${CMAKE_SOURCE_DIR}/third_party/mermaid/mermaid.min.js")
@@ -214,6 +210,8 @@ if(MSVC)
 endif()
 # 自動生成マニフェストを無効化（RC経由で独自のマニフェストを提供するため）
 set_target_properties(mendo PROPERTIES LINK_FLAGS "/MANIFEST:NO")
+
+target_precompile_headers(mendo REUSE_FROM mendo_core)
 
 # ---- テスト ----
 option(MENDO_BUILD_TESTS "Build tests" ON)

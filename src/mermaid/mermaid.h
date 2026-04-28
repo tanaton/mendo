@@ -1,7 +1,6 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
-#include "mermaid_lifecycle.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include <d2d1.h>
@@ -88,7 +87,6 @@ private:
         bool ready = false;
     };
 
-    static int ComputeWorkerCount() noexcept;
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする。
     // 同じパターン（cancel / render-error / svg-result の各経路）を1か所に集約する。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled);

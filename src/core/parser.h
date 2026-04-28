@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -13,13 +14,20 @@ struct ParseResult {
     std::pmr::vector<size_t> diagram_indices;
 };
 
-[[nodiscard]] ParseResult ParseMarkdown(std::string_view markdown_text);
+ParseResult ParseMarkdown(std::string_view markdown_text);
 
 // BlockQuoteノードからGitHub Alertsを検出し、マーカー除去・ラベル挿入・グルーピングを行う（テスト用に公開）
 void DetectAlerts(std::pmr::vector<Node>& nodes);
 
 // AlertTypeに対応するラベル文字列を返す（テスト用に公開）
-[[nodiscard]] const wchar_t* GetAlertLabel(AlertType type) noexcept;
+const wchar_t* GetAlertLabel(AlertType type) noexcept;
 
 // AlertTypeに対応するアイコン文字列を返す（テスト用に公開）
-[[nodiscard]] const wchar_t* GetAlertIcon(AlertType type) noexcept;
+const wchar_t* GetAlertIcon(AlertType type) noexcept;
+
+// HTML エンティティ (例: "&amp;", "&#x1F600;") を解決する。
+// 戻り値: 解決成功なら wide 文字列の view、失敗なら nullopt (呼び出し側で元の utf-8 を
+// そのままテキストとして再投入することを示す)。
+// view が指す領域は (a) static なリテラル または (b) 呼び出し側が渡した buffer のいずれか。
+// buffer のスコープ内でのみ valid。
+[[nodiscard]] std::optional<std::wstring_view> ResolveHtmlEntity(std::string_view entity, wchar_t (&buffer)[2]);

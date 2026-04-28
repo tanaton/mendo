@@ -3,8 +3,7 @@
 #include "document_types.h"
 #include "layout_cache.h"
 #include "theme.h"
-#include "pane.h"
-#include "hovered_buttons.h"
+#include "ui_types.h"
 #include "ui_constants.h"
 #include "memory_resource.h"
 #include "search_state.h"
@@ -107,7 +106,7 @@ private:
         const NodeLayoutEntry& entry, int node_index, float x, float text_x);
 
     // ノードタイプに応じた本文ベースカラーを返す。
-    [[nodiscard]] D2D1_COLOR_F GetNodeBaseColor(const Node& node) const noexcept;
+    D2D1_COLOR_F GetNodeBaseColor(const Node& node) const noexcept;
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x);

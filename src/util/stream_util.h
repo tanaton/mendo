@@ -4,6 +4,7 @@
 #include <objidl.h>
 #include <climits>
 #include <cstdint>
+#include <memory_resource>
 #include <vector>
 
 // COM IStream 周りの共通ヘルパー。
@@ -12,7 +13,7 @@ namespace stream_util {
 
 // IStream の先頭から全バイトを読み出す。サイズ検証と Read/Seek の HRESULT を確認し、
 // 部分読込やサイズ不正は空ベクタを返す失敗扱いにする。
-inline std::vector<uint8_t> ReadAllBytes(IStream* stream)
+inline std::pmr::vector<uint8_t> ReadAllBytes(IStream* stream)
 {
     if (!stream) {
         return {};
@@ -34,7 +35,7 @@ inline std::vector<uint8_t> ReadAllBytes(IStream* stream)
         return {};
     }
 
-    std::vector<uint8_t> data(size);
+    std::pmr::vector<uint8_t> data(size);
     ULONG read = 0;
     const HRESULT hr = stream->Read(data.data(), static_cast<ULONG>(size), &read);
     if (FAILED(hr) || read != size) {

@@ -1,9 +1,8 @@
 #pragma once
 #include "pane_layout.h"
-#include "nav_button.h"
-#include "hovered_buttons.h"
+#include "ui_types.h"
 #include "pane_controller.h"
-#include "tooltip_target.h"
+#include "tooltip.h"
 #include <variant>
 #include <string>
 #include <cstdint>

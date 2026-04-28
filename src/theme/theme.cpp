@@ -1,5 +1,4 @@
 #include "theme.h"
-#include "theme_palette.h"
 
 static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) noexcept
 {

@@ -81,7 +81,7 @@ struct OpenedFile {
 // 読み込み済みコンテンツの後にファイルがさらに伸びていれば、エディタ側が
 // 書き込み途中である可能性が高い。BOM の 3 バイトずれ等を吸収するため
 // 16 バイトの許容範囲を持たせる。
-[[nodiscard]] inline bool IsFileLargerThan(const std::filesystem::path& path,
+inline bool IsFileLargerThan(const std::filesystem::path& path,
     size_t reference_size, size_t tolerance = 16) noexcept
 {
     WIN32_FILE_ATTRIBUTE_DATA attr{};

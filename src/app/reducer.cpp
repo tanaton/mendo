@@ -1,14 +1,28 @@
 #include "reducer.h"
-#include "app_messages.h"
-#include "timer_ids.h"
+#include "app_constants.h"
 #include "document_utils.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include <cmath>
 
-// ============================================================
-// 共通ヘルパー
-// ============================================================
+ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
+{
+    const auto& cache = state.document.layout_cache;
+    const int node = state.view.viewport.FindFirstVisibleNode(cache, cache.size());
+    const float y_before = (node >= 0) ? cache[node].y_position : 0.0f;
+    return { node, state.view.viewport.GetScrollY() - y_before };
+}
+
+NavEntry CurrentNavEntry(const AppState& state)
+{
+    const ScrollTarget t = SnapshotVisibleTarget(state);
+    return NavEntry{ state.document.doc.GetFilePath(), t.node, t.offset };
+}
+
+void PushCurrentNavEntry(AppState& state)
+{
+    state.view.nav_history.Push(CurrentNavEntry(state));
+}
 
 namespace {
 
@@ -443,7 +457,7 @@ void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, cons
 {
     state.search.search_bar_ctrl.StartDrag(a.caret_pos);
     PushEffect(effects, effect::SetCapture{});
-    PushEffect(effects, effect::PostMessage{
+    PushEffect(effects, effect::PostWindowMessage{
         app_msg::SEARCH_FOCUS,
         app_param::SEARCH_FOCUS_SET_CARET,
         static_cast<LPARAM>(a.caret_pos)
@@ -460,7 +474,7 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
         && ctrl.GetDragAnchor() == ctrl.GetSelectionStart()) {
         return;
     }
-    PushEffect(effects, effect::PostMessage{
+    PushEffect(effects, effect::PostWindowMessage{
         app_msg::SEARCH_FOCUS,
         app_param::SEARCH_FOCUS_SET_SELECTION,
         MAKELPARAM(ctrl.GetDragAnchor(), a.caret_pos)
@@ -690,9 +704,9 @@ void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const F
 // TOC アイテムクリック
 // ============================================================
 
-void ScrollToAnchor(AppState& state, SideEffectList& effects, std::wstring_view anchor_id)
+namespace {
+void ScrollToResolvedAnchor(AppState& state, SideEffectList& effects, int idx)
 {
-    const int idx = state.document.doc.FindAnchorIndex(anchor_id);
     if (idx < 0) {
         return;
     }
@@ -701,11 +715,24 @@ void ScrollToAnchor(AppState& state, SideEffectList& effects, std::wstring_view 
         state.cached_pane_layout.md_rect.y);
     ApplyScrollTargetAndEmit(state, effects, target.node, target.offset);
 }
+} // namespace
+
+void ScrollToAnchor(AppState& state, SideEffectList& effects, std::wstring_view anchor_id)
+{
+    ScrollToResolvedAnchor(state, effects, state.document.doc.FindAnchorIndex(anchor_id));
+}
+
+// anchor_id() 由来など、既に正規化済み入力向け（ToLowerAscii の確保を回避する）。
+void ScrollToNormalizedAnchor(AppState& state, SideEffectList& effects, std::wstring_view anchor_id)
+{
+    ScrollToResolvedAnchor(state, effects, state.document.doc.FindNormalizedAnchorIndex(anchor_id));
+}
 
 void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a)
 {
     PushCurrentNavEntry(state);
-    ScrollToAnchor(state, effects, a.anchor_id);
+    // TOC は anchor_id() を直接渡すため、改めての正規化は不要。
+    ScrollToNormalizedAnchor(state, effects, a.anchor_id);
 }
 
 void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const NavigateAnchorAction& a)

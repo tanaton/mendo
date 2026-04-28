@@ -10,9 +10,9 @@
 #include <chrono>
 
 // ダミーPNGデータを生成する（ファイルキャッシュの単体テスト用、有効なPNGである必要はない）。
-static std::vector<uint8_t> MakeDummyPng(size_t size = 1024)
+static std::pmr::vector<uint8_t> MakeDummyPng(size_t size = 1024)
 {
-    std::vector<uint8_t> data(size);
+    std::pmr::vector<uint8_t> data(size);
     for (size_t i = 0; i < size; ++i) {
         data[i] = static_cast<uint8_t>(i & 0xFF);
     }

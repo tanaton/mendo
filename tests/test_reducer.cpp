@@ -521,7 +521,7 @@ TEST_F(ReducerTest, SearchInputDragStarted_BeginsDragAndCaptures) {
     EXPECT_TRUE(state.search.search_bar_ctrl.IsDragging());
     EXPECT_EQ(state.search.search_bar_ctrl.GetDragAnchor(), 5);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
-    EXPECT_TRUE(HasEffect<effect::PostMessage>(effects));
+    EXPECT_TRUE(HasEffect<effect::PostWindowMessage>(effects));
 }
 
 TEST_F(ReducerTest, SearchInputDragMoved_NotDragging_NoOp) {
@@ -529,10 +529,10 @@ TEST_F(ReducerTest, SearchInputDragMoved_NotDragging_NoOp) {
     EXPECT_TRUE(effects.empty());
 }
 
-TEST_F(ReducerTest, SearchInputDragMoved_DraggingAndChanged_EmitsPostMessage) {
+TEST_F(ReducerTest, SearchInputDragMoved_DraggingAndChanged_EmitsPostWindowMessage) {
     state.search.search_bar_ctrl.StartDrag(3);
     auto effects = Reduce(state, SearchInputDragMovedAction{ 7 });
-    EXPECT_TRUE(HasEffect<effect::PostMessage>(effects));
+    EXPECT_TRUE(HasEffect<effect::PostWindowMessage>(effects));
 }
 
 TEST_F(ReducerTest, SearchInputDragMoved_Unchanged_NoEffect) {

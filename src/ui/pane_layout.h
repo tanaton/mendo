@@ -1,5 +1,5 @@
 #pragma once
-#include "pane.h"
+#include "ui_types.h"
 
 // ペイン領域識別子（ある座標がどのペインに属するか）
 enum class PaneZone : int {
@@ -27,7 +27,7 @@ struct PaneScrollInfo {
     float thumb_height = 0.0f;
 };
 
-[[nodiscard]] PaneLayout ComputePaneLayout(float total_width, float total_height,
+PaneLayout ComputePaneLayout(float total_width, float total_height,
     float file_pane_width, float toc_pane_width,
     float splitter_width, bool show_file, bool show_toc,
     float md_min_width = 200.0f, float top_offset = 0.0f) noexcept;

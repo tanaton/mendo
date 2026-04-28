@@ -1,5 +1,5 @@
 #pragma once
-#include "dip_rect.h"
+#include "ui_types.h"
 
 // タイトルバー上のヒット領域
 enum class TitleBarHitZone {

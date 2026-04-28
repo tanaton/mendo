@@ -90,7 +90,7 @@ void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
 void ContextMenu::Impl::CreateTextFormats(const Theme& t)
 {
     if (fmt_text && fmt_icon &&
-        cached_fmt_font_family == t.font_family &&
+        cached_fmt_font_family == std::wstring_view{ t.font_family } &&
         cached_fmt_font_size == t.pane_font_size) {
         return;
     }

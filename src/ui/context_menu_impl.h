@@ -7,6 +7,7 @@
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <windows.h>
+#include <memory_resource>
 #include <string>
 
 namespace context_menu_constants {
@@ -81,7 +82,7 @@ struct ContextMenu::Impl {
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_icon;
 
     // 同一フォントでの Show 連発時に IDWriteTextFormat の再生成を抑止するためのキー。
-    std::wstring cached_fmt_font_family;
+    std::pmr::wstring cached_fmt_font_family;
     float cached_fmt_font_size = 0.0f;
 
     const Theme* theme = nullptr;

@@ -1,5 +1,7 @@
 #pragma once
 #include "side_effect.h"
+#include <memory_resource>
+#include <string>
 #include <windows.h>
 #include <string_view>
 
@@ -27,10 +29,13 @@ public:
     virtual void WriteClipboardText(std::wstring_view text) = 0;
     virtual void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) = 0;
 
-    virtual void ShellOpen(std::wstring_view url) = 0;
+    // ShellExecuteW / SetWindowTextW は null 終端文字列を要求するため、
+    // 既に null 終端を保証している pmr::wstring を直接受ける。これにより
+    // wstring_view 経由の null 終端コピーを 1 回省略できる。
+    virtual void ShellOpen(const std::pmr::wstring& url) = 0;
     virtual void ShowWindowCmd(int cmd) = 0;
     virtual void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) = 0;
-    virtual void SetWindowTitle(std::wstring_view title) = 0;
+    virtual void SetWindowTitle(const std::pmr::wstring& title) = 0;
     virtual void SetWindowPosition(int x, int y, int cx, int cy) = 0;
     virtual POINT ClientToScreen(POINT client_pt) = 0;
 

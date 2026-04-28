@@ -51,28 +51,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
             state_.search.search_bar_ctrl.UpdateHoverFromZone(zone);
 
             SetCursor(zone == SearchBarHitZone::Input ? cursors_.IBeam() : cursors_.Arrow());
-            const auto& ls = i18n::S();
-            TooltipTarget tt;
-            switch (zone) {
-            case SearchBarHitZone::Up:
-                tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev };
-                break;
-            case SearchBarHitZone::Down:
-                tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next };
-                break;
-            case SearchBarHitZone::CaseSensitive:
-                tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case };
-                break;
-            case SearchBarHitZone::Highlight:
-                tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight };
-                break;
-            case SearchBarHitZone::Close:
-                tt = { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close };
-                break;
-            default:
-                break;
-            }
-            Dispatch(UpdateTooltipAction{ tt, px, py });
+            Dispatch(UpdateTooltipAction{ mendo::app_mouse::BuildSearchBarTooltip(zone), px, py });
             return;
         }
 
@@ -93,15 +72,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     Dispatch(MdPaneNavHoverAction{ nav_hit });
     if (nav_hit != NavButtonHover::None) {
         SetCursor(cursors_.Hand());
-        TooltipTarget tt;
-        tt.zone = TooltipTarget::Zone::NavButton;
-        if (nav_hit == NavButtonHover::Back) {
-            tt.text = i18n::S().tooltip_nav_back;
-        }
-        else {
-            tt.text = i18n::S().tooltip_nav_forward;
-        }
-        Dispatch(UpdateTooltipAction{ tt, px, py });
+        Dispatch(UpdateTooltipAction{ mendo::app_mouse::BuildNavButtonTooltip(nav_hit), px, py });
         return;
     }
 

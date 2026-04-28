@@ -56,6 +56,16 @@ int Document::FindAnchorIndex(std::wstring_view anchor) const
     return (it != anchor_index_.end()) ? it->second : -1;
 }
 
+int Document::FindNormalizedAnchorIndex(std::wstring_view anchor) const
+{
+    if (anchor.empty()) {
+        return -1;
+    }
+    // 透過ハッシュにより wstring_view のまま確保なしで lookup できる。
+    const auto it = anchor_index_.find(anchor);
+    return (it != anchor_index_.end()) ? it->second : -1;
+}
+
 void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices)
 {
     toc_.Clear();

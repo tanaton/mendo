@@ -28,6 +28,9 @@ public:
     void ReplaceContent(ParseResult&& result);
     void ReplaceFromMarkdown(std::pmr::string utf8);
     int FindAnchorIndex(std::wstring_view anchor) const;
+    // 既に anchor_id 形式（小文字 ASCII 正規化済み）と判明している入力向け。
+    // 呼び出し側で正規化が保証されていれば、ToLowerAscii の確保を回避できる。
+    int FindNormalizedAnchorIndex(std::wstring_view anchor) const;
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept { return image_node_indices_; }
     constexpr const std::pmr::vector<size_t>& GetDiagramNodeIndices() const noexcept { return diagram_node_indices_; }
 
@@ -38,11 +41,11 @@ private:
     // 同じハッシュになるよう wstring_view 経由で計算する。
     struct AnchorKeyHash {
         using is_transparent = void;
-        [[nodiscard]] size_t operator()(std::wstring_view sv) const noexcept
+        size_t operator()(std::wstring_view sv) const noexcept
         {
             return std::hash<std::wstring_view>{}(sv);
         }
-        [[nodiscard]] size_t operator()(const std::pmr::wstring& s) const noexcept
+        size_t operator()(const std::pmr::wstring& s) const noexcept
         {
             return std::hash<std::wstring_view>{}(s);
         }

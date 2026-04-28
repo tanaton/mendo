@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include <cmath>
-#include "scroll_restoration.h"
+#include "ui_types.h"
 
 TEST(ScrollRestoration, InitialState)
 {

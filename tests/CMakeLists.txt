@@ -75,3 +75,8 @@ target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)
 if(MSVC)
     target_compile_options(mendo_tests PRIVATE /W4 /utf-8)
 endif()
+
+# ---- プリコンパイル済みヘッダー ----
+# `<test_pch.h>` 形式は日本語パス + `/utf-8` 衝突回避のため。tests/ を include path に追加する必要がある。
+target_include_directories(mendo_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_precompile_headers(mendo_tests PRIVATE <test_pch.h>)

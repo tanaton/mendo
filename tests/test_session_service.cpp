@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "session_service.h"
 #include "config_service.h"
+#include "pane_controller.h"
 #include "test_helpers.h"
 
 class SessionServiceTest : public TempDirTestBase {

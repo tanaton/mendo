@@ -1,8 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
-#include "nav_button.h"
-#include "pane.h"
+#include "ui_types.h"
 #include "theme.h"
 #include "ui_constants.h"
 #include <climits>
@@ -13,14 +12,14 @@
 // 各ボタンの矩形を返す API は本ヘッダから提供する。
 struct ButtonRect {
     float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
-    [[nodiscard]] constexpr bool Contains(float px, float py) const noexcept
+    constexpr bool Contains(float px, float py) const noexcept
     {
         return px >= x && px <= x + w && py >= y && py <= y + h;
     }
 };
 
 // 戻るボタンの矩形。実装側の NavButtonHitTest と同一の式を使う。
-[[nodiscard]] inline ButtonRect NavBackButtonRect(const PaneRect& md_rect) noexcept
+inline ButtonRect NavBackButtonRect(const PaneRect& md_rect) noexcept
 {
     const float x = md_rect.x + md_rect.width
         - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2.0f - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
@@ -29,7 +28,7 @@ struct ButtonRect {
 }
 
 // 進むボタンの矩形。Back の右に NAV_BTN_GAP の隙間を空けて並ぶ。
-[[nodiscard]] inline ButtonRect NavForwardButtonRect(const PaneRect& md_rect) noexcept
+inline ButtonRect NavForwardButtonRect(const PaneRect& md_rect) noexcept
 {
     const ButtonRect back = NavBackButtonRect(md_rect);
     return { back.x + NAV_BTN_SIZE + NAV_BTN_GAP, back.y, NAV_BTN_SIZE, NAV_BTN_SIZE };

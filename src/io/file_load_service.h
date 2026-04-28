@@ -27,7 +27,7 @@ public:
     constexpr bool IsLoading() const noexcept { return loading_; }
     constexpr float GetLoadingAngle() const noexcept { return loading_angle_; }
 
-    void StartLoading(std::wstring_view path);
+    void StartLoading(std::pmr::wstring path);
     void StopLoading() noexcept;
     void TickLoadingAnimation() noexcept;
 
@@ -44,7 +44,7 @@ public:
     // ---- パスアクセス ----
 
     std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }
-    void SetLoadingPath(std::wstring_view path) { loading_path_ = path; }
+    void SetLoadingPath(std::pmr::wstring path) { loading_path_ = std::move(path); }
 
 private:
     DocumentService& doc_service_;

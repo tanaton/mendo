@@ -1,7 +1,32 @@
-#include "reload_scroll.h"
+#include "reload.h"
 #include "layout_cache.h"
 #include <algorithm>
 #include <cstdint>
+#include <ranges>
+
+size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
+{
+    const auto [it_old, it_new] = std::ranges::mismatch(old_text, new_text);
+    if (it_old == old_text.end() && it_new == new_text.end()) {
+        return std::string_view::npos;
+    }
+    return static_cast<size_t>(it_old - old_text.begin());
+}
+
+ReloadDecision AnalyzeReloadDiff(std::string_view old_utf8, std::string_view new_utf8) noexcept
+{
+    const size_t diff_pos = FindFirstDifference(old_utf8, new_utf8);
+    if (diff_pos == std::string_view::npos) {
+        return { ReloadOp::NoChange, std::string_view::npos };
+    }
+    if (IsPrefixOnlyDiff(diff_pos, old_utf8.size(), new_utf8.size())) {
+        if (new_utf8.size() < old_utf8.size()) {
+            return { ReloadOp::DeferPrefixShrink, diff_pos };
+        }
+        return { ReloadOp::PrefixGrowth, diff_pos };
+    }
+    return { ReloadOp::FullReload, diff_pos };
+}
 
 int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_offset) noexcept
 {
@@ -13,13 +38,11 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_of
         const int mid = lo + (hi - lo) / 2;
         const uint32_t offset = nodes[mid].source_offset;
         if (offset == UINT32_MAX) {
-            // 左側で最も近い有効ノードを探す
             int probe = mid - 1;
             while (probe >= lo && nodes[probe].source_offset == UINT32_MAX) {
                 probe--;
             }
             if (probe < lo) {
-                // lo..mid に有効ノードがないので右へ
                 lo = mid + 1;
             }
             else if (nodes[probe].source_offset <= diff_offset) {
@@ -58,7 +81,6 @@ float CalcScrollYForDiff(
     float node_y = cache[changed_node].y_position;
     const float node_h = cache[changed_node].height;
 
-    // ノード内での相対位置を推定してY座標を補正
     const uint32_t node_start = nodes[changed_node].source_offset;
     if (node_start != UINT32_MAX) {
         uint32_t next_start = static_cast<uint32_t>(content.size());

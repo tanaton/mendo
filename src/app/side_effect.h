@@ -1,5 +1,5 @@
 #pragma once
-#include "pane.h"
+#include "ui_types.h"
 #include "pane_layout.h"
 #include "tooltip.h"
 #include <algorithm>
@@ -25,12 +25,12 @@ struct ClipboardWrite { std::pmr::wstring text; };
 struct ClipboardWriteHtml { std::pmr::wstring html; std::pmr::wstring plain; };
 struct ShowTooltip { TooltipTarget target; int px; int py; };
 struct ClearTooltip {};
-struct ShowToast { std::wstring message; };
+struct ShowToast { std::pmr::wstring message; };
 struct ShowContextMenu { int screen_x; int screen_y; };
 
 // ---- ウィンドウ / テーマ系 ----
 struct ShowWindowCmd { int cmd; };
-struct PostMessage { UINT msg; WPARAM wp; LPARAM lp; };
+struct PostWindowMessage { UINT msg; WPARAM wp; LPARAM lp; };
 struct SetWindowTitle { std::pmr::wstring title; };
 struct SetWindowPosition { int x; int y; int cx; int cy; };
 struct ApplyDarkMode { bool dark; };
@@ -107,7 +107,7 @@ using UiEffect = std::variant<
 
 using WindowEffect = std::variant<
     effect::ShowWindowCmd,
-    effect::PostMessage,
+    effect::PostWindowMessage,
     effect::SetWindowTitle,
     effect::SetWindowPosition,
     effect::ApplyDarkMode,

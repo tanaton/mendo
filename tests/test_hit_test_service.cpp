@@ -4,7 +4,7 @@
 #include "layout.h"
 #include "mock_text_measurer.h"
 #include "parser.h"
-#include "pane.h"
+#include "ui_types.h"
 #include "syntax.h"
 #include <algorithm>
 

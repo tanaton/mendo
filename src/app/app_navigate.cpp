@@ -1,5 +1,5 @@
 #include "app.h"
-#include "navigation_service.h"
+#include "nav.h"
 #include "document_utils.h"
 #include <algorithm>
 
@@ -12,18 +12,15 @@ void App::HandleLinkClick(std::wstring_view url)
     if (url.empty()) {
         return;
     }
-    const auto result = ::HandleLinkClick(url);
+    auto result = ::HandleLinkClick(url);
     switch (result.type) {
     case LinkClickResult::Type::Anchor:
         PushCurrentNavEntry(state_);
-        Dispatch(NavigateAnchorAction{ std::pmr::wstring{result.target} });
+        Dispatch(NavigateAnchorAction{ std::move(result.target) });
         break;
-    case LinkClickResult::Type::ExternalUrl: {
-        SideEffectList effects;
-        PushEffect(effects, effect::ShellOpen{ result.target });
-        effect_executor_.Execute(effects);
+    case LinkClickResult::Type::ExternalUrl:
+        EmitEffect(effect::ShellOpen{ std::move(result.target) });
         break;
-    }
     default:
         break;
     }
