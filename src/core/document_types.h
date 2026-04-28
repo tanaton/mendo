@@ -131,11 +131,8 @@ struct Node {
         FinalizeSetText();
     }
 
-    // text_ と line_count を一括更新する。SetText のような再走査は行わず、
-    // 呼び出し側が既に求めてある line_count をそのまま採用する。
-    // text と line_count を同時に渡す API になっているため、片側だけ更新して
-    // 不整合状態を残す事故が起こりにくい（パーサのように改行数を逐次積算する
-    // 文脈で利用することを想定）。
+    // text_ と line_count を一括更新する（呼び出し側が積算済みの line_count を渡す）。
+    // 改行を逐次カウントしておけるパーサ向けの最適化バリアント。
     void SetTextWithLineCount(std::wstring_view s, int line_count_value) noexcept
     {
         text_.assign(s);

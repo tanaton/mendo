@@ -102,7 +102,6 @@ struct ParseContext {
         FlushUtf8();
         if (current_node && !current_utf8.empty()) {
             Utf8ToWide(current_utf8, text_buffer);
-            // line_count は AppendText / AppendUtf8 で積算済みなので再走査を避ける。
             current_node->SetTextWithLineCount(text_buffer, current_node->line_count);
         }
         current_utf8.clear();
