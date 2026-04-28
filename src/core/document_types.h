@@ -131,6 +131,20 @@ struct Node {
         FinalizeSetText();
     }
 
+    // text_ と line_count を一括更新する（呼び出し側が積算済みの line_count を渡す）。
+    // 改行を逐次カウントしておけるパーサ向けの最適化バリアント。
+    void SetTextWithLineCount(std::wstring_view s, int line_count_value) noexcept
+    {
+        text_.assign(s);
+        line_count = line_count_value;
+    }
+
+    void SetTextWithLineCount(std::pmr::wstring&& s, int line_count_value) noexcept
+    {
+        text_ = std::move(s);
+        line_count = line_count_value;
+    }
+
     // ---- 拡張データへのアクセサ ----
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
     NodeTableData* table_data() noexcept { return std::get_if<NodeTableData>(&extra); }

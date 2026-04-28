@@ -1175,7 +1175,7 @@ TEST(Parser, AlertLabelContents)
 TEST(Parser, DetectAlertsOnEmptyVector)
 {
     std::pmr::vector<Node> nodes;
-    DetectAlerts(nodes); // クラッシュしないべき
+    DetectAlerts(nodes, {}); // クラッシュしないべき
     EXPECT_TRUE(nodes.empty());
 }
 

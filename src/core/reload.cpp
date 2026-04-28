@@ -92,8 +92,7 @@ float CalcScrollYForDiff(
             }
         }
         if (next_start > node_start) {
-            const float fraction = static_cast<float>(diff_pos - node_start)
-                / static_cast<float>(next_start - node_start);
+            const float fraction = static_cast<float>(diff_pos - node_start) / static_cast<float>(next_start - node_start);
             node_y += node_h * std::min(fraction, 1.0f);
         }
     }

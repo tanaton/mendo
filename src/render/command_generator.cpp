@@ -486,14 +486,12 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayo
     }
 
     const std::span<const SearchMatch> matches = *search_matches_;
-    const auto first_it = std::ranges::lower_bound(matches, node_index, {}, &SearchMatch::node_index);
-    if (first_it == matches.end() || first_it->node_index != node_index) {
+    const auto range = std::ranges::equal_range(matches, node_index, {}, &SearchMatch::node_index);
+    if (range.empty()) {
         return;
     }
-    // matches は node_index 昇順なので upper_bound で末尾も O(log N) で求める。
-    const auto last_it = std::ranges::upper_bound(matches, node_index, {}, &SearchMatch::node_index);
-    const size_t first_global = static_cast<size_t>(first_it - matches.begin());
-    const size_t node_match_count = static_cast<size_t>(last_it - first_it);
+    const size_t first_global = static_cast<size_t>(range.begin() - matches.begin());
+    const size_t node_match_count = static_cast<size_t>(range.size());
 
     auto& cache = entry.ensure_search_hl_cache();
     RebuildSearchHlCache(cache, entry, matches, first_global, node_match_count);

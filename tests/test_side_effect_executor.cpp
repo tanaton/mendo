@@ -37,7 +37,8 @@ public:
     std::vector<bool> apply_dark_mode_calls;
 
     void Invalidate() override { invalidate_count++; }
-    void InvalidateTitleBarArea(int width_px, int height_px) override {
+    void InvalidateTitleBarArea(int width_px, int height_px) override
+    {
         invalidate_titlebar_calls.emplace_back(width_px, height_px);
     }
     void SetTimer(UINT_PTR id, UINT ms) override { set_timer_calls.emplace_back(id, ms); }
@@ -46,19 +47,23 @@ public:
     void ReleaseCapture() override { release_capture_count++; }
     void SetCursor(effect::CursorType type) override { set_cursor_calls.push_back(type); }
     void WriteClipboardText(std::wstring_view text) override { clipboard_text_calls.emplace_back(text); }
-    void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) override {
-        clipboard_html_calls.emplace_back(std::wstring{html}, std::wstring{plain});
+    void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) override
+    {
+        clipboard_html_calls.emplace_back(std::wstring{ html }, std::wstring{ plain });
     }
-    void ShellOpen(const std::pmr::wstring& url) override { shell_open_calls.emplace_back(std::wstring_view{url}); }
+    void ShellOpen(const std::pmr::wstring& url) override { shell_open_calls.emplace_back(std::wstring_view{ url }); }
     void ShowWindowCmd(int cmd) override { show_window_cmd_calls.push_back(cmd); }
-    void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override {
+    void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override
+    {
         post_message_calls.emplace_back(msg, wp, lp);
     }
-    void SetWindowTitle(const std::pmr::wstring& title) override { set_window_title_calls.emplace_back(std::wstring_view{title}); }
-    void SetWindowPosition(int x, int y, int cx, int cy) override {
+    void SetWindowTitle(const std::pmr::wstring& title) override { set_window_title_calls.emplace_back(std::wstring_view{ title }); }
+    void SetWindowPosition(int x, int y, int cx, int cy) override
+    {
         set_window_position_calls.emplace_back(x, y, cx, cy);
     }
-    POINT ClientToScreen(POINT client_pt) override {
+    POINT ClientToScreen(POINT client_pt) override
+    {
         client_to_screen_inputs.push_back(client_pt);
         return { client_pt.x + client_to_screen_translation.x,
                  client_pt.y + client_to_screen_translation.y };
@@ -73,12 +78,12 @@ protected:
     // --- 依存クラスの実体（default-construct） ---
     RecordingWin32Host host_;
     FileWatcher watcher_;
-    DocumentService doc_service_{watcher_};
+    DocumentService doc_service_{ watcher_ };
     ConfigService config_;
     ResourceManager resource_manager_;
     AppState state_;
     LayoutEngine engine_;
-    LayoutService layout_service_{engine_, state_.view.viewport};
+    LayoutService layout_service_{ engine_, state_.view.viewport };
     SideEffectExecutor exec_;
 
     // --- スパイ記録 ---
@@ -87,7 +92,7 @@ protected:
     int open_file_dialog_count_ = 0;
     std::vector<PaneZone> invalidate_pane_cache_calls_;
     int refresh_pane_layout_count_ = 0;
-    std::pair<UINT, UINT> last_renderer_resize_{0, 0};
+    std::pair<UINT, UINT> last_renderer_resize_{ 0, 0 };
     int renderer_resize_count_ = 0;
     float last_renderer_dpi_ = 0.0f;
     int renderer_set_dpi_count_ = 0;
@@ -103,7 +108,7 @@ protected:
     int mermaid_init_retry_count_ = 0;
     int destroy_count_ = 0;
     int handle_parse_complete_count_ = 0;
-    std::pair<int, int> last_context_menu_pos_{0, 0};
+    std::pair<int, int> last_context_menu_pos_{ 0, 0 };
     int show_context_menu_count_ = 0;
 
     SideEffectExecutor::Callbacks MakeCallbacks()
@@ -149,8 +154,7 @@ protected:
 
     void SetUp() override
     {
-        exec_.Init(host_, resource_manager_, doc_service_,
-                   state_, layout_service_, MakeCallbacks());
+        exec_.Init(host_, resource_manager_, doc_service_, state_, layout_service_, MakeCallbacks());
     }
 };
 
@@ -160,7 +164,7 @@ protected:
 
 TEST_F(SideEffectExecutorTest, LoadFileDispatchesToCallback)
 {
-    exec_.ExecuteOne(effect::LoadFile{std::pmr::wstring{L"C:/doc.md"}});
+    exec_.ExecuteOne(effect::LoadFile{ std::pmr::wstring{L"C:/doc.md"} });
     ASSERT_EQ(load_file_paths_.size(), 1u);
     EXPECT_EQ(load_file_paths_[0], L"C:/doc.md");
 }
@@ -179,8 +183,8 @@ TEST_F(SideEffectExecutorTest, OpenFileDialogDispatchesToCallback)
 
 TEST_F(SideEffectExecutorTest, InvalidatePaneCacheForwardsPaneZone)
 {
-    exec_.ExecuteOne(effect::InvalidatePaneCache{PaneZone::MdPane});
-    exec_.ExecuteOne(effect::InvalidatePaneCache{PaneZone::FilePane});
+    exec_.ExecuteOne(effect::InvalidatePaneCache{ PaneZone::MdPane });
+    exec_.ExecuteOne(effect::InvalidatePaneCache{ PaneZone::FilePane });
     ASSERT_EQ(invalidate_pane_cache_calls_.size(), 2u);
     EXPECT_EQ(invalidate_pane_cache_calls_[0], PaneZone::MdPane);
     EXPECT_EQ(invalidate_pane_cache_calls_[1], PaneZone::FilePane);
@@ -194,14 +198,14 @@ TEST_F(SideEffectExecutorTest, RefreshPaneLayoutDispatchesToCallback)
 
 TEST_F(SideEffectExecutorTest, RendererResizeForwardsDimensions)
 {
-    exec_.ExecuteOne(effect::RendererResize{1920, 1080});
+    exec_.ExecuteOne(effect::RendererResize{ 1920, 1080 });
     EXPECT_EQ(renderer_resize_count_, 1);
-    EXPECT_EQ(last_renderer_resize_, std::make_pair(UINT{1920}, UINT{1080}));
+    EXPECT_EQ(last_renderer_resize_, std::make_pair(UINT{ 1920 }, UINT{ 1080 }));
 }
 
 TEST_F(SideEffectExecutorTest, RendererSetDpiForwardsDpiValue)
 {
-    exec_.ExecuteOne(effect::RendererSetDpi{144.0f});
+    exec_.ExecuteOne(effect::RendererSetDpi{ 144.0f });
     EXPECT_EQ(renderer_set_dpi_count_, 1);
     EXPECT_FLOAT_EQ(last_renderer_dpi_, 144.0f);
 }
@@ -281,7 +285,7 @@ TEST_F(SideEffectExecutorTest, HandleParseCompleteDispatchesToCallback)
 
 TEST_F(SideEffectExecutorTest, ShowContextMenuForwardsScreenPosition)
 {
-    exec_.ExecuteOne(effect::ShowContextMenu{150, 200});
+    exec_.ExecuteOne(effect::ShowContextMenu{ 150, 200 });
     EXPECT_EQ(show_context_menu_count_, 1);
     EXPECT_EQ(last_context_menu_pos_, std::make_pair(150, 200));
 }
@@ -292,15 +296,15 @@ TEST_F(SideEffectExecutorTest, ShowContextMenuForwardsScreenPosition)
 
 TEST_F(SideEffectExecutorTest, ShowToastUpdatesToastState)
 {
-    exec_.ExecuteOne(effect::ShowToast{L"Copied"});
+    exec_.ExecuteOne(effect::ShowToast{ L"Copied" });
     EXPECT_TRUE(state_.interaction.toast.IsVisible());
     EXPECT_EQ(state_.interaction.toast.GetMessage(), L"Copied");
 }
 
 TEST_F(SideEffectExecutorTest, ShowToastOverwritesPreviousMessage)
 {
-    exec_.ExecuteOne(effect::ShowToast{L"First"});
-    exec_.ExecuteOne(effect::ShowToast{L"Second"});
+    exec_.ExecuteOne(effect::ShowToast{ L"First" });
+    exec_.ExecuteOne(effect::ShowToast{ L"Second" });
     EXPECT_EQ(state_.interaction.toast.GetMessage(), L"Second");
 }
 
@@ -312,8 +316,8 @@ TEST_F(SideEffectExecutorTest, ExecuteRunsAllEffectsInOrder)
 {
     std::pmr::vector<SideEffect> list;
     list.emplace_back(effect::ReloadFile{});
-    list.emplace_back(effect::LoadFile{std::pmr::wstring{L"A"}});
-    list.emplace_back(effect::LoadFile{std::pmr::wstring{L"B"}});
+    list.emplace_back(effect::LoadFile{ std::pmr::wstring{L"A"} });
+    list.emplace_back(effect::LoadFile{ std::pmr::wstring{L"B"} });
     list.emplace_back(effect::Destroy{});
 
     exec_.Execute(list);
@@ -345,12 +349,12 @@ TEST_F(SideEffectExecutorTest, InvalidateWindowCallsHostInvalidate)
 
 TEST_F(SideEffectExecutorTest, SetTimerAndKillTimerForwardToHost)
 {
-    exec_.ExecuteOne(effect::SetTimer{42, 100});
-    exec_.ExecuteOne(effect::KillTimer{42});
+    exec_.ExecuteOne(effect::SetTimer{ 42, 100 });
+    exec_.ExecuteOne(effect::KillTimer{ 42 });
     ASSERT_EQ(host_.set_timer_calls.size(), 1u);
-    EXPECT_EQ(host_.set_timer_calls[0], std::make_pair(UINT_PTR{42}, UINT{100}));
+    EXPECT_EQ(host_.set_timer_calls[0], std::make_pair(UINT_PTR{ 42 }, UINT{ 100 }));
     ASSERT_EQ(host_.kill_timer_calls.size(), 1u);
-    EXPECT_EQ(host_.kill_timer_calls[0], UINT_PTR{42});
+    EXPECT_EQ(host_.kill_timer_calls[0], UINT_PTR{ 42 });
 }
 
 TEST_F(SideEffectExecutorTest, SetCaptureAndReleaseCaptureForwardToHost)
@@ -363,10 +367,10 @@ TEST_F(SideEffectExecutorTest, SetCaptureAndReleaseCaptureForwardToHost)
 
 TEST_F(SideEffectExecutorTest, SetCursorForwardsTypeToHost)
 {
-    exec_.ExecuteOne(effect::SetCursor{effect::CursorType::Arrow});
-    exec_.ExecuteOne(effect::SetCursor{effect::CursorType::Hand});
-    exec_.ExecuteOne(effect::SetCursor{effect::CursorType::IBeam});
-    exec_.ExecuteOne(effect::SetCursor{effect::CursorType::SizeWE});
+    exec_.ExecuteOne(effect::SetCursor{ effect::CursorType::Arrow });
+    exec_.ExecuteOne(effect::SetCursor{ effect::CursorType::Hand });
+    exec_.ExecuteOne(effect::SetCursor{ effect::CursorType::IBeam });
+    exec_.ExecuteOne(effect::SetCursor{ effect::CursorType::SizeWE });
     ASSERT_EQ(host_.set_cursor_calls.size(), 4u);
     EXPECT_EQ(host_.set_cursor_calls[0], effect::CursorType::Arrow);
     EXPECT_EQ(host_.set_cursor_calls[1], effect::CursorType::Hand);
@@ -376,9 +380,9 @@ TEST_F(SideEffectExecutorTest, SetCursorForwardsTypeToHost)
 
 TEST_F(SideEffectExecutorTest, ClipboardEffectsForwardToHost)
 {
-    exec_.ExecuteOne(effect::ClipboardWrite{std::pmr::wstring{L"hello"}});
-    exec_.ExecuteOne(effect::ClipboardWriteHtml{std::pmr::wstring{L"<p>html</p>"},
-                                                std::pmr::wstring{L"plain"}});
+    exec_.ExecuteOne(effect::ClipboardWrite{ std::pmr::wstring{L"hello"} });
+    exec_.ExecuteOne(effect::ClipboardWriteHtml{ std::pmr::wstring{L"<p>html</p>"},
+                                                std::pmr::wstring{L"plain"} });
     ASSERT_EQ(host_.clipboard_text_calls.size(), 1u);
     EXPECT_EQ(host_.clipboard_text_calls[0], L"hello");
     ASSERT_EQ(host_.clipboard_html_calls.size(), 1u);
@@ -388,45 +392,45 @@ TEST_F(SideEffectExecutorTest, ClipboardEffectsForwardToHost)
 
 TEST_F(SideEffectExecutorTest, ShellOpenForwardsUrlToHost)
 {
-    exec_.ExecuteOne(effect::ShellOpen{std::pmr::wstring{L"https://example.com"}});
+    exec_.ExecuteOne(effect::ShellOpen{ std::pmr::wstring{L"https://example.com"} });
     ASSERT_EQ(host_.shell_open_calls.size(), 1u);
     EXPECT_EQ(host_.shell_open_calls[0], L"https://example.com");
 }
 
 TEST_F(SideEffectExecutorTest, ShowWindowCmdForwardsValueToHost)
 {
-    exec_.ExecuteOne(effect::ShowWindowCmd{SW_MAXIMIZE});
+    exec_.ExecuteOne(effect::ShowWindowCmd{ SW_MAXIMIZE });
     ASSERT_EQ(host_.show_window_cmd_calls.size(), 1u);
     EXPECT_EQ(host_.show_window_cmd_calls[0], SW_MAXIMIZE);
 }
 
 TEST_F(SideEffectExecutorTest, PostWindowMessageForwardsToHost)
 {
-    exec_.ExecuteOne(effect::PostWindowMessage{WM_USER + 1, 7, 13});
+    exec_.ExecuteOne(effect::PostWindowMessage{ WM_USER + 1, 7, 13 });
     ASSERT_EQ(host_.post_message_calls.size(), 1u);
-    EXPECT_EQ(std::get<0>(host_.post_message_calls[0]), UINT{WM_USER + 1});
-    EXPECT_EQ(std::get<1>(host_.post_message_calls[0]), WPARAM{7});
-    EXPECT_EQ(std::get<2>(host_.post_message_calls[0]), LPARAM{13});
+    EXPECT_EQ(std::get<0>(host_.post_message_calls[0]), UINT{ WM_USER + 1 });
+    EXPECT_EQ(std::get<1>(host_.post_message_calls[0]), WPARAM{ 7 });
+    EXPECT_EQ(std::get<2>(host_.post_message_calls[0]), LPARAM{ 13 });
 }
 
 TEST_F(SideEffectExecutorTest, SetWindowTitleForwardsToHost)
 {
-    exec_.ExecuteOne(effect::SetWindowTitle{std::pmr::wstring{L"mendo — doc.md"}});
+    exec_.ExecuteOne(effect::SetWindowTitle{ std::pmr::wstring{L"mendo — doc.md"} });
     ASSERT_EQ(host_.set_window_title_calls.size(), 1u);
     EXPECT_EQ(host_.set_window_title_calls[0], L"mendo — doc.md");
 }
 
 TEST_F(SideEffectExecutorTest, SetWindowPositionForwardsToHost)
 {
-    exec_.ExecuteOne(effect::SetWindowPosition{10, 20, 800, 600});
+    exec_.ExecuteOne(effect::SetWindowPosition{ 10, 20, 800, 600 });
     ASSERT_EQ(host_.set_window_position_calls.size(), 1u);
     EXPECT_EQ(host_.set_window_position_calls[0], std::make_tuple(10, 20, 800, 600));
 }
 
 TEST_F(SideEffectExecutorTest, ApplyDarkModeForwardsFlagToHost)
 {
-    exec_.ExecuteOne(effect::ApplyDarkMode{true});
-    exec_.ExecuteOne(effect::ApplyDarkMode{false});
+    exec_.ExecuteOne(effect::ApplyDarkMode{ true });
+    exec_.ExecuteOne(effect::ApplyDarkMode{ false });
     ASSERT_EQ(host_.apply_dark_mode_calls.size(), 2u);
     EXPECT_TRUE(host_.apply_dark_mode_calls[0]);
     EXPECT_FALSE(host_.apply_dark_mode_calls[1]);
@@ -456,8 +460,8 @@ TEST_F(SideEffectExecutorTest, InvalidateTitleBarFallsBackToFullInvalidateWhenWi
 
 TEST_F(SideEffectExecutorTest, ShowToastSchedulesTimerAndInvalidates)
 {
-    exec_.ExecuteOne(effect::ShowToast{L"Copied"});
+    exec_.ExecuteOne(effect::ShowToast{ L"Copied" });
     ASSERT_EQ(host_.set_timer_calls.size(), 1u);
-    EXPECT_EQ(host_.set_timer_calls[0].first, UINT_PTR{app_timer::TOAST});
+    EXPECT_EQ(host_.set_timer_calls[0].first, UINT_PTR{ app_timer::TOAST });
     EXPECT_EQ(host_.invalidate_count, 1);
 }

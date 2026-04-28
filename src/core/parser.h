@@ -1,6 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -16,8 +17,9 @@ struct ParseResult {
 
 ParseResult ParseMarkdown(std::string_view markdown_text);
 
-// BlockQuoteノードからGitHub Alertsを検出し、マーカー除去・ラベル挿入・グルーピングを行う（テスト用に公開）
-void DetectAlerts(std::pmr::vector<Node>& nodes);
+// BlockQuoteノードからGitHub Alertsを検出し、マーカー除去・ラベル挿入・グルーピングを行う（テスト用に公開）。
+// blockquote_indices は ParseMarkdown が収集した BlockQuote ノードのインデックス。
+void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockquote_indices);
 
 // AlertTypeに対応するラベル文字列を返す（テスト用に公開）
 const wchar_t* GetAlertLabel(AlertType type) noexcept;
