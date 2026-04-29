@@ -259,7 +259,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         auto* brush = Brush(BrushId::SearchInputText);
         if (brush) {
             brush->SetOpacity(0.7f);
-            rt()->DrawText(count_text, static_cast<UINT32>(wcslen(count_text)), fmt_.search_count.Get(), sbl.count_rect, brush);
+            rt()->DrawText(count_text, static_cast<UINT32>(std::wstring_view{ count_text }.size()), fmt_.search_count.Get(), sbl.count_rect, brush);
             brush->SetOpacity(1.0f);
         }
     }

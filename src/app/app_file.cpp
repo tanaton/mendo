@@ -180,7 +180,7 @@ void App::OnParseComplete()
     // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
     // 非同期のファイルオープンでも OnParseComplete() が使われるため、
     // 別ファイル読み込み時は差分ロジックをスキップする。
-    if (_wcsicmp(result->doc.GetFilePath().c_str(), state_.document.doc.GetFilePath().c_str()) == 0) {
+    if (path_util::iequal(result->doc.GetFilePath(), state_.document.doc.GetFilePath())) {
         if (DeferIfPartialWrite(result->doc.GetFilePath(), result->doc.GetRawUtf8().size())) {
             return;
         }
