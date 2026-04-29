@@ -853,37 +853,21 @@ std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wch
     }
 
     if (entity.size() >= 4 && entity[0] == L'&' && entity[1] == L'#') {
-        // 数値文字参照は ASCII 数字のみで構成される。from_chars は narrow しか
-        // 受け付けないため、スタックの小バッファに narrow 化してから渡す。
-        char ascii[16];
-        if (entity.size() > sizeof(ascii)) {
-            return std::nullopt;
-        }
-        for (size_t i = 0; i < entity.size(); ++i) {
-            const wchar_t c = entity[i];
-            if (c > 0x7F) {
-                return std::nullopt;
-            }
-            ascii[i] = static_cast<char>(c);
-        }
         unsigned long codepoint = 0;
-        bool valid = false;
-        if (ascii[2] == 'x' || ascii[2] == 'X') {
-            const auto r = std::from_chars(ascii + 3, ascii + entity.size() - 1, codepoint, 16);
-            valid = (r.ec == std::errc());
+        if (entity[2] == L'x' || entity[2] == L'X') {
+            (void)ascii_util::from_chars(entity.data() + 3, entity.size(), codepoint, 16ul);
         }
         else {
-            const auto r = std::from_chars(ascii + 2, ascii + entity.size() - 1, codepoint, 10);
-            valid = (r.ec == std::errc());
+            (void)ascii_util::from_chars(entity.data() + 2, entity.size(), codepoint, 10ul);
         }
         // サロゲート範囲 (U+D800-U+DFFF) は単独で UTF-16 として不正なので除外し、
         // 呼び出し側で元の入力をそのままテキストとして再投入させる。
-        if (valid && codepoint > 0 && codepoint <= 0xFFFF &&
+        if (codepoint > 0 && codepoint <= 0xFFFF &&
             !(codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
             buffer[0] = static_cast<wchar_t>(codepoint);
             return std::wstring_view{ buffer, 1 };
         }
-        if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
+        if (codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
             // 補助面: UTF-16 サロゲートペア
             const unsigned long adj = codepoint - 0x10000;
             buffer[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));

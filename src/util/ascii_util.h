@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cwchar>
 #include <cwctype>
+#include <concepts>
 #include <emmintrin.h>
 #include <intrin.h>
 #include <string_view>
@@ -227,6 +228,35 @@ constexpr bool iless(std::wstring_view a, std::wstring_view b) noexcept
 constexpr bool istarts_with(std::wstring_view s, std::wstring_view prefix) noexcept
 {
     return s.size() >= prefix.size() && iequal(s.substr(0, prefix.size()), prefix);
+}
+
+template <typename T, std::unsigned_integral U>
+constexpr const T* from_chars(const T* start, std::size_t len, U& value, U base = 10) noexcept
+{
+    const auto end = start + len;
+    U b;
+
+    value = 0;
+    if (base <= 10) {
+        for (; (start < end) && ((b = *start - static_cast<T>('0')) < base); ++start) {
+            value = (value * base) + b;
+        }
+    }
+    else {
+        for (; start < end; ++start) {
+            const U c = static_cast<std::make_unsigned_t<T>>(*start);
+            b = c - static_cast<T>('0');
+            if (b >= 10) {
+                b = (c | 0x20) - static_cast<T>('a');
+                if (b >= (base - 10)) {
+                    break;
+                }
+                b += 10;
+            }
+            value = (value * base) + b;
+        }
+    }
+    return start;
 }
 
 } // namespace ascii_util
