@@ -77,7 +77,9 @@ struct AppState {
     int active_toc_index = -1;
 
     // ---- リロード管理 ----
-    size_t reload_diff_pos = std::string_view::npos;
+    // wstring_view::npos と string_view::npos は同じ値（static_cast<size_t>(-1)）だが、
+    // 意味的に wide テキストへのオフセットなので wstring_view 側で揃える。
+    size_t reload_diff_pos = std::wstring_view::npos;
     // 短縮タイマーで再リロード予約済み (DeferPrefixShrink / partial-read race)。
     // ローディングアニメーションを抑制するために参照される。
     bool pending_reload_retry = false;

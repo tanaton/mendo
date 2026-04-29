@@ -76,6 +76,9 @@ set(WIL_INCLUDE "${wil_SOURCE_DIR}/include")
 # ---- md4c（サードパーティ） ----
 add_library(md4c STATIC third_party/md4c/md4c.c)
 target_include_directories(md4c PUBLIC third_party/md4c)
+# UTF-16 入力モードを有効化（MD_CHAR=WCHAR）。
+# md4c.h を取り込む側（mendo_core 等）にも伝播させるため PUBLIC で定義。
+target_compile_definitions(md4c PUBLIC MD4C_USE_UTF16)
 if(MSVC)
     target_compile_options(md4c PRIVATE /W0)
     set_target_properties(md4c PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

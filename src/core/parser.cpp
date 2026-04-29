@@ -13,13 +13,12 @@
 #include <format>
 #include <iterator>
 #include <algorithm>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <system_error>
 
 namespace {
-
-using string_convert::Utf8ToWide;
 
 struct SpanState {
     bool bold = false;
@@ -46,13 +45,15 @@ struct ParseContext {
     std::stack<SpanState, std::pmr::deque<SpanState>> span_stack{ std::pmr::deque<SpanState>{parse_resource.resource()} };
     SpanState current_span;
 
-    // UTF-8 → Wide変換用の再利用可能バッファ
-    std::pmr::wstring text_buffer;
+    // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で
+    // ノードの text_ にムーブする。
+    std::pmr::wstring current_text{ parse_resource.resource() };
 
-    std::pmr::string utf8_accum{ parse_resource.resource() };
-
-    // 現在ノード用の UTF-8 蓄積スクラッチ。
-    std::pmr::string current_utf8{ parse_resource.resource() };
+    // current_text 内の「未確定 TextRun」の開始位置 (wide unit)。
+    // 同じ span 状態で連続する AppendWide は 1 つの TextRun に統合される。
+    // span 切替 / ブロック退出時に FlushPendingRun が呼ばれて確定する。
+    uint32_t pending_run_start = 0;
+    bool has_pending_run = false;
 
     // ブロックコンテキスト追跡
     int indent_level = 0;
@@ -72,7 +73,6 @@ struct ParseContext {
 
     // 現在構築中のノード
     Node* current_node = nullptr;
-    uint32_t node_wide_offset = 0; // 現在ノードのWide文字オフセット（TextRun用）
 
     // リンクURL格納: SpanStateではインデックスのみ保持し、push/popでの文字列コピーを回避
     std::pmr::vector<std::pmr::wstring> link_urls{ parse_resource.resource() };
@@ -90,35 +90,35 @@ struct ParseContext {
     bool in_display_math = false;
     int paragraph_display_math_count = 0;
     bool paragraph_has_other_content = false;
-    std::pmr::string display_math_buf{ parse_resource.resource() };
+    std::pmr::wstring display_math_buf{ parse_resource.resource() };
 
-    // md_parse() に渡した入力バッファ先頭ポインタ（source_offset 計算用）
-    const char* markdown_base = nullptr;
+    // md_parse() に渡した入力バッファ先頭ポインタ（source_offset 計算用、UTF-16 コード単位オフセット）
+    const wchar_t* markdown_base = nullptr;
 
-    // 現在ノードの UTF-8 スクラッチを Wide 化して text_ に書き込み、スクラッチを空にする。
+    // 現在ノードの Wide スクラッチを text_ に書き込み、スクラッチを空にする。
     // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
     void FinalizeCurrentNode()
     {
-        FlushUtf8();
-        if (current_node && !current_utf8.empty()) {
-            Utf8ToWide(current_utf8, text_buffer);
-            current_node->SetTextWithLineCount(text_buffer, current_node->line_count);
+        FlushPendingRun();
+        if (current_node && !current_text.empty()) {
+            current_node->SetTextWithLineCount(std::move(current_text), current_node->line_count);
         }
-        current_utf8.clear();
+        // move 後 / 元から空 のいずれの経路でも、次ノード用に空状態へ揃える。
+        // monotonic resource なので clear() に追加コストはない。
+        current_text.clear();
     }
 
     void BeginNode(NodeType type)
     {
         // タイトリストではP blockのEnter/Leaveコールバックがスキップされるため、
         // サブリスト開始時に蓄積テキストが未フラッシュのまま残る場合がある。
-        // 新しいノード作成前に Wide 化を確定させて、現在のノードにテキストを書き込む。
+        // 新しいノード作成前に確定させて、現在のノードにテキストを書き込む。
         FinalizeCurrentNode();
         nodes.emplace_back();
         current_node = &nodes.back();
         current_node->type = type;
         current_node_index = nodes.size() - 1;
         current_node->indent_level = indent_level;
-        node_wide_offset = 0;
         if (blockquote_depth > 0 && !blockquote_group_stack.empty()) {
             current_node->blockquote_group = blockquote_group_stack.top();
         }
@@ -150,7 +150,8 @@ struct ParseContext {
         return run;
     }
 
-    // テーブルセルにWideテキストを追加（AppendText/AppendUtf8から委譲される）
+    // テーブルセルにWideテキストを追加（AppendWideから委譲される）。
+    // セルは pending run 方式を使わず、即時 TextRun を生成する。
     void AppendTextToCell(std::wstring_view text)
     {
         const uint32_t start = static_cast<uint32_t>(current_cell->text.size());
@@ -158,98 +159,36 @@ struct ParseContext {
         current_cell->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
     }
 
-    // Wideテキストを現在のノードまたはセルに追加する。
+    // Wide テキストを現在のノードまたはセルに追加する。
     // セル内なら AppendTextToCell に委譲。
-    // ノードなら Wide→UTF-8 変換して current_utf8 スクラッチに蓄積する（BR/SOFTBR/Entity用）。
-    void AppendText(std::wstring_view text)
+    // ノードなら current_text スクラッチに直接 append し、未確定 TextRun として保留する。
+    // 同じ span 状態で連続して呼ばれると 1 つの TextRun に統合される。
+    void AppendWide(std::wstring_view text)
     {
         if (current_cell) {
             AppendTextToCell(text);
             return;
         }
-        if (!current_node) {
+        if (!current_node || text.empty()) {
             return;
         }
-        const uint32_t start = node_wide_offset;
-        // AppendText は BR/SOFTBR/Entity 用で短い入力前提。INT_MAX/3 超は安全のためスキップ
-        if (!text.empty() && text.size() <= static_cast<size_t>(INT_MAX) / 3) {
-            const size_t old_size = current_utf8.size();
-            const size_t max_bytes = text.size() * 3;
-            current_utf8.resize_and_overwrite(old_size + max_bytes, [&](char* buf, size_t count) -> size_t {
-                const int n = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), buf + old_size, static_cast<int>(count - old_size), nullptr, nullptr);
-                return old_size + (n > 0 ? static_cast<size_t>(n) : 0);
-            });
+        if (!has_pending_run) {
+            pending_run_start = static_cast<uint32_t>(current_text.size());
+            has_pending_run = true;
         }
-        node_wide_offset += static_cast<uint32_t>(text.size());
-        current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
-        for (const wchar_t c : text) {
-            if (c == L'\n') {
-                current_node->line_count++;
-            }
-        }
+        current_text.append(text);
+        current_node->line_count += static_cast<int>(std::ranges::count(text, L'\n'));
     }
 
-    // 蓄積UTF-8をフラッシュ
-    void FlushUtf8()
+    // 未確定 TextRun を確定して current_node->runs に push する。
+    // span 状態が変わる直前 (OnEnter/Leave Span) と OnLeaveBlock の冒頭で呼ぶ。
+    void FlushPendingRun()
     {
-        if (!utf8_accum.empty()) {
-            AppendUtf8(utf8_accum);
-            utf8_accum.clear();
+        if (has_pending_run && current_node && current_text.size() > pending_run_start) {
+            const uint32_t length = static_cast<uint32_t>(current_text.size() - pending_run_start);
+            current_node->runs.emplace_back(MakeRun(pending_run_start, length));
         }
-    }
-
-    // テーブルセルにUTF-8テキストをWide変換して追加（AppendUtf8から委譲される）
-    void AppendUtf8ToCell(std::string_view text)
-    {
-        Utf8ToWide(text, text_buffer);
-        if (!text_buffer.empty()) {
-            AppendTextToCell(text_buffer);
-        }
-    }
-
-    // UTF-8テキストを現在のノードまたはセルに追加する。
-    // セル内なら AppendUtf8ToCell に委譲（Wide変換が必要）。
-    // ノードなら current_utf8 スクラッチに直接蓄積し、Wide長のみ計算する（遅延変換で高速化）。
-    void AppendUtf8(std::string_view text)
-    {
-        if (current_cell) {
-            AppendUtf8ToCell(text);
-            return;
-        }
-        if (!current_node) {
-            return;
-        }
-        // ノード: Wide長のみ計算して current_utf8 に蓄積
-        // ASCII高速パス: 非ASCII（0x80以上）バイトが無ければバイト長＝ワイド長
-        int wlen;
-        int newline_count = 0;
-        size_t scan = 0;
-        for (; scan < text.size(); ++scan) {
-            if (static_cast<unsigned char>(text[scan]) >= 0x80) {
-                break;
-            }
-            if (text[scan] == '\n') {
-                newline_count++;
-            }
-        }
-        if (scan == text.size()) {
-            wlen = static_cast<int>(text.size());
-        }
-        else {
-            wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-            for (; scan < text.size(); ++scan) {
-                if (text[scan] == '\n') {
-                    newline_count++;
-                }
-            }
-        }
-        if (wlen > 0) {
-            const uint32_t start = node_wide_offset;
-            current_utf8.append(text);
-            node_wide_offset += static_cast<uint32_t>(wlen);
-            current_node->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(wlen)));
-            current_node->line_count += newline_count;
-        }
+        has_pending_run = false;
     }
 };
 
@@ -284,12 +223,9 @@ bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     }
     node->type = NodeType::CodeBlock;
     node->code_language = SyntaxLanguage::LatexMath;
-    // current_utf8 スクラッチに math 内容を直接書き込み、後段の FinalizeCurrentNode で
-    // Wide 化される。
-    ctx->current_utf8.assign(ctx->display_math_buf.data(), ctx->display_math_buf.size());
+    ctx->current_text.assign(ctx->display_math_buf.data(), ctx->display_math_buf.size());
     node->runs.clear();
-    node->line_count = static_cast<int>(std::ranges::count(ctx->current_utf8, '\n'));
-    ctx->node_wide_offset = 0;
+    node->line_count = static_cast<int>(std::ranges::count(ctx->current_text, L'\n'));
     ctx->diagram_indices.emplace_back(ctx->current_node_index);
     return true;
 }
@@ -328,7 +264,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->BeginNode(NodeType::CodeBlock);
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            ctx->current_node->code_language = DetectLanguage(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
+            ctx->current_node->code_language = DetectLanguage(std::wstring_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
         }
         break;
     }
@@ -355,7 +291,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         auto* const li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
         if (li->is_task) {
             ctx->BeginNode(NodeType::TaskListItem);
-            ctx->current_node->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
+            ctx->current_node->task_checked = (li->task_mark == L'x' || li->task_mark == L'X');
         }
         else {
             ctx->BeginNode(NodeType::ListItem);
@@ -418,17 +354,16 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
 
-    ctx->FlushUtf8();
+    ctx->FlushPendingRun();
 
     switch (type) {
     case MD_BLOCK_CODE: {
         auto* cn = ctx->current_node;
         ctx->in_code_block = false;
-        // 末尾の改行があれば除去（current_utf8 スクラッチに対して操作）
-        if (cn && !ctx->current_utf8.empty() && ctx->current_utf8.back() == '\n') {
-            ctx->current_utf8.pop_back();
+        // 末尾の改行があれば除去（current_text スクラッチに対して操作）
+        if (cn && !ctx->current_text.empty() && ctx->current_text.back() == L'\n') {
+            ctx->current_text.pop_back();
             cn->line_count--;
-            ctx->node_wide_offset--;
             if (!cn->runs.empty()) {
                 auto& last = cn->runs.back();
                 if (last.length > 0) {
@@ -519,7 +454,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
 
-    ctx->FlushUtf8();
+    ctx->FlushPendingRun();
     ctx->span_stack.push(ctx->current_span);
 
     switch (type) {
@@ -543,9 +478,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
         if (a->href.text && a->href.size > 0) {
             ctx->link_urls.emplace_back();
-            Utf8ToWide(
-                std::string_view{ a->href.text, static_cast<size_t>(a->href.size) },
-                ctx->link_urls.back());
+            ctx->link_urls.back().assign(a->href.text, static_cast<size_t>(a->href.size));
             ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
         }
         ctx->paragraph_has_other_content = true;
@@ -554,9 +487,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_IMG: {
         auto* const img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
         if (img->src.text && img->src.size > 0) {
-            Utf8ToWide(
-                std::string_view{ img->src.text, static_cast<size_t>(img->src.size) },
-                ctx->pending_image_src);
+            ctx->pending_image_src.assign(img->src.text, static_cast<size_t>(img->src.size));
         }
         ctx->paragraph_has_other_content = true;
         break;
@@ -564,7 +495,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_LATEXMATH_DISPLAY:
         // "$$" はフォールバックテキスト用。昇格対象でなくなった時点で has_other_content を立てる
         ctx->in_display_math = true;
-        ctx->AppendUtf8(std::string_view{ "$$", 2 });
+        ctx->AppendWide(L"$$");
         if (ctx->paragraph_display_math_count == 0 && !ctx->paragraph_has_other_content) {
             ctx->display_math_buf.clear();
         }
@@ -574,7 +505,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     case MD_SPAN_LATEXMATH:
         // インライン $...$ は昇格対象外。元の "$" を復元してテキストとして残す
-        ctx->AppendUtf8(std::string_view{ "$", 1 });
+        ctx->AppendWide(L"$");
         ctx->paragraph_has_other_content = true;
         break;
     default:
@@ -589,7 +520,7 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
 
-    ctx->FlushUtf8();
+    ctx->FlushPendingRun();
 
     if (type == MD_SPAN_IMG) {
         if (auto* cn = ctx->current_node; cn && !ctx->pending_image_src.empty()) {
@@ -599,11 +530,11 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
     }
     else if (type == MD_SPAN_LATEXMATH_DISPLAY) {
         ctx->in_display_math = false;
-        ctx->AppendUtf8(std::string_view{ "$$", 2 });
+        ctx->AppendWide(L"$$");
         ctx->paragraph_display_math_count++;
     }
     else if (type == MD_SPAN_LATEXMATH) {
-        ctx->AppendUtf8(std::string_view{ "$", 1 });
+        ctx->AppendWide(L"$");
     }
 
     if (!ctx->span_stack.empty()) {
@@ -622,10 +553,12 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         return 0;
     }
 
-    // 各ノードの最初のテキストコールバックでソースオフセットを記録
+    // 各ノードの最初のテキストコールバックでソースオフセットを記録（UTF-16 コード単位）
     if (ctx->current_node->source_offset == UINT32_MAX && ctx->markdown_base) {
         ctx->current_node->source_offset = static_cast<uint32_t>(text - ctx->markdown_base);
     }
+
+    const std::wstring_view chunk{ text, static_cast<size_t>(size) };
 
     switch (type) {
     case MD_TEXT_NORMAL:
@@ -633,14 +566,14 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
-        ctx->utf8_accum.append(text, static_cast<size_t>(size));
+        ctx->AppendWide(chunk);
         break;
 
     case MD_TEXT_LATEXMATH:
-        ctx->utf8_accum.append(text, static_cast<size_t>(size));
+        ctx->AppendWide(chunk);
         if (ctx->in_display_math && ctx->paragraph_display_math_count == 0 &&
             !ctx->paragraph_has_other_content) {
-            ctx->display_math_buf.append(text, static_cast<size_t>(size));
+            ctx->display_math_buf.append(chunk);
         }
         break;
 
@@ -648,14 +581,12 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
-        ctx->FlushUtf8();
-        const std::string_view entity{ text, static_cast<size_t>(size) };
         wchar_t entity_buf[2];
-        if (const auto resolved = ResolveHtmlEntity(entity, entity_buf)) {
-            ctx->AppendText(*resolved);
+        if (const auto resolved = ResolveHtmlEntity(chunk, entity_buf)) {
+            ctx->AppendWide(*resolved);
         }
         else {
-            ctx->AppendUtf8(entity);
+            ctx->AppendWide(chunk);
         }
         break;
     }
@@ -664,16 +595,14 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
-        ctx->FlushUtf8();
-        ctx->AppendText(std::wstring_view{ L"\n", 1 });
+        ctx->AppendWide(L"\n");
         break;
 
     case MD_TEXT_SOFTBR:
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
-        ctx->FlushUtf8();
-        ctx->AppendText(std::wstring_view{ L" ", 1 });
+        ctx->AppendWide(L" ");
         break;
 
     default:
@@ -685,11 +614,12 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
 } // namespace
 
-ParseResult ParseMarkdown(std::string_view markdown_text)
+ParseResult ParseMarkdown(std::wstring_view markdown_text)
 {
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
-    ctx.utf8_accum.reserve(4096);
+    // ノード単位のスクラッチを 1 回確保しておくと、長段落・コードブロックでの再確保を抑えられる。
+    ctx.current_text.reserve(4096);
     ctx.nodes.reserve(std::clamp(markdown_text.size() / 64, size_t{ 64 }, size_t{ 8192 }));
     ctx.heading_indices.reserve(std::clamp(markdown_text.size() / 256, size_t{ 8 }, size_t{ 512 }));
     ctx.image_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
@@ -719,6 +649,13 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     result.image_indices = std::move(ctx.image_indices);
     result.diagram_indices = std::move(ctx.diagram_indices);
     return result;
+}
+
+ParseResult ParseMarkdown(std::string_view utf8_markdown_text)
+{
+    std::pmr::wstring wide;
+    string_convert::Utf8ToWide(utf8_markdown_text, wide);
+    return ParseMarkdown(std::wstring_view{ wide });
 }
 
 std::wstring_view GetAlertLabel(AlertType type) noexcept
@@ -888,50 +825,60 @@ void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockqu
     }
 }
 
-std::optional<std::wstring_view> ResolveHtmlEntity(std::string_view entity, wchar_t(&buffer)[2])
+std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wchar_t(&buffer)[2])
 {
-    const wchar_t* literal = nullptr;
-    if (entity == "&amp;") {
-        literal = L"&";
-    }
-    else if (entity == "&lt;") {
-        literal = L"<";
-    }
-    else if (entity == "&gt;") {
-        literal = L">";
-    }
-    else if (entity == "&quot;") {
-        literal = L"\"";
-    }
-    else if (entity == "&apos;") {
-        literal = L"'";
-    }
-    else if (entity == "&nbsp;") {
-        literal = L"\u00A0";
-    }
-    if (literal) {
-        return std::wstring_view{ literal, 1 };
+    {
+        std::wstring_view literal;
+        if (entity == L"&amp;") {
+            literal = L"&";
+        }
+        else if (entity == L"&lt;") {
+            literal = L"<";
+        }
+        else if (entity == L"&gt;") {
+            literal = L">";
+        }
+        else if (entity == L"&quot;") {
+            literal = L"\"";
+        }
+        else if (entity == L"&apos;") {
+            literal = L"'";
+        }
+        else if (entity == L"&nbsp;") {
+            literal = L" ";
+        }
+        if (!literal.empty()) {
+            return literal;
+        }
     }
 
-    if (entity.size() >= 4 && entity[0] == '&' && entity[1] == '#') {
+    if (entity.size() >= 4 && entity[0] == L'&' && entity[1] == L'#' && entity.back() == L';') {
         unsigned long codepoint = 0;
-        bool valid = false;
-        if (entity[2] == 'x' || entity[2] == 'X') {
-            const auto r = std::from_chars(entity.data() + 3, entity.data() + entity.size() - 1, codepoint, 16);
-            valid = (r.ec == std::errc());
+        const wchar_t* digits;
+        size_t digit_len;
+        unsigned long base;
+        if (entity[2] == L'x' || entity[2] == L'X') {
+            digits = entity.data() + 3;
+            digit_len = entity.size() - 4; // "&#x" と末尾 ';' を除いた残り長
+            base = 16;
         }
         else {
-            const auto r = std::from_chars(entity.data() + 2, entity.data() + entity.size() - 1, codepoint, 10);
-            valid = (r.ec == std::errc());
+            digits = entity.data() + 2;
+            digit_len = entity.size() - 3; // "&#" と末尾 ';' を除いた残り長
+            base = 10;
         }
+        const wchar_t* const stop = ascii_util::from_chars(digits, digit_len, codepoint, base);
+        // 全桁消費 (stop == digits + digit_len) かつ 1 桁以上 (stop > digits) のみ受理。
+        // "&#65x;" のように途中で停止した入力は不正として弾く。
+        const bool fully_consumed = (stop == digits + digit_len) && (stop > digits);
         // サロゲート範囲 (U+D800-U+DFFF) は単独で UTF-16 として不正なので除外し、
-        // 呼び出し側で元の utf-8 をそのまま再投入させる。
-        if (valid && codepoint > 0 && codepoint <= 0xFFFF &&
+        // 呼び出し側で元の入力をそのままテキストとして再投入させる。
+        if (fully_consumed && codepoint > 0 && codepoint <= 0xFFFF &&
             !(codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
             buffer[0] = static_cast<wchar_t>(codepoint);
             return std::wstring_view{ buffer, 1 };
         }
-        if (valid && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
+        if (fully_consumed && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
             // 補助面: UTF-16 サロゲートペア
             const unsigned long adj = codepoint - 0x10000;
             buffer[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));

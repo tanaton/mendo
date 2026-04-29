@@ -12,7 +12,9 @@ class Document {
 public:
     constexpr Document() noexcept = default;
 
-    // ファクトリ
+    // ファクトリ。本体は wide 入力版。utf8 入力版は FileLoader からの UTF-8
+    // バイト列（または埋め込みリソース）を直接受け取るための変換ラッパー。
+    static Document FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::wstring_view path);
     static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 
     // アクセサ
@@ -21,11 +23,15 @@ public:
     constexpr const std::pmr::wstring& GetFilePath() const noexcept { return file_path_; }
     constexpr const TableOfContents& GetToc() const noexcept { return toc_; }
     constexpr bool IsEmpty() const noexcept { return nodes_.empty(); }
-    const std::pmr::string& GetRawUtf8() const noexcept { return raw_utf8_; }
+    // パース入力の wide テキストへの参照。AnalyzeReloadDiff の比較用。
+    const std::pmr::wstring& GetRawText() const noexcept { return raw_wide_; }
+    // 元ファイル(UTF-8)バイト数。エディタの中間書き込み検出（IsFileLargerThan）で参照する。
+    constexpr size_t GetLoadedByteSize() const noexcept { return loaded_byte_size_; }
     std::pmr::wstring GetDirectory() const;
 
     constexpr void SetFilePath(std::wstring_view path) { file_path_ = path; }
     void ReplaceContent(ParseResult&& result);
+    void ReplaceFromMarkdown(std::pmr::wstring wide, size_t byte_size);
     void ReplaceFromMarkdown(std::pmr::string utf8);
     int FindAnchorIndex(std::wstring_view anchor) const;
     // 既に anchor_id 形式（小文字 ASCII 正規化済み）と判明している入力向け。
@@ -53,7 +59,8 @@ private:
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
-    std::pmr::string raw_utf8_;
+    std::pmr::wstring raw_wide_;
+    size_t loaded_byte_size_ = 0;
     TableOfContents toc_;
     // キーは所有 wstring。nodes_ の再アロケート/構造変更でも索引が dangling しない。
     std::pmr::unordered_map<std::pmr::wstring, int,

@@ -5,6 +5,7 @@
 #include "document_test_helpers.h"
 #include "test_helpers.h"
 #include "parser.h"
+#include "string_convert.h"
 #include "syntax.h"
 
 // ============================================================
@@ -1024,61 +1025,61 @@ TEST(ExtractFilename, MixedSeparators)
 }
 
 // ============================================================
-// FindFirstDifference
+// FindFirstDifference (UTF-16 コード単位の差分検出)
 // ============================================================
 
 TEST(FindFirstDifference, IdenticalStrings)
 {
-    EXPECT_EQ(FindFirstDifference("hello", "hello"), std::string_view::npos);
+    EXPECT_EQ(FindFirstDifference(L"hello", L"hello"), std::wstring_view::npos);
 }
 
 TEST(FindFirstDifference, BothEmpty)
 {
-    EXPECT_EQ(FindFirstDifference("", ""), std::string_view::npos);
+    EXPECT_EQ(FindFirstDifference(L"", L""), std::wstring_view::npos);
 }
 
-TEST(FindFirstDifference, DifferentFirstByte)
+TEST(FindFirstDifference, DifferentFirstUnit)
 {
-    EXPECT_EQ(FindFirstDifference("abc", "xbc"), 0u);
+    EXPECT_EQ(FindFirstDifference(L"abc", L"xbc"), 0u);
 }
 
 TEST(FindFirstDifference, DifferentMiddle)
 {
-    EXPECT_EQ(FindFirstDifference("abcdef", "abcXef"), 3u);
+    EXPECT_EQ(FindFirstDifference(L"abcdef", L"abcXef"), 3u);
 }
 
-TEST(FindFirstDifference, DifferentLastByte)
+TEST(FindFirstDifference, DifferentLastUnit)
 {
-    EXPECT_EQ(FindFirstDifference("abc", "abX"), 2u);
+    EXPECT_EQ(FindFirstDifference(L"abc", L"abX"), 2u);
 }
 
 TEST(FindFirstDifference, NewLongerThanOld)
 {
-    EXPECT_EQ(FindFirstDifference("abc", "abcdef"), 3u);
+    EXPECT_EQ(FindFirstDifference(L"abc", L"abcdef"), 3u);
 }
 
 TEST(FindFirstDifference, OldLongerThanNew)
 {
-    EXPECT_EQ(FindFirstDifference("abcdef", "abc"), 3u);
+    EXPECT_EQ(FindFirstDifference(L"abcdef", L"abc"), 3u);
 }
 
 TEST(FindFirstDifference, EmptyOld)
 {
-    EXPECT_EQ(FindFirstDifference("", "new"), 0u);
+    EXPECT_EQ(FindFirstDifference(L"", L"new"), 0u);
 }
 
 TEST(FindFirstDifference, EmptyNew)
 {
-    EXPECT_EQ(FindFirstDifference("old", ""), 0u);
+    EXPECT_EQ(FindFirstDifference(L"old", L""), 0u);
 }
 
-TEST(FindFirstDifference, Utf8Content)
+TEST(FindFirstDifference, CjkContent)
 {
-    // UTF-8: "う"=E3 81 86, "え"=E3 81 88 → 先頭2バイト共通、3バイト目で差分
-    std::string a = "あいう";
-    std::string b = "あいえ";
+    // BMP 内の CJK は 1 wchar_t/char。"う"(U+3046)/"え"(U+3048) は 1 unit 違い。
+    std::wstring a = L"あいう";
+    std::wstring b = L"あいえ";
     size_t diff = FindFirstDifference(a, b);
-    EXPECT_EQ(diff, 8u); // "あいう"/"あいえ" の最後のバイトで差分
+    EXPECT_EQ(diff, 2u); // 3 文字目で差分（インデックス 2）
 }
 
 // ============================================================
@@ -1087,22 +1088,22 @@ TEST(FindFirstDifference, Utf8Content)
 
 TEST(AnalyzeReloadDiff, IdenticalContentReturnsNoChange)
 {
-    const auto d = AnalyzeReloadDiff("hello world", "hello world");
+    const auto d = AnalyzeReloadDiff(L"hello world", L"hello world");
     EXPECT_EQ(d.op, ReloadOp::NoChange);
-    EXPECT_EQ(d.diff_pos, std::string_view::npos);
+    EXPECT_EQ(d.diff_pos, std::wstring_view::npos);
 }
 
 TEST(AnalyzeReloadDiff, BothEmptyReturnsNoChange)
 {
-    const auto d = AnalyzeReloadDiff("", "");
+    const auto d = AnalyzeReloadDiff(L"", L"");
     EXPECT_EQ(d.op, ReloadOp::NoChange);
-    EXPECT_EQ(d.diff_pos, std::string_view::npos);
+    EXPECT_EQ(d.diff_pos, std::wstring_view::npos);
 }
 
 TEST(AnalyzeReloadDiff, AppendedSuffixIsPrefixGrowth)
 {
     // 末尾に追記 → prefix-only growth（スクロール維持）
-    const auto d = AnalyzeReloadDiff("abc", "abcdef");
+    const auto d = AnalyzeReloadDiff(L"abc", L"abcdef");
     EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
     EXPECT_EQ(d.diff_pos, 3u);
 }
@@ -1110,7 +1111,7 @@ TEST(AnalyzeReloadDiff, AppendedSuffixIsPrefixGrowth)
 TEST(AnalyzeReloadDiff, EmptyToContentIsPrefixGrowth)
 {
     // 空ファイル → 何か書いた。prefix-only growth として扱う。
-    const auto d = AnalyzeReloadDiff("", "new content");
+    const auto d = AnalyzeReloadDiff(L"", L"new content");
     EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
     EXPECT_EQ(d.diff_pos, 0u);
 }
@@ -1118,7 +1119,7 @@ TEST(AnalyzeReloadDiff, EmptyToContentIsPrefixGrowth)
 TEST(AnalyzeReloadDiff, TruncatedSuffixIsDeferPrefixShrink)
 {
     // 末尾が消えた = truncate。エディタの truncate→rewrite 前半の可能性があるため defer。
-    const auto d = AnalyzeReloadDiff("abcdef", "abc");
+    const auto d = AnalyzeReloadDiff(L"abcdef", L"abc");
     EXPECT_EQ(d.op, ReloadOp::DeferPrefixShrink);
     EXPECT_EQ(d.diff_pos, 3u);
 }
@@ -1126,23 +1127,23 @@ TEST(AnalyzeReloadDiff, TruncatedSuffixIsDeferPrefixShrink)
 TEST(AnalyzeReloadDiff, ContentToEmptyIsDeferPrefixShrink)
 {
     // 全消去も truncate → rewrite の前半とみなして defer する
-    const auto d = AnalyzeReloadDiff("old content", "");
+    const auto d = AnalyzeReloadDiff(L"old content", L"");
     EXPECT_EQ(d.op, ReloadOp::DeferPrefixShrink);
     EXPECT_EQ(d.diff_pos, 0u);
 }
 
 TEST(AnalyzeReloadDiff, MiddleChangeIsFullReload)
 {
-    // 中間バイトが変わった。prefix-only ではないので全体リロード。
-    const auto d = AnalyzeReloadDiff("abcdef", "abcXef");
+    // 中間で変化した。prefix-only ではないので全体リロード。
+    const auto d = AnalyzeReloadDiff(L"abcdef", L"abcXef");
     EXPECT_EQ(d.op, ReloadOp::FullReload);
     EXPECT_EQ(d.diff_pos, 3u);
 }
 
-TEST(AnalyzeReloadDiff, FirstByteChangeIsFullReload)
+TEST(AnalyzeReloadDiff, FirstUnitChangeIsFullReload)
 {
     // 先頭で差分があれば必ず FullReload（同一長さなので prefix-only にならない）。
-    const auto d = AnalyzeReloadDiff("abc", "Xbc");
+    const auto d = AnalyzeReloadDiff(L"abc", L"Xbc");
     EXPECT_EQ(d.op, ReloadOp::FullReload);
     EXPECT_EQ(d.diff_pos, 0u);
 }
@@ -1150,19 +1151,19 @@ TEST(AnalyzeReloadDiff, FirstByteChangeIsFullReload)
 TEST(AnalyzeReloadDiff, LengthChangedWithMiddleDiffIsFullReload)
 {
     // 途中で差分があり、かつ長さも変わる → prefix-only ではなく FullReload。
-    const auto d = AnalyzeReloadDiff("abcdef", "abcYYYz");
+    const auto d = AnalyzeReloadDiff(L"abcdef", L"abcYYYz");
     EXPECT_EQ(d.op, ReloadOp::FullReload);
     EXPECT_EQ(d.diff_pos, 3u);
 }
 
-TEST(AnalyzeReloadDiff, Utf8SuffixAppendedIsPrefixGrowth)
+TEST(AnalyzeReloadDiff, CjkSuffixAppendedIsPrefixGrowth)
 {
-    // UTF-8 バイト列での末尾追記も prefix-only growth として扱える
-    const std::string old_text = "あいう";
-    const std::string new_text = "あいうえお";
+    // CJK 末尾追記も prefix-only growth として扱える
+    const std::wstring old_text = L"あいう";
+    const std::wstring new_text = L"あいうえお";
     const auto d = AnalyzeReloadDiff(old_text, new_text);
     EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
-    EXPECT_EQ(d.diff_pos, 9u); // "あいう" = 9 バイト
+    EXPECT_EQ(d.diff_pos, 3u); // "あいう" = 3 wchar_t
 }
 
 // ============================================================
@@ -1278,11 +1279,15 @@ TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 // 統合テスト: diff検出 → ノード特定
 // ============================================================
 
-// ヘルパー: old→new の編集をシミュレートし、変更箇所のノードを特定する
+// ヘルパー: old→new の編集をシミュレートし、変更箇所のノードを特定する。
+// 入力 UTF-8 を wide 化して FindFirstDifference を呼ぶ（source_offset は wide 単位）。
 static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new_md)
 {
-    size_t diff_pos = FindFirstDifference(old_md, new_md);
-    if (diff_pos == std::string_view::npos) {
+    std::pmr::wstring old_w, new_w;
+    string_convert::Utf8ToWide(old_md, old_w);
+    string_convert::Utf8ToWide(new_md, new_w);
+    size_t diff_pos = FindFirstDifference(old_w, new_w);
+    if (diff_pos == std::wstring_view::npos) {
         return -1;
     }
     auto nodes = ParseMarkdown(new_md).nodes;
@@ -1500,14 +1505,14 @@ TEST(IsPrefixOnlyDiff, BothEmpty)
 TEST(IsPrefixOnlyDiff, IntegrationWithFindFirstDifference)
 {
     // FindFirstDifference と組み合わせた実際のユースケース
-    std::string_view old_text = "Hello World";
-    std::string_view new_text = "Hello World, more text";
+    std::wstring_view old_text = L"Hello World";
+    std::wstring_view new_text = L"Hello World, more text";
     size_t diff = FindFirstDifference(old_text, new_text);
     EXPECT_TRUE(IsPrefixOnlyDiff(diff, old_text.size(), new_text.size()));
 
     // 内容が異なる場合
-    std::string_view old_text2 = "Hello World";
-    std::string_view new_text2 = "Hello Xxxxx";
+    std::wstring_view old_text2 = L"Hello World";
+    std::wstring_view new_text2 = L"Hello Xxxxx";
     size_t diff2 = FindFirstDifference(old_text2, new_text2);
     EXPECT_FALSE(IsPrefixOnlyDiff(diff2, old_text2.size(), new_text2.size()));
 }
@@ -1530,7 +1535,7 @@ TEST(CalcScrollYForDiff, FallbackWhenNoNodes)
 {
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, "content", 0, 500.0f, 42.0f), 42.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, L"content", 0, 500.0f, 42.0f), 42.0f);
 }
 
 TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
@@ -1540,7 +1545,7 @@ TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
     nodes[0].source_offset = 50;
     auto cache = MakeUniformCache(3);
     // diff_pos=10 < 全ノードの最小 offset(50) → -1 → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, "content", 10, 500.0f, 99.0f), 99.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, L"content", 10, 500.0f, 99.0f), 99.0f);
 }
 
 TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
@@ -1548,7 +1553,7 @@ TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
     // 3ノード: offset=0,100,200 / y=0,100,200 / height=100
     auto nodes = MakeNodes(3, 100);
     auto cache = MakeUniformCache(3, 100.0f);
-    std::string content(300, 'x');
+    std::wstring content(300, L'x');
 
     // diff_pos=0 → node 0, y=0, margin=500*0.2=100 → max(0, 0-100)=0
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 0, 500.0f, 0.0f), 0.0f);
@@ -1565,7 +1570,7 @@ TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
     // 2ノード: offset=0,100 / y=0,1000 / height=1000
     auto nodes = MakeNodes(2, 100);
     auto cache = MakeUniformCache(2, 1000.0f);
-    std::string content(200, 'x');
+    std::wstring content(200, L'x');
 
     // diff_pos=50 → node 0 (offset=0), next_start=100
     // fraction = (50-0)/(100-0) = 0.5
@@ -1580,7 +1585,7 @@ TEST(CalcScrollYForDiff, FractionClampsToOne)
     // diff_pos がノード範囲を超える場合でも fraction は 1.0 でクランプ
     auto nodes = MakeNodes(2, 100);
     auto cache = MakeUniformCache(2, 1000.0f);
-    std::string content(200, 'x');
+    std::wstring content(200, L'x');
 
     // diff_pos=99 → node 0, fraction=99/100=0.99
     // y = 0 + 1000*0.99 = 990, scroll = 990-20 = 970
@@ -1597,7 +1602,7 @@ TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
     nodes[1].source_offset = UINT32_MAX; // 未設定（HorizontalRule等）
     nodes[2].source_offset = 200;
     auto cache = MakeUniformCache(3, 100.0f);
-    std::string content(300, 'x');
+    std::wstring content(300, L'x');
 
     // diff_pos=100 → node 0 (offset=0), next valid = node 2 (offset=200)
     // fraction = (100-0)/(200-0) = 0.5
@@ -1613,7 +1618,7 @@ TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
     auto nodes = MakeNodes(1, 0);
     nodes[0].source_offset = 0;
     auto cache = MakeUniformCache(1, 1000.0f);
-    std::string content(100, 'x');
+    std::wstring content(100, L'x');
 
     // diff_pos=50, next_start=content.size()=100
     // fraction = 50/100 = 0.5
@@ -1630,14 +1635,14 @@ TEST(CalcScrollYForDiff, CacheSizeMismatchFallback)
     auto cache = MakeUniformCache(3, 100.0f); // キャッシュは3つだけ
 
     // diff_pos=400 → node 4 だがキャッシュは3つ → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, std::string(500, 'x'), 400, 500.0f, 77.0f), 77.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, std::wstring(500, L'x'), 400, 500.0f, 77.0f), 77.0f);
 }
 
 TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
 {
     // 実際のMarkdownをパースして差分スクロール位置を計算する統合テスト
-    std::string md = "# Title\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph";
-    auto nodes = ParseMarkdown(md).nodes;
+    std::wstring md = L"# Title\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph";
+    auto nodes = ParseMarkdown(std::wstring_view{ md }).nodes;
     ASSERT_GE(nodes.size(), 4u);
 
     // ノード高さを設定
@@ -1650,9 +1655,9 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
         y += 50.0f;
     }
 
-    // "Second paragraph" の先頭バイトで diff
-    size_t diff_pos = static_cast<size_t>(md.find("Second"));
-    ASSERT_NE(diff_pos, std::string::npos);
+    // "Second paragraph" の先頭で diff
+    size_t diff_pos = static_cast<size_t>(md.find(L"Second"));
+    ASSERT_NE(diff_pos, std::wstring::npos);
 
     float result = CalcScrollYForDiff(nodes, cache, md, diff_pos, 500.0f, 0.0f);
     // スクロール位置は 0 以上で、fallback(0) とは異なる値が期待される
@@ -1667,9 +1672,9 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
 TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
 {
     // 旧 doc: 3 段落
-    const std::string old_md = "para_one\n\npara_two\n\npara_three";
+    const std::wstring old_md = L"para_one\n\npara_two\n\npara_three";
     // 新 doc: 末尾に 1 段落追記
-    const std::string new_md = old_md + "\n\npara_four_added";
+    const std::wstring new_md = old_md + L"\n\npara_four_added";
 
     // AnalyzeReloadDiff で PrefixGrowth と判定されること
     const auto decision = AnalyzeReloadDiff(old_md, new_md);
@@ -1677,7 +1682,7 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
     ASSERT_EQ(decision.diff_pos, old_md.size());
 
     // 新 doc を pipeline で扱うイメージで cache を構築
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseMarkdown(std::wstring_view{ new_md }).nodes;
     ASSERT_GE(nodes.size(), 4u);
 
     LayoutCache cache;
