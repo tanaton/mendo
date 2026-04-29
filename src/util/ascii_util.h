@@ -8,6 +8,7 @@
 #include <emmintrin.h>
 #include <intrin.h>
 #include <string_view>
+#include <type_traits>
 
 // ASCII 文字列ヘルパ。バルク処理は SSE2 で wchar_t (UTF-16 code unit) を 8 文字並列に扱い、
 // 非 ASCII (>= U+0080) を含むチャンクは std::towlower や逐次比較にフォールバックするので、

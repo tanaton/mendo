@@ -852,22 +852,33 @@ std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wch
         }
     }
 
-    if (entity.size() >= 4 && entity[0] == L'&' && entity[1] == L'#') {
+    if (entity.size() >= 4 && entity[0] == L'&' && entity[1] == L'#' && entity.back() == L';') {
         unsigned long codepoint = 0;
+        const wchar_t* digits;
+        size_t digit_len;
+        unsigned long base;
         if (entity[2] == L'x' || entity[2] == L'X') {
-            (void)ascii_util::from_chars(entity.data() + 3, entity.size(), codepoint, 16ul);
+            digits = entity.data() + 3;
+            digit_len = entity.size() - 4; // "&#x" と末尾 ';' を除いた残り長
+            base = 16;
         }
         else {
-            (void)ascii_util::from_chars(entity.data() + 2, entity.size(), codepoint, 10ul);
+            digits = entity.data() + 2;
+            digit_len = entity.size() - 3; // "&#" と末尾 ';' を除いた残り長
+            base = 10;
         }
+        const wchar_t* const stop = ascii_util::from_chars(digits, digit_len, codepoint, base);
+        // 全桁消費 (stop == digits + digit_len) かつ 1 桁以上 (stop > digits) のみ受理。
+        // "&#65x;" のように途中で停止した入力は不正として弾く。
+        const bool fully_consumed = (stop == digits + digit_len) && (stop > digits);
         // サロゲート範囲 (U+D800-U+DFFF) は単独で UTF-16 として不正なので除外し、
         // 呼び出し側で元の入力をそのままテキストとして再投入させる。
-        if (codepoint > 0 && codepoint <= 0xFFFF &&
+        if (fully_consumed && codepoint > 0 && codepoint <= 0xFFFF &&
             !(codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
             buffer[0] = static_cast<wchar_t>(codepoint);
             return std::wstring_view{ buffer, 1 };
         }
-        if (codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
+        if (fully_consumed && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
             // 補助面: UTF-16 サロゲートペア
             const unsigned long adj = codepoint - 0x10000;
             buffer[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));
