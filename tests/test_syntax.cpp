@@ -94,6 +94,8 @@ TEST(Syntax, DetectLanguageCaseInsensitive)
     EXPECT_EQ(DetectLanguage(L"BASH"), SyntaxLanguage::Bash);
     EXPECT_EQ(DetectLanguage(L"PowerShell"), SyntaxLanguage::PowerShell);
     EXPECT_EQ(DetectLanguage(L"CMD"), SyntaxLanguage::Cmd);
+    EXPECT_EQ(DetectLanguage(L"JSON"), SyntaxLanguage::Json);
+    EXPECT_EQ(DetectLanguage(L"JsonC"), SyntaxLanguage::Json);
 }
 
 TEST(Syntax, DetectLanguageWithExtraInfo)
@@ -1642,6 +1644,102 @@ TEST(Syntax, TokensCoverEntireTextCmd)
 }
 
 // ============================================================
+// JSON / JSONC
+// ============================================================
+
+TEST(Syntax, DetectLanguageJson)
+{
+    EXPECT_EQ(DetectLanguage(L"json"), SyntaxLanguage::Json);
+    EXPECT_EQ(DetectLanguage(L"jsonc"), SyntaxLanguage::Json);
+    EXPECT_EQ(DetectLanguage(L"json5"), SyntaxLanguage::Json);
+}
+
+TEST(Syntax, JsonLiteralsAsKeywords)
+{
+    std::wstring code = L"[true, false, null]";
+    auto tokens = Tokenize(code, SyntaxLanguage::Json);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 3);
+}
+
+TEST(Syntax, JsonString)
+{
+    std::wstring code = L"\"hello world\"";
+    auto tokens = Tokenize(code, SyntaxLanguage::Json);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 1);
+}
+
+TEST(Syntax, JsonStringWithEscapes)
+{
+    std::wstring code = L"\"line1\\nline2\\t\\\"quoted\\\"\"";
+    auto tokens = Tokenize(code, SyntaxLanguage::Json);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 1);
+}
+
+TEST(Syntax, JsonSingleQuoteIsNotString)
+{
+    // JSON は二重引用符のみ。シングルクォートは文字列として扱わない（プレーン）。
+    std::wstring code = L"'not a string'";
+    auto tokens = Tokenize(code, SyntaxLanguage::Json);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 0);
+}
+
+TEST(Syntax, JsonNumbers)
+{
+    // 負号は分離されるが、数値部はトークン化される。
+    std::wstring code = L"[0, 1, -2, 3.14, 1e10, 1.5e-3]";
+    auto tokens = Tokenize(code, SyntaxLanguage::Json);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Number), 6);
+}
+
+TEST(Syntax, JsonObject)
+{
+    std::wstring code = LR"({"name": "alice", "age": 30, "active": true})";
+    auto tokens = Tokenize(code, SyntaxLanguage::Json);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 4);
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Number), 1);
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 1);
+}
+
+TEST(Syntax, JsonNestedStructure)
+{
+    std::wstring code = LR"({"items": [{"id": 1}, {"id": 2}], "count": 2})";
+    auto tokens = Tokenize(code, SyntaxLanguage::Json);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Number), 3);
+}
+
+TEST(Syntax, JsoncLineComment)
+{
+    // JSONC: // 形式のコメントを許容。
+    std::wstring code = L"{\n  // comment\n  \"key\": 1\n}";
+    auto tokens = Tokenize(code, SyntaxLanguage::Json);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Comment), 1);
+}
+
+TEST(Syntax, JsoncBlockComment)
+{
+    // JSONC: /* */ 形式のコメントを許容。
+    std::wstring code = L"{\n  /* block\n     comment */\n  \"key\": 1\n}";
+    auto tokens = Tokenize(code, SyntaxLanguage::Json);
+    AssertTokensCoverText(tokens, code.size());
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Comment), 1);
+}
+
+TEST(Syntax, TokensCoverEntireTextJson)
+{
+    std::wstring code = LR"({"a": [1, 2, null], "b": {"c": false}})";
+    auto tokens = Tokenize(code, SyntaxLanguage::Json);
+    AssertTokensCoverText(tokens, code.size());
+}
+
+// ============================================================
 // パーサー統合: 新言語
 // ============================================================
 
@@ -1678,4 +1776,11 @@ TEST(Syntax, ParserExtractsLanguageCmd)
     auto nodes = ParseMarkdown("```cmd\necho hello\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cmd);
+}
+
+TEST(Syntax, ParserExtractsLanguageJson)
+{
+    auto nodes = ParseMarkdown("```json\n{\"k\": 1}\n```").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Json);
 }

@@ -196,4 +196,9 @@ inline constexpr auto CMD_TYPES = MakeSorted(std::array{
     L"tasklist"sv, L"title"sv, L"type"sv, L"ver"sv, L"xcopy"sv,
 });
 
+// JSON / JSONC: リテラル値のみ。型名は該当概念がない。
+inline constexpr auto JSON_KEYWORDS = MakeSorted(std::array{
+    L"false"sv, L"null"sv, L"true"sv,
+});
+
 } // namespace syntax_keywords
