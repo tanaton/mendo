@@ -1,4 +1,5 @@
 #include "file_explorer.h"
+#include "ascii_util.h"
 #include "document_utils.h"
 #include "win_handle.h"
 #include <algorithm>
@@ -53,8 +54,8 @@ void FileExplorer::Refresh()
     static constexpr size_t MAX_ENTRIES = 4096;
 
     do {
-        // "." と ".." をスキップ
-        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) {
+        const std::wstring_view name{ fd.cFileName };
+        if (name == L"." || name == L"..") {
             continue;
         }
         // システムファイルをスキップ
@@ -84,7 +85,7 @@ void FileExplorer::Refresh()
             if (a.is_directory != b.is_directory) {
                 return a.is_directory > b.is_directory;
             }
-            return _wcsicmp(a.GetDisplayName(), b.GetDisplayName()) < 0;
+            return ascii_util::iless(a.GetDisplayName(), b.GetDisplayName());
         });
 }
 
@@ -102,8 +103,7 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept
 
 void FileExplorer::SetCurrentFile(std::wstring_view path)
 {
-    const std::pmr::wstring path_str{ path };
     for (auto& entry : entries_) {
-        entry.is_current = (!entry.is_directory && _wcsicmp(entry.full_path.c_str(), path_str.c_str()) == 0);
+        entry.is_current = (!entry.is_directory && ascii_util::iequal(entry.full_path, path));
     }
 }

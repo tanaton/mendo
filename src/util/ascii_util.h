@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cwchar>
@@ -16,15 +17,18 @@ inline constexpr size_t npos = static_cast<size_t>(-1);
 
 // 1 文字 ASCII case 変換ヘルパ。`std::tolower` の locale 依存
 // (トルコ語の I → ı 等) を避けたい用途用。非 ASCII および ASCII 小文字は素通し。
-constexpr wchar_t ToLowerAscii(wchar_t c) noexcept
-{
-    return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
-}
-
-constexpr char ToLowerAscii(char c) noexcept
-{
-    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
-}
+// 関数オブジェクトにすることで std::ranges アルゴリズムの projection に直接渡せる。
+struct ToLowerAsciiFn {
+    static constexpr wchar_t operator()(wchar_t c) noexcept
+    {
+        return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+    }
+    static constexpr char operator()(char c) noexcept
+    {
+        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+    }
+};
+inline constexpr ToLowerAsciiFn ToLowerAscii{};
 
 constexpr wchar_t ToUpperAscii(wchar_t c) noexcept
 {
@@ -205,6 +209,24 @@ inline size_t Find(std::wstring_view text, std::wstring_view query, size_t start
         }
     }
     return npos;
+}
+
+// 大小無視の等価比較。ASCII 'A'-'Z' のみ小文字化、他は素通し。locale 非依存。
+constexpr bool iequal(std::wstring_view a, std::wstring_view b) noexcept
+{
+    return std::ranges::equal(a, b, {}, ToLowerAscii, ToLowerAscii);
+}
+
+// 大小無視の辞書順比較。a < b なら true。
+constexpr bool iless(std::wstring_view a, std::wstring_view b) noexcept
+{
+    return std::ranges::lexicographical_compare(a, b, {}, ToLowerAscii, ToLowerAscii);
+}
+
+// 大小無視のプレフィックスマッチ。s が prefix で始まれば true。
+constexpr bool istarts_with(std::wstring_view s, std::wstring_view prefix) noexcept
+{
+    return s.size() >= prefix.size() && iequal(s.substr(0, prefix.size()), prefix);
 }
 
 } // namespace ascii_util

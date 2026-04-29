@@ -1053,8 +1053,7 @@ TEST(Parser, AlertMarkerStrippedAndLabelInserted)
     EXPECT_EQ(nodes[0].GetText().find(L"[!NOTE]"), std::wstring::npos);
     // 先頭はアイコン文字列であるべき
     auto icon = GetAlertIcon(AlertType::Note);
-    size_t icon_len = std::wcslen(icon);
-    EXPECT_EQ(nodes[0].GetText().substr(0, icon_len), std::wstring_view(icon, icon_len));
+    EXPECT_EQ(nodes[0].GetText().substr(0, icon.size()), icon);
     // コンテンツも残っているべき
     EXPECT_NE(nodes[0].GetText().find(L"Content here"), std::wstring::npos);
 }
@@ -1164,12 +1163,12 @@ TEST(Parser, AlertUnknownTypeIgnored)
 TEST(Parser, AlertLabelContents)
 {
     // 各AlertTypeのラベル文字列を確認
-    EXPECT_STREQ(GetAlertLabel(AlertType::Note), L"Note");
-    EXPECT_STREQ(GetAlertLabel(AlertType::Tip), L"Tip");
-    EXPECT_STREQ(GetAlertLabel(AlertType::Important), L"Important");
-    EXPECT_STREQ(GetAlertLabel(AlertType::Warning), L"Warning");
-    EXPECT_STREQ(GetAlertLabel(AlertType::Caution), L"Caution");
-    EXPECT_STREQ(GetAlertLabel(AlertType::None), L"");
+    EXPECT_EQ(GetAlertLabel(AlertType::Note), L"Note");
+    EXPECT_EQ(GetAlertLabel(AlertType::Tip), L"Tip");
+    EXPECT_EQ(GetAlertLabel(AlertType::Important), L"Important");
+    EXPECT_EQ(GetAlertLabel(AlertType::Warning), L"Warning");
+    EXPECT_EQ(GetAlertLabel(AlertType::Caution), L"Caution");
+    EXPECT_EQ(GetAlertLabel(AlertType::None), L"");
 }
 
 TEST(Parser, DetectAlertsOnEmptyVector)

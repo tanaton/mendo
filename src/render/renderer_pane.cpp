@@ -204,7 +204,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
             const wchar_t* name = entry.GetDisplayName();
             rt->DrawText(
                 name,
-                static_cast<UINT32>(wcslen(name)),
+                static_cast<UINT32>(std::wstring_view{ name }.size()),
                 fmt_.pane_item.Get(),
                 text_rect,
                 Brush(BrushId::Text),

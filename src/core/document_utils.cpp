@@ -1,7 +1,6 @@
 #include "document_utils.h"
 #include "ascii_util.h"
 #include <cstdint>
-#include <cwctype>
 #include <filesystem>
 #include <format>
 #include <iterator>
@@ -57,11 +56,10 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
 
 bool IsMarkdownFile(std::wstring_view path)
 {
-    auto ext = std::filesystem::path(path).extension().wstring();
-    for (auto& c : ext) {
-        c = std::towlower(c);
-    }
-    return ext == L".md" || ext == L".markdown" || ext == L".mkd";
+    const auto ext = std::filesystem::path(path).extension().wstring();
+    return ascii_util::iequal(ext, L".md")
+        || ascii_util::iequal(ext, L".markdown")
+        || ascii_util::iequal(ext, L".mkd");
 }
 
 std::pmr::wstring ExtractFilename(std::wstring_view path)

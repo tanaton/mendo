@@ -197,9 +197,15 @@ void MermaidRenderer::SetupWorker(int index)
             LPWSTR msg = nullptr;
             if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
                 auto& w = workers_[index];
-                if (wcsncmp(msg, L"mermaid-ready:", 14) == 0) {
-                    // "mermaid-ready:<dpr>"からDPRを解析
-                    const float dpr = std::wcstof(msg + 14, nullptr);
+                constexpr std::wstring_view kReady = L"mermaid-ready:";
+                constexpr std::wstring_view kRenderResult = L"render-result:";
+                constexpr std::wstring_view kCaptureReady = L"capture-ready:";
+                constexpr std::wstring_view kSvgResult = L"svg-result:";
+                constexpr std::wstring_view kRenderError = L"render-error:";
+                constexpr std::wstring_view kFailed = L"mermaid-failed";
+                const std::wstring_view sv{ msg };
+                if (sv.starts_with(kReady)) {
+                    const float dpr = std::wcstof(msg + kReady.size(), nullptr);
                     if (dpr > 0) {
                         w.dpr = dpr;
                     }
@@ -216,34 +222,34 @@ void MermaidRenderer::SetupWorker(int index)
                     }
                     ProcessQueue();
                 }
-                else if (wcsncmp(msg, L"render-result:", 14) == 0) {
-                    const auto p = mermaid_util::ParseRequestPrefix(msg + 14);
+                else if (sv.starts_with(kRenderResult)) {
+                    const auto p = mermaid_util::ParseRequestPrefix(sv.substr(kRenderResult.size()));
                     if (p.valid && p.has_payload && p.id == w.current_request.request_id) {
                         OnRenderResult(index, p.payload);
                     }
                 }
-                else if (wcsncmp(msg, L"capture-ready:", 14) == 0) {
-                    const auto p = mermaid_util::ParseRequestPrefix(msg + 14);
+                else if (sv.starts_with(kCaptureReady)) {
+                    const auto p = mermaid_util::ParseRequestPrefix(sv.substr(kCaptureReady.size()));
                     if (p.valid && p.id == w.current_request.request_id) {
                         DoCapturePreview(index);
                     }
                 }
-                else if (wcsncmp(msg, L"svg-result:", 11) == 0) {
-                    const auto p = mermaid_util::ParseRequestPrefix(msg + 11);
+                else if (sv.starts_with(kSvgResult)) {
+                    const auto p = mermaid_util::ParseRequestPrefix(sv.substr(kSvgResult.size()));
                     if (p.valid && p.id == w.current_request.request_id && w.current_request.svg_only) {
                         std::pmr::wstring svg{ p.has_payload ? p.payload : std::wstring_view{} };
                         InvokeSvgCallbackIfAny(w.current_request, std::move(svg), false);
                         FinishWorkerRequest(w);
                     }
                 }
-                else if (wcsncmp(msg, L"render-error:", 13) == 0) {
-                    const auto p = mermaid_util::ParseRequestPrefix(msg + 13);
+                else if (sv.starts_with(kRenderError)) {
+                    const auto p = mermaid_util::ParseRequestPrefix(sv.substr(kRenderError.size()));
                     if (p.valid && p.id == w.current_request.request_id) {
                         InvokeSvgCallbackIfAny(w.current_request, {}, false);
                         FinishWorkerRequest(w);
                     }
                 }
-                else if (wcscmp(msg, L"mermaid-failed") == 0) {
+                else if (sv == kFailed) {
                     // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
                     if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
                         ++w.init_retries;

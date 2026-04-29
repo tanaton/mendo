@@ -1,8 +1,8 @@
 #include "app.h"
+#include "ascii_util.h"
 #include "resource.h"
 #include "document_utils.h"
 #include <shellapi.h>
-#include <cwctype>
 #include <filesystem>
 
 namespace {
@@ -12,11 +12,8 @@ bool IsEditableTextFile(std::wstring_view path)
     if (IsMarkdownFile(path)) {
         return true;
     }
-    auto ext = std::filesystem::path(path).extension().wstring();
-    for (auto& c : ext) {
-        c = std::towlower(c);
-    }
-    return ext == L".txt";
+    const auto ext = std::filesystem::path(path).extension().wstring();
+    return ascii_util::iequal(ext, L".txt");
 }
 
 } // namespace

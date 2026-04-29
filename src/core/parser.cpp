@@ -721,7 +721,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     return result;
 }
 
-const wchar_t* GetAlertLabel(AlertType type) noexcept
+std::wstring_view GetAlertLabel(AlertType type) noexcept
 {
     switch (type) {
     case AlertType::Note:      return L"Note";
@@ -733,7 +733,7 @@ const wchar_t* GetAlertLabel(AlertType type) noexcept
     }
 }
 
-const wchar_t* GetAlertIcon(AlertType type) noexcept
+std::wstring_view GetAlertIcon(AlertType type) noexcept
 {
     switch (type) {
     case AlertType::Note:      return L"ℹ";         // ℹ Information Source
@@ -747,14 +747,8 @@ const wchar_t* GetAlertIcon(AlertType type) noexcept
 
 namespace {
 
-// 大文字小文字を無視して比較する。Alert マーカーは GitHub 仕様で ASCII 固定。
-bool AsciiCaseEqual(std::wstring_view a, std::wstring_view b) noexcept
-{
-    constexpr auto to_upper = [](wchar_t c) static noexcept { return ascii_util::ToUpperAscii(c); };
-    return std::ranges::equal(a, b, {}, to_upper, to_upper);
-}
-
 // テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す。
+// Alert マーカーは GitHub 仕様で ASCII 固定なので大小無視 ASCII 比較でよい。
 AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
 {
     if (text.size() < 3 || text[0] != L'[' || text[1] != L'!') {
@@ -768,19 +762,19 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
     const auto type_str = text.substr(2, close - 2);
 
     AlertType type = AlertType::None;
-    if (AsciiCaseEqual(type_str, L"NOTE")) {
+    if (ascii_util::iequal(type_str, L"NOTE")) {
         type = AlertType::Note;
     }
-    else if (AsciiCaseEqual(type_str, L"TIP")) {
+    else if (ascii_util::iequal(type_str, L"TIP")) {
         type = AlertType::Tip;
     }
-    else if (AsciiCaseEqual(type_str, L"IMPORTANT")) {
+    else if (ascii_util::iequal(type_str, L"IMPORTANT")) {
         type = AlertType::Important;
     }
-    else if (AsciiCaseEqual(type_str, L"WARNING")) {
+    else if (ascii_util::iequal(type_str, L"WARNING")) {
         type = AlertType::Warning;
     }
-    else if (AsciiCaseEqual(type_str, L"CAUTION")) {
+    else if (ascii_util::iequal(type_str, L"CAUTION")) {
         type = AlertType::Caution;
     }
 
@@ -800,22 +794,19 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
 // テキスト構造: "[icon] Label" (コンテンツなし) または "[icon] Label\n[content]" (コンテンツあり)
 void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
 {
-    const wchar_t* const label = GetAlertLabel(type);
-    const size_t label_len = std::wcslen(label);
-    const wchar_t* const icon = GetAlertIcon(type);
-    const size_t icon_len = std::wcslen(icon);
-
+    const std::wstring_view label = GetAlertLabel(type);
+    const std::wstring_view icon = GetAlertIcon(type);
     const auto& current_text = node.GetText();
     const bool has_content = (marker_end < current_text.size());
 
     // 新しいテキストを構築: "[icon] Label" (+ "\n \n" + 残りテキスト)
-    const size_t icon_prefix_len = icon_len + 1; // アイコン文字列 + スペース
-    const size_t full_label_len = icon_prefix_len + label_len;
+    const size_t icon_prefix_len = icon.size() + 1; // アイコン文字列 + スペース
+    const size_t full_label_len = icon_prefix_len + label.size();
     std::pmr::wstring new_text;
     new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
-    new_text.append(icon, icon_len);
+    new_text.append(icon);
     new_text += L' ';
-    new_text.append(label, label_len);
+    new_text.append(label);
 
     size_t new_content_start = full_label_len;
     if (has_content) {

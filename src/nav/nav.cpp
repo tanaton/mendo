@@ -1,7 +1,5 @@
 #include "nav.h"
 #include "ascii_util.h"
-#include <algorithm>
-#include <ranges>
 
 uint32_t NavHistory::InternPath(std::wstring_view path)
 {
@@ -139,12 +137,9 @@ void NavHistory::Clear() noexcept
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
 bool IsSafeUrlScheme(std::wstring_view url) noexcept
 {
-    constexpr auto to_lower = [](wchar_t c) static noexcept { return ascii_util::ToLowerAscii(c); };
-    const auto starts_with_i = [&](std::wstring_view s, std::wstring_view prefix) noexcept {
-        return s.size() >= prefix.size()
-            && std::ranges::equal(s | std::views::take(prefix.size()), prefix, {}, to_lower, to_lower);
-    };
-    return starts_with_i(url, L"http://") || starts_with_i(url, L"https://") || starts_with_i(url, L"mailto:");
+    return ascii_util::istarts_with(url, L"http://")
+        || ascii_util::istarts_with(url, L"https://")
+        || ascii_util::istarts_with(url, L"mailto:");
 }
 
 LinkClickResult HandleLinkClick(std::wstring_view url)

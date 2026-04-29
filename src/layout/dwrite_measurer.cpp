@@ -236,7 +236,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     // Alert ノード: アイコン文字のフォントウェイトを設定
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None
         && node.alert_label_length > 0) {
-        const UINT32 icon_len = static_cast<UINT32>(std::wcslen(GetAlertIcon(node.alert_type)));
+        const UINT32 icon_len = static_cast<UINT32>(GetAlertIcon(node.alert_type).size());
         const DWRITE_TEXT_RANGE icon_range{ 0, icon_len };
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);
     }

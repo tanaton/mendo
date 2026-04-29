@@ -1,4 +1,5 @@
 #include "file_watcher.h"
+#include "ascii_util.h"
 #include "file_io.h"
 #include <filesystem>
 
@@ -105,11 +106,10 @@ void FileWatcher::CheckForChanges()
         const auto* buf_end = reinterpret_cast<const char*>(change_buf_) + bytes_returned;
         auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(change_buf_);
         for (;;) {
-            const std::wstring_view changed_name(info->FileName, info->FileNameLength / sizeof(wchar_t));
+            const std::wstring_view changed_name{ info->FileName, info->FileNameLength / sizeof(wchar_t) };
             if (info->Action != FILE_ACTION_REMOVED &&
                 info->Action != FILE_ACTION_RENAMED_OLD_NAME &&
-                changed_name.size() == watch_filename_.size() &&
-                _wcsnicmp(changed_name.data(), watch_filename_.c_str(), changed_name.size()) == 0) {
+                ascii_util::iequal(changed_name, watch_filename_)) {
                 target_changed = true;
                 break;
             }
@@ -127,7 +127,8 @@ void FileWatcher::CheckForChanges()
     if (target_changed) {
         if (paused_) {
             pending_change_ = true;
-        } else {
+        }
+        else {
             paused_ = true;
             if (on_change_) {
                 on_change_();
