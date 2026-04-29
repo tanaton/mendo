@@ -5,6 +5,7 @@
 #include "text_measurer.h"
 #include "viewport_manager.h"
 #include <dwrite.h>
+#include <limits>
 #include <memory_resource>
 
 class Document;

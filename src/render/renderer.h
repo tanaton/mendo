@@ -11,6 +11,7 @@
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <functional>
+#include <limits>
 #include <vector>
 #include <array>
 #include <memory>

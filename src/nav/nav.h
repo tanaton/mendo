@@ -2,6 +2,7 @@
 #include <string>
 #include <string_view>
 #include <deque>
+#include <limits>
 #include <vector>
 #include <memory_resource>
 #include <map>
