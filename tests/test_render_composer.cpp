@@ -135,9 +135,7 @@ TEST(RenderComposer, TitleBarState_ButtonsComeFromTitleBar)
     state.window.titlebar.SetHovered(TitleBarHitZone::Close);
 
     auto tb = render_composer::BuildTitleBarState(state, 1024.0f, false, false);
-    EXPECT_TRUE(tb.close.hovered);
-    EXPECT_FALSE(tb.minimize.hovered);
-    EXPECT_FALSE(tb.maximize.hovered);
+    EXPECT_EQ(tb.hovered_zone, TitleBarHitZone::Close);
 }
 
 TEST(RenderComposer, TitleBarState_PaneVisibilityMirrorsState)

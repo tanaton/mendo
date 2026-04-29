@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <memory_resource>
 #include <mutex>

@@ -2,8 +2,8 @@
 #include "win_handle.h"
 #include <wrl/client.h>
 #include <objidl.h>
-#include <climits>
 #include <cstdint>
+#include <limits>
 #include <memory_resource>
 #include <vector>
 
@@ -25,7 +25,7 @@ inline std::pmr::vector<uint8_t> ReadAllBytes(IStream* stream)
     }
 
     const auto size64 = stat.cbSize.QuadPart;
-    if (size64 <= 0 || static_cast<uint64_t>(size64) > ULONG_MAX) {
+    if (size64 <= 0 || static_cast<uint64_t>(size64) > std::numeric_limits<ULONG>::max()) {
         return {};
     }
     const auto size = static_cast<size_t>(size64);
@@ -53,7 +53,7 @@ inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size
     if (size > 0 && !data) {
         return nullptr;
     }
-    if (size > ULONG_MAX) {
+    if (size > std::numeric_limits<ULONG>::max()) {
         return nullptr;
     }
 
@@ -78,7 +78,7 @@ inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size
 // 大きな画像ファイルで一時バッファへのコピーを避けるため、ReadFile を HGLOBAL にロックしたまま呼ぶ。
 inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromFile(HANDLE file, size_t size)
 {
-    if (!file || file == INVALID_HANDLE_VALUE || size == 0 || size > ULONG_MAX) {
+    if (!file || file == INVALID_HANDLE_VALUE || size == 0 || size > std::numeric_limits<ULONG>::max()) {
         return nullptr;
     }
 

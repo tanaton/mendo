@@ -1,5 +1,5 @@
 #pragma once
-#include <climits>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <memory_resource>
@@ -13,8 +13,8 @@ inline void Utf8ToWide(std::string_view utf8, std::pmr::wstring& out)
         out.clear();
         return;
     }
-    // Windows API の cb*Char は int なので INT_MAX を超える入力は拒否する
-    if (utf8.size() > static_cast<size_t>(INT_MAX)) {
+    // Windows API の cb*Char は int なので int の最大値を超える入力は拒否する
+    if (utf8.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
         out.clear();
         return;
     }
@@ -39,7 +39,7 @@ inline void WideToUtf8(std::wstring_view wide, std::string& out)
         return;
     }
     // wide.size() * 3 のオーバーフローと cb*Char の int 制限を同時にガード
-    if (wide.size() > static_cast<size_t>(INT_MAX) / 3) {
+    if (wide.size() > static_cast<size_t>(std::numeric_limits<int>::max()) / 3) {
         out.clear();
         return;
     }

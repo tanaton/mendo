@@ -4,11 +4,11 @@
 TEST(HoverThrottle, InitialState)
 {
     HoverThrottle ht;
-    EXPECT_EQ(ht.last_md_hit_pos.x, LONG_MIN);
-    EXPECT_EQ(ht.last_md_hit_pos.y, LONG_MIN);
+    EXPECT_EQ(ht.last_md_hit_pos.x, std::numeric_limits<LONG>::min());
+    EXPECT_EQ(ht.last_md_hit_pos.y, std::numeric_limits<LONG>::min());
     EXPECT_FALSE(ht.last_md_cursor_hand);
-    EXPECT_EQ(ht.last_copy_hit_pos.x, LONG_MIN);
-    EXPECT_EQ(ht.last_copy_hit_pos.y, LONG_MIN);
+    EXPECT_EQ(ht.last_copy_hit_pos.x, std::numeric_limits<LONG>::min());
+    EXPECT_EQ(ht.last_copy_hit_pos.y, std::numeric_limits<LONG>::min());
 }
 
 TEST(HoverThrottle, Reset)
@@ -18,10 +18,10 @@ TEST(HoverThrottle, Reset)
     ht.last_copy_hit_pos = { 300, 400 };
 
     ht.Reset();
-    EXPECT_EQ(ht.last_md_hit_pos.x, LONG_MIN);
-    EXPECT_EQ(ht.last_md_hit_pos.y, LONG_MIN);
-    EXPECT_EQ(ht.last_copy_hit_pos.x, LONG_MIN);
-    EXPECT_EQ(ht.last_copy_hit_pos.y, LONG_MIN);
+    EXPECT_EQ(ht.last_md_hit_pos.x, std::numeric_limits<LONG>::min());
+    EXPECT_EQ(ht.last_md_hit_pos.y, std::numeric_limits<LONG>::min());
+    EXPECT_EQ(ht.last_copy_hit_pos.x, std::numeric_limits<LONG>::min());
+    EXPECT_EQ(ht.last_copy_hit_pos.y, std::numeric_limits<LONG>::min());
 }
 
 TEST(HoverThrottle, ResetDoesNotAffectCursorFlag)

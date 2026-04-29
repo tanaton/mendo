@@ -35,7 +35,7 @@ struct MouseWheelEvent {
 
 // ──── アクション: コマンド系 (アプリが実行すべき操作) ────
 
-enum class ScrollType {
+enum class ScrollType : uint8_t {
     LineUp,
     LineDown,
     PageUp,
@@ -66,7 +66,7 @@ struct SelectAllAction {};
 struct ClearSelectionAction {};
 
 // サイドペインの切り替え
-enum class PaneTarget {
+enum class PaneTarget : uint8_t {
     File,
     Toc
 };
@@ -92,7 +92,7 @@ constexpr PaneZone ToPaneZone(PaneTarget target) noexcept
 }
 
 // ズーム操作
-enum class ZoomDirection {
+enum class ZoomDirection : uint8_t {
     In,
     Out,
     Reset

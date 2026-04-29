@@ -28,11 +28,11 @@ struct TooltipTarget {
     Zone zone = Zone::None;
     std::pmr::wstring text;
 
-    TooltipTarget() = default;
-    TooltipTarget(Zone z, std::wstring_view t) : zone(z), text(t) {}
+    constexpr TooltipTarget() = default;
+    constexpr TooltipTarget(Zone z, std::wstring_view t) : zone(z), text(t) {}
 
-    bool operator==(const TooltipTarget&) const = default;
-    bool IsEmpty() const noexcept { return zone == Zone::None; }
+    constexpr bool operator==(const TooltipTarget&) const = default;
+    constexpr bool IsEmpty() const noexcept { return zone == Zone::None; }
 };
 
 // <windows.h> を巻き込まずに HWND を扱うための前方宣言（Windows SDK の

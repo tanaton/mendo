@@ -34,7 +34,7 @@ public:
 
 #ifdef MENDO_TESTING
     size_t PoolSizeForTest() const noexcept { return brush_pool_.size(); }
-    const ID2D1RenderTarget* BoundRtForTest() const noexcept { return bound_rt_; }
+    constexpr const ID2D1RenderTarget* BoundRtForTest() const noexcept { return bound_rt_; }
 #endif
 
 private:

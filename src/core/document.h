@@ -24,7 +24,7 @@ public:
     constexpr const TableOfContents& GetToc() const noexcept { return toc_; }
     constexpr bool IsEmpty() const noexcept { return nodes_.empty(); }
     // パース入力の wide テキストへの参照。AnalyzeReloadDiff の比較用。
-    const std::pmr::wstring& GetRawText() const noexcept { return raw_wide_; }
+    constexpr const std::pmr::wstring& GetRawText() const noexcept { return raw_wide_; }
     // 元ファイル(UTF-8)バイト数。エディタの中間書き込み検出（IsFileLargerThan）で参照する。
     constexpr size_t GetLoadedByteSize() const noexcept { return loaded_byte_size_; }
     std::pmr::wstring GetDirectory() const;

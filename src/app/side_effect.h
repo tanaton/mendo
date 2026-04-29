@@ -19,7 +19,7 @@ struct InvalidateWindow {};
 struct InvalidateTitleBar {};
 struct SetCapture {};
 struct ReleaseCapture {};
-enum class CursorType { Arrow, Hand, IBeam, SizeWE };
+enum class CursorType : uint8_t { Arrow, Hand, IBeam, SizeWE };
 struct SetCursor { CursorType type; };
 struct ClipboardWrite { std::pmr::wstring text; };
 struct ClipboardWriteHtml { std::pmr::wstring html; std::pmr::wstring plain; };
@@ -35,10 +35,9 @@ struct SetWindowTitle { std::pmr::wstring title; };
 struct SetWindowPosition { int x; int y; int cx; int cy; };
 struct ApplyDarkMode { bool dark; };
 struct ApplyThemeChange {
-    enum class Type { Zoom, DarkMode };
+    enum class Type : uint8_t { Zoom, DarkMode };
     Type type;
-    float new_zoom;
-    int zoom_index;
+    uint8_t zoom_index;  // Zoom 値は ZOOM_STEPS[zoom_index] で復元する。
 };
 struct PerformResizeEnd {};
 struct PerformSizingUpdate {};

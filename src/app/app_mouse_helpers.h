@@ -20,7 +20,7 @@ concept PaneButtonRectFn =
 // ペインヘッダー内のボタンがクリックされたか判定する。
 template <auto ButtonRectFn>
     requires PaneButtonRectFn<ButtonRectFn>
-bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height)
+constexpr bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height)
 {
     const float local_x = dip_x - rect.x;
     const float local_y = dip_y - rect.y;
@@ -31,7 +31,7 @@ bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float h
 }
 
 // タイトルバーボタンに対応するツールチップを返す。
-inline TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximized) noexcept
+constexpr TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximized) noexcept
 {
     const auto& ls = i18n::S();
     switch (zone) {
@@ -49,7 +49,7 @@ inline TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximize
 }
 
 // 検索バーのボタンに対応するツールチップを返す。
-inline TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
+constexpr TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
 {
     const auto& ls = i18n::S();
     switch (zone) {
@@ -63,7 +63,7 @@ inline TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
 }
 
 // MD ペインのナビゲーションボタンに対応するツールチップを返す。
-inline TooltipTarget BuildNavButtonTooltip(NavButtonHover hit) noexcept
+constexpr TooltipTarget BuildNavButtonTooltip(NavButtonHover hit) noexcept
 {
     const auto& ls = i18n::S();
     switch (hit) {

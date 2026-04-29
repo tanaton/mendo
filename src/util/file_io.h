@@ -67,7 +67,7 @@ struct OpenedFile {
 [[nodiscard]] inline std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
     const std::filesystem::path& path, DWORD* out_error = nullptr)
 {
-    auto r = OpenFileForReadShared(path, FILE_SHARE_READ, UINT32_MAX, out_error);
+    auto r = OpenFileForReadShared(path, FILE_SHARE_READ, std::numeric_limits<uint32_t>::max(), out_error);
     if (r.error != OpenFileError::None || r.size == 0) {
         return {};
     }
@@ -98,7 +98,7 @@ inline bool IsFileLargerThan(const std::filesystem::path& path,
 // ファイルに全て書き込む。成功時はtrueを返す。
 [[nodiscard]] inline bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
 {
-    if (size > UINT32_MAX) {
+    if (size > std::numeric_limits<uint32_t>::max()) {
         return false;
     }
     UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,

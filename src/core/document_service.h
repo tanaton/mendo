@@ -13,7 +13,7 @@ public:
     void StopWatching() noexcept;
     void CheckForChanges();
     void ResumeWatching();
-    HANDLE GetFileWatchEvent() const noexcept { return watcher_.GetEventHandle(); }
+    constexpr HANDLE GetFileWatchEvent() const noexcept { return watcher_.GetEventHandle(); }
 
     static bool NeedsAsyncLoad(const std::pmr::wstring& path) noexcept;
     static bool NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept;

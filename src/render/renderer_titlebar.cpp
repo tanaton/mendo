@@ -11,6 +11,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     rt()->FillRectangle(bg_rect, Brush(BrushId::TitleBarBg));
 
     const float text_alpha = tb.window_active ? 1.0f : 0.5f;
+    const auto is_hovered = [&](TitleBarHitZone z) noexcept { return tb.hovered_zone == z; };
 
     // アイコンボタン描画ヘルパー
     auto drawButton = [&](const DipRect& dip_rect, const wchar_t* icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
@@ -32,7 +33,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     drawButton(
         tb.open_file.rect,
         L"\uE838",
-        tb.open_file.hovered,
+        is_hovered(TitleBarHitZone::OpenFile),
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha
@@ -41,7 +42,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     drawButton(
         tb.help.rect,
         L"\uE897",
-        tb.help.hovered,
+        is_hovered(TitleBarHitZone::Help),
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha
@@ -50,7 +51,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     drawButton(
         tb.theme_toggle.rect,
         tb.is_dark_mode ? L"\uE706" : L"\uE708",
-        tb.theme_toggle.hovered,
+        is_hovered(TitleBarHitZone::ThemeToggle),
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha
@@ -59,7 +60,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     drawButton(
         tb.search.rect,
         L"\uE721",
-        tb.search_active || tb.search.hovered,
+        tb.search_active || is_hovered(TitleBarHitZone::Search),
         tb.search_active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha
@@ -68,7 +69,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     drawButton(
         tb.file_toggle.rect,
         L"\uE8B7",
-        tb.file_pane_visible || tb.file_toggle.hovered,
+        tb.file_pane_visible || is_hovered(TitleBarHitZone::FileToggle),
         tb.file_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha
@@ -76,7 +77,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     drawButton(
         tb.toc_toggle.rect,
         L"\uE8FD",
-        tb.toc_pane_visible || tb.toc_toggle.hovered,
+        tb.toc_pane_visible || is_hovered(TitleBarHitZone::TocToggle),
         tb.toc_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha
@@ -85,7 +86,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     drawButton(
         tb.minimize.rect,
         L"\uE921",
-        tb.minimize.hovered,
+        is_hovered(TitleBarHitZone::Minimize),
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha
@@ -95,13 +96,13 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     drawButton(
         tb.maximize.rect,
         max_icon,
-        tb.maximize.hovered,
+        is_hovered(TitleBarHitZone::Maximize),
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha
     );
     // 閉じるボタン（ホバー時は赤背景＋白アイコン）
-    if (tb.close.hovered) {
+    if (is_hovered(TitleBarHitZone::Close)) {
         drawButton(
             tb.close.rect, L"\uE8BB",
             true,

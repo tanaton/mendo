@@ -58,7 +58,7 @@ void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
 {
     if (e.type == effect::ApplyThemeChange::Type::Zoom) {
         const Theme base = theme_service_.CreateTheme();
-        renderer_.ApplyZoomFromBase(base, e.new_zoom);
+        renderer_.ApplyZoomFromBase(base, ZOOM_STEPS[e.zoom_index]);
         FinishThemeOrZoomChange();
         UpdateTitleBar();
         theme_service_.SaveZoomLevel(e.zoom_index);

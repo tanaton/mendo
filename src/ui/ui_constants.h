@@ -181,7 +181,7 @@ enum class SearchBarHitZone : uint8_t {
     Input,
 };
 
-inline SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x, float y) noexcept
+inline constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x, float y) noexcept
 {
     if (y < sbl.bar_top) {
         return SearchBarHitZone::None;
@@ -231,7 +231,7 @@ inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
 // ダイアグラム（Mermaid 等）右上に並ぶオーバーレイボタンのスロット。
 // 値は OverlayButtonRect の button_index に対応し、0 が最も右、左隣に並ぶごとに +1。
-enum class DiagramButtonSlot : int {
+enum class DiagramButtonSlot : uint8_t {
     Save = 0,
     SvgCopy = 1,
 };

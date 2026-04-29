@@ -34,7 +34,7 @@ struct ContextMenuParams {
 class ContextMenu {
 public:
     // メニュー項目の種類
-    enum class ItemType { NavRow, Separator, Text };
+    enum class ItemType : uint8_t { NavRow, Separator, Text };
 
     struct Item {
         ItemType type = ItemType::Text;

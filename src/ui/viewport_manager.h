@@ -156,51 +156,56 @@ public:
     // 設定ファイル等の外部入力経路から不正値が来ても out-of-bounds にならない契約を setter 側で保証する。
     constexpr void SetZoomIndex(int idx) noexcept
     {
-        zoom_index_ = std::clamp(idx, 0, ZOOM_STEP_COUNT - 1);
+        zoom_index_ = static_cast<uint8_t>(std::clamp(idx, 0, ZOOM_STEP_COUNT - 1));
     }
     constexpr float GetCurrentZoom() const noexcept { return ZOOM_STEPS[zoom_index_]; }
 
-    // 新しいズーム値を返す。既に上限/下限の場合は0を返す。
-    constexpr float ZoomIn() noexcept
+    // zoom_index が変化したら true を返す。新しい値は GetZoomIndex() / GetCurrentZoom() で取得する。
+    // Why: float の戻り値で「0.0 == 変化なし」を表現すると ZOOM_STEPS に 0.0 が含まれた瞬間に
+    // 破綻するし、SSOT を zoom_index に寄せる方針と相性が悪い。
+    constexpr bool ZoomIn() noexcept
     {
         if (zoom_index_ < ZOOM_STEP_COUNT - 1) {
-            return ZOOM_STEPS[++zoom_index_];
+            ++zoom_index_;
+            return true;
         }
-        return 0.0f;
+        return false;
     }
 
-    constexpr float ZoomOut() noexcept
+    constexpr bool ZoomOut() noexcept
     {
         if (zoom_index_ > 0) {
-            return ZOOM_STEPS[--zoom_index_];
+            --zoom_index_;
+            return true;
         }
-        return 0.0f;
+        return false;
     }
 
-    constexpr float ZoomReset() noexcept
+    constexpr bool ZoomReset() noexcept
     {
         if (zoom_index_ != ZOOM_DEFAULT_INDEX) {
-            zoom_index_ = ZOOM_DEFAULT_INDEX;
-            return ZOOM_STEPS[zoom_index_];
+            zoom_index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);
+            return true;
         }
-        return 0.0f;
+        return false;
     }
 
 private:
+    // --- 4 バイトアライメント ---
     // スクロール状態
     float scroll_y_ = 0.0f;
     float max_scroll_ = 0.0f;
-    bool is_scrollbar_tracking_ = false;
-    ScrollTarget scroll_target_{};
+    ScrollTarget scroll_target_{};        // int(4) + float(4)
 
     // 選択状態
-    TextSelection selection_;
-    int anchor_node_ = -1;
+    TextSelection selection_;             // 20B
+    int32_t anchor_node_ = -1;
     uint32_t anchor_pos_ = 0;
-    bool is_dragging_ = false;
-    int click_start_x_ = 0;
-    int click_start_y_ = 0;
+    int32_t click_start_x_ = 0;
+    int32_t click_start_y_ = 0;
 
-    // ズーム状態
-    int zoom_index_ = ZOOM_DEFAULT_INDEX;
+    // --- 1 バイトアライメント ---
+    uint8_t zoom_index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);
+    bool is_scrollbar_tracking_ = false;
+    bool is_dragging_ = false;
 };

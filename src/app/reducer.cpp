@@ -244,23 +244,26 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
 
 void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
 {
-    float new_zoom = 0.0f;
-    switch (a.direction) {
-    case ZoomDirection::In:
-        new_zoom = state.view.viewport.ZoomIn();
-        break;
-    case ZoomDirection::Out:
-        new_zoom = state.view.viewport.ZoomOut();
-        break;
-    case ZoomDirection::Reset:
-        new_zoom = state.view.viewport.ZoomReset();
-        break;
-    }
-    if (new_zoom <= 0.0f) {
-        return;
+    {
+        bool changed = false;
+        switch (a.direction) {
+        case ZoomDirection::In:
+            changed = state.view.viewport.ZoomIn();
+            break;
+        case ZoomDirection::Out:
+            changed = state.view.viewport.ZoomOut();
+            break;
+        case ZoomDirection::Reset:
+            changed = state.view.viewport.ZoomReset();
+            break;
+        }
+        if (!changed) {
+            return;
+        }
     }
     const auto anchor = SnapshotVisibleTarget(state);
     state.pane_layout_valid = false;
+    const float new_zoom = state.view.viewport.GetCurrentZoom();
     const float zoom_ratio = new_zoom / state.window.cached_theme.zoom;
     state.view.panes.ApplyZoom(zoom_ratio);
     state.document.layout_cache.InvalidateAllLayouts();
@@ -270,8 +273,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
     }
     PushEffect(effects, effect::ApplyThemeChange{
         .type = effect::ApplyThemeChange::Type::Zoom,
-        .new_zoom = new_zoom,
-        .zoom_index = state.view.viewport.GetZoomIndex(),
+        .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
         });
 }
 
@@ -287,8 +289,7 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
     }
     PushEffect(effects, effect::ApplyThemeChange{
         .type = effect::ApplyThemeChange::Type::DarkMode,
-        .new_zoom = 0.0f,
-        .zoom_index = state.view.viewport.GetZoomIndex(),
+        .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
         });
 }
 

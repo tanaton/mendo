@@ -67,7 +67,7 @@ public:
     void OnXButtonForward() { Dispatch(NavigateForwardAction{}); }
 
     // ファイル変更イベント（メッセージループから呼ばれる）
-    HANDLE GetFileWatchEvent() const noexcept { return doc_service_.GetFileWatchEvent(); }
+    constexpr HANDLE GetFileWatchEvent() const noexcept { return doc_service_.GetFileWatchEvent(); }
     void OnFileWatchEvent();
 
     // タイマーコールバック
@@ -84,14 +84,14 @@ public:
     void OnSearchClose() { Dispatch(CloseSearchBarAction{}); }
     void OnSearchNext() { Dispatch(SearchNextAction{}); }
     void OnSearchPrev() { Dispatch(SearchPrevAction{}); }
-    bool IsSearchBarVisible() const noexcept { return state_.search.search_state.IsVisible(); }
+    constexpr bool IsSearchBarVisible() const noexcept { return state_.search.search_state.IsVisible(); }
     void OnToggleCaseSensitive() { Dispatch(ToggleCaseSensitiveAction{}); }
     void OnToggleHighlight() { Dispatch(ToggleHighlightAction{}); }
     void SetSearchSelection(int sel_start, int sel_end) { Dispatch(SearchSelectionAction{ sel_start, sel_end }); }
     void SetImeComposition(std::pmr::wstring comp) { Dispatch(ImeCompositionAction{ std::move(comp) }); }
     RECT GetSearchEditRect();
 
-    void SetPendingRestoreNode(int node, int offset) noexcept
+    constexpr void SetPendingRestoreNode(int node, int offset) noexcept
     {
         state_.view.scroll_restore.SetNodeRestore(node, offset);
     }
@@ -107,7 +107,7 @@ public:
     constexpr float GetDpiScale() const noexcept { return state_.window.cached_dpi_scale; }
 
     // カスタムタイトルバー
-    float GetTitleBarHeightDip() const noexcept { return state_.window.titlebar.GetHeight(); }
+    constexpr float GetTitleBarHeightDip() const noexcept { return state_.window.titlebar.GetHeight(); }
     TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept { return state_.window.titlebar.HitTest(dip_x, dip_y); }
     bool IsOverMdScrollbar(float dip_x, float dip_y);
     bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const noexcept;

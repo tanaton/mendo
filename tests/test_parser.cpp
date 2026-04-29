@@ -1331,7 +1331,7 @@ TEST(Parser, SourceOffsetIncreasing)
     ASSERT_GE(nodes.size(), 3u);
     uint32_t prev = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
-        if (nodes[i].source_offset != UINT32_MAX) {
+        if (nodes[i].source_offset != kUnsetSourceOffset) {
             EXPECT_GE(nodes[i].source_offset, prev)
                 << "ノード " << i << " の source_offset が前のノードより小さい";
             prev = nodes[i].source_offset;
@@ -1357,11 +1357,11 @@ TEST(Parser, SourceOffsetEmptyInput)
 
 TEST(Parser, SourceOffsetHorizontalRule)
 {
-    // "---" はテキストを持たないのでsource_offsetは未設定(UINT32_MAX)のまま
+    // "---" はテキストを持たないのでsource_offsetは未設定のまま
     auto nodes = ParseMarkdown("---").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::HorizontalRule);
-    EXPECT_EQ(nodes[0].source_offset, UINT32_MAX);
+    EXPECT_EQ(nodes[0].source_offset, kUnsetSourceOffset);
 }
 
 TEST(Parser, SourceOffsetCjkMultiCodeUnit)
@@ -1410,7 +1410,7 @@ TEST(Parser, SourceOffsetNestedList)
     ASSERT_GE(nodes.size(), 3u);
     uint32_t prev = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
-        if (nodes[i].source_offset != UINT32_MAX) {
+        if (nodes[i].source_offset != kUnsetSourceOffset) {
             EXPECT_GE(nodes[i].source_offset, prev)
                 << "ノード " << i << " の offset が前のノードより小さい";
             prev = nodes[i].source_offset;
@@ -1448,14 +1448,14 @@ TEST(Parser, SourceOffsetMixedDocument)
         "- item\n\n"             // list
         "> quote\n\n"            // blockquote
         "```\ncode\n```\n\n"     // code
-        "---\n\n"                // hr (UINT32_MAX)
+        "---\n\n"                // hr (offset 未設定)
         "End";                   // paragraph
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GE(nodes.size(), 6u);
 
     uint32_t prev = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
-        if (nodes[i].source_offset != UINT32_MAX) {
+        if (nodes[i].source_offset != kUnsetSourceOffset) {
             EXPECT_GE(nodes[i].source_offset, prev)
                 << "ノード " << i << " (type="
                 << static_cast<int>(nodes[i].type) << ") の offset が不正";

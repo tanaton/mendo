@@ -16,14 +16,14 @@
 template <typename Key, typename Value>
 class LruCache {
 public:
-    explicit LruCache(size_t max_entries) : max_entries_(max_entries)
+    constexpr explicit LruCache(size_t max_entries) : max_entries_(max_entries)
     {
         keys_.reserve(max_entries);
         values_.reserve(max_entries);
         generations_.reserve(max_entries);
     }
 
-    auto* Find(this auto& self, const Key& key)
+    constexpr auto* Find(this auto& self, const Key& key)
     {
         for (size_t i = 0; i < self.size_; i++) {
             if (self.keys_[i] == key) {
@@ -34,12 +34,12 @@ public:
         return decltype(&self.values_[0]){ nullptr };
     }
 
-    bool Contains(const Key& key) const
+    constexpr bool Contains(const Key& key) const
     {
         return std::ranges::contains(keys_ | std::views::take(size_), key);
     }
 
-    void Insert(const Key& key, Value value)
+    constexpr void Insert(const Key& key, Value value)
     {
         if (max_entries_ == 0) {
             return;
@@ -70,7 +70,7 @@ public:
         ++size_;
     }
 
-    void Clear()
+    constexpr void Clear()
     {
         keys_.clear();
         values_.clear();
@@ -79,12 +79,12 @@ public:
         generation_counter_ = 0;
     }
 
-    size_t Size() const noexcept { return size_; }
-    bool Empty() const noexcept { return size_ == 0; }
-    size_t MaxSize() const noexcept { return max_entries_; }
+    constexpr size_t Size() const noexcept { return size_; }
+    constexpr bool Empty() const noexcept { return size_ == 0; }
+    constexpr size_t MaxSize() const noexcept { return max_entries_; }
 
 private:
-    size_t FindOldestIndex() const noexcept
+    constexpr size_t FindOldestIndex() const noexcept
     {
         size_t oldest = 0;
         uint64_t min_gen = generations_[0];

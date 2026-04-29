@@ -48,6 +48,8 @@ struct TitleBarRenderState {
     float height = 0.0f;
     float window_width = 0.0f;
     // --- 1バイトアライメント ---
+    // ホバー中のボタン。各 TitleBarButton に bool を持たせず一元管理する。
+    TitleBarHitZone hovered_zone = TitleBarHitZone::None;
     bool is_dark_mode = false;
     bool search_active = false;
     bool file_pane_visible = false;

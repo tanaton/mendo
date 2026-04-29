@@ -9,7 +9,7 @@
 inline constexpr LONGLONG MAX_FILE_SIZE = 256LL * 1024 * 1024;
 
 // FileLoader::LoadFile のエラー型
-enum class FileLoadError {
+enum class FileLoadError : uint8_t {
     NotFound,    // ファイルが見つからない、またはアクセス拒否
     TooLarge,    // ファイルサイズが MAX_FILE_SIZE を超過
     ReadFailed,  // 読み込み中のI/Oエラー

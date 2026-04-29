@@ -1,6 +1,6 @@
 #pragma once
 #include <windows.h>
-#include <climits>
+#include <limits>
 
 // ホバー時のヒットテスト省略判定用の距離の二乗（ピクセル²）
 inline constexpr int HOVER_THROTTLE_DISTANCE_SQ = 16;
@@ -8,11 +8,15 @@ inline constexpr int HOVER_THROTTLE_DISTANCE_SQ = 16;
 inline constexpr DWORD HOVER_THROTTLE_MIN_INTERVAL_MS = 8;
 
 // last_pos の "未設定" sentinel。
-// (px - LONG_MIN) は signed int オーバーフロー (UB) になるため、
+// (px - LONG の最小値) は signed int オーバーフロー (UB) になるため、
 // この値の間は距離計算を行わず即座に "移動した" として扱う。
-inline constexpr POINT kUnsetHoverPos{ LONG_MIN, LONG_MIN };
+inline constexpr POINT kUnsetHoverPos{
+    std::numeric_limits<LONG>::min(), std::numeric_limits<LONG>::min() };
 
-inline constexpr bool IsUnset(POINT p) noexcept { return p.x == LONG_MIN; }
+inline constexpr bool IsUnset(POINT p) noexcept
+{
+    return p.x == std::numeric_limits<LONG>::min();
+}
 
 // ヒットテストのスロットリング状態。
 // マウス位置が一定距離以上動いた場合のみヒットテストを再実行する。
@@ -26,7 +30,7 @@ struct HoverThrottle {
     DWORD last_md_hit_tick = 0;
     DWORD last_copy_hit_tick = 0;
 
-    void Reset() noexcept
+    constexpr void Reset() noexcept
     {
         last_md_hit_pos = kUnsetHoverPos;
         last_copy_hit_pos = kUnsetHoverPos;
@@ -39,7 +43,7 @@ struct HoverThrottle {
     // 完全同一座標の連続ディスパッチを抑止する。
     // 最低限の前段フィルタであり、通常のスロットリングは
     // last_md_hit_pos 等の距離比較で行う。
-    bool ShouldSkipSameDispatch(int px, int py) noexcept
+    constexpr bool ShouldSkipSameDispatch(int px, int py) noexcept
     {
         if (last_hover_dispatch_pos.x == px && last_hover_dispatch_pos.y == py) {
             return true;
@@ -71,7 +75,7 @@ struct HoverThrottle {
     }
 
     // 距離のみ判定。時間ガードが不要な経路（タイマー駆動など）向け。
-    [[nodiscard]] bool TryMarkMoved(POINT& last_pos, int px, int py) noexcept
+    [[nodiscard]] constexpr bool TryMarkMoved(POINT& last_pos, int px, int py) noexcept
     {
         if (IsUnset(last_pos)) {
             last_pos = { px, py };

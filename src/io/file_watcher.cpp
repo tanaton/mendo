@@ -137,11 +137,6 @@ void FileWatcher::CheckForChanges()
     BeginRead();
 }
 
-HANDLE FileWatcher::GetEventHandle() const noexcept
-{
-    return (watching_ && read_pending_) ? overlapped_.hEvent : nullptr;
-}
-
 void FileWatcher::ResumeWatching()
 {
     if (!watching_) {

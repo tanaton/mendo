@@ -177,7 +177,7 @@ private:
     PaneCache toc_pane_cache_;
 
     // ApplyVisibleEffects スキップ判定用キャッシュ
-    uint32_t last_effects_gen_ = UINT32_MAX;
+    uint32_t last_effects_gen_ = std::numeric_limits<uint32_t>::max();
     int last_effects_first_ = -1;
     float last_effects_bottom_ = -1.0f;
 

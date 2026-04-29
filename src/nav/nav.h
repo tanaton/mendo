@@ -75,11 +75,11 @@ private:
 
     // Back→Forward→Back の連続操作で path_index_::find を回避する直前値キャッシュ
     std::wstring_view last_interned_view_;
-    uint32_t last_interned_index_ = UINT32_MAX;
+    uint32_t last_interned_index_ = std::numeric_limits<uint32_t>::max();
 };
 
 struct LinkClickResult {
-    enum class Type { None, Anchor, ExternalUrl };
+    enum class Type : uint8_t { None, Anchor, ExternalUrl };
     Type type = Type::None;
     std::pmr::wstring target;
 };

@@ -151,7 +151,7 @@ private:
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS>* shared_hit_test_buffer_ = nullptr;
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS>& GetHitTestBuffer() noexcept
+    constexpr std::pmr::vector<DWRITE_HIT_TEST_METRICS>& GetHitTestBuffer() noexcept
     {
         return shared_hit_test_buffer_ ? *shared_hit_test_buffer_ : hit_test_buffer_;
     }

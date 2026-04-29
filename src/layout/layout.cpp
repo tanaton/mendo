@@ -98,7 +98,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
     const float line_height = theme.font_size_body * 1.5f;
     switch (node.type) {
     case NodeType::Heading: {
-        const int level = std::clamp(node.heading_level, 1, 6) - 1;
+        const int level = std::clamp(static_cast<int>(node.heading_level), 1, 6) - 1;
         return theme.font_size_h[level] * 1.5f;
     }
     case NodeType::CodeBlock: {

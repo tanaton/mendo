@@ -3,7 +3,7 @@
 
 uint32_t NavHistory::InternPath(std::wstring_view path)
 {
-    if (last_interned_index_ != UINT32_MAX && last_interned_view_ == path) {
+    if (last_interned_index_ != std::numeric_limits<uint32_t>::max() && last_interned_view_ == path) {
         return last_interned_index_;
     }
     if (const auto it = path_index_.find(path); it != path_index_.end()) {
@@ -53,7 +53,7 @@ void NavHistory::ReleasePath(uint32_t idx) noexcept
         path_index_.erase(std::wstring_view(slot.text));
         if (last_interned_index_ == idx) {
             last_interned_view_ = {};
-            last_interned_index_ = UINT32_MAX;
+            last_interned_index_ = std::numeric_limits<uint32_t>::max();
         }
         // text の capacity はあえて保持する。次に free_slots_ から
         // 取り出された際、同程度の長さのパスで assign が再割り当てせずに済む。
@@ -130,7 +130,7 @@ void NavHistory::Clear() noexcept
     path_index_.clear();
     free_slots_.clear();
     last_interned_view_ = {};
-    last_interned_index_ = UINT32_MAX;
+    last_interned_index_ = std::numeric_limits<uint32_t>::max();
 }
 
 // ShellExecuteWに渡しても安全なURLスキームかどうかを判定する。

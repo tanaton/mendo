@@ -50,6 +50,7 @@ TitleBarRenderState BuildTitleBarState(const AppState& state,
     tb.icon_rect = state.window.titlebar.GetIconRect();
     tb.title_text_rect = state.window.titlebar.GetTitleTextRect();
     tb.title_text = state.cached_title_text;
+    tb.hovered_zone = state.window.titlebar.GetHovered();
     tb.is_dark_mode = is_dark_mode;
     tb.search_active = state.search.search_state.IsVisible();
     tb.file_pane_visible = state.view.panes.IsFilePaneVisible();

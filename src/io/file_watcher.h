@@ -20,7 +20,10 @@ public:
     void CheckForChanges();
 
     void ResumeWatching();
-    HANDLE GetEventHandle() const noexcept;
+    constexpr HANDLE GetEventHandle() const noexcept
+    {
+        return (watching_ && read_pending_) ? overlapped_.hEvent : nullptr;
+    }
 
 private:
     void BeginRead();

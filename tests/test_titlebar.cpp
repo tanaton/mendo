@@ -281,15 +281,12 @@ TEST_F(TitleBarTest, HitTestButtonBoundaryRight)
 TEST_F(TitleBarTest, InitialHoverIsNone)
 {
     EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::None);
-    EXPECT_FALSE(tb_.GetFileToggleButton().hovered);
-    EXPECT_FALSE(tb_.GetCloseButton().hovered);
 }
 
 TEST_F(TitleBarTest, SetHoveredReturnsTrueOnChange)
 {
     EXPECT_TRUE(tb_.SetHovered(TitleBarHitZone::Close));
     EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::Close);
-    EXPECT_TRUE(tb_.GetCloseButton().hovered);
 }
 
 TEST_F(TitleBarTest, SetHoveredReturnsFalseOnSame)
@@ -302,8 +299,6 @@ TEST_F(TitleBarTest, SetHoveredClearsPrevious)
 {
     tb_.SetHovered(TitleBarHitZone::Close);
     tb_.SetHovered(TitleBarHitZone::Minimize);
-    EXPECT_FALSE(tb_.GetCloseButton().hovered);
-    EXPECT_TRUE(tb_.GetMinimizeButton().hovered);
     EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::Minimize);
 }
 
@@ -311,45 +306,7 @@ TEST_F(TitleBarTest, SetHoveredNoneClearsAll)
 {
     tb_.SetHovered(TitleBarHitZone::FileToggle);
     tb_.SetHovered(TitleBarHitZone::None);
-    EXPECT_FALSE(tb_.GetOpenFileButton().hovered);
-    EXPECT_FALSE(tb_.GetHelpButton().hovered);
-    EXPECT_FALSE(tb_.GetThemeToggleButton().hovered);
-    EXPECT_FALSE(tb_.GetSearchButton().hovered);
-    EXPECT_FALSE(tb_.GetFileToggleButton().hovered);
-    EXPECT_FALSE(tb_.GetTocToggleButton().hovered);
-    EXPECT_FALSE(tb_.GetMinimizeButton().hovered);
-    EXPECT_FALSE(tb_.GetMaximizeButton().hovered);
-    EXPECT_FALSE(tb_.GetCloseButton().hovered);
-}
-
-TEST_F(TitleBarTest, SetHoveredSetsExactlyOneButton)
-{
-    auto countHovered = [&]() {
-        int count = 0;
-        if (tb_.GetOpenFileButton().hovered) { ++count; }
-        if (tb_.GetHelpButton().hovered) { ++count; }
-        if (tb_.GetThemeToggleButton().hovered) { ++count; }
-        if (tb_.GetSearchButton().hovered) { ++count; }
-        if (tb_.GetFileToggleButton().hovered) { ++count; }
-        if (tb_.GetTocToggleButton().hovered) { ++count; }
-        if (tb_.GetMinimizeButton().hovered) { ++count; }
-        if (tb_.GetMaximizeButton().hovered) { ++count; }
-        if (tb_.GetCloseButton().hovered) { ++count; }
-        return count;
-    };
-
-    TitleBarHitZone zones[] = {
-        TitleBarHitZone::OpenFile,
-        TitleBarHitZone::Help, TitleBarHitZone::ThemeToggle,
-        TitleBarHitZone::Search,
-        TitleBarHitZone::FileToggle, TitleBarHitZone::TocToggle,
-        TitleBarHitZone::Minimize, TitleBarHitZone::Maximize,
-        TitleBarHitZone::Close,
-    };
-    for (auto zone : zones) {
-        tb_.SetHovered(zone);
-        EXPECT_EQ(countHovered(), 1) << "zone=" << std::to_underlying(zone);
-    }
+    EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::None);
 }
 
 // ═══════════════════════════════════════════════

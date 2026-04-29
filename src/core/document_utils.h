@@ -32,7 +32,7 @@ bool IsMarkdownFile(std::wstring_view path);
 
 // ヘルプ用仮想パス
 inline constexpr std::wstring_view HELP_PATH = L"mendo://help";
-inline bool IsHelpPath(std::wstring_view path) noexcept { return path == HELP_PATH; }
+inline constexpr bool IsHelpPath(std::wstring_view path) noexcept { return path == HELP_PATH; }
 
 // フルファイルパスからファイル名部分を抽出する。
 // 例: "C:\\dir\\file.md" -> "file.md"
