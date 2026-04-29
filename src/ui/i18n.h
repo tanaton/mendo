@@ -203,10 +203,10 @@ inline void Init(std::wstring_view config_lang) noexcept
     }
 }
 
-inline const Strings& S() noexcept { return *g_strings; }
+constexpr const Strings& S() noexcept { return *g_strings; }
 
 // 現在の言語を設定ファイル用のキー文字列で返す。
-inline std::wstring_view GetLangKey() noexcept
+constexpr std::wstring_view GetLangKey() noexcept
 {
     return (g_strings == &kEn) ? L"en" : L"ja";
 }

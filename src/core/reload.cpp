@@ -31,15 +31,15 @@ ReloadDecision AnalyzeReloadDiff(std::wstring_view old_wide, std::wstring_view n
 int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_offset) noexcept
 {
     // source_offset はパース順で基本的に単調増加するため二分探索を使用。
-    // UINT32_MAX（未設定）ノードに当たった場合は左に有効ノードを探してから判定する。
+    // 未設定ノードに当たった場合は左に有効ノードを探してから判定する。
     int lo = 0, hi = static_cast<int>(nodes.size()) - 1;
     int result = -1;
     while (lo <= hi) {
         const int mid = lo + (hi - lo) / 2;
         const uint32_t offset = nodes[mid].source_offset;
-        if (offset == UINT32_MAX) {
+        if (offset == kUnsetSourceOffset) {
             int probe = mid - 1;
-            while (probe >= lo && nodes[probe].source_offset == UINT32_MAX) {
+            while (probe >= lo && nodes[probe].source_offset == kUnsetSourceOffset) {
                 probe--;
             }
             if (probe < lo) {
@@ -82,11 +82,11 @@ float CalcScrollYForDiff(
     const float node_h = cache[changed_node].height;
 
     const uint32_t node_start = nodes[changed_node].source_offset;
-    if (node_start != UINT32_MAX) {
+    if (node_start != kUnsetSourceOffset) {
         uint32_t next_start = static_cast<uint32_t>(content.size());
         const auto node_count = static_cast<int>(nodes.size());
         for (int i = changed_node + 1; i < node_count; ++i) {
-            if (nodes[i].source_offset != UINT32_MAX && nodes[i].source_offset > node_start) {
+            if (nodes[i].source_offset != kUnsetSourceOffset && nodes[i].source_offset > node_start) {
                 next_start = nodes[i].source_offset;
                 break;
             }

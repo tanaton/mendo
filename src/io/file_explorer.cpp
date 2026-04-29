@@ -34,8 +34,8 @@ void FileExplorer::Refresh()
         if (parent != dir_path) {
             FileEntry pe;
             pe.full_path.assign(parent.native());
-            pe.is_directory = true;
-            pe.is_parent = true;
+            pe.set_directory(true);
+            pe.set_parent(true);
             entries_.emplace_back(std::move(pe));
         }
     }
@@ -74,7 +74,7 @@ void FileExplorer::Refresh()
 
         FileEntry entry;
         entry.full_path.assign((dir_base / fd.cFileName).native());
-        entry.is_directory = is_dir;
+        entry.set_directory(is_dir);
         entries_.emplace_back(std::move(entry));
     } while (FindNextFileW(hFind.get(), &fd));
 
@@ -82,8 +82,8 @@ void FileExplorer::Refresh()
     // 比較対象は full_path 全体ではなく末尾ファイル名のみ（GetDisplayName）。
     std::ranges::sort(entries_.begin() + static_cast<ptrdiff_t>(sort_begin), entries_.end(),
         [](const FileEntry& a, const FileEntry& b) noexcept {
-            if (a.is_directory != b.is_directory) {
-                return a.is_directory > b.is_directory;
+            if (a.is_directory() != b.is_directory()) {
+                return a.is_directory() > b.is_directory();
             }
             return path_util::iless(a.GetDisplayName(), b.GetDisplayName());
         });
@@ -104,6 +104,6 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept
 void FileExplorer::SetCurrentFile(std::wstring_view path)
 {
     for (auto& entry : entries_) {
-        entry.is_current = (!entry.is_directory && path_util::iequal(entry.full_path, path));
+        entry.set_current(!entry.is_directory() && path_util::iequal(entry.full_path, path));
     }
 }

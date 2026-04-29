@@ -162,7 +162,7 @@ TEST(DocumentTest, RawTextSourceOffsetConsistency)
 
     // source_offset 位置の文字がノードのテキスト先頭と対応する
     for (const auto& n : nodes) {
-        if (n.source_offset != UINT32_MAX && n.source_offset < raw.size()) {
+        if (n.source_offset != kUnsetSourceOffset && n.source_offset < raw.size()) {
             EXPECT_LT(n.source_offset, static_cast<uint32_t>(raw.size()));
         }
     }

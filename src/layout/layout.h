@@ -5,6 +5,7 @@
 #include "text_measurer.h"
 #include "viewport_manager.h"
 #include <dwrite.h>
+#include <limits>
 #include <memory_resource>
 
 class Document;
@@ -31,7 +32,8 @@ struct YPositionResult {
 };
 
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-    size_t from_index = 0, bool has_earlier_dirty = false, size_t safe_exit_after = SIZE_MAX) noexcept;
+    size_t from_index = 0, bool has_earlier_dirty = false,
+    size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
 
 float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
 

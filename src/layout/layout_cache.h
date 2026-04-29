@@ -110,7 +110,7 @@ struct NodeLayoutEntry {
         }
         return *table_layout;
     }
-    bool has_table_layout() const noexcept { return table_layout != nullptr; }
+    constexpr bool has_table_layout() const noexcept { return table_layout != nullptr; }
 
     // マッチの絶対 Y とその行の高さを返す。text_layout（テーブルはセル layout）が
     // あれば text_offset に対応する行 Y を精密に計算し、無ければ
@@ -168,7 +168,7 @@ public:
 
     // prefix 部分のキャッシュを保持したままリサイズする。
     // 追加エントリの y_position を旧末尾に配置し、二分探索の単調性を維持する。
-    void ResizePreservingPrefix(size_t new_node_count)
+    constexpr void ResizePreservingPrefix(size_t new_node_count)
     {
         const size_t old_count = entries_.size();
         Resize(new_node_count);
@@ -181,7 +181,7 @@ public:
         }
     }
 
-    void Reset(size_t node_count, bool shrink = true)
+    constexpr void Reset(size_t node_count, bool shrink = true)
     {
         entries_.clear();
         if (shrink) {
@@ -327,7 +327,7 @@ public:
     // エフェクト世代カウンタ。レイアウト変更時にインクリメントされる。
     // Renderer が ApplyVisibleEffects のスキップ判定に使用する。
     constexpr uint32_t GetEffectsGeneration() const noexcept { return effects_generation_; }
-    void IncrementEffectsGeneration() noexcept { effects_generation_++; }
+    constexpr void IncrementEffectsGeneration() noexcept { effects_generation_++; }
 
 private:
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept

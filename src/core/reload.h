@@ -19,7 +19,7 @@ size_t FindFirstDifference(std::wstring_view old_text, std::wstring_view new_tex
 
 // diff_pos が短い方の末尾と一致するかを判定する。
 // 片方がもう片方の prefix であり、ファイルの伸縮（エディタの中間書き込み状態）を示す。
-inline bool IsPrefixOnlyDiff(size_t diff_pos, size_t old_size, size_t new_size) noexcept
+inline constexpr bool IsPrefixOnlyDiff(size_t diff_pos, size_t old_size, size_t new_size) noexcept
 {
     return diff_pos == std::min(old_size, new_size);
 }

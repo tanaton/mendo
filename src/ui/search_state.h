@@ -18,8 +18,8 @@ struct SearchMatch {
 // 検索状態の管理（Win32非依存）
 class SearchState {
 public:
-    bool IsVisible() const noexcept { return visible_; }
-    void Show() noexcept { visible_ = true; }
+    constexpr bool IsVisible() const noexcept { return visible_; }
+    constexpr void Show() noexcept { visible_ = true; }
     void Hide() noexcept
     {
         visible_ = false;
@@ -36,7 +36,7 @@ public:
     // ExecuteSearch / Hide / Reset のたびにインクリメントされる世代カウンタ。
     // 描画側が検索ハイライト矩形のキャッシュ有効性判定に使う。0 は未初期化を意味するため
     // 1 からカウントし始める（search_hl_gen=0 と常に不一致になる）。
-    uint32_t GetGeneration() const noexcept { return generation_; }
+    constexpr uint32_t GetGeneration() const noexcept { return generation_; }
 
     // ドキュメントが切り替わった/構造が変わったときに呼ぶ。
     // 次回 ExecuteSearch 時に lowercase キャッシュが再生成される。
@@ -49,18 +49,18 @@ public:
         cached_node_count_ = 0;
     }
 
-    const std::pmr::wstring& GetQuery() const noexcept { return query_; }
-    const std::pmr::vector<SearchMatch>& GetMatches() const noexcept { return matches_; }
-    int GetCurrentMatchIndex() const noexcept { return current_match_; }
-    int GetMatchCount() const noexcept { return static_cast<int>(matches_.size()); }
+    constexpr const std::pmr::wstring& GetQuery() const noexcept { return query_; }
+    constexpr const std::pmr::vector<SearchMatch>& GetMatches() const noexcept { return matches_; }
+    constexpr int GetCurrentMatchIndex() const noexcept { return current_match_; }
+    constexpr int GetMatchCount() const noexcept { return static_cast<int>(matches_.size()); }
     // 大文字小文字の区別
-    bool IsCaseSensitive() const noexcept { return case_sensitive_; }
-    void SetCaseSensitive(bool v) noexcept { case_sensitive_ = v; }
-    void ToggleCaseSensitive() noexcept { case_sensitive_ = !case_sensitive_; }
+    constexpr bool IsCaseSensitive() const noexcept { return case_sensitive_; }
+    constexpr void SetCaseSensitive(bool v) noexcept { case_sensitive_ = v; }
+    constexpr void ToggleCaseSensitive() noexcept { case_sensitive_ = !case_sensitive_; }
 
     // ハイライト表示のON/OFF
-    bool IsHighlightEnabled() const noexcept { return highlight_enabled_; }
-    void ToggleHighlightEnabled() noexcept { highlight_enabled_ = !highlight_enabled_; }
+    constexpr bool IsHighlightEnabled() const noexcept { return highlight_enabled_; }
+    constexpr void ToggleHighlightEnabled() noexcept { highlight_enabled_ = !highlight_enabled_; }
 
     void SetQuery(std::wstring_view query);
     void ExecuteSearch(const std::pmr::vector<Node>& nodes);

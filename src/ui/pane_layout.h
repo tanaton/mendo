@@ -2,7 +2,7 @@
 #include "ui_types.h"
 
 // ペイン領域識別子（ある座標がどのペインに属するか）
-enum class PaneZone : int {
+enum class PaneZone : uint8_t {
     None,
     FilePane,
     Splitter1,

@@ -232,12 +232,10 @@ TEST_F(SideEffectExecutorTest, ApplyThemeChangeForwardsStruct)
 {
     effect::ApplyThemeChange in{};
     in.type = effect::ApplyThemeChange::Type::Zoom;
-    in.new_zoom = 1.25f;
     in.zoom_index = 4;
     exec_.ExecuteOne(in);
     EXPECT_EQ(apply_theme_change_count_, 1);
     EXPECT_EQ(last_theme_change_.type, effect::ApplyThemeChange::Type::Zoom);
-    EXPECT_FLOAT_EQ(last_theme_change_.new_zoom, 1.25f);
     EXPECT_EQ(last_theme_change_.zoom_index, 4);
 }
 

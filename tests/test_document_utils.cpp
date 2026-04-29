@@ -1217,9 +1217,9 @@ TEST(FindNodeBySourceOffset, SkipsUnsetOffsets)
 {
     std::pmr::vector<Node> nodes(3);
     nodes[0].source_offset = 0;
-    nodes[1].source_offset = UINT32_MAX; // 未設定（HorizontalRule等）
+    nodes[1].source_offset = kUnsetSourceOffset; // 未設定（HorizontalRule等）
     nodes[2].source_offset = 20;
-    // UINT32_MAX は常に diff_offset 以上にならない（UINT32_MAX <= diff_offset は通常 false）
+    // 未設定値は常に diff_offset 以上にならない（kUnsetSourceOffset <= diff_offset は通常 false）
     // → ノード0を返す
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 10), 0);
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 20), 2);
@@ -1231,7 +1231,7 @@ TEST(FindNodeBySourceOffset, ParsedMarkdown)
     ASSERT_GE(nodes.size(), 3u);
     // 各ノードが有効な source_offset を持つ
     for (const auto& n : nodes) {
-        EXPECT_NE(n.source_offset, UINT32_MAX);
+        EXPECT_NE(n.source_offset, kUnsetSourceOffset);
     }
     // 最初のノードの offset は "# " の後 = 2
     EXPECT_EQ(nodes[0].source_offset, 2u);
@@ -1251,11 +1251,11 @@ TEST(FindNodeBySourceOffset, LastNodeForLargeOffset)
 
 TEST(FindNodeBySourceOffset, AllUnsetOffsets)
 {
-    // 全ノードが UINT32_MAX（テキストなし）→ 該当なし
+    // 全ノードが未設定（テキストなし）→ 該当なし
     std::pmr::vector<Node> nodes(3);
-    nodes[0].source_offset = UINT32_MAX;
-    nodes[1].source_offset = UINT32_MAX;
-    nodes[2].source_offset = UINT32_MAX;
+    nodes[0].source_offset = kUnsetSourceOffset;
+    nodes[1].source_offset = kUnsetSourceOffset;
+    nodes[2].source_offset = kUnsetSourceOffset;
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 50), -1);
 }
 
@@ -1264,9 +1264,9 @@ TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
     // パース結果で HorizontalRule が混在するケース
     auto nodes = ParseMarkdown("AAA\n\n---\n\nBBB").nodes;
     ASSERT_GE(nodes.size(), 3u);
-    // "AAA" offset=0, "---" offset=UINT32_MAX, "BBB" offset=10
+    // "AAA" offset=0, "---" は未設定, "BBB" offset=10
     EXPECT_EQ(nodes[0].source_offset, 0u);
-    EXPECT_EQ(nodes[1].source_offset, UINT32_MAX);
+    EXPECT_EQ(nodes[1].source_offset, kUnsetSourceOffset);
 
     // offset=5（"---"のソース位置付近）→ AAA(offset=0)を返す（HRはスキップ）
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), 0);
@@ -1596,10 +1596,10 @@ TEST(CalcScrollYForDiff, FractionClampsToOne)
 
 TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
 {
-    // ノード1の source_offset が UINT32_MAX の場合、ノード2を next_start として使う
+    // ノード1の source_offset が未設定の場合、ノード2を next_start として使う
     std::pmr::vector<Node> nodes(3);
     nodes[0].source_offset = 0;
-    nodes[1].source_offset = UINT32_MAX; // 未設定（HorizontalRule等）
+    nodes[1].source_offset = kUnsetSourceOffset; // 未設定（HorizontalRule等）
     nodes[2].source_offset = 200;
     auto cache = MakeUniformCache(3, 100.0f);
     std::wstring content(300, L'x');

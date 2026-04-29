@@ -132,10 +132,10 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
     const int idx = state_.file_explorer.HitTest(local_y, theme.pane_item_height);
     if (idx >= 0 && idx < static_cast<int>(state_.file_explorer.GetEntries().size())) {
         const auto& file_entry = state_.file_explorer.GetEntries()[idx];
-        if (file_entry.is_directory) {
+        if (file_entry.is_directory()) {
             Dispatch(FilePaneDirectoryClickedAction{ file_entry.full_path });
         }
-        else if (!file_entry.is_current) {
+        else if (!file_entry.is_current()) {
             if (GetFileAttributesW(file_entry.full_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
                 RefreshFilePane();
                 ShowToast(i18n::S().toast_file_not_found);

@@ -43,15 +43,15 @@ struct ScrollRestoration {
     int pending_restore_node = -1;
     int pending_restore_offset = 0;
 
-    bool HasNodeRestore() const noexcept { return pending_restore_node >= 0; }
+    constexpr bool HasNodeRestore() const noexcept { return pending_restore_node >= 0; }
 
-    void SetNodeRestore(int node, int offset) noexcept
+    constexpr void SetNodeRestore(int node, int offset) noexcept
     {
         pending_restore_node = node;
         pending_restore_offset = offset;
     }
 
-    void ClearNodeRestore() noexcept
+    constexpr void ClearNodeRestore() noexcept
     {
         pending_restore_node = -1;
         pending_restore_offset = 0;
@@ -69,7 +69,7 @@ struct HoveredButtons {
 };
 
 // ナビゲーションボタン（戻る/進む）のホバー状態。
-enum class NavButtonHover {
+enum class NavButtonHover : uint8_t {
     None,
     Back,
     Forward

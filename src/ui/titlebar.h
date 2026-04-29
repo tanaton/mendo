@@ -2,7 +2,7 @@
 #include "ui_types.h"
 
 // タイトルバー上のヒット領域
-enum class TitleBarHitZone {
+enum class TitleBarHitZone : uint8_t {
     None,        // タイトルバー外
     Caption,     // ドラッグ可能領域
     Icon,        // アプリアイコン（システムメニュー）
@@ -17,10 +17,9 @@ enum class TitleBarHitZone {
     Close,       // 閉じるボタン
 };
 
-// タイトルバーボタンの状態
+// タイトルバーボタンの位置情報。ホバー状態は TitleBarHitZone で集約管理する。
 struct TitleBarButton {
     DipRect rect{};
-    bool hovered = false;
 };
 
 // カスタムタイトルバーの状態管理。

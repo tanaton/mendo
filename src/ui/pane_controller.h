@@ -8,7 +8,7 @@
 class PaneController {
 public:
     // ---- ドラッグ対象 ----
-    enum class DragTarget { None, Splitter1, Splitter2, FileScrollbar, TocScrollbar, MdScrollbar };
+    enum class DragTarget : uint8_t { None, Splitter1, Splitter2, FileScrollbar, TocScrollbar, MdScrollbar };
 
     // ---- 表示/非表示 ----
     constexpr bool IsFilePaneVisible() const noexcept { return show_file_; }

@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-enum class SwipeResult { None, Back, Forward };
+enum class SwipeResult : uint8_t { None, Back, Forward };
 
 // タッチパッド水平スクロール（WM_MOUSEHWHEEL）を蓄積し、
 // 閾値を超えたら戻る/進むナビゲーションを発火するジェスチャー検出器。
@@ -10,7 +10,7 @@ enum class SwipeResult { None, Back, Forward };
 // タイムアウト: 一定時間水平入力がなければ蓄積をリセットする。
 class SwipeDetector {
 public:
-    void OnHWheel(int delta, uint64_t now_ms) noexcept
+    constexpr void OnHWheel(int delta, uint64_t now_ms) noexcept
     {
         // 直近の縦スクロールから一定時間内なら無視（軸ロック）
         if (now_ms - last_vscroll_time_ < AXIS_LOCK_MS) {
@@ -26,7 +26,7 @@ public:
         accumulated_delta_ += delta;
     }
 
-    SwipeResult Commit() noexcept
+    constexpr SwipeResult Commit() noexcept
     {
         SwipeResult result = SwipeResult::None;
         if (accumulated_delta_ >= TRIGGER_THRESHOLD) {
@@ -40,13 +40,13 @@ public:
         return result;
     }
 
-    void NotifyVScroll(uint64_t now_ms) noexcept
+    constexpr void NotifyVScroll(uint64_t now_ms) noexcept
     {
         last_vscroll_time_ = now_ms;
         accumulated_delta_ = 0;
     }
 
-    void Reset() noexcept
+    constexpr void Reset() noexcept
     {
         accumulated_delta_ = 0;
         last_hscroll_time_ = 0;

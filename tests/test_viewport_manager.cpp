@@ -243,39 +243,39 @@ TEST(ViewportManagerTest, SelectAllEmpty)
 
 // ---- ズームテスト ----
 
-TEST(ViewportManagerTest, ZoomInReturnsNewZoom)
+TEST(ViewportManagerTest, ZoomInAdvancesIndex)
 {
     ViewportManager vm; // starts at ZOOM_DEFAULT_INDEX (1.0)
-    float z = vm.ZoomIn();
-    EXPECT_GT(z, 1.0f);
+    EXPECT_TRUE(vm.ZoomIn());
     EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX + 1);
+    EXPECT_GT(vm.GetCurrentZoom(), 1.0f);
 }
 
-TEST(ViewportManagerTest, ZoomOutReturnsNewZoom)
+TEST(ViewportManagerTest, ZoomOutDecrementsIndex)
 {
     ViewportManager vm;
-    float z = vm.ZoomOut();
-    EXPECT_LT(z, 1.0f);
-    EXPECT_GT(z, 0.0f);
+    EXPECT_TRUE(vm.ZoomOut());
     EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX - 1);
+    EXPECT_LT(vm.GetCurrentZoom(), 1.0f);
+    EXPECT_GT(vm.GetCurrentZoom(), 0.0f);
 }
 
-TEST(ViewportManagerTest, ZoomInAtMaxReturnsZero)
+TEST(ViewportManagerTest, ZoomInAtMaxReturnsFalse)
 {
     ViewportManager vm;
     // 最大までズーム
     for (int i = 0; i < 50; ++i) vm.ZoomIn();
-    float z = vm.ZoomIn();
-    EXPECT_FLOAT_EQ(z, 0.0f);
+    EXPECT_FALSE(vm.ZoomIn());
+    EXPECT_EQ(vm.GetZoomIndex(), ZOOM_STEP_COUNT - 1);
 }
 
-TEST(ViewportManagerTest, ZoomOutAtMinReturnsZero)
+TEST(ViewportManagerTest, ZoomOutAtMinReturnsFalse)
 {
     ViewportManager vm;
     // 最小までズーム
     for (int i = 0; i < 50; ++i) vm.ZoomOut();
-    float z = vm.ZoomOut();
-    EXPECT_FLOAT_EQ(z, 0.0f);
+    EXPECT_FALSE(vm.ZoomOut());
+    EXPECT_EQ(vm.GetZoomIndex(), 0);
 }
 
 TEST(ViewportManagerTest, ZoomResetFromNonDefault)
@@ -283,16 +283,16 @@ TEST(ViewportManagerTest, ZoomResetFromNonDefault)
     ViewportManager vm;
     vm.ZoomIn();
     vm.ZoomIn();
-    float z = vm.ZoomReset();
-    EXPECT_FLOAT_EQ(z, 1.0f);
+    EXPECT_TRUE(vm.ZoomReset());
     EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX);
+    EXPECT_FLOAT_EQ(vm.GetCurrentZoom(), 1.0f);
 }
 
 TEST(ViewportManagerTest, ZoomResetAlreadyDefault)
 {
     ViewportManager vm;
-    float z = vm.ZoomReset();
-    EXPECT_FLOAT_EQ(z, 0.0f); // 変更不要
+    EXPECT_FALSE(vm.ZoomReset()); // 変更不要
+    EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX);
 }
 
 TEST(ViewportManagerTest, SetZoomIndexClampsBelowZero)

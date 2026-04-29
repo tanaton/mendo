@@ -54,7 +54,7 @@ public:
 #ifdef MENDO_TESTING
     // テスト用: 外部キーから実ファイル名（PNG）を導く。
     // 内部で DPR を mix した内部キーを使うため。
-    uint64_t InternalKeyForTest(uint64_t external_key) const noexcept
+    constexpr uint64_t InternalKeyForTest(uint64_t external_key) const noexcept
     {
         return InternalKey(external_key);
     }
@@ -87,7 +87,7 @@ private:
 
     // current_dpr_ を mix した内部キーを返す。DPR ごとにエントリを分離して
     // DPI 変更/モニタ切替時の全消去を避ける。
-    uint64_t InternalKey(uint64_t external_key) const noexcept
+    constexpr uint64_t InternalKey(uint64_t external_key) const noexcept
     {
         // DPR を 1/100 単位で量子化（典型値 100/125/150/175/200）。
         const uint32_t dpr_q = static_cast<uint32_t>(current_dpr_ * 100.0f + 0.5f);

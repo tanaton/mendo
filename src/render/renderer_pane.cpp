@@ -177,7 +177,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
         const auto& entry = entries[i];
 
         const D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, width, item_y + theme_.pane_item_height);
-        if (entry.is_current) {
+        if (entry.is_current()) {
             rt->FillRectangle(item_rect, Brush(BrushId::PaneItemActive));
         }
         else if (i == hovered_index) {
@@ -186,10 +186,10 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
 
         if (fmt_.pane_icon) {
             const wchar_t* icon;
-            if (entry.is_parent) {
+            if (entry.is_parent()) {
                 icon = L"\uE74A";
             }
-            else if (entry.is_directory) {
+            else if (entry.is_directory()) {
                 icon = L"\uE8B7";
             }
             else {

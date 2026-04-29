@@ -4,9 +4,9 @@
 #include <cmath>
 #include <memory_resource>
 
-enum class GesturePhase { Idle, Pressed, Tracking };
-enum class GestureDirection { None, Left, Right };
-enum class GestureResult { None, ShowContextMenu, Back, Forward };
+enum class GesturePhase : uint8_t { Idle, Pressed, Tracking };
+enum class GestureDirection : uint8_t { None, Left, Right };
+enum class GestureResult : uint8_t { None, ShowContextMenu, Back, Forward };
 
 struct GesturePoint {
     float x = 0.0f;

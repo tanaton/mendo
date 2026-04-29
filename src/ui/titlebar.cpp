@@ -84,14 +84,5 @@ bool TitleBar::SetHovered(TitleBarHitZone zone) noexcept
         return false;
     }
     hovered_ = zone;
-    open_file_.hovered = (zone == TitleBarHitZone::OpenFile);
-    help_.hovered = (zone == TitleBarHitZone::Help);
-    theme_toggle_.hovered = (zone == TitleBarHitZone::ThemeToggle);
-    search_.hovered = (zone == TitleBarHitZone::Search);
-    file_toggle_.hovered = (zone == TitleBarHitZone::FileToggle);
-    toc_toggle_.hovered = (zone == TitleBarHitZone::TocToggle);
-    minimize_.hovered = (zone == TitleBarHitZone::Minimize);
-    maximize_.hovered = (zone == TitleBarHitZone::Maximize);
-    close_.hovered = (zone == TitleBarHitZone::Close);
     return true;
 }

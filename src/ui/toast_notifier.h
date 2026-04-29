@@ -11,14 +11,14 @@ public:
     static constexpr float INITIAL_ALPHA = 2.5f;   // 約0.8秒ホールド + 約0.5秒フェードアウト（合計~1.3秒）
     static constexpr float FADE_SPEED = 0.03f;      // 16ms/tickで約83tick
 
-    void Show(std::wstring_view message)
+    constexpr void Show(std::wstring_view message)
     {
         message_ = message;
         alpha_ = INITIAL_ALPHA;
     }
 
     // タイマーティックごとに呼び出す。まだ表示中なら true を返す。
-    bool Tick() noexcept
+    constexpr bool Tick() noexcept
     {
         if (alpha_ <= 0.0f) {
             return false;
@@ -32,7 +32,7 @@ public:
         return true;
     }
 
-    void Reset() noexcept
+    constexpr void Reset() noexcept
     {
         alpha_ = 0.0f;
         message_.clear();

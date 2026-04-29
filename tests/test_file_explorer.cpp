@@ -54,7 +54,7 @@ TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly)
     // ".." 親エントリのみ
     auto& entries = explorer.GetEntries();
     ASSERT_EQ(entries.size(), 1u);
-    EXPECT_TRUE(entries[0].is_parent);
+    EXPECT_TRUE(entries[0].is_parent());
     EXPECT_EQ(std::wstring_view(entries[0].GetDisplayName()), L"..");
 }
 
@@ -178,9 +178,9 @@ TEST_F(FileExplorerTest, DirectoriesBeforeFiles)
 
     ASSERT_GE(entries.size(), 3u);
     // エントリ0: "..", エントリ1: ディレクトリ, エントリ2: ファイル
-    EXPECT_TRUE(entries[0].is_parent);
-    EXPECT_TRUE(entries[1].is_directory);
-    EXPECT_FALSE(entries[2].is_directory);
+    EXPECT_TRUE(entries[0].is_parent());
+    EXPECT_TRUE(entries[1].is_directory());
+    EXPECT_FALSE(entries[2].is_directory());
 }
 
 TEST_F(FileExplorerTest, EntriesSortedCaseInsensitive)
@@ -227,11 +227,11 @@ TEST_F(FileExplorerTest, SetCurrentFileMarksEntry)
     bool found = false;
     for (const auto& e : entries) {
         if (std::wstring_view(e.GetDisplayName()) == L"b.md") {
-            EXPECT_TRUE(e.is_current);
+            EXPECT_TRUE(e.is_current());
             found = true;
         }
         else {
-            EXPECT_FALSE(e.is_current);
+            EXPECT_FALSE(e.is_current());
         }
     }
     EXPECT_TRUE(found);
@@ -248,7 +248,7 @@ TEST_F(FileExplorerTest, SetCurrentFileDoesNotMarkDirectories)
     explorer.SetCurrentFile(dir_path);
 
     for (const auto& e : explorer.GetEntries()) {
-        EXPECT_FALSE(e.is_current);
+        EXPECT_FALSE(e.is_current());
     }
 }
 
@@ -298,7 +298,7 @@ TEST_F(FileExplorerTest, SetDirectoryWithoutCurrentFileHasNoCurrent)
 
     // SetCurrentFileを呼ばない場合、どのエントリもcurrentでないこと
     for (const auto& e : explorer.GetEntries()) {
-        EXPECT_FALSE(e.is_current);
+        EXPECT_FALSE(e.is_current());
     }
 }
 
@@ -315,7 +315,7 @@ TEST_F(FileExplorerTest, SetDirectoryWithCurrentWorkingDirectory)
     EXPECT_FALSE(explorer.GetDirectory().empty());
     // 少なくとも ".." エントリがあること
     EXPECT_GE(explorer.GetEntries().size(), 1u);
-    EXPECT_TRUE(explorer.GetEntries()[0].is_parent);
+    EXPECT_TRUE(explorer.GetEntries()[0].is_parent());
 }
 
 TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches)

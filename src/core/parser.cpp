@@ -22,7 +22,7 @@ namespace {
 
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
-    MonotonicResource parse_resource{ 64 * 1024 };
+    MonotonicResource parse_resource{ 128 * 1024 };
 
     std::pmr::vector<Node> nodes;
 
@@ -30,7 +30,8 @@ struct ParseContext {
     std::pmr::vector<size_t> heading_indices;
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
-    std::pmr::vector<size_t> blockquote_indices;
+    // DetectAlerts 後に破棄するため parse_resource に載せられる（他 indices は ParseResult 経由で持ち出すので不可）。
+    std::pmr::vector<size_t> blockquote_indices{ parse_resource.resource() };
     size_t current_node_index = 0;
 
     // span ネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
@@ -111,11 +112,12 @@ struct ParseContext {
         current_node = &nodes.back();
         current_node->type = type;
         current_node_index = nodes.size() - 1;
-        current_node->indent_level = indent_level;
+        constexpr int kInt8Max = std::numeric_limits<int8_t>::max();
+        current_node->indent_level = static_cast<int8_t>(std::min(indent_level, kInt8Max));
         if (blockquote_depth > 0) {
             current_node->blockquote_group = current_blockquote_group;
-            current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, static_cast<int>(INT8_MAX)));
-            current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, static_cast<int>(INT8_MAX)));
+            current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, kInt8Max));
+            current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, kInt8Max));
         }
         current_node_url_map.clear();
     }
@@ -236,7 +238,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     case MD_BLOCK_H: {
         auto* const h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
         ctx->BeginNode(NodeType::Heading);
-        ctx->current_node->heading_level = static_cast<int>(h->level);
+        ctx->current_node->heading_level = static_cast<int8_t>(h->level);
         break;
     }
 
@@ -567,7 +569,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     }
 
     // 各ノードの最初のテキストコールバックでソースオフセットを記録（UTF-16 コード単位）
-    if (ctx->current_node->source_offset == UINT32_MAX && ctx->markdown_base) {
+    if (ctx->current_node->source_offset == kUnsetSourceOffset && ctx->markdown_base) {
         ctx->current_node->source_offset = static_cast<uint32_t>(text - ctx->markdown_base);
     }
 
