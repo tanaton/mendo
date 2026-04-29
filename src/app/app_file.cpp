@@ -6,7 +6,6 @@
 #include "document_utils.h"
 #include "mermaid_util.h"
 #include "layout.h"
-#include "path_util.h"
 #include "profiler.h"
 #include "utility.h"
 #include <algorithm>
