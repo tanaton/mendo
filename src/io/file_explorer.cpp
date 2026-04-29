@@ -1,6 +1,7 @@
 #include "file_explorer.h"
 #include "file_io.h"
 #include "document_utils.h"
+#include "win_handle.h"
 #include <algorithm>
 #include <filesystem>
 #include <iterator>

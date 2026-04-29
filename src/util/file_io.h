@@ -1,5 +1,6 @@
 #pragma once
 #include "win_handle.h"
+#include <windows.h>
 #include <cstdint>
 #include <filesystem>
 #include <memory>

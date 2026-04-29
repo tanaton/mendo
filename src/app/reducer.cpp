@@ -1,6 +1,7 @@
 #include "reducer.h"
 #include "app_constants.h"
 #include "document_utils.h"
+#include "file_io.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include <cmath>
@@ -99,7 +100,7 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 
 void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
 {
-    if (entry.file_path != state.document.doc.GetFilePath() && !entry.file_path.empty()) {
+    if (!entry.file_path.empty() && !path_util::iequal(entry.file_path, state.document.doc.GetFilePath())) {
         state.view.scroll_restore.SetNodeRestore(entry.node, static_cast<int>(std::lround(entry.offset)));
         PushEffect(effects, effect::LoadFile{ std::move(entry.file_path) });
     }
