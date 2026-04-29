@@ -463,7 +463,7 @@ struct LanguageDef {
 
 // SyntaxLanguage列挙値でインデックス。
 // None=0, Cpp=1, Python=2, JavaScript=3, Mermaid=4,
-// Go=5, Rust=6, TypeScript=7, Bash=8, PowerShell=9, Cmd=10, Json=11
+// Go=5, Rust=6, TypeScript=7, Bash=8, PowerShell=9, Cmd=10, Json=11, LatexMath=12
 static const LanguageDef LANGUAGE_DEFS[] = {
     // なし
     {{}, {}, {}},
@@ -529,9 +529,11 @@ static const LanguageDef LANGUAGE_DEFS[] = {
         .block_comment = true,
         .skip_single_quote = true,
     }},
+    // LatexMath（トークン化しない）
+    {{}, {}, {}},
 };
 
-static_assert(std::size(LANGUAGE_DEFS) == std::to_underlying(SyntaxLanguage::Json) + 1, "LANGUAGE_DEFS must cover all SyntaxLanguage values");
+static_assert(std::size(LANGUAGE_DEFS) == std::to_underlying(SyntaxLanguage::LatexMath) + 1, "LANGUAGE_DEFS must cover all SyntaxLanguage values");
 
 } // namespace
 
