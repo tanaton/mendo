@@ -57,7 +57,8 @@ struct ParseContext {
     bool in_code_block = false;
     int blockquote_depth = 0;
     int blockquote_group_counter = 0;           // グループID生成用
-    std::stack<int, std::pmr::deque<int>> blockquote_group_stack{ std::pmr::deque<int>{ parse_resource.resource() } }; // ネスト追跡用
+    int current_blockquote_group = -1;          // 最外側 blockquote の group ID（ネスト中は共有）
+    int outermost_quote_indent = 0;             // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
 
     // リスト追跡
     std::stack<int, std::pmr::deque<int>> list_counter{ std::pmr::deque<int>{ parse_resource.resource() } }; // 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
@@ -115,8 +116,10 @@ struct ParseContext {
         current_node->type = type;
         current_node_index = nodes.size() - 1;
         current_node->indent_level = indent_level;
-        if (blockquote_depth > 0 && !blockquote_group_stack.empty()) {
-            current_node->blockquote_group = blockquote_group_stack.top();
+        if (blockquote_depth > 0) {
+            current_node->blockquote_group = current_blockquote_group;
+            current_node->quote_depth = static_cast<int8_t>(blockquote_depth);
+            current_node->quote_outer_indent = static_cast<int8_t>(outermost_quote_indent);
         }
         current_node_url_map.clear();
     }
@@ -266,9 +269,12 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     }
 
     case MD_BLOCK_QUOTE:
+        if (ctx->blockquote_depth == 0) {
+            ctx->current_blockquote_group = ++ctx->blockquote_group_counter;
+            ctx->outermost_quote_indent = ctx->indent_level + 1;
+        }
         ctx->blockquote_depth++;
         ctx->indent_level++;
-        ctx->blockquote_group_stack.push(++ctx->blockquote_group_counter);
         break;
 
     case MD_BLOCK_UL:
@@ -379,8 +385,9 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         if (ctx->indent_level > 0) {
             ctx->indent_level--;
         }
-        if (!ctx->blockquote_group_stack.empty()) {
-            ctx->blockquote_group_stack.pop();
+        if (ctx->blockquote_depth == 0) {
+            ctx->current_blockquote_group = -1;
+            ctx->outermost_quote_indent = 0;
         }
         break;
 

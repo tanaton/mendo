@@ -105,13 +105,15 @@ struct Node {
     int list_number = 0;      // 0 = 順序なし, >0 = 順序付きリスト番号
     uint32_t alert_label_length = 0; // ラベル部分の文字数（描画エフェクト適用範囲）
     uint32_t source_offset = UINT32_MAX; // ソース wide テキスト内の UTF-16 コード単位オフセット（未設定時UINT32_MAX）
-    int blockquote_group = -1;       // 同一 MD_BLOCK_QUOTE 内のノードを識別するグループID
+    int blockquote_group = -1;       // 最外側 blockquote 単位のグループID（ネストしてもgroupは共有）
     int line_count = 0;              // テキスト内の改行数（パース時にカウント済み）
 
     NodeType type = NodeType::Paragraph;
     bool task_checked = false;
     AlertType alert_type = AlertType::None;
     SyntaxLanguage code_language = SyntaxLanguage::None;
+    int8_t quote_depth = 0;          // 現在の blockquote ネスト深さ（0 = 引用外, 1.. = ネストレベル）
+    int8_t quote_outer_indent = 0;   // 最外側 blockquote が居る indent_level（バー位置の起点）
 
     bool HasText() const noexcept { return !text_.empty(); }
 
