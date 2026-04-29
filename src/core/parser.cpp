@@ -101,15 +101,11 @@ struct ParseContext {
             current_node->SetTextWithLineCount(std::move(current_text), current_node->line_count);
         }
         // move 後 / 元から空 のいずれの経路でも、次ノード用に空状態へ揃える。
-        // monotonic resource なので clear() に追加コストはない。
         current_text.clear();
     }
 
     void BeginNode(NodeType type)
     {
-        // タイトリストではP blockのEnter/Leaveコールバックがスキップされるため、
-        // サブリスト開始時に蓄積テキストが未フラッシュのまま残る場合がある。
-        // 新しいノード作成前に確定させて、現在のノードにテキストを書き込む。
         FinalizeCurrentNode();
         nodes.emplace_back();
         current_node = &nodes.back();
@@ -118,8 +114,6 @@ struct ParseContext {
         current_node->indent_level = indent_level;
         if (blockquote_depth > 0) {
             current_node->blockquote_group = current_blockquote_group;
-            // INT8_MAX (127) でクランプ。実用 Markdown でこの深さに達することは無いが、
-            // 巨大入力での符号付きオーバーフローによる負数化（→描画スキップ）を防ぐ。
             current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, static_cast<int>(INT8_MAX)));
             current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, static_cast<int>(INT8_MAX)));
         }
