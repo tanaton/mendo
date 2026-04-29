@@ -20,14 +20,6 @@
 
 namespace {
 
-struct SpanState {
-    bool bold = false;
-    bool italic = false;
-    bool code = false;
-    bool strikethrough = false;
-    int link_url_index = -1; // -1 = リンクなし, >= 0 = link_urls へのインデックス
-};
-
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
     MonotonicResource parse_resource{ 64 * 1024 };
@@ -41,9 +33,14 @@ struct ParseContext {
     std::pmr::vector<size_t> blockquote_indices;
     size_t current_node_index = 0;
 
-    // パース一時データには monotonic リソースを使用
-    std::stack<SpanState, std::pmr::deque<SpanState>> span_stack{ std::pmr::deque<SpanState>{parse_resource.resource()} };
-    SpanState current_span;
+    // span ネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
+    // counter > 0 の間その属性が有効。CommonMark で link はネスト禁止のため
+    // link_url_index のみ単純フィールド (-1 = リンク外)。
+    uint8_t bold_count = 0;
+    uint8_t italic_count = 0;
+    uint8_t code_count = 0;
+    uint8_t strikethrough_count = 0;
+    int current_link_url_index = -1;
 
     // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で
     // ノードの text_ にムーブする。
@@ -74,7 +71,6 @@ struct ParseContext {
     // 現在構築中のノード
     Node* current_node = nullptr;
 
-    // リンクURL格納: SpanStateではインデックスのみ保持し、push/popでの文字列コピーを回避
     std::pmr::vector<std::pmr::wstring> link_urls{ parse_resource.resource() };
 
     // BeginNode 毎にクリア。MakeRun から O(1) で重複 URL を検出する
@@ -130,12 +126,12 @@ struct ParseContext {
         TextRun run;
         run.start = start;
         run.length = length;
-        run.set_bold(current_span.bold);
-        run.set_italic(current_span.italic);
-        run.set_code(current_span.code);
-        run.set_strikethrough(current_span.strikethrough);
-        if (current_span.link_url_index >= 0 && current_node) {
-            const auto& url = link_urls[static_cast<size_t>(current_span.link_url_index)];
+        run.set_bold(static_cast<bool>(bold_count));
+        run.set_italic(static_cast<bool>(italic_count));
+        run.set_code(static_cast<bool>(code_count));
+        run.set_strikethrough(static_cast<bool>(strikethrough_count));
+        if (current_link_url_index >= 0 && current_node) {
+            const auto& url = link_urls[static_cast<size_t>(current_link_url_index)];
             int16_t node_idx;
             if (const auto it = current_node_url_map.find(url); it != current_node_url_map.end()) {
                 node_idx = it->second;
@@ -455,23 +451,22 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     auto* const ctx = static_cast<ParseContext*>(userdata);
 
     ctx->FlushPendingRun();
-    ctx->span_stack.push(ctx->current_span);
 
     switch (type) {
     case MD_SPAN_STRONG:
-        ctx->current_span.bold = true;
+        ++ctx->bold_count;
         ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_EM:
-        ctx->current_span.italic = true;
+        ++ctx->italic_count;
         ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_CODE:
-        ctx->current_span.code = true;
+        ++ctx->code_count;
         ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_DEL:
-        ctx->current_span.strikethrough = true;
+        ++ctx->strikethrough_count;
         ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_A: {
@@ -479,7 +474,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         if (a->href.text && a->href.size > 0) {
             ctx->link_urls.emplace_back();
             ctx->link_urls.back().assign(a->href.text, static_cast<size_t>(a->href.size));
-            ctx->current_span.link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
+            ctx->current_link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
         }
         ctx->paragraph_has_other_content = true;
         break;
@@ -522,24 +517,39 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 
     ctx->FlushPendingRun();
 
-    if (type == MD_SPAN_IMG) {
+    // md4c は enter/leave が常にバランスする契約なのでアンダーフローは起きない。
+    switch (type) {
+    case MD_SPAN_STRONG:
+        --ctx->bold_count;
+        break;
+    case MD_SPAN_EM:
+        --ctx->italic_count;
+        break;
+    case MD_SPAN_CODE:
+        --ctx->code_count;
+        break;
+    case MD_SPAN_DEL:
+        --ctx->strikethrough_count;
+        break;
+    case MD_SPAN_A:
+        ctx->current_link_url_index = -1;
+        break;
+    case MD_SPAN_IMG:
         if (auto* cn = ctx->current_node; cn && !ctx->pending_image_src.empty()) {
             cn->ensure_image()->src = std::move(ctx->pending_image_src);
         }
         ctx->pending_image_src.clear();
-    }
-    else if (type == MD_SPAN_LATEXMATH_DISPLAY) {
+        break;
+    case MD_SPAN_LATEXMATH_DISPLAY:
         ctx->in_display_math = false;
         ctx->AppendWide(L"$$");
         ctx->paragraph_display_math_count++;
-    }
-    else if (type == MD_SPAN_LATEXMATH) {
+        break;
+    case MD_SPAN_LATEXMATH:
         ctx->AppendWide(L"$");
-    }
-
-    if (!ctx->span_stack.empty()) {
-        ctx->current_span = ctx->span_stack.top();
-        ctx->span_stack.pop();
+        break;
+    default:
+        break;
     }
 
     return 0;
