@@ -104,7 +104,7 @@ struct Node {
     int indent_level = 0;
     int list_number = 0;      // 0 = 順序なし, >0 = 順序付きリスト番号
     uint32_t alert_label_length = 0; // ラベル部分の文字数（描画エフェクト適用範囲）
-    uint32_t source_offset = UINT32_MAX; // ソースUTF-8内のバイトオフセット（未設定時UINT32_MAX）
+    uint32_t source_offset = UINT32_MAX; // ソース wide テキスト内の UTF-16 コード単位オフセット（未設定時UINT32_MAX）
     int blockquote_group = -1;       // 同一 MD_BLOCK_QUOTE 内のノードを識別するグループID
     int line_count = 0;              // テキスト内の改行数（パース時にカウント済み）
 

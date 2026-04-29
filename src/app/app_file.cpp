@@ -7,6 +7,7 @@
 #include "mermaid_util.h"
 #include "layout.h"
 #include "profiler.h"
+#include "string_convert.h"
 #include "utility.h"
 #include <algorithm>
 #include <utility>
@@ -181,12 +182,12 @@ void App::OnParseComplete()
     // 非同期のファイルオープンでも OnParseComplete() が使われるため、
     // 別ファイル読み込み時は差分ロジックをスキップする。
     if (path_util::iequal(result->doc.GetFilePath(), state_.document.doc.GetFilePath())) {
-        if (DeferIfPartialWrite(result->doc.GetFilePath(), result->doc.GetRawUtf8().size())) {
+        if (DeferIfPartialWrite(result->doc.GetFilePath(), result->doc.GetLoadedByteSize())) {
             return;
         }
 
-        const std::string_view old_view(state_.document.doc.GetRawUtf8());
-        const std::string_view new_view(result->doc.GetRawUtf8());
+        const std::wstring_view old_view(state_.document.doc.GetRawText());
+        const std::wstring_view new_view(result->doc.GetRawText());
         const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
         MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu op=%d",
@@ -206,7 +207,7 @@ void App::OnParseComplete()
     }
     else {
         // 別ファイルの非同期ロードではリロード用の差分スクロールを使わない
-        state_.reload_diff_pos = std::string_view::npos;
+        state_.reload_diff_pos = std::wstring_view::npos;
     }
 
     state_.document.doc = std::move(result->doc);
@@ -236,7 +237,7 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     // スクロール位置の復元
     float scroll_y = 0.0f;
 
-    const bool has_reload_diff = (state_.reload_diff_pos != std::string_view::npos);
+    const bool has_reload_diff = (state_.reload_diff_pos != std::wstring_view::npos);
 
     if (state_.view.scroll_restore.HasNodeRestore()) {
         MENDO_TRACEF("FinishLoad: has_reload_diff=%d node=%d offset=%d heights_estimated=%d",
@@ -353,8 +354,15 @@ void App::DoReloadCurrentFile()
         return;
     }
 
-    const std::string_view old_view(state_.document.doc.GetRawUtf8());
-    const std::string_view new_view(new_utf8);
+    const size_t byte_size = new_utf8.size();
+    std::pmr::wstring new_wide;
+    {
+        MENDO_PROFILE("Reload::Utf8ToWide");
+        string_convert::Utf8ToWide(new_utf8, new_wide);
+    }
+
+    const std::wstring_view old_view(state_.document.doc.GetRawText());
+    const std::wstring_view new_view(new_wide);
     const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
     MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu op=%d",
@@ -365,7 +373,7 @@ void App::DoReloadCurrentFile()
         return;
     }
     MENDO_PROFILE("Reload::ReplaceFromMarkdown");
-    state_.document.doc.ReplaceFromMarkdown(std::move(new_utf8));
+    state_.document.doc.ReplaceFromMarkdown(std::move(new_wide), byte_size);
     FinishReload(decision.diff_pos);
 }
 
@@ -439,7 +447,7 @@ float App::CalcScrollForDiff(size_t diff_pos, float viewport_height) const
     MENDO_TRACEF("CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, state_.document.doc.GetNodes().size());
     return CalcScrollYForDiff(
         state_.document.doc.GetNodes(), state_.document.layout_cache,
-        state_.document.doc.GetRawUtf8(),
+        std::wstring_view{ state_.document.doc.GetRawText() },
         diff_pos, viewport_height, state_.view.viewport.GetScrollY());
 }
 

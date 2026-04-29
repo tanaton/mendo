@@ -2,23 +2,36 @@
 #include "document_utils.h"
 #include "parser.h"
 #include "profiler.h"
+#include "string_convert.h"
 #include <filesystem>
 
-Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
+Document Document::FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::wstring_view path)
 {
     Document doc;
     doc.file_path_ = path;
-    doc.raw_utf8_ = std::move(utf8);
+    doc.raw_wide_ = std::move(wide);
+    doc.loaded_byte_size_ = byte_size;
     ParseResult result;
     {
         MENDO_PROFILE("ParseMarkdown");
-        result = ParseMarkdown(doc.raw_utf8_);
+        result = ParseMarkdown(std::wstring_view{ doc.raw_wide_ });
     }
     {
         MENDO_PROFILE("BuildIndices");
         doc.ReplaceContent(std::move(result));
     }
     return doc;
+}
+
+Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
+{
+    const size_t byte_size = utf8.size();
+    std::pmr::wstring wide;
+    {
+        MENDO_PROFILE("Utf8ToWide");
+        string_convert::Utf8ToWide(utf8, wide);
+    }
+    return FromMarkdown(std::move(wide), byte_size, path);
 }
 
 std::pmr::wstring Document::GetDirectory() const
@@ -39,10 +52,22 @@ void Document::ReplaceContent(ParseResult&& result)
     BuildHeadingIndices(result.heading_indices);
 }
 
+void Document::ReplaceFromMarkdown(std::pmr::wstring wide, size_t byte_size)
+{
+    raw_wide_ = std::move(wide);
+    loaded_byte_size_ = byte_size;
+    ReplaceContent(ParseMarkdown(std::wstring_view{ raw_wide_ }));
+}
+
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)
 {
-    raw_utf8_ = std::move(utf8);
-    ReplaceContent(ParseMarkdown(raw_utf8_));
+    const size_t byte_size = utf8.size();
+    std::pmr::wstring wide;
+    {
+        MENDO_PROFILE("Utf8ToWide");
+        string_convert::Utf8ToWide(utf8, wide);
+    }
+    ReplaceFromMarkdown(std::move(wide), byte_size);
 }
 
 int Document::FindAnchorIndex(std::wstring_view anchor) const

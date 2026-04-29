@@ -1282,13 +1282,14 @@ TEST(Parser, SourceOffsetHorizontalRule)
     EXPECT_EQ(nodes[0].source_offset, UINT32_MAX);
 }
 
-TEST(Parser, SourceOffsetUtf8Multibyte)
+TEST(Parser, SourceOffsetCjkMultiCodeUnit)
 {
-    // "あいう\n\ntest" → "あいう"=9バイト, "\n\n"=2バイト
+    // "あいう\n\ntest" → wide で "あいう" = 3 wchar_t, "\n\n" = 2 wchar_t
+    // source_offset は UTF-16 コード単位
     auto nodes = ParseMarkdown("あいう\n\ntest").nodes;
     ASSERT_EQ(nodes.size(), 2u);
     EXPECT_EQ(nodes[0].source_offset, 0u);
-    EXPECT_EQ(nodes[1].source_offset, 11u); // 9 + 2
+    EXPECT_EQ(nodes[1].source_offset, 5u); // 3 + 2
 }
 
 TEST(Parser, SourceOffsetUnorderedList)

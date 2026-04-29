@@ -4,23 +4,23 @@
 #include <cstdint>
 #include <ranges>
 
-size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
+size_t FindFirstDifference(std::wstring_view old_text, std::wstring_view new_text) noexcept
 {
     const auto [it_old, it_new] = std::ranges::mismatch(old_text, new_text);
     if (it_old == old_text.end() && it_new == new_text.end()) {
-        return std::string_view::npos;
+        return std::wstring_view::npos;
     }
     return static_cast<size_t>(it_old - old_text.begin());
 }
 
-ReloadDecision AnalyzeReloadDiff(std::string_view old_utf8, std::string_view new_utf8) noexcept
+ReloadDecision AnalyzeReloadDiff(std::wstring_view old_wide, std::wstring_view new_wide) noexcept
 {
-    const size_t diff_pos = FindFirstDifference(old_utf8, new_utf8);
-    if (diff_pos == std::string_view::npos) {
-        return { ReloadOp::NoChange, std::string_view::npos };
+    const size_t diff_pos = FindFirstDifference(old_wide, new_wide);
+    if (diff_pos == std::wstring_view::npos) {
+        return { ReloadOp::NoChange, std::wstring_view::npos };
     }
-    if (IsPrefixOnlyDiff(diff_pos, old_utf8.size(), new_utf8.size())) {
-        if (new_utf8.size() < old_utf8.size()) {
+    if (IsPrefixOnlyDiff(diff_pos, old_wide.size(), new_wide.size())) {
+        if (new_wide.size() < old_wide.size()) {
             return { ReloadOp::DeferPrefixShrink, diff_pos };
         }
         return { ReloadOp::PrefixGrowth, diff_pos };
@@ -68,7 +68,7 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_of
 float CalcScrollYForDiff(
     const std::pmr::vector<Node>& nodes,
     const LayoutCache& cache,
-    std::string_view content,
+    std::wstring_view content,
     size_t diff_pos,
     float viewport_height,
     float fallback_scroll) noexcept

@@ -747,7 +747,7 @@ void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, 
     state.view.viewport.ClearScrollTarget();
     if (a.has_reload_diff) {
         state.view.viewport.SetScrollY(a.reload_diff_scroll_y);
-        state.reload_diff_pos = std::string_view::npos;
+        state.reload_diff_pos = std::wstring_view::npos;
     }
     else if (state.view.scroll_restore.HasNodeRestore()) {
         state.view.viewport.SetScrollTarget(
