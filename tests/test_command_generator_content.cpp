@@ -6,6 +6,8 @@
 #include "cmd_gen_mock_test_base.h"
 #include "test_helpers.h"
 #include <algorithm>
+#include <map>
+#include <set>
 #include <variant>
 
 namespace {
@@ -93,6 +95,66 @@ TEST_F(CmdGenContentTest, BlockQuote_FullyAboveViewport_NoBar)
         return std::holds_alternative<DrawLineCmd>(c);
     });
     EXPECT_EQ(bar_lines, 0) << "viewport より上にあるグループは bar が描画されない";
+}
+
+// ネスト blockquote の各レベルを別 x 座標のバーで描画する (PR #156)
+TEST_F(CmdGenContentTest, NestedBlockQuote_EmitsBarPerLevel)
+{
+    Parse("> outer\n> > inner");
+    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
+
+    std::set<float> bar_x_positions;
+    for (const auto& c : cmds) {
+        if (auto* l = std::get_if<DrawLineCmd>(&c)) {
+            if (l->stroke_width == theme_.blockquote_bar_width
+                && ColorEq(l->color, theme_.blockquote_bar_color)) {
+                bar_x_positions.insert(l->p0.x);
+            }
+        }
+    }
+    EXPECT_GE(bar_x_positions.size(), 2u)
+        << "2 段ネストではレベルごとに別 x 座標のバーが出る";
+}
+
+// 外→内→外の連続描画: 外側 (level=1) はネストを貫通して 1 本のバーになる
+TEST_F(CmdGenContentTest, NestedBlockQuote_OuterBarSpansAcrossInnerNesting)
+{
+    Parse("> outer\n> > inner\n>\n> back to outer");
+    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
+
+    std::map<float, int> count_by_x;
+    for (const auto& c : cmds) {
+        if (auto* l = std::get_if<DrawLineCmd>(&c)) {
+            if (l->stroke_width == theme_.blockquote_bar_width
+                && ColorEq(l->color, theme_.blockquote_bar_color)) {
+                count_by_x[l->p0.x]++;
+            }
+        }
+    }
+    ASSERT_GE(count_by_x.size(), 2u);
+    // 最も左の x 座標が level=1 (外側) のバー。連続描画されているなら 1 本のみ。
+    EXPECT_EQ(count_by_x.begin()->second, 1)
+        << "外側バーはネストを貫通して 1 本連続描画される";
+}
+
+// Alert ネスト + 後段: 最外側バーは Alert 色で描画される
+TEST_F(CmdGenContentTest, AlertWithNested_OuterBarUsesAlertColor)
+{
+    Parse("> [!NOTE]\n> Alert head\n> > inner\n>\n> Alert continues");
+    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
+
+    const auto note_color = theme_.alert_color[AlertColorIndex(AlertType::Note)];
+    const bool has_alert_bar = std::ranges::any_of(cmds, [&](const auto& c) {
+        if (auto* l = std::get_if<DrawLineCmd>(&c)) {
+            return ColorEq(l->color, note_color);
+        }
+        return false;
+    });
+    EXPECT_TRUE(has_alert_bar)
+        << "ネストありの Alert でも最外側バーは Note 色で描画される";
 }
 
 // ---- HorizontalRule カリング: 上方向 ----

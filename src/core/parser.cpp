@@ -118,8 +118,10 @@ struct ParseContext {
         current_node->indent_level = indent_level;
         if (blockquote_depth > 0) {
             current_node->blockquote_group = current_blockquote_group;
-            current_node->quote_depth = static_cast<int8_t>(blockquote_depth);
-            current_node->quote_outer_indent = static_cast<int8_t>(outermost_quote_indent);
+            // INT8_MAX (127) でクランプ。実用 Markdown でこの深さに達することは無いが、
+            // 巨大入力での符号付きオーバーフローによる負数化（→描画スキップ）を防ぐ。
+            current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, static_cast<int>(INT8_MAX)));
+            current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, static_cast<int>(INT8_MAX)));
         }
         current_node_url_map.clear();
     }
@@ -813,6 +815,11 @@ void DetectAlertAt(std::pmr::vector<Node>& nodes, size_t i)
     }
     auto& node = nodes[i];
     if (node.type != NodeType::BlockQuote || node.alert_type != AlertType::None) {
+        return;
+    }
+    // GitHub 仕様: Alert は最外側 blockquote (quote_depth==1) でのみ認識する。
+    // ネスト内 (`> > [!NOTE]`) は通常の引用として扱う。
+    if (node.quote_depth != 1) {
         return;
     }
     size_t marker_end = 0;
