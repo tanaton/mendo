@@ -246,6 +246,50 @@ TEST(Parser, SingleBlockquoteIsBlockQuoteType)
     EXPECT_EQ(nodes[0].GetText(), L"quoted text");
 }
 
+// ネスト blockquote の group/quote_depth 設計回帰防止
+// (PR #156 で blockquote_group をネスト中も最外側で共有する設計に変更)
+
+TEST(Parser, NestedBlockquote_SharesSameGroup)
+{
+    auto nodes = ParseMarkdown("> outer\n>\n> > inner\n>\n> still outer").nodes;
+    ASSERT_GE(nodes.size(), 3u);
+    const int group = nodes[0].blockquote_group;
+    EXPECT_GE(group, 0);
+    for (const auto& n : nodes) {
+        if (n.type == NodeType::BlockQuote) {
+            EXPECT_EQ(n.blockquote_group, group)
+                << "ネストの内外を問わず最外側 group を共有する";
+        }
+    }
+}
+
+TEST(Parser, NestedBlockquote_QuoteDepthReflectsNesting)
+{
+    auto nodes = ParseMarkdown("> outer\n> > inner\n> > > deep").nodes;
+    int max_depth = 0;
+    for (const auto& n : nodes) {
+        if (n.type == NodeType::BlockQuote && n.quote_depth > max_depth) {
+            max_depth = n.quote_depth;
+        }
+    }
+    EXPECT_EQ(max_depth, 3) << "3 段ネストの最大 quote_depth は 3";
+}
+
+TEST(Parser, NestedBlockquote_OuterReturnAfterInnerKeepsDepthOne)
+{
+    // 内側 quote の終了は空行 `>` が必要 (md4c の lazy continuation 挙動)
+    auto nodes = ParseMarkdown("> outer\n> > inner\n>\n> back to outer").nodes;
+    bool checked = false;
+    for (const auto& n : nodes) {
+        if (n.GetText().find(L"back to outer") != std::wstring::npos) {
+            EXPECT_EQ(n.quote_depth, 1)
+                << "ネストを抜けて外側に戻ったノードは quote_depth=1";
+            checked = true;
+        }
+    }
+    EXPECT_TRUE(checked);
+}
+
 // ---- バグ #11: Unicode追加面のエンティティ ----
 
 TEST(Parser, HtmlEntitySupplementaryPlane)
@@ -1149,6 +1193,44 @@ TEST(Parser, AlertFollowedByRegularBlockquote)
     }
     EXPECT_TRUE(has_alert);
     EXPECT_TRUE(has_normal);
+}
+
+// ネストを跨いだ Alert 伝播 (PR #156)
+
+TEST(Parser, Alert_PropagatesAcrossNestedBlockquote)
+{
+    // example/nested.md #9 相当: 親 -> ネスト -> 親の続き
+    auto nodes = ParseMarkdown(
+        "> [!NOTE]\n"
+        "> Alert head\n"
+        "> > nested\n"
+        ">\n"
+        "> Alert continues"
+    ).nodes;
+    bool checked_continuation = false;
+    for (const auto& n : nodes) {
+        if (n.GetText().find(L"Alert continues") != std::wstring::npos) {
+            EXPECT_EQ(n.alert_type, AlertType::Note)
+                << "ネストを抜けた後段でも Alert が継続する";
+            checked_continuation = true;
+        }
+    }
+    EXPECT_TRUE(checked_continuation);
+}
+
+TEST(Parser, Alert_IgnoredWhenStartedInsideNestedBlockquote)
+{
+    // GitHub 仕様: ネスト内 (`> > [!NOTE]`) の Alert マーカーは認識しない
+    auto nodes = ParseMarkdown(
+        "> outer\n"
+        "> > [!NOTE]\n"
+        "> > inner note text"
+    ).nodes;
+    for (const auto& n : nodes) {
+        EXPECT_EQ(n.alert_type, AlertType::None)
+            << "ネスト内の Alert マーカーは無効化される";
+        EXPECT_EQ(n.alert_label_length, 0u);
+    }
 }
 
 TEST(Parser, AlertUnknownTypeIgnored)

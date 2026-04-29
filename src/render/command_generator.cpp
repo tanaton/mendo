@@ -385,14 +385,11 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
             break;
         }
 
-        // グループの範囲を特定
         const float group_top = cache[i].y_position;
         float group_bottom = cache[i].y_position + cache[i].height;
         const AlertType alert_type = nodes[i].alert_type;
-        int bar_indent = -1;
-        if (nodes[i].type == NodeType::BlockQuote) {
-            bar_indent = nodes[i].indent_level;
-        }
+        const int outer_indent = nodes[i].quote_outer_indent;
+        int max_depth = nodes[i].quote_depth;
 
         int j = i + 1;
         while (j < node_count && nodes[j].blockquote_group == group) {
@@ -400,50 +397,76 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
             if (bottom > group_bottom) {
                 group_bottom = bottom;
             }
-            if (bar_indent < 0 && nodes[j].type == NodeType::BlockQuote) {
-                bar_indent = nodes[j].indent_level;
+            if (nodes[j].quote_depth > max_depth) {
+                max_depth = nodes[j].quote_depth;
             }
             j++;
             // ビューポート外に大きく超えたグループ末尾の走査を打ち切る。
             // バーや背景はクリップ領域で切られるため、描画結果に影響しない。
             if (group_bottom > viewport_bottom) {
-                // グループ末尾までスキップ
                 while (j < node_count && nodes[j].blockquote_group == group) {
+                    if (nodes[j].quote_depth > max_depth) {
+                        max_depth = nodes[j].quote_depth;
+                    }
                     j++;
                 }
                 break;
             }
         }
 
-        if (bar_indent < 0) {
-            // BlockQuote ノードがないグループはスキップ
+        if (max_depth <= 0 || outer_indent <= 0) {
             i = j;
             continue;
         }
 
-        const float indent = static_cast<float>(bar_indent) * theme_->indent_width;
-        const float x = offset_x + indent;
-        const float bar_x = x - theme_->indent_width * 0.5f;
-
+        const float outer_x_indent = static_cast<float>(outer_indent) * theme_->indent_width;
+        const float outer_x = offset_x + outer_x_indent;
         if (alert_type != AlertType::None) {
             const auto idx = AlertColorIndex(alert_type);
             if (idx < ALERT_TYPE_COUNT) {
-                const float cw = content_width - indent;
+                const float cw = content_width - outer_x_indent;
                 const D2D1_RECT_F bg_rect = D2D1::RectF(
-                    x - ALERT_BG_PAD, group_top - ALERT_BG_PAD,
-                    x + cw, group_bottom + ALERT_BG_PAD);
+                    outer_x - ALERT_BG_PAD, group_top - ALERT_BG_PAD,
+                    outer_x + cw, group_bottom + ALERT_BG_PAD);
                 cmds.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, theme_->alert_bg_color[idx] });
-                cmds.emplace_back(DrawLineCmd{
-                    D2D1::Point2F(bar_x, group_top - BAR_EXTEND),
-                    D2D1::Point2F(bar_x, group_bottom + BAR_EXTEND),
-                    theme_->alert_color[idx], theme_->blockquote_bar_width });
             }
         }
-        else {
-            cmds.emplace_back(DrawLineCmd{
-                D2D1::Point2F(bar_x, group_top - BAR_EXTEND),
-                D2D1::Point2F(bar_x, group_bottom + BAR_EXTEND),
-                theme_->blockquote_bar_color, theme_->blockquote_bar_width });
+
+        // GitHub と同様に、外側のバーはネストした範囲を貫通して連続描画する。
+        // 各 level ごとに quote_depth >= level の連続区間を求めてバーを発行。
+        for (int level = 1; level <= max_depth; ++level) {
+            const float bar_indent_x = static_cast<float>(outer_indent + level - 1) * theme_->indent_width;
+            const float bar_x = offset_x + bar_indent_x - theme_->indent_width * 0.5f;
+            const D2D1_COLOR_F bar_color = (level == 1 && alert_type != AlertType::None)
+                ? theme_->alert_color[AlertColorIndex(alert_type)]
+                : theme_->blockquote_bar_color;
+
+            const auto emit_bar = [&](float top, float bottom) {
+                cmds.emplace_back(DrawLineCmd{
+                    D2D1::Point2F(bar_x, top - BAR_EXTEND),
+                    D2D1::Point2F(bar_x, bottom + BAR_EXTEND),
+                    bar_color, theme_->blockquote_bar_width });
+            };
+
+            bool in_region = false;
+            float region_top = 0.0f;
+            float region_bottom = 0.0f;
+            for (int k = i; k < j; ++k) {
+                if (nodes[k].quote_depth >= level) {
+                    if (!in_region) {
+                        in_region = true;
+                        region_top = cache[k].y_position;
+                    }
+                    region_bottom = cache[k].y_position + cache[k].height;
+                }
+                else if (in_region) {
+                    emit_bar(region_top, region_bottom);
+                    in_region = false;
+                }
+            }
+            if (in_region) {
+                emit_bar(region_top, region_bottom);
+            }
         }
 
         i = j;
