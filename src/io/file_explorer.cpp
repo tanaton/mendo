@@ -1,5 +1,5 @@
 #include "file_explorer.h"
-#include "ascii_util.h"
+#include "path_util.h"
 #include "document_utils.h"
 #include "win_handle.h"
 #include <algorithm>
@@ -85,7 +85,7 @@ void FileExplorer::Refresh()
             if (a.is_directory != b.is_directory) {
                 return a.is_directory > b.is_directory;
             }
-            return ascii_util::iless(a.GetDisplayName(), b.GetDisplayName());
+            return path_util::iless(a.GetDisplayName(), b.GetDisplayName());
         });
 }
 
@@ -104,6 +104,6 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept
 void FileExplorer::SetCurrentFile(std::wstring_view path)
 {
     for (auto& entry : entries_) {
-        entry.is_current = (!entry.is_directory && ascii_util::iequal(entry.full_path, path));
+        entry.is_current = (!entry.is_directory && path_util::iequal(entry.full_path, path));
     }
 }

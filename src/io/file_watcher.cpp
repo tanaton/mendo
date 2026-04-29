@@ -1,5 +1,5 @@
 #include "file_watcher.h"
-#include "ascii_util.h"
+#include "path_util.h"
 #include "file_io.h"
 #include <filesystem>
 
@@ -109,7 +109,7 @@ void FileWatcher::CheckForChanges()
             const std::wstring_view changed_name{ info->FileName, info->FileNameLength / sizeof(wchar_t) };
             if (info->Action != FILE_ACTION_REMOVED &&
                 info->Action != FILE_ACTION_RENAMED_OLD_NAME &&
-                ascii_util::iequal(changed_name, watch_filename_)) {
+                path_util::iequal(changed_name, watch_filename_)) {
                 target_changed = true;
                 break;
             }
