@@ -12,7 +12,8 @@ class Document {
 public:
     constexpr Document() noexcept = default;
 
-    // ファクトリ。本物は wide 入力版。utf8 入力版はテスト・既存呼び出し互換シム。
+    // ファクトリ。本体は wide 入力版。utf8 入力版は FileLoader からの UTF-8
+    // バイト列（または埋め込みリソース）を直接受け取るための変換ラッパー。
     static Document FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::wstring_view path);
     static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 

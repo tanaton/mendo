@@ -9,7 +9,8 @@
 			"UNICODE",
 			"_UNICODE",
 			"NOMINMAX",
-			"WIN32_LEAN_AND_MEAN"
+			"WIN32_LEAN_AND_MEAN",
+			"MD4C_USE_UTF16"
 		],
 		"chat.tools.terminal.autoApprove": {
 			"ctest": true,

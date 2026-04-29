@@ -493,9 +493,9 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     }
     case MD_SPAN_LATEXMATH_DISPLAY:
-        // L"$$" はフォールバックテキスト用。昇格対象でなくなった時点で has_other_content を立てる
+        // "$$" はフォールバックテキスト用。昇格対象でなくなった時点で has_other_content を立てる
         ctx->in_display_math = true;
-        ctx->AppendWide(std::wstring_view{ L"$$", 2 });
+        ctx->AppendWide(L"$$");
         if (ctx->paragraph_display_math_count == 0 && !ctx->paragraph_has_other_content) {
             ctx->display_math_buf.clear();
         }
@@ -505,7 +505,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     case MD_SPAN_LATEXMATH:
         // インライン $...$ は昇格対象外。元の "$" を復元してテキストとして残す
-        ctx->AppendWide(std::wstring_view{ L"$", 1 });
+        ctx->AppendWide(L"$");
         ctx->paragraph_has_other_content = true;
         break;
     default:
@@ -530,11 +530,11 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
     }
     else if (type == MD_SPAN_LATEXMATH_DISPLAY) {
         ctx->in_display_math = false;
-        ctx->AppendWide(std::wstring_view{ L"$$", 2 });
+        ctx->AppendWide(L"$$");
         ctx->paragraph_display_math_count++;
     }
     else if (type == MD_SPAN_LATEXMATH) {
-        ctx->AppendWide(std::wstring_view{ L"$", 1 });
+        ctx->AppendWide(L"$");
     }
 
     if (!ctx->span_stack.empty()) {
@@ -595,14 +595,14 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
-        ctx->AppendWide(std::wstring_view{ L"\n", 1 });
+        ctx->AppendWide(L"\n");
         break;
 
     case MD_TEXT_SOFTBR:
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
-        ctx->AppendWide(std::wstring_view{ L" ", 1 });
+        ctx->AppendWide(L" ");
         break;
 
     default:
@@ -827,27 +827,29 @@ void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockqu
 
 std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wchar_t(&buffer)[2])
 {
-    const wchar_t* literal = nullptr;
-    if (entity == L"&amp;") {
-        literal = L"&";
-    }
-    else if (entity == L"&lt;") {
-        literal = L"<";
-    }
-    else if (entity == L"&gt;") {
-        literal = L">";
-    }
-    else if (entity == L"&quot;") {
-        literal = L"\"";
-    }
-    else if (entity == L"&apos;") {
-        literal = L"'";
-    }
-    else if (entity == std::wstring_view{ L"&nbsp;" }) {
-        literal = L" ";
-    }
-    if (literal) {
-        return std::wstring_view{ literal, 1 };
+    {
+        std::wstring_view literal;
+        if (entity == L"&amp;") {
+            literal = L"&";
+        }
+        else if (entity == L"&lt;") {
+            literal = L"<";
+        }
+        else if (entity == L"&gt;") {
+            literal = L">";
+        }
+        else if (entity == L"&quot;") {
+            literal = L"\"";
+        }
+        else if (entity == L"&apos;") {
+            literal = L"'";
+        }
+        else if (entity == L"&nbsp;") {
+            literal = L" ";
+        }
+        if (!literal.empty()) {
+            return literal;
+        }
     }
 
     if (entity.size() >= 4 && entity[0] == L'&' && entity[1] == L'#') {
