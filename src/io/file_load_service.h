@@ -25,6 +25,9 @@ public:
     // ---- ローディングアニメーション状態 ----
 
     constexpr bool IsLoading() const noexcept { return loading_; }
+    // スピナー非表示でも非同期パースが進行中なら true。ライブリロードのバースト時に
+    // 重複スケジューリングを抑制するためのフラグ。
+    constexpr bool IsAsyncLoading() const noexcept { return async_in_flight_; }
     constexpr float GetLoadingAngle() const noexcept { return loading_angle_; }
 
     void StartLoading(std::pmr::wstring path);
@@ -39,7 +42,11 @@ public:
 
     void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme);
     std::optional<AsyncLoadResult> TakeAsyncResult();
-    void CancelAsyncLoad() noexcept { async_gen_.fetch_add(1, std::memory_order_relaxed); }
+    void CancelAsyncLoad() noexcept
+    {
+        async_gen_.fetch_add(1, std::memory_order_relaxed);
+        async_in_flight_ = false;
+    }
 
     // ---- パスアクセス ----
 
@@ -49,6 +56,7 @@ public:
 private:
     DocumentService& doc_service_;
     bool loading_ = false;
+    bool async_in_flight_ = false;
     float loading_angle_ = 0.0f;
     std::pmr::wstring loading_path_;
 

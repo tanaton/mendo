@@ -315,8 +315,10 @@ void App::ReloadCurrentFile()
     if (path.empty() || IsHelpPath(path)) {
         return;
     }
-    // ローディングアニメーション表示中は重複リロードを抑制
-    if (file_load_service_.IsLoading()) {
+    // ローディング表示中・非同期パース進行中は重複リロードを抑制。
+    // suppress_animation 経路では IsLoading() が立たないため IsAsyncLoading() も
+    // 併せて見ないと FileWatcher のバーストで重複スケジュールされる。
+    if (file_load_service_.IsLoading() || file_load_service_.IsAsyncLoading()) {
         return;
     }
 
