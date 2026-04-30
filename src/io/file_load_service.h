@@ -50,8 +50,8 @@ public:
 
     // ---- パスアクセス ----
 
-    std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }
-    void SetLoadingPath(std::pmr::wstring path) { loading_path_ = std::move(path); }
+    constexpr std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }
+    constexpr void SetLoadingPath(std::pmr::wstring path) noexcept { loading_path_ = std::move(path); }
 
 private:
     // 不変条件: loading_ が true なら async_in_flight_ も true。
