@@ -181,7 +181,7 @@ private:
     void ReloadCurrentFile();
     void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
-    void BeginAsyncLoad(std::pmr::wstring path);
+    void BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation = false);
     void FinishLoadMarkdownFile(bool heights_estimated = false);
     void HandleLoadFailureFallback();
     float CalcScrollForDiff(size_t diff_pos, float viewport_height) const;

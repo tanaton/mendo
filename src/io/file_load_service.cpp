@@ -8,12 +8,14 @@ void FileLoadService::StartLoading(std::pmr::wstring path)
 {
     loading_path_ = std::move(path);
     loading_ = true;
+    async_in_flight_ = true;
     loading_angle_ = 0.0f;
 }
 
 void FileLoadService::StopLoading() noexcept
 {
     loading_ = false;
+    async_in_flight_ = false;
 }
 
 void FileLoadService::TickLoadingAnimation() noexcept
@@ -43,6 +45,7 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
         const std::lock_guard lock(async_mutex_);
         async_result_.reset();
     }
+    async_in_flight_ = true;
     const uint32_t gen = async_gen_.fetch_add(1, std::memory_order_relaxed) + 1;
 
     // ワーカースレッドは loading_path_ に触らないため、capture コピーで安全。

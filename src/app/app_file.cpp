@@ -55,9 +55,14 @@ void App::LoadHelpDocument()
     UpdateTitleBar();
 }
 
-void App::BeginAsyncLoad(std::pmr::wstring path)
+void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
 {
-    const bool show_anim = DocumentService::NeedsLoadingAnimation(path) && !state_.pending_reload_retry;
+    // ライブリロード時はアニメーションを表示しない。
+    // 大きいファイルを編集中の差分リロードでスピナーが点滅すると視認性が下がるため、
+    // 旧コンテンツを表示したまま静かにバックグラウンドでパースし差し替える。
+    const bool show_anim = !suppress_animation
+        && DocumentService::NeedsLoadingAnimation(path)
+        && !state_.pending_reload_retry;
     if (show_anim) {
         file_load_service_.StartLoading(std::move(path));
         EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
@@ -310,14 +315,16 @@ void App::ReloadCurrentFile()
     if (path.empty() || IsHelpPath(path)) {
         return;
     }
-    // ローディングアニメーション表示中は重複リロードを抑制
-    if (file_load_service_.IsLoading()) {
+    // FileWatcher のバーストで重複スケジュールされないよう、進行中のロードが
+    // あれば即 return する。suppress_animation 経路では IsLoading() が立たない
+    // ため IsAsyncLoading() も併せて見る。
+    if (file_load_service_.IsLoading() || file_load_service_.IsAsyncLoading()) {
         return;
     }
 
     if (DocumentService::NeedsAsyncLoad(path)) {
         MENDO_TRACE("ReloadCurrentFile: async path");
-        BeginAsyncLoad(path);
+        BeginAsyncLoad(path, /* suppress_animation = */ true);
     }
     else {
         MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");

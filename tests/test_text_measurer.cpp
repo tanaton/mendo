@@ -328,6 +328,104 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
     }
 }
 
+// ---- issue #158 リグレッション: 縦に長いテーブルの直後の描画がテーブルに重なる ----
+
+// 長いテーブルが viewport 外にあって partial モードで再レイアウトされたときに、
+// 既存の実測高さが推定値で縮められないことを確認する。
+// 縮められると以降のノードの y_position が上に詰まり、テーブル直後のノードが
+// テーブルに重なって描画される。
+TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
+{
+    // 100 行のテーブル + その後の段落
+    std::string md = "| col1 | col2 |\n|------|------|\n";
+    for (int i = 0; i < 100; i++) {
+        md += "| row" + std::to_string(i) + " | val" + std::to_string(i) + " |\n";
+    }
+    md += "\nFollow-up paragraph";
+
+    auto nodes = ParseMarkdown(md).nodes;
+    ASSERT_GE(nodes.size(), 2u);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    // 1) フルレイアウトでテーブルの実測高さを取得
+    engine_.LayoutNodes(nodes, cache, 800.0f);
+    size_t table_idx = 0;
+    for (size_t i = 0; i < nodes.size(); i++) {
+        if (nodes[i].type == NodeType::Table) { table_idx = i; break; }
+    }
+    ASSERT_EQ(nodes[table_idx].type, NodeType::Table);
+    const float measured_table_h = cache[table_idx].height;
+    EXPECT_GT(measured_table_h, 0.0f);
+
+    // テーブル直後の段落
+    ASSERT_LT(table_idx + 1, nodes.size());
+    const size_t para_idx = table_idx + 1;
+
+    // 2) 幅変更 + partial モード（viewport は冒頭の小さい領域のみ）
+    //    テーブルは viewport 外なので不可視扱いになり、現行バグでは推定値で
+    //    上書きされて高さが縮む。
+    engine_.ComputeLayout(nodes, cache, 600.0f, 0.0f, 10.0f);
+
+    // テーブルの高さが実測値から縮んでいないこと。
+    // 修正後の partial モードは shrink を起こさないため厳密一致を期待する。
+    EXPECT_GE(cache[table_idx].height, measured_table_h)
+        << "partial モードで実測済みテーブルの高さが推定値で縮められた";
+
+    // テーブル直後の段落の y_position もテーブル下端より下にあること
+    const float table_bottom = cache[table_idx].y_position + cache[table_idx].height;
+    EXPECT_GE(cache[para_idx].y_position, table_bottom)
+        << "テーブル直後ノードの y_position がテーブル下端より上に詰まっている (issue #158)";
+}
+
+// 推定値より小さい既存高さは、推定値まで成長させてよい（max_scroll の精度のため）
+TEST_F(MockLayoutTest, PartialModeGrowsHeightWhenEstimateLarger)
+{
+    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird").nodes;
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    // 高さ 0 で partial モード（width_changed=true）。
+    // 不可視ノードでも entry.height が 0 なら推定値まで成長すべき。
+    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 1.0f);
+    for (size_t i = 0; i < nodes.size(); i++) {
+        EXPECT_GT(cache[i].height, 0.0f)
+            << "ノード " << i << " の高さが推定値まで成長していない";
+    }
+}
+
+// partial + invisible で entry.height が推定値に成長した場合、Table の col_widths を
+// クリアし、row_heights 合計と乖離した entry.height のまま描画されないようにする。
+// (issue #158: col_widths を残すと描画範囲が後続ノード位置を越えて重なる)
+TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
+{
+    std::string md = "| a | b |\n|---|---|\n";
+    for (int i = 0; i < 50; i++) {
+        md += "| r" + std::to_string(i) + " | v" + std::to_string(i) + " |\n";
+    }
+    auto nodes = ParseMarkdown(md).nodes;
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+
+    engine_.LayoutNodes(nodes, cache, 800.0f);
+    size_t table_idx = 0;
+    for (size_t i = 0; i < nodes.size(); i++) {
+        if (nodes[i].type == NodeType::Table) { table_idx = i; break; }
+    }
+    ASSERT_EQ(nodes[table_idx].type, NodeType::Table);
+    ASSERT_TRUE(cache[table_idx].has_table_layout());
+    ASSERT_FALSE(cache[table_idx].table_layout->col_widths.empty());
+
+    // 成長分岐を強制発動させるため、現在の entry.height を意図的に小さくする
+    cache[table_idx].height = 1.0f;
+
+    // partial + invisible (テーブルは viewport より下) で再レイアウト
+    engine_.ComputeLayout(nodes, cache, 600.0f, 0.0f, 10.0f);
+
+    EXPECT_TRUE(cache[table_idx].table_layout->col_widths.empty())
+        << "成長時に col_widths がクリアされず、描画範囲と entry.height が乖離する";
+}
+
 // ---- RecreateFormats ----
 
 TEST_F(MockLayoutTest, RecreateFormatsSucceeds)

@@ -266,13 +266,23 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                     // ただしダイアグラム系コードブロックの高さは描画完了時にビットマップ
                     // 実寸で確定する。テキスト基準の EstimateNodeHeight で上書きすると
                     // 描画時に bitmap が後続ノードへはみ出すため既存値を維持する。
+                    // また、テーブル/画像/折り返しが多い段落では推定値が実測値を
+                    // 大きく下回るため、シュリンク方向の更新も後続ノードと重なる
+                    // 原因になる。よって既存値より小さくはしない。
                     const bool is_diagram = (node.type == NodeType::CodeBlock
                         && IsDiagramLanguage(node.code_language));
                     if (!is_diagram) {
                         const float estimated = EstimateNodeHeight(node, *theme_);
-                        if (entry.height != estimated) {
+                        if (entry.height < estimated) {
                             entry.height = estimated;
                             any_height_changed = true;
+                            // entry.height は推定値に成長したが、テーブルの row_heights
+                            // 合計や col_widths は旧値のまま乖離する。次の MeasureNode が
+                            // 走るまで描画を抑制し、描画範囲(row_heights 合計)が
+                            // 後続ノード位置(entry.height ベース)を越えて重なるのを防ぐ。
+                            if (node.type == NodeType::Table && entry.has_table_layout()) {
+                                entry.table_layout->col_widths.clear();
+                            }
                         }
                     }
                     entry.layout_dirty = true;
