@@ -464,11 +464,21 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         return;
     }
 
+    // 既存レイアウトの互換性判定。row*col の積だけだと (旧6×4) と (新8×3) のように積が一致するだけで
+    // ストライド (col_count) が違うケースを取りこぼすため、col_count も明示的に比較する。
+    auto* tl_existing = entry.table_layout.get();
+    const bool has_compatible_layouts =
+        tl_existing
+        && tl_existing->col_count == col_count
+        && !tl_existing->cell_layouts.empty()
+        && tl_existing->cell_layouts.size() == row_count * col_count;
+
     // 超高速パス: 前回と max_width がほぼ一致しキャッシュ済みレイアウトが揃っていれば、
     // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、layout_dirty を倒すだけで終える。
     // 検索ハイライト矩形・effects・inline_code_bgs もテキスト位置に依存するので保持できる。
-    if (auto* tl_existing = entry.table_layout.get();
-        tl_existing && !tl_existing->cell_layouts.empty() && tl_existing->cell_layouts.size() == row_count * col_count && tl_existing->last_applied_max_width >= 0.0f && std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON) {
+    if (has_compatible_layouts
+        && tl_existing->last_applied_max_width >= 0.0f
+        && std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON) {
         entry.layout_dirty = false;
         return;
     }
@@ -482,9 +492,9 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     tl.cell_inline_code_bgs.clear();
     tl.row_heights.resize(row_count);
 
-    // セルレイアウトが既に存在する場合は第1パス（テキストレイアウト作成）をスキップし、
-    // 列幅の再計算のみ行う（リサイズ時の高速パス）。
-    const bool has_existing_layouts = !tl.cell_layouts.empty() && (tl.cell_layouts.size() == row_count * col_count);
+    // セルレイアウトが既に存在し、かつストライドが現在の列数と一致する場合のみ
+    // 第1パス（テキストレイアウト作成）をスキップして列幅再計算だけ行う。
+    const bool has_existing_layouts = has_compatible_layouts;
     if (has_existing_layouts) {
         // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
         if (tl.natural_col_widths.size() == col_count) {

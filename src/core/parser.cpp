@@ -520,7 +520,12 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
-        ctx->ResolveLinkUrlIndex(std::wstring_view{ a->href.text, static_cast<size_t>(a->href.size) });
+        // md4c の md_build_attribute は raw_size==0 のとき text=NULL を返すため、
+        // nullptr+0 で wstring_view を構築するのを避けて明示的に空 view にする。
+        const std::wstring_view href = (a->href.text != nullptr && a->href.size > 0)
+            ? std::wstring_view{ a->href.text, static_cast<size_t>(a->href.size) }
+            : std::wstring_view{};
+        ctx->ResolveLinkUrlIndex(href);
         ctx->paragraph_has_other_content = true;
         break;
     }

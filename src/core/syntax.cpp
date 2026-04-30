@@ -650,5 +650,7 @@ std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage la
     case SyntaxLanguage::LatexMath:
         return {};
     }
-    std::unreachable();
+    // SyntaxLanguage が uint8_t なので static_cast 経由で範囲外の値が
+    // 渡される可能性に備えて空 vector を返す。switch 網羅性は -Wswitch で別途検出する。
+    return {};
 }
