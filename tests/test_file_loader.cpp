@@ -29,7 +29,8 @@ TEST_F(FileLoaderTest, LoadsUtf8File)
     auto path = WriteFile(L"test.md", "Hello, World!");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, "Hello, World!");
+    EXPECT_EQ(result->wide, L"Hello, World!");
+    EXPECT_EQ(result->byte_size, 13u);
 }
 
 TEST_F(FileLoaderTest, LoadsMultilineFile)
@@ -37,16 +38,17 @@ TEST_F(FileLoaderTest, LoadsMultilineFile)
     auto path = WriteFile(L"multi.md", "line1\nline2\nline3");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, "line1\nline2\nline3");
+    EXPECT_EQ(result->wide, L"line1\nline2\nline3");
 }
 
-// FileLoader はバイト列をそのまま返す。BOM 除去は Utf8ToWideStripBom 側の責務。
-TEST_F(FileLoaderTest, KeepsUtf8Bom)
+// FileLoader は UTF-8 → UTF-16 変換と BOM 除去をまとめて行う。byte_size は BOM 含む元サイズ。
+TEST_F(FileLoaderTest, StripsUtf8Bom)
 {
     auto path = WriteFile(L"bom.md", "\xEF\xBB\xBF" "Hello");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, "\xEF\xBB\xBF" "Hello");
+    EXPECT_EQ(result->wide, L"Hello");
+    EXPECT_EQ(result->byte_size, 8u);
 }
 
 TEST_F(FileLoaderTest, NonExistentFileReturnsError)
@@ -61,7 +63,8 @@ TEST_F(FileLoaderTest, EmptyFileReturnsEmpty)
     auto path = WriteFile(L"empty.md", "");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
-    EXPECT_TRUE(result->empty());
+    EXPECT_TRUE(result->wide.empty());
+    EXPECT_EQ(result->byte_size, 0u);
 }
 
 TEST_F(FileLoaderTest, LoadsJapaneseUtf8)
@@ -69,15 +72,16 @@ TEST_F(FileLoaderTest, LoadsJapaneseUtf8)
     auto path = WriteFile(L"jp.md", "日本語テスト");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, "日本語テスト");
+    EXPECT_EQ(result->wide, L"日本語テスト");
 }
 
-TEST_F(FileLoaderTest, BomOnlyFileReturnsBomBytes)
+TEST_F(FileLoaderTest, BomOnlyFileReturnsEmptyWide)
 {
     auto path = WriteFile(L"bomonly.md", "\xEF\xBB\xBF");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, "\xEF\xBB\xBF");
+    EXPECT_TRUE(result->wide.empty());
+    EXPECT_EQ(result->byte_size, 3u);
 }
 
 // ---- ファイル監視テスト ----
@@ -134,7 +138,8 @@ TEST_F(FileLoaderTest, LargeFile)
     auto path = WriteFile(L"large.md", large_content);
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result->size(), large_content.size());
+    EXPECT_EQ(result->wide.size(), large_content.size());
+    EXPECT_EQ(result->byte_size, large_content.size());
 }
 
 TEST_F(FileLoaderTest, WatcherRestartOnNewFile)
@@ -179,7 +184,7 @@ TEST_F(FileLoaderTest, FileWithNewlines)
     auto path = WriteFile(L"newlines.md", "line1\r\nline2\r\nline3");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, "line1\r\nline2\r\nline3");
+    EXPECT_EQ(result->wide, L"line1\r\nline2\r\nline3");
 }
 
 // ---- 監視一時停止 / ResumeWatching テスト ----

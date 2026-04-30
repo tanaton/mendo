@@ -4,7 +4,7 @@
 
 std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path)
 {
-    std::expected<std::pmr::string, FileLoadError> result;
+    std::expected<LoadedFileWide, FileLoadError> result;
     {
         MENDO_PROFILE("FileLoader::LoadFile");
         result = FileLoader::LoadFile(path);
@@ -13,7 +13,7 @@ std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr:
         return std::unexpected(result.error());
     }
     MENDO_PROFILE("Document::FromMarkdown");
-    return Document::FromMarkdown(std::move(*result), path);
+    return Document::FromMarkdown(std::move(result->wide), result->byte_size, path);
 }
 
 void DocumentService::StartWatching(const std::pmr::wstring& path, FileWatcher::ChangeCallback cb)

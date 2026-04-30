@@ -8,15 +8,24 @@
 #include <algorithm>
 #include <cassert>
 #include <ranges>
+#include <span>
 
 
 // インラインコードの背景矩形（レイアウト原点からの相対座標、パディング適用済み）
 using InlineCodeBg = D2D1_RECT_F;
 
+// テーブル内インラインコード背景の 1 エントリ。
+// flat 化することで、bg を持たないセル分の空 vector ヘッダ (24B/個) を排除する。
+// 書き込みは row 昇順 → col 昇順、描画も同順なので cell_index は概ね昇順で並ぶ。
+struct CellInlineCodeBg {
+    uint32_t cell_index; // row * col_count + col
+    InlineCodeBg rect;
+};
+
 // テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）
 struct TableLayoutData {
     std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]
-    std::pmr::vector<std::pmr::vector<InlineCodeBg>> cell_inline_code_bgs;    // フラット配列 [行 * col_count + 列][]
+    std::pmr::vector<CellInlineCodeBg> cell_inline_code_bgs;                  // セル別 bg を線形に格納（cell_index 昇順）
     size_t col_count = 0;                                                     // cell_layoutsのストライド
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
@@ -90,7 +99,8 @@ struct NodeLayoutEntry {
     Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
     bool effects_applied = false;
-    std::pmr::vector<InlineCodeBg> inline_code_bgs;
+    // インラインコード持ちノードでのみ確保される。空の vector ヘッダ (24B/個) を全ノード分背負わない。
+    std::unique_ptr<std::pmr::vector<InlineCodeBg>> inline_code_bgs;
     std::unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
 
     // 検索ヒットがあるノードでのみ確保される。描画中に書き換えるため mutable。
@@ -119,6 +129,22 @@ struct NodeLayoutEntry {
     constexpr bool has_table_layout() const noexcept
     {
         return table_layout != nullptr;
+    }
+
+    std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
+    {
+        if (!inline_code_bgs) {
+            inline_code_bgs = std::make_unique<std::pmr::vector<InlineCodeBg>>();
+        }
+        return *inline_code_bgs;
+    }
+    void clear_inline_code_bgs() noexcept
+    {
+        inline_code_bgs.reset();
+    }
+    std::span<const InlineCodeBg> view_inline_code_bgs() const noexcept
+    {
+        return SpanOrEmpty(inline_code_bgs);
     }
 
     // マッチの絶対 Y とその行の高さを返す。text_layout（テーブルはセル layout）が
@@ -249,7 +275,7 @@ public:
         for (auto& e : entries_) {
             e.text_layout.Reset();
             e.effects_applied = false;
-            e.inline_code_bgs.clear();
+            e.clear_inline_code_bgs();
             e.invalidate_search_hl_cache();
             if (e.table_layout) {
                 e.table_layout->cell_layouts.clear();
@@ -280,7 +306,7 @@ public:
     {
         for (auto& e : entries_) {
             e.effects_applied = false;
-            e.inline_code_bgs.clear();
+            e.clear_inline_code_bgs();
             if (e.table_layout) {
                 e.table_layout->cell_inline_code_bgs.clear();
                 e.table_layout->row_bgs_computed.clear();
@@ -362,7 +388,7 @@ private:
         }
         e.text_layout.Reset();
         e.effects_applied = false;
-        e.inline_code_bgs.clear();
+        e.clear_inline_code_bgs();
         e.table_layout.reset();
         e.layout_dirty = true;
         e.invalidate_search_hl_cache();

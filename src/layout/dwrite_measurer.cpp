@@ -267,7 +267,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
             // 折り返し行が変わるためエフェクト位置 / 検索ハイライト矩形は無効化する。
             // text_layout 自体は破棄しない (フォーマット属性は保持される)。
             entry.effects_applied = false;
-            entry.inline_code_bgs.clear();
+            entry.clear_inline_code_bgs();
             entry.invalidate_search_hl_cache();
             return;
         }
@@ -312,7 +312,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     entry.height = metrics.height;
     entry.layout_dirty = false;
     entry.effects_applied = false;
-    entry.inline_code_bgs.clear();
+    entry.clear_inline_code_bgs();
     entry.invalidate_search_hl_cache();
 }
 

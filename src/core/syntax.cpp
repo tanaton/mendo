@@ -225,7 +225,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
     constexpr bool kNeedAtLineStart = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment;
 
     std::pmr::vector<SyntaxToken> tokens;
-    tokens.reserve(text.size() / 4);
+    tokens.reserve(text.size() / 8);
     size_t i = 0;
     uint32_t plain_start = 0;
     bool in_plain = false;

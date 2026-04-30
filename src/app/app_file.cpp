@@ -7,7 +7,6 @@
 #include "mermaid_util.h"
 #include "layout.h"
 #include "profiler.h"
-#include "string_convert.h"
 #include "utility.h"
 #include <algorithm>
 #include <utility>
@@ -352,18 +351,13 @@ void App::DoReloadCurrentFile()
         EmitEffect(effect::ResumeFileWatch{});
         return;
     }
-    std::pmr::string new_utf8 = std::move(*load_result);
 
-    if (DeferIfPartialWrite(state_.document.doc.GetFilePath(), new_utf8.size())) {
+    if (DeferIfPartialWrite(state_.document.doc.GetFilePath(), load_result->byte_size)) {
         return;
     }
 
-    const size_t byte_size = new_utf8.size();
-    std::pmr::wstring new_wide;
-    {
-        MENDO_PROFILE("Reload::Utf8ToWide");
-        string_convert::Utf8ToWideStripBom(new_utf8, new_wide);
-    }
+    const size_t byte_size = load_result->byte_size;
+    std::pmr::wstring new_wide = std::move(load_result->wide);
 
     const std::wstring_view old_view(state_.document.doc.GetRawText());
     const std::wstring_view new_view(new_wide);

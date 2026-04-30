@@ -4,9 +4,10 @@
 #include "syntax.h"
 #include "memory_resource.h"
 #include "profiler.h"
+#include "utility.h"
 #include "md4c.h"
 #include <stack>
-#include <map>
+#include <unordered_map>
 #include <charconv>
 #include <climits>
 #include <format>
@@ -79,10 +80,12 @@ struct ParseContext {
     Node* current_node = nullptr;
 
     // アンカーIDの一意性追跡: スラグ -> 出現回数。
-    // map ノードとキー文字列を parse_resource に乗せて synchronized_pool への malloc を避ける。
+    // unordered_map のノードとキー文字列を parse_resource に乗せて synchronized_pool への malloc を避ける。
     // キーは ParseContext のライフタイム内でしか参照されず、Heading::anchor_id 側へは
     // assign で別途コピーされるため parse_resource (monotonic) で十分。
-    std::pmr::map<std::pmr::wstring, int, std::less<>> anchor_counts{ parse_resource.resource() };
+    // monotonic は再アロケート時に古い領域を解放できないため、ParseMarkdown 側で reserve して
+    // bucket 配列の再確保を最小化する。
+    std::pmr::unordered_map<std::pmr::wstring, int, WStringTransparentHash, std::equal_to<>> anchor_counts{ parse_resource.resource() };
 
     // 画像スパン追跡。NodeImageData::src への std::move を真の move にするため default allocator。
     std::pmr::wstring pending_image_src;
@@ -173,7 +176,7 @@ struct ParseContext {
             current_link_url_index = -1;
             return;
         }
-        auto& urls = current_node->link_urls;
+        auto& urls = current_node->ensure_link_urls();
         for (size_t i = 0; i < urls.size(); i++) {
             if (urls[i] == url) {
                 current_link_url_index = static_cast<int16_t>(i);
@@ -692,6 +695,7 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
     ctx.image_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
     ctx.diagram_indices.reserve(std::clamp(markdown_text.size() / 1024, size_t{ 4 }, size_t{ 128 }));
     ctx.blockquote_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
+    ctx.anchor_counts.reserve(std::clamp(markdown_text.size() / 256, size_t{ 8 }, size_t{ 512 }));
 
     MD_PARSER parser{};
     parser.abi_version = 0;

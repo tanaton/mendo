@@ -212,7 +212,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node&
     const D2D1_COLOR_F base_color = GetNodeBaseColor(node);
 
     // インラインコードの背景
-    GenInlineCodeBgs(cmds, entry.inline_code_bgs, text_x, entry.y_position, theme_->code_bg_color);
+    GenInlineCodeBgs(cmds, entry.view_inline_code_bgs(), text_x, entry.y_position, theme_->code_bg_color);
 
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
     GenSearchHighlights(cmds, entry, node_index, text_x, entry.y_position);
@@ -647,6 +647,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
     float y = entry.y_position;
     uint32_t flat_offset = 0;
+    size_t bg_cursor = 0;
 
     for (size_t r = 0; r < node.table_rows().size(); r++) {
         const auto& row = node.table_rows()[r];
@@ -698,10 +699,8 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
                 IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
 
-                // セルのインラインコード背景
-                if (const size_t ci = tl.CellIndex(r, c); ci < tl.cell_inline_code_bgs.size()) {
-                    GenInlineCodeBgs(cmds, tl.cell_inline_code_bgs[ci], text_x, text_y, theme_->code_bg_color);
-                }
+                // セルのインラインコード背景。bg_cursor は cell_index 昇順で進む。
+                bg_cursor = GenCellInlineCodeBgs(cmds, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
 
                 // 検索マッチのハイライト（テーブルセル）
                 GenSearchHighlights(cmds, entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));

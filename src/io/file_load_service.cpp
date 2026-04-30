@@ -69,7 +69,7 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
             return;
         }
 
-        Document doc = Document::FromMarkdown(std::move(*load_result), path);
+        Document doc = Document::FromMarkdown(std::move(load_result->wide), load_result->byte_size, path);
 
         if (async_gen_.load(std::memory_order_relaxed) != gen) {
             return;

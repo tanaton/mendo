@@ -31,7 +31,7 @@ inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT3
 
 // インラインコードの背景矩形を描画する。
 // bgsにはパディング適用済みのレイアウト原点相対矩形が格納されている。
-inline void GenInlineCodeBgs(DrawCommandList& cmds, const std::pmr::vector<InlineCodeBg>& bgs, float origin_x, float origin_y, D2D1_COLOR_F color)
+inline void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, float origin_x, float origin_y, D2D1_COLOR_F color)
 {
     for (const auto& bg : bgs) {
         const D2D1_RECT_F rect = D2D1::RectF(
@@ -41,6 +41,27 @@ inline void GenInlineCodeBgs(DrawCommandList& cmds, const std::pmr::vector<Inlin
             origin_y + bg.bottom);
         cmds.emplace_back(FillRoundedRectCmd{ rect, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
     }
+}
+
+// テーブルセルのインラインコード背景を描画する。
+// bgs は cell_index 昇順を維持しているため、cursor を進めるだけで O(N) 全体で済む。
+// 戻り値は次回呼び出し向けに進めた cursor。
+inline size_t GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg> bgs, size_t cursor, uint32_t cell_index, float origin_x, float origin_y, D2D1_COLOR_F color)
+{
+    while (cursor < bgs.size() && bgs[cursor].cell_index < cell_index) {
+        ++cursor;
+    }
+    while (cursor < bgs.size() && bgs[cursor].cell_index == cell_index) {
+        const auto& src = bgs[cursor].rect;
+        const D2D1_RECT_F rect = D2D1::RectF(
+            origin_x + src.left,
+            origin_y + src.top,
+            origin_x + src.right,
+            origin_y + src.bottom);
+        cmds.emplace_back(FillRoundedRectCmd{ rect, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
+        ++cursor;
+    }
+    return cursor;
 }
 
 // ドキュメントデータとビューポート状態から DrawCommandList を生成する。

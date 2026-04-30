@@ -154,7 +154,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewp
     auto& tl = *entry.table_layout;
     if (first_pass) {
         entry.effects_applied = true;
-        tl.cell_inline_code_bgs.resize(row_count * tl.col_count);
+        tl.cell_inline_code_bgs.clear();
         tl.row_bgs_computed.resize(row_count, 0);
     }
 
@@ -194,11 +194,21 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewp
                     const DWRITE_TEXT_RANGE range{ run.start, run.length };
                     cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                 }
-                // インラインコード背景: 可視かつ未計算の行のみ
+                // インラインコード背景: 可視かつ未計算の行のみ。
+                // cell_index 昇順を維持するため upper_bound 位置に挿入する。
+                // フレーム間で行の可視性が変わると単純 push では順序が崩れ、描画側の advancing
+                // iterator スキャンが破綻する。bg 数は通常少ないので O(N) insert は許容。
                 if (need_bgs && run.code() && run.length > 0) {
                     const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length, hit_test_buffer_);
+                    const auto cell_index = static_cast<uint32_t>(tl.CellIndex(r, c));
+                    auto& bgs = tl.cell_inline_code_bgs;
+                    auto pos = std::upper_bound(
+                        bgs.begin(),
+                        bgs.end(),
+                        cell_index,
+                        [](uint32_t v, const CellInlineCodeBg& e) noexcept { return v < e.cell_index; });
                     for (UINT32 hi = 0; hi < count; hi++) {
-                        tl.cell_inline_code_bgs[tl.CellIndex(r, c)].emplace_back(MakeInlineCodeBg(hit_test_buffer_[hi]));
+                        pos = bgs.insert(pos, CellInlineCodeBg{ cell_index, MakeInlineCodeBg(hit_test_buffer_[hi]) }) + 1;
                     }
                 }
             }
@@ -275,8 +285,11 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
         }
         if (run.code() && node.type != NodeType::CodeBlock && run.length > 0) {
             const UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length, hit_test_buffer_);
-            for (UINT32 i = 0; i < count; i++) {
-                entry.inline_code_bgs.emplace_back(MakeInlineCodeBg(hit_test_buffer_[i]));
+            if (count > 0) {
+                auto& bgs = entry.ensure_inline_code_bgs();
+                for (UINT32 i = 0; i < count; i++) {
+                    bgs.emplace_back(MakeInlineCodeBg(hit_test_buffer_[i]));
+                }
             }
         }
     }
