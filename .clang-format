@@ -1,0 +1,61 @@
+# vcFormat相当の.clang-format設定
+BasedOnStyle: Microsoft
+
+# インデント
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+IndentCaseLabels: false
+IndentCaseBlocks: false
+NamespaceIndentation: None
+
+# 中括弧（Allmanスタイル）
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass:            false
+  AfterControlStatement: false
+  AfterEnum:             false
+  AfterFunction:         true
+  AfterNamespace:        false
+  AfterStruct:           false
+  AfterUnion:            false
+  AfterExternBlock:      true
+  BeforeCatch:           false
+  BeforeElse:            true
+  BeforeLambdaBody:      false
+  IndentBraces:          false
+  SplitEmptyFunction:    false
+  SplitEmptyRecord:      false
+  SplitEmptyNamespace:   false
+
+# スペース
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+SpaceAfterCStyleCast: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceInEmptyBlock: false
+SpacesInContainerLiterals: false
+Cpp11BracedListStyle: false
+
+# 改行・折り返し
+ColumnLimit: 0
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: All
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 2
+
+# ポインタ・参照
+PointerAlignment: Left
+
+# その他
+SortIncludes: Never
+
+# 追加カスタマイズ
+LambdaBodyIndentation: OuterScope
+AlignArrayOfStructures: Left
+IndentAccessModifiers: false
+AccessModifierOffset: -4

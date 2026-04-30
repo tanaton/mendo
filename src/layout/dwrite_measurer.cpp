@@ -4,7 +4,6 @@
 #include "syntax.h"
 #include "ui_constants.h"
 #include <algorithm>
-#include <concepts>
 #include <ranges>
 
 using Microsoft::WRL::ComPtr;
@@ -17,8 +16,8 @@ static constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
 static constexpr float CELL_WIDTH_EPSILON = 0.5f;
 
 static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family,
-    float size, DWRITE_FONT_WEIGHT weight,
-    IDWriteTextFormat** out)
+                            float size, DWRITE_FONT_WEIGHT weight,
+                            IDWriteTextFormat** out)
 {
     return factory->CreateTextFormat(
         family, nullptr, weight,
@@ -88,32 +87,49 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) noexcept
 
 namespace {
 
-// 隣接する同属性ランを連続 range にマージして emit に渡す。
-// ラン配列は start 昇順で、直前ランの直後に始まる前提。
-template <typename Pred, typename Emit>
-    requires std::predicate<Pred&, const TextRun&>
-          && std::invocable<Emit&, DWRITE_TEXT_RANGE>
-void ForEachAttrRange(const std::pmr::vector<TextRun>& runs, Pred predicate, Emit emit)
+// 5 属性を 1 パスでまとめてマージするためのレンジビルダ。
+// 隣接ランで属性が連続する間はマージし、切れたら emit する。
+struct AttrRangeBuilder {
+    uint32_t start = 0;
+    uint32_t length = 0;
+    bool active = false;
+};
+
+template <typename Emit>
+inline void UpdateAttr(AttrRangeBuilder& b, bool active_now, const TextRun& run, Emit&& emit) noexcept
 {
-    const size_t n = runs.size();
-    for (size_t i = 0; i < n; ) {
-        if (!predicate(runs[i])) { i++; continue; }
-        const uint32_t range_start = runs[i].start;
-        uint32_t range_end = runs[i].start + runs[i].length;
-        size_t j = i + 1;
-        while (j < n && predicate(runs[j]) && runs[j].start == range_end) {
-            range_end += runs[j].length;
-            j++;
+    if (active_now) {
+        if (b.active && run.start == b.start + b.length) {
+            b.length += run.length;
         }
-        emit(DWRITE_TEXT_RANGE{ range_start, range_end - range_start });
-        i = j;
+        else {
+            if (b.active) {
+                emit(DWRITE_TEXT_RANGE{ b.start, b.length });
+            }
+            b.start = run.start;
+            b.length = run.length;
+            b.active = true;
+        }
+    }
+    else if (b.active) {
+        emit(DWRITE_TEXT_RANGE{ b.start, b.length });
+        b.active = false;
+    }
+}
+
+template <typename Emit>
+inline void FlushAttr(AttrRangeBuilder& b, Emit&& emit) noexcept
+{
+    if (b.active) {
+        emit(DWRITE_TEXT_RANGE{ b.start, b.length });
+        b.active = false;
     }
 }
 
 } // namespace
 
 void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout,
-    const std::pmr::vector<TextRun>& runs, std::optional<NodeType> node_type)
+                                            const std::pmr::vector<TextRun>& runs, std::optional<NodeType> node_type)
 {
     if (runs.empty()) {
         return;
@@ -122,41 +138,47 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout,
     const bool apply_code_size = apply_code && (!node_type || *node_type != NodeType::Heading);
     const bool apply_link = !node_type;
 
-    ForEachAttrRange(
-        runs,
-        [](const TextRun& r) static noexcept { return r.bold(); },
-        [&](DWRITE_TEXT_RANGE r) { layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, r); }
-    );
-    ForEachAttrRange(
-        runs,
-        [](const TextRun& r) static noexcept { return r.italic(); },
-        [&](DWRITE_TEXT_RANGE r) { layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, r); }
-    );
+    AttrRangeBuilder bold_b, italic_b, code_b, strike_b, link_b;
 
-    if (apply_code) {
-        ForEachAttrRange(
-            runs,
-            [](const TextRun& r) static noexcept { return r.code(); },
-            [&](DWRITE_TEXT_RANGE r) {
-            layout->SetFontFamilyName(theme_->monospace_font.c_str(), r);
-            if (apply_code_size) {
-                layout->SetFontSize(theme_->font_size_code, r);
-            }
-        });
+    const auto emit_bold = [&](DWRITE_TEXT_RANGE r) noexcept {
+        layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, r);
+    };
+    const auto emit_italic = [&](DWRITE_TEXT_RANGE r) noexcept {
+        layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, r);
+    };
+    const auto emit_code = [&](DWRITE_TEXT_RANGE r) noexcept {
+        layout->SetFontFamilyName(theme_->monospace_font.c_str(), r);
+        if (apply_code_size) {
+            layout->SetFontSize(theme_->font_size_code, r);
+        }
+    };
+    const auto emit_strike = [&](DWRITE_TEXT_RANGE r) noexcept {
+        layout->SetStrikethrough(TRUE, r);
+    };
+    const auto emit_link = [&](DWRITE_TEXT_RANGE r) noexcept {
+        layout->SetUnderline(TRUE, r);
+    };
+
+    for (const auto& r : runs) {
+        UpdateAttr(bold_b, r.bold(), r, emit_bold);
+        UpdateAttr(italic_b, r.italic(), r, emit_italic);
+        if (apply_code) {
+            UpdateAttr(code_b, r.code(), r, emit_code);
+        }
+        UpdateAttr(strike_b, r.strikethrough(), r, emit_strike);
+        if (apply_link) {
+            UpdateAttr(link_b, r.has_link(), r, emit_link);
+        }
     }
 
-    ForEachAttrRange(
-        runs,
-        [](const TextRun& r) static noexcept { return r.strikethrough(); },
-        [&](DWRITE_TEXT_RANGE r) { layout->SetStrikethrough(TRUE, r); }
-    );
-
+    FlushAttr(bold_b, emit_bold);
+    FlushAttr(italic_b, emit_italic);
+    if (apply_code) {
+        FlushAttr(code_b, emit_code);
+    }
+    FlushAttr(strike_b, emit_strike);
     if (apply_link) {
-        ForEachAttrRange(
-            runs,
-            [](const TextRun& r) static noexcept { return r.has_link(); },
-            [&](DWRITE_TEXT_RANGE r) { layout->SetUnderline(TRUE, r); }
-        );
+        FlushAttr(link_b, emit_link);
     }
 }
 
@@ -217,15 +239,50 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         layout_width = CODE_BLOCK_NO_WRAP_WIDTH;
     }
 
+    // line_count ベースで上限高さを動的に決める。100k DIP 固定だと
+    // 数万行のコードブロックで切り詰められうるため、フォントサイズ × 行数
+    // × 安全係数で十分な余地を確保する。コードブロックは font_size_code 基準で計算しないと
+    // body フォントが小さい設定で安全マージンが不足するため type で切り替える。
+    const float height_basis = (node.type == NodeType::CodeBlock) ? theme_->font_size_code : theme_->font_size_body;
+    const float dynamic_max_height = std::max(
+        LAYOUT_MAX_HEIGHT,
+        height_basis * static_cast<float>(std::max(1, node.line_count + 1)) * 3.0f);
+
+    // 高速パス: 既存の text_layout が残っていれば SetMaxWidth で再計測する。
+    // text_layout は内容変更時に呼び出し側 (LayoutCache::InvalidateAllLayouts /
+    // MarkAllDirty / EvictTextLayouts) で必ず Reset される契約のため、現存している
+    // 場合はテキスト/runs/フォント幾何が一致している。CreateTextLayout は内部で
+    // BiDi 解析と shaping を走らせるためリサイズ時の最大コスト要因で、SetMaxWidth は
+    // ラインブレーク再計算のみで済むので大幅に軽い。
+    if (entry.text_layout) {
+        HRESULT hr = entry.text_layout->SetMaxWidth(layout_width);
+        if (SUCCEEDED(hr)) {
+            hr = entry.text_layout->SetMaxHeight(dynamic_max_height);
+        }
+        if (SUCCEEDED(hr)) {
+            DWRITE_TEXT_METRICS metrics{};
+            entry.text_layout->GetMetrics(&metrics);
+            entry.height = metrics.height;
+            entry.layout_dirty = false;
+            // 折り返し行が変わるためエフェクト位置 / 検索ハイライト矩形は無効化する。
+            // text_layout 自体は破棄しない (フォーマット属性は保持される)。
+            entry.effects_applied = false;
+            entry.inline_code_bgs.clear();
+            entry.invalidate_search_hl_cache();
+            return;
+        }
+        // 失敗時はスローパスでフルに作り直す。
+        entry.text_layout.Reset();
+    }
+
     ComPtr<IDWriteTextLayout> layout;
     const HRESULT hr = dwrite_->CreateTextLayout(
         text.c_str(),
         static_cast<UINT32>(text.size()),
         fmt,
         layout_width,
-        LAYOUT_MAX_HEIGHT,
-        &layout
-    );
+        dynamic_max_height,
+        &layout);
     if (FAILED(hr)) {
         return;
     }
@@ -234,8 +291,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     ApplyRunFormatting(layout.Get(), node.runs, node.type);
 
     // Alert ノード: アイコン文字のフォントウェイトを設定
-    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None
-        && node.alert_label_length > 0) {
+    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
         const UINT32 icon_len = static_cast<UINT32>(GetAlertIcon(node.alert_type).size());
         const DWRITE_TEXT_RANGE icon_range{ 0, icon_len };
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);
@@ -295,7 +351,7 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
 }
 
 void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
-    size_t col_count, std::pmr::vector<float>& natural_widths)
+                                             size_t col_count, std::pmr::vector<float>& natural_widths)
 {
     const float cell_padding = TABLE_CELL_PADDING;
     const float border_width = TABLE_BORDER_WIDTH;
@@ -384,6 +440,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
 
     entry.height = total_height;
     entry.layout_dirty = false;
+    tl.last_applied_max_width = max_width;
 }
 
 void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width)
@@ -401,9 +458,27 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     auto& rows = node.table_rows();
     const auto row_count = rows.size();
     const size_t col_count = std::ranges::max(
-        rows | std::views::transform([](const auto& row) { return row.cells.size(); })
-    );
+        rows | std::views::transform([](const auto& row) static noexcept { return row.cells.size(); }));
     if (col_count == 0) {
+        entry.layout_dirty = false;
+        return;
+    }
+
+    // 既存レイアウトの互換性判定。row*col の積だけだと (旧6×4) と (新8×3) のように積が一致するだけで
+    // ストライド (col_count) が違うケースを取りこぼすため、col_count も明示的に比較する。
+    auto* tl_existing = entry.table_layout.get();
+    const bool has_compatible_layouts =
+        tl_existing
+        && tl_existing->col_count == col_count
+        && !tl_existing->cell_layouts.empty()
+        && tl_existing->cell_layouts.size() == row_count * col_count;
+
+    // 超高速パス: 前回と max_width がほぼ一致しキャッシュ済みレイアウトが揃っていれば、
+    // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、layout_dirty を倒すだけで終える。
+    // 検索ハイライト矩形・effects・inline_code_bgs もテキスト位置に依存するので保持できる。
+    if (has_compatible_layouts
+        && tl_existing->last_applied_max_width >= 0.0f
+        && std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON) {
         entry.layout_dirty = false;
         return;
     }
@@ -417,9 +492,9 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     tl.cell_inline_code_bgs.clear();
     tl.row_heights.resize(row_count);
 
-    // セルレイアウトが既に存在する場合は第1パス（テキストレイアウト作成）をスキップし、
-    // 列幅の再計算のみ行う（リサイズ時の高速パス）。
-    const bool has_existing_layouts = !tl.cell_layouts.empty() && (tl.cell_layouts.size() == row_count * col_count);
+    // セルレイアウトが既に存在し、かつストライドが現在の列数と一致する場合のみ
+    // 第1パス（テキストレイアウト作成）をスキップして列幅再計算だけ行う。
+    const bool has_existing_layouts = has_compatible_layouts;
     if (has_existing_layouts) {
         // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
         if (tl.natural_col_widths.size() == col_count) {

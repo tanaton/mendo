@@ -7,26 +7,26 @@
 #include <utility>
 
 using namespace std::literals;
-using syntax_keywords::KeywordTable;
+using syntax_keywords::BASH_KEYWORDS;
+using syntax_keywords::BASH_TYPES;
+using syntax_keywords::CMD_KEYWORDS;
+using syntax_keywords::CMD_TYPES;
 using syntax_keywords::CPP_KEYWORDS;
 using syntax_keywords::CPP_TYPES;
-using syntax_keywords::PYTHON_KEYWORDS;
-using syntax_keywords::PYTHON_TYPES;
-using syntax_keywords::JS_KEYWORDS;
-using syntax_keywords::JS_TYPES;
 using syntax_keywords::GO_KEYWORDS;
 using syntax_keywords::GO_TYPES;
+using syntax_keywords::JS_KEYWORDS;
+using syntax_keywords::JS_TYPES;
+using syntax_keywords::JSON_KEYWORDS;
+using syntax_keywords::KeywordTable;
+using syntax_keywords::PWSH_KEYWORDS;
+using syntax_keywords::PWSH_TYPES;
+using syntax_keywords::PYTHON_KEYWORDS;
+using syntax_keywords::PYTHON_TYPES;
 using syntax_keywords::RUST_KEYWORDS;
 using syntax_keywords::RUST_TYPES;
 using syntax_keywords::TS_KEYWORDS;
 using syntax_keywords::TS_TYPES;
-using syntax_keywords::BASH_KEYWORDS;
-using syntax_keywords::BASH_TYPES;
-using syntax_keywords::PWSH_KEYWORDS;
-using syntax_keywords::PWSH_TYPES;
-using syntax_keywords::CMD_KEYWORDS;
-using syntax_keywords::CMD_TYPES;
-using syntax_keywords::JSON_KEYWORDS;
 
 namespace {
 
@@ -45,24 +45,6 @@ bool IsIdentStart(wchar_t c)
 bool IsIdentChar(wchar_t c)
 {
     return IsIdentStart(c) || IsAsciiDigit(c);
-}
-
-bool IsAtLineStart(std::wstring_view text, size_t pos)
-{
-    if (pos == 0) {
-        return true;
-    }
-    for (size_t i = pos - 1; ; i--) {
-        if (text[i] == L'\n') {
-            return true;
-        }
-        if (text[i] != L' ' && text[i] != L'\t') {
-            return false;
-        }
-        if (i == 0) {
-            return true;
-        }
-    }
 }
 
 // キーワード・型名テーブルは syntax_keywords.h にある（各言語の KEYWORDS/TYPES）。
@@ -181,11 +163,11 @@ size_t ScanNumber(std::wstring_view text, size_t pos)
 
     // サフィックス (f, F, l, L, u, U 等)
     while (i < text.size() && (text[i] == L'f' || text[i] == L'F' ||
-        text[i] == L'l' || text[i] == L'L' ||
-        text[i] == L'u' || text[i] == L'U' ||
-        text[i] == L'n')) {
+                               text[i] == L'l' || text[i] == L'L' ||
+                               text[i] == L'u' || text[i] == L'U' ||
+                               text[i] == L'n')) {
         i++;
-    }  // 'n'はJS BigInt用
+    } // 'n'はJS BigInt用
 
     return i;
 }
@@ -217,34 +199,41 @@ size_t ScanBlockComment(std::wstring_view text, size_t pos, wchar_t close1, wcha
 // ---- 汎用トークナイザ ----
 
 struct LexerConfig {
-    bool line_comment_slash = false;    // //
-    bool block_comment = false;         // /* */
-    bool hash_comment = false;          // #
-    bool preprocessor = false;          // 行頭の#
-    bool triple_quote = false;          // """ '''
-    bool backtick_string = false;       // `
-    bool angle_block_comment = false;   // <# #>
-    bool double_colon_comment = false;  // ::
-    bool rem_comment = false;           // REM
-    bool case_insensitive = false;      // 大文字小文字を区別しないキーワードマッチング
-    bool skip_single_quote = false;     // 'を文字列デリミタとして扱わない
-    bool raw_backtick = false;          // エスケープなしのバッククォート文字列（Go）
+    bool line_comment_slash = false;   // //
+    bool block_comment = false;        // /* */
+    bool hash_comment = false;         // #
+    bool preprocessor = false;         // 行頭の#
+    bool triple_quote = false;         // """ '''
+    bool backtick_string = false;      // `
+    bool angle_block_comment = false;  // <# #>
+    bool double_colon_comment = false; // ::
+    bool rem_comment = false;          // REM
+    bool case_insensitive = false;     // 大文字小文字を区別しないキーワードマッチング
+    bool skip_single_quote = false;    // 'を文字列デリミタとして扱わない
+    bool raw_backtick = false;         // エスケープなしのバッククォート文字列（Go）
 };
 
-std::pmr::vector<SyntaxToken> TokenizeGeneric(
+// LexerConfig を NTTP として渡すことで `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、
+// 各言語の lexer は不要なチェックを含まない最小コードにインスタンス化される。
+template <LexerConfig Cfg>
+std::pmr::vector<SyntaxToken> TokenizeImpl(
     std::wstring_view text,
     KeywordTable keywords,
-    KeywordTable types,
-    const LexerConfig& cfg
-)
+    KeywordTable types)
 {
+    // 行頭判定が必要な言語のみフラグを保持する。それ以外では at_line_start の維持コストを払わない。
+    constexpr bool kNeedAtLineStart = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment;
+
     std::pmr::vector<SyntaxToken> tokens;
     tokens.reserve(text.size() / 4);
     size_t i = 0;
     uint32_t plain_start = 0;
     bool in_plain = false;
-    std::pmr::wstring ci_buf; // case_insensitive用の再利用バッファ
-    if (cfg.case_insensitive) {
+    // 行頭判定の状態フラグ。pos i において、現在行の開始から i までが空白のみなら true。
+    // 反復の開始時点で位置 i の at-line-start 状態を表す。i を進めた後に更新する。
+    [[maybe_unused]] bool at_line_start = true;
+    [[maybe_unused]] std::pmr::wstring ci_buf; // case_insensitive 用の再利用バッファ
+    if constexpr (Cfg.case_insensitive) {
         // 典型的なキーワード最長（PowerShell の `ForEach-Object` 等）を事前確保
         ci_buf.reserve(64);
     }
@@ -254,114 +243,141 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             EmitToken(tokens, plain_start, static_cast<uint32_t>(i) - plain_start, SyntaxTokenType::Plain);
             in_plain = false;
         }
-        };
+    };
 
     const auto start_plain = [&]() {
         if (!in_plain) {
             plain_start = static_cast<uint32_t>(i);
             in_plain = true;
         }
-        };
+    };
 
     while (i < text.size()) {
         const wchar_t c = text[i];
 
         // 1. 行コメント: //
-        if (cfg.line_comment_slash && c == L'/' && i + 1 < text.size() && text[i + 1] == L'/') {
-            flush_plain();
-            const size_t start = i;
-            while (i < text.size() && text[i] != L'\n') {
-                i++;
+        if constexpr (Cfg.line_comment_slash) {
+            if (c == L'/' && i + 1 < text.size() && text[i + 1] == L'/') {
+                flush_plain();
+                const size_t start = i;
+                while (i < text.size() && text[i] != L'\n') {
+                    i++;
+                }
+                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
+                // i は '\n' (まだ未消費) または末尾を指す。'\n' を含む場合でも本体は非空白で終わるので false。
+                at_line_start = false;
+                continue;
             }
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-            continue;
         }
 
         // 1b. アングルブロックコメント: <# #>（PowerShell）
-        if (cfg.angle_block_comment && c == L'<' && i + 1 < text.size() && text[i + 1] == L'#') {
-            flush_plain();
-            const size_t start = i;
-            i = ScanBlockComment(text, i, L'#', L'>');
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-            continue;
+        if constexpr (Cfg.angle_block_comment) {
+            if (c == L'<' && i + 1 < text.size() && text[i + 1] == L'#') {
+                flush_plain();
+                const size_t start = i;
+                i = ScanBlockComment(text, i, L'#', L'>');
+                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
+                // 終端 #> は非空白。複数行コメントでも i 直前の文字は '>' で確定。
+                at_line_start = false;
+                continue;
+            }
         }
 
-        if (cfg.hash_comment && c == L'#' && !cfg.preprocessor) {
-            flush_plain();
-            const size_t start = i;
-            while (i < text.size() && text[i] != L'\n') {
-                i++;
+        if constexpr (Cfg.hash_comment && !Cfg.preprocessor) {
+            if (c == L'#') {
+                flush_plain();
+                const size_t start = i;
+                while (i < text.size() && text[i] != L'\n') {
+                    i++;
+                }
+                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
+                at_line_start = false;
+                continue;
             }
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-            continue;
         }
 
         // 2. ブロックコメント: /* */
-        if (cfg.block_comment && c == L'/' && i + 1 < text.size() && text[i + 1] == L'*') {
-            flush_plain();
-            const size_t start = i;
-            i = ScanBlockComment(text, i, L'*', L'/');
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-            continue;
+        if constexpr (Cfg.block_comment) {
+            if (c == L'/' && i + 1 < text.size() && text[i + 1] == L'*') {
+                flush_plain();
+                const size_t start = i;
+                i = ScanBlockComment(text, i, L'*', L'/');
+                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
+                at_line_start = false;
+                continue;
+            }
         }
 
         // 3. プリプロセッサ: 行頭の#（C/C++）
-        if (cfg.preprocessor && c == L'#' && IsAtLineStart(text, i)) {
-            flush_plain();
-            const size_t start = i;
-            while (i < text.size()) {
-                if (text[i] == L'\n') {
-                    // 行継続の確認
-                    if (i > 0 && text[i - 1] == L'\\') {
-                        i++;
-                        continue;
+        if constexpr (Cfg.preprocessor) {
+            if (c == L'#' && at_line_start) {
+                flush_plain();
+                const size_t start = i;
+                while (i < text.size()) {
+                    if (text[i] == L'\n') {
+                        // 行継続の確認
+                        if (i > 0 && text[i - 1] == L'\\') {
+                            i++;
+                            continue;
+                        }
+                        break;
                     }
-                    break;
+                    i++;
                 }
-                i++;
+                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Preprocessor);
+                at_line_start = false;
+                continue;
             }
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Preprocessor);
-            continue;
         }
 
         // 3b. ダブルコロンコメント: 行頭の::（cmd）
-        if (cfg.double_colon_comment && c == L':' && i + 1 < text.size() && text[i + 1] == L':' && IsAtLineStart(text, i)) {
-            flush_plain();
-            const size_t start = i;
-            while (i < text.size() && text[i] != L'\n') {
-                i++;
+        if constexpr (Cfg.double_colon_comment) {
+            if (c == L':' && i + 1 < text.size() && text[i + 1] == L':' && at_line_start) {
+                flush_plain();
+                const size_t start = i;
+                while (i < text.size() && text[i] != L'\n') {
+                    i++;
+                }
+                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
+                at_line_start = false;
+                continue;
             }
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-            continue;
         }
 
         // 3c. REMコメント: 行頭のREM（cmd）
-        if (cfg.rem_comment && (c == L'r' || c == L'R') && IsAtLineStart(text, i) &&
-            i + 2 < text.size() &&
-            (text[i + 1] == L'e' || text[i + 1] == L'E') &&
-            (text[i + 2] == L'm' || text[i + 2] == L'M') &&
-            (i + 3 >= text.size() || !IsIdentChar(text[i + 3]))) {
-            flush_plain();
-            const size_t start = i;
-            while (i < text.size() && text[i] != L'\n') {
-                i++;
+        if constexpr (Cfg.rem_comment) {
+            if ((c == L'r' || c == L'R') && at_line_start &&
+                i + 2 < text.size() &&
+                (text[i + 1] == L'e' || text[i + 1] == L'E') &&
+                (text[i + 2] == L'm' || text[i + 2] == L'M') &&
+                (i + 3 >= text.size() || !IsIdentChar(text[i + 3]))) {
+                flush_plain();
+                const size_t start = i;
+                while (i < text.size() && text[i] != L'\n') {
+                    i++;
+                }
+                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
+                at_line_start = false;
+                continue;
             }
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-            continue;
         }
 
         // 4. トリプルクォート文字列（Python）
-        if (cfg.triple_quote && (c == L'"' || c == L'\'') && i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
-            flush_plain();
-            const size_t start = i;
-            i = ScanTripleQuote(text, i, c);
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
-            continue;
+        if constexpr (Cfg.triple_quote) {
+            if ((c == L'"' || c == L'\'') && i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
+                flush_plain();
+                const size_t start = i;
+                i = ScanTripleQuote(text, i, c);
+                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
+                at_line_start = false;
+                continue;
+            }
         }
 
         // 5. 文字列リテラル
-        if (c == L'"' || (c == L'\'' && !cfg.skip_single_quote)) {
-            // C++生文字列の確認: R"(...)"
+        if (c == L'"' || (c == L'\'' && !Cfg.skip_single_quote)) {
+            // C++生文字列の確認: R"(...)"。preprocessor 言語 (C/C++) でのみ意味があるが、
+            // 元コードと挙動を揃えるため Cfg に依存しない判定にする。
             if (c == L'"' && i > 0 && text[i - 1] == L'R' && (i < 2 || !IsIdentChar(text[i - 2]))) {
                 // 調整: Rは既にプレーンバッファにあるので除去する。
                 if (in_plain) {
@@ -374,11 +390,26 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                 // デリミタを検索: R"DELIM( ... )DELIM"
                 const size_t paren = text.find(L'(', i + 1);
                 if (paren != std::wstring_view::npos) {
-                    const std::pmr::wstring delim{ text.substr(i + 1, paren - i - 1) };
-                    const std::pmr::wstring end_marker = L")" + delim + L"\"";
-                    const size_t end_pos = text.find(end_marker, paren + 1);
+                    // delim / end_marker を pmr::wstring で確保しないよう view と手書き走査で済ます。
+                    // end_marker は ')' + delim + '"' の固定構造なので、'(' 以降から ')' を探して
+                    // delim の wmemcmp で一致確認するだけで O(1) ヒープ確保で完結する。
+                    const std::wstring_view delim = text.substr(i + 1, paren - i - 1);
+                    const size_t end_marker_len = 1 + delim.size() + 1; // ')' + delim + '"'
+                    size_t end_pos = std::wstring_view::npos;
+                    if (paren + 1 + end_marker_len <= text.size()) {
+                        for (size_t k = paren + 1; k + end_marker_len <= text.size(); k++) {
+                            if (text[k] != L')' || text[k + 1 + delim.size()] != L'"') {
+                                continue;
+                            }
+                            if (delim.empty() ||
+                                std::wmemcmp(text.data() + k + 1, delim.data(), delim.size()) == 0) {
+                                end_pos = k;
+                                break;
+                            }
+                        }
+                    }
                     if (end_pos != std::wstring_view::npos) {
-                        i = end_pos + end_marker.size();
+                        i = end_pos + end_marker_len;
                     }
                     else {
                         i = text.size();
@@ -388,22 +419,27 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
                     i = ScanString(text, i, c, false);
                 }
                 EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
+                at_line_start = false;
                 continue;
             }
             flush_plain();
             const size_t start = i;
             i = ScanString(text, i, c, false);
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
+            at_line_start = false;
             continue;
         }
 
         // 6. バッククォートテンプレートリテラル（JS）
-        if (cfg.backtick_string && c == L'`') {
-            flush_plain();
-            const size_t start = i;
-            i = ScanString(text, i, L'`', true, !cfg.raw_backtick);
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
-            continue;
+        if constexpr (Cfg.backtick_string) {
+            if (c == L'`') {
+                flush_plain();
+                const size_t start = i;
+                i = ScanString(text, i, L'`', true, !Cfg.raw_backtick);
+                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
+                at_line_start = false;
+                continue;
+            }
         }
 
         // 7. 数値
@@ -412,6 +448,7 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             const size_t start = i;
             i = ScanNumber(text, i);
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Number);
+            at_line_start = false;
             continue;
         }
 
@@ -425,17 +462,19 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
 
             const std::wstring_view word(text.data() + start, i - start);
             std::wstring_view lookup_word = word;
-            if (cfg.case_insensitive && ascii_util::HasAsciiUpper(word.data(), word.size())) {
-                ci_buf.resize(word.size());
-                ascii_util::AsciiToLowerOnly(word.data(), ci_buf.data(), word.size());
-                lookup_word = ci_buf;
+            if constexpr (Cfg.case_insensitive) {
+                if (ascii_util::HasAsciiUpper(word.data(), word.size())) {
+                    ci_buf.resize(word.size());
+                    ascii_util::AsciiToLowerOnly(word.data(), ci_buf.data(), word.size());
+                    lookup_word = ci_buf;
+                }
             }
 
             SyntaxTokenType tt = SyntaxTokenType::Plain;
-            if (std::ranges::binary_search(keywords, lookup_word)) {
+            if (keywords.contains(lookup_word)) {
                 tt = SyntaxTokenType::Keyword;
             }
-            else if (std::ranges::binary_search(types, lookup_word)) {
+            else if (types.contains(lookup_word)) {
                 tt = SyntaxTokenType::Type;
             }
             else if (IsFollowedByParen(text, i)) {
@@ -443,11 +482,21 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             }
 
             EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), tt);
+            at_line_start = false;
             continue;
         }
 
         // 9. その他: プレーンとして蓄積
         start_plain();
+        // 行頭判定を読む言語のみフラグを更新する。それ以外は per-char ストアを丸ごと省略。
+        if constexpr (kNeedAtLineStart) {
+            if (c == L'\n') {
+                at_line_start = true;
+            }
+            else if (c != L' ' && c != L'\t') {
+                at_line_start = false;
+            }
+        }
         i++;
     }
 
@@ -455,87 +504,58 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
     return tokens;
 }
 
-// ---- 言語定義テーブル ----
+// ---- 言語別 LexerConfig 定数 ----
 
-struct LanguageDef {
-    KeywordTable keywords;
-    KeywordTable types;
-    LexerConfig config;
+inline constexpr LexerConfig CPP_LEXER_CONFIG{
+    .line_comment_slash = true,
+    .block_comment = true,
+    .preprocessor = true,
 };
-
-// SyntaxLanguage列挙値でインデックス。
-// None=0, Cpp=1, Python=2, JavaScript=3, Mermaid=4,
-// Go=5, Rust=6, TypeScript=7, Bash=8, PowerShell=9, Cmd=10, Json=11, LatexMath=12
-static const LanguageDef LANGUAGE_DEFS[] = {
-    // なし
-    {{}, {}, {}},
-    // C++
-    {CPP_KEYWORDS, CPP_TYPES, {
-        .line_comment_slash = true,
-        .block_comment = true,
-        .preprocessor = true,
-    }},
-    // Python
-    {PYTHON_KEYWORDS, PYTHON_TYPES, {
-        .hash_comment = true,
-        .triple_quote = true,
-    }},
-    // JavaScript
-    {JS_KEYWORDS, JS_TYPES, {
-        .line_comment_slash = true,
-        .block_comment = true,
-        .backtick_string = true,
-    }},
-    // Mermaid（トークン化しない）
-    {{}, {}, {}},
-    // Go
-    {GO_KEYWORDS, GO_TYPES, {
-        .line_comment_slash = true,
-        .block_comment = true,
-        .backtick_string = true,
-        .raw_backtick = true,
-    }},
-    // Rust
-    {RUST_KEYWORDS, RUST_TYPES, {
-        .line_comment_slash = true,
-        .block_comment = true,
-        .skip_single_quote = true,
-    }},
-    // TypeScript
-    {TS_KEYWORDS, TS_TYPES, {
-        .line_comment_slash = true,
-        .block_comment = true,
-        .backtick_string = true,
-    }},
-    // Bash
-    {BASH_KEYWORDS, BASH_TYPES, {
-        .hash_comment = true,
-        .backtick_string = true,
-    }},
-    // PowerShell
-    {PWSH_KEYWORDS, PWSH_TYPES, {
-        .hash_comment = true,
-        .angle_block_comment = true,
-        .case_insensitive = true,
-    }},
-    // Cmd
-    {CMD_KEYWORDS, CMD_TYPES, {
-        .double_colon_comment = true,
-        .rem_comment = true,
-        .case_insensitive = true,
-        .skip_single_quote = true,
-    }},
-    // JSON / JSONC
-    {JSON_KEYWORDS, {}, {
-        .line_comment_slash = true,
-        .block_comment = true,
-        .skip_single_quote = true,
-    }},
-    // LatexMath（トークン化しない）
-    {{}, {}, {}},
+inline constexpr LexerConfig PYTHON_LEXER_CONFIG{
+    .hash_comment = true,
+    .triple_quote = true,
 };
-
-static_assert(std::size(LANGUAGE_DEFS) == std::to_underlying(SyntaxLanguage::LatexMath) + 1, "LANGUAGE_DEFS must cover all SyntaxLanguage values");
+inline constexpr LexerConfig JS_LEXER_CONFIG{
+    .line_comment_slash = true,
+    .block_comment = true,
+    .backtick_string = true,
+};
+inline constexpr LexerConfig GO_LEXER_CONFIG{
+    .line_comment_slash = true,
+    .block_comment = true,
+    .backtick_string = true,
+    .raw_backtick = true,
+};
+inline constexpr LexerConfig RUST_LEXER_CONFIG{
+    .line_comment_slash = true,
+    .block_comment = true,
+    .skip_single_quote = true,
+};
+inline constexpr LexerConfig TS_LEXER_CONFIG{
+    .line_comment_slash = true,
+    .block_comment = true,
+    .backtick_string = true,
+};
+inline constexpr LexerConfig BASH_LEXER_CONFIG{
+    .hash_comment = true,
+    .backtick_string = true,
+};
+inline constexpr LexerConfig PWSH_LEXER_CONFIG{
+    .hash_comment = true,
+    .angle_block_comment = true,
+    .case_insensitive = true,
+};
+inline constexpr LexerConfig CMD_LEXER_CONFIG{
+    .double_colon_comment = true,
+    .rem_comment = true,
+    .case_insensitive = true,
+    .skip_single_quote = true,
+};
+inline constexpr LexerConfig JSON_LEXER_CONFIG{
+    .line_comment_slash = true,
+    .block_comment = true,
+    .skip_single_quote = true,
+};
 
 } // namespace
 
@@ -601,11 +621,34 @@ SyntaxLanguage DetectLanguage(std::wstring_view info_string)
 
 std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language)
 {
-    const auto idx = std::to_underlying(language);
-    if (text.empty() || language == SyntaxLanguage::None ||
-        IsDiagramLanguage(language) || idx >= std::size(LANGUAGE_DEFS)) {
+    if (text.empty() || language == SyntaxLanguage::None || IsDiagramLanguage(language)) {
         return {};
     }
-    const auto& def = LANGUAGE_DEFS[idx];
-    return TokenizeGeneric(text, def.keywords, def.types, def.config);
+    switch (language) {
+    case SyntaxLanguage::Cpp:
+        return TokenizeImpl<CPP_LEXER_CONFIG>(text, CPP_KEYWORDS, CPP_TYPES);
+    case SyntaxLanguage::Python:
+        return TokenizeImpl<PYTHON_LEXER_CONFIG>(text, PYTHON_KEYWORDS, PYTHON_TYPES);
+    case SyntaxLanguage::JavaScript:
+        return TokenizeImpl<JS_LEXER_CONFIG>(text, JS_KEYWORDS, JS_TYPES);
+    case SyntaxLanguage::Go:
+        return TokenizeImpl<GO_LEXER_CONFIG>(text, GO_KEYWORDS, GO_TYPES);
+    case SyntaxLanguage::Rust:
+        return TokenizeImpl<RUST_LEXER_CONFIG>(text, RUST_KEYWORDS, RUST_TYPES);
+    case SyntaxLanguage::TypeScript:
+        return TokenizeImpl<TS_LEXER_CONFIG>(text, TS_KEYWORDS, TS_TYPES);
+    case SyntaxLanguage::Bash:
+        return TokenizeImpl<BASH_LEXER_CONFIG>(text, BASH_KEYWORDS, BASH_TYPES);
+    case SyntaxLanguage::PowerShell:
+        return TokenizeImpl<PWSH_LEXER_CONFIG>(text, PWSH_KEYWORDS, PWSH_TYPES);
+    case SyntaxLanguage::Cmd:
+        return TokenizeImpl<CMD_LEXER_CONFIG>(text, CMD_KEYWORDS, CMD_TYPES);
+    case SyntaxLanguage::Json:
+        return TokenizeImpl<JSON_LEXER_CONFIG>(text, JSON_KEYWORDS, KeywordTable{});
+    case SyntaxLanguage::None:
+    case SyntaxLanguage::Mermaid:
+    case SyntaxLanguage::LatexMath:
+        return {};
+    }
+    std::unreachable();
 }
