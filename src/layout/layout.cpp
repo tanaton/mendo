@@ -117,7 +117,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
         return theme.paragraph_spacing + theme.hr_thickness;
     case NodeType::Table: {
         const size_t row_count = node.has_table() ? std::max(1uz, node.table_rows().size()) : 1uz;
-        return line_height * static_cast<float>(row_count);
+        return line_height * 1.5f * static_cast<float>(row_count);
     }
     case NodeType::Image:
         return std::max(60.0f, theme.font_size_body * 3.0f);

@@ -4,7 +4,6 @@
 #include "syntax.h"
 #include "ui_constants.h"
 #include <algorithm>
-#include <concepts>
 #include <ranges>
 
 using Microsoft::WRL::ComPtr;
@@ -92,7 +91,7 @@ namespace {
 // ラン配列は start 昇順で、直前ランの直後に始まる前提。
 template <typename Pred, typename Emit>
     requires std::predicate<Pred&, const TextRun&>
-          && std::invocable<Emit&, DWRITE_TEXT_RANGE>
+&& std::invocable<Emit&, DWRITE_TEXT_RANGE>
 void ForEachAttrRange(const std::pmr::vector<TextRun>& runs, Pred predicate, Emit emit)
 {
     const size_t n = runs.size();
@@ -125,37 +124,38 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout,
     ForEachAttrRange(
         runs,
         [](const TextRun& r) static noexcept { return r.bold(); },
-        [&](DWRITE_TEXT_RANGE r) { layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, r); }
+        [&](DWRITE_TEXT_RANGE r) noexcept { layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, r); }
     );
     ForEachAttrRange(
         runs,
         [](const TextRun& r) static noexcept { return r.italic(); },
-        [&](DWRITE_TEXT_RANGE r) { layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, r); }
+        [&](DWRITE_TEXT_RANGE r) noexcept { layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, r); }
     );
 
     if (apply_code) {
         ForEachAttrRange(
             runs,
             [](const TextRun& r) static noexcept { return r.code(); },
-            [&](DWRITE_TEXT_RANGE r) {
-            layout->SetFontFamilyName(theme_->monospace_font.c_str(), r);
-            if (apply_code_size) {
-                layout->SetFontSize(theme_->font_size_code, r);
+            [&](DWRITE_TEXT_RANGE r) noexcept {
+                layout->SetFontFamilyName(theme_->monospace_font.c_str(), r);
+                if (apply_code_size) {
+                    layout->SetFontSize(theme_->font_size_code, r);
+                }
             }
-        });
+        );
     }
 
     ForEachAttrRange(
         runs,
         [](const TextRun& r) static noexcept { return r.strikethrough(); },
-        [&](DWRITE_TEXT_RANGE r) { layout->SetStrikethrough(TRUE, r); }
+        [&](DWRITE_TEXT_RANGE r) noexcept { layout->SetStrikethrough(TRUE, r); }
     );
 
     if (apply_link) {
         ForEachAttrRange(
             runs,
             [](const TextRun& r) static noexcept { return r.has_link(); },
-            [&](DWRITE_TEXT_RANGE r) { layout->SetUnderline(TRUE, r); }
+            [&](DWRITE_TEXT_RANGE r) noexcept { layout->SetUnderline(TRUE, r); }
         );
     }
 }
@@ -217,13 +217,21 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         layout_width = CODE_BLOCK_NO_WRAP_WIDTH;
     }
 
+    // line_count ベースで上限高さを動的に決める。100k DIP 固定だと
+    // 数万行のコードブロックで切り詰められうるため、フォントサイズ × 行数
+    // × 安全係数で十分な余地を確保する。
+    const float dynamic_max_height = std::max(
+        LAYOUT_MAX_HEIGHT,
+        theme_->font_size_body * static_cast<float>(std::max(1, node.line_count + 1)) * 3.0f
+    );
+
     ComPtr<IDWriteTextLayout> layout;
     const HRESULT hr = dwrite_->CreateTextLayout(
         text.c_str(),
         static_cast<UINT32>(text.size()),
         fmt,
         layout_width,
-        LAYOUT_MAX_HEIGHT,
+        dynamic_max_height,
         &layout
     );
     if (FAILED(hr)) {

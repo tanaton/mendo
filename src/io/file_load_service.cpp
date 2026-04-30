@@ -49,6 +49,9 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
     const uint32_t gen = async_gen_.fetch_add(1, std::memory_order_relaxed) + 1;
 
     // ワーカースレッドは loading_path_ に触らないため、capture コピーで安全。
+    // theme も値コピー: UI スレッドの SetTheme は std::wstring メンバ (font_family など) を
+    // 非アトミックに書き換えるので、参照キャプチャだと worker の EstimateNodeHeights が
+    // 文字列リードと同時にレースする。
     scheduler.Post([this, path = loading_path_, hwnd, msg_id, gen, theme] {
         if (async_gen_.load(std::memory_order_relaxed) != gen) {
             return;
