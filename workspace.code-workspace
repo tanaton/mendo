@@ -12,20 +12,11 @@
 			"WIN32_LEAN_AND_MEAN",
 			"MD4C_USE_UTF16"
 		],
-		"chat.tools.terminal.autoApprove": {
-			"ctest": true,
-			"cmake": true
-		},
 		"C_Cpp.default.cppStandard": "c++23",
 		"C_Cpp.default.cStandard": "c23",
 		"editor.formatOnSave": true,
-		"C_Cpp.clang_format_style": "Visual Studio",
-		"C_Cpp.formatting": "vcFormat",
-		"C_Cpp.doxygen.generatedStyle": "//!",
-		"C_Cpp.vcFormat.indent.namespaceContents": false,
-		"C_Cpp.vcFormat.indent.lambdaBracesWhenParameter": true,
-		"C_Cpp.vcFormat.newLine.beforeOpenBrace.function": "newLine",
-		"C_Cpp.vcFormat.newLine.beforeOpenBrace.lambda": "sameLine",
-		"C_Cpp.vcFormat.space.withinExpressionParentheses": false
+		"C_Cpp.formatting": "clangFormat",
+		"C_Cpp.clang_format_style": "file",
+		"C_Cpp.doxygen.generatedStyle": "//!"
 	}
 }
