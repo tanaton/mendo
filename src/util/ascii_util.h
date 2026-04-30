@@ -213,10 +213,18 @@ inline size_t Find(std::wstring_view text, std::wstring_view query, size_t start
     return npos;
 }
 
-// 小文字 ASCII リテラル専用の引数型。コンパイル時に大文字混入を検出する。
+// 小文字 ASCII リテラル専用の引数型。コンパイル時に契約違反を検出する。
 // 配列参照のテンプレートコンストラクタで wchar_t リテラルしか受け付けず、
-// consteval 内で大文字を見つけたら throw により定数評価が ill-formed となり
-// コンパイルエラーになる。実行時オーバーヘッドはゼロ。
+// consteval 内の throw で定数評価を ill-formed にしてコンパイルエラーを発生させる。
+// 実行時オーバーヘッドはゼロ。
+//
+// 検証する契約:
+//  - NUL 終端 (literal[N-1] == L'\0')。文字列リテラルなら自動で満たすが、
+//    手書きの wchar_t[N] 配列で終端を忘れた場合に弾く。
+//  - 全文字が ASCII 範囲 (<= 0x7F)。CJK 等が混じるとサイレントに通って
+//    比較側で常に不一致になるため、明示的に拒否する。
+//  - 大文字 'A'-'Z' を含まない。`iequal` 等は LHS のみ projection で
+//    小文字化する高速版なので、RHS は小文字確定でなければならない。
 struct LowercaseAsciiLiteral {
     std::wstring_view value;
 
@@ -224,7 +232,13 @@ struct LowercaseAsciiLiteral {
     consteval LowercaseAsciiLiteral(const wchar_t (&literal)[N]) noexcept
         : value(literal, N - 1)
     {
+        if (literal[N - 1] != L'\0') {
+            throw "LowercaseAsciiLiteral: literal must be NUL-terminated";
+        }
         for (size_t i = 0; i < N - 1; ++i) {
+            if (literal[i] > 0x7F) {
+                throw "LowercaseAsciiLiteral: literal must contain only ASCII characters";
+            }
             if (literal[i] >= L'A' && literal[i] <= L'Z') {
                 throw "LowercaseAsciiLiteral: literal must be lowercase ASCII";
             }
