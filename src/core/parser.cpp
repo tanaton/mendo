@@ -3,10 +3,10 @@
 #include "document_utils.h"
 #include "syntax.h"
 #include "memory_resource.h"
+#include "profiler.h"
 #include "md4c.h"
 #include <stack>
 #include <map>
-#include <unordered_map>
 #include <charconv>
 #include <climits>
 #include <format>
@@ -19,6 +19,9 @@
 #include <utility>
 
 namespace {
+
+// current_text スクラッチの初期確保サイズ。最初のノードの append が realloc で詰まらない程度を狙う。
+constexpr size_t SCRATCH_RESERVE = 4096;
 
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
@@ -41,11 +44,14 @@ struct ParseContext {
     uint8_t italic_count = 0;
     uint8_t code_count = 0;
     uint8_t strikethrough_count = 0;
-    int current_link_url_index = -1;
+    // 現在進行中の <a> span に対応する URL。empty = リンク外。
+    // Node には毎回コピー渡しされるため move 整合は不要。parse_resource に乗せて
+    // synchronized pool の mutex を回避する。
+    std::pmr::wstring current_link_url{ parse_resource.resource() };
 
-    // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で
-    // ノードの text_ にムーブする。
-    std::pmr::wstring current_text{ parse_resource.resource() };
+    // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で Node::text_ へ move する。
+    // allocator は default を使う (Node::text_ と一致させて allocator 不一致による要素コピーを避ける)。
+    std::pmr::wstring current_text;
 
     // current_text 内の「未確定 TextRun」の開始位置 (wide unit)。
     // 同じ span 状態で連続する AppendWide は 1 つの TextRun に統合される。
@@ -73,16 +79,11 @@ struct ParseContext {
     // 現在構築中のノード
     Node* current_node = nullptr;
 
-    std::pmr::vector<std::pmr::wstring> link_urls{ parse_resource.resource() };
+    // アンカーIDの一意性追跡: スラグ -> 出現回数。
+    std::pmr::map<std::pmr::wstring, int, std::less<>> anchor_counts;
 
-    // BeginNode 毎にクリア。MakeRun から O(1) で重複 URL を検出する
-    std::pmr::unordered_map<std::pmr::wstring, int16_t> current_node_url_map{ parse_resource.resource() };
-
-    // アンカーIDの一意性追跡: スラグ -> 出現回数
-    std::pmr::map<std::pmr::wstring, int> anchor_counts{ parse_resource.resource() };
-
-    // 画像スパン追跡
-    std::pmr::wstring pending_image_src{ parse_resource.resource() };
+    // 画像スパン追跡。NodeImageData::src への std::move を真の move にするため default allocator。
+    std::pmr::wstring pending_image_src;
 
     // display math スパンが 1 個だけで他の内容が無い段落を LatexMath コードブロックに昇格する状態
     bool in_display_math = false;
@@ -93,7 +94,7 @@ struct ParseContext {
     // md_parse() に渡した入力バッファ先頭ポインタ（source_offset 計算用、UTF-16 コード単位オフセット）
     const wchar_t* markdown_base = nullptr;
 
-    // 現在ノードの Wide スクラッチを text_ に書き込み、スクラッチを空にする。
+    // 現在ノードの Wide スクラッチを text_ にムーブし、スクラッチを空にする。
     // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
     void FinalizeCurrentNode()
     {
@@ -101,7 +102,6 @@ struct ParseContext {
         if (current_node && !current_text.empty()) {
             current_node->SetTextWithLineCount(std::move(current_text), current_node->line_count);
         }
-        // move 後 / 元から空 のいずれの経路でも、次ノード用に空状態へ揃える。
         current_text.clear();
     }
 
@@ -119,7 +119,6 @@ struct ParseContext {
             current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, kInt8Max));
             current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, kInt8Max));
         }
-        current_node_url_map.clear();
     }
 
     TextRun MakeRun(uint32_t start, uint32_t length)
@@ -131,16 +130,18 @@ struct ParseContext {
         run.set_italic(static_cast<bool>(italic_count));
         run.set_code(static_cast<bool>(code_count));
         run.set_strikethrough(static_cast<bool>(strikethrough_count));
-        if (current_link_url_index >= 0 && current_node) {
-            const auto& url = link_urls[static_cast<size_t>(current_link_url_index)];
-            int16_t node_idx;
-            if (const auto it = current_node_url_map.find(url); it != current_node_url_map.end()) {
-                node_idx = it->second;
+        if (!current_link_url.empty() && current_node) {
+            const auto& urls = current_node->link_urls;
+            int16_t node_idx = -1;
+            for (size_t i = 0; i < urls.size(); i++) {
+                if (urls[i] == current_link_url) {
+                    node_idx = static_cast<int16_t>(i);
+                    break;
+                }
             }
-            else {
-                node_idx = static_cast<int16_t>(current_node->link_urls.size());
-                current_node->link_urls.emplace_back(url);
-                current_node_url_map.emplace(url, node_idx);
+            if (node_idx < 0) {
+                node_idx = static_cast<int16_t>(urls.size());
+                current_node->link_urls.emplace_back(current_link_url);
             }
             run.link_url_index = node_idx;
         }
@@ -174,7 +175,6 @@ struct ParseContext {
             has_pending_run = true;
         }
         current_text.append(text);
-        current_node->line_count += static_cast<int>(std::ranges::count(text, L'\n'));
     }
 
     // 未確定 TextRun を確定して current_node->runs に push する。
@@ -183,6 +183,8 @@ struct ParseContext {
     {
         if (has_pending_run && current_node && current_text.size() > pending_run_start) {
             const uint32_t length = static_cast<uint32_t>(current_text.size() - pending_run_start);
+            const std::wstring_view run_view{ current_text.data() + pending_run_start, length };
+            current_node->line_count += static_cast<int>(std::ranges::count(run_view, L'\n'));
             current_node->runs.emplace_back(MakeRun(pending_run_start, length));
         }
         has_pending_run = false;
@@ -482,10 +484,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
-        if (a->href.text && a->href.size > 0) {
-            ctx->link_urls.emplace_back();
-            ctx->link_urls.back().assign(a->href.text, static_cast<size_t>(a->href.size));
-            ctx->current_link_url_index = static_cast<int>(ctx->link_urls.size()) - 1;
+        if (a->href.size > 0) {
+            ctx->current_link_url.assign(a->href.text, static_cast<size_t>(a->href.size));
         }
         ctx->paragraph_has_other_content = true;
         break;
@@ -548,7 +548,7 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
         --ctx->strikethrough_count;
         break;
     case MD_SPAN_A:
-        ctx->current_link_url_index = -1;
+        ctx->current_link_url.clear();
         break;
     case MD_SPAN_IMG:
         if (auto* cn = ctx->current_node; cn && !ctx->pending_image_src.empty()) {
@@ -652,8 +652,8 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
     // ノード単位のスクラッチを 1 回確保しておくと、長段落・コードブロックでの再確保を抑えられる。
-    ctx.current_text.reserve(4096);
-    ctx.nodes.reserve(std::clamp(markdown_text.size() / 64, size_t{ 64 }, size_t{ 8192 }));
+    ctx.current_text.reserve(SCRATCH_RESERVE);
+    ctx.nodes.reserve(std::clamp(markdown_text.size() / 48, size_t{ 64 }, size_t{ 16384 }));
     ctx.heading_indices.reserve(std::clamp(markdown_text.size() / 256, size_t{ 8 }, size_t{ 512 }));
     ctx.image_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
     ctx.diagram_indices.reserve(std::clamp(markdown_text.size() / 1024, size_t{ 4 }, size_t{ 128 }));
@@ -668,13 +668,18 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
     parser.leave_span = OnLeaveSpan;
     parser.text = OnText;
 
-    md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
+    {
+        MENDO_PROFILE("md_parse");
+        md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
+        // 最後の current_node が残っていれば（典型的には全 OnLeaveBlock で処理済みだが
+        // 安全のため）テキストを確定する。
+        ctx.FinalizeCurrentNode();
+    }
 
-    // 最後の current_node が残っていれば（典型的には全 OnLeaveBlock で処理済みだが
-    // 安全のため）テキストを確定する。
-    ctx.FinalizeCurrentNode();
-
-    DetectAlerts(ctx.nodes, std::span<const size_t>{ ctx.blockquote_indices });
+    {
+        MENDO_PROFILE("DetectAlerts");
+        DetectAlerts(ctx.nodes, std::span<const size_t>{ ctx.blockquote_indices });
+    }
 
     ParseResult result;
     result.nodes = std::move(ctx.nodes);
