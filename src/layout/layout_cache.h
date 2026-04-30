@@ -16,23 +16,29 @@ using InlineCodeBg = D2D1_RECT_F;
 // テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）
 struct TableLayoutData {
     std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]
-    std::pmr::vector<std::pmr::vector<InlineCodeBg>> cell_inline_code_bgs; // フラット配列 [行 * col_count + 列][]
-    size_t col_count = 0; // cell_layoutsのストライド
+    std::pmr::vector<std::pmr::vector<InlineCodeBg>> cell_inline_code_bgs;    // フラット配列 [行 * col_count + 列][]
+    size_t col_count = 0;                                                     // cell_layoutsのストライド
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
-    std::pmr::vector<float> natural_col_widths; // リサイズ高速パス用キャッシュ
+    std::pmr::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
     std::pmr::vector<float> cell_heights;        // 各セルに最後に適用した幅での計測高さ
     std::pmr::vector<float> cell_applied_widths; // 各セルに最後に適用した max_width（変更判定用）
     std::pmr::vector<uint32_t> row_flat_offsets; // 各行の線形化テキスト先頭オフセット（ヒットテスト高速化用）
-    std::pmr::vector<uint8_t> row_bgs_computed; // 各行のインラインコード背景計算済みフラグ
+    std::pmr::vector<uint8_t> row_bgs_computed;  // 各行のインラインコード背景計算済みフラグ
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
     std::pmr::vector<float> row_cum_y;
     std::pmr::vector<float> col_cum_x;
+    // FinalizeTableLayout に最後に渡された max_width。CELL_WIDTH_EPSILON 以内の
+    // 差分なら全体の再計算を完全スキップできる。負値 = 未設定。
+    float last_applied_max_width = -1.0f;
 
     // フラットインデックスへの変換
-    constexpr size_t CellIndex(size_t row, size_t col) const noexcept { return row * col_count + col; }
+    constexpr size_t CellIndex(size_t row, size_t col) const noexcept
+    {
+        return row * col_count + col;
+    }
 
     // セルレイアウトの安全アクセス
     IDWriteTextLayout* GetCellLayout(size_t row, size_t col) const noexcept
@@ -44,7 +50,7 @@ struct TableLayoutData {
     // 行内 [col_from, col_to) のセル幅とタブ区切りだけ flat_offset を進める。
     // 線形化規約は dwrite_measurer.cpp の row_flat_offsets 構築と一致する。
     static void AdvanceFlatOffsetInRow(const TableRow& row,
-        size_t col_from, size_t col_to, uint32_t& flat_offset) noexcept
+                                       size_t col_from, size_t col_to, uint32_t& flat_offset) noexcept
     {
         const auto col_count_actual = row.cells.size();
         const size_t end = std::min(col_to, col_count_actual);
@@ -60,7 +66,7 @@ struct TableLayoutData {
     // dwrite_measurer の MeasureTable がレイアウト確定時に row_flat_offsets を必ず埋めるため、
     // ここでの存在は前提扱い。
     uint32_t CellFlatOffset(const std::pmr::vector<TableRow>& rows,
-        size_t row_idx, size_t col) const noexcept
+                            size_t row_idx, size_t col) const noexcept
     {
         assert(row_idx < row_flat_offsets.size());
         uint32_t offset = row_flat_offsets[row_idx];
@@ -110,7 +116,10 @@ struct NodeLayoutEntry {
         }
         return *table_layout;
     }
-    constexpr bool has_table_layout() const noexcept { return table_layout != nullptr; }
+    constexpr bool has_table_layout() const noexcept
+    {
+        return table_layout != nullptr;
+    }
 
     // マッチの絶対 Y とその行の高さを返す。text_layout（テーブルはセル layout）が
     // あれば text_offset に対応する行 Y を精密に計算し、無ければ
@@ -173,8 +182,7 @@ public:
         const size_t old_count = entries_.size();
         Resize(new_node_count);
         if (new_node_count > old_count && old_count > 0) {
-            const float end_y = entries_[old_count - 1].y_position
-                + entries_[old_count - 1].height;
+            const float end_y = entries_[old_count - 1].y_position + entries_[old_count - 1].height;
             for (size_t i = old_count; i < new_node_count; i++) {
                 entries_[i].y_position = end_y;
             }
@@ -196,12 +204,21 @@ public:
         effects_generation_++;
     }
 
-    constexpr size_t size() const noexcept { return entries_.size(); }
+    constexpr size_t size() const noexcept
+    {
+        return entries_.size();
+    }
 
     using const_iterator = std::pmr::vector<NodeLayoutEntry>::const_iterator;
 
-    constexpr const_iterator cbegin() const noexcept { return entries_.begin(); }
-    constexpr const_iterator cend() const noexcept { return entries_.end(); }
+    constexpr const_iterator cbegin() const noexcept
+    {
+        return entries_.begin();
+    }
+    constexpr const_iterator cend() const noexcept
+    {
+        return entries_.end();
+    }
 
     constexpr NodeLayoutEntry& operator[](size_t i) noexcept
     {
@@ -242,6 +259,7 @@ public:
                 e.table_layout->cell_heights.clear();
                 e.table_layout->cell_applied_widths.clear();
                 e.table_layout->col_count = 0;
+                e.table_layout->last_applied_max_width = -1.0f;
             }
         }
         effects_generation_++;
@@ -319,6 +337,7 @@ public:
                 e.table_layout->cell_heights.clear();
                 e.table_layout->cell_applied_widths.clear();
                 e.table_layout->col_count = 0;
+                e.table_layout->last_applied_max_width = -1.0f;
             }
         }
         effects_generation_++;
@@ -326,8 +345,14 @@ public:
 
     // エフェクト世代カウンタ。レイアウト変更時にインクリメントされる。
     // Renderer が ApplyVisibleEffects のスキップ判定に使用する。
-    constexpr uint32_t GetEffectsGeneration() const noexcept { return effects_generation_; }
-    constexpr void IncrementEffectsGeneration() noexcept { effects_generation_++; }
+    constexpr uint32_t GetEffectsGeneration() const noexcept
+    {
+        return effects_generation_;
+    }
+    constexpr void IncrementEffectsGeneration() noexcept
+    {
+        effects_generation_++;
+    }
 
 private:
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept

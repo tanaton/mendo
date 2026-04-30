@@ -44,10 +44,9 @@ struct ParseContext {
     uint8_t italic_count = 0;
     uint8_t code_count = 0;
     uint8_t strikethrough_count = 0;
-    // 現在進行中の <a> span に対応する URL。empty = リンク外。
-    // Node には毎回コピー渡しされるため move 整合は不要。parse_resource に乗せて
-    // synchronized pool の mutex を回避する。
-    std::pmr::wstring current_link_url{ parse_resource.resource() };
+    // 現在の <a> span に対応する link_urls インデックス。-1 = リンク外。
+    // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
+    int16_t current_link_url_index = -1;
 
     // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で Node::text_ へ move する。
     // allocator は default を使う (Node::text_ と一致させて allocator 不一致による要素コピーを避ける)。
@@ -63,9 +62,9 @@ struct ParseContext {
     int indent_level = 0;
     bool in_code_block = false;
     int blockquote_depth = 0;
-    int blockquote_group_counter = 0;           // グループID生成用
-    int current_blockquote_group = -1;          // 最外側 blockquote の group ID（ネスト中は共有）
-    int outermost_quote_indent = 0;             // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
+    int blockquote_group_counter = 0;  // グループID生成用
+    int current_blockquote_group = -1; // 最外側 blockquote の group ID（ネスト中は共有）
+    int outermost_quote_indent = 0;    // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
 
     // リスト追跡
     std::stack<int, std::pmr::vector<int>> list_counter{ std::pmr::vector<int>{ parse_resource.resource() } }; // 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
@@ -80,7 +79,10 @@ struct ParseContext {
     Node* current_node = nullptr;
 
     // アンカーIDの一意性追跡: スラグ -> 出現回数。
-    std::pmr::map<std::pmr::wstring, int, std::less<>> anchor_counts;
+    // map ノードとキー文字列を parse_resource に乗せて synchronized_pool への malloc を避ける。
+    // キーは ParseContext のライフタイム内でしか参照されず、Heading::anchor_id 側へは
+    // assign で別途コピーされるため parse_resource (monotonic) で十分。
+    std::pmr::map<std::pmr::wstring, int, std::less<>> anchor_counts{ parse_resource.resource() };
 
     // 画像スパン追跡。NodeImageData::src への std::move を真の move にするため default allocator。
     std::pmr::wstring pending_image_src;
@@ -94,13 +96,20 @@ struct ParseContext {
     // md_parse() に渡した入力バッファ先頭ポインタ（source_offset 計算用、UTF-16 コード単位オフセット）
     const wchar_t* markdown_base = nullptr;
 
-    // 現在ノードの Wide スクラッチを text_ にムーブし、スクラッチを空にする。
+    // 現在ノードの Wide スクラッチを text_ にコピーし、スクラッチをクリアする。
     // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
+    // Why: ここで std::move すると current_text の内部バッファごと Node::text_ へ持っていかれて
+    // capacity が 0 に戻り、次ノードの最初の append が SCRATCH_RESERVE 分の確保からやり直しになる。
+    // wstring_view 経由でコピーすれば current_text は最大サイズを保ったまま再利用でき、
+    // 文書全体で synchronized_pool への malloc 回数が大幅に減る。Node::text_ 側も実サイズに
+    // 合わせて確保されるためメモリ的にも得 (4KB スクラッチを掴ませない)。
     void FinalizeCurrentNode()
     {
         FlushPendingRun();
         if (current_node && !current_text.empty()) {
-            current_node->SetTextWithLineCount(std::move(current_text), current_node->line_count);
+            current_node->SetTextWithLineCount(
+                std::wstring_view{ current_text.data(), current_text.size() },
+                current_node->line_count);
         }
         current_text.clear();
     }
@@ -119,6 +128,27 @@ struct ParseContext {
             current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, kInt8Max));
             current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, kInt8Max));
         }
+        // 想定される runs 数を予約して emplace_back の倍々再割り当てを抑制する。
+        // HR/Image は runs を持たないので予約しない。Table 自体のラン (cell は別管理) と
+        // Heading/CodeBlock は 1〜2 ラン以下、Paragraph 系は 3〜8 程度が中央値。
+        switch (type) {
+        case NodeType::Heading:
+        case NodeType::CodeBlock:
+        case NodeType::Table:
+            current_node->runs.reserve(2);
+            break;
+        case NodeType::Paragraph:
+        case NodeType::ListItem:
+        case NodeType::BlockQuote:
+        case NodeType::TaskListItem:
+            current_node->runs.reserve(8);
+            break;
+        case NodeType::HorizontalRule:
+        case NodeType::Image:
+            break;
+        default:
+            std::unreachable();
+        }
     }
 
     TextRun MakeRun(uint32_t start, uint32_t length)
@@ -130,22 +160,28 @@ struct ParseContext {
         run.set_italic(static_cast<bool>(italic_count));
         run.set_code(static_cast<bool>(code_count));
         run.set_strikethrough(static_cast<bool>(strikethrough_count));
-        if (!current_link_url.empty() && current_node) {
-            const auto& urls = current_node->link_urls;
-            int16_t node_idx = -1;
-            for (size_t i = 0; i < urls.size(); i++) {
-                if (urls[i] == current_link_url) {
-                    node_idx = static_cast<int16_t>(i);
-                    break;
-                }
-            }
-            if (node_idx < 0) {
-                node_idx = static_cast<int16_t>(urls.size());
-                current_node->link_urls.emplace_back(current_link_url);
-            }
-            run.link_url_index = node_idx;
-        }
+        // インデックスは OnEnterSpan(MD_SPAN_A) で確定済み。span 内の複数ランで wmemcmp を再実行しない。
+        run.link_url_index = current_link_url_index;
         return run;
+    }
+
+    // url を Node::link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
+    // 既出 URL は線形検索で再利用 (link_urls の典型サイズは 0〜数件)。
+    void ResolveLinkUrlIndex(std::wstring_view url)
+    {
+        if (!current_node || url.empty()) {
+            current_link_url_index = -1;
+            return;
+        }
+        auto& urls = current_node->link_urls;
+        for (size_t i = 0; i < urls.size(); i++) {
+            if (urls[i] == url) {
+                current_link_url_index = static_cast<int16_t>(i);
+                return;
+            }
+        }
+        current_link_url_index = static_cast<int16_t>(urls.size());
+        urls.emplace_back(url);
     }
 
     // テーブルセルにWideテキストを追加（AppendWideから委譲される）。
@@ -484,9 +520,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
-        if (a->href.size > 0) {
-            ctx->current_link_url.assign(a->href.text, static_cast<size_t>(a->href.size));
-        }
+        ctx->ResolveLinkUrlIndex(std::wstring_view{ a->href.text, static_cast<size_t>(a->href.size) });
         ctx->paragraph_has_other_content = true;
         break;
     }
@@ -548,7 +582,7 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
         --ctx->strikethrough_count;
         break;
     case MD_SPAN_A:
-        ctx->current_link_url.clear();
+        ctx->current_link_url_index = -1;
         break;
     case MD_SPAN_IMG:
         if (auto* cn = ctx->current_node; cn && !ctx->pending_image_src.empty()) {
@@ -692,12 +726,18 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
 std::wstring_view GetAlertLabel(AlertType type) noexcept
 {
     switch (type) {
-    case AlertType::None:      return L"";
-    case AlertType::Note:      return L"Note";
-    case AlertType::Tip:       return L"Tip";
-    case AlertType::Important: return L"Important";
-    case AlertType::Warning:   return L"Warning";
-    case AlertType::Caution:   return L"Caution";
+    case AlertType::None:
+        return L"";
+    case AlertType::Note:
+        return L"Note";
+    case AlertType::Tip:
+        return L"Tip";
+    case AlertType::Important:
+        return L"Important";
+    case AlertType::Warning:
+        return L"Warning";
+    case AlertType::Caution:
+        return L"Caution";
     }
     std::unreachable();
 }
@@ -705,12 +745,18 @@ std::wstring_view GetAlertLabel(AlertType type) noexcept
 std::wstring_view GetAlertIcon(AlertType type) noexcept
 {
     switch (type) {
-    case AlertType::None:      return L" ";
-    case AlertType::Note:      return L"ℹ";         // ℹ Information Source
-    case AlertType::Tip:       return L"\xD83D\xDCA1";   // 💡 Light Bulb (surrogate pair)
-    case AlertType::Important: return L"❗";         // ❗ Heavy Exclamation Mark
-    case AlertType::Warning:   return L"⚠";         // ⚠ Warning Sign
-    case AlertType::Caution:   return L"⛔";         // ⛔ No Entry
+    case AlertType::None:
+        return L" ";
+    case AlertType::Note:
+        return L"ℹ"; // ℹ Information Source
+    case AlertType::Tip:
+        return L"\xD83D\xDCA1"; // 💡 Light Bulb (surrogate pair)
+    case AlertType::Important:
+        return L"❗"; // ❗ Heavy Exclamation Mark
+    case AlertType::Warning:
+        return L"⚠"; // ⚠ Warning Sign
+    case AlertType::Caution:
+        return L"⛔"; // ⛔ No Entry
     }
     std::unreachable();
 }
@@ -814,7 +860,16 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
         new_runs.emplace_back(adjusted);
     }
 
-    node.SetText(std::move(new_text));
+    // node.SetText の中で line_count を再カウントすると O(text) で改行を数え直すため、
+    // ここで差分計算する。マーカー部 [0, marker_end) の改行を旧 count から差し引き、
+    // 挿入したプレフィックスの改行 (has_content の場合 1) を足す。
+    int marker_newlines = 0;
+    {
+        const std::wstring_view marker_view{ current_text.data(), marker_end };
+        marker_newlines = static_cast<int>(std::ranges::count(marker_view, L'\n'));
+    }
+    const int new_line_count = node.line_count - marker_newlines + static_cast<int>(has_content);
+    node.SetTextWithLineCount(std::move(new_text), new_line_count);
     node.runs = std::move(new_runs);
     node.alert_type = type;
     node.alert_label_length = static_cast<uint32_t>(full_label_len);
@@ -865,7 +920,7 @@ void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockqu
     }
 }
 
-std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wchar_t(&buffer)[2])
+std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wchar_t (&buffer)[2])
 {
     {
         std::wstring_view literal;
