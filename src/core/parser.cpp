@@ -63,7 +63,7 @@ struct ParseContext {
     int outermost_quote_indent = 0;             // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
 
     // リスト追跡
-    std::stack<int, std::pmr::deque<int>> list_counter{ std::pmr::deque<int>{ parse_resource.resource() } }; // 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
+    std::stack<int, std::pmr::vector<int>> list_counter{ std::pmr::vector<int>{ parse_resource.resource() } }; // 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
 
     // テーブル追跡
     bool in_table = false;
