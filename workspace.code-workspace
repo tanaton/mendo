@@ -23,7 +23,7 @@
 		"C_Cpp.formatting": "vcFormat",
 		"C_Cpp.doxygen.generatedStyle": "//!",
 		"C_Cpp.vcFormat.indent.namespaceContents": false,
-		"C_Cpp.vcFormat.indent.lambdaBracesWhenParameter": false,
+		"C_Cpp.vcFormat.indent.lambdaBracesWhenParameter": true,
 		"C_Cpp.vcFormat.newLine.beforeOpenBrace.function": "newLine",
 		"C_Cpp.vcFormat.newLine.beforeOpenBrace.lambda": "sameLine",
 		"C_Cpp.vcFormat.space.withinExpressionParentheses": false
