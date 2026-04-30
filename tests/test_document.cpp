@@ -68,7 +68,7 @@ TEST(DocumentTest, ReplaceContent)
     EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), L"First");
 
     // 新しいコンテンツで置き換え
-    doc.ReplaceContent(ParseMarkdown("# Second\n## Sub"));
+    doc.ReplaceContent(ParseMarkdown(L"# Second\n## Sub"));
 
     // TOCが再構築されるべき
     EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);
@@ -214,7 +214,7 @@ TEST(DocumentTest, BuildIndicesAfterReplaceContent)
     EXPECT_EQ(doc.GetToc().GetEntries().size(), 1u);
     EXPECT_EQ(doc.FindAnchorIndex(L"old"), 0);
 
-    doc.ReplaceContent(ParseMarkdown("# New\n\n## Sub"));
+    doc.ReplaceContent(ParseMarkdown(L"# New\n\n## Sub"));
     EXPECT_EQ(doc.GetToc().GetEntries().size(), 2u);
     EXPECT_EQ(doc.FindAnchorIndex(L"old"), -1);
     EXPECT_EQ(doc.FindAnchorIndex(L"new"), 0);

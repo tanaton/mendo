@@ -2,7 +2,6 @@
 #include "ascii_util.h"
 #include "document_utils.h"
 #include "syntax.h"
-#include "string_convert.h"
 #include "memory_resource.h"
 #include "md4c.h"
 #include <stack>
@@ -683,13 +682,6 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
     result.image_indices = std::move(ctx.image_indices);
     result.diagram_indices = std::move(ctx.diagram_indices);
     return result;
-}
-
-ParseResult ParseMarkdown(std::string_view utf8_markdown_text)
-{
-    std::pmr::wstring wide;
-    string_convert::Utf8ToWide(utf8_markdown_text, wide);
-    return ParseMarkdown(std::wstring_view{ wide });
 }
 
 std::wstring_view GetAlertLabel(AlertType type) noexcept

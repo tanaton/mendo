@@ -365,7 +365,7 @@ void App::DoReloadCurrentFile()
     std::pmr::wstring new_wide;
     {
         MENDO_PROFILE("Reload::Utf8ToWide");
-        string_convert::Utf8ToWide(new_utf8, new_wide);
+        string_convert::Utf8ToWideStripBom(new_utf8, new_wide);
     }
 
     const std::wstring_view old_view(state_.document.doc.GetRawText());

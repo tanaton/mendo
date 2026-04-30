@@ -29,7 +29,7 @@ protected:
         LayoutCache cache;
     };
 
-    ParsedLayout Parse(const std::string& md, float viewport_w = 800.0f)
+    ParsedLayout Parse(std::wstring_view md, float viewport_w = 800.0f)
     {
         ParsedLayout r;
         r.nodes = ParseMarkdown(md).nodes;
@@ -138,7 +138,7 @@ TEST_F(HitTestServiceTest, NavButton_PositionsWithNonZeroPaneOrigin)
 
 TEST_F(HitTestServiceTest, HitTest_EmptyDocumentReturnsSentinel)
 {
-    auto pr = Parse("");
+    auto pr = Parse(L"");
     if (!pr.nodes.empty()) {
         // 空入力でも他のノード（例: 空段落）が生成される実装の場合は以下を適用。
         // このテストは ctx.nodes.empty() 分岐の検証なので、nodes が空の場合のみ
@@ -156,7 +156,7 @@ TEST_F(HitTestServiceTest, HitTest_EmptyDocumentReturnsSentinel)
 
 TEST_F(HitTestServiceTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
 {
-    auto pr = Parse("First paragraph\n\nSecond paragraph");
+    auto pr = Parse(L"First paragraph\n\nSecond paragraph");
     ASSERT_FALSE(pr.nodes.empty());
 
     // 全ノードの下端より十分下（dpi=1, scroll=0 なので dip_y = screen_y）
@@ -189,7 +189,7 @@ TEST_F(HitTestServiceTest, HitTest_TextLayoutNullFallsBackToLastNode)
     // MockTextMeasurer は text_layout=nullptr を設定する。
     // ノード範囲内をクリックしても entry.text_layout 経由の分岐に入らず、
     // 末尾フォールバック（最後の非空ノード末尾）が返る。
-    auto pr = Parse("Hello\n\nWorld");
+    auto pr = Parse(L"Hello\n\nWorld");
     ASSERT_GE(pr.nodes.size(), 1u);
 
     MdPaneHitContext ctx{
@@ -210,7 +210,7 @@ TEST_F(HitTestServiceTest, HitTest_TextLayoutNullFallsBackToLastNode)
 
 TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
 {
-    auto pr = Parse("| A | B |\n|---|---|\n| 1 | 2 |");
+    auto pr = Parse(L"| A | B |\n|---|---|\n| 1 | 2 |");
     int table_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
         if (pr.nodes[i].type == NodeType::Table) {
@@ -234,7 +234,7 @@ TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
 
 TEST_F(HitTestServiceTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
 {
-    auto pr = Parse("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
+    auto pr = Parse(L"| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
     int table_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
         if (pr.nodes[i].type == NodeType::Table) {
@@ -262,7 +262,7 @@ TEST_F(HitTestServiceTest, HitTestTable_LinearScanHitsFirstRow)
     // MockTextMeasurer は row_cum_y / col_cum_x / cell_layouts を設定しないので
     // 線形フォールバックに落ちる。cell_layout=null のため text_pos は flat_offset。
     // 先頭行・先頭列の flat_offset は 0。
-    auto pr = Parse("| A | B |\n|---|---|\n| 1 | 2 |");
+    auto pr = Parse(L"| A | B |\n|---|---|\n| 1 | 2 |");
     int table_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
         if (pr.nodes[i].type == NodeType::Table) {
@@ -291,7 +291,7 @@ TEST_F(HitTestServiceTest, HitTestTable_LinearScanHitsFirstRow)
 
 TEST_F(HitTestServiceTest, SaveButton_NoDiagramReturnsNegative)
 {
-    auto pr = Parse("Just text.");
+    auto pr = Parse(L"Just text.");
     const float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
@@ -303,7 +303,7 @@ TEST_F(HitTestServiceTest, SaveButton_NoDiagramReturnsNegative)
 
 TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
 {
-    auto pr = Parse("```\nplain code\n```");
+    auto pr = Parse(L"```\nplain code\n```");
     const float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
@@ -316,7 +316,7 @@ TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
 TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 {
     // Mermaid ブロックはあるが diagram.bitmap が空（未ロード）→ -1
-    auto pr = Parse("```mermaid\ngraph TD\n```");
+    auto pr = Parse(L"```mermaid\ngraph TD\n```");
     int mermaid_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
         if (pr.nodes[i].type == NodeType::CodeBlock &&
@@ -342,7 +342,7 @@ TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 
 TEST_F(HitTestServiceTest, SaveButton_EmptyDocumentReturnsNegative)
 {
-    auto pr = Parse("");
+    auto pr = Parse(L"");
     const float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,

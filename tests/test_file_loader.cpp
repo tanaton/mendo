@@ -40,13 +40,13 @@ TEST_F(FileLoaderTest, LoadsMultilineFile)
     EXPECT_EQ(*result, "line1\nline2\nline3");
 }
 
-TEST_F(FileLoaderTest, StripsUtf8Bom)
+// FileLoader はバイト列をそのまま返す。BOM 除去は Utf8ToWideStripBom 側の責務。
+TEST_F(FileLoaderTest, KeepsUtf8Bom)
 {
-    std::string bom = "\xEF\xBB\xBF" "Hello";
-    auto path = WriteFile(L"bom.md", bom);
+    auto path = WriteFile(L"bom.md", "\xEF\xBB\xBF" "Hello");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, "Hello");
+    EXPECT_EQ(*result, "\xEF\xBB\xBF" "Hello");
 }
 
 TEST_F(FileLoaderTest, NonExistentFileReturnsError)
@@ -72,13 +72,12 @@ TEST_F(FileLoaderTest, LoadsJapaneseUtf8)
     EXPECT_EQ(*result, "日本語テスト");
 }
 
-TEST_F(FileLoaderTest, BomOnlyFileReturnsEmpty)
+TEST_F(FileLoaderTest, BomOnlyFileReturnsBomBytes)
 {
-    std::string bom_only = "\xEF\xBB\xBF";
-    auto path = WriteFile(L"bomonly.md", bom_only);
+    auto path = WriteFile(L"bomonly.md", "\xEF\xBB\xBF");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
-    EXPECT_TRUE(result->empty());
+    EXPECT_EQ(*result, "\xEF\xBB\xBF");
 }
 
 // ---- ファイル監視テスト ----
@@ -136,15 +135,6 @@ TEST_F(FileLoaderTest, LargeFile)
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->size(), large_content.size());
-}
-
-TEST_F(FileLoaderTest, FileWithOnlyBomAndContent)
-{
-    std::string bom_content = "\xEF\xBB\xBF# Title\n\nContent";
-    auto path = WriteFile(L"bomcontent.md", bom_content);
-    auto result = FileLoader::LoadFile(path.native().c_str());
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, "# Title\n\nContent");
 }
 
 TEST_F(FileLoaderTest, WatcherRestartOnNewFile)

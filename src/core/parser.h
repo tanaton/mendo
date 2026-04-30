@@ -18,10 +18,6 @@ struct ParseResult {
 // 本物の Markdown パーサ。md4c を MD4C_USE_UTF16 モードで起動するため入力は wide。
 ParseResult ParseMarkdown(std::wstring_view markdown_text);
 
-// テスト・便宜用の UTF-8 入力シム。内部で wide 化してから wstring_view 版へ委譲する。
-// 本番コードでは使わない（FileLoader 経由で wide が直接渡る）。
-ParseResult ParseMarkdown(std::string_view utf8_markdown_text);
-
 // BlockQuoteノードからGitHub Alertsを検出し、マーカー除去・ラベル挿入・グルーピングを行う（テスト用に公開）。
 // blockquote_indices は ParseMarkdown が収集した BlockQuote ノードのインデックス。
 void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockquote_indices);
