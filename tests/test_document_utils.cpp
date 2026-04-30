@@ -5,7 +5,6 @@
 #include "document_test_helpers.h"
 #include "test_helpers.h"
 #include "parser.h"
-#include "string_convert.h"
 #include "syntax.h"
 
 // ============================================================
@@ -14,7 +13,7 @@
 
 TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseMarkdown(L"Hello world").nodes;
     TextSelection sel;
     sel.active = false;
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
@@ -22,28 +21,28 @@ TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 
 TEST(ExtractSelectedText, SingleNodeFullSelection)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseMarkdown(L"Hello world").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Hello world");
 }
 
 TEST(ExtractSelectedText, SingleNodePartialSelection)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseMarkdown(L"Hello world").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Hello");
 }
 
 TEST(ExtractSelectedText, SingleNodeMiddleSelection)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseMarkdown(L"Hello world").nodes;
     auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"world");
 }
 
 TEST(ExtractSelectedText, MultipleNodesFullSelection)
 {
-    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseMarkdown(L"First\n\nSecond\n\nThird").nodes;
     ASSERT_EQ(nodes.size(), 3u);
     auto sel = TextSelection::MakeOrdered(
         0, 0, 2, static_cast<uint32_t>(nodes[2].GetText().size()));
@@ -55,7 +54,7 @@ TEST(ExtractSelectedText, MultipleNodesFullSelection)
 
 TEST(ExtractSelectedText, MultipleNodesPartialSelection)
 {
-    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseMarkdown(L"First\n\nSecond\n\nThird").nodes;
     ASSERT_EQ(nodes.size(), 3u);
     // "First"の途中から"Third"の途中まで選択
     auto sel = TextSelection::MakeOrdered(0, 2, 2, 3);
@@ -67,7 +66,7 @@ TEST(ExtractSelectedText, MultipleNodesPartialSelection)
 
 TEST(ExtractSelectedText, NewlineBetweenNodes)
 {
-    auto nodes = ParseMarkdown("A\n\nB").nodes;
+    auto nodes = ParseMarkdown(L"A\n\nB").nodes;
     ASSERT_EQ(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(
         0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
@@ -86,7 +85,7 @@ TEST(ExtractSelectedText, EmptyNodes)
 
 TEST(ExtractSelectedText, EndBeyondTextSize)
 {
-    auto nodes = ParseMarkdown("Short").nodes;
+    auto nodes = ParseMarkdown(L"Short").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 1000);
     // end_posがテキストサイズを超える場合はクランプされるべき
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Short");
@@ -94,7 +93,7 @@ TEST(ExtractSelectedText, EndBeyondTextSize)
 
 TEST(ExtractSelectedText, JapaneseText)
 {
-    auto nodes = ParseMarkdown("日本語テスト").nodes;
+    auto nodes = ParseMarkdown(L"日本語テスト").nodes;
     auto sel = TextSelection::MakeOrdered(
         0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedText(nodes, sel), L"日本語テスト");
@@ -106,7 +105,7 @@ TEST(ExtractSelectedText, JapaneseText)
 
 TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
 {
-    auto nodes = ParseMarkdown("Hello").nodes;
+    auto nodes = ParseMarkdown(L"Hello").nodes;
     TextSelection sel;
     sel.active = false;
     EXPECT_TRUE(ExtractSelectedTextAsHtml(nodes, sel).empty());
@@ -114,21 +113,21 @@ TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
 
 TEST(ExtractSelectedTextAsHtml, ParagraphWrapsInPTag)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseMarkdown(L"Hello world").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), L"<p>Hello world</p>");
 }
 
 TEST(ExtractSelectedTextAsHtml, HeadingLevels)
 {
-    auto nodes = ParseMarkdown("## Section").nodes;
+    auto nodes = ParseMarkdown(L"## Section").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), L"<h2>Section</h2>");
 }
 
 TEST(ExtractSelectedTextAsHtml, BoldAndItalic)
 {
-    auto nodes = ParseMarkdown("**bold** and *italic*").nodes;
+    auto nodes = ParseMarkdown(L"**bold** and *italic*").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_NE(html.find(L"<strong>bold</strong>"), std::wstring::npos);
@@ -137,7 +136,7 @@ TEST(ExtractSelectedTextAsHtml, BoldAndItalic)
 
 TEST(ExtractSelectedTextAsHtml, InlineCode)
 {
-    auto nodes = ParseMarkdown("text `code` more").nodes;
+    auto nodes = ParseMarkdown(L"text `code` more").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_NE(html.find(L"<code>code</code>"), std::wstring::npos);
@@ -145,7 +144,7 @@ TEST(ExtractSelectedTextAsHtml, InlineCode)
 
 TEST(ExtractSelectedTextAsHtml, LinkProducesAnchor)
 {
-    auto nodes = ParseMarkdown("[click](https://example.com)").nodes;
+    auto nodes = ParseMarkdown(L"[click](https://example.com)").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_NE(html.find(L"<a href=\"https://example.com\">click</a>"), std::wstring::npos);
@@ -165,7 +164,7 @@ TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
 {
-    auto nodes = ParseMarkdown("```\nint x = 1 < 2;\n```").nodes;
+    auto nodes = ParseMarkdown(L"```\nint x = 1 < 2;\n```").nodes;
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -181,7 +180,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
 TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
 {
     // 言語指定なし -> syntax_tokens が空 -> span タグは付かない
-    auto nodes = ParseMarkdown("```\nplain text\n```").nodes;
+    auto nodes = ParseMarkdown(L"```\nplain text\n```").nodes;
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -192,7 +191,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
 TEST(ExtractSelectedTextAsHtml, CodeBlockWithSyntaxTokensWrapsInSpans)
 {
     // syntax_tokens を手動でセットし、span による色付けが行われることを確認
-    auto nodes = ParseMarkdown("```cpp\nint x = 42;\n```").nodes;
+    auto nodes = ParseMarkdown(L"```cpp\nint x = 42;\n```").nodes;
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto& n = nodes[0];
     const std::wstring_view text = n.GetText();
@@ -217,7 +216,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockWithSyntaxTokensWrapsInSpans)
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 {
-    auto nodes = ParseMarkdown("```cpp\na<b\n```").nodes;
+    auto nodes = ParseMarkdown(L"```cpp\na<b\n```").nodes;
     auto& n = nodes[0];
     const std::wstring_view text = n.GetText();
     auto& tokens = n.syntax_tokens_mut();
@@ -235,7 +234,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
 {
-    auto nodes = ParseMarkdown("```cpp\nint x = 42;\n```").nodes;
+    auto nodes = ParseMarkdown(L"```cpp\nint x = 42;\n```").nodes;
     auto& n = nodes[0];
     const std::wstring_view text = n.GetText();
     auto& tokens = n.syntax_tokens_mut();
@@ -271,7 +270,7 @@ static TextSelection MakeTableFullSelection(Node& table)
 TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
 {
     auto nodes = ParseMarkdown(
-        "| A | B |\n"
+        L"| A | B |\n"
         "|---|---|\n"
         "| 1 | 2 |"
     ).nodes;
@@ -298,7 +297,7 @@ TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
 TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
 {
     auto nodes = ParseMarkdown(
-        "| L | C | R |\n"
+        L"| L | C | R |\n"
         "|:--|:--:|--:|\n"
         "| a | b | c |"
     ).nodes;
@@ -313,7 +312,7 @@ TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
 TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
 {
     auto nodes = ParseMarkdown(
-        "| A | B |\n"
+        L"| A | B |\n"
         "|---|---|\n"
         "| **bold** | [link](https://example.com) |"
     ).nodes;
@@ -328,7 +327,7 @@ TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
 TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
 {
     auto nodes = ParseMarkdown(
-        "| A | B |\n"
+        L"| A | B |\n"
         "|---|---|\n"
         "| 1 | 2 |"
     ).nodes;
@@ -355,7 +354,7 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
 
 TEST(ExtractSelectedTextAsHtml, UnorderedListWrapsInUl)
 {
-    auto nodes = ParseMarkdown("- one\n- two").nodes;
+    auto nodes = ParseMarkdown(L"- one\n- two").nodes;
     ASSERT_GE(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -367,7 +366,7 @@ TEST(ExtractSelectedTextAsHtml, UnorderedListWrapsInUl)
 
 TEST(ExtractSelectedTextAsHtml, OrderedListWrapsInOl)
 {
-    auto nodes = ParseMarkdown("1. first\n2. second").nodes;
+    auto nodes = ParseMarkdown(L"1. first\n2. second").nodes;
     ASSERT_GE(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -379,7 +378,7 @@ TEST(ExtractSelectedTextAsHtml, OrderedListWrapsInOl)
 
 TEST(ExtractSelectedTextAsHtml, BlockQuote)
 {
-    auto nodes = ParseMarkdown("> quoted text").nodes;
+    auto nodes = ParseMarkdown(L"> quoted text").nodes;
     ASSERT_EQ(nodes[0].type, NodeType::BlockQuote);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -390,7 +389,7 @@ TEST(ExtractSelectedTextAsHtml, BlockQuote)
 
 TEST(ExtractSelectedTextAsHtml, HorizontalRule)
 {
-    auto nodes = ParseMarkdown("before\n\n---\n\nafter").nodes;
+    auto nodes = ParseMarkdown(L"before\n\n---\n\nafter").nodes;
     ASSERT_GE(nodes.size(), 3u);
     ASSERT_EQ(nodes[1].type, NodeType::HorizontalRule);
     auto sel = TextSelection::MakeOrdered(0, 0, 2, static_cast<uint32_t>(nodes[2].GetText().size()));
@@ -400,7 +399,7 @@ TEST(ExtractSelectedTextAsHtml, HorizontalRule)
 
 TEST(ExtractSelectedTextAsHtml, MultiParagraph)
 {
-    auto nodes = ParseMarkdown("First\n\nSecond").nodes;
+    auto nodes = ParseMarkdown(L"First\n\nSecond").nodes;
     ASSERT_EQ(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel),
@@ -409,14 +408,14 @@ TEST(ExtractSelectedTextAsHtml, MultiParagraph)
 
 TEST(ExtractSelectedTextAsHtml, PartialSelectionInParagraph)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseMarkdown(L"Hello world").nodes;
     auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), L"<p>world</p>");
 }
 
 TEST(ExtractSelectedTextAsHtml, OrderedTaskListWrapsInOl)
 {
-    auto nodes = ParseMarkdown("1. [ ] first\n2. [x] second").nodes;
+    auto nodes = ParseMarkdown(L"1. [ ] first\n2. [x] second").nodes;
     ASSERT_GE(nodes.size(), 2u);
     ASSERT_EQ(nodes[0].type, NodeType::TaskListItem);
     ASSERT_EQ(nodes[1].type, NodeType::TaskListItem);
@@ -429,7 +428,7 @@ TEST(ExtractSelectedTextAsHtml, OrderedTaskListWrapsInOl)
 
 TEST(ExtractSelectedTextAsHtml, UnsafeSchemeLinkIsStripped)
 {
-    auto nodes = ParseMarkdown("[click](javascript:alert(1))").nodes;
+    auto nodes = ParseMarkdown(L"[click](javascript:alert(1))").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
@@ -439,7 +438,7 @@ TEST(ExtractSelectedTextAsHtml, UnsafeSchemeLinkIsStripped)
 
 TEST(ExtractSelectedTextAsHtml, FileSchemeLinkIsStripped)
 {
-    auto nodes = ParseMarkdown("[open](file:///C:/secret.txt)").nodes;
+    auto nodes = ParseMarkdown(L"[open](file:///C:/secret.txt)").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
@@ -448,7 +447,7 @@ TEST(ExtractSelectedTextAsHtml, FileSchemeLinkIsStripped)
 
 TEST(ExtractSelectedTextAsHtml, MailtoLinkIsKept)
 {
-    auto nodes = ParseMarkdown("[mail](mailto:user@example.com)").nodes;
+    auto nodes = ParseMarkdown(L"[mail](mailto:user@example.com)").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_NE(html.find(L"<a href=\"mailto:user@example.com\">mail</a>"), std::wstring::npos);
@@ -456,7 +455,7 @@ TEST(ExtractSelectedTextAsHtml, MailtoLinkIsKept)
 
 TEST(ExtractSelectedTextAsHtml, InternalAnchorLinkIsStripped)
 {
-    auto nodes = ParseMarkdown("[sec](#section)").nodes;
+    auto nodes = ParseMarkdown(L"[sec](#section)").nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
@@ -469,7 +468,7 @@ TEST(ExtractSelectedTextAsHtml, InternalAnchorLinkIsStripped)
 
 TEST(FindLinkAtPosition, NoLinks)
 {
-    auto nodes = ParseMarkdown("plain text").nodes;
+    auto nodes = ParseMarkdown(L"plain text").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 0);
     EXPECT_FALSE(result.has_value());
@@ -477,7 +476,7 @@ TEST(FindLinkAtPosition, NoLinks)
 
 TEST(FindLinkAtPosition, LinkFound)
 {
-    auto nodes = ParseMarkdown("[click](https://example.com)").nodes;
+    auto nodes = ParseMarkdown(L"[click](https://example.com)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // リンクテキスト内の位置
     auto result = FindLinkAtPosition(nodes[0], 0);
@@ -487,7 +486,7 @@ TEST(FindLinkAtPosition, LinkFound)
 
 TEST(FindLinkAtPosition, PositionOutsideLink)
 {
-    auto nodes = ParseMarkdown("before [link](https://example.com) after").nodes;
+    auto nodes = ParseMarkdown(L"before [link](https://example.com) after").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // "before"テキスト内の位置（リンクではないはず）
     auto result = FindLinkAtPosition(nodes[0], 0);
@@ -496,7 +495,7 @@ TEST(FindLinkAtPosition, PositionOutsideLink)
 
 TEST(FindLinkAtPosition, InternalLink)
 {
-    auto nodes = ParseMarkdown("[section](#my-section)").nodes;
+    auto nodes = ParseMarkdown(L"[section](#my-section)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 0);
     ASSERT_TRUE(result.has_value());
@@ -505,7 +504,7 @@ TEST(FindLinkAtPosition, InternalLink)
 
 TEST(FindLinkAtPosition, PositionAtLinkBoundary)
 {
-    auto nodes = ParseMarkdown("[link](https://example.com)").nodes;
+    auto nodes = ParseMarkdown(L"[link](https://example.com)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // リンクの最後の文字の位置
     uint32_t last_pos = static_cast<uint32_t>(nodes[0].GetText().size()) - 1;
@@ -515,7 +514,7 @@ TEST(FindLinkAtPosition, PositionAtLinkBoundary)
 
 TEST(FindLinkAtPosition, PositionBeyondText)
 {
-    auto nodes = ParseMarkdown("[link](https://example.com)").nodes;
+    auto nodes = ParseMarkdown(L"[link](https://example.com)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 9999);
     EXPECT_FALSE(result.has_value());
@@ -540,13 +539,13 @@ TEST(FindAnchorNodeIndex, EmptyNodes)
 
 TEST(FindAnchorNodeIndex, EmptyAnchor)
 {
-    auto nodes = ParseMarkdown("# Title").nodes;
+    auto nodes = ParseMarkdown(L"# Title").nodes;
     EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L""), -1);
 }
 
 TEST(FindAnchorNodeIndex, FindExistingAnchor)
 {
-    auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section").nodes;
+    auto nodes = ParseMarkdown(L"# Title\n\nParagraph\n\n## Section").nodes;
     ASSERT_GE(nodes.size(), 3u);
     int idx = FindAnchorNodeIndexLinear(nodes, L"title");
     EXPECT_EQ(idx, 0);
@@ -554,7 +553,7 @@ TEST(FindAnchorNodeIndex, FindExistingAnchor)
 
 TEST(FindAnchorNodeIndex, FindSecondHeading)
 {
-    auto nodes = ParseMarkdown("# First\n\nParagraph\n\n## Second").nodes;
+    auto nodes = ParseMarkdown(L"# First\n\nParagraph\n\n## Second").nodes;
     int idx = FindAnchorNodeIndexLinear(nodes, L"second");
     EXPECT_GE(idx, 0);
     EXPECT_EQ(nodes[idx].GetText(), L"Second");
@@ -562,7 +561,7 @@ TEST(FindAnchorNodeIndex, FindSecondHeading)
 
 TEST(FindAnchorNodeIndex, CaseInsensitiveSearch)
 {
-    auto nodes = ParseMarkdown("# Hello World").nodes;
+    auto nodes = ParseMarkdown(L"# Hello World").nodes;
     // アンカーは"hello-world"、大文字で検索
     int idx = FindAnchorNodeIndexLinear(nodes, L"Hello-World");
     EXPECT_EQ(idx, 0);
@@ -570,20 +569,20 @@ TEST(FindAnchorNodeIndex, CaseInsensitiveSearch)
 
 TEST(FindAnchorNodeIndex, NotFound)
 {
-    auto nodes = ParseMarkdown("# Title").nodes;
+    auto nodes = ParseMarkdown(L"# Title").nodes;
     EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L"nonexistent"), -1);
 }
 
 TEST(FindAnchorNodeIndex, CjkAnchor)
 {
-    auto nodes = ParseMarkdown("## コードブロック").nodes;
+    auto nodes = ParseMarkdown(L"## コードブロック").nodes;
     int idx = FindAnchorNodeIndexLinear(nodes, L"コードブロック");
     EXPECT_EQ(idx, 0);
 }
 
 TEST(FindAnchorNodeIndex, SkipsNonHeadings)
 {
-    auto nodes = ParseMarkdown("Paragraph\n\n# Heading").nodes;
+    auto nodes = ParseMarkdown(L"Paragraph\n\n# Heading").nodes;
     int idx = FindAnchorNodeIndexLinear(nodes, L"heading");
     EXPECT_GE(idx, 0);
     EXPECT_EQ(nodes[idx].type, NodeType::Heading);
@@ -888,7 +887,7 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
 TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown)
 {
     auto nodes = ParseMarkdown(
-        "| Text | Link |\n"
+        L"| Text | Link |\n"
         "|------|------|\n"
         "| hello | [click](https://example.com) |"
     ).nodes;
@@ -1227,7 +1226,7 @@ TEST(FindNodeBySourceOffset, SkipsUnsetOffsets)
 
 TEST(FindNodeBySourceOffset, ParsedMarkdown)
 {
-    auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section").nodes;
+    auto nodes = ParseMarkdown(L"# Title\n\nParagraph\n\n## Section").nodes;
     ASSERT_GE(nodes.size(), 3u);
     // 各ノードが有効な source_offset を持つ
     for (const auto& n : nodes) {
@@ -1262,7 +1261,7 @@ TEST(FindNodeBySourceOffset, AllUnsetOffsets)
 TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 {
     // パース結果で HorizontalRule が混在するケース
-    auto nodes = ParseMarkdown("AAA\n\n---\n\nBBB").nodes;
+    auto nodes = ParseMarkdown(L"AAA\n\n---\n\nBBB").nodes;
     ASSERT_GE(nodes.size(), 3u);
     // "AAA" offset=0, "---" は未設定, "BBB" offset=10
     EXPECT_EQ(nodes[0].source_offset, 0u);
@@ -1280,13 +1279,10 @@ TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 // ============================================================
 
 // ヘルパー: old→new の編集をシミュレートし、変更箇所のノードを特定する。
-// 入力 UTF-8 を wide 化して FindFirstDifference を呼ぶ（source_offset は wide 単位）。
-static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new_md)
+// source_offset は wide 単位なので、wide のまま FindFirstDifference / ParseMarkdown を呼ぶ。
+static int SimulateEditAndFindNode(std::wstring_view old_md, std::wstring_view new_md)
 {
-    std::pmr::wstring old_w, new_w;
-    string_convert::Utf8ToWide(old_md, old_w);
-    string_convert::Utf8ToWide(new_md, new_w);
-    size_t diff_pos = FindFirstDifference(old_w, new_w);
+    size_t diff_pos = FindFirstDifference(old_md, new_md);
     if (diff_pos == std::wstring_view::npos) {
         return -1;
     }
@@ -1300,8 +1296,8 @@ static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new
 TEST(DiffToNode, EditMiddleParagraph)
 {
     // 2番目の段落を編集
-    std::string old_md = "First\n\nSecond\n\nThird";
-    std::string new_md = "First\n\nModified\n\nThird";
+    std::wstring old_md = L"First\n\nSecond\n\nThird";
+    std::wstring new_md = L"First\n\nModified\n\nThird";
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     EXPECT_EQ(node, 1); // 2番目の段落
@@ -1310,16 +1306,16 @@ TEST(DiffToNode, EditMiddleParagraph)
 
 TEST(DiffToNode, EditFirstParagraph)
 {
-    std::string old_md = "Hello\n\nWorld";
-    std::string new_md = "Changed\n\nWorld";
+    std::wstring old_md = L"Hello\n\nWorld";
+    std::wstring new_md = L"Changed\n\nWorld";
     int node = SimulateEditAndFindNode(old_md, new_md);
     EXPECT_EQ(node, 0);
 }
 
 TEST(DiffToNode, EditLastParagraph)
 {
-    std::string old_md = "First\n\nSecond\n\nThird";
-    std::string new_md = "First\n\nSecond\n\nChanged";
+    std::wstring old_md = L"First\n\nSecond\n\nThird";
+    std::wstring new_md = L"First\n\nSecond\n\nChanged";
     int node = SimulateEditAndFindNode(old_md, new_md);
     EXPECT_EQ(node, 2); // 最後の段落
 }
@@ -1327,8 +1323,8 @@ TEST(DiffToNode, EditLastParagraph)
 TEST(DiffToNode, InsertNewParagraph)
 {
     // 段落を挿入
-    std::string old_md = "Before\n\nAfter";
-    std::string new_md = "Before\n\nInserted\n\nAfter";
+    std::wstring old_md = L"Before\n\nAfter";
+    std::wstring new_md = L"Before\n\nInserted\n\nAfter";
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1339,8 +1335,8 @@ TEST(DiffToNode, InsertNewParagraph)
 TEST(DiffToNode, DeleteParagraph)
 {
     // 段落を削除
-    std::string old_md = "First\n\nRemoveMe\n\nLast";
-    std::string new_md = "First\n\nLast";
+    std::wstring old_md = L"First\n\nRemoveMe\n\nLast";
+    std::wstring new_md = L"First\n\nLast";
     int node = SimulateEditAndFindNode(old_md, new_md);
     ASSERT_GE(node, 0);
     // diff_pos=7（"RemoveMe" vs "Last"の開始位置）→ "Last"(offset=7)か"First"
@@ -1350,8 +1346,8 @@ TEST(DiffToNode, DeleteParagraph)
 
 TEST(DiffToNode, AppendToEnd)
 {
-    std::string old_md = "Existing";
-    std::string new_md = "Existing\n\nAppended";
+    std::wstring old_md = L"Existing";
+    std::wstring new_md = L"Existing\n\nAppended";
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1363,8 +1359,8 @@ TEST(DiffToNode, AppendToEnd)
 TEST(DiffToNode, EditInCodeBlock)
 {
     // コードブロック内の編集
-    std::string old_md = "text\n\n```\nold code\n```\n\nend";
-    std::string new_md = "text\n\n```\nnew code\n```\n\nend";
+    std::wstring old_md = L"text\n\n```\nold code\n```\n\nend";
+    std::wstring new_md = L"text\n\n```\nnew code\n```\n\nend";
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1374,8 +1370,8 @@ TEST(DiffToNode, EditInCodeBlock)
 TEST(DiffToNode, EditInListItem)
 {
     // リストアイテムの編集
-    std::string old_md = "- first\n- second\n- third";
-    std::string new_md = "- first\n- changed\n- third";
+    std::wstring old_md = L"- first\n- second\n- third";
+    std::wstring new_md = L"- first\n- changed\n- third";
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1385,22 +1381,22 @@ TEST(DiffToNode, EditInListItem)
 TEST(DiffToNode, EditHeading)
 {
     // 見出しテキストの編集
-    std::string old_md = "# Old Title\n\nBody";
-    std::string new_md = "# New Title\n\nBody";
+    std::wstring old_md = L"# Old Title\n\nBody";
+    std::wstring new_md = L"# New Title\n\nBody";
     int node = SimulateEditAndFindNode(old_md, new_md);
     EXPECT_EQ(node, 0); // 見出しノード
 }
 
 TEST(DiffToNode, NoChange)
 {
-    std::string md = "Same content";
+    std::wstring md = L"Same content";
     EXPECT_EQ(SimulateEditAndFindNode(md, md), -1);
 }
 
 TEST(DiffToNode, EditInBlockQuote)
 {
-    std::string old_md = "normal\n\n> old quote\n\nafter";
-    std::string new_md = "normal\n\n> new quote\n\nafter";
+    std::wstring old_md = L"normal\n\n> old quote\n\nafter";
+    std::wstring new_md = L"normal\n\n> new quote\n\nafter";
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1410,8 +1406,8 @@ TEST(DiffToNode, EditInBlockQuote)
 TEST(DiffToNode, EditWithJapanese)
 {
     // 日本語テキストの編集
-    std::string old_md = "# はじめに\n\n旧テキスト\n\nおわり";
-    std::string new_md = "# はじめに\n\n新テキスト\n\nおわり";
+    std::wstring old_md = L"# はじめに\n\n旧テキスト\n\nおわり";
+    std::wstring new_md = L"# はじめに\n\n新テキスト\n\nおわり";
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1422,14 +1418,14 @@ TEST(DiffToNode, EditWithJapanese)
 
 TEST(DiffToNode, EditInTable)
 {
-    std::string old_md =
-        "| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |";
-    std::string new_md =
-        "| A | B |\n"
-        "|---|---|\n"
-        "| X | 2 |";
+    std::wstring old_md =
+        L"| A | B |\n"
+        L"|---|---|\n"
+        L"| 1 | 2 |";
+    std::wstring new_md =
+        L"| A | B |\n"
+        L"|---|---|\n"
+        L"| X | 2 |";
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1439,14 +1435,14 @@ TEST(DiffToNode, EditInTable)
 TEST(DiffToNode, LargeDocumentMiddleEdit)
 {
     // 多数のノードを持つ文書の中間を編集
-    std::string old_md, new_md;
+    std::wstring old_md, new_md;
     for (int i = 0; i < 100; ++i) {
-        old_md += "Paragraph " + std::to_string(i) + "\n\n";
+        old_md += L"Paragraph " + std::to_wstring(i) + L"\n\n";
         if (i == 50) {
-            new_md += "CHANGED paragraph 50\n\n";
+            new_md += L"CHANGED paragraph 50\n\n";
         }
         else {
-            new_md += "Paragraph " + std::to_string(i) + "\n\n";
+            new_md += L"Paragraph " + std::to_wstring(i) + L"\n\n";
         }
     }
     int node = SimulateEditAndFindNode(old_md, new_md);

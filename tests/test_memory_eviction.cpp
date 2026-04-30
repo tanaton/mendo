@@ -160,9 +160,9 @@ protected:
 TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
 {
     // 100 ノードのドキュメントを作成
-    std::string md;
+    std::wstring md;
     for (int i = 0; i < 100; i++) {
-        md += "paragraph " + std::to_string(i) + "\n\n";
+        md += L"paragraph " + std::to_wstring(i) + L"\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GT(nodes.size(), 50u);
@@ -204,9 +204,9 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
 
 TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
 {
-    std::string md;
+    std::wstring md;
     for (int i = 0; i < 50; i++) {
-        md += "paragraph " + std::to_string(i) + "\n\n";
+        md += L"paragraph " + std::to_wstring(i) + L"\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
 
@@ -230,9 +230,9 @@ TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
 
 TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
 {
-    std::string md;
+    std::wstring md;
     for (int i = 0; i < 100; i++) {
-        md += "paragraph " + std::to_string(i) + "\n\n";
+        md += L"paragraph " + std::to_wstring(i) + L"\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
 

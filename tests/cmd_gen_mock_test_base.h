@@ -29,7 +29,7 @@ protected:
         gen_.SetFormats({ nullptr, nullptr, nullptr, nullptr });
     }
 
-    void Parse(const std::string& md, float viewport_w = 800.0f)
+    void Parse(std::wstring_view md, float viewport_w = 800.0f)
     {
         nodes_ = ParseMarkdown(md).nodes;
         cache_.Resize(nodes_.size());
