@@ -2,6 +2,7 @@
 #include "document_types.h"
 #include "toc.h"
 #include "parser.h"
+#include "utility.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -43,20 +44,6 @@ public:
 private:
     void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
 
-    // anchor_index_ のキー用の透過ハッシュ。wstring_view / pmr::wstring 双方で
-    // 同じハッシュになるよう wstring_view 経由で計算する。
-    struct AnchorKeyHash {
-        using is_transparent = void;
-        size_t operator()(std::wstring_view sv) const noexcept
-        {
-            return std::hash<std::wstring_view>{}(sv);
-        }
-        size_t operator()(const std::pmr::wstring& s) const noexcept
-        {
-            return std::hash<std::wstring_view>{}(s);
-        }
-    };
-
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
     std::pmr::wstring raw_wide_;
@@ -64,7 +51,7 @@ private:
     TableOfContents toc_;
     // キーは所有 wstring。nodes_ の再アロケート/構造変更でも索引が dangling しない。
     std::pmr::unordered_map<std::pmr::wstring, int,
-        AnchorKeyHash, std::equal_to<>> anchor_index_;
+        WStringTransparentHash, std::equal_to<>> anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;
 };
