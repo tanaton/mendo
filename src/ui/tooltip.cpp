@@ -25,7 +25,8 @@ struct Tooltip::Impl {
     }
 };
 
-Tooltip::Tooltip() : impl_(std::make_unique<Impl>()) {}
+Tooltip::Tooltip() : impl_(std::make_unique<Impl>())
+{}
 Tooltip::~Tooltip() = default;
 Tooltip::Tooltip(Tooltip&&) noexcept = default;
 Tooltip& Tooltip::operator=(Tooltip&&) noexcept = default;
@@ -96,8 +97,7 @@ void Tooltip::Show()
     // カーソル下にオフセット（DPIスケーリング対応）
     const UINT dpi = GetDpiForWindow(s.parent);
     const int offset_y = MulDiv(20, dpi, 96);
-    SendMessageW(s.hwnd, TTM_TRACKPOSITION, 0,
-        MAKELPARAM(s.show_pos.x, s.show_pos.y + offset_y));
+    SendMessageW(s.hwnd, TTM_TRACKPOSITION, 0, MAKELPARAM(s.show_pos.x, s.show_pos.y + offset_y));
 
     SendMessageW(s.hwnd, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&ti));
     s.visible = true;

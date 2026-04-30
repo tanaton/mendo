@@ -33,4 +33,4 @@ std::wstring_view GetAlertIcon(AlertType type) noexcept;
 // そのままテキストとして再投入することを示す)。
 // view が指す領域は (a) static なリテラル または (b) 呼び出し側が渡した buffer のいずれか。
 // buffer のスコープ内でのみ valid。
-[[nodiscard]] std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wchar_t(&buffer)[2]);
+[[nodiscard]] std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wchar_t (&buffer)[2]);

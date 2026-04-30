@@ -16,7 +16,7 @@
 
 struct GestureRenderState {
     const std::pmr::deque<GesturePoint>* trail_points = nullptr;
-    int direction = 0;   // -1=Left(戻る), 1=Right(進む)
+    int direction = 0; // -1=Left(戻る), 1=Right(進む)
     float overlay_alpha = 0.0f;
     bool trail_active = false;
     bool overlay_visible = false;
@@ -103,8 +103,18 @@ struct PaneCache {
     float cached_width = 0;
     float cached_height = 0;
 
-    constexpr void Invalidate() noexcept { dirty = true; }
-    void Reset() noexcept { bitmap_rt.Reset(); cached_bitmap.Reset(); dirty = true; cached_width = 0; cached_height = 0; }
+    constexpr void Invalidate() noexcept
+    {
+        dirty = true;
+    }
+    void Reset() noexcept
+    {
+        bitmap_rt.Reset();
+        cached_bitmap.Reset();
+        dirty = true;
+        cached_width = 0;
+        cached_height = 0;
+    }
 };
 
 // 検索バー描画パラメータ
@@ -113,10 +123,10 @@ struct SearchBarRenderState {
     std::wstring_view query;
     std::wstring_view ime_composition; // IME変換中のコンポジション文字列
     // --- 4バイトアライメント ---
-    int current_match = -1;    // 0-based、-1 = マッチなし
+    int current_match = -1; // 0-based、-1 = マッチなし
     int total_matches = 0;
-    int caret_pos = -1;         // キャレット位置（-1 = テキスト末尾）
-    int selection_start = -1;   // 選択開始位置（caret_posと異なる場合、選択範囲あり）
+    int caret_pos = -1;       // キャレット位置（-1 = テキスト末尾）
+    int selection_start = -1; // 選択開始位置（caret_posと異なる場合、選択範囲あり）
     // --- 1バイトアライメント ---
     bool visible = false;
     bool has_focus = false;

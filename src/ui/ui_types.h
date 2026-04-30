@@ -23,7 +23,10 @@ inline constexpr bool PointInRect(float x, float y, const Rect& r) noexcept
 }
 
 struct PaneRect {
-    float x, y, width, height;
+    float x;
+    float y;
+    float width;
+    float height;
 };
 
 struct ScrollState {
@@ -43,7 +46,10 @@ struct ScrollRestoration {
     int pending_restore_node = -1;
     int pending_restore_offset = 0;
 
-    constexpr bool HasNodeRestore() const noexcept { return pending_restore_node >= 0; }
+    constexpr bool HasNodeRestore() const noexcept
+    {
+        return pending_restore_node >= 0;
+    }
 
     constexpr void SetNodeRestore(int node, int offset) noexcept
     {

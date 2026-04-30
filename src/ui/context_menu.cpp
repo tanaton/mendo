@@ -372,8 +372,7 @@ void ContextMenu::Impl::DrawSeparator(const Item& item)
         { item.rect.left + margin, cy },
         { item.rect.right - margin, cy },
         brush_border.Get(),
-        1.0f
-    );
+        1.0f);
 }
 
 void ContextMenu::Impl::DrawTextItem(const Item& item)
@@ -382,12 +381,14 @@ void ContextMenu::Impl::DrawTextItem(const Item& item)
 
     if (hovered) {
         const float margin = 4.0f;
-        const D2D1_ROUNDED_RECT rr{ {
-            item.rect.left + margin,
-            item.rect.top + 1.0f,
-            item.rect.right - margin,
-            item.rect.bottom - 1.0f
-        }, 4.0f, 4.0f };
+        const D2D1_ROUNDED_RECT rr{
+            { item.rect.left + margin,
+             item.rect.top + 1.0f,
+             item.rect.right - margin,
+             item.rect.bottom - 1.0f },
+            4.0f,
+            4.0f
+        };
         rt->FillRoundedRectangle(rr, brush_hover.Get());
     }
 

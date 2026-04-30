@@ -54,33 +54,62 @@ public:
     void OnDebounceTimer(const std::pmr::vector<Node>& nodes);
 
     // --- 検索実行 ---
-    void RunSearchAndLocate(const std::pmr::vector<Node>& nodes,
-        bool scroll_to_match = false);
+    void RunSearchAndLocate(const std::pmr::vector<Node>& nodes, bool scroll_to_match = false);
     void ScrollToCurrentMatch();
 
     // --- ファイル切替時リセット ---
     void Reset();
 
     // --- ドラッグ選択（検索入力テキスト） ---
-    bool IsDragging() const noexcept { return dragging_; }
+    bool IsDragging() const noexcept
+    {
+        return dragging_;
+    }
     void StartDrag(int anchor_pos) noexcept;
-    void EndDrag() noexcept { dragging_ = false; }
-    int GetDragAnchor() const noexcept { return drag_anchor_; }
-    void OnCaptureChanged() noexcept { dragging_ = false; }
+    void EndDrag() noexcept
+    {
+        dragging_ = false;
+    }
+    int GetDragAnchor() const noexcept
+    {
+        return drag_anchor_;
+    }
+    void OnCaptureChanged() noexcept
+    {
+        dragging_ = false;
+    }
 
     // --- ホバー管理 ---
     void UpdateHoverFromZone(SearchBarHitZone zone);
-    SearchBarHitZone GetHover() const noexcept { return hover_; }
-    void ResetHover() noexcept { hover_ = SearchBarHitZone::None; }
+    SearchBarHitZone GetHover() const noexcept
+    {
+        return hover_;
+    }
+    void ResetHover() noexcept
+    {
+        hover_ = SearchBarHitZone::None;
+    }
 
     // --- レンダー状態構築 ---
     SearchBarRenderState BuildRenderState() const;
 
     // --- アクセサ ---
-    bool HasFocus() const noexcept { return has_focus_; }
-    int GetCaretPos() const noexcept { return caret_pos_; }
-    int GetSelectionStart() const noexcept { return selection_start_; }
-    const std::pmr::wstring& GetImeComposition() const noexcept { return ime_composition_; }
+    bool HasFocus() const noexcept
+    {
+        return has_focus_;
+    }
+    int GetCaretPos() const noexcept
+    {
+        return caret_pos_;
+    }
+    int GetSelectionStart() const noexcept
+    {
+        return selection_start_;
+    }
+    const std::pmr::wstring& GetImeComposition() const noexcept
+    {
+        return ime_composition_;
+    }
 
 private:
     void RestartCaretBlink();

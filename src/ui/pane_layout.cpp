@@ -2,9 +2,9 @@
 #include <algorithm>
 
 PaneLayout ComputePaneLayout(float total_width, float total_height,
-    float file_pane_width, float toc_pane_width,
-    float splitter_width, bool show_file, bool show_toc,
-    float md_min_width, float top_offset) noexcept
+                             float file_pane_width, float toc_pane_width,
+                             float splitter_width, bool show_file, bool show_toc,
+                             float md_min_width, float top_offset) noexcept
 {
     PaneLayout layout{};
     float x = 0.0f;

@@ -48,8 +48,14 @@ public:
     void SetCacheDir(const std::filesystem::path& dir);
     void SetLimits(size_t max_entries, uint64_t max_total_size);
 
-    size_t EntryCount() const noexcept { return index_.size(); }
-    uint64_t TotalSize() const noexcept { return total_size_; }
+    size_t EntryCount() const noexcept
+    {
+        return index_.size();
+    }
+    uint64_t TotalSize() const noexcept
+    {
+        return total_size_;
+    }
 
 #ifdef MENDO_TESTING
     // テスト用: 外部キーから実ファイル名（PNG）を導く。
@@ -61,7 +67,7 @@ public:
 #endif
 
 private:
-    static constexpr uint32_t MAGIC = 0x4D454D43u;   // "MEMC"
+    static constexpr uint32_t MAGIC = 0x4D454D43u; // "MEMC"
     static constexpr uint32_t VERSION = 1;
     static constexpr size_t DEFAULT_MAX_ENTRIES = 4096;
     static constexpr uint64_t DEFAULT_MAX_TOTAL_SIZE = 1ULL * 1024 * 1024 * 1024; // 1GB

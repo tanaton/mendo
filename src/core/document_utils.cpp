@@ -30,10 +30,7 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
     // ダブルクリック単語選択では ASCII 英数 + '_' のみを単語構成文字とする。
     // CJK 文字は個別の文字として扱い選択対象外（既存 UX を維持）。
     const auto is_word_char = [](wchar_t c) static noexcept {
-        return (c >= L'0' && c <= L'9')
-            || (c >= L'A' && c <= L'Z')
-            || (c >= L'a' && c <= L'z')
-            || c == L'_';
+        return (c >= L'0' && c <= L'9') || (c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z') || c == L'_';
     };
 
     if (!is_word_char(text[pos])) {

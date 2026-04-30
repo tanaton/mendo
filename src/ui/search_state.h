@@ -9,17 +9,23 @@
 // 検索マッチの位置情報
 struct SearchMatch {
     int node_index;
-    uint32_t start;       // node.text（またはcell.text）内の文字オフセット
+    uint32_t start; // node.text（またはcell.text）内の文字オフセット
     uint32_t length;
-    int table_row = -1;   // テーブルセル用（-1なら通常ノード）
+    int table_row = -1; // テーブルセル用（-1なら通常ノード）
     int table_col = -1;
 };
 
 // 検索状態の管理（Win32非依存）
 class SearchState {
 public:
-    constexpr bool IsVisible() const noexcept { return visible_; }
-    constexpr void Show() noexcept { visible_ = true; }
+    constexpr bool IsVisible() const noexcept
+    {
+        return visible_;
+    }
+    constexpr void Show() noexcept
+    {
+        visible_ = true;
+    }
     void Hide() noexcept
     {
         visible_ = false;
@@ -36,7 +42,10 @@ public:
     // ExecuteSearch / Hide / Reset のたびにインクリメントされる世代カウンタ。
     // 描画側が検索ハイライト矩形のキャッシュ有効性判定に使う。0 は未初期化を意味するため
     // 1 からカウントし始める（search_hl_gen=0 と常に不一致になる）。
-    constexpr uint32_t GetGeneration() const noexcept { return generation_; }
+    constexpr uint32_t GetGeneration() const noexcept
+    {
+        return generation_;
+    }
 
     // ドキュメントが切り替わった/構造が変わったときに呼ぶ。
     // 次回 ExecuteSearch 時に lowercase キャッシュが再生成される。
@@ -49,23 +58,50 @@ public:
         cached_node_count_ = 0;
     }
 
-    constexpr const std::pmr::wstring& GetQuery() const noexcept { return query_; }
-    constexpr const std::pmr::vector<SearchMatch>& GetMatches() const noexcept { return matches_; }
-    constexpr int GetCurrentMatchIndex() const noexcept { return current_match_; }
-    constexpr int GetMatchCount() const noexcept { return static_cast<int>(matches_.size()); }
+    constexpr const std::pmr::wstring& GetQuery() const noexcept
+    {
+        return query_;
+    }
+    constexpr const std::pmr::vector<SearchMatch>& GetMatches() const noexcept
+    {
+        return matches_;
+    }
+    constexpr int GetCurrentMatchIndex() const noexcept
+    {
+        return current_match_;
+    }
+    constexpr int GetMatchCount() const noexcept
+    {
+        return static_cast<int>(matches_.size());
+    }
     // 大文字小文字の区別
-    constexpr bool IsCaseSensitive() const noexcept { return case_sensitive_; }
-    constexpr void SetCaseSensitive(bool v) noexcept { case_sensitive_ = v; }
-    constexpr void ToggleCaseSensitive() noexcept { case_sensitive_ = !case_sensitive_; }
+    constexpr bool IsCaseSensitive() const noexcept
+    {
+        return case_sensitive_;
+    }
+    constexpr void SetCaseSensitive(bool v) noexcept
+    {
+        case_sensitive_ = v;
+    }
+    constexpr void ToggleCaseSensitive() noexcept
+    {
+        case_sensitive_ = !case_sensitive_;
+    }
 
     // ハイライト表示のON/OFF
-    constexpr bool IsHighlightEnabled() const noexcept { return highlight_enabled_; }
-    constexpr void ToggleHighlightEnabled() noexcept { highlight_enabled_ = !highlight_enabled_; }
+    constexpr bool IsHighlightEnabled() const noexcept
+    {
+        return highlight_enabled_;
+    }
+    constexpr void ToggleHighlightEnabled() noexcept
+    {
+        highlight_enabled_ = !highlight_enabled_;
+    }
 
     void SetQuery(std::wstring_view query);
     void ExecuteSearch(const std::pmr::vector<Node>& nodes);
-    bool NextMatch() noexcept;   // ラップしたらtrueを返す
-    bool PrevMatch() noexcept;   // ラップしたらtrueを返す
+    bool NextMatch() noexcept; // ラップしたらtrueを返す
+    bool PrevMatch() noexcept; // ラップしたらtrueを返す
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
 
 private:
@@ -101,8 +137,8 @@ private:
         size_t col_count = 0;
     };
     struct LowercaseCache {
-        std::pmr::wstring buffer;          // 全ノードの lower text を連結
-        std::pmr::vector<uint32_t> offsets; // size = node_count + 1（末尾 sentinel）
+        std::pmr::wstring buffer;                            // 全ノードの lower text を連結
+        std::pmr::vector<uint32_t> offsets;                  // size = node_count + 1（末尾 sentinel）
         std::pmr::unordered_map<int, LowercaseTable> tables; // テーブルノードのみ確保
 
         std::wstring_view GetText(int node_index) const noexcept

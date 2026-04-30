@@ -22,7 +22,10 @@ public:
     ~ImageLoader();
 
     void Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);
-    void SetRenderTarget(ID2D1RenderTarget* rt) noexcept { render_target_ = rt; }
+    void SetRenderTarget(ID2D1RenderTarget* rt) noexcept
+    {
+        render_target_ = rt;
+    }
 
     void InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
     bool LoadImage(const std::wstring& abs_path, DiagramEntry& out);
@@ -31,8 +34,14 @@ public:
     void ProcessCompletedDecodes();
     void CancelPending();
 
-    void ClearCache() noexcept { cache_.Clear(); }
-    size_t CacheSize() const noexcept { return cache_.Size(); }
+    void ClearCache() noexcept
+    {
+        cache_.Clear();
+    }
+    size_t CacheSize() const noexcept
+    {
+        return cache_.Size();
+    }
 
     void InsertCacheEntry(const std::wstring& path, float width, float height);
     void Shutdown();
@@ -54,8 +63,7 @@ private:
     };
 
     void GetDpiScale(float& scale_x, float& scale_y) const;
-    std::pair<float, float> CreateAndCacheImage(const std::wstring& path,
-        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, UINT pixel_width, UINT pixel_height);
+    std::pair<float, float> CreateAndCacheImage(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, UINT pixel_width, UINT pixel_height);
 
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
 

@@ -21,9 +21,18 @@ public:
 
     void AddEntry(const Node& node, int node_index);
 
-    constexpr const std::pmr::vector<TocEntry>& GetEntries() const noexcept { return entries_; }
-    constexpr void Clear() noexcept { entries_.clear(); }
-    constexpr void Reserve(size_t n) { entries_.reserve(n); }
+    constexpr const std::pmr::vector<TocEntry>& GetEntries() const noexcept
+    {
+        return entries_;
+    }
+    constexpr void Clear() noexcept
+    {
+        entries_.clear();
+    }
+    constexpr void Reserve(size_t n)
+    {
+        entries_.reserve(n);
+    }
 
 private:
     std::pmr::vector<TocEntry> entries_;

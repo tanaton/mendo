@@ -34,10 +34,16 @@ bool App::Init(HWND hwnd)
     mermaid_renderer_.SetFileCache(&file_cache_);
 
     resource_manager_.Init(state_.document.doc, state_.document.layout_cache, state_.view.viewport, image_loader_, mermaid_renderer_,
-        theme_service_, BuildResourceManagerCallbacks());
+                           theme_service_, BuildResourceManagerCallbacks());
     win32_host_.Init(hwnd_, cursors_);
-    effect_executor_.Init(win32_host_, resource_manager_, doc_service_,
-        state_, *layout_service_, {
+    // clang-format off
+    effect_executor_.Init(
+        win32_host_,
+        resource_manager_,
+        doc_service_,
+        state_,
+        *layout_service_,
+        {
             .load_file = [this](std::wstring_view path) {
                 LoadMarkdownFile(path);
             },
@@ -113,12 +119,12 @@ bool App::Init(HWND hwnd)
             },
         }
     );
+    // clang-format on
 
     const auto webview2_data = config_dir.empty() ? std::filesystem::path{} : config_dir / L"WebView2Data";
-    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(),
-        webview2_data, [this]() {
-            resource_manager_.ScheduleMermaidBatch();
-        });
+    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(), webview2_data, [this]() {
+        resource_manager_.ScheduleMermaidBatch();
+    });
 
     image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory());
     image_loader_.InitAsync(hwnd_, app_msg::IMAGE_LOADED, scheduler_);
@@ -130,7 +136,7 @@ bool App::Init(HWND hwnd)
         image_loader_.SetRenderTarget(new_rt);
         image_loader_.ClearCache();
         resource_manager_.LoadImages();
-        });
+    });
 
     theme_service_.LoadDarkMode();
     state_.view.viewport.SetZoomIndex(theme_service_.LoadZoomIndex());
@@ -174,6 +180,7 @@ bool App::Init(HWND hwnd)
 
 ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
 {
+    // clang-format off
     return {
         .invalidate = [this]() {
             Invalidate();
@@ -204,10 +211,12 @@ ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
             Invalidate();
         },
     };
+    // clang-format on
 }
 
 SearchBarController::Callbacks App::BuildSearchBarCallbacks()
 {
+    // clang-format off
     return {
         .invalidate = [this]() {
             Invalidate();
@@ -225,16 +234,16 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
             KillTimer(hwnd_, id);
         },
         .focus_select_all = [this]() {
-            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
+            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0 });
         },
         .focus_set_caret = [this](int pos) {
-            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos));
+            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos) });
         },
         .focus_set_selection = [this](int anchor, int caret) {
-            PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(anchor, caret));
+            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(anchor, caret) });
         },
         .unfocus = [this]() {
-            PostMessage(hwnd_, app_msg::SEARCH_UNFOCUS, 0, 0);
+            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_UNFOCUS, 0, 0 });
         },
         .get_md_pane_height = [this]() -> float {
             return GetPaneLayout().md_rect.height;
@@ -246,4 +255,5 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
             resource_manager_.ScheduleBitmapManage();
         },
     };
+    // clang-format on
 }

@@ -35,7 +35,10 @@ public:
     // キャプションボタン（最小化/最大化/閉じる）はタイトルバーの全高を使う
     static constexpr float CAPTION_BTN_WIDTH = 46.0f;
 
-    constexpr float GetHeight() const noexcept { return BASE_HEIGHT; }
+    constexpr float GetHeight() const noexcept
+    {
+        return BASE_HEIGHT;
+    }
 
     // ウィンドウ幅からボタン位置を計算
     void UpdateLayout(float window_width_dip) noexcept;
@@ -46,18 +49,54 @@ public:
     // ホバー状態を設定。変化した場合 true を返す。
     bool SetHovered(TitleBarHitZone zone) noexcept;
 
-    constexpr TitleBarHitZone GetHovered() const noexcept { return hovered_; }
-    constexpr const TitleBarButton& GetOpenFileButton() const noexcept { return open_file_; }
-    constexpr const TitleBarButton& GetHelpButton() const noexcept { return help_; }
-    constexpr const TitleBarButton& GetThemeToggleButton() const noexcept { return theme_toggle_; }
-    constexpr const TitleBarButton& GetSearchButton() const noexcept { return search_; }
-    constexpr const TitleBarButton& GetFileToggleButton() const noexcept { return file_toggle_; }
-    constexpr const TitleBarButton& GetTocToggleButton() const noexcept { return toc_toggle_; }
-    constexpr const TitleBarButton& GetMinimizeButton() const noexcept { return minimize_; }
-    constexpr const TitleBarButton& GetMaximizeButton() const noexcept { return maximize_; }
-    constexpr const TitleBarButton& GetCloseButton() const noexcept { return close_; }
-    constexpr const DipRect& GetIconRect() const noexcept { return icon_rect_; }
-    constexpr const DipRect& GetTitleTextRect() const noexcept { return title_text_rect_; }
+    constexpr TitleBarHitZone GetHovered() const noexcept
+    {
+        return hovered_;
+    }
+    constexpr const TitleBarButton& GetOpenFileButton() const noexcept
+    {
+        return open_file_;
+    }
+    constexpr const TitleBarButton& GetHelpButton() const noexcept
+    {
+        return help_;
+    }
+    constexpr const TitleBarButton& GetThemeToggleButton() const noexcept
+    {
+        return theme_toggle_;
+    }
+    constexpr const TitleBarButton& GetSearchButton() const noexcept
+    {
+        return search_;
+    }
+    constexpr const TitleBarButton& GetFileToggleButton() const noexcept
+    {
+        return file_toggle_;
+    }
+    constexpr const TitleBarButton& GetTocToggleButton() const noexcept
+    {
+        return toc_toggle_;
+    }
+    constexpr const TitleBarButton& GetMinimizeButton() const noexcept
+    {
+        return minimize_;
+    }
+    constexpr const TitleBarButton& GetMaximizeButton() const noexcept
+    {
+        return maximize_;
+    }
+    constexpr const TitleBarButton& GetCloseButton() const noexcept
+    {
+        return close_;
+    }
+    constexpr const DipRect& GetIconRect() const noexcept
+    {
+        return icon_rect_;
+    }
+    constexpr const DipRect& GetTitleTextRect() const noexcept
+    {
+        return title_text_rect_;
+    }
 
 private:
     TitleBarButton open_file_;

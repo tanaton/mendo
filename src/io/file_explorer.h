@@ -7,13 +7,31 @@
 struct FileEntry {
     std::pmr::wstring full_path;
 
-    constexpr bool is_current() const noexcept { return flags_ & CURRENT; }
-    constexpr bool is_directory() const noexcept { return flags_ & DIRECTORY; }
-    constexpr bool is_parent() const noexcept { return flags_ & PARENT; }
+    constexpr bool is_current() const noexcept
+    {
+        return flags_ & CURRENT;
+    }
+    constexpr bool is_directory() const noexcept
+    {
+        return flags_ & DIRECTORY;
+    }
+    constexpr bool is_parent() const noexcept
+    {
+        return flags_ & PARENT;
+    }
 
-    constexpr void set_current(bool v) noexcept { set_flag(CURRENT, v); }
-    constexpr void set_directory(bool v) noexcept { set_flag(DIRECTORY, v); }
-    constexpr void set_parent(bool v) noexcept { set_flag(PARENT, v); }
+    constexpr void set_current(bool v) noexcept
+    {
+        set_flag(CURRENT, v);
+    }
+    constexpr void set_directory(bool v) noexcept
+    {
+        set_flag(DIRECTORY, v);
+    }
+    constexpr void set_parent(bool v) noexcept
+    {
+        set_flag(PARENT, v);
+    }
 
     // 表示名を返す（full_pathの末尾ファイル名、".."エントリは"..") 。
     // 戻り値はfull_pathの内部バッファまたはリテラルを指すためnull終端。
@@ -43,10 +61,16 @@ class FileExplorer {
 public:
     void SetDirectory(std::wstring_view dir_path);
     void Refresh();
-    constexpr const std::pmr::vector<FileEntry>& GetEntries() const noexcept { return entries_; }
+    constexpr const std::pmr::vector<FileEntry>& GetEntries() const noexcept
+    {
+        return entries_;
+    }
     int HitTest(float local_y, float item_height) const noexcept;
     void SetCurrentFile(std::wstring_view path);
-    constexpr const std::pmr::wstring& GetDirectory() const noexcept { return directory_; }
+    constexpr const std::pmr::wstring& GetDirectory() const noexcept
+    {
+        return directory_;
+    }
 
 private:
     std::pmr::wstring directory_;

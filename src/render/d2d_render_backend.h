@@ -34,15 +34,33 @@ public:
     bool Init(HWND hwnd) override;
     void Resize(UINT width, UINT height) noexcept override;
     void SetDpi(float dpi) noexcept override;
-    float GetDpi() const noexcept override { return dpi_; }
+    float GetDpi() const noexcept override
+    {
+        return dpi_;
+    }
     bool RecreateRenderTarget() override;
     void Present() noexcept override;
 
-    ID2D1Factory* GetD2DFactory() const noexcept override { return d2d_factory_.Get(); }
-    ID2D1DeviceContext* GetRenderTarget() const noexcept override { return device_context_.Get(); }
-    IDWriteFactory* GetDWriteFactory() const noexcept override { return dwrite_factory_.Get(); }
-    IWICImagingFactory* GetWICFactory() const noexcept override { return wic_factory_.Get(); }
-    HWND GetHwnd() const noexcept override { return hwnd_; }
+    ID2D1Factory* GetD2DFactory() const noexcept override
+    {
+        return d2d_factory_.Get();
+    }
+    ID2D1DeviceContext* GetRenderTarget() const noexcept override
+    {
+        return device_context_.Get();
+    }
+    IDWriteFactory* GetDWriteFactory() const noexcept override
+    {
+        return dwrite_factory_.Get();
+    }
+    IWICImagingFactory* GetWICFactory() const noexcept override
+    {
+        return wic_factory_.Get();
+    }
+    HWND GetHwnd() const noexcept override
+    {
+        return hwnd_;
+    }
 
 private:
     bool CreateDeviceResources();

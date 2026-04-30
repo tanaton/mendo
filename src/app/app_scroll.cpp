@@ -151,7 +151,7 @@ void App::OnDeferredLayout()
     {
         wchar_t buf[128];
         _snwprintf_s(buf, std::ranges::size(buf), _TRUNCATE, L"[mendo-profile] DeferredLayout: more=%d dirty=%d\n",
-            more ? 1 : 0, layout_service_->HasDirtyNodes() ? 1 : 0);
+                     more ? 1 : 0, layout_service_->HasDirtyNodes() ? 1 : 0);
         OutputDebugStringW(buf);
     }
 #endif
@@ -180,4 +180,3 @@ void App::OnDeferredLayout()
         EmitEffect(effect::SyncTocActive{});
     }
 }
-

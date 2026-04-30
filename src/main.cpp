@@ -47,8 +47,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
         const bool arg_given = argv && argc > 1 && argv[1][0] != L'\0';
         const DWORD arg_attrs = arg_given ? GetFileAttributesW(argv[1]) : INVALID_FILE_ATTRIBUTES;
-        const bool has_valid_file = arg_attrs != INVALID_FILE_ATTRIBUTES
-            && !(arg_attrs & FILE_ATTRIBUTE_DIRECTORY);
+        const bool has_valid_file = arg_attrs != INVALID_FILE_ATTRIBUTES && !(arg_attrs & FILE_ATTRIBUTE_DIRECTORY);
 
         if (has_valid_file) {
             window.LoadMarkdownFile(argv[1]);

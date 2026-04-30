@@ -60,9 +60,7 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
     // ライブリロード時はアニメーションを表示しない。
     // 大きいファイルを編集中の差分リロードでスピナーが点滅すると視認性が下がるため、
     // 旧コンテンツを表示したまま静かにバックグラウンドでパースし差し替える。
-    const bool show_anim = !suppress_animation
-        && DocumentService::NeedsLoadingAnimation(path)
-        && !state_.pending_reload_retry;
+    const bool show_anim = !suppress_animation && DocumentService::NeedsLoadingAnimation(path) && !state_.pending_reload_retry;
     if (show_anim) {
         file_load_service_.StartLoading(std::move(path));
         EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
@@ -196,8 +194,8 @@ void App::OnParseComplete()
         const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
         MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu op=%d",
-            result->doc.GetNodes().size(), decision.diff_pos, old_view.size(), new_view.size(),
-            std::to_underlying(decision.op));
+                     result->doc.GetNodes().size(), decision.diff_pos, old_view.size(), new_view.size(),
+                     std::to_underlying(decision.op));
 
         if (ApplyReloadDecisionEarly(decision)) {
             return;
@@ -225,7 +223,7 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
 {
     ResetViewForNewDocument();
     state_.search.search_bar_ctrl.Reset();
-    PostMessage(hwnd_, app_msg::SEARCH_UNFOCUS, app_param::SEARCH_UNFOCUS_FILE_SWITCH, 0);
+    EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_UNFOCUS, app_param::SEARCH_UNFOCUS_FILE_SWITCH, 0 });
     state_.active_toc_index = -1;
 
     const std::pmr::wstring dir = state_.document.doc.GetDirectory();
@@ -246,15 +244,15 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
 
     if (state_.view.scroll_restore.HasNodeRestore()) {
         MENDO_TRACEF("FinishLoad: has_reload_diff=%d node=%d offset=%d heights_estimated=%d",
-            has_reload_diff ? 1 : 0,
-            state_.view.scroll_restore.pending_restore_node,
-            state_.view.scroll_restore.pending_restore_offset,
-            heights_estimated ? 1 : 0);
+                     has_reload_diff ? 1 : 0,
+                     state_.view.scroll_restore.pending_restore_node,
+                     state_.view.scroll_restore.pending_restore_offset,
+                     heights_estimated ? 1 : 0);
     }
     else {
         MENDO_TRACEF("FinishLoad: has_reload_diff=%d (no node restore) heights_estimated=%d",
-            has_reload_diff ? 1 : 0,
-            heights_estimated ? 1 : 0);
+                     has_reload_diff ? 1 : 0,
+                     heights_estimated ? 1 : 0);
     }
 
     // cache.Reset()直後は全ノードの高さが0のため、スクロール復元前に
@@ -270,8 +268,7 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
             RecomputeYPositions(
                 state_.document.doc.GetNodesMut(),
                 state_.document.layout_cache,
-                renderer_.GetTheme()
-            );
+                renderer_.GetTheme());
         }
     }
 
@@ -285,7 +282,7 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     scroll_y = state_.view.viewport.GetScrollY();
 
     MENDO_TRACEF("FinishLoad: after-restore scroll_y=%.1f reload_diff_scroll_y=%.1f",
-        scroll_y, reload_diff_scroll_y);
+                 scroll_y, reload_diff_scroll_y);
 
     {
         MENDO_PROFILE("ViewportLayout(Initial)");
@@ -295,8 +292,8 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     FinalizeLayout(md_height);
 
     MENDO_TRACEF("FinishLoad: after-finalize scroll_y=%.1f max_scroll=%.1f",
-        state_.view.viewport.GetScrollY(),
-        state_.view.viewport.GetMaxScroll());
+                 state_.view.viewport.GetScrollY(),
+                 state_.view.viewport.GetMaxScroll());
 
     UpdateTitleBar();
 
@@ -373,8 +370,8 @@ void App::DoReloadCurrentFile()
     const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
     MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu op=%d",
-        decision.diff_pos, old_view.size(), new_view.size(),
-        std::to_underlying(decision.op));
+                 decision.diff_pos, old_view.size(), new_view.size(),
+                 std::to_underlying(decision.op));
 
     if (ApplyReloadDecisionEarly(decision)) {
         return;
@@ -405,14 +402,13 @@ void App::FinishReload(size_t diff_pos)
         RecomputeYPositions(
             state_.document.doc.GetNodesMut(),
             state_.document.layout_cache,
-            renderer_.GetTheme()
-        );
+            renderer_.GetTheme());
     }
 
     const float desired_scroll = CalcScrollForDiff(diff_pos, md_height);
 
     MENDO_TRACEF("FinishReload: desired_scroll=%.1f diff_pos=%zu",
-        desired_scroll, diff_pos);
+                 desired_scroll, diff_pos);
 
     // スクロール位置を設定してからViewportLayoutを呼ぶことで、
     // 変更箇所周辺の可視ノードが優先的に計測される。
@@ -428,8 +424,8 @@ void App::FinishReload(size_t diff_pos)
     FinalizeLayout(md_height);
 
     MENDO_TRACEF("FinishReload: after-finalize scroll_y=%.1f max_scroll=%.1f",
-        state_.view.viewport.GetScrollY(),
-        state_.view.viewport.GetMaxScroll());
+                 state_.view.viewport.GetScrollY(),
+                 state_.view.viewport.GetMaxScroll());
 
     if (state_.search.search_state.IsVisible()) {
         // PMR プール再利用で (nodes.data(), size) が一致すると古いキャッシュを

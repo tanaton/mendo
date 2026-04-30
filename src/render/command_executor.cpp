@@ -40,6 +40,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
     }
 
     for (const auto& cmd : cmds) {
+        // clang-format off
         std::visit(overloaded{
             [&](const ClearCmd& c) {
                 rt->Clear(c.color);
@@ -107,6 +108,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             [&](const SetTransformCmd& c) {
                 rt->SetTransform(c.transform);
             },
-            }, cmd);
+        }, cmd);
+        // clang-format on
     }
 }

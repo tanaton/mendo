@@ -15,14 +15,30 @@ std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
     result.reserve(input.size() + input.size() / 4);
     for (wchar_t c : input) {
         switch (c) {
-        case L'\\': result += L"\\\\"; break;
-        case L'\'': result += L"\\'"; break;
-        case L'"':  result += L"\\\""; break;
-        case L'\n': result += L"\\n"; break;
-        case L'\r': result += L"\\r"; break;
-        case L'\t': result += L"\\t"; break;
-        case L'`':  result += L"\\`"; break;
-        case L'$':  result += L"\\$"; break;
+        case L'\\':
+            result += L"\\\\";
+            break;
+        case L'\'':
+            result += L"\\'";
+            break;
+        case L'"':
+            result += L"\\\"";
+            break;
+        case L'\n':
+            result += L"\\n";
+            break;
+        case L'\r':
+            result += L"\\r";
+            break;
+        case L'\t':
+            result += L"\\t";
+            break;
+        case L'`':
+            result += L"\\`";
+            break;
+        case L'$':
+            result += L"\\$";
+            break;
         default:
             if (c < 0x20 || c == 0x2028 || c == 0x2029) {
                 // 制御文字およびJS文字列リテラルで特殊なU+2028/U+2029をエスケープ
@@ -109,8 +125,12 @@ std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
     result.append(L"flowchart LR\n    A[\"$$");
     for (const wchar_t c : latex) {
         switch (c) {
-        case L'"':  result.append(L"#quot;"); break;
-        case L']':  result.append(L"#93;"); break;
+        case L'"':
+            result.append(L"#quot;");
+            break;
+        case L']':
+            result.append(L"#93;");
+            break;
         case L'\r': // fallthrough
         case L'\n':
             result.push_back(L' ');

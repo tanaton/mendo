@@ -52,7 +52,8 @@ private:
 // ConfigService のセクション "Session" / "Pane" を排他的に扱う薄いラッパ。
 class SessionService {
 public:
-    explicit SessionService(ConfigService& config) noexcept : config_(config) {}
+    explicit SessionService(ConfigService& config) noexcept : config_(config)
+    {}
 
     void SaveLastFilePath(std::wstring_view path);
     std::pmr::wstring LoadLastFilePath() const;

@@ -85,16 +85,14 @@ void Renderer::UpdateLayoutTheme()
 // ノード描画ロジックはCommandGeneratorに抽出済み。
 // D2Dブラシが必要なApplyNodeEffectsのみ描画前パスとしてここに残る。
 
-void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    float scroll_y, float md_pane_height)
+void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height)
 {
     const float viewport_top = scroll_y;
     const float viewport_bottom = scroll_y + md_pane_height;
     const int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
 
     const uint32_t effects_gen = cache.GetEffectsGeneration();
-    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_
-        || std::abs(viewport_bottom - last_effects_bottom_) > 0.5f) {
+    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || std::abs(viewport_bottom - last_effects_bottom_) > 0.5f) {
         MENDO_PROFILE("PrepareVisibleEffects");
         ApplyVisibleEffects(nodes, cache, first_visible, viewport_top, viewport_bottom);
         last_effects_gen_ = effects_gen;
@@ -103,8 +101,7 @@ void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache&
     }
 }
 
-void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    int first_visible, float viewport_top, float viewport_bottom)
+void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, int first_visible, float viewport_top, float viewport_bottom)
 {
     const int node_count = static_cast<int>(nodes.size());
     for (int i = first_visible; i < node_count; i++) {
@@ -118,14 +115,14 @@ void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& c
 ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexcept
 {
     static constexpr BrushId SYNTAX_MAP[] = {
-        BrushId::Text,                // Plain（未使用、フォールバックとしてテキストブラシを返す）
-        BrushId::SyntaxKeyword,       // キーワード
-        BrushId::SyntaxType,          // 型
-        BrushId::SyntaxString,        // 文字列
-        BrushId::SyntaxNumber,        // 数値
-        BrushId::SyntaxComment,       // コメント
-        BrushId::SyntaxPreprocessor,  // プリプロセッサ
-        BrushId::SyntaxFunction,      // 関数
+        BrushId::Text,               // Plain（未使用、フォールバックとしてテキストブラシを返す）
+        BrushId::SyntaxKeyword,      // キーワード
+        BrushId::SyntaxType,         // 型
+        BrushId::SyntaxString,       // 文字列
+        BrushId::SyntaxNumber,       // 数値
+        BrushId::SyntaxComment,      // コメント
+        BrushId::SyntaxPreprocessor, // プリプロセッサ
+        BrushId::SyntaxFunction,     // 関数
     };
     const auto idx = std::to_underlying(type);
     if (idx >= std::size(SYNTAX_MAP)) {
@@ -141,12 +138,10 @@ static InlineCodeBg MakeInlineCodeBg(const DWRITE_HIT_TEST_METRICS& m) noexcept
         m.left - INLINE_CODE_PAD_X,
         m.top - INLINE_CODE_PAD_Y,
         m.left + m.width + INLINE_CODE_PAD_X,
-        m.top + m.height + INLINE_CODE_PAD_Y
-    );
+        m.top + m.height + INLINE_CODE_PAD_Y);
 }
 
-void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
-    float viewport_top, float viewport_bottom)
+void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewport_top, float viewport_bottom)
 {
     if (!node.has_table() || node.table_rows().empty() || !entry.has_table_layout()) {
         entry.effects_applied = true;
@@ -216,8 +211,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry,
     }
 }
 
-void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
-    float viewport_top, float viewport_bottom)
+void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewport_top, float viewport_bottom)
 {
     // テーブルノード: ビューポートカリング付きの増分処理を行う。
     // リンク色は全行に適用（軽量・冪等）、インラインコード背景は可視行のみ計算する。
@@ -258,8 +252,11 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry,
     // Alertラベルの色を適用
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
         static constexpr BrushId ALERT_BRUSH[] = {
-            BrushId::AlertNote, BrushId::AlertTip, BrushId::AlertImportant,
-            BrushId::AlertWarning, BrushId::AlertCaution,
+            BrushId::AlertNote,
+            BrushId::AlertTip,
+            BrushId::AlertImportant,
+            BrushId::AlertWarning,
+            BrushId::AlertCaution,
         };
         static_assert(std::size(ALERT_BRUSH) == ALERT_TYPE_COUNT);
         const auto idx = AlertColorIndex(node.alert_type);
@@ -300,11 +297,11 @@ void Renderer::DrawSidePanes(const SidePaneState& sp)
 }
 
 void Renderer::DrawLoading(float angle,
-    const PaneRect& md_pane_rect,
-    const SidePaneState& sp,
-    const TitleBarRenderState& titlebar,
-    const GestureRenderState& gesture,
-    const ToastRenderState& toast)
+                           const PaneRect& md_pane_rect,
+                           const SidePaneState& sp,
+                           const TitleBarRenderState& titlebar,
+                           const GestureRenderState& gesture,
+                           const ToastRenderState& toast)
 {
     if (!rt()) {
         return;
@@ -455,4 +452,3 @@ bool Renderer::RecreateRenderTarget()
 
     return true;
 }
-

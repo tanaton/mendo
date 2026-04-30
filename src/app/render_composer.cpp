@@ -8,8 +8,9 @@ GestureRenderState BuildGestureState(const AppState& state)
     gs.trail_active = state.interaction.gesture.IsGestureActive();
     gs.trail_points = &state.interaction.gesture.GetTrailPoints();
     gs.overlay_visible = state.interaction.gesture.IsOverlayVisible();
-    gs.direction = (state.interaction.gesture.GetDirection() == GestureDirection::Left) ? -1
-        : (state.interaction.gesture.GetDirection() == GestureDirection::Right) ? 1 : 0;
+    gs.direction = (state.interaction.gesture.GetDirection() == GestureDirection::Left)    ? -1
+                   : (state.interaction.gesture.GetDirection() == GestureDirection::Right) ? 1
+                                                                                           : 0;
     gs.overlay_alpha = state.interaction.gesture.GetOverlayAlpha();
 
     // タッチパッドスワイプのオーバーレイ（マウスジェスチャーが非アクティブの場合のみ）
@@ -33,7 +34,7 @@ SidePaneState BuildSidePaneState(const AppState& state, const PaneLayout& layout
 }
 
 TitleBarRenderState BuildTitleBarState(const AppState& state,
-    float window_width, bool is_dark_mode, bool is_maximized)
+                                       float window_width, bool is_dark_mode, bool is_maximized)
 {
     TitleBarRenderState tb;
     tb.height = state.window.titlebar.GetHeight();

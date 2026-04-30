@@ -20,15 +20,25 @@ struct AsyncLoadResult {
 // ファイル読み込みのオーケストレーションとローディングアニメーション状態を管理。
 class FileLoadService {
 public:
-    explicit constexpr FileLoadService(DocumentService& doc_service) noexcept : doc_service_(doc_service) {}
+    explicit constexpr FileLoadService(DocumentService& doc_service) noexcept : doc_service_(doc_service)
+    {}
 
     // ---- ローディングアニメーション状態 ----
 
-    constexpr bool IsLoading() const noexcept { return loading_; }
+    constexpr bool IsLoading() const noexcept
+    {
+        return loading_;
+    }
     // スピナー非表示でも非同期パースが進行中なら true。ライブリロードのバースト時に
     // 重複スケジューリングを抑制するためのフラグ。
-    constexpr bool IsAsyncLoading() const noexcept { return async_in_flight_; }
-    constexpr float GetLoadingAngle() const noexcept { return loading_angle_; }
+    constexpr bool IsAsyncLoading() const noexcept
+    {
+        return async_in_flight_;
+    }
+    constexpr float GetLoadingAngle() const noexcept
+    {
+        return loading_angle_;
+    }
 
     void StartLoading(std::pmr::wstring path);
     void StopLoading() noexcept;
@@ -50,8 +60,14 @@ public:
 
     // ---- パスアクセス ----
 
-    constexpr std::wstring_view GetLoadingPath() const noexcept { return loading_path_; }
-    constexpr void SetLoadingPath(std::pmr::wstring path) noexcept { loading_path_ = std::move(path); }
+    constexpr std::wstring_view GetLoadingPath() const noexcept
+    {
+        return loading_path_;
+    }
+    constexpr void SetLoadingPath(std::pmr::wstring path) noexcept
+    {
+        loading_path_ = std::move(path);
+    }
 
 private:
     // 不変条件: loading_ が true なら async_in_flight_ も true。

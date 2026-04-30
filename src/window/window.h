@@ -41,8 +41,7 @@ private:
     void SaveWindowPlacement();
     bool RestoreWindowPlacement(int nCmdShow);
 
-    static LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-        UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+    static LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
     void RepositionSearchEdit();
     void SyncSearchCaretFromEdit();
 
@@ -50,7 +49,7 @@ private:
 
     HWND hwnd_ = nullptr;
     HWND search_edit_ = nullptr;
-    bool in_sys_menu_ = false;   // システムメニューのモーダルループ中フラグ
+    bool in_sys_menu_ = false;    // システムメニューのモーダルループ中フラグ
     bool tracking_mouse_ = false; // TrackMouseEvent によるマウス追跡中フラグ
     bool was_minimized_ = false;  // 直前が最小化状態だったかのフラグ（復元時の同期描画ガード用）
 

@@ -15,10 +15,10 @@ inline constexpr DWORD FILE_SHARE_RW_DELETE =
 
 // OpenFileForReadShared の失敗区分。
 enum class OpenFileError : uint8_t {
-    None,             // 成功
-    NotFound,         // CreateFileW 失敗（存在しない/アクセス拒否など）
-    SizeQueryFailed,  // GetFileSizeEx 失敗 or 負のサイズ
-    TooLarge,         // max_size を超過
+    None,            // 成功
+    NotFound,        // CreateFileW 失敗（存在しない/アクセス拒否など）
+    SizeQueryFailed, // GetFileSizeEx 失敗 or 負のサイズ
+    TooLarge,        // max_size を超過
 };
 
 // CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねた共通ヘルパーの結果。
@@ -32,8 +32,7 @@ struct OpenedFile {
 // 共有モードと最大サイズは呼び出し側で指定する。
 // out_error は CreateFileW 失敗時のみ GetLastError() を格納する
 // （SizeQueryFailed / TooLarge では更新しない）。
-[[nodiscard]] OpenedFile OpenFileForReadShared(const std::filesystem::path& path,
-    DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept;
+[[nodiscard]] OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept;
 
 // out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
 [[nodiscard]] std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
@@ -42,8 +41,7 @@ struct OpenedFile {
 // 読み込み済みコンテンツの後にファイルがさらに伸びていれば、エディタ側が
 // 書き込み途中である可能性が高い。BOM の 3 バイトずれ等を吸収するため
 // 16 バイトの許容範囲を持たせる。
-bool IsFileLargerThan(const std::filesystem::path& path,
-    size_t reference_size, size_t tolerance = 16) noexcept;
+bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, size_t tolerance = 16) noexcept;
 
 [[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
 
@@ -56,17 +54,17 @@ namespace path_util {
 inline bool iequal(std::wstring_view a, std::wstring_view b) noexcept
 {
     return ::CompareStringOrdinal(
-        a.data(), static_cast<int>(a.size()),
-        b.data(), static_cast<int>(b.size()),
-        TRUE) == CSTR_EQUAL;
+               a.data(), static_cast<int>(a.size()),
+               b.data(), static_cast<int>(b.size()),
+               TRUE) == CSTR_EQUAL;
 }
 
 inline bool iless(std::wstring_view a, std::wstring_view b) noexcept
 {
     return ::CompareStringOrdinal(
-        a.data(), static_cast<int>(a.size()),
-        b.data(), static_cast<int>(b.size()),
-        TRUE) == CSTR_LESS_THAN;
+               a.data(), static_cast<int>(a.size()),
+               b.data(), static_cast<int>(b.size()),
+               TRUE) == CSTR_LESS_THAN;
 }
 
 } // namespace path_util

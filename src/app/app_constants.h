@@ -20,9 +20,9 @@ inline constexpr UINT_PTR MERMAID_INIT_RETRY = 12;
 inline constexpr UINT_PTR FILE_RELOAD_DEBOUNCE = 13;
 
 // タイマー間隔 (ms)
-inline constexpr UINT FRAME_INTERVAL_MS = 16;              // ~60fps アニメーション用
-inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200;       // ファイル変更通知のデバウンス
-inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;           // truncate→rewrite 検出後の短縮リトライ
+inline constexpr UINT FRAME_INTERVAL_MS = 16;        // ~60fps アニメーション用
+inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200; // ファイル変更通知のデバウンス
+inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;     // truncate→rewrite 検出後の短縮リトライ
 
 } // namespace app_timer
 

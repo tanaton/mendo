@@ -25,7 +25,7 @@ struct ContextMenuParams {
     bool dark_mode_checked = false;
     bool file_pane_checked = false;
     bool toc_pane_checked = false;
-    bool show_file_items = false;       // MdPaneの場合のみtrue
+    bool show_file_items = false; // MdPaneの場合のみtrue
     const Theme* theme = nullptr;
 };
 
@@ -34,7 +34,11 @@ struct ContextMenuParams {
 class ContextMenu {
 public:
     // メニュー項目の種類
-    enum class ItemType : uint8_t { NavRow, Separator, Text };
+    enum class ItemType : uint8_t {
+        NavRow,
+        Separator,
+        Text
+    };
 
     struct Item {
         ItemType type = ItemType::Text;

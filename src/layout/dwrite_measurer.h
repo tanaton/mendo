@@ -12,19 +12,24 @@ class DWriteTextMeasurer : public ITextMeasurer {
 public:
     bool Init(const Theme& theme) override;
     bool RecreateFormats() override;
-    void UpdateTheme(const Theme& theme) noexcept override { theme_ = &theme; }
+    void UpdateTheme(const Theme& theme) noexcept override
+    {
+        theme_ = &theme;
+    }
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) override;
     void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) override;
 
     // 外部のIDWriteFactoryで初期化する（Initの前に呼び出す必要がある）。
-    void SetFactory(IDWriteFactory* factory) noexcept { dwrite_ = factory; }
+    void SetFactory(IDWriteFactory* factory) noexcept
+    {
+        dwrite_ = factory;
+    }
 
 private:
     bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node) noexcept;
-    void ApplyRunFormatting(IDWriteTextLayout* layout, const std::pmr::vector<TextRun>& runs,
-        std::optional<NodeType> node_type);
+    void ApplyRunFormatting(IDWriteTextLayout* layout, const std::pmr::vector<TextRun>& runs, std::optional<NodeType> node_type);
     void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths);
     void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width, size_t col_count, std::pmr::vector<float>& natural_widths);
 

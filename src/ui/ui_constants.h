@@ -7,7 +7,7 @@
 // 選択範囲のハイライトカラー
 inline constexpr D2D1_COLOR_F SELECTION_COLOR = { 0.26f, 0.56f, 0.84f, 0.3f };
 
-inline constexpr float TWO_PI = std::numbers::pi_v<float> *2.0f;
+inline constexpr float TWO_PI = std::numbers::pi_v<float> * 2.0f;
 
 // ローディングスピナーの定数
 namespace spinner {
@@ -16,7 +16,7 @@ inline constexpr float DOT_RADIUS = 3.0f;
 inline constexpr int DOT_COUNT = 8;
 inline constexpr float ROTATION_INCREMENT = 0.15f;
 inline constexpr float DOT_FADE_FACTOR = 0.85f;
-}
+} // namespace spinner
 
 // Windowsの基準DPI（100%スケーリング時の値）
 inline constexpr float DEFAULT_DPI = 96.0f;
@@ -76,7 +76,8 @@ inline constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
 inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
 
 // ペインヘッダー内の閉じるボタン矩形を返す（ペインローカル座標）。
-inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) noexcept {
+inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) noexcept
+{
     const float btn_size = header_height - 2.0f * PANE_CLOSE_BTN_MARGIN;
     const float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN;
     const float btn_y = (header_height - btn_size) / 2.0f;
@@ -84,7 +85,8 @@ inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) no
 }
 
 // ペインヘッダー内の更新ボタン矩形を返す（閉じるボタンの左隣、ペインローカル座標）。
-inline D2D1_RECT_F PaneRefreshButtonRect(float pane_width, float header_height) noexcept {
+inline D2D1_RECT_F PaneRefreshButtonRect(float pane_width, float header_height) noexcept
+{
     const D2D1_RECT_F close_rect = PaneCloseButtonRect(pane_width, header_height);
     const float btn_size = close_rect.right - close_rect.left;
     const float btn_x = close_rect.left - btn_size - PANE_CLOSE_BTN_MARGIN;
@@ -95,7 +97,8 @@ inline D2D1_RECT_F PaneRefreshButtonRect(float pane_width, float header_height) 
 // スクロール位置を物理ピクセル境界にスナップする。
 // ClearTypeヒンティングのフレーム間変動によるテキストのガタつきを防止する。
 // dpi_scale: DPI / DEFAULT_DPI（例: 100%→1.0, 150%→1.5, 200%→2.0）
-inline float SnapScrollToPixel(float scroll_y, float dpi_scale) noexcept {
+inline float SnapScrollToPixel(float scroll_y, float dpi_scale) noexcept
+{
     return std::round(scroll_y * dpi_scale) / dpi_scale;
 }
 
@@ -239,17 +242,16 @@ enum class DiagramButtonSlot : uint8_t {
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
 // anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
 // button_index: 0=最も右, 1 以降は左隣に COPY_BTN_GAP 分ずれる。
-inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, int button_index = 0) noexcept {
-    const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE
-        - static_cast<float>(button_index) * (COPY_BTN_SIZE + COPY_BTN_GAP);
+inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, int button_index = 0) noexcept
+{
+    const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE - static_cast<float>(button_index) * (COPY_BTN_SIZE + COPY_BTN_GAP);
     const float by = anchor_top + COPY_BTN_MARGIN;
     return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);
 }
 
 // Mermaidダイアグラムのビットマップ描画矩形を計算する（スケーリング＋中央寄せ）。
 // CommandGenerator（描画）とHitTestService（クリック検出）の間で共有される。
-inline D2D1_RECT_F MermaidBitmapRect(float diagram_w, float diagram_h,
-    float x, float cw, float y) noexcept
+inline D2D1_RECT_F MermaidBitmapRect(float diagram_w, float diagram_h, float x, float cw, float y) noexcept
 {
     float draw_w = diagram_w;
     float draw_h = diagram_h;

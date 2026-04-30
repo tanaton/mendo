@@ -54,9 +54,7 @@ static float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
 
 // ---- フリー関数 ----
 
-void ComputeColumnWidths(std::pmr::vector<float>& out,
-    const std::pmr::vector<float>& natural_widths,
-    float available_width, size_t col_count)
+void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<float>& natural_widths, float available_width, size_t col_count)
 {
     out.resize(col_count);
     available_width = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
@@ -64,8 +62,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out,
     const float total_natural = std::ranges::fold_left(
         natural_widths,
         0.0f,
-        [](float a, float b) static noexcept { return a + b; }
-    );
+        [](float a, float b) static noexcept { return a + b; });
 
     if (total_natural > 0 && total_natural > available_width) {
         for (auto [w, nw] : std::views::zip(out, natural_widths) | std::views::take(col_count)) {
@@ -156,7 +153,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
 }
 
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after) noexcept
+                                    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after) noexcept
 {
     YPositionResult result;
     result.has_dirty_nodes = has_earlier_dirty;
@@ -185,8 +182,7 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
             if (!result.has_dirty_nodes) {
                 result.has_dirty_nodes = std::ranges::any_of(
                     std::views::iota(i, node_count),
-                    [&cache](size_t j) { return cache[j].layout_dirty; }
-                );
+                    [&cache](size_t j) { return cache[j].layout_dirty; });
             }
             const size_t last_idx = node_count - 1;
             result.total_height = cache[last_idx].y_position + cache[last_idx].height + GetSpacingBelow(nodes[last_idx], theme) + theme.margin_top;
@@ -221,9 +217,7 @@ bool LayoutEngine::RecreateFormats()
     return measurer_->RecreateFormats();
 }
 
-void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    float viewport_width,
-    float viewport_top, float viewport_bottom)
+void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
 {
     const auto node_count = nodes.size();
     cache.Resize(node_count);
@@ -277,8 +271,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                     // また、テーブル/画像/折り返しが多い段落では推定値が実測値を
                     // 大きく下回るため、シュリンク方向の更新も後続ノードと重なる
                     // 原因になる。よって既存値より小さくはしない。
-                    const bool is_diagram = (node.type == NodeType::CodeBlock
-                        && IsDiagramLanguage(node.code_language));
+                    const bool is_diagram = (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language));
                     if (!is_diagram) {
                         const float estimated = EstimateNodeHeight(node, *theme_);
                         if (entry.height < estimated) {
@@ -335,7 +328,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
 {
-    last_viewport_width_ = 0.0f; // 幅の変更検出を強制する
+    last_viewport_width_ = 0.0f;                                                              // 幅の変更検出を強制する
     ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right); // 逆変換: content→viewport
 }
 
@@ -366,7 +359,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
     if (any_updated) {
         cache.IncrementEffectsGeneration();
         const auto result = RecomputeYPositions(nodes, cache, *theme_,
-            static_cast<size_t>(lo), has_dirty_nodes_, static_cast<size_t>(last_measured));
+                                                static_cast<size_t>(lo), has_dirty_nodes_, static_cast<size_t>(last_measured));
         total_height_ = result.total_height;
         has_dirty_nodes_ = result.has_dirty_nodes;
     }
@@ -374,8 +367,8 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 }
 
 bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    float viewport_width, int batch_size, int time_budget_us,
-    float viewport_top, float viewport_height, float buffer_screens)
+                                     float viewport_width, int batch_size, int time_budget_us,
+                                     float viewport_top, float viewport_height, float buffer_screens)
 {
     const float content_width = theme_->ContentWidth(viewport_width);
     const auto node_count = nodes.size();
@@ -457,8 +450,7 @@ void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float widt
     viewport_.ApplyScrollTarget(cache);
 }
 
-bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us,
-    float viewport_height, float buffer_screens)
+bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us, float viewport_height, float buffer_screens)
 {
     bool more;
     if (viewport_height > 0.0f) {

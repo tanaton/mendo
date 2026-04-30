@@ -10,7 +10,10 @@
 #include <windows.h>
 
 // std::visit 用のオーバーロードヘルパー
-template <class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+template <class... Ts>
+struct overloaded : Ts... {
+    using Ts::operator()...;
+};
 
 // pmr::wstring と wstring_view を等価にハッシュする透過ハッシャ。
 // equal_to<> と組み合わせて unordered_map に渡すと wstring_view からの lookup で

@@ -14,8 +14,7 @@ namespace mendo::app_mouse {
 // ペインヘッダー内のボタン矩形を返す関数（NTTP）の型制約。
 template <auto Fn>
 concept PaneButtonRectFn =
-    std::invocable<decltype(Fn), float, float>
-    && std::convertible_to<std::invoke_result_t<decltype(Fn), float, float>, D2D1_RECT_F>;
+    std::invocable<decltype(Fn), float, float> && std::convertible_to<std::invoke_result_t<decltype(Fn), float, float>, D2D1_RECT_F>;
 
 // ペインヘッダー内のボタンがクリックされたか判定する。
 template <auto ButtonRectFn>
@@ -35,16 +34,26 @@ constexpr TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maxim
 {
     const auto& ls = i18n::S();
     switch (zone) {
-    case TitleBarHitZone::OpenFile:    return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_open_file };
-    case TitleBarHitZone::Help:        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_help };
-    case TitleBarHitZone::ThemeToggle: return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_theme_toggle };
-    case TitleBarHitZone::Search:      return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_search };
-    case TitleBarHitZone::FileToggle:  return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_file_pane };
-    case TitleBarHitZone::TocToggle:   return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_toc_pane };
-    case TitleBarHitZone::Minimize:    return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_minimize };
-    case TitleBarHitZone::Maximize:    return { TooltipTarget::Zone::TitleBarButton, is_maximized ? ls.tooltip_restore : ls.tooltip_maximize };
-    case TitleBarHitZone::Close:       return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_close };
-    default: return {};
+    case TitleBarHitZone::OpenFile:
+        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_open_file };
+    case TitleBarHitZone::Help:
+        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_help };
+    case TitleBarHitZone::ThemeToggle:
+        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_theme_toggle };
+    case TitleBarHitZone::Search:
+        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_search };
+    case TitleBarHitZone::FileToggle:
+        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_file_pane };
+    case TitleBarHitZone::TocToggle:
+        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_toc_pane };
+    case TitleBarHitZone::Minimize:
+        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_minimize };
+    case TitleBarHitZone::Maximize:
+        return { TooltipTarget::Zone::TitleBarButton, is_maximized ? ls.tooltip_restore : ls.tooltip_maximize };
+    case TitleBarHitZone::Close:
+        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_close };
+    default:
+        return {};
     }
 }
 
@@ -53,12 +62,18 @@ constexpr TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
 {
     const auto& ls = i18n::S();
     switch (zone) {
-    case SearchBarHitZone::Up:            return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev };
-    case SearchBarHitZone::Down:          return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next };
-    case SearchBarHitZone::CaseSensitive: return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case };
-    case SearchBarHitZone::Highlight:     return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight };
-    case SearchBarHitZone::Close:         return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close };
-    default: return {};
+    case SearchBarHitZone::Up:
+        return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev };
+    case SearchBarHitZone::Down:
+        return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next };
+    case SearchBarHitZone::CaseSensitive:
+        return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case };
+    case SearchBarHitZone::Highlight:
+        return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight };
+    case SearchBarHitZone::Close:
+        return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close };
+    default:
+        return {};
     }
 }
 
@@ -67,9 +82,12 @@ constexpr TooltipTarget BuildNavButtonTooltip(NavButtonHover hit) noexcept
 {
     const auto& ls = i18n::S();
     switch (hit) {
-    case NavButtonHover::Back:    return { TooltipTarget::Zone::NavButton, ls.tooltip_nav_back };
-    case NavButtonHover::Forward: return { TooltipTarget::Zone::NavButton, ls.tooltip_nav_forward };
-    default: return {};
+    case NavButtonHover::Back:
+        return { TooltipTarget::Zone::NavButton, ls.tooltip_nav_back };
+    case NavButtonHover::Forward:
+        return { TooltipTarget::Zone::NavButton, ls.tooltip_nav_forward };
+    default:
+        return {};
     }
 }
 
@@ -83,14 +101,9 @@ struct PaneHoverResult {
 
 // サイドペインの共通ホバー処理。
 // ヘッダーボタンのホバー状態を更新し、コンテンツ領域のアイテムヒットテストを行う。
-template<typename SetCloseHoveredFn, typename SetRefreshHoveredFn,
-    typename HitTestFn, typename BuildTooltipFn>
-    requires std::predicate<SetCloseHoveredFn&, bool>
-          && std::predicate<SetRefreshHoveredFn&, bool>
-          && std::invocable<HitTestFn&, float, float>
-          && std::convertible_to<std::invoke_result_t<HitTestFn&, float, float>, int>
-          && std::invocable<BuildTooltipFn&, bool, bool, int>
-          && std::convertible_to<std::invoke_result_t<BuildTooltipFn&, bool, bool, int>, TooltipTarget>
+template <typename SetCloseHoveredFn, typename SetRefreshHoveredFn,
+          typename HitTestFn, typename BuildTooltipFn>
+    requires std::predicate<SetCloseHoveredFn&, bool> && std::predicate<SetRefreshHoveredFn&, bool> && std::invocable<HitTestFn&, float, float> && std::convertible_to<std::invoke_result_t<HitTestFn&, float, float>, int> && std::invocable<BuildTooltipFn&, bool, bool, int> && std::convertible_to<std::invoke_result_t<BuildTooltipFn&, bool, bool, int>, TooltipTarget>
 PaneHoverResult ProcessSidePaneHover(
     float dip_x, float dip_y,
     const PaneRect& rect, float header_h, float item_height,
@@ -126,7 +139,7 @@ PaneHoverResult ProcessSidePaneHover(
 
 // サイドペインのヘッダー領域のクリック処理を共通化。
 // ヘッダー領域内のクリックを消費した場合 true を返す（ボタン外も含む）。
-template<typename ToggleFn, typename RefreshFn>
+template <typename ToggleFn, typename RefreshFn>
     requires std::invocable<ToggleFn&> && std::invocable<RefreshFn&>
 bool ProcessSidePaneHeaderClick(
     float dip_x, float dip_y,

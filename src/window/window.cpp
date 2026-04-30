@@ -30,10 +30,22 @@ Win32Window::Win32Window(ConfigService& config)
 }
 Win32Window::~Win32Window() = default;
 
-void Win32Window::LoadMarkdownFile(std::wstring_view path) { app_->LoadMarkdownFile(path); }
-void Win32Window::LoadHelpDocument() { app_->LoadHelpDocument(); }
-std::pmr::wstring Win32Window::LoadLastFilePath() const { return app_->LoadLastFilePath(); }
-void Win32Window::ShowDirectory(std::wstring_view dir_path) { app_->ShowDirectory(dir_path); }
+void Win32Window::LoadMarkdownFile(std::wstring_view path)
+{
+    app_->LoadMarkdownFile(path);
+}
+void Win32Window::LoadHelpDocument()
+{
+    app_->LoadHelpDocument();
+}
+std::pmr::wstring Win32Window::LoadLastFilePath() const
+{
+    return app_->LoadLastFilePath();
+}
+void Win32Window::ShowDirectory(std::wstring_view dir_path)
+{
+    app_->ShowDirectory(dir_path);
+}
 
 bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 {
@@ -73,9 +85,9 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 
     // 検索用の非表示EDITコントロールを作成（IME対応のため）
     search_edit_ = CreateWindowExW(0, L"EDIT", L"",
-        WS_CHILD | ES_AUTOHSCROLL,
-        0, 0, 1, 1,
-        hwnd_, nullptr, hInstance, nullptr);
+                                   WS_CHILD | ES_AUTOHSCROLL,
+                                   0, 0, 1, 1,
+                                   hwnd_, nullptr, hInstance, nullptr);
     if (search_edit_) {
         SetWindowSubclass(search_edit_, SearchEditProc, 0, reinterpret_cast<DWORD_PTR>(this));
     }
@@ -99,10 +111,8 @@ void Win32Window::UpdateDpiMetricsCache()
     }
     const UINT dpi = GetDpiForWindow(hwnd_);
     cached_nchit_border_ = MulDiv(4, dpi, 96);
-    cached_nchit_frame_y_ = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
-        + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-    cached_nchit_right_border_ = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
-        + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    cached_nchit_frame_y_ = GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    cached_nchit_right_border_ = GetSystemMetricsForDpi(SM_CXFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 }
 
 void Win32Window::UpdateDwmFrame()
@@ -157,13 +167,12 @@ int Win32Window::RunMessageLoop()
 #if MENDO_PROFILE_ENABLED
             LARGE_INTEGER dispatch_end;
             QueryPerformanceCounter(&dispatch_end);
-            const double dispatch_ms = static_cast<double>(dispatch_end.QuadPart - dispatch_start.QuadPart)
-                * 1000.0 / static_cast<double>(freq.QuadPart);
+            const double dispatch_ms = static_cast<double>(dispatch_end.QuadPart - dispatch_start.QuadPart) * 1000.0 / static_cast<double>(freq.QuadPart);
             if (dispatch_ms > 16.0) {
                 wchar_t buf[256];
                 _snwprintf_s(buf, std::ranges::size(buf), _TRUNCATE,
-                    L"[mendo-profile] SLOW MSG 0x%04X hwnd=%p: %.2f ms\n",
-                    msg.message, msg.hwnd, dispatch_ms);
+                             L"[mendo-profile] SLOW MSG 0x%04X hwnd=%p: %.2f ms\n",
+                             msg.message, msg.hwnd, dispatch_ms);
                 OutputDebugStringW(buf);
             }
 #endif
@@ -201,10 +210,8 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
         // 最大化時はフレーム厚分だけ内側に縮小（タスクバー隠れ防止）
         if (IsZoomed(hwnd_)) {
             const UINT dpi = GetDpiForWindow(hwnd_);
-            const int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi)
-                + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-            const int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
-                + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+            const int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+            const int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
             params->rgrc[0].top += frame_y;
             params->rgrc[0].left += frame_x;
             params->rgrc[0].right -= frame_x;
@@ -288,7 +295,7 @@ LRESULT Win32Window::HitTestTitleBar(POINT pt) const noexcept
 
     switch (app_->TitleBarHitTest(dip_x, dip_y)) {
     case TitleBarHitZone::Icon:
-        return HTSYSMENU;  // システムメニュー表示（ダブルクリックで閉じる）
+        return HTSYSMENU; // システムメニュー表示（ダブルクリックで閉じる）
     case TitleBarHitZone::OpenFile:
     case TitleBarHitZone::Help:
     case TitleBarHitZone::ThemeToggle:
@@ -298,7 +305,7 @@ LRESULT Win32Window::HitTestTitleBar(POINT pt) const noexcept
     case TitleBarHitZone::Minimize:
     case TitleBarHitZone::Maximize:
     case TitleBarHitZone::Close:
-        return HTCLIENT;  // カスタムボタンはWM_LBUTTONDOWNで処理
+        return HTCLIENT; // カスタムボタンはWM_LBUTTONDOWNで処理
     case TitleBarHitZone::Caption:
     default:
         return HTCAPTION;
@@ -677,8 +684,7 @@ void Win32Window::SaveWindowPlacement()
     config_.SaveInt("Window", "Height", rc.bottom - rc.top);
 
     // 最小化中に閉じた場合も、元が最大化だったかを正しく保存する
-    const bool was_maximized = (wp.showCmd == SW_SHOWMAXIMIZED) ||
-        ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED));
+    const bool was_maximized = (wp.showCmd == SW_SHOWMAXIMIZED) || ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED));
     config_.SaveBool("Window", "Maximized", was_maximized);
 }
 
@@ -726,8 +732,7 @@ void Win32Window::RestoreScrollPosition()
 // 検索EDITコントロールのサブクラスプロシージャ
 // ============================================================
 
-LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-    UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData)
+LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData)
 {
     auto* self = reinterpret_cast<Win32Window*>(dwRefData);
 
@@ -858,9 +863,7 @@ void Win32Window::RepositionSearchEdit()
         return;
     }
     const RECT rc = app_->GetSearchEditRect();
-    SetWindowPos(search_edit_, nullptr, rc.left, rc.top,
-        rc.right - rc.left, rc.bottom - rc.top,
-        SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(search_edit_, nullptr, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 void Win32Window::SyncSearchCaretFromEdit()

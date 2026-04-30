@@ -19,6 +19,9 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
         if (dip_y >= sbl.bar_top) {
             switch (HitTestSearchBar(sbl, dip_x, dip_y)) {
+            case SearchBarHitZone::None:
+                EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0 });
+                break;
             case SearchBarHitZone::Up:
                 OnSearchPrev();
                 break;
@@ -41,9 +44,8 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
                 Dispatch(SearchInputDragStartedAction{ pos });
                 break;
             }
-            case SearchBarHitZone::None:
-                PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
-                break;
+            default:
+                std::unreachable();
             }
             return;
         }
@@ -88,7 +90,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
 // ============================================================
 
 bool App::IsOverPaneScrollbar(float dip_x, const PaneRect& rect,
-    float total_content, const PaneScrollInfo& scroll_info) noexcept
+                              float total_content, const PaneScrollInfo& scroll_info) noexcept
 {
     const float local_x = dip_x - rect.x;
     const float hit_left = rect.width - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN - PANE_SCROLLBAR_HIT_PADDING;
@@ -115,19 +117,12 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
 
     const auto& theme = renderer_.GetTheme();
 
-    if (ProcessSidePaneHeaderClick(
-        dip_x,
-        dip_y,
-        layout.file_rect,
-        theme.pane_header_height,
-        true,
-        [this]() {
-            state_.view.panes.ToggleFilePane();
-            RefreshPaneLayout();
-        },
-        [this]() {
-            RefreshFilePane();
-        })) {
+    if (ProcessSidePaneHeaderClick(dip_x, dip_y, layout.file_rect, theme.pane_header_height, true, [this]() {
+        state_.view.panes.ToggleFilePane();
+        RefreshPaneLayout();
+    }, [this]() {
+        RefreshFilePane();
+    })) {
         return;
     }
 
@@ -166,17 +161,10 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
 
     const auto& theme = renderer_.GetTheme();
 
-    if (ProcessSidePaneHeaderClick(
-        dip_x,
-        dip_y,
-        layout.toc_rect,
-        theme.pane_header_height,
-        false,
-        [this]() {
-            state_.view.panes.ToggleTocPane();
-            RefreshPaneLayout();
-        },
-        []() {})) {
+    if (ProcessSidePaneHeaderClick(dip_x, dip_y, layout.toc_rect, theme.pane_header_height, false, [this]() {
+        state_.view.panes.ToggleTocPane();
+        RefreshPaneLayout();
+    }, []() {})) {
         return;
     }
 

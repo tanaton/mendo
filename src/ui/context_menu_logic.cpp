@@ -10,7 +10,8 @@ using namespace context_menu_constants;
 // 公開 API（PIMPL 経由の forward）
 // ============================================================
 
-ContextMenu::ContextMenu() : impl_(std::make_unique<Impl>()) {}
+ContextMenu::ContextMenu() : impl_(std::make_unique<Impl>())
+{}
 ContextMenu::~ContextMenu() = default;
 
 void ContextMenu::Init(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory)
@@ -49,9 +50,18 @@ float ContextMenu::GetMenuHeight() const noexcept
     return impl_->menu_height;
 }
 
-void ContextMenu::TestBuildItems(const ContextMenuParams& params) { impl_->BuildItems(params); }
-void ContextMenu::TestCreateTextFormats(const Theme& theme) { impl_->CreateTextFormats(theme); }
-void ContextMenu::TestComputeLayout() { impl_->ComputeLayout(); }
+void ContextMenu::TestBuildItems(const ContextMenuParams& params)
+{
+    impl_->BuildItems(params);
+}
+void ContextMenu::TestCreateTextFormats(const Theme& theme)
+{
+    impl_->CreateTextFormats(theme);
+}
+void ContextMenu::TestComputeLayout()
+{
+    impl_->ComputeLayout();
+}
 
 // ============================================================
 // メニュー項目構築

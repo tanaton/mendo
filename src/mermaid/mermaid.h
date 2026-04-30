@@ -32,14 +32,20 @@ public:
 
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
     void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
-        const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
+              const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
 
-    constexpr bool IsReady() const noexcept { return lifecycle_.IsReady(); }
+    constexpr bool IsReady() const noexcept
+    {
+        return lifecycle_.IsReady();
+    }
 
     void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete) override;
     void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
-    void SetFileCache(MermaidFileCache* cache) noexcept { file_cache_ = cache; }
+    void SetFileCache(MermaidFileCache* cache) noexcept
+    {
+        file_cache_ = cache;
+    }
     void ClearCache() override;
     void Shutdown();
     void CancelPending() override;
@@ -47,7 +53,10 @@ public:
     static constexpr UINT_PTR TIMER_INIT_RETRY = 12;
 
 #ifdef MENDO_TESTING
-    constexpr bool IsInitialized() const noexcept { return lifecycle_.IsInitialized(); }
+    constexpr bool IsInitialized() const noexcept
+    {
+        return lifecycle_.IsInitialized();
+    }
 #endif
 
 private:
@@ -59,9 +68,9 @@ private:
         bool dark_mode = false;
         Callback on_complete;
         uint64_t code_hash = 0;
-        float css_width = 0.0f;   // JSから取得したCSSピクセル寸法（DIP）
+        float css_width = 0.0f; // JSから取得したCSSピクセル寸法（DIP）
         float css_height = 0.0f;
-        float dpr = 1.0f;         // JSから取得したdevicePixelRatio
+        float dpr = 1.0f;            // JSから取得したdevicePixelRatio
         unsigned int request_id = 0; // リクエスト固有のID（JS側のpostMessageと照合）
 
         // SVGクリップボードコピー用リクエスト。true の場合 layout/diagram は使わず、
@@ -100,10 +109,9 @@ private:
     void OnCaptureComplete(int worker_idx, uint64_t code_hash, IStream* png_stream);
     void FinishWorkerRequest(Worker& worker);
     uint64_t HashCode(std::string_view code_utf8, float max_width, bool dark_mode) const noexcept;
-    HRESULT CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
-        float* width, float* height);
+    HRESULT CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap, float* width, float* height);
 
-    HWND hwnd_ = nullptr;           // メインウィンドウ
+    HWND hwnd_ = nullptr; // メインウィンドウ
     ID2D1RenderTarget* render_target_ = nullptr;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> webview_env_;

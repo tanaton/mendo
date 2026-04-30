@@ -20,20 +20,51 @@
 
 
 enum class BrushId : uint8_t {
-    Text, Heading, CodeBg, CodeText, Link, Hr,
-    BlockquoteBar, BlockquoteText, Selection, TableStripe,
-    SyntaxKeyword, SyntaxType, SyntaxString, SyntaxNumber,
-    SyntaxComment, SyntaxPreprocessor, SyntaxFunction,
-    AlertNote, AlertTip, AlertImportant, AlertWarning, AlertCaution,
-    TitleBarBg, TitleBarText, TitleBarButtonHover, TitleBarButtonActive,
-    TitleBarCloseRed, TitleBarCloseWhite,
-    PaneBg, Splitter, PaneItemHover, PaneItemActive,
-    ScrollbarThumb, Overlay,
+    Text,
+    Heading,
+    CodeBg,
+    CodeText,
+    Link,
+    Hr,
+    BlockquoteBar,
+    BlockquoteText,
+    Selection,
+    TableStripe,
+    SyntaxKeyword,
+    SyntaxType,
+    SyntaxString,
+    SyntaxNumber,
+    SyntaxComment,
+    SyntaxPreprocessor,
+    SyntaxFunction,
+    AlertNote,
+    AlertTip,
+    AlertImportant,
+    AlertWarning,
+    AlertCaution,
+    TitleBarBg,
+    TitleBarText,
+    TitleBarButtonHover,
+    TitleBarButtonActive,
+    TitleBarCloseRed,
+    TitleBarCloseWhite,
+    PaneBg,
+    Splitter,
+    PaneItemHover,
+    PaneItemActive,
+    ScrollbarThumb,
+    Overlay,
     // オーバーレイ用の固定色ブラシ。動的 SetColor は SetOpacity より重いため、
     // 白基底と黒基底を分けて持って透明度のみ動的に変える。
-    OverlayWhite, OverlayBlack,
-    SearchBarBg, SearchBarBorder, SearchInputBg, SearchInputText,
-    SearchHighlight, SearchHighlightCurrent, SearchNoMatchBg,
+    OverlayWhite,
+    OverlayBlack,
+    SearchBarBg,
+    SearchBarBorder,
+    SearchInputBg,
+    SearchInputText,
+    SearchHighlight,
+    SearchHighlightCurrent,
+    SearchNoMatchBg,
     Count
 };
 
@@ -44,19 +75,36 @@ public:
     void Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
     void DrawLoading(float angle,
-        const PaneRect& md_pane_rect,
-        const SidePaneState& side_panes,
-        const TitleBarRenderState& titlebar,
-        const GestureRenderState& gesture = {},
-        const ToastRenderState& toast = {}
-    );
+                     const PaneRect& md_pane_rect,
+                     const SidePaneState& side_panes,
+                     const TitleBarRenderState& titlebar,
+                     const GestureRenderState& gesture = {},
+                     const ToastRenderState& toast = {});
 
-    ID2D1RenderTarget* GetRenderTarget() const noexcept { return backend_.GetRenderTarget(); }
-    ID2D1Factory* GetD2DFactory() const noexcept { return backend_.GetD2DFactory(); }
-    IDWriteFactory* GetDWriteFactory() const noexcept { return backend_.GetDWriteFactory(); }
-    IWICImagingFactory* GetWICFactory() const noexcept { return backend_.GetWICFactory(); }
-    constexpr LayoutEngine& GetLayout() noexcept { return layout_; }
-    constexpr const Theme& GetTheme() const noexcept { return theme_; }
+    ID2D1RenderTarget* GetRenderTarget() const noexcept
+    {
+        return backend_.GetRenderTarget();
+    }
+    ID2D1Factory* GetD2DFactory() const noexcept
+    {
+        return backend_.GetD2DFactory();
+    }
+    IDWriteFactory* GetDWriteFactory() const noexcept
+    {
+        return backend_.GetDWriteFactory();
+    }
+    IWICImagingFactory* GetWICFactory() const noexcept
+    {
+        return backend_.GetWICFactory();
+    }
+    constexpr LayoutEngine& GetLayout() noexcept
+    {
+        return layout_;
+    }
+    constexpr const Theme& GetTheme() const noexcept
+    {
+        return theme_;
+    }
     void SetTheme(const Theme& theme);
     // base theme (zoom=1.0) から再構築して現在 zoom を適用する。
     // 累積適用による誤差蓄積を避けるため、ズーム変更経路はこの関数に統一する。
@@ -67,7 +115,10 @@ public:
 
     // デバイスロスト後にD2Dレンダーターゲットが再作成された際に呼び出されるコールバックを設定。
     // コールバックには新しいレンダーターゲットのポインタが渡される。
-    void SetDeviceLostCallback(std::move_only_function<void(ID2D1RenderTarget*)> cb) { on_device_lost_ = std::move(cb); }
+    void SetDeviceLostCallback(std::move_only_function<void(ID2D1RenderTarget*)> cb)
+    {
+        on_device_lost_ = std::move(cb);
+    }
 
     int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const;
     void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index, uint32_t generation) noexcept
@@ -75,12 +126,19 @@ public:
         cmd_generator_.SetSearchMatches(matches, current_index, generation);
     }
 
-    constexpr void InvalidateFilePaneCache() noexcept { file_pane_cache_.dirty = true; }
-    constexpr void InvalidateTocPaneCache() noexcept { toc_pane_cache_.dirty = true; }
+    constexpr void InvalidateFilePaneCache() noexcept
+    {
+        file_pane_cache_.dirty = true;
+    }
+    constexpr void InvalidateTocPaneCache() noexcept
+    {
+        toc_pane_cache_.dirty = true;
+    }
 
     // ファイル切替時にヒットテストバッファ等を縮小する。
     // 初期容量は次ファイルの描画 hot path で再拡大されないよう事前確保する。
-    void ShrinkBuffers() {
+    void ShrinkBuffers()
+    {
         hit_test_buffer_.shrink_to_fit();
         hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
         cmd_generator_.ShrinkBuffers();
@@ -88,12 +146,10 @@ public:
 
     // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
     // Render() の前に呼ぶことで、RenderParams を const にできる。
-    void PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-        float scroll_y, float md_pane_height);
+    void PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height);
 
 private:
-    void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-        int first_visible, float viewport_top, float viewport_bottom);
+    void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, int first_visible, float viewport_top, float viewport_bottom);
 
     void DrawSidePanes(const SidePaneState& sp);
     void DrawTitleBar(const TitleBarRenderState& tb);
@@ -101,7 +157,7 @@ private:
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered);
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes, const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index);
     void DrawSplitter(float x, float top, float bottom);
-    void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, int hovered);  // 0=なし, 1=戻る, 2=進む
+    void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, int hovered); // 0=なし, 1=戻る, 2=進む
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
     void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
@@ -109,8 +165,14 @@ private:
 
     D2DRenderBackend backend_;
     // 簡易アクセサ（600行の描画コード内で冗長なbackend_.Get...を避けるため）
-    ID2D1DeviceContext* rt() const noexcept { return backend_.GetRenderTarget(); }
-    ID2D1Factory* d2d() const noexcept { return backend_.GetD2DFactory(); }
+    ID2D1DeviceContext* rt() const noexcept
+    {
+        return backend_.GetRenderTarget();
+    }
+    ID2D1Factory* d2d() const noexcept
+    {
+        return backend_.GetD2DFactory();
+    }
 
     std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)> brushes_;
     ID2D1SolidColorBrush* Brush(BrushId id) const noexcept
@@ -151,10 +213,10 @@ private:
     };
     TextFormats fmt_;
 
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_back_layout_;   // ◀ のキャッシュ済みレイアウト
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_forward_layout_; // ▶ のキャッシュ済みレイアウト
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_back_layout_;        // ◀ のキャッシュ済みレイアウト
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_forward_layout_;     // ▶ のキャッシュ済みレイアウト
     Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_back_layout_;    // "← 戻る" のキャッシュ済みレイアウト
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_forward_layout_;  // "→ 進む" のキャッシュ済みレイアウト
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_forward_layout_; // "→ 進む" のキャッシュ済みレイアウト
     Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_toast_layout_;
     std::pmr::wstring cached_toast_text_;
 
@@ -164,10 +226,10 @@ private:
     // キャレット点滅や同一入力継続フレームで CreateTextLayout と
     // 表示テキスト合成の双方を回避する。入力 height は定数なのでキーに含めない。
     mutable Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_search_layout_;
-    mutable std::pmr::wstring cached_search_text_;       // 合成後の表示テキスト (IME 未使用時は query と同一)
-    mutable std::pmr::wstring cached_search_query_;      // 直近フレームの sb.query
-    mutable std::pmr::wstring cached_search_ime_comp_;   // 直近フレームの sb.ime_composition
-    mutable int cached_search_caret_pos_ = -1;           // IME 合成時の挿入位置（無いとき -1）
+    mutable std::pmr::wstring cached_search_text_;     // 合成後の表示テキスト (IME 未使用時は query と同一)
+    mutable std::pmr::wstring cached_search_query_;    // 直近フレームの sb.query
+    mutable std::pmr::wstring cached_search_ime_comp_; // 直近フレームの sb.ime_composition
+    mutable int cached_search_caret_pos_ = -1;         // IME 合成時の挿入位置（無いとき -1）
     mutable float cached_search_width_ = -1.0f;
     mutable bool cached_search_has_underline_ = false;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;

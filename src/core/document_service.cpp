@@ -39,8 +39,7 @@ void DocumentService::ResumeWatching()
 static bool ExceedsFileSize(const std::pmr::wstring& path, DWORD threshold) noexcept
 {
     WIN32_FILE_ATTRIBUTE_DATA attr{};
-    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)
-        && attr.nFileSizeHigh == 0 && attr.nFileSizeLow <= threshold) {
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr) && attr.nFileSizeHigh == 0 && attr.nFileSizeLow <= threshold) {
         return false;
     }
     return true;

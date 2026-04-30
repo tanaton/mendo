@@ -13,16 +13,14 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     const auto sbl = ComputeSearchBarLayout(
         md_pane_rect.x, md_pane_rect.width,
         md_pane_rect.y + md_pane_rect.height,
-        !sb.query.empty()
-    );
+        !sb.query.empty());
 
     // 背景
     const D2D1_RECT_F bar_rect = D2D1::RectF(
         md_pane_rect.x,
         sbl.bar_top,
         md_pane_rect.x + md_pane_rect.width,
-        sbl.bar_bottom
-    );
+        sbl.bar_bottom);
     rt()->FillRectangle(bar_rect, Brush(BrushId::SearchBarBg));
 
     // 上ボーダー
@@ -30,8 +28,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         D2D1::Point2F(bar_rect.left, sbl.bar_top),
         D2D1::Point2F(bar_rect.right, sbl.bar_top),
         Brush(BrushId::SearchBarBorder),
-        1.0f
-    );
+        1.0f);
 
     // 検索アイコン
     if (fmt_.search_icon) {
@@ -92,11 +89,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
         // 比較は scalar → 空になりやすい ime_comp → query の順で短絡させる
         Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
-        const bool cache_hit = cached_search_layout_
-            && cached_search_width_ == input_w
-            && cached_search_caret_pos_ == key_caret_pos
-            && cached_search_ime_comp_ == sb.ime_composition
-            && cached_search_query_ == sb.query;
+        const bool cache_hit = cached_search_layout_ && cached_search_width_ == input_w && cached_search_caret_pos_ == key_caret_pos && cached_search_ime_comp_ == sb.ime_composition && cached_search_query_ == sb.query;
         if (cache_hit) {
             text_layout = cached_search_layout_;
             display_text = cached_search_text_;
@@ -122,8 +115,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
                 fmt_.search_input.Get(),
                 input_w,
                 input_h,
-                &text_layout
-            );
+                &text_layout);
             if (text_layout) {
                 cached_search_layout_ = text_layout;
                 cached_search_text_.assign(display_text);
@@ -146,9 +138,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
             // 選択範囲のハイライト描画（テキストの背面に描画）
             const int text_len = static_cast<int>(display_text.size());
-            const bool has_selection = !has_comp
-                && sb.selection_start >= 0 && sb.caret_pos >= 0
-                && sb.selection_start != sb.caret_pos;
+            const bool has_selection = !has_comp && sb.selection_start >= 0 && sb.caret_pos >= 0 && sb.selection_start != sb.caret_pos;
             if (has_selection) {
                 int sel_min = std::min(sb.selection_start, sb.caret_pos);
                 int sel_max = std::max(sb.selection_start, sb.caret_pos);
@@ -168,8 +158,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
                             htm_sel.left,
                             sbl.input_rect.top + 2.0f,
                             htm_sel.left + htm_sel.width,
-                            sbl.input_rect.bottom - 2.0f
-                        );
+                            sbl.input_rect.bottom - 2.0f);
                         rt()->FillRectangle(sel_rect, Brush(BrushId::Selection));
                     }
                 }
@@ -178,8 +167,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
             rt()->DrawTextLayout(
                 D2D1::Point2F(text_left, sbl.input_rect.top),
                 text_layout.Get(),
-                Brush(BrushId::SearchInputText)
-            );
+                Brush(BrushId::SearchInputText));
 
             // キャレット位置計算: コンポジション中はその末尾、それ以外は通常のキャレット位置
             int effective_pos;
@@ -206,8 +194,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
             D2D1::Point2F(caret_x, sbl.input_rect.top + 3.0f),
             D2D1::Point2F(caret_x, sbl.input_rect.bottom - 3.0f),
             Brush(BrushId::SearchInputText),
-            1.0f
-        );
+            1.0f);
     }
 
     // ボタン描画ヘルパー
@@ -226,12 +213,11 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     };
 
     auto drawToggleBtn = [&](const D2D1_RECT_F& r, const wchar_t* label, UINT32 len,
-        IDWriteTextFormat* fmt, bool checked, bool hovered) {
+                             IDWriteTextFormat* fmt, bool checked, bool hovered) {
         if (hovered || checked) {
             rt()->FillRoundedRectangle(
                 D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),
-                Brush(checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover)
-            );
+                Brush(checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover));
         }
         if (fmt) {
             auto* brush = Brush(BrushId::SearchInputText);
@@ -277,10 +263,7 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
     // DrawSearchBar が直前に作成した cached_search_layout_ を再利用できるケース
     // （IME コンポジションが無く、query と表示テキストが一致）を高速パスに。
-    const bool cache_hit = cached_search_layout_
-        && cached_search_width_ == max_width
-        && cached_search_caret_pos_ == -1
-        && cached_search_query_ == query;
+    const bool cache_hit = cached_search_layout_ && cached_search_width_ == max_width && cached_search_caret_pos_ == -1 && cached_search_query_ == query;
     if (cache_hit) {
         layout = cached_search_layout_;
     }
@@ -291,8 +274,7 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
             fmt_.search_input.Get(),
             max_width,
             SEARCH_INPUT_HEIGHT,
-            &layout
-        );
+            &layout);
     }
     if (!layout) {
         return 0;

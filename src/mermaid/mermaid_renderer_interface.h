@@ -20,8 +20,8 @@ public:
     virtual ~IMermaidRenderer() = default;
 
     virtual void RequestRender(Node& node, NodeLayoutEntry& layout_entry,
-        DiagramEntry& diagram_entry, float max_width, bool dark_mode,
-        Callback on_complete) = 0;
+                               DiagramEntry& diagram_entry, float max_width, bool dark_mode,
+                               Callback on_complete) = 0;
     // SVG をクリップボード用に取得する。PNG レンダリングと同じワーカー枠を共有する。
     // code は内部でコピーされるため呼び出し後に解放してよい。
     // max_width は CSS ビューポート幅（DIP）。表示中の図と同じ折返し結果を得るため、PNG と同じ値を渡す。

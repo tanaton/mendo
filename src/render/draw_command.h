@@ -36,7 +36,7 @@ struct DrawTextLayoutCmd {
 };
 
 struct DrawTextCmd {
-    const wchar_t* text = nullptr; // 非所有; ライフタイムはMonotonicResourceが管理。
+    const wchar_t* text = nullptr;       // 非所有; ライフタイムはMonotonicResourceが管理。
     IDWriteTextFormat* format = nullptr; // 非所有; ライフタイムはRendererが管理。
     D2D1_RECT_F rect{};
     D2D1_COLOR_F color{};
@@ -89,7 +89,6 @@ using DrawCommand = std::variant<
     DrawEllipseCmd,
     PushClipCmd,
     PopClipCmd,
-    SetTransformCmd
->;
+    SetTransformCmd>;
 
 using DrawCommandList = std::pmr::vector<DrawCommand>;

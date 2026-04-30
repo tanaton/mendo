@@ -28,7 +28,7 @@ struct KeyDownEvent {
 };
 
 struct MouseWheelEvent {
-    int delta;                          // 生のWHEEL_DELTA単位
+    int delta; // 生のWHEEL_DELTA単位
     bool ctrl = false;
     PaneZone zone = PaneZone::MdPane;
 };
@@ -80,9 +80,12 @@ struct TogglePaneAction {
 constexpr std::optional<PaneTarget> ToPaneTarget(PaneZone zone) noexcept
 {
     switch (zone) {
-    case PaneZone::FilePane: return PaneTarget::File;
-    case PaneZone::TocPane:  return PaneTarget::Toc;
-    default:                 return std::nullopt;
+    case PaneZone::FilePane:
+        return PaneTarget::File;
+    case PaneZone::TocPane:
+        return PaneTarget::Toc;
+    default:
+        return std::nullopt;
     }
 }
 
@@ -336,6 +339,4 @@ using AppAction = std::variant<
     ToggleCaseSensitiveAction,
     ToggleHighlightAction,
     SearchSelectionAction,
-    ImeCompositionAction
->;
-
+    ImeCompositionAction>;

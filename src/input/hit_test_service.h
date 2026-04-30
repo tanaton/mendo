@@ -11,7 +11,10 @@
 // ボタン矩形の純粋表現。テスト側が実装の式を再構築せずに済むよう、
 // 各ボタンの矩形を返す API は本ヘッダから提供する。
 struct ButtonRect {
-    float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+    float x = 0.0f;
+    float y = 0.0f;
+    float w = 0.0f;
+    float h = 0.0f;
     constexpr bool Contains(float px, float py) const noexcept
     {
         return px >= x && px <= x + w && py >= y && py <= y + h;
@@ -21,8 +24,7 @@ struct ButtonRect {
 // 戻るボタンの矩形。実装側の NavButtonHitTest と同一の式を使う。
 inline constexpr ButtonRect NavBackButtonRect(const PaneRect& md_rect) noexcept
 {
-    const float x = md_rect.x + md_rect.width
-        - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2.0f - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
+    const float x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2.0f - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     const float y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
     return { x, y, NAV_BTN_SIZE, NAV_BTN_SIZE };
 }
@@ -51,7 +53,10 @@ struct MdPaneHitContext {
 };
 
 // 物理ピクセルをMDペインローカルのDIP座標に変換する。
-struct PaneDip { float x, y; };
+struct PaneDip {
+    float x;
+    float y;
+};
 inline constexpr PaneDip ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
 {
     return {
@@ -72,9 +77,9 @@ public:
 
     // テーブルセル内のヒットテスト
     HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
-        int node_index,
-        const Theme& theme,
-        float dip_x, float dip_y) const noexcept;
+                           int node_index,
+                           const Theme& theme,
+                           float dip_x, float dip_y) const noexcept;
 
     // ナビゲーションボタンのヒットテスト
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept;
@@ -107,8 +112,7 @@ private:
 
         constexpr bool Matches(const MdPaneHitContext& ctx, uint32_t gen) const noexcept
         {
-            return ctx.screen_x == screen_x && ctx.screen_y == screen_y
-                && ctx.scroll_y == scroll_y && gen == effects_gen;
+            return ctx.screen_x == screen_x && ctx.screen_y == screen_y && ctx.scroll_y == scroll_y && gen == effects_gen;
         }
         constexpr void Store(const MdPaneHitContext& ctx, uint32_t gen, const T& r) noexcept
         {

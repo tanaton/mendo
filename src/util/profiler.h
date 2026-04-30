@@ -30,8 +30,7 @@ public:
         LARGE_INTEGER end;
         QueryPerformanceCounter(&end);
 
-        const double elapsed_us = static_cast<double>(end.QuadPart - start_.QuadPart)
-            * 1'000'000.0 / static_cast<double>(Frequency().QuadPart);
+        const double elapsed_us = static_cast<double>(end.QuadPart - start_.QuadPart) * 1'000'000.0 / static_cast<double>(Frequency().QuadPart);
 
         wchar_t buf[256];
         if (elapsed_us >= 1000.0) {
@@ -66,11 +65,12 @@ private:
 #define MENDO_PROFILE(label) ScopedProfileTimer MENDO_PROFILE_CONCAT(_mendo_timer_, __LINE__)(L##label)
 
 #define MENDO_TRACE(msg) OutputDebugStringW(L"[mendo-reload] " L##msg L"\n")
-#define MENDO_TRACEF(fmt, ...) do { \
-    wchar_t _mendo_buf[256]; \
-    _snwprintf_s(_mendo_buf, _TRUNCATE, L"[mendo-reload] " L##fmt L"\n", __VA_ARGS__); \
-    OutputDebugStringW(_mendo_buf); \
-} while(0)
+#define MENDO_TRACEF(fmt, ...)                                                             \
+    do {                                                                                   \
+        wchar_t _mendo_buf[256];                                                           \
+        _snwprintf_s(_mendo_buf, _TRUNCATE, L"[mendo-reload] " L##fmt L"\n", __VA_ARGS__); \
+        OutputDebugStringW(_mendo_buf);                                                    \
+    } while (0)
 
 #else
 

@@ -13,8 +13,7 @@ Theme ThemeService::CreateTheme() const
 
 Theme ThemeService::CreateTheme(int zoom_index) const
 {
-    assert(zoom_index >= 0 && zoom_index < ZOOM_STEP_COUNT
-        && "zoom_index must be within ZOOM_STEPS bounds; ViewportManager::SetZoomIndex clamps it");
+    assert(zoom_index >= 0 && zoom_index < ZOOM_STEP_COUNT && "zoom_index must be within ZOOM_STEPS bounds; ViewportManager::SetZoomIndex clamps it");
     Theme theme = CreateTheme();
     if (zoom_index != ZOOM_DEFAULT_INDEX) {
         theme.ApplyZoom(ZOOM_STEPS[zoom_index]);

@@ -46,7 +46,7 @@ void MermaidRenderer::Shutdown()
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
-    const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready)
+                           const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready)
 {
     hwnd_ = hwnd;
     render_target_ = render_target;
@@ -64,8 +64,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImag
             CLSID_WICImagingFactory,
             nullptr,
             CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&wic_factory_)
-        );
+            IID_PPV_ARGS(&wic_factory_));
     }
 }
 
@@ -99,8 +98,8 @@ void MermaidRenderer::EnsureInitialized()
             MERMAID_HOST_CLASS,
             L"",
             WS_POPUP,
-            -32000, -32000,     // 画面外の遠い位置
-            4096, 4096,         // どのダイアグラムにも十分な大きさ
+            -32000, -32000, // 画面外の遠い位置
+            4096, 4096,     // どのダイアグラムにも十分な大きさ
             nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
 
         if (!workers_[i].hwnd) {
@@ -193,7 +192,7 @@ void MermaidRenderer::SetupWorker(int index)
         w.webview->add_WebMessageReceived(
             Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                 [this, index](ICoreWebView2*,
-                    ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                              ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
             LPWSTR msg = nullptr;
             if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
                 auto& w = workers_[index];
@@ -259,12 +258,13 @@ void MermaidRenderer::SetupWorker(int index)
                 CoTaskMemFree(msg);
             }
             return S_OK;
-        }).Get(), nullptr);
+        }).Get(),
+            nullptr);
 
         // ナビゲーションを制限: app.local以外へのナビゲーションをブロック
         w.webview->add_NavigationStarting(
             Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
-                [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static->HRESULT {
+                [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static -> HRESULT {
             LPWSTR uri = nullptr;
             if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
                 const std::wstring_view u(uri);
@@ -274,14 +274,16 @@ void MermaidRenderer::SetupWorker(int index)
                 CoTaskMemFree(uri);
             }
             return S_OK;
-        }).Get(), nullptr);
+        }).Get(),
+            nullptr);
 
         w.webview->add_NewWindowRequested(
             Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
-                [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static->HRESULT {
+                [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static -> HRESULT {
             args->put_Handled(TRUE);
             return S_OK;
-        }).Get(), nullptr);
+        }).Get(),
+            nullptr);
 
         // 仮想ホストへのリクエストをインターセプトし、
         // 埋め込みWin32リソースからHTML / mermaid.jsを配信する。
@@ -293,7 +295,7 @@ void MermaidRenderer::SetupWorker(int index)
         w.webview->add_WebResourceRequested(
             Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(
                 [this](ICoreWebView2*,
-                    ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
+                       ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
             Microsoft::WRL::ComPtr<ICoreWebView2WebResourceRequest> request;
             args->get_Request(&request);
             LPWSTR uri = nullptr;
@@ -397,9 +399,9 @@ uint64_t MermaidRenderer::HashCode(std::string_view code_utf8, float max_width, 
 }
 
 void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
-    DiagramEntry& diagram_entry,
-    float max_width, bool dark_mode,
-    Callback on_complete)
+                                    DiagramEntry& diagram_entry,
+                                    float max_width, bool dark_mode,
+                                    Callback on_complete)
 {
     if (!IsDiagramLanguage(node.code_language)) {
         return;
@@ -518,7 +520,7 @@ void MermaidRenderer::ProcessQueue()
             }
         }
         if (!idle) {
-            break;  // 全ワーカーがビジー、完了を待つ
+            break; // 全ワーカーがビジー、完了を待つ
         }
 
         idle->current_request = std::move(front);
@@ -693,7 +695,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
         float draw_w = w.current_request.css_width;
         float draw_h = w.current_request.css_height;
         if (draw_w <= 0) {
-            draw_w = bw;  // フォールバック
+            draw_w = bw; // フォールバック
         }
         if (draw_h <= 0) {
             draw_h = bh;
@@ -724,7 +726,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
 }
 
 HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
-    float* width, float* height)
+                                                   float* width, float* height)
 {
     if (!stream || !bitmap || !width || !height) {
         return E_FAIL;

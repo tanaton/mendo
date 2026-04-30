@@ -22,8 +22,7 @@ bool D2DRenderBackend::Init(HWND hwnd)
         D2D1_FACTORY_TYPE_SINGLE_THREADED,
         __uuidof(ID2D1Factory1),
         &opts,
-        reinterpret_cast<void**>(d2d_factory_.GetAddressOf())
-    );
+        reinterpret_cast<void**>(d2d_factory_.GetAddressOf()));
     if (FAILED(hr)) {
         return false;
     }
@@ -31,8 +30,7 @@ bool D2DRenderBackend::Init(HWND hwnd)
     hr = DWriteCreateFactory(
         DWRITE_FACTORY_TYPE_SHARED,
         __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf())
-    );
+        reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
     if (FAILED(hr)) {
         return false;
     }
@@ -43,12 +41,10 @@ bool D2DRenderBackend::Init(HWND hwnd)
         CLSID_WICImagingFactory,
         nullptr,
         CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic_factory_)
-    );
+        IID_PPV_ARGS(&wic_factory_));
     if (FAILED(hr)) {
         wchar_t msg[128];
-        swprintf_s(msg, L"[mendo] WIC ImagingFactory creation failed (hr=0x%08lX). Aborting backend init.\n",
-            static_cast<unsigned long>(hr));
+        swprintf_s(msg, L"[mendo] WIC ImagingFactory creation failed (hr=0x%08lX). Aborting backend init.\n", static_cast<unsigned long>(hr));
         OutputDebugStringW(msg);
         return false;
     }

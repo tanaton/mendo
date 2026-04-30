@@ -117,8 +117,7 @@ PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float spl
         show_file_,
         show_toc_,
         MD_PANE_MIN_WIDTH,
-        top_offset
-    );
+        top_offset);
 }
 
 PaneZone PaneController::DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept

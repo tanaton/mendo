@@ -36,29 +36,29 @@ struct SharedColors {
 };
 
 inline constexpr SharedColors kLight = {
-    .code_bg             = 0xf6f8fa,
-    .code_text           = 0x24292e,
-    .table_border        = 0xd0d7de,
-    .syntax_keyword      = 0xaf00db,
-    .syntax_type         = 0x267f99,
-    .syntax_string       = 0xa31515,
-    .syntax_number       = 0x098658,
-    .syntax_comment      = 0x008000,
+    .code_bg = 0xf6f8fa,
+    .code_text = 0x24292e,
+    .table_border = 0xd0d7de,
+    .syntax_keyword = 0xaf00db,
+    .syntax_type = 0x267f99,
+    .syntax_string = 0xa31515,
+    .syntax_number = 0x098658,
+    .syntax_comment = 0x008000,
     .syntax_preprocessor = 0x795e26,
-    .syntax_function     = 0x795e26,
+    .syntax_function = 0x795e26,
 };
 
 inline constexpr SharedColors kDark = {
-    .code_bg             = 0x2d2d2d,
-    .code_text           = 0xd4d4d4,
-    .table_border        = 0x3c3c3c,
-    .syntax_keyword      = 0xc586c0,
-    .syntax_type         = 0x4ec9b0,
-    .syntax_string       = 0xce9178,
-    .syntax_number       = 0xb5cea8,
-    .syntax_comment      = 0x6a9955,
+    .code_bg = 0x2d2d2d,
+    .code_text = 0xd4d4d4,
+    .table_border = 0x3c3c3c,
+    .syntax_keyword = 0xc586c0,
+    .syntax_type = 0x4ec9b0,
+    .syntax_string = 0xce9178,
+    .syntax_number = 0xb5cea8,
+    .syntax_comment = 0x6a9955,
     .syntax_preprocessor = 0xdcdcaa,
-    .syntax_function     = 0xdcdcaa,
+    .syntax_function = 0xdcdcaa,
 };
 
 } // namespace theme_palette
@@ -76,8 +76,8 @@ struct Theme {
     D2D1_COLOR_F blockquote_text_color;
 
     // GitHub Alerts: AlertColorIndex() でインデックス
-    D2D1_COLOR_F alert_color[ALERT_TYPE_COUNT];     // バー・ラベル色
-    D2D1_COLOR_F alert_bg_color[ALERT_TYPE_COUNT];  // 背景色
+    D2D1_COLOR_F alert_color[ALERT_TYPE_COUNT];    // バー・ラベル色
+    D2D1_COLOR_F alert_bg_color[ALERT_TYPE_COUNT]; // 背景色
 
     // シンタックスハイライトの色
     D2D1_COLOR_F syntax_keyword;
@@ -104,8 +104,8 @@ struct Theme {
     float paragraph_spacing;
     float list_item_spacing;
     float heading_spacing_above;
-    float heading_spacing_below;         // h3〜h6（下線なし）の下マージン
-    float heading_spacing_below_h1h2;    // h1/h2（下線あり）の下マージン — 下線と次行の余白を確保するため大きめ
+    float heading_spacing_below;      // h3〜h6（下線なし）の下マージン
+    float heading_spacing_below_h1h2; // h1/h2（下線あり）の下マージン — 下線と次行の余白を確保するため大きめ
     float code_block_spacing_above;
     float code_block_padding;
     float indent_width;
@@ -135,9 +135,9 @@ struct Theme {
     D2D1_COLOR_F search_bar_border_color;
     D2D1_COLOR_F search_input_bg_color;
     D2D1_COLOR_F search_input_text_color;
-    D2D1_COLOR_F search_highlight_color;          // 全マッチ（黄色系半透明）
-    D2D1_COLOR_F search_highlight_current_color;  // 現在マッチ（オレンジ系）
-    D2D1_COLOR_F search_no_match_bg_color;        // マッチなし時の入力背景
+    D2D1_COLOR_F search_highlight_color;         // 全マッチ（黄色系半透明）
+    D2D1_COLOR_F search_highlight_current_color; // 現在マッチ（オレンジ系）
+    D2D1_COLOR_F search_no_match_bg_color;       // マッチなし時の入力背景
 
     // ズーム（1.0 = 100%）
     float zoom = 1.0f;
@@ -151,7 +151,10 @@ struct Theme {
     {
         return (level == 2) ? h2_underline_thickness : hr_thickness;
     }
-    constexpr bool IsDark() const noexcept { return (bg_color.r + bg_color.g + bg_color.b) < 1.5f; }
+    constexpr bool IsDark() const noexcept
+    {
+        return (bg_color.r + bg_color.g + bg_color.b) < 1.5f;
+    }
 
     ThemeConstants ToReducerConstants() const noexcept;
     void ApplyZoom(float new_zoom) noexcept;

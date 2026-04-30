@@ -9,8 +9,8 @@
 #include "ui_constants.h"
 
 void SideEffectExecutor::Init(IWin32Host& host, ResourceManager& resource_manager,
-    DocumentService& doc_service,
-    AppState& state, LayoutService& layout_service, Callbacks cb)
+                              DocumentService& doc_service,
+                              AppState& state, LayoutService& layout_service, Callbacks cb)
 {
     host_ = &host;
     resource_manager_ = &resource_manager;
@@ -22,6 +22,7 @@ void SideEffectExecutor::Init(IWin32Host& host, ResourceManager& resource_manage
 
 void SideEffectExecutor::ExecuteOne(const SideEffect& e)
 {
+    // clang-format off
     std::visit(overloaded{
         [this](const UiEffect& sub) {
             ExecuteUi(sub);
@@ -44,11 +45,13 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         [this](const LifecycleEffect& sub) {
             ExecuteLifecycle(sub);
         },
-        }, e);
+    }, e);
+    // clang-format on
 }
 
 void SideEffectExecutor::ExecuteUi(const UiEffect& e)
 {
+    // clang-format off
     std::visit(overloaded{
         [this](const effect::InvalidateWindow&) {
             host_->Invalidate();
@@ -100,11 +103,13 @@ void SideEffectExecutor::ExecuteUi(const UiEffect& e)
         [this](const effect::ShowContextMenu& ev) {
             cb_.show_context_menu(ev.screen_x, ev.screen_y);
         },
-        }, e);
+    }, e);
+    // clang-format on
 }
 
 void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
 {
+    // clang-format off
     std::visit(overloaded{
         [this](const effect::ShowWindowCmd& ev) {
             host_->ShowWindowCmd(ev.cmd);
@@ -136,11 +141,13 @@ void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
         [this](const effect::RendererSetDpi& ev) {
             cb_.renderer_set_dpi(ev.dpi);
         },
-        }, e);
+    }, e);
+    // clang-format on
 }
 
 void SideEffectExecutor::ExecuteNavigation(const NavigationEffect& e)
 {
+    // clang-format off
     std::visit(overloaded{
         [this](const effect::ShellOpen& ev) {
             host_->ShellOpen(ev.url);
@@ -154,11 +161,13 @@ void SideEffectExecutor::ExecuteNavigation(const NavigationEffect& e)
         [this](const effect::OpenFileDialog&) {
             cb_.open_file_dialog();
         },
-        }, e);
+    }, e);
+    // clang-format on
 }
 
 void SideEffectExecutor::ExecuteLayout(const LayoutEffect& e)
 {
+    // clang-format off
     std::visit(overloaded{
         [this](const effect::DeferredLayout&) {
             if (layout_service_->HasDirtyNodes()) {
@@ -193,11 +202,13 @@ void SideEffectExecutor::ExecuteLayout(const LayoutEffect& e)
             state_->view.cached_total_height = total;
             state_->view.viewport.SyncMaxScroll(total, ev.md_pane_height);
         },
-        }, e);
+    }, e);
+    // clang-format on
 }
 
 void SideEffectExecutor::ExecuteResource(const ResourceEffect& e)
 {
+    // clang-format off
     std::visit(overloaded{
         [this](const effect::LoadImages&) {
             resource_manager_->LoadImages();
@@ -229,11 +240,13 @@ void SideEffectExecutor::ExecuteResource(const ResourceEffect& e)
         [this](const effect::CheckFileChanges&) {
             doc_service_->CheckForChanges();
         },
-        }, e);
+    }, e);
+    // clang-format on
 }
 
 void SideEffectExecutor::ExecuteTimer(const TimerEffect& e)
 {
+    // clang-format off
     std::visit(overloaded{
         [this](const effect::SetTimer& ev) {
             host_->SetTimer(ev.id, ev.ms);
@@ -256,11 +269,13 @@ void SideEffectExecutor::ExecuteTimer(const TimerEffect& e)
         [this](const effect::MermaidInitRetry&) {
             cb_.mermaid_init_retry();
         },
-        }, e);
+    }, e);
+    // clang-format on
 }
 
 void SideEffectExecutor::ExecuteLifecycle(const LifecycleEffect& e)
 {
+    // clang-format off
     std::visit(overloaded{
         [this](const effect::Destroy&) {
             cb_.destroy();
@@ -268,7 +283,8 @@ void SideEffectExecutor::ExecuteLifecycle(const LifecycleEffect& e)
         [this](const effect::HandleParseComplete&) {
             cb_.handle_parse_complete();
         },
-        }, e);
+    }, e);
+    // clang-format on
 }
 
 void SideEffectExecutor::Execute(const SideEffectList& effects)

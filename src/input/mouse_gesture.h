@@ -4,9 +4,22 @@
 #include <cmath>
 #include <memory_resource>
 
-enum class GesturePhase : uint8_t { Idle, Pressed, Tracking };
-enum class GestureDirection : uint8_t { None, Left, Right };
-enum class GestureResult : uint8_t { None, ShowContextMenu, Back, Forward };
+enum class GesturePhase : uint8_t {
+    Idle,
+    Pressed,
+    Tracking
+};
+enum class GestureDirection : uint8_t {
+    None,
+    Left,
+    Right
+};
+enum class GestureResult : uint8_t {
+    None,
+    ShowContextMenu,
+    Back,
+    Forward
+};
 
 struct GesturePoint {
     float x = 0.0f;
@@ -19,7 +32,7 @@ public:
     static constexpr float GESTURE_THRESHOLD_SQ = GESTURE_THRESHOLD * GESTURE_THRESHOLD;
     static constexpr float MIN_POINT_DISTANCE = 2.0f;
     static constexpr float MIN_POINT_DISTANCE_SQ = MIN_POINT_DISTANCE * MIN_POINT_DISTANCE;
-    static constexpr int   TRAIL_MAX_POINTS = 512;
+    static constexpr int TRAIL_MAX_POINTS = 512;
 
     void OnRButtonDown(float x, float y)
     {
@@ -87,9 +100,12 @@ public:
         Reset();
 
         switch (dir) {
-        case GestureDirection::Left:  return GestureResult::Back;
-        case GestureDirection::Right: return GestureResult::Forward;
-        default:                      return GestureResult::None;
+        case GestureDirection::Left:
+            return GestureResult::Back;
+        case GestureDirection::Right:
+            return GestureResult::Forward;
+        default:
+            return GestureResult::None;
         }
     }
 
@@ -105,12 +121,30 @@ public:
         trail_points_.clear();
     }
 
-    constexpr bool IsGestureActive() const noexcept { return phase_ == GesturePhase::Tracking; }
-    constexpr bool IsOverlayVisible() const noexcept { return overlay_alpha_ > 0.0f; }
-    constexpr const std::pmr::deque<GesturePoint>& GetTrailPoints() const noexcept { return trail_points_; }
-    constexpr GestureDirection GetDirection() const noexcept { return direction_; }
-    constexpr GesturePhase GetPhase() const noexcept { return phase_; }
-    constexpr float GetOverlayAlpha() const noexcept { return overlay_alpha_; }
+    constexpr bool IsGestureActive() const noexcept
+    {
+        return phase_ == GesturePhase::Tracking;
+    }
+    constexpr bool IsOverlayVisible() const noexcept
+    {
+        return overlay_alpha_ > 0.0f;
+    }
+    constexpr const std::pmr::deque<GesturePoint>& GetTrailPoints() const noexcept
+    {
+        return trail_points_;
+    }
+    constexpr GestureDirection GetDirection() const noexcept
+    {
+        return direction_;
+    }
+    constexpr GesturePhase GetPhase() const noexcept
+    {
+        return phase_;
+    }
+    constexpr float GetOverlayAlpha() const noexcept
+    {
+        return overlay_alpha_;
+    }
 
 private:
     void UpdateDirection() noexcept

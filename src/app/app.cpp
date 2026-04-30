@@ -150,7 +150,7 @@ PaneZone App::PaneAtPoint(float dip_x)
     }
     const auto size = rt->GetSize();
     return state_.view.panes.DetectZone(dip_x, size.width, size.height,
-        renderer_.GetTheme().splitter_width);
+                                        renderer_.GetTheme().splitter_width);
 }
 
 float App::GetMarkdownPaneWidth()
@@ -191,9 +191,9 @@ void App::OnPaint()
     const auto gs = render_composer::BuildGestureState(state_);
     const auto sp = render_composer::BuildSidePaneState(state_, layout);
     const auto tb = render_composer::BuildTitleBarState(state_,
-        state_.cached_window_width_for_layout,
-        theme_service_.IsDarkMode(),
-        IsZoomed(hwnd_) != FALSE);
+                                                        state_.cached_window_width_for_layout,
+                                                        theme_service_.IsDarkMode(),
+                                                        IsZoomed(hwnd_) != FALSE);
     const auto ts = render_composer::BuildToastState(state_);
     const auto sb = render_composer::BuildSearchBarState(state_);
 
@@ -204,8 +204,8 @@ void App::OnPaint()
         // 検索マッチ情報をコマンドジェネレータに設定
         if (state_.search.search_state.IsVisible() && state_.search.search_state.IsHighlightEnabled() && !state_.search.search_state.GetMatches().empty()) {
             renderer_.SetSearchMatches(&state_.search.search_state.GetMatches(),
-                state_.search.search_state.GetCurrentMatchIndex(),
-                state_.search.search_state.GetGeneration());
+                                       state_.search.search_state.GetCurrentMatchIndex(),
+                                       state_.search.search_state.GetGeneration());
         }
         else {
             renderer_.SetSearchMatches(nullptr, -1, 0);
@@ -218,14 +218,12 @@ void App::OnPaint()
 
         {
             MENDO_PROFILE("Renderer::Render");
-            renderer_.Render({
-                state_.document.doc.GetNodes(), state_.document.layout_cache,
-                state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
-                state_.view.viewport.GetScrollY(), layout_service_->GetTotalHeight(),
-                std::to_underlying(state_.interaction.nav_hover), state_.interaction.hovered,
-                state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
-                layout_service_->HasDirtyNodes()
-                });
+            renderer_.Render({ state_.document.doc.GetNodes(), state_.document.layout_cache,
+                               state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
+                               state_.view.viewport.GetScrollY(), layout_service_->GetTotalHeight(),
+                               std::to_underlying(state_.interaction.nav_hover), state_.interaction.hovered,
+                               state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
+                               layout_service_->HasDirtyNodes() });
         }
     }
 
@@ -282,8 +280,8 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
     const auto dip = PixelToDip(px, py);
     const auto pane_layout = GetPaneLayout();
     const auto zone = DetectPaneZone(dip.x, pane_layout,
-        renderer_.GetTheme().splitter_width,
-        state_.view.panes.IsFilePaneVisible(), state_.view.panes.IsTocPaneVisible());
+                                     renderer_.GetTheme().splitter_width,
+                                     state_.view.panes.IsFilePaneVisible(), state_.view.panes.IsTocPaneVisible());
 
     const MouseWheelEvent event{ delta, false, zone };
     Dispatch(controller_.HandleMouseWheel(event));
@@ -352,7 +350,7 @@ void App::OnCaptureChanged()
 void App::ShowToast(std::wstring_view message)
 {
     // reducer 経由ではなく effect を直接発火する簡易経路。
-    effect_executor_.ExecuteOne(effect::ShowToast{ std::pmr::wstring{message} });
+    effect_executor_.ExecuteOne(effect::ShowToast{ std::pmr::wstring{ message } });
 }
 
 void App::OnDestroy()
@@ -368,18 +366,18 @@ void App::OnDestroy()
     // すべての設定値の書き出しを1回にまとめてディスクへ flush する。
     config_.Flush();
     for (UINT_PTR id : {
-        app_timer::DEFERRED_LAYOUT,
-            app_timer::LOADING_ANIM,
-            app_timer::SWIPE_OVERLAY,
-            app_timer::TOAST,
-            app_timer::SEARCH_CARET,
-            app_timer::SEARCH_DEBOUNCE,
-            app_timer::TOOLTIP,
-            app_timer::BITMAP_MANAGE,
-            app_timer::MERMAID_BATCH,
-            app_timer::MERMAID_INIT_RETRY,
-            app_timer::FILE_RELOAD_DEBOUNCE,
-    }) {
+             app_timer::DEFERRED_LAYOUT,
+             app_timer::LOADING_ANIM,
+             app_timer::SWIPE_OVERLAY,
+             app_timer::TOAST,
+             app_timer::SEARCH_CARET,
+             app_timer::SEARCH_DEBOUNCE,
+             app_timer::TOOLTIP,
+             app_timer::BITMAP_MANAGE,
+             app_timer::MERMAID_BATCH,
+             app_timer::MERMAID_INIT_RETRY,
+             app_timer::FILE_RELOAD_DEBOUNCE,
+         }) {
         KillTimer(hwnd_, id);
     }
 }
@@ -453,4 +451,3 @@ void App::SaveScrollPosition()
     }
     session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), state_.document.layout_cache[node].y_position);
 }
-

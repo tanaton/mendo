@@ -106,7 +106,8 @@ void App::SaveDiagramAsPng(int node_index)
     // PNGデータをファイルに書き出す
     if (WriteAllBytes(filename, png.data.get(), png.size)) {
         ShowToast(i18n::S().toast_image_saved);
-    } else {
+    }
+    else {
         DeleteFileW(filename);
     }
 }
@@ -139,20 +140,20 @@ void App::CopyDiagramAsSvg(int node_index)
     svg_copy_in_flight_ = true;
 
     mermaid_renderer_.RequestSvg(node.GetText(), md_width, dark,
-        [this, key](std::pmr::wstring svg, bool cancelled) {
-            svg_copy_in_flight_ = false;
-            if (cancelled) {
-                // テーマ変更/幅変更/シャットダウン等によるキャンセル。トーストは出さない。
-                return;
-            }
-            if (svg.empty()) {
-                ShowToast(i18n::S().toast_svg_copy_failed);
-                return;
-            }
-            const bool ok = WriteClipboardSvg(hwnd_, svg);
-            if (ok) {
-                svg_cache_.Insert(key, std::move(svg));
-            }
-            ShowToast(ok ? i18n::S().toast_svg_copied : i18n::S().toast_svg_copy_failed);
-        });
+                                 [this, key](std::pmr::wstring svg, bool cancelled) {
+        svg_copy_in_flight_ = false;
+        if (cancelled) {
+            // テーマ変更/幅変更/シャットダウン等によるキャンセル。トーストは出さない。
+            return;
+        }
+        if (svg.empty()) {
+            ShowToast(i18n::S().toast_svg_copy_failed);
+            return;
+        }
+        const bool ok = WriteClipboardSvg(hwnd_, svg);
+        if (ok) {
+            svg_cache_.Insert(key, std::move(svg));
+        }
+        ShowToast(ok ? i18n::S().toast_svg_copied : i18n::S().toast_svg_copy_failed);
+    });
 }

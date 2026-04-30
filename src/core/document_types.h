@@ -83,9 +83,9 @@ struct NodeCodeData {
 
 // 画像専用データ（Imageノードのみ確保）
 struct NodeImageData {
-    std::pmr::wstring src;     // 画像ソースパス（Markdown内の記述）
-    float width = 0.0f;        // 元画像の幅（ピクセル）
-    float height = 0.0f;       // 元画像の高さ（ピクセル）
+    std::pmr::wstring src; // 画像ソースパス（Markdown内の記述）
+    float width = 0.0f;    // 元画像の幅（ピクセル）
+    float height = 0.0f;   // 元画像の高さ（ピクセル）
 };
 
 // Node::source_offset が未設定であることを示すセンチネル値。
@@ -106,27 +106,36 @@ struct Node {
     Extra extra;
 
     // --- 4 バイトアライメント ---
-    int32_t list_number = 0;             // 0 = 順序なし, >0 = 順序付きリスト番号
-    uint32_t alert_label_length = 0;     // ラベル部分の文字数（描画エフェクト適用範囲）
+    int32_t list_number = 0;                     // 0 = 順序なし, >0 = 順序付きリスト番号
+    uint32_t alert_label_length = 0;             // ラベル部分の文字数（描画エフェクト適用範囲）
     uint32_t source_offset = kUnsetSourceOffset; // ソース wide テキスト内の UTF-16 コード単位オフセット
-    int32_t blockquote_group = -1;       // 最外側 blockquote 単位のグループID（ネストしてもgroupは共有）
-    int32_t line_count = 0;              // テキスト内の改行数（パース時にカウント済み）
+    int32_t blockquote_group = -1;               // 最外側 blockquote 単位のグループID（ネストしてもgroupは共有）
+    int32_t line_count = 0;                      // テキスト内の改行数（パース時にカウント済み）
 
     // --- 1 バイトアライメント（8 個ぴったり = 末尾パディング 0、text_ の 8B 境界に乗る）---
     NodeType type = NodeType::Paragraph;
     bool task_checked = false;
     AlertType alert_type = AlertType::None;
     SyntaxLanguage code_language = SyntaxLanguage::None;
-    int8_t quote_depth = 0;          // 現在の blockquote ネスト深さ（0 = 引用外, 1.. = ネストレベル）
-    int8_t quote_outer_indent = 0;   // 最外側 blockquote が居る indent_level（バー位置の起点）
-    int8_t heading_level = 0;        // 1〜6（0 = 見出しでない）
-    int8_t indent_level = 0;         // リスト/引用のネスト深さ（int8_t の最大値で飽和）
+    int8_t quote_depth = 0;        // 現在の blockquote ネスト深さ（0 = 引用外, 1.. = ネストレベル）
+    int8_t quote_outer_indent = 0; // 最外側 blockquote が居る indent_level（バー位置の起点）
+    int8_t heading_level = 0;      // 1〜6（0 = 見出しでない）
+    int8_t indent_level = 0;       // リスト/引用のネスト深さ（int8_t の最大値で飽和）
 
-    constexpr bool HasText() const noexcept { return !text_.empty(); }
+    constexpr bool HasText() const noexcept
+    {
+        return !text_.empty();
+    }
 
-    constexpr const std::pmr::wstring& GetText() const noexcept { return text_; }
+    constexpr const std::pmr::wstring& GetText() const noexcept
+    {
+        return text_;
+    }
 
-    constexpr void SetText(const wchar_t* s) { SetText(std::wstring_view{ s }); }
+    constexpr void SetText(const wchar_t* s)
+    {
+        SetText(std::wstring_view{ s });
+    }
 
     constexpr void SetText(std::wstring_view s)
     {
@@ -156,19 +165,55 @@ struct Node {
 
     // ---- 拡張データへのアクセサ ----
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
-    constexpr NodeTableData* table_data() noexcept { return std::get_if<NodeTableData>(&extra); }
-    constexpr const NodeTableData* table_data() const noexcept { return std::get_if<NodeTableData>(&extra); }
-    constexpr NodeImageData* image_data() noexcept { return std::get_if<NodeImageData>(&extra); }
-    constexpr const NodeImageData* image_data() const noexcept { return std::get_if<NodeImageData>(&extra); }
-    constexpr NodeHeadingData* heading_data() noexcept { return std::get_if<NodeHeadingData>(&extra); }
-    constexpr const NodeHeadingData* heading_data() const noexcept { return std::get_if<NodeHeadingData>(&extra); }
-    constexpr NodeCodeData* code_data() noexcept { return std::get_if<NodeCodeData>(&extra); }
-    constexpr const NodeCodeData* code_data() const noexcept { return std::get_if<NodeCodeData>(&extra); }
+    constexpr NodeTableData* table_data() noexcept
+    {
+        return std::get_if<NodeTableData>(&extra);
+    }
+    constexpr const NodeTableData* table_data() const noexcept
+    {
+        return std::get_if<NodeTableData>(&extra);
+    }
+    constexpr NodeImageData* image_data() noexcept
+    {
+        return std::get_if<NodeImageData>(&extra);
+    }
+    constexpr const NodeImageData* image_data() const noexcept
+    {
+        return std::get_if<NodeImageData>(&extra);
+    }
+    constexpr NodeHeadingData* heading_data() noexcept
+    {
+        return std::get_if<NodeHeadingData>(&extra);
+    }
+    constexpr const NodeHeadingData* heading_data() const noexcept
+    {
+        return std::get_if<NodeHeadingData>(&extra);
+    }
+    constexpr NodeCodeData* code_data() noexcept
+    {
+        return std::get_if<NodeCodeData>(&extra);
+    }
+    constexpr const NodeCodeData* code_data() const noexcept
+    {
+        return std::get_if<NodeCodeData>(&extra);
+    }
 
-    constexpr bool has_table() const noexcept { return std::holds_alternative<NodeTableData>(extra); }
-    constexpr bool has_image() const noexcept { return std::holds_alternative<NodeImageData>(extra); }
-    constexpr bool has_heading() const noexcept { return std::holds_alternative<NodeHeadingData>(extra); }
-    constexpr bool has_code() const noexcept { return std::holds_alternative<NodeCodeData>(extra); }
+    constexpr bool has_table() const noexcept
+    {
+        return std::holds_alternative<NodeTableData>(extra);
+    }
+    constexpr bool has_image() const noexcept
+    {
+        return std::holds_alternative<NodeImageData>(extra);
+    }
+    constexpr bool has_heading() const noexcept
+    {
+        return std::holds_alternative<NodeHeadingData>(extra);
+    }
+    constexpr bool has_code() const noexcept
+    {
+        return std::holds_alternative<NodeCodeData>(extra);
+    }
 
     // ensure_*: 既に同じ型を持っていれば内部参照を、違う型を持っていれば差し替えて新規確保した参照を返す。
     constexpr NodeTableData* ensure_table() noexcept
@@ -200,8 +245,14 @@ struct Node {
         return std::get_if<NodeCodeData>(&extra);
     }
 
-    constexpr std::pmr::vector<TableRow>& table_rows() noexcept { return table_data()->rows; }
-    constexpr const std::pmr::vector<TableRow>& table_rows() const noexcept { return table_data()->rows; }
+    constexpr std::pmr::vector<TableRow>& table_rows() noexcept
+    {
+        return table_data()->rows;
+    }
+    constexpr const std::pmr::vector<TableRow>& table_rows() const noexcept
+    {
+        return table_data()->rows;
+    }
 
     constexpr std::wstring_view anchor_id() const noexcept
     {
@@ -228,5 +279,5 @@ private:
         line_count = static_cast<int32_t>(std::ranges::count(text_, L'\n'));
     }
 
-    std::pmr::wstring text_;    // Wide テキスト
+    std::pmr::wstring text_; // Wide テキスト
 };

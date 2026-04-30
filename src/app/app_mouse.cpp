@@ -72,7 +72,7 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
         ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE);
         break;
     case TitleBarHitZone::Close:
-        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+        EmitEffect(effect::PostWindowMessage{ WM_CLOSE, 0, 0 });
         break;
     default: // タイトルバーの他の領域はWM_NCHITTESTで処理済み
         break;

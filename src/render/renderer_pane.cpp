@@ -8,8 +8,7 @@
 
 // PaneCacheのビットマップレンダーターゲットが必要なサイズと一致することを確認。
 // キャッシュが使用可能ならtrueを返す。
-static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent,
-    float width, float height)
+static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent, float width, float height)
 {
     if (width <= 0 || height <= 0) {
         return false;
@@ -31,8 +30,8 @@ static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent,
 }
 
 static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb_brush,
-    float pane_width, float content_top, float content_height,
-    float scroll_y, float total_content_height)
+                              float pane_width, float content_top, float content_height,
+                              float scroll_y, float total_content_height)
 {
     if (total_content_height <= content_height) {
         return;
@@ -76,7 +75,7 @@ struct SidePaneDrawContext {
 };
 
 // サイドペイン描画の共通スキャフォールド。
-template<typename DrawItemFn>
+template <typename DrawItemFn>
     requires std::invocable<DrawItemFn&, ID2D1RenderTarget*, int, float, float>
 static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item)
 {
@@ -110,8 +109,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
                 rt->FillRectangle(refresh_rect, sp.close_hover_brush);
             }
             if (sp.fmt_close_icon) {
-                rt->DrawText(L"\uE72C", 1, sp.fmt_close_icon, refresh_rect, sp.text_brush,
-                    D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                rt->DrawText(L"\uE72C", 1, sp.fmt_close_icon, refresh_rect, sp.text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
             }
             header_text_right = refresh_rect.left - 4.0f;
         }
@@ -124,8 +122,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
                 sp.fmt_header,
                 header_rect,
                 sp.text_brush,
-                D2D1_DRAW_TEXT_OPTIONS_CLIP
-            );
+                D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
         // クリッピング付きコンテンツ領域
@@ -139,8 +136,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
         const int first = std::max(0, static_cast<int>(sp.scroll.scroll_y / sp.theme.pane_item_height));
         const int last = std::min(
             sp.item_count - 1,
-            static_cast<int>((sp.scroll.scroll_y + content_height) / sp.theme.pane_item_height) + 1
-        );
+            static_cast<int>((sp.scroll.scroll_y + content_height) / sp.theme.pane_item_height) + 1);
 
         for (int i = first; i <= last; i++) {
             const float item_y = content_top + i * sp.theme.pane_item_height;
@@ -152,9 +148,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
 
         // スクロールバーオーバーレイ
         const float total_content = static_cast<float>(sp.item_count) * sp.theme.pane_item_height;
-        DrawPaneScrollbar(rt, sp.scrollbar_thumb_brush,
-            sp.rect.width, content_top, content_height,
-            sp.scroll.scroll_y, total_content);
+        DrawPaneScrollbar(rt, sp.scrollbar_thumb_brush, sp.rect.width, content_top, content_height, sp.scroll.scroll_y, total_content);
 
         rt->EndDraw();
         sp.cache.dirty = false;
@@ -170,7 +164,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
 }
 
 void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
-    const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered)
+                                const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered)
 {
     constexpr float icon_col_width = 24.0f;
     auto draw_item = [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
@@ -208,8 +202,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
                 fmt_.pane_item.Get(),
                 text_rect,
                 Brush(BrushId::Text),
-                D2D1_DRAW_TEXT_OPTIONS_CLIP
-            );
+                D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
     };
     const SidePaneDrawContext sp{
@@ -234,7 +227,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
 }
 
 void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes,
-    const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index)
+                       const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index)
 {
     auto draw_item = [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
@@ -251,8 +244,8 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
                 8.0f + indent, item_y, width - 4.0f, item_y + theme_.pane_item_height);
             const auto& text = nodes[entry.node_index].GetText();
             rt->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
-                fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
-                D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                         fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
+                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
         // アクティブ見出しの下線
@@ -263,8 +256,7 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
                 D2D1::Point2F(line_left, line_y),
                 D2D1::Point2F(width - 4.0f, line_y),
                 Brush(BrushId::Text),
-                1.5f
-            );
+                1.5f);
         }
     };
     const SidePaneDrawContext sp{
@@ -301,9 +293,7 @@ void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, flo
         return;
     }
     // ダーティノードがある間は高さが増える可能性があるため、ぴったり一致でもスクロールバーを表示し続ける
-    const bool needs_scrollbar = has_dirty_nodes
-        ? (total_content_height >= viewport_h)
-        : (total_content_height > viewport_h);
+    const bool needs_scrollbar = has_dirty_nodes ? (total_content_height >= viewport_h) : (total_content_height > viewport_h);
     if (!needs_scrollbar) {
         return;
     }
@@ -318,4 +308,3 @@ void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, flo
     thumb_rect.radiusY = PANE_SCROLLBAR_WIDTH / 2.0f;
     rt()->FillRoundedRectangle(thumb_rect, Brush(BrushId::ScrollbarThumb));
 }
-

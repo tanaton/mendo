@@ -15,36 +15,30 @@
 inline constexpr size_t HIT_TEST_METRICS_INITIAL_CAPACITY = 64;
 
 // HitTestTextRange をバッファ再利用付きで呼び出し、取得件数を返す。
-inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT32 length,
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS>& buffer)
+inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT32 length, std::pmr::vector<DWRITE_HIT_TEST_METRICS>& buffer)
 {
     if (buffer.size() < HIT_TEST_METRICS_INITIAL_CAPACITY) {
         buffer.resize(HIT_TEST_METRICS_INITIAL_CAPACITY);
     }
     UINT32 count = static_cast<UINT32>(buffer.size());
-    HRESULT hr = layout->HitTestTextRange(start, length, 0, 0,
-        buffer.data(), count, &count);
+    HRESULT hr = layout->HitTestTextRange(start, length, 0, 0, buffer.data(), count, &count);
     if (hr == E_NOT_SUFFICIENT_BUFFER) {
         buffer.resize(count);
-        layout->HitTestTextRange(start, length, 0, 0,
-            buffer.data(), count, &count);
+        layout->HitTestTextRange(start, length, 0, 0, buffer.data(), count, &count);
     }
     return count;
 }
 
 // インラインコードの背景矩形を描画する。
 // bgsにはパディング適用済みのレイアウト原点相対矩形が格納されている。
-inline void GenInlineCodeBgs(DrawCommandList& cmds,
-    const std::pmr::vector<InlineCodeBg>& bgs,
-    float origin_x, float origin_y, D2D1_COLOR_F color)
+inline void GenInlineCodeBgs(DrawCommandList& cmds, const std::pmr::vector<InlineCodeBg>& bgs, float origin_x, float origin_y, D2D1_COLOR_F color)
 {
     for (const auto& bg : bgs) {
         const D2D1_RECT_F rect = D2D1::RectF(
             origin_x + bg.left,
             origin_y + bg.top,
             origin_x + bg.right,
-            origin_y + bg.bottom
-        );
+            origin_y + bg.bottom);
         cmds.emplace_back(FillRoundedRectCmd{ rect, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
     }
 }
@@ -68,18 +62,22 @@ public:
         }
     }
 
-    void SetSharedHitTestBuffer(std::pmr::vector<DWRITE_HIT_TEST_METRICS>* buf) noexcept { shared_hit_test_buffer_ = buf; }
+    void SetSharedHitTestBuffer(std::pmr::vector<DWRITE_HIT_TEST_METRICS>* buf) noexcept
+    {
+        shared_hit_test_buffer_ = buf;
+    }
 
     constexpr void SetTheme(const Theme* theme) noexcept
     {
         theme_ = theme;
         cached_is_dark_ = theme->IsDark();
         float a = cached_is_dark_ ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
-        cached_stripe_color_ = cached_is_dark_
-            ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a)
-            : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
+        cached_stripe_color_ = cached_is_dark_ ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a) : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
     }
-    constexpr void SetFormats(const Formats& fmts) noexcept { formats_ = fmts; }
+    constexpr void SetFormats(const Formats& fmts) noexcept
+    {
+        formats_ = fmts;
+    }
     void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index, uint32_t generation) noexcept
     {
         search_matches_ = matches;
@@ -103,7 +101,7 @@ private:
     // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキスト、
     // タスクリストチェックボックスを描画する。
     void GenNodeTextDecorations(DrawCommandList& cmds, const Node& node,
-        const NodeLayoutEntry& entry, int node_index, float x, float text_x);
+                                const NodeLayoutEntry& entry, int node_index, float x, float text_x);
 
     // ノードタイプに応じた本文ベースカラーを返す。
     D2D1_COLOR_F GetNodeBaseColor(const Node& node) const noexcept;
@@ -127,13 +125,13 @@ private:
     // 検索ハイライトのキャッシュが古い場合に再構築する。
     // matches[first_global, first_global + node_match_count) が当該ノードのマッチ。
     void RebuildSearchHlCache(SearchHlCache& cache, const NodeLayoutEntry& entry,
-        std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count);
+                              std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count);
 
     // 構築済みキャッシュから FillRectCmd を発行する。
     // table_row / table_col に該当するマッチのみ origin に加算して描画。
     void EmitSearchHlCommands(DrawCommandList& cmds, const SearchHlCache& cache,
-        std::span<const SearchMatch> matches, size_t first_global,
-        float origin_x, float origin_y, int table_row, int table_col);
+                              std::span<const SearchMatch> matches, size_t first_global,
+                              float origin_x, float origin_y, int table_row, int table_col);
 
     const Theme* theme_ = nullptr;
     Formats formats_;

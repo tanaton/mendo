@@ -35,8 +35,8 @@ public:
     };
 
     void Init(IWin32Host& host, ResourceManager& resource_manager,
-        DocumentService& doc_service,
-        AppState& state, LayoutService& layout_service, Callbacks cb);
+              DocumentService& doc_service,
+              AppState& state, LayoutService& layout_service, Callbacks cb);
     void Execute(const SideEffectList& effects);
     void ExecuteOne(const SideEffect& e);
 

@@ -468,17 +468,12 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     // ストライド (col_count) が違うケースを取りこぼすため、col_count も明示的に比較する。
     auto* tl_existing = entry.table_layout.get();
     const bool has_compatible_layouts =
-        tl_existing
-        && tl_existing->col_count == col_count
-        && !tl_existing->cell_layouts.empty()
-        && tl_existing->cell_layouts.size() == row_count * col_count;
+        tl_existing && tl_existing->col_count == col_count && !tl_existing->cell_layouts.empty() && tl_existing->cell_layouts.size() == row_count * col_count;
 
     // 超高速パス: 前回と max_width がほぼ一致しキャッシュ済みレイアウトが揃っていれば、
     // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、layout_dirty を倒すだけで終える。
     // 検索ハイライト矩形・effects・inline_code_bgs もテキスト位置に依存するので保持できる。
-    if (has_compatible_layouts
-        && tl_existing->last_applied_max_width >= 0.0f
-        && std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON) {
+    if (has_compatible_layouts && tl_existing->last_applied_max_width >= 0.0f && std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON) {
         entry.layout_dirty = false;
         return;
     }

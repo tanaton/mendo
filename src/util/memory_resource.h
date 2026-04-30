@@ -14,7 +14,7 @@
 inline std::pmr::synchronized_pool_resource& GetGlobalPoolResource()
 {
     // プールオプション: 最大ブロックサイズ 1MB、チャンク成長率はデフォルト
-    static std::pmr::pool_options opts{/*max_blocks_per_chunk=*/0, /*largest_required_pool_block=*/1 << 20 };
+    static std::pmr::pool_options opts{ /*max_blocks_per_chunk=*/0, /*largest_required_pool_block=*/1 << 20 };
     static std::pmr::synchronized_pool_resource pool{ opts, std::pmr::new_delete_resource() };
     return pool;
 }
@@ -29,22 +29,26 @@ inline void InitGlobalMemoryResource()
 class MonotonicResource {
 public:
     explicit MonotonicResource(std::size_t initial_size = 16 * 1024)
-        : buffer_(std::make_unique<std::byte[]>(initial_size))
-        , monotonic_(buffer_.get(), initial_size, std::pmr::get_default_resource())
+        : buffer_(std::make_unique<std::byte[]>(initial_size)), monotonic_(buffer_.get(), initial_size, std::pmr::get_default_resource())
     {
     }
 
     MonotonicResource(const MonotonicResource&) = delete;
     MonotonicResource& operator=(const MonotonicResource&) = delete;
 
-    std::pmr::memory_resource* resource() noexcept { return &monotonic_; }
+    std::pmr::memory_resource* resource() noexcept
+    {
+        return &monotonic_;
+    }
 
     // 確保済みメモリを再利用可能な状態にリセットする
-    void Reset() noexcept { monotonic_.release(); }
+    void Reset() noexcept
+    {
+        monotonic_.release();
+    }
 
 private:
     // buffer_ は monotonic_ より先に宣言し、monotonic_ より後に破棄されるようにする
     std::unique_ptr<std::byte[]> buffer_;
     std::pmr::monotonic_buffer_resource monotonic_;
 };
-

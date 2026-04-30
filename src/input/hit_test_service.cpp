@@ -9,9 +9,11 @@ namespace {
 
 // テーブル内のクリック座標からヒットした行を特定する。
 // 見つかった場合は行インデックスとその行の上端Y座標を返す。
-struct TableRowHit { int row; float row_top_y; };
-TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry,
-    const Theme& theme, float dip_y) noexcept
+struct TableRowHit {
+    int row;
+    float row_top_y;
+};
+TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, const Theme& theme, float dip_y) noexcept
 {
     if (!entry.has_table_layout()) {
         return { -1, 0.0f };
@@ -54,8 +56,7 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry,
 // テーブル内のクリック座標からヒットした列を特定する。
 // 見つからない場合は最終列を返す（列数0の場合は0を返す）。
 // cell_left_x にはヒットしたセルの左端X座標（パディング含まず）を書き込む。
-int FindTableCol(const TableLayoutData& tl, float base_x, float dip_x,
-    float& cell_left_x) noexcept
+int FindTableCol(const TableLayoutData& tl, float base_x, float dip_x, float& cell_left_x) noexcept
 {
     const auto col_count = tl.col_widths.size();
 
@@ -97,8 +98,7 @@ int FindTableCol(const TableLayoutData& tl, float base_x, float dip_x,
 
 } // namespace
 
-HitTestService::HitResult HitTestService::HitTest(
-    const MdPaneHitContext& ctx) const noexcept
+HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) const noexcept
 {
     HitResult result;
     if (ctx.nodes.empty()) {
@@ -138,7 +138,7 @@ HitTestService::HitResult HitTestService::HitTest(
             BOOL is_inside = FALSE;
             DWRITE_HIT_TEST_METRICS metrics{};
             entry.text_layout->HitTestPoint(local_x, local_y,
-                &is_trailing, &is_inside, &metrics);
+                                            &is_trailing, &is_inside, &metrics);
 
             result.node_index = candidate;
             result.text_pos = metrics.textPosition + (is_trailing ? 1 : 0);
@@ -203,8 +203,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
             dip_y - text_y,
             &is_trailing,
             &is_inside,
-            &metrics
-        );
+            &metrics);
 
         result.text_pos = flat_offset + metrics.textPosition + (is_trailing ? 1 : 0);
     }
@@ -234,23 +233,20 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         return -1;
     }
 
-    return HitTestCodeBlockButton(ctx, last_copy_hit_,
-        [&](int /*i*/, const Node& node, const NodeLayoutEntry& entry,
-            float dip_x, float dip_y) noexcept -> bool {
-            // ダイアグラム系 (Mermaid / LatexMath) はコピーボタン非対応
-            if (IsDiagramLanguage(node.code_language)) {
-                return false;
-            }
-            const float indent = NodeIndent(node, ctx.theme);
-            const float x = ctx.theme.margin_left + indent;
-            const float w = ctx.content_width - indent;
-            const float pad = ctx.theme.code_block_padding;
-            const float block_right = x + w;
-            const float block_top = entry.y_position - pad;
-            const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
-            return dip_x >= btn.left && dip_x <= btn.right
-                && dip_y >= btn.top && dip_y <= btn.bottom;
-        });
+    return HitTestCodeBlockButton(ctx, last_copy_hit_, [&](int /*i*/, const Node& node, const NodeLayoutEntry& entry, float dip_x, float dip_y) noexcept -> bool {
+        // ダイアグラム系 (Mermaid / LatexMath) はコピーボタン非対応
+        if (IsDiagramLanguage(node.code_language)) {
+            return false;
+        }
+        const float indent = NodeIndent(node, ctx.theme);
+        const float x = ctx.theme.margin_left + indent;
+        const float w = ctx.content_width - indent;
+        const float pad = ctx.theme.code_block_padding;
+        const float block_right = x + w;
+        const float block_top = entry.y_position - pad;
+        const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
+        return dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom;
+    });
 }
 
 int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept
@@ -258,25 +254,21 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
     assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
     assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
 
-    return HitTestCodeBlockButton(ctx, last_save_hit_,
-        [&](int i, const Node& node, const NodeLayoutEntry& entry,
-            float dip_x, float dip_y) noexcept -> bool {
-            if (!IsDiagramLanguage(node.code_language)) {
-                return false;
-            }
-            const auto& diagram = ctx.cache.GetDiagram(i);
-            if (!diagram.bitmap) {
-                return false;
-            }
-            const float indent = NodeIndent(node, ctx.theme);
-            const float x = ctx.theme.margin_left + indent;
-            const float cw = ctx.content_width - indent;
-            const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
-            const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top,
-                std::to_underlying(DiagramButtonSlot::Save));
-            return dip_x >= btn.left && dip_x <= btn.right
-                && dip_y >= btn.top && dip_y <= btn.bottom;
-        });
+    return HitTestCodeBlockButton(ctx, last_save_hit_, [&](int i, const Node& node, const NodeLayoutEntry& entry, float dip_x, float dip_y) noexcept -> bool {
+        if (!IsDiagramLanguage(node.code_language)) {
+            return false;
+        }
+        const auto& diagram = ctx.cache.GetDiagram(i);
+        if (!diagram.bitmap) {
+            return false;
+        }
+        const float indent = NodeIndent(node, ctx.theme);
+        const float x = ctx.theme.margin_left + indent;
+        const float cw = ctx.content_width - indent;
+        const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
+        const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
+        return dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom;
+    });
 }
 
 HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
@@ -330,18 +322,14 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry.y_position);
                 if (save_hit < 0) {
-                    const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top,
-                        std::to_underlying(DiagramButtonSlot::Save));
-                    if (dip_x >= btn.left && dip_x <= btn.right
-                        && dip_y >= btn.top && dip_y <= btn.bottom) {
+                    const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
+                    if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
                         save_hit = i;
                     }
                 }
                 if (svg_copy_hit < 0 && IsSvgExportable(node.code_language)) {
-                    const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top,
-                        std::to_underlying(DiagramButtonSlot::SvgCopy));
-                    if (dip_x >= btn2.left && dip_x <= btn2.right
-                        && dip_y >= btn2.top && dip_y <= btn2.bottom) {
+                    const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::SvgCopy));
+                    if (dip_x >= btn2.left && dip_x <= btn2.right && dip_y >= btn2.top && dip_y <= btn2.bottom) {
                         svg_copy_hit = i;
                     }
                 }
@@ -351,8 +339,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
             const float block_right = x + w;
             const float block_top = entry.y_position - pad;
             const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
-            if (dip_x >= btn.left && dip_x <= btn.right
-                && dip_y >= btn.top && dip_y <= btn.bottom) {
+            if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
                 copy_hit = i;
             }
         }
@@ -372,8 +359,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
     return out;
 }
 
-NavButtonHover HitTestService::NavButtonHitTest(
-    float dip_x, float dip_y, const PaneRect& md_rect) const noexcept
+NavButtonHover HitTestService::NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept
 {
     if (NavBackButtonRect(md_rect).Contains(dip_x, dip_y)) {
         return NavButtonHover::Back;

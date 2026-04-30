@@ -5,9 +5,7 @@
 
 using Microsoft::WRL::ComPtr;
 
-void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
-    bool can_back, bool can_forward,
-    int hovered)
+void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, int hovered)
 {
     if (!rt()) {
         return;
@@ -35,9 +33,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect,
 
     // SetColor は SetOpacity より重いため、固定色ブラシを is_dark で選んで
     // 透明度のみ切り替える。
-    ID2D1SolidColorBrush* const overlay_brush = is_dark
-        ? Brush(BrushId::OverlayWhite)
-        : Brush(BrushId::OverlayBlack);
+    ID2D1SolidColorBrush* const overlay_brush = is_dark ? Brush(BrushId::OverlayWhite) : Brush(BrushId::OverlayBlack);
 
     auto drawButton = [&](float x, bool enabled, bool is_hovered, IDWriteTextLayout* arrow_layout) {
         if (!overlay_brush) {
@@ -147,9 +143,7 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2, cx + rect_w / 2, cy + rect_h / 2);
 
     if (auto* bg_brush = Brush(BrushId::Overlay)) {
-        const D2D1_COLOR_F bg_color = is_dark
-            ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.8f)
-            : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.6f);
+        const D2D1_COLOR_F bg_color = is_dark ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.8f) : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.6f);
         bg_brush->SetColor(bg_color);
         const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, GESTURE_OVERLAY_CORNER, GESTURE_OVERLAY_CORNER);
         rt()->FillRoundedRectangle(rrect, bg_brush);
@@ -196,9 +190,7 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, bottom_y - rect_h, cx + rect_w / 2, bottom_y);
 
     if (auto* bg_brush = Brush(BrushId::Overlay)) {
-        const D2D1_COLOR_F bg_color = is_dark
-            ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.85f)
-            : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.7f);
+        const D2D1_COLOR_F bg_color = is_dark ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.85f) : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.7f);
         bg_brush->SetColor(bg_color);
         const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, TOAST_OVERLAY_CORNER, TOAST_OVERLAY_CORNER);
         rt()->FillRoundedRectangle(rrect, bg_brush);
@@ -215,8 +207,7 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
                 fmt_.toast_text.Get(),
                 TOAST_OVERLAY_WIDTH,
                 TOAST_OVERLAY_HEIGHT,
-                &cached_toast_layout_
-            );
+                &cached_toast_layout_);
         }
         if (cached_toast_layout_) {
             if (auto* white = Brush(BrushId::OverlayWhite)) {

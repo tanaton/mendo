@@ -80,13 +80,12 @@ void FileExplorer::Refresh()
 
     // ディレクトリ優先 → 表示名 (大小無視) 昇順。
     // 比較対象は full_path 全体ではなく末尾ファイル名のみ（GetDisplayName）。
-    std::ranges::sort(entries_.begin() + static_cast<ptrdiff_t>(sort_begin), entries_.end(),
-        [](const FileEntry& a, const FileEntry& b) noexcept {
-            if (a.is_directory() != b.is_directory()) {
-                return a.is_directory() > b.is_directory();
-            }
-            return path_util::iless(a.GetDisplayName(), b.GetDisplayName());
-        });
+    std::ranges::sort(entries_.begin() + static_cast<ptrdiff_t>(sort_begin), entries_.end(), [](const FileEntry& a, const FileEntry& b) noexcept {
+        if (a.is_directory() != b.is_directory()) {
+            return a.is_directory() > b.is_directory();
+        }
+        return path_util::iless(a.GetDisplayName(), b.GetDisplayName());
+    });
 }
 
 int FileExplorer::HitTest(float local_y, float item_height) const noexcept

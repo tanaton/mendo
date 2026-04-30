@@ -87,14 +87,17 @@ struct InlineState {
 // 最大深さは <a><strong><em><s><code> の 5 段で、ヒープ割り当てなし。
 class InlineTagScope {
 public:
-    constexpr explicit InlineTagScope(std::pmr::wstring& out) noexcept : out_(out) {}
+    constexpr explicit InlineTagScope(std::pmr::wstring& out) noexcept : out_(out)
+    {}
     InlineTagScope(const InlineTagScope&) = delete;
     InlineTagScope& operator=(const InlineTagScope&) = delete;
     // CloseAll() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
     ~InlineTagScope() noexcept
     {
-        try { CloseAll(); }
-        catch (...) {}
+        try {
+            CloseAll();
+        } catch (...) {
+        }
     }
 
     // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
@@ -134,7 +137,10 @@ public:
         }
     }
 
-    constexpr bool IsApplied() const noexcept { return applied_; }
+    constexpr bool IsApplied() const noexcept
+    {
+        return applied_;
+    }
 
 private:
     constexpr void Push(std::wstring_view close_tag) noexcept
@@ -152,10 +158,10 @@ private:
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
 // 同一 state 区間の比較と IsSafeUrlScheme を run あたり 1 回に抑える。
 constexpr void AppendInlineHtml(std::pmr::wstring& out,
-    std::wstring_view text,
-    const std::pmr::vector<TextRun>& runs,
-    const std::pmr::vector<std::pmr::wstring>& link_urls,
-    uint32_t start, uint32_t end)
+                                std::wstring_view text,
+                                const std::pmr::vector<TextRun>& runs,
+                                const std::pmr::vector<std::pmr::wstring>& link_urls,
+                                uint32_t start, uint32_t end)
 {
     if (end > text.size()) {
         end = static_cast<uint32_t>(text.size());
@@ -169,7 +175,11 @@ constexpr void AppendInlineHtml(std::pmr::wstring& out,
     size_t run_idx = 0;
     uint32_t pos = start;
 
-    enum class UrlSafety : uint8_t { Unchecked = 0, Safe = 1, Unsafe = 2 };
+    enum class UrlSafety : uint8_t {
+        Unchecked = 0,
+        Safe = 1,
+        Unsafe = 2
+    };
     std::pmr::vector<UrlSafety> url_safety(out.get_allocator().resource());
     if (!link_urls.empty()) {
         url_safety.assign(link_urls.size(), UrlSafety::Unchecked);
@@ -266,8 +276,7 @@ constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const t
     std::unreachable();
 }
 
-constexpr void AppendSyntaxHighlightedSpan(std::pmr::wstring& out, std::wstring_view chunk,
-    SyntaxTokenType type, bool dark_mode)
+constexpr void AppendSyntaxHighlightedSpan(std::pmr::wstring& out, std::wstring_view chunk, SyntaxTokenType type, bool dark_mode)
 {
     const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
     const auto color = SyntaxTokenColor(type, palette);
@@ -282,8 +291,7 @@ constexpr void AppendSyntaxHighlightedSpan(std::pmr::wstring& out, std::wstring_
     out.append(L"</span>");
 }
 
-void AppendCodeBlockHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end,
-    bool dark_mode)
+void AppendCodeBlockHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
 {
     constexpr std::wstring_view kStyleTail =
         LR"(;padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;"><code>)";
@@ -353,18 +361,27 @@ void AppendCodeBlockHtml(std::pmr::wstring& out, const Node& node, uint32_t star
 // 最後のセクションも閉じるため、in_thead/in_tbody フラグを持ち回す必要がない。
 class TableSectionScope {
 public:
-    constexpr explicit TableSectionScope(std::pmr::wstring& out) noexcept : out_(out) {}
+    constexpr explicit TableSectionScope(std::pmr::wstring& out) noexcept : out_(out)
+    {}
     // Close() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
     ~TableSectionScope() noexcept
     {
-        try { Close(); }
-        catch (...) {}
+        try {
+            Close();
+        } catch (...) {
+        }
     }
     TableSectionScope(const TableSectionScope&) = delete;
     TableSectionScope& operator=(const TableSectionScope&) = delete;
 
-    constexpr void EnterThead() { Enter(L"<thead>", L"</thead>"); }
-    constexpr void EnterTbody() { Enter(L"<tbody>", L"</tbody>"); }
+    constexpr void EnterThead()
+    {
+        Enter(L"<thead>", L"</thead>");
+    }
+    constexpr void EnterTbody()
+    {
+        Enter(L"<tbody>", L"</tbody>");
+    }
 
 private:
     constexpr void Enter(std::wstring_view open_tag, std::wstring_view close_tag)
@@ -409,8 +426,7 @@ constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cel
     out.append(L";\"");
 }
 
-void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end,
-    bool dark_mode)
+void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
 {
     if (!node.has_table() || node.table_rows().empty()) {
         // テーブルデータがない場合はフラットテキストを <pre> で出力
@@ -445,8 +461,7 @@ void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, u
                 out.append(open_tag);
                 AppendTableCellStyle(out, cell, dark_mode);
                 out.append(L">");
-                AppendInlineHtml(out, cell.text, cell.runs, node.link_urls, 0,
-                    static_cast<uint32_t>(cell.text.size()));
+                AppendInlineHtml(out, cell.text, cell.runs, node.link_urls, 0, static_cast<uint32_t>(cell.text.size()));
                 out.append(close_tag);
             }
             out.append(L"</tr>");
@@ -479,7 +494,7 @@ std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>&
 {
     const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
         return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
-        });
+    });
     if (it == runs.end()) {
         return std::nullopt;
     }
@@ -513,8 +528,7 @@ const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node, uint32_t te
 
 } // namespace
 
-std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
-    const TextSelection& selection, bool dark_mode)
+std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, const TextSelection& selection, bool dark_mode)
 {
     if (!selection.active) {
         return {};
@@ -537,7 +551,7 @@ std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
             out.append(list_close_tag);
             list_close_tag = nullptr;
         }
-        };
+    };
 
     for (int i = selection.start_node; i <= selection.end_node; ++i) {
         if (i < 0 || i >= static_cast<int>(nodes.size())) {
@@ -597,9 +611,7 @@ std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
             out.append(L"</li>");
             break;
         case NodeType::TaskListItem:
-            out.append(node.task_checked
-                ? L"<li><input type=\"checkbox\" checked disabled> "
-                : L"<li><input type=\"checkbox\" disabled> ");
+            out.append(node.task_checked ? L"<li><input type=\"checkbox\" checked disabled> " : L"<li><input type=\"checkbox\" disabled> ");
             AppendNodeInlineHtml(out, node, start, end);
             out.append(L"</li>");
             break;

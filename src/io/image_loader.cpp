@@ -49,8 +49,7 @@ void ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
             CLSID_WICImagingFactory,
             nullptr,
             CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&wic_factory_)
-        );
+            IID_PPV_ARGS(&wic_factory_));
         if (FAILED(hr)) {
             wic_factory_.Reset();
         }
@@ -196,8 +195,7 @@ void ImageLoader::ProcessCompletedDecodes()
                 Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
                 const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.converter.Get(), &bitmap);
                 if (SUCCEEDED(hr) && bitmap) {
-                    CreateAndCacheImage(r.path, std::move(bitmap),
-                        static_cast<UINT>(r.width), static_cast<UINT>(r.height));
+                    CreateAndCacheImage(r.path, std::move(bitmap), static_cast<UINT>(r.width), static_cast<UINT>(r.height));
                 }
             }
         }

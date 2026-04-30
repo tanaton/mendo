@@ -39,7 +39,7 @@ struct RequestPrefix {
     bool has_payload = false;
 };
 RequestPrefix ParseRequestPrefix(std::wstring_view body) noexcept;
-}
+} // namespace mermaid_util
 
 namespace mermaid_lifecycle {
 
@@ -47,8 +47,14 @@ namespace mermaid_lifecycle {
 // 単体テストから状態機械を検証できるようにするため、mermaid.cpp 本体から切り出している。
 class Lifecycle {
 public:
-    constexpr bool IsInitialized() const noexcept { return initialized_; }
-    constexpr bool IsReady() const noexcept { return ready_; }
+    constexpr bool IsInitialized() const noexcept
+    {
+        return initialized_;
+    }
+    constexpr bool IsReady() const noexcept
+    {
+        return ready_;
+    }
 
     // 未初期化なら初期化済みに遷移し true。既に初期化済みなら false。
     // WebView2 環境生成の冪等トリガーとして使う。
@@ -62,7 +68,10 @@ public:
     }
 
     // 初回ワーカー準備完了時に呼ぶ。
-    constexpr void MarkReady() noexcept { ready_ = true; }
+    constexpr void MarkReady() noexcept
+    {
+        ready_ = true;
+    }
 
     // Shutdown 経路などで呼ぶ。
     constexpr void Reset() noexcept

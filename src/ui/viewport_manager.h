@@ -9,10 +9,13 @@
 // node が有効な間、レイアウトが変化するたびに scroll_y = y_position[node] + offset として再評価される。
 // ユーザー発のピクセルスクロールや ClearScrollTarget で無効化される。
 struct ScrollTarget {
-    int node = -1;          // -1 = 無効
-    float offset = 0.0f;    // ノード先頭からのピクセル距離
+    int node = -1;       // -1 = 無効
+    float offset = 0.0f; // ノード先頭からのピクセル距離
 
-    constexpr bool IsValid() const noexcept { return node >= 0; }
+    constexpr bool IsValid() const noexcept
+    {
+        return node >= 0;
+    }
 };
 
 // 見出しノードを md ペイン上端の heading_spacing_above 分だけ下に配置する ScrollTarget を作る。
@@ -28,8 +31,14 @@ class ViewportManager {
 public:
     // ---- スクロール ----
 
-    constexpr float GetScrollY() const noexcept { return scroll_y_; }
-    constexpr float GetMaxScroll() const noexcept { return max_scroll_; }
+    constexpr float GetScrollY() const noexcept
+    {
+        return scroll_y_;
+    }
+    constexpr float GetMaxScroll() const noexcept
+    {
+        return max_scroll_;
+    }
 
     // ピクセル絶対スクロール。scroll_target を無効化する。
     constexpr void ScrollTo(float position) noexcept
@@ -67,9 +76,18 @@ public:
         scroll_target_ = { node, offset };
     }
 
-    constexpr void ClearScrollTarget() noexcept { scroll_target_ = {}; }
-    constexpr bool HasScrollTarget() const noexcept { return scroll_target_.IsValid(); }
-    constexpr const ScrollTarget& GetScrollTarget() const noexcept { return scroll_target_; }
+    constexpr void ClearScrollTarget() noexcept
+    {
+        scroll_target_ = {};
+    }
+    constexpr bool HasScrollTarget() const noexcept
+    {
+        return scroll_target_.IsValid();
+    }
+    constexpr const ScrollTarget& GetScrollTarget() const noexcept
+    {
+        return scroll_target_;
+    }
 
     // scroll_target が有効な場合、現在のレイアウトキャッシュから scroll_y を再評価する。
     // max_scroll によるクランプは行わない（SyncMaxScroll が担当する）。
@@ -101,30 +119,66 @@ public:
 
     // target を触らずクランプも掛けない生の scroll_y 書き込み。
     // max_scroll が未確定な段階（ファイルロード直後など）のシード投入に使う。target との整合は呼び出し側責任。
-    constexpr void SetScrollY(float y) noexcept { scroll_y_ = y; }
+    constexpr void SetScrollY(float y) noexcept
+    {
+        scroll_y_ = y;
+    }
 
-    constexpr bool IsScrollbarTracking() const noexcept { return is_scrollbar_tracking_; }
-    constexpr void SetScrollbarTracking(bool v) noexcept { is_scrollbar_tracking_ = v; }
+    constexpr bool IsScrollbarTracking() const noexcept
+    {
+        return is_scrollbar_tracking_;
+    }
+    constexpr void SetScrollbarTracking(bool v) noexcept
+    {
+        is_scrollbar_tracking_ = v;
+    }
 
     // ---- 選択 ----
 
-    constexpr const TextSelection& GetSelection() const noexcept { return selection_; }
-    constexpr TextSelection& GetSelectionMut() noexcept { return selection_; }
-    constexpr void SetSelection(const TextSelection& sel) noexcept { selection_ = sel; }
+    constexpr const TextSelection& GetSelection() const noexcept
+    {
+        return selection_;
+    }
+    constexpr TextSelection& GetSelectionMut() noexcept
+    {
+        return selection_;
+    }
+    constexpr void SetSelection(const TextSelection& sel) noexcept
+    {
+        selection_ = sel;
+    }
 
-    constexpr int GetAnchorNode() const noexcept { return anchor_node_; }
-    constexpr uint32_t GetAnchorPos() const noexcept { return anchor_pos_; }
+    constexpr int GetAnchorNode() const noexcept
+    {
+        return anchor_node_;
+    }
+    constexpr uint32_t GetAnchorPos() const noexcept
+    {
+        return anchor_pos_;
+    }
     constexpr void SetAnchor(int node, uint32_t pos) noexcept
     {
         anchor_node_ = node;
         anchor_pos_ = pos;
     }
 
-    constexpr bool IsDragging() const noexcept { return is_dragging_; }
-    constexpr void SetDragging(bool v) noexcept { is_dragging_ = v; }
+    constexpr bool IsDragging() const noexcept
+    {
+        return is_dragging_;
+    }
+    constexpr void SetDragging(bool v) noexcept
+    {
+        is_dragging_ = v;
+    }
 
-    constexpr int GetClickStartX() const noexcept { return click_start_x_; }
-    constexpr int GetClickStartY() const noexcept { return click_start_y_; }
+    constexpr int GetClickStartX() const noexcept
+    {
+        return click_start_x_;
+    }
+    constexpr int GetClickStartY() const noexcept
+    {
+        return click_start_y_;
+    }
     constexpr void SetClickStart(int x, int y) noexcept
     {
         click_start_x_ = x;
@@ -151,14 +205,20 @@ public:
 
     // ---- ズーム ----
 
-    constexpr int GetZoomIndex() const noexcept { return zoom_index_; }
+    constexpr int GetZoomIndex() const noexcept
+    {
+        return zoom_index_;
+    }
     // ZOOM_STEPS の有効範囲 [0, ZOOM_STEP_COUNT) に必ずクランプする。
     // 設定ファイル等の外部入力経路から不正値が来ても out-of-bounds にならない契約を setter 側で保証する。
     constexpr void SetZoomIndex(int idx) noexcept
     {
         zoom_index_ = static_cast<uint8_t>(std::clamp(idx, 0, ZOOM_STEP_COUNT - 1));
     }
-    constexpr float GetCurrentZoom() const noexcept { return ZOOM_STEPS[zoom_index_]; }
+    constexpr float GetCurrentZoom() const noexcept
+    {
+        return ZOOM_STEPS[zoom_index_];
+    }
 
     // zoom_index が変化したら true を返す。新しい値は GetZoomIndex() / GetCurrentZoom() で取得する。
     // Why: float の戻り値で「0.0 == 変化なし」を表現すると ZOOM_STEPS に 0.0 が含まれた瞬間に
@@ -195,10 +255,10 @@ private:
     // スクロール状態
     float scroll_y_ = 0.0f;
     float max_scroll_ = 0.0f;
-    ScrollTarget scroll_target_{};        // int(4) + float(4)
+    ScrollTarget scroll_target_{}; // int(4) + float(4)
 
     // 選択状態
-    TextSelection selection_;             // 20B
+    TextSelection selection_; // 20B
     int32_t anchor_node_ = -1;
     uint32_t anchor_pos_ = 0;
     int32_t click_start_x_ = 0;

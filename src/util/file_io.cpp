@@ -2,15 +2,13 @@
 #include <limits>
 #include <utility>
 
-OpenedFile OpenFileForReadShared(const std::filesystem::path& path,
-    DWORD share_mode, LONGLONG max_size, DWORD* out_error) noexcept
+OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_mode, LONGLONG max_size, DWORD* out_error) noexcept
 {
     if (out_error) {
         *out_error = 0;
     }
     OpenedFile r;
-    UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_READ, share_mode, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_READ, share_mode, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
     if (!hFile) {
         if (out_error) {
             *out_error = GetLastError();
@@ -48,15 +46,13 @@ std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
     return { std::move(buf), r.size };
 }
 
-bool IsFileLargerThan(const std::filesystem::path& path,
-    size_t reference_size, size_t tolerance) noexcept
+bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, size_t tolerance) noexcept
 {
     WIN32_FILE_ATTRIBUTE_DATA attr{};
     if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)) {
         return false;
     }
-    const uint64_t current_size = (static_cast<uint64_t>(attr.nFileSizeHigh) << 32)
-        | static_cast<uint64_t>(attr.nFileSizeLow);
+    const uint64_t current_size = (static_cast<uint64_t>(attr.nFileSizeHigh) << 32) | static_cast<uint64_t>(attr.nFileSizeLow);
     return current_size > static_cast<uint64_t>(reference_size) + tolerance;
 }
 
@@ -65,8 +61,7 @@ bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t s
     if (size > std::numeric_limits<uint32_t>::max()) {
         return false;
     }
-    UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
-        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
     if (!hFile) {
         return false;
     }

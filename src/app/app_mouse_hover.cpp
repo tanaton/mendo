@@ -91,17 +91,26 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
 
     if (new_hover.copy >= 0) {
         SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{ TooltipTarget{ TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy }, px, py });
+        Dispatch(UpdateTooltipAction{
+            TooltipTarget{ TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy },
+            px, py
+        });
         return;
     }
     if (new_hover.svg_copy >= 0) {
         SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{ TooltipTarget{ TooltipTarget::Zone::SvgCopyButton, i18n::S().tooltip_copy_svg }, px, py });
+        Dispatch(UpdateTooltipAction{
+            TooltipTarget{ TooltipTarget::Zone::SvgCopyButton, i18n::S().tooltip_copy_svg },
+            px, py
+        });
         return;
     }
     if (new_hover.save >= 0) {
         SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{ TooltipTarget{ TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image }, px, py });
+        Dispatch(UpdateTooltipAction{
+            TooltipTarget{ TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image },
+            px, py
+        });
         return;
     }
 
@@ -179,8 +188,7 @@ void App::OnMouseHover(int px, int py)
         pane_layout,
         renderer_.GetTheme().splitter_width,
         state_.view.panes.IsFilePaneVisible(),
-        state_.view.panes.IsTocPaneVisible()
-    );
+        state_.view.panes.IsTocPaneVisible());
 
     int new_file_hover = -1;
     int new_toc_hover = -1;

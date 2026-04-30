@@ -79,9 +79,18 @@ public:
         generation_counter_ = 0;
     }
 
-    constexpr size_t Size() const noexcept { return size_; }
-    constexpr bool Empty() const noexcept { return size_ == 0; }
-    constexpr size_t MaxSize() const noexcept { return max_entries_; }
+    constexpr size_t Size() const noexcept
+    {
+        return size_;
+    }
+    constexpr bool Empty() const noexcept
+    {
+        return size_ == 0;
+    }
+    constexpr size_t MaxSize() const noexcept
+    {
+        return max_entries_;
+    }
 
 private:
     constexpr size_t FindOldestIndex() const noexcept

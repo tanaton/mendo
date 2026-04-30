@@ -7,16 +7,43 @@ struct TextRun {
     uint32_t length = 0;
     int16_t link_url_index = -1; // -1 = リンクなし, >= 0 = Node::link_urls へのインデックス
 
-    constexpr bool bold() const noexcept { return flags & BOLD; }
-    constexpr bool italic() const noexcept { return flags & ITALIC; }
-    constexpr bool code() const noexcept { return flags & CODE; }
-    constexpr bool strikethrough() const noexcept { return flags & STRIKETHROUGH; }
-    constexpr bool has_link() const noexcept { return link_url_index >= 0; }
+    constexpr bool bold() const noexcept
+    {
+        return flags & BOLD;
+    }
+    constexpr bool italic() const noexcept
+    {
+        return flags & ITALIC;
+    }
+    constexpr bool code() const noexcept
+    {
+        return flags & CODE;
+    }
+    constexpr bool strikethrough() const noexcept
+    {
+        return flags & STRIKETHROUGH;
+    }
+    constexpr bool has_link() const noexcept
+    {
+        return link_url_index >= 0;
+    }
 
-    constexpr void set_bold(bool v) noexcept { set_flag(BOLD, v); }
-    constexpr void set_italic(bool v) noexcept { set_flag(ITALIC, v); }
-    constexpr void set_code(bool v) noexcept { set_flag(CODE, v); }
-    constexpr void set_strikethrough(bool v) noexcept { set_flag(STRIKETHROUGH, v); }
+    constexpr void set_bold(bool v) noexcept
+    {
+        set_flag(BOLD, v);
+    }
+    constexpr void set_italic(bool v) noexcept
+    {
+        set_flag(ITALIC, v);
+    }
+    constexpr void set_code(bool v) noexcept
+    {
+        set_flag(CODE, v);
+    }
+    constexpr void set_strikethrough(bool v) noexcept
+    {
+        set_flag(STRIKETHROUGH, v);
+    }
 
 private:
     static constexpr uint8_t BOLD = 0x01;

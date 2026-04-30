@@ -113,8 +113,7 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
             }
             lower_cache_.tables.emplace(static_cast<int>(i), std::move(table));
         }
-        else if (node.type == NodeType::Image ||
-            (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language))) {
+        else if (node.type == NodeType::Image || (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language))) {
             // 検索対象外ノードは空スライス
             lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
         }
@@ -148,9 +147,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& l
     else {
         // ドキュメント単位でキャッシュした lowercase 文字列を使う。
         // EnsureLowercaseCache が ExecuteSearch 先頭で呼ばれている前提。
-        const std::wstring_view lower_text = (table_row < 0)
-            ? lower_cache_.GetText(node_index)
-            : lower_cache_.GetCell(node_index, table_row, table_col);
+        const std::wstring_view lower_text = (table_row < 0) ? lower_cache_.GetText(node_index) : lower_cache_.GetCell(node_index, table_row, table_col);
 
         size_t pos = 0;
         while (matches_.size() < MAX_MATCHES && (pos = ascii_util::Find(lower_text, lower_query, pos)) != ascii_util::npos) {

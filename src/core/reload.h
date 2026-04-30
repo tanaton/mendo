@@ -26,15 +26,15 @@ inline constexpr bool IsPrefixOnlyDiff(size_t diff_pos, size_t old_size, size_t 
 
 // 同一ファイルのリロード時に取るべき操作を示す。
 enum class ReloadOp : uint8_t {
-    NoChange,           // 差分なし。リロード不要。
-    DeferPrefixShrink,  // prefix-only shrink。truncate→rewrite の前半として defer。
-    PrefixGrowth,       // prefix-only growth。レイアウトキャッシュの prefix を保存して伸張。
-    FullReload,         // 全体差分リロード。
+    NoChange,          // 差分なし。リロード不要。
+    DeferPrefixShrink, // prefix-only shrink。truncate→rewrite の前半として defer。
+    PrefixGrowth,      // prefix-only growth。レイアウトキャッシュの prefix を保存して伸張。
+    FullReload,        // 全体差分リロード。
 };
 
 struct ReloadDecision {
     ReloadOp op;
-    size_t diff_pos;    // NoChange のとき std::wstring_view::npos、それ以外は差分開始位置。
+    size_t diff_pos; // NoChange のとき std::wstring_view::npos、それ以外は差分開始位置。
 };
 
 // 旧/新コンテンツの wide 文字列を比較し、リロード方針を決定する純粋関数。

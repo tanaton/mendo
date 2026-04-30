@@ -5,8 +5,7 @@ void TitleBar::UpdateLayout(float window_width_dip) noexcept
     // ── 左側ボタン群（アイコンの右から配置）──
     // アイコン位置（タイトルバー左端、垂直中央）
     const float icon_top = (BASE_HEIGHT - ICON_SIZE) / 2.0f;
-    icon_rect_ = DipRect{ ICON_LEFT_MARGIN, icon_top,
-        ICON_LEFT_MARGIN + ICON_SIZE, icon_top + ICON_SIZE };
+    icon_rect_ = DipRect{ ICON_LEFT_MARGIN, icon_top, ICON_LEFT_MARGIN + ICON_SIZE, icon_top + ICON_SIZE };
 
     float left = ICON_LEFT_MARGIN + ICON_SIZE + ICON_RIGHT_GAP;
     open_file_.rect = DipRect{ left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT };

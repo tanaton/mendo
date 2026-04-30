@@ -11,7 +11,8 @@ inline constexpr DWORD HOVER_THROTTLE_MIN_INTERVAL_MS = 8;
 // (px - LONG の最小値) は signed int オーバーフロー (UB) になるため、
 // この値の間は距離計算を行わず即座に "移動した" として扱う。
 inline constexpr POINT kUnsetHoverPos{
-    std::numeric_limits<LONG>::min(), std::numeric_limits<LONG>::min() };
+    std::numeric_limits<LONG>::min(), std::numeric_limits<LONG>::min()
+};
 
 inline constexpr bool IsUnset(POINT p) noexcept
 {

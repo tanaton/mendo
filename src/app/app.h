@@ -31,7 +31,8 @@ void ApplyDarkModeToWindow(HWND hwnd, bool dark);
 
 class App {
 public:
-    explicit App(ConfigService& config) noexcept : config_(config) {}
+    explicit App(ConfigService& config) noexcept : config_(config)
+    {}
     bool Init(HWND hwnd);
 
     void LoadMarkdownFile(std::wstring_view path);
@@ -59,15 +60,27 @@ public:
 
     // ボタン押下なしのマウスホバー処理
     void OnMouseHover(int px, int py);
-    void OnMouseLeave() { Dispatch(MouseLeaveAction{}); }
+    void OnMouseLeave()
+    {
+        Dispatch(MouseLeaveAction{});
+    }
     void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const ::PaneLayout& layout);
 
     // マウスXボタンによるナビゲーション
-    void OnXButtonBack() { Dispatch(NavigateBackAction{}); }
-    void OnXButtonForward() { Dispatch(NavigateForwardAction{}); }
+    void OnXButtonBack()
+    {
+        Dispatch(NavigateBackAction{});
+    }
+    void OnXButtonForward()
+    {
+        Dispatch(NavigateForwardAction{});
+    }
 
     // ファイル変更イベント（メッセージループから呼ばれる）
-    constexpr HANDLE GetFileWatchEvent() const noexcept { return doc_service_.GetFileWatchEvent(); }
+    constexpr HANDLE GetFileWatchEvent() const noexcept
+    {
+        return doc_service_.GetFileWatchEvent();
+    }
     void OnFileWatchEvent();
 
     // タイマーコールバック
@@ -80,15 +93,42 @@ public:
     void OnDestroy();
 
     // 検索（Win32Windowから呼ばれるコールバック）— Reducer経由で状態変更
-    void OnSearchTextChanged(std::pmr::wstring text) { Dispatch(SearchTextChangedAction{ std::move(text) }); }
-    void OnSearchClose() { Dispatch(CloseSearchBarAction{}); }
-    void OnSearchNext() { Dispatch(SearchNextAction{}); }
-    void OnSearchPrev() { Dispatch(SearchPrevAction{}); }
-    constexpr bool IsSearchBarVisible() const noexcept { return state_.search.search_state.IsVisible(); }
-    void OnToggleCaseSensitive() { Dispatch(ToggleCaseSensitiveAction{}); }
-    void OnToggleHighlight() { Dispatch(ToggleHighlightAction{}); }
-    void SetSearchSelection(int sel_start, int sel_end) { Dispatch(SearchSelectionAction{ sel_start, sel_end }); }
-    void SetImeComposition(std::pmr::wstring comp) { Dispatch(ImeCompositionAction{ std::move(comp) }); }
+    void OnSearchTextChanged(std::pmr::wstring text)
+    {
+        Dispatch(SearchTextChangedAction{ std::move(text) });
+    }
+    void OnSearchClose()
+    {
+        Dispatch(CloseSearchBarAction{});
+    }
+    void OnSearchNext()
+    {
+        Dispatch(SearchNextAction{});
+    }
+    void OnSearchPrev()
+    {
+        Dispatch(SearchPrevAction{});
+    }
+    constexpr bool IsSearchBarVisible() const noexcept
+    {
+        return state_.search.search_state.IsVisible();
+    }
+    void OnToggleCaseSensitive()
+    {
+        Dispatch(ToggleCaseSensitiveAction{});
+    }
+    void OnToggleHighlight()
+    {
+        Dispatch(ToggleHighlightAction{});
+    }
+    void SetSearchSelection(int sel_start, int sel_end)
+    {
+        Dispatch(SearchSelectionAction{ sel_start, sel_end });
+    }
+    void SetImeComposition(std::pmr::wstring comp)
+    {
+        Dispatch(ImeCompositionAction{ std::move(comp) });
+    }
     RECT GetSearchEditRect();
 
     constexpr void SetPendingRestoreNode(int node, int offset) noexcept
@@ -97,21 +137,45 @@ public:
     }
 
     // サイズ変更状態 — Reducer経由で状態変更
-    void OnEnterSizeMove() { Dispatch(EnterSizeMoveAction{}); }
-    void OnExitSizeMove() { Dispatch(ExitSizeMoveAction{}); }
+    void OnEnterSizeMove()
+    {
+        Dispatch(EnterSizeMoveAction{});
+    }
+    void OnExitSizeMove()
+    {
+        Dispatch(ExitSizeMoveAction{});
+    }
 
-    bool IsRenderReady() const noexcept { return renderer_.GetRenderTarget() != nullptr; }
-    void Invalidate() noexcept { InvalidateRect(hwnd_, nullptr, FALSE); }
+    bool IsRenderReady() const noexcept
+    {
+        return renderer_.GetRenderTarget() != nullptr;
+    }
+    void Invalidate() noexcept
+    {
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
     void InvalidatePane(const PaneRect& rect) noexcept;
     void InvalidateTitleBar() noexcept;
-    constexpr float GetDpiScale() const noexcept { return state_.window.cached_dpi_scale; }
+    constexpr float GetDpiScale() const noexcept
+    {
+        return state_.window.cached_dpi_scale;
+    }
 
     // カスタムタイトルバー
-    constexpr float GetTitleBarHeightDip() const noexcept { return state_.window.titlebar.GetHeight(); }
-    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept { return state_.window.titlebar.HitTest(dip_x, dip_y); }
+    constexpr float GetTitleBarHeightDip() const noexcept
+    {
+        return state_.window.titlebar.GetHeight();
+    }
+    TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept
+    {
+        return state_.window.titlebar.HitTest(dip_x, dip_y);
+    }
     bool IsOverMdScrollbar(float dip_x, float dip_y);
     bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const noexcept;
-    void OnActivate(bool active) { Dispatch(ActivateAction{ active }); }
+    void OnActivate(bool active)
+    {
+        Dispatch(ActivateAction{ active });
+    }
 
 private:
     // AppControllerが返すアクションを実行
@@ -134,7 +198,9 @@ private:
     void EnsureScrollTarget();
 
     // DIP変換
-    struct DipPoint { float x, y; };
+    struct DipPoint {
+        float x, y;
+    };
     DipPoint PixelToDip(int px, int py) const noexcept;
 
     // ヒットテスト
@@ -159,7 +225,7 @@ private:
     void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     static bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect,
-        float total_content, const PaneScrollInfo& scroll_info) noexcept;
+                                    float total_content, const PaneScrollInfo& scroll_info) noexcept;
 
     // スクロールバーヘルパー
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
@@ -212,7 +278,10 @@ private:
     void SaveScrollPosition();
 
     const ::PaneLayout& GetPaneLayout();
-    void InvalidatePaneLayoutCache() noexcept { state_.pane_layout_valid = false; }
+    void InvalidatePaneLayoutCache() noexcept
+    {
+        state_.pane_layout_valid = false;
+    }
     ::PaneZone PaneAtPoint(float dip_x);
     float GetMarkdownPaneWidth();
     void SyncPaneThemeCache();
@@ -228,7 +297,7 @@ private:
     // コアサービス
     Renderer renderer_;
     TaskScheduler scheduler_;
-    MermaidFileCache file_cache_;         // mermaid_renderer_より先に宣言（破棄順序の保証）
+    MermaidFileCache file_cache_; // mermaid_renderer_より先に宣言（破棄順序の保証）
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;

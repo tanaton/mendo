@@ -1,7 +1,11 @@
 #pragma once
 #include <cstdint>
 
-enum class SwipeResult : uint8_t { None, Back, Forward };
+enum class SwipeResult : uint8_t {
+    None,
+    Back,
+    Forward
+};
 
 // タッチパッド水平スクロール（WM_MOUSEHWHEEL）を蓄積し、
 // 閾値を超えたら戻る/進むナビゲーションを発火するジェスチャー検出器。
@@ -64,10 +68,10 @@ public:
     constexpr int GetOverlayDirection() const noexcept
     {
         if (accumulated_delta_ >= TRIGGER_THRESHOLD) {
-            return -1;  // 右スワイプ → 戻る
+            return -1; // 右スワイプ → 戻る
         }
         if (accumulated_delta_ <= -TRIGGER_THRESHOLD) {
-            return  1;  // 左スワイプ → 進む
+            return 1; // 左スワイプ → 進む
         }
         return 0;
     }
@@ -77,12 +81,15 @@ public:
         return IsOverlayVisible() ? 1.0f : 0.0f;
     }
 
-    constexpr int GetAccumulatedDelta() const noexcept { return accumulated_delta_; }
+    constexpr int GetAccumulatedDelta() const noexcept
+    {
+        return accumulated_delta_;
+    }
 
-    static constexpr int TRIGGER_THRESHOLD = 400;           // ナビゲーション発動閾値（WHEEL_DELTA単位の蓄積値）
-    static constexpr uint64_t AXIS_LOCK_MS = 200;           // 縦スクロール後の水平入力無視期間
-    static constexpr uint64_t RESET_TIMEOUT_MS = 500;       // 蓄積リセットまでの無活動期間
-    static constexpr uint64_t COMMIT_TIMEOUT_MS = 150;      // 指を離してからナビゲーション発火までの待機期間
+    static constexpr int TRIGGER_THRESHOLD = 400;      // ナビゲーション発動閾値（WHEEL_DELTA単位の蓄積値）
+    static constexpr uint64_t AXIS_LOCK_MS = 200;      // 縦スクロール後の水平入力無視期間
+    static constexpr uint64_t RESET_TIMEOUT_MS = 500;  // 蓄積リセットまでの無活動期間
+    static constexpr uint64_t COMMIT_TIMEOUT_MS = 150; // 指を離してからナビゲーション発火までの待機期間
 
 private:
     int accumulated_delta_ = 0;

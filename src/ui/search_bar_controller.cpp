@@ -1,7 +1,7 @@
 #include "search_bar_controller.h"
 #include "viewport_manager.h"
 #include "layout_cache.h"
-#include "renderer.h"  // SearchBarRenderState
+#include "renderer.h" // SearchBarRenderState
 #include <algorithm>
 #include <cmath>
 
@@ -156,8 +156,7 @@ void SearchBarController::OnDebounceTimer(const std::pmr::vector<Node>& nodes)
 // 検索実行
 // ============================================================
 
-void SearchBarController::RunSearchAndLocate(
-    const std::pmr::vector<Node>& nodes, bool scroll_to_match)
+void SearchBarController::RunSearchAndLocate(const std::pmr::vector<Node>& nodes, bool scroll_to_match)
 {
     state_->ExecuteSearch(nodes);
     if (state_->GetMatchCount() > 0) {
@@ -185,8 +184,7 @@ void SearchBarController::ScrollToCurrentMatch()
     //      「次へ」を押してもスクロールしない。match.start を使って行単位の Y を出す。
     const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start);
     const float md_pane_height = cb_.get_md_pane_height();
-    const float visible_height = md_pane_height
-        - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
+    const float visible_height = md_pane_height - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
     const float scroll_y = viewport_->GetScrollY();
     const float effective_bottom = scroll_y + visible_height;
 

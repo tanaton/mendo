@@ -93,8 +93,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
 }
 
 void CommandGenerator::GenerateNode(DrawCommandList& cmds,
-    const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
-    int node_index)
+                                    const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
+                                    int node_index)
 {
     // ビューポート外のノードをカリング
     // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
@@ -119,9 +119,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     case NodeType::Image:
         if (diagram.bitmap) {
             const float draw_h = entry.height;
-            const float draw_w = (diagram.height > 0)
-                ? diagram.width * (draw_h / diagram.height)
-                : diagram.width;
+            const float draw_w = (diagram.height > 0) ? diagram.width * (draw_h / diagram.height) : diagram.width;
             const float dx = x;
             cmds.emplace_back(DrawBitmapCmd{
                 diagram.bitmap.Get(),
@@ -158,11 +156,14 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     case NodeType::ListItem:
         GenListBullet(cmds, node, entry, x);
         break;
+
     case NodeType::TaskListItem:
         break;
+
     case NodeType::BlockQuote:
         // バーと背景はグループ単位で GenBlockQuoteGroupDecorations から描画済み
         break;
+
     case NodeType::Heading:
         if (node.heading_level <= 2) {
             const float line_y = entry.y_position + entry.height + theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO;
@@ -171,8 +172,12 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                 theme_->hr_color, theme_->GetHeadingUnderlineThickness(node.heading_level) });
         }
         break;
-    default:
+
+    case NodeType::Paragraph:
         break;
+
+    default:
+        std::unreachable();
     }
 
     GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x);
@@ -184,19 +189,21 @@ D2D1_COLOR_F CommandGenerator::GetNodeBaseColor(const Node& node) const noexcept
     case NodeType::Heading:
         return theme_->heading_color;
     case NodeType::BlockQuote:
-        return (node.alert_type != AlertType::None)
-            ? theme_->text_color
-            : theme_->blockquote_text_color;
+        return (node.alert_type != AlertType::None) ? theme_->text_color : theme_->blockquote_text_color;
     case NodeType::CodeBlock:
         return theme_->code_text_color;
-    default:
+    case NodeType::Paragraph:
+    case NodeType::HorizontalRule:
+    case NodeType::ListItem:
+    case NodeType::Table:
+    case NodeType::TaskListItem:
+    case NodeType::Image:
         return theme_->text_color;
     }
+    std::unreachable();
 }
 
-void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds,
-    const Node& node, const NodeLayoutEntry& entry, int node_index,
-    float x, float text_x)
+void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float text_x)
 {
     if (!entry.text_layout) {
         return;
@@ -238,15 +245,13 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds,
             &icon, 1,
             D2D1::RectF(cb_x, entry.y_position, cb_x + icon_size, entry.y_position + icon_size * TASK_CHECKBOX_HEIGHT_FACTOR),
             formats_.icon_font,
-            theme_->text_color
-        ));
+            theme_->text_color));
     }
 }
 
 // ---- サブジェネレータ ----
 
-void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds,
-    const NodeLayoutEntry& entry, float x, float w)
+void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w)
 {
     const float y = entry.y_position + theme_->paragraph_spacing * 0.5f;
     cmds.emplace_back(DrawLineCmd{
@@ -254,21 +259,18 @@ void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds,
         theme_->hr_color, theme_->hr_thickness });
 }
 
-void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds,
-    const NodeLayoutEntry& entry, float x, float w)
+void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w)
 {
     const float pad = theme_->code_block_padding;
     const D2D1_RECT_F bg_rect = D2D1::RectF(
         x,
         entry.y_position - pad,
         x + w,
-        entry.y_position + entry.height + pad
-    );
+        entry.y_position + entry.height + pad);
     cmds.emplace_back(FillRoundedRectCmd{ bg_rect, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color });
 }
 
-void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
-    const NodeLayoutEntry& entry, float x, float w, bool is_hovered)
+void CommandGenerator::GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered)
 {
     if (!formats_.copy_btn_icon) {
         return;
@@ -279,50 +281,36 @@ void CommandGenerator::GenCopyButton(DrawCommandList& cmds,
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 
-void CommandGenerator::GenSaveButton(DrawCommandList& cmds,
-    float bitmap_right, float bitmap_top, bool is_hovered)
+void CommandGenerator::GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered)
 {
     if (!formats_.copy_btn_icon) {
         return;
     }
-    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top,
-        std::to_underlying(DiagramButtonSlot::Save));
+    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, std::to_underlying(DiagramButtonSlot::Save));
     GenOverlayButton(cmds, btn, L'\uE896', is_hovered);
 }
 
-void CommandGenerator::GenSvgCopyButton(DrawCommandList& cmds,
-    float bitmap_right, float bitmap_top, bool is_hovered)
+void CommandGenerator::GenSvgCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered)
 {
     if (!formats_.copy_btn_icon) {
         return;
     }
-    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top,
-        std::to_underlying(DiagramButtonSlot::SvgCopy));
+    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, std::to_underlying(DiagramButtonSlot::SvgCopy));
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 
-void CommandGenerator::GenOverlayButton(DrawCommandList& cmds,
-    D2D1_RECT_F btn, wchar_t icon, bool is_hovered)
+void CommandGenerator::GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered)
 {
-    const float bg_alpha = is_hovered
-        ? (cached_is_dark_ ? 0.30f : 0.15f)
-        : (cached_is_dark_ ? 0.10f : 0.05f);
-    const D2D1_COLOR_F bg_color = cached_is_dark_
-        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha)
-        : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
+    const float bg_alpha = is_hovered ? (cached_is_dark_ ? 0.30f : 0.15f) : (cached_is_dark_ ? 0.10f : 0.05f);
+    const D2D1_COLOR_F bg_color = cached_is_dark_ ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha) : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
     cmds.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, bg_color });
 
-    const float text_alpha = is_hovered
-        ? (cached_is_dark_ ? 0.9f : 0.8f)
-        : (cached_is_dark_ ? 0.4f : 0.35f);
-    const D2D1_COLOR_F icon_color = cached_is_dark_
-        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha)
-        : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
+    const float text_alpha = is_hovered ? (cached_is_dark_ ? 0.9f : 0.8f) : (cached_is_dark_ ? 0.4f : 0.35f);
+    const D2D1_COLOR_F icon_color = cached_is_dark_ ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha) : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
     cmds.emplace_back(MakeTextCmd(&icon, 1, btn, formats_.copy_btn_icon, icon_color));
 }
 
-void CommandGenerator::GenListBullet(DrawCommandList& cmds,
-    const Node& node, const NodeLayoutEntry& entry, float x)
+void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x)
 {
     if (node.list_number > 0) {
         // 順序付きリストの番号（1行目に合わせて配置）
@@ -335,8 +323,7 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
                 x - theme_->list_bullet_offset - LIST_NUMBER_PAD_RIGHT,
                 entry.y_position,
                 x - LIST_NUMBER_PAD_LEFT,
-                entry.y_position + first_line_h
-            );
+                entry.y_position + first_line_h);
             cmds.emplace_back(MakeTextCmd(num_buf, num_len, num_rect, formats_.list_number, theme_->text_color));
         }
     }
@@ -355,9 +342,7 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds,
     }
 }
 
-void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
-    const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
-    int node_count, int first_visible)
+void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible)
 {
     const float offset_x = frame_offset_x_;
     const float content_width = frame_content_width_;
@@ -437,9 +422,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds,
         for (int level = 1; level <= max_depth; ++level) {
             const float bar_indent_x = static_cast<float>(outer_indent + level - 1) * theme_->indent_width;
             const float bar_x = offset_x + bar_indent_x - theme_->indent_width * 0.5f;
-            const D2D1_COLOR_F bar_color = (level == 1 && alert_type != AlertType::None)
-                ? theme_->alert_color[AlertColorIndex(alert_type)]
-                : theme_->blockquote_bar_color;
+            const D2D1_COLOR_F bar_color = (level == 1 && alert_type != AlertType::None) ? theme_->alert_color[AlertColorIndex(alert_type)] : theme_->blockquote_bar_color;
 
             const auto emit_bar = [&](float top, float bottom) {
                 cmds.emplace_back(DrawLineCmd{
@@ -484,8 +467,8 @@ void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds, float x, flo
 }
 
 void CommandGenerator::EmitHighlightRects(DrawCommandList& cmds,
-    IDWriteTextLayout* layout, uint32_t start, uint32_t length,
-    float origin_x, float origin_y, D2D1_COLOR_F color)
+                                          IDWriteTextLayout* layout, uint32_t start, uint32_t length,
+                                          float origin_x, float origin_y, D2D1_COLOR_F color)
 {
     if (!layout || length == 0) {
         return;
@@ -522,7 +505,7 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayo
 }
 
 void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const NodeLayoutEntry& entry,
-    std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count)
+                                            std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count)
 {
     // キャッシュミス時のみ HitTestTextRange を一括発行。layout 変更時は
     // invalidate_search_hl_cache() でキャッシュ自体が破棄されており、SearchState の
@@ -560,8 +543,8 @@ void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const NodeLayo
 }
 
 void CommandGenerator::EmitSearchHlCommands(DrawCommandList& cmds, const SearchHlCache& cache,
-    std::span<const SearchMatch> matches, size_t first_global,
-    float origin_x, float origin_y, int table_row, int table_col)
+                                            std::span<const SearchMatch> matches, size_t first_global,
+                                            float origin_x, float origin_y, int table_row, int table_col)
 {
     // 呼び出し側（セル/ノード本体）に属する match のみ描画する。
     const size_t node_match_count = cache.rect_ends.size();
@@ -570,8 +553,8 @@ void CommandGenerator::EmitSearchHlCommands(DrawCommandList& cmds, const SearchH
         const size_t mi = first_global + node_mi;
         const auto& m = matches[mi];
         const bool is_here = (table_row >= 0)
-            ? (m.table_row == table_row && m.table_col == table_col)
-            : (m.table_row < 0);
+                                 ? (m.table_row == table_row && m.table_col == table_col)
+                                 : (m.table_row < 0);
         if (!is_here) {
             continue;
         }
@@ -580,8 +563,8 @@ void CommandGenerator::EmitSearchHlCommands(DrawCommandList& cmds, const SearchH
         const uint32_t re = cache.rect_ends[node_mi];
 
         const D2D1_COLOR_F color = (static_cast<int>(mi) == current_match_index_)
-            ? theme_->search_highlight_current_color
-            : theme_->search_highlight_color;
+                                       ? theme_->search_highlight_current_color
+                                       : theme_->search_highlight_color;
         for (uint32_t k = rb; k < re; ++k) {
             const auto& r = cache.rects[k];
             cmds.emplace_back(FillRectCmd{
@@ -609,10 +592,10 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool
 }
 
 void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,
-    IDWriteTextLayout* cell_layout,
-    float text_x, float text_y,
-    bool has_selection, uint32_t sel_start, uint32_t sel_end,
-    uint32_t flat_offset)
+                                           IDWriteTextLayout* cell_layout,
+                                           float text_x, float text_y,
+                                           bool has_selection, uint32_t sel_start, uint32_t sel_end,
+                                           uint32_t flat_offset)
 {
     if (has_selection && cell_layout) {
         const uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
@@ -629,8 +612,8 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCel
 }
 
 void CommandGenerator::GenTable(DrawCommandList& cmds,
-    const Node& node, const NodeLayoutEntry& entry,
-    int node_index, float offset_x)
+                                const Node& node, const NodeLayoutEntry& entry,
+                                int node_index, float offset_x)
 {
     if (node.table_rows().empty() || !entry.has_table_layout() || entry.table_layout->col_widths.empty()) {
         return;
@@ -646,8 +629,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     const float table_width = std::ranges::fold_left(
         tl.col_widths,
         border,
-        [cell_padding, border](float acc, float cw) noexcept { return acc + cw + cell_padding * 2.0f + border; }
-    );
+        [cell_padding, border](float acc, float cw) noexcept { return acc + cw + cell_padding * 2.0f + border; });
 
     bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
     uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(node.GetText().size());

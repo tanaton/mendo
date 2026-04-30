@@ -19,34 +19,82 @@ struct InvalidateWindow {};
 struct InvalidateTitleBar {};
 struct SetCapture {};
 struct ReleaseCapture {};
-enum class CursorType : uint8_t { Arrow, Hand, IBeam, SizeWE };
-struct SetCursor { CursorType type; };
-struct ClipboardWrite { std::pmr::wstring text; };
-struct ClipboardWriteHtml { std::pmr::wstring html; std::pmr::wstring plain; };
-struct ShowTooltip { TooltipTarget target; int px; int py; };
+enum class CursorType : uint8_t {
+    Arrow,
+    Hand,
+    IBeam,
+    SizeWE
+};
+struct SetCursor {
+    CursorType type;
+};
+struct ClipboardWrite {
+    std::pmr::wstring text;
+};
+struct ClipboardWriteHtml {
+    std::pmr::wstring html;
+    std::pmr::wstring plain;
+};
+struct ShowTooltip {
+    TooltipTarget target;
+    int px;
+    int py;
+};
 struct ClearTooltip {};
-struct ShowToast { std::pmr::wstring message; };
-struct ShowContextMenu { int screen_x; int screen_y; };
+struct ShowToast {
+    std::pmr::wstring message;
+};
+struct ShowContextMenu {
+    int screen_x;
+    int screen_y;
+};
 
 // ---- ウィンドウ / テーマ系 ----
-struct ShowWindowCmd { int cmd; };
-struct PostWindowMessage { UINT msg; WPARAM wp; LPARAM lp; };
-struct SetWindowTitle { std::pmr::wstring title; };
-struct SetWindowPosition { int x; int y; int cx; int cy; };
-struct ApplyDarkMode { bool dark; };
+struct ShowWindowCmd {
+    int cmd;
+};
+struct PostWindowMessage {
+    UINT msg;
+    WPARAM wp;
+    LPARAM lp;
+};
+struct SetWindowTitle {
+    std::pmr::wstring title;
+};
+struct SetWindowPosition {
+    int x;
+    int y;
+    int cx;
+    int cy;
+};
+struct ApplyDarkMode {
+    bool dark;
+};
 struct ApplyThemeChange {
-    enum class Type : uint8_t { Zoom, DarkMode };
+    enum class Type : uint8_t {
+        Zoom,
+        DarkMode
+    };
     Type type;
-    uint8_t zoom_index;  // Zoom 値は ZOOM_STEPS[zoom_index] で復元する。
+    uint8_t zoom_index; // Zoom 値は ZOOM_STEPS[zoom_index] で復元する。
 };
 struct PerformResizeEnd {};
 struct PerformSizingUpdate {};
-struct RendererResize { UINT width; UINT height; };
-struct RendererSetDpi { float dpi; };
+struct RendererResize {
+    UINT width;
+    UINT height;
+};
+struct RendererSetDpi {
+    float dpi;
+};
 
 // ---- ナビゲーション / 外部操作系 ----
-struct ShellOpen { std::pmr::wstring url; };
-struct LoadFile { std::pmr::wstring path; };
+struct ShellOpen {
+    std::pmr::wstring url;
+};
+struct LoadFile {
+    std::pmr::wstring path;
+};
 struct ReloadFile {};
 struct OpenFileDialog {};
 
@@ -54,13 +102,20 @@ struct OpenFileDialog {};
 struct DeferredLayout {};
 struct BitmapManage {};
 struct MermaidBatch {};
-struct InvalidatePaneCache { PaneZone pane; };
+struct InvalidatePaneCache {
+    PaneZone pane;
+};
 struct RefreshPaneLayout {};
 struct SyncTocActive {};
 // 可視範囲のレイアウトを即時計測する。md_width/md_height はペインレイアウトのキャッシュ値。
-struct ViewportLayout { float md_width; float md_height; };
+struct ViewportLayout {
+    float md_width;
+    float md_height;
+};
 // LayoutService の合計高さを viewport.max_scroll に反映する。
-struct SyncMaxScroll { float md_pane_height; };
+struct SyncMaxScroll {
+    float md_pane_height;
+};
 
 // ---- リソース / ファイル監視系 ----
 struct LoadImages {};
@@ -68,14 +123,21 @@ struct RequestMermaidRenders {};
 struct CancelMermaidBatch {};
 struct NotifyImageLoaded {};
 struct ClearFileCache {};
-struct StartFileWatch { std::pmr::wstring path; };
+struct StartFileWatch {
+    std::pmr::wstring path;
+};
 struct StopFileWatch {};
 struct ResumeFileWatch {};
 struct CheckFileChanges {};
 
 // ---- タイマー系 ----
-struct SetTimer { UINT_PTR id; UINT ms; };
-struct KillTimer { UINT_PTR id; };
+struct SetTimer {
+    UINT_PTR id;
+    UINT ms;
+};
+struct KillTimer {
+    UINT_PTR id;
+};
 struct ProcessDeferredLayout {};
 struct TickLoadingAnimation {};
 struct ProcessMermaidBatchTimer {};
@@ -101,8 +163,7 @@ using UiEffect = std::variant<
     effect::ShowTooltip,
     effect::ClearTooltip,
     effect::ShowToast,
-    effect::ShowContextMenu
->;
+    effect::ShowContextMenu>;
 
 using WindowEffect = std::variant<
     effect::ShowWindowCmd,
@@ -114,15 +175,13 @@ using WindowEffect = std::variant<
     effect::PerformResizeEnd,
     effect::PerformSizingUpdate,
     effect::RendererResize,
-    effect::RendererSetDpi
->;
+    effect::RendererSetDpi>;
 
 using NavigationEffect = std::variant<
     effect::ShellOpen,
     effect::LoadFile,
     effect::ReloadFile,
-    effect::OpenFileDialog
->;
+    effect::OpenFileDialog>;
 
 using LayoutEffect = std::variant<
     effect::DeferredLayout,
@@ -132,8 +191,7 @@ using LayoutEffect = std::variant<
     effect::RefreshPaneLayout,
     effect::SyncTocActive,
     effect::ViewportLayout,
-    effect::SyncMaxScroll
->;
+    effect::SyncMaxScroll>;
 
 using ResourceEffect = std::variant<
     effect::LoadImages,
@@ -144,8 +202,7 @@ using ResourceEffect = std::variant<
     effect::StartFileWatch,
     effect::StopFileWatch,
     effect::ResumeFileWatch,
-    effect::CheckFileChanges
->;
+    effect::CheckFileChanges>;
 
 using TimerEffect = std::variant<
     effect::SetTimer,
@@ -154,13 +211,11 @@ using TimerEffect = std::variant<
     effect::TickLoadingAnimation,
     effect::ProcessMermaidBatchTimer,
     effect::ProcessBitmapManage,
-    effect::MermaidInitRetry
->;
+    effect::MermaidInitRetry>;
 
 using LifecycleEffect = std::variant<
     effect::Destroy,
-    effect::HandleParseComplete
->;
+    effect::HandleParseComplete>;
 
 // ---- SideEffect: ドメイン variant を束ねる二段 variant ----
 using SideEffect = std::variant<
@@ -170,8 +225,7 @@ using SideEffect = std::variant<
     LayoutEffect,
     ResourceEffect,
     TimerEffect,
-    LifecycleEffect
->;
+    LifecycleEffect>;
 
 using SideEffectList = std::pmr::vector<SideEffect>;
 
@@ -237,9 +291,7 @@ bool HasEffect(const SideEffectList& effects) noexcept
             if constexpr (side_effect_detail::variant_contains_v<T, D>) {
                 return std::holds_alternative<T>(domain_effect);
             }
-            else {
-                return false;
-            }
+            return false;
         }, se);
     });
 }
@@ -253,8 +305,6 @@ const T* GetEffect(const SideEffect& se) noexcept
         if constexpr (side_effect_detail::variant_contains_v<T, D>) {
             return std::get_if<T>(&domain_effect);
         }
-        else {
-            return nullptr;
-        }
+        return nullptr;
     }, se);
 }

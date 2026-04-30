@@ -6,8 +6,7 @@ static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) noexcept
         ((rgb >> 16) & 0xFF) / 255.0f,
         ((rgb >> 8) & 0xFF) / 255.0f,
         (rgb & 0xFF) / 255.0f,
-        a
-    );
+        a);
 }
 
 float Theme::GetHeadingSize(int level) const noexcept
@@ -126,11 +125,11 @@ static Theme BuildLightTheme()
     t.blockquote_text_color = Color(0x6a737d);
 
     // GitHub Alerts（ライト）
-    t.alert_color[0] = Color(0x0969da); // Note: 青
-    t.alert_color[1] = Color(0x1a7f37); // Tip: 緑
-    t.alert_color[2] = Color(0x8250df); // Important: 紫
-    t.alert_color[3] = Color(0x9a6700); // Warning: 琥珀
-    t.alert_color[4] = Color(0xcf222e); // Caution: 赤
+    t.alert_color[0] = Color(0x0969da);          // Note: 青
+    t.alert_color[1] = Color(0x1a7f37);          // Tip: 緑
+    t.alert_color[2] = Color(0x8250df);          // Important: 紫
+    t.alert_color[3] = Color(0x9a6700);          // Warning: 琥珀
+    t.alert_color[4] = Color(0xcf222e);          // Caution: 赤
     t.alert_bg_color[0] = Color(0xddf4ff, 0.4f); // Note bg
     t.alert_bg_color[1] = Color(0xdafbe1, 0.4f); // Tip bg
     t.alert_bg_color[2] = Color(0xfbefff, 0.4f); // Important bg
@@ -187,11 +186,11 @@ static Theme BuildDarkTheme()
     t.blockquote_text_color = Color(0x9e9e9e);
 
     // GitHub Alerts（ダーク）
-    t.alert_color[0] = Color(0x4493f8); // Note: 明るい青
-    t.alert_color[1] = Color(0x3fb950); // Tip: 緑
-    t.alert_color[2] = Color(0xa371f7); // Important: 紫
-    t.alert_color[3] = Color(0xd29922); // Warning: 黄
-    t.alert_color[4] = Color(0xf85149); // Caution: 赤
+    t.alert_color[0] = Color(0x4493f8);          // Note: 明るい青
+    t.alert_color[1] = Color(0x3fb950);          // Tip: 緑
+    t.alert_color[2] = Color(0xa371f7);          // Important: 紫
+    t.alert_color[3] = Color(0xd29922);          // Warning: 黄
+    t.alert_color[4] = Color(0xf85149);          // Caution: 赤
     t.alert_bg_color[0] = Color(0x0d1d31, 0.5f); // Note bg
     t.alert_bg_color[1] = Color(0x0b2212, 0.5f); // Tip bg
     t.alert_bg_color[2] = Color(0x1e0f35, 0.5f); // Important bg

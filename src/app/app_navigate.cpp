@@ -76,4 +76,3 @@ void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
         theme_service_.SaveDarkMode();
     }
 }
-

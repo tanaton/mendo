@@ -11,7 +11,10 @@ public:
 
     // ---- 状態 ----
 
-    constexpr bool IsDarkMode() const noexcept { return dark_mode_; }
+    constexpr bool IsDarkMode() const noexcept
+    {
+        return dark_mode_;
+    }
 
     Theme CreateTheme() const;
     Theme CreateTheme(int zoom_index) const;

@@ -175,8 +175,8 @@ void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPane
     }
     const auto ctx = GetSidePaneContext(state, *target);
     const bool scrolled = (*target == PaneTarget::File)
-        ? state.view.panes.ScrollFilePaneBy(a.delta, ctx.info.max_scroll)
-        : state.view.panes.ScrollTocPaneBy(a.delta, ctx.info.max_scroll);
+                              ? state.view.panes.ScrollFilePaneBy(a.delta, ctx.info.max_scroll)
+                              : state.view.panes.ScrollTocPaneBy(a.delta, ctx.info.max_scroll);
     if (scrolled) {
         PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
         PushEffect(effects, effect::InvalidateWindow{});
@@ -190,8 +190,12 @@ void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPane
 void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePaneAction& a)
 {
     switch (a.target) {
-    case PaneTarget::File: state.view.panes.ToggleFilePane(); break;
-    case PaneTarget::Toc:  state.view.panes.ToggleTocPane();  break;
+    case PaneTarget::File:
+        state.view.panes.ToggleFilePane();
+        break;
+    case PaneTarget::Toc:
+        state.view.panes.ToggleTocPane();
+        break;
     }
     state.pane_layout_valid = false;
     PushEffect(effects, effect::RefreshPaneLayout{});
@@ -221,7 +225,7 @@ void ReduceCopyClipboard(const AppState& state, SideEffectList& effects)
 {
     if (state.view.viewport.GetSelection().active) {
         PushEffect(effects, effect::ClipboardWrite{
-            ExtractSelectedText(state.document.doc.GetNodes(), state.view.viewport.GetSelection()) });
+                                ExtractSelectedText(state.document.doc.GetNodes(), state.view.viewport.GetSelection()) });
     }
 }
 
@@ -233,9 +237,8 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
     }
     const auto& nodes = state.document.doc.GetNodes();
     PushEffect(effects, effect::ClipboardWriteHtml{
-        ExtractSelectedTextAsHtml(nodes, sel, state.window.cached_theme.is_dark),
-        ExtractSelectedText(nodes, sel)
-        });
+                            ExtractSelectedTextAsHtml(nodes, sel, state.window.cached_theme.is_dark),
+                            ExtractSelectedText(nodes, sel) });
 }
 
 // ============================================================
@@ -272,9 +275,9 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
     }
     PushEffect(effects, effect::ApplyThemeChange{
-        .type = effect::ApplyThemeChange::Type::Zoom,
-        .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
-        });
+                            .type = effect::ApplyThemeChange::Type::Zoom,
+                            .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
+                        });
 }
 
 void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
@@ -288,9 +291,9 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);
     }
     PushEffect(effects, effect::ApplyThemeChange{
-        .type = effect::ApplyThemeChange::Type::DarkMode,
-        .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
-        });
+                            .type = effect::ApplyThemeChange::Type::DarkMode,
+                            .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
+                        });
 }
 
 // ============================================================
@@ -336,11 +339,11 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
     PushEffect(effects, effect::RendererSetDpi{ static_cast<float>(a.dpi) });
     PushEffect(effects, effect::ClearFileCache{});
     PushEffect(effects, effect::SetWindowPosition{
-        static_cast<int>(a.suggested.left),
-        static_cast<int>(a.suggested.top),
-        static_cast<int>(a.suggested.right - a.suggested.left),
-        static_cast<int>(a.suggested.bottom - a.suggested.top),
-        });
+                            static_cast<int>(a.suggested.left),
+                            static_cast<int>(a.suggested.top),
+                            static_cast<int>(a.suggested.right - a.suggested.left),
+                            static_cast<int>(a.suggested.bottom - a.suggested.top),
+                        });
 }
 
 void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& a)
@@ -349,9 +352,8 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     const int old_direction = state.interaction.swipe_detector.GetOverlayDirection();
     state.interaction.swipe_detector.OnHWheel(a.delta, a.tick);
     PushEffect(effects, effect::SetTimer{ app_timer::SWIPE_OVERLAY,
-        static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
-    if (had_overlay != state.interaction.swipe_detector.IsOverlayVisible()
-        || old_direction != state.interaction.swipe_detector.GetOverlayDirection()) {
+                                          static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
+    if (had_overlay != state.interaction.swipe_detector.IsOverlayVisible() || old_direction != state.interaction.swipe_detector.GetOverlayDirection()) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }
@@ -364,7 +366,7 @@ void ReduceSearchStep(AppState& state, bool forward)
 {
     if (state.search.search_state.IsVisible()) {
         forward ? state.search.search_bar_ctrl.OnNext()
-            : state.search.search_bar_ctrl.OnPrev();
+                : state.search.search_bar_ctrl.OnPrev();
     }
     else {
         state.search.search_bar_ctrl.OnOpen(state.document.doc.GetNodes());
@@ -408,8 +410,7 @@ void ReduceMdPaneButtonHoverChanged(AppState& state, SideEffectList& effects, co
 
 void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const SplitterDragStartedAction& a)
 {
-    if (a.target != PaneController::DragTarget::Splitter1
-        && a.target != PaneController::DragTarget::Splitter2) {
+    if (a.target != PaneController::DragTarget::Splitter1 && a.target != PaneController::DragTarget::Splitter2) {
         return;
     }
     state.view.panes.StartDrag(a.target);
@@ -430,8 +431,7 @@ void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const Spl
     else {
         return;
     }
-    if (state.view.panes.GetFilePaneWidth() == before_file
-        && state.view.panes.GetTocPaneWidth() == before_toc) {
+    if (state.view.panes.GetFilePaneWidth() == before_file && state.view.panes.GetTocPaneWidth() == before_toc) {
         return;
     }
     state.pane_layout_valid = false;
@@ -441,8 +441,7 @@ void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const Spl
 void ReduceSplitterDragEnded(AppState& state, SideEffectList& effects)
 {
     const auto drag = state.view.panes.GetDragTarget();
-    if (drag != PaneController::DragTarget::Splitter1
-        && drag != PaneController::DragTarget::Splitter2) {
+    if (drag != PaneController::DragTarget::Splitter1 && drag != PaneController::DragTarget::Splitter2) {
         return;
     }
     state.view.panes.EndDrag();
@@ -460,10 +459,9 @@ void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, cons
     state.search.search_bar_ctrl.StartDrag(a.caret_pos);
     PushEffect(effects, effect::SetCapture{});
     PushEffect(effects, effect::PostWindowMessage{
-        app_msg::SEARCH_FOCUS,
-        app_param::SEARCH_FOCUS_SET_CARET,
-        static_cast<LPARAM>(a.caret_pos)
-        });
+                            app_msg::SEARCH_FOCUS,
+                            app_param::SEARCH_FOCUS_SET_CARET,
+                            static_cast<LPARAM>(a.caret_pos) });
 }
 
 void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const SearchInputDragMovedAction& a)
@@ -472,15 +470,13 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
         return;
     }
     const auto& ctrl = state.search.search_bar_ctrl;
-    if (a.caret_pos == ctrl.GetCaretPos()
-        && ctrl.GetDragAnchor() == ctrl.GetSelectionStart()) {
+    if (a.caret_pos == ctrl.GetCaretPos() && ctrl.GetDragAnchor() == ctrl.GetSelectionStart()) {
         return;
     }
     PushEffect(effects, effect::PostWindowMessage{
-        app_msg::SEARCH_FOCUS,
-        app_param::SEARCH_FOCUS_SET_SELECTION,
-        MAKELPARAM(ctrl.GetDragAnchor(), a.caret_pos)
-        });
+                            app_msg::SEARCH_FOCUS,
+                            app_param::SEARCH_FOCUS_SET_SELECTION,
+                            MAKELPARAM(ctrl.GetDragAnchor(), a.caret_pos) });
 }
 
 void ReduceSearchInputDragEnded(AppState& state, SideEffectList& effects)
@@ -582,8 +578,7 @@ void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, cons
 void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)
 {
     const auto drag = state.view.panes.GetDragTarget();
-    if (drag != PaneController::DragTarget::FileScrollbar
-        && drag != PaneController::DragTarget::TocScrollbar) {
+    if (drag != PaneController::DragTarget::FileScrollbar && drag != PaneController::DragTarget::TocScrollbar) {
         return;
     }
     state.view.panes.EndDrag();
@@ -616,8 +611,7 @@ void ReduceTextSelectionMoved(AppState& state, SideEffectList& effects, const Te
         state.view.viewport.GetAnchorNode(),
         state.view.viewport.GetAnchorPos(),
         a.node_index,
-        a.text_pos
-    ));
+        a.text_pos));
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
@@ -631,8 +625,7 @@ void ReduceTextSelectionEnded(AppState& state, SideEffectList& effects, const Te
             state.view.viewport.GetAnchorNode(),
             state.view.viewport.GetAnchorPos(),
             a.end_node_index,
-            a.end_text_pos
-        ));
+            a.end_text_pos));
     }
     state.view.viewport.SetDragging(false);
     PushEffect(effects, effect::ReleaseCapture{});
@@ -713,8 +706,8 @@ void ScrollToResolvedAnchor(AppState& state, SideEffectList& effects, int idx)
         return;
     }
     const auto target = MakeHeadingTopTarget(idx,
-        state.window.cached_theme.heading_spacing_above,
-        state.cached_pane_layout.md_rect.y);
+                                             state.window.cached_theme.heading_spacing_above,
+                                             state.cached_pane_layout.md_rect.y);
     ApplyScrollTargetAndEmit(state, effects, target.node, target.offset);
 }
 } // namespace
@@ -857,6 +850,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
 {
     SideEffectList effects;
 
+    // clang-format off
     std::visit(overloaded{
         [](const NoOpAction&) {},
 
@@ -958,7 +952,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
 
         // ---- 未処理のアクション ----
         [](const auto&) {},
-        }, action);
-
+    }, action);
+    // clang-format on
     return effects;
 }

@@ -10,18 +10,22 @@ inline constexpr LONGLONG MAX_FILE_SIZE = 256LL * 1024 * 1024;
 
 // FileLoader::LoadFile のエラー型
 enum class FileLoadError : uint8_t {
-    NotFound,    // ファイルが見つからない、またはアクセス拒否
-    TooLarge,    // ファイルサイズが MAX_FILE_SIZE を超過
-    ReadFailed,  // 読み込み中のI/Oエラー
+    NotFound,   // ファイルが見つからない、またはアクセス拒否
+    TooLarge,   // ファイルサイズが MAX_FILE_SIZE を超過
+    ReadFailed, // 読み込み中のI/Oエラー
 };
 
 inline std::wstring_view FileLoadErrorMessage(FileLoadError e, const auto& strings) noexcept
 {
     switch (e) {
-    case FileLoadError::NotFound:   return strings.toast_file_not_found;
-    case FileLoadError::TooLarge:   return strings.toast_file_too_large;
-    case FileLoadError::ReadFailed: return strings.toast_file_read_failed;
-    default:                        return strings.toast_file_not_found;
+    case FileLoadError::NotFound:
+        return strings.toast_file_not_found;
+    case FileLoadError::TooLarge:
+        return strings.toast_file_too_large;
+    case FileLoadError::ReadFailed:
+        return strings.toast_file_read_failed;
+    default:
+        return strings.toast_file_not_found;
     }
 }
 
