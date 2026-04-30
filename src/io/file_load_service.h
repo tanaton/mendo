@@ -54,6 +54,8 @@ public:
     void SetLoadingPath(std::pmr::wstring path) { loading_path_ = std::move(path); }
 
 private:
+    // 不変条件: loading_ が true なら async_in_flight_ も true。
+    // worker thread は async_gen_ (atomic) と async_result_ (mutex 保護) のみ触る。
     DocumentService& doc_service_;
     bool loading_ = false;
     bool async_in_flight_ = false;

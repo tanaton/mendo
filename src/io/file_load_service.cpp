@@ -8,6 +8,7 @@ void FileLoadService::StartLoading(std::pmr::wstring path)
 {
     loading_path_ = std::move(path);
     loading_ = true;
+    async_in_flight_ = true;
     loading_angle_ = 0.0f;
 }
 
