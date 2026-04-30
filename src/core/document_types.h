@@ -142,7 +142,7 @@ struct Node {
 
     // text_ と line_count を一括更新する（呼び出し側が積算済みの line_count を渡す）。
     // 改行を逐次カウントしておけるパーサ向けの最適化バリアント。
-    constexpr void SetTextWithLineCount(std::wstring_view s, int line_count_value) noexcept
+    constexpr void SetTextWithLineCount(std::wstring_view s, int line_count_value)
     {
         text_.assign(s);
         line_count = line_count_value;
@@ -171,28 +171,28 @@ struct Node {
     constexpr bool has_code() const noexcept { return std::holds_alternative<NodeCodeData>(extra); }
 
     // ensure_*: 既に同じ型を持っていれば内部参照を、違う型を持っていれば差し替えて新規確保した参照を返す。
-    constexpr NodeTableData* ensure_table()
+    constexpr NodeTableData* ensure_table() noexcept
     {
         if (!has_table()) {
             return &extra.emplace<NodeTableData>();
         }
         return std::get_if<NodeTableData>(&extra);
     }
-    constexpr NodeImageData* ensure_image()
+    constexpr NodeImageData* ensure_image() noexcept
     {
         if (!has_image()) {
             return &extra.emplace<NodeImageData>();
         }
         return std::get_if<NodeImageData>(&extra);
     }
-    constexpr NodeHeadingData* ensure_heading()
+    constexpr NodeHeadingData* ensure_heading() noexcept
     {
         if (!has_heading()) {
             return &extra.emplace<NodeHeadingData>();
         }
         return std::get_if<NodeHeadingData>(&extra);
     }
-    constexpr NodeCodeData* ensure_code()
+    constexpr NodeCodeData* ensure_code() noexcept
     {
         if (!has_code()) {
             return &extra.emplace<NodeCodeData>();
@@ -217,7 +217,7 @@ struct Node {
         static const std::pmr::vector<SyntaxToken> empty;
         return empty;
     }
-    constexpr std::pmr::vector<SyntaxToken>& syntax_tokens_mut()
+    constexpr std::pmr::vector<SyntaxToken>& syntax_tokens_mut() noexcept
     {
         return ensure_code()->syntax_tokens;
     }
