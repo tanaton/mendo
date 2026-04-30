@@ -133,8 +133,8 @@ TEST_F(LayoutTest, TableLayout)
 {
     auto nodes = ParseMarkdown(
         L"| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |"
+        L"|---|---|\n"
+        L"| 1 | 2 |"
     ).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -150,8 +150,8 @@ TEST_F(LayoutTest, TableCellLayoutsCreated)
 {
     auto nodes = ParseMarkdown(
         L"| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |"
+        L"|---|---|\n"
+        L"| 1 | 2 |"
     ).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -172,8 +172,8 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline)
 {
     auto nodes = ParseMarkdown(
         L"| Text | Link |\n"
-        "|------|------|\n"
-        "| hello | [click](https://example.com) |"
+        L"|------|------|\n"
+        L"| hello | [click](https://example.com) |"
     ).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());

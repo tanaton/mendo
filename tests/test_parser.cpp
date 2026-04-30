@@ -410,8 +410,8 @@ TEST(Parser, SimpleTable)
 {
     auto nodes = ParseMarkdown(
         L"| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |"
+        L"|---|---|\n"
+        L"| 1 | 2 |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
@@ -422,8 +422,8 @@ TEST(Parser, TableHeaderCells)
 {
     auto nodes = ParseMarkdown(
         L"| H1 | H2 |\n"
-        "|---|---|\n"
-        "| D1 | D2 |"
+        L"|---|---|\n"
+        L"| D1 | D2 |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].table_rows().size(), 2u);
@@ -445,8 +445,8 @@ TEST(Parser, TableAlignment)
 {
     auto nodes = ParseMarkdown(
         L"| L | C | R |\n"
-        "|:--|:--:|--:|\n"
-        "| a | b | c |"
+        L"|:--|:--:|--:|\n"
+        L"| a | b | c |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // データ行の配置を確認（配置はMD_BLOCK_TD_DETAILから取得）
@@ -462,10 +462,10 @@ TEST(Parser, TableMultipleRows)
 {
     auto nodes = ParseMarkdown(
         L"| A |\n"
-        "|---|\n"
-        "| 1 |\n"
-        "| 2 |\n"
-        "| 3 |"
+        L"|---|\n"
+        L"| 1 |\n"
+        L"| 2 |\n"
+        L"| 3 |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].table_rows().size(), 4u); // 1 header + 3 data
@@ -494,13 +494,13 @@ TEST(Parser, ComplexDocumentNodeCount)
 {
     auto nodes = ParseMarkdown(
         L"# Title\n\n"
-        "Paragraph.\n\n"
-        "## Section\n\n"
-        "- item1\n"
-        "- item2\n\n"
-        "---\n\n"
-        "> quote\n\n"
-        "```\ncode\n```\n"
+        L"Paragraph.\n\n"
+        L"## Section\n\n"
+        L"- item1\n"
+        L"- item2\n\n"
+        L"---\n\n"
+        L"> quote\n\n"
+        L"```\ncode\n```\n"
     ).nodes;
     // タイトル、段落、セクション、item1、item2、水平線、引用、コード
     EXPECT_GE(nodes.size(), 7u);
@@ -648,8 +648,8 @@ TEST(Parser, TableCellWithBold)
 {
     auto nodes = ParseMarkdown(
         L"| A | **B** |\n"
-        "|---|---|\n"
-        "| 1 | 2 |"
+        L"|---|---|\n"
+        L"| 1 | 2 |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].table_rows().size(), 1u);
@@ -667,8 +667,8 @@ TEST(Parser, TableLinearizedText)
 {
     auto nodes = ParseMarkdown(
         L"| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |"
+        L"|---|---|\n"
+        L"| 1 | 2 |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // パーサーは線形化テキストを構築しない（レイアウトが行う）ので、構造だけ確認
@@ -683,8 +683,8 @@ TEST(Parser, TableCellWithLink)
 {
     auto nodes = ParseMarkdown(
         L"| Name | Link |\n"
-        "|------|------|\n"
-        "| foo | [bar](https://example.com) |"
+        L"|------|------|\n"
+        L"| foo | [bar](https://example.com) |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].table_rows().size(), 2u);
@@ -711,8 +711,8 @@ TEST(Parser, TableCellWithInternalLink)
 {
     auto nodes = ParseMarkdown(
         L"| Section |\n"
-        "|---------|\n"
-        "| [intro](#introduction) |"
+        L"|---------|\n"
+        L"| [intro](#introduction) |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].table_rows().size(), 2u);
@@ -732,8 +732,8 @@ TEST(Parser, TableCellWithBoldLink)
 {
     auto nodes = ParseMarkdown(
         L"| Link |\n"
-        "|------|\n"
-        "| [**bold**](https://example.com) |"
+        L"|------|\n"
+        L"| [**bold**](https://example.com) |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].table_rows().size(), 2u);
@@ -752,8 +752,8 @@ TEST(Parser, TableCellMixedTextAndLink)
 {
     auto nodes = ParseMarkdown(
         L"| Content |\n"
-        "|---------|\n"
-        "| before [link](https://example.com) after |"
+        L"|---------|\n"
+        L"| before [link](https://example.com) after |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].table_rows().size(), 2u);
@@ -892,8 +892,8 @@ TEST(Parser, TableUnevenColumns)
     // md4cがこれを処理する - 行内のセルが少ない場合
     auto nodes = ParseMarkdown(
         L"| A | B | C |\n"
-        "|---|---|---|\n"
-        "| 1 | 2 |\n"
+        L"|---|---|---|\n"
+        L"| 1 | 2 |\n"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
@@ -1202,10 +1202,10 @@ TEST(Parser, Alert_PropagatesAcrossNestedBlockquote)
     // example/nested.md #9 相当: 親 -> ネスト -> 親の続き
     auto nodes = ParseMarkdown(
         L"> [!NOTE]\n"
-        "> Alert head\n"
-        "> > nested\n"
-        ">\n"
-        "> Alert continues"
+        L"> Alert head\n"
+        L"> > nested\n"
+        L">\n"
+        L"> Alert continues"
     ).nodes;
     bool checked_continuation = false;
     for (const auto& n : nodes) {
@@ -1223,8 +1223,8 @@ TEST(Parser, Alert_IgnoredWhenStartedInsideNestedBlockquote)
     // GitHub 仕様: ネスト内 (`> > [!NOTE]`) の Alert マーカーは認識しない
     auto nodes = ParseMarkdown(
         L"> outer\n"
-        "> > [!NOTE]\n"
-        "> > inner note text"
+        L"> > [!NOTE]\n"
+        L"> > inner note text"
     ).nodes;
     for (const auto& n : nodes) {
         EXPECT_EQ(n.alert_type, AlertType::None)
@@ -1323,11 +1323,11 @@ TEST(Parser, SourceOffsetIncreasing)
     // ノードの source_offset は単調増加であるべき
     auto nodes = ParseMarkdown(
         L"# Heading\n\n"
-        "Paragraph\n\n"
-        "- item1\n"
-        "- item2\n\n"
-        "```\ncode\n```\n\n"
-        "End").nodes;
+        L"Paragraph\n\n"
+        L"- item1\n"
+        L"- item2\n\n"
+        L"```\ncode\n```\n\n"
+        L"End").nodes;
     ASSERT_GE(nodes.size(), 3u);
     uint32_t prev = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
@@ -1423,8 +1423,8 @@ TEST(Parser, SourceOffsetTable)
     // テーブルノードの source_offset はヘッダの最初のセルテキスト
     auto nodes = ParseMarkdown(
         L"| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |").nodes;
+        L"|---|---|\n"
+        L"| 1 | 2 |").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
     // "| " の後の "A" = offset 2

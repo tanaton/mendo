@@ -271,8 +271,8 @@ TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
 {
     auto nodes = ParseMarkdown(
         L"| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |"
+        L"|---|---|\n"
+        L"| 1 | 2 |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
@@ -298,8 +298,8 @@ TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
 {
     auto nodes = ParseMarkdown(
         L"| L | C | R |\n"
-        "|:--|:--:|--:|\n"
-        "| a | b | c |"
+        L"|:--|:--:|--:|\n"
+        L"| a | b | c |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
@@ -313,8 +313,8 @@ TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
 {
     auto nodes = ParseMarkdown(
         L"| A | B |\n"
-        "|---|---|\n"
-        "| **bold** | [link](https://example.com) |"
+        L"|---|---|\n"
+        L"| **bold** | [link](https://example.com) |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
@@ -328,8 +328,8 @@ TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
 {
     auto nodes = ParseMarkdown(
         L"| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |"
+        L"|---|---|\n"
+        L"| 1 | 2 |"
     ).nodes;
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto sel = MakeTableFullSelection(nodes[0]);
@@ -888,8 +888,8 @@ TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown)
 {
     auto nodes = ParseMarkdown(
         L"| Text | Link |\n"
-        "|------|------|\n"
-        "| hello | [click](https://example.com) |"
+        L"|------|------|\n"
+        L"| hello | [click](https://example.com) |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
