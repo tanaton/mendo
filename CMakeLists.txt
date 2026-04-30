@@ -144,6 +144,7 @@ add_library(mendo_core STATIC
     src/app/app_controller.cpp
     src/app/reducer.cpp
     # util - ユーティリティ
+    src/util/file_io.cpp
     src/util/task_scheduler.cpp
 )
 target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS} third_party/md4c)

@@ -3,7 +3,6 @@
 #include <windows.h>
 #include <cstdint>
 #include <filesystem>
-#include <limits>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -22,98 +21,31 @@ enum class OpenFileError : uint8_t {
     TooLarge,         // max_size を超過
 };
 
-// CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねた共通ヘルパー。
-// 共有モードと最大サイズは呼び出し側で指定する。
+// CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねた共通ヘルパーの結果。
 // 失敗時は handle が空で、error に区分が入る。
-// out_error は CreateFileW 失敗時のみ GetLastError() を格納する
-// （SizeQueryFailed / TooLarge では更新しない）。
 struct OpenedFile {
     UniqueHandle handle;
     size_t size = 0;
     OpenFileError error = OpenFileError::None;
 };
 
-[[nodiscard]] inline OpenedFile OpenFileForReadShared(const std::filesystem::path& path,
-    DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept
-{
-    if (out_error) {
-        *out_error = 0;
-    }
-    OpenedFile r;
-    UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_READ, share_mode, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
-    if (!hFile) {
-        if (out_error) {
-            *out_error = GetLastError();
-        }
-        r.error = OpenFileError::NotFound;
-        return r;
-    }
-    LARGE_INTEGER file_size;
-    if (!GetFileSizeEx(hFile.get(), &file_size) || file_size.QuadPart < 0) {
-        r.error = OpenFileError::SizeQueryFailed;
-        return r;
-    }
-    if (file_size.QuadPart > max_size) {
-        r.error = OpenFileError::TooLarge;
-        return r;
-    }
-    r.handle = std::move(hFile);
-    r.size = static_cast<size_t>(file_size.QuadPart);
-    return r;
-}
+// 共有モードと最大サイズは呼び出し側で指定する。
+// out_error は CreateFileW 失敗時のみ GetLastError() を格納する
+// （SizeQueryFailed / TooLarge では更新しない）。
+[[nodiscard]] OpenedFile OpenFileForReadShared(const std::filesystem::path& path,
+    DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept;
 
-// ファイルを全て読み込む。失敗時は{nullptr, 0}を返す。
-// out_errorが非nullの場合、CreateFileW失敗時のGetLastError()を格納する。
-[[nodiscard]] inline std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
-    const std::filesystem::path& path, DWORD* out_error = nullptr)
-{
-    auto r = OpenFileForReadShared(path, FILE_SHARE_READ, std::numeric_limits<uint32_t>::max(), out_error);
-    if (r.error != OpenFileError::None || r.size == 0) {
-        return {};
-    }
-    auto buf = std::make_unique_for_overwrite<uint8_t[]>(r.size);
-    DWORD bytes_read = 0;
-    if (!ReadFile(r.handle.get(), buf.get(), static_cast<DWORD>(r.size), &bytes_read, nullptr) ||
-        bytes_read != static_cast<DWORD>(r.size)) {
-        return {};
-    }
-    return { std::move(buf), r.size };
-}
+// out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
+[[nodiscard]] std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
+    const std::filesystem::path& path, DWORD* out_error = nullptr);
 
 // 読み込み済みコンテンツの後にファイルがさらに伸びていれば、エディタ側が
 // 書き込み途中である可能性が高い。BOM の 3 バイトずれ等を吸収するため
 // 16 バイトの許容範囲を持たせる。
-inline bool IsFileLargerThan(const std::filesystem::path& path,
-    size_t reference_size, size_t tolerance = 16) noexcept
-{
-    WIN32_FILE_ATTRIBUTE_DATA attr{};
-    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)) {
-        return false;
-    }
-    const uint64_t current_size = (static_cast<uint64_t>(attr.nFileSizeHigh) << 32)
-        | static_cast<uint64_t>(attr.nFileSizeLow);
-    return current_size > static_cast<uint64_t>(reference_size) + tolerance;
-}
+bool IsFileLargerThan(const std::filesystem::path& path,
+    size_t reference_size, size_t tolerance = 16) noexcept;
 
-// ファイルに全て書き込む。成功時はtrueを返す。
-[[nodiscard]] inline bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
-{
-    if (size > std::numeric_limits<uint32_t>::max()) {
-        return false;
-    }
-    UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
-        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
-    if (!hFile) {
-        return false;
-    }
-    DWORD bytes_written = 0;
-    if (!WriteFile(hFile.get(), data, static_cast<DWORD>(size), &bytes_written, nullptr) ||
-        bytes_written != static_cast<DWORD>(size)) {
-        return false;
-    }
-    return true;
-}
+[[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
 
 // ファイル名・フルパス比較ユーティリティ。
 // `CompareStringOrdinal(..., TRUE)` ベースで NTFS と挙動が一致する
