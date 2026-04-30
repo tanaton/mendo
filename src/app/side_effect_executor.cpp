@@ -23,13 +23,27 @@ void SideEffectExecutor::Init(IWin32Host& host, ResourceManager& resource_manage
 void SideEffectExecutor::ExecuteOne(const SideEffect& e)
 {
     std::visit(overloaded{
-        [this](const UiEffect& sub) { ExecuteUi(sub); },
-        [this](const WindowEffect& sub) { ExecuteWindow(sub); },
-        [this](const NavigationEffect& sub) { ExecuteNavigation(sub); },
-        [this](const LayoutEffect& sub) { ExecuteLayout(sub); },
-        [this](const ResourceEffect& sub) { ExecuteResource(sub); },
-        [this](const TimerEffect& sub) { ExecuteTimer(sub); },
-        [this](const LifecycleEffect& sub) { ExecuteLifecycle(sub); },
+        [this](const UiEffect& sub) {
+            ExecuteUi(sub);
+        },
+        [this](const WindowEffect& sub) {
+            ExecuteWindow(sub);
+        },
+        [this](const NavigationEffect& sub) {
+            ExecuteNavigation(sub);
+        },
+        [this](const LayoutEffect& sub) {
+            ExecuteLayout(sub);
+        },
+        [this](const ResourceEffect& sub) {
+            ExecuteResource(sub);
+        },
+        [this](const TimerEffect& sub) {
+            ExecuteTimer(sub);
+        },
+        [this](const LifecycleEffect& sub) {
+            ExecuteLifecycle(sub);
+        },
         }, e);
 }
 
@@ -168,8 +182,11 @@ void SideEffectExecutor::ExecuteLayout(const LayoutEffect& e)
         },
         [this](const effect::ViewportLayout& ev) {
             layout_service_->ViewportLayout(
-                state_->document.doc, state_->document.layout_cache,
-                ev.md_width, ev.md_height);
+                state_->document.doc,
+                state_->document.layout_cache,
+                ev.md_width,
+                ev.md_height
+            );
         },
         [this](const effect::SyncMaxScroll& ev) {
             const float total = layout_service_->GetTotalHeight();
