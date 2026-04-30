@@ -725,8 +725,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
     FinishWorkerRequest(w);
 }
 
-HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap,
-                                                   float* width, float* height)
+HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap, float* width, float* height)
 {
     if (!stream || !bitmap || !width || !height) {
         return E_FAIL;

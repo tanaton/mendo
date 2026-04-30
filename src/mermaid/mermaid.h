@@ -31,8 +31,7 @@ public:
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
 
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
-    void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
-              const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
+    void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic, const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
 
     constexpr bool IsReady() const noexcept
     {
