@@ -29,7 +29,7 @@ Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
     std::pmr::wstring wide;
     {
         MENDO_PROFILE("Utf8ToWide");
-        string_convert::Utf8ToWide(utf8, wide);
+        string_convert::Utf8ToWideStripBom(utf8, wide);
     }
     return FromMarkdown(std::move(wide), byte_size, path);
 }
@@ -65,7 +65,7 @@ void Document::ReplaceFromMarkdown(std::pmr::string utf8)
     std::pmr::wstring wide;
     {
         MENDO_PROFILE("Utf8ToWide");
-        string_convert::Utf8ToWide(utf8, wide);
+        string_convert::Utf8ToWideStripBom(utf8, wide);
     }
     ReplaceFromMarkdown(std::move(wide), byte_size);
 }

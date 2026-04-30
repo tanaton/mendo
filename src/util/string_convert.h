@@ -32,6 +32,17 @@ inline std::pmr::wstring Utf8ToWide(std::string_view utf8)
     return result;
 }
 
+// 先頭の UTF-8 BOM (EF BB BF) を取り除いてから Utf8ToWide を呼ぶ。
+// FileLoader が返す UTF-8 のように BOM 付きの可能性がある経路で使う。
+inline void Utf8ToWideStripBom(std::string_view utf8, std::pmr::wstring& out)
+{
+    constexpr std::string_view kUtf8Bom = "\xEF\xBB\xBF";
+    if (utf8.starts_with(kUtf8Bom)) {
+        utf8.remove_prefix(kUtf8Bom.size());
+    }
+    Utf8ToWide(utf8, out);
+}
+
 inline void WideToUtf8(std::wstring_view wide, std::string& out)
 {
     if (wide.empty()) {

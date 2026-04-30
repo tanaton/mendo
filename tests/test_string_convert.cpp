@@ -53,6 +53,66 @@ TEST(StringConvert, Utf8ToWideRefClearsOnEmpty)
 }
 
 // ═══════════════════════════════════════════════
+// Utf8ToWideStripBom
+// ═══════════════════════════════════════════════
+
+TEST(StringConvert, Utf8ToWideStripBomStripsLeadingBom)
+{
+    std::pmr::wstring out;
+    Utf8ToWideStripBom("\xEF\xBB\xBFHello", out);
+    EXPECT_EQ(out, L"Hello");
+}
+
+TEST(StringConvert, Utf8ToWideStripBomNoBomPassthrough)
+{
+    std::pmr::wstring out;
+    Utf8ToWideStripBom("Hello", out);
+    EXPECT_EQ(out, L"Hello");
+}
+
+TEST(StringConvert, Utf8ToWideStripBomEmptyInput)
+{
+    std::pmr::wstring out = L"old";
+    Utf8ToWideStripBom("", out);
+    EXPECT_TRUE(out.empty());
+}
+
+TEST(StringConvert, Utf8ToWideStripBomBomOnlyResultsEmpty)
+{
+    std::pmr::wstring out = L"old";
+    Utf8ToWideStripBom("\xEF\xBB\xBF", out);
+    EXPECT_TRUE(out.empty());
+}
+
+TEST(StringConvert, Utf8ToWideStripBomOnlyFirstBomStripped)
+{
+    // 2 つ続く BOM は最初の 1 つだけ除去され、残りは U+FEFF として残る。
+    std::pmr::wstring out;
+    Utf8ToWideStripBom("\xEF\xBB\xBF\xEF\xBB\xBF" "A", out);
+    EXPECT_EQ(out.size(), 2u);
+    EXPECT_EQ(out[0], L'\xFEFF');
+    EXPECT_EQ(out[1], L'A');
+}
+
+TEST(StringConvert, Utf8ToWideStripBomBomWithJapanese)
+{
+    std::pmr::wstring out;
+    Utf8ToWideStripBom("\xEF\xBB\xBF日本語", out);
+    EXPECT_EQ(out, L"日本語");
+}
+
+TEST(StringConvert, Utf8ToWideStripBomBomInMiddleNotStripped)
+{
+    // BOM の出現位置が先頭以外なら除去しない（U+FEFF として保持）。
+    std::pmr::wstring out;
+    Utf8ToWideStripBom("A\xEF\xBB\xBF" "B", out);
+    ASSERT_EQ(out.size(), 3u);
+    EXPECT_EQ(out[0], L'A');
+    EXPECT_EQ(out[1], L'\xFEFF');
+    EXPECT_EQ(out[2], L'B');
+}
+
+// ═══════════════════════════════════════════════
 // WideToUtf8
 // ═══════════════════════════════════════════════
 

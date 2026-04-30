@@ -28,26 +28,11 @@ std::expected<std::pmr::string, FileLoadError> FileLoader::LoadFile(const std::p
         return std::pmr::string{};
     }
 
-    // UTF-8 BOMを先に検出し、全内容の memmove を回避する
-    const size_t file_size = r.size;
-    size_t bom_skip = 0;
-    if (file_size >= 3) {
-        unsigned char bom[3]{};
-        DWORD bom_read = 0;
-        if (ReadFile(r.handle.get(), bom, 3, &bom_read, nullptr) && bom_read == 3 &&
-            bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) {
-            bom_skip = 3;
-        }
-        else {
-            // BOMなし: ファイル先頭に巻き戻す
-            SetFilePointer(r.handle.get(), 0, nullptr, FILE_BEGIN);
-        }
-    }
-
+    // BOM の除去は呼び出し側 (Utf8ToWideStripBom) が担うため、ここではバイト列をそのまま返す。
     std::pmr::string content;
     DWORD bytesRead = 0;
     BOOL ok = FALSE;
-    content.resize_and_overwrite(file_size - bom_skip, [&](char* buf, size_t count) -> size_t {
+    content.resize_and_overwrite(r.size, [&](char* buf, size_t count) -> size_t {
         ok = ReadFile(r.handle.get(), buf, static_cast<DWORD>(count), &bytesRead, nullptr);
         return ok ? bytesRead : 0;
     });
