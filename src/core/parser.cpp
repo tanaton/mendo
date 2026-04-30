@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace {
 
@@ -345,6 +346,8 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     }
     case MD_BLOCK_HTML:
         break;
+    default:
+        std::unreachable();
     }
 
     return 0;
@@ -444,8 +447,12 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         ctx->current_node = nullptr;
         break;
 
-    default:
+    case MD_BLOCK_DOC:
+    case MD_BLOCK_HTML:
         break;
+
+    default:
+        std::unreachable();
     }
 
     return 0;
@@ -508,9 +515,14 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ctx->AppendWide(L"$");
         ctx->paragraph_has_other_content = true;
         break;
-    default:
+        // WIKILINK / U は現フラグ (MD_FLAG_WIKILINKS / MD_FLAG_UNDERLINE 未指定) では未到達。
+        // 将来フラグ追加時に default の std::unreachable() を踏まないよう明示している。
+    case MD_SPAN_WIKILINK:
+    case MD_SPAN_U:
         ctx->paragraph_has_other_content = true;
         break;
+    default:
+        std::unreachable();
     }
 
     return 0;
@@ -553,8 +565,11 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
     case MD_SPAN_LATEXMATH:
         ctx->AppendWide(L"$");
         break;
-    default:
+    case MD_SPAN_WIKILINK:
+    case MD_SPAN_U:
         break;
+    default:
+        std::unreachable();
     }
 
     return 0;
@@ -620,8 +635,12 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         ctx->AppendWide(L" ");
         break;
 
-    default:
+    case MD_TEXT_NULLCHAR:
+    case MD_TEXT_HTML:
         break;
+
+    default:
+        std::unreachable();
     }
 
     return 0;
@@ -676,24 +695,26 @@ ParseResult ParseMarkdown(std::string_view utf8_markdown_text)
 std::wstring_view GetAlertLabel(AlertType type) noexcept
 {
     switch (type) {
+    case AlertType::None:      return L"";
     case AlertType::Note:      return L"Note";
     case AlertType::Tip:       return L"Tip";
     case AlertType::Important: return L"Important";
     case AlertType::Warning:   return L"Warning";
     case AlertType::Caution:   return L"Caution";
-    default:                   return L"";
+    default:                   std::unreachable();
     }
 }
 
 std::wstring_view GetAlertIcon(AlertType type) noexcept
 {
     switch (type) {
+    case AlertType::None:      return L" ";
     case AlertType::Note:      return L"ℹ";         // ℹ Information Source
     case AlertType::Tip:       return L"\xD83D\xDCA1";   // 💡 Light Bulb (surrogate pair)
     case AlertType::Important: return L"❗";         // ❗ Heavy Exclamation Mark
     case AlertType::Warning:   return L"⚠";         // ⚠ Warning Sign
     case AlertType::Caution:   return L"⛔";         // ⛔ No Entry
-    default:                   return L" ";
+    default:                   std::unreachable();
     }
 }
 
@@ -713,23 +734,25 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
 
     const auto type_str = text.substr(2, close - 2);
 
-    AlertType type = AlertType::None;
-    if (ascii_util::iequal(type_str, L"NOTE")) {
-        type = AlertType::Note;
-    }
-    else if (ascii_util::iequal(type_str, L"TIP")) {
-        type = AlertType::Tip;
-    }
-    else if (ascii_util::iequal(type_str, L"IMPORTANT")) {
-        type = AlertType::Important;
-    }
-    else if (ascii_util::iequal(type_str, L"WARNING")) {
-        type = AlertType::Warning;
-    }
-    else if (ascii_util::iequal(type_str, L"CAUTION")) {
-        type = AlertType::Caution;
-    }
+    struct AlertEntry {
+        ascii_util::LowercaseAsciiLiteral name;
+        AlertType type;
+    };
+    static constexpr AlertEntry kAlerts[]{
+        { L"note",      AlertType::Note      },
+        { L"tip",       AlertType::Tip       },
+        { L"important", AlertType::Important },
+        { L"warning",   AlertType::Warning   },
+        { L"caution",   AlertType::Caution   },
+    };
 
+    AlertType type = AlertType::None;
+    for (const auto& [name, t] : kAlerts) {
+        if (ascii_util::iequal(type_str, name)) {
+            type = t;
+            break;
+        }
+    }
     if (type == AlertType::None) {
         return AlertType::None;
     }

@@ -1,9 +1,11 @@
 #include "document_utils.h"
 #include "ascii_util.h"
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <format>
 #include <iterator>
+#include <ranges>
 
 std::pmr::wstring ToLowerAscii(std::wstring_view text)
 {
@@ -56,10 +58,15 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
 
 bool IsMarkdownFile(std::wstring_view path)
 {
+    static constexpr ascii_util::LowercaseAsciiLiteral kMarkdownExts[]{
+        L".md",
+        L".markdown",
+        L".mkd",
+    };
     const auto ext = std::filesystem::path(path).extension().wstring();
-    return ascii_util::iequal(ext, L".md")
-        || ascii_util::iequal(ext, L".markdown")
-        || ascii_util::iequal(ext, L".mkd");
+    return std::ranges::any_of(kMarkdownExts, [&](const auto& e) {
+        return ascii_util::iequal(ext, e);
+    });
 }
 
 std::pmr::wstring ExtractFilename(std::wstring_view path)

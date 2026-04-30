@@ -539,82 +539,62 @@ static_assert(std::size(LANGUAGE_DEFS) == std::to_underlying(SyntaxLanguage::Lat
 
 // ---- 公開API ----
 
-SyntaxLanguage DetectLanguage(std::string_view info_string)
-{
-    if (info_string.empty()) {
-        return SyntaxLanguage::None;
-    }
-
-    // 最初の単語を抽出してASCII小文字に変換（スタックバッファで割り当て回避）
-    char lang_buf[32];
-    size_t lang_len = 0;
-    for (char c : info_string) {
-        if (c == ' ' || c == '\t') {
-            break;
-        }
-        if (lang_len >= sizeof(lang_buf) - 1) {
-            break;
-        }
-        lang_buf[lang_len++] = ascii_util::ToLowerAscii(c);
-    }
-    const std::string_view lang(lang_buf, lang_len);
-
-    if (lang == "c" || lang == "cpp" || lang == "c++" || lang == "cxx" ||
-        lang == "h" || lang == "hpp" || lang == "cc" || lang == "hxx") {
-        return SyntaxLanguage::Cpp;
-    }
-    if (lang == "python" || lang == "py") {
-        return SyntaxLanguage::Python;
-    }
-    if (lang == "javascript" || lang == "js" || lang == "jsx") {
-        return SyntaxLanguage::JavaScript;
-    }
-    if (lang == "typescript" || lang == "ts" || lang == "tsx") {
-        return SyntaxLanguage::TypeScript;
-    }
-    if (lang == "mermaid") {
-        return SyntaxLanguage::Mermaid;
-    }
-    if (lang == "go" || lang == "golang") {
-        return SyntaxLanguage::Go;
-    }
-    if (lang == "rust" || lang == "rs") {
-        return SyntaxLanguage::Rust;
-    }
-    if (lang == "bash" || lang == "sh" || lang == "zsh" || lang == "shell") {
-        return SyntaxLanguage::Bash;
-    }
-    if (lang == "powershell" || lang == "pwsh" || lang == "ps1") {
-        return SyntaxLanguage::PowerShell;
-    }
-    if (lang == "cmd" || lang == "bat" || lang == "batch" || lang == "dosbatch") {
-        return SyntaxLanguage::Cmd;
-    }
-    if (lang == "json" || lang == "jsonc" || lang == "json5") {
-        return SyntaxLanguage::Json;
-    }
-
-    return SyntaxLanguage::None;
-}
-
 SyntaxLanguage DetectLanguage(std::wstring_view info_string)
 {
-    if (info_string.empty()) {
+    // info string の最初の空白/タブまでを言語識別子として抽出。残りは追加情報。
+    const auto lang = info_string.substr(0, info_string.find_first_of(L" \t"));
+    if (lang.empty()) {
         return SyntaxLanguage::None;
     }
-    // 言語名は全てASCIIなのでnarrowに変換してstring_view版に委譲
-    char buf[32];
-    size_t len = 0;
-    for (wchar_t c : info_string) {
-        if (c == L' ' || c == L'\t') {
-            break;
+
+    struct Alias {
+        ascii_util::LowercaseAsciiLiteral name;
+        SyntaxLanguage language;
+    };
+    static constexpr Alias kAliases[]{
+        { L"c",          SyntaxLanguage::Cpp        },
+        { L"cpp",        SyntaxLanguage::Cpp        },
+        { L"c++",        SyntaxLanguage::Cpp        },
+        { L"cxx",        SyntaxLanguage::Cpp        },
+        { L"h",          SyntaxLanguage::Cpp        },
+        { L"hpp",        SyntaxLanguage::Cpp        },
+        { L"cc",         SyntaxLanguage::Cpp        },
+        { L"hxx",        SyntaxLanguage::Cpp        },
+        { L"python",     SyntaxLanguage::Python     },
+        { L"py",         SyntaxLanguage::Python     },
+        { L"javascript", SyntaxLanguage::JavaScript },
+        { L"js",         SyntaxLanguage::JavaScript },
+        { L"jsx",        SyntaxLanguage::JavaScript },
+        { L"typescript", SyntaxLanguage::TypeScript },
+        { L"ts",         SyntaxLanguage::TypeScript },
+        { L"tsx",        SyntaxLanguage::TypeScript },
+        { L"mermaid",    SyntaxLanguage::Mermaid    },
+        { L"go",         SyntaxLanguage::Go         },
+        { L"golang",     SyntaxLanguage::Go         },
+        { L"rust",       SyntaxLanguage::Rust       },
+        { L"rs",         SyntaxLanguage::Rust       },
+        { L"bash",       SyntaxLanguage::Bash       },
+        { L"sh",         SyntaxLanguage::Bash       },
+        { L"zsh",        SyntaxLanguage::Bash       },
+        { L"shell",      SyntaxLanguage::Bash       },
+        { L"powershell", SyntaxLanguage::PowerShell },
+        { L"pwsh",       SyntaxLanguage::PowerShell },
+        { L"ps1",        SyntaxLanguage::PowerShell },
+        { L"cmd",        SyntaxLanguage::Cmd        },
+        { L"bat",        SyntaxLanguage::Cmd        },
+        { L"batch",      SyntaxLanguage::Cmd        },
+        { L"dosbatch",   SyntaxLanguage::Cmd        },
+        { L"json",       SyntaxLanguage::Json       },
+        { L"jsonc",      SyntaxLanguage::Json       },
+        { L"json5",      SyntaxLanguage::Json       },
+    };
+
+    for (const auto& [alias, language] : kAliases) {
+        if (ascii_util::iequal(lang, alias)) {
+            return language;
         }
-        if (len >= sizeof(buf) - 1 || c > 0x7F) {
-            break;
-        }
-        buf[len++] = static_cast<char>(c);
     }
-    return DetectLanguage(std::string_view(buf, len));
+    return SyntaxLanguage::None;
 }
 
 std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language)
