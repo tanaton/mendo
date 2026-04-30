@@ -14,7 +14,7 @@ Document Document::FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::w
     ParseResult result;
     {
         MENDO_PROFILE("ParseMarkdown");
-        result = ParseMarkdown(std::wstring_view{ doc.raw_wide_ });
+        result = ParseMarkdown(doc.raw_wide_);
     }
     {
         MENDO_PROFILE("BuildIndices");
@@ -56,7 +56,7 @@ void Document::ReplaceFromMarkdown(std::pmr::wstring wide, size_t byte_size)
 {
     raw_wide_ = std::move(wide);
     loaded_byte_size_ = byte_size;
-    ReplaceContent(ParseMarkdown(std::wstring_view{ raw_wide_ }));
+    ReplaceContent(ParseMarkdown(raw_wide_));
 }
 
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)
