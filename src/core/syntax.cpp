@@ -26,6 +26,7 @@ using syntax_keywords::PWSH_KEYWORDS;
 using syntax_keywords::PWSH_TYPES;
 using syntax_keywords::CMD_KEYWORDS;
 using syntax_keywords::CMD_TYPES;
+using syntax_keywords::JSON_KEYWORDS;
 
 namespace {
 
@@ -462,7 +463,7 @@ struct LanguageDef {
 
 // SyntaxLanguage列挙値でインデックス。
 // None=0, Cpp=1, Python=2, JavaScript=3, Mermaid=4,
-// Go=5, Rust=6, TypeScript=7, Bash=8, PowerShell=9, Cmd=10
+// Go=5, Rust=6, TypeScript=7, Bash=8, PowerShell=9, Cmd=10, Json=11, LatexMath=12
 static const LanguageDef LANGUAGE_DEFS[] = {
     // なし
     {{}, {}, {}},
@@ -522,9 +523,17 @@ static const LanguageDef LANGUAGE_DEFS[] = {
         .case_insensitive = true,
         .skip_single_quote = true,
     }},
+    // JSON / JSONC
+    {JSON_KEYWORDS, {}, {
+        .line_comment_slash = true,
+        .block_comment = true,
+        .skip_single_quote = true,
+    }},
+    // LatexMath（トークン化しない）
+    {{}, {}, {}},
 };
 
-static_assert(std::size(LANGUAGE_DEFS) == std::to_underlying(SyntaxLanguage::Cmd) + 1, "LANGUAGE_DEFS must cover all SyntaxLanguage values");
+static_assert(std::size(LANGUAGE_DEFS) == std::to_underlying(SyntaxLanguage::LatexMath) + 1, "LANGUAGE_DEFS must cover all SyntaxLanguage values");
 
 } // namespace
 
@@ -580,6 +589,9 @@ SyntaxLanguage DetectLanguage(std::string_view info_string)
     }
     if (lang == "cmd" || lang == "bat" || lang == "batch" || lang == "dosbatch") {
         return SyntaxLanguage::Cmd;
+    }
+    if (lang == "json" || lang == "jsonc" || lang == "json5") {
+        return SyntaxLanguage::Json;
     }
 
     return SyntaxLanguage::None;

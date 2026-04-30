@@ -17,6 +17,7 @@ enum class SyntaxLanguage : uint8_t {
     Bash,
     PowerShell,
     Cmd,
+    Json,
     LatexMath
 };
 
