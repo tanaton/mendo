@@ -114,9 +114,7 @@ bool App::Init(HWND hwnd)
         }
     );
 
-    const auto webview2_data = config_dir.empty()
-        ? std::filesystem::path{}
-    : config_dir / L"WebView2Data";
+    const auto webview2_data = config_dir.empty() ? std::filesystem::path{} : config_dir / L"WebView2Data";
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(),
         webview2_data, [this]() {
             resource_manager_.ScheduleMermaidBatch();

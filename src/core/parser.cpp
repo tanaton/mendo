@@ -693,8 +693,8 @@ std::wstring_view GetAlertLabel(AlertType type) noexcept
     case AlertType::Important: return L"Important";
     case AlertType::Warning:   return L"Warning";
     case AlertType::Caution:   return L"Caution";
-    default:                   std::unreachable();
     }
+    std::unreachable();
 }
 
 std::wstring_view GetAlertIcon(AlertType type) noexcept
@@ -706,8 +706,8 @@ std::wstring_view GetAlertIcon(AlertType type) noexcept
     case AlertType::Important: return L"❗";         // ❗ Heavy Exclamation Mark
     case AlertType::Warning:   return L"⚠";         // ⚠ Warning Sign
     case AlertType::Caution:   return L"⛔";         // ⛔ No Entry
-    default:                   std::unreachable();
     }
+    std::unreachable();
 }
 
 namespace {

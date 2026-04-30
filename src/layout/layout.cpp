@@ -26,9 +26,8 @@ static float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
     case NodeType::TaskListItem:
     case NodeType::Image:
         return 0.0f;
-    default:
-        std::unreachable();
     }
+    std::unreachable();
 }
 
 static float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
@@ -36,9 +35,7 @@ static float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     switch (node.type) {
     case NodeType::Heading:
         // h1/h2 は下線を描くため、下線と次行の余白を確保すべく大きめの値を返す。
-        return (node.heading_level <= 2)
-            ? theme.heading_spacing_below_h1h2
-            : theme.heading_spacing_below;
+        return (node.heading_level <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
     case NodeType::CodeBlock:
     case NodeType::Image:
         return theme.paragraph_spacing + theme.code_block_spacing_above;
@@ -51,9 +48,8 @@ static float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     case NodeType::Paragraph:
     case NodeType::BlockQuote:
         return theme.paragraph_spacing;
-    default:
-        std::unreachable();
     }
+    std::unreachable();
 }
 
 // ---- フリー関数 ----
@@ -134,9 +130,8 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
             return theme.paragraph_spacing;
         }
         return line_height * static_cast<float>(1 + node.line_count);
-    default:
-        std::unreachable();
     }
+    std::unreachable();
 }
 
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) noexcept

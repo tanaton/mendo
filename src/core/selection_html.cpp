@@ -262,9 +262,8 @@ constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const t
         return palette.syntax_preprocessor;
     case SyntaxTokenType::Function:
         return palette.syntax_function;
-    default:
-        std::unreachable();
     }
+    std::unreachable();
 }
 
 constexpr void AppendSyntaxHighlightedSpan(std::pmr::wstring& out, std::wstring_view chunk,
