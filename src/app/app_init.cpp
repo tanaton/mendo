@@ -38,8 +38,12 @@ bool App::Init(HWND hwnd)
     win32_host_.Init(hwnd_, cursors_);
     effect_executor_.Init(win32_host_, resource_manager_, doc_service_,
         state_, *layout_service_, {
-            .load_file = [this](std::wstring_view path) { LoadMarkdownFile(path); },
-            .reload_file = [this]() { ReloadCurrentFile(); },
+            .load_file = [this](std::wstring_view path) {
+                LoadMarkdownFile(path);
+            },
+            .reload_file = [this]() {
+                ReloadCurrentFile();
+            },
             .open_file_dialog = [this]() {
                 const auto path = FileLoader::OpenFileDialog(hwnd_);
                 if (!path.empty()) {
@@ -112,7 +116,7 @@ bool App::Init(HWND hwnd)
 
     const auto webview2_data = config_dir.empty()
         ? std::filesystem::path{}
-        : config_dir / L"WebView2Data";
+    : config_dir / L"WebView2Data";
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(),
         webview2_data, [this]() {
             resource_manager_.ScheduleMermaidBatch();
@@ -128,7 +132,7 @@ bool App::Init(HWND hwnd)
         image_loader_.SetRenderTarget(new_rt);
         image_loader_.ClearCache();
         resource_manager_.LoadImages();
-    });
+        });
 
     theme_service_.LoadDarkMode();
     state_.view.viewport.SetZoomIndex(theme_service_.LoadZoomIndex());
@@ -173,9 +177,15 @@ bool App::Init(HWND hwnd)
 ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
 {
     return {
-        .invalidate = [this]() { Invalidate(); },
-        .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
-        .kill_timer = [this](UINT_PTR id) { KillTimer(hwnd_, id); },
+        .invalidate = [this]() {
+            Invalidate();
+        },
+        .set_timer = [this](UINT_PTR id, UINT ms) {
+            SetTimer(hwnd_, id, ms, nullptr);
+        },
+        .kill_timer = [this](UINT_PTR id) {
+            KillTimer(hwnd_, id);
+        },
         .get_content_width = [this]() -> float {
             return renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
         },
@@ -201,15 +211,21 @@ ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
 SearchBarController::Callbacks App::BuildSearchBarCallbacks()
 {
     return {
-        .invalidate = [this]() { Invalidate(); },
+        .invalidate = [this]() {
+            Invalidate();
+        },
         .invalidate_search_bar = [this]() {
             const auto& layout = GetPaneLayout();
             const auto& r = layout.md_rect;
             const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
             InvalidatePane(search_area);
         },
-        .set_timer = [this](UINT_PTR id, UINT ms) { SetTimer(hwnd_, id, ms, nullptr); },
-        .kill_timer = [this](UINT_PTR id) { KillTimer(hwnd_, id); },
+        .set_timer = [this](UINT_PTR id, UINT ms) {
+            SetTimer(hwnd_, id, ms, nullptr);
+        },
+        .kill_timer = [this](UINT_PTR id) {
+            KillTimer(hwnd_, id);
+        },
         .focus_select_all = [this]() {
             PostMessage(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
         },

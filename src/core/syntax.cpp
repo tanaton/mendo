@@ -49,7 +49,9 @@ bool IsIdentChar(wchar_t c)
 
 bool IsAtLineStart(std::wstring_view text, size_t pos)
 {
-    if (pos == 0) { return true; }
+    if (pos == 0) {
+        return true;
+    }
     for (size_t i = pos - 1; ; i--) {
         if (text[i] == L'\n') {
             return true;
@@ -252,14 +254,14 @@ std::pmr::vector<SyntaxToken> TokenizeGeneric(
             EmitToken(tokens, plain_start, static_cast<uint32_t>(i) - plain_start, SyntaxTokenType::Plain);
             in_plain = false;
         }
-    };
+        };
 
     const auto start_plain = [&]() {
         if (!in_plain) {
             plain_start = static_cast<uint32_t>(i);
             in_plain = true;
         }
-    };
+        };
 
     while (i < text.size()) {
         const wchar_t c = text[i];

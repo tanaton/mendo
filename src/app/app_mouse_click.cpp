@@ -115,9 +115,19 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
 
     const auto& theme = renderer_.GetTheme();
 
-    if (ProcessSidePaneHeaderClick(dip_x, dip_y, layout.file_rect, theme.pane_header_height, true,
-        [this]() { state_.view.panes.ToggleFilePane(); RefreshPaneLayout(); },
-        [this]() { RefreshFilePane(); })) {
+    if (ProcessSidePaneHeaderClick(
+        dip_x,
+        dip_y,
+        layout.file_rect,
+        theme.pane_header_height,
+        true,
+        [this]() {
+            state_.view.panes.ToggleFilePane();
+            RefreshPaneLayout();
+        },
+        [this]() {
+            RefreshFilePane();
+        })) {
         return;
     }
 
@@ -156,8 +166,16 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
 
     const auto& theme = renderer_.GetTheme();
 
-    if (ProcessSidePaneHeaderClick(dip_x, dip_y, layout.toc_rect, theme.pane_header_height, false,
-        [this]() { state_.view.panes.ToggleTocPane(); RefreshPaneLayout(); },
+    if (ProcessSidePaneHeaderClick(
+        dip_x,
+        dip_y,
+        layout.toc_rect,
+        theme.pane_header_height,
+        false,
+        [this]() {
+            state_.view.panes.ToggleTocPane();
+            RefreshPaneLayout();
+        },
         []() {})) {
         return;
     }

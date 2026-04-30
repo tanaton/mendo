@@ -52,12 +52,24 @@ constexpr void AppendHtmlEscaped(std::pmr::wstring& out, std::wstring_view text)
 {
     for (const wchar_t c : text) {
         switch (c) {
-        case L'&': out.append(L"&amp;"); break;
-        case L'<': out.append(L"&lt;"); break;
-        case L'>': out.append(L"&gt;"); break;
-        case L'"': out.append(L"&quot;"); break;
-        case L'\'': out.append(L"&#39;"); break;
-        default: out.push_back(c); break;
+        case L'&':
+            out.append(L"&amp;");
+            break;
+        case L'<':
+            out.append(L"&lt;");
+            break;
+        case L'>':
+            out.append(L"&gt;");
+            break;
+        case L'"':
+            out.append(L"&quot;");
+            break;
+        case L'\'':
+            out.append(L"&#39;");
+            break;
+        default:
+            out.push_back(c);
+            break;
         }
     }
 }
@@ -81,7 +93,8 @@ public:
     // CloseAll() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
     ~InlineTagScope() noexcept
     {
-        try { CloseAll(); } catch (...) {}
+        try { CloseAll(); }
+        catch (...) {}
     }
 
     // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
@@ -230,18 +243,27 @@ constexpr void AppendHexColor(std::pmr::wstring& out, uint32_t rgb)
     out.push_back(kDigits[rgb & 0xF]);
 }
 
-constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type,
-    const theme_palette::SharedColors& palette) noexcept
+constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const theme_palette::SharedColors& palette) noexcept
 {
     switch (type) {
-    case SyntaxTokenType::Keyword:      return palette.syntax_keyword;
-    case SyntaxTokenType::Type:         return palette.syntax_type;
-    case SyntaxTokenType::String:       return palette.syntax_string;
-    case SyntaxTokenType::Number:       return palette.syntax_number;
-    case SyntaxTokenType::Comment:      return palette.syntax_comment;
-    case SyntaxTokenType::Preprocessor: return palette.syntax_preprocessor;
-    case SyntaxTokenType::Function:     return palette.syntax_function;
-    default:                            return std::nullopt;
+    case SyntaxTokenType::Plain:
+        return std::nullopt;
+    case SyntaxTokenType::Keyword:
+        return palette.syntax_keyword;
+    case SyntaxTokenType::Type:
+        return palette.syntax_type;
+    case SyntaxTokenType::String:
+        return palette.syntax_string;
+    case SyntaxTokenType::Number:
+        return palette.syntax_number;
+    case SyntaxTokenType::Comment:
+        return palette.syntax_comment;
+    case SyntaxTokenType::Preprocessor:
+        return palette.syntax_preprocessor;
+    case SyntaxTokenType::Function:
+        return palette.syntax_function;
+    default:
+        std::unreachable();
     }
 }
 
@@ -336,7 +358,8 @@ public:
     // Close() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
     ~TableSectionScope() noexcept
     {
-        try { Close(); } catch (...) {}
+        try { Close(); }
+        catch (...) {}
     }
     TableSectionScope(const TableSectionScope&) = delete;
     TableSectionScope& operator=(const TableSectionScope&) = delete;
@@ -375,9 +398,14 @@ constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cel
     AppendHexColor(out, palette.table_border);
     out.append(L";padding:6px 13px");
     switch (cell.align) {
-    case TableAlign::Center: out.append(L";text-align:center"); break;
-    case TableAlign::Right:  out.append(L";text-align:right"); break;
-    default: break;
+    case TableAlign::Center:
+        out.append(L";text-align:center");
+        break;
+    case TableAlign::Right:
+        out.append(L";text-align:right");
+        break;
+    default:
+        break;
     }
     out.append(L";\"");
 }
@@ -452,7 +480,7 @@ std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>&
 {
     const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
         return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
-    });
+        });
     if (it == runs.end()) {
         return std::nullopt;
     }
@@ -510,7 +538,7 @@ std::pmr::wstring ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
             out.append(list_close_tag);
             list_close_tag = nullptr;
         }
-    };
+        };
 
     for (int i = selection.start_node; i <= selection.end_node; ++i) {
         if (i < 0 || i >= static_cast<int>(nodes.size())) {

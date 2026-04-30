@@ -19,8 +19,15 @@ static float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
     case NodeType::CodeBlock:
     case NodeType::BlockQuote:
         return theme.code_block_spacing_above;
-    default:
+    case NodeType::Paragraph:
+    case NodeType::HorizontalRule:
+    case NodeType::ListItem:
+    case NodeType::Table:
+    case NodeType::TaskListItem:
+    case NodeType::Image:
         return 0.0f;
+    default:
+        std::unreachable();
     }
 }
 
@@ -40,8 +47,12 @@ static float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
         return theme.list_item_spacing;
     case NodeType::HorizontalRule:
         return 0.0f;
-    default:
+    case NodeType::Table:
+    case NodeType::Paragraph:
+    case NodeType::BlockQuote:
         return theme.paragraph_spacing;
+    default:
+        std::unreachable();
     }
 }
 
@@ -106,23 +117,25 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
         const float h = theme.font_size_code * 1.3f * static_cast<float>(lines);
         return std::max(h, line_height);
     }
+    case NodeType::HorizontalRule:
+        return theme.paragraph_spacing + theme.hr_thickness;
     case NodeType::Table: {
-        const size_t row_count = node.has_table()
-            ? std::max(static_cast<size_t>(1), node.table_rows().size())
-            : static_cast<size_t>(1);
+        const size_t row_count = node.has_table() ? std::max(1uz, node.table_rows().size()) : 1uz;
         return line_height * static_cast<float>(row_count);
     }
     case NodeType::Image:
         return std::max(60.0f, theme.font_size_body * 3.0f);
-    case NodeType::HorizontalRule:
-        return theme.paragraph_spacing + theme.hr_thickness;
-    default:
+    case NodeType::Paragraph:
+    case NodeType::ListItem:
+    case NodeType::BlockQuote:
+    case NodeType::TaskListItem:
         // テキストの行数からおおよその高さを推定
         if (!node.HasText()) {
             return theme.paragraph_spacing;
         }
-        const int lines = 1 + node.line_count;
-        return line_height * static_cast<float>(lines);
+        return line_height * static_cast<float>(1 + node.line_count);
+    default:
+        std::unreachable();
     }
 }
 
