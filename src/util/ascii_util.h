@@ -213,22 +213,52 @@ inline size_t Find(std::wstring_view text, std::wstring_view query, size_t start
     return npos;
 }
 
-// 大小無視の等価比較。ASCII 'A'-'Z' のみ小文字化、他は素通し。locale 非依存。
-constexpr bool iequal(std::wstring_view a, std::wstring_view b) noexcept
-{
-    return std::ranges::equal(a, b, {}, ToLowerAscii, ToLowerAscii);
-}
+// 小文字 ASCII リテラル専用の引数型。コンパイル時に契約違反を検出する。
+// 配列参照のテンプレートコンストラクタで wchar_t リテラルしか受け付けず、
+// consteval 内の throw で定数評価を ill-formed にしてコンパイルエラーを発生させる。
+// 実行時オーバーヘッドはゼロ。
+//
+// 検証する契約:
+//  - NUL 終端 (literal[N-1] == L'\0')。文字列リテラルなら自動で満たすが、
+//    手書きの wchar_t[N] 配列で終端を忘れた場合に弾く。
+//  - 全文字が ASCII 範囲 (<= 0x7F)。CJK 等が混じるとサイレントに通って
+//    比較側で常に不一致になるため、明示的に拒否する。
+//  - 大文字 'A'-'Z' を含まない。`iequal` 等は LHS のみ projection で
+//    小文字化する高速版なので、RHS は小文字確定でなければならない。
+struct LowercaseAsciiLiteral {
+    std::wstring_view value;
 
-// 大小無視の辞書順比較。a < b なら true。
-constexpr bool iless(std::wstring_view a, std::wstring_view b) noexcept
+    template <size_t N>
+    consteval LowercaseAsciiLiteral(const wchar_t (&literal)[N]) noexcept
+        : value(literal, N - 1)
+    {
+        if (literal[N - 1] != L'\0') {
+            throw "LowercaseAsciiLiteral: literal must be NUL-terminated";
+        }
+        for (size_t i = 0; i < N - 1; ++i) {
+            if (literal[i] > 0x7F) {
+                throw "LowercaseAsciiLiteral: literal must contain only ASCII characters";
+            }
+            if (literal[i] >= L'A' && literal[i] <= L'Z') {
+                throw "LowercaseAsciiLiteral: literal must be lowercase ASCII";
+            }
+        }
+    }
+};
+
+// 大小無視の等価比較。ASCII 'A'-'Z' のみ小文字化、他は素通し。locale 非依存。
+// LHS のみ projection で小文字化する高速版。RHS は LowercaseAsciiLiteral 型で
+// 受けることで、小文字リテラル以外を渡せないことをコンパイル時に保証する。
+constexpr bool iequal(std::wstring_view a, LowercaseAsciiLiteral b) noexcept
 {
-    return std::ranges::lexicographical_compare(a, b, {}, ToLowerAscii, ToLowerAscii);
+    return std::ranges::equal(a, b.value, {}, ToLowerAscii);
 }
 
 // 大小無視のプレフィックスマッチ。s が prefix で始まれば true。
-constexpr bool istarts_with(std::wstring_view s, std::wstring_view prefix) noexcept
+constexpr bool istarts_with(std::wstring_view s, LowercaseAsciiLiteral prefix) noexcept
 {
-    return s.size() >= prefix.size() && iequal(s.substr(0, prefix.size()), prefix);
+    return s.size() >= prefix.value.size() &&
+           std::ranges::equal(s.substr(0, prefix.value.size()), prefix.value, {}, ToLowerAscii);
 }
 
 template <typename T, std::unsigned_integral U>
