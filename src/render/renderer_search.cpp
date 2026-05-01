@@ -15,7 +15,6 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         md_pane_rect.y + md_pane_rect.height,
         !sb.query.empty());
 
-    // 背景
     const D2D1_RECT_F bar_rect = D2D1::RectF(
         md_pane_rect.x,
         sbl.bar_top,
@@ -23,14 +22,12 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         sbl.bar_bottom);
     rt()->FillRectangle(bar_rect, Brush(BrushId::SearchBarBg));
 
-    // 上ボーダー
     rt()->DrawLine(
         D2D1::Point2F(bar_rect.left, sbl.bar_top),
         D2D1::Point2F(bar_rect.right, sbl.bar_top),
         Brush(BrushId::SearchBarBorder),
         1.0f);
 
-    // 検索アイコン
     if (fmt_.search_icon) {
         auto* brush = Brush(BrushId::SearchInputText);
         if (brush) {
@@ -40,12 +37,11 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         }
     }
 
-    // 入力フィールド背景
     const D2D1_ROUNDED_RECT input_rrect = D2D1::RoundedRect(sbl.input_rect, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER);
     const bool no_match = !sb.query.empty() && sb.total_matches == 0;
     rt()->FillRoundedRectangle(input_rrect, Brush(no_match ? BrushId::SearchNoMatchBg : BrushId::SearchInputBg));
 
-    // ボーダー（フォーカス時はリンク色で強調）
+    // フォーカス時はリンク色で強調
     if (sb.has_focus) {
         auto* focus_brush = Brush(BrushId::Link);
         if (focus_brush) {
@@ -61,8 +57,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         }
     }
 
-    // 入力テキスト（レイアウトを1回だけ作成し、描画とキャレット計測を共用）
-    // IMEコンポジション中は確定済みテキスト+変換中テキストを合成して表示
+    // レイアウトを1回だけ作成し、描画とキャレット計測で共用する。
+    // IMEコンポジション中は確定済みテキスト+変換中テキストを合成して表示。
     const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
     float caret_x = text_left;
 
@@ -136,7 +132,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
                 cached_search_has_underline_ = true;
             }
 
-            // 選択範囲のハイライト描画（テキストの背面に描画）
+            // テキストの背面に描画
             const int text_len = static_cast<int>(display_text.size());
             const bool has_selection = !has_comp && sb.selection_start >= 0 && sb.caret_pos >= 0 && sb.selection_start != sb.caret_pos;
             if (has_selection) {
@@ -169,7 +165,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
                 text_layout.Get(),
                 Brush(BrushId::SearchInputText));
 
-            // キャレット位置計算: コンポジション中はその末尾、それ以外は通常のキャレット位置
+            // コンポジション中はその末尾、それ以外は通常のキャレット位置
             int effective_pos;
             if (has_comp) {
                 effective_pos = comp_start + comp_len;
@@ -180,14 +176,26 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
                     effective_pos = text_len;
                 }
             }
-            FLOAT px, py;
-            DWRITE_HIT_TEST_METRICS htm{};
-            text_layout->HitTestTextPosition(static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
-            caret_x = text_left + px;
+            // layout が同じで effective_pos が一致するフレーム（典型的にはキャレット点滅
+            // 直前と同じ入力）は HitTestTextPosition を省く。layout 失効時は cache_hit が
+            // false になり、その経路で text_layout を作り直す前に effective_pos キャッシュも
+            // 落としておく必要があるため、ここでは layout 一致を直前 update 済み
+            // cached_search_layout_ で判定する。
+            if (cache_hit && cached_search_effective_pos_ == effective_pos) {
+                caret_x = cached_search_caret_x_;
+            }
+            else {
+                FLOAT px, py;
+                DWRITE_HIT_TEST_METRICS htm{};
+                text_layout->HitTestTextPosition(static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
+                caret_x = text_left + px;
+                cached_search_effective_pos_ = effective_pos;
+                cached_search_caret_x_ = caret_x;
+            }
         }
     }
 
-    // キャレット描画（コンポジション中はIME側がキャレットを表示するため非表示）
+    // コンポジション中はIME側がキャレットを表示するため非表示
     if (sb.caret_visible && !has_comp) {
         caret_x = std::min(caret_x + 1.0f, sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT);
         rt()->DrawLine(
@@ -197,7 +205,6 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
             1.0f);
     }
 
-    // ボタン描画ヘルパー
     auto drawIconBtn = [&](const D2D1_RECT_F& r, const wchar_t* icon, bool hovered, float alpha = 1.0f) {
         if (hovered) {
             rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER), Brush(BrushId::TitleBarButtonHover));
@@ -233,7 +240,6 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     drawIconBtn(sbl.up_btn, L"\uE70E", sb.up_btn_hovered, nav_alpha);
     drawIconBtn(sbl.down_btn, L"\uE70D", sb.down_btn_hovered, nav_alpha);
 
-    // マッチカウント
     if (fmt_.search_count && !sb.query.empty()) {
         wchar_t count_text[32];
         if (sb.total_matches == 0) {

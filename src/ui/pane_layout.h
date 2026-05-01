@@ -11,14 +11,13 @@ enum class PaneZone : uint8_t {
     MdPane
 };
 
-// 計算済みペインレイアウト位置
 struct PaneLayout {
     PaneRect file_rect{};
     PaneRect toc_rect{};
     PaneRect md_rect{};
 };
 
-// ペインのスクロール情報（スクロールバーの描画と操作に使用）
+// スクロールバーの描画と操作に使う情報。
 struct PaneScrollInfo {
     float content_top = 0.0f;
     float content_height = 0.0f;

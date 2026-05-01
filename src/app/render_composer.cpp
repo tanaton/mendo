@@ -13,7 +13,8 @@ GestureRenderState BuildGestureState(const AppState& state)
                                                                                            : 0;
     gs.overlay_alpha = state.interaction.gesture.GetOverlayAlpha();
 
-    // タッチパッドスワイプのオーバーレイ（マウスジェスチャーが非アクティブの場合のみ）
+    // マウスジェスチャーが非アクティブな場合のみ、タッチパッドスワイプ用の
+    // オーバーレイで上書きする（同時表示を避ける）。
     if (!gs.overlay_visible && state.interaction.swipe_detector.IsOverlayVisible()) {
         gs.overlay_visible = true;
         gs.direction = state.interaction.swipe_detector.GetOverlayDirection();

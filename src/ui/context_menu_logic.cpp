@@ -6,10 +6,6 @@
 using Microsoft::WRL::ComPtr;
 using namespace context_menu_constants;
 
-// ============================================================
-// 公開 API（PIMPL 経由の forward）
-// ============================================================
-
 ContextMenu::ContextMenu() : impl_(std::make_unique<Impl>())
 {}
 ContextMenu::~ContextMenu() = default;
@@ -63,10 +59,6 @@ void ContextMenu::TestComputeLayout()
     impl_->ComputeLayout();
 }
 
-// ============================================================
-// メニュー項目構築
-// ============================================================
-
 void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
 {
     items.clear();
@@ -93,10 +85,7 @@ void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
     items.emplace_back(ItemType::Text, IDM_TOGGLE_TOC_PANE, ls.menu_toc_pane, true, params.toc_pane_checked);
 }
 
-// ============================================================
-// テキストフォーマット（DWrite only、Win32 / D2D render target 非依存）
-// ============================================================
-
+// テキストフォーマット生成（DWrite only、Win32 / D2D render target 非依存）。
 void ContextMenu::Impl::CreateTextFormats(const Theme& t)
 {
     if (fmt_text && fmt_icon &&
@@ -132,10 +121,6 @@ void ContextMenu::Impl::CreateTextFormats(const Theme& t)
     cached_fmt_font_family.assign(t.font_family.begin(), t.font_family.end());
     cached_fmt_font_size = t.pane_font_size;
 }
-
-// ============================================================
-// レイアウト計算
-// ============================================================
 
 void ContextMenu::Impl::ComputeLayout()
 {
@@ -193,10 +178,6 @@ void ContextMenu::Impl::ComputeLayout()
 
     menu_height = y + PAD_Y;
 }
-
-// ============================================================
-// ヒットテスト
-// ============================================================
 
 int ContextMenu::Impl::HitTest(float x, float y) const noexcept
 {

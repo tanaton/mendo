@@ -10,15 +10,13 @@
 #include <optional>
 
 // プラットフォーム非依存のピクセル矩形。App::OnDpiChanged 境界で
-// Win32 の RECT から各フィールドの値をコピーして生成する。
+// Win32 の RECT から詰め替えて reducer に渡す。
 struct PixelRect {
     int32_t left;
     int32_t top;
     int32_t right;
     int32_t bottom;
 };
-
-// ──── イベント (プラットフォーム非依存のユーザー入力) ────
 
 struct KeyDownEvent {
     int key;
@@ -33,8 +31,6 @@ struct MouseWheelEvent {
     PaneZone zone = PaneZone::MdPane;
 };
 
-// ──── アクション: コマンド系 (アプリが実行すべき操作) ────
-
 enum class ScrollType : uint8_t {
     LineUp,
     LineDown,
@@ -44,17 +40,14 @@ enum class ScrollType : uint8_t {
     End
 };
 
-// キーボード/スクロールバースクロール (Shellがtypeから具体的なdeltaを算出)
 struct KeyScrollAction {
     ScrollType type;
 };
 
-// ホイール/タッチパッドの直接スクロール (アニメーションなし)
 struct DirectScrollByAction {
     float delta;
 };
 
-// ペイン (ファイル/目次) スクロール
 struct ScrollPaneAction {
     PaneZone pane;
     float delta;
@@ -65,7 +58,6 @@ struct CopyFormattedClipboardAction {};
 struct SelectAllAction {};
 struct ClearSelectionAction {};
 
-// サイドペインの切り替え
 enum class PaneTarget : uint8_t {
     File,
     Toc
@@ -94,7 +86,6 @@ constexpr PaneZone ToPaneZone(PaneTarget target) noexcept
     return target == PaneTarget::File ? PaneZone::FilePane : PaneZone::TocPane;
 }
 
-// ズーム操作
 enum class ZoomDirection : uint8_t {
     In,
     Out,
@@ -115,8 +106,6 @@ struct CloseSearchBarAction {};
 struct SearchNextAction {};
 struct SearchPrevAction {};
 struct NoOpAction {};
-
-// ──── アクション: マウスイベント系 ────
 
 struct MouseLeaveAction {};
 struct MdPaneNavHoverAction {
@@ -194,7 +183,6 @@ struct FilePaneFileClickedAction {
 struct TocItemClickedAction {
     std::pmr::wstring anchor_id;
 };
-// リンクからのアンカーナビゲーション（アンカー ID / スラグ）。
 struct NavigateAnchorAction {
     std::pmr::wstring anchor_id;
 };
@@ -213,7 +201,6 @@ struct DropFilesAction {
     std::pmr::wstring path;
 };
 
-// ツールチップ更新（ホバー対象が変わった時に発行）。
 // target.IsEmpty() なら非表示要求。px/py はクライアント座標。
 struct UpdateTooltipAction {
     TooltipTarget target;
@@ -221,10 +208,7 @@ struct UpdateTooltipAction {
     int py;
 };
 
-// ツールチップを即時クリア（タイマー停止 + 状態リセット）。
 struct ClearTooltipAction {};
-
-// ──── アクション: システムイベント系 ────
 
 struct ResizeAction {
     uint32_t width;
@@ -242,16 +226,12 @@ struct ExitSizeMoveAction {};
 struct CaptureChangedAction {};
 struct DestroyAction {};
 
-// ──── アクション: タイマー・非同期コールバック系 ────
-
 struct TimerAction {
     uintptr_t timer_id;
 };
 struct FileWatchAction {};
 struct ParseCompleteAction {};
 struct ImageLoadedAction {};
-
-// ──── アクション: 検索系 ────
 
 struct SearchTextChangedAction {
     std::pmr::wstring text;
@@ -266,10 +246,7 @@ struct ImeCompositionAction {
     std::pmr::wstring text;
 };
 
-// ──── AppAction: 全アクションの統一型 ────
-
 using AppAction = std::variant<
-    // コマンド系
     NoOpAction,
     KeyScrollAction,
     DirectScrollByAction,
@@ -290,7 +267,6 @@ using AppAction = std::variant<
     CloseSearchBarAction,
     SearchNextAction,
     SearchPrevAction,
-    // マウスイベント系
     MouseLeaveAction,
     MdPaneNavHoverAction,
     MdPaneButtonHoverChangedAction,
@@ -321,7 +297,6 @@ using AppAction = std::variant<
     DropFilesAction,
     UpdateTooltipAction,
     ClearTooltipAction,
-    // システムイベント系
     ResizeAction,
     DpiChangedAction,
     ActivateAction,
@@ -329,12 +304,10 @@ using AppAction = std::variant<
     ExitSizeMoveAction,
     CaptureChangedAction,
     DestroyAction,
-    // タイマー・非同期系
     TimerAction,
     FileWatchAction,
     ParseCompleteAction,
     ImageLoadedAction,
-    // 検索系
     SearchTextChangedAction,
     ToggleCaseSensitiveAction,
     ToggleHighlightAction,

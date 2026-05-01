@@ -57,7 +57,6 @@ enum class TableAlign : uint8_t {
     Right = 3,
 };
 
-// テーブルセルデータ（純粋なドメインデータ — レイアウトキャッシュなし）
 struct TableCell {
     std::pmr::wstring text;
     std::pmr::vector<TextRun> runs;
@@ -74,17 +73,14 @@ struct NodeTableData {
     std::pmr::vector<TableRow> rows;
 };
 
-// 見出し専用データ（Headingノードのみ確保してメモリを節約）
 struct NodeHeadingData {
     std::pmr::wstring anchor_id; // 内部リンク向けGitHubスタイルのスラグ
 };
 
-// コードブロック専用データ（CodeBlockノードのみ確保してメモリを節約）
 struct NodeCodeData {
     std::pmr::vector<SyntaxToken> syntax_tokens;
 };
 
-// 画像専用データ（Imageノードのみ確保）
 struct NodeImageData {
     std::pmr::wstring src; // 画像ソースパス（Markdown内の記述）
     float width = 0.0f;    // 元画像の幅（ピクセル）
@@ -169,7 +165,6 @@ struct Node {
         line_count = line_count_value;
     }
 
-    // ---- 拡張データへのアクセサ ----
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
     constexpr NodeTableData* table_data() noexcept
     {
@@ -266,7 +261,6 @@ struct Node {
         return hd ? std::wstring_view{ hd->anchor_id } : std::wstring_view{};
     }
 
-    // ---- link_urls アクセサ ----
     std::pmr::vector<std::pmr::wstring>& ensure_link_urls()
     {
         if (!link_urls) {

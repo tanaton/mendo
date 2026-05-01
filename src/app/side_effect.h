@@ -14,7 +14,6 @@
 
 namespace effect {
 
-// ---- UI / 描画 / 入力系 ----
 struct InvalidateWindow {};
 struct InvalidateTitleBar {};
 struct SetCapture {};
@@ -49,7 +48,6 @@ struct ShowContextMenu {
     int screen_y;
 };
 
-// ---- ウィンドウ / テーマ系 ----
 struct ShowWindowCmd {
     int cmd;
 };
@@ -88,7 +86,6 @@ struct RendererSetDpi {
     float dpi;
 };
 
-// ---- ナビゲーション / 外部操作系 ----
 struct ShellOpen {
     std::pmr::wstring url;
 };
@@ -98,7 +95,6 @@ struct LoadFile {
 struct ReloadFile {};
 struct OpenFileDialog {};
 
-// ---- レイアウト / ペイン / TOC 系 ----
 struct DeferredLayout {};
 struct BitmapManage {};
 struct MermaidBatch {};
@@ -117,7 +113,6 @@ struct SyncMaxScroll {
     float md_pane_height;
 };
 
-// ---- リソース / ファイル監視系 ----
 struct LoadImages {};
 struct RequestMermaidRenders {};
 struct CancelMermaidBatch {};
@@ -130,7 +125,6 @@ struct StopFileWatch {};
 struct ResumeFileWatch {};
 struct CheckFileChanges {};
 
-// ---- タイマー系 ----
 struct SetTimer {
     UINT_PTR id;
     UINT ms;
@@ -144,13 +138,10 @@ struct ProcessMermaidBatchTimer {};
 struct ProcessBitmapManage {};
 struct MermaidInitRetry {};
 
-// ---- ライフサイクル / 永続化系 ----
 struct Destroy {};
 struct HandleParseComplete {};
 
 } // namespace effect
-
-// ---- ドメイン variant ----
 
 using UiEffect = std::variant<
     effect::InvalidateWindow,
@@ -217,7 +208,7 @@ using LifecycleEffect = std::variant<
     effect::Destroy,
     effect::HandleParseComplete>;
 
-// ---- SideEffect: ドメイン variant を束ねる二段 variant ----
+// ドメイン variant を束ねる二段 variant。
 using SideEffect = std::variant<
     UiEffect,
     WindowEffect,
@@ -228,8 +219,6 @@ using SideEffect = std::variant<
     LifecycleEffect>;
 
 using SideEffectList = std::pmr::vector<SideEffect>;
-
-// ---- ドメイン振り分けヘルパー ----
 
 namespace side_effect_detail {
 

@@ -74,7 +74,6 @@ public:
     {
         return static_cast<int>(matches_.size());
     }
-    // 大文字小文字の区別
     constexpr bool IsCaseSensitive() const noexcept
     {
         return case_sensitive_;
@@ -88,7 +87,6 @@ public:
         case_sensitive_ = !case_sensitive_;
     }
 
-    // ハイライト表示のON/OFF
     constexpr bool IsHighlightEnabled() const noexcept
     {
         return highlight_enabled_;

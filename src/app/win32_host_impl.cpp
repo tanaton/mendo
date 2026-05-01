@@ -4,7 +4,7 @@
 #include <memory_resource>
 #include <shellapi.h>
 
-// app.h のインクルードは循環依存を招くため前方宣言で代替
+// app.h を直接 include すると循環依存になるため、関数宣言だけ前方参照する。
 void ApplyDarkModeToWindow(HWND hwnd, bool dark);
 
 void Win32Host::Init(HWND hwnd, CursorManager& cursors) noexcept

@@ -7,7 +7,6 @@
 // Win32非依存 — 完全にテスト可能。
 class PaneController {
 public:
-    // ---- ドラッグ対象 ----
     enum class DragTarget : uint8_t {
         None,
         Splitter1,
@@ -17,7 +16,6 @@ public:
         MdScrollbar
     };
 
-    // ---- 表示/非表示 ----
     constexpr bool IsFilePaneVisible() const noexcept
     {
         return show_file_;
@@ -52,7 +50,6 @@ public:
         SetTocPaneVisible(!show_toc_);
     }
 
-    // ---- 幅 ----
     constexpr float GetFilePaneWidth() const noexcept
     {
         return file_width_;
@@ -70,7 +67,6 @@ public:
         toc_width_ = std::max(w, PANE_MIN_WIDTH);
     }
 
-    // ---- スクロール ----
     constexpr ScrollState& FileScroll() noexcept
     {
         return file_scroll_;
@@ -93,11 +89,10 @@ public:
         toc_scroll_ = {};
     }
 
-    // ペインをdelta分スクロールし、実際にスクロール位置が変化した場合trueを返す
+    // 実際にスクロール位置が変化した場合 true を返す。
     bool ScrollFilePaneBy(float delta, float max_scroll) noexcept;
     bool ScrollTocPaneBy(float delta, float max_scroll) noexcept;
 
-    // ---- ホバー ----
     constexpr int GetHoveredFileIndex() const noexcept
     {
         return hovered_file_;
@@ -106,11 +101,10 @@ public:
     {
         return hovered_toc_;
     }
-    // 値が変化した場合trueを返す
+    // 値が変化した場合 true を返す。
     bool SetHoveredFileIndex(int idx) noexcept;
     bool SetHoveredTocIndex(int idx) noexcept;
 
-    // ペインヘッダー閉じるボタンのホバー状態
     constexpr bool IsFileCloseHovered() const noexcept
     {
         return file_close_hovered_;
@@ -122,7 +116,6 @@ public:
     bool SetFileCloseHovered(bool h) noexcept;
     bool SetTocCloseHovered(bool h) noexcept;
 
-    // ファイルペインヘッダー更新ボタンのホバー状態
     constexpr bool IsFileRefreshHovered() const noexcept
     {
         return file_refresh_hovered_;
@@ -130,7 +123,6 @@ public:
     bool SetFileRefreshHovered(bool h) noexcept;
 
 public:
-    // ---- ドラッグ ----
     constexpr DragTarget GetDragTarget() const noexcept
     {
         return drag_target_;
@@ -152,19 +144,16 @@ public:
         drag_scroll_offset_ = off;
     }
 
-    // スプリッター1の位置を制約する（ファイルペインの右端）
+    // スプリッター1の位置を制約する（ファイルペインの右端）。
     void DragSplitter1To(float dip_x, float total_width, float splitter_w) noexcept;
-    // スプリッター2の位置を制約する（目次ペインの右端）
+    // スプリッター2の位置を制約する（目次ペインの右端）。
     void DragSplitter2To(float dip_x, float total_width, float splitter_w) noexcept;
 
-    // ---- ズーム ----
     void ApplyZoom(float ratio) noexcept;
 
-    // ---- レイアウト ----
     PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset = 0.0f) const noexcept;
     PaneZone DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept;
 
-    // ---- 定数 ----
     static constexpr float PANE_DEFAULT_WIDTH = 220.0f;
     static constexpr float PANE_MIN_WIDTH = 100.0f;
     static constexpr float MD_PANE_MIN_WIDTH = 200.0f;

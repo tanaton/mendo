@@ -8,12 +8,20 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         brush_pool_.clear();
         use_counter_ = 0;
         bound_rt_ = rt;
+        last_brush_ = nullptr;
     }
     const uint32_t key = command_executor_internal::PackColor(color);
+    // 直前と同色なら hash lookup を完全にスキップ。同色連続発行（罫線、ハイライト、
+    // 同テーマ色のテキスト等）が多いためヒット率が高い。
+    if (last_brush_ && key == last_brush_key_) {
+        return last_brush_;
+    }
     const uint64_t now = ++use_counter_;
     if (const auto it = brush_pool_.find(key); it != brush_pool_.end()) {
         it->second.last_used = now;
-        return it->second.brush.Get();
+        last_brush_key_ = key;
+        last_brush_ = it->second.brush.Get();
+        return last_brush_;
     }
     if (brush_pool_.size() >= MAX_POOLED_BRUSHES) {
         // LRU: 全消去によるフレームスパイクを避けるため最古エントリ 1 つだけ追い出す。
@@ -23,6 +31,10 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
                 oldest = it;
             }
         }
+        // 追い出すエントリが直前キャッシュと一致する場合はキャッシュも無効化する
+        if (last_brush_ == oldest->second.brush.Get()) {
+            last_brush_ = nullptr;
+        }
         brush_pool_.erase(oldest);
     }
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
@@ -30,7 +42,9 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         return nullptr;
     }
     auto [it, _] = brush_pool_.emplace(key, BrushEntry{ std::move(brush), now });
-    return it->second.brush.Get();
+    last_brush_key_ = key;
+    last_brush_ = it->second.brush.Get();
+    return last_brush_;
 }
 
 void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt)
@@ -76,7 +90,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
                 if (c.format && c.text_len > 0) {
                     auto* b = GetBrush(rt, c.color);
                     if (b) {
-                        rt->DrawText(c.text, static_cast<UINT32>(c.text_len), c.format, c.rect, b);
+                        rt->DrawText(c.text(), static_cast<UINT32>(c.text_len), c.format, c.rect, b);
                     }
                 }
             },

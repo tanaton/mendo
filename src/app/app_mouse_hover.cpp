@@ -6,10 +6,6 @@
 #include "pane_layout.h"
 #include "ui_constants.h"
 
-// ============================================================
-// MD ペイン — スクロールバー判定
-// ============================================================
-
 bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept
 {
     if (!layout_service_) {
@@ -34,13 +30,8 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y)
     return IsOverMdScrollbar(dip_x, dip_y, GetPaneLayout());
 }
 
-// ============================================================
-// MD ペイン — ホバー
-// ============================================================
-
 void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
 {
-    // 検索バー上のホバー処理
     if (state_.search.search_state.IsVisible()) {
         const auto& r = pane_layout.md_rect;
         const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
@@ -61,7 +52,6 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         }
     }
 
-    // スクロールバー領域では矢印カーソル
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
         SetCursor(cursors_.Arrow());
         Dispatch(UpdateTooltipAction{ TooltipTarget{}, px, py });
@@ -76,8 +66,8 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
 
-    // コピー/保存/SVGコピーボタンのホバー判定（距離 + 時間スロットリングで不要な再計算を回避）。
-    // 1 回の可視ノード走査で 3 つを同時に判定する。
+    // 距離+時間スロットリングで再計算を抑え、1 回の可視ノード走査でコピー/保存/SVG コピー
+    // ボタンのホバーを同時に判定する。
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     auto& ht = state_.interaction.hover_throttle;
     HoveredButtons new_hover = state_.interaction.hovered;
@@ -114,13 +104,11 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
 
-    // リンク・画像のヒットテスト
     if (ht.TryMarkMoved(ht.last_md_hit_pos, ht.last_md_hit_tick, px, py)) {
         const auto hit = HitTest(px, py);
         const auto link = GetLinkAtHit(hit);
         ht.last_md_cursor_hand = link.has_value();
 
-        // リンクまたは画像のツールチップ
         TooltipTarget tt;
         if (link.has_value()) {
             tt.zone = TooltipTarget::Zone::MdLink;
@@ -144,10 +132,6 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     SetCursor(ht.last_md_cursor_hand ? cursors_.Hand() : cursors_.IBeam());
 }
 
-// ============================================================
-// 全体 — ホバー (OnMouseHover)
-// ============================================================
-
 void App::OnMouseHover(int px, int py)
 {
     using mendo::app_mouse::BuildTitleBarTooltip;
@@ -167,7 +151,6 @@ void App::OnMouseHover(int px, int py)
     const float dip_x = dip.x;
     const float dip_y = dip.y;
 
-    // タイトルバーのホバー処理
     if (dip_y < state_.window.titlebar.GetHeight()) {
         const auto tb_zone = state_.window.titlebar.HitTest(dip_x, dip_y);
         SetCursor(cursors_.Arrow());
@@ -177,7 +160,6 @@ void App::OnMouseHover(int px, int py)
         Dispatch(UpdateTooltipAction{ BuildTitleBarTooltip(tb_zone, IsZoomed(hwnd_)), px, py });
         return;
     }
-    // タイトルバー外に出たらホバーをリセット
     if (state_.window.titlebar.SetHovered(TitleBarHitZone::None)) {
         InvalidateTitleBar();
     }
@@ -193,7 +175,7 @@ void App::OnMouseHover(int px, int py)
     int new_file_hover = -1;
     int new_toc_hover = -1;
 
-    // ペインゾーン外に出たら閉じる/更新ボタンのホバーをリセット
+    // ペインゾーン外に出たらヘッダーボタンのホバーをリセット（無効化忘れ防止）。
     if (zone != PaneZone::FilePane) {
         bool changed = state_.view.panes.SetFileCloseHovered(false);
         changed |= state_.view.panes.SetFileRefreshHovered(false);

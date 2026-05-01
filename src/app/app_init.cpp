@@ -1,4 +1,3 @@
-// App の初期化処理 (Init) と ResourceManager / SearchBarController 用のコールバック組み立て。
 #include "app.h"
 #include "app_constants.h"
 #include "file_loader.h"
@@ -18,11 +17,10 @@ bool App::Init(HWND hwnd)
 
     layout_service_.emplace(renderer_.GetLayout(), state_.view.viewport);
 
-    // PixelToDip用にDPIスケールをキャッシュ (OnDpiChangedで更新)
+    // PixelToDip 用に DPI スケールをキャッシュ（OnDpiChanged でも更新する）。
     const float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
     state_.window.cached_dpi_scale = (init_dpi > 0.0f) ? (init_dpi / DEFAULT_DPI) : 1.0f;
 
-    // タスクスケジューラを初期化（画像デコード・キャッシュ書き込み共用）
     scheduler_.Init(mermaid_util::ComputeWorkerCount(
         std::thread::hardware_concurrency()));
 
@@ -129,7 +127,7 @@ bool App::Init(HWND hwnd)
     image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory());
     image_loader_.InitAsync(hwnd_, app_msg::IMAGE_LOADED, scheduler_);
 
-    // D2Dデバイスロスト時にレンダーターゲットが再作成されたら、各ローダーを更新
+    // D2D デバイスロストでレンダーターゲットが再作成されたら、各ローダーへ伝搬する。
     renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
         mermaid_renderer_.SetRenderTarget(new_rt);
         image_loader_.CancelPending();
@@ -173,10 +171,6 @@ bool App::Init(HWND hwnd)
 
     return true;
 }
-
-// ============================================================
-// Init用コールバック構築
-// ============================================================
 
 ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
 {

@@ -42,7 +42,6 @@ void FileExplorer::Refresh()
     // ".." はソート対象外で常に先頭。後段ソートはこの範囲を除く。
     const size_t sort_begin = entries_.size();
 
-    // ディレクトリ内の全アイテムを列挙
     const std::filesystem::path dir_base{ directory_ };
     const auto pattern = dir_base / L"*";
     WIN32_FIND_DATAW fd;
@@ -58,11 +57,9 @@ void FileExplorer::Refresh()
         if (name == L"." || name == L"..") {
             continue;
         }
-        // システムファイルをスキップ
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) {
             continue;
         }
-        // エントリ数上限
         if (entries_.size() - sort_begin >= MAX_ENTRIES) {
             break;
         }

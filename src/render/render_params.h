@@ -28,7 +28,6 @@ struct ToastRenderState {
     std::wstring_view message;
 };
 
-// タイトルバー描画パラメータ。
 struct TitleBarRenderState {
     // --- 8バイトアライメント ---
     std::wstring_view title_text;
@@ -72,7 +71,6 @@ inline D2D1_RECT_F ToD2DRect(const DipRect& r) noexcept
     return std::bit_cast<D2D1_RECT_F>(r);
 }
 
-// サイドペイン描画パラメータを一つの構造体にまとめたもの。
 struct SidePaneState {
     // --- 8バイトアライメント (参照 = ポインタ) ---
     const PaneRect& file_pane_rect;
@@ -117,7 +115,6 @@ struct PaneCache {
     }
 };
 
-// 検索バー描画パラメータ
 struct SearchBarRenderState {
     // --- 8バイトアライメント ---
     std::wstring_view query;
@@ -142,7 +139,6 @@ struct SearchBarRenderState {
     bool highlight_btn_hovered = false;
 };
 
-// Renderer::Render に渡す全パラメータをまとめた構造体。
 struct RenderParams {
     // --- 8バイトアライメント (参照 = ポインタ) ---
     const std::pmr::vector<Node>& nodes;

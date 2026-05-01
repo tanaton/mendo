@@ -57,4 +57,9 @@ private:
     std::unordered_map<uint32_t, BrushEntry> brush_pool_;
     uint64_t use_counter_ = 0;
     ID2D1RenderTarget* bound_rt_ = nullptr;
+    // 同色連続発行（罫線、ハイライト等）の hash lookup を省くための直前ブラシキャッシュ。
+    // last_brush_==nullptr が「キャッシュ無効」を示し、PackColor の値域全体を
+    // 非衝突に使えるようにする。
+    uint32_t last_brush_key_ = 0;
+    ID2D1SolidColorBrush* last_brush_ = nullptr;
 };

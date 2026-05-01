@@ -7,10 +7,6 @@
 #include <windows.h>
 #include <algorithm>
 
-// ============================================================
-// スクロールバー・スクロール
-// ============================================================
-
 void App::InvalidateHitPositions()
 {
     state_.interaction.hover_throttle.Reset();
@@ -44,7 +40,7 @@ void App::SyncTocActiveAndAutoScroll()
         return;
     }
 
-    // アクティブ見出しが目次ペインの表示範囲外なら自動スクロール
+    // アクティブ見出しが目次ペインの表示範囲から外れていたら、自動スクロールで追従する。
     const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
     const float total = static_cast<float>(state_.document.doc.GetToc().GetEntries().size()) * theme.pane_item_height;
     const auto info = ComputePaneScrollInfo(layout.toc_rect, total);
@@ -53,7 +49,7 @@ void App::SyncTocActiveAndAutoScroll()
     float& sy = toc_scroll.scroll_y;
     sy = std::clamp(sy, 0.0f, info.max_scroll);
     if (info.content_height > 0.0f) {
-        // フォーカスを表示領域の5等分中、区画2〜4(1/5〜4/5)に留める
+        // フォーカスを表示領域の 1/5〜4/5 帯に留める（端ぴったりだと前後が見えにくい）。
         const float zone_upper = info.content_height * (1.0f / 5.0f);
         const float zone_lower = info.content_height * (4.0f / 5.0f);
         if (item_y < sy + zone_upper) {
@@ -71,7 +67,7 @@ void App::InvalidateMdPane(const PaneRect& md_rect)
         Invalidate();
         return;
     }
-    // MDペインは本文領域のみ無効化する。タイトルバーは別途 InvalidateTitleBar() を使う。
+    // MD ペインの本文領域のみ無効化（タイトルバーは別途 InvalidateTitleBar() で扱う）。
     InvalidatePane(md_rect);
 }
 
@@ -85,10 +81,6 @@ void App::EnsureScrollTarget()
     state_.view.viewport.EnsureScrollTarget(
         state_.document.layout_cache, state_.document.doc.GetNodes().size());
 }
-
-// ============================================================
-// 遅延レイアウト
-// ============================================================
 
 void App::ScheduleDeferredLayoutIfNeeded()
 {
@@ -167,9 +159,9 @@ void App::OnDeferredLayout()
     if (!more) {
         EmitEffect(effect::KillTimer{ app_timer::DEFERRED_LAYOUT });
 
-        // 遅延レイアウト完了: Mermaidファイルキャッシュからの読み込みを
-        // 時間予算付きバッチで処理する。同期ディスクI/O + PNGデコードが
-        // UIスレッドを長時間ブロックするのを防ぐ。
+        // 遅延レイアウト完了後、Mermaid ファイルキャッシュからの読み込みを時間予算付き
+        // バッチで処理する。同期ディスク I/O + PNG デコードが UI スレッドを長時間
+        // ブロックするのを防ぐ。
         resource_manager_.ScheduleMermaidBatch();
 
         EmitEffect(effect::SyncMaxScroll{ md_height });

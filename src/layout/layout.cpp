@@ -6,7 +6,6 @@
 #include <cmath>
 #include <ranges>
 
-// マジックナンバーの名前付き定数
 static constexpr float MIN_COLUMN_WIDTH = 30.0f;
 static constexpr float COLUMN_WIDTH_PADDING = 4.0f;
 static constexpr float Y_POSITION_EPSILON = 0.01f; // Y座標の早期終了判定用許容誤差（DIP単位）
@@ -51,8 +50,6 @@ static float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     }
     std::unreachable();
 }
-
-// ---- フリー関数 ----
 
 void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<float>& natural_widths, float available_width, size_t col_count)
 {
@@ -136,7 +133,6 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
     case NodeType::ListItem:
     case NodeType::BlockQuote:
     case NodeType::TaskListItem:
-        // テキストの行数からおおよその高さを推定
         if (!node.HasText()) {
             return theme.paragraph_spacing;
         }
@@ -189,10 +185,9 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
 
         y += GetSpacingAbove(nodes[i], theme);
 
-        // 早期終了: safe_exit_after 以降でY位置が一致すれば、
-        // 以降のノードのY位置は変わらない。
+        // safe_exit_after 以降でY位置が一致すれば、以降のノードのY位置は変わらないので早期終了する。
         if (i > safe_exit_after && std::abs(entry.y_position - y) < Y_POSITION_EPSILON) {
-            // 残りのダーティノードを確認（Y更新より軽量なフラグチェックのみ）
+            // Y更新より軽量なフラグチェックのみで残りのダーティノードを確認
             if (!result.has_dirty_nodes) {
                 result.has_dirty_nodes = std::ranges::any_of(
                     std::views::iota(i, node_count),
@@ -212,8 +207,6 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
     result.total_height = y + theme.margin_top;
     return result;
 }
-
-// ---- LayoutEngine クラス ----
 
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
 {
@@ -262,7 +255,6 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 
         if (needs_layout) {
             if (partial) {
-                // 部分モードでは、可視ノードのレイアウトのみ計算する
                 const float node_bottom = y + entry.height; // 古い高さを使って推定
                 const bool visible = (node_bottom >= viewport_top && y <= viewport_bottom);
                 if (visible) {
@@ -297,6 +289,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                             // 後続ノード位置(entry.height ベース)を越えて重なるのを防ぐ。
                             if (node.type == NodeType::Table && entry.has_table_layout()) {
                                 entry.table_layout->col_widths.clear();
+                                entry.table_layout->cached_table_width = 0.0f;
                             }
                         }
                     }
@@ -313,14 +306,13 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
             any_dirty = true;
         }
 
-        // このパスで直接 Y 位置を設定する
         y += GetSpacingAbove(node, *theme_);
         entry.y_position = y;
         y += entry.height;
         y += GetSpacingBelow(node, *theme_);
 
-        // 早期終了: 部分モードで幅の変更がなく、ビューポートを超えた後に
-        // 高さの変更もなければ、残りの Y 位置は変わらない。
+        // 部分モードで幅の変更がなく、ビューポートを超えた後に
+        // 高さの変更もなければ、残りの Y 位置は変わらないので早期終了する。
         if (partial && !width_changed && !any_height_changed && y > viewport_bottom) {
             // 中断地点より先にダーティノードが存在する可能性を保守的に仮定する。
             // ProcessDirtyBatch が存在しない場合は速やかに確認・クリアする。
@@ -342,8 +334,9 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
 {
-    last_viewport_width_ = 0.0f;                                                              // 幅の変更検出を強制する
-    ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right); // 逆変換: content→viewport
+    last_viewport_width_ = 0.0f; // 幅の変更検出を強制する
+    // 逆変換: content→viewport
+    ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right);
 }
 
 bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
@@ -352,7 +345,6 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
     bool any_updated = false;
     int last_measured = -1;
 
-    // 下端が viewport_top 以上の最初のノードを見つける
     const auto node_count = nodes.size();
     const int lo = FindFirstVisibleNodeIndex(cache, node_count, viewport_top);
 
@@ -411,8 +403,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
             continue;
         }
 
-        // 時間予算チェック: MeasureNodeの前に判定し、超過分を抑える。
-        // 最低1ノードは処理する（進行を保証）。
+        // MeasureNode の前に判定し超過分を抑えるが、進行保証のため最低1ノードは処理する。
         if (has_budget && processed > 0) {
             const auto elapsed = std::chrono::steady_clock::now() - start;
             if (std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() >= time_budget_us) {
@@ -450,7 +441,6 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
         has_dirty_nodes_ = false;
     }
 
-    // すべてのダーティノードが処理されたら last_viewport_width_ を更新する
     if (!has_dirty_nodes_) {
         last_viewport_width_ = viewport_width;
     }

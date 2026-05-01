@@ -6,8 +6,6 @@
 #include <algorithm>
 #include <memory_resource>
 
-// ---- 基本描画コマンド ----
-
 struct ClearCmd {
     D2D1_COLOR_F color;
 };
@@ -36,11 +34,27 @@ struct DrawTextLayoutCmd {
 };
 
 struct DrawTextCmd {
-    const wchar_t* text = nullptr;       // 非所有; ライフタイムはMonotonicResourceが管理。
+    // 1〜INLINE_TEXT_CAPACITY 文字は inline_buf に直接格納し、
+    // monotonic resource からの小さな allocate を回避する（icon 1 文字や "1." 等の頻出ケース）。
+    // pointer と同サイズに収めることで variant 最大サイズに影響しない。
+    static constexpr uint8_t INLINE_TEXT_CAPACITY = 4;
+    union {
+        const wchar_t* text_ptr; // 非所有; ライフタイムはMonotonicResourceが管理。
+        wchar_t inline_buf[INLINE_TEXT_CAPACITY];
+    };
     IDWriteTextFormat* format = nullptr; // 非所有; ライフタイムはRendererが管理。
     D2D1_RECT_F rect{};
     D2D1_COLOR_F color{};
     uint8_t text_len = 0;
+    bool is_inline = false;
+
+    DrawTextCmd() noexcept : text_ptr(nullptr)
+    {}
+
+    const wchar_t* text() const noexcept
+    {
+        return is_inline ? inline_buf : text_ptr;
+    }
 };
 
 struct DrawBitmapCmd {
@@ -63,8 +77,6 @@ struct DrawEllipseCmd {
     float stroke_width;
 };
 
-// ---- 状態コマンド ----
-
 struct PushClipCmd {
     D2D1_RECT_F rect;
 };
@@ -74,8 +86,6 @@ struct PopClipCmd {};
 struct SetTransformCmd {
     D2D1_MATRIX_3X2_F transform;
 };
-
-// ---- バリアント + リスト ----
 
 using DrawCommand = std::variant<
     ClearCmd,

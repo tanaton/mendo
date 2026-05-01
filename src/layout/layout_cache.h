@@ -42,6 +42,9 @@ struct TableLayoutData {
     // FinalizeTableLayout に最後に渡された max_width。CELL_WIDTH_EPSILON 以内の
     // 差分なら全体の再計算を完全スキップできる。負値 = 未設定。
     float last_applied_max_width = -1.0f;
+    // 列幅 + パディング + 罫線の合計。FinalizeTableLayout で確定後不変なので
+    // GenTable から毎フレーム fold_left せずキャッシュを参照する。
+    float cached_table_width = 0.0f;
 
     // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept
@@ -93,9 +96,23 @@ struct SearchHlCache {
     uint32_t gen = 0;
 };
 
+// 選択ハイライト矩形のフレーム間キャッシュ。本文ノード（テーブル外）でのみ使用。
+// (layout, start, length) が一致する間は HitTestTextRange 再計算をスキップする。
+// 新規構築時の layout_ptr=nullptr は確実にミス判定になるため、validity フラグは持たない。
+// text_layout 失効時は invalidate_selection_hl_cache() で unique_ptr ごと破棄する契約。
+struct SelectionHlCache {
+    std::pmr::vector<D2D1_RECT_F> rects;
+    IDWriteTextLayout* layout_ptr = nullptr;
+    uint32_t start = 0;
+    uint32_t length = 0;
+};
+
 struct NodeLayoutEntry {
     float y_position = 0.0f;
     float height = 0.0f;
+    // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
+    // MeasureNode で text_layout 確定時に同時に求める。
+    float first_line_height = 0.0f;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
     bool effects_applied = false;
@@ -105,6 +122,8 @@ struct NodeLayoutEntry {
 
     // 検索ヒットがあるノードでのみ確保される。描画中に書き換えるため mutable。
     mutable std::unique_ptr<SearchHlCache> search_hl_cache;
+    // 選択中のノードでのみ確保される。描画中に書き換えるため mutable。
+    mutable std::unique_ptr<SelectionHlCache> selection_hl_cache;
 
     SearchHlCache& ensure_search_hl_cache() const
     {
@@ -117,6 +136,27 @@ struct NodeLayoutEntry {
     void invalidate_search_hl_cache() const noexcept
     {
         search_hl_cache.reset();
+    }
+
+    SelectionHlCache& ensure_selection_hl_cache() const
+    {
+        if (!selection_hl_cache) {
+            selection_hl_cache = std::make_unique<SelectionHlCache>();
+        }
+        return *selection_hl_cache;
+    }
+
+    void invalidate_selection_hl_cache() const noexcept
+    {
+        selection_hl_cache.reset();
+    }
+
+    // text_layout の wrap や format 属性が変わった際に、行折り返し由来のキャッシュ
+    // (検索ハイライト矩形 / 選択ハイライト矩形) を一括で落とす。
+    void invalidate_per_frame_hl_caches() const noexcept
+    {
+        invalidate_search_hl_cache();
+        invalidate_selection_hl_cache();
     }
 
     TableLayoutData& ensure_table_layout()
@@ -275,17 +315,12 @@ public:
         for (auto& e : entries_) {
             e.text_layout.Reset();
             e.effects_applied = false;
+            e.first_line_height = 0.0f;
             e.clear_inline_code_bgs();
-            e.invalidate_search_hl_cache();
+            e.invalidate_per_frame_hl_caches();
             if (e.table_layout) {
-                e.table_layout->cell_layouts.clear();
+                ResetTableLayoutGeometry(*e.table_layout);
                 e.table_layout->cell_inline_code_bgs.clear();
-                e.table_layout->row_bgs_computed.clear();
-                e.table_layout->natural_col_widths.clear();
-                e.table_layout->cell_heights.clear();
-                e.table_layout->cell_applied_widths.clear();
-                e.table_layout->col_count = 0;
-                e.table_layout->last_applied_max_width = -1.0f;
             }
         }
         effects_generation_++;
@@ -355,15 +390,10 @@ public:
         for (auto& e : entries_) {
             e.layout_dirty = true;
             e.text_layout.Reset();
-            e.invalidate_search_hl_cache();
+            e.first_line_height = 0.0f;
+            e.invalidate_per_frame_hl_caches();
             if (e.table_layout) {
-                e.table_layout->cell_layouts.clear();
-                e.table_layout->row_bgs_computed.clear();
-                e.table_layout->natural_col_widths.clear();
-                e.table_layout->cell_heights.clear();
-                e.table_layout->cell_applied_widths.clear();
-                e.table_layout->col_count = 0;
-                e.table_layout->last_applied_max_width = -1.0f;
+                ResetTableLayoutGeometry(*e.table_layout);
             }
         }
         effects_generation_++;
@@ -381,6 +411,21 @@ public:
     }
 
 private:
+    // 列幅 / 行高さ / セルメトリクス系の派生キャッシュを既定値に戻す。
+    // cell_inline_code_bgs は呼び出し側で必要に応じて別途クリアする
+    // (DPI 変更パスは bg を作り直すまで維持する設計)。
+    static void ResetTableLayoutGeometry(TableLayoutData& tl) noexcept
+    {
+        tl.cell_layouts.clear();
+        tl.row_bgs_computed.clear();
+        tl.natural_col_widths.clear();
+        tl.cell_heights.clear();
+        tl.cell_applied_widths.clear();
+        tl.col_count = 0;
+        tl.last_applied_max_width = -1.0f;
+        tl.cached_table_width = 0.0f;
+    }
+
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept
     {
         if (!e.text_layout && !e.table_layout) {
@@ -388,10 +433,11 @@ private:
         }
         e.text_layout.Reset();
         e.effects_applied = false;
+        e.first_line_height = 0.0f;
         e.clear_inline_code_bgs();
         e.table_layout.reset();
         e.layout_dirty = true;
-        e.invalidate_search_hl_cache();
+        e.invalidate_per_frame_hl_caches();
     }
 
     std::pmr::vector<NodeLayoutEntry> entries_;

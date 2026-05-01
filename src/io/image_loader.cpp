@@ -74,7 +74,6 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
         return false;
     }
 
-    // キャッシュ確認
     if (auto* cached_ptr = cache_.Find(abs_path)) {
         out.bitmap = cached_ptr->bitmap;
         out.width = cached_ptr->width;
@@ -93,7 +92,6 @@ bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
         return false;
     }
 
-    // ピクセルサイズを DIP に変換してキャッシュに登録
     const auto [width, height] = CreateAndCacheImage(abs_path, created->bitmap, created->pixel_width, created->pixel_height);
     out.bitmap = std::move(created->bitmap);
     out.width = width;

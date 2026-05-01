@@ -40,7 +40,6 @@ public:
     std::pmr::wstring LoadLastFilePath() const;
     void ShowDirectory(std::wstring_view dir_path);
 
-    // Win32Windowから呼び出されるイベントハンドラ
     void OnPaint();
     void OnResize(UINT width, UINT height);
     void OnMouseWheel(int px, int py, short delta, bool ctrl = false);
@@ -58,7 +57,6 @@ public:
     bool OnRButtonUp(int px, int py);
     void OnRButtonMove(int px, int py);
 
-    // ボタン押下なしのマウスホバー処理
     void OnMouseHover(int px, int py);
     void OnMouseLeave()
     {
@@ -66,7 +64,6 @@ public:
     }
     void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const ::PaneLayout& layout);
 
-    // マウスXボタンによるナビゲーション
     void OnXButtonBack()
     {
         Dispatch(NavigateBackAction{});
@@ -76,14 +73,12 @@ public:
         Dispatch(NavigateForwardAction{});
     }
 
-    // ファイル変更イベント（メッセージループから呼ばれる）
     constexpr HANDLE GetFileWatchEvent() const noexcept
     {
         return doc_service_.GetFileWatchEvent();
     }
     void OnFileWatchEvent();
 
-    // タイマーコールバック
     void HandleTimer(UINT_PTR timer_id);
     void OnAppLoadFile();
     void OnAppReloadFile();
@@ -92,7 +87,6 @@ public:
     void OnCaptureChanged();
     void OnDestroy();
 
-    // 検索（Win32Windowから呼ばれるコールバック）— Reducer経由で状態変更
     void OnSearchTextChanged(std::pmr::wstring text)
     {
         Dispatch(SearchTextChangedAction{ std::move(text) });
@@ -136,7 +130,6 @@ public:
         state_.view.scroll_restore.SetNodeRestore(node, offset);
     }
 
-    // サイズ変更状態 — Reducer経由で状態変更
     void OnEnterSizeMove()
     {
         Dispatch(EnterSizeMoveAction{});
@@ -161,7 +154,6 @@ public:
         return state_.window.cached_dpi_scale;
     }
 
-    // カスタムタイトルバー
     constexpr float GetTitleBarHeightDip() const noexcept
     {
         return state_.window.titlebar.GetHeight();
@@ -178,11 +170,9 @@ public:
     }
 
 private:
-    // AppControllerが返すアクションを実行
     void Dispatch(const AppAction& action);
 
     // reducer を介さない経路から effect を単発発火するヘルパー。
-    // App 内で発生する連鎖処理の最後で SyncTocActive 等を emit する際に使う。
     // SideEffectList を作らずに executor の単発 API へ直送し、毎呼び出しの
     // pmr vector アロケーションを避ける (ホット経路: OnDeferredLayout, OnPaint, OnSizing 等)。
     template <typename T>
@@ -191,35 +181,29 @@ private:
         effect_executor_.ExecuteOne(side_effect_detail::WrapIntoDomain(std::forward<T>(e)));
     }
 
-    // Init用コールバック構築ヘルパー
     ResourceManager::Callbacks BuildResourceManagerCallbacks();
     SearchBarController::Callbacks BuildSearchBarCallbacks();
 
     void EnsureScrollTarget();
 
-    // DIP変換
     struct DipPoint {
         float x, y;
     };
     DipPoint PixelToDip(int px, int py) const noexcept;
 
-    // ヒットテスト
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y);
     std::optional<std::pmr::wstring> GetLinkAtHit(const HitResult& hit) const;
     MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
-    // リンク・アンカーナビゲーション
     void HandleLinkClick(std::wstring_view url);
 
-    // クリップボード・選択
     void SetClipboardText(std::wstring_view text) const;
     void CopySelectionToClipboard() const;
     void CopyCodeBlockToClipboard(int node_index) const;
     void SaveDiagramAsPng(int node_index);
     void CopyDiagramAsSvg(int node_index);
 
-    // クリックハンドラ (OnLButtonDownから抽出)
     bool HandleTitleBarClick(float dip_x, float dip_y);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
     void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
@@ -227,10 +211,8 @@ private:
     static bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect,
                                     float total_content, const PaneScrollInfo& scroll_info) noexcept;
 
-    // スクロールバーヘルパー
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
 
-    // レイアウト / スクロール
     void ScheduleDeferredLayoutIfNeeded();
     void InvalidateMdPane(const PaneRect& md_rect);
     void InvalidateHitPositions();
@@ -243,7 +225,6 @@ private:
 
     void SyncTocActiveAndAutoScroll();
 
-    // ファイル読み込み (file_load_service_に委譲)
     void ReloadCurrentFile();
     void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
@@ -289,15 +270,13 @@ private:
     void FinishThemeOrZoomChange();
 
 private:
-    // Win32ハンドル
     HWND hwnd_ = nullptr;
 
     CursorManager cursors_;
 
-    // コアサービス
     Renderer renderer_;
     TaskScheduler scheduler_;
-    MermaidFileCache file_cache_; // mermaid_renderer_より先に宣言（破棄順序の保証）
+    MermaidFileCache file_cache_; // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;
@@ -308,10 +287,8 @@ private:
     SessionService session_{ config_ };
     FileLoadService file_load_service_{ doc_service_ };
 
-    // ---- 全状態を集約 ----
     AppState state_;
 
-    // ---- サービス（状態ではなく振る舞い） ----
     HitTestService hit_test_;
     std::optional<LayoutService> layout_service_;
     ResourceManager resource_manager_;
@@ -324,6 +301,7 @@ private:
     // キーは PNG キャッシュと同じ NodeDiagramHash。LatexMath は SVG コピー対象外。
     static constexpr size_t MAX_SVG_CACHE_ENTRIES = 64;
     LruCache<uint64_t, std::pmr::wstring> svg_cache_{ MAX_SVG_CACHE_ENTRIES };
-    // 連続クリック中の重複リクエスト抑止
+    // SVG レンダリングは非同期で 1 秒程度かかる。同じノードを連打されても
+    // 1 件のリクエストに集約するためのフラグ。
     bool svg_copy_in_flight_ = false;
 };

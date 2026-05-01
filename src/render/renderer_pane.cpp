@@ -6,8 +6,7 @@
 #include <cmath>
 #include <concepts>
 
-// PaneCacheのビットマップレンダーターゲットが必要なサイズと一致することを確認。
-// キャッシュが使用可能ならtrueを返す。
+// 戻り値: キャッシュが使用可能なら true。
 static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent, float width, float height)
 {
     if (width <= 0 || height <= 0) {
@@ -54,7 +53,7 @@ static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb
     rt->FillRoundedRectangle(thumb_rect, thumb_brush);
 }
 
-// DrawSidePaneImpl に渡す描画コンテキスト。draw_item は template 経由のため別。
+// draw_item は template 経由のため別引数。
 struct SidePaneDrawContext {
     PaneCache& cache;
     ID2D1RenderTarget* main_rt;
@@ -74,7 +73,6 @@ struct SidePaneDrawContext {
     bool refresh_hovered;
 };
 
-// サイドペイン描画の共通スキャフォールド。
 template <typename DrawItemFn>
     requires std::invocable<DrawItemFn&, ID2D1RenderTarget*, int, float, float>
 static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item)
@@ -88,11 +86,9 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
         rt->BeginDraw();
         rt->Clear(sp.theme.pane_bg_color);
 
-        // ヘッダー
         const D2D1_RECT_F header_bg = D2D1::RectF(0, 0, sp.rect.width, sp.theme.pane_header_height);
         rt->FillRectangle(header_bg, sp.splitter_brush);
 
-        // 閉じるボタン
         const D2D1_RECT_F close_rect = PaneCloseButtonRect(sp.rect.width, sp.theme.pane_header_height);
         if (sp.close_hovered) {
             rt->FillRectangle(close_rect, sp.close_hover_brush);
@@ -101,7 +97,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
             rt->DrawText(L"\uE8BB", 1, sp.fmt_close_icon, close_rect, sp.text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
-        // 更新ボタン（閉じるボタンの左隣、ファイルペインのみ）
+        // ファイルペインのみ。閉じるボタンの左隣に置く。
         float header_text_right = close_rect.left - 4.0f;
         if (sp.show_refresh) {
             const D2D1_RECT_F refresh_rect = PaneRefreshButtonRect(sp.rect.width, sp.theme.pane_header_height);
@@ -125,14 +121,12 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
                 D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
-        // クリッピング付きコンテンツ領域
         const float content_top = sp.theme.pane_header_height;
         const float content_height = sp.rect.height - content_top;
         const D2D1_RECT_F clip = D2D1::RectF(0, content_top, sp.rect.width, sp.rect.height);
         rt->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_ALIASED);
         rt->SetTransform(D2D1::Matrix3x2F::Translation(0, -sp.scroll.scroll_y));
 
-        // ビューポートカリング
         const int first = std::max(0, static_cast<int>(sp.scroll.scroll_y / sp.theme.pane_item_height));
         const int last = std::min(
             sp.item_count - 1,
@@ -146,7 +140,6 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
         rt->SetTransform(D2D1::Matrix3x2F::Identity());
         rt->PopAxisAlignedClip();
 
-        // スクロールバーオーバーレイ
         const float total_content = static_cast<float>(sp.item_count) * sp.theme.pane_item_height;
         DrawPaneScrollbar(rt, sp.scrollbar_thumb_brush, sp.rect.width, content_top, content_height, sp.scroll.scroll_y, total_content);
 
@@ -156,7 +149,6 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
         sp.cache.bitmap_rt->GetBitmap(&sp.cache.cached_bitmap);
     }
 
-    // キャッシュされたビットマップを転送
     if (sp.cache.cached_bitmap) {
         const D2D1_RECT_F dest = D2D1::RectF(sp.rect.x, sp.rect.y, sp.rect.x + sp.rect.width, sp.rect.y + sp.rect.height);
         sp.main_rt->DrawBitmap(sp.cache.cached_bitmap.Get(), dest);
@@ -248,7 +240,6 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
                          D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
-        // アクティブ見出しの下線
         if (i == active_index) {
             const float line_y = item_y + theme_.pane_item_height - 1.0f;
             const float line_left = 8.0f + indent;

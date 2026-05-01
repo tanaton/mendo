@@ -12,10 +12,6 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 
-// ============================================================
-// ディレクトリ・パスヘルパー
-// ============================================================
-
 void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
 {
     config_dir_override_ = dir;
@@ -57,10 +53,6 @@ std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) c
     }
     return dir / filename;
 }
-
-// ============================================================
-// Load / Flush / Clear
-// ============================================================
 
 void ConfigService::Load()
 {
@@ -108,10 +100,6 @@ void ConfigService::Clear() noexcept
 {
     data_.clear();
 }
-
-// ============================================================
-// 型付きアクセサ
-// ============================================================
 
 const std::string* ConfigService::FindValue(std::string_view section, std::string_view key) const
 {
@@ -184,8 +172,7 @@ std::pmr::wstring SessionService::LoadLastFilePath() const
     if (path.empty()) {
         return {};
     }
-    // 安全なローカルファイルパスであることを検証
-    // UNCパス (\\server\...) やデバイスパス (\\.\, \\?\) をブロック
+    // UNCパス (\\server\...) やデバイスパス (\\.\, \\?\) をブロックしてローカルパスのみ許可。
     if (path.size() >= 2 && path[0] == L'\\' && path[1] == L'\\') {
         return {};
     }

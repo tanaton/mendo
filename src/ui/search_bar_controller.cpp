@@ -13,10 +13,6 @@ void SearchBarController::Init(SearchState& state, ViewportManager& viewport, La
     cb_ = std::move(cb);
 }
 
-// ============================================================
-// イベントハンドラ
-// ============================================================
-
 void SearchBarController::OnOpen(const std::pmr::vector<Node>& nodes)
 {
     if (state_->IsVisible()) {
@@ -133,10 +129,6 @@ void SearchBarController::SetImeComposition(std::wstring_view comp)
     }
 }
 
-// ============================================================
-// タイマーハンドラ
-// ============================================================
-
 void SearchBarController::OnCaretBlinkTimer()
 {
     caret_visible_ = !caret_visible_;
@@ -151,10 +143,6 @@ void SearchBarController::OnDebounceTimer(const std::pmr::vector<Node>& nodes)
     RunSearchAndLocate(nodes, true);
     cb_.invalidate();
 }
-
-// ============================================================
-// 検索実行
-// ============================================================
 
 void SearchBarController::RunSearchAndLocate(const std::pmr::vector<Node>& nodes, bool scroll_to_match)
 {
@@ -199,10 +187,6 @@ void SearchBarController::ScrollToCurrentMatch()
     }
 }
 
-// ============================================================
-// リセット
-// ============================================================
-
 void SearchBarController::Reset()
 {
     state_->Reset();
@@ -217,19 +201,11 @@ void SearchBarController::Reset()
     cb_.kill_timer(TIMER_DEBOUNCE);
 }
 
-// ============================================================
-// ドラッグ選択
-// ============================================================
-
 void SearchBarController::StartDrag(int anchor_pos) noexcept
 {
     dragging_ = true;
     drag_anchor_ = anchor_pos;
 }
-
-// ============================================================
-// ホバー管理
-// ============================================================
 
 void SearchBarController::UpdateHoverFromZone(SearchBarHitZone zone)
 {
@@ -240,10 +216,6 @@ void SearchBarController::UpdateHoverFromZone(SearchBarHitZone zone)
         cb_.invalidate_search_bar();
     }
 }
-
-// ============================================================
-// レンダー状態構築
-// ============================================================
 
 SearchBarRenderState SearchBarController::BuildRenderState() const
 {
@@ -266,10 +238,6 @@ SearchBarRenderState SearchBarController::BuildRenderState() const
     sb.highlight_btn_hovered = (hover_ == SearchBarHitZone::Highlight);
     return sb;
 }
-
-// ============================================================
-// 内部ヘルパー
-// ============================================================
 
 void SearchBarController::RestartCaretBlink()
 {

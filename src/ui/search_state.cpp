@@ -192,7 +192,7 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
 
     // matches_ は node_index 昇順、同一ノード内では start 昇順、同一テーブル内では
     // (row, col, start) 昇順で追加される。GetMatchYRange も同じ順序で単調非減少となるため
-    // 二分探索が使える (issue #97, 検索ジャンプ精度向上)。
+    // 二分探索が使える。
     const auto it = std::ranges::partition_point(matches_, [&](const SearchMatch& m) noexcept {
         if (m.node_index >= static_cast<int>(cache.size())) {
             return true;

@@ -75,7 +75,6 @@ public:
         IDWriteTextFormat* placeholder_text = nullptr;
     };
 
-    // ファイル切替時にバッファを縮小する
     void ShrinkBuffers()
     {
         if (!shared_hit_test_buffer_) {
@@ -124,7 +123,6 @@ private:
     void GenNodeTextDecorations(DrawCommandList& cmds, const Node& node,
                                 const NodeLayoutEntry& entry, int node_index, float x, float text_x);
 
-    // ノードタイプに応じた本文ベースカラーを返す。
     D2D1_COLOR_F GetNodeBaseColor(const Node& node) const noexcept;
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
@@ -140,7 +138,13 @@ private:
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
     void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color);
+    // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
+    // SearchHlCache / SelectionHlCache の rebuild に共用する。
+    void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out);
     void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y);
+    // 本文ノード（テーブル外）専用の選択ハイライト発行。
+    // (layout, start, length) 一致でフレーム間キャッシュをヒットさせ HitTestTextRange を省く。
+    void GenSelectionHighlightCached(DrawCommandList& cmds, const NodeLayoutEntry& entry, uint32_t start, uint32_t length, float origin_x, float origin_y);
     void GenSearchHighlights(DrawCommandList& cmds, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
 
     // 検索ハイライトのキャッシュが古い場合に再構築する。
@@ -161,8 +165,13 @@ private:
     // GenerateMdPane の戻り値は同一スコープ内で即 CommandExecutor::Execute に
     // 渡されて消費される（renderer.cpp の呼び出しを参照）ため、
     // 前フレームの内容を生かしておく必要はなくシングルバッファで十分。
-    MonotonicResource frame_resource_{ 128 * 1024 };
+    // 大きめドキュメント (1 万コマンド規模) を初期バッファだけで賄えるサイズに設定し、
+    // 上流 pool への再 allocate を平常時はゼロにする。
+    MonotonicResource frame_resource_{ 1024 * 1024 };
     DrawCommandList cmds_{ frame_resource_.resource() };
+    // 直前フレームのコマンド数。次フレーム冒頭で reserve に使い、
+    // 倍々再確保で発生する死蔵バッファを抑える。
+    size_t last_cmds_size_ = 0;
 
     const std::pmr::vector<SearchMatch>* search_matches_ = nullptr;
     int current_match_index_ = -1;
@@ -180,14 +189,22 @@ private:
         assert(len <= 255 && "DrawTextCmd text exceeds uint8_t range");
         DrawTextCmd c{};
         c.text_len = static_cast<uint8_t>((std::min)(len, size_t(255)));
-        if (c.text_len > 0) {
-            auto* buf = static_cast<wchar_t*>(frame_resource_.resource()->allocate(c.text_len * sizeof(wchar_t), alignof(wchar_t)));
-            std::char_traits<wchar_t>::copy(buf, src, c.text_len);
-            c.text = buf;
-        }
         c.rect = r;
         c.format = fmt;
         c.color = col;
+        if (c.text_len == 0) {
+            return c;
+        }
+        if (c.text_len <= DrawTextCmd::INLINE_TEXT_CAPACITY) {
+            std::char_traits<wchar_t>::copy(c.inline_buf, src, c.text_len);
+            c.is_inline = true;
+        }
+        else {
+            auto* buf = static_cast<wchar_t*>(frame_resource_.resource()->allocate(c.text_len * sizeof(wchar_t), alignof(wchar_t)));
+            std::char_traits<wchar_t>::copy(buf, src, c.text_len);
+            c.text_ptr = buf;
+            c.is_inline = false;
+        }
         return c;
     }
 

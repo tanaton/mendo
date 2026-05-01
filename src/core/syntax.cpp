@@ -33,8 +33,6 @@ namespace {
 using ascii_util::IsAsciiDigit;
 using ascii_util::IsAsciiHexDigit;
 
-// ---- ヘルパー関数 ----
-
 // 識別子先頭文字: ASCII 英字 + '_' に加え、CJK 等の非 ASCII (>= U+0080) も許可する。
 // ascii_util の純粋 ASCII ヘルパに乗らないので syntax 固有として残す。
 bool IsIdentStart(wchar_t c)
@@ -46,10 +44,6 @@ bool IsIdentChar(wchar_t c)
 {
     return IsIdentStart(c) || IsAsciiDigit(c);
 }
-
-// キーワード・型名テーブルは syntax_keywords.h にある（各言語の KEYWORDS/TYPES）。
-
-// ---- レキサーヘルパー ----
 
 void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type)
 {
@@ -195,8 +189,6 @@ size_t ScanBlockComment(std::wstring_view text, size_t pos, wchar_t close1, wcha
     }
     return text.size();
 }
-
-// ---- 汎用トークナイザ ----
 
 struct LexerConfig {
     bool line_comment_slash = false;   // //
@@ -503,8 +495,6 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
     return tokens;
 }
 
-// ---- 言語別 LexerConfig 定数 ----
-
 inline constexpr LexerConfig CPP_LEXER_CONFIG{
     .line_comment_slash = true,
     .block_comment = true,
@@ -557,8 +547,6 @@ inline constexpr LexerConfig JSON_LEXER_CONFIG{
 };
 
 } // namespace
-
-// ---- 公開API ----
 
 SyntaxLanguage DetectLanguage(std::wstring_view info_string)
 {

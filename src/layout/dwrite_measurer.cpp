@@ -15,9 +15,15 @@ static constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
 // セル幅がこれ以下の差分なら前回の計測高さを再利用する
 static constexpr float CELL_WIDTH_EPSILON = 0.5f;
 
-static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family,
-                            float size, DWRITE_FONT_WEIGHT weight,
-                            IDWriteTextFormat** out)
+// 1 行目の高さを取得し entry にキャッシュする。layout 自体は変えない。
+static void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noexcept
+{
+    DWRITE_LINE_METRICS lm{};
+    UINT32 lc = 0;
+    entry.first_line_height = (SUCCEEDED(layout->GetLineMetrics(&lm, 1, &lc)) && lc > 0) ? lm.height : 0.0f;
+}
+
+static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family, float size, DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** out)
 {
     return factory->CreateTextFormat(
         family, nullptr, weight,
@@ -264,15 +270,17 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
             entry.text_layout->GetMetrics(&metrics);
             entry.height = metrics.height;
             entry.layout_dirty = false;
-            // 折り返し行が変わるためエフェクト位置 / 検索ハイライト矩形は無効化する。
+            CacheFirstLineHeight(entry.text_layout.Get(), entry);
+            // 折り返し行が変わるためエフェクト位置 / ハイライト矩形は無効化する。
             // text_layout 自体は破棄しない (フォーマット属性は保持される)。
             entry.effects_applied = false;
             entry.clear_inline_code_bgs();
-            entry.invalidate_search_hl_cache();
+            entry.invalidate_per_frame_hl_caches();
             return;
         }
         // 失敗時はスローパスでフルに作り直す。
         entry.text_layout.Reset();
+        entry.first_line_height = 0.0f;
     }
 
     ComPtr<IDWriteTextLayout> layout;
@@ -287,10 +295,9 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         return;
     }
 
-    // ラン単位のフォーマットを適用
     ApplyRunFormatting(layout.Get(), node.runs, node.type);
 
-    // Alert ノード: アイコン文字のフォントウェイトを設定
+    // Alert ノードのアイコン文字のフォントウェイトを設定
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
         const UINT32 icon_len = static_cast<UINT32>(GetAlertIcon(node.alert_type).size());
         const DWRITE_TEXT_RANGE icon_range{ 0, icon_len };
@@ -308,12 +315,14 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         node.syntax_tokens_mut() = Tokenize(text, node.code_language);
     }
 
+    CacheFirstLineHeight(layout.Get(), entry);
+
     entry.text_layout = std::move(layout);
     entry.height = metrics.height;
     entry.layout_dirty = false;
     entry.effects_applied = false;
     entry.clear_inline_code_bgs();
-    entry.invalidate_search_hl_cache();
+    entry.invalidate_per_frame_hl_caches();
 }
 
 void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths)
@@ -360,7 +369,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     const float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width - static_cast<float>(col_count) * cell_padding * 2.0f;
     ComputeColumnWidths(tl.col_widths, natural_widths, available, col_count);
 
-    // セル毎の適用幅/高さキャッシュを確保（幅不変なら GetMetrics を省略）
+    // 適用幅/高さキャッシュ。幅不変なら GetMetrics を省ける。
     const size_t cell_total = tl.cell_layouts.size();
     if (tl.cell_heights.size() != cell_total) {
         tl.cell_heights.assign(cell_total, 0.0f);
@@ -407,7 +416,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         node.SetText(BuildLinearizedTableText(node.table_rows()));
     }
 
-    // ヒットテスト高速化: 行Y累積と列X累積を事前計算
+    // ヒットテスト高速化用に行Y累積と列X累積を事前計算
     tl.row_cum_y.resize(row_count + 1);
     {
         float ry = 0.0f;
@@ -427,7 +436,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         tl.col_cum_x[col_count] = cx;
     }
 
-    // 行ごとのフラットテキストオフセットをプリコンピュート（ヒットテスト高速化用）
+    // ヒットテスト高速化用に行ごとのフラットテキストオフセットをプリコンピュート
     tl.row_flat_offsets.resize(row_count);
     uint32_t flat_offset = 0;
     for (size_t r = 0; r < row_count; r++) {
@@ -437,6 +446,9 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
             flat_offset++; // 改行区切り
         }
     }
+
+    // col_cum_x の末尾は border_width + Σ(col_w + 2*pad + border) と一致するため再計算しない。
+    tl.cached_table_width = tl.col_cum_x.back();
 
     entry.height = total_height;
     entry.layout_dirty = false;
@@ -478,9 +490,10 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         return;
     }
 
-    // セル layout の再作成 or SetMaxWidth で metrics が変わるため、
-    // 検索ハイライト矩形のキャッシュは捨てる。
-    entry.invalidate_search_hl_cache();
+    // セル layout の再作成 or SetMaxWidth で metrics が変わるため、ハイライト矩形の
+    // キャッシュは捨てる。選択ハイライトキャッシュは本文ノード専用だが、ノード型変更等で
+    // 残っている可能性に備えて落としておく。
+    entry.invalidate_per_frame_hl_caches();
 
     entry.effects_applied = false;
     auto& tl = entry.ensure_table_layout();
@@ -491,12 +504,12 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     // 第1パス（テキストレイアウト作成）をスキップして列幅再計算だけ行う。
     const bool has_existing_layouts = has_compatible_layouts;
     if (has_existing_layouts) {
-        // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
         if (tl.natural_col_widths.size() == col_count) {
+            // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
             FinalizeTableLayout(node, entry, max_width, col_count, tl.natural_col_widths);
         }
         else {
-            // キャッシュなし: 既存レイアウトから自然幅を再取得
+            // 既存レイアウトから自然幅を再取得
             std::pmr::vector<float> natural_widths(col_count, 0.0f);
             for (size_t r = 0; r < row_count; r++) {
                 const auto cell_count = rows[r].cells.size();
@@ -522,7 +535,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         std::pmr::vector<float> natural_widths(col_count, 0.0f);
         MeasureTableCells(node, entry, natural_widths);
 
-        // 自然幅をキャッシュ（リサイズ高速パス用）
+        // リサイズ高速パス用に自然幅をキャッシュ
         tl.natural_col_widths = std::move(natural_widths);
 
         // 第2パス: 列幅を設定し、行の高さを計測

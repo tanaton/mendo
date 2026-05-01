@@ -18,7 +18,6 @@ public:
     static Document FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::wstring_view path);
     static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 
-    // アクセサ
     constexpr const std::pmr::vector<Node>& GetNodes() const noexcept
     {
         return nodes_;

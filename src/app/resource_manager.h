@@ -39,9 +39,8 @@ public:
               ThemeService& theme_service,
               Callbacks cb);
 
-    // --- 画像リソース ---
-    // respect_viewport=true: 可視範囲のみ走査し、未キャッシュは非同期ロード起動。通常描画用。
-    // respect_viewport=false: 全画像を走査、未キャッシュは無視。リロード時のスクロール計算前用。
+    // respect_viewport=true: 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
+    // respect_viewport=false: 全画像を走査、未キャッシュは無視（リロード時のスクロール計算前用）。
     int ApplyCachedImages(bool respect_viewport = true);
     int ApplyCachedImagesForReload()
     {
@@ -51,20 +50,17 @@ public:
     void OnAppImageLoaded();
     void OnImageLoadComplete();
 
-    // --- Mermaidリソース ---
     int RequestMermaidRenders();
     void OnMermaidRenderComplete();
     void CancelMermaidBatch();
     void ScheduleMermaidBatch();
     void ProcessMermaidBatch();
 
-    // --- ビットマップ管理 ---
     void EvictOffscreenBitmaps();
     void FlushPendingResources();
     void ScheduleBitmapManage();
     void OnBitmapManageTimer();
 
-    // --- ファイル切替時クリーンアップ ---
     void ClearResolvedPaths() noexcept
     {
         resolved_image_paths_.clear();

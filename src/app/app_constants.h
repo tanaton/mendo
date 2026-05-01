@@ -35,7 +35,7 @@ inline constexpr UINT SEARCH_FOCUS = WM_APP + 4;
 inline constexpr UINT SEARCH_UNFOCUS = WM_APP + 5;
 inline constexpr UINT PARSE_COMPLETE = WM_APP + 6;
 
-// カスタムメッセージの上限（この値未満が有効範囲）
+// カスタムメッセージの上限。アプリ独自メッセージかどうかの判定に [WM_APP, END) を使う。
 inline constexpr UINT END = WM_APP + 7;
 
 } // namespace app_msg

@@ -23,8 +23,6 @@ bool Renderer::Init(HWND hwnd)
     RecreatePaneFormats();
     LoadAppIconBitmap();
 
-    // gesture_stroke_style_ は DrawGestureTrail 初回呼び出し時に lazy 生成
-
     measurer_.SetFactory(backend_.GetDWriteFactory());
     if (!layout_.Init(&measurer_, theme_)) {
         return false;
@@ -59,7 +57,6 @@ void Renderer::Resize(UINT width, UINT height) noexcept
 void Renderer::SetDpi(float dpi) noexcept
 {
     backend_.SetDpi(dpi);
-    // 新しいDPIでペインキャッシュを再作成
     file_pane_cache_.Reset();
     toc_pane_cache_.Reset();
 }
@@ -81,9 +78,8 @@ void Renderer::UpdateLayoutTheme()
     layout_.RecreateFormats();
 }
 
-// ---- ノード描画 ----
-// ノード描画ロジックはCommandGeneratorに抽出済み。
-// D2Dブラシが必要なApplyNodeEffectsのみ描画前パスとしてここに残る。
+// ノード描画ロジックは CommandGenerator に抽出済み。
+// D2D ブラシが必要な ApplyNodeEffects のみ描画前パスとしてここに残る。
 
 void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height)
 {
@@ -115,14 +111,14 @@ void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& c
 ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexcept
 {
     static constexpr BrushId SYNTAX_MAP[] = {
-        BrushId::Text,               // Plain（未使用、フォールバックとしてテキストブラシを返す）
-        BrushId::SyntaxKeyword,      // キーワード
-        BrushId::SyntaxType,         // 型
-        BrushId::SyntaxString,       // 文字列
-        BrushId::SyntaxNumber,       // 数値
-        BrushId::SyntaxComment,      // コメント
-        BrushId::SyntaxPreprocessor, // プリプロセッサ
-        BrushId::SyntaxFunction,     // 関数
+        BrushId::Text, // Plain（未使用、フォールバックとしてテキストブラシを返す）
+        BrushId::SyntaxKeyword,
+        BrushId::SyntaxType,
+        BrushId::SyntaxString,
+        BrushId::SyntaxNumber,
+        BrushId::SyntaxComment,
+        BrushId::SyntaxPreprocessor,
+        BrushId::SyntaxFunction,
     };
     const auto idx = std::to_underlying(type);
     if (idx >= std::size(SYNTAX_MAP)) {
@@ -195,20 +191,32 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewp
                     cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                 }
                 // インラインコード背景: 可視かつ未計算の行のみ。
-                // cell_index 昇順を維持するため upper_bound 位置に挿入する。
-                // フレーム間で行の可視性が変わると単純 push では順序が崩れ、描画側の advancing
-                // iterator スキャンが破綻する。bg 数は通常少ないので O(N) insert は許容。
+                // cell_index 昇順を維持するため、新規行が末尾以降ならば append、
+                // それ以外（上方向スクロールで前段の行が後から追加される稀ケース）は
+                // upper_bound 位置に insert する。可視ノードが下方向に増える典型ケースは
+                // 完全 append (O(1)/elem) で済む。
                 if (need_bgs && run.code() && run.length > 0) {
                     const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length, hit_test_buffer_);
                     const auto cell_index = static_cast<uint32_t>(tl.CellIndex(r, c));
                     auto& bgs = tl.cell_inline_code_bgs;
-                    auto pos = std::upper_bound(
-                        bgs.begin(),
-                        bgs.end(),
-                        cell_index,
-                        [](uint32_t v, const CellInlineCodeBg& e) noexcept { return v < e.cell_index; });
-                    for (UINT32 hi = 0; hi < count; hi++) {
-                        pos = bgs.insert(pos, CellInlineCodeBg{ cell_index, MakeInlineCodeBg(hit_test_buffer_[hi]) }) + 1;
+                    const bool can_append = bgs.empty() || bgs.back().cell_index <= cell_index;
+                    if (can_append) {
+                        bgs.reserve(bgs.size() + count);
+                        for (UINT32 hi = 0; hi < count; hi++) {
+                            bgs.emplace_back(CellInlineCodeBg{ cell_index, MakeInlineCodeBg(hit_test_buffer_[hi]) });
+                        }
+                    }
+                    else {
+                        const auto func = [](uint32_t v, const CellInlineCodeBg& e) noexcept { return v < e.cell_index; };
+                        // 上方向スクロールで前段の行が後から追加される稀ケース。
+                        // 末尾に一括 push してから rotate で正しい位置に移すと、tail shift が 1 回で済む。
+                        const size_t insert_at_index = static_cast<size_t>(std::upper_bound(bgs.begin(), bgs.end(), cell_index, func) - bgs.begin());
+                        bgs.reserve(bgs.size() + count);
+                        const size_t old_size = bgs.size();
+                        for (UINT32 hi = 0; hi < count; hi++) {
+                            bgs.emplace_back(CellInlineCodeBg{ cell_index, MakeInlineCodeBg(hit_test_buffer_[hi]) });
+                        }
+                        std::rotate(bgs.begin() + insert_at_index, bgs.begin() + old_size, bgs.end());
                     }
                 }
             }
@@ -235,7 +243,6 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
     }
     entry.effects_applied = true;
 
-    // 画像ノード: テキストエフェクト不要
     if (node.type == NodeType::Image) {
         return;
     }
@@ -244,8 +251,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
         return;
     }
 
-    // コードブロックにシンタックスハイライトを適用
-    // トークン化はMeasureNode（レイアウトパス）で事前実行済み
+    // トークン化は MeasureNode（レイアウトパス）で事前実行済み
     if (node.type == NodeType::CodeBlock) {
         for (const auto& token : node.syntax_tokens()) {
             if (token.type == SyntaxTokenType::Plain) {
@@ -259,7 +265,6 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
         }
     }
 
-    // Alertラベルの色を適用
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
         static constexpr BrushId ALERT_BRUSH[] = {
             BrushId::AlertNote,
@@ -276,7 +281,6 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
         }
     }
 
-    // リンクの下線/色を適用し、インラインコード背景の矩形をキャッシュ
     for (const auto& run : node.runs) {
         if (run.has_link()) {
             const DWRITE_TEXT_RANGE range{ run.start, run.length };
@@ -294,8 +298,6 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
         }
     }
 }
-
-// ---- メイン描画 ----
 
 void Renderer::DrawSidePanes(const SidePaneState& sp)
 {
@@ -323,12 +325,10 @@ void Renderer::DrawLoading(float angle,
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);
 
-    // カスタムタイトルバーを描画
     DrawTitleBar(titlebar);
 
     DrawSidePanes(sp);
 
-    // MDペイン中央にスピナーを描画。
     const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
     const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
     // alpha はドットインデックスのみに依存するためコンパイル時に決定する。
@@ -352,12 +352,11 @@ void Renderer::DrawLoading(float angle,
         text_brush->SetOpacity(1.0f);
     }
 
-    // ジェスチャーオーバーレイ（ローディング中でもフェードアウト中は表示）
+    // ローディング中でもフェードアウト中は表示
     if (gesture.overlay_visible && gesture.overlay_alpha > 0.0f) {
         DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
     }
 
-    // トースト通知
     if (toast.visible) {
         DrawToastOverlay(toast, md_pane_rect);
     }
@@ -376,16 +375,14 @@ void Renderer::Render(const RenderParams& p)
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);
 
-    // カスタムタイトルバーを描画
     DrawTitleBar(p.titlebar);
 
     DrawSidePanes(p.side_panes);
 
-    // 最初の可視ノードを検索（ヒットテストとの座標一致のためスナップ前の scroll_y を使う）。
+    // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
     const float viewport_top = p.scroll_y;
     const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
 
-    // Markdownコンテンツペインの描画コマンドを生成・実行。
     const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
     {
         MENDO_PROFILE("GenerateMdPane");
@@ -396,32 +393,26 @@ void Renderer::Render(const RenderParams& p)
         }
     }
 
-    // ナビゲーションオーバーレイボタン（戻る/進む）を描画
     if (p.can_go_back || p.can_go_forward) {
         DrawNavOverlay(p.md_pane_rect, p.can_go_back, p.can_go_forward, p.nav_hovered);
     }
 
-    // ジェスチャー軌跡
     if (p.gesture.trail_active && p.gesture.trail_points && p.gesture.trail_points->size() >= 2) {
         DrawGestureTrail(*p.gesture.trail_points);
     }
 
-    // ジェスチャーオーバーレイ（アクション後のフェードアウト）
     if (p.gesture.overlay_visible && p.gesture.overlay_alpha > 0.0f) {
         DrawGestureOverlay(p.gesture.direction, p.gesture.overlay_alpha, p.md_pane_rect);
     }
 
-    // トースト通知
     if (p.toast.visible) {
         DrawToastOverlay(p.toast, p.md_pane_rect);
     }
 
-    // 検索バー
     if (p.search_bar.visible) {
         DrawSearchBar(p.search_bar, p.md_pane_rect);
     }
 
-    // Markdownペインのカスタムスクロールバー
     DrawMdScrollbar(p.md_pane_rect, p.scroll_y, p.total_content_height, p.has_dirty_nodes);
 
     if (!CheckEndDraw()) {
@@ -456,9 +447,9 @@ bool Renderer::RecreateRenderTarget()
     LoadAppIconBitmap();
     file_pane_cache_.Reset();
     toc_pane_cache_.Reset();
-    cmd_executor_ = CommandExecutor{}; // バインドされたレンダーターゲットをリセット
+    // バインドされたレンダーターゲットをリセットする
+    cmd_executor_ = CommandExecutor{};
 
-    // 依存リソース（例: MermaidRendererのビットマップ）が更新されるようオーナーに通知
     if (on_device_lost_) {
         on_device_lost_(backend_.GetRenderTarget());
     }

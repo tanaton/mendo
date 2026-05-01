@@ -71,10 +71,6 @@ void ResourceManager::Init(
     cb_ = std::move(cb);
 }
 
-// ============================================================
-// 画像リソース
-// ============================================================
-
 int ResourceManager::ApplyCachedImages(bool respect_viewport)
 {
     const std::pmr::wstring doc_dir = doc_->GetDirectory();
@@ -121,7 +117,7 @@ int ResourceManager::ApplyCachedImages(bool respect_viewport)
             continue;
         }
 
-        // 解決済みパスのキャッシュを確認し、再計算を回避
+        // 解決済みパスのキャッシュを確認し、再計算を回避する。
         auto [path_it, inserted] = resolved_image_paths_.try_emplace(i);
         auto& abs_str = std::get<1>(*path_it);
         if (inserted) {
@@ -185,10 +181,6 @@ void ResourceManager::OnImageLoadComplete()
     }
 }
 
-// ============================================================
-// Mermaidリソース
-// ============================================================
-
 void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
 {
     if (content_width <= 0.0f) {
@@ -214,7 +206,7 @@ void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
         if (any_invalidated) {
             mermaid_->ClearCache();
         }
-        // 旧幅で処理中のin-flightリクエストを無効化し、完了時に旧bitmapで上書きされるのを防ぐ
+        // 旧幅で処理中の in-flight リクエストを無効化し、完了時に旧 bitmap で上書きされるのを防ぐ。
         mermaid_->CancelPending();
     }
     last_mermaid_content_width_ = content_width;
@@ -350,10 +342,6 @@ void ResourceManager::ProcessMermaidBatch()
     }
 }
 
-// ============================================================
-// ビットマップ管理
-// ============================================================
-
 void ResourceManager::EvictOffscreenBitmaps()
 {
     const float viewport_top = viewport_->GetScrollY();
@@ -368,7 +356,6 @@ void ResourceManager::EvictOffscreenBitmaps()
 
     const size_t node_count = doc_->GetNodes().size();
 
-    // テキストレイアウトの解放
     const int first_keep = FindFirstVisibleNodeIndex(*cache_, node_count, evict_top);
     int last_keep = first_keep;
     for (int i = first_keep; i < static_cast<int>(node_count); i++) {
@@ -381,8 +368,8 @@ void ResourceManager::EvictOffscreenBitmaps()
     cache_->EvictTextLayouts(static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
 
     // image/diagram bitmap の evict も可視範囲外（[0, first_keep) と
-    // [last_keep, node_count)）だけを走査する。IndexSlice で image/diagram 配列の
-    // 該当部分を切り出して、各々 bitmap をリセット。
+    // [last_keep, node_count)）だけを走査する。IndexSlice で配列の該当部分を
+    // 切り出して、各々 bitmap をリセット。
     const auto& image_indices = doc_->GetImageNodeIndices();
     const auto img_keep = VisibleSlice(image_indices, static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
     for (auto it = image_indices.begin(); it != img_keep.begin; ++it) {
@@ -422,15 +409,15 @@ void ResourceManager::EvictOffscreenBitmaps()
 void ResourceManager::FlushPendingResources()
 {
     // 完了した非同期デコード結果をキャッシュに格納する。
-    // 結果がある場合はコールバック経由で pending_flush_ が設定される。
+    // 結果があればコールバック経由で pending_flush_ が設定される。
     image_loader_->ProcessCompletedDecodes();
 
     if (!pending_flush_) {
         return;
     }
     pending_flush_ = false;
-    // last_flush_time_ は ScheduleBitmapManage 以外の経路（OnBitmapManageTimer 等）
-    // からのフラッシュでも一元的に更新する
+    // ScheduleBitmapManage 以外（OnBitmapManageTimer 等）からのフラッシュでも
+    // last_flush_time_ を一元的に更新し、両経路で 50ms スロットリングが効くようにする。
     last_flush_time_ = std::chrono::steady_clock::now();
 
     bool changed = (ApplyCachedImages() > 0);
@@ -463,7 +450,8 @@ void ResourceManager::OnBitmapManageTimer()
     cb_.kill_timer(TIMER_BITMAP_MANAGE);
 
     EvictOffscreenBitmaps();
-    pending_flush_ = true; // evict後に可視範囲のリソースを再読み込みする
+    // evict 直後は可視範囲のリソース再読み込みが必要なので強制フラッシュする。
+    pending_flush_ = true;
     FlushPendingResources();
 
     cb_.invalidate();

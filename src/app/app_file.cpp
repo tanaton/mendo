@@ -11,10 +11,6 @@
 #include <algorithm>
 #include <utility>
 
-// ============================================================
-// ファイル読み込み
-// ============================================================
-
 void App::LoadHelpDocument()
 {
     if (IsHelpPath(state_.document.doc.GetFilePath())) {
@@ -37,7 +33,6 @@ void App::LoadHelpDocument()
 
     state_.file_explorer.SetCurrentFile(L"");
 
-    // ビューポート優先レイアウト + 遅延処理
     // 旧ドキュメントで合成された scroll_target は直後の ViewportLayout →
     // ApplyScrollTarget で旧ノード位置から scroll_y を再評価してしまうため、
     // SetScrollY(0) より前に破棄する必要がある。
@@ -108,9 +103,8 @@ bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size)
 }
 
 // reducer を経由せず App 層で直接実行する。ファイル I/O + 同期/非同期ロード分岐 +
-// パース + レイアウト初期化を含む大きな命令的ワークフローで、hybrid モデル
-// （reducer.h 参照）の service 経路扱い。reducer 化すると effect variant と
-// executor が肥大化するため意図的に分離している。
+// パース + レイアウト初期化を含む大きな命令的ワークフローで、reducer 化すると
+// effect variant と executor が肥大化するため意図的に service 経路として分離している。
 void App::LoadMarkdownFile(std::wstring_view path)
 {
     EmitEffect(effect::KillTimer{ app_timer::FILE_RELOAD_DEBOUNCE });
@@ -135,7 +129,6 @@ void App::DoLoadMarkdownFile()
 {
     MENDO_PROFILE("DoLoadMarkdownFile");
 
-    // ヘルプ仮想パスの場合は専用ルートへ
     if (IsHelpPath(file_load_service_.GetLoadingPath())) {
         LoadHelpDocument();
         return;
@@ -174,7 +167,7 @@ void App::OnParseComplete()
     auto result = file_load_service_.TakeAsyncResult();
     if (!result) {
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
-        // LoadFile失敗時、FileWatcherがpausedのまま残るのを防ぐ
+        // 失敗パスでも paused 状態の FileWatcher を必ず再開させる。
         EmitEffect(effect::ResumeFileWatch{});
         HandleLoadFailureFallback();
         return;
@@ -208,7 +201,6 @@ void App::OnParseComplete()
         state_.reload_diff_pos = decision.diff_pos;
     }
     else {
-        // 別ファイルの非同期ロードではリロード用の差分スクロールを使わない
         state_.reload_diff_pos = std::wstring_view::npos;
     }
 
@@ -231,12 +223,10 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
         state_.file_explorer.SetCurrentFile(state_.document.doc.GetFilePath());
     }
 
-    // ビューポート優先レイアウト: 可視範囲のみ計測し、残りは遅延処理に委ねる。
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
 
-    // スクロール位置の復元
     float scroll_y = 0.0f;
 
     const bool has_reload_diff = (state_.reload_diff_pos != std::wstring_view::npos);
@@ -254,8 +244,8 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
                      heights_estimated ? 1 : 0);
     }
 
-    // cache.Reset()直後は全ノードの高さが0のため、スクロール復元前に
-    // ノード高さを推定し、Mermaid/画像キャッシュの実測値で補正する
+    // cache.Reset() 直後は全ノードの高さが 0 のため、スクロール復元前に
+    // ノード高さを推定し、Mermaid/画像キャッシュの実測値で補正する。
     if (has_reload_diff || state_.view.scroll_restore.HasNodeRestore()) {
         if (!heights_estimated) {
             MENDO_PROFILE("EstimateNodeHeights");
@@ -301,10 +291,6 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     EmitEffect(effect::StartFileWatch{ state_.document.doc.GetFilePath() });
 }
 
-// ============================================================
-// リロード
-// ============================================================
-
 void App::ReloadCurrentFile()
 {
     const auto& path = state_.document.doc.GetFilePath();
@@ -342,7 +328,6 @@ void App::DoReloadCurrentFile()
 
     CancelPendingResources();
 
-    // ファイルを読み込み、旧コンテンツとの差分位置をコピーなしで計算
     auto load_result = [this]() {
         MENDO_PROFILE("Reload::LoadFile");
         return FileLoader::LoadFile(state_.document.doc.GetFilePath());
@@ -404,9 +389,9 @@ void App::FinishReload(size_t diff_pos)
     MENDO_TRACEF("FinishReload: desired_scroll=%.1f diff_pos=%zu",
                  desired_scroll, diff_pos);
 
-    // スクロール位置を設定してからViewportLayoutを呼ぶことで、
-    // 変更箇所周辺の可視ノードが優先的に計測される。
-    // リロード時は直前の navigation target を破棄し、ピクセル位置で固定する。
+    // スクロール位置を先に設定してから ViewportLayout を呼ぶことで、変更箇所周辺の
+    // 可視ノードが優先的に計測される。リロード時は直前の navigation target を破棄し、
+    // ピクセル位置で固定する。
     state_.view.viewport.ClearScrollTarget();
     state_.view.viewport.SetScrollY(desired_scroll);
 
@@ -434,10 +419,6 @@ void App::FinishReload(size_t diff_pos)
 
     EmitEffect(effect::ResumeFileWatch{});
 }
-
-// ============================================================
-// ファイル読み込みヘルパー
-// ============================================================
 
 float App::CalcScrollForDiff(size_t diff_pos, float viewport_height) const
 {

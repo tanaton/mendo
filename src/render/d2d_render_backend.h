@@ -25,7 +25,7 @@ public:
     virtual IWICImagingFactory* GetWICFactory() const noexcept = 0;
     virtual HWND GetHwnd() const noexcept = 0;
 
-    // スワップチェーンのPresent。EndDraw後に呼び出す。
+    // EndDraw 後に呼び出す。
     virtual void Present() noexcept = 0;
 };
 
