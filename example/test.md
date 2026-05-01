@@ -48,9 +48,9 @@ graph TB
     subgraph アプリケーションコア
         APP[App<br>サービス統括]
         AS[AppState<br>全状態集約]
-        RD[Reducer<br>Action→新State+Effects]
+        RD[Reducer<br>Action→Effects in-place]
         SEE[SideEffectExecutor<br>Effect→IWin32Host呼出し]
-        RC[RenderComposer<br>State→DrawCommandList]
+        RC[render_composer<br>State→各RenderState]
         AC[AppController<br>イベント→Action変換]
         WH[IWin32Host<br>Win32 副作用境界]
     end
@@ -59,7 +59,7 @@ graph TB
         DS[DocumentService<br>ファイル読込統括]
         FLS[FileLoadService<br>非同期ロード制御]
         LS[LayoutService<br>レイアウト計算統括]
-        NS[NavigationService<br>リンク・履歴]
+        NH[NavHistory + HandleLinkClick<br>履歴・リンク解決]
         TS[ThemeService<br>テーマ・ズーム永続化]
         SS_SVC[SessionService<br>セッション永続化]
         RM[ResourceManager<br>画像・Mermaid管理]
@@ -91,12 +91,12 @@ graph TB
     SEE --> WH
     WH --> OS
     APP --> RC
-    RC --> CG
+    APP --> CG
     CG --> CE
     CE --> REN
     REN --> RB
     RB --> D2D_OS
-    APP --> DS & FLS & LS & NS & TS & SS_SVC & RM & HT
+    APP --> DS & FLS & LS & NH & TS & SS_SVC & RM & HT
     DS --> MD
     RM --> WV
     WV --> MJ
@@ -110,15 +110,17 @@ mendo は **状態と振る舞いを明確に分離** する設計を採用し�
 flowchart LR
     EVT[イベント<br>Win32 メッセージ] --> AC[AppController]
     AC --> ACTION[AppAction<br>std::variant]
-    ACTION --> RED[Reducer<br>純粋関数]
-    RED --> NEWST[新しいAppState]
+    ACTION --> RED[Reducer<br>in-place 更新]
+    RED --> ST[AppState<br>更新済み]
     RED --> EFF[SideEffectList<br>std::pmr::vector]
     EFF --> EXEC[SideEffectExecutor]
     EXEC --> HOST[IWin32Host<br>抽象境界]
     HOST --> WIN[Win32 API実呼出し]
-    NEWST --> RENDER[RenderComposer]
-    RENDER --> CMDS[DrawCommandList]
+    ST --> CG[CommandGenerator]
+    CG --> CMDS[DrawCommandList]
     CMDS --> CE[CommandExecutor]
+    ST --> RC[render_composer::Build*State]
+    RC --> RNDR[Renderer 各層描画]
 ```
 
 | 設計原則 | 実装場所 |
@@ -126,8 +128,11 @@ flowchart LR
 | **状態の単一の真実源** | `AppState`（`src/app/app_state.h`） |
 | **アクション駆動** | `AppAction = std::variant<...>`（`src/app/app_events.h`） |
 | **副作用の明示化** | `SideEffect`（二段variant、`src/app/side_effect.h`） |
-| **Win32の抽象化** | `IWin32Host`（`src/app/win32_host.h`） |
-| **ロジックとUI層の分離** | `mendo_core`（テスト可能）vs `mendo`（Win32/D2D具象） |
+| **Win32 の抽象化** | `IWin32Host`（`src/app/win32_host.h`） |
+| **DirectWrite 計測の抽象化** | `ITextMeasurer`（`src/layout/text_measurer.h`） |
+| **WebView2 依存の隔離** | `IMermaidRenderer`（`src/mermaid/mermaid_renderer_interface.h`） |
+| **D2D ファクトリの抽象化** | `IRenderBackend`（`src/render/d2d_render_backend.h`） |
+| **ロジックとUI層の分離** | `mendo_core`（テスト可能）vs `mendo`（Win32/D2D 具象） |
 
 ---
 
@@ -149,6 +154,9 @@ flowchart LR
 ```cpp
 class Win32Window {
 public:
+    explicit Win32Window(ConfigService& config);
+    ~Win32Window();
+
     bool Create(HINSTANCE hInstance, int nCmdShow);
     int  RunMessageLoop();
 
@@ -163,15 +171,35 @@ private:
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);
     LRESULT OnNcHitTest(LPARAM lParam);
-    void HandleMouseMessage(UINT msg, WPARAM wp, LPARAM lp);
+    LRESULT HitTestResizeFrame(POINT pt) const noexcept;
+    LRESULT HitTestTitleBar(POINT pt) const noexcept;
+    LRESULT HandleMouseMessage(UINT msg, WPARAM wp, LPARAM lp);
     LRESULT HandleAppNotification(UINT msg, WPARAM wp, LPARAM lp);
     void UpdateDwmFrame();
+    void InitSystemMenu();
+    void ResetWindowPlacement();
+    void SaveWindowPlacement();
+    bool RestoreWindowPlacement(int nCmdShow);
     static LRESULT CALLBACK SearchEditProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+    void RepositionSearchEdit();
+    void SyncSearchCaretFromEdit();
+    void UpdateDpiMetricsCache();
 
     HWND hwnd_ = nullptr;
-    App  app_;
+    HWND search_edit_ = nullptr;
+    bool in_sys_menu_ = false;
+    bool tracking_mouse_ = false;
+    bool was_minimized_ = false;
+    int  cached_nchit_border_ = 4;
+    int  cached_nchit_frame_y_ = 8;
+    int  cached_nchit_right_border_ = 8;
+
+    ConfigService& config_;
+    std::unique_ptr<App> app_;
 };
 ```
+
+`Win32Window` は `ConfigService` の参照を受け取り、内部で `App` を `unique_ptr` で保持する。検索バーの実体は Win32 の Edit コントロール（`search_edit_`）として作成され、サブクラス化（`SearchEditProc`）して IME・キャレット同期を行う。
 
 ### 3.2 App — アプリケーション統括
 
@@ -189,7 +217,9 @@ private:
 ```cpp
 class App {
 public:
+    explicit App(ConfigService& config) noexcept : config_(config) {}
     bool Init(HWND hwnd);
+
     void LoadMarkdownFile(std::wstring_view path);
     void LoadHelpDocument();
     std::pmr::wstring LoadLastFilePath() const;
@@ -232,22 +262,24 @@ public:
     void OnActivate(bool active) { Dispatch(ActivateAction{ active }); }
 
     // 検索コールバック (Win32Windowから呼ばれReducer経由で状態更新)
-    void OnSearchTextChanged(std::wstring_view text);
-    void OnSearchClose();
-    void OnSearchNext();
-    void OnSearchPrev();
+    void OnSearchTextChanged(std::pmr::wstring text);   // Reducer に move 渡し
+    void OnSearchClose()        { Dispatch(CloseSearchBarAction{}); }
+    void OnSearchNext()         { Dispatch(SearchNextAction{}); }
+    void OnSearchPrev()         { Dispatch(SearchPrevAction{}); }
     bool IsSearchBarVisible() const noexcept;
     void OnToggleCaseSensitive();
     void OnToggleHighlight();
-    void SetSearchSelection(int start, int end);
-    void SetImeComposition(std::wstring_view comp);
+    void SetSearchSelection(int sel_start, int sel_end);
+    void SetImeComposition(std::pmr::wstring comp);
     RECT GetSearchEditRect();
 
 private:
     void Dispatch(const AppAction& action);
 
+    // Reducer を介さない経路から effect を単発発火するヘルパー。
+    // SideEffectList 用の pmr vector アロケーションを避けるホット経路向け。
     template <typename T>
-    void EmitEffect(T&& e); // 単発 effect のヘルパー
+    void EmitEffect(T&& e);
 
     // Win32 ハンドル
     HWND hwnd_ = nullptr;
@@ -256,13 +288,13 @@ private:
     // コアサービス
     Renderer           renderer_;
     TaskScheduler      scheduler_;
-    MermaidFileCache   file_cache_;
+    MermaidFileCache   file_cache_; // mermaid_renderer_ より先に宣言（破棄順序の保証）
     MermaidRenderer    mermaid_renderer_;
     ImageLoader        image_loader_;
     FileWatcher        file_watcher_;
     DocumentService    doc_service_{ file_watcher_ };
     AppController      controller_;
-    ConfigService      config_;
+    ConfigService&     config_;
     ThemeService       theme_service_{ config_ };
     SessionService     session_{ config_ };
     FileLoadService    file_load_service_{ doc_service_ };
@@ -276,6 +308,11 @@ private:
     ResourceManager              resource_manager_;
     Win32Host                    win32_host_;
     SideEffectExecutor           effect_executor_;
+
+    // SVG クリップボードコピー用の LRU キャッシュ
+    static constexpr size_t MAX_SVG_CACHE_ENTRIES = 64;
+    LruCache<uint64_t, std::pmr::wstring> svg_cache_{ MAX_SVG_CACHE_ENTRIES };
+    bool svg_copy_in_flight_ = false;
 };
 ```
 
@@ -285,16 +322,22 @@ private:
 
 | ファイル | 担当 |
 |:---------|:-----|
-| `app.cpp` | コアロジック（`Dispatch`, レイアウト, テーマ適用） |
+| `app.cpp` | コアロジック（`Dispatch`, レイアウト, テーマ適用, OnPaint） |
 | `app_init.cpp` | `Init()` と各サービスの初期化 |
 | `app_file.cpp` | `LoadMarkdownFile`, `BeginAsyncLoad`, `OnParseComplete` |
-| `app_scroll.cpp` | スクロール関連ヘルパー |
-| `app_mouse.cpp` | マウス入力ハンドラ |
-| `app_mouse_click.cpp` | マウスクリック処理 |
-| `app_mouse_hover.cpp` | ホバー処理 |
-| `app_navigate.cpp` | リンクナビゲーション |
+| `app_scroll.cpp` | スクロール関連ヘルパー（`ScrollTo`, `EnsureScrollTarget`, `ScheduleDeferredLayoutIfNeeded` 等） |
+| `app_mouse.cpp` | マウス入力ハンドラ（`OnMouseMove`, ドラッグ系統括） |
+| `app_mouse_click.cpp` | マウスクリック処理（`OnLButtonDown/Up`, `HandleMdPaneClick` 等） |
+| `app_mouse_hover.cpp` | ホバー処理（`OnMouseHover`, `HandleMdPaneHover`） |
+| `app_navigate.cpp` | リンク・アンカーナビゲーション（`HandleLinkClick`） |
 | `app_context_menu.cpp` | カスタムコンテキストメニュー処理 |
-| `app_clipboard.cpp` | クリップボード・画像保存 |
+| `app_clipboard.cpp` | クリップボード・画像保存（`SetClipboardText`, `SaveDiagramAsPng`, `CopyDiagramAsSvg`） |
+| `app_controller.cpp` | `AppController::HandleKeyDown` / `HandleMouseWheel` |
+| `reducer.cpp` | `Reduce(state, action)`（in-place 更新、副作用リストを返す） |
+| `side_effect_executor.cpp` | `SideEffectExecutor::Execute` / `ExecuteOne`（IWin32Host 経由で実行） |
+| `render_composer.cpp` | `BuildSidePaneState` / `BuildTitleBarState` 等の各レンダーステート構築関数 |
+| `resource_manager.cpp` | 画像・Mermaid バッチ・ビットマップ管理 |
+| `win32_host_impl.cpp` | `Win32Host`（IWin32Host の本番実装） |
 
 #### 3.2.4 メッセージハンドリング
 
@@ -321,9 +364,10 @@ flowchart TD
     EFFS --> EXEC[SideEffectExecutor::Execute]
     EXEC --> HOST[IWin32Host]
 
-    PAINT --> RC[RenderComposer::Compose]
-    RC --> CG[CommandGenerator]
+    PAINT --> CG[CommandGenerator]
     CG --> CE[CommandExecutor::Execute]
+    PAINT --> RC[render_composer::Build*State]
+    RC --> R[Renderer::Draw 各層]
 
     W -->|WM_APP+1 LOAD_FILE| LDF[App::OnAppLoadFile]
     W -->|WM_APP+2 IMAGE_LOADED| IMGLD[App::OnAppImageLoaded]
@@ -379,6 +423,19 @@ flowchart TD
 `AppController` はステートレスなマッパーである。Win32 / D2D 依存なし、完全にテスト可能。
 
 ```cpp
+struct KeyDownEvent {
+    int  key;
+    bool ctrl  = false;
+    bool shift = false;
+    bool alt   = false;
+};
+
+struct MouseWheelEvent {
+    int      delta;             // 生の WHEEL_DELTA 単位
+    bool     ctrl = false;
+    PaneZone zone = PaneZone::MdPane;
+};
+
 class AppController {
 public:
     AppAction HandleKeyDown(const KeyDownEvent& event) const;
@@ -386,7 +443,7 @@ public:
 };
 ```
 
-`KeyDownEvent` は `key`, `ctrl`, `shift`, `alt` フラグを持ち、Win32 の `GetKeyState` 確認結果をバンドルする。
+`KeyDownEvent` / `MouseWheelEvent` は `app_events.h` で定義されるプラットフォーム非依存の入力イベント。Win32 の `GetKeyState` 確認結果は呼び出し側でバンドルしてから渡す。
 
 ---
 
@@ -397,10 +454,46 @@ public:
 `AppState` はアプリケーションの **すべての状態** を保持する単一構造体。サブグループ別にネストされる。
 
 ```cpp
+struct DocumentState {
+    Document    doc;
+    LayoutCache layout_cache;
+};
+
+struct ViewState {
+    ViewportManager   viewport;
+    PaneController    panes;
+    ScrollRestoration scroll_restore;
+    NavHistory        nav_history;
+    float             cached_total_height = 0.0f;
+};
+
+struct InteractionState {
+    MouseGesture   gesture;
+    SwipeDetector  swipe_detector;
+    HoverThrottle  hover_throttle;
+    Tooltip        tooltip;
+    ToastNotifier  toast;
+    HoveredButtons hovered;            // copy / save / svg_copy ボタンのホバー状態を集約
+    NavButtonHover nav_hover = NavButtonHover::None;
+};
+
+struct SearchGroup {
+    SearchState         search_state;
+    SearchBarController search_bar_ctrl;
+};
+
+struct WindowState {
+    TitleBar       titlebar;
+    bool           is_sizing = false;
+    bool           window_active = true;
+    float          cached_dpi_scale = 1.0f;
+    ThemeConstants cached_theme;
+};
+
 struct AppState {
     DocumentState    document;     // ドキュメント + LayoutCache
     ViewState        view;         // ViewportManager + PaneController + ScrollRestoration + NavHistory
-    InteractionState interaction;  // MouseGesture + SwipeDetector + Tooltip + ToastNotifier ...
+    InteractionState interaction;  // MouseGesture + SwipeDetector + Tooltip + ToastNotifier 等
     SearchGroup      search;       // SearchState + SearchBarController
     WindowState      window;       // TitleBar + DPI + テーマ定数キャッシュ
 
@@ -408,14 +501,21 @@ struct AppState {
     ContextMenu      ctx_menu;
     int              active_toc_index = -1;
 
-    size_t           reload_diff_pos       = std::string_view::npos;
-    bool             pending_prefix_shrink = false;
+    // wide テキストへのオフセットなので wstring_view::npos で揃える
+    size_t           reload_diff_pos       = std::wstring_view::npos;
+    // 短縮タイマーで再リロード予約済み（DeferPrefixShrink / partial-read race）
+    bool             pending_reload_retry  = false;
 
     std::pmr::wstring cached_title_text = L"mendo";
     PaneLayout        cached_pane_layout{};
     float             cached_window_width_for_layout = 0.0f;
     bool              pane_layout_valid = false;
 };
+
+// AppState 関連のフリー関数
+ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept;
+NavEntry     CurrentNavEntry(const AppState& state);
+void         PushCurrentNavEntry(AppState& state);
 ```
 
 #### 3.3.2 サブグループ詳細
@@ -451,8 +551,7 @@ classDiagram
         +HoverThrottle hover_throttle
         +Tooltip tooltip
         +ToastNotifier toast
-        +int hovered_copy_node
-        +int hovered_save_node
+        +HoveredButtons hovered
         +NavButtonHover nav_hover
     }
 
@@ -483,20 +582,18 @@ classDiagram
 #### 3.4.1 Reducer
 
 ```cpp
-struct ReduceResult {
-    AppState        new_state;
-    SideEffectList  effects;
-};
-
-ReduceResult Reduce(const AppState& state, const AppAction& action,
-                    const ReducerEnv& env);
+// Reducer: UI イベント由来の状態遷移ハブ。
+// 現在の状態を in-place で変更し、実行すべき副作用のリストを返す。
+SideEffectList Reduce(AppState& state, const AppAction& action);
 ```
 
-`Reducer` は **純粋関数** として `AppState` と `AppAction` を取り、新しい `AppState` と副作用リストを返す（環境定数 `ReducerEnv` を経由してテーマ・DPI・ペインレイアウト等を参照する）。
+`Reducer` は `AppState` を **in-place で変更** し、実行すべき副作用の `SideEffectList` を返す。テーマや DPI、ペインレイアウト等の定数は `AppState::window.cached_theme`（`ThemeConstants`）と `cached_pane_layout` 経由で参照する。これらの値が古くなったら `pane_layout_valid = false` にして次回再計算する。
+
+> **Note**: 関数型「純粋関数」スタイル（新 state を返す）ではなく in-place 更新スタイルを採用するのは、`AppState` 内部の `std::pmr::vector<Node>` や `std::pmr::deque` などの大型コンテナを毎回コピーすると性能上のオーバーヘッドが大きいためである。`SideEffectList` のみが新規 vector として生成される。
 
 #### 3.4.2 AppAction
 
-`AppAction` は `std::variant` で約65種類のアクションを保持する。
+`AppAction` は `std::variant` で約 65 種類のアクションを保持する（コマンド系、マウス・ドラッグ系、システム、タイマー・非同期、検索の 5 グループ）。
 
 ```cpp
 using AppAction = std::variant<
@@ -535,25 +632,46 @@ using AppAction = std::variant<
 
 #### 3.4.3 SideEffect — 二段variant
 
-`SideEffect` はドメイン別の二段 variant 構造により、新機能追加時に同期点を局所化する。
+`SideEffect` はドメイン別の二段 variant 構造により、新機能追加時に同期点を局所化する。Effect 型は `namespace effect` に集約されている。
 
 ```cpp
-using UiEffect          = std::variant<InvalidateWindow, SetCursor, ClipboardWrite,
-                                       ShowTooltip, ShowToast, ShowContextMenu, /*...*/>;
-using WindowEffect      = std::variant<ShowWindowCmd, PostMessage, SetWindowTitle,
-                                       ApplyDarkMode, ApplyThemeChange, RendererResize, /*...*/>;
-using NavigationEffect  = std::variant<ShellOpen, LoadFile, ReloadFile, OpenFileDialog>;
-using LayoutEffect      = std::variant<DeferredLayout, MermaidBatch, BitmapManage,
-                                       InvalidatePaneCache, RefreshPaneLayout,
-                                       SyncTocActive, ViewportLayout, SyncMaxScroll>;
-using ResourceEffect    = std::variant<LoadImages, RequestMermaidRenders, CancelMermaidBatch,
-                                       NotifyImageLoaded, ClearFileCache,
-                                       StartFileWatch, StopFileWatch, ResumeFileWatch,
-                                       CheckFileChanges>;
-using TimerEffect       = std::variant<SetTimer, KillTimer, ProcessDeferredLayout,
-                                       TickLoadingAnimation, ProcessMermaidBatchTimer,
-                                       ProcessBitmapManage, MermaidInitRetry>;
-using LifecycleEffect   = std::variant<SaveConfig, Destroy, HandleParseComplete>;
+using UiEffect          = std::variant<
+    effect::InvalidateWindow, effect::InvalidateTitleBar,
+    effect::SetCapture, effect::ReleaseCapture, effect::SetCursor,
+    effect::ClipboardWrite, effect::ClipboardWriteHtml,
+    effect::ShowTooltip, effect::ClearTooltip,
+    effect::ShowToast, effect::ShowContextMenu>;
+
+using WindowEffect      = std::variant<
+    effect::ShowWindowCmd, effect::PostWindowMessage,
+    effect::SetWindowTitle, effect::SetWindowPosition,
+    effect::ApplyDarkMode, effect::ApplyThemeChange,
+    effect::PerformResizeEnd, effect::PerformSizingUpdate,
+    effect::RendererResize, effect::RendererSetDpi>;
+
+using NavigationEffect  = std::variant<
+    effect::ShellOpen, effect::LoadFile,
+    effect::ReloadFile, effect::OpenFileDialog>;
+
+using LayoutEffect      = std::variant<
+    effect::DeferredLayout, effect::BitmapManage, effect::MermaidBatch,
+    effect::InvalidatePaneCache, effect::RefreshPaneLayout,
+    effect::SyncTocActive, effect::ViewportLayout, effect::SyncMaxScroll>;
+
+using ResourceEffect    = std::variant<
+    effect::LoadImages, effect::RequestMermaidRenders, effect::CancelMermaidBatch,
+    effect::NotifyImageLoaded, effect::ClearFileCache,
+    effect::StartFileWatch, effect::StopFileWatch, effect::ResumeFileWatch,
+    effect::CheckFileChanges>;
+
+using TimerEffect       = std::variant<
+    effect::SetTimer, effect::KillTimer,
+    effect::ProcessDeferredLayout, effect::TickLoadingAnimation,
+    effect::ProcessMermaidBatchTimer, effect::ProcessBitmapManage,
+    effect::MermaidInitRetry>;
+
+using LifecycleEffect   = std::variant<
+    effect::Destroy, effect::HandleParseComplete>;
 
 using SideEffect = std::variant<
     UiEffect, WindowEffect, NavigationEffect, LayoutEffect,
@@ -562,7 +680,9 @@ using SideEffect = std::variant<
 using SideEffectList = std::pmr::vector<SideEffect>;
 ```
 
-`PushEffect<T>(effects, e)` ヘルパーが、effect 型を該当ドメイン variant に自動でラップする。
+`PushEffect<T>(effects, e)` ヘルパーが、effect 型を該当ドメイン variant に自動でラップする。`HasEffect<T>(effects)` / `GetEffect<T>(side_effect)` も同様に二段 variant を透過的に扱う。
+
+> **命名上の注意**: `<windows.h>` が `PostMessage` / `SetWindowText` をマクロ化するため、衝突を避けるべく `PostWindowMessage` / `SetWindowTitle` の名称を採用している。
 
 #### 3.4.4 SideEffectExecutor / IWin32Host
 
@@ -571,48 +691,76 @@ using SideEffectList = std::pmr::vector<SideEffect>;
 ```cpp
 class IWin32Host {
 public:
+    virtual ~IWin32Host() = default;
+
     virtual void Invalidate() = 0;
-    virtual void InvalidateRect(const PaneRect&) = 0;
-    virtual void SetCapture() = 0;
-    virtual void ReleaseCapture() = 0;
-    virtual void SetCursor(CursorType) = 0;
+    virtual void InvalidateTitleBarArea(int width_px, int height_px) = 0;
+
     virtual void SetTimer(UINT_PTR id, UINT ms) = 0;
     virtual void KillTimer(UINT_PTR id) = 0;
-    virtual void PostMessage(UINT msg, WPARAM, LPARAM) = 0;
-    virtual void ShellOpen(std::wstring_view url) = 0;
-    virtual void OpenFileDialog() = 0;
-    virtual void WriteClipboardText(std::wstring_view) = 0;
+
+    virtual void SetCapture() = 0;
+    virtual void ReleaseCapture() = 0;
+
+    virtual void SetCursor(effect::CursorType type) = 0;
+
+    virtual void WriteClipboardText(std::wstring_view text) = 0;
     virtual void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) = 0;
-    virtual void ShowToast(std::wstring_view) = 0;
-    virtual void ShowContextMenu(int sx, int sy) = 0;
-    virtual void RecomputeLayout(bool anchored) = 0;
-    virtual void ApplyDarkMode(bool) = 0;
-    virtual void ApplyTheme() = 0;
-    virtual void HandleParseComplete() = 0;
-    // ... 他
+
+    // ShellExecuteW / SetWindowTextW は null 終端文字列を要求するため、
+    // pmr::wstring を直接受けて null 終端コピーを 1 回省略する。
+    virtual void ShellOpen(const std::pmr::wstring& url) = 0;
+    virtual void ShowWindowCmd(int cmd) = 0;
+    virtual void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) = 0;
+    virtual void SetWindowTitle(const std::pmr::wstring& title) = 0;
+    virtual void SetWindowPosition(int x, int y, int cx, int cy) = 0;
+    virtual POINT ClientToScreen(POINT client_pt) = 0;
+
+    virtual void ApplyDarkMode(bool dark) = 0;
 };
 ```
+
+`Win32Host` が本番実装で、`HWND` と `CursorManager*` を保持する。トースト表示・コンテキストメニュー描画・レイアウト再計算といった「アプリ内ロジック」は `IWin32Host` を経由せず、`SideEffectExecutor` が `App` 内のサービス（`App`/`ResourceManager`/`LayoutService`）を直接呼ぶ設計になっている — `IWin32Host` はあくまで Win32 API 境界を跨ぐための adapter に絞られる。
 
 ---
 
 ### 3.5 RenderComposer — 描画ステート構築
 
-`RenderComposer` は `AppState` から描画に必要な情報を抽出し、`CommandGenerator` を駆動して `DrawCommandList` を組み立てる純粋ロジック。Win32/D2D 依存なし（mendo_core 配置）。
+`render_composer` は `AppState` から各レンダーステート（`SidePaneState`, `TitleBarRenderState`, `SearchBarRenderState`, `ToastRenderState`, `GestureRenderState`）を構築する純粋関数群。Win32/D2D 依存なし（mendo_core 配置）。クラスではなく namespace + 自由関数として提供される。
+
+```cpp
+namespace render_composer {
+
+GestureRenderState  BuildGestureState(const AppState& state);
+SidePaneState       BuildSidePaneState(const AppState& state, const PaneLayout& layout);
+TitleBarRenderState BuildTitleBarState(const AppState& state, float window_width,
+                                       bool is_dark_mode, bool is_maximized);
+ToastRenderState    BuildToastState(const AppState& state);
+SearchBarRenderState BuildSearchBarState(const AppState& state);
+
+} // namespace render_composer
+```
+
+Markdown ペインの描画コマンドは `Renderer`（具象、`renderer.cpp`）が `CommandGenerator` を直接呼ぶ。
 
 ```mermaid
 sequenceDiagram
-    participant APP as App
-    participant RC as RenderComposer
+    participant APP as App::OnPaint
+    participant R as Renderer
+    participant RC as render_composer
     participant CG as CommandGenerator
     participant CE as CommandExecutor
     participant RT as ID2D1HwndRenderTarget
 
-    APP->>RC: Compose(state, theme, viewport)
-    RC->>CG: GenerateMdPane(...)
-    CG-->>RC: DrawCommandList
-    RC-->>APP: 完成したコマンドリスト
-    APP->>CE: Execute(cmds, render_target)
-    CE->>RT: BeginDraw / 各コマンド実行 / EndDraw
+    APP->>R: Render(state, theme, ...)
+    R->>RT: BeginDraw
+    R->>CG: GenerateMdPane(nodes, cache, selection, ...)
+    CG-->>R: DrawCommandList
+    R->>CE: Execute(cmds, render_target)
+    R->>RC: Build*State(state, ...)
+    RC-->>R: 各レンダーステート
+    R->>R: DrawSidePanes / DrawTitleBar / DrawSearchBar / DrawToast / DrawGestureOverlay
+    R->>RT: EndDraw
 ```
 
 ---
@@ -623,12 +771,12 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant DS as DocumentService
-    participant P as Parser
-    participant MD as md4c
+    participant DOC as Document::FromMarkdown
+    participant P as ParseMarkdown
+    participant MD as md4c (MD4C_USE_UTF16)
     participant N as Node[]
 
-    DS->>P: ParseMarkdown(utf8_text)
+    DOC->>P: ParseMarkdown(wide_text)
     P->>MD: md_parse(text, callbacks)
     loop SAX コールバック
         MD->>P: enter_block(type, detail)
@@ -636,15 +784,29 @@ sequenceDiagram
         MD->>P: enter_span(type, detail)
         P->>P: TextRun 開始記録
         MD->>P: text(type, text)
-        P->>P: UTF-8テキスト蓄積
+        P->>P: Wide テキスト蓄積（HTML エンティティ解決）
         MD->>P: leave_span(type, detail)
         P->>P: TextRun 終了記録
         MD->>P: leave_block(type, detail)
         P->>P: ノード確定 → nodes へ push
     end
-    P->>P: ConvertTextFromUtf8() 一括 (UTF-8→Wide)
-    P-->>DS: std::pmr::vector<Node>
+    P-->>DOC: ParseResult { nodes, heading_indices, image_indices, diagram_indices }
+    DOC->>DOC: DetectAlerts (BlockQuote → Alert に変換)
+    DOC->>DOC: BuildHeadingIndices (anchor_id → Node index)
 ```
+
+```cpp
+struct ParseResult {
+    std::pmr::vector<Node>   nodes;
+    std::pmr::vector<size_t> heading_indices;
+    std::pmr::vector<size_t> image_indices;
+    std::pmr::vector<size_t> diagram_indices;
+};
+
+ParseResult ParseMarkdown(std::wstring_view markdown_text);
+```
+
+md4c は **`MD4C_USE_UTF16` モード** で起動するため、入力は wide テキスト。`FileLoader::LoadFile` が UTF-8→UTF-16 変換まで行ったうえで `Document::FromMarkdown(wide, byte_size, path)` に渡す経路と、埋め込みリソース（ヘルプ）から `FromMarkdown(utf8, path)` を呼ぶ経路の 2 通りがある。
 
 #### 3.6.2 対応する Markdown 要素
 
@@ -688,7 +850,13 @@ sequenceDiagram
 
 #### 3.6.4 GitHub Alerts記法
 
-引用ブロック先頭の `[!NOTE]` `[!TIP]` `[!IMPORTANT]` `[!WARNING]` `[!CAUTION]` を検出し、Alert ノードに変換する。`parser_alerts.cpp` が専用処理を担当する。
+引用ブロック先頭の `[!NOTE]` `[!TIP]` `[!IMPORTANT]` `[!WARNING]` `[!CAUTION]` を検出し、`alert_type` を設定したうえで `alert_label_length` にラベル部分の文字数を記録する（描画エフェクト適用範囲に使う）。`parser_alerts.cpp` の `DetectAlerts(nodes, blockquote_indices)` が専用処理を担当する。
+
+```cpp
+void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockquote_indices);
+std::wstring_view GetAlertLabel(AlertType type) noexcept;
+std::wstring_view GetAlertIcon(AlertType type) noexcept;
+```
 
 ---
 
@@ -696,20 +864,55 @@ sequenceDiagram
 
 #### 3.7.1 概要
 
-`LayoutEngine` は `ITextMeasurer` インターフェース経由で各ノードを計測し、`LayoutCache` に格納する。`LayoutService` がレイアウト全体の統括を行う。
+`LayoutEngine` は `ITextMeasurer` インターフェース経由で各ノードを計測し、`LayoutCache` に格納する。`LayoutService` が `LayoutEngine` と `ViewportManager` を結合し、スクロール target 管理付きのレイアウト操作を提供する。
 
 ```cpp
 class ITextMeasurer {
 public:
+    virtual ~ITextMeasurer() = default;
+
     virtual bool Init(const Theme& theme) = 0;
     virtual bool RecreateFormats() = 0;
     virtual void UpdateTheme(const Theme& theme) noexcept = 0;
-    virtual void MeasureNode(Node&, NodeLayoutEntry&, float max_width) = 0;
-    virtual void MeasureTable(Node&, NodeLayoutEntry&, float max_width) = 0;
+    virtual void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) = 0;
+    virtual void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) = 0;
+};
+
+class LayoutEngine {
+public:
+    bool Init(ITextMeasurer* measurer, const Theme& theme);
+    void UpdateTheme(const Theme& theme) noexcept;
+    bool RecreateFormats();
+
+    void ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
+                       float viewport_top = -1.0f, float viewport_bottom = -1.0f);
+    void LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
+    bool ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
+                           float viewport_width, int batch_size, int time_budget_us = 0,
+                           float viewport_top = -1.0f, float viewport_height = -1.0f,
+                           float buffer_screens = 5.0f);
+    bool EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
+                             float viewport_top, float viewport_bottom);
+
+    constexpr bool  HasDirtyNodes() const noexcept;
+    constexpr float GetTotalHeight() const noexcept;
+    constexpr void  SetTotalHeight(float h) noexcept;
+};
+
+class LayoutService {
+public:
+    LayoutService(LayoutEngine& engine, ViewportManager& viewport) noexcept;
+
+    void ViewportLayout(Document& doc, LayoutCache& cache, float width, float height);
+    bool ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size,
+                           int time_budget_us = 0, float viewport_height = -1.0f,
+                           float buffer_screens = 5.0f);
+    bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
+    void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept;
 };
 ```
 
-本番実装は `DWriteMeasurer`（DirectWrite を使用）。テスト時はモックに差し替えられる。
+本番実装は `DWriteMeasurer`（DirectWrite を使用）。テスト時はモックに差し替えられる。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` などのフリー関数で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。
 
 #### 3.7.2 レイアウト計算フロー
 
@@ -755,17 +958,19 @@ flowchart TB
 
 ```mermaid
 sequenceDiagram
-    participant APP as App
-    participant RC as RenderComposer
+    participant APP as App::OnPaint
+    participant R as Renderer
     participant CG as CommandGenerator
     participant CE as CommandExecutor
     participant RT as ID2D1HwndRenderTarget
 
-    APP->>RC: Compose(state, ...)
-    RC->>CG: GenerateMdPane(nodes, cache, selection, ...)
-    CG-->>RC: DrawCommandList
-    APP->>CE: Execute(cmds, render_target)
-    CE->>RT: BeginDraw / 各描画コマンド実行 / EndDraw
+    APP->>R: Render(state, ...)
+    R->>RT: BeginDraw
+    R->>CG: GenerateMdPane(nodes, cache, selection, ...)
+    CG-->>R: DrawCommandList
+    R->>CE: Execute(cmds, render_target)
+    CE->>RT: 各描画コマンド実行
+    R->>RT: EndDraw
 ```
 
 #### 3.8.2 DrawCommand 型
@@ -977,6 +1182,7 @@ graph LR
         BASH[Bash]
         PS[PowerShell]
         CMD[Cmd]
+        JSON[JSON / JSONC / JSON5]
         MER[Mermaid]
     end
 
@@ -1000,7 +1206,10 @@ graph LR
     BASH --> KW & ST & NU & CM & PL
     PS --> KW & TY & ST & NU & CM & PL
     CMD --> KW & ST & CM & PL
+    JSON --> KW & ST & NU & PL
 ```
+
+JSON 系は ` ```json ` / ` ```jsonc ` / ` ```json5 ` の言語タグで認識される。`true` / `false` / `null` をキーワードとしてハイライトする。
 
 キーワードリストは `syntax_keywords.h` に集約され、各言語ごとに `std::array<std::string_view, N>` で持つ。`flat_map` ベースの線形検索を使用する。
 
@@ -1012,16 +1221,37 @@ graph LR
 
 ```mermaid
 flowchart LR
-    OPEN[CreateFileW<br>GENERIC_READ<br>FILE_SHARE_*] --> READ[ReadFile<br>UTF-8バイト列]
-    READ --> BOM{BOM付き？}
-    BOM -->|Yes| STRIP[BOM除去 (3バイト)]
-    BOM -->|No| PASS[そのまま]
-    STRIP --> OUT[std::pmr::string]
-    PASS --> OUT
+    OPEN[CreateFileW<br>GENERIC_READ<br>FILE_SHARE_*] --> MAP[CreateFileMapping<br>+ MapViewOfFile]
+    MAP --> CONV[BOM 検出 + UTF-8→UTF-16 変換<br>MultiByteToWideChar]
+    CONV --> OUT[LoadedFileWide { wide, byte_size }]
+```
+
+```cpp
+inline constexpr LONGLONG MAX_FILE_SIZE = 1024LL * 1024 * 1024 * 4;  // 4GB
+
+enum class FileLoadError : uint8_t {
+    NotFound,    // ファイルが見つからない、またはアクセス拒否
+    TooLarge,    // ファイルサイズが MAX_FILE_SIZE を超過
+    ReadFailed,  // 読み込み中の I/O エラー
+};
+
+struct LoadedFileWide {
+    std::pmr::wstring wide;
+    size_t            byte_size = 0;  // 元 UTF-8 のバイト数
+};
+
+class FileLoader {
+public:
+    static std::expected<LoadedFileWide, FileLoadError>
+        LoadFile(const std::pmr::wstring& path);
+    static std::pmr::wstring OpenFileDialog(HWND owner);
+};
 ```
 
 - 共有モード: `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`
 - 他プロセスが編集中でも読み取り可能
+- メモリマップ（`CreateFileMappingW` + `MapViewOfFile`）で UTF-8→UTF-16 変換まで一気に行い、中間 UTF-8 バッファを確保しない（巨大ファイルでも UTF-8 のコピーが発生しない）
+- Markdown 経路の実効上限は ~2GB-1（`MultiByteToWideChar` が `int` を取るため、`INT_MAX` 超は `TooLarge` として弾く）
 
 #### 3.11.2 FileWatcher — ファイル変更監視
 
@@ -1030,16 +1260,24 @@ flowchart LR
 ```cpp
 class FileWatcher {
 public:
-    using ChangeCallback = std::function<void()>;
+    using ChangeCallback = std::move_only_function<void()>;
+
     void StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback);
     void StopWatching() noexcept;
     void CheckForChanges();
     void ResumeWatching();
-    HANDLE GetWaitHandle() const noexcept;
+    constexpr HANDLE GetEventHandle() const noexcept;  // watching && read_pending 中のみ非nullptr
 };
 ```
 
-`MsgWaitForMultipleObjects` で `WaitHandle` を監視し、変化時に `WM_APP+3 RELOAD_FILE` メッセージをポストする。デバウンスは `app_timer::FILE_RELOAD_DEBOUNCE`（200ms、`FILE_RELOAD_DEBOUNCE_MS`）。
+`MsgWaitForMultipleObjects` で `EventHandle` を監視し、変化時に `WM_APP+3 RELOAD_FILE` メッセージをポストする。
+
+| 定数 | 値 | 用途 |
+|:-----|:---|:-----|
+| `FILE_RELOAD_DEBOUNCE_MS` | 200ms | ファイル変更通知のデバウンス |
+| `FILE_RELOAD_RETRY_MS` | 50ms | truncate→rewrite 検出後の短縮リトライ |
+
+ReadDirectoryChangesW の通知バッファは 64KB 確保（バッファ溢れで通知喪失を防ぐため）。
 
 #### 3.11.3 DocumentService — 読み込みオーケストレーション
 
@@ -1048,34 +1286,55 @@ class DocumentService {
 public:
     explicit DocumentService(FileWatcher& watcher) noexcept;
 
-    bool LoadFile(const std::pmr::wstring& path, Document& doc);
-    bool ReloadFile(Document& doc);
+    std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path);
+
     void StartWatching(const std::pmr::wstring& path, FileWatcher::ChangeCallback cb);
     void StopWatching() noexcept;
     void CheckForChanges();
-    HANDLE GetFileWatchEvent() const noexcept;
-    void ResetDebounceTick() noexcept;
+    void ResumeWatching();
+    constexpr HANDLE GetFileWatchEvent() const noexcept;
+
+    static bool NeedsAsyncLoad(const std::pmr::wstring& path) noexcept;
     static bool NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept;
 };
 ```
 
+`LoadFile` は `std::expected` で成功時 `Document`（FromMarkdown 済み）を、失敗時 `FileLoadError` を返す。`NeedsAsyncLoad` / `NeedsLoadingAnimation` はファイルサイズで判定する閾値関数。
+
 #### 3.11.4 FileLoadService — 非同期ロード制御 + アニメーション
 
 ```cpp
+struct AsyncLoadResult {
+    Document    doc;
+    LayoutCache cache;  // ワーカー側で推定高さを格納済み
+};
+
 class FileLoadService {
 public:
     explicit constexpr FileLoadService(DocumentService& doc_service) noexcept;
 
-    bool IsLoading() const noexcept;
-    float GetLoadingAngle() const noexcept;
-    void StartLoading(std::wstring_view path);
+    // ローディング状態
+    constexpr bool  IsLoading() const noexcept;
+    constexpr bool  IsAsyncLoading() const noexcept;  // スピナー非表示でも非同期パース進行中
+    constexpr float GetLoadingAngle() const noexcept;
+    void StartLoading(std::pmr::wstring path);
     void StopLoading() noexcept;
     void TickLoadingAnimation() noexcept;
-    bool ExecuteLoad(Document& doc, LayoutCache& cache);
-    std::wstring_view GetLoadingPath() const noexcept;
-    void SetLoadingPath(std::wstring_view path);
+
+    // 同期ロード
+    std::expected<void, FileLoadError> ExecuteLoad(Document& doc, LayoutCache& cache);
+
+    // 非同期ロード
+    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme);
+    std::optional<AsyncLoadResult> TakeAsyncResult();
+    void CancelAsyncLoad() noexcept;
+
+    constexpr std::wstring_view GetLoadingPath() const noexcept;
+    constexpr void SetLoadingPath(std::pmr::wstring path) noexcept;
 };
 ```
+
+非同期ロードはワーカースレッドで Document を構築し、推定高さまで埋めた `LayoutCache` を返す。ワーカーは世代カウンタ（`async_gen_`）と `mutex` 保護の `async_result_` のみを触り、UI スレッドは `TakeAsyncResult` で結果を受け取る。
 
 #### 3.11.5 対応ファイル形式
 
@@ -1129,33 +1388,53 @@ sequenceDiagram
 ```cpp
 class IMermaidRenderer {
 public:
-    virtual void RequestRender(uint64_t key, std::string_view code, ...) = 0;
-    virtual void CancelAll() = 0;
-    virtual bool IsReady() const = 0;
-    // ...
+    using Callback    = std::move_only_function<void()>;
+    using SvgCallback = std::move_only_function<void(std::pmr::wstring svg, bool cancelled)>;
+
+    virtual ~IMermaidRenderer() = default;
+
+    virtual void RequestRender(Node& node, NodeLayoutEntry& layout_entry,
+                               DiagramEntry& diagram_entry, float max_width, bool dark_mode,
+                               Callback on_complete) = 0;
+    // SVG をクリップボード用に取得する。PNG レンダリングと同じワーカー枠を共有する。
+    virtual void RequestSvg(std::wstring_view code, float max_width, bool dark_mode,
+                            SvgCallback callback) = 0;
+    virtual void CancelPending() = 0;
+    virtual void ClearCache() = 0;
 };
 ```
 
-`mendo_core` には `MermaidLifecycle`（純粋ロジック）と `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。
+`mendo_core` には `mermaid_lifecycle::Lifecycle`（純粋ロジック）と `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 4 ワーカー（独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。
 
 #### 3.12.3 MermaidFileCache — 永続キャッシュ
 
 ```cpp
 class MermaidFileCache {
 public:
+    struct CacheEntry {
+        float css_width  = 0.0f;
+        float css_height = 0.0f;
+    };
+    struct PngBlob {
+        std::unique_ptr<uint8_t[]> data;
+        size_t                     size = 0;
+    };
+
     void Init(float current_dpr, TaskScheduler& scheduler);
-    bool Lookup(uint64_t key, CacheEntry& entry, std::vector<uint8_t>& png_data);
+    bool Lookup(uint64_t key, CacheEntry& entry, PngBlob& png);
     bool LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept;
     void StoreAsync(uint64_t key, float css_width, float css_height,
-                    std::vector<uint8_t> png_data);
+                    std::pmr::vector<uint8_t> png_data);
     void SaveIndex();
     void ClearAll();
-    void SetCacheDir(std::wstring_view dir);
+    void SetCacheDir(const std::filesystem::path& dir);
     void SetLimits(size_t max_entries, uint64_t max_total_size);
     void Shutdown();
-    size_t EntryCount() const noexcept;
+
+    size_t   EntryCount() const noexcept;
     uint64_t TotalSize() const noexcept;
 
+private:
     static constexpr uint32_t MAGIC   = 0x4D454D43u;  // "MEMC"
     static constexpr uint32_t VERSION = 1;
     static constexpr size_t   DEFAULT_MAX_ENTRIES    = 4096;
@@ -1163,7 +1442,7 @@ public:
 };
 ```
 
-DPR（デバイスピクセル比）の不一致を検出した場合、キャッシュ全体をクリアする。書き込みは `TaskScheduler` のワーカースレッドで非同期実行される。
+外部キーは内部で DPR 量子化値（1/100 単位、典型値 100/125/150/175/200）と XOR して内部キーに変換し、DPR ごとに独立したエントリとして保存する。これにより DPI 変更/モニタ切替時に全消去を発生させない。書き込みは `TaskScheduler` のワーカースレッドで非同期実行される（`pending_writes_` で重複投入をガード）。
 
 #### 3.12.4 初期化
 
@@ -1174,42 +1453,20 @@ DPR（デバイスピクセル比）の不一致を検出した場合、キャ�
 
 ---
 
-### 3.13 NavigationService / NavHistory — ナビゲーション
+### 3.13 NavHistory / リンク解決 — ナビゲーション
 
-#### 3.13.1 NavigationService
+#### 3.13.1 NavHistory — 履歴スタック
 
-ブラウザスタイルの戻る/進むナビゲーションを提供する。
-
-```cpp
-class NavigationService {
-public:
-    explicit NavigationService(NavHistory& history) noexcept;
-
-    struct NavigateResult {
-        enum class Type { None, Anchor, ExternalUrl, LoadFile };
-        Type type = Type::None;
-        std::pmr::wstring target;
-        int   node    = -1;
-        float offset  = 0.0f;
-    };
-
-    NavigateResult HandleLinkClick(std::wstring_view url,
-                                   std::wstring_view current_file);
-    NavigateResult GoBack(const NavEntry& current);
-    NavigateResult GoForward(const NavEntry& current);
-    void PushHistory(const NavEntry& entry);
-    bool CanGoBack() const noexcept;
-    bool CanGoForward() const noexcept;
-};
-```
-
-#### 3.13.2 NavHistory — 履歴スタック
+ブラウザスタイルの戻る/進む履歴。純粋ロジック・Win32 依存なし。
 
 ```cpp
 struct NavEntry {
     std::pmr::wstring file_path;
     int   node   = -1;     // ノードインデックス（位置の安定基準）
     float offset = 0.0f;   // ノード先頭からのピクセルオフセット
+
+    NavEntry() = default;
+    NavEntry(std::wstring_view fp, int n = -1, float off = 0.0f);
 };
 
 class NavHistory {
@@ -1217,31 +1474,47 @@ public:
     void Push(const NavEntry& current);
     bool GoBack(const NavEntry& current, NavEntry& out);
     bool GoForward(const NavEntry& current, NavEntry& out);
-    bool CanGoBack() const noexcept;
-    bool CanGoForward() const noexcept;
+
+    bool   CanGoBack() const noexcept;
+    bool   CanGoForward() const noexcept;
     size_t BackSize() const noexcept;
     size_t ForwardSize() const noexcept;
-    void Clear() noexcept;
+    void   Clear() noexcept;
     size_t InternedPathCount() const noexcept;
 
     static constexpr size_t MAX_HISTORY = 1024;
 };
 ```
 
-ファイルパスはインターン化（`std::pmr::deque<PathSlot>` + 参照カウント）され、同一ファイルを多数履歴に積んでもメモリ消費が増えない。位置はノード単位で表現するため、ファイルが編集されて絶対 y 座標が変わっても同一ノードに戻れる。
+ファイルパスはインターン化（`std::pmr::deque<PathSlot>` + 参照カウント、free_slots 再利用）され、同一ファイルを多数履歴に積んでもメモリ消費が増えない。位置はノード単位で表現するため、ファイルが編集されて絶対 y 座標が変わっても同一ノードに戻れる。Back→Forward→Back の連続操作で `path_index_::find` を回避する直前値キャッシュ（`last_interned_view_` / `last_interned_index_`）も持つ。
+
+#### 3.13.2 リンク解決
+
+リンククリックは `nav.h` のフリー関数 `HandleLinkClick(url)` で解析し、結果に応じて `App` 側でアンカースクロール・外部 URL を `ShellExecuteW` で開く処理を分岐する。別ファイルへの遷移は外部 URL ではなく Markdown ファイルパスを `LoadFile` 副作用として発行する。
+
+```cpp
+struct LinkClickResult {
+    enum class Type : uint8_t { None, Anchor, ExternalUrl };
+    Type              type = Type::None;
+    std::pmr::wstring target;
+};
+
+LinkClickResult HandleLinkClick(std::wstring_view url);
+bool            IsSafeUrlScheme(std::wstring_view url) noexcept;
+```
 
 #### 3.13.3 ナビゲーションフロー
 
 ```mermaid
 flowchart TD
     TRIGGER[リンククリック / ジェスチャ / Alt+矢印 / Xボタン]
-    TRIGGER --> NS[NavigationService]
-    NS --> TYPE{結果タイプ}
-    TYPE -->|Anchor| SCROLL[アンカーへスクロール]
-    TYPE -->|ExternalUrl| SHELL[ShellExecuteW で開く]
-    TYPE -->|LoadFile| LOAD[別ファイルを読み込み]
-    TYPE -->|None| NOP[何もしない]
-    SCROLL --> PUSH[NavHistory::Push]
+    TRIGGER --> APP[App::HandleLinkClick or NavigateBack/ForwardAction]
+    APP --> KIND{解決結果}
+    KIND -->|Anchor| ANCHOR[Document::FindAnchorIndex<br>→ ScrollTarget 設定]
+    KIND -->|ExternalUrl| SHELL[effect::ShellOpen → ShellExecuteW]
+    KIND -->|別ファイル(.md)| LOAD[effect::LoadFile → DocumentService::LoadFile]
+    KIND -->|None| NOP[何もしない]
+    ANCHOR --> PUSH[NavHistory::Push (新規遷移時のみ)]
     LOAD --> PUSH
 ```
 
@@ -1310,46 +1583,62 @@ public:
 
 ```cpp
 struct ScrollTarget {
-    int   node   = -1;
-    float offset = 0.0f;
+    int   node   = -1;       // -1 = 無効
+    float offset = 0.0f;     // ノード先頭からのピクセル距離
     constexpr bool IsValid() const noexcept;
 };
+
+// 見出しノードを md ペイン上端の heading_spacing_above 分だけ下に配置する ScrollTarget。
+constexpr ScrollTarget MakeHeadingTopTarget(int node, float heading_spacing_above,
+                                            float md_pane_top) noexcept;
 
 class ViewportManager {
 public:
     // スクロール
     constexpr float GetScrollY() const noexcept;
     constexpr float GetMaxScroll() const noexcept;
-    constexpr void  ScrollTo(float position) noexcept;
-    constexpr void  DirectScrollBy(float delta) noexcept;
+    constexpr void  ScrollTo(float position) noexcept;       // scroll_target を無効化
+    constexpr void  DirectScrollBy(float delta) noexcept;    // 同上
     constexpr void  SyncMaxScroll(float total_h, float viewport_h) noexcept;
     constexpr int   FindFirstVisibleNode(const LayoutCache& cache, size_t count) const noexcept;
+    constexpr void  SetScrollY(float y) noexcept;            // target を触らずクランプもしない
+    constexpr bool  IsScrollbarTracking() const noexcept;
+    constexpr void  SetScrollbarTracking(bool v) noexcept;
 
     // ScrollTarget — ノード相対位置によるスクロール復元
     constexpr void SetScrollTarget(int node, float offset) noexcept;
     constexpr void ClearScrollTarget() noexcept;
     constexpr bool HasScrollTarget() const noexcept;
+    constexpr const ScrollTarget& GetScrollTarget() const noexcept;
     constexpr void ApplyScrollTarget(const LayoutCache& cache) noexcept;
     constexpr void EnsureScrollTarget(const LayoutCache& cache, size_t count) noexcept;
 
     // 選択
     constexpr const TextSelection& GetSelection() const noexcept;
     constexpr TextSelection& GetSelectionMut() noexcept;
+    constexpr void SetSelection(const TextSelection& sel) noexcept;
     constexpr void SelectAll(const std::pmr::vector<Node>& nodes) noexcept;
     constexpr void ClearSelection() noexcept;
-    // anchor / drag 状態など
+    constexpr int      GetAnchorNode() const noexcept;
+    constexpr uint32_t GetAnchorPos() const noexcept;
+    constexpr void     SetAnchor(int node, uint32_t pos) noexcept;
+    constexpr bool     IsDragging() const noexcept;
+    constexpr void     SetDragging(bool v) noexcept;
+    constexpr int      GetClickStartX() const noexcept;
+    constexpr int      GetClickStartY() const noexcept;
+    constexpr void     SetClickStart(int x, int y) noexcept;
 
-    // ズーム
+    // ズーム — 戻り値 bool は zoom_index が変化したかどうか
     constexpr int   GetZoomIndex() const noexcept;
-    constexpr void  SetZoomIndex(int idx) noexcept;
-    constexpr float GetCurrentZoom() const noexcept;
-    constexpr float ZoomIn() noexcept;
-    constexpr float ZoomOut() noexcept;
-    constexpr float ZoomReset() noexcept;
+    constexpr void  SetZoomIndex(int idx) noexcept;          // [0, ZOOM_STEP_COUNT) に必ず clamp
+    constexpr float GetCurrentZoom() const noexcept;         // ZOOM_STEPS[zoom_index]
+    constexpr bool  ZoomIn() noexcept;
+    constexpr bool  ZoomOut() noexcept;
+    constexpr bool  ZoomReset() noexcept;
 };
 ```
 
-`ScrollTarget` は **「ノード i の先頭から offset ピクセル下」** という相対位置を保持する。ファイル再読み込み・ズーム・DPI 変更でレイアウトが変わっても、同じノードに戻ることで「見ている位置を保つ」を実現する。
+`ScrollTarget` は **「ノード i の先頭から offset ピクセル下」** という相対位置を保持する。ファイル再読み込み・ズーム・DPI 変更でレイアウトが変わっても、同じノードに戻ることで「見ている位置を保つ」を実現する。`SetZoomIndex` は外部入力経路から不正値が来ても out-of-bounds にならないよう setter 側で必ず clamp する。
 
 ---
 
@@ -1360,7 +1649,7 @@ public:
 ```cpp
 class PaneController {
 public:
-    enum class DragTarget {
+    enum class DragTarget : uint8_t {
         None, Splitter1, Splitter2,
         FileScrollbar, TocScrollbar, MdScrollbar
     };
@@ -1368,29 +1657,49 @@ public:
     // 表示切替
     constexpr bool IsFilePaneVisible() const noexcept;
     constexpr bool IsTocPaneVisible() const noexcept;
+    constexpr void SetFilePaneVisible(bool v) noexcept;
+    constexpr void SetTocPaneVisible(bool v) noexcept;
     constexpr void ToggleFilePane() noexcept;
     constexpr void ToggleTocPane() noexcept;
 
     // 幅
     constexpr float GetFilePaneWidth() const noexcept;
     constexpr float GetTocPaneWidth() const noexcept;
-    constexpr void  SetFilePaneWidth(float w) noexcept;
+    constexpr void  SetFilePaneWidth(float w) noexcept;     // PANE_MIN_WIDTH に clamp
     constexpr void  SetTocPaneWidth(float w) noexcept;
 
     // スクロール
+    constexpr ScrollState&       FileScroll() noexcept;
+    constexpr ScrollState&       TocScroll() noexcept;
+    constexpr const ScrollState& FileScroll() const noexcept;
+    constexpr const ScrollState& TocScroll() const noexcept;
+    constexpr void ResetScrollStates() noexcept;
     bool ScrollFilePaneBy(float delta, float max_scroll) noexcept;
     bool ScrollTocPaneBy(float delta, float max_scroll) noexcept;
 
-    // ホバー / ドラッグ
+    // ホバー（ファイル/TOC ペインアイテム + ヘッダーボタン）
+    constexpr int  GetHoveredFileIndex() const noexcept;
+    constexpr int  GetHoveredTocIndex() const noexcept;
     bool SetHoveredFileIndex(int idx) noexcept;
     bool SetHoveredTocIndex(int idx) noexcept;
+    constexpr bool IsFileCloseHovered() const noexcept;
+    constexpr bool IsTocCloseHovered() const noexcept;
+    constexpr bool IsFileRefreshHovered() const noexcept;
+    bool SetFileCloseHovered(bool h) noexcept;
+    bool SetTocCloseHovered(bool h) noexcept;
+    bool SetFileRefreshHovered(bool h) noexcept;
+
+    // ドラッグ
+    constexpr DragTarget GetDragTarget() const noexcept;
     constexpr void StartDrag(DragTarget t) noexcept;
     constexpr void EndDrag() noexcept;
+    constexpr float GetDragScrollOffset() const noexcept;
+    constexpr void  SetDragScrollOffset(float off) noexcept;
     void DragSplitter1To(float dip_x, float total_w, float splitter_w) noexcept;
     void DragSplitter2To(float dip_x, float total_w, float splitter_w) noexcept;
 
+    // ズーム / レイアウト
     void ApplyZoom(float ratio) noexcept;
-
     PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w,
                              float top_offset = 0.0f) const noexcept;
     PaneZone DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept;
@@ -1427,29 +1736,53 @@ graph LR
 ### 3.18 HitTestService — ヒットテスト
 
 ```cpp
+struct MdPaneHitContext {
+    const std::pmr::vector<Node>& nodes;
+    const LayoutCache&            cache;
+    const Theme&                  theme;
+    float scroll_y;
+    float md_pane_left;
+    float dpi_scale;
+    int   screen_x;
+    int   screen_y;
+    // ボタンヒットテスト用
+    float content_width  = 0.0f;
+    float md_pane_height = 0.0f;
+};
+
 class HitTestService {
 public:
     struct HitResult {
-        int node_index = -1;
-        uint32_t text_pos = 0;
+        int      node_index = -1;
+        uint32_t text_pos   = 0;
     };
 
-    HitResult HitTest(const std::pmr::vector<Node>&, const LayoutCache&, ...) const noexcept;
-    HitResult HitTestTable(const Node&, const NodeLayoutEntry&, ...) const noexcept;
+    HitResult HitTest(const MdPaneHitContext& ctx) const noexcept;
+    HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
+                           int node_index, const Theme& theme,
+                           float dip_x, float dip_y) const noexcept;
 
-    enum class NavButtonHover { None, Back, Forward };
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y,
                                     const PaneRect& md_rect) const noexcept;
 
-    // コードブロックコピーボタン / Mermaid保存ボタンのヒットテスト
-    int CopyButtonHitTest(...) const noexcept;
-    int SaveButtonHitTest(const std::pmr::vector<Node>&, const LayoutCache&, ...) const noexcept;
+    int CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
+    int SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
+
+    // 可視ノード走査・座標変換・キャッシュ照合を共有して Copy/Save/SvgCopy を一度に判定する。
+    struct CodeBlockButtonHit {
+        int copy_node     = -1;
+        int save_node     = -1;
+        int svg_copy_node = -1;
+    };
+    CodeBlockButtonHit CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept;
 };
 ```
 
+`HitTestService` は同一座標の連続ヒットテストを高速化する内部キャッシュ（`HitCache<T>`）を持ち、`LayoutCache::GetEffectsGeneration()` が変わると自動で無効化する。`NavButtonHover` 列挙は `input/hit_test_service.h` で `{ None, Back, Forward }` の 3 値。
+
 ---
 
-### 3.19 ConfigStore / ConfigService / SessionService — 設定永続化
+### 3.19 ConfigService / SessionService — 設定永続化
 
 #### 3.19.1 保存先・形式
 
@@ -1457,7 +1790,7 @@ public:
 %LOCALAPPDATA%\mendo\settings.ini
 ```
 
-`IniParser` で読み書きし、セクション+キーの2階層でアクセスする。書き込みは `*.tmp` → `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` の原子的差し替え。
+`IniParser` で読み書きし、セクション+キーの2階層でアクセスする。書き込みは `*.tmp` → `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` の原子的差し替え。書き出しはアプリ終了時 (WM_DESTROY) に集約する。
 
 #### 3.19.2 保存項目
 
@@ -1474,47 +1807,43 @@ public:
 | `Session` | `ScrollNode` | `int` | `-1` | スクロール位置（ノードインデックス） |
 | `Session` | `ScrollOffset` | `int` | `0` | スクロール位置（ノード内オフセット） |
 
-#### 3.19.3 ConfigStore（名前空間関数）
+#### 3.19.3 ConfigService — 設定永続化
 
-```cpp
-namespace config {
-    void SetConfigDirOverride(const std::filesystem::path& dir); // テスト用
-    std::filesystem::path GetConfigDir();
-    std::filesystem::path GetConfigPath(std::wstring_view filename);
-
-    void Load();
-    void Save();
-    void Clear() noexcept;
-
-    void SetBool(std::string_view section, std::string_view key, bool value);
-    bool GetBool(std::string_view section, std::string_view key, bool default_value = false);
-    void SetInt(std::string_view section, std::string_view key, int value);
-    int  GetInt(std::string_view section, std::string_view key, int default_value, int min_val, int max_val);
-    void SetWString(std::string_view section, std::string_view key, std::wstring_view value);
-    std::pmr::wstring GetWString(std::string_view section, std::string_view key);
-}
-```
-
-#### 3.19.4 ConfigService
-
-`ConfigStore` の名前空間関数を `class` でラップし、テスト時のモック差し替えを可能にする。
+設定 (settings.ini) のメモリ上マップとディスク永続化を保持する。インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使うだけで分離できる。
 
 ```cpp
 class ConfigService {
 public:
+    ConfigService() noexcept = default;
+
+    // 設定ディレクトリ
+    void SetConfigDirOverride(const std::filesystem::path& dir);    // テスト用
+    std::filesystem::path GetConfigDir() const;
+    // 区切り文字や ".." を含む名前は拒否する。
+    std::filesystem::path GetConfigPath(std::wstring_view filename) const;
+
+    // ディスク永続化
+    void Load();
+    void Flush();        // メモリ上のデータを書き出し（WM_DESTROY 時に呼ぶ）
+    void Clear() noexcept;
+
+    // 型付きアクセサ
     void SaveBool(std::string_view section, std::string_view key, bool value);
     bool LoadBool(std::string_view section, std::string_view key, bool default_value = false) const;
+
     void SaveInt(std::string_view section, std::string_view key, int value);
     int  LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const;
-    void SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
+
+    void              SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
     std::pmr::wstring LoadWString(std::string_view section, std::string_view key) const;
-    void Flush();
 };
 ```
 
-#### 3.19.5 SessionService
+`SHGetKnownFolderPath` の結果は `cached_default_dir_` にキャッシュし、override 未設定時の問い合わせを 1 回に抑える。
 
-セッション状態（最後に開いたファイル、ペイン構成、スクロール位置）の永続化を担当する。
+#### 3.19.4 SessionService
+
+セッション状態（最後に開いたファイル、ペイン構成、スクロール位置）の永続化を担当する。`ConfigService` のセクション "Session" / "Pane" を排他的に扱う薄いラッパ。
 
 ```cpp
 class SessionService {
@@ -1531,10 +1860,12 @@ public:
         int node   = -1;
         int offset = 0;
     };
-    void           SaveScrollPosition(int node, int offset);
+    void           SaveScrollPosition(int node, float scroll_y, float node_y);
     ScrollPosition LoadScrollPosition() const;
 };
 ```
+
+`SaveScrollPosition` は `(scroll_y - node_y)` を整数に丸めて永続化する（`Session.ScrollOffset` セクションキー）。
 
 ---
 
@@ -1609,39 +1940,47 @@ public:
 
 ```cpp
 struct SearchMatch {
-    int node_index;
-    uint32_t start;
+    int      node_index;
+    uint32_t start;          // node.text（またはセル.text）内の文字オフセット
     uint32_t length;
-    int table_row = -1;
-    int table_col = -1;
+    int      table_row = -1; // テーブルセル用（-1 なら通常ノード）
+    int      table_col = -1;
 };
 
 class SearchState {
 public:
-    bool IsVisible() const noexcept;
-    void Show() noexcept;
-    void Hide() noexcept;
-    void Reset() noexcept;
+    constexpr bool IsVisible() const noexcept;
+    constexpr void Show() noexcept;
+    void Hide() noexcept;       // visible_ = false + ClearMatches + InvalidateLowercaseCache
+    void Reset() noexcept;      // クエリも空にする
 
-    const std::wstring& GetQuery() const noexcept;
-    const std::vector<SearchMatch>& GetMatches() const noexcept;
-    int GetCurrentMatchIndex() const noexcept;
-    int GetMatchCount() const noexcept;
+    constexpr uint32_t GetGeneration() const noexcept;  // 描画側のハイライトキャッシュ判定用
+    void InvalidateLowercaseCache() noexcept;
 
-    bool IsCaseSensitive() const noexcept;
-    void ToggleCaseSensitive() noexcept;
-    bool IsHighlightEnabled() const noexcept;
-    void ToggleHighlightEnabled() noexcept;
+    constexpr const std::pmr::wstring&             GetQuery() const noexcept;
+    constexpr const std::pmr::vector<SearchMatch>& GetMatches() const noexcept;
+    constexpr int GetCurrentMatchIndex() const noexcept;
+    constexpr int GetMatchCount() const noexcept;
+
+    constexpr bool IsCaseSensitive() const noexcept;
+    constexpr void SetCaseSensitive(bool v) noexcept;
+    constexpr void ToggleCaseSensitive() noexcept;
+    constexpr bool IsHighlightEnabled() const noexcept;
+    constexpr void ToggleHighlightEnabled() noexcept;
 
     void SetQuery(std::wstring_view query);
     void ExecuteSearch(const std::pmr::vector<Node>& nodes);
-    bool NextMatch() noexcept;   // ラップ時 true
-    bool PrevMatch() noexcept;   // ラップ時 true
+    bool NextMatch() noexcept;  // ラップ時 true
+    bool PrevMatch() noexcept;  // ラップ時 true
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
 
     static constexpr size_t MAX_MATCHES = 10000;
 };
 ```
+
+`generation_` は `ExecuteSearch / Hide / Reset` のたびにインクリメントされる世代カウンタ。0 は未初期化センチネルとして扱い、32-bit ラップアラウンドで 0 に戻ったときは 1 へ補正する。
+
+大文字小文字無視検索のための lowercase キャッシュは、全ノードの lower text を 1 本の連続バッファに詰め、各ノードのスライスを `offsets` で参照する設計（`std::pmr::vector<vector<vector<wstring>>>` をやめてメモリと CPU キャッシュ効率を改善）。テーブルノードのみ `std::pmr::unordered_map<int, LowercaseTable>` で別途持つ。
 
 #### 3.21.2 SearchBarController（UI制御）
 
@@ -1650,27 +1989,62 @@ public:
 ```cpp
 class SearchBarController {
 public:
-    enum class HoverZone : uint8_t {
-        None, Up, Down, Close, CaseSensitive, Highlight
-    };
-
     struct Callbacks {
-        std::function<void()>           invalidate;
-        std::function<void()>           invalidate_search_bar;
-        std::function<void(UINT_PTR, UINT)> set_timer;
-        std::function<void(UINT_PTR)>   kill_timer;
-        std::function<void()>           focus_select_all;
-        std::function<void(int)>        focus_set_caret;
-        std::function<void(int, int)>   focus_set_selection;
-        std::function<void()>           unfocus;
-        std::function<float()>          get_md_pane_height;
-        std::function<void(float)>      on_scroll_changed;
+        std::move_only_function<void()> invalidate;                   // ウィンドウ全体の再描画
+        std::move_only_function<void()> invalidate_search_bar;        // 検索バー領域のみ再描画
+        std::move_only_function<void(UINT_PTR, UINT)> set_timer;
+        std::move_only_function<void(UINT_PTR)> kill_timer;
+        std::move_only_function<void()> focus_select_all;             // 全選択でフォーカス
+        std::move_only_function<void(int)> focus_set_caret;           // キャレット位置指定
+        std::move_only_function<void(int, int)> focus_set_selection;  // anchor, caret 指定
+        std::move_only_function<void()> unfocus;
+        std::move_only_function<float()> get_md_pane_height;
+        std::move_only_function<void(float)> on_scroll_changed;
     };
 
     static constexpr UINT_PTR TIMER_CARET    = 7;
     static constexpr UINT_PTR TIMER_DEBOUNCE = 9;
+
+    void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Callbacks cb);
+
+    // イベントハンドラ
+    void OnOpen(const std::pmr::vector<Node>& nodes);
+    void OnClose();
+    void OnNext();
+    void OnPrev();
+    void OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes);
+    void OnToggleCaseSensitive(const std::pmr::vector<Node>& nodes);
+    void OnToggleHighlight();
+    void SetSelection(int sel_start, int sel_end) noexcept;
+    void SetImeComposition(std::wstring_view comp);
+
+    // タイマー
+    void OnCaretBlinkTimer();
+    void OnDebounceTimer(const std::pmr::vector<Node>& nodes);
+
+    // ドラッグ・ホバー
+    bool IsDragging() const noexcept;
+    void StartDrag(int anchor_pos) noexcept;
+    void EndDrag() noexcept;
+    void OnCaptureChanged() noexcept;
+    void UpdateHoverFromZone(SearchBarHitZone zone);
+    SearchBarHitZone GetHover() const noexcept;
+    void ResetHover() noexcept;
+
+    // レンダーステート構築
+    SearchBarRenderState BuildRenderState() const;
+
+    // フォーカス・キャレット・IME 状態のアクセサ
+    bool HasFocus() const noexcept;
+    int  GetCaretPos() const noexcept;
+    int  GetSelectionStart() const noexcept;
+    const std::pmr::wstring& GetImeComposition() const noexcept;
+
+    void Reset();
 };
 ```
+
+ホバー領域は `SearchBarHitZone`（`ui_types.h`）で定義され、None / SearchInput / Up / Down / Close / CaseSensitive / Highlight などを含む。
 
 #### 3.21.3 検索バーUI
 
@@ -1751,17 +2125,30 @@ WIC を使用した非同期画像読み込み。ワーカースレッドでデ�
 ```cpp
 class ImageLoader {
 public:
-    void Init(ID2D1RenderTarget* rt);
-    void InitAsync(HWND hwnd, UINT msg_id);
-    bool LoadImage(const std::wstring& path, DiagramEntry& out);
-    bool GetCachedImage(const std::wstring& path, DiagramEntry& out);
-    void RequestLoadAsync(const std::wstring& path);
+    using Callback = std::move_only_function<void()>;
+
+    ~ImageLoader();
+
+    void Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);
+    void SetRenderTarget(ID2D1RenderTarget* rt) noexcept;
+    void InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
+
+    bool LoadImage(const std::wstring& abs_path, DiagramEntry& out);
+    bool GetCachedImage(const std::wstring& abs_path, DiagramEntry& out) const;
+    void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete);
     void ProcessCompletedDecodes();
     void CancelPending();
-    void ClearCache();
+
+    void ClearCache() noexcept;
+    void InsertCacheEntry(const std::wstring& path, float width, float height);
+    size_t CacheSize() const noexcept;
     void Shutdown();
+
+    static constexpr size_t MAX_CACHE_ENTRIES = 128;
 };
 ```
+
+LRU キャッシュは絶対パス → `{ID2D1Bitmap, width, height}` で保持（最大 128 エントリ）。`RequestLoadAsync` のワーカーは `TaskScheduler` 上で WIC デコードを行い、完了時に `on_complete` コールバックを呼ぶ。デコード結果は `result_mutex_` 保護の `completed_` キューに積まれ、`ProcessCompletedDecodes` で UI スレッドが ID2D1Bitmap に変換してキャッシュに挿入する。
 
 | 形式 | 拡張子 |
 |:-----|:------|
@@ -1803,28 +2190,42 @@ Win32 の `TOOLTIPS_CLASS` を `TTF_TRACK` モードでラップし、マウス�
 ```cpp
 struct TooltipTarget {
     enum class Zone : uint8_t {
-        None, TitleBarButton, SearchBarButton, FilePaneItem,
-        FilePaneButton, TocPaneItem, TocPaneButton, MdLink,
-        MdImage, CopyButton, SaveButton, NavButton
+        None, TitleBarButton, SearchBarButton,
+        FilePaneItem, FilePaneButton,
+        TocPaneItem,  TocPaneButton,
+        MdLink, MdImage,
+        CopyButton, SaveButton, SvgCopyButton,
+        NavButton,
     };
-    Zone zone = Zone::None;
-    std::wstring text;
-    bool operator==(const TooltipTarget&) const = default;
-    bool IsEmpty() const noexcept;
+
+    Zone              zone = Zone::None;
+    std::pmr::wstring text;
+
+    constexpr TooltipTarget() = default;
+    constexpr TooltipTarget(Zone z, std::wstring_view t);
+    constexpr bool operator==(const TooltipTarget&) const = default;
+    constexpr bool IsEmpty() const noexcept;     // zone == Zone::None
 };
 
 class Tooltip {
 public:
-    void Init(HWND parent);
-    bool Update(const TooltipTarget& target, POINT screen_pos);
+    Tooltip();
+    ~Tooltip();
+    Tooltip(Tooltip&&) noexcept;
+    Tooltip& operator=(Tooltip&&) noexcept;
+
+    void Init(HWND parent_hwnd);
+    bool Update(const TooltipTarget& target, int screen_x, int screen_y);
     void Show();
     void Hide();
     void ApplyDarkMode(bool dark);
     void ResetTarget() noexcept;
+
+    const TooltipTarget& GetCurrent() const noexcept;
 };
 ```
 
-最大幅 600px、カーソルから 20px 下にオフセット、DPI スケーリング対応。
+`Tooltip` の実体は pImpl（`std::unique_ptr<Impl>`）に隠蔽される。Win32 の `TOOLTIPS_CLASS` を `TTF_TRACK` モードでラップし、最大幅 600px、カーソルから 20px 下にオフセット、DPI スケーリング対応。`HWND` はヘッダで `<windows.h>` を巻き込まないよう前方宣言（`struct HWND__; using HWND = HWND__*;`）で扱う。
 
 ---
 
@@ -1836,25 +2237,52 @@ App から画像読み込み、Mermaidバッチ処理、ビットマップ解放
 class ResourceManager {
 public:
     struct Callbacks {
-        std::function<void()>             invalidate;
-        std::function<void(UINT_PTR, UINT)> set_timer;
-        std::function<void(UINT_PTR)>     kill_timer;
-        std::function<float()>            get_content_width;
-        std::function<float()>            get_viewport_height;
-        std::function<float()>            get_indent_width;
-        std::function<void()>             recompute_layout;
-        std::function<void()>             recompute_layout_anchored;
+        std::move_only_function<void()> invalidate;
+        std::move_only_function<void(UINT_PTR, UINT)> set_timer;
+        std::move_only_function<void(UINT_PTR)> kill_timer;
+        std::move_only_function<float()> get_content_width;
+        std::move_only_function<float()> get_viewport_height;
+        std::move_only_function<float()> get_indent_width;
+        std::move_only_function<void()> recompute_layout;
+        std::move_only_function<void()> recompute_layout_anchored;
     };
 
-    static constexpr UINT_PTR TIMER_MERMAID_BATCH = 10;
-    static constexpr UINT_PTR TIMER_BITMAP_MANAGE = 11;
+    static constexpr UINT_PTR TIMER_MERMAID_BATCH    = 10;
+    static constexpr UINT_PTR TIMER_BITMAP_MANAGE    = 11;
     static constexpr float    EVICT_BUFFER_SCREENS    = 5.0f;
     static constexpr float    PREFETCH_BUFFER_SCREENS = 3.0f;
     static constexpr int      BATCH_TIME_BUDGET_US    = 6000;
+
+    void Init(Document& doc, LayoutCache& cache, ViewportManager& viewport,
+              ImageLoader& image_loader, IMermaidRenderer& mermaid,
+              ThemeService& theme_service, Callbacks cb);
+
+    // 画像
+    int  ApplyCachedImages(bool respect_viewport = true);
+    int  ApplyCachedImagesForReload();   // respect_viewport=false で全画像走査
+    void LoadImages();
+    void OnAppImageLoaded();
+    void OnImageLoadComplete();
+
+    // Mermaid
+    int  RequestMermaidRenders();
+    void OnMermaidRenderComplete();
+    void CancelMermaidBatch();
+    void ScheduleMermaidBatch();
+    void ProcessMermaidBatch();
+
+    // ビットマップ管理
+    void EvictOffscreenBitmaps();
+    void FlushPendingResources();
+    void ScheduleBitmapManage();
+    void OnBitmapManageTimer();
+
+    // ファイル切替時クリーンアップ
+    void ClearResolvedPaths() noexcept;
 };
 ```
 
-`Mermaid` はバッチ単位でレンダリングし、可視範囲外のビットマップを LRU 的に解放する。
+Mermaid はバッチ単位でレンダリングし、可視範囲外のビットマップを LRU 的に解放する（`EVICT_BUFFER_SCREENS` 画面分は保持、`PREFETCH_BUFFER_SCREENS` 画面分は先読み）。バッチごとの時間予算は `BATCH_TIME_BUDGET_US`（6ms）で打ち切り、UI 応答性を確保する。
 
 ---
 
@@ -1893,16 +2321,30 @@ public:
 #### 3.27.3 HoverThrottle — ホバースロットリング
 
 ```cpp
+inline constexpr int   HOVER_THROTTLE_DISTANCE_SQ      = 16;  // ピクセル²
+inline constexpr DWORD HOVER_THROTTLE_MIN_INTERVAL_MS  = 8;
+inline constexpr POINT kUnsetHoverPos{ LONG_MIN, LONG_MIN };  // sentinel
+
 struct HoverThrottle {
-    POINT last_md_hit_pos;
-    bool  last_md_cursor_hand;
-    POINT last_copy_hit_pos;
-    POINT last_save_hit_pos;
-    void  Reset() noexcept;
+    POINT last_md_hit_pos          = kUnsetHoverPos;
+    bool  last_md_cursor_hand      = false;
+    POINT last_copy_hit_pos        = kUnsetHoverPos;
+    POINT last_hover_dispatch_pos  = kUnsetHoverPos;
+    DWORD last_md_hit_tick         = 0;
+    DWORD last_copy_hit_tick       = 0;
+
+    constexpr void Reset() noexcept;
+
+    // 完全同一座標の連続ディスパッチを抑止
+    constexpr bool ShouldSkipSameDispatch(int px, int py) noexcept;
+    // 距離 + 時間二重ガード
+    [[nodiscard]] bool TryMarkMoved(POINT& last_pos, DWORD& last_tick, int px, int py) noexcept;
+    // 距離のみ
+    [[nodiscard]] constexpr bool TryMarkMoved(POINT& last_pos, int px, int py) noexcept;
 };
 ```
 
-マウス位置が一定距離（`HOVER_THROTTLE_DISTANCE_SQ = 16` ピクセル²）以上動いた場合のみヒットテストを再実行する。
+マウス位置が一定距離（`HOVER_THROTTLE_DISTANCE_SQ = 16` ピクセル²）以上動いた場合のみヒットテストを再実行する。さらに `MOUSEMOVE` バーストでヒットテストを連発させないため、`HOVER_THROTTLE_MIN_INTERVAL_MS = 8ms` の時間ガードも併用する。
 
 ---
 
@@ -1939,14 +2381,22 @@ public:
 };
 
 // 定義済み
-using UniqueHandle      = UniqueResource<HandleTraits>;       // CloseHandle
+using UniqueHandle      = UniqueResource<HandleTraits>;       // CloseHandle (INVALID_HANDLE_VALUE)
 using UniqueEventHandle = UniqueResource<EventHandleTraits>;  // CloseHandle (nullptr)
+using UniqueFileMapping = UniqueResource<FileMappingTraits>;  // CloseHandle (CreateFileMappingW)
+using UniqueMapView     = UniqueResource<MapViewTraits>;      // UnmapViewOfFile
 using UniqueFindHandle  = UniqueResource<FindHandleTraits>;   // FindClose
-using UniqueGlobalLock  = UniqueResource<GlobalLockTraits>;   // GlobalUnlock
 using UniqueGlobalMem   = UniqueResource<GlobalMemTraits>;    // GlobalFree
 ```
 
-クリップボードユーティリティ関数（`WriteClipboardText`, `BuildCfHtmlPayload`, `WriteClipboardHtml`）も `win_handle.h` に同梱されている。
+クリップボード関連のユーティリティも `win_handle.h` に同梱されている:
+
+- `ClipboardSession`: RAII で `OpenClipboard` / `EmptyClipboard` / `CloseClipboard` を扱う
+- `SetClipboardZeroTerminated<CharT>(format, text)`: 末尾 NUL 付きでクリップボードに登録
+- `WriteClipboardText(hwnd, text)`: `CF_UNICODETEXT` 書き込み
+- `BuildCfHtmlPayload(fragment_utf8)`: CF_HTML 形式のペイロードを構築
+- `WriteClipboardHtml(hwnd, fragment_html, plain_text)`: CF_HTML + CF_UNICODETEXT を同時書き込み
+- `WriteClipboardSvg(hwnd, svg_text)`: `image/svg+xml` + `CF_UNICODETEXT` を同時書き込み（Office や Inkscape がベクタ画像として認識）
 
 #### 3.28.3 TaskScheduler — ワーカースレッドプール
 
@@ -2075,29 +2525,27 @@ struct DipRect {
 
 ### 4.1 Node
 
-ドメイン中核となるパース出力。レイアウト情報は `LayoutCache` に分離されている。
+ドメイン中核となるパース出力。レイアウト情報は `LayoutCache` に分離されている。md4c が UTF-16 モードで動作するため `text_` は最初から Wide で構築される（中間 UTF-8 バッファは持たない）。
 
 ```mermaid
 classDiagram
     class Node {
-        +pmr::string text_utf8
         +pmr::vector~TextRun~ runs
-        +pmr::vector~pmr::wstring~ link_urls
-        +unique_ptr~NodeTableData~ table_data
-        +unique_ptr~NodeImageData~ image_data
-        +unique_ptr~NodeHeadingData~ heading_data
-        +unique_ptr~NodeCodeData~ code_data
-        +int heading_level
-        +int indent_level
-        +int list_number
+        +unique_ptr~vector_pmr_wstring~ link_urls
+        +variant~monostate, NodeTableData, NodeImageData, NodeHeadingData, NodeCodeData~ extra
+        +int32_t list_number
         +uint32_t alert_label_length
         +uint32_t source_offset
-        +int blockquote_group
-        +int line_count
+        +int32_t blockquote_group
+        +int32_t line_count
         +NodeType type
         +bool task_checked
         +AlertType alert_type
         +SyntaxLanguage code_language
+        +int8_t quote_depth
+        +int8_t quote_outer_indent
+        +int8_t heading_level
+        +int8_t indent_level
         +pmr::wstring text_ (private)
     }
 
@@ -2130,13 +2578,28 @@ classDiagram
     }
 
     Node "1" --> "*" TextRun
-    Node "1" --> "0..1" NodeTableData
-    Node "1" --> "0..1" NodeImageData
-    Node "1" --> "0..1" NodeHeadingData
-    Node "1" --> "0..1" NodeCodeData
+    Node "1" --> "0..1" NodeTableData : variant
+    Node "1" --> "0..1" NodeImageData : variant
+    Node "1" --> "0..1" NodeHeadingData : variant
+    Node "1" --> "0..1" NodeCodeData : variant
 ```
 
-`NodeHeadingData` / `NodeCodeData` などは該当ノードのみで `unique_ptr` 確保し、メモリ消費を抑える。`text_utf8` はパース中の蓄積領域で、パース完了後 `ConvertTextFromUtf8()` で `text_`（Wide）に変換される。
+ノード種別ごとの拡張データは `std::variant<std::monostate, NodeTableData, NodeImageData, NodeHeadingData, NodeCodeData> extra` に統合されており、同時に持てるのは 1 種類のみ。
+
+> **Why**: 旧設計では 4 つの `unique_ptr` を常に保持していたため、ほとんどのノード（Paragraph/ListItem 等で 87% を占める）で 32B のポインタ群が `nullptr` のまま死蔵していた。variant に統合することで、データを持つノードでは別ヒープへの malloc を 1 回省略でき、断片化と allocator オーバーヘッドが減る。
+
+リンク URL の集合 `link_urls` も `std::unique_ptr<std::pmr::vector<std::pmr::wstring>>` で「リンクなしノードでは 8B ポインタ 1 本」に抑えている。
+
+アクセサは `extra` への薄いラッパーとして提供される:
+
+```cpp
+NodeTableData* table_data() noexcept;       // 持っていなければ nullptr
+NodeHeadingData* heading_data() noexcept;
+// ensure_*: なければ emplace、あれば既存を返す
+NodeHeadingData* ensure_heading() noexcept;
+bool has_table() const noexcept;            // holds_alternative の薄ラッパ
+std::wstring_view anchor_id() const noexcept;
+```
 
 ### 4.2 LayoutCache
 
@@ -2151,6 +2614,7 @@ classDiagram
         +MarkAllDirty()
         +operator[](i) NodeLayoutEntry
         +GetDiagram(i) DiagramEntry
+        +GetEffectsGeneration() uint32_t
     }
 
     class NodeLayoutEntry {
@@ -2159,10 +2623,19 @@ classDiagram
         +ComPtr~IDWriteTextLayout~ text_layout
         +bool layout_dirty
         +bool effects_applied
-        +vector~InlineCodeBg~ inline_code_bgs
-        +vector~vector~ComPtr~IDWriteTextLayout~~~ cell_layouts
-        +vector~float~ col_widths
-        +vector~float~ row_heights
+        +unique_ptr~vector~InlineCodeBg~~ inline_code_bgs
+        +unique_ptr~TableLayoutData~ table_layout
+        +unique_ptr~SearchHlCache~ search_hl_cache (mutable)
+    }
+
+    class TableLayoutData {
+        +pmr::vector~ComPtr~IDWriteTextLayout~~ cell_layouts (flat)
+        +pmr::vector~CellInlineCodeBg~ cell_inline_code_bgs
+        +size_t col_count
+        +pmr::vector~float~ col_widths / row_heights
+        +pmr::vector~float~ row_cum_y / col_cum_x
+        +pmr::vector~uint32_t~ row_flat_offsets
+        +float last_applied_max_width
     }
 
     class DiagramEntry {
@@ -2173,26 +2646,46 @@ classDiagram
 
     LayoutCache "1" --> "*" NodeLayoutEntry
     LayoutCache "1" --> "*" DiagramEntry
+    NodeLayoutEntry "1" --> "0..1" TableLayoutData
 ```
+
+`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`col_widths` / `row_heights` / `row_flat_offsets` などをまとめて管理する。`cell_inline_code_bgs` も flat 化されており、bg を持たないセル分の空 vector ヘッダ（24B/個）を排除する。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。
 
 ### 4.3 Document
 
 ```cpp
 class Document {
 public:
-    static Document FromMarkdown(const std::string& utf8, std::pmr::wstring path);
+    constexpr Document() noexcept = default;
 
-    const std::pmr::vector<Node>& GetNodes() const noexcept;
-    std::pmr::vector<Node>& GetNodesMut() noexcept;
-    const std::pmr::wstring& GetFilePath() const noexcept;
-    const TableOfContents& GetToc() const noexcept;
-    bool IsEmpty() const noexcept;
+    // ファイル経由（FileLoader が UTF-16 化済み）
+    static Document FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::wstring_view path);
+    // 埋め込みリソース（ヘルプ）など UTF-8 のまま渡す経路
+    static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
+
+    constexpr const std::pmr::vector<Node>& GetNodes() const noexcept;
+    constexpr std::pmr::vector<Node>&       GetNodesMut() noexcept;
+    constexpr const std::pmr::wstring&      GetFilePath() const noexcept;
+    constexpr const TableOfContents&        GetToc() const noexcept;
+    constexpr bool                          IsEmpty() const noexcept;
+    constexpr const std::pmr::wstring&      GetRawText() const noexcept;        // AnalyzeReloadDiff の比較用
+    constexpr size_t                        GetLoadedByteSize() const noexcept; // partial-write 検出用
+
     std::pmr::wstring GetDirectory() const;
 
-    void ReplaceContent(std::pmr::vector<Node> new_nodes);
-    void ReplaceFromMarkdown(const std::string& utf8);
+    constexpr void SetFilePath(std::wstring_view path);
+    void ReplaceContent(ParseResult&& result);
+    void ReplaceFromMarkdown(std::pmr::wstring wide, size_t byte_size);
+    void ReplaceFromMarkdown(std::pmr::string utf8);
+
+    int FindAnchorIndex(std::wstring_view anchor) const;
+    int FindNormalizedAnchorIndex(std::wstring_view anchor) const;  // 正規化済み入力向け
+    constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept;
+    constexpr const std::pmr::vector<size_t>& GetDiagramNodeIndices() const noexcept;
 };
 ```
+
+`raw_wide_` はパース入力の wide テキストを常時保持する。これは `AnalyzeReloadDiff` の比較用で、ノードレベルでは検出できない編集（空行追加・末尾空白・改行種別変更等）も UTF-16 オフセット精度で差分位置を求めるため。
 
 ### 4.4 NodeType / AlertType
 
@@ -2235,11 +2728,11 @@ struct TextSelection {
 flowchart TD
     START[wWinMain] --> MEM[InitGlobalMemoryResource]
     MEM --> DPI[SetProcessDpiAwarenessContext<br>Per-Monitor DPI V2]
-    DPI --> COM[CoInitializeEx<br>COINIT_APARTMENTTHREADED]
+    DPI --> COM[CoInitializeEx<br>COINIT_APARTMENTTHREADED + COINIT_DISABLE_OLE1DDE]
     COM --> ICC[InitCommonControlsEx]
-    ICC --> CFGLOAD[config::Load<br>settings.ini読み込み]
-    CFGLOAD --> I18NINIT[i18n::Init<br>言語設定]
-    I18NINIT --> CREATE[Win32Window::Create]
+    ICC --> CFGLOAD[ConfigService::Load<br>settings.ini読み込み]
+    CFGLOAD --> I18NINIT[i18n::Init<br>config.LoadWString General/Language]
+    I18NINIT --> CREATE[Win32Window window&#40;config&#41;<br>+ Create&#40;hInstance, nCmdShow&#41;]
 
     CREATE --> REG[RegisterClassExW]
     REG --> WND[CreateWindowExW<br>WS_EX_ACCEPTFILES]
@@ -2248,11 +2741,11 @@ flowchart TD
     D2D --> MERM[MermaidRenderer::Init<br>WebView2 非同期]
     MERM --> CFG[ThemeService::LoadDarkMode/ZoomLevel]
     CFG --> PANES[SessionService::LoadPaneState]
-    PANES --> ARG{コマンドライン<br>引数}
+    PANES --> ARG{コマンドライン<br>引数 CommandLineToArgvW}
 
     ARG -->|有効ファイル| LOAD[LoadMarkdownFile argv1]
     ARG -->|引数なし| LAST{前回ファイル<br>あり？}
-    ARG -->|無効引数| HELP[LoadHelpDocument]
+    ARG -->|無効引数| HELP[ShowDirectory cwd<br>+ LoadHelpDocument]
     LAST -->|Yes| RESTORE[RestoreScrollPosition + LoadMarkdownFile]
     LAST -->|No| HELP
 
@@ -2260,7 +2753,8 @@ flowchart TD
     RESTORE --> SHOW
     HELP --> SHOW
     SHOW --> LOOP[RunMessageLoop]
-    LOOP --> EXIT[CoUninitialize]
+    LOOP --> DESTROY[Win32Window破棄<br>COMオブジェクト解放]
+    DESTROY --> EXIT[CoUninitialize]
     EXIT --> END[終了]
 ```
 
@@ -2288,7 +2782,7 @@ flowchart TD
     SYNCMS --> RESTORE[ScrollRestoration 適用<br>reload_diff or session or 先頭]
     RESTORE --> FE[FileExplorer 更新]
     FE --> INVAL[InvalidateRect]
-    INVAL --> PAINT[WM_PAINT → RenderComposer → Renderer]
+    INVAL --> PAINT[WM_PAINT → Renderer + render_composer]
 ```
 
 ### 5.3 描画フロー
@@ -2296,7 +2790,7 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant APP as App
-    participant RC as RenderComposer
+    participant RC as render_composer
     participant CG as CommandGenerator
     participant CE as CommandExecutor
     participant R as Renderer
@@ -2304,12 +2798,11 @@ sequenceDiagram
 
     APP->>R: Render(state, theme, ...)
     R->>RT: BeginDraw()
-    R->>RC: Compose
-    RC->>CG: GenerateMdPane
-    CG-->>RC: DrawCommandList
-    RC-->>R: 完成
+    R->>CG: GenerateMdPane(nodes, cache, selection, ...)
+    CG-->>R: DrawCommandList
     R->>CE: Execute(cmds, render_target)
-    CE->>RT: 各コマンド実行
+    R->>RC: Build*State(state, ...)
+    RC-->>R: 各 RenderState
     R->>R: DrawFileExplorer / DrawToc / DrawSplitter
     R->>R: DrawScrollbar / DrawNavButtons
     R->>R: DrawGestureOverlay / DrawSwipeOverlay
@@ -2379,7 +2872,7 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 | `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
 | `mendo_tests` | テスト | 全テストを含む単一バイナリ |
 
-`mendo_core` には **Win32/Direct2D/WebView2 抽象化越し** のサービスが入る — `IWin32Host` / `IRenderBackend` / `IMermaidRenderer` などを通して、具象実装は `mendo` 実行ファイル側に分離されている。
+`mendo_core` には **Win32/Direct2D/WebView2 抽象化越し** のサービスが入る — `IWin32Host` / `IRenderBackend` / `IMermaidRenderer` / `ITextMeasurer` を通して、具象実装（`Win32Host` / `D2DRenderBackend` / `MermaidRenderer` / `DWriteMeasurer`）は `mendo` 実行ファイル側、もしくは Direct2D/DirectWrite 依存ヘッダを取り込む形でリンクされる（`DWriteMeasurer` は `mendo_core` に含まれるが、`dwrite.lib` への依存を持つ）。
 
 ### 6.4 mermaid.min.js gzip 圧縮
 
@@ -2412,10 +2905,10 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 ```mermaid
 pie title テストカバレッジ（ファイル数ベース）
     "テスト済みモジュール" : 60
-    "UIコード（テスト対象外）" : 9
+    "UIコード（テスト対象外）" : 10
 ```
 
-> **テスト対象外**: `main.cpp`, `window.cpp`, `app.cpp` および app_*.cpp の Win32/D2D ハンドラ実装, `renderer*.cpp`, `d2d_render_backend.cpp`, `mermaid.cpp`, `win32_host_impl.cpp` は Win32 / Direct2D / WebView2 依存のためユニットテスト対象外。これらの責務はインターフェース（`IWin32Host` 等）越しに mendo_core 側でテストされる。
+> **テスト対象外**: `main.cpp`, `window/window.cpp`, `app/app*.cpp`（Win32/D2D ハンドラ実装）, `render/renderer*.cpp`, `render/d2d_render_backend.cpp`, `mermaid/mermaid.cpp`, `app/win32_host_impl.cpp`, `ui/context_menu.cpp`（D2D 描画部分） は Win32 / Direct2D / WebView2 依存のためユニットテスト対象外。これらの責務はインターフェース（`IWin32Host` / `IRenderBackend` / `IMermaidRenderer` / `ITextMeasurer`）越しに mendo_core 側でテストされる。
 
 ### 7.3 テストソース一覧（抜粋）
 
@@ -2453,7 +2946,7 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_mouse_gesture.cpp` | MouseGesture |
 | `test_swipe_detector.cpp` | SwipeDetector |
 | `test_nav_history.cpp` | NavHistory |
-| `test_navigation_service.cpp` | NavigationService |
+| `test_link_click.cpp` | リンク解決（`HandleLinkClick`） |
 | `test_nav_button_format.cpp` | ナビゲーションボタン定数 |
 | `test_titlebar.cpp` | TitleBar |
 | `test_context_menu.cpp` | ContextMenu |
@@ -2481,6 +2974,8 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_memory_eviction.cpp` | メモリエビクション |
 | `test_task_scheduler.cpp` | TaskScheduler |
 | `test_utility.cpp` | ユーティリティ関数 |
+| `test_reload.cpp` | `AnalyzeReloadDiff`（ライブリロード判定） |
+| `test_selection_html.cpp` | 選択範囲の HTML 生成 |
 
 ### 7.4 主要テストケース
 
@@ -2567,7 +3062,7 @@ flowchart LR
 
 ## 9. タイマーIDとカスタムメッセージ
 
-### 9.1 タイマーID（`src/app/timer_ids.h`）
+### 9.1 タイマーID（`src/app/app_constants.h`）
 
 ```cpp
 namespace app_timer {
@@ -2583,12 +3078,13 @@ inline constexpr UINT_PTR BITMAP_MANAGE         = 11;
 inline constexpr UINT_PTR MERMAID_INIT_RETRY    = 12;
 inline constexpr UINT_PTR FILE_RELOAD_DEBOUNCE  = 13;
 
-inline constexpr UINT FRAME_INTERVAL_MS         = 16;   // ~60fps
-inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS   = 200;
+inline constexpr UINT FRAME_INTERVAL_MS         = 16;   // ~60fps アニメーション用
+inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS   = 200;  // ファイル変更通知のデバウンス
+inline constexpr UINT FILE_RELOAD_RETRY_MS      = 50;   // truncate→rewrite 検出後の短縮リトライ
 }
 ```
 
-### 9.2 カスタムメッセージ（`src/app/app_messages.h`）
+### 9.2 カスタムメッセージ（`src/app/app_constants.h`）
 
 ```cpp
 namespace app_msg {
@@ -2598,11 +3094,19 @@ inline constexpr UINT RELOAD_FILE    = WM_APP + 3;
 inline constexpr UINT SEARCH_FOCUS   = WM_APP + 4;
 inline constexpr UINT SEARCH_UNFOCUS = WM_APP + 5;
 inline constexpr UINT PARSE_COMPLETE = WM_APP + 6;
-inline constexpr UINT END            = WM_APP + 7;  // 上限
+inline constexpr UINT END            = WM_APP + 7;  // 上限（この値未満が有効範囲）
+}
+
+namespace app_param {
+inline constexpr WPARAM SEARCH_FOCUS_SELECT_ALL    = 0;
+inline constexpr WPARAM SEARCH_FOCUS_SET_CARET     = 1;
+inline constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2;  // lParam = MAKELPARAM(anchor, caret)
+inline constexpr WPARAM SEARCH_UNFOCUS_CLOSE       = 0;
+inline constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
 }
 ```
 
-`SEARCH_FOCUS` の `WPARAM` は `SEARCH_FOCUS_SELECT_ALL` / `SEARCH_FOCUS_SET_CARET` / `SEARCH_FOCUS_SET_SELECTION` を区別する。
+`SEARCH_FOCUS` の `WPARAM` は `SEARCH_FOCUS_SELECT_ALL` / `SEARCH_FOCUS_SET_CARET` / `SEARCH_FOCUS_SET_SELECTION` を区別する。`SEARCH_UNFOCUS` の `WPARAM` はファイル切替に伴うアンフォーカスかユーザー操作によるクローズかを区別する。
 
 ---
 
@@ -2637,28 +3141,27 @@ inline constexpr UINT END            = WM_APP + 7;  // 上限
 ```
 src/
 ├── main.cpp                       # エントリポイント (wWinMain)
+├── pch.h                          # プリコンパイル済みヘッダ
 ├── app/                           # アプリケーション層
-│   ├── app.h / app.cpp            # App 統括
-│   ├── app_init.cpp               # サービス初期化
-│   ├── app_file.cpp               # ファイルロード
-│   ├── app_scroll.cpp             # スクロール
-│   ├── app_mouse.cpp              # マウスハンドラ
+│   ├── app.h / app.cpp            # App 統括（Dispatch / OnPaint / レイアウト）
+│   ├── app_init.cpp               # Init() と各サービスの初期化
+│   ├── app_file.cpp               # LoadMarkdownFile / BeginAsyncLoad / OnParseComplete
+│   ├── app_scroll.cpp             # スクロール関連ヘルパー
+│   ├── app_mouse.cpp              # マウス入力ハンドラ統括
 │   ├── app_mouse_click.cpp        # クリック処理
 │   ├── app_mouse_helpers.h        # マウスヘルパー
 │   ├── app_mouse_hover.cpp        # ホバー処理
-│   ├── app_navigate.cpp           # ナビゲーション
+│   ├── app_navigate.cpp           # リンク・アンカーナビゲーション
 │   ├── app_clipboard.cpp          # クリップボード・画像保存
 │   ├── app_context_menu.cpp       # コンテキストメニュー
-│   ├── app_state.h / app_state.cpp # AppState (全状態集約)
+│   ├── app_state.h                # AppState (全状態集約)
 │   ├── app_events.h               # AppAction variant
-│   ├── app_constants.h            # タイマー・メッセージ整合チェック
-│   ├── app_messages.h             # WM_APP+N 定義
+│   ├── app_constants.h            # タイマーID / WM_APP+N / WPARAM 定義
 │   ├── app_controller.h / .cpp    # AppController (Event→Action)
-│   ├── timer_ids.h                # タイマーID定数
-│   ├── reducer.h / reducer.cpp    # Reducer (Action+State→新State+Effects)
-│   ├── side_effect.h              # SideEffect 二段variant
+│   ├── reducer.h / reducer.cpp    # Reducer (Action+State→Effects, in-place)
+│   ├── side_effect.h              # SideEffect 二段variant + PushEffect/HasEffect
 │   ├── side_effect_executor.h / .cpp # 副作用実行
-│   ├── render_composer.h / .cpp   # RenderComposer (State→DrawCommand)
+│   ├── render_composer.h / .cpp   # render_composer namespace (State→各RenderState)
 │   ├── resource_manager.h / .cpp  # 画像・Mermaidリソース管理
 │   ├── win32_host.h               # IWin32Host インターフェース
 │   └── win32_host_impl.h / .cpp   # Win32Host 具象実装
@@ -2671,89 +3174,80 @@ src/
 │   ├── renderer_titlebar.cpp      # タイトルバー描画
 │   ├── renderer_overlay.cpp       # オーバーレイ
 │   ├── renderer_search.cpp        # 検索バー描画
-│   ├── render_backend.h           # IRenderBackend インターフェース
-│   ├── d2d_render_backend.h / .cpp # D2DRenderBackend 実装
+│   ├── d2d_render_backend.h / .cpp # D2DRenderBackend 実装 (IRenderBackend)
 │   ├── render_params.h            # レンダリングパラメータ
-│   ├── draw_command.h             # DrawCommand variant
+│   ├── draw_command.h             # DrawCommand variant + DrawCommandList
 │   ├── command_generator.h / .cpp # 描画コマンド生成
 │   └── command_executor.h / .cpp  # 描画コマンド実行
 ├── core/                          # コアドメイン
-│   ├── document_types.h           # Node, AlertType, NodeType etc.
+│   ├── document_types.h           # Node, AlertType, NodeType, TableRow etc.
 │   ├── text_types.h               # TextRun, TextSelection etc.
-│   ├── parser.h / parser.cpp      # Markdown パース
+│   ├── parser.h / parser.cpp      # Markdown パース (md4c MD4C_USE_UTF16)
 │   ├── parser_alerts.cpp          # GitHub Alerts 検出
 │   ├── document.h / document.cpp  # Document
 │   ├── document_service.h / .cpp  # 読み込みオーケストレーション
 │   ├── document_utils.h / .cpp    # テキスト操作
+│   ├── reload.h / reload.cpp      # AnalyzeReloadDiff
+│   ├── selection_html.h / .cpp    # 選択範囲の HTML 生成
 │   ├── toc.h / toc.cpp            # 目次生成
 │   ├── syntax.h / syntax.cpp      # シンタックスハイライト
 │   └── syntax_keywords.h          # 言語別キーワード辞書
 ├── layout/                        # レイアウト層
-│   ├── layout.h / layout.cpp      # LayoutEngine
-│   ├── layout_service.h / .cpp    # レイアウト統括
+│   ├── layout.h / layout.cpp      # LayoutEngine + LayoutService
 │   ├── layout_cache.h             # LayoutCache (レイアウトデータ)
 │   ├── text_measurer.h            # ITextMeasurer インターフェース
 │   └── dwrite_measurer.h / .cpp   # DirectWrite 実装
 ├── theme/                         # テーマ層
-│   ├── theme.h / theme.cpp        # Theme 構造体
-│   ├── theme_palette.h            # カラーパレット
-│   ├── theme_constants.h          # ThemeConstants (Reducer向け軽量キャッシュ)
+│   ├── theme.h / theme.cpp        # Theme + ThemeConstants + theme_palette
 │   └── theme_service.h / .cpp     # テーマ管理サービス
 ├── nav/                           # ナビゲーション層
-│   ├── navigation_service.h / .cpp # リンク&履歴
-│   └── nav_history.h / .cpp       # 履歴スタック (パスインターン)
+│   └── nav.h / nav.cpp            # NavHistory + LinkClickResult / HandleLinkClick
 ├── input/                         # 入力処理層
-│   ├── hit_test_service.h / .cpp  # ヒットテスト
-│   ├── mouse_gesture.h            # MouseGesture
-│   ├── swipe_detector.h           # SwipeDetector
-│   └── nav_button.h               # NavButtonHover 列挙
+│   ├── hit_test_service.h / .cpp  # HitTestService + MdPaneHitContext + ButtonRect
+│   ├── mouse_gesture.h            # MouseGesture (ヘッダオンリー)
+│   └── swipe_detector.h           # SwipeDetector (ヘッダオンリー)
 ├── io/                            # I/O層
-│   ├── file_loader.h / .cpp       # ファイル I/O
+│   ├── file_loader.h / .cpp       # FileLoader (LoadFile + OpenFileDialog)
 │   ├── file_watcher.h / .cpp      # ReadDirectoryChangesW 監視
 │   ├── file_load_service.h / .cpp # ロード制御 + アニメーション
 │   ├── file_explorer.h / .cpp     # ディレクトリブラウザ
 │   ├── image_loader.h / .cpp      # 非同期画像読み込み
-│   ├── ini_parser.h               # INIパーサ (ヘッダオンリー)
-│   ├── config_store.h / .cpp      # 設定永続化
-│   ├── config_service.h           # ConfigService ラッパー
-│   └── session_service.h / .cpp   # セッション永続化
+│   ├── ini_parser.h               # IniParser (ヘッダオンリー)
+│   └── config_service.h / .cpp    # ConfigService + SessionService
 ├── mermaid/                       # Mermaid層
 │   ├── mermaid.h / mermaid.cpp    # MermaidRenderer (WebView2)
 │   ├── mermaid_renderer_interface.h # IMermaidRenderer
-│   ├── mermaid_lifecycle.h / .cpp # MermaidLifecycle (純粋ロジック)
-│   ├── mermaid_util.h / .cpp      # ヘルパー
-│   └── mermaid_file_cache.h / .cpp # 永続キャッシュ
+│   ├── mermaid_util.h / .cpp      # ヘルパー + mermaid_lifecycle::Lifecycle
+│   └── mermaid_file_cache.h / .cpp # 永続キャッシュ (MEMC v1)
 ├── ui/                            # UI層
 │   ├── titlebar.h / titlebar.cpp  # TitleBar
 │   ├── context_menu.h / .cpp      # ContextMenu (D2D描画)
 │   ├── context_menu_impl.h        # 内部実装
 │   ├── context_menu_logic.cpp     # ContextMenu 純粋ロジック (mendo_core)
-│   ├── toast_notifier.h           # ToastNotifier
-│   ├── tooltip.h / tooltip.cpp    # Tooltip
-│   ├── tooltip_target.h           # TooltipTarget
+│   ├── toast_notifier.h           # ToastNotifier (ヘッダオンリー)
+│   ├── tooltip.h / tooltip.cpp    # Tooltip + TooltipTarget
 │   ├── search_state.h / .cpp      # SearchState
 │   ├── search_bar_controller.h / .cpp # SearchBarController
-│   ├── viewport_manager.h         # ViewportManager
-│   ├── pane.h                     # PaneRect, ScrollState
-│   ├── pane_layout.h / .cpp       # PaneLayout, PaneZone
+│   ├── viewport_manager.h         # ViewportManager + ScrollTarget
+│   ├── pane_layout.h / .cpp       # PaneLayout, PaneZone, PaneRect, ScrollState
 │   ├── pane_controller.h / .cpp   # PaneController
-│   ├── cursor_manager.h           # CursorManager
-│   ├── hover_throttle.h           # HoverThrottle
-│   ├── scroll_restoration.h       # ScrollRestoration
-│   ├── dip_rect.h                 # DipRect
-│   ├── ui_constants.h             # UI定数
+│   ├── cursor_manager.h           # CursorManager (ヘッダオンリー)
+│   ├── hover_throttle.h           # HoverThrottle (ヘッダオンリー)
+│   ├── ui_constants.h             # UI 定数 + ScrollRestoration + DipRect 関連
+│   ├── ui_types.h                 # PaneZone / NavButtonHover / HoveredButtons / 等
 │   ├── i18n.h                     # 国際化
 │   └── resource.h                 # リソースID
 └── util/                          # ユーティリティ層
     ├── memory_resource.h          # PMR グローバルリソース
     ├── utility.h                  # 汎用ユーティリティ
     ├── string_convert.h           # UTF-8 ↔ Wide 変換 (ヘッダオンリー)
-    ├── file_io.h                  # ファイルI/Oヘルパー
+    ├── file_io.h / .cpp           # ファイルI/Oヘルパー
     ├── stream_util.h              # ストリーム処理
     ├── wic_util.h                 # WIC ヘルパー
+    ├── ascii_util.h               # ASCII 操作
     ├── flat_map.h                 # FlatMap (線形検索順序マップ)
     ├── lru_cache.h                # LruCache (汎用LRU)
-    ├── win_handle.h               # UniqueResource (RAII)
+    ├── win_handle.h               # UniqueResource (RAII) + クリップボード関数
     ├── task_scheduler.h / .cpp    # TaskScheduler
     └── profiler.h                 # パフォーマンス計測
 ```
@@ -2827,31 +3321,34 @@ src/
 
 ##### タスクリスト
 
-- [x] Markdownパーサ統合 (md4c)
+- [x] Markdownパーサ統合 (md4c, MD4C_USE_UTF16)
 - [x] Direct2D / DirectWrite レンダリング
 - [x] サービスアーキテクチャへのリファクタリング
 - [x] Reducer / SideEffect / IWin32Host への抽象化
 - [x] AppState による状態集約
-- [x] RenderComposer による描画ステート分離
-- [x] ナビゲーション機能（NavHistory）
+- [x] render_composer による描画ステート構築の関数化
+- [x] ナビゲーション機能（NavHistory + HandleLinkClick 自由関数）
 - [x] マウスジェスチャ
 - [x] カスタムタイトルバー
 - [x] トースト通知
 - [x] タッチパッドスワイプ検出
 - [x] カスタムコンテキストメニュー
-- [x] 非同期画像読み込み（WIC）
+- [x] 非同期画像読み込み（WIC + TaskScheduler）
 - [x] ヘルプドキュメント
-- [x] 検索機能（インクリメンタル）
+- [x] 検索機能（インクリメンタル + 連続バッファ lowercase キャッシュ）
 - [x] 国際化 (i18n: ja/en)
-- [x] Mermaid 永続ファイルキャッシュ（MEMC）
+- [x] Mermaid 永続ファイルキャッシュ（MEMC v1, DPR 量子化）
 - [x] ツールチップ
-- [x] Mermaidダイアグラム保存ボタン
-- [x] ファイル監視（ReadDirectoryChangesW）
+- [x] Mermaidダイアグラム保存ボタン + SVG クリップボードコピー
+- [x] ファイル監視（ReadDirectoryChangesW + 短縮リトライ）
 - [x] SessionService によるセッション復元
 - [x] SearchBarController による検索バー制御の分離
 - [x] LRUキャッシュ汎用化
-- [x] RAIIハンドルラッパー（UniqueResource）
+- [x] RAIIハンドルラッパー（UniqueResource + ClipboardSession）
 - [x] パスインターン化による NavHistory メモリ削減
+- [x] Node 拡張データの variant 統合（メモリ削減）
+- [x] FileLoader メモリマップ + UTF-8→UTF-16 ワンパス変換
+- [x] ライブリロード差分検出（AnalyzeReloadDiff）
 - [ ] パフォーマンス最適化
 - [ ] ドキュメント整備
 
@@ -3406,6 +3903,85 @@ endlocal
 exit /b 0
 ```
 
+##### JSON コード
+
+```json
+{
+  "name": "mendo",
+  "version": "0.1.0",
+  "description": "Direct2D / DirectWrite による高速 Markdown ビュアー",
+  "platform": {
+    "os": "Windows",
+    "minVersion": "10.0.17763",
+    "architecture": ["x64"]
+  },
+  "build": {
+    "language": "C++23",
+    "compiler": "MSVC",
+    "system": "CMake",
+    "minCmakeVersion": "3.20"
+  },
+  "features": {
+    "rendering": true,
+    "syntaxHighlight": true,
+    "mermaid": true,
+    "search": true,
+    "darkMode": true,
+    "i18n": ["ja", "en"],
+    "experimental": null
+  },
+  "dependencies": [
+    { "name": "md4c",        "version": "latest",       "license": "MIT" },
+    { "name": "WebView2",    "version": "1.0.2903.40",  "license": "BSD" },
+    { "name": "WIL",         "version": "1.0.240803.1", "license": "MIT" },
+    { "name": "Google Test", "version": "1.17.0",       "license": "BSD-3-Clause" }
+  ],
+  "performance": {
+    "smallFileMs": 50,
+    "largeFileMs": 500,
+    "targetFps": 60,
+    "memoryBudgetMB": 100,
+    "fileSizeLimitGB": 4
+  },
+  "zoomSteps": [
+    0.25, 0.33, 0.50, 0.67, 0.75, 0.80, 0.90,
+    1.00,
+    1.10, 1.25, 1.50, 1.75, 2.00, 2.50, 3.00, 4.00, 5.00
+  ]
+}
+```
+
+##### JSONC コード（コメント・末尾カンマ対応）
+
+```jsonc
+{
+  // タイマーIDの一覧（src/app/app_constants.h と一致）
+  "timers": {
+    "DEFERRED_LAYOUT":      3,
+    "LOADING_ANIM":         4,
+    "SWIPE_OVERLAY":        5,
+    "TOAST":                6,
+    "SEARCH_CARET":         7,
+    "TOOLTIP":              8,
+    "SEARCH_DEBOUNCE":      9,
+    "MERMAID_BATCH":       10,
+    "BITMAP_MANAGE":       11,
+    "MERMAID_INIT_RETRY":  12,
+    "FILE_RELOAD_DEBOUNCE": 13,
+  },
+  /* カスタム Win32 メッセージ
+     WM_APP+N の形式で識別子を採番している */
+  "messages": {
+    "LOAD_FILE":      "WM_APP+1",
+    "IMAGE_LOADED":   "WM_APP+2",
+    "RELOAD_FILE":    "WM_APP+3",
+    "SEARCH_FOCUS":   "WM_APP+4",
+    "SEARCH_UNFOCUS": "WM_APP+5",
+    "PARSE_COMPLETE": "WM_APP+6",
+  },
+}
+```
+
 ---
 
 #### C.7 テーブルテスト
@@ -3440,8 +4016,8 @@ exit /b 0
 | # | コンポーネント | 主要ファイル | 配置 | テスト |
 |:--|:--------------|:------------|:-----|:------|
 | 1 | Win32Window | window.h/cpp | mendo | なし |
-| 2 | App | app.h/cpp + app_*.cpp | mendo | 部分 |
-| 3 | AppState | app_state.h/cpp | mendo_core | あり (各サブgrp) |
+| 2 | App | app.h + app_*.cpp | mendo | 部分 |
+| 3 | AppState | app_state.h | mendo_core | あり (各サブgrp) |
 | 4 | AppController | app_controller.h/cpp | mendo_core | あり |
 | 5 | Reducer | reducer.h/cpp | mendo_core | あり |
 | 6 | SideEffectExecutor | side_effect_executor.h/cpp | mendo_core | あり |
@@ -3451,53 +4027,50 @@ exit /b 0
 | 10 | Renderer | renderer*.cpp | mendo | なし |
 | 11 | CommandGenerator | command_generator.h/cpp | mendo_core | あり |
 | 12 | CommandExecutor | command_executor.h/cpp | mendo_core | あり |
-| 13 | Parser | parser.cpp / parser_alerts.cpp | mendo_core | あり |
-| 14 | LayoutEngine | layout.h/cpp | mendo_core | あり |
-| 15 | LayoutService | layout_service.h/cpp | mendo_core | 部分 |
-| 16 | DWriteMeasurer | dwrite_measurer.h/cpp | mendo_core | parity |
-| 17 | Document | document.h/cpp | mendo_core | あり |
-| 18 | DocumentService | document_service.h/cpp | mendo_core | あり |
-| 19 | Theme | theme.h/cpp | mendo_core | あり |
-| 20 | ThemeService | theme_service.h/cpp | mendo_core | あり |
-| 21 | Syntax | syntax.h/cpp | mendo_core | あり |
-| 22 | FileLoader | file_loader.h/cpp | mendo_core | あり |
-| 23 | FileWatcher | file_watcher.h/cpp | mendo_core | なし |
-| 24 | FileLoadService | file_load_service.h/cpp | mendo_core | あり |
-| 25 | FileExplorer | file_explorer.h/cpp | mendo_core | あり |
-| 26 | TOC | toc.h/cpp | mendo_core | あり |
-| 27 | PaneController | pane_controller.h/cpp | mendo_core | あり |
-| 28 | ViewportManager | viewport_manager.h | mendo_core | あり |
-| 29 | NavigationService | navigation_service.h/cpp | mendo_core | あり |
-| 30 | NavHistory | nav_history.h/cpp | mendo_core | あり |
-| 31 | MouseGesture | mouse_gesture.h | mendo_core | あり |
-| 32 | SwipeDetector | swipe_detector.h | mendo_core | あり |
-| 33 | HitTestService | hit_test_service.h/cpp | mendo_core | あり |
-| 34 | ConfigStore | config_store.h/cpp | mendo_core | あり |
-| 35 | SessionService | session_service.h/cpp | mendo_core | あり |
-| 36 | MermaidRenderer | mermaid.h/cpp | mendo | なし |
-| 37 | MermaidLifecycle | mermaid_lifecycle.h/cpp | mendo_core | あり |
-| 38 | MermaidFileCache | mermaid_file_cache.h/cpp | mendo_core | あり |
-| 39 | TitleBar | titlebar.h/cpp | mendo_core | あり |
-| 40 | ContextMenu | context_menu.h/cpp + logic | mendo / mendo_core | あり (logic) |
-| 41 | ToastNotifier | toast_notifier.h | mendo_core | あり |
-| 42 | Tooltip | tooltip.h/cpp | mendo_core | TooltipTargetのみ |
-| 43 | SearchState | search_state.h/cpp | mendo_core | あり |
-| 44 | SearchBarController | search_bar_controller.h/cpp | mendo_core | あり |
-| 45 | ImageLoader | image_loader.h/cpp | mendo_core | あり |
-| 46 | ResourceManager | resource_manager.h/cpp | mendo_core | あり |
-| 47 | i18n | i18n.h | mendo_core | あり |
-| 48 | IniParser | ini_parser.h | mendo_core | あり |
-| 49 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
-| 50 | LruCache | lru_cache.h | mendo_core | あり |
-| 51 | UniqueResource (WinHandle) | win_handle.h | mendo_core | なし |
-| 52 | HoverThrottle | hover_throttle.h | mendo_core | あり |
-| 53 | ScrollRestoration | scroll_restoration.h | mendo_core | あり |
-| 54 | CursorManager | cursor_manager.h | mendo_core | なし |
-| 55 | FlatMap | flat_map.h | mendo_core | あり |
-| 56 | UIConstants | ui_constants.h | mendo_core | あり |
-| 57 | StringConvert | string_convert.h | mendo_core | あり |
-| 58 | MemoryResource | memory_resource.h | mendo_core | なし |
-| 59 | Profiler | profiler.h | mendo_core | なし |
+| 13 | Parser | parser.cpp + parser_alerts.cpp | mendo_core | あり |
+| 14 | LayoutEngine + LayoutService | layout.h/cpp | mendo_core | あり |
+| 15 | DWriteMeasurer | dwrite_measurer.h/cpp | mendo_core | parity |
+| 16 | Document | document.h/cpp | mendo_core | あり |
+| 17 | DocumentService | document_service.h/cpp | mendo_core | あり |
+| 18 | Theme | theme.h/cpp | mendo_core | あり |
+| 19 | ThemeService | theme_service.h/cpp | mendo_core | あり |
+| 20 | Syntax | syntax.h/cpp | mendo_core | あり |
+| 21 | FileLoader | file_loader.h/cpp | mendo_core | あり |
+| 22 | FileWatcher | file_watcher.h/cpp | mendo_core | なし |
+| 23 | FileLoadService | file_load_service.h/cpp | mendo_core | あり |
+| 24 | FileExplorer | file_explorer.h/cpp | mendo_core | あり |
+| 25 | TOC | toc.h/cpp | mendo_core | あり |
+| 26 | PaneController | pane_controller.h/cpp | mendo_core | あり |
+| 27 | ViewportManager | viewport_manager.h | mendo_core | あり |
+| 28 | NavHistory + HandleLinkClick | nav.h / nav.cpp | mendo_core | あり |
+| 29 | MouseGesture | mouse_gesture.h | mendo_core | あり |
+| 30 | SwipeDetector | swipe_detector.h | mendo_core | あり |
+| 31 | HitTestService | hit_test_service.h/cpp | mendo_core | あり |
+| 32 | ConfigService + SessionService | config_service.h/cpp | mendo_core | あり |
+| 33 | MermaidRenderer | mermaid.h/cpp | mendo | なし |
+| 34 | mermaid_lifecycle::Lifecycle | mermaid_util.h/cpp | mendo_core | あり |
+| 35 | MermaidFileCache | mermaid_file_cache.h/cpp | mendo_core | あり |
+| 36 | TitleBar | titlebar.h/cpp | mendo_core | あり |
+| 37 | ContextMenu | context_menu.h/cpp + logic | mendo / mendo_core | あり (logic) |
+| 38 | ToastNotifier | toast_notifier.h | mendo_core | あり |
+| 39 | Tooltip + TooltipTarget | tooltip.h/cpp | mendo_core | TooltipTarget のみ |
+| 40 | SearchState | search_state.h/cpp | mendo_core | あり |
+| 41 | SearchBarController | search_bar_controller.h/cpp | mendo_core | あり |
+| 42 | ImageLoader | image_loader.h/cpp | mendo_core | あり |
+| 43 | ResourceManager | resource_manager.h/cpp | mendo_core | あり |
+| 44 | i18n | i18n.h | mendo_core | あり |
+| 45 | IniParser | ini_parser.h | mendo_core | あり |
+| 46 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
+| 47 | LruCache | lru_cache.h | mendo_core | あり |
+| 48 | UniqueResource + Clipboard utils | win_handle.h | mendo_core | なし |
+| 49 | HoverThrottle | hover_throttle.h | mendo_core | あり |
+| 50 | ScrollRestoration | ui_constants.h 内 | mendo_core | あり |
+| 51 | CursorManager | cursor_manager.h | mendo_core | なし |
+| 52 | FlatMap | flat_map.h | mendo_core | あり |
+| 53 | UIConstants | ui_constants.h | mendo_core | あり |
+| 54 | StringConvert | string_convert.h | mendo_core | あり |
+| 55 | MemoryResource | memory_resource.h | mendo_core | なし |
+| 56 | Profiler | profiler.h | mendo_core | なし |
 
 ---
 
