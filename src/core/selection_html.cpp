@@ -157,11 +157,12 @@ private:
 
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
 // 同一 state 区間の比較と IsSafeUrlScheme を run あたり 1 回に抑える。
-constexpr void AppendInlineHtml(std::pmr::wstring& out,
-                                std::wstring_view text,
-                                const std::pmr::vector<TextRun>& runs,
-                                std::span<const std::pmr::wstring> link_urls,
-                                uint32_t start, uint32_t end)
+constexpr void AppendInlineHtml(
+    std::pmr::wstring& out,
+    std::wstring_view text,
+    std::span<const TextRun> runs,
+    std::span<const std::pmr::wstring> link_urls,
+    uint32_t start, uint32_t end)
 {
     if (end > text.size()) {
         end = static_cast<uint32_t>(text.size());
@@ -490,7 +491,7 @@ constexpr bool IsOrderedList(const Node& n) noexcept
     return IsListNode(n) && n.list_number > 0;
 }
 
-std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>& runs, std::span<const std::pmr::wstring> link_urls, uint32_t pos)
+std::optional<std::pmr::wstring> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::pmr::wstring> link_urls, uint32_t pos)
 {
     const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
         return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
@@ -501,7 +502,8 @@ std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>&
     return link_urls[static_cast<size_t>(it->link_url_index)];
 }
 
-const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node, uint32_t text_pos, uint32_t& local_pos)
+// 指定 text_pos のセルの runs を span で返す。見つからなければ空 span。
+std::span<const TextRun> FindTableCellRuns(const Node& node, uint32_t text_pos, uint32_t& local_pos)
 {
     uint32_t offset = 0;
     const auto& rows = node.table_rows();
@@ -512,7 +514,7 @@ const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node, uint32_t te
             const uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
             if (text_pos >= offset && text_pos < offset + cell_len) {
                 local_pos = text_pos - offset;
-                return &cell.runs;
+                return std::span<const TextRun>{ cell.runs.data(), cell.runs.size() };
             }
             offset += cell_len;
             if (c < last_col) {
@@ -523,7 +525,7 @@ const std::pmr::vector<TextRun>* FindTableCellRuns(const Node& node, uint32_t te
             offset++; // 改行区切り
         }
     }
-    return nullptr;
+    return {};
 }
 
 } // namespace
@@ -639,8 +641,8 @@ std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t t
 {
     if (node.type == NodeType::Table) {
         uint32_t local_pos = 0;
-        const auto* runs = FindTableCellRuns(node, text_pos, local_pos);
-        return runs ? FindLinkInRuns(*runs, node.view_link_urls(), local_pos) : std::nullopt;
+        const auto runs = FindTableCellRuns(node, text_pos, local_pos);
+        return runs.empty() ? std::nullopt : FindLinkInRuns(runs, node.view_link_urls(), local_pos);
     }
-    return FindLinkInRuns(node.runs, node.view_link_urls(), text_pos);
+    return FindLinkInRuns(std::span<const TextRun>{ node.runs.data(), node.runs.size() }, node.view_link_urls(), text_pos);
 }
