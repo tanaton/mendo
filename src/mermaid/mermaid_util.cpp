@@ -9,6 +9,8 @@
 #include <limits>
 #include <ranges>
 
+using namespace std::literals;
+
 std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
 {
     std::pmr::wstring result;
@@ -150,11 +152,8 @@ float mermaid_util::ParseJsonNumber(std::wstring_view json, std::wstring_view ke
     if (pos == std::wstring_view::npos) {
         return 0.0f;
     }
-    pos += key.size();
-    while (pos < json.size() && (json[pos] == L':' || json[pos] == L' ')) {
-        pos++;
-    }
-    if (pos >= json.size()) {
+    pos = json.find_first_not_of(L": "sv, pos + key.size());
+    if (pos == std::wstring_view::npos) {
         return 0.0f;
     }
     // wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。
