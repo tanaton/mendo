@@ -35,26 +35,33 @@ using ascii_util::IsAsciiHexDigit;
 
 // 識別子先頭文字: ASCII 英字 + '_' に加え、CJK 等の非 ASCII (>= U+0080) も許可する。
 // ascii_util の純粋 ASCII ヘルパに乗らないので syntax 固有として残す。
-bool IsIdentStart(wchar_t c)
+constexpr bool IsIdentStart(wchar_t c) noexcept
 {
     return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || c == L'_' || c >= 0x80;
 }
 
-bool IsIdentChar(wchar_t c)
+constexpr bool IsIdentChar(wchar_t c) noexcept
 {
     return IsIdentStart(c) || IsAsciiDigit(c);
 }
 
-void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type)
+constexpr void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type)
 {
     if (length > 0) {
         tokens.emplace_back(start, length, type);
     }
 }
 
+// pos から最初の '\n' まで（または末尾まで）一気に進める。返り値は '\n' の位置（未消費）または text.size()。
+constexpr size_t SkipToEol(std::wstring_view text, size_t pos) noexcept
+{
+    const auto p = text.find(L'\n', pos);
+    return p == std::wstring_view::npos ? text.size() : p;
+}
+
 // posから始まる文字列リテラルをスキャン（posは開始引用符を指す）。
 // 閉じ引用符の次の位置を返す（未終端の場合はテキストの末尾）。
-size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_multiline, bool handle_escape = true)
+constexpr size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_multiline, bool handle_escape = true) noexcept
 {
     size_t i = pos + 1;
     while (i < text.size()) {
@@ -77,27 +84,32 @@ size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_
     return i;
 }
 
-// Pythonのトリプルクォート文字列をスキャン。
-size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quote)
+// Pythonのトリプルクォート文字列をスキャン（pos はトリプルクォートの最初の引用符を指す）。
+constexpr size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quote) noexcept
 {
-    // posはトリプルクォートの最初の引用符を指す
     size_t i = pos + 3;
+    const wchar_t delims_buf[]{ L'\\', quote };
+    const std::wstring_view delims(delims_buf, 2);
     while (i + 2 < text.size()) {
-        if (text[i] == L'\\') {
-            i += 2;
+        const auto p = text.find_first_of(delims, i);
+        if (p == std::wstring_view::npos || p + 2 >= text.size()) {
+            return text.size();
         }
-        else if (text[i] == quote && text[i + 1] == quote && text[i + 2] == quote) {
-            return i + 3;
+        if (text[p] == L'\\') {
+            i = p + 2;
+        }
+        else if (text[p + 1] == quote && text[p + 2] == quote) {
+            return p + 3;
         }
         else {
-            i++;
+            i = p + 1;
         }
     }
     return text.size(); // 未終端
 }
 
 // posから始まる数値リテラルをスキャン。
-size_t ScanNumber(std::wstring_view text, size_t pos)
+constexpr size_t ScanNumber(std::wstring_view text, size_t pos) noexcept
 {
     size_t i = pos;
 
@@ -167,7 +179,7 @@ size_t ScanNumber(std::wstring_view text, size_t pos)
 }
 
 // [start, end)の識別子の後に'('が続くか確認（空白をスキップ）。
-bool IsFollowedByParen(std::wstring_view text, size_t end)
+constexpr bool IsFollowedByParen(std::wstring_view text, size_t end) noexcept
 {
     size_t i = end;
     while (i < text.size() && (text[i] == L' ' || text[i] == L'\t')) {
@@ -178,16 +190,20 @@ bool IsFollowedByParen(std::wstring_view text, size_t end)
 
 // posから始まるブロックコメントをスキャン（posは開始ペアの最初の文字を指す）。
 // 閉じペアの次の位置を返す。未終端の場合はtext.size()を返す。
-size_t ScanBlockComment(std::wstring_view text, size_t pos, wchar_t close1, wchar_t close2)
+constexpr size_t ScanBlockComment(std::wstring_view text, size_t pos, wchar_t close1, wchar_t close2) noexcept
 {
+    // close1 はソース中で比較的レアな文字（'*' や '#'）なので、find で間引いてから close2 を確認する。
     size_t i = pos + 2;
-    while (i + 1 < text.size()) {
-        if (text[i] == close1 && text[i + 1] == close2) {
-            return i + 2;
+    while (true) {
+        const auto p = text.find(close1, i);
+        if (p == std::wstring_view::npos || p + 1 >= text.size()) {
+            return text.size();
         }
-        i++;
+        if (text[p + 1] == close2) {
+            return p + 2;
+        }
+        i = p + 1;
     }
-    return text.size();
 }
 
 struct LexerConfig {
@@ -252,9 +268,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
             if (c == L'/' && i + 1 < text.size() && text[i + 1] == L'/') {
                 flush_plain();
                 const size_t start = i;
-                while (i < text.size() && text[i] != L'\n') {
-                    i++;
-                }
+                i = SkipToEol(text, i);
                 EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
                 // i は '\n' (まだ未消費) または末尾を指す。'\n' を含む場合でも本体は非空白で終わるので false。
                 at_line_start = false;
@@ -279,9 +293,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
             if (c == L'#') {
                 flush_plain();
                 const size_t start = i;
-                while (i < text.size() && text[i] != L'\n') {
-                    i++;
-                }
+                i = SkipToEol(text, i);
                 EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
                 at_line_start = false;
                 continue;
@@ -305,16 +317,19 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
             if (c == L'#' && at_line_start) {
                 flush_plain();
                 const size_t start = i;
+                // 改行までジャンプし、直前が '\' なら行継続として次の改行を再探索する。
                 while (i < text.size()) {
-                    if (text[i] == L'\n') {
-                        // 行継続の確認
-                        if (i > 0 && text[i - 1] == L'\\') {
-                            i++;
-                            continue;
-                        }
+                    const auto p = text.find(L'\n', i);
+                    if (p == std::wstring_view::npos) {
+                        i = text.size();
                         break;
                     }
-                    i++;
+                    if (p > 0 && text[p - 1] == L'\\') {
+                        i = p + 1;
+                        continue;
+                    }
+                    i = p;
+                    break;
                 }
                 EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Preprocessor);
                 at_line_start = false;
@@ -327,9 +342,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
             if (c == L':' && i + 1 < text.size() && text[i + 1] == L':' && at_line_start) {
                 flush_plain();
                 const size_t start = i;
-                while (i < text.size() && text[i] != L'\n') {
-                    i++;
-                }
+                i = SkipToEol(text, i);
                 EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
                 at_line_start = false;
                 continue;
@@ -345,9 +358,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 (i + 3 >= text.size() || !IsIdentChar(text[i + 3]))) {
                 flush_plain();
                 const size_t start = i;
-                while (i < text.size() && text[i] != L'\n') {
-                    i++;
-                }
+                i = SkipToEol(text, i);
                 EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
                 at_line_start = false;
                 continue;
@@ -382,22 +393,26 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 // デリミタを検索: R"DELIM( ... )DELIM"
                 const size_t paren = text.find(L'(', i + 1);
                 if (paren != std::wstring_view::npos) {
-                    // delim / end_marker を pmr::wstring で確保しないよう view と手書き走査で済ます。
-                    // end_marker は ')' + delim + '"' の固定構造なので、'(' 以降から ')' を探して
-                    // delim の wmemcmp で一致確認するだけで O(1) ヒープ確保で完結する。
+                    // end_marker = ')' + delim + '"'。delim は view のまま比較してヒープ確保しない。
                     const std::wstring_view delim = text.substr(i + 1, paren - i - 1);
                     const size_t end_marker_len = 1 + delim.size() + 1; // ')' + delim + '"'
                     size_t end_pos = std::wstring_view::npos;
-                    if (paren + 1 + end_marker_len <= text.size()) {
-                        for (size_t k = paren + 1; k + end_marker_len <= text.size(); k++) {
-                            if (text[k] != L')' || text[k + 1 + delim.size()] != L'"') {
-                                continue;
-                            }
-                            if (delim.empty() || std::char_traits<wchar_t>::compare(text.data() + k + 1, delim.data(), delim.size()) == 0) {
-                                end_pos = k;
-                                break;
-                            }
+                    // 生文字列の本文中で ')' は通常レアなので、find で間引いてから delim と '"' を確認する。
+                    size_t k = paren + 1;
+                    while (k + end_marker_len <= text.size()) {
+                        const auto found = text.find(L')', k);
+                        if (found == std::wstring_view::npos || found + end_marker_len > text.size()) {
+                            break;
                         }
+                        if (text[found + 1 + delim.size()] != L'"') {
+                            k = found + 1;
+                            continue;
+                        }
+                        if (delim.empty() || text.compare(found + 1, delim.size(), delim) == 0) {
+                            end_pos = found;
+                            break;
+                        }
+                        k = found + 1;
                     }
                     if (end_pos != std::wstring_view::npos) {
                         i = end_pos + end_marker_len;
@@ -548,7 +563,7 @@ inline constexpr LexerConfig JSON_LEXER_CONFIG{
 
 } // namespace
 
-SyntaxLanguage DetectLanguage(std::wstring_view info_string)
+SyntaxLanguage DetectLanguage(std::wstring_view info_string) noexcept
 {
     // info string の最初の空白/タブまでを言語識別子として抽出。残りは追加情報。
     const auto lang = info_string.substr(0, info_string.find_first_of(L" \t"));

@@ -934,6 +934,17 @@ TEST(Syntax, PythonUnterminatedTripleQuote)
     ASSERT_NE(str, nullptr);
 }
 
+TEST(Syntax, PythonTripleQuoteWithBackslashEscape)
+{
+    // バックスラッシュエスケープ経路: `\"` をスキップしてから本物の `"""` で終端する。
+    std::wstring code = LR"("""abc\"""def""")";
+    auto tokens = Tokenize(code, SyntaxLanguage::Python);
+    AssertTokensCoverText(tokens, code.size());
+    auto* str = FindToken(tokens, SyntaxTokenType::String);
+    ASSERT_NE(str, nullptr);
+    EXPECT_EQ(str->length, code.size());
+}
+
 // ============================================================
 // C++ モダンキーワード
 // ============================================================

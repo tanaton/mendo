@@ -49,6 +49,6 @@ struct SyntaxToken {
     SyntaxTokenType type = SyntaxTokenType::Plain;
 };
 
-SyntaxLanguage DetectLanguage(std::wstring_view info_string);
+SyntaxLanguage DetectLanguage(std::wstring_view info_string) noexcept;
 
 std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language);
