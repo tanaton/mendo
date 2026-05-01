@@ -15,6 +15,15 @@ struct overloaded : Ts... {
     using Ts::operator()...;
 };
 
+// optional に確保される pmr::vector を std::span として安全に view する。
+// 空 vector ヘッダ (24B/個) を全要素分背負わないため `unique_ptr<pmr::vector<T>>`
+// として保持しているメンバを、呼び出し側で nullptr 分岐なしに走査できるようにする。
+template <class T>
+inline std::span<const T> SpanOrEmpty(const std::unique_ptr<std::pmr::vector<T>>& p) noexcept
+{
+    return p ? std::span<const T>{ *p } : std::span<const T>{};
+}
+
 // pmr::wstring と wstring_view を等価にハッシュする透過ハッシャ。
 // equal_to<> と組み合わせて unordered_map に渡すと wstring_view からの lookup で
 // 一時 pmr::wstring の確保をスキップできる。

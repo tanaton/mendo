@@ -102,7 +102,7 @@ public:
 
     // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
     // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
-    constexpr void Open(const InlineState& s, const std::pmr::vector<std::pmr::wstring>& link_urls)
+    constexpr void Open(const InlineState& s, std::span<const std::pmr::wstring> link_urls)
     {
         applied_ = true;
         if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
@@ -160,7 +160,7 @@ private:
 constexpr void AppendInlineHtml(std::pmr::wstring& out,
                                 std::wstring_view text,
                                 const std::pmr::vector<TextRun>& runs,
-                                const std::pmr::vector<std::pmr::wstring>& link_urls,
+                                std::span<const std::pmr::wstring> link_urls,
                                 uint32_t start, uint32_t end)
 {
     if (end > text.size()) {
@@ -238,7 +238,7 @@ constexpr void AppendInlineHtml(std::pmr::wstring& out,
 
 void AppendNodeInlineHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end)
 {
-    AppendInlineHtml(out, node.GetText(), node.runs, node.link_urls, start, end);
+    AppendInlineHtml(out, node.GetText(), node.runs, node.view_link_urls(), start, end);
 }
 
 constexpr void AppendHexColor(std::pmr::wstring& out, uint32_t rgb)
@@ -461,7 +461,7 @@ void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, u
                 out.append(open_tag);
                 AppendTableCellStyle(out, cell, dark_mode);
                 out.append(L">");
-                AppendInlineHtml(out, cell.text, cell.runs, node.link_urls, 0, static_cast<uint32_t>(cell.text.size()));
+                AppendInlineHtml(out, cell.text, cell.runs, node.view_link_urls(), 0, static_cast<uint32_t>(cell.text.size()));
                 out.append(close_tag);
             }
             out.append(L"</tr>");
@@ -490,12 +490,12 @@ constexpr bool IsOrderedList(const Node& n) noexcept
     return IsListNode(n) && n.list_number > 0;
 }
 
-std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>& runs, const std::pmr::vector<std::pmr::wstring>& link_urls, uint32_t pos)
+std::optional<std::pmr::wstring> FindLinkInRuns(const std::pmr::vector<TextRun>& runs, std::span<const std::pmr::wstring> link_urls, uint32_t pos)
 {
     const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
         return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
     });
-    if (it == runs.end()) {
+    if (it == runs.end() || it->link_url_index < 0 || static_cast<size_t>(it->link_url_index) >= link_urls.size()) {
         return std::nullopt;
     }
     return link_urls[static_cast<size_t>(it->link_url_index)];
@@ -640,7 +640,7 @@ std::optional<std::pmr::wstring> FindLinkAtPosition(const Node& node, uint32_t t
     if (node.type == NodeType::Table) {
         uint32_t local_pos = 0;
         const auto* runs = FindTableCellRuns(node, text_pos, local_pos);
-        return runs ? FindLinkInRuns(*runs, node.link_urls, local_pos) : std::nullopt;
+        return runs ? FindLinkInRuns(*runs, node.view_link_urls(), local_pos) : std::nullopt;
     }
-    return FindLinkInRuns(node.runs, node.link_urls, text_pos);
+    return FindLinkInRuns(node.runs, node.view_link_urls(), text_pos);
 }

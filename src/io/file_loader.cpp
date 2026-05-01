@@ -1,15 +1,17 @@
 #include "file_loader.h"
 #include "file_io.h"
+#include "string_convert.h"
 #include "win_handle.h"
+#include <limits>
 #include <shlwapi.h>
 #include <commdlg.h>
 
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "comdlg32.lib")
 
-std::expected<std::pmr::string, FileLoadError> FileLoader::LoadFile(const std::pmr::wstring& path)
+std::expected<LoadedFileWide, FileLoadError> FileLoader::LoadFile(const std::pmr::wstring& path)
 {
-    // エディタがファイルを開いている間も読み取れるよう共有モードを許容
+    // エディタがファイルを開いている間も読み取れるよう共有モードを許容。
     auto r = OpenFileForReadShared(
         std::filesystem::path(path.c_str()),
         FILE_SHARE_RW_DELETE, MAX_FILE_SIZE);
@@ -25,23 +27,34 @@ std::expected<std::pmr::string, FileLoadError> FileLoader::LoadFile(const std::p
     }
 
     if (r.size == 0) {
-        return std::pmr::string{};
+        return LoadedFileWide{};
     }
 
-    // BOM の除去は呼び出し側 (Utf8ToWideStripBom) が担うため、ここではバイト列をそのまま返す。
-    std::pmr::string content;
-    DWORD bytesRead = 0;
-    BOOL ok = FALSE;
-    content.resize_and_overwrite(r.size, [&](char* buf, size_t count) -> size_t {
-        ok = ReadFile(r.handle.get(), buf, static_cast<DWORD>(count), &bytesRead, nullptr);
-        return ok ? bytesRead : 0;
-    });
+    // MultiByteToWideChar は cb*Char が int なので INT_MAX を超える入力を扱えない。
+    // MAX_FILE_SIZE が int 上限を超える設定でも、ここで実効上限を強制し
+    // Utf8ToWideStripBom が黙って空文字列を返す失敗モード (LoadFile としては成功扱いになる) を防ぐ。
+    if (r.size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        return std::unexpected(FileLoadError::TooLarge);
+    }
 
-    if (!ok) {
+    // メモリマップで UTF-8 を直接 view し、UTF-16 変換のヒープ確保のみに抑える。
+    // OS のページキャッシュに乗ったまま読めるため、同じファイルの再オープンで物理 I/O が増えない。
+    UniqueFileMapping hMapping(CreateFileMappingW(r.handle.get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
+    if (!hMapping) {
         return std::unexpected(FileLoadError::ReadFailed);
     }
 
-    return content;
+    UniqueMapView view(MapViewOfFile(hMapping.get(), FILE_MAP_READ, 0, 0, 0));
+    if (!view) {
+        return std::unexpected(FileLoadError::ReadFailed);
+    }
+
+    const std::string_view bytes{ static_cast<const char*>(view.get()), r.size };
+
+    LoadedFileWide result;
+    result.byte_size = r.size;
+    string_convert::Utf8ToWideStripBom(bytes, result.wide);
+    return result;
 }
 
 std::pmr::wstring FileLoader::OpenFileDialog(HWND owner)

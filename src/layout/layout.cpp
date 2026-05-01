@@ -79,10 +79,24 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
 
 std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows)
 {
+    // 実セルサイズ + 区切り文字数を集計して正確に reserve する。
+    size_t total = 0;
+    for (const auto& row : rows) {
+        for (const auto& cell : row.cells) {
+            total += cell.text.size();
+        }
+        if (!row.cells.empty()) {
+            total += row.cells.size() - 1; // タブ区切り
+        }
+    }
+    if (!rows.empty()) {
+        total += rows.size() - 1; // 行区切り（末尾改行なし）
+    }
+
     std::pmr::wstring text;
+    text.reserve(total);
     const auto row_count = rows.size();
     const auto last_row = static_cast<ptrdiff_t>(row_count) - 1;
-    text.reserve(row_count * 128); // 行あたり平均128文字の概算
     for (const auto& [r, row] : rows | std::views::enumerate) {
         for (const auto& [c, cell] : row.cells | std::views::enumerate) {
             if (c > 0) {

@@ -5,8 +5,10 @@
 #include <expected>
 #include <windows.h>
 
-// ファイル読み込みの最大サイズ（256MB）。FileLoader / ImageLoader で共有
-inline constexpr LONGLONG MAX_FILE_SIZE = 256LL * 1024 * 1024;
+// ファイル読み込みの最大サイズ（4GB）。
+// 注: Markdown 経路の実効上限は ~2GB-1。MultiByteToWideChar が int を取るため、
+// FileLoader::LoadFile は INT_MAX を超えるサイズを TooLarge として弾く。
+inline constexpr LONGLONG MAX_FILE_SIZE = 1024LL * 1024 * 1024 * 4;
 
 // FileLoader::LoadFile のエラー型
 enum class FileLoadError : uint8_t {
@@ -29,9 +31,18 @@ inline std::wstring_view FileLoadErrorMessage(FileLoadError e, const auto& strin
     }
 }
 
+// LoadFile が返す UTF-16 化済みドキュメントテキスト + 元の UTF-8 バイト数。
+// byte_size はリロード時の二段階保存検出 (IsFileLargerThan) や AnalyzeReloadDiff の参照用。
+struct LoadedFileWide {
+    std::pmr::wstring wide;
+    size_t byte_size = 0;
+};
+
 // ファイル読み込みユーティリティ（静的メソッドのみ）
 class FileLoader {
 public:
-    static std::expected<std::pmr::string, FileLoadError> LoadFile(const std::pmr::wstring& path);
+    // ファイルをメモリマップして UTF-8 → UTF-16 変換まで行い、結果のみ返す。
+    // 中間 UTF-8 バッファを確保しないので、巨大ファイルでも UTF-8 のコピーが発生しない。
+    static std::expected<LoadedFileWide, FileLoadError> LoadFile(const std::pmr::wstring& path);
     static std::pmr::wstring OpenFileDialog(HWND owner);
 };

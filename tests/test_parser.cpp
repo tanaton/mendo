@@ -145,7 +145,7 @@ TEST(Parser, ExternalLink)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
     ASSERT_TRUE(nodes[0].runs[0].has_link());
-    EXPECT_EQ(nodes[0].link_urls[nodes[0].runs[0].link_url_index], L"https://example.com");
+    EXPECT_EQ(nodes[0].view_link_urls()[nodes[0].runs[0].link_url_index], L"https://example.com");
     EXPECT_EQ(nodes[0].GetText(), L"text");
 }
 
@@ -155,7 +155,7 @@ TEST(Parser, InternalLink)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
     ASSERT_TRUE(nodes[0].runs[0].has_link());
-    EXPECT_EQ(nodes[0].link_urls[nodes[0].runs[0].link_url_index], L"#my-section");
+    EXPECT_EQ(nodes[0].view_link_urls()[nodes[0].runs[0].link_url_index], L"#my-section");
 }
 
 TEST(Parser, ParagraphWithNoLink)
@@ -695,7 +695,7 @@ TEST(Parser, TableCellWithLink)
     bool found_link = false;
     for (const auto& run : data_row.cells[1].runs) {
         if (run.has_link()) {
-            EXPECT_EQ(nodes[0].link_urls[run.link_url_index], L"https://example.com");
+            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], L"https://example.com");
             found_link = true;
         }
     }
@@ -721,7 +721,7 @@ TEST(Parser, TableCellWithInternalLink)
     bool found = false;
     for (const auto& run : cell.runs) {
         if (run.has_link()) {
-            EXPECT_EQ(nodes[0].link_urls[run.link_url_index], L"#introduction");
+            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], L"#introduction");
             found = true;
         }
     }
@@ -1012,7 +1012,7 @@ TEST(Parser, LinkWithSpecialCharsInUrl)
     bool found = false;
     for (const auto& run : nodes[0].runs) {
         if (run.has_link()) {
-            EXPECT_EQ(nodes[0].link_urls[run.link_url_index], L"https://example.com/path?q=1&r=2#frag");
+            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], L"https://example.com/path?q=1&r=2#frag");
             found = true;
         }
     }

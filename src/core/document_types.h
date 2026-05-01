@@ -1,5 +1,7 @@
 #pragma once
 #include <string>
+#include <string_view>
+#include <span>
 #include <vector>
 #include <cstdint>
 #include <limits>
@@ -10,6 +12,7 @@
 #include <variant>
 #include "syntax.h"
 #include "text_types.h"
+#include "utility.h"
 
 enum class NodeType : uint8_t {
     Heading,
@@ -95,7 +98,10 @@ inline constexpr uint32_t kUnsetSourceOffset = std::numeric_limits<uint32_t>::ma
 struct Node {
     std::pmr::vector<TextRun> runs;
 
-    std::pmr::vector<std::pmr::wstring> link_urls;
+    // リンク URL の集合。リンクを含むノードでのみ確保される。
+    // Why: `Node::runs` が link_url_index で参照する URL テーブル。リンクを持つノードは
+    // 全体の少数派 (見出し/段落の一部) なので、空時は 8B ポインタ 1 本に抑える。
+    std::unique_ptr<std::pmr::vector<std::pmr::wstring>> link_urls;
 
     // ノード種別ごとの拡張データ。同時に持てるのは 1 種類のみ。
     // Why: 旧設計では 4 つの unique_ptr を常に保持していたため、ほとんどのノード
@@ -258,6 +264,19 @@ struct Node {
     {
         const auto* hd = heading_data();
         return hd ? std::wstring_view{ hd->anchor_id } : std::wstring_view{};
+    }
+
+    // ---- link_urls アクセサ ----
+    std::pmr::vector<std::pmr::wstring>& ensure_link_urls()
+    {
+        if (!link_urls) {
+            link_urls = std::make_unique<std::pmr::vector<std::pmr::wstring>>();
+        }
+        return *link_urls;
+    }
+    std::span<const std::pmr::wstring> view_link_urls() const noexcept
+    {
+        return SpanOrEmpty(link_urls);
     }
 
     const std::pmr::vector<SyntaxToken>& syntax_tokens() const noexcept

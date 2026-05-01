@@ -40,6 +40,8 @@ public:
         return nodes_.empty();
     }
     // パース入力の wide テキストへの参照。AnalyzeReloadDiff の比較用。
+    // ノードレベルでは検出できない編集 (空行追加・末尾空白・改行種別変更等) も
+    // UTF-16 オフセット精度で差分位置を求めるため、Document が常時保持する。
     constexpr const std::pmr::wstring& GetRawText() const noexcept
     {
         return raw_wide_;
