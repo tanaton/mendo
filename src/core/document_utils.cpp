@@ -139,8 +139,10 @@ void GenerateAnchorIdInto(std::wstring_view text, std::pmr::wstring& slug)
                 case SlugHyphen:
                     *dst++ = L'-';
                     break;
-                default:
+                case SlugSkip:
                     break;
+                default:
+                    std::unreachable();
                 }
             }
             else if (c >= 0x3000) {

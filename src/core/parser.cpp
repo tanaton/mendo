@@ -27,9 +27,8 @@ constexpr size_t SCRATCH_RESERVE = 16384;
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
     MonotonicResource parse_resource{ 128 * 1024 };
-    // 再利用が必要なスクラッチ (current_text 等) や hash map の bucket 等を扱う pool。
-    // upstream を monotonic にすることで、pool から解放されたブロックは monotonic には戻らず再利用やバックアップで整理され、ParseContext 破棄時に一括解放される。
-    // unsynchronized を選ぶのは ParseContext が単一スレッドでしか触られないためで、synchronized_pool のロックオーバーヘッドを排除する。
+    // append/clear が走るスクラッチや hash map 用の pool。単一スレッドなので unsynchronized。
+    // upstream を monotonic にして pool 自身の解放は ParseContext 破棄時の一括解放に任せる。
     std::pmr::unsynchronized_pool_resource pool{ parse_resource.resource() };
 
     std::pmr::vector<Node> nodes;
@@ -53,9 +52,8 @@ struct ParseContext {
     // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
     int16_t current_link_url_index = -1;
 
-    // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で Node::text_ へ view コピーされる。
-    // pool に乗せることで append での再確保をロック無しで扱える。
-    // Node::text_ は default allocator のままだが、FinalizeCurrentNode で view コピーで渡すため allocator 不一致の影響はない。
+    // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で Node::text_ へ view コピーされる
+    // (allocator 不一致を避けるため move ではなくコピー)。
     std::pmr::wstring current_text{ &pool };
 
     // current_text 内の「未確定 TextRun」の開始位置 (wide unit)。
@@ -63,10 +61,9 @@ struct ParseContext {
     // span 切替 / ブロック退出時に FlushPendingRun が呼ばれて確定する。
     uint32_t pending_run_start = 0;
     bool has_pending_run = false;
-    // pending_run_start 以降に AppendWide で押し込まれた改行の数。
-    // FlushPendingRun で Node::line_count に加算し、毎回の count 走査を避ける。
-    // md4c から OnText に来る改行は MD_TEXT_BR とコードブロック行末の \n chunk のみなので、
-    // AppendWide 内で 1 文字 \n の判定を数命令で済ませる。
+    // pending_run_start 以降に AppendWide で押し込まれた改行の数。FlushPendingRun の count 走査を排除。
+    // md4c は \n を size==1 の単独 chunk としてしか OnText に渡さない契約 (BR/SOFTBR/HTML 改行/code 行末)
+    // に依存している。md4c がチャンク境界を変えた場合は AppendWide のカウンタ条件を見直す必要あり。
     uint32_t pending_run_newlines = 0;
 
     // ブロックコンテキスト追跡
@@ -90,16 +87,14 @@ struct ParseContext {
     Node* current_node = nullptr;
 
     // アンカーIDの一意性追跡: スラグ -> 出現回数。
-    // pool 上に乗せて synchronized_pool への malloc を避ける。再ハッシュ時に古い bucket は pool 内で再利用されるため monotonic が無限に膨らない。
+    // 再ハッシュ時の旧 bucket は pool 内で再利用されるため monotonic は膨らない。
     std::pmr::unordered_map<std::pmr::wstring, int, WStringTransparentHash, std::equal_to<>> anchor_counts{ &pool };
 
-    // 現在ノード内の URL -> link_urls インデックス の lookup。
-    // 多リンク段落 (脚注等) で線形探索を避け、ノード切替えごとに clear() して再利用する。
-    // キーを pool 上の pmr::wstring で持ち、透過比較で wstring_view からヒープ確保なしで lookup できる。
+    // 現在ノード内の URL -> link_urls インデックス の lookup。脚注等の多リンク段落で線形探索を避ける。
+    // ノード切替えごとに clear() して bucket は pool 内で再利用。透過比較で wstring_view から確保なしで lookup。
     std::pmr::unordered_map<std::pmr::wstring, int16_t, WStringTransparentHash, std::equal_to<>> link_url_lookup{ &pool };
 
-    // 画像スパンの src 蓄積バッファ。pool で append/clear をロック無しで扱う。
-    // NodeImageData::src へは assign(view) でコピーする (allocator 不一致の暗黙コピーを避けるため)。
+    // 画像スパンの src 蓄積バッファ。NodeImageData::src へは allocator 不一致を避けるため assign(view) でコピー。
     std::pmr::wstring pending_image_src{ &pool };
 
     // display math スパンが 1 個だけで他の内容が無い段落を LatexMath コードブロックに昇格する状態
@@ -108,9 +103,8 @@ struct ParseContext {
     bool paragraph_has_other_content = false;
     std::pmr::wstring display_math_buf{ &pool };
 
-    // md_parse() に渡した入力バッファ先頭ポインタ。source_offset 計算用 (UTF-16 コード単位オフセット)。
+    // md_parse() に渡した入力バッファ。source_offset 計算と OnText の text ポインタ範囲判定に使う。
     const wchar_t* markdown_base = nullptr;
-    // 入力バッファの wchar_t 数。OnText で渡される text ポインタが入力バッファ内かを判定するのに使う。
     size_t markdown_size = 0;
 
     // 現在ノードの Wide スクラッチを text_ にコピーし、スクラッチをクリアする。
@@ -198,7 +192,8 @@ struct ParseContext {
         auto& urls = current_node->ensure_link_urls();
         const int16_t new_index = static_cast<int16_t>(urls.size());
         urls.emplace_back(url);
-        link_url_lookup.emplace(std::pmr::wstring{ url, &pool }, new_index);
+        std::pmr::wstring key{ url, &pool };
+        link_url_lookup.try_emplace(std::move(key), new_index);
         current_link_url_index = new_index;
     }
 
@@ -229,9 +224,7 @@ struct ParseContext {
             pending_run_start = static_cast<uint32_t>(current_text.size());
             has_pending_run = true;
         }
-        // OnText から chunk として渡される \n は 1 文字単独 (md4c の MD_TEXT 呼出構造)。
-        // そのケースを安く判定して newline カウンタを +1。
-        // FlushPendingRun 側で std::ranges::count による線形走査を避けるための最適化。
+        // pending_run_newlines のフィールドコメント参照: md4c は \n を size==1 chunk でしか渡さない。
         if (text.size() == 1 && text[0] == L'\n') {
             ++pending_run_newlines;
         }
@@ -647,15 +640,15 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
     // 各ノードの最初のテキストコールバックでソースオフセットを記録（UTF-16 コード単位）。
     // md4c は MD_TEXT_NULLCHAR / MD_TEXT_BR / MD_TEXT_SOFTBR や、CODE/LATEXMATH/HTML の改行・空白置換で
-    // _T(""), _T("\n"), _T(" ") といった内部リテラルを text として渡すことがある。
-    // 異なる array 同士の text - markdown_base は UB で壊れたオフセットを拾うため、
-    // text が入力バッファ範囲内であることを std::less で判定してから更新する。
-    // (std::less は異なる array 間のポインタに対しても strict total order を保証する)。
+    // _T(""), _T("\n"), _T(" ") といった内部静的リテラルを text として渡すことがある。
+    // 異なる array 同士のポインタ減算は UB なので、範囲判定もオフセット計算も uintptr_t の
+    // 整数演算で行う (std::less<T*> の total order はアドレスの数値順と一致する保証がない)。
     if (ctx->current_node->source_offset == kUnsetSourceOffset) {
-        const std::less<const wchar_t*> ptr_less;
-        const wchar_t* const buf_end = ctx->markdown_base + ctx->markdown_size;
-        if (!ptr_less(text, ctx->markdown_base) && ptr_less(text, buf_end)) {
-            ctx->current_node->source_offset = static_cast<uint32_t>(text - ctx->markdown_base);
+        const auto text_addr = reinterpret_cast<uintptr_t>(text);
+        const auto base_addr = reinterpret_cast<uintptr_t>(ctx->markdown_base);
+        const auto end_addr = base_addr + ctx->markdown_size * sizeof(wchar_t);
+        if (text_addr >= base_addr && text_addr < end_addr) {
+            ctx->current_node->source_offset = static_cast<uint32_t>((text_addr - base_addr) / sizeof(wchar_t));
         }
     }
 
