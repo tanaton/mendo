@@ -73,8 +73,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     {
         const int new_start = selection.active ? selection.start_node : -1;
         const int new_end = selection.active ? selection.end_node : -1;
-        if ((new_start != prev_sel_start_node_ || new_end != prev_sel_end_node_) &&
-            prev_sel_start_node_ >= 0) {
+        if ((new_start != prev_sel_start_node_ || new_end != prev_sel_end_node_) && prev_sel_start_node_ >= 0) {
             const int upper = std::min(prev_sel_end_node_, static_cast<int>(cache.size()) - 1);
             for (int i = prev_sel_start_node_; i <= upper; i++) {
                 if (new_start < 0 || i < new_start || i > new_end) {
