@@ -8,9 +8,13 @@
 #include "utility.h"
 #include "ui_constants.h"
 
-void SideEffectExecutor::Init(IWin32Host& host, ResourceManager& resource_manager,
-                              DocumentService& doc_service,
-                              AppState& state, LayoutService& layout_service, Callbacks cb)
+void SideEffectExecutor::Init(
+    IWin32Host& host,
+    ResourceManager& resource_manager,
+    DocumentService& doc_service,
+    AppState& state,
+    LayoutService& layout_service,
+    Callbacks cb)
 {
     host_ = &host;
     resource_manager_ = &resource_manager;

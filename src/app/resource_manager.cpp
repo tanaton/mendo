@@ -20,8 +20,7 @@ struct IndexSlice {
     std::pmr::vector<size_t>::const_iterator end;
 };
 
-IndexSlice VisibleSlice(const std::pmr::vector<size_t>& sorted_indices,
-                        size_t first_visible_node, size_t last_visible_node_plus_1)
+IndexSlice VisibleSlice(const std::pmr::vector<size_t>& sorted_indices, size_t first_visible_node, size_t last_visible_node_plus_1)
 {
     const auto b = std::lower_bound(sorted_indices.begin(), sorted_indices.end(), first_visible_node);
     const auto e = std::lower_bound(b, sorted_indices.end(), last_visible_node_plus_1);
@@ -36,8 +35,7 @@ struct VisibleRange {
     size_t last_plus_1;
 };
 
-VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count,
-                                     float range_top, float range_bottom)
+VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count, float range_top, float range_bottom)
 {
     // 過渡状態で node_count > cache.size() のとき cache[i] が OOB になるため、
     // FindFirstVisibleNodeIndex と同じ方針で内部クランプする。
@@ -55,10 +53,14 @@ VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count
 
 } // namespace
 
-void ResourceManager::Init(Document& doc, LayoutCache& cache, ViewportManager& viewport,
-                           ImageLoader& image_loader, IMermaidRenderer& mermaid,
-                           ThemeService& theme_service,
-                           Callbacks cb)
+void ResourceManager::Init(
+    Document& doc,
+    LayoutCache& cache,
+    ViewportManager& viewport,
+    ImageLoader& image_loader,
+    IMermaidRenderer& mermaid,
+    ThemeService& theme_service,
+    Callbacks cb)
 {
     doc_ = &doc;
     cache_ = &cache;
@@ -249,9 +251,7 @@ int ResourceManager::RequestMermaidRenders()
             continue;
         }
 
-        mermaid_->RequestRender(node, (*cache_)[i], diagram,
-                                content_width, theme_service_->IsDarkMode(),
-                                [this] { OnMermaidRenderComplete(); });
+        mermaid_->RequestRender(node, (*cache_)[i], diagram, content_width, theme_service_->IsDarkMode(), [this] { OnMermaidRenderComplete(); });
         if (diagram.bitmap) {
             ++applied;
         }
