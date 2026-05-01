@@ -7,6 +7,7 @@
 #include "mermaid_util.h"
 #include "theme_service.h"
 #include "profiler.h"
+#include "ascii_util.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -113,7 +114,7 @@ int ResourceManager::ApplyCachedImages(bool respect_viewport)
         }
 
         auto* const img = node.image_data();
-        if (!img || img->src.find(L"://") != std::pmr::wstring::npos) {
+        if (!img || ascii_util::Contains(img->src, L"://")) {
             continue;
         }
 
