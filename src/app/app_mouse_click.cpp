@@ -89,8 +89,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
 // サイドペイン共通 — ペインスクロールバーの当たり判定
 // ============================================================
 
-bool App::IsOverPaneScrollbar(float dip_x, const PaneRect& rect,
-                              float total_content, const PaneScrollInfo& scroll_info) noexcept
+bool App::IsOverPaneScrollbar(float dip_x, const PaneRect& rect, float total_content, const PaneScrollInfo& scroll_info) noexcept
 {
     const float local_x = dip_x - rect.x;
     const float hit_left = rect.width - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN - PANE_SCROLLBAR_HIT_PADDING;

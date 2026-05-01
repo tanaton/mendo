@@ -110,9 +110,7 @@ struct ParseContext {
     {
         FlushPendingRun();
         if (current_node && !current_text.empty()) {
-            current_node->SetTextWithLineCount(
-                std::wstring_view{ current_text.data(), current_text.size() },
-                current_node->line_count);
+            current_node->SetTextWithLineCount(current_text, current_node->line_count);
         }
         current_text.clear();
     }

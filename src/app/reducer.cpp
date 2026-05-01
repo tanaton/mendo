@@ -224,8 +224,7 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
 void ReduceCopyClipboard(const AppState& state, SideEffectList& effects)
 {
     if (state.view.viewport.GetSelection().active) {
-        PushEffect(effects, effect::ClipboardWrite{
-                                ExtractSelectedText(state.document.doc.GetNodes(), state.view.viewport.GetSelection()) });
+        PushEffect(effects, effect::ClipboardWrite{ ExtractSelectedText(state.document.doc.GetNodes(), state.view.viewport.GetSelection()) });
     }
 }
 
@@ -236,9 +235,7 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
         return;
     }
     const auto& nodes = state.document.doc.GetNodes();
-    PushEffect(effects, effect::ClipboardWriteHtml{
-                            ExtractSelectedTextAsHtml(nodes, sel, state.window.cached_theme.is_dark),
-                            ExtractSelectedText(nodes, sel) });
+    PushEffect(effects, effect::ClipboardWriteHtml{ ExtractSelectedTextAsHtml(nodes, sel, state.window.cached_theme.is_dark), ExtractSelectedText(nodes, sel) });
 }
 
 // ============================================================
@@ -274,10 +271,12 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
         // offset もズーム比でスケールし、ノード内の同じ位置が可視先頭に留まるようにする
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
     }
-    PushEffect(effects, effect::ApplyThemeChange{
-                            .type = effect::ApplyThemeChange::Type::Zoom,
-                            .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
-                        });
+    PushEffect(
+        effects,
+        effect::ApplyThemeChange{
+            .type = effect::ApplyThemeChange::Type::Zoom,
+            .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
+        });
 }
 
 void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
@@ -290,10 +289,12 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
         // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);
     }
-    PushEffect(effects, effect::ApplyThemeChange{
-                            .type = effect::ApplyThemeChange::Type::DarkMode,
-                            .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
-                        });
+    PushEffect(
+        effects,
+        effect::ApplyThemeChange{
+            .type = effect::ApplyThemeChange::Type::DarkMode,
+            .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
+        });
 }
 
 // ============================================================
@@ -338,12 +339,14 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
     state.document.layout_cache.MarkAllDirty();
     PushEffect(effects, effect::RendererSetDpi{ static_cast<float>(a.dpi) });
     PushEffect(effects, effect::ClearFileCache{});
-    PushEffect(effects, effect::SetWindowPosition{
-                            static_cast<int>(a.suggested.left),
-                            static_cast<int>(a.suggested.top),
-                            static_cast<int>(a.suggested.right - a.suggested.left),
-                            static_cast<int>(a.suggested.bottom - a.suggested.top),
-                        });
+    PushEffect(
+        effects,
+        effect::SetWindowPosition{
+            static_cast<int>(a.suggested.left),
+            static_cast<int>(a.suggested.top),
+            static_cast<int>(a.suggested.right - a.suggested.left),
+            static_cast<int>(a.suggested.bottom - a.suggested.top),
+        });
 }
 
 void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& a)
@@ -351,8 +354,7 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     const bool had_overlay = state.interaction.swipe_detector.IsOverlayVisible();
     const int old_direction = state.interaction.swipe_detector.GetOverlayDirection();
     state.interaction.swipe_detector.OnHWheel(a.delta, a.tick);
-    PushEffect(effects, effect::SetTimer{ app_timer::SWIPE_OVERLAY,
-                                          static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
+    PushEffect(effects, effect::SetTimer{ app_timer::SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
     if (had_overlay != state.interaction.swipe_detector.IsOverlayVisible() || old_direction != state.interaction.swipe_detector.GetOverlayDirection()) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
@@ -458,10 +460,13 @@ void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, cons
 {
     state.search.search_bar_ctrl.StartDrag(a.caret_pos);
     PushEffect(effects, effect::SetCapture{});
-    PushEffect(effects, effect::PostWindowMessage{
-                            app_msg::SEARCH_FOCUS,
-                            app_param::SEARCH_FOCUS_SET_CARET,
-                            static_cast<LPARAM>(a.caret_pos) });
+    PushEffect(
+        effects,
+        effect::PostWindowMessage{
+            app_msg::SEARCH_FOCUS,
+            app_param::SEARCH_FOCUS_SET_CARET,
+            static_cast<LPARAM>(a.caret_pos),
+        });
 }
 
 void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const SearchInputDragMovedAction& a)
@@ -473,10 +478,13 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
     if (a.caret_pos == ctrl.GetCaretPos() && ctrl.GetDragAnchor() == ctrl.GetSelectionStart()) {
         return;
     }
-    PushEffect(effects, effect::PostWindowMessage{
-                            app_msg::SEARCH_FOCUS,
-                            app_param::SEARCH_FOCUS_SET_SELECTION,
-                            MAKELPARAM(ctrl.GetDragAnchor(), a.caret_pos) });
+    PushEffect(
+        effects,
+        effect::PostWindowMessage{
+            app_msg::SEARCH_FOCUS,
+            app_param::SEARCH_FOCUS_SET_SELECTION,
+            MAKELPARAM(ctrl.GetDragAnchor(), a.caret_pos),
+        });
 }
 
 void ReduceSearchInputDragEnded(AppState& state, SideEffectList& effects)

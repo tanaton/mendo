@@ -401,8 +401,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                             if (text[k] != L')' || text[k + 1 + delim.size()] != L'"') {
                                 continue;
                             }
-                            if (delim.empty() ||
-                                std::wmemcmp(text.data() + k + 1, delim.data(), delim.size()) == 0) {
+                            if (delim.empty() || std::char_traits<wchar_t>::compare(text.data() + k + 1, delim.data(), delim.size()) == 0) {
                                 end_pos = k;
                                 break;
                             }
