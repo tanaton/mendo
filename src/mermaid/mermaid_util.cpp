@@ -2,6 +2,7 @@
 #include "document_types.h"
 #include "syntax.h"
 #include "utility.h"
+#include "ascii_util.h"
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -148,8 +149,8 @@ std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
 
 float mermaid_util::ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept
 {
-    auto pos = json.find(key);
-    if (pos == std::wstring_view::npos) {
+    auto pos = ascii_util::Find(json, key);
+    if (pos == ascii_util::npos) {
         return 0.0f;
     }
     pos = json.find_first_not_of(L": "sv, pos + key.size());
@@ -196,8 +197,8 @@ mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view b
 bool mermaid_util::ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept
 {
     // 生成側が "ok":true / "ok": true の両形式を出す可能性があるため両方許容。
-    auto pos = json.find(key);
-    if (pos == std::wstring_view::npos) {
+    auto pos = ascii_util::Find(json, key);
+    if (pos == ascii_util::npos) {
         return false;
     }
     pos += key.size();

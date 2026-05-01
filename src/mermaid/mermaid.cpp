@@ -5,6 +5,7 @@
 #include "utility.h"
 #include "wic_util.h"
 #include "resource.h"
+#include "ascii_util.h"
 #include <wrl/event.h>
 #include <cassert>
 #include <filesystem>
@@ -316,7 +317,7 @@ void MermaidRenderer::SetupWorker(int index)
             std::span<const std::byte> payload;
             const wchar_t* headers = nullptr;
 
-            if (url.find(L"/mermaid.min.js.gz") != std::pmr::wstring::npos) {
+            if (ascii_util::Contains(url, L"/mermaid.min.js.gz")) {
                 // gzip圧縮されたmermaid.jsを配信する。JSがDecompressionStreamで展開する
                 payload = LoadRcData(IDR_MERMAID_JS_GZ);
                 headers = L"Content-Type: application/gzip";

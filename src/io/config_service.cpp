@@ -2,6 +2,7 @@
 #include "pane_controller.h"
 #include "string_convert.h"
 #include "file_io.h"
+#include "ascii_util.h"
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -44,7 +45,7 @@ std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) c
     })) {
         return {};
     }
-    if (filename.find(L"..") != std::wstring_view::npos) {
+    if (ascii_util::Contains(filename, L"..")) {
         return {};
     }
     const auto dir = GetConfigDir();

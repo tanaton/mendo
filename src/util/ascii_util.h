@@ -174,6 +174,50 @@ inline size_t Find(std::wstring_view text, std::wstring_view query, size_t start
     const size_t last = tlen - qlen; // 最後の有効な開始位置 (start <= last は保証済み)
 
     size_t i = start;
+
+    // qlen == 1 専用ハイパス。最初のヒットで即 return できるため 16 wchar_t
+    // (128-bit × 2) アンロールし、ループ判定は OR 後の単一 movemask で行う。
+    // MSVC STL の wmemchr 系最適化と互角の速度を得るためのホットパス。
+    if (qlen == 1) {
+        while (i + 16 <= tlen) {
+            const __m128i c0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tp + i));
+            const __m128i c1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tp + i + 8));
+            const __m128i eq0 = _mm_cmpeq_epi16(c0, bcast);
+            const __m128i eq1 = _mm_cmpeq_epi16(c1, bcast);
+            const __m128i any = _mm_or_si128(eq0, eq1);
+            if (_mm_movemask_epi8(any) != 0) {
+                const unsigned m0 = static_cast<unsigned>(_mm_movemask_epi8(eq0)) & 0x5555u;
+                unsigned long bit_idx;
+                if (m0 != 0) {
+                    _BitScanForward(&bit_idx, m0);
+                    return i + (bit_idx / 2);
+                }
+                // any != 0 かつ m0 == 0 なので m1 は必ず非零。
+                const unsigned m1 = static_cast<unsigned>(_mm_movemask_epi8(eq1)) & 0x5555u;
+                _BitScanForward(&bit_idx, m1);
+                return i + 8 + (bit_idx / 2);
+            }
+            i += 16;
+        }
+        if (i + 8 <= tlen) {
+            const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tp + i));
+            const __m128i eq = _mm_cmpeq_epi16(c, bcast);
+            const unsigned mask = static_cast<unsigned>(_mm_movemask_epi8(eq)) & 0x5555u;
+            if (mask != 0) {
+                unsigned long bit_idx;
+                _BitScanForward(&bit_idx, mask);
+                return i + (bit_idx / 2);
+            }
+            i += 8;
+        }
+        for (; i <= last; ++i) {
+            if (tp[i] == first) {
+                return i;
+            }
+        }
+        return npos;
+    }
+
     // SIMD は tlen-7 まで読む。i > last の合致は後で弾くので tlen 基準で十分。
     while (i + 8 <= tlen) {
         const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tp + i));
@@ -189,28 +233,25 @@ inline size_t Find(std::wstring_view text, std::wstring_view query, size_t start
             if (pos > last) {
                 return npos;
             }
-            if (qlen == 1 || std::wmemcmp(tp + pos + 1, qp + 1, qlen - 1) == 0) {
+            if (std::wmemcmp(tp + pos + 1, qp + 1, qlen - 1) == 0) {
                 return pos;
             }
         }
         i += 8;
     }
     // 末尾はスカラで処理 (i + 8 > tlen の領域)
-    if (qlen == 1) {
-        for (; i <= last; ++i) {
-            if (tp[i] == first) {
-                return i;
-            }
-        }
-    }
-    else {
-        for (; i <= last; ++i) {
-            if (tp[i] == first && std::wmemcmp(tp + i + 1, qp + 1, qlen - 1) == 0) {
-                return i;
-            }
+    for (; i <= last; ++i) {
+        if (tp[i] == first && std::wmemcmp(tp + i + 1, qp + 1, qlen - 1) == 0) {
+            return i;
         }
     }
     return npos;
+}
+
+// `Find(text, query) != npos` を読みやすく書くための薄いラッパ。
+inline bool Contains(std::wstring_view text, std::wstring_view query) noexcept
+{
+    return Find(text, query) != npos;
 }
 
 // 小文字 ASCII リテラル専用の引数型。コンパイル時に契約違反を検出する。
