@@ -150,7 +150,7 @@ add_library(mendo_core STATIC
 target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS} third_party/md4c)
 target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
-    $<$<CONFIG:Release>:MENDO_PROFILE_ENABLED=1>
+    $<$<CONFIG:Release>:MENDO_PROFILE_ENABLED=0>
 )
 target_link_libraries(mendo_core PUBLIC
     md4c d2d1 dwrite windowscodecs shlwapi comctl32
