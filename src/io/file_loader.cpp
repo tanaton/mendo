@@ -2,6 +2,7 @@
 #include "file_io.h"
 #include "string_convert.h"
 #include "win_handle.h"
+#include <limits>
 #include <shlwapi.h>
 #include <commdlg.h>
 
@@ -27,6 +28,13 @@ std::expected<LoadedFileWide, FileLoadError> FileLoader::LoadFile(const std::pmr
 
     if (r.size == 0) {
         return LoadedFileWide{};
+    }
+
+    // MultiByteToWideChar は cb*Char が int なので INT_MAX を超える入力を扱えない。
+    // MAX_FILE_SIZE が int 上限を超える設定でも、ここで実効上限を強制し
+    // Utf8ToWideStripBom が黙って空文字列を返す失敗モード (LoadFile としては成功扱いになる) を防ぐ。
+    if (r.size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        return std::unexpected(FileLoadError::TooLarge);
     }
 
     // メモリマップで UTF-8 を直接 view し、UTF-16 変換のヒープ確保のみに抑える。

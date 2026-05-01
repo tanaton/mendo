@@ -6,6 +6,8 @@
 #include <windows.h>
 
 // ファイル読み込みの最大サイズ（4GB）。
+// 注: Markdown 経路の実効上限は ~2GB-1。MultiByteToWideChar が int を取るため、
+// FileLoader::LoadFile は INT_MAX を超えるサイズを TooLarge として弾く。
 inline constexpr LONGLONG MAX_FILE_SIZE = 1024LL * 1024 * 1024 * 4;
 
 // FileLoader::LoadFile のエラー型
