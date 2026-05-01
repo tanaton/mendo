@@ -72,10 +72,18 @@ private:
         OutputDebugStringW(_mendo_buf);                                                    \
     } while (0)
 
+#define MENDO_STATF(fmt, ...)                                                            \
+    do {                                                                                 \
+        wchar_t _mendo_buf[256];                                                         \
+        _snwprintf_s(_mendo_buf, _TRUNCATE, L"[mendo-stat] " L##fmt L"\n", __VA_ARGS__); \
+        OutputDebugStringW(_mendo_buf);                                                  \
+    } while (0)
+
 #else
 
 #define MENDO_PROFILE(label) ((void)0)
 #define MENDO_TRACE(msg) ((void)0)
 #define MENDO_TRACEF(fmt, ...) ((void)0)
+#define MENDO_STATF(fmt, ...) ((void)0)
 
 #endif
