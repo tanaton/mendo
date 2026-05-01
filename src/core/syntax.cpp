@@ -31,7 +31,6 @@ using syntax_keywords::TS_TYPES;
 namespace {
 
 using ascii_util::IsAsciiDigit;
-using ascii_util::IsAsciiHexDigit;
 
 // 識別子先頭文字: ASCII 英字 + '_' に加え、CJK 等の非 ASCII (>= U+0080) も許可する。
 // ascii_util の純粋 ASCII ヘルパに乗らないので syntax 固有として残す。
@@ -56,6 +55,13 @@ constexpr void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, 
 constexpr size_t SkipToEol(std::wstring_view text, size_t pos) noexcept
 {
     const auto p = text.find(L'\n', pos);
+    return p == std::wstring_view::npos ? text.size() : p;
+}
+
+// pos から chars に含まれない最初の文字位置を返す（無ければ text.size()）。
+constexpr size_t SkipChars(std::wstring_view text, size_t pos, std::wstring_view chars) noexcept
+{
+    const auto p = text.find_first_not_of(chars, pos);
     return p == std::wstring_view::npos ? text.size() : p;
 }
 
@@ -111,49 +117,37 @@ constexpr size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quo
 // posから始まる数値リテラルをスキャン。
 constexpr size_t ScanNumber(std::wstring_view text, size_t pos) noexcept
 {
+    constexpr auto kHexDigits = L"0123456789abcdefABCDEF'"sv;
+    constexpr auto kBinDigits = L"01'"sv;
+    constexpr auto kOctDigits = L"01234567"sv;
+    constexpr auto kDecDigitsSep = L"0123456789'"sv;
+    constexpr auto kDecDigits = L"0123456789"sv;
+    constexpr auto kIntSuffix = L"uUlL"sv;
+    constexpr auto kNumSuffix = L"fFlLuUn"sv; // 'n' は JS BigInt 用
+
     size_t i = pos;
 
-    // 0x, 0b, 0oプレフィックスの処理
+    // 0x, 0b, 0o プレフィックスの処理
     if (i + 1 < text.size() && text[i] == L'0') {
-        wchar_t next = text[i + 1];
+        const wchar_t next = text[i + 1];
         if (next == L'x' || next == L'X') {
-            i += 2;
-            while (i < text.size() && (IsAsciiHexDigit(text[i]) || text[i] == L'\'')) {
-                i++;
-            }
-            // サフィックス
-            while (i < text.size() && (text[i] == L'u' || text[i] == L'U' || text[i] == L'l' || text[i] == L'L')) {
-                i++;
-            }
-            return i;
+            i = SkipChars(text, i + 2, kHexDigits);
+            return SkipChars(text, i, kIntSuffix);
         }
         if (next == L'b' || next == L'B') {
-            i += 2;
-            while (i < text.size() && (text[i] == L'0' || text[i] == L'1' || text[i] == L'\'')) {
-                i++;
-            }
-            return i;
+            return SkipChars(text, i + 2, kBinDigits);
         }
         if (next == L'o' || next == L'O') {
-            i += 2;
-            while (i < text.size() && text[i] >= L'0' && text[i] <= L'7') {
-                i++;
-            }
-            return i;
+            return SkipChars(text, i + 2, kOctDigits);
         }
     }
 
     // 整数 / 浮動小数点
-    while (i < text.size() && (IsAsciiDigit(text[i]) || text[i] == L'\'')) {
-        i++;
-    }
+    i = SkipChars(text, i, kDecDigitsSep);
 
     // 小数点
     if (i < text.size() && text[i] == L'.') {
-        i++;
-        while (i < text.size() && (IsAsciiDigit(text[i]) || text[i] == L'\'')) {
-            i++;
-        }
+        i = SkipChars(text, i + 1, kDecDigitsSep);
     }
 
     // 指数部
@@ -162,30 +156,18 @@ constexpr size_t ScanNumber(std::wstring_view text, size_t pos) noexcept
         if (i < text.size() && (text[i] == L'+' || text[i] == L'-')) {
             i++;
         }
-        while (i < text.size() && IsAsciiDigit(text[i])) {
-            i++;
-        }
+        i = SkipChars(text, i, kDecDigits);
     }
 
-    // サフィックス (f, F, l, L, u, U 等)
-    while (i < text.size() && (text[i] == L'f' || text[i] == L'F' ||
-                               text[i] == L'l' || text[i] == L'L' ||
-                               text[i] == L'u' || text[i] == L'U' ||
-                               text[i] == L'n')) {
-        i++;
-    } // 'n'はJS BigInt用
-
-    return i;
+    // サフィックス (f, F, l, L, u, U, n)
+    return SkipChars(text, i, kNumSuffix);
 }
 
 // [start, end)の識別子の後に'('が続くか確認（空白をスキップ）。
 constexpr bool IsFollowedByParen(std::wstring_view text, size_t end) noexcept
 {
-    size_t i = end;
-    while (i < text.size() && (text[i] == L' ' || text[i] == L'\t')) {
-        i++;
-    }
-    return i < text.size() && text[i] == L'(';
+    const auto i = text.find_first_not_of(L" \t"sv, end);
+    return i != std::wstring_view::npos && text[i] == L'(';
 }
 
 // posから始まるブロックコメントをスキャン（posは開始ペアの最初の文字を指す）。
