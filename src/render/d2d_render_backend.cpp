@@ -35,8 +35,8 @@ bool D2DRenderBackend::Init(HWND hwnd)
         return false;
     }
 
-    // WICファクトリを作成（Renderer・ImageLoaderで共有）。
-    // アイコン／画像／ダイアグラムは WIC が無いと機能しないため fail-fast。
+    // Renderer・ImageLoader で共有。アイコン／画像／ダイアグラムは WIC が無いと
+    // 機能しないため fail-fast。
     hr = CoCreateInstance(
         CLSID_WICImagingFactory,
         nullptr,
@@ -174,7 +174,7 @@ void D2DRenderBackend::Resize(UINT width, UINT height) noexcept
         return;
     }
 
-    // ターゲットを解放してからリサイズ
+    // ResizeBuffers の前にターゲット参照を切る必要がある
     device_context_->SetTarget(nullptr);
 
     const HRESULT hr = swap_chain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);

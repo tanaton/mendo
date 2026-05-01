@@ -31,7 +31,6 @@ inline constexpr wchar_t GLYPH_CHECKMARK[] = L"\xE73E";
 } // namespace context_menu_constants
 
 struct ContextMenu::Impl {
-    // ウィンドウクラス登録フラグ
     static bool class_registered;
     static bool RegisterWindowClass();
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -51,25 +50,20 @@ struct ContextMenu::Impl {
     int HitTest(float x, float y) const noexcept;
     int NavHitTest(float x, float y) const noexcept;
 
-    // ウィンドウ
     HWND hwnd = nullptr;
     HWND owner = nullptr;
 
-    // モーダルループ制御
     bool done = false;
     int selected_id = 0;
 
-    // ホバー状態
     int hovered_id = 0;
     int hovered_nav = 0;
 
-    // メニュー項目
     std::vector<Item> items;
     NavRowLayout nav_layout{};
     float menu_width = 0.0f;
     float menu_height = 0.0f;
 
-    // D2Dリソース
     ID2D1Factory* d2d_factory = nullptr;
     IDWriteFactory* dwrite_factory = nullptr;
     Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> rt;

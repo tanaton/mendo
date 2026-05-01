@@ -21,17 +21,12 @@ static inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, floa
         origin_y + m.top + m.height);
 }
 
-static float GetFirstLineHeight(IDWriteTextLayout* layout, float font_size)
+// MeasureNode 時に確定済みの first_line_height を優先利用する。
+// 0（未確定）なら DirectWrite に問い合わせず font_size ベースのフォールバックで済ませ、
+// 描画ホットパスから COM 越境呼び出しを排除する。
+static float GetFirstLineHeight(const NodeLayoutEntry& entry, float font_size) noexcept
 {
-    float h = font_size * FALLBACK_LINE_HEIGHT_FACTOR;
-    if (layout) {
-        DWRITE_LINE_METRICS lm;
-        UINT32 lc;
-        if (SUCCEEDED(layout->GetLineMetrics(&lm, 1, &lc)) && lc > 0) {
-            h = lm.height;
-        }
-    }
-    return h;
+    return (entry.first_line_height > 0.0f) ? entry.first_line_height : font_size * FALLBACK_LINE_HEIGHT_FACTOR;
 }
 
 const DrawCommandList& CommandGenerator::GenerateMdPane(
@@ -47,8 +42,12 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     cmds_ = DrawCommandList{ frame_resource_.resource() };
     frame_resource_.Reset();
     auto& cmds = cmds_;
+    // 倍々成長による monotonic 死蔵を抑える。+16 は last_cmds_size_<8 で 12.5% が 0 に丸まる
+    // 小規模フレーム向けの下駄。
+    if (last_cmds_size_ > 0) {
+        cmds.reserve(last_cmds_size_ + last_cmds_size_ / 8 + 16);
+    }
 
-    // MDペインの境界でクリップ
     const D2D1_RECT_F md_clip = D2D1::RectF(
         md_pane_rect.x, md_pane_rect.y,
         md_pane_rect.x + md_pane_rect.width, md_pane_rect.y + md_pane_rect.height);
@@ -69,7 +68,23 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     frame_selection_ = &selection;
     frame_hovered_ = hovered;
 
-    // 最初の可視ノードを二分探索で検索（事前計算済みのインデックスがあればそれを使用）
+    // SelectionHlCache は lazy 確保のみで自動破棄経路が無く、選択範囲外に出たノード分が
+    // 居残ってメモリが漸増する。前フレームの範囲との差分で、外れたノードを巻き戻す。
+    {
+        const int new_start = selection.active ? selection.start_node : -1;
+        const int new_end = selection.active ? selection.end_node : -1;
+        if ((new_start != prev_sel_start_node_ || new_end != prev_sel_end_node_) && prev_sel_start_node_ >= 0) {
+            const int upper = std::min(prev_sel_end_node_, static_cast<int>(cache.size()) - 1);
+            for (int i = prev_sel_start_node_; i <= upper; i++) {
+                if (new_start < 0 || i < new_start || i > new_end) {
+                    cache[i].invalidate_selection_hl_cache();
+                }
+            }
+        }
+        prev_sel_start_node_ = new_start;
+        prev_sel_end_node_ = new_end;
+    }
+
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
         first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), frame_viewport_top_);
@@ -89,6 +104,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
     cmds.emplace_back(PopClipCmd{});
     frame_selection_ = nullptr;
+    last_cmds_size_ = cmds_.size();
     return cmds_;
 }
 
@@ -96,7 +112,6 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                                     const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
                                     int node_index)
 {
-    // ビューポート外のノードをカリング
     // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
     float node_bottom = entry.y_position + entry.height;
     if (node.type == NodeType::Heading && node.heading_level <= 2) {
@@ -211,13 +226,11 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node&
 
     const D2D1_COLOR_F base_color = GetNodeBaseColor(node);
 
-    // インラインコードの背景
     GenInlineCodeBgs(cmds, entry.view_inline_code_bgs(), text_x, entry.y_position, theme_->code_bg_color);
 
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
     GenSearchHighlights(cmds, entry, node_index, text_x, entry.y_position);
 
-    // 選択範囲のハイライト
     const auto& selection = *frame_selection_;
     if (selection.active && node_index >= selection.start_node && node_index <= selection.end_node) {
         uint32_t sel_start = 0;
@@ -229,14 +242,12 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node&
             sel_end = selection.end_pos;
         }
         if (sel_end > sel_start) {
-            GenSelectionHighlight(cmds, entry.text_layout.Get(), sel_start, sel_end - sel_start, text_x, entry.y_position);
+            GenSelectionHighlightCached(cmds, entry, sel_start, sel_end - sel_start, text_x, entry.y_position);
         }
     }
 
-    // メインテキスト
     cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, entry.y_position), entry.text_layout.Get(), base_color });
 
-    // タスクリストのチェックボックス
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {
         const wchar_t icon = node.task_checked ? L'\u2611' : L'\u2610'; // ☑ / ☐
         const float icon_size = theme_->font_size_body;
@@ -248,8 +259,6 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node&
             theme_->text_color));
     }
 }
-
-// ---- サブジェネレータ ----
 
 void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w)
 {
@@ -313,9 +322,8 @@ void CommandGenerator::GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, 
 void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x)
 {
     if (node.list_number > 0) {
-        // 順序付きリストの番号（1行目に合わせて配置）
         if (formats_.list_number) {
-            const float first_line_h = GetFirstLineHeight(entry.text_layout.Get(), theme_->font_size_body);
+            const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
             wchar_t num_buf[16];
             const auto fmt_result = std::format_to_n(num_buf, std::size(num_buf), L"{}.", node.list_number);
             const size_t num_len = std::min(static_cast<size_t>(fmt_result.size), std::size(num_buf));
@@ -328,8 +336,8 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, co
         }
     }
     else {
-        // 順序なしリストの箇条書き記号（1行目の中央に配置）
-        const float first_line_h = GetFirstLineHeight(entry.text_layout.Get(), theme_->font_size_body);
+        // 1行目の中央に配置
+        const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
         const float bullet_y = entry.y_position + first_line_h * 0.5f;
         const float bullet_x = x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR;
         const float r = LIST_BULLET_RADIUS;
@@ -386,13 +394,11 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
                 max_depth = nodes[j].quote_depth;
             }
             j++;
-            // ビューポート外に大きく超えたグループ末尾の走査を打ち切る。
-            // バーや背景はクリップ領域で切られるため、描画結果に影響しない。
+            // ビューポート外に大きく超えたグループ末尾は j を進めるだけにする。
+            // バー/背景はクリップで切られるため、可視外で max_depth を更新しても
+            // 描画コマンド数は変わらず CPU を浪費するだけ。
             if (group_bottom > viewport_bottom) {
                 while (j < node_count && nodes[j].blockquote_group == group) {
-                    if (nodes[j].quote_depth > max_depth) {
-                        max_depth = nodes[j].quote_depth;
-                    }
                     j++;
                 }
                 break;
@@ -466,9 +472,14 @@ void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds, float x, flo
     }
 }
 
-void CommandGenerator::EmitHighlightRects(DrawCommandList& cmds,
-                                          IDWriteTextLayout* layout, uint32_t start, uint32_t length,
-                                          float origin_x, float origin_y, D2D1_COLOR_F color)
+void CommandGenerator::EmitHighlightRects(
+    DrawCommandList& cmds,
+    IDWriteTextLayout* layout,
+    uint32_t start,
+    uint32_t length,
+    float origin_x,
+    float origin_y,
+    D2D1_COLOR_F color)
 {
     if (!layout || length == 0) {
         return;
@@ -483,6 +494,41 @@ void CommandGenerator::EmitHighlightRects(DrawCommandList& cmds,
 void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y)
 {
     EmitHighlightRects(cmds, layout, start, length, origin_x, origin_y, SELECTION_COLOR);
+}
+
+void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out)
+{
+    auto& buf = GetHitTestBuffer();
+    const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
+    out.reserve(out.size() + count);
+    for (UINT32 i = 0; i < count; i++) {
+        out.emplace_back(RectFromHitTest(buf[i]));
+    }
+}
+
+void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const NodeLayoutEntry& entry, uint32_t start, uint32_t length, float origin_x, float origin_y)
+{
+    auto* layout = entry.text_layout.Get();
+    if (!layout || length == 0) {
+        return;
+    }
+    auto& cache = entry.ensure_selection_hl_cache();
+    if (cache.layout_ptr != layout || cache.start != start || cache.length != length) {
+        cache.rects.clear();
+        CollectHitTestRects(layout, start, length, cache.rects);
+        cache.layout_ptr = layout;
+        cache.start = start;
+        cache.length = length;
+    }
+    for (const auto& r : cache.rects) {
+        cmds.emplace_back(FillRectCmd{
+            D2D1::RectF(
+                origin_x + r.left,
+                origin_y + r.top,
+                origin_x + r.right,
+                origin_y + r.bottom),
+            SELECTION_COLOR });
+    }
 }
 
 void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row, int table_col)
@@ -519,7 +565,6 @@ void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const NodeLayo
     cache.rect_ends.clear();
     cache.rect_ends.reserve(node_match_count);
 
-    auto& buf = GetHitTestBuffer();
     for (size_t mi = first_global; mi < first_global + node_match_count; ++mi) {
         const auto& m = matches[mi];
         IDWriteTextLayout* l = nullptr;
@@ -532,19 +577,22 @@ void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const NodeLayo
         // m.table_row >= 0 && !has_table_layout() のケースは layout 失効中の
         // 暫定状態で、l は nullptr のまま空 rect として記録する（次回再構築時に修復）。
         if (l && m.length > 0) {
-            const UINT32 count = FetchHitTestMetrics(l, m.start, m.length, buf);
-            for (UINT32 k = 0; k < count; ++k) {
-                cache.rects.emplace_back(RectFromHitTest(buf[k]));
-            }
+            CollectHitTestRects(l, m.start, m.length, cache.rects);
         }
         cache.rect_ends.push_back(static_cast<uint32_t>(cache.rects.size()));
     }
     cache.gen = search_generation_;
 }
 
-void CommandGenerator::EmitSearchHlCommands(DrawCommandList& cmds, const SearchHlCache& cache,
-                                            std::span<const SearchMatch> matches, size_t first_global,
-                                            float origin_x, float origin_y, int table_row, int table_col)
+void CommandGenerator::EmitSearchHlCommands(
+    DrawCommandList& cmds,
+    const SearchHlCache& cache,
+    std::span<const SearchMatch> matches,
+    size_t first_global,
+    float origin_x,
+    float origin_y,
+    int table_row,
+    int table_col)
 {
     // 呼び出し側（セル/ノード本体）に属する match のみ描画する。
     const size_t node_match_count = cache.rect_ends.size();
@@ -575,8 +623,6 @@ void CommandGenerator::EmitSearchHlCommands(DrawCommandList& cmds, const SearchH
     }
 }
 
-// ---- Table generator ----
-
 void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border)
 {
     if (is_header) {
@@ -591,11 +637,16 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool
     }
 }
 
-void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, const TableCell& cell,
-                                           IDWriteTextLayout* cell_layout,
-                                           float text_x, float text_y,
-                                           bool has_selection, uint32_t sel_start, uint32_t sel_end,
-                                           uint32_t flat_offset)
+void CommandGenerator::GenTableCellContent(
+    DrawCommandList& cmds,
+    const TableCell& cell,
+    IDWriteTextLayout* cell_layout,
+    float text_x,
+    float text_y,
+    bool has_selection,
+    uint32_t sel_start,
+    uint32_t sel_end,
+    uint32_t flat_offset)
 {
     if (has_selection && cell_layout) {
         const uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
@@ -626,10 +677,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     const float viewport_top = frame_viewport_top_;
     const float viewport_bottom = frame_viewport_bottom_;
 
-    const float table_width = std::ranges::fold_left(
-        tl.col_widths,
-        border,
-        [cell_padding, border](float acc, float cw) noexcept { return acc + cw + cell_padding * 2.0f + border; });
+    const float table_width = tl.cached_table_width;
 
     bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
     uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(node.GetText().size());
@@ -677,7 +725,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
             theme_->hr_color, border });
 
-        // セルを描画（可視列のみコマンド生成、画面外は flat_offset のみ進める）
+        // 可視列のみコマンド生成、画面外は flat_offset のみ進める
         const float cull_left = offset_x + frame_viewport_left_;
         const float cull_right = offset_x + frame_viewport_right_;
         float cx = offset_x + border;
@@ -689,7 +737,6 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             const bool col_visible = (col_right >= cull_left) && (cx - border <= cull_right);
 
             if (col_visible) {
-                // 垂直の罫線
                 cmds.emplace_back(DrawLineCmd{
                     D2D1::Point2F(cx - border, y), D2D1::Point2F(cx - border, y + row_h + border),
                     theme_->hr_color, border });
@@ -699,10 +746,9 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
                 IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
 
-                // セルのインラインコード背景。bg_cursor は cell_index 昇順で進む。
+                // bg_cursor は cell_index 昇順で進む。
                 bg_cursor = GenCellInlineCodeBgs(cmds, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
 
-                // 検索マッチのハイライト（テーブルセル）
                 GenSearchHighlights(cmds, entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
 
                 GenTableCellContent(cmds, cell, cell_layout, text_x, text_y, has_selection, sel_start, sel_end, flat_offset);
@@ -717,7 +763,6 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
         TableLayoutData::AdvanceFlatOffsetInRow(row, drawn_cols, row.cells.size(), flat_offset);
 
-        // 右罫線
         cmds.emplace_back(DrawLineCmd{
             D2D1::Point2F(offset_x + table_width, y),
             D2D1::Point2F(offset_x + table_width, y + row_h + border),
@@ -729,7 +774,6 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
         }
     }
 
-    // 下罫線
     cmds.emplace_back(DrawLineCmd{
         D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
         theme_->hr_color, border });

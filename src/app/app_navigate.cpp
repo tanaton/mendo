@@ -3,10 +3,6 @@
 #include "document_utils.h"
 #include <algorithm>
 
-// ============================================================
-// リンクナビゲーション
-// ============================================================
-
 void App::HandleLinkClick(std::wstring_view url)
 {
     if (url.empty()) {
@@ -26,10 +22,6 @@ void App::HandleLinkClick(std::wstring_view url)
     }
 }
 
-// ============================================================
-// ダークモード
-// ============================================================
-
 void App::SyncPaneThemeCache()
 {
     state_.window.cached_theme = renderer_.GetTheme().ToReducerConstants();
@@ -43,7 +35,6 @@ void App::FinishThemeOrZoomChange()
     float md_width = layout.md_rect.width;
     float md_height = layout.md_rect.height;
 
-    // 表示領域を優先的にレイアウトし、残りは遅延処理に委ねる
     EmitEffect(effect::ViewportLayout{ md_width, md_height });
 
     EmitEffect(effect::SyncMaxScroll{ md_height });
@@ -64,7 +55,6 @@ void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
         theme_service_.SaveZoomLevel(e.zoom_index);
     }
     else {
-        // DarkMode
         theme_service_.ToggleDarkMode();
         renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()));
         const bool dark = theme_service_.IsDarkMode();

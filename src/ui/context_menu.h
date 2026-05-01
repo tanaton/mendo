@@ -33,7 +33,6 @@ struct ContextMenuParams {
 // 戻る/進むボタンの横並び表示が可能。
 class ContextMenu {
 public:
-    // メニュー項目の種類
     enum class ItemType : uint8_t {
         NavRow,
         Separator,
@@ -68,11 +67,9 @@ public:
     // メニューを表示しユーザーの選択を待つ（モーダル）
     int Show(HWND owner_hwnd, const ContextMenuParams& params);
 
-    // ヒットテスト
     int HitTest(float x, float y) const noexcept;
     int NavHitTest(float x, float y) const noexcept;
 
-    // レイアウト結果へのアクセサ
     const std::vector<Item>& GetItems() const noexcept;
     const NavRowLayout& GetNavLayout() const noexcept;
     float GetMenuWidth() const noexcept;

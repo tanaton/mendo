@@ -6,10 +6,6 @@
 #include "resource.h"
 #include "ui_constants.h"
 
-// ============================================================
-// ヒットテスト / リンク抽出 (クリック・ホバー双方で使用)
-// ============================================================
-
 App::HitResult App::HitTest(int screen_x, int screen_y)
 {
     return hit_test_.HitTest(BuildMdPaneHitContext(screen_x, screen_y, GetPaneLayout()));
@@ -34,10 +30,6 @@ std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const
 
     return FindLinkAtPosition(state_.document.doc.GetNodes()[hit.node_index], hit.text_pos);
 }
-
-// ============================================================
-// タイトルバー クリック
-// ============================================================
 
 bool App::HandleTitleBarClick(float dip_x, float dip_y)
 {
@@ -74,15 +66,12 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
     case TitleBarHitZone::Close:
         EmitEffect(effect::PostWindowMessage{ WM_CLOSE, 0, 0 });
         break;
-    default: // タイトルバーの他の領域はWM_NCHITTESTで処理済み
+    default:
+        // タイトルバーのドラッグ領域などは WM_NCHITTEST で処理済み。
         break;
     }
     return true;
 }
-
-// ============================================================
-// L ボタン ディスパッチャ
-// ============================================================
 
 void App::OnLButtonDown(int px, int py)
 {
@@ -164,10 +153,6 @@ void App::OnLButtonUp(int px, int py)
     }
 }
 
-// ============================================================
-// マウス移動ディスパッチャ
-// ============================================================
-
 void App::OnMouseMove(int px, int py)
 {
     auto* rt = renderer_.GetRenderTarget();
@@ -179,7 +164,6 @@ void App::OnMouseMove(int px, int py)
     const float dip_x = dip.x;
     const auto size = rt->GetSize();
 
-    // 検索バー内ドラッグ選択
     if (state_.search.search_bar_ctrl.IsDragging()) {
         const auto layout = GetPaneLayout();
         const auto& r = layout.md_rect;
@@ -227,10 +211,6 @@ void App::OnMouseMove(int px, int py)
     }
     Dispatch(TextSelectionMovedAction{ hit.node_index, hit.text_pos });
 }
-
-// ============================================================
-// R ボタン (ジェスチャー) / X ボタン (ナビゲーション)
-// ============================================================
 
 bool App::OnRButtonDown(int px, int py)
 {

@@ -13,19 +13,16 @@ PaneLayout ComputePaneLayout(float total_width, float total_height,
         pane_height = 0.0f;
     }
 
-    // ファイルペイン
     if (show_file) {
         layout.file_rect = { x, top_offset, file_pane_width, pane_height };
         x += file_pane_width + splitter_width;
     }
 
-    // 目次ペイン
     if (show_toc) {
         layout.toc_rect = { x, top_offset, toc_pane_width, pane_height };
         x += toc_pane_width + splitter_width;
     }
 
-    // MDペインは残りの幅を使用
     const float md_width = std::max(md_min_width, total_width - x);
     layout.md_rect = { x, top_offset, md_width, pane_height };
 

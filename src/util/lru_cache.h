@@ -45,7 +45,6 @@ public:
             return;
         }
 
-        // 既存キーの更新
         for (size_t i = 0; i < size_; i++) {
             if (keys_[i] == key) {
                 values_[i] = std::move(value);
@@ -54,7 +53,6 @@ public:
             }
         }
 
-        // 容量超過時は最古エントリを破棄して上書き
         if (size_ >= max_entries_) {
             const size_t oldest = FindOldestIndex();
             keys_[oldest] = key;
@@ -63,7 +61,6 @@ public:
             return;
         }
 
-        // 新規追加
         keys_.push_back(key);
         values_.push_back(std::move(value));
         generations_.push_back(++generation_counter_);

@@ -110,7 +110,6 @@ public:
     // 累積適用による誤差蓄積を避けるため、ズーム変更経路はこの関数に統一する。
     void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
 
-    // LayoutEngineのテーマを更新しフォーマットを再作成する。
     void UpdateLayoutTheme();
 
     // デバイスロスト後にD2Dレンダーターゲットが再作成された際に呼び出されるコールバックを設定。
@@ -157,14 +156,15 @@ private:
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered);
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes, const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index);
     void DrawSplitter(float x, float top, float bottom);
-    void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, int hovered); // 0=なし, 1=戻る, 2=進む
+    // hovered: 0=なし, 1=戻る, 2=進む
+    void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, int hovered);
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
     void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
     void DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect);
 
     D2DRenderBackend backend_;
-    // 簡易アクセサ（600行の描画コード内で冗長なbackend_.Get...を避けるため）
+    // 600行の描画コード内で冗長な backend_.Get... を避けるための簡易アクセサ
     ID2D1DeviceContext* rt() const noexcept
     {
         return backend_.GetRenderTarget();
@@ -193,7 +193,6 @@ private:
     // ApplyNodeEffectsでインラインコード背景を計算するためのヒットテストバッファ。
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
-    // UI テキストフォーマットをグループ化した構造体
     struct TextFormats {
         Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_font;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> copy_btn_icon;
@@ -213,10 +212,10 @@ private:
     };
     TextFormats fmt_;
 
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_back_layout_;        // ◀ のキャッシュ済みレイアウト
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_forward_layout_;     // ▶ のキャッシュ済みレイアウト
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_back_layout_;    // "← 戻る" のキャッシュ済みレイアウト
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_forward_layout_; // "→ 進む" のキャッシュ済みレイアウト
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_back_layout_;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_forward_layout_;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_back_layout_;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_forward_layout_;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_toast_layout_;
     std::pmr::wstring cached_toast_text_;
 
@@ -232,6 +231,11 @@ private:
     mutable int cached_search_caret_pos_ = -1;         // IME 合成時の挿入位置（無いとき -1）
     mutable float cached_search_width_ = -1.0f;
     mutable bool cached_search_has_underline_ = false;
+    // キャレット x 位置のフレーム間キャッシュ。点滅フレームのみ caret_visible が変わる
+    // ケースで HitTestTextPosition の COM 越境呼び出しを省く。
+    // 有効性は (cached_search_layout_, effective_pos) 一致で判定する。
+    mutable int cached_search_effective_pos_ = -2; // -2 = 未確定
+    mutable float cached_search_caret_x_ = 0.0f;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;
     void LoadAppIconBitmap();
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;

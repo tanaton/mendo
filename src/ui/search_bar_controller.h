@@ -38,7 +38,6 @@ public:
     SearchBarController() = default;
     void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Callbacks cb);
 
-    // --- イベントハンドラ ---
     void OnOpen(const std::pmr::vector<Node>& nodes);
     void OnClose();
     void OnNext();
@@ -49,18 +48,15 @@ public:
     void SetSelection(int sel_start, int sel_end) noexcept;
     void SetImeComposition(std::wstring_view comp);
 
-    // --- タイマーハンドラ ---
     void OnCaretBlinkTimer();
     void OnDebounceTimer(const std::pmr::vector<Node>& nodes);
 
-    // --- 検索実行 ---
     void RunSearchAndLocate(const std::pmr::vector<Node>& nodes, bool scroll_to_match = false);
     void ScrollToCurrentMatch();
 
-    // --- ファイル切替時リセット ---
+    // ファイル切替時のリセット。
     void Reset();
 
-    // --- ドラッグ選択（検索入力テキスト） ---
     bool IsDragging() const noexcept
     {
         return dragging_;
@@ -79,7 +75,6 @@ public:
         dragging_ = false;
     }
 
-    // --- ホバー管理 ---
     void UpdateHoverFromZone(SearchBarHitZone zone);
     SearchBarHitZone GetHover() const noexcept
     {
@@ -90,10 +85,8 @@ public:
         hover_ = SearchBarHitZone::None;
     }
 
-    // --- レンダー状態構築 ---
     SearchBarRenderState BuildRenderState() const;
 
-    // --- アクセサ ---
     bool HasFocus() const noexcept
     {
         return has_focus_;

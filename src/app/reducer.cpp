@@ -45,7 +45,6 @@ void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scrol
     }
 }
 
-// ノード・オフセットをスクロールターゲットとして反映し、関連する副作用 effect を emit する。
 // TOC クリック / ナビゲーション復帰 / アンカー遷移でこの関数を通ることで、
 // tooltip クリア・invalidation・bitmap manage・TOC 同期の並びが常に一貫する。
 void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset)
@@ -94,10 +93,6 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
     };
 }
 
-// ============================================================
-// ナビゲーション
-// ============================================================
-
 void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
 {
     if (!entry.file_path.empty() && !path_util::iequal(entry.file_path, state.document.doc.GetFilePath())) {
@@ -125,10 +120,6 @@ void ReduceNavigateForward(AppState& state, SideEffectList& effects)
     }
 }
 
-// ============================================================
-// スクロール系アクション
-// ============================================================
-
 void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAction& a)
 {
     const float old_scroll = state.view.viewport.GetScrollY();
@@ -151,7 +142,7 @@ void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAc
         state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
         break;
     case ScrollType::End:
-        // 末尾は max_scroll に依存するためピクセル指定。target は無効化される
+        // 末尾は max_scroll に依存するためピクセル指定。scroll target は無効化される。
         state.view.viewport.ScrollTo(state.view.viewport.GetMaxScroll());
         break;
     default:
@@ -182,10 +173,6 @@ void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPane
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }
-
-// ============================================================
-// ペイン・選択・クリップボード
-// ============================================================
 
 void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePaneAction& a)
 {
@@ -238,10 +225,6 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
     PushEffect(effects, effect::ClipboardWriteHtml{ ExtractSelectedTextAsHtml(nodes, sel, state.window.cached_theme.is_dark), ExtractSelectedText(nodes, sel) });
 }
 
-// ============================================================
-// ズーム・テーマ
-// ============================================================
-
 void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
 {
     {
@@ -268,7 +251,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
     state.view.panes.ApplyZoom(zoom_ratio);
     state.document.layout_cache.InvalidateAllLayouts();
     if (anchor.IsValid()) {
-        // offset もズーム比でスケールし、ノード内の同じ位置が可視先頭に留まるようにする
+        // offset もズーム比でスケールしないと、ノード内の同じ位置が可視先頭に残らない。
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
     }
     PushEffect(
@@ -286,7 +269,7 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
     // 色のみの変更なのでテキストレイアウトは維持し、effects と Mermaid bitmap のみ破棄する。
     state.document.layout_cache.InvalidateEffectsAndDiagramBitmaps(state.document.doc.GetNodes());
     if (anchor.IsValid()) {
-        // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する
+        // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する。
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);
     }
     PushEffect(
@@ -296,10 +279,6 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
             .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
         });
 }
-
-// ============================================================
-// ウィンドウ・システムイベント
-// ============================================================
 
 void ReduceActivate(AppState& state, SideEffectList& effects, const ActivateAction& a)
 {
@@ -360,10 +339,6 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     }
 }
 
-// ============================================================
-// 検索系アクション
-// ============================================================
-
 void ReduceSearchStep(AppState& state, bool forward)
 {
     if (state.search.search_state.IsVisible()) {
@@ -390,7 +365,8 @@ void ReduceMdPaneNavHover(AppState& state, SideEffectList& effects, const MdPane
         return;
     }
     state.interaction.nav_hover = a.nav_hover;
-    // ナビボタンホバー時は、コピー/保存/SVGコピーボタンホバー状態をクリア（重ならないように）
+    // ナビボタンホバー時はコピー/保存/SVG コピーのホバーをクリアし、ホバーが二重に
+    // 表示されないようにする。
     if (a.nav_hover != NavButtonHover::None) {
         state.interaction.hovered = HoveredButtons{};
     }
@@ -405,10 +381,6 @@ void ReduceMdPaneButtonHoverChanged(AppState& state, SideEffectList& effects, co
     state.interaction.hovered = a.hovered;
     PushEffect(effects, effect::InvalidateWindow{});
 }
-
-// ============================================================
-// スプリッタードラッグ
-// ============================================================
 
 void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const SplitterDragStartedAction& a)
 {
@@ -452,10 +424,6 @@ void ReduceSplitterDragEnded(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::PerformResizeEnd{});
 }
 
-// ============================================================
-// 検索バー入力ドラッグ
-// ============================================================
-
 void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, const SearchInputDragStartedAction& a)
 {
     state.search.search_bar_ctrl.StartDrag(a.caret_pos);
@@ -493,10 +461,6 @@ void ReduceSearchInputDragEnded(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::ReleaseCapture{});
 }
 
-// ============================================================
-// MD ペイン スクロールバードラッグ
-// ============================================================
-
 void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, const MdScrollbarDragStartedAction& a)
 {
     state.view.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
@@ -507,11 +471,12 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
     const auto info = ComputeScrollInfo(md_rect, 0.0f, a.total_height);
     const float thumb_y = ComputeThumbY(info, state.view.viewport.GetScrollY());
     if (a.dip_y >= thumb_y && a.dip_y <= thumb_y + info.thumb_height) {
-        // つまみ上を掴んだ場合はつかみ位置のオフセットのみ記録してスクロール位置は据え置き。
+        // つまみ上を掴んだ場合はつかみ位置のオフセットのみ記録してスクロール位置は据え置く。
         state.view.panes.SetDragScrollOffset(a.dip_y - thumb_y);
         return;
     }
-    // つまみ外クリック: つまみ中心にジャンプしてスクロール位置を更新する。
+    // つまみ外クリック時はつまみ中心へジャンプ。以降の Move でつまみ中心追従するよう
+    // オフセットを thumb_height/2 に設定しておく。
     state.view.panes.SetDragScrollOffset(info.thumb_height * 0.5f);
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
     const float old_scroll = state.view.viewport.GetScrollY();
@@ -543,10 +508,6 @@ void ReduceMdScrollbarDragEnded(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::PerformResizeEnd{});
     PushEffect(effects, effect::BitmapManage{});
 }
-
-// ============================================================
-// サイドペイン (File/Toc) スクロールバードラッグ
-// ============================================================
 
 void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
 {
@@ -593,10 +554,6 @@ void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::ReleaseCapture{});
 }
 
-// ============================================================
-// 本文ペイン テキスト選択ドラッグ
-// ============================================================
-
 void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const TextSelectionStartedAction& a)
 {
     state.view.viewport.SetClickStart(a.click_x, a.click_y);
@@ -640,10 +597,6 @@ void ReduceTextSelectionEnded(AppState& state, SideEffectList& effects, const Te
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
-// ============================================================
-// 右クリックジェスチャー
-// ============================================================
-
 void ReduceRightClickGestureStarted(AppState& state, SideEffectList& effects, const RightClickGestureStartedAction& a)
 {
     state.interaction.gesture.OnRButtonDown(a.dip_x, a.dip_y);
@@ -682,10 +635,6 @@ void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, 
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
-// ============================================================
-// ファイルペイン アイテムクリック
-// ============================================================
-
 void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, const FilePaneDirectoryClickedAction& a)
 {
     state.file_explorer.SetDirectory(a.full_path);
@@ -702,10 +651,6 @@ void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const F
     PushCurrentNavEntry(state);
     PushEffect(effects, effect::LoadFile{ a.full_path });
 }
-
-// ============================================================
-// TOC アイテムクリック
-// ============================================================
 
 namespace {
 void ScrollToResolvedAnchor(AppState& state, SideEffectList& effects, int idx)
@@ -740,7 +685,7 @@ void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocIte
 
 void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const NavigateAnchorAction& a)
 {
-    // nav 履歴の push は呼び出し側 (App::HandleLinkClick) で行われる
+    // nav 履歴の push は呼び出し側 (App::HandleLinkClick) で行われる。
     ScrollToAnchor(state, effects, a.anchor_id);
 }
 
@@ -763,10 +708,6 @@ void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, 
     }
 }
 
-// ============================================================
-// ファイル・ナビゲーション系アクション
-// ============================================================
-
 void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAction& a)
 {
     if (!state.document.doc.GetFilePath().empty()) {
@@ -782,10 +723,6 @@ void ReduceShowHelp(AppState& state, SideEffectList& effects)
     }
     PushEffect(effects, effect::LoadFile{ std::pmr::wstring(HELP_PATH) });
 }
-
-// ============================================================
-// タイマー
-// ============================================================
 
 void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
 {
@@ -849,10 +786,6 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
 }
 
 } // namespace
-
-// ============================================================
-// Reducer: メインディスパッチ
-// ============================================================
 
 SideEffectList Reduce(AppState& state, const AppAction& action)
 {

@@ -7,13 +7,8 @@
 #include "pane_layout.h"
 #include "ui_constants.h"
 
-// ============================================================
-// MD ペイン — クリック
-// ============================================================
-
 void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
 {
-    // 検索バーのクリック処理
     if (state_.search.search_state.IsVisible()) {
         const auto& r = pane_layout.md_rect;
         const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
@@ -60,7 +55,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         Dispatch(NavigateForwardAction{});
         return;
     }
-    // コードブロック系ボタン（コピー/SVGコピー/保存）を1回の可視ノード走査でまとめて判定。
+    // コピー/SVG コピー/保存ボタンを 1 回の可視ノード走査でまとめて判定する。
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
     if (btn_hit.copy_node >= 0) {
@@ -75,7 +70,6 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         SaveDiagramAsPng(btn_hit.save_node);
         return;
     }
-    // MDペインスクロールバーのクリック判定
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
         Dispatch(MdScrollbarDragStartedAction{ dip_y, layout_service_->GetTotalHeight() });
         return;
@@ -85,20 +79,12 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     Dispatch(TextSelectionStartedAction{ hit.node_index, hit.text_pos, px, py });
 }
 
-// ============================================================
-// サイドペイン共通 — ペインスクロールバーの当たり判定
-// ============================================================
-
 bool App::IsOverPaneScrollbar(float dip_x, const PaneRect& rect, float total_content, const PaneScrollInfo& scroll_info) noexcept
 {
     const float local_x = dip_x - rect.x;
     const float hit_left = rect.width - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN - PANE_SCROLLBAR_HIT_PADDING;
     return local_x >= hit_left && total_content > scroll_info.content_height;
 }
-
-// ============================================================
-// ファイルペイン — クリック
-// ============================================================
 
 void App::RefreshFilePane()
 {
@@ -149,10 +135,6 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
         }
     }
 }
-
-// ============================================================
-// 目次ペイン — クリック
-// ============================================================
 
 void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
 {

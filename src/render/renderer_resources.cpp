@@ -16,7 +16,6 @@ void Renderer::LoadAppIconBitmap()
         return;
     }
 
-    // HICONからD2D1ビットマップに変換（バックエンドのWICファクトリを共有使用）
     auto* wic = backend_.GetWICFactory();
     if (!wic) {
         DestroyIcon(hIcon);
@@ -133,7 +132,6 @@ ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
 
 void Renderer::RecreatePaneFormats()
 {
-    // テーマサイズの更新に合わせて全ペイン/UIテキストフォーマットを再作成
     constexpr DWRITE_FONT_WEIGHT W = DWRITE_FONT_WEIGHT_NORMAL;
     constexpr DWRITE_TEXT_ALIGNMENT TA_LEAD = DWRITE_TEXT_ALIGNMENT_LEADING;
     constexpr DWRITE_TEXT_ALIGNMENT TA_CTR = DWRITE_TEXT_ALIGNMENT_CENTER;
@@ -189,7 +187,6 @@ void Renderer::RecreatePaneFormats()
     }
 
     // 全レイアウトは IDWriteTextFormat にバインドされているため format 再作成と同時に破棄する。
-    // nav / gesture は次回 Draw 時に lazy 再生成（DrawNavOverlay / DrawGestureOverlay 参照）。
     nav_back_layout_.Reset();
     nav_forward_layout_.Reset();
     gesture_back_layout_.Reset();
@@ -203,11 +200,28 @@ void Renderer::RecreatePaneFormats()
     cached_search_caret_pos_ = -1;
     cached_search_width_ = -1.0f;
     cached_search_has_underline_ = false;
+    cached_search_effective_pos_ = -2;
+    cached_search_caret_x_ = 0.0f;
 
-    // ペインキャッシュを無効化して新しいサイズで再描画させる
     file_pane_cache_.Reset();
     toc_pane_cache_.Reset();
 
-    // コマンドジェネレータのフォーマットを更新
     cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
+
+    // ナビ/ジェスチャー用レイアウトを eager 作成。描画ホットパス上の null 分岐を排除する。
+    auto* dw = backend_.GetDWriteFactory();
+    if (dw) {
+        if (fmt_.nav_button) {
+            static constexpr wchar_t BACK_ICON[] = L"\x25C0";
+            static constexpr wchar_t FORWARD_ICON[] = L"\x25B6";
+            dw->CreateTextLayout(BACK_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
+            dw->CreateTextLayout(FORWARD_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
+        }
+        if (fmt_.gesture_overlay) {
+            static constexpr wchar_t GESTURE_BACK[] = L"\x2190 \x623B\x308B";
+            static constexpr wchar_t GESTURE_FORWARD[] = L"\x2192 \x9032\x3080";
+            dw->CreateTextLayout(GESTURE_BACK, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_back_layout_);
+            dw->CreateTextLayout(GESTURE_FORWARD, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_forward_layout_);
+        }
+    }
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include "text_measurer.h"
+#include "ui_constants.h"
 #include <cmath>
 
 // DirectWriteなしでLayoutEngineをテストするためのモックテキスト計測器。
@@ -93,10 +94,14 @@ public:
 
         auto& tl = entry.ensure_table_layout();
         const auto row_count = node.table_rows().size();
-        tl.col_widths.assign(col_count, max_width / static_cast<float>(col_count));
+        const float col_w = max_width / static_cast<float>(col_count);
+        tl.col_widths.assign(col_count, col_w);
         tl.row_heights.assign(row_count, table_row_height);
         tl.col_count = col_count;
         tl.cell_layouts.resize(row_count * col_count);
+        // GenTable は tl.cached_table_width を直接読むため、production の
+        // FinalizeTableLayout と同じ式 (border + Σ(cw + 2*pad + border)) で同期する。
+        tl.cached_table_width = TABLE_BORDER_WIDTH + static_cast<float>(col_count) * (col_w + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH);
 
         // dwrite_measurer.cpp と同じ規約で行先頭オフセットを埋める。
         tl.row_flat_offsets.resize(row_count);

@@ -33,7 +33,8 @@ static_assert(app_timer::MERMAID_BATCH == ResourceManager::TIMER_MERMAID_BATCH);
 static_assert(app_timer::BITMAP_MANAGE == ResourceManager::TIMER_BITMAP_MANAGE);
 static_assert(app_timer::MERMAID_INIT_RETRY == MermaidRenderer::TIMER_INIT_RETRY);
 
-// DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 10 1809以降 / Windows 11でサポート)
+// DWMWA_USE_IMMERSIVE_DARK_MODE は Windows 10 1809 以降の SDK でしか定義されないため、
+// 古い SDK でビルドできるようフォールバック定義する。
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
@@ -43,17 +44,13 @@ static_assert(app_timer::MERMAID_INIT_RETRY == MermaidRenderer::TIMER_INIT_RETRY
 
 void ApplyDarkModeToWindow(HWND hwnd, bool dark)
 {
-    // ダークタイトルバー
     const BOOL value = dark ? TRUE : FALSE;
     DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
 
-    // エクスプローラーテーマによるダークスクロールバー
+    // エクスプローラーのダークテーマを適用すると非クライアントスクロールバーも
+    // ダーク化される（Windows 標準の挙動を借用）。
     SetWindowTheme(hwnd, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
 }
-
-// ============================================================
-// ヘルパー
-// ============================================================
 
 App::DipPoint App::PixelToDip(int px, int py) const noexcept
 {
@@ -65,10 +62,6 @@ PaneScrollInfo App::ComputePaneScrollInfo(
 {
     return ComputeScrollInfo(rect, renderer_.GetTheme().pane_header_height, total_content);
 }
-
-// ============================================================
-// ファイル読み込み/リロード共通ヘルパー
-// ============================================================
 
 void App::CancelPendingResources()
 {
@@ -95,10 +88,6 @@ void App::FinalizeLayout(float md_pane_height)
     Invalidate();
     ScheduleDeferredLayoutIfNeeded();
 }
-
-// ============================================================
-// ペインレイアウト
-// ============================================================
 
 const PaneLayout& App::GetPaneLayout()
 {
@@ -159,10 +148,6 @@ float App::GetMarkdownPaneWidth()
     return layout.md_rect.width;
 }
 
-// ============================================================
-// 描画 / リサイズ
-// ============================================================
-
 void App::OnPaint()
 {
     MENDO_PROFILE("OnPaint");
@@ -173,7 +158,6 @@ void App::OnPaint()
     const auto& layout = GetPaneLayout();
     const bool show_loading = file_load_service_.IsLoading() && !state_.pending_reload_retry;
     if (!show_loading) {
-        // 現在表示中のダーティなノードを現在の幅でレイアウトする
         EnsureScrollTarget();
 
         bool updated;
@@ -201,7 +185,6 @@ void App::OnPaint()
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
     }
     else {
-        // 検索マッチ情報をコマンドジェネレータに設定
         if (state_.search.search_state.IsVisible() && state_.search.search_state.IsHighlightEnabled() && !state_.search.search_state.GetMatches().empty()) {
             renderer_.SetSearchMatches(&state_.search.search_state.GetMatches(),
                                        state_.search.search_state.GetCurrentMatchIndex(),
@@ -211,7 +194,8 @@ void App::OnPaint()
             renderer_.SetSearchMatches(nullptr, -1, 0);
         }
 
-        // 描画前パス: 可視ノードに描画エフェクトを適用（Render の前に実行）
+        // PrepareVisibleEffects は Render の前に実行する必要がある（描画コマンドが
+        // 各ノードのエフェクト状態を参照するため）。
         renderer_.PrepareVisibleEffects(
             state_.document.doc.GetNodesMut(), state_.document.layout_cache,
             state_.view.viewport.GetScrollY(), layout.md_rect.height);
@@ -237,7 +221,7 @@ void App::OnResize(UINT width, UINT height)
 
 void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 {
-    // Win32 の RECT を platform-agnostic な PixelRect に詰め替える。
+    // reducer をプラットフォーム非依存に保つため、Win32 の RECT を PixelRect に詰め替える。
     const PixelRect rc{
         static_cast<int32_t>(suggested->left),
         static_cast<int32_t>(suggested->top),
@@ -247,15 +231,10 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested)
     Dispatch(DpiChangedAction{ static_cast<uint32_t>(dpi), rc });
 }
 
-// OnAppImageLoaded / OnAppReloadFile はWM_APPメッセージ経由でresource_manager_に委譲
 void App::OnAppImageLoaded()
 {
     Dispatch(ImageLoadedAction{});
 }
-
-// ============================================================
-// マウスホイール / キーボード
-// ============================================================
 
 void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
 {
@@ -269,7 +248,8 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
         return;
     }
 
-    // 軸ロック用: 縦スクロール発生をスワイプ検出器に通知
+    // 縦スクロールが発生した時点で SwipeDetector の軸ロックを解除し、
+    // 直後の水平ホイールがスワイプとして誤検出されないようにする。
     const bool had_overlay = state_.interaction.swipe_detector.IsOverlayVisible();
     state_.interaction.swipe_detector.NotifyVScroll(GetTickCount64());
     if (had_overlay) {
@@ -349,7 +329,6 @@ void App::OnCaptureChanged()
 
 void App::ShowToast(std::wstring_view message)
 {
-    // reducer 経由ではなく effect を直接発火する簡易経路。
     effect_executor_.ExecuteOne(effect::ShowToast{ std::pmr::wstring{ message } });
 }
 
@@ -363,7 +342,8 @@ void App::OnDestroy()
     SavePaneState();
     SaveScrollPosition();
     config_.SaveWString("General", "Language", i18n::GetLangKey());
-    // すべての設定値の書き出しを1回にまとめてディスクへ flush する。
+    // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
+    // すべての設定値を 1 度のディスク書き込みにまとめる。
     config_.Flush();
     for (UINT_PTR id : {
              app_timer::DEFERRED_LAYOUT,
@@ -399,10 +379,6 @@ RECT App::GetSearchEditRect()
     };
 }
 
-// ============================================================
-// 最後に開いたファイルの永続化
-// ============================================================
-
 void App::SaveLastFilePath()
 {
     if (!IsHelpPath(state_.document.doc.GetFilePath())) {
@@ -421,10 +397,6 @@ void App::ShowDirectory(std::wstring_view dir_path)
     renderer_.InvalidateFilePaneCache();
     Invalidate();
 }
-
-// ============================================================
-// ペイン状態の永続化
-// ============================================================
 
 void App::SavePaneState()
 {

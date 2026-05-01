@@ -6,14 +6,13 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         return;
     }
 
-    // タイトルバー背景（完全不透明でガラス効果を隠す）
+    // 完全不透明でガラス効果を隠す
     const D2D1_RECT_F bg_rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, tb.height);
     rt()->FillRectangle(bg_rect, Brush(BrushId::TitleBarBg));
 
     const float text_alpha = tb.window_active ? 1.0f : 0.5f;
     const auto is_hovered = [&](TitleBarHitZone z) noexcept { return tb.hovered_zone == z; };
 
-    // アイコンボタン描画ヘルパー
     auto drawButton = [&](const DipRect& dip_rect, const wchar_t* icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
         const D2D1_RECT_F rect = ToD2DRect(dip_rect);
         if (show_bg) {
@@ -29,7 +28,6 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         }
     };
 
-    // ファイルを開くボタン
     drawButton(
         tb.open_file.rect,
         L"\uE838",
@@ -37,7 +35,6 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha);
-    // ヘルプボタン
     drawButton(
         tb.help.rect,
         L"\uE897",
@@ -45,7 +42,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha);
-    // ダークモード切替ボタン（ダーク時: 太陽アイコン、ライト時: 月アイコン）
+    // ダーク時: 太陽アイコン、ライト時: 月アイコン
     drawButton(
         tb.theme_toggle.rect,
         tb.is_dark_mode ? L"\uE706" : L"\uE708",
@@ -53,7 +50,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha);
-    // 検索ボタン（active > hover の優先度）
+    // active > hover の優先度
     drawButton(
         tb.search.rect,
         L"\uE721",
@@ -61,7 +58,6 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         tb.search_active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha);
-    // ペイン切替ボタン（active > hover の優先度）
     drawButton(
         tb.file_toggle.rect,
         L"\uE8B7",
@@ -76,7 +72,6 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         tb.toc_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha);
-    // キャプションボタン
     drawButton(
         tb.minimize.rect,
         L"\uE921",
@@ -93,7 +88,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha);
-    // 閉じるボタン（ホバー時は赤背景＋白アイコン）
+    // ホバー時は赤背景＋白アイコン
     if (is_hovered(TitleBarHitZone::Close)) {
         drawButton(
             tb.close.rect, L"\uE8BB",
@@ -112,13 +107,11 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
             text_alpha);
     }
 
-    // アプリアイコン
     if (app_icon_bitmap_) {
         const float icon_alpha = tb.window_active ? 1.0f : 0.5f;
         rt()->DrawBitmap(app_icon_bitmap_.Get(), ToD2DRect(tb.icon_rect), icon_alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
 
-    // タイトルテキスト
     if (fmt_.titlebar_text && !tb.title_text.empty()) {
         auto* brush = Brush(BrushId::TitleBarText);
         if (brush) {

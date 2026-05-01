@@ -41,10 +41,6 @@ void App::OnLButtonDblClk(int px, int py)
     InvalidateMdPane(layout.md_rect);
 }
 
-// ============================================================
-// 選択 / クリップボード
-// ============================================================
-
 void App::SetClipboardText(std::wstring_view text) const
 {
     WriteClipboardText(hwnd_, text);
@@ -103,7 +99,6 @@ void App::SaveDiagramAsPng(int node_index)
         return;
     }
 
-    // PNGデータをファイルに書き出す
     if (WriteAllBytes(filename, png.data.get(), png.size)) {
         ShowToast(i18n::S().toast_image_saved);
     }

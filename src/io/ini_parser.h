@@ -27,7 +27,7 @@ inline IniData Parse(std::string_view text)
         }
         std::string_view line = text.substr(pos, eol - pos);
 
-        // 次の行の開始位置を計算（\r\n を1行として処理）
+        // \r\n を 1 行として進める（CRLF/CR/LF を統一して扱う）。
         pos = eol;
         if (pos < text.size() && text[pos] == '\r') {
             ++pos;
@@ -36,19 +36,16 @@ inline IniData Parse(std::string_view text)
             ++pos;
         }
 
-        // 先頭の空白を除去
         const size_t start = line.find_first_not_of(" \t");
         if (start == std::string_view::npos) {
-            continue; // 空行
+            continue;
         }
         line = line.substr(start);
 
-        // コメント行
         if (line[0] == ';' || line[0] == '#') {
             continue;
         }
 
-        // セクションヘッダー
         if (line[0] == '[') {
             const size_t close = line.find(']', 1);
             if (close != std::string_view::npos) {
@@ -57,13 +54,11 @@ inline IniData Parse(std::string_view text)
             continue;
         }
 
-        // キー=値
         const size_t eq = line.find('=');
         if (eq == std::string_view::npos) {
-            continue; // 不正な行は無視
+            continue;
         }
 
-        // キーの末尾の空白を除去
         const std::string_view key_part = line.substr(0, eq);
         const size_t key_end = key_part.find_last_not_of(" \t");
         std::string key;
@@ -74,12 +69,10 @@ inline IniData Parse(std::string_view text)
             continue;
         }
 
-        // 値の先頭の空白を除去
         const std::string_view val_part = line.substr(eq + 1);
         const size_t val_start = val_part.find_first_not_of(" \t");
         std::string value;
         if (val_start != std::string_view::npos) {
-            // 値の末尾の空白を除去
             const size_t val_end = val_part.find_last_not_of(" \t");
             value = std::string(val_part.substr(val_start, val_end - val_start + 1));
         }

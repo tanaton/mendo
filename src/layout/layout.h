@@ -79,7 +79,7 @@ private:
     bool has_dirty_nodes_ = false;
 };
 
-// LayoutEngine + ViewportManager の組み合わせを薄くラップして、
+// LayoutEngine + ViewportManager の組み合わせを薄くラップし、
 // スクロール target 管理付きのレイアウト操作を提供する。
 class LayoutService {
 public:

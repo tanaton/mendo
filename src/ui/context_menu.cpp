@@ -8,10 +8,6 @@ using namespace context_menu_constants;
 
 bool ContextMenu::Impl::class_registered = false;
 
-// ============================================================
-// ウィンドウクラス登録
-// ============================================================
-
 bool ContextMenu::Impl::RegisterWindowClass()
 {
     if (class_registered) {
@@ -48,10 +44,6 @@ LRESULT CALLBACK ContextMenu::Impl::WndProc(HWND hwnd, UINT msg, WPARAM wParam, 
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
-
-// ============================================================
-// メニュー表示（モーダル）
-// ============================================================
 
 int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
 {
@@ -160,10 +152,6 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
     return s.selected_id;
 }
 
-// ============================================================
-// メッセージハンドラ
-// ============================================================
-
 LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
@@ -185,7 +173,6 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         hovered_id = 0;
         hovered_nav = 0;
 
-        // ナビ行のボタン判定
         if (!items.empty() && items[0].type == ItemType::NavRow) {
             if (nav_layout.back_enabled && PointInRect(x, y, nav_layout.back_rect)) {
                 hovered_nav = -1;
@@ -263,10 +250,6 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     }
 }
 
-// ============================================================
-// D2Dリソース
-// ============================================================
-
 bool ContextMenu::Impl::EnsureRenderTarget(float dpi)
 {
     if (rt) {
@@ -304,10 +287,6 @@ void ContextMenu::Impl::CreateBrushes()
     brush_hover = make(theme->pane_item_hover_color);
     brush_check = make(theme->link_color);
 }
-
-// ============================================================
-// 描画
-// ============================================================
 
 void ContextMenu::Impl::Paint()
 {

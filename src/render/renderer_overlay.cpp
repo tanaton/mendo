@@ -13,23 +13,8 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
 
     const bool is_dark = theme_.IsDark();
 
-    // 位置: MDペインの右下にマージン付き
     const float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     const float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
-
-    if (fmt_.nav_button) {
-        auto* dw = backend_.GetDWriteFactory();
-        if (dw) {
-            if (!nav_back_layout_) {
-                static const wchar_t BACK_ICON[] = L"\x25C0";
-                dw->CreateTextLayout(BACK_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
-            }
-            if (!nav_forward_layout_) {
-                static const wchar_t FORWARD_ICON[] = L"\x25B6";
-                dw->CreateTextLayout(FORWARD_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
-            }
-        }
-    }
 
     // SetColor は SetOpacity より重いため、固定色ブラシを is_dark で選んで
     // 透明度のみ切り替える。
@@ -41,7 +26,6 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
         }
         const D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
 
-        // 背景
         float bg_alpha;
         if (!enabled) {
             bg_alpha = is_dark ? 0.08f : 0.05f;
@@ -57,7 +41,6 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
         const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
         rt()->FillRoundedRectangle(rrect, overlay_brush);
 
-        // 矢印テキスト（キャッシュ済みレイアウトを使用）
         float text_alpha;
         if (!enabled) {
             text_alpha = is_dark ? 0.2f : 0.15f;
@@ -75,9 +58,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
         }
     };
 
-    // 戻るボタン (◀)
     drawButton(base_x, can_back, hovered == 1, nav_back_layout_.Get());
-    // 進むボタン (▶)
     drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, nav_forward_layout_.Get());
 
     if (overlay_brush) {
@@ -135,7 +116,6 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
 
     const bool is_dark = theme_.IsDark();
 
-    // MDペイン中央の矩形
     const float rect_w = GESTURE_OVERLAY_WIDTH;
     const float rect_h = GESTURE_OVERLAY_HEIGHT;
     const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
@@ -147,20 +127,6 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
         bg_brush->SetColor(bg_color);
         const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, GESTURE_OVERLAY_CORNER, GESTURE_OVERLAY_CORNER);
         rt()->FillRoundedRectangle(rrect, bg_brush);
-    }
-
-    if (fmt_.gesture_overlay) {
-        auto* dw = backend_.GetDWriteFactory();
-        if (dw) {
-            if (!gesture_back_layout_) {
-                static const wchar_t GESTURE_BACK[] = L"\x2190 \x623B\x308B";
-                dw->CreateTextLayout(GESTURE_BACK, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_back_layout_);
-            }
-            if (!gesture_forward_layout_) {
-                static const wchar_t GESTURE_FORWARD[] = L"\x2192 \x9032\x3080";
-                dw->CreateTextLayout(GESTURE_FORWARD, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_forward_layout_);
-            }
-        }
     }
 
     auto* gesture_layout = (direction < 0) ? gesture_back_layout_.Get() : gesture_forward_layout_.Get();
@@ -182,7 +148,6 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
     const float alpha = std::min(toast.alpha, 1.0f);
     const bool is_dark = theme_.IsDark();
 
-    // MDペイン下部中央に配置
     const float rect_w = TOAST_OVERLAY_WIDTH;
     const float rect_h = TOAST_OVERLAY_HEIGHT;
     const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
@@ -196,7 +161,7 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
         rt()->FillRoundedRectangle(rrect, bg_brush);
     }
 
-    // 白テキスト（キャッシュ済みレイアウトを使用。メッセージ変更時のみ再作成）
+    // メッセージ変更時のみキャッシュ済みレイアウトを再作成
     if (fmt_.toast_text) {
         if (!cached_toast_layout_ || toast.message != cached_toast_text_) {
             cached_toast_text_ = toast.message;

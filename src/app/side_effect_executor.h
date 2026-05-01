@@ -41,7 +41,6 @@ public:
     void ExecuteOne(const SideEffect& e);
 
 private:
-    // ドメインごとの内側 variant ハンドラ。ExecuteOne から委譲される。
     void ExecuteUi(const UiEffect& e);
     void ExecuteWindow(const WindowEffect& e);
     void ExecuteNavigation(const NavigationEffect& e);
