@@ -224,4 +224,9 @@ private:
     float frame_content_width_ = 0.0f;
     const TextSelection* frame_selection_ = nullptr;
     HoveredButtons frame_hovered_;
+
+    // 前フレームの選択ノード範囲。範囲外に出たノードの selection_hl_cache を
+    // 解放するために使う。-1/-1 は「前フレームは非アクティブ」を示す。
+    int prev_sel_start_node_ = -1;
+    int prev_sel_end_node_ = -1;
 };

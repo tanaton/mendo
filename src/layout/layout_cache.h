@@ -308,6 +308,18 @@ public:
         return diagrams_[i];
     }
 
+    // 全エントリの selection_hl_cache を破棄する。
+    // Why: SelectionHlCache は描画時に lazy 確保され、選択範囲外に出たノードでは
+    // 自動破棄経路が無いため、長時間利用で過去に選択したノード分の unique_ptr/rects
+    // が居残ってメモリが漸増する。CommandGenerator 側で「選択範囲が縮小/解除された
+    // フレーム」を検出して、対象ノードの cache を巻き戻すのに使う。
+    void ClearAllSelectionHlCaches() const noexcept
+    {
+        for (const auto& e : entries_) {
+            e.invalidate_selection_hl_cache();
+        }
+    }
+
     // すべてのテキストレイアウトとエフェクトを無効化する（テーマ/ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
     void InvalidateAllLayouts() noexcept

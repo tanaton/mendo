@@ -68,6 +68,23 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     frame_selection_ = &selection;
     frame_hovered_ = hovered;
 
+    // 前フレームの選択範囲のうち、今回の範囲外に出たノードの selection_hl_cache を破棄する。
+    // 「解除」「縮小」「別範囲への移動」をまとめて拾い、長時間利用での漸増を防ぐ。
+    {
+        const int new_start = selection.active ? selection.start_node : -1;
+        const int new_end = selection.active ? selection.end_node : -1;
+        if (prev_sel_start_node_ >= 0) {
+            const int upper = std::min(prev_sel_end_node_, static_cast<int>(cache.size()) - 1);
+            for (int i = prev_sel_start_node_; i <= upper; i++) {
+                if (new_start < 0 || i < new_start || i > new_end) {
+                    cache[i].invalidate_selection_hl_cache();
+                }
+            }
+        }
+        prev_sel_start_node_ = new_start;
+        prev_sel_end_node_ = new_end;
+    }
+
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
         first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), frame_viewport_top_);
