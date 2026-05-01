@@ -168,6 +168,55 @@ TEST(DocumentTest, RawTextSourceOffsetConsistency)
     }
 }
 
+TEST(DocumentTest, SourceOffsetPointsToNodeTextStart)
+{
+    // 入力は HTML 実体参照やインライン書式を含まない素のテキストのみで、
+    // 各ノードの source_offset 位置の文字 == そのノードのテキスト先頭文字 が成立することを確認する。
+    auto doc = Document::FromMarkdown("# Title\n\nBody\n\n```\ncode\n```\n", L"test.md");
+    const auto& nodes = doc.GetNodes();
+    const auto& raw = doc.GetRawText();
+
+    bool checked_any = false;
+    for (const auto& n : nodes) {
+        if (n.source_offset == kUnsetSourceOffset) {
+            continue;
+        }
+        if (!n.HasText()) {
+            continue;
+        }
+        ASSERT_LT(n.source_offset, raw.size());
+        EXPECT_EQ(raw[n.source_offset], n.GetText()[0])
+            << "node text starts at raw[" << n.source_offset << "]";
+        checked_any = true;
+    }
+    EXPECT_TRUE(checked_any);
+}
+
+TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
+{
+    // 埋め込み NUL は md4c が外部リテラルポインタで OnText に渡すため、
+    // 範囲ガードが無いと source_offset に巨大値が入り raw のサイズを超えるリグレッションを検知する。
+    std::pmr::string md;
+    md.append("```\n", 4);
+    md.push_back('\0');
+    md.append("body\n```\n", 9);
+    auto doc = Document::FromMarkdown(md, L"test.md");
+    const auto& nodes = doc.GetNodes();
+    const auto& raw = doc.GetRawText();
+    ASSERT_FALSE(nodes.empty());
+
+    bool checked_any = false;
+    for (const auto& n : nodes) {
+        if (n.source_offset == kUnsetSourceOffset) {
+            continue;
+        }
+        EXPECT_LT(n.source_offset, static_cast<uint32_t>(raw.size()))
+            << "source_offset must remain within input buffer when md4c emits MD_TEXT_NULLCHAR";
+        checked_any = true;
+    }
+    EXPECT_TRUE(checked_any);
+}
+
 // ---- BuildIndices統合テスト ----
 
 TEST(DocumentTest, BuildIndicesAnchorIndex)
