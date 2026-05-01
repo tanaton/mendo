@@ -64,20 +64,16 @@ private:
 #define MENDO_PROFILE_CONCAT(a, b) MENDO_PROFILE_CONCAT2(a, b)
 #define MENDO_PROFILE(label) ScopedProfileTimer MENDO_PROFILE_CONCAT(_mendo_timer_, __LINE__)(L##label)
 
-#define MENDO_TRACE(msg) OutputDebugStringW(L"[mendo-reload] " L##msg L"\n")
-#define MENDO_TRACEF(fmt, ...)                                                             \
-    do {                                                                                   \
-        wchar_t _mendo_buf[256];                                                           \
-        _snwprintf_s(_mendo_buf, _TRUNCATE, L"[mendo-reload] " L##fmt L"\n", __VA_ARGS__); \
-        OutputDebugStringW(_mendo_buf);                                                    \
+#define MENDO_LOGF(prefix, fmt, ...)                                            \
+    do {                                                                        \
+        wchar_t _mendo_buf[256];                                                \
+        _snwprintf_s(_mendo_buf, _TRUNCATE, prefix L##fmt L"\n", __VA_ARGS__);  \
+        OutputDebugStringW(_mendo_buf);                                         \
     } while (0)
 
-#define MENDO_STATF(fmt, ...)                                                            \
-    do {                                                                                 \
-        wchar_t _mendo_buf[256];                                                         \
-        _snwprintf_s(_mendo_buf, _TRUNCATE, L"[mendo-stat] " L##fmt L"\n", __VA_ARGS__); \
-        OutputDebugStringW(_mendo_buf);                                                  \
-    } while (0)
+#define MENDO_TRACE(msg) OutputDebugStringW(L"[mendo-reload] " L##msg L"\n")
+#define MENDO_TRACEF(fmt, ...) MENDO_LOGF(L"[mendo-reload] ", fmt, __VA_ARGS__)
+#define MENDO_STATF(fmt, ...) MENDO_LOGF(L"[mendo-stat] ", fmt, __VA_ARGS__)
 
 #else
 

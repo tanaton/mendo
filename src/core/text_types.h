@@ -3,9 +3,7 @@
 
 // テキストラン: 同一スタイル（太字/斜体/コード/取り消し線/リンク）を持つ連続テキスト範囲。
 struct TextRun {
-    // スタイルビットマスク。span enter/leave で 1 命令で立ち下げできるよう公開している。
-    // 既存の set_bold() 等はビット 1 つを操作するセッターなので、複数フラグを一括で
-    // セットしたいパース内側のホットパスでは set_raw_flags() / kBold | kItalic 等を使う。
+    // 呼び出し側が複数フラグを OR で組み上げて set_raw_flags() で一括設定するため公開。
     static constexpr uint8_t kBold = 0x01;
     static constexpr uint8_t kItalic = 0x02;
     static constexpr uint8_t kCode = 0x04;
@@ -53,7 +51,6 @@ struct TextRun {
         set_flag(kStrikethrough, v);
     }
 
-    // 事前にビット OR で組み上げたフラグ集合をそのままセット。1 命令でラン生成できる。
     constexpr void set_raw_flags(uint8_t f) noexcept
     {
         flags = f;

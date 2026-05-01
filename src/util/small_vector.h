@@ -1,9 +1,9 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
+#include <cstring>
 #include <initializer_list>
-#include <iterator>
+#include <limits>
 #include <new>
 #include <type_traits>
 #include <utility>
@@ -17,15 +17,9 @@
 //
 // 制約 (簡略実装):
 //   - T は trivially copyable / trivially destructible 限定。TextRun は POD なので OK。
-//   - allocator は固定 (operator new[] / delete[])。pmr アロケータ非対応。
+//   - allocator は固定 (operator new / delete)。pmr アロケータ非対応。
 //     SBO を超えた成長時のみ純 OS heap (new_delete_resource 相当) を使う。
-//   - 例外保証: emplace_back / reserve は new[] 例外を伝播。SBO 範囲は noexcept。
-//
-// レイアウト (sizeof は N=4, T=12B 想定で 64B):
-//   T inline_storage_[N];   // SBO バッファ
-//   T* data_;               // 実データ先頭 (inline 中は inline_storage_、heap 後は heap)
-//   uint32_t size_;
-//   uint32_t capacity_;
+//   - 例外保証: emplace_back / reserve は operator new 例外を伝播。SBO 範囲は noexcept。
 //
 // 不変式: capacity_ == N <=> data_ == inline_storage_。
 namespace mendo {
@@ -45,17 +39,6 @@ public:
     using const_reference = const T&;
 
     small_vector() noexcept = default;
-
-    small_vector(std::initializer_list<T> il)
-    {
-        const auto n = static_cast<size_type>(il.size());
-        reserve(n);
-        size_type i = 0;
-        for (const T& v : il) {
-            data_[i++] = v;
-        }
-        size_ = n;
-    }
 
     small_vector(const small_vector& other)
     {
@@ -89,7 +72,9 @@ public:
     {
         clear();
         const auto n = static_cast<size_type>(il.size());
-        reserve(n);
+        if (n > capacity_) {
+            grow_to(n);
+        }
         size_type i = 0;
         for (const T& v : il) {
             data_[i++] = v;
@@ -149,8 +134,7 @@ public:
         return data_ + size_;
     }
 
-    // 添字は size_t で受ける (テスト/呼び出し側で size_t ループを書くのが自然なので、
-    // ここで size_type=uint32_t に絞ると C4267 警告の連鎖になる)。
+    // 添字は size_t で受ける (size_type=uint32_t に絞ると C4267 警告の連鎖になる)。
     reference operator[](std::size_t i) noexcept
     {
         return data_[i];
@@ -167,18 +151,9 @@ public:
     {
         return data_[size_ - 1];
     }
-    reference front() noexcept
-    {
-        return data_[0];
-    }
-    const_reference front() const noexcept
-    {
-        return data_[0];
-    }
 
     void clear() noexcept
     {
-        // T は trivially destructible 前提なので size を戻すだけ
         size_ = 0;
     }
 
@@ -187,15 +162,6 @@ public:
         if (n > capacity_) {
             grow_to(n);
         }
-    }
-
-    void resize(size_type n)
-    {
-        if (n > capacity_) {
-            grow_to(n);
-        }
-        // T は trivial で、新規領域を初期化しない (push_back で書き込まれる前提)
-        size_ = n;
     }
 
     template <typename... Args>
@@ -218,28 +184,39 @@ public:
     {
         emplace_back(std::move(v));
     }
-    void pop_back() noexcept
-    {
-        --size_;
-    }
 
 private:
     size_type next_capacity() const noexcept
     {
-        // 倍々成長。初回は最低 N から。
+        // 倍々成長。capacity_*2 が uint32 を溢れたら UINT32_MAX を渡し、
+        // grow_to の operator new に bad_alloc を投げさせる (黙って縮退しない)。
         const size_type cap2 = capacity_ * 2;
-        return cap2 > capacity_ ? cap2 : static_cast<size_type>(N + 1);
+        if (cap2 > capacity_) {
+            return cap2;
+        }
+        return std::numeric_limits<size_type>::max();
+    }
+
+    static T* allocate(size_type n)
+    {
+        // T は trivially copyable / destructible 前提。default ctor の呼び出しを
+        // 省くため operator new で生バッファを確保し、書き込み側で初期化する。
+        return static_cast<T*>(::operator new(sizeof(T) * n));
+    }
+
+    static void deallocate(T* p) noexcept
+    {
+        ::operator delete(p);
     }
 
     void grow_to(size_type new_cap)
     {
-        // new_cap > N が常に成立 (capacity_ >= N で n > capacity_ なので n > N)
-        T* const new_data = new T[new_cap];
-        for (size_type i = 0; i < size_; ++i) {
-            new_data[i] = data_[i];
+        T* const new_data = allocate(new_cap);
+        if (size_ > 0) {
+            std::memcpy(new_data, data_, sizeof(T) * size_);
         }
         if (capacity_ > N) {
-            delete[] data_;
+            deallocate(data_);
         }
         data_ = new_data;
         capacity_ = new_cap;
@@ -248,7 +225,7 @@ private:
     void release() noexcept
     {
         if (capacity_ > N) {
-            delete[] data_;
+            deallocate(data_);
         }
         data_ = inline_storage_;
         capacity_ = static_cast<size_type>(N);
@@ -258,15 +235,15 @@ private:
     void copy_from(const small_vector& other)
     {
         if (other.size_ > N) {
-            data_ = new T[other.size_];
+            data_ = allocate(other.size_);
             capacity_ = other.size_;
         }
         else {
             data_ = inline_storage_;
             capacity_ = static_cast<size_type>(N);
         }
-        for (size_type i = 0; i < other.size_; ++i) {
-            data_[i] = other.data_[i];
+        if (other.size_ > 0) {
+            std::memcpy(data_, other.data_, sizeof(T) * other.size_);
         }
         size_ = other.size_;
     }
@@ -275,7 +252,6 @@ private:
     void move_from(small_vector&& other) noexcept
     {
         if (other.capacity_ > N) {
-            // other が heap を持っていた場合、ポインタごと引き取れる (浅いコピー)
             data_ = other.data_;
             size_ = other.size_;
             capacity_ = other.capacity_;
@@ -284,16 +260,16 @@ private:
             other.capacity_ = static_cast<size_type>(N);
         }
         else {
-            // other は SBO 内 → 要素を inline_storage_ にコピー
-            for (size_type i = 0; i < other.size_; ++i) {
-                inline_storage_[i] = other.data_[i];
+            if (other.size_ > 0) {
+                std::memcpy(inline_storage_, other.data_, sizeof(T) * other.size_);
             }
             size_ = other.size_;
             other.size_ = 0;
         }
     }
 
-    // SBO は trivially copyable 前提で値初期化する (T の default ctor が走るが noop に最適化される)。
+    // SBO は T の default-member-init を尊重して値初期化する。TextRun の link_url_index=-1 等が
+    // 走るので、SBO に未書き込みのまま読まれても定義済み値になる。
     T inline_storage_[N]{};
     T* data_ = inline_storage_;
     size_type size_ = 0;

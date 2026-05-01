@@ -137,8 +137,7 @@ struct ParseContext {
             current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, kInt8Max));
             current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, kInt8Max));
         }
-        // runs は small_vector<TextRun, 4> で SBO=4。中央値の段落は SBO 内に収まり、
-        // 超過した場合のみ倍々成長する。reserve は SBO の利点を相殺するので呼ばない。
+        // runs は SBO=4 で初期確保ゼロを狙う。reserve すると SBO の利点が消えるので呼ばない。
     }
 
     TextRun MakeRun(uint32_t start, uint32_t length)
@@ -146,9 +145,7 @@ struct ParseContext {
         TextRun run;
         run.start = start;
         run.length = length;
-        // current_run_flags は span enter/leave で同期済みなので 1 命令でセット。
         run.set_raw_flags(current_run_flags);
-        // インデックスは OnEnterSpan(MD_SPAN_A) で確定済み。span 内の複数ランで wmemcmp を再実行しない。
         run.link_url_index = current_link_url_index;
         return run;
     }
@@ -180,8 +177,7 @@ struct ParseContext {
         current_link_url_index = new_index;
     }
 
-    // 現在の AppendWide のターゲット (cell.text or current_text)。
-    // セル内なら &current_cell->text、ノード本体なら &current_text、どちらでも無ければ nullptr。
+    // AppendWide のターゲット (セル内なら cell.text、ノード内なら current_text、どちらも無ければ nullptr)。
     std::pmr::wstring* ActiveTextBuffer() noexcept
     {
         if (current_cell) {
@@ -207,10 +203,7 @@ struct ParseContext {
             pending_run_start = static_cast<uint32_t>(target->size());
             has_pending_run = true;
         }
-        // 1 文字チャンクのファストパス。md4c は \n / ' ' / '\0' / 1 文字 entity 等を size==1 で
-        // 渡してくる。コードブロックの行末 \n は行数分発生するため、ここをホットパスとして抜く。
-        // wstring::append(view) は size 比較 + 拡張判定 + memcpy 経路で push_back より重いため、
-        // 1 文字なら push_back に振り分ける。改行カウントもブランチレスにする。
+        // 1-char chunk fastpath: md4c は \n / 空白 / 単一 entity 等を size==1 で渡してくるので push_back に振り分ける。
         if (text.size() == 1) [[likely]] {
             const wchar_t c = text[0];
             pending_run_newlines += static_cast<uint32_t>(c == L'\n');
@@ -222,21 +215,18 @@ struct ParseContext {
 
     // 未確定 TextRun を確定して runs に push する。
     // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
-    // セル内なら current_cell->runs、ノード本体なら current_node->runs に積む。
-    // 改行カウンタはノード本体のみ意味があり (line_count はノード単位)、セルでは無視。
+    // line_count はノード単位なので、セル内では更新しない。
     void FlushPendingRun()
     {
         if (has_pending_run) {
-            if (current_cell) {
-                if (current_cell->text.size() > pending_run_start) {
-                    const uint32_t length = static_cast<uint32_t>(current_cell->text.size() - pending_run_start);
-                    current_cell->runs.emplace_back(MakeRun(pending_run_start, length));
+            std::pmr::wstring* const buf = ActiveTextBuffer();
+            if (buf && buf->size() > pending_run_start) {
+                const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
+                auto& runs = current_cell ? current_cell->runs : current_node->runs;
+                if (!current_cell) {
+                    current_node->line_count += static_cast<int>(pending_run_newlines);
                 }
-            }
-            else if (current_node && current_text.size() > pending_run_start) {
-                const uint32_t length = static_cast<uint32_t>(current_text.size() - pending_run_start);
-                current_node->line_count += static_cast<int>(pending_run_newlines);
-                current_node->runs.emplace_back(MakeRun(pending_run_start, length));
+                runs.emplace_back(MakeRun(pending_run_start, length));
             }
         }
         has_pending_run = false;
