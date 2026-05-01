@@ -168,6 +168,70 @@ TEST(DocumentTest, RawTextSourceOffsetConsistency)
     }
 }
 
+TEST(DocumentTest, SourceOffsetPointsToNodeTextStart)
+{
+    // 各ノードの source_offset 位置の文字が、そのノードのテキスト先頭文字と一致することを確認する。
+    auto doc = Document::FromMarkdown("# Title\n\nBody\n\n```\ncode\n```\n", L"test.md");
+    const auto& nodes = doc.GetNodes();
+    const auto& raw = doc.GetRawText();
+
+    bool checked_any = false;
+    for (const auto& n : nodes) {
+        if (n.source_offset == kUnsetSourceOffset) {
+            continue;
+        }
+        if (!n.HasText()) {
+            continue;
+        }
+        ASSERT_LT(n.source_offset, raw.size());
+        EXPECT_EQ(raw[n.source_offset], n.GetText()[0])
+            << "node text starts at raw[" << n.source_offset << "]";
+        checked_any = true;
+    }
+    EXPECT_TRUE(checked_any);
+}
+
+TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
+{
+    // markdown 内に NUL (U+0000) を含むケースを検証する。
+    // md4c は MD_TEXT_NULLCHAR で _T("") (静的リテラル) を OnText に渡すため、
+    // 素朴に text - markdown_base を扱うと破壊された巨大オフセットが source_offset に入り、
+    // raw_wide_ のサイズを大きく超える。ポインタ範囲チェックでそれを防ぐ。
+    std::pmr::string md;
+    md.append("```\n", 4);
+    md.push_back('\0');
+    md.append("body\n```\n", 9);
+    auto doc = Document::FromMarkdown(md, L"test.md");
+    const auto& nodes = doc.GetNodes();
+    const auto& raw = doc.GetRawText();
+    ASSERT_FALSE(nodes.empty());
+
+    for (const auto& n : nodes) {
+        if (n.source_offset == kUnsetSourceOffset) {
+            continue;
+        }
+        EXPECT_LE(n.source_offset, static_cast<uint32_t>(raw.size()))
+            << "source_offset must remain within input buffer when md4c emits MD_TEXT_NULLCHAR";
+    }
+}
+
+TEST(DocumentTest, SourceOffsetSurvivesHardBreakLiteral)
+{
+    // 段落内のハードブレーク (「  \n」) で md4c が MD_TEXT_BR を
+    // _T("\n") リテラルで発火するが、source_offset は本文 chunk で確定されるため BR を踏むことはない。
+    // 他の本文に続いている場合の確認として範囲内であることを確かめる。
+    auto doc = Document::FromMarkdown("first  \nsecond\n", L"test.md");
+    const auto& nodes = doc.GetNodes();
+    const auto& raw = doc.GetRawText();
+    ASSERT_FALSE(nodes.empty());
+    for (const auto& n : nodes) {
+        if (n.source_offset == kUnsetSourceOffset) {
+            continue;
+        }
+        EXPECT_LT(n.source_offset, static_cast<uint32_t>(raw.size()));
+    }
+}
+
 // ---- BuildIndices統合テスト ----
 
 TEST(DocumentTest, BuildIndicesAnchorIndex)

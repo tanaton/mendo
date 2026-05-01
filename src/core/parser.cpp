@@ -6,7 +6,7 @@
 #include "profiler.h"
 #include "utility.h"
 #include "md4c.h"
-#include <stack>
+#include <functional>
 #include <unordered_map>
 #include <charconv>
 #include <climits>
@@ -22,11 +22,15 @@
 namespace {
 
 // current_text スクラッチの初期確保サイズ。最初のノードの append が realloc で詰まらない程度を狙う。
-constexpr size_t SCRATCH_RESERVE = 4096;
+constexpr size_t SCRATCH_RESERVE = 16384;
 
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
     MonotonicResource parse_resource{ 128 * 1024 };
+    // 再利用が必要なスクラッチ (current_text 等) や hash map の bucket 等を扱う pool。
+    // upstream を monotonic にすることで、pool から解放されたブロックは monotonic には戻らず再利用やバックアップで整理され、ParseContext 破棄時に一括解放される。
+    // unsynchronized を選ぶのは ParseContext が単一スレッドでしか触られないためで、synchronized_pool のロックオーバーヘッドを排除する。
+    std::pmr::unsynchronized_pool_resource pool{ parse_resource.resource() };
 
     std::pmr::vector<Node> nodes;
 
@@ -49,15 +53,21 @@ struct ParseContext {
     // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
     int16_t current_link_url_index = -1;
 
-    // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で Node::text_ へ move する。
-    // allocator は default を使う (Node::text_ と一致させて allocator 不一致による要素コピーを避ける)。
-    std::pmr::wstring current_text;
+    // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で Node::text_ へ view コピーされる。
+    // pool に乗せることで append での再確保をロック無しで扱える。
+    // Node::text_ は default allocator のままだが、FinalizeCurrentNode で view コピーで渡すため allocator 不一致の影響はない。
+    std::pmr::wstring current_text{ &pool };
 
     // current_text 内の「未確定 TextRun」の開始位置 (wide unit)。
     // 同じ span 状態で連続する AppendWide は 1 つの TextRun に統合される。
     // span 切替 / ブロック退出時に FlushPendingRun が呼ばれて確定する。
     uint32_t pending_run_start = 0;
     bool has_pending_run = false;
+    // pending_run_start 以降に AppendWide で押し込まれた改行の数。
+    // FlushPendingRun で Node::line_count に加算し、毎回の count 走査を避ける。
+    // md4c から OnText に来る改行は MD_TEXT_BR とコードブロック行末の \n chunk のみなので、
+    // AppendWide 内で 1 文字 \n の判定を数命令で済ませる。
+    uint32_t pending_run_newlines = 0;
 
     // ブロックコンテキスト追跡
     int indent_level = 0;
@@ -67,37 +77,41 @@ struct ParseContext {
     int current_blockquote_group = -1; // 最外側 blockquote の group ID（ネスト中は共有）
     int outermost_quote_indent = 0;    // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
 
-    // リスト追跡
-    std::stack<int, std::pmr::vector<int>> list_counter{ std::pmr::vector<int>{ parse_resource.resource() } }; // 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
+    // リスト追跡: 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
+    // スタックアダプタを挟まず vector を直接扱う (back/push_back/pop_back)。
+    std::pmr::vector<int> list_counter{ parse_resource.resource() };
 
     // テーブル追跡
     bool in_table = false;
     bool in_thead = false;
     TableCell* current_cell = nullptr;
-    int current_cell_align = 0;
 
     // 現在構築中のノード
     Node* current_node = nullptr;
 
     // アンカーIDの一意性追跡: スラグ -> 出現回数。
-    // unordered_map のノードとキー文字列を parse_resource に乗せて synchronized_pool への malloc を避ける。
-    // キーは ParseContext のライフタイム内でしか参照されず、Heading::anchor_id 側へは
-    // assign で別途コピーされるため parse_resource (monotonic) で十分。
-    // monotonic は再アロケート時に古い領域を解放できないため、ParseMarkdown 側で reserve して
-    // bucket 配列の再確保を最小化する。
-    std::pmr::unordered_map<std::pmr::wstring, int, WStringTransparentHash, std::equal_to<>> anchor_counts{ parse_resource.resource() };
+    // pool 上に乗せて synchronized_pool への malloc を避ける。再ハッシュ時に古い bucket は pool 内で再利用されるため monotonic が無限に膨らない。
+    std::pmr::unordered_map<std::pmr::wstring, int, WStringTransparentHash, std::equal_to<>> anchor_counts{ &pool };
 
-    // 画像スパン追跡。NodeImageData::src への std::move を真の move にするため default allocator。
-    std::pmr::wstring pending_image_src;
+    // 現在ノード内の URL -> link_urls インデックス の lookup。
+    // 多リンク段落 (脚注等) で線形探索を避け、ノード切替えごとに clear() して再利用する。
+    // キーを pool 上の pmr::wstring で持ち、透過比較で wstring_view からヒープ確保なしで lookup できる。
+    std::pmr::unordered_map<std::pmr::wstring, int16_t, WStringTransparentHash, std::equal_to<>> link_url_lookup{ &pool };
+
+    // 画像スパンの src 蓄積バッファ。pool で append/clear をロック無しで扱う。
+    // NodeImageData::src へは assign(view) でコピーする (allocator 不一致の暗黙コピーを避けるため)。
+    std::pmr::wstring pending_image_src{ &pool };
 
     // display math スパンが 1 個だけで他の内容が無い段落を LatexMath コードブロックに昇格する状態
     bool in_display_math = false;
     int paragraph_display_math_count = 0;
     bool paragraph_has_other_content = false;
-    std::pmr::wstring display_math_buf{ parse_resource.resource() };
+    std::pmr::wstring display_math_buf{ &pool };
 
-    // md_parse() に渡した入力バッファ先頭ポインタ（source_offset 計算用、UTF-16 コード単位オフセット）
+    // md_parse() に渡した入力バッファ先頭ポインタ。source_offset 計算用 (UTF-16 コード単位オフセット)。
     const wchar_t* markdown_base = nullptr;
+    // 入力バッファの wchar_t 数。OnText で渡される text ポインタが入力バッファ内かを判定するのに使う。
+    size_t markdown_size = 0;
 
     // 現在ノードの Wide スクラッチを text_ にコピーし、スクラッチをクリアする。
     // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
@@ -150,6 +164,8 @@ struct ParseContext {
         default:
             std::unreachable();
         }
+        // ノード間で link_url_lookup を再利用するため処理開始時にクリア。
+        link_url_lookup.clear();
     }
 
     TextRun MakeRun(uint32_t start, uint32_t length)
@@ -167,22 +183,23 @@ struct ParseContext {
     }
 
     // url を Node::link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
-    // 既出 URL は線形検索で再利用 (link_urls の典型サイズは 0〜数件)。
+    // 同一ノード内の URL は link_url_lookup (hash map) で O(1) インデックス再利用。
+    // 脚注を多数含む文書で urls.size() が数十に達したときの線形検索を省く。
     void ResolveLinkUrlIndex(std::wstring_view url)
     {
         if (!current_node || url.empty()) {
             current_link_url_index = -1;
             return;
         }
-        auto& urls = current_node->ensure_link_urls();
-        for (size_t i = 0; i < urls.size(); i++) {
-            if (urls[i] == url) {
-                current_link_url_index = static_cast<int16_t>(i);
-                return;
-            }
+        if (const auto it = link_url_lookup.find(url); it != link_url_lookup.end()) {
+            current_link_url_index = it->second;
+            return;
         }
-        current_link_url_index = static_cast<int16_t>(urls.size());
+        auto& urls = current_node->ensure_link_urls();
+        const int16_t new_index = static_cast<int16_t>(urls.size());
         urls.emplace_back(url);
+        link_url_lookup.emplace(std::pmr::wstring{ url, &pool }, new_index);
+        current_link_url_index = new_index;
     }
 
     // テーブルセルにWideテキストを追加（AppendWideから委譲される）。
@@ -204,12 +221,19 @@ struct ParseContext {
             AppendTextToCell(text);
             return;
         }
-        if (!current_node || text.empty()) {
+        if (!current_node) {
             return;
         }
+        // md4c は size 0 の text コールバックを発生させない契約 (md4c.c の MD_TEXT マクロで size > 0 ガード済) なので empty 判定は省く。
         if (!has_pending_run) {
             pending_run_start = static_cast<uint32_t>(current_text.size());
             has_pending_run = true;
+        }
+        // OnText から chunk として渡される \n は 1 文字単独 (md4c の MD_TEXT 呼出構造)。
+        // そのケースを安く判定して newline カウンタを +1。
+        // FlushPendingRun 側で std::ranges::count による線形走査を避けるための最適化。
+        if (text.size() == 1 && text[0] == L'\n') {
+            ++pending_run_newlines;
         }
         current_text.append(text);
     }
@@ -220,11 +244,11 @@ struct ParseContext {
     {
         if (has_pending_run && current_node && current_text.size() > pending_run_start) {
             const uint32_t length = static_cast<uint32_t>(current_text.size() - pending_run_start);
-            const std::wstring_view run_view{ current_text.data() + pending_run_start, length };
-            current_node->line_count += static_cast<int>(std::ranges::count(run_view, L'\n'));
+            current_node->line_count += static_cast<int>(pending_run_newlines);
             current_node->runs.emplace_back(MakeRun(pending_run_start, length));
         }
         has_pending_run = false;
+        pending_run_newlines = 0;
     }
 };
 
@@ -315,13 +339,13 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         break;
 
     case MD_BLOCK_UL:
-        ctx->list_counter.push(0);
+        ctx->list_counter.push_back(0);
         ctx->indent_level++;
         break;
 
     case MD_BLOCK_OL: {
         auto* const ol = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
-        ctx->list_counter.push(static_cast<int>(ol->start));
+        ctx->list_counter.push_back(static_cast<int>(ol->start));
         ctx->indent_level++;
         break;
     }
@@ -336,10 +360,10 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
             ctx->BeginNode(NodeType::ListItem);
         }
         if (!ctx->list_counter.empty()) {
-            const int counter = ctx->list_counter.top();
+            const int counter = ctx->list_counter.back();
             ctx->current_node->list_number = counter;
             if (counter > 0) {
-                ctx->list_counter.top()++;
+                ctx->list_counter.back()++;
             }
         }
         break;
@@ -433,7 +457,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     case MD_BLOCK_UL:
     case MD_BLOCK_OL:
         if (!ctx->list_counter.empty()) {
-            ctx->list_counter.pop();
+            ctx->list_counter.pop_back();
         }
         if (ctx->indent_level > 0) {
             ctx->indent_level--;
@@ -458,9 +482,11 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_H:
         if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
-            // 見出しテキストを先行確定してアンカーID生成
+            // 見出しテキストを先行確定してアンカーID生成。
+            // base_id を ctx->pool 上に構築することで anchor_counts (同じ pool) の try_emplace を真の move にする。
             ctx->FinalizeCurrentNode();
-            std::pmr::wstring base_id = GenerateAnchorId(cn->GetText());
+            std::pmr::wstring base_id{ &ctx->pool };
+            GenerateAnchorIdInto(cn->GetText(), base_id);
             auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
             const int count = it->second++;
             auto* hd = cn->ensure_heading();
@@ -587,7 +613,9 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
         break;
     case MD_SPAN_IMG:
         if (auto* cn = ctx->current_node; cn && !ctx->pending_image_src.empty()) {
-            cn->ensure_image()->src = std::move(ctx->pending_image_src);
+            // pending_image_src は pool allocator で、NodeImageData::src は default 。
+            // allocator 不一致で std::move しても内部的にコピーされるので、明示的に assign(view) する。
+            cn->ensure_image()->src.assign(ctx->pending_image_src.data(), ctx->pending_image_src.size());
         }
         ctx->pending_image_src.clear();
         break;
@@ -617,9 +645,18 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         return 0;
     }
 
-    // 各ノードの最初のテキストコールバックでソースオフセットを記録（UTF-16 コード単位）
-    if (ctx->current_node->source_offset == kUnsetSourceOffset && ctx->markdown_base) {
-        ctx->current_node->source_offset = static_cast<uint32_t>(text - ctx->markdown_base);
+    // 各ノードの最初のテキストコールバックでソースオフセットを記録（UTF-16 コード単位）。
+    // md4c は MD_TEXT_NULLCHAR / MD_TEXT_BR / MD_TEXT_SOFTBR や、CODE/LATEXMATH/HTML の改行・空白置換で
+    // _T(""), _T("\n"), _T(" ") といった内部リテラルを text として渡すことがある。
+    // 異なる array 同士の text - markdown_base は UB で壊れたオフセットを拾うため、
+    // text が入力バッファ範囲内であることを std::less で判定してから更新する。
+    // (std::less は異なる array 間のポインタに対しても strict total order を保証する)。
+    if (ctx->current_node->source_offset == kUnsetSourceOffset) {
+        const std::less<const wchar_t*> ptr_less;
+        const wchar_t* const buf_end = ctx->markdown_base + ctx->markdown_size;
+        if (!ptr_less(text, ctx->markdown_base) && ptr_less(text, buf_end)) {
+            ctx->current_node->source_offset = static_cast<uint32_t>(text - ctx->markdown_base);
+        }
     }
 
     const std::wstring_view chunk{ text, static_cast<size_t>(size) };
@@ -686,6 +723,7 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
 {
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
+    ctx.markdown_size = markdown_text.size();
     // ノード単位のスクラッチを 1 回確保しておくと、長段落・コードブロックでの再確保を抑えられる。
     ctx.current_text.reserve(SCRATCH_RESERVE);
     ctx.nodes.reserve(std::clamp(markdown_text.size() / 48, size_t{ 64 }, size_t{ 16384 }));
@@ -863,13 +901,10 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     }
 
     // node.SetText の中で line_count を再カウントすると O(text) で改行を数え直すため、
-    // ここで差分計算する。マーカー部 [0, marker_end) の改行を旧 count から差し引き、
-    // 挿入したプレフィックスの改行 (has_content の場合 1) を足す。
-    int marker_newlines = 0;
-    {
-        const std::wstring_view marker_view{ current_text.data(), marker_end };
-        marker_newlines = static_cast<int>(std::ranges::count(marker_view, L'\n'));
-    }
+    // ここで差分計算する。マーカー [!TYPE] 本体には改行が入らず、
+    // DetectAlertMarker で 1 文字だけスキップする文字が \n の場合のみ改行 1 個。
+    // count を走査せず、marker_end 直前の 1 文字だけを見ればよい。
+    const int marker_newlines = static_cast<int>(marker_end > 0 && current_text[marker_end - 1] == L'\n');
     const int new_line_count = node.line_count - marker_newlines + static_cast<int>(has_content);
     node.SetTextWithLineCount(std::move(new_text), new_line_count);
     node.runs = std::move(new_runs);
@@ -924,29 +959,34 @@ void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockqu
 
 std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wchar_t (&buffer)[2])
 {
-    {
-        std::wstring_view literal;
+    // 名前付き実体参照はサイズで先に分岐し、比較対象を 1～3 候補に絞る。
+    switch (entity.size()) {
+    case 4:
+        if (entity == L"&lt;") {
+            return std::wstring_view{ L"<" };
+        }
+        if (entity == L"&gt;") {
+            return std::wstring_view{ L">" };
+        }
+        break;
+    case 5:
         if (entity == L"&amp;") {
-            literal = L"&";
+            return std::wstring_view{ L"&" };
         }
-        else if (entity == L"&lt;") {
-            literal = L"<";
+        break;
+    case 6:
+        if (entity == L"&quot;") {
+            return std::wstring_view{ L"\"" };
         }
-        else if (entity == L"&gt;") {
-            literal = L">";
+        if (entity == L"&apos;") {
+            return std::wstring_view{ L"'" };
         }
-        else if (entity == L"&quot;") {
-            literal = L"\"";
+        if (entity == L"&nbsp;") {
+            return std::wstring_view{ L" " };
         }
-        else if (entity == L"&apos;") {
-            literal = L"'";
-        }
-        else if (entity == L"&nbsp;") {
-            literal = L" ";
-        }
-        if (!literal.empty()) {
-            return literal;
-        }
+        break;
+    default:
+        break;
     }
 
     if (entity.size() >= 4 && entity[0] == L'&' && entity[1] == L'#' && entity.back() == L';') {

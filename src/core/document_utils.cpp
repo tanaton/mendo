@@ -1,5 +1,6 @@
 #include "document_utils.h"
 #include "ascii_util.h"
+#include <array>
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
@@ -74,44 +75,90 @@ std::pmr::wstring ExtractFilename(std::wstring_view path)
     return std::pmr::wstring{ std::filesystem::path(path).filename().native() };
 }
 
+namespace {
+
+// GenerateAnchorId の ASCII (0x00–0x7F) 処理を 1 回の lookup で判定するテーブル。
+// 値: 0=skip, 1=keep, 2=hyphen, 3=lower (A-Z のみ。実際の変換は c | 0x20 で小文字化)。
+enum AsciiSlugAction : uint8_t {
+    SlugSkip = 0,
+    SlugKeep = 1,
+    SlugHyphen = 2,
+    SlugLower = 3,
+};
+
+constexpr auto kAsciiSlugTable = [] {
+    std::array<AsciiSlugAction, 128> t{};
+    for (size_t i = 0; i < t.size(); ++i) {
+        const wchar_t c = static_cast<wchar_t>(i);
+        if ((c >= L'a' && c <= L'z') || ascii_util::IsAsciiDigit(c) || c == L'-' || c == L'_') {
+            t[i] = SlugKeep;
+        }
+        else if (c >= L'A' && c <= L'Z') {
+            t[i] = SlugLower;
+        }
+        else if (c == L' ' || c == L'\t') {
+            t[i] = SlugHyphen;
+        }
+        else {
+            t[i] = SlugSkip;
+        }
+    }
+    return t;
+}();
+
+// CJK ・ 全角文字範囲の句読点・記号はアンカーに含めない。
+constexpr bool IsAnchorSkippableSymbol(wchar_t c) noexcept
+{
+    // CJK 記号と句読点 (U+3000–U+303F)
+    if (c <= 0x303F) {
+        return true;
+    }
+    // 全角 ASCII 対応の記号関連
+    return (c >= 0xFF01 && c <= 0xFF0F) || (c >= 0xFF1A && c <= 0xFF20) || (c >= 0xFF3B && c <= 0xFF40) || (c >= 0xFF5B && c <= 0xFF65);
+}
+
+} // namespace
+
+void GenerateAnchorIdInto(std::wstring_view text, std::pmr::wstring& slug)
+{
+    slug.clear();
+    // 出力は入力サイズ以下で確定のため一括確保して書き出す。
+    slug.resize_and_overwrite(text.size(), [text](wchar_t* buf, size_t /*count*/) noexcept -> size_t {
+        wchar_t* dst = buf;
+        for (const wchar_t c : text) {
+            if (c < 0x80) {
+                // ASCII ファストパス: 1 回の table lookup で分岐を絞る。
+                switch (kAsciiSlugTable[static_cast<size_t>(c)]) {
+                case SlugKeep:
+                    *dst++ = c;
+                    break;
+                case SlugLower:
+                    // A-Z になることは table で保証済み。
+                    *dst++ = static_cast<wchar_t>(c | 0x20);
+                    break;
+                case SlugHyphen:
+                    *dst++ = L'-';
+                    break;
+                default:
+                    break;
+                }
+            }
+            else if (c >= 0x3000) {
+                // CJK 文字・全角文字を判定。句読点・記号だけ除外して残す。
+                if (!IsAnchorSkippableSymbol(c)) {
+                    *dst++ = c;
+                }
+            }
+            // 0x80–0x2FFF はスキップ。
+        }
+        return static_cast<size_t>(dst - buf);
+    });
+}
+
 std::pmr::wstring GenerateAnchorId(std::wstring_view text)
 {
     std::pmr::wstring slug;
-    slug.reserve(text.size());
-    for (wchar_t c : text) {
-        const wchar_t lower = ascii_util::ToLowerAscii(c);
-        if ((lower >= L'a' && lower <= L'z') || (lower >= L'0' && lower <= L'9') || lower == L'-' || lower == L'_') {
-            slug += lower;
-        }
-        else if (c == L' ' || c == L'\t') {
-            slug += L'-';
-        }
-        // CJK文字: そのまま保持するが、句読点・記号はスキップ
-        else if (c >= 0x3000) {
-            bool skip = false;
-            // CJK記号と句読点 (U+3000-U+303F): 、。「」【】〈〉 等
-            if (c <= 0x303F) {
-                skip = true;
-            }
-            // 全角ASCII対応の句読点
-            else if (c >= 0xFF01 && c <= 0xFF0F) {
-                skip = true; // ！＂＃…（）＊＋，－．／
-            }
-            else if (c >= 0xFF1A && c <= 0xFF20) {
-                skip = true; // ：；＜＝＞？＠
-            }
-            else if (c >= 0xFF3B && c <= 0xFF40) {
-                skip = true; // ［＼］＾＿｀
-            }
-            else if (c >= 0xFF5B && c <= 0xFF65) {
-                skip = true; // ｛｜｝～…･
-            }
-            if (!skip) {
-                slug += c;
-            }
-        }
-        // その他の文字: スキップ
-    }
+    GenerateAnchorIdInto(text, slug);
     return slug;
 }
 

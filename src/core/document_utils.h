@@ -26,6 +26,9 @@ std::pmr::wstring ToLowerAscii(std::wstring_view text);
 // ASCII は小文字化、空白は '-'、CJK 文字は保持しつつ句読点・記号はスキップする。
 std::pmr::wstring GenerateAnchorId(std::wstring_view text);
 
+// 既存の slug に書き込むバリアント。slug の allocator を呼び出し側が制御したい (anchor_counts とアロケータを揃えるなど) 場合に使う。
+void GenerateAnchorIdInto(std::wstring_view text, std::pmr::wstring& slug);
+
 // ファイルパスまたはファイル名がMarkdownファイル（.md, .markdown, .mkd）かどうかを判定する。
 // 拡張子の大文字小文字は区別しない。
 bool IsMarkdownFile(std::wstring_view path);
