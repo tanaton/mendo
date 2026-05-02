@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "pmr_unique_ptr.h"
 #include <vector>
 #include <memory_resource>
 #include <wrl/client.h>
@@ -117,18 +118,18 @@ struct NodeLayoutEntry {
     bool layout_dirty = true;
     bool effects_applied = false;
     // インラインコード持ちノードでのみ確保される。空の vector ヘッダ (24B/個) を全ノード分背負わない。
-    std::unique_ptr<std::pmr::vector<InlineCodeBg>> inline_code_bgs;
-    std::unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
+    mendo::pmr_unique_ptr<std::pmr::vector<InlineCodeBg>> inline_code_bgs;
+    mendo::pmr_unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
 
     // 検索ヒットがあるノードでのみ確保される。描画中に書き換えるため mutable。
-    mutable std::unique_ptr<SearchHlCache> search_hl_cache;
+    mutable mendo::pmr_unique_ptr<SearchHlCache> search_hl_cache;
     // 選択中のノードでのみ確保される。描画中に書き換えるため mutable。
-    mutable std::unique_ptr<SelectionHlCache> selection_hl_cache;
+    mutable mendo::pmr_unique_ptr<SelectionHlCache> selection_hl_cache;
 
     constexpr SearchHlCache& ensure_search_hl_cache() const
     {
         if (!search_hl_cache) {
-            search_hl_cache = std::make_unique<SearchHlCache>();
+            search_hl_cache = mendo::MakePmrUnique<SearchHlCache>();
         }
         return *search_hl_cache;
     }
@@ -143,7 +144,7 @@ struct NodeLayoutEntry {
     constexpr SelectionHlCache& ensure_selection_hl_cache() const
     {
         if (!selection_hl_cache) {
-            selection_hl_cache = std::make_unique<SelectionHlCache>();
+            selection_hl_cache = mendo::MakePmrUnique<SelectionHlCache>();
         }
         return *selection_hl_cache;
     }
@@ -166,7 +167,7 @@ struct NodeLayoutEntry {
     constexpr TableLayoutData& ensure_table_layout()
     {
         if (!table_layout) {
-            table_layout = std::make_unique<TableLayoutData>();
+            table_layout = mendo::MakePmrUnique<TableLayoutData>();
         }
         return *table_layout;
     }
@@ -178,7 +179,7 @@ struct NodeLayoutEntry {
     constexpr std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
     {
         if (!inline_code_bgs) {
-            inline_code_bgs = std::make_unique<std::pmr::vector<InlineCodeBg>>();
+            inline_code_bgs = mendo::MakePmrUnique<std::pmr::vector<InlineCodeBg>>();
         }
         return *inline_code_bgs;
     }

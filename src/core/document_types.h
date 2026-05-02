@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <utility>
 #include <variant>
+#include "pmr_unique_ptr.h"
 #include "small_vector.h"
 #include "syntax.h"
 #include "text_types.h"
@@ -102,19 +103,20 @@ struct Node {
 
     // Table と Image のデータは Node 全体の少数派 (画像/表のあるノードのみ) なので、
     // variant に詰め込むと最大 alternative である NodeImageData が全 Node の sizeof を支配する。
-    // unique_ptr で外出しすると variant 上限が下がり、持たないノードは null pointer のオーバー
-    // ヘッドだけで済む。default deleter で自動解放されるため Node 自身は copy/move/dtor の手書き
-    // 不要 (= unique_ptr メンバの存在で Node は move-only になる)。
+    // pmr_unique_ptr で外出しすると variant 上限が下がり、持たないノードは null pointer の
+    // オーバーヘッドだけで済む。PmrDefaultDeleter (ステートレス) が pmr default_resource に
+    // 自動返却するため Node 自身は copy/move/dtor の手書き不要 (= スマートポインタメンバの
+    // 存在で Node は move-only になる)。
     // Parser invariant: type == NodeType::Table のとき table_ != nullptr。MeasureTable や
     // HitTestTable は type 判定だけで table_data() を参照するため、parser はテーブル開始時に
     // 必ず ensure_table() を呼ぶこと。
-    std::unique_ptr<NodeTableData> table_;
-    std::unique_ptr<NodeImageData> image_;
+    mendo::pmr_unique_ptr<NodeTableData> table_;
+    mendo::pmr_unique_ptr<NodeImageData> image_;
 
     // リンク URL の集合。リンクを含むノードでのみ確保される。
     // Why: `Node::runs` が link_url_index で参照する URL テーブル。リンクを持つノードは
     // 全体の少数派 (見出し/段落の一部) なので、空時は 8B ポインタ 1 本に抑える。
-    std::unique_ptr<std::pmr::vector<std::pmr::wstring>> link_urls_;
+    mendo::pmr_unique_ptr<std::pmr::vector<std::pmr::wstring>> link_urls_;
 
     // ノード種別ごとの拡張データ。Heading/Code のみ variant に格納 (上限 24B + tag 8B = 32B)。
     using Extra = std::variant<std::monostate, NodeHeadingData, NodeCodeData>;
@@ -233,14 +235,14 @@ struct Node {
     constexpr NodeTableData* ensure_table()
     {
         if (!table_) {
-            table_ = std::make_unique<NodeTableData>();
+            table_ = mendo::MakePmrUnique<NodeTableData>();
         }
         return table_.get();
     }
     constexpr NodeImageData* ensure_image()
     {
         if (!image_) {
-            image_ = std::make_unique<NodeImageData>();
+            image_ = mendo::MakePmrUnique<NodeImageData>();
         }
         return image_.get();
     }
@@ -277,7 +279,7 @@ struct Node {
     constexpr std::pmr::vector<std::pmr::wstring>& ensure_link_urls()
     {
         if (!link_urls_) {
-            link_urls_ = std::make_unique<std::pmr::vector<std::pmr::wstring>>();
+            link_urls_ = mendo::MakePmrUnique<std::pmr::vector<std::pmr::wstring>>();
         }
         return *link_urls_;
     }
