@@ -10,7 +10,7 @@
 // ImageLoader キャッシュテスト
 // ============================================================
 
-class ImageLoaderLruTest : public ::testing::Test {
+class ImageLoaderCacheTest : public ::testing::Test {
 protected:
     ImageLoader loader_;
 
@@ -22,13 +22,13 @@ protected:
     }
 };
 
-TEST_F(ImageLoaderLruTest, GetCachedImageReturnsFalseForUnknownPath)
+TEST_F(ImageLoaderCacheTest, GetCachedImageReturnsFalseForUnknownPath)
 {
     DiagramEntry out;
     EXPECT_FALSE(loader_.GetCachedImage(L"nonexistent.png", out));
 }
 
-TEST_F(ImageLoaderLruTest, ClearCacheRemovesAllEntries)
+TEST_F(ImageLoaderCacheTest, ClearCacheRemovesAllEntries)
 {
     // キャッシュをクリアしてもクラッシュしないこと
     loader_.ClearCache();
@@ -36,7 +36,7 @@ TEST_F(ImageLoaderLruTest, ClearCacheRemovesAllEntries)
     EXPECT_FALSE(loader_.GetCachedImage(L"any.png", out));
 }
 
-TEST_F(ImageLoaderLruTest, EvictsLeastRecentlyInsertedWhenExceedingMaxEntries)
+TEST_F(ImageLoaderCacheTest, EvictsLeastRecentlyInsertedWhenExceedingMaxEntries)
 {
     // 新規 Insert は先頭に入り、容量超過時は末尾 (= 最も古く Insert された) が捨てられる。
     const size_t max_entries = 128; // MAX_CACHE_ENTRIES
@@ -56,7 +56,7 @@ TEST_F(ImageLoaderLruTest, EvictsLeastRecentlyInsertedWhenExceedingMaxEntries)
     EXPECT_TRUE(loader_.GetCachedImage(L"overflow.png", out));
 }
 
-TEST_F(ImageLoaderLruTest, LatestInsertsWinAcrossOverflows)
+TEST_F(ImageLoaderCacheTest, LatestInsertsWinAcrossOverflows)
 {
     // 連続 overflow が起きると古い Insert から順に末尾から捨てられていく。
     const size_t max_entries = 128;

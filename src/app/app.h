@@ -297,7 +297,10 @@ private:
 
     void ShowToast(std::wstring_view message);
 
-    // SVG クリップボードコピーのセッション内 LRU キャッシュ。
+    // SVG クリップボードコピーのセッション内キャッシュ。
+    // LruCache は self-organizing list (transposition rule)。
+    // Find / 既存キー Insert はヒット位置を 1 つ前と swap して promote。
+    // 新規 Insert は先頭挿入で末尾を破棄。
     // キーは PNG キャッシュと同じ NodeDiagramHash。LatexMath は SVG コピー対象外。
     static constexpr size_t MAX_SVG_CACHE_ENTRIES = 128;
     LruCache<uint64_t, std::pmr::wstring, MAX_SVG_CACHE_ENTRIES> svg_cache_;

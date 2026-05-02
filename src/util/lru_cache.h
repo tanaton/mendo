@@ -69,8 +69,8 @@ public:
 
     constexpr void Clear()
     {
-        keys_ = {};
-        values_ = {};
+        std::ranges::fill(keys_.begin(), keys_.begin() + size_, Key{});
+        std::ranges::fill(values_.begin(), values_.begin() + size_, Value{});
         size_ = 0;
     }
 
