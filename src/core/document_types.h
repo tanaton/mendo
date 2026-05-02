@@ -105,6 +105,9 @@ struct Node {
     // unique_ptr で外出しすると variant 上限が下がり、持たないノードは null pointer のオーバー
     // ヘッドだけで済む。default deleter で自動解放されるため Node 自身は copy/move/dtor の手書き
     // 不要 (= unique_ptr メンバの存在で Node は move-only になる)。
+    // Parser invariant: type == NodeType::Table のとき table_ != nullptr。MeasureTable や
+    // HitTestTable は type 判定だけで table_data() を参照するため、parser はテーブル開始時に
+    // 必ず ensure_table() を呼ぶこと。
     std::unique_ptr<NodeTableData> table_;
     std::unique_ptr<NodeImageData> image_;
 

@@ -989,6 +989,27 @@ TEST(Parser, LatexDisplayMathMultiline)
     EXPECT_NE(body.find(L"E = mc^2"), std::wstring::npos);
 }
 
+TEST(Parser, LatexDisplayMathLineCountMatchesNewlines)
+{
+    // OnText で事前集計した display_math_newlines を line_count に流用しているため、
+    // 旧実装 (current_text 全走査の std::ranges::count) と同じ値を保つことを回帰テストする。
+    const std::wstring_view sources[] = {
+        L"$$E = mc^2$$",
+        L"$$\nE = mc^2\n$$",
+        L"$$\na\nb\nc\n$$",
+    };
+    for (const auto src : sources) {
+        SCOPED_TRACE(std::wstring{ src });
+        auto result = ParseMarkdown(src);
+        ASSERT_EQ(result.nodes.size(), 1u);
+        ASSERT_EQ(result.nodes[0].type, NodeType::CodeBlock);
+        ASSERT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
+        const auto text = result.nodes[0].GetText();
+        const auto expected = static_cast<int>(std::ranges::count(text, L'\n'));
+        EXPECT_EQ(result.nodes[0].line_count, expected);
+    }
+}
+
 TEST(Parser, LatexDisplayMathSurroundingParagraphs)
 {
     // 前後に通常段落がある場合も、純粋な $$...$$ 段落のみ昇格される

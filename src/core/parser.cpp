@@ -741,11 +741,12 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
     // ノード単位のスクラッチを 1 回確保しておくと、長段落・コードブロックでの再確保を抑えられる。
     ctx.current_text.reserve(SCRATCH_RESERVE);
     ctx.nodes.reserve(std::clamp(markdown_text.size() / 48, size_t{ 64 }, size_t{ 16384 }));
-    ctx.heading_indices.reserve(std::clamp(markdown_text.size() / 256, size_t{ 8 }, size_t{ 512 }));
+    // heading_indices と anchor_counts は同じ「見出し数」が入るので reserve の見積もりも揃える。
+    // 1MB あたり 256 個程度で実測の数十〜数百に収まる。
+    ctx.heading_indices.reserve(std::clamp(markdown_text.size() / 4096, size_t{ 8 }, size_t{ 256 }));
     ctx.image_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
     ctx.diagram_indices.reserve(std::clamp(markdown_text.size() / 1024, size_t{ 4 }, size_t{ 128 }));
     ctx.blockquote_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
-    // 1MB あたり 256 個程度を見出し数の目安に。実測では数十〜数百に収まるので過大確保しない。
     ctx.anchor_counts.reserve(std::clamp(markdown_text.size() / 4096, size_t{ 8 }, size_t{ 256 }));
 
     MD_PARSER parser{};
