@@ -299,8 +299,8 @@ private:
 
     // SVG クリップボードコピーのセッション内 LRU キャッシュ。
     // キーは PNG キャッシュと同じ NodeDiagramHash。LatexMath は SVG コピー対象外。
-    static constexpr size_t MAX_SVG_CACHE_ENTRIES = 64;
-    LruCache<uint64_t, std::pmr::wstring> svg_cache_{ MAX_SVG_CACHE_ENTRIES };
+    static constexpr size_t MAX_SVG_CACHE_ENTRIES = 128;
+    LruCache<uint64_t, std::pmr::wstring, MAX_SVG_CACHE_ENTRIES> svg_cache_;
     // SVG レンダリングは非同期で 1 秒程度かかる。同じノードを連打されても
     // 1 件のリクエストに集約するためのフラグ。
     bool svg_copy_in_flight_ = false;

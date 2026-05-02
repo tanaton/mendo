@@ -7,7 +7,7 @@
 #include "mock_text_measurer.h"
 
 // ============================================================
-// ImageLoader LRU キャッシュテスト
+// ImageLoader キャッシュテスト
 // ============================================================
 
 class ImageLoaderLruTest : public ::testing::Test {
@@ -16,7 +16,7 @@ protected:
 
     void SetUp() override
     {
-        // キャッシュの LRU 動作テストでは GetCachedImage / RemoveCached のみ使用。
+        // キャッシュ動作テストでは GetCachedImage / InsertCacheEntry のみ使用。
         // レンダーターゲットや WIC は不要。
         loader_.Init(nullptr);
     }
@@ -36,9 +36,9 @@ TEST_F(ImageLoaderLruTest, ClearCacheRemovesAllEntries)
     EXPECT_FALSE(loader_.GetCachedImage(L"any.png", out));
 }
 
-TEST_F(ImageLoaderLruTest, EvictsOldestWhenExceedingMaxEntries)
+TEST_F(ImageLoaderLruTest, EvictsLeastRecentlyInsertedWhenExceedingMaxEntries)
 {
-    // MAX_CACHE_ENTRIES を超えたら最古のエントリが削除される
+    // 新規 Insert は先頭に入り、容量超過時は末尾 (= 最も古く Insert された) が捨てられる。
     const size_t max_entries = 128; // MAX_CACHE_ENTRIES
 
     for (size_t i = 0; i < max_entries; i++) {
@@ -46,35 +46,37 @@ TEST_F(ImageLoaderLruTest, EvictsOldestWhenExceedingMaxEntries)
     }
     EXPECT_EQ(loader_.CacheSize(), max_entries);
 
-    // 1つ追加すると最古 (img_0) が削除される
+    // 1 つ追加すると最も古く Insert された img_0 が捨てられる
     loader_.InsertCacheEntry(L"overflow.png", 100.0f, 100.0f);
     EXPECT_EQ(loader_.CacheSize(), max_entries);
 
     DiagramEntry out;
     EXPECT_FALSE(loader_.GetCachedImage(L"img_0.png", out));
+    EXPECT_TRUE(loader_.GetCachedImage(L"img_127.png", out));
     EXPECT_TRUE(loader_.GetCachedImage(L"overflow.png", out));
 }
 
-TEST_F(ImageLoaderLruTest, RecentlyAccessedEntrysSurvivesEviction)
+TEST_F(ImageLoaderLruTest, LatestInsertsWinAcrossOverflows)
 {
-    // アクセスしたエントリは LRU エビクションで生き残る
+    // 連続 overflow が起きると古い Insert から順に末尾から捨てられていく。
     const size_t max_entries = 128;
 
     for (size_t i = 0; i < max_entries; i++) {
         loader_.InsertCacheEntry(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
     }
 
-    // img_0 にアクセスして最新にする
-    DiagramEntry out;
-    EXPECT_TRUE(loader_.GetCachedImage(L"img_0.png", out));
-
-    // 1つ追加 → img_0 ではなく img_1（最古）が削除される
-    loader_.InsertCacheEntry(L"new.png", 100.0f, 100.0f);
+    // 10 回 overflow を起こす → img_0..img_9 が末尾から順に捨てられる
+    for (int i = 0; i < 10; i++) {
+        loader_.InsertCacheEntry(L"overflow_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+    }
     EXPECT_EQ(loader_.CacheSize(), max_entries);
 
-    EXPECT_TRUE(loader_.GetCachedImage(L"img_0.png", out));
-    EXPECT_FALSE(loader_.GetCachedImage(L"img_1.png", out));
-    EXPECT_TRUE(loader_.GetCachedImage(L"new.png", out));
+    DiagramEntry out;
+    EXPECT_FALSE(loader_.GetCachedImage(L"img_0.png", out));
+    EXPECT_FALSE(loader_.GetCachedImage(L"img_9.png", out));
+    EXPECT_TRUE(loader_.GetCachedImage(L"img_10.png", out));
+    EXPECT_TRUE(loader_.GetCachedImage(L"img_127.png", out));
+    EXPECT_TRUE(loader_.GetCachedImage(L"overflow_9.png", out));
 }
 
 // ============================================================
