@@ -3,6 +3,7 @@
 #include "command_generator.h"
 #include "dwrite_test_base.h"
 #include "parser.h"
+#include "test_helpers.h"
 
 class LayoutTest : public DWriteTestBase {};
 

@@ -102,10 +102,18 @@ struct ParseContext {
     int paragraph_display_math_count = 0;
     bool paragraph_has_other_content = false;
     std::pmr::wstring display_math_buf{ &pool };
+    // display_math_buf に append された範囲の改行数。昇格時の line_count 設定に使い、
+    // current_text 全体を std::ranges::count で走査するコストを避ける。
+    uint32_t display_math_newlines = 0;
 
     // md_parse() に渡した入力バッファ。source_offset 計算と OnText の text ポインタ範囲判定に使う。
     const wchar_t* markdown_base = nullptr;
     size_t markdown_size = 0;
+
+    // 現在ノードの source_offset が既に設定済みか。
+    // OnText の uint32 比較 (current_node->source_offset == kUnsetSourceOffset) を毎テキストで
+    // 評価する代わりに、BeginNode でリセット → 範囲内マッチで設定 → 以降は素通しでよい。
+    bool node_source_offset_set = false;
 
     // 現在ノードの Wide スクラッチを text_ にコピーし、スクラッチをクリアする。
     // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
@@ -138,6 +146,7 @@ struct ParseContext {
             current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, kInt8Max));
         }
         // runs は SBO=4 で初期確保ゼロを狙う。reserve すると SBO の利点が消えるので呼ばない。
+        node_source_offset_set = false;
     }
 
     TextRun MakeRun(uint32_t start, uint32_t length)
@@ -161,14 +170,12 @@ struct ParseContext {
             current_link_url_index = -1;
             return;
         }
-        if (auto* existing_urls = current_node->link_urls.get()) {
-            const auto& urls = *existing_urls;
-            const size_t n = urls.size();
-            for (size_t i = 0; i < n; ++i) {
-                if (std::wstring_view{ urls[i] } == url) {
-                    current_link_url_index = static_cast<int16_t>(i);
-                    return;
-                }
+        const auto existing = current_node->view_link_urls();
+        const size_t n = existing.size();
+        for (size_t i = 0; i < n; ++i) {
+            if (std::wstring_view{ existing[i] } == url) {
+                current_link_url_index = static_cast<int16_t>(i);
+                return;
             }
         }
         auto& urls = current_node->ensure_link_urls();
@@ -267,7 +274,7 @@ bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     node->code_language = SyntaxLanguage::LatexMath;
     ctx->current_text.assign(ctx->display_math_buf.data(), ctx->display_math_buf.size());
     node->runs.clear();
-    node->line_count = static_cast<int>(std::ranges::count(ctx->current_text, L'\n'));
+    node->line_count = static_cast<int>(ctx->display_math_newlines);
     ctx->diagram_indices.emplace_back(ctx->current_node_index);
     return true;
 }
@@ -298,6 +305,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->paragraph_display_math_count = 0;
         ctx->paragraph_has_other_content = false;
         ctx->display_math_buf.clear();
+        ctx->display_math_newlines = 0;
         ctx->in_display_math = false;
         break;
 
@@ -357,6 +365,9 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_TABLE:
         ctx->BeginNode(NodeType::Table);
+        // 後続の TR/TH/TD で nullable チェックなく参照できるよう先に確保する。
+        // これに依存して TR/TH/TD は has_table() ガードを省いている。
+        ctx->current_node->ensure_table();
         ctx->in_table = true;
         break;
 
@@ -370,14 +381,13 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_TR:
         if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Table) {
-            cn->ensure_table();
             cn->table_rows().emplace_back();
         }
         break;
 
     case MD_BLOCK_TH:
     case MD_BLOCK_TD: {
-        if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Table && cn->has_table() && !cn->table_rows().empty()) {
+        if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Table && !cn->table_rows().empty()) {
             auto& row = cn->table_rows().back();
             ctx->current_cell = &row.cells.emplace_back();
             ctx->current_cell->is_header = (type == MD_BLOCK_TH);
@@ -644,12 +654,14 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     // _T(""), _T("\n"), _T(" ") といった内部静的リテラルを text として渡すことがある。
     // 異なる array 同士のポインタ減算は UB なので、範囲判定もオフセット計算も uintptr_t の
     // 整数演算で行う (std::less<T*> の total order はアドレスの数値順と一致する保証がない)。
-    if (ctx->current_node->source_offset == kUnsetSourceOffset) {
+    // 範囲外マッチ (静的リテラル) のときは flag を立てず、後続の実体テキストで上書きできるようにする。
+    if (!ctx->node_source_offset_set) [[unlikely]] {
         const auto text_addr = reinterpret_cast<uintptr_t>(text);
         const auto base_addr = reinterpret_cast<uintptr_t>(ctx->markdown_base);
         const auto end_addr = base_addr + ctx->markdown_size * sizeof(wchar_t);
         if (text_addr >= base_addr && text_addr < end_addr) {
             ctx->current_node->source_offset = static_cast<uint32_t>((text_addr - base_addr) / sizeof(wchar_t));
+            ctx->node_source_offset_set = true;
         }
     }
 
@@ -668,6 +680,14 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         ctx->AppendWide(chunk);
         if (ctx->in_display_math && ctx->paragraph_display_math_count == 0 &&
             !ctx->paragraph_has_other_content) {
+            // size==1 のとき md4c が \n をそのまま渡してくるケースが多いのでスカラ比較で済ませ、
+            // size>1 のときだけ std::ranges::count にフォールバックする両対応。
+            if (chunk.size() == 1) {
+                ctx->display_math_newlines += static_cast<uint32_t>(chunk[0] == L'\n');
+            }
+            else {
+                ctx->display_math_newlines += static_cast<uint32_t>(std::ranges::count(chunk, L'\n'));
+            }
             ctx->display_math_buf.append(chunk);
         }
         break;
@@ -725,7 +745,8 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
     ctx.image_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
     ctx.diagram_indices.reserve(std::clamp(markdown_text.size() / 1024, size_t{ 4 }, size_t{ 128 }));
     ctx.blockquote_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
-    ctx.anchor_counts.reserve(std::clamp(markdown_text.size() / 256, size_t{ 8 }, size_t{ 512 }));
+    // 1MB あたり 256 個程度を見出し数の目安に。実測では数十〜数百に収まるので過大確保しない。
+    ctx.anchor_counts.reserve(std::clamp(markdown_text.size() / 4096, size_t{ 8 }, size_t{ 256 }));
 
     MD_PARSER parser{};
     parser.abi_version = 0;
