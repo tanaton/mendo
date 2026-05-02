@@ -124,10 +124,7 @@ private:
 
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
 
-    // キャッシュ: code_hash -> {bitmap, width, height}。
-    // LruCache は self-organizing list (transposition rule)。
-    // Find / 既存キー Insert はヒット位置を 1 つ前と swap して promote。
-    // 新規 Insert は先頭挿入で末尾を破棄。最大 128 エントリ。
+    // キャッシュ: code_hash -> {bitmap, width, height} (LruCache の挙動は src/util/lru_cache.h 参照)。
     struct CachedBitmap {
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
