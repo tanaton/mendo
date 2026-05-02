@@ -64,6 +64,7 @@ add_executable(mendo_tests
     test_ascii_util.cpp
     test_html_entity.cpp
     test_small_vector.cpp
+    test_pmr_unique_ptr.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

@@ -103,9 +103,10 @@ struct Node {
 
     // Table と Image のデータは Node 全体の少数派 (画像/表のあるノードのみ) なので、
     // variant に詰め込むと最大 alternative である NodeImageData が全 Node の sizeof を支配する。
-    // unique_ptr で外出しすると variant 上限が下がり、持たないノードは null pointer のオーバー
-    // ヘッドだけで済む。default deleter で自動解放されるため Node 自身は copy/move/dtor の手書き
-    // 不要 (= unique_ptr メンバの存在で Node は move-only になる)。
+    // pmr_unique_ptr で外出しすると variant 上限が下がり、持たないノードは null pointer の
+    // オーバーヘッドだけで済む。PmrDefaultDeleter (ステートレス) が pmr default_resource に
+    // 自動返却するため Node 自身は copy/move/dtor の手書き不要 (= スマートポインタメンバの
+    // 存在で Node は move-only になる)。
     // Parser invariant: type == NodeType::Table のとき table_ != nullptr。MeasureTable や
     // HitTestTable は type 判定だけで table_data() を参照するため、parser はテーブル開始時に
     // 必ず ensure_table() を呼ぶこと。
