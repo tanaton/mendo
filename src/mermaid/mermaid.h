@@ -124,14 +124,14 @@ private:
 
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
 
-    // キャッシュ: code_hash -> {bitmap, width, height}（LRU、最大64エントリ）
+    // キャッシュ: code_hash -> {bitmap, width, height} (LruCache の挙動は src/util/lru_cache.h 参照)。
     struct CachedBitmap {
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
     };
-    static constexpr size_t MAX_CACHE_ENTRIES = 64;
-    LruCache<uint64_t, CachedBitmap> cache_{ MAX_CACHE_ENTRIES };
+    static constexpr size_t MAX_CACHE_ENTRIES = 128;
+    LruCache<uint64_t, CachedBitmap, MAX_CACHE_ENTRIES> cache_;
 
     MermaidFileCache* file_cache_ = nullptr;
 

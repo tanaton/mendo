@@ -69,7 +69,7 @@ private:
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
-    LruCache<std::wstring, CachedImage> cache_{ MAX_CACHE_ENTRIES };
+    LruCache<std::wstring, CachedImage, MAX_CACHE_ENTRIES> cache_;
 
     HWND hwnd_ = nullptr;
     UINT msg_id_ = 0;
