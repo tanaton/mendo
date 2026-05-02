@@ -100,17 +100,24 @@ inline constexpr uint32_t kUnsetSourceOffset = std::numeric_limits<uint32_t>::ma
 struct Node {
     TextRunList runs;
 
+    // Table と Image のデータは Node 全体の少数派 (画像/表のあるノードのみ) なので、
+    // variant に詰め込むと最大 alternative である NodeImageData が全 Node の sizeof を支配する。
+    // unique_ptr で外出しすると variant 上限が下がり、持たないノードは null pointer のオーバー
+    // ヘッドだけで済む。default deleter で自動解放されるため Node 自身は copy/move/dtor の手書き
+    // 不要 (= unique_ptr メンバの存在で Node は move-only になる)。
+    // Parser invariant: type == NodeType::Table のとき table_ != nullptr。MeasureTable や
+    // HitTestTable は type 判定だけで table_data() を参照するため、parser はテーブル開始時に
+    // 必ず ensure_table() を呼ぶこと。
+    std::unique_ptr<NodeTableData> table_;
+    std::unique_ptr<NodeImageData> image_;
+
     // リンク URL の集合。リンクを含むノードでのみ確保される。
     // Why: `Node::runs` が link_url_index で参照する URL テーブル。リンクを持つノードは
     // 全体の少数派 (見出し/段落の一部) なので、空時は 8B ポインタ 1 本に抑える。
-    std::unique_ptr<std::pmr::vector<std::pmr::wstring>> link_urls;
+    std::unique_ptr<std::pmr::vector<std::pmr::wstring>> link_urls_;
 
-    // ノード種別ごとの拡張データ。同時に持てるのは 1 種類のみ。
-    // Why: 旧設計では 4 つの unique_ptr を常に保持していたため、ほとんどのノード
-    // (Paragraph/ListItem 等で 87% を占める) で 32B のポインタ群が null のまま
-    // 死蔵していた。variant に統合することで、データを持つノードでは別ヒープ
-    // への malloc を 1 回省略でき、断片化と allocator オーバーヘッドが減る。
-    using Extra = std::variant<std::monostate, NodeTableData, NodeImageData, NodeHeadingData, NodeCodeData>;
+    // ノード種別ごとの拡張データ。Heading/Code のみ variant に格納 (上限 24B + tag 8B = 32B)。
+    using Extra = std::variant<std::monostate, NodeHeadingData, NodeCodeData>;
     Extra extra;
 
     // --- 4 バイトアライメント ---
@@ -174,19 +181,19 @@ struct Node {
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
     constexpr NodeTableData* table_data() noexcept
     {
-        return std::get_if<NodeTableData>(&extra);
+        return table_.get();
     }
     constexpr const NodeTableData* table_data() const noexcept
     {
-        return std::get_if<NodeTableData>(&extra);
+        return table_.get();
     }
     constexpr NodeImageData* image_data() noexcept
     {
-        return std::get_if<NodeImageData>(&extra);
+        return image_.get();
     }
     constexpr const NodeImageData* image_data() const noexcept
     {
-        return std::get_if<NodeImageData>(&extra);
+        return image_.get();
     }
     constexpr NodeHeadingData* heading_data() noexcept
     {
@@ -207,11 +214,11 @@ struct Node {
 
     constexpr bool has_table() const noexcept
     {
-        return std::holds_alternative<NodeTableData>(extra);
+        return static_cast<bool>(table_);
     }
     constexpr bool has_image() const noexcept
     {
-        return std::holds_alternative<NodeImageData>(extra);
+        return static_cast<bool>(image_);
     }
     constexpr bool has_heading() const noexcept
     {
@@ -222,29 +229,29 @@ struct Node {
         return std::holds_alternative<NodeCodeData>(extra);
     }
 
-    // ensure_*: 既に同じ型を持っていれば内部参照を、違う型を持っていれば差し替えて新規確保した参照を返す。
-    constexpr NodeTableData* ensure_table() noexcept
+    // ensure_*: 既に存在すれば内部参照、無ければ新規確保して返す。
+    constexpr NodeTableData* ensure_table()
     {
-        if (!has_table()) {
-            return &extra.emplace<NodeTableData>();
+        if (!table_) {
+            table_ = std::make_unique<NodeTableData>();
         }
-        return std::get_if<NodeTableData>(&extra);
+        return table_.get();
     }
-    constexpr NodeImageData* ensure_image() noexcept
+    constexpr NodeImageData* ensure_image()
     {
-        if (!has_image()) {
-            return &extra.emplace<NodeImageData>();
+        if (!image_) {
+            image_ = std::make_unique<NodeImageData>();
         }
-        return std::get_if<NodeImageData>(&extra);
+        return image_.get();
     }
-    constexpr NodeHeadingData* ensure_heading() noexcept
+    constexpr NodeHeadingData* ensure_heading()
     {
         if (!has_heading()) {
             return &extra.emplace<NodeHeadingData>();
         }
         return std::get_if<NodeHeadingData>(&extra);
     }
-    constexpr NodeCodeData* ensure_code() noexcept
+    constexpr NodeCodeData* ensure_code()
     {
         if (!has_code()) {
             return &extra.emplace<NodeCodeData>();
@@ -267,16 +274,16 @@ struct Node {
         return hd ? std::wstring_view{ hd->anchor_id } : std::wstring_view{};
     }
 
-    std::pmr::vector<std::pmr::wstring>& ensure_link_urls()
+    constexpr std::pmr::vector<std::pmr::wstring>& ensure_link_urls()
     {
-        if (!link_urls) {
-            link_urls = std::make_unique<std::pmr::vector<std::pmr::wstring>>();
+        if (!link_urls_) {
+            link_urls_ = std::make_unique<std::pmr::vector<std::pmr::wstring>>();
         }
-        return *link_urls;
+        return *link_urls_;
     }
-    std::span<const std::pmr::wstring> view_link_urls() const noexcept
+    constexpr std::span<const std::pmr::wstring> view_link_urls() const noexcept
     {
-        return SpanOrEmpty(link_urls);
+        return SpanOrEmpty(link_urls_);
     }
 
     const std::pmr::vector<SyntaxToken>& syntax_tokens() const noexcept

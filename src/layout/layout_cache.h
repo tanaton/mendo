@@ -125,7 +125,7 @@ struct NodeLayoutEntry {
     // 選択中のノードでのみ確保される。描画中に書き換えるため mutable。
     mutable std::unique_ptr<SelectionHlCache> selection_hl_cache;
 
-    SearchHlCache& ensure_search_hl_cache() const
+    constexpr SearchHlCache& ensure_search_hl_cache() const
     {
         if (!search_hl_cache) {
             search_hl_cache = std::make_unique<SearchHlCache>();
@@ -133,14 +133,14 @@ struct NodeLayoutEntry {
         return *search_hl_cache;
     }
 
-    void invalidate_search_hl_cache() const noexcept
+    constexpr void invalidate_search_hl_cache() const noexcept
     {
         if (search_hl_cache) {
             search_hl_cache.reset();
         }
     }
 
-    SelectionHlCache& ensure_selection_hl_cache() const
+    constexpr SelectionHlCache& ensure_selection_hl_cache() const
     {
         if (!selection_hl_cache) {
             selection_hl_cache = std::make_unique<SelectionHlCache>();
@@ -148,7 +148,7 @@ struct NodeLayoutEntry {
         return *selection_hl_cache;
     }
 
-    void invalidate_selection_hl_cache() const noexcept
+    constexpr void invalidate_selection_hl_cache() const noexcept
     {
         if (selection_hl_cache) {
             selection_hl_cache.reset();
@@ -157,13 +157,13 @@ struct NodeLayoutEntry {
 
     // text_layout の wrap や format 属性が変わった際に、行折り返し由来のキャッシュ
     // (検索ハイライト矩形 / 選択ハイライト矩形) を一括で落とす。
-    void invalidate_per_frame_hl_caches() const noexcept
+    constexpr void invalidate_per_frame_hl_caches() const noexcept
     {
         invalidate_search_hl_cache();
         invalidate_selection_hl_cache();
     }
 
-    TableLayoutData& ensure_table_layout()
+    constexpr TableLayoutData& ensure_table_layout()
     {
         if (!table_layout) {
             table_layout = std::make_unique<TableLayoutData>();
@@ -175,18 +175,20 @@ struct NodeLayoutEntry {
         return table_layout != nullptr;
     }
 
-    std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
+    constexpr std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
     {
         if (!inline_code_bgs) {
             inline_code_bgs = std::make_unique<std::pmr::vector<InlineCodeBg>>();
         }
         return *inline_code_bgs;
     }
-    void clear_inline_code_bgs() noexcept
+
+    constexpr void clear_inline_code_bgs() noexcept
     {
         inline_code_bgs.reset();
     }
-    std::span<const InlineCodeBg> view_inline_code_bgs() const noexcept
+
+    constexpr std::span<const InlineCodeBg> view_inline_code_bgs() const noexcept
     {
         return SpanOrEmpty(inline_code_bgs);
     }
