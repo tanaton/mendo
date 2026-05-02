@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <memory_resource>
 #include <optional>
+#include <span>
 
 
 // ITextMeasurerのDirectWrite実装。
@@ -29,7 +30,7 @@ public:
 private:
     bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node) noexcept;
-    void ApplyRunFormatting(IDWriteTextLayout* layout, const std::pmr::vector<TextRun>& runs, std::optional<NodeType> node_type);
+    void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::optional<NodeType> node_type);
     void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths);
     void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width, size_t col_count, std::pmr::vector<float>& natural_widths);
 

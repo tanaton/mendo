@@ -134,8 +134,7 @@ inline void FlushAttr(AttrRangeBuilder& b, Emit&& emit) noexcept
 
 } // namespace
 
-void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout,
-                                            const std::pmr::vector<TextRun>& runs, std::optional<NodeType> node_type)
+void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::optional<NodeType> node_type)
 {
     if (runs.empty()) {
         return;

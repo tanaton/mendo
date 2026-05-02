@@ -48,6 +48,10 @@ struct ParseContext {
     uint8_t italic_count = 0;
     uint8_t code_count = 0;
     uint8_t strikethrough_count = 0;
+    // 上記カウンタを TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 4 回
+    // ビット操作するのではなく、span enter/leave のときだけ 1 回ビット OR/AND を更新する。
+    // 不変式: bit X が立っている <=> 対応する *_count > 0。
+    uint8_t current_run_flags = 0;
     // 現在の <a> span に対応する link_urls インデックス。-1 = リンク外。
     // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
     int16_t current_link_url_index = -1;
@@ -89,10 +93,6 @@ struct ParseContext {
     // アンカーIDの一意性追跡: スラグ -> 出現回数。
     // 再ハッシュ時の旧 bucket は pool 内で再利用されるため monotonic は膨らない。
     std::pmr::unordered_map<std::pmr::wstring, int, WStringTransparentHash, std::equal_to<>> anchor_counts{ &pool };
-
-    // 現在ノード内の URL -> link_urls インデックス の lookup。脚注等の多リンク段落で線形探索を避ける。
-    // ノード切替えごとに clear() して bucket は pool 内で再利用。透過比較で wstring_view から確保なしで lookup。
-    std::pmr::unordered_map<std::pmr::wstring, int16_t, WStringTransparentHash, std::equal_to<>> link_url_lookup{ &pool };
 
     // 画像スパンの src 蓄積バッファ。NodeImageData::src へは allocator 不一致を避けるため assign(view) でコピー。
     std::pmr::wstring pending_image_src{ &pool };
@@ -137,29 +137,7 @@ struct ParseContext {
             current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, kInt8Max));
             current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, kInt8Max));
         }
-        // 想定される runs 数を予約して emplace_back の倍々再割り当てを抑制する。
-        // HR/Image は runs を持たないので予約しない。Table 自体のラン (cell は別管理) と
-        // Heading/CodeBlock は 1〜2 ラン以下、Paragraph 系は 3〜8 程度が中央値。
-        switch (type) {
-        case NodeType::Heading:
-        case NodeType::CodeBlock:
-        case NodeType::Table:
-            current_node->runs.reserve(2);
-            break;
-        case NodeType::Paragraph:
-        case NodeType::ListItem:
-        case NodeType::BlockQuote:
-        case NodeType::TaskListItem:
-            current_node->runs.reserve(8);
-            break;
-        case NodeType::HorizontalRule:
-        case NodeType::Image:
-            break;
-        default:
-            std::unreachable();
-        }
-        // ノード間で link_url_lookup を再利用するため処理開始時にクリア。
-        link_url_lookup.clear();
+        // runs は SBO=4 で初期確保ゼロを狙う。reserve すると SBO の利点が消えるので呼ばない。
     }
 
     TextRun MakeRun(uint32_t start, uint32_t length)
@@ -167,78 +145,89 @@ struct ParseContext {
         TextRun run;
         run.start = start;
         run.length = length;
-        run.set_bold(static_cast<bool>(bold_count));
-        run.set_italic(static_cast<bool>(italic_count));
-        run.set_code(static_cast<bool>(code_count));
-        run.set_strikethrough(static_cast<bool>(strikethrough_count));
-        // インデックスは OnEnterSpan(MD_SPAN_A) で確定済み。span 内の複数ランで wmemcmp を再実行しない。
+        run.set_raw_flags(current_run_flags);
         run.link_url_index = current_link_url_index;
         return run;
     }
 
     // url を Node::link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
-    // 同一ノード内の URL は link_url_lookup (hash map) で O(1) インデックス再利用。
-    // 脚注を多数含む文書で urls.size() が数十に達したときの線形検索を省く。
+    // 1 ノードあたりの URL 数は典型的に < 8 なので、ハッシュマップではなく線形探索する。
+    // ハッシュマップにはキーの pmr::wstring 複製・per-node clear()・URL 文字列ハッシュの
+    // コストがあり、N が小さい領域では線形 wmemcmp の方が速い。脚注で urls 数が増えても
+    // 比較は wstring_view 同士なので allocator 確保を伴わない。
     void ResolveLinkUrlIndex(std::wstring_view url)
     {
         if (!current_node || url.empty()) {
             current_link_url_index = -1;
             return;
         }
-        if (const auto it = link_url_lookup.find(url); it != link_url_lookup.end()) {
-            current_link_url_index = it->second;
-            return;
+        if (auto* existing_urls = current_node->link_urls.get()) {
+            const auto& urls = *existing_urls;
+            const size_t n = urls.size();
+            for (size_t i = 0; i < n; ++i) {
+                if (std::wstring_view{ urls[i] } == url) {
+                    current_link_url_index = static_cast<int16_t>(i);
+                    return;
+                }
+            }
         }
         auto& urls = current_node->ensure_link_urls();
         const int16_t new_index = static_cast<int16_t>(urls.size());
         urls.emplace_back(url);
-        std::pmr::wstring key{ url, &pool };
-        link_url_lookup.try_emplace(std::move(key), new_index);
         current_link_url_index = new_index;
     }
 
-    // テーブルセルにWideテキストを追加（AppendWideから委譲される）。
-    // セルは pending run 方式を使わず、即時 TextRun を生成する。
-    void AppendTextToCell(std::wstring_view text)
+    // AppendWide のターゲット (セル内なら cell.text、ノード内なら current_text、どちらも無ければ nullptr)。
+    std::pmr::wstring* ActiveTextBuffer() noexcept
     {
-        const uint32_t start = static_cast<uint32_t>(current_cell->text.size());
-        current_cell->text.append(text);
-        current_cell->runs.emplace_back(MakeRun(start, static_cast<uint32_t>(text.size())));
+        if (current_cell) {
+            return &current_cell->text;
+        }
+        if (current_node) {
+            return &current_text;
+        }
+        return nullptr;
     }
 
     // Wide テキストを現在のノードまたはセルに追加する。
-    // セル内なら AppendTextToCell に委譲。
-    // ノードなら current_text スクラッチに直接 append し、未確定 TextRun として保留する。
-    // 同じ span 状態で連続して呼ばれると 1 つの TextRun に統合される。
+    // 同じ span 状態で連続して呼ばれると 1 つの TextRun に統合される (cell も統合対象)。
+    // セル切替・span 切替・ブロック退出の各タイミングで FlushPendingRun が走る前提。
     void AppendWide(std::wstring_view text)
     {
-        if (current_cell) {
-            AppendTextToCell(text);
-            return;
-        }
-        if (!current_node) {
+        std::pmr::wstring* const target = ActiveTextBuffer();
+        if (!target) {
             return;
         }
         // md4c は size 0 の text コールバックを発生させない契約 (md4c.c の MD_TEXT マクロで size > 0 ガード済) なので empty 判定は省く。
         if (!has_pending_run) {
-            pending_run_start = static_cast<uint32_t>(current_text.size());
+            pending_run_start = static_cast<uint32_t>(target->size());
             has_pending_run = true;
         }
-        // pending_run_newlines のフィールドコメント参照: md4c は \n を size==1 chunk でしか渡さない。
-        if (text.size() == 1 && text[0] == L'\n') {
-            ++pending_run_newlines;
+        // 1-char chunk fastpath: md4c は \n / 空白 / 単一 entity 等を size==1 で渡してくるので push_back に振り分ける。
+        if (text.size() == 1) [[likely]] {
+            const wchar_t c = text[0];
+            pending_run_newlines += static_cast<uint32_t>(c == L'\n');
+            target->push_back(c);
+            return;
         }
-        current_text.append(text);
+        target->append(text);
     }
 
-    // 未確定 TextRun を確定して current_node->runs に push する。
-    // span 状態が変わる直前 (OnEnter/Leave Span) と OnLeaveBlock の冒頭で呼ぶ。
+    // 未確定 TextRun を確定して runs に push する。
+    // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
+    // line_count はノード単位なので、セル内では更新しない。
     void FlushPendingRun()
     {
-        if (has_pending_run && current_node && current_text.size() > pending_run_start) {
-            const uint32_t length = static_cast<uint32_t>(current_text.size() - pending_run_start);
-            current_node->line_count += static_cast<int>(pending_run_newlines);
-            current_node->runs.emplace_back(MakeRun(pending_run_start, length));
+        if (has_pending_run) {
+            std::pmr::wstring* const buf = ActiveTextBuffer();
+            if (buf && buf->size() > pending_run_start) {
+                const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
+                auto& runs = current_cell ? current_cell->runs : current_node->runs;
+                if (!current_cell) {
+                    current_node->line_count += static_cast<int>(pending_run_newlines);
+                }
+                runs.emplace_back(MakeRun(pending_run_start, length));
+            }
         }
         has_pending_run = false;
         pending_run_newlines = 0;
@@ -524,18 +513,22 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     switch (type) {
     case MD_SPAN_STRONG:
         ++ctx->bold_count;
+        ctx->current_run_flags |= TextRun::kBold;
         ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_EM:
         ++ctx->italic_count;
+        ctx->current_run_flags |= TextRun::kItalic;
         ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_CODE:
         ++ctx->code_count;
+        ctx->current_run_flags |= TextRun::kCode;
         ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_DEL:
         ++ctx->strikethrough_count;
+        ctx->current_run_flags |= TextRun::kStrikethrough;
         ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_A: {
@@ -590,16 +583,24 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
     // md4c は enter/leave が常にバランスする契約なのでアンダーフローは起きない。
     switch (type) {
     case MD_SPAN_STRONG:
-        --ctx->bold_count;
+        if (--ctx->bold_count == 0) {
+            ctx->current_run_flags &= static_cast<uint8_t>(~TextRun::kBold);
+        }
         break;
     case MD_SPAN_EM:
-        --ctx->italic_count;
+        if (--ctx->italic_count == 0) {
+            ctx->current_run_flags &= static_cast<uint8_t>(~TextRun::kItalic);
+        }
         break;
     case MD_SPAN_CODE:
-        --ctx->code_count;
+        if (--ctx->code_count == 0) {
+            ctx->current_run_flags &= static_cast<uint8_t>(~TextRun::kCode);
+        }
         break;
     case MD_SPAN_DEL:
-        --ctx->strikethrough_count;
+        if (--ctx->strikethrough_count == 0) {
+            ctx->current_run_flags &= static_cast<uint8_t>(~TextRun::kStrikethrough);
+        }
         break;
     case MD_SPAN_A:
         ctx->current_link_url_index = -1;
@@ -869,7 +870,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     // TextRun の調整
     const int delta = static_cast<int>(new_content_start) - static_cast<int>(marker_end);
 
-    std::pmr::vector<TextRun> new_runs;
+    TextRunList new_runs;
     // ラベル用の太字ラン（アイコン + スペース + ラベルテキスト）
     TextRun label_run;
     label_run.start = 0;

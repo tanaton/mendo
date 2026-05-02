@@ -48,7 +48,6 @@ add_executable(mendo_tests
     test_search_bar_controller.cpp
     test_session_service.cpp
     test_reducer.cpp
-    test_flat_map.cpp
     test_string_convert.cpp
     test_render_composer.cpp
     test_file_io.cpp
@@ -64,6 +63,7 @@ add_executable(mendo_tests
     test_resource_manager.cpp
     test_ascii_util.cpp
     test_html_entity.cpp
+    test_small_vector.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

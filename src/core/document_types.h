@@ -10,9 +10,15 @@
 #include <algorithm>
 #include <utility>
 #include <variant>
+#include "small_vector.h"
 #include "syntax.h"
 #include "text_types.h"
 #include "utility.h"
+
+// Node::runs / TableCell::runs の型エイリアス。SBO=4 で大半のノード (run < 4 が中央値)
+// で動的確保ゼロ。SBO を超えた場合のみ操作 new_delete に確保する (synchronized_pool を
+// 経由しないため、parse 時のロック取得を Node 数だけ削減できる)。
+using TextRunList = mendo::small_vector<TextRun, 4>;
 
 enum class NodeType : uint8_t {
     Heading,
@@ -59,7 +65,7 @@ enum class TableAlign : uint8_t {
 
 struct TableCell {
     std::pmr::wstring text;
-    std::pmr::vector<TextRun> runs;
+    TextRunList runs;
     bool is_header = false;
     TableAlign align = TableAlign::Default;
 };
@@ -92,7 +98,7 @@ struct NodeImageData {
 inline constexpr uint32_t kUnsetSourceOffset = std::numeric_limits<uint32_t>::max();
 
 struct Node {
-    std::pmr::vector<TextRun> runs;
+    TextRunList runs;
 
     // リンク URL の集合。リンクを含むノードでのみ確保される。
     // Why: `Node::runs` が link_url_index で参照する URL テーブル。リンクを持つノードは

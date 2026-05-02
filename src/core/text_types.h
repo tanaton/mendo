@@ -3,25 +3,31 @@
 
 // テキストラン: 同一スタイル（太字/斜体/コード/取り消し線/リンク）を持つ連続テキスト範囲。
 struct TextRun {
+    // 呼び出し側が複数フラグを OR で組み上げて set_raw_flags() で一括設定するため公開。
+    static constexpr uint8_t kBold = 0x01;
+    static constexpr uint8_t kItalic = 0x02;
+    static constexpr uint8_t kCode = 0x04;
+    static constexpr uint8_t kStrikethrough = 0x08;
+
     uint32_t start = 0;
     uint32_t length = 0;
     int16_t link_url_index = -1; // -1 = リンクなし, >= 0 = Node::link_urls へのインデックス
 
     constexpr bool bold() const noexcept
     {
-        return flags & BOLD;
+        return flags & kBold;
     }
     constexpr bool italic() const noexcept
     {
-        return flags & ITALIC;
+        return flags & kItalic;
     }
     constexpr bool code() const noexcept
     {
-        return flags & CODE;
+        return flags & kCode;
     }
     constexpr bool strikethrough() const noexcept
     {
-        return flags & STRIKETHROUGH;
+        return flags & kStrikethrough;
     }
     constexpr bool has_link() const noexcept
     {
@@ -30,27 +36,27 @@ struct TextRun {
 
     constexpr void set_bold(bool v) noexcept
     {
-        set_flag(BOLD, v);
+        set_flag(kBold, v);
     }
     constexpr void set_italic(bool v) noexcept
     {
-        set_flag(ITALIC, v);
+        set_flag(kItalic, v);
     }
     constexpr void set_code(bool v) noexcept
     {
-        set_flag(CODE, v);
+        set_flag(kCode, v);
     }
     constexpr void set_strikethrough(bool v) noexcept
     {
-        set_flag(STRIKETHROUGH, v);
+        set_flag(kStrikethrough, v);
+    }
+
+    constexpr void set_raw_flags(uint8_t f) noexcept
+    {
+        flags = f;
     }
 
 private:
-    static constexpr uint8_t BOLD = 0x01;
-    static constexpr uint8_t ITALIC = 0x02;
-    static constexpr uint8_t CODE = 0x04;
-    static constexpr uint8_t STRIKETHROUGH = 0x08;
-
     constexpr void set_flag(uint8_t mask, bool v) noexcept
     {
         flags = v ? (flags | mask) : static_cast<uint8_t>(flags & ~mask);
