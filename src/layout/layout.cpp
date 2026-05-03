@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <memory_resource>
+#include <numeric>
 #include <ranges>
 
 static constexpr float MIN_COLUMN_WIDTH = 30.0f;
@@ -59,10 +60,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
     out.resize(col_count);
     available_width = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
-    const float total_natural = std::ranges::fold_left(
-        natural_widths,
-        0.0f,
-        [](float a, float b) static noexcept { return a + b; });
+    const float total_natural = std::reduce(natural_widths.begin(), natural_widths.end(), 0.0f);
 
     if (total_natural > 0 && total_natural > available_width) {
         for (auto [w, nw] : std::views::zip(out, natural_widths) | std::views::take(col_count)) {
