@@ -122,7 +122,7 @@ struct ParseContext {
     // wstring_view 経由でコピーすれば current_text は最大サイズを保ったまま再利用でき、
     // 文書全体で synchronized_pool への malloc 回数が大幅に減る。Node::text_ 側も実サイズに
     // 合わせて確保されるためメモリ的にも得 (4KB スクラッチを掴ませない)。
-    void FinalizeCurrentNode()
+    constexpr void FinalizeCurrentNode()
     {
         FlushPendingRun();
         // 昇格処理 (TryPromoteParagraphToDisplayMath 等) が text_ を直接設定済みのノードは、
@@ -133,7 +133,7 @@ struct ParseContext {
         current_text.clear();
     }
 
-    void BeginNode(NodeType type)
+    constexpr void BeginNode(NodeType type)
     {
         FinalizeCurrentNode();
         nodes.emplace_back();
@@ -151,7 +151,7 @@ struct ParseContext {
         node_source_offset_set = false;
     }
 
-    TextRun MakeRun(uint32_t start, uint32_t length)
+    constexpr TextRun MakeRun(uint32_t start, uint32_t length)
     {
         TextRun run;
         run.start = start;
@@ -166,7 +166,7 @@ struct ParseContext {
     // ハッシュマップにはキーの pmr::wstring 複製・per-node clear()・URL 文字列ハッシュの
     // コストがあり、N が小さい領域では線形 wmemcmp の方が速い。脚注で urls 数が増えても
     // 比較は wstring_view 同士なので allocator 確保を伴わない。
-    void ResolveLinkUrlIndex(std::wstring_view url)
+    constexpr void ResolveLinkUrlIndex(std::wstring_view url)
     {
         if (!current_node || url.empty()) {
             current_link_url_index = -1;
@@ -187,7 +187,7 @@ struct ParseContext {
     }
 
     // AppendWide のターゲット (セル内なら cell.text、ノード内なら current_text、どちらも無ければ nullptr)。
-    std::pmr::wstring* ActiveTextBuffer() noexcept
+    constexpr std::pmr::wstring* ActiveTextBuffer() noexcept
     {
         if (current_cell) {
             return &current_cell->text;
@@ -201,7 +201,7 @@ struct ParseContext {
     // Wide テキストを現在のノードまたはセルに追加する。
     // 同じ span 状態で連続して呼ばれると 1 つの TextRun に統合される (cell も統合対象)。
     // セル切替・span 切替・ブロック退出の各タイミングで FlushPendingRun が走る前提。
-    void AppendWide(std::wstring_view text)
+    constexpr void AppendWide(std::wstring_view text)
     {
         std::pmr::wstring* const target = ActiveTextBuffer();
         if (!target) {
@@ -213,7 +213,7 @@ struct ParseContext {
             has_pending_run = true;
         }
         // 1-char chunk fastpath: md4c は \n / 空白 / 単一 entity 等を size==1 で渡してくるので push_back に振り分ける。
-        if (text.size() == 1) [[likely]] {
+        if (text.size() == 1) {
             const wchar_t c = text[0];
             pending_run_newlines += (c == L'\n');
             target->push_back(c);
@@ -225,7 +225,7 @@ struct ParseContext {
     // 未確定 TextRun を確定して runs に push する。
     // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
     // line_count はノード単位なので、セル内では更新しない。
-    void FlushPendingRun()
+    constexpr void FlushPendingRun()
     {
         if (has_pending_run) {
             std::pmr::wstring* const buf = ActiveTextBuffer();
@@ -245,7 +245,7 @@ struct ParseContext {
 
 // MD_BLOCK_P 終了時、画像 span を含む段落 / 引用ブロックを Image ノードへ昇格させる。
 // 戻り値 true なら他の昇格処理はスキップしてよい。
-bool TryPromoteParagraphToImage(ParseContext* ctx)
+constexpr bool TryPromoteParagraphToImage(ParseContext* ctx)
 {
     auto* const cn = ctx->current_node;
     if (!cn || !cn->has_image() || cn->image_data()->src.empty()) {
@@ -261,7 +261,7 @@ bool TryPromoteParagraphToImage(ParseContext* ctx)
 
 // MD_BLOCK_P 終了時、$$..$$ ブロック数式が単独の段落を LaTeX CodeBlock へ昇格させる。
 // blockquote 内は引用文脈を保ちたいため Paragraph のみ昇格対象。
-bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
+constexpr bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
 {
     auto* const node = ctx->current_node;
     if (!node || node->type != NodeType::Paragraph) {
