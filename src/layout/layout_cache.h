@@ -114,6 +114,9 @@ struct NodeLayoutEntry {
     // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
     // MeasureNode で text_layout 確定時に同時に求める。
     float first_line_height = 0.0f;
+    // 直近 MeasureNode の幅と実測 height。同じ幅へ戻った際に EstimateNodeHeight の上書きを避ける。
+    float cached_width = -1.0f;
+    float cached_height = 0.0f;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
     bool effects_applied = false;
@@ -391,7 +394,34 @@ public:
         }
     }
 
-    // すべてのエントリをダーティとしてマークし、レイアウトをリセットする（DPI 変更時）。
+    // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
+    // 再表示時は MeasureTable の lazy 復元経路で CreateTextLayout を再発行する。
+    // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
+    void EvictInvisibleTableRows(float viewport_top, float viewport_bottom, float buffer_screens_height) noexcept
+    {
+        const float keep_top = viewport_top - buffer_screens_height;
+        const float keep_bottom = viewport_bottom + buffer_screens_height;
+        for (auto& e : entries_) {
+            if (!e.table_layout) {
+                continue;
+            }
+            auto& tl = *e.table_layout;
+            if (tl.cell_layouts.empty() || tl.col_count == 0 || tl.row_cum_y.empty()) {
+                continue;
+            }
+            const size_t row_count = tl.row_cum_y.size() - 1;
+            const float entry_top = e.y_position;
+            for (size_t r = 0; r < row_count; ++r) {
+                const float row_top = entry_top + tl.row_cum_y[r];
+                const float row_bottom = entry_top + tl.row_cum_y[r + 1];
+                if (row_bottom < keep_top || row_top > keep_bottom) {
+                    EvictTableRow(tl, r);
+                }
+            }
+        }
+    }
+
+    // フォント・テーマ・ズーム変更時の全リセット。DPI 単独変更には NotifyDpiChanged を使う。
     void MarkAllDirty() noexcept
     {
         for (auto& e : entries_) {
@@ -402,6 +432,15 @@ public:
             if (e.table_layout) {
                 ResetTableLayoutGeometry(*e.table_layout);
             }
+        }
+        effects_generation_++;
+    }
+
+    // DPI 変更時の最小リセット。IDWriteTextLayout は DIP 単位なので不変、effects_generation のみ進める。
+    void NotifyDpiChanged() noexcept
+    {
+        for (auto& e : entries_) {
+            e.invalidate_per_frame_hl_caches();
         }
         effects_generation_++;
     }
@@ -445,6 +484,32 @@ private:
         e.table_layout.reset();
         e.layout_dirty = true;
         e.invalidate_per_frame_hl_caches();
+    }
+
+    // 1 行分の cell_layouts を Reset し、cell_heights / cell_applied_widths を再計測待ちに戻す。
+    // 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。
+    static void EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
+    {
+        const size_t col_count = tl.col_count;
+        if (col_count == 0) {
+            return;
+        }
+        const size_t base = row_index * col_count;
+        if (base + col_count > tl.cell_layouts.size()) {
+            return;
+        }
+        for (size_t c = 0; c < col_count; ++c) {
+            const size_t ci = base + c;
+            if (tl.cell_layouts[ci]) {
+                tl.cell_layouts[ci].Reset();
+            }
+            if (ci < tl.cell_heights.size()) {
+                tl.cell_heights[ci] = 0.0f;
+            }
+            if (ci < tl.cell_applied_widths.size()) {
+                tl.cell_applied_widths[ci] = -1.0f;
+            }
+        }
     }
 
     std::pmr::vector<NodeLayoutEntry> entries_;

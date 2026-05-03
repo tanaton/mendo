@@ -282,19 +282,38 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
         return;
     }
 
-    // トークン化は MeasureNode（レイアウトパス）で事前実行済み
+    // 同じ type の隣接トークンをマージして SetDrawingEffect の呼び出し回数を減らす
+    // (内部で range tree を再構築するため)。
     if (node.type == NodeType::CodeBlock) {
+        SyntaxTokenType pending_type = SyntaxTokenType::Plain;
+        uint32_t pending_start = 0;
+        uint32_t pending_end = 0;
+        const auto flush = [&]() {
+            if (pending_type != SyntaxTokenType::Plain && pending_end > pending_start) {
+                if (auto* brush = GetSyntaxBrush(pending_type)) {
+                    const DWRITE_TEXT_RANGE range{ pending_start, pending_end - pending_start };
+                    entry.text_layout->SetDrawingEffect(brush, range);
+                    MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
+                }
+            }
+            pending_type = SyntaxTokenType::Plain;
+        };
         for (const auto& token : node.syntax_tokens()) {
             if (token.type == SyntaxTokenType::Plain) {
+                flush();
                 continue;
             }
-            auto* brush = GetSyntaxBrush(token.type);
-            if (brush) {
-                const DWRITE_TEXT_RANGE range{ token.start, token.length };
-                entry.text_layout->SetDrawingEffect(brush, range);
-                MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
+            if (pending_type == token.type && pending_end == token.start) {
+                pending_end = token.start + token.length;
+            }
+            else {
+                flush();
+                pending_type = token.type;
+                pending_start = token.start;
+                pending_end = token.start + token.length;
             }
         }
+        flush();
     }
 
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
@@ -425,7 +444,8 @@ void Renderer::Render(const RenderParams& p)
         const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale);
         {
             MENDO_PROFILE("CommandExecutor::Execute");
-            cmd_executor_.Execute(cmds, rt());
+            const auto fixed = BuildFixedBrushArray();
+            cmd_executor_.Execute(cmds, rt(), &fixed);
         }
     }
 

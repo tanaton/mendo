@@ -78,6 +78,8 @@ struct TableRow {
 // テーブル専用データ（Tableノードのみ確保）
 struct NodeTableData {
     std::pmr::vector<TableRow> rows;
+    // パーサがセル追加時に維持する全行最大列数。MeasureTable の全行走査を省く。
+    uint16_t col_count = 0;
 };
 
 struct NodeHeadingData {

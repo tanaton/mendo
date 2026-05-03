@@ -1,9 +1,12 @@
 #pragma once
+#include "brush_id.h"
 #include "draw_command.h"
 #include <d2d1.h>
 #include <wrl/client.h>
+#include <array>
 #include <cstdint>
 #include <unordered_map>
+#include <utility>
 
 namespace command_executor_internal {
 
@@ -26,11 +29,17 @@ constexpr uint32_t PackColor(D2D1_COLOR_F c) noexcept
 
 } // namespace command_executor_internal
 
+// 固定 BrushId に対応するブラシ配列のビュー。
+// CommandExecutor::Execute に渡し、brush_id != Custom のコマンドを O(1) で解決する。
+using FixedBrushArray = std::array<ID2D1SolidColorBrush*, std::to_underlying(BrushId::Count)>;
+
 // DrawCommandList を Direct2D レンダーターゲット上で実行する。
-// 色ごとに ID2D1SolidColorBrush をプールし、上限到達時は LRU で 1 エントリだけ追い出す。
+// 固定色は brush_id 経由で配列ルックアップ、それ以外は色ごとに ID2D1SolidColorBrush をプールし、
+// 上限到達時は LRU で 1 エントリだけ追い出す。
 class CommandExecutor {
 public:
-    void Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt);
+    // brushes が null のときは全コマンドが brush_pool 経由になる (テスト互換)。
+    void Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray* brushes = nullptr);
 
 #ifdef MENDO_TESTING
     size_t PoolSizeForTest() const noexcept
@@ -45,6 +54,8 @@ public:
 
 private:
     ID2D1SolidColorBrush* GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color);
+    // brush_id が Custom 以外なら brushes 配列でルックアップ。失敗時は color フォールバック。
+    ID2D1SolidColorBrush* ResolveBrush(ID2D1RenderTarget* rt, BrushId id, D2D1_COLOR_F color);
 
     static constexpr size_t MAX_POOLED_BRUSHES = 256;
 
@@ -62,4 +73,6 @@ private:
     // 非衝突に使えるようにする。
     uint32_t last_brush_key_ = 0;
     ID2D1SolidColorBrush* last_brush_ = nullptr;
+    // 固定色ブラシ配列ビュー。null のとき配列ルックアップを行わず brush_pool 経由になる。
+    const FixedBrushArray* fixed_brushes_ = nullptr;
 };

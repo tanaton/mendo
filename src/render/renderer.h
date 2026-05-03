@@ -1,4 +1,5 @@
 #pragma once
+#include "brush_id.h"
 #include "render_params.h"
 #include "theme.h"
 #include "layout.h"
@@ -18,55 +19,6 @@
 #include <memory_resource>
 #include <utility>
 
-
-enum class BrushId : uint8_t {
-    Text,
-    Heading,
-    CodeBg,
-    CodeText,
-    Link,
-    Hr,
-    BlockquoteBar,
-    BlockquoteText,
-    Selection,
-    TableStripe,
-    SyntaxKeyword,
-    SyntaxType,
-    SyntaxString,
-    SyntaxNumber,
-    SyntaxComment,
-    SyntaxPreprocessor,
-    SyntaxFunction,
-    AlertNote,
-    AlertTip,
-    AlertImportant,
-    AlertWarning,
-    AlertCaution,
-    TitleBarBg,
-    TitleBarText,
-    TitleBarButtonHover,
-    TitleBarButtonActive,
-    TitleBarCloseRed,
-    TitleBarCloseWhite,
-    PaneBg,
-    Splitter,
-    PaneItemHover,
-    PaneItemActive,
-    ScrollbarThumb,
-    Overlay,
-    // オーバーレイ用の固定色ブラシ。動的 SetColor は SetOpacity より重いため、
-    // 白基底と黒基底を分けて持って透明度のみ動的に変える。
-    OverlayWhite,
-    OverlayBlack,
-    SearchBarBg,
-    SearchBarBorder,
-    SearchInputBg,
-    SearchInputText,
-    SearchHighlight,
-    SearchHighlightCurrent,
-    SearchNoMatchBg,
-    Count
-};
 
 class Renderer {
 public:
@@ -178,6 +130,15 @@ private:
     ID2D1SolidColorBrush* Brush(BrushId id) const noexcept
     {
         return brushes_[std::to_underlying(id)].Get();
+    }
+
+    FixedBrushArray BuildFixedBrushArray() const noexcept
+    {
+        FixedBrushArray a{};
+        for (size_t i = 0; i < a.size(); ++i) {
+            a[i] = brushes_[i].Get();
+        }
+        return a;
     }
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;

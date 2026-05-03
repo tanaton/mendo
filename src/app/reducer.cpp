@@ -315,7 +315,8 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
         state.window.cached_dpi_scale = 1.0f;
     }
     state.pane_layout_valid = false;
-    state.document.layout_cache.MarkAllDirty();
+    // DPI 変更では IDWriteTextLayout (DIP 単位) は不変。effects_generation のみ進める。
+    state.document.layout_cache.NotifyDpiChanged();
     PushEffect(effects, effect::RendererSetDpi{ static_cast<float>(a.dpi) });
     PushEffect(effects, effect::ClearFileCache{});
     PushEffect(

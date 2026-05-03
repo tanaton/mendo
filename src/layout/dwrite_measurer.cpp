@@ -370,6 +370,43 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
     }
 }
 
+void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry)
+{
+    // EvictInvisibleTableRows で Reset された null セルを再生成する。
+    MENDO_PROFILE("RestoreNullCellLayouts");
+    IDWriteTextFormat* const fmt = fmt_body_.Get();
+    IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
+    auto& rows = node.table_rows();
+    auto& tl = *entry.table_layout;
+    const auto row_count = rows.size();
+
+    for (size_t r = 0; r < row_count; r++) {
+        auto& row = rows[r];
+        const auto col_count = row.cells.size();
+        for (size_t c = 0; c < col_count; c++) {
+            const size_t ci = tl.CellIndex(r, c);
+            if (ci >= tl.cell_layouts.size() || tl.cell_layouts[ci]) {
+                continue;
+            }
+            auto& cell = row.cells[c];
+            if (cell.text.empty()) {
+                continue;
+            }
+            IDWriteTextFormat* const cell_fmt = cell.is_header ? fmt_bold : fmt;
+            {
+                MENDO_PROFILE("CreateTextLayout.cell.restore");
+                dwrite_->CreateTextLayout(
+                    cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
+                    cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                    &tl.cell_layouts[ci]);
+            }
+            if (tl.cell_layouts[ci]) {
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), cell.runs, std::nullopt);
+            }
+        }
+    }
+}
+
 void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
                                              size_t col_count, std::pmr::vector<float>& natural_widths)
 {
@@ -483,8 +520,8 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
 
     auto& rows = node.table_rows();
     const auto row_count = rows.size();
-    const size_t col_count = std::ranges::max(
-        rows | std::views::transform([](const auto& row) static noexcept { return row.cells.size(); }));
+    // パーサが NodeTableData::col_count に最大列数を保持済みなので全行走査は不要。
+    const size_t col_count = node.table_data()->col_count;
     if (col_count == 0) {
         entry.layout_dirty = false;
         return;
@@ -518,6 +555,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     // 第1パス（テキストレイアウト作成）をスキップして列幅再計算だけ行う。
     const bool has_existing_layouts = has_compatible_layouts;
     if (has_existing_layouts) {
+        RestoreNullCellLayouts(node, entry);
         if (tl.natural_col_widths.size() == col_count) {
             // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
             FinalizeTableLayout(node, entry, max_width, col_count, tl.natural_col_widths);
@@ -543,7 +581,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     }
     else {
         tl.col_count = col_count;
-        tl.cell_layouts.resize(row_count * col_count);
+        tl.cell_layouts.assign(row_count * col_count, {});
 
         // 第1パス: テキストレイアウトを作成し、自然な幅を計測
         std::pmr::vector<float> natural_widths(col_count, 0.0f);

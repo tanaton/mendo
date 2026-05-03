@@ -21,8 +21,9 @@
 
 namespace {
 
-// current_text スクラッチの初期確保サイズ。最初のノードの append が realloc で詰まらない程度を狙う。
-constexpr size_t SCRATCH_RESERVE = 16384;
+// current_text スクラッチの初期確保サイズ。入力サイズから動的に決める。
+constexpr size_t SCRATCH_RESERVE_MIN = 1024;
+constexpr size_t SCRATCH_RESERVE_MAX = 64 * 1024;
 
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
@@ -396,6 +397,11 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
                 auto* const td = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
                 ctx->current_cell->align = static_cast<TableAlign>(td->align);
             }
+            auto* tbl = cn->table_data();
+            const auto cells_now = static_cast<uint16_t>(std::min<size_t>(row.cells.size(), std::numeric_limits<uint16_t>::max()));
+            if (cells_now > tbl->col_count) {
+                tbl->col_count = cells_now;
+            }
         }
         break;
     }
@@ -739,8 +745,8 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
     ctx.markdown_size = markdown_text.size();
-    // ノード単位のスクラッチを 1 回確保しておくと、長段落・コードブロックでの再確保を抑えられる。
-    ctx.current_text.reserve(SCRATCH_RESERVE);
+    // ノード単位のスクラッチを 1 回確保し、長段落・コードブロックでの再確保を抑える。
+    ctx.current_text.reserve(std::clamp(markdown_text.size() / 8, SCRATCH_RESERVE_MIN, SCRATCH_RESERVE_MAX));
     ctx.nodes.reserve(std::clamp(markdown_text.size() / 48, size_t{ 64 }, size_t{ 16384 }));
     // 1MB あたり 256 個程度を見出し数の目安に。実測の数十〜数百に収まる。
     // heading_indices と anchor_counts は 1 見出し 1 エントリで対になるので同じヒントを使う。

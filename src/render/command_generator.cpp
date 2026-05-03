@@ -214,7 +214,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             const float line_y = entry.y_position + entry.height + theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO;
             cmds.emplace_back(DrawLineCmd{
                 D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
-                theme_->hr_color, theme_->GetHeadingUnderlineThickness(node.heading_level) });
+                theme_->hr_color, theme_->GetHeadingUnderlineThickness(node.heading_level), BrushId::Hr });
         }
         break;
 
@@ -228,22 +228,24 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
     GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x);
 }
 
-D2D1_COLOR_F CommandGenerator::GetNodeBaseColor(const Node& node) const noexcept
+CommandGenerator::NodeBaseStyle CommandGenerator::GetNodeBaseStyle(const Node& node) const noexcept
 {
     switch (node.type) {
     case NodeType::Heading:
-        return theme_->heading_color;
+        return { theme_->heading_color, BrushId::Heading };
     case NodeType::BlockQuote:
-        return (node.alert_type != AlertType::None) ? theme_->text_color : theme_->blockquote_text_color;
+        return (node.alert_type != AlertType::None)
+                   ? NodeBaseStyle{ theme_->text_color, BrushId::Text }
+                   : NodeBaseStyle{ theme_->blockquote_text_color, BrushId::BlockquoteText };
     case NodeType::CodeBlock:
-        return theme_->code_text_color;
+        return { theme_->code_text_color, BrushId::CodeText };
     case NodeType::Paragraph:
     case NodeType::HorizontalRule:
     case NodeType::ListItem:
     case NodeType::Table:
     case NodeType::TaskListItem:
     case NodeType::Image:
-        return theme_->text_color;
+        return { theme_->text_color, BrushId::Text };
     }
     std::unreachable();
 }
@@ -254,7 +256,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node&
         return;
     }
 
-    const D2D1_COLOR_F base_color = GetNodeBaseColor(node);
+    const auto [base_color, base_brush] = GetNodeBaseStyle(node);
 
     GenInlineCodeBgs(cmds, entry.view_inline_code_bgs(), text_x, entry.y_position, theme_->code_bg_color);
 
@@ -276,7 +278,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node&
         }
     }
 
-    cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, entry.y_position), entry.text_layout.Get(), base_color });
+    cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, entry.y_position), entry.text_layout.Get(), base_color, base_brush });
 
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {
         const wchar_t icon = node.task_checked ? L'\u2611' : L'\u2610'; // ☑ / ☐
@@ -286,7 +288,8 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node&
             &icon, 1,
             D2D1::RectF(cb_x, entry.y_position, cb_x + icon_size, entry.y_position + icon_size * TASK_CHECKBOX_HEIGHT_FACTOR),
             formats_.icon_font,
-            theme_->text_color));
+            theme_->text_color,
+            BrushId::Text));
     }
 }
 
@@ -295,7 +298,7 @@ void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds, const NodeLayout
     const float y = entry.y_position + theme_->paragraph_spacing * 0.5f;
     cmds.emplace_back(DrawLineCmd{
         D2D1::Point2F(x, y), D2D1::Point2F(x + w, y),
-        theme_->hr_color, theme_->hr_thickness });
+        theme_->hr_color, theme_->hr_thickness, BrushId::Hr });
 }
 
 void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w)
@@ -306,7 +309,7 @@ void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEnt
         entry.y_position - pad,
         x + w,
         entry.y_position + entry.height + pad);
-    cmds.emplace_back(FillRoundedRectCmd{ bg_rect, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color });
+    cmds.emplace_back(FillRoundedRectCmd{ bg_rect, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color, BrushId::CodeBg });
 }
 
 void CommandGenerator::GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered)
@@ -372,10 +375,10 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, co
         const float bullet_x = x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR;
         const float r = LIST_BULLET_RADIUS;
         if (node.indent_level <= 1) {
-            cmds.emplace_back(FillEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color });
+            cmds.emplace_back(FillEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color, BrushId::Text });
         }
         else {
-            cmds.emplace_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color, 1.0f });
+            cmds.emplace_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color, 1.0f, BrushId::Text });
         }
     }
 }
@@ -458,13 +461,18 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
         for (int level = 1; level <= max_depth; ++level) {
             const float bar_indent_x = static_cast<float>(outer_indent + level - 1) * theme_->indent_width;
             const float bar_x = offset_x + bar_indent_x - theme_->indent_width * 0.5f;
-            const D2D1_COLOR_F bar_color = (level == 1 && alert_type != AlertType::None) ? theme_->alert_color[AlertColorIndex(alert_type)] : theme_->blockquote_bar_color;
+            const bool is_alert_bar = (level == 1 && alert_type != AlertType::None);
+            const D2D1_COLOR_F bar_color = is_alert_bar ? theme_->alert_color[AlertColorIndex(alert_type)] : theme_->blockquote_bar_color;
+            // BrushId::AlertNote..AlertCaution は AlertColorIndex(0..4) で連番に並んでいる。
+            const BrushId bar_brush = is_alert_bar
+                ? static_cast<BrushId>(std::to_underlying(BrushId::AlertNote) + AlertColorIndex(alert_type))
+                : BrushId::BlockquoteBar;
 
             const auto emit_bar = [&](float top, float bottom) {
                 cmds.emplace_back(DrawLineCmd{
                     D2D1::Point2F(bar_x, top - BAR_EXTEND),
                     D2D1::Point2F(bar_x, bottom + BAR_EXTEND),
-                    bar_color, theme_->blockquote_bar_width });
+                    bar_color, theme_->blockquote_bar_width, bar_brush });
             };
 
             bool in_region = false;
@@ -495,10 +503,10 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
 void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h)
 {
     const D2D1_RECT_F bg = D2D1::RectF(x, y, x + w, y + h);
-    cmds.emplace_back(FillRoundedRectCmd{ bg, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color });
+    cmds.emplace_back(FillRoundedRectCmd{ bg, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color, BrushId::CodeBg });
     if (formats_.placeholder_text) {
         const auto loading_text = i18n::S().loading;
-        cmds.emplace_back(MakeTextCmd(loading_text.data(), loading_text.size(), bg, formats_.placeholder_text, theme_->blockquote_text_color));
+        cmds.emplace_back(MakeTextCmd(loading_text.data(), loading_text.size(), bg, formats_.placeholder_text, theme_->blockquote_text_color, BrushId::BlockquoteText));
     }
 }
 
@@ -509,7 +517,8 @@ void CommandGenerator::EmitHighlightRects(
     uint32_t length,
     float origin_x,
     float origin_y,
-    D2D1_COLOR_F color)
+    D2D1_COLOR_F color,
+    BrushId brush_id)
 {
     if (!layout || length == 0) {
         return;
@@ -518,13 +527,13 @@ void CommandGenerator::EmitHighlightRects(
     MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
     const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     for (UINT32 i = 0; i < count; i++) {
-        cmds.emplace_back(FillRectCmd{ RectFromHitTest(buf[i], origin_x, origin_y), color });
+        cmds.emplace_back(FillRectCmd{ RectFromHitTest(buf[i], origin_x, origin_y), color, brush_id });
     }
 }
 
 void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y)
 {
-    EmitHighlightRects(cmds, layout, start, length, origin_x, origin_y, SELECTION_COLOR);
+    EmitHighlightRects(cmds, layout, start, length, origin_x, origin_y, SELECTION_COLOR, BrushId::Selection);
 }
 
 void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out)
@@ -563,7 +572,7 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
                 origin_y + r.top,
                 origin_x + r.right,
                 origin_y + r.bottom),
-            SELECTION_COLOR });
+            SELECTION_COLOR, BrushId::Selection });
     }
 }
 
@@ -647,15 +656,15 @@ void CommandGenerator::EmitSearchHlCommands(
         const uint32_t rb = (node_mi == 0) ? 0 : cache.rect_ends[node_mi - 1];
         const uint32_t re = cache.rect_ends[node_mi];
 
-        const D2D1_COLOR_F color = (static_cast<int>(mi) == current_match_index_)
-                                       ? theme_->search_highlight_current_color
-                                       : theme_->search_highlight_color;
+        const bool is_current = (static_cast<int>(mi) == current_match_index_);
+        const D2D1_COLOR_F color = is_current ? theme_->search_highlight_current_color : theme_->search_highlight_color;
+        const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
         for (uint32_t k = rb; k < re; ++k) {
             const auto& r = cache.rects[k];
             cmds.emplace_back(FillRectCmd{
                 D2D1::RectF(origin_x + r.left, origin_y + r.top,
                             origin_x + r.right, origin_y + r.bottom),
-                color });
+                color, hl_brush });
         }
     }
 }
@@ -665,12 +674,13 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool
     if (is_header) {
         cmds.emplace_back(FillRectCmd{
             D2D1::RectF(x, y, x + table_width, y + row_h + border),
-            theme_->code_bg_color });
+            theme_->code_bg_color, BrushId::CodeBg });
     }
     else if (is_even_row) {
+        // cached_stripe_color_ と Renderer の brushes_[TableStripe] は同じ式 (renderer_resources.cpp) で算出する。
         cmds.emplace_back(FillRectCmd{
             D2D1::RectF(x, y, x + table_width, y + row_h + border),
-            cached_stripe_color_ });
+            cached_stripe_color_, BrushId::TableStripe });
     }
 }
 
@@ -695,7 +705,8 @@ void CommandGenerator::GenTableCellContent(
     }
     if (cell_layout) {
         const D2D1_COLOR_F cell_color = cell.is_header ? theme_->heading_color : theme_->text_color;
-        cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, text_y), cell_layout, cell_color });
+        const BrushId cell_brush = cell.is_header ? BrushId::Heading : BrushId::Text;
+        cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, text_y), cell_layout, cell_color, cell_brush });
     }
 }
 
@@ -760,7 +771,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
         // 行上部の水平線
         cmds.emplace_back(DrawLineCmd{
             D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
-            theme_->hr_color, border });
+            theme_->hr_color, border, BrushId::Hr });
 
         // 可視列のみコマンド生成、画面外は flat_offset のみ進める
         const float cull_left = offset_x + frame_viewport_left_;
@@ -776,7 +787,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             if (col_visible) {
                 cmds.emplace_back(DrawLineCmd{
                     D2D1::Point2F(cx - border, y), D2D1::Point2F(cx - border, y + row_h + border),
-                    theme_->hr_color, border });
+                    theme_->hr_color, border, BrushId::Hr });
 
                 const float text_x = cx + cell_padding;
                 const float text_y = y + cell_padding;
@@ -803,7 +814,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
         cmds.emplace_back(DrawLineCmd{
             D2D1::Point2F(offset_x + table_width, y),
             D2D1::Point2F(offset_x + table_width, y + row_h + border),
-            theme_->hr_color, border });
+            theme_->hr_color, border, BrushId::Hr });
 
         y += row_h + border;
         if (r + 1 < node.table_rows().size()) {
@@ -813,5 +824,5 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
     cmds.emplace_back(DrawLineCmd{
         D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
-        theme_->hr_color, border });
+        theme_->hr_color, border, BrushId::Hr });
 }

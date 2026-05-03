@@ -32,6 +32,7 @@ private:
     IDWriteTextFormat* GetTextFormat(const Node& node) noexcept;
     void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::optional<NodeType> node_type);
     void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths);
+    void RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry);
     void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width, size_t col_count, std::pmr::vector<float>& natural_widths);
 
     IDWriteFactory* dwrite_ = nullptr;

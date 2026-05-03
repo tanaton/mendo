@@ -123,7 +123,11 @@ private:
     void GenNodeTextDecorations(DrawCommandList& cmds, const Node& node,
                                 const NodeLayoutEntry& entry, int node_index, float x, float text_x);
 
-    D2D1_COLOR_F GetNodeBaseColor(const Node& node) const noexcept;
+    struct NodeBaseStyle {
+        D2D1_COLOR_F color;
+        BrushId brush;
+    };
+    NodeBaseStyle GetNodeBaseStyle(const Node& node) const noexcept;
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x);
@@ -137,7 +141,7 @@ private:
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
-    void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color);
+    void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);
     // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
     // SearchHlCache / SelectionHlCache の rebuild に共用する。
     void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out);
@@ -184,7 +188,7 @@ private:
         return shared_hit_test_buffer_ ? *shared_hit_test_buffer_ : hit_test_buffer_;
     }
 
-    DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len, D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col)
+    DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len, D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col, BrushId brush_id = BrushId::Custom)
     {
         assert(len <= 255 && "DrawTextCmd text exceeds uint8_t range");
         DrawTextCmd c{};
@@ -192,6 +196,7 @@ private:
         c.rect = r;
         c.format = fmt;
         c.color = col;
+        c.brush_id = brush_id;
         if (c.text_len == 0) {
             return c;
         }

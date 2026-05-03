@@ -28,9 +28,9 @@ inline void InitGlobalMemoryResource()
 class MonotonicResource {
 public:
     explicit MonotonicResource(std::size_t initial_size = 16 * 1024)
-        // make_unique<T[]> は値初期化で N バイトを memset するため、
-        // monotonic 用のスクラッチには make_unique_for_overwrite で default 初期化させる。
-        : buffer_(std::make_unique_for_overwrite<std::byte[]>(initial_size)), monotonic_(buffer_.get(), initial_size, std::pmr::get_default_resource())
+        // make_unique_for_overwrite で値初期化の memset を回避。upstream を new_delete_resource に
+        // 直結することで、初期バッファを溢れた追加チャンクが sync pool のロックに乗らないようにする。
+        : buffer_(std::make_unique_for_overwrite<std::byte[]>(initial_size)), monotonic_(buffer_.get(), initial_size, std::pmr::new_delete_resource())
     {
     }
 

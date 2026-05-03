@@ -1,10 +1,14 @@
 #pragma once
+#include "brush_id.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <variant>
 #include <vector>
 #include <algorithm>
 #include <memory_resource>
+
+// brush_id != Custom のコマンドは CommandExecutor が固定ブラシ配列で O(1) 解決する。
+// Custom のときだけ color から brush_pool 経由で解決する。
 
 struct ClearCmd {
     D2D1_COLOR_F color;
@@ -13,24 +17,28 @@ struct ClearCmd {
 struct FillRectCmd {
     D2D1_RECT_F rect;
     D2D1_COLOR_F color;
+    BrushId brush_id = BrushId::Custom;
 };
 
 struct FillRoundedRectCmd {
     D2D1_RECT_F rect;
     float rx, ry;
     D2D1_COLOR_F color;
+    BrushId brush_id = BrushId::Custom;
 };
 
 struct DrawLineCmd {
     D2D1_POINT_2F p0, p1;
     D2D1_COLOR_F color;
     float stroke_width;
+    BrushId brush_id = BrushId::Custom;
 };
 
 struct DrawTextLayoutCmd {
     D2D1_POINT_2F origin;
     IDWriteTextLayout* layout; // 非所有; ライフタイムはLayoutCacheが管理。
     D2D1_COLOR_F color;
+    BrushId brush_id = BrushId::Custom;
 };
 
 struct DrawTextCmd {
@@ -47,6 +55,7 @@ struct DrawTextCmd {
     D2D1_COLOR_F color{};
     uint8_t text_len = 0;
     bool is_inline = false;
+    BrushId brush_id = BrushId::Custom;
 
     DrawTextCmd() noexcept : text_ptr(nullptr)
     {}
@@ -68,6 +77,7 @@ struct FillEllipseCmd {
     D2D1_POINT_2F center;
     float rx, ry;
     D2D1_COLOR_F color;
+    BrushId brush_id = BrushId::Custom;
 };
 
 struct DrawEllipseCmd {
@@ -75,6 +85,7 @@ struct DrawEllipseCmd {
     float rx, ry;
     D2D1_COLOR_F color;
     float stroke_width;
+    BrushId brush_id = BrushId::Custom;
 };
 
 struct PushClipCmd {

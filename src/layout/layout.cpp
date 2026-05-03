@@ -266,6 +266,8 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                     const float old_height = entry.height;
                     measurer_->MeasureNode(node, entry, node_width);
                     any_measured = true;
+                    entry.cached_width = node_width;
+                    entry.cached_height = entry.height;
                     if (entry.height != old_height) {
                         any_height_changed = true;
                     }
@@ -284,15 +286,18 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                     // 原因になる。よって既存値より小さくはしない。
                     const bool is_diagram = (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language));
                     if (!is_diagram) {
-                        const float estimated = EstimateNodeHeight(node, *theme_);
-                        if (entry.height < estimated) {
-                            entry.height = estimated;
+                        // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。
+                        constexpr float kCachedWidthEpsilon = 0.5f;
+                        const bool cache_hit = entry.cached_width > 0.0f &&
+                                               std::abs(entry.cached_width - node_width) < kCachedWidthEpsilon &&
+                                               entry.cached_height > 0.0f;
+                        const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, *theme_);
+                        if (entry.height < fallback) {
+                            entry.height = fallback;
                             any_height_changed = true;
-                            // entry.height は推定値に成長したが、テーブルの row_heights
-                            // 合計や col_widths は旧値のまま乖離する。次の MeasureNode が
-                            // 走るまで描画を抑制し、描画範囲(row_heights 合計)が
-                            // 後続ノード位置(entry.height ベース)を越えて重なるのを防ぐ。
-                            if (node.type == NodeType::Table && entry.has_table_layout()) {
+                            // 推定で成長させた場合、テーブル幾何 (row_heights/col_widths) は
+                            // 旧値のままなので clear して MeasureNode の lazy 復元経路を通させる。
+                            if (node.type == NodeType::Table && entry.has_table_layout() && !cache_hit) {
                                 entry.table_layout->col_widths.clear();
                                 entry.table_layout->cached_table_width = 0.0f;
                             }
@@ -304,6 +309,8 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
             else {
                 measurer_->MeasureNode(node, entry, node_width);
                 any_measured = true;
+                entry.cached_width = node_width;
+                entry.cached_height = entry.height;
             }
         }
 

@@ -27,6 +27,18 @@ void PublishBrushStats() noexcept
 } // namespace
 #endif
 
+ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, BrushId id, D2D1_COLOR_F color)
+{
+    // 固定 BrushId は配列ルックアップで即解決。Custom と配列未設定時のみ brush_pool 経由。
+    if (id == BrushId::Custom || !fixed_brushes_) {
+        return GetBrush(rt, color);
+    }
+    if (auto* fixed = (*fixed_brushes_)[std::to_underlying(id)]) {
+        return fixed;
+    }
+    return GetBrush(rt, color);
+}
+
 ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color)
 {
     if (rt != bound_rt_) {
@@ -78,13 +90,15 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
     return last_brush_;
 }
 
-void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt)
+void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray* brushes)
 {
     MENDO_PROFILE("CommandExecutor::Execute");
     MENDO_PLOT("draw.command_count", static_cast<int64_t>(cmds.size()));
     if (!rt) {
         return;
     }
+
+    fixed_brushes_ = brushes;
 
     for (const auto& cmd : cmds) {
         // clang-format off
@@ -93,27 +107,27 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
                 rt->Clear(c.color);
             },
             [&](const FillRectCmd& c) {
-                auto* b = GetBrush(rt, c.color);
+                auto* b = ResolveBrush(rt, c.brush_id, c.color);
                 if (b) {
                     rt->FillRectangle(c.rect, b);
                 }
             },
             [&](const FillRoundedRectCmd& c) {
-                auto* b = GetBrush(rt, c.color);
+                auto* b = ResolveBrush(rt, c.brush_id, c.color);
                 if (b) {
                     const D2D1_ROUNDED_RECT rr = { c.rect, c.rx, c.ry };
                     rt->FillRoundedRectangle(rr, b);
                 }
             },
             [&](const DrawLineCmd& c) {
-                auto* b = GetBrush(rt, c.color);
+                auto* b = ResolveBrush(rt, c.brush_id, c.color);
                 if (b) {
                     rt->DrawLine(c.p0, c.p1, b, c.stroke_width);
                 }
             },
             [&](const DrawTextLayoutCmd& c) {
                 if (c.layout) {
-                    auto* b = GetBrush(rt, c.color);
+                    auto* b = ResolveBrush(rt, c.brush_id, c.color);
                     if (b) {
                         rt->DrawTextLayout(c.origin, c.layout, b);
                     }
@@ -121,7 +135,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             },
             [&](const DrawTextCmd& c) {
                 if (c.format && c.text_len > 0) {
-                    auto* b = GetBrush(rt, c.color);
+                    auto* b = ResolveBrush(rt, c.brush_id, c.color);
                     if (b) {
                         rt->DrawText(c.text(), static_cast<UINT32>(c.text_len), c.format, c.rect, b);
                     }
@@ -133,14 +147,14 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
                 }
             },
             [&](const FillEllipseCmd& c) {
-                auto* b = GetBrush(rt, c.color);
+                auto* b = ResolveBrush(rt, c.brush_id, c.color);
                 if (b) {
                     const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry);
                     rt->FillEllipse(e, b);
                 }
             },
             [&](const DrawEllipseCmd& c) {
-                auto* b = GetBrush(rt, c.color);
+                auto* b = ResolveBrush(rt, c.brush_id, c.color);
                 if (b) {
                     const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry);
                     rt->DrawEllipse(e, b, c.stroke_width);
