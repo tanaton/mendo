@@ -30,5 +30,6 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 
 ## 注意事項
 
+- 思考過程も日本語で出力してね
 - コメントは簡潔にまとめる。Whatコメントは禁止
 - `third_party/` は外部コードなので編集しない

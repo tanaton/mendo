@@ -308,6 +308,164 @@ TEST(NodeTest, SetTextOverwritesPrevious)
     EXPECT_EQ(node.GetText(), L"new text");
 }
 
+// ---- Node::line_count ----
+
+TEST(NodeLineCount, DefaultIsZero)
+{
+    Node node;
+    EXPECT_EQ(node.line_count, 0);
+}
+
+TEST(NodeLineCount, EmptyText)
+{
+    Node node;
+    node.SetText(L"");
+    EXPECT_EQ(node.line_count, 0);
+}
+
+TEST(NodeLineCount, SingleLineNoNewline)
+{
+    Node node;
+    node.SetText(L"hello");
+    EXPECT_EQ(node.line_count, 0);
+}
+
+TEST(NodeLineCount, SingleNewline)
+{
+    Node node;
+    node.SetText(L"a\nb");
+    EXPECT_EQ(node.line_count, 1);
+}
+
+TEST(NodeLineCount, ConsecutiveNewlines)
+{
+    Node node;
+    node.SetText(L"a\n\n\nb");
+    EXPECT_EQ(node.line_count, 3);
+}
+
+TEST(NodeLineCount, LeadingNewline)
+{
+    Node node;
+    node.SetText(L"\nabc");
+    EXPECT_EQ(node.line_count, 1);
+}
+
+TEST(NodeLineCount, TrailingNewline)
+{
+    Node node;
+    node.SetText(L"abc\n");
+    EXPECT_EQ(node.line_count, 1);
+}
+
+TEST(NodeLineCount, OnlyNewlines)
+{
+    Node node;
+    node.SetText(L"\n\n\n\n");
+    EXPECT_EQ(node.line_count, 4);
+}
+
+TEST(NodeLineCount, CrLfCountsOnlyLf)
+{
+    // FinalizeSetText は L'\n' のみ数える（\r は無視）
+    Node node;
+    node.SetText(L"a\r\nb\r\nc");
+    EXPECT_EQ(node.line_count, 2);
+}
+
+TEST(NodeLineCount, CarriageReturnOnlyNotCounted)
+{
+    Node node;
+    node.SetText(L"a\rb\rc");
+    EXPECT_EQ(node.line_count, 0);
+}
+
+TEST(NodeLineCount, CharPointerOverload)
+{
+    Node node;
+    const wchar_t* s = L"x\ny\nz";
+    node.SetText(s);
+    EXPECT_EQ(node.line_count, 2);
+}
+
+TEST(NodeLineCount, StringViewOverload)
+{
+    Node node;
+    std::wstring_view sv = L"line1\nline2";
+    node.SetText(sv);
+    EXPECT_EQ(node.line_count, 1);
+}
+
+TEST(NodeLineCount, PmrStringMoveOverload)
+{
+    Node node;
+    std::pmr::wstring s = L"a\nb\nc\nd";
+    node.SetText(std::move(s));
+    EXPECT_EQ(node.line_count, 3);
+}
+
+TEST(NodeLineCount, OverwriteRecountsToFewer)
+{
+    Node node;
+    node.SetText(L"a\nb\nc\nd\ne"); // 4
+    EXPECT_EQ(node.line_count, 4);
+    node.SetText(L"single line"); // 0
+    EXPECT_EQ(node.line_count, 0);
+}
+
+TEST(NodeLineCount, OverwriteRecountsToMore)
+{
+    Node node;
+    node.SetText(L"single"); // 0
+    EXPECT_EQ(node.line_count, 0);
+    node.SetText(L"a\nb\nc"); // 2
+    EXPECT_EQ(node.line_count, 2);
+}
+
+TEST(NodeLineCount, SetTextWithLineCountStoresValueAsIs)
+{
+    Node node;
+    node.SetTextWithLineCount(std::wstring_view{ L"a\nb\nc" }, 2);
+    EXPECT_EQ(node.GetText(), L"a\nb\nc");
+    EXPECT_EQ(node.line_count, 2);
+}
+
+TEST(NodeLineCount, SetTextWithLineCountDoesNotCount)
+{
+    // 呼び出し側責任で line_count を渡すバリアント。SetText と違い再カウントしない。
+    // パーサーが marker 除去後に差分計算で渡すケースを想定。
+    Node node;
+    node.SetTextWithLineCount(std::wstring_view{ L"a\nb\nc\nd\ne" }, 7);
+    EXPECT_EQ(node.line_count, 7);
+}
+
+TEST(NodeLineCount, SetTextWithLineCountZeroAllowed)
+{
+    Node node;
+    node.SetTextWithLineCount(std::wstring_view{ L"a\nb" }, 0);
+    EXPECT_EQ(node.line_count, 0);
+}
+
+TEST(NodeLineCount, SetTextWithLineCountPmrMoveOverload)
+{
+    Node node;
+    std::pmr::wstring s = L"x\ny\nz";
+    node.SetTextWithLineCount(std::move(s), 2);
+    EXPECT_EQ(node.GetText(), L"x\ny\nz");
+    EXPECT_EQ(node.line_count, 2);
+}
+
+TEST(NodeLineCount, SetTextAfterSetTextWithLineCountRecounts)
+{
+    // SetTextWithLineCount で意図的に「不一致」を入れた後、
+    // SetText を呼ぶと FinalizeSetText が走り、stale な値を上書きする。
+    Node node;
+    node.SetTextWithLineCount(std::wstring_view{ L"x" }, 99);
+    EXPECT_EQ(node.line_count, 99);
+    node.SetText(L"a\nb\nc");
+    EXPECT_EQ(node.line_count, 2);
+}
+
 TEST(NodeTest, HasTextEmptyByDefault)
 {
     Node node;
