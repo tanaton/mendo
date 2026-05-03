@@ -6,6 +6,7 @@
 #include <cmath>
 #include <utility>
 
+#ifdef MENDO_USE_TRACY
 namespace {
 
 // 累積カウンタ（UI スレッド単一前提のため非アトミック）。
@@ -28,6 +29,7 @@ void PublishEffectStats() noexcept
 }
 
 } // namespace
+#endif
 
 using Microsoft::WRL::ComPtr;
 
@@ -129,7 +131,7 @@ void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& c
         }
         ApplyNodeEffects(nodes[i], cache[i], viewport_top, viewport_bottom);
     }
-    PublishEffectStats();
+    MENDO_IF_TRACY(PublishEffectStats());
 }
 
 ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexcept
@@ -163,7 +165,7 @@ static InlineCodeBg MakeInlineCodeBg(const DWRITE_HIT_TEST_METRICS& m) noexcept
 
 void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewport_top, float viewport_bottom)
 {
-    ++g_effect_stats.apply_table;
+    MENDO_COUNT_INC(g_effect_stats.apply_table);
     if (!node.has_table() || node.table_rows().empty() || !entry.has_table_layout()) {
         entry.effects_applied = true;
         return;
@@ -214,7 +216,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewp
                 if (first_pass && run.has_link()) {
                     const DWRITE_TEXT_RANGE range{ run.start, run.length };
                     cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
-                    ++g_effect_stats.set_drawing_effect;
+                    MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
                 }
                 // インラインコード背景: 可視かつ未計算の行のみ。
                 // cell_index 昇順を維持するため、新規行が末尾以降ならば append、
@@ -222,9 +224,9 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewp
                 // upper_bound 位置に insert する。可視ノードが下方向に増える典型ケースは
                 // 完全 append (O(1)/elem) で済む。
                 if (need_bgs && run.code() && run.length > 0) {
-                    ++g_effect_stats.hittest_range;
+                    MENDO_COUNT_INC(g_effect_stats.hittest_range);
                     const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length, hit_test_buffer_);
-                    g_effect_stats.inline_code_bg_added += count;
+                    MENDO_COUNT_ADD(g_effect_stats.inline_code_bg_added, count);
                     const auto cell_index = static_cast<uint32_t>(tl.CellIndex(r, c));
                     auto& bgs = tl.cell_inline_code_bgs;
                     const bool can_append = bgs.empty() || bgs.back().cell_index <= cell_index;
@@ -270,7 +272,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
         return;
     }
     entry.effects_applied = true;
-    ++g_effect_stats.apply_node;
+    MENDO_COUNT_INC(g_effect_stats.apply_node);
 
     if (node.type == NodeType::Image) {
         return;
@@ -290,7 +292,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
             if (brush) {
                 const DWRITE_TEXT_RANGE range{ token.start, token.length };
                 entry.text_layout->SetDrawingEffect(brush, range);
-                ++g_effect_stats.set_drawing_effect;
+                MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
             }
         }
     }
@@ -308,7 +310,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
         if (idx < ALERT_TYPE_COUNT) {
             const DWRITE_TEXT_RANGE range{ 0, node.alert_label_length };
             entry.text_layout->SetDrawingEffect(Brush(ALERT_BRUSH[idx]), range);
-            ++g_effect_stats.set_drawing_effect;
+            MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
         }
     }
 
@@ -317,14 +319,14 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewpo
             const DWRITE_TEXT_RANGE range{ run.start, run.length };
             entry.text_layout->SetUnderline(TRUE, range);
             entry.text_layout->SetDrawingEffect(Brush(BrushId::Link), range);
-            ++g_effect_stats.set_drawing_effect;
+            MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
         }
         if (run.code() && node.type != NodeType::CodeBlock && run.length > 0) {
-            ++g_effect_stats.hittest_range;
+            MENDO_COUNT_INC(g_effect_stats.hittest_range);
             const UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length, hit_test_buffer_);
             if (count > 0) {
                 auto& bgs = entry.ensure_inline_code_bgs();
-                g_effect_stats.inline_code_bg_added += count;
+                MENDO_COUNT_ADD(g_effect_stats.inline_code_bg_added, count);
                 for (UINT32 i = 0; i < count; i++) {
                     bgs.emplace_back(MakeInlineCodeBg(hit_test_buffer_[i]));
                 }

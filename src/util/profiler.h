@@ -15,6 +15,10 @@
 //   MENDO_PROFILE(label)             : スコープ計測。label は文字列リテラル必須。
 //   MENDO_FRAME_MARK()               : フレーム境界マーカー。OnPaint 末尾で 1 回呼ぶ。
 //   MENDO_PLOT(label, value)         : 数値の時系列プロット。double / int 受け入れ可。
+//   MENDO_COUNT_INC(counter)         : 累積カウンタの ++。Tracy OFF で no-op (DCE 担保)。
+//   MENDO_COUNT_ADD(counter, n)      : 累積カウンタへの加算。Tracy OFF で no-op。
+//   MENDO_COUNT_SET(counter, value)  : 累積でない直近値の代入。Tracy OFF で no-op。
+//   MENDO_IF_TRACY(...)              : Tracy ON のときだけ展開する任意コード。
 //   MENDO_TRACE(msg)                 : リテラルメッセージ（reload 系トレース）。
 //   MENDO_TRACEF(fmt, ...)           : printf 形式トレース。
 //   MENDO_STATF(fmt, ...)            : printf 形式の統計値ログ。
@@ -27,6 +31,7 @@
 
 #include <tracy/Tracy.hpp>
 #include <cstdio>
+#include <cstring>
 
 // Tracy の ZoneScopedN は固定変数名 `___tracy_scoped_zone` を生成するため、
 // 同一スコープに 2 個書くと再定義エラーになる。__LINE__ で固有名を作る
@@ -36,16 +41,27 @@
 #define MENDO_FRAME_MARK() FrameMark
 #define MENDO_PLOT(label, value) TracyPlot(label, value)
 
+// 累積カウンタ系。Tracy OFF では完全に no-op になるため、対象カウンタが
+// 他から参照されない限り、変数定義ごと dead code として消える。
+#define MENDO_COUNT_INC(counter) (++(counter))
+#define MENDO_COUNT_ADD(counter, n) ((counter) += (n))
+#define MENDO_COUNT_SET(counter, value) ((counter) = (value))
+#define MENDO_IF_TRACY(...) __VA_ARGS__
+
 // printf 形式のメッセージは sprintf してから TracyMessage に渡す。
-// 既存の MENDO_TRACE/STATF はすべて ASCII リテラル + 整数/小数フォーマットなので
-// char バッファで足りる。256B を超えるメッセージは _TRUNCATE で切り詰められる。
+// _snprintf_s は _TRUNCATE 指定時、収まれば書き込んだ文字数を返し、切り詰めが
+// 起きると -1 を返す（バッファ自体は NUL 終端される）。-1 を 0 と同様に
+// 捨てると長メッセージが silently drop されるため、切り詰め時は実長を取り直す。
 #define MENDO_LOGF(prefix, fmt, ...)                                            \
     do {                                                                        \
         char _mendo_buf[256];                                                   \
         const int _mendo_n = _snprintf_s(_mendo_buf, sizeof(_mendo_buf),        \
                                          _TRUNCATE, prefix fmt, __VA_ARGS__);   \
-        if (_mendo_n > 0) {                                                     \
-            TracyMessage(_mendo_buf, static_cast<size_t>(_mendo_n));            \
+        const size_t _mendo_len = (_mendo_n >= 0)                               \
+            ? static_cast<size_t>(_mendo_n)                                     \
+            : strnlen(_mendo_buf, sizeof(_mendo_buf) - 1);                      \
+        if (_mendo_len > 0) {                                                   \
+            TracyMessage(_mendo_buf, _mendo_len);                               \
         }                                                                       \
     } while (0)
 
@@ -60,6 +76,10 @@
 #define MENDO_PROFILE(label) ((void)0)
 #define MENDO_FRAME_MARK() ((void)0)
 #define MENDO_PLOT(label, value) ((void)0)
+#define MENDO_COUNT_INC(counter) ((void)0)
+#define MENDO_COUNT_ADD(counter, n) ((void)0)
+#define MENDO_COUNT_SET(counter, value) ((void)0)
+#define MENDO_IF_TRACY(...)
 #define MENDO_LOGF(prefix, fmt, ...) ((void)0)
 #define MENDO_TRACE(msg) ((void)0)
 #define MENDO_TRACEF(fmt, ...) ((void)0)

@@ -8,6 +8,7 @@
 #include <ranges>
 #include <utility>
 
+#ifdef MENDO_USE_TRACY
 namespace {
 
 // 累積カウンタ + 直近フレーム値（UI スレッド単一前提のため非アトミック）。
@@ -30,6 +31,7 @@ void PublishCmdGenStats() noexcept
 }
 
 } // namespace
+#endif
 
 // h1/h2 見出し下線を描画するY座標を heading_spacing_below_h1h2 のこの比率で決める。
 // 値を小さくすると下線は見出し文字に近づき、下線と次行の間隔が広がる。
@@ -131,8 +133,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     cmds.emplace_back(PopClipCmd{});
     frame_selection_ = nullptr;
     last_cmds_size_ = cmds_.size();
-    g_cmd_gen_stats.last_visible_node_count = visible_count;
-    PublishCmdGenStats();
+    MENDO_COUNT_SET(g_cmd_gen_stats.last_visible_node_count, visible_count);
+    MENDO_IF_TRACY(PublishCmdGenStats());
     return cmds_;
 }
 
@@ -513,7 +515,7 @@ void CommandGenerator::EmitHighlightRects(
         return;
     }
     auto& buf = GetHitTestBuffer();
-    ++g_cmd_gen_stats.hittest_range;
+    MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
     const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     for (UINT32 i = 0; i < count; i++) {
         cmds.emplace_back(FillRectCmd{ RectFromHitTest(buf[i], origin_x, origin_y), color });
@@ -528,7 +530,7 @@ void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextL
 void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out)
 {
     auto& buf = GetHitTestBuffer();
-    ++g_cmd_gen_stats.hittest_range;
+    MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
     const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     out.reserve(out.size() + count);
     for (UINT32 i = 0; i < count; i++) {
@@ -544,7 +546,7 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
     }
     auto& cache = entry.ensure_selection_hl_cache();
     if (cache.layout_ptr != layout || cache.start != start || cache.length != length) {
-        ++g_cmd_gen_stats.sel_hl_cache_miss;
+        MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_miss);
         cache.rects.clear();
         CollectHitTestRects(layout, start, length, cache.rects);
         cache.layout_ptr = layout;
@@ -552,7 +554,7 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
         cache.length = length;
     }
     else {
-        ++g_cmd_gen_stats.sel_hl_cache_hit;
+        MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_hit);
     }
     for (const auto& r : cache.rects) {
         cmds.emplace_back(FillRectCmd{
@@ -595,7 +597,7 @@ void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const NodeLayo
         return;
     }
 
-    ++g_cmd_gen_stats.search_hl_rebuild;
+    MENDO_COUNT_INC(g_cmd_gen_stats.search_hl_rebuild);
     cache.rects.clear();
     cache.rect_ends.clear();
     cache.rect_ends.reserve(node_match_count);
