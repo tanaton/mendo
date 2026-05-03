@@ -100,78 +100,74 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
 
     fixed_brushes_ = brushes;
 
-    for (const auto& cmd : cmds) {
-        // clang-format off
-        std::visit(overloaded{
-            [&](const ClearCmd& c) {
-                rt->Clear(c.color);
-            },
-            [&](const FillRectCmd& c) {
+    cmds.Visit(overloaded{
+        [&](const ClearCmd& c) {
+            rt->Clear(c.color);
+        },
+        [&](const FillRectCmd& c) {
+            auto* b = ResolveBrush(rt, c.brush_id, c.color);
+            if (b) {
+                rt->FillRectangle(c.rect, b);
+            }
+        },
+        [&](const FillRoundedRectCmd& c) {
+            auto* b = ResolveBrush(rt, c.brush_id, c.color);
+            if (b) {
+                const D2D1_ROUNDED_RECT rr = { c.rect, c.rx, c.ry };
+                rt->FillRoundedRectangle(rr, b);
+            }
+        },
+        [&](const DrawLineCmd& c) {
+            auto* b = ResolveBrush(rt, c.brush_id, c.color);
+            if (b) {
+                rt->DrawLine(c.p0, c.p1, b, c.stroke_width);
+            }
+        },
+        [&](const DrawTextLayoutCmd& c) {
+            if (c.layout) {
                 auto* b = ResolveBrush(rt, c.brush_id, c.color);
                 if (b) {
-                    rt->FillRectangle(c.rect, b);
+                    rt->DrawTextLayout(c.origin, c.layout, b);
                 }
-            },
-            [&](const FillRoundedRectCmd& c) {
+            }
+        },
+        [&](const DrawTextCmd& c) {
+            if (c.format && c.text_len > 0) {
                 auto* b = ResolveBrush(rt, c.brush_id, c.color);
                 if (b) {
-                    const D2D1_ROUNDED_RECT rr = { c.rect, c.rx, c.ry };
-                    rt->FillRoundedRectangle(rr, b);
+                    rt->DrawText(c.text(), static_cast<UINT32>(c.text_len), c.format, c.rect, b);
                 }
-            },
-            [&](const DrawLineCmd& c) {
-                auto* b = ResolveBrush(rt, c.brush_id, c.color);
-                if (b) {
-                    rt->DrawLine(c.p0, c.p1, b, c.stroke_width);
-                }
-            },
-            [&](const DrawTextLayoutCmd& c) {
-                if (c.layout) {
-                    auto* b = ResolveBrush(rt, c.brush_id, c.color);
-                    if (b) {
-                        rt->DrawTextLayout(c.origin, c.layout, b);
-                    }
-                }
-            },
-            [&](const DrawTextCmd& c) {
-                if (c.format && c.text_len > 0) {
-                    auto* b = ResolveBrush(rt, c.brush_id, c.color);
-                    if (b) {
-                        rt->DrawText(c.text(), static_cast<UINT32>(c.text_len), c.format, c.rect, b);
-                    }
-                }
-            },
-            [&](const DrawBitmapCmd& c) {
-                if (c.bitmap) {
-                    rt->DrawBitmap(c.bitmap, c.dest, c.opacity, c.interpolation_mode);
-                }
-            },
-            [&](const FillEllipseCmd& c) {
-                auto* b = ResolveBrush(rt, c.brush_id, c.color);
-                if (b) {
-                    const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry);
-                    rt->FillEllipse(e, b);
-                }
-            },
-            [&](const DrawEllipseCmd& c) {
-                auto* b = ResolveBrush(rt, c.brush_id, c.color);
-                if (b) {
-                    const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry);
-                    rt->DrawEllipse(e, b, c.stroke_width);
-                }
-            },
-            [&](const PushClipCmd& c) {
-                rt->PushAxisAlignedClip(c.rect, D2D1_ANTIALIAS_MODE_ALIASED);
-            },
-            [&](const PopClipCmd&) {
-                rt->PopAxisAlignedClip();
-            },
-            [&](const SetTransformCmd& c) {
-                rt->SetTransform(c.transform);
-            },
-        }, cmd);
-        // clang-format on
-    }
+            }
+        },
+        [&](const DrawBitmapCmd& c) {
+            if (c.bitmap) {
+                rt->DrawBitmap(c.bitmap, c.dest, c.opacity, c.interpolation_mode);
+            }
+        },
+        [&](const FillEllipseCmd& c) {
+            auto* b = ResolveBrush(rt, c.brush_id, c.color);
+            if (b) {
+                const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry);
+                rt->FillEllipse(e, b);
+            }
+        },
+        [&](const DrawEllipseCmd& c) {
+            auto* b = ResolveBrush(rt, c.brush_id, c.color);
+            if (b) {
+                const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry);
+                rt->DrawEllipse(e, b, c.stroke_width);
+            }
+        },
+        [&](const PushClipCmd& c) {
+            rt->PushAxisAlignedClip(c.rect, D2D1_ANTIALIAS_MODE_ALIASED);
+        },
+        [&](const PopClipCmd&) {
+            rt->PopAxisAlignedClip();
+        },
+        [&](const SetTransformCmd& c) {
+            rt->SetTransform(c.transform);
+        },
+    });
 
     MENDO_IF_TRACY(PublishBrushStats());
     MENDO_PLOT("brush.pool_size", static_cast<int64_t>(brush_pool_.size()));

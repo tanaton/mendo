@@ -64,7 +64,8 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
     std::optional<size_t> first_selection;
     std::optional<size_t> first_text_layout;
     for (size_t i = 0; i < cmds.size(); ++i) {
-        if (auto* fr = std::get_if<FillRectCmd>(&cmds[i])) {
+        const DrawCommand cmd = cmds[i];
+        if (auto* fr = std::get_if<FillRectCmd>(&cmd)) {
             if (!first_search && (ColorEq(fr->color, theme_.search_highlight_color)
                 || ColorEq(fr->color, theme_.search_highlight_current_color))) {
                 first_search = i;
@@ -73,7 +74,7 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
                 first_selection = i;
             }
         }
-        else if (std::holds_alternative<DrawTextLayoutCmd>(cmds[i])) {
+        else if (std::holds_alternative<DrawTextLayoutCmd>(cmd)) {
             if (!first_text_layout) {
                 first_text_layout = i;
             }
