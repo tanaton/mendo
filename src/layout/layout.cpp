@@ -1,10 +1,12 @@
 #include "layout.h"
 #include "document.h"
+#include "memory_resource.h"
 #include "profiler.h"
 #include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <memory_resource>
 #include <ranges>
 
 static constexpr float MIN_COLUMN_WIDTH = 30.0f;
@@ -142,15 +144,19 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
     std::unreachable();
 }
 
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) noexcept
+void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme)
 {
     MENDO_PROFILE("EstimateNodeHeights");
     // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
     // DirectWriteを一切呼ばないため、数千ノードでも数百マイクロ秒で完了する。
     // layout_dirtyフラグは変更しない（後続のViewportLayoutが正しく計測できるようにする）。
-    assert(cache.size() >= nodes.size());
+    assert(cache.size() == nodes.size());
     const auto node_count = nodes.size();
     MENDO_PLOT("layout.estimate.node_count", static_cast<int64_t>(node_count));
+
+    StackArena<4096> arena;
+    std::pmr::vector<float> block_heights(arena.resource());
+    block_heights.reserve(node_count);
 
     float y = theme.margin_top;
     for (size_t i = 0; i < node_count; i++) {
@@ -165,8 +171,9 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
         y += h;
         y += sb;
 
-        cache.SetBlockHeight(i, sa + h + sb);
+        block_heights.push_back(sa + h + sb);
     }
+    cache.BuildBlockHeights(block_heights);
 }
 
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
@@ -259,6 +266,10 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     bool any_measured = false;
     bool broke_early = false;
 
+    StackArena<4096> arena;
+    std::pmr::vector<float> block_heights(arena.resource());
+    block_heights.reserve(node_count);
+
     for (size_t i = 0; i < node_count; i++) {
         auto& node = nodes[i];
         auto& entry = cache[i];
@@ -335,7 +346,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         y += entry.height;
         y += sb;
 
-        cache.SetBlockHeight(i, sa + entry.height + sb);
+        block_heights.push_back(sa + entry.height + sb);
 
         // 部分モードで幅の変更がなく、ビューポートを超えた後に
         // 高さの変更もなければ、残りの Y 位置は変わらないので早期終了する。
@@ -348,8 +359,15 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         }
     }
 
+    // フルパス完走時は Fenwick バルクロード (O(N))、途中 break 時は部分のみ個別 Set。
     if (!broke_early) {
+        cache.BuildBlockHeights(block_heights);
         total_height_ = y + theme_->margin_top;
+    }
+    else {
+        for (size_t i = 0; i < block_heights.size(); ++i) {
+            cache.SetBlockHeight(i, block_heights[i]);
+        }
     }
     has_dirty_nodes_ = any_dirty;
 

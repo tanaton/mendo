@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <memory_resource>
 #include <cstddef>
 #include <memory>
@@ -52,4 +53,28 @@ private:
     // buffer_ は monotonic_ より先に宣言し、monotonic_ より後に破棄されるようにする
     std::unique_ptr<std::byte[]> buffer_;
     std::pmr::monotonic_buffer_resource monotonic_;
+};
+
+// スタック上の固定サイズバッファを初期チャンクとして使う pmr arena。
+// per-frame の小サイズ確保で sync pool ロックを避けつつ、
+// SBO を超えた分は upstream の new_delete_resource にフォールバックする。
+template <std::size_t Bytes>
+class StackArena {
+public:
+    StackArena() noexcept
+        : arena_(buf_.data(), buf_.size(), std::pmr::new_delete_resource())
+    {
+    }
+
+    StackArena(const StackArena&) = delete;
+    StackArena& operator=(const StackArena&) = delete;
+
+    std::pmr::memory_resource* resource() noexcept
+    {
+        return &arena_;
+    }
+
+private:
+    alignas(std::max_align_t) std::array<std::byte, Bytes> buf_;
+    std::pmr::monotonic_buffer_resource arena_;
 };

@@ -58,6 +58,7 @@ public:
             values.push_back(GetPoint(i));
         }
         values.resize(n, 0.0f);
+        tree_.resize(n);
         Build(std::span<const float>(values.data(), values.size()));
     }
 
@@ -113,10 +114,15 @@ public:
 
     // values をそのまま個別要素値として一括ロードする。O(N)。
     // Resize 後の初期化や、全件再構築時に Set ループ (O(N log N)) より高速。
-    void Build(std::span<const float> values)
+    // values.size() == size() を要求 (Resize は呼び出し側で済ませる)。再 allocation を
+    // 起こさないため noexcept。
+    void Build(std::span<const float> values) noexcept
     {
-        tree_.assign(values.begin(), values.end());
+        assert(values.size() == tree_.size());
         const std::size_t n = tree_.size();
+        if (n > 0) {
+            std::copy_n(values.data(), n, tree_.data());
+        }
         for (std::size_t i = 1; i <= n; ++i) {
             const std::size_t parent = i + (i & (~i + 1));
             if (parent <= n) {

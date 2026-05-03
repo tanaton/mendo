@@ -37,7 +37,7 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
 
 float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
 
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) noexcept;
+void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme);
 
 class LayoutEngine {
 public:

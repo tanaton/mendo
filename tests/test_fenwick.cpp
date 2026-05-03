@@ -140,6 +140,7 @@ TEST(FenwickTest, BuildLinearTime)
 {
     FloatFenwick fw;
     const float values[] = { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f };
+    fw.Resize(std::size(values));
     fw.Build(std::span<const float>(values, std::size(values)));
 
     EXPECT_EQ(fw.size(), 7u);
@@ -153,6 +154,23 @@ TEST(FenwickTest, BuildLinearTime)
     fw.Set(3, 100.0f);
     EXPECT_FLOAT_EQ(fw.GetPoint(3), 100.0f);
     EXPECT_FLOAT_EQ(fw.PrefixSum(7), 124.0f);
+}
+
+TEST(FenwickTest, BuildOverwritesExisting)
+{
+    FloatFenwick fw;
+    fw.Resize(3);
+    fw.Set(0, 99.0f);
+    fw.Set(2, 88.0f);
+
+    const float values[] = { 1.0f, 2.0f, 3.0f };
+    fw.Build(std::span<const float>(values, std::size(values)));
+
+    EXPECT_EQ(fw.size(), 3u);
+    EXPECT_FLOAT_EQ(fw.GetPoint(0), 1.0f);
+    EXPECT_FLOAT_EQ(fw.GetPoint(1), 2.0f);
+    EXPECT_FLOAT_EQ(fw.GetPoint(2), 3.0f);
+    EXPECT_FLOAT_EQ(fw.PrefixSum(3), 6.0f);
 }
 
 TEST(FenwickTest, ResetClearsAll)

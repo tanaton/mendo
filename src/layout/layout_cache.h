@@ -480,6 +480,13 @@ public:
         block_heights_.Set(i, block_height);
     }
 
+    // 全 N ノードの block_height を O(N) で一括再構築する。values.size() == size() 必須。
+    void BuildBlockHeights(std::span<const float> values) noexcept
+    {
+        assert(values.size() == entries_.size());
+        block_heights_.Build(values);
+    }
+
     // ノード i のブロック上端 Y を Fenwick から O(log N) で取得する。
     // ここで「ブロック上端」とは spacing_above を含む位置のため、テキスト上端
     // (entry.y_position) は GetBlockTopFromFenwick(i) + spacing_above[i] と一致する。
