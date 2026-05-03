@@ -1,43 +1,27 @@
 #pragma once
+#include "dirty_scheduler.h"
 #include "document_types.h"
 #include "layout_cache.h"
-#include "theme.h"
+#include "layout_computer.h"
 #include "text_measurer.h"
+#include "theme.h"
 #include "viewport_manager.h"
 #include <dwrite.h>
-#include <limits>
 #include <memory_resource>
 
 class Document;
 
-inline float NodeIndent(const Node& node, const Theme& theme) noexcept
-{
-    return node.indent_level * theme.indent_width;
-}
-
-inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
-{
-    return (node.type == NodeType::CodeBlock) ? theme.code_block_padding : 0.0f;
-}
-
-void ComputeColumnWidths(std::pmr::vector<float>& out,
-                         const std::pmr::vector<float>& natural_widths,
-                         float available_width, size_t col_count);
-
-std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows);
-
-struct YPositionResult {
-    float total_height = 0.0f;
-    bool has_dirty_nodes = false;
-};
-
-YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-                                    size_t from_index = 0, bool has_earlier_dirty = false,
-                                    size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
-
-float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
-
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme);
+// レガシー呼び出しサイト互換: 自由関数とユーティリティは mendo::layout namespace へ移動済み。
+using mendo::layout::BuildLinearizedTableText;
+using mendo::layout::ComputeColumnWidths;
+using mendo::layout::EstimateNodeHeight;
+using mendo::layout::EstimateNodeHeights;
+using mendo::layout::GetSpacingAbove;
+using mendo::layout::GetSpacingBelow;
+using mendo::layout::NodeIndent;
+using mendo::layout::NodeTextXOffset;
+using mendo::layout::RecomputeYPositions;
+using mendo::layout::YPositionResult;
 
 class LayoutEngine {
 public:
@@ -45,7 +29,7 @@ public:
     void UpdateTheme(const Theme& theme) noexcept
     {
         theme_ = &theme;
-        measurer_->UpdateTheme(theme);
+        lifecycle_->UpdateTheme(theme);
     }
     bool RecreateFormats();
     void ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
@@ -71,8 +55,13 @@ public:
     }
 
 private:
-    ITextMeasurer* measurer_ = nullptr;
+    // 同一の ITextMeasurer 派生から得た 2 つの IF view。lifecycle 系 (Init/RecreateFormats/UpdateTheme)
+    // は UI スレッドからのみ呼び、backend (MeasureNode/MeasureTable) は const 経由で
+    // 将来 worker pool から並列呼び出し可能にする設計。
+    IMeasureLifecycle* lifecycle_ = nullptr;
+    IMeasureBackend* backend_ = nullptr;
     const Theme* theme_ = nullptr;
+    mendo::layout::DirtyScheduler scheduler_{};
 
     float total_height_ = 0.0f;
     float last_viewport_width_ = 0.0f;

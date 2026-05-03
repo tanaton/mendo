@@ -79,7 +79,7 @@ bool DWriteTextMeasurer::RecreateFormats()
     return CreateAllFormats();
 }
 
-IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) noexcept
+IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) const noexcept
 {
     if (node.type == NodeType::CodeBlock) {
         return fmt_code_.Get();
@@ -135,7 +135,7 @@ inline void FlushAttr(AttrRangeBuilder& b, Emit&& emit) noexcept
 
 } // namespace
 
-void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::optional<NodeType> node_type)
+void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::optional<NodeType> node_type) const
 {
     if (runs.empty()) {
         return;
@@ -189,7 +189,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     }
 }
 
-void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width)
+void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) const
 {
     MENDO_PROFILE("MeasureNode");
     if (!dwrite_ || !theme_) {
@@ -332,7 +332,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     entry.invalidate_per_frame_hl_caches();
 }
 
-void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths)
+void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths) const
 {
     MENDO_PROFILE("MeasureTableCells");
     IDWriteTextFormat* const fmt = fmt_body_.Get();
@@ -370,7 +370,7 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
     }
 }
 
-void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry)
+void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry) const
 {
     // EvictInvisibleTableRows で Reset された null セルを再生成する。
     MENDO_PROFILE("RestoreNullCellLayouts");
@@ -408,7 +408,7 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
 }
 
 void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
-                                             size_t col_count, std::pmr::vector<float>& natural_widths)
+                                             size_t col_count, std::pmr::vector<float>& natural_widths) const
 {
     MENDO_PROFILE("FinalizeTableLayout");
     const float cell_padding = TABLE_CELL_PADDING;
@@ -505,7 +505,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     tl.last_applied_max_width = max_width;
 }
 
-void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width)
+void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const
 {
     MENDO_PROFILE("MeasureTable");
     if (!dwrite_ || !theme_) {

@@ -1,16 +1,8 @@
 #pragma once
-#include "document_types.h"
-#include "layout_cache.h"
-#include "theme.h"
+#include "measure_backend.h"
 
-// テキスト計測の抽象インターフェース
-class ITextMeasurer {
-public:
-    virtual ~ITextMeasurer() = default;
-
-    virtual bool Init(const Theme& theme) = 0;
-    virtual bool RecreateFormats() = 0;
-    virtual void UpdateTheme(const Theme& theme) noexcept = 0;
-    virtual void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) = 0;
-    virtual void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) = 0;
+// 既存呼び出しサイト互換用の合成 IF。新規コードは IMeasureBackend を直接使うこと。
+// DWriteTextMeasurer / MockTextMeasurer などの実装は引き続き ITextMeasurer を継承し、
+// 両 IF のメソッドをまとめて override する。
+class ITextMeasurer : public IMeasureBackend, public IMeasureLifecycle {
 };

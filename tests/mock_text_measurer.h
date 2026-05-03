@@ -17,7 +17,7 @@ public:
     bool RecreateFormats() override { return true; }
     void UpdateTheme(const Theme&) noexcept override {}
 
-    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) override
+    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) const override
     {
         if (node.type == NodeType::HorizontalRule) {
             entry.height = 10.0f;
@@ -78,7 +78,7 @@ public:
         entry.effects_applied = false;
     }
 
-    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) override
+    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const override
     {
         if (!node.has_table() || node.table_rows().empty()) {
             entry.height = 0;

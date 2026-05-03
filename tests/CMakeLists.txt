@@ -66,6 +66,7 @@ add_executable(mendo_tests
     test_small_vector.cpp
     test_pmr_unique_ptr.cpp
     test_fenwick.cpp
+    test_dirty_scheduler.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE
