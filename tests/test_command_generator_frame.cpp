@@ -120,33 +120,8 @@ TEST_F(CmdGenFrameTest, FirstVisibleBeyondEndProducesNoContent)
 }
 
 // ═══════════════════════════════════════════════
-// ShrinkBuffers / SetSharedHitTestBuffer / SetSearchMatches
+// SetSearchMatches
 // ═══════════════════════════════════════════════
-
-TEST_F(CmdGenFrameTest, ShrinkBuffersIsSafeWithoutSharedBuffer)
-{
-    Parse(L"Hello");
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
-    const auto baseline_size = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}).size();
-    gen_.ShrinkBuffers();
-    // ShrinkBuffers 後も同じ入力で同じコマンド列が再生成される
-    const auto after_size = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}).size();
-    EXPECT_EQ(after_size, baseline_size);
-}
-
-TEST_F(CmdGenFrameTest, SetSharedHitTestBufferPreventsShrink)
-{
-    Parse(L"Hello");
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> shared;
-    shared.reserve(32);
-    const auto capacity_before = shared.capacity();
-    gen_.SetSharedHitTestBuffer(&shared);
-    (void)gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
-    gen_.ShrinkBuffers(); // shared 設定時は内部バッファを触らない
-    // shared バッファ自体の容量は ShrinkBuffers では影響されない
-    EXPECT_EQ(shared.capacity(), capacity_before);
-}
 
 TEST_F(CmdGenFrameTest, SetSearchMatchesWithNullIsSafe)
 {

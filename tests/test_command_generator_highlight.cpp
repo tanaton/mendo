@@ -28,12 +28,14 @@ std::vector<size_t> ExtractCmdKinds(const DrawCommandList& cmds)
 class HighlightOrderTest : public DWriteTestBase {
 protected:
     CommandGenerator gen_;
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     void SetUp() override
     {
         DWriteTestBase::SetUp();
         gen_.SetTheme(&theme_);
         gen_.SetFormats({ nullptr, nullptr, nullptr, nullptr });
+        gen_.SetHitTestBuffer(&hit_test_buffer_);
     }
 };
 

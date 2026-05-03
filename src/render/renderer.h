@@ -92,7 +92,6 @@ public:
     {
         hit_test_buffer_.shrink_to_fit();
         hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
-        cmd_generator_.ShrinkBuffers();
     }
 
     // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。

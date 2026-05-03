@@ -75,16 +75,9 @@ public:
         IDWriteTextFormat* placeholder_text = nullptr;
     };
 
-    void ShrinkBuffers()
+    void SetHitTestBuffer(std::pmr::vector<DWRITE_HIT_TEST_METRICS>* buf) noexcept
     {
-        if (!shared_hit_test_buffer_) {
-            hit_test_buffer_.shrink_to_fit();
-        }
-    }
-
-    void SetSharedHitTestBuffer(std::pmr::vector<DWRITE_HIT_TEST_METRICS>* buf) noexcept
-    {
-        shared_hit_test_buffer_ = buf;
+        hit_test_buffer_ = buf;
     }
 
     constexpr void SetTheme(const Theme* theme) noexcept
@@ -181,12 +174,7 @@ private:
     int current_match_index_ = -1;
     uint32_t search_generation_ = 0;
 
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS>* shared_hit_test_buffer_ = nullptr;
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
-    constexpr std::pmr::vector<DWRITE_HIT_TEST_METRICS>& GetHitTestBuffer() noexcept
-    {
-        return shared_hit_test_buffer_ ? *shared_hit_test_buffer_ : hit_test_buffer_;
-    }
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS>* hit_test_buffer_ = nullptr;
 
     DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len, D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col, BrushId brush_id = BrushId::Custom)
     {

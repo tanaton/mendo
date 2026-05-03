@@ -523,7 +523,8 @@ void CommandGenerator::EmitHighlightRects(
     if (!layout || length == 0) {
         return;
     }
-    auto& buf = GetHitTestBuffer();
+    assert(hit_test_buffer_ && "SetHitTestBuffer must be called before GenerateMdPane");
+    auto& buf = *hit_test_buffer_;
     MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
     const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     for (UINT32 i = 0; i < count; i++) {
@@ -538,7 +539,8 @@ void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextL
 
 void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out)
 {
-    auto& buf = GetHitTestBuffer();
+    assert(hit_test_buffer_ && "SetHitTestBuffer must be called before GenerateMdPane");
+    auto& buf = *hit_test_buffer_;
     MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
     const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     out.reserve(out.size() + count);

@@ -20,6 +20,7 @@ protected:
     Theme theme_;
     LayoutCache cache_;
     std::pmr::vector<Node> nodes_;
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     void SetUp() override
     {
@@ -27,6 +28,7 @@ protected:
         ASSERT_TRUE(engine_.Init(&mock_, theme_));
         gen_.SetTheme(&theme_);
         gen_.SetFormats({ nullptr, nullptr, nullptr, nullptr });
+        gen_.SetHitTestBuffer(&hit_test_buffer_);
     }
 
     void Parse(std::wstring_view md, float viewport_w = 800.0f)
