@@ -2,7 +2,7 @@
 
 ## プロジェクト概要
 
-Webブラウザを使わず、Direct2D/DirectWriteによる自前レンダリングでWindows向け高速Markdownビュアーを実現するネイティブアプリケーション。
+Direct2D/DirectWriteを使用して直接描画を行うMarkdownビュアー。
 
 ## 技術スタック
 
@@ -11,31 +11,24 @@ Webブラウザを使わず、Direct2D/DirectWriteによる自前レンダリン
 - **描画**: Direct2D (`ID2D1Factory1` + `ID2D1DeviceContext`)
 - **テキスト**: DirectWrite (`IDWriteTextLayout`)
 - **Markdownパーサ**: md4c (SAX型コールバック、`third_party/md4c/`)
-- **テスト**: Google Test v1.17.0 (FetchContentで取得)
+- **テスト**: Google Test v1.17.0
 - **ビルド**: CMake 3.20+
 
 ## ビルド方法
 
-```
+```bash
 cmake -B build
-cmake --build build --config Release -- //v:q //nologo
-```
-
-テストなしでビルドする場合:
-```
-cmake -B build -DMENDO_BUILD_TESTS=OFF
 cmake --build build --config Release -- //v:q //nologo
 ```
 
 ## テスト実行
 
-```
+```bash
 cmake --build build --config Release -- //v:q //nologo
 build/tests/Release/mendo_tests.exe --gtest_brief=1
 ```
 
 ## 注意事項
 
-- 思考過程も日本語で出力してね
+- コメントは簡潔にまとめる。Whatコメントは禁止
 - `third_party/` は外部コードなので編集しない
-- マニフェストは `res/mendo.rc` 経由で埋め込み。`#pragma comment(linker, "/manifestdependency:...")` は使わない

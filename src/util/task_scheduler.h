@@ -18,7 +18,6 @@ public:
     // 同時にキューに保留できるタスク数の上限。
     // Why: 異常系（巨大ドキュメントの大量画像/Mermaid 要求）でキューが青天井に
     // 膨らむのを防ぎ、move_only_function キャプチャによるヒープ消費を制限する。
-    // 通常運用では 10 件程度しか保留されないので 1024 は実質上限としては余裕。
     static constexpr size_t MAX_PENDING_TASKS = 1024;
 
     TaskScheduler() = default;

@@ -25,7 +25,6 @@ inline void InitGlobalMemoryResource()
 }
 
 // ヒープ上のバッファを使う monotonic_buffer_resource のラッパー。
-// 一括確保→一括解放パターン（パース）や、毎フレームリセットパターン（描画コマンド生成）に使用。
 class MonotonicResource {
 public:
     explicit MonotonicResource(std::size_t initial_size = 16 * 1024)

@@ -10,11 +10,6 @@
 
 // 小さな inline 領域 (SBO) を持つ簡易 vector。
 //
-// 想定用途: Node::runs / TableCell::runs。Markdown ノードの大半は run 数 < 4 で、
-// SBO で済めば動的確保ゼロになる。Node が default-allocator pmr::vector<TextRun> を
-// 抱えていた構成では、ノード生成のたびに synchronized_pool_resource にロックを
-// 取りに行く reserve(2)/reserve(8) が走っていた。SBO を使えばこれを完全に消せる。
-//
 // 制約 (簡略実装):
 //   - T は trivially copyable / trivially destructible 限定。TextRun は POD なので OK。
 //   - allocator は固定 (operator new / delete)。pmr アロケータ非対応。
@@ -268,8 +263,6 @@ private:
         }
     }
 
-    // SBO は T の default-member-init を尊重して値初期化する。TextRun の link_url_index=-1 等が
-    // 走るので、SBO に未書き込みのまま読まれても定義済み値になる。
     T inline_storage_[N]{};
     T* data_ = inline_storage_;
     size_type size_ = 0;

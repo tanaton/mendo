@@ -30,8 +30,7 @@ struct OpenedFile {
 };
 
 // 共有モードと最大サイズは呼び出し側で指定する。
-// out_error は CreateFileW 失敗時のみ GetLastError() を格納する
-// （SizeQueryFailed / TooLarge では更新しない）。
+// out_error は CreateFileW 失敗時のみ GetLastError() を格納する。
 [[nodiscard]] OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept;
 
 // out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
@@ -48,7 +47,6 @@ bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, 
 // ファイル名・フルパス比較ユーティリティ。
 // `CompareStringOrdinal(..., TRUE)` ベースで NTFS と挙動が一致する
 // Unicode 込みの ordinal case-insensitive 比較を提供する。
-// 拡張子や URL スキーム等の ASCII 確定トークンには ascii_util::iequal を使う。
 namespace path_util {
 
 inline bool iequal(std::wstring_view a, std::wstring_view b) noexcept
