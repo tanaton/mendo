@@ -2,6 +2,7 @@
 #include "config_service.h"
 #include "i18n.h"
 #include "memory_resource.h"
+#include "profiler.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <shellscalingapi.h>
@@ -9,6 +10,8 @@
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow)
 {
+    MENDO_PROFILE("wWinMain");
+    MENDO_FRAME_MARK();
     // グローバル同期プールリソースを初期化（最初に呼び出す）
     InitGlobalMemoryResource();
 

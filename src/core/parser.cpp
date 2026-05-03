@@ -742,6 +742,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
 ParseResult ParseMarkdown(std::wstring_view markdown_text)
 {
+    MENDO_PROFILE("ParseMarkdown");
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
     ctx.markdown_size = markdown_text.size();

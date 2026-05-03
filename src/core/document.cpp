@@ -11,15 +11,7 @@ Document Document::FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::w
     doc.file_path_ = path;
     doc.raw_wide_ = std::move(wide);
     doc.loaded_byte_size_ = byte_size;
-    ParseResult result;
-    {
-        MENDO_PROFILE("ParseMarkdown");
-        result = ParseMarkdown(doc.raw_wide_);
-    }
-    {
-        MENDO_PROFILE("BuildIndices");
-        doc.ReplaceContent(std::move(result));
-    }
+    doc.ReplaceContent(ParseMarkdown(doc.raw_wide_));
     return doc;
 }
 
@@ -87,6 +79,7 @@ int Document::FindNormalizedAnchorIndex(std::wstring_view anchor) const
 
 void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices)
 {
+    MENDO_PROFILE("BuildHeadingIndices");
     toc_.Clear();
     toc_.Reserve(heading_indices.size());
     anchor_index_.clear();
