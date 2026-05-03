@@ -29,8 +29,36 @@ if(MSVC)
     set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
 endif()
 
-# ---- WebView2 SDK（Mermaid図表レンダリング用） ----
+# ---- Tracy プロファイラ（オプション） ----
+# 開発時のフレーム/ゾーン計測用。Release 配布では OFF が前提。
+# ON にすると <tracy/Tracy.hpp> が <windows.h> を引き込むため、
+# Tracy の zone/frame マクロは profiler.h 経由でラップして使う。
+option(MENDO_USE_TRACY "Build with Tracy profiler client" OFF)
+
 include(FetchContent)
+if(MENDO_USE_TRACY)
+    # Tracy v0.13.1 のソース取得（add_subdirectory 相当）。
+    # TRACY_ENABLE はクライアント側計装の有効化スイッチで、Tracy の CMakeLists
+    # 内で TracyClient のコンパイル定義として伝播する。
+    # TRACY_ON_DEMAND は Tracy GUI が接続するまで計測バッファを溜めない設定。
+    # アプリ起動だけでメモリを食わないので開発用に都合がよい。
+    set(TRACY_ENABLE    ON CACHE BOOL "" FORCE)
+    set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
+    set(TRACY_STATIC    ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        tracy
+        URL https://github.com/wolfpld/tracy/archive/refs/tags/v0.13.1.tar.gz
+    )
+    FetchContent_MakeAvailable(tracy)
+    # CRT 設定をプロジェクト全体と揃える（/MT[d]）。
+    if(MSVC AND TARGET TracyClient)
+        set_target_properties(TracyClient PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        target_compile_options(TracyClient PRIVATE /W0)
+    endif()
+endif()
+
+# ---- WebView2 SDK（Mermaid図表レンダリング用） ----
 FetchContent_Declare(
     webview2
     URL https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2903.40
@@ -150,11 +178,16 @@ add_library(mendo_core STATIC
 target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS} third_party/md4c)
 target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
-    $<$<CONFIG:Release>:MENDO_PROFILE_ENABLED=0>
 )
 target_link_libraries(mendo_core PUBLIC
     md4c d2d1 dwrite windowscodecs shlwapi comctl32
 )
+if(MENDO_USE_TRACY)
+    # MENDO_USE_TRACY: profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。
+    # TRACY_ENABLE   : Tracy ヘッダ側の計測コード生成を有効化（Tracy 自体の規約）。
+    target_compile_definitions(mendo_core PUBLIC MENDO_USE_TRACY TRACY_ENABLE)
+    target_link_libraries(mendo_core PUBLIC Tracy::TracyClient)
+endif()
 if(MSVC)
     target_compile_options(mendo_core PRIVATE /W4 /utf-8)
 endif()

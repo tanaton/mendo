@@ -1,5 +1,31 @@
 #include "command_executor.h"
+#include "profiler.h"
 #include "utility.h"
+
+#ifdef MENDO_USE_TRACY
+namespace {
+
+// 累積カウンタ（UI スレッド単一前提のため非アトミック）。
+struct BrushStats {
+    int64_t fastpath_hit = 0; // last_brush_ 直前キャッシュヒット
+    int64_t pool_hit = 0;     // brush_pool_ 内ヒット (PackColor で同一色)
+    int64_t pool_miss = 0;    // 新規 CreateSolidColorBrush
+    int64_t pool_evict = 0;   // LRU で 1 件追い出し
+    int64_t rt_switch = 0;    // RT 切替によるプール全クリア
+};
+BrushStats g_brush_stats;
+
+void PublishBrushStats() noexcept
+{
+    MENDO_PLOT("brush.fastpath_hit", g_brush_stats.fastpath_hit);
+    MENDO_PLOT("brush.pool_hit", g_brush_stats.pool_hit);
+    MENDO_PLOT("brush.pool_miss", g_brush_stats.pool_miss);
+    MENDO_PLOT("brush.pool_evict", g_brush_stats.pool_evict);
+    MENDO_PLOT("brush.rt_switch", g_brush_stats.rt_switch);
+}
+
+} // namespace
+#endif
 
 ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color)
 {
@@ -9,11 +35,13 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         use_counter_ = 0;
         bound_rt_ = rt;
         last_brush_ = nullptr;
+        MENDO_COUNT_INC(g_brush_stats.rt_switch);
     }
     const uint32_t key = command_executor_internal::PackColor(color);
     // 直前と同色なら hash lookup を完全にスキップ。同色連続発行（罫線、ハイライト、
     // 同テーマ色のテキスト等）が多いためヒット率が高い。
     if (last_brush_ && key == last_brush_key_) {
+        MENDO_COUNT_INC(g_brush_stats.fastpath_hit);
         return last_brush_;
     }
     const uint64_t now = ++use_counter_;
@@ -21,6 +49,7 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         it->second.last_used = now;
         last_brush_key_ = key;
         last_brush_ = it->second.brush.Get();
+        MENDO_COUNT_INC(g_brush_stats.pool_hit);
         return last_brush_;
     }
     if (brush_pool_.size() >= MAX_POOLED_BRUSHES) {
@@ -36,7 +65,9 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
             last_brush_ = nullptr;
         }
         brush_pool_.erase(oldest);
+        MENDO_COUNT_INC(g_brush_stats.pool_evict);
     }
+    MENDO_COUNT_INC(g_brush_stats.pool_miss);
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
     if (FAILED(rt->CreateSolidColorBrush(color, &brush)) || !brush) {
         return nullptr;
@@ -49,6 +80,8 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
 
 void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt)
 {
+    MENDO_PROFILE("CommandExecutor::Execute");
+    MENDO_PLOT("draw.command_count", static_cast<int64_t>(cmds.size()));
     if (!rt) {
         return;
     }
@@ -125,4 +158,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
         }, cmd);
         // clang-format on
     }
+
+    MENDO_IF_TRACY(PublishBrushStats());
+    MENDO_PLOT("brush.pool_size", static_cast<int64_t>(brush_pool_.size()));
 }

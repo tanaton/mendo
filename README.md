@@ -132,6 +132,17 @@ cmake --build build --config Release
 build/tests/Release/mendo_tests.exe
 ```
 
+### Tracyプロファイラ有効ビルド（開発者向け）
+
+[Tracy](https://github.com/wolfpld/tracy) v0.13.1 を組み込み、フレーム時間・ゾーン計測・カウンタ時系列プロットを取得できます。Tracy GUI 接続前は計測コードが no-op になる `TRACY_ON_DEMAND` モードで組み込まれます。
+
+```
+cmake -B build_tracy -DMENDO_USE_TRACY=ON
+cmake --build build_tracy --config Release
+```
+
+Tracy GUI（[Releases](https://github.com/wolfpld/tracy/releases) からダウンロード）を起動した状態で `build_tracy/Release/mendo.exe` を実行すると接続できます。`MENDO_USE_TRACY=ON` のときのみ Tracy がリンク・計装され、デフォルト（OFF）のビルド成果物には一切影響しません。
+
 ## 使い方
 
 ```

@@ -1,5 +1,6 @@
 #include "layout.h"
 #include "document.h"
+#include "profiler.h"
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -143,11 +144,13 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
 
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme) noexcept
 {
+    MENDO_PROFILE("EstimateNodeHeights");
     // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
     // DirectWriteを一切呼ばないため、数千ノードでも数百マイクロ秒で完了する。
     // layout_dirtyフラグは変更しない（後続のViewportLayoutが正しく計測できるようにする）。
     assert(cache.size() >= nodes.size());
     const auto node_count = nodes.size();
+    MENDO_PLOT("layout.estimate.node_count", static_cast<int64_t>(node_count));
 
     float y = theme.margin_top;
     for (size_t i = 0; i < node_count; i++) {
@@ -165,6 +168,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
                                     size_t from_index, bool has_earlier_dirty, size_t safe_exit_after) noexcept
 {
+    MENDO_PROFILE("RecomputeYPositions");
     YPositionResult result;
     result.has_dirty_nodes = has_earlier_dirty;
     const auto node_count = nodes.size();
@@ -226,6 +230,7 @@ bool LayoutEngine::RecreateFormats()
 
 void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
 {
+    MENDO_PROFILE("LayoutEngine::ComputeLayout");
     const auto node_count = nodes.size();
     cache.Resize(node_count);
 
@@ -330,6 +335,11 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     if (any_measured) {
         cache.IncrementEffectsGeneration();
     }
+
+    MENDO_PLOT("layout.compute.partial", static_cast<int64_t>(partial));
+    MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(width_changed));
+    MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));
+    MENDO_PLOT("layout.compute.broke_early", static_cast<int64_t>(broke_early));
 }
 
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
@@ -341,6 +351,7 @@ void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache
 
 bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
 {
+    MENDO_PROFILE("LayoutEngine::EnsureVisibleLayout");
     const float content_width = theme_->ContentWidth(viewport_width);
     bool any_updated = false;
     int last_measured = -1;
@@ -376,6 +387,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
                                      float viewport_width, int batch_size, int time_budget_us,
                                      float viewport_top, float viewport_height, float buffer_screens)
 {
+    MENDO_PROFILE("LayoutEngine::ProcessDirtyBatch");
     const float content_width = theme_->ContentWidth(viewport_width);
     const auto node_count = nodes.size();
     int processed = 0;
@@ -424,6 +436,8 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
             break;
         }
     }
+
+    MENDO_PLOT("layout.dirty_batch.processed", static_cast<int64_t>(processed));
 
     if (processed == 0) {
         has_dirty_nodes_ = false;

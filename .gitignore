@@ -365,6 +365,8 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-build/
+# CMake out-of-source ビルドツリー全般
+# (build/, build_tracy/, build_no_tracy/ など派生ビルドも追跡対象から除外)
+build*/
 CMakeSettings.json
 .claude/

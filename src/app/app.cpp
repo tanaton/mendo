@@ -212,6 +212,7 @@ void App::OnPaint()
     }
 
     EndPaint(hwnd_, &ps);
+    MENDO_FRAME_MARK();
 }
 
 void App::OnResize(UINT width, UINT height)
