@@ -8,6 +8,7 @@
 #include "command_executor.h"
 #include "syntax.h"
 #include "d2d_render_backend.h"
+#include "memory_resource.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -150,8 +151,8 @@ private:
     bool CheckEndDraw();
     bool RecreateRenderTarget();
 
-    // ApplyNodeEffectsでインラインコード背景を計算するためのヒットテストバッファ。
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
+    // ApplyNodeEffects でインラインコード背景を計算するためのヒットテストバッファ。
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_{ GetThreadLocalPoolResource() };
 
     struct TextFormats {
         Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_font;
@@ -177,7 +178,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_back_layout_;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_forward_layout_;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_toast_layout_;
-    std::pmr::wstring cached_toast_text_;
+    std::pmr::wstring cached_toast_text_{ GetThreadLocalPoolResource() };
 
     // 検索バーの入力テキストレイアウトキャッシュ。
     // キー: (query, ime_composition, caret_pos, input 幅)
@@ -185,9 +186,9 @@ private:
     // キャレット点滅や同一入力継続フレームで CreateTextLayout と
     // 表示テキスト合成の双方を回避する。入力 height は定数なのでキーに含めない。
     mutable Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_search_layout_;
-    mutable std::pmr::wstring cached_search_text_;     // 合成後の表示テキスト (IME 未使用時は query と同一)
-    mutable std::pmr::wstring cached_search_query_;    // 直近フレームの sb.query
-    mutable std::pmr::wstring cached_search_ime_comp_; // 直近フレームの sb.ime_composition
+    mutable std::pmr::wstring cached_search_text_{ GetThreadLocalPoolResource() };     // 合成後の表示テキスト (IME 未使用時は query と同一)
+    mutable std::pmr::wstring cached_search_query_{ GetThreadLocalPoolResource() };    // 直近フレームの sb.query
+    mutable std::pmr::wstring cached_search_ime_comp_{ GetThreadLocalPoolResource() }; // 直近フレームの sb.ime_composition
     mutable int cached_search_caret_pos_ = -1;         // IME 合成時の挿入位置（無いとき -1）
     mutable float cached_search_width_ = -1.0f;
     mutable bool cached_search_has_underline_ = false;

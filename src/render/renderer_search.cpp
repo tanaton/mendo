@@ -77,7 +77,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     const int key_caret_pos = has_comp ? comp_start : -1;
 
     std::wstring_view display_text = sb.query;
-    std::pmr::wstring display_buf;
+    std::pmr::wstring display_buf{ GetThreadLocalPoolResource() };
 
     if (fmt_.search_input && (!sb.query.empty() || has_comp) && backend_.GetDWriteFactory()) {
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;

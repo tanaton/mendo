@@ -55,6 +55,16 @@ private:
     std::pmr::monotonic_buffer_resource monotonic_;
 };
 
+// スレッドローカル unsynchronized_pool_resource。
+// allocate と deallocate を同じスレッドで行う前提で、共有 sync pool のロックを避ける。
+// thread 跨ぎでメモリを引き渡してはならない。
+inline std::pmr::memory_resource* GetThreadLocalPoolResource()
+{
+    constexpr std::pmr::pool_options opts{ /*max_blocks_per_chunk=*/0, /*largest_required_pool_block=*/1 << 20 };
+    thread_local std::pmr::unsynchronized_pool_resource pool{ opts, std::pmr::new_delete_resource() };
+    return &pool;
+}
+
 // スタック上の固定サイズバッファを初期チャンクとして使う pmr arena。
 // per-frame の小サイズ確保で sync pool ロックを避けつつ、
 // SBO を超えた分は upstream の new_delete_resource にフォールバックする。
