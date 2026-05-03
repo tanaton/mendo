@@ -156,12 +156,16 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     for (size_t i = 0; i < node_count; i++) {
         const auto& node = nodes[i];
         const float h = EstimateNodeHeight(node, theme);
+        const float sa = GetSpacingAbove(node, theme);
+        const float sb = GetSpacingBelow(node, theme);
 
-        y += GetSpacingAbove(node, theme);
+        y += sa;
         cache[i].height = h;
         cache[i].y_position = y;
         y += h;
-        y += GetSpacingBelow(node, theme);
+        y += sb;
+
+        cache.SetBlockHeight(i, sa + h + sb);
     }
 }
 
@@ -187,9 +191,13 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
             result.has_dirty_nodes = true;
         }
 
-        y += GetSpacingAbove(nodes[i], theme);
+        const float sa = GetSpacingAbove(nodes[i], theme);
+        const float sb = GetSpacingBelow(nodes[i], theme);
+
+        y += sa;
 
         // safe_exit_after 以降でY位置が一致すれば、以降のノードのY位置は変わらないので早期終了する。
+        // Fenwick の block_height は既存値が正しい前提で書き込みをスキップする。
         if (i > safe_exit_after && std::abs(entry.y_position - y) < Y_POSITION_EPSILON) {
             // Y更新より軽量なフラグチェックのみで残りのダーティノードを確認
             if (!result.has_dirty_nodes) {
@@ -204,8 +212,9 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
 
         entry.y_position = y;
         y += entry.height;
+        y += sb;
 
-        y += GetSpacingBelow(nodes[i], theme);
+        cache.SetBlockHeight(i, sa + entry.height + sb);
     }
 
     result.total_height = y + theme.margin_top;
@@ -318,10 +327,15 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
             any_dirty = true;
         }
 
-        y += GetSpacingAbove(node, *theme_);
+        const float sa = GetSpacingAbove(node, *theme_);
+        const float sb = GetSpacingBelow(node, *theme_);
+
+        y += sa;
         entry.y_position = y;
         y += entry.height;
-        y += GetSpacingBelow(node, *theme_);
+        y += sb;
+
+        cache.SetBlockHeight(i, sa + entry.height + sb);
 
         // 部分モードで幅の変更がなく、ビューポートを超えた後に
         // 高さの変更もなければ、残りの Y 位置は変わらないので早期終了する。

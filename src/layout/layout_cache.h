@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "fenwick.h"
 #include "pmr_unique_ptr.h"
 #include <vector>
 #include <memory_resource>
@@ -242,30 +243,44 @@ struct DiagramEntry {
 
 class LayoutCache {
 public:
-    constexpr void Resize(size_t node_count)
+    void Resize(size_t node_count)
     {
         if (entries_.size() != node_count) {
             entries_.resize(node_count);
             diagrams_.resize(node_count);
+            block_heights_.Reset();
+            block_heights_.Resize(node_count);
             effects_generation_++;
         }
     }
 
     // prefix 部分のキャッシュを保持したままリサイズする。
     // 追加エントリの y_position を旧末尾に配置し、二分探索の単調性を維持する。
-    constexpr void ResizePreservingPrefix(size_t new_node_count)
+    void ResizePreservingPrefix(size_t new_node_count)
     {
         const size_t old_count = entries_.size();
-        Resize(new_node_count);
-        if (new_node_count > old_count && old_count > 0) {
-            const float end_y = entries_[old_count - 1].y_position + entries_[old_count - 1].height;
-            for (size_t i = old_count; i < new_node_count; i++) {
-                entries_[i].y_position = end_y;
+        if (old_count == new_node_count) {
+            return;
+        }
+        if (new_node_count > old_count) {
+            entries_.resize(new_node_count);
+            diagrams_.resize(new_node_count);
+            block_heights_.GrowTo(new_node_count);
+            if (old_count > 0) {
+                const float end_y = entries_[old_count - 1].y_position + entries_[old_count - 1].height;
+                for (size_t i = old_count; i < new_node_count; i++) {
+                    entries_[i].y_position = end_y;
+                }
             }
+            effects_generation_++;
+        }
+        else {
+            // 縮小: Resize 経由で Fenwick もリセット (末尾の累積構造を保持できないため)
+            Resize(new_node_count);
         }
     }
 
-    constexpr void Reset(size_t node_count, bool shrink = true)
+    void Reset(size_t node_count, bool shrink = true)
     {
         entries_.clear();
         if (shrink) {
@@ -277,6 +292,8 @@ public:
             diagrams_.shrink_to_fit();
         }
         diagrams_.resize(node_count);
+        block_heights_.Reset();
+        block_heights_.Resize(node_count);
         effects_generation_++;
     }
 
@@ -456,6 +473,29 @@ public:
         effects_generation_++;
     }
 
+    // ノード i の block height (= spacing_above + height + spacing_below) を Fenwick に反映する。
+    // RecomputeYPositions が各ノードの新しいブロック高さを書き込む際に呼ぶ。
+    void SetBlockHeight(size_t i, float block_height) noexcept
+    {
+        block_heights_.Set(i, block_height);
+    }
+
+    // ノード i のブロック上端 Y を Fenwick から O(log N) で取得する。
+    // ここで「ブロック上端」とは spacing_above を含む位置のため、テキスト上端
+    // (entry.y_position) は GetBlockTopFromFenwick(i) + spacing_above[i] と一致する。
+    float GetBlockTopFromFenwick(size_t i, float margin_top) const noexcept
+    {
+        return margin_top + block_heights_.PrefixSum(i);
+    }
+
+    // 文書全体の高さを Fenwick から O(log N) で取得する。
+    // = 2 * margin_top + sum(block_heights[0..N))
+    // = entry[N-1].y_position + entry[N-1].height + spacing_below[N-1] + margin_top と一致する。
+    float GetTotalHeightFromFenwick(float margin_top) const noexcept
+    {
+        return margin_top * 2.0f + block_heights_.PrefixSum(block_heights_.size());
+    }
+
 private:
     // 列幅 / 行高さ / セルメトリクス系の派生キャッシュを既定値に戻す。
     // cell_inline_code_bgs は呼び出し側で必要に応じて別途クリアする
@@ -514,6 +554,9 @@ private:
 
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<DiagramEntry> diagrams_;
+    // 各ノードの block height (spacing_above + height + spacing_below) を保持する Fenwick tree。
+    // RecomputeYPositions が更新し、GetBlockTopFromFenwick / GetTotalHeightFromFenwick で参照する。
+    mendo::FloatFenwick block_heights_;
     uint32_t effects_generation_ = 0;
 };
 

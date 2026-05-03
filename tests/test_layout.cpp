@@ -72,6 +72,27 @@ TEST_F(LayoutTest, NodesDoNotOverlap)
     }
 }
 
+// ComputeLayout (full pass) 後に Fenwick が total_height と整合していること。
+// 個別の Y は spacing_above ぶん entry.y_position と意味が異なる (Fenwick は
+// ブロック上端、entry はテキスト上端) ので、ここでは total のみ確認する。
+TEST_F(LayoutTest, FenwickMatchesTotalHeightAfterFullLayout)
+{
+    auto nodes = ParseMarkdown(L"# Heading\n\nParagraph\n\n---\n\n- A\n- B\n\nLast").nodes;
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f); // partial = false
+
+    EXPECT_NEAR(cache.GetTotalHeightFromFenwick(theme_.margin_top), engine_.GetTotalHeight(), 0.01f);
+
+    // 隣接ノード間の Y 差分は Fenwick の block_height に等しい。
+    // (i 番目ブロック上端と i+1 番目ブロック上端の差 = block_height[i])
+    for (size_t i = 1; i < nodes.size(); i++) {
+        const float fenwick_top_i = cache.GetBlockTopFromFenwick(i, theme_.margin_top);
+        const float fenwick_top_prev = cache.GetBlockTopFromFenwick(i - 1, theme_.margin_top);
+        EXPECT_GT(fenwick_top_i, fenwick_top_prev) << "ノード " << i;
+    }
+}
+
 TEST_F(LayoutTest, NarrowViewportWrapsText)
 {
     auto nodes_wide = ParseMarkdown(L"This is a somewhat long paragraph that should wrap.").nodes;
