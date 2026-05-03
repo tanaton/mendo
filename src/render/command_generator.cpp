@@ -1,11 +1,35 @@
 #include "command_generator.h"
 #include "i18n.h"
 #include "layout.h"
+#include "profiler.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <format>
 #include <ranges>
 #include <utility>
+
+namespace {
+
+// 累積カウンタ + 直近フレーム値（UI スレッド単一前提のため非アトミック）。
+struct CmdGenStats {
+    int64_t hittest_range = 0;     // FetchHitTestMetrics (HitTestTextRange) 呼び出し
+    int64_t sel_hl_cache_hit = 0;  // SelectionHlCache ヒット
+    int64_t sel_hl_cache_miss = 0; // SelectionHlCache ミス (HitTestTextRange を回す)
+    int64_t search_hl_rebuild = 0; // SearchHlCache 再構築
+    int64_t last_visible_node_count = 0; // 累積ではなく直近フレームのスナップショット
+};
+CmdGenStats g_cmd_gen_stats;
+
+void PublishCmdGenStats() noexcept
+{
+    MENDO_PLOT("cmdgen.hittest_range", g_cmd_gen_stats.hittest_range);
+    MENDO_PLOT("cmdgen.sel_hl_cache_hit", g_cmd_gen_stats.sel_hl_cache_hit);
+    MENDO_PLOT("cmdgen.sel_hl_cache_miss", g_cmd_gen_stats.sel_hl_cache_miss);
+    MENDO_PLOT("cmdgen.search_hl_rebuild", g_cmd_gen_stats.search_hl_rebuild);
+    MENDO_PLOT("cmdgen.visible_node_count", g_cmd_gen_stats.last_visible_node_count);
+}
+
+} // namespace
 
 // h1/h2 見出し下線を描画するY座標を heading_spacing_below_h1h2 のこの比率で決める。
 // 値を小さくすると下線は見出し文字に近づき、下線と次行の間隔が広がる。
@@ -94,17 +118,21 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     // ノード単体ごとではなく一括で描画することで、複数行の引用ブロックが連続した見た目になる。
     GenBlockQuoteGroupDecorations(cmds, nodes, cache, node_count, first_visible);
 
+    int visible_count = 0;
     for (int i = first_visible; i < node_count; i++) {
         if (cache[i].y_position > frame_viewport_bottom_) {
             break;
         }
         GenerateNode(cmds, nodes[i], cache[i], cache.GetDiagram(i), i);
+        ++visible_count;
     }
 
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
     cmds.emplace_back(PopClipCmd{});
     frame_selection_ = nullptr;
     last_cmds_size_ = cmds_.size();
+    g_cmd_gen_stats.last_visible_node_count = visible_count;
+    PublishCmdGenStats();
     return cmds_;
 }
 
@@ -485,6 +513,7 @@ void CommandGenerator::EmitHighlightRects(
         return;
     }
     auto& buf = GetHitTestBuffer();
+    ++g_cmd_gen_stats.hittest_range;
     const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     for (UINT32 i = 0; i < count; i++) {
         cmds.emplace_back(FillRectCmd{ RectFromHitTest(buf[i], origin_x, origin_y), color });
@@ -499,6 +528,7 @@ void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextL
 void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out)
 {
     auto& buf = GetHitTestBuffer();
+    ++g_cmd_gen_stats.hittest_range;
     const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     out.reserve(out.size() + count);
     for (UINT32 i = 0; i < count; i++) {
@@ -514,11 +544,15 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
     }
     auto& cache = entry.ensure_selection_hl_cache();
     if (cache.layout_ptr != layout || cache.start != start || cache.length != length) {
+        ++g_cmd_gen_stats.sel_hl_cache_miss;
         cache.rects.clear();
         CollectHitTestRects(layout, start, length, cache.rects);
         cache.layout_ptr = layout;
         cache.start = start;
         cache.length = length;
+    }
+    else {
+        ++g_cmd_gen_stats.sel_hl_cache_hit;
     }
     for (const auto& r : cache.rects) {
         cmds.emplace_back(FillRectCmd{
@@ -561,6 +595,7 @@ void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const NodeLayo
         return;
     }
 
+    ++g_cmd_gen_stats.search_hl_rebuild;
     cache.rects.clear();
     cache.rect_ends.clear();
     cache.rect_ends.reserve(node_match_count);

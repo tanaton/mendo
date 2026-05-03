@@ -1,6 +1,7 @@
 #include "dwrite_measurer.h"
 #include "layout.h"
 #include "parser.h"
+#include "profiler.h"
 #include "syntax.h"
 #include "ui_constants.h"
 #include <algorithm>
@@ -139,6 +140,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     if (runs.empty()) {
         return;
     }
+    MENDO_PROFILE("ApplyRunFormatting");
     const bool apply_code = (!node_type || *node_type != NodeType::CodeBlock);
     const bool apply_code_size = apply_code && (!node_type || *node_type != NodeType::Heading);
     const bool apply_link = !node_type;
@@ -189,6 +191,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
 
 void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width)
 {
+    MENDO_PROFILE("MeasureNode");
     if (!dwrite_ || !theme_) {
         return;
     }
@@ -260,6 +263,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     // BiDi 解析と shaping を走らせるためリサイズ時の最大コスト要因で、SetMaxWidth は
     // ラインブレーク再計算のみで済むので大幅に軽い。
     if (entry.text_layout) {
+        MENDO_PROFILE("MeasureNode.fastpath");
         HRESULT hr = entry.text_layout->SetMaxWidth(layout_width);
         if (SUCCEEDED(hr)) {
             hr = entry.text_layout->SetMaxHeight(dynamic_max_height);
@@ -283,13 +287,16 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     }
 
     ComPtr<IDWriteTextLayout> layout;
-    const HRESULT hr = dwrite_->CreateTextLayout(
-        text.c_str(),
-        static_cast<UINT32>(text.size()),
-        fmt,
-        layout_width,
-        dynamic_max_height,
-        &layout);
+    const HRESULT hr = [&] {
+        MENDO_PROFILE("CreateTextLayout");
+        return dwrite_->CreateTextLayout(
+            text.c_str(),
+            static_cast<UINT32>(text.size()),
+            fmt,
+            layout_width,
+            dynamic_max_height,
+            &layout);
+    }();
     if (FAILED(hr)) {
         return;
     }
@@ -311,6 +318,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     if (node.type == NodeType::CodeBlock && node.syntax_tokens().empty() &&
         node.code_language != SyntaxLanguage::None &&
         !IsDiagramLanguage(node.code_language)) {
+        MENDO_PROFILE("Tokenize");
         node.syntax_tokens_mut() = Tokenize(text, node.code_language);
     }
 
@@ -326,6 +334,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
 
 void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths)
 {
+    MENDO_PROFILE("MeasureTableCells");
     IDWriteTextFormat* const fmt = fmt_body_.Get();
     IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
     auto& rows = node.table_rows();
@@ -343,10 +352,13 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
 
             IDWriteTextFormat* const cell_fmt = cell.is_header ? fmt_bold : fmt;
             const size_t ci = tl.CellIndex(r, c);
-            dwrite_->CreateTextLayout(
-                cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
-                cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
-                &tl.cell_layouts[ci]);
+            {
+                MENDO_PROFILE("CreateTextLayout.cell");
+                dwrite_->CreateTextLayout(
+                    cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
+                    cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                    &tl.cell_layouts[ci]);
+            }
 
             if (tl.cell_layouts[ci]) {
                 ApplyRunFormatting(tl.cell_layouts[ci].Get(), cell.runs, std::nullopt);
@@ -361,6 +373,7 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
 void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
                                              size_t col_count, std::pmr::vector<float>& natural_widths)
 {
+    MENDO_PROFILE("FinalizeTableLayout");
     const float cell_padding = TABLE_CELL_PADDING;
     const float border_width = TABLE_BORDER_WIDTH;
     auto& tl = *entry.table_layout;
@@ -457,6 +470,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
 
 void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width)
 {
+    MENDO_PROFILE("MeasureTable");
     if (!dwrite_ || !theme_) {
         return;
     }
