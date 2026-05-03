@@ -66,9 +66,8 @@ struct ParseContext {
     uint32_t pending_run_start = 0;
     bool has_pending_run = false;
     // pending_run_start 以降に AppendWide で押し込まれた改行の数。FlushPendingRun の count 走査を排除。
-    // md4c は \n を size==1 の単独 chunk としてしか OnText に渡さない契約 (BR/SOFTBR/HTML 改行/code 行末)
-    // に依存している。md4c がチャンク境界を変えた場合は AppendWide のカウンタ条件を見直す必要あり。
-    uint32_t pending_run_newlines = 0;
+    // md4c の \n を size==1 の単独 chunk としてしか OnText に渡さない契約 (BR/SOFTBR/HTML 改行/code 行末) に依存している。
+    int32_t pending_run_newlines = 0;
 
     // ブロックコンテキスト追跡
     int indent_level = 0;
@@ -104,7 +103,7 @@ struct ParseContext {
     std::pmr::wstring display_math_buf{ &pool };
     // display_math_buf に append された範囲の改行数。昇格時の line_count 設定に使い、
     // current_text 全体を std::ranges::count で走査するコストを避ける。
-    uint32_t display_math_newlines = 0;
+    int32_t display_math_newlines = 0;
 
     // md_parse() に渡した入力バッファ。source_offset 計算と OnText の text ポインタ範囲判定に使う。
     const wchar_t* markdown_base = nullptr;
@@ -125,7 +124,9 @@ struct ParseContext {
     void FinalizeCurrentNode()
     {
         FlushPendingRun();
-        if (current_node && !current_text.empty()) {
+        // 昇格処理 (TryPromoteParagraphToDisplayMath 等) が text_ を直接設定済みのノードは、
+        // current_text で上書きすると line_count ごと巻き戻るのでスキップする。
+        if (current_node && !current_text.empty() && !current_node->HasText()) {
             current_node->SetTextWithLineCount(current_text, current_node->line_count);
         }
         current_text.clear();
@@ -213,7 +214,7 @@ struct ParseContext {
         // 1-char chunk fastpath: md4c は \n / 空白 / 単一 entity 等を size==1 で渡してくるので push_back に振り分ける。
         if (text.size() == 1) [[likely]] {
             const wchar_t c = text[0];
-            pending_run_newlines += static_cast<uint32_t>(c == L'\n');
+            pending_run_newlines += (c == L'\n');
             target->push_back(c);
             return;
         }
@@ -231,7 +232,7 @@ struct ParseContext {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
                 auto& runs = current_cell ? current_cell->runs : current_node->runs;
                 if (!current_cell) {
-                    current_node->line_count += static_cast<int>(pending_run_newlines);
+                    current_node->line_count += pending_run_newlines;
                 }
                 runs.emplace_back(MakeRun(pending_run_start, length));
             }
@@ -272,9 +273,9 @@ bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     }
     node->type = NodeType::CodeBlock;
     node->code_language = SyntaxLanguage::LatexMath;
-    ctx->current_text.assign(ctx->display_math_buf.data(), ctx->display_math_buf.size());
     node->runs.clear();
-    node->line_count = static_cast<int>(ctx->display_math_newlines);
+    // current_text 経由で渡すと FinalizeCurrentNode で 2 回目のコピーが走るため、Node::text_ へ直接書く。
+    node->SetTextWithLineCount(ctx->display_math_buf, ctx->display_math_newlines);
     ctx->diagram_indices.emplace_back(ctx->current_node_index);
     return true;
 }
@@ -683,10 +684,10 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
             // size==1 のとき md4c が \n をそのまま渡してくるケースが多いのでスカラ比較で済ませ、
             // size>1 のときだけ std::ranges::count にフォールバックする両対応。
             if (chunk.size() == 1) {
-                ctx->display_math_newlines += static_cast<uint32_t>(chunk[0] == L'\n');
+                ctx->display_math_newlines += (chunk[0] == L'\n');
             }
             else {
-                ctx->display_math_newlines += static_cast<uint32_t>(std::ranges::count(chunk, L'\n'));
+                ctx->display_math_newlines += static_cast<int32_t>(std::ranges::count(chunk, L'\n'));
             }
             ctx->display_math_buf.append(chunk);
         }
@@ -921,8 +922,8 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     // ここで差分計算する。マーカー [!TYPE] 本体には改行が入らず、
     // DetectAlertMarker で 1 文字だけスキップする文字が \n の場合のみ改行 1 個。
     // count を走査せず、marker_end 直前の 1 文字だけを見ればよい。
-    const int marker_newlines = static_cast<int>(marker_end > 0 && current_text[marker_end - 1] == L'\n');
-    const int new_line_count = node.line_count - marker_newlines + static_cast<int>(has_content);
+    const int32_t marker_newlines = (marker_end > 0 && current_text[marker_end - 1] == L'\n');
+    const int32_t new_line_count = node.line_count - marker_newlines + has_content;
     node.SetTextWithLineCount(std::move(new_text), new_line_count);
     node.runs = std::move(new_runs);
     node.alert_type = type;

@@ -411,8 +411,9 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         total_height += row_height + border_width;
     }
 
-    if (node.GetText().empty()) {
-        node.SetText(BuildLinearizedTableText(node.table_rows()));
+    if (!node.HasText()) {
+        // line_count は Table 描画では未参照なので 0 で改行走査を回避。
+        node.SetTextWithLineCount(BuildLinearizedTableText(node.table_rows()), 0);
     }
 
     // ヒットテスト高速化用に行Y累積と列X累積を事前計算

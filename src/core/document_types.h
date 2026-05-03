@@ -168,13 +168,13 @@ struct Node {
 
     // text_ と line_count を一括更新する（呼び出し側が積算済みの line_count を渡す）。
     // 改行を逐次カウントしておけるパーサ向けの最適化バリアント。
-    constexpr void SetTextWithLineCount(std::wstring_view s, int line_count_value)
+    constexpr void SetTextWithLineCount(std::wstring_view s, int32_t line_count_value)
     {
         text_.assign(s);
         line_count = line_count_value;
     }
 
-    constexpr void SetTextWithLineCount(std::pmr::wstring&& s, int line_count_value) noexcept
+    constexpr void SetTextWithLineCount(std::pmr::wstring&& s, int32_t line_count_value) noexcept
     {
         text_ = std::move(s);
         line_count = line_count_value;
