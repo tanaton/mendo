@@ -24,7 +24,6 @@ cmake --build build --config Release -- //v:q //nologo
 ## テスト実行
 
 ```bash
-cmake --build build --config Release -- //v:q //nologo
 build/tests/Release/mendo_tests.exe --gtest_brief=1
 ```
 
