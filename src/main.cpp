@@ -10,8 +10,7 @@
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow)
 {
-    MENDO_PROFILE("wWinMain");
-    MENDO_FRAME_MARK();
+    MENDO_IF_TRACY(Sleep(1000)); // Tracy の起動待ち
     // グローバル同期プールリソースを初期化（最初に呼び出す）
     InitGlobalMemoryResource();
 
@@ -33,50 +32,52 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     int result;
     {
         Win32Window window(config);
-        if (!window.Create(hInstance, nCmdShow)) {
-            CoUninitialize();
-            return 1;
-        }
-
-        // 起動時のドキュメント決定フロー:
-        //   引数が有効なファイル  → そのファイルを開く
-        //   引数なし              → 前回ファイル復元、無ければヘルプ
-        //   引数あり かつ無効     → 前回復元せず直接ヘルプ (ユーザの指定意図を尊重)
-        // CommandLineToArgvWで正規のパースを行い、引用符やスペースを正しく処理する。
-        // 引数が --version 等のフラグ文字列でも確実にヘルプへ落とすため
-        // GetFileAttributesW で実在を検証する。
-        // ディレクトリが渡されても「有効なファイル」扱いしないよう属性ビットで除外。
-        int argc = 0;
-        LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-        const bool arg_given = argv && argc > 1 && argv[1][0] != L'\0';
-        const DWORD arg_attrs = arg_given ? GetFileAttributesW(argv[1]) : INVALID_FILE_ATTRIBUTES;
-        const bool has_valid_file = arg_attrs != INVALID_FILE_ATTRIBUTES && !(arg_attrs & FILE_ATTRIBUTE_DIRECTORY);
-
-        if (has_valid_file) {
-            window.LoadMarkdownFile(argv[1]);
-        }
-        else {
-            std::pmr::wstring last;
-            if (!arg_given) {
-                last = window.LoadLastFilePath();
+        {
+            MENDO_PROFILE("wWinMain - Create Window");
+            if (!window.Create(hInstance, nCmdShow)) {
+                CoUninitialize();
+                return 1;
             }
-            if (!last.empty()) {
-                window.RestoreScrollPosition();
-                window.LoadMarkdownFile(last);
+
+            // 起動時のドキュメント決定フロー:
+            //   引数が有効なファイル  → そのファイルを開く
+            //   引数なし              → 前回ファイル復元、無ければヘルプ
+            //   引数あり かつ無効     → 前回復元せず直接ヘルプ (ユーザの指定意図を尊重)
+            // CommandLineToArgvWで正規のパースを行い、引用符やスペースを正しく処理する。
+            // 引数が --version 等のフラグ文字列でも確実にヘルプへ落とすため
+            // GetFileAttributesW で実在を検証する。
+            // ディレクトリが渡されても「有効なファイル」扱いしないよう属性ビットで除外。
+            int argc = 0;
+            LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+            const bool arg_given = argv && argc > 1 && argv[1][0] != L'\0';
+            const DWORD arg_attrs = arg_given ? GetFileAttributesW(argv[1]) : INVALID_FILE_ATTRIBUTES;
+            const bool has_valid_file = arg_attrs != INVALID_FILE_ATTRIBUTES && !(arg_attrs & FILE_ATTRIBUTE_DIRECTORY);
+
+            if (has_valid_file) {
+                window.LoadMarkdownFile(argv[1]);
             }
             else {
-                wchar_t cwd[MAX_PATH];
-                if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
-                    window.ShowDirectory(cwd);
+                std::pmr::wstring last;
+                if (!arg_given) {
+                    last = window.LoadLastFilePath();
                 }
-                window.LoadHelpDocument();
+                if (!last.empty()) {
+                    window.RestoreScrollPosition();
+                    window.LoadMarkdownFile(last);
+                }
+                else {
+                    wchar_t cwd[MAX_PATH];
+                    if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
+                        window.ShowDirectory(cwd);
+                    }
+                    window.LoadHelpDocument();
+                }
+            }
+
+            if (argv) {
+                LocalFree(argv);
             }
         }
-
-        if (argv) {
-            LocalFree(argv);
-        }
-
         result = window.RunMessageLoop();
     } // Win32Window破棄（COMオブジェクト解放）をCoUninitializeの前に完了させる
 

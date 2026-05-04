@@ -56,12 +56,14 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
     // 旧コンテンツを表示したまま静かにバックグラウンドでパースし差し替える。
     const bool show_anim = !suppress_animation && DocumentService::NeedsLoadingAnimation(path) && !state_.pending_reload_retry;
     if (show_anim) {
+        MENDO_PROFILE("App::BeginAsyncLoad with animation");
         file_load_service_.StartLoading(std::move(path));
         EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
         Invalidate();
         UpdateWindow(hwnd_);
     }
     else {
+        MENDO_PROFILE("App::BeginAsyncLoad without animation");
         file_load_service_.SetLoadingPath(std::move(path));
     }
     file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme());
@@ -107,6 +109,7 @@ bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size)
 // effect variant と executor が肥大化するため意図的に service 経路として分離している。
 void App::LoadMarkdownFile(std::wstring_view path)
 {
+    MENDO_PROFILE("App::LoadMarkdownFile");
     EmitEffect(effect::KillTimer{ app_timer::FILE_RELOAD_DEBOUNCE });
     state_.pending_reload_retry = false;
     // 仮想パスは NeedsAsyncLoad が true を返し非同期ロードが失敗するため、

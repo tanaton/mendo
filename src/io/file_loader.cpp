@@ -11,6 +11,7 @@
 
 std::expected<LoadedFileWide, FileLoadError> FileLoader::LoadFile(const std::pmr::wstring& path)
 {
+    MENDO_PROFILE("FileLoader::LoadFile");
     // エディタがファイルを開いている間も読み取れるよう共有モードを許容。
     auto r = OpenFileForReadShared(
         std::filesystem::path(path.c_str()),
