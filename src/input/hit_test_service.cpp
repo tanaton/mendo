@@ -169,7 +169,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     result.node_index = node_index;
 
     if (!entry.has_table_layout()) {
-        result.text_pos = static_cast<uint32_t>(node.GetText().size());
+        result.text_pos = 0;
         return result;
     }
     const auto& tl = *entry.table_layout;
@@ -179,7 +179,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
 
     const auto [hit_row, row_top_y] = FindTableRow(node, entry, theme, dip_y);
     if (hit_row < 0) {
-        result.text_pos = static_cast<uint32_t>(node.GetText().size());
+        result.text_pos = static_cast<uint32_t>(tl.linearized_text.size());
         return result;
     }
 

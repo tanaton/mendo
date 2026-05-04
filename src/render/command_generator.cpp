@@ -730,7 +730,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     const float table_width = tl.cached_table_width;
 
     bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
-    uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(node.GetText().size());
+    uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(tl.linearized_text.size());
     if (has_selection) {
         if (node_index == selection.start_node) {
             sel_start = selection.start_pos;

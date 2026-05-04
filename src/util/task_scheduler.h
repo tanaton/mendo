@@ -35,6 +35,9 @@ public:
 
     void Shutdown();
 
+    // 起動済みワーカー数。Init 前 / Shutdown 後は 0。chunk size などの動的調整に使う。
+    size_t WorkerCount() const noexcept { return workers_.size(); }
+
 private:
     void WorkerLoop();
 

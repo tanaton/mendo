@@ -6,6 +6,8 @@
 #include "pane_layout.h"
 #include "resource.h"
 #include "ui_constants.h"
+#include <algorithm>
+#include <thread>
 
 bool App::Init(HWND hwnd)
 {
@@ -16,6 +18,14 @@ bool App::Init(HWND hwnd)
     }
 
     layout_service_.emplace(renderer_.GetLayout(), state_.view.viewport);
+
+    // Mermaid 共有 scheduler_ と詰まり合わないよう独立して立ち上げる。
+    {
+        const auto cores = std::thread::hardware_concurrency();
+        const int layout_workers = static_cast<int>(std::clamp<unsigned>(cores > 0 ? cores - 1 : 2, 2u, 16u));
+        layout_scheduler_.Init(layout_workers);
+        renderer_.GetLayout().SetLayoutScheduler(&layout_scheduler_);
+    }
 
     // PixelToDip 用に DPI スケールをキャッシュ（OnDpiChanged でも更新する）。
     const float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));

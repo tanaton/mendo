@@ -1,7 +1,9 @@
 #include "layout.h"
 #include "document.h"
 #include "memory_resource.h"
+#include "parallel_measure.h"
 #include "profiler.h"
+#include "task_scheduler.h"
 #include <algorithm>
 #include <cmath>
 #include <memory_resource>
@@ -210,10 +212,14 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
     MENDO_PROFILE("LayoutEngine::ProcessDirtyBatch");
     const float content_width = theme_->ContentWidth(viewport_width);
 
-    const auto result = scheduler_.RunSerial(
-        nodes, cache, content_width, *theme_, *backend_,
-        mendo::layout::ViewportClip{ viewport_top, viewport_height, buffer_screens },
-        mendo::layout::DirtyBudget{ batch_size, time_budget_us });
+    const mendo::layout::ViewportClip clip{ viewport_top, viewport_height, buffer_screens };
+    const mendo::layout::DirtyBudget budget{ batch_size, time_budget_us };
+
+    // RunParallel は time_budget_us を無視するが、batch_size は Phase 1 で適用するので
+    // スクロール時バッチも上限以下に収まる。小規模 dirty は内部で inline 直列に倒れる。
+    const auto result = layout_scheduler_
+        ? mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *backend_, clip, budget, *layout_scheduler_)
+        : scheduler_.RunSerial(nodes, cache, content_width, *theme_, *backend_, clip, budget);
 
     if (result.processed == 0) {
         has_dirty_nodes_ = false;

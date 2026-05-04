@@ -9,6 +9,8 @@
 #include <dwrite.h>
 #include <memory_resource>
 
+class TaskScheduler;
+
 class Document;
 
 // レガシー呼び出しサイト互換: 自由関数とユーティリティは mendo::layout namespace へ移動済み。
@@ -26,6 +28,12 @@ using mendo::layout::YPositionResult;
 class LayoutEngine {
 public:
     bool Init(ITextMeasurer* measurer, const Theme& theme);
+    // nullptr で常に RunSerial。Shutdown 時は scheduler の Shutdown より前に
+    // SetLayoutScheduler(nullptr) を呼んで参照を切る契約。
+    void SetLayoutScheduler(TaskScheduler* scheduler) noexcept
+    {
+        layout_scheduler_ = scheduler;
+    }
     void UpdateTheme(const Theme& theme) noexcept
     {
         theme_ = &theme;
@@ -62,6 +70,7 @@ private:
     IMeasureBackend* backend_ = nullptr;
     const Theme* theme_ = nullptr;
     mendo::layout::DirtyScheduler scheduler_{};
+    TaskScheduler* layout_scheduler_ = nullptr;
 
     float total_height_ = 0.0f;
     float last_viewport_width_ = 0.0f;

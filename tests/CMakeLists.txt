@@ -67,6 +67,7 @@ add_executable(mendo_tests
     test_pmr_unique_ptr.cpp
     test_fenwick.cpp
     test_dirty_scheduler.cpp
+    test_parallel_measure.cpp
     test_view_stats.cpp
 )
 

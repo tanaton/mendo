@@ -276,6 +276,7 @@ private:
 
     Renderer renderer_;
     TaskScheduler scheduler_;
+    TaskScheduler layout_scheduler_;
     MermaidFileCache file_cache_; // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;

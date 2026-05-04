@@ -47,6 +47,11 @@ struct TableLayoutData {
     // 列幅 + パディング + 罫線の合計。FinalizeTableLayout で確定後不変なので
     // GenTable から毎フレーム fold_left せずキャッシュを参照する。
     float cached_table_width = 0.0f;
+    // 線形化テキスト (cell.text を タブ + 改行で連結)。MeasureTable 完了時に確定し、
+    // 選択 / ヒットテスト / 検索の Table 経路で参照する。
+    // Why: MeasureNode の per-node 並列化で Node 自体への副作用書き込みを排除するため、
+    // Node::owned_text_ ではなく entry 側で保持する。
+    std::pmr::wstring linearized_text;
 
     // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept
@@ -517,6 +522,7 @@ private:
         tl.col_count = 0;
         tl.last_applied_max_width = -1.0f;
         tl.cached_table_width = 0.0f;
+        tl.linearized_text.clear();
     }
 
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept

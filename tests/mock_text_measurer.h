@@ -1,4 +1,5 @@
 #pragma once
+#include "layout_computer.h"
 #include "text_measurer.h"
 #include "ui_constants.h"
 #include <cmath>
@@ -17,7 +18,8 @@ public:
     bool RecreateFormats() override { return true; }
     void UpdateTheme(const Theme&) noexcept override {}
 
-    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) const override
+    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+                     std::pmr::vector<SyntaxToken>* /*tokens_out*/ = nullptr) const override
     {
         if (node.type == NodeType::HorizontalRule) {
             entry.height = 10.0f;
@@ -113,6 +115,11 @@ public:
             if (r + 1 < row_count) {
                 flat_offset++;
             }
+        }
+
+        // 線形化テキストは entry 側のみ保持 (Node 書き戻しは並列化時の race を避けるため廃止)。
+        if (tl.linearized_text.empty()) {
+            tl.linearized_text = mendo::layout::BuildLinearizedTableText(node.table_rows());
         }
 
         float total = table_border;

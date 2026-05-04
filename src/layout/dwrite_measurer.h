@@ -18,7 +18,8 @@ public:
         theme_ = &theme;
     }
 
-    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) const override;
+    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr) const override;
     void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const override;
 
     // 外部のIDWriteFactoryで初期化する（Initの前に呼び出す必要がある）。

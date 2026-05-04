@@ -1,7 +1,9 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
+#include "syntax.h"
 #include "theme.h"
+#include <memory_resource>
 
 // per-node 計測専用 IF。const 仮想で thread-safe な API のみを露出する。
 // IDWriteFactory はスレッドセーフで IDWriteTextLayout は per-call 生成のため、
@@ -11,7 +13,14 @@
 class IMeasureBackend {
 public:
     virtual ~IMeasureBackend() = default;
-    virtual void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) const = 0;
+
+    // tokens_out が非 nullptr の場合、CodeBlock の Tokenize 結果を Node ではなく
+    // 当該 vector に書き出す (per-node 並列計測用)。Node の syntax_tokens は
+    // 触らない (UI スレッドで集約後に書き戻す責務は呼び出し側にある)。
+    // tokens_out == nullptr (default) のシリアル経路では従来通り
+    // node.syntax_tokens_mut() に直接書き込む。
+    virtual void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+                             std::pmr::vector<SyntaxToken>* tokens_out = nullptr) const = 0;
     virtual void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const = 0;
 };
 

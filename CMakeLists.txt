@@ -133,6 +133,7 @@ add_library(mendo_core STATIC
     src/layout/layout.cpp
     src/layout/layout_computer.cpp
     src/layout/dirty_scheduler.cpp
+    src/layout/parallel_measure.cpp
     src/layout/dwrite_measurer.cpp
     # render - 描画パイプライン
     src/render/command_generator.cpp

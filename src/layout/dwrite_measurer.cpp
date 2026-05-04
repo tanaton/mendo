@@ -189,7 +189,8 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     }
 }
 
-void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) const
+void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+                                     std::pmr::vector<SyntaxToken>* tokens_out) const
 {
     MENDO_PROFILE("MeasureNode");
     if (!dwrite_ || !theme_) {
@@ -315,11 +316,18 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
 
     // コードブロックのシンタックストークン化をレイアウトパスで事前実行する。
     // 描画パス（ApplyNodeEffects）での遅延トークン化を排除し、フレーム落ちを防止する。
+    // tokens_out が非 nullptr の経路では Node を書かず、呼び出し側 (RunParallel) が
+    // UI スレッドで集約後に書き戻す。
     if (node.type == NodeType::CodeBlock && node.syntax_tokens().empty() &&
         node.code_language != SyntaxLanguage::None &&
         !IsDiagramLanguage(node.code_language)) {
         MENDO_PROFILE("Tokenize");
-        node.syntax_tokens_mut() = Tokenize(text, node.code_language);
+        if (tokens_out != nullptr) {
+            *tokens_out = Tokenize(text, node.code_language);
+        }
+        else {
+            node.syntax_tokens_mut() = Tokenize(text, node.code_language);
+        }
     }
 
     CacheFirstLineHeight(layout.Get(), entry);
@@ -461,9 +469,9 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         total_height += row_height + border_width;
     }
 
-    if (!node.HasText()) {
-        // line_count は Table 描画では未参照なので 0 で改行走査を回避。
-        node.SetTextWithLineCount(BuildLinearizedTableText(node.table_rows()), 0);
+    // 線形化テキストを entry 側に保持 (per-node 並列計測で Node 副作用を回避)。
+    if (tl.linearized_text.empty()) {
+        tl.linearized_text = BuildLinearizedTableText(node.table_rows());
     }
 
     // ヒットテスト高速化用に行Y累積と列X累積を事前計算
