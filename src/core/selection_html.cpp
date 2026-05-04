@@ -513,22 +513,31 @@ std::optional<std::pmr::wstring> FindLinkInRuns(std::span<const TextRun> runs, s
 std::span<const TextRun> FindTableCellRuns(const Node& node, uint32_t text_pos, uint32_t& local_pos)
 {
     const auto* tbl = node.table_data();
-    if (!tbl || tbl->row_count == 0) {
+    if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
         return {};
     }
-    const auto row_count = tbl->row_count;
-    const auto col_count = static_cast<size_t>(tbl->col_count);
-    for (size_t r = 0; r < row_count; r++) {
-        for (size_t c = 0; c < col_count; c++) {
-            const uint32_t start = tbl->CellTextStart(r, c);
-            // GetCellText が末尾区切りを除外したサイズを返すので、セル境界判定にそのまま使える。
-            if (text_pos >= start && text_pos < start + tbl->GetCellText(r, c).size()) {
-                local_pos = text_pos - start;
-                return tbl->GetCellRuns(r, c);
-            }
-        }
+    // cell_text_starts は単調非減少 (= 行頭 / セル間で進む)。upper_bound で text_pos を超える
+    // 最初の境界を取り、その直前を flat cell index にする。
+    const auto& starts = tbl->cell_text_starts;
+    const auto it = std::ranges::upper_bound(starts, text_pos);
+    if (it == starts.begin() || it == starts.end()) {
+        return {};
     }
-    return {};
+    const size_t idx = static_cast<size_t>(it - starts.begin()) - 1;
+    const size_t col_count = tbl->col_count;
+    const size_t r = idx / col_count;
+    const size_t c = idx % col_count;
+    if (r >= tbl->row_count) {
+        return {};
+    }
+    const uint32_t start = starts[idx];
+    // 末尾区切りを除いたセル長で in-range 判定。padding セルは長さ 0 で必ず外れる。
+    const auto cell_len = tbl->GetCellText(r, c).size();
+    if (text_pos >= start + cell_len) {
+        return {};
+    }
+    local_pos = text_pos - start;
+    return tbl->GetCellRuns(r, c);
 }
 
 } // namespace

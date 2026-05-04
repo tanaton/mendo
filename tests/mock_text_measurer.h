@@ -101,13 +101,6 @@ public:
         tl.cell_layouts.resize(row_count * col_count);
         tl.cached_table_width = TABLE_BORDER_WIDTH + static_cast<float>(col_count) * (col_w + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH);
 
-        // 新方式: NodeTableData::cell_text_starts[r * col_count] が行 r 先頭セルの linearized 内 offset。
-        tl.row_flat_offsets.resize(row_count);
-        for (size_t r = 0; r < row_count; r++) {
-            tl.row_flat_offsets[r] = tbl->cell_text_starts[r * col_count];
-        }
-
-        // 線形化テキストは NodeTableData::concat_text に既に存在 (parser 段階で確定済み)。
         float total = table_border;
         for (size_t r = 0; r < row_count; r++) {
             total += table_row_height + table_border;

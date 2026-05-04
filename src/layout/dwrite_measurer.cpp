@@ -464,7 +464,6 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         total_height += row_height + border_width;
     }
 
-    // 線形化テキストは NodeTableData::concat_text に既に存在 (parser 段階で確定済み)。
     // ヒットテスト高速化用に行Y累積と列X累積を事前計算
     tl.row_cum_y.resize(row_count + 1);
     {
@@ -483,13 +482,6 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
             cx += tl.col_widths[c] + cell_padding * 2.0f + border_width;
         }
         tl.col_cum_x[col_count] = cx;
-    }
-
-    // ヒットテスト高速化用に行ごとのフラットテキストオフセットをプリコンピュート。
-    // 新方式: NodeTableData::cell_text_starts[r * col_count] が行 r 先頭セルの linearized 内 offset。
-    tl.row_flat_offsets.resize(row_count);
-    for (size_t r = 0; r < row_count; r++) {
-        tl.row_flat_offsets[r] = tbl->cell_text_starts[r * col_count];
     }
 
     // col_cum_x の末尾は border_width + Σ(col_w + 2*pad + border) と一致するため再計算しない。
@@ -569,8 +561,8 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
                     }
                 }
             }
-            tl.natural_col_widths = natural_widths;
             FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
+            tl.natural_col_widths = std::move(natural_widths);
         }
     }
     else {

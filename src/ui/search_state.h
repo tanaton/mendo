@@ -130,8 +130,10 @@ private:
     // 連続バッファ化で metadata は offsets の 4B/ノード のみとなり、
     // CPU キャッシュ効率も向上する。
     struct LowercaseTable {
+        // NodeTableData::concat_text を bulk lowercase 化したもの。区切り '\t'/'\n' も含む。
         std::pmr::wstring buffer;
-        std::pmr::vector<uint32_t> offsets; // size = row_count * col_count + 1（末尾 sentinel）
+        // NodeTableData::cell_text_starts のコピー (size = row_count * col_count + 1)。
+        std::pmr::vector<uint32_t> offsets;
         size_t col_count = 0;
     };
     struct LowercaseCache {
@@ -155,7 +157,10 @@ private:
             const size_t idx = static_cast<size_t>(row) * t.col_count + static_cast<size_t>(col);
             const uint32_t b = t.offsets[idx];
             const uint32_t e = t.offsets[idx + 1];
-            return std::wstring_view{ t.buffer.data() + b, e - b };
+            // NodeTableData::GetCellText と同じく、末尾区切りを持たないセル
+            // (= concat 末尾に到達したセル: 最終セル / padding セル群) 以外は -1 する。
+            const bool no_trailing_sep = (e == static_cast<uint32_t>(t.buffer.size()));
+            return std::wstring_view{ t.buffer.data() + b, (e - b) - (no_trailing_sep ? 0u : 1u) };
         }
     };
 

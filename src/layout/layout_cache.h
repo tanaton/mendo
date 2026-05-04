@@ -34,7 +34,6 @@ struct TableLayoutData {
     std::pmr::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
     std::pmr::vector<float> cell_heights;        // 各セルに最後に適用した幅での計測高さ
     std::pmr::vector<float> cell_applied_widths; // 各セルに最後に適用した max_width（変更判定用）
-    std::pmr::vector<uint32_t> row_flat_offsets; // 各行の線形化テキスト先頭オフセット（ヒットテスト高速化用）
     std::pmr::vector<uint8_t> row_bgs_computed;  // 各行のインラインコード背景計算済みフラグ
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。

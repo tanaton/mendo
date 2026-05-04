@@ -83,24 +83,13 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
             lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
 
             const auto* tbl = node.table_data();
-            const size_t row_count = tbl->row_count;
-            const size_t col_count = tbl->col_count;
-            // 概算: linearized 全体長が cell_text の合計に区切り '\t' / '\n' を加えたものに相当。
-            const size_t total_cell_chars = tbl->concat_text.size();
+            // concat_text を 1 回の bulk ToLower でコピー&小文字化し、cell_text_starts を
+            // そのまま offsets として共有する。区切り '\t'/'\n' は ToLower 不変なのでそのまま残せる。
             LowercaseTable table;
-            table.col_count = col_count;
-            table.buffer.reserve(total_cell_chars);
-            table.offsets.reserve(row_count * col_count + 1);
-            table.offsets.push_back(0);
-            for (size_t r = 0; r < row_count; ++r) {
-                for (size_t c = 0; c < col_count; ++c) {
-                    const auto src = tbl->GetCellText(r, c);
-                    const size_t prev = table.buffer.size();
-                    table.buffer.resize(prev + src.size());
-                    ascii_util::ToLower(src.data(), table.buffer.data() + prev, src.size());
-                    table.offsets.push_back(static_cast<uint32_t>(table.buffer.size()));
-                }
-            }
+            table.col_count = tbl->col_count;
+            table.buffer.resize(tbl->concat_text.size());
+            ascii_util::ToLower(tbl->concat_text.data(), table.buffer.data(), tbl->concat_text.size());
+            table.offsets.assign(tbl->cell_text_starts.begin(), tbl->cell_text_starts.end());
             lower_cache_.tables.emplace(static_cast<int>(i), std::move(table));
         }
         else if (node.type == NodeType::Image || (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language))) {

@@ -107,9 +107,12 @@ struct NodeTableData {
         const size_t idx = CellIndex(r, c);
         const auto start = cell_text_starts[idx];
         const auto end = cell_text_starts[idx + 1];
-        // 末尾 '\t' (列間) / '\n' (行間) を除外。最終セルのみ区切りなし。
-        const bool last_cell = (r + 1 == row_count) && (c + 1 == col_count);
-        return { concat_text.data() + start, (end - start) - (last_cell ? 0u : 1u) };
+        // 区切り '\t'/'\n' は次セル開始時に挿入されるので concat_text 末尾に到達したセル
+        // (= 最終セル, または末尾の padding セル群) は区切りを持たない。座標で判定すると
+        // 短い末尾行 (col_count 未満) の実セルや padding セルで size がずれるため、
+        // 「concat_text 末尾に到達したか」をデータ側で判定する。
+        const bool no_trailing_sep = (end == static_cast<uint32_t>(concat_text.size()));
+        return { concat_text.data() + start, (end - start) - (no_trailing_sep ? 0u : 1u) };
     }
 
     constexpr std::span<const TextRun> GetCellRuns(size_t r, size_t c) const noexcept

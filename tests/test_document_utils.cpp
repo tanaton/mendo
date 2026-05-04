@@ -960,6 +960,35 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator)
     EXPECT_EQ(*link, L"https://b.com");
 }
 
+// ---- GetCellText: 末尾行が col_count 未満で padding された場合 ----
+
+TEST(NodeTableData, GetCellTextShortLastRow)
+{
+    // 3 行 3 列のうち、最後の行が 1 セルしか持たないケース。OnLeaveBlock の padding で
+    // 末尾の cell_text_starts が concat_text.size() に揃えられる。座標ベースの last_cell
+    // 判定では (2,0) が end-start-1 = サイズ -1、(2,1) が underflow して SIZE_MAX を
+    // 返してしまっていた。データ駆動 (end == concat_text.size()) で 0 を返すこと。
+    Node node;
+    node.type = NodeType::Table;
+    node.ensure_table();
+    auto* tbl = node.table_data();
+    tbl->row_count = 3;
+    tbl->col_count = 3;
+    tbl->concat_text = L"a\tb\tc\nd\te\tf\ng";
+    // 実セル 7 個 + padding 2 個 + 番兵 1 = サイズ 10。padding と番兵は concat 末尾を指す。
+    tbl->cell_text_starts = { 0u, 2u, 4u, 6u, 8u, 10u, 12u, 13u, 13u, 13u };
+    tbl->cell_run_starts = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
+    tbl->aligns = { TableAlign::Default, TableAlign::Default, TableAlign::Default };
+    tbl->is_header_row = { true, false, false };
+
+    EXPECT_EQ(tbl->GetCellText(0, 0), L"a");
+    EXPECT_EQ(tbl->GetCellText(0, 2), L"c");
+    EXPECT_EQ(tbl->GetCellText(1, 2), L"f");
+    EXPECT_EQ(tbl->GetCellText(2, 0), L"g");
+    EXPECT_EQ(tbl->GetCellText(2, 1).size(), 0u);
+    EXPECT_EQ(tbl->GetCellText(2, 2).size(), 0u);
+}
+
 // ---- FindAnchorNodeIndex 追加テスト ----
 
 TEST(FindAnchorNodeIndex, DuplicateAnchors)

@@ -403,12 +403,13 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         // 巨大テーブル時の段階的 realloc (~quadratic コスト) を避ける。
         if (auto* td = static_cast<MD_BLOCK_TABLE_DETAIL*>(detail); td) {
             const size_t total_rows = static_cast<size_t>(td->head_row_count) + td->body_row_count;
-            const size_t total_cells = total_rows * td->col_count;
+            tbl->col_count = static_cast<uint16_t>(std::min<unsigned>(td->col_count, std::numeric_limits<uint16_t>::max()));
+            const size_t total_cells = total_rows * tbl->col_count;
             tbl->cell_text_starts.reserve(total_cells + 1);
             tbl->cell_run_starts.reserve(total_cells + 1);
             // 1 セル平均 16 wchar + 区切り 1 wchar の見積もり。
             tbl->concat_text.reserve(total_cells * 17);
-            tbl->aligns.reserve(td->col_count);
+            tbl->aligns.reserve(tbl->col_count);
             tbl->is_header_row.reserve(total_rows);
         }
         ctx->in_table = true;
@@ -448,12 +449,12 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
             ctx->current_table_cell_text_start = static_cast<uint32_t>(tbl->concat_text.size());
             ctx->in_table_cell = true;
 
-            // 1 行目で列メタ (aligns / col_count) を確定 (列単位の属性は header 行で決まる)。
+            // 1 行目で列単位の align を確定 (列属性は header 行で決まる)。
+            // col_count は MD_BLOCK_TABLE で md4c から取得済みなのでここでは触らない。
             if (first_row) {
                 const auto align = detail ? static_cast<TableAlign>(static_cast<MD_BLOCK_TD_DETAIL*>(detail)->align)
                                           : TableAlign::Default;
                 tbl->aligns.push_back(align);
-                tbl->col_count = static_cast<uint16_t>(std::min<size_t>(tbl->aligns.size(), std::numeric_limits<uint16_t>::max()));
             }
             // 1 セル目で is_header_row を確定 (md4c は TR 内で TH/TD を混在させない)。
             if (first_cell_in_row) {
@@ -528,18 +529,18 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             const size_t expected_cells = static_cast<size_t>(tbl->row_count) * tbl->col_count;
             const auto text_end = static_cast<uint32_t>(tbl->concat_text.size());
             const auto run_end = static_cast<uint32_t>(tbl->all_runs.size());
-            while (tbl->cell_text_starts.size() < expected_cells) {
-                tbl->cell_text_starts.push_back(text_end);
-                tbl->cell_run_starts.push_back(run_end);
+            // padding (extend のみ; md4c が誤ってセル超過した場合に切り詰めない) と番兵末尾。
+            if (tbl->cell_text_starts.size() < expected_cells) {
+                tbl->cell_text_starts.resize(expected_cells, text_end);
+                tbl->cell_run_starts.resize(expected_cells, run_end);
             }
-            // 番兵末尾。
             tbl->cell_text_starts.push_back(text_end);
             tbl->cell_run_starts.push_back(run_end);
-            while (tbl->is_header_row.size() < tbl->row_count) {
-                tbl->is_header_row.push_back(false);
+            if (tbl->is_header_row.size() < tbl->row_count) {
+                tbl->is_header_row.resize(tbl->row_count, false);
             }
-            while (tbl->aligns.size() < tbl->col_count) {
-                tbl->aligns.push_back(TableAlign::Default);
+            if (tbl->aligns.size() < tbl->col_count) {
+                tbl->aligns.resize(tbl->col_count, TableAlign::Default);
             }
         }
         ctx->in_table = false;
