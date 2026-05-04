@@ -11,6 +11,7 @@ class ViewportManager;
 class ImageLoader;
 class IMermaidRenderer;
 class ThemeService;
+struct Theme;
 
 // 画像・Mermaidリソースのライフサイクル管理。
 // Appから画像読み込み、Mermaidバッチ処理、ビットマップ解放の責務を分離する。
@@ -37,6 +38,7 @@ public:
     void Init(Document& doc, LayoutCache& cache, ViewportManager& viewport,
               ImageLoader& image_loader, IMermaidRenderer& mermaid,
               ThemeService& theme_service,
+              const Theme& theme,
               Callbacks cb);
 
     // respect_viewport=true: 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
@@ -75,6 +77,7 @@ private:
     ImageLoader* image_loader_ = nullptr;
     IMermaidRenderer* mermaid_ = nullptr;
     ThemeService* theme_service_ = nullptr;
+    const Theme* theme_ = nullptr;
     Callbacks cb_;
 
     float last_mermaid_content_width_ = 0.0f;

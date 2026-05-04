@@ -8,6 +8,7 @@
 #include "theme_service.h"
 #include "config_service.h"
 #include "test_helpers.h"
+#include "theme.h"
 #include <vector>
 
 namespace {
@@ -105,7 +106,7 @@ protected:
         std::pmr::string utf8(md);
         doc_ = Document::FromMarkdown(std::move(utf8), kTestDocPath);
         cache_ = SeedLayoutCache(doc_.GetNodes().size(), block_height);
-        rm_.Init(doc_, cache_, viewport_, image_loader_, mock_mermaid_, theme_service_,
+        rm_.Init(doc_, cache_, viewport_, image_loader_, mock_mermaid_, theme_service_, theme_,
             MakeCallbacks(tracker_));
     }
 
@@ -116,6 +117,7 @@ protected:
     MockMermaidRenderer mock_mermaid_;
     ConfigService config_;
     ThemeService theme_service_{ config_ };
+    Theme theme_{};
     CallbackTracker tracker_;
     ResourceManager rm_;
 };

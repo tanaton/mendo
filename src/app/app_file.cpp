@@ -427,7 +427,7 @@ float App::CalcScrollForDiff(size_t diff_pos, float viewport_height) const
 {
     MENDO_TRACEF("CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, state_.document.doc.GetNodes().size());
     return CalcScrollYForDiff(
-        state_.document.doc.GetNodes(), state_.document.layout_cache,
+        state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme(),
         std::wstring_view{ state_.document.doc.GetRawText() },
         diff_pos, viewport_height, state_.view.viewport.GetScrollY());
 }

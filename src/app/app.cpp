@@ -10,6 +10,7 @@
 #include "document_utils.h"
 #include "mermaid_util.h"
 #include "layout.h"
+#include "layout_computer.h"
 #include "ui_constants.h"
 #include <windowsx.h>
 #include <algorithm>
@@ -426,5 +427,11 @@ void App::SaveScrollPosition()
     if (node < 0) {
         return;
     }
-    session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), state_.document.layout_cache[node].y_position);
+    const auto& cache = state_.document.layout_cache;
+    const auto& nodes = state_.document.doc.GetNodes();
+    const auto& theme = renderer_.GetTheme();
+    const float text_top = (static_cast<size_t>(node) < nodes.size())
+        ? mendo::layout::TextTopOf(cache, static_cast<size_t>(node), nodes[node], theme)
+        : 0.0f;
+    session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
 }

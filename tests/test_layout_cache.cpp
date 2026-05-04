@@ -152,3 +152,52 @@ TEST(LayoutCacheTest, ResizePreservingPrefixKeepsFenwickPrefix)
     EXPECT_FLOAT_EQ(cache.GetTotalHeightFromFenwick(0.0f), 150.0f);
     EXPECT_FLOAT_EQ(cache.GetBlockTopFromFenwick(2, 0.0f), 30.0f);
 }
+
+// GetBlockTop は GetBlockTopFromFenwick のエイリアス。
+TEST(LayoutCacheTest, GetBlockTopAlias)
+{
+    LayoutCache cache;
+    cache.Resize(3);
+    cache.SetBlockHeight(0, 10.0f);
+    cache.SetBlockHeight(1, 20.0f);
+    cache.SetBlockHeight(2, 30.0f);
+
+    constexpr float kMargin = 5.0f;
+    for (size_t i = 0; i <= 3; ++i) {
+        EXPECT_FLOAT_EQ(cache.GetBlockTop(i, kMargin),
+                        cache.GetBlockTopFromFenwick(i, kMargin)) << "index " << i;
+    }
+}
+
+// GetBlockHeight が個別ノードの block_height を取り出す。
+TEST(LayoutCacheTest, GetBlockHeight)
+{
+    LayoutCache cache;
+    cache.Resize(3);
+    cache.SetBlockHeight(0, 10.0f);
+    cache.SetBlockHeight(1, 20.5f);
+    cache.SetBlockHeight(2, 30.25f);
+    EXPECT_FLOAT_EQ(cache.GetBlockHeight(0), 10.0f);
+    EXPECT_FLOAT_EQ(cache.GetBlockHeight(1), 20.5f);
+    EXPECT_FLOAT_EQ(cache.GetBlockHeight(2), 30.25f);
+}
+
+// FindBlockTopLowerBound は「累積 target を初めて超えるインデックス」を返す。
+// PrefixSum: [0, 10, 30, 60] (block heights = [10, 20, 30])。
+TEST(LayoutCacheTest, FindBlockTopLowerBound)
+{
+    LayoutCache cache;
+    cache.Resize(3);
+    cache.SetBlockHeight(0, 10.0f);
+    cache.SetBlockHeight(1, 20.0f);
+    cache.SetBlockHeight(2, 30.0f);
+
+    EXPECT_EQ(cache.FindBlockTopLowerBound(0.0f), 0u);
+    EXPECT_EQ(cache.FindBlockTopLowerBound(9.99f), 0u);
+    EXPECT_EQ(cache.FindBlockTopLowerBound(10.0f), 1u);
+    EXPECT_EQ(cache.FindBlockTopLowerBound(29.99f), 1u);
+    EXPECT_EQ(cache.FindBlockTopLowerBound(30.0f), 2u);
+    EXPECT_EQ(cache.FindBlockTopLowerBound(59.99f), 2u);
+    EXPECT_EQ(cache.FindBlockTopLowerBound(60.0f), 3u); // 該当なし
+    EXPECT_EQ(cache.FindBlockTopLowerBound(100.0f), 3u);
+}

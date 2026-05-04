@@ -493,16 +493,36 @@ public:
     }
 
     // ノード i のブロック上端 Y を Fenwick から O(log N) で取得する。
-    // ここで「ブロック上端」とは spacing_above を含む位置のため、テキスト上端
-    // (entry.y_position) は GetBlockTopFromFenwick(i) + spacing_above[i] と一致する。
-    float GetBlockTopFromFenwick(size_t i, float margin_top) const noexcept
+    // ここで「ブロック上端」とは spacing_above を含まない手前の位置で、
+    // テキスト上端 (entry.y_position) は GetBlockTop(i) + spacing_above[i] と一致する。
+    float GetBlockTop(size_t i, float margin_top) const noexcept
     {
         return margin_top + block_heights_.PrefixSum(i);
     }
 
+    // 旧名称。新コードは GetBlockTop を使う (短い名前で機械的置換しやすいため)。
+    float GetBlockTopFromFenwick(size_t i, float margin_top) const noexcept
+    {
+        return GetBlockTop(i, margin_top);
+    }
+
+    // ノード i の block_height (= spacing_above + height + spacing_below) を Fenwick から取得する。
+    float GetBlockHeight(size_t i) const noexcept
+    {
+        return block_heights_.GetPoint(i);
+    }
+
+    // PrefixSum(i) > target を満たす最小の i を Fenwick lower_bound で返す。
+    // FindFirstVisibleNodeIndex / hit_test 候補探索用の薄いラッパ。
+    size_t FindBlockTopLowerBound(float target) const noexcept
+    {
+        return block_heights_.FindIndexLowerBound(target);
+    }
+
     // 文書全体の高さを Fenwick から O(log N) で取得する。
     // = 2 * margin_top + sum(block_heights[0..N))
-    // = entry[N-1].y_position + entry[N-1].height + spacing_below[N-1] + margin_top と一致する。
+    // 末尾ノードの spacing_below を含むため、ComputeTotalContentHeight (sb[last] を含まない)
+    // とは sb[last] 分ずれる。スクロール上限計算は ComputeTotalContentHeight を使うこと。
     float GetTotalHeightFromFenwick(float margin_top) const noexcept
     {
         return margin_top * 2.0f + block_heights_.PrefixSum(block_heights_.size());

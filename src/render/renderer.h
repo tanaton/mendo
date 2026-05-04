@@ -142,8 +142,8 @@ private:
     }
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;
-    void ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewport_top, float viewport_bottom);
-    void ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewport_top = -1.0f, float viewport_bottom = -1.0f);
+    void ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
+    void ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
     void RecreatePaneFormats();

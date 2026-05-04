@@ -1,6 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
+#include "layout_computer.h"
 #include "ui_types.h"
 #include "theme.h"
 #include "ui_constants.h"
@@ -76,7 +77,9 @@ public:
     HitResult HitTest(const MdPaneHitContext& ctx) const noexcept;
 
     // テーブルセル内のヒットテスト
+    // entry_text_top はノードのテキスト上端 Y (旧 entry.y_position)。
     HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
+                           float entry_text_top,
                            int node_index,
                            const Theme& theme,
                            float dip_x, float dip_y) const noexcept;
@@ -126,8 +129,9 @@ private:
 
     // CodeBlock ノードのオーバーレイボタン（Copy/Save）共通ヒットテスト。
     // キャッシュ照合・座標変換・可視範囲走査を一元化し、matches が true を返したノードの index を返す。
+    // matches は (i, node, entry, entry_text_top, dip_x, dip_y) を受け取る。
     template <typename Predicate>
-        requires std::predicate<Predicate&, int, const Node&, const NodeLayoutEntry&, float, float>
+        requires std::predicate<Predicate&, int, const Node&, const NodeLayoutEntry&, float, float, float>
     int HitTestCodeBlockButton(
         const MdPaneHitContext& ctx,
         HitCache<int>& cache,
@@ -148,15 +152,16 @@ private:
         const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
         const int count = static_cast<int>(ctx.nodes.size());
         for (int i = first; i < count; i++) {
-            // 早期 break: CopyButton は padding 分だけ y_position の上に出るため padding を引いて比較する。
-            if (ctx.cache[i].y_position - ctx.theme.code_block_padding > viewport_bottom) {
+            const float entry_text_top = ctx.cache[i].y_position;
+            // 早期 break: CopyButton は padding 分だけテキスト上端の上に出るため padding を引いて比較する。
+            if (entry_text_top - ctx.theme.code_block_padding > viewport_bottom) {
                 break;
             }
             const auto& node = ctx.nodes[i];
             if (node.type != NodeType::CodeBlock) {
                 continue;
             }
-            if (matches(i, node, ctx.cache[i], dip_x, dip_y)) {
+            if (matches(i, node, ctx.cache[i], entry_text_top, dip_x, dip_y)) {
                 cache.Store(ctx, gen, i);
                 return i;
             }

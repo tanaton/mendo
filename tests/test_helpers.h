@@ -47,15 +47,22 @@ inline Node MakeTableNode(const wchar_t* cell0, const wchar_t* cell1)
 
 // 等間隔ノードの LayoutCache を構築するテスト用ヘルパー。
 // 複数テストファイルで共通して使用される。
+// spacing_above = spacing_below = 0 を仮定し、block_height = node_height で Fenwick も同期する。
 inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
 {
     LayoutCache cache;
     cache.Resize(count);
+    std::pmr::vector<float> block_heights;
+    block_heights.reserve(count);
     float y = 0.0f;
     for (int i = 0; i < count; ++i) {
         cache[i].y_position = y;
         cache[i].height = node_height;
+        block_heights.push_back(node_height);
         y += node_height;
+    }
+    if (count > 0) {
+        cache.BuildBlockHeights(std::span<const float>(block_heights.data(), block_heights.size()));
     }
     return cache;
 }

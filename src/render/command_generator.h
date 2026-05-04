@@ -109,12 +109,14 @@ public:
         float dpi_scale = 1.0f);
 
 private:
-    void GenerateNode(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index);
+    // 各 Gen 関数は entry_text_top (= 旧 entry.y_position、Fenwick から計算) をローカル受けで持つ。
+    // GenerateMdPane の i ループで cum_y 累積した値を渡すことで、関数内で再 Fenwick lookup を回避する。
+    void GenerateNode(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index, float entry_text_top);
 
     // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキスト、
     // タスクリストチェックボックスを描画する。
     void GenNodeTextDecorations(DrawCommandList& cmds, const Node& node,
-                                const NodeLayoutEntry& entry, int node_index, float x, float text_x);
+                                const NodeLayoutEntry& entry, int node_index, float x, float text_x, float entry_text_top);
 
     struct NodeBaseStyle {
         D2D1_COLOR_F color;
@@ -122,16 +124,16 @@ private:
     };
     NodeBaseStyle GetNodeBaseStyle(const Node& node) const noexcept;
 
-    void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
-    void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x);
+    void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
+    void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float entry_text_top);
     void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border);
     void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell, IDWriteTextLayout* cell_layout, float text_x, float text_y, bool has_selection, uint32_t sel_start, uint32_t sel_end, uint32_t flat_offset);
-    void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
+    void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
     void GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
-    void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered);
+    void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered, float entry_text_top);
     void GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     void GenSvgCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
-    void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
+    void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
     void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);

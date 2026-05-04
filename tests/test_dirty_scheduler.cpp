@@ -26,10 +26,18 @@ struct DirtyFixture {
             nodes.push_back(MakeTextNode(L"x"));
         }
         cache.Resize(n);
+        // Paragraph の spacing_above は 0 なので text_top = block_top = PrefixSum。
+        // 各ノードの block_height = 100 で text_top(i) = i * 100 を再現する。
+        std::pmr::vector<float> bh;
+        bh.reserve(n);
         for (size_t i = 0; i < n; ++i) {
             cache[i].y_position = static_cast<float>(i) * 100.0f;
             cache[i].height = 80.0f;
             cache[i].layout_dirty = false;
+            bh.push_back(100.0f);
+        }
+        if (n > 0) {
+            cache.BuildBlockHeights(std::span<const float>(bh.data(), bh.size()));
         }
         for (size_t idx : dirty_indices) {
             cache[idx].layout_dirty = true;

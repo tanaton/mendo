@@ -1,11 +1,14 @@
 #include <gtest/gtest.h>
 #include <memory_resource>
+#include <span>
 #include <string_view>
 #include "document_utils.h"
 #include "document_test_helpers.h"
+#include "layout_computer.h"
 #include "test_helpers.h"
 #include "parser.h"
 #include "syntax.h"
+#include "theme.h"
 
 // ============================================================
 // ExtractSelectedText
@@ -1531,7 +1534,8 @@ TEST(CalcScrollYForDiff, FallbackWhenNoNodes)
 {
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, L"content", 0, 500.0f, 42.0f), 42.0f);
+    Theme theme{};
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, L"content", 0, 500.0f, 42.0f), 42.0f);
 }
 
 TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
@@ -1540,8 +1544,9 @@ TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
     auto nodes = MakeNodes(3, 100);
     nodes[0].source_offset = 50;
     auto cache = MakeUniformCache(3);
+    Theme theme{};
     // diff_pos=10 < 全ノードの最小 offset(50) → -1 → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, L"content", 10, 500.0f, 99.0f), 99.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, L"content", 10, 500.0f, 99.0f), 99.0f);
 }
 
 TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
@@ -1550,15 +1555,16 @@ TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
     auto nodes = MakeNodes(3, 100);
     auto cache = MakeUniformCache(3, 100.0f);
     std::wstring content(300, L'x');
+    Theme theme{};
 
     // diff_pos=0 → node 0, y=0, margin=500*0.2=100 → max(0, 0-100)=0
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 0, 500.0f, 0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, content, 0, 500.0f, 0.0f), 0.0f);
 
     // diff_pos=100 → node 1, y=100, margin=100 → max(0, 100-100)=0
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 500.0f, 0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, content, 100, 500.0f, 0.0f), 0.0f);
 
     // diff_pos=200 → node 2, y=200, margin=100 → max(0, 200-100)=100
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 200, 500.0f, 0.0f), 100.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, content, 200, 500.0f, 0.0f), 100.0f);
 }
 
 TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
@@ -1567,13 +1573,14 @@ TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
     auto nodes = MakeNodes(2, 100);
     auto cache = MakeUniformCache(2, 1000.0f);
     std::wstring content(200, L'x');
+    Theme theme{};
 
     // diff_pos=50 → node 0 (offset=0), next_start=100
     // fraction = (50-0)/(100-0) = 0.5
     // node_y = 0 + 1000*0.5 = 500
     // margin = 100*0.2 = 20
     // result = max(0, 500-20) = 480
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 50, 100.0f, 0.0f), 480.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, content, 50, 100.0f, 0.0f), 480.0f);
 }
 
 TEST(CalcScrollYForDiff, FractionClampsToOne)
@@ -1582,12 +1589,13 @@ TEST(CalcScrollYForDiff, FractionClampsToOne)
     auto nodes = MakeNodes(2, 100);
     auto cache = MakeUniformCache(2, 1000.0f);
     std::wstring content(200, L'x');
+    Theme theme{};
 
     // diff_pos=99 → node 0, fraction=99/100=0.99
     // y = 0 + 1000*0.99 = 990, scroll = 990-20 = 970
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 99, 100.0f, 0.0f), 970.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, content, 99, 100.0f, 0.0f), 970.0f);
     // diff_pos=100 → node 1 (exact match), y=1000, scroll = 1000-20 = 980
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 100.0f, 0.0f), 980.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, content, 100, 100.0f, 0.0f), 980.0f);
 }
 
 TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
@@ -1599,13 +1607,14 @@ TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
     nodes[2].source_offset = 200;
     auto cache = MakeUniformCache(3, 100.0f);
     std::wstring content(300, L'x');
+    Theme theme{};
 
     // diff_pos=100 → node 0 (offset=0), next valid = node 2 (offset=200)
     // fraction = (100-0)/(200-0) = 0.5
     // node_y = 0 + 100*0.5 = 50
     // margin = 500*0.2 = 100
     // result = max(0, 50-100) = 0
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 500.0f, 0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, content, 100, 500.0f, 0.0f), 0.0f);
 }
 
 TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
@@ -1615,13 +1624,14 @@ TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
     nodes[0].source_offset = 0;
     auto cache = MakeUniformCache(1, 1000.0f);
     std::wstring content(100, L'x');
+    Theme theme{};
 
     // diff_pos=50, next_start=content.size()=100
     // fraction = 50/100 = 0.5
     // node_y = 0 + 1000*0.5 = 500
     // margin = 200*0.2 = 40
     // result = max(0, 500-40) = 460
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 50, 200.0f, 0.0f), 460.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, content, 50, 200.0f, 0.0f), 460.0f);
 }
 
 TEST(CalcScrollYForDiff, CacheSizeMismatchFallback)
@@ -1629,9 +1639,10 @@ TEST(CalcScrollYForDiff, CacheSizeMismatchFallback)
     // ノード数とキャッシュサイズが不一致の場合のフォールバック
     auto nodes = MakeNodes(5, 100);
     auto cache = MakeUniformCache(3, 100.0f); // キャッシュは3つだけ
+    Theme theme{};
 
     // diff_pos=400 → node 4 だがキャッシュは3つ → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, std::wstring(500, L'x'), 400, 500.0f, 77.0f), 77.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, std::wstring(500, L'x'), 400, 500.0f, 77.0f), 77.0f);
 }
 
 TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
@@ -1641,21 +1652,23 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
     auto nodes = ParseMarkdown(std::wstring_view{ md }).nodes;
     ASSERT_GE(nodes.size(), 4u);
 
-    // ノード高さを設定
+    // ノード高さを設定 (Theme{} 前提で TextTopOf == GetBlockTop == PrefixSum、Heading 以外は spacing_above=0)
     LayoutCache cache;
     cache.Resize(nodes.size());
-    float y = 0.0f;
+    std::pmr::vector<float> bh;
+    bh.reserve(nodes.size());
     for (size_t i = 0; i < nodes.size(); ++i) {
-        cache[i].y_position = y;
         cache[i].height = 50.0f;
-        y += 50.0f;
+        bh.push_back(50.0f);
     }
+    cache.BuildBlockHeights(std::span<const float>(bh.data(), bh.size()));
 
     // "Second paragraph" の先頭で diff
     size_t diff_pos = static_cast<size_t>(md.find(L"Second"));
     ASSERT_NE(diff_pos, std::wstring::npos);
 
-    float result = CalcScrollYForDiff(nodes, cache, md, diff_pos, 500.0f, 0.0f);
+    Theme theme{};
+    float result = CalcScrollYForDiff(nodes, cache, theme, md, diff_pos, 500.0f, 0.0f);
     // スクロール位置は 0 以上で、fallback(0) とは異なる値が期待される
     EXPECT_GE(result, 0.0f);
 }
@@ -1683,21 +1696,23 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
 
     LayoutCache cache;
     cache.Resize(nodes.size());
-    float y = 0.0f;
+    std::pmr::vector<float> bh;
+    bh.reserve(nodes.size());
     for (size_t i = 0; i < nodes.size(); ++i) {
-        cache[i].y_position = y;
         cache[i].height = 100.0f;
-        y += 100.0f;
+        bh.push_back(100.0f);
     }
-    const float last_old_node_y = cache[nodes.size() - 2].y_position;
-    const float appended_node_y = cache[nodes.size() - 1].y_position;
+    cache.BuildBlockHeights(std::span<const float>(bh.data(), bh.size()));
+    Theme theme{};
+    const float last_old_node_y = mendo::layout::TextTopOf(cache, nodes.size() - 2, nodes[nodes.size() - 2], theme);
+    const float appended_node_y = mendo::layout::TextTopOf(cache, nodes.size() - 1, nodes[nodes.size() - 1], theme);
 
     // ユーザが先頭付近 (scroll_y=0) を見ている状態で末尾追記が起きたシナリオ。
     // 旧コード (is_prefix_only ? old_scroll : ...) では desired_scroll が
     // current_scroll(=0) のまま fallback されていた。これが issue#146 の症状。
     constexpr float viewport_height = 500.0f;
     constexpr float current_scroll = 0.0f;
-    const float result = CalcScrollYForDiff(nodes, cache, new_md,
+    const float result = CalcScrollYForDiff(nodes, cache, theme, new_md,
         decision.diff_pos, viewport_height, current_scroll);
 
     // 修正後: 追記境界 (旧 doc 末尾) 近辺にスクロール。current_scroll とは

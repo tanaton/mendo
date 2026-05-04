@@ -1,6 +1,8 @@
 #include "resource_manager.h"
 #include "document.h"
 #include "layout_cache.h"
+#include "layout_computer.h"
+#include "theme.h"
 #include "viewport_manager.h"
 #include "image_loader.h"
 #include "mermaid_renderer_interface.h"
@@ -36,7 +38,8 @@ struct VisibleRange {
     size_t last_plus_1;
 };
 
-VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count, float range_top, float range_bottom)
+VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, const std::pmr::vector<Node>& /*nodes*/, const Theme& /*theme*/,
+                                     size_t node_count, float range_top, float range_bottom)
 {
     // 過渡状態で node_count > cache.size() のとき cache[i] が OOB になるため、
     // FindFirstVisibleNodeIndex と同じ方針で内部クランプする。
@@ -61,6 +64,7 @@ void ResourceManager::Init(
     ImageLoader& image_loader,
     IMermaidRenderer& mermaid,
     ThemeService& theme_service,
+    const Theme& theme,
     Callbacks cb)
 {
     doc_ = &doc;
@@ -69,6 +73,7 @@ void ResourceManager::Init(
     image_loader_ = &image_loader;
     mermaid_ = &mermaid;
     theme_service_ = &theme_service;
+    theme_ = &theme;
     cb_ = std::move(cb);
 }
 
@@ -99,7 +104,7 @@ int ResourceManager::ApplyCachedImages(bool respect_viewport)
             const float buffer = viewport_height * PREFETCH_BUFFER_SCREENS;
             const float range_top = viewport_top - buffer;
             const float range_bottom = viewport_top + viewport_height + buffer;
-            const auto vr = ComputeVisibleNodeRange(*cache_, nodes.size(), range_top, range_bottom);
+            const auto vr = ComputeVisibleNodeRange(*cache_, nodes, *theme_, nodes.size(), range_top, range_bottom);
             slice = VisibleSlice(image_indices, vr.first, vr.last_plus_1);
         }
     }
@@ -231,7 +236,8 @@ int ResourceManager::RequestMermaidRenders()
     const auto& diagram_indices = doc_->GetDiagramNodeIndices();
     IndexSlice slice{ diagram_indices.begin(), diagram_indices.end() };
     if (viewport_height > 0.0f) {
-        const auto vr = ComputeVisibleNodeRange(*cache_, doc_->GetNodes().size(), range_top, range_bottom);
+        const auto& nodes = doc_->GetNodes();
+        const auto vr = ComputeVisibleNodeRange(*cache_, nodes, *theme_, nodes.size(), range_top, range_bottom);
         slice = VisibleSlice(diagram_indices, vr.first, vr.last_plus_1);
     }
 
@@ -302,7 +308,8 @@ void ResourceManager::ProcessMermaidBatch()
     // 進捗の意味を保ったまま、可視レンジ内のみを走査。
     size_t slice_end = indices.size();
     if (viewport_height > 0.0f) {
-        const auto vr = ComputeVisibleNodeRange(*cache_, doc_->GetNodes().size(), range_top, range_bottom);
+        const auto& nodes = doc_->GetNodes();
+        const auto vr = ComputeVisibleNodeRange(*cache_, nodes, *theme_, nodes.size(), range_top, range_bottom);
         const auto s = VisibleSlice(indices, vr.first, vr.last_plus_1);
         const size_t slice_start = static_cast<size_t>(s.begin - indices.begin());
         slice_end = static_cast<size_t>(s.end - indices.begin());
@@ -357,14 +364,10 @@ void ResourceManager::EvictOffscreenBitmaps()
 
     const size_t node_count = doc_->GetNodes().size();
 
-    const int first_keep = FindFirstVisibleNodeIndex(*cache_, node_count, evict_top);
-    int last_keep = first_keep;
-    for (int i = first_keep; i < static_cast<int>(node_count); i++) {
-        if ((*cache_)[i].y_position > evict_bottom) {
-            break;
-        }
-        last_keep = i + 1;
-    }
+    const auto& nodes = doc_->GetNodes();
+    const auto vr = ComputeVisibleNodeRange(*cache_, nodes, *theme_, node_count, evict_top, evict_bottom);
+    const int first_keep = static_cast<int>(vr.first);
+    const int last_keep = static_cast<int>(vr.last_plus_1);
 
     cache_->EvictTextLayouts(static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
 

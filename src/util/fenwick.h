@@ -1,4 +1,5 @@
 #pragma once
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <memory_resource>
@@ -110,6 +111,28 @@ public:
     {
         assert(i < tree_.size());
         return RangeSum(i, i + 1);
+    }
+
+    // PrefixSum(i+1) > target を満たす最小の i を O(log N) で返す。
+    // 全要素が非負であることを前提とする (LayoutCache の block_height = sa+h+sb >= 0)。
+    // target >= PrefixSum(N) なら size() を返す (該当なし)。
+    // 用途: 「累積高さ target を初めて超えるノード」の二分探索 (FindFirstVisibleNodeIndex 相当)。
+    std::size_t FindIndexLowerBound(float target) const noexcept
+    {
+        const std::size_t n = tree_.size();
+        if (n == 0) {
+            return 0;
+        }
+        std::size_t idx = 0;
+        float cum = 0.0f;
+        for (std::size_t step = std::bit_floor(n); step > 0; step >>= 1) {
+            const std::size_t next = idx + step;
+            if (next <= n && cum + tree_[next - 1] <= target) {
+                idx = next;
+                cum += tree_[idx - 1];
+            }
+        }
+        return idx;
     }
 
     // values をそのまま個別要素値として一括ロードする。O(N)。

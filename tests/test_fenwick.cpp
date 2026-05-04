@@ -200,6 +200,102 @@ TEST(FenwickTest, NegativeAndZeroValues)
     EXPECT_FLOAT_EQ(fw.RangeSum(2, 4), -5.0f);
 }
 
+TEST(FenwickTest, FindIndexLowerBoundEmpty)
+{
+    FloatFenwick fw;
+    EXPECT_EQ(fw.FindIndexLowerBound(0.0f), 0u);
+    EXPECT_EQ(fw.FindIndexLowerBound(100.0f), 0u);
+}
+
+TEST(FenwickTest, FindIndexLowerBoundAllZeros)
+{
+    FloatFenwick fw;
+    fw.Resize(5);
+    // 全要素 0 で target=0 は PrefixSum(*) = 0 で常に PrefixSum > 0 が成立しない → size() を返す。
+    EXPECT_EQ(fw.FindIndexLowerBound(0.0f), 5u);
+    EXPECT_EQ(fw.FindIndexLowerBound(-1.0f), 0u);
+}
+
+TEST(FenwickTest, FindIndexLowerBoundMonotonic)
+{
+    FloatFenwick fw;
+    const float values[] = { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f };
+    fw.Resize(std::size(values));
+    fw.Build(std::span<const float>(values, std::size(values)));
+    // PrefixSum: [0, 1, 3, 6, 10, 15] (index 0 は累積開始位置)
+    // target=0  → PrefixSum(1)=1 > 0   → 0
+    // target=0.5→ PrefixSum(1)=1 > 0.5 → 0
+    // target=1  → PrefixSum(1)=1 <= 1, PrefixSum(2)=3 > 1 → 1
+    // target=2.9→ PrefixSum(2)=3 > 2.9 → 1
+    // target=3  → PrefixSum(2)=3 <= 3, PrefixSum(3)=6 > 3 → 2
+    // target=14 → PrefixSum(4)=10 <= 14, PrefixSum(5)=15 > 14 → 4
+    // target=15 → PrefixSum(5)=15 <= 15, → 5 (該当なし)
+    // target=100 → 5
+    EXPECT_EQ(fw.FindIndexLowerBound(0.0f), 0u);
+    EXPECT_EQ(fw.FindIndexLowerBound(0.5f), 0u);
+    EXPECT_EQ(fw.FindIndexLowerBound(1.0f), 1u);
+    EXPECT_EQ(fw.FindIndexLowerBound(2.9f), 1u);
+    EXPECT_EQ(fw.FindIndexLowerBound(3.0f), 2u);
+    EXPECT_EQ(fw.FindIndexLowerBound(14.0f), 4u);
+    EXPECT_EQ(fw.FindIndexLowerBound(15.0f), 5u);
+    EXPECT_EQ(fw.FindIndexLowerBound(100.0f), 5u);
+}
+
+TEST(FenwickTest, FindIndexLowerBoundSingle)
+{
+    FloatFenwick fw;
+    fw.Resize(1);
+    fw.Set(0, 10.0f);
+    EXPECT_EQ(fw.FindIndexLowerBound(0.0f), 0u);
+    EXPECT_EQ(fw.FindIndexLowerBound(9.99f), 0u);
+    EXPECT_EQ(fw.FindIndexLowerBound(10.0f), 1u);
+    EXPECT_EQ(fw.FindIndexLowerBound(20.0f), 1u);
+}
+
+TEST(FenwickTest, FindIndexLowerBoundEqualValues)
+{
+    FloatFenwick fw;
+    const float values[] = { 5.0f, 5.0f, 5.0f, 5.0f };
+    fw.Resize(std::size(values));
+    fw.Build(std::span<const float>(values, std::size(values)));
+    // PrefixSum: [0, 5, 10, 15, 20]
+    EXPECT_EQ(fw.FindIndexLowerBound(0.0f), 0u);
+    EXPECT_EQ(fw.FindIndexLowerBound(4.99f), 0u);
+    EXPECT_EQ(fw.FindIndexLowerBound(5.0f), 1u);
+    EXPECT_EQ(fw.FindIndexLowerBound(10.0f), 2u);
+    EXPECT_EQ(fw.FindIndexLowerBound(15.0f), 3u);
+    EXPECT_EQ(fw.FindIndexLowerBound(19.99f), 3u);
+    EXPECT_EQ(fw.FindIndexLowerBound(20.0f), 4u);
+}
+
+TEST(FenwickTest, FindIndexLowerBoundAfterGrowTo)
+{
+    FloatFenwick fw;
+    fw.Resize(3);
+    fw.Set(0, 1.0f);
+    fw.Set(1, 2.0f);
+    fw.Set(2, 3.0f);
+    fw.GrowTo(5);
+    // PrefixSum: [0, 1, 3, 6, 6, 6]。新規範囲は 0 値なのでヒットしない。
+    EXPECT_EQ(fw.FindIndexLowerBound(0.5f), 0u);
+    EXPECT_EQ(fw.FindIndexLowerBound(2.5f), 1u);
+    EXPECT_EQ(fw.FindIndexLowerBound(5.0f), 2u);
+    EXPECT_EQ(fw.FindIndexLowerBound(6.0f), 5u); // 該当なし
+}
+
+TEST(FenwickTest, FindIndexLowerBoundNonPow2Size)
+{
+    // n=7 (非 2 冪) で std::bit_floor(7)=4 から走査が始まる。境界条件確認。
+    FloatFenwick fw;
+    const float values[] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+    fw.Resize(std::size(values));
+    fw.Build(std::span<const float>(values, std::size(values)));
+    for (size_t k = 0; k < 7; ++k) {
+        EXPECT_EQ(fw.FindIndexLowerBound(static_cast<float>(k)), k);
+    }
+    EXPECT_EQ(fw.FindIndexLowerBound(7.0f), 7u);
+}
+
 TEST(FenwickTest, LargeSize)
 {
     constexpr size_t N = 10000;

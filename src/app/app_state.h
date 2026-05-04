@@ -65,6 +65,11 @@ struct AppState {
     SearchGroup search;
     WindowState window;
 
+    // Renderer が所有する Theme への非所有参照。App::InitializeRenderer 後に設定され、
+    // Theme 変更時 (renderer_.SetTheme 経由) は内部値が in-place 更新されるためポインタは
+    // 安定。reducer 系が Y 位置計算に必要な spacing_above 等を参照するために使う。
+    const Theme* theme = nullptr;
+
     FileExplorer file_explorer;
     ContextMenu ctx_menu;
     int active_toc_index = -1;

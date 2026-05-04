@@ -1,5 +1,7 @@
 #include "reload.h"
 #include "layout_cache.h"
+#include "layout_computer.h"
+#include "theme.h"
 #include <algorithm>
 #include <cstdint>
 #include <ranges>
@@ -68,6 +70,7 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_of
 float CalcScrollYForDiff(
     const std::pmr::vector<Node>& nodes,
     const LayoutCache& cache,
+    const Theme& theme,
     std::wstring_view content,
     size_t diff_pos,
     float viewport_height,
@@ -78,7 +81,7 @@ float CalcScrollYForDiff(
         return fallback_scroll;
     }
 
-    float node_y = cache[changed_node].y_position;
+    float node_y = mendo::layout::TextTopOf(cache, static_cast<size_t>(changed_node), nodes[changed_node], theme);
     const float node_h = cache[changed_node].height;
 
     const uint32_t node_start = nodes[changed_node].source_offset;

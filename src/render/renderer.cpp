@@ -129,7 +129,7 @@ void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& c
         if (cache[i].y_position > viewport_bottom) {
             break;
         }
-        ApplyNodeEffects(nodes[i], cache[i], viewport_top, viewport_bottom);
+        ApplyNodeEffects(nodes[i], cache[i], cache[i].y_position, viewport_top, viewport_bottom);
     }
     MENDO_IF_TRACY(PublishEffectStats());
 }
@@ -163,7 +163,7 @@ static InlineCodeBg MakeInlineCodeBg(const DWRITE_HIT_TEST_METRICS& m) noexcept
         m.top + m.height + INLINE_CODE_PAD_Y);
 }
 
-void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewport_top, float viewport_bottom)
+void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     MENDO_COUNT_INC(g_effect_stats.apply_table);
     if (!node.has_table() || node.table_rows().empty() || !entry.has_table_layout()) {
@@ -182,7 +182,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewp
     }
 
     const float border = TABLE_BORDER_WIDTH;
-    float row_y = entry.y_position;
+    float row_y = entry_text_top;
 
     for (size_t r = 0; r < row_count; r++) {
         const auto& row = rows[r];
@@ -259,12 +259,12 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewp
     }
 }
 
-void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewport_top, float viewport_bottom)
+void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     // テーブルノード: ビューポートカリング付きの増分処理を行う。
     // リンク色は全行に適用（軽量・冪等）、インラインコード背景は可視行のみ計算する。
     if (node.type == NodeType::Table) {
-        ApplyTableEffects(node, entry, viewport_top, viewport_bottom);
+        ApplyTableEffects(node, entry, entry_text_top, viewport_top, viewport_bottom);
         return;
     }
 
