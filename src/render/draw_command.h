@@ -122,7 +122,7 @@ using DrawCommand = std::variant<
 // variant の最大サイズ食いと visit ディスパッチを避けるため、Execute は Visit() の switch から直接呼び出す。
 class DrawCommandList {
 public:
-    explicit DrawCommandList(std::pmr::memory_resource* mr = std::pmr::get_default_resource())
+    explicit constexpr DrawCommandList(std::pmr::memory_resource* mr = std::pmr::get_default_resource())
         : clears_(mr), fill_rects_(mr), fill_rounded_rects_(mr), lines_(mr),
           text_layouts_(mr), texts_(mr), bitmaps_(mr),
           fill_ellipses_(mr), ellipses_(mr), push_clips_(mr), transforms_(mr),
@@ -131,12 +131,12 @@ public:
 
     // テストで値受け (`auto cmds = gen.GenerateMdPane(...)`) するためコピーを許可する。
     // 本番経路は const& 参照のみでコピーは発生しない。
-    DrawCommandList(const DrawCommandList&) = default;
-    DrawCommandList& operator=(const DrawCommandList&) = default;
-    DrawCommandList(DrawCommandList&&) noexcept = default;
-    DrawCommandList& operator=(DrawCommandList&&) noexcept = default;
+    constexpr DrawCommandList(const DrawCommandList&) = default;
+    constexpr DrawCommandList& operator=(const DrawCommandList&) = default;
+    constexpr DrawCommandList(DrawCommandList&&) noexcept = default;
+    constexpr DrawCommandList& operator=(DrawCommandList&&) noexcept = default;
 
-    void clear() noexcept
+    constexpr void clear() noexcept
     {
         clears_.clear();
         fill_rects_.clear();
@@ -153,128 +153,134 @@ public:
     }
 
     // 発行順テーブルのみ予約。型別 vector はオンデマンドで伸ばす。
-    void reserve(size_t n)
+    constexpr void reserve(size_t n)
     {
         seq_.reserve(n);
     }
 
-    bool empty() const noexcept
+    constexpr bool empty() const noexcept
     {
         return seq_.empty();
     }
 
-    size_t size() const noexcept
+    constexpr size_t size() const noexcept
     {
         return seq_.size();
     }
 
-    void push_back(const ClearCmd& c)
+    constexpr void push_back(const ClearCmd& c)
     {
         Append(Kind::Clear, clears_, c);
     }
-    void push_back(const FillRectCmd& c)
+    constexpr void push_back(const FillRectCmd& c)
     {
         Append(Kind::FillRect, fill_rects_, c);
     }
-    void push_back(const FillRoundedRectCmd& c)
+    constexpr void push_back(const FillRoundedRectCmd& c)
     {
         Append(Kind::FillRoundedRect, fill_rounded_rects_, c);
     }
-    void push_back(const DrawLineCmd& c)
+    constexpr void push_back(const DrawLineCmd& c)
     {
         Append(Kind::DrawLine, lines_, c);
     }
-    void push_back(const DrawTextLayoutCmd& c)
+    constexpr void push_back(const DrawTextLayoutCmd& c)
     {
         Append(Kind::DrawTextLayout, text_layouts_, c);
     }
-    void push_back(const DrawTextCmd& c)
+    constexpr void push_back(const DrawTextCmd& c)
     {
         Append(Kind::DrawText, texts_, c);
     }
-    void push_back(const DrawBitmapCmd& c)
+    constexpr void push_back(const DrawBitmapCmd& c)
     {
         Append(Kind::DrawBitmap, bitmaps_, c);
     }
-    void push_back(const FillEllipseCmd& c)
+    constexpr void push_back(const FillEllipseCmd& c)
     {
         Append(Kind::FillEllipse, fill_ellipses_, c);
     }
-    void push_back(const DrawEllipseCmd& c)
+    constexpr void push_back(const DrawEllipseCmd& c)
     {
         Append(Kind::DrawEllipse, ellipses_, c);
     }
-    void push_back(const PushClipCmd& c)
+    constexpr void push_back(const PushClipCmd& c)
     {
         Append(Kind::PushClip, push_clips_, c);
     }
-    void push_back(const SetTransformCmd& c)
+    constexpr void push_back(const SetTransformCmd& c)
     {
         Append(Kind::SetTransform, transforms_, c);
     }
-    void push_back(PopClipCmd) noexcept
+    constexpr void push_back(PopClipCmd) noexcept
     {
         // state-less なので型別 vec は持たず、tag のみで表現する。
         seq_.push_back(Pack(Kind::PopClip, 0));
     }
 
     template <typename T>
-    void emplace_back(T&& c)
+    constexpr void emplace_back(T&& c)
     {
         push_back(std::forward<T>(c));
     }
 
     template <typename Visitor>
-    void Visit(Visitor&& v) const
+    constexpr void Visit(Visitor&& v, uint32_t entry) const
+    {
+        const uint32_t idx = GetIndex(entry);
+        switch (GetKind(entry)) {
+        case Kind::Clear:
+            v(clears_[idx]);
+            return;
+        case Kind::FillRect:
+            v(fill_rects_[idx]);
+            return;
+        case Kind::FillRoundedRect:
+            v(fill_rounded_rects_[idx]);
+            return;
+        case Kind::DrawLine:
+            v(lines_[idx]);
+            return;
+        case Kind::DrawTextLayout:
+            v(text_layouts_[idx]);
+            return;
+        case Kind::DrawText:
+            v(texts_[idx]);
+            return;
+        case Kind::DrawBitmap:
+            v(bitmaps_[idx]);
+            return;
+        case Kind::FillEllipse:
+            v(fill_ellipses_[idx]);
+            return;
+        case Kind::DrawEllipse:
+            v(ellipses_[idx]);
+            return;
+        case Kind::PushClip:
+            v(push_clips_[idx]);
+            return;
+        case Kind::SetTransform:
+            v(transforms_[idx]);
+            return;
+        case Kind::PopClip: {
+            static constexpr PopClipCmd kPop{};
+            v(kPop);
+            return;
+        }
+        }
+        std::unreachable();
+    }
+
+    template <typename Visitor>
+    constexpr void Visit(Visitor&& v) const
     {
         for (uint32_t entry : seq_) {
-            const Kind k = GetKind(entry);
-            const uint32_t idx = GetIndex(entry);
-            switch (k) {
-            case Kind::Clear:
-                v(clears_[idx]);
-                break;
-            case Kind::FillRect:
-                v(fill_rects_[idx]);
-                break;
-            case Kind::FillRoundedRect:
-                v(fill_rounded_rects_[idx]);
-                break;
-            case Kind::DrawLine:
-                v(lines_[idx]);
-                break;
-            case Kind::DrawTextLayout:
-                v(text_layouts_[idx]);
-                break;
-            case Kind::DrawText:
-                v(texts_[idx]);
-                break;
-            case Kind::DrawBitmap:
-                v(bitmaps_[idx]);
-                break;
-            case Kind::FillEllipse:
-                v(fill_ellipses_[idx]);
-                break;
-            case Kind::DrawEllipse:
-                v(ellipses_[idx]);
-                break;
-            case Kind::PushClip:
-                v(push_clips_[idx]);
-                break;
-            case Kind::SetTransform:
-                v(transforms_[idx]);
-                break;
-            case Kind::PopClip: {
-                static constexpr PopClipCmd kPop{};
-                v(kPop);
-                break;
-            }
-            }
+            Visit(std::forward<Visitor>(v), entry);
         }
     }
 
     // テスト用: 呼び出し毎に variant を構築する。本番経路は Visit() を使うこと。
-    DrawCommand At(size_t i) const
+    constexpr DrawCommand At(size_t i) const
     {
         const uint32_t entry = seq_[i];
         const Kind k = GetKind(entry);
@@ -308,17 +314,17 @@ public:
         std::unreachable();
     }
 
-    DrawCommand operator[](size_t i) const
+    constexpr DrawCommand operator[](size_t i) const
     {
         return At(i);
     }
 
-    DrawCommand front() const
+    constexpr DrawCommand front() const
     {
         return At(0);
     }
 
-    DrawCommand back() const
+    constexpr DrawCommand back() const
     {
         return At(seq_.size() - 1);
     }
@@ -333,31 +339,31 @@ public:
         using pointer = void;
         using difference_type = std::ptrdiff_t;
 
-        const_iterator() noexcept = default;
-        const_iterator(const DrawCommandList* owner, size_t i) noexcept : owner_(owner), i_(i)
+        constexpr const_iterator() noexcept = default;
+        constexpr const_iterator(const DrawCommandList* owner, size_t i) noexcept : owner_(owner), i_(i)
         {}
 
-        DrawCommand operator*() const
+        constexpr DrawCommand operator*() const
         {
             return owner_->At(i_);
         }
 
-        const_iterator& operator++() noexcept
+        constexpr const_iterator& operator++() noexcept
         {
             ++i_;
             return *this;
         }
-        const_iterator operator++(int) noexcept
+        constexpr const_iterator operator++(int) noexcept
         {
             auto tmp = *this;
             ++i_;
             return tmp;
         }
-        bool operator==(const const_iterator& o) const noexcept
+        constexpr bool operator==(const const_iterator& o) const noexcept
         {
             return i_ == o.i_ && owner_ == o.owner_;
         }
-        bool operator!=(const const_iterator& o) const noexcept
+        constexpr bool operator!=(const const_iterator& o) const noexcept
         {
             return !(*this == o);
         }
@@ -367,11 +373,11 @@ public:
         size_t i_ = 0;
     };
 
-    const_iterator begin() const noexcept
+    constexpr const_iterator begin() const noexcept
     {
         return { this, 0 };
     }
-    const_iterator end() const noexcept
+    constexpr const_iterator end() const noexcept
     {
         return { this, seq_.size() };
     }
@@ -408,8 +414,8 @@ private:
         return entry & kIndexMask;
     }
 
-    template <typename Vec, typename T>
-    void Append(Kind k, Vec& vec, T&& cmd)
+    template <typename T>
+    constexpr void Append(Kind k, std::pmr::vector<std::remove_cvref_t<T>>& vec, T&& cmd)
     {
         const auto idx = static_cast<uint32_t>(vec.size());
         vec.emplace_back(std::forward<T>(cmd));
