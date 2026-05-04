@@ -21,7 +21,8 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, float e
         return { -1, 0.0f };
     }
     const auto& tl = *entry.table_layout;
-    const auto row_count = node.table_rows().size();
+    const auto* tbl = node.table_data();
+    const size_t row_count = tbl ? tbl->row_count : 0;
     if (row_count == 0) {
         return { -1, 0.0f };
     }
@@ -183,17 +184,17 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const float indent = NodeIndent(node, theme);
     const float base_x = theme.margin_left + indent;
 
+    const auto* tbl = node.table_data();
     const auto [hit_row, row_top_y] = FindTableRow(node, entry, entry_text_top, theme, dip_y);
     if (hit_row < 0) {
-        result.text_pos = static_cast<uint32_t>(tl.linearized_text.size());
+        result.text_pos = tbl ? static_cast<uint32_t>(tbl->concat_text.size()) : 0u;
         return result;
     }
 
     float cell_left_x = 0.0f;
     const int hit_col = FindTableCol(tl, base_x, dip_x, cell_left_x);
 
-    const uint32_t flat_offset = tl.CellFlatOffset(
-        node.table_rows(), static_cast<size_t>(hit_row), static_cast<size_t>(hit_col));
+    const uint32_t flat_offset = tbl->CellTextStart(static_cast<size_t>(hit_row), static_cast<size_t>(hit_col));
 
     const size_t r = static_cast<size_t>(hit_row);
     const size_t c = static_cast<size_t>(hit_col);

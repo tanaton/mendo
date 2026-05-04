@@ -29,14 +29,14 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     for (int i = 0; i < node_count && matches_.size() < MAX_MATCHES; i++) {
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
-            const auto& rows = node.table_rows();
-            const auto row_count = static_cast<int>(rows.size());
+            const auto* tbl = node.table_data();
+            const auto row_count = static_cast<int>(tbl->row_count);
+            const auto col_count = static_cast<int>(tbl->col_count);
             for (int r = 0; r < row_count && matches_.size() < MAX_MATCHES; r++) {
-                const auto& cells = rows[r].cells;
-                const auto col_count = static_cast<int>(cells.size());
                 for (int c = 0; c < col_count && matches_.size() < MAX_MATCHES; c++) {
-                    if (!cells[c].text.empty()) {
-                        FindMatches(cells[c].text, lower_query, i, r, c);
+                    const auto cell_text = tbl->GetCellText(r, c);
+                    if (!cell_text.empty()) {
+                        FindMatches(cell_text, lower_query, i, r, c);
                     }
                 }
             }
@@ -82,32 +82,22 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
             // セル群は別バッファに連続配置する。
             lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
 
-            const auto& rows = node.table_rows();
-            const size_t row_count = rows.size();
-            // 行ごとに列数が違う可能性があるため、最大列数を col_count とし、
-            // 不足セルは empty スライスにする。
-            size_t max_cols = 0;
-            size_t total_cell_chars = 0;
-            for (const auto& row : rows) {
-                max_cols = std::max(max_cols, row.cells.size());
-                for (const auto& cell : row.cells) {
-                    total_cell_chars += cell.text.size();
-                }
-            }
+            const auto* tbl = node.table_data();
+            const size_t row_count = tbl->row_count;
+            const size_t col_count = tbl->col_count;
+            // 概算: linearized 全体長が cell_text の合計に区切り '\t' / '\n' を加えたものに相当。
+            const size_t total_cell_chars = tbl->concat_text.size();
             LowercaseTable table;
-            table.col_count = max_cols;
+            table.col_count = col_count;
             table.buffer.reserve(total_cell_chars);
-            table.offsets.reserve(row_count * max_cols + 1);
+            table.offsets.reserve(row_count * col_count + 1);
             table.offsets.push_back(0);
             for (size_t r = 0; r < row_count; ++r) {
-                const auto& cells = rows[r].cells;
-                for (size_t c = 0; c < max_cols; ++c) {
-                    if (c < cells.size()) {
-                        const auto& src = cells[c].text;
-                        const size_t prev = table.buffer.size();
-                        table.buffer.resize(prev + src.size());
-                        ascii_util::ToLower(src.data(), table.buffer.data() + prev, src.size());
-                    }
+                for (size_t c = 0; c < col_count; ++c) {
+                    const auto src = tbl->GetCellText(r, c);
+                    const size_t prev = table.buffer.size();
+                    table.buffer.resize(prev + src.size());
+                    ascii_util::ToLower(src.data(), table.buffer.data() + prev, src.size());
                     table.offsets.push_back(static_cast<uint32_t>(table.buffer.size()));
                 }
             }

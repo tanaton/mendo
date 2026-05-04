@@ -66,15 +66,15 @@ Node MakeStressNode(size_t i, bool include_code_block)
     if (bucket < 17) {
         n.type = NodeType::Table;
         n.ensure_table();
-        TableRow row;
-        TableCell c0;
-        c0.text.assign(L"a");
-        TableCell c1;
-        c1.text.assign(L"b");
-        row.cells.push_back(std::move(c0));
-        row.cells.push_back(std::move(c1));
-        n.table_data()->rows.push_back(std::move(row));
-        n.table_data()->col_count = 2;
+        auto* tbl = n.table_data();
+        // 1 行 2 列の "a\tb"
+        tbl->row_count = 1;
+        tbl->col_count = 2;
+        tbl->concat_text = L"a\tb";
+        tbl->cell_text_starts = { 0u, 2u, 3u };
+        tbl->cell_run_starts = { 0u, 0u, 0u };
+        tbl->aligns = { TableAlign::Default, TableAlign::Default };
+        tbl->is_header_row = { false };
         return n;
     }
     if (bucket < 19) {

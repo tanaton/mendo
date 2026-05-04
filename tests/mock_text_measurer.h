@@ -82,46 +82,32 @@ public:
 
     void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const override
     {
-        if (!node.has_table() || node.table_rows().empty()) {
+        const auto* tbl = node.table_data();
+        if (!tbl || tbl->row_count == 0) {
             entry.height = 0;
             entry.layout_dirty = false;
             return;
         }
 
-        size_t col_count = 0;
-        for (auto& row : node.table_rows()) {
-            col_count = std::max(col_count, row.cells.size());
-        }
+        const size_t col_count = tbl->col_count;
         if (col_count == 0) { entry.layout_dirty = false; return; }
 
         auto& tl = entry.ensure_table_layout();
-        const auto row_count = node.table_rows().size();
+        const auto row_count = tbl->row_count;
         const float col_w = max_width / static_cast<float>(col_count);
         tl.col_widths.assign(col_count, col_w);
         tl.row_heights.assign(row_count, table_row_height);
         tl.col_count = col_count;
         tl.cell_layouts.resize(row_count * col_count);
-        // GenTable は tl.cached_table_width を直接読むため、production の
-        // FinalizeTableLayout と同じ式 (border + Σ(cw + 2*pad + border)) で同期する。
         tl.cached_table_width = TABLE_BORDER_WIDTH + static_cast<float>(col_count) * (col_w + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH);
 
-        // dwrite_measurer.cpp と同じ規約で行先頭オフセットを埋める。
+        // 新方式: NodeTableData::cell_text_starts[r * col_count] が行 r 先頭セルの linearized 内 offset。
         tl.row_flat_offsets.resize(row_count);
-        uint32_t flat_offset = 0;
         for (size_t r = 0; r < row_count; r++) {
-            tl.row_flat_offsets[r] = flat_offset;
-            TableLayoutData::AdvanceFlatOffsetInRow(node.table_rows()[r], 0,
-                node.table_rows()[r].cells.size(), flat_offset);
-            if (r + 1 < row_count) {
-                flat_offset++;
-            }
+            tl.row_flat_offsets[r] = tbl->cell_text_starts[r * col_count];
         }
 
-        // 線形化テキストは entry 側のみ保持 (Node 書き戻しは並列化時の race を避けるため廃止)。
-        if (tl.linearized_text.empty()) {
-            tl.linearized_text = mendo::layout::BuildLinearizedTableText(node.table_rows());
-        }
-
+        // 線形化テキストは NodeTableData::concat_text に既に存在 (parser 段階で確定済み)。
         float total = table_border;
         for (size_t r = 0; r < row_count; r++) {
             total += table_row_height + table_border;

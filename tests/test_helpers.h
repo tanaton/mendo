@@ -28,20 +28,27 @@ inline Node MakeTextNode(const wchar_t* text)
     return n;
 }
 
-// 1行2列のテーブルノードを作るテスト用ヘルパー。
+// 1 行 2 列のテーブルノードを作るテスト用ヘルパー。
 inline Node MakeTableNode(const wchar_t* cell0, const wchar_t* cell1)
 {
     Node n;
     n.type = NodeType::Table;
     n.ensure_table();
-    TableRow row;
-    TableCell c0;
-    c0.text.assign(cell0);
-    row.cells.push_back(std::move(c0));
-    TableCell c1;
-    c1.text.assign(cell1);
-    row.cells.push_back(std::move(c1));
-    n.table_data()->rows.push_back(std::move(row));
+    auto* tbl = n.table_data();
+    tbl->row_count = 1;
+    tbl->col_count = 2;
+    tbl->concat_text.append(cell0);
+    tbl->concat_text.push_back(L'\t');
+    tbl->concat_text.append(cell1);
+    tbl->cell_text_starts.push_back(0);
+    tbl->cell_text_starts.push_back(static_cast<uint32_t>(std::wcslen(cell0) + 1));
+    tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+    tbl->cell_run_starts.push_back(0);
+    tbl->cell_run_starts.push_back(0);
+    tbl->cell_run_starts.push_back(0);
+    tbl->aligns.push_back(TableAlign::Default);
+    tbl->aligns.push_back(TableAlign::Default);
+    tbl->is_header_row.push_back(false);
     return n;
 }
 

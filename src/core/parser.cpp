@@ -86,7 +86,10 @@ struct ParseContext {
     // テーブル追跡
     bool in_table = false;
     bool in_thead = false;
-    TableCell* current_cell = nullptr;
+    // セル内かどうか (AppendWide / FlushPendingRun の振り分けに使う)。
+    bool in_table_cell = false;
+    // 現在セルの concat_text 内開始 offset。run.start を cell-local に保つために保持する。
+    uint32_t current_table_cell_text_start = 0;
 
     // 現在構築中のノード
     Node* current_node = nullptr;
@@ -208,11 +211,11 @@ struct ParseContext {
         current_link_url_index = new_index;
     }
 
-    // AppendWide のターゲット (セル内なら cell.text、ノード内なら current_text、どちらも無ければ nullptr)。
+    // AppendWide のターゲット (セル内なら NodeTableData::concat_text、ノード内なら current_text、どちらも無ければ nullptr)。
     constexpr std::pmr::wstring* ActiveTextBuffer() noexcept
     {
-        if (current_cell) {
-            return &current_cell->text;
+        if (in_table_cell && current_node && current_node->has_table()) {
+            return &current_node->table_data()->concat_text;
         }
         if (current_node) {
             return &current_text;
@@ -223,25 +226,26 @@ struct ParseContext {
     // Wide テキストを現在のノードまたはセルに追加する。
     // 同じ span 状態で連続して呼ばれると 1 つの TextRun に統合される (cell も統合対象)。
     // セル切替・span 切替・ブロック退出の各タイミングで FlushPendingRun が走る前提。
+    // セル内では ActiveTextBuffer が NodeTableData::concat_text を返す。pending_run_start は
+    // バッファサイズベースだが、cell 内では current_table_cell_text_start からの相対 (cell-local) として扱う。
     constexpr void AppendWide(std::wstring_view text)
     {
         std::pmr::wstring* const target = ActiveTextBuffer();
         if (!target) {
             return;
         }
-        // md4c は size 0 の text コールバックを発生させない契約 (md4c.c の MD_TEXT マクロで size > 0 ガード済) なので empty 判定は省く。
         if (!has_pending_run) {
             pending_run_start = static_cast<uint32_t>(target->size());
             has_pending_run = true;
         }
-        // 1-char chunk fastpath: md4c は \n / 空白 / 単一 entity 等を size==1 で渡してくるので push_back に振り分ける。
         if (text.size() == 1) {
             const wchar_t c = text[0];
             pending_run_newlines += (c == L'\n');
             target->push_back(c);
-            return;
         }
-        target->append(text);
+        else {
+            target->append(text);
+        }
     }
 
     // 未確定 TextRun を確定して runs に push する。
@@ -253,11 +257,14 @@ struct ParseContext {
             std::pmr::wstring* const buf = ActiveTextBuffer();
             if (buf && buf->size() > pending_run_start) {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
-                auto& runs = current_cell ? current_cell->runs : current_node->runs;
-                if (!current_cell) {
-                    current_node->line_count += pending_run_newlines;
+                if (in_table_cell && current_node && current_node->has_table()) {
+                    const uint32_t cell_local_start = pending_run_start - current_table_cell_text_start;
+                    current_node->table_data()->all_runs.push_back(MakeRun(cell_local_start, length));
                 }
-                runs.emplace_back(MakeRun(pending_run_start, length));
+                else if (current_node) {
+                    current_node->line_count += pending_run_newlines;
+                    current_node->runs.emplace_back(MakeRun(pending_run_start, length));
+                }
             }
         }
         has_pending_run = false;
@@ -387,13 +394,26 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->BeginNode(NodeType::HorizontalRule);
         break;
 
-    case MD_BLOCK_TABLE:
+    case MD_BLOCK_TABLE: {
         ctx->BeginNode(NodeType::Table);
         // 後続の TR/TH/TD で nullable チェックなく参照できるよう先に確保する。
         // これに依存して TR/TH/TD は has_table() ガードを省いている。
-        ctx->current_node->ensure_table();
+        auto* tbl = ctx->current_node->ensure_table();
+        // md4c から正確なテーブルサイズが渡されるので、各 vector を一度に reserve して
+        // 巨大テーブル時の段階的 realloc (~quadratic コスト) を避ける。
+        if (auto* td = static_cast<MD_BLOCK_TABLE_DETAIL*>(detail); td) {
+            const size_t total_rows = static_cast<size_t>(td->head_row_count) + td->body_row_count;
+            const size_t total_cells = total_rows * td->col_count;
+            tbl->cell_text_starts.reserve(total_cells + 1);
+            tbl->cell_run_starts.reserve(total_cells + 1);
+            // 1 セル平均 16 wchar + 区切り 1 wchar の見積もり。
+            tbl->concat_text.reserve(total_cells * 17);
+            tbl->aligns.reserve(td->col_count);
+            tbl->is_header_row.reserve(total_rows);
+        }
         ctx->in_table = true;
         break;
+    }
 
     case MD_BLOCK_THEAD:
         ctx->in_thead = true;
@@ -405,24 +425,39 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_TR:
         if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Table) {
-            cn->table_rows().emplace_back();
+            ++cn->table_data()->row_count;
         }
         break;
 
     case MD_BLOCK_TH:
     case MD_BLOCK_TD: {
-        if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Table && !cn->table_rows().empty()) {
-            auto& row = cn->table_rows().back();
-            ctx->current_cell = &row.cells.emplace_back();
-            ctx->current_cell->is_header = (type == MD_BLOCK_TH);
-            if (detail) {
-                auto* const td = static_cast<MD_BLOCK_TD_DETAIL*>(detail);
-                ctx->current_cell->align = static_cast<TableAlign>(td->align);
-            }
+        if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Table && cn->table_data()->row_count > 0) {
             auto* tbl = cn->table_data();
-            const auto cells_now = static_cast<uint16_t>(std::min<size_t>(row.cells.size(), std::numeric_limits<uint16_t>::max()));
-            if (cells_now > tbl->col_count) {
-                tbl->col_count = cells_now;
+            // 行内セル数 (is_header_row エントリ数が現 row_count 未満なら未確定 = 行頭)。
+            const bool first_cell_in_row = (tbl->is_header_row.size() < tbl->row_count);
+            const bool first_row = (tbl->row_count == 1);
+            // 区切り: 行内 2 セル目以降は '\t'、行頭かつ 2 行目以降は '\n'。
+            if (!first_cell_in_row) {
+                tbl->concat_text.push_back(L'\t');
+            }
+            else if (!first_row) {
+                tbl->concat_text.push_back(L'\n');
+            }
+            tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+            tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
+            ctx->current_table_cell_text_start = static_cast<uint32_t>(tbl->concat_text.size());
+            ctx->in_table_cell = true;
+
+            // 1 行目で列メタ (aligns / col_count) を確定 (列単位の属性は header 行で決まる)。
+            if (first_row) {
+                const auto align = detail ? static_cast<TableAlign>(static_cast<MD_BLOCK_TD_DETAIL*>(detail)->align)
+                                          : TableAlign::Default;
+                tbl->aligns.push_back(align);
+                tbl->col_count = static_cast<uint16_t>(std::min<size_t>(tbl->aligns.size(), std::numeric_limits<uint16_t>::max()));
+            }
+            // 1 セル目で is_header_row を確定 (md4c は TR 内で TH/TD を混在させない)。
+            if (first_cell_in_row) {
+                tbl->is_header_row.push_back(type == MD_BLOCK_TH);
             }
         }
         break;
@@ -486,6 +521,27 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
 
     case MD_BLOCK_TABLE:
+        // テーブル終了時に offset テーブルを R*C+1 サイズに揃える。
+        // 行内セル数が col_count に満たない行は空セル扱い (offset は concat 末尾に詰めて padding)。
+        if (auto* cn = ctx->current_node; cn && cn->has_table()) {
+            auto* tbl = cn->table_data();
+            const size_t expected_cells = static_cast<size_t>(tbl->row_count) * tbl->col_count;
+            const auto text_end = static_cast<uint32_t>(tbl->concat_text.size());
+            const auto run_end = static_cast<uint32_t>(tbl->all_runs.size());
+            while (tbl->cell_text_starts.size() < expected_cells) {
+                tbl->cell_text_starts.push_back(text_end);
+                tbl->cell_run_starts.push_back(run_end);
+            }
+            // 番兵末尾。
+            tbl->cell_text_starts.push_back(text_end);
+            tbl->cell_run_starts.push_back(run_end);
+            while (tbl->is_header_row.size() < tbl->row_count) {
+                tbl->is_header_row.push_back(false);
+            }
+            while (tbl->aligns.size() < tbl->col_count) {
+                tbl->aligns.push_back(TableAlign::Default);
+            }
+        }
         ctx->in_table = false;
         ctx->FinalizeCurrentNode();
         ctx->current_node = nullptr;
@@ -498,7 +554,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_TH:
     case MD_BLOCK_TD:
-        ctx->current_cell = nullptr;
+        ctx->in_table_cell = false;
         break;
 
     case MD_BLOCK_H:

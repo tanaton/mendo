@@ -388,13 +388,14 @@ TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
     Node table;
     table.type = NodeType::Table;
     table.ensure_table();
-    for (int r = 0; r < 3; r++) {
-        TableRow row;
-        TableCell c;
-        c.text.assign(L"hit");
-        row.cells.push_back(std::move(c));
-        table.table_data()->rows.push_back(std::move(row));
-    }
+    auto* tbl = table.table_data();
+    tbl->row_count = 3;
+    tbl->col_count = 1;
+    tbl->concat_text = L"hit\nhit\nhit";
+    tbl->cell_text_starts = { 0u, 4u, 8u, 11u };
+    tbl->cell_run_starts = { 0u, 0u, 0u, 0u };
+    tbl->aligns.push_back(TableAlign::Default);
+    tbl->is_header_row = { false, false, false };
     std::pmr::vector<Node> nodes;
     nodes.push_back(std::move(table));
 

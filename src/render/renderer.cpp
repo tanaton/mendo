@@ -166,14 +166,15 @@ static InlineCodeBg MakeInlineCodeBg(const DWRITE_HIT_TEST_METRICS& m) noexcept
 void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     MENDO_COUNT_INC(g_effect_stats.apply_table);
-    if (!node.has_table() || node.table_rows().empty() || !entry.has_table_layout()) {
+    const auto* tbl = node.table_data();
+    if (!tbl || tbl->row_count == 0 || !entry.has_table_layout()) {
         entry.effects_applied = true;
         return;
     }
 
     const bool first_pass = !entry.effects_applied;
-    const auto& rows = node.table_rows();
-    const auto row_count = rows.size();
+    const auto row_count = tbl->row_count;
+    const auto col_count = static_cast<size_t>(tbl->col_count);
     auto& tl = *entry.table_layout;
     if (first_pass) {
         entry.effects_applied = true;
@@ -185,7 +186,6 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
     float row_y = entry_text_top;
 
     for (size_t r = 0; r < row_count; r++) {
-        const auto& row = rows[r];
         const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_.font_size_body * 1.4f);
         const float row_bottom = row_y + row_h + border;
 
@@ -205,13 +205,12 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
             continue;
         }
 
-        const auto col_count = row.cells.size();
         for (size_t c = 0; c < col_count; c++) {
             IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
             if (!cell_layout) {
                 continue;
             }
-            for (const auto& run : row.cells[c].runs) {
+            for (const auto& run : tbl->GetCellRuns(r, c)) {
                 // リンク色: 初回パスで全行に適用（軽量・冪等）
                 if (first_pass && run.has_link()) {
                     const DWRITE_TEXT_RANGE range{ run.start, run.length };

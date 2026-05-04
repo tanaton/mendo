@@ -415,7 +415,39 @@ TEST(Parser, SimpleTable)
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u); // header + 1 data row
+    ASSERT_GE(nodes[0].table_data()->row_count, 2u); // header + 1 data row
+}
+
+// NodeTableData の concat 構造が parser で正しく populate されることを確認。
+TEST(Parser, TableConcatStructure)
+{
+    auto nodes = ParseMarkdown(
+        L"| A | B |\n"
+        L"|---|---|\n"
+        L"| 1 | 2 |"
+    ).nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_NE(tbl, nullptr);
+    EXPECT_EQ(tbl->row_count, 2u);
+    EXPECT_EQ(tbl->col_count, 2u);
+    EXPECT_EQ(tbl->concat_text, L"A\tB\n1\t2");
+    ASSERT_EQ(tbl->cell_text_starts.size(), 5u);
+    EXPECT_EQ(tbl->cell_text_starts[0], 0u);
+    EXPECT_EQ(tbl->cell_text_starts[1], 2u);
+    EXPECT_EQ(tbl->cell_text_starts[2], 4u);
+    EXPECT_EQ(tbl->cell_text_starts[3], 6u);
+    EXPECT_EQ(tbl->cell_text_starts[4], 7u);
+    ASSERT_EQ(tbl->cell_run_starts.size(), 5u);
+    ASSERT_EQ(tbl->is_header_row.size(), 2u);
+    EXPECT_TRUE(tbl->is_header_row[0]);
+    EXPECT_FALSE(tbl->is_header_row[1]);
+    EXPECT_EQ(tbl->aligns.size(), 2u);
+    EXPECT_EQ(tbl->GetCellText(0, 0), L"A");
+    EXPECT_EQ(tbl->GetCellText(0, 1), L"B");
+    EXPECT_EQ(tbl->GetCellText(1, 0), L"1");
+    EXPECT_EQ(tbl->GetCellText(1, 1), L"2");
 }
 
 TEST(Parser, TableHeaderCells)
@@ -426,19 +458,17 @@ TEST(Parser, TableHeaderCells)
         L"| D1 | D2 |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
+    EXPECT_EQ(tbl->col_count, 2u);
 
     // 最初の行はヘッダーであるべき
-    const auto& header = nodes[0].table_rows()[0];
-    ASSERT_EQ(header.cells.size(), 2u);
-    EXPECT_TRUE(header.cells[0].is_header);
-    EXPECT_TRUE(header.cells[1].is_header);
-    EXPECT_EQ(header.cells[0].text, L"H1");
-    EXPECT_EQ(header.cells[1].text, L"H2");
+    EXPECT_TRUE(tbl->IsHeaderRow(0));
+    EXPECT_EQ(tbl->GetCellText(0, 0), L"H1");
+    EXPECT_EQ(tbl->GetCellText(0, 1), L"H2");
 
     // 2番目の行はヘッダーではないべき
-    const auto& data = nodes[0].table_rows()[1];
-    EXPECT_FALSE(data.cells[0].is_header);
+    EXPECT_FALSE(tbl->IsHeaderRow(1));
 }
 
 TEST(Parser, TableAlignment)
@@ -449,13 +479,13 @@ TEST(Parser, TableAlignment)
         L"| a | b | c |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    // データ行の配置を確認（配置はMD_BLOCK_TD_DETAILから取得）
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& row = nodes[0].table_rows()[1];
-    ASSERT_EQ(row.cells.size(), 3u);
-    EXPECT_EQ(row.cells[0].align, TableAlign::Left);
-    EXPECT_EQ(row.cells[1].align, TableAlign::Center);
-    EXPECT_EQ(row.cells[2].align, TableAlign::Right);
+    // データ行の配置を確認（配置はMD_BLOCK_TD_DETAILから取得、列単位）
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
+    ASSERT_EQ(tbl->col_count, 3u);
+    EXPECT_EQ(tbl->ColAlign(0), TableAlign::Left);
+    EXPECT_EQ(tbl->ColAlign(1), TableAlign::Center);
+    EXPECT_EQ(tbl->ColAlign(2), TableAlign::Right);
 }
 
 TEST(Parser, TableMultipleRows)
@@ -468,7 +498,7 @@ TEST(Parser, TableMultipleRows)
         L"| 3 |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].table_rows().size(), 4u); // 1 header + 3 data
+    EXPECT_EQ(nodes[0].table_data()->row_count, 4u); // 1 header + 3 data
 }
 
 // ---- HTMLエンティティ ----
@@ -652,12 +682,12 @@ TEST(Parser, TableCellWithBold)
         L"| 1 | 2 |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 1u);
-    auto& header = nodes[0].table_rows()[0];
-    ASSERT_GE(header.cells.size(), 2u);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 1u);
+    ASSERT_GE(tbl->col_count, 2u);
     // 2番目のヘッダーセルは太字ランを持つべき
     bool has_bold = false;
-    for (const auto& run : header.cells[1].runs) {
+    for (const auto& run : tbl->GetCellRuns(0, 1)) {
         if (run.bold()) has_bold = true;
     }
     EXPECT_TRUE(has_bold);
@@ -671,10 +701,10 @@ TEST(Parser, TableLinearizedText)
         L"| 1 | 2 |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    // パーサーは線形化テキストを構築しない（レイアウトが行う）ので、構造だけ確認
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    EXPECT_EQ(nodes[0].table_rows()[0].cells[0].text, L"A");
-    EXPECT_EQ(nodes[0].table_rows()[0].cells[1].text, L"B");
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
+    EXPECT_EQ(tbl->GetCellText(0, 0), L"A");
+    EXPECT_EQ(tbl->GetCellText(0, 1), L"B");
 }
 
 // ---- リンク付きテーブル ----
@@ -687,13 +717,13 @@ TEST(Parser, TableCellWithLink)
         L"| foo | [bar](https://example.com) |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& data_row = nodes[0].table_rows()[1];
-    ASSERT_GE(data_row.cells.size(), 2u);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
+    ASSERT_GE(tbl->col_count, 2u);
 
     // リンクセルはランにlink_urlを持つべき
     bool found_link = false;
-    for (const auto& run : data_row.cells[1].runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 1)) {
         if (run.has_link()) {
             EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], L"https://example.com");
             found_link = true;
@@ -702,7 +732,7 @@ TEST(Parser, TableCellWithLink)
     EXPECT_TRUE(found_link);
 
     // リンクでないセルはリンクを持たないべき
-    for (const auto& run : data_row.cells[0].runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 0)) {
         EXPECT_FALSE(run.has_link());
     }
 }
@@ -715,11 +745,11 @@ TEST(Parser, TableCellWithInternalLink)
         L"| [intro](#introduction) |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& cell = nodes[0].table_rows()[1].cells[0];
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
 
     bool found = false;
-    for (const auto& run : cell.runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 0)) {
         if (run.has_link()) {
             EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], L"#introduction");
             found = true;
@@ -736,11 +766,11 @@ TEST(Parser, TableCellWithBoldLink)
         L"| [**bold**](https://example.com) |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& cell = nodes[0].table_rows()[1].cells[0];
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
 
     bool has_bold_link = false;
-    for (const auto& run : cell.runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 0)) {
         if (run.bold() && run.has_link()) {
             has_bold_link = true;
         }
@@ -756,13 +786,13 @@ TEST(Parser, TableCellMixedTextAndLink)
         L"| before [link](https://example.com) after |"
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& cell = nodes[0].table_rows()[1].cells[0];
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
 
     // リンク付きとリンクなしのランを持つべき
     bool has_link_run = false;
     bool has_plain_run = false;
-    for (const auto& run : cell.runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 0)) {
         if (run.has_link()) has_link_run = true;
         else has_plain_run = true;
     }
@@ -897,7 +927,7 @@ TEST(Parser, TableUnevenColumns)
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    ASSERT_GE(nodes[0].table_data()->row_count, 2u);
 }
 
 // ---- Mermaid言語のコードブロック ----

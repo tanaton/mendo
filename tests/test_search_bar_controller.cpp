@@ -372,13 +372,14 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     Node table;
     table.type = NodeType::Table;
     table.ensure_table();
-    for (int r = 0; r < 5; r++) {
-        TableRow row;
-        TableCell c;
-        c.text.assign(L"hit");
-        row.cells.push_back(std::move(c));
-        table.table_data()->rows.push_back(std::move(row));
-    }
+    auto* tbl = table.table_data();
+    tbl->row_count = 5;
+    tbl->col_count = 1;
+    tbl->concat_text = L"hit\nhit\nhit\nhit\nhit";
+    tbl->cell_text_starts = { 0u, 4u, 8u, 12u, 16u, 19u };
+    tbl->cell_run_starts = { 0u, 0u, 0u, 0u, 0u, 0u };
+    tbl->aligns = { TableAlign::Default };
+    tbl->is_header_row = { false, false, false, false, false };
     std::pmr::vector<Node> nodes;
     nodes.push_back(std::move(table));
 

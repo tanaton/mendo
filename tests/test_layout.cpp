@@ -180,10 +180,10 @@ TEST_F(LayoutTest, TableCellLayoutsCreated)
     engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_TRUE(cache[0].has_table_layout());
     const auto& tl = *cache[0].table_layout;
-    const auto& rows = nodes[0].table_rows();
-    for (size_t r = 0; r < rows.size(); r++) {
-        for (size_t c = 0; c < rows[r].cells.size(); c++) {
-            if (!rows[r].cells[c].text.empty()) {
+    const auto* tbl = nodes[0].table_data();
+    for (size_t r = 0; r < tbl->row_count; r++) {
+        for (size_t c = 0; c < tbl->col_count; c++) {
+            if (!tbl->GetCellText(r, c).empty()) {
                 EXPECT_NE(tl.GetCellLayout(r, c), nullptr);
             }
         }
@@ -201,17 +201,17 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
 
     // データ行の2番目のセルにはリンクランがあり、下線が適用されていること
-    const auto& cell = nodes[0].table_rows()[1].cells[1];
     ASSERT_TRUE(cache[0].has_table_layout());
     IDWriteTextLayout* cell_layout = cache[0].table_layout->GetCellLayout(1, 1);
     ASSERT_NE(cell_layout, nullptr);
 
     // セル内にリンクランが存在することを確認
     bool has_link_run = false;
-    for (const auto& run : cell.runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 1)) {
         if (run.has_link()) {
             has_link_run = true;
 
@@ -324,7 +324,7 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight)
     Node node;
     node.type = NodeType::Table;
     node.ensure_table();
-    node.table_rows().clear();
+    // 0 行 0 列の空テーブル (新方式は row_count/col_count 既定で 0)
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
     LayoutCache cache;
@@ -491,64 +491,6 @@ TEST(ComputeColumnWidthsTest, ZeroNaturalWidths)
     for (auto w : widths) {
         EXPECT_GT(w, 0.0f);
     }
-}
-
-// ---- BuildLinearizedTableText テスト ----
-
-TEST(BuildLinearizedTableTextTest, EmptyRows)
-{
-    std::pmr::vector<TableRow> rows;
-    auto text = BuildLinearizedTableText(rows);
-    EXPECT_TRUE(text.empty());
-}
-
-TEST(BuildLinearizedTableTextTest, SingleCell)
-{
-    TableRow row;
-    row.cells.emplace_back(TableCell{ L"hello" });
-    auto text = BuildLinearizedTableText({ row });
-    EXPECT_EQ(text, L"hello");
-}
-
-TEST(BuildLinearizedTableTextTest, TabSeparatedCells)
-{
-    TableRow row;
-    row.cells.emplace_back(TableCell{ L"A" });
-    row.cells.emplace_back(TableCell{ L"B" });
-    row.cells.emplace_back(TableCell{ L"C" });
-    auto text = BuildLinearizedTableText({ row });
-    EXPECT_EQ(text, L"A\tB\tC");
-}
-
-TEST(BuildLinearizedTableTextTest, NewlineSeparatedRows)
-{
-    TableRow row1;
-    row1.cells.emplace_back(TableCell{ L"A" });
-    row1.cells.emplace_back(TableCell{ L"B" });
-    TableRow row2;
-    row2.cells.emplace_back(TableCell{ L"1" });
-    row2.cells.emplace_back(TableCell{ L"2" });
-    auto text = BuildLinearizedTableText({ row1, row2 });
-    EXPECT_EQ(text, L"A\tB\n1\t2");
-}
-
-TEST(BuildLinearizedTableTextTest, NoTrailingNewline)
-{
-    TableRow row;
-    row.cells.emplace_back(TableCell{ L"x" });
-    auto text = BuildLinearizedTableText({ row });
-    EXPECT_FALSE(text.empty());
-    EXPECT_NE(text.back(), L'\n');
-}
-
-TEST(BuildLinearizedTableTextTest, EmptyCells)
-{
-    TableRow row;
-    row.cells.emplace_back(TableCell{ L"" });
-    row.cells.emplace_back(TableCell{ L"B" });
-    row.cells.emplace_back(TableCell{ L"" });
-    auto text = BuildLinearizedTableText({ row });
-    EXPECT_EQ(text, L"\tB\t");
 }
 
 // ---- RecomputeYPositions テスト ----
@@ -1448,14 +1390,12 @@ TEST(EstimateNodeHeightsTest, TableScalesWithRowCount)
     Node table1;
     table1.type = NodeType::Table;
     table1.ensure_table();
-    table1.table_rows().push_back(TableRow{});
+    table1.table_data()->row_count = 1;
 
     Node table3;
     table3.type = NodeType::Table;
     table3.ensure_table();
-    table3.table_rows().push_back(TableRow{});
-    table3.table_rows().push_back(TableRow{});
-    table3.table_rows().push_back(TableRow{});
+    table3.table_data()->row_count = 3;
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(table1));
@@ -1545,7 +1485,7 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
         }
         if (type == NodeType::Table) {
             n.ensure_table();
-            n.table_rows().push_back(TableRow{});
+            n.table_data()->row_count = 1;
         }
         nodes.emplace_back(std::move(n));
     };

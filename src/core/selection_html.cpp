@@ -407,14 +407,14 @@ private:
     std::wstring_view close_tag_{};
 };
 
-constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cell, bool dark_mode)
+constexpr void AppendTableCellStyle(std::pmr::wstring& out, TableAlign align, bool dark_mode)
 {
     // 共通の border+padding を先に出し、align 指定があれば追加して閉じる。
     const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
     out.append(LR"( style="border:1px solid )");
     AppendHexColor(out, palette.table_border);
     out.append(L";padding:6px 13px");
-    switch (cell.align) {
+    switch (align) {
     case TableAlign::Center:
         out.append(L";text-align:center");
         break;
@@ -429,7 +429,8 @@ constexpr void AppendTableCellStyle(std::pmr::wstring& out, const TableCell& cel
 
 void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
 {
-    if (!node.has_table() || node.table_rows().empty()) {
+    const auto* tbl = node.table_data();
+    if (!tbl || tbl->row_count == 0) {
         // テーブルデータがない場合はフラットテキストを <pre> で出力
         const auto& text = node.GetText();
         if (end > text.size()) {
@@ -443,11 +444,15 @@ void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, u
         return;
     }
 
+    const auto row_count = tbl->row_count;
+    const auto col_count = static_cast<size_t>(tbl->col_count);
+    const auto link_urls = node.view_link_urls();
+
     out.append(LR"(<table style="border-collapse:collapse;">)");
     {
         TableSectionScope section(out);
-        for (const auto& row : node.table_rows()) {
-            const bool header_row = !row.cells.empty() && row.cells[0].is_header;
+        for (size_t r = 0; r < row_count; r++) {
+            const bool header_row = tbl->IsHeaderRow(r);
             if (header_row) {
                 section.EnterThead();
             }
@@ -458,11 +463,12 @@ void AppendTableHtml(std::pmr::wstring& out, const Node& node, uint32_t start, u
             const std::wstring_view open_tag = header_row ? L"<th" : L"<td";
             const std::wstring_view close_tag = header_row ? L"</th>" : L"</td>";
             out.append(L"<tr>");
-            for (const auto& cell : row.cells) {
+            for (size_t c = 0; c < col_count; c++) {
                 out.append(open_tag);
-                AppendTableCellStyle(out, cell, dark_mode);
+                AppendTableCellStyle(out, tbl->ColAlign(c), dark_mode);
                 out.append(L">");
-                AppendInlineHtml(out, cell.text, cell.runs, node.view_link_urls(), 0, static_cast<uint32_t>(cell.text.size()));
+                const auto cell_text = tbl->GetCellText(r, c);
+                AppendInlineHtml(out, cell_text, tbl->GetCellRuns(r, c), link_urls, 0, static_cast<uint32_t>(cell_text.size()));
                 out.append(close_tag);
             }
             out.append(L"</tr>");
@@ -503,26 +509,23 @@ std::optional<std::pmr::wstring> FindLinkInRuns(std::span<const TextRun> runs, s
 }
 
 // 指定 text_pos のセルの runs を span で返す。見つからなければ空 span。
+// text_pos は linearized 形式 (concat_text) の offset。
 std::span<const TextRun> FindTableCellRuns(const Node& node, uint32_t text_pos, uint32_t& local_pos)
 {
-    uint32_t offset = 0;
-    const auto& rows = node.table_rows();
-    const auto last_row = static_cast<ptrdiff_t>(rows.size()) - 1;
-    for (const auto& [r, row] : rows | std::views::enumerate) {
-        const auto last_col = static_cast<ptrdiff_t>(row.cells.size()) - 1;
-        for (const auto& [c, cell] : row.cells | std::views::enumerate) {
-            const uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
-            if (text_pos >= offset && text_pos < offset + cell_len) {
-                local_pos = text_pos - offset;
-                return std::span<const TextRun>{ cell.runs.data(), cell.runs.size() };
+    const auto* tbl = node.table_data();
+    if (!tbl || tbl->row_count == 0) {
+        return {};
+    }
+    const auto row_count = tbl->row_count;
+    const auto col_count = static_cast<size_t>(tbl->col_count);
+    for (size_t r = 0; r < row_count; r++) {
+        for (size_t c = 0; c < col_count; c++) {
+            const uint32_t start = tbl->CellTextStart(r, c);
+            // GetCellText が末尾区切りを除外したサイズを返すので、セル境界判定にそのまま使える。
+            if (text_pos >= start && text_pos < start + tbl->GetCellText(r, c).size()) {
+                local_pos = text_pos - start;
+                return tbl->GetCellRuns(r, c);
             }
-            offset += cell_len;
-            if (c < last_col) {
-                offset++; // タブ区切り
-            }
-        }
-        if (r < last_row) {
-            offset++; // 改行区切り
         }
     }
     return {};

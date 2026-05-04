@@ -127,7 +127,7 @@ private:
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
     void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float entry_text_top);
     void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border);
-    void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell, IDWriteTextLayout* cell_layout, float text_x, float text_y, bool has_selection, uint32_t sel_start, uint32_t sel_end, uint32_t flat_offset);
+    void GenTableCellContent(DrawCommandList& cmds, std::wstring_view cell_text, bool is_header, IDWriteTextLayout* cell_layout, float text_x, float text_y, bool has_selection, uint32_t sel_start, uint32_t sel_end, uint32_t flat_offset);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
     void GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
     void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered, float entry_text_top);

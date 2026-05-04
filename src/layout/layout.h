@@ -14,7 +14,6 @@ class TaskScheduler;
 class Document;
 
 // レガシー呼び出しサイト互換: 自由関数とユーティリティは mendo::layout namespace へ移動済み。
-using mendo::layout::BuildLinearizedTableText;
 using mendo::layout::ComputeColumnWidths;
 using mendo::layout::EstimateNodeHeight;
 using mendo::layout::EstimateNodeHeights;

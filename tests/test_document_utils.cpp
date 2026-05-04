@@ -839,39 +839,28 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
     // 線形化テキスト: "Name\tURL\nfoo\tbar"
     Node node;
     node.type = NodeType::Table;
-
-    TableRow header;
-    TableCell h0; h0.text = L"Name"; h0.is_header = true;
-    TextRun h0r; h0r.start = 0; h0r.length = 4;
-    h0.runs.emplace_back(h0r);
-    header.cells.emplace_back(h0);
-
-    TableCell h1; h1.text = L"URL"; h1.is_header = true;
-    TextRun h1r; h1r.start = 0; h1r.length = 3;
-    h1.runs.emplace_back(h1r);
-    header.cells.emplace_back(h1);
     node.ensure_table();
-    node.table_rows().emplace_back(header);
+    auto* tbl = node.table_data();
 
-    TableRow data;
-    TableCell d0; d0.text = L"foo";
+    TextRun h0r; h0r.start = 0; h0r.length = 4;
+    TextRun h1r; h1r.start = 0; h1r.length = 3;
     TextRun d0r; d0r.start = 0; d0r.length = 3;
-    d0.runs.emplace_back(d0r);
-    data.cells.emplace_back(d0);
-
-    TableCell d1; d1.text = L"bar";
     TextRun d1r; d1r.start = 0; d1r.length = 3;
     d1r.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
     node.ensure_link_urls().emplace_back(L"https://example.com");
-    d1.runs.emplace_back(d1r);
-    data.cells.emplace_back(d1);
-    node.table_rows().emplace_back(data);
 
-    // 線形化: "Name\tURL\nfoo\tbar"
-    //          0123 4567 8901 2345
-    // "Name" = オフセット 0-3, タブ 4, "URL" = 5-7, 改行 8
-    // "foo" = オフセット 9-11, タブ 12, "bar" = 13-15
-    node.SetText(L"Name\tURL\nfoo\tbar");
+    // concat 化: "Name\tURL\nfoo\tbar", cell_text_starts: [0, 5, 9, 13, 16]
+    tbl->row_count = 2;
+    tbl->col_count = 2;
+    tbl->concat_text = L"Name\tURL\nfoo\tbar";
+    tbl->cell_text_starts = { 0u, 5u, 9u, 13u, 16u };
+    tbl->all_runs.push_back(h0r);
+    tbl->all_runs.push_back(h1r);
+    tbl->all_runs.push_back(d0r);
+    tbl->all_runs.push_back(d1r);
+    tbl->cell_run_starts = { 0u, 1u, 2u, 3u, 4u };
+    tbl->aligns = { TableAlign::Default, TableAlign::Default };
+    tbl->is_header_row = { true, false };
 
     // "bar"内の位置（オフセット13）でリンクが見つかるべき
     auto result = FindLinkAtPosition(node, 13);
@@ -898,11 +887,11 @@ TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown)
     EXPECT_EQ(nodes[0].type, NodeType::Table);
 
     // セル内にリンクのrunが存在することを確認
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& data_row = nodes[0].table_rows()[1];
-    ASSERT_GE(data_row.cells.size(), 2u);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
+    ASSERT_GE(tbl->col_count, 2u);
     bool has_link = false;
-    for (const auto& run : data_row.cells[1].runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 1)) {
         if (run.has_link()) {
             EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], L"https://example.com");
             has_link = true;
@@ -915,18 +904,22 @@ TEST(FindLinkAtPosition, TableCellInternalLink)
 {
     Node node;
     node.type = NodeType::Table;
+    node.ensure_table();
+    auto* tbl = node.table_data();
 
-    TableRow row;
-    TableCell cell; cell.text = L"section";
     TextRun r; r.start = 0; r.length = 7;
     r.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
     node.ensure_link_urls().emplace_back(L"#my-section");
-    cell.runs.emplace_back(r);
-    row.cells.emplace_back(cell);
-    node.ensure_table();
-    node.table_rows().emplace_back(row);
 
-    node.SetText(L"section");
+    // concat 化: 1 行 1 列の "section"
+    tbl->row_count = 1;
+    tbl->col_count = 1;
+    tbl->concat_text = L"section";
+    tbl->cell_text_starts = { 0u, 7u };
+    tbl->all_runs.push_back(r);
+    tbl->cell_run_starts = { 0u, 1u };
+    tbl->aligns = { TableAlign::Default };
+    tbl->is_header_row = { false };
 
     auto result = FindLinkAtPosition(node, 3);
     ASSERT_TRUE(result.has_value());
@@ -938,24 +931,24 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator)
     // タブ/改行区切り上の位置ではリンクを返さないべき
     Node node;
     node.type = NodeType::Table;
+    node.ensure_table();
+    auto* tbl = node.table_data();
 
-    TableRow row;
-    TableCell c0; c0.text = L"A";
     TextRun r0; r0.start = 0; r0.length = 1;
-    c0.runs.emplace_back(r0);
-    row.cells.emplace_back(c0);
-
-    TableCell c1; c1.text = L"B";
     TextRun r1; r1.start = 0; r1.length = 1;
     r1.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
     node.ensure_link_urls().emplace_back(L"https://b.com");
-    c1.runs.emplace_back(r1);
-    row.cells.emplace_back(c1);
-    node.ensure_table();
-    node.table_rows().emplace_back(row);
 
-    // 線形化: "A\tB" → オフセット 0=A, 1=タブ, 2=B
-    node.SetText(L"A\tB");
+    // concat 化: 1 行 2 列の "A\tB"
+    tbl->row_count = 1;
+    tbl->col_count = 2;
+    tbl->concat_text = L"A\tB";
+    tbl->cell_text_starts = { 0u, 2u, 3u };
+    tbl->all_runs.push_back(r0);
+    tbl->all_runs.push_back(r1);
+    tbl->cell_run_starts = { 0u, 1u, 2u };
+    tbl->aligns = { TableAlign::Default, TableAlign::Default };
+    tbl->is_header_row = { false };
 
     // タブ区切り（オフセット1）はどのセルにもマッチしないべき
     auto result = FindLinkAtPosition(node, 1);

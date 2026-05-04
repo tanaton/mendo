@@ -64,22 +64,71 @@ enum class TableAlign : uint8_t {
     Right = 3,
 };
 
-struct TableCell {
-    std::pmr::wstring text;
-    TextRunList runs;
-    bool is_header = false;
-    TableAlign align = TableAlign::Default;
-};
-
-struct TableRow {
-    std::pmr::vector<TableCell> cells;
-};
-
-// テーブル専用データ（Tableノードのみ確保）
+// テーブル専用データ（Tableノードのみ確保）。SoA レイアウトで全セルを 1 本の concat_text に連結保持し、
+// セルごとのアクセスは offset テーブル経由で O(1)。
+// 不変条件:
+//   cell_text_starts.size() == cell_run_starts.size() == row_count * col_count + 1
+//   cell_text_starts.back() == concat_text.size()
+//   cell_run_starts.back() == all_runs.size()
 struct NodeTableData {
-    std::pmr::vector<TableRow> rows;
-    // パーサがセル追加時に維持する全行最大列数。MeasureTable の全行走査を省く。
+    // 全セルテキストを linearized 形式で連結 ("cell\tcell\ncell\tcell")。
+    std::pmr::wstring concat_text;
+    // 全セルの TextRun を連結。run.start は cell-local offset (layout は cell スライス単位で作成されるため)。
+    std::pmr::vector<TextRun> all_runs;
+    // 各セルの concat_text 内開始 offset。番兵末尾 = concat_text.size()。
+    std::pmr::vector<uint32_t> cell_text_starts;
+    // 各セルの all_runs 内開始 offset。番兵末尾 = all_runs.size()。
+    std::pmr::vector<uint32_t> cell_run_starts;
+    // 列単位の align (GitHub Markdown では align は列ごと)
+    std::pmr::vector<TableAlign> aligns;
+    // 行単位の header フラグ (md4c は TR 内で TH/TD が混在しない契約)
+    std::pmr::vector<bool> is_header_row;
+
+    uint16_t row_count = 0;
     uint16_t col_count = 0;
+
+    constexpr size_t CellIndex(size_t r, size_t c) const noexcept
+    {
+        return r * static_cast<size_t>(col_count) + c;
+    }
+
+    // セルの concat_text 内開始 / 終了 offset。終端は次セル開始 (= 末尾区切り '\t'/'\n' を含む)。
+    constexpr uint32_t CellTextStart(size_t r, size_t c) const noexcept
+    {
+        return cell_text_starts[CellIndex(r, c)];
+    }
+    constexpr uint32_t CellTextEnd(size_t r, size_t c) const noexcept
+    {
+        return cell_text_starts[CellIndex(r, c) + 1];
+    }
+
+    constexpr std::wstring_view GetCellText(size_t r, size_t c) const noexcept
+    {
+        const size_t idx = CellIndex(r, c);
+        const auto start = cell_text_starts[idx];
+        const auto end = cell_text_starts[idx + 1];
+        // 末尾 '\t' (列間) / '\n' (行間) を除外。最終セルのみ区切りなし。
+        const bool last_cell = (r + 1 == row_count) && (c + 1 == col_count);
+        return { concat_text.data() + start, (end - start) - (last_cell ? 0u : 1u) };
+    }
+
+    constexpr std::span<const TextRun> GetCellRuns(size_t r, size_t c) const noexcept
+    {
+        const size_t idx = CellIndex(r, c);
+        const auto start = cell_run_starts[idx];
+        const auto end = cell_run_starts[idx + 1];
+        return { all_runs.data() + start, static_cast<size_t>(end - start) };
+    }
+
+    constexpr bool IsHeaderRow(size_t r) const noexcept
+    {
+        return is_header_row[r];
+    }
+
+    constexpr TableAlign ColAlign(size_t c) const noexcept
+    {
+        return aligns[c];
+    }
 };
 
 struct NodeHeadingData {
@@ -299,15 +348,6 @@ struct Node {
             return &extra.emplace<NodeCodeData>();
         }
         return std::get_if<NodeCodeData>(&extra);
-    }
-
-    constexpr std::pmr::vector<TableRow>& table_rows() noexcept
-    {
-        return table_data()->rows;
-    }
-    constexpr const std::pmr::vector<TableRow>& table_rows() const noexcept
-    {
-        return table_data()->rows;
     }
 
     constexpr std::wstring_view anchor_id() const noexcept

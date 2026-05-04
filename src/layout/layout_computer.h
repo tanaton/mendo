@@ -31,8 +31,6 @@ void ComputeColumnWidths(std::pmr::vector<float>& out,
                          const std::pmr::vector<float>& natural_widths,
                          float available_width, size_t col_count);
 
-std::pmr::wstring BuildLinearizedTableText(const std::pmr::vector<TableRow>& rows);
-
 float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
 
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme);

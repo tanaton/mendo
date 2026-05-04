@@ -343,31 +343,30 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
     MENDO_PROFILE("MeasureTableCells");
     IDWriteTextFormat* const fmt = fmt_body_.Get();
     IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
-    auto& rows = node.table_rows();
-    const auto row_count = rows.size();
+    const auto* tbl = node.table_data();
+    const auto row_count = tbl->row_count;
+    const auto col_count = tbl->col_count;
     auto& tl = *entry.table_layout;
 
     for (size_t r = 0; r < row_count; r++) {
-        auto& row = rows[r];
-        const auto col_count = row.cells.size();
+        const bool is_header = tbl->IsHeaderRow(r);
+        IDWriteTextFormat* const row_fmt = is_header ? fmt_bold : fmt;
         for (size_t c = 0; c < col_count; c++) {
-            auto& cell = row.cells[c];
-            if (cell.text.empty()) {
+            const auto text = tbl->GetCellText(r, c);
+            if (text.empty()) {
                 continue;
             }
-
-            IDWriteTextFormat* const cell_fmt = cell.is_header ? fmt_bold : fmt;
             const size_t ci = tl.CellIndex(r, c);
             {
                 MENDO_PROFILE("CreateTextLayout.cell");
                 dwrite_->CreateTextLayout(
-                    cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
-                    cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                    text.data(), static_cast<UINT32>(text.size()),
+                    row_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
                     &tl.cell_layouts[ci]);
             }
 
             if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), cell.runs, std::nullopt);
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), std::nullopt);
                 DWRITE_TEXT_METRICS metrics{};
                 tl.cell_layouts[ci]->GetMetrics(&metrics);
                 natural_widths[c] = std::max(natural_widths[c], metrics.width);
@@ -382,32 +381,32 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
     MENDO_PROFILE("RestoreNullCellLayouts");
     IDWriteTextFormat* const fmt = fmt_body_.Get();
     IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
-    auto& rows = node.table_rows();
+    const auto* tbl = node.table_data();
     auto& tl = *entry.table_layout;
-    const auto row_count = rows.size();
+    const auto row_count = tbl->row_count;
+    const auto col_count = tbl->col_count;
 
     for (size_t r = 0; r < row_count; r++) {
-        auto& row = rows[r];
-        const auto col_count = row.cells.size();
+        const bool is_header = tbl->IsHeaderRow(r);
+        IDWriteTextFormat* const row_fmt = is_header ? fmt_bold : fmt;
         for (size_t c = 0; c < col_count; c++) {
             const size_t ci = tl.CellIndex(r, c);
             if (ci >= tl.cell_layouts.size() || tl.cell_layouts[ci]) {
                 continue;
             }
-            auto& cell = row.cells[c];
-            if (cell.text.empty()) {
+            const auto text = tbl->GetCellText(r, c);
+            if (text.empty()) {
                 continue;
             }
-            IDWriteTextFormat* const cell_fmt = cell.is_header ? fmt_bold : fmt;
             {
                 MENDO_PROFILE("CreateTextLayout.cell.restore");
                 dwrite_->CreateTextLayout(
-                    cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
-                    cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                    text.data(), static_cast<UINT32>(text.size()),
+                    row_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
                     &tl.cell_layouts[ci]);
             }
             if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), cell.runs, std::nullopt);
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), std::nullopt);
             }
         }
     }
@@ -434,25 +433,23 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     }
 
     float total_height = border_width;
-    auto& rows = node.table_rows();
-    const auto row_count = rows.size();
+    const auto* tbl = node.table_data();
+    const auto row_count = tbl->row_count;
     for (size_t r = 0; r < row_count; r++) {
-        auto& row = rows[r];
         float row_height = theme_->font_size_body * 1.4f;
-        const auto cell_count = row.cells.size();
-        for (size_t c = 0; c < cell_count; c++) {
-            auto& cell = row.cells[c];
+        for (size_t c = 0; c < col_count; c++) {
             const float cw = (c < tl.col_widths.size()) ? tl.col_widths[c] : DEFAULT_COLUMN_WIDTH;
+            const auto align = tbl->ColAlign(c);
 
             const size_t ci = tl.CellIndex(r, c);
             if (tl.cell_layouts[ci]) {
                 const bool width_unchanged = std::abs(tl.cell_applied_widths[ci] - cw) < CELL_WIDTH_EPSILON && tl.cell_heights[ci] > 0.0f;
                 if (!width_unchanged) {
                     tl.cell_layouts[ci]->SetMaxWidth(cw);
-                    if (cell.align == TableAlign::Center) {
+                    if (align == TableAlign::Center) {
                         tl.cell_layouts[ci]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                     }
-                    else if (cell.align == TableAlign::Right) {
+                    else if (align == TableAlign::Right) {
                         tl.cell_layouts[ci]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
                     }
                     DWRITE_TEXT_METRICS metrics{};
@@ -467,11 +464,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         total_height += row_height + border_width;
     }
 
-    // 線形化テキストを entry 側に保持 (per-node 並列計測で Node 副作用を回避)。
-    if (tl.linearized_text.empty()) {
-        tl.linearized_text = BuildLinearizedTableText(node.table_rows());
-    }
-
+    // 線形化テキストは NodeTableData::concat_text に既に存在 (parser 段階で確定済み)。
     // ヒットテスト高速化用に行Y累積と列X累積を事前計算
     tl.row_cum_y.resize(row_count + 1);
     {
@@ -492,15 +485,11 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         tl.col_cum_x[col_count] = cx;
     }
 
-    // ヒットテスト高速化用に行ごとのフラットテキストオフセットをプリコンピュート
+    // ヒットテスト高速化用に行ごとのフラットテキストオフセットをプリコンピュート。
+    // 新方式: NodeTableData::cell_text_starts[r * col_count] が行 r 先頭セルの linearized 内 offset。
     tl.row_flat_offsets.resize(row_count);
-    uint32_t flat_offset = 0;
     for (size_t r = 0; r < row_count; r++) {
-        tl.row_flat_offsets[r] = flat_offset;
-        TableLayoutData::AdvanceFlatOffsetInRow(rows[r], 0, rows[r].cells.size(), flat_offset);
-        if (r + 1 < row_count) {
-            flat_offset++; // 改行区切り
-        }
+        tl.row_flat_offsets[r] = tbl->cell_text_starts[r * col_count];
     }
 
     // col_cum_x の末尾は border_width + Σ(col_w + 2*pad + border) と一致するため再計算しない。
@@ -518,16 +507,16 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         return;
     }
 
-    if (node.table_rows().empty()) {
+    const auto* tbl = node.table_data();
+    if (!tbl || tbl->row_count == 0) {
         entry.height = 0;
         entry.layout_dirty = false;
         return;
     }
 
-    auto& rows = node.table_rows();
-    const auto row_count = rows.size();
+    const auto row_count = tbl->row_count;
     // パーサが NodeTableData::col_count に最大列数を保持済みなので全行走査は不要。
-    const size_t col_count = node.table_data()->col_count;
+    const size_t col_count = tbl->col_count;
     if (col_count == 0) {
         entry.layout_dirty = false;
         return;
@@ -570,8 +559,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
             // 既存レイアウトから自然幅を再取得
             std::pmr::vector<float> natural_widths(col_count, 0.0f);
             for (size_t r = 0; r < row_count; r++) {
-                const auto cell_count = rows[r].cells.size();
-                for (size_t c = 0; c < cell_count && c < col_count; c++) {
+                for (size_t c = 0; c < col_count; c++) {
                     const size_t ci = tl.CellIndex(r, c);
                     if (tl.cell_layouts[ci]) {
                         tl.cell_layouts[ci]->SetMaxWidth(CODE_BLOCK_NO_WRAP_WIDTH);

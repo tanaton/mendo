@@ -689,7 +689,8 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool
 
 void CommandGenerator::GenTableCellContent(
     DrawCommandList& cmds,
-    const TableCell& cell,
+    std::wstring_view cell_text,
+    bool is_header,
     IDWriteTextLayout* cell_layout,
     float text_x,
     float text_y,
@@ -699,7 +700,7 @@ void CommandGenerator::GenTableCellContent(
     uint32_t flat_offset)
 {
     if (has_selection && cell_layout) {
-        const uint32_t cell_len = static_cast<uint32_t>(cell.text.size());
+        const uint32_t cell_len = static_cast<uint32_t>(cell_text.size());
         const uint32_t ov_start = std::max(sel_start, flat_offset);
         const uint32_t ov_end = std::min(sel_end, flat_offset + cell_len);
         if (ov_end > ov_start) {
@@ -707,8 +708,8 @@ void CommandGenerator::GenTableCellContent(
         }
     }
     if (cell_layout) {
-        const D2D1_COLOR_F cell_color = cell.is_header ? theme_->heading_color : theme_->text_color;
-        const BrushId cell_brush = cell.is_header ? BrushId::Heading : BrushId::Text;
+        const D2D1_COLOR_F cell_color = is_header ? theme_->heading_color : theme_->text_color;
+        const BrushId cell_brush = is_header ? BrushId::Heading : BrushId::Text;
         cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, text_y), cell_layout, cell_color, cell_brush });
     }
 }
@@ -717,7 +718,8 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
                                 const Node& node, const NodeLayoutEntry& entry,
                                 int node_index, float offset_x, float entry_text_top)
 {
-    if (node.table_rows().empty() || !entry.has_table_layout() || entry.table_layout->col_widths.empty()) {
+    const auto* tbl = node.table_data();
+    if (!tbl || tbl->row_count == 0 || !entry.has_table_layout() || entry.table_layout->col_widths.empty()) {
         return;
     }
 
@@ -727,11 +729,13 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     const auto& selection = *frame_selection_;
     const float viewport_top = frame_viewport_top_;
     const float viewport_bottom = frame_viewport_bottom_;
+    const auto row_count = tbl->row_count;
+    const auto col_count = static_cast<size_t>(tbl->col_count);
 
     const float table_width = tl.cached_table_width;
 
     bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
-    uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(tl.linearized_text.size());
+    uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(tbl->concat_text.size());
     if (has_selection) {
         if (node_index == selection.start_node) {
             sel_start = selection.start_pos;
@@ -745,30 +749,18 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
     }
 
     float y = entry_text_top;
-    uint32_t flat_offset = 0;
     size_t bg_cursor = 0;
 
-    for (size_t r = 0; r < node.table_rows().size(); r++) {
-        const auto& row = node.table_rows()[r];
+    for (size_t r = 0; r < row_count; r++) {
         const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR);
 
         const float row_bottom = y + row_h + border;
         if (row_bottom < viewport_top || y > viewport_bottom) {
-            // プリコンピュート済みの行オフセットを使い、O(cells) の走査を O(1) に削減
-            if (r + 1 < node.table_rows().size() && r + 1 < tl.row_flat_offsets.size()) {
-                flat_offset = tl.row_flat_offsets[r + 1];
-            }
-            else {
-                TableLayoutData::AdvanceFlatOffsetInRow(row, 0, row.cells.size(), flat_offset);
-                if (r + 1 < node.table_rows().size()) {
-                    flat_offset++;
-                }
-            }
             y = row_bottom;
             continue;
         }
 
-        const bool is_header_row = (!row.cells.empty() && row.cells[0].is_header);
+        const bool is_header_row = tbl->IsHeaderRow(r);
         GenTableRowBg(cmds, is_header_row, r % 2 == 0, offset_x, y, table_width, row_h, border);
 
         // 行上部の水平線
@@ -776,13 +768,12 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
             theme_->hr_color, border, BrushId::Hr });
 
-        // 可視列のみコマンド生成、画面外は flat_offset のみ進める
+        // 可視列のみコマンド生成、画面外は cell_text_starts で flat_offset を直接取得
         const float cull_left = offset_x + frame_viewport_left_;
         const float cull_right = offset_x + frame_viewport_right_;
         float cx = offset_x + border;
-        const size_t drawn_cols = std::min(row.cells.size(), tl.col_widths.size());
+        const size_t drawn_cols = std::min(col_count, tl.col_widths.size());
         for (size_t c = 0; c < drawn_cols; c++) {
-            const auto& cell = row.cells[c];
             const float cw = tl.col_widths[c];
             const float col_right = cx + cw + cell_padding * 2.0f;
             const bool col_visible = (col_right >= cull_left) && (cx - border <= cull_right);
@@ -802,17 +793,13 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
                 GenSearchHighlights(cmds, entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
 
-                GenTableCellContent(cmds, cell, cell_layout, text_x, text_y, has_selection, sel_start, sel_end, flat_offset);
+                const auto cell_text = tbl->GetCellText(r, c);
+                const uint32_t cell_flat = tbl->CellTextStart(r, c);
+                GenTableCellContent(cmds, cell_text, is_header_row, cell_layout, text_x, text_y, has_selection, sel_start, sel_end, cell_flat);
             }
 
-            flat_offset += static_cast<uint32_t>(cell.text.size());
-            if (c + 1 < row.cells.size()) {
-                flat_offset++;
-            }
             cx += cw + cell_padding * 2.0f + border;
         }
-
-        TableLayoutData::AdvanceFlatOffsetInRow(row, drawn_cols, row.cells.size(), flat_offset);
 
         cmds.emplace_back(DrawLineCmd{
             D2D1::Point2F(offset_x + table_width, y),
@@ -820,9 +807,6 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             theme_->hr_color, border, BrushId::Hr });
 
         y += row_h + border;
-        if (r + 1 < node.table_rows().size()) {
-            flat_offset++;
-        }
     }
 
     cmds.emplace_back(DrawLineCmd{
