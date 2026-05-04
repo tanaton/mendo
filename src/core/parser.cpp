@@ -6,6 +6,7 @@
 #include "profiler.h"
 #include "utility.h"
 #include "md4c.h"
+#include <cstring>
 #include <functional>
 #include <unordered_map>
 #include <charconv>
@@ -115,25 +116,49 @@ struct ParseContext {
     // 評価する代わりに、BeginNode でリセット → 範囲内マッチで設定 → 以降は素通しでよい。
     bool node_source_offset_set = false;
 
-    // 現在ノードの Wide スクラッチを text_ にコピーし、スクラッチをクリアする。
+    // current_text と raw_wide_[source_offset..source_offset+current_text.size()] が一致するか判定する。
+    // 一致なら view モード化が可能 (テキスト加工が一切無く、span マークアップも除去結果が連続範囲と一致するケース)。
+    // BR/SOFTBR/ENTITY 混在ノードや、span マークアップ ("**" "_" "`" 等) を挟むノードは不一致になり
+    // owned 経路に倒れる。比較コストは O(N) だが、22000 ノード × 平均数十文字でも合計数 MB の memcmp で済む。
+    bool CurrentTextMatchesRawSlice() const noexcept
+    {
+        if (!current_node || current_node->source_offset == kUnsetSourceOffset) {
+            return false;
+        }
+        const size_t offset = current_node->source_offset;
+        if (offset + current_text.size() > markdown_size) {
+            return false;
+        }
+        return std::memcmp(markdown_base + offset,
+                           current_text.data(),
+                           current_text.size() * sizeof(wchar_t)) == 0;
+    }
+
+    // 現在ノードの Wide スクラッチを Node に確定し、スクラッチをクリアする。
     // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
-    // Why: ここで std::move すると current_text の内部バッファごと Node::text_ へ持っていかれて
-    // capacity が 0 に戻り、次ノードの最初の append が SCRATCH_RESERVE 分の確保からやり直しになる。
-    // wstring_view 経由でコピーすれば current_text は最大サイズを保ったまま再利用でき、
-    // 文書全体で synchronized_pool への malloc 回数が大幅に減る。Node::text_ 側も実サイズに
-    // 合わせて確保されるためメモリ的にも得 (4KB スクラッチを掴ませない)。
-    constexpr void FinalizeCurrentNode()
+    // current_text と raw_wide_ の連続範囲が一致する場合は view モード (Node::owned_text_ を確保せず
+    // raw_wide_ の view を保持) に倒し、Document 全体で raw_wide_ と Node::text のバイトを共有する。
+    // current_text 自体は capacity を保ち次ノードで再利用 (パース全体の確保回数を削減する目的)。
+    void FinalizeCurrentNode()
     {
         FlushPendingRun();
-        // 昇格処理 (TryPromoteParagraphToDisplayMath 等) が text_ を直接設定済みのノードは、
+        // 昇格処理 (TryPromoteParagraphToDisplayMath 等) がテキストを直接設定済みのノードは、
         // current_text で上書きすると line_count ごと巻き戻るのでスキップする。
         if (current_node && !current_text.empty() && !current_node->HasText()) {
-            current_node->SetTextWithLineCount(current_text, current_node->line_count);
+            if (CurrentTextMatchesRawSlice()) {
+                current_node->SetTextView(static_cast<uint32_t>(current_node->source_offset),
+                                          static_cast<uint32_t>(current_text.size()),
+                                          current_node->line_count,
+                                          markdown_base);
+            }
+            else {
+                current_node->SetTextWithLineCount(current_text, current_node->line_count);
+            }
         }
         current_text.clear();
     }
 
-    constexpr void BeginNode(NodeType type)
+    void BeginNode(NodeType type)
     {
         FinalizeCurrentNode();
         nodes.emplace_back();
@@ -780,6 +805,10 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
         DetectAlerts(ctx.nodes, std::span<const size_t>{ ctx.blockquote_indices });
     }
 
+    // SetTextView 呼び出し時点で view_base_ は markdown_base に設定済み。
+    // Document::ReplaceContent / move 経路では Document::InjectViewBase() が
+    // raw_wide_.data() で再注入する (move でアドレスが変わる場合があるため)。
+
     ParseResult result;
     result.nodes = std::move(ctx.nodes);
     result.heading_indices = std::move(ctx.heading_indices);
@@ -895,7 +924,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     if (has_content) {
         new_text += L'\n';
         new_content_start = full_label_len + 1;
-        new_text.append(current_text.c_str() + marker_end, current_text.size() - marker_end);
+        new_text.append(current_text.data() + marker_end, current_text.size() - marker_end);
     }
 
     // TextRun の調整

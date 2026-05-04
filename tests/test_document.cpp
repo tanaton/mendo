@@ -217,6 +217,59 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
     EXPECT_TRUE(checked_any);
 }
 
+// ---- 1.2 view 化 sanity (Document move / ReplaceFromMarkdown) ----
+
+TEST(DocumentTest, ViewModeNodesSurviveMoveCtor)
+{
+    auto doc1 = Document::FromMarkdown("Hello world\n\nSecond paragraph", L"test.md");
+    ASSERT_GE(doc1.GetNodes().size(), 2u);
+    EXPECT_EQ(doc1.GetNodes()[0].GetText(), L"Hello world");
+    EXPECT_EQ(doc1.GetNodes()[1].GetText(), L"Second paragraph");
+
+    Document doc2 = std::move(doc1);
+    ASSERT_GE(doc2.GetNodes().size(), 2u);
+    EXPECT_EQ(doc2.GetNodes()[0].GetText(), L"Hello world");
+    EXPECT_EQ(doc2.GetNodes()[1].GetText(), L"Second paragraph");
+}
+
+TEST(DocumentTest, ViewModeNodesSurviveMoveAssign)
+{
+    auto src = Document::FromMarkdown("alpha\n\nbeta", L"src.md");
+    Document dst;
+    dst = std::move(src);
+    ASSERT_GE(dst.GetNodes().size(), 2u);
+    EXPECT_EQ(dst.GetNodes()[0].GetText(), L"alpha");
+    EXPECT_EQ(dst.GetNodes()[1].GetText(), L"beta");
+}
+
+TEST(DocumentTest, ViewModeNodesSurviveReplaceFromMarkdown)
+{
+    auto doc = Document::FromMarkdown("Initial text", L"test.md");
+    EXPECT_EQ(doc.GetNodes()[0].GetText(), L"Initial text");
+
+    doc.ReplaceFromMarkdown(std::pmr::string{ "Updated content here" });
+    ASSERT_FALSE(doc.GetNodes().empty());
+    EXPECT_EQ(doc.GetNodes()[0].GetText(), L"Updated content here");
+}
+
+TEST(DocumentTest, OwnedAndViewModesCoexist)
+{
+    // HTML entity (&amp;) を含むノードは加工が入るため owned 経路、
+    // 加工なしのノードは view 経路。同一 Document 内で両モードが共存できることを確認する。
+    auto doc = Document::FromMarkdown("Hello &amp; world\n\nNoEntityHere", L"test.md");
+    ASSERT_GE(doc.GetNodes().size(), 2u);
+    EXPECT_EQ(doc.GetNodes()[0].GetText(), L"Hello & world");
+    EXPECT_EQ(doc.GetNodes()[1].GetText(), L"NoEntityHere");
+}
+
+TEST(DocumentTest, ViewModeNodesSurviveReplaceFromMarkdownThenMove)
+{
+    auto doc1 = Document::FromMarkdown("first content", L"test.md");
+    doc1.ReplaceFromMarkdown(std::pmr::string{ "second content after replace" });
+    Document doc2 = std::move(doc1);
+    EXPECT_EQ(doc2.GetNodes()[0].GetText(), L"second content after replace");
+}
+
 // ---- BuildIndices統合テスト ----
 
 TEST(DocumentTest, BuildIndicesAnchorIndex)

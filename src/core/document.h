@@ -13,6 +13,14 @@ class Document {
 public:
     constexpr Document() noexcept = default;
 
+    // move-only: nodes_ は view モード時に raw_wide_.data() を view_base_ に持つため、
+    // move 後に InjectViewBase() で再注入する必要がある。
+    Document(const Document&) = delete;
+    Document& operator=(const Document&) = delete;
+    Document(Document&& other) noexcept;
+    Document& operator=(Document&& other) noexcept;
+    ~Document() = default;
+
     // ファクトリ。本体は wide 入力版。utf8 入力版は FileLoader からの UTF-8
     // バイト列（または埋め込みリソース）を直接受け取るための変換ラッパー。
     static Document FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::wstring_view path);
@@ -75,8 +83,17 @@ public:
 private:
     void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
 
+    // raw_wide_.data() を view モードの全ノードに注入する。
+    // ReplaceContent / move 経路で呼ぶ。raw_wide_ の relocate (resize/assign) は禁止契約のため、
+    // 通常のパース完了後は再注入不要だが、Document 自身の move 後はノードのアドレス参照が更新済み
+    // でも raw_wide_ のヒープバッファは move 前後で同一とは限らないため都度呼び直す。
+    void InjectViewBase() noexcept;
+
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
+    // 注意: raw_wide_ は relocate 禁止 (assign / resize / += によるヒープ再確保で
+    // ノードの view_base_ が dangling になるため)。差し替えは ReplaceFromMarkdown 経由で
+    // 全 nodes 再構築 + InjectViewBase() を伴うパスのみ許される。
     std::pmr::wstring raw_wide_;
     size_t loaded_byte_size_ = 0;
     TableOfContents toc_;

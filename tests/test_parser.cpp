@@ -1198,7 +1198,7 @@ TEST(Parser, AlertMarkerOnlyNoContent)
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
     // マーカーだけの場合、アイコン + スペース + ラベルのみ残る
     std::wstring expected = std::wstring(GetAlertIcon(AlertType::Note)) + L" Note";
-    EXPECT_EQ(std::wstring_view(nodes[0].GetText().c_str(), nodes[0].GetText().size()), expected);
+    EXPECT_EQ(nodes[0].GetText(), expected);
 }
 
 TEST(Parser, AlertFollowedByRegularBlockquote)

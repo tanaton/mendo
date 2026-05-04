@@ -290,7 +290,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     const HRESULT hr = [&] {
         MENDO_PROFILE("CreateTextLayout");
         return dwrite_->CreateTextLayout(
-            text.c_str(),
+            text.data(),
             static_cast<UINT32>(text.size()),
             fmt,
             layout_width,

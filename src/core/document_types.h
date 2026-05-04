@@ -124,14 +124,28 @@ struct Node {
     using Extra = std::variant<std::monostate, NodeHeadingData, NodeCodeData>;
     Extra extra;
 
+    // 加工テキスト (Alert / HTML entity 解決後 / SOFTBR/BR の置換を含む / display math 昇格 / 表セル等)
+    // を保持する owned バッファ。view モード時 (= raw_wide_ の連続範囲をそのまま表示できる場合) は空。
+    // raw_wide_ への view と用途を分離することで、テキスト加工が無いノードは Document の raw_wide_ を
+    // 共有 view し、加工があるノードのみ owned の中身を持つ。
+    // inline 保持にすることで wstring の SBO (~16 wchar) が活き、短い owned テキストは 0 ヒープ確保で済む。
+    // 不変条件: view モード時 (view_length > 0) は owned_text_.empty()。
+    std::pmr::wstring owned_text_;
+
+    // view モード時の参照ベース (= Document::raw_wide_.data())。
+    // ReplaceContent / move 時に Document::InjectViewBase() が一括で書き込む。
+    // owned モード時は不問 (GetText が owned_text_ を優先するため)。
+    const wchar_t* view_base_ = nullptr;
+
     // --- 4 バイトアライメント ---
     int32_t list_number = 0;                     // 0 = 順序なし, >0 = 順序付きリスト番号
     uint32_t alert_label_length = 0;             // ラベル部分の文字数（描画エフェクト適用範囲）
-    uint32_t source_offset = kUnsetSourceOffset; // ソース wide テキスト内の UTF-16 コード単位オフセット
+    uint32_t source_offset = kUnsetSourceOffset; // ソース wide テキスト内の UTF-16 コード単位オフセット (view モード時は view 開始位置)
     int32_t blockquote_group = -1;               // 最外側 blockquote 単位のグループID（ネストしてもgroupは共有）
     int32_t line_count = 0;                      // テキスト内の改行数（パース時にカウント済み）
+    uint32_t view_length = 0;                    // view モード時の長さ (UTF-16 wchar 単位)。owned モード時は 0。
 
-    // --- 1 バイトアライメント（8 個ぴったり = 末尾パディング 0、text_ の 8B 境界に乗る）---
+    // --- 1 バイトアライメント ---
     NodeType type = NodeType::Paragraph;
     bool task_checked = false;
     AlertType alert_type = AlertType::None;
@@ -143,42 +157,78 @@ struct Node {
 
     constexpr bool HasText() const noexcept
     {
-        return !text_.empty();
+        // view モードを優先判定: 22000 ノード規模で view モードが多数派になるパスのため、
+        // 単一比較で早抜けする方が分岐予測に優しい。owned とは排他的不変条件。
+        if (view_length > 0) {
+            return true;
+        }
+        return !owned_text_.empty();
     }
 
-    constexpr const std::pmr::wstring& GetText() const noexcept
+    // 戻り値は wstring_view。view モード優先で raw_wide_ の view を返し、
+    // owned モードでは owned_text_ をそのまま view に変換する。
+    // view_base_ は Document::InjectViewBase() で注入される前提。
+    constexpr std::wstring_view GetText() const noexcept
     {
-        return text_;
+        if (view_length > 0 && view_base_ != nullptr) {
+            return { view_base_ + source_offset, view_length };
+        }
+        return owned_text_;
     }
 
-    constexpr void SetText(const wchar_t* s)
+    void SetText(const wchar_t* s)
     {
         SetText(std::wstring_view{ s });
     }
 
-    constexpr void SetText(std::wstring_view s)
+    void SetText(std::wstring_view s)
     {
-        text_.assign(s);
-        FinalizeSetText();
+        owned_text_.assign(s);
+        FinalizeOwnedTextLineCount();
     }
 
-    constexpr void SetText(std::pmr::wstring&& s) noexcept
+    void SetText(std::pmr::wstring&& s) noexcept
     {
-        text_ = std::move(s);
-        FinalizeSetText();
+        owned_text_ = std::move(s);
+        FinalizeOwnedTextLineCount();
     }
 
-    // text_ と line_count を一括更新する（呼び出し側が積算済みの line_count を渡す）。
-    // 改行を逐次カウントしておけるパーサ向けの最適化バリアント。
-    constexpr void SetTextWithLineCount(std::wstring_view s, int32_t line_count_value)
+    // 加工テキスト (Alert/HTML entity/SOFTBR/BR/DisplayMath) 用の owned バッファ設定 API。
+    // 呼び出し側が改行数を積算済みのバリアント。
+    void SetTextOwned(std::pmr::wstring s, int32_t line_count_value)
     {
-        text_.assign(s);
+        owned_text_ = std::move(s);
+        view_length = 0;
         line_count = line_count_value;
     }
 
-    constexpr void SetTextWithLineCount(std::pmr::wstring&& s, int32_t line_count_value) noexcept
+    // 連続 NORMAL/CODE/LATEXMATH のみで構成されるノード向けの view 設定 API。
+    // raw_wide_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
+    // view_base は markdown_base / raw_wide_.data()。Document::InjectViewBase() の手前で
+    // GetText() を呼ぶ可能性のあるパス (parser 中の Heading anchor 生成等) のため、
+    // この場で同時に設定する。Document の move 後は InjectViewBase() で再注入される。
+    void SetTextView(uint32_t source_offset_value, uint32_t length, int32_t line_count_value, const wchar_t* view_base) noexcept
     {
-        text_ = std::move(s);
+        owned_text_.clear();
+        source_offset = source_offset_value;
+        view_length = length;
+        line_count = line_count_value;
+        view_base_ = view_base;
+    }
+
+    // text と line_count を一括更新する（呼び出し側が積算済みの line_count を渡す）。
+    // 改行を逐次カウントしておけるパーサ向けの最適化バリアント。
+    void SetTextWithLineCount(std::wstring_view s, int32_t line_count_value)
+    {
+        owned_text_.assign(s);
+        view_length = 0;
+        line_count = line_count_value;
+    }
+
+    void SetTextWithLineCount(std::pmr::wstring&& s, int32_t line_count_value) noexcept
+    {
+        owned_text_ = std::move(s);
+        view_length = 0;
         line_count = line_count_value;
     }
 
@@ -304,10 +354,9 @@ struct Node {
     }
 
 private:
-    constexpr void FinalizeSetText() noexcept
+    void FinalizeOwnedTextLineCount() noexcept
     {
-        line_count = static_cast<int32_t>(std::ranges::count(text_, L'\n'));
+        line_count = static_cast<int32_t>(std::ranges::count(owned_text_, L'\n'));
+        view_length = 0;
     }
-
-    std::pmr::wstring text_; // Wide テキスト
 };

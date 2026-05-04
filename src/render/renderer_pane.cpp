@@ -234,8 +234,8 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
         if (fmt_.pane_item) {
             const D2D1_RECT_F text_rect = D2D1::RectF(
                 8.0f + indent, item_y, width - 4.0f, item_y + theme_.pane_item_height);
-            const auto& text = nodes[entry.node_index].GetText();
-            rt->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
+            const auto text = nodes[entry.node_index].GetText();
+            rt->DrawText(text.data(), static_cast<UINT32>(text.size()),
                          fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
                          D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
