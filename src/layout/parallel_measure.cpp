@@ -6,7 +6,6 @@
 #include <atomic>
 #include <cstdint>
 #include <latch>
-#include <ranges>
 #include <vector>
 #include <windows.h>
 
@@ -14,42 +13,25 @@ namespace mendo::layout {
 
 namespace {
 
-struct TokenizeResult {
-    size_t node_index = 0;
-    std::pmr::vector<SyntaxToken> tokens;
-
-    TokenizeResult() : tokens(std::pmr::get_default_resource()) {}
-};
-
-// chunk size の上下限。小規模 (200 件程度) でも複数 worker に分散できるよう
-// 上限を緩く取り、巨大 (22000 件) でも post 回数が膨らみすぎないよう下限で締める。
+// 16-512 の幅は post 回数と worker 利用率の折衷。下限は巨大 dirty で post を抑え、
+// 上限は数百件の dirty でも複数 worker に行き渡らせるための上限。
 constexpr size_t kMinChunkSize = 16;
 constexpr size_t kMaxChunkSize = 512;
-// indices サイズがこれ未満なら chunk 化せず inline 直列で処理する。
-// dispatch + latch + sort のオーバーヘッドが per-node 並列利得を上回る境界。
+// dispatch + latch のオーバーヘッドが per-node 並列利得を上回る境界。
 constexpr size_t kMinDirtyForParallel = 32;
 
-// chunk 内の MeasureNode 呼び出し本体。worker / fallback / inline で共通利用する。
 void MeasureChunk(std::pmr::vector<Node>& nodes,
                   LayoutCache& cache,
                   float content_width,
                   const Theme& theme,
                   const IMeasureBackend& backend,
                   std::span<const size_t> chunk_indices,
-                  std::vector<TokenizeResult>& out_tokens)
+                  std::span<std::pmr::vector<SyntaxToken>> chunk_slot_tokens)
 {
-    std::pmr::vector<SyntaxToken> tokens_buf(std::pmr::get_default_resource());
-    for (size_t i : chunk_indices) {
-        auto& entry = cache[i];
+    for (size_t k = 0; k < chunk_indices.size(); ++k) {
+        const size_t i = chunk_indices[k];
         const float indent = NodeIndent(nodes[i], theme);
-        tokens_buf.clear();
-        backend.MeasureNode(nodes[i], entry, content_width - indent, &tokens_buf);
-        if (!tokens_buf.empty()) {
-            TokenizeResult tr;
-            tr.node_index = i;
-            tr.tokens = std::move(tokens_buf);
-            out_tokens.push_back(std::move(tr));
-        }
+        backend.MeasureNode(nodes[i], cache[i], content_width - indent, &chunk_slot_tokens[k]);
     }
 }
 
@@ -106,30 +88,37 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
     result.last_processed = indices.back();
     result.processed = static_cast<int>(indices.size());
 
-    // 集約バッファ。inline / parallel どちらの経路でも最終的にここに集まる。
-    std::pmr::vector<TokenizeResult> flat_results(std::pmr::get_default_resource());
+    // slot k は indices[k] に対応。worker は自スロットへ書き、UI スレッドで Node に集約する。
+    // 事前サイズ確定なので chunk 完了順に依存せず、sort も merge も不要。
+    std::pmr::vector<std::pmr::vector<SyntaxToken>> slot_tokens(
+        indices.size(), std::pmr::get_default_resource());
 
     if (indices.size() < kMinDirtyForParallel) {
-        // 小規模 dirty: dispatch コストを避けて UI スレッドで直列処理。
         MENDO_PROFILE("RunParallel.Inline");
-        flat_results.reserve(indices.size() / 4 + 4);
-        std::vector<TokenizeResult> tmp;
-        MeasureChunk(nodes, cache, content_width, theme, backend, indices, tmp);
-        for (auto& tr : tmp) {
-            flat_results.push_back(std::move(tr));
-        }
+        MeasureChunk(nodes, cache, content_width, theme, backend, indices,
+                     { slot_tokens.data(), slot_tokens.size() });
     }
     else {
-        // 1 worker あたり ~4 chunk を目標に動的サイズ。worker=8 / N=200 → chunk_size=25 → 8 chunk、
-        // worker=8 / N=22000 → chunk_size=512 (max) → 43 chunk。
         const size_t worker_count = std::max<size_t>(scheduler.WorkerCount(), 1);
         const size_t target_chunks = worker_count * 4;
         const size_t chunk_size = std::clamp(indices.size() / target_chunks, kMinChunkSize, kMaxChunkSize);
         const size_t chunk_count = (indices.size() + chunk_size - 1) / chunk_size;
-        std::vector<std::vector<TokenizeResult>> chunk_buffers(chunk_count);
 
         std::latch latch(static_cast<ptrdiff_t>(chunk_count));
         std::atomic<int> error_count{ 0 };
+
+        // Why: fallback も worker と同じ try/catch を通す。例外が latch の前で抜けると
+        // count_down が漏れて latch.wait() が永久ブロックする。
+        auto run_chunk = [&](std::span<const size_t> ci, std::span<std::pmr::vector<SyntaxToken>> co) {
+            try {
+                MeasureChunk(nodes, cache, content_width, theme, backend, ci, co);
+            }
+            catch (...) {
+                error_count.fetch_add(1, std::memory_order_relaxed);
+                OutputDebugStringW(L"[mendo] RunParallel chunk threw exception\n");
+            }
+            latch.count_down();
+        };
 
         {
             MENDO_PROFILE("RunParallel.Dispatch");
@@ -137,22 +126,14 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
                 const size_t begin = chunk_idx * chunk_size;
                 const size_t end = std::min(begin + chunk_size, indices.size());
                 const std::span<const size_t> chunk_indices{ indices.data() + begin, end - begin };
-                auto& buf = chunk_buffers[chunk_idx];
-                const bool posted = scheduler.Post([&, chunk_indices]() {
+                const std::span<std::pmr::vector<SyntaxToken>> chunk_slots{ slot_tokens.data() + begin, end - begin };
+                const bool posted = scheduler.Post([&, chunk_indices, chunk_slots]() {
                     MENDO_PROFILE("MeasureNode.worker");
-                    try {
-                        MeasureChunk(nodes, cache, content_width, theme, backend, chunk_indices, buf);
-                    }
-                    catch (...) {
-                        error_count.fetch_add(1, std::memory_order_relaxed);
-                        OutputDebugStringW(L"[mendo] RunParallel chunk threw exception\n");
-                    }
-                    latch.count_down();
+                    run_chunk(chunk_indices, chunk_slots);
                 });
                 if (!posted) {
                     MENDO_PROFILE("MeasureNode.fallback");
-                    MeasureChunk(nodes, cache, content_width, theme, backend, chunk_indices, buf);
-                    latch.count_down();
+                    run_chunk(chunk_indices, chunk_slots);
                 }
             }
         }
@@ -162,27 +143,16 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
             latch.wait();
         }
 
-        size_t total = 0;
-        for (const auto& buf : chunk_buffers) {
-            total += buf.size();
-        }
-        flat_results.reserve(total);
-        for (auto& buf : chunk_buffers) {
-            for (auto& tr : buf) {
-                flat_results.push_back(std::move(tr));
-            }
-        }
-
         MENDO_PLOT("layout.parallel.chunk_count", static_cast<int64_t>(chunk_count));
         MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(error_count.load(std::memory_order_relaxed)));
     }
 
     {
         MENDO_PROFILE("RunParallel.Aggregate");
-        // chunk 完了順序は非決定論的なので node_index 昇順に並べてから Node に書き戻す。
-        std::ranges::sort(flat_results, {}, &TokenizeResult::node_index);
-        for (auto& tr : flat_results) {
-            nodes[tr.node_index].syntax_tokens_mut() = std::move(tr.tokens);
+        for (size_t k = 0; k < indices.size(); ++k) {
+            if (!slot_tokens[k].empty()) {
+                nodes[indices[k]].syntax_tokens_mut() = std::move(slot_tokens[k]);
+            }
         }
     }
 

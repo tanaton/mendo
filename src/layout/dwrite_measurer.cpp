@@ -316,8 +316,6 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
 
     // コードブロックのシンタックストークン化をレイアウトパスで事前実行する。
     // 描画パス（ApplyNodeEffects）での遅延トークン化を排除し、フレーム落ちを防止する。
-    // tokens_out が非 nullptr の経路では Node を書かず、呼び出し側 (RunParallel) が
-    // UI スレッドで集約後に書き戻す。
     if (node.type == NodeType::CodeBlock && node.syntax_tokens().empty() &&
         node.code_language != SyntaxLanguage::None &&
         !IsDiagramLanguage(node.code_language)) {
