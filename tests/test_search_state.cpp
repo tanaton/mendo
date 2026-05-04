@@ -407,7 +407,7 @@ TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
     // ブロックは y=0, 各行は高さ 100 → 行Y = 0, 100, 200
     LayoutCache cache;
     cache.Resize(1);
-    cache[0].y_position = 0.0f;
+    cache[0].text_top = 0.0f;
     cache[0].height = 300.0f;
     auto& tl = cache[0].ensure_table_layout();
     tl.row_heights = {100.0f, 100.0f, 100.0f};

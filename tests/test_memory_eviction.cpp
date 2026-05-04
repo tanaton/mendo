@@ -90,7 +90,7 @@ TEST(LayoutCacheEviction, EvictedEntriesPreservePositionAndHeight)
     cache.Resize(5);
 
     for (size_t i = 0; i < 5; i++) {
-        cache[i].y_position = static_cast<float>(i * 200);
+        cache[i].text_top = static_cast<float>(i * 200);
         cache[i].height = 100.0f;
         cache[i].layout_dirty = false;
         cache[i].effects_applied = true;
@@ -105,9 +105,9 @@ TEST(LayoutCacheEviction, EvictedEntriesPreservePositionAndHeight)
     cache[1].effects_applied = false;
 
     // y_position と height は保持される
-    EXPECT_FLOAT_EQ(cache[0].y_position, 0.0f);
+    EXPECT_FLOAT_EQ(cache[0].text_top, 0.0f);
     EXPECT_FLOAT_EQ(cache[0].height, 100.0f);
-    EXPECT_FLOAT_EQ(cache[1].y_position, 200.0f);
+    EXPECT_FLOAT_EQ(cache[1].text_top, 200.0f);
     EXPECT_FLOAT_EQ(cache[1].height, 100.0f);
 
     // layout_dirty が設定される
@@ -196,7 +196,7 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
     // ビューポートから遠いノード（y > 1200）はダーティのまま
     bool found_far_dirty = false;
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (cache[i].y_position > 1200.0f && cache[i].layout_dirty) {
+        if (cache[i].text_top > 1200.0f && cache[i].layout_dirty) {
             found_far_dirty = true;
             break;
         }
@@ -276,7 +276,7 @@ TEST(FindFirstVisibleNodeIndex, FindsCorrectNodeInMiddle)
     LayoutCache cache;
     cache.Resize(10);
     for (size_t i = 0; i < 10; i++) {
-        cache[i].y_position = static_cast<float>(i * 100);
+        cache[i].text_top = static_cast<float>(i * 100);
         cache[i].height = 80.0f;
     }
 
@@ -290,7 +290,7 @@ TEST(FindFirstVisibleNodeIndex, ReturnsNodeCountWhenAllAbove)
     LayoutCache cache;
     cache.Resize(3);
     for (size_t i = 0; i < 3; i++) {
-        cache[i].y_position = static_cast<float>(i * 100);
+        cache[i].text_top = static_cast<float>(i * 100);
         cache[i].height = 80.0f;
     }
 

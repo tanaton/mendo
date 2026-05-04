@@ -123,10 +123,10 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
 
     int visible_count = 0;
     for (int i = first_visible; i < node_count; i++) {
-        if (cache[i].y_position > frame_viewport_bottom_) {
+        if (cache[i].text_top > frame_viewport_bottom_) {
             break;
         }
-        GenerateNode(cmds, nodes[i], cache[i], cache.GetDiagram(i), i, cache[i].y_position);
+        GenerateNode(cmds, nodes[i], cache[i], cache.GetDiagram(i), i, cache[i].text_top);
         ++visible_count;
     }
 
@@ -408,19 +408,19 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
             i++;
             continue;
         }
-        if (cache[i].y_position > viewport_bottom) {
+        if (cache[i].text_top > viewport_bottom) {
             break;
         }
 
-        const float group_top = cache[i].y_position;
-        float group_bottom = cache[i].y_position + cache[i].height;
+        const float group_top = cache[i].text_top;
+        float group_bottom = cache[i].text_top + cache[i].height;
         const AlertType alert_type = nodes[i].alert_type;
         const int outer_indent = nodes[i].quote_outer_indent;
         int max_depth = nodes[i].quote_depth;
 
         int j = i + 1;
         while (j < node_count && nodes[j].blockquote_group == group) {
-            const float bottom = cache[j].y_position + cache[j].height;
+            const float bottom = cache[j].text_top + cache[j].height;
             if (bottom > group_bottom) {
                 group_bottom = bottom;
             }
@@ -483,9 +483,9 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
                 if (nodes[k].quote_depth >= level) {
                     if (!in_region) {
                         in_region = true;
-                        region_top = cache[k].y_position;
+                        region_top = cache[k].text_top;
                     }
-                    region_bottom = cache[k].y_position + cache[k].height;
+                    region_bottom = cache[k].text_top + cache[k].height;
                 }
                 else if (in_region) {
                     emit_bar(region_top, region_bottom);

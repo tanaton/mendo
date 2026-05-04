@@ -219,7 +219,7 @@ TEST(Toc, FindActiveIndexBeforeFirstHeading)
     cache.Resize(nodes.size());
     // 見出しノードのy_positionを200に設定
     int heading_idx = toc.GetEntries()[0].node_index;
-    cache[heading_idx].y_position = 200.0f;
+    cache[heading_idx].text_top = 200.0f;
     cache[heading_idx].height = 30.0f;
 
     // scroll_y=0 は見出しより前 → -1
@@ -236,9 +236,9 @@ TEST(Toc, FindActiveIndexAtHeading)
     cache.Resize(nodes.size());
     int first_idx = toc.GetEntries()[0].node_index;
     int second_idx = toc.GetEntries()[1].node_index;
-    cache[first_idx].y_position = 10.0f;
+    cache[first_idx].text_top = 10.0f;
     cache[first_idx].height = 30.0f;
-    cache[second_idx].y_position = 200.0f;
+    cache[second_idx].text_top = 200.0f;
     cache[second_idx].height = 25.0f;
 
     // scroll_y=10 は最初の見出しのy_position丁度 → 0
@@ -267,7 +267,7 @@ TEST(Toc, FindActiveIndexManyHeadings)
     // 各見出しノードのy_positionを 100*i に設定
     for (int i = 0; i < 10; ++i) {
         int ni = toc.GetEntries()[i].node_index;
-        cache[ni].y_position = static_cast<float>(i * 100);
+        cache[ni].text_top = static_cast<float>(i * 100);
         cache[ni].height = 30.0f;
     }
 
@@ -287,9 +287,9 @@ TEST(Toc, FindActiveIndexWithMargin)
     cache.Resize(nodes.size());
     int first_idx = toc.GetEntries()[0].node_index;
     int second_idx = toc.GetEntries()[1].node_index;
-    cache[first_idx].y_position = 100.0f;
+    cache[first_idx].text_top = 100.0f;
     cache[first_idx].height = 30.0f;
-    cache[second_idx].y_position = 300.0f;
+    cache[second_idx].text_top = 300.0f;
     cache[second_idx].height = 25.0f;
 
     // NavigateToAnchorが target_y = y_position - margin でスクロールする想定

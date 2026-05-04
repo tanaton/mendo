@@ -77,7 +77,7 @@ public:
     HitResult HitTest(const MdPaneHitContext& ctx) const noexcept;
 
     // テーブルセル内のヒットテスト
-    // entry_text_top はノードのテキスト上端 Y (旧 entry.y_position)。
+    // entry_text_top はノードのテキスト上端 Y (旧 entry.text_top)。
     HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
                            float entry_text_top,
                            int node_index,
@@ -152,7 +152,7 @@ private:
         const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
         const int count = static_cast<int>(ctx.nodes.size());
         for (int i = first; i < count; i++) {
-            const float entry_text_top = ctx.cache[i].y_position;
+            const float entry_text_top = ctx.cache[i].text_top;
             // 早期 break: CopyButton は padding 分だけテキスト上端の上に出るため padding を引いて比較する。
             if (entry_text_top - ctx.theme.code_block_padding > viewport_bottom) {
                 break;

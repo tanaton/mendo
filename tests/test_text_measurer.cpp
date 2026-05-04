@@ -46,7 +46,7 @@ TEST_F(MockLayoutTest, YPositionsAreMonotonicallyIncreasing)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].y_position, cache[i - 1].y_position);
+        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top);
     }
 }
 
@@ -57,8 +57,8 @@ TEST_F(MockLayoutTest, NoOverlapBetweenNodes)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache[i - 1].y_position + cache[i - 1].height;
-        EXPECT_GE(cache[i].y_position, prev_bottom);
+        float prev_bottom = cache[i - 1].text_top + cache[i - 1].height;
+        EXPECT_GE(cache[i].text_top, prev_bottom);
     }
 }
 
@@ -72,8 +72,8 @@ TEST_F(MockLayoutTest, HeadingHasExtraSpacing)
     engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 3u);
 
-    float para_bottom = cache[0].y_position + cache[0].height;
-    float heading_y = cache[1].y_position;
+    float para_bottom = cache[0].text_top + cache[0].height;
+    float heading_y = cache[1].text_top;
     EXPECT_GT(heading_y - para_bottom, theme_.paragraph_spacing);
 }
 
@@ -122,7 +122,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
     }
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].y_position, cache[i - 1].y_position);
+        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top);
     }
 }
 
@@ -373,8 +373,8 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
         << "partial モードで実測済みテーブルの高さが推定値で縮められた";
 
     // テーブル直後の段落の y_position もテーブル下端より下にあること
-    const float table_bottom = cache[table_idx].y_position + cache[table_idx].height;
-    EXPECT_GE(cache[para_idx].y_position, table_bottom)
+    const float table_bottom = cache[table_idx].text_top + cache[table_idx].height;
+    EXPECT_GE(cache[para_idx].text_top, table_bottom)
         << "テーブル直後ノードの y_position がテーブル下端より上に詰まっている (issue #158)";
 }
 
@@ -445,7 +445,7 @@ TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight)
     engine_.ComputeLayout(nodes, cache, 800.0f);
     EXPECT_GT(engine_.GetTotalHeight(), 500.0f);
     size_t last = nodes.size() - 1;
-    EXPECT_LE(cache[last].y_position + cache[last].height, engine_.GetTotalHeight());
+    EXPECT_LE(cache[last].text_top + cache[last].height, engine_.GetTotalHeight());
 }
 
 // ---- ファイル切り替えリグレッションテスト ----

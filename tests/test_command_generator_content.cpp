@@ -183,7 +183,7 @@ TEST_F(CmdGenContentTest, HorizontalRule_PartialViewportLimitsToVisible)
     ASSERT_FALSE(nodes_.empty());
 
     // 1 本目の hr の下端より少し大きい viewport を用意する。
-    const float first_hr_bottom = cache_[0].y_position + cache_[0].height;
+    const float first_hr_bottom = cache_[0].text_top + cache_[0].height;
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, first_hr_bottom + 1.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 

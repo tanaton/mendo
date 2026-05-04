@@ -63,7 +63,7 @@ inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
     block_heights.reserve(count);
     float y = 0.0f;
     for (int i = 0; i < count; ++i) {
-        cache[i].y_position = y;
+        cache[i].text_top = y;
         cache[i].height = node_height;
         block_heights.push_back(node_height);
         y += node_height;

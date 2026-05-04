@@ -125,7 +125,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         const float sb = GetSpacingBelow(node, *theme_);
 
         y += sa;
-        entry.y_position = y;
+        entry.text_top = y;
         y += entry.height;
         y += sb;
 
@@ -183,7 +183,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 
     for (int i = lo; i < static_cast<int>(node_count); i++) {
         auto& entry = cache[i];
-        if (entry.y_position > viewport_bottom) {
+        if (entry.text_top > viewport_bottom) {
             break;
         }
         if (!entry.layout_dirty) {

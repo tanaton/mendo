@@ -133,7 +133,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
 
         y += sa;
         cache[i].height = h;
-        cache[i].y_position = y;
+        cache[i].text_top = y;
         y += h;
         y += sb;
 
@@ -151,11 +151,19 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
     const auto node_count = nodes.size();
     float y = theme.margin_top;
 
-    // 途中から開始する場合、前のノードの終了位置から再開する。
     if (from_index > 0 && from_index < node_count) {
         auto& prev = cache[from_index - 1];
-        y = prev.y_position + prev.height;
+        y = prev.text_top + prev.height;
         y += GetSpacingBelow(nodes[from_index - 1], theme);
+    }
+
+    // フルパス (from_index == 0) かつ完走できれば BuildBlockHeights バルクロード経路で
+    // O(N log N) を O(N) に縮める。途中で早期終了 / from_index > 0 なら個別 SetBlockHeight に倒す。
+    const bool can_bulk_build = (from_index == 0);
+    StackArena<4096> arena;
+    std::pmr::vector<float> block_heights(arena.resource());
+    if (can_bulk_build) {
+        block_heights.reserve(node_count);
     }
 
     for (size_t i = from_index; i < node_count; i++) {
@@ -171,23 +179,38 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
 
         // safe_exit_after 以降でY位置が一致すれば、以降のノードのY位置は変わらないので早期終了する。
         // Fenwick の block_height は既存値が正しい前提で書き込みをスキップする。
-        if (i > safe_exit_after && std::abs(entry.y_position - y) < Y_POSITION_EPSILON) {
-            // Y更新より軽量なフラグチェックのみで残りのダーティノードを確認
+        if (i > safe_exit_after && std::abs(entry.text_top - y) < Y_POSITION_EPSILON) {
+            // バルクモードで貯めた分は個別 Set でフラッシュ (Build は全件上書きなので部分には使えない)。
+            if (can_bulk_build) {
+                for (size_t k = 0; k < block_heights.size(); ++k) {
+                    cache.SetBlockHeight(k, block_heights[k]);
+                }
+            }
             if (!result.has_dirty_nodes) {
                 result.has_dirty_nodes = std::ranges::any_of(
                     std::views::iota(i, node_count),
                     [&cache](size_t j) { return cache[j].layout_dirty; });
             }
             const size_t last_idx = node_count - 1;
-            result.total_height = cache[last_idx].y_position + cache[last_idx].height + GetSpacingBelow(nodes[last_idx], theme) + theme.margin_top;
+            result.total_height = cache[last_idx].text_top + cache[last_idx].height + GetSpacingBelow(nodes[last_idx], theme) + theme.margin_top;
             return result;
         }
 
-        entry.y_position = y;
+        entry.text_top = y;
         y += entry.height;
         y += sb;
 
-        cache.SetBlockHeight(i, sa + entry.height + sb);
+        const float block_height = sa + entry.height + sb;
+        if (can_bulk_build) {
+            block_heights.push_back(block_height);
+        }
+        else {
+            cache.SetBlockHeight(i, block_height);
+        }
+    }
+
+    if (can_bulk_build) {
+        cache.BuildBlockHeights(block_heights);
     }
 
     result.total_height = y + theme.margin_top;

@@ -109,7 +109,7 @@ public:
         float dpi_scale = 1.0f);
 
 private:
-    // 各 Gen 関数は entry_text_top (= 旧 entry.y_position、Fenwick から計算) をローカル受けで持つ。
+    // 各 Gen 関数は entry_text_top (= entry.text_top、Fenwick の派生キャッシュ) をローカル受けで持つ。
     // GenerateMdPane の i ループで cum_y 累積した値を渡すことで、関数内で再 Fenwick lookup を回避する。
     void GenerateNode(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index, float entry_text_top);
 

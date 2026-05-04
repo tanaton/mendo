@@ -126,10 +126,10 @@ void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& c
 {
     const int node_count = static_cast<int>(nodes.size());
     for (int i = first_visible; i < node_count; i++) {
-        if (cache[i].y_position > viewport_bottom) {
+        if (cache[i].text_top > viewport_bottom) {
             break;
         }
-        ApplyNodeEffects(nodes[i], cache[i], cache[i].y_position, viewport_top, viewport_bottom);
+        ApplyNodeEffects(nodes[i], cache[i], cache[i].text_top, viewport_top, viewport_bottom);
     }
     MENDO_IF_TRACY(PublishEffectStats());
 }

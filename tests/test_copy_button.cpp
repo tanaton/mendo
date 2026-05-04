@@ -48,7 +48,7 @@ protected:
         float w = content_width - indent;
         float pad = theme_.code_block_padding;
         float block_right = x + w;
-        float block_top = entry.y_position - pad;
+        float block_top = entry.text_top - pad;
         D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
         float cx = (btn.left + btn.right) * 0.5f;
         float cy = (btn.top + btn.bottom) * 0.5f;
@@ -208,7 +208,7 @@ TEST_F(CopyButtonTest, ScrolledViewportHitTest)
 
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     // コードブロックが見えるようにスクロール
-    float scroll_y = pr.cache[code_idx].y_position - 50.0f;
+    float scroll_y = pr.cache[code_idx].text_top - 50.0f;
     if (scroll_y < 0) scroll_y = 0;
 
     // コピーボタンの座標を計算（スクロール後のスクリーン座標）
@@ -218,7 +218,7 @@ TEST_F(CopyButtonTest, ScrolledViewportHitTest)
     float cw = content_width - indent;
     float x = theme_.margin_left + indent;
     float pad = theme_.code_block_padding;
-    D2D1_RECT_F btn = OverlayButtonRect(x + cw, entry.y_position - pad);
+    D2D1_RECT_F btn = OverlayButtonRect(x + cw, entry.text_top - pad);
     // screen_y = dip_y - scroll_y (dpi=1)
     int sx = static_cast<int>((btn.left + btn.right) * 0.5f);
     int sy = static_cast<int>((btn.top + btn.bottom) * 0.5f - scroll_y);

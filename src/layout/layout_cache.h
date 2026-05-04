@@ -12,6 +12,8 @@
 #include <ranges>
 #include <span>
 
+struct Theme;
+
 
 // インラインコードの背景矩形（レイアウト原点からの相対座標、パディング適用済み）
 using InlineCodeBg = D2D1_RECT_F;
@@ -82,7 +84,10 @@ struct SelectionHlCache {
 };
 
 struct NodeLayoutEntry {
-    float y_position = 0.0f;
+    // テキスト上端 Y の Fenwick 派生キャッシュ。SSOT は cache.GetBlockTop(i, margin_top) + sa[i]。
+    // WRITE 経路 (RecomputeYPositions / ComputeLayout / EstimateNodeHeights / ResizePreservingPrefix) で
+    // Fenwick block_height と同期して更新される。MeasureNode は触らない (= 中間状態は古い値のまま)。
+    float text_top = 0.0f;
     float height = 0.0f;
     // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
     // MeasureNode で text_layout 確定時に同時に求める。
@@ -175,16 +180,17 @@ struct NodeLayoutEntry {
     // ブロック先頭/テーブル行先頭の座標にフォールバックする。
     // Why: 長い段落内の複数マッチで同じブロック先頭 Y に丸まると「次へ」でスクロールしない。
     // row_cum_y は row_count+1 要素（末尾は合計高さ）なので、行として有効なのは [0, row_heights.size()) のみ。
-    std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset) const noexcept
+    // entry_text_top はノード上端 Y。caller が Fenwick から計算するか entry のキャッシュ値を渡す。
+    std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset, float entry_text_top) const noexcept
     {
         IDWriteTextLayout* layout = nullptr;
-        float base_y = y_position;
+        float base_y = entry_text_top;
         float fallback_h = height;
 
         if (table_row >= 0 && has_table_layout()) {
             const auto row = static_cast<size_t>(table_row);
             if (row < table_layout->row_heights.size() && row < table_layout->row_cum_y.size()) {
-                base_y = y_position + table_layout->row_cum_y[row];
+                base_y = entry_text_top + table_layout->row_cum_y[row];
                 fallback_h = table_layout->row_heights[row];
             }
             if (table_col >= 0) {
@@ -227,7 +233,7 @@ public:
     }
 
     // prefix 部分のキャッシュを保持したままリサイズする。
-    // 追加エントリの y_position を旧末尾に配置し、二分探索の単調性を維持する。
+    // 追加エントリの text_top を旧末尾に配置し、二分探索の単調性を維持する。
     void ResizePreservingPrefix(size_t new_node_count)
     {
         const size_t old_count = entries_.size();
@@ -239,9 +245,9 @@ public:
             diagrams_.resize(new_node_count);
             block_heights_.GrowTo(new_node_count);
             if (old_count > 0) {
-                const float end_y = entries_[old_count - 1].y_position + entries_[old_count - 1].height;
+                const float end_y = entries_[old_count - 1].text_top + entries_[old_count - 1].height;
                 for (size_t i = old_count; i < new_node_count; i++) {
-                    entries_[i].y_position = end_y;
+                    entries_[i].text_top = end_y;
                 }
             }
             effects_generation_++;
@@ -364,7 +370,7 @@ public:
 
     // 可視範囲外（[0, first_keep) と [last_keep, size())）のノードについて
     // text_layout / table_layout / inline_code_bgs / search_hl_cache を破棄する。
-    // y_position と height は維持され、layout_dirty=true で再生成可能な状態にする。
+    // text_top と height は維持され、layout_dirty=true で再生成可能な状態にする。
     // Why: IDWriteTextLayout は内部で glyph buffer / bidi 解析を保持し
     // 1K 文字あたり 2-5KB。可視外も保持し続けると巨大ドキュメントで数十 MB
     // のメモリを COM 側に常駐させてしまう。EVICT_BUFFER_SCREENS 分の安全マージン
@@ -386,7 +392,9 @@ public:
     // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
     // 再表示時は MeasureTable の lazy 復元経路で CreateTextLayout を再発行する。
     // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
-    void EvictInvisibleTableRows(float viewport_top, float viewport_bottom, float buffer_screens_height) noexcept
+    // nodes/theme は将来 Fenwick 経由で entry 上端 Y を計算するための足場（Phase C 移行用）。
+    void EvictInvisibleTableRows(float viewport_top, float viewport_bottom, float buffer_screens_height,
+                                  const std::pmr::vector<Node>& /*nodes*/, const Theme& /*theme*/) noexcept
     {
         const float keep_top = viewport_top - buffer_screens_height;
         const float keep_bottom = viewport_bottom + buffer_screens_height;
@@ -399,7 +407,7 @@ public:
                 continue;
             }
             const size_t row_count = tl.row_cum_y.size() - 1;
-            const float entry_top = e.y_position;
+            const float entry_top = e.text_top;
             for (size_t r = 0; r < row_count; ++r) {
                 const float row_top = entry_top + tl.row_cum_y[r];
                 const float row_bottom = entry_top + tl.row_cum_y[r + 1];
@@ -461,16 +469,10 @@ public:
 
     // ノード i のブロック上端 Y を Fenwick から O(log N) で取得する。
     // ここで「ブロック上端」とは spacing_above を含まない手前の位置で、
-    // テキスト上端 (entry.y_position) は GetBlockTop(i) + spacing_above[i] と一致する。
+    // テキスト上端 (entry.text_top) は GetBlockTop(i) + spacing_above[i] と一致する。
     float GetBlockTop(size_t i, float margin_top) const noexcept
     {
         return margin_top + block_heights_.PrefixSum(i);
-    }
-
-    // 旧名称。新コードは GetBlockTop を使う (短い名前で機械的置換しやすいため)。
-    float GetBlockTopFromFenwick(size_t i, float margin_top) const noexcept
-    {
-        return GetBlockTop(i, margin_top);
     }
 
     // ノード i の block_height (= spacing_above + height + spacing_below) を Fenwick から取得する。
@@ -554,7 +556,7 @@ private:
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<DiagramEntry> diagrams_;
     // 各ノードの block height (spacing_above + height + spacing_below) を保持する Fenwick tree。
-    // RecomputeYPositions が更新し、GetBlockTopFromFenwick / GetTotalHeightFromFenwick で参照する。
+    // RecomputeYPositions が更新し、GetBlockTop / GetTotalHeightFromFenwick で参照する。
     mendo::FloatFenwick block_heights_;
     uint32_t effects_generation_ = 0;
 };
@@ -567,7 +569,7 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_
         return 0.0f;
     }
     const size_t last = node_count - 1;
-    return cache[last].y_position + cache[last].height + margin_top;
+    return cache[last].text_top + cache[last].height + margin_top;
 }
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。
@@ -586,7 +588,7 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_co
     const auto first = cache.cbegin();
     const auto last = first + static_cast<ptrdiff_t>(effective);
     const auto it = std::ranges::partition_point(first, last, [viewport_top](const NodeLayoutEntry& e) noexcept {
-        return e.y_position + e.height <= viewport_top;
+        return e.text_top + e.height <= viewport_top;
     });
     return static_cast<int>(it - first);
 }
@@ -599,5 +601,5 @@ constexpr float NodeOffsetToScrollY(const LayoutCache& cache, int node, float of
         return 0.0f;
     }
     const int clamped = std::min(node, static_cast<int>(cache.size()) - 1);
-    return std::max(0.0f, cache[clamped].y_position + offset);
+    return std::max(0.0f, cache[clamped].text_top + offset);
 }

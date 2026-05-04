@@ -10,7 +10,7 @@ namespace {
 
 // テーブル内のクリック座標からヒットした行を特定する。
 // 見つかった場合は行インデックスとその行の上端Y座標を返す。
-// entry_text_top は旧 entry.y_position に相当する「ノードのテキスト上端 Y」。
+// entry_text_top は旧 entry.text_top に相当する「ノードのテキスト上端 Y」。
 struct TableRowHit {
     int row;
     float row_top_y;
@@ -118,7 +118,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     const auto first = ctx.cache.cbegin();
     const auto last = first + static_cast<ptrdiff_t>(ctx.nodes.size());
     const auto it = std::ranges::partition_point(first, last, [dip_y](const NodeLayoutEntry& e) noexcept {
-        return e.y_position <= dip_y;
+        return e.text_top <= dip_y;
     });
     const int candidate = (it != first) ? static_cast<int>(std::prev(it) - first) : -1;
 
@@ -313,7 +313,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
     int svg_copy_hit = -1;
     for (int i = first; i < count; i++) {
         const auto& entry = ctx.cache[i];
-        const float entry_text_top = entry.y_position;
+        const float entry_text_top = entry.text_top;
         if (entry_text_top - ctx.theme.code_block_padding > viewport_bottom) {
             break;
         }

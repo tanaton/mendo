@@ -64,7 +64,7 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
             if (!entry.layout_dirty) {
                 continue;
             }
-            if (has_viewport_limit && IsOffscreen(entry.y_position, entry.height, limit_top, limit_bottom)) {
+            if (has_viewport_limit && IsOffscreen(entry.text_top, entry.height, limit_top, limit_bottom)) {
                 continue;
             }
             indices.push_back(i);

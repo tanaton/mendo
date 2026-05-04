@@ -31,7 +31,7 @@ struct DirtyFixture {
         std::pmr::vector<float> bh;
         bh.reserve(n);
         for (size_t i = 0; i < n; ++i) {
-            cache[i].y_position = static_cast<float>(i) * 100.0f;
+            cache[i].text_top = static_cast<float>(i) * 100.0f;
             cache[i].height = 80.0f;
             cache[i].layout_dirty = false;
             bh.push_back(100.0f);
@@ -185,8 +185,8 @@ TEST_F(DirtySchedulerTest, NoClipProcessesAllDirtyEvenIfYUnreachable)
     // viewport_clip top<0 で全 dirty 対象。y_position の値に関わらず処理。
     DirtyFixture f;
     f.Build(5, { 0, 4 });
-    f.cache[0].y_position = -1000.0f; // 大きく外れた値
-    f.cache[4].y_position = 999999.0f;
+    f.cache[0].text_top = -1000.0f; // 大きく外れた値
+    f.cache[4].text_top = 999999.0f;
     const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, DirtyBudget{});
     EXPECT_EQ(r.processed, 2);
     EXPECT_EQ(r.first_processed, 0u);

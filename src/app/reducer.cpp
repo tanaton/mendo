@@ -10,7 +10,7 @@ ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 {
     const auto& cache = state.document.layout_cache;
     const int node = state.view.viewport.FindFirstVisibleNode(cache, cache.size());
-    const float y_before = (node >= 0) ? cache[node].y_position : 0.0f;
+    const float y_before = (node >= 0) ? cache[node].text_top : 0.0f;
     return { node, state.view.viewport.GetScrollY() - y_before };
 }
 

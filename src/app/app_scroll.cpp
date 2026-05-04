@@ -158,7 +158,7 @@ void App::OnDeferredLayout()
         EmitEffect(effect::SyncMaxScroll{ md_height });
         Invalidate();
 
-        // 遅延レイアウト確定で layout_cache の y_position が安定したので
+        // 遅延レイアウト確定で layout_cache の text_top が安定したので
         // 目次アクティブ見出しを再同期する。
         EmitEffect(effect::SyncTocActive{});
     }
