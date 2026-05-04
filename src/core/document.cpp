@@ -4,6 +4,8 @@
 #include "profiler.h"
 #include "string_convert.h"
 #include <cassert>
+#include <cstring>
+#include <cwchar>
 #include <filesystem>
 
 namespace {
@@ -13,45 +15,51 @@ namespace {
 // パーサ中の current_text と raw_wide_ の memcmp 一致による view 化判定が機能し、
 // 大半の code block / 複数行 paragraph で Node::owned_text_ の確保を省ける。
 //
-// 計測指標: Tracy ON 時に "NormalizeNewlines" zone と入出力サイズの stat を出力する。
-// CR を含まない LF-only ファイルでは fast path (走査のみ・書き戻しなし) で素通しになるよう
-// 実装しているため、典型的な現代の Markdown ファイルでは memmove 相当のコストすら発生しない。
+// 実装方針: wmemchr で次の CR まで一気にスキップし、その間は memmove でブロックコピー。
+// CR 間の長い区間 (1 行 80 文字なら 1.25% の頻度で CR を踏む) を SIMD memmove に任せられるため、
+// 1 文字ずつ判定するループより数倍速い (wmemchr/memmove は MSVC で SIMD ディスパッチ)。
+// CR を含まない LF-only ファイルでは wmemchr 1 回で素通し。
 void NormalizeNewlines(std::pmr::wstring& s)
 {
     MENDO_PROFILE("NormalizeNewlines");
-    [[maybe_unused]] const size_t before = s.size();
-
-    // Fast path: CR が一つも無いなら何も書き戻さない。LF-only ファイル (現代 Linux/macOS の標準、
-    // Git の autocrlf=input 経路) では走査 1 回だけで完了する。
-    const auto end = s.end();
-    auto first_cr = std::find(s.begin(), end, L'\r');
-    if (first_cr == end) {
-        MENDO_STATF("NormalizeNewlines: in=%zu out=%zu shrunk=0 (fast LF-only)", before, before);
+    const size_t n = s.size();
+    if (n == 0) {
         return;
     }
 
-    // Slow path: CR を見つけた位置から書き戻し開始。それまでの prefix は in-place で touch しない。
-    auto src = first_cr;
-    auto dst = first_cr;
-    while (src != end) {
-        if (*src == L'\r') {
-            *dst++ = L'\n';
-            ++src;
-            // CRLF を LF 1 つに縮約 (CR のみは LF 1 つに置換、すでに上の代入で済んでいる)
-            if (src != end && *src == L'\n') {
-                ++src;
-            }
-        }
-        else {
-            if (dst != src) {
-                *dst = *src;
-            }
-            ++src;
-            ++dst;
-        }
+    wchar_t* const data = s.data();
+    const wchar_t* const end = data + n;
+
+    const wchar_t* first_cr = std::wmemchr(data, L'\r', n);
+    if (!first_cr) {
+        MENDO_STATF("NormalizeNewlines: in=%zu out=%zu shrunk=0 (fast LF-only)", n, n);
+        return;
     }
-    s.erase(dst, end);
-    MENDO_STATF("NormalizeNewlines: in=%zu out=%zu shrunk=%zu", before, s.size(), before - s.size());
+
+    // ループ進入時、src は必ず CR を指す (first_cr または直前反復の wmemchr 結果)。
+    // wstring::data() 由来のため非 const 経路だが wmemchr の戻り値は const のため const_cast。
+    wchar_t* dst = const_cast<wchar_t*>(first_cr);
+    const wchar_t* src = first_cr;
+    do {
+        *dst++ = L'\n';
+        ++src;
+        if (src < end && *src == L'\n') {
+            ++src; // CRLF を LF 1 つに縮約
+        }
+
+        // 次の CR まで一括コピー。CR が無ければ末尾までまるごと移送して src == end でループ終了。
+        // wmemchr(_, _, 0) は nullptr を返す規格なので size==0 ガードは不要。
+        const wchar_t* next_cr = std::wmemchr(src, L'\r', static_cast<size_t>(end - src));
+        const size_t chunk = next_cr ? static_cast<size_t>(next_cr - src) : static_cast<size_t>(end - src);
+        if (chunk > 0) {
+            std::memmove(dst, src, chunk * sizeof(wchar_t));
+            src += chunk;
+            dst += chunk;
+        }
+    } while (src < end);
+
+    s.resize(static_cast<size_t>(dst - data));
+    MENDO_STATF("NormalizeNewlines: in=%zu out=%zu shrunk=%zu", n, s.size(), n - s.size());
 }
 
 } // namespace
