@@ -64,6 +64,14 @@ enum class TableAlign : uint8_t {
     Right = 3,
 };
 
+// 区切り '\t'/'\n' は次セル開始時に挿入されるので concat 末尾に到達したセル
+// (= 最終セル / 末尾の padding セル群) は区切りを持たない。short row 等で座標判定が
+// 効かないため「end が concat 全体末尾と一致するか」で末尾セルを判定する。
+constexpr uint32_t CellLengthFromOffsets(uint32_t start, uint32_t end, uint32_t concat_size) noexcept
+{
+    return (end - start) - (end == concat_size ? 0u : 1u);
+}
+
 // テーブル専用データ（Tableノードのみ確保）。SoA レイアウトで全セルを 1 本の concat_text に連結保持し、
 // セルごとのアクセスは offset テーブル経由で O(1)。
 // 不変条件:
@@ -107,12 +115,8 @@ struct NodeTableData {
         const size_t idx = CellIndex(r, c);
         const auto start = cell_text_starts[idx];
         const auto end = cell_text_starts[idx + 1];
-        // 区切り '\t'/'\n' は次セル開始時に挿入されるので concat_text 末尾に到達したセル
-        // (= 最終セル, または末尾の padding セル群) は区切りを持たない。座標で判定すると
-        // 短い末尾行 (col_count 未満) の実セルや padding セルで size がずれるため、
-        // 「concat_text 末尾に到達したか」をデータ側で判定する。
-        const bool no_trailing_sep = (end == static_cast<uint32_t>(concat_text.size()));
-        return { concat_text.data() + start, (end - start) - (no_trailing_sep ? 0u : 1u) };
+        const auto len = CellLengthFromOffsets(start, end, static_cast<uint32_t>(concat_text.size()));
+        return { concat_text.data() + start, len };
     }
 
     constexpr std::span<const TextRun> GetCellRuns(size_t r, size_t c) const noexcept

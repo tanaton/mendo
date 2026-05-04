@@ -234,10 +234,12 @@ struct ParseContext {
         if (!target) {
             return;
         }
+        // md4c は size 0 の text コールバックを発生させない契約 (md4c.c の MD_TEXT マクロで size > 0 ガード済) なので empty 判定は省く。
         if (!has_pending_run) {
             pending_run_start = static_cast<uint32_t>(target->size());
             has_pending_run = true;
         }
+        // 1-char chunk fastpath: md4c は \n / 空白 / 単一 entity 等を size==1 で渡してくるので push_back に振り分ける。
         if (text.size() == 1) {
             const wchar_t c = text[0];
             pending_run_newlines += (c == L'\n');

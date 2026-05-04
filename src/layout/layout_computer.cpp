@@ -157,9 +157,10 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
         y += GetSpacingBelow(nodes[from_index - 1], theme);
     }
 
-    // フルパス (from_index == 0) かつ完走できれば BuildBlockHeights バルクロード経路で
-    // O(N log N) を O(N) に縮める。途中で早期終了 / from_index > 0 なら個別 SetBlockHeight に倒す。
-    const bool can_bulk_build = (from_index == 0);
+    // BuildBlockHeights バルクロード経路 (O(N)) は完走確定時のみ採用する。
+    // safe_exit_after < node_count なら早期終了の可能性があるため、最初から per-element
+    // SetBlockHeight に倒し、Fenwick を逐次同期させて中間 flush を不要にする。
+    const bool can_bulk_build = (from_index == 0) && (safe_exit_after >= node_count);
     StackArena<4096> arena;
     std::pmr::vector<float> block_heights(arena.resource());
     if (can_bulk_build) {
@@ -177,15 +178,10 @@ YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& 
 
         y += sa;
 
-        // safe_exit_after 以降でY位置が一致すれば、以降のノードのY位置は変わらないので早期終了する。
-        // Fenwick の block_height は既存値が正しい前提で書き込みをスキップする。
+        // safe_exit_after 以降で Y 位置が変わらないと判明したら早期終了する。
+        // この経路は can_bulk_build=false が保証される (上の条件分岐) ため、
+        // [from_index, i) の block_height は per-element SetBlockHeight で既に Fenwick に反映済。
         if (i > safe_exit_after && std::abs(entry.text_top - y) < Y_POSITION_EPSILON) {
-            // バルクモードで貯めた分は個別 Set でフラッシュ (Build は全件上書きなので部分には使えない)。
-            if (can_bulk_build) {
-                for (size_t k = 0; k < block_heights.size(); ++k) {
-                    cache.SetBlockHeight(k, block_heights[k]);
-                }
-            }
             if (!result.has_dirty_nodes) {
                 result.has_dirty_nodes = std::ranges::any_of(
                     std::views::iota(i, node_count),

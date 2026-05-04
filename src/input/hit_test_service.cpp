@@ -10,7 +10,6 @@ namespace {
 
 // テーブル内のクリック座標からヒットした行を特定する。
 // 見つかった場合は行インデックスとその行の上端Y座標を返す。
-// entry_text_top は旧 entry.text_top に相当する「ノードのテキスト上端 Y」。
 struct TableRowHit {
     int row;
     float row_top_y;

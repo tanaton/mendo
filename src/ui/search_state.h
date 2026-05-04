@@ -157,10 +157,8 @@ private:
             const size_t idx = static_cast<size_t>(row) * t.col_count + static_cast<size_t>(col);
             const uint32_t b = t.offsets[idx];
             const uint32_t e = t.offsets[idx + 1];
-            // NodeTableData::GetCellText と同じく、末尾区切りを持たないセル
-            // (= concat 末尾に到達したセル: 最終セル / padding セル群) 以外は -1 する。
-            const bool no_trailing_sep = (e == static_cast<uint32_t>(t.buffer.size()));
-            return std::wstring_view{ t.buffer.data() + b, (e - b) - (no_trailing_sep ? 0u : 1u) };
+            const auto len = CellLengthFromOffsets(b, e, static_cast<uint32_t>(t.buffer.size()));
+            return std::wstring_view{ t.buffer.data() + b, len };
         }
     };
 

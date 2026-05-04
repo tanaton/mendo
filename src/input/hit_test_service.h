@@ -76,8 +76,8 @@ public:
     // Md ペイン内のヒットテスト
     HitResult HitTest(const MdPaneHitContext& ctx) const noexcept;
 
-    // テーブルセル内のヒットテスト
-    // entry_text_top はノードのテキスト上端 Y (旧 entry.text_top)。
+    // テーブルセル内のヒットテスト。
+    // entry_text_top はノードのテキスト上端 Y (= entry.text_top)。
     HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
                            float entry_text_top,
                            int node_index,

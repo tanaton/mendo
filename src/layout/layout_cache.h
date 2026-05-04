@@ -84,9 +84,12 @@ struct SelectionHlCache {
 };
 
 struct NodeLayoutEntry {
-    // テキスト上端 Y の Fenwick 派生キャッシュ。SSOT は cache.GetBlockTop(i, margin_top) + sa[i]。
+    // テキスト上端 Y の denormalized cache。値としては cache.GetBlockTop(i, margin_top) + GetSpacingAbove(node)
+    // と等価で、TextTopOf でも導出可能だが、その経路は Fenwick PrefixSum で O(log N) かかる。
+    // hit-test の partition_point 述語 / visible-node loop / scroll bound 計算など per-frame hot path で
+    // 直接 O(1) 参照したいため field として保持する (TextTopOf は navigation/reload 等の cold path 専用)。
     // WRITE 経路 (RecomputeYPositions / ComputeLayout / EstimateNodeHeights / ResizePreservingPrefix) で
-    // Fenwick block_height と同期して更新される。MeasureNode は触らない (= 中間状態は古い値のまま)。
+    // Fenwick block_heights_ と lockstep 同期される。MeasureNode は触らない (= 中間状態は古い値のまま)。
     float text_top = 0.0f;
     float height = 0.0f;
     // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
@@ -392,9 +395,7 @@ public:
     // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
     // 再表示時は MeasureTable の lazy 復元経路で CreateTextLayout を再発行する。
     // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
-    // nodes/theme は将来 Fenwick 経由で entry 上端 Y を計算するための足場（Phase C 移行用）。
-    void EvictInvisibleTableRows(float viewport_top, float viewport_bottom, float buffer_screens_height,
-                                  const std::pmr::vector<Node>& /*nodes*/, const Theme& /*theme*/) noexcept
+    void EvictInvisibleTableRows(float viewport_top, float viewport_bottom, float buffer_screens_height) noexcept
     {
         const float keep_top = viewport_top - buffer_screens_height;
         const float keep_bottom = viewport_bottom + buffer_screens_height;
@@ -479,13 +480,6 @@ public:
     float GetBlockHeight(size_t i) const noexcept
     {
         return block_heights_.GetPoint(i);
-    }
-
-    // PrefixSum(i) > target を満たす最小の i を Fenwick lower_bound で返す。
-    // FindFirstVisibleNodeIndex / hit_test 候補探索用の薄いラッパ。
-    size_t FindBlockTopLowerBound(float target) const noexcept
-    {
-        return block_heights_.FindIndexLowerBound(target);
     }
 
     // 文書全体の高さを Fenwick から O(log N) で取得する。
