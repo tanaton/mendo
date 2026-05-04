@@ -116,10 +116,9 @@ struct ParseContext {
     // 評価する代わりに、BeginNode でリセット → 範囲内マッチで設定 → 以降は素通しでよい。
     bool node_source_offset_set = false;
 
-    // current_text と raw_wide_[source_offset..source_offset+current_text.size()] が一致するか判定する。
-    // 一致なら view モード化が可能 (テキスト加工が一切無く、span マークアップも除去結果が連続範囲と一致するケース)。
-    // BR/SOFTBR/ENTITY 混在ノードや、span マークアップ ("**" "_" "`" 等) を挟むノードは不一致になり
-    // owned 経路に倒れる。比較コストは O(N) だが、22000 ノード × 平均数十文字でも合計数 MB の memcmp で済む。
+    // current_text が source の (source_offset, current_text.size()) 範囲とバイト一致するか。
+    // 一致するノードは Node::owned_text_ を確保せず raw_wide_ への view に倒せる。
+    // span マークアップ (** _ ` 等) や BR/SOFTBR/ENTITY 混在のノードは不一致で owned 経路に落ちる。
     bool CurrentTextMatchesRawSlice() const noexcept
     {
         if (!current_node || current_node->source_offset == kUnsetSourceOffset) {
@@ -136,9 +135,7 @@ struct ParseContext {
 
     // 現在ノードの Wide スクラッチを Node に確定し、スクラッチをクリアする。
     // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
-    // current_text と raw_wide_ の連続範囲が一致する場合は view モード (Node::owned_text_ を確保せず
-    // raw_wide_ の view を保持) に倒し、Document 全体で raw_wide_ と Node::text のバイトを共有する。
-    // current_text 自体は capacity を保ち次ノードで再利用 (パース全体の確保回数を削減する目的)。
+    // current_text の capacity は保持して次ノードで再利用する (確保回数削減のため)。
     void FinalizeCurrentNode()
     {
         FlushPendingRun();
@@ -804,10 +801,6 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
         MENDO_PROFILE("DetectAlerts");
         DetectAlerts(ctx.nodes, std::span<const size_t>{ ctx.blockquote_indices });
     }
-
-    // SetTextView 呼び出し時点で view_base_ は markdown_base に設定済み。
-    // Document::ReplaceContent / move 経路では Document::InjectViewBase() が
-    // raw_wide_.data() で再注入する (move でアドレスが変わる場合があるため)。
 
     ParseResult result;
     result.nodes = std::move(ctx.nodes);

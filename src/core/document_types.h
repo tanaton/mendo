@@ -124,17 +124,14 @@ struct Node {
     using Extra = std::variant<std::monostate, NodeHeadingData, NodeCodeData>;
     Extra extra;
 
-    // 加工テキスト (Alert / HTML entity 解決後 / SOFTBR/BR の置換を含む / display math 昇格 / 表セル等)
-    // を保持する owned バッファ。view モード時 (= raw_wide_ の連続範囲をそのまま表示できる場合) は空。
-    // raw_wide_ への view と用途を分離することで、テキスト加工が無いノードは Document の raw_wide_ を
-    // 共有 view し、加工があるノードのみ owned の中身を持つ。
-    // inline 保持にすることで wstring の SBO (~16 wchar) が活き、短い owned テキストは 0 ヒープ確保で済む。
-    // 不変条件: view モード時 (view_length > 0) は owned_text_.empty()。
+    // 表示テキストの owned バッファ。テキスト加工 (Alert / HTML entity / SOFTBR/BR / display math 昇格 / 表セル等)
+    // を必要とするノードのみ確保する。raw_wide_ の連続範囲をそのまま表示できるノードは view モードに倒し
+    // owned_text_ は空のまま raw_wide_ を共有 view する (view_length > 0 と排他的不変条件)。
+    // SBO (~16 wchar) により短い加工結果は 0 ヒープ確保で済む。
     std::pmr::wstring owned_text_;
 
     // view モード時の参照ベース (= Document::raw_wide_.data())。
-    // ReplaceContent / move 時に Document::InjectViewBase() が一括で書き込む。
-    // owned モード時は不問 (GetText が owned_text_ を優先するため)。
+    // Document::InjectViewBase() が ReplaceContent / move 時に一括設定する。
     const wchar_t* view_base_ = nullptr;
 
     // --- 4 バイトアライメント ---
@@ -155,22 +152,23 @@ struct Node {
     int8_t heading_level = 0;      // 1〜6（0 = 見出しでない）
     int8_t indent_level = 0;       // リスト/引用のネスト深さ（int8_t の最大値で飽和）
 
+    constexpr bool IsViewMode() const noexcept
+    {
+        return view_length > 0;
+    }
+
     constexpr bool HasText() const noexcept
     {
-        // view モードを優先判定: 22000 ノード規模で view モードが多数派になるパスのため、
-        // 単一比較で早抜けする方が分岐予測に優しい。owned とは排他的不変条件。
-        if (view_length > 0) {
+        // view モードが多数派 (parse 結果で view ノードが過半) なので先に分岐させる。
+        if (IsViewMode()) {
             return true;
         }
         return !owned_text_.empty();
     }
 
-    // 戻り値は wstring_view。view モード優先で raw_wide_ の view を返し、
-    // owned モードでは owned_text_ をそのまま view に変換する。
-    // view_base_ は Document::InjectViewBase() で注入される前提。
     constexpr std::wstring_view GetText() const noexcept
     {
-        if (view_length > 0 && view_base_ != nullptr) {
+        if (IsViewMode() && view_base_ != nullptr) {
             return { view_base_ + source_offset, view_length };
         }
         return owned_text_;
@@ -193,20 +191,10 @@ struct Node {
         FinalizeOwnedTextLineCount();
     }
 
-    // 加工テキスト (Alert/HTML entity/SOFTBR/BR/DisplayMath) 用の owned バッファ設定 API。
-    // 呼び出し側が改行数を積算済みのバリアント。
-    void SetTextOwned(std::pmr::wstring s, int32_t line_count_value)
-    {
-        owned_text_ = std::move(s);
-        view_length = 0;
-        line_count = line_count_value;
-    }
-
     // 連続 NORMAL/CODE/LATEXMATH のみで構成されるノード向けの view 設定 API。
     // raw_wide_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
-    // view_base は markdown_base / raw_wide_.data()。Document::InjectViewBase() の手前で
-    // GetText() を呼ぶ可能性のあるパス (parser 中の Heading anchor 生成等) のため、
-    // この場で同時に設定する。Document の move 後は InjectViewBase() で再注入される。
+    // Document::InjectViewBase() の手前で GetText() を呼ぶパス (parser 中の Heading anchor 生成等)
+    // のため view_base もここで同時設定する。move 後は InjectViewBase() で再注入される。
     void SetTextView(uint32_t source_offset_value, uint32_t length, int32_t line_count_value, const wchar_t* view_base) noexcept
     {
         owned_text_.clear();

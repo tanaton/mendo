@@ -38,9 +38,9 @@ Stats CountStats(const Document& doc)
             s.empty_nodes++;
             continue;
         }
-        if (n.view_length > 0) {
+        if (n.IsViewMode()) {
             s.view_nodes++;
-            s.view_chars += n.view_length;
+            s.view_chars += n.GetText().size();
         }
         else {
             s.owned_nodes++;
@@ -128,9 +128,9 @@ TEST(ViewStats, BreakdownByNodeType)
             if (n.type != type || !n.HasText()) {
                 continue;
             }
-            if (n.view_length > 0) {
+            if (n.IsViewMode()) {
                 view_count++;
-                view_chars += n.view_length;
+                view_chars += n.GetText().size();
             }
             else {
                 owned_count++;
@@ -150,7 +150,7 @@ TEST(ViewStats, SimpleCodeBlockIsViewed)
     for (const auto& n : doc.GetNodes()) {
         if (n.type == NodeType::CodeBlock) {
             found_code = true;
-            std::cout << "  code block view_length=" << n.view_length
+            std::cout << "  code block is_view=" << n.IsViewMode()
                       << ", text.size()=" << n.GetText().size() << "\n";
         }
     }
@@ -207,7 +207,7 @@ TEST(ViewStats, SimpleParagraphIsViewed)
     auto doc = Document::FromMarkdown("Just a plain paragraph without any markup.", L"test.md");
     for (const auto& n : doc.GetNodes()) {
         if (n.type == NodeType::Paragraph) {
-            std::cout << "  paragraph view_length=" << n.view_length
+            std::cout << "  paragraph is_view=" << n.IsViewMode()
                       << ", text.size()=" << n.GetText().size() << "\n";
         }
     }
@@ -227,7 +227,7 @@ TEST(ViewStats, DumpFirstOwnedCodeBlocks)
         if (n.type != NodeType::CodeBlock || !n.HasText()) {
             continue;
         }
-        const bool is_view = n.view_length > 0;
+        const bool is_view = n.IsViewMode();
         const std::wstring_view text = n.GetText();
         std::cout << "[" << (is_view ? "view " : "owned") << "] source_offset=" << n.source_offset
                   << " text.size()=" << text.size() << " line_count=" << n.line_count;

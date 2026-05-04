@@ -11,14 +11,10 @@
 namespace {
 
 // CRLF / 旧式 CR を LF に正規化する (in-place)。
-// md4c は OnText で改行を LF (\n) として返してくる契約のため、raw_wide_ の改行を LF に揃えておくと
-// パーサ中の current_text と raw_wide_ の memcmp 一致による view 化判定が機能し、
-// 大半の code block / 複数行 paragraph で Node::owned_text_ の確保を省ける。
-//
-// 実装方針: wmemchr で次の CR まで一気にスキップし、その間は memmove でブロックコピー。
-// CR 間の長い区間 (1 行 80 文字なら 1.25% の頻度で CR を踏む) を SIMD memmove に任せられるため、
-// 1 文字ずつ判定するループより数倍速い (wmemchr/memmove は MSVC で SIMD ディスパッチ)。
-// CR を含まない LF-only ファイルでは wmemchr 1 回で素通し。
+// 改行を LF に揃えておくと、パーサ中の current_text と raw_wide_ の memcmp 一致判定が成立し、
+// 大半の code block / 複数行 paragraph で view モード化 (owned_text_ 確保ゼロ) が選べる。
+// wmemchr で次の CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で
+// 共に SIMD ディスパッチ)。LF-only ファイルでは wmemchr 1 回で素通し。
 void NormalizeNewlines(std::pmr::wstring& s)
 {
     MENDO_PROFILE("NormalizeNewlines");
@@ -28,18 +24,17 @@ void NormalizeNewlines(std::pmr::wstring& s)
     }
 
     wchar_t* const data = s.data();
-    const wchar_t* const end = data + n;
+    wchar_t* const end = data + n;
 
-    const wchar_t* first_cr = std::wmemchr(data, L'\r', n);
+    wchar_t* first_cr = std::wmemchr(data, L'\r', n);
     if (!first_cr) {
         MENDO_STATF("NormalizeNewlines: in=%zu out=%zu shrunk=0 (fast LF-only)", n, n);
         return;
     }
 
     // ループ進入時、src は必ず CR を指す (first_cr または直前反復の wmemchr 結果)。
-    // wstring::data() 由来のため非 const 経路だが wmemchr の戻り値は const のため const_cast。
-    wchar_t* dst = const_cast<wchar_t*>(first_cr);
-    const wchar_t* src = first_cr;
+    wchar_t* dst = first_cr;
+    wchar_t* src = first_cr;
     do {
         *dst++ = L'\n';
         ++src;
@@ -47,9 +42,8 @@ void NormalizeNewlines(std::pmr::wstring& s)
             ++src; // CRLF を LF 1 つに縮約
         }
 
-        // 次の CR まで一括コピー。CR が無ければ末尾までまるごと移送して src == end でループ終了。
-        // wmemchr(_, _, 0) は nullptr を返す規格なので size==0 ガードは不要。
-        const wchar_t* next_cr = std::wmemchr(src, L'\r', static_cast<size_t>(end - src));
+        // wmemchr(_, _, 0) は規格上 nullptr を返すので size==0 ガード不要。
+        wchar_t* next_cr = std::wmemchr(src, L'\r', static_cast<size_t>(end - src));
         const size_t chunk = next_cr ? static_cast<size_t>(next_cr - src) : static_cast<size_t>(end - src);
         if (chunk > 0) {
             std::memmove(dst, src, chunk * sizeof(wchar_t));
@@ -74,8 +68,6 @@ Document::Document(Document&& other) noexcept
     , image_node_indices_(std::move(other.image_node_indices_))
     , diagram_node_indices_(std::move(other.diagram_node_indices_))
 {
-    // pmr::wstring の move でヒープポインタが引き継がれても、move 元/先で data() の同一性は保証されない
-    // (SBO 圏や allocator 不一致経路でコピーが起きうる)。view モードノードに raw_wide_.data() を再注入する。
     InjectViewBase();
 }
 
@@ -125,12 +117,9 @@ std::pmr::wstring Document::GetDirectory() const
 
 void Document::ReplaceContent(ParseResult&& result)
 {
-    // ParseMarkdown は各ノードのテキスト位置 (view モード時は source_offset/view_length/view_base_、
-    // owned モード時は owned_text_) を確定させて返す契約。view_base_ は parser が呼び出し元の
-    // markdown_text のベースポインタを既に注入済みなので、ここでは再注入しない (このメソッドは
-    // raw_wide_ を更新しない経路でも呼ばれる)。raw_wide_ を差し替えた直後に呼ぶのは
-    // FromMarkdown / ReplaceFromMarkdown のみで、それらは ParseMarkdown(raw_wide_) を渡しているため
-    // view_base_ = raw_wide_.data() が一致する。
+    // 注意: view_base_ は parser が ParseMarkdown 呼び出し時の markdown_text.data() を既に注入済み。
+    // raw_wide_ を差し替える経路 (FromMarkdown / ReplaceFromMarkdown) では ParseMarkdown(raw_wide_)
+    // を渡しているため view_base_ = raw_wide_.data() が一致し、ここでの再注入は不要。
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);
@@ -142,10 +131,9 @@ void Document::InjectViewBase() noexcept
     const wchar_t* const base = raw_wide_.data();
     [[maybe_unused]] const size_t raw_size = raw_wide_.size();
     for (auto& n : nodes_) {
-        if (n.view_length > 0) {
+        if (n.IsViewMode()) {
             n.view_base_ = base;
-            // 不変条件 C-1: view 範囲は必ず raw_wide_ 内に収まること。
-            // 範囲外の view_length が紛れ込むと GetText() で OOB アクセスになる。
+            // view 範囲は必ず raw_wide_ 内に収まること。範囲外だと GetText() が OOB になる。
             assert(static_cast<size_t>(n.source_offset) + n.view_length <= raw_size);
         }
     }
