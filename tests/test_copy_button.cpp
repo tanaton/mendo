@@ -27,7 +27,7 @@ protected:
     };
 
     // Markdown をパースしてレイアウトを計算するヘルパー
-    ParsedLayout Parse(std::wstring_view md, float viewport_w = 800.0f)
+    ParsedLayout Parse(mendo::doc_string_view md, float viewport_w = 800.0f)
     {
         ParsedLayout r;
         r.nodes = ParseMarkdown(md).nodes;
@@ -84,7 +84,7 @@ TEST_F(CopyButtonTest, CopyButtonRectIsInsideBlockTopRight)
 
 TEST_F(CopyButtonTest, HitOnCopyButtonReturnsNodeIndex)
 {
-    auto pr = Parse(L"```\nsome code\n```");
+    auto pr = Parse(MENDO_LIT("```\nsome code\n```"));
     // コードブロックのノードインデックスを特定
     int code_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); i++) {
@@ -101,7 +101,7 @@ TEST_F(CopyButtonTest, HitOnCopyButtonReturnsNodeIndex)
 
 TEST_F(CopyButtonTest, HitOutsideCopyButtonReturnsNegative)
 {
-    auto pr = Parse(L"```\nsome code\n```");
+    auto pr = Parse(MENDO_LIT("```\nsome code\n```"));
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     // 明らかにボタン外の座標（左上端）
     int result = hit_test_.CopyButtonHitTest(
@@ -111,7 +111,7 @@ TEST_F(CopyButtonTest, HitOutsideCopyButtonReturnsNegative)
 
 TEST_F(CopyButtonTest, NonCodeBlockReturnsNegative)
 {
-    auto pr = Parse(L"Just a paragraph");
+    auto pr = Parse(MENDO_LIT("Just a paragraph"));
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     // ドキュメント中央をクリック
     int result = hit_test_.CopyButtonHitTest(
@@ -121,7 +121,7 @@ TEST_F(CopyButtonTest, NonCodeBlockReturnsNegative)
 
 TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
 {
-    auto pr = Parse(L"```mermaid\ngraph TD\n```");
+    auto pr = Parse(MENDO_LIT("```mermaid\ngraph TD\n```"));
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     // Mermaidブロックがある場合でもコピーボタンは無効
     int mermaid_idx = -1;
@@ -139,7 +139,7 @@ TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
 TEST_F(CopyButtonTest, LatexMathBlockReturnsNegative)
 {
     // LatexMath ブロックも Mermaid 同様コピーボタン非対応
-    auto pr = Parse(L"$$E = mc^2$$");
+    auto pr = Parse(MENDO_LIT("$$E = mc^2$$"));
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     int latex_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); i++) {
@@ -158,7 +158,7 @@ TEST_F(CopyButtonTest, LatexMathBlockReturnsNegative)
 
 TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne)
 {
-    auto pr = Parse(L"```\nfirst\n```\n\n```\nsecond\n```");
+    auto pr = Parse(MENDO_LIT("```\nfirst\n```\n\n```\nsecond\n```"));
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
 
     // すべてのコードブロックインデックスを収集
@@ -185,7 +185,7 @@ TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne)
 
 TEST_F(CopyButtonTest, EmptyDocumentReturnsNegative)
 {
-    auto pr = Parse(L"");
+    auto pr = Parse(MENDO_LIT(""));
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     int result = hit_test_.CopyButtonHitTest(
         { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, 400, 400, content_width, 2000.0f });
@@ -195,9 +195,9 @@ TEST_F(CopyButtonTest, EmptyDocumentReturnsNegative)
 TEST_F(CopyButtonTest, ScrolledViewportHitTest)
 {
     // 多くの段落の後にコードブロックを配置
-    std::wstring md;
-    for (int i = 0; i < 30; i++) md += L"Paragraph " + std::to_wstring(i) + L"\n\n";
-    md += L"```\nscrolled code\n```";
+    mendo::doc_string_std md;
+    for (int i = 0; i < 30; i++) md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+    md += MENDO_LIT("```\nscrolled code\n```");
     auto pr = Parse(md);
 
     int code_idx = -1;

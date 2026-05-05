@@ -2,6 +2,7 @@
 #include "viewport_manager.h"
 #include "layout_cache.h"
 #include "renderer.h" // SearchBarRenderState
+#include "string_convert.h"
 #include <algorithm>
 #include <cmath>
 
@@ -68,7 +69,10 @@ void SearchBarController::OnPrev()
 
 void SearchBarController::OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes)
 {
-    state_->SetQuery(text);
+    // 検索バー入力は IME 経由で wstring。SearchState は Document テキスト (UTF-8) と比較するため変換。
+    std::pmr::string text_utf8;
+    string_convert::WideToUtf8(text, text_utf8);
+    state_->SetQuery(text_utf8);
     cb_.kill_timer(TIMER_DEBOUNCE);
 
     if (text.empty()) {
@@ -221,7 +225,10 @@ SearchBarRenderState SearchBarController::BuildRenderState() const
 {
     SearchBarRenderState sb;
     sb.visible = state_->IsVisible();
-    sb.query = state_->GetQuery();
+    // doc_string (UTF-8) → wstring 変換し、cache 経由で view を貼る。
+    query_wide_cache_.clear();
+    string_convert::Utf8ToWide(state_->GetQuery(), query_wide_cache_);
+    sb.query = query_wide_cache_;
     sb.current_match = state_->GetCurrentMatchIndex();
     sb.total_matches = state_->GetMatchCount();
     sb.has_focus = has_focus_;

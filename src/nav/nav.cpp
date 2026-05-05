@@ -135,21 +135,23 @@ void NavHistory::Clear() noexcept
 
 // ShellExecuteWに渡しても安全なURLスキームかどうかを判定する。
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
-bool IsSafeUrlScheme(std::wstring_view url) noexcept
+bool IsSafeUrlScheme(mendo::doc_string_view url) noexcept
 {
-    return ascii_util::istarts_with(url, L"http://") || ascii_util::istarts_with(url, L"https://") || ascii_util::istarts_with(url, L"mailto:");
+    return ascii_util::istarts_with(url, MENDO_LIT("http://")) ||
+           ascii_util::istarts_with(url, MENDO_LIT("https://")) ||
+           ascii_util::istarts_with(url, MENDO_LIT("mailto:"));
 }
 
-LinkClickResult HandleLinkClick(std::wstring_view url)
+LinkClickResult HandleLinkClick(mendo::doc_string_view url)
 {
     LinkClickResult result;
     if (url.empty()) {
         return result;
     }
     // 内部アンカーリンク: #something
-    if (url[0] == L'#') {
+    if (url[0] == MENDO_LIT('#')) {
         result.type = LinkClickResult::Type::Anchor;
-        result.target = url.substr(1);
+        result.target.assign(url.substr(1));
         return result;
     }
     // 安全なスキームの外部リンクのみ許可
@@ -157,6 +159,6 @@ LinkClickResult HandleLinkClick(std::wstring_view url)
         return result;
     }
     result.type = LinkClickResult::Type::ExternalUrl;
-    result.target = url;
+    result.target.assign(url);
     return result;
 }

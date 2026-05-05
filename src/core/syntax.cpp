@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <span>
+#include <type_traits>
 #include <utility>
 
 using namespace std::literals;
@@ -33,13 +34,16 @@ namespace {
 using ascii_util::IsAsciiDigit;
 
 // 識別子先頭文字: ASCII 英字 + '_' に加え、CJK 等の非 ASCII (>= U+0080) も許可する。
+// UTF-8 ビルドでは doc_char=char が signed のため、c >= 0x80 を素直に書くと
+// 0x80 以降の byte (UTF-8 multi-byte の leading/continuation) が負値で false 判定され、
+// non-ASCII が一切識別子と認識されなくなる。unsigned 比較を明示する。
 // ascii_util の純粋 ASCII ヘルパに乗らないので syntax 固有として残す。
-constexpr bool IsIdentStart(wchar_t c) noexcept
+constexpr bool IsIdentStart(mendo::doc_char c) noexcept
 {
-    return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || c == L'_' || c >= 0x80;
+    return (c >= MENDO_LIT('a') && c <= MENDO_LIT('z')) || (c >= MENDO_LIT('A') && c <= MENDO_LIT('Z')) || c == MENDO_LIT('_') || static_cast<std::make_unsigned_t<mendo::doc_char>>(c) >= 0x80;
 }
 
-constexpr bool IsIdentChar(wchar_t c) noexcept
+constexpr bool IsIdentChar(mendo::doc_char c) noexcept
 {
     return IsIdentStart(c) || IsAsciiDigit(c);
 }
@@ -52,26 +56,26 @@ constexpr void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, 
 }
 
 // pos から最初の '\n' まで（または末尾まで）一気に進める。返り値は '\n' の位置（未消費）または text.size()。
-constexpr size_t SkipToEol(std::wstring_view text, size_t pos) noexcept
+constexpr size_t SkipToEol(mendo::doc_string_view text, size_t pos) noexcept
 {
-    const auto p = text.find(L'\n', pos);
-    return p == std::wstring_view::npos ? text.size() : p;
+    const auto p = text.find(MENDO_LIT('\n'), pos);
+    return p == mendo::doc_string_view::npos ? text.size() : p;
 }
 
 // pos から chars に含まれない最初の文字位置を返す（無ければ text.size()）。
-constexpr size_t SkipChars(std::wstring_view text, size_t pos, std::wstring_view chars) noexcept
+constexpr size_t SkipChars(mendo::doc_string_view text, size_t pos, mendo::doc_string_view chars) noexcept
 {
     const auto p = text.find_first_not_of(chars, pos);
-    return p == std::wstring_view::npos ? text.size() : p;
+    return p == mendo::doc_string_view::npos ? text.size() : p;
 }
 
 // posから始まる文字列リテラルをスキャン（posは開始引用符を指す）。
 // 閉じ引用符の次の位置を返す（未終端の場合はテキストの末尾）。
-constexpr size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, bool allow_multiline, bool handle_escape = true) noexcept
+constexpr size_t ScanString(mendo::doc_string_view text, size_t pos, mendo::doc_char quote, bool allow_multiline, bool handle_escape = true) noexcept
 {
     size_t i = pos + 1;
     while (i < text.size()) {
-        if (handle_escape && text[i] == L'\\') {
+        if (handle_escape && text[i] == MENDO_LIT('\\')) {
             i += 2;
             if (i > text.size()) {
                 i = text.size();
@@ -80,7 +84,7 @@ constexpr size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, b
         else if (text[i] == quote) {
             return i + 1;
         }
-        else if (!allow_multiline && text[i] == L'\n') {
+        else if (!allow_multiline && text[i] == MENDO_LIT('\n')) {
             return i; // 未終端
         }
         else {
@@ -91,17 +95,17 @@ constexpr size_t ScanString(std::wstring_view text, size_t pos, wchar_t quote, b
 }
 
 // Pythonのトリプルクォート文字列をスキャン（pos はトリプルクォートの最初の引用符を指す）。
-constexpr size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quote) noexcept
+constexpr size_t ScanTripleQuote(mendo::doc_string_view text, size_t pos, mendo::doc_char quote) noexcept
 {
     size_t i = pos + 3;
-    const wchar_t delims_buf[]{ L'\\', quote };
-    const std::wstring_view delims(delims_buf, 2);
+    const mendo::doc_char delims_buf[]{ MENDO_LIT('\\'), quote };
+    const mendo::doc_string_view delims(delims_buf, 2);
     while (i + 2 < text.size()) {
         const auto p = text.find_first_of(delims, i);
-        if (p == std::wstring_view::npos || p + 2 >= text.size()) {
+        if (p == mendo::doc_string_view::npos || p + 2 >= text.size()) {
             return text.size();
         }
-        if (text[p] == L'\\') {
+        if (text[p] == MENDO_LIT('\\')) {
             i = p + 2;
         }
         else if (text[p + 1] == quote && text[p + 2] == quote) {
@@ -115,29 +119,29 @@ constexpr size_t ScanTripleQuote(std::wstring_view text, size_t pos, wchar_t quo
 }
 
 // posから始まる数値リテラルをスキャン。
-constexpr size_t ScanNumber(std::wstring_view text, size_t pos) noexcept
+constexpr size_t ScanNumber(mendo::doc_string_view text, size_t pos) noexcept
 {
-    constexpr auto kHexDigits = L"0123456789abcdefABCDEF'"sv;
-    constexpr auto kBinDigits = L"01'"sv;
-    constexpr auto kOctDigits = L"01234567"sv;
-    constexpr auto kDecDigitsSep = L"0123456789'"sv;
-    constexpr auto kDecDigits = L"0123456789"sv;
-    constexpr auto kIntSuffix = L"uUlL"sv;
-    constexpr auto kNumSuffix = L"fFlLuUn"sv; // 'n' は JS BigInt 用
+    constexpr auto kHexDigits = MENDO_LIT("0123456789abcdefABCDEF'");
+    constexpr auto kBinDigits = MENDO_LIT("01'");
+    constexpr auto kOctDigits = MENDO_LIT("01234567");
+    constexpr auto kDecDigitsSep = MENDO_LIT("0123456789'");
+    constexpr auto kDecDigits = MENDO_LIT("0123456789");
+    constexpr auto kIntSuffix = MENDO_LIT("uUlL");
+    constexpr auto kNumSuffix = MENDO_LIT("fFlLuUn"); // 'n' は JS BigInt 用
 
     size_t i = pos;
 
     // 0x, 0b, 0o プレフィックスの処理
-    if (i + 1 < text.size() && text[i] == L'0') {
-        const wchar_t next = text[i + 1];
-        if (next == L'x' || next == L'X') {
+    if (i + 1 < text.size() && text[i] == MENDO_LIT('0')) {
+        const mendo::doc_char next = text[i + 1];
+        if (next == MENDO_LIT('x') || next == MENDO_LIT('X')) {
             i = SkipChars(text, i + 2, kHexDigits);
             return SkipChars(text, i, kIntSuffix);
         }
-        if (next == L'b' || next == L'B') {
+        if (next == MENDO_LIT('b') || next == MENDO_LIT('B')) {
             return SkipChars(text, i + 2, kBinDigits);
         }
-        if (next == L'o' || next == L'O') {
+        if (next == MENDO_LIT('o') || next == MENDO_LIT('O')) {
             return SkipChars(text, i + 2, kOctDigits);
         }
     }
@@ -146,14 +150,14 @@ constexpr size_t ScanNumber(std::wstring_view text, size_t pos) noexcept
     i = SkipChars(text, i, kDecDigitsSep);
 
     // 小数点
-    if (i < text.size() && text[i] == L'.') {
+    if (i < text.size() && text[i] == MENDO_LIT('.')) {
         i = SkipChars(text, i + 1, kDecDigitsSep);
     }
 
     // 指数部
-    if (i < text.size() && (text[i] == L'e' || text[i] == L'E')) {
+    if (i < text.size() && (text[i] == MENDO_LIT('e') || text[i] == MENDO_LIT('E'))) {
         i++;
-        if (i < text.size() && (text[i] == L'+' || text[i] == L'-')) {
+        if (i < text.size() && (text[i] == MENDO_LIT('+') || text[i] == MENDO_LIT('-'))) {
             i++;
         }
         i = SkipChars(text, i, kDecDigits);
@@ -164,21 +168,21 @@ constexpr size_t ScanNumber(std::wstring_view text, size_t pos) noexcept
 }
 
 // [start, end)の識別子の後に'('が続くか確認（空白をスキップ）。
-constexpr bool IsFollowedByParen(std::wstring_view text, size_t end) noexcept
+constexpr bool IsFollowedByParen(mendo::doc_string_view text, size_t end) noexcept
 {
-    const auto i = text.find_first_not_of(L" \t"sv, end);
-    return i != std::wstring_view::npos && text[i] == L'(';
+    const auto i = text.find_first_not_of(MENDO_LIT(" \t"), end);
+    return i != mendo::doc_string_view::npos && text[i] == MENDO_LIT('(');
 }
 
 // posから始まるブロックコメントをスキャン（posは開始ペアの最初の文字を指す）。
 // 閉じペアの次の位置を返す。未終端の場合はtext.size()を返す。
-constexpr size_t ScanBlockComment(std::wstring_view text, size_t pos, wchar_t close1, wchar_t close2) noexcept
+constexpr size_t ScanBlockComment(mendo::doc_string_view text, size_t pos, mendo::doc_char close1, mendo::doc_char close2) noexcept
 {
     // close1 はソース中で比較的レアな文字（'*' や '#'）なので、find で間引いてから close2 を確認する。
     size_t i = pos + 2;
     while (true) {
         const auto p = text.find(close1, i);
-        if (p == std::wstring_view::npos || p + 1 >= text.size()) {
+        if (p == mendo::doc_string_view::npos || p + 1 >= text.size()) {
             return text.size();
         }
         if (text[p + 1] == close2) {
@@ -207,7 +211,7 @@ struct LexerConfig {
 // 各言語の lexer は不要なチェックを含まない最小コードにインスタンス化される。
 template <LexerConfig Cfg>
 std::pmr::vector<SyntaxToken> TokenizeImpl(
-    std::wstring_view text,
+    mendo::doc_string_view text,
     KeywordTable keywords,
     KeywordTable types)
 {
@@ -222,7 +226,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
     // 行頭判定の状態フラグ。pos i において、現在行の開始から i までが空白のみなら true。
     // 反復の開始時点で位置 i の at-line-start 状態を表す。i を進めた後に更新する。
     [[maybe_unused]] bool at_line_start = true;
-    [[maybe_unused]] std::pmr::wstring ci_buf; // case_insensitive 用の再利用バッファ
+    [[maybe_unused]] mendo::doc_string ci_buf; // case_insensitive 用の再利用バッファ
     if constexpr (Cfg.case_insensitive) {
         // 典型的なキーワード最長（PowerShell の `ForEach-Object` 等）を事前確保
         ci_buf.reserve(64);
@@ -243,11 +247,11 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
     };
 
     while (i < text.size()) {
-        const wchar_t c = text[i];
+        const mendo::doc_char c = text[i];
 
         // 1. 行コメント: //
         if constexpr (Cfg.line_comment_slash) {
-            if (c == L'/' && i + 1 < text.size() && text[i + 1] == L'/') {
+            if (c == MENDO_LIT('/') && i + 1 < text.size() && text[i + 1] == MENDO_LIT('/')) {
                 flush_plain();
                 const size_t start = i;
                 i = SkipToEol(text, i);
@@ -260,10 +264,10 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 1b. アングルブロックコメント: <# #>（PowerShell）
         if constexpr (Cfg.angle_block_comment) {
-            if (c == L'<' && i + 1 < text.size() && text[i + 1] == L'#') {
+            if (c == MENDO_LIT('<') && i + 1 < text.size() && text[i + 1] == MENDO_LIT('#')) {
                 flush_plain();
                 const size_t start = i;
-                i = ScanBlockComment(text, i, L'#', L'>');
+                i = ScanBlockComment(text, i, MENDO_LIT('#'), MENDO_LIT('>'));
                 EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
                 // 終端 #> は非空白。複数行コメントでも i 直前の文字は '>' で確定。
                 at_line_start = false;
@@ -272,7 +276,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
         }
 
         if constexpr (Cfg.hash_comment && !Cfg.preprocessor) {
-            if (c == L'#') {
+            if (c == MENDO_LIT('#')) {
                 flush_plain();
                 const size_t start = i;
                 i = SkipToEol(text, i);
@@ -284,10 +288,10 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 2. ブロックコメント: /* */
         if constexpr (Cfg.block_comment) {
-            if (c == L'/' && i + 1 < text.size() && text[i + 1] == L'*') {
+            if (c == MENDO_LIT('/') && i + 1 < text.size() && text[i + 1] == MENDO_LIT('*')) {
                 flush_plain();
                 const size_t start = i;
-                i = ScanBlockComment(text, i, L'*', L'/');
+                i = ScanBlockComment(text, i, MENDO_LIT('*'), MENDO_LIT('/'));
                 EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
                 at_line_start = false;
                 continue;
@@ -296,17 +300,17 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 3. プリプロセッサ: 行頭の#（C/C++）
         if constexpr (Cfg.preprocessor) {
-            if (c == L'#' && at_line_start) {
+            if (c == MENDO_LIT('#') && at_line_start) {
                 flush_plain();
                 const size_t start = i;
                 // 改行までジャンプし、直前が '\' なら行継続として次の改行を再探索する。
                 while (i < text.size()) {
-                    const auto p = text.find(L'\n', i);
-                    if (p == std::wstring_view::npos) {
+                    const auto p = text.find(MENDO_LIT('\n'), i);
+                    if (p == mendo::doc_string_view::npos) {
                         i = text.size();
                         break;
                     }
-                    if (p > 0 && text[p - 1] == L'\\') {
+                    if (p > 0 && text[p - 1] == MENDO_LIT('\\')) {
                         i = p + 1;
                         continue;
                     }
@@ -321,7 +325,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 3b. ダブルコロンコメント: 行頭の::（cmd）
         if constexpr (Cfg.double_colon_comment) {
-            if (c == L':' && i + 1 < text.size() && text[i + 1] == L':' && at_line_start) {
+            if (c == MENDO_LIT(':') && i + 1 < text.size() && text[i + 1] == MENDO_LIT(':') && at_line_start) {
                 flush_plain();
                 const size_t start = i;
                 i = SkipToEol(text, i);
@@ -333,10 +337,10 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 3c. REMコメント: 行頭のREM（cmd）
         if constexpr (Cfg.rem_comment) {
-            if ((c == L'r' || c == L'R') && at_line_start &&
+            if ((c == MENDO_LIT('r') || c == MENDO_LIT('R')) && at_line_start &&
                 i + 2 < text.size() &&
-                (text[i + 1] == L'e' || text[i + 1] == L'E') &&
-                (text[i + 2] == L'm' || text[i + 2] == L'M') &&
+                (text[i + 1] == MENDO_LIT('e') || text[i + 1] == MENDO_LIT('E')) &&
+                (text[i + 2] == MENDO_LIT('m') || text[i + 2] == MENDO_LIT('M')) &&
                 (i + 3 >= text.size() || !IsIdentChar(text[i + 3]))) {
                 flush_plain();
                 const size_t start = i;
@@ -349,7 +353,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 4. トリプルクォート文字列（Python）
         if constexpr (Cfg.triple_quote) {
-            if ((c == L'"' || c == L'\'') && i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
+            if ((c == MENDO_LIT('"') || c == MENDO_LIT('\'')) && i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
                 flush_plain();
                 const size_t start = i;
                 i = ScanTripleQuote(text, i, c);
@@ -360,10 +364,10 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
         }
 
         // 5. 文字列リテラル
-        if (c == L'"' || (c == L'\'' && !Cfg.skip_single_quote)) {
+        if (c == MENDO_LIT('"') || (c == MENDO_LIT('\'') && !Cfg.skip_single_quote)) {
             // C++生文字列の確認: R"(...)"。preprocessor 言語 (C/C++) でのみ意味があるが、
             // 元コードと挙動を揃えるため Cfg に依存しない判定にする。
-            if (c == L'"' && i > 0 && text[i - 1] == L'R' && (i < 2 || !IsIdentChar(text[i - 2]))) {
+            if (c == MENDO_LIT('"') && i > 0 && text[i - 1] == MENDO_LIT('R') && (i < 2 || !IsIdentChar(text[i - 2]))) {
                 // 調整: Rは既にプレーンバッファにあるので除去する。
                 if (in_plain) {
                     if (static_cast<uint32_t>(i - 1) > plain_start) {
@@ -373,20 +377,20 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 }
                 const size_t start = i - 1;
                 // デリミタを検索: R"DELIM( ... )DELIM"
-                const size_t paren = text.find(L'(', i + 1);
-                if (paren != std::wstring_view::npos) {
+                const size_t paren = text.find(MENDO_LIT('('), i + 1);
+                if (paren != mendo::doc_string_view::npos) {
                     // end_marker = ')' + delim + '"'。delim は view のまま比較してヒープ確保しない。
-                    const std::wstring_view delim = text.substr(i + 1, paren - i - 1);
+                    const mendo::doc_string_view delim = text.substr(i + 1, paren - i - 1);
                     const size_t end_marker_len = 1 + delim.size() + 1; // ')' + delim + '"'
-                    size_t end_pos = std::wstring_view::npos;
+                    size_t end_pos = mendo::doc_string_view::npos;
                     // 生文字列の本文中で ')' は通常レアなので、find で間引いてから delim と '"' を確認する。
                     size_t k = paren + 1;
                     while (k + end_marker_len <= text.size()) {
-                        const auto found = text.find(L')', k);
-                        if (found == std::wstring_view::npos || found + end_marker_len > text.size()) {
+                        const auto found = text.find(MENDO_LIT(')'), k);
+                        if (found == mendo::doc_string_view::npos || found + end_marker_len > text.size()) {
                             break;
                         }
-                        if (text[found + 1 + delim.size()] != L'"') {
+                        if (text[found + 1 + delim.size()] != MENDO_LIT('"')) {
                             k = found + 1;
                             continue;
                         }
@@ -396,7 +400,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                         }
                         k = found + 1;
                     }
-                    if (end_pos != std::wstring_view::npos) {
+                    if (end_pos != mendo::doc_string_view::npos) {
                         i = end_pos + end_marker_len;
                     }
                     else {
@@ -420,10 +424,10 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 6. バッククォートテンプレートリテラル（JS）
         if constexpr (Cfg.backtick_string) {
-            if (c == L'`') {
+            if (c == MENDO_LIT('`')) {
                 flush_plain();
                 const size_t start = i;
-                i = ScanString(text, i, L'`', true, !Cfg.raw_backtick);
+                i = ScanString(text, i, MENDO_LIT('`'), true, !Cfg.raw_backtick);
                 EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
                 at_line_start = false;
                 continue;
@@ -431,7 +435,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
         }
 
         // 7. 数値
-        if (IsAsciiDigit(c) || (c == L'.' && i + 1 < text.size() && IsAsciiDigit(text[i + 1]))) {
+        if (IsAsciiDigit(c) || (c == MENDO_LIT('.') && i + 1 < text.size() && IsAsciiDigit(text[i + 1]))) {
             flush_plain();
             const size_t start = i;
             i = ScanNumber(text, i);
@@ -448,8 +452,8 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 i++;
             }
 
-            const std::wstring_view word(text.data() + start, i - start);
-            std::wstring_view lookup_word = word;
+            const mendo::doc_string_view word(text.data() + start, i - start);
+            mendo::doc_string_view lookup_word = word;
             if constexpr (Cfg.case_insensitive) {
                 if (ascii_util::HasAsciiUpper(word.data(), word.size())) {
                     ci_buf.resize(word.size());
@@ -478,10 +482,10 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
         start_plain();
         // 行頭判定を読む言語のみフラグを更新する。それ以外は per-char ストアを丸ごと省略。
         if constexpr (kNeedAtLineStart) {
-            if (c == L'\n') {
+            if (c == MENDO_LIT('\n')) {
                 at_line_start = true;
             }
-            else if (c != L' ' && c != L'\t') {
+            else if (c != MENDO_LIT(' ') && c != MENDO_LIT('\t')) {
                 at_line_start = false;
             }
         }
@@ -545,54 +549,54 @@ inline constexpr LexerConfig JSON_LEXER_CONFIG{
 
 } // namespace
 
-SyntaxLanguage DetectLanguage(std::wstring_view info_string) noexcept
+SyntaxLanguage DetectLanguage(mendo::doc_string_view info_string) noexcept
 {
     // info string の最初の空白/タブまでを言語識別子として抽出。残りは追加情報。
-    const auto lang = info_string.substr(0, info_string.find_first_of(L" \t"));
+    const auto lang = info_string.substr(0, info_string.find_first_of(MENDO_LIT(" \t")));
     if (lang.empty()) {
         return SyntaxLanguage::None;
     }
 
     struct Alias {
-        ascii_util::LowercaseAsciiLiteral name;
+        ascii_util::DocLowercaseLiteral name;
         SyntaxLanguage language;
     };
     static constexpr Alias kAliases[]{
-        { L"c",          SyntaxLanguage::Cpp        },
-        { L"cpp",        SyntaxLanguage::Cpp        },
-        { L"c++",        SyntaxLanguage::Cpp        },
-        { L"cxx",        SyntaxLanguage::Cpp        },
-        { L"h",          SyntaxLanguage::Cpp        },
-        { L"hpp",        SyntaxLanguage::Cpp        },
-        { L"cc",         SyntaxLanguage::Cpp        },
-        { L"hxx",        SyntaxLanguage::Cpp        },
-        { L"python",     SyntaxLanguage::Python     },
-        { L"py",         SyntaxLanguage::Python     },
-        { L"javascript", SyntaxLanguage::JavaScript },
-        { L"js",         SyntaxLanguage::JavaScript },
-        { L"jsx",        SyntaxLanguage::JavaScript },
-        { L"typescript", SyntaxLanguage::TypeScript },
-        { L"ts",         SyntaxLanguage::TypeScript },
-        { L"tsx",        SyntaxLanguage::TypeScript },
-        { L"mermaid",    SyntaxLanguage::Mermaid    },
-        { L"go",         SyntaxLanguage::Go         },
-        { L"golang",     SyntaxLanguage::Go         },
-        { L"rust",       SyntaxLanguage::Rust       },
-        { L"rs",         SyntaxLanguage::Rust       },
-        { L"bash",       SyntaxLanguage::Bash       },
-        { L"sh",         SyntaxLanguage::Bash       },
-        { L"zsh",        SyntaxLanguage::Bash       },
-        { L"shell",      SyntaxLanguage::Bash       },
-        { L"powershell", SyntaxLanguage::PowerShell },
-        { L"pwsh",       SyntaxLanguage::PowerShell },
-        { L"ps1",        SyntaxLanguage::PowerShell },
-        { L"cmd",        SyntaxLanguage::Cmd        },
-        { L"bat",        SyntaxLanguage::Cmd        },
-        { L"batch",      SyntaxLanguage::Cmd        },
-        { L"dosbatch",   SyntaxLanguage::Cmd        },
-        { L"json",       SyntaxLanguage::Json       },
-        { L"jsonc",      SyntaxLanguage::Json       },
-        { L"json5",      SyntaxLanguage::Json       },
+        { MENDO_LIT("c"),          SyntaxLanguage::Cpp        },
+        { MENDO_LIT("cpp"),        SyntaxLanguage::Cpp        },
+        { MENDO_LIT("c++"),        SyntaxLanguage::Cpp        },
+        { MENDO_LIT("cxx"),        SyntaxLanguage::Cpp        },
+        { MENDO_LIT("h"),          SyntaxLanguage::Cpp        },
+        { MENDO_LIT("hpp"),        SyntaxLanguage::Cpp        },
+        { MENDO_LIT("cc"),         SyntaxLanguage::Cpp        },
+        { MENDO_LIT("hxx"),        SyntaxLanguage::Cpp        },
+        { MENDO_LIT("python"),     SyntaxLanguage::Python     },
+        { MENDO_LIT("py"),         SyntaxLanguage::Python     },
+        { MENDO_LIT("javascript"), SyntaxLanguage::JavaScript },
+        { MENDO_LIT("js"),         SyntaxLanguage::JavaScript },
+        { MENDO_LIT("jsx"),        SyntaxLanguage::JavaScript },
+        { MENDO_LIT("typescript"), SyntaxLanguage::TypeScript },
+        { MENDO_LIT("ts"),         SyntaxLanguage::TypeScript },
+        { MENDO_LIT("tsx"),        SyntaxLanguage::TypeScript },
+        { MENDO_LIT("mermaid"),    SyntaxLanguage::Mermaid    },
+        { MENDO_LIT("go"),         SyntaxLanguage::Go         },
+        { MENDO_LIT("golang"),     SyntaxLanguage::Go         },
+        { MENDO_LIT("rust"),       SyntaxLanguage::Rust       },
+        { MENDO_LIT("rs"),         SyntaxLanguage::Rust       },
+        { MENDO_LIT("bash"),       SyntaxLanguage::Bash       },
+        { MENDO_LIT("sh"),         SyntaxLanguage::Bash       },
+        { MENDO_LIT("zsh"),        SyntaxLanguage::Bash       },
+        { MENDO_LIT("shell"),      SyntaxLanguage::Bash       },
+        { MENDO_LIT("powershell"), SyntaxLanguage::PowerShell },
+        { MENDO_LIT("pwsh"),       SyntaxLanguage::PowerShell },
+        { MENDO_LIT("ps1"),        SyntaxLanguage::PowerShell },
+        { MENDO_LIT("cmd"),        SyntaxLanguage::Cmd        },
+        { MENDO_LIT("bat"),        SyntaxLanguage::Cmd        },
+        { MENDO_LIT("batch"),      SyntaxLanguage::Cmd        },
+        { MENDO_LIT("dosbatch"),   SyntaxLanguage::Cmd        },
+        { MENDO_LIT("json"),       SyntaxLanguage::Json       },
+        { MENDO_LIT("jsonc"),      SyntaxLanguage::Json       },
+        { MENDO_LIT("json5"),      SyntaxLanguage::Json       },
     };
 
     for (const auto& [alias, language] : kAliases) {
@@ -603,7 +607,7 @@ SyntaxLanguage DetectLanguage(std::wstring_view info_string) noexcept
     return SyntaxLanguage::None;
 }
 
-std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language)
+std::pmr::vector<SyntaxToken> Tokenize(mendo::doc_string_view text, SyntaxLanguage language)
 {
     if (text.empty() || language == SyntaxLanguage::None || IsDiagramLanguage(language)) {
         return {};

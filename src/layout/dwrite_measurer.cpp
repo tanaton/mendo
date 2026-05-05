@@ -1,4 +1,5 @@
 #include "dwrite_measurer.h"
+#include "doc_dwrite_bridge.h"
 #include "layout.h"
 #include "parser.h"
 #include "profiler.h"
@@ -96,6 +97,8 @@ namespace {
 
 // 5 属性を 1 パスでまとめてマージするためのレンジビルダ。
 // 隣接ランで属性が連続する間はマージし、切れたら emit する。
+// start/length は UTF-8 byte 単位で、emit 時に WideViewForDWrite::WideRange 経由で
+// UTF-16 textPosition に変換する。
 struct AttrRangeBuilder {
     uint32_t start = 0;
     uint32_t length = 0;
@@ -103,7 +106,7 @@ struct AttrRangeBuilder {
 };
 
 template <typename Emit>
-inline void UpdateAttr(AttrRangeBuilder& b, bool active_now, const TextRun& run, Emit&& emit) noexcept
+inline void UpdateAttr(AttrRangeBuilder& b, bool active_now, const TextRun& run, const mendo::WideViewForDWrite& wv, Emit&& emit) noexcept
 {
     if (active_now) {
         if (b.active && run.start == b.start + b.length) {
@@ -111,7 +114,7 @@ inline void UpdateAttr(AttrRangeBuilder& b, bool active_now, const TextRun& run,
         }
         else {
             if (b.active) {
-                emit(DWRITE_TEXT_RANGE{ b.start, b.length });
+                emit(wv.WideRange(b.start, b.length));
             }
             b.start = run.start;
             b.length = run.length;
@@ -119,23 +122,23 @@ inline void UpdateAttr(AttrRangeBuilder& b, bool active_now, const TextRun& run,
         }
     }
     else if (b.active) {
-        emit(DWRITE_TEXT_RANGE{ b.start, b.length });
+        emit(wv.WideRange(b.start, b.length));
         b.active = false;
     }
 }
 
 template <typename Emit>
-inline void FlushAttr(AttrRangeBuilder& b, Emit&& emit) noexcept
+inline void FlushAttr(AttrRangeBuilder& b, const mendo::WideViewForDWrite& wv, Emit&& emit) noexcept
 {
     if (b.active) {
-        emit(DWRITE_TEXT_RANGE{ b.start, b.length });
+        emit(wv.WideRange(b.start, b.length));
         b.active = false;
     }
 }
 
 } // namespace
 
-void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::optional<NodeType> node_type) const
+void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& wv, std::optional<NodeType> node_type) const
 {
     if (runs.empty()) {
         return;
@@ -144,6 +147,8 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     const bool apply_code = (!node_type || *node_type != NodeType::CodeBlock);
     const bool apply_code_size = apply_code && (!node_type || *node_type != NodeType::Heading);
     const bool apply_link = !node_type;
+
+    // run.start/length は UTF-8 byte 単位。wv が UTF-16 textPosition への対応表を保持する。
 
     AttrRangeBuilder bold_b, italic_b, code_b, strike_b, link_b;
 
@@ -167,25 +172,25 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     };
 
     for (const auto& r : runs) {
-        UpdateAttr(bold_b, r.bold(), r, emit_bold);
-        UpdateAttr(italic_b, r.italic(), r, emit_italic);
+        UpdateAttr(bold_b, r.bold(), r, wv, emit_bold);
+        UpdateAttr(italic_b, r.italic(), r, wv, emit_italic);
         if (apply_code) {
-            UpdateAttr(code_b, r.code(), r, emit_code);
+            UpdateAttr(code_b, r.code(), r, wv, emit_code);
         }
-        UpdateAttr(strike_b, r.strikethrough(), r, emit_strike);
+        UpdateAttr(strike_b, r.strikethrough(), r, wv, emit_strike);
         if (apply_link) {
-            UpdateAttr(link_b, r.has_link(), r, emit_link);
+            UpdateAttr(link_b, r.has_link(), r, wv, emit_link);
         }
     }
 
-    FlushAttr(bold_b, emit_bold);
-    FlushAttr(italic_b, emit_italic);
+    FlushAttr(bold_b, wv, emit_bold);
+    FlushAttr(italic_b, wv, emit_italic);
     if (apply_code) {
-        FlushAttr(code_b, emit_code);
+        FlushAttr(code_b, wv, emit_code);
     }
-    FlushAttr(strike_b, emit_strike);
+    FlushAttr(strike_b, wv, emit_strike);
     if (apply_link) {
-        FlushAttr(link_b, emit_link);
+        FlushAttr(link_b, wv, emit_link);
     }
 }
 
@@ -287,27 +292,27 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         entry.first_line_height = 0.0f;
     }
 
+    // 1 ノードにつき WideViewForDWrite を 1 回だけ構築し、CreateTextLayout と ApplyRunFormatting で共有する
+    // (per-node の二重 UTF-8→UTF-16 decode を回避)。
+    const mendo::WideViewForDWrite wv{ text };
+
     ComPtr<IDWriteTextLayout> layout;
     const HRESULT hr = [&] {
         MENDO_PROFILE("CreateTextLayout");
-        return dwrite_->CreateTextLayout(
-            text.data(),
-            static_cast<UINT32>(text.size()),
-            fmt,
-            layout_width,
-            dynamic_max_height,
-            &layout);
+        return mendo::CreateDocTextLayout(dwrite_, wv, fmt, layout_width, dynamic_max_height, &layout);
     }();
     if (FAILED(hr)) {
         return;
     }
 
-    ApplyRunFormatting(layout.Get(), node.runs, node.type);
+    ApplyRunFormatting(layout.Get(), node.runs, wv, node.type);
 
-    // Alert ノードのアイコン文字のフォントウェイトを設定
+    // Alert ノードのアイコン文字のフォントウェイトを設定。
+    // 6 種類のアイコンは UTF-16 で 1 code unit (BMP) または 2 code unit (Tip 💡 = U+1F4A1 サロゲートペア) と
+    // コンパイル時に確定するため、対応表で済ませて WideViewForDWrite の構築を回避する。
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
-        const UINT32 icon_len = static_cast<UINT32>(GetAlertIcon(node.alert_type).size());
-        const DWRITE_TEXT_RANGE icon_range{ 0, icon_len };
+        const UINT32 icon_wide_len{ (node.alert_type == AlertType::Tip) + 1u };
+        const DWRITE_TEXT_RANGE icon_range{ 0, icon_wide_len };
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);
     }
 
@@ -357,16 +362,16 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
                 continue;
             }
             const size_t ci = tl.CellIndex(r, c);
+            const mendo::WideViewForDWrite wv{ text };
             {
                 MENDO_PROFILE("CreateTextLayout.cell");
-                dwrite_->CreateTextLayout(
-                    text.data(), static_cast<UINT32>(text.size()),
-                    row_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
-                    &tl.cell_layouts[ci]);
+                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt,
+                                           CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                                           &tl.cell_layouts[ci]);
             }
 
             if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), std::nullopt);
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
                 DWRITE_TEXT_METRICS metrics{};
                 tl.cell_layouts[ci]->GetMetrics(&metrics);
                 natural_widths[c] = std::max(natural_widths[c], metrics.width);
@@ -398,15 +403,15 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
             if (text.empty()) {
                 continue;
             }
+            const mendo::WideViewForDWrite wv{ text };
             {
                 MENDO_PROFILE("CreateTextLayout.cell.restore");
-                dwrite_->CreateTextLayout(
-                    text.data(), static_cast<UINT32>(text.size()),
-                    row_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
-                    &tl.cell_layouts[ci]);
+                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt,
+                                           CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                                           &tl.cell_layouts[ci]);
             }
             if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), std::nullopt);
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
             }
         }
     }

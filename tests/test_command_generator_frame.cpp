@@ -17,7 +17,7 @@ class CmdGenFrameTest : public CmdGenMockTestBase {};
 
 TEST_F(CmdGenFrameTest, PushClipMatchesPaneRect)
 {
-    Parse(L"Hello");
+    Parse(MENDO_LIT("Hello"));
     const PaneRect pane{ 100.0f, 50.0f, 600.0f, 400.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -31,7 +31,7 @@ TEST_F(CmdGenFrameTest, PushClipMatchesPaneRect)
 
 TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginAndScroll)
 {
-    Parse(L"Hello");
+    Parse(MENDO_LIT("Hello"));
     constexpr float origin_x = 120.0f;
     constexpr float scroll_y = 40.0f;
     const PaneRect pane{ origin_x, 0.0f, 600.0f, 400.0f };
@@ -46,7 +46,7 @@ TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginAndScroll)
 TEST_F(CmdGenFrameTest, TransformSnapsScrollToPixelWithDpi)
 {
     // DPI=2.0 → round(scroll_y * 2) / 2 で 0.5px 境界にスナップ
-    Parse(L"Hello");
+    Parse(MENDO_LIT("Hello"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     const float scroll_y = 0.3f;
     const float dpi = 2.0f;
@@ -64,7 +64,7 @@ TEST_F(CmdGenFrameTest, TransformSnapsScrollToPixelWithDpi)
 TEST_F(CmdGenFrameTest, ScrolledBeyondBottomProducesOnlyFrameCommands)
 {
     // 数個の水平線を生成し、ビューポートより大きく下にスクロールする
-    Parse(L"---\n\n---\n\n---");
+    Parse(MENDO_LIT("---\n\n---\n\n---"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 100.0f };
     // 全ノードより下にスクロール → DrawLineCmd なし
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 10000.0f, TextSelection{});
@@ -97,7 +97,7 @@ TEST_F(CmdGenFrameTest, EmptyNodesListEmitsOnlyFrameScaffolding)
 
 TEST_F(CmdGenFrameTest, ExplicitFirstVisibleMatchesAutoDiscovery)
 {
-    Parse(L"---\n\n---\n\n---\n\n---\n\n---");
+    Parse(MENDO_LIT("---\n\n---\n\n---\n\n---\n\n---"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 500.0f };
 
     // first_visible=-1 (自動) と first_visible=0 (明示) は 0 からスクロール時に同じ結果
@@ -108,7 +108,7 @@ TEST_F(CmdGenFrameTest, ExplicitFirstVisibleMatchesAutoDiscovery)
 
 TEST_F(CmdGenFrameTest, FirstVisibleBeyondEndProducesNoContent)
 {
-    Parse(L"---\n\n---\n\n---");
+    Parse(MENDO_LIT("---\n\n---\n\n---"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 500.0f };
 
     // first_visible がノード数以上 → 本体ループに入らない
@@ -125,7 +125,7 @@ TEST_F(CmdGenFrameTest, FirstVisibleBeyondEndProducesNoContent)
 
 TEST_F(CmdGenFrameTest, SetSearchMatchesWithNullIsSafe)
 {
-    Parse(L"Hello world");
+    Parse(MENDO_LIT("Hello world"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     gen_.SetSearchMatches(nullptr, -1, 0);
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
@@ -134,7 +134,7 @@ TEST_F(CmdGenFrameTest, SetSearchMatchesWithNullIsSafe)
 
 TEST_F(CmdGenFrameTest, SetSearchMatchesWithEmptyProducesNoHighlight)
 {
-    Parse(L"Hello world");
+    Parse(MENDO_LIT("Hello world"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     std::pmr::vector<SearchMatch> matches;
     gen_.SetSearchMatches(&matches, -1, 1);
@@ -155,7 +155,7 @@ TEST_F(CmdGenFrameTest, DarkThemeSelectionUsesDifferentStripeCache)
 {
     auto light = GetLightTheme();
     auto dark = GetDarkTheme();
-    Parse(L"| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
+    Parse(MENDO_LIT("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
 
     auto find_stripe = [](const DrawCommandList& cmds) -> std::optional<D2D1_COLOR_F> {

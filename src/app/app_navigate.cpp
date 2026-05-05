@@ -1,9 +1,10 @@
 #include "app.h"
 #include "nav.h"
 #include "document_utils.h"
+#include "string_convert.h"
 #include <algorithm>
 
-void App::HandleLinkClick(std::wstring_view url)
+void App::HandleLinkClick(mendo::doc_string_view url)
 {
     if (url.empty()) {
         return;
@@ -14,9 +15,13 @@ void App::HandleLinkClick(std::wstring_view url)
         PushCurrentNavEntry(state_);
         Dispatch(NavigateAnchorAction{ std::move(result.target) });
         break;
-    case LinkClickResult::Type::ExternalUrl:
-        EmitEffect(effect::ShellOpen{ std::move(result.target) });
+    case LinkClickResult::Type::ExternalUrl: {
+        // ShellExecuteW 用に UTF-8 → wstring 変換。
+        std::pmr::wstring url_wide;
+        string_convert::Utf8ToWide(result.target, url_wide);
+        EmitEffect(effect::ShellOpen{ std::move(url_wide) });
         break;
+    }
     default:
         break;
     }

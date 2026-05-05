@@ -689,7 +689,7 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool
 
 void CommandGenerator::GenTableCellContent(
     DrawCommandList& cmds,
-    std::wstring_view cell_text,
+    mendo::doc_string_view cell_text,
     bool is_header,
     IDWriteTextLayout* cell_layout,
     float text_x,

@@ -74,9 +74,9 @@ struct AppState {
     ContextMenu ctx_menu;
     int active_toc_index = -1;
 
-    // wstring_view::npos と string_view::npos は同じ値（static_cast<size_t>(-1)）だが、
-    // 意味的に wide テキストへのオフセットなので wstring_view 側で揃える。
-    size_t reload_diff_pos = std::wstring_view::npos;
+    // 差分位置は UTF-8 byte offset。値域は std::string_view::npos と数値が一致するが、
+    // ヘッダ依存を増やさないために単純に -1 で初期化する。
+    size_t reload_diff_pos = static_cast<size_t>(-1);
     // 短縮タイマーで再リロード予約済み（DeferPrefixShrink / partial-read race）。
     // ローディングアニメーションを抑制するために参照される。
     bool pending_reload_retry = false;

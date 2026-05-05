@@ -2,7 +2,7 @@
 #include "ascii_util.h"
 #include <algorithm>
 
-void SearchState::SetQuery(std::wstring_view query)
+void SearchState::SetQuery(mendo::doc_string_view query)
 {
     query_.assign(query);
 }
@@ -16,7 +16,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     }
 
     // 大文字小文字無視の場合、クエリの小文字変換をループ外で1回だけ行う
-    std::pmr::wstring lower_query;
+    mendo::doc_string lower_query;
     if (!case_sensitive_) {
         lower_query.resize(query_.size());
         ascii_util::ToLower(query_.data(), lower_query.data(), query_.size());
@@ -109,7 +109,7 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
     cached_node_count_ = nodes.size();
 }
 
-void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& lower_query, int node_index, int table_row, int table_col)
+void SearchState::FindMatches(mendo::doc_string_view text, const mendo::doc_string& lower_query, int node_index, int table_row, int table_col)
 {
     if (matches_.size() >= MAX_MATCHES) {
         return;
@@ -126,7 +126,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& l
     else {
         // ドキュメント単位でキャッシュした lowercase 文字列を使う。
         // EnsureLowercaseCache が ExecuteSearch 先頭で呼ばれている前提。
-        const std::wstring_view lower_text = (table_row < 0) ? lower_cache_.GetText(node_index) : lower_cache_.GetCell(node_index, table_row, table_col);
+        const mendo::doc_string_view lower_text = (table_row < 0) ? lower_cache_.GetText(node_index) : lower_cache_.GetCell(node_index, table_row, table_col);
 
         size_t pos = 0;
         while (matches_.size() < MAX_MATCHES && (pos = ascii_util::Find(lower_text, lower_query, pos)) != ascii_util::npos) {

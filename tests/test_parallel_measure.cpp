@@ -26,7 +26,7 @@ struct ParallelFixture {
     void Build(size_t n, bool all_dirty)
     {
         for (size_t i = 0; i < n; ++i) {
-            nodes.push_back(MakeTextNode(L"x"));
+            nodes.push_back(MakeTextNode(MENDO_LIT("x")));
         }
         cache.Resize(n);
         // Paragraph の sa=0 なので block_height=100 で text_top(i) = i * 100 を再現する。

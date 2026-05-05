@@ -903,8 +903,7 @@ TEST_F(ReducerTest, FilePaneDirectoryClicked_UpdatesDirAndInvalidates) {
     // スクロール位置を設定してリセットされることを確認
     state.view.panes.FileScroll().scroll_y = 100.0f;
 
-    auto effects = Reduce(state, FilePaneDirectoryClickedAction{
-        std::pmr::wstring(L"C:\\nonexistent_dir_for_test") });
+    auto effects = Reduce(state, FilePaneDirectoryClickedAction{ std::pmr::wstring(L"C:\\nonexistent_dir_for_test") });
 
     EXPECT_EQ(state.view.panes.FileScroll().scroll_y, 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
@@ -914,8 +913,7 @@ TEST_F(ReducerTest, FilePaneDirectoryClicked_UpdatesDirAndInvalidates) {
 TEST_F(ReducerTest, FilePaneFileClicked_PushesHistoryAndLoads) {
     state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
 
-    auto effects = Reduce(state, FilePaneFileClickedAction{
-        std::pmr::wstring(L"C:\\clicked.md") });
+    auto effects = Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\clicked.md") });
 
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
@@ -927,7 +925,7 @@ TEST_F(ReducerTest, TocItemClicked_UnknownAnchor_PushesHistoryOnly) {
     state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\file.md");
 
     auto effects = Reduce(state, TocItemClickedAction{
-        std::pmr::wstring(L"nonexistent") });
+        mendo::doc_string(MENDO_LIT("nonexistent")) });
 
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
@@ -948,7 +946,7 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates) {
         GTEST_SKIP() << "anchor_id が空のため検証できない";
     }
 
-    auto effects = Reduce(state, TocItemClickedAction{ std::pmr::wstring(anchor) });
+    auto effects = Reduce(state, TocItemClickedAction{ mendo::doc_string(anchor) });
 
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));

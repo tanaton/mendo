@@ -31,7 +31,7 @@ protected:
         gen_.SetHitTestBuffer(&hit_test_buffer_);
     }
 
-    void Parse(std::wstring_view md, float viewport_w = 800.0f)
+    void Parse(mendo::doc_string_view md, float viewport_w = 800.0f)
     {
         nodes_ = ParseMarkdown(md).nodes;
         cache_.Resize(nodes_.size());

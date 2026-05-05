@@ -1,4 +1,5 @@
 #include "hit_test_service.h"
+#include "doc_dwrite_bridge.h"
 #include "layout.h"
 #include "layout_computer.h"
 #include "ui_constants.h"
@@ -146,7 +147,9 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
                                             &is_trailing, &is_inside, &metrics);
 
             result.node_index = candidate;
-            result.text_pos = metrics.textPosition + (is_trailing ? 1 : 0);
+            // metrics.textPosition (UTF-16 code unit) を text_pos (UTF-8 byte) に還元する。
+            const mendo::WideViewForDWrite wv{ node.GetText() };
+            result.text_pos = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
             last_md_hit_.Store(ctx, gen, result);
             return result;
         }
@@ -211,7 +214,10 @@ HitTestService::HitResult HitTestService::HitTestTable(
             &is_inside,
             &metrics);
 
-        result.text_pos = flat_offset + metrics.textPosition + (is_trailing ? 1 : 0);
+        // metrics.textPosition (UTF-16 code unit) を cell text の UTF-8 byte offset に還元してから flat_offset に加算。
+        const mendo::WideViewForDWrite wv{ tbl->GetCellText(r, c) };
+        const auto cell_doc_off = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
+        result.text_pos = flat_offset + cell_doc_off;
     }
     else {
         result.text_pos = flat_offset;
