@@ -33,19 +33,19 @@ public:
     using reference = T&;
     using const_reference = const T&;
 
-    small_vector() noexcept = default;
+    constexpr small_vector() noexcept = default;
 
-    small_vector(const small_vector& other)
+    constexpr small_vector(const small_vector& other)
     {
         copy_from(other);
     }
 
-    small_vector(small_vector&& other) noexcept
+    constexpr small_vector(small_vector&& other) noexcept
     {
         move_from(std::move(other));
     }
 
-    small_vector& operator=(const small_vector& other)
+    constexpr small_vector& operator=(const small_vector& other)
     {
         if (this != &other) {
             release();
@@ -54,7 +54,7 @@ public:
         return *this;
     }
 
-    small_vector& operator=(small_vector&& other) noexcept
+    constexpr small_vector& operator=(small_vector&& other) noexcept
     {
         if (this != &other) {
             release();
@@ -63,7 +63,7 @@ public:
         return *this;
     }
 
-    small_vector& operator=(std::initializer_list<T> il)
+    constexpr small_vector& operator=(std::initializer_list<T> il)
     {
         clear();
         const auto n = static_cast<size_type>(il.size());
@@ -83,76 +83,76 @@ public:
         release();
     }
 
-    T* data() noexcept
+    constexpr T* data() noexcept
     {
         return data_;
     }
-    const T* data() const noexcept
+    constexpr const T* data() const noexcept
     {
         return data_;
     }
-    size_type size() const noexcept
+    constexpr size_type size() const noexcept
     {
         return size_;
     }
-    size_type capacity() const noexcept
+    constexpr size_type capacity() const noexcept
     {
         return capacity_;
     }
-    bool empty() const noexcept
+    constexpr bool empty() const noexcept
     {
         return size_ == 0;
     }
 
-    iterator begin() noexcept
+    constexpr iterator begin() noexcept
     {
         return data_;
     }
-    iterator end() noexcept
+    constexpr iterator end() noexcept
     {
         return data_ + size_;
     }
-    const_iterator begin() const noexcept
+    constexpr const_iterator begin() const noexcept
     {
         return data_;
     }
-    const_iterator end() const noexcept
+    constexpr const_iterator end() const noexcept
     {
         return data_ + size_;
     }
-    const_iterator cbegin() const noexcept
+    constexpr const_iterator cbegin() const noexcept
     {
         return data_;
     }
-    const_iterator cend() const noexcept
+    constexpr const_iterator cend() const noexcept
     {
         return data_ + size_;
     }
 
     // 添字は size_t で受ける (size_type=uint32_t に絞ると C4267 警告の連鎖になる)。
-    reference operator[](std::size_t i) noexcept
+    constexpr reference operator[](std::size_t i) noexcept
     {
         return data_[i];
     }
-    const_reference operator[](std::size_t i) const noexcept
+    constexpr const_reference operator[](std::size_t i) const noexcept
     {
         return data_[i];
     }
-    reference back() noexcept
+    constexpr reference back() noexcept
     {
         return data_[size_ - 1];
     }
-    const_reference back() const noexcept
+    constexpr const_reference back() const noexcept
     {
         return data_[size_ - 1];
     }
 
-    void clear() noexcept
+    constexpr void clear() noexcept
     {
         size_ = 0;
     }
 
-    void reserve(size_type n)
+    constexpr void reserve(size_type n)
     {
         if (n > capacity_) {
             grow_to(n);
@@ -160,7 +160,7 @@ public:
     }
 
     template <typename... Args>
-    reference emplace_back(Args&&... args)
+    constexpr reference emplace_back(Args&&... args)
     {
         if (size_ == capacity_) [[unlikely]] {
             grow_to(next_capacity());
@@ -171,17 +171,17 @@ public:
         return *p;
     }
 
-    void push_back(const T& v)
+    constexpr void push_back(const T& v)
     {
         emplace_back(v);
     }
-    void push_back(T&& v)
+    constexpr void push_back(T&& v)
     {
         emplace_back(std::move(v));
     }
 
 private:
-    size_type next_capacity() const noexcept
+    constexpr size_type next_capacity() const noexcept
     {
         // 倍々成長。capacity_*2 が uint32 を溢れたら UINT32_MAX を渡し、
         // grow_to の operator new に bad_alloc を投げさせる (黙って縮退しない)。
@@ -192,23 +192,23 @@ private:
         return std::numeric_limits<size_type>::max();
     }
 
-    static T* allocate(size_type n)
+    static constexpr T* allocate(size_type n)
     {
         // T は trivially copyable / destructible 前提。default ctor の呼び出しを
         // 省くため operator new で生バッファを確保し、書き込み側で初期化する。
         return static_cast<T*>(::operator new(sizeof(T) * n));
     }
 
-    static void deallocate(T* p) noexcept
+    static constexpr void deallocate(T* p) noexcept
     {
         ::operator delete(p);
     }
 
-    void grow_to(size_type new_cap)
+    constexpr void grow_to(size_type new_cap)
     {
         T* const new_data = allocate(new_cap);
         if (size_ > 0) {
-            std::memcpy(new_data, data_, sizeof(T) * size_);
+            constexpr_memcpy(new_data, data_, size_);
         }
         if (capacity_ > N) {
             deallocate(data_);
@@ -217,7 +217,7 @@ private:
         capacity_ = new_cap;
     }
 
-    void release() noexcept
+    constexpr void release() noexcept
     {
         if (capacity_ > N) {
             deallocate(data_);
@@ -227,7 +227,7 @@ private:
         size_ = 0;
     }
 
-    void copy_from(const small_vector& other)
+    constexpr void copy_from(const small_vector& other)
     {
         if (other.size_ > N) {
             data_ = allocate(other.size_);
@@ -238,13 +238,13 @@ private:
             capacity_ = static_cast<size_type>(N);
         }
         if (other.size_ > 0) {
-            std::memcpy(data_, other.data_, sizeof(T) * other.size_);
+            constexpr_memcpy(data_, other.data_, other.size_);
         }
         size_ = other.size_;
     }
 
     // release() 後 (data_ == inline_storage_, size_=0, capacity_=N) を前提に other を引き取る。
-    void move_from(small_vector&& other) noexcept
+    constexpr void move_from(small_vector&& other) noexcept
     {
         if (other.capacity_ > N) {
             data_ = other.data_;
@@ -256,10 +256,23 @@ private:
         }
         else {
             if (other.size_ > 0) {
-                std::memcpy(inline_storage_, other.data_, sizeof(T) * other.size_);
+                constexpr_memcpy(inline_storage_, other.data_, other.size_);
             }
             size_ = other.size_;
             other.size_ = 0;
+        }
+    }
+
+    template <typename U>
+    constexpr void constexpr_memcpy(U* dest, const U* src, std::size_t count)
+    {
+        if consteval {
+            for (std::size_t i = 0; i < count; ++i) {
+                dest[i] = src[i];
+            }
+        }
+        else {
+            std::memcpy(dest, src, sizeof(U) * count);
         }
     }
 

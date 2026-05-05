@@ -1,4 +1,5 @@
 #pragma once
+#include "brush_id.h"
 #include "render_params.h"
 #include "theme.h"
 #include "layout.h"
@@ -7,6 +8,7 @@
 #include "command_executor.h"
 #include "syntax.h"
 #include "d2d_render_backend.h"
+#include "memory_resource.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -18,55 +20,6 @@
 #include <memory_resource>
 #include <utility>
 
-
-enum class BrushId : uint8_t {
-    Text,
-    Heading,
-    CodeBg,
-    CodeText,
-    Link,
-    Hr,
-    BlockquoteBar,
-    BlockquoteText,
-    Selection,
-    TableStripe,
-    SyntaxKeyword,
-    SyntaxType,
-    SyntaxString,
-    SyntaxNumber,
-    SyntaxComment,
-    SyntaxPreprocessor,
-    SyntaxFunction,
-    AlertNote,
-    AlertTip,
-    AlertImportant,
-    AlertWarning,
-    AlertCaution,
-    TitleBarBg,
-    TitleBarText,
-    TitleBarButtonHover,
-    TitleBarButtonActive,
-    TitleBarCloseRed,
-    TitleBarCloseWhite,
-    PaneBg,
-    Splitter,
-    PaneItemHover,
-    PaneItemActive,
-    ScrollbarThumb,
-    Overlay,
-    // オーバーレイ用の固定色ブラシ。動的 SetColor は SetOpacity より重いため、
-    // 白基底と黒基底を分けて持って透明度のみ動的に変える。
-    OverlayWhite,
-    OverlayBlack,
-    SearchBarBg,
-    SearchBarBorder,
-    SearchInputBg,
-    SearchInputText,
-    SearchHighlight,
-    SearchHighlightCurrent,
-    SearchNoMatchBg,
-    Count
-};
 
 class Renderer {
 public:
@@ -140,7 +93,6 @@ public:
     {
         hit_test_buffer_.shrink_to_fit();
         hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
-        cmd_generator_.ShrinkBuffers();
     }
 
     // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
@@ -180,9 +132,18 @@ private:
         return brushes_[std::to_underlying(id)].Get();
     }
 
+    FixedBrushArray BuildFixedBrushArray() const noexcept
+    {
+        FixedBrushArray a{};
+        for (size_t i = 0; i < a.size(); ++i) {
+            a[i] = brushes_[i].Get();
+        }
+        return a;
+    }
+
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;
-    void ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float viewport_top, float viewport_bottom);
-    void ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float viewport_top = -1.0f, float viewport_bottom = -1.0f);
+    void ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
+    void ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
     void RecreatePaneFormats();
@@ -190,8 +151,8 @@ private:
     bool CheckEndDraw();
     bool RecreateRenderTarget();
 
-    // ApplyNodeEffectsでインラインコード背景を計算するためのヒットテストバッファ。
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
+    // ApplyNodeEffects でインラインコード背景を計算するためのヒットテストバッファ。
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_{ GetThreadLocalPoolResource() };
 
     struct TextFormats {
         Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_font;
@@ -217,7 +178,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_back_layout_;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_forward_layout_;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_toast_layout_;
-    std::pmr::wstring cached_toast_text_;
+    std::pmr::wstring cached_toast_text_{ GetThreadLocalPoolResource() };
 
     // 検索バーの入力テキストレイアウトキャッシュ。
     // キー: (query, ime_composition, caret_pos, input 幅)
@@ -225,9 +186,9 @@ private:
     // キャレット点滅や同一入力継続フレームで CreateTextLayout と
     // 表示テキスト合成の双方を回避する。入力 height は定数なのでキーに含めない。
     mutable Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_search_layout_;
-    mutable std::pmr::wstring cached_search_text_;     // 合成後の表示テキスト (IME 未使用時は query と同一)
-    mutable std::pmr::wstring cached_search_query_;    // 直近フレームの sb.query
-    mutable std::pmr::wstring cached_search_ime_comp_; // 直近フレームの sb.ime_composition
+    mutable std::pmr::wstring cached_search_text_{ GetThreadLocalPoolResource() };     // 合成後の表示テキスト (IME 未使用時は query と同一)
+    mutable std::pmr::wstring cached_search_query_{ GetThreadLocalPoolResource() };    // 直近フレームの sb.query
+    mutable std::pmr::wstring cached_search_ime_comp_{ GetThreadLocalPoolResource() }; // 直近フレームの sb.ime_composition
     mutable int cached_search_caret_pos_ = -1;         // IME 合成時の挿入位置（無いとき -1）
     mutable float cached_search_width_ = -1.0f;
     mutable bool cached_search_has_underline_ = false;

@@ -5,6 +5,7 @@
 #include "i18n.h"
 #include "resource.h"
 #include "ui_constants.h"
+#include "profiler.h"
 #include <windowsx.h>
 #include <shellscalingapi.h>
 #include <dwmapi.h>
@@ -49,6 +50,7 @@ void Win32Window::ShowDirectory(std::wstring_view dir_path)
 
 bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 {
+    MENDO_PROFILE("Win32Window::Create");
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
     wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
@@ -84,10 +86,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     }
 
     // 検索用の非表示EDITコントロールを作成（IME対応のため）
-    search_edit_ = CreateWindowExW(0, L"EDIT", L"",
-                                   WS_CHILD | ES_AUTOHSCROLL,
-                                   0, 0, 1, 1,
-                                   hwnd_, nullptr, hInstance, nullptr);
+    search_edit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 1, 1, hwnd_, nullptr, hInstance, nullptr);
     if (search_edit_) {
         SetWindowSubclass(search_edit_, SearchEditProc, 0, reinterpret_cast<DWORD_PTR>(this));
     }
@@ -106,6 +105,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 
 void Win32Window::UpdateDpiMetricsCache()
 {
+    MENDO_PROFILE("Win32Window::UpdateDpiMetricsCache");
     if (!hwnd_) {
         return;
     }
@@ -117,6 +117,7 @@ void Win32Window::UpdateDpiMetricsCache()
 
 void Win32Window::UpdateDwmFrame()
 {
+    MENDO_PROFILE("Win32Window::UpdateDwmFrame");
     // 1ピクセルだけ拡張してDWMのウィンドウシャドウ・アニメーションを有効化。
     // キャプションボタンは自前描画のため大きな拡張は不要。
     const MARGINS margins = { 0, 0, 1, 0 };
@@ -128,19 +129,11 @@ int Win32Window::RunMessageLoop()
 {
     MSG msg{};
 
-#if MENDO_PROFILE_ENABLED
-    LARGE_INTEGER freq;
-    QueryPerformanceFrequency(&freq);
-#endif
-
     for (;;) {
         // イベントハンドルは DispatchMessageW 中に変わりうるため毎回取得
         const HANDLE evt = app_->GetFileWatchEvent();
         const DWORD count = evt ? 1 : 0;
-
-        const DWORD wait = MsgWaitForMultipleObjects(
-            count, evt ? &evt : nullptr,
-            FALSE, INFINITE, QS_ALLINPUT);
+        const DWORD wait = MsgWaitForMultipleObjects(count, evt ? &evt : nullptr, FALSE, INFINITE, QS_ALLINPUT);
 
         if (wait == WAIT_FAILED) {
             // ハンドル無効時のビジーループ防止
@@ -155,27 +148,8 @@ int Win32Window::RunMessageLoop()
             if (msg.message == WM_QUIT) {
                 return static_cast<int>(msg.wParam);
             }
-
-#if MENDO_PROFILE_ENABLED
-            LARGE_INTEGER dispatch_start;
-            QueryPerformanceCounter(&dispatch_start);
-#endif
-
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
-
-#if MENDO_PROFILE_ENABLED
-            LARGE_INTEGER dispatch_end;
-            QueryPerformanceCounter(&dispatch_end);
-            const double dispatch_ms = static_cast<double>(dispatch_end.QuadPart - dispatch_start.QuadPart) * 1000.0 / static_cast<double>(freq.QuadPart);
-            if (dispatch_ms > 16.0) {
-                wchar_t buf[256];
-                _snwprintf_s(buf, std::ranges::size(buf), _TRUNCATE,
-                             L"[mendo-profile] SLOW MSG 0x%04X hwnd=%p: %.2f ms\n",
-                             msg.message, msg.hwnd, dispatch_ms);
-                OutputDebugStringW(buf);
-            }
-#endif
         }
     }
 }
@@ -638,6 +612,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
 void Win32Window::InitSystemMenu()
 {
+    MENDO_PROFILE("Win32Window::InitSystemMenu");
     const HMENU menu = GetSystemMenu(hwnd_, FALSE);
     if (menu) {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

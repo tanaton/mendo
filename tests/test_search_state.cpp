@@ -29,18 +29,18 @@ TEST(SearchStateTest, HidePreservesQuery)
 {
     SearchState s;
     s.Show();
-    s.SetQuery(L"hello");
+    s.SetQuery(MENDO_LIT("hello"));
     s.Hide();
-    EXPECT_EQ(s.GetQuery(), L"hello");
+    EXPECT_EQ(s.GetQuery(), MENDO_LIT("hello"));
 }
 
 TEST(SearchStateTest, HideClearsMatches)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"hello world"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("hello world")));
     SearchState s;
     s.Show();
-    s.SetQuery(L"hello");
+    s.SetQuery(MENDO_LIT("hello"));
     s.ExecuteSearch(nodes);
     EXPECT_EQ(s.GetMatchCount(), 1);
     s.Hide();
@@ -51,9 +51,9 @@ TEST(SearchStateTest, HideClearsMatches)
 TEST(SearchStateTest, ResetClearsQueryAndMatches)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"hello"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("hello")));
     SearchState s;
-    s.SetQuery(L"hello");
+    s.SetQuery(MENDO_LIT("hello"));
     s.ExecuteSearch(nodes);
     EXPECT_EQ(s.GetMatchCount(), 1);
     s.Reset();
@@ -69,9 +69,9 @@ TEST(SearchStateTest, ResetClearsQueryAndMatches)
 TEST(SearchStateTest, EmptyQueryProducesNoMatches)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"hello"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("hello")));
     SearchState s;
-    s.SetQuery(L"");
+    s.SetQuery(MENDO_LIT(""));
     s.ExecuteSearch(nodes);
     EXPECT_EQ(s.GetMatchCount(), 0);
 }
@@ -79,9 +79,9 @@ TEST(SearchStateTest, EmptyQueryProducesNoMatches)
 TEST(SearchStateTest, SingleMatch)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"Hello World"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("Hello World")));
     SearchState s;
-    s.SetQuery(L"World");
+    s.SetQuery(MENDO_LIT("World"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
@@ -92,9 +92,9 @@ TEST(SearchStateTest, SingleMatch)
 TEST(SearchStateTest, MultipleMatchesInOneNode)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"abcabcabc"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("abcabcabc")));
     SearchState s;
-    s.SetQuery(L"abc");
+    s.SetQuery(MENDO_LIT("abc"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 3);
     EXPECT_EQ(s.GetMatches()[0].start, 0u);
@@ -105,11 +105,11 @@ TEST(SearchStateTest, MultipleMatchesInOneNode)
 TEST(SearchStateTest, MatchesAcrossMultipleNodes)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"first test"));
-    nodes.push_back(MakeTextNode(L"no match here"));
-    nodes.push_back(MakeTextNode(L"another test"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("first test")));
+    nodes.push_back(MakeTextNode(MENDO_LIT("no match here")));
+    nodes.push_back(MakeTextNode(MENDO_LIT("another test")));
     SearchState s;
-    s.SetQuery(L"test");
+    s.SetQuery(MENDO_LIT("test"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 2);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
@@ -119,9 +119,9 @@ TEST(SearchStateTest, MatchesAcrossMultipleNodes)
 TEST(SearchStateTest, CaseInsensitiveByDefault)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"Hello HELLO hello"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("Hello HELLO hello")));
     SearchState s;
-    s.SetQuery(L"hello");
+    s.SetQuery(MENDO_LIT("hello"));
     s.ExecuteSearch(nodes);
     EXPECT_EQ(s.GetMatchCount(), 3);
 }
@@ -129,9 +129,9 @@ TEST(SearchStateTest, CaseInsensitiveByDefault)
 TEST(SearchStateTest, NoMatchReturnsEmpty)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"hello world"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("hello world")));
     SearchState s;
-    s.SetQuery(L"xyz");
+    s.SetQuery(MENDO_LIT("xyz"));
     s.ExecuteSearch(nodes);
     EXPECT_EQ(s.GetMatchCount(), 0);
 }
@@ -140,7 +140,7 @@ TEST(SearchStateTest, EmptyNodesProducesNoMatches)
 {
     std::pmr::vector<Node> nodes;
     SearchState s;
-    s.SetQuery(L"hello");
+    s.SetQuery(MENDO_LIT("hello"));
     s.ExecuteSearch(nodes);
     EXPECT_EQ(s.GetMatchCount(), 0);
 }
@@ -148,10 +148,10 @@ TEST(SearchStateTest, EmptyNodesProducesNoMatches)
 TEST(SearchStateTest, EmptyTextNodeSkipped)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L""));
-    nodes.push_back(MakeTextNode(L"hello"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("")));
+    nodes.push_back(MakeTextNode(MENDO_LIT("hello")));
     SearchState s;
-    s.SetQuery(L"hello");
+    s.SetQuery(MENDO_LIT("hello"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 1);
@@ -179,10 +179,10 @@ TEST(SearchStateTest, CaseSensitiveToggle)
 TEST(SearchStateTest, CaseSensitiveMatchesExact)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"Hello HELLO hello"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("Hello HELLO hello")));
     SearchState s;
     s.SetCaseSensitive(true);
-    s.SetQuery(L"Hello");
+    s.SetQuery(MENDO_LIT("Hello"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].start, 0u);
@@ -191,10 +191,10 @@ TEST(SearchStateTest, CaseSensitiveMatchesExact)
 TEST(SearchStateTest, CaseSensitiveNoMatch)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"HELLO"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("HELLO")));
     SearchState s;
     s.SetCaseSensitive(true);
-    s.SetQuery(L"hello");
+    s.SetQuery(MENDO_LIT("hello"));
     s.ExecuteSearch(nodes);
     EXPECT_EQ(s.GetMatchCount(), 0);
 }
@@ -225,9 +225,9 @@ TEST(SearchStateTest, HighlightToggle)
 TEST(SearchStateTest, TableCellMatch)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTableNode(L"hello", L"world"));
+    nodes.push_back(MakeTableNode(MENDO_LIT("hello"), MENDO_LIT("world")));
     SearchState s;
-    s.SetQuery(L"hello");
+    s.SetQuery(MENDO_LIT("hello"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
@@ -240,9 +240,9 @@ TEST(SearchStateTest, TableCellMatch)
 TEST(SearchStateTest, TableMultipleCellMatches)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTableNode(L"test one", L"test two"));
+    nodes.push_back(MakeTableNode(MENDO_LIT("test one"), MENDO_LIT("test two")));
     SearchState s;
-    s.SetQuery(L"test");
+    s.SetQuery(MENDO_LIT("test"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 2);
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
@@ -252,10 +252,10 @@ TEST(SearchStateTest, TableMultipleCellMatches)
 TEST(SearchStateTest, TableCaseSensitiveMatch)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTableNode(L"Hello", L"hello"));
+    nodes.push_back(MakeTableNode(MENDO_LIT("Hello"), MENDO_LIT("hello")));
     SearchState s;
     s.SetCaseSensitive(true);
-    s.SetQuery(L"Hello");
+    s.SetQuery(MENDO_LIT("Hello"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
@@ -264,10 +264,10 @@ TEST(SearchStateTest, TableCaseSensitiveMatch)
 TEST(SearchStateTest, MixedNodeAndTableMatches)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"find me"));
-    nodes.push_back(MakeTableNode(L"find here", L"no"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("find me")));
+    nodes.push_back(MakeTableNode(MENDO_LIT("find here"), MENDO_LIT("no")));
     SearchState s;
-    s.SetQuery(L"find");
+    s.SetQuery(MENDO_LIT("find"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 2);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
@@ -283,9 +283,9 @@ TEST(SearchStateTest, MixedNodeAndTableMatches)
 TEST(SearchStateTest, NextMatchCycles)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"aaa"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("aaa")));
     SearchState s;
-    s.SetQuery(L"a");
+    s.SetQuery(MENDO_LIT("a"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 3);
 
@@ -306,9 +306,9 @@ TEST(SearchStateTest, NextMatchCycles)
 TEST(SearchStateTest, PrevMatchCycles)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"aaa"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("aaa")));
     SearchState s;
-    s.SetQuery(L"a");
+    s.SetQuery(MENDO_LIT("a"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 3);
 
@@ -345,11 +345,11 @@ TEST(SearchStateTest, PrevMatchNoOpWhenEmpty)
 TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstAfterScroll)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"first match"));
-    nodes.push_back(MakeTextNode(L"second match"));
-    nodes.push_back(MakeTextNode(L"third match"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("first match")));
+    nodes.push_back(MakeTextNode(MENDO_LIT("second match")));
+    nodes.push_back(MakeTextNode(MENDO_LIT("third match")));
     SearchState s;
-    s.SetQuery(L"match");
+    s.SetQuery(MENDO_LIT("match"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 3);
 
@@ -361,9 +361,9 @@ TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstAfterScroll)
 TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstWhenAllAbove)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"match"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("match")));
     SearchState s;
-    s.SetQuery(L"match");
+    s.SetQuery(MENDO_LIT("match"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
 
@@ -388,25 +388,26 @@ TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
     Node table;
     table.type = NodeType::Table;
     table.ensure_table();
-    for (int r = 0; r < 3; r++) {
-        TableRow row;
-        TableCell c;
-        c.text.assign(L"hit");
-        row.cells.push_back(std::move(c));
-        table.table_data()->rows.push_back(std::move(row));
-    }
+    auto* tbl = table.table_data();
+    tbl->row_count = 3;
+    tbl->col_count = 1;
+    tbl->concat_text = MENDO_LIT("hit\nhit\nhit");
+    tbl->cell_text_starts = { 0u, 4u, 8u, 11u };
+    tbl->cell_run_starts = { 0u, 0u, 0u, 0u };
+    tbl->aligns.push_back(TableAlign::Default);
+    tbl->is_header_row = { false, false, false };
     std::pmr::vector<Node> nodes;
     nodes.push_back(std::move(table));
 
     SearchState s;
-    s.SetQuery(L"hit");
+    s.SetQuery(MENDO_LIT("hit"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 3);
 
     // ブロックは y=0, 各行は高さ 100 → 行Y = 0, 100, 200
     LayoutCache cache;
     cache.Resize(1);
-    cache[0].y_position = 0.0f;
+    cache[0].text_top = 0.0f;
     cache[0].height = 300.0f;
     auto& tl = cache[0].ensure_table_layout();
     tl.row_heights = {100.0f, 100.0f, 100.0f};
@@ -433,14 +434,14 @@ TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
 TEST(SearchStateTest, ReExecuteSearchUpdatesMatches)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"abc def abc"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("abc def abc")));
 
     SearchState s;
-    s.SetQuery(L"abc");
+    s.SetQuery(MENDO_LIT("abc"));
     s.ExecuteSearch(nodes);
     EXPECT_EQ(s.GetMatchCount(), 2);
 
-    s.SetQuery(L"def");
+    s.SetQuery(MENDO_LIT("def"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].start, 4u);
@@ -449,10 +450,10 @@ TEST(SearchStateTest, ReExecuteSearchUpdatesMatches)
 TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"Abc abc ABC"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("Abc abc ABC")));
 
     SearchState s;
-    s.SetQuery(L"abc");
+    s.SetQuery(MENDO_LIT("abc"));
     s.ExecuteSearch(nodes);
     EXPECT_EQ(s.GetMatchCount(), 3); // 大文字小文字無視
 
@@ -469,14 +470,15 @@ TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange)
 TEST(SearchStateTest, JapaneseTextSearch)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(L"これはテストです。テスト完了。"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("これはテストです。テスト完了。")));
     SearchState s;
-    s.SetQuery(L"テスト");
+    s.SetQuery(MENDO_LIT("テスト"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 2);
-    EXPECT_EQ(s.GetMatches()[0].start, 3u);
-    EXPECT_EQ(s.GetMatches()[0].length, 3u);
-    EXPECT_EQ(s.GetMatches()[1].start, 9u);
+    // UTF-8: 各 BMP CJK 文字 3 byte。"これは" 9 / "テスト" 9 / "です。" 9
+    EXPECT_EQ(s.GetMatches()[0].start, 9u);
+    EXPECT_EQ(s.GetMatches()[0].length, 9u);
+    EXPECT_EQ(s.GetMatches()[1].start, 27u);
 }
 
 // ═══════════════════════════════════════════════
@@ -489,9 +491,9 @@ TEST(SearchStateTest, NonTextNodesSkipped)
     Node hr;
     hr.type = NodeType::HorizontalRule;
     nodes.push_back(std::move(hr));
-    nodes.push_back(MakeTextNode(L"hello"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("hello")));
     SearchState s;
-    s.SetQuery(L"hello");
+    s.SetQuery(MENDO_LIT("hello"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 1);
@@ -506,11 +508,11 @@ TEST(SearchStateTest, ImageNodeExcludedFromSearch)
     std::pmr::vector<Node> nodes;
     Node img;
     img.type = NodeType::Image;
-    img.SetText(L"alt text with keyword");
+    img.SetText(MENDO_LIT("alt text with keyword"));
     nodes.push_back(std::move(img));
-    nodes.push_back(MakeTextNode(L"keyword in paragraph"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("keyword in paragraph")));
     SearchState s;
-    s.SetQuery(L"keyword");
+    s.SetQuery(MENDO_LIT("keyword"));
     s.ExecuteSearch(nodes);
     // 画像ノードのaltテキストはマッチしない（段落のみマッチ）
     ASSERT_EQ(s.GetMatchCount(), 1);
@@ -523,11 +525,11 @@ TEST(SearchStateTest, MermaidCodeBlockExcludedFromSearch)
     Node mermaid;
     mermaid.type = NodeType::CodeBlock;
     mermaid.code_language = SyntaxLanguage::Mermaid;
-    mermaid.SetText(L"graph TD; A-->B");
+    mermaid.SetText(MENDO_LIT("graph TD; A-->B"));
     nodes.push_back(std::move(mermaid));
-    nodes.push_back(MakeTextNode(L"graph description"));
+    nodes.push_back(MakeTextNode(MENDO_LIT("graph description")));
     SearchState s;
-    s.SetQuery(L"graph");
+    s.SetQuery(MENDO_LIT("graph"));
     s.ExecuteSearch(nodes);
     // Mermaidコードブロックはマッチしない（段落のみマッチ）
     ASSERT_EQ(s.GetMatchCount(), 1);
@@ -540,10 +542,10 @@ TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch)
     Node code;
     code.type = NodeType::CodeBlock;
     code.code_language = SyntaxLanguage::Cpp;
-    code.SetText(L"int main()");
+    code.SetText(MENDO_LIT("int main()"));
     nodes.push_back(std::move(code));
     SearchState s;
-    s.SetQuery(L"main");
+    s.SetQuery(MENDO_LIT("main"));
     s.ExecuteSearch(nodes);
     // Mermaid以外のコードブロックは通常通り検索対象
     ASSERT_EQ(s.GetMatchCount(), 1);

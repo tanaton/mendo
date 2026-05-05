@@ -28,12 +28,14 @@ std::vector<size_t> ExtractCmdKinds(const DrawCommandList& cmds)
 class HighlightOrderTest : public DWriteTestBase {
 protected:
     CommandGenerator gen_;
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     void SetUp() override
     {
         DWriteTestBase::SetUp();
         gen_.SetTheme(&theme_);
         gen_.SetFormats({ nullptr, nullptr, nullptr, nullptr });
+        gen_.SetHitTestBuffer(&hit_test_buffer_);
     }
 };
 
@@ -44,7 +46,7 @@ protected:
 // 本文が両ハイライトの下に隠れる、という視覚的不具合が発生する。
 TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
 {
-    auto pl = ParseAndLayout(L"Hello World");
+    auto pl = ParseAndLayout(MENDO_LIT("Hello World"));
     ASSERT_FALSE(pl.nodes.empty());
 
     // node 0 の "Hello" を検索マッチに、"World" を選択範囲に設定する。
@@ -64,7 +66,8 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
     std::optional<size_t> first_selection;
     std::optional<size_t> first_text_layout;
     for (size_t i = 0; i < cmds.size(); ++i) {
-        if (auto* fr = std::get_if<FillRectCmd>(&cmds[i])) {
+        const DrawCommand cmd = cmds[i];
+        if (auto* fr = std::get_if<FillRectCmd>(&cmd)) {
             if (!first_search && (ColorEq(fr->color, theme_.search_highlight_color)
                 || ColorEq(fr->color, theme_.search_highlight_current_color))) {
                 first_search = i;
@@ -73,7 +76,7 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
                 first_selection = i;
             }
         }
-        else if (std::holds_alternative<DrawTextLayoutCmd>(cmds[i])) {
+        else if (std::holds_alternative<DrawTextLayoutCmd>(cmd)) {
             if (!first_text_layout) {
                 first_text_layout = i;
             }
@@ -93,7 +96,7 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
 // 失敗時に「ノイズ FillRect が出ている」=どの装飾が漏れているかが分かる。
 TEST_F(HighlightOrderTest, NoHighlightsWhenNeitherActive)
 {
-    auto pl = ParseAndLayout(L"Hello World");
+    auto pl = ParseAndLayout(MENDO_LIT("Hello World"));
     gen_.SetSearchMatches(nullptr, -1, 0);
     const TextSelection sel{};
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
@@ -113,7 +116,7 @@ TEST_F(HighlightOrderTest, NoHighlightsWhenNeitherActive)
 // 失敗するとユーザー視点で「現在マッチがどこにあるか分からない」状態になる。
 TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
 {
-    auto pl = ParseAndLayout(L"Hello Hello");
+    auto pl = ParseAndLayout(MENDO_LIT("Hello Hello"));
     std::pmr::vector<SearchMatch> matches;
     matches.push_back({ 0, 0, 5, -1, -1 });
     matches.push_back({ 0, 6, 5, -1, -1 });
@@ -142,7 +145,7 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
 // SetScrollSelectionMoved 等で起きうる空選択で余計な FillRectCmd が出ないことの確認。
 TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
 {
-    auto pl = ParseAndLayout(L"Hello World");
+    auto pl = ParseAndLayout(MENDO_LIT("Hello World"));
     gen_.SetSearchMatches(nullptr, -1, 0);
     TextSelection sel = TextSelection::MakeOrdered(0, 5, 0, 5);
     sel.active = true;
@@ -161,7 +164,7 @@ TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
 // kinds 抽出ヘルパーが順序を正しく取り出すこと（ヘルパー自身のスモーク）。
 TEST_F(HighlightOrderTest, ExtractCmdKindsIsOrdered)
 {
-    auto pl = ParseAndLayout(L"Hello");
+    auto pl = ParseAndLayout(MENDO_LIT("Hello"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{});
     const auto kinds = ExtractCmdKinds(cmds);

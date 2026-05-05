@@ -107,7 +107,7 @@ TEST(SimdAsciiAsciiToLowerOnlyTest, VariousLengths)
 
 TEST(SimdAsciiHasAsciiUpperTest, Empty)
 {
-    EXPECT_FALSE(ascii_util::HasAsciiUpper(nullptr, 0));
+    EXPECT_FALSE(ascii_util::HasAsciiUpper(static_cast<const wchar_t*>(nullptr), 0));
 }
 
 TEST(SimdAsciiHasAsciiUpperTest, AllLower)

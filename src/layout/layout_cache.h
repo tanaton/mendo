@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "fenwick.h"
 #include "pmr_unique_ptr.h"
 #include <vector>
 #include <memory_resource>
@@ -10,6 +11,8 @@
 #include <cassert>
 #include <ranges>
 #include <span>
+
+struct Theme;
 
 
 // インラインコードの背景矩形（レイアウト原点からの相対座標、パディング適用済み）
@@ -33,7 +36,6 @@ struct TableLayoutData {
     std::pmr::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
     std::pmr::vector<float> cell_heights;        // 各セルに最後に適用した幅での計測高さ
     std::pmr::vector<float> cell_applied_widths; // 各セルに最後に適用した max_width（変更判定用）
-    std::pmr::vector<uint32_t> row_flat_offsets; // 各行の線形化テキスト先頭オフセット（ヒットテスト高速化用）
     std::pmr::vector<uint8_t> row_bgs_computed;  // 各行のインラインコード背景計算済みフラグ
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
@@ -46,7 +48,6 @@ struct TableLayoutData {
     // 列幅 + パディング + 罫線の合計。FinalizeTableLayout で確定後不変なので
     // GenTable から毎フレーム fold_left せずキャッシュを参照する。
     float cached_table_width = 0.0f;
-
     // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept
     {
@@ -58,33 +59,6 @@ struct TableLayoutData {
     {
         const size_t idx = CellIndex(row, col);
         return (idx < cell_layouts.size()) ? cell_layouts[idx].Get() : nullptr;
-    }
-
-    // 行内 [col_from, col_to) のセル幅とタブ区切りだけ flat_offset を進める。
-    // 線形化規約は dwrite_measurer.cpp の row_flat_offsets 構築と一致する。
-    static void AdvanceFlatOffsetInRow(const TableRow& row,
-                                       size_t col_from, size_t col_to, uint32_t& flat_offset) noexcept
-    {
-        const auto col_count_actual = row.cells.size();
-        const size_t end = std::min(col_to, col_count_actual);
-        for (size_t c = col_from; c < end; c++) {
-            flat_offset += static_cast<uint32_t>(row.cells[c].text.size());
-            if (c + 1 < col_count_actual) {
-                flat_offset++;
-            }
-        }
-    }
-
-    // (row_idx, col) セルの線形化テキスト先頭オフセット。
-    // dwrite_measurer の MeasureTable がレイアウト確定時に row_flat_offsets を必ず埋めるため、
-    // ここでの存在は前提扱い。
-    uint32_t CellFlatOffset(const std::pmr::vector<TableRow>& rows,
-                            size_t row_idx, size_t col) const noexcept
-    {
-        assert(row_idx < row_flat_offsets.size());
-        uint32_t offset = row_flat_offsets[row_idx];
-        AdvanceFlatOffsetInRow(rows[row_idx], 0, col, offset);
-        return offset;
     }
 };
 
@@ -109,11 +83,20 @@ struct SelectionHlCache {
 };
 
 struct NodeLayoutEntry {
-    float y_position = 0.0f;
+    // テキスト上端 Y の denormalized cache。値としては cache.GetBlockTop(i, margin_top) + GetSpacingAbove(node)
+    // と等価で、TextTopOf でも導出可能だが、その経路は Fenwick PrefixSum で O(log N) かかる。
+    // hit-test の partition_point 述語 / visible-node loop / scroll bound 計算など per-frame hot path で
+    // 直接 O(1) 参照したいため field として保持する (TextTopOf は navigation/reload 等の cold path 専用)。
+    // WRITE 経路 (RecomputeYPositions / ComputeLayout / EstimateNodeHeights / ResizePreservingPrefix) で
+    // Fenwick block_heights_ と lockstep 同期される。MeasureNode は触らない (= 中間状態は古い値のまま)。
+    float text_top = 0.0f;
     float height = 0.0f;
     // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
     // MeasureNode で text_layout 確定時に同時に求める。
     float first_line_height = 0.0f;
+    // 直近 MeasureNode の幅と実測 height。同じ幅へ戻った際に EstimateNodeHeight の上書きを避ける。
+    float cached_width = -1.0f;
+    float cached_height = 0.0f;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
     bool effects_applied = false;
@@ -199,16 +182,17 @@ struct NodeLayoutEntry {
     // ブロック先頭/テーブル行先頭の座標にフォールバックする。
     // Why: 長い段落内の複数マッチで同じブロック先頭 Y に丸まると「次へ」でスクロールしない。
     // row_cum_y は row_count+1 要素（末尾は合計高さ）なので、行として有効なのは [0, row_heights.size()) のみ。
-    std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset) const noexcept
+    // entry_text_top はノード上端 Y。caller が Fenwick から計算するか entry のキャッシュ値を渡す。
+    std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset, float entry_text_top) const noexcept
     {
         IDWriteTextLayout* layout = nullptr;
-        float base_y = y_position;
+        float base_y = entry_text_top;
         float fallback_h = height;
 
         if (table_row >= 0 && has_table_layout()) {
             const auto row = static_cast<size_t>(table_row);
             if (row < table_layout->row_heights.size() && row < table_layout->row_cum_y.size()) {
-                base_y = y_position + table_layout->row_cum_y[row];
+                base_y = entry_text_top + table_layout->row_cum_y[row];
                 fallback_h = table_layout->row_heights[row];
             }
             if (table_col >= 0) {
@@ -239,30 +223,44 @@ struct DiagramEntry {
 
 class LayoutCache {
 public:
-    constexpr void Resize(size_t node_count)
+    void Resize(size_t node_count)
     {
         if (entries_.size() != node_count) {
             entries_.resize(node_count);
             diagrams_.resize(node_count);
+            block_heights_.Reset();
+            block_heights_.Resize(node_count);
             effects_generation_++;
         }
     }
 
     // prefix 部分のキャッシュを保持したままリサイズする。
-    // 追加エントリの y_position を旧末尾に配置し、二分探索の単調性を維持する。
-    constexpr void ResizePreservingPrefix(size_t new_node_count)
+    // 追加エントリの text_top を旧末尾に配置し、二分探索の単調性を維持する。
+    void ResizePreservingPrefix(size_t new_node_count)
     {
         const size_t old_count = entries_.size();
-        Resize(new_node_count);
-        if (new_node_count > old_count && old_count > 0) {
-            const float end_y = entries_[old_count - 1].y_position + entries_[old_count - 1].height;
-            for (size_t i = old_count; i < new_node_count; i++) {
-                entries_[i].y_position = end_y;
+        if (old_count == new_node_count) {
+            return;
+        }
+        if (new_node_count > old_count) {
+            entries_.resize(new_node_count);
+            diagrams_.resize(new_node_count);
+            block_heights_.GrowTo(new_node_count);
+            if (old_count > 0) {
+                const float end_y = entries_[old_count - 1].text_top + entries_[old_count - 1].height;
+                for (size_t i = old_count; i < new_node_count; i++) {
+                    entries_[i].text_top = end_y;
+                }
             }
+            effects_generation_++;
+        }
+        else {
+            // 縮小: Resize 経由で Fenwick もリセット (末尾の累積構造を保持できないため)
+            Resize(new_node_count);
         }
     }
 
-    constexpr void Reset(size_t node_count, bool shrink = true)
+    void Reset(size_t node_count, bool shrink = true)
     {
         entries_.clear();
         if (shrink) {
@@ -274,6 +272,8 @@ public:
             diagrams_.shrink_to_fit();
         }
         diagrams_.resize(node_count);
+        block_heights_.Reset();
+        block_heights_.Resize(node_count);
         effects_generation_++;
     }
 
@@ -372,7 +372,7 @@ public:
 
     // 可視範囲外（[0, first_keep) と [last_keep, size())）のノードについて
     // text_layout / table_layout / inline_code_bgs / search_hl_cache を破棄する。
-    // y_position と height は維持され、layout_dirty=true で再生成可能な状態にする。
+    // text_top と height は維持され、layout_dirty=true で再生成可能な状態にする。
     // Why: IDWriteTextLayout は内部で glyph buffer / bidi 解析を保持し
     // 1K 文字あたり 2-5KB。可視外も保持し続けると巨大ドキュメントで数十 MB
     // のメモリを COM 側に常駐させてしまう。EVICT_BUFFER_SCREENS 分の安全マージン
@@ -391,7 +391,34 @@ public:
         }
     }
 
-    // すべてのエントリをダーティとしてマークし、レイアウトをリセットする（DPI 変更時）。
+    // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
+    // 再表示時は MeasureTable の lazy 復元経路で CreateTextLayout を再発行する。
+    // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
+    void EvictInvisibleTableRows(float viewport_top, float viewport_bottom, float buffer_screens_height) noexcept
+    {
+        const float keep_top = viewport_top - buffer_screens_height;
+        const float keep_bottom = viewport_bottom + buffer_screens_height;
+        for (auto& e : entries_) {
+            if (!e.table_layout) {
+                continue;
+            }
+            auto& tl = *e.table_layout;
+            if (tl.cell_layouts.empty() || tl.col_count == 0 || tl.row_cum_y.empty()) {
+                continue;
+            }
+            const size_t row_count = tl.row_cum_y.size() - 1;
+            const float entry_top = e.text_top;
+            for (size_t r = 0; r < row_count; ++r) {
+                const float row_top = entry_top + tl.row_cum_y[r];
+                const float row_bottom = entry_top + tl.row_cum_y[r + 1];
+                if (row_bottom < keep_top || row_top > keep_bottom) {
+                    EvictTableRow(tl, r);
+                }
+            }
+        }
+    }
+
+    // フォント・テーマ・ズーム変更時の全リセット。DPI 単独変更には NotifyDpiChanged を使う。
     void MarkAllDirty() noexcept
     {
         for (auto& e : entries_) {
@@ -406,6 +433,15 @@ public:
         effects_generation_++;
     }
 
+    // DPI 変更時の最小リセット。IDWriteTextLayout は DIP 単位なので不変、effects_generation のみ進める。
+    void NotifyDpiChanged() noexcept
+    {
+        for (auto& e : entries_) {
+            e.invalidate_per_frame_hl_caches();
+        }
+        effects_generation_++;
+    }
+
     // エフェクト世代カウンタ。レイアウト変更時にインクリメントされる。
     // Renderer が ApplyVisibleEffects のスキップ判定に使用する。
     constexpr uint32_t GetEffectsGeneration() const noexcept
@@ -415,6 +451,43 @@ public:
     constexpr void IncrementEffectsGeneration() noexcept
     {
         effects_generation_++;
+    }
+
+    // ノード i の block height (= spacing_above + height + spacing_below) を Fenwick に反映する。
+    // RecomputeYPositions が各ノードの新しいブロック高さを書き込む際に呼ぶ。
+    void SetBlockHeight(size_t i, float block_height) noexcept
+    {
+        block_heights_.Set(i, block_height);
+    }
+
+    // 全 N ノードの block_height を O(N) で一括再構築する。values.size() == size() 必須。
+    void BuildBlockHeights(std::span<const float> values) noexcept
+    {
+        assert(values.size() == entries_.size());
+        block_heights_.Build(values);
+    }
+
+    // ノード i のブロック上端 Y を Fenwick から O(log N) で取得する。
+    // ここで「ブロック上端」とは spacing_above を含まない手前の位置で、
+    // テキスト上端 (entry.text_top) は GetBlockTop(i) + spacing_above[i] と一致する。
+    float GetBlockTop(size_t i, float margin_top) const noexcept
+    {
+        return margin_top + block_heights_.PrefixSum(i);
+    }
+
+    // ノード i の block_height (= spacing_above + height + spacing_below) を Fenwick から取得する。
+    float GetBlockHeight(size_t i) const noexcept
+    {
+        return block_heights_.GetPoint(i);
+    }
+
+    // 文書全体の高さを Fenwick から O(log N) で取得する。
+    // = 2 * margin_top + sum(block_heights[0..N))
+    // 末尾ノードの spacing_below を含むため、ComputeTotalContentHeight (sb[last] を含まない)
+    // とは sb[last] 分ずれる。スクロール上限計算は ComputeTotalContentHeight を使うこと。
+    float GetTotalHeightFromFenwick(float margin_top) const noexcept
+    {
+        return margin_top * 2.0f + block_heights_.PrefixSum(block_heights_.size());
     }
 
 private:
@@ -447,8 +520,37 @@ private:
         e.invalidate_per_frame_hl_caches();
     }
 
+    // 1 行分の cell_layouts を Reset し、cell_heights / cell_applied_widths を再計測待ちに戻す。
+    // 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。
+    static void EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
+    {
+        const size_t col_count = tl.col_count;
+        if (col_count == 0) {
+            return;
+        }
+        const size_t base = row_index * col_count;
+        if (base + col_count > tl.cell_layouts.size()) {
+            return;
+        }
+        for (size_t c = 0; c < col_count; ++c) {
+            const size_t ci = base + c;
+            if (tl.cell_layouts[ci]) {
+                tl.cell_layouts[ci].Reset();
+            }
+            if (ci < tl.cell_heights.size()) {
+                tl.cell_heights[ci] = 0.0f;
+            }
+            if (ci < tl.cell_applied_widths.size()) {
+                tl.cell_applied_widths[ci] = -1.0f;
+            }
+        }
+    }
+
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<DiagramEntry> diagrams_;
+    // 各ノードの block height (spacing_above + height + spacing_below) を保持する Fenwick tree。
+    // RecomputeYPositions が更新し、GetBlockTop / GetTotalHeightFromFenwick で参照する。
+    mendo::FloatFenwick block_heights_;
     uint32_t effects_generation_ = 0;
 };
 
@@ -460,7 +562,7 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_
         return 0.0f;
     }
     const size_t last = node_count - 1;
-    return cache[last].y_position + cache[last].height + margin_top;
+    return cache[last].text_top + cache[last].height + margin_top;
 }
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。
@@ -479,9 +581,32 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_co
     const auto first = cache.cbegin();
     const auto last = first + static_cast<ptrdiff_t>(effective);
     const auto it = std::ranges::partition_point(first, last, [viewport_top](const NodeLayoutEntry& e) noexcept {
-        return e.y_position + e.height <= viewport_top;
+        return e.text_top + e.height <= viewport_top;
     });
     return static_cast<int>(it - first);
+}
+
+struct VisibleRange {
+    size_t first;
+    size_t last_plus_1;
+};
+
+// [first, last_plus_1) で range_top..range_bottom と重なる可能性があるノード範囲を返す。
+// first: 下端が range_top 以上の最初のノード（FindFirstVisibleNodeIndex 相当）。
+// last+1: 上端が range_bottom を超える最初のノード。
+inline VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count,
+                                            float range_top, float range_bottom) noexcept
+{
+    const size_t effective = std::min(node_count, cache.size());
+    const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, effective, range_top));
+    size_t last_plus_1 = first;
+    for (size_t i = first; i < effective; ++i) {
+        if (cache[i].text_top > range_bottom) {
+            break;
+        }
+        last_plus_1 = i + 1;
+    }
+    return { first, last_plus_1 };
 }
 
 // (node, offset) → 絶対スクロール位置。
@@ -492,5 +617,5 @@ constexpr float NodeOffsetToScrollY(const LayoutCache& cache, int node, float of
         return 0.0f;
     }
     const int clamped = std::min(node, static_cast<int>(cache.size()) - 1);
-    return std::max(0.0f, cache[clamped].y_position + offset);
+    return std::max(0.0f, cache[clamped].text_top + offset);
 }

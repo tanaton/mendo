@@ -5,50 +5,50 @@
 
 TEST(Parser, EmptyInputReturnsNoNodes)
 {
-    auto nodes = ParseMarkdown(L"").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("")).nodes;
     EXPECT_TRUE(nodes.empty());
 }
 
 TEST(Parser, WhitespaceOnlyReturnsNoNodes)
 {
-    auto nodes = ParseMarkdown(L"   \n\n  ").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("   \n\n  ")).nodes;
     EXPECT_TRUE(nodes.empty());
 }
 
 TEST(Parser, SingleParagraph)
 {
-    auto nodes = ParseMarkdown(L"Hello world").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_EQ(nodes[0].GetText(), L"Hello world");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("Hello world"));
 }
 
 TEST(Parser, MultipleParagraphs)
 {
-    auto nodes = ParseMarkdown(L"First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("First\n\nSecond\n\nThird")).nodes;
     ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_EQ(nodes[1].type, NodeType::Paragraph);
     EXPECT_EQ(nodes[2].type, NodeType::Paragraph);
-    EXPECT_EQ(nodes[0].GetText(), L"First");
-    EXPECT_EQ(nodes[1].GetText(), L"Second");
-    EXPECT_EQ(nodes[2].GetText(), L"Third");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("First"));
+    EXPECT_EQ(nodes[1].GetText(), MENDO_LIT("Second"));
+    EXPECT_EQ(nodes[2].GetText(), MENDO_LIT("Third"));
 }
 
 // ---- 見出し ----
 
 TEST(Parser, HeadingH1)
 {
-    auto nodes = ParseMarkdown(L"# Title").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# Title")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Heading);
     EXPECT_EQ(nodes[0].heading_level, 1);
-    EXPECT_EQ(nodes[0].GetText(), L"Title");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("Title"));
 }
 
 TEST(Parser, HeadingH2)
 {
-    auto nodes = ParseMarkdown(L"## Subtitle").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("## Subtitle")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].heading_level, 2);
 }
@@ -56,8 +56,8 @@ TEST(Parser, HeadingH2)
 TEST(Parser, HeadingH3ToH6)
 {
     for (int level = 3; level <= 6; level++) {
-        std::wstring md(level, L'#');
-        md += L" Test";
+        mendo::doc_string_std md(level, MENDO_LIT('#'));
+        md += MENDO_LIT(" Test");
         auto nodes = ParseMarkdown(md).nodes;
         ASSERT_EQ(nodes.size(), 1u) << "level=" << level;
         EXPECT_EQ(nodes[0].heading_level, level) << "level=" << level;
@@ -66,25 +66,25 @@ TEST(Parser, HeadingH3ToH6)
 
 TEST(Parser, HeadingAnchorId)
 {
-    auto nodes = ParseMarkdown(L"# Hello World").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# Hello World")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].anchor_id(), L"hello-world");
+    EXPECT_EQ(nodes[0].anchor_id(), MENDO_LIT("hello-world"));
 }
 
 TEST(Parser, HeadingAnchorIdCjk)
 {
-    auto nodes = ParseMarkdown(L"## コードブロック").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("## コードブロック")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].anchor_id(), L"コードブロック");
+    EXPECT_EQ(nodes[0].anchor_id(), MENDO_LIT("コードブロック"));
 }
 
 // ---- インライン書式 ----
 
 TEST(Parser, BoldText)
 {
-    auto nodes = ParseMarkdown(L"**bold**").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("**bold**")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"bold");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("bold"));
     ASSERT_GE(nodes[0].runs.size(), 1u);
     EXPECT_TRUE(nodes[0].runs[0].bold());
     EXPECT_FALSE(nodes[0].runs[0].italic());
@@ -92,9 +92,9 @@ TEST(Parser, BoldText)
 
 TEST(Parser, ItalicText)
 {
-    auto nodes = ParseMarkdown(L"*italic*").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("*italic*")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"italic");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("italic"));
     ASSERT_GE(nodes[0].runs.size(), 1u);
     EXPECT_TRUE(nodes[0].runs[0].italic());
     EXPECT_FALSE(nodes[0].runs[0].bold());
@@ -102,7 +102,7 @@ TEST(Parser, ItalicText)
 
 TEST(Parser, BoldItalicText)
 {
-    auto nodes = ParseMarkdown(L"***bolditalic***").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("***bolditalic***")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
     EXPECT_TRUE(nodes[0].runs[0].bold());
@@ -111,16 +111,16 @@ TEST(Parser, BoldItalicText)
 
 TEST(Parser, InlineCode)
 {
-    auto nodes = ParseMarkdown(L"`code`").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("`code`")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"code");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("code"));
     ASSERT_GE(nodes[0].runs.size(), 1u);
     EXPECT_TRUE(nodes[0].runs[0].code());
 }
 
 TEST(Parser, StrikethroughText)
 {
-    auto nodes = ParseMarkdown(L"~~deleted~~").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("~~deleted~~")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
     EXPECT_TRUE(nodes[0].runs[0].strikethrough());
@@ -128,7 +128,7 @@ TEST(Parser, StrikethroughText)
 
 TEST(Parser, MixedFormattingPreservesOrder)
 {
-    auto nodes = ParseMarkdown(L"normal **bold** normal").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("normal **bold** normal")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // 少なくとも3つのランを持つべき: "normal ", "bold", " normal"
     ASSERT_GE(nodes[0].runs.size(), 3u);
@@ -141,26 +141,26 @@ TEST(Parser, MixedFormattingPreservesOrder)
 
 TEST(Parser, ExternalLink)
 {
-    auto nodes = ParseMarkdown(L"[text](https://example.com)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[text](https://example.com)")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
     ASSERT_TRUE(nodes[0].runs[0].has_link());
-    EXPECT_EQ(nodes[0].view_link_urls()[nodes[0].runs[0].link_url_index], L"https://example.com");
-    EXPECT_EQ(nodes[0].GetText(), L"text");
+    EXPECT_EQ(nodes[0].view_link_urls()[nodes[0].runs[0].link_url_index], MENDO_LIT("https://example.com"));
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("text"));
 }
 
 TEST(Parser, InternalLink)
 {
-    auto nodes = ParseMarkdown(L"[section](#my-section)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[section](#my-section)")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
     ASSERT_TRUE(nodes[0].runs[0].has_link());
-    EXPECT_EQ(nodes[0].view_link_urls()[nodes[0].runs[0].link_url_index], L"#my-section");
+    EXPECT_EQ(nodes[0].view_link_urls()[nodes[0].runs[0].link_url_index], MENDO_LIT("#my-section"));
 }
 
 TEST(Parser, ParagraphWithNoLink)
 {
-    auto nodes = ParseMarkdown(L"plain text").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("plain text")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     for (const auto& run : nodes[0].runs) {
         EXPECT_FALSE(run.has_link());
@@ -171,22 +171,22 @@ TEST(Parser, ParagraphWithNoLink)
 
 TEST(Parser, FencedCodeBlock)
 {
-    auto nodes = ParseMarkdown(L"```\ncode line 1\ncode line 2\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```\ncode line 1\ncode line 2\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    EXPECT_NE(nodes[0].GetText().find(L"code line 1"), std::wstring::npos);
-    EXPECT_NE(nodes[0].GetText().find(L"code line 2"), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("code line 1")), mendo::doc_string_std::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("code line 2")), mendo::doc_string_std::npos);
 }
 
 TEST(Parser, CodeBlockPreservesNewlines)
 {
-    auto nodes = ParseMarkdown(L"```\na\nb\nc\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```\na\nb\nc\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     // 行間に改行を含むべき
     const auto& text = nodes[0].GetText();
     int newlines = 0;
-    for (wchar_t c : text) if (c == L'\n') newlines++;
+    for (wchar_t c : text) if (c == MENDO_LIT('\n')) newlines++;
     EXPECT_GE(newlines, 2);
 }
 
@@ -194,14 +194,14 @@ TEST(Parser, CodeBlockPreservesNewlines)
 
 TEST(Parser, HorizontalRule)
 {
-    auto nodes = ParseMarkdown(L"---").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("---")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::HorizontalRule);
 }
 
 TEST(Parser, HorizontalRuleWithAsterisks)
 {
-    auto nodes = ParseMarkdown(L"***").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("***")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::HorizontalRule);
 }
@@ -210,26 +210,26 @@ TEST(Parser, HorizontalRuleWithAsterisks)
 
 TEST(Parser, UnorderedList)
 {
-    auto nodes = ParseMarkdown(L"- item1\n- item2\n- item3").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("- item1\n- item2\n- item3")).nodes;
     ASSERT_EQ(nodes.size(), 3u);
     for (const auto& node : nodes) {
         EXPECT_EQ(node.type, NodeType::ListItem);
         EXPECT_EQ(node.list_number, 0); // 順序なしリスト
     }
-    EXPECT_EQ(nodes[0].GetText(), L"item1");
-    EXPECT_EQ(nodes[1].GetText(), L"item2");
-    EXPECT_EQ(nodes[2].GetText(), L"item3");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("item1"));
+    EXPECT_EQ(nodes[1].GetText(), MENDO_LIT("item2"));
+    EXPECT_EQ(nodes[2].GetText(), MENDO_LIT("item3"));
 }
 
 // ---- バグ #10: ネストされた引用ブロック ----
 
 TEST(Parser, NestedBlockquotePreservesOuterStyle)
 {
-    auto nodes = ParseMarkdown(L"> outer\n>\n> > inner\n>\n> still outer").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> outer\n>\n> > inner\n>\n> still outer")).nodes;
     // 内側の引用ブロックが終了した後、"still outer"はまだBlockQuoteであるべき
     bool found_still_outer = false;
     for (const auto& node : nodes) {
-        if (node.GetText().find(L"still outer") != std::wstring::npos) {
+        if (node.GetText().find(MENDO_LIT("still outer")) != mendo::doc_string_std::npos) {
             EXPECT_EQ(node.type, NodeType::BlockQuote)
                 << "内側の引用ブロック後のテキストはBlockQuoteのままであるべき";
             found_still_outer = true;
@@ -240,10 +240,10 @@ TEST(Parser, NestedBlockquotePreservesOuterStyle)
 
 TEST(Parser, SingleBlockquoteIsBlockQuoteType)
 {
-    auto nodes = ParseMarkdown(L"> quoted text").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> quoted text")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
-    EXPECT_EQ(nodes[0].GetText(), L"quoted text");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("quoted text"));
 }
 
 // ネスト blockquote の group/quote_depth 設計回帰防止
@@ -251,7 +251,7 @@ TEST(Parser, SingleBlockquoteIsBlockQuoteType)
 
 TEST(Parser, NestedBlockquote_SharesSameGroup)
 {
-    auto nodes = ParseMarkdown(L"> outer\n>\n> > inner\n>\n> still outer").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> outer\n>\n> > inner\n>\n> still outer")).nodes;
     ASSERT_GE(nodes.size(), 3u);
     const int group = nodes[0].blockquote_group;
     EXPECT_GE(group, 0);
@@ -265,7 +265,7 @@ TEST(Parser, NestedBlockquote_SharesSameGroup)
 
 TEST(Parser, NestedBlockquote_QuoteDepthReflectsNesting)
 {
-    auto nodes = ParseMarkdown(L"> outer\n> > inner\n> > > deep").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> outer\n> > inner\n> > > deep")).nodes;
     int max_depth = 0;
     for (const auto& n : nodes) {
         if (n.type == NodeType::BlockQuote && n.quote_depth > max_depth) {
@@ -278,10 +278,10 @@ TEST(Parser, NestedBlockquote_QuoteDepthReflectsNesting)
 TEST(Parser, NestedBlockquote_OuterReturnAfterInnerKeepsDepthOne)
 {
     // 内側 quote の終了は空行 `>` が必要 (md4c の lazy continuation 挙動)
-    auto nodes = ParseMarkdown(L"> outer\n> > inner\n>\n> back to outer").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> outer\n> > inner\n>\n> back to outer")).nodes;
     bool checked = false;
     for (const auto& n : nodes) {
-        if (n.GetText().find(L"back to outer") != std::wstring::npos) {
+        if (n.GetText().find(MENDO_LIT("back to outer")) != mendo::doc_string_std::npos) {
             EXPECT_EQ(n.quote_depth, 1)
                 << "ネストを抜けて外側に戻ったノードは quote_depth=1";
             checked = true;
@@ -295,48 +295,54 @@ TEST(Parser, NestedBlockquote_OuterReturnAfterInnerKeepsDepthOne)
 TEST(Parser, HtmlEntitySupplementaryPlane)
 {
     // U+1F600 = ニコニコ顔の絵文字（追加面）
-    auto nodes = ParseMarkdown(L"&#x1F600;").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("&#x1F600;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    // U+1F600のUTF-16サロゲートペア: D83D DE00
-    ASSERT_GE(nodes[0].GetText().size(), 2u);
-    EXPECT_EQ(nodes[0].GetText()[0], static_cast<wchar_t>(0xD83D));
-    EXPECT_EQ(nodes[0].GetText()[1], static_cast<wchar_t>(0xDE00));
+    // UTF-8 4 byte: F0 9F 98 80
+    ASSERT_EQ(nodes[0].GetText().size(), 4u);
+    EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[0]), 0xF0);
+    EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[1]), 0x9F);
+    EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[2]), 0x98);
+    EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[3]), 0x80);
 }
 
 TEST(Parser, HtmlEntityDecimalSupplementaryPlane)
 {
     // U+1F4A9 = 128169 decimal
-    auto nodes = ParseMarkdown(L"&#128169;").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("&#128169;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].GetText().size(), 2u);
-    // U+1F4A9 -> D83D DCA9
-    EXPECT_EQ(nodes[0].GetText()[0], static_cast<wchar_t>(0xD83D));
-    EXPECT_EQ(nodes[0].GetText()[1], static_cast<wchar_t>(0xDCA9));
+    // UTF-8 4 byte: F0 9F 92 A9
+    ASSERT_EQ(nodes[0].GetText().size(), 4u);
+    EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[0]), 0xF0);
+    EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[1]), 0x9F);
+    EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[2]), 0x92);
+    EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[3]), 0xA9);
 }
 
 TEST(Parser, HtmlEntityBmpStillWorks)
 {
     // U+00A9 = 著作権記号（基本多言語面）
-    auto nodes = ParseMarkdown(L"&#xA9;").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("&#xA9;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_EQ(nodes[0].GetText().size(), 1u);
-    EXPECT_EQ(nodes[0].GetText()[0], L'\u00A9');
+    // UTF-8 2 byte: C2 A9
+    ASSERT_EQ(nodes[0].GetText().size(), 2u);
+    EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[0]), 0xC2);
+    EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[1]), 0xA9);
 }
 
 TEST(Parser, HtmlEntityBeyondUnicode)
 {
     // U+110000はUnicodeの最大値を超えている; 無視されるべき
-    auto nodes = ParseMarkdown(L"&#x110000;").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("&#x110000;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // 生のエンティティテキストとしてそのまま渡されるべき
-    EXPECT_NE(nodes[0].GetText().find(L"110000"), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("110000")), mendo::doc_string_std::npos);
 }
 
 // ---- リスト ----
 
 TEST(Parser, OrderedList)
 {
-    auto nodes = ParseMarkdown(L"1. first\n2. second\n3. third").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("1. first\n2. second\n3. third")).nodes;
     ASSERT_EQ(nodes.size(), 3u);
     for (const auto& node : nodes) {
         EXPECT_EQ(node.type, NodeType::ListItem);
@@ -348,7 +354,7 @@ TEST(Parser, OrderedList)
 
 TEST(Parser, OrderedListStartsFromN)
 {
-    auto nodes = ParseMarkdown(L"5. five\n6. six").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("5. five\n6. six")).nodes;
     ASSERT_EQ(nodes.size(), 2u);
     EXPECT_EQ(nodes[0].list_number, 5);
     EXPECT_EQ(nodes[1].list_number, 6);
@@ -356,7 +362,7 @@ TEST(Parser, OrderedListStartsFromN)
 
 TEST(Parser, ListIndentLevel)
 {
-    auto nodes = ParseMarkdown(L"- item").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("- item")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_GT(nodes[0].indent_level, 0);
 }
@@ -365,16 +371,16 @@ TEST(Parser, ListIndentLevel)
 
 TEST(Parser, TaskListChecked)
 {
-    auto nodes = ParseMarkdown(L"- [x] done").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("- [x] done")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
     EXPECT_TRUE(nodes[0].task_checked);
-    EXPECT_EQ(nodes[0].GetText(), L"done");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("done"));
 }
 
 TEST(Parser, TaskListUnchecked)
 {
-    auto nodes = ParseMarkdown(L"- [ ] todo").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("- [ ] todo")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
     EXPECT_FALSE(nodes[0].task_checked);
@@ -382,7 +388,7 @@ TEST(Parser, TaskListUnchecked)
 
 TEST(Parser, TaskListUpperX)
 {
-    auto nodes = ParseMarkdown(L"- [X] also done").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("- [X] also done")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_TRUE(nodes[0].task_checked);
 }
@@ -391,15 +397,15 @@ TEST(Parser, TaskListUpperX)
 
 TEST(Parser, BlockQuote)
 {
-    auto nodes = ParseMarkdown(L"> quoted text").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> quoted text")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
-    EXPECT_EQ(nodes[0].GetText(), L"quoted text");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("quoted text"));
 }
 
 TEST(Parser, BlockQuoteIndentLevel)
 {
-    auto nodes = ParseMarkdown(L"> quoted").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> quoted")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_GT(nodes[0].indent_level, 0);
 }
@@ -409,83 +415,113 @@ TEST(Parser, BlockQuoteIndentLevel)
 TEST(Parser, SimpleTable)
 {
     auto nodes = ParseMarkdown(
-        L"| A | B |\n"
-        L"|---|---|\n"
-        L"| 1 | 2 |"
+        MENDO_LIT("| A | B |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| 1 | 2 |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u); // header + 1 data row
+    ASSERT_GE(nodes[0].table_data()->row_count, 2u); // header + 1 data row
+}
+
+// NodeTableData の concat 構造が parser で正しく populate されることを確認。
+TEST(Parser, TableConcatStructure)
+{
+    auto nodes = ParseMarkdown(
+        MENDO_LIT("| A | B |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| 1 | 2 |")
+    ).nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_NE(tbl, nullptr);
+    EXPECT_EQ(tbl->row_count, 2u);
+    EXPECT_EQ(tbl->col_count, 2u);
+    EXPECT_EQ(tbl->concat_text, MENDO_LIT("A\tB\n1\t2"));
+    ASSERT_EQ(tbl->cell_text_starts.size(), 5u);
+    EXPECT_EQ(tbl->cell_text_starts[0], 0u);
+    EXPECT_EQ(tbl->cell_text_starts[1], 2u);
+    EXPECT_EQ(tbl->cell_text_starts[2], 4u);
+    EXPECT_EQ(tbl->cell_text_starts[3], 6u);
+    EXPECT_EQ(tbl->cell_text_starts[4], 7u);
+    ASSERT_EQ(tbl->cell_run_starts.size(), 5u);
+    ASSERT_EQ(tbl->is_header_row.size(), 2u);
+    EXPECT_TRUE(tbl->is_header_row[0]);
+    EXPECT_FALSE(tbl->is_header_row[1]);
+    EXPECT_EQ(tbl->aligns.size(), 2u);
+    EXPECT_EQ(tbl->GetCellText(0, 0), MENDO_LIT("A"));
+    EXPECT_EQ(tbl->GetCellText(0, 1), MENDO_LIT("B"));
+    EXPECT_EQ(tbl->GetCellText(1, 0), MENDO_LIT("1"));
+    EXPECT_EQ(tbl->GetCellText(1, 1), MENDO_LIT("2"));
 }
 
 TEST(Parser, TableHeaderCells)
 {
     auto nodes = ParseMarkdown(
-        L"| H1 | H2 |\n"
-        L"|---|---|\n"
-        L"| D1 | D2 |"
+        MENDO_LIT("| H1 | H2 |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| D1 | D2 |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
+    EXPECT_EQ(tbl->col_count, 2u);
 
     // 最初の行はヘッダーであるべき
-    const auto& header = nodes[0].table_rows()[0];
-    ASSERT_EQ(header.cells.size(), 2u);
-    EXPECT_TRUE(header.cells[0].is_header);
-    EXPECT_TRUE(header.cells[1].is_header);
-    EXPECT_EQ(header.cells[0].text, L"H1");
-    EXPECT_EQ(header.cells[1].text, L"H2");
+    EXPECT_TRUE(tbl->IsHeaderRow(0));
+    EXPECT_EQ(tbl->GetCellText(0, 0), MENDO_LIT("H1"));
+    EXPECT_EQ(tbl->GetCellText(0, 1), MENDO_LIT("H2"));
 
     // 2番目の行はヘッダーではないべき
-    const auto& data = nodes[0].table_rows()[1];
-    EXPECT_FALSE(data.cells[0].is_header);
+    EXPECT_FALSE(tbl->IsHeaderRow(1));
 }
 
 TEST(Parser, TableAlignment)
 {
     auto nodes = ParseMarkdown(
-        L"| L | C | R |\n"
-        L"|:--|:--:|--:|\n"
-        L"| a | b | c |"
+        MENDO_LIT("| L | C | R |\n")
+        MENDO_LIT("|:--|:--:|--:|\n")
+        MENDO_LIT("| a | b | c |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    // データ行の配置を確認（配置はMD_BLOCK_TD_DETAILから取得）
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& row = nodes[0].table_rows()[1];
-    ASSERT_EQ(row.cells.size(), 3u);
-    EXPECT_EQ(row.cells[0].align, TableAlign::Left);
-    EXPECT_EQ(row.cells[1].align, TableAlign::Center);
-    EXPECT_EQ(row.cells[2].align, TableAlign::Right);
+    // データ行の配置を確認（配置はMD_BLOCK_TD_DETAILから取得、列単位）
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
+    ASSERT_EQ(tbl->col_count, 3u);
+    EXPECT_EQ(tbl->ColAlign(0), TableAlign::Left);
+    EXPECT_EQ(tbl->ColAlign(1), TableAlign::Center);
+    EXPECT_EQ(tbl->ColAlign(2), TableAlign::Right);
 }
 
 TEST(Parser, TableMultipleRows)
 {
     auto nodes = ParseMarkdown(
-        L"| A |\n"
-        L"|---|\n"
-        L"| 1 |\n"
-        L"| 2 |\n"
-        L"| 3 |"
+        MENDO_LIT("| A |\n")
+        MENDO_LIT("|---|\n")
+        MENDO_LIT("| 1 |\n")
+        MENDO_LIT("| 2 |\n")
+        MENDO_LIT("| 3 |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].table_rows().size(), 4u); // 1 header + 3 data
+    EXPECT_EQ(nodes[0].table_data()->row_count, 4u); // 1 header + 3 data
 }
 
 // ---- HTMLエンティティ ----
 
 TEST(Parser, HtmlEntityAmp)
 {
-    auto nodes = ParseMarkdown(L"A &amp; B").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("A &amp; B")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_NE(nodes[0].GetText().find(L"&"), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("&")), mendo::doc_string_std::npos);
 }
 
 TEST(Parser, HtmlEntityLtGt)
 {
-    auto nodes = ParseMarkdown(L"&lt;tag&gt;").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("&lt;tag&gt;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_NE(nodes[0].GetText().find(L"<"), std::wstring::npos);
-    EXPECT_NE(nodes[0].GetText().find(L">"), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("<")), mendo::doc_string_std::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT(">")), mendo::doc_string_std::npos);
 }
 
 // ---- 複雑なドキュメント ----
@@ -493,14 +529,14 @@ TEST(Parser, HtmlEntityLtGt)
 TEST(Parser, ComplexDocumentNodeCount)
 {
     auto nodes = ParseMarkdown(
-        L"# Title\n\n"
-        L"Paragraph.\n\n"
-        L"## Section\n\n"
-        L"- item1\n"
-        L"- item2\n\n"
-        L"---\n\n"
-        L"> quote\n\n"
-        L"```\ncode\n```\n"
+        MENDO_LIT("# Title\n\n")
+        MENDO_LIT("Paragraph.\n\n")
+        MENDO_LIT("## Section\n\n")
+        MENDO_LIT("- item1\n")
+        MENDO_LIT("- item2\n\n")
+        MENDO_LIT("---\n\n")
+        MENDO_LIT("> quote\n\n")
+        MENDO_LIT("```\ncode\n```\n")
     ).nodes;
     // タイトル、段落、セクション、item1、item2、水平線、引用、コード
     EXPECT_GE(nodes.size(), 7u);
@@ -509,7 +545,7 @@ TEST(Parser, ComplexDocumentNodeCount)
 TEST(Parser, NodeTypesInComplexDocument)
 {
     auto nodes = ParseMarkdown(
-        L"# H\n\nP\n\n- L\n\n---\n\n> Q\n\n```\nC\n```\n"
+        MENDO_LIT("# H\n\nP\n\n- L\n\n---\n\n> Q\n\n```\nC\n```\n")
     ).nodes;
     bool has_heading = false, has_para = false, has_list = false;
     bool has_hr = false, has_quote = false, has_code = false;
@@ -533,14 +569,14 @@ TEST(Parser, NodeTypesInComplexDocument)
 
 TEST(Parser, JapaneseText)
 {
-    auto nodes = ParseMarkdown(L"日本語テスト").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("日本語テスト")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"日本語テスト");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("日本語テスト"));
 }
 
 TEST(Parser, EmojiText)
 {
-    auto nodes = ParseMarkdown(L"Hello 🎉").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello 🎉")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // クラッシュせず出力が生成されることだけを確認
     EXPECT_FALSE(nodes[0].GetText().empty());
@@ -550,18 +586,18 @@ TEST(Parser, EmojiText)
 
 TEST(Parser, SoftBreakBecomesSpace)
 {
-    auto nodes = ParseMarkdown(L"line1\nline2").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("line1\nline2")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // 段落内のソフトブレークはスペースになるべき
-    EXPECT_NE(nodes[0].GetText().find(L"line1"), std::wstring::npos);
-    EXPECT_NE(nodes[0].GetText().find(L"line2"), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("line1")), mendo::doc_string_std::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("line2")), mendo::doc_string_std::npos);
 }
 
 // ---- ラン位置の整合性 ----
 
 TEST(Parser, RunPositionsAreValid)
 {
-    auto nodes = ParseMarkdown(L"normal **bold** `code` *italic*").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("normal **bold** `code` *italic*")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     const auto& node = nodes[0];
     for (const auto& run : node.runs) {
@@ -572,7 +608,7 @@ TEST(Parser, RunPositionsAreValid)
 
 TEST(Parser, RunsCoverEntireText)
 {
-    auto nodes = ParseMarkdown(L"aaa **bbb** ccc").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("aaa **bbb** ccc")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     const auto& node = nodes[0];
     uint32_t total_length = 0;
@@ -584,7 +620,7 @@ TEST(Parser, RunsCoverEntireText)
 
 TEST(Parser, RunsAreContiguous)
 {
-    auto nodes = ParseMarkdown(L"a **b** c").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("a **b** c")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     const auto& runs = nodes[0].runs;
     for (size_t i = 1; i < runs.size(); i++) {
@@ -597,7 +633,7 @@ TEST(Parser, RunsAreContiguous)
 
 TEST(Parser, NestedUnorderedList)
 {
-    auto nodes = ParseMarkdown(L"- a\n  - b\n    - c").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("- a\n  - b\n    - c")).nodes;
     ASSERT_GE(nodes.size(), 3u);
     // より深いアイテムはより高いインデントレベルを持つべき
     EXPECT_LT(nodes[0].indent_level, nodes[1].indent_level);
@@ -606,7 +642,7 @@ TEST(Parser, NestedUnorderedList)
 
 TEST(Parser, NestedOrderedList)
 {
-    auto nodes = ParseMarkdown(L"1. a\n   1. b\n      1. c").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("1. a\n   1. b\n      1. c")).nodes;
     ASSERT_GE(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].list_number, 1);
     EXPECT_EQ(nodes[1].list_number, 1);
@@ -616,7 +652,7 @@ TEST(Parser, NestedOrderedList)
 
 TEST(Parser, MixedListNesting)
 {
-    auto nodes = ParseMarkdown(L"1. ordered\n   - unordered\n   - unordered2").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("1. ordered\n   - unordered\n   - unordered2")).nodes;
     ASSERT_GE(nodes.size(), 3u);
     EXPECT_GT(nodes[0].list_number, 0);
     EXPECT_EQ(nodes[1].list_number, 0);
@@ -627,7 +663,7 @@ TEST(Parser, MixedListNesting)
 
 TEST(Parser, CodeBlockWithLanguage)
 {
-    auto nodes = ParseMarkdown(L"```cpp\nint x = 1;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```cpp\nint x = 1;\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
@@ -635,11 +671,11 @@ TEST(Parser, CodeBlockWithLanguage)
 
 TEST(Parser, CodeBlockNoTrailingNewline)
 {
-    auto nodes = ParseMarkdown(L"```\nhello\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```\nhello\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // 末尾の改行は除去されるべき
     EXPECT_FALSE(nodes[0].GetText().empty());
-    EXPECT_NE(nodes[0].GetText().back(), L'\n');
+    EXPECT_NE(nodes[0].GetText().back(), MENDO_LIT('\n'));
 }
 
 // ---- インライン書式付きテーブル ----
@@ -647,17 +683,17 @@ TEST(Parser, CodeBlockNoTrailingNewline)
 TEST(Parser, TableCellWithBold)
 {
     auto nodes = ParseMarkdown(
-        L"| A | **B** |\n"
-        L"|---|---|\n"
-        L"| 1 | 2 |"
+        MENDO_LIT("| A | **B** |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| 1 | 2 |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 1u);
-    auto& header = nodes[0].table_rows()[0];
-    ASSERT_GE(header.cells.size(), 2u);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 1u);
+    ASSERT_GE(tbl->col_count, 2u);
     // 2番目のヘッダーセルは太字ランを持つべき
     bool has_bold = false;
-    for (const auto& run : header.cells[1].runs) {
+    for (const auto& run : tbl->GetCellRuns(0, 1)) {
         if (run.bold()) has_bold = true;
     }
     EXPECT_TRUE(has_bold);
@@ -666,15 +702,15 @@ TEST(Parser, TableCellWithBold)
 TEST(Parser, TableLinearizedText)
 {
     auto nodes = ParseMarkdown(
-        L"| A | B |\n"
-        L"|---|---|\n"
-        L"| 1 | 2 |"
+        MENDO_LIT("| A | B |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| 1 | 2 |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    // パーサーは線形化テキストを構築しない（レイアウトが行う）ので、構造だけ確認
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    EXPECT_EQ(nodes[0].table_rows()[0].cells[0].text, L"A");
-    EXPECT_EQ(nodes[0].table_rows()[0].cells[1].text, L"B");
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
+    EXPECT_EQ(tbl->GetCellText(0, 0), MENDO_LIT("A"));
+    EXPECT_EQ(tbl->GetCellText(0, 1), MENDO_LIT("B"));
 }
 
 // ---- リンク付きテーブル ----
@@ -682,27 +718,27 @@ TEST(Parser, TableLinearizedText)
 TEST(Parser, TableCellWithLink)
 {
     auto nodes = ParseMarkdown(
-        L"| Name | Link |\n"
-        L"|------|------|\n"
-        L"| foo | [bar](https://example.com) |"
+        MENDO_LIT("| Name | Link |\n")
+        MENDO_LIT("|------|------|\n")
+        MENDO_LIT("| foo | [bar](https://example.com) |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& data_row = nodes[0].table_rows()[1];
-    ASSERT_GE(data_row.cells.size(), 2u);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
+    ASSERT_GE(tbl->col_count, 2u);
 
     // リンクセルはランにlink_urlを持つべき
     bool found_link = false;
-    for (const auto& run : data_row.cells[1].runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 1)) {
         if (run.has_link()) {
-            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], L"https://example.com");
+            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], MENDO_LIT("https://example.com"));
             found_link = true;
         }
     }
     EXPECT_TRUE(found_link);
 
     // リンクでないセルはリンクを持たないべき
-    for (const auto& run : data_row.cells[0].runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 0)) {
         EXPECT_FALSE(run.has_link());
     }
 }
@@ -710,18 +746,18 @@ TEST(Parser, TableCellWithLink)
 TEST(Parser, TableCellWithInternalLink)
 {
     auto nodes = ParseMarkdown(
-        L"| Section |\n"
-        L"|---------|\n"
-        L"| [intro](#introduction) |"
+        MENDO_LIT("| Section |\n")
+        MENDO_LIT("|---------|\n")
+        MENDO_LIT("| [intro](#introduction) |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& cell = nodes[0].table_rows()[1].cells[0];
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
 
     bool found = false;
-    for (const auto& run : cell.runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 0)) {
         if (run.has_link()) {
-            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], L"#introduction");
+            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], MENDO_LIT("#introduction"));
             found = true;
         }
     }
@@ -731,16 +767,16 @@ TEST(Parser, TableCellWithInternalLink)
 TEST(Parser, TableCellWithBoldLink)
 {
     auto nodes = ParseMarkdown(
-        L"| Link |\n"
-        L"|------|\n"
-        L"| [**bold**](https://example.com) |"
+        MENDO_LIT("| Link |\n")
+        MENDO_LIT("|------|\n")
+        MENDO_LIT("| [**bold**](https://example.com) |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& cell = nodes[0].table_rows()[1].cells[0];
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
 
     bool has_bold_link = false;
-    for (const auto& run : cell.runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 0)) {
         if (run.bold() && run.has_link()) {
             has_bold_link = true;
         }
@@ -751,18 +787,18 @@ TEST(Parser, TableCellWithBoldLink)
 TEST(Parser, TableCellMixedTextAndLink)
 {
     auto nodes = ParseMarkdown(
-        L"| Content |\n"
-        L"|---------|\n"
-        L"| before [link](https://example.com) after |"
+        MENDO_LIT("| Content |\n")
+        MENDO_LIT("|---------|\n")
+        MENDO_LIT("| before [link](https://example.com) after |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
-    const auto& cell = nodes[0].table_rows()[1].cells[0];
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_GE(tbl->row_count, 2u);
 
     // リンク付きとリンクなしのランを持つべき
     bool has_link_run = false;
     bool has_plain_run = false;
-    for (const auto& run : cell.runs) {
+    for (const auto& run : tbl->GetCellRuns(1, 0)) {
         if (run.has_link()) has_link_run = true;
         else has_plain_run = true;
     }
@@ -774,33 +810,33 @@ TEST(Parser, TableCellMixedTextAndLink)
 
 TEST(Parser, HtmlEntityQuot)
 {
-    auto nodes = ParseMarkdown(L"&quot;hello&quot;").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("&quot;hello&quot;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_NE(nodes[0].GetText().find(L"\""), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("\"")), mendo::doc_string_std::npos);
 }
 
 TEST(Parser, HtmlEntityNbsp)
 {
-    auto nodes = ParseMarkdown(L"a&nbsp;b").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("a&nbsp;b")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_NE(nodes[0].GetText().find(L'\u00A0'), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT('\u00A0')), mendo::doc_string_std::npos);
 }
 
 // ---- ハードブレーク ----
 
 TEST(Parser, HardBreakWithTwoSpaces)
 {
-    auto nodes = ParseMarkdown(L"line1  \nline2").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("line1  \nline2")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // ハードブレークはテキスト内に改行を生成するべき
-    EXPECT_NE(nodes[0].GetText().find(L'\n'), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT('\n')), mendo::doc_string_std::npos);
 }
 
 // ---- 複数見出しのアンカー一意性 ----
 
 TEST(Parser, MultipleHeadingsHaveAnchors)
 {
-    auto nodes = ParseMarkdown(L"# A\n\n## B\n\n### C").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# A\n\n## B\n\n### C")).nodes;
     for (const auto& node : nodes) {
         if (node.type == NodeType::Heading) {
             EXPECT_FALSE(node.anchor_id().empty())
@@ -813,7 +849,7 @@ TEST(Parser, MultipleHeadingsHaveAnchors)
 
 TEST(Parser, BoldLink)
 {
-    auto nodes = ParseMarkdown(L"[**bold link**](https://example.com)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[**bold link**](https://example.com)")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     bool has_bold_link = false;
     for (const auto& run : nodes[0].runs) {
@@ -828,55 +864,55 @@ TEST(Parser, BoldLink)
 
 TEST(Parser, DuplicateHeadingAnchorsAreUnique)
 {
-    auto nodes = ParseMarkdown(L"# Title\n\n## Title\n\n### Title").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# Title\n\n## Title\n\n### Title")).nodes;
     ASSERT_EQ(nodes.size(), 3u);
-    EXPECT_EQ(nodes[0].anchor_id(), L"title");
-    EXPECT_EQ(nodes[1].anchor_id(), L"title-1");
-    EXPECT_EQ(nodes[2].anchor_id(), L"title-2");
+    EXPECT_EQ(nodes[0].anchor_id(), MENDO_LIT("title"));
+    EXPECT_EQ(nodes[1].anchor_id(), MENDO_LIT("title-1"));
+    EXPECT_EQ(nodes[2].anchor_id(), MENDO_LIT("title-2"));
 }
 
 TEST(Parser, DuplicateAnchorsWithDifferentText)
 {
-    auto nodes = ParseMarkdown(L"# A\n\n## B\n\n### A").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# A\n\n## B\n\n### A")).nodes;
     ASSERT_EQ(nodes.size(), 3u);
-    EXPECT_EQ(nodes[0].anchor_id(), L"a");
-    EXPECT_EQ(nodes[1].anchor_id(), L"b");
-    EXPECT_EQ(nodes[2].anchor_id(), L"a-1");
+    EXPECT_EQ(nodes[0].anchor_id(), MENDO_LIT("a"));
+    EXPECT_EQ(nodes[1].anchor_id(), MENDO_LIT("b"));
+    EXPECT_EQ(nodes[2].anchor_id(), MENDO_LIT("a-1"));
 }
 
 // ---- 数値HTMLエンティティ ----
 
 TEST(Parser, NumericEntityDecimal)
 {
-    auto nodes = ParseMarkdown(L"&#65;").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("&#65;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"A");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("A"));
 }
 
 TEST(Parser, NumericEntityHex)
 {
-    auto nodes = ParseMarkdown(L"&#x41;").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("&#x41;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"A");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("A"));
 }
 
 TEST(Parser, NumericEntityJapanese)
 {
     // &#x3042; = あ (Hiragana A)
-    auto nodes = ParseMarkdown(L"&#x3042;").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("&#x3042;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"\u3042");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("\u3042"));
 }
 
 // ---- 深いネスト ----
 
 TEST(Parser, DeeplyNestedList)
 {
-    std::wstring md;
-    md += L"- L1\n";
-    md += L"  - L2\n";
-    md += L"    - L3\n";
-    md += L"      - L4\n";
+    mendo::doc_string_std md;
+    md += MENDO_LIT("- L1\n");
+    md += MENDO_LIT("  - L2\n");
+    md += MENDO_LIT("    - L3\n");
+    md += MENDO_LIT("      - L4\n");
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GE(nodes.size(), 4u);
     // より深いレベルはより高いindent_levelを持つべき
@@ -891,20 +927,20 @@ TEST(Parser, TableUnevenColumns)
 {
     // md4cがこれを処理する - 行内のセルが少ない場合
     auto nodes = ParseMarkdown(
-        L"| A | B | C |\n"
-        L"|---|---|---|\n"
-        L"| 1 | 2 |\n"
+        MENDO_LIT("| A | B | C |\n")
+        MENDO_LIT("|---|---|---|\n")
+        MENDO_LIT("| 1 | 2 |\n")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
-    ASSERT_GE(nodes[0].table_rows().size(), 2u);
+    ASSERT_GE(nodes[0].table_data()->row_count, 2u);
 }
 
 // ---- Mermaid言語のコードブロック ----
 
 TEST(Parser, MermaidCodeBlock)
 {
-    auto nodes = ParseMarkdown(L"```mermaid\ngraph TD;\n  A-->B;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```mermaid\ngraph TD;\n  A-->B;\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Mermaid);
@@ -914,11 +950,11 @@ TEST(Parser, MermaidCodeBlock)
 
 TEST(Parser, LatexDisplayMathSingleLinePromotedToCodeBlock)
 {
-    auto result = ParseMarkdown(L"$$E = mc^2$$");
+    auto result = ParseMarkdown(MENDO_LIT("$$E = mc^2$$"));
     ASSERT_EQ(result.nodes.size(), 1u);
     EXPECT_EQ(result.nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
-    EXPECT_EQ(result.nodes[0].GetText(), L"E = mc^2");
+    EXPECT_EQ(result.nodes[0].GetText(), MENDO_LIT("E = mc^2"));
     // diagram_indices に登録される（描画パイプラインに流すため）
     ASSERT_EQ(result.diagram_indices.size(), 1u);
     EXPECT_EQ(result.diagram_indices[0], 0u);
@@ -927,19 +963,19 @@ TEST(Parser, LatexDisplayMathSingleLinePromotedToCodeBlock)
 TEST(Parser, LatexDisplayMathWithOtherContentFallsBackToText)
 {
     // 段落内に数式以外の内容があるときは昇格せず、テキストとして残す
-    auto nodes = ParseMarkdown(L"before $$x+y$$ after").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("before $$x+y$$ after")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
     // フォールバック時は $$ 区切りが復元されていること
-    const std::wstring text(nodes[0].GetText());
-    EXPECT_NE(text.find(L"$$x+y$$"), std::wstring::npos);
+    const mendo::doc_string_std text(nodes[0].GetText());
+    EXPECT_NE(text.find(MENDO_LIT("$$x+y$$")), mendo::doc_string_std::npos);
 }
 
 TEST(Parser, LatexMultipleDisplayMathInOneParagraphFallsBackToText)
 {
     // 1段落に2つ以上の $$...$$ があるときは昇格しない
-    auto nodes = ParseMarkdown(L"$$a$$ $$b$$").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("$$a$$ $$b$$")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
 }
@@ -947,18 +983,18 @@ TEST(Parser, LatexMultipleDisplayMathInOneParagraphFallsBackToText)
 TEST(Parser, LatexInlineMathRemainsAsText)
 {
     // インライン $...$ は昇格対象外。$ 記号を含む元のテキストとして扱う
-    auto nodes = ParseMarkdown(L"value is $x$ here").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("value is $x$ here")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
-    const std::wstring text(nodes[0].GetText());
-    EXPECT_NE(text.find(L"$x$"), std::wstring::npos);
+    const mendo::doc_string_std text(nodes[0].GetText());
+    EXPECT_NE(text.find(MENDO_LIT("$x$")), mendo::doc_string_std::npos);
 }
 
 TEST(Parser, LatexDisplayMathInBlockquoteNotPromoted)
 {
     // blockquote 内の $$...$$ は引用文脈維持のため昇格しない
-    auto nodes = ParseMarkdown(L"> $$y=x$$").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> $$y=x$$")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
 }
@@ -968,44 +1004,44 @@ TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
     // "The price is $5 or $10." のような金額表記は LaTeX ではなくテキストとして扱う。
     // md4c は `$` の直後に空白・数字・記号が続く場合などインライン数式として解釈しないため、
     // フラグ有効化で既存のドル記号テキストが壊れないことを確認する。
-    auto nodes = ParseMarkdown(L"The price is $5 or $10.").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("The price is $5 or $10.")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
-    const std::wstring text(nodes[0].GetText());
-    EXPECT_NE(text.find(L"$5"), std::wstring::npos);
-    EXPECT_NE(text.find(L"$10"), std::wstring::npos);
+    const mendo::doc_string_std text(nodes[0].GetText());
+    EXPECT_NE(text.find(MENDO_LIT("$5")), mendo::doc_string_std::npos);
+    EXPECT_NE(text.find(MENDO_LIT("$10")), mendo::doc_string_std::npos);
 }
 
 TEST(Parser, LatexDisplayMathMultiline)
 {
     // 複数行にわたる $$...$$ でも昇格される（中身はパーサがそのまま保持）
-    auto result = ParseMarkdown(L"$$\nE = mc^2\n$$");
+    auto result = ParseMarkdown(MENDO_LIT("$$\nE = mc^2\n$$"));
     ASSERT_EQ(result.nodes.size(), 1u);
     EXPECT_EQ(result.nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
     // 中身に 'E = mc^2' が含まれること（md4c の改行扱いに依存するが、式本体は保持される）
     const auto& body = result.nodes[0].GetText();
-    EXPECT_NE(body.find(L"E = mc^2"), std::wstring::npos);
+    EXPECT_NE(body.find(MENDO_LIT("E = mc^2")), mendo::doc_string_std::npos);
 }
 
 TEST(Parser, LatexDisplayMathLineCountMatchesNewlines)
 {
     // OnText で事前集計した display_math_newlines を line_count に流用しているため、
     // 旧実装 (current_text 全走査の std::ranges::count) と同じ値を保つことを回帰テストする。
-    const std::wstring_view sources[] = {
-        L"$$E = mc^2$$",
-        L"$$\nE = mc^2\n$$",
-        L"$$\na\nb\nc\n$$",
+    const mendo::doc_string_view sources[] = {
+        MENDO_LIT("$$E = mc^2$$"),
+        MENDO_LIT("$$\nE = mc^2\n$$"),
+        MENDO_LIT("$$\na\nb\nc\n$$"),
     };
     for (const auto src : sources) {
-        SCOPED_TRACE(std::wstring{ src });
+        SCOPED_TRACE(mendo::doc_string_std{ src });
         auto result = ParseMarkdown(src);
         ASSERT_EQ(result.nodes.size(), 1u);
         ASSERT_EQ(result.nodes[0].type, NodeType::CodeBlock);
         ASSERT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
         const auto text = result.nodes[0].GetText();
-        const auto expected = static_cast<int>(std::ranges::count(text, L'\n'));
+        const auto expected = static_cast<int>(std::ranges::count(text, MENDO_LIT('\n')));
         EXPECT_EQ(result.nodes[0].line_count, expected);
     }
 }
@@ -1013,12 +1049,12 @@ TEST(Parser, LatexDisplayMathLineCountMatchesNewlines)
 TEST(Parser, LatexDisplayMathSurroundingParagraphs)
 {
     // 前後に通常段落がある場合も、純粋な $$...$$ 段落のみ昇格される
-    auto result = ParseMarkdown(L"before\n\n$$E=mc^2$$\n\nafter");
+    auto result = ParseMarkdown(MENDO_LIT("before\n\n$$E=mc^2$$\n\nafter"));
     ASSERT_EQ(result.nodes.size(), 3u);
     EXPECT_EQ(result.nodes[0].type, NodeType::Paragraph);
     EXPECT_EQ(result.nodes[1].type, NodeType::CodeBlock);
     EXPECT_EQ(result.nodes[1].code_language, SyntaxLanguage::LatexMath);
-    EXPECT_EQ(result.nodes[1].GetText(), L"E=mc^2");
+    EXPECT_EQ(result.nodes[1].GetText(), MENDO_LIT("E=mc^2"));
     EXPECT_EQ(result.nodes[2].type, NodeType::Paragraph);
     ASSERT_EQ(result.diagram_indices.size(), 1u);
     EXPECT_EQ(result.diagram_indices[0], 1u);
@@ -1028,12 +1064,12 @@ TEST(Parser, LatexDisplayMathSurroundingParagraphs)
 
 TEST(Parser, LinkWithSpecialCharsInUrl)
 {
-    auto nodes = ParseMarkdown(L"[link](https://example.com/path?q=1&r=2#frag)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[link](https://example.com/path?q=1&r=2#frag)")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     bool found = false;
     for (const auto& run : nodes[0].runs) {
         if (run.has_link()) {
-            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], L"https://example.com/path?q=1&r=2#frag");
+            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], MENDO_LIT("https://example.com/path?q=1&r=2#frag"));
             found = true;
         }
     }
@@ -1044,7 +1080,7 @@ TEST(Parser, LinkWithSpecialCharsInUrl)
 
 TEST(Parser, EmptyHeading)
 {
-    auto nodes = ParseMarkdown(L"# \n\ntext").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# \n\ntext")).nodes;
     // md4cは空テキストの見出しノードを生成する場合がある
     bool found_heading = false;
     for (auto& n : nodes) {
@@ -1061,7 +1097,7 @@ TEST(Parser, EmptyHeading)
 
 TEST(Parser, AlertNoteDetected)
 {
-    auto nodes = ParseMarkdown(L"> [!NOTE]\n> This is a note").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!NOTE]\n> This is a note")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
@@ -1069,63 +1105,63 @@ TEST(Parser, AlertNoteDetected)
 
 TEST(Parser, AlertTipDetected)
 {
-    auto nodes = ParseMarkdown(L"> [!TIP]\n> Helpful advice").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!TIP]\n> Helpful advice")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Tip);
 }
 
 TEST(Parser, AlertImportantDetected)
 {
-    auto nodes = ParseMarkdown(L"> [!IMPORTANT]\n> Key info").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!IMPORTANT]\n> Key info")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Important);
 }
 
 TEST(Parser, AlertWarningDetected)
 {
-    auto nodes = ParseMarkdown(L"> [!WARNING]\n> Be careful").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!WARNING]\n> Be careful")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Warning);
 }
 
 TEST(Parser, AlertCautionDetected)
 {
-    auto nodes = ParseMarkdown(L"> [!CAUTION]\n> Dangerous").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!CAUTION]\n> Dangerous")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Caution);
 }
 
 TEST(Parser, AlertCaseInsensitive)
 {
-    auto nodes = ParseMarkdown(L"> [!note]\n> lower case").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!note]\n> lower case")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
 }
 
 TEST(Parser, AlertCaseMixed)
 {
-    auto nodes = ParseMarkdown(L"> [!Note]\n> mixed case").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!Note]\n> mixed case")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
 }
 
 TEST(Parser, AlertMarkerStrippedAndLabelInserted)
 {
-    auto nodes = ParseMarkdown(L"> [!NOTE]\n> Content here").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!NOTE]\n> Content here")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     // マーカー "[!NOTE]" が除去され、アイコン + ラベル "Note" に置換されているべき
-    EXPECT_NE(nodes[0].GetText().find(L"Note"), std::wstring::npos);
-    EXPECT_EQ(nodes[0].GetText().find(L"[!NOTE]"), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("Note")), mendo::doc_string_std::npos);
+    EXPECT_EQ(nodes[0].GetText().find(MENDO_LIT("[!NOTE]")), mendo::doc_string_std::npos);
     // 先頭はアイコン文字列であるべき
     auto icon = GetAlertIcon(AlertType::Note);
     EXPECT_EQ(nodes[0].GetText().substr(0, icon.size()), icon);
     // コンテンツも残っているべき
-    EXPECT_NE(nodes[0].GetText().find(L"Content here"), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("Content here")), mendo::doc_string_std::npos);
 }
 
 TEST(Parser, AlertLabelIsBold)
 {
-    auto nodes = ParseMarkdown(L"> [!NOTE]\n> Some text").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!NOTE]\n> Some text")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
     // 最初のランはラベル部分で太字であるべき
@@ -1136,18 +1172,19 @@ TEST(Parser, AlertLabelIsBold)
 
 TEST(Parser, AlertLabelLength)
 {
-    auto nodes = ParseMarkdown(L"> [!NOTE]\n> text").nodes;
+    // alert_label_length は UTF-8 byte。ℹ (U+2139) は 3 byte、❗ (U+2757) も 3 byte。
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!NOTE]\n> text")).nodes;
     ASSERT_GE(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].alert_label_length, 6u); // icon + space + "Note" = 2 + 4文字
+    EXPECT_EQ(nodes[0].alert_label_length, 8u); // ℹ 3 + ' ' 1 + "NOTE" 4
 
-    auto nodes2 = ParseMarkdown(L"> [!IMPORTANT]\n> text").nodes;
+    auto nodes2 = ParseMarkdown(MENDO_LIT("> [!IMPORTANT]\n> text")).nodes;
     ASSERT_GE(nodes2.size(), 1u);
-    EXPECT_EQ(nodes2[0].alert_label_length, 11u); // icon + space + "Important" = 2 + 9文字
+    EXPECT_EQ(nodes2[0].alert_label_length, 13u); // ❗ 3 + ' ' 1 + "IMPORTANT" 9
 }
 
 TEST(Parser, AlertRunPositionsAreValid)
 {
-    auto nodes = ParseMarkdown(L"> [!WARNING]\n> Some **bold** text").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!WARNING]\n> Some **bold** text")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     const auto& node = nodes[0];
     for (const auto& run : node.runs) {
@@ -1159,7 +1196,7 @@ TEST(Parser, AlertRunPositionsAreValid)
 
 TEST(Parser, AlertMultiParagraphGrouping)
 {
-    auto nodes = ParseMarkdown(L"> [!NOTE]\n> First para\n>\n> Second para").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!NOTE]\n> First para\n>\n> Second para")).nodes;
     // 複数の BlockQuote ノードが生成され、すべて同じ alert_type を持つべき
     int alert_count = 0;
     for (const auto& node : nodes) {
@@ -1172,7 +1209,7 @@ TEST(Parser, AlertMultiParagraphGrouping)
 
 TEST(Parser, AlertOnlyFirstNodeHasLabel)
 {
-    auto nodes = ParseMarkdown(L"> [!TIP]\n> First\n>\n> Second").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!TIP]\n> First\n>\n> Second")).nodes;
     // 最初のノードだけ alert_label_length > 0
     int label_count = 0;
     for (const auto& node : nodes) {
@@ -1183,27 +1220,27 @@ TEST(Parser, AlertOnlyFirstNodeHasLabel)
 
 TEST(Parser, RegularBlockquoteUnaffected)
 {
-    auto nodes = ParseMarkdown(L"> Just a normal quote").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> Just a normal quote")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
     EXPECT_EQ(nodes[0].alert_type, AlertType::None);
     EXPECT_EQ(nodes[0].alert_label_length, 0u);
-    EXPECT_EQ(nodes[0].GetText(), L"Just a normal quote");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("Just a normal quote"));
 }
 
 TEST(Parser, AlertMarkerOnlyNoContent)
 {
-    auto nodes = ParseMarkdown(L"> [!NOTE]").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!NOTE]")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
     // マーカーだけの場合、アイコン + スペース + ラベルのみ残る
-    std::wstring expected = std::wstring(GetAlertIcon(AlertType::Note)) + L" Note";
-    EXPECT_EQ(std::wstring_view(nodes[0].GetText().c_str(), nodes[0].GetText().size()), expected);
+    mendo::doc_string_std expected = mendo::doc_string_std(GetAlertIcon(AlertType::Note)) + MENDO_LIT(" Note");
+    EXPECT_EQ(nodes[0].GetText(), expected);
 }
 
 TEST(Parser, AlertFollowedByRegularBlockquote)
 {
-    auto nodes = ParseMarkdown(L"> [!NOTE]\n> Alert text\n\n> Normal quote").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!NOTE]\n> Alert text\n\n> Normal quote")).nodes;
     // Alert と通常の blockquote が混在
     bool has_alert = false, has_normal = false;
     for (const auto& node : nodes) {
@@ -1222,15 +1259,15 @@ TEST(Parser, Alert_PropagatesAcrossNestedBlockquote)
 {
     // example/nested.md #9 相当: 親 -> ネスト -> 親の続き
     auto nodes = ParseMarkdown(
-        L"> [!NOTE]\n"
-        L"> Alert head\n"
-        L"> > nested\n"
-        L">\n"
-        L"> Alert continues"
+        MENDO_LIT("> [!NOTE]\n")
+        MENDO_LIT("> Alert head\n")
+        MENDO_LIT("> > nested\n")
+        MENDO_LIT(">\n")
+        MENDO_LIT("> Alert continues")
     ).nodes;
     bool checked_continuation = false;
     for (const auto& n : nodes) {
-        if (n.GetText().find(L"Alert continues") != std::wstring::npos) {
+        if (n.GetText().find(MENDO_LIT("Alert continues")) != mendo::doc_string_std::npos) {
             EXPECT_EQ(n.alert_type, AlertType::Note)
                 << "ネストを抜けた後段でも Alert が継続する";
             checked_continuation = true;
@@ -1243,9 +1280,9 @@ TEST(Parser, Alert_IgnoredWhenStartedInsideNestedBlockquote)
 {
     // GitHub 仕様: ネスト内 (`> > [!NOTE]`) の Alert マーカーは認識しない
     auto nodes = ParseMarkdown(
-        L"> outer\n"
-        L"> > [!NOTE]\n"
-        L"> > inner note text"
+        MENDO_LIT("> outer\n")
+        MENDO_LIT("> > [!NOTE]\n")
+        MENDO_LIT("> > inner note text")
     ).nodes;
     for (const auto& n : nodes) {
         EXPECT_EQ(n.alert_type, AlertType::None)
@@ -1256,22 +1293,22 @@ TEST(Parser, Alert_IgnoredWhenStartedInsideNestedBlockquote)
 
 TEST(Parser, AlertUnknownTypeIgnored)
 {
-    auto nodes = ParseMarkdown(L"> [!UNKNOWN]\n> text").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!UNKNOWN]\n> text")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::None);
     // マーカーがそのまま残っているべき
-    EXPECT_NE(nodes[0].GetText().find(L"UNKNOWN"), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("UNKNOWN")), mendo::doc_string_std::npos);
 }
 
 TEST(Parser, AlertLabelContents)
 {
     // 各AlertTypeのラベル文字列を確認
-    EXPECT_EQ(GetAlertLabel(AlertType::Note), L"Note");
-    EXPECT_EQ(GetAlertLabel(AlertType::Tip), L"Tip");
-    EXPECT_EQ(GetAlertLabel(AlertType::Important), L"Important");
-    EXPECT_EQ(GetAlertLabel(AlertType::Warning), L"Warning");
-    EXPECT_EQ(GetAlertLabel(AlertType::Caution), L"Caution");
-    EXPECT_EQ(GetAlertLabel(AlertType::None), L"");
+    EXPECT_EQ(GetAlertLabel(AlertType::Note), MENDO_LIT("Note"));
+    EXPECT_EQ(GetAlertLabel(AlertType::Tip), MENDO_LIT("Tip"));
+    EXPECT_EQ(GetAlertLabel(AlertType::Important), MENDO_LIT("Important"));
+    EXPECT_EQ(GetAlertLabel(AlertType::Warning), MENDO_LIT("Warning"));
+    EXPECT_EQ(GetAlertLabel(AlertType::Caution), MENDO_LIT("Caution"));
+    EXPECT_EQ(GetAlertLabel(AlertType::None), MENDO_LIT(""));
 }
 
 TEST(Parser, DetectAlertsOnEmptyVector)
@@ -1283,12 +1320,12 @@ TEST(Parser, DetectAlertsOnEmptyVector)
 
 TEST(Parser, AlertWithInlineFormatting)
 {
-    auto nodes = ParseMarkdown(L"> [!TIP]\n> Use **bold** and `code`").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!TIP]\n> Use **bold** and `code`")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Tip);
     // テキストにboldとcodeが含まれるべき
-    EXPECT_NE(nodes[0].GetText().find(L"bold"), std::wstring::npos);
-    EXPECT_NE(nodes[0].GetText().find(L"code"), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("bold")), mendo::doc_string_std::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("code")), mendo::doc_string_std::npos);
     // フォーマット用のランがあるべき
     bool has_bold = false, has_code = false;
     for (const auto& run : nodes[0].runs) {
@@ -1301,21 +1338,21 @@ TEST(Parser, AlertWithInlineFormatting)
 
 TEST(Parser, AlertTextStartsWithLabelThenNewline)
 {
-    auto nodes = ParseMarkdown(L"> [!CAUTION]\n> Don't do this").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> [!CAUTION]\n> Don't do this")).nodes;
     ASSERT_GE(nodes.size(), 1u);
     // テキストは "[icon] Caution\n..." の形式であるべき
     const auto& text = nodes[0].GetText();
-    auto nl = text.find(L'\n');
-    ASSERT_NE(nl, std::wstring::npos);
-    std::wstring expected = std::wstring(GetAlertIcon(AlertType::Caution)) + L" Caution";
-    EXPECT_EQ(text.substr(0, nl), std::wstring_view(expected));
+    auto nl = text.find(MENDO_LIT('\n'));
+    ASSERT_NE(nl, mendo::doc_string_std::npos);
+    mendo::doc_string_std expected = mendo::doc_string_std(GetAlertIcon(AlertType::Caution)) + MENDO_LIT(" Caution");
+    EXPECT_EQ(text.substr(0, nl), mendo::doc_string_view(expected));
 }
 
 // ---- ソースオフセット ----
 
 TEST(Parser, SourceOffsetSingleParagraph)
 {
-    auto nodes = ParseMarkdown(L"Hello world").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].source_offset, 0u);
 }
@@ -1323,7 +1360,7 @@ TEST(Parser, SourceOffsetSingleParagraph)
 TEST(Parser, SourceOffsetHeading)
 {
     // "# Title" → テキスト "Title" はオフセット 2 から
-    auto nodes = ParseMarkdown(L"# Title").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# Title")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].source_offset, 2u);
 }
@@ -1332,7 +1369,7 @@ TEST(Parser, SourceOffsetMultipleParagraphs)
 {
     // "First\n\nSecond\n\nThird"
     // "First" = offset 0, "Second" = offset 7, "Third" = offset 15
-    auto nodes = ParseMarkdown(L"First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("First\n\nSecond\n\nThird")).nodes;
     ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].source_offset, 0u);
     EXPECT_EQ(nodes[1].source_offset, 7u);
@@ -1343,12 +1380,12 @@ TEST(Parser, SourceOffsetIncreasing)
 {
     // ノードの source_offset は単調増加であるべき
     auto nodes = ParseMarkdown(
-        L"# Heading\n\n"
-        L"Paragraph\n\n"
-        L"- item1\n"
-        L"- item2\n\n"
-        L"```\ncode\n```\n\n"
-        L"End").nodes;
+        MENDO_LIT("# Heading\n\n")
+        MENDO_LIT("Paragraph\n\n")
+        MENDO_LIT("- item1\n")
+        MENDO_LIT("- item2\n\n")
+        MENDO_LIT("```\ncode\n```\n\n")
+        MENDO_LIT("End")).nodes;
     ASSERT_GE(nodes.size(), 3u);
     uint32_t prev = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
@@ -1363,7 +1400,7 @@ TEST(Parser, SourceOffsetIncreasing)
 TEST(Parser, SourceOffsetCodeBlock)
 {
     // "```\nhello\n```" → コードブロック内テキストのオフセット
-    auto nodes = ParseMarkdown(L"```\nhello\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```\nhello\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     // コードブロックのテキスト "hello" は "```\n" = 4バイト目から
@@ -1372,14 +1409,14 @@ TEST(Parser, SourceOffsetCodeBlock)
 
 TEST(Parser, SourceOffsetEmptyInput)
 {
-    auto nodes = ParseMarkdown(L"").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("")).nodes;
     EXPECT_TRUE(nodes.empty());
 }
 
 TEST(Parser, SourceOffsetHorizontalRule)
 {
     // "---" はテキストを持たないのでsource_offsetは未設定のまま
-    auto nodes = ParseMarkdown(L"---").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("---")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::HorizontalRule);
     EXPECT_EQ(nodes[0].source_offset, kUnsetSourceOffset);
@@ -1387,12 +1424,11 @@ TEST(Parser, SourceOffsetHorizontalRule)
 
 TEST(Parser, SourceOffsetCjkMultiCodeUnit)
 {
-    // "あいう\n\ntest" → wide で "あいう" = 3 wchar_t, "\n\n" = 2 wchar_t
-    // source_offset は UTF-16 コード単位
-    auto nodes = ParseMarkdown(L"あいう\n\ntest").nodes;
+    // source_offset は UTF-8 byte。
+    auto nodes = ParseMarkdown(MENDO_LIT("あいう\n\ntest")).nodes;
     ASSERT_EQ(nodes.size(), 2u);
     EXPECT_EQ(nodes[0].source_offset, 0u);
-    EXPECT_EQ(nodes[1].source_offset, 5u); // 3 + 2
+    EXPECT_EQ(nodes[1].source_offset, 11u); // "あいう" 9 byte + "\n\n" 2
 }
 
 TEST(Parser, SourceOffsetUnorderedList)
@@ -1400,7 +1436,7 @@ TEST(Parser, SourceOffsetUnorderedList)
     // "- A\n- B\n- C"
     // "- " = 2バイト, "A" offset=2, "\n- " = 3バイト, "B" offset=5+2=7?
     // 実際: "- A\n" = 4, "- B\n" = 4, "- C" = 3
-    auto nodes = ParseMarkdown(L"- A\n- B\n- C").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("- A\n- B\n- C")).nodes;
     ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].source_offset, 2u);  // "A" = "- " の後
     EXPECT_EQ(nodes[1].source_offset, 6u);  // "B" = "- A\n- " の後
@@ -1410,7 +1446,7 @@ TEST(Parser, SourceOffsetUnorderedList)
 TEST(Parser, SourceOffsetOrderedList)
 {
     // "1. First\n2. Second"
-    auto nodes = ParseMarkdown(L"1. First\n2. Second").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("1. First\n2. Second")).nodes;
     ASSERT_EQ(nodes.size(), 2u);
     EXPECT_EQ(nodes[0].source_offset, 3u);  // "First" = "1. " の後
     EXPECT_EQ(nodes[1].source_offset, 12u); // "Second" = "1. First\n2. " の後
@@ -1419,7 +1455,7 @@ TEST(Parser, SourceOffsetOrderedList)
 TEST(Parser, SourceOffsetBlockQuote)
 {
     // "> quoted\n\nnormal"
-    auto nodes = ParseMarkdown(L"> quoted\n\nnormal").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> quoted\n\nnormal")).nodes;
     ASSERT_GE(nodes.size(), 2u);
     EXPECT_EQ(nodes[0].source_offset, 2u); // "quoted" = "> " の後
 }
@@ -1427,7 +1463,7 @@ TEST(Parser, SourceOffsetBlockQuote)
 TEST(Parser, SourceOffsetNestedList)
 {
     // ネストされたリストでも単調増加
-    auto nodes = ParseMarkdown(L"- outer\n  - inner\n- next").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("- outer\n  - inner\n- next")).nodes;
     ASSERT_GE(nodes.size(), 3u);
     uint32_t prev = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
@@ -1443,9 +1479,9 @@ TEST(Parser, SourceOffsetTable)
 {
     // テーブルノードの source_offset はヘッダの最初のセルテキスト
     auto nodes = ParseMarkdown(
-        L"| A | B |\n"
-        L"|---|---|\n"
-        L"| 1 | 2 |").nodes;
+        MENDO_LIT("| A | B |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| 1 | 2 |")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
     // "| " の後の "A" = offset 2
@@ -1455,7 +1491,7 @@ TEST(Parser, SourceOffsetTable)
 TEST(Parser, SourceOffsetCodeBlockWithLanguage)
 {
     // "```cpp\nint x;\n```" → テキストは "```cpp\n" = 7バイト目から
-    auto nodes = ParseMarkdown(L"```cpp\nint x;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```cpp\nint x;\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].source_offset, 7u);
 }
@@ -1463,14 +1499,14 @@ TEST(Parser, SourceOffsetCodeBlockWithLanguage)
 TEST(Parser, SourceOffsetMixedDocument)
 {
     // 多様なブロック型を含む文書で全ノードの offset が有効かつ単調増加
-    std::wstring md =
-        L"# Title\n\n"            // heading
-        L"Paragraph\n\n"          // paragraph
-        L"- item\n\n"             // list
-        L"> quote\n\n"             // blockquote
-        L"```\ncode\n```\n\n"     // code
-        L"---\n\n"                // hr (offset 未設定)
-        L"End";                   // paragraph
+    mendo::doc_string_std md =
+        MENDO_LIT("# Title\n\n")            // heading
+        MENDO_LIT("Paragraph\n\n")          // paragraph
+        MENDO_LIT("- item\n\n")             // list
+        MENDO_LIT("> quote\n\n")             // blockquote
+        MENDO_LIT("```\ncode\n```\n\n")     // code
+        MENDO_LIT("---\n\n")                // hr (offset 未設定)
+        MENDO_LIT("End");                   // paragraph
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GE(nodes.size(), 6u);
 
@@ -1489,7 +1525,7 @@ TEST(Parser, SourceOffsetMixedDocument)
 
 TEST(Parser, SourceOffsetTaskList)
 {
-    auto nodes = ParseMarkdown(L"- [x] done\n- [ ] todo").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("- [x] done\n- [ ] todo")).nodes;
     ASSERT_EQ(nodes.size(), 2u);
     // "- [x] " = 6バイト, "done" offset=6
     EXPECT_EQ(nodes[0].source_offset, 6u);
@@ -1500,14 +1536,14 @@ TEST(Parser, SourceOffsetTaskList)
 
 TEST(Parser, LineCountSingleLine)
 {
-    auto nodes = ParseMarkdown(L"Hello world").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].line_count, 0);
 }
 
 TEST(Parser, LineCountCodeBlock)
 {
-    auto nodes = ParseMarkdown(L"```\na\nb\nc\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```\na\nb\nc\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     // "a\nb\nc" → 2個の改行（末尾の\nはパーサーが除去する）
@@ -1517,7 +1553,7 @@ TEST(Parser, LineCountCodeBlock)
 TEST(Parser, LineCountMultilineParagraph)
 {
     // softbreakは空白に変換されるため改行にならない
-    auto nodes = ParseMarkdown(L"line1\nline2\nline3").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("line1\nline2\nline3")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].line_count, 0);
 }
@@ -1525,14 +1561,14 @@ TEST(Parser, LineCountMultilineParagraph)
 TEST(Parser, LineCountHardBreak)
 {
     // 末尾2スペース+改行 = hard break → \n
-    auto nodes = ParseMarkdown(L"line1  \nline2  \nline3").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("line1  \nline2  \nline3")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].line_count, 2);
 }
 
 TEST(Parser, LineCountEmptyCodeBlock)
 {
-    auto nodes = ParseMarkdown(L"```\n\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```\n\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(nodes[0].line_count, 0);
@@ -1540,11 +1576,11 @@ TEST(Parser, LineCountEmptyCodeBlock)
 
 TEST(Parser, LineCountLargeCodeBlock)
 {
-    std::wstring md = L"```\n";
+    mendo::doc_string_std md = MENDO_LIT("```\n");
     for (int i = 0; i < 100; i++) {
-        md += L"line " + std::to_wstring(i) + L"\n";
+        md += MENDO_LIT("line ") + mendo::to_doc_string(i) + MENDO_LIT("\n");
     }
-    md += L"```";
+    md += MENDO_LIT("```");
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // 100行 → 99個の改行（末尾の\nが除去される）
@@ -1555,7 +1591,7 @@ TEST(Parser, LineCountLargeCodeBlock)
 
 TEST(Parser, SyntaxTokensEmptyAfterParse)
 {
-    auto nodes = ParseMarkdown(L"```cpp\nint x = 42;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```cpp\nint x = 42;\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
@@ -1565,7 +1601,7 @@ TEST(Parser, SyntaxTokensEmptyAfterParse)
 
 TEST(Parser, SyntaxTokensEmptyForMermaid)
 {
-    auto nodes = ParseMarkdown(L"```mermaid\ngraph TD\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```mermaid\ngraph TD\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Mermaid);
     EXPECT_TRUE(nodes[0].syntax_tokens().empty());
@@ -1575,16 +1611,16 @@ TEST(Parser, SyntaxTokensEmptyForMermaid)
 
 TEST(Parser, Utf8BatchPlainText)
 {
-    auto nodes = ParseMarkdown(L"Hello world, this is a test.").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world, this is a test.")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"Hello world, this is a test.");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("Hello world, this is a test."));
 }
 
 TEST(Parser, Utf8BatchWithSpanBoundary)
 {
-    auto nodes = ParseMarkdown(L"before **bold** after").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("before **bold** after")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"before bold after");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("before bold after"));
     ASSERT_GE(nodes[0].runs.size(), 3u);
     EXPECT_FALSE(nodes[0].runs[0].bold());
     EXPECT_TRUE(nodes[0].runs[1].bold());
@@ -1593,62 +1629,62 @@ TEST(Parser, Utf8BatchWithSpanBoundary)
 
 TEST(Parser, Utf8BatchWithEntity)
 {
-    auto nodes = ParseMarkdown(L"a &amp; b").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("a &amp; b")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"a & b");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("a & b"));
 }
 
 TEST(Parser, Utf8BatchWithSoftBreak)
 {
-    auto nodes = ParseMarkdown(L"line1\nline2").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("line1\nline2")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // softbreak → space
-    EXPECT_EQ(nodes[0].GetText(), L"line1 line2");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("line1 line2"));
 }
 
 TEST(Parser, Utf8BatchWithHardBreak)
 {
-    auto nodes = ParseMarkdown(L"line1  \nline2").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("line1  \nline2")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"line1\nline2");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("line1\nline2"));
 }
 
 TEST(Parser, Utf8BatchMultibyteUtf8)
 {
-    auto nodes = ParseMarkdown(L"日本語テスト").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("日本語テスト")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"日本語テスト");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("日本語テスト"));
 }
 
 TEST(Parser, Utf8BatchMixedAsciiAndMultibyte)
 {
-    auto nodes = ParseMarkdown(L"Hello **世界** test").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello **世界** test")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"Hello 世界 test");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("Hello 世界 test"));
     ASSERT_GE(nodes[0].runs.size(), 3u);
     EXPECT_TRUE(nodes[0].runs[1].bold());
 }
 
 TEST(Parser, Utf8BatchCodeBlockContent)
 {
-    auto nodes = ParseMarkdown(L"```\nint x = 0;\nfloat y = 1.0;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```\nint x = 0;\nfloat y = 1.0;\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    EXPECT_EQ(nodes[0].GetText(), L"int x = 0;\nfloat y = 1.0;");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("int x = 0;\nfloat y = 1.0;"));
 }
 
 TEST(Parser, Utf8BatchEntityBetweenText)
 {
-    auto nodes = ParseMarkdown(L"a&lt;b&gt;c").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("a&lt;b&gt;c")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"a<b>c");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("a<b>c"));
 }
 
 TEST(Parser, Utf8BatchNestedFormatting)
 {
-    auto nodes = ParseMarkdown(L"***bold and italic***").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("***bold and italic***")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), L"bold and italic");
+    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("bold and italic"));
     ASSERT_GE(nodes[0].runs.size(), 1u);
     EXPECT_TRUE(nodes[0].runs[0].bold());
     EXPECT_TRUE(nodes[0].runs[0].italic());
@@ -1656,9 +1692,9 @@ TEST(Parser, Utf8BatchNestedFormatting)
 
 TEST(Parser, Utf8BatchLinkText)
 {
-    auto nodes = ParseMarkdown(L"before [link text](https://example.com) after").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("before [link text](https://example.com) after")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_NE(nodes[0].GetText().find(L"before"), std::wstring::npos);
-    EXPECT_NE(nodes[0].GetText().find(L"link text"), std::wstring::npos);
-    EXPECT_NE(nodes[0].GetText().find(L"after"), std::wstring::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("before")), mendo::doc_string_std::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("link text")), mendo::doc_string_std::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("after")), mendo::doc_string_std::npos);
 }

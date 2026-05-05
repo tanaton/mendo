@@ -1,4 +1,6 @@
 #pragma once
+#include "doc_dwrite_bridge.h"
+#include "doc_text.h"
 #include "text_measurer.h"
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -18,8 +20,9 @@ public:
         theme_ = &theme;
     }
 
-    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width) override;
-    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) override;
+    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr) const override;
+    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const override;
 
     // 外部のIDWriteFactoryで初期化する（Initの前に呼び出す必要がある）。
     void SetFactory(IDWriteFactory* factory) noexcept
@@ -29,10 +32,11 @@ public:
 
 private:
     bool CreateAllFormats();
-    IDWriteTextFormat* GetTextFormat(const Node& node) noexcept;
-    void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::optional<NodeType> node_type);
-    void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths);
-    void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width, size_t col_count, std::pmr::vector<float>& natural_widths);
+    IDWriteTextFormat* GetTextFormat(const Node& node) const noexcept;
+    void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& view, std::optional<NodeType> node_type) const;
+    void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths) const;
+    void RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry) const;
+    void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width, size_t col_count, std::pmr::vector<float>& natural_widths) const;
 
     IDWriteFactory* dwrite_ = nullptr;
     const Theme* theme_ = nullptr;

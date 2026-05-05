@@ -336,6 +336,10 @@ void App::ShowToast(std::wstring_view message)
 void App::OnDestroy()
 {
     mermaid_renderer_.Shutdown();
+    // 走行中タスクが latch.wait 中の参照を保ったまま解放されないよう、
+    // LayoutEngine の参照解除 → Shutdown (join) → ターゲット deinit の順を守る。
+    renderer_.GetLayout().SetLayoutScheduler(nullptr);
+    layout_scheduler_.Shutdown();
     scheduler_.Shutdown();
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
@@ -422,5 +426,8 @@ void App::SaveScrollPosition()
     if (node < 0) {
         return;
     }
-    session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), state_.document.layout_cache[node].y_position);
+    // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top フィールドを読む。
+    // Fenwick PrefixSum 経由 (TextTopOf) は float 加算順が違うためノード数が増えると誤差が累積する。
+    const float text_top = state_.document.layout_cache[node].text_top;
+    session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
 }

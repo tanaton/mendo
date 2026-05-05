@@ -10,99 +10,99 @@
 
 TEST(Syntax, DetectLanguageCpp)
 {
-    EXPECT_EQ(DetectLanguage(L"cpp"), SyntaxLanguage::Cpp);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("cpp")), SyntaxLanguage::Cpp);
 }
 
 TEST(Syntax, DetectLanguageC)
 {
-    EXPECT_EQ(DetectLanguage(L"c"), SyntaxLanguage::Cpp);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("c")), SyntaxLanguage::Cpp);
 }
 
 TEST(Syntax, DetectLanguageCPlusPlus)
 {
-    EXPECT_EQ(DetectLanguage(L"c++"), SyntaxLanguage::Cpp);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("c++")), SyntaxLanguage::Cpp);
 }
 
 TEST(Syntax, DetectLanguageCxx)
 {
-    EXPECT_EQ(DetectLanguage(L"cxx"), SyntaxLanguage::Cpp);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("cxx")), SyntaxLanguage::Cpp);
 }
 
 TEST(Syntax, DetectLanguageH)
 {
-    EXPECT_EQ(DetectLanguage(L"h"), SyntaxLanguage::Cpp);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("h")), SyntaxLanguage::Cpp);
 }
 
 TEST(Syntax, DetectLanguageHpp)
 {
-    EXPECT_EQ(DetectLanguage(L"hpp"), SyntaxLanguage::Cpp);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("hpp")), SyntaxLanguage::Cpp);
 }
 
 TEST(Syntax, DetectLanguagePython)
 {
-    EXPECT_EQ(DetectLanguage(L"python"), SyntaxLanguage::Python);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("python")), SyntaxLanguage::Python);
 }
 
 TEST(Syntax, DetectLanguagePy)
 {
-    EXPECT_EQ(DetectLanguage(L"py"), SyntaxLanguage::Python);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("py")), SyntaxLanguage::Python);
 }
 
 TEST(Syntax, DetectLanguageJavaScript)
 {
-    EXPECT_EQ(DetectLanguage(L"javascript"), SyntaxLanguage::JavaScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("javascript")), SyntaxLanguage::JavaScript);
 }
 
 TEST(Syntax, DetectLanguageJs)
 {
-    EXPECT_EQ(DetectLanguage(L"js"), SyntaxLanguage::JavaScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("js")), SyntaxLanguage::JavaScript);
 }
 
 TEST(Syntax, DetectLanguageTs)
 {
-    EXPECT_EQ(DetectLanguage(L"typescript"), SyntaxLanguage::TypeScript);
-    EXPECT_EQ(DetectLanguage(L"ts"), SyntaxLanguage::TypeScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("typescript")), SyntaxLanguage::TypeScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("ts")), SyntaxLanguage::TypeScript);
 }
 
 TEST(Syntax, DetectLanguageJsx)
 {
-    EXPECT_EQ(DetectLanguage(L"jsx"), SyntaxLanguage::JavaScript);
-    EXPECT_EQ(DetectLanguage(L"tsx"), SyntaxLanguage::TypeScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("jsx")), SyntaxLanguage::JavaScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("tsx")), SyntaxLanguage::TypeScript);
 }
 
 TEST(Syntax, DetectLanguageUnknown)
 {
-    EXPECT_EQ(DetectLanguage(L"java"), SyntaxLanguage::None);
-    EXPECT_EQ(DetectLanguage(L"ruby"), SyntaxLanguage::None);
-    EXPECT_EQ(DetectLanguage(L"swift"), SyntaxLanguage::None);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("java")), SyntaxLanguage::None);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("ruby")), SyntaxLanguage::None);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("swift")), SyntaxLanguage::None);
 }
 
 TEST(Syntax, DetectLanguageEmpty)
 {
-    EXPECT_EQ(DetectLanguage(L""), SyntaxLanguage::None);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("")), SyntaxLanguage::None);
 }
 
 TEST(Syntax, DetectLanguageCaseInsensitive)
 {
-    EXPECT_EQ(DetectLanguage(L"CPP"), SyntaxLanguage::Cpp);
-    EXPECT_EQ(DetectLanguage(L"Python"), SyntaxLanguage::Python);
-    EXPECT_EQ(DetectLanguage(L"JavaScript"), SyntaxLanguage::JavaScript);
-    EXPECT_EQ(DetectLanguage(L"JS"), SyntaxLanguage::JavaScript);
-    EXPECT_EQ(DetectLanguage(L"TypeScript"), SyntaxLanguage::TypeScript);
-    EXPECT_EQ(DetectLanguage(L"GO"), SyntaxLanguage::Go);
-    EXPECT_EQ(DetectLanguage(L"RUST"), SyntaxLanguage::Rust);
-    EXPECT_EQ(DetectLanguage(L"BASH"), SyntaxLanguage::Bash);
-    EXPECT_EQ(DetectLanguage(L"PowerShell"), SyntaxLanguage::PowerShell);
-    EXPECT_EQ(DetectLanguage(L"CMD"), SyntaxLanguage::Cmd);
-    EXPECT_EQ(DetectLanguage(L"JSON"), SyntaxLanguage::Json);
-    EXPECT_EQ(DetectLanguage(L"JsonC"), SyntaxLanguage::Json);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("CPP")), SyntaxLanguage::Cpp);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("Python")), SyntaxLanguage::Python);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("JavaScript")), SyntaxLanguage::JavaScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("JS")), SyntaxLanguage::JavaScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("TypeScript")), SyntaxLanguage::TypeScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("GO")), SyntaxLanguage::Go);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("RUST")), SyntaxLanguage::Rust);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("BASH")), SyntaxLanguage::Bash);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("PowerShell")), SyntaxLanguage::PowerShell);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("CMD")), SyntaxLanguage::Cmd);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("JSON")), SyntaxLanguage::Json);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("JsonC")), SyntaxLanguage::Json);
 }
 
 TEST(Syntax, DetectLanguageWithExtraInfo)
 {
     // md4cは言語の後に追加テキストを含むinfo文字列を提供する場合がある
-    EXPECT_EQ(DetectLanguage(L"cpp some-extra"), SyntaxLanguage::Cpp);
-    EXPECT_EQ(DetectLanguage(L"python\ttab-separated"), SyntaxLanguage::Python);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("cpp some-extra")), SyntaxLanguage::Cpp);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("python\ttab-separated")), SyntaxLanguage::Python);
 }
 
 // ============================================================
@@ -111,13 +111,13 @@ TEST(Syntax, DetectLanguageWithExtraInfo)
 
 TEST(Syntax, EmptyTextReturnsEmpty)
 {
-    auto tokens = Tokenize(L"", SyntaxLanguage::Cpp);
+    auto tokens = Tokenize(MENDO_LIT(""), SyntaxLanguage::Cpp);
     EXPECT_TRUE(tokens.empty());
 }
 
 TEST(Syntax, NoneLanguageReturnsEmpty)
 {
-    auto tokens = Tokenize(L"int main() {}", SyntaxLanguage::None);
+    auto tokens = Tokenize(MENDO_LIT("int main() {}"), SyntaxLanguage::None);
     EXPECT_TRUE(tokens.empty());
 }
 
@@ -167,28 +167,28 @@ int CountTokens(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType typ
 }
 
 // ヘルパー: トークンのテキストを取得
-std::wstring GetTokenText(const std::wstring& text, const SyntaxToken& token)
+mendo::doc_string_std GetTokenText(const mendo::doc_string_std& text, const SyntaxToken& token)
 {
     return text.substr(token.start, token.length);
 }
 
 TEST(Syntax, TokensCoverEntireTextCpp)
 {
-    std::wstring code = L"int main() { return 0; }";
+    mendo::doc_string_std code = MENDO_LIT("int main() { return 0; }");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
 }
 
 TEST(Syntax, TokensCoverEntireTextPython)
 {
-    std::wstring code = L"def hello():\n    print('world')";
+    mendo::doc_string_std code = MENDO_LIT("def hello():\n    print('world')");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
 }
 
 TEST(Syntax, TokensCoverEntireTextJs)
 {
-    std::wstring code = L"const f = () => { return 42; };";
+    mendo::doc_string_std code = MENDO_LIT("const f = () => { return 42; };");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
 }
@@ -199,7 +199,7 @@ TEST(Syntax, TokensCoverEntireTextJs)
 
 TEST(Syntax, CppKeywords)
 {
-    std::wstring code = L"if else while for return";
+    mendo::doc_string_std code = MENDO_LIT("if else while for return");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     // すべての識別子はキーワードであるべき
@@ -213,7 +213,7 @@ TEST(Syntax, CppKeywords)
 
 TEST(Syntax, CppTypes)
 {
-    std::wstring code = L"int float double bool";
+    mendo::doc_string_std code = MENDO_LIT("int float double bool");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 4);
@@ -221,17 +221,17 @@ TEST(Syntax, CppTypes)
 
 TEST(Syntax, CppSingleLineComment)
 {
-    std::wstring code = L"x = 1; // comment\ny = 2;";
+    mendo::doc_string_std code = MENDO_LIT("x = 1; // comment\ny = 2;");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
     ASSERT_NE(comment, nullptr);
-    EXPECT_EQ(GetTokenText(code, *comment), L"// comment");
+    EXPECT_EQ(GetTokenText(code, *comment), MENDO_LIT("// comment"));
 }
 
 TEST(Syntax, CppMultiLineComment)
 {
-    std::wstring code = L"/* multi\nline\ncomment */";
+    mendo::doc_string_std code = MENDO_LIT("/* multi\nline\ncomment */");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -240,74 +240,74 @@ TEST(Syntax, CppMultiLineComment)
 
 TEST(Syntax, CppStringDouble)
 {
-    std::wstring code = L"x = \"hello world\"";
+    mendo::doc_string_std code = MENDO_LIT("x = \"hello world\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"\"hello world\"");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("\"hello world\""));
 }
 
 TEST(Syntax, CppStringSingle)
 {
-    std::wstring code = L"c = 'x'";
+    mendo::doc_string_std code = MENDO_LIT("c = 'x'");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"'x'");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("'x'"));
 }
 
 TEST(Syntax, CppStringEscape)
 {
-    std::wstring code = L"s = \"hello\\\"world\"";
+    mendo::doc_string_std code = MENDO_LIT("s = \"hello\\\"world\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"\"hello\\\"world\"");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("\"hello\\\"world\""));
 }
 
 TEST(Syntax, CppNumberInteger)
 {
-    std::wstring code = L"x = 42";
+    mendo::doc_string_std code = MENDO_LIT("x = 42");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
     ASSERT_NE(num, nullptr);
-    EXPECT_EQ(GetTokenText(code, *num), L"42");
+    EXPECT_EQ(GetTokenText(code, *num), MENDO_LIT("42"));
 }
 
 TEST(Syntax, CppNumberHex)
 {
-    std::wstring code = L"x = 0xFF";
+    mendo::doc_string_std code = MENDO_LIT("x = 0xFF");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
     ASSERT_NE(num, nullptr);
-    EXPECT_EQ(GetTokenText(code, *num), L"0xFF");
+    EXPECT_EQ(GetTokenText(code, *num), MENDO_LIT("0xFF"));
 }
 
 TEST(Syntax, CppNumberFloat)
 {
-    std::wstring code = L"x = 3.14f";
+    mendo::doc_string_std code = MENDO_LIT("x = 3.14f");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
     ASSERT_NE(num, nullptr);
-    EXPECT_EQ(GetTokenText(code, *num), L"3.14f");
+    EXPECT_EQ(GetTokenText(code, *num), MENDO_LIT("3.14f"));
 }
 
 TEST(Syntax, CppNumberBinary)
 {
-    std::wstring code = L"x = 0b1010";
+    mendo::doc_string_std code = MENDO_LIT("x = 0b1010");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
     ASSERT_NE(num, nullptr);
-    EXPECT_EQ(GetTokenText(code, *num), L"0b1010");
+    EXPECT_EQ(GetTokenText(code, *num), MENDO_LIT("0b1010"));
 }
 
 TEST(Syntax, CppPreprocessorInclude)
 {
-    std::wstring code = L"#include <stdio.h>";
+    mendo::doc_string_std code = MENDO_LIT("#include <stdio.h>");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -316,7 +316,7 @@ TEST(Syntax, CppPreprocessorInclude)
 
 TEST(Syntax, CppPreprocessorDefine)
 {
-    std::wstring code = L"#define MAX 100";
+    mendo::doc_string_std code = MENDO_LIT("#define MAX 100");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -326,7 +326,7 @@ TEST(Syntax, CppPreprocessorDefine)
 TEST(Syntax, CppPreprocessorNotAtLineStart)
 {
     // コードの後の#はプリプロセッサではないべき
-    std::wstring code = L"x = a #";
+    mendo::doc_string_std code = MENDO_LIT("x = a #");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Preprocessor), 0);
@@ -334,37 +334,37 @@ TEST(Syntax, CppPreprocessorNotAtLineStart)
 
 TEST(Syntax, CppFunctionCall)
 {
-    std::wstring code = L"foo(42)";
+    mendo::doc_string_std code = MENDO_LIT("foo(42)");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* func = FindToken(tokens, SyntaxTokenType::Function);
     ASSERT_NE(func, nullptr);
-    EXPECT_EQ(GetTokenText(code, *func), L"foo");
+    EXPECT_EQ(GetTokenText(code, *func), MENDO_LIT("foo"));
 }
 
 TEST(Syntax, CppFunctionCallWithSpace)
 {
-    std::wstring code = L"bar (x)";
+    mendo::doc_string_std code = MENDO_LIT("bar (x)");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* func = FindToken(tokens, SyntaxTokenType::Function);
     ASSERT_NE(func, nullptr);
-    EXPECT_EQ(GetTokenText(code, *func), L"bar");
+    EXPECT_EQ(GetTokenText(code, *func), MENDO_LIT("bar"));
 }
 
 TEST(Syntax, CppKeywordNotFunction)
 {
     // (の後に続くキーワードは関数ではなくキーワードのままであるべき
-    std::wstring code = L"if (x)";
+    mendo::doc_string_std code = MENDO_LIT("if (x)");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* kw = FindToken(tokens, SyntaxTokenType::Keyword);
     ASSERT_NE(kw, nullptr);
-    EXPECT_EQ(GetTokenText(code, *kw), L"if");
+    EXPECT_EQ(GetTokenText(code, *kw), MENDO_LIT("if"));
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Function), 0);
 }
 
 TEST(Syntax, CppComplexCode)
 {
-    std::wstring code = L"#include <iostream>\n\nint main() {\n    // Hello\n    std::cout << \"Hello\" << 42;\n    return 0;\n}";
+    mendo::doc_string_std code = MENDO_LIT("#include <iostream>\n\nint main() {\n    // Hello\n    std::cout << \"Hello\" << 42;\n    return 0;\n}");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
 
@@ -383,7 +383,7 @@ TEST(Syntax, CppComplexCode)
 
 TEST(Syntax, PythonKeywords)
 {
-    std::wstring code = L"if else while for return def class";
+    mendo::doc_string_std code = MENDO_LIT("if else while for return def class");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 7);
@@ -391,7 +391,7 @@ TEST(Syntax, PythonKeywords)
 
 TEST(Syntax, PythonTypes)
 {
-    std::wstring code = L"int float str bool list dict";
+    mendo::doc_string_std code = MENDO_LIT("int float str bool list dict");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 6);
@@ -399,50 +399,50 @@ TEST(Syntax, PythonTypes)
 
 TEST(Syntax, PythonComment)
 {
-    std::wstring code = L"x = 1  # comment\ny = 2";
+    mendo::doc_string_std code = MENDO_LIT("x = 1  # comment\ny = 2");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
     ASSERT_NE(comment, nullptr);
-    EXPECT_EQ(GetTokenText(code, *comment), L"# comment");
+    EXPECT_EQ(GetTokenText(code, *comment), MENDO_LIT("# comment"));
 }
 
 TEST(Syntax, PythonTripleQuoteDouble)
 {
-    std::wstring code = L"s = \"\"\"hello\nworld\"\"\"";
+    mendo::doc_string_std code = MENDO_LIT("s = \"\"\"hello\nworld\"\"\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"\"\"\"hello\nworld\"\"\"");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("\"\"\"hello\nworld\"\"\""));
 }
 
 TEST(Syntax, PythonTripleQuoteSingle)
 {
-    std::wstring code = L"s = '''docstring'''";
+    mendo::doc_string_std code = MENDO_LIT("s = '''docstring'''");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"'''docstring'''");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("'''docstring'''"));
 }
 
 TEST(Syntax, PythonDefFunction)
 {
-    std::wstring code = L"def foo():";
+    mendo::doc_string_std code = MENDO_LIT("def foo():");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     auto* kw = FindToken(tokens, SyntaxTokenType::Keyword);
     ASSERT_NE(kw, nullptr);
-    EXPECT_EQ(GetTokenText(code, *kw), L"def");
+    EXPECT_EQ(GetTokenText(code, *kw), MENDO_LIT("def"));
     auto* func = FindToken(tokens, SyntaxTokenType::Function);
     ASSERT_NE(func, nullptr);
-    EXPECT_EQ(GetTokenText(code, *func), L"foo");
+    EXPECT_EQ(GetTokenText(code, *func), MENDO_LIT("foo"));
 }
 
 TEST(Syntax, PythonTrueFalseNone)
 {
-    std::wstring code = L"x = True\ny = False\nz = None";
+    mendo::doc_string_std code = MENDO_LIT("x = True\ny = False\nz = None");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 3);
@@ -450,7 +450,7 @@ TEST(Syntax, PythonTrueFalseNone)
 
 TEST(Syntax, PythonFString)
 {
-    std::wstring code = L"f\"hello {name}\"";
+    mendo::doc_string_std code = MENDO_LIT("f\"hello {name}\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     // 'f'はプレーン、その後が文字列
@@ -460,7 +460,7 @@ TEST(Syntax, PythonFString)
 
 TEST(Syntax, PythonComplexCode)
 {
-    std::wstring code = L"def greet(name: str) -> str:\n    # Greeting\n    return f\"Hello, {name}!\"\n\nprint(greet(\"World\"))";
+    mendo::doc_string_std code = MENDO_LIT("def greet(name: str) -> str:\n    # Greeting\n    return f\"Hello, {name}!\"\n\nprint(greet(\"World\"))");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
 
@@ -477,7 +477,7 @@ TEST(Syntax, PythonComplexCode)
 
 TEST(Syntax, JsKeywords)
 {
-    std::wstring code = L"if else while for return const let var function";
+    mendo::doc_string_std code = MENDO_LIT("if else while for return const let var function");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 9);
@@ -485,7 +485,7 @@ TEST(Syntax, JsKeywords)
 
 TEST(Syntax, JsTypes)
 {
-    std::wstring code = L"Array Map Set Promise";
+    mendo::doc_string_std code = MENDO_LIT("Array Map Set Promise");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 4);
@@ -493,17 +493,17 @@ TEST(Syntax, JsTypes)
 
 TEST(Syntax, JsSingleLineComment)
 {
-    std::wstring code = L"// comment\nx = 1";
+    mendo::doc_string_std code = MENDO_LIT("// comment\nx = 1");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
     ASSERT_NE(comment, nullptr);
-    EXPECT_EQ(GetTokenText(code, *comment), L"// comment");
+    EXPECT_EQ(GetTokenText(code, *comment), MENDO_LIT("// comment"));
 }
 
 TEST(Syntax, JsMultiLineComment)
 {
-    std::wstring code = L"/* block\ncomment */";
+    mendo::doc_string_std code = MENDO_LIT("/* block\ncomment */");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -512,17 +512,17 @@ TEST(Syntax, JsMultiLineComment)
 
 TEST(Syntax, JsTemplateLiteral)
 {
-    std::wstring code = L"`hello ${name}`";
+    mendo::doc_string_std code = MENDO_LIT("`hello ${name}`");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"`hello ${name}`");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("`hello ${name}`"));
 }
 
 TEST(Syntax, JsTemplateLiteralMultiLine)
 {
-    std::wstring code = L"`line1\nline2\nline3`";
+    mendo::doc_string_std code = MENDO_LIT("`line1\nline2\nline3`");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -531,20 +531,20 @@ TEST(Syntax, JsTemplateLiteralMultiLine)
 
 TEST(Syntax, JsArrowFunction)
 {
-    std::wstring code = L"const f = () => 42";
+    mendo::doc_string_std code = MENDO_LIT("const f = () => 42");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     auto* kw = FindToken(tokens, SyntaxTokenType::Keyword);
     ASSERT_NE(kw, nullptr);
-    EXPECT_EQ(GetTokenText(code, *kw), L"const");
+    EXPECT_EQ(GetTokenText(code, *kw), MENDO_LIT("const"));
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
     ASSERT_NE(num, nullptr);
-    EXPECT_EQ(GetTokenText(code, *num), L"42");
+    EXPECT_EQ(GetTokenText(code, *num), MENDO_LIT("42"));
 }
 
 TEST(Syntax, JsTrueFalseNull)
 {
-    std::wstring code = L"true false null undefined";
+    mendo::doc_string_std code = MENDO_LIT("true false null undefined");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 4);
@@ -552,7 +552,7 @@ TEST(Syntax, JsTrueFalseNull)
 
 TEST(Syntax, JsComplexCode)
 {
-    std::wstring code = L"async function fetchData(url) {\n  // Fetch data\n  const resp = await fetch(url);\n  return resp.json();\n}";
+    mendo::doc_string_std code = MENDO_LIT("async function fetchData(url) {\n  // Fetch data\n  const resp = await fetch(url);\n  return resp.json();\n}");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
 
@@ -567,7 +567,7 @@ TEST(Syntax, JsComplexCode)
 
 TEST(Syntax, OnlyWhitespace)
 {
-    std::wstring code = L"   \n\t  \n  ";
+    mendo::doc_string_std code = MENDO_LIT("   \n\t  \n  ");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     for (const auto& t : tokens) {
@@ -577,7 +577,7 @@ TEST(Syntax, OnlyWhitespace)
 
 TEST(Syntax, OnlyOperators)
 {
-    std::wstring code = L"+ - * / = == != < > <= >=";
+    mendo::doc_string_std code = MENDO_LIT("+ - * / = == != < > <= >=");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
 }
@@ -585,14 +585,14 @@ TEST(Syntax, OnlyOperators)
 TEST(Syntax, UnterminatedString)
 {
     // 閉じられていない文字列が無限ループを引き起こさないべき
-    std::wstring code = L"x = \"unterminated\ny = 1";
+    mendo::doc_string_std code = MENDO_LIT("x = \"unterminated\ny = 1");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
 }
 
 TEST(Syntax, UnterminatedBlockComment)
 {
-    std::wstring code = L"/* never closed";
+    mendo::doc_string_std code = MENDO_LIT("/* never closed");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
@@ -600,18 +600,18 @@ TEST(Syntax, UnterminatedBlockComment)
 
 TEST(Syntax, NumberAtEndOfText)
 {
-    std::wstring code = L"x = 123";
+    mendo::doc_string_std code = MENDO_LIT("x = 123");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
     ASSERT_NE(num, nullptr);
-    EXPECT_EQ(GetTokenText(code, *num), L"123");
+    EXPECT_EQ(GetTokenText(code, *num), MENDO_LIT("123"));
 }
 
 TEST(Syntax, DotNotANumber)
 {
     // 単独のドットは数値として扱われないべき
-    std::wstring code = L"a.b";
+    mendo::doc_string_std code = MENDO_LIT("a.b");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Number), 0);
@@ -619,13 +619,13 @@ TEST(Syntax, DotNotANumber)
 
 TEST(Syntax, MultipleLinesOfCode)
 {
-    std::wstring code =
-        L"int x = 10;\n"
-        L"float y = 3.14f;\n"
-        L"// comment\n"
-        L"if (x > 0) {\n"
-        L"    return y;\n"
-        L"}";
+    mendo::doc_string_std code =
+        MENDO_LIT("int x = 10;\n")
+        MENDO_LIT("float y = 3.14f;\n")
+        MENDO_LIT("// comment\n")
+        MENDO_LIT("if (x > 0) {\n")
+        MENDO_LIT("    return y;\n")
+        MENDO_LIT("}");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
 
@@ -641,7 +641,7 @@ TEST(Syntax, MultipleLinesOfCode)
 
 TEST(Syntax, ParserExtractsLanguageCpp)
 {
-    auto nodes = ParseMarkdown(L"```cpp\nint x = 1;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```cpp\nint x = 1;\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
@@ -649,42 +649,42 @@ TEST(Syntax, ParserExtractsLanguageCpp)
 
 TEST(Syntax, ParserExtractsLanguagePython)
 {
-    auto nodes = ParseMarkdown(L"```python\ndef foo(): pass\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```python\ndef foo(): pass\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Python);
 }
 
 TEST(Syntax, ParserExtractsLanguageJs)
 {
-    auto nodes = ParseMarkdown(L"```js\nconst x = 1;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```js\nconst x = 1;\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::JavaScript);
 }
 
 TEST(Syntax, ParserNoLanguage)
 {
-    auto nodes = ParseMarkdown(L"```\nplain code\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```\nplain code\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::None);
 }
 
 TEST(Syntax, ParserExtractsLanguageRust)
 {
-    auto nodes = ParseMarkdown(L"```rust\nfn main() {}\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```rust\nfn main() {}\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Rust);
 }
 
 TEST(Syntax, ParserUnknownLanguage)
 {
-    auto nodes = ParseMarkdown(L"```java\nclass Main {}\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```java\nclass Main {}\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::None);
 }
 
 TEST(Syntax, ParserCaseInsensitiveLanguage)
 {
-    auto nodes = ParseMarkdown(L"```CPP\nint x;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```CPP\nint x;\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
 }
@@ -694,13 +694,13 @@ TEST(Syntax, ParserCaseInsensitiveLanguage)
 // Mermaid検出
 TEST(Syntax, DetectLanguageMermaid)
 {
-    EXPECT_EQ(DetectLanguage(L"mermaid"), SyntaxLanguage::Mermaid);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("mermaid")), SyntaxLanguage::Mermaid);
 }
 
 // C++ 生文字列
 TEST(Syntax, CppRawString)
 {
-    auto tokens = Tokenize(L"R\"(hello)\"", SyntaxLanguage::Cpp);
+    auto tokens = Tokenize(MENDO_LIT("R\"(hello)\""), SyntaxLanguage::Cpp);
     // 生文字列を単一の文字列トークンとして検出すべき
     bool has_string = false;
     for (const auto& t : tokens) {
@@ -714,7 +714,7 @@ TEST(Syntax, CppRawString)
 // C++ 8進数
 TEST(Syntax, CppNumberOctal)
 {
-    auto tokens = Tokenize(L"0o77", SyntaxLanguage::Cpp);
+    auto tokens = Tokenize(MENDO_LIT("0o77"), SyntaxLanguage::Cpp);
     bool has_number = false;
     for (const auto& t : tokens) {
         if (t.type == SyntaxTokenType::Number) has_number = true;
@@ -725,12 +725,12 @@ TEST(Syntax, CppNumberOctal)
 // C++ 数値サフィックス
 TEST(Syntax, CppNumberWithSuffix)
 {
-    auto tokens = Tokenize(L"42ULL", SyntaxLanguage::Cpp);
+    auto tokens = Tokenize(MENDO_LIT("42ULL"), SyntaxLanguage::Cpp);
     bool has_number = false;
     for (const auto& t : tokens) {
         if (t.type == SyntaxTokenType::Number) {
             has_number = true;
-            // "42ULL"全体が単一の数値トークンであるべき
+            // "42ULMENDO_LIT("全体が単一の数値トークンであるべき
             EXPECT_EQ(t.length, 5u);
         }
     }
@@ -740,15 +740,15 @@ TEST(Syntax, CppNumberWithSuffix)
 // Python デコレータ
 TEST(Syntax, PythonDecorator)
 {
-    auto tokens = Tokenize(L"@staticmethod\ndef foo():\n    pass", SyntaxLanguage::Python);
+    auto tokens = Tokenize(MENDO_LIT("@staticmethod\ndef foo():\n    pass"), SyntaxLanguage::Python);
     // "@"は特別に処理されないが、"def"と"pass"はキーワードであるべき
     bool has_def = false;
     bool has_pass = false;
     for (const auto& t : tokens) {
         if (t.type == SyntaxTokenType::Keyword) {
-            std::wstring_view word(L"@staticmethod\ndef foo():\n    pass" + t.start, t.length);
-            if (word == L"def") has_def = true;
-            if (word == L"pass") has_pass = true;
+            mendo::doc_string_view word(MENDO_LIT("@staticmethod\ndef foo():\n    pass") + t.start, t.length);
+            if (word == MENDO_LIT("def")) has_def = true;
+            if (word == MENDO_LIT("pass")) has_pass = true;
         }
     }
     EXPECT_TRUE(has_def);
@@ -758,7 +758,7 @@ TEST(Syntax, PythonDecorator)
 // JavaScript BigInt
 TEST(Syntax, JsBigIntNumber)
 {
-    auto tokens = Tokenize(L"42n", SyntaxLanguage::JavaScript);
+    auto tokens = Tokenize(MENDO_LIT("42n"), SyntaxLanguage::JavaScript);
     bool has_number = false;
     for (const auto& t : tokens) {
         if (t.type == SyntaxTokenType::Number) {
@@ -772,14 +772,14 @@ TEST(Syntax, JsBigIntNumber)
 // 空のコードブロック
 TEST(Syntax, TokenizeEmptyCpp)
 {
-    auto tokens = Tokenize(L"", SyntaxLanguage::Cpp);
+    auto tokens = Tokenize(MENDO_LIT(""), SyntaxLanguage::Cpp);
     EXPECT_TRUE(tokens.empty());
 }
 
 // 単一文字
 TEST(Syntax, TokenizeSingleKeyword)
 {
-    auto tokens = Tokenize(L"if", SyntaxLanguage::Cpp);
+    auto tokens = Tokenize(MENDO_LIT("if"), SyntaxLanguage::Cpp);
     ASSERT_EQ(tokens.size(), 1u);
     EXPECT_EQ(tokens[0].type, SyntaxTokenType::Keyword);
 }
@@ -787,7 +787,7 @@ TEST(Syntax, TokenizeSingleKeyword)
 // C++ テキスト末尾の行コメント（改行なし）
 TEST(Syntax, CppCommentEol)
 {
-    auto tokens = Tokenize(L"int x; // comment", SyntaxLanguage::Cpp);
+    auto tokens = Tokenize(MENDO_LIT("int x; // comment"), SyntaxLanguage::Cpp);
     bool has_comment = false;
     for (const auto& t : tokens) {
         if (t.type == SyntaxTokenType::Comment) has_comment = true;
@@ -798,7 +798,7 @@ TEST(Syntax, CppCommentEol)
 // ドットで始まる浮動小数点数
 TEST(Syntax, NumberStartsWithDot)
 {
-    auto tokens = Tokenize(L".5f", SyntaxLanguage::Cpp);
+    auto tokens = Tokenize(MENDO_LIT(".5f"), SyntaxLanguage::Cpp);
     bool has_number = false;
     for (const auto& t : tokens) {
         if (t.type == SyntaxTokenType::Number) has_number = true;
@@ -809,7 +809,7 @@ TEST(Syntax, NumberStartsWithDot)
 // C++ 行継続付きプリプロセッサ
 TEST(Syntax, CppPreprocessorContinuation)
 {
-    auto tokens = Tokenize(L"#define FOO \\\n    bar", SyntaxLanguage::Cpp);
+    auto tokens = Tokenize(MENDO_LIT("#define FOO \\\n    bar"), SyntaxLanguage::Cpp);
     // 行継続をまたぐ単一のプリプロセッサトークンであるべき
     bool has_prep = false;
     for (const auto& t : tokens) {
@@ -823,13 +823,13 @@ TEST(Syntax, CppPreprocessorContinuation)
 // Tsx拡張子の検出
 TEST(Syntax, DetectLanguageTsx)
 {
-    EXPECT_EQ(DetectLanguage(L"tsx"), SyntaxLanguage::TypeScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("tsx")), SyntaxLanguage::TypeScript);
 }
 
 // 不明な拡張子の検出
 TEST(Syntax, DetectLanguageRuby)
 {
-    EXPECT_EQ(DetectLanguage(L"ruby"), SyntaxLanguage::None);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("ruby")), SyntaxLanguage::None);
 }
 
 // ============================================================
@@ -838,18 +838,18 @@ TEST(Syntax, DetectLanguageRuby)
 
 TEST(Syntax, DetectLanguageCc)
 {
-    EXPECT_EQ(DetectLanguage(L"cc"), SyntaxLanguage::Cpp);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("cc")), SyntaxLanguage::Cpp);
 }
 
 TEST(Syntax, DetectLanguageHxx)
 {
-    EXPECT_EQ(DetectLanguage(L"hxx"), SyntaxLanguage::Cpp);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("hxx")), SyntaxLanguage::Cpp);
 }
 
 TEST(Syntax, DetectLanguageMermaidCaseInsensitive)
 {
-    EXPECT_EQ(DetectLanguage(L"Mermaid"), SyntaxLanguage::Mermaid);
-    EXPECT_EQ(DetectLanguage(L"MERMAID"), SyntaxLanguage::Mermaid);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("Mermaid")), SyntaxLanguage::Mermaid);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("MERMAID")), SyntaxLanguage::Mermaid);
 }
 
 // ============================================================
@@ -859,7 +859,7 @@ TEST(Syntax, DetectLanguageMermaidCaseInsensitive)
 TEST(Syntax, MermaidLanguageReturnsEmpty)
 {
     // Mermaidは現在の実装ではトークナイザーを持たない
-    auto tokens = Tokenize(L"graph TD; A-->B;", SyntaxLanguage::Mermaid);
+    auto tokens = Tokenize(MENDO_LIT("graph TD; A-->B;"), SyntaxLanguage::Mermaid);
     EXPECT_TRUE(tokens.empty());
 }
 
@@ -869,41 +869,41 @@ TEST(Syntax, MermaidLanguageReturnsEmpty)
 
 TEST(Syntax, CppNumberExponent)
 {
-    std::wstring code = L"1.5e10";
+    mendo::doc_string_std code = MENDO_LIT("1.5e10");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
     ASSERT_NE(num, nullptr);
-    EXPECT_EQ(GetTokenText(code, *num), L"1.5e10");
+    EXPECT_EQ(GetTokenText(code, *num), MENDO_LIT("1.5e10"));
 }
 
 TEST(Syntax, CppNumberExponentNegative)
 {
-    std::wstring code = L"2.0e-3";
+    mendo::doc_string_std code = MENDO_LIT("2.0e-3");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
     ASSERT_NE(num, nullptr);
-    EXPECT_EQ(GetTokenText(code, *num), L"2.0e-3");
+    EXPECT_EQ(GetTokenText(code, *num), MENDO_LIT("2.0e-3"));
 }
 
 TEST(Syntax, CppNumberDigitSeparator)
 {
-    std::wstring code = L"1'000'000";
+    mendo::doc_string_std code = MENDO_LIT("1'000'000");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
     ASSERT_NE(num, nullptr);
-    EXPECT_EQ(GetTokenText(code, *num), L"1'000'000");
+    EXPECT_EQ(GetTokenText(code, *num), MENDO_LIT("1'000'000"));
 }
 
 TEST(Syntax, CppHexDigitSeparator)
 {
-    std::wstring code = L"0xFF'FF";
+    mendo::doc_string_std code = MENDO_LIT("0xFF'FF");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* num = FindToken(tokens, SyntaxTokenType::Number);
     ASSERT_NE(num, nullptr);
-    EXPECT_EQ(GetTokenText(code, *num), L"0xFF'FF");
+    EXPECT_EQ(GetTokenText(code, *num), MENDO_LIT("0xFF'FF"));
 }
 
 // ============================================================
@@ -912,7 +912,7 @@ TEST(Syntax, CppHexDigitSeparator)
 
 TEST(Syntax, CppRawStringWithDelimiter)
 {
-    std::wstring code = LR"(R"delim(hello "world")delim")";
+    mendo::doc_string_std code = MENDO_LIT("R\"delim(hello \"world\")delim\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     // Rは別の識別子として出力され、その後に生文字列が続く
     auto* str = FindToken(tokens, SyntaxTokenType::String);
@@ -927,7 +927,7 @@ TEST(Syntax, CppRawStringWithDelimiter)
 
 TEST(Syntax, PythonUnterminatedTripleQuote)
 {
-    std::wstring code = L"s = \"\"\"never closed";
+    mendo::doc_string_std code = MENDO_LIT("s = \"\"\"never closed");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
@@ -937,7 +937,7 @@ TEST(Syntax, PythonUnterminatedTripleQuote)
 TEST(Syntax, PythonTripleQuoteWithBackslashEscape)
 {
     // バックスラッシュエスケープ経路: `\"` をスキップしてから本物の `"""` で終端する。
-    std::wstring code = LR"("""abc\"""def""")";
+    mendo::doc_string_std code = MENDO_LIT("\"\"\"abc\\\"\"\"def\"\"\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
@@ -951,7 +951,7 @@ TEST(Syntax, PythonTripleQuoteWithBackslashEscape)
 
 TEST(Syntax, CppModernKeywords)
 {
-    std::wstring code = L"constexpr consteval constinit concept requires co_await co_return co_yield";
+    mendo::doc_string_std code = MENDO_LIT("constexpr consteval constinit concept requires co_await co_return co_yield");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 8);
@@ -959,7 +959,7 @@ TEST(Syntax, CppModernKeywords)
 
 TEST(Syntax, CppCastKeywords)
 {
-    std::wstring code = L"static_cast dynamic_cast reinterpret_cast const_cast";
+    mendo::doc_string_std code = MENDO_LIT("static_cast dynamic_cast reinterpret_cast const_cast");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 4);
@@ -971,7 +971,7 @@ TEST(Syntax, CppCastKeywords)
 
 TEST(Syntax, CppStlTypes)
 {
-    std::wstring code = L"vector map optional variant span unique_ptr shared_ptr";
+    mendo::doc_string_std code = MENDO_LIT("vector map optional variant span unique_ptr shared_ptr");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 7);
@@ -979,7 +979,7 @@ TEST(Syntax, CppStlTypes)
 
 TEST(Syntax, CppWin32Types)
 {
-    std::wstring code = L"HRESULT BOOL DWORD HWND LRESULT";
+    mendo::doc_string_std code = MENDO_LIT("HRESULT BOOL DWORD HWND LRESULT");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
@@ -991,7 +991,7 @@ TEST(Syntax, CppWin32Types)
 
 TEST(Syntax, PythonExceptionTypes)
 {
-    std::wstring code = L"ValueError TypeError KeyError IndexError RuntimeError";
+    mendo::doc_string_std code = MENDO_LIT("ValueError TypeError KeyError IndexError RuntimeError");
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
@@ -1003,7 +1003,7 @@ TEST(Syntax, PythonExceptionTypes)
 
 TEST(Syntax, JsGlobalTypes)
 {
-    std::wstring code = L"console document window JSON Math";
+    mendo::doc_string_std code = MENDO_LIT("console document window JSON Math");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
@@ -1011,7 +1011,7 @@ TEST(Syntax, JsGlobalTypes)
 
 TEST(Syntax, JsAsyncAwait)
 {
-    std::wstring code = L"async await";
+    mendo::doc_string_std code = MENDO_LIT("async await");
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 2);
@@ -1024,7 +1024,7 @@ TEST(Syntax, JsAsyncAwait)
 
 TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR)
 {
-    std::wstring code = L"RENDER\"hello\"";
+    mendo::doc_string_std code = MENDO_LIT("RENDER\"hello\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
 
@@ -1034,13 +1034,13 @@ TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR)
     bool found_render = false;
     bool found_string = false;
     for (const auto& t : tokens) {
-        std::wstring text = GetTokenText(code, t);
-        if (text == L"RENDER") {
+        mendo::doc_string_std text = GetTokenText(code, t);
+        if (text == MENDO_LIT("RENDER")) {
             found_render = true;
             // 文字列であってはならない
             EXPECT_NE(t.type, SyntaxTokenType::String);
         }
-        if (text == L"\"hello\"") {
+        if (text == MENDO_LIT("\"hello\"")) {
             found_string = true;
             EXPECT_EQ(t.type, SyntaxTokenType::String);
         }
@@ -1052,7 +1052,7 @@ TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR)
 TEST(Syntax, CppRawStringStandaloneRStillWorks)
 {
     // 単独のR"(...)"は依然として生文字列として認識されるべき
-    std::wstring code = L"R\"(hello)\"";
+    mendo::doc_string_std code = MENDO_LIT("R\"(hello)\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
@@ -1062,7 +1062,7 @@ TEST(Syntax, CppRawStringStandaloneRStillWorks)
 TEST(Syntax, CppRawStringAfterSpaceR)
 {
     // "x R\"(test)\"" — スペースの後のRは動作すべき
-    std::wstring code = L"x R\"(test)\"";
+    mendo::doc_string_std code = MENDO_LIT("x R\"(test)\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
@@ -1074,7 +1074,7 @@ TEST(Syntax, CppRawStringAfterSpaceR)
 
 TEST(Syntax, UnterminatedBlockCommentCoversAllText)
 {
-    std::wstring code = L"/* unterminated comment";
+    mendo::doc_string_std code = MENDO_LIT("/* unterminated comment");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -1085,7 +1085,7 @@ TEST(Syntax, UnterminatedBlockCommentCoversAllText)
 TEST(Syntax, UnterminatedBlockCommentEndsWithStar)
 {
     // エッジケース: コメントが*で終わるが/がない
-    std::wstring code = L"/* test *";
+    mendo::doc_string_std code = MENDO_LIT("/* test *");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -1095,12 +1095,12 @@ TEST(Syntax, UnterminatedBlockCommentEndsWithStar)
 
 TEST(Syntax, TerminatedBlockCommentStillWorks)
 {
-    std::wstring code = L"/* ok */ x";
+    mendo::doc_string_std code = MENDO_LIT("/* ok */ x");
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
     ASSERT_NE(comment, nullptr);
-    EXPECT_EQ(GetTokenText(code, *comment), L"/* ok */");
+    EXPECT_EQ(GetTokenText(code, *comment), MENDO_LIT("/* ok */"));
 }
 
 // ============================================================
@@ -1109,13 +1109,13 @@ TEST(Syntax, TerminatedBlockCommentStillWorks)
 
 TEST(Syntax, DetectLanguageGo)
 {
-    EXPECT_EQ(DetectLanguage(L"go"), SyntaxLanguage::Go);
-    EXPECT_EQ(DetectLanguage(L"golang"), SyntaxLanguage::Go);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("go")), SyntaxLanguage::Go);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("golang")), SyntaxLanguage::Go);
 }
 
 TEST(Syntax, GoKeywords)
 {
-    std::wstring code = L"if else for return func defer go";
+    mendo::doc_string_std code = MENDO_LIT("if else for return func defer go");
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 7);
@@ -1123,7 +1123,7 @@ TEST(Syntax, GoKeywords)
 
 TEST(Syntax, GoTypes)
 {
-    std::wstring code = L"int float64 string bool error";
+    mendo::doc_string_std code = MENDO_LIT("int float64 string bool error");
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
@@ -1131,17 +1131,17 @@ TEST(Syntax, GoTypes)
 
 TEST(Syntax, GoLineComment)
 {
-    std::wstring code = L"x := 1 // comment\ny := 2";
+    mendo::doc_string_std code = MENDO_LIT("x := 1 // comment\ny := 2");
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
     ASSERT_NE(comment, nullptr);
-    EXPECT_EQ(GetTokenText(code, *comment), L"// comment");
+    EXPECT_EQ(GetTokenText(code, *comment), MENDO_LIT("// comment"));
 }
 
 TEST(Syntax, GoBlockComment)
 {
-    std::wstring code = L"/* multi\nline */";
+    mendo::doc_string_std code = MENDO_LIT("/* multi\nline */");
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -1150,39 +1150,39 @@ TEST(Syntax, GoBlockComment)
 
 TEST(Syntax, GoBacktickRawString)
 {
-    std::wstring code = L"`raw\\nstring`";
+    mendo::doc_string_std code = MENDO_LIT("`raw\\nstring`");
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"`raw\\nstring`");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("`raw\\nstring`"));
 }
 
 TEST(Syntax, GoBacktickRawStringWithBackslash)
 {
     // Goの生文字列はバックスラッシュをエスケープとして扱わないので、`c:\`は有効
-    std::wstring code = L"`c:\\`";
+    mendo::doc_string_std code = MENDO_LIT("`c:\\`");
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"`c:\\`");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("`c:\\`"));
 }
 
 TEST(Syntax, GoBacktickRawStringTrailingBackslash)
 {
     // 生文字列末尾のバックスラッシュが閉じバッククォートをスキップしないことを確認
-    std::wstring code = L"s := `path\\` + x";
+    mendo::doc_string_std code = MENDO_LIT("s := `path\\` + x");
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"`path\\`");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("`path\\`"));
 }
 
 TEST(Syntax, GoNilTrueFalse)
 {
-    std::wstring code = L"nil true false iota";
+    mendo::doc_string_std code = MENDO_LIT("nil true false iota");
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 4);
@@ -1190,7 +1190,7 @@ TEST(Syntax, GoNilTrueFalse)
 
 TEST(Syntax, GoComplexCode)
 {
-    std::wstring code = L"package main\n\nimport \"fmt\"\n\nfunc main() {\n    // Hello\n    fmt.Println(\"Hello\")\n}";
+    mendo::doc_string_std code = MENDO_LIT("package main\n\nimport \"fmt\"\n\nfunc main() {\n    // Hello\n    fmt.Println(\"Hello\")\n}");
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
 
@@ -1202,7 +1202,7 @@ TEST(Syntax, GoComplexCode)
 
 TEST(Syntax, TokensCoverEntireTextGo)
 {
-    std::wstring code = L"func hello(name string) error {\n    return nil\n}";
+    mendo::doc_string_std code = MENDO_LIT("func hello(name string) error {\n    return nil\n}");
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
     AssertTokensCoverText(tokens, code.size());
 }
@@ -1213,13 +1213,13 @@ TEST(Syntax, TokensCoverEntireTextGo)
 
 TEST(Syntax, DetectLanguageRust)
 {
-    EXPECT_EQ(DetectLanguage(L"rust"), SyntaxLanguage::Rust);
-    EXPECT_EQ(DetectLanguage(L"rs"), SyntaxLanguage::Rust);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("rust")), SyntaxLanguage::Rust);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("rs")), SyntaxLanguage::Rust);
 }
 
 TEST(Syntax, RustKeywords)
 {
-    std::wstring code = L"fn let mut if else match return";
+    mendo::doc_string_std code = MENDO_LIT("fn let mut if else match return");
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 7);
@@ -1227,7 +1227,7 @@ TEST(Syntax, RustKeywords)
 
 TEST(Syntax, RustTypes)
 {
-    std::wstring code = L"i32 u64 f64 bool String Vec Option Result";
+    mendo::doc_string_std code = MENDO_LIT("i32 u64 f64 bool String Vec Option Result");
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 8);
@@ -1235,7 +1235,7 @@ TEST(Syntax, RustTypes)
 
 TEST(Syntax, RustLineComment)
 {
-    std::wstring code = L"let x = 1; // comment";
+    mendo::doc_string_std code = MENDO_LIT("let x = 1; // comment");
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
@@ -1244,7 +1244,7 @@ TEST(Syntax, RustLineComment)
 
 TEST(Syntax, RustBlockComment)
 {
-    std::wstring code = L"/* block\ncomment */";
+    mendo::doc_string_std code = MENDO_LIT("/* block\ncomment */");
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -1253,19 +1253,19 @@ TEST(Syntax, RustBlockComment)
 
 TEST(Syntax, RustStringDouble)
 {
-    std::wstring code = L"let s = \"hello\";";
+    mendo::doc_string_std code = MENDO_LIT("let s = \"hello\";");
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"\"hello\"");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("\"hello\""));
 }
 
 TEST(Syntax, RustSingleQuoteNotString)
 {
     // Rustではシングルクォートはライフタイム('a)と文字リテラル('x')に使用される。
     // ライフタイムの問題を避けるためシングルクォート文字列はスキップする。
-    std::wstring code = L"fn foo<'a>(x: &'a str) {}";
+    mendo::doc_string_std code = MENDO_LIT("fn foo<'a>(x: &'a str) {}");
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     // 'aは行の残りを飲み込む文字列トークンを生成してはならない
@@ -1275,7 +1275,7 @@ TEST(Syntax, RustSingleQuoteNotString)
 
 TEST(Syntax, RustSomeNoneOkErr)
 {
-    std::wstring code = L"Some None Ok Err";
+    mendo::doc_string_std code = MENDO_LIT("Some None Ok Err");
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 4);
@@ -1283,7 +1283,7 @@ TEST(Syntax, RustSomeNoneOkErr)
 
 TEST(Syntax, RustAsyncAwait)
 {
-    std::wstring code = L"async await";
+    mendo::doc_string_std code = MENDO_LIT("async await");
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 2);
@@ -1291,7 +1291,7 @@ TEST(Syntax, RustAsyncAwait)
 
 TEST(Syntax, RustComplexCode)
 {
-    std::wstring code = L"use std::io;\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    let x: i32 = 42;\n    // comment\n    println!(\"Hello {}\", x);\n    Ok(())\n}";
+    mendo::doc_string_std code = MENDO_LIT("use std::io;\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    let x: i32 = 42;\n    // comment\n    println!(\"Hello {}\", x);\n    Ok(())\n}");
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
 
@@ -1304,7 +1304,7 @@ TEST(Syntax, RustComplexCode)
 
 TEST(Syntax, TokensCoverEntireTextRust)
 {
-    std::wstring code = L"struct Point { x: f64, y: f64 }";
+    mendo::doc_string_std code = MENDO_LIT("struct Point { x: f64, y: f64 }");
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
     AssertTokensCoverText(tokens, code.size());
 }
@@ -1315,14 +1315,14 @@ TEST(Syntax, TokensCoverEntireTextRust)
 
 TEST(Syntax, DetectLanguageTypeScript)
 {
-    EXPECT_EQ(DetectLanguage(L"typescript"), SyntaxLanguage::TypeScript);
-    EXPECT_EQ(DetectLanguage(L"ts"), SyntaxLanguage::TypeScript);
-    EXPECT_EQ(DetectLanguage(L"tsx"), SyntaxLanguage::TypeScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("typescript")), SyntaxLanguage::TypeScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("ts")), SyntaxLanguage::TypeScript);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("tsx")), SyntaxLanguage::TypeScript);
 }
 
 TEST(Syntax, TsKeywordsInclJsKeywords)
 {
-    std::wstring code = L"if else while for return const let var function";
+    mendo::doc_string_std code = MENDO_LIT("if else while for return const let var function");
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 9);
@@ -1330,7 +1330,7 @@ TEST(Syntax, TsKeywordsInclJsKeywords)
 
 TEST(Syntax, TsSpecificKeywords)
 {
-    std::wstring code = L"interface type enum namespace declare abstract readonly";
+    mendo::doc_string_std code = MENDO_LIT("interface type enum namespace declare abstract readonly");
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 7);
@@ -1339,7 +1339,7 @@ TEST(Syntax, TsSpecificKeywords)
 TEST(Syntax, TsSpecificTypes)
 {
     // voidはキーワード（JSから継承）なので、型には含まれない
-    std::wstring code = L"any unknown never number string boolean";
+    mendo::doc_string_std code = MENDO_LIT("any unknown never number string boolean");
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 6);
@@ -1347,7 +1347,7 @@ TEST(Syntax, TsSpecificTypes)
 
 TEST(Syntax, TsUtilityTypes)
 {
-    std::wstring code = L"Record Partial Required Readonly Pick Omit";
+    mendo::doc_string_std code = MENDO_LIT("Record Partial Required Readonly Pick Omit");
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 6);
@@ -1355,7 +1355,7 @@ TEST(Syntax, TsUtilityTypes)
 
 TEST(Syntax, TsTemplateLiteral)
 {
-    std::wstring code = L"`hello ${name}`";
+    mendo::doc_string_std code = MENDO_LIT("`hello ${name}`");
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
@@ -1364,7 +1364,7 @@ TEST(Syntax, TsTemplateLiteral)
 
 TEST(Syntax, TsComplexCode)
 {
-    std::wstring code = L"interface User {\n  name: string;\n  age: number;\n}\n\nconst greet = (user: User): string => {\n  return `Hello, ${user.name}`;\n};";
+    mendo::doc_string_std code = MENDO_LIT("interface User {\n  name: string;\n  age: number;\n}\n\nconst greet = (user: User): string => {\n  return `Hello, ${user.name}`;\n};");
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
 
@@ -1375,7 +1375,7 @@ TEST(Syntax, TsComplexCode)
 
 TEST(Syntax, TokensCoverEntireTextTs)
 {
-    std::wstring code = L"type Props = { value: number; onChange: (v: number) => void; };";
+    mendo::doc_string_std code = MENDO_LIT("type Props = { value: number; onChange: (v: number) => void; };");
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
     AssertTokensCoverText(tokens, code.size());
 }
@@ -1386,15 +1386,15 @@ TEST(Syntax, TokensCoverEntireTextTs)
 
 TEST(Syntax, DetectLanguageBash)
 {
-    EXPECT_EQ(DetectLanguage(L"bash"), SyntaxLanguage::Bash);
-    EXPECT_EQ(DetectLanguage(L"sh"), SyntaxLanguage::Bash);
-    EXPECT_EQ(DetectLanguage(L"zsh"), SyntaxLanguage::Bash);
-    EXPECT_EQ(DetectLanguage(L"shell"), SyntaxLanguage::Bash);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("bash")), SyntaxLanguage::Bash);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("sh")), SyntaxLanguage::Bash);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("zsh")), SyntaxLanguage::Bash);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("shell")), SyntaxLanguage::Bash);
 }
 
 TEST(Syntax, BashKeywords)
 {
-    std::wstring code = L"if then else elif fi for while do done";
+    mendo::doc_string_std code = MENDO_LIT("if then else elif fi for while do done");
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 9);
@@ -1402,7 +1402,7 @@ TEST(Syntax, BashKeywords)
 
 TEST(Syntax, BashBuiltins)
 {
-    std::wstring code = L"echo printf read cd pwd";
+    mendo::doc_string_std code = MENDO_LIT("echo printf read cd pwd");
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
@@ -1410,27 +1410,27 @@ TEST(Syntax, BashBuiltins)
 
 TEST(Syntax, BashHashComment)
 {
-    std::wstring code = L"x=1  # comment\ny=2";
+    mendo::doc_string_std code = MENDO_LIT("x=1  # comment\ny=2");
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
     ASSERT_NE(comment, nullptr);
-    EXPECT_EQ(GetTokenText(code, *comment), L"# comment");
+    EXPECT_EQ(GetTokenText(code, *comment), MENDO_LIT("# comment"));
 }
 
 TEST(Syntax, BashString)
 {
-    std::wstring code = L"echo \"hello world\"";
+    mendo::doc_string_std code = MENDO_LIT("echo \"hello world\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    EXPECT_EQ(GetTokenText(code, *str), L"\"hello world\"");
+    EXPECT_EQ(GetTokenText(code, *str), MENDO_LIT("\"hello world\""));
 }
 
 TEST(Syntax, BashBacktick)
 {
-    std::wstring code = L"result=`ls -la`";
+    mendo::doc_string_std code = MENDO_LIT("result=`ls -la`");
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
@@ -1439,7 +1439,7 @@ TEST(Syntax, BashBacktick)
 
 TEST(Syntax, BashComplexCode)
 {
-    std::wstring code = L"#!/bin/bash\n# Script\nfor f in *.txt; do\n    echo \"$f\"\ndone";
+    mendo::doc_string_std code = MENDO_LIT("#!/bin/bash\n# Script\nfor f in *.txt; do\n    echo \"$f\"\ndone");
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
 
@@ -1450,7 +1450,7 @@ TEST(Syntax, BashComplexCode)
 
 TEST(Syntax, TokensCoverEntireTextBash)
 {
-    std::wstring code = L"if [ -f \"$1\" ]; then\n    echo \"exists\"\nfi";
+    mendo::doc_string_std code = MENDO_LIT("if [ -f \"$1\" ]; then\n    echo \"exists\"\nfi");
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
     AssertTokensCoverText(tokens, code.size());
 }
@@ -1461,14 +1461,14 @@ TEST(Syntax, TokensCoverEntireTextBash)
 
 TEST(Syntax, DetectLanguagePowerShell)
 {
-    EXPECT_EQ(DetectLanguage(L"powershell"), SyntaxLanguage::PowerShell);
-    EXPECT_EQ(DetectLanguage(L"pwsh"), SyntaxLanguage::PowerShell);
-    EXPECT_EQ(DetectLanguage(L"ps1"), SyntaxLanguage::PowerShell);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("powershell")), SyntaxLanguage::PowerShell);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("pwsh")), SyntaxLanguage::PowerShell);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("ps1")), SyntaxLanguage::PowerShell);
 }
 
 TEST(Syntax, PwshKeywords)
 {
-    std::wstring code = L"if else foreach while function return";
+    mendo::doc_string_std code = MENDO_LIT("if else foreach while function return");
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 6);
@@ -1476,7 +1476,7 @@ TEST(Syntax, PwshKeywords)
 
 TEST(Syntax, PwshKeywordsCaseInsensitive)
 {
-    std::wstring code = L"If Else ForEach WHILE Function RETURN";
+    mendo::doc_string_std code = MENDO_LIT("If Else ForEach WHILE Function RETURN");
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 6);
@@ -1484,7 +1484,7 @@ TEST(Syntax, PwshKeywordsCaseInsensitive)
 
 TEST(Syntax, PwshTypes)
 {
-    std::wstring code = L"int string bool array hashtable";
+    mendo::doc_string_std code = MENDO_LIT("int string bool array hashtable");
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
@@ -1492,7 +1492,7 @@ TEST(Syntax, PwshTypes)
 
 TEST(Syntax, PwshHashComment)
 {
-    std::wstring code = L"$x = 1  # comment\n$y = 2";
+    mendo::doc_string_std code = MENDO_LIT("$x = 1  # comment\n$y = 2");
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
@@ -1501,7 +1501,7 @@ TEST(Syntax, PwshHashComment)
 
 TEST(Syntax, PwshAngleBlockComment)
 {
-    std::wstring code = L"<# block\ncomment #>";
+    mendo::doc_string_std code = MENDO_LIT("<# block\ncomment #>");
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -1510,7 +1510,7 @@ TEST(Syntax, PwshAngleBlockComment)
 
 TEST(Syntax, PwshAngleBlockCommentUnterminated)
 {
-    std::wstring code = L"<# never closed";
+    mendo::doc_string_std code = MENDO_LIT("<# never closed");
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
     ASSERT_EQ(tokens.size(), 1u);
@@ -1520,7 +1520,7 @@ TEST(Syntax, PwshAngleBlockCommentUnterminated)
 
 TEST(Syntax, PwshString)
 {
-    std::wstring code = L"\"hello world\"";
+    mendo::doc_string_std code = MENDO_LIT("\"hello world\"");
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
@@ -1529,7 +1529,7 @@ TEST(Syntax, PwshString)
 
 TEST(Syntax, PwshComplexCode)
 {
-    std::wstring code = L"<# Script #>\nfunction Get-Item {\n    param([string]$Path)\n    # Do work\n    return $Path\n}";
+    mendo::doc_string_std code = MENDO_LIT("<# Script #>\nfunction Get-Item {\n    param([string]$Path)\n    # Do work\n    return $Path\n}");
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
 
@@ -1539,7 +1539,7 @@ TEST(Syntax, PwshComplexCode)
 
 TEST(Syntax, TokensCoverEntireTextPwsh)
 {
-    std::wstring code = L"if ($x -eq 1) { Write-Host \"hello\" }";
+    mendo::doc_string_std code = MENDO_LIT("if ($x -eq 1) { Write-Host \"hello\" }");
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
     AssertTokensCoverText(tokens, code.size());
 }
@@ -1550,15 +1550,15 @@ TEST(Syntax, TokensCoverEntireTextPwsh)
 
 TEST(Syntax, DetectLanguageCmd)
 {
-    EXPECT_EQ(DetectLanguage(L"cmd"), SyntaxLanguage::Cmd);
-    EXPECT_EQ(DetectLanguage(L"bat"), SyntaxLanguage::Cmd);
-    EXPECT_EQ(DetectLanguage(L"batch"), SyntaxLanguage::Cmd);
-    EXPECT_EQ(DetectLanguage(L"dosbatch"), SyntaxLanguage::Cmd);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("cmd")), SyntaxLanguage::Cmd);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("bat")), SyntaxLanguage::Cmd);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("batch")), SyntaxLanguage::Cmd);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("dosbatch")), SyntaxLanguage::Cmd);
 }
 
 TEST(Syntax, CmdKeywords)
 {
-    std::wstring code = L"if else for do goto call set echo";
+    mendo::doc_string_std code = MENDO_LIT("if else for do goto call set echo");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 8);
@@ -1566,7 +1566,7 @@ TEST(Syntax, CmdKeywords)
 
 TEST(Syntax, CmdKeywordsCaseInsensitive)
 {
-    std::wstring code = L"IF ELSE FOR DO GOTO CALL SET ECHO";
+    mendo::doc_string_std code = MENDO_LIT("IF ELSE FOR DO GOTO CALL SET ECHO");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 8);
@@ -1574,17 +1574,17 @@ TEST(Syntax, CmdKeywordsCaseInsensitive)
 
 TEST(Syntax, CmdRemComment)
 {
-    std::wstring code = L"REM this is a comment\nset x=1";
+    mendo::doc_string_std code = MENDO_LIT("REM this is a comment\nset x=1");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
     ASSERT_NE(comment, nullptr);
-    EXPECT_EQ(GetTokenText(code, *comment), L"REM this is a comment");
+    EXPECT_EQ(GetTokenText(code, *comment), MENDO_LIT("REM this is a comment"));
 }
 
 TEST(Syntax, CmdRemCommentCaseInsensitive)
 {
-    std::wstring code = L"rem comment here";
+    mendo::doc_string_std code = MENDO_LIT("rem comment here");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
@@ -1594,7 +1594,7 @@ TEST(Syntax, CmdRemCommentCaseInsensitive)
 TEST(Syntax, CmdRemNotAtLineStart)
 {
     // 行の途中のREMはコメントではなくキーワードであるべき
-    std::wstring code = L"echo REM";
+    mendo::doc_string_std code = MENDO_LIT("echo REM");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     // "echo"はキーワード、" "はプレーン、"REM"はコメントであってはならない
@@ -1603,18 +1603,18 @@ TEST(Syntax, CmdRemNotAtLineStart)
 
 TEST(Syntax, CmdDoubleColonComment)
 {
-    std::wstring code = L":: this is a comment\nset x=1";
+    mendo::doc_string_std code = MENDO_LIT(":: this is a comment\nset x=1");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     auto* comment = FindToken(tokens, SyntaxTokenType::Comment);
     ASSERT_NE(comment, nullptr);
-    EXPECT_EQ(GetTokenText(code, *comment), L":: this is a comment");
+    EXPECT_EQ(GetTokenText(code, *comment), MENDO_LIT(":: this is a comment"));
 }
 
 TEST(Syntax, CmdDoubleColonNotAtLineStart)
 {
     // 行頭でない::はコメントとして扱われないべき
-    std::wstring code = L"x::y";
+    mendo::doc_string_std code = MENDO_LIT("x::y");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Comment), 0);
@@ -1622,7 +1622,7 @@ TEST(Syntax, CmdDoubleColonNotAtLineStart)
 
 TEST(Syntax, CmdString)
 {
-    std::wstring code = L"echo \"hello world\"";
+    mendo::doc_string_std code = MENDO_LIT("echo \"hello world\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     auto* str = FindToken(tokens, SyntaxTokenType::String);
@@ -1631,7 +1631,7 @@ TEST(Syntax, CmdString)
 
 TEST(Syntax, CmdTypes)
 {
-    std::wstring code = L"dir copy move del mkdir";
+    mendo::doc_string_std code = MENDO_LIT("dir copy move del mkdir");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Type), 5);
@@ -1639,7 +1639,7 @@ TEST(Syntax, CmdTypes)
 
 TEST(Syntax, CmdComplexCode)
 {
-    std::wstring code = L"@echo off\nREM Build script\nfor %%f in (*.cpp) do (\n    echo Building %%f\n)\npause";
+    mendo::doc_string_std code = MENDO_LIT("@echo off\nREM Build script\nfor %%f in (*.cpp) do (\n    echo Building %%f\n)\npause");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
 
@@ -1649,7 +1649,7 @@ TEST(Syntax, CmdComplexCode)
 
 TEST(Syntax, TokensCoverEntireTextCmd)
 {
-    std::wstring code = L"if exist \"file.txt\" (\n    del \"file.txt\"\n)";
+    mendo::doc_string_std code = MENDO_LIT("if exist \"file.txt\" (\n    del \"file.txt\"\n)");
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
     AssertTokensCoverText(tokens, code.size());
 }
@@ -1660,14 +1660,14 @@ TEST(Syntax, TokensCoverEntireTextCmd)
 
 TEST(Syntax, DetectLanguageJson)
 {
-    EXPECT_EQ(DetectLanguage(L"json"), SyntaxLanguage::Json);
-    EXPECT_EQ(DetectLanguage(L"jsonc"), SyntaxLanguage::Json);
-    EXPECT_EQ(DetectLanguage(L"json5"), SyntaxLanguage::Json);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("json")), SyntaxLanguage::Json);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("jsonc")), SyntaxLanguage::Json);
+    EXPECT_EQ(DetectLanguage(MENDO_LIT("json5")), SyntaxLanguage::Json);
 }
 
 TEST(Syntax, JsonLiteralsAsKeywords)
 {
-    std::wstring code = L"[true, false, null]";
+    mendo::doc_string_std code = MENDO_LIT("[true, false, null]");
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 3);
@@ -1675,7 +1675,7 @@ TEST(Syntax, JsonLiteralsAsKeywords)
 
 TEST(Syntax, JsonString)
 {
-    std::wstring code = L"\"hello world\"";
+    mendo::doc_string_std code = MENDO_LIT("\"hello world\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 1);
@@ -1683,7 +1683,7 @@ TEST(Syntax, JsonString)
 
 TEST(Syntax, JsonStringWithEscapes)
 {
-    std::wstring code = L"\"line1\\nline2\\t\\\"quoted\\\"\"";
+    mendo::doc_string_std code = MENDO_LIT("\"line1\\nline2\\t\\\"quoted\\\"\"");
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 1);
@@ -1692,7 +1692,7 @@ TEST(Syntax, JsonStringWithEscapes)
 TEST(Syntax, JsonSingleQuoteIsNotString)
 {
     // JSON は二重引用符のみ。シングルクォートは文字列として扱わない（プレーン）。
-    std::wstring code = L"'not a string'";
+    mendo::doc_string_std code = MENDO_LIT("'not a string'");
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 0);
@@ -1701,7 +1701,7 @@ TEST(Syntax, JsonSingleQuoteIsNotString)
 TEST(Syntax, JsonNumbers)
 {
     // 負号は分離されるが、数値部はトークン化される。
-    std::wstring code = L"[0, 1, -2, 3.14, 1e10, 1.5e-3]";
+    mendo::doc_string_std code = MENDO_LIT("[0, 1, -2, 3.14, 1e10, 1.5e-3]");
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Number), 6);
@@ -1709,7 +1709,7 @@ TEST(Syntax, JsonNumbers)
 
 TEST(Syntax, JsonObject)
 {
-    std::wstring code = LR"({"name": "alice", "age": 30, "active": true})";
+    mendo::doc_string_std code = MENDO_LIT("{\"name\": \"alice\", \"age\": 30, \"active\": true}");
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 4);
@@ -1719,7 +1719,7 @@ TEST(Syntax, JsonObject)
 
 TEST(Syntax, JsonNestedStructure)
 {
-    std::wstring code = LR"({"items": [{"id": 1}, {"id": 2}], "count": 2})";
+    mendo::doc_string_std code = MENDO_LIT("{\"items\": [{\"id\": 1}, {\"id\": 2}], \"count\": 2}");
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Number), 3);
@@ -1728,7 +1728,7 @@ TEST(Syntax, JsonNestedStructure)
 TEST(Syntax, JsoncLineComment)
 {
     // JSONC: // 形式のコメントを許容。
-    std::wstring code = L"{\n  // comment\n  \"key\": 1\n}";
+    mendo::doc_string_std code = MENDO_LIT("{\n  // comment\n  \"key\": 1\n}");
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Comment), 1);
@@ -1737,7 +1737,7 @@ TEST(Syntax, JsoncLineComment)
 TEST(Syntax, JsoncBlockComment)
 {
     // JSONC: /* */ 形式のコメントを許容。
-    std::wstring code = L"{\n  /* block\n     comment */\n  \"key\": 1\n}";
+    mendo::doc_string_std code = MENDO_LIT("{\n  /* block\n     comment */\n  \"key\": 1\n}");
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
     AssertTokensCoverText(tokens, code.size());
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Comment), 1);
@@ -1745,7 +1745,7 @@ TEST(Syntax, JsoncBlockComment)
 
 TEST(Syntax, TokensCoverEntireTextJson)
 {
-    std::wstring code = LR"({"a": [1, 2, null], "b": {"c": false}})";
+    mendo::doc_string_std code = MENDO_LIT("{\"a\": [1, 2, null], \"b\": {\"c\": false}}");
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
     AssertTokensCoverText(tokens, code.size());
 }
@@ -1756,42 +1756,42 @@ TEST(Syntax, TokensCoverEntireTextJson)
 
 TEST(Syntax, ParserExtractsLanguageGo)
 {
-    auto nodes = ParseMarkdown(L"```go\nfunc main() {}\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```go\nfunc main() {}\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Go);
 }
 
 TEST(Syntax, ParserExtractsLanguageTs)
 {
-    auto nodes = ParseMarkdown(L"```typescript\nconst x: number = 1;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```typescript\nconst x: number = 1;\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::TypeScript);
 }
 
 TEST(Syntax, ParserExtractsLanguageBash)
 {
-    auto nodes = ParseMarkdown(L"```bash\necho hello\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```bash\necho hello\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Bash);
 }
 
 TEST(Syntax, ParserExtractsLanguagePwsh)
 {
-    auto nodes = ParseMarkdown(L"```powershell\nWrite-Host hello\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```powershell\nWrite-Host hello\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::PowerShell);
 }
 
 TEST(Syntax, ParserExtractsLanguageCmd)
 {
-    auto nodes = ParseMarkdown(L"```cmd\necho hello\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```cmd\necho hello\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cmd);
 }
 
 TEST(Syntax, ParserExtractsLanguageJson)
 {
-    auto nodes = ParseMarkdown(L"```json\n{\"k\": 1}\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```json\n{\"k\": 1}\n```")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Json);
 }

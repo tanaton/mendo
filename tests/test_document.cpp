@@ -20,7 +20,7 @@ TEST(DocumentTest, FromMarkdownBasic)
     EXPECT_GE(doc.GetNodes().size(), 2u);
     // TOCに見出しが含まれるべき
     EXPECT_FALSE(doc.GetToc().GetEntries().empty());
-    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), L"Hello");
+    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), MENDO_LIT("Hello"));
 }
 
 TEST(DocumentTest, FromMarkdownEmpty)
@@ -65,14 +65,14 @@ TEST(DocumentTest, ReplaceContent)
 {
     auto doc = Document::FromMarkdown("# First", L"C:\\test.md");
     EXPECT_FALSE(doc.GetToc().GetEntries().empty());
-    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), L"First");
+    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), MENDO_LIT("First"));
 
     // 新しいコンテンツで置き換え
-    doc.ReplaceContent(ParseMarkdown(L"# Second\n## Sub"));
+    doc.ReplaceContent(ParseMarkdown(MENDO_LIT("# Second\n## Sub")));
 
     // TOCが再構築されるべき
     EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);
-    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), L"Second");
+    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), MENDO_LIT("Second"));
     // ファイルパスは変更されないべき
     EXPECT_EQ(doc.GetFilePath(), L"C:\\test.md");
 }
@@ -84,8 +84,8 @@ TEST(DocumentTest, GetNodesMut)
 
     // 可変参照を通じてノードを変更
     auto& nodes = doc.GetNodesMut();
-    nodes[0].SetText(L"modified");
-    EXPECT_EQ(doc.GetNodes()[0].GetText(), L"modified");
+    nodes[0].SetText(MENDO_LIT("modified"));
+    EXPECT_EQ(doc.GetNodes()[0].GetText(), MENDO_LIT("modified"));
 }
 
 // ---- GetRawText / GetLoadedByteSize ----
@@ -93,7 +93,7 @@ TEST(DocumentTest, GetNodesMut)
 TEST(DocumentTest, GetRawTextFromMarkdown)
 {
     auto doc = Document::FromMarkdown("# Hello\nworld", L"test.md");
-    EXPECT_EQ(doc.GetRawText(), L"# Hello\nworld");
+    EXPECT_EQ(doc.GetRawText(), MENDO_LIT("# Hello\nworld"));
     EXPECT_EQ(doc.GetLoadedByteSize(), 13u);
 }
 
@@ -114,10 +114,10 @@ TEST(DocumentTest, GetRawTextDefault)
 TEST(DocumentTest, GetRawTextAfterReplace)
 {
     auto doc = Document::FromMarkdown("old content", L"test.md");
-    EXPECT_EQ(doc.GetRawText(), L"old content");
+    EXPECT_EQ(doc.GetRawText(), MENDO_LIT("old content"));
 
     doc.ReplaceFromMarkdown("new content");
-    EXPECT_EQ(doc.GetRawText(), L"new content");
+    EXPECT_EQ(doc.GetRawText(), MENDO_LIT("new content"));
 }
 
 TEST(DocumentTest, GetRawTextUtf8Content)
@@ -125,7 +125,7 @@ TEST(DocumentTest, GetRawTextUtf8Content)
     std::pmr::string utf8 = "# 日本語テスト\n\nこんにちは";
     auto doc = Document::FromMarkdown(utf8, L"test.md");
     // UTF-8 と Wide で同じ論理テキストが得られる
-    EXPECT_EQ(doc.GetRawText(), L"# 日本語テスト\n\nこんにちは");
+    EXPECT_EQ(doc.GetRawText(), MENDO_LIT("# 日本語テスト\n\nこんにちは"));
     // バイトサイズは UTF-8 のサイズ（CJK は 3 byte/char）
     EXPECT_EQ(doc.GetLoadedByteSize(), utf8.size());
 }
@@ -133,27 +133,27 @@ TEST(DocumentTest, GetRawTextUtf8Content)
 TEST(DocumentTest, GetRawTextPreservedAcrossMultipleReplaces)
 {
     auto doc = Document::FromMarkdown("v1", L"test.md");
-    EXPECT_EQ(doc.GetRawText(), L"v1");
+    EXPECT_EQ(doc.GetRawText(), MENDO_LIT("v1"));
 
     doc.ReplaceFromMarkdown("v2");
-    EXPECT_EQ(doc.GetRawText(), L"v2");
+    EXPECT_EQ(doc.GetRawText(), MENDO_LIT("v2"));
 
     doc.ReplaceFromMarkdown("v3");
-    EXPECT_EQ(doc.GetRawText(), L"v3");
+    EXPECT_EQ(doc.GetRawText(), MENDO_LIT("v3"));
 }
 
 TEST(DocumentTest, GetRawTextIndependentOfNodes)
 {
-    // ノードの変更が raw_wide_ に影響しないことを確認
+    // ノードの変更が raw_text_ に影響しないことを確認
     auto doc = Document::FromMarkdown("hello", L"test.md");
-    doc.GetNodesMut()[0].SetText(L"modified");
-    // raw_wide_ はパース入力のまま
-    EXPECT_EQ(doc.GetRawText(), L"hello");
+    doc.GetNodesMut()[0].SetText(MENDO_LIT("modified"));
+    // raw_text_ はパース入力のまま
+    EXPECT_EQ(doc.GetRawText(), MENDO_LIT("hello"));
 }
 
 TEST(DocumentTest, RawTextSourceOffsetConsistency)
 {
-    // raw_wide_ 内のオフセット（UTF-16 コード単位）がノードの source_offset と一致することを確認
+    // raw_text_ 内の UTF-8 byte オフセットがノードの source_offset と一致することを確認
     std::pmr::string md = "# Title\n\nBody text";
     auto doc = Document::FromMarkdown(md, L"test.md");
     const auto& nodes = doc.GetNodes();
@@ -217,14 +217,67 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
     EXPECT_TRUE(checked_any);
 }
 
+// ---- 1.2 view 化 sanity (Document move / ReplaceFromMarkdown) ----
+
+TEST(DocumentTest, ViewModeNodesSurviveMoveCtor)
+{
+    auto doc1 = Document::FromMarkdown("Hello world\n\nSecond paragraph", L"test.md");
+    ASSERT_GE(doc1.GetNodes().size(), 2u);
+    EXPECT_EQ(doc1.GetNodes()[0].GetText(), MENDO_LIT("Hello world"));
+    EXPECT_EQ(doc1.GetNodes()[1].GetText(), MENDO_LIT("Second paragraph"));
+
+    Document doc2 = std::move(doc1);
+    ASSERT_GE(doc2.GetNodes().size(), 2u);
+    EXPECT_EQ(doc2.GetNodes()[0].GetText(), MENDO_LIT("Hello world"));
+    EXPECT_EQ(doc2.GetNodes()[1].GetText(), MENDO_LIT("Second paragraph"));
+}
+
+TEST(DocumentTest, ViewModeNodesSurviveMoveAssign)
+{
+    auto src = Document::FromMarkdown("alpha\n\nbeta", L"src.md");
+    Document dst;
+    dst = std::move(src);
+    ASSERT_GE(dst.GetNodes().size(), 2u);
+    EXPECT_EQ(dst.GetNodes()[0].GetText(), MENDO_LIT("alpha"));
+    EXPECT_EQ(dst.GetNodes()[1].GetText(), MENDO_LIT("beta"));
+}
+
+TEST(DocumentTest, ViewModeNodesSurviveReplaceFromMarkdown)
+{
+    auto doc = Document::FromMarkdown("Initial text", L"test.md");
+    EXPECT_EQ(doc.GetNodes()[0].GetText(), MENDO_LIT("Initial text"));
+
+    doc.ReplaceFromMarkdown(std::pmr::string{ "Updated content here" });
+    ASSERT_FALSE(doc.GetNodes().empty());
+    EXPECT_EQ(doc.GetNodes()[0].GetText(), MENDO_LIT("Updated content here"));
+}
+
+TEST(DocumentTest, OwnedAndViewModesCoexist)
+{
+    // HTML entity (&amp;) を含むノードは加工が入るため owned 経路、
+    // 加工なしのノードは view 経路。同一 Document 内で両モードが共存できることを確認する。
+    auto doc = Document::FromMarkdown("Hello &amp; world\n\nNoEntityHere", L"test.md");
+    ASSERT_GE(doc.GetNodes().size(), 2u);
+    EXPECT_EQ(doc.GetNodes()[0].GetText(), MENDO_LIT("Hello & world"));
+    EXPECT_EQ(doc.GetNodes()[1].GetText(), MENDO_LIT("NoEntityHere"));
+}
+
+TEST(DocumentTest, ViewModeNodesSurviveReplaceFromMarkdownThenMove)
+{
+    auto doc1 = Document::FromMarkdown("first content", L"test.md");
+    doc1.ReplaceFromMarkdown(std::pmr::string{ "second content after replace" });
+    Document doc2 = std::move(doc1);
+    EXPECT_EQ(doc2.GetNodes()[0].GetText(), MENDO_LIT("second content after replace"));
+}
+
 // ---- BuildIndices統合テスト ----
 
 TEST(DocumentTest, BuildIndicesAnchorIndex)
 {
     auto doc = Document::FromMarkdown("# First\n\n## Second\n\ntext", L"test.md");
-    EXPECT_EQ(doc.FindAnchorIndex(L"first"), 0);
-    EXPECT_EQ(doc.FindAnchorIndex(L"second"), 1);
-    EXPECT_EQ(doc.FindAnchorIndex(L"nonexistent"), -1);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("first")), 0);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("second")), 1);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("nonexistent")), -1);
 }
 
 TEST(DocumentTest, BuildIndicesImageNodes)
@@ -261,12 +314,12 @@ TEST(DocumentTest, BuildIndicesAfterReplaceContent)
 {
     auto doc = Document::FromMarkdown("# Old", L"test.md");
     EXPECT_EQ(doc.GetToc().GetEntries().size(), 1u);
-    EXPECT_EQ(doc.FindAnchorIndex(L"old"), 0);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("old")), 0);
 
-    doc.ReplaceContent(ParseMarkdown(L"# New\n\n## Sub"));
+    doc.ReplaceContent(ParseMarkdown(MENDO_LIT("# New\n\n## Sub")));
     EXPECT_EQ(doc.GetToc().GetEntries().size(), 2u);
-    EXPECT_EQ(doc.FindAnchorIndex(L"old"), -1);
-    EXPECT_EQ(doc.FindAnchorIndex(L"new"), 0);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("old")), -1);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("new")), 0);
 }
 
 TEST(DocumentTest, BuildIndicesNoSpecialNodes)
@@ -283,15 +336,15 @@ TEST(DocumentTest, FindAnchorIndexUppercaseQueryNormalized)
     // parser 側スラグは小文字確定だが、クエリ引数に大文字混在があっても
     // ToLowerAscii 経由で hit すること。
     auto doc = Document::FromMarkdown("# Hello World", L"test.md");
-    EXPECT_EQ(doc.FindAnchorIndex(L"hello-world"), 0);
-    EXPECT_EQ(doc.FindAnchorIndex(L"Hello-World"), 0);
-    EXPECT_EQ(doc.FindAnchorIndex(L"HELLO-WORLD"), 0);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("hello-world")), 0);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("Hello-World")), 0);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("HELLO-WORLD")), 0);
 }
 
 TEST(DocumentTest, FindAnchorIndexEmptyQuery)
 {
     auto doc = Document::FromMarkdown("# Heading", L"test.md");
-    EXPECT_EQ(doc.FindAnchorIndex(L""), -1);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("")), -1);
 }
 
 TEST(DocumentTest, FindNormalizedAnchorIndexHitsLowercase)
@@ -299,10 +352,10 @@ TEST(DocumentTest, FindNormalizedAnchorIndexHitsLowercase)
     // anchor_id() は parser で小文字 ASCII へ正規化済み。
     // FindNormalizedAnchorIndex は ToLowerAscii を介さず直接 hit する。
     auto doc = Document::FromMarkdown("# Hello World", L"test.md");
-    EXPECT_EQ(doc.FindNormalizedAnchorIndex(L"hello-world"), 0);
-    EXPECT_EQ(doc.FindNormalizedAnchorIndex(L""), -1);
+    EXPECT_EQ(doc.FindNormalizedAnchorIndex(MENDO_LIT("hello-world")), 0);
+    EXPECT_EQ(doc.FindNormalizedAnchorIndex(MENDO_LIT("")), -1);
     // 大文字混在は normalized 経路では hit しない（呼び出し側責任の API）。
-    EXPECT_EQ(doc.FindNormalizedAnchorIndex(L"Hello-World"), -1);
+    EXPECT_EQ(doc.FindNormalizedAnchorIndex(MENDO_LIT("Hello-World")), -1);
 }
 
 TEST(DocumentTest, FindAnchorIndexAfterDocumentMove)
@@ -311,8 +364,8 @@ TEST(DocumentTest, FindAnchorIndexAfterDocumentMove)
     // Document の move 構築後も nodes_ 要素アドレスが安定していれば lookup が壊れない。
     auto doc = Document::FromMarkdown("# Alpha\n\n## Beta", L"test.md");
     Document moved = std::move(doc);
-    EXPECT_EQ(moved.FindAnchorIndex(L"alpha"), 0);
-    EXPECT_EQ(moved.FindAnchorIndex(L"beta"), 1);
+    EXPECT_EQ(moved.FindAnchorIndex(MENDO_LIT("alpha")), 0);
+    EXPECT_EQ(moved.FindAnchorIndex(MENDO_LIT("beta")), 1);
 }
 
 TEST(DocumentTest, FindAnchorIndexLargeHeadingSet)
@@ -332,5 +385,5 @@ TEST(DocumentTest, FindAnchorIndexLargeHeadingSet)
         const auto anchor = doc.GetNodes()[entry.node_index].anchor_id();
         EXPECT_EQ(doc.FindAnchorIndex(anchor), entry.node_index);
     }
-    EXPECT_EQ(doc.FindAnchorIndex(L"heading-not-present"), -1);
+    EXPECT_EQ(doc.FindAnchorIndex(MENDO_LIT("heading-not-present")), -1);
 }

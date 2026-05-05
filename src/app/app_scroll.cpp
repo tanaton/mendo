@@ -139,15 +139,6 @@ void App::OnDeferredLayout()
         more = layout_service_->ProcessDirtyBatch(state_.document.doc, state_.document.layout_cache, md_width, 200, ResourceManager::BATCH_TIME_BUDGET_US, md_height, ResourceManager::EVICT_BUFFER_SCREENS);
     }
 
-#if MENDO_PROFILE_ENABLED
-    {
-        wchar_t buf[128];
-        _snwprintf_s(buf, std::ranges::size(buf), _TRUNCATE, L"[mendo-profile] DeferredLayout: more=%d dirty=%d\n",
-                     more ? 1 : 0, layout_service_->HasDirtyNodes() ? 1 : 0);
-        OutputDebugStringW(buf);
-    }
-#endif
-
     // 中間バッチでは SyncMaxScroll のクランプを遅延させる。
     // ビューポート後のノードが計測されると total_height が縮小し、中間的な
     // max_scroll に基づくクランプで scroll_y が不当に引き下げられるのを防ぐ。
@@ -167,7 +158,7 @@ void App::OnDeferredLayout()
         EmitEffect(effect::SyncMaxScroll{ md_height });
         Invalidate();
 
-        // 遅延レイアウト確定で layout_cache の y_position が安定したので
+        // 遅延レイアウト確定で layout_cache の text_top が安定したので
         // 目次アクティブ見出しを再同期する。
         EmitEffect(effect::SyncTocActive{});
     }

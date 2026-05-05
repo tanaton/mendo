@@ -22,7 +22,7 @@ class CmdGenContentTest : public CmdGenMockTestBase {};
 
 TEST_F(CmdGenContentTest, HeadingH1_EmitsUnderlineWithHrColor)
 {
-    Parse(L"# Title");
+    Parse(MENDO_LIT("# Title"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -37,7 +37,7 @@ TEST_F(CmdGenContentTest, HeadingH1_EmitsUnderlineWithHrColor)
 
 TEST_F(CmdGenContentTest, HeadingH2_EmitsUnderlineWithCorrectThickness)
 {
-    Parse(L"## Subtitle");
+    Parse(MENDO_LIT("## Subtitle"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -56,7 +56,7 @@ TEST_F(CmdGenContentTest, HeadingH2_EmitsUnderlineWithCorrectThickness)
 
 TEST_F(CmdGenContentTest, HeadingH3_DoesNotEmitUnderline)
 {
-    Parse(L"### Sub");
+    Parse(MENDO_LIT("### Sub"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -70,7 +70,7 @@ TEST_F(CmdGenContentTest, HeadingH3_DoesNotEmitUnderline)
 
 TEST_F(CmdGenContentTest, BlockQuote_EmitsBarLine)
 {
-    Parse(L"> Quoted");
+    Parse(MENDO_LIT("> Quoted"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -86,7 +86,7 @@ TEST_F(CmdGenContentTest, BlockQuote_EmitsBarLine)
 
 TEST_F(CmdGenContentTest, BlockQuote_FullyAboveViewport_NoBar)
 {
-    Parse(L"> Quoted");
+    Parse(MENDO_LIT("> Quoted"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 50.0f };
     // viewport_top を blockquote の下端より十分大きくする
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 100000.0f, TextSelection{});
@@ -100,7 +100,7 @@ TEST_F(CmdGenContentTest, BlockQuote_FullyAboveViewport_NoBar)
 // ネスト blockquote の各レベルを別 x 座標のバーで描画する (PR #156)
 TEST_F(CmdGenContentTest, NestedBlockQuote_EmitsBarPerLevel)
 {
-    Parse(L"> outer\n> > inner");
+    Parse(MENDO_LIT("> outer\n> > inner"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -120,7 +120,7 @@ TEST_F(CmdGenContentTest, NestedBlockQuote_EmitsBarPerLevel)
 // 外→内→外の連続描画: 外側 (level=1) はネストを貫通して 1 本のバーになる
 TEST_F(CmdGenContentTest, NestedBlockQuote_OuterBarSpansAcrossInnerNesting)
 {
-    Parse(L"> outer\n> > inner\n>\n> back to outer");
+    Parse(MENDO_LIT("> outer\n> > inner\n>\n> back to outer"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -142,7 +142,7 @@ TEST_F(CmdGenContentTest, NestedBlockQuote_OuterBarSpansAcrossInnerNesting)
 // Alert ネスト + 後段: 最外側バーは Alert 色で描画される
 TEST_F(CmdGenContentTest, AlertWithNested_OuterBarUsesAlertColor)
 {
-    Parse(L"> [!NOTE]\n> Alert head\n> > inner\n>\n> Alert continues");
+    Parse(MENDO_LIT("> [!NOTE]\n> Alert head\n> > inner\n>\n> Alert continues"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -163,7 +163,7 @@ TEST_F(CmdGenContentTest, AlertWithNested_OuterBarUsesAlertColor)
 
 TEST_F(CmdGenContentTest, HorizontalRule_AllAboveViewport_NoLines)
 {
-    Parse(L"---\n\n---\n\n---");
+    Parse(MENDO_LIT("---\n\n---\n\n---"));
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 100.0f };
     // 全 hr ノードより十分下にスクロール → 上方向カリングを踏む
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 100000.0f, TextSelection{});
@@ -179,11 +179,11 @@ TEST_F(CmdGenContentTest, HorizontalRule_AllAboveViewport_NoLines)
 
 TEST_F(CmdGenContentTest, HorizontalRule_PartialViewportLimitsToVisible)
 {
-    Parse(L"---\n\n---\n\n---\n\n---\n\n---");
+    Parse(MENDO_LIT("---\n\n---\n\n---\n\n---\n\n---"));
     ASSERT_FALSE(nodes_.empty());
 
     // 1 本目の hr の下端より少し大きい viewport を用意する。
-    const float first_hr_bottom = cache_[0].y_position + cache_[0].height;
+    const float first_hr_bottom = cache_[0].text_top + cache_[0].height;
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, first_hr_bottom + 1.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 

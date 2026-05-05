@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "hit_test_service.h"
+#include "layout_computer.h"
 #include "ui_constants.h"
 #include "layout.h"
 #include "mock_text_measurer.h"
@@ -29,7 +30,7 @@ protected:
         LayoutCache cache;
     };
 
-    ParsedLayout Parse(std::wstring_view md, float viewport_w = 800.0f)
+    ParsedLayout Parse(mendo::doc_string_view md, float viewport_w = 800.0f)
     {
         ParsedLayout r;
         r.nodes = ParseMarkdown(md).nodes;
@@ -138,7 +139,7 @@ TEST_F(HitTestServiceTest, NavButton_PositionsWithNonZeroPaneOrigin)
 
 TEST_F(HitTestServiceTest, HitTest_EmptyDocumentReturnsSentinel)
 {
-    auto pr = Parse(L"");
+    auto pr = Parse(MENDO_LIT(""));
     if (!pr.nodes.empty()) {
         // 空入力でも他のノード（例: 空段落）が生成される実装の場合は以下を適用。
         // このテストは ctx.nodes.empty() 分岐の検証なので、nodes が空の場合のみ
@@ -156,14 +157,14 @@ TEST_F(HitTestServiceTest, HitTest_EmptyDocumentReturnsSentinel)
 
 TEST_F(HitTestServiceTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
 {
-    auto pr = Parse(L"First paragraph\n\nSecond paragraph");
+    auto pr = Parse(MENDO_LIT("First paragraph\n\nSecond paragraph"));
     ASSERT_FALSE(pr.nodes.empty());
 
     // 全ノードの下端より十分下（dpi=1, scroll=0 なので dip_y = screen_y）
     float last_bottom = 0.0f;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
-        last_bottom = std::max(last_bottom,
-            pr.cache[i].y_position + pr.cache[i].height);
+        const float text_top = mendo::layout::TextTopOf(pr.cache, i, pr.nodes[i], theme_);
+        last_bottom = std::max(last_bottom, text_top + pr.cache[i].height);
     }
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
@@ -189,7 +190,7 @@ TEST_F(HitTestServiceTest, HitTest_TextLayoutNullFallsBackToLastNode)
     // MockTextMeasurer は text_layout=nullptr を設定する。
     // ノード範囲内をクリックしても entry.text_layout 経由の分岐に入らず、
     // 末尾フォールバック（最後の非空ノード末尾）が返る。
-    auto pr = Parse(L"Hello\n\nWorld");
+    auto pr = Parse(MENDO_LIT("Hello\n\nWorld"));
     ASSERT_GE(pr.nodes.size(), 1u);
 
     MdPaneHitContext ctx{
@@ -210,7 +211,7 @@ TEST_F(HitTestServiceTest, HitTest_TextLayoutNullFallsBackToLastNode)
 
 TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
 {
-    auto pr = Parse(L"| A | B |\n|---|---|\n| 1 | 2 |");
+    auto pr = Parse(MENDO_LIT("| A | B |\n|---|---|\n| 1 | 2 |"));
     int table_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
         if (pr.nodes[i].type == NodeType::Table) {
@@ -225,8 +226,9 @@ TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
     entry.table_layout.reset();
     ASSERT_FALSE(entry.has_table_layout());
 
-    auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, table_idx,
-        theme_, 100.0f, entry.y_position + 5.0f);
+    const float entry_text_top = mendo::layout::TextTopOf(pr.cache, static_cast<size_t>(table_idx), pr.nodes[table_idx], theme_);
+    auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
+        theme_, 100.0f, entry_text_top + 5.0f);
     EXPECT_EQ(r.node_index, table_idx);
     EXPECT_EQ(r.text_pos,
         static_cast<uint32_t>(pr.nodes[table_idx].GetText().size()));
@@ -234,7 +236,7 @@ TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
 
 TEST_F(HitTestServiceTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
 {
-    auto pr = Parse(L"| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
+    auto pr = Parse(MENDO_LIT("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"));
     int table_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
         if (pr.nodes[i].type == NodeType::Table) {
@@ -248,10 +250,11 @@ TEST_F(HitTestServiceTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
     ASSERT_TRUE(entry.has_table_layout());
 
     // テーブル上端より 10 dip 上 → FindTableRow は -1 を返す
-    auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, table_idx,
+    const float entry_text_top = mendo::layout::TextTopOf(pr.cache, static_cast<size_t>(table_idx), pr.nodes[table_idx], theme_);
+    auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
         theme_,
         theme_.margin_left + 10.0f,
-        entry.y_position - 10.0f);
+        entry_text_top - 10.0f);
     EXPECT_EQ(r.node_index, table_idx);
     EXPECT_EQ(r.text_pos,
         static_cast<uint32_t>(pr.nodes[table_idx].GetText().size()));
@@ -262,7 +265,7 @@ TEST_F(HitTestServiceTest, HitTestTable_LinearScanHitsFirstRow)
     // MockTextMeasurer は row_cum_y / col_cum_x / cell_layouts を設定しないので
     // 線形フォールバックに落ちる。cell_layout=null のため text_pos は flat_offset。
     // 先頭行・先頭列の flat_offset は 0。
-    auto pr = Parse(L"| A | B |\n|---|---|\n| 1 | 2 |");
+    auto pr = Parse(MENDO_LIT("| A | B |\n|---|---|\n| 1 | 2 |"));
     int table_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
         if (pr.nodes[i].type == NodeType::Table) {
@@ -278,10 +281,11 @@ TEST_F(HitTestServiceTest, HitTestTable_LinearScanHitsFirstRow)
     ASSERT_GE(tl.row_heights.size(), 1u);
     ASSERT_GE(tl.col_widths.size(), 1u);
 
-    const float row0_mid_y = entry.y_position + tl.row_heights[0] * 0.5f;
+    const float entry_text_top = mendo::layout::TextTopOf(pr.cache, static_cast<size_t>(table_idx), pr.nodes[table_idx], theme_);
+    const float row0_mid_y = entry_text_top + tl.row_heights[0] * 0.5f;
     const float col0_mid_x = theme_.margin_left + tl.col_widths[0] * 0.5f;
 
-    auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, table_idx,
+    auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
         theme_, col0_mid_x, row0_mid_y);
     EXPECT_EQ(r.node_index, table_idx);
     EXPECT_EQ(r.text_pos, 0u);
@@ -291,7 +295,7 @@ TEST_F(HitTestServiceTest, HitTestTable_LinearScanHitsFirstRow)
 
 TEST_F(HitTestServiceTest, SaveButton_NoDiagramReturnsNegative)
 {
-    auto pr = Parse(L"Just text.");
+    auto pr = Parse(MENDO_LIT("Just text."));
     const float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
@@ -303,7 +307,7 @@ TEST_F(HitTestServiceTest, SaveButton_NoDiagramReturnsNegative)
 
 TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
 {
-    auto pr = Parse(L"```\nplain code\n```");
+    auto pr = Parse(MENDO_LIT("```\nplain code\n```"));
     const float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
@@ -316,7 +320,7 @@ TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
 TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 {
     // Mermaid ブロックはあるが diagram.bitmap が空（未ロード）→ -1
-    auto pr = Parse(L"```mermaid\ngraph TD\n```");
+    auto pr = Parse(MENDO_LIT("```mermaid\ngraph TD\n```"));
     int mermaid_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
         if (pr.nodes[i].type == NodeType::CodeBlock &&
@@ -329,12 +333,12 @@ TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
     ASSERT_FALSE(pr.cache.GetDiagram(static_cast<size_t>(mermaid_idx)).bitmap);
 
     const float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
-    const auto& entry = pr.cache[mermaid_idx];
+    const float entry_text_top = mendo::layout::TextTopOf(pr.cache, static_cast<size_t>(mermaid_idx), pr.nodes[mermaid_idx], theme_);
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
         0.0f, 0.0f, 1.0f,
         static_cast<int>(theme_.margin_left + content_width - 10),
-        static_cast<int>(entry.y_position + 5),
+        static_cast<int>(entry_text_top + 5),
         content_width, 600.0f
     };
     EXPECT_EQ(hit_test_.SaveButtonHitTest(ctx), -1);
@@ -342,7 +346,7 @@ TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 
 TEST_F(HitTestServiceTest, SaveButton_EmptyDocumentReturnsNegative)
 {
-    auto pr = Parse(L"");
+    auto pr = Parse(MENDO_LIT(""));
     const float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,

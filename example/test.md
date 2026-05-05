@@ -773,7 +773,7 @@ sequenceDiagram
 sequenceDiagram
     participant DOC as Document::FromMarkdown
     participant P as ParseMarkdown
-    participant MD as md4c (MD4C_USE_UTF16)
+    participant MD as md4c (UTF-8)
     participant N as Node[]
 
     DOC->>P: ParseMarkdown(wide_text)
@@ -806,7 +806,7 @@ struct ParseResult {
 ParseResult ParseMarkdown(std::wstring_view markdown_text);
 ```
 
-md4c は **`MD4C_USE_UTF16` モード** で起動するため、入力は wide テキスト。`FileLoader::LoadFile` が UTF-8→UTF-16 変換まで行ったうえで `Document::FromMarkdown(wide, byte_size, path)` に渡す経路と、埋め込みリソース（ヘルプ）から `FromMarkdown(utf8, path)` を呼ぶ経路の 2 通りがある。
+md4c は **UTF-8 モード** (`MD_CHAR=char`) で起動するため、入力は UTF-8 byte 列。`FileLoader::LoadFile` が wstring 経由で読み込んだ後 UTF-8 へ再変換して `Document::FromMarkdown(utf8, path)` に渡す経路と、埋め込みリソース（ヘルプ）から直接 UTF-8 で渡す経路がある。
 
 #### 3.6.2 対応する Markdown 要素
 
@@ -2685,7 +2685,7 @@ public:
 };
 ```
 
-`raw_wide_` はパース入力の wide テキストを常時保持する。これは `AnalyzeReloadDiff` の比較用で、ノードレベルでは検出できない編集（空行追加・末尾空白・改行種別変更等）も UTF-16 オフセット精度で差分位置を求めるため。
+`raw_text_` はパース入力の UTF-8 テキストを常時保持する。これは `AnalyzeReloadDiff` の比較用で、ノードレベルでは検出できない編集（空行追加・末尾空白・改行種別変更等）も UTF-8 byte オフセット精度で差分位置を求めるため。
 
 ### 4.4 NodeType / AlertType
 
@@ -3182,7 +3182,7 @@ src/
 ├── core/                          # コアドメイン
 │   ├── document_types.h           # Node, AlertType, NodeType, TableRow etc.
 │   ├── text_types.h               # TextRun, TextSelection etc.
-│   ├── parser.h / parser.cpp      # Markdown パース (md4c MD4C_USE_UTF16)
+│   ├── parser.h / parser.cpp      # Markdown パース (md4c UTF-8)
 │   ├── parser_alerts.cpp          # GitHub Alerts 検出
 │   ├── document.h / document.cpp  # Document
 │   ├── document_service.h / .cpp  # 読み込みオーケストレーション
@@ -3321,7 +3321,7 @@ src/
 
 ##### タスクリスト
 
-- [x] Markdownパーサ統合 (md4c, MD4C_USE_UTF16)
+- [x] Markdownパーサ統合 (md4c, UTF-8)
 - [x] Direct2D / DirectWrite レンダリング
 - [x] サービスアーキテクチャへのリファクタリング
 - [x] Reducer / SideEffect / IWin32Host への抽象化

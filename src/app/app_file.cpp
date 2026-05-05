@@ -7,6 +7,7 @@
 #include "mermaid_util.h"
 #include "layout.h"
 #include "profiler.h"
+#include "string_convert.h"
 #include "utility.h"
 #include <algorithm>
 #include <utility>
@@ -56,12 +57,14 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
     // 旧コンテンツを表示したまま静かにバックグラウンドでパースし差し替える。
     const bool show_anim = !suppress_animation && DocumentService::NeedsLoadingAnimation(path) && !state_.pending_reload_retry;
     if (show_anim) {
+        MENDO_PROFILE("App::BeginAsyncLoad with animation");
         file_load_service_.StartLoading(std::move(path));
         EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
         Invalidate();
         UpdateWindow(hwnd_);
     }
     else {
+        MENDO_PROFILE("App::BeginAsyncLoad without animation");
         file_load_service_.SetLoadingPath(std::move(path));
     }
     file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme());
@@ -107,6 +110,7 @@ bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size)
 // effect variant と executor が肥大化するため意図的に service 経路として分離している。
 void App::LoadMarkdownFile(std::wstring_view path)
 {
+    MENDO_PROFILE("App::LoadMarkdownFile");
     EmitEffect(effect::KillTimer{ app_timer::FILE_RELOAD_DEBOUNCE });
     state_.pending_reload_retry = false;
     // 仮想パスは NeedsAsyncLoad が true を返し非同期ロードが失敗するため、
@@ -181,8 +185,8 @@ void App::OnParseComplete()
             return;
         }
 
-        const std::wstring_view old_view(state_.document.doc.GetRawText());
-        const std::wstring_view new_view(result->doc.GetRawText());
+        const mendo::doc_string_view old_view(state_.document.doc.GetRawText());
+        const mendo::doc_string_view new_view(result->doc.GetRawText());
         const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
         MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu op=%d",
@@ -342,10 +346,10 @@ void App::DoReloadCurrentFile()
     }
 
     const size_t byte_size = load_result->byte_size;
-    std::pmr::wstring new_wide = std::move(load_result->wide);
+    mendo::doc_string new_text = std::move(load_result->text);
 
-    const std::wstring_view old_view(state_.document.doc.GetRawText());
-    const std::wstring_view new_view(new_wide);
+    const mendo::doc_string_view old_view(state_.document.doc.GetRawText());
+    const mendo::doc_string_view new_view(new_text);
     const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
     MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu op=%d",
@@ -356,7 +360,7 @@ void App::DoReloadCurrentFile()
         return;
     }
     MENDO_PROFILE("Reload::ReplaceFromMarkdown");
-    state_.document.doc.ReplaceFromMarkdown(std::move(new_wide), byte_size);
+    state_.document.doc.ReplaceFromMarkdown(std::move(new_text), byte_size);
     FinishReload(decision.diff_pos);
 }
 
@@ -424,8 +428,8 @@ float App::CalcScrollForDiff(size_t diff_pos, float viewport_height) const
 {
     MENDO_TRACEF("CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, state_.document.doc.GetNodes().size());
     return CalcScrollYForDiff(
-        state_.document.doc.GetNodes(), state_.document.layout_cache,
-        std::wstring_view{ state_.document.doc.GetRawText() },
+        state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme(),
+        mendo::doc_string_view{ state_.document.doc.GetRawText() },
         diff_pos, viewport_height, state_.view.viewport.GetScrollY());
 }
 

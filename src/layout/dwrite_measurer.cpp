@@ -1,4 +1,5 @@
 #include "dwrite_measurer.h"
+#include "doc_dwrite_bridge.h"
 #include "layout.h"
 #include "parser.h"
 #include "profiler.h"
@@ -79,7 +80,7 @@ bool DWriteTextMeasurer::RecreateFormats()
     return CreateAllFormats();
 }
 
-IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) noexcept
+IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) const noexcept
 {
     if (node.type == NodeType::CodeBlock) {
         return fmt_code_.Get();
@@ -96,6 +97,8 @@ namespace {
 
 // 5 属性を 1 パスでまとめてマージするためのレンジビルダ。
 // 隣接ランで属性が連続する間はマージし、切れたら emit する。
+// start/length は UTF-8 byte 単位で、emit 時に WideViewForDWrite::WideRange 経由で
+// UTF-16 textPosition に変換する。
 struct AttrRangeBuilder {
     uint32_t start = 0;
     uint32_t length = 0;
@@ -103,7 +106,7 @@ struct AttrRangeBuilder {
 };
 
 template <typename Emit>
-inline void UpdateAttr(AttrRangeBuilder& b, bool active_now, const TextRun& run, Emit&& emit) noexcept
+inline void UpdateAttr(AttrRangeBuilder& b, bool active_now, const TextRun& run, const mendo::WideViewForDWrite& wv, Emit&& emit) noexcept
 {
     if (active_now) {
         if (b.active && run.start == b.start + b.length) {
@@ -111,7 +114,7 @@ inline void UpdateAttr(AttrRangeBuilder& b, bool active_now, const TextRun& run,
         }
         else {
             if (b.active) {
-                emit(DWRITE_TEXT_RANGE{ b.start, b.length });
+                emit(wv.WideRange(b.start, b.length));
             }
             b.start = run.start;
             b.length = run.length;
@@ -119,23 +122,23 @@ inline void UpdateAttr(AttrRangeBuilder& b, bool active_now, const TextRun& run,
         }
     }
     else if (b.active) {
-        emit(DWRITE_TEXT_RANGE{ b.start, b.length });
+        emit(wv.WideRange(b.start, b.length));
         b.active = false;
     }
 }
 
 template <typename Emit>
-inline void FlushAttr(AttrRangeBuilder& b, Emit&& emit) noexcept
+inline void FlushAttr(AttrRangeBuilder& b, const mendo::WideViewForDWrite& wv, Emit&& emit) noexcept
 {
     if (b.active) {
-        emit(DWRITE_TEXT_RANGE{ b.start, b.length });
+        emit(wv.WideRange(b.start, b.length));
         b.active = false;
     }
 }
 
 } // namespace
 
-void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::optional<NodeType> node_type)
+void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& wv, std::optional<NodeType> node_type) const
 {
     if (runs.empty()) {
         return;
@@ -144,6 +147,8 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     const bool apply_code = (!node_type || *node_type != NodeType::CodeBlock);
     const bool apply_code_size = apply_code && (!node_type || *node_type != NodeType::Heading);
     const bool apply_link = !node_type;
+
+    // run.start/length は UTF-8 byte 単位。wv が UTF-16 textPosition への対応表を保持する。
 
     AttrRangeBuilder bold_b, italic_b, code_b, strike_b, link_b;
 
@@ -167,29 +172,30 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     };
 
     for (const auto& r : runs) {
-        UpdateAttr(bold_b, r.bold(), r, emit_bold);
-        UpdateAttr(italic_b, r.italic(), r, emit_italic);
+        UpdateAttr(bold_b, r.bold(), r, wv, emit_bold);
+        UpdateAttr(italic_b, r.italic(), r, wv, emit_italic);
         if (apply_code) {
-            UpdateAttr(code_b, r.code(), r, emit_code);
+            UpdateAttr(code_b, r.code(), r, wv, emit_code);
         }
-        UpdateAttr(strike_b, r.strikethrough(), r, emit_strike);
+        UpdateAttr(strike_b, r.strikethrough(), r, wv, emit_strike);
         if (apply_link) {
-            UpdateAttr(link_b, r.has_link(), r, emit_link);
+            UpdateAttr(link_b, r.has_link(), r, wv, emit_link);
         }
     }
 
-    FlushAttr(bold_b, emit_bold);
-    FlushAttr(italic_b, emit_italic);
+    FlushAttr(bold_b, wv, emit_bold);
+    FlushAttr(italic_b, wv, emit_italic);
     if (apply_code) {
-        FlushAttr(code_b, emit_code);
+        FlushAttr(code_b, wv, emit_code);
     }
-    FlushAttr(strike_b, emit_strike);
+    FlushAttr(strike_b, wv, emit_strike);
     if (apply_link) {
-        FlushAttr(link_b, emit_link);
+        FlushAttr(link_b, wv, emit_link);
     }
 }
 
-void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width)
+void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+                                     std::pmr::vector<SyntaxToken>* tokens_out) const
 {
     MENDO_PROFILE("MeasureNode");
     if (!dwrite_ || !theme_) {
@@ -286,27 +292,27 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         entry.first_line_height = 0.0f;
     }
 
+    // 1 ノードにつき WideViewForDWrite を 1 回だけ構築し、CreateTextLayout と ApplyRunFormatting で共有する
+    // (per-node の二重 UTF-8→UTF-16 decode を回避)。
+    const mendo::WideViewForDWrite wv{ text };
+
     ComPtr<IDWriteTextLayout> layout;
     const HRESULT hr = [&] {
         MENDO_PROFILE("CreateTextLayout");
-        return dwrite_->CreateTextLayout(
-            text.c_str(),
-            static_cast<UINT32>(text.size()),
-            fmt,
-            layout_width,
-            dynamic_max_height,
-            &layout);
+        return mendo::CreateDocTextLayout(dwrite_, wv, fmt, layout_width, dynamic_max_height, &layout);
     }();
     if (FAILED(hr)) {
         return;
     }
 
-    ApplyRunFormatting(layout.Get(), node.runs, node.type);
+    ApplyRunFormatting(layout.Get(), node.runs, wv, node.type);
 
-    // Alert ノードのアイコン文字のフォントウェイトを設定
+    // Alert ノードのアイコン文字のフォントウェイトを設定。
+    // 6 種類のアイコンは UTF-16 で 1 code unit (BMP) または 2 code unit (Tip 💡 = U+1F4A1 サロゲートペア) と
+    // コンパイル時に確定するため、対応表で済ませて WideViewForDWrite の構築を回避する。
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
-        const UINT32 icon_len = static_cast<UINT32>(GetAlertIcon(node.alert_type).size());
-        const DWRITE_TEXT_RANGE icon_range{ 0, icon_len };
+        const UINT32 icon_wide_len{ (node.alert_type == AlertType::Tip) + 1u };
+        const DWRITE_TEXT_RANGE icon_range{ 0, icon_wide_len };
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);
     }
 
@@ -319,7 +325,12 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         node.code_language != SyntaxLanguage::None &&
         !IsDiagramLanguage(node.code_language)) {
         MENDO_PROFILE("Tokenize");
-        node.syntax_tokens_mut() = Tokenize(text, node.code_language);
+        if (tokens_out != nullptr) {
+            *tokens_out = Tokenize(text, node.code_language);
+        }
+        else {
+            node.syntax_tokens_mut() = Tokenize(text, node.code_language);
+        }
     }
 
     CacheFirstLineHeight(layout.Get(), entry);
@@ -332,36 +343,35 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     entry.invalidate_per_frame_hl_caches();
 }
 
-void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths)
+void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths) const
 {
     MENDO_PROFILE("MeasureTableCells");
     IDWriteTextFormat* const fmt = fmt_body_.Get();
     IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
-    auto& rows = node.table_rows();
-    const auto row_count = rows.size();
+    const auto* tbl = node.table_data();
+    const auto row_count = tbl->row_count;
+    const auto col_count = tbl->col_count;
     auto& tl = *entry.table_layout;
 
     for (size_t r = 0; r < row_count; r++) {
-        auto& row = rows[r];
-        const auto col_count = row.cells.size();
+        const bool is_header = tbl->IsHeaderRow(r);
+        IDWriteTextFormat* const row_fmt = is_header ? fmt_bold : fmt;
         for (size_t c = 0; c < col_count; c++) {
-            auto& cell = row.cells[c];
-            if (cell.text.empty()) {
+            const auto text = tbl->GetCellText(r, c);
+            if (text.empty()) {
                 continue;
             }
-
-            IDWriteTextFormat* const cell_fmt = cell.is_header ? fmt_bold : fmt;
             const size_t ci = tl.CellIndex(r, c);
+            const mendo::WideViewForDWrite wv{ text };
             {
                 MENDO_PROFILE("CreateTextLayout.cell");
-                dwrite_->CreateTextLayout(
-                    cell.text.c_str(), static_cast<UINT32>(cell.text.size()),
-                    cell_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
-                    &tl.cell_layouts[ci]);
+                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt,
+                                           CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                                           &tl.cell_layouts[ci]);
             }
 
             if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), cell.runs, std::nullopt);
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
                 DWRITE_TEXT_METRICS metrics{};
                 tl.cell_layouts[ci]->GetMetrics(&metrics);
                 natural_widths[c] = std::max(natural_widths[c], metrics.width);
@@ -370,8 +380,45 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
     }
 }
 
+void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry) const
+{
+    // EvictInvisibleTableRows で Reset された null セルを再生成する。
+    MENDO_PROFILE("RestoreNullCellLayouts");
+    IDWriteTextFormat* const fmt = fmt_body_.Get();
+    IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
+    const auto* tbl = node.table_data();
+    auto& tl = *entry.table_layout;
+    const auto row_count = tbl->row_count;
+    const auto col_count = tbl->col_count;
+
+    for (size_t r = 0; r < row_count; r++) {
+        const bool is_header = tbl->IsHeaderRow(r);
+        IDWriteTextFormat* const row_fmt = is_header ? fmt_bold : fmt;
+        for (size_t c = 0; c < col_count; c++) {
+            const size_t ci = tl.CellIndex(r, c);
+            if (ci >= tl.cell_layouts.size() || tl.cell_layouts[ci]) {
+                continue;
+            }
+            const auto text = tbl->GetCellText(r, c);
+            if (text.empty()) {
+                continue;
+            }
+            const mendo::WideViewForDWrite wv{ text };
+            {
+                MENDO_PROFILE("CreateTextLayout.cell.restore");
+                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt,
+                                           CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                                           &tl.cell_layouts[ci]);
+            }
+            if (tl.cell_layouts[ci]) {
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
+            }
+        }
+    }
+}
+
 void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
-                                             size_t col_count, std::pmr::vector<float>& natural_widths)
+                                             size_t col_count, std::pmr::vector<float>& natural_widths) const
 {
     MENDO_PROFILE("FinalizeTableLayout");
     const float cell_padding = TABLE_CELL_PADDING;
@@ -391,25 +438,23 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     }
 
     float total_height = border_width;
-    auto& rows = node.table_rows();
-    const auto row_count = rows.size();
+    const auto* tbl = node.table_data();
+    const auto row_count = tbl->row_count;
     for (size_t r = 0; r < row_count; r++) {
-        auto& row = rows[r];
         float row_height = theme_->font_size_body * 1.4f;
-        const auto cell_count = row.cells.size();
-        for (size_t c = 0; c < cell_count; c++) {
-            auto& cell = row.cells[c];
+        for (size_t c = 0; c < col_count; c++) {
             const float cw = (c < tl.col_widths.size()) ? tl.col_widths[c] : DEFAULT_COLUMN_WIDTH;
+            const auto align = tbl->ColAlign(c);
 
             const size_t ci = tl.CellIndex(r, c);
             if (tl.cell_layouts[ci]) {
                 const bool width_unchanged = std::abs(tl.cell_applied_widths[ci] - cw) < CELL_WIDTH_EPSILON && tl.cell_heights[ci] > 0.0f;
                 if (!width_unchanged) {
                     tl.cell_layouts[ci]->SetMaxWidth(cw);
-                    if (cell.align == TableAlign::Center) {
+                    if (align == TableAlign::Center) {
                         tl.cell_layouts[ci]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                     }
-                    else if (cell.align == TableAlign::Right) {
+                    else if (align == TableAlign::Right) {
                         tl.cell_layouts[ci]->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
                     }
                     DWRITE_TEXT_METRICS metrics{};
@@ -422,11 +467,6 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         }
         tl.row_heights[r] = row_height;
         total_height += row_height + border_width;
-    }
-
-    if (!node.HasText()) {
-        // line_count は Table 描画では未参照なので 0 で改行走査を回避。
-        node.SetTextWithLineCount(BuildLinearizedTableText(node.table_rows()), 0);
     }
 
     // ヒットテスト高速化用に行Y累積と列X累積を事前計算
@@ -449,17 +489,6 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
         tl.col_cum_x[col_count] = cx;
     }
 
-    // ヒットテスト高速化用に行ごとのフラットテキストオフセットをプリコンピュート
-    tl.row_flat_offsets.resize(row_count);
-    uint32_t flat_offset = 0;
-    for (size_t r = 0; r < row_count; r++) {
-        tl.row_flat_offsets[r] = flat_offset;
-        TableLayoutData::AdvanceFlatOffsetInRow(rows[r], 0, rows[r].cells.size(), flat_offset);
-        if (r + 1 < row_count) {
-            flat_offset++; // 改行区切り
-        }
-    }
-
     // col_cum_x の末尾は border_width + Σ(col_w + 2*pad + border) と一致するため再計算しない。
     tl.cached_table_width = tl.col_cum_x.back();
 
@@ -468,23 +497,23 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     tl.last_applied_max_width = max_width;
 }
 
-void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width)
+void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const
 {
     MENDO_PROFILE("MeasureTable");
     if (!dwrite_ || !theme_) {
         return;
     }
 
-    if (node.table_rows().empty()) {
+    const auto* tbl = node.table_data();
+    if (!tbl || tbl->row_count == 0) {
         entry.height = 0;
         entry.layout_dirty = false;
         return;
     }
 
-    auto& rows = node.table_rows();
-    const auto row_count = rows.size();
-    const size_t col_count = std::ranges::max(
-        rows | std::views::transform([](const auto& row) static noexcept { return row.cells.size(); }));
+    const auto row_count = tbl->row_count;
+    // パーサが NodeTableData::col_count に最大列数を保持済みなので全行走査は不要。
+    const size_t col_count = tbl->col_count;
     if (col_count == 0) {
         entry.layout_dirty = false;
         return;
@@ -518,6 +547,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     // 第1パス（テキストレイアウト作成）をスキップして列幅再計算だけ行う。
     const bool has_existing_layouts = has_compatible_layouts;
     if (has_existing_layouts) {
+        RestoreNullCellLayouts(node, entry);
         if (tl.natural_col_widths.size() == col_count) {
             // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
             FinalizeTableLayout(node, entry, max_width, col_count, tl.natural_col_widths);
@@ -526,8 +556,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
             // 既存レイアウトから自然幅を再取得
             std::pmr::vector<float> natural_widths(col_count, 0.0f);
             for (size_t r = 0; r < row_count; r++) {
-                const auto cell_count = rows[r].cells.size();
-                for (size_t c = 0; c < cell_count && c < col_count; c++) {
+                for (size_t c = 0; c < col_count; c++) {
                     const size_t ci = tl.CellIndex(r, c);
                     if (tl.cell_layouts[ci]) {
                         tl.cell_layouts[ci]->SetMaxWidth(CODE_BLOCK_NO_WRAP_WIDTH);
@@ -537,13 +566,13 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
                     }
                 }
             }
-            tl.natural_col_widths = natural_widths;
             FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
+            tl.natural_col_widths = std::move(natural_widths);
         }
     }
     else {
         tl.col_count = col_count;
-        tl.cell_layouts.resize(row_count * col_count);
+        tl.cell_layouts.assign(row_count * col_count, {});
 
         // 第1パス: テキストレイアウトを作成し、自然な幅を計測
         std::pmr::vector<float> natural_widths(col_count, 0.0f);

@@ -130,14 +130,14 @@ TEST(ViewportManagerTest, ScrollTargetAppliesNewYPosition)
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(100.0f);
 
-    float offset = vm.GetScrollY() - cache[1].y_position; // 0
+    float offset = vm.GetScrollY() - cache[1].text_top; // 0
     vm.SetScrollTarget(1, offset);
 
     // レイアウト変更をシミュレーション: ノード1を30下にシフト
-    cache[1].y_position = 130.0f;
-    cache[2].y_position = 230.0f;
-    cache[3].y_position = 330.0f;
-    cache[4].y_position = 430.0f;
+    cache[1].text_top = 130.0f;
+    cache[2].text_top = 230.0f;
+    cache[3].text_top = 330.0f;
+    cache[4].text_top = 430.0f;
 
     vm.ApplyScrollTarget(cache);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 130.0f);
@@ -219,9 +219,9 @@ TEST(ViewportManagerTest, ClearSelection)
 TEST(ViewportManagerTest, SelectAll)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].SetText(L"hello");
-    nodes[1].SetText(L"world");
-    nodes[2].SetText(L"end");
+    nodes[0].SetText(MENDO_LIT("hello"));
+    nodes[1].SetText(MENDO_LIT("world"));
+    nodes[2].SetText(MENDO_LIT("end"));
 
     ViewportManager vm;
     vm.SelectAll(nodes);
@@ -339,11 +339,11 @@ TEST(ViewportManagerTest, ApplyScrollTargetClampsNegative)
     vm.ScrollTo(50.0f);
 
     // target 設定: scroll_y - y_position[2] = 50 - 200 = -150
-    vm.SetScrollTarget(2, vm.GetScrollY() - cache[2].y_position);
+    vm.SetScrollTarget(2, vm.GetScrollY() - cache[2].text_top);
 
     // ノード2を上方に300シフトするレイアウト変更をシミュレーション
     // （例: 上にある大きなノードが削除された場合）
-    cache[2].y_position = 0.0f;
+    cache[2].text_top = 0.0f;
 
     vm.ApplyScrollTarget(cache);
 
@@ -358,8 +358,8 @@ TEST(ViewportManagerTest, ApplyScrollTargetPositiveShiftOk)
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(100.0f);
 
-    vm.SetScrollTarget(1, vm.GetScrollY() - cache[1].y_position);
-    cache[1].y_position = 150.0f; // shifted down by 50
+    vm.SetScrollTarget(1, vm.GetScrollY() - cache[1].text_top);
+    cache[1].text_top = 150.0f; // shifted down by 50
 
     vm.ApplyScrollTarget(cache);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 150.0f);
@@ -376,10 +376,10 @@ TEST(ViewportManagerTest, ScrollRestoreRoundTrip)
     vm.ScrollTo(125.0f);                    // ノード2の途中
 
     int saved_node = vm.FindFirstVisibleNode(cache, 10);
-    float saved_offset = vm.GetScrollY() - cache[saved_node].y_position;
+    float saved_offset = vm.GetScrollY() - cache[saved_node].text_top;
 
     // 復元
-    float restored = cache[saved_node].y_position + saved_offset;
+    float restored = cache[saved_node].text_top + saved_offset;
     EXPECT_FLOAT_EQ(restored, 125.0f);
 }
 
@@ -392,7 +392,7 @@ TEST(ViewportManagerTest, ScrollRestoreResilientToHeightChange)
     vm.ScrollTo(200.0f); // ノード4の先頭
 
     int saved_node = vm.FindFirstVisibleNode(cache, 10);
-    float saved_offset = vm.GetScrollY() - cache[saved_node].y_position;
+    float saved_offset = vm.GetScrollY() - cache[saved_node].text_top;
     EXPECT_EQ(saved_node, 4);
     EXPECT_FLOAT_EQ(saved_offset, 0.0f);
 
@@ -401,15 +401,15 @@ TEST(ViewportManagerTest, ScrollRestoreResilientToHeightChange)
     new_cache.Resize(10);
     float y = 0.0f;
     for (int i = 0; i < 10; ++i) {
-        new_cache[i].y_position = y;
+        new_cache[i].text_top = y;
         new_cache[i].height = (i == 1) ? 200.0f : 50.0f;
         y += new_cache[i].height;
     }
     // ノード4の新しいy位置: 50 + 200 + 50 + 50 = 350
-    EXPECT_FLOAT_EQ(new_cache[saved_node].y_position, 350.0f);
+    EXPECT_FLOAT_EQ(new_cache[saved_node].text_top, 350.0f);
 
     // ノードベース復元: 正しいノードの先頭にスクロール
-    float restored = new_cache[saved_node].y_position + saved_offset;
+    float restored = new_cache[saved_node].text_top + saved_offset;
     EXPECT_FLOAT_EQ(restored, 350.0f);
 }
 
@@ -422,11 +422,11 @@ TEST(ViewportManagerTest, ScrollRestoreWithPartialNodeVisibility)
     vm.ScrollTo(350.0f); // ノード3(y=300)の途中
 
     int saved_node = vm.FindFirstVisibleNode(cache, 10);
-    float saved_offset = vm.GetScrollY() - cache[saved_node].y_position;
+    float saved_offset = vm.GetScrollY() - cache[saved_node].text_top;
     EXPECT_EQ(saved_node, 3);
     EXPECT_FLOAT_EQ(saved_offset, 50.0f);
 
-    float restored = cache[saved_node].y_position + saved_offset;
+    float restored = cache[saved_node].text_top + saved_offset;
     EXPECT_FLOAT_EQ(restored, 350.0f);
 }
 
@@ -438,7 +438,7 @@ TEST(ViewportManagerTest, ScrollRestoreNodeClampedToSize)
     int clamped = std::min(saved_node, static_cast<int>(cache.size()) - 1);
     EXPECT_EQ(clamped, 4);
 
-    float restored = std::max(0.0f, cache[clamped].y_position + 0.0f);
+    float restored = std::max(0.0f, cache[clamped].text_top + 0.0f);
     EXPECT_FLOAT_EQ(restored, 400.0f);
 }
 
@@ -450,12 +450,12 @@ TEST(ViewportManagerTest, ScrollRestoreAtDocumentStart)
     vm.ScrollTo(0.0f);
 
     int saved_node = vm.FindFirstVisibleNode(cache, 10);
-    float saved_offset = vm.GetScrollY() - cache[saved_node].y_position;
+    float saved_offset = vm.GetScrollY() - cache[saved_node].text_top;
 
     EXPECT_EQ(saved_node, 0);
     EXPECT_FLOAT_EQ(saved_offset, 0.0f);
 
-    float restored = cache[saved_node].y_position + saved_offset;
+    float restored = cache[saved_node].text_top + saved_offset;
     EXPECT_FLOAT_EQ(restored, 0.0f);
 }
 
@@ -467,9 +467,9 @@ TEST(ViewportManagerTest, ScrollRestoreAtDocumentEnd)
     vm.ScrollTo(300.0f);                    // 最下端
 
     int saved_node = vm.FindFirstVisibleNode(cache, 10);
-    float saved_offset = vm.GetScrollY() - cache[saved_node].y_position;
+    float saved_offset = vm.GetScrollY() - cache[saved_node].text_top;
 
-    float restored = cache[saved_node].y_position + saved_offset;
+    float restored = cache[saved_node].text_top + saved_offset;
     EXPECT_FLOAT_EQ(restored, 300.0f);
 }
 
@@ -489,7 +489,7 @@ TEST(ViewportManagerTest, ScrollRestoreTargetCompensationAfterHeightChange)
 
     // ノード2の高さが100増加（画像読み込み）→ ノード5が下にシフト
     for (int i = 2; i < 10; ++i) {
-        cache[i].y_position += 100.0f;
+        cache[i].text_top += 100.0f;
     }
     cache[2].height = 150.0f;
 

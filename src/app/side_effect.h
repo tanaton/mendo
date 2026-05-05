@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_text.h"
 #include "ui_types.h"
 #include "pane_layout.h"
 #include "tooltip.h"
@@ -28,11 +29,13 @@ struct SetCursor {
     CursorType type;
 };
 struct ClipboardWrite {
-    std::pmr::wstring text;
+    // text は Document テキスト由来の UTF-8 doc_string。
+    // executor 側で CF_UNICODETEXT 用に wstring 変換する。
+    mendo::doc_string text;
 };
 struct ClipboardWriteHtml {
-    std::pmr::wstring html;
-    std::pmr::wstring plain;
+    mendo::doc_string html;
+    mendo::doc_string plain;
 };
 struct ShowTooltip {
     TooltipTarget target;

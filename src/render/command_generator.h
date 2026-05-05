@@ -75,16 +75,9 @@ public:
         IDWriteTextFormat* placeholder_text = nullptr;
     };
 
-    void ShrinkBuffers()
+    void SetHitTestBuffer(std::pmr::vector<DWRITE_HIT_TEST_METRICS>* buf) noexcept
     {
-        if (!shared_hit_test_buffer_) {
-            hit_test_buffer_.shrink_to_fit();
-        }
-    }
-
-    void SetSharedHitTestBuffer(std::pmr::vector<DWRITE_HIT_TEST_METRICS>* buf) noexcept
-    {
-        shared_hit_test_buffer_ = buf;
+        hit_test_buffer_ = buf;
     }
 
     constexpr void SetTheme(const Theme* theme) noexcept
@@ -116,28 +109,32 @@ public:
         float dpi_scale = 1.0f);
 
 private:
-    void GenerateNode(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index);
+    void GenerateNode(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index, float entry_text_top);
 
     // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキスト、
     // タスクリストチェックボックスを描画する。
     void GenNodeTextDecorations(DrawCommandList& cmds, const Node& node,
-                                const NodeLayoutEntry& entry, int node_index, float x, float text_x);
+                                const NodeLayoutEntry& entry, int node_index, float x, float text_x, float entry_text_top);
 
-    D2D1_COLOR_F GetNodeBaseColor(const Node& node) const noexcept;
+    struct NodeBaseStyle {
+        D2D1_COLOR_F color;
+        BrushId brush;
+    };
+    NodeBaseStyle GetNodeBaseStyle(const Node& node) const noexcept;
 
-    void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
-    void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x);
+    void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
+    void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float entry_text_top);
     void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border);
-    void GenTableCellContent(DrawCommandList& cmds, const TableCell& cell, IDWriteTextLayout* cell_layout, float text_x, float text_y, bool has_selection, uint32_t sel_start, uint32_t sel_end, uint32_t flat_offset);
-    void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w);
+    void GenTableCellContent(DrawCommandList& cmds, mendo::doc_string_view cell_text, bool is_header, IDWriteTextLayout* cell_layout, float text_x, float text_y, bool has_selection, uint32_t sel_start, uint32_t sel_end, uint32_t flat_offset);
+    void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
     void GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
-    void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered);
+    void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered, float entry_text_top);
     void GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     void GenSvgCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
-    void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x);
+    void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
-    void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color);
+    void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);
     // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
     // SearchHlCache / SelectionHlCache の rebuild に共用する。
     void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out);
@@ -177,14 +174,9 @@ private:
     int current_match_index_ = -1;
     uint32_t search_generation_ = 0;
 
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS>* shared_hit_test_buffer_ = nullptr;
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
-    constexpr std::pmr::vector<DWRITE_HIT_TEST_METRICS>& GetHitTestBuffer() noexcept
-    {
-        return shared_hit_test_buffer_ ? *shared_hit_test_buffer_ : hit_test_buffer_;
-    }
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS>* hit_test_buffer_ = nullptr;
 
-    DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len, D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col)
+    DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len, D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col, BrushId brush_id = BrushId::Custom)
     {
         assert(len <= 255 && "DrawTextCmd text exceeds uint8_t range");
         DrawTextCmd c{};
@@ -192,6 +184,7 @@ private:
         c.rect = r;
         c.format = fmt;
         c.color = col;
+        c.brush_id = brush_id;
         if (c.text_len == 0) {
             return c;
         }

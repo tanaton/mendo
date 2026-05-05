@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_text.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -49,6 +50,6 @@ struct SyntaxToken {
     SyntaxTokenType type = SyntaxTokenType::Plain;
 };
 
-SyntaxLanguage DetectLanguage(std::wstring_view info_string) noexcept;
+SyntaxLanguage DetectLanguage(mendo::doc_string_view info_string) noexcept;
 
-std::pmr::vector<SyntaxToken> Tokenize(std::wstring_view text, SyntaxLanguage language);
+std::pmr::vector<SyntaxToken> Tokenize(mendo::doc_string_view text, SyntaxLanguage language);

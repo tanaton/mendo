@@ -31,7 +31,7 @@ TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight)
 
 TEST_F(MockLayoutTest, SingleParagraphPositiveHeight)
 {
-    auto nodes = ParseMarkdown(L"Hello world").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -41,24 +41,24 @@ TEST_F(MockLayoutTest, SingleParagraphPositiveHeight)
 
 TEST_F(MockLayoutTest, YPositionsAreMonotonicallyIncreasing)
 {
-    auto nodes = ParseMarkdown(L"A\n\nB\n\nC\n\nD").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("A\n\nB\n\nC\n\nD")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].y_position, cache[i - 1].y_position);
+        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top);
     }
 }
 
 TEST_F(MockLayoutTest, NoOverlapBetweenNodes)
 {
-    auto nodes = ParseMarkdown(L"First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("First\n\nSecond\n\nThird")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache[i - 1].y_position + cache[i - 1].height;
-        EXPECT_GE(cache[i].y_position, prev_bottom);
+        float prev_bottom = cache[i - 1].text_top + cache[i - 1].height;
+        EXPECT_GE(cache[i].text_top, prev_bottom);
     }
 }
 
@@ -66,20 +66,20 @@ TEST_F(MockLayoutTest, NoOverlapBetweenNodes)
 
 TEST_F(MockLayoutTest, HeadingHasExtraSpacing)
 {
-    auto nodes = ParseMarkdown(L"Paragraph\n\n# Heading\n\nAnother").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Paragraph\n\n# Heading\n\nAnother")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 3u);
 
-    float para_bottom = cache[0].y_position + cache[0].height;
-    float heading_y = cache[1].y_position;
+    float para_bottom = cache[0].text_top + cache[0].height;
+    float heading_y = cache[1].text_top;
     EXPECT_GT(heading_y - para_bottom, theme_.paragraph_spacing);
 }
 
 TEST_F(MockLayoutTest, HeadingTallerThanParagraph)
 {
-    auto nodes = ParseMarkdown(L"# Heading\n\nParagraph").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# Heading\n\nParagraph")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -91,7 +91,7 @@ TEST_F(MockLayoutTest, HeadingTallerThanParagraph)
 
 TEST_F(MockLayoutTest, NoDirtyAfterFullLayout)
 {
-    auto nodes = ParseMarkdown(L"A\n\nB\n\nC").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("A\n\nB\n\nC")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -100,7 +100,7 @@ TEST_F(MockLayoutTest, NoDirtyAfterFullLayout)
 
 TEST_F(MockLayoutTest, PartialLayoutLeavesDirtyNodes)
 {
-    auto nodes = ParseMarkdown(L"A\n\nB\n\nC\n\nD\n\nE").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("A\n\nB\n\nC\n\nD\n\nE")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     // 部分レイアウト: ビューポート[0, 1)のみ — 非常に小さい
@@ -111,7 +111,7 @@ TEST_F(MockLayoutTest, PartialLayoutLeavesDirtyNodes)
 
 TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
 {
-    auto nodes = ParseMarkdown(L"A\n\nB\n\nC\n\nD\n\nE").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("A\n\nB\n\nC\n\nD\n\nE")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 1.0f);
@@ -122,14 +122,14 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
     }
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].y_position, cache[i - 1].y_position);
+        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top);
     }
 }
 
 TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch)
 {
-    std::wstring md;
-    for (int i = 0; i < 50; i++) md += L"P" + std::to_wstring(i) + L"\n\n";
+    mendo::doc_string_std md;
+    for (int i = 0; i < 50; i++) md += MENDO_LIT("P") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -145,7 +145,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch)
 
 TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
 {
-    auto nodes = ParseMarkdown(L"A\n\nB\n\nC").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("A\n\nB\n\nC")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     // フルレイアウト — ダーティノードなし
@@ -165,7 +165,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
 
 TEST_F(MockLayoutTest, WidthChangeRecalculates)
 {
-    auto nodes = ParseMarkdown(L"Some text that could wrap when narrower").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Some text that could wrap when narrower")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -179,7 +179,7 @@ TEST_F(MockLayoutTest, WidthChangeRecalculates)
 
 TEST_F(MockLayoutTest, TableHasPositiveHeight)
 {
-    auto nodes = ParseMarkdown(L"| A | B |\n|---|---|\n| 1 | 2 |").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("| A | B |\n|---|---|\n| 1 | 2 |")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -197,7 +197,7 @@ TEST_F(MockLayoutTest, TableHasPositiveHeight)
 
 TEST_F(MockLayoutTest, HorizontalRuleHasHeight)
 {
-    auto nodes = ParseMarkdown(L"Above\n\n---\n\nBelow").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Above\n\n---\n\nBelow")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -212,8 +212,8 @@ TEST_F(MockLayoutTest, HorizontalRuleHasHeight)
 
 TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
 {
-    std::wstring md;
-    for (int i = 0; i < 20; i++) md += L"Paragraph " + std::to_wstring(i) + L"\n\n";
+    mendo::doc_string_std md;
+    for (int i = 0; i < 20; i++) md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -231,7 +231,7 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
 
 TEST_F(MockLayoutTest, LayoutNodesFullLayout)
 {
-    auto nodes = ParseMarkdown(L"A\n\nB").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("A\n\nB")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.LayoutNodes(nodes, cache, 800.0f);
@@ -244,7 +244,7 @@ TEST_F(MockLayoutTest, LayoutNodesFullLayout)
 // Mermaidブロックの初回レイアウトでプレースホルダー高さが設定されること
 TEST_F(MockLayoutTest, MermaidBlockGetsPlaceholderHeight)
 {
-    auto nodes = ParseMarkdown(L"```mermaid\ngraph TD;\n  A-->B;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```mermaid\ngraph TD;\n  A-->B;\n```")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -260,7 +260,7 @@ TEST_F(MockLayoutTest, MermaidBlockGetsPlaceholderHeight)
 // ビットマップレンダリング後の高さがレイアウト再計算で保持されること（ズーム操作を模擬）
 TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
 {
-    auto nodes = ParseMarkdown(L"Text\n\n```mermaid\ngraph TD;\n  A-->B;\n```\n\nMore text").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Text\n\n```mermaid\ngraph TD;\n  A-->B;\n```\n\nMore text")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.LayoutNodes(nodes, cache, 800.0f);
@@ -293,7 +293,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
 // （500%ズームでMDペインが極小になる場合を模擬）
 TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
 {
-    auto nodes = ParseMarkdown(L"```mermaid\ngraph TD;\n  A-->B;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```mermaid\ngraph TD;\n  A-->B;\n```")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.LayoutNodes(nodes, cache, 800.0f);
@@ -337,11 +337,11 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
 TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
 {
     // 100 行のテーブル + その後の段落
-    std::wstring md = L"| col1 | col2 |\n|------|------|\n";
+    mendo::doc_string_std md = MENDO_LIT("| col1 | col2 |\n|------|------|\n");
     for (int i = 0; i < 100; i++) {
-        md += L"| row" + std::to_wstring(i) + L" | val" + std::to_wstring(i) + L" |\n";
+        md += MENDO_LIT("| row") + mendo::to_doc_string(i) + MENDO_LIT(" | val") + mendo::to_doc_string(i) + MENDO_LIT(" |\n");
     }
-    md += L"\nFollow-up paragraph";
+    md += MENDO_LIT("\nFollow-up paragraph");
 
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GE(nodes.size(), 2u);
@@ -373,15 +373,15 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
         << "partial モードで実測済みテーブルの高さが推定値で縮められた";
 
     // テーブル直後の段落の y_position もテーブル下端より下にあること
-    const float table_bottom = cache[table_idx].y_position + cache[table_idx].height;
-    EXPECT_GE(cache[para_idx].y_position, table_bottom)
+    const float table_bottom = cache[table_idx].text_top + cache[table_idx].height;
+    EXPECT_GE(cache[para_idx].text_top, table_bottom)
         << "テーブル直後ノードの y_position がテーブル下端より上に詰まっている (issue #158)";
 }
 
 // 推定値より小さい既存高さは、推定値まで成長させてよい（max_scroll の精度のため）
 TEST_F(MockLayoutTest, PartialModeGrowsHeightWhenEstimateLarger)
 {
-    auto nodes = ParseMarkdown(L"First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("First\n\nSecond\n\nThird")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
 
@@ -399,9 +399,9 @@ TEST_F(MockLayoutTest, PartialModeGrowsHeightWhenEstimateLarger)
 // (issue #158: col_widths を残すと描画範囲が後続ノード位置を越えて重なる)
 TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
 {
-    std::wstring md = L"| a | b |\n|---|---|\n";
+    mendo::doc_string_std md = MENDO_LIT("| a | b |\n|---|---|\n");
     for (int i = 0; i < 50; i++) {
-        md += L"| r" + std::to_wstring(i) + L" | v" + std::to_wstring(i) + L" |\n";
+        md += MENDO_LIT("| r") + mendo::to_doc_string(i) + MENDO_LIT(" | v") + mendo::to_doc_string(i) + MENDO_LIT(" |\n");
     }
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
@@ -437,22 +437,22 @@ TEST_F(MockLayoutTest, RecreateFormatsSucceeds)
 
 TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight)
 {
-    std::wstring md;
-    for (int i = 0; i < 100; i++) md += L"Paragraph " + std::to_wstring(i) + L"\n\n";
+    mendo::doc_string_std md;
+    for (int i = 0; i < 100; i++) md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     EXPECT_GT(engine_.GetTotalHeight(), 500.0f);
     size_t last = nodes.size() - 1;
-    EXPECT_LE(cache[last].y_position + cache[last].height, engine_.GetTotalHeight());
+    EXPECT_LE(cache[last].text_top + cache[last].height, engine_.GetTotalHeight());
 }
 
 // ---- ファイル切り替えリグレッションテスト ----
 
 TEST_F(MockLayoutTest, ResetClearsAllEntries)
 {
-    auto nodes = ParseMarkdown(L"Hello\n\nWorld").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello\n\nWorld")).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -476,7 +476,7 @@ TEST_F(MockLayoutTest, ResetClearsAllEntries)
 TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
 {
     // ファイルAを開くシミュレーション: "# Big Heading\n\nSome paragraph"
-    auto nodes_a = ParseMarkdown(L"# Big Heading\n\nSome paragraph").nodes;
+    auto nodes_a = ParseMarkdown(MENDO_LIT("# Big Heading\n\nSome paragraph")).nodes;
     LayoutCache cache;
     cache.Reset(nodes_a.size());
     engine_.LayoutNodes(nodes_a, cache, 800.0f);
@@ -488,7 +488,7 @@ TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
     EXPECT_GT(para_height_a, 0.0f);
 
     // ファイルBへ切り替えシミュレーション: "Just a paragraph\n\nAnother one\n\nThird"
-    auto nodes_b = ParseMarkdown(L"Just a paragraph\n\nAnother one\n\nThird").nodes;
+    auto nodes_b = ParseMarkdown(MENDO_LIT("Just a paragraph\n\nAnother one\n\nThird")).nodes;
     cache.Reset(nodes_b.size());
     engine_.LayoutNodes(nodes_b, cache, 800.0f);
 
@@ -507,7 +507,7 @@ TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
 TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates)
 {
     // ファイルA: 見出し2つ
-    auto nodes_a = ParseMarkdown(L"# H1\n\n## H2").nodes;
+    auto nodes_a = ParseMarkdown(MENDO_LIT("# H1\n\n## H2")).nodes;
     LayoutCache cache;
     cache.Reset(nodes_a.size());
     engine_.LayoutNodes(nodes_a, cache, 800.0f);
@@ -515,7 +515,7 @@ TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates)
     float h2_height = cache[1].height;
 
     // ファイルB: 段落2つ（ファイルAと同じノード数）
-    auto nodes_b = ParseMarkdown(L"alpha\n\nbeta").nodes;
+    auto nodes_b = ParseMarkdown(MENDO_LIT("alpha\n\nbeta")).nodes;
     cache.Reset(nodes_b.size());
     engine_.LayoutNodes(nodes_b, cache, 800.0f);
 

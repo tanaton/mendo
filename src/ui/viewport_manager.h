@@ -6,7 +6,7 @@
 #include <memory_resource>
 
 // スクロール位置の「目的地」を表す値型。
-// node が有効な間、レイアウトが変化するたびに scroll_y = y_position[node] + offset として再評価される。
+// node が有効な間、レイアウトが変化するたびに scroll_y = text_top[node] + offset として再評価される。
 // ユーザー発のピクセルスクロールや ClearScrollTarget で無効化される。
 struct ScrollTarget {
     int node = -1;       // -1 = 無効
@@ -113,7 +113,7 @@ public:
         const size_t effective = std::min(node_count, cache.size());
         const int idx = FindFirstVisibleNodeIndex(cache, effective, scroll_y_);
         if (idx < static_cast<int>(effective)) {
-            scroll_target_ = { idx, scroll_y_ - cache[idx].y_position };
+            scroll_target_ = { idx, scroll_y_ - cache[idx].text_top };
         }
     }
 

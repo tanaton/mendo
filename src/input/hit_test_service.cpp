@@ -1,5 +1,7 @@
 #include "hit_test_service.h"
+#include "doc_dwrite_bridge.h"
 #include "layout.h"
+#include "layout_computer.h"
 #include "ui_constants.h"
 #include <cassert>
 #include <ranges>
@@ -13,13 +15,14 @@ struct TableRowHit {
     int row;
     float row_top_y;
 };
-TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, const Theme& theme, float dip_y) noexcept
+TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, float entry_text_top, const Theme& theme, float dip_y) noexcept
 {
     if (!entry.has_table_layout()) {
         return { -1, 0.0f };
     }
     const auto& tl = *entry.table_layout;
-    const auto row_count = node.table_rows().size();
+    const auto* tbl = node.table_data();
+    const size_t row_count = tbl ? tbl->row_count : 0;
     if (row_count == 0) {
         return { -1, 0.0f };
     }
@@ -27,7 +30,7 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, const T
     // 事前計算された累積Y配列で二分探索。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ（サイズ row_count+1）。
     if (tl.row_cum_y.size() == row_count + 1) {
-        const float local_y = dip_y - entry.y_position;
+        const float local_y = dip_y - entry_text_top;
         const auto it = std::ranges::upper_bound(tl.row_cum_y, local_y);
         if (it == tl.row_cum_y.begin()) {
             return { -1, 0.0f };
@@ -36,12 +39,12 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, const T
         if (static_cast<size_t>(idx) >= row_count) {
             return { -1, 0.0f };
         }
-        return { static_cast<int>(idx), entry.y_position + tl.row_cum_y[static_cast<size_t>(idx)] };
+        return { static_cast<int>(idx), entry_text_top + tl.row_cum_y[static_cast<size_t>(idx)] };
     }
 
     // フォールバック: 線形走査
     const float border = TABLE_BORDER_WIDTH;
-    float ry = entry.y_position;
+    float ry = entry_text_top;
     for (size_t r = 0; r < row_count; r++) {
         const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR);
         const float row_bottom = ry + row_h + border;
@@ -115,16 +118,19 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     const auto first = ctx.cache.cbegin();
     const auto last = first + static_cast<ptrdiff_t>(ctx.nodes.size());
     const auto it = std::ranges::partition_point(first, last, [dip_y](const NodeLayoutEntry& e) noexcept {
-        return e.y_position <= dip_y;
+        return e.text_top <= dip_y;
     });
     const int candidate = (it != first) ? static_cast<int>(std::prev(it) - first) : -1;
 
-    if (candidate >= 0 && dip_y <= ctx.cache[candidate].y_position + ctx.cache[candidate].height) {
+    const float candidate_text_top = (candidate >= 0)
+        ? mendo::layout::TextTopOf(ctx.cache, static_cast<size_t>(candidate), ctx.nodes[candidate], ctx.theme)
+        : 0.0f;
+    if (candidate >= 0 && dip_y <= candidate_text_top + ctx.cache[candidate].height) {
         const auto& node = ctx.nodes[candidate];
         const auto& entry = ctx.cache[candidate];
 
         if (node.type == NodeType::Table) {
-            result = HitTestTable(node, entry, candidate, ctx.theme, dip_x, dip_y);
+            result = HitTestTable(node, entry, candidate_text_top, candidate, ctx.theme, dip_x, dip_y);
             last_md_hit_.Store(ctx, gen, result);
             return result;
         }
@@ -132,7 +138,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         if (entry.text_layout) {
             const float indent = NodeIndent(node, ctx.theme);
             const float local_x = dip_x - ctx.theme.margin_left - indent - NodeTextXOffset(node, ctx.theme);
-            const float local_y = dip_y - entry.y_position;
+            const float local_y = dip_y - candidate_text_top;
 
             BOOL is_trailing = FALSE;
             BOOL is_inside = FALSE;
@@ -141,7 +147,9 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
                                             &is_trailing, &is_inside, &metrics);
 
             result.node_index = candidate;
-            result.text_pos = metrics.textPosition + (is_trailing ? 1 : 0);
+            // metrics.textPosition (UTF-16 code unit) を text_pos (UTF-8 byte) に還元する。
+            const mendo::WideViewForDWrite wv{ node.GetText() };
+            result.text_pos = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
             last_md_hit_.Store(ctx, gen, result);
             return result;
         }
@@ -161,6 +169,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
 
 HitTestService::HitResult HitTestService::HitTestTable(
     const Node& node, const NodeLayoutEntry& entry,
+    float entry_text_top,
     int node_index,
     const Theme& theme,
     float dip_x, float dip_y) const noexcept
@@ -169,7 +178,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     result.node_index = node_index;
 
     if (!entry.has_table_layout()) {
-        result.text_pos = static_cast<uint32_t>(node.GetText().size());
+        result.text_pos = 0;
         return result;
     }
     const auto& tl = *entry.table_layout;
@@ -177,17 +186,17 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const float indent = NodeIndent(node, theme);
     const float base_x = theme.margin_left + indent;
 
-    const auto [hit_row, row_top_y] = FindTableRow(node, entry, theme, dip_y);
+    const auto* tbl = node.table_data();
+    const auto [hit_row, row_top_y] = FindTableRow(node, entry, entry_text_top, theme, dip_y);
     if (hit_row < 0) {
-        result.text_pos = static_cast<uint32_t>(node.GetText().size());
+        result.text_pos = tbl ? static_cast<uint32_t>(tbl->concat_text.size()) : 0u;
         return result;
     }
 
     float cell_left_x = 0.0f;
     const int hit_col = FindTableCol(tl, base_x, dip_x, cell_left_x);
 
-    const uint32_t flat_offset = tl.CellFlatOffset(
-        node.table_rows(), static_cast<size_t>(hit_row), static_cast<size_t>(hit_col));
+    const uint32_t flat_offset = tbl->CellTextStart(static_cast<size_t>(hit_row), static_cast<size_t>(hit_col));
 
     const size_t r = static_cast<size_t>(hit_row);
     const size_t c = static_cast<size_t>(hit_col);
@@ -205,7 +214,10 @@ HitTestService::HitResult HitTestService::HitTestTable(
             &is_inside,
             &metrics);
 
-        result.text_pos = flat_offset + metrics.textPosition + (is_trailing ? 1 : 0);
+        // metrics.textPosition (UTF-16 code unit) を cell text の UTF-8 byte offset に還元してから flat_offset に加算。
+        const mendo::WideViewForDWrite wv{ tbl->GetCellText(r, c) };
+        const auto cell_doc_off = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
+        result.text_pos = flat_offset + cell_doc_off;
     }
     else {
         result.text_pos = flat_offset;
@@ -233,7 +245,7 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         return -1;
     }
 
-    return HitTestCodeBlockButton(ctx, last_copy_hit_, [&](int /*i*/, const Node& node, const NodeLayoutEntry& entry, float dip_x, float dip_y) noexcept -> bool {
+    return HitTestCodeBlockButton(ctx, last_copy_hit_, [&](int /*i*/, const Node& node, const NodeLayoutEntry& /*entry*/, float entry_text_top, float dip_x, float dip_y) noexcept -> bool {
         // ダイアグラム系 (Mermaid / LatexMath) はコピーボタン非対応
         if (IsDiagramLanguage(node.code_language)) {
             return false;
@@ -243,7 +255,7 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         const float w = ctx.content_width - indent;
         const float pad = ctx.theme.code_block_padding;
         const float block_right = x + w;
-        const float block_top = entry.y_position - pad;
+        const float block_top = entry_text_top - pad;
         const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
         return dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom;
     });
@@ -254,7 +266,7 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
     assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
     assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
 
-    return HitTestCodeBlockButton(ctx, last_save_hit_, [&](int i, const Node& node, const NodeLayoutEntry& entry, float dip_x, float dip_y) noexcept -> bool {
+    return HitTestCodeBlockButton(ctx, last_save_hit_, [&](int i, const Node& node, const NodeLayoutEntry& /*entry*/, float entry_text_top, float dip_x, float dip_y) noexcept -> bool {
         if (!IsDiagramLanguage(node.code_language)) {
             return false;
         }
@@ -265,7 +277,7 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         const float indent = NodeIndent(node, ctx.theme);
         const float x = ctx.theme.margin_left + indent;
         const float cw = ctx.content_width - indent;
-        const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry.y_position);
+        const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry_text_top);
         const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
         return dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom;
     });
@@ -306,7 +318,8 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
     int svg_copy_hit = -1;
     for (int i = first; i < count; i++) {
         const auto& entry = ctx.cache[i];
-        if (entry.y_position - ctx.theme.code_block_padding > viewport_bottom) {
+        const float entry_text_top = entry.text_top;
+        if (entry_text_top - ctx.theme.code_block_padding > viewport_bottom) {
             break;
         }
         const auto& node = ctx.nodes[i];
@@ -320,7 +333,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
         if (IsDiagramLanguage(node.code_language)) {
             const auto& diagram = ctx.cache.GetDiagram(i);
             if (diagram.bitmap) {
-                const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry.y_position);
+                const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry_text_top);
                 if (save_hit < 0) {
                     const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
                     if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
@@ -337,7 +350,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
         }
         else if (x_in_copy_band && copy_hit < 0) {
             const float block_right = x + w;
-            const float block_top = entry.y_position - pad;
+            const float block_top = entry_text_top - pad;
             const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
             if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
                 copy_hit = i;

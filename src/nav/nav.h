@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_text.h"
 #include <string>
 #include <string_view>
 #include <deque>
@@ -8,7 +9,7 @@
 #include <map>
 
 // 単一のナビゲーション履歴エントリ: ファイルパス + スクロール位置（ノード単位）。
-// ノードインデックスと、そのノードの y_position からのオフセットで位置を表現する。
+// ノードインデックスと、そのノードの text_top からのオフセットで位置を表現する。
 // ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。
 struct NavEntry {
     std::pmr::wstring file_path;
@@ -101,8 +102,10 @@ struct LinkClickResult {
         ExternalUrl
     };
     Type type = Type::None;
-    std::pmr::wstring target;
+    // Anchor: アンカー名 (UTF-8、先頭 '#' を除いた部分)。NavigateAnchorAction にそのまま渡せる。
+    // ExternalUrl: URL (UTF-8)。effect::ShellOpen に渡す直前で wstring 化する。
+    mendo::doc_string target;
 };
 
-LinkClickResult HandleLinkClick(std::wstring_view url);
-bool IsSafeUrlScheme(std::wstring_view url) noexcept;
+LinkClickResult HandleLinkClick(mendo::doc_string_view url);
+bool IsSafeUrlScheme(mendo::doc_string_view url) noexcept;

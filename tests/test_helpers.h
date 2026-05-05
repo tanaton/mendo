@@ -20,7 +20,7 @@ constexpr bool ColorEq(D2D1_COLOR_F a, D2D1_COLOR_F b) noexcept
 }
 
 // テキスト持ちの Paragraph ノードを作るテスト用ヘルパー。
-inline Node MakeTextNode(const wchar_t* text)
+inline Node MakeTextNode(const mendo::doc_char* text)
 {
     Node n;
     n.type = NodeType::Paragraph;
@@ -28,34 +28,48 @@ inline Node MakeTextNode(const wchar_t* text)
     return n;
 }
 
-// 1行2列のテーブルノードを作るテスト用ヘルパー。
-inline Node MakeTableNode(const wchar_t* cell0, const wchar_t* cell1)
+// 1 行 2 列のテーブルノードを作るテスト用ヘルパー。
+inline Node MakeTableNode(const mendo::doc_char* cell0, const mendo::doc_char* cell1)
 {
     Node n;
     n.type = NodeType::Table;
     n.ensure_table();
-    TableRow row;
-    TableCell c0;
-    c0.text.assign(cell0);
-    row.cells.push_back(std::move(c0));
-    TableCell c1;
-    c1.text.assign(cell1);
-    row.cells.push_back(std::move(c1));
-    n.table_data()->rows.push_back(std::move(row));
+    auto* tbl = n.table_data();
+    tbl->row_count = 1;
+    tbl->col_count = 2;
+    tbl->concat_text.append(cell0);
+    tbl->concat_text.push_back(mendo::doc_tab);
+    tbl->concat_text.append(cell1);
+    tbl->cell_text_starts.push_back(0);
+    tbl->cell_text_starts.push_back(static_cast<uint32_t>(std::char_traits<mendo::doc_char>::length(cell0) + 1));
+    tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+    tbl->cell_run_starts.push_back(0);
+    tbl->cell_run_starts.push_back(0);
+    tbl->cell_run_starts.push_back(0);
+    tbl->aligns.push_back(TableAlign::Default);
+    tbl->aligns.push_back(TableAlign::Default);
+    tbl->is_header_row.push_back(false);
     return n;
 }
 
 // 等間隔ノードの LayoutCache を構築するテスト用ヘルパー。
 // 複数テストファイルで共通して使用される。
+// spacing_above = spacing_below = 0 を仮定し、block_height = node_height で Fenwick も同期する。
 inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
 {
     LayoutCache cache;
     cache.Resize(count);
+    std::pmr::vector<float> block_heights;
+    block_heights.reserve(count);
     float y = 0.0f;
     for (int i = 0; i < count; ++i) {
-        cache[i].y_position = y;
+        cache[i].text_top = y;
         cache[i].height = node_height;
+        block_heights.push_back(node_height);
         y += node_height;
+    }
+    if (count > 0) {
+        cache.BuildBlockHeights(std::span<const float>(block_heights.data(), block_heights.size()));
     }
     return cache;
 }

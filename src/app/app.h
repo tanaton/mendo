@@ -193,10 +193,10 @@ private:
 
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y);
-    std::optional<std::pmr::wstring> GetLinkAtHit(const HitResult& hit) const;
+    std::optional<mendo::doc_string> GetLinkAtHit(const HitResult& hit) const;
     MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
-    void HandleLinkClick(std::wstring_view url);
+    void HandleLinkClick(mendo::doc_string_view url);
 
     void SetClipboardText(std::wstring_view text) const;
     void CopySelectionToClipboard() const;
@@ -276,6 +276,7 @@ private:
 
     Renderer renderer_;
     TaskScheduler scheduler_;
+    TaskScheduler layout_scheduler_;
     MermaidFileCache file_cache_; // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;

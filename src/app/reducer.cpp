@@ -10,7 +10,7 @@ ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 {
     const auto& cache = state.document.layout_cache;
     const int node = state.view.viewport.FindFirstVisibleNode(cache, cache.size());
-    const float y_before = (node >= 0) ? cache[node].y_position : 0.0f;
+    const float y_before = (node >= 0) ? cache[node].text_top : 0.0f;
     return { node, state.view.viewport.GetScrollY() - y_before };
 }
 
@@ -315,7 +315,8 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
         state.window.cached_dpi_scale = 1.0f;
     }
     state.pane_layout_valid = false;
-    state.document.layout_cache.MarkAllDirty();
+    // DPI 変更では IDWriteTextLayout (DIP 単位) は不変。effects_generation のみ進める。
+    state.document.layout_cache.NotifyDpiChanged();
     PushEffect(effects, effect::RendererSetDpi{ static_cast<float>(a.dpi) });
     PushEffect(effects, effect::ClearFileCache{});
     PushEffect(
@@ -665,13 +666,13 @@ void ScrollToResolvedAnchor(AppState& state, SideEffectList& effects, int idx)
 }
 } // namespace
 
-void ScrollToAnchor(AppState& state, SideEffectList& effects, std::wstring_view anchor_id)
+void ScrollToAnchor(AppState& state, SideEffectList& effects, mendo::doc_string_view anchor_id)
 {
     ScrollToResolvedAnchor(state, effects, state.document.doc.FindAnchorIndex(anchor_id));
 }
 
 // anchor_id() 由来など、既に正規化済み入力向け（ToLowerAscii の確保を回避する）。
-void ScrollToNormalizedAnchor(AppState& state, SideEffectList& effects, std::wstring_view anchor_id)
+void ScrollToNormalizedAnchor(AppState& state, SideEffectList& effects, mendo::doc_string_view anchor_id)
 {
     ScrollToResolvedAnchor(state, effects, state.document.doc.FindNormalizedAnchorIndex(anchor_id));
 }

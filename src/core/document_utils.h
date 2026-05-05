@@ -17,17 +17,17 @@ struct WordBoundary {
 // テキスト内の指定位置周辺の単語境界を検索する。
 // 「単語文字」は英数字またはアンダースコア。
 // 位置が単語文字上にあれば {start, end, true} を返し、そうでなければ {0, 0, false} を返す。
-WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept;
+WordBoundary FindWordBoundaries(mendo::doc_string_view text, uint32_t pos) noexcept;
 
 // ASCII範囲の大文字を小文字に変換する。
-std::pmr::wstring ToLowerAscii(std::wstring_view text);
+mendo::doc_string ToLowerAscii(mendo::doc_string_view text);
 
 // 見出しテキストからGitHubスタイルのアンカースラグを生成する。
 // ASCII は小文字化、空白は '-'、CJK 文字は保持しつつ句読点・記号はスキップする。
-std::pmr::wstring GenerateAnchorId(std::wstring_view text);
+mendo::doc_string GenerateAnchorId(mendo::doc_string_view text);
 
 // アロケータ指定済みの既存 slug に書き込むバリアント。呼び出し側で allocator を揃えたい場合に使う。
-void GenerateAnchorIdInto(std::wstring_view text, std::pmr::wstring& slug);
+void GenerateAnchorIdInto(mendo::doc_string_view text, mendo::doc_string& slug);
 
 // ファイルパスまたはファイル名がMarkdownファイル（.md, .markdown, .mkd）かどうかを判定する。
 // 拡張子の大文字小文字は区別しない。

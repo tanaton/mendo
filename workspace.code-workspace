@@ -9,8 +9,7 @@
 			"UNICODE",
 			"_UNICODE",
 			"NOMINMAX",
-			"WIN32_LEAN_AND_MEAN",
-			"MD4C_USE_UTF16"
+			"WIN32_LEAN_AND_MEAN"
 		],
 		"C_Cpp.default.cppStandard": "c++23",
 		"C_Cpp.default.cStandard": "c23",

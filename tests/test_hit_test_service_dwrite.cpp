@@ -28,14 +28,14 @@ protected:
 // 返されてしまうため、DirectWrite を通したことの直接的な検証になる。
 TEST_F(HitTestDWriteTest, ParagraphHitReturnsTextPositionFromTextLayout)
 {
-    auto pl = ParseAndLayout(L"Hello, this is a long paragraph for hit testing.");
+    auto pl = ParseAndLayout(MENDO_LIT("Hello, this is a long paragraph for hit testing."));
     ASSERT_FALSE(pl.nodes.empty());
 
     // 段落の中央付近 (margin_left + 数文字分) をクリックする想定。
     // dpi=1, md_pane_left=0, scroll_y=0 で screen 座標 == DIP。
     const float content_width = ContentWidth(800.0f);
     const int screen_x = static_cast<int>(theme_.margin_left + 50.0f);
-    const int screen_y = static_cast<int>(pl.cache[0].y_position + 4.0f);
+    const int screen_y = static_cast<int>(pl.cache[0].text_top + 4.0f);
 
     const MdPaneHitContext ctx{
         pl.nodes, pl.cache, theme_, 0.0f, 0.0f, 1.0f,
@@ -53,7 +53,7 @@ TEST_F(HitTestDWriteTest, ParagraphHitReturnsTextPositionFromTextLayout)
 // row_cum_y / col_cum_x が積まれる。HitTestTable はそれを upper_bound で参照する。
 TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
 {
-    auto pl = ParseAndLayout(L"| H1 | H2 |\n|---|---|\n| 11 | 12 |\n| 21 | 22 |");
+    auto pl = ParseAndLayout(MENDO_LIT("| H1 | H2 |\n|---|---|\n| 11 | 12 |\n| 21 | 22 |"));
 
     int table_idx = -1;
     for (size_t i = 0; i < pl.nodes.size(); ++i) {
@@ -68,7 +68,7 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
     // テーブル中央あたりに hit する位置。
     const auto& entry = pl.cache[table_idx];
     const int sx = static_cast<int>(theme_.margin_left + 30.0f);
-    const int sy = static_cast<int>(entry.y_position + entry.height * 0.5f);
+    const int sy = static_cast<int>(entry.text_top + entry.height * 0.5f);
 
     const float content_width = ContentWidth(800.0f);
     const MdPaneHitContext ctx{
@@ -85,7 +85,7 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
 // インデックスが入ること。共有 cache の matches も正しく動くかを軽く確認する。
 TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
 {
-    auto pl = ParseAndLayout(L"```\nint main() { return 0; }\n```");
+    auto pl = ParseAndLayout(MENDO_LIT("```\nint main() { return 0; }\n```"));
 
     int code_idx = -1;
     for (size_t i = 0; i < pl.nodes.size(); ++i) {
@@ -99,7 +99,7 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
     const auto& entry = pl.cache[code_idx];
     const float content_width = ContentWidth(800.0f);
     const float block_right = theme_.margin_left + content_width;
-    const float block_top = entry.y_position - theme_.code_block_padding;
+    const float block_top = entry.text_top - theme_.code_block_padding;
     const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
     const int sx = static_cast<int>((btn.left + btn.right) * 0.5f);
     const int sy = static_cast<int>((btn.top + btn.bottom) * 0.5f);
@@ -118,7 +118,7 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
 // の繰り返し呼び出しでは結果が再利用される。書き換えしないことを 2 回呼んで確認する。
 TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_RepeatCallReturnsSameResult)
 {
-    auto pl = ParseAndLayout(L"```\nfoo\n```");
+    auto pl = ParseAndLayout(MENDO_LIT("```\nfoo\n```"));
     const float content_width = ContentWidth(800.0f);
     const MdPaneHitContext ctx{
         pl.nodes, pl.cache, theme_, 0.0f, 0.0f, 1.0f,

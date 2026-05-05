@@ -2,7 +2,7 @@
 #include "ascii_util.h"
 #include <algorithm>
 
-void SearchState::SetQuery(std::wstring_view query)
+void SearchState::SetQuery(mendo::doc_string_view query)
 {
     query_.assign(query);
 }
@@ -16,7 +16,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     }
 
     // 大文字小文字無視の場合、クエリの小文字変換をループ外で1回だけ行う
-    std::pmr::wstring lower_query;
+    mendo::doc_string lower_query;
     if (!case_sensitive_) {
         lower_query.resize(query_.size());
         ascii_util::ToLower(query_.data(), lower_query.data(), query_.size());
@@ -29,14 +29,14 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     for (int i = 0; i < node_count && matches_.size() < MAX_MATCHES; i++) {
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
-            const auto& rows = node.table_rows();
-            const auto row_count = static_cast<int>(rows.size());
+            const auto* tbl = node.table_data();
+            const auto row_count = static_cast<int>(tbl->row_count);
+            const auto col_count = static_cast<int>(tbl->col_count);
             for (int r = 0; r < row_count && matches_.size() < MAX_MATCHES; r++) {
-                const auto& cells = rows[r].cells;
-                const auto col_count = static_cast<int>(cells.size());
                 for (int c = 0; c < col_count && matches_.size() < MAX_MATCHES; c++) {
-                    if (!cells[c].text.empty()) {
-                        FindMatches(cells[c].text, lower_query, i, r, c);
+                    const auto cell_text = tbl->GetCellText(r, c);
+                    if (!cell_text.empty()) {
+                        FindMatches(cell_text, lower_query, i, r, c);
                     }
                 }
             }
@@ -82,35 +82,14 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
             // セル群は別バッファに連続配置する。
             lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
 
-            const auto& rows = node.table_rows();
-            const size_t row_count = rows.size();
-            // 行ごとに列数が違う可能性があるため、最大列数を col_count とし、
-            // 不足セルは empty スライスにする。
-            size_t max_cols = 0;
-            size_t total_cell_chars = 0;
-            for (const auto& row : rows) {
-                max_cols = std::max(max_cols, row.cells.size());
-                for (const auto& cell : row.cells) {
-                    total_cell_chars += cell.text.size();
-                }
-            }
+            const auto* tbl = node.table_data();
+            // concat_text を 1 回の bulk ToLower でコピー&小文字化し、cell_text_starts を
+            // そのまま offsets として共有する。区切り '\t'/'\n' は ToLower 不変なのでそのまま残せる。
             LowercaseTable table;
-            table.col_count = max_cols;
-            table.buffer.reserve(total_cell_chars);
-            table.offsets.reserve(row_count * max_cols + 1);
-            table.offsets.push_back(0);
-            for (size_t r = 0; r < row_count; ++r) {
-                const auto& cells = rows[r].cells;
-                for (size_t c = 0; c < max_cols; ++c) {
-                    if (c < cells.size()) {
-                        const auto& src = cells[c].text;
-                        const size_t prev = table.buffer.size();
-                        table.buffer.resize(prev + src.size());
-                        ascii_util::ToLower(src.data(), table.buffer.data() + prev, src.size());
-                    }
-                    table.offsets.push_back(static_cast<uint32_t>(table.buffer.size()));
-                }
-            }
+            table.col_count = tbl->col_count;
+            table.buffer.resize(tbl->concat_text.size());
+            ascii_util::ToLower(tbl->concat_text.data(), table.buffer.data(), tbl->concat_text.size());
+            table.offsets.assign(tbl->cell_text_starts.begin(), tbl->cell_text_starts.end());
             lower_cache_.tables.emplace(static_cast<int>(i), std::move(table));
         }
         else if (node.type == NodeType::Image || (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language))) {
@@ -130,7 +109,7 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
     cached_node_count_ = nodes.size();
 }
 
-void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& lower_query, int node_index, int table_row, int table_col)
+void SearchState::FindMatches(mendo::doc_string_view text, const mendo::doc_string& lower_query, int node_index, int table_row, int table_col)
 {
     if (matches_.size() >= MAX_MATCHES) {
         return;
@@ -147,7 +126,7 @@ void SearchState::FindMatches(std::wstring_view text, const std::pmr::wstring& l
     else {
         // ドキュメント単位でキャッシュした lowercase 文字列を使う。
         // EnsureLowercaseCache が ExecuteSearch 先頭で呼ばれている前提。
-        const std::wstring_view lower_text = (table_row < 0) ? lower_cache_.GetText(node_index) : lower_cache_.GetCell(node_index, table_row, table_col);
+        const mendo::doc_string_view lower_text = (table_row < 0) ? lower_cache_.GetText(node_index) : lower_cache_.GetCell(node_index, table_row, table_col);
 
         size_t pos = 0;
         while (matches_.size() < MAX_MATCHES && (pos = ascii_util::Find(lower_text, lower_query, pos)) != ascii_util::npos) {
@@ -197,7 +176,8 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
         if (m.node_index >= static_cast<int>(cache.size())) {
             return true;
         }
-        const auto [y, h] = cache[m.node_index].GetMatchYRange(m.table_row, m.table_col, m.start);
+        const auto& e = cache[m.node_index];
+        const auto [y, h] = e.GetMatchYRange(m.table_row, m.table_col, m.start, e.text_top);
         (void)h;
         return y < scroll_y;
     });

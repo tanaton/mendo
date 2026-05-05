@@ -1,6 +1,8 @@
 #include "resource_manager.h"
 #include "document.h"
 #include "layout_cache.h"
+#include "layout_computer.h"
+#include "theme.h"
 #include "viewport_manager.h"
 #include "image_loader.h"
 #include "mermaid_renderer_interface.h"
@@ -28,30 +30,6 @@ IndexSlice VisibleSlice(const std::pmr::vector<size_t>& sorted_indices, size_t f
     return { b, e };
 }
 
-// first_visible / last_visible_plus_1 を一度に算出する。
-// first: 下端が range_top 以上の最初のノード（FindFirstVisibleNodeIndex）。
-// last+1: 上端が range_bottom を超える最初のノード（first からの前方走査、O(visible)）。
-struct VisibleRange {
-    size_t first;
-    size_t last_plus_1;
-};
-
-VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count, float range_top, float range_bottom)
-{
-    // 過渡状態で node_count > cache.size() のとき cache[i] が OOB になるため、
-    // FindFirstVisibleNodeIndex と同じ方針で内部クランプする。
-    const size_t effective = std::min(node_count, cache.size());
-    const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, effective, range_top));
-    size_t last_plus_1 = first;
-    for (size_t i = first; i < effective; ++i) {
-        if (cache[i].y_position > range_bottom) {
-            break;
-        }
-        last_plus_1 = i + 1;
-    }
-    return { first, last_plus_1 };
-}
-
 } // namespace
 
 void ResourceManager::Init(
@@ -61,6 +39,7 @@ void ResourceManager::Init(
     ImageLoader& image_loader,
     IMermaidRenderer& mermaid,
     ThemeService& theme_service,
+    const Theme& theme,
     Callbacks cb)
 {
     doc_ = &doc;
@@ -69,6 +48,7 @@ void ResourceManager::Init(
     image_loader_ = &image_loader;
     mermaid_ = &mermaid;
     theme_service_ = &theme_service;
+    theme_ = &theme;
     cb_ = std::move(cb);
 }
 
@@ -114,7 +94,7 @@ int ResourceManager::ApplyCachedImages(bool respect_viewport)
         }
 
         auto* const img = node.image_data();
-        if (!img || ascii_util::Contains(img->src, L"://")) {
+        if (!img || ascii_util::Contains(img->src, MENDO_LIT("://"))) {
             continue;
         }
 
@@ -231,7 +211,8 @@ int ResourceManager::RequestMermaidRenders()
     const auto& diagram_indices = doc_->GetDiagramNodeIndices();
     IndexSlice slice{ diagram_indices.begin(), diagram_indices.end() };
     if (viewport_height > 0.0f) {
-        const auto vr = ComputeVisibleNodeRange(*cache_, doc_->GetNodes().size(), range_top, range_bottom);
+        const auto& nodes = doc_->GetNodes();
+        const auto vr = ComputeVisibleNodeRange(*cache_, nodes.size(), range_top, range_bottom);
         slice = VisibleSlice(diagram_indices, vr.first, vr.last_plus_1);
     }
 
@@ -302,7 +283,8 @@ void ResourceManager::ProcessMermaidBatch()
     // 進捗の意味を保ったまま、可視レンジ内のみを走査。
     size_t slice_end = indices.size();
     if (viewport_height > 0.0f) {
-        const auto vr = ComputeVisibleNodeRange(*cache_, doc_->GetNodes().size(), range_top, range_bottom);
+        const auto& nodes = doc_->GetNodes();
+        const auto vr = ComputeVisibleNodeRange(*cache_, nodes.size(), range_top, range_bottom);
         const auto s = VisibleSlice(indices, vr.first, vr.last_plus_1);
         const size_t slice_start = static_cast<size_t>(s.begin - indices.begin());
         slice_end = static_cast<size_t>(s.end - indices.begin());
@@ -357,16 +339,14 @@ void ResourceManager::EvictOffscreenBitmaps()
 
     const size_t node_count = doc_->GetNodes().size();
 
-    const int first_keep = FindFirstVisibleNodeIndex(*cache_, node_count, evict_top);
-    int last_keep = first_keep;
-    for (int i = first_keep; i < static_cast<int>(node_count); i++) {
-        if ((*cache_)[i].y_position > evict_bottom) {
-            break;
-        }
-        last_keep = i + 1;
-    }
+    const auto vr = ComputeVisibleNodeRange(*cache_, node_count, evict_top, evict_bottom);
+    const int first_keep = static_cast<int>(vr.first);
+    const int last_keep = static_cast<int>(vr.last_plus_1);
 
     cache_->EvictTextLayouts(static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
+
+    // 可視範囲をまたぐ巨大テーブルでは、ノード単位 evict では拾えない不可視行のセルを別途解放する。
+    cache_->EvictInvisibleTableRows(viewport_top, viewport_top + viewport_height, buffer);
 
     // image/diagram bitmap の evict も可視範囲外（[0, first_keep) と
     // [last_keep, node_count)）だけを走査する。IndexSlice で配列の該当部分を

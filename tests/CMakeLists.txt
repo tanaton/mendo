@@ -65,6 +65,11 @@ add_executable(mendo_tests
     test_html_entity.cpp
     test_small_vector.cpp
     test_pmr_unique_ptr.cpp
+    test_fenwick.cpp
+    test_dirty_scheduler.cpp
+    test_parallel_measure.cpp
+    test_parallel_measure_stress.cpp
+    test_view_stats.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE
