@@ -5,7 +5,6 @@
 #include "memory_resource.h"
 #include "profiler.h"
 #include "string_convert.h"
-#include "utf_offset_map.h"
 #include "utility.h"
 #include "md4c.h"
 #include <cstring>
@@ -28,7 +27,6 @@ namespace {
 constexpr size_t SCRATCH_RESERVE_MIN = 1024;
 constexpr size_t SCRATCH_RESERVE_MAX = 64 * 1024;
 
-
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
     MonotonicResource parse_resource{ 128 * 1024 };
@@ -36,29 +34,16 @@ struct ParseContext {
     // upstream を monotonic にして pool 自身の解放は ParseContext 破棄時の一括解放に任せる。
     std::pmr::unsynchronized_pool_resource pool{ parse_resource.resource() };
 
-    // md4c は UTF-8 ビルドで動作する。utf8_source は呼び出し側が確保した UTF-8 buffer
-    // への view (string_view)。ParseMarkdown(wstring_view, string_view) が直接渡された
-    // utf8 をそのまま指すことで、wide → utf8 の冗長な変換 (BuildUtf8FromWide) を回避できる。
-    // 一引数版の ParseMarkdown(wstring_view) は内部で utf8 を確保してから本クラスに渡す。
-    //
-    // UTF-8 byte index → UTF-16 code unit index の変換は事前 map (N*4 byte の配列、
-    // 167KB 入力で 600KB) を保持する代わりに、累積カウンタ (utf8_walked / wide_walked)
-    // を使って amortized O(1) で前進走査する。md4c は OnText を block 内で前進 order で
-    // 呼ぶため、後戻りはほぼ起きない (起きた場合は AdvanceWideWalker で 0 から再走査)。
+    // md4c (UTF-8 ビルド) に渡した入力 buffer の view。OnText の text ポインタを
+    // utf8_source 起点の offset として解釈し、AdvanceWideWalker で UTF-16 範囲に変換する。
+    // 累積カウンタ方式 (utf8_walked / wide_walked) で事前 offset map を持たず amortized O(1)。
     std::string_view utf8_source;
     size_t utf8_walked = 0;
     size_t wide_walked = 0;
-    // OnText で受け取った UTF-8 chunk を UTF-16 化するためのスクラッチ (再利用)。
-    // 静的リテラル (BR/SOFTBR/NULLCHAR) 経路でのみ使用。
-    std::pmr::wstring text_chunk_buf{ &pool };
-    // Span の URL (href / img src) を UTF-16 化するためのスクラッチ (再利用)。
-    std::pmr::wstring url_buf{ &pool };
-    // CodeBlock の言語名 (lang) を UTF-16 化するためのスクラッチ (再利用)。
-    std::pmr::wstring lang_buf{ &pool };
+    // OnText / OnEnterBlock(CodeBlock) / OnEnterSpan(A,IMG) で UTF-8 chunk を UTF-16 化する
+    // 短命スクラッチ (各コールバック内で確保→消費完結、活動期間が重ならず 1 本で足る)。
+    std::pmr::wstring attr_buf{ &pool };
 
-    // utf8_walked / wide_walked を target_utf8 まで前進させる。後戻り時は 0 から再走査。
-    // UTF-8 sequence の lead byte を見て 1/2/3/4 byte → 1/1/1/2 wide unit を進める。
-    // ASCII (b < 0x80) は連続範囲をループで一気に消費し、ループ overhead を削減する。
     void AdvanceWideWalker(size_t target_utf8) noexcept
     {
         if (target_utf8 < utf8_walked) [[unlikely]] {
@@ -87,9 +72,8 @@ struct ParseContext {
                 ++wide_walked;
             }
             else {
-                // 4 byte UTF-8 → surrogate pair (2 wide unit)
                 utf8_walked += 4;
-                wide_walked += 2;
+                wide_walked += 2;  // surrogate pair
             }
         }
     }
@@ -409,8 +393,8 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
             const std::string_view utf8_lang{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) };
-            string_convert::Utf8ToWide(utf8_lang, ctx->lang_buf);
-            ctx->current_node->code_language = DetectLanguage(ctx->lang_buf);
+            string_convert::Utf8ToWide(utf8_lang, ctx->attr_buf);
+            ctx->current_node->code_language = DetectLanguage(ctx->attr_buf);
         }
         break;
     }
@@ -695,8 +679,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
         const std::string_view utf8_href{ a->href.text, static_cast<size_t>(a->href.size) };
-        string_convert::Utf8ToWide(utf8_href, ctx->url_buf);
-        ctx->ResolveLinkUrlIndex(ctx->url_buf);
+        string_convert::Utf8ToWide(utf8_href, ctx->attr_buf);
+        ctx->ResolveLinkUrlIndex(ctx->attr_buf);
         ctx->paragraph_has_other_content = true;
         break;
     }
@@ -803,12 +787,31 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         return 0;
     }
 
-    // text が utf8_source の範囲内を指すかを 1 回の符号なし減算で判定する。
-    // 符号なし算術なので text_addr < base_addr の場合は巨大値になり in_source=false に倒れる。
-    // 範囲内 (NORMAL / CODE / LATEXMATH / ENTITY) では AdvanceWideWalker で UTF-16 範囲を
-    // 取得し、raw_wide_ への view として chunk を構築する (zero-copy、MultiByteToWideChar 不要)。
-    // 範囲外 (BR / SOFTBR / NULLCHAR / HTML 改行などの md4c 静的リテラル) では Utf8ToWide で
-    // text_chunk_buf に UTF-16 化する経路に倒す (頻度は低く、典型的に size==1 の ASCII)。
+    // chunk を消費しない type は早期分岐し、in_source 判定 / walker / 変換コストを払わない。
+    // BR/SOFTBR は段落改行ごとに飛んでくるため累積回数が多い (~段落数オーダー)。
+    switch (type) {
+    case MD_TEXT_NULLCHAR:
+    case MD_TEXT_HTML:
+        return 0;
+    case MD_TEXT_BR:
+        if (!ctx->in_display_math) {
+            ctx->paragraph_has_other_content = true;
+        }
+        ctx->AppendWide(L"\n");
+        return 0;
+    case MD_TEXT_SOFTBR:
+        if (!ctx->in_display_math) {
+            ctx->paragraph_has_other_content = true;
+        }
+        ctx->AppendWide(L" ");
+        return 0;
+    default:
+        break;  // NORMAL / CODE / LATEXMATH / ENTITY: 以下で chunk を構築
+    }
+
+    // text が utf8_source の範囲内を指すかを符号なし減算で判定 (範囲外なら巨大値で false 確定)。
+    // 範囲内なら raw_wide_ への view として chunk を zero-copy 構築。範囲外 (md4c 静的リテラル
+    // の稀な NORMAL/ENTITY 等) は attr_buf に Utf8ToWide で展開する。
     const auto text_addr = reinterpret_cast<uintptr_t>(text);
     const auto base_addr = reinterpret_cast<uintptr_t>(ctx->utf8_source.data());
     const size_t utf8_offset_raw = static_cast<size_t>(text_addr - base_addr);
@@ -823,17 +826,16 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         chunk = std::wstring_view{ ctx->markdown_base + wide_start, wide_end - wide_start };
 
         // 各ノードの最初のテキストコールバックで source_offset を UTF-16 単位で記録。
-        // 範囲外マッチ (静的リテラル) のときは flag を立てず後続の実体テキストで上書きできるようにする。
+        // 範囲外マッチ (静的リテラル) では flag を立てず後続の実体テキストで上書きできる。
         if (!ctx->node_source_offset_set) [[unlikely]] {
             ctx->current_node->source_offset = wide_start;
             ctx->node_source_offset_set = true;
         }
     }
     else {
-        // 静的リテラル経路: BR/SOFTBR/NULLCHAR/HTML 等。typically size==1 の ASCII。
         const std::string_view utf8_chunk{ text, static_cast<size_t>(size) };
-        string_convert::Utf8ToWide(utf8_chunk, ctx->text_chunk_buf);
-        chunk = std::wstring_view{ ctx->text_chunk_buf };
+        string_convert::Utf8ToWide(utf8_chunk, ctx->attr_buf);
+        chunk = std::wstring_view{ ctx->attr_buf };
     }
 
     switch (type) {
@@ -875,26 +877,8 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         break;
     }
 
-    case MD_TEXT_BR:
-        if (!ctx->in_display_math) {
-            ctx->paragraph_has_other_content = true;
-        }
-        ctx->AppendWide(L"\n");
-        break;
-
-    case MD_TEXT_SOFTBR:
-        if (!ctx->in_display_math) {
-            ctx->paragraph_has_other_content = true;
-        }
-        ctx->AppendWide(L" ");
-        break;
-
-    case MD_TEXT_NULLCHAR:
-    case MD_TEXT_HTML:
-        break;
-
     default:
-        std::unreachable();
+        std::unreachable();  // chunk 不要 type は冒頭の switch で return 済み
     }
 
     return 0;
@@ -907,7 +891,7 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
     // 呼び出し側が utf8 を持たない経路 (テストや ReplaceContent 等) のための fallback。
     // wide → utf8 を 1 パスで構築してから 2 引数版に委譲する。
     std::pmr::string utf8;
-    mendo::utf::BuildUtf8FromWide(markdown_text, utf8);
+    string_convert::WideToUtf8(markdown_text, utf8);
     return ParseMarkdown(markdown_text, utf8);
 }
 

@@ -19,8 +19,7 @@ struct ParseResult {
 // md4c (UTF-8 ビルド) に渡す。view 化判定や source_offset は引き続き UTF-16 単位。
 ParseResult ParseMarkdown(std::wstring_view markdown_text);
 
-// utf8 と wide の両方を呼び出し側が既に持っている場合の高速パス (BuildUtf8FromWide を
-// スキップ)。Document::FromMarkdown(utf8) のように元の utf8 を保持できる経路で利用する。
+// utf8 を呼び出し側が既に持っている場合の高速パス (内部 UTF-8 化を省略)。
 // 不変条件: markdown_utf8 は markdown_text を WideCharToMultiByte(CP_UTF8) で得たものと
 // バイト単位で一致すること (改行正規化後)。
 ParseResult ParseMarkdown(std::wstring_view markdown_text, std::string_view markdown_utf8);
