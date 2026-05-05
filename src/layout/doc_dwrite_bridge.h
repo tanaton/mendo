@@ -40,6 +40,14 @@ public:
     // doc_offset に還元する。範囲外時は doc 文字列長を返す (clamping)。
     doc_offset DocOffsetFromWideOffset(uint32_t wide_off) const noexcept;
 
+    // doc_offset 単位の [start, start+length) 範囲を IDWriteTextLayout 用 (UTF-16) に変換。
+    DWRITE_TEXT_RANGE WideRange(uint32_t doc_start, uint32_t doc_length) const noexcept
+    {
+        const uint32_t w_start = WideOffsetFromDocOffset(doc_start);
+        const uint32_t w_end = WideOffsetFromDocOffset(doc_start + doc_length);
+        return DWRITE_TEXT_RANGE{ w_start, w_end - w_start };
+    }
+
 private:
 #if MENDO_DOC_USE_UTF16
     std::wstring_view view_;

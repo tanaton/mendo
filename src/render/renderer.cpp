@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "doc_dwrite_bridge.h"
 #include "syntax.h"
 #include "ui_constants.h"
 #include "profiler.h"
@@ -210,10 +211,13 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
             if (!cell_layout) {
                 continue;
             }
+            // セルテキストごとに doc_offset → wide offset 変換器を構築。
+            // UTF-16 ビルドでは zero-copy + 恒等関数。
+            const mendo::WideViewForDWrite wv{ tbl->GetCellText(r, c) };
             for (const auto& run : tbl->GetCellRuns(r, c)) {
                 // リンク色: 初回パスで全行に適用（軽量・冪等）
                 if (first_pass && run.has_link()) {
-                    const DWRITE_TEXT_RANGE range{ run.start, run.length };
+                    const auto range = wv.WideRange(run.start, run.length);
                     cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                     MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
                 }
@@ -224,7 +228,8 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
                 // 完全 append (O(1)/elem) で済む。
                 if (need_bgs && run.code() && run.length > 0) {
                     MENDO_COUNT_INC(g_effect_stats.hittest_range);
-                    const UINT32 count = FetchHitTestMetrics(cell_layout, run.start, run.length, hit_test_buffer_);
+                    const auto wr = wv.WideRange(run.start, run.length);
+                    const UINT32 count = FetchHitTestMetrics(cell_layout, wr.startPosition, wr.length, hit_test_buffer_);
                     MENDO_COUNT_ADD(g_effect_stats.inline_code_bg_added, count);
                     const auto cell_index = static_cast<uint32_t>(tl.CellIndex(r, c));
                     auto& bgs = tl.cell_inline_code_bgs;
@@ -281,6 +286,11 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
         return;
     }
 
+    // run / token / alert_label の offset/length は doc_char 単位 (UTF-16 では code unit、
+    // UTF-8 では byte) なので、IDWriteTextLayout が要求する UTF-16 textPosition に変換する。
+    // UTF-16 ビルドでは WideViewForDWrite は zero-copy + 恒等関数。
+    const mendo::WideViewForDWrite wv{ node.GetText() };
+
     // 同じ type の隣接トークンをマージして SetDrawingEffect の呼び出し回数を減らす
     // (内部で range tree を再構築するため)。
     if (node.type == NodeType::CodeBlock) {
@@ -290,7 +300,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
         const auto flush = [&]() {
             if (pending_type != SyntaxTokenType::Plain && pending_end > pending_start) {
                 if (auto* brush = GetSyntaxBrush(pending_type)) {
-                    const DWRITE_TEXT_RANGE range{ pending_start, pending_end - pending_start };
+                    const auto range = wv.WideRange(pending_start, pending_end - pending_start);
                     entry.text_layout->SetDrawingEffect(brush, range);
                     MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
                 }
@@ -326,7 +336,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
         static_assert(std::size(ALERT_BRUSH) == ALERT_TYPE_COUNT);
         const auto idx = AlertColorIndex(node.alert_type);
         if (idx < ALERT_TYPE_COUNT) {
-            const DWRITE_TEXT_RANGE range{ 0, node.alert_label_length };
+            const auto range = wv.WideRange(0, node.alert_label_length);
             entry.text_layout->SetDrawingEffect(Brush(ALERT_BRUSH[idx]), range);
             MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
         }
@@ -334,14 +344,15 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
 
     for (const auto& run : node.runs) {
         if (run.has_link()) {
-            const DWRITE_TEXT_RANGE range{ run.start, run.length };
+            const auto range = wv.WideRange(run.start, run.length);
             entry.text_layout->SetUnderline(TRUE, range);
             entry.text_layout->SetDrawingEffect(Brush(BrushId::Link), range);
             MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
         }
         if (run.code() && node.type != NodeType::CodeBlock && run.length > 0) {
             MENDO_COUNT_INC(g_effect_stats.hittest_range);
-            const UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), run.start, run.length, hit_test_buffer_);
+            const auto wr = wv.WideRange(run.start, run.length);
+            const UINT32 count = FetchHitTestMetrics(entry.text_layout.Get(), wr.startPosition, wr.length, hit_test_buffer_);
             if (count > 0) {
                 auto& bgs = entry.ensure_inline_code_bgs();
                 MENDO_COUNT_ADD(g_effect_stats.inline_code_bg_added, count);

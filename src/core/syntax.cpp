@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <span>
+#include <type_traits>
 #include <utility>
 
 using namespace std::literals;
@@ -33,10 +34,13 @@ namespace {
 using ascii_util::IsAsciiDigit;
 
 // 識別子先頭文字: ASCII 英字 + '_' に加え、CJK 等の非 ASCII (>= U+0080) も許可する。
+// UTF-8 ビルドでは doc_char=char が signed のため、c >= 0x80 を素直に書くと
+// 0x80 以降の byte (UTF-8 multi-byte の leading/continuation) が負値で false 判定され、
+// non-ASCII が一切識別子と認識されなくなる。unsigned 比較を明示する。
 // ascii_util の純粋 ASCII ヘルパに乗らないので syntax 固有として残す。
 constexpr bool IsIdentStart(mendo::doc_char c) noexcept
 {
-    return (c >= MENDO_LIT('a') && c <= MENDO_LIT('z')) || (c >= MENDO_LIT('A') && c <= MENDO_LIT('Z')) || c == MENDO_LIT('_') || c >= 0x80;
+    return (c >= MENDO_LIT('a') && c <= MENDO_LIT('z')) || (c >= MENDO_LIT('A') && c <= MENDO_LIT('Z')) || c == MENDO_LIT('_') || static_cast<std::make_unsigned_t<mendo::doc_char>>(c) >= 0x80;
 }
 
 constexpr bool IsIdentChar(mendo::doc_char c) noexcept

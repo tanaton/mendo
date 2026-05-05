@@ -2,8 +2,6 @@
 
 #if !MENDO_DOC_USE_UTF16
 #  include "memory_resource.h"
-#  include <windows.h>
-#  include <stringapiset.h>
 #  include <limits>
 
 namespace mendo {
@@ -20,43 +18,84 @@ WideViewForDWrite::WideViewForDWrite(doc_string_view text)
         view_ = {};
         return;
     }
-    // UTF-16 code unit 数 <= UTF-8 byte 数 が常に成立するので 1 回確保で済む。
-    scratch_.resize_and_overwrite(text.size(), [&](wchar_t* buf, size_t cap) -> size_t {
-        const int n = MultiByteToWideChar(CP_UTF8, 0, text.data(),
-                                          static_cast<int>(text.size()),
-                                          buf, static_cast<int>(cap));
-        return n > 0 ? static_cast<size_t>(n) : 0;
-    });
+    // UTF-8 → UTF-16 変換を自前で行い、同時に byte index → wide unit offset の対応表を埋める。
+    // utf16_offsets_[i] (i = 0..utf8_size) = doc byte i 直前までの累積 wide unit 数。
+    // - leading byte 位置: その文字を出力する直前の wide_pos
+    // - continuation byte 位置: 同じ wide_pos (sequence 中はマップ値据え置き)
+    // - 末尾 (= utf8_size): 全 wide unit 数 (番兵)
+    // これにより `[byte_a, byte_b)` の範囲は wide で `[map[a], map[b])` に変換できる。
+    //
+    // MultiByteToWideChar より自前 decode が遅いが、MeasureNode の per-node コストとしては許容範囲
+    // (100MB スケールで raw_wide_ 並存 -100MB に対して微小)。MultiByteToWideChar で先に wide を
+    // 作って 2-pass にする選択肢もあるが、整合性 (decode ルールが OS 依存) を避けて 1-pass で統一。
+    scratch_.reserve(text.size());          // UTF-16 code unit 数 <= UTF-8 byte 数
+    utf16_offsets_.resize(text.size() + 1); // 番兵込み
+
+    const auto* const begin = reinterpret_cast<const unsigned char*>(text.data());
+    const auto* const end = begin + text.size();
+    auto* it = begin;
+    uint32_t wide_pos = 0;
+    while (it != end) {
+        const size_t byte_pos = static_cast<size_t>(it - begin);
+        utf16_offsets_[byte_pos] = wide_pos;
+        const unsigned char b0 = *it;
+        if (b0 < 0x80) {
+            scratch_.push_back(static_cast<wchar_t>(b0));
+            ++wide_pos;
+            ++it;
+        }
+        else if ((b0 & 0xE0) == 0xC0 && it + 1 < end) {
+            const uint32_t cp = ((b0 & 0x1Fu) << 6) | (it[1] & 0x3Fu);
+            scratch_.push_back(static_cast<wchar_t>(cp));
+            utf16_offsets_[byte_pos + 1] = wide_pos;
+            ++wide_pos;
+            it += 2;
+        }
+        else if ((b0 & 0xF0) == 0xE0 && it + 2 < end) {
+            const uint32_t cp = ((b0 & 0x0Fu) << 12) | ((it[1] & 0x3Fu) << 6) | (it[2] & 0x3Fu);
+            scratch_.push_back(static_cast<wchar_t>(cp));
+            utf16_offsets_[byte_pos + 1] = wide_pos;
+            utf16_offsets_[byte_pos + 2] = wide_pos;
+            ++wide_pos;
+            it += 3;
+        }
+        else if ((b0 & 0xF8) == 0xF0 && it + 3 < end) {
+            const uint32_t cp = ((b0 & 0x07u) << 18) | ((it[1] & 0x3Fu) << 12) | ((it[2] & 0x3Fu) << 6) | (it[3] & 0x3Fu);
+            // 補助面: UTF-16 サロゲートペア (2 wide units)
+            const uint32_t adj = cp - 0x10000u;
+            scratch_.push_back(static_cast<wchar_t>(0xD800u + (adj >> 10)));
+            scratch_.push_back(static_cast<wchar_t>(0xDC00u + (adj & 0x3FFu)));
+            utf16_offsets_[byte_pos + 1] = wide_pos;
+            utf16_offsets_[byte_pos + 2] = wide_pos;
+            utf16_offsets_[byte_pos + 3] = wide_pos;
+            wide_pos += 2;
+            it += 4;
+        }
+        else {
+            // 不正先頭バイト or truncated。プレースホルダ U+FFFD 1 wide unit。
+            scratch_.push_back(L'\xFFFD');
+            ++wide_pos;
+            ++it;
+        }
+    }
+    utf16_offsets_[text.size()] = wide_pos;
+    offsets_built_ = true;
     view_ = scratch_;
 }
 
 void WideViewForDWrite::EnsureOffsetMap() const noexcept
 {
-    if (offsets_built_) {
-        return;
-    }
-    offsets_built_ = true;
-    // ここに到達するのは UTF-8 ビルドで HitTest/Search 等が offset 変換を要求した場合のみ。
-    // Measure ホットパスでは呼ばれない。
-    // utf16_offsets_[i] (i = 0..utf8_size) = doc byte i に対応する wide code unit offset。
-    auto& self = const_cast<WideViewForDWrite&>(*this);
-    // scratch_ は構築時に確定しているが、offset map の元になる UTF-8 source は scratch_ には保持していない。
-    // C2 段階では offset 変換は使われないので、ここでは恒等動作 (build at first request) のみ用意する。
-    // 実装は C4 で詳細化する。
-    self.utf16_offsets_.assign(view_.size() + 1, 0);
-    for (size_t i = 0; i <= view_.size(); ++i) {
-        self.utf16_offsets_[i] = static_cast<uint32_t>(i);
-    }
+    // コンストラクタで埋め切るので no-op。`offsets_built_` フラグは互換のため残す。
 }
 
 uint32_t WideViewForDWrite::WideOffsetFromDocOffset(doc_offset doc_off) const noexcept
 {
-    EnsureOffsetMap();
-    const uint32_t n = static_cast<uint32_t>(utf16_offsets_.size() - 1);
-    if (doc_off >= utf16_offsets_.size()) {
-        return utf16_offsets_.empty() ? 0 : utf16_offsets_.back();
+    if (utf16_offsets_.empty()) {
+        return 0;
     }
-    (void)n;
+    if (doc_off >= utf16_offsets_.size()) {
+        return utf16_offsets_.back();
+    }
     return utf16_offsets_[doc_off];
 }
 
