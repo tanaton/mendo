@@ -182,22 +182,21 @@ bool App::Init(HWND hwnd)
 
     // small file は preload が App::Init より先に完了している場合が多い。直後の
     // ShowWindow/UpdateWindow が同期 WM_PAINT を発行するため、ここで結果を取り込んで
-    // おかないと初回フレームが空ウィンドウになってしまう。完了済みなら同期適用、
-    // 未完了なら従来通り OnInitComplete で hwnd を worker に通知して PostMessage 経路へ。
-    if (file_load_service_.HasPreload()) {
-        if (file_load_service_.IsPreloadDone()) {
-            file_load_service_.JoinPreload();
-            OnParseComplete();
+    // おかないと初回フレームが空ウィンドウになってしまう。
+    using PreloadAttachResult = FileLoadService::PreloadAttachResult;
+    switch (file_load_service_.AttachOrApplyPreload(hwnd_, app_msg::PARSE_COMPLETE)) {
+    case PreloadAttachResult::AppliedSync:
+        OnParseComplete();
+        break;
+    case PreloadAttachResult::AttachedAsync:
+        if (DocumentService::NeedsLoadingAnimation(file_load_service_.GetLoadingPath())) {
+            file_load_service_.BeginLoadingAnimation();
+            EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
+            Invalidate();
         }
-        else {
-            const std::pmr::wstring preload_path{ file_load_service_.GetLoadingPath() };
-            if (DocumentService::NeedsLoadingAnimation(preload_path)) {
-                file_load_service_.StartLoading(preload_path);
-                EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
-                Invalidate();
-            }
-            file_load_service_.OnInitComplete(hwnd_, app_msg::PARSE_COMPLETE);
-        }
+        break;
+    case PreloadAttachResult::None:
+        break;
     }
 
     return true;

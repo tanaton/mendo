@@ -4,24 +4,34 @@
 #include "profiler.h"
 #include "ui_constants.h"
 
+void FileLoadService::PreloadContext::SignalAbort()
+{
+    {
+        const std::lock_guard lk(mtx);
+        aborted = true;
+    }
+    cv.notify_all();
+}
+
 FileLoadService::~FileLoadService()
 {
     // jthread は destructor で join するが、worker が cv.wait でブロック中だと
     // デッドロックするため、明示的に abort 通知してから抜ける。
     if (preload_ctx_) {
-        {
-            const std::lock_guard lk(preload_ctx_->mtx);
-            preload_ctx_->aborted = true;
-        }
-        preload_ctx_->cv.notify_all();
+        preload_ctx_->SignalAbort();
     }
 }
 
 void FileLoadService::StartLoading(std::pmr::wstring path)
 {
     loading_path_ = std::move(path);
-    loading_ = true;
+    BeginLoadingAnimation();
     async_in_flight_ = true;
+}
+
+void FileLoadService::BeginLoadingAnimation() noexcept
+{
+    loading_ = true;
     loading_angle_ = 0.0f;
 }
 
@@ -102,7 +112,7 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
 
         {
             const std::lock_guard lock(async_mutex_);
-            async_result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache) });
+            async_result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true });
         }
 
         PostMessage(hwnd, msg_id, 0, 0);
@@ -144,7 +154,7 @@ void FileLoadService::StartPreloadAsync(std::pmr::wstring path)
             LayoutCache cache;
             cache.Reset(load_result->GetNodes().size(), /* shrink = */ false);
             const std::lock_guard lock(async_mutex_);
-            async_result_.emplace(AsyncLoadResult{ std::move(*load_result), std::move(cache) });
+            async_result_.emplace(AsyncLoadResult{ std::move(*load_result), std::move(cache), /* heights_estimated = */ false });
         }
         else {
             const std::lock_guard lock(async_mutex_);
@@ -190,13 +200,22 @@ void FileLoadService::JoinPreload()
     if (!preload_ctx_) {
         return;
     }
-    {
-        const std::lock_guard lk(preload_ctx_->mtx);
-        preload_ctx_->aborted = true;
-    }
-    preload_ctx_->cv.notify_all();
+    preload_ctx_->SignalAbort();
     if (preload_thread_.joinable()) {
         preload_thread_.join();
     }
     preload_ctx_.reset();
+}
+
+FileLoadService::PreloadAttachResult FileLoadService::AttachOrApplyPreload(HWND hwnd, UINT msg_id)
+{
+    if (!preload_ctx_) {
+        return PreloadAttachResult::None;
+    }
+    if (IsPreloadDone()) {
+        JoinPreload();
+        return PreloadAttachResult::AppliedSync;
+    }
+    OnInitComplete(hwnd, msg_id);
+    return PreloadAttachResult::AttachedAsync;
 }

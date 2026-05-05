@@ -75,8 +75,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         // ウィンドウクラス登録 + CreateWindowExW + App::Init (D3D/D2D/DWrite) と並列に
         // I/O + Markdown パースを進める。worker は App::Init 末尾で hwnd を受け取り
         // PostMessage(PARSE_COMPLETE) を発行、メッセージループ内で OnParseComplete に合流する。
-        if (!preload_path.empty()) {
-            window.StartPreloadAsync(preload_path);
+        const bool has_preload = !preload_path.empty();
+        if (has_preload) {
+            window.StartPreloadAsync(std::move(preload_path));
         }
 
         {
@@ -90,7 +91,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         if (restore_scroll) {
             window.RestoreScrollPosition();
         }
-        if (preload_path.empty()) {
+        if (!has_preload) {
             wchar_t cwd[MAX_PATH];
             if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
                 window.ShowDirectory(cwd);

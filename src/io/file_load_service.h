@@ -15,21 +15,12 @@
 
 struct Theme;
 
-// ワーカースレッドでのパース結果（Document + 推定高さ済み LayoutCache）
+// ワーカースレッドでのパース結果。heights_estimated=false は preload (Theme 不在) から
+// 来たケースで、UI スレッド側で EstimateNodeHeights を補完する必要がある。
 struct AsyncLoadResult {
     Document doc;
     LayoutCache cache;
-};
-
-// preload 用の hwnd 通知コンテキスト。worker は cv.wait で hwnd セットを待ってから
-// PostMessage する。main 側の早期終了時は aborted=true + cv.notify でデッドロックを避ける。
-// hwnd != nullptr が「OnInitComplete 済み」を兼ねる。
-struct PreloadContext {
-    std::mutex mtx;
-    std::condition_variable cv;
-    HWND hwnd = nullptr;
-    UINT msg_id = 0;
-    bool aborted = false;
+    bool heights_estimated = true;
 };
 
 // ファイル読み込みのオーケストレーションとローディングアニメーション状態を管理。
@@ -58,6 +49,9 @@ public:
     }
 
     void StartLoading(std::pmr::wstring path);
+    // path が既にセット済みの状態でアニメーションだけ起動する。preload 経由で
+    // loading_path_ を二重代入したくないケース用。
+    void BeginLoadingAnimation() noexcept;
     void StopLoading() noexcept;
     void TickLoadingAnimation() noexcept;
 
@@ -84,23 +78,21 @@ public:
     // EstimateNodeHeights は Theme 依存なので skip し、heights_estimated=false で
     // OnParseComplete に流す。
     void StartPreloadAsync(std::pmr::wstring path);
-    // App::Init 完了後に hwnd を渡して PostMessage を解禁する。
-    // worker がまだパース中なら完了後に PostMessage、完了済みなら即 PostMessage。
-    void OnInitComplete(HWND hwnd, UINT msg_id);
-    bool HasPreload() const noexcept
-    {
-        return preload_ctx_ != nullptr;
-    }
-    // worker が I/O+パースを終えて async_result_/async_error_ に書き込み済みか判定。
-    // ShowWindow/UpdateWindow より前に true なら同期適用パスへ分岐できる (small file)。
-    bool IsPreloadDone();
-    // worker を abort 通知で停止させ join する。preload_ctx_ も解放するため
-    // HasPreload() は以降 false を返す。同期適用パスから呼ぶ。
-    void JoinPreload();
+
+    enum class PreloadAttachResult {
+        None,           // preload 未起動 → 呼び出し側は何もしない
+        AppliedSync,    // 同期取り込み完了 → 呼び出し側は OnParseComplete 相当を実行
+        AttachedAsync,  // worker に hwnd 通知済み → 呼び出し側は必要なら anim を起動
+    };
+
+    // App::Init 末尾で呼ぶ。preload の状態に応じて以下のいずれかを行う:
+    //   完了済み: JoinPreload (= AppliedSync)。呼び出し側で OnParseComplete を発火。
+    //   未完了:   worker に hwnd を渡して PostMessage を解禁 (= AttachedAsync)。
+    PreloadAttachResult AttachOrApplyPreload(HWND hwnd, UINT msg_id);
 
     // ---- パスアクセス ----
 
-    constexpr std::wstring_view GetLoadingPath() const noexcept
+    constexpr const std::pmr::wstring& GetLoadingPath() const noexcept
     {
         return loading_path_;
     }
@@ -110,6 +102,25 @@ public:
     }
 
 private:
+    // worker は cv.wait で hwnd セットを待ってから PostMessage する。
+    // main 側の早期終了時は aborted=true + cv.notify_all でデッドロックを避ける。
+    struct PreloadContext {
+        std::mutex mtx;
+        std::condition_variable cv;
+        HWND hwnd = nullptr;
+        UINT msg_id = 0;
+        bool aborted = false;
+
+        void SignalAbort();
+    };
+
+    // worker が I/O+パースを終えて async_result_/async_error_ に書き込み済みか判定。
+    bool IsPreloadDone();
+    // worker を abort 通知で停止させ join する。preload_ctx_ も解放する。
+    void JoinPreload();
+    // worker に hwnd を渡し PostMessage を解禁する。
+    void OnInitComplete(HWND hwnd, UINT msg_id);
+
     // 不変条件: loading_ が true なら async_in_flight_ も true。
     // worker thread は async_gen_ (atomic) と async_result_ (mutex 保護) のみ触る。
     DocumentService& doc_service_;

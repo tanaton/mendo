@@ -216,10 +216,11 @@ void App::OnParseComplete()
         state_.reload_diff_pos = std::wstring_view::npos;
     }
 
+    const bool heights_estimated = result->heights_estimated;
     state_.document.doc = std::move(result->doc);
     state_.document.layout_cache = std::move(result->cache);
 
-    FinishLoadMarkdownFile(/* heights_estimated = */ true);
+    FinishLoadMarkdownFile(heights_estimated);
 }
 
 void App::FinishLoadMarkdownFile(bool heights_estimated)
