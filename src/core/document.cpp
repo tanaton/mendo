@@ -105,6 +105,7 @@ Document::Document(Document&& other) noexcept
     : nodes_(std::move(other.nodes_))
     , file_path_(std::move(other.file_path_))
     , raw_wide_(std::move(other.raw_wide_))
+    , raw_utf8_(std::move(other.raw_utf8_))
     , loaded_byte_size_(other.loaded_byte_size_)
     , toc_(std::move(other.toc_))
     , anchor_index_(std::move(other.anchor_index_))
@@ -120,6 +121,7 @@ Document& Document::operator=(Document&& other) noexcept
         nodes_ = std::move(other.nodes_);
         file_path_ = std::move(other.file_path_);
         raw_wide_ = std::move(other.raw_wide_);
+        raw_utf8_ = std::move(other.raw_utf8_);
         loaded_byte_size_ = other.loaded_byte_size_;
         toc_ = std::move(other.toc_);
         anchor_index_ = std::move(other.anchor_index_);
@@ -136,8 +138,9 @@ Document Document::FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::w
     doc.file_path_ = path;
     doc.raw_wide_ = std::move(wide);
     NormalizeNewlines(doc.raw_wide_);
+    string_convert::WideToUtf8(doc.raw_wide_, doc.raw_utf8_);
     doc.loaded_byte_size_ = byte_size;
-    doc.ReplaceContent(ParseMarkdown(doc.raw_wide_));
+    doc.ReplaceContent(ParseMarkdown(doc.raw_wide_, doc.raw_utf8_));
     return doc;
 }
 
@@ -161,7 +164,7 @@ std::pmr::wstring Document::GetDirectory() const
 void Document::ReplaceContent(ParseResult&& result)
 {
     // 注意: view_base_ は parser が ParseMarkdown 呼び出し時の markdown_text.data() を既に注入済み。
-    // raw_wide_ を差し替える経路 (FromMarkdown / ReplaceFromMarkdown) では ParseMarkdown(raw_wide_)
+    // raw_wide_ を差し替える経路 (FromMarkdown / ReplaceFromMarkdown) では ParseMarkdown(raw_wide_, raw_utf8_)
     // を渡しているため view_base_ = raw_wide_.data() が一致し、ここでの再注入は不要。
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
@@ -186,8 +189,9 @@ void Document::ReplaceFromMarkdown(std::pmr::wstring wide, size_t byte_size)
 {
     raw_wide_ = std::move(wide);
     NormalizeNewlines(raw_wide_);
+    string_convert::WideToUtf8(raw_wide_, raw_utf8_);
     loaded_byte_size_ = byte_size;
-    ReplaceContent(ParseMarkdown(raw_wide_));
+    ReplaceContent(ParseMarkdown(raw_wide_, raw_utf8_));
 }
 
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)
@@ -197,18 +201,22 @@ void Document::ReplaceFromMarkdown(std::pmr::string utf8)
 
 // utf8 経路の前処理を集約する: byte 単位 CR 削除 → BOM 除去 → wide 化 → ParseMarkdown。
 // utf8 側で先に CR を削除しておくと wide 段階の NormalizeNewlines は不要 (Utf8ToWide は
-// byte 変換なので結果も CR 不在)。BOM 除去後の utf8_view を ParseMarkdown に直渡しすると
-// 内部での再 UTF-8 化 (WideCharToMultiByte) を回避できる。
+// byte 変換なので結果も CR 不在)。Phase C-1 以降は raw_utf8_ を Document が保持するため、
+// BOM を取り除いた utf8 を raw_utf8_ に move し、wide はそこから派生する。ParseMarkdown には
+// 同じ raw_utf8_ の view を渡すので内部の再 UTF-8 化は発生しない。
 void Document::AssignFromUtf8(std::pmr::string utf8)
 {
     const size_t byte_size = utf8.size();
     NormalizeNewlinesUtf8(utf8);
-    const std::string_view utf8_view = string_convert::StripUtf8Bom(utf8);
-    std::pmr::wstring wide;
-    string_convert::Utf8ToWide(utf8_view, wide);
-    raw_wide_ = std::move(wide);
+    // BOM 除去は utf8 自身を縮める (raw_utf8_ に BOM が残らないようにする)。
+    const std::string_view bom_stripped = string_convert::StripUtf8Bom(utf8);
+    if (bom_stripped.size() != utf8.size()) {
+        utf8.erase(0, utf8.size() - bom_stripped.size());
+    }
+    raw_utf8_ = std::move(utf8);
+    string_convert::Utf8ToWide(raw_utf8_, raw_wide_);
     loaded_byte_size_ = byte_size;
-    ReplaceContent(ParseMarkdown(raw_wide_, utf8_view));
+    ReplaceContent(ParseMarkdown(raw_wide_, raw_utf8_));
 }
 
 int Document::FindAnchorIndex(std::wstring_view anchor) const
