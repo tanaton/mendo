@@ -104,9 +104,10 @@ set(WIL_INCLUDE "${wil_SOURCE_DIR}/include")
 # ---- md4c（サードパーティ） ----
 add_library(md4c STATIC third_party/md4c/md4c.c)
 target_include_directories(md4c PUBLIC third_party/md4c)
-# UTF-16 入力モードを有効化（MD_CHAR=WCHAR）。
-# md4c.h を取り込む側（mendo_core 等）にも伝播させるため PUBLIC で定義。
-target_compile_definitions(md4c PUBLIC MD4C_USE_UTF16)
+# UTF-8 入力モードで動作（MD_CHAR=char）。
+# md4c は UTF-16 ビルドより 1.5-2x 高速 (ASCII で 1 byte ステップ)。
+# parser.cpp 側で UTF-16 入力を per-parse で UTF-8 化し、UTF-8 byte → UTF-16
+# code unit の offset map を保持して view 化判定 / source_offset を維持する。
 if(MSVC)
     target_compile_options(md4c PRIVATE /W0)
     set_target_properties(md4c PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

@@ -4,6 +4,8 @@
 #include "syntax.h"
 #include "memory_resource.h"
 #include "profiler.h"
+#include "string_convert.h"
+#include "utf_offset_map.h"
 #include "utility.h"
 #include "md4c.h"
 #include <cstring>
@@ -26,12 +28,71 @@ namespace {
 constexpr size_t SCRATCH_RESERVE_MIN = 1024;
 constexpr size_t SCRATCH_RESERVE_MAX = 64 * 1024;
 
+
 struct ParseContext {
     // パース用 monotonic リソース（一括確保→一括解放）
     MonotonicResource parse_resource{ 128 * 1024 };
     // append/clear が走るスクラッチや hash map 用の pool。単一スレッドなので unsynchronized。
     // upstream を monotonic にして pool 自身の解放は ParseContext 破棄時の一括解放に任せる。
     std::pmr::unsynchronized_pool_resource pool{ parse_resource.resource() };
+
+    // md4c は UTF-8 ビルドで動作する。utf8_source は呼び出し側が確保した UTF-8 buffer
+    // への view (string_view)。ParseMarkdown(wstring_view, string_view) が直接渡された
+    // utf8 をそのまま指すことで、wide → utf8 の冗長な変換 (BuildUtf8FromWide) を回避できる。
+    // 一引数版の ParseMarkdown(wstring_view) は内部で utf8 を確保してから本クラスに渡す。
+    //
+    // UTF-8 byte index → UTF-16 code unit index の変換は事前 map (N*4 byte の配列、
+    // 167KB 入力で 600KB) を保持する代わりに、累積カウンタ (utf8_walked / wide_walked)
+    // を使って amortized O(1) で前進走査する。md4c は OnText を block 内で前進 order で
+    // 呼ぶため、後戻りはほぼ起きない (起きた場合は AdvanceWideWalker で 0 から再走査)。
+    std::string_view utf8_source;
+    size_t utf8_walked = 0;
+    size_t wide_walked = 0;
+    // OnText で受け取った UTF-8 chunk を UTF-16 化するためのスクラッチ (再利用)。
+    // 静的リテラル (BR/SOFTBR/NULLCHAR) 経路でのみ使用。
+    std::pmr::wstring text_chunk_buf{ &pool };
+    // Span の URL (href / img src) を UTF-16 化するためのスクラッチ (再利用)。
+    std::pmr::wstring url_buf{ &pool };
+    // CodeBlock の言語名 (lang) を UTF-16 化するためのスクラッチ (再利用)。
+    std::pmr::wstring lang_buf{ &pool };
+
+    // utf8_walked / wide_walked を target_utf8 まで前進させる。後戻り時は 0 から再走査。
+    // UTF-8 sequence の lead byte を見て 1/2/3/4 byte → 1/1/1/2 wide unit を進める。
+    // ASCII (b < 0x80) は連続範囲をループで一気に消費し、ループ overhead を削減する。
+    void AdvanceWideWalker(size_t target_utf8) noexcept
+    {
+        if (target_utf8 < utf8_walked) [[unlikely]] {
+            utf8_walked = 0;
+            wide_walked = 0;
+        }
+        const char* const data = utf8_source.data();
+        while (utf8_walked < target_utf8) {
+            const unsigned char b = static_cast<unsigned char>(data[utf8_walked]);
+            if (b < 0x80) {
+                // ASCII fast path: 連続 ASCII を一気に消費 (1 byte = 1 wide unit)
+                const size_t start = utf8_walked;
+                ++utf8_walked;
+                while (utf8_walked < target_utf8
+                       && static_cast<unsigned char>(data[utf8_walked]) < 0x80) {
+                    ++utf8_walked;
+                }
+                wide_walked += (utf8_walked - start);
+            }
+            else if ((b & 0xE0) == 0xC0) {
+                utf8_walked += 2;
+                ++wide_walked;
+            }
+            else if ((b & 0xF0) == 0xE0) {
+                utf8_walked += 3;
+                ++wide_walked;
+            }
+            else {
+                // 4 byte UTF-8 → surrogate pair (2 wide unit)
+                utf8_walked += 4;
+                wide_walked += 2;
+            }
+        }
+    }
 
     std::pmr::vector<Node> nodes;
 
@@ -110,7 +171,7 @@ struct ParseContext {
     // current_text 全体を std::ranges::count で走査するコストを避ける。
     int32_t display_math_newlines = 0;
 
-    // md_parse() に渡した入力バッファ。source_offset 計算と OnText の text ポインタ範囲判定に使う。
+    // md_parse() に渡した入力バッファ (UTF-16, view 化判定用)。raw_wide_ への参照。
     const wchar_t* markdown_base = nullptr;
     size_t markdown_size = 0;
 
@@ -347,7 +408,9 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->BeginNode(NodeType::CodeBlock);
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            ctx->current_node->code_language = DetectLanguage(std::wstring_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
+            const std::string_view utf8_lang{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) };
+            string_convert::Utf8ToWide(utf8_lang, ctx->lang_buf);
+            ctx->current_node->code_language = DetectLanguage(ctx->lang_buf);
         }
         break;
     }
@@ -377,7 +440,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         auto* const li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
         if (li->is_task) {
             ctx->BeginNode(NodeType::TaskListItem);
-            ctx->current_node->task_checked = (li->task_mark == L'x' || li->task_mark == L'X');
+            ctx->current_node->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
         }
         else {
             ctx->BeginNode(NodeType::ListItem);
@@ -631,14 +694,17 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
-        ctx->ResolveLinkUrlIndex(std::wstring_view{ a->href.text, static_cast<size_t>(a->href.size) });
+        const std::string_view utf8_href{ a->href.text, static_cast<size_t>(a->href.size) };
+        string_convert::Utf8ToWide(utf8_href, ctx->url_buf);
+        ctx->ResolveLinkUrlIndex(ctx->url_buf);
         ctx->paragraph_has_other_content = true;
         break;
     }
     case MD_SPAN_IMG: {
         auto* const img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
         if (img->src.text && img->src.size > 0) {
-            ctx->pending_image_src.assign(img->src.text, static_cast<size_t>(img->src.size));
+            const std::string_view utf8_src{ img->src.text, static_cast<size_t>(img->src.size) };
+            string_convert::Utf8ToWide(utf8_src, ctx->pending_image_src);
         }
         ctx->paragraph_has_other_content = true;
         break;
@@ -737,23 +803,38 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         return 0;
     }
 
-    // 各ノードの最初のテキストコールバックでソースオフセットを記録（UTF-16 コード単位）。
-    // md4c は MD_TEXT_NULLCHAR / MD_TEXT_BR / MD_TEXT_SOFTBR や、CODE/LATEXMATH/HTML の改行・空白置換で
-    // _T(""), _T("\n"), _T(" ") といった内部静的リテラルを text として渡すことがある。
-    // 異なる array 同士のポインタ減算は UB なので、範囲判定もオフセット計算も uintptr_t の
-    // 整数演算で行う (std::less<T*> の total order はアドレスの数値順と一致する保証がない)。
-    // 範囲外マッチ (静的リテラル) のときは flag を立てず、後続の実体テキストで上書きできるようにする。
-    if (!ctx->node_source_offset_set) [[unlikely]] {
-        const auto text_addr = reinterpret_cast<uintptr_t>(text);
-        const auto base_addr = reinterpret_cast<uintptr_t>(ctx->markdown_base);
-        const auto end_addr = base_addr + ctx->markdown_size * sizeof(wchar_t);
-        if (text_addr >= base_addr && text_addr < end_addr) {
-            ctx->current_node->source_offset = static_cast<uint32_t>((text_addr - base_addr) / sizeof(wchar_t));
+    // text が utf8_source の範囲内を指すかを 1 回の符号なし減算で判定する。
+    // 符号なし算術なので text_addr < base_addr の場合は巨大値になり in_source=false に倒れる。
+    // 範囲内 (NORMAL / CODE / LATEXMATH / ENTITY) では AdvanceWideWalker で UTF-16 範囲を
+    // 取得し、raw_wide_ への view として chunk を構築する (zero-copy、MultiByteToWideChar 不要)。
+    // 範囲外 (BR / SOFTBR / NULLCHAR / HTML 改行などの md4c 静的リテラル) では Utf8ToWide で
+    // text_chunk_buf に UTF-16 化する経路に倒す (頻度は低く、典型的に size==1 の ASCII)。
+    const auto text_addr = reinterpret_cast<uintptr_t>(text);
+    const auto base_addr = reinterpret_cast<uintptr_t>(ctx->utf8_source.data());
+    const size_t utf8_offset_raw = static_cast<size_t>(text_addr - base_addr);
+    const bool in_source = utf8_offset_raw < ctx->utf8_source.size();
+
+    std::wstring_view chunk;
+    if (in_source) {
+        ctx->AdvanceWideWalker(utf8_offset_raw);
+        const uint32_t wide_start = static_cast<uint32_t>(ctx->wide_walked);
+        ctx->AdvanceWideWalker(utf8_offset_raw + size);
+        const uint32_t wide_end = static_cast<uint32_t>(ctx->wide_walked);
+        chunk = std::wstring_view{ ctx->markdown_base + wide_start, wide_end - wide_start };
+
+        // 各ノードの最初のテキストコールバックで source_offset を UTF-16 単位で記録。
+        // 範囲外マッチ (静的リテラル) のときは flag を立てず後続の実体テキストで上書きできるようにする。
+        if (!ctx->node_source_offset_set) [[unlikely]] {
+            ctx->current_node->source_offset = wide_start;
             ctx->node_source_offset_set = true;
         }
     }
-
-    const std::wstring_view chunk{ text, static_cast<size_t>(size) };
+    else {
+        // 静的リテラル経路: BR/SOFTBR/NULLCHAR/HTML 等。typically size==1 の ASCII。
+        const std::string_view utf8_chunk{ text, static_cast<size_t>(size) };
+        string_convert::Utf8ToWide(utf8_chunk, ctx->text_chunk_buf);
+        chunk = std::wstring_view{ ctx->text_chunk_buf };
+    }
 
     switch (type) {
     case MD_TEXT_NORMAL:
@@ -823,10 +904,21 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
 ParseResult ParseMarkdown(std::wstring_view markdown_text)
 {
+    // 呼び出し側が utf8 を持たない経路 (テストや ReplaceContent 等) のための fallback。
+    // wide → utf8 を 1 パスで構築してから 2 引数版に委譲する。
+    std::pmr::string utf8;
+    mendo::utf::BuildUtf8FromWide(markdown_text, utf8);
+    return ParseMarkdown(markdown_text, utf8);
+}
+
+ParseResult ParseMarkdown(std::wstring_view markdown_text, std::string_view markdown_utf8)
+{
     MENDO_PROFILE("ParseMarkdown");
     ParseContext ctx;
     ctx.markdown_base = markdown_text.data();
     ctx.markdown_size = markdown_text.size();
+    // utf8 buffer を view として保持 (呼び出し側が lifetime を保証する契約)。
+    ctx.utf8_source = markdown_utf8;
     // ノード単位のスクラッチを 1 回確保し、長段落・コードブロックでの再確保を抑える。
     ctx.current_text.reserve(std::clamp(markdown_text.size() / 8, SCRATCH_RESERVE_MIN, SCRATCH_RESERVE_MAX));
     ctx.nodes.reserve(std::clamp(markdown_text.size() / 48, size_t{ 64 }, size_t{ 16384 }));
@@ -850,7 +942,7 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
 
     {
         MENDO_PROFILE("md_parse");
-        md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
+        md_parse(markdown_utf8.data(), static_cast<MD_SIZE>(markdown_utf8.size()), &parser, &ctx);
         // 最後の current_node が残っていれば（典型的には全 OnLeaveBlock で処理済みだが
         // 安全のため）テキストを確定する。
         ctx.FinalizeCurrentNode();

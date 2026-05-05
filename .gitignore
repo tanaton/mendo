@@ -6,6 +6,9 @@
 # Build-generated gzip of mermaid.min.js
 third_party/mermaid/*.gz
 
+# Performance review notes (作業メモ、コミット対象外)
+PERFORMANCE_REVIEW.md
+
 # User-specific files
 *.rsuser
 *.suo

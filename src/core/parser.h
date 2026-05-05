@@ -15,8 +15,15 @@ struct ParseResult {
     std::pmr::vector<size_t> diagram_indices;
 };
 
-// 本物の Markdown パーサ。md4c を MD4C_USE_UTF16 モードで起動するため入力は wide。
+// 本物の Markdown パーサ。入力は UTF-16 wide。内部で per-parse 1 回だけ UTF-8 化し
+// md4c (UTF-8 ビルド) に渡す。view 化判定や source_offset は引き続き UTF-16 単位。
 ParseResult ParseMarkdown(std::wstring_view markdown_text);
+
+// utf8 と wide の両方を呼び出し側が既に持っている場合の高速パス (BuildUtf8FromWide を
+// スキップ)。Document::FromMarkdown(utf8) のように元の utf8 を保持できる経路で利用する。
+// 不変条件: markdown_utf8 は markdown_text を WideCharToMultiByte(CP_UTF8) で得たものと
+// バイト単位で一致すること (改行正規化後)。
+ParseResult ParseMarkdown(std::wstring_view markdown_text, std::string_view markdown_utf8);
 
 // BlockQuoteノードからGitHub Alertsを検出し、マーカー除去・ラベル挿入・グルーピングを行う（テスト用に公開）。
 // blockquote_indices は ParseMarkdown が収集した BlockQuote ノードのインデックス。

@@ -56,6 +56,49 @@ void NormalizeNewlines(std::pmr::wstring& s)
     MENDO_STATF("NormalizeNewlines: in=%zu out=%zu shrunk=%zu", n, s.size(), n - s.size());
 }
 
+// CRLF / 旧式 CR を LF に正規化する (UTF-8 byte 版、in-place)。
+// CR=0x0D / LF=0x0A は ASCII 範囲で、UTF-8 multi-byte sequence の continuation
+// byte (0x80-0xBF) と衝突しないため、byte 単位で safe。byte 版は wmemchr/memmove
+// より要素サイズが半分 (1 byte) で SIMD 効率が良い。
+void NormalizeNewlinesUtf8(std::pmr::string& s)
+{
+    MENDO_PROFILE("NormalizeNewlinesUtf8");
+    const size_t n = s.size();
+    if (n == 0) {
+        return;
+    }
+
+    char* const data = s.data();
+    char* const end = data + n;
+
+    char* first_cr = static_cast<char*>(std::memchr(data, '\r', n));
+    if (!first_cr) {
+        MENDO_STATF("NormalizeNewlinesUtf8: in=%zu out=%zu shrunk=0 (fast LF-only)", n, n);
+        return;
+    }
+
+    char* dst = first_cr;
+    char* src = first_cr;
+    do {
+        *dst++ = '\n';
+        ++src;
+        if (src < end && *src == '\n') {
+            ++src; // CRLF を LF 1 つに縮約
+        }
+
+        char* next_cr = static_cast<char*>(std::memchr(src, '\r', static_cast<size_t>(end - src)));
+        const size_t chunk = next_cr ? static_cast<size_t>(next_cr - src) : static_cast<size_t>(end - src);
+        if (chunk > 0) {
+            std::memmove(dst, src, chunk);
+            src += chunk;
+            dst += chunk;
+        }
+    } while (src < end);
+
+    s.resize(static_cast<size_t>(dst - data));
+    MENDO_STATF("NormalizeNewlinesUtf8: in=%zu out=%zu shrunk=%zu", n, s.size(), n - s.size());
+}
+
 } // namespace
 
 Document::Document(Document&& other) noexcept
@@ -101,9 +144,27 @@ Document Document::FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::w
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
     const size_t byte_size = utf8.size();
+    // UTF-8 byte 単位で先に CR 削除する。byte 単位は wide より SIMD 効率が良く、
+    // wide 化後の NormalizeNewlines は CR 不在で fast path に倒れる。
+    NormalizeNewlinesUtf8(utf8);
+    // BOM を utf8 側で除去してから wide 化する。これで utf8 と wide が完全一致し、
+    // 元の utf8 を ParseMarkdown に直接渡して BuildUtf8FromWide スキップを実現できる。
+    constexpr std::string_view kUtf8Bom = "\xEF\xBB\xBF";
+    std::string_view utf8_view{ utf8 };
+    if (utf8_view.starts_with(kUtf8Bom)) {
+        utf8_view.remove_prefix(kUtf8Bom.size());
+    }
     std::pmr::wstring wide;
-    string_convert::Utf8ToWideStripBom(utf8, wide);
-    return FromMarkdown(std::move(wide), byte_size, path);
+    string_convert::Utf8ToWide(utf8_view, wide);
+    Document doc;
+    doc.file_path_ = path;
+    doc.raw_wide_ = std::move(wide);
+    NormalizeNewlines(doc.raw_wide_);  // CRLF は utf8 側で正規化済みなので fast path
+    doc.loaded_byte_size_ = byte_size;
+    // utf8_view (BOM 除去済み + CR 正規化済み) を直接 ParseMarkdown に渡して、
+    // 内部での再 utf8 化 (BuildUtf8FromWide / WideCharToMultiByte) を回避する。
+    doc.ReplaceContent(ParseMarkdown(doc.raw_wide_, utf8_view));
+    return doc;
 }
 
 std::pmr::wstring Document::GetDirectory() const
@@ -150,9 +211,20 @@ void Document::ReplaceFromMarkdown(std::pmr::wstring wide, size_t byte_size)
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)
 {
     const size_t byte_size = utf8.size();
+    NormalizeNewlinesUtf8(utf8);
+    constexpr std::string_view kUtf8Bom = "\xEF\xBB\xBF";
+    std::string_view utf8_view{ utf8 };
+    if (utf8_view.starts_with(kUtf8Bom)) {
+        utf8_view.remove_prefix(kUtf8Bom.size());
+    }
     std::pmr::wstring wide;
-    string_convert::Utf8ToWideStripBom(utf8, wide);
-    ReplaceFromMarkdown(std::move(wide), byte_size);
+    string_convert::Utf8ToWide(utf8_view, wide);
+    raw_wide_ = std::move(wide);
+    NormalizeNewlines(raw_wide_);  // CRLF は utf8 側で正規化済みなので fast path
+    loaded_byte_size_ = byte_size;
+    // utf8_view (BOM 除去済み + CR 正規化済み) を直接 ParseMarkdown に渡し
+    // BuildUtf8FromWide をスキップする。
+    ReplaceContent(ParseMarkdown(raw_wide_, utf8_view));
 }
 
 int Document::FindAnchorIndex(std::wstring_view anchor) const
