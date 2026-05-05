@@ -21,8 +21,8 @@ public:
     Document& operator=(Document&& other) noexcept;
     ~Document() = default;
 
-    // ファクトリ。本体は doc_string 入力版 (UTF-16 ビルド時は wide / UTF-8 ビルド時は utf8)。
-    // utf8 入力版は FileLoader からの UTF-8 バイト列を受け取るための変換ラッパー。
+    // ファクトリ。本体は (text, byte_size, path) の 3 引数版。
+    // 2 引数版は BOM 除去 + byte_size 計算を内蔵した便利ラッパー (テスト / Help リソース経路)。
     static Document FromMarkdown(mendo::doc_string text, size_t byte_size, std::wstring_view path);
     static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 

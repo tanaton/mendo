@@ -1,6 +1,5 @@
 #include "nav.h"
 #include "ascii_util.h"
-#include "string_convert.h"
 
 uint32_t NavHistory::InternPath(std::wstring_view path)
 {
@@ -152,8 +151,7 @@ LinkClickResult HandleLinkClick(mendo::doc_string_view url)
     // 内部アンカーリンク: #something
     if (url[0] == MENDO_LIT('#')) {
         result.type = LinkClickResult::Type::Anchor;
-        // target は wstring (Win32 互換) なので UTF-8 → wstring 変換。
-        string_convert::Utf8ToWide(url.substr(1), result.target);
+        result.target.assign(url.substr(1));
         return result;
     }
     // 安全なスキームの外部リンクのみ許可
@@ -161,6 +159,6 @@ LinkClickResult HandleLinkClick(mendo::doc_string_view url)
         return result;
     }
     result.type = LinkClickResult::Type::ExternalUrl;
-    string_convert::Utf8ToWide(url, result.target);
+    result.target.assign(url);
     return result;
 }

@@ -9,8 +9,8 @@
 // 実体は UTF-8 (char ベース) で固定。Win32/DirectWrite 用の「描画用 wchar_t」とは
 // 概念上分離 (後者は alias 影響外で wchar_t 維持)。
 //
-// MENDO_LIT(s) はかつて UTF-16/UTF-8 切替に使用していた残骸で、現在は no-op だが
-// 「Document テキスト用リテラル」のセマンティクスマーカーとして残置する。
+// MENDO_LIT(s) は「Document テキスト用リテラル」を示すセマンティクスマーカーで、
+// 現状は no-op マクロだが grep 性のため意図的に残している。
 
 namespace mendo {
 

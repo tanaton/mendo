@@ -211,8 +211,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
             if (!cell_layout) {
                 continue;
             }
-            // セルテキストごとに doc_offset → wide offset 変換器を構築。
-            // UTF-16 ビルドでは zero-copy + 恒等関数。
+            // セルテキストごとに doc_offset (UTF-8 byte) → UTF-16 textPosition 変換器を構築。
             const mendo::WideViewForDWrite wv{ tbl->GetCellText(r, c) };
             for (const auto& run : tbl->GetCellRuns(r, c)) {
                 // リンク色: 初回パスで全行に適用（軽量・冪等）
@@ -286,9 +285,8 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
         return;
     }
 
-    // run / token / alert_label の offset/length は doc_char 単位 (UTF-16 では code unit、
-    // UTF-8 では byte) なので、IDWriteTextLayout が要求する UTF-16 textPosition に変換する。
-    // UTF-16 ビルドでは WideViewForDWrite は zero-copy + 恒等関数。
+    // run / token / alert_label の offset/length は UTF-8 byte 単位なので、
+    // IDWriteTextLayout が要求する UTF-16 textPosition に変換する。
     const mendo::WideViewForDWrite wv{ node.GetText() };
 
     // 同じ type の隣接トークンをマージして SetDrawingEffect の呼び出し回数を減らす

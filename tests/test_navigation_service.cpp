@@ -6,14 +6,14 @@ TEST(HandleLinkClickTest, HandleAnchorLink)
 {
     auto result = HandleLinkClick(MENDO_LIT("#section-1"));
     EXPECT_EQ(result.type, LinkClickResult::Type::Anchor);
-    EXPECT_EQ(result.target, L"section-1");
+    EXPECT_EQ(result.target, "section-1");
 }
 
 TEST(HandleLinkClickTest, HandleExternalLink)
 {
     auto result = HandleLinkClick(MENDO_LIT("https://example.com"));
     EXPECT_EQ(result.type, LinkClickResult::Type::ExternalUrl);
-    EXPECT_EQ(result.target, L"https://example.com");
+    EXPECT_EQ(result.target, "https://example.com");
 }
 
 TEST(HandleLinkClickTest, HandleHttpLink)
@@ -99,14 +99,14 @@ TEST(HandleLinkClickTest, BareHashTreatedAsAnchorWithEmptyTarget)
     // "#" 単体は anchor 扱いだが target は空文字列。
     auto r = HandleLinkClick(MENDO_LIT("#"));
     EXPECT_EQ(r.type, LinkClickResult::Type::Anchor);
-    EXPECT_EQ(r.target, L"");
+    EXPECT_EQ(r.target, "");
 }
 
 TEST(HandleLinkClickTest, AnchorWithUnicodeTarget)
 {
     auto r = HandleLinkClick(MENDO_LIT("#見出し"));
     EXPECT_EQ(r.type, LinkClickResult::Type::Anchor);
-    EXPECT_EQ(r.target, L"見出し");
+    EXPECT_EQ(r.target, "見出し");
 }
 
 // ---- 偽装されたスキームを弾く ----

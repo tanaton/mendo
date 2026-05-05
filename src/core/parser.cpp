@@ -761,7 +761,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         return 0;
     }
 
-    // 各ノードの最初のテキストコールバックでソースオフセットを記録（UTF-16 コード単位）。
+    // 各ノードの最初のテキストコールバックでソースオフセットを記録（UTF-8 byte）。
     // md4c は MD_TEXT_NULLCHAR / MD_TEXT_BR / MD_TEXT_SOFTBR や、CODE/LATEXMATH/HTML の改行・空白置換で
     // _T(""), _T("\n"), _T(" ") といった内部静的リテラルを text として渡すことがある。
     // 異なる array 同士のポインタ減算は UB なので、範囲判定もオフセット計算も uintptr_t の
@@ -1156,7 +1156,7 @@ std::optional<mendo::doc_string_view> ResolveHtmlEntity(mendo::doc_string_view e
         // 全桁消費 (stop == digits + digit_len) かつ 1 桁以上 (stop > digits) のみ受理。
         // "&#65x;" のように途中で停止した入力は不正として弾く。
         const bool fully_consumed = (stop == digits + digit_len) && (stop > digits);
-        // サロゲート範囲 (U+D800-U+DFFF) は単独で UTF-16 として不正、また 0/範囲外も不正。
+        // サロゲート範囲 (U+D800-U+DFFF) は不正コードポイント、また 0/範囲外も不正。
         if (!fully_consumed || codepoint == 0 || codepoint > 0x10FFFF ||
             (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
             return std::nullopt;

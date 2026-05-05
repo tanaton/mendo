@@ -97,8 +97,8 @@ namespace {
 
 // 5 属性を 1 パスでまとめてマージするためのレンジビルダ。
 // 隣接ランで属性が連続する間はマージし、切れたら emit する。
-// start/length は doc_offset 単位 (UTF-16 で code unit / UTF-8 で byte)。
-// emit 時に WideViewForDWrite::WideRange 経由で UTF-16 textPosition に変換する。
+// start/length は UTF-8 byte 単位で、emit 時に WideViewForDWrite::WideRange 経由で
+// UTF-16 textPosition に変換する。
 struct AttrRangeBuilder {
     uint32_t start = 0;
     uint32_t length = 0;
@@ -148,7 +148,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     const bool apply_code_size = apply_code && (!node_type || *node_type != NodeType::Heading);
     const bool apply_link = !node_type;
 
-    // run.start/length は doc_offset 単位。UTF-16 builds では恒等関数で zero-overhead。
+    // run.start/length は UTF-8 byte 単位。WideViewForDWrite が UTF-16 textPosition への対応表を構築する。
     const mendo::WideViewForDWrite wv{ text };
 
     AttrRangeBuilder bold_b, italic_b, code_b, strike_b, link_b;
@@ -307,7 +307,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     // Alert ノードのアイコン文字のフォントウェイトを設定
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
         const auto icon = GetAlertIcon(node.alert_type);
-        // doc_char 単位の icon 長を UTF-16 textPosition (= wide code unit) に変換。
+        // UTF-8 byte 長の icon を UTF-16 textPosition (wide code unit 数) に変換。
         const UINT32 icon_wide_len = static_cast<UINT32>(mendo::WideViewForDWrite{ icon }.wide().size());
         const DWRITE_TEXT_RANGE icon_range{ 0, icon_wide_len };
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);

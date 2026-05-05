@@ -11,9 +11,10 @@
 #include <string_view>
 #include <type_traits>
 
-// ASCII 文字列ヘルパ。バルク処理は SSE2 で wchar_t (UTF-16 code unit) を 8 文字並列に扱い、
-// 非 ASCII (>= U+0080) を含むチャンクは std::towlower や逐次比較にフォールバックするので、
-// サロゲートペアやマルチバイト境界を破壊することはない。1 文字版 helper はスカラ constexpr。
+// ASCII 文字列ヘルパ。Document テキスト (UTF-8 char) と OS API 経路 (wchar_t、ファイル
+// パス比較等) の両方に対応。バルク処理は SSE2 で 16 byte / 8 wchar_t 並列、非 ASCII を
+// 含むチャンクはフォールバック (UTF-8 multi-byte / サロゲートペア境界を破壊しない)。
+// 1 文字版 helper はスカラ constexpr。
 namespace ascii_util {
 
 inline constexpr size_t npos = static_cast<size_t>(-1);

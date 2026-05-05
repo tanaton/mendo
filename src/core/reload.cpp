@@ -15,14 +15,14 @@ size_t FindFirstDifference(mendo::doc_string_view old_text, mendo::doc_string_vi
     return static_cast<size_t>(it_old - old_text.begin());
 }
 
-ReloadDecision AnalyzeReloadDiff(mendo::doc_string_view old_wide, mendo::doc_string_view new_wide) noexcept
+ReloadDecision AnalyzeReloadDiff(mendo::doc_string_view old_text, mendo::doc_string_view new_text) noexcept
 {
-    const size_t diff_pos = FindFirstDifference(old_wide, new_wide);
+    const size_t diff_pos = FindFirstDifference(old_text, new_text);
     if (diff_pos == mendo::doc_string_view::npos) {
         return { ReloadOp::NoChange, mendo::doc_string_view::npos };
     }
-    if (IsPrefixOnlyDiff(diff_pos, old_wide.size(), new_wide.size())) {
-        if (new_wide.size() < old_wide.size()) {
+    if (IsPrefixOnlyDiff(diff_pos, old_text.size(), new_text.size())) {
+        if (new_text.size() < old_text.size()) {
             return { ReloadOp::DeferPrefixShrink, diff_pos };
         }
         return { ReloadOp::PrefixGrowth, diff_pos };

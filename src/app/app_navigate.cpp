@@ -11,17 +11,17 @@ void App::HandleLinkClick(mendo::doc_string_view url)
     }
     auto result = ::HandleLinkClick(url);
     switch (result.type) {
-    case LinkClickResult::Type::Anchor: {
+    case LinkClickResult::Type::Anchor:
         PushCurrentNavEntry(state_);
-        // NavigateAnchorAction::anchor_id は doc_string なので wstring → utf8 変換。
-        std::pmr::string anchor_utf8;
-        string_convert::WideToUtf8(result.target, anchor_utf8);
-        Dispatch(NavigateAnchorAction{ std::move(anchor_utf8) });
+        Dispatch(NavigateAnchorAction{ std::move(result.target) });
+        break;
+    case LinkClickResult::Type::ExternalUrl: {
+        // ShellExecuteW 用に UTF-8 → wstring 変換。
+        std::pmr::wstring url_wide;
+        string_convert::Utf8ToWide(result.target, url_wide);
+        EmitEffect(effect::ShellOpen{ std::move(url_wide) });
         break;
     }
-    case LinkClickResult::Type::ExternalUrl:
-        EmitEffect(effect::ShellOpen{ std::move(result.target) });
-        break;
     default:
         break;
     }

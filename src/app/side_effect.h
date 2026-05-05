@@ -29,8 +29,8 @@ struct SetCursor {
     CursorType type;
 };
 struct ClipboardWrite {
-    // text は Document テキストから抽出されるので doc_string。
-    // executor (CF_UNICODETEXT 書込) 側で UTF-16 変換が必要 (UTF-8 ビルド時のみ)。
+    // text は Document テキスト由来の UTF-8 doc_string。
+    // executor 側で CF_UNICODETEXT 用に wstring 変換する。
     mendo::doc_string text;
 };
 struct ClipboardWriteHtml {
