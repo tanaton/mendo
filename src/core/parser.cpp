@@ -27,8 +27,12 @@ constexpr size_t SCRATCH_RESERVE_MIN = 1024;
 constexpr size_t SCRATCH_RESERVE_MAX = 64 * 1024;
 
 struct ParseContext {
-    // パース用 monotonic リソース（一括確保→一括解放）
-    MonotonicResource parse_resource{ 128 * 1024 };
+    explicit ParseContext(size_t initial_arena_bytes)
+        : parse_resource{ initial_arena_bytes }
+    {}
+
+    // パース用 monotonic リソース（一括確保→一括解放）。初期サイズは入力に応じて動的に決定する。
+    MonotonicResource parse_resource;
     // append/clear が走るスクラッチや hash map 用の pool。単一スレッドなので unsynchronized。
     // upstream を monotonic にして pool 自身の解放は ParseContext 破棄時の一括解放に任せる。
     std::pmr::unsynchronized_pool_resource pool{ parse_resource.resource() };
@@ -94,6 +98,12 @@ struct ParseContext {
     // 現在構築中のノード
     Node* current_node = nullptr;
 
+    // AppendWide / FlushPendingRun のターゲットバッファのキャッシュ。
+    // 47-94 万回呼ばれる hot path で in_table_cell + has_table() の variant 判定を
+    // 毎回行わないよう、状態遷移点 (BeginNode / TD/TH 進入退出 / current_node clear) で
+    // 更新したポインタを直接使う。nullptr のときは AppendWide / FlushPendingRun は no-op。
+    std::pmr::wstring* active_text_buffer = nullptr;
+
     // アンカーIDの一意性追跡: スラグ -> 出現回数。
     // 再ハッシュ時の旧 bucket は pool 内で再利用されるため monotonic は膨らない。
     std::pmr::unordered_map<std::pmr::wstring, int, WStringTransparentHash, std::equal_to<>> anchor_counts{ &pool };
@@ -119,21 +129,42 @@ struct ParseContext {
     // 評価する代わりに、BeginNode でリセット → 範囲内マッチで設定 → 以降は素通しでよい。
     bool node_source_offset_set = false;
 
+    // 現在ノードが owned 経路確定か。span markup (** _ ` 等) の存在や、
+    // entity 解決 / BR / SOFTBR で text を置換するケースは current_text と raw_slice が
+    // 構造的に一致しなくなるため、FinalizeCurrentNode の memcmp を完全にスキップできる。
+    bool current_node_owned_only = false;
+
     // current_text が source の (source_offset, current_text.size()) 範囲とバイト一致するか。
     // 一致するノードは Node::owned_text_ を確保せず raw_wide_ への view に倒せる。
     // span マークアップ (** _ ` 等) や BR/SOFTBR/ENTITY 混在のノードは不一致で owned 経路に落ちる。
     bool CurrentTextMatchesRawSlice() const noexcept
     {
+        // 高頻度呼び出し (100MB で 40万回超) のため MENDO_PROFILE は外す。
+        // zone overhead が ~120ms 単位で計測自体を歪めるため。
         if (!current_node || current_node->source_offset == kUnsetSourceOffset) {
             return false;
         }
         const size_t offset = current_node->source_offset;
-        if (offset + current_text.size() > markdown_size) {
+        const size_t len = current_text.size();
+        if (offset + len > markdown_size) {
             return false;
         }
-        return std::memcmp(markdown_base + offset,
-                           current_text.data(),
-                           current_text.size() * sizeof(wchar_t)) == 0;
+        const wchar_t* lhs = markdown_base + offset;
+        const wchar_t* rhs = current_text.data();
+        // 大型ノード (>= 512 wchar) は先頭/末尾 kProbe wchar で probe して entity/span 混在を早期に弾く。
+        // 小段落は構造的に保護されるため誤判定リスクなし。
+        constexpr size_t kProbe = 256;
+        if (len >= 2 * kProbe) {
+            if (std::memcmp(lhs, rhs, kProbe * sizeof(wchar_t)) != 0) {
+                return false;
+            }
+            if (std::memcmp(lhs + len - kProbe, rhs + len - kProbe, kProbe * sizeof(wchar_t)) != 0) {
+                return false;
+            }
+            // 先頭/末尾は probe で一致確認済みなので、中央のみ比較する。合計比較量は len wchar 相当。
+            return std::memcmp(lhs + kProbe, rhs + kProbe, (len - 2 * kProbe) * sizeof(wchar_t)) == 0;
+        }
+        return std::memcmp(lhs, rhs, len * sizeof(wchar_t)) == 0;
     }
 
     // 現在ノードの Wide スクラッチを Node に確定し、スクラッチをクリアする。
@@ -145,7 +176,7 @@ struct ParseContext {
         // 昇格処理 (TryPromoteParagraphToDisplayMath 等) がテキストを直接設定済みのノードは、
         // current_text で上書きすると line_count ごと巻き戻るのでスキップする。
         if (current_node && !current_text.empty() && !current_node->HasText()) {
-            if (CurrentTextMatchesRawSlice()) {
+            if (!current_node_owned_only && CurrentTextMatchesRawSlice()) {
                 current_node->SetTextView(static_cast<uint32_t>(current_node->source_offset),
                                           static_cast<uint32_t>(current_text.size()),
                                           current_node->line_count,
@@ -158,11 +189,20 @@ struct ParseContext {
         current_text.clear();
     }
 
+    // OnLeaveBlock (TABLE / H / P / LI / HR) でノード構築を終えるときの後処理。
+    // current_node と active_text_buffer は対で管理する不変式があるため一括で nullptr に倒す。
+    constexpr void ClearCurrentNode() noexcept
+    {
+        current_node = nullptr;
+        active_text_buffer = nullptr;
+    }
+
     void BeginNode(NodeType type)
     {
         FinalizeCurrentNode();
         nodes.emplace_back();
         current_node = &nodes.back();
+        active_text_buffer = &current_text;
         current_node->type = type;
         current_node_index = nodes.size() - 1;
         constexpr int kInt8Max = std::numeric_limits<int8_t>::max();
@@ -174,6 +214,7 @@ struct ParseContext {
         }
         // runs は SBO=4 で初期確保ゼロを狙う。reserve すると SBO の利点が消えるので呼ばない。
         node_source_offset_set = false;
+        current_node_owned_only = false;
     }
 
     constexpr TextRun MakeRun(uint32_t start, uint32_t length)
@@ -211,26 +252,14 @@ struct ParseContext {
         current_link_url_index = new_index;
     }
 
-    // AppendWide のターゲット (セル内なら NodeTableData::concat_text、ノード内なら current_text、どちらも無ければ nullptr)。
-    constexpr std::pmr::wstring* ActiveTextBuffer() noexcept
-    {
-        if (in_table_cell && current_node && current_node->has_table()) {
-            return &current_node->table_data()->concat_text;
-        }
-        if (current_node) {
-            return &current_text;
-        }
-        return nullptr;
-    }
-
     // Wide テキストを現在のノードまたはセルに追加する。
     // 同じ span 状態で連続して呼ばれると 1 つの TextRun に統合される (cell も統合対象)。
     // セル切替・span 切替・ブロック退出の各タイミングで FlushPendingRun が走る前提。
-    // セル内では ActiveTextBuffer が NodeTableData::concat_text を返す。pending_run_start は
+    // セル内では active_text_buffer が NodeTableData::concat_text を指す。pending_run_start は
     // バッファサイズベースだが、cell 内では current_table_cell_text_start からの相対 (cell-local) として扱う。
     constexpr void AppendWide(std::wstring_view text)
     {
-        std::pmr::wstring* const target = ActiveTextBuffer();
+        std::pmr::wstring* const target = active_text_buffer;
         if (!target) {
             return;
         }
@@ -256,7 +285,7 @@ struct ParseContext {
     constexpr void FlushPendingRun()
     {
         if (has_pending_run) {
-            std::pmr::wstring* const buf = ActiveTextBuffer();
+            std::pmr::wstring* const buf = active_text_buffer;
             if (buf && buf->size() > pending_run_start) {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
                 if (in_table_cell && current_node && current_node->has_table()) {
@@ -450,6 +479,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
             tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
             ctx->current_table_cell_text_start = static_cast<uint32_t>(tbl->concat_text.size());
             ctx->in_table_cell = true;
+            ctx->active_text_buffer = &tbl->concat_text;
 
             // 1 行目で列単位の align を確定 (列属性は header 行で決まる)。
             // col_count は MD_BLOCK_TABLE で md4c から取得済みなのでここでは触らない。
@@ -547,7 +577,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         }
         ctx->in_table = false;
         ctx->FinalizeCurrentNode();
-        ctx->current_node = nullptr;
+        ctx->ClearCurrentNode();
         break;
 
     case MD_BLOCK_THEAD:
@@ -558,6 +588,9 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     case MD_BLOCK_TH:
     case MD_BLOCK_TD:
         ctx->in_table_cell = false;
+        // セル退出後は table ノード自体への AppendWide は想定されないため nullptr に倒す。
+        // 次の TR/TD/TH 進入で再設定される。
+        ctx->active_text_buffer = nullptr;
         break;
 
     case MD_BLOCK_H:
@@ -576,19 +609,19 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             }
             ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
-        ctx->current_node = nullptr;
+        ctx->ClearCurrentNode();
         break;
     case MD_BLOCK_P:
         if (!TryPromoteParagraphToImage(ctx)) {
             TryPromoteParagraphToDisplayMath(ctx);
         }
         ctx->FinalizeCurrentNode();
-        ctx->current_node = nullptr;
+        ctx->ClearCurrentNode();
         break;
     case MD_BLOCK_LI:
     case MD_BLOCK_HR:
         ctx->FinalizeCurrentNode();
-        ctx->current_node = nullptr;
+        ctx->ClearCurrentNode();
         break;
 
     case MD_BLOCK_DOC:
@@ -607,6 +640,9 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     auto* const ctx = static_cast<ParseContext*>(userdata);
 
     ctx->FlushPendingRun();
+    // span markup (** _ ` [] 等) は原文にあるが current_text には入らないため、
+    // どの span でも view 化は構造的に失敗する。FinalizeCurrentNode の memcmp をスキップさせる。
+    ctx->current_node_owned_only = true;
 
     switch (type) {
     case MD_SPAN_STRONG:
@@ -784,6 +820,9 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
+        // entity (`&amp;` 等) は現状文字に解決される。原文 (`&amp;`) と current_text (`&`) が
+        // 不一致になり view 化失敗確定。memcmp スキップフラグを立てる。
+        ctx->current_node_owned_only = true;
         wchar_t entity_buf[2];
         if (const auto resolved = ResolveHtmlEntity(chunk, entity_buf)) {
             ctx->AppendWide(*resolved);
@@ -798,6 +837,8 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
+        // BR / SOFTBR は原文の `<br>` や 2 個の半角空白+改行を `\n`/` ` に置換するため raw_slice 不一致。
+        ctx->current_node_owned_only = true;
         ctx->AppendWide(L"\n");
         break;
 
@@ -805,6 +846,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
+        ctx->current_node_owned_only = true;
         ctx->AppendWide(L" ");
         break;
 
@@ -824,12 +866,23 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 ParseResult ParseMarkdown(std::wstring_view markdown_text)
 {
     MENDO_PROFILE("ParseMarkdown");
-    ParseContext ctx;
+    // 入力サイズの 5% を初期 arena に充てる。100MB 入力で 5MB 一括確保 → overflow 時の new_delete 直結回数を削減。
+    // 小ファイル (< 2.56MB) では従来の 128KB のまま。
+    constexpr size_t kArenaMin = 128 * 1024;
+    constexpr size_t kArenaMax = 5 * 1024 * 1024;
+    const size_t arena_bytes = std::clamp(markdown_text.size() / 20, kArenaMin, kArenaMax);
+    MENDO_STATF("parse_resource arena: input=%zu arena=%zu", markdown_text.size(), arena_bytes);
+    ParseContext ctx{ arena_bytes };
     ctx.markdown_base = markdown_text.data();
     ctx.markdown_size = markdown_text.size();
     // ノード単位のスクラッチを 1 回確保し、長段落・コードブロックでの再確保を抑える。
     ctx.current_text.reserve(std::clamp(markdown_text.size() / 8, SCRATCH_RESERVE_MIN, SCRATCH_RESERVE_MAX));
-    ctx.nodes.reserve(std::clamp(markdown_text.size() / 48, size_t{ 64 }, size_t{ 16384 }));
+    // 上限 256K: 100MB / 48 ≈ 2.18M ノード期待だが Node sizeof × 256K = ~20MB に抑える。
+    // realloc を 14 回 → 4 回に削減。
+    const size_t nodes_reserve = std::clamp(markdown_text.size() / 48, size_t{ 64 }, size_t{ 262144 });
+    ctx.nodes.reserve(nodes_reserve);
+    ctx.list_counter.reserve(8);
+    MENDO_STATF("nodes.reserve: input=%zu reserve=%zu", markdown_text.size(), nodes_reserve);
     // 1MB あたり 256 個程度を見出し数の目安に。実測の数十〜数百に収まる。
     // heading_indices と anchor_counts は 1 見出し 1 エントリで対になるので同じヒントを使う。
     const size_t heading_hint = std::clamp(markdown_text.size() / 4096, size_t{ 8 }, size_t{ 256 });

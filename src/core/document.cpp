@@ -59,14 +59,7 @@ void NormalizeNewlines(std::pmr::wstring& s)
 } // namespace
 
 Document::Document(Document&& other) noexcept
-    : nodes_(std::move(other.nodes_))
-    , file_path_(std::move(other.file_path_))
-    , raw_wide_(std::move(other.raw_wide_))
-    , loaded_byte_size_(other.loaded_byte_size_)
-    , toc_(std::move(other.toc_))
-    , anchor_index_(std::move(other.anchor_index_))
-    , image_node_indices_(std::move(other.image_node_indices_))
-    , diagram_node_indices_(std::move(other.diagram_node_indices_))
+    : nodes_(std::move(other.nodes_)), file_path_(std::move(other.file_path_)), raw_wide_(std::move(other.raw_wide_)), loaded_byte_size_(other.loaded_byte_size_), toc_(std::move(other.toc_)), anchor_index_(std::move(other.anchor_index_)), image_node_indices_(std::move(other.image_node_indices_)), diagram_node_indices_(std::move(other.diagram_node_indices_))
 {
     InjectViewBase();
 }
