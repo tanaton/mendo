@@ -62,11 +62,11 @@ struct ParseContext {
     // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
     int16_t current_link_url_index = -1;
 
-    // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で Node::text_ へ view コピーされる
+    // 現在ノード用のテキスト蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で Node::text_ へ view コピーされる
     // (allocator 不一致を避けるため move ではなくコピー)。
     mendo::doc_string current_text{ &pool };
 
-    // current_text 内の「未確定 TextRun」の開始位置 (wide unit)。
+    // current_text 内の「未確定 TextRun」の開始位置 (UTF-8 byte unit)。
     // 同じ span 状態で連続する AppendDoc は 1 つの TextRun に統合される。
     // span 切替 / ブロック退出時に FlushPendingRun が呼ばれて確定する。
     uint32_t pending_run_start = 0;
@@ -151,11 +151,11 @@ struct ParseContext {
         }
         // current_node_owned_only で span/entity 混在は事前に弾けるため、ここまで来たノードは大半が
         // 全長一致 (success) になる。probe 短絡は worst-case で len 分の比較が走り意味がないため、
-        // 1 回の wmemcmp に統一する。
-        return std::memcmp(markdown_base + offset, current_text.data(), len * sizeof(mendo::doc_char)) == 0;
+        // 1 回の memcmp に統一する。
+        return std::char_traits<mendo::doc_char>::compare(markdown_base + offset, current_text.data(), len) == 0;
     }
 
-    // 現在ノードの Wide スクラッチを Node に確定し、スクラッチをクリアする。
+    // 現在ノードのテキストスクラッチを Node に確定し、スクラッチをクリアする。
     // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
     // current_text の capacity は保持して次ノードで再利用する (確保回数削減のため)。
     void FinalizeCurrentNode()
@@ -217,9 +217,9 @@ struct ParseContext {
 
     // url を Node::link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
     // 1 ノードあたりの URL 数は典型的に < 8 なので、ハッシュマップではなく線形探索する。
-    // ハッシュマップにはキーの pmr::wstring 複製・per-node clear()・URL 文字列ハッシュの
-    // コストがあり、N が小さい領域では線形 wmemcmp の方が速い。脚注で urls 数が増えても
-    // 比較は wstring_view 同士なので allocator 確保を伴わない。
+    // ハッシュマップにはキーの doc_string 複製・per-node clear()・URL 文字列ハッシュの
+    // コストがあり、N が小さい領域では線形 memcmp の方が速い。脚注で urls 数が増えても
+    // 比較は doc_string_view 同士なので allocator 確保を伴わない。
     constexpr void ResolveLinkUrlIndex(mendo::doc_string_view url)
     {
         if (!current_node || url.empty()) {
@@ -240,7 +240,7 @@ struct ParseContext {
         current_link_url_index = new_index;
     }
 
-    // Wide テキストを現在のノードまたはセルに追加する。
+    // テキストを現在のノードまたはセルに追加する (UTF-8)。
     // 同じ span 状態で連続して呼ばれると 1 つの TextRun に統合される (cell も統合対象)。
     // セル切替・span 切替・ブロック退出の各タイミングで FlushPendingRun が走る前提。
     // セル内では active_text_buffer が NodeTableData::concat_text を指す。pending_run_start は

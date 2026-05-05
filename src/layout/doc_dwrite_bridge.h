@@ -51,7 +51,14 @@ private:
     std::pmr::vector<uint32_t> utf16_offsets_;
 };
 
-// IDWriteFactory::CreateTextLayout の境界ラッパー。内部で WideViewForDWrite を構築して per-call 変換する。
+// IDWriteFactory::CreateTextLayout の境界ラッパー。
+// 構築済み view を渡すオーバーロードは ApplyRunFormatting と同じ view を共有するために使う
+// (per-node の二重 UTF-8→UTF-16 decode を回避)。
+HRESULT CreateDocTextLayout(IDWriteFactory* factory, const WideViewForDWrite& view,
+                            IDWriteTextFormat* fmt, float max_w, float max_h,
+                            IDWriteTextLayout** out) noexcept;
+
+// 互換オーバーロード: text のみ渡したい呼び出し側向け (内部で WideViewForDWrite を構築)。
 HRESULT CreateDocTextLayout(IDWriteFactory* factory, doc_string_view text,
                             IDWriteTextFormat* fmt, float max_w, float max_h,
                             IDWriteTextLayout** out) noexcept;

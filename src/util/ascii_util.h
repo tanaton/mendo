@@ -177,24 +177,11 @@ inline void AsciiToLowerOnly(const char* src, char* dst, size_t n) noexcept
     }
 }
 
-// char 版 ToLower (UTF-8 ASCII チャンク並列)。非 ASCII (UTF-8 multi-byte) は素通し。
-// UTF-8 では非 ASCII を「小文字化」する意味のあるロケール非依存実装は存在しないため、
-// 非 ASCII バイトはそのまま (CJK 等のケース変換が必要なケースはこの関数の対象外)。
+// char 版 ToLower。UTF-8 では非 ASCII を「小文字化」する意味のあるロケール非依存実装は存在しないため、
+// 振る舞いは AsciiToLowerOnly と完全に等価。wchar_t 版との API 対称性のためにエイリアスとして提供する。
 inline void ToLower(const char* src, char* dst, size_t n) noexcept
 {
-    size_t i = 0;
-    while (i + 16 <= n) {
-        const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i));
-        // 非 ASCII でも AsciiUpperToLowerAddChar の mask で 0 になるので、ASCII/UTF-8 混在で安全。
-        const __m128i add = detail::AsciiUpperToLowerAddChar(c);
-        const __m128i r = _mm_add_epi8(c, add);
-        _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + i), r);
-        i += 16;
-    }
-    for (; i < n; ++i) {
-        const char ch = src[i];
-        dst[i] = (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch;
-    }
+    AsciiToLowerOnly(src, dst, n);
 }
 
 // ASCII 大文字 'A'-'Z' を一文字でも含むなら true。

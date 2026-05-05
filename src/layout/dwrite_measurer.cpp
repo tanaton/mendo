@@ -138,7 +138,7 @@ inline void FlushAttr(AttrRangeBuilder& b, const mendo::WideViewForDWrite& wv, E
 
 } // namespace
 
-void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, mendo::doc_string_view text, std::optional<NodeType> node_type) const
+void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& wv, std::optional<NodeType> node_type) const
 {
     if (runs.empty()) {
         return;
@@ -148,8 +148,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     const bool apply_code_size = apply_code && (!node_type || *node_type != NodeType::Heading);
     const bool apply_link = !node_type;
 
-    // run.start/length は UTF-8 byte 単位。WideViewForDWrite が UTF-16 textPosition への対応表を構築する。
-    const mendo::WideViewForDWrite wv{ text };
+    // run.start/length は UTF-8 byte 単位。wv が UTF-16 textPosition への対応表を保持する。
 
     AttrRangeBuilder bold_b, italic_b, code_b, strike_b, link_b;
 
@@ -293,22 +292,26 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         entry.first_line_height = 0.0f;
     }
 
+    // 1 ノードにつき WideViewForDWrite を 1 回だけ構築し、CreateTextLayout と ApplyRunFormatting で共有する
+    // (per-node の二重 UTF-8→UTF-16 decode を回避)。
+    const mendo::WideViewForDWrite wv{ text };
+
     ComPtr<IDWriteTextLayout> layout;
     const HRESULT hr = [&] {
         MENDO_PROFILE("CreateTextLayout");
-        return mendo::CreateDocTextLayout(dwrite_, text, fmt, layout_width, dynamic_max_height, &layout);
+        return mendo::CreateDocTextLayout(dwrite_, wv, fmt, layout_width, dynamic_max_height, &layout);
     }();
     if (FAILED(hr)) {
         return;
     }
 
-    ApplyRunFormatting(layout.Get(), node.runs, text, node.type);
+    ApplyRunFormatting(layout.Get(), node.runs, wv, node.type);
 
-    // Alert ノードのアイコン文字のフォントウェイトを設定
+    // Alert ノードのアイコン文字のフォントウェイトを設定。
+    // 6 種類のアイコンは UTF-16 で 1 code unit (BMP) または 2 code unit (Tip 💡 = U+1F4A1 サロゲートペア) と
+    // コンパイル時に確定するため、対応表で済ませて WideViewForDWrite の構築を回避する。
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
-        const auto icon = GetAlertIcon(node.alert_type);
-        // UTF-8 byte 長の icon を UTF-16 textPosition (wide code unit 数) に変換。
-        const UINT32 icon_wide_len = static_cast<UINT32>(mendo::WideViewForDWrite{ icon }.wide().size());
+        const UINT32 icon_wide_len{ (node.alert_type == AlertType::Tip) + 1u };
         const DWRITE_TEXT_RANGE icon_range{ 0, icon_wide_len };
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);
     }
@@ -359,15 +362,16 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
                 continue;
             }
             const size_t ci = tl.CellIndex(r, c);
+            const mendo::WideViewForDWrite wv{ text };
             {
                 MENDO_PROFILE("CreateTextLayout.cell");
-                mendo::CreateDocTextLayout(dwrite_, text, row_fmt,
+                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt,
                                            CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
                                            &tl.cell_layouts[ci]);
             }
 
             if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), text, std::nullopt);
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
                 DWRITE_TEXT_METRICS metrics{};
                 tl.cell_layouts[ci]->GetMetrics(&metrics);
                 natural_widths[c] = std::max(natural_widths[c], metrics.width);
@@ -399,14 +403,15 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
             if (text.empty()) {
                 continue;
             }
+            const mendo::WideViewForDWrite wv{ text };
             {
                 MENDO_PROFILE("CreateTextLayout.cell.restore");
-                mendo::CreateDocTextLayout(dwrite_, text, row_fmt,
+                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt,
                                            CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
                                            &tl.cell_layouts[ci]);
             }
             if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), text, std::nullopt);
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
             }
         }
     }

@@ -19,7 +19,6 @@ using doc_string      = std::pmr::string;
 using doc_string_std  = std::string;
 using doc_string_view = std::string_view;
 #define MENDO_LIT(s) s
-#define MENDO_LITR(s) R##s
 
 // doc_char 単位 offset (UTF-8 byte)。単位を意識すべき箇所のマーカーとして専用 alias。
 using doc_offset = uint32_t;

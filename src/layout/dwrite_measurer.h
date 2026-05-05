@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_dwrite_bridge.h"
 #include "doc_text.h"
 #include "text_measurer.h"
 #include <dwrite.h>
@@ -32,7 +33,7 @@ public:
 private:
     bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node) const noexcept;
-    void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, mendo::doc_string_view text, std::optional<NodeType> node_type) const;
+    void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& view, std::optional<NodeType> node_type) const;
     void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths) const;
     void RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry) const;
     void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width, size_t col_count, std::pmr::vector<float>& natural_widths) const;
