@@ -7,6 +7,20 @@
 #include <shellapi.h>
 #include <shellscalingapi.h>
 #include <commctrl.h>
+#include <memory>
+
+namespace {
+
+struct LocalFreeDeleter {
+    void operator()(LPWSTR* p) const noexcept
+    {
+        if (p) {
+            LocalFree(p);
+        }
+    }
+};
+
+} // namespace
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow)
 {
@@ -32,8 +46,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     //   引数が有効なファイル  → そのファイルを開く
     //   引数なし              → 前回ファイル復元、無ければヘルプ
     //   引数あり かつ無効     → 前回復元せず直接ヘルプ (ユーザの指定意図を尊重)
+    // unique_ptr で管理することで、window.Create 失敗の早期 return でも LocalFree される。
     int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    const std::unique_ptr<LPWSTR, LocalFreeDeleter> argv_owner(CommandLineToArgvW(GetCommandLineW(), &argc));
+    LPWSTR* const argv = argv_owner.get();
     const bool arg_given = argv && argc > 1 && argv[1][0] != L'\0';
     const DWORD arg_attrs = arg_given ? GetFileAttributesW(argv[1]) : INVALID_FILE_ATTRIBUTES;
     const bool has_valid_file = arg_attrs != INVALID_FILE_ATTRIBUTES && !(arg_attrs & FILE_ATTRIBUTE_DIRECTORY);
@@ -80,10 +96,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
                 window.ShowDirectory(cwd);
             }
             window.LoadHelpDocument();
-        }
-
-        if (argv) {
-            LocalFree(argv);
         }
 
         result = window.RunMessageLoop();

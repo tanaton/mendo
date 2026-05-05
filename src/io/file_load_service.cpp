@@ -175,3 +175,28 @@ void FileLoadService::OnInitComplete(HWND hwnd, UINT msg_id)
     }
     preload_ctx_->cv.notify_one();
 }
+
+bool FileLoadService::IsPreloadDone()
+{
+    if (!preload_ctx_) {
+        return false;
+    }
+    const std::lock_guard lock(async_mutex_);
+    return async_result_.has_value() || async_error_.has_value();
+}
+
+void FileLoadService::JoinPreload()
+{
+    if (!preload_ctx_) {
+        return;
+    }
+    {
+        const std::lock_guard lk(preload_ctx_->mtx);
+        preload_ctx_->aborted = true;
+    }
+    preload_ctx_->cv.notify_all();
+    if (preload_thread_.joinable()) {
+        preload_thread_.join();
+    }
+    preload_ctx_.reset();
+}

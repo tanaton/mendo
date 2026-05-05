@@ -91,6 +91,12 @@ public:
     {
         return preload_ctx_ != nullptr;
     }
+    // worker が I/O+パースを終えて async_result_/async_error_ に書き込み済みか判定。
+    // ShowWindow/UpdateWindow より前に true なら同期適用パスへ分岐できる (small file)。
+    bool IsPreloadDone();
+    // worker を abort 通知で停止させ join する。preload_ctx_ も解放するため
+    // HasPreload() は以降 false を返す。同期適用パスから呼ぶ。
+    void JoinPreload();
 
     // ---- パスアクセス ----
 
