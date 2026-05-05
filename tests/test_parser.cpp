@@ -819,7 +819,7 @@ TEST(Parser, HtmlEntityNbsp)
 {
     auto nodes = ParseMarkdown(MENDO_LIT("a&nbsp;b")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT('\u00A0')), mendo::doc_string_std::npos);
+    EXPECT_NE(nodes[0].GetText().find(MENDO_LIT("\u00A0")), mendo::doc_string_std::npos);
 }
 
 // ---- ハードブレーク ----
