@@ -9,7 +9,7 @@ public:
     explicit DocumentService(FileWatcher& watcher) noexcept : watcher_(watcher)
     {}
 
-    std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path);
+    static std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path);
     void StartWatching(const std::pmr::wstring& path, FileWatcher::ChangeCallback cb);
     void StopWatching() noexcept;
     void CheckForChanges();

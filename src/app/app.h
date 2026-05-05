@@ -40,6 +40,11 @@ public:
     std::pmr::wstring LoadLastFilePath() const;
     void ShowDirectory(std::wstring_view dir_path);
 
+    // 起動時にウィンドウ生成と並列で I/O + パースを開始する。Init 末尾の
+    // OnInitComplete で hwnd が解禁されると、worker は PostMessage(PARSE_COMPLETE)
+    // を発行し、通常の async load 経路に合流する。
+    void StartPreloadAsync(std::pmr::wstring path);
+
     void OnPaint();
     void OnResize(UINT width, UINT height);
     void OnMouseWheel(int px, int py, short delta, bool ctrl = false);

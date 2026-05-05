@@ -20,6 +20,7 @@ public:
     void LoadHelpDocument();
     std::pmr::wstring LoadLastFilePath() const;
     void ShowDirectory(std::wstring_view dir_path);
+    void StartPreloadAsync(std::pmr::wstring path);
 
     // 前回セッションのスクロール位置を復元する（LoadMarkdownFileの前に呼ぶ）
     void RestoreScrollPosition();
