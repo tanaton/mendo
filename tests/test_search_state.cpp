@@ -475,16 +475,10 @@ TEST(SearchStateTest, JapaneseTextSearch)
     s.SetQuery(MENDO_LIT("テスト"));
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 2);
-#if MENDO_DOC_USE_UTF16
-    EXPECT_EQ(s.GetMatches()[0].start, 3u);
-    EXPECT_EQ(s.GetMatches()[0].length, 3u);
-    EXPECT_EQ(s.GetMatches()[1].start, 9u);
-#else
     // UTF-8: 各 BMP CJK 文字 3 byte。"これは" 9 / "テスト" 9 / "です。" 9
     EXPECT_EQ(s.GetMatches()[0].start, 9u);
     EXPECT_EQ(s.GetMatches()[0].length, 9u);
     EXPECT_EQ(s.GetMatches()[1].start, 27u);
-#endif
 }
 
 // ═══════════════════════════════════════════════

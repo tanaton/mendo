@@ -583,14 +583,10 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     const Node& src_node = *worker.current_request.node;
     std::pmr::wstring code_storage;
     std::wstring_view code_view;
-    // WebView2 / mermaid_util は wstring 経路。UTF-8 ビルド時は doc_string→wstring 変換を介す。
-#if MENDO_DOC_USE_UTF16
-    const std::wstring_view src_text = src_node.GetText();
-#else
+    // WebView2 / mermaid_util は wstring 経路。doc_string (UTF-8) → wstring 変換を介す。
     std::pmr::wstring src_text_wide;
     string_convert::Utf8ToWide(src_node.GetText(), src_text_wide);
     const std::wstring_view src_text = src_text_wide;
-#endif
     if (src_node.code_language == SyntaxLanguage::LatexMath) {
         code_storage = mermaid_util::BuildLatexFlowchartCode(src_text);
         code_view = code_storage;

@@ -672,20 +672,12 @@ TEST(FindWordBoundaries, NonAlphanumericAtPosition)
 
 TEST(FindWordBoundaries, AsciiWordAfterCjk)
 {
-    // CJKの後のASCII単語をクリックすると動作するべき。
-    // pos は doc_char 単位 (UTF-16 code unit / UTF-8 byte)。
-#if MENDO_DOC_USE_UTF16
-    auto result = FindWordBoundaries(MENDO_LIT("テスト test"), 4); // 't' of "test"
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 4u);
-    EXPECT_EQ(result.end, 8u);
-#else
-    // UTF-8: テスト = 9 byte, ' ' = 1 byte, "test" は offset 10
+    // CJK の後の ASCII 単語をクリックすると動作するべき。pos は UTF-8 byte。
+    // テスト = 9 byte, ' ' = 1 byte, "test" は offset 10
     auto result = FindWordBoundaries(MENDO_LIT("テスト test"), 10);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 10u);
     EXPECT_EQ(result.end, 14u);
-#endif
 }
 
 // ============================================================
@@ -1108,17 +1100,13 @@ TEST(FindFirstDifference, EmptyNew)
 
 TEST(FindFirstDifference, CjkContent)
 {
-    // doc_char 単位で先頭差分位置を返す (UTF-16 code unit / UTF-8 byte)。
+    // UTF-8 byte 単位で先頭差分位置を返す。
     mendo::doc_string_std a = MENDO_LIT("あいう");
     mendo::doc_string_std b = MENDO_LIT("あいえ");
     size_t diff = FindFirstDifference(a, b);
-#if MENDO_DOC_USE_UTF16
-    EXPECT_EQ(diff, 2u); // "あい" 2 code unit 一致、3 unit 目で差分
-#else
     // UTF-8: あ E3 81 82 / い E3 81 84 / う E3 81 86 vs え E3 81 88
     // 先頭 6 byte ("あい") + "う" の 1〜2 byte目 (E3 81) 一致 → 8 byte 目で差分
     EXPECT_EQ(diff, 8u);
-#endif
 }
 
 // ============================================================
@@ -1197,16 +1185,12 @@ TEST(AnalyzeReloadDiff, LengthChangedWithMiddleDiffIsFullReload)
 
 TEST(AnalyzeReloadDiff, CjkSuffixAppendedIsPrefixGrowth)
 {
-    // CJK 末尾追記も prefix-only growth として扱える。diff_pos は doc_char 単位。
+    // CJK 末尾追記も prefix-only growth として扱える。diff_pos は UTF-8 byte。
     const mendo::doc_string_std old_text = MENDO_LIT("あいう");
     const mendo::doc_string_std new_text = MENDO_LIT("あいうえお");
     const auto d = AnalyzeReloadDiff(old_text, new_text);
     EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
-#if MENDO_DOC_USE_UTF16
-    EXPECT_EQ(d.diff_pos, 3u); // "あいう" = 3 wchar_t
-#else
     EXPECT_EQ(d.diff_pos, 9u); // "あいう" = 9 byte UTF-8
-#endif
 }
 
 // ============================================================

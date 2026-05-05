@@ -41,20 +41,14 @@ TEST(HtmlEntity, NumericHex)
 
 TEST(HtmlEntity, SupplementaryPlaneSurrogatePair)
 {
-    // U+1F600 GRINNING FACE → UTF-16: サロゲートペア (D83D DE00) / UTF-8: F0 9F 98 80
+    // U+1F600 GRINNING FACE → UTF-8: F0 9F 98 80
     const auto result = Resolve(MENDO_LIT("&#x1F600;"));
     ASSERT_TRUE(result.has_value());
-#if MENDO_DOC_USE_UTF16
-    ASSERT_EQ(result->size(), 2u);
-    EXPECT_EQ((*result)[0], static_cast<wchar_t>(0xD83D));
-    EXPECT_EQ((*result)[1], static_cast<wchar_t>(0xDE00));
-#else
     ASSERT_EQ(result->size(), 4u);
     EXPECT_EQ(static_cast<unsigned char>((*result)[0]), 0xF0);
     EXPECT_EQ(static_cast<unsigned char>((*result)[1]), 0x9F);
     EXPECT_EQ(static_cast<unsigned char>((*result)[2]), 0x98);
     EXPECT_EQ(static_cast<unsigned char>((*result)[3]), 0x80);
-#endif
 }
 
 TEST(HtmlEntity, RejectsLoneSurrogateHigh)

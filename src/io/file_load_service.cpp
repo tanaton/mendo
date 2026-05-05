@@ -2,7 +2,6 @@
 #include "file_loader.h"
 #include "layout.h"
 #include "profiler.h"
-#include "string_convert.h"
 #include "ui_constants.h"
 
 void FileLoadService::StartLoading(std::pmr::wstring path)
@@ -70,13 +69,7 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
             return;
         }
 
-#if MENDO_DOC_USE_UTF16
-        Document doc = Document::FromMarkdown(std::move(load_result->wide), load_result->byte_size, path);
-#else
-        std::pmr::string utf8;
-        string_convert::WideToUtf8(load_result->wide, utf8);
-        Document doc = Document::FromMarkdown(std::move(utf8), path);
-#endif
+        Document doc = Document::FromMarkdown(std::move(load_result->text), load_result->byte_size, path);
 
         if (async_gen_.load(std::memory_order_relaxed) != gen) {
             return;

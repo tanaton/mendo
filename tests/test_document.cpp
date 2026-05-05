@@ -144,16 +144,16 @@ TEST(DocumentTest, GetRawTextPreservedAcrossMultipleReplaces)
 
 TEST(DocumentTest, GetRawTextIndependentOfNodes)
 {
-    // ノードの変更が raw_wide_ に影響しないことを確認
+    // ノードの変更が raw_text_ に影響しないことを確認
     auto doc = Document::FromMarkdown("hello", L"test.md");
     doc.GetNodesMut()[0].SetText(MENDO_LIT("modified"));
-    // raw_wide_ はパース入力のまま
+    // raw_text_ はパース入力のまま
     EXPECT_EQ(doc.GetRawText(), MENDO_LIT("hello"));
 }
 
 TEST(DocumentTest, RawTextSourceOffsetConsistency)
 {
-    // raw_wide_ 内のオフセット（UTF-16 コード単位）がノードの source_offset と一致することを確認
+    // raw_text_ 内の UTF-8 byte オフセットがノードの source_offset と一致することを確認
     std::pmr::string md = "# Title\n\nBody text";
     auto doc = Document::FromMarkdown(md, L"test.md");
     const auto& nodes = doc.GetNodes();

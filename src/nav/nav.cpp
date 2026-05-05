@@ -152,12 +152,8 @@ LinkClickResult HandleLinkClick(mendo::doc_string_view url)
     // 内部アンカーリンク: #something
     if (url[0] == MENDO_LIT('#')) {
         result.type = LinkClickResult::Type::Anchor;
-        // target は wstring (Win32 互換)。UTF-16 ビルド時は同型なので zero-copy。
-#if MENDO_DOC_USE_UTF16
-        result.target = url.substr(1);
-#else
+        // target は wstring (Win32 互換) なので UTF-8 → wstring 変換。
         string_convert::Utf8ToWide(url.substr(1), result.target);
-#endif
         return result;
     }
     // 安全なスキームの外部リンクのみ許可
@@ -165,10 +161,6 @@ LinkClickResult HandleLinkClick(mendo::doc_string_view url)
         return result;
     }
     result.type = LinkClickResult::Type::ExternalUrl;
-#if MENDO_DOC_USE_UTF16
-    result.target = url;
-#else
     string_convert::Utf8ToWide(url, result.target);
-#endif
     return result;
 }

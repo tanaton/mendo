@@ -471,12 +471,8 @@ struct LowercaseAsciiLiteralChar {
     }
 };
 
-// Document テキスト用エイリアス。doc_char に応じて wide/char 版を選択。
-#if MENDO_DOC_USE_UTF16
-using DocLowercaseLiteral = LowercaseAsciiLiteral;
-#else
+// Document テキスト (UTF-8) 用エイリアス。
 using DocLowercaseLiteral = LowercaseAsciiLiteralChar;
-#endif
 
 // 大小無視の等価比較。ASCII 'A'-'Z' のみ小文字化、他は素通し。locale 非依存。
 // LHS のみ projection で小文字化する高速版。

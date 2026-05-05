@@ -135,7 +135,7 @@ struct ParseContext {
     bool current_node_owned_only = false;
 
     // current_text が source の (source_offset, current_text.size()) 範囲とバイト一致するか。
-    // 一致するノードは Node::owned_text_ を確保せず raw_wide_ への view に倒せる。
+    // 一致するノードは Node::owned_text_ を確保せず raw_text_ への view に倒せる。
     // span マークアップ (** _ ` 等) や BR/SOFTBR/ENTITY 混在のノードは不一致で owned 経路に落ちる。
     bool CurrentTextMatchesRawSlice() const noexcept
     {
@@ -931,19 +931,14 @@ mendo::doc_string_view GetAlertLabel(AlertType type) noexcept
 
 mendo::doc_string_view GetAlertIcon(AlertType type) noexcept
 {
-    // Tip の電球 (U+1F4A1) は BMP 外なので UTF-16 ではサロゲートペア、UTF-8 では 4 byte。
-    // MENDO_LIT() では両ビルドで違う byte 列に展開するため #if 分岐で正しい列を渡す。
     switch (type) {
     case AlertType::None:
         return MENDO_LIT(" ");
     case AlertType::Note:
         return MENDO_LIT("ℹ"); // ℹ Information Source (BMP)
     case AlertType::Tip:
-#if MENDO_DOC_USE_UTF16
-        return L"\xD83D\xDCA1"; // 💡 (UTF-16 surrogate pair)
-#else
-        return "\xF0\x9F\x92\xA1"; // 💡 (UTF-8 4-byte sequence)
-#endif
+        // 💡 (U+1F4A1) は BMP 外なので UTF-8 4 byte。MENDO_LIT は実体非変更なので直接バイト列で渡す。
+        return "\xF0\x9F\x92\xA1";
     case AlertType::Important:
         return MENDO_LIT("❗"); // ❗ Heavy Exclamation Mark
     case AlertType::Warning:
@@ -1166,17 +1161,6 @@ std::optional<mendo::doc_string_view> ResolveHtmlEntity(mendo::doc_string_view e
             (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
             return std::nullopt;
         }
-#if MENDO_DOC_USE_UTF16
-        if (codepoint <= 0xFFFF) {
-            buffer[0] = static_cast<mendo::doc_char>(codepoint);
-            return mendo::doc_string_view{ buffer, 1 };
-        }
-        // 補助面: UTF-16 サロゲートペア
-        const unsigned long adj = codepoint - 0x10000;
-        buffer[0] = static_cast<mendo::doc_char>(0xD800 + (adj >> 10));
-        buffer[1] = static_cast<mendo::doc_char>(0xDC00 + (adj & 0x3FF));
-        return mendo::doc_string_view{ buffer, 2 };
-#else
         // UTF-8: code point を 1〜4 byte に符号化。
         if (codepoint < 0x80) {
             buffer[0] = static_cast<mendo::doc_char>(codepoint);
@@ -1198,7 +1182,6 @@ std::optional<mendo::doc_string_view> ResolveHtmlEntity(mendo::doc_string_view e
         buffer[2] = static_cast<mendo::doc_char>(0x80 | ((codepoint >> 6) & 0x3F));
         buffer[3] = static_cast<mendo::doc_char>(0x80 | (codepoint & 0x3F));
         return mendo::doc_string_view{ buffer, 4 };
-#endif
     }
 
     return std::nullopt;

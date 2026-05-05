@@ -53,63 +53,46 @@ TEST(StringConvert, Utf8ToWideRefClearsOnEmpty)
 }
 
 // ═══════════════════════════════════════════════
-// Utf8ToWideStripBom
+// StripUtf8Bom
 // ═══════════════════════════════════════════════
 
-TEST(StringConvert, Utf8ToWideStripBomStripsLeadingBom)
+TEST(StringConvert, StripUtf8BomStripsLeadingBom)
 {
-    std::pmr::wstring out;
-    Utf8ToWideStripBom("\xEF\xBB\xBFHello", out);
-    EXPECT_EQ(out, L"Hello");
+    EXPECT_EQ(StripUtf8Bom("\xEF\xBB\xBFHello"), std::string_view("Hello"));
 }
 
-TEST(StringConvert, Utf8ToWideStripBomNoBomPassthrough)
+TEST(StringConvert, StripUtf8BomNoBomPassthrough)
 {
-    std::pmr::wstring out;
-    Utf8ToWideStripBom("Hello", out);
-    EXPECT_EQ(out, L"Hello");
+    EXPECT_EQ(StripUtf8Bom("Hello"), std::string_view("Hello"));
 }
 
-TEST(StringConvert, Utf8ToWideStripBomEmptyInput)
+TEST(StringConvert, StripUtf8BomEmptyInput)
 {
-    std::pmr::wstring out = L"old";
-    Utf8ToWideStripBom("", out);
-    EXPECT_TRUE(out.empty());
+    EXPECT_TRUE(StripUtf8Bom("").empty());
 }
 
-TEST(StringConvert, Utf8ToWideStripBomBomOnlyResultsEmpty)
+TEST(StringConvert, StripUtf8BomBomOnlyResultsEmpty)
 {
-    std::pmr::wstring out = L"old";
-    Utf8ToWideStripBom("\xEF\xBB\xBF", out);
-    EXPECT_TRUE(out.empty());
+    EXPECT_TRUE(StripUtf8Bom("\xEF\xBB\xBF").empty());
 }
 
-TEST(StringConvert, Utf8ToWideStripBomOnlyFirstBomStripped)
+TEST(StringConvert, StripUtf8BomOnlyFirstBomStripped)
 {
-    // 2 つ続く BOM は最初の 1 つだけ除去され、残りは U+FEFF として残る。
-    std::pmr::wstring out;
-    Utf8ToWideStripBom("\xEF\xBB\xBF\xEF\xBB\xBF" "A", out);
-    EXPECT_EQ(out.size(), 2u);
-    EXPECT_EQ(out[0], L'\xFEFF');
-    EXPECT_EQ(out[1], L'A');
+    // 連続 BOM は最初の 1 つだけ除去される。
+    EXPECT_EQ(StripUtf8Bom("\xEF\xBB\xBF\xEF\xBB\xBF" "A"),
+              std::string_view("\xEF\xBB\xBF" "A"));
 }
 
-TEST(StringConvert, Utf8ToWideStripBomBomWithJapanese)
+TEST(StringConvert, StripUtf8BomBomWithJapanese)
 {
-    std::pmr::wstring out;
-    Utf8ToWideStripBom("\xEF\xBB\xBF日本語", out);
-    EXPECT_EQ(out, L"日本語");
+    EXPECT_EQ(StripUtf8Bom("\xEF\xBB\xBF日本語"), std::string_view("日本語"));
 }
 
-TEST(StringConvert, Utf8ToWideStripBomBomInMiddleNotStripped)
+TEST(StringConvert, StripUtf8BomBomInMiddleNotStripped)
 {
-    // BOM の出現位置が先頭以外なら除去しない（U+FEFF として保持）。
-    std::pmr::wstring out;
-    Utf8ToWideStripBom("A\xEF\xBB\xBF" "B", out);
-    ASSERT_EQ(out.size(), 3u);
-    EXPECT_EQ(out[0], L'A');
-    EXPECT_EQ(out[1], L'\xFEFF');
-    EXPECT_EQ(out[2], L'B');
+    // BOM の出現位置が先頭以外なら除去しない。
+    EXPECT_EQ(StripUtf8Bom("A\xEF\xBB\xBF" "B"),
+              std::string_view("A\xEF\xBB\xBF" "B"));
 }
 
 // ═══════════════════════════════════════════════

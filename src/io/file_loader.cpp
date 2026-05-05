@@ -9,7 +9,7 @@
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "comdlg32.lib")
 
-std::expected<LoadedFileWide, FileLoadError> FileLoader::LoadFile(const std::pmr::wstring& path)
+std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr::wstring& path)
 {
     MENDO_PROFILE("FileLoader::LoadFile");
     // エディタがファイルを開いている間も読み取れるよう共有モードを許容。
@@ -28,17 +28,15 @@ std::expected<LoadedFileWide, FileLoadError> FileLoader::LoadFile(const std::pmr
     }
 
     if (r.size == 0) {
-        return LoadedFileWide{};
+        return LoadedFileDoc{};
     }
 
-    // MultiByteToWideChar は cb*Char が int なので INT_MAX を超える入力を扱えない。
-    // MAX_FILE_SIZE が int 上限を超える設定でも、ここで実効上限を強制し
-    // Utf8ToWideStripBom が黙って空文字列を返す失敗モード (LoadFile としては成功扱いになる) を防ぐ。
+    // 下流の md4c / view_length は uint32_t を取り扱うため、INT_MAX 超えのファイルは弾く。
     if (r.size > static_cast<size_t>(std::numeric_limits<int>::max())) {
         return std::unexpected(FileLoadError::TooLarge);
     }
 
-    // メモリマップで UTF-8 を直接 view し、UTF-16 変換のヒープ確保のみに抑える。
+    // メモリマップで UTF-8 を直接 view し、BOM 除去後にそのまま doc_string にコピーする。
     // OS のページキャッシュに乗ったまま読めるため、同じファイルの再オープンで物理 I/O が増えない。
     UniqueFileMapping hMapping(CreateFileMappingW(r.handle.get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
     if (!hMapping) {
@@ -52,9 +50,9 @@ std::expected<LoadedFileWide, FileLoadError> FileLoader::LoadFile(const std::pmr
 
     const std::string_view bytes{ static_cast<const char*>(view.get()), r.size };
 
-    LoadedFileWide result;
+    LoadedFileDoc result;
     result.byte_size = r.size;
-    string_convert::Utf8ToWideStripBom(bytes, result.wide);
+    result.text.assign(string_convert::StripUtf8Bom(bytes));
     return result;
 }
 

@@ -151,14 +151,7 @@ void GenerateAnchorIdInto(mendo::doc_string_view text, mendo::doc_string& slug)
                 ++it;
                 continue;
             }
-#if MENDO_DOC_USE_UTF16
-            // UTF-16: 1 code unit = 1 文字 (BMP)。サロゲート対は CJK 範囲外なので素通し。
-            if (cu >= 0x3000 && !IsAnchorSkippableSymbol(cu)) {
-                *dst++ = *it;
-            }
-            ++it;
-#else
-            // UTF-8: マルチバイトを decode → code point に対する CJK 判定。
+            // UTF-8 マルチバイトを decode → code point に対する CJK 判定。
             // 判定が「保持」なら元の UTF-8 byte 列をそのままコピー。
             const unsigned char first = static_cast<unsigned char>(cu);
             uint32_t cp = 0;
@@ -193,7 +186,6 @@ void GenerateAnchorIdInto(mendo::doc_string_view text, mendo::doc_string& slug)
                 }
             }
             it += len;
-#endif
         }
         return static_cast<size_t>(dst - buf);
     });

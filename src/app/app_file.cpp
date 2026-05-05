@@ -346,18 +346,10 @@ void App::DoReloadCurrentFile()
     }
 
     const size_t byte_size = load_result->byte_size;
-    std::pmr::wstring new_wide = std::move(load_result->wide);
+    mendo::doc_string new_text = std::move(load_result->text);
 
-    // UTF-16 ビルド: doc_string=wstring なので zero-copy。UTF-8 ビルド: 比較・パース用に utf8 派生。
-#if MENDO_DOC_USE_UTF16
     const mendo::doc_string_view old_view(state_.document.doc.GetRawText());
-    const mendo::doc_string_view new_view(new_wide);
-#else
-    std::pmr::string new_utf8;
-    string_convert::WideToUtf8(new_wide, new_utf8);
-    const mendo::doc_string_view old_view(state_.document.doc.GetRawText());
-    const mendo::doc_string_view new_view(new_utf8);
-#endif
+    const mendo::doc_string_view new_view(new_text);
     const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
     MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu op=%d",
@@ -368,11 +360,7 @@ void App::DoReloadCurrentFile()
         return;
     }
     MENDO_PROFILE("Reload::ReplaceFromMarkdown");
-#if MENDO_DOC_USE_UTF16
-    state_.document.doc.ReplaceFromMarkdown(std::move(new_wide), byte_size);
-#else
-    state_.document.doc.ReplaceFromMarkdown(std::move(new_utf8), byte_size);
-#endif
+    state_.document.doc.ReplaceFromMarkdown(std::move(new_text), byte_size);
     FinishReload(decision.diff_pos);
 }
 

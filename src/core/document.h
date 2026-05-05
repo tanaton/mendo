@@ -13,7 +13,7 @@ class Document {
 public:
     constexpr Document() noexcept = default;
 
-    // move-only: nodes_ は view モード時に raw_wide_.data() を view_base_ に持つため、
+    // move-only: nodes_ は view モード時に raw_text_.data() を view_base_ に持つため、
     // move 後に InjectViewBase() で再注入する必要がある。
     Document(const Document&) = delete;
     Document& operator=(const Document&) = delete;
@@ -48,10 +48,10 @@ public:
     }
     // パース入力の doc_string テキストへの参照。AnalyzeReloadDiff の比較用。
     // ノードレベルでは検出できない編集 (空行追加・末尾空白・改行種別変更等) も
-    // doc_char 単位 offset 精度で差分位置を求めるため、Document が常時保持する。
+    // UTF-8 byte offset 精度で差分位置を求めるため、Document が常時保持する。
     constexpr const mendo::doc_string& GetRawText() const noexcept
     {
-        return raw_wide_;
+        return raw_text_;
     }
     // 元ファイル(UTF-8)バイト数。エディタの中間書き込み検出（IsFileLargerThan）で参照する。
     constexpr size_t GetLoadedByteSize() const noexcept
@@ -83,19 +83,18 @@ public:
 private:
     void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
 
-    // raw_wide_.data() を view モードの全ノードに注入する。
-    // ReplaceContent / move 経路で呼ぶ。raw_wide_ の relocate (resize/assign) は禁止契約のため、
+    // raw_text_.data() を view モードの全ノードに注入する。
+    // ReplaceContent / move 経路で呼ぶ。raw_text_ の relocate (resize/assign) は禁止契約のため、
     // 通常のパース完了後は再注入不要だが、Document 自身の move 後はノードのアドレス参照が更新済み
-    // でも raw_wide_ のヒープバッファは move 前後で同一とは限らないため都度呼び直す。
+    // でも raw_text_ のヒープバッファは move 前後で同一とは限らないため都度呼び直す。
     void InjectViewBase() noexcept;
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
-    // 注意: raw_wide_ は relocate 禁止 (assign / resize / += によるヒープ再確保で
+    // 注意: raw_text_ は relocate 禁止 (assign / resize / += によるヒープ再確保で
     // ノードの view_base_ が dangling になるため)。差し替えは ReplaceFromMarkdown 経由で
     // 全 nodes 再構築 + InjectViewBase() を伴うパスのみ許される。
-    // 名前は歴史的に raw_wide_ のまま (= Document の 1 次的なテキスト保持先)。
-    mendo::doc_string raw_wide_;
+    mendo::doc_string raw_text_;
     size_t loaded_byte_size_ = 0;
     TableOfContents toc_;
     // キーは所有 doc_string。nodes_ の再アロケート/構造変更でも索引が dangling しない。

@@ -83,26 +83,17 @@ void SideEffectExecutor::ExecuteUi(const UiEffect& e)
             host_->SetCursor(ev.type);
         },
         [this](const effect::ClipboardWrite& ev) {
-            // クリップボードは CF_UNICODETEXT (UTF-16) 必須のため doc_string を wstring に変換。
-            // UTF-16 ビルド時は doc_string=pmr::wstring なので zero-copy。
-#if MENDO_DOC_USE_UTF16
-            host_->WriteClipboardText(ev.text);
-#else
+            // クリップボードは CF_UNICODETEXT (UTF-16) 必須のため UTF-8 → wstring 変換。
             std::pmr::wstring wide_text;
             string_convert::Utf8ToWide(ev.text, wide_text);
             host_->WriteClipboardText(wide_text);
-#endif
         },
         [this](const effect::ClipboardWriteHtml& ev) {
-#if MENDO_DOC_USE_UTF16
-            host_->WriteClipboardHtml(ev.html, ev.plain);
-#else
             std::pmr::wstring wide_html;
             std::pmr::wstring wide_plain;
             string_convert::Utf8ToWide(ev.html, wide_html);
             string_convert::Utf8ToWide(ev.plain, wide_plain);
             host_->WriteClipboardHtml(wide_html, wide_plain);
-#endif
         },
         [this](const effect::ShowTooltip& ev) {
             const POINT screen_pos = host_->ClientToScreen({ ev.px, ev.py });

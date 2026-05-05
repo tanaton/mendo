@@ -53,14 +53,10 @@ void App::CopySelectionToClipboard() const
         return;
     }
     const mendo::doc_string result = ExtractSelectedText(state_.document.doc.GetNodes(), state_.view.viewport.GetSelection());
-    // CF_UNICODETEXT は wstring 必須。UTF-8 ビルド時のみ実体変換。
-#if MENDO_DOC_USE_UTF16
-    SetClipboardText(result);
-#else
+    // CF_UNICODETEXT は wstring 必須なので UTF-8 → wstring 変換。
     std::pmr::wstring wide;
     string_convert::Utf8ToWide(result, wide);
     SetClipboardText(wide);
-#endif
 }
 
 void App::CopyCodeBlockToClipboard(int node_index) const
@@ -69,13 +65,9 @@ void App::CopyCodeBlockToClipboard(int node_index) const
     if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
         return;
     }
-#if MENDO_DOC_USE_UTF16
-    SetClipboardText(nodes[node_index].GetText());
-#else
     std::pmr::wstring wide;
     string_convert::Utf8ToWide(nodes[node_index].GetText(), wide);
     SetClipboardText(wide);
-#endif
 }
 
 void App::SaveDiagramAsPng(int node_index)
@@ -148,14 +140,10 @@ void App::CopyDiagramAsSvg(int node_index)
     ShowToast(i18n::S().toast_svg_copying);
     svg_copy_in_flight_ = true;
 
-    // RequestSvg は WebView2 経路のため wstring。UTF-8 ビルド時のみ wide 化して渡す。
-#if MENDO_DOC_USE_UTF16
-    const std::wstring_view code_view = node.GetText();
-#else
+    // RequestSvg は WebView2 経路のため wstring。UTF-8 → wide に変換して渡す。
     std::pmr::wstring code_wide;
     string_convert::Utf8ToWide(node.GetText(), code_wide);
     const std::wstring_view code_view = code_wide;
-#endif
     mermaid_renderer_.RequestSvg(code_view, md_width, dark, [this, key](std::pmr::wstring svg, bool cancelled) {
         svg_copy_in_flight_ = false;
         if (cancelled) {

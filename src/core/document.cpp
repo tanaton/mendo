@@ -10,25 +10,15 @@
 
 namespace {
 
-// doc_char 型に応じた CR スキャン (UTF-16 では wmemchr、UTF-8 では memchr)。
-// memchr/wmemchr とも MSVC UCRT で SIMD ディスパッチを持つので両方とも fast path。
-// memchr(_, _, 0) / wmemchr(_, _, 0) は規格上 nullptr を返すので size==0 ガード不要。
-// doc_char に応じてビルド時に分岐させる。constexpr if だと両分岐の型チェックが入って
-// wchar_t* / char* の不整合で失敗するため、プリプロセッサで完全分岐する。
+// CR は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは絶対に衝突しない
+// (UTF-8 continuation byte は 10xxxxxx で 0x80-0xBF)。memchr(_, _, 0) は規格上 nullptr を返す。
 inline mendo::doc_char* FindDocCr(mendo::doc_char* p, size_t len) noexcept
 {
-#if MENDO_DOC_USE_UTF16
-    return std::wmemchr(p, mendo::doc_cr, len);
-#else
-    // memchr の戻り値は const void*。doc_char* に戻すため static_cast。
-    // CR は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは絶対に衝突しない
-    // (UTF-8 continuation byte は 10xxxxxx で 0x80-0xBF)。
     return static_cast<mendo::doc_char*>(std::memchr(p, mendo::doc_cr, len));
-#endif
 }
 
 // CRLF / 旧式 CR を LF に正規化する (in-place)。
-// 改行を LF に揃えておくと、パーサ中の current_text と raw_wide_ の memcmp 一致判定が成立し、
+// 改行を LF に揃えておくと、パーサ中の current_text と raw_text_ の memcmp 一致判定が成立し、
 // 大半の code block / 複数行 paragraph で view モード化 (owned_text_ 確保ゼロ) が選べる。
 // CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
 // LF-only ファイルでは memchr 1 回で素通し。
@@ -75,7 +65,7 @@ void NormalizeNewlines(mendo::doc_string& s)
 } // namespace
 
 Document::Document(Document&& other) noexcept
-    : nodes_(std::move(other.nodes_)), file_path_(std::move(other.file_path_)), raw_wide_(std::move(other.raw_wide_)), loaded_byte_size_(other.loaded_byte_size_), toc_(std::move(other.toc_)), anchor_index_(std::move(other.anchor_index_)), image_node_indices_(std::move(other.image_node_indices_)), diagram_node_indices_(std::move(other.diagram_node_indices_))
+    : nodes_(std::move(other.nodes_)), file_path_(std::move(other.file_path_)), raw_text_(std::move(other.raw_text_)), loaded_byte_size_(other.loaded_byte_size_), toc_(std::move(other.toc_)), anchor_index_(std::move(other.anchor_index_)), image_node_indices_(std::move(other.image_node_indices_)), diagram_node_indices_(std::move(other.diagram_node_indices_))
 {
     InjectViewBase();
 }
@@ -85,7 +75,7 @@ Document& Document::operator=(Document&& other) noexcept
     if (this != &other) {
         nodes_ = std::move(other.nodes_);
         file_path_ = std::move(other.file_path_);
-        raw_wide_ = std::move(other.raw_wide_);
+        raw_text_ = std::move(other.raw_text_);
         loaded_byte_size_ = other.loaded_byte_size_;
         toc_ = std::move(other.toc_);
         anchor_index_ = std::move(other.anchor_index_);
@@ -100,10 +90,10 @@ Document Document::FromMarkdown(mendo::doc_string text, size_t byte_size, std::w
 {
     Document doc;
     doc.file_path_ = path;
-    doc.raw_wide_ = std::move(text);
-    NormalizeNewlines(doc.raw_wide_);
+    doc.raw_text_ = std::move(text);
+    NormalizeNewlines(doc.raw_text_);
     doc.loaded_byte_size_ = byte_size;
-    doc.ReplaceContent(ParseMarkdown(doc.raw_wide_));
+    doc.ReplaceContent(ParseMarkdown(doc.raw_text_));
     return doc;
 }
 
@@ -111,12 +101,7 @@ Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
     const size_t byte_size = utf8.size();
     mendo::doc_string text;
-#if MENDO_DOC_USE_UTF16
-    string_convert::Utf8ToWideStripBom(utf8, text);
-#else
-    // UTF-8 ビルド時は wide 変換不要、BOM 除去のみで raw_utf8_ を直接構築。
     text.assign(string_convert::StripUtf8Bom(utf8));
-#endif
     return FromMarkdown(std::move(text), byte_size, path);
 }
 
@@ -132,8 +117,8 @@ std::pmr::wstring Document::GetDirectory() const
 void Document::ReplaceContent(ParseResult&& result)
 {
     // 注意: view_base_ は parser が ParseMarkdown 呼び出し時の markdown_text.data() を既に注入済み。
-    // raw_wide_ を差し替える経路 (FromMarkdown / ReplaceFromMarkdown) では ParseMarkdown(raw_wide_)
-    // を渡しているため view_base_ = raw_wide_.data() が一致し、ここでの再注入は不要。
+    // raw_text_ を差し替える経路 (FromMarkdown / ReplaceFromMarkdown) では ParseMarkdown(raw_text_)
+    // を渡しているため view_base_ = raw_text_.data() が一致し、ここでの再注入は不要。
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);
@@ -142,12 +127,12 @@ void Document::ReplaceContent(ParseResult&& result)
 
 void Document::InjectViewBase() noexcept
 {
-    const mendo::doc_char* const base = raw_wide_.data();
-    [[maybe_unused]] const size_t raw_size = raw_wide_.size();
+    const mendo::doc_char* const base = raw_text_.data();
+    [[maybe_unused]] const size_t raw_size = raw_text_.size();
     for (auto& n : nodes_) {
         if (n.IsViewMode()) {
             n.view_base_ = base;
-            // view 範囲は必ず raw_wide_ 内に収まること。範囲外だと GetText() が OOB になる。
+            // view 範囲は必ず raw_text_ 内に収まること。範囲外だと GetText() が OOB になる。
             assert(static_cast<size_t>(n.source_offset) + n.view_length <= raw_size);
         }
     }
@@ -155,21 +140,17 @@ void Document::InjectViewBase() noexcept
 
 void Document::ReplaceFromMarkdown(mendo::doc_string text, size_t byte_size)
 {
-    raw_wide_ = std::move(text);
-    NormalizeNewlines(raw_wide_);
+    raw_text_ = std::move(text);
+    NormalizeNewlines(raw_text_);
     loaded_byte_size_ = byte_size;
-    ReplaceContent(ParseMarkdown(raw_wide_));
+    ReplaceContent(ParseMarkdown(raw_text_));
 }
 
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)
 {
     const size_t byte_size = utf8.size();
     mendo::doc_string text;
-#if MENDO_DOC_USE_UTF16
-    string_convert::Utf8ToWideStripBom(utf8, text);
-#else
     text.assign(string_convert::StripUtf8Bom(utf8));
-#endif
     ReplaceFromMarkdown(std::move(text), byte_size);
 }
 

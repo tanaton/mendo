@@ -1,8 +1,6 @@
 #include "doc_dwrite_bridge.h"
-
-#if !MENDO_DOC_USE_UTF16
-#  include "memory_resource.h"
-#  include <limits>
+#include "memory_resource.h"
+#include <limits>
 
 namespace mendo {
 
@@ -25,9 +23,9 @@ WideViewForDWrite::WideViewForDWrite(doc_string_view text)
     // - 末尾 (= utf8_size): 全 wide unit 数 (番兵)
     // これにより `[byte_a, byte_b)` の範囲は wide で `[map[a], map[b])` に変換できる。
     //
-    // MultiByteToWideChar より自前 decode が遅いが、MeasureNode の per-node コストとしては許容範囲
-    // (100MB スケールで raw_wide_ 並存 -100MB に対して微小)。MultiByteToWideChar で先に wide を
-    // 作って 2-pass にする選択肢もあるが、整合性 (decode ルールが OS 依存) を避けて 1-pass で統一。
+    // MultiByteToWideChar より自前 decode が遅いが、MeasureNode の per-node コストとしては許容範囲。
+    // MultiByteToWideChar で先に wide を作って 2-pass にする選択肢もあるが、整合性 (decode ルールが
+    // OS 依存) を避けて 1-pass で統一。
     scratch_.reserve(text.size());          // UTF-16 code unit 数 <= UTF-8 byte 数
     utf16_offsets_.resize(text.size() + 1); // 番兵込み
 
@@ -79,13 +77,7 @@ WideViewForDWrite::WideViewForDWrite(doc_string_view text)
         }
     }
     utf16_offsets_[text.size()] = wide_pos;
-    offsets_built_ = true;
     view_ = scratch_;
-}
-
-void WideViewForDWrite::EnsureOffsetMap() const noexcept
-{
-    // コンストラクタで埋め切るので no-op。`offsets_built_` フラグは互換のため残す。
 }
 
 uint32_t WideViewForDWrite::WideOffsetFromDocOffset(doc_offset doc_off) const noexcept
@@ -101,7 +93,6 @@ uint32_t WideViewForDWrite::WideOffsetFromDocOffset(doc_offset doc_off) const no
 
 doc_offset WideViewForDWrite::DocOffsetFromWideOffset(uint32_t wide_off) const noexcept
 {
-    EnsureOffsetMap();
     if (utf16_offsets_.empty()) {
         return 0;
     }
@@ -134,5 +125,3 @@ HRESULT CreateDocTextLayout(IDWriteFactory* factory, doc_string_view text,
 }
 
 } // namespace mendo
-
-#endif // !MENDO_DOC_USE_UTF16

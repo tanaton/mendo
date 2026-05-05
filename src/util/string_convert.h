@@ -45,16 +45,6 @@ inline std::string_view StripUtf8Bom(std::string_view utf8) noexcept
     return utf8;
 }
 
-// 先頭の UTF-8 BOM (EF BB BF) を取り除いてから Utf8ToWide を呼ぶ。
-// FileLoader が返す UTF-8 のように BOM 付きの可能性がある経路で使う。
-// CRLF / 旧式 CR の LF 正規化は wide 段階で行う (Document::FromMarkdown 内 NormalizeNewlines)。
-// 日本語含むファイルでは UTF-8 サイズ > Wide サイズになるため、wide 段階で正規化する方が
-// memchr/memmove のスキャン量が少なく、かつ UTF-8 → wide 変換 1 パスで済む。
-inline void Utf8ToWideStripBom(std::string_view utf8, std::pmr::wstring& out)
-{
-    Utf8ToWide(StripUtf8Bom(utf8), out);
-}
-
 // std::string / std::pmr::string 両対応の WideToUtf8。
 template <typename Alloc>
 inline void WideToUtf8(std::wstring_view wide, std::basic_string<char, std::char_traits<char>, Alloc>& out)

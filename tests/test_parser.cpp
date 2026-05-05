@@ -297,19 +297,12 @@ TEST(Parser, HtmlEntitySupplementaryPlane)
     // U+1F600 = ニコニコ顔の絵文字（追加面）
     auto nodes = ParseMarkdown(MENDO_LIT("&#x1F600;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-#if MENDO_DOC_USE_UTF16
-    // UTF-16 サロゲートペア: D83D DE00
-    ASSERT_GE(nodes[0].GetText().size(), 2u);
-    EXPECT_EQ(nodes[0].GetText()[0], static_cast<wchar_t>(0xD83D));
-    EXPECT_EQ(nodes[0].GetText()[1], static_cast<wchar_t>(0xDE00));
-#else
     // UTF-8 4 byte: F0 9F 98 80
     ASSERT_EQ(nodes[0].GetText().size(), 4u);
     EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[0]), 0xF0);
     EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[1]), 0x9F);
     EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[2]), 0x98);
     EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[3]), 0x80);
-#endif
 }
 
 TEST(Parser, HtmlEntityDecimalSupplementaryPlane)
@@ -317,19 +310,12 @@ TEST(Parser, HtmlEntityDecimalSupplementaryPlane)
     // U+1F4A9 = 128169 decimal
     auto nodes = ParseMarkdown(MENDO_LIT("&#128169;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-#if MENDO_DOC_USE_UTF16
-    // U+1F4A9 -> D83D DCA9
-    ASSERT_GE(nodes[0].GetText().size(), 2u);
-    EXPECT_EQ(nodes[0].GetText()[0], static_cast<wchar_t>(0xD83D));
-    EXPECT_EQ(nodes[0].GetText()[1], static_cast<wchar_t>(0xDCA9));
-#else
     // UTF-8 4 byte: F0 9F 92 A9
     ASSERT_EQ(nodes[0].GetText().size(), 4u);
     EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[0]), 0xF0);
     EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[1]), 0x9F);
     EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[2]), 0x92);
     EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[3]), 0xA9);
-#endif
 }
 
 TEST(Parser, HtmlEntityBmpStillWorks)
@@ -337,15 +323,10 @@ TEST(Parser, HtmlEntityBmpStillWorks)
     // U+00A9 = 著作権記号（基本多言語面）
     auto nodes = ParseMarkdown(MENDO_LIT("&#xA9;")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
-#if MENDO_DOC_USE_UTF16
-    ASSERT_EQ(nodes[0].GetText().size(), 1u);
-    EXPECT_EQ(nodes[0].GetText()[0], MENDO_LIT('\u00A9'));
-#else
     // UTF-8 2 byte: C2 A9
     ASSERT_EQ(nodes[0].GetText().size(), 2u);
     EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[0]), 0xC2);
     EXPECT_EQ(static_cast<unsigned char>(nodes[0].GetText()[1]), 0xA9);
-#endif
 }
 
 TEST(Parser, HtmlEntityBeyondUnicode)
@@ -1191,23 +1172,14 @@ TEST(Parser, AlertLabelIsBold)
 
 TEST(Parser, AlertLabelLength)
 {
-    // alert_label_length は doc_char 単位 (UTF-16 code unit / UTF-8 byte)。
-    // ℹ (U+2139) は UTF-16 で 1 code unit、UTF-8 で 3 byte。同様に ❗ (U+2757)。
+    // alert_label_length は UTF-8 byte。ℹ (U+2139) は 3 byte、❗ (U+2757) も 3 byte。
     auto nodes = ParseMarkdown(MENDO_LIT("> [!NOTE]\n> text")).nodes;
     ASSERT_GE(nodes.size(), 1u);
-#if MENDO_DOC_USE_UTF16
-    EXPECT_EQ(nodes[0].alert_label_length, 6u); // 1 + 1 + 4
-#else
-    EXPECT_EQ(nodes[0].alert_label_length, 8u); // 3 + 1 + 4
-#endif
+    EXPECT_EQ(nodes[0].alert_label_length, 8u); // ℹ 3 + ' ' 1 + "NOTE" 4
 
     auto nodes2 = ParseMarkdown(MENDO_LIT("> [!IMPORTANT]\n> text")).nodes;
     ASSERT_GE(nodes2.size(), 1u);
-#if MENDO_DOC_USE_UTF16
-    EXPECT_EQ(nodes2[0].alert_label_length, 11u); // 1 + 1 + 9
-#else
-    EXPECT_EQ(nodes2[0].alert_label_length, 13u); // 3 + 1 + 9
-#endif
+    EXPECT_EQ(nodes2[0].alert_label_length, 13u); // ❗ 3 + ' ' 1 + "IMPORTANT" 9
 }
 
 TEST(Parser, AlertRunPositionsAreValid)
@@ -1452,15 +1424,11 @@ TEST(Parser, SourceOffsetHorizontalRule)
 
 TEST(Parser, SourceOffsetCjkMultiCodeUnit)
 {
-    // source_offset は doc_char 単位 (UTF-16 code unit / UTF-8 byte)。
+    // source_offset は UTF-8 byte。
     auto nodes = ParseMarkdown(MENDO_LIT("あいう\n\ntest")).nodes;
     ASSERT_EQ(nodes.size(), 2u);
     EXPECT_EQ(nodes[0].source_offset, 0u);
-#if MENDO_DOC_USE_UTF16
-    EXPECT_EQ(nodes[1].source_offset, 5u); // "あいう" 3 + "\n\n" 2
-#else
     EXPECT_EQ(nodes[1].source_offset, 11u); // "あいう" 9 byte + "\n\n" 2
-#endif
 }
 
 TEST(Parser, SourceOffsetUnorderedList)

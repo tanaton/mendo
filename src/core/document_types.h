@@ -182,22 +182,22 @@ struct Node {
     Extra extra;
 
     // 表示テキストの owned バッファ。テキスト加工 (Alert / HTML entity / SOFTBR/BR / display math 昇格 / 表セル等)
-    // を必要とするノードのみ確保する。raw_wide_ の連続範囲をそのまま表示できるノードは view モードに倒し
-    // owned_text_ は空のまま raw_wide_ を共有 view する (view_length > 0 と排他的不変条件)。
-    // SBO (~16 wchar) により短い加工結果は 0 ヒープ確保で済む。
+    // を必要とするノードのみ確保する。raw_text_ の連続範囲をそのまま表示できるノードは view モードに倒し
+    // owned_text_ は空のまま raw_text_ を共有 view する (view_length > 0 と排他的不変条件)。
+    // SBO (~16 byte) により短い加工結果は 0 ヒープ確保で済む。
     mendo::doc_string owned_text_;
 
-    // view モード時の参照ベース (= Document::raw_wide_.data())。
+    // view モード時の参照ベース (= Document::raw_text_.data())。
     // Document::InjectViewBase() が ReplaceContent / move 時に一括設定する。
     const mendo::doc_char* view_base_ = nullptr;
 
     // --- 4 バイトアライメント ---
     int32_t list_number = 0;                     // 0 = 順序なし, >0 = 順序付きリスト番号
-    uint32_t alert_label_length = 0;             // ラベル部分の文字数（描画エフェクト適用範囲）
-    uint32_t source_offset = kUnsetSourceOffset; // ソース wide テキスト内の UTF-16 コード単位オフセット (view モード時は view 開始位置)
+    uint32_t alert_label_length = 0;             // ラベル部分の UTF-8 byte 長（描画エフェクト適用範囲）
+    uint32_t source_offset = kUnsetSourceOffset; // ソーステキスト内の UTF-8 byte オフセット (view モード時は view 開始位置)
     int32_t blockquote_group = -1;               // 最外側 blockquote 単位のグループID（ネストしてもgroupは共有）
     int32_t line_count = 0;                      // テキスト内の改行数（パース時にカウント済み）
-    uint32_t view_length = 0;                    // view モード時の長さ (UTF-16 wchar 単位)。owned モード時は 0。
+    uint32_t view_length = 0;                    // view モード時の長さ (UTF-8 byte)。owned モード時は 0。
 
     // --- 1 バイトアライメント ---
     NodeType type = NodeType::Paragraph;
@@ -249,7 +249,7 @@ struct Node {
     }
 
     // 連続 NORMAL/CODE/LATEXMATH のみで構成されるノード向けの view 設定 API。
-    // raw_wide_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
+    // raw_text_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
     // Document::InjectViewBase() の手前で GetText() を呼ぶパス (parser 中の Heading anchor 生成等)
     // のため view_base もここで同時設定する。move 後は InjectViewBase() で再注入される。
     void SetTextView(uint32_t source_offset_value, uint32_t length, int32_t line_count_value, const mendo::doc_char* view_base) noexcept

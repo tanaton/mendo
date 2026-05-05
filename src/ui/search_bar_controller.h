@@ -121,9 +121,7 @@ private:
     bool dragging_ = false;
     int drag_anchor_ = 0;
     std::pmr::wstring ime_composition_;
-#if !MENDO_DOC_USE_UTF16
-    // UTF-8 ビルド時の SearchBarRenderState::query (wstring_view) 用に doc_string→wstring 変換結果を保持。
+    // SearchBarRenderState::query (wstring_view) 用に doc_string→wstring 変換結果を保持。
     // BuildRenderState() の戻り値内 view が SearchBarController の生存中 valid であることを保証する。
     mutable std::pmr::wstring query_wide_cache_;
-#endif
 };
