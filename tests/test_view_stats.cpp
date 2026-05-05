@@ -196,32 +196,9 @@ TEST(ViewStats, DISABLED_BenchFromMarkdownCrlfVsLf)
                   << kIterations << " iters)\n";
     };
 
-    // 純 ASCII synthetic fixture: heading + paragraph + code block の繰り返しで ~150KB。
-    // md4c UTF-8 ビルドの利得 (走査が 1 byte ステップ化) が一番出るケース。
-    std::pmr::string ascii_only;
-    constexpr std::string_view ascii_chunk =
-        "# Heading\n\n"
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor "
-        "incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud "
-        "exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure "
-        "dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.\n\n"
-        "```cpp\n"
-        "int compute(int x, int y) {\n"
-        "    return x * y + 42;\n"
-        "}\n"
-        "```\n\n"
-        "- list item one\n"
-        "- list item two with **bold** and *italic*\n"
-        "- list item three with `inline code`\n\n";
-    ascii_only.reserve(150 * 1024);
-    while (ascii_only.size() < 150 * 1024) {
-        ascii_only.append(ascii_chunk);
-    }
-
     std::cout << "=== FromMarkdown bench ===\n";
     bench("CRLF input", bytes_crlf);
     bench("LF only input", lf_only);
-    bench("ASCII synthetic", ascii_only);
 }
 
 // シンプルな段落 (span マークアップなし) が view 化されることを確認
