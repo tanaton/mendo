@@ -10,7 +10,6 @@
 #include "document_utils.h"
 #include "mermaid_util.h"
 #include "layout.h"
-#include "layout_computer.h"
 #include "ui_constants.h"
 #include <windowsx.h>
 #include <algorithm>
@@ -427,11 +426,8 @@ void App::SaveScrollPosition()
     if (node < 0) {
         return;
     }
-    const auto& cache = state_.document.layout_cache;
-    const auto& nodes = state_.document.doc.GetNodes();
-    const auto& theme = renderer_.GetTheme();
-    const float text_top = (static_cast<size_t>(node) < nodes.size())
-        ? mendo::layout::TextTopOf(cache, static_cast<size_t>(node), nodes[node], theme)
-        : 0.0f;
+    // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top フィールドを読む。
+    // Fenwick PrefixSum 経由 (TextTopOf) は float 加算順が違うためノード数が増えると誤差が累積する。
+    const float text_top = state_.document.layout_cache[node].text_top;
     session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
 }
