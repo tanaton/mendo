@@ -53,13 +53,6 @@ public:
     {
         return raw_wide_;
     }
-    // パース入力の UTF-8 byte 列への参照 (raw_wide_ と等価な内容を NormalizeNewlines 後に
-    // 持つ)。Phase C-1 で並存追加。raw_utf8_ は md4c に直接渡される入力でもある。
-    // 後続 Phase C で raw_wide_ を削除し、Node も UTF-8 化することでメモリ -40% を達成する予定。
-    constexpr std::string_view GetRawTextUtf8() const noexcept
-    {
-        return raw_utf8_;
-    }
     // 元ファイル(UTF-8)バイト数。エディタの中間書き込み検出（IsFileLargerThan）で参照する。
     constexpr size_t GetLoadedByteSize() const noexcept
     {
@@ -103,10 +96,6 @@ private:
     // ノードの view_base_ が dangling になるため)。差し替えは ReplaceFromMarkdown 経由で
     // 全 nodes 再構築 + InjectViewBase() を伴うパスのみ許される。
     std::pmr::wstring raw_wide_;
-    // raw_wide_ と等価な UTF-8 byte 列 (NormalizeNewlines 後)。md4c (UTF-8 ビルド) への
-    // 入力としてそのまま使う。raw_wide_ と raw_utf8_ は FromMarkdown / AssignFromUtf8 /
-    // ReplaceFromMarkdown でのみ同期書き込みされる。
-    std::pmr::string raw_utf8_;
     size_t loaded_byte_size_ = 0;
     TableOfContents toc_;
     // キーは所有 wstring。nodes_ の再アロケート/構造変更でも索引が dangling しない。
