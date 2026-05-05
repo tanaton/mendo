@@ -33,4 +33,6 @@ mendo::doc_string_view GetAlertIcon(AlertType type) noexcept;
 // そのままテキストとして再投入することを示す)。
 // view が指す領域は (a) static なリテラル または (b) 呼び出し側が渡した buffer のいずれか。
 // buffer のスコープ内でのみ valid。
-[[nodiscard]] std::optional<mendo::doc_string_view> ResolveHtmlEntity(mendo::doc_string_view entity, mendo::doc_char (&buffer)[2]);
+// UTF-16 ビルドでは buffer は最大 2 code unit (BMP 1 + サロゲートペア 2)、
+// UTF-8 ビルドでは最大 4 byte (U+10FFFF まで)。両ビルドで足りる 4 を採用する。
+[[nodiscard]] std::optional<mendo::doc_string_view> ResolveHtmlEntity(mendo::doc_string_view entity, mendo::doc_char (&buffer)[4]);

@@ -162,9 +162,9 @@ protected:
 TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
 {
     // 100 ノードのドキュメントを作成
-    std::wstring md;
+    mendo::doc_string_std md;
     for (int i = 0; i < 100; i++) {
-        md += L"paragraph " + std::to_wstring(i) + L"\n\n";
+        md += MENDO_LIT("paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
     }
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GT(nodes.size(), 50u);
@@ -206,9 +206,9 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
 
 TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
 {
-    std::wstring md;
+    mendo::doc_string_std md;
     for (int i = 0; i < 50; i++) {
-        md += L"paragraph " + std::to_wstring(i) + L"\n\n";
+        md += MENDO_LIT("paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
     }
     auto nodes = ParseMarkdown(md).nodes;
 
@@ -232,9 +232,9 @@ TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
 
 TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
 {
-    std::wstring md;
+    mendo::doc_string_std md;
     for (int i = 0; i < 100; i++) {
-        md += L"paragraph " + std::to_wstring(i) + L"\n\n";
+        md += MENDO_LIT("paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
     }
     auto nodes = ParseMarkdown(md).nodes;
 

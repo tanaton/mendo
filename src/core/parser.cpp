@@ -811,7 +811,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         // entity (`&amp;` 等) は現状文字に解決される。原文 (`&amp;`) と current_text (`&`) が
         // 不一致になり view 化失敗確定。memcmp スキップフラグを立てる。
         ctx->current_node_owned_only = true;
-        mendo::doc_char entity_buf[2];
+        mendo::doc_char entity_buf[4];
         if (const auto resolved = ResolveHtmlEntity(chunk, entity_buf)) {
             ctx->AppendDoc(*resolved);
         }
@@ -1110,7 +1110,7 @@ void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockqu
     }
 }
 
-std::optional<mendo::doc_string_view> ResolveHtmlEntity(mendo::doc_string_view entity, mendo::doc_char (&buffer)[2])
+std::optional<mendo::doc_string_view> ResolveHtmlEntity(mendo::doc_string_view entity, mendo::doc_char (&buffer)[4])
 {
     // 名前付き実体参照はサイズで先に分岐し、比較対象を 1～3 候補に絞る。
     switch (entity.size()) {
@@ -1161,20 +1161,44 @@ std::optional<mendo::doc_string_view> ResolveHtmlEntity(mendo::doc_string_view e
         // 全桁消費 (stop == digits + digit_len) かつ 1 桁以上 (stop > digits) のみ受理。
         // "&#65x;" のように途中で停止した入力は不正として弾く。
         const bool fully_consumed = (stop == digits + digit_len) && (stop > digits);
-        // サロゲート範囲 (U+D800-U+DFFF) は単独で UTF-16 として不正なので除外し、
-        // 呼び出し側で元の入力をそのままテキストとして再投入させる。
-        if (fully_consumed && codepoint > 0 && codepoint <= 0xFFFF &&
-            !(codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+        // サロゲート範囲 (U+D800-U+DFFF) は単独で UTF-16 として不正、また 0/範囲外も不正。
+        if (!fully_consumed || codepoint == 0 || codepoint > 0x10FFFF ||
+            (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+            return std::nullopt;
+        }
+#if MENDO_DOC_USE_UTF16
+        if (codepoint <= 0xFFFF) {
             buffer[0] = static_cast<mendo::doc_char>(codepoint);
             return mendo::doc_string_view{ buffer, 1 };
         }
-        if (fully_consumed && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
-            // 補助面: UTF-16 サロゲートペア
-            const unsigned long adj = codepoint - 0x10000;
-            buffer[0] = static_cast<mendo::doc_char>(0xD800 + (adj >> 10));
-            buffer[1] = static_cast<mendo::doc_char>(0xDC00 + (adj & 0x3FF));
+        // 補助面: UTF-16 サロゲートペア
+        const unsigned long adj = codepoint - 0x10000;
+        buffer[0] = static_cast<mendo::doc_char>(0xD800 + (adj >> 10));
+        buffer[1] = static_cast<mendo::doc_char>(0xDC00 + (adj & 0x3FF));
+        return mendo::doc_string_view{ buffer, 2 };
+#else
+        // UTF-8: code point を 1〜4 byte に符号化。
+        if (codepoint < 0x80) {
+            buffer[0] = static_cast<mendo::doc_char>(codepoint);
+            return mendo::doc_string_view{ buffer, 1 };
+        }
+        if (codepoint < 0x800) {
+            buffer[0] = static_cast<mendo::doc_char>(0xC0 | (codepoint >> 6));
+            buffer[1] = static_cast<mendo::doc_char>(0x80 | (codepoint & 0x3F));
             return mendo::doc_string_view{ buffer, 2 };
         }
+        if (codepoint < 0x10000) {
+            buffer[0] = static_cast<mendo::doc_char>(0xE0 | (codepoint >> 12));
+            buffer[1] = static_cast<mendo::doc_char>(0x80 | ((codepoint >> 6) & 0x3F));
+            buffer[2] = static_cast<mendo::doc_char>(0x80 | (codepoint & 0x3F));
+            return mendo::doc_string_view{ buffer, 3 };
+        }
+        buffer[0] = static_cast<mendo::doc_char>(0xF0 | (codepoint >> 18));
+        buffer[1] = static_cast<mendo::doc_char>(0x80 | ((codepoint >> 12) & 0x3F));
+        buffer[2] = static_cast<mendo::doc_char>(0x80 | ((codepoint >> 6) & 0x3F));
+        buffer[3] = static_cast<mendo::doc_char>(0x80 | (codepoint & 0x3F));
+        return mendo::doc_string_view{ buffer, 4 };
+#endif
     }
 
     return std::nullopt;

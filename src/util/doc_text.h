@@ -43,6 +43,17 @@ inline constexpr doc_char doc_cr  = MENDO_LIT('\r');
 inline constexpr doc_char doc_tab = MENDO_LIT('\t');
 inline constexpr doc_char doc_sp  = MENDO_LIT(' ');
 
+// 整数値を doc_char ベース文字列に変換する。UTF-16 では std::to_wstring、UTF-8 では std::to_string。
+template <typename T>
+inline doc_string_std to_doc_string(T value)
+{
+#if MENDO_DOC_USE_UTF16
+    return std::to_wstring(value);
+#else
+    return std::to_string(value);
+#endif
+}
+
 // doc_string と doc_string_view を等価にハッシュする透過ハッシャ。
 // equal_to<> と組み合わせて unordered_map に渡すと doc_string_view からの lookup で
 // 一時 doc_string の確保をスキップできる。

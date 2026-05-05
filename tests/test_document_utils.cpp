@@ -16,7 +16,7 @@
 
 TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 {
-    auto nodes = ParseMarkdown(L"Hello world").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
     TextSelection sel;
     sel.active = false;
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
@@ -24,58 +24,58 @@ TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 
 TEST(ExtractSelectedText, SingleNodeFullSelection)
 {
-    auto nodes = ParseMarkdown(L"Hello world").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Hello world");
+    EXPECT_EQ(ExtractSelectedText(nodes, sel), MENDO_LIT("Hello world"));
 }
 
 TEST(ExtractSelectedText, SingleNodePartialSelection)
 {
-    auto nodes = ParseMarkdown(L"Hello world").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Hello");
+    EXPECT_EQ(ExtractSelectedText(nodes, sel), MENDO_LIT("Hello"));
 }
 
 TEST(ExtractSelectedText, SingleNodeMiddleSelection)
 {
-    auto nodes = ParseMarkdown(L"Hello world").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), L"world");
+    EXPECT_EQ(ExtractSelectedText(nodes, sel), MENDO_LIT("world"));
 }
 
 TEST(ExtractSelectedText, MultipleNodesFullSelection)
 {
-    auto nodes = ParseMarkdown(L"First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("First\n\nSecond\n\nThird")).nodes;
     ASSERT_EQ(nodes.size(), 3u);
     auto sel = TextSelection::MakeOrdered(
         0, 0, 2, static_cast<uint32_t>(nodes[2].GetText().size()));
     auto result = ExtractSelectedText(nodes, sel);
-    EXPECT_NE(result.find(L"First"), std::wstring::npos);
-    EXPECT_NE(result.find(L"Second"), std::wstring::npos);
-    EXPECT_NE(result.find(L"Third"), std::wstring::npos);
+    EXPECT_NE(result.find(MENDO_LIT("First")), mendo::doc_string_std::npos);
+    EXPECT_NE(result.find(MENDO_LIT("Second")), mendo::doc_string_std::npos);
+    EXPECT_NE(result.find(MENDO_LIT("Third")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedText, MultipleNodesPartialSelection)
 {
-    auto nodes = ParseMarkdown(L"First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("First\n\nSecond\n\nThird")).nodes;
     ASSERT_EQ(nodes.size(), 3u);
     // "First"の途中から"Third"の途中まで選択
     auto sel = TextSelection::MakeOrdered(0, 2, 2, 3);
     auto result = ExtractSelectedText(nodes, sel);
-    EXPECT_EQ(result.substr(0, 3), L"rst");
-    EXPECT_NE(result.find(L"Second"), std::wstring::npos);
-    EXPECT_NE(result.find(L"Thi"), std::wstring::npos);
+    EXPECT_EQ(result.substr(0, 3), MENDO_LIT("rst"));
+    EXPECT_NE(result.find(MENDO_LIT("Second")), mendo::doc_string_std::npos);
+    EXPECT_NE(result.find(MENDO_LIT("Thi")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedText, NewlineBetweenNodes)
 {
-    auto nodes = ParseMarkdown(L"A\n\nB").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("A\n\nB")).nodes;
     ASSERT_EQ(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(
         0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     auto result = ExtractSelectedText(nodes, sel);
     // ノード間に\r\nが含まれるべき
-    EXPECT_NE(result.find(L"\r\n"), std::wstring::npos);
+    EXPECT_NE(result.find(MENDO_LIT("\r\n")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedText, EmptyNodes)
@@ -88,18 +88,18 @@ TEST(ExtractSelectedText, EmptyNodes)
 
 TEST(ExtractSelectedText, EndBeyondTextSize)
 {
-    auto nodes = ParseMarkdown(L"Short").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Short")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 1000);
     // end_posがテキストサイズを超える場合はクランプされるべき
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), L"Short");
+    EXPECT_EQ(ExtractSelectedText(nodes, sel), MENDO_LIT("Short"));
 }
 
 TEST(ExtractSelectedText, JapaneseText)
 {
-    auto nodes = ParseMarkdown(L"日本語テスト").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("日本語テスト")).nodes;
     auto sel = TextSelection::MakeOrdered(
         0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), L"日本語テスト");
+    EXPECT_EQ(ExtractSelectedText(nodes, sel), MENDO_LIT("日本語テスト"));
 }
 
 // ============================================================
@@ -108,7 +108,7 @@ TEST(ExtractSelectedText, JapaneseText)
 
 TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
 {
-    auto nodes = ParseMarkdown(L"Hello").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello")).nodes;
     TextSelection sel;
     sel.active = false;
     EXPECT_TRUE(ExtractSelectedTextAsHtml(nodes, sel).empty());
@@ -116,112 +116,112 @@ TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
 
 TEST(ExtractSelectedTextAsHtml, ParagraphWrapsInPTag)
 {
-    auto nodes = ParseMarkdown(L"Hello world").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), L"<p>Hello world</p>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), MENDO_LIT("<p>Hello world</p>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, HeadingLevels)
 {
-    auto nodes = ParseMarkdown(L"## Section").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("## Section")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), L"<h2>Section</h2>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), MENDO_LIT("<h2>Section</h2>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, BoldAndItalic)
 {
-    auto nodes = ParseMarkdown(L"**bold** and *italic*").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("**bold** and *italic*")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<strong>bold</strong>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<em>italic</em>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<strong>bold</strong>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<em>italic</em>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, InlineCode)
 {
-    auto nodes = ParseMarkdown(L"text `code` more").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("text `code` more")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<code>code</code>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<code>code</code>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, LinkProducesAnchor)
 {
-    auto nodes = ParseMarkdown(L"[click](https://example.com)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[click](https://example.com)")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<a href=\"https://example.com\">click</a>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<a href=\"https://example.com\">click</a>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
 {
     Node n;
     n.type = NodeType::Paragraph;
-    n.SetText(L"a<b&c>d\"e'f");
+    n.SetText(MENDO_LIT("a<b&c>d\"e'f"));
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(n));
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel),
-        L"<p>a&lt;b&amp;c&gt;d&quot;e&#39;f</p>");
+        MENDO_LIT("<p>a&lt;b&amp;c&gt;d&quot;e&#39;f</p>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
 {
-    auto nodes = ParseMarkdown(L"```\nint x = 1 < 2;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```\nint x = 1 < 2;\n```")).nodes;
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<pre"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<code>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"&lt;"), std::wstring::npos);
-    EXPECT_NE(html.find(L"</code></pre>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<pre")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<code>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("&lt;")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("</code></pre>")), mendo::doc_string_std::npos);
     // コードブロック内ではインラインタグ化しない
-    EXPECT_EQ(html.find(L"<strong>"), std::wstring::npos);
-    EXPECT_EQ(html.find(L"<em>"), std::wstring::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("<strong>")), mendo::doc_string_std::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("<em>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
 {
     // 言語指定なし -> syntax_tokens が空 -> span タグは付かない
-    auto nodes = ParseMarkdown(L"```\nplain text\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```\nplain text\n```")).nodes;
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_EQ(html.find(L"<span"), std::wstring::npos);
-    EXPECT_NE(html.find(L"plain text"), std::wstring::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("<span")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("plain text")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockWithSyntaxTokensWrapsInSpans)
 {
     // syntax_tokens を手動でセットし、span による色付けが行われることを確認
-    auto nodes = ParseMarkdown(L"```cpp\nint x = 42;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```cpp\nint x = 42;\n```")).nodes;
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto& n = nodes[0];
-    const std::wstring_view text = n.GetText();
+    const mendo::doc_string_view text = n.GetText();
     ASSERT_FALSE(text.empty());
     // "int" を Keyword, "42" を Number としてマーク
     auto& tokens = n.syntax_tokens_mut();
     tokens.clear();
-    const auto int_pos = static_cast<uint32_t>(text.find(L"int"));
-    const auto num_pos = static_cast<uint32_t>(text.find(L"42"));
-    ASSERT_NE(int_pos, static_cast<uint32_t>(std::wstring::npos));
-    ASSERT_NE(num_pos, static_cast<uint32_t>(std::wstring::npos));
+    const auto int_pos = static_cast<uint32_t>(text.find(MENDO_LIT("int")));
+    const auto num_pos = static_cast<uint32_t>(text.find(MENDO_LIT("42")));
+    ASSERT_NE(int_pos, static_cast<uint32_t>(mendo::doc_string_std::npos));
+    ASSERT_NE(num_pos, static_cast<uint32_t>(mendo::doc_string_std::npos));
     tokens.push_back(SyntaxToken{ int_pos, 3u, SyntaxTokenType::Keyword });
     tokens.push_back(SyntaxToken{ num_pos, 2u, SyntaxTokenType::Number });
 
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<span style=\"color:#af00db\">int</span>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<span style=\"color:#098658\">42</span>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<span style=\"color:#af00db\">int</span>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<span style=\"color:#098658\">42</span>")), mendo::doc_string_std::npos);
     // その他の Plain 区間は素のテキスト
-    EXPECT_NE(html.find(L" x = "), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT(" x = ")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 {
-    auto nodes = ParseMarkdown(L"```cpp\na<b\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```cpp\na<b\n```")).nodes;
     auto& n = nodes[0];
-    const std::wstring_view text = n.GetText();
+    const mendo::doc_string_view text = n.GetText();
     auto& tokens = n.syntax_tokens_mut();
     tokens.clear();
     // 全体を文字列トークンとしてマーク
@@ -231,33 +231,33 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     // span 内のテキストも HTML エスケープされる
-    EXPECT_NE(html.find(L"&lt;"), std::wstring::npos);
-    EXPECT_EQ(html.find(L"a<b"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("&lt;")), mendo::doc_string_std::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("a<b")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
 {
-    auto nodes = ParseMarkdown(L"```cpp\nint x = 42;\n```").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("```cpp\nint x = 42;\n```")).nodes;
     auto& n = nodes[0];
-    const std::wstring_view text = n.GetText();
+    const mendo::doc_string_view text = n.GetText();
     auto& tokens = n.syntax_tokens_mut();
     tokens.clear();
-    const auto int_pos = static_cast<uint32_t>(text.find(L"int"));
-    const auto num_pos = static_cast<uint32_t>(text.find(L"42"));
+    const auto int_pos = static_cast<uint32_t>(text.find(MENDO_LIT("int")));
+    const auto num_pos = static_cast<uint32_t>(text.find(MENDO_LIT("42")));
     tokens.push_back(SyntaxToken{ int_pos, 3u, SyntaxTokenType::Keyword });
     tokens.push_back(SyntaxToken{ num_pos, 2u, SyntaxTokenType::Number });
 
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel, /*dark_mode=*/true);
     // ダーク用の色（VS Code Dark+ 相当）が使われる
-    EXPECT_NE(html.find(L"<span style=\"color:#c586c0\">int</span>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<span style=\"color:#b5cea8\">42</span>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<span style=\"color:#c586c0\">int</span>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<span style=\"color:#b5cea8\">42</span>")), mendo::doc_string_std::npos);
     // ライト用の色は混ざらない
-    EXPECT_EQ(html.find(L"#af00db"), std::wstring::npos);
-    EXPECT_EQ(html.find(L"#098658"), std::wstring::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("#af00db")), mendo::doc_string_std::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("#098658")), mendo::doc_string_std::npos);
     // コードブロック背景がダーク色
-    EXPECT_NE(html.find(L"background-color:#2d2d2d"), std::wstring::npos);
-    EXPECT_NE(html.find(L"color:#d4d4d4"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("background-color:#2d2d2d")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("color:#d4d4d4")), mendo::doc_string_std::npos);
 }
 
 // テーブルノードは node.GetText() の線形化テキストがレイアウトパス後にのみ埋まるため、
@@ -265,7 +265,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
 static TextSelection MakeTableFullSelection(Node& table)
 {
     if (table.GetText().empty()) {
-        table.SetText(L"table");
+        table.SetText(MENDO_LIT("table"));
     }
     return TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(table.GetText().size()));
 }
@@ -273,72 +273,72 @@ static TextSelection MakeTableFullSelection(Node& table)
 TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
 {
     auto nodes = ParseMarkdown(
-        L"| A | B |\n"
-        L"|---|---|\n"
-        L"| 1 | 2 |"
+        MENDO_LIT("| A | B |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| 1 | 2 |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto sel = MakeTableFullSelection(nodes[0]);
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<table"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<thead>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<th"), std::wstring::npos);
-    EXPECT_NE(html.find(L">A</th>"), std::wstring::npos);
-    EXPECT_NE(html.find(L">B</th>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"</thead>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<tbody>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<td"), std::wstring::npos);
-    EXPECT_NE(html.find(L">1</td>"), std::wstring::npos);
-    EXPECT_NE(html.find(L">2</td>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"</tbody>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"</table>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<table")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<thead>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<th")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT(">A</th>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT(">B</th>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("</thead>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<tbody>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<td")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT(">1</td>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT(">2</td>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("</tbody>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("</table>")), mendo::doc_string_std::npos);
     // フォールバックの <pre> は使われないこと
-    EXPECT_EQ(html.find(L"<pre>"), std::wstring::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("<pre>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
 {
     auto nodes = ParseMarkdown(
-        L"| L | C | R |\n"
-        L"|:--|:--:|--:|\n"
-        L"| a | b | c |"
+        MENDO_LIT("| L | C | R |\n")
+        MENDO_LIT("|:--|:--:|--:|\n")
+        MENDO_LIT("| a | b | c |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto sel = MakeTableFullSelection(nodes[0]);
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"text-align:center;"), std::wstring::npos);
-    EXPECT_NE(html.find(L"text-align:right;"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("text-align:center;")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("text-align:right;")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
 {
     auto nodes = ParseMarkdown(
-        L"| A | B |\n"
-        L"|---|---|\n"
-        L"| **bold** | [link](https://example.com) |"
+        MENDO_LIT("| A | B |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| **bold** | [link](https://example.com) |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto sel = MakeTableFullSelection(nodes[0]);
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<strong>bold</strong>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<a href=\"https://example.com\">link</a>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<strong>bold</strong>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<a href=\"https://example.com\">link</a>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
 {
     auto nodes = ParseMarkdown(
-        L"| A | B |\n"
-        L"|---|---|\n"
-        L"| 1 | 2 |"
+        MENDO_LIT("| A | B |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| 1 | 2 |")
     ).nodes;
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto sel = MakeTableFullSelection(nodes[0]);
     auto html = ExtractSelectedTextAsHtml(nodes, sel, /*dark_mode=*/true);
-    EXPECT_NE(html.find(L"border:1px solid #3c3c3c"), std::wstring::npos);
-    EXPECT_EQ(html.find(L"#d0d7de"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("border:1px solid #3c3c3c")), mendo::doc_string_std::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("#d0d7de")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
@@ -346,123 +346,123 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
     // table_data が空のノードに対しては <pre> フォールバックで出力される。
     Node n;
     n.type = NodeType::Table;
-    n.SetText(L"fallback");
+    n.SetText(MENDO_LIT("fallback"));
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(n));
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_EQ(html.find(L"<table"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<pre>fallback</pre>"), std::wstring::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("<table")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<pre>fallback</pre>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, UnorderedListWrapsInUl)
 {
-    auto nodes = ParseMarkdown(L"- one\n- two").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("- one\n- two")).nodes;
     ASSERT_GE(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<ul>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<li>one</li>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<li>two</li>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"</ul>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<ul>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<li>one</li>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<li>two</li>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("</ul>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, OrderedListWrapsInOl)
 {
-    auto nodes = ParseMarkdown(L"1. first\n2. second").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("1. first\n2. second")).nodes;
     ASSERT_GE(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<ol>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<li>first</li>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"<li>second</li>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"</ol>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<ol>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<li>first</li>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<li>second</li>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("</ol>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, BlockQuote)
 {
-    auto nodes = ParseMarkdown(L"> quoted text").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("> quoted text")).nodes;
     ASSERT_EQ(nodes[0].type, NodeType::BlockQuote);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<blockquote>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"</blockquote>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"quoted text"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<blockquote>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("</blockquote>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("quoted text")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, HorizontalRule)
 {
-    auto nodes = ParseMarkdown(L"before\n\n---\n\nafter").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("before\n\n---\n\nafter")).nodes;
     ASSERT_GE(nodes.size(), 3u);
     ASSERT_EQ(nodes[1].type, NodeType::HorizontalRule);
     auto sel = TextSelection::MakeOrdered(0, 0, 2, static_cast<uint32_t>(nodes[2].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<hr>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<hr>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, MultiParagraph)
 {
-    auto nodes = ParseMarkdown(L"First\n\nSecond").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("First\n\nSecond")).nodes;
     ASSERT_EQ(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel),
-        L"<p>First</p><p>Second</p>");
+        MENDO_LIT("<p>First</p><p>Second</p>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, PartialSelectionInParagraph)
 {
-    auto nodes = ParseMarkdown(L"Hello world").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), L"<p>world</p>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), MENDO_LIT("<p>world</p>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, OrderedTaskListWrapsInOl)
 {
-    auto nodes = ParseMarkdown(L"1. [ ] first\n2. [x] second").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("1. [ ] first\n2. [x] second")).nodes;
     ASSERT_GE(nodes.size(), 2u);
     ASSERT_EQ(nodes[0].type, NodeType::TaskListItem);
     ASSERT_EQ(nodes[1].type, NodeType::TaskListItem);
     auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<ol>"), std::wstring::npos);
-    EXPECT_NE(html.find(L"</ol>"), std::wstring::npos);
-    EXPECT_EQ(html.find(L"<ul>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<ol>")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("</ol>")), mendo::doc_string_std::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("<ul>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, UnsafeSchemeLinkIsStripped)
 {
-    auto nodes = ParseMarkdown(L"[click](javascript:alert(1))").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[click](javascript:alert(1))")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
-    EXPECT_EQ(html.find(L"javascript"), std::wstring::npos);
-    EXPECT_NE(html.find(L"click"), std::wstring::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("<a href=")), mendo::doc_string_std::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("javascript")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("click")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, FileSchemeLinkIsStripped)
 {
-    auto nodes = ParseMarkdown(L"[open](file:///C:/secret.txt)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[open](file:///C:/secret.txt)")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
-    EXPECT_NE(html.find(L"open"), std::wstring::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("<a href=")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("open")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, MailtoLinkIsKept)
 {
-    auto nodes = ParseMarkdown(L"[mail](mailto:user@example.com)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[mail](mailto:user@example.com)")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find(L"<a href=\"mailto:user@example.com\">mail</a>"), std::wstring::npos);
+    EXPECT_NE(html.find(MENDO_LIT("<a href=\"mailto:user@example.com\">mail</a>")), mendo::doc_string_std::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, InternalAnchorLinkIsStripped)
 {
-    auto nodes = ParseMarkdown(L"[sec](#section)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[sec](#section)")).nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_EQ(html.find(L"<a href="), std::wstring::npos);
-    EXPECT_NE(html.find(L"sec"), std::wstring::npos);
+    EXPECT_EQ(html.find(MENDO_LIT("<a href=")), mendo::doc_string_std::npos);
+    EXPECT_NE(html.find(MENDO_LIT("sec")), mendo::doc_string_std::npos);
 }
 
 // ============================================================
@@ -471,7 +471,7 @@ TEST(ExtractSelectedTextAsHtml, InternalAnchorLinkIsStripped)
 
 TEST(FindLinkAtPosition, NoLinks)
 {
-    auto nodes = ParseMarkdown(L"plain text").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("plain text")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 0);
     EXPECT_FALSE(result.has_value());
@@ -479,17 +479,17 @@ TEST(FindLinkAtPosition, NoLinks)
 
 TEST(FindLinkAtPosition, LinkFound)
 {
-    auto nodes = ParseMarkdown(L"[click](https://example.com)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[click](https://example.com)")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // リンクテキスト内の位置
     auto result = FindLinkAtPosition(nodes[0], 0);
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result.value(), L"https://example.com");
+    EXPECT_EQ(result.value(), MENDO_LIT("https://example.com"));
 }
 
 TEST(FindLinkAtPosition, PositionOutsideLink)
 {
-    auto nodes = ParseMarkdown(L"before [link](https://example.com) after").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("before [link](https://example.com) after")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // "before"テキスト内の位置（リンクではないはず）
     auto result = FindLinkAtPosition(nodes[0], 0);
@@ -498,16 +498,16 @@ TEST(FindLinkAtPosition, PositionOutsideLink)
 
 TEST(FindLinkAtPosition, InternalLink)
 {
-    auto nodes = ParseMarkdown(L"[section](#my-section)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[section](#my-section)")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 0);
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result.value(), L"#my-section");
+    EXPECT_EQ(result.value(), MENDO_LIT("#my-section"));
 }
 
 TEST(FindLinkAtPosition, PositionAtLinkBoundary)
 {
-    auto nodes = ParseMarkdown(L"[link](https://example.com)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[link](https://example.com)")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // リンクの最後の文字の位置
     uint32_t last_pos = static_cast<uint32_t>(nodes[0].GetText().size()) - 1;
@@ -517,7 +517,7 @@ TEST(FindLinkAtPosition, PositionAtLinkBoundary)
 
 TEST(FindLinkAtPosition, PositionBeyondText)
 {
-    auto nodes = ParseMarkdown(L"[link](https://example.com)").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("[link](https://example.com)")).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 9999);
     EXPECT_FALSE(result.has_value());
@@ -537,56 +537,56 @@ TEST(FindLinkAtPosition, EmptyNode)
 TEST(FindAnchorNodeIndex, EmptyNodes)
 {
     std::pmr::vector<Node> nodes;
-    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L"test"), -1);
+    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, MENDO_LIT("test")), -1);
 }
 
 TEST(FindAnchorNodeIndex, EmptyAnchor)
 {
-    auto nodes = ParseMarkdown(L"# Title").nodes;
-    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L""), -1);
+    auto nodes = ParseMarkdown(MENDO_LIT("# Title")).nodes;
+    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, MENDO_LIT("")), -1);
 }
 
 TEST(FindAnchorNodeIndex, FindExistingAnchor)
 {
-    auto nodes = ParseMarkdown(L"# Title\n\nParagraph\n\n## Section").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# Title\n\nParagraph\n\n## Section")).nodes;
     ASSERT_GE(nodes.size(), 3u);
-    int idx = FindAnchorNodeIndexLinear(nodes, L"title");
+    int idx = FindAnchorNodeIndexLinear(nodes, MENDO_LIT("title"));
     EXPECT_EQ(idx, 0);
 }
 
 TEST(FindAnchorNodeIndex, FindSecondHeading)
 {
-    auto nodes = ParseMarkdown(L"# First\n\nParagraph\n\n## Second").nodes;
-    int idx = FindAnchorNodeIndexLinear(nodes, L"second");
+    auto nodes = ParseMarkdown(MENDO_LIT("# First\n\nParagraph\n\n## Second")).nodes;
+    int idx = FindAnchorNodeIndexLinear(nodes, MENDO_LIT("second"));
     EXPECT_GE(idx, 0);
-    EXPECT_EQ(nodes[idx].GetText(), L"Second");
+    EXPECT_EQ(nodes[idx].GetText(), MENDO_LIT("Second"));
 }
 
 TEST(FindAnchorNodeIndex, CaseInsensitiveSearch)
 {
-    auto nodes = ParseMarkdown(L"# Hello World").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# Hello World")).nodes;
     // アンカーは"hello-world"、大文字で検索
-    int idx = FindAnchorNodeIndexLinear(nodes, L"Hello-World");
+    int idx = FindAnchorNodeIndexLinear(nodes, MENDO_LIT("Hello-World"));
     EXPECT_EQ(idx, 0);
 }
 
 TEST(FindAnchorNodeIndex, NotFound)
 {
-    auto nodes = ParseMarkdown(L"# Title").nodes;
-    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L"nonexistent"), -1);
+    auto nodes = ParseMarkdown(MENDO_LIT("# Title")).nodes;
+    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, MENDO_LIT("nonexistent")), -1);
 }
 
 TEST(FindAnchorNodeIndex, CjkAnchor)
 {
-    auto nodes = ParseMarkdown(L"## コードブロック").nodes;
-    int idx = FindAnchorNodeIndexLinear(nodes, L"コードブロック");
+    auto nodes = ParseMarkdown(MENDO_LIT("## コードブロック")).nodes;
+    int idx = FindAnchorNodeIndexLinear(nodes, MENDO_LIT("コードブロック"));
     EXPECT_EQ(idx, 0);
 }
 
 TEST(FindAnchorNodeIndex, SkipsNonHeadings)
 {
-    auto nodes = ParseMarkdown(L"Paragraph\n\n# Heading").nodes;
-    int idx = FindAnchorNodeIndexLinear(nodes, L"heading");
+    auto nodes = ParseMarkdown(MENDO_LIT("Paragraph\n\n# Heading")).nodes;
+    int idx = FindAnchorNodeIndexLinear(nodes, MENDO_LIT("heading"));
     EXPECT_GE(idx, 0);
     EXPECT_EQ(nodes[idx].type, NodeType::Heading);
 }
@@ -597,13 +597,13 @@ TEST(FindAnchorNodeIndex, SkipsNonHeadings)
 
 TEST(FindWordBoundaries, EmptyText)
 {
-    auto result = FindWordBoundaries(L"", 0);
+    auto result = FindWordBoundaries(MENDO_LIT(""), 0);
     EXPECT_FALSE(result.found);
 }
 
 TEST(FindWordBoundaries, SingleWord)
 {
-    auto result = FindWordBoundaries(L"hello", 2);
+    auto result = FindWordBoundaries(MENDO_LIT("hello"), 2);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 5u);
@@ -611,7 +611,7 @@ TEST(FindWordBoundaries, SingleWord)
 
 TEST(FindWordBoundaries, WordAtStart)
 {
-    auto result = FindWordBoundaries(L"hello world", 0);
+    auto result = FindWordBoundaries(MENDO_LIT("hello world"), 0);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 5u);
@@ -619,7 +619,7 @@ TEST(FindWordBoundaries, WordAtStart)
 
 TEST(FindWordBoundaries, WordAtEnd)
 {
-    auto result = FindWordBoundaries(L"hello world", 6);
+    auto result = FindWordBoundaries(MENDO_LIT("hello world"), 6);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 6u);
     EXPECT_EQ(result.end, 11u);
@@ -627,19 +627,19 @@ TEST(FindWordBoundaries, WordAtEnd)
 
 TEST(FindWordBoundaries, PositionOnSpace)
 {
-    auto result = FindWordBoundaries(L"hello world", 5);
+    auto result = FindWordBoundaries(MENDO_LIT("hello world"), 5);
     EXPECT_FALSE(result.found);
 }
 
 TEST(FindWordBoundaries, PositionOnPunctuation)
 {
-    auto result = FindWordBoundaries(L"hello, world", 5);
+    auto result = FindWordBoundaries(MENDO_LIT("hello, world"), 5);
     EXPECT_FALSE(result.found);
 }
 
 TEST(FindWordBoundaries, WordWithUnderscore)
 {
-    auto result = FindWordBoundaries(L"my_variable = 1", 3);
+    auto result = FindWordBoundaries(MENDO_LIT("my_variable = 1"), 3);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 11u);
@@ -647,7 +647,7 @@ TEST(FindWordBoundaries, WordWithUnderscore)
 
 TEST(FindWordBoundaries, WordWithNumbers)
 {
-    auto result = FindWordBoundaries(L"var123 = x", 3);
+    auto result = FindWordBoundaries(MENDO_LIT("var123 = x"), 3);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 6u);
@@ -655,7 +655,7 @@ TEST(FindWordBoundaries, WordWithNumbers)
 
 TEST(FindWordBoundaries, PositionBeyondEnd)
 {
-    auto result = FindWordBoundaries(L"hello", 100);
+    auto result = FindWordBoundaries(MENDO_LIT("hello"), 100);
     // 最後の文字にクランプされるべき
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
@@ -666,17 +666,26 @@ TEST(FindWordBoundaries, NonAlphanumericAtPosition)
 {
     // CJK文字はIsCharAlphaNumericWで単語文字として扱われないため
     // ダブルクリックでは選択されないべき
-    auto result = FindWordBoundaries(L"テスト test", 0);
+    auto result = FindWordBoundaries(MENDO_LIT("テスト test"), 0);
     EXPECT_FALSE(result.found);
 }
 
 TEST(FindWordBoundaries, AsciiWordAfterCjk)
 {
-    // CJKの後のASCII単語をクリックすると動作するべき
-    auto result = FindWordBoundaries(L"テスト test", 4);
+    // CJKの後のASCII単語をクリックすると動作するべき。
+    // pos は doc_char 単位 (UTF-16 code unit / UTF-8 byte)。
+#if MENDO_DOC_USE_UTF16
+    auto result = FindWordBoundaries(MENDO_LIT("テスト test"), 4); // 't' of "test"
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 4u);
     EXPECT_EQ(result.end, 8u);
+#else
+    // UTF-8: テスト = 9 byte, ' ' = 1 byte, "test" は offset 10
+    auto result = FindWordBoundaries(MENDO_LIT("テスト test"), 10);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 10u);
+    EXPECT_EQ(result.end, 14u);
+#endif
 }
 
 // ============================================================
@@ -743,7 +752,7 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode)
     // テーブル型ノード（線形化テキストを持つ）でのテスト
     Node table_node;
     table_node.type = NodeType::Table;
-    table_node.SetText(L"A\tB\n1\t2");
+    table_node.SetText(MENDO_LIT("A\tB\n1\t2"));
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(table_node));
@@ -755,14 +764,14 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode)
     sel.active = true;
 
     auto result = ExtractSelectedText(nodes, sel);
-    EXPECT_EQ(result, L"A\tB");
+    EXPECT_EQ(result, MENDO_LIT("A\tB"));
 }
 
 TEST(ExtractSelectedText, StartNodeOutOfRange)
 {
     std::pmr::vector<Node> nodes;
     Node n;
-    n.SetText(L"hello");
+    n.SetText(MENDO_LIT("hello"));
     nodes.emplace_back(std::move(n));
 
     TextSelection sel;
@@ -781,7 +790,7 @@ TEST(ExtractSelectedText, EndNodeOutOfRange)
 {
     std::pmr::vector<Node> nodes;
     Node n;
-    n.SetText(L"hello");
+    n.SetText(MENDO_LIT("hello"));
     nodes.emplace_back(std::move(n));
 
     TextSelection sel;
@@ -801,10 +810,10 @@ TEST(ExtractSelectedText, EndNodeOutOfRange)
 TEST(FindLinkAtPosition, MultipleLinkRuns)
 {
     Node node;
-    node.SetText(L"link1 link2");
+    node.SetText(MENDO_LIT("link1 link2"));
 
-    node.ensure_link_urls().emplace_back(L"https://a.com");
-    node.ensure_link_urls().emplace_back(L"https://b.com");
+    node.ensure_link_urls().emplace_back(MENDO_LIT("https://a.com"));
+    node.ensure_link_urls().emplace_back(MENDO_LIT("https://b.com"));
 
     TextRun r1;
     r1.start = 0; r1.length = 5;
@@ -818,11 +827,11 @@ TEST(FindLinkAtPosition, MultipleLinkRuns)
 
     auto result1 = FindLinkAtPosition(node, 2);
     ASSERT_TRUE(result1.has_value());
-    EXPECT_EQ(*result1, L"https://a.com");
+    EXPECT_EQ(*result1, MENDO_LIT("https://a.com"));
 
     auto result2 = FindLinkAtPosition(node, 8);
     ASSERT_TRUE(result2.has_value());
-    EXPECT_EQ(*result2, L"https://b.com");
+    EXPECT_EQ(*result2, MENDO_LIT("https://b.com"));
 
     // 2つのリンクの間
     auto gap = FindLinkAtPosition(node, 5);
@@ -847,12 +856,12 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
     TextRun d0r; d0r.start = 0; d0r.length = 3;
     TextRun d1r; d1r.start = 0; d1r.length = 3;
     d1r.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
-    node.ensure_link_urls().emplace_back(L"https://example.com");
+    node.ensure_link_urls().emplace_back(MENDO_LIT("https://example.com"));
 
     // concat 化: "Name\tURL\nfoo\tbar", cell_text_starts: [0, 5, 9, 13, 16]
     tbl->row_count = 2;
     tbl->col_count = 2;
-    tbl->concat_text = L"Name\tURL\nfoo\tbar";
+    tbl->concat_text = MENDO_LIT("Name\tURL\nfoo\tbar");
     tbl->cell_text_starts = { 0u, 5u, 9u, 13u, 16u };
     tbl->all_runs.push_back(h0r);
     tbl->all_runs.push_back(h1r);
@@ -865,7 +874,7 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
     // "bar"内の位置（オフセット13）でリンクが見つかるべき
     auto result = FindLinkAtPosition(node, 13);
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, L"https://example.com");
+    EXPECT_EQ(*result, MENDO_LIT("https://example.com"));
 
     // "Name"内の位置（オフセット1）ではリンクが見つからないべき
     auto no_link = FindLinkAtPosition(node, 1);
@@ -879,9 +888,9 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
 TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown)
 {
     auto nodes = ParseMarkdown(
-        L"| Text | Link |\n"
-        L"|------|------|\n"
-        L"| hello | [click](https://example.com) |"
+        MENDO_LIT("| Text | Link |\n")
+        MENDO_LIT("|------|------|\n")
+        MENDO_LIT("| hello | [click](https://example.com) |")
     ).nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
@@ -893,7 +902,7 @@ TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown)
     bool has_link = false;
     for (const auto& run : tbl->GetCellRuns(1, 1)) {
         if (run.has_link()) {
-            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], L"https://example.com");
+            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], MENDO_LIT("https://example.com"));
             has_link = true;
         }
     }
@@ -909,12 +918,12 @@ TEST(FindLinkAtPosition, TableCellInternalLink)
 
     TextRun r; r.start = 0; r.length = 7;
     r.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
-    node.ensure_link_urls().emplace_back(L"#my-section");
+    node.ensure_link_urls().emplace_back(MENDO_LIT("#my-section"));
 
     // concat 化: 1 行 1 列の "section"
     tbl->row_count = 1;
     tbl->col_count = 1;
-    tbl->concat_text = L"section";
+    tbl->concat_text = MENDO_LIT("section");
     tbl->cell_text_starts = { 0u, 7u };
     tbl->all_runs.push_back(r);
     tbl->cell_run_starts = { 0u, 1u };
@@ -923,7 +932,7 @@ TEST(FindLinkAtPosition, TableCellInternalLink)
 
     auto result = FindLinkAtPosition(node, 3);
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, L"#my-section");
+    EXPECT_EQ(*result, MENDO_LIT("#my-section"));
 }
 
 TEST(FindLinkAtPosition, TablePositionOnSeparator)
@@ -937,12 +946,12 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator)
     TextRun r0; r0.start = 0; r0.length = 1;
     TextRun r1; r1.start = 0; r1.length = 1;
     r1.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
-    node.ensure_link_urls().emplace_back(L"https://b.com");
+    node.ensure_link_urls().emplace_back(MENDO_LIT("https://b.com"));
 
     // concat 化: 1 行 2 列の "A\tB"
     tbl->row_count = 1;
     tbl->col_count = 2;
-    tbl->concat_text = L"A\tB";
+    tbl->concat_text = MENDO_LIT("A\tB");
     tbl->cell_text_starts = { 0u, 2u, 3u };
     tbl->all_runs.push_back(r0);
     tbl->all_runs.push_back(r1);
@@ -957,7 +966,7 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator)
     // "B"（オフセット2）でリンクが見つかるべき
     auto link = FindLinkAtPosition(node, 2);
     ASSERT_TRUE(link.has_value());
-    EXPECT_EQ(*link, L"https://b.com");
+    EXPECT_EQ(*link, MENDO_LIT("https://b.com"));
 }
 
 // ---- GetCellText: 末尾行が col_count 未満で padding された場合 ----
@@ -974,17 +983,17 @@ TEST(NodeTableData, GetCellTextShortLastRow)
     auto* tbl = node.table_data();
     tbl->row_count = 3;
     tbl->col_count = 3;
-    tbl->concat_text = L"a\tb\tc\nd\te\tf\ng";
+    tbl->concat_text = MENDO_LIT("a\tb\tc\nd\te\tf\ng");
     // 実セル 7 個 + padding 2 個 + 番兵 1 = サイズ 10。padding と番兵は concat 末尾を指す。
     tbl->cell_text_starts = { 0u, 2u, 4u, 6u, 8u, 10u, 12u, 13u, 13u, 13u };
     tbl->cell_run_starts = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
     tbl->aligns = { TableAlign::Default, TableAlign::Default, TableAlign::Default };
     tbl->is_header_row = { true, false, false };
 
-    EXPECT_EQ(tbl->GetCellText(0, 0), L"a");
-    EXPECT_EQ(tbl->GetCellText(0, 2), L"c");
-    EXPECT_EQ(tbl->GetCellText(1, 2), L"f");
-    EXPECT_EQ(tbl->GetCellText(2, 0), L"g");
+    EXPECT_EQ(tbl->GetCellText(0, 0), MENDO_LIT("a"));
+    EXPECT_EQ(tbl->GetCellText(0, 2), MENDO_LIT("c"));
+    EXPECT_EQ(tbl->GetCellText(1, 2), MENDO_LIT("f"));
+    EXPECT_EQ(tbl->GetCellText(2, 0), MENDO_LIT("g"));
     EXPECT_EQ(tbl->GetCellText(2, 1).size(), 0u);
     EXPECT_EQ(tbl->GetCellText(2, 2).size(), 0u);
 }
@@ -998,25 +1007,25 @@ TEST(FindAnchorNodeIndex, DuplicateAnchors)
     Node h1;
     h1.type = NodeType::Heading;
     h1.ensure_heading();
-    h1.heading_data()->anchor_id = L"title";
+    h1.heading_data()->anchor_id = MENDO_LIT("title");
     nodes.emplace_back(std::move(h1));
 
     Node h2;
     h2.type = NodeType::Heading;
     h2.ensure_heading();
-    h2.heading_data()->anchor_id = L"title-1";
+    h2.heading_data()->anchor_id = MENDO_LIT("title-1");
     nodes.emplace_back(std::move(h2));
 
     // 最初のマッチが優先される
-    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L"title"), 0);
-    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, L"title-1"), 1);
+    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, MENDO_LIT("title")), 0);
+    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, MENDO_LIT("title-1")), 1);
 }
 
 // ---- FindWordBoundaries 追加テスト ----
 
 TEST(FindWordBoundaries, SingleCharWord)
 {
-    auto result = FindWordBoundaries(L"a", 0);
+    auto result = FindWordBoundaries(MENDO_LIT("a"), 0);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 0u);
     EXPECT_EQ(result.end, 1u);
@@ -1024,13 +1033,13 @@ TEST(FindWordBoundaries, SingleCharWord)
 
 TEST(FindWordBoundaries, AllSpaces)
 {
-    auto result = FindWordBoundaries(L"   ", 1);
+    auto result = FindWordBoundaries(MENDO_LIT("   "), 1);
     EXPECT_FALSE(result.found);
 }
 
 TEST(FindWordBoundaries, MixedPunctuationAndWords)
 {
-    auto result = FindWordBoundaries(L"(hello)", 3);
+    auto result = FindWordBoundaries(MENDO_LIT("(hello)"), 3);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 1u);
     EXPECT_EQ(result.end, 6u);
@@ -1054,56 +1063,62 @@ TEST(ExtractFilename, MixedSeparators)
 
 TEST(FindFirstDifference, IdenticalStrings)
 {
-    EXPECT_EQ(FindFirstDifference(L"hello", L"hello"), std::wstring_view::npos);
+    EXPECT_EQ(FindFirstDifference(MENDO_LIT("hello"), MENDO_LIT("hello")), mendo::doc_string_view::npos);
 }
 
 TEST(FindFirstDifference, BothEmpty)
 {
-    EXPECT_EQ(FindFirstDifference(L"", L""), std::wstring_view::npos);
+    EXPECT_EQ(FindFirstDifference(MENDO_LIT(""), MENDO_LIT("")), mendo::doc_string_view::npos);
 }
 
 TEST(FindFirstDifference, DifferentFirstUnit)
 {
-    EXPECT_EQ(FindFirstDifference(L"abc", L"xbc"), 0u);
+    EXPECT_EQ(FindFirstDifference(MENDO_LIT("abc"), MENDO_LIT("xbc")), 0u);
 }
 
 TEST(FindFirstDifference, DifferentMiddle)
 {
-    EXPECT_EQ(FindFirstDifference(L"abcdef", L"abcXef"), 3u);
+    EXPECT_EQ(FindFirstDifference(MENDO_LIT("abcdef"), MENDO_LIT("abcXef")), 3u);
 }
 
 TEST(FindFirstDifference, DifferentLastUnit)
 {
-    EXPECT_EQ(FindFirstDifference(L"abc", L"abX"), 2u);
+    EXPECT_EQ(FindFirstDifference(MENDO_LIT("abc"), MENDO_LIT("abX")), 2u);
 }
 
 TEST(FindFirstDifference, NewLongerThanOld)
 {
-    EXPECT_EQ(FindFirstDifference(L"abc", L"abcdef"), 3u);
+    EXPECT_EQ(FindFirstDifference(MENDO_LIT("abc"), MENDO_LIT("abcdef")), 3u);
 }
 
 TEST(FindFirstDifference, OldLongerThanNew)
 {
-    EXPECT_EQ(FindFirstDifference(L"abcdef", L"abc"), 3u);
+    EXPECT_EQ(FindFirstDifference(MENDO_LIT("abcdef"), MENDO_LIT("abc")), 3u);
 }
 
 TEST(FindFirstDifference, EmptyOld)
 {
-    EXPECT_EQ(FindFirstDifference(L"", L"new"), 0u);
+    EXPECT_EQ(FindFirstDifference(MENDO_LIT(""), MENDO_LIT("new")), 0u);
 }
 
 TEST(FindFirstDifference, EmptyNew)
 {
-    EXPECT_EQ(FindFirstDifference(L"old", L""), 0u);
+    EXPECT_EQ(FindFirstDifference(MENDO_LIT("old"), MENDO_LIT("")), 0u);
 }
 
 TEST(FindFirstDifference, CjkContent)
 {
-    // BMP 内の CJK は 1 wchar_t/char。"う"(U+3046)/"え"(U+3048) は 1 unit 違い。
-    std::wstring a = L"あいう";
-    std::wstring b = L"あいえ";
+    // doc_char 単位で先頭差分位置を返す (UTF-16 code unit / UTF-8 byte)。
+    mendo::doc_string_std a = MENDO_LIT("あいう");
+    mendo::doc_string_std b = MENDO_LIT("あいえ");
     size_t diff = FindFirstDifference(a, b);
-    EXPECT_EQ(diff, 2u); // 3 文字目で差分（インデックス 2）
+#if MENDO_DOC_USE_UTF16
+    EXPECT_EQ(diff, 2u); // "あい" 2 code unit 一致、3 unit 目で差分
+#else
+    // UTF-8: あ E3 81 82 / い E3 81 84 / う E3 81 86 vs え E3 81 88
+    // 先頭 6 byte ("あい") + "う" の 1〜2 byte目 (E3 81) 一致 → 8 byte 目で差分
+    EXPECT_EQ(diff, 8u);
+#endif
 }
 
 // ============================================================
@@ -1112,22 +1127,22 @@ TEST(FindFirstDifference, CjkContent)
 
 TEST(AnalyzeReloadDiff, IdenticalContentReturnsNoChange)
 {
-    const auto d = AnalyzeReloadDiff(L"hello world", L"hello world");
+    const auto d = AnalyzeReloadDiff(MENDO_LIT("hello world"), MENDO_LIT("hello world"));
     EXPECT_EQ(d.op, ReloadOp::NoChange);
-    EXPECT_EQ(d.diff_pos, std::wstring_view::npos);
+    EXPECT_EQ(d.diff_pos, mendo::doc_string_view::npos);
 }
 
 TEST(AnalyzeReloadDiff, BothEmptyReturnsNoChange)
 {
-    const auto d = AnalyzeReloadDiff(L"", L"");
+    const auto d = AnalyzeReloadDiff(MENDO_LIT(""), MENDO_LIT(""));
     EXPECT_EQ(d.op, ReloadOp::NoChange);
-    EXPECT_EQ(d.diff_pos, std::wstring_view::npos);
+    EXPECT_EQ(d.diff_pos, mendo::doc_string_view::npos);
 }
 
 TEST(AnalyzeReloadDiff, AppendedSuffixIsPrefixGrowth)
 {
     // 末尾に追記 → prefix-only growth（スクロール維持）
-    const auto d = AnalyzeReloadDiff(L"abc", L"abcdef");
+    const auto d = AnalyzeReloadDiff(MENDO_LIT("abc"), MENDO_LIT("abcdef"));
     EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
     EXPECT_EQ(d.diff_pos, 3u);
 }
@@ -1135,7 +1150,7 @@ TEST(AnalyzeReloadDiff, AppendedSuffixIsPrefixGrowth)
 TEST(AnalyzeReloadDiff, EmptyToContentIsPrefixGrowth)
 {
     // 空ファイル → 何か書いた。prefix-only growth として扱う。
-    const auto d = AnalyzeReloadDiff(L"", L"new content");
+    const auto d = AnalyzeReloadDiff(MENDO_LIT(""), MENDO_LIT("new content"));
     EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
     EXPECT_EQ(d.diff_pos, 0u);
 }
@@ -1143,7 +1158,7 @@ TEST(AnalyzeReloadDiff, EmptyToContentIsPrefixGrowth)
 TEST(AnalyzeReloadDiff, TruncatedSuffixIsDeferPrefixShrink)
 {
     // 末尾が消えた = truncate。エディタの truncate→rewrite 前半の可能性があるため defer。
-    const auto d = AnalyzeReloadDiff(L"abcdef", L"abc");
+    const auto d = AnalyzeReloadDiff(MENDO_LIT("abcdef"), MENDO_LIT("abc"));
     EXPECT_EQ(d.op, ReloadOp::DeferPrefixShrink);
     EXPECT_EQ(d.diff_pos, 3u);
 }
@@ -1151,7 +1166,7 @@ TEST(AnalyzeReloadDiff, TruncatedSuffixIsDeferPrefixShrink)
 TEST(AnalyzeReloadDiff, ContentToEmptyIsDeferPrefixShrink)
 {
     // 全消去も truncate → rewrite の前半とみなして defer する
-    const auto d = AnalyzeReloadDiff(L"old content", L"");
+    const auto d = AnalyzeReloadDiff(MENDO_LIT("old content"), MENDO_LIT(""));
     EXPECT_EQ(d.op, ReloadOp::DeferPrefixShrink);
     EXPECT_EQ(d.diff_pos, 0u);
 }
@@ -1159,7 +1174,7 @@ TEST(AnalyzeReloadDiff, ContentToEmptyIsDeferPrefixShrink)
 TEST(AnalyzeReloadDiff, MiddleChangeIsFullReload)
 {
     // 中間で変化した。prefix-only ではないので全体リロード。
-    const auto d = AnalyzeReloadDiff(L"abcdef", L"abcXef");
+    const auto d = AnalyzeReloadDiff(MENDO_LIT("abcdef"), MENDO_LIT("abcXef"));
     EXPECT_EQ(d.op, ReloadOp::FullReload);
     EXPECT_EQ(d.diff_pos, 3u);
 }
@@ -1167,7 +1182,7 @@ TEST(AnalyzeReloadDiff, MiddleChangeIsFullReload)
 TEST(AnalyzeReloadDiff, FirstUnitChangeIsFullReload)
 {
     // 先頭で差分があれば必ず FullReload（同一長さなので prefix-only にならない）。
-    const auto d = AnalyzeReloadDiff(L"abc", L"Xbc");
+    const auto d = AnalyzeReloadDiff(MENDO_LIT("abc"), MENDO_LIT("Xbc"));
     EXPECT_EQ(d.op, ReloadOp::FullReload);
     EXPECT_EQ(d.diff_pos, 0u);
 }
@@ -1175,19 +1190,23 @@ TEST(AnalyzeReloadDiff, FirstUnitChangeIsFullReload)
 TEST(AnalyzeReloadDiff, LengthChangedWithMiddleDiffIsFullReload)
 {
     // 途中で差分があり、かつ長さも変わる → prefix-only ではなく FullReload。
-    const auto d = AnalyzeReloadDiff(L"abcdef", L"abcYYYz");
+    const auto d = AnalyzeReloadDiff(MENDO_LIT("abcdef"), MENDO_LIT("abcYYYz"));
     EXPECT_EQ(d.op, ReloadOp::FullReload);
     EXPECT_EQ(d.diff_pos, 3u);
 }
 
 TEST(AnalyzeReloadDiff, CjkSuffixAppendedIsPrefixGrowth)
 {
-    // CJK 末尾追記も prefix-only growth として扱える
-    const std::wstring old_text = L"あいう";
-    const std::wstring new_text = L"あいうえお";
+    // CJK 末尾追記も prefix-only growth として扱える。diff_pos は doc_char 単位。
+    const mendo::doc_string_std old_text = MENDO_LIT("あいう");
+    const mendo::doc_string_std new_text = MENDO_LIT("あいうえお");
     const auto d = AnalyzeReloadDiff(old_text, new_text);
     EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
+#if MENDO_DOC_USE_UTF16
     EXPECT_EQ(d.diff_pos, 3u); // "あいう" = 3 wchar_t
+#else
+    EXPECT_EQ(d.diff_pos, 9u); // "あいう" = 9 byte UTF-8
+#endif
 }
 
 // ============================================================
@@ -1251,7 +1270,7 @@ TEST(FindNodeBySourceOffset, SkipsUnsetOffsets)
 
 TEST(FindNodeBySourceOffset, ParsedMarkdown)
 {
-    auto nodes = ParseMarkdown(L"# Title\n\nParagraph\n\n## Section").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("# Title\n\nParagraph\n\n## Section")).nodes;
     ASSERT_GE(nodes.size(), 3u);
     // 各ノードが有効な source_offset を持つ
     for (const auto& n : nodes) {
@@ -1286,7 +1305,7 @@ TEST(FindNodeBySourceOffset, AllUnsetOffsets)
 TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 {
     // パース結果で HorizontalRule が混在するケース
-    auto nodes = ParseMarkdown(L"AAA\n\n---\n\nBBB").nodes;
+    auto nodes = ParseMarkdown(MENDO_LIT("AAA\n\n---\n\nBBB")).nodes;
     ASSERT_GE(nodes.size(), 3u);
     // "AAA" offset=0, "---" は未設定, "BBB" offset=10
     EXPECT_EQ(nodes[0].source_offset, 0u);
@@ -1305,10 +1324,10 @@ TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 
 // ヘルパー: old→new の編集をシミュレートし、変更箇所のノードを特定する。
 // source_offset は wide 単位なので、wide のまま FindFirstDifference / ParseMarkdown を呼ぶ。
-static int SimulateEditAndFindNode(std::wstring_view old_md, std::wstring_view new_md)
+static int SimulateEditAndFindNode(mendo::doc_string_view old_md, mendo::doc_string_view new_md)
 {
     size_t diff_pos = FindFirstDifference(old_md, new_md);
-    if (diff_pos == std::wstring_view::npos) {
+    if (diff_pos == mendo::doc_string_view::npos) {
         return -1;
     }
     auto nodes = ParseMarkdown(new_md).nodes;
@@ -1321,26 +1340,26 @@ static int SimulateEditAndFindNode(std::wstring_view old_md, std::wstring_view n
 TEST(DiffToNode, EditMiddleParagraph)
 {
     // 2番目の段落を編集
-    std::wstring old_md = L"First\n\nSecond\n\nThird";
-    std::wstring new_md = L"First\n\nModified\n\nThird";
+    mendo::doc_string_std old_md = MENDO_LIT("First\n\nSecond\n\nThird");
+    mendo::doc_string_std new_md = MENDO_LIT("First\n\nModified\n\nThird");
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     EXPECT_EQ(node, 1); // 2番目の段落
-    EXPECT_EQ(nodes[node].GetText(), L"Modified");
+    EXPECT_EQ(nodes[node].GetText(), MENDO_LIT("Modified"));
 }
 
 TEST(DiffToNode, EditFirstParagraph)
 {
-    std::wstring old_md = L"Hello\n\nWorld";
-    std::wstring new_md = L"Changed\n\nWorld";
+    mendo::doc_string_std old_md = MENDO_LIT("Hello\n\nWorld");
+    mendo::doc_string_std new_md = MENDO_LIT("Changed\n\nWorld");
     int node = SimulateEditAndFindNode(old_md, new_md);
     EXPECT_EQ(node, 0);
 }
 
 TEST(DiffToNode, EditLastParagraph)
 {
-    std::wstring old_md = L"First\n\nSecond\n\nThird";
-    std::wstring new_md = L"First\n\nSecond\n\nChanged";
+    mendo::doc_string_std old_md = MENDO_LIT("First\n\nSecond\n\nThird");
+    mendo::doc_string_std new_md = MENDO_LIT("First\n\nSecond\n\nChanged");
     int node = SimulateEditAndFindNode(old_md, new_md);
     EXPECT_EQ(node, 2); // 最後の段落
 }
@@ -1348,20 +1367,20 @@ TEST(DiffToNode, EditLastParagraph)
 TEST(DiffToNode, InsertNewParagraph)
 {
     // 段落を挿入
-    std::wstring old_md = L"Before\n\nAfter";
-    std::wstring new_md = L"Before\n\nInserted\n\nAfter";
+    mendo::doc_string_std old_md = MENDO_LIT("Before\n\nAfter");
+    mendo::doc_string_std new_md = MENDO_LIT("Before\n\nInserted\n\nAfter");
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
     // 挿入位置のノード（"Inserted" または "Before"の次）
-    EXPECT_EQ(nodes[node].GetText(), L"Inserted");
+    EXPECT_EQ(nodes[node].GetText(), MENDO_LIT("Inserted"));
 }
 
 TEST(DiffToNode, DeleteParagraph)
 {
     // 段落を削除
-    std::wstring old_md = L"First\n\nRemoveMe\n\nLast";
-    std::wstring new_md = L"First\n\nLast";
+    mendo::doc_string_std old_md = MENDO_LIT("First\n\nRemoveMe\n\nLast");
+    mendo::doc_string_std new_md = MENDO_LIT("First\n\nLast");
     int node = SimulateEditAndFindNode(old_md, new_md);
     ASSERT_GE(node, 0);
     // diff_pos=7（"RemoveMe" vs "Last"の開始位置）→ "Last"(offset=7)か"First"
@@ -1371,8 +1390,8 @@ TEST(DiffToNode, DeleteParagraph)
 
 TEST(DiffToNode, AppendToEnd)
 {
-    std::wstring old_md = L"Existing";
-    std::wstring new_md = L"Existing\n\nAppended";
+    mendo::doc_string_std old_md = MENDO_LIT("Existing");
+    mendo::doc_string_std new_md = MENDO_LIT("Existing\n\nAppended");
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1384,8 +1403,8 @@ TEST(DiffToNode, AppendToEnd)
 TEST(DiffToNode, EditInCodeBlock)
 {
     // コードブロック内の編集
-    std::wstring old_md = L"text\n\n```\nold code\n```\n\nend";
-    std::wstring new_md = L"text\n\n```\nnew code\n```\n\nend";
+    mendo::doc_string_std old_md = MENDO_LIT("text\n\n```\nold code\n```\n\nend");
+    mendo::doc_string_std new_md = MENDO_LIT("text\n\n```\nnew code\n```\n\nend");
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1395,33 +1414,33 @@ TEST(DiffToNode, EditInCodeBlock)
 TEST(DiffToNode, EditInListItem)
 {
     // リストアイテムの編集
-    std::wstring old_md = L"- first\n- second\n- third";
-    std::wstring new_md = L"- first\n- changed\n- third";
+    mendo::doc_string_std old_md = MENDO_LIT("- first\n- second\n- third");
+    mendo::doc_string_std new_md = MENDO_LIT("- first\n- changed\n- third");
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
-    EXPECT_EQ(nodes[node].GetText(), L"changed");
+    EXPECT_EQ(nodes[node].GetText(), MENDO_LIT("changed"));
 }
 
 TEST(DiffToNode, EditHeading)
 {
     // 見出しテキストの編集
-    std::wstring old_md = L"# Old Title\n\nBody";
-    std::wstring new_md = L"# New Title\n\nBody";
+    mendo::doc_string_std old_md = MENDO_LIT("# Old Title\n\nBody");
+    mendo::doc_string_std new_md = MENDO_LIT("# New Title\n\nBody");
     int node = SimulateEditAndFindNode(old_md, new_md);
     EXPECT_EQ(node, 0); // 見出しノード
 }
 
 TEST(DiffToNode, NoChange)
 {
-    std::wstring md = L"Same content";
+    mendo::doc_string_std md = MENDO_LIT("Same content");
     EXPECT_EQ(SimulateEditAndFindNode(md, md), -1);
 }
 
 TEST(DiffToNode, EditInBlockQuote)
 {
-    std::wstring old_md = L"normal\n\n> old quote\n\nafter";
-    std::wstring new_md = L"normal\n\n> new quote\n\nafter";
+    mendo::doc_string_std old_md = MENDO_LIT("normal\n\n> old quote\n\nafter");
+    mendo::doc_string_std new_md = MENDO_LIT("normal\n\n> new quote\n\nafter");
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1431,8 +1450,8 @@ TEST(DiffToNode, EditInBlockQuote)
 TEST(DiffToNode, EditWithJapanese)
 {
     // 日本語テキストの編集
-    std::wstring old_md = L"# はじめに\n\n旧テキスト\n\nおわり";
-    std::wstring new_md = L"# はじめに\n\n新テキスト\n\nおわり";
+    mendo::doc_string_std old_md = MENDO_LIT("# はじめに\n\n旧テキスト\n\nおわり");
+    mendo::doc_string_std new_md = MENDO_LIT("# はじめに\n\n新テキスト\n\nおわり");
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1443,14 +1462,14 @@ TEST(DiffToNode, EditWithJapanese)
 
 TEST(DiffToNode, EditInTable)
 {
-    std::wstring old_md =
-        L"| A | B |\n"
-        L"|---|---|\n"
-        L"| 1 | 2 |";
-    std::wstring new_md =
-        L"| A | B |\n"
-        L"|---|---|\n"
-        L"| X | 2 |";
+    mendo::doc_string_std old_md =
+        MENDO_LIT("| A | B |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| 1 | 2 |");
+    mendo::doc_string_std new_md =
+        MENDO_LIT("| A | B |\n")
+        MENDO_LIT("|---|---|\n")
+        MENDO_LIT("| X | 2 |");
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
@@ -1460,20 +1479,20 @@ TEST(DiffToNode, EditInTable)
 TEST(DiffToNode, LargeDocumentMiddleEdit)
 {
     // 多数のノードを持つ文書の中間を編集
-    std::wstring old_md, new_md;
+    mendo::doc_string_std old_md, new_md;
     for (int i = 0; i < 100; ++i) {
-        old_md += L"Paragraph " + std::to_wstring(i) + L"\n\n";
+        old_md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
         if (i == 50) {
-            new_md += L"CHANGED paragraph 50\n\n";
+            new_md += MENDO_LIT("CHANGED paragraph 50\n\n");
         }
         else {
-            new_md += L"Paragraph " + std::to_wstring(i) + L"\n\n";
+            new_md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
         }
     }
     int node = SimulateEditAndFindNode(old_md, new_md);
     auto nodes = ParseMarkdown(new_md).nodes;
     ASSERT_GE(node, 0);
-    EXPECT_EQ(nodes[node].GetText(), L"CHANGED paragraph 50");
+    EXPECT_EQ(nodes[node].GetText(), MENDO_LIT("CHANGED paragraph 50"));
 }
 
 // ============================================================
@@ -1526,14 +1545,14 @@ TEST(IsPrefixOnlyDiff, BothEmpty)
 TEST(IsPrefixOnlyDiff, IntegrationWithFindFirstDifference)
 {
     // FindFirstDifference と組み合わせた実際のユースケース
-    std::wstring_view old_text = L"Hello World";
-    std::wstring_view new_text = L"Hello World, more text";
+    mendo::doc_string_view old_text = MENDO_LIT("Hello World");
+    mendo::doc_string_view new_text = MENDO_LIT("Hello World, more text");
     size_t diff = FindFirstDifference(old_text, new_text);
     EXPECT_TRUE(IsPrefixOnlyDiff(diff, old_text.size(), new_text.size()));
 
     // 内容が異なる場合
-    std::wstring_view old_text2 = L"Hello World";
-    std::wstring_view new_text2 = L"Hello Xxxxx";
+    mendo::doc_string_view old_text2 = MENDO_LIT("Hello World");
+    mendo::doc_string_view new_text2 = MENDO_LIT("Hello Xxxxx");
     size_t diff2 = FindFirstDifference(old_text2, new_text2);
     EXPECT_FALSE(IsPrefixOnlyDiff(diff2, old_text2.size(), new_text2.size()));
 }
@@ -1557,7 +1576,7 @@ TEST(CalcScrollYForDiff, FallbackWhenNoNodes)
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     Theme theme{};
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, L"content", 0, 500.0f, 42.0f), 42.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, MENDO_LIT("content"), 0, 500.0f, 42.0f), 42.0f);
 }
 
 TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
@@ -1568,7 +1587,7 @@ TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
     auto cache = MakeUniformCache(3);
     Theme theme{};
     // diff_pos=10 < 全ノードの最小 offset(50) → -1 → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, L"content", 10, 500.0f, 99.0f), 99.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, MENDO_LIT("content"), 10, 500.0f, 99.0f), 99.0f);
 }
 
 TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
@@ -1576,7 +1595,7 @@ TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
     // 3ノード: offset=0,100,200 / y=0,100,200 / height=100
     auto nodes = MakeNodes(3, 100);
     auto cache = MakeUniformCache(3, 100.0f);
-    std::wstring content(300, L'x');
+    mendo::doc_string_std content(300, MENDO_LIT('x'));
     Theme theme{};
 
     // diff_pos=0 → node 0, y=0, margin=500*0.2=100 → max(0, 0-100)=0
@@ -1594,7 +1613,7 @@ TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
     // 2ノード: offset=0,100 / y=0,1000 / height=1000
     auto nodes = MakeNodes(2, 100);
     auto cache = MakeUniformCache(2, 1000.0f);
-    std::wstring content(200, L'x');
+    mendo::doc_string_std content(200, MENDO_LIT('x'));
     Theme theme{};
 
     // diff_pos=50 → node 0 (offset=0), next_start=100
@@ -1610,7 +1629,7 @@ TEST(CalcScrollYForDiff, FractionClampsToOne)
     // diff_pos がノード範囲を超える場合でも fraction は 1.0 でクランプ
     auto nodes = MakeNodes(2, 100);
     auto cache = MakeUniformCache(2, 1000.0f);
-    std::wstring content(200, L'x');
+    mendo::doc_string_std content(200, MENDO_LIT('x'));
     Theme theme{};
 
     // diff_pos=99 → node 0, fraction=99/100=0.99
@@ -1628,7 +1647,7 @@ TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
     nodes[1].source_offset = kUnsetSourceOffset; // 未設定（HorizontalRule等）
     nodes[2].source_offset = 200;
     auto cache = MakeUniformCache(3, 100.0f);
-    std::wstring content(300, L'x');
+    mendo::doc_string_std content(300, MENDO_LIT('x'));
     Theme theme{};
 
     // diff_pos=100 → node 0 (offset=0), next valid = node 2 (offset=200)
@@ -1645,7 +1664,7 @@ TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
     auto nodes = MakeNodes(1, 0);
     nodes[0].source_offset = 0;
     auto cache = MakeUniformCache(1, 1000.0f);
-    std::wstring content(100, L'x');
+    mendo::doc_string_std content(100, MENDO_LIT('x'));
     Theme theme{};
 
     // diff_pos=50, next_start=content.size()=100
@@ -1664,14 +1683,14 @@ TEST(CalcScrollYForDiff, CacheSizeMismatchFallback)
     Theme theme{};
 
     // diff_pos=400 → node 4 だがキャッシュは3つ → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, std::wstring(500, L'x'), 400, 500.0f, 77.0f), 77.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, theme, mendo::doc_string_std(500, MENDO_LIT('x')), 400, 500.0f, 77.0f), 77.0f);
 }
 
 TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
 {
     // 実際のMarkdownをパースして差分スクロール位置を計算する統合テスト
-    std::wstring md = L"# Title\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph";
-    auto nodes = ParseMarkdown(std::wstring_view{ md }).nodes;
+    mendo::doc_string_std md = MENDO_LIT("# Title\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph");
+    auto nodes = ParseMarkdown(mendo::doc_string_view{ md }).nodes;
     ASSERT_GE(nodes.size(), 4u);
 
     // ノード高さを設定 (Theme{} 前提で TextTopOf == GetBlockTop == PrefixSum、Heading 以外は spacing_above=0)
@@ -1686,8 +1705,8 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
     cache.BuildBlockHeights(std::span<const float>(bh.data(), bh.size()));
 
     // "Second paragraph" の先頭で diff
-    size_t diff_pos = static_cast<size_t>(md.find(L"Second"));
-    ASSERT_NE(diff_pos, std::wstring::npos);
+    size_t diff_pos = static_cast<size_t>(md.find(MENDO_LIT("Second")));
+    ASSERT_NE(diff_pos, mendo::doc_string_std::npos);
 
     Theme theme{};
     float result = CalcScrollYForDiff(nodes, cache, theme, md, diff_pos, 500.0f, 0.0f);
@@ -1703,9 +1722,9 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
 TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
 {
     // 旧 doc: 3 段落
-    const std::wstring old_md = L"para_one\n\npara_two\n\npara_three";
+    const mendo::doc_string_std old_md = MENDO_LIT("para_one\n\npara_two\n\npara_three");
     // 新 doc: 末尾に 1 段落追記
-    const std::wstring new_md = old_md + L"\n\npara_four_added";
+    const mendo::doc_string_std new_md = old_md + MENDO_LIT("\n\npara_four_added");
 
     // AnalyzeReloadDiff で PrefixGrowth と判定されること
     const auto decision = AnalyzeReloadDiff(old_md, new_md);
@@ -1713,7 +1732,7 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
     ASSERT_EQ(decision.diff_pos, old_md.size());
 
     // 新 doc を pipeline で扱うイメージで cache を構築
-    auto nodes = ParseMarkdown(std::wstring_view{ new_md }).nodes;
+    auto nodes = ParseMarkdown(mendo::doc_string_view{ new_md }).nodes;
     ASSERT_GE(nodes.size(), 4u);
 
     LayoutCache cache;
@@ -1752,38 +1771,38 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
 
 TEST(ToLowerAscii, AllUppercase)
 {
-    EXPECT_EQ(ToLowerAscii(L"HELLO"), L"hello");
+    EXPECT_EQ(ToLowerAscii(MENDO_LIT("HELLO")), MENDO_LIT("hello"));
 }
 
 TEST(ToLowerAscii, AllLowercase)
 {
-    EXPECT_EQ(ToLowerAscii(L"hello"), L"hello");
+    EXPECT_EQ(ToLowerAscii(MENDO_LIT("hello")), MENDO_LIT("hello"));
 }
 
 TEST(ToLowerAscii, MixedCase)
 {
-    EXPECT_EQ(ToLowerAscii(L"HeLLo WoRLd"), L"hello world");
+    EXPECT_EQ(ToLowerAscii(MENDO_LIT("HeLLo WoRLd")), MENDO_LIT("hello world"));
 }
 
 TEST(ToLowerAscii, Empty)
 {
-    EXPECT_TRUE(ToLowerAscii(L"").empty());
+    EXPECT_TRUE(ToLowerAscii(MENDO_LIT("")).empty());
 }
 
 TEST(ToLowerAscii, NonAsciiUnchanged)
 {
-    EXPECT_EQ(ToLowerAscii(L"日本語"), L"日本語");
+    EXPECT_EQ(ToLowerAscii(MENDO_LIT("日本語")), MENDO_LIT("日本語"));
 }
 
 TEST(ToLowerAscii, DigitsAndSymbols)
 {
-    EXPECT_EQ(ToLowerAscii(L"ABC-123_XYZ"), L"abc-123_xyz");
+    EXPECT_EQ(ToLowerAscii(MENDO_LIT("ABC-123_XYZ")), MENDO_LIT("abc-123_xyz"));
 }
 
 TEST(ToLowerAscii, BoundaryChars)
 {
     // A(0x41)の直前@(0x40)、Z(0x5A)の直後[(0x5B)は変換されないこと
-    EXPECT_EQ(ToLowerAscii(L"@A[Z"), L"@a[z");
+    EXPECT_EQ(ToLowerAscii(MENDO_LIT("@A[Z")), MENDO_LIT("@a[z"));
 }
 
 // ============================================================

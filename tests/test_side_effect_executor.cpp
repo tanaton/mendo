@@ -87,7 +87,7 @@ protected:
     SideEffectExecutor exec_;
 
     // --- スパイ記録 ---
-    std::vector<std::pmr::wstring> load_file_paths_;
+    std::vector<std::wstring> load_file_paths_;
     int reload_file_count_ = 0;
     int open_file_dialog_count_ = 0;
     std::vector<PaneZone> invalidate_pane_cache_calls_;
@@ -115,7 +115,7 @@ protected:
     {
         return {
             .load_file = [this](std::wstring_view p) {
-                load_file_paths_.emplace_back(std::pmr::wstring{p});
+                load_file_paths_.emplace_back(p);
             },
             .reload_file = [this] { reload_file_count_++; },
             .open_file_dialog = [this] { open_file_dialog_count_++; },
@@ -164,7 +164,7 @@ protected:
 
 TEST_F(SideEffectExecutorTest, LoadFileDispatchesToCallback)
 {
-    exec_.ExecuteOne(effect::LoadFile{ std::pmr::wstring{L"C:/doc.md"} });
+    exec_.ExecuteOne(effect::LoadFile{ std::pmr::wstring(L"C:/doc.md") });
     ASSERT_EQ(load_file_paths_.size(), 1u);
     EXPECT_EQ(load_file_paths_[0], L"C:/doc.md");
 }
@@ -314,8 +314,8 @@ TEST_F(SideEffectExecutorTest, ExecuteRunsAllEffectsInOrder)
 {
     std::pmr::vector<SideEffect> list;
     list.emplace_back(effect::ReloadFile{});
-    list.emplace_back(effect::LoadFile{ std::pmr::wstring{L"A"} });
-    list.emplace_back(effect::LoadFile{ std::pmr::wstring{L"B"} });
+    list.emplace_back(effect::LoadFile{ std::pmr::wstring(L"A") });
+    list.emplace_back(effect::LoadFile{ std::pmr::wstring(L"B") });
     list.emplace_back(effect::Destroy{});
 
     exec_.Execute(list);
@@ -378,9 +378,9 @@ TEST_F(SideEffectExecutorTest, SetCursorForwardsTypeToHost)
 
 TEST_F(SideEffectExecutorTest, ClipboardEffectsForwardToHost)
 {
-    exec_.ExecuteOne(effect::ClipboardWrite{ std::pmr::wstring{L"hello"} });
-    exec_.ExecuteOne(effect::ClipboardWriteHtml{ std::pmr::wstring{L"<p>html</p>"},
-                                                std::pmr::wstring{L"plain"} });
+    exec_.ExecuteOne(effect::ClipboardWrite{ mendo::doc_string{MENDO_LIT("hello")} });
+    exec_.ExecuteOne(effect::ClipboardWriteHtml{ mendo::doc_string{MENDO_LIT("<p>html</p>")},
+                                                mendo::doc_string{MENDO_LIT("plain")} });
     ASSERT_EQ(host_.clipboard_text_calls.size(), 1u);
     EXPECT_EQ(host_.clipboard_text_calls[0], L"hello");
     ASSERT_EQ(host_.clipboard_html_calls.size(), 1u);
@@ -390,7 +390,7 @@ TEST_F(SideEffectExecutorTest, ClipboardEffectsForwardToHost)
 
 TEST_F(SideEffectExecutorTest, ShellOpenForwardsUrlToHost)
 {
-    exec_.ExecuteOne(effect::ShellOpen{ std::pmr::wstring{L"https://example.com"} });
+    exec_.ExecuteOne(effect::ShellOpen{ std::pmr::wstring(L"https://example.com") });
     ASSERT_EQ(host_.shell_open_calls.size(), 1u);
     EXPECT_EQ(host_.shell_open_calls[0], L"https://example.com");
 }
@@ -413,7 +413,7 @@ TEST_F(SideEffectExecutorTest, PostWindowMessageForwardsToHost)
 
 TEST_F(SideEffectExecutorTest, SetWindowTitleForwardsToHost)
 {
-    exec_.ExecuteOne(effect::SetWindowTitle{ std::pmr::wstring{L"mendo — doc.md"} });
+    exec_.ExecuteOne(effect::SetWindowTitle{ std::pmr::wstring(L"mendo — doc.md") });
     ASSERT_EQ(host_.set_window_title_calls.size(), 1u);
     EXPECT_EQ(host_.set_window_title_calls[0], L"mendo — doc.md");
 }

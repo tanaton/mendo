@@ -108,16 +108,15 @@ constexpr auto kAsciiSlugTable = [] {
 }();
 
 // CJK ・ 全角文字範囲の句読点・記号はアンカーに含めない。
-// 注意: 0x3000 以降の判定は UTF-16 code unit ベース。UTF-8 ビルド切替時 (C7 以降) は
-// バイト単位の判定にならないため、UTF-8 multi-byte 文字を意識した実装に置換が必要。
-constexpr bool IsAnchorSkippableSymbol(mendo::doc_char c) noexcept
+// code point 単位で判定 (0x3000 以降の Unicode コードポイント)。
+constexpr bool IsAnchorSkippableSymbol(uint32_t cp) noexcept
 {
     // CJK 記号と句読点 (U+3000–U+303F)
-    if (c <= 0x303F) {
+    if (cp <= 0x303F) {
         return true;
     }
     // 全角 ASCII 対応の記号関連
-    return (c >= 0xFF01 && c <= 0xFF0F) || (c >= 0xFF1A && c <= 0xFF20) || (c >= 0xFF3B && c <= 0xFF40) || (c >= 0xFF5B && c <= 0xFF65);
+    return (cp >= 0xFF01 && cp <= 0xFF0F) || (cp >= 0xFF1A && cp <= 0xFF20) || (cp >= 0xFF3B && cp <= 0xFF40) || (cp >= 0xFF5B && cp <= 0xFF65);
 }
 
 } // namespace
@@ -128,16 +127,18 @@ void GenerateAnchorIdInto(mendo::doc_string_view text, mendo::doc_string& slug)
     // 出力は入力サイズ以下で確定のため一括確保して書き出す。
     slug.resize_and_overwrite(text.size(), [text](mendo::doc_char* buf, size_t /*count*/) noexcept -> size_t {
         mendo::doc_char* dst = buf;
-        for (const mendo::doc_char c : text) {
-            if (c < 0x80) {
+        const mendo::doc_char* it = text.data();
+        const mendo::doc_char* const end = it + text.size();
+        while (it != end) {
+            const auto cu = static_cast<uint32_t>(static_cast<std::make_unsigned_t<mendo::doc_char>>(*it));
+            if (cu < 0x80) {
                 // ASCII ファストパス: 1 回の table lookup で分岐を絞る。
-                switch (kAsciiSlugTable[static_cast<size_t>(c)]) {
+                switch (kAsciiSlugTable[cu]) {
                 case SlugKeep:
-                    *dst++ = c;
+                    *dst++ = static_cast<mendo::doc_char>(cu);
                     break;
                 case SlugLower:
-                    // A-Z になることは table で保証済み。
-                    *dst++ = static_cast<mendo::doc_char>(c | 0x20);
+                    *dst++ = static_cast<mendo::doc_char>(cu | 0x20);
                     break;
                 case SlugHyphen:
                     *dst++ = MENDO_LIT('-');
@@ -147,14 +148,52 @@ void GenerateAnchorIdInto(mendo::doc_string_view text, mendo::doc_string& slug)
                 default:
                     std::unreachable();
                 }
+                ++it;
+                continue;
             }
-            else if (c >= 0x3000) {
-                // CJK 文字・全角文字を判定。句読点・記号だけ除外して残す。
-                if (!IsAnchorSkippableSymbol(c)) {
-                    *dst++ = c;
+#if MENDO_DOC_USE_UTF16
+            // UTF-16: 1 code unit = 1 文字 (BMP)。サロゲート対は CJK 範囲外なので素通し。
+            if (cu >= 0x3000 && !IsAnchorSkippableSymbol(cu)) {
+                *dst++ = *it;
+            }
+            ++it;
+#else
+            // UTF-8: マルチバイトを decode → code point に対する CJK 判定。
+            // 判定が「保持」なら元の UTF-8 byte 列をそのままコピー。
+            const unsigned char first = static_cast<unsigned char>(cu);
+            uint32_t cp = 0;
+            size_t len = 0;
+            if ((first & 0xE0) == 0xC0) {
+                cp = first & 0x1F;
+                len = 2;
+            }
+            else if ((first & 0xF0) == 0xE0) {
+                cp = first & 0x0F;
+                len = 3;
+            }
+            else if ((first & 0xF8) == 0xF0) {
+                cp = first & 0x07;
+                len = 4;
+            }
+            else {
+                // 不正先頭バイト (continuation 等) はスキップ。
+                ++it;
+                continue;
+            }
+            if (static_cast<size_t>(end - it) < len) {
+                // truncated。残りスキップ。
+                break;
+            }
+            for (size_t i = 1; i < len; ++i) {
+                cp = (cp << 6) | (static_cast<unsigned char>(it[i]) & 0x3F);
+            }
+            if (cp >= 0x3000 && !IsAnchorSkippableSymbol(cp)) {
+                for (size_t i = 0; i < len; ++i) {
+                    *dst++ = it[i];
                 }
             }
-            // 0x80–0x2FFF はスキップ。
+            it += len;
+#endif
         }
         return static_cast<size_t>(dst - buf);
     });

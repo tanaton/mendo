@@ -28,7 +28,7 @@ protected:
 // 返されてしまうため、DirectWrite を通したことの直接的な検証になる。
 TEST_F(HitTestDWriteTest, ParagraphHitReturnsTextPositionFromTextLayout)
 {
-    auto pl = ParseAndLayout(L"Hello, this is a long paragraph for hit testing.");
+    auto pl = ParseAndLayout(MENDO_LIT("Hello, this is a long paragraph for hit testing."));
     ASSERT_FALSE(pl.nodes.empty());
 
     // 段落の中央付近 (margin_left + 数文字分) をクリックする想定。
@@ -53,7 +53,7 @@ TEST_F(HitTestDWriteTest, ParagraphHitReturnsTextPositionFromTextLayout)
 // row_cum_y / col_cum_x が積まれる。HitTestTable はそれを upper_bound で参照する。
 TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
 {
-    auto pl = ParseAndLayout(L"| H1 | H2 |\n|---|---|\n| 11 | 12 |\n| 21 | 22 |");
+    auto pl = ParseAndLayout(MENDO_LIT("| H1 | H2 |\n|---|---|\n| 11 | 12 |\n| 21 | 22 |"));
 
     int table_idx = -1;
     for (size_t i = 0; i < pl.nodes.size(); ++i) {
@@ -85,7 +85,7 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
 // インデックスが入ること。共有 cache の matches も正しく動くかを軽く確認する。
 TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
 {
-    auto pl = ParseAndLayout(L"```\nint main() { return 0; }\n```");
+    auto pl = ParseAndLayout(MENDO_LIT("```\nint main() { return 0; }\n```"));
 
     int code_idx = -1;
     for (size_t i = 0; i < pl.nodes.size(); ++i) {
@@ -118,7 +118,7 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
 // の繰り返し呼び出しでは結果が再利用される。書き換えしないことを 2 回呼んで確認する。
 TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_RepeatCallReturnsSameResult)
 {
-    auto pl = ParseAndLayout(L"```\nfoo\n```");
+    auto pl = ParseAndLayout(MENDO_LIT("```\nfoo\n```"));
     const float content_width = ContentWidth(800.0f);
     const MdPaneHitContext ctx{
         pl.nodes, pl.cache, theme_, 0.0f, 0.0f, 1.0f,
