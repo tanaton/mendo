@@ -393,5 +393,6 @@ private:
     {
         line_count = static_cast<int32_t>(std::ranges::count(owned_text_, L'\n'));
         view_length = 0;
+        view_base_ = nullptr;
     }
 };

@@ -149,22 +149,10 @@ struct ParseContext {
         if (offset + len > markdown_size) {
             return false;
         }
-        const wchar_t* lhs = markdown_base + offset;
-        const wchar_t* rhs = current_text.data();
-        // 大型ノード (>= 512 wchar) は先頭/末尾 kProbe wchar で probe して entity/span 混在を早期に弾く。
-        // 小段落は構造的に保護されるため誤判定リスクなし。
-        constexpr size_t kProbe = 256;
-        if (len >= 2 * kProbe) {
-            if (std::memcmp(lhs, rhs, kProbe * sizeof(wchar_t)) != 0) {
-                return false;
-            }
-            if (std::memcmp(lhs + len - kProbe, rhs + len - kProbe, kProbe * sizeof(wchar_t)) != 0) {
-                return false;
-            }
-            // 先頭/末尾は probe で一致確認済みなので、中央のみ比較する。合計比較量は len wchar 相当。
-            return std::memcmp(lhs + kProbe, rhs + kProbe, (len - 2 * kProbe) * sizeof(wchar_t)) == 0;
-        }
-        return std::memcmp(lhs, rhs, len * sizeof(wchar_t)) == 0;
+        // current_node_owned_only で span/entity 混在は事前に弾けるため、ここまで来たノードは大半が
+        // 全長一致 (success) になる。probe 短絡は worst-case で len 分の比較が走り意味がないため、
+        // 1 回の wmemcmp に統一する。
+        return std::memcmp(markdown_base + offset, current_text.data(), len * sizeof(wchar_t)) == 0;
     }
 
     // 現在ノードの Wide スクラッチを Node に確定し、スクラッチをクリアする。

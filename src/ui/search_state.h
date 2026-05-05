@@ -134,7 +134,7 @@ private:
         std::pmr::wstring buffer;
         // NodeTableData::cell_text_starts のコピー (size = row_count * col_count + 1)。
         std::pmr::vector<uint32_t> offsets;
-        size_t col_count = 0;
+        uint16_t col_count = 0;
     };
     struct LowercaseCache {
         std::pmr::wstring buffer;                            // 全ノードの lower text を連結

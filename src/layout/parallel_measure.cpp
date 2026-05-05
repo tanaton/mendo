@@ -50,9 +50,9 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
     DirtyBatchResult result;
     const auto node_count = nodes.size();
 
-    const bool has_viewport_limit = (clip.top >= 0.0f && clip.height > 0.0f);
-    const float limit_top = has_viewport_limit ? clip.top - clip.height * clip.buffer_screens : 0.0f;
-    const float limit_bottom = has_viewport_limit ? clip.top + clip.height + clip.height * clip.buffer_screens : 0.0f;
+    const bool has_viewport_limit = clip.active();
+    const float limit_top = has_viewport_limit ? clip.limit_top() : 0.0f;
+    const float limit_bottom = has_viewport_limit ? clip.limit_bottom() : 0.0f;
     const bool has_batch_limit = (budget.max_nodes > 0);
 
     std::pmr::vector<size_t> indices(std::pmr::get_default_resource());
@@ -61,10 +61,7 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
         MENDO_PROFILE("RunParallel.Plan");
         for (size_t i = 0; i < node_count; i++) {
             const auto& entry = cache[i];
-            if (!entry.layout_dirty) {
-                continue;
-            }
-            if (has_viewport_limit && IsOffscreen(entry.text_top, entry.height, limit_top, limit_bottom)) {
+            if (!ViewportClip::ShouldMeasure(entry, has_viewport_limit, limit_top, limit_bottom)) {
                 continue;
             }
             indices.push_back(i);
@@ -112,8 +109,7 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
         auto run_chunk = [&](std::span<const size_t> ci, std::span<std::pmr::vector<SyntaxToken>> co) {
             try {
                 MeasureChunk(nodes, cache, content_width, theme, backend, ci, co);
-            }
-            catch (...) {
+            } catch (...) {
                 error_count.fetch_add(1, std::memory_order_relaxed);
                 OutputDebugStringW(L"[mendo] RunParallel chunk threw exception\n");
             }

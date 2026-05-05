@@ -14,6 +14,33 @@ struct ViewportClip {
     float top = -1.0f;
     float height = -1.0f;
     float buffer_screens = 5.0f;
+
+    constexpr bool active() const noexcept
+    {
+        return top >= 0.0f && height > 0.0f;
+    }
+
+    // dirty 選定で「処理対象として残すべきか」を返す共通述語。
+    // limit_top / limit_bottom の計算は呼び出しごとに 1 度だけ済ませた値を渡す。
+    static constexpr bool ShouldMeasure(const NodeLayoutEntry& e, bool has_limit, float limit_top, float limit_bottom) noexcept
+    {
+        if (!e.layout_dirty) {
+            return false;
+        }
+        if (has_limit && IsOffscreen(e.text_top, e.height, limit_top, limit_bottom)) {
+            return false;
+        }
+        return true;
+    }
+
+    constexpr float limit_top() const noexcept
+    {
+        return top - height * buffer_screens;
+    }
+    constexpr float limit_bottom() const noexcept
+    {
+        return top + height + height * buffer_screens;
+    }
 };
 
 // 1 回の RunSerial で消費可能な予算。0 = 無制限。
@@ -23,10 +50,10 @@ struct DirtyBudget {
 };
 
 enum class StopReason : uint8_t {
-    NoneDirty,   // dirty が 0 件
-    Done,        // 全 dirty を処理しきった
-    BatchLimit,  // max_nodes に到達
-    TimeBudget,  // time_us を超過
+    NoneDirty,  // dirty が 0 件
+    Done,       // 全 dirty を処理しきった
+    BatchLimit, // max_nodes に到達
+    TimeBudget, // time_us を超過
 };
 
 struct DirtyBatchResult {

@@ -60,7 +60,6 @@ struct TableLayoutData {
         const size_t idx = CellIndex(row, col);
         return (idx < cell_layouts.size()) ? cell_layouts[idx].Get() : nullptr;
     }
-
 };
 
 // 検索ハイライト矩形のフレーム間キャッシュ。
@@ -585,6 +584,29 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_co
         return e.text_top + e.height <= viewport_top;
     });
     return static_cast<int>(it - first);
+}
+
+struct VisibleRange {
+    size_t first;
+    size_t last_plus_1;
+};
+
+// [first, last_plus_1) で range_top..range_bottom と重なる可能性があるノード範囲を返す。
+// first: 下端が range_top 以上の最初のノード（FindFirstVisibleNodeIndex 相当）。
+// last+1: 上端が range_bottom を超える最初のノード。
+inline VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count,
+                                            float range_top, float range_bottom) noexcept
+{
+    const size_t effective = std::min(node_count, cache.size());
+    const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, effective, range_top));
+    size_t last_plus_1 = first;
+    for (size_t i = first; i < effective; ++i) {
+        if (cache[i].text_top > range_bottom) {
+            break;
+        }
+        last_plus_1 = i + 1;
+    }
+    return { first, last_plus_1 };
 }
 
 // (node, offset) → 絶対スクロール位置。

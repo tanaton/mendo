@@ -17,9 +17,9 @@ DirtyBatchResult DirtyScheduler::RunSerial(std::pmr::vector<Node>& nodes,
     DirtyBatchResult result;
     const auto node_count = nodes.size();
 
-    const bool has_viewport_limit = (clip.top >= 0.0f && clip.height > 0.0f);
-    const float limit_top = has_viewport_limit ? clip.top - clip.height * clip.buffer_screens : 0.0f;
-    const float limit_bottom = has_viewport_limit ? clip.top + clip.height + clip.height * clip.buffer_screens : 0.0f;
+    const bool has_viewport_limit = clip.active();
+    const float limit_top = has_viewport_limit ? clip.limit_top() : 0.0f;
+    const float limit_bottom = has_viewport_limit ? clip.limit_bottom() : 0.0f;
 
     const bool has_time_budget = (budget.time_us > 0);
     const bool has_batch_limit = (budget.max_nodes > 0);
@@ -27,11 +27,7 @@ DirtyBatchResult DirtyScheduler::RunSerial(std::pmr::vector<Node>& nodes,
 
     for (size_t i = 0; i < node_count; i++) {
         auto& entry = cache[i];
-        if (!entry.layout_dirty) {
-            continue;
-        }
-
-        if (has_viewport_limit && IsOffscreen(entry.text_top, entry.height, limit_top, limit_bottom)) {
+        if (!ViewportClip::ShouldMeasure(entry, has_viewport_limit, limit_top, limit_bottom)) {
             continue;
         }
 

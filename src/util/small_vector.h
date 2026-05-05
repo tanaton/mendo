@@ -263,8 +263,8 @@ private:
         }
     }
 
-    template <typename T>
-    constexpr void constexpr_memcpy(T* dest, const T* src, std::size_t count)
+    template <typename U>
+    constexpr void constexpr_memcpy(U* dest, const U* src, std::size_t count)
     {
         if consteval {
             for (std::size_t i = 0; i < count; ++i) {
@@ -272,7 +272,7 @@ private:
             }
         }
         else {
-            std::memcpy(dest, src, sizeof(T) * count);
+            std::memcpy(dest, src, sizeof(U) * count);
         }
     }
 

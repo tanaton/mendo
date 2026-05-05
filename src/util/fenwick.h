@@ -46,21 +46,29 @@ public:
 
     // 末尾に 0 値要素を追加してサイズを n まで拡張する (n が現在以下なら no-op)。
     // 単純な resize では Fenwick の累積構造が壊れる (新規 i のノードはその i 位置までの
-    // 累積和を保持する必要があるため)。値配列を取り出して Build で再構築する O(N) パス。
+    // 累積和を保持する必要があるため)。Build の逆操作で個別値配列に in-place 変換し、
+    // 末尾を 0 拡張してから再 Build する。両方向とも O(N)。
     void GrowTo(std::size_t n)
     {
         const std::size_t old = tree_.size();
         if (n <= old) {
             return;
         }
-        std::pmr::vector<float> values(tree_.get_allocator().resource());
-        values.reserve(n);
-        for (std::size_t i = 0; i < old; ++i) {
-            values.push_back(GetPoint(i));
+        // tree_ を個別値配列へ in-place 逆変換 (Build の各加算を逆順に減算)。
+        for (std::size_t i = old; i > 0; --i) {
+            const std::size_t parent = i + (i & (~i + 1));
+            if (parent <= old) {
+                tree_[parent - 1] -= tree_[i - 1];
+            }
         }
-        values.resize(n, 0.0f);
-        tree_.resize(n);
-        Build(std::span<const float>(values.data(), values.size()));
+        tree_.resize(n, 0.0f);
+        // 個別値配列から Fenwick を再構築 (Build(span) と同じ本体)。
+        for (std::size_t i = 1; i <= n; ++i) {
+            const std::size_t parent = i + (i & (~i + 1));
+            if (parent <= n) {
+                tree_[parent - 1] += tree_[i - 1];
+            }
+        }
     }
 
     constexpr std::size_t size() const noexcept
