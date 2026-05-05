@@ -180,6 +180,18 @@ bool App::Init(HWND hwnd)
 
     state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, BuildSearchBarCallbacks());
 
+    // 起動時 preload は scheduler/Theme 不要な path で I/O+パースを先行させる。
+    // ここで hwnd を引き渡して PostMessage(PARSE_COMPLETE) を解禁する。
+    if (file_load_service_.HasPreload()) {
+        const std::pmr::wstring preload_path{ file_load_service_.GetLoadingPath() };
+        if (DocumentService::NeedsLoadingAnimation(preload_path)) {
+            file_load_service_.StartLoading(preload_path);
+            EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
+            Invalidate();
+        }
+        file_load_service_.OnInitComplete(hwnd_, app_msg::PARSE_COMPLETE);
+    }
+
     return true;
 }
 

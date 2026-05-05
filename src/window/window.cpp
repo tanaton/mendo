@@ -47,6 +47,10 @@ void Win32Window::ShowDirectory(std::wstring_view dir_path)
 {
     app_->ShowDirectory(dir_path);
 }
+void Win32Window::StartPreloadAsync(std::pmr::wstring path)
+{
+    app_->StartPreloadAsync(std::move(path));
+}
 
 bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 {

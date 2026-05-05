@@ -129,6 +129,11 @@ void App::LoadMarkdownFile(std::wstring_view path)
     }
 }
 
+void App::StartPreloadAsync(std::pmr::wstring path)
+{
+    file_load_service_.StartPreloadAsync(std::move(path));
+}
+
 void App::DoLoadMarkdownFile()
 {
     MENDO_PROFILE("DoLoadMarkdownFile");
@@ -173,6 +178,9 @@ void App::OnParseComplete()
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
         // 失敗パスでも paused 状態の FileWatcher を必ず再開させる。
         EmitEffect(effect::ResumeFileWatch{});
+        if (auto err = file_load_service_.TakeAsyncError()) {
+            ShowToast(FileLoadErrorMessage(*err, i18n::S()));
+        }
         HandleLoadFailureFallback();
         return;
     }

@@ -4,6 +4,19 @@
 #include "profiler.h"
 #include "ui_constants.h"
 
+FileLoadService::~FileLoadService()
+{
+    // jthread は destructor で join するが、worker が cv.wait でブロック中だと
+    // デッドロックするため、明示的に abort 通知してから抜ける。
+    if (preload_ctx_) {
+        {
+            const std::lock_guard lk(preload_ctx_->mtx);
+            preload_ctx_->aborted = true;
+        }
+        preload_ctx_->cv.notify_all();
+    }
+}
+
 void FileLoadService::StartLoading(std::pmr::wstring path)
 {
     loading_path_ = std::move(path);
@@ -39,12 +52,16 @@ std::expected<void, FileLoadError> FileLoadService::ExecuteLoad(Document& doc, L
     return {};
 }
 
+void FileLoadService::ResetAsyncState()
+{
+    const std::lock_guard lock(async_mutex_);
+    async_result_.reset();
+    async_error_.reset();
+}
+
 void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme)
 {
-    {
-        const std::lock_guard lock(async_mutex_);
-        async_result_.reset();
-    }
+    ResetAsyncState();
     async_in_flight_ = true;
     const uint32_t gen = async_gen_.fetch_add(1, std::memory_order_relaxed) + 1;
 
@@ -60,6 +77,10 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
         auto load_result = FileLoader::LoadFile(path);
         if (!load_result) {
             if (async_gen_.load(std::memory_order_relaxed) == gen) {
+                {
+                    const std::lock_guard lock(async_mutex_);
+                    async_error_ = load_result.error();
+                }
                 PostMessage(hwnd, msg_id, 0, 0);
             }
             return;
@@ -94,4 +115,63 @@ std::optional<AsyncLoadResult> FileLoadService::TakeAsyncResult()
     auto result = std::move(async_result_);
     async_result_.reset();
     return result;
+}
+
+std::optional<FileLoadError> FileLoadService::TakeAsyncError() noexcept
+{
+    const std::lock_guard lock(async_mutex_);
+    auto err = async_error_;
+    async_error_.reset();
+    return err;
+}
+
+void FileLoadService::StartPreloadAsync(std::pmr::wstring path)
+{
+    ResetAsyncState();
+    async_in_flight_ = true;
+    loading_path_ = path;
+
+    auto ctx = std::make_shared<PreloadContext>();
+    preload_ctx_ = ctx;
+
+    // EstimateNodeHeights は Theme 依存のためここでは行わず、OnParseComplete 経由で
+    // FinishLoadMarkdownFile が後で実行する。
+    preload_thread_ = std::jthread([this, ctx, path = std::move(path)](std::stop_token st) mutable {
+        MENDO_PROFILE("Preload::worker");
+
+        auto load_result = DocumentService::LoadFile(path);
+        if (load_result) {
+            LayoutCache cache;
+            cache.Reset(load_result->GetNodes().size(), /* shrink = */ false);
+            const std::lock_guard lock(async_mutex_);
+            async_result_.emplace(AsyncLoadResult{ std::move(*load_result), std::move(cache) });
+        }
+        else {
+            const std::lock_guard lock(async_mutex_);
+            async_error_ = load_result.error();
+        }
+
+        std::unique_lock lk(ctx->mtx);
+        ctx->cv.wait(lk, [&] { return ctx->hwnd != nullptr || ctx->aborted || st.stop_requested(); });
+        if (ctx->aborted || st.stop_requested()) {
+            return;
+        }
+        const HWND h = ctx->hwnd;
+        const UINT m = ctx->msg_id;
+        lk.unlock();
+        PostMessage(h, m, 0, 0);
+    });
+}
+
+void FileLoadService::OnInitComplete(HWND hwnd, UINT msg_id)
+{
+    if (!preload_ctx_) {
+        return;
+    }
+    {
+        const std::lock_guard lk(preload_ctx_->mtx);
+        preload_ctx_->hwnd = hwnd;
+        preload_ctx_->msg_id = msg_id;
+    }
+    preload_ctx_->cv.notify_one();
 }
