@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_text.h"
 #include <string>
 #include <string_view>
 #include <deque>
@@ -104,5 +105,7 @@ struct LinkClickResult {
     std::pmr::wstring target;
 };
 
-LinkClickResult HandleLinkClick(std::wstring_view url);
-bool IsSafeUrlScheme(std::wstring_view url) noexcept;
+// link URL は Document テキスト由来なので doc_string_view 受け取り。
+// LinkClickResult::target は ShellExecuteW 経由で Win32 に渡るため wstring 維持。
+LinkClickResult HandleLinkClick(mendo::doc_string_view url);
+bool IsSafeUrlScheme(mendo::doc_string_view url) noexcept;

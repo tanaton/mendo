@@ -1,5 +1,6 @@
 #include "nav.h"
 #include "ascii_util.h"
+#include "string_convert.h"
 
 uint32_t NavHistory::InternPath(std::wstring_view path)
 {
@@ -135,21 +136,28 @@ void NavHistory::Clear() noexcept
 
 // ShellExecuteWに渡しても安全なURLスキームかどうかを判定する。
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
-bool IsSafeUrlScheme(std::wstring_view url) noexcept
+bool IsSafeUrlScheme(mendo::doc_string_view url) noexcept
 {
-    return ascii_util::istarts_with(url, L"http://") || ascii_util::istarts_with(url, L"https://") || ascii_util::istarts_with(url, L"mailto:");
+    return ascii_util::istarts_with(url, MENDO_LIT("http://")) ||
+           ascii_util::istarts_with(url, MENDO_LIT("https://")) ||
+           ascii_util::istarts_with(url, MENDO_LIT("mailto:"));
 }
 
-LinkClickResult HandleLinkClick(std::wstring_view url)
+LinkClickResult HandleLinkClick(mendo::doc_string_view url)
 {
     LinkClickResult result;
     if (url.empty()) {
         return result;
     }
     // 内部アンカーリンク: #something
-    if (url[0] == L'#') {
+    if (url[0] == MENDO_LIT('#')) {
         result.type = LinkClickResult::Type::Anchor;
+        // target は wstring (Win32 互換)。UTF-16 ビルド時は同型なので zero-copy。
+#if MENDO_DOC_USE_UTF16
         result.target = url.substr(1);
+#else
+        string_convert::Utf8ToWide(url.substr(1), result.target);
+#endif
         return result;
     }
     // 安全なスキームの外部リンクのみ許可
@@ -157,6 +165,10 @@ LinkClickResult HandleLinkClick(std::wstring_view url)
         return result;
     }
     result.type = LinkClickResult::Type::ExternalUrl;
+#if MENDO_DOC_USE_UTF16
     result.target = url;
+#else
+    string_convert::Utf8ToWide(url, result.target);
+#endif
     return result;
 }

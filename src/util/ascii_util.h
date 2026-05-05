@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_text.h"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -32,20 +33,27 @@ struct ToLowerAsciiFn {
 };
 inline constexpr ToLowerAsciiFn ToLowerAscii{};
 
-constexpr wchar_t ToUpperAscii(wchar_t c) noexcept
+template <typename Char>
+constexpr Char ToUpperAscii(Char c) noexcept
 {
-    return (c >= L'a' && c <= L'z') ? static_cast<wchar_t>(c - L'a' + L'A') : c;
+    return (c >= static_cast<Char>('a') && c <= static_cast<Char>('z'))
+        ? static_cast<Char>(c - static_cast<Char>('a') + static_cast<Char>('A'))
+        : c;
 }
 
 // 純粋な ASCII 範囲の文字種判定。locale や CJK の影響を受けない。
-constexpr bool IsAsciiDigit(wchar_t c) noexcept
+template <typename Char>
+constexpr bool IsAsciiDigit(Char c) noexcept
 {
-    return c >= L'0' && c <= L'9';
+    return c >= static_cast<Char>('0') && c <= static_cast<Char>('9');
 }
 
-constexpr bool IsAsciiHexDigit(wchar_t c) noexcept
+template <typename Char>
+constexpr bool IsAsciiHexDigit(Char c) noexcept
 {
-    return IsAsciiDigit(c) || (c >= L'a' && c <= L'f') || (c >= L'A' && c <= L'F');
+    return IsAsciiDigit(c) ||
+           (c >= static_cast<Char>('a') && c <= static_cast<Char>('f')) ||
+           (c >= static_cast<Char>('A') && c <= static_cast<Char>('F'));
 }
 
 namespace detail {
@@ -68,6 +76,28 @@ inline __m128i AsciiUpperToLowerAdd(__m128i c) noexcept
     const __m128i diff = _mm_set1_epi16(0x20);
     const __m128i ge_a = _mm_cmpgt_epi16(c, a_minus_1);
     const __m128i le_z = _mm_cmpgt_epi16(z_plus_1, c);
+    const __m128i mask = _mm_and_si128(ge_a, le_z);
+    return _mm_and_si128(mask, diff);
+}
+
+// 16 char 入りベクタに非 ASCII (>= 0x80) が含まれているか (char 用)。
+// char は signed なので >= 0x80 のチェックは符号ビットが立っているかで判定する。
+inline bool HasNonAsciiChar(__m128i c) noexcept
+{
+    // _mm_movemask_epi8 は各バイトの MSB を取る。MSB が立っていれば非 ASCII。
+    return _mm_movemask_epi8(c) != 0;
+}
+
+// ASCII 大文字 'A'-'Z' に対して 0x20 を、それ以外には 0 を返す加算ベクタ (char 用、16 byte 並列)。
+// _mm_cmpgt_epi8 は符号付き比較。'A'-1 (0x40) と 'Z'+1 (0x5B) は ASCII 範囲で正値なので問題なし。
+// 0x80+ (negative as signed) は ge_a で false になるため安全側に倒れる。
+inline __m128i AsciiUpperToLowerAddChar(__m128i c) noexcept
+{
+    const __m128i a_minus_1 = _mm_set1_epi8(static_cast<char>('A' - 1));
+    const __m128i z_plus_1 = _mm_set1_epi8(static_cast<char>('Z' + 1));
+    const __m128i diff = _mm_set1_epi8(0x20);
+    const __m128i ge_a = _mm_cmpgt_epi8(c, a_minus_1);
+    const __m128i le_z = _mm_cmpgt_epi8(z_plus_1, c);
     const __m128i mask = _mm_and_si128(ge_a, le_z);
     return _mm_and_si128(mask, diff);
 }
@@ -127,6 +157,45 @@ inline void AsciiToLowerOnly(const wchar_t* src, wchar_t* dst, size_t n) noexcep
     }
 }
 
+// char 版 (UTF-8 / 16-byte 並列)。ASCII 範囲のみ大文字→小文字、UTF-8 multi-byte は不変。
+// UTF-8 continuation byte (10xxxxxx) は >= 0x80 なので AsciiUpperToLowerAddChar の mask で
+// 必ず 0 になり、書き換えられない。
+inline void AsciiToLowerOnly(const char* src, char* dst, size_t n) noexcept
+{
+    size_t i = 0;
+    while (i + 16 <= n) {
+        const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i));
+        const __m128i add = detail::AsciiUpperToLowerAddChar(c);
+        const __m128i r = _mm_add_epi8(c, add);
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + i), r);
+        i += 16;
+    }
+    for (; i < n; ++i) {
+        const char ch = src[i];
+        dst[i] = (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch;
+    }
+}
+
+// char 版 ToLower (UTF-8 ASCII チャンク並列)。非 ASCII (UTF-8 multi-byte) は素通し。
+// UTF-8 では非 ASCII を「小文字化」する意味のあるロケール非依存実装は存在しないため、
+// 非 ASCII バイトはそのまま (CJK 等のケース変換が必要なケースはこの関数の対象外)。
+inline void ToLower(const char* src, char* dst, size_t n) noexcept
+{
+    size_t i = 0;
+    while (i + 16 <= n) {
+        const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i));
+        // 非 ASCII でも AsciiUpperToLowerAddChar の mask で 0 になるので、ASCII/UTF-8 混在で安全。
+        const __m128i add = detail::AsciiUpperToLowerAddChar(c);
+        const __m128i r = _mm_add_epi8(c, add);
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + i), r);
+        i += 16;
+    }
+    for (; i < n; ++i) {
+        const char ch = src[i];
+        dst[i] = (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch;
+    }
+}
+
 // ASCII 大文字 'A'-'Z' を一文字でも含むなら true。
 inline bool HasAsciiUpper(const wchar_t* s, size_t n) noexcept
 {
@@ -146,6 +215,32 @@ inline bool HasAsciiUpper(const wchar_t* s, size_t n) noexcept
     for (; i < n; ++i) {
         const wchar_t ch = s[i];
         if (ch >= L'A' && ch <= L'Z') {
+            return true;
+        }
+    }
+    return false;
+}
+
+// char 版 (UTF-8 / 16-byte 並列)。UTF-8 continuation byte は >= 0x80 で signed では負値、
+// _mm_cmpgt_epi8 の ge_a で false になるため誤検出しない。
+inline bool HasAsciiUpper(const char* s, size_t n) noexcept
+{
+    const __m128i a_minus_1 = _mm_set1_epi8(static_cast<char>('A' - 1));
+    const __m128i z_plus_1 = _mm_set1_epi8(static_cast<char>('Z' + 1));
+    size_t i = 0;
+    while (i + 16 <= n) {
+        const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s + i));
+        const __m128i ge_a = _mm_cmpgt_epi8(c, a_minus_1);
+        const __m128i le_z = _mm_cmpgt_epi8(z_plus_1, c);
+        const __m128i mask = _mm_and_si128(ge_a, le_z);
+        if (_mm_movemask_epi8(mask) != 0) {
+            return true;
+        }
+        i += 16;
+    }
+    for (; i < n; ++i) {
+        const char ch = s[i];
+        if (ch >= 'A' && ch <= 'Z') {
             return true;
         }
     }
@@ -254,18 +349,84 @@ inline bool Contains(std::wstring_view text, std::wstring_view query) noexcept
     return Find(text, query) != npos;
 }
 
-// 小文字 ASCII リテラル専用の引数型。コンパイル時に契約違反を検出する。
-// 配列参照のテンプレートコンストラクタで wchar_t リテラルしか受け付けず、
-// consteval 内の throw で定数評価を ill-formed にしてコンパイルエラーを発生させる。
-// 実行時オーバーヘッドはゼロ。
-//
+// char 版 Find (UTF-8 / 16-byte 並列)。query 先頭バイトを broadcast 比較し、合致候補を memcmp で確認。
+// UTF-8 multi-byte シーケンスの中間バイトがクエリ先頭バイトと衝突する可能性はあるが、
+// 後続の memcmp で正確に弾けるため正しさは保たれる (UTF-8 self-synchronizing 性は使わずに済む)。
+inline size_t Find(std::string_view text, std::string_view query, size_t start = 0) noexcept
+{
+    const size_t qlen = query.size();
+    const size_t tlen = text.size();
+    if (qlen == 0) {
+        return start <= tlen ? start : npos;
+    }
+    if (start >= tlen || tlen - start < qlen) {
+        return npos;
+    }
+
+    const char* tp = text.data();
+    const char* qp = query.data();
+    const char first = qp[0];
+    const __m128i bcast = _mm_set1_epi8(first);
+    const size_t last = tlen - qlen;
+
+    size_t i = start;
+
+    if (qlen == 1) {
+        while (i + 16 <= tlen) {
+            const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tp + i));
+            const __m128i eq = _mm_cmpeq_epi8(c, bcast);
+            const unsigned mask = static_cast<unsigned>(_mm_movemask_epi8(eq));
+            if (mask != 0) {
+                unsigned long bit_idx;
+                _BitScanForward(&bit_idx, mask);
+                return i + bit_idx;
+            }
+            i += 16;
+        }
+        for (; i <= last; ++i) {
+            if (tp[i] == first) {
+                return i;
+            }
+        }
+        return npos;
+    }
+
+    while (i + 16 <= tlen) {
+        const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tp + i));
+        const __m128i eq = _mm_cmpeq_epi8(c, bcast);
+        unsigned mask = static_cast<unsigned>(_mm_movemask_epi8(eq));
+        while (mask != 0) {
+            unsigned long bit_idx;
+            _BitScanForward(&bit_idx, mask);
+            mask &= mask - 1;
+            const size_t pos = i + bit_idx;
+            if (pos > last) {
+                return npos;
+            }
+            if (std::memcmp(tp + pos + 1, qp + 1, qlen - 1) == 0) {
+                return pos;
+            }
+        }
+        i += 16;
+    }
+    for (; i <= last; ++i) {
+        if (tp[i] == first && std::memcmp(tp + i + 1, qp + 1, qlen - 1) == 0) {
+            return i;
+        }
+    }
+    return npos;
+}
+
+inline bool Contains(std::string_view text, std::string_view query) noexcept
+{
+    return Find(text, query) != npos;
+}
+
+// 小文字 ASCII リテラル専用の引数型 (wchar_t 用)。コンパイル時に契約違反を検出する。
 // 検証する契約:
-//  - NUL 終端 (literal[N-1] == L'\0')。文字列リテラルなら自動で満たすが、
-//    手書きの wchar_t[N] 配列で終端を忘れた場合に弾く。
-//  - 全文字が ASCII 範囲 (<= 0x7F)。CJK 等が混じるとサイレントに通って
-//    比較側で常に不一致になるため、明示的に拒否する。
-//  - 大文字 'A'-'Z' を含まない。`iequal` 等は LHS のみ projection で
-//    小文字化する高速版なので、RHS は小文字確定でなければならない。
+//  - NUL 終端 (literal[N-1] == L'\0')。
+//  - 全文字が ASCII 範囲 (<= 0x7F)。
+//  - 大文字 'A'-'Z' を含まない (RHS は小文字確定でなければならない)。
 struct LowercaseAsciiLiteral {
     std::wstring_view value;
 
@@ -287,16 +448,56 @@ struct LowercaseAsciiLiteral {
     }
 };
 
+// 小文字 ASCII リテラル専用の引数型 (char 用、UTF-8 ビルド向け)。LowercaseAsciiLiteral の char 版。
+struct LowercaseAsciiLiteralChar {
+    std::string_view value;
+
+    template <size_t N>
+    consteval LowercaseAsciiLiteralChar(const char (&literal)[N]) noexcept
+        : value(literal, N - 1)
+    {
+        if (literal[N - 1] != '\0') {
+            throw "LowercaseAsciiLiteralChar: literal must be NUL-terminated";
+        }
+        for (size_t i = 0; i < N - 1; ++i) {
+            // char (signed) で 0x80+ は負値になるので unsigned 変換で判定。
+            if (static_cast<unsigned char>(literal[i]) > 0x7F) {
+                throw "LowercaseAsciiLiteralChar: literal must contain only ASCII characters";
+            }
+            if (literal[i] >= 'A' && literal[i] <= 'Z') {
+                throw "LowercaseAsciiLiteralChar: literal must be lowercase ASCII";
+            }
+        }
+    }
+};
+
+// Document テキスト用エイリアス。doc_char に応じて wide/char 版を選択。
+#if MENDO_DOC_USE_UTF16
+using DocLowercaseLiteral = LowercaseAsciiLiteral;
+#else
+using DocLowercaseLiteral = LowercaseAsciiLiteralChar;
+#endif
+
 // 大小無視の等価比較。ASCII 'A'-'Z' のみ小文字化、他は素通し。locale 非依存。
-// LHS のみ projection で小文字化する高速版。RHS は LowercaseAsciiLiteral 型で
-// 受けることで、小文字リテラル以外を渡せないことをコンパイル時に保証する。
+// LHS のみ projection で小文字化する高速版。
 constexpr bool iequal(std::wstring_view a, LowercaseAsciiLiteral b) noexcept
+{
+    return std::ranges::equal(a, b.value, {}, ToLowerAscii);
+}
+
+constexpr bool iequal(std::string_view a, LowercaseAsciiLiteralChar b) noexcept
 {
     return std::ranges::equal(a, b.value, {}, ToLowerAscii);
 }
 
 // 大小無視のプレフィックスマッチ。s が prefix で始まれば true。
 constexpr bool istarts_with(std::wstring_view s, LowercaseAsciiLiteral prefix) noexcept
+{
+    return s.size() >= prefix.value.size() &&
+           std::ranges::equal(s.substr(0, prefix.value.size()), prefix.value, {}, ToLowerAscii);
+}
+
+constexpr bool istarts_with(std::string_view s, LowercaseAsciiLiteralChar prefix) noexcept
 {
     return s.size() >= prefix.value.size() &&
            std::ranges::equal(s.substr(0, prefix.value.size()), prefix.value, {}, ToLowerAscii);

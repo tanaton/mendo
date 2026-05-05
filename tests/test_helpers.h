@@ -20,7 +20,7 @@ constexpr bool ColorEq(D2D1_COLOR_F a, D2D1_COLOR_F b) noexcept
 }
 
 // テキスト持ちの Paragraph ノードを作るテスト用ヘルパー。
-inline Node MakeTextNode(const wchar_t* text)
+inline Node MakeTextNode(const mendo::doc_char* text)
 {
     Node n;
     n.type = NodeType::Paragraph;
@@ -29,7 +29,7 @@ inline Node MakeTextNode(const wchar_t* text)
 }
 
 // 1 行 2 列のテーブルノードを作るテスト用ヘルパー。
-inline Node MakeTableNode(const wchar_t* cell0, const wchar_t* cell1)
+inline Node MakeTableNode(const mendo::doc_char* cell0, const mendo::doc_char* cell1)
 {
     Node n;
     n.type = NodeType::Table;
@@ -38,10 +38,10 @@ inline Node MakeTableNode(const wchar_t* cell0, const wchar_t* cell1)
     tbl->row_count = 1;
     tbl->col_count = 2;
     tbl->concat_text.append(cell0);
-    tbl->concat_text.push_back(L'\t');
+    tbl->concat_text.push_back(mendo::doc_tab);
     tbl->concat_text.append(cell1);
     tbl->cell_text_starts.push_back(0);
-    tbl->cell_text_starts.push_back(static_cast<uint32_t>(std::wcslen(cell0) + 1));
+    tbl->cell_text_starts.push_back(static_cast<uint32_t>(std::char_traits<mendo::doc_char>::length(cell0) + 1));
     tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
     tbl->cell_run_starts.push_back(0);
     tbl->cell_run_starts.push_back(0);

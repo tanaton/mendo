@@ -4,6 +4,7 @@
 #include "app_mouse_helpers.h"
 #include "i18n.h"
 #include "pane_layout.h"
+#include "string_convert.h"
 #include "ui_constants.h"
 
 bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept
@@ -112,7 +113,12 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         TooltipTarget tt;
         if (link.has_value()) {
             tt.zone = TooltipTarget::Zone::MdLink;
+            // tt.text は wstring (Win32 ツールチップ表示用)。UTF-8 ビルド時のみ実体変換。
+#if MENDO_DOC_USE_UTF16
             tt.text = *link;
+#else
+            string_convert::Utf8ToWide(*link, tt.text);
+#endif
         }
         else if (hit.node_index >= 0) {
             const auto& nodes = state_.document.doc.GetNodes();
@@ -121,10 +127,20 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
                 tt.zone = TooltipTarget::Zone::MdImage;
                 const auto& alt = node.GetText();
                 if (!alt.empty()) {
+#if MENDO_DOC_USE_UTF16
                     tt.text = alt;
+#else
+                    string_convert::Utf8ToWide(alt, tt.text);
+#endif
                     tt.text += L"\n";
                 }
+#if MENDO_DOC_USE_UTF16
                 tt.text += img->src;
+#else
+                std::pmr::wstring src_wide;
+                string_convert::Utf8ToWide(img->src, src_wide);
+                tt.text += src_wide;
+#endif
             }
         }
         Dispatch(UpdateTooltipAction{ tt, px, py });
@@ -258,7 +274,14 @@ void App::OnMouseHover(int px, int py)
                 return { TooltipTarget::Zone::TocPaneButton, i18n::S().tooltip_pane_close };
             }
             if (idx >= 0 && idx < static_cast<int>(toc_entries.size())) {
-                return { TooltipTarget::Zone::TocPaneItem, state_.document.doc.GetNodes()[toc_entries[idx].node_index].GetText() };
+                const auto text = state_.document.doc.GetNodes()[toc_entries[idx].node_index].GetText();
+#if MENDO_DOC_USE_UTF16
+                return { TooltipTarget::Zone::TocPaneItem, text };
+#else
+                std::pmr::wstring text_wide;
+                string_convert::Utf8ToWide(text, text_wide);
+                return { TooltipTarget::Zone::TocPaneItem, text_wide };
+#endif
             }
             return {};
         });

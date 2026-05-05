@@ -21,9 +21,9 @@ public:
     Document& operator=(Document&& other) noexcept;
     ~Document() = default;
 
-    // ファクトリ。本体は wide 入力版。utf8 入力版は FileLoader からの UTF-8
-    // バイト列（または埋め込みリソース）を直接受け取るための変換ラッパー。
-    static Document FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::wstring_view path);
+    // ファクトリ。本体は doc_string 入力版 (UTF-16 ビルド時は wide / UTF-8 ビルド時は utf8)。
+    // utf8 入力版は FileLoader からの UTF-8 バイト列を受け取るための変換ラッパー。
+    static Document FromMarkdown(mendo::doc_string text, size_t byte_size, std::wstring_view path);
     static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 
     constexpr const std::pmr::vector<Node>& GetNodes() const noexcept
@@ -46,10 +46,10 @@ public:
     {
         return nodes_.empty();
     }
-    // パース入力の wide テキストへの参照。AnalyzeReloadDiff の比較用。
+    // パース入力の doc_string テキストへの参照。AnalyzeReloadDiff の比較用。
     // ノードレベルでは検出できない編集 (空行追加・末尾空白・改行種別変更等) も
-    // UTF-16 オフセット精度で差分位置を求めるため、Document が常時保持する。
-    constexpr const std::pmr::wstring& GetRawText() const noexcept
+    // doc_char 単位 offset 精度で差分位置を求めるため、Document が常時保持する。
+    constexpr const mendo::doc_string& GetRawText() const noexcept
     {
         return raw_wide_;
     }
@@ -65,12 +65,12 @@ public:
         file_path_ = path;
     }
     void ReplaceContent(ParseResult&& result);
-    void ReplaceFromMarkdown(std::pmr::wstring wide, size_t byte_size);
+    void ReplaceFromMarkdown(mendo::doc_string text, size_t byte_size);
     void ReplaceFromMarkdown(std::pmr::string utf8);
-    int FindAnchorIndex(std::wstring_view anchor) const;
+    int FindAnchorIndex(mendo::doc_string_view anchor) const;
     // 既に anchor_id 形式（小文字 ASCII 正規化済み）と判明している入力向け。
     // 呼び出し側で正規化が保証されていれば、ToLowerAscii の確保を回避できる。
-    int FindNormalizedAnchorIndex(std::wstring_view anchor) const;
+    int FindNormalizedAnchorIndex(mendo::doc_string_view anchor) const;
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept
     {
         return image_node_indices_;
@@ -94,12 +94,13 @@ private:
     // 注意: raw_wide_ は relocate 禁止 (assign / resize / += によるヒープ再確保で
     // ノードの view_base_ が dangling になるため)。差し替えは ReplaceFromMarkdown 経由で
     // 全 nodes 再構築 + InjectViewBase() を伴うパスのみ許される。
-    std::pmr::wstring raw_wide_;
+    // 名前は歴史的に raw_wide_ のまま (= Document の 1 次的なテキスト保持先)。
+    mendo::doc_string raw_wide_;
     size_t loaded_byte_size_ = 0;
     TableOfContents toc_;
-    // キーは所有 wstring。nodes_ の再アロケート/構造変更でも索引が dangling しない。
-    std::pmr::unordered_map<std::pmr::wstring, int,
-                            WStringTransparentHash, std::equal_to<>>
+    // キーは所有 doc_string。nodes_ の再アロケート/構造変更でも索引が dangling しない。
+    std::pmr::unordered_map<mendo::doc_string, int,
+                            mendo::DocStringTransparentHash, std::equal_to<>>
         anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;

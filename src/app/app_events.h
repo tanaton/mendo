@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_text.h"
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "pane_controller.h"
@@ -181,10 +182,10 @@ struct FilePaneFileClickedAction {
     std::pmr::wstring full_path;
 };
 struct TocItemClickedAction {
-    std::pmr::wstring anchor_id;
+    mendo::doc_string anchor_id;
 };
 struct NavigateAnchorAction {
-    std::pmr::wstring anchor_id;
+    mendo::doc_string anchor_id;
 };
 
 // ファイルロード完了直後のスクロール位置復元。

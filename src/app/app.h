@@ -193,10 +193,10 @@ private:
 
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y);
-    std::optional<std::pmr::wstring> GetLinkAtHit(const HitResult& hit) const;
+    std::optional<mendo::doc_string> GetLinkAtHit(const HitResult& hit) const;
     MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
-    void HandleLinkClick(std::wstring_view url);
+    void HandleLinkClick(mendo::doc_string_view url);
 
     void SetClipboardText(std::wstring_view text) const;
     void CopySelectionToClipboard() const;

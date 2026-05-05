@@ -10,12 +10,29 @@
 
 namespace {
 
+// doc_char 型に応じた CR スキャン (UTF-16 では wmemchr、UTF-8 では memchr)。
+// memchr/wmemchr とも MSVC UCRT で SIMD ディスパッチを持つので両方とも fast path。
+// memchr(_, _, 0) / wmemchr(_, _, 0) は規格上 nullptr を返すので size==0 ガード不要。
+// doc_char に応じてビルド時に分岐させる。constexpr if だと両分岐の型チェックが入って
+// wchar_t* / char* の不整合で失敗するため、プリプロセッサで完全分岐する。
+inline mendo::doc_char* FindDocCr(mendo::doc_char* p, size_t len) noexcept
+{
+#if MENDO_DOC_USE_UTF16
+    return std::wmemchr(p, mendo::doc_cr, len);
+#else
+    // memchr の戻り値は const void*。doc_char* に戻すため static_cast。
+    // CR は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは絶対に衝突しない
+    // (UTF-8 continuation byte は 10xxxxxx で 0x80-0xBF)。
+    return static_cast<mendo::doc_char*>(std::memchr(p, mendo::doc_cr, len));
+#endif
+}
+
 // CRLF / 旧式 CR を LF に正規化する (in-place)。
 // 改行を LF に揃えておくと、パーサ中の current_text と raw_wide_ の memcmp 一致判定が成立し、
 // 大半の code block / 複数行 paragraph で view モード化 (owned_text_ 確保ゼロ) が選べる。
-// wmemchr で次の CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で
-// 共に SIMD ディスパッチ)。LF-only ファイルでは wmemchr 1 回で素通し。
-void NormalizeNewlines(std::pmr::wstring& s)
+// CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
+// LF-only ファイルでは memchr 1 回で素通し。
+void NormalizeNewlines(mendo::doc_string& s)
 {
     MENDO_PROFILE("NormalizeNewlines");
     const size_t n = s.size();
@@ -23,30 +40,29 @@ void NormalizeNewlines(std::pmr::wstring& s)
         return;
     }
 
-    wchar_t* const data = s.data();
-    wchar_t* const end = data + n;
+    mendo::doc_char* const data = s.data();
+    mendo::doc_char* const end = data + n;
 
-    wchar_t* first_cr = std::wmemchr(data, L'\r', n);
+    mendo::doc_char* first_cr = FindDocCr(data, n);
     if (!first_cr) {
         MENDO_STATF("NormalizeNewlines: in=%zu out=%zu shrunk=0 (fast LF-only)", n, n);
         return;
     }
 
-    // ループ進入時、src は必ず CR を指す (first_cr または直前反復の wmemchr 結果)。
-    wchar_t* dst = first_cr;
-    wchar_t* src = first_cr;
+    // ループ進入時、src は必ず CR を指す (first_cr または直前反復の FindDocCr 結果)。
+    mendo::doc_char* dst = first_cr;
+    mendo::doc_char* src = first_cr;
     do {
-        *dst++ = L'\n';
+        *dst++ = mendo::doc_lf;
         ++src;
-        if (src < end && *src == L'\n') {
+        if (src < end && *src == mendo::doc_lf) {
             ++src; // CRLF を LF 1 つに縮約
         }
 
-        // wmemchr(_, _, 0) は規格上 nullptr を返すので size==0 ガード不要。
-        wchar_t* next_cr = std::wmemchr(src, L'\r', static_cast<size_t>(end - src));
+        mendo::doc_char* next_cr = FindDocCr(src, static_cast<size_t>(end - src));
         const size_t chunk = next_cr ? static_cast<size_t>(next_cr - src) : static_cast<size_t>(end - src);
         if (chunk > 0) {
-            std::memmove(dst, src, chunk * sizeof(wchar_t));
+            std::memmove(dst, src, chunk * sizeof(mendo::doc_char));
             src += chunk;
             dst += chunk;
         }
@@ -80,11 +96,11 @@ Document& Document::operator=(Document&& other) noexcept
     return *this;
 }
 
-Document Document::FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::wstring_view path)
+Document Document::FromMarkdown(mendo::doc_string text, size_t byte_size, std::wstring_view path)
 {
     Document doc;
     doc.file_path_ = path;
-    doc.raw_wide_ = std::move(wide);
+    doc.raw_wide_ = std::move(text);
     NormalizeNewlines(doc.raw_wide_);
     doc.loaded_byte_size_ = byte_size;
     doc.ReplaceContent(ParseMarkdown(doc.raw_wide_));
@@ -94,9 +110,14 @@ Document Document::FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::w
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
     const size_t byte_size = utf8.size();
-    std::pmr::wstring wide;
-    string_convert::Utf8ToWideStripBom(utf8, wide);
-    return FromMarkdown(std::move(wide), byte_size, path);
+    mendo::doc_string text;
+#if MENDO_DOC_USE_UTF16
+    string_convert::Utf8ToWideStripBom(utf8, text);
+#else
+    // UTF-8 ビルド時は wide 変換不要、BOM 除去のみで raw_utf8_ を直接構築。
+    text.assign(string_convert::StripUtf8Bom(utf8));
+#endif
+    return FromMarkdown(std::move(text), byte_size, path);
 }
 
 std::pmr::wstring Document::GetDirectory() const
@@ -121,7 +142,7 @@ void Document::ReplaceContent(ParseResult&& result)
 
 void Document::InjectViewBase() noexcept
 {
-    const wchar_t* const base = raw_wide_.data();
+    const mendo::doc_char* const base = raw_wide_.data();
     [[maybe_unused]] const size_t raw_size = raw_wide_.size();
     for (auto& n : nodes_) {
         if (n.IsViewMode()) {
@@ -132,9 +153,9 @@ void Document::InjectViewBase() noexcept
     }
 }
 
-void Document::ReplaceFromMarkdown(std::pmr::wstring wide, size_t byte_size)
+void Document::ReplaceFromMarkdown(mendo::doc_string text, size_t byte_size)
 {
-    raw_wide_ = std::move(wide);
+    raw_wide_ = std::move(text);
     NormalizeNewlines(raw_wide_);
     loaded_byte_size_ = byte_size;
     ReplaceContent(ParseMarkdown(raw_wide_));
@@ -143,28 +164,32 @@ void Document::ReplaceFromMarkdown(std::pmr::wstring wide, size_t byte_size)
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)
 {
     const size_t byte_size = utf8.size();
-    std::pmr::wstring wide;
-    string_convert::Utf8ToWideStripBom(utf8, wide);
-    ReplaceFromMarkdown(std::move(wide), byte_size);
+    mendo::doc_string text;
+#if MENDO_DOC_USE_UTF16
+    string_convert::Utf8ToWideStripBom(utf8, text);
+#else
+    text.assign(string_convert::StripUtf8Bom(utf8));
+#endif
+    ReplaceFromMarkdown(std::move(text), byte_size);
 }
 
-int Document::FindAnchorIndex(std::wstring_view anchor) const
+int Document::FindAnchorIndex(mendo::doc_string_view anchor) const
 {
     if (anchor.empty()) {
         return -1;
     }
     // クエリ引数（外部リンク等）は大文字混在の可能性があるため正規化する。
-    const std::pmr::wstring target = ToLowerAscii(anchor);
+    const mendo::doc_string target = ToLowerAscii(anchor);
     const auto it = anchor_index_.find(target);
     return (it != anchor_index_.end()) ? it->second : -1;
 }
 
-int Document::FindNormalizedAnchorIndex(std::wstring_view anchor) const
+int Document::FindNormalizedAnchorIndex(mendo::doc_string_view anchor) const
 {
     if (anchor.empty()) {
         return -1;
     }
-    // 透過ハッシュにより wstring_view のまま確保なしで lookup できる。
+    // 透過ハッシュにより doc_string_view のまま確保なしで lookup できる。
     const auto it = anchor_index_.find(anchor);
     return (it != anchor_index_.end()) ? it->second : -1;
 }
@@ -182,7 +207,7 @@ void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indic
         toc_.AddEntry(node, static_cast<int>(i));
         const auto sv = node.anchor_id();
         if (!sv.empty()) {
-            std::pmr::wstring key{ sv, anchor_index_.get_allocator().resource() };
+            mendo::doc_string key{ sv, anchor_index_.get_allocator().resource() };
             anchor_index_.try_emplace(std::move(key), static_cast<int>(i));
         }
     }

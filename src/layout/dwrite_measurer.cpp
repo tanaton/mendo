@@ -1,4 +1,5 @@
 #include "dwrite_measurer.h"
+#include "doc_dwrite_bridge.h"
 #include "layout.h"
 #include "parser.h"
 #include "profiler.h"
@@ -290,13 +291,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     ComPtr<IDWriteTextLayout> layout;
     const HRESULT hr = [&] {
         MENDO_PROFILE("CreateTextLayout");
-        return dwrite_->CreateTextLayout(
-            text.data(),
-            static_cast<UINT32>(text.size()),
-            fmt,
-            layout_width,
-            dynamic_max_height,
-            &layout);
+        return mendo::CreateDocTextLayout(dwrite_, text, fmt, layout_width, dynamic_max_height, &layout);
     }();
     if (FAILED(hr)) {
         return;
@@ -359,10 +354,9 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
             const size_t ci = tl.CellIndex(r, c);
             {
                 MENDO_PROFILE("CreateTextLayout.cell");
-                dwrite_->CreateTextLayout(
-                    text.data(), static_cast<UINT32>(text.size()),
-                    row_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
-                    &tl.cell_layouts[ci]);
+                mendo::CreateDocTextLayout(dwrite_, text, row_fmt,
+                                           CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                                           &tl.cell_layouts[ci]);
             }
 
             if (tl.cell_layouts[ci]) {
@@ -400,10 +394,9 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
             }
             {
                 MENDO_PROFILE("CreateTextLayout.cell.restore");
-                dwrite_->CreateTextLayout(
-                    text.data(), static_cast<UINT32>(text.size()),
-                    row_fmt, CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
-                    &tl.cell_layouts[ci]);
+                mendo::CreateDocTextLayout(dwrite_, text, row_fmt,
+                                           CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                                           &tl.cell_layouts[ci]);
             }
             if (tl.cell_layouts[ci]) {
                 ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), std::nullopt);

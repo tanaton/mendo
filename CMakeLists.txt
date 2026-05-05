@@ -101,12 +101,19 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(wil)
 set(WIL_INCLUDE "${wil_SOURCE_DIR}/include")
 
+# ---- Document テキスト表現の切替（type alias 経由）----
+# ON  : doc_char = wchar_t、md4c は UTF-16 ビルド (MD_CHAR=WCHAR)。現行動作。
+# OFF : doc_char = char、md4c は UTF-8 ビルド (MD_CHAR=char)。1.1 完遂後の切替先。
+# CMakeLists とソース側 (`src/util/doc_text.h`) の MENDO_DOC_USE_UTF16 を連動させる。
+option(MENDO_DOC_USE_UTF16 "Document text uses wchar_t/UTF-16 (md4c UTF-16 build)." ON)
+
 # ---- md4c（サードパーティ） ----
 add_library(md4c STATIC third_party/md4c/md4c.c)
 target_include_directories(md4c PUBLIC third_party/md4c)
-# UTF-16 入力モードを有効化（MD_CHAR=WCHAR）。
-# md4c.h を取り込む側（mendo_core 等）にも伝播させるため PUBLIC で定義。
-target_compile_definitions(md4c PUBLIC MD4C_USE_UTF16)
+if(MENDO_DOC_USE_UTF16)
+    # UTF-16 入力モード（MD_CHAR=WCHAR）。md4c.h を取り込む側にも伝播させるため PUBLIC。
+    target_compile_definitions(md4c PUBLIC MD4C_USE_UTF16)
+endif()
 if(MSVC)
     target_compile_options(md4c PRIVATE /W0)
     set_target_properties(md4c PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -135,6 +142,7 @@ add_library(mendo_core STATIC
     src/layout/dirty_scheduler.cpp
     src/layout/parallel_measure.cpp
     src/layout/dwrite_measurer.cpp
+    src/layout/doc_dwrite_bridge.cpp
     # render - 描画パイプライン
     src/render/command_generator.cpp
     src/render/command_executor.cpp
@@ -182,6 +190,11 @@ target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS} third_party/md4c)
 target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )
+if(MENDO_DOC_USE_UTF16)
+    target_compile_definitions(mendo_core PUBLIC MENDO_DOC_USE_UTF16=1)
+else()
+    target_compile_definitions(mendo_core PUBLIC MENDO_DOC_USE_UTF16=0)
+endif()
 target_link_libraries(mendo_core PUBLIC
     md4c d2d1 dwrite windowscodecs shlwapi comctl32
 )

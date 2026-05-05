@@ -2,6 +2,7 @@
 #include "viewport_manager.h"
 #include "layout_cache.h"
 #include "renderer.h" // SearchBarRenderState
+#include "string_convert.h"
 #include <algorithm>
 #include <cmath>
 
@@ -68,7 +69,15 @@ void SearchBarController::OnPrev()
 
 void SearchBarController::OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes)
 {
+    // 検索バー入力は IME 経由で wstring。SearchState は Document テキストと比較するので doc_string_view 期待。
+    // UTF-16 ビルド時は同型なので zero-copy。UTF-8 ビルド時のみ実体変換。
+#if MENDO_DOC_USE_UTF16
     state_->SetQuery(text);
+#else
+    std::pmr::string text_utf8;
+    string_convert::WideToUtf8(text, text_utf8);
+    state_->SetQuery(text_utf8);
+#endif
     cb_.kill_timer(TIMER_DEBOUNCE);
 
     if (text.empty()) {
@@ -221,7 +230,14 @@ SearchBarRenderState SearchBarController::BuildRenderState() const
 {
     SearchBarRenderState sb;
     sb.visible = state_->IsVisible();
+#if MENDO_DOC_USE_UTF16
     sb.query = state_->GetQuery();
+#else
+    // UTF-8 ビルド時は doc_string → wstring 変換し、cache 経由で view を貼る。
+    query_wide_cache_.clear();
+    string_convert::Utf8ToWide(state_->GetQuery(), query_wide_cache_);
+    sb.query = query_wide_cache_;
+#endif
     sb.current_match = state_->GetCurrentMatchIndex();
     sb.total_matches = state_->GetMatchCount();
     sb.has_focus = has_focus_;

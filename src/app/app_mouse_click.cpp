@@ -5,6 +5,7 @@
 #include "document_utils.h"
 #include "i18n.h"
 #include "pane_layout.h"
+#include "string_convert.h"
 #include "ui_constants.h"
 
 void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
@@ -35,7 +36,13 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
             case SearchBarHitZone::Input: {
                 const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
                 const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
+#if MENDO_DOC_USE_UTF16
                 const int pos = renderer_.HitTestSearchInput(state_.search.search_state.GetQuery(), dip_x - text_left, input_w);
+#else
+                std::pmr::wstring query_wide;
+                string_convert::Utf8ToWide(state_.search.search_state.GetQuery(), query_wide);
+                const int pos = renderer_.HitTestSearchInput(query_wide, dip_x - text_left, input_w);
+#endif
                 Dispatch(SearchInputDragStartedAction{ pos });
                 break;
             }
@@ -161,6 +168,6 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
     if (idx >= 0 && idx < static_cast<int>(state_.document.doc.GetToc().GetEntries().size())) {
         const auto& toc_entry = state_.document.doc.GetToc().GetEntries()[idx];
         const auto anchor = state_.document.doc.GetNodes()[toc_entry.node_index].anchor_id();
-        Dispatch(TocItemClickedAction{ std::pmr::wstring(anchor) });
+        Dispatch(TocItemClickedAction{ mendo::doc_string(anchor) });
     }
 }

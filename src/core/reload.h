@@ -16,7 +16,7 @@ class LayoutCache;
 struct Theme;
 
 // 新旧コンテンツの最初の差分 UTF-16 コード単位位置を返す。同一の場合は npos。
-size_t FindFirstDifference(std::wstring_view old_text, std::wstring_view new_text) noexcept;
+size_t FindFirstDifference(mendo::doc_string_view old_text, mendo::doc_string_view new_text) noexcept;
 
 // diff_pos が短い方の末尾と一致するかを判定する。
 // 片方がもう片方の prefix であり、ファイルの伸縮（エディタの中間書き込み状態）を示す。
@@ -35,11 +35,11 @@ enum class ReloadOp : uint8_t {
 
 struct ReloadDecision {
     ReloadOp op;
-    size_t diff_pos; // NoChange のとき std::wstring_view::npos、それ以外は差分開始位置。
+    size_t diff_pos; // NoChange のとき mendo::doc_string_view::npos、それ以外は差分開始位置。
 };
 
 // 旧/新コンテンツの wide 文字列を比較し、リロード方針を決定する純粋関数。
-ReloadDecision AnalyzeReloadDiff(std::wstring_view old_wide, std::wstring_view new_wide) noexcept;
+ReloadDecision AnalyzeReloadDiff(mendo::doc_string_view old_wide, mendo::doc_string_view new_wide) noexcept;
 
 // source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
 [[nodiscard]] int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_offset) noexcept;
@@ -51,7 +51,7 @@ float CalcScrollYForDiff(
     const std::pmr::vector<Node>& nodes,
     const LayoutCache& cache,
     const Theme& theme,
-    std::wstring_view content,
+    mendo::doc_string_view content,
     size_t diff_pos,
     float viewport_height,
     float fallback_scroll) noexcept;

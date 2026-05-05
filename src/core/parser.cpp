@@ -64,14 +64,14 @@ struct ParseContext {
 
     // 現在ノード用の Wide 蓄積スクラッチ。FinalizeCurrentNode で Node::text_ へ view コピーされる
     // (allocator 不一致を避けるため move ではなくコピー)。
-    std::pmr::wstring current_text{ &pool };
+    mendo::doc_string current_text{ &pool };
 
     // current_text 内の「未確定 TextRun」の開始位置 (wide unit)。
-    // 同じ span 状態で連続する AppendWide は 1 つの TextRun に統合される。
+    // 同じ span 状態で連続する AppendDoc は 1 つの TextRun に統合される。
     // span 切替 / ブロック退出時に FlushPendingRun が呼ばれて確定する。
     uint32_t pending_run_start = 0;
     bool has_pending_run = false;
-    // pending_run_start 以降に AppendWide で押し込まれた改行の数。FlushPendingRun の count 走査を排除。
+    // pending_run_start 以降に AppendDoc で押し込まれた改行の数。FlushPendingRun の count 走査を排除。
     // md4c の \n を size==1 の単独 chunk としてしか OnText に渡さない契約 (BR/SOFTBR/HTML 改行/code 行末) に依存している。
     int32_t pending_run_newlines = 0;
 
@@ -90,7 +90,7 @@ struct ParseContext {
     // テーブル追跡
     bool in_table = false;
     bool in_thead = false;
-    // セル内かどうか (AppendWide / FlushPendingRun の振り分けに使う)。
+    // セル内かどうか (AppendDoc / FlushPendingRun の振り分けに使う)。
     bool in_table_cell = false;
     // 現在セルの concat_text 内開始 offset。run.start を cell-local に保つために保持する。
     uint32_t current_table_cell_text_start = 0;
@@ -98,30 +98,30 @@ struct ParseContext {
     // 現在構築中のノード
     Node* current_node = nullptr;
 
-    // AppendWide / FlushPendingRun のターゲットバッファのキャッシュ。
+    // AppendDoc / FlushPendingRun のターゲットバッファのキャッシュ。
     // 47-94 万回呼ばれる hot path で in_table_cell + has_table() の variant 判定を
     // 毎回行わないよう、状態遷移点 (BeginNode / TD/TH 進入退出 / current_node clear) で
-    // 更新したポインタを直接使う。nullptr のときは AppendWide / FlushPendingRun は no-op。
-    std::pmr::wstring* active_text_buffer = nullptr;
+    // 更新したポインタを直接使う。nullptr のときは AppendDoc / FlushPendingRun は no-op。
+    mendo::doc_string* active_text_buffer = nullptr;
 
     // アンカーIDの一意性追跡: スラグ -> 出現回数。
     // 再ハッシュ時の旧 bucket は pool 内で再利用されるため monotonic は膨らない。
-    std::pmr::unordered_map<std::pmr::wstring, int, WStringTransparentHash, std::equal_to<>> anchor_counts{ &pool };
+    std::pmr::unordered_map<mendo::doc_string, int, mendo::DocStringTransparentHash, std::equal_to<>> anchor_counts{ &pool };
 
     // 画像スパンの src 蓄積バッファ。NodeImageData::src へは allocator 不一致を避けるため assign(view) でコピー。
-    std::pmr::wstring pending_image_src{ &pool };
+    mendo::doc_string pending_image_src{ &pool };
 
     // display math スパンが 1 個だけで他の内容が無い段落を LatexMath コードブロックに昇格する状態
     bool in_display_math = false;
     int paragraph_display_math_count = 0;
     bool paragraph_has_other_content = false;
-    std::pmr::wstring display_math_buf{ &pool };
+    mendo::doc_string display_math_buf{ &pool };
     // display_math_buf に append された範囲の改行数。昇格時の line_count 設定に使い、
     // current_text 全体を std::ranges::count で走査するコストを避ける。
     int32_t display_math_newlines = 0;
 
     // md_parse() に渡した入力バッファ。source_offset 計算と OnText の text ポインタ範囲判定に使う。
-    const wchar_t* markdown_base = nullptr;
+    const mendo::doc_char* markdown_base = nullptr;
     size_t markdown_size = 0;
 
     // 現在ノードの source_offset が既に設定済みか。
@@ -152,7 +152,7 @@ struct ParseContext {
         // current_node_owned_only で span/entity 混在は事前に弾けるため、ここまで来たノードは大半が
         // 全長一致 (success) になる。probe 短絡は worst-case で len 分の比較が走り意味がないため、
         // 1 回の wmemcmp に統一する。
-        return std::memcmp(markdown_base + offset, current_text.data(), len * sizeof(wchar_t)) == 0;
+        return std::memcmp(markdown_base + offset, current_text.data(), len * sizeof(mendo::doc_char)) == 0;
     }
 
     // 現在ノードの Wide スクラッチを Node に確定し、スクラッチをクリアする。
@@ -220,7 +220,7 @@ struct ParseContext {
     // ハッシュマップにはキーの pmr::wstring 複製・per-node clear()・URL 文字列ハッシュの
     // コストがあり、N が小さい領域では線形 wmemcmp の方が速い。脚注で urls 数が増えても
     // 比較は wstring_view 同士なので allocator 確保を伴わない。
-    constexpr void ResolveLinkUrlIndex(std::wstring_view url)
+    constexpr void ResolveLinkUrlIndex(mendo::doc_string_view url)
     {
         if (!current_node || url.empty()) {
             current_link_url_index = -1;
@@ -229,7 +229,7 @@ struct ParseContext {
         const auto existing = current_node->view_link_urls();
         const size_t n = existing.size();
         for (size_t i = 0; i < n; ++i) {
-            if (std::wstring_view{ existing[i] } == url) {
+            if (mendo::doc_string_view{ existing[i] } == url) {
                 current_link_url_index = static_cast<int16_t>(i);
                 return;
             }
@@ -245,9 +245,9 @@ struct ParseContext {
     // セル切替・span 切替・ブロック退出の各タイミングで FlushPendingRun が走る前提。
     // セル内では active_text_buffer が NodeTableData::concat_text を指す。pending_run_start は
     // バッファサイズベースだが、cell 内では current_table_cell_text_start からの相対 (cell-local) として扱う。
-    constexpr void AppendWide(std::wstring_view text)
+    constexpr void AppendDoc(mendo::doc_string_view text)
     {
-        std::pmr::wstring* const target = active_text_buffer;
+        mendo::doc_string* const target = active_text_buffer;
         if (!target) {
             return;
         }
@@ -258,8 +258,8 @@ struct ParseContext {
         }
         // 1-char chunk fastpath: md4c は \n / 空白 / 単一 entity 等を size==1 で渡してくるので push_back に振り分ける。
         if (text.size() == 1) {
-            const wchar_t c = text[0];
-            pending_run_newlines += (c == L'\n');
+            const mendo::doc_char c = text[0];
+            pending_run_newlines += (c == mendo::doc_lf);
             target->push_back(c);
         }
         else {
@@ -273,7 +273,7 @@ struct ParseContext {
     constexpr void FlushPendingRun()
     {
         if (has_pending_run) {
-            std::pmr::wstring* const buf = active_text_buffer;
+            mendo::doc_string* const buf = active_text_buffer;
             if (buf && buf->size() > pending_run_start) {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
                 if (in_table_cell && current_node && current_node->has_table()) {
@@ -364,7 +364,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->BeginNode(NodeType::CodeBlock);
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            ctx->current_node->code_language = DetectLanguage(std::wstring_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
+            ctx->current_node->code_language = DetectLanguage(mendo::doc_string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
         }
         break;
     }
@@ -394,7 +394,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         auto* const li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
         if (li->is_task) {
             ctx->BeginNode(NodeType::TaskListItem);
-            ctx->current_node->task_checked = (li->task_mark == L'x' || li->task_mark == L'X');
+            ctx->current_node->task_checked = (li->task_mark == MENDO_LIT('x') || li->task_mark == MENDO_LIT('X'));
         }
         else {
             ctx->BeginNode(NodeType::ListItem);
@@ -458,10 +458,10 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
             const bool first_row = (tbl->row_count == 1);
             // 区切り: 行内 2 セル目以降は '\t'、行頭かつ 2 行目以降は '\n'。
             if (!first_cell_in_row) {
-                tbl->concat_text.push_back(L'\t');
+                tbl->concat_text.push_back(mendo::doc_tab);
             }
             else if (!first_row) {
-                tbl->concat_text.push_back(L'\n');
+                tbl->concat_text.push_back(mendo::doc_lf);
             }
             tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
             tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
@@ -503,7 +503,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         auto* cn = ctx->current_node;
         ctx->in_code_block = false;
         // 末尾の改行があれば除去（current_text スクラッチに対して操作）
-        if (cn && !ctx->current_text.empty() && ctx->current_text.back() == L'\n') {
+        if (cn && !ctx->current_text.empty() && ctx->current_text.back() == mendo::doc_lf) {
             ctx->current_text.pop_back();
             cn->line_count--;
             if (!cn->runs.empty()) {
@@ -576,7 +576,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     case MD_BLOCK_TH:
     case MD_BLOCK_TD:
         ctx->in_table_cell = false;
-        // セル退出後は table ノード自体への AppendWide は想定されないため nullptr に倒す。
+        // セル退出後は table ノード自体への AppendDoc は想定されないため nullptr に倒す。
         // 次の TR/TD/TH 進入で再設定される。
         ctx->active_text_buffer = nullptr;
         break;
@@ -586,14 +586,14 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             // 見出しテキストを先行確定してアンカーID生成。
             // base_id を ctx->pool 上に構築することで anchor_counts (同じ pool) の try_emplace を真の move にする。
             ctx->FinalizeCurrentNode();
-            std::pmr::wstring base_id{ &ctx->pool };
+            mendo::doc_string base_id{ &ctx->pool };
             GenerateAnchorIdInto(cn->GetText(), base_id);
             auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
             const int count = it->second++;
             auto* hd = cn->ensure_heading();
             hd->anchor_id.assign(it->first.data(), it->first.size());
             if (count > 0) {
-                std::format_to(std::back_inserter(hd->anchor_id), L"-{}", count);
+                std::format_to(std::back_inserter(hd->anchor_id), MENDO_LIT("-{}"), count);
             }
             ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
@@ -655,7 +655,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
-        ctx->ResolveLinkUrlIndex(std::wstring_view{ a->href.text, static_cast<size_t>(a->href.size) });
+        ctx->ResolveLinkUrlIndex(mendo::doc_string_view{ a->href.text, static_cast<size_t>(a->href.size) });
         ctx->paragraph_has_other_content = true;
         break;
     }
@@ -670,7 +670,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_LATEXMATH_DISPLAY:
         // "$$" はフォールバックテキスト用。昇格対象でなくなった時点で has_other_content を立てる
         ctx->in_display_math = true;
-        ctx->AppendWide(L"$$");
+        ctx->AppendDoc(MENDO_LIT("$$"));
         if (ctx->paragraph_display_math_count == 0 && !ctx->paragraph_has_other_content) {
             ctx->display_math_buf.clear();
         }
@@ -680,7 +680,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     case MD_SPAN_LATEXMATH:
         // インライン $...$ は昇格対象外。元の "$" を復元してテキストとして残す
-        ctx->AppendWide(L"$");
+        ctx->AppendDoc(MENDO_LIT("$"));
         ctx->paragraph_has_other_content = true;
         break;
         // WIKILINK / U は現フラグ (MD_FLAG_WIKILINKS / MD_FLAG_UNDERLINE 未指定) では未到達。
@@ -737,11 +737,11 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
         break;
     case MD_SPAN_LATEXMATH_DISPLAY:
         ctx->in_display_math = false;
-        ctx->AppendWide(L"$$");
+        ctx->AppendDoc(MENDO_LIT("$$"));
         ctx->paragraph_display_math_count++;
         break;
     case MD_SPAN_LATEXMATH:
-        ctx->AppendWide(L"$");
+        ctx->AppendDoc(MENDO_LIT("$"));
         break;
     case MD_SPAN_WIKILINK:
     case MD_SPAN_U:
@@ -770,14 +770,14 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     if (!ctx->node_source_offset_set) [[unlikely]] {
         const auto text_addr = reinterpret_cast<uintptr_t>(text);
         const auto base_addr = reinterpret_cast<uintptr_t>(ctx->markdown_base);
-        const auto end_addr = base_addr + ctx->markdown_size * sizeof(wchar_t);
+        const auto end_addr = base_addr + ctx->markdown_size * sizeof(mendo::doc_char);
         if (text_addr >= base_addr && text_addr < end_addr) {
-            ctx->current_node->source_offset = static_cast<uint32_t>((text_addr - base_addr) / sizeof(wchar_t));
+            ctx->current_node->source_offset = static_cast<uint32_t>((text_addr - base_addr) / sizeof(mendo::doc_char));
             ctx->node_source_offset_set = true;
         }
     }
 
-    const std::wstring_view chunk{ text, static_cast<size_t>(size) };
+    const mendo::doc_string_view chunk{ text, static_cast<size_t>(size) };
 
     switch (type) {
     case MD_TEXT_NORMAL:
@@ -785,20 +785,20 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         if (!ctx->in_display_math) {
             ctx->paragraph_has_other_content = true;
         }
-        ctx->AppendWide(chunk);
+        ctx->AppendDoc(chunk);
         break;
 
     case MD_TEXT_LATEXMATH:
-        ctx->AppendWide(chunk);
+        ctx->AppendDoc(chunk);
         if (ctx->in_display_math && ctx->paragraph_display_math_count == 0 &&
             !ctx->paragraph_has_other_content) {
             // size==1 のとき md4c が \n をそのまま渡してくるケースが多いのでスカラ比較で済ませ、
             // size>1 のときだけ std::ranges::count にフォールバックする両対応。
             if (chunk.size() == 1) {
-                ctx->display_math_newlines += (chunk[0] == L'\n');
+                ctx->display_math_newlines += (chunk[0] == mendo::doc_lf);
             }
             else {
-                ctx->display_math_newlines += static_cast<int32_t>(std::ranges::count(chunk, L'\n'));
+                ctx->display_math_newlines += static_cast<int32_t>(std::ranges::count(chunk, mendo::doc_lf));
             }
             ctx->display_math_buf.append(chunk);
         }
@@ -811,12 +811,12 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         // entity (`&amp;` 等) は現状文字に解決される。原文 (`&amp;`) と current_text (`&`) が
         // 不一致になり view 化失敗確定。memcmp スキップフラグを立てる。
         ctx->current_node_owned_only = true;
-        wchar_t entity_buf[2];
+        mendo::doc_char entity_buf[2];
         if (const auto resolved = ResolveHtmlEntity(chunk, entity_buf)) {
-            ctx->AppendWide(*resolved);
+            ctx->AppendDoc(*resolved);
         }
         else {
-            ctx->AppendWide(chunk);
+            ctx->AppendDoc(chunk);
         }
         break;
     }
@@ -827,7 +827,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         }
         // BR / SOFTBR は原文の `<br>` や 2 個の半角空白+改行を `\n`/` ` に置換するため raw_slice 不一致。
         ctx->current_node_owned_only = true;
-        ctx->AppendWide(L"\n");
+        ctx->AppendDoc(MENDO_LIT("\n"));
         break;
 
     case MD_TEXT_SOFTBR:
@@ -835,7 +835,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
             ctx->paragraph_has_other_content = true;
         }
         ctx->current_node_owned_only = true;
-        ctx->AppendWide(L" ");
+        ctx->AppendDoc(MENDO_LIT(" "));
         break;
 
     case MD_TEXT_NULLCHAR:
@@ -851,7 +851,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
 } // namespace
 
-ParseResult ParseMarkdown(std::wstring_view markdown_text)
+ParseResult ParseMarkdown(mendo::doc_string_view markdown_text)
 {
     MENDO_PROFILE("ParseMarkdown");
     // 入力サイズの 5% を初期 arena に充てる。100MB 入力で 5MB 一括確保 → overflow 時の new_delete 直結回数を削減。
@@ -910,40 +910,46 @@ ParseResult ParseMarkdown(std::wstring_view markdown_text)
     return result;
 }
 
-std::wstring_view GetAlertLabel(AlertType type) noexcept
+mendo::doc_string_view GetAlertLabel(AlertType type) noexcept
 {
     switch (type) {
     case AlertType::None:
-        return L"";
+        return MENDO_LIT("");
     case AlertType::Note:
-        return L"Note";
+        return MENDO_LIT("Note");
     case AlertType::Tip:
-        return L"Tip";
+        return MENDO_LIT("Tip");
     case AlertType::Important:
-        return L"Important";
+        return MENDO_LIT("Important");
     case AlertType::Warning:
-        return L"Warning";
+        return MENDO_LIT("Warning");
     case AlertType::Caution:
-        return L"Caution";
+        return MENDO_LIT("Caution");
     }
     std::unreachable();
 }
 
-std::wstring_view GetAlertIcon(AlertType type) noexcept
+mendo::doc_string_view GetAlertIcon(AlertType type) noexcept
 {
+    // Tip の電球 (U+1F4A1) は BMP 外なので UTF-16 ではサロゲートペア、UTF-8 では 4 byte。
+    // MENDO_LIT() では両ビルドで違う byte 列に展開するため #if 分岐で正しい列を渡す。
     switch (type) {
     case AlertType::None:
-        return L" ";
+        return MENDO_LIT(" ");
     case AlertType::Note:
-        return L"ℹ"; // ℹ Information Source
+        return MENDO_LIT("ℹ"); // ℹ Information Source (BMP)
     case AlertType::Tip:
-        return L"\xD83D\xDCA1"; // 💡 Light Bulb (surrogate pair)
+#if MENDO_DOC_USE_UTF16
+        return L"\xD83D\xDCA1"; // 💡 (UTF-16 surrogate pair)
+#else
+        return "\xF0\x9F\x92\xA1"; // 💡 (UTF-8 4-byte sequence)
+#endif
     case AlertType::Important:
-        return L"❗"; // ❗ Heavy Exclamation Mark
+        return MENDO_LIT("❗"); // ❗ Heavy Exclamation Mark
     case AlertType::Warning:
-        return L"⚠"; // ⚠ Warning Sign
+        return MENDO_LIT("⚠"); // ⚠ Warning Sign
     case AlertType::Caution:
-        return L"⛔"; // ⛔ No Entry
+        return MENDO_LIT("⛔"); // ⛔ No Entry
     }
     std::unreachable();
 }
@@ -952,28 +958,28 @@ namespace {
 
 // テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す。
 // Alert マーカーは GitHub 仕様で ASCII 固定なので大小無視 ASCII 比較でよい。
-AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
+AlertType DetectAlertMarker(mendo::doc_string_view text, size_t& marker_end)
 {
-    if (text.size() < 3 || text[0] != L'[' || text[1] != L'!') {
+    if (text.size() < 3 || text[0] != MENDO_LIT('[') || text[1] != MENDO_LIT('!')) {
         return AlertType::None;
     }
-    const auto close = text.find(L']');
-    if (close == std::wstring_view::npos || close <= 2) {
+    const auto close = text.find(MENDO_LIT(']'));
+    if (close == mendo::doc_string_view::npos || close <= 2) {
         return AlertType::None;
     }
 
     const auto type_str = text.substr(2, close - 2);
 
     struct AlertEntry {
-        ascii_util::LowercaseAsciiLiteral name;
+        ascii_util::DocLowercaseLiteral name;
         AlertType type;
     };
     static constexpr AlertEntry kAlerts[]{
-        { L"note",      AlertType::Note      },
-        { L"tip",       AlertType::Tip       },
-        { L"important", AlertType::Important },
-        { L"warning",   AlertType::Warning   },
-        { L"caution",   AlertType::Caution   },
+        { MENDO_LIT("note"),      AlertType::Note      },
+        { MENDO_LIT("tip"),       AlertType::Tip       },
+        { MENDO_LIT("important"), AlertType::Important },
+        { MENDO_LIT("warning"),   AlertType::Warning   },
+        { MENDO_LIT("caution"),   AlertType::Caution   },
     };
 
     AlertType type = AlertType::None;
@@ -989,7 +995,7 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
 
     marker_end = close + 1;
     // マーカー直後のスペースまたは改行を1つスキップ
-    if (marker_end < text.size() && (text[marker_end] == L' ' || text[marker_end] == L'\n')) {
+    if (marker_end < text.size() && (text[marker_end] == mendo::doc_sp || text[marker_end] == mendo::doc_lf)) {
         marker_end++;
     }
     return type;
@@ -999,23 +1005,23 @@ AlertType DetectAlertMarker(std::wstring_view text, size_t& marker_end)
 // テキスト構造: "[icon] Label" (コンテンツなし) または "[icon] Label\n[content]" (コンテンツあり)
 void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
 {
-    const std::wstring_view label = GetAlertLabel(type);
-    const std::wstring_view icon = GetAlertIcon(type);
+    const mendo::doc_string_view label = GetAlertLabel(type);
+    const mendo::doc_string_view icon = GetAlertIcon(type);
     const auto& current_text = node.GetText();
     const bool has_content = (marker_end < current_text.size());
 
     // 新しいテキストを構築: "[icon] Label" (+ "\n \n" + 残りテキスト)
     const size_t icon_prefix_len = icon.size() + 1; // アイコン文字列 + スペース
     const size_t full_label_len = icon_prefix_len + label.size();
-    std::pmr::wstring new_text;
+    mendo::doc_string new_text;
     new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
     new_text.append(icon);
-    new_text += L' ';
+    new_text += mendo::doc_sp;
     new_text.append(label);
 
     size_t new_content_start = full_label_len;
     if (has_content) {
-        new_text += L'\n';
+        new_text += mendo::doc_lf;
         new_content_start = full_label_len + 1;
         new_text.append(current_text.data() + marker_end, current_text.size() - marker_end);
     }
@@ -1051,7 +1057,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     // ここで差分計算する。マーカー [!TYPE] 本体には改行が入らず、
     // DetectAlertMarker で 1 文字だけスキップする文字が \n の場合のみ改行 1 個。
     // count を走査せず、marker_end 直前の 1 文字だけを見ればよい。
-    const int32_t marker_newlines = (marker_end > 0 && current_text[marker_end - 1] == L'\n');
+    const int32_t marker_newlines = (marker_end > 0 && current_text[marker_end - 1] == mendo::doc_lf);
     const int32_t new_line_count = node.line_count - marker_newlines + has_content;
     node.SetTextWithLineCount(std::move(new_text), new_line_count);
     node.runs = std::move(new_runs);
@@ -1104,44 +1110,44 @@ void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockqu
     }
 }
 
-std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wchar_t (&buffer)[2])
+std::optional<mendo::doc_string_view> ResolveHtmlEntity(mendo::doc_string_view entity, mendo::doc_char (&buffer)[2])
 {
     // 名前付き実体参照はサイズで先に分岐し、比較対象を 1～3 候補に絞る。
     switch (entity.size()) {
     case 4:
-        if (entity == L"&lt;") {
-            return std::wstring_view{ L"<" };
+        if (entity == MENDO_LIT("&lt;")) {
+            return mendo::doc_string_view{ MENDO_LIT("<") };
         }
-        if (entity == L"&gt;") {
-            return std::wstring_view{ L">" };
+        if (entity == MENDO_LIT("&gt;")) {
+            return mendo::doc_string_view{ MENDO_LIT(">") };
         }
         break;
     case 5:
-        if (entity == L"&amp;") {
-            return std::wstring_view{ L"&" };
+        if (entity == MENDO_LIT("&amp;")) {
+            return mendo::doc_string_view{ MENDO_LIT("&") };
         }
         break;
     case 6:
-        if (entity == L"&quot;") {
-            return std::wstring_view{ L"\"" };
+        if (entity == MENDO_LIT("&quot;")) {
+            return mendo::doc_string_view{ MENDO_LIT("\"") };
         }
-        if (entity == L"&apos;") {
-            return std::wstring_view{ L"'" };
+        if (entity == MENDO_LIT("&apos;")) {
+            return mendo::doc_string_view{ MENDO_LIT("'") };
         }
-        if (entity == L"&nbsp;") {
-            return std::wstring_view{ L" " };
+        if (entity == MENDO_LIT("&nbsp;")) {
+            return mendo::doc_string_view{ MENDO_LIT(" ") };
         }
         break;
     default:
         break;
     }
 
-    if (entity.size() >= 4 && entity[0] == L'&' && entity[1] == L'#' && entity.back() == L';') {
+    if (entity.size() >= 4 && entity[0] == MENDO_LIT('&') && entity[1] == MENDO_LIT('#') && entity.back() == MENDO_LIT(';')) {
         unsigned long codepoint = 0;
-        const wchar_t* digits;
+        const mendo::doc_char* digits;
         size_t digit_len;
         unsigned long base;
-        if (entity[2] == L'x' || entity[2] == L'X') {
+        if (entity[2] == MENDO_LIT('x') || entity[2] == MENDO_LIT('X')) {
             digits = entity.data() + 3;
             digit_len = entity.size() - 4; // "&#x" と末尾 ';' を除いた残り長
             base = 16;
@@ -1151,7 +1157,7 @@ std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wch
             digit_len = entity.size() - 3; // "&#" と末尾 ';' を除いた残り長
             base = 10;
         }
-        const wchar_t* const stop = ascii_util::from_chars(digits, digit_len, codepoint, base);
+        const mendo::doc_char* const stop = ascii_util::from_chars(digits, digit_len, codepoint, base);
         // 全桁消費 (stop == digits + digit_len) かつ 1 桁以上 (stop > digits) のみ受理。
         // "&#65x;" のように途中で停止した入力は不正として弾く。
         const bool fully_consumed = (stop == digits + digit_len) && (stop > digits);
@@ -1159,15 +1165,15 @@ std::optional<std::wstring_view> ResolveHtmlEntity(std::wstring_view entity, wch
         // 呼び出し側で元の入力をそのままテキストとして再投入させる。
         if (fully_consumed && codepoint > 0 && codepoint <= 0xFFFF &&
             !(codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
-            buffer[0] = static_cast<wchar_t>(codepoint);
-            return std::wstring_view{ buffer, 1 };
+            buffer[0] = static_cast<mendo::doc_char>(codepoint);
+            return mendo::doc_string_view{ buffer, 1 };
         }
         if (fully_consumed && codepoint > 0xFFFF && codepoint <= 0x10FFFF) {
             // 補助面: UTF-16 サロゲートペア
             const unsigned long adj = codepoint - 0x10000;
-            buffer[0] = static_cast<wchar_t>(0xD800 + (adj >> 10));
-            buffer[1] = static_cast<wchar_t>(0xDC00 + (adj & 0x3FF));
-            return std::wstring_view{ buffer, 2 };
+            buffer[0] = static_cast<mendo::doc_char>(0xD800 + (adj >> 10));
+            buffer[1] = static_cast<mendo::doc_char>(0xDC00 + (adj & 0x3FF));
+            return mendo::doc_string_view{ buffer, 2 };
         }
     }
 

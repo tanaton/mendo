@@ -1,6 +1,7 @@
 #include "document_service.h"
 #include "file_loader.h"
 #include "profiler.h"
+#include "string_convert.h"
 
 std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path)
 {
@@ -13,7 +14,15 @@ std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr:
         return std::unexpected(result.error());
     }
     MENDO_PROFILE("Document::FromMarkdown");
+#if MENDO_DOC_USE_UTF16
     return Document::FromMarkdown(std::move(result->wide), result->byte_size, path);
+#else
+    // FileLoader は wide で返すため UTF-8 ビルド時はここで再変換する。
+    // 将来 FileLoader を doc_string で返す形に統一すれば不要になる。
+    std::pmr::string utf8;
+    string_convert::WideToUtf8(result->wide, utf8);
+    return Document::FromMarkdown(std::move(utf8), path);
+#endif
 }
 
 void DocumentService::StartWatching(const std::pmr::wstring& path, FileWatcher::ChangeCallback cb)

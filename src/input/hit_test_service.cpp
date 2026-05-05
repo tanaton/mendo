@@ -1,4 +1,5 @@
 #include "hit_test_service.h"
+#include "doc_dwrite_bridge.h"
 #include "layout.h"
 #include "layout_computer.h"
 #include "ui_constants.h"
@@ -146,7 +147,11 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
                                             &is_trailing, &is_inside, &metrics);
 
             result.node_index = candidate;
-            result.text_pos = metrics.textPosition + (is_trailing ? 1 : 0);
+            // metrics.textPosition は IDWriteTextLayout 内 UTF-16 code unit。
+            // text_pos は doc_offset 単位 (UTF-16 ビルドでは code unit、UTF-8 ビルドでは byte)。
+            // UTF-16 ビルド時は WideViewForDWrite が zero-copy + 恒等関数なので overhead なし。
+            const mendo::WideViewForDWrite wv{ node.GetText() };
+            result.text_pos = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
             last_md_hit_.Store(ctx, gen, result);
             return result;
         }
@@ -211,7 +216,11 @@ HitTestService::HitResult HitTestService::HitTestTable(
             &is_inside,
             &metrics);
 
-        result.text_pos = flat_offset + metrics.textPosition + (is_trailing ? 1 : 0);
+        // metrics.textPosition (UTF-16 code unit) を cell text の doc_offset に還元してから flat_offset に加算。
+        // UTF-16 ビルド時は WideViewForDWrite が zero-copy + 恒等関数。
+        const mendo::WideViewForDWrite wv{ tbl->GetCellText(r, c) };
+        const auto cell_doc_off = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
+        result.text_pos = flat_offset + cell_doc_off;
     }
     else {
         result.text_pos = flat_offset;

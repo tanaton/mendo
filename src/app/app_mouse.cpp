@@ -4,6 +4,7 @@
 #include "document_utils.h"
 #include "pane_layout.h"
 #include "resource.h"
+#include "string_convert.h"
 #include "ui_constants.h"
 
 App::HitResult App::HitTest(int screen_x, int screen_y)
@@ -22,7 +23,7 @@ MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pa
     };
 }
 
-std::optional<std::pmr::wstring> App::GetLinkAtHit(const HitResult& hit) const
+std::optional<mendo::doc_string> App::GetLinkAtHit(const HitResult& hit) const
 {
     if (hit.node_index < 0 || hit.node_index >= static_cast<int>(state_.document.doc.GetNodes().size())) {
         return std::nullopt;
@@ -170,7 +171,15 @@ void App::OnMouseMove(int px, int py)
         const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
         const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
+        // HitTestSearchInput は wstring_view 受け取り (Renderer 内部は wstring 経路で固定)。
+        // UTF-8 ビルド時のみ doc_string → wstring 変換を介する。
+#if MENDO_DOC_USE_UTF16
         const int pos = renderer_.HitTestSearchInput(state_.search.search_state.GetQuery(), dip.x - text_left, input_w);
+#else
+        std::pmr::wstring query_wide;
+        string_convert::Utf8ToWide(state_.search.search_state.GetQuery(), query_wide);
+        const int pos = renderer_.HitTestSearchInput(query_wide, dip.x - text_left, input_w);
+#endif
         Dispatch(SearchInputDragMovedAction{ pos });
         return;
     }
