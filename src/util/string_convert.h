@@ -35,26 +35,21 @@ inline std::pmr::wstring Utf8ToWide(std::string_view utf8)
     return result;
 }
 
-// 先頭の UTF-8 BOM (EF BB BF) を取り除いた view を返す。BOM 不在ならそのまま。
-inline std::string_view StripUtf8Bom(std::string_view utf8) noexcept
+// 先頭の UTF-8 BOM (EF BB BF) を取り除いてから Utf8ToWide を呼ぶ。
+// FileLoader が返す UTF-8 のように BOM 付きの可能性がある経路で使う。
+// CRLF / 旧式 CR の LF 正規化は wide 段階で行う (Document::FromMarkdown 内 NormalizeNewlines)。
+// 日本語含むファイルでは UTF-8 サイズ > Wide サイズになるため、wide 段階で正規化する方が
+// memchr/memmove のスキャン量が少なく、かつ UTF-8 → wide 変換 1 パスで済む。
+inline void Utf8ToWideStripBom(std::string_view utf8, std::pmr::wstring& out)
 {
     constexpr std::string_view kUtf8Bom = "\xEF\xBB\xBF";
     if (utf8.starts_with(kUtf8Bom)) {
         utf8.remove_prefix(kUtf8Bom.size());
     }
-    return utf8;
+    Utf8ToWide(utf8, out);
 }
 
-// 先頭の UTF-8 BOM (EF BB BF) を取り除いてから Utf8ToWide を呼ぶ。
-// FileLoader が返す UTF-8 のように BOM 付きの可能性がある経路で使う。
-inline void Utf8ToWideStripBom(std::string_view utf8, std::pmr::wstring& out)
-{
-    Utf8ToWide(StripUtf8Bom(utf8), out);
-}
-
-namespace detail {
-template <class CharOut, class StringOut>
-inline void WideToUtf8Impl(std::wstring_view wide, StringOut& out)
+inline void WideToUtf8(std::wstring_view wide, std::string& out)
 {
     if (wide.empty()) {
         out.clear();
@@ -66,22 +61,10 @@ inline void WideToUtf8Impl(std::wstring_view wide, StringOut& out)
         return;
     }
     // UTF-8 byte 数 <= UTF-16 wchar 数 * 3 が常に成立するため、上限確保で API 1 回呼び出し
-    out.resize_and_overwrite(wide.size() * 3, [wide](CharOut* buf, size_t count) -> size_t {
+    out.resize_and_overwrite(wide.size() * 3, [wide](char* buf, size_t count) -> size_t {
         const int n = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), buf, static_cast<int>(count), nullptr, nullptr);
         return n > 0 ? static_cast<size_t>(n) : 0;
     });
-}
-} // namespace detail
-
-inline void WideToUtf8(std::wstring_view wide, std::string& out)
-{
-    detail::WideToUtf8Impl<char>(wide, out);
-}
-
-inline void WideToUtf8(std::wstring_view wide, std::pmr::string& out)
-{
-    MENDO_PROFILE("WideToUtf8");
-    detail::WideToUtf8Impl<char>(wide, out);
 }
 
 inline std::string WideToUtf8(std::wstring_view wide)

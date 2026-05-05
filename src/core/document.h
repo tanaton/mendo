@@ -82,7 +82,6 @@ public:
 
 private:
     void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
-    void AssignFromUtf8(std::pmr::string utf8);
 
     // raw_wide_.data() を view モードの全ノードに注入する。
     // ReplaceContent / move 経路で呼ぶ。raw_wide_ の relocate (resize/assign) は禁止契約のため、

@@ -143,9 +143,27 @@ Document Document::FromMarkdown(std::pmr::wstring wide, size_t byte_size, std::w
 
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
+    const size_t byte_size = utf8.size();
+    // UTF-8 byte 単位で先に CR 削除する。byte 単位は wide より SIMD 効率が良く、
+    // wide 化後の NormalizeNewlines は CR 不在で fast path に倒れる。
+    NormalizeNewlinesUtf8(utf8);
+    // BOM を utf8 側で除去してから wide 化する。これで utf8 と wide が完全一致し、
+    // 元の utf8 を ParseMarkdown に直接渡して BuildUtf8FromWide スキップを実現できる。
+    constexpr std::string_view kUtf8Bom = "\xEF\xBB\xBF";
+    std::string_view utf8_view{ utf8 };
+    if (utf8_view.starts_with(kUtf8Bom)) {
+        utf8_view.remove_prefix(kUtf8Bom.size());
+    }
+    std::pmr::wstring wide;
+    string_convert::Utf8ToWide(utf8_view, wide);
     Document doc;
     doc.file_path_ = path;
-    doc.AssignFromUtf8(std::move(utf8));
+    doc.raw_wide_ = std::move(wide);
+    NormalizeNewlines(doc.raw_wide_);  // CRLF は utf8 側で正規化済みなので fast path
+    doc.loaded_byte_size_ = byte_size;
+    // utf8_view (BOM 除去済み + CR 正規化済み) を直接 ParseMarkdown に渡して、
+    // 内部での再 utf8 化 (BuildUtf8FromWide / WideCharToMultiByte) を回避する。
+    doc.ReplaceContent(ParseMarkdown(doc.raw_wide_, utf8_view));
     return doc;
 }
 
@@ -192,22 +210,20 @@ void Document::ReplaceFromMarkdown(std::pmr::wstring wide, size_t byte_size)
 
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)
 {
-    AssignFromUtf8(std::move(utf8));
-}
-
-// utf8 経路の前処理を集約する: byte 単位 CR 削除 → BOM 除去 → wide 化 → ParseMarkdown。
-// utf8 側で先に CR を削除しておくと wide 段階の NormalizeNewlines は不要 (Utf8ToWide は
-// byte 変換なので結果も CR 不在)。BOM 除去後の utf8_view を ParseMarkdown に直渡しすると
-// 内部での再 UTF-8 化 (WideCharToMultiByte) を回避できる。
-void Document::AssignFromUtf8(std::pmr::string utf8)
-{
     const size_t byte_size = utf8.size();
     NormalizeNewlinesUtf8(utf8);
-    const std::string_view utf8_view = string_convert::StripUtf8Bom(utf8);
+    constexpr std::string_view kUtf8Bom = "\xEF\xBB\xBF";
+    std::string_view utf8_view{ utf8 };
+    if (utf8_view.starts_with(kUtf8Bom)) {
+        utf8_view.remove_prefix(kUtf8Bom.size());
+    }
     std::pmr::wstring wide;
     string_convert::Utf8ToWide(utf8_view, wide);
     raw_wide_ = std::move(wide);
+    NormalizeNewlines(raw_wide_);  // CRLF は utf8 側で正規化済みなので fast path
     loaded_byte_size_ = byte_size;
+    // utf8_view (BOM 除去済み + CR 正規化済み) を直接 ParseMarkdown に渡し
+    // BuildUtf8FromWide をスキップする。
     ReplaceContent(ParseMarkdown(raw_wide_, utf8_view));
 }
 
