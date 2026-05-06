@@ -142,11 +142,11 @@ private:
     // 本文ノード（テーブル外）専用の選択ハイライト発行。
     // (layout, start, length) 一致でフレーム間キャッシュをヒットさせ HitTestTextRange を省く。
     void GenSelectionHighlightCached(DrawCommandList& cmds, const NodeLayoutEntry& entry, uint32_t start, uint32_t length, float origin_x, float origin_y);
-    void GenSearchHighlights(DrawCommandList& cmds, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
+    void GenSearchHighlights(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
 
     // 検索ハイライトのキャッシュが古い場合に再構築する。
     // matches[first_global, first_global + node_match_count) が当該ノードのマッチ。
-    void RebuildSearchHlCache(SearchHlCache& cache, const NodeLayoutEntry& entry,
+    void RebuildSearchHlCache(SearchHlCache& cache, const Node& node, const NodeLayoutEntry& entry,
                               std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count);
 
     // 構築済みキャッシュから FillRectCmd を発行する。
