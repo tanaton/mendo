@@ -13,7 +13,6 @@
 #include <vector>
 
 class LayoutCache;
-struct Theme;
 
 // 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一の場合は npos。
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
@@ -46,11 +45,9 @@ ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new
 
 // diff 位置のノードに基づくスクロールY座標を計算する。
 // ノードが見つからない場合は fallback_scroll を返す。
-// theme はノードのテキスト上端 Y を Fenwick から取り出すために必要。
 float CalcScrollYForDiff(
     const std::pmr::vector<Node>& nodes,
     const LayoutCache& cache,
-    const Theme& theme,
     std::string_view content,
     size_t diff_pos,
     float viewport_height,
