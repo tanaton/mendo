@@ -108,6 +108,12 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         return result;
     }
 
+    if (ctx.nodes.data() != prev_nodes_data_) {
+        md_wv_cache_.Reset();
+        cell_wv_cache_.Reset();
+        prev_nodes_data_ = ctx.nodes.data();
+    }
+
     const uint32_t gen = ctx.cache.GetEffectsGeneration();
     if (last_md_hit_.Matches(ctx, gen)) {
         return last_md_hit_.result;
@@ -148,7 +154,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
 
             result.node_index = candidate;
             // metrics.textPosition (UTF-16 code unit) を text_pos (UTF-8 byte) に還元する。
-            const mendo::WideViewForDWrite wv{ node.GetText() };
+            const auto& wv = md_wv_cache_.Get(node.GetText());
             result.text_pos = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
             last_md_hit_.Store(ctx, gen, result);
             return result;
@@ -215,7 +221,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
             &metrics);
 
         // metrics.textPosition (UTF-16 code unit) を cell text の UTF-8 byte offset に還元してから flat_offset に加算。
-        const mendo::WideViewForDWrite wv{ tbl->GetCellText(r, c) };
+        const auto& wv = cell_wv_cache_.Get(tbl->GetCellText(r, c));
         const auto cell_doc_off = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
         result.text_pos = flat_offset + cell_doc_off;
     }

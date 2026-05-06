@@ -112,8 +112,9 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         prev_sel_end_node_ = new_end;
     }
     // ドキュメント切り替え (= nodes バッファのアドレス変化) や selection 解除のタイミングで
-    // cell_wv_ が抱える string_view が dangling 化しうるため、ここで明示的にリセットする。
+    // node_wv_ / cell_wv_ が抱える string_view が dangling 化しうるため、ここでリセットする。
     if (!selection.active || nodes.data() != prev_nodes_data_) {
+        node_wv_.Reset();
         cell_wv_.Reset();
     }
     prev_nodes_data_ = nodes.data();
@@ -268,7 +269,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node&
     GenInlineCodeBgs(cmds, entry.view_inline_code_bgs(), text_x, entry_text_top, theme_->code_bg_color);
 
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
-    GenSearchHighlights(cmds, node, entry, node_index, text_x, entry_text_top);
+    GenSearchHighlights(cmds, entry, node_index, text_x, entry_text_top);
 
     const auto& selection = *frame_selection_;
     if (selection.active && node_index >= selection.start_node && node_index <= selection.end_node) {
@@ -564,13 +565,11 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
     }
     auto& cache = entry.ensure_selection_hl_cache();
     // キャッシュキーは UTF-8 byte 単位 (selection 状態と直接対応)。
-    // miss 時のみ UTF-8→UTF-16 decode と HitTestTextRange を実行することで、
-    // 選択範囲が静止しているフレームでは decode を完全にスキップする。
+    // miss 時は WideViewCache 経由で同一ノードの連続 miss でも decode を 1 回に抑える。
     if (cache.layout_ptr != layout || cache.start != doc_start || cache.length != doc_length) {
         MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_miss);
         cache.rects.clear();
-        const mendo::WideViewForDWrite wv{ node.GetText() };
-        const auto wr = wv.WideRange(doc_start, doc_length);
+        const auto wr = node_wv_.WideRange(node.GetText(), doc_start, doc_length);
         if (wr.length > 0) {
             CollectHitTestRects(layout, wr.startPosition, wr.length, cache.rects);
         }
@@ -592,7 +591,7 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
     }
 }
 
-void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row, int table_col)
+void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row, int table_col)
 {
     if (!search_matches_ || search_matches_->empty()) {
         return;
@@ -607,11 +606,11 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const Node& no
     const size_t node_match_count = static_cast<size_t>(range.size());
 
     auto& cache = entry.ensure_search_hl_cache();
-    RebuildSearchHlCache(cache, node, entry, matches, first_global, node_match_count);
+    RebuildSearchHlCache(cache, entry, matches, first_global, node_match_count);
     EmitSearchHlCommands(cmds, cache, matches, first_global, origin_x, origin_y, table_row, table_col);
 }
 
-void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const Node& node, const NodeLayoutEntry& entry,
+void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const NodeLayoutEntry& entry,
                                             std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count)
 {
     // キャッシュミス時のみ HitTestTextRange を一括発行。layout 変更時は
@@ -627,33 +626,19 @@ void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const Node& no
     cache.rect_ends.clear();
     cache.rect_ends.reserve(node_match_count);
 
-    const auto* tbl = node.table_data();
-    // matches は (node, table_row, table_col) 昇順。同ノード/同セル連続マッチで
-    // UTF-8→UTF-16 decode を 1 回に抑えるため WideViewCache を使う。
-    mendo::WideViewCache wv_cache;
-
     for (size_t mi = first_global; mi < first_global + node_match_count; ++mi) {
         const auto& m = matches[mi];
         IDWriteTextLayout* l = nullptr;
-        std::string_view match_text;
         if (m.table_row >= 0 && entry.has_table_layout()) {
             l = entry.table_layout->GetCellLayout(static_cast<size_t>(m.table_row), static_cast<size_t>(m.table_col));
-            if (tbl) {
-                match_text = tbl->GetCellText(static_cast<size_t>(m.table_row), static_cast<size_t>(m.table_col));
-            }
         }
         else if (m.table_row < 0) {
             l = entry.text_layout.Get();
-            match_text = node.GetText();
         }
         // m.table_row >= 0 && !has_table_layout() のケースは layout 失効中の
         // 暫定状態で、l は nullptr のまま空 rect として記録する（次回再構築時に修復）。
-        if (l && m.length > 0 && !match_text.empty()) {
-            // SearchMatch::start, length は UTF-8 byte 単位 (ascii_util::Find の戻り値)。
-            const auto wr = wv_cache.WideRange(match_text, m.start, m.length);
-            if (wr.length > 0) {
-                CollectHitTestRects(l, wr.startPosition, wr.length, cache.rects);
-            }
+        if (l && m.length_w > 0) {
+            CollectHitTestRects(l, m.start_w, m.length_w, cache.rects);
         }
         cache.rect_ends.push_back(static_cast<uint32_t>(cache.rects.size()));
     }
@@ -822,7 +807,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
                 // bg_cursor は cell_index 昇順で進む。
                 bg_cursor = GenCellInlineCodeBgs(cmds, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
 
-                GenSearchHighlights(cmds, node, entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
+                GenSearchHighlights(cmds, entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
 
                 const auto cell_text = tbl->GetCellText(r, c);
                 const uint32_t cell_flat = tbl->CellTextStart(r, c);

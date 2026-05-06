@@ -68,8 +68,9 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
 
     // node 0 の "Hello" を検索マッチに、"World" を選択範囲に設定する。
     // 範囲が重ならないことで、ハイライト矩形が独立に発行されることを保証する。
+    // ASCII のみの本文なので start_w == start / length_w == length を直接渡せる。
     std::pmr::vector<SearchMatch> matches;
-    matches.push_back({ 0, 0, 5, -1, -1 });
+    matches.push_back({ 0, 0, 5, -1, -1, 0, 5 });
     gen_.SetSearchMatches(&matches, 0, 1);
 
     TextSelection sel = TextSelection::MakeOrdered(0, 6, 0, 11);
@@ -134,8 +135,8 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
 {
     auto pl = ParseAndLayout("Hello Hello");
     std::pmr::vector<SearchMatch> matches;
-    matches.push_back({ 0, 0, 5, -1, -1 });
-    matches.push_back({ 0, 6, 5, -1, -1 });
+    matches.push_back({ 0, 0, 5, -1, -1, 0, 5 });
+    matches.push_back({ 0, 6, 5, -1, -1, 6, 5 });
     gen_.SetSearchMatches(&matches, 1, 1); // 2 番目を current にする
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
@@ -199,7 +200,7 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
 
     auto pl1 = ParseAndLayout("abc");
     std::pmr::vector<SearchMatch> matches1;
-    matches1.push_back({ 0, 0, 3, -1, -1 });
+    matches1.push_back({ 0, 0, 3, -1, -1, 0, 3 });
     gen_.SetSearchMatches(&matches1, 0, 1);
     const auto& cmds1 = gen_.GenerateMdPane(pl1.nodes, pl1.cache, pane, 0.0f, TextSelection{});
     const auto rect1 = FindFirstFillRectByColor(cmds1,
@@ -209,7 +210,7 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     // "あいう" は UTF-8 で 9 byte / UTF-16 で 3 code unit。
     auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
     std::pmr::vector<SearchMatch> matches2;
-    matches2.push_back({ 0, 9, 3, -1, -1 });
+    matches2.push_back({ 0, 9, 3, -1, -1, 3, 3 });
     gen_.SetSearchMatches(&matches2, 0, 1);
     const auto& cmds2 = gen_.GenerateMdPane(pl2.nodes, pl2.cache, pane, 0.0f, TextSelection{});
     const auto rect2 = FindFirstFillRectByColor(cmds2,
