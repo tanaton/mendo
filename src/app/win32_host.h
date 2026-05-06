@@ -9,7 +9,7 @@
 // 本番では Win32Host（HWND と CursorManager を保持）を、
 // テストでは mock 実装を注入して副作用を検証する。
 //
-// PostMessage / SetWindowText は <windows.h> でマクロ化されるため、
+// ::PostMessageW / SetWindowTextW は <windows.h> でマクロ化されるため、
 // 衝突回避のため PostWindowMessage / SetWindowTitle と命名している。
 class IWin32Host {
 public:

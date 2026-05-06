@@ -225,7 +225,7 @@ SearchBarRenderState SearchBarController::BuildRenderState() const
 {
     SearchBarRenderState sb;
     sb.visible = state_->IsVisible();
-    // doc_string (UTF-8) → wstring 変換し、cache 経由で view を貼る。
+    // string (UTF-8) → wstring 変換し、cache 経由で view を貼る。
     query_wide_cache_.clear();
     string_convert::Utf8ToWide(state_->GetQuery(), query_wide_cache_);
     sb.query = query_wide_cache_;

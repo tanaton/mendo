@@ -272,40 +272,40 @@ TEST(AlertColorIndex, CautionReturnsFour)
 TEST(NodeTest, SetTextAndGetText)
 {
     Node node;
-    node.SetText(MENDO_LIT("Hello"));
-    EXPECT_EQ(node.GetText(), MENDO_LIT("Hello"));
+    node.SetText("Hello");
+    EXPECT_EQ(node.GetText(), "Hello");
     EXPECT_TRUE(node.HasText());
 }
 
 TEST(NodeTest, SetTextStringView)
 {
     Node node;
-    mendo::doc_string_view sv = MENDO_LIT("Test text");
+    std::string_view sv = "Test text";
     node.SetText(sv);
-    EXPECT_EQ(node.GetText(), MENDO_LIT("Test text"));
+    EXPECT_EQ(node.GetText(), "Test text");
 }
 
 TEST(NodeTest, SetTextMove)
 {
     Node node;
-    mendo::doc_string s = MENDO_LIT("Moved text");
+    std::pmr::string s = "Moved text";
     node.SetText(std::move(s));
-    EXPECT_EQ(node.GetText(), MENDO_LIT("Moved text"));
+    EXPECT_EQ(node.GetText(), "Moved text");
 }
 
 TEST(NodeTest, SetTextCountsNewlines)
 {
     Node node;
-    node.SetText(MENDO_LIT("line1\nline2\nline3"));
+    node.SetText("line1\nline2\nline3");
     EXPECT_EQ(node.line_count, 2);
 }
 
 TEST(NodeTest, SetTextOverwritesPrevious)
 {
     Node node;
-    node.SetText(MENDO_LIT("original"));
-    node.SetText(MENDO_LIT("new text"));
-    EXPECT_EQ(node.GetText(), MENDO_LIT("new text"));
+    node.SetText("original");
+    node.SetText("new text");
+    EXPECT_EQ(node.GetText(), "new text");
 }
 
 // ---- Node::line_count ----
@@ -319,71 +319,71 @@ TEST(NodeLineCount, DefaultIsZero)
 TEST(NodeLineCount, EmptyText)
 {
     Node node;
-    node.SetText(MENDO_LIT(""));
+    node.SetText("");
     EXPECT_EQ(node.line_count, 0);
 }
 
 TEST(NodeLineCount, SingleLineNoNewline)
 {
     Node node;
-    node.SetText(MENDO_LIT("hello"));
+    node.SetText("hello");
     EXPECT_EQ(node.line_count, 0);
 }
 
 TEST(NodeLineCount, SingleNewline)
 {
     Node node;
-    node.SetText(MENDO_LIT("a\nb"));
+    node.SetText("a\nb");
     EXPECT_EQ(node.line_count, 1);
 }
 
 TEST(NodeLineCount, ConsecutiveNewlines)
 {
     Node node;
-    node.SetText(MENDO_LIT("a\n\n\nb"));
+    node.SetText("a\n\n\nb");
     EXPECT_EQ(node.line_count, 3);
 }
 
 TEST(NodeLineCount, LeadingNewline)
 {
     Node node;
-    node.SetText(MENDO_LIT("\nabc"));
+    node.SetText("\nabc");
     EXPECT_EQ(node.line_count, 1);
 }
 
 TEST(NodeLineCount, TrailingNewline)
 {
     Node node;
-    node.SetText(MENDO_LIT("abc\n"));
+    node.SetText("abc\n");
     EXPECT_EQ(node.line_count, 1);
 }
 
 TEST(NodeLineCount, OnlyNewlines)
 {
     Node node;
-    node.SetText(MENDO_LIT("\n\n\n\n"));
+    node.SetText("\n\n\n\n");
     EXPECT_EQ(node.line_count, 4);
 }
 
 TEST(NodeLineCount, CrLfCountsOnlyLf)
 {
-    // FinalizeSetText は MENDO_LIT('\n') のみ数える（\r は無視）
+    // FinalizeSetText は '\n' のみ数える（\r は無視）
     Node node;
-    node.SetText(MENDO_LIT("a\r\nb\r\nc"));
+    node.SetText("a\r\nb\r\nc");
     EXPECT_EQ(node.line_count, 2);
 }
 
 TEST(NodeLineCount, CarriageReturnOnlyNotCounted)
 {
     Node node;
-    node.SetText(MENDO_LIT("a\rb\rc"));
+    node.SetText("a\rb\rc");
     EXPECT_EQ(node.line_count, 0);
 }
 
 TEST(NodeLineCount, CharPointerOverload)
 {
     Node node;
-    const mendo::doc_char* s = MENDO_LIT("x\ny\nz");
+    const char* s = "x\ny\nz";
     node.SetText(s);
     EXPECT_EQ(node.line_count, 2);
 }
@@ -391,7 +391,7 @@ TEST(NodeLineCount, CharPointerOverload)
 TEST(NodeLineCount, StringViewOverload)
 {
     Node node;
-    mendo::doc_string_view sv = MENDO_LIT("line1\nline2");
+    std::string_view sv = "line1\nline2";
     node.SetText(sv);
     EXPECT_EQ(node.line_count, 1);
 }
@@ -399,7 +399,7 @@ TEST(NodeLineCount, StringViewOverload)
 TEST(NodeLineCount, PmrStringMoveOverload)
 {
     Node node;
-    mendo::doc_string s = MENDO_LIT("a\nb\nc\nd");
+    std::pmr::string s = "a\nb\nc\nd";
     node.SetText(std::move(s));
     EXPECT_EQ(node.line_count, 3);
 }
@@ -407,26 +407,26 @@ TEST(NodeLineCount, PmrStringMoveOverload)
 TEST(NodeLineCount, OverwriteRecountsToFewer)
 {
     Node node;
-    node.SetText(MENDO_LIT("a\nb\nc\nd\ne")); // 4
+    node.SetText("a\nb\nc\nd\ne"); // 4
     EXPECT_EQ(node.line_count, 4);
-    node.SetText(MENDO_LIT("single line")); // 0
+    node.SetText("single line"); // 0
     EXPECT_EQ(node.line_count, 0);
 }
 
 TEST(NodeLineCount, OverwriteRecountsToMore)
 {
     Node node;
-    node.SetText(MENDO_LIT("single")); // 0
+    node.SetText("single"); // 0
     EXPECT_EQ(node.line_count, 0);
-    node.SetText(MENDO_LIT("a\nb\nc")); // 2
+    node.SetText("a\nb\nc"); // 2
     EXPECT_EQ(node.line_count, 2);
 }
 
 TEST(NodeLineCount, SetTextWithLineCountStoresValueAsIs)
 {
     Node node;
-    node.SetTextWithLineCount(mendo::doc_string_view{ MENDO_LIT("a\nb\nc") }, 2);
-    EXPECT_EQ(node.GetText(), MENDO_LIT("a\nb\nc"));
+    node.SetTextWithLineCount(std::string_view{ "a\nb\nc" }, 2);
+    EXPECT_EQ(node.GetText(), "a\nb\nc");
     EXPECT_EQ(node.line_count, 2);
 }
 
@@ -435,23 +435,23 @@ TEST(NodeLineCount, SetTextWithLineCountDoesNotCount)
     // 呼び出し側責任で line_count を渡すバリアント。SetText と違い再カウントしない。
     // パーサーが marker 除去後に差分計算で渡すケースを想定。
     Node node;
-    node.SetTextWithLineCount(mendo::doc_string_view{ MENDO_LIT("a\nb\nc\nd\ne") }, 7);
+    node.SetTextWithLineCount(std::string_view{ "a\nb\nc\nd\ne" }, 7);
     EXPECT_EQ(node.line_count, 7);
 }
 
 TEST(NodeLineCount, SetTextWithLineCountZeroAllowed)
 {
     Node node;
-    node.SetTextWithLineCount(mendo::doc_string_view{ MENDO_LIT("a\nb") }, 0);
+    node.SetTextWithLineCount(std::string_view{ "a\nb" }, 0);
     EXPECT_EQ(node.line_count, 0);
 }
 
 TEST(NodeLineCount, SetTextWithLineCountPmrMoveOverload)
 {
     Node node;
-    mendo::doc_string s = MENDO_LIT("x\ny\nz");
+    std::pmr::string s = "x\ny\nz";
     node.SetTextWithLineCount(std::move(s), 2);
-    EXPECT_EQ(node.GetText(), MENDO_LIT("x\ny\nz"));
+    EXPECT_EQ(node.GetText(), "x\ny\nz");
     EXPECT_EQ(node.line_count, 2);
 }
 
@@ -460,9 +460,9 @@ TEST(NodeLineCount, SetTextAfterSetTextWithLineCountRecounts)
     // SetTextWithLineCount で意図的に「不一致」を入れた後、
     // SetText を呼ぶと FinalizeSetText が走り、stale な値を上書きする。
     Node node;
-    node.SetTextWithLineCount(mendo::doc_string_view{ MENDO_LIT("x") }, 99);
+    node.SetTextWithLineCount(std::string_view{ "x" }, 99);
     EXPECT_EQ(node.line_count, 99);
-    node.SetText(MENDO_LIT("a\nb\nc"));
+    node.SetText("a\nb\nc");
     EXPECT_EQ(node.line_count, 2);
 }
 
@@ -517,8 +517,8 @@ TEST(NodeTest, AnchorIdWithHeadingData)
 {
     Node node;
     node.ensure_heading();
-    node.heading_data()->anchor_id = MENDO_LIT("test-anchor");
-    EXPECT_EQ(node.anchor_id(), MENDO_LIT("test-anchor"));
+    node.heading_data()->anchor_id = "test-anchor";
+    EXPECT_EQ(node.anchor_id(), "test-anchor");
 }
 
 TEST(NodeTest, SyntaxTokensWithoutCodeData)
@@ -541,8 +541,8 @@ TEST(NodeTest, MermaidCodeBlockTextStored)
     Node node;
     node.type = NodeType::CodeBlock;
     node.code_language = SyntaxLanguage::Mermaid;
-    node.SetText(MENDO_LIT("graph TD;A-->B"));
-    EXPECT_EQ(node.GetText(), MENDO_LIT("graph TD;A-->B"));
+    node.SetText("graph TD;A-->B");
+    EXPECT_EQ(node.GetText(), "graph TD;A-->B");
 }
 
 TEST(NodeTest, LatexMathCodeBlockTextStored)
@@ -550,8 +550,8 @@ TEST(NodeTest, LatexMathCodeBlockTextStored)
     Node node;
     node.type = NodeType::CodeBlock;
     node.code_language = SyntaxLanguage::LatexMath;
-    node.SetText(MENDO_LIT("E = mc^2"));
-    EXPECT_EQ(node.GetText(), MENDO_LIT("E = mc^2"));
+    node.SetText("E = mc^2");
+    EXPECT_EQ(node.GetText(), "E = mc^2");
 }
 
 TEST(NodeTest, NonDiagramCodeBlockTextStored)
@@ -559,14 +559,14 @@ TEST(NodeTest, NonDiagramCodeBlockTextStored)
     Node node;
     node.type = NodeType::CodeBlock;
     node.code_language = SyntaxLanguage::Cpp;
-    node.SetText(MENDO_LIT("int main() { return 0; }"));
-    EXPECT_EQ(node.GetText(), MENDO_LIT("int main() { return 0; }"));
+    node.SetText("int main() { return 0; }");
+    EXPECT_EQ(node.GetText(), "int main() { return 0; }");
 }
 
 TEST(NodeTest, ParagraphTextStored)
 {
     Node node;
     node.type = NodeType::Paragraph;
-    node.SetText(MENDO_LIT("paragraph content"));
-    EXPECT_EQ(node.GetText(), MENDO_LIT("paragraph content"));
+    node.SetText("paragraph content");
+    EXPECT_EQ(node.GetText(), "paragraph content");
 }

@@ -162,9 +162,9 @@ protected:
 TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
 {
     // 100 ノードのドキュメントを作成
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 100; i++) {
-        md += MENDO_LIT("paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+        md += "paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GT(nodes.size(), 50u);
@@ -188,7 +188,7 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
 
     // ビューポート制限付きで ProcessDirtyBatch を実行
     engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 10000, 0,
-        viewport_top, viewport_height);
+                              viewport_top, viewport_height);
 
     // ビューポート付近のノードはダーティでなくなっているはず
     EXPECT_FALSE(cache[0].layout_dirty) << "ビューポート内のノードは処理されるべき";
@@ -206,9 +206,9 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
 
 TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
 {
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 50; i++) {
-        md += MENDO_LIT("paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+        md += "paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
 
@@ -232,9 +232,9 @@ TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
 
 TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
 {
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 100; i++) {
-        md += MENDO_LIT("paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+        md += "paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
 

@@ -155,7 +155,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
         }
 
         if (hwnd_) {
-            PostMessage(hwnd_, msg_id_, 0, 0);
+            ::PostMessageW(hwnd_, msg_id_, 0, 0);
         }
     });
     if (!posted) {

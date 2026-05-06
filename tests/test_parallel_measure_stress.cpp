@@ -37,17 +37,17 @@ Node MakeStressNode(size_t i, bool include_code_block)
     if (include_code_block && bucket < 2) {
         n.type = NodeType::CodeBlock;
         n.code_language = SyntaxLanguage::Cpp;
-        mendo::doc_string_std text = MENDO_LIT("int v_") + mendo::to_doc_string(i) + MENDO_LIT(" = 0;");
+        std::string text = "int v_" + std::to_string(i) + " = 0;";
         n.SetText(text.c_str());
         return n;
     }
     if (bucket < 12) {
         n.type = NodeType::Paragraph;
         const size_t len = 5 + (i % 80);
-        mendo::doc_string_std text;
+        std::string text;
         text.reserve(len);
         for (size_t k = 0; k < len; ++k) {
-            text.push_back(static_cast<wchar_t>(MENDO_LIT('a') + ((i + k) % 26)));
+            text.push_back(static_cast<wchar_t>('a' + ((i + k) % 26)));
         }
         n.SetText(text.c_str());
         return n;
@@ -55,7 +55,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
     if (bucket < 14) {
         n.type = NodeType::Heading;
         n.heading_level = static_cast<int8_t>(1 + (i % 6));
-        mendo::doc_string_std text = MENDO_LIT("Heading ") + mendo::to_doc_string(i);
+        std::string text = "Heading " + std::to_string(i);
         n.SetText(text.c_str());
         return n;
     }
@@ -70,7 +70,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
         // 1 行 2 列の "a\tb"
         tbl->row_count = 1;
         tbl->col_count = 2;
-        tbl->concat_text = MENDO_LIT("a\tb");
+        tbl->concat_text = "a\tb";
         tbl->cell_text_starts = { 0u, 2u, 3u };
         tbl->cell_run_starts = { 0u, 0u, 0u };
         tbl->aligns = { TableAlign::Default, TableAlign::Default };
@@ -80,13 +80,13 @@ Node MakeStressNode(size_t i, bool include_code_block)
     if (bucket < 19) {
         n.type = NodeType::Image;
         auto* img = n.ensure_image();
-        img->src.assign(MENDO_LIT("img.png"));
+        img->src.assign("img.png");
         img->width = 100.0f + static_cast<float>(i % 50);
         img->height = 50.0f + static_cast<float>(i % 30);
         return n;
     }
     n.type = NodeType::Paragraph;
-    n.SetText(MENDO_LIT(""));
+    n.SetText("");
     return n;
 }
 

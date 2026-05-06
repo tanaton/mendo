@@ -91,7 +91,7 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
                     const std::lock_guard lock(async_mutex_);
                     async_error_ = load_result.error();
                 }
-                PostMessage(hwnd, msg_id, 0, 0);
+                ::PostMessageW(hwnd, msg_id, 0, 0);
             }
             return;
         }
@@ -115,7 +115,7 @@ void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT m
             async_result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true });
         }
 
-        PostMessage(hwnd, msg_id, 0, 0);
+        ::PostMessageW(hwnd, msg_id, 0, 0);
     });
 }
 
@@ -169,7 +169,7 @@ void FileLoadService::StartPreloadAsync(std::pmr::wstring path)
         const HWND h = ctx->hwnd;
         const UINT m = ctx->msg_id;
         lk.unlock();
-        PostMessage(h, m, 0, 0);
+        ::PostMessageW(h, m, 0, 0);
     });
 }
 

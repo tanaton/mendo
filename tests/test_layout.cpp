@@ -20,7 +20,7 @@ TEST_F(LayoutTest, EmptyNodesProduceZeroHeight)
 
 TEST_F(LayoutTest, SingleParagraphHasPositiveHeight)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
+    auto nodes = ParseMarkdown("Hello world").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -30,11 +30,11 @@ TEST_F(LayoutTest, SingleParagraphHasPositiveHeight)
 
 TEST_F(LayoutTest, HeadingIsTallerThanParagraph)
 {
-    auto heading_nodes = ParseMarkdown(MENDO_LIT("# Big Title")).nodes;
+    auto heading_nodes = ParseMarkdown("# Big Title").nodes;
     LayoutCache heading_cache;
     heading_cache.Resize(heading_nodes.size());
 
-    auto para_nodes = ParseMarkdown(MENDO_LIT("Small text")).nodes;
+    auto para_nodes = ParseMarkdown("Small text").nodes;
     LayoutCache para_cache;
     para_cache.Resize(para_nodes.size());
 
@@ -49,7 +49,7 @@ TEST_F(LayoutTest, HeadingIsTallerThanParagraph)
 
 TEST_F(LayoutTest, YPositionsIncreaseMonotonically)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# A\n\nB\n\nC\n\nD")).nodes;
+    auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -62,7 +62,7 @@ TEST_F(LayoutTest, YPositionsIncreaseMonotonically)
 
 TEST_F(LayoutTest, NodesDoNotOverlap)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# Heading\n\nParagraph\n\n---\n\n- List")).nodes;
+    auto nodes = ParseMarkdown("# Heading\n\nParagraph\n\n---\n\n- List").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -79,7 +79,7 @@ TEST_F(LayoutTest, NodesDoNotOverlap)
 // ブロック上端、entry はテキスト上端) ので、ここでは total のみ確認する。
 TEST_F(LayoutTest, FenwickMatchesTotalHeightAfterFullLayout)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# Heading\n\nParagraph\n\n---\n\n- A\n- B\n\nLast")).nodes;
+    auto nodes = ParseMarkdown("# Heading\n\nParagraph\n\n---\n\n- A\n- B\n\nLast").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f); // partial = false
@@ -97,11 +97,11 @@ TEST_F(LayoutTest, FenwickMatchesTotalHeightAfterFullLayout)
 
 TEST_F(LayoutTest, NarrowViewportWrapsText)
 {
-    auto nodes_wide = ParseMarkdown(MENDO_LIT("This is a somewhat long paragraph that should wrap.")).nodes;
+    auto nodes_wide = ParseMarkdown("This is a somewhat long paragraph that should wrap.").nodes;
     LayoutCache cache_wide;
     cache_wide.Resize(nodes_wide.size());
 
-    auto nodes_narrow = ParseMarkdown(MENDO_LIT("This is a somewhat long paragraph that should wrap.")).nodes;
+    auto nodes_narrow = ParseMarkdown("This is a somewhat long paragraph that should wrap.").nodes;
     LayoutCache cache_narrow;
     cache_narrow.Resize(nodes_narrow.size());
 
@@ -117,7 +117,7 @@ TEST_F(LayoutTest, NarrowViewportWrapsText)
 
 TEST_F(LayoutTest, LayoutDirtyFlagCleared)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Test")).nodes;
+    auto nodes = ParseMarkdown("Test").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     EXPECT_TRUE(cache[0].layout_dirty);
@@ -127,7 +127,7 @@ TEST_F(LayoutTest, LayoutDirtyFlagCleared)
 
 TEST_F(LayoutTest, TextLayoutCreated)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Test paragraph")).nodes;
+    auto nodes = ParseMarkdown("Test paragraph").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -136,7 +136,7 @@ TEST_F(LayoutTest, TextLayoutCreated)
 
 TEST_F(LayoutTest, HorizontalRuleHasNoTextLayout)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("---")).nodes;
+    auto nodes = ParseMarkdown("---").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -146,7 +146,7 @@ TEST_F(LayoutTest, HorizontalRuleHasNoTextLayout)
 
 TEST_F(LayoutTest, CodeBlockTextLayout)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("```\ncode\n```")).nodes;
+    auto nodes = ParseMarkdown("```\ncode\n```").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -156,10 +156,10 @@ TEST_F(LayoutTest, CodeBlockTextLayout)
 TEST_F(LayoutTest, TableLayout)
 {
     auto nodes = ParseMarkdown(
-        MENDO_LIT("| A | B |\n")
-        MENDO_LIT("|---|---|\n")
-        MENDO_LIT("| 1 | 2 |")
-    ).nodes;
+                     "| A | B |\n"
+                     "|---|---|\n"
+                     "| 1 | 2 |")
+                     .nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -173,10 +173,10 @@ TEST_F(LayoutTest, TableLayout)
 TEST_F(LayoutTest, TableCellLayoutsCreated)
 {
     auto nodes = ParseMarkdown(
-        MENDO_LIT("| A | B |\n")
-        MENDO_LIT("|---|---|\n")
-        MENDO_LIT("| 1 | 2 |")
-    ).nodes;
+                     "| A | B |\n"
+                     "|---|---|\n"
+                     "| 1 | 2 |")
+                     .nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -195,10 +195,10 @@ TEST_F(LayoutTest, TableCellLayoutsCreated)
 TEST_F(LayoutTest, TableCellLinkHasUnderline)
 {
     auto nodes = ParseMarkdown(
-        MENDO_LIT("| Text | Link |\n")
-        MENDO_LIT("|------|------|\n")
-        MENDO_LIT("| hello | [click](https://example.com) |")
-    ).nodes;
+                     "| Text | Link |\n"
+                     "|------|------|\n"
+                     "| hello | [click](https://example.com) |")
+                     .nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -228,7 +228,7 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline)
 
 TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# H1\n\n## H2\n\n### H3")).nodes;
+    auto nodes = ParseMarkdown("# H1\n\n## H2\n\n### H3").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -240,9 +240,9 @@ TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize)
 
 TEST_F(LayoutTest, TotalHeightWithManyNodes)
 {
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 100; i++) {
-        md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+        md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
@@ -261,7 +261,7 @@ TEST_F(LayoutTest, TotalHeightWithManyNodes)
 
 TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# A\n\nB\n\nC\n\nD\n\nE")).nodes;
+    auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD\n\nE").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     // まず部分的なレイアウトを実行
@@ -283,9 +283,9 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
 TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch)
 {
     // 多数の段落を作成
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 50; i++) {
-        md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+        md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
@@ -306,7 +306,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch)
 
 TEST_F(LayoutTest, WidthChangeRecomputesLayouts)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("This is a paragraph with some text that might wrap differently.")).nodes;
+    auto nodes = ParseMarkdown("This is a paragraph with some text that might wrap differently.").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -341,11 +341,11 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight)
 
 TEST_F(LayoutTest, IndentedNodesHaveNarrowerWidth)
 {
-    auto nodes_plain = ParseMarkdown(MENDO_LIT("This is a somewhat long paragraph that wraps.")).nodes;
+    auto nodes_plain = ParseMarkdown("This is a somewhat long paragraph that wraps.").nodes;
     LayoutCache cache_plain;
     cache_plain.Resize(nodes_plain.size());
 
-    auto nodes_list = ParseMarkdown(MENDO_LIT("- This is a somewhat long paragraph that wraps.")).nodes;
+    auto nodes_list = ParseMarkdown("- This is a somewhat long paragraph that wraps.").nodes;
     LayoutCache cache_list;
     cache_list.Resize(nodes_list.size());
 
@@ -363,7 +363,7 @@ TEST_F(LayoutTest, IndentedNodesHaveNarrowerWidth)
 
 TEST_F(LayoutTest, BlockQuoteLayout)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("> Quoted text here")).nodes;
+    auto nodes = ParseMarkdown("> Quoted text here").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -376,14 +376,15 @@ TEST_F(LayoutTest, BlockQuoteLayout)
 
 TEST_F(LayoutTest, CodeBlockDoesNotWrap)
 {
-    mendo::doc_string_std long_line = MENDO_LIT("```\n");
-    for (int i = 0; i < 50; i++) long_line += MENDO_LIT("long_word ");
-    long_line += MENDO_LIT("\n```");
+    std::string long_line = "```\n";
+    for (int i = 0; i < 50; i++)
+        long_line += "long_word ";
+    long_line += "\n```";
 
     auto nodes = ParseMarkdown(long_line).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 200.0f);  // Very narrow
+    engine_.ComputeLayout(nodes, cache, 200.0f); // Very narrow
 
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
@@ -396,7 +397,7 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap)
 
 TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Paragraph\n\n# Heading\n\nAnother paragraph")).nodes;
+    auto nodes = ParseMarkdown("Paragraph\n\n# Heading\n\nAnother paragraph").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -529,9 +530,12 @@ TEST(ComputeTotalContentHeightTest, MultipleNodes)
 {
     LayoutCache cache;
     cache.Resize(3);
-    cache[0].text_top = 10.0f;  cache[0].height = 20.0f;
-    cache[1].text_top = 40.0f;  cache[1].height = 30.0f;
-    cache[2].text_top = 80.0f;  cache[2].height = 25.0f;
+    cache[0].text_top = 10.0f;
+    cache[0].height = 20.0f;
+    cache[1].text_top = 40.0f;
+    cache[1].height = 30.0f;
+    cache[2].text_top = 80.0f;
+    cache[2].height = 25.0f;
     // 最後のノードのみが関係: 80 + 25 + 10 = 115
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 3, 10.0f), 115.0f);
 }
@@ -561,7 +565,7 @@ TEST(RecomputeYPositionsTest, HeadingSpacing)
 
     Node heading;
     heading.type = NodeType::Heading;
-    heading.heading_level = 3;  // h3はheading_spacing_below（下線なし）を使う
+    heading.heading_level = 3; // h3はheading_spacing_below（下線なし）を使う
 
     Node para2;
     para2.type = NodeType::Paragraph;
@@ -618,10 +622,14 @@ TEST(RecomputeYPositionsTest, H1H2UseLargerSpacingBelow)
     nodes.emplace_back(std::move(p2));
     LayoutCache cache;
     cache.Resize(nodes.size());
-    cache[0].height = 40.0f; cache[0].layout_dirty = false;
-    cache[1].height = 20.0f; cache[1].layout_dirty = false;
-    cache[2].height = 30.0f; cache[2].layout_dirty = false;
-    cache[3].height = 20.0f; cache[3].layout_dirty = false;
+    cache[0].height = 40.0f;
+    cache[0].layout_dirty = false;
+    cache[1].height = 20.0f;
+    cache[1].layout_dirty = false;
+    cache[2].height = 30.0f;
+    cache[2].layout_dirty = false;
+    cache[3].height = 20.0f;
+    cache[3].layout_dirty = false;
 
     Theme theme = GetLightTheme();
     RecomputeYPositions(nodes, cache, theme);
@@ -689,9 +697,9 @@ TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY)
 TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
 {
     // 複数の段落を作成し、ある幅でフルレイアウトを実行
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 20; i++) {
-        md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+        md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
@@ -704,7 +712,10 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
     // ビューポート外のノードはまだダーティであること
     bool any_dirty = false;
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (cache[i].layout_dirty) { any_dirty = true; break; }
+        if (cache[i].layout_dirty) {
+            any_dirty = true;
+            break;
+        }
     }
     ASSERT_TRUE(any_dirty);
 
@@ -717,8 +728,10 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
 
     // 表示範囲内のノードはもうダーティでないこと
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (cache[i].text_top + cache[i].height < 0.0f) continue;
-        if (cache[i].text_top > 100.0f) break;
+        if (cache[i].text_top + cache[i].height < 0.0f)
+            continue;
+        if (cache[i].text_top > 100.0f)
+            break;
         EXPECT_FALSE(cache[i].layout_dirty)
             << "y=" << cache[i].text_top << " の表示ノードがまだダーティ";
     }
@@ -726,7 +739,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
 
 TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Hello world")).nodes;
+    auto nodes = ParseMarkdown("Hello world").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -738,9 +751,9 @@ TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean)
 
 TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes)
 {
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 30; i++) {
-        md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+        md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
@@ -750,7 +763,8 @@ TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes)
     // 処理前のダーティノード数をカウント
     int dirty_before = 0;
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (cache[i].layout_dirty) dirty_before++;
+        if (cache[i].layout_dirty)
+            dirty_before++;
     }
 
     // 小さなビューポート範囲のみでEnsureVisibleLayoutを実行
@@ -759,7 +773,8 @@ TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes)
     // 遠くのダーティノードはダーティのままであること
     int dirty_after = 0;
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (cache[i].layout_dirty) dirty_after++;
+        if (cache[i].layout_dirty)
+            dirty_after++;
     }
     // 一部のノード（画面外のもの）はまだダーティであること
     EXPECT_GT(dirty_after, 0);
@@ -768,9 +783,9 @@ TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes)
 
 TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions)
 {
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 10; i++) {
-        md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+        md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
@@ -793,9 +808,9 @@ TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions)
 
 TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
 {
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 10; i++) {
-        md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+        md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
@@ -816,9 +831,9 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
 // ズーム/テーマ変更直後の SyncMaxScroll が stale な total_height_ を読まないことを保証する。
 TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
 {
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 30; i++) {
-        md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+        md += "Paragraph " + std::to_string(i) + "\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
@@ -878,8 +893,7 @@ TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing)
     EXPECT_FLOAT_EQ(cache[0].text_top, theme.margin_top + theme.heading_spacing_above);
 
     // 2番目の見出し: 最初の見出しの後 + heading_spacing_below + heading_spacing_above
-    float expected_y = cache[0].text_top + cache[0].height
-        + theme.heading_spacing_below + theme.heading_spacing_above;
+    float expected_y = cache[0].text_top + cache[0].height + theme.heading_spacing_below + theme.heading_spacing_above;
     EXPECT_FLOAT_EQ(cache[1].text_top, expected_y);
 }
 
@@ -1166,8 +1180,8 @@ TEST(RecomputeYPositionsTest, FromIndexListItem)
 TEST_F(LayoutTest, InlineCodeInHeadingAllLevels)
 {
     for (int level = 1; level <= 6; ++level) {
-        mendo::doc_string_std md(level, MENDO_LIT('#'));
-        md += MENDO_LIT(" Test `code`");
+        std::string md(level, '#');
+        md += " Test `code`";
 
         auto nodes = ParseMarkdown(md).nodes;
         LayoutCache cache;
@@ -1197,7 +1211,7 @@ TEST_F(LayoutTest, InlineCodeInHeadingAllLevels)
 TEST_F(LayoutTest, InlineCodeInParagraphUsesCodeFontSize)
 {
     // 段落内のインラインコードは従来通り font_size_code を使うこと
-    auto nodes = ParseMarkdown(MENDO_LIT("Hello `code` world")).nodes;
+    auto nodes = ParseMarkdown("Hello `code` world").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -1220,7 +1234,7 @@ TEST_F(LayoutTest, InlineCodeInParagraphUsesCodeFontSize)
 TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont)
 {
     // 見出し内のインラインコードはフォントサイズは見出しと同じだが、フォントファミリーはモノスペースであること
-    auto nodes = ParseMarkdown(MENDO_LIT("# Hello `code`")).nodes;
+    auto nodes = ParseMarkdown("# Hello `code`").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -1258,7 +1272,7 @@ TEST(EstimateNodeHeightsTest, SingleParagraph)
 {
     Node node;
     node.type = NodeType::Paragraph;
-    node.SetText(MENDO_LIT("Hello world"));
+    node.SetText("Hello world");
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
     LayoutCache cache;
@@ -1273,7 +1287,7 @@ TEST(EstimateNodeHeightsTest, SingleParagraph)
 
 TEST(EstimateNodeHeightsTest, YPositionsIncreaseMonotonically)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# A\n\nB\n\nC\n\nD")).nodes;
+    auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     Theme theme = GetLightTheme();
@@ -1288,7 +1302,7 @@ TEST(EstimateNodeHeightsTest, YPositionsIncreaseMonotonically)
 
 TEST(EstimateNodeHeightsTest, NodesDoNotOverlap)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# Heading\n\nParagraph\n\n---\n\n- List")).nodes;
+    auto nodes = ParseMarkdown("# Heading\n\nParagraph\n\n---\n\n- List").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     Theme theme = GetLightTheme();
@@ -1310,12 +1324,12 @@ TEST(EstimateNodeHeightsTest, HeadingHeightScalesWithLevel)
     Node h1;
     h1.type = NodeType::Heading;
     h1.heading_level = 1;
-    h1.SetText(MENDO_LIT("Title"));
+    h1.SetText("Title");
 
     Node h3;
     h3.type = NodeType::Heading;
     h3.heading_level = 3;
-    h3.SetText(MENDO_LIT("Title"));
+    h3.SetText("Title");
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(h1));
@@ -1334,12 +1348,12 @@ TEST(EstimateNodeHeightsTest, CodeBlockScalesWithLineCount)
 
     Node short_code;
     short_code.type = NodeType::CodeBlock;
-    short_code.SetText(MENDO_LIT("line1"));
+    short_code.SetText("line1");
     short_code.line_count = 0;
 
     Node long_code;
     long_code.type = NodeType::CodeBlock;
-    long_code.SetText(MENDO_LIT("line1\nline2\nline3\nline4\nline5"));
+    long_code.SetText("line1\nline2\nline3\nline4\nline5");
     long_code.line_count = 4;
 
     std::pmr::vector<Node> nodes;
@@ -1433,12 +1447,12 @@ TEST(EstimateNodeHeightsTest, MultilineParagraphScalesWithLines)
 
     Node single;
     single.type = NodeType::Paragraph;
-    single.SetText(MENDO_LIT("one line"));
+    single.SetText("one line");
     single.line_count = 0;
 
     Node multi;
     multi.type = NodeType::Paragraph;
-    multi.SetText(MENDO_LIT("line1\nline2\nline3"));
+    multi.SetText("line1\nline2\nline3");
     multi.line_count = 2;
 
     std::pmr::vector<Node> nodes;
@@ -1457,7 +1471,7 @@ TEST(EstimateNodeHeightsTest, LayoutDirtyNotChanged)
     Theme theme = GetLightTheme();
     Node node;
     node.type = NodeType::Paragraph;
-    node.SetText(MENDO_LIT("test"));
+    node.SetText("test");
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
@@ -1478,7 +1492,7 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
     Theme theme = GetLightTheme();
     std::pmr::vector<Node> nodes;
 
-    auto add_node = [&](NodeType type, const mendo::doc_char* text = MENDO_LIT("content")) {
+    auto add_node = [&](NodeType type, const char* text = "content") {
         Node n;
         n.type = type;
         n.SetText(text);
@@ -1495,12 +1509,12 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
     add_node(NodeType::Paragraph);
     add_node(NodeType::Heading);
     add_node(NodeType::CodeBlock);
-    add_node(NodeType::HorizontalRule, MENDO_LIT(""));
+    add_node(NodeType::HorizontalRule, "");
     add_node(NodeType::ListItem);
     add_node(NodeType::BlockQuote);
     add_node(NodeType::Table);
     add_node(NodeType::TaskListItem);
-    add_node(NodeType::Image, MENDO_LIT(""));
+    add_node(NodeType::Image, "");
 
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -1516,7 +1530,7 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
 TEST_F(LayoutTest, EstimateVsActualHeightReasonableRange)
 {
     // 推定値がDirectWrite実測値と比べて極端に乖離しないことを確認する
-    auto nodes = ParseMarkdown(MENDO_LIT("# Heading\n\nParagraph text\n\n```\ncode\n```\n\n---")).nodes;
+    auto nodes = ParseMarkdown("# Heading\n\nParagraph text\n\n```\ncode\n```\n\n---").nodes;
     LayoutCache est_cache;
     est_cache.Resize(nodes.size());
 
@@ -1538,7 +1552,7 @@ TEST_F(LayoutTest, EstimateVsActualHeightReasonableRange)
 
 TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("- Item text here")).nodes;
+    auto nodes = ParseMarkdown("- Item text here").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -1580,11 +1594,22 @@ TEST(RecomputeYPositionsTest, DISABLED_BenchLargeDocument)
     nodes.resize(N);
     for (int i = 0; i < N; i++) {
         switch (i % 5) {
-        case 0: nodes[i].type = NodeType::Heading; nodes[i].heading_level = 2; break;
-        case 1: nodes[i].type = NodeType::Paragraph; break;
-        case 2: nodes[i].type = NodeType::CodeBlock; break;
-        case 3: nodes[i].type = NodeType::ListItem; break;
-        case 4: nodes[i].type = NodeType::HorizontalRule; break;
+        case 0:
+            nodes[i].type = NodeType::Heading;
+            nodes[i].heading_level = 2;
+            break;
+        case 1:
+            nodes[i].type = NodeType::Paragraph;
+            break;
+        case 2:
+            nodes[i].type = NodeType::CodeBlock;
+            break;
+        case 3:
+            nodes[i].type = NodeType::ListItem;
+            break;
+        case 4:
+            nodes[i].type = NodeType::HorizontalRule;
+            break;
         }
     }
 

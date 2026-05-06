@@ -3,46 +3,46 @@
 
 namespace {
 
-std::optional<mendo::doc_string_std> Resolve(mendo::doc_string_view entity)
+std::optional<std::string> Resolve(std::string_view entity)
 {
-    mendo::doc_char buf[4];
+    char buf[4];
     const auto view = ResolveHtmlEntity(entity, buf);
     if (!view) {
         return std::nullopt;
     }
-    return mendo::doc_string_std{ *view };
+    return std::string{ *view };
 }
 
 } // namespace
 
 TEST(HtmlEntity, NamedLiterals)
 {
-    EXPECT_EQ(Resolve(MENDO_LIT("&amp;")), MENDO_LIT("&"));
-    EXPECT_EQ(Resolve(MENDO_LIT("&lt;")), MENDO_LIT("<"));
-    EXPECT_EQ(Resolve(MENDO_LIT("&gt;")), MENDO_LIT(">"));
-    EXPECT_EQ(Resolve(MENDO_LIT("&quot;")), MENDO_LIT("\""));
-    EXPECT_EQ(Resolve(MENDO_LIT("&apos;")), MENDO_LIT("'"));
-    EXPECT_EQ(Resolve(MENDO_LIT("&nbsp;")), MENDO_LIT(" "));
+    EXPECT_EQ(Resolve("&amp;"), "&");
+    EXPECT_EQ(Resolve("&lt;"), "<");
+    EXPECT_EQ(Resolve("&gt;"), ">");
+    EXPECT_EQ(Resolve("&quot;"), "\"");
+    EXPECT_EQ(Resolve("&apos;"), "'");
+    EXPECT_EQ(Resolve("&nbsp;"), " ");
 }
 
 TEST(HtmlEntity, NumericDecimal)
 {
-    EXPECT_EQ(Resolve(MENDO_LIT("&#65;")), MENDO_LIT("A"));
-    EXPECT_EQ(Resolve(MENDO_LIT("&#9;")), MENDO_LIT("\t"));
+    EXPECT_EQ(Resolve("&#65;"), "A");
+    EXPECT_EQ(Resolve("&#9;"), "\t");
 }
 
 TEST(HtmlEntity, NumericHex)
 {
-    EXPECT_EQ(Resolve(MENDO_LIT("&#x41;")), MENDO_LIT("A"));
-    EXPECT_EQ(Resolve(MENDO_LIT("&#X41;")), MENDO_LIT("A"));
-    EXPECT_EQ(Resolve(MENDO_LIT("&#x4E00;")), MENDO_LIT("一"));
-    EXPECT_EQ(Resolve(MENDO_LIT("&#xFFFF;")), MENDO_LIT("￿"));
+    EXPECT_EQ(Resolve("&#x41;"), "A");
+    EXPECT_EQ(Resolve("&#X41;"), "A");
+    EXPECT_EQ(Resolve("&#x4E00;"), "一");
+    EXPECT_EQ(Resolve("&#xFFFF;"), "￿");
 }
 
 TEST(HtmlEntity, SupplementaryPlaneSurrogatePair)
 {
     // U+1F600 GRINNING FACE → UTF-8: F0 9F 98 80
-    const auto result = Resolve(MENDO_LIT("&#x1F600;"));
+    const auto result = Resolve("&#x1F600;");
     ASSERT_TRUE(result.has_value());
     ASSERT_EQ(result->size(), 4u);
     EXPECT_EQ(static_cast<unsigned char>((*result)[0]), 0xF0);
@@ -54,33 +54,33 @@ TEST(HtmlEntity, SupplementaryPlaneSurrogatePair)
 TEST(HtmlEntity, RejectsLoneSurrogateHigh)
 {
     // U+D800-U+DBFF (high surrogate) は単独で UTF-16 として不正
-    EXPECT_EQ(Resolve(MENDO_LIT("&#xD800;")), std::nullopt);
-    EXPECT_EQ(Resolve(MENDO_LIT("&#xDBFF;")), std::nullopt);
+    EXPECT_EQ(Resolve("&#xD800;"), std::nullopt);
+    EXPECT_EQ(Resolve("&#xDBFF;"), std::nullopt);
 }
 
 TEST(HtmlEntity, RejectsLoneSurrogateLow)
 {
     // U+DC00-U+DFFF (low surrogate) は単独で UTF-16 として不正
-    EXPECT_EQ(Resolve(MENDO_LIT("&#xDC00;")), std::nullopt);
-    EXPECT_EQ(Resolve(MENDO_LIT("&#xDFFF;")), std::nullopt);
+    EXPECT_EQ(Resolve("&#xDC00;"), std::nullopt);
+    EXPECT_EQ(Resolve("&#xDFFF;"), std::nullopt);
 }
 
 TEST(HtmlEntity, RejectsZero)
 {
-    EXPECT_EQ(Resolve(MENDO_LIT("&#0;")), std::nullopt);
-    EXPECT_EQ(Resolve(MENDO_LIT("&#x0;")), std::nullopt);
+    EXPECT_EQ(Resolve("&#0;"), std::nullopt);
+    EXPECT_EQ(Resolve("&#x0;"), std::nullopt);
 }
 
 TEST(HtmlEntity, RejectsOutOfRange)
 {
-    EXPECT_EQ(Resolve(MENDO_LIT("&#x110000;")), std::nullopt);
-    EXPECT_EQ(Resolve(MENDO_LIT("&#x7FFFFFFF;")), std::nullopt);
+    EXPECT_EQ(Resolve("&#x110000;"), std::nullopt);
+    EXPECT_EQ(Resolve("&#x7FFFFFFF;"), std::nullopt);
 }
 
 TEST(HtmlEntity, RejectsMalformed)
 {
-    EXPECT_EQ(Resolve(MENDO_LIT("&unknown;")), std::nullopt);
-    EXPECT_EQ(Resolve(MENDO_LIT("&#xZZ;")), std::nullopt);
-    EXPECT_EQ(Resolve(MENDO_LIT("&#;")), std::nullopt);
-    EXPECT_EQ(Resolve(MENDO_LIT("")), std::nullopt);
+    EXPECT_EQ(Resolve("&unknown;"), std::nullopt);
+    EXPECT_EQ(Resolve("&#xZZ;"), std::nullopt);
+    EXPECT_EQ(Resolve("&#;"), std::nullopt);
+    EXPECT_EQ(Resolve(""), std::nullopt);
 }

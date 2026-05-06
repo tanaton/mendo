@@ -165,9 +165,10 @@ void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPane
         return;
     }
     const auto ctx = GetSidePaneContext(state, *target);
-    const bool scrolled = (*target == PaneTarget::File)
-                              ? state.view.panes.ScrollFilePaneBy(a.delta, ctx.info.max_scroll)
-                              : state.view.panes.ScrollTocPaneBy(a.delta, ctx.info.max_scroll);
+    const bool scrolled =
+        (*target == PaneTarget::File)
+            ? state.view.panes.ScrollFilePaneBy(a.delta, ctx.info.max_scroll)
+            : state.view.panes.ScrollTocPaneBy(a.delta, ctx.info.max_scroll);
     if (scrolled) {
         PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
         PushEffect(effects, effect::InvalidateWindow{});
@@ -659,20 +660,21 @@ void ScrollToResolvedAnchor(AppState& state, SideEffectList& effects, int idx)
     if (idx < 0) {
         return;
     }
-    const auto target = MakeHeadingTopTarget(idx,
-                                             state.window.cached_theme.heading_spacing_above,
-                                             state.cached_pane_layout.md_rect.y);
+    const auto target = MakeHeadingTopTarget(
+        idx,
+        state.window.cached_theme.heading_spacing_above,
+        state.cached_pane_layout.md_rect.y);
     ApplyScrollTargetAndEmit(state, effects, target.node, target.offset);
 }
 } // namespace
 
-void ScrollToAnchor(AppState& state, SideEffectList& effects, mendo::doc_string_view anchor_id)
+void ScrollToAnchor(AppState& state, SideEffectList& effects, std::string_view anchor_id)
 {
     ScrollToResolvedAnchor(state, effects, state.document.doc.FindAnchorIndex(anchor_id));
 }
 
 // anchor_id() 由来など、既に正規化済み入力向け（ToLowerAscii の確保を回避する）。
-void ScrollToNormalizedAnchor(AppState& state, SideEffectList& effects, mendo::doc_string_view anchor_id)
+void ScrollToNormalizedAnchor(AppState& state, SideEffectList& effects, std::string_view anchor_id)
 {
     ScrollToResolvedAnchor(state, effects, state.document.doc.FindNormalizedAnchorIndex(anchor_id));
 }

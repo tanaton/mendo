@@ -4,7 +4,7 @@
 
 namespace mendo {
 
-WideViewForDWrite::WideViewForDWrite(doc_string_view text)
+WideViewForDWrite::WideViewForDWrite(std::string_view text)
     : scratch_(GetThreadLocalPoolResource()),
       utf16_offsets_(GetThreadLocalPoolResource())
 {
@@ -123,11 +123,11 @@ HRESULT CreateDocTextLayout(IDWriteFactory* factory, const WideViewForDWrite& vi
                                      fmt, max_w, max_h, out);
 }
 
-HRESULT CreateDocTextLayout(IDWriteFactory* factory, doc_string_view text,
+HRESULT CreateDocTextLayout(IDWriteFactory* factory, std::string_view text,
                             IDWriteTextFormat* fmt, float max_w, float max_h,
                             IDWriteTextLayout** out) noexcept
 {
-    WideViewForDWrite view{text};
+    WideViewForDWrite view{ text };
     return CreateDocTextLayout(factory, view, fmt, max_w, max_h, out);
 }
 

@@ -50,6 +50,6 @@ struct SyntaxToken {
     SyntaxTokenType type = SyntaxTokenType::Plain;
 };
 
-SyntaxLanguage DetectLanguage(mendo::doc_string_view info_string) noexcept;
+SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept;
 
-std::pmr::vector<SyntaxToken> Tokenize(mendo::doc_string_view text, SyntaxLanguage language);
+std::pmr::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language);

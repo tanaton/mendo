@@ -182,10 +182,10 @@ struct FilePaneFileClickedAction {
     std::pmr::wstring full_path;
 };
 struct TocItemClickedAction {
-    mendo::doc_string anchor_id;
+    std::pmr::string anchor_id;
 };
 struct NavigateAnchorAction {
-    mendo::doc_string anchor_id;
+    std::pmr::string anchor_id;
 };
 
 // ファイルロード完了直後のスクロール位置復元。

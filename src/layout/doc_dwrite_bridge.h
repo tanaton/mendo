@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-// Document テキスト (UTF-8 doc_string_view) を IDWriteTextLayout / IDWriteTextFormat に
+// Document テキスト (UTF-8 string_view) を IDWriteTextLayout / IDWriteTextFormat に
 // 渡すための境界ラッパー。MultiByteToWideChar 相当の自前 decode で per-call wide スクラッチを
 // 構築し、HitTest/Search 用に UTF-8 byte ↔ UTF-16 code unit 対応表 (utf16_offsets_) を保持する。
 //
@@ -18,7 +18,7 @@ namespace mendo {
 
 class WideViewForDWrite {
 public:
-    explicit WideViewForDWrite(doc_string_view text);
+    explicit WideViewForDWrite(std::string_view text);
 
     // IDWriteTextLayout / IDWriteTextFormat に渡せる UTF-16 ビュー。
     std::wstring_view wide() const noexcept
@@ -59,7 +59,7 @@ HRESULT CreateDocTextLayout(IDWriteFactory* factory, const WideViewForDWrite& vi
                             IDWriteTextLayout** out) noexcept;
 
 // 互換オーバーロード: text のみ渡したい呼び出し側向け (内部で WideViewForDWrite を構築)。
-HRESULT CreateDocTextLayout(IDWriteFactory* factory, doc_string_view text,
+HRESULT CreateDocTextLayout(IDWriteFactory* factory, std::string_view text,
                             IDWriteTextFormat* fmt, float max_w, float max_h,
                             IDWriteTextLayout** out) noexcept;
 

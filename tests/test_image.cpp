@@ -23,64 +23,64 @@ using Microsoft::WRL::ComPtr;
 
 TEST(ParserImage, ImageOnlyParagraphBecomesImageNode)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt text](image.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt text](image.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("image.png"));
-    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("alt text"));
+    EXPECT_EQ(nodes[0].image_data()->src, "image.png");
+    EXPECT_EQ(nodes[0].GetText(), "alt text");
 }
 
 TEST(ParserImage, ImageWithRelativePath)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![photo](./images/photo.jpg)")).nodes;
+    auto nodes = ParseMarkdown("![photo](./images/photo.jpg)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("./images/photo.jpg"));
+    EXPECT_EQ(nodes[0].image_data()->src, "./images/photo.jpg");
 }
 
 TEST(ParserImage, ImageWithAbsolutePath)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![img](C:/Users/test/pic.png)")).nodes;
+    auto nodes = ParseMarkdown("![img](C:/Users/test/pic.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("C:/Users/test/pic.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "C:/Users/test/pic.png");
 }
 
 TEST(ParserImage, ImageWithHttpUrl)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![logo](https://example.com/logo.png)")).nodes;
+    auto nodes = ParseMarkdown("![logo](https://example.com/logo.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("https://example.com/logo.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "https://example.com/logo.png");
 }
 
 TEST(ParserImage, ImageWithEmptyAlt)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![](image.png)")).nodes;
+    auto nodes = ParseMarkdown("![](image.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("image.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "image.png");
     EXPECT_TRUE(nodes[0].GetText().empty());
 }
 
 TEST(ParserImage, ImageWithTitle)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](image.png \"My Title\")")).nodes;
+    auto nodes = ParseMarkdown("![alt](image.png \"My Title\")").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("image.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "image.png");
 }
 
 TEST(ParserImage, ImageAltTextPreserved)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![Hello World](pic.png)")).nodes;
+    auto nodes = ParseMarkdown("![Hello World](pic.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("Hello World"));
+    EXPECT_EQ(nodes[0].GetText(), "Hello World");
 }
 
 TEST(ParserImage, ImageDefaultDimensionsZero)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_FLOAT_EQ(nodes[0].image_data()->width, 0.0f);
     EXPECT_FLOAT_EQ(nodes[0].image_data()->height, 0.0f);
@@ -91,46 +91,46 @@ TEST(ParserImage, ImageDefaultDimensionsZero)
 TEST(ParserImage, ImageWithSurroundingTextStillConverts)
 {
     // 現在の実装では、画像を含む段落は全体がImageノードに変換される
-    auto nodes = ParseMarkdown(MENDO_LIT("before ![alt](img.png) after")).nodes;
+    auto nodes = ParseMarkdown("before ![alt](img.png) after").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("img.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "img.png");
 }
 
 TEST(ParserImage, MultipleImagesLastOneWins)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![a](first.png) ![b](second.png)")).nodes;
+    auto nodes = ParseMarkdown("![a](first.png) ![b](second.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     // OnLeaveSpanで最後のimage_srcがノードに設定される
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("second.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "second.png");
 }
 
 // ---- ブロック要素内の画像 ----
 
 TEST(ParserImage, ImageInBlockquoteBecomesImageNode)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("> ![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("> ![alt](img.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("img.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "img.png");
 }
 
 TEST(ParserImage, ImageInTightListStaysListItem)
 {
     // タイトリスト内の画像はP生成されないため、ListItem のまま
-    auto nodes = ParseMarkdown(MENDO_LIT("- ![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("- ![alt](img.png)").nodes;
     ASSERT_GE(nodes.size(), 1u);
     // ListItemノードの型が保持されること
     EXPECT_EQ(nodes[0].type, NodeType::ListItem);
     // image_srcはノードに設定されるが、型はListItemのまま
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("img.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "img.png");
 }
 
 TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph)
 {
     // 画像を含むリスト項目の後の段落が Image に変換されないこと
-    auto nodes = ParseMarkdown(MENDO_LIT("- ![alt](img.png)\n\nNormal paragraph")).nodes;
+    auto nodes = ParseMarkdown("- ![alt](img.png)\n\nNormal paragraph").nodes;
     bool found_para = false;
     for (const auto& node : nodes) {
         if (node.type == NodeType::Paragraph) {
@@ -144,7 +144,7 @@ TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph)
 
 TEST(ParserImage, ImageInTaskListStaysTaskListItem)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("- [x] ![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("- [x] ![alt](img.png)").nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
 }
@@ -153,7 +153,7 @@ TEST(ParserImage, ImageInTaskListStaysTaskListItem)
 
 TEST(ParserImage, ParagraphWithoutImageStaysParagraph)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Just text")).nodes;
+    auto nodes = ParseMarkdown("Just text").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_FALSE(nodes[0].has_image());
@@ -161,7 +161,7 @@ TEST(ParserImage, ParagraphWithoutImageStaysParagraph)
 
 TEST(ParserImage, LinkDoesNotTriggerImage)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("[link text](https://example.com)")).nodes;
+    auto nodes = ParseMarkdown("[link text](https://example.com)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_FALSE(nodes[0].has_image());
@@ -171,7 +171,7 @@ TEST(ParserImage, LinkDoesNotTriggerImage)
 
 TEST(ParserImage, ImageBetweenParagraphs)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Before\n\n![alt](img.png)\n\nAfter")).nodes;
+    auto nodes = ParseMarkdown("Before\n\n![alt](img.png)\n\nAfter").nodes;
     ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_EQ(nodes[1].type, NodeType::Image);
@@ -180,39 +180,39 @@ TEST(ParserImage, ImageBetweenParagraphs)
 
 TEST(ParserImage, MultipleImageParagraphs)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)")).nodes;
+    auto nodes = ParseMarkdown("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)").nodes;
     ASSERT_EQ(nodes.size(), 3u);
     for (size_t i = 0; i < 3; i++) {
         EXPECT_EQ(nodes[i].type, NodeType::Image) << "ノード " << i;
     }
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("a.png"));
-    EXPECT_EQ(nodes[1].image_data()->src, MENDO_LIT("b.png"));
-    EXPECT_EQ(nodes[2].image_data()->src, MENDO_LIT("c.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "a.png");
+    EXPECT_EQ(nodes[1].image_data()->src, "b.png");
+    EXPECT_EQ(nodes[2].image_data()->src, "c.png");
 }
 
 // ---- エッジケース ----
 
 TEST(ParserImage, ImageWithSpecialCharsInPath)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](path%20with%20spaces/img.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](path%20with%20spaces/img.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("path%20with%20spaces/img.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "path%20with%20spaces/img.png");
 }
 
 TEST(ParserImage, ImageWithJapaneseAltText)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![日本語のaltテキスト](img.png)")).nodes;
+    auto nodes = ParseMarkdown("![日本語のaltテキスト](img.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].GetText(), MENDO_LIT("日本語のaltテキスト"));
+    EXPECT_EQ(nodes[0].GetText(), "日本語のaltテキスト");
 }
 
 TEST(ParserImage, ImageWithJapanesePath)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](画像/テスト.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](画像/テスト.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].image_data()->src, MENDO_LIT("画像/テスト.png"));
+    EXPECT_EQ(nodes[0].image_data()->src, "画像/テスト.png");
 }
 
 // ============================================================
@@ -234,7 +234,7 @@ protected:
 
 TEST_F(ImageLayoutTest, ImagePlaceholderHeight)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
 
@@ -248,7 +248,7 @@ TEST_F(ImageLayoutTest, ImagePlaceholderHeight)
 
 TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // 画像読み込み後のサイズをシミュレート
     nodes[0].image_data()->width = 400.0f;
@@ -264,7 +264,7 @@ TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight)
 
 TEST_F(ImageLayoutTest, WideImageScaledDown)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // コンテンツ幅より大きい画像
     nodes[0].image_data()->width = 1600.0f;
@@ -281,7 +281,7 @@ TEST_F(ImageLayoutTest, WideImageScaledDown)
 
 TEST_F(ImageLayoutTest, SmallImageNotScaledUp)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     nodes[0].image_data()->width = 100.0f;
     nodes[0].image_data()->height = 80.0f;
@@ -296,7 +296,7 @@ TEST_F(ImageLayoutTest, SmallImageNotScaledUp)
 
 TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     nodes[0].image_data()->width = 1600.0f;
     nodes[0].image_data()->height = 900.0f;
@@ -317,7 +317,7 @@ TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
 
 TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)")).nodes;
+    auto nodes = ParseMarkdown("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)").nodes;
     for (auto& n : nodes) {
         n.image_data()->width = 200.0f;
         n.image_data()->height = 150.0f;
@@ -335,7 +335,7 @@ TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
 
 TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Text before\n\n![alt](img.png)\n\nText after")).nodes;
+    auto nodes = ParseMarkdown("Text before\n\n![alt](img.png)\n\nText after").nodes;
     ASSERT_EQ(nodes.size(), 3u);
     nodes[1].image_data()->width = 400.0f;
     nodes[1].image_data()->height = 300.0f;
@@ -352,7 +352,7 @@ TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
 
 TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     // image_width/heightはデフォルトの0.0f
     ASSERT_FLOAT_EQ(nodes[0].image_data()->width, 0.0f);
@@ -366,7 +366,7 @@ TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
 
 TEST_F(ImageLayoutTest, ImageAspectRatioPreserved)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](img.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
     nodes[0].image_data()->width = 1000.0f;
     nodes[0].image_data()->height = 500.0f;
 
@@ -399,18 +399,18 @@ protected:
     {
         // D2Dファクトリ作成
         HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-            d2d_factory_.GetAddressOf());
+                                       d2d_factory_.GetAddressOf());
         ASSERT_TRUE(SUCCEEDED(hr)) << "D2Dファクトリ作成に失敗";
 
         // WICファクトリ作成
         hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
-            CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic_factory_));
+                              CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic_factory_));
         ASSERT_TRUE(SUCCEEDED(hr)) << "WICファクトリ作成に失敗";
 
         // WICビットマップベースのレンダーターゲットを作成（HWND不要）
         ComPtr<IWICBitmap> wic_bitmap;
         hr = wic_factory_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA,
-            WICBitmapCacheOnLoad, &wic_bitmap);
+                                        WICBitmapCacheOnLoad, &wic_bitmap);
         ASSERT_TRUE(SUCCEEDED(hr)) << "WICビットマップ作成に失敗";
 
         hr = d2d_factory_->CreateWicBitmapRenderTarget(
@@ -421,8 +421,7 @@ protected:
 
         // テスト用一時ディレクトリ（並列実行時の競合を避けるためテスト名で分離）
         auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        temp_dir_ = std::filesystem::temp_directory_path()
-            / ("mendo_test_images_" + std::string(info->name()));
+        temp_dir_ = std::filesystem::temp_directory_path() / ("mendo_test_images_" + std::string(info->name()));
         std::filesystem::create_directories(temp_dir_);
     }
 
@@ -435,7 +434,7 @@ protected:
 
     // WICエンコーダーでテスト画像を作成するヘルパー
     bool CreateTestImage(const std::wstring& filename, const GUID& container_format,
-        UINT width, UINT height)
+                         UINT width, UINT height)
     {
         auto path = temp_dir_ / filename;
         ComPtr<IWICBitmapEncoder> encoder;
@@ -482,10 +481,10 @@ protected:
         std::vector<BYTE> row(stride);
         for (UINT x = 0; x < width; x++) {
             UINT offset = x * 4;
-            row[offset + 0] = 0;     // B
-            row[offset + 1] = 0;     // G
-            row[offset + 2] = 255;   // R
-            row[offset + 3] = 255;   // A
+            row[offset + 0] = 0;   // B
+            row[offset + 1] = 0;   // G
+            row[offset + 2] = 255; // R
+            row[offset + 3] = 255; // A
         }
         for (UINT y = 0; y < height; y++) {
             hr = frame->WritePixels(1, stride, stride, row.data());
@@ -635,7 +634,7 @@ TEST_F(ImageLoaderTest, EmptyPathReturnsFalse)
 
 TEST_F(ImageLoaderTest, CorruptedPngReturnsFalse)
 {
-    auto path = temp_dir_ / MENDO_LIT("corrupt.png");
+    auto path = temp_dir_ / "corrupt.png";
     // PNGヘッダの途中で切れたデータ
     std::ofstream f(path, std::ios::binary);
     f.write("\x89PNG\r\n\x1a\n\x00\x00", 10);
@@ -648,7 +647,7 @@ TEST_F(ImageLoaderTest, CorruptedPngReturnsFalse)
 
 TEST_F(ImageLoaderTest, EmptyFileReturnsFalse)
 {
-    auto path = temp_dir_ / MENDO_LIT("empty.png");
+    auto path = temp_dir_ / "empty.png";
     std::ofstream f(path, std::ios::binary);
     f.close();
 
@@ -659,7 +658,7 @@ TEST_F(ImageLoaderTest, EmptyFileReturnsFalse)
 
 TEST_F(ImageLoaderTest, RandomBytesReturnsFalse)
 {
-    auto path = temp_dir_ / MENDO_LIT("random.png");
+    auto path = temp_dir_ / "random.png";
     std::ofstream f(path, std::ios::binary);
     const char garbage[] = "This is not an image file at all!";
     f.write(garbage, sizeof(garbage));
@@ -673,7 +672,7 @@ TEST_F(ImageLoaderTest, RandomBytesReturnsFalse)
 TEST_F(ImageLoaderTest, TruncatedJpegReturnsFalse)
 {
     // JPEG SOIマーカーのみの不完全データ
-    auto path = temp_dir_ / MENDO_LIT("truncated.jpg");
+    auto path = temp_dir_ / "truncated.jpg";
     std::ofstream f(path, std::ios::binary);
     f.write("\xFF\xD8\xFF\xE0\x00\x10", 6);
     f.close();
@@ -687,7 +686,7 @@ TEST_F(ImageLoaderTest, TruncatedJpegReturnsFalse)
 
 TEST_F(ImageLoaderTest, TextFileReturnsFalse)
 {
-    auto path = temp_dir_ / MENDO_LIT("readme.txt");
+    auto path = temp_dir_ / "readme.txt";
     std::ofstream f(path);
     f << "Hello, World!";
     f.close();
@@ -699,7 +698,7 @@ TEST_F(ImageLoaderTest, TextFileReturnsFalse)
 
 TEST_F(ImageLoaderTest, HtmlFileReturnsFalse)
 {
-    auto path = temp_dir_ / MENDO_LIT("page.html");
+    auto path = temp_dir_ / "page.html";
     std::ofstream f(path);
     f << "<html><body>test</body></html>";
     f.close();
@@ -790,7 +789,7 @@ TEST_F(ImageLoaderTest, ShutdownWithoutInitAsyncIsNoOp)
 {
     ImageLoader loader;
     loader.Init(render_target_.Get());
-    loader.Shutdown();  // InitAsync 未呼び出しでもクラッシュしないこと
+    loader.Shutdown(); // InitAsync 未呼び出しでもクラッシュしないこと
 }
 
 TEST_F(ImageLoaderTest, CancelPendingIsNoOp)
@@ -811,7 +810,7 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterSyncLoad)
 
     // 読み込み後、外部プロセスと同様に書き込みモードでファイルを開けること
     HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE,
-        0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                               0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     EXPECT_NE(hFile, INVALID_HANDLE_VALUE)
         << "画像読み込み後にファイルが書き込みロックされている";
     if (hFile != INVALID_HANDLE_VALUE) {
@@ -836,7 +835,7 @@ TEST_F(ImageLoaderTest, FileCanBeDeletedAfterLoad)
 TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
 {
     // 壊れた画像でも読み込み後にファイルがロックされないこと
-    auto path = temp_dir_ / MENDO_LIT("bad_lock.png");
+    auto path = temp_dir_ / "bad_lock.png";
     {
         std::ofstream f(path, std::ios::binary);
         f.write("\x89PNG\r\n\x1a\n\x00\x00", 10);
@@ -846,7 +845,7 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
     loader_.LoadImage(path.wstring(), entry);
 
     HANDLE hFile = CreateFileW(path.wstring().c_str(), GENERIC_WRITE,
-        0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                               0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     EXPECT_NE(hFile, INVALID_HANDLE_VALUE)
         << "失敗した読み込み後にファイルがロックされている";
     if (hFile != INVALID_HANDLE_VALUE) {
@@ -867,16 +866,15 @@ protected:
     void SetUp() override
     {
         HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-            d2d_factory_.GetAddressOf());
+                                       d2d_factory_.GetAddressOf());
         ASSERT_TRUE(SUCCEEDED(hr));
 
         hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
-            CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic_factory_));
+                              CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic_factory_));
         ASSERT_TRUE(SUCCEEDED(hr));
 
         auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        temp_dir_ = std::filesystem::temp_directory_path()
-            / ("mendo_test_dpi_" + std::string(info->name()));
+        temp_dir_ = std::filesystem::temp_directory_path() / ("mendo_test_dpi_" + std::string(info->name()));
         std::filesystem::create_directories(temp_dir_);
     }
 
@@ -891,7 +889,7 @@ protected:
     {
         ComPtr<IWICBitmap> wic_bitmap;
         wic_factory_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA,
-            WICBitmapCacheOnLoad, &wic_bitmap);
+                                   WICBitmapCacheOnLoad, &wic_bitmap);
 
         auto props = D2D1::RenderTargetProperties();
         props.dpiX = dpi;
@@ -907,36 +905,54 @@ protected:
         auto path = temp_dir_ / filename;
         ComPtr<IWICBitmapEncoder> encoder;
         HRESULT hr = wic_factory_->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
-        if (FAILED(hr)) { return false; }
+        if (FAILED(hr)) {
+            return false;
+        }
 
         ComPtr<IStream> stream;
         hr = SHCreateStreamOnFileW(path.wstring().c_str(), STGM_CREATE | STGM_WRITE, &stream);
-        if (FAILED(hr)) { return false; }
+        if (FAILED(hr)) {
+            return false;
+        }
 
         hr = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
-        if (FAILED(hr)) { return false; }
+        if (FAILED(hr)) {
+            return false;
+        }
 
         ComPtr<IWICBitmapFrameEncode> frame;
         hr = encoder->CreateNewFrame(&frame, nullptr);
-        if (FAILED(hr)) { return false; }
+        if (FAILED(hr)) {
+            return false;
+        }
         hr = frame->Initialize(nullptr);
-        if (FAILED(hr)) { return false; }
+        if (FAILED(hr)) {
+            return false;
+        }
         hr = frame->SetSize(width, height);
-        if (FAILED(hr)) { return false; }
+        if (FAILED(hr)) {
+            return false;
+        }
 
         WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
         hr = frame->SetPixelFormat(&format);
-        if (FAILED(hr)) { return false; }
+        if (FAILED(hr)) {
+            return false;
+        }
 
         UINT stride = width * 4;
         std::vector<BYTE> row(stride, 0);
         for (UINT y = 0; y < height; y++) {
             hr = frame->WritePixels(1, stride, stride, row.data());
-            if (FAILED(hr)) { return false; }
+            if (FAILED(hr)) {
+                return false;
+            }
         }
 
         hr = frame->Commit();
-        if (FAILED(hr)) { return false; }
+        if (FAILED(hr)) {
+            return false;
+        }
         return SUCCEEDED(encoder->Commit());
     }
 
@@ -1070,8 +1086,7 @@ protected:
     // ワーカーの処理完了を待つ（最大 timeout_ms ミリ秒）
     bool WaitForResults(int expected_count, int timeout_ms = 5000)
     {
-        auto deadline = std::chrono::steady_clock::now()
-            + std::chrono::milliseconds(timeout_ms);
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
         while (std::chrono::steady_clock::now() < deadline) {
             loader_.ProcessCompletedDecodes();
             if (callback_count_.load() >= expected_count) {
@@ -1147,7 +1162,7 @@ TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad)
 
     // 非同期読み込み完了後、書き込みモードでファイルを開けること
     HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE,
-        0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                               0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     EXPECT_NE(hFile, INVALID_HANDLE_VALUE)
         << "非同期読み込み後にファイルが書き込みロックされている";
     if (hFile != INVALID_HANDLE_VALUE) {
@@ -1164,7 +1179,7 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent)
 
     ComPtr<IWICBitmap> wic_bitmap;
     HRESULT hr = wic_factory_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapCacheOnLoad, &wic_bitmap);
+                                            WICBitmapCacheOnLoad, &wic_bitmap);
     ASSERT_TRUE(SUCCEEDED(hr));
 
     auto rt_props = D2D1::RenderTargetProperties();

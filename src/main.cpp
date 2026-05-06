@@ -74,7 +74,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
         // ウィンドウクラス登録 + CreateWindowExW + App::Init (D3D/D2D/DWrite) と並列に
         // I/O + Markdown パースを進める。worker は App::Init 末尾で hwnd を受け取り
-        // PostMessage(PARSE_COMPLETE) を発行、メッセージループ内で OnParseComplete に合流する。
+        // ::PostMessageW(PARSE_COMPLETE) を発行、メッセージループ内で OnParseComplete に合流する。
         const bool has_preload = !preload_path.empty();
         if (has_preload) {
             window.StartPreloadAsync(std::move(preload_path));

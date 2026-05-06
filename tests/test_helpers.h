@@ -20,7 +20,7 @@ constexpr bool ColorEq(D2D1_COLOR_F a, D2D1_COLOR_F b) noexcept
 }
 
 // テキスト持ちの Paragraph ノードを作るテスト用ヘルパー。
-inline Node MakeTextNode(const mendo::doc_char* text)
+inline Node MakeTextNode(const char* text)
 {
     Node n;
     n.type = NodeType::Paragraph;
@@ -29,7 +29,7 @@ inline Node MakeTextNode(const mendo::doc_char* text)
 }
 
 // 1 行 2 列のテーブルノードを作るテスト用ヘルパー。
-inline Node MakeTableNode(const mendo::doc_char* cell0, const mendo::doc_char* cell1)
+inline Node MakeTableNode(const char* cell0, const char* cell1)
 {
     Node n;
     n.type = NodeType::Table;
@@ -41,7 +41,7 @@ inline Node MakeTableNode(const mendo::doc_char* cell0, const mendo::doc_char* c
     tbl->concat_text.push_back(mendo::doc_tab);
     tbl->concat_text.append(cell1);
     tbl->cell_text_starts.push_back(0);
-    tbl->cell_text_starts.push_back(static_cast<uint32_t>(std::char_traits<mendo::doc_char>::length(cell0) + 1));
+    tbl->cell_text_starts.push_back(static_cast<uint32_t>(std::char_traits<char>::length(cell0) + 1));
     tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
     tbl->cell_run_starts.push_back(0);
     tbl->cell_run_starts.push_back(0);
@@ -132,11 +132,11 @@ inline std::optional<size_t> IndexOfEffect(const SideEffectList& effects) noexce
 }
 
 enum class EffectOrdering {
-    Before,   // A が先、B が後
-    After,    // B が先、A が後
-    OnlyA,    // A だけ存在
-    OnlyB,    // B だけ存在
-    Neither   // どちらも無し
+    Before, // A が先、B が後
+    After,  // B が先、A が後
+    OnlyA,  // A だけ存在
+    OnlyB,  // B だけ存在
+    Neither // どちらも無し
 };
 
 // effects 内で A が B より先に現れるか判定する。

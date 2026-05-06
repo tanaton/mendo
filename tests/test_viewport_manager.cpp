@@ -219,9 +219,9 @@ TEST(ViewportManagerTest, ClearSelection)
 TEST(ViewportManagerTest, SelectAll)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].SetText(MENDO_LIT("hello"));
-    nodes[1].SetText(MENDO_LIT("world"));
-    nodes[2].SetText(MENDO_LIT("end"));
+    nodes[0].SetText("hello");
+    nodes[1].SetText("world");
+    nodes[2].SetText("end");
 
     ViewportManager vm;
     vm.SelectAll(nodes);
@@ -264,7 +264,8 @@ TEST(ViewportManagerTest, ZoomInAtMaxReturnsFalse)
 {
     ViewportManager vm;
     // 最大までズーム
-    for (int i = 0; i < 50; ++i) vm.ZoomIn();
+    for (int i = 0; i < 50; ++i)
+        vm.ZoomIn();
     EXPECT_FALSE(vm.ZoomIn());
     EXPECT_EQ(vm.GetZoomIndex(), ZOOM_STEP_COUNT - 1);
 }
@@ -273,7 +274,8 @@ TEST(ViewportManagerTest, ZoomOutAtMinReturnsFalse)
 {
     ViewportManager vm;
     // 最小までズーム
-    for (int i = 0; i < 50; ++i) vm.ZoomOut();
+    for (int i = 0; i < 50; ++i)
+        vm.ZoomOut();
     EXPECT_FALSE(vm.ZoomOut());
     EXPECT_EQ(vm.GetZoomIndex(), 0);
 }
@@ -372,8 +374,8 @@ TEST(ViewportManagerTest, ScrollRestoreRoundTrip)
     // ノード+オフセットで保存→復元すると元のスクロール位置を再現できる
     ViewportManager vm;
     auto cache = MakeUniformCache(10, 50.0f); // total=500
-    vm.SyncMaxScroll(500.0f, 200.0f);      // max_scroll=300
-    vm.ScrollTo(125.0f);                    // ノード2の途中
+    vm.SyncMaxScroll(500.0f, 200.0f);         // max_scroll=300
+    vm.ScrollTo(125.0f);                      // ノード2の途中
 
     int saved_node = vm.FindFirstVisibleNode(cache, 10);
     float saved_offset = vm.GetScrollY() - cache[saved_node].text_top;
@@ -463,8 +465,8 @@ TEST(ViewportManagerTest, ScrollRestoreAtDocumentEnd)
 {
     ViewportManager vm;
     auto cache = MakeUniformCache(10, 50.0f); // total=500
-    vm.SyncMaxScroll(500.0f, 200.0f);      // max_scroll=300
-    vm.ScrollTo(300.0f);                    // 最下端
+    vm.SyncMaxScroll(500.0f, 200.0f);         // max_scroll=300
+    vm.ScrollTo(300.0f);                      // 最下端
 
     int saved_node = vm.FindFirstVisibleNode(cache, 10);
     float saved_offset = vm.GetScrollY() - cache[saved_node].text_top;

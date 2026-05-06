@@ -36,7 +36,7 @@ std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr:
         return std::unexpected(FileLoadError::TooLarge);
     }
 
-    // メモリマップで UTF-8 を直接 view し、BOM 除去後にそのまま doc_string にコピーする。
+    // メモリマップで UTF-8 を直接 view し、BOM 除去後にそのまま string にコピーする。
     // OS のページキャッシュに乗ったまま読めるため、同じファイルの再オープンで物理 I/O が増えない。
     UniqueFileMapping hMapping(CreateFileMappingW(r.handle.get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
     if (!hMapping) {

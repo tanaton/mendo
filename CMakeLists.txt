@@ -102,7 +102,7 @@ FetchContent_MakeAvailable(wil)
 set(WIL_INCLUDE "${wil_SOURCE_DIR}/include")
 
 # ---- md4c（サードパーティ） ----
-# Document テキスト表現は UTF-8 (doc_char=char) 固定。md4c は MD_CHAR=char で動作する。
+# Document テキスト表現は UTF-8 (char) 固定。md4c は MD_CHAR=char で動作する。
 add_library(md4c STATIC third_party/md4c/md4c.c)
 target_include_directories(md4c PUBLIC third_party/md4c)
 if(MSVC)

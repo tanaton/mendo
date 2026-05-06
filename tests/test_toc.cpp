@@ -14,7 +14,7 @@ TEST(Toc, EmptyDocument)
 
 TEST(Toc, NoHeadings)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Just a paragraph.\n\n- List item\n\n> Quote")).nodes;
+    auto nodes = ParseMarkdown("Just a paragraph.\n\n- List item\n\n> Quote").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     EXPECT_TRUE(toc.GetEntries().empty());
@@ -22,20 +22,20 @@ TEST(Toc, NoHeadings)
 
 TEST(Toc, SingleHeading)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# Title")).nodes;
+    auto nodes = ParseMarkdown("# Title").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), MENDO_LIT("Title"));
+    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), "Title");
     EXPECT_EQ(toc.GetEntries()[0].heading_level, 1);
-    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].anchor_id(), MENDO_LIT("title"));
+    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].anchor_id(), "title");
 }
 
 TEST(Toc, MultipleHeadings)
 {
     auto nodes = ParseMarkdown(
-        MENDO_LIT("# First\n\n## Second\n\n### Third\n\nParagraph\n\n## Another")
-    ).nodes;
+                     "# First\n\n## Second\n\n### Third\n\nParagraph\n\n## Another")
+                     .nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 4u);
@@ -47,26 +47,26 @@ TEST(Toc, MultipleHeadings)
 
 TEST(Toc, HeadingTextPreserved)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("## Hello World")).nodes;
+    auto nodes = ParseMarkdown("## Hello World").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), MENDO_LIT("Hello World"));
+    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), "Hello World");
 }
 
 TEST(Toc, AnchorIdPreserved)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("## コードブロック")).nodes;
+    auto nodes = ParseMarkdown("## コードブロック").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].anchor_id(), MENDO_LIT("コードブロック"));
+    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].anchor_id(), "コードブロック");
 }
 
 TEST(Toc, RebuildClearsPrevious)
 {
-    auto nodes1 = ParseMarkdown(MENDO_LIT("# A\n\n## B")).nodes;
-    auto nodes2 = ParseMarkdown(MENDO_LIT("# X")).nodes;
+    auto nodes1 = ParseMarkdown("# A\n\n## B").nodes;
+    auto nodes2 = ParseMarkdown("# X").nodes;
 
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes1);
@@ -74,14 +74,14 @@ TEST(Toc, RebuildClearsPrevious)
 
     BuildTocFromNodes(toc, nodes2);
     EXPECT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(nodes2[toc.GetEntries()[0].node_index].GetText(), MENDO_LIT("X"));
+    EXPECT_EQ(nodes2[toc.GetEntries()[0].node_index].GetText(), "X");
 }
 
 // ---- HitTest ----
 
 TEST(Toc, HitTestValidIndex)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# A\n\n## B\n\n### C")).nodes;
+    auto nodes = ParseMarkdown("# A\n\n## B\n\n### C").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
 
@@ -92,7 +92,7 @@ TEST(Toc, HitTestValidIndex)
 
 TEST(Toc, HitTestOutOfRange)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# A")).nodes;
+    auto nodes = ParseMarkdown("# A").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
 
@@ -102,7 +102,7 @@ TEST(Toc, HitTestOutOfRange)
 
 TEST(Toc, HitTestZeroItemHeight)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# A")).nodes;
+    auto nodes = ParseMarkdown("# A").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     EXPECT_EQ(toc.HitTest(10.0f, 0.0f), -1);
@@ -118,13 +118,13 @@ TEST(Toc, HitTestEmpty)
 
 TEST(Toc, DuplicateHeadingText)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# Title\n\nSome text\n\n# Title\n\nMore text\n\n## Title")).nodes;
+    auto nodes = ParseMarkdown("# Title\n\nSome text\n\n# Title\n\nMore text\n\n## Title").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 3u);
     // すべて同じテキストを持つべき
     for (const auto& entry : toc.GetEntries()) {
-        EXPECT_EQ(nodes[entry.node_index].GetText(), MENDO_LIT("Title"));
+        EXPECT_EQ(nodes[entry.node_index].GetText(), "Title");
     }
     // ただしanchor_idは一意であるべき（パーサーリファクタリング後）
     EXPECT_NE(nodes[toc.GetEntries()[0].node_index].anchor_id(),
@@ -133,9 +133,9 @@ TEST(Toc, DuplicateHeadingText)
 
 TEST(Toc, ManyHeadings)
 {
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 100; i++) {
-        md += MENDO_LIT("## Heading ") + mendo::to_doc_string(i) + MENDO_LIT("\n\ntext\n\n");
+        md += "## Heading " + std::to_string(i) + "\n\ntext\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     TableOfContents toc;
@@ -146,8 +146,8 @@ TEST(Toc, ManyHeadings)
 TEST(Toc, HeadingLevelsPreserved)
 {
     auto nodes = ParseMarkdown(
-        MENDO_LIT("# L1\n\n## L2\n\n### L3\n\n#### L4\n\n##### L5\n\n###### L6")
-    ).nodes;
+                     "# L1\n\n## L2\n\n### L3\n\n#### L4\n\n##### L5\n\n###### L6")
+                     .nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 6u);
@@ -158,7 +158,7 @@ TEST(Toc, HeadingLevelsPreserved)
 
 TEST(Toc, HitTestBoundary)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# A\n\n## B")).nodes;
+    auto nodes = ParseMarkdown("# A\n\n## B").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     // アイテム間の境界上ちょうどの位置
@@ -168,7 +168,7 @@ TEST(Toc, HitTestBoundary)
 
 TEST(Toc, HitTestNegativeItemHeight)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# A")).nodes;
+    auto nodes = ParseMarkdown("# A").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     EXPECT_EQ(toc.HitTest(10.0f, -1.0f), -1);
@@ -178,7 +178,7 @@ TEST(Toc, HitTestNegativeItemHeight)
 
 TEST(Toc, NodeIndexRecorded)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Para\n\n# First\n\nMore text\n\n## Second")).nodes;
+    auto nodes = ParseMarkdown("Para\n\n# First\n\nMore text\n\n## Second").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 2u);
@@ -191,7 +191,7 @@ TEST(Toc, NodeIndexRecorded)
 
 TEST(Toc, NodeIndexOrderPreserved)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# A\n\n## B\n\n### C")).nodes;
+    auto nodes = ParseMarkdown("# A\n\n## B\n\n### C").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 3u);
@@ -211,7 +211,7 @@ TEST(Toc, FindActiveIndexEmpty)
 
 TEST(Toc, FindActiveIndexBeforeFirstHeading)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Para\n\n# Title")).nodes;
+    auto nodes = ParseMarkdown("Para\n\n# Title").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
 
@@ -228,7 +228,7 @@ TEST(Toc, FindActiveIndexBeforeFirstHeading)
 
 TEST(Toc, FindActiveIndexAtHeading)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# First\n\nText\n\n## Second")).nodes;
+    auto nodes = ParseMarkdown("# First\n\nText\n\n## Second").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
 
@@ -253,9 +253,9 @@ TEST(Toc, FindActiveIndexAtHeading)
 
 TEST(Toc, FindActiveIndexManyHeadings)
 {
-    mendo::doc_string_std md;
+    std::string md;
     for (int i = 0; i < 10; ++i) {
-        md += MENDO_LIT("## H") + mendo::to_doc_string(i) + MENDO_LIT("\n\nText\n\n");
+        md += "## H" + std::to_string(i) + "\n\nText\n\n";
     }
     auto nodes = ParseMarkdown(md).nodes;
     TableOfContents toc;
@@ -279,7 +279,7 @@ TEST(Toc, FindActiveIndexManyHeadings)
 // margin付きのFindActiveIndex: TOCリンククリック時に正しい見出しがアクティブになることを確認
 TEST(Toc, FindActiveIndexWithMargin)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("# First\n\nText\n\n## Second")).nodes;
+    auto nodes = ParseMarkdown("# First\n\nText\n\n## Second").nodes;
     TableOfContents toc;
     BuildTocFromNodes(toc, nodes);
 
@@ -295,7 +295,7 @@ TEST(Toc, FindActiveIndexWithMargin)
     // NavigateToAnchorが target_y = y_position - margin でスクロールする想定
     // margin=50 のとき、scroll_y=250 (= 300 - 50) で2番目の見出しがアクティブになるべき
     float margin = 50.0f;
-    float scroll_after_click = 300.0f - margin;  // = 250
+    float scroll_after_click = 300.0f - margin; // = 250
     // margin無しでは scroll_y=250 < y_position=300 なので1番目が選ばれてしまう
     EXPECT_EQ(toc.FindActiveIndex(cache, scroll_after_click), 0);
     // margin有りでは threshold=300 >= y_position=300 なので2番目が正しく選ばれる

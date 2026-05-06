@@ -23,7 +23,7 @@ struct DirtyFixture {
     void Build(size_t n, std::initializer_list<size_t> dirty_indices)
     {
         for (size_t i = 0; i < n; ++i) {
-            nodes.push_back(MakeTextNode(MENDO_LIT("x")));
+            nodes.push_back(MakeTextNode("x"));
         }
         cache.Resize(n);
         // Paragraph の spacing_above は 0 なので text_top = block_top = PrefixSum。
