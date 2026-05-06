@@ -1,7 +1,5 @@
 #include "reload.h"
 #include "layout_cache.h"
-#include "layout_computer.h"
-#include "theme.h"
 #include <algorithm>
 #include <cstdint>
 #include <ranges>
@@ -70,7 +68,6 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_of
 float CalcScrollYForDiff(
     const std::pmr::vector<Node>& nodes,
     const LayoutCache& cache,
-    const Theme& theme,
     std::string_view content,
     size_t diff_pos,
     float viewport_height,
@@ -81,7 +78,10 @@ float CalcScrollYForDiff(
         return fallback_scroll;
     }
 
-    float node_y = mendo::layout::TextTopOf(cache, static_cast<size_t>(changed_node), nodes[changed_node], theme);
+    // ノード上端 Y は cache[i].text_top フィールドを直読する。Fenwick PrefixSum 経由
+    // (TextTopOf) は float 加算順が違うためノード数が増えると誤差が累積し、
+    // ファイル下部更新時に着地点が大きくズレる (issue#185)。
+    float node_y = cache[changed_node].text_top;
     const float node_h = cache[changed_node].height;
 
     const uint32_t node_start = nodes[changed_node].source_offset;
