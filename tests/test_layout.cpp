@@ -1563,7 +1563,8 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
     ASSERT_TRUE(SUCCEEDED(cache[0].text_layout->GetLineMetrics(&lm, 1, &lc)));
     ASSERT_GT(lc, 0u);
 
-    float expected_y = cache[0].text_top + lm.height * 0.5f;
+    // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする (#193)
+    float expected_y = SnapToPhysicalPixel(cache[0].text_top + lm.height * 0.5f, 1.0f);
 
     CommandGenerator gen;
     gen.SetTheme(&theme_);

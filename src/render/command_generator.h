@@ -217,6 +217,12 @@ private:
     float frame_viewport_left_ = 0.0f;
     float frame_viewport_right_ = 0.0f;
     float frame_content_width_ = 0.0f;
+    float frame_dpi_scale_ = 1.0f;
+    // bullet 等で SetTransform を一時 Identity に戻したあと復元するため、
+    // フレーム冒頭で設定した Translation を保持する (#193)。
+    float frame_md_pane_x_ = 0.0f;
+    float frame_snapped_scroll_y_ = 0.0f;
+    D2D1::Matrix3x2F frame_pane_transform_ = D2D1::Matrix3x2F::Identity();
     const TextSelection* frame_selection_ = nullptr;
     HoveredButtons frame_hovered_;
 

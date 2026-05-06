@@ -612,7 +612,8 @@ TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine)
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     // text_layout が null のフォールバック: first_line_h = font_size_body * 1.3
-    float expected_y = cache[0].text_top + theme_.font_size_body * 1.3f * 0.5f;
+    // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする (#193)
+    float expected_y = SnapToPhysicalPixel(cache[0].text_top + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
 
     for (const auto& cmd : cmds) {
         if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
@@ -632,8 +633,9 @@ TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
-    float expected_y0 = cache[0].text_top + theme_.font_size_body * 1.3f * 0.5f;
-    float expected_y1 = cache[1].text_top + theme_.font_size_body * 1.3f * 0.5f;
+    // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする (#193)
+    float expected_y0 = SnapToPhysicalPixel(cache[0].text_top + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
+    float expected_y1 = SnapToPhysicalPixel(cache[1].text_top + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
 
     int idx = 0;
     for (const auto& cmd : cmds) {

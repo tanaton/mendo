@@ -82,8 +82,11 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     // スクロール位置を物理ピクセル境界にスナップし、ClearTypeヒンティングの
     // フレーム間変動によるテキストのガタつきを防止する。
     // viewport bounds にはスナップ前の scroll_y を使い、ヒットテストとの座標一致を保つ。
-    const float snapped_y = SnapScrollToPixel(scroll_y, dpi_scale);
-    cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Translation(md_pane_rect.x, -snapped_y) });
+    const float snapped_y = SnapToPhysicalPixel(scroll_y, dpi_scale);
+    frame_md_pane_x_ = md_pane_rect.x;
+    frame_snapped_scroll_y_ = snapped_y;
+    frame_pane_transform_ = D2D1::Matrix3x2F::Translation(md_pane_rect.x, -snapped_y);
+    cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ });
 
     frame_offset_x_ = theme_->margin_left;
     frame_viewport_top_ = scroll_y;
@@ -92,6 +95,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     frame_viewport_left_ = -theme_->margin_left;
     frame_viewport_right_ = md_pane_rect.width - theme_->margin_left;
     frame_content_width_ = theme_->ContentWidth(md_pane_rect.width);
+    frame_dpi_scale_ = dpi_scale;
     frame_selection_ = &selection;
     frame_hovered_ = hovered;
 
@@ -377,17 +381,25 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, co
         }
     }
     else {
-        // 1行目の中央に配置
+        // 大きい scroll_y を SetTransform で適用すると D2D が小半径 (LIST_BULLET_RADIUS=3 DIP)
+        // の楕円を bounding rect (長方形) に縮退させるため、bullet だけ Identity transform +
+        // baked 座標で描画する (#193)。
         const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
-        const float bullet_y = entry_text_top + first_line_h * 0.5f;
-        const float bullet_x = x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR;
+        const float bullet_x = SnapToPhysicalPixel(
+            frame_md_pane_x_ + x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR,
+            frame_dpi_scale_);
+        const float bullet_y = SnapToPhysicalPixel(
+            entry_text_top + first_line_h * 0.5f - frame_snapped_scroll_y_,
+            frame_dpi_scale_);
         const float r = LIST_BULLET_RADIUS;
+        cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
         if (node.indent_level <= 1) {
             cmds.emplace_back(FillEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color, BrushId::Text });
         }
         else {
             cmds.emplace_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color, 1.0f, BrushId::Text });
         }
+        cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ });
     }
 }
 

@@ -66,91 +66,91 @@ TEST(PointInRectTest, ZeroSizeRect)
 }
 
 // ═══════════════════════════════════════════════
-// SnapScrollToPixel
+// SnapToPhysicalPixel
 // ═══════════════════════════════════════════════
 
 // 整数値はスナップしても変わらない
-TEST(SnapScrollToPixelTest, IntegerValueUnchanged_100Percent)
+TEST(SnapToPhysicalPixelTest, IntegerValueUnchanged_100Percent)
 {
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(10.0f, 1.0f), 10.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(0.0f, 1.0f), 0.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(999.0f, 1.0f), 999.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.0f, 1.0f), 10.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(0.0f, 1.0f), 0.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(999.0f, 1.0f), 999.0f);
 }
 
 // 100% DPI: サブピクセル値は最寄りの整数にスナップされる
-TEST(SnapScrollToPixelTest, SubPixelSnaps_100Percent)
+TEST(SnapToPhysicalPixelTest, SubPixelSnaps_100Percent)
 {
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(10.3f, 1.0f), 10.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(10.7f, 1.0f), 11.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(10.5f, 1.0f), 11.0f); // std::round は0.5を0から離れる方向に丸める
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.3f, 1.0f), 10.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.7f, 1.0f), 11.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.5f, 1.0f), 11.0f); // std::round は0.5を0から離れる方向に丸める
 }
 
 // 150% DPI: 物理ピクセル境界 = 1/1.5 DIP刻み
-TEST(SnapScrollToPixelTest, SubPixelSnaps_150Percent)
+TEST(SnapToPhysicalPixelTest, SubPixelSnaps_150Percent)
 {
     float scale = 1.5f;
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(10.0f, scale), 10.0f);
-    EXPECT_NEAR(SnapScrollToPixel(10.2f, scale), 10.0f, 1e-5f);
-    EXPECT_NEAR(SnapScrollToPixel(10.4f, scale), 16.0f / 1.5f, 1e-5f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.0f, scale), 10.0f);
+    EXPECT_NEAR(SnapToPhysicalPixel(10.2f, scale), 10.0f, 1e-5f);
+    EXPECT_NEAR(SnapToPhysicalPixel(10.4f, scale), 16.0f / 1.5f, 1e-5f);
 }
 
 // 200% DPI: 物理ピクセル境界 = 0.5 DIP刻み
-TEST(SnapScrollToPixelTest, SubPixelSnaps_200Percent)
+TEST(SnapToPhysicalPixelTest, SubPixelSnaps_200Percent)
 {
     float scale = 2.0f;
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(10.0f, scale), 10.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(10.3f, scale), 10.5f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(10.1f, scale), 10.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(10.75f, scale), 11.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.0f, scale), 10.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.3f, scale), 10.5f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.1f, scale), 10.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.75f, scale), 11.0f);
 }
 
 // 200% DPI: ピクセル境界上の値はそのまま保持される
-TEST(SnapScrollToPixelTest, HalfDipValuesPreserved_200Percent)
+TEST(SnapToPhysicalPixelTest, HalfDipValuesPreserved_200Percent)
 {
     float scale = 2.0f;
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(10.5f, scale), 10.5f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(11.0f, scale), 11.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.5f, scale), 10.5f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(11.0f, scale), 11.0f);
 }
 
 // ゼロは常にゼロ
-TEST(SnapScrollToPixelTest, ZeroRemainsZero)
+TEST(SnapToPhysicalPixelTest, ZeroRemainsZero)
 {
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(0.0f, 1.0f), 0.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(0.0f, 1.5f), 0.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(0.0f, 2.0f), 0.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(0.0f, 1.0f), 0.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(0.0f, 1.5f), 0.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(0.0f, 2.0f), 0.0f);
 }
 
 // 大きい値でも正しくスナップされる
-TEST(SnapScrollToPixelTest, LargeValueSnaps)
+TEST(SnapToPhysicalPixelTest, LargeValueSnaps)
 {
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(12345.3f, 1.0f), 12345.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(12345.7f, 1.0f), 12346.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(12345.3f, 1.0f), 12345.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(12345.7f, 1.0f), 12346.0f);
 }
 
 // 125% DPI: 整数DIPが非整数物理ピクセルになるケース
-TEST(SnapScrollToPixelTest, SubPixelSnaps_125Percent)
+TEST(SnapToPhysicalPixelTest, SubPixelSnaps_125Percent)
 {
     float scale = 1.25f;
     // 10.0 * 1.25 = 12.5 → std::round(12.5) = 13 → 13 / 1.25 = 10.4
-    EXPECT_NEAR(SnapScrollToPixel(10.0f, scale), 10.4f, 1e-5f);
+    EXPECT_NEAR(SnapToPhysicalPixel(10.0f, scale), 10.4f, 1e-5f);
 }
 
 // スムーススクロール補間で生成される典型的な端数値
-TEST(SnapScrollToPixelTest, SmoothScrollInterpolationValues)
+TEST(SnapToPhysicalPixelTest, SmoothScrollInterpolationValues)
 {
     float scale = 1.0f;
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(25.0f, scale), 25.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(43.75f, scale), 44.0f);
-    EXPECT_FLOAT_EQ(SnapScrollToPixel(57.8125f, scale), 58.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(25.0f, scale), 25.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(43.75f, scale), 44.0f);
+    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(57.8125f, scale), 58.0f);
 }
 
 // スナップ前後でスクロール差が1物理ピクセル未満であることを確認
-TEST(SnapScrollToPixelTest, SnapErrorWithinOnePixel)
+TEST(SnapToPhysicalPixelTest, SnapErrorWithinOnePixel)
 {
     float scales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
     for (float scale : scales) {
         for (float v = 0.0f; v < 100.0f; v += 0.1f) {
-            float snapped = SnapScrollToPixel(v, scale);
+            float snapped = SnapToPhysicalPixel(v, scale);
             float error_in_pixels = std::abs((snapped - v) * scale);
             EXPECT_LE(error_in_pixels, 0.5f + 1e-5f)
                 << "scale=" << scale << " value=" << v;
