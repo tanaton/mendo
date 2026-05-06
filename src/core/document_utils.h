@@ -18,6 +18,7 @@ struct WordBoundary {
 // 「単語文字」は英数字またはアンダースコア。
 // 位置が単語文字上にあれば {start, end, true} を返し、そうでなければ {0, 0, false} を返す。
 WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept;
+WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept;
 
 // ASCII範囲の大文字を小文字に変換する。
 std::pmr::string ToLowerAscii(std::string_view text);

@@ -40,16 +40,25 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
         OnSearchClose();
         break;
     case SearchBarHitZone::Input: {
-        // EDIT 標準のダブルクリック (単語選択) を阻害しないよう、ダブルクリック時は無視する。
-        if (is_double_click) {
-            break;
-        }
         const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
         std::pmr::wstring query_wide;
         string_convert::Utf8ToWide(state_.search.search_state.GetQuery(), query_wide);
         const int pos = renderer_.HitTestSearchInput(query_wide, dip_x - text_left, input_w);
-        Dispatch(SearchInputDragStartedAction{ pos });
+        if (is_double_click) {
+            // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、
+            // 自前で単語境界を計算して EM_SETSEL を発行する。
+            const auto wb = FindWordBoundaries(std::wstring_view{ query_wide }, static_cast<uint32_t>(pos));
+            if (wb.found) {
+                EmitEffect(effect::PostWindowMessage{
+                    app_msg::SEARCH_FOCUS,
+                    app_param::SEARCH_FOCUS_SET_SELECTION,
+                    MAKELPARAM(static_cast<int>(wb.start), static_cast<int>(wb.end)) });
+            }
+        }
+        else {
+            Dispatch(SearchInputDragStartedAction{ pos });
+        }
         break;
     }
     default:

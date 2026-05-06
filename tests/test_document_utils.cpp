@@ -680,6 +680,36 @@ TEST(FindWordBoundaries, AsciiWordAfterCjk)
     EXPECT_EQ(result.end, 14u);
 }
 
+// wstring 版 (検索バー Input ゾーンのダブルクリック単語選択で使用)
+TEST(FindWordBoundariesW, SingleWord)
+{
+    auto result = FindWordBoundaries(std::wstring_view{ L"hello world" }, 2);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 5u);
+}
+
+TEST(FindWordBoundariesW, PositionOnSpace)
+{
+    auto result = FindWordBoundaries(std::wstring_view{ L"hello world" }, 5);
+    EXPECT_FALSE(result.found);
+}
+
+TEST(FindWordBoundariesW, AsciiWordAfterCjk)
+{
+    // wstring (UTF-16) では CJK は 1 wchar_t、空白 1、"test" 4。"t" は offset 4。
+    auto result = FindWordBoundaries(std::wstring_view{ L"テスト test" }, 4);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 4u);
+    EXPECT_EQ(result.end, 8u);
+}
+
+TEST(FindWordBoundariesW, CjkNotSelected)
+{
+    auto result = FindWordBoundaries(std::wstring_view{ L"テスト" }, 0);
+    EXPECT_FALSE(result.found);
+}
+
 // ============================================================
 // ExtractFilename
 // ============================================================
