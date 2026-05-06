@@ -680,7 +680,6 @@ TEST(FindWordBoundaries, AsciiWordAfterCjk)
     EXPECT_EQ(result.end, 14u);
 }
 
-// wstring 版 (検索バー Input ゾーンのダブルクリック単語選択で使用)
 TEST(FindWordBoundariesW, SingleWord)
 {
     auto result = FindWordBoundaries(std::wstring_view{ L"hello world" }, 2);
