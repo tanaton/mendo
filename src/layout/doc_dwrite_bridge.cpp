@@ -102,7 +102,7 @@ doc_offset WideViewForDWrite::DocOffsetFromWideOffset(uint32_t wide_off) const n
     }
     // utf16_offsets_ は弱増加 (continuation byte は同じ wide_pos)。lower_bound で
     // wide_off に対応する文字の leading byte 位置を取る。upper_bound 相当だと末尾文字の
-    // continuation byte を返してしまい、抽出末尾が UTF-8 不正で文字化けする (#183)。
+    // continuation byte を返してしまい、抽出末尾が UTF-8 不正で文字化けする。
     const auto it = std::lower_bound(utf16_offsets_.begin(), utf16_offsets_.end(), wide_off);
     return static_cast<doc_offset>(it - utf16_offsets_.begin());
 }

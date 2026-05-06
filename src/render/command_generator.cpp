@@ -115,13 +115,16 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         prev_sel_start_node_ = new_start;
         prev_sel_end_node_ = new_end;
     }
-    // ドキュメント切り替え (= nodes バッファのアドレス変化) や selection 解除のタイミングで
-    // node_wv_ / cell_wv_ が抱える string_view が dangling 化しうるため、ここでリセットする。
-    if (!selection.active || nodes.data() != prev_nodes_data_) {
+    // ドキュメント切替で string_view が dangling 化するため reset する。PMR pool が
+    // 同じアドレスを再利用しうるので (data, size) の両方で同一性を判定する。
+    // selection 解除時は wide cache が抱える utf16_offsets_ メモリを早期解放する。
+    const bool doc_changed = nodes.data() != prev_nodes_data_ || nodes.size() != prev_nodes_size_;
+    if (doc_changed || !selection.active) {
         node_wv_.Reset();
         cell_wv_.Reset();
     }
     prev_nodes_data_ = nodes.data();
+    prev_nodes_size_ = nodes.size();
 
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
@@ -383,7 +386,7 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, co
     else {
         // 大きい scroll_y を SetTransform で適用すると D2D が小半径 (LIST_BULLET_RADIUS=3 DIP)
         // の楕円を bounding rect (長方形) に縮退させるため、bullet だけ Identity transform +
-        // baked 座標で描画する (#193)。
+        // baked 座標で描画する。
         const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
         const float bullet_x = SnapToPhysicalPixel(
             frame_md_pane_x_ + x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR,

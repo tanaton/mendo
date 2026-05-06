@@ -612,7 +612,7 @@ TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine)
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     // text_layout が null のフォールバック: first_line_h = font_size_body * 1.3
-    // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする (#193)
+    // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする。
     float expected_y = SnapToPhysicalPixel(cache[0].text_top + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
 
     for (const auto& cmd : cmds) {
@@ -633,7 +633,7 @@ TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
-    // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする (#193)
+    // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする。
     float expected_y0 = SnapToPhysicalPixel(cache[0].text_top + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
     float expected_y1 = SnapToPhysicalPixel(cache[1].text_top + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
 

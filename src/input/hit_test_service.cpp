@@ -108,10 +108,11 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         return result;
     }
 
-    if (ctx.nodes.data() != prev_nodes_data_) {
+    if (ctx.nodes.data() != prev_nodes_data_ || ctx.nodes.size() != prev_nodes_size_) {
         md_wv_cache_.Reset();
         cell_wv_cache_.Reset();
         prev_nodes_data_ = ctx.nodes.data();
+        prev_nodes_size_ = ctx.nodes.size();
     }
 
     const uint32_t gen = ctx.cache.GetEffectsGeneration();

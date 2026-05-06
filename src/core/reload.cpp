@@ -80,7 +80,7 @@ float CalcScrollYForDiff(
 
     // ノード上端 Y は cache[i].text_top フィールドを直読する。Fenwick PrefixSum 経由
     // (TextTopOf) は float 加算順が違うためノード数が増えると誤差が累積し、
-    // ファイル下部更新時に着地点が大きくズレる (issue#185)。
+    // ファイル下部更新時に着地点が大きくズレる。
     float node_y = cache[changed_node].text_top;
     const float node_h = cache[changed_node].height;
 

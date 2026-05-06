@@ -219,7 +219,7 @@ private:
     float frame_content_width_ = 0.0f;
     float frame_dpi_scale_ = 1.0f;
     // bullet 等で SetTransform を一時 Identity に戻したあと復元するため、
-    // フレーム冒頭で設定した Translation を保持する (#193)。
+    // フレーム冒頭で設定した Translation を保持する。
     float frame_md_pane_x_ = 0.0f;
     float frame_snapped_scroll_y_ = 0.0f;
     D2D1::Matrix3x2F frame_pane_transform_ = D2D1::Matrix3x2F::Identity();
@@ -232,9 +232,11 @@ private:
     int prev_sel_end_node_ = -1;
 
     // 選択ハイライトの UTF-8→UTF-16 decode を、本文ノードとテーブルセルそれぞれで
-    // 連続フレーム間に渡って再利用する。GenerateMdPane 冒頭の selection 状態変化
-    // (= ドキュメント切り替え or selection 解除) で Reset() し dangling を防ぐ。
+    // 連続フレーム間に渡って再利用する。GenerateMdPane 冒頭でドキュメント切り替えや
+    // selection 解除を検知して Reset() し、string_view の dangling を防ぐ。
+    // PMR pool が解放後アドレスを再利用するため (data, size) の両方で同一性を見る。
     mendo::WideViewCache node_wv_;
     mendo::WideViewCache cell_wv_;
     const Node* prev_nodes_data_ = nullptr;
+    size_t prev_nodes_size_ = 0;
 };
