@@ -8,6 +8,8 @@
 #include "dwrite_test_base.h"
 #include "search_state.h"
 #include "text_types.h"
+#include <initializer_list>
+#include <optional>
 #include <variant>
 #include <vector>
 

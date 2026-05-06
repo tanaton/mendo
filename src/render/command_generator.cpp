@@ -113,6 +113,12 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         prev_sel_start_node_ = new_start;
         prev_sel_end_node_ = new_end;
     }
+    // テーブルセル decode キャッシュは selection が非アクティブの間は不要かつ
+    // ドキュメント切り替えで dangling になる懸念があるため、その間は解放しておく。
+    if (!selection.active) {
+        cell_wv_text_ = {};
+        cell_wv_.reset();
+    }
 
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
@@ -277,12 +283,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node&
             sel_end = selection.end_pos;
         }
         if (sel_end > sel_start) {
-            // selection は UTF-8 byte offset 保持。HitTestTextRange は UTF-16 code unit を要求するため変換する。
-            const mendo::WideViewForDWrite wv{ node.GetText() };
-            const auto wr = wv.WideRange(sel_start, sel_end - sel_start);
-            if (wr.length > 0) {
-                GenSelectionHighlightCached(cmds, entry, wr.startPosition, wr.length, text_x, entry_text_top);
-            }
+            GenSelectionHighlightCached(cmds, node, entry, sel_start, sel_end - sel_start, text_x, entry_text_top);
         }
     }
 
@@ -557,20 +558,27 @@ void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t s
     }
 }
 
-void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const NodeLayoutEntry& entry, uint32_t start, uint32_t length, float origin_x, float origin_y)
+void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y)
 {
     auto* layout = entry.text_layout.Get();
-    if (!layout || length == 0) {
+    if (!layout || doc_length == 0) {
         return;
     }
     auto& cache = entry.ensure_selection_hl_cache();
-    if (cache.layout_ptr != layout || cache.start != start || cache.length != length) {
+    // キャッシュキーは UTF-8 byte 単位 (selection 状態と直接対応)。
+    // miss 時のみ UTF-8→UTF-16 decode と HitTestTextRange を実行することで、
+    // 選択範囲が静止しているフレームでは decode を完全にスキップする。
+    if (cache.layout_ptr != layout || cache.start != doc_start || cache.length != doc_length) {
         MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_miss);
         cache.rects.clear();
-        CollectHitTestRects(layout, start, length, cache.rects);
+        const mendo::WideViewForDWrite wv{ node.GetText() };
+        const auto wr = wv.WideRange(doc_start, doc_length);
+        if (wr.length > 0) {
+            CollectHitTestRects(layout, wr.startPosition, wr.length, cache.rects);
+        }
         cache.layout_ptr = layout;
-        cache.start = start;
-        cache.length = length;
+        cache.start = doc_start;
+        cache.length = doc_length;
     }
     else {
         MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_hit);
@@ -732,8 +740,12 @@ void CommandGenerator::GenTableCellContent(
         const uint32_t ov_end = std::min(sel_end, flat_offset + cell_len);
         if (ov_end > ov_start) {
             // sel_start/sel_end は UTF-8 byte offset。HitTestTextRange 用に UTF-16 へ変換する。
-            const mendo::WideViewForDWrite wv{ cell_text };
-            const auto wr = wv.WideRange(ov_start - flat_offset, ov_end - ov_start);
+            // 同一セルがフレーム間で選択中の典型ケースで cell_wv_ をヒットさせ decode を省く。
+            if (cell_text.data() != cell_wv_text_.data() || cell_text.size() != cell_wv_text_.size()) {
+                cell_wv_.emplace(cell_text);
+                cell_wv_text_ = cell_text;
+            }
+            const auto wr = cell_wv_->WideRange(ov_start - flat_offset, ov_end - ov_start);
             if (wr.length > 0) {
                 GenSelectionHighlight(cmds, cell_layout, wr.startPosition, wr.length, text_x, text_y);
             }

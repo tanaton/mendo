@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_dwrite_bridge.h"
 #include "draw_command.h"
 #include "document_types.h"
 #include "layout_cache.h"
@@ -8,7 +9,9 @@
 #include "memory_resource.h"
 #include "search_state.h"
 #include <cassert>
+#include <optional>
 #include <span>
+#include <string_view>
 
 // HitTestTextRange 初期バッファ容量。1 行中の inline code run が
 // 折り返される想定最大数に合わせる。描画 hot path 中の resize を避けるのが目的。
@@ -140,8 +143,9 @@ private:
     void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out);
     void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y);
     // 本文ノード（テーブル外）専用の選択ハイライト発行。
-    // (layout, start, length) 一致でフレーム間キャッシュをヒットさせ HitTestTextRange を省く。
-    void GenSelectionHighlightCached(DrawCommandList& cmds, const NodeLayoutEntry& entry, uint32_t start, uint32_t length, float origin_x, float origin_y);
+    // (layout, doc_start, doc_length) 一致でフレーム間キャッシュをヒットさせ
+    // HitTestTextRange と UTF-8→UTF-16 decode の両方を省く。doc_start / doc_length は UTF-8 byte 単位。
+    void GenSelectionHighlightCached(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
     void GenSearchHighlights(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
 
     // 検索ハイライトのキャッシュが古い場合に再構築する。
@@ -222,4 +226,10 @@ private:
     // 解放するために使う。-1/-1 は「前フレームは非アクティブ」を示す。
     int prev_sel_start_node_ = -1;
     int prev_sel_end_node_ = -1;
+
+    // テーブルセル選択ハイライトの UTF-8→UTF-16 decode を、同一セルの間で再利用する。
+    // string_view の identity (data() ポインタ + size) でキャッシュ判定するため、
+    // ドキュメント切り替えで concat_text が解放されると次フレーム冒頭で空 view にリセットする。
+    std::string_view cell_wv_text_;
+    std::optional<mendo::WideViewForDWrite> cell_wv_;
 };
