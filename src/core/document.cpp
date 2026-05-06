@@ -12,9 +12,9 @@ namespace {
 
 // CR は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは絶対に衝突しない
 // (UTF-8 continuation byte は 10xxxxxx で 0x80-0xBF)。memchr(_, _, 0) は規格上 nullptr を返す。
-inline mendo::doc_char* FindDocCr(mendo::doc_char* p, size_t len) noexcept
+inline char* FindDocCr(char* p, size_t len) noexcept
 {
-    return static_cast<mendo::doc_char*>(std::memchr(p, mendo::doc_cr, len));
+    return static_cast<char*>(std::memchr(p, mendo::doc_cr, len));
 }
 
 // CRLF / 旧式 CR を LF に正規化する (in-place)。
@@ -22,7 +22,7 @@ inline mendo::doc_char* FindDocCr(mendo::doc_char* p, size_t len) noexcept
 // 大半の code block / 複数行 paragraph で view モード化 (owned_text_ 確保ゼロ) が選べる。
 // CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
 // LF-only ファイルでは memchr 1 回で素通し。
-void NormalizeNewlines(mendo::doc_string& s)
+void NormalizeNewlines(std::pmr::string& s)
 {
     MENDO_PROFILE("NormalizeNewlines");
     const size_t n = s.size();
@@ -30,18 +30,18 @@ void NormalizeNewlines(mendo::doc_string& s)
         return;
     }
 
-    mendo::doc_char* const data = s.data();
-    mendo::doc_char* const end = data + n;
+    char* const data = s.data();
+    char* const end = data + n;
 
-    mendo::doc_char* first_cr = FindDocCr(data, n);
+    char* first_cr = FindDocCr(data, n);
     if (!first_cr) {
         MENDO_STATF("NormalizeNewlines: in=%zu out=%zu shrunk=0 (fast LF-only)", n, n);
         return;
     }
 
     // ループ進入時、src は必ず CR を指す (first_cr または直前反復の FindDocCr 結果)。
-    mendo::doc_char* dst = first_cr;
-    mendo::doc_char* src = first_cr;
+    char* dst = first_cr;
+    char* src = first_cr;
     do {
         *dst++ = mendo::doc_lf;
         ++src;
@@ -49,10 +49,10 @@ void NormalizeNewlines(mendo::doc_string& s)
             ++src; // CRLF を LF 1 つに縮約
         }
 
-        mendo::doc_char* next_cr = FindDocCr(src, static_cast<size_t>(end - src));
+        char* next_cr = FindDocCr(src, static_cast<size_t>(end - src));
         const size_t chunk = next_cr ? static_cast<size_t>(next_cr - src) : static_cast<size_t>(end - src);
         if (chunk > 0) {
-            std::memmove(dst, src, chunk * sizeof(mendo::doc_char));
+            std::memmove(dst, src, chunk * sizeof(char));
             src += chunk;
             dst += chunk;
         }
@@ -86,7 +86,7 @@ Document& Document::operator=(Document&& other) noexcept
     return *this;
 }
 
-Document Document::FromMarkdown(mendo::doc_string text, size_t byte_size, std::wstring_view path)
+Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::wstring_view path)
 {
     Document doc;
     doc.file_path_ = path;
@@ -100,7 +100,7 @@ Document Document::FromMarkdown(mendo::doc_string text, size_t byte_size, std::w
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
     const size_t byte_size = utf8.size();
-    mendo::doc_string text;
+    std::pmr::string text;
     text.assign(string_convert::StripUtf8Bom(utf8));
     return FromMarkdown(std::move(text), byte_size, path);
 }
@@ -127,7 +127,7 @@ void Document::ReplaceContent(ParseResult&& result)
 
 void Document::InjectViewBase() noexcept
 {
-    const mendo::doc_char* const base = raw_text_.data();
+    const char* const base = raw_text_.data();
     [[maybe_unused]] const size_t raw_size = raw_text_.size();
     for (auto& n : nodes_) {
         if (n.IsViewMode()) {
@@ -138,8 +138,9 @@ void Document::InjectViewBase() noexcept
     }
 }
 
-void Document::ReplaceFromMarkdown(mendo::doc_string text, size_t byte_size)
+void Document::ReplaceFromMarkdown(std::pmr::string text, size_t byte_size)
 {
+    MENDO_PROFILE("Document::ReplaceFromMarkdown");
     raw_text_ = std::move(text);
     NormalizeNewlines(raw_text_);
     loaded_byte_size_ = byte_size;
@@ -149,28 +150,28 @@ void Document::ReplaceFromMarkdown(mendo::doc_string text, size_t byte_size)
 void Document::ReplaceFromMarkdown(std::pmr::string utf8)
 {
     const size_t byte_size = utf8.size();
-    mendo::doc_string text;
+    std::pmr::string text;
     text.assign(string_convert::StripUtf8Bom(utf8));
     ReplaceFromMarkdown(std::move(text), byte_size);
 }
 
-int Document::FindAnchorIndex(mendo::doc_string_view anchor) const
+int Document::FindAnchorIndex(std::string_view anchor) const
 {
     if (anchor.empty()) {
         return -1;
     }
     // クエリ引数（外部リンク等）は大文字混在の可能性があるため正規化する。
-    const mendo::doc_string target = ToLowerAscii(anchor);
+    const std::pmr::string target = ToLowerAscii(anchor);
     const auto it = anchor_index_.find(target);
     return (it != anchor_index_.end()) ? it->second : -1;
 }
 
-int Document::FindNormalizedAnchorIndex(mendo::doc_string_view anchor) const
+int Document::FindNormalizedAnchorIndex(std::string_view anchor) const
 {
     if (anchor.empty()) {
         return -1;
     }
-    // 透過ハッシュにより doc_string_view のまま確保なしで lookup できる。
+    // 透過ハッシュにより string_view のまま確保なしで lookup できる。
     const auto it = anchor_index_.find(anchor);
     return (it != anchor_index_.end()) ? it->second : -1;
 }
@@ -188,7 +189,7 @@ void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indic
         toc_.AddEntry(node, static_cast<int>(i));
         const auto sv = node.anchor_id();
         if (!sv.empty()) {
-            mendo::doc_string key{ sv, anchor_index_.get_allocator().resource() };
+            std::pmr::string key{ sv, anchor_index_.get_allocator().resource() };
             anchor_index_.try_emplace(std::move(key), static_cast<int>(i));
         }
     }

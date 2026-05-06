@@ -174,10 +174,7 @@ void App::OnPaint()
 
     const auto gs = render_composer::BuildGestureState(state_);
     const auto sp = render_composer::BuildSidePaneState(state_, layout);
-    const auto tb = render_composer::BuildTitleBarState(state_,
-                                                        state_.cached_window_width_for_layout,
-                                                        theme_service_.IsDarkMode(),
-                                                        IsZoomed(hwnd_) != FALSE);
+    const auto tb = render_composer::BuildTitleBarState(state_, state_.cached_window_width_for_layout, theme_service_.IsDarkMode(), IsZoomed(hwnd_) != FALSE);
     const auto ts = render_composer::BuildToastState(state_);
     const auto sb = render_composer::BuildSearchBarState(state_);
 

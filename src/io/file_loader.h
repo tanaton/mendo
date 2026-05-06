@@ -33,14 +33,14 @@ inline std::wstring_view FileLoadErrorMessage(FileLoadError e, const auto& strin
 // LoadFile が返す UTF-8 ドキュメントテキスト (BOM 除去済) + 元の UTF-8 バイト数 (BOM 込み)。
 // byte_size はリロード時の二段階保存検出 (IsFileLargerThan) や AnalyzeReloadDiff の参照用。
 struct LoadedFileDoc {
-    mendo::doc_string text;
+    std::pmr::string text;
     size_t byte_size = 0;
 };
 
 // ファイル読み込みユーティリティ（静的メソッドのみ）
 class FileLoader {
 public:
-    // ファイルをメモリマップで読み、UTF-8 BOM を除去した doc_string を返す。
+    // ファイルをメモリマップで読み、UTF-8 BOM を除去した string を返す。
     // wstring 経由の二重変換 (UTF-8 → wstring → UTF-8) を行わないため巨大ファイルで高速。
     static std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::pmr::wstring& path);
     static std::pmr::wstring OpenFileDialog(HWND owner);

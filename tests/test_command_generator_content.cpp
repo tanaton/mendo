@@ -22,7 +22,7 @@ class CmdGenContentTest : public CmdGenMockTestBase {};
 
 TEST_F(CmdGenContentTest, HeadingH1_EmitsUnderlineWithHrColor)
 {
-    Parse(MENDO_LIT("# Title"));
+    Parse("# Title");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -37,15 +37,14 @@ TEST_F(CmdGenContentTest, HeadingH1_EmitsUnderlineWithHrColor)
 
 TEST_F(CmdGenContentTest, HeadingH2_EmitsUnderlineWithCorrectThickness)
 {
-    Parse(MENDO_LIT("## Subtitle"));
+    Parse("## Subtitle");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
     bool found = false;
     for (const auto& c : cmds) {
         if (auto* l = std::get_if<DrawLineCmd>(&c)) {
-            if (ColorEq(l->color, theme_.hr_color)
-                && l->stroke_width == theme_.h2_underline_thickness) {
+            if (ColorEq(l->color, theme_.hr_color) && l->stroke_width == theme_.h2_underline_thickness) {
                 found = true;
                 break;
             }
@@ -56,7 +55,7 @@ TEST_F(CmdGenContentTest, HeadingH2_EmitsUnderlineWithCorrectThickness)
 
 TEST_F(CmdGenContentTest, HeadingH3_DoesNotEmitUnderline)
 {
-    Parse(MENDO_LIT("### Sub"));
+    Parse("### Sub");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -70,14 +69,13 @@ TEST_F(CmdGenContentTest, HeadingH3_DoesNotEmitUnderline)
 
 TEST_F(CmdGenContentTest, BlockQuote_EmitsBarLine)
 {
-    Parse(MENDO_LIT("> Quoted"));
+    Parse("> Quoted");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
     const auto bar_lines = std::ranges::count_if(cmds, [&](const auto& c) {
         if (auto* l = std::get_if<DrawLineCmd>(&c)) {
-            return l->stroke_width == theme_.blockquote_bar_width
-                && ColorEq(l->color, theme_.blockquote_bar_color);
+            return l->stroke_width == theme_.blockquote_bar_width && ColorEq(l->color, theme_.blockquote_bar_color);
         }
         return false;
     });
@@ -86,7 +84,7 @@ TEST_F(CmdGenContentTest, BlockQuote_EmitsBarLine)
 
 TEST_F(CmdGenContentTest, BlockQuote_FullyAboveViewport_NoBar)
 {
-    Parse(MENDO_LIT("> Quoted"));
+    Parse("> Quoted");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 50.0f };
     // viewport_top を blockquote の下端より十分大きくする
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 100000.0f, TextSelection{});
@@ -100,15 +98,14 @@ TEST_F(CmdGenContentTest, BlockQuote_FullyAboveViewport_NoBar)
 // ネスト blockquote の各レベルを別 x 座標のバーで描画する (PR #156)
 TEST_F(CmdGenContentTest, NestedBlockQuote_EmitsBarPerLevel)
 {
-    Parse(MENDO_LIT("> outer\n> > inner"));
+    Parse("> outer\n> > inner");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
     std::set<float> bar_x_positions;
     for (const auto& c : cmds) {
         if (auto* l = std::get_if<DrawLineCmd>(&c)) {
-            if (l->stroke_width == theme_.blockquote_bar_width
-                && ColorEq(l->color, theme_.blockquote_bar_color)) {
+            if (l->stroke_width == theme_.blockquote_bar_width && ColorEq(l->color, theme_.blockquote_bar_color)) {
                 bar_x_positions.insert(l->p0.x);
             }
         }
@@ -120,15 +117,14 @@ TEST_F(CmdGenContentTest, NestedBlockQuote_EmitsBarPerLevel)
 // 外→内→外の連続描画: 外側 (level=1) はネストを貫通して 1 本のバーになる
 TEST_F(CmdGenContentTest, NestedBlockQuote_OuterBarSpansAcrossInnerNesting)
 {
-    Parse(MENDO_LIT("> outer\n> > inner\n>\n> back to outer"));
+    Parse("> outer\n> > inner\n>\n> back to outer");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
     std::map<float, int> count_by_x;
     for (const auto& c : cmds) {
         if (auto* l = std::get_if<DrawLineCmd>(&c)) {
-            if (l->stroke_width == theme_.blockquote_bar_width
-                && ColorEq(l->color, theme_.blockquote_bar_color)) {
+            if (l->stroke_width == theme_.blockquote_bar_width && ColorEq(l->color, theme_.blockquote_bar_color)) {
                 count_by_x[l->p0.x]++;
             }
         }
@@ -142,7 +138,7 @@ TEST_F(CmdGenContentTest, NestedBlockQuote_OuterBarSpansAcrossInnerNesting)
 // Alert ネスト + 後段: 最外側バーは Alert 色で描画される
 TEST_F(CmdGenContentTest, AlertWithNested_OuterBarUsesAlertColor)
 {
-    Parse(MENDO_LIT("> [!NOTE]\n> Alert head\n> > inner\n>\n> Alert continues"));
+    Parse("> [!NOTE]\n> Alert head\n> > inner\n>\n> Alert continues");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
@@ -163,7 +159,7 @@ TEST_F(CmdGenContentTest, AlertWithNested_OuterBarUsesAlertColor)
 
 TEST_F(CmdGenContentTest, HorizontalRule_AllAboveViewport_NoLines)
 {
-    Parse(MENDO_LIT("---\n\n---\n\n---"));
+    Parse("---\n\n---\n\n---");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 100.0f };
     // 全 hr ノードより十分下にスクロール → 上方向カリングを踏む
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 100000.0f, TextSelection{});
@@ -179,7 +175,7 @@ TEST_F(CmdGenContentTest, HorizontalRule_AllAboveViewport_NoLines)
 
 TEST_F(CmdGenContentTest, HorizontalRule_PartialViewportLimitsToVisible)
 {
-    Parse(MENDO_LIT("---\n\n---\n\n---\n\n---\n\n---"));
+    Parse("---\n\n---\n\n---\n\n---\n\n---");
     ASSERT_FALSE(nodes_.empty());
 
     // 1 本目の hr の下端より少し大きい viewport を用意する。

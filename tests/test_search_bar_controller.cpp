@@ -20,26 +20,26 @@ protected:
             .invalidate = [this]() { invalidate_count_++; },
             .invalidate_search_bar = [this]() { invalidate_search_bar_count_++; },
             .set_timer = [this](UINT_PTR id, UINT ms) {
-                last_timer_id_ = id;
-                last_timer_ms_ = ms;
-                set_timer_count_++;
-            },
+            last_timer_id_ = id;
+            last_timer_ms_ = ms;
+            set_timer_count_++;
+        },
             .kill_timer = [this](UINT_PTR id) {
-                last_killed_timer_ = id;
-                kill_timer_count_++;
-            },
+            last_killed_timer_ = id;
+            kill_timer_count_++;
+        },
             .focus_select_all = [this]() { focus_select_all_count_++; },
             .focus_set_caret = [this](int pos) { last_caret_pos_ = pos; },
             .focus_set_selection = [this](int a, int c) {
-                last_sel_anchor_ = a;
-                last_sel_caret_ = c;
-            },
+            last_sel_anchor_ = a;
+            last_sel_caret_ = c;
+        },
             .unfocus = [this]() { unfocus_count_++; },
             .get_md_pane_height = [this]() -> float { return md_pane_height_; },
             .on_scroll_changed = [this](float v) {
-                last_scroll_changed_value_ = v;
-                on_scroll_changed_count_++;
-            },
+            last_scroll_changed_value_ = v;
+            on_scroll_changed_count_++;
+        },
         };
     }
 
@@ -124,7 +124,7 @@ TEST_F(SearchBarControllerTest, OnCloseResetsState)
 TEST_F(SearchBarControllerTest, OnTextChangedEmptyQuery)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(MENDO_LIT("hello world")));
+    nodes.push_back(MakeTextNode("hello world"));
 
     ctrl_.OnTextChanged(L"", nodes);
     EXPECT_TRUE(state_.GetQuery().empty());
@@ -134,7 +134,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedEmptyQuery)
 TEST_F(SearchBarControllerTest, OnTextChangedSmallDocImmediate)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(MENDO_LIT("hello world")));
+    nodes.push_back(MakeTextNode("hello world"));
     cache_.Resize(nodes.size());
     cache_[0].text_top = 0.0f;
     cache_[0].height = 100.0f;
@@ -147,7 +147,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedLargeDocDebounces)
 {
     std::pmr::vector<Node> nodes;
     for (int i = 0; i < 1001; ++i) {
-        nodes.push_back(MakeTextNode(MENDO_LIT("text")));
+        nodes.push_back(MakeTextNode("text"));
     }
 
     const int before = set_timer_count_;
@@ -254,7 +254,7 @@ TEST_F(SearchBarControllerTest, CaretBlinkToggles)
 TEST_F(SearchBarControllerTest, ToggleCaseSensitive)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(MENDO_LIT("Hello hello")));
+    nodes.push_back(MakeTextNode("Hello hello"));
     cache_.Resize(1);
 
     EXPECT_FALSE(state_.IsCaseSensitive());
@@ -296,7 +296,7 @@ TEST_F(SearchBarControllerTest, ResetClearsAll)
 TEST_F(SearchBarControllerTest, BuildRenderStateReflectsState)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(MENDO_LIT("abc")));
+    nodes.push_back(MakeTextNode("abc"));
     cache_.Resize(1);
     cache_[0].text_top = 0.0f;
     cache_[0].height = 100.0f;
@@ -320,8 +320,8 @@ TEST_F(SearchBarControllerTest, BuildRenderStateReflectsState)
 TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(MENDO_LIT("hello")));
-    nodes.push_back(MakeTextNode(MENDO_LIT("world hello")));
+    nodes.push_back(MakeTextNode("hello"));
+    nodes.push_back(MakeTextNode("world hello"));
 
     cache_.Resize(2);
     cache_[0].text_top = 0.0f;
@@ -345,8 +345,8 @@ TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
 TEST_F(SearchBarControllerTest, ScrollToMatchPassesMdPaneHeightToCallback)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(MENDO_LIT("a")));
-    nodes.push_back(MakeTextNode(MENDO_LIT("target")));
+    nodes.push_back(MakeTextNode("a"));
+    nodes.push_back(MakeTextNode("target"));
 
     cache_.Resize(2);
     cache_[0].text_top = 0.0f;
@@ -375,7 +375,7 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     auto* tbl = table.table_data();
     tbl->row_count = 5;
     tbl->col_count = 1;
-    tbl->concat_text = MENDO_LIT("hit\nhit\nhit\nhit\nhit");
+    tbl->concat_text = "hit\nhit\nhit\nhit\nhit";
     tbl->cell_text_starts = { 0u, 4u, 8u, 12u, 16u, 19u };
     tbl->cell_run_starts = { 0u, 0u, 0u, 0u, 0u, 0u };
     tbl->aligns = { TableAlign::Default };
@@ -388,8 +388,8 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     cache_[0].height = 2000.0f;
     auto& tl = cache_[0].ensure_table_layout();
     tl.col_count = 1;
-    tl.row_heights = {400.0f, 400.0f, 400.0f, 400.0f, 400.0f};
-    tl.row_cum_y = {0.0f, 400.0f, 800.0f, 1200.0f, 1600.0f, 2000.0f};
+    tl.row_heights = { 400.0f, 400.0f, 400.0f, 400.0f, 400.0f };
+    tl.row_cum_y = { 0.0f, 400.0f, 800.0f, 1200.0f, 1600.0f, 2000.0f };
 
     md_pane_height_ = 600.0f;
     viewport_.SyncMaxScroll(2000.0f, md_pane_height_);
@@ -415,7 +415,7 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
 TEST_F(SearchBarControllerTest, ScrollToMatchNoOpWhenAlreadyVisible)
 {
     std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode(MENDO_LIT("hello")));
+    nodes.push_back(MakeTextNode("hello"));
 
     cache_.Resize(1);
     cache_[0].text_top = 100.0f;

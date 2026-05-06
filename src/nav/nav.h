@@ -104,8 +104,8 @@ struct LinkClickResult {
     Type type = Type::None;
     // Anchor: アンカー名 (UTF-8、先頭 '#' を除いた部分)。NavigateAnchorAction にそのまま渡せる。
     // ExternalUrl: URL (UTF-8)。effect::ShellOpen に渡す直前で wstring 化する。
-    mendo::doc_string target;
+    std::pmr::string target;
 };
 
-LinkClickResult HandleLinkClick(mendo::doc_string_view url);
-bool IsSafeUrlScheme(mendo::doc_string_view url) noexcept;
+LinkClickResult HandleLinkClick(std::string_view url);
+bool IsSafeUrlScheme(std::string_view url) noexcept;

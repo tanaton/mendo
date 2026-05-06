@@ -81,7 +81,7 @@ constexpr uint32_t CellLengthFromOffsets(uint32_t start, uint32_t end, uint32_t 
 //   cell_run_starts.back() == all_runs.size()
 struct NodeTableData {
     // 全セルテキストを linearized 形式で連結 ("cell\tcell\ncell\tcell")。
-    mendo::doc_string concat_text;
+    std::pmr::string concat_text;
     // 全セルの TextRun を連結。run.start は cell-local offset (layout は cell スライス単位で作成されるため)。
     std::pmr::vector<TextRun> all_runs;
     // 各セルの concat_text 内開始 offset。番兵末尾 = concat_text.size()。
@@ -111,7 +111,7 @@ struct NodeTableData {
         return cell_text_starts[CellIndex(r, c) + 1];
     }
 
-    constexpr mendo::doc_string_view GetCellText(size_t r, size_t c) const noexcept
+    constexpr std::string_view GetCellText(size_t r, size_t c) const noexcept
     {
         const size_t idx = CellIndex(r, c);
         const auto start = cell_text_starts[idx];
@@ -140,7 +140,7 @@ struct NodeTableData {
 };
 
 struct NodeHeadingData {
-    mendo::doc_string anchor_id; // 内部リンク向けGitHubスタイルのスラグ
+    std::pmr::string anchor_id; // 内部リンク向けGitHubスタイルのスラグ
 };
 
 struct NodeCodeData {
@@ -148,9 +148,9 @@ struct NodeCodeData {
 };
 
 struct NodeImageData {
-    mendo::doc_string src; // 画像ソースパス（Markdown内の記述）
-    float width = 0.0f;    // 元画像の幅（ピクセル）
-    float height = 0.0f;   // 元画像の高さ（ピクセル）
+    std::pmr::string src; // 画像ソースパス（Markdown内の記述）
+    float width = 0.0f;   // 元画像の幅（ピクセル）
+    float height = 0.0f;  // 元画像の高さ（ピクセル）
 };
 
 // Node::source_offset が未設定であることを示すセンチネル値。
@@ -175,7 +175,7 @@ struct Node {
     // リンク URL の集合。リンクを含むノードでのみ確保される。
     // Why: `Node::runs` が link_url_index で参照する URL テーブル。リンクを持つノードは
     // 全体の少数派 (見出し/段落の一部) なので、空時は 8B ポインタ 1 本に抑える。
-    mendo::pmr_unique_ptr<std::pmr::vector<mendo::doc_string>> link_urls_;
+    mendo::pmr_unique_ptr<std::pmr::vector<std::pmr::string>> link_urls_;
 
     // ノード種別ごとの拡張データ。Heading/Code のみ variant に格納 (上限 24B + tag 8B = 32B)。
     using Extra = std::variant<std::monostate, NodeHeadingData, NodeCodeData>;
@@ -185,11 +185,11 @@ struct Node {
     // を必要とするノードのみ確保する。raw_text_ の連続範囲をそのまま表示できるノードは view モードに倒し
     // owned_text_ は空のまま raw_text_ を共有 view する (view_length > 0 と排他的不変条件)。
     // SBO (~16 byte) により短い加工結果は 0 ヒープ確保で済む。
-    mendo::doc_string owned_text_;
+    std::pmr::string owned_text_;
 
     // view モード時の参照ベース (= Document::raw_text_.data())。
     // Document::InjectViewBase() が ReplaceContent / move 時に一括設定する。
-    const mendo::doc_char* view_base_ = nullptr;
+    const char* view_base_ = nullptr;
 
     // --- 4 バイトアライメント ---
     int32_t list_number = 0;                     // 0 = 順序なし, >0 = 順序付きリスト番号
@@ -223,7 +223,7 @@ struct Node {
         return !owned_text_.empty();
     }
 
-    constexpr mendo::doc_string_view GetText() const noexcept
+    constexpr std::string_view GetText() const noexcept
     {
         if (IsViewMode() && view_base_ != nullptr) {
             return { view_base_ + source_offset, view_length };
@@ -231,18 +231,18 @@ struct Node {
         return owned_text_;
     }
 
-    void SetText(const mendo::doc_char* s)
+    void SetText(const char* s)
     {
-        SetText(mendo::doc_string_view{ s });
+        SetText(std::string_view{ s });
     }
 
-    void SetText(mendo::doc_string_view s)
+    void SetText(std::string_view s)
     {
         owned_text_.assign(s);
         FinalizeOwnedTextLineCount();
     }
 
-    void SetText(mendo::doc_string&& s) noexcept
+    void SetText(std::pmr::string&& s) noexcept
     {
         owned_text_ = std::move(s);
         FinalizeOwnedTextLineCount();
@@ -252,7 +252,7 @@ struct Node {
     // raw_text_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
     // Document::InjectViewBase() の手前で GetText() を呼ぶパス (parser 中の Heading anchor 生成等)
     // のため view_base もここで同時設定する。move 後は InjectViewBase() で再注入される。
-    void SetTextView(uint32_t source_offset_value, uint32_t length, int32_t line_count_value, const mendo::doc_char* view_base) noexcept
+    void SetTextView(uint32_t source_offset_value, uint32_t length, int32_t line_count_value, const char* view_base) noexcept
     {
         owned_text_.clear();
         source_offset = source_offset_value;
@@ -263,14 +263,14 @@ struct Node {
 
     // text と line_count を一括更新する（呼び出し側が積算済みの line_count を渡す）。
     // 改行を逐次カウントしておけるパーサ向けの最適化バリアント。
-    void SetTextWithLineCount(mendo::doc_string_view s, int32_t line_count_value)
+    void SetTextWithLineCount(std::string_view s, int32_t line_count_value)
     {
         owned_text_.assign(s);
         view_length = 0;
         line_count = line_count_value;
     }
 
-    void SetTextWithLineCount(mendo::doc_string&& s, int32_t line_count_value) noexcept
+    void SetTextWithLineCount(std::pmr::string&& s, int32_t line_count_value) noexcept
     {
         owned_text_ = std::move(s);
         view_length = 0;
@@ -358,20 +358,20 @@ struct Node {
         return std::get_if<NodeCodeData>(&extra);
     }
 
-    constexpr mendo::doc_string_view anchor_id() const noexcept
+    constexpr std::string_view anchor_id() const noexcept
     {
         const auto* hd = heading_data();
-        return hd ? mendo::doc_string_view{ hd->anchor_id } : mendo::doc_string_view{};
+        return hd ? std::string_view{ hd->anchor_id } : std::string_view{};
     }
 
-    constexpr std::pmr::vector<mendo::doc_string>& ensure_link_urls()
+    constexpr std::pmr::vector<std::pmr::string>& ensure_link_urls()
     {
         if (!link_urls_) {
-            link_urls_ = mendo::MakePmrUnique<std::pmr::vector<mendo::doc_string>>();
+            link_urls_ = mendo::MakePmrUnique<std::pmr::vector<std::pmr::string>>();
         }
         return *link_urls_;
     }
-    constexpr std::span<const mendo::doc_string> view_link_urls() const noexcept
+    constexpr std::span<const std::pmr::string> view_link_urls() const noexcept
     {
         return SpanOrEmpty(link_urls_);
     }

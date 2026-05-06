@@ -4,7 +4,7 @@
 #include "string_convert.h"
 #include <algorithm>
 
-void App::HandleLinkClick(mendo::doc_string_view url)
+void App::HandleLinkClick(std::string_view url)
 {
     if (url.empty()) {
         return;

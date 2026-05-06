@@ -4,11 +4,7 @@
 
 std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path)
 {
-    std::expected<LoadedFileDoc, FileLoadError> result;
-    {
-        MENDO_PROFILE("FileLoader::LoadFile");
-        result = FileLoader::LoadFile(path);
-    }
+    auto result = FileLoader::LoadFile(path);
     if (!result) {
         return std::unexpected(result.error());
     }

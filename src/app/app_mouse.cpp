@@ -23,7 +23,7 @@ MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pa
     };
 }
 
-std::optional<mendo::doc_string> App::GetLinkAtHit(const HitResult& hit) const
+std::optional<std::pmr::string> App::GetLinkAtHit(const HitResult& hit) const
 {
     if (hit.node_index < 0 || hit.node_index >= static_cast<int>(state_.document.doc.GetNodes().size())) {
         return std::nullopt;
@@ -92,8 +92,7 @@ void App::OnLButtonDown(int px, int py)
         pane_layout,
         renderer_.GetTheme().splitter_width,
         state_.view.panes.IsFilePaneVisible(),
-        state_.view.panes.IsTocPaneVisible()
-    );
+        state_.view.panes.IsTocPaneVisible());
 
     switch (zone) {
     case PaneZone::Splitter1:
@@ -124,8 +123,7 @@ void App::OnLButtonUp(int px, int py)
     }
 
     const auto drag_target = state_.view.panes.GetDragTarget();
-    if (drag_target == PaneController::DragTarget::Splitter1
-        || drag_target == PaneController::DragTarget::Splitter2) {
+    if (drag_target == PaneController::DragTarget::Splitter1 || drag_target == PaneController::DragTarget::Splitter2) {
         Dispatch(SplitterDragEndedAction{});
         return;
     }
@@ -133,8 +131,7 @@ void App::OnLButtonUp(int px, int py)
         Dispatch(MdScrollbarDragEndedAction{});
         return;
     }
-    if (drag_target == PaneController::DragTarget::FileScrollbar
-        || drag_target == PaneController::DragTarget::TocScrollbar) {
+    if (drag_target == PaneController::DragTarget::FileScrollbar || drag_target == PaneController::DragTarget::TocScrollbar) {
         Dispatch(PaneScrollbarDragEndedAction{});
         return;
     }
@@ -252,4 +249,3 @@ void App::OnRButtonMove(int px, int py)
     const auto dip = PixelToDip(px, py);
     Dispatch(RightClickGestureMovedAction{ dip.x, dip.y });
 }
-

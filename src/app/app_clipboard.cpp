@@ -52,7 +52,7 @@ void App::CopySelectionToClipboard() const
     if (!state_.view.viewport.GetSelection().active) {
         return;
     }
-    const mendo::doc_string result = ExtractSelectedText(state_.document.doc.GetNodes(), state_.view.viewport.GetSelection());
+    const std::pmr::string result = ExtractSelectedText(state_.document.doc.GetNodes(), state_.view.viewport.GetSelection());
     // CF_UNICODETEXT は wstring 必須なので UTF-8 → wstring 変換。
     std::pmr::wstring wide;
     string_convert::Utf8ToWide(result, wide);

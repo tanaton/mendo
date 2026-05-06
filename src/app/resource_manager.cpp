@@ -94,7 +94,7 @@ int ResourceManager::ApplyCachedImages(bool respect_viewport)
         }
 
         auto* const img = node.image_data();
-        if (!img || ascii_util::Contains(img->src, MENDO_LIT("://"))) {
+        if (!img || ascii_util::Contains(img->src, "://")) {
             continue;
         }
 

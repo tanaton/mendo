@@ -58,7 +58,7 @@ public:
         cached_node_count_ = 0;
     }
 
-    constexpr const mendo::doc_string& GetQuery() const noexcept
+    constexpr const std::pmr::string& GetQuery() const noexcept
     {
         return query_;
     }
@@ -96,14 +96,14 @@ public:
         highlight_enabled_ = !highlight_enabled_;
     }
 
-    void SetQuery(mendo::doc_string_view query);
+    void SetQuery(std::string_view query);
     void ExecuteSearch(const std::pmr::vector<Node>& nodes);
     bool NextMatch() noexcept; // ラップしたらtrueを返す
     bool PrevMatch() noexcept; // ラップしたらtrueを返す
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
 
 private:
-    void FindMatches(mendo::doc_string_view text, const mendo::doc_string& lower_query, int node_index, int table_row = -1, int table_col = -1);
+    void FindMatches(std::string_view text, const std::pmr::string& lower_query, int node_index, int table_row = -1, int table_col = -1);
     void EnsureLowercaseCache(const std::pmr::vector<Node>& nodes);
 
     // マッチ一覧と関連する世代カウンタ・トランケーションフラグを同時にリセットする。
@@ -131,23 +131,23 @@ private:
     // CPU キャッシュ効率も向上する。
     struct LowercaseTable {
         // NodeTableData::concat_text を bulk lowercase 化したもの。区切り '\t'/'\n' も含む。
-        mendo::doc_string buffer;
+        std::pmr::string buffer;
         // NodeTableData::cell_text_starts のコピー (size = row_count * col_count + 1)。
         std::pmr::vector<uint32_t> offsets;
         uint16_t col_count = 0;
     };
     struct LowercaseCache {
-        mendo::doc_string buffer;                            // 全ノードの lower text を連結
+        std::pmr::string buffer;                             // 全ノードの lower text を連結
         std::pmr::vector<uint32_t> offsets;                  // size = node_count + 1（末尾 sentinel）
         std::pmr::unordered_map<int, LowercaseTable> tables; // テーブルノードのみ確保
 
-        mendo::doc_string_view GetText(int node_index) const noexcept
+        std::string_view GetText(int node_index) const noexcept
         {
             const uint32_t b = offsets[node_index];
             const uint32_t e = offsets[node_index + 1];
-            return mendo::doc_string_view{ buffer.data() + b, e - b };
+            return std::string_view{ buffer.data() + b, e - b };
         }
-        mendo::doc_string_view GetCell(int node_index, int row, int col) const noexcept
+        std::string_view GetCell(int node_index, int row, int col) const noexcept
         {
             const auto it = tables.find(node_index);
             if (it == tables.end()) {
@@ -158,11 +158,11 @@ private:
             const uint32_t b = t.offsets[idx];
             const uint32_t e = t.offsets[idx + 1];
             const auto len = CellLengthFromOffsets(b, e, static_cast<uint32_t>(t.buffer.size()));
-            return mendo::doc_string_view{ t.buffer.data() + b, len };
+            return std::string_view{ t.buffer.data() + b, len };
         }
     };
 
-    mendo::doc_string query_;
+    std::pmr::string query_;
     std::pmr::vector<SearchMatch> matches_;
     LowercaseCache lower_cache_;
     const Node* cached_nodes_ptr_ = nullptr;

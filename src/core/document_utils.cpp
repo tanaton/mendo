@@ -8,17 +8,17 @@
 #include <iterator>
 #include <ranges>
 
-mendo::doc_string ToLowerAscii(mendo::doc_string_view text)
+std::pmr::string ToLowerAscii(std::string_view text)
 {
-    mendo::doc_string result;
-    result.resize_and_overwrite(text.size(), [&text](mendo::doc_char* buf, size_t count) noexcept -> size_t {
+    std::pmr::string result;
+    result.resize_and_overwrite(text.size(), [&text](char* buf, size_t count) noexcept -> size_t {
         ascii_util::AsciiToLowerOnly(text.data(), buf, count);
         return count;
     });
     return result;
 }
 
-WordBoundary FindWordBoundaries(mendo::doc_string_view text, uint32_t pos) noexcept
+WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept
 {
     WordBoundary result;
     if (text.empty()) {
@@ -30,8 +30,8 @@ WordBoundary FindWordBoundaries(mendo::doc_string_view text, uint32_t pos) noexc
 
     // ダブルクリック単語選択では ASCII 英数 + '_' のみを単語構成文字とする。
     // CJK 文字は個別の文字として扱い選択対象外（既存 UX を維持）。
-    const auto is_word_char = [](mendo::doc_char c) static noexcept {
-        return (c >= MENDO_LIT('0') && c <= MENDO_LIT('9')) || (c >= MENDO_LIT('A') && c <= MENDO_LIT('Z')) || (c >= MENDO_LIT('a') && c <= MENDO_LIT('z')) || c == MENDO_LIT('_');
+    const auto is_word_char = [](char c) static noexcept {
+        return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
     };
 
     if (!is_word_char(text[pos])) {
@@ -90,14 +90,14 @@ enum AsciiSlugAction : uint8_t {
 constexpr auto kAsciiSlugTable = [] {
     std::array<AsciiSlugAction, 128> t{};
     for (size_t i = 0; i < t.size(); ++i) {
-        const mendo::doc_char c = static_cast<mendo::doc_char>(i);
-        if ((c >= MENDO_LIT('a') && c <= MENDO_LIT('z')) || ascii_util::IsAsciiDigit(c) || c == MENDO_LIT('-') || c == MENDO_LIT('_')) {
+        const char c = static_cast<char>(i);
+        if ((c >= 'a' && c <= 'z') || ascii_util::IsAsciiDigit(c) || c == '-' || c == '_') {
             t[i] = SlugKeep;
         }
-        else if (c >= MENDO_LIT('A') && c <= MENDO_LIT('Z')) {
+        else if (c >= 'A' && c <= 'Z') {
             t[i] = SlugLower;
         }
-        else if (c == MENDO_LIT(' ') || c == MENDO_LIT('\t')) {
+        else if (c == ' ' || c == '\t') {
             t[i] = SlugHyphen;
         }
         else {
@@ -121,27 +121,27 @@ constexpr bool IsAnchorSkippableSymbol(uint32_t cp) noexcept
 
 } // namespace
 
-void GenerateAnchorIdInto(mendo::doc_string_view text, mendo::doc_string& slug)
+void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug)
 {
     slug.clear();
     // 出力は入力サイズ以下で確定のため一括確保して書き出す。
-    slug.resize_and_overwrite(text.size(), [text](mendo::doc_char* buf, size_t /*count*/) noexcept -> size_t {
-        mendo::doc_char* dst = buf;
-        const mendo::doc_char* it = text.data();
-        const mendo::doc_char* const end = it + text.size();
+    slug.resize_and_overwrite(text.size(), [text](char* buf, size_t /*count*/) noexcept -> size_t {
+        char* dst = buf;
+        const char* it = text.data();
+        const char* const end = it + text.size();
         while (it != end) {
-            const auto cu = static_cast<uint32_t>(static_cast<std::make_unsigned_t<mendo::doc_char>>(*it));
+            const auto cu = static_cast<uint32_t>(static_cast<std::make_unsigned_t<char>>(*it));
             if (cu < 0x80) {
                 // ASCII ファストパス: 1 回の table lookup で分岐を絞る。
                 switch (kAsciiSlugTable[cu]) {
                 case SlugKeep:
-                    *dst++ = static_cast<mendo::doc_char>(cu);
+                    *dst++ = static_cast<char>(cu);
                     break;
                 case SlugLower:
-                    *dst++ = static_cast<mendo::doc_char>(cu | 0x20);
+                    *dst++ = static_cast<char>(cu | 0x20);
                     break;
                 case SlugHyphen:
-                    *dst++ = MENDO_LIT('-');
+                    *dst++ = '-';
                     break;
                 case SlugSkip:
                     break;
@@ -191,9 +191,9 @@ void GenerateAnchorIdInto(mendo::doc_string_view text, mendo::doc_string& slug)
     });
 }
 
-mendo::doc_string GenerateAnchorId(mendo::doc_string_view text)
+std::pmr::string GenerateAnchorId(std::string_view text)
 {
-    mendo::doc_string slug;
+    std::pmr::string slug;
     GenerateAnchorIdInto(text, slug);
     return slug;
 }

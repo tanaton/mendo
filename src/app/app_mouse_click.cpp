@@ -164,6 +164,6 @@ void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
     if (idx >= 0 && idx < static_cast<int>(state_.document.doc.GetToc().GetEntries().size())) {
         const auto& toc_entry = state_.document.doc.GetToc().GetEntries()[idx];
         const auto anchor = state_.document.doc.GetNodes()[toc_entry.node_index].anchor_id();
-        Dispatch(TocItemClickedAction{ mendo::doc_string(anchor) });
+        Dispatch(TocItemClickedAction{ std::pmr::string(anchor) });
     }
 }

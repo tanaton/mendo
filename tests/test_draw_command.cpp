@@ -23,7 +23,7 @@ protected:
     }
 
     // ヘルパー: Markdownをパースし、レイアウトを計算し、MDペイン用のコマンドを生成する。
-    DrawCommandList Generate(mendo::doc_string_view md, float viewport_w = 800.0f)
+    DrawCommandList Generate(std::string_view md, float viewport_w = 800.0f)
     {
         auto nodes = ParseMarkdown(md).nodes;
         LayoutCache cache;
@@ -38,7 +38,7 @@ protected:
 
 TEST_F(CmdGenTest, EmptyDocumentProducesClipAndTransformOnly)
 {
-    auto cmds = Generate(MENDO_LIT(""));
+    auto cmds = Generate("");
     // 期待値: PushClip, SetTransform, SetTransform(単位行列), PopClip
     ASSERT_GE(cmds.size(), 4u);
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
@@ -47,11 +47,13 @@ TEST_F(CmdGenTest, EmptyDocumentProducesClipAndTransformOnly)
 
 TEST_F(CmdGenTest, PushClipAndPopClipArePaired)
 {
-    auto cmds = Generate(MENDO_LIT("Hello\n\n---\n\nWorld"));
+    auto cmds = Generate("Hello\n\n---\n\nWorld");
     int push = 0, pop = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<PushClipCmd>(cmd)) push++;
-        if (std::holds_alternative<PopClipCmd>(cmd)) pop++;
+        if (std::holds_alternative<PushClipCmd>(cmd))
+            push++;
+        if (std::holds_alternative<PopClipCmd>(cmd))
+            pop++;
     }
     EXPECT_EQ(push, 1);
     EXPECT_EQ(pop, 1);
@@ -59,10 +61,11 @@ TEST_F(CmdGenTest, PushClipAndPopClipArePaired)
 
 TEST_F(CmdGenTest, TransformsArePaired)
 {
-    auto cmds = Generate(MENDO_LIT("Hello"));
+    auto cmds = Generate("Hello");
     int transforms = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<SetTransformCmd>(cmd)) transforms++;
+        if (std::holds_alternative<SetTransformCmd>(cmd))
+            transforms++;
     }
     EXPECT_EQ(transforms, 2); // スクロール変換 + 単位行列リセット
 }
@@ -71,10 +74,11 @@ TEST_F(CmdGenTest, TransformsArePaired)
 
 TEST_F(CmdGenTest, HorizontalRuleGeneratesDrawLine)
 {
-    auto cmds = Generate(MENDO_LIT("---"));
+    auto cmds = Generate("---");
     int line_count = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<DrawLineCmd>(cmd)) line_count++;
+        if (std::holds_alternative<DrawLineCmd>(cmd))
+            line_count++;
     }
     EXPECT_GE(line_count, 1);
 }
@@ -83,10 +87,11 @@ TEST_F(CmdGenTest, HorizontalRuleGeneratesDrawLine)
 
 TEST_F(CmdGenTest, CodeBlockGeneratesRoundedRectBackground)
 {
-    auto cmds = Generate(MENDO_LIT("```\ncode\n```"));
+    auto cmds = Generate("```\ncode\n```");
     int rounded_count = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<FillRoundedRectCmd>(cmd)) rounded_count++;
+        if (std::holds_alternative<FillRoundedRectCmd>(cmd))
+            rounded_count++;
     }
     EXPECT_GE(rounded_count, 1);
 }
@@ -95,11 +100,13 @@ TEST_F(CmdGenTest, CodeBlockGeneratesRoundedRectBackground)
 
 TEST_F(CmdGenTest, TableGeneratesLinesAndRects)
 {
-    auto cmds = Generate(MENDO_LIT("| A | B |\n|---|---|\n| 1 | 2 |"));
+    auto cmds = Generate("| A | B |\n|---|---|\n| 1 | 2 |");
     int lines = 0, rects = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<DrawLineCmd>(cmd)) lines++;
-        if (std::holds_alternative<FillRectCmd>(cmd)) rects++;
+        if (std::holds_alternative<DrawLineCmd>(cmd))
+            lines++;
+        if (std::holds_alternative<FillRectCmd>(cmd))
+            rects++;
     }
     // テーブルは罫線と行背景を生成するべき
     EXPECT_GT(lines, 0);
@@ -110,20 +117,22 @@ TEST_F(CmdGenTest, TableGeneratesLinesAndRects)
 
 TEST_F(CmdGenTest, UnorderedListGeneratesFillEllipse)
 {
-    auto cmds = Generate(MENDO_LIT("- Item"));
+    auto cmds = Generate("- Item");
     int ellipses = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<FillEllipseCmd>(cmd)) ellipses++;
+        if (std::holds_alternative<FillEllipseCmd>(cmd))
+            ellipses++;
     }
     EXPECT_GE(ellipses, 1);
 }
 
 TEST_F(CmdGenTest, NestedListGeneratesDrawEllipse)
 {
-    auto cmds = Generate(MENDO_LIT("- Item\n  - Sub"));
+    auto cmds = Generate("- Item\n  - Sub");
     int outline_ellipses = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<DrawEllipseCmd>(cmd)) outline_ellipses++;
+        if (std::holds_alternative<DrawEllipseCmd>(cmd))
+            outline_ellipses++;
     }
     EXPECT_GE(outline_ellipses, 1);
 }
@@ -132,7 +141,7 @@ TEST_F(CmdGenTest, NestedListGeneratesDrawEllipse)
 
 TEST_F(CmdGenTest, BlockQuoteGeneratesBarLine)
 {
-    auto cmds = Generate(MENDO_LIT("> Quote"));
+    auto cmds = Generate("> Quote");
     int lines = 0;
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -146,7 +155,7 @@ TEST_F(CmdGenTest, BlockQuoteGeneratesBarLine)
 
 TEST_F(CmdGenTest, MultiLineBlockQuoteGeneratesSingleBar)
 {
-    auto cmds = Generate(MENDO_LIT("> Line 1\n>\n> Line 2"));
+    auto cmds = Generate("> Line 1\n>\n> Line 2");
     int vertical_lines = 0;
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -160,7 +169,7 @@ TEST_F(CmdGenTest, MultiLineBlockQuoteGeneratesSingleBar)
 
 TEST_F(CmdGenTest, MultiLineAlertGeneratesSingleBarAndBackground)
 {
-    auto cmds = Generate(MENDO_LIT("> [!NOTE]\n> Line 1\n>\n> Line 2"));
+    auto cmds = Generate("> [!NOTE]\n> Line 1\n>\n> Line 2");
     int vertical_lines = 0;
     int rounded_rects = 0;
     for (const auto& cmd : cmds) {
@@ -182,8 +191,9 @@ TEST_F(CmdGenTest, MultiLineAlertGeneratesSingleBarAndBackground)
 TEST_F(CmdGenTest, ViewportCullingExcludesOffscreenNodes)
 {
     // 多数の水平線を作成。text_layoutがなくてもDrawLineCmdを生成する。
-    mendo::doc_string_std md;
-    for (int i = 0; i < 50; i++) md += MENDO_LIT("---\n\n");
+    std::string md;
+    for (int i = 0; i < 50; i++)
+        md += "---\n\n";
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -204,7 +214,7 @@ TEST_F(CmdGenTest, ViewportCullingExcludesOffscreenNodes)
 
 TEST_F(CmdGenTest, HorizontalRuleColorMatchesTheme)
 {
-    auto cmds = Generate(MENDO_LIT("---"));
+    auto cmds = Generate("---");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
             EXPECT_FLOAT_EQ(line->color.r, theme_.hr_color.r);
@@ -219,13 +229,16 @@ TEST_F(CmdGenTest, HorizontalRuleColorMatchesTheme)
 
 TEST_F(CmdGenTest, MixedContentGeneratesVariousCommands)
 {
-    auto cmds = Generate(MENDO_LIT("# Heading\n\nParagraph\n\n---\n\n- List\n\n> Quote\n\n```\ncode\n```"));
+    auto cmds = Generate("# Heading\n\nParagraph\n\n---\n\n- List\n\n> Quote\n\n```\ncode\n```");
     // すべてのノード種別からのコマンドがあるべき
     bool has_line = false, has_ellipse = false, has_rounded = false;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<DrawLineCmd>(cmd)) has_line = true;
-        if (std::holds_alternative<FillEllipseCmd>(cmd)) has_ellipse = true;
-        if (std::holds_alternative<FillRoundedRectCmd>(cmd)) has_rounded = true;
+        if (std::holds_alternative<DrawLineCmd>(cmd))
+            has_line = true;
+        if (std::holds_alternative<FillEllipseCmd>(cmd))
+            has_ellipse = true;
+        if (std::holds_alternative<FillRoundedRectCmd>(cmd))
+            has_rounded = true;
     }
     EXPECT_TRUE(has_line);
     EXPECT_TRUE(has_ellipse);
@@ -236,11 +249,12 @@ TEST_F(CmdGenTest, MixedContentGeneratesVariousCommands)
 
 TEST_F(CmdGenTest, OrderedListGeneratesDrawText)
 {
-    auto cmds = Generate(MENDO_LIT("1. First\n2. Second\n3. Third"));
+    auto cmds = Generate("1. First\n2. Second\n3. Third");
     // 番号付きリストは箇条書きの楕円を生成しないべき
     int fill_ellipses = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<FillEllipseCmd>(cmd)) fill_ellipses++;
+        if (std::holds_alternative<FillEllipseCmd>(cmd))
+            fill_ellipses++;
     }
     EXPECT_EQ(fill_ellipses, 0);
 }
@@ -249,11 +263,12 @@ TEST_F(CmdGenTest, OrderedListGeneratesDrawText)
 
 TEST_F(CmdGenTest, TaskListItemGeneratesNoEllipse)
 {
-    auto cmds = Generate(MENDO_LIT("- [x] Done\n- [ ] Not done"));
+    auto cmds = Generate("- [x] Done\n- [ ] Not done");
     // タスクリスト項目は箇条書きの楕円を生成しないべき
     int fill_ellipses = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<FillEllipseCmd>(cmd)) fill_ellipses++;
+        if (std::holds_alternative<FillEllipseCmd>(cmd))
+            fill_ellipses++;
     }
     EXPECT_EQ(fill_ellipses, 0);
 }
@@ -262,7 +277,7 @@ TEST_F(CmdGenTest, TaskListItemGeneratesNoEllipse)
 
 TEST_F(CmdGenTest, SelectionGeneratesFillRects)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("Hello world paragraph")).nodes;
+    auto nodes = ParseMarkdown("Hello world paragraph").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -289,8 +304,9 @@ TEST_F(CmdGenTest, SelectionGeneratesFillRects)
 TEST_F(CmdGenTest, ScrolledViewportCullsTopNodes)
 {
     // 複数の段落を作成
-    mendo::doc_string_std md;
-    for (int i = 0; i < 20; i++) md += MENDO_LIT("Paragraph ") + mendo::to_doc_string(i) + MENDO_LIT("\n\n");
+    std::string md;
+    for (int i = 0; i < 20; i++)
+        md += "Paragraph " + std::to_string(i) + "\n\n";
 
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
@@ -313,10 +329,11 @@ TEST_F(CmdGenTest, ScrolledViewportCullsTopNodes)
 
 TEST_F(CmdGenTest, CodeBlockWithLanguageGeneratesBackground)
 {
-    auto cmds = Generate(MENDO_LIT("```cpp\nint x = 42;\n```"));
+    auto cmds = Generate("```cpp\nint x = 42;\n```");
     int rounded_count = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<FillRoundedRectCmd>(cmd)) rounded_count++;
+        if (std::holds_alternative<FillRoundedRectCmd>(cmd))
+            rounded_count++;
     }
     EXPECT_GE(rounded_count, 1);
 }
@@ -325,10 +342,11 @@ TEST_F(CmdGenTest, CodeBlockWithLanguageGeneratesBackground)
 
 TEST_F(CmdGenTest, MultipleHorizontalRulesGenerateMultipleLines)
 {
-    auto cmds = Generate(MENDO_LIT("---\n\n---\n\n---"));
+    auto cmds = Generate("---\n\n---\n\n---");
     int line_count = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<DrawLineCmd>(cmd)) line_count++;
+        if (std::holds_alternative<DrawLineCmd>(cmd))
+            line_count++;
     }
     EXPECT_GE(line_count, 3);
 }
@@ -337,7 +355,7 @@ TEST_F(CmdGenTest, MultipleHorizontalRulesGenerateMultipleLines)
 
 TEST_F(CmdGenTest, BlockQuoteBarColorMatchesTheme)
 {
-    auto cmds = Generate(MENDO_LIT("> Quote text"));
+    auto cmds = Generate("> Quote text");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
             // 引用ブロックのバー: 垂直線（xが同じ）
@@ -359,10 +377,11 @@ TEST_F(CmdGenTest, DarkThemeTableGeneratesCommands)
     gen_.SetTheme(&theme_);
     ASSERT_TRUE(engine_.Init(&mock_, theme_));
 
-    auto cmds = Generate(MENDO_LIT("| A | B |\n|---|---|\n| 1 | 2 |"));
+    auto cmds = Generate("| A | B |\n|---|---|\n| 1 | 2 |");
     int lines = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<DrawLineCmd>(cmd)) lines++;
+        if (std::holds_alternative<DrawLineCmd>(cmd))
+            lines++;
     }
     EXPECT_GT(lines, 0);
 }
@@ -371,7 +390,7 @@ TEST_F(CmdGenTest, DarkThemeTableGeneratesCommands)
 
 TEST_F(CmdGenTest, EmptyDocumentNoExtraCommands)
 {
-    auto cmds = Generate(MENDO_LIT(""));
+    auto cmds = Generate("");
     // clip/transformコマンドのみで、描画コマンドはない
     for (size_t i = 1; i < cmds.size() - 1; i++) {
         // 中間のコマンドはSetTransformCmd（単位行列リセット）のみであるべき
@@ -386,7 +405,7 @@ TEST_F(CmdGenTest, EmptyDocumentNoExtraCommands)
 
 TEST_F(CmdGenTest, AlertGeneratesColoredBar)
 {
-    auto cmds = Generate(MENDO_LIT("> [!NOTE]\n> Alert content"));
+    auto cmds = Generate("> [!NOTE]\n> Alert content");
     // Alertのバーは垂直線で、通常のblockquoteとは異なる色を持つべき
     bool found_alert_bar = false;
     for (const auto& cmd : cmds) {
@@ -408,18 +427,19 @@ TEST_F(CmdGenTest, AlertGeneratesColoredBar)
 
 TEST_F(CmdGenTest, AlertGeneratesBackground)
 {
-    auto cmds = Generate(MENDO_LIT("> [!WARNING]\n> Be careful"));
+    auto cmds = Generate("> [!WARNING]\n> Be careful");
     // Alertは角丸四角形の背景を生成するべき
     int rounded_count = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<FillRoundedRectCmd>(cmd)) rounded_count++;
+        if (std::holds_alternative<FillRoundedRectCmd>(cmd))
+            rounded_count++;
     }
     EXPECT_GE(rounded_count, 1) << "Alert は背景の角丸四角形を生成するべき";
 }
 
 TEST_F(CmdGenTest, AlertBarColorMatchesTheme)
 {
-    auto cmds = Generate(MENDO_LIT("> [!NOTE]\n> text"));
+    auto cmds = Generate("> [!NOTE]\n> text");
     // Note の色は theme_.alert_color[0]
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -439,7 +459,7 @@ TEST_F(CmdGenTest, AlertBarColorMatchesTheme)
 
 TEST_F(CmdGenTest, RegularBlockquoteStillUsesOriginalColor)
 {
-    auto cmds = Generate(MENDO_LIT("> Normal quote"));
+    auto cmds = Generate("> Normal quote");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
             if (std::abs(line->p0.x - line->p1.x) < 0.01f) {
@@ -455,19 +475,23 @@ TEST_F(CmdGenTest, RegularBlockquoteStillUsesOriginalColor)
 
 TEST_F(CmdGenTest, AllAlertTypesGenerateCommands)
 {
-    struct AlertCase { const char* name; const mendo::doc_char* md; };
+    struct AlertCase {
+        const char* name;
+        const char* md;
+    };
     constexpr AlertCase alerts[] = {
-        { "NOTE",      MENDO_LIT("> [!NOTE]\n> n") },
-        { "TIP",       MENDO_LIT("> [!TIP]\n> t") },
-        { "IMPORTANT", MENDO_LIT("> [!IMPORTANT]\n> i") },
-        { "WARNING",   MENDO_LIT("> [!WARNING]\n> w") },
-        { "CAUTION",   MENDO_LIT("> [!CAUTION]\n> c") },
+        { "NOTE",      "> [!NOTE]\n> n"      },
+        { "TIP",       "> [!TIP]\n> t"       },
+        { "IMPORTANT", "> [!IMPORTANT]\n> i" },
+        { "WARNING",   "> [!WARNING]\n> w"   },
+        { "CAUTION",   "> [!CAUTION]\n> c"   },
     };
     for (const auto& a : alerts) {
         auto cmds = Generate(a.md);
         int lines = 0;
         for (const auto& cmd : cmds) {
-            if (std::holds_alternative<DrawLineCmd>(cmd)) lines++;
+            if (std::holds_alternative<DrawLineCmd>(cmd))
+                lines++;
         }
         EXPECT_GE(lines, 1) << "Alert '" << a.name << "' はバー線を生成するべき";
     }
@@ -477,7 +501,7 @@ TEST_F(CmdGenTest, AllAlertTypesGenerateCommands)
 
 TEST_F(CmdGenTest, H1GeneratesUnderline)
 {
-    auto cmds = Generate(MENDO_LIT("# Heading 1"));
+    auto cmds = Generate("# Heading 1");
     int hlines = 0;
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -492,7 +516,7 @@ TEST_F(CmdGenTest, H1GeneratesUnderline)
 
 TEST_F(CmdGenTest, H2GeneratesUnderline)
 {
-    auto cmds = Generate(MENDO_LIT("## Heading 2"));
+    auto cmds = Generate("## Heading 2");
     int hlines = 0;
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -506,7 +530,7 @@ TEST_F(CmdGenTest, H2GeneratesUnderline)
 
 TEST_F(CmdGenTest, H3DoesNotGenerateUnderline)
 {
-    auto cmds = Generate(MENDO_LIT("### Heading 3"));
+    auto cmds = Generate("### Heading 3");
     int hlines = 0;
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
@@ -520,7 +544,7 @@ TEST_F(CmdGenTest, H3DoesNotGenerateUnderline)
 
 TEST_F(CmdGenTest, HeadingUnderlineColorMatchesTheme)
 {
-    auto cmds = Generate(MENDO_LIT("# Title"));
+    auto cmds = Generate("# Title");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
             if (std::abs(line->p0.y - line->p1.y) < 0.01f) {
@@ -537,7 +561,7 @@ TEST_F(CmdGenTest, HeadingUnderlineColorMatchesTheme)
 
 TEST_F(CmdGenTest, H2UnderlineThicknessMatchesTheme)
 {
-    auto cmds = Generate(MENDO_LIT("## Heading 2"));
+    auto cmds = Generate("## Heading 2");
     for (const auto& cmd : cmds) {
         if (auto* line = std::get_if<DrawLineCmd>(&cmd)) {
             if (std::abs(line->p0.y - line->p1.y) < 0.01f) {
@@ -555,10 +579,11 @@ TEST_F(CmdGenTest, H2UnderlineThicknessMatchesTheme)
 // formats_.copy_btn_icon が null の場合、コピーボタン用の DrawTextCmd は生成されない
 TEST_F(CmdGenTest, CodeBlockNoCopyButtonWithoutIconFont)
 {
-    auto cmds = Generate(MENDO_LIT("```\ncode\n```"));
+    auto cmds = Generate("```\ncode\n```");
     int text_cmd_count = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<DrawTextCmd>(cmd)) text_cmd_count++;
+        if (std::holds_alternative<DrawTextCmd>(cmd))
+            text_cmd_count++;
     }
     EXPECT_EQ(text_cmd_count, 0) << "formats_.copy_btn_icon が null のときコピーボタンの DrawTextCmd は生成されないべき";
 }
@@ -566,10 +591,11 @@ TEST_F(CmdGenTest, CodeBlockNoCopyButtonWithoutIconFont)
 // 非コードブロックノードはコピーボタンのコマンドを生成しない
 TEST_F(CmdGenTest, NonCodeBlockNoCopyButton)
 {
-    auto cmds = Generate(MENDO_LIT("Hello world"));
+    auto cmds = Generate("Hello world");
     int text_cmd_count = 0;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<DrawTextCmd>(cmd)) text_cmd_count++;
+        if (std::holds_alternative<DrawTextCmd>(cmd))
+            text_cmd_count++;
     }
     EXPECT_EQ(text_cmd_count, 0);
 }
@@ -578,7 +604,7 @@ TEST_F(CmdGenTest, NonCodeBlockNoCopyButton)
 
 TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("- Item")).nodes;
+    auto nodes = ParseMarkdown("- Item").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -599,7 +625,7 @@ TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine)
 
 TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("- A\n  - B")).nodes;
+    auto nodes = ParseMarkdown("- A\n  - B").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -626,7 +652,7 @@ TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
 // HoveredButtons パラメータが GenerateMdPane に渡せることの検証
 TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("```\ncode\n```")).nodes;
+    auto nodes = ParseMarkdown("```\ncode\n```").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -641,7 +667,7 @@ TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted)
 
 TEST_F(CmdGenTest, ImageWithoutBitmapGeneratesPlaceholder)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](image.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](image.png)").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -660,7 +686,7 @@ TEST_F(CmdGenTest, ImageWithoutBitmapGeneratesPlaceholder)
 
 TEST_F(CmdGenTest, MermaidWithoutBitmapGeneratesPlaceholder)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("```mermaid\ngraph TD\n  A-->B\n```")).nodes;
+    auto nodes = ParseMarkdown("```mermaid\ngraph TD\n  A-->B\n```").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
@@ -679,7 +705,7 @@ TEST_F(CmdGenTest, MermaidWithoutBitmapGeneratesPlaceholder)
 
 TEST_F(CmdGenTest, PlaceholderBgUsesCodeBgColor)
 {
-    auto nodes = ParseMarkdown(MENDO_LIT("![alt](image.png)")).nodes;
+    auto nodes = ParseMarkdown("![alt](image.png)").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);

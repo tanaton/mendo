@@ -11,13 +11,13 @@
 #include <optional>
 #include <ranges>
 
-mendo::doc_string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const TextSelection& selection)
+std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const TextSelection& selection)
 {
     if (!selection.active) {
         return {};
     }
 
-    mendo::doc_string result;
+    std::pmr::string result;
     for (int i = selection.start_node; i <= selection.end_node; i++) {
         if (i < 0 || i >= static_cast<int>(nodes.size())) {
             continue;
@@ -40,7 +40,7 @@ mendo::doc_string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const
             result.append(text.data() + start, end - start);
         }
         if (i < selection.end_node) {
-            result += MENDO_LIT("\r\n");
+            result += "\r\n";
         }
     }
     return result;
@@ -48,24 +48,24 @@ mendo::doc_string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const
 
 namespace {
 
-constexpr void AppendHtmlEscaped(mendo::doc_string& out, mendo::doc_string_view text)
+constexpr void AppendHtmlEscaped(std::pmr::string& out, std::string_view text)
 {
-    for (const mendo::doc_char c : text) {
+    for (const char c : text) {
         switch (c) {
-        case MENDO_LIT('&'):
-            out.append(MENDO_LIT("&amp;"));
+        case '&':
+            out.append("&amp;");
             break;
-        case MENDO_LIT('<'):
-            out.append(MENDO_LIT("&lt;"));
+        case '<':
+            out.append("&lt;");
             break;
-        case MENDO_LIT('>'):
-            out.append(MENDO_LIT("&gt;"));
+        case '>':
+            out.append("&gt;");
             break;
-        case MENDO_LIT('"'):
-            out.append(MENDO_LIT("&quot;"));
+        case '"':
+            out.append("&quot;");
             break;
-        case MENDO_LIT('\''):
-            out.append(MENDO_LIT("&#39;"));
+        case '\'':
+            out.append("&#39;");
             break;
         default:
             out.push_back(c);
@@ -87,7 +87,7 @@ struct InlineState {
 // 最大深さは <a><strong><em><s><code> の 5 段で、ヒープ割り当てなし。
 class InlineTagScope {
 public:
-    constexpr explicit InlineTagScope(mendo::doc_string& out) noexcept : out_(out)
+    constexpr explicit InlineTagScope(std::pmr::string& out) noexcept : out_(out)
     {}
     InlineTagScope(const InlineTagScope&) = delete;
     InlineTagScope& operator=(const InlineTagScope&) = delete;
@@ -102,30 +102,30 @@ public:
 
     // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
     // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
-    constexpr void Open(const InlineState& s, std::span<const mendo::doc_string> link_urls)
+    constexpr void Open(const InlineState& s, std::span<const std::pmr::string> link_urls)
     {
         applied_ = true;
         if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
-            out_.append(MENDO_LIT("<a href=\""));
+            out_.append("<a href=\"");
             AppendHtmlEscaped(out_, link_urls[static_cast<size_t>(s.link_url_index)]);
-            out_.append(MENDO_LIT("\">"));
-            Push(MENDO_LIT("</a>"));
+            out_.append("\">");
+            Push("</a>");
         }
         if (s.bold) {
-            out_.append(MENDO_LIT("<strong>"));
-            Push(MENDO_LIT("</strong>"));
+            out_.append("<strong>");
+            Push("</strong>");
         }
         if (s.italic) {
-            out_.append(MENDO_LIT("<em>"));
-            Push(MENDO_LIT("</em>"));
+            out_.append("<em>");
+            Push("</em>");
         }
         if (s.strike) {
-            out_.append(MENDO_LIT("<s>"));
-            Push(MENDO_LIT("</s>"));
+            out_.append("<s>");
+            Push("</s>");
         }
         if (s.code) {
-            out_.append(MENDO_LIT("<code>"));
-            Push(MENDO_LIT("</code>"));
+            out_.append("<code>");
+            Push("</code>");
         }
     }
 
@@ -143,14 +143,14 @@ public:
     }
 
 private:
-    constexpr void Push(mendo::doc_string_view close_tag) noexcept
+    constexpr void Push(std::string_view close_tag) noexcept
     {
         assert(count_ < close_stack_.size());
         close_stack_[count_++] = close_tag;
     }
 
-    mendo::doc_string& out_;
-    std::array<mendo::doc_string_view, 5> close_stack_{};
+    std::pmr::string& out_;
+    std::array<std::string_view, 5> close_stack_{};
     size_t count_ = 0;
     bool applied_ = false;
 };
@@ -158,10 +158,10 @@ private:
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
 // 同一 state 区間の比較と IsSafeUrlScheme を run あたり 1 回に抑える。
 constexpr void AppendInlineHtml(
-    mendo::doc_string& out,
-    mendo::doc_string_view text,
+    std::pmr::string& out,
+    std::string_view text,
     std::span<const TextRun> runs,
-    std::span<const mendo::doc_string> link_urls,
+    std::span<const std::pmr::string> link_urls,
     uint32_t start, uint32_t end)
 {
     if (end > text.size()) {
@@ -222,30 +222,30 @@ constexpr void AppendInlineHtml(
         }
 
         for (uint32_t i = pos; i < segment_end; ++i) {
-            const mendo::doc_char c = text[i];
+            const char c = text[i];
             if (c == mendo::doc_lf) {
                 scope.CloseAll();
-                out.append(MENDO_LIT("<br>"));
+                out.append("<br>");
                 continue;
             }
             if (!scope.IsApplied()) {
                 scope.Open(current, link_urls);
             }
-            AppendHtmlEscaped(out, mendo::doc_string_view(&c, 1));
+            AppendHtmlEscaped(out, std::string_view(&c, 1));
         }
         pos = segment_end;
     }
 }
 
-void AppendNodeInlineHtml(mendo::doc_string& out, const Node& node, uint32_t start, uint32_t end)
+void AppendNodeInlineHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end)
 {
     AppendInlineHtml(out, node.GetText(), node.runs, node.view_link_urls(), start, end);
 }
 
-constexpr void AppendHexColor(mendo::doc_string& out, uint32_t rgb)
+constexpr void AppendHexColor(std::pmr::string& out, uint32_t rgb)
 {
-    constexpr mendo::doc_char kDigits[] = MENDO_LIT("0123456789abcdef");
-    out.push_back(MENDO_LIT('#'));
+    constexpr char kDigits[] = "0123456789abcdef";
+    out.push_back('#');
     out.push_back(kDigits[(rgb >> 20) & 0xF]);
     out.push_back(kDigits[(rgb >> 16) & 0xF]);
     out.push_back(kDigits[(rgb >> 12) & 0xF]);
@@ -277,7 +277,7 @@ constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const t
     std::unreachable();
 }
 
-constexpr void AppendSyntaxHighlightedSpan(mendo::doc_string& out, mendo::doc_string_view chunk, SyntaxTokenType type, bool dark_mode)
+constexpr void AppendSyntaxHighlightedSpan(std::pmr::string& out, std::string_view chunk, SyntaxTokenType type, bool dark_mode)
 {
     const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
     const auto color = SyntaxTokenColor(type, palette);
@@ -285,25 +285,25 @@ constexpr void AppendSyntaxHighlightedSpan(mendo::doc_string& out, mendo::doc_st
         AppendHtmlEscaped(out, chunk);
         return;
     }
-    out.append(MENDO_LIT("<span style=\"color:"));
+    out.append("<span style=\"color:");
     AppendHexColor(out, *color);
-    out.append(MENDO_LIT("\">"));
+    out.append("\">");
     AppendHtmlEscaped(out, chunk);
-    out.append(MENDO_LIT("</span>"));
+    out.append("</span>");
 }
 
-void AppendCodeBlockHtml(mendo::doc_string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
+void AppendCodeBlockHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
 {
-    constexpr mendo::doc_string_view kStyleTail =
-        MENDO_LIT(";padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;\"><code>");
-    constexpr mendo::doc_string_view kClose = MENDO_LIT("</code></pre>");
+    constexpr std::string_view kStyleTail =
+        ";padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;\"><code>";
+    constexpr std::string_view kClose = "</code></pre>";
 
     const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
-    out.append(MENDO_LIT("<pre style=\"background-color:"));
+    out.append("<pre style=\"background-color:");
     AppendHexColor(out, palette.code_bg);
     // ダーク時のみテキスト色を明示する（ライトは呼び出し側の親要素の色を継承）。
     if (dark_mode) {
-        out.append(MENDO_LIT(";color:"));
+        out.append(";color:");
         AppendHexColor(out, palette.code_text);
     }
     out.append(kStyleTail);
@@ -312,7 +312,7 @@ void AppendCodeBlockHtml(mendo::doc_string& out, const Node& node, uint32_t star
         end = static_cast<uint32_t>(text.size());
     }
     if (start < end) {
-        const mendo::doc_string_view text_view{ text };
+        const std::string_view text_view{ text };
         const auto& tokens = node.syntax_tokens();
         if (tokens.empty()) {
             AppendHtmlEscaped(out, text_view.substr(start, end - start));
@@ -362,7 +362,7 @@ void AppendCodeBlockHtml(mendo::doc_string& out, const Node& node, uint32_t star
 // 最後のセクションも閉じるため、in_thead/in_tbody フラグを持ち回す必要がない。
 class TableSectionScope {
 public:
-    constexpr explicit TableSectionScope(mendo::doc_string& out) noexcept : out_(out)
+    constexpr explicit TableSectionScope(std::pmr::string& out) noexcept : out_(out)
     {}
     // Close() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
     ~TableSectionScope() noexcept
@@ -377,15 +377,15 @@ public:
 
     constexpr void EnterThead()
     {
-        Enter(MENDO_LIT("<thead>"), MENDO_LIT("</thead>"));
+        Enter("<thead>", "</thead>");
     }
     constexpr void EnterTbody()
     {
-        Enter(MENDO_LIT("<tbody>"), MENDO_LIT("</tbody>"));
+        Enter("<tbody>", "</tbody>");
     }
 
 private:
-    constexpr void Enter(mendo::doc_string_view open_tag, mendo::doc_string_view close_tag)
+    constexpr void Enter(std::string_view open_tag, std::string_view close_tag)
     {
         if (close_tag_ == close_tag) {
             return;
@@ -403,31 +403,31 @@ private:
         }
     }
 
-    mendo::doc_string& out_;
-    mendo::doc_string_view close_tag_{};
+    std::pmr::string& out_;
+    std::string_view close_tag_{};
 };
 
-constexpr void AppendTableCellStyle(mendo::doc_string& out, TableAlign align, bool dark_mode)
+constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, bool dark_mode)
 {
     // 共通の border+padding を先に出し、align 指定があれば追加して閉じる。
     const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
-    out.append(MENDO_LIT(" style=\"border:1px solid "));
+    out.append(" style=\"border:1px solid ");
     AppendHexColor(out, palette.table_border);
-    out.append(MENDO_LIT(";padding:6px 13px"));
+    out.append(";padding:6px 13px");
     switch (align) {
     case TableAlign::Center:
-        out.append(MENDO_LIT(";text-align:center"));
+        out.append(";text-align:center");
         break;
     case TableAlign::Right:
-        out.append(MENDO_LIT(";text-align:right"));
+        out.append(";text-align:right");
         break;
     default:
         break;
     }
-    out.append(MENDO_LIT(";\""));
+    out.append(";\"");
 }
 
-void AppendTableHtml(mendo::doc_string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
+void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
 {
     const auto* tbl = node.table_data();
     if (!tbl || tbl->row_count == 0) {
@@ -436,11 +436,11 @@ void AppendTableHtml(mendo::doc_string& out, const Node& node, uint32_t start, u
         if (end > text.size()) {
             end = static_cast<uint32_t>(text.size());
         }
-        out.append(MENDO_LIT("<pre>"));
+        out.append("<pre>");
         if (start < end) {
-            AppendHtmlEscaped(out, mendo::doc_string_view(text).substr(start, end - start));
+            AppendHtmlEscaped(out, std::string_view(text).substr(start, end - start));
         }
-        out.append(MENDO_LIT("</pre>"));
+        out.append("</pre>");
         return;
     }
 
@@ -448,7 +448,7 @@ void AppendTableHtml(mendo::doc_string& out, const Node& node, uint32_t start, u
     const auto col_count = static_cast<size_t>(tbl->col_count);
     const auto link_urls = node.view_link_urls();
 
-    out.append(MENDO_LIT("<table style=\"border-collapse:collapse;\">"));
+    out.append("<table style=\"border-collapse:collapse;\">");
     {
         TableSectionScope section(out);
         for (size_t r = 0; r < row_count; r++) {
@@ -460,31 +460,31 @@ void AppendTableHtml(mendo::doc_string& out, const Node& node, uint32_t start, u
                 section.EnterTbody();
             }
 
-            const mendo::doc_string_view open_tag = header_row ? MENDO_LIT("<th") : MENDO_LIT("<td");
-            const mendo::doc_string_view close_tag = header_row ? MENDO_LIT("</th>") : MENDO_LIT("</td>");
-            out.append(MENDO_LIT("<tr>"));
+            const std::string_view open_tag = header_row ? "<th" : "<td";
+            const std::string_view close_tag = header_row ? "</th>" : "</td>";
+            out.append("<tr>");
             for (size_t c = 0; c < col_count; c++) {
                 out.append(open_tag);
                 AppendTableCellStyle(out, tbl->ColAlign(c), dark_mode);
-                out.append(MENDO_LIT(">"));
+                out.append(">");
                 const auto cell_text = tbl->GetCellText(r, c);
                 AppendInlineHtml(out, cell_text, tbl->GetCellRuns(r, c), link_urls, 0, static_cast<uint32_t>(cell_text.size()));
                 out.append(close_tag);
             }
-            out.append(MENDO_LIT("</tr>"));
+            out.append("</tr>");
         }
     }
-    out.append(MENDO_LIT("</table>"));
+    out.append("</table>");
 }
 
-void AppendHeadingOpenTag(mendo::doc_string& out, int level)
+void AppendHeadingOpenTag(std::pmr::string& out, int level)
 {
-    std::format_to(std::back_inserter(out), MENDO_LIT("<h{}>"), level);
+    std::format_to(std::back_inserter(out), "<h{}>", level);
 }
 
-void AppendHeadingCloseTag(mendo::doc_string& out, int level)
+void AppendHeadingCloseTag(std::pmr::string& out, int level)
 {
-    std::format_to(std::back_inserter(out), MENDO_LIT("</h{}>"), level);
+    std::format_to(std::back_inserter(out), "</h{}>", level);
 }
 
 constexpr bool IsListNode(const Node& n) noexcept
@@ -497,7 +497,7 @@ constexpr bool IsOrderedList(const Node& n) noexcept
     return IsListNode(n) && n.list_number > 0;
 }
 
-std::optional<mendo::doc_string> FindLinkInRuns(std::span<const TextRun> runs, std::span<const mendo::doc_string> link_urls, uint32_t pos)
+std::optional<std::pmr::string> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::pmr::string> link_urls, uint32_t pos)
 {
     const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
         return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
@@ -542,13 +542,13 @@ std::span<const TextRun> FindTableCellRuns(const Node& node, uint32_t text_pos, 
 
 } // namespace
 
-mendo::doc_string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, const TextSelection& selection, bool dark_mode)
+std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, const TextSelection& selection, bool dark_mode)
 {
     if (!selection.active) {
         return {};
     }
 
-    mendo::doc_string out;
+    std::pmr::string out;
     size_t estimated = 0;
     for (int i = selection.start_node; i <= selection.end_node; ++i) {
         if (i >= 0 && i < static_cast<int>(nodes.size())) {
@@ -559,7 +559,7 @@ mendo::doc_string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
     // 平均的なドキュメントが一回の allocation で収まるよう多めに確保する。
     out.reserve(estimated * 3 + 128);
 
-    const mendo::doc_char* list_close_tag = nullptr;
+    const char* list_close_tag = nullptr;
     auto close_list = [&]() {
         if (list_close_tag) {
             out.append(list_close_tag);
@@ -587,10 +587,10 @@ mendo::doc_string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
         }
 
         if (IsListNode(node)) {
-            const mendo::doc_char* want_close = IsOrderedList(node) ? MENDO_LIT("</ol>") : MENDO_LIT("</ul>");
+            const char* want_close = IsOrderedList(node) ? "</ol>" : "</ul>";
             if (list_close_tag != want_close) {
                 close_list();
-                out.append(IsOrderedList(node) ? MENDO_LIT("<ol>") : MENDO_LIT("<ul>"));
+                out.append(IsOrderedList(node) ? "<ol>" : "<ul>");
                 list_close_tag = want_close;
             }
         }
@@ -607,41 +607,41 @@ mendo::doc_string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
             break;
         }
         case NodeType::Paragraph:
-            out.append(MENDO_LIT("<p>"));
+            out.append("<p>");
             AppendNodeInlineHtml(out, node, start, end);
-            out.append(MENDO_LIT("</p>"));
+            out.append("</p>");
             break;
         case NodeType::CodeBlock:
             AppendCodeBlockHtml(out, node, start, end, dark_mode);
             break;
         case NodeType::BlockQuote:
-            out.append(MENDO_LIT("<blockquote>"));
+            out.append("<blockquote>");
             AppendNodeInlineHtml(out, node, start, end);
-            out.append(MENDO_LIT("</blockquote>"));
+            out.append("</blockquote>");
             break;
         case NodeType::ListItem:
-            out.append(MENDO_LIT("<li>"));
+            out.append("<li>");
             AppendNodeInlineHtml(out, node, start, end);
-            out.append(MENDO_LIT("</li>"));
+            out.append("</li>");
             break;
         case NodeType::TaskListItem:
-            out.append(node.task_checked ? MENDO_LIT("<li><input type=\"checkbox\" checked disabled> ") : MENDO_LIT("<li><input type=\"checkbox\" disabled> "));
+            out.append(node.task_checked ? "<li><input type=\"checkbox\" checked disabled> " : "<li><input type=\"checkbox\" disabled> ");
             AppendNodeInlineHtml(out, node, start, end);
-            out.append(MENDO_LIT("</li>"));
+            out.append("</li>");
             break;
         case NodeType::HorizontalRule:
-            out.append(MENDO_LIT("<hr>"));
+            out.append("<hr>");
             break;
         case NodeType::Table:
             AppendTableHtml(out, node, start, end, dark_mode);
             break;
         case NodeType::Image:
             // 画像は未対応: 線形化テキストを <pre> で出力
-            out.append(MENDO_LIT("<pre>"));
+            out.append("<pre>");
             if (start < end) {
-                AppendHtmlEscaped(out, mendo::doc_string_view(text).substr(start, end - start));
+                AppendHtmlEscaped(out, std::string_view(text).substr(start, end - start));
             }
-            out.append(MENDO_LIT("</pre>"));
+            out.append("</pre>");
             break;
         }
     }
@@ -649,7 +649,7 @@ mendo::doc_string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes,
     return out;
 }
 
-std::optional<mendo::doc_string> FindLinkAtPosition(const Node& node, uint32_t text_pos)
+std::optional<std::pmr::string> FindLinkAtPosition(const Node& node, uint32_t text_pos)
 {
     if (node.type == NodeType::Table) {
         uint32_t local_pos = 0;

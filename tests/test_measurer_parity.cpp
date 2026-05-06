@@ -117,12 +117,12 @@ TEST_F(MeasurerParityTest, HeadingTallerThanParagraphInBoth)
 {
     Node para;
     para.type = NodeType::Paragraph;
-    para.SetText(MENDO_LIT("Sample text"));
+    para.SetText("Sample text");
 
     Node heading;
     heading.type = NodeType::Heading;
     heading.heading_level = 1;
-    heading.SetText(MENDO_LIT("Sample text"));
+    heading.SetText("Sample text");
 
     const auto p = MeasureBoth(para, 600.0f);
     const auto h = MeasureBoth(heading, 600.0f);
@@ -138,12 +138,12 @@ TEST_F(MeasurerParityTest, LongerTextIsNotShorter)
 {
     Node short_node;
     short_node.type = NodeType::Paragraph;
-    short_node.SetText(MENDO_LIT("Short"));
+    short_node.SetText("Short");
 
     Node long_node;
     long_node.type = NodeType::Paragraph;
-    long_node.SetText(MENDO_LIT("This is a much longer paragraph that should wrap across multiple lines ")
-                     MENDO_LIT("at the given narrow max width, producing a taller layout result than the short one."));
+    long_node.SetText("This is a much longer paragraph that should wrap across multiple lines "
+                      "at the given narrow max width, producing a taller layout result than the short one.");
 
     const auto s = MeasureBoth(short_node, 200.0f);
     const auto l = MeasureBoth(long_node, 200.0f);

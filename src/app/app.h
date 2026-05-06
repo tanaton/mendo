@@ -41,7 +41,7 @@ public:
     void ShowDirectory(std::wstring_view dir_path);
 
     // 起動時にウィンドウ生成と並列で I/O + パースを開始する。Init 末尾の
-    // OnInitComplete で hwnd が解禁されると、worker は PostMessage(PARSE_COMPLETE)
+    // OnInitComplete で hwnd が解禁されると、worker は ::PostMessageW(PARSE_COMPLETE)
     // を発行し、通常の async load 経路に合流する。
     void StartPreloadAsync(std::pmr::wstring path);
 
@@ -198,10 +198,10 @@ private:
 
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y);
-    std::optional<mendo::doc_string> GetLinkAtHit(const HitResult& hit) const;
+    std::optional<std::pmr::string> GetLinkAtHit(const HitResult& hit) const;
     MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
-    void HandleLinkClick(mendo::doc_string_view url);
+    void HandleLinkClick(std::string_view url);
 
     void SetClipboardText(std::wstring_view text) const;
     void CopySelectionToClipboard() const;

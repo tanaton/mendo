@@ -29,13 +29,13 @@ struct SetCursor {
     CursorType type;
 };
 struct ClipboardWrite {
-    // text は Document テキスト由来の UTF-8 doc_string。
+    // text は Document テキスト由来の UTF-8 string。
     // executor 側で CF_UNICODETEXT 用に wstring 変換する。
-    mendo::doc_string text;
+    std::pmr::string text;
 };
 struct ClipboardWriteHtml {
-    mendo::doc_string html;
-    mendo::doc_string plain;
+    std::pmr::string html;
+    std::pmr::string plain;
 };
 struct ShowTooltip {
     TooltipTarget target;

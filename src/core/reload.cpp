@@ -6,20 +6,20 @@
 #include <cstdint>
 #include <ranges>
 
-size_t FindFirstDifference(mendo::doc_string_view old_text, mendo::doc_string_view new_text) noexcept
+size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
 {
     const auto [it_old, it_new] = std::ranges::mismatch(old_text, new_text);
     if (it_old == old_text.end() && it_new == new_text.end()) {
-        return mendo::doc_string_view::npos;
+        return std::string_view::npos;
     }
     return static_cast<size_t>(it_old - old_text.begin());
 }
 
-ReloadDecision AnalyzeReloadDiff(mendo::doc_string_view old_text, mendo::doc_string_view new_text) noexcept
+ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept
 {
     const size_t diff_pos = FindFirstDifference(old_text, new_text);
-    if (diff_pos == mendo::doc_string_view::npos) {
-        return { ReloadOp::NoChange, mendo::doc_string_view::npos };
+    if (diff_pos == std::string_view::npos) {
+        return { ReloadOp::NoChange, std::string_view::npos };
     }
     if (IsPrefixOnlyDiff(diff_pos, old_text.size(), new_text.size())) {
         if (new_text.size() < old_text.size()) {
@@ -71,7 +71,7 @@ float CalcScrollYForDiff(
     const std::pmr::vector<Node>& nodes,
     const LayoutCache& cache,
     const Theme& theme,
-    mendo::doc_string_view content,
+    std::string_view content,
     size_t diff_pos,
     float viewport_height,
     float fallback_scroll) noexcept

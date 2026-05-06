@@ -41,8 +41,15 @@ bool App::Init(HWND hwnd)
     file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
-    resource_manager_.Init(state_.document.doc, state_.document.layout_cache, state_.view.viewport, image_loader_, mermaid_renderer_,
-                           theme_service_, renderer_.GetTheme(), BuildResourceManagerCallbacks());
+    resource_manager_.Init(
+        state_.document.doc,
+        state_.document.layout_cache,
+        state_.view.viewport,
+        image_loader_,
+        mermaid_renderer_,
+        theme_service_,
+        renderer_.GetTheme(),
+        BuildResourceManagerCallbacks());
     win32_host_.Init(hwnd_, cursors_);
     // clang-format off
     effect_executor_.Init(

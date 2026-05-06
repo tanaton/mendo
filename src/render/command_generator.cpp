@@ -14,10 +14,10 @@ namespace {
 
 // 累積カウンタ + 直近フレーム値（UI スレッド単一前提のため非アトミック）。
 struct CmdGenStats {
-    int64_t hittest_range = 0;     // FetchHitTestMetrics (HitTestTextRange) 呼び出し
-    int64_t sel_hl_cache_hit = 0;  // SelectionHlCache ヒット
-    int64_t sel_hl_cache_miss = 0; // SelectionHlCache ミス (HitTestTextRange を回す)
-    int64_t search_hl_rebuild = 0; // SearchHlCache 再構築
+    int64_t hittest_range = 0;           // FetchHitTestMetrics (HitTestTextRange) 呼び出し
+    int64_t sel_hl_cache_hit = 0;        // SelectionHlCache ヒット
+    int64_t sel_hl_cache_miss = 0;       // SelectionHlCache ミス (HitTestTextRange を回す)
+    int64_t search_hl_rebuild = 0;       // SearchHlCache 再構築
     int64_t last_visible_node_count = 0; // 累積ではなく直近フレームのスナップショット
 };
 CmdGenStats g_cmd_gen_stats;
@@ -466,8 +466,8 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
             const D2D1_COLOR_F bar_color = is_alert_bar ? theme_->alert_color[AlertColorIndex(alert_type)] : theme_->blockquote_bar_color;
             // BrushId::AlertNote..AlertCaution は AlertColorIndex(0..4) で連番に並んでいる。
             const BrushId bar_brush = is_alert_bar
-                ? static_cast<BrushId>(std::to_underlying(BrushId::AlertNote) + AlertColorIndex(alert_type))
-                : BrushId::BlockquoteBar;
+                                          ? static_cast<BrushId>(std::to_underlying(BrushId::AlertNote) + AlertColorIndex(alert_type))
+                                          : BrushId::BlockquoteBar;
 
             const auto emit_bar = [&](float top, float bottom) {
                 cmds.emplace_back(DrawLineCmd{
@@ -689,7 +689,7 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool
 
 void CommandGenerator::GenTableCellContent(
     DrawCommandList& cmds,
-    mendo::doc_string_view cell_text,
+    std::string_view cell_text,
     bool is_header,
     IDWriteTextLayout* cell_layout,
     float text_x,

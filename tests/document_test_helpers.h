@@ -13,12 +13,12 @@
 // 一致する最初のインデックスを返す。production の Document::FindAnchorIndex は
 // 事前構築した anchor_index_ ハッシュ経由で同じ結果を返すため本関数は使わない。
 // パーサ後の Node 配列を直接使うテストの便宜のために残す。
-inline int FindAnchorNodeIndexLinear(const std::pmr::vector<Node>& nodes, mendo::doc_string_view anchor)
+inline int FindAnchorNodeIndexLinear(const std::pmr::vector<Node>& nodes, std::string_view anchor)
 {
     if (anchor.empty()) {
         return -1;
     }
-    const mendo::doc_string target = ToLowerAscii(anchor);
+    const std::pmr::string target = ToLowerAscii(anchor);
     for (const auto& [i, node] : nodes | std::views::enumerate) {
         if (node.type == NodeType::Heading && node.anchor_id() == target) {
             return static_cast<int>(i);

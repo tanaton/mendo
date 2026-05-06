@@ -193,8 +193,8 @@ void App::OnParseComplete()
             return;
         }
 
-        const mendo::doc_string_view old_view(state_.document.doc.GetRawText());
-        const mendo::doc_string_view new_view(result->doc.GetRawText());
+        const std::string_view old_view(state_.document.doc.GetRawText());
+        const std::string_view new_view(result->doc.GetRawText());
         const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
         MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu op=%d",
@@ -352,10 +352,10 @@ void App::DoReloadCurrentFile()
     }
 
     const size_t byte_size = load_result->byte_size;
-    mendo::doc_string new_text = std::move(load_result->text);
+    std::pmr::string new_text = std::move(load_result->text);
 
-    const mendo::doc_string_view old_view(state_.document.doc.GetRawText());
-    const mendo::doc_string_view new_view(new_text);
+    const std::string_view old_view(state_.document.doc.GetRawText());
+    const std::string_view new_view(new_text);
     const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
     MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu op=%d",
@@ -365,7 +365,6 @@ void App::DoReloadCurrentFile()
     if (ApplyReloadDecisionEarly(decision)) {
         return;
     }
-    MENDO_PROFILE("Reload::ReplaceFromMarkdown");
     state_.document.doc.ReplaceFromMarkdown(std::move(new_text), byte_size);
     FinishReload(decision.diff_pos);
 }
@@ -435,7 +434,7 @@ float App::CalcScrollForDiff(size_t diff_pos, float viewport_height) const
     MENDO_TRACEF("CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, state_.document.doc.GetNodes().size());
     return CalcScrollYForDiff(
         state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme(),
-        mendo::doc_string_view{ state_.document.doc.GetRawText() },
+        std::string_view{ state_.document.doc.GetRawText() },
         diff_pos, viewport_height, state_.view.viewport.GetScrollY());
 }
 

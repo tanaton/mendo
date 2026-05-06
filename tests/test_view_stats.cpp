@@ -106,15 +106,24 @@ TEST(ViewStats, BreakdownByNodeType)
 
     auto bucket_label = [](NodeType t) -> const char* {
         switch (t) {
-        case NodeType::Heading:        return "Heading";
-        case NodeType::Paragraph:      return "Paragraph";
-        case NodeType::CodeBlock:      return "CodeBlock";
-        case NodeType::HorizontalRule: return "HR";
-        case NodeType::ListItem:       return "ListItem";
-        case NodeType::BlockQuote:     return "BlockQuote";
-        case NodeType::Table:          return "Table";
-        case NodeType::TaskListItem:   return "TaskListItem";
-        case NodeType::Image:          return "Image";
+        case NodeType::Heading:
+            return "Heading";
+        case NodeType::Paragraph:
+            return "Paragraph";
+        case NodeType::CodeBlock:
+            return "CodeBlock";
+        case NodeType::HorizontalRule:
+            return "HR";
+        case NodeType::ListItem:
+            return "ListItem";
+        case NodeType::BlockQuote:
+            return "BlockQuote";
+        case NodeType::Table:
+            return "Table";
+        case NodeType::TaskListItem:
+            return "TaskListItem";
+        case NodeType::Image:
+            return "Image";
         }
         return "?";
     };
@@ -228,12 +237,12 @@ TEST(ViewStats, DumpFirstOwnedCodeBlocks)
             continue;
         }
         const bool is_view = n.IsViewMode();
-        const mendo::doc_string_view text = n.GetText();
+        const std::string_view text = n.GetText();
         std::cout << "[" << (is_view ? "view " : "owned") << "] source_offset=" << n.source_offset
                   << " text.size()=" << text.size() << " line_count=" << n.line_count;
         if (n.source_offset != kUnsetSourceOffset && n.source_offset < raw.size()) {
             const size_t avail = std::min<size_t>(text.size(), raw.size() - n.source_offset);
-            const mendo::doc_string_view raw_slice{ raw.data() + n.source_offset, avail };
+            const std::string_view raw_slice{ raw.data() + n.source_offset, avail };
             // 先頭 N 文字の差分位置を探す
             size_t first_diff = avail;
             for (size_t i = 0; i < avail; ++i) {
