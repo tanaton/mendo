@@ -57,6 +57,16 @@ constexpr bool IsAsciiHexDigit(Char c) noexcept
            (c >= static_cast<Char>('A') && c <= static_cast<Char>('F'));
 }
 
+// ダブルクリック単語選択の単語構成文字。ASCII 英数 + '_'。CJK は対象外。
+template <typename Char>
+constexpr bool IsAsciiWordChar(Char c) noexcept
+{
+    return IsAsciiDigit(c) ||
+           (c >= static_cast<Char>('a') && c <= static_cast<Char>('z')) ||
+           (c >= static_cast<Char>('A') && c <= static_cast<Char>('Z')) ||
+           c == static_cast<Char>('_');
+}
+
 namespace detail {
 
 // 8 wchar_t 入りベクタに非 ASCII (>= 0x80) が含まれているか

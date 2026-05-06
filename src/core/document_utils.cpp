@@ -18,7 +18,9 @@ std::pmr::string ToLowerAscii(std::string_view text)
     return result;
 }
 
-WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept
+namespace {
+template <typename SV>
+WordBoundary FindWordBoundariesImpl(SV text, uint32_t pos) noexcept
 {
     WordBoundary result;
     if (text.empty()) {
@@ -27,24 +29,17 @@ WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept
     if (pos >= text.size()) {
         pos = static_cast<uint32_t>(text.size()) - 1;
     }
-
-    // ダブルクリック単語選択では ASCII 英数 + '_' のみを単語構成文字とする。
-    // CJK 文字は個別の文字として扱い選択対象外（既存 UX を維持）。
-    const auto is_word_char = [](char c) static noexcept {
-        return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
-    };
-
-    if (!is_word_char(text[pos])) {
+    if (!ascii_util::IsAsciiWordChar(text[pos])) {
         return result;
     }
 
     uint32_t word_start = pos;
-    while (word_start > 0 && is_word_char(text[word_start - 1])) {
+    while (word_start > 0 && ascii_util::IsAsciiWordChar(text[word_start - 1])) {
         word_start--;
     }
 
     uint32_t word_end = pos + 1;
-    while (word_end < text.size() && is_word_char(text[word_end])) {
+    while (word_end < text.size() && ascii_util::IsAsciiWordChar(text[word_end])) {
         word_end++;
     }
 
@@ -52,6 +47,17 @@ WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept
     result.end = word_end;
     result.found = true;
     return result;
+}
+} // namespace
+
+WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept
+{
+    return FindWordBoundariesImpl(text, pos);
+}
+
+WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
+{
+    return FindWordBoundariesImpl(text, pos);
 }
 
 bool IsMarkdownFile(std::wstring_view path)

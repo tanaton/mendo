@@ -210,6 +210,7 @@ private:
     void CopyDiagramAsSvg(int node_index);
 
     bool HandleTitleBarClick(float dip_x, float dip_y);
+    bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
     void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
     void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);

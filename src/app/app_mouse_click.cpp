@@ -8,45 +8,69 @@
 #include "string_convert.h"
 #include "ui_constants.h"
 
+bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_layout, bool is_double_click)
+{
+    if (!state_.search.search_state.IsVisible()) {
+        return false;
+    }
+    const auto& r = pane_layout.md_rect;
+    const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
+    if (dip_y < sbl.bar_top) {
+        return false;
+    }
+    switch (HitTestSearchBar(sbl, dip_x, dip_y)) {
+    case SearchBarHitZone::None:
+        if (!is_double_click) {
+            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0 });
+        }
+        break;
+    case SearchBarHitZone::Up:
+        OnSearchPrev();
+        break;
+    case SearchBarHitZone::Down:
+        OnSearchNext();
+        break;
+    case SearchBarHitZone::CaseSensitive:
+        OnToggleCaseSensitive();
+        break;
+    case SearchBarHitZone::Highlight:
+        OnToggleHighlight();
+        break;
+    case SearchBarHitZone::Close:
+        OnSearchClose();
+        break;
+    case SearchBarHitZone::Input: {
+        const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
+        const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
+        std::pmr::wstring query_wide;
+        string_convert::Utf8ToWide(state_.search.search_state.GetQuery(), query_wide);
+        const int pos = renderer_.HitTestSearchInput(query_wide, dip_x - text_left, input_w);
+        if (is_double_click) {
+            // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、
+            // 自前で単語境界を計算して EM_SETSEL を発行する。
+            const auto wb = FindWordBoundaries(std::wstring_view{ query_wide }, static_cast<uint32_t>(pos));
+            if (wb.found) {
+                EmitEffect(effect::PostWindowMessage{
+                    app_msg::SEARCH_FOCUS,
+                    app_param::SEARCH_FOCUS_SET_SELECTION,
+                    MAKELPARAM(static_cast<int>(wb.start), static_cast<int>(wb.end)) });
+            }
+        }
+        else {
+            Dispatch(SearchInputDragStartedAction{ pos });
+        }
+        break;
+    }
+    default:
+        std::unreachable();
+    }
+    return true;
+}
+
 void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
 {
-    if (state_.search.search_state.IsVisible()) {
-        const auto& r = pane_layout.md_rect;
-        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
-        if (dip_y >= sbl.bar_top) {
-            switch (HitTestSearchBar(sbl, dip_x, dip_y)) {
-            case SearchBarHitZone::None:
-                EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0 });
-                break;
-            case SearchBarHitZone::Up:
-                OnSearchPrev();
-                break;
-            case SearchBarHitZone::Down:
-                OnSearchNext();
-                break;
-            case SearchBarHitZone::CaseSensitive:
-                OnToggleCaseSensitive();
-                break;
-            case SearchBarHitZone::Highlight:
-                OnToggleHighlight();
-                break;
-            case SearchBarHitZone::Close:
-                OnSearchClose();
-                break;
-            case SearchBarHitZone::Input: {
-                const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
-                const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
-                std::pmr::wstring query_wide;
-                string_convert::Utf8ToWide(state_.search.search_state.GetQuery(), query_wide);
-                const int pos = renderer_.HitTestSearchInput(query_wide, dip_x - text_left, input_w);
-                Dispatch(SearchInputDragStartedAction{ pos });
-                break;
-            }
-            default:
-                std::unreachable();
-            }
-            return;
-        }
+    if (HandleSearchBarClick(dip_x, dip_y, pane_layout, false)) {
+        return;
     }
 
     const auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);

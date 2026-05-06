@@ -23,6 +23,11 @@ void App::OnLButtonDblClk(int px, int py)
     if (zone != PaneZone::MdPane) {
         return;
     }
+    // 検索バーのボタンも連打として扱う (タイトルバーボタンと同じ理由)。
+    const auto& layout = GetPaneLayout();
+    if (HandleSearchBarClick(dip.x, dip.y, layout, true)) {
+        return;
+    }
     const auto hit = HitTest(px, py);
     if (hit.node_index < 0) {
         return;
@@ -38,7 +43,6 @@ void App::OnLButtonDblClk(int px, int py)
 
     state_.view.viewport.SetAnchor(hit.node_index, wb.start);
     state_.view.viewport.SetSelection(TextSelection::MakeOrdered(hit.node_index, wb.start, hit.node_index, wb.end));
-    const auto layout = GetPaneLayout();
     InvalidateMdPane(layout.md_rect);
 }
 
