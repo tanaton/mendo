@@ -381,8 +381,9 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, co
         }
     }
     else {
-        // 大きい scroll_y を SetTransform で適用すると D2D が半径3pxの楕円を bounding rect
-        // (長方形) に縮退させるため、bullet だけ Identity transform + baked 座標で描画する (#193)。
+        // 大きい scroll_y を SetTransform で適用すると D2D が小半径 (LIST_BULLET_RADIUS=3 DIP)
+        // の楕円を bounding rect (長方形) に縮退させるため、bullet だけ Identity transform +
+        // baked 座標で描画する (#193)。
         const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
         const float bullet_x = SnapToPhysicalPixel(
             frame_md_pane_x_ + x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR,
