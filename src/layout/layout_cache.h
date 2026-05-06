@@ -181,7 +181,7 @@ struct NodeLayoutEntry {
     // あれば text_offset_w (UTF-16 code unit) に対応する行 Y を精密に計算し、無ければ
     // ブロック先頭/テーブル行先頭の座標にフォールバックする。
     // Why: 長い段落内の複数マッチで同じブロック先頭 Y に丸まると「次へ」でスクロールしない。
-    // text_offset は IDWriteTextLayout::HitTestTextPosition の引数なので UTF-16 単位を渡すこと
+    // text_offset_w は IDWriteTextLayout::HitTestTextPosition の引数なので UTF-16 単位を渡すこと
     // (UTF-8 byte を渡すと非 ASCII を含む段落で行 Y がずれる)。
     std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset_w, float entry_text_top) const noexcept
     {

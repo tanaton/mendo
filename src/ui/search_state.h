@@ -21,7 +21,9 @@ struct SearchMatch {
     uint32_t length_w = 0;
 };
 
-// 検索状態の管理（Win32非依存）
+// 検索状態の管理。GUI 入力イベント (HWND / メッセージループ) には依存しないが、
+// SearchMatch::start_w / length_w を埋めるために実装側で doc_dwrite_bridge を経由した
+// UTF-8↔UTF-16 オフセット変換 (= DirectWrite/Win32 MultiByteToWideChar) を呼ぶ。
 class SearchState {
 public:
     constexpr bool IsVisible() const noexcept
