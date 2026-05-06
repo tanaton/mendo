@@ -1,5 +1,6 @@
 #include "doc_dwrite_bridge.h"
 #include "memory_resource.h"
+#include <algorithm>
 #include <limits>
 
 namespace mendo {
@@ -99,19 +100,11 @@ doc_offset WideViewForDWrite::DocOffsetFromWideOffset(uint32_t wide_off) const n
     if (wide_off >= utf16_offsets_.back()) {
         return static_cast<doc_offset>(utf16_offsets_.size() - 1);
     }
-    // 単調増加なので二分探索。
-    size_t lo = 0;
-    size_t hi = utf16_offsets_.size();
-    while (lo + 1 < hi) {
-        const size_t mid = lo + (hi - lo) / 2;
-        if (utf16_offsets_[mid] <= wide_off) {
-            lo = mid;
-        }
-        else {
-            hi = mid;
-        }
-    }
-    return static_cast<doc_offset>(lo);
+    // utf16_offsets_ は弱増加 (continuation byte は同じ wide_pos)。lower_bound で
+    // wide_off に対応する文字の leading byte 位置を取る。upper_bound 相当だと末尾文字の
+    // continuation byte を返してしまい、抽出末尾が UTF-8 不正で文字化けする (#183)。
+    const auto it = std::lower_bound(utf16_offsets_.begin(), utf16_offsets_.end(), wide_off);
+    return static_cast<doc_offset>(it - utf16_offsets_.begin());
 }
 
 HRESULT CreateDocTextLayout(IDWriteFactory* factory, const WideViewForDWrite& view,
