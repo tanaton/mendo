@@ -341,10 +341,7 @@ void App::DoReloadCurrentFile()
 
     CancelPendingResources();
 
-    auto load_result = [this]() {
-        MENDO_PROFILE("Reload::LoadFile");
-        return FileLoader::LoadFile(state_.document.doc.GetFilePath());
-    }();
+    auto load_result = FileLoader::LoadFile(state_.document.doc.GetFilePath());
     if (!load_result) {
         EmitEffect(effect::ResumeFileWatch{});
         return;
