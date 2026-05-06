@@ -94,12 +94,13 @@ inline D2D1_RECT_F PaneRefreshButtonRect(float pane_width, float header_height) 
     return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
 }
 
-// スクロール位置を物理ピクセル境界にスナップする。
-// ClearTypeヒンティングのフレーム間変動によるテキストのガタつきを防止する。
+// DIP 値を物理ピクセル境界にスナップする。
+// スクロール位置に適用すれば ClearType ヒンティングのフレーム間変動による
+// テキストのガタつきを防止できる。bullet 等の小半径図形にも有効。
 // dpi_scale: DPI / DEFAULT_DPI（例: 100%→1.0, 150%→1.5, 200%→2.0）
-inline float SnapScrollToPixel(float scroll_y, float dpi_scale) noexcept
+inline float SnapToPhysicalPixel(float v, float dpi_scale) noexcept
 {
-    return std::round(scroll_y * dpi_scale) / dpi_scale;
+    return std::round(v * dpi_scale) / dpi_scale;
 }
 
 // タイトルバーのテキストフォントサイズ（DIP）。

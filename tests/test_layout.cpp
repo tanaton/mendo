@@ -1573,7 +1573,8 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
 
     for (const auto& cmd : cmds) {
         if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
-            EXPECT_NEAR(e->center.y, expected_y, 0.01f)
+            // 物理ピクセル境界へのスナップで最大 0.5DIP ずれるため許容を半 DIP に緩める (#193)
+            EXPECT_NEAR(e->center.y, expected_y, 0.51f)
                 << "箇条書き記号は1行目の中央に配置されるべき";
             return;
         }

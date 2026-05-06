@@ -616,7 +616,8 @@ TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine)
 
     for (const auto& cmd : cmds) {
         if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
-            EXPECT_NEAR(e->center.y, expected_y, 0.01f);
+            // 物理ピクセル境界へのスナップで最大 0.5DIP ずれるため許容を半 DIP に緩める (#193)
+            EXPECT_NEAR(e->center.y, expected_y, 0.51f);
             return;
         }
     }
@@ -638,11 +639,12 @@ TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
     int idx = 0;
     for (const auto& cmd : cmds) {
         if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
-            EXPECT_NEAR(e->center.y, expected_y0, 0.01f) << "親リスト項目の箇条書き記号";
+            // 物理ピクセル境界へのスナップで最大 0.5DIP ずれるため許容を半 DIP に緩める (#193)
+            EXPECT_NEAR(e->center.y, expected_y0, 0.51f) << "親リスト項目の箇条書き記号";
             idx++;
         }
         else if (auto* d = std::get_if<DrawEllipseCmd>(&cmd)) {
-            EXPECT_NEAR(d->center.y, expected_y1, 0.01f) << "子リスト項目の箇条書き記号";
+            EXPECT_NEAR(d->center.y, expected_y1, 0.51f) << "子リスト項目の箇条書き記号";
             idx++;
         }
     }
