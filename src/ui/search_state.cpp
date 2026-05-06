@@ -1,5 +1,6 @@
 #include "search_state.h"
 #include "ascii_util.h"
+#include "doc_dwrite_bridge.h"
 #include <algorithm>
 
 void SearchState::SetQuery(std::string_view query)
@@ -35,9 +36,11 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
             for (int r = 0; r < row_count && matches_.size() < MAX_MATCHES; r++) {
                 for (int c = 0; c < col_count && matches_.size() < MAX_MATCHES; c++) {
                     const auto cell_text = tbl->GetCellText(r, c);
-                    if (!cell_text.empty()) {
-                        FindMatches(cell_text, lower_query, i, r, c);
+                    if (cell_text.empty()) {
+                        continue;
                     }
+                    const auto search_text = case_sensitive_ ? cell_text : lower_cache_.GetCell(i, r, c);
+                    FindMatches(search_text, cell_text, lower_query, i, r, c);
                 }
             }
         }
@@ -47,7 +50,8 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
                 (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language))) {
                 continue;
             }
-            FindMatches(text, lower_query, i);
+            const auto search_text = case_sensitive_ ? text : lower_cache_.GetText(i);
+            FindMatches(search_text, text, lower_query, i);
         }
     }
     matches_truncated_ = (matches_.size() >= MAX_MATCHES);
@@ -109,30 +113,37 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
     cached_node_count_ = nodes.size();
 }
 
-void SearchState::FindMatches(std::string_view text, const std::pmr::string& lower_query, int node_index, int table_row, int table_col)
+void SearchState::FindMatches(std::string_view search_text, std::string_view utf16_text,
+                              const std::pmr::string& lower_query, int node_index,
+                              int table_row, int table_col)
 {
     if (matches_.size() >= MAX_MATCHES) {
         return;
     }
     const uint32_t query_len = static_cast<uint32_t>(query_.size());
+    const std::string_view query = case_sensitive_ ? std::string_view(query_) : std::string_view(lower_query);
 
-    if (case_sensitive_) {
-        size_t pos = 0;
-        while (matches_.size() < MAX_MATCHES && (pos = ascii_util::Find(text, query_, pos)) != ascii_util::npos) {
-            matches_.emplace_back(node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col);
-            pos += query_len;
-        }
-    }
-    else {
-        // ドキュメント単位でキャッシュした lowercase 文字列を使う。
-        // EnsureLowercaseCache が ExecuteSearch 先頭で呼ばれている前提。
-        const std::string_view lower_text = (table_row < 0) ? lower_cache_.GetText(node_index) : lower_cache_.GetCell(node_index, table_row, table_col);
+    // utf16_text に対する WideViewForDWrite は最初のマッチ確定時にだけ作る (lazy)。
+    // マッチ 0 件のノード/セルでは UTF-8→UTF-16 decode を完全にスキップできる。
+    std::optional<mendo::WideViewForDWrite> wv;
 
-        size_t pos = 0;
-        while (matches_.size() < MAX_MATCHES && (pos = ascii_util::Find(lower_text, lower_query, pos)) != ascii_util::npos) {
-            matches_.emplace_back(node_index, static_cast<uint32_t>(pos), query_len, table_row, table_col);
-            pos += query_len;
+    size_t pos = 0;
+    while (matches_.size() < MAX_MATCHES && (pos = ascii_util::Find(search_text, query, pos)) != ascii_util::npos) {
+        const uint32_t byte_start = static_cast<uint32_t>(pos);
+        if (!wv.has_value()) {
+            wv.emplace(utf16_text);
         }
+        const auto wr = wv->WideRange(byte_start, query_len);
+        matches_.emplace_back(SearchMatch{
+            .node_index = node_index,
+            .start = byte_start,
+            .length = query_len,
+            .table_row = table_row,
+            .table_col = table_col,
+            .start_w = wr.startPosition,
+            .length_w = wr.length,
+        });
+        pos += query_len;
     }
 }
 
@@ -177,7 +188,7 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
             return true;
         }
         const auto& e = cache[m.node_index];
-        const auto [y, h] = e.GetMatchYRange(m.table_row, m.table_col, m.start, e.text_top);
+        const auto [y, h] = e.GetMatchYRange(m.table_row, m.table_col, m.start_w, e.text_top);
         (void)h;
         return y < scroll_y;
     });

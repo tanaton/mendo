@@ -6,16 +6,22 @@
 #include <memory_resource>
 #include <unordered_map>
 
-// 検索マッチの位置情報
+// 検索マッチの位置情報。
+// start / length は UTF-8 byte 単位 (ascii_util::Find の戻り値)。
+// start_w / length_w は同じ範囲を UTF-16 code unit で表したもので
+// IDWriteTextLayout の HitTestTextRange / HitTestTextPosition にそのまま渡せる。
+// 不変条件: 両者は同じノード/セル内の同一範囲を指し、ExecuteSearch で同時に確定される。
 struct SearchMatch {
     int node_index;
-    uint32_t start; // node.text（またはcell.text）内の文字オフセット
+    uint32_t start;
     uint32_t length;
     int table_row = -1; // テーブルセル用（-1なら通常ノード）
     int table_col = -1;
+    uint32_t start_w = 0;
+    uint32_t length_w = 0;
 };
 
-// 検索状態の管理（Win32非依存）
+// 検索状態の管理。start_w / length_w 算出のため doc_dwrite_bridge (UTF-8↔UTF-16) に依存する。
 class SearchState {
 public:
     constexpr bool IsVisible() const noexcept
@@ -103,7 +109,13 @@ public:
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
 
 private:
-    void FindMatches(std::string_view text, const std::pmr::string& lower_query, int node_index, int table_row = -1, int table_col = -1);
+    // search_text は ascii_util::Find で走査する対象 (lowercase キャッシュ or 元 UTF-8)。
+    // utf16_text は UTF-16 オフセット算出に使う元の UTF-8 (= ノード/セルテキスト)。
+    // 両者は同一バイト長で位置対応が一致するが、ASCII lowercase はインプレース変換可能なので
+    // start オフセットを共有できる。
+    void FindMatches(std::string_view search_text, std::string_view utf16_text,
+                     const std::pmr::string& lower_query, int node_index,
+                     int table_row = -1, int table_col = -1);
     void EnsureLowercaseCache(const std::pmr::vector<Node>& nodes);
 
     // マッチ一覧と関連する世代カウンタ・トランケーションフラグを同時にリセットする。

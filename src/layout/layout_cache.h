@@ -178,12 +178,12 @@ struct NodeLayoutEntry {
     }
 
     // マッチの絶対 Y とその行の高さを返す。text_layout（テーブルはセル layout）が
-    // あれば text_offset に対応する行 Y を精密に計算し、無ければ
+    // あれば text_offset_w (UTF-16 code unit) に対応する行 Y を精密に計算し、無ければ
     // ブロック先頭/テーブル行先頭の座標にフォールバックする。
     // Why: 長い段落内の複数マッチで同じブロック先頭 Y に丸まると「次へ」でスクロールしない。
-    // row_cum_y は row_count+1 要素（末尾は合計高さ）なので、行として有効なのは [0, row_heights.size()) のみ。
-    // entry_text_top はノード上端 Y。caller が Fenwick から計算するか entry のキャッシュ値を渡す。
-    std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset, float entry_text_top) const noexcept
+    // text_offset_w は IDWriteTextLayout::HitTestTextPosition の引数なので UTF-16 単位を渡すこと
+    // (UTF-8 byte を渡すと非 ASCII を含む段落で行 Y がずれる)。
+    std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset_w, float entry_text_top) const noexcept
     {
         IDWriteTextLayout* layout = nullptr;
         float base_y = entry_text_top;
@@ -206,7 +206,7 @@ struct NodeLayoutEntry {
         if (layout != nullptr) {
             FLOAT px = 0.0f, py = 0.0f;
             DWRITE_HIT_TEST_METRICS htm{};
-            if (SUCCEEDED(layout->HitTestTextPosition(text_offset, FALSE, &px, &py, &htm))) {
+            if (SUCCEEDED(layout->HitTestTextPosition(text_offset_w, FALSE, &px, &py, &htm))) {
                 const float line_h = (htm.height > 0.0f) ? htm.height : fallback_h;
                 return { base_y + py, line_h };
             }

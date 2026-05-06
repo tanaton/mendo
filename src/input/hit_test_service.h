@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_dwrite_bridge.h"
 #include "document_types.h"
 #include "layout_cache.h"
 #include "layout_computer.h"
@@ -174,4 +175,11 @@ private:
     mutable HitCache<int> last_copy_hit_{ .result = -1 };
     mutable HitCache<int> last_save_hit_{ .result = -1 };
     mutable HitCache<int> last_svg_copy_hit_{ .result = -1 };
+
+    // HitTestPoint の UTF-16→UTF-8 逆変換を同一ノード/セル間で再利用する
+    // (ドラッグ選択時の連続呼び出しで decode を抑える)。
+    // ドキュメント切替で string_view が dangling 化するため HitTest 冒頭で Reset。
+    mutable mendo::WideViewCache md_wv_cache_;
+    mutable mendo::WideViewCache cell_wv_cache_;
+    mutable const Node* prev_nodes_data_ = nullptr;
 };
