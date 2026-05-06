@@ -9,9 +9,7 @@
 #include "memory_resource.h"
 #include "search_state.h"
 #include <cassert>
-#include <optional>
 #include <span>
-#include <string_view>
 
 // HitTestTextRange 初期バッファ容量。1 行中の inline code run が
 // 折り返される想定最大数に合わせる。描画 hot path 中の resize を避けるのが目的。
@@ -228,8 +226,9 @@ private:
     int prev_sel_end_node_ = -1;
 
     // テーブルセル選択ハイライトの UTF-8→UTF-16 decode を、同一セルの間で再利用する。
-    // string_view の identity (data() ポインタ + size) でキャッシュ判定するため、
-    // ドキュメント切り替えで concat_text が解放されると次フレーム冒頭で空 view にリセットする。
-    std::string_view cell_wv_text_;
-    std::optional<mendo::WideViewForDWrite> cell_wv_;
+    // ドキュメント切り替えや selection 解除のタイミングで dangling string_view を
+    // 抱えないよう、GenerateMdPane 冒頭で Reset() する。
+    mendo::WideViewCache cell_wv_;
+    // ドキュメント切り替えを検出するための、前フレームに渡された nodes バッファ先頭。
+    const Node* prev_nodes_data_ = nullptr;
 };

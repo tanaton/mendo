@@ -1,5 +1,4 @@
 #include "command_generator.h"
-#include "doc_dwrite_bridge.h"
 #include "i18n.h"
 #include "layout.h"
 #include "layout_computer.h"
@@ -7,7 +6,6 @@
 #include "ui_constants.h"
 #include <algorithm>
 #include <format>
-#include <optional>
 #include <ranges>
 #include <utility>
 
@@ -113,12 +111,12 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         prev_sel_start_node_ = new_start;
         prev_sel_end_node_ = new_end;
     }
-    // テーブルセル decode キャッシュは selection が非アクティブの間は不要かつ
-    // ドキュメント切り替えで dangling になる懸念があるため、その間は解放しておく。
-    if (!selection.active) {
-        cell_wv_text_ = {};
-        cell_wv_.reset();
+    // ドキュメント切り替え (= nodes バッファのアドレス変化) や selection 解除のタイミングで
+    // cell_wv_ が抱える string_view が dangling 化しうるため、ここで明示的にリセットする。
+    if (!selection.active || nodes.data() != prev_nodes_data_) {
+        cell_wv_.Reset();
     }
+    prev_nodes_data_ = nodes.data();
 
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
@@ -630,10 +628,9 @@ void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const Node& no
     cache.rect_ends.reserve(node_match_count);
 
     const auto* tbl = node.table_data();
-    // 同一テキストの WideViewForDWrite を使い回し、同ノード/セル内の複数マッチでの
-    // UTF-8→UTF-16 decode を 1 回に抑える。matches は (node, table_row, table_col) 昇順。
-    std::string_view cached_text;
-    std::optional<mendo::WideViewForDWrite> wv;
+    // matches は (node, table_row, table_col) 昇順。同ノード/同セル連続マッチで
+    // UTF-8→UTF-16 decode を 1 回に抑えるため WideViewCache を使う。
+    mendo::WideViewCache wv_cache;
 
     for (size_t mi = first_global; mi < first_global + node_match_count; ++mi) {
         const auto& m = matches[mi];
@@ -653,12 +650,7 @@ void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const Node& no
         // 暫定状態で、l は nullptr のまま空 rect として記録する（次回再構築時に修復）。
         if (l && m.length > 0 && !match_text.empty()) {
             // SearchMatch::start, length は UTF-8 byte 単位 (ascii_util::Find の戻り値)。
-            // HitTestTextRange は UTF-16 code unit を要求するため変換する。
-            if (match_text.data() != cached_text.data() || match_text.size() != cached_text.size()) {
-                wv.emplace(match_text);
-                cached_text = match_text;
-            }
-            const auto wr = wv->WideRange(m.start, m.length);
+            const auto wr = wv_cache.WideRange(match_text, m.start, m.length);
             if (wr.length > 0) {
                 CollectHitTestRects(l, wr.startPosition, wr.length, cache.rects);
             }
@@ -740,12 +732,7 @@ void CommandGenerator::GenTableCellContent(
         const uint32_t ov_end = std::min(sel_end, flat_offset + cell_len);
         if (ov_end > ov_start) {
             // sel_start/sel_end は UTF-8 byte offset。HitTestTextRange 用に UTF-16 へ変換する。
-            // 同一セルがフレーム間で選択中の典型ケースで cell_wv_ をヒットさせ decode を省く。
-            if (cell_text.data() != cell_wv_text_.data() || cell_text.size() != cell_wv_text_.size()) {
-                cell_wv_.emplace(cell_text);
-                cell_wv_text_ = cell_text;
-            }
-            const auto wr = cell_wv_->WideRange(ov_start - flat_offset, ov_end - ov_start);
+            const auto wr = cell_wv_.WideRange(cell_text, ov_start - flat_offset, ov_end - ov_start);
             if (wr.length > 0) {
                 GenSelectionHighlight(cmds, cell_layout, wr.startPosition, wr.length, text_x, text_y);
             }
