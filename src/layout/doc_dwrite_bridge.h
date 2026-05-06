@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <dwrite.h>
 #include <memory_resource>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -49,6 +50,38 @@ private:
     // utf16_offsets_[i] (i = 0..utf8_size) = doc 内 byte i に対応する wide offset。
     // 番兵: utf16_offsets_[utf8_size] = wide_size。
     std::pmr::vector<uint32_t> utf16_offsets_;
+};
+
+// 直近に渡された文字列に対する WideViewForDWrite を再利用する identity ベースキャッシュ。
+// std::string_view の (data ポインタ + size) で同一性を判定し、異なる文字列が来た時のみ
+// 再構築する。連続フレームで同じノード/セルの選択や検索ハイライトを描画する典型ケースで
+// UTF-8→UTF-16 decode を 1 回に抑える。data ポインタの寿命が切れる可能性がある場合は
+// Reset() を明示的に呼んでキャッシュを破棄すること。
+class WideViewCache {
+public:
+    const WideViewForDWrite& Get(std::string_view text)
+    {
+        if (text.data() != text_.data() || text.size() != text_.size()) {
+            wv_.emplace(text);
+            text_ = text;
+        }
+        return *wv_;
+    }
+
+    DWRITE_TEXT_RANGE WideRange(std::string_view text, uint32_t doc_start, uint32_t doc_length)
+    {
+        return Get(text).WideRange(doc_start, doc_length);
+    }
+
+    void Reset() noexcept
+    {
+        wv_.reset();
+        text_ = {};
+    }
+
+private:
+    std::string_view text_;
+    std::optional<WideViewForDWrite> wv_;
 };
 
 // IDWriteFactory::CreateTextLayout の境界ラッパー。

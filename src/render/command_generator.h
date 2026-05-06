@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_dwrite_bridge.h"
 #include "draw_command.h"
 #include "document_types.h"
 #include "layout_cache.h"
@@ -140,13 +141,14 @@ private:
     void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out);
     void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y);
     // 本文ノード（テーブル外）専用の選択ハイライト発行。
-    // (layout, start, length) 一致でフレーム間キャッシュをヒットさせ HitTestTextRange を省く。
-    void GenSelectionHighlightCached(DrawCommandList& cmds, const NodeLayoutEntry& entry, uint32_t start, uint32_t length, float origin_x, float origin_y);
-    void GenSearchHighlights(DrawCommandList& cmds, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
+    // (layout, doc_start, doc_length) 一致でフレーム間キャッシュをヒットさせ
+    // HitTestTextRange と UTF-8→UTF-16 decode の両方を省く。doc_start / doc_length は UTF-8 byte 単位。
+    void GenSelectionHighlightCached(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
+    void GenSearchHighlights(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
 
     // 検索ハイライトのキャッシュが古い場合に再構築する。
     // matches[first_global, first_global + node_match_count) が当該ノードのマッチ。
-    void RebuildSearchHlCache(SearchHlCache& cache, const NodeLayoutEntry& entry,
+    void RebuildSearchHlCache(SearchHlCache& cache, const Node& node, const NodeLayoutEntry& entry,
                               std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count);
 
     // 構築済みキャッシュから FillRectCmd を発行する。
@@ -222,4 +224,11 @@ private:
     // 解放するために使う。-1/-1 は「前フレームは非アクティブ」を示す。
     int prev_sel_start_node_ = -1;
     int prev_sel_end_node_ = -1;
+
+    // テーブルセル選択ハイライトの UTF-8→UTF-16 decode を、同一セルの間で再利用する。
+    // ドキュメント切り替えや selection 解除のタイミングで dangling string_view を
+    // 抱えないよう、GenerateMdPane 冒頭で Reset() する。
+    mendo::WideViewCache cell_wv_;
+    // ドキュメント切り替えを検出するための、前フレームに渡された nodes バッファ先頭。
+    const Node* prev_nodes_data_ = nullptr;
 };

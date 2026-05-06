@@ -8,6 +8,8 @@
 #include "dwrite_test_base.h"
 #include "search_state.h"
 #include "text_types.h"
+#include <initializer_list>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -23,6 +25,21 @@ std::vector<size_t> ExtractCmdKinds(const DrawCommandList& cmds)
         kinds.push_back(c.index());
     }
     return kinds;
+}
+
+std::optional<D2D1_RECT_F> FindFirstFillRectByColor(const DrawCommandList& cmds,
+                                                    std::initializer_list<D2D1_COLOR_F> colors)
+{
+    for (const auto& c : cmds) {
+        if (auto* fr = std::get_if<FillRectCmd>(&c)) {
+            for (const auto& col : colors) {
+                if (ColorEq(fr->color, col)) {
+                    return fr->rect;
+                }
+            }
+        }
+    }
+    return std::nullopt;
 }
 
 class HighlightOrderTest : public DWriteTestBase {
@@ -171,4 +188,55 @@ TEST_F(HighlightOrderTest, ExtractCmdKindsIsOrdered)
     for (size_t i = 0; i < cmds.size(); ++i) {
         EXPECT_EQ(kinds[i], cmds[i].index());
     }
+}
+
+// SearchMatch::start, length は UTF-8 byte 単位。HitTestTextRange は UTF-16 code unit
+// を要求するため、変換漏れがあると非 ASCII 後方の ASCII マッチで矩形位置が破綻する。
+// 「あいうabc」の "abc" を検索して、ASCII 単独 "abc" と同等幅の矩形が出ることで担保する。
+TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
+{
+    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
+
+    auto pl1 = ParseAndLayout("abc");
+    std::pmr::vector<SearchMatch> matches1;
+    matches1.push_back({ 0, 0, 3, -1, -1 });
+    gen_.SetSearchMatches(&matches1, 0, 1);
+    const auto& cmds1 = gen_.GenerateMdPane(pl1.nodes, pl1.cache, pane, 0.0f, TextSelection{});
+    const auto rect1 = FindFirstFillRectByColor(cmds1,
+        { theme_.search_highlight_color, theme_.search_highlight_current_color });
+    ASSERT_TRUE(rect1.has_value());
+
+    // "あいう" は UTF-8 で 9 byte / UTF-16 で 3 code unit。
+    auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
+    std::pmr::vector<SearchMatch> matches2;
+    matches2.push_back({ 0, 9, 3, -1, -1 });
+    gen_.SetSearchMatches(&matches2, 0, 1);
+    const auto& cmds2 = gen_.GenerateMdPane(pl2.nodes, pl2.cache, pane, 0.0f, TextSelection{});
+    const auto rect2 = FindFirstFillRectByColor(cmds2,
+        { theme_.search_highlight_color, theme_.search_highlight_current_color });
+    ASSERT_TRUE(rect2.has_value()) << "非 ASCII オフセット後の ASCII マッチが描画されるべき";
+    EXPECT_NEAR(rect2->right - rect2->left, rect1->right - rect1->left, 2.0f)
+        << "ハイライト幅は ASCII 単独時と一致すべき";
+}
+
+// 選択範囲も UTF-8 byte 単位で保持されるため、同じ取り違えバグを抱えうる。
+// "あいうabc" の "abc" を選択して、矩形幅が ASCII 単独時と一致することで担保する。
+TEST_F(HighlightOrderTest, SelectionHighlightHandlesUtf8MultibyteOffset)
+{
+    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
+
+    auto pl1 = ParseAndLayout("abc");
+    TextSelection sel1 = TextSelection::MakeOrdered(0, 0, 0, 3);
+    sel1.active = true;
+    const auto& cmds1 = gen_.GenerateMdPane(pl1.nodes, pl1.cache, pane, 0.0f, sel1);
+    const auto rect1 = FindFirstFillRectByColor(cmds1, { SELECTION_COLOR });
+    ASSERT_TRUE(rect1.has_value());
+
+    auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
+    TextSelection sel2 = TextSelection::MakeOrdered(0, 9, 0, 12);
+    sel2.active = true;
+    const auto& cmds2 = gen_.GenerateMdPane(pl2.nodes, pl2.cache, pane, 0.0f, sel2);
+    const auto rect2 = FindFirstFillRectByColor(cmds2, { SELECTION_COLOR });
+    ASSERT_TRUE(rect2.has_value());
+    EXPECT_NEAR(rect2->right - rect2->left, rect1->right - rect1->left, 2.0f);
 }
