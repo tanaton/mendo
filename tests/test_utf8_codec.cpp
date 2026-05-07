@@ -17,6 +17,14 @@ TEST(Utf8Codec, DecodeAsciiByte)
     EXPECT_EQ(r.len, 1u);
 }
 
+TEST(Utf8Codec, DecodeAsciiNul)
+{
+    // U+0000 は 1 byte で正規。overlong (C0 80) との対比。
+    const auto r = DecodeAt(std::string_view{ "\x00", 1 }, 0);
+    EXPECT_EQ(r.cp, 0u);
+    EXPECT_EQ(r.len, 1u);
+}
+
 TEST(Utf8Codec, DecodeTwoByteSequence)
 {
     // U+00E9 (é) = C3 A9

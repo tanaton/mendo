@@ -74,8 +74,8 @@ constexpr DecodedCp DecodeAt(std::string_view text, uint32_t pos) noexcept
     // 非スカラー値の排除:
     //   overlong (より短い符号化が可能な値)、UTF-16 サロゲート領域、Unicode 範囲外。
     //   これらをそのまま返すと UTF-16 化で孤立サロゲートを生むなど後続処理で破綻する。
-    constexpr uint32_t min_cp[] = { 0, 0, 0x80u, 0x800u, 0x10000u };
-    if (cp < min_cp[len] || cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
+    constexpr uint32_t min_cp_for_len[] = { 0x80u, 0x800u, 0x10000u }; // len = 2/3/4
+    if (cp < min_cp_for_len[len - 2] || cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
         return { kReplacement, 1 };
     }
     return { cp, len };
