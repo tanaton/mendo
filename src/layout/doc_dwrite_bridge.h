@@ -1,5 +1,6 @@
 #pragma once
 #include "doc_text.h"
+#include <cstddef>
 #include <cstdint>
 #include <dwrite.h>
 #include <memory_resource>
