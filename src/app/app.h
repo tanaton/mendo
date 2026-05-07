@@ -130,9 +130,7 @@ public:
     }
     RECT GetSearchEditRect();
 
-    // 起動時の preload が App::Init より先に完了した場合、Init 内の AttachOrApplyPreload が
-    // 同期で OnParseComplete → FinishLoadMarkdownFile を呼ぶ。復元情報は Init 呼び出し前に
-    // セットしておく必要がある。
+    // Init() より前に呼ぶこと。preload 即時完了パスは Init 内で復元情報を参照する。
     constexpr void SetPendingRestoreNode(int node, int offset) noexcept
     {
         state_.view.scroll_restore.SetNodeRestore(node, offset);

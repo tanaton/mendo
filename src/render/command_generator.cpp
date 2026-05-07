@@ -117,14 +117,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     }
     // ドキュメント切替で string_view が dangling 化するため reset する。PMR pool が
     // 同じアドレスを再利用しうるので (data, size) の両方で同一性を判定する。
-    // selection 解除時は wide cache が抱える utf16_offsets_ メモリを早期解放する。
-    const bool doc_changed = nodes.data() != prev_nodes_data_ || nodes.size() != prev_nodes_size_;
-    if (doc_changed || !selection.active) {
-        node_wv_.Reset();
-        cell_wv_.Reset();
-    }
-    prev_nodes_data_ = nodes.data();
-    prev_nodes_size_ = nodes.size();
+    node_wv_.ResetIfBufferChanged(nodes.data(), nodes.size());
+    cell_wv_.ResetIfBufferChanged(nodes.data(), nodes.size());
 
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {

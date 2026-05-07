@@ -108,12 +108,8 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         return result;
     }
 
-    if (ctx.nodes.data() != prev_nodes_data_ || ctx.nodes.size() != prev_nodes_size_) {
-        md_wv_cache_.Reset();
-        cell_wv_cache_.Reset();
-        prev_nodes_data_ = ctx.nodes.data();
-        prev_nodes_size_ = ctx.nodes.size();
-    }
+    md_wv_cache_.ResetIfBufferChanged(ctx.nodes.data(), ctx.nodes.size());
+    cell_wv_cache_.ResetIfBufferChanged(ctx.nodes.data(), ctx.nodes.size());
 
     const uint32_t gen = ctx.cache.GetEffectsGeneration();
     if (last_md_hit_.Matches(ctx, gen)) {
@@ -129,9 +125,10 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     });
     const int candidate = (it != first) ? static_cast<int>(std::prev(it) - first) : -1;
 
-    const float candidate_text_top = (candidate >= 0)
-        ? mendo::layout::TextTopOf(ctx.cache, static_cast<size_t>(candidate), ctx.nodes[candidate], ctx.theme)
-        : 0.0f;
+    const float candidate_text_top =
+        (candidate >= 0)
+            ? mendo::layout::TextTopOf(ctx.cache, static_cast<size_t>(candidate), ctx.nodes[candidate], ctx.theme)
+            : 0.0f;
     if (candidate >= 0 && dip_y <= candidate_text_top + ctx.cache[candidate].height) {
         const auto& node = ctx.nodes[candidate];
         const auto& entry = ctx.cache[candidate];

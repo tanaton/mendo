@@ -1,5 +1,6 @@
 #pragma once
 #include "doc_text.h"
+#include <cstddef>
 #include <cstdint>
 #include <dwrite.h>
 #include <memory_resource>
@@ -55,8 +56,12 @@ private:
 // 直近に渡された文字列に対する WideViewForDWrite を再利用する identity ベースキャッシュ。
 // std::string_view の (data ポインタ + size) で同一性を判定し、異なる文字列が来た時のみ
 // 再構築する。連続フレームで同じノード/セルの選択や検索ハイライトを描画する典型ケースで
-// UTF-8→UTF-16 decode を 1 回に抑える。data ポインタの寿命が切れる可能性がある場合は
-// Reset() を明示的に呼んでキャッシュを破棄すること。
+// UTF-8→UTF-16 decode を 1 回に抑える。
+//
+// ドキュメント差し替え等で内部 string_view の data ポインタが dangling 化しうる場合は
+// Reset() か ResetIfBufferChanged() で明示的に無効化すること (PMR pool が解放後アドレスを
+// 再利用するため、ノード配列等の (data ポインタ + size) を別途追跡する用途で
+// ResetIfBufferChanged() を提供している)。
 class WideViewCache {
 public:
     const WideViewForDWrite& Get(std::string_view text)
@@ -79,9 +84,25 @@ public:
         text_ = {};
     }
 
+    // 任意の連続バッファ (典型的にはノード配列) の identity が前回呼び出しから
+    // 変わっていれば Reset() し、識別子を更新する。同一なら何もしない。
+    template <typename T>
+    void ResetIfBufferChanged(const T* data, size_t size) noexcept
+    {
+        const auto* p = static_cast<const void*>(data);
+        if (p == owner_data_ && size == owner_size_) {
+            return;
+        }
+        Reset();
+        owner_data_ = p;
+        owner_size_ = size;
+    }
+
 private:
     std::string_view text_;
     std::optional<WideViewForDWrite> wv_;
+    const void* owner_data_ = nullptr;
+    size_t owner_size_ = 0;
 };
 
 // IDWriteFactory::CreateTextLayout の境界ラッパー。
