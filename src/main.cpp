@@ -7,7 +7,9 @@
 #include <shellapi.h>
 #include <shellscalingapi.h>
 #include <commctrl.h>
+#include <filesystem>
 #include <memory>
+#include <system_error>
 
 namespace {
 
@@ -45,7 +47,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     // 起動時のドキュメント決定フロー:
     //   引数が有効なファイル  → そのファイルを開く
     //   引数なし              → 前回ファイル復元、無ければヘルプ
-    //   引数あり かつ無効     → 前回復元せず直接ヘルプ (ユーザの指定意図を尊重)
+    //   引数あり かつ無効     → 前回復元せず直接ヘルプ
     // unique_ptr で管理することで、window.Create 失敗の早期 return でも LocalFree される。
     int argc = 0;
     const std::unique_ptr<LPWSTR, LocalFreeDeleter> argv_owner(CommandLineToArgvW(GetCommandLineW(), &argc));
@@ -54,14 +56,27 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     const DWORD arg_attrs = arg_given ? GetFileAttributesW(argv[1]) : INVALID_FILE_ATTRIBUTES;
     const bool has_valid_file = arg_attrs != INVALID_FILE_ATTRIBUTES && !(arg_attrs & FILE_ATTRIBUTE_DIRECTORY);
 
+    // SessionService::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する。
+    SessionService session{ config };
+
     std::pmr::wstring preload_path;
     bool restore_scroll = false;
     if (has_valid_file) {
         preload_path.assign(argv[1]);
+        // 引数のパスが前回終了時のファイルと一致していたら同じくスクロール位置を復元する。
+        // 大文字小文字・スラッシュ違いを吸収するため filesystem::equivalent で比較する。
+        const auto last_path = session.LoadLastFilePath();
+        if (!last_path.empty()) {
+            std::error_code ec;
+            if (std::filesystem::equivalent(
+                    std::filesystem::path(preload_path),
+                    std::filesystem::path(last_path),
+                    ec)) {
+                restore_scroll = true;
+            }
+        }
     }
     else if (!arg_given) {
-        // SessionService::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する。
-        SessionService session{ config };
         preload_path = session.LoadLastFilePath();
         if (!preload_path.empty()) {
             restore_scroll = true;
@@ -80,6 +95,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
             window.StartPreloadAsync(std::move(preload_path));
         }
 
+        // App::Init 内の AttachOrApplyPreload が preload 完了時に同期で OnParseComplete を呼ぶ
+        // パスがあるため、Create の前に復元情報をセットしておく。
+        if (restore_scroll) {
+            window.RestoreScrollPosition();
+        }
+
         {
             MENDO_PROFILE("wWinMain - Create Window");
             if (!window.Create(hInstance, nCmdShow)) {
@@ -88,9 +109,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
             }
         }
 
-        if (restore_scroll) {
-            window.RestoreScrollPosition();
-        }
         if (!has_preload) {
             wchar_t cwd[MAX_PATH];
             if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
