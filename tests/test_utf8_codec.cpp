@@ -5,6 +5,7 @@ namespace {
 
 using utf8_codec::DecodeAt;
 using utf8_codec::DecodePrev;
+using utf8_codec::EncodeCp;
 using utf8_codec::SnapToCpStart;
 using utf8_codec::kReplacement;
 
@@ -185,6 +186,83 @@ TEST(Utf8Codec, DecodePrevWalksBack)
     const auto r = DecodePrev(s, 4);
     EXPECT_EQ(r.cp, 0x3042u);
     EXPECT_EQ(r.len, 3u);
+}
+
+// ---- EncodeCp: 正常系 ----
+
+// EncodeDecodeRoundTrip は encoder と decoder の双方に同種の bit-shift バグがあると
+// 検出できない。bit pattern を直接検証するスモークとして 1 件だけ残す。
+TEST(Utf8Codec, EncodeFourByteBitPattern)
+{
+    // U+1F600 (😀) = F0 9F 98 80
+    char buf[4]{};
+    const uint32_t len = EncodeCp(0x1F600u, buf);
+    EXPECT_EQ(len, 4u);
+    EXPECT_EQ(static_cast<unsigned char>(buf[0]), 0xF0u);
+    EXPECT_EQ(static_cast<unsigned char>(buf[1]), 0x9Fu);
+    EXPECT_EQ(static_cast<unsigned char>(buf[2]), 0x98u);
+    EXPECT_EQ(static_cast<unsigned char>(buf[3]), 0x80u);
+}
+
+TEST(Utf8Codec, EncodeBoundaries)
+{
+    // 各 byte 長の境界値: U+0000 / U+007F / U+0080 / U+07FF / U+0800 / U+FFFF / U+10000 / U+10FFFF
+    char buf[4]{};
+    EXPECT_EQ(EncodeCp(0x0000u, buf), 1u);
+    EXPECT_EQ(EncodeCp(0x007Fu, buf), 1u);
+    EXPECT_EQ(EncodeCp(0x0080u, buf), 2u);
+    EXPECT_EQ(EncodeCp(0x07FFu, buf), 2u);
+    EXPECT_EQ(EncodeCp(0x0800u, buf), 3u);
+    EXPECT_EQ(EncodeCp(0xFFFFu, buf), 3u);
+    EXPECT_EQ(EncodeCp(0x10000u, buf), 4u);
+    EXPECT_EQ(EncodeCp(0x10FFFFu, buf), 4u);
+}
+
+// ---- EncodeCp: 不正系 (戻り値 0、buf 不変) ----
+
+// 部分書き込み (途中の byte だけ更新) を将来の refactor で混入させないため、
+// sentinel で全 byte 不変を確認する保険。
+void ExpectEncodeRejectsAndPreservesBuf(uint32_t cp)
+{
+    constexpr char kSentinel[4] = { '\x5A', '\x5A', '\x5A', '\x5A' };
+    char buf[4] = { kSentinel[0], kSentinel[1], kSentinel[2], kSentinel[3] };
+    EXPECT_EQ(EncodeCp(cp, buf), 0u) << "cp=" << cp;
+    for (size_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(buf[i], kSentinel[i]) << "cp=" << cp << ", i=" << i;
+    }
+}
+
+TEST(Utf8Codec, EncodeRejectsSurrogateLow)
+{
+    ExpectEncodeRejectsAndPreservesBuf(0xD800u);
+}
+
+TEST(Utf8Codec, EncodeRejectsSurrogateHigh)
+{
+    ExpectEncodeRejectsAndPreservesBuf(0xDFFFu);
+}
+
+TEST(Utf8Codec, EncodeRejectsAboveUnicodeRange)
+{
+    ExpectEncodeRejectsAndPreservesBuf(0x110000u);
+    ExpectEncodeRejectsAndPreservesBuf(0xFFFFFFFFu);
+}
+
+// ---- EncodeCp <-> DecodeAt 往復 ----
+
+TEST(Utf8Codec, EncodeDecodeRoundTrip)
+{
+    // 各 byte 長の代表値で encode → decode が元の cp に戻ることを確認。
+    constexpr uint32_t samples[] = { 0x0000u, 0x0041u, 0x007Fu, 0x0080u, 0x00A9u, 0x07FFu,
+                                     0x0800u, 0x3042u, 0xFFFFu, 0x10000u, 0x1F600u, 0x10FFFFu };
+    for (const uint32_t cp : samples) {
+        char buf[4]{};
+        const uint32_t len = EncodeCp(cp, buf);
+        ASSERT_GT(len, 0u) << "cp=" << cp;
+        const auto r = DecodeAt(std::string_view{ buf, len }, 0);
+        EXPECT_EQ(r.cp, cp) << "cp=" << cp;
+        EXPECT_EQ(r.len, len) << "cp=" << cp;
+    }
 }
 
 } // namespace

@@ -118,4 +118,37 @@ constexpr DecodedCp DecodePrev(SV text, uint32_t pos) noexcept
     return DecodeAt(text, SnapToCpStart(text, pos - 1));
 }
 
+// cp を UTF-8 で buf に書き込み、書き込んだ byte 数 (1..4) を返す。
+// 不正な scalar 値 (cp > 0x10FFFF / サロゲート領域 0xD800..0xDFFF) は 0 を返し、buf は触らない。
+// 呼び出し側は戻り値 0 を「不正入力」として扱うこと。
+constexpr uint32_t EncodeCp(uint32_t cp, char buf[4]) noexcept
+{
+    if (cp >= 0xD800u && cp <= 0xDFFFu) {
+        return 0;
+    }
+    if (cp < 0x80u) {
+        buf[0] = static_cast<char>(cp);
+        return 1;
+    }
+    if (cp < 0x800u) {
+        buf[0] = static_cast<char>(0xC0u | (cp >> 6));
+        buf[1] = static_cast<char>(0x80u | (cp & 0x3Fu));
+        return 2;
+    }
+    if (cp < 0x10000u) {
+        buf[0] = static_cast<char>(0xE0u | (cp >> 12));
+        buf[1] = static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu));
+        buf[2] = static_cast<char>(0x80u | (cp & 0x3Fu));
+        return 3;
+    }
+    if (cp <= 0x10FFFFu) {
+        buf[0] = static_cast<char>(0xF0u | (cp >> 18));
+        buf[1] = static_cast<char>(0x80u | ((cp >> 12) & 0x3Fu));
+        buf[2] = static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu));
+        buf[3] = static_cast<char>(0x80u | (cp & 0x3Fu));
+        return 4;
+    }
+    return 0;
+}
+
 } // namespace utf8_codec
