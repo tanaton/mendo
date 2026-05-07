@@ -22,43 +22,35 @@ namespace {
 
 // ダブルクリック選択時の文字種カテゴリ。同じカテゴリが連続する code point を 1 単語として扱う。
 enum class CharCategory : uint8_t {
-    AsciiWord,      // [A-Za-z0-9_]
-    Hiragana,       // U+3041–U+309F (繰り返し記号 ゝゞ 含む)
-    Katakana,       // U+30A0–U+30FF (長音 ー 含む) + U+31F0–U+31FF + 半角ｶﾅ U+FF65–U+FF9F
-    Han,            // CJK 統合漢字 + 互換漢字 + 拡張 + 「々〆〇」
-    FullwidthAlnum, // 全角英数 (FF10–FF19, FF21–FF3A, FF41–FF5A)
-    Other,          // 上記以外。ダブルクリックでは選択しない。
+    AsciiWord,
+    Hiragana,
+    Katakana,
+    Han,
+    FullwidthAlnum,
+    Other,
 };
 
 constexpr CharCategory CategorizeCodePoint(uint32_t cp) noexcept
 {
     if (cp < 0x80) {
-        if ((cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') || (cp >= '0' && cp <= '9') || cp == '_') {
-            return CharCategory::AsciiWord;
-        }
-        return CharCategory::Other;
+        return ascii_util::IsAsciiWordChar(static_cast<char>(cp)) ? CharCategory::AsciiWord : CharCategory::Other;
     }
-    // CJK 漢字繰り返し記号 (々〆〇)。ひらがな/カタカナより先に判定。
+    // 漢字繰り返し記号 (々〆〇) はひらがな/カタカナ範囲より先に判定。
     if (cp == 0x3005 || cp == 0x3006 || cp == 0x3007) {
         return CharCategory::Han;
     }
-    // ひらがな (U+3041–U+309F)
     if (cp >= 0x3041 && cp <= 0x309F) {
         return CharCategory::Hiragana;
     }
-    // カタカナ + カタカナ拡張 + 半角ｶﾅ
     if ((cp >= 0x30A0 && cp <= 0x30FF) || (cp >= 0x31F0 && cp <= 0x31FF) || (cp >= 0xFF65 && cp <= 0xFF9F)) {
         return CharCategory::Katakana;
     }
-    // CJK 統合漢字 + 拡張 A + 互換漢字
     if ((cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0xF900 && cp <= 0xFAFF)) {
         return CharCategory::Han;
     }
-    // CJK 拡張 B–F (BMP 外、サロゲートペアで表現)
     if (cp >= 0x20000 && cp <= 0x2FFFF) {
         return CharCategory::Han;
     }
-    // 全角英数
     if ((cp >= 0xFF10 && cp <= 0xFF19) || (cp >= 0xFF21 && cp <= 0xFF3A) || (cp >= 0xFF41 && cp <= 0xFF5A)) {
         return CharCategory::FullwidthAlnum;
     }
