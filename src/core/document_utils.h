@@ -14,9 +14,12 @@ struct WordBoundary {
     bool found = false;
 };
 
-// テキスト内の指定位置周辺の単語境界を検索する。
-// 「単語文字」は英数字またはアンダースコア。
-// 位置が単語文字上にあれば {start, end, true} を返し、そうでなければ {0, 0, false} を返す。
+// テキスト内の指定位置周辺の「同一文字種カテゴリの連続区間」を検索する。
+// カテゴリ: ASCII単語(英数+_) / ひらがな / カタカナ / 漢字 / 全角英数 / その他。
+// 「その他」(空白・記号など) のときは {0, 0, false} を返す。
+// 単語単位の形態素解析は行わない (UAX#29 簡易版)。
+// pos の単位は UTF-8 版がバイト、UTF-16 版がコードユニット。
+// pos がマルチバイト/サロゲートの途中を指した場合はその code point の先頭へスナップする。
 WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept;
 WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept;
 
