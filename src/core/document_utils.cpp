@@ -135,28 +135,11 @@ constexpr DecodedCp DecodeAt(std::wstring_view text, uint32_t pos) noexcept
     return { c, 1 };
 }
 
-// UTF-8: pos の直前の code point を decode。pos > 0 が前提。
-constexpr DecodedCp DecodePrev(std::string_view text, uint32_t pos) noexcept
+// pos の直前の code point を decode。pos > 0 が前提。
+template <typename SV>
+constexpr DecodedCp DecodePrev(SV text, uint32_t pos) noexcept
 {
-    uint32_t start = pos - 1;
-    while (start > 0 && (static_cast<unsigned char>(text[start]) & 0xC0) == 0x80) {
-        --start;
-    }
-    return DecodeAt(text, start);
-}
-
-// UTF-16: pos の直前の code point を decode。pos > 0 が前提。
-constexpr DecodedCp DecodePrev(std::wstring_view text, uint32_t pos) noexcept
-{
-    uint32_t start = pos - 1;
-    if (start > 0) {
-        const auto c = static_cast<uint16_t>(text[start]);
-        const auto p = static_cast<uint16_t>(text[start - 1]);
-        if (c >= 0xDC00 && c <= 0xDFFF && p >= 0xD800 && p <= 0xDBFF) {
-            --start;
-        }
-    }
-    return DecodeAt(text, start);
+    return DecodeAt(text, SnapToCpStart(text, pos - 1));
 }
 
 template <typename SV>
