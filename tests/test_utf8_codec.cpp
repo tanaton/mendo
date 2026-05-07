@@ -190,36 +190,9 @@ TEST(Utf8Codec, DecodePrevWalksBack)
 
 // ---- EncodeCp: 正常系 ----
 
-TEST(Utf8Codec, EncodeOneByteAscii)
-{
-    char buf[4]{};
-    const uint32_t len = EncodeCp(0x41u, buf);
-    EXPECT_EQ(len, 1u);
-    EXPECT_EQ(static_cast<unsigned char>(buf[0]), 0x41u);
-}
-
-TEST(Utf8Codec, EncodeTwoByte)
-{
-    // U+00A9 (©) = C2 A9
-    char buf[4]{};
-    const uint32_t len = EncodeCp(0x00A9u, buf);
-    EXPECT_EQ(len, 2u);
-    EXPECT_EQ(static_cast<unsigned char>(buf[0]), 0xC2u);
-    EXPECT_EQ(static_cast<unsigned char>(buf[1]), 0xA9u);
-}
-
-TEST(Utf8Codec, EncodeThreeByte)
-{
-    // U+3042 (あ) = E3 81 82
-    char buf[4]{};
-    const uint32_t len = EncodeCp(0x3042u, buf);
-    EXPECT_EQ(len, 3u);
-    EXPECT_EQ(static_cast<unsigned char>(buf[0]), 0xE3u);
-    EXPECT_EQ(static_cast<unsigned char>(buf[1]), 0x81u);
-    EXPECT_EQ(static_cast<unsigned char>(buf[2]), 0x82u);
-}
-
-TEST(Utf8Codec, EncodeFourByte)
+// EncodeDecodeRoundTrip は encoder と decoder の双方に同種の bit-shift バグがあると
+// 検出できない。bit pattern を直接検証するスモークとして 1 件だけ残す。
+TEST(Utf8Codec, EncodeFourByteBitPattern)
 {
     // U+1F600 (😀) = F0 9F 98 80
     char buf[4]{};
@@ -247,8 +220,8 @@ TEST(Utf8Codec, EncodeBoundaries)
 
 // ---- EncodeCp: 不正系 (戻り値 0、buf 不変) ----
 
-// 不正入力で buf が一切書き換わらないことを sentinel で確認するヘルパ。
-// 部分書き込み (途中の byte だけ更新) を将来の refactor で混入させない保険。
+// 部分書き込み (途中の byte だけ更新) を将来の refactor で混入させないため、
+// sentinel で全 byte 不変を確認する保険。
 void ExpectEncodeRejectsAndPreservesBuf(uint32_t cp)
 {
     constexpr char kSentinel[4] = { '\x5A', '\x5A', '\x5A', '\x5A' };
