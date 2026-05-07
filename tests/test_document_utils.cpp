@@ -1178,6 +1178,45 @@ TEST(FindWordBoundariesW, HanAndHiraganaBoundary)
     EXPECT_EQ(result.end, 5u);
 }
 
+// ---- BMP 外文字 (4byte UTF-8 / サロゲートペア) ----
+
+TEST(FindWordBoundaries, HanInSupplementaryPlane)
+{
+    // 「𠮷田」: 𠮷 = U+20BB7 (UTF-8 4byte = F0 A0 AE B7), 田 = U+7530 (3byte)。
+    // 両方 Han カテゴリで連続して選択されるはず。
+    auto result = FindWordBoundaries("𠮷田", 0);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 7u);
+}
+
+TEST(FindWordBoundaries, PosOnUtf8FourByteContinuation)
+{
+    // 「𠮷田」の 4byte シーケンス内側 (pos=2) を指しても先頭にスナップ。
+    auto result = FindWordBoundaries("𠮷田", 2);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 7u);
+}
+
+TEST(FindWordBoundariesW, HanSurrogatePair)
+{
+    // L"𠮷田" = { 0xD842, 0xDFB7, 0x7530 }、長さ 3。
+    auto result = FindWordBoundaries(std::wstring_view{ L"𠮷田" }, 0);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 3u);
+}
+
+TEST(FindWordBoundariesW, PosOnLowSurrogate)
+{
+    // pos=1 (low surrogate) を指しても high surrogate にスナップして同じ結果。
+    auto result = FindWordBoundaries(std::wstring_view{ L"𠮷田" }, 1);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 3u);
+}
+
 // ---- ExtractFilename 追加テスト ----
 
 TEST(ExtractFilename, UncPath)

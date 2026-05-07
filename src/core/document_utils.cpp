@@ -112,7 +112,11 @@ constexpr DecodedCp DecodeAt(std::string_view text, uint32_t pos) noexcept
         return { 0xFFFD, 1 };
     }
     for (uint32_t i = 1; i < len; ++i) {
-        cp = (cp << 6) | (static_cast<unsigned char>(text[pos + i]) & 0x3F);
+        const auto b = static_cast<unsigned char>(text[pos + i]);
+        if ((b & 0xC0) != 0x80) {
+            return { 0xFFFD, 1 };
+        }
+        cp = (cp << 6) | (b & 0x3F);
     }
     return { cp, len };
 }
