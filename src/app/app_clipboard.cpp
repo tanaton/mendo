@@ -33,11 +33,7 @@ void App::OnLButtonDblClk(int px, int py)
         return;
     }
     const auto& node = state_.document.doc.GetNodes()[hit.node_index];
-    // テーブルノードは owned_text_ が空で、HitTestTable が concat_text 内のグローバル
-    // offset を text_pos として返す。Node::GetText() ではなく concat_text を見る。
-    const std::string_view text = (node.type == NodeType::Table && node.table_data() != nullptr)
-        ? std::string_view{ node.table_data()->concat_text }
-        : node.GetText();
+    const std::string_view text = node.LinearizedText();
     if (text.empty()) {
         return;
     }
