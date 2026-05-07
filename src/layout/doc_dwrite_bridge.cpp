@@ -1,5 +1,6 @@
 #include "doc_dwrite_bridge.h"
 #include "memory_resource.h"
+#include "utf8_codec.h"
 #include <algorithm>
 #include <limits>
 
@@ -30,54 +31,30 @@ WideViewForDWrite::WideViewForDWrite(std::string_view text)
     scratch_.reserve(text.size());          // UTF-16 code unit 数 <= UTF-8 byte 数
     utf16_offsets_.resize(text.size() + 1); // 番兵込み
 
-    const auto* const begin = reinterpret_cast<const unsigned char*>(text.data());
-    const auto* const end = begin + text.size();
-    auto* it = begin;
+    const size_t n = text.size();
     uint32_t wide_pos = 0;
-    while (it != end) {
-        const size_t byte_pos = static_cast<size_t>(it - begin);
-        utf16_offsets_[byte_pos] = wide_pos;
-        const unsigned char b0 = *it;
-        if (b0 < 0x80) {
-            scratch_.push_back(static_cast<wchar_t>(b0));
-            ++wide_pos;
-            ++it;
+    size_t byte_pos = 0;
+    while (byte_pos < n) {
+        const auto decoded = utf8_codec::DecodeAt(text, static_cast<uint32_t>(byte_pos));
+        // leading + continuation すべての byte 位置に当該文字の wide_pos を埋める。
+        for (uint32_t i = 0; i < decoded.len; ++i) {
+            utf16_offsets_[byte_pos + i] = wide_pos;
         }
-        else if ((b0 & 0xE0) == 0xC0 && it + 1 < end) {
-            const uint32_t cp = ((b0 & 0x1Fu) << 6) | (it[1] & 0x3Fu);
-            scratch_.push_back(static_cast<wchar_t>(cp));
-            utf16_offsets_[byte_pos + 1] = wide_pos;
+        if (decoded.cp <= 0xFFFF) {
+            // ASCII / BMP / 不正バイト (U+FFFD) はいずれも 1 wide unit。
+            scratch_.push_back(static_cast<wchar_t>(decoded.cp));
             ++wide_pos;
-            it += 2;
-        }
-        else if ((b0 & 0xF0) == 0xE0 && it + 2 < end) {
-            const uint32_t cp = ((b0 & 0x0Fu) << 12) | ((it[1] & 0x3Fu) << 6) | (it[2] & 0x3Fu);
-            scratch_.push_back(static_cast<wchar_t>(cp));
-            utf16_offsets_[byte_pos + 1] = wide_pos;
-            utf16_offsets_[byte_pos + 2] = wide_pos;
-            ++wide_pos;
-            it += 3;
-        }
-        else if ((b0 & 0xF8) == 0xF0 && it + 3 < end) {
-            const uint32_t cp = ((b0 & 0x07u) << 18) | ((it[1] & 0x3Fu) << 12) | ((it[2] & 0x3Fu) << 6) | (it[3] & 0x3Fu);
-            // 補助面: UTF-16 サロゲートペア (2 wide units)
-            const uint32_t adj = cp - 0x10000u;
-            scratch_.push_back(static_cast<wchar_t>(0xD800u + (adj >> 10)));
-            scratch_.push_back(static_cast<wchar_t>(0xDC00u + (adj & 0x3FFu)));
-            utf16_offsets_[byte_pos + 1] = wide_pos;
-            utf16_offsets_[byte_pos + 2] = wide_pos;
-            utf16_offsets_[byte_pos + 3] = wide_pos;
-            wide_pos += 2;
-            it += 4;
         }
         else {
-            // 不正先頭バイト or truncated。プレースホルダ U+FFFD 1 wide unit。
-            scratch_.push_back(L'\xFFFD');
-            ++wide_pos;
-            ++it;
+            // 補助面: UTF-16 サロゲートペア (2 wide units)。
+            const uint32_t adj = decoded.cp - 0x10000u;
+            scratch_.push_back(static_cast<wchar_t>(0xD800u + (adj >> 10)));
+            scratch_.push_back(static_cast<wchar_t>(0xDC00u + (adj & 0x3FFu)));
+            wide_pos += 2;
         }
+        byte_pos += decoded.len;
     }
-    utf16_offsets_[text.size()] = wide_pos;
+    utf16_offsets_[n] = wide_pos;
     view_ = scratch_;
 }
 
