@@ -231,6 +231,17 @@ struct Node {
         return owned_text_;
     }
 
+    // テーブルは owned_text_ が空で線形化テキストを table_->concat_text に保持する。
+    // HitTestTable / OnLButtonDblClk が返す text_pos も concat_text 内のグローバル offset
+    // 体系で揃っているため、選択範囲を前提とする抽出側はこちらを使う。
+    constexpr std::string_view LinearizedText() const noexcept
+    {
+        if (type == NodeType::Table && table_) {
+            return table_->concat_text;
+        }
+        return GetText();
+    }
+
     void SetText(const char* s)
     {
         SetText(std::string_view{ s });

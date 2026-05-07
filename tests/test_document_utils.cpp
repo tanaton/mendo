@@ -792,6 +792,53 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode)
     EXPECT_EQ(result, "A\tB");
 }
 
+// issue #200: parser 経由で生成されたテーブル（owned_text_ が空で table_data->concat_text に
+// 線形化テキストが入る）に対し、selection が concat_text 内 offset を指しているとき、
+// ExtractSelectedText がセル内テキストを返すこと。
+TEST(ExtractSelectedText, ParsedTableCellWordSelection)
+{
+    auto nodes = ParseMarkdown(
+                     "| Name | Value |\n"
+                     "|------|-------|\n"
+                     "| foo  | bar   |")
+                     .nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_NE(tbl, nullptr);
+
+    const std::string_view ct = tbl->concat_text;
+    const auto pos = ct.find("foo");
+    ASSERT_NE(pos, std::string_view::npos);
+
+    auto sel = TextSelection::MakeOrdered(0, static_cast<uint32_t>(pos),
+                                          0, static_cast<uint32_t>(pos + 3));
+    EXPECT_EQ(ExtractSelectedText(nodes, sel), "foo");
+}
+
+TEST(ExtractSelectedText, ParsedTableFullSelectionPreservesSeparators)
+{
+    auto nodes = ParseMarkdown(
+                     "| A | B |\n"
+                     "|---|---|\n"
+                     "| 1 | 2 |")
+                     .nodes;
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_NE(tbl, nullptr);
+
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(tbl->concat_text.size()));
+    auto result = ExtractSelectedText(nodes, sel);
+    EXPECT_FALSE(result.empty());
+    // セル区切り '\t' / 行区切り '\n' を含み、各セルテキストが含まれること。
+    EXPECT_NE(result.find('\t'), std::string::npos);
+    EXPECT_NE(result.find('\n'), std::string::npos);
+    EXPECT_NE(result.find("A"), std::string::npos);
+    EXPECT_NE(result.find("B"), std::string::npos);
+    EXPECT_NE(result.find("1"), std::string::npos);
+    EXPECT_NE(result.find("2"), std::string::npos);
+}
+
 TEST(ExtractSelectedText, StartNodeOutOfRange)
 {
     std::pmr::vector<Node> nodes;

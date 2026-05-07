@@ -22,7 +22,7 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
         if (i < 0 || i >= static_cast<int>(nodes.size())) {
             continue;
         }
-        const auto& text = nodes[i].GetText();
+        const std::string_view text = nodes[i].LinearizedText();
 
         uint32_t start = 0;
         uint32_t end = static_cast<uint32_t>(text.size());
