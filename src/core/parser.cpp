@@ -5,6 +5,7 @@
 #include "memory_resource.h"
 #include "profiler.h"
 #include "utility.h"
+#include "utf8_codec.h"
 #include "md4c.h"
 #include <cstring>
 #include <functional>
@@ -1156,32 +1157,15 @@ std::optional<std::string_view> ResolveHtmlEntity(std::string_view entity, char 
         // 全桁消費 (stop == digits + digit_len) かつ 1 桁以上 (stop > digits) のみ受理。
         // "&#65x;" のように途中で停止した入力は不正として弾く。
         const bool fully_consumed = (stop == digits + digit_len) && (stop > digits);
-        // サロゲート範囲 (U+D800-U+DFFF) は不正コードポイント、また 0/範囲外も不正。
-        if (!fully_consumed || codepoint == 0 || codepoint > 0x10FFFF ||
-            (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+        if (!fully_consumed || codepoint == 0) {
             return std::nullopt;
         }
-        // UTF-8: code point を 1〜4 byte に符号化。
-        if (codepoint < 0x80) {
-            buffer[0] = static_cast<char>(codepoint);
-            return std::string_view{ buffer, 1 };
+        // 範囲外/サロゲート判定は EncodeCp 内に集約 (戻り値 0 で不正)。
+        const uint32_t len = utf8_codec::EncodeCp(static_cast<uint32_t>(codepoint), buffer);
+        if (len == 0) {
+            return std::nullopt;
         }
-        if (codepoint < 0x800) {
-            buffer[0] = static_cast<char>(0xC0 | (codepoint >> 6));
-            buffer[1] = static_cast<char>(0x80 | (codepoint & 0x3F));
-            return std::string_view{ buffer, 2 };
-        }
-        if (codepoint < 0x10000) {
-            buffer[0] = static_cast<char>(0xE0 | (codepoint >> 12));
-            buffer[1] = static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
-            buffer[2] = static_cast<char>(0x80 | (codepoint & 0x3F));
-            return std::string_view{ buffer, 3 };
-        }
-        buffer[0] = static_cast<char>(0xF0 | (codepoint >> 18));
-        buffer[1] = static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F));
-        buffer[2] = static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
-        buffer[3] = static_cast<char>(0x80 | (codepoint & 0x3F));
-        return std::string_view{ buffer, 4 };
+        return std::string_view{ buffer, len };
     }
 
     return std::nullopt;
