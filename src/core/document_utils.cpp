@@ -1,5 +1,6 @@
 #include "document_utils.h"
 #include "ascii_util.h"
+#include "utf8_codec.h"
 #include <array>
 #include <algorithm>
 #include <cstdint>
@@ -57,91 +58,6 @@ constexpr CharCategory CategorizeCodePoint(uint32_t cp) noexcept
     return CharCategory::Other;
 }
 
-struct DecodedCp {
-    uint32_t cp;
-    uint32_t len;
-};
-
-// UTF-8: pos がマルチバイト継続バイトを指したら先頭バイトまで戻す。
-constexpr uint32_t SnapToCpStart(std::string_view text, uint32_t pos) noexcept
-{
-    while (pos > 0 && (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80) {
-        --pos;
-    }
-    return pos;
-}
-
-// UTF-16: pos が low surrogate を指したら直前の high surrogate まで戻す。
-constexpr uint32_t SnapToCpStart(std::wstring_view text, uint32_t pos) noexcept
-{
-    if (pos > 0) {
-        const auto c = static_cast<uint16_t>(text[pos]);
-        const auto p = static_cast<uint16_t>(text[pos - 1]);
-        if (c >= 0xDC00 && c <= 0xDFFF && p >= 0xD800 && p <= 0xDBFF) {
-            return pos - 1;
-        }
-    }
-    return pos;
-}
-
-// UTF-8 を pos から 1 code point decode。不正バイトは U+FFFD として 1 byte 進める。
-constexpr DecodedCp DecodeAt(std::string_view text, uint32_t pos) noexcept
-{
-    const auto first = static_cast<unsigned char>(text[pos]);
-    if (first < 0x80) {
-        return { first, 1 };
-    }
-    uint32_t cp = 0;
-    uint32_t len = 0;
-    if ((first & 0xE0) == 0xC0) {
-        cp = first & 0x1F;
-        len = 2;
-    }
-    else if ((first & 0xF0) == 0xE0) {
-        cp = first & 0x0F;
-        len = 3;
-    }
-    else if ((first & 0xF8) == 0xF0) {
-        cp = first & 0x07;
-        len = 4;
-    }
-    else {
-        return { 0xFFFD, 1 };
-    }
-    if (static_cast<size_t>(pos) + len > text.size()) {
-        return { 0xFFFD, 1 };
-    }
-    for (uint32_t i = 1; i < len; ++i) {
-        const auto b = static_cast<unsigned char>(text[pos + i]);
-        if ((b & 0xC0) != 0x80) {
-            return { 0xFFFD, 1 };
-        }
-        cp = (cp << 6) | (b & 0x3F);
-    }
-    return { cp, len };
-}
-
-// UTF-16 を pos から 1 code point decode。サロゲートペアを考慮。
-constexpr DecodedCp DecodeAt(std::wstring_view text, uint32_t pos) noexcept
-{
-    const auto c = static_cast<uint16_t>(text[pos]);
-    if (c >= 0xD800 && c <= 0xDBFF && static_cast<size_t>(pos) + 1 < text.size()) {
-        const auto c2 = static_cast<uint16_t>(text[pos + 1]);
-        if (c2 >= 0xDC00 && c2 <= 0xDFFF) {
-            const uint32_t cp = 0x10000u + ((static_cast<uint32_t>(c) - 0xD800u) << 10) + (static_cast<uint32_t>(c2) - 0xDC00u);
-            return { cp, 2 };
-        }
-    }
-    return { c, 1 };
-}
-
-// pos の直前の code point を decode。pos > 0 が前提。
-template <typename SV>
-constexpr DecodedCp DecodePrev(SV text, uint32_t pos) noexcept
-{
-    return DecodeAt(text, SnapToCpStart(text, pos - 1));
-}
-
 template <typename SV>
 WordBoundary FindWordBoundariesImpl(SV text, uint32_t pos) noexcept
 {
@@ -152,9 +68,9 @@ WordBoundary FindWordBoundariesImpl(SV text, uint32_t pos) noexcept
     if (pos >= text.size()) {
         pos = static_cast<uint32_t>(text.size()) - 1;
     }
-    pos = SnapToCpStart(text, pos);
+    pos = utf8_codec::SnapToCpStart(text, pos);
 
-    const auto here = DecodeAt(text, pos);
+    const auto here = utf8_codec::DecodeAt(text, pos);
     const auto cat = CategorizeCodePoint(here.cp);
     if (cat == CharCategory::Other) {
         return result;
@@ -162,7 +78,7 @@ WordBoundary FindWordBoundariesImpl(SV text, uint32_t pos) noexcept
 
     uint32_t start = pos;
     while (start > 0) {
-        const auto prev = DecodePrev(text, start);
+        const auto prev = utf8_codec::DecodePrev(text, start);
         if (CategorizeCodePoint(prev.cp) != cat) {
             break;
         }
@@ -171,7 +87,7 @@ WordBoundary FindWordBoundariesImpl(SV text, uint32_t pos) noexcept
 
     uint32_t end = pos + here.len;
     while (end < text.size()) {
-        const auto next = DecodeAt(text, end);
+        const auto next = utf8_codec::DecodeAt(text, end);
         if (CategorizeCodePoint(next.cp) != cat) {
             break;
         }
@@ -269,10 +185,10 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug)
     // 出力は入力サイズ以下で確定のため一括確保して書き出す。
     slug.resize_and_overwrite(text.size(), [text](char* buf, size_t /*count*/) noexcept -> size_t {
         char* dst = buf;
-        const char* it = text.data();
-        const char* const end = it + text.size();
-        while (it != end) {
-            const auto cu = static_cast<uint32_t>(static_cast<std::make_unsigned_t<char>>(*it));
+        const size_t n = text.size();
+        size_t pos = 0;
+        while (pos < n) {
+            const auto cu = static_cast<uint32_t>(static_cast<unsigned char>(text[pos]));
             if (cu < 0x80) {
                 // ASCII ファストパス: 1 回の table lookup で分岐を絞る。
                 switch (kAsciiSlugTable[cu]) {
@@ -290,44 +206,18 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug)
                 default:
                     std::unreachable();
                 }
-                ++it;
+                ++pos;
                 continue;
             }
-            // UTF-8 マルチバイトを decode → code point に対する CJK 判定。
-            // 判定が「保持」なら元の UTF-8 byte 列をそのままコピー。
-            const unsigned char first = static_cast<unsigned char>(cu);
-            uint32_t cp = 0;
-            size_t len = 0;
-            if ((first & 0xE0) == 0xC0) {
-                cp = first & 0x1F;
-                len = 2;
-            }
-            else if ((first & 0xF0) == 0xE0) {
-                cp = first & 0x0F;
-                len = 3;
-            }
-            else if ((first & 0xF8) == 0xF0) {
-                cp = first & 0x07;
-                len = 4;
-            }
-            else {
-                // 不正先頭バイト (continuation 等) はスキップ。
-                ++it;
-                continue;
-            }
-            if (static_cast<size_t>(end - it) < len) {
-                // truncated。残りスキップ。
-                break;
-            }
-            for (size_t i = 1; i < len; ++i) {
-                cp = (cp << 6) | (static_cast<unsigned char>(it[i]) & 0x3F);
-            }
-            if (cp >= 0x3000 && !IsAnchorSkippableSymbol(cp)) {
-                for (size_t i = 0; i < len; ++i) {
-                    *dst++ = it[i];
+            const auto decoded = utf8_codec::DecodeAt(text, static_cast<uint32_t>(pos));
+            // U+FFFD は不正/truncated バイト由来。アンカーには採用しない。
+            if (decoded.cp != utf8_codec::kReplacement &&
+                decoded.cp >= 0x3000 && !IsAnchorSkippableSymbol(decoded.cp)) {
+                for (uint32_t i = 0; i < decoded.len; ++i) {
+                    *dst++ = text[pos + i];
                 }
             }
-            it += len;
+            pos += decoded.len;
         }
         return static_cast<size_t>(dst - buf);
     });
