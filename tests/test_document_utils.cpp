@@ -662,12 +662,13 @@ TEST(FindWordBoundaries, PositionBeyondEnd)
     EXPECT_EQ(result.end, 5u);
 }
 
-TEST(FindWordBoundaries, NonAlphanumericAtPosition)
+TEST(FindWordBoundaries, KatakanaSequence)
 {
-    // CJK文字はIsCharAlphaNumericWで単語文字として扱われないため
-    // ダブルクリックでは選択されないべき
+    // カタカナ連続区間は同一カテゴリで一塊に選択される (UTF-8 で各 3 byte)。
     auto result = FindWordBoundaries("テスト test", 0);
-    EXPECT_FALSE(result.found);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 9u);
 }
 
 TEST(FindWordBoundaries, AsciiWordAfterCjk)
@@ -703,10 +704,13 @@ TEST(FindWordBoundariesW, AsciiWordAfterCjk)
     EXPECT_EQ(result.end, 8u);
 }
 
-TEST(FindWordBoundariesW, CjkNotSelected)
+TEST(FindWordBoundariesW, KatakanaSequence)
 {
+    // UTF-16 のカタカナ連続区間 (各 1 wchar_t)。
     auto result = FindWordBoundaries(std::wstring_view{ L"テスト" }, 0);
-    EXPECT_FALSE(result.found);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 3u);
 }
 
 // ============================================================
@@ -1080,6 +1084,98 @@ TEST(FindWordBoundaries, MixedPunctuationAndWords)
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.start, 1u);
     EXPECT_EQ(result.end, 6u);
+}
+
+// ---- FindWordBoundaries 文字種カテゴリ (UTF-8) ----
+
+TEST(FindWordBoundaries, HiraganaSequence)
+{
+    // 「これはテスト」で「これは」(ひらがな) の最初の文字をクリック
+    // ひらがな = 各 3 byte。「これは」= 9 byte、「テスト」は別カテゴリで止まる。
+    auto result = FindWordBoundaries("これはテスト", 0);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 9u);
+}
+
+TEST(FindWordBoundaries, HanSequence)
+{
+    // 「日本語」(漢字 3 文字, 各 3 byte = 9 byte)
+    auto result = FindWordBoundaries("日本語です", 3);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 9u);
+}
+
+TEST(FindWordBoundaries, HiraganaAfterHan)
+{
+    // 「日本語です」の「で」(offset 9) をクリック → 「です」(6 byte) が選択
+    auto result = FindWordBoundaries("日本語です", 9);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 9u);
+    EXPECT_EQ(result.end, 15u);
+}
+
+TEST(FindWordBoundaries, KatakanaWithLongVowel)
+{
+    // 「コーヒー」: 長音「ー」(U+30FC) はカタカナと同カテゴリ。各 3 byte = 12 byte。
+    auto result = FindWordBoundaries("コーヒー", 3);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 12u);
+}
+
+TEST(FindWordBoundaries, FullwidthAlnumSequence)
+{
+    // 全角「ＡＢＣ１２３」: U+FF21 U+FF22 U+FF23 U+FF11 U+FF12 U+FF13 (各 3 byte = 18 byte)
+    auto result = FindWordBoundaries("ＡＢＣ１２３", 6);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 18u);
+}
+
+TEST(FindWordBoundaries, PosOnUtf8ContinuationByte)
+{
+    // 「テスト」の中間バイト (例: 1) を指しても先頭バイトにスナップして同じ結果
+    auto result = FindWordBoundaries("テスト", 1);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 9u);
+}
+
+TEST(FindWordBoundaries, FullwidthSymbolNotSelected)
+{
+    // 全角句読点「、」(U+3001) は Other → 選択されない
+    auto result = FindWordBoundaries("、", 0);
+    EXPECT_FALSE(result.found);
+}
+
+TEST(FindWordBoundaries, HanRepetitionMark)
+{
+    // 「人々」: 「々」(U+3005) は Han として「人」(U+4EBA) と連続して選択される
+    auto result = FindWordBoundaries("人々", 0);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 6u);
+}
+
+// ---- FindWordBoundaries 文字種カテゴリ (UTF-16) ----
+
+TEST(FindWordBoundariesW, HiraganaSequence)
+{
+    auto result = FindWordBoundaries(std::wstring_view{ L"これはテスト" }, 0);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 0u);
+    EXPECT_EQ(result.end, 3u);
+}
+
+TEST(FindWordBoundariesW, HanAndHiraganaBoundary)
+{
+    // 「日本語です」 (UTF-16) で 「で」(offset 3) をクリック → 「です」が選択
+    auto result = FindWordBoundaries(std::wstring_view{ L"日本語です" }, 3);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.start, 3u);
+    EXPECT_EQ(result.end, 5u);
 }
 
 // ---- ExtractFilename 追加テスト ----
