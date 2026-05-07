@@ -245,25 +245,34 @@ TEST(Utf8Codec, EncodeBoundaries)
     EXPECT_EQ(EncodeCp(0x10FFFFu, buf), 4u);
 }
 
-// ---- EncodeCp: 不正系 (戻り値 0) ----
+// ---- EncodeCp: 不正系 (戻り値 0、buf 不変) ----
+
+// 不正入力で buf が一切書き換わらないことを sentinel で確認するヘルパ。
+// 部分書き込み (途中の byte だけ更新) を将来の refactor で混入させない保険。
+void ExpectEncodeRejectsAndPreservesBuf(uint32_t cp)
+{
+    constexpr char kSentinel[4] = { '\x5A', '\x5A', '\x5A', '\x5A' };
+    char buf[4] = { kSentinel[0], kSentinel[1], kSentinel[2], kSentinel[3] };
+    EXPECT_EQ(EncodeCp(cp, buf), 0u) << "cp=" << cp;
+    for (size_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(buf[i], kSentinel[i]) << "cp=" << cp << ", i=" << i;
+    }
+}
 
 TEST(Utf8Codec, EncodeRejectsSurrogateLow)
 {
-    char buf[4]{};
-    EXPECT_EQ(EncodeCp(0xD800u, buf), 0u);
+    ExpectEncodeRejectsAndPreservesBuf(0xD800u);
 }
 
 TEST(Utf8Codec, EncodeRejectsSurrogateHigh)
 {
-    char buf[4]{};
-    EXPECT_EQ(EncodeCp(0xDFFFu, buf), 0u);
+    ExpectEncodeRejectsAndPreservesBuf(0xDFFFu);
 }
 
 TEST(Utf8Codec, EncodeRejectsAboveUnicodeRange)
 {
-    char buf[4]{};
-    EXPECT_EQ(EncodeCp(0x110000u, buf), 0u);
-    EXPECT_EQ(EncodeCp(0xFFFFFFFFu, buf), 0u);
+    ExpectEncodeRejectsAndPreservesBuf(0x110000u);
+    ExpectEncodeRejectsAndPreservesBuf(0xFFFFFFFFu);
 }
 
 // ---- EncodeCp <-> DecodeAt 往復 ----

@@ -77,6 +77,15 @@ TEST(HtmlEntity, RejectsOutOfRange)
     EXPECT_EQ(Resolve("&#x7FFFFFFF;"), std::nullopt);
 }
 
+TEST(HtmlEntity, RejectsDigitOverflow)
+{
+    // 32 bit 整数の wrap (例: 4294967297 → 1) を桁数で先に弾く。
+    EXPECT_EQ(Resolve("&#4294967296;"), std::nullopt); // 2^32 (10 桁、wrap で 0)
+    EXPECT_EQ(Resolve("&#4294967297;"), std::nullopt); // 2^32 + 1 (10 桁、wrap で 1)
+    EXPECT_EQ(Resolve("&#x100000000;"), std::nullopt); // 2^32 (9 桁 hex、wrap で 0)
+    EXPECT_EQ(Resolve("&#x100000001;"), std::nullopt); // 2^32 + 1 (9 桁 hex、wrap で 1)
+}
+
 TEST(HtmlEntity, RejectsMalformed)
 {
     EXPECT_EQ(Resolve("&unknown;"), std::nullopt);
