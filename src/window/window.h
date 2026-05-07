@@ -22,7 +22,7 @@ public:
     void ShowDirectory(std::wstring_view dir_path);
     void StartPreloadAsync(std::pmr::wstring path);
 
-    // 前回セッションのスクロール位置を復元する（LoadMarkdownFileの前に呼ぶ）
+    // App::Init が AttachOrApplyPreload で同期復元するパスに備えて、Create より前に呼ぶ。
     void RestoreScrollPosition();
 
 private:
