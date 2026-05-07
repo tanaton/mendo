@@ -4,8 +4,9 @@
 #include <string_view>
 
 // UTF-8 / UTF-16 の単一 code point decode と境界スナップ。
-// 不正バイト・truncated・不正 continuation はすべて { kReplacement, 1 } を返し、
-// 呼び出し側のループが必ず 1 単位以上進むことを保証する。
+// 不正バイト・truncated・不正 continuation・overlong・サロゲート・U+10FFFF 超は
+// すべて { kReplacement, 1 } を返し、呼び出し側のループが必ず 1 単位以上進むことを保証する。
+// すべての関数は pos < text.size() を前提とする (引数チェックは呼び出し側責任)。
 namespace utf8_codec {
 
 inline constexpr uint32_t kReplacement = 0xFFFD;
@@ -70,18 +71,31 @@ constexpr DecodedCp DecodeAt(std::string_view text, uint32_t pos) noexcept
         }
         cp = (cp << 6) | (b & 0x3F);
     }
+    // 非スカラー値の排除:
+    //   overlong (より短い符号化が可能な値)、UTF-16 サロゲート領域、Unicode 範囲外。
+    //   これらをそのまま返すと UTF-16 化で孤立サロゲートを生むなど後続処理で破綻する。
+    constexpr uint32_t min_cp[] = { 0, 0, 0x80u, 0x800u, 0x10000u };
+    if (cp < min_cp[len] || cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
+        return { kReplacement, 1 };
+    }
     return { cp, len };
 }
 
 constexpr DecodedCp DecodeAt(std::wstring_view text, uint32_t pos) noexcept
 {
     const auto c = static_cast<uint16_t>(text[pos]);
-    if (c >= 0xD800 && c <= 0xDBFF && static_cast<size_t>(pos) + 1 < text.size()) {
-        const auto c2 = static_cast<uint16_t>(text[pos + 1]);
-        if (c2 >= 0xDC00 && c2 <= 0xDFFF) {
-            const uint32_t cp = 0x10000u + ((static_cast<uint32_t>(c) - 0xD800u) << 10) + (static_cast<uint32_t>(c2) - 0xDC00u);
-            return { cp, 2 };
+    if (c >= 0xD800 && c <= 0xDBFF) {
+        if (static_cast<size_t>(pos) + 1 < text.size()) {
+            const auto c2 = static_cast<uint16_t>(text[pos + 1]);
+            if (c2 >= 0xDC00 && c2 <= 0xDFFF) {
+                const uint32_t cp = 0x10000u + ((static_cast<uint32_t>(c) - 0xD800u) << 10) + (static_cast<uint32_t>(c2) - 0xDC00u);
+                return { cp, 2 };
+            }
         }
+        return { kReplacement, 1 }; // 孤立 high surrogate
+    }
+    if (c >= 0xDC00 && c <= 0xDFFF) {
+        return { kReplacement, 1 }; // 孤立 low surrogate
     }
     return { c, 1 };
 }

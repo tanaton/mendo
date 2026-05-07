@@ -71,6 +71,7 @@ add_executable(mendo_tests
     test_parallel_measure_stress.cpp
     test_view_stats.cpp
     test_doc_dwrite_bridge.cpp
+    test_utf8_codec.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE
