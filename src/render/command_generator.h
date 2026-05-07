@@ -232,11 +232,8 @@ private:
     int prev_sel_end_node_ = -1;
 
     // 選択ハイライトの UTF-8→UTF-16 decode を、本文ノードとテーブルセルそれぞれで
-    // 連続フレーム間に渡って再利用する。GenerateMdPane 冒頭でドキュメント切り替えや
-    // selection 解除を検知して Reset() し、string_view の dangling を防ぐ。
-    // PMR pool が解放後アドレスを再利用するため (data, size) の両方で同一性を見る。
+    // 連続フレーム間に渡って再利用する。GenerateMdPane 冒頭で ResetIfBufferChanged を
+    // 呼び、ドキュメント切り替え時に string_view の dangling を防ぐ。
     mendo::WideViewCache node_wv_;
     mendo::WideViewCache cell_wv_;
-    const Node* prev_nodes_data_ = nullptr;
-    size_t prev_nodes_size_ = 0;
 };

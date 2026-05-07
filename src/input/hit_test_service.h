@@ -178,10 +178,8 @@ private:
 
     // HitTestPoint の UTF-16→UTF-8 逆変換を同一ノード/セル間で再利用する
     // (ドラッグ選択時の連続呼び出しで decode を抑える)。
-    // ドキュメント切替で string_view が dangling 化するため HitTest 冒頭で Reset。
-    // PMR pool がアドレスを再利用するため (data, size) の両方で同一性を判定する。
+    // HitTest 冒頭で ResetIfBufferChanged を呼び、ドキュメント切替時の string_view
+    // dangling を防ぐ。
     mutable mendo::WideViewCache md_wv_cache_;
     mutable mendo::WideViewCache cell_wv_cache_;
-    mutable const Node* prev_nodes_data_ = nullptr;
-    mutable size_t prev_nodes_size_ = 0;
 };

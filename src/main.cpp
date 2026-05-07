@@ -95,8 +95,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
             window.StartPreloadAsync(std::move(preload_path));
         }
 
-        // App::Init 内の AttachOrApplyPreload が preload 完了時に同期で OnParseComplete を呼ぶ
-        // パスがあるため、Create の前に復元情報をセットしておく。
+        // preload が Create 内 (App::Init) で同期完了するパスに備え、復元情報を先にセット。
         if (restore_scroll) {
             window.RestoreScrollPosition();
         }
