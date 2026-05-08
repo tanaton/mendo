@@ -81,12 +81,10 @@ public:
     {
         show_window_cmd_calls.push_back(cmd);
     }
-    bool PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override
+    void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override
     {
         post_message_calls.emplace_back(msg, wp, lp);
-        return post_window_message_result;
     }
-    bool post_window_message_result = true;
     std::vector<effect::SearchFocus> search_focus_calls;
     std::vector<effect::SearchUnfocus> search_unfocus_calls;
     void SearchFocus(effect::SearchFocus action) override

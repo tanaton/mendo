@@ -11,9 +11,9 @@
 
 struct Theme;
 
-// StartAsyncLoad 専用の状態管理を Preloader と対称に分離したもの。
-// gen による cancellation, mutex 保護の result/error sink, in_flight フラグを 1 クラスに閉じる。
-// FileLoadService からは合成だけ受け持ち、preloader_ と並べて TakeResult/TakeError を順に確認する。
+// gen による cancellation、mutex 保護の result/error sink、in_flight フラグを 1 クラスに閉じる。
+// 全 public API は UI スレッドからのみ呼ぶ前提 (in_flight_ は非 atomic)。
+// worker は gen_ (atomic) のチェックと、mutex 経由の result_/error_ sink への書き込みのみ行う。
 class AsyncLoadCoordinator {
 public:
     AsyncLoadCoordinator() = default;

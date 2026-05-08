@@ -99,9 +99,6 @@ private:
     DocumentService& doc_service_;
     LoadingAnimation animation_;
     std::pmr::wstring loading_path_;
-
-    // 非同期ロード coordinator: StartAsyncLoad 専用の状態管理を完全に分離。
     AsyncLoadCoordinator coordinator_;
-    // 起動時 preload: jthread + cv で hwnd 解禁を待つ独立経路。
     Preloader preloader_;
 };

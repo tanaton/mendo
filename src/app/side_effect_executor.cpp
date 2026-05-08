@@ -128,8 +128,6 @@ void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
             host_->ShowWindowCmd(ev.cmd);
         },
         [this](const effect::PostWindowMessage& ev) {
-            // 残存 callsite (WM_CLOSE 等) 用の汎用 PostMessage。新規の検索 focus 系は
-            // SearchFocus / SearchUnfocus で発行されるため、ここでは heap payload の特殊扱いは不要。
             host_->PostWindowMessage(ev.msg, ev.wp, ev.lp);
         },
         [this](const effect::SearchFocus& ev) {

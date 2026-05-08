@@ -34,13 +34,7 @@ public:
     // wstring_view 経由の null 終端コピーを 1 回省略できる。
     virtual void ShellOpen(const std::pmr::wstring& url) = 0;
     virtual void ShowWindowCmd(int cmd) = 0;
-    // 失敗 (PostMessageW が FALSE) を呼び出し側に伝えるため bool 戻り値。
-    // 旧経路: SEARCH_FOCUS_SET_SELECTION のように lParam で heap payload を運ぶ際、
-    // 失敗時に発行側が delete して所有権を回収する必要があった。新規 callsite では
-    // SearchFocus / SearchUnfocus を使い heap allocation の所有権を本 IF 内に閉じる。
-    virtual bool PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) = 0;
-    // 検索バー focus 系の型安全 IF。PostMessage ベースのメッセージング機構は維持するが、
-    // anchor/caret の運搬・heap allocation の所有権は host 内部で完結する。
+    virtual void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) = 0;
     virtual void SearchFocus(effect::SearchFocus action) = 0;
     virtual void SearchUnfocus(effect::SearchUnfocus action) = 0;
     virtual void SetWindowTitle(const std::pmr::wstring& title) = 0;

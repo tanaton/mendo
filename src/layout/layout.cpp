@@ -6,6 +6,7 @@
 #include "task_scheduler.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory_resource>
 
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
@@ -42,25 +43,13 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         last_viewport_width_ = viewport_width;
     }
 
+    // partial=false 時は ±∞ で full レイアウトを再現する
+    // (visible が常に true、不可視推定経路と early break が発火しない)。
+    constexpr float kInf = std::numeric_limits<float>::infinity();
+    const float vp_top = partial ? viewport_top : -kInf;
+    const float vp_bottom = partial ? viewport_bottom : kInf;
     const float content_width = theme_->ContentWidth(viewport_width);
 
-    if (partial) {
-        ComputeLayoutPartial(nodes, cache, content_width, width_changed, viewport_top, viewport_bottom);
-    }
-    else {
-        ComputeLayoutFull(nodes, cache, content_width, width_changed);
-    }
-
-    MENDO_PLOT("layout.compute.partial", static_cast<int64_t>(partial));
-    MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(width_changed));
-    MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));
-}
-
-void LayoutEngine::ComputeLayoutPartial(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-                                        float content_width, bool width_changed,
-                                        float viewport_top, float viewport_bottom)
-{
-    const auto node_count = nodes.size();
     float y = theme_->margin_top;
     bool any_dirty = false;
     bool any_height_changed = false;
@@ -79,7 +68,7 @@ void LayoutEngine::ComputeLayoutPartial(std::pmr::vector<Node>& nodes, LayoutCac
 
         if (width_changed || entry.layout_dirty) {
             const float node_bottom = y + entry.height; // 古い高さを使って推定
-            const bool visible = (node_bottom >= viewport_top && y <= viewport_bottom);
+            const bool visible = (node_bottom >= vp_top && y <= vp_bottom);
             if (visible) {
                 const float old_height = entry.height;
                 backend_->MeasureNode(node, entry, node_width);
@@ -116,7 +105,7 @@ void LayoutEngine::ComputeLayoutPartial(std::pmr::vector<Node>& nodes, LayoutCac
 
         // 幅の変更がなく、ビューポートを超えた後に高さの変更もなければ、
         // 残りの Y 位置は変わらないので早期終了する。
-        if (!width_changed && !any_height_changed && y > viewport_bottom) {
+        if (!width_changed && !any_height_changed && y > vp_bottom) {
             // 中断地点より先にダーティノードが存在する可能性を保守的に仮定する。
             // ProcessDirtyBatch が存在しない場合は速やかに確認・クリアする。
             any_dirty = true;
@@ -130,55 +119,11 @@ void LayoutEngine::ComputeLayoutPartial(std::pmr::vector<Node>& nodes, LayoutCac
     if (any_measured) {
         cache.IncrementEffectsGeneration();
     }
+
+    MENDO_PLOT("layout.compute.partial", static_cast<int64_t>(partial));
+    MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(width_changed));
+    MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));
     MENDO_PLOT("layout.compute.broke_early", static_cast<int64_t>(broke_early));
-}
-
-void LayoutEngine::ComputeLayoutFull(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-                                     float content_width, bool width_changed)
-{
-    const auto node_count = nodes.size();
-    float y = theme_->margin_top;
-    bool any_dirty = false;
-    bool any_measured = false;
-
-    StackArena<4096> arena;
-    std::pmr::vector<float> block_heights(arena.resource());
-    block_heights.reserve(node_count);
-
-    for (size_t i = 0; i < node_count; i++) {
-        auto& node = nodes[i];
-        auto& entry = cache[i];
-        const float indent = NodeIndent(node, *theme_);
-        const float node_width = content_width - indent;
-
-        if (width_changed || entry.layout_dirty) {
-            backend_->MeasureNode(node, entry, node_width);
-            any_measured = true;
-            entry.cached_width = node_width;
-            entry.cached_height = entry.height;
-        }
-
-        if (entry.layout_dirty) {
-            any_dirty = true;
-        }
-
-        const float sa = GetSpacingAbove(node, *theme_);
-        const float sb = GetSpacingBelow(node, *theme_);
-
-        y += sa;
-        entry.text_top = y;
-        y += entry.height;
-        y += sb;
-
-        block_heights.push_back(sa + entry.height + sb);
-    }
-
-    ApplyComputeLayoutBlockHeights(cache, block_heights, /*broke_early=*/false, y);
-    has_dirty_nodes_ = any_dirty;
-    if (any_measured) {
-        cache.IncrementEffectsGeneration();
-    }
-    MENDO_PLOT("layout.compute.broke_early", 0LL);
 }
 
 void LayoutEngine::ApplyComputeLayoutBlockHeights(LayoutCache& cache, const std::pmr::vector<float>& block_heights,

@@ -52,7 +52,8 @@
 #define MENDO_IF_TRACY(...) __VA_ARGS__
 
 // 256 バイト固定はトレース用途として十分 (callsite が短いメッセージのみ生成)。
-// バッファ超過は format_to_n が out iterator で打ち切るため切り詰め検知不要。
+// 切り詰め時は format_to_n の out iterator がバッファ末尾で停止し、`out - buf` が
+// 実書き込みバイト数 (= min(必要量, sizeof(buf))) を表す。
 #define MENDO_LOGF(prefix, fmt_str, ...)                                                  \
     do {                                                                                  \
         char _mendo_buf[256];                                                             \

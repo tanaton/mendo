@@ -93,9 +93,9 @@ void Win32Host::ShowWindowCmd(int cmd)
     ShowWindow(hwnd_, cmd);
 }
 
-bool Win32Host::PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp)
+void Win32Host::PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp)
 {
-    return PostMessageW(hwnd_, msg, wp, lp) != 0;
+    PostMessageW(hwnd_, msg, wp, lp);
 }
 
 void Win32Host::SearchFocus(effect::SearchFocus action)

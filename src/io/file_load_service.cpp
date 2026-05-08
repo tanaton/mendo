@@ -7,14 +7,10 @@ void FileLoadService::StartLoading(std::pmr::wstring path)
 {
     loading_path_ = std::move(path);
     animation_.Begin();
-    // coordinator_ の in_flight は StartAsyncLoad 経由で立てる。同期 ExecuteLoad 経路では
-    // animation_ と loading_path_ のみで進行を表現する。
 }
 
 void FileLoadService::StopLoading() noexcept
 {
-    // animation のみ停止。coordinator の in_flight 管理は coordinator 自身に閉じる
-    // (Cancel / TakeResult / TakeError で完結) ので同期 ExecuteLoad 経路から触らない。
     animation_.End();
 }
 
@@ -55,8 +51,6 @@ std::optional<FileLoadError> FileLoadService::TakeAsyncError() noexcept
 
 void FileLoadService::StartPreloadAsync(std::pmr::wstring path)
 {
-    // coordinator_ の in_flight は触らない: preload 中の状態管理は preloader_ に閉じる
-    // (IsAsyncLoading() が両者を OR で見る)。
     loading_path_ = path;
     preloader_.Start(std::move(path));
 }
