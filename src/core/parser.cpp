@@ -855,8 +855,15 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 ParseResult ParseMarkdown(std::string_view markdown_text)
 {
     MENDO_PROFILE("ParseMarkdown");
-    // 入力サイズの 5% を初期 arena に充てる。100MB 入力で 5MB 一括確保 → overflow 時の new_delete 直結回数を削減。
-    // 小ファイル (< 2.56MB) では従来の 128KB のまま。
+    // 入力 1 byte あたりの予約容量ヒント。実測 (100MB 入力 = 30k ノード相当)
+    // を基準に、初期確保サイズと再確保回数のバランスで決めている。
+    // 各除数の意味:
+    //   /20: 入力の 5% を初期 arena に。new_delete 直結回数を削減。
+    //   /8:  ノード当たりの平均テキスト長を ~8B として scratch 初期確保。
+    //   /48: ノード平均サイズの逆数 (1 ノード ~48 入力 byte)。realloc 14 回→4 回相当。
+    //   /4096: 1MB あたり 256 個の見出し相当。実測数十〜数百に収まる。
+    //   /512:  画像/blockquote の頻度 (~0.2%)
+    //   /1024: ダイアグラムの頻度 (~0.1%)
     constexpr size_t kArenaMin = 128 * 1024;
     constexpr size_t kArenaMax = 5 * 1024 * 1024;
     const size_t arena_bytes = std::clamp(markdown_text.size() / 20, kArenaMin, kArenaMax);
@@ -864,15 +871,12 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     ParseContext ctx{ arena_bytes };
     ctx.markdown_base = markdown_text.data();
     ctx.markdown_size = markdown_text.size();
-    // ノード単位のスクラッチを 1 回確保し、長段落・コードブロックでの再確保を抑える。
     ctx.current_text.reserve(std::clamp(markdown_text.size() / 8, SCRATCH_RESERVE_MIN, SCRATCH_RESERVE_MAX));
     // 上限 256K: 100MB / 48 ≈ 2.18M ノード期待だが Node sizeof × 256K = ~20MB に抑える。
-    // realloc を 14 回 → 4 回に削減。
     const size_t nodes_reserve = std::clamp(markdown_text.size() / 48, size_t{ 64 }, size_t{ 262144 });
     ctx.nodes.reserve(nodes_reserve);
     ctx.list_counter.reserve(8);
     MENDO_STATF("nodes.reserve: input=%zu reserve=%zu", markdown_text.size(), nodes_reserve);
-    // 1MB あたり 256 個程度を見出し数の目安に。実測の数十〜数百に収まる。
     // heading_indices と anchor_counts は 1 見出し 1 エントリで対になるので同じヒントを使う。
     const size_t heading_hint = std::clamp(markdown_text.size() / 4096, size_t{ 8 }, size_t{ 256 });
     ctx.heading_indices.reserve(heading_hint);

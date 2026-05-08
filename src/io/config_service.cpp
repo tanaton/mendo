@@ -22,15 +22,15 @@ std::filesystem::path ConfigService::GetConfigDir() const
     if (!config_dir_override_.empty()) {
         return config_dir_override_;
     }
-    if (!cached_default_dir_.empty()) {
-        return cached_default_dir_;
+    // 単一スレッド前提の lazy 初期化 (header の Why コメント参照)。
+    if (!default_dir_resolved_) {
+        wchar_t* appdata = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
+            cached_default_dir_ = std::filesystem::path(appdata) / L"mendo";
+            CoTaskMemFree(appdata);
+        }
+        default_dir_resolved_ = true;
     }
-    wchar_t* appdata = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
-        return {};
-    }
-    cached_default_dir_ = std::filesystem::path(appdata) / L"mendo";
-    CoTaskMemFree(appdata);
     return cached_default_dir_;
 }
 

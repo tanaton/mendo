@@ -32,23 +32,12 @@ void DocumentService::ResumeWatching()
     watcher_.ResumeWatching();
 }
 
-static bool ExceedsFileSize(const std::pmr::wstring& path, DWORD threshold) noexcept
+// 仮想パスや存在しないパスは「大きい」扱いにする (非同期ロード経路で失敗を検出させるため)。
+bool DocumentService::IsLargerThan(const std::pmr::wstring& path, DWORD threshold) noexcept
 {
     WIN32_FILE_ATTRIBUTE_DATA attr{};
     if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr) && attr.nFileSizeHigh == 0 && attr.nFileSizeLow <= threshold) {
         return false;
     }
     return true;
-}
-
-bool DocumentService::NeedsAsyncLoad(const std::pmr::wstring& path) noexcept
-{
-    static constexpr DWORD ASYNC_LOAD_THRESHOLD = 64 * 1024;
-    return ExceedsFileSize(path, ASYNC_LOAD_THRESHOLD);
-}
-
-bool DocumentService::NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept
-{
-    static constexpr DWORD LOADING_ANIM_THRESHOLD = 16 * 1024 * 1024;
-    return ExceedsFileSize(path, LOADING_ANIM_THRESHOLD);
 }

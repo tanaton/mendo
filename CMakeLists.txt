@@ -157,6 +157,7 @@ add_library(mendo_core STATIC
     src/input/hit_test_service.cpp
     # io - ファイルI/O・永続化
     src/io/file_loader.cpp
+    src/io/file_dialog_service.cpp
     src/io/file_explorer.cpp
     src/io/file_load_service.cpp
     src/io/preloader.cpp

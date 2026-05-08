@@ -74,8 +74,9 @@ struct AppState {
     ContextMenu ctx_menu;
     int active_toc_index = -1;
 
-    // 差分位置は UTF-8 byte offset。値域は std::string_view::npos と数値が一致するが、
-    // ヘッダ依存を増やさないために単純に -1 で初期化する。
+    // 差分位置は UTF-8 byte offset (CalcScrollYForDiff の string_view 引数と同じドメイン)。
+    // 「未設定」を表すセンチネル値は std::string_view::npos と同値だが、ヘッダ依存を増やさない
+    // ためにここでは単純に -1 で初期化する。比較・代入箇所では string_view::npos を使用。
     size_t reload_diff_pos = static_cast<size_t>(-1);
     // 短縮タイマーで再リロード予約済み（DeferPrefixShrink / partial-read race）。
     // ローディングアニメーションを抑制するために参照される。

@@ -24,8 +24,11 @@
 //   MENDO_STATF(fmt, ...)            : printf 形式の統計値ログ。
 //   MENDO_LOGF(prefix, fmt, ...)     : 任意プレフィックスでログ出力。
 
-#define MENDO_PROFILE_CONCAT2(a, b) a##b
-#define MENDO_PROFILE_CONCAT(a, b) MENDO_PROFILE_CONCAT2(a, b)
+// __LINE__ ベースで一意な識別子を生成するための内部マクロ。
+// MENDO_PROFILE の展開で参照されるため #undef で隠せないが、`_MENDO_DETAIL_` prefix で
+// 他 TU/サードパーティとの命名衝突を最小化する。
+#define _MENDO_DETAIL_CONCAT2(a, b) a##b
+#define _MENDO_DETAIL_CONCAT(a, b) _MENDO_DETAIL_CONCAT2(a, b)
 
 #ifdef MENDO_USE_TRACY
 
@@ -37,7 +40,7 @@
 // 同一スコープに 2 個書くと再定義エラーになる。__LINE__ で固有名を作る
 // ZoneNamedN を使って同一関数内で複数 MENDO_PROFILE を書ける形にする。
 #define MENDO_PROFILE(label) \
-    ZoneNamedN(MENDO_PROFILE_CONCAT(_mendo_zone_, __LINE__), label, true)
+    ZoneNamedN(_MENDO_DETAIL_CONCAT(_mendo_zone_, __LINE__), label, true)
 #define MENDO_FRAME_MARK() FrameMark
 #define MENDO_PLOT(label, value) TracyPlot(label, value)
 
@@ -52,6 +55,9 @@
 // _snprintf_s は _TRUNCATE 指定時、収まれば書き込んだ文字数を返し、切り詰めが
 // 起きると -1 を返す（バッファ自体は NUL 終端される）。-1 を 0 と同様に
 // 捨てると長メッセージが silently drop されるため、切り詰め時は実長を取り直す。
+// FUTURE: callsite の `%d`/`%zu` 形式を `{}` に書き換えるリファクタを伴うが、
+// `std::format_to_n` 化すれば format string が consteval で型安全に検証できる。
+// 当面は callsite 数 (~50 箇所) に見合う移行コストの負債として留保。
 #define MENDO_LOGF(prefix, fmt, ...)                                            \
     do {                                                                        \
         char _mendo_buf[256];                                                   \

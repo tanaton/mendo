@@ -2,6 +2,8 @@
 #include "app_constants.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_util.h"
+#include "pmr_format.h"
+#include "rc_resource.h"
 #include "stream_util.h"
 #include "string_convert.h"
 #include "utility.h"
@@ -17,7 +19,7 @@
 
 #pragma comment(lib, "windowscodecs.lib")
 
-static const wchar_t* MERMAID_HOST_CLASS = L"mendo_MermaidHost";
+static constexpr std::wstring_view MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
 static constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 static constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
@@ -91,14 +93,14 @@ void MermaidRenderer::EnsureInitialized()
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = DefWindowProcW;
         wc.hInstance = GetModuleHandleW(nullptr);
-        wc.lpszClassName = MERMAID_HOST_CLASS;
+        wc.lpszClassName = MERMAID_HOST_CLASS.data();
         RegisterClassExW(&wc);
     });
 
     for (int i = 0; i < worker_count_; i++) {
         workers_[i].hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-            MERMAID_HOST_CLASS,
+            MERMAID_HOST_CLASS.data(),
             L"",
             WS_POPUP,
             -32000, -32000, // 画面外の遠い位置
@@ -199,17 +201,14 @@ void MermaidRenderer::SetupWorker(int index)
             LPWSTR msg = nullptr;
             if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
                 auto& w = workers_[index];
-                constexpr std::wstring_view kReady = L"mermaid-ready:";
-                constexpr std::wstring_view kRenderResult = L"render-result:";
-                constexpr std::wstring_view kCaptureReady = L"capture-ready:";
-                constexpr std::wstring_view kSvgResult = L"svg-result:";
-                constexpr std::wstring_view kRenderError = L"render-error:";
-                constexpr std::wstring_view kFailed = L"mermaid-failed";
-                const std::wstring_view sv{ msg };
-                if (sv.starts_with(kReady)) {
-                    const float dpr = std::wcstof(msg + kReady.size(), nullptr);
-                    if (dpr > 0) {
-                        w.dpr = dpr;
+                const auto parsed = mermaid_util::ParseWebMessage(msg);
+                using mermaid_util::WebMessageKind;
+                const auto& req = parsed.request;
+                const bool req_id_match = req.valid && req.id == w.current_request.request_id;
+                switch (parsed.kind) {
+                case WebMessageKind::Ready:
+                    if (parsed.ready_dpr > 0) {
+                        w.dpr = parsed.ready_dpr;
                     }
                     w.ready = true;
                     w.init_retries = 0;
@@ -223,40 +222,39 @@ void MermaidRenderer::SetupWorker(int index)
                         }
                     }
                     ProcessQueue();
-                }
-                else if (sv.starts_with(kRenderResult)) {
-                    const auto p = mermaid_util::ParseRequestPrefix(sv.substr(kRenderResult.size()));
-                    if (p.valid && p.has_payload && p.id == w.current_request.request_id) {
-                        OnRenderResult(index, p.payload);
+                    break;
+                case WebMessageKind::RenderResult:
+                    if (req_id_match && req.has_payload) {
+                        OnRenderResult(index, req.payload);
                     }
-                }
-                else if (sv.starts_with(kCaptureReady)) {
-                    const auto p = mermaid_util::ParseRequestPrefix(sv.substr(kCaptureReady.size()));
-                    if (p.valid && p.id == w.current_request.request_id) {
+                    break;
+                case WebMessageKind::CaptureReady:
+                    if (req_id_match) {
                         DoCapturePreview(index);
                     }
-                }
-                else if (sv.starts_with(kSvgResult)) {
-                    const auto p = mermaid_util::ParseRequestPrefix(sv.substr(kSvgResult.size()));
-                    if (p.valid && p.id == w.current_request.request_id && w.current_request.svg_only) {
-                        std::pmr::wstring svg{ p.has_payload ? p.payload : std::wstring_view{} };
+                    break;
+                case WebMessageKind::SvgResult:
+                    if (req_id_match && w.current_request.svg_only) {
+                        std::pmr::wstring svg{ req.has_payload ? req.payload : std::wstring_view{} };
                         InvokeSvgCallbackIfAny(w.current_request, std::move(svg), false);
                         FinishWorkerRequest(w);
                     }
-                }
-                else if (sv.starts_with(kRenderError)) {
-                    const auto p = mermaid_util::ParseRequestPrefix(sv.substr(kRenderError.size()));
-                    if (p.valid && p.id == w.current_request.request_id) {
+                    break;
+                case WebMessageKind::RenderError:
+                    if (req_id_match) {
                         InvokeSvgCallbackIfAny(w.current_request, {}, false);
                         FinishWorkerRequest(w);
                     }
-                }
-                else if (sv == kFailed) {
+                    break;
+                case WebMessageKind::Failed:
                     // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
                     if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
                         ++w.init_retries;
                         w.webview->Navigate(APP_LOCAL_INDEX_URL);
                     }
+                    break;
+                case WebMessageKind::Unknown:
+                    break;
                 }
                 CoTaskMemFree(msg);
             }

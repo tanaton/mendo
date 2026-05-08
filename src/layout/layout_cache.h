@@ -483,10 +483,11 @@ public:
         return block_heights_.GetPoint(i);
     }
 
-    // 文書全体の高さを Fenwick から O(log N) で取得する。
-    // = 2 * margin_top + sum(block_heights[0..N))
-    // 末尾ノードの spacing_below を含むため、ComputeTotalContentHeight (sb[last] を含まない)
-    // とは sb[last] 分ずれる。スクロール上限計算は ComputeTotalContentHeight を使うこと。
+    // 文書 layout の総高さ (上下マージン + 全ノードの block_height 合計) を Fenwick から O(log N) で取得する。
+    // = 2 * margin_top + sum(spacing_above[i] + height[i] + spacing_below[i]) for i in [0, N)
+    // 用途: テーマ変更時の layout 健全性検査、effects_generation 更新の差分検知。
+    // 注意: スクロール上限には ComputeTotalContentHeight (sb[last] を含まない) を使うこと。
+    // 末尾の spacing_below は viewport 外の余白扱いのため、スクロール先には含めない。
     float GetTotalHeightFromFenwick(float margin_top) const noexcept
     {
         return margin_top * 2.0f + block_heights_.PrefixSum(block_heights_.size());
@@ -556,7 +557,8 @@ private:
     uint32_t effects_generation_ = 0;
 };
 
-// 最後のノードのレイアウト位置からコンテンツ全体の高さを計算する。
+// 「コンテンツ末尾までの高さ」(末尾 node の text_top + height + 上端マージン)。
+// = スクロール上限計算に使う高さ。末尾 node の spacing_below は含まない (= GetTotalHeightFromFenwick と sb[last] 分ずれる)。
 // node_count が 0 の場合は 0 を返し、size() - 1 の符号なし整数アンダーフローを回避する。
 constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) noexcept
 {
@@ -568,7 +570,9 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_
 }
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。
-// 端が接している場合（y+h == range_top 等）は重なり扱い（false）。
+// 端が接している場合（y+h == range_top 等）は重なり扱い（false = 描画対象）。
+// Why: ピクセル境界 (DIP→物理 px のスナップ後) で接する行は実際には 1 px 分視認可能で、
+// `<` ではなく `<=` 不採用は浮動小数誤差で「微小に上回る」ケースを描画から落とすのを避けるため。
 constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom) noexcept
 {
     return y + h < range_top || y > range_bottom;

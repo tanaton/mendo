@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "app_constants.h"
 #include "reducer.h"
 #include "document.h"
 #include "app_state.h"
@@ -390,13 +391,13 @@ TEST_F(ReducerTest, CaptureChanged_ResetsGesture)
 TEST_F(ReducerTest, Timer_Toast_EmitsInvalidate)
 {
     state.interaction.toast.Show(L"test");
-    auto effects = Reduce(state, TimerAction{ 6 }); // app_timer::TOAST = 6
+    auto effects = Reduce(state, TimerAction{ app_timer::TOAST });
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, Timer_DeferredLayout_EmitsProcessDeferredLayout)
 {
-    auto effects = Reduce(state, TimerAction{ 3 }); // app_timer::DEFERRED_LAYOUT = 3
+    auto effects = Reduce(state, TimerAction{ app_timer::DEFERRED_LAYOUT });
     EXPECT_TRUE(HasEffect<effect::ProcessDeferredLayout>(effects));
 }
 

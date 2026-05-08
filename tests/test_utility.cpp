@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "overloaded.h"
+#include "pmr_format.h"
 #include "utility.h"
 #include <memory_resource>
 #include <variant>
@@ -62,7 +64,7 @@ TEST(Utility, OverloadedDispatchesByType)
     std::variant<int, double, std::wstring> v;
 
     v = 42;
-    int tag = std::visit(overloaded{
+    int tag = std::visit(mendo::overloaded{
         [](int)           { return 1; },
         [](double)        { return 2; },
         [](const std::wstring&) { return 3; },
@@ -70,7 +72,7 @@ TEST(Utility, OverloadedDispatchesByType)
     EXPECT_EQ(tag, 1);
 
     v = 1.5;
-    tag = std::visit(overloaded{
+    tag = std::visit(mendo::overloaded{
         [](int)           { return 1; },
         [](double)        { return 2; },
         [](const std::wstring&) { return 3; },
@@ -78,7 +80,7 @@ TEST(Utility, OverloadedDispatchesByType)
     EXPECT_EQ(tag, 2);
 
     v = std::wstring(L"hi");
-    tag = std::visit(overloaded{
+    tag = std::visit(mendo::overloaded{
         [](int)           { return 1; },
         [](double)        { return 2; },
         [](const std::wstring&) { return 3; },

@@ -794,7 +794,7 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (sel_end > 0) {
                 LRESULT pos = SendMessageW(hwnd, EM_POSFROMCHAR, sel_end - 1, 0);
                 if (pos != -1) {
-                    caret_x = static_cast<SHORT>(LOWORD(pos)) + 8;
+                    caret_x = static_cast<SHORT>(LOWORD(pos)) + IME_CARET_X_OFFSET;
                 }
             }
 

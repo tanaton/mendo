@@ -1,11 +1,10 @@
 #include "win32_host_impl.h"
+#include "clipboard_util.h"
 #include "cursor_manager.h"
+#include "darkmode_util.h"
 #include "win_handle.h"
 #include <memory_resource>
 #include <shellapi.h>
-
-// app.h を直接 include すると循環依存になるため、関数宣言だけ前方参照する。
-void ApplyDarkModeToWindow(HWND hwnd, bool dark);
 
 void Win32Host::Init(HWND hwnd, CursorManager& cursors) noexcept
 {

@@ -1,4 +1,5 @@
 #include "command_executor.h"
+#include "overloaded.h"
 #include "profiler.h"
 #include "utility.h"
 
@@ -98,7 +99,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
 
     fixed_brushes_ = brushes;
 
-    cmds.Visit(overloaded{
+    cmds.Visit(mendo::overloaded{
         [&](const ClearCmd& c) {
             rt->Clear(c.color);
         },

@@ -11,9 +11,15 @@
 namespace mendo::layout {
 
 namespace {
+// 列幅計算の下限。半角 2-3 文字相当（Theme の body フォントサイズ ~14pt 基準）。
+// 短いセルが極端に潰れないようにするための実用下限で、フォントサイズを変えても
+// 視覚的に違和感が出にくい固定値として採用している。
 constexpr float MIN_COLUMN_WIDTH = 30.0f;
+// 列幅計算で実測幅に上乗せする余白。テーブル罫線とパディングを合わせた境界 (DIP)。
+// TABLE_CELL_PADDING (8.0f) より小さいのは、列幅は左右の合計ではなく片側相当で扱うため。
 constexpr float COLUMN_WIDTH_PADDING = 4.0f;
-// Y座標の早期終了判定用許容誤差（DIP単位）
+// Y座標の早期終了判定用許容誤差（DIP単位）。物理ピクセル境界 0.01 DIP は 96 DPI 換算で
+// 約 1/100 px 未満で、視覚差を生まない閾値。これ未満の差分は再計算不要として break する。
 constexpr float Y_POSITION_EPSILON = 0.01f;
 } // namespace
 

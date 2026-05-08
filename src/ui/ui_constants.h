@@ -218,6 +218,18 @@ inline constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, f
 inline constexpr int DEFAULT_WINDOW_WIDTH = 1600;
 inline constexpr int DEFAULT_WINDOW_HEIGHT = 900;
 
+// レンダーターゲットがまだ確立していない初回 Init 時のフォールバック幅 (DIP)。
+// DEFAULT_WINDOW_WIDTH と同値だが、用途 (タイトルバーレイアウト計算) が異なるため別名を割り当てる。
+inline constexpr float FALLBACK_WINDOW_WIDTH = 1600.0f;
+
+// 検索ボックス IME コンポジションウィンドウのキャレット位置 X オフセット (px)。
+// EM_POSFROMCHAR が返す位置はキャレットの左端なので、フォント幅の半分強を足してキャレット直下に表示する。
+inline constexpr LONG IME_CARET_X_OFFSET = 8;
+
+// マークダウンペインの最小幅 (DIP)。スプリッタードラッグでこれ以上 md ペインを縮められない。
+// pane_layout.h のデフォルト引数と PaneController の最小幅判定で共有する。
+inline constexpr float MD_PANE_MIN_WIDTH = 200.0f;
+
 // キーボードスクロール量（DIP）
 inline constexpr float SCROLL_LINE_AMOUNT = 40.0f;
 inline constexpr float SCROLL_PAGE_FACTOR = 0.9f;

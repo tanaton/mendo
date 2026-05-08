@@ -156,7 +156,7 @@ public:
 
     static constexpr float PANE_DEFAULT_WIDTH = 220.0f;
     static constexpr float PANE_MIN_WIDTH = 100.0f;
-    static constexpr float MD_PANE_MIN_WIDTH = 200.0f;
+    static constexpr float MD_PANE_MIN_WIDTH = ::MD_PANE_MIN_WIDTH;
 
 private:
     float file_width_ = PANE_DEFAULT_WIDTH;

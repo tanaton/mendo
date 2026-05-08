@@ -18,6 +18,10 @@ void TaskScheduler::Init(int thread_count)
 
 bool TaskScheduler::Post(std::move_only_function<void()> task)
 {
+    // Shutdown 後の Post は早期棄却。worker が join 中の状態で queue に積んでも実行されない。
+    if (shutdown_.load(std::memory_order_acquire)) {
+        return false;
+    }
     {
         const std::lock_guard lock(mutex_);
         if (queue_.size() >= MAX_PENDING_TASKS) {
@@ -32,10 +36,9 @@ bool TaskScheduler::Post(std::move_only_function<void()> task)
 
 void TaskScheduler::Shutdown()
 {
-    {
-        const std::lock_guard lock(mutex_);
-        shutdown_.store(true);
-    }
+    // shutdown_ は atomic なので lock を取らずに store して良い。cv_.wait(lock, predicate) は
+    // unlock と wait を atomic に行うため、lock 外 store でも notify_all を取り逃さない。
+    shutdown_.store(true, std::memory_order_release);
     cv_.notify_all();
     for (auto& t : workers_) {
         if (t.joinable()) {

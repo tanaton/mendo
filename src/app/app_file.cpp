@@ -7,6 +7,7 @@
 #include "mermaid_util.h"
 #include "layout.h"
 #include "profiler.h"
+#include "rc_resource.h"
 #include "string_convert.h"
 #include "utility.h"
 #include <algorithm>
@@ -55,7 +56,7 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
     // ライブリロード時はアニメーションを表示しない。
     // 大きいファイルを編集中の差分リロードでスピナーが点滅すると視認性が下がるため、
     // 旧コンテンツを表示したまま静かにバックグラウンドでパースし差し替える。
-    const bool show_anim = !suppress_animation && DocumentService::NeedsLoadingAnimation(path) && !state_.pending_reload_retry;
+    const bool show_anim = !suppress_animation && DocumentService::IsLargerThan(path, app_threshold::LOADING_ANIM_BYTES) && !state_.pending_reload_retry;
     if (show_anim) {
         MENDO_PROFILE("App::BeginAsyncLoad with animation");
         file_load_service_.StartLoading(std::move(path));
@@ -72,20 +73,20 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
 
 // DeferPrefixShrink はエディタの truncate→rewrite 2段階保存の前半。
 // state_.document.doc を更新せず保持して、次のリロードで正確な差分を取り直す。
-bool App::ApplyReloadDecisionEarly(const ReloadDecision& decision)
+App::ReloadFlow App::ApplyReloadDecisionEarly(const ReloadDecision& decision)
 {
     if (decision.op == ReloadOp::NoChange) {
         state_.pending_reload_retry = false;
         EmitEffect(effect::ResumeFileWatch{});
         Invalidate();
-        return true;
+        return ReloadFlow::Handled;
     }
     if (decision.op == ReloadOp::DeferPrefixShrink) {
         DeferReloadRetry();
-        return true;
+        return ReloadFlow::Handled;
     }
     state_.pending_reload_retry = false;
-    return false;
+    return ReloadFlow::ContinueWithReload;
 }
 
 void App::DeferReloadRetry()
@@ -113,14 +114,14 @@ void App::LoadMarkdownFile(std::wstring_view path)
     MENDO_PROFILE("App::LoadMarkdownFile");
     EmitEffect(effect::KillTimer{ app_timer::FILE_RELOAD_DEBOUNCE });
     state_.pending_reload_retry = false;
-    // 仮想パスは NeedsAsyncLoad が true を返し非同期ロードが失敗するため、
+    // 仮想パスは IsLargerThan が true を返し非同期ロードが失敗するため、
     // 先に検出して同期ロードに回す。
     if (IsHelpPath(path)) {
         LoadHelpDocument();
         return;
     }
     std::pmr::wstring path_str{ path };
-    if (!DocumentService::NeedsAsyncLoad(path_str)) {
+    if (!DocumentService::IsLargerThan(path_str, app_threshold::ASYNC_LOAD_BYTES)) {
         file_load_service_.SetLoadingPath(std::move(path_str));
         DoLoadMarkdownFile();
     }
@@ -201,7 +202,7 @@ void App::OnParseComplete()
                      result->doc.GetNodes().size(), decision.diff_pos, old_view.size(), new_view.size(),
                      std::to_underlying(decision.op));
 
-        if (ApplyReloadDecisionEarly(decision)) {
+        if (ApplyReloadDecisionEarly(decision) == ReloadFlow::Handled) {
             return;
         }
         if (decision.op == ReloadOp::PrefixGrowth) {
@@ -213,7 +214,7 @@ void App::OnParseComplete()
         state_.reload_diff_pos = decision.diff_pos;
     }
     else {
-        state_.reload_diff_pos = std::wstring_view::npos;
+        state_.reload_diff_pos = std::string_view::npos;
     }
 
     const bool heights_estimated = result->heights_estimated;
@@ -242,7 +243,7 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
 
     float scroll_y = 0.0f;
 
-    const bool has_reload_diff = (state_.reload_diff_pos != std::wstring_view::npos);
+    const bool has_reload_diff = (state_.reload_diff_pos != std::string_view::npos);
 
     if (state_.view.scroll_restore.HasNodeRestore()) {
         MENDO_TRACEF("FinishLoad: has_reload_diff=%d node=%d offset=%d heights_estimated=%d",
@@ -266,11 +267,14 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
         ApplyCachedHeightsAndRecompute(md_width);
     }
 
-    // CalcScrollForDiff は md_height (layout 値) に依存するため reducer に渡せず、
+    // CalcScrollYForDiff は md_height (layout 値) に依存するため reducer に渡せず、
     // App 側で先に解決してから Dispatch する。
     float reload_diff_scroll_y = 0.0f;
     if (has_reload_diff) {
-        reload_diff_scroll_y = CalcScrollForDiff(state_.reload_diff_pos, md_height);
+        reload_diff_scroll_y = CalcScrollYForDiff(
+            state_.document.doc.GetNodes(), state_.document.layout_cache,
+            std::string_view{ state_.document.doc.GetRawText() },
+            state_.reload_diff_pos, md_height, state_.view.viewport.GetScrollY());
     }
     Dispatch(RestoreScrollAfterLoadAction{ has_reload_diff, reload_diff_scroll_y });
     scroll_y = state_.view.viewport.GetScrollY();
@@ -307,7 +311,7 @@ void App::ReloadCurrentFile()
         return;
     }
 
-    if (DocumentService::NeedsAsyncLoad(path)) {
+    if (DocumentService::IsLargerThan(path, app_threshold::ASYNC_LOAD_BYTES)) {
         MENDO_TRACE("ReloadCurrentFile: async path");
         BeginAsyncLoad(path, /* suppress_animation = */ true);
     }
@@ -352,7 +356,7 @@ void App::DoReloadCurrentFile()
                  decision.diff_pos, old_view.size(), new_view.size(),
                  std::to_underlying(decision.op));
 
-    if (ApplyReloadDecisionEarly(decision)) {
+    if (ApplyReloadDecisionEarly(decision) == ReloadFlow::Handled) {
         return;
     }
     state_.document.doc.ReplaceFromMarkdown(std::move(new_text), byte_size);
@@ -373,10 +377,13 @@ void App::FinishReload(size_t diff_pos)
     const float md_height = pane_layout.md_rect.height;
 
     // Mermaid/LaTeX 図と通常画像の推定高さを実測値 (file_cache_ / image_loader メモリキャッシュ) で
-    // 上書きし、CalcScrollForDiff の Y 計算がずれないようにする。
+    // 上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。
     ApplyCachedHeightsAndRecompute(md_width);
 
-    const float desired_scroll = CalcScrollForDiff(diff_pos, md_height);
+    const float desired_scroll = CalcScrollYForDiff(
+        state_.document.doc.GetNodes(), state_.document.layout_cache,
+        std::string_view{ state_.document.doc.GetRawText() },
+        diff_pos, md_height, state_.view.viewport.GetScrollY());
 
     MENDO_TRACEF("FinishReload: desired_scroll=%.1f diff_pos=%zu",
                  desired_scroll, diff_pos);
@@ -410,15 +417,6 @@ void App::FinishReload(size_t diff_pos)
     EmitEffect(effect::SyncTocActive{});
 
     EmitEffect(effect::ResumeFileWatch{});
-}
-
-float App::CalcScrollForDiff(size_t diff_pos, float viewport_height) const
-{
-    MENDO_TRACEF("CalcScrollForDiff: diff_pos=%zu node_count=%zu", diff_pos, state_.document.doc.GetNodes().size());
-    return CalcScrollYForDiff(
-        state_.document.doc.GetNodes(), state_.document.layout_cache,
-        std::string_view{ state_.document.doc.GetRawText() },
-        diff_pos, viewport_height, state_.view.viewport.GetScrollY());
 }
 
 bool App::ApplyMermaidCacheHeights(float md_width)

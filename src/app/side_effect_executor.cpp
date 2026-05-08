@@ -5,6 +5,7 @@
 #include "app_state.h"
 #include "layout.h"
 #include "app_constants.h"
+#include "overloaded.h"
 #include "string_convert.h"
 #include "utility.h"
 #include "ui_constants.h"
@@ -28,7 +29,7 @@ void SideEffectExecutor::Init(
 void SideEffectExecutor::ExecuteOne(const SideEffect& e)
 {
     // clang-format off
-    std::visit(overloaded{
+    std::visit(mendo::overloaded{
         [this](const UiEffect& sub) {
             ExecuteUi(sub);
         },
@@ -57,7 +58,7 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
 void SideEffectExecutor::ExecuteUi(const UiEffect& e)
 {
     // clang-format off
-    std::visit(overloaded{
+    std::visit(mendo::overloaded{
         [this](const effect::InvalidateWindow&) {
             host_->Invalidate();
         },
@@ -122,7 +123,7 @@ void SideEffectExecutor::ExecuteUi(const UiEffect& e)
 void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
 {
     // clang-format off
-    std::visit(overloaded{
+    std::visit(mendo::overloaded{
         [this](const effect::ShowWindowCmd& ev) {
             host_->ShowWindowCmd(ev.cmd);
         },
@@ -166,7 +167,7 @@ void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
 void SideEffectExecutor::ExecuteNavigation(const NavigationEffect& e)
 {
     // clang-format off
-    std::visit(overloaded{
+    std::visit(mendo::overloaded{
         [this](const effect::ShellOpen& ev) {
             host_->ShellOpen(ev.url);
         },
@@ -186,7 +187,7 @@ void SideEffectExecutor::ExecuteNavigation(const NavigationEffect& e)
 void SideEffectExecutor::ExecuteLayout(const LayoutEffect& e)
 {
     // clang-format off
-    std::visit(overloaded{
+    std::visit(mendo::overloaded{
         [this](const effect::DeferredLayout&) {
             if (layout_service_->HasDirtyNodes()) {
                 host_->SetTimer(app_timer::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
@@ -227,7 +228,7 @@ void SideEffectExecutor::ExecuteLayout(const LayoutEffect& e)
 void SideEffectExecutor::ExecuteResource(const ResourceEffect& e)
 {
     // clang-format off
-    std::visit(overloaded{
+    std::visit(mendo::overloaded{
         [this](const effect::LoadImages&) {
             resource_manager_->LoadImages();
         },
@@ -265,7 +266,7 @@ void SideEffectExecutor::ExecuteResource(const ResourceEffect& e)
 void SideEffectExecutor::ExecuteTimer(const TimerEffect& e)
 {
     // clang-format off
-    std::visit(overloaded{
+    std::visit(mendo::overloaded{
         [this](const effect::SetTimer& ev) {
             host_->SetTimer(ev.id, ev.ms);
         },
@@ -294,7 +295,7 @@ void SideEffectExecutor::ExecuteTimer(const TimerEffect& e)
 void SideEffectExecutor::ExecuteLifecycle(const LifecycleEffect& e)
 {
     // clang-format off
-    std::visit(overloaded{
+    std::visit(mendo::overloaded{
         [this](const effect::Destroy&) {
             cb_.destroy();
         },

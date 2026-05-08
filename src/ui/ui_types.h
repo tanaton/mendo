@@ -23,10 +23,10 @@ inline constexpr bool PointInRect(float x, float y, const Rect& r) noexcept
 }
 
 struct PaneRect {
-    float x;
-    float y;
-    float width;
-    float height;
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
 };
 
 struct ScrollState {

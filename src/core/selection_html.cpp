@@ -1,5 +1,6 @@
 #include "selection_html.h"
 #include "nav.h"
+#include "profiler.h"
 #include "syntax.h"
 #include "theme.h"
 #include <algorithm>
@@ -92,11 +93,14 @@ public:
     InlineTagScope(const InlineTagScope&) = delete;
     InlineTagScope& operator=(const InlineTagScope&) = delete;
     // CloseAll() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
+    // bad_alloc が起きた場合、生成中の HTML は途中で打ち切られるが、selection-copy 経路自体が
+    // クリップボードに渡す前に切り詰める耐性を持つ (selection_html_test 参照)。
     ~InlineTagScope() noexcept
     {
         try {
             CloseAll();
         } catch (...) {
+            MENDO_TRACE("InlineTagScope::~ - CloseAll bad_alloc");
         }
     }
 
@@ -365,11 +369,14 @@ public:
     constexpr explicit TableSectionScope(std::pmr::string& out) noexcept : out_(out)
     {}
     // Close() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
+    // bad_alloc が起きた場合、生成中の HTML は途中で打ち切られるが、selection-copy 経路自体が
+    // クリップボードに渡す前に切り詰める耐性を持つ。
     ~TableSectionScope() noexcept
     {
         try {
             Close();
         } catch (...) {
+            MENDO_TRACE("TableSectionScope::~ - Close bad_alloc");
         }
     }
     TableSectionScope(const TableSectionScope&) = delete;

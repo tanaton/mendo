@@ -57,7 +57,9 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
     const bool has_batch_limit = (budget.max_nodes > 0);
 
     std::pmr::vector<size_t> indices(std::pmr::get_default_resource());
-    indices.reserve(node_count / 8 + 16);
+    // 最悪ケースは全ノード dirty。size_t 8B × 数千 ≒ 数十 KB で global arena には軽い。
+    // 過小予約による push_back 中の再確保を避けるほうが利得が大きい。
+    indices.reserve(node_count);
     {
         MENDO_PROFILE("RunParallel.Plan");
         for (size_t i = 0; i < node_count; i++) {

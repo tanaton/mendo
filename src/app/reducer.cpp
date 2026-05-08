@@ -2,6 +2,7 @@
 #include "app_constants.h"
 #include "document_utils.h"
 #include "file_io.h"
+#include "overloaded.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include <cmath>
@@ -713,7 +714,7 @@ void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, 
     state.view.viewport.ClearScrollTarget();
     if (a.has_reload_diff) {
         state.view.viewport.SetScrollY(a.reload_diff_scroll_y);
-        state.reload_diff_pos = std::wstring_view::npos;
+        state.reload_diff_pos = std::string_view::npos;
     }
     else if (state.view.scroll_restore.HasNodeRestore()) {
         state.view.viewport.SetScrollTarget(
@@ -811,7 +812,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
     SideEffectList effects;
 
     // clang-format off
-    std::visit(overloaded{
+    std::visit(mendo::overloaded{
         [](const NoOpAction&) {},
 
         // ---- スクロール ----

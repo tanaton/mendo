@@ -39,11 +39,11 @@ struct LoadedFileDoc {
     size_t byte_size = 0;
 };
 
-// ファイル読み込みユーティリティ（静的メソッドのみ）
+// ファイル読み込みユーティリティ（静的メソッドのみ）。
+// path 選択は file_dialog_service.h に分離してある。
 class FileLoader {
 public:
     // ファイルをメモリマップで読み、UTF-8 BOM を除去した string を返す。
     // wstring 経由の二重変換 (UTF-8 → wstring → UTF-8) を行わないため巨大ファイルで高速。
     static std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::pmr::wstring& path);
-    static std::pmr::wstring OpenFileDialog(HWND owner);
 };

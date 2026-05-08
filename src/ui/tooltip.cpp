@@ -1,9 +1,7 @@
 #include "tooltip.h"
+#include "darkmode_util.h"
 #include <windows.h>
 #include <commctrl.h>
-
-// ApplyDarkModeToWindow は app.h で宣言済み（循環回避のため前方宣言）
-void ApplyDarkModeToWindow(HWND hwnd, bool dark);
 
 namespace {
 constexpr UINT_PTR TOOL_ID = 1;

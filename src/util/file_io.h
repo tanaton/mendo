@@ -3,15 +3,24 @@
 #include <windows.h>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <string_view>
 #include <utility>
 
+namespace path_util {
+
 // 外部エディタとの同時アクセスを許容する共有モード。
 // 編集中のファイルを mendo で開いたまま再読込できるようにするため、
 // Markdown / 画像ファイルを扱う経路ではこれを指定する。
-inline constexpr DWORD FILE_SHARE_RW_DELETE =
+inline constexpr DWORD kFileShareRWDelete =
     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+
+// ReadAllBytes が許容する最大サイズ。ReadFile は DWORD (32bit unsigned) で
+// バイト数を扱うので、それを超えるサイズは 1 回の ReadFile で読み切れない。
+inline constexpr size_t MAX_READABLE_FILE_SIZE = std::numeric_limits<uint32_t>::max();
+
+} // namespace path_util
 
 // OpenFileForReadShared の失敗区分。
 enum class OpenFileError : uint8_t {

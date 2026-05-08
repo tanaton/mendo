@@ -63,6 +63,7 @@ struct Strings {
     std::wstring_view toast_file_too_large;
     std::wstring_view toast_file_read_failed;
     std::wstring_view toast_image_saved;
+    std::wstring_view toast_image_save_failed;
     std::wstring_view toast_svg_copying;
     std::wstring_view toast_svg_copied;
     std::wstring_view toast_svg_copy_failed;
@@ -121,6 +122,7 @@ inline constexpr Strings kJa = {
     L"ファイルが大きすぎます",
     L"ファイルの読み込みに失敗しました",
     L"画像を保存しました",
+    L"画像の保存に失敗しました",
     L"SVGをコピー中...",
     L"SVGをコピーしました",
     L"SVGのコピーに失敗しました",
@@ -177,6 +179,7 @@ inline constexpr Strings kEn = {
     L"File is too large",
     L"Failed to read file",
     L"Image saved",
+    L"Failed to save image",
     L"Copying SVG...",
     L"SVG copied",
     L"Failed to copy SVG",

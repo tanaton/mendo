@@ -19,6 +19,24 @@ static constexpr float DEFAULT_COLUMN_WIDTH = 60.0f;
 // セル幅がこれ以下の差分なら前回の計測高さを再利用する
 static constexpr float CELL_WIDTH_EPSILON = 0.5f;
 
+// Alert ボックスの先頭アイコン文字 (e.g. 💡 ⚠️ ❗) を UTF-16 で何 code unit 占有するかを返す。
+// 💡 (U+1F4A1) のみ surrogate pair で 2 code unit、他の 5 種は BMP の 1 code unit。
+static constexpr UINT32 WideUnitCountForAlertIcon(AlertType type) noexcept
+{
+    switch (type) {
+    case AlertType::Tip:
+        return 2;
+    case AlertType::Note:
+    case AlertType::Important:
+    case AlertType::Warning:
+    case AlertType::Caution:
+        return 1;
+    case AlertType::None:
+        return 0;
+    }
+    return 0;
+}
+
 // 1 行目の高さを取得し entry にキャッシュする。layout 自体は変えない。
 static void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noexcept
 {
@@ -304,8 +322,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     // 6 種類のアイコンは UTF-16 で 1 code unit (BMP) または 2 code unit (Tip 💡 = U+1F4A1 サロゲートペア) と
     // コンパイル時に確定するため、対応表で済ませて WideViewForDWrite の構築を回避する。
     if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
-        const UINT32 icon_wide_len{ (node.alert_type == AlertType::Tip) + 1u };
-        const DWRITE_TEXT_RANGE icon_range{ 0, icon_wide_len };
+        const DWRITE_TEXT_RANGE icon_range{ 0, WideUnitCountForAlertIcon(node.alert_type) };
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);
     }
 

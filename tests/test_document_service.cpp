@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <memory_resource>
 #include <string_view>
+#include "app_constants.h"
 #include "document_service.h"
 #include "file_watcher.h"
 #include "test_helpers.h"
@@ -40,38 +41,38 @@ TEST_F(DocumentServiceTest, LoadFileNotFound)
     EXPECT_EQ(result.error(), FileLoadError::NotFound);
 }
 
-TEST_F(DocumentServiceTest, NeedsAsyncLoadSmallFile)
+TEST_F(DocumentServiceTest, IsLargerThanAsyncSmallFile)
 {
     auto path = CreateTestFile("small.md", "# Small");
-    EXPECT_FALSE(DocumentService::NeedsAsyncLoad(path));
+    EXPECT_FALSE(DocumentService::IsLargerThan(path, app_threshold::ASYNC_LOAD_BYTES));
 }
 
-TEST_F(DocumentServiceTest, NeedsAsyncLoadLargeFile)
+TEST_F(DocumentServiceTest, IsLargerThanAsyncLargeFile)
 {
     // 64KB超のファイルは非同期ロード判定
     std::string content(65 * 1024, 'x');
     auto path = CreateTestFile("large.md", content);
-    EXPECT_TRUE(DocumentService::NeedsAsyncLoad(path));
+    EXPECT_TRUE(DocumentService::IsLargerThan(path, app_threshold::ASYNC_LOAD_BYTES));
 }
 
-TEST_F(DocumentServiceTest, NeedsAsyncLoadNonexistent)
+TEST_F(DocumentServiceTest, IsLargerThanAsyncNonexistent)
 {
     auto ws = (temp_dir_ / "nonexistent_async.md").wstring();
     std::pmr::wstring nonexistent{ ws };
-    EXPECT_TRUE(DocumentService::NeedsAsyncLoad(nonexistent));
+    EXPECT_TRUE(DocumentService::IsLargerThan(nonexistent, app_threshold::ASYNC_LOAD_BYTES));
 }
 
-TEST_F(DocumentServiceTest, NeedsLoadingAnimationSmallFile)
+TEST_F(DocumentServiceTest, IsLargerThanAnimSmallFile)
 {
     auto path = CreateTestFile("small.md", "# Small");
-    EXPECT_FALSE(DocumentService::NeedsLoadingAnimation(path));
+    EXPECT_FALSE(DocumentService::IsLargerThan(path, app_threshold::LOADING_ANIM_BYTES));
 }
 
-TEST_F(DocumentServiceTest, NeedsLoadingAnimationNonexistent)
+TEST_F(DocumentServiceTest, IsLargerThanAnimNonexistent)
 {
     auto ws = (temp_dir_ / "nonexistent_anim.md").wstring();
     std::pmr::wstring nonexistent{ ws };
-    EXPECT_TRUE(DocumentService::NeedsLoadingAnimation(nonexistent));
+    EXPECT_TRUE(DocumentService::IsLargerThan(nonexistent, app_threshold::LOADING_ANIM_BYTES));
 }
 
 TEST_F(DocumentServiceTest, ResumeWatching)
