@@ -80,19 +80,19 @@ void App::FinalizeLayout(float md_pane_height)
 
 const PaneLayout& App::GetPaneLayout()
 {
-    if (!state_.pane_layout_valid) {
+    if (!state_.pane_layout_cache.IsValid()) {
         auto* rt = renderer_.GetRenderTarget();
         if (!rt) {
             static const PaneLayout empty{};
             return empty;
         }
         const auto size = rt->GetSize();
-        state_.cached_window_width_for_layout = size.width;
         const float tb_h = state_.window.titlebar.GetHeight();
-        state_.cached_pane_layout = state_.view.panes.ComputeLayout(size.width, size.height, renderer_.GetTheme().splitter_width, tb_h);
-        state_.pane_layout_valid = true;
+        state_.pane_layout_cache.Set(
+            size.width,
+            state_.view.panes.ComputeLayout(size.width, size.height, renderer_.GetTheme().splitter_width, tb_h));
     }
-    return state_.cached_pane_layout;
+    return state_.pane_layout_cache.Get();
 }
 
 void App::InvalidatePane(const PaneRect& rect) noexcept
@@ -113,11 +113,11 @@ void App::InvalidateTitleBar() noexcept
         return;
     }
     // 幅が未計算（初期化直後など）の場合はウィンドウ全体を無効化する
-    if (state_.cached_window_width_for_layout <= 0.0f) {
+    if (state_.pane_layout_cache.WindowWidth() <= 0.0f) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
-    InvalidatePane(PaneRect{ 0.0f, 0.0f, state_.cached_window_width_for_layout, tb_h });
+    InvalidatePane(PaneRect{ 0.0f, 0.0f, state_.pane_layout_cache.WindowWidth(), tb_h });
 }
 
 PaneZone App::PaneAtPoint(float dip_x)
@@ -163,7 +163,7 @@ void App::OnPaint()
 
     const auto gs = render_composer::BuildGestureState(state_);
     const auto sp = render_composer::BuildSidePaneState(state_, layout);
-    const auto tb = render_composer::BuildTitleBarState(state_, state_.cached_window_width_for_layout, theme_service_.IsDarkMode(), IsZoomed(hwnd_) != FALSE);
+    const auto tb = render_composer::BuildTitleBarState(state_, state_.pane_layout_cache.WindowWidth(), theme_service_.IsDarkMode(), IsZoomed(hwnd_) != FALSE);
     const auto ts = render_composer::BuildToastState(state_);
     const auto sb = render_composer::BuildSearchBarState(state_);
 
@@ -240,7 +240,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
     const bool had_overlay = state_.interaction.swipe_detector.IsOverlayVisible();
     state_.interaction.swipe_detector.NotifyVScroll(GetTickCount64());
     if (had_overlay) {
-        EmitEffect(effect::KillTimer{ app_timer::SWIPE_OVERLAY });
+        EmitEffect(effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
         Invalidate();
     }
 
@@ -296,7 +296,7 @@ void App::OnFileWatchEvent()
 
 void App::HandleTimer(UINT_PTR timer_id)
 {
-    Dispatch(TimerAction{ timer_id });
+    Dispatch(TimerAction{ static_cast<app_timer::Id>(timer_id) });
 }
 
 void App::OnAppLoadFile()
@@ -336,8 +336,8 @@ void App::OnDestroy()
     // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
     // すべての設定値を 1 度のディスク書き込みにまとめる。
     config_.Flush();
-    for (UINT_PTR id : app_timer::ALL_TIMERS) {
-        KillTimer(hwnd_, id);
+    for (app_timer::Id id : app_timer::ALL_TIMERS) {
+        KillTimer(hwnd_, std::to_underlying(id));
     }
 }
 

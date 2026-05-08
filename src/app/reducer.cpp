@@ -75,9 +75,9 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
     if (pane == PaneTarget::File) {
         const float total = static_cast<float>(state.file_explorer.GetEntries().size()) * item_h;
         return {
-            state.cached_pane_layout.file_rect,
+            state.pane_layout_cache.Get().file_rect,
             total,
-            ComputeScrollInfo(state.cached_pane_layout.file_rect, header_h, total),
+            ComputeScrollInfo(state.pane_layout_cache.Get().file_rect, header_h, total),
             state.view.panes.FileScroll(),
             PaneController::DragTarget::FileScrollbar,
             PaneZone::FilePane,
@@ -85,9 +85,9 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
     }
     const float total = static_cast<float>(state.document.doc.GetToc().GetEntries().size()) * item_h;
     return {
-        state.cached_pane_layout.toc_rect,
+        state.pane_layout_cache.Get().toc_rect,
         total,
-        ComputeScrollInfo(state.cached_pane_layout.toc_rect, header_h, total),
+        ComputeScrollInfo(state.pane_layout_cache.Get().toc_rect, header_h, total),
         state.view.panes.TocScroll(),
         PaneController::DragTarget::TocScrollbar,
         PaneZone::TocPane,
@@ -124,7 +124,7 @@ void ReduceNavigateForward(AppState& state, SideEffectList& effects)
 void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAction& a)
 {
     const float old_scroll = state.view.viewport.GetScrollY();
-    const float page_size = state.cached_pane_layout.md_rect.height;
+    const float page_size = state.pane_layout_cache.Get().md_rect.height;
     switch (a.type) {
     case ScrollType::LineUp:
         state.view.viewport.DirectScrollBy(-SCROLL_LINE_AMOUNT);
@@ -186,7 +186,7 @@ void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePane
         state.view.panes.ToggleTocPane();
         break;
     }
-    state.pane_layout_valid = false;
+    state.pane_layout_cache.Invalidate();
     PushEffect(effects, effect::RefreshPaneLayout{});
     if (a.target == PaneTarget::Toc) {
         PushEffect(effects, effect::SyncTocActive{});
@@ -247,7 +247,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
         }
     }
     const auto anchor = SnapshotVisibleTarget(state);
-    state.pane_layout_valid = false;
+    state.pane_layout_cache.Invalidate();
     const float new_zoom = state.view.viewport.GetCurrentZoom();
     const float zoom_ratio = new_zoom / state.window.cached_theme.zoom;
     state.view.panes.ApplyZoom(zoom_ratio);
@@ -267,7 +267,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
 void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
 {
     const auto anchor = SnapshotVisibleTarget(state);
-    state.pane_layout_valid = false;
+    state.pane_layout_cache.Invalidate();
     // 色のみの変更なのでテキストレイアウトは維持し、effects と Mermaid bitmap のみ破棄する。
     state.document.layout_cache.InvalidateEffectsAndDiagramBitmaps(state.document.doc.GetNodes());
     if (anchor.IsValid()) {
@@ -298,7 +298,7 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
     if (a.width == 0 || a.height == 0) {
         return;
     }
-    state.pane_layout_valid = false;
+    state.pane_layout_cache.Invalidate();
     PushEffect(effects, effect::RendererResize{ a.width, a.height });
     const float window_w_dip = a.width / state.window.cached_dpi_scale;
     state.window.titlebar.UpdateLayout(window_w_dip);
@@ -316,7 +316,7 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
     if (state.window.cached_dpi_scale <= 0.0f) {
         state.window.cached_dpi_scale = 1.0f;
     }
-    state.pane_layout_valid = false;
+    state.pane_layout_cache.Invalidate();
     // DPI 変更では IDWriteTextLayout (DIP 単位) は不変。effects_generation のみ進める。
     state.document.layout_cache.NotifyDpiChanged();
     PushEffect(effects, effect::RendererSetDpi{ static_cast<float>(a.dpi) });
@@ -336,7 +336,7 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     const bool had_overlay = state.interaction.swipe_detector.IsOverlayVisible();
     const int old_direction = state.interaction.swipe_detector.GetOverlayDirection();
     state.interaction.swipe_detector.OnHWheel(a.delta, a.tick);
-    PushEffect(effects, effect::SetTimer{ app_timer::SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
+    PushEffect(effects, effect::SetTimer{ app_timer::Id::SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
     if (had_overlay != state.interaction.swipe_detector.IsOverlayVisible() || old_direction != state.interaction.swipe_detector.GetOverlayDirection()) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
@@ -411,7 +411,7 @@ void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const Spl
     if (state.view.panes.GetFilePaneWidth() == before_file && state.view.panes.GetTocPaneWidth() == before_toc) {
         return;
     }
-    state.pane_layout_valid = false;
+    state.pane_layout_cache.Invalidate();
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
@@ -422,7 +422,7 @@ void ReduceSplitterDragEnded(AppState& state, SideEffectList& effects)
         return;
     }
     state.view.panes.EndDrag();
-    state.pane_layout_valid = false;
+    state.pane_layout_cache.Invalidate();
     PushEffect(effects, effect::ReleaseCapture{});
     PushEffect(effects, effect::PerformResizeEnd{});
 }
@@ -485,7 +485,7 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
     state.view.viewport.SetScrollbarTracking(true);
     PushEffect(effects, effect::SetCapture{});
 
-    const auto& md_rect = state.cached_pane_layout.md_rect;
+    const auto& md_rect = state.pane_layout_cache.Get().md_rect;
     const auto info = ComputeScrollInfo(md_rect, 0.0f, a.total_height);
     const float thumb_y = ComputeThumbY(info, state.view.viewport.GetScrollY());
     const auto grip = ComputeScrollbarDragGrip(thumb_y, info.thumb_height, a.dip_y);
@@ -504,7 +504,7 @@ void ReduceMdScrollbarDragMoved(AppState& state, SideEffectList& effects, const 
     if (state.view.panes.GetDragTarget() != PaneController::DragTarget::MdScrollbar) {
         return;
     }
-    const auto& md_rect = state.cached_pane_layout.md_rect;
+    const auto& md_rect = state.pane_layout_cache.Get().md_rect;
     const auto info = ComputeScrollInfo(md_rect, 0.0f, a.total_height);
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
     const float old_scroll = state.view.viewport.GetScrollY();
@@ -676,7 +676,7 @@ void ScrollToResolvedAnchor(AppState& state, SideEffectList& effects, int idx)
     const auto target = MakeHeadingTopTarget(
         idx,
         state.window.cached_theme.heading_spacing_above,
-        state.cached_pane_layout.md_rect.y);
+        state.pane_layout_cache.Get().md_rect.y);
     ApplyScrollTargetAndEmit(state, effects, target.node, target.offset);
 }
 } // namespace
@@ -743,25 +743,25 @@ void ReduceShowHelp(AppState& state, SideEffectList& effects)
 void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
 {
     switch (a.timer_id) {
-    case app_timer::TOAST:
+    case app_timer::Id::TOAST:
         if (!state.interaction.toast.Tick()) {
-            PushEffect(effects, effect::KillTimer{ app_timer::TOAST });
+            PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
         }
         PushEffect(effects, effect::InvalidateWindow{});
         break;
-    case app_timer::SEARCH_CARET:
+    case app_timer::Id::SEARCH_CARET:
         state.search.search_bar_ctrl.OnCaretBlinkTimer();
         break;
-    case app_timer::TOOLTIP:
-        PushEffect(effects, effect::KillTimer{ app_timer::TOOLTIP });
+    case app_timer::Id::TOOLTIP:
+        PushEffect(effects, effect::KillTimer{ app_timer::Id::TOOLTIP });
         state.interaction.tooltip.Show();
         break;
-    case app_timer::SEARCH_DEBOUNCE:
+    case app_timer::Id::SEARCH_DEBOUNCE:
         state.search.search_bar_ctrl.OnDebounceTimer(state.document.doc.GetNodes());
         break;
-    case app_timer::SWIPE_OVERLAY: {
+    case app_timer::Id::SWIPE_OVERLAY: {
         const auto result = state.interaction.swipe_detector.Commit();
-        PushEffect(effects, effect::KillTimer{ app_timer::SWIPE_OVERLAY });
+        PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
         switch (result) {
         case SwipeResult::Back:
             ReduceNavigateBack(state, effects);
@@ -776,24 +776,24 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         }
         break;
     }
-    case app_timer::DEFERRED_LAYOUT:
+    case app_timer::Id::DEFERRED_LAYOUT:
         PushEffect(effects, effect::ProcessDeferredLayout{});
         break;
-    case app_timer::LOADING_ANIM:
+    case app_timer::Id::LOADING_ANIM:
         PushEffect(effects, effect::TickLoadingAnimation{});
         PushEffect(effects, effect::InvalidateWindow{});
         break;
-    case app_timer::MERMAID_BATCH:
+    case app_timer::Id::MERMAID_BATCH:
         PushEffect(effects, effect::ProcessMermaidBatchTimer{});
         break;
-    case app_timer::BITMAP_MANAGE:
+    case app_timer::Id::BITMAP_MANAGE:
         PushEffect(effects, effect::ProcessBitmapManage{});
         break;
-    case app_timer::MERMAID_INIT_RETRY:
+    case app_timer::Id::MERMAID_INIT_RETRY:
         PushEffect(effects, effect::MermaidInitRetry{});
         break;
-    case app_timer::FILE_RELOAD_DEBOUNCE:
-        PushEffect(effects, effect::KillTimer{ app_timer::FILE_RELOAD_DEBOUNCE });
+    case app_timer::Id::FILE_RELOAD_DEBOUNCE:
+        PushEffect(effects, effect::KillTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE });
         PushEffect(effects, effect::ReloadFile{});
         break;
     default:

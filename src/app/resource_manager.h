@@ -1,4 +1,5 @@
 #pragma once
+#include "app_constants.h"
 #include <unordered_map>
 #include <string>
 #include <functional>
@@ -19,8 +20,8 @@ class ResourceManager {
 public:
     struct Callbacks {
         std::move_only_function<void()> invalidate;
-        std::move_only_function<void(UINT_PTR, UINT)> set_timer;
-        std::move_only_function<void(UINT_PTR)> kill_timer;
+        std::move_only_function<void(app_timer::Id, UINT)> set_timer;
+        std::move_only_function<void(app_timer::Id)> kill_timer;
         std::move_only_function<float()> get_content_width;
         std::move_only_function<float()> get_viewport_height;
         std::move_only_function<float()> get_indent_width;

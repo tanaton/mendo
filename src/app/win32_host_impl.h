@@ -11,8 +11,8 @@ public:
 
     void Invalidate() override;
     void InvalidateTitleBarArea(int width_px, int height_px) override;
-    void SetTimer(UINT_PTR id, UINT ms) override;
-    void KillTimer(UINT_PTR id) override;
+    void SetTimer(app_timer::Id id, UINT ms) override;
+    void KillTimer(app_timer::Id id) override;
     void SetCapture() override;
     void ReleaseCapture() override;
     void SetCursor(effect::CursorType type) override;

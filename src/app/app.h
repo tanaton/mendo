@@ -271,7 +271,7 @@ private:
     const ::PaneLayout& GetPaneLayout();
     void InvalidatePaneLayoutCache() noexcept
     {
-        state_.pane_layout_valid = false;
+        state_.pane_layout_cache.Invalidate();
     }
     ::PaneZone PaneAtPoint(float dip_x);
     float GetMarkdownPaneWidth();

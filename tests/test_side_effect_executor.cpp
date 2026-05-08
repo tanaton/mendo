@@ -21,8 +21,8 @@ class RecordingWin32Host final : public IWin32Host {
 public:
     int invalidate_count = 0;
     std::vector<std::pair<int, int>> invalidate_titlebar_calls;
-    std::vector<std::pair<UINT_PTR, UINT>> set_timer_calls;
-    std::vector<UINT_PTR> kill_timer_calls;
+    std::vector<std::pair<app_timer::Id, UINT>> set_timer_calls;
+    std::vector<app_timer::Id> kill_timer_calls;
     int set_capture_count = 0;
     int release_capture_count = 0;
     std::vector<effect::CursorType> set_cursor_calls;
@@ -45,11 +45,11 @@ public:
     {
         invalidate_titlebar_calls.emplace_back(width_px, height_px);
     }
-    void SetTimer(UINT_PTR id, UINT ms) override
+    void SetTimer(app_timer::Id id, UINT ms) override
     {
         set_timer_calls.emplace_back(id, ms);
     }
-    void KillTimer(UINT_PTR id) override
+    void KillTimer(app_timer::Id id) override
     {
         kill_timer_calls.push_back(id);
     }
@@ -391,12 +391,12 @@ TEST_F(SideEffectExecutorTest, InvalidateWindowCallsHostInvalidate)
 
 TEST_F(SideEffectExecutorTest, SetTimerAndKillTimerForwardToHost)
 {
-    exec_.ExecuteOne(effect::SetTimer{ 42, 100 });
-    exec_.ExecuteOne(effect::KillTimer{ 42 });
+    exec_.ExecuteOne(effect::SetTimer{ app_timer::Id::TOAST, 100 });
+    exec_.ExecuteOne(effect::KillTimer{ app_timer::Id::TOAST });
     ASSERT_EQ(host_.set_timer_calls.size(), 1u);
-    EXPECT_EQ(host_.set_timer_calls[0], std::make_pair(UINT_PTR{ 42 }, UINT{ 100 }));
+    EXPECT_EQ(host_.set_timer_calls[0], std::make_pair(app_timer::Id::TOAST, UINT{ 100 }));
     ASSERT_EQ(host_.kill_timer_calls.size(), 1u);
-    EXPECT_EQ(host_.kill_timer_calls[0], UINT_PTR{ 42 });
+    EXPECT_EQ(host_.kill_timer_calls[0], app_timer::Id::TOAST);
 }
 
 TEST_F(SideEffectExecutorTest, SetCaptureAndReleaseCaptureForwardToHost)
@@ -500,7 +500,7 @@ TEST_F(SideEffectExecutorTest, ApplyDarkModeForwardsFlagToHost)
 TEST_F(SideEffectExecutorTest, InvalidateTitleBarComputesRectFromCachedWidthAndDpi)
 {
     state_.window.cached_dpi_scale = 2.0f;
-    state_.cached_window_width_for_layout = 800.0f;
+    state_.pane_layout_cache.Set(800.0f, PaneLayout{});
     // Titlebar::GetHeight() は constexpr 32.0f を返す。
     // height: 32.0f * 2.0f + 0.5f = 64.5f → int cast で 64
     // width:  800.0f * 2.0f → 1600 +1 で 1601 (境界ピクセル切れ防止)
@@ -513,7 +513,7 @@ TEST_F(SideEffectExecutorTest, InvalidateTitleBarComputesRectFromCachedWidthAndD
 TEST_F(SideEffectExecutorTest, InvalidateTitleBarFallsBackToFullInvalidateWhenWidthUnknown)
 {
     state_.window.cached_dpi_scale = 1.0f;
-    state_.cached_window_width_for_layout = 0.0f;
+    // pane_layout_cache はデフォルトで WindowWidth() == 0 を返す
     exec_.ExecuteOne(effect::InvalidateTitleBar{});
     EXPECT_TRUE(host_.invalidate_titlebar_calls.empty());
     EXPECT_EQ(host_.invalidate_count, 1);
@@ -523,6 +523,6 @@ TEST_F(SideEffectExecutorTest, ShowToastSchedulesTimerAndInvalidates)
 {
     exec_.ExecuteOne(effect::ShowToast{ L"Copied" });
     ASSERT_EQ(host_.set_timer_calls.size(), 1u);
-    EXPECT_EQ(host_.set_timer_calls[0].first, UINT_PTR{ app_timer::TOAST });
+    EXPECT_EQ(host_.set_timer_calls[0].first, app_timer::Id::TOAST);
     EXPECT_EQ(host_.invalidate_count, 1);
 }

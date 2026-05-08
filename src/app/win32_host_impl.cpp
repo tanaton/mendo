@@ -6,6 +6,7 @@
 #include "win_handle.h"
 #include <memory_resource>
 #include <shellapi.h>
+#include <utility>
 
 void Win32Host::Init(HWND hwnd, CursorManager& cursors) noexcept
 {
@@ -28,14 +29,14 @@ void Win32Host::InvalidateTitleBarArea(int width_px, int height_px)
     InvalidateRect(hwnd_, &tb_rect, FALSE);
 }
 
-void Win32Host::SetTimer(UINT_PTR id, UINT ms)
+void Win32Host::SetTimer(app_timer::Id id, UINT ms)
 {
-    ::SetTimer(hwnd_, id, ms, nullptr);
+    ::SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
 }
 
-void Win32Host::KillTimer(UINT_PTR id)
+void Win32Host::KillTimer(app_timer::Id id)
 {
-    ::KillTimer(hwnd_, id);
+    ::KillTimer(hwnd_, std::to_underlying(id));
 }
 
 void Win32Host::SetCapture()

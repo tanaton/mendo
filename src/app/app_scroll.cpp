@@ -85,7 +85,7 @@ void App::EnsureScrollTarget()
 void App::ScheduleDeferredLayoutIfNeeded()
 {
     if (layout_service_->HasDirtyNodes()) {
-        EmitEffect(effect::SetTimer{ app_timer::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS });
+        EmitEffect(effect::SetTimer{ app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS });
     }
 }
 
@@ -93,7 +93,7 @@ void App::OnResizeEnd()
 {
     MENDO_PROFILE("OnResizeEnd");
 
-    EmitEffect(effect::KillTimer{ app_timer::DEFERRED_LAYOUT });
+    EmitEffect(effect::KillTimer{ app_timer::Id::DEFERRED_LAYOUT });
 
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;
@@ -148,7 +148,7 @@ void App::OnDeferredLayout()
     }
 
     if (!more) {
-        EmitEffect(effect::KillTimer{ app_timer::DEFERRED_LAYOUT });
+        EmitEffect(effect::KillTimer{ app_timer::Id::DEFERRED_LAYOUT });
 
         // 遅延レイアウト完了後、Mermaid ファイルキャッシュからの読み込みを時間予算付き
         // バッチで処理する。同期ディスク I/O + PNG デコードが UI スレッドを長時間

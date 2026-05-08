@@ -24,7 +24,7 @@ void App::LoadHelpDocument()
         return;
     }
 
-    EmitEffect(effect::KillTimer{ app_timer::LOADING_ANIM });
+    EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
     file_load_service_.StopLoading();
     EmitEffect(effect::StopFileWatch{});
     ResetViewForNewDocument();
@@ -60,7 +60,7 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
     if (show_anim) {
         MENDO_PROFILE("App::BeginAsyncLoad with animation");
         file_load_service_.StartLoading(std::move(path));
-        EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
+        EmitEffect(effect::SetTimer{ app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
         Invalidate();
         UpdateWindow(hwnd_);
     }
@@ -94,7 +94,7 @@ void App::DeferReloadRetry()
     // FileWatcher は paused のまま維持する。resume すると待機中の変更通知が
     // FILE_RELOAD_DEBOUNCE を 200ms に上書きし、短縮リトライが効かなくなる。
     state_.pending_reload_retry = true;
-    EmitEffect(effect::SetTimer{ app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS });
+    EmitEffect(effect::SetTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS });
 }
 
 bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size)
@@ -112,7 +112,7 @@ bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size)
 void App::LoadMarkdownFile(std::wstring_view path)
 {
     MENDO_PROFILE("App::LoadMarkdownFile");
-    EmitEffect(effect::KillTimer{ app_timer::FILE_RELOAD_DEBOUNCE });
+    EmitEffect(effect::KillTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE });
     state_.pending_reload_retry = false;
     // 仮想パスは IsAsyncLoadCandidate が true を返し非同期ロードが失敗するため、
     // 先に検出して同期ロードに回す。
@@ -144,7 +144,7 @@ void App::DoLoadMarkdownFile()
         return;
     }
 
-    EmitEffect(effect::KillTimer{ app_timer::LOADING_ANIM });
+    EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
 
     {
         MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
@@ -171,7 +171,7 @@ void App::HandleLoadFailureFallback()
 
 void App::OnParseComplete()
 {
-    EmitEffect(effect::KillTimer{ app_timer::LOADING_ANIM });
+    EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
     file_load_service_.StopLoading();
 
     auto result = file_load_service_.TakeAsyncResult();
@@ -325,7 +325,7 @@ void App::DoReloadCurrentFile()
 {
     MENDO_PROFILE("DoReloadCurrentFile");
 
-    EmitEffect(effect::KillTimer{ app_timer::LOADING_ANIM });
+    EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
     file_load_service_.StopLoading();
     state_.active_toc_index = -1;
 

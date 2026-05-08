@@ -9,17 +9,22 @@
 
 namespace app_timer {
 
-inline constexpr UINT_PTR DEFERRED_LAYOUT = 1;
-inline constexpr UINT_PTR LOADING_ANIM = 2;
-inline constexpr UINT_PTR SWIPE_OVERLAY = 3;
-inline constexpr UINT_PTR TOAST = 4;
-inline constexpr UINT_PTR SEARCH_CARET = 5;
-inline constexpr UINT_PTR TOOLTIP = 6;
-inline constexpr UINT_PTR SEARCH_DEBOUNCE = 7;
-inline constexpr UINT_PTR MERMAID_BATCH = 8;
-inline constexpr UINT_PTR BITMAP_MANAGE = 9;
-inline constexpr UINT_PTR MERMAID_INIT_RETRY = 10;
-inline constexpr UINT_PTR FILE_RELOAD_DEBOUNCE = 11;
+// アプリで使う Win32 タイマー ID。enum class で型安全化し、
+// 任意の UINT_PTR (例: WM_TIMER の wParam) が誤って混入しないようにする。
+// Win32 API (SetTimer / KillTimer) に渡す際は std::to_underlying でキャスト。
+enum class Id : UINT_PTR {
+    DEFERRED_LAYOUT = 1,
+    LOADING_ANIM = 2,
+    SWIPE_OVERLAY = 3,
+    TOAST = 4,
+    SEARCH_CARET = 5,
+    TOOLTIP = 6,
+    SEARCH_DEBOUNCE = 7,
+    MERMAID_BATCH = 8,
+    BITMAP_MANAGE = 9,
+    MERMAID_INIT_RETRY = 10,
+    FILE_RELOAD_DEBOUNCE = 11,
+};
 
 // タイマー間隔 (ms)
 inline constexpr UINT FRAME_INTERVAL_MS = 16;        // ~60fps アニメーション用
@@ -27,19 +32,19 @@ inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200; // ファイル変更通知
 inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;     // truncate→rewrite 検出後の短縮リトライ
 
 // アプリ終了時に KillTimer する全タイマー ID。Single Source of Truth として
-// 上記 ID 定数の定義漏れ・更新漏れを防ぐ。新規タイマーを足したらここに追加すること。
-inline constexpr UINT_PTR ALL_TIMERS[] = {
-    DEFERRED_LAYOUT,
-    LOADING_ANIM,
-    SWIPE_OVERLAY,
-    TOAST,
-    SEARCH_CARET,
-    SEARCH_DEBOUNCE,
-    TOOLTIP,
-    MERMAID_BATCH,
-    BITMAP_MANAGE,
-    MERMAID_INIT_RETRY,
-    FILE_RELOAD_DEBOUNCE,
+// 上記 ID 定義の更新漏れを防ぐ。新規タイマーを足したらここに追加すること。
+inline constexpr Id ALL_TIMERS[] = {
+    Id::DEFERRED_LAYOUT,
+    Id::LOADING_ANIM,
+    Id::SWIPE_OVERLAY,
+    Id::TOAST,
+    Id::SEARCH_CARET,
+    Id::SEARCH_DEBOUNCE,
+    Id::TOOLTIP,
+    Id::MERMAID_BATCH,
+    Id::BITMAP_MANAGE,
+    Id::MERMAID_INIT_RETRY,
+    Id::FILE_RELOAD_DEBOUNCE,
 };
 
 } // namespace app_timer
