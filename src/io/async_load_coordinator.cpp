@@ -59,15 +59,25 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
 std::optional<AsyncLoadResult> AsyncLoadCoordinator::TakeResult()
 {
     const std::lock_guard lock(mutex_);
+    if (!result_) {
+        return std::nullopt;
+    }
     auto result = std::move(result_);
     result_.reset();
+    // 取り出し成功 = 非同期ロードの完結。これ以降 IsActive() は false を返す。
+    // 同期 ExecuteLoad など別経路から in_flight を触ると race になるため、coordinator の責務に閉じる。
+    in_flight_ = false;
     return result;
 }
 
 std::optional<FileLoadError> AsyncLoadCoordinator::TakeError() noexcept
 {
     const std::lock_guard lock(mutex_);
+    if (!error_) {
+        return std::nullopt;
+    }
     auto err = error_;
     error_.reset();
+    in_flight_ = false;
     return err;
 }

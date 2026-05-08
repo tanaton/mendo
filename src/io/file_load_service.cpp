@@ -13,8 +13,9 @@ void FileLoadService::StartLoading(std::pmr::wstring path)
 
 void FileLoadService::StopLoading() noexcept
 {
+    // animation のみ停止。coordinator の in_flight 管理は coordinator 自身に閉じる
+    // (Cancel / TakeResult / TakeError で完結) ので同期 ExecuteLoad 経路から触らない。
     animation_.End();
-    coordinator_.Finish();
 }
 
 std::expected<void, FileLoadError> FileLoadService::ExecuteLoad(Document& doc, LayoutCache& cache)

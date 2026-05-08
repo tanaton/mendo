@@ -40,12 +40,6 @@ public:
         in_flight_ = false;
     }
 
-    // ExecuteLoad (同期経路) で消費した場合等、外部から in_flight_ を畳むためのフック。
-    void Finish() noexcept
-    {
-        in_flight_ = false;
-    }
-
 private:
     void ResetSinks();
 
