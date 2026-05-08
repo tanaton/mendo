@@ -20,9 +20,11 @@
 //   MENDO_COUNT_SET(counter, value)  : 累積でない直近値の代入。Tracy OFF で no-op。
 //   MENDO_IF_TRACY(...)              : Tracy ON のときだけ展開する任意コード。
 //   MENDO_TRACE(msg)                 : リテラルメッセージ（reload 系トレース）。
-//   MENDO_TRACEF(fmt, ...)           : printf 形式トレース。
-//   MENDO_STATF(fmt, ...)            : printf 形式の統計値ログ。
-//   MENDO_LOGF(prefix, fmt, ...)     : 任意プレフィックスでログ出力。
+//   MENDO_TRACEF(fmt, ...)           : std::format 形式トレース ("{}", "{:.1f}" 等)。
+//   MENDO_STATF(fmt, ...)            : std::format 形式の統計値ログ。
+//   MENDO_LOGF(prefix, fmt, ...)     : prefix + fmt の隣接リテラル連結でログ出力。
+//                                      fmt は std::format のコンパイル時チェック対象のため
+//                                      文字列リテラル必須 (std::format_to_n に渡される)。
 
 // __LINE__ ベースで一意な識別子を生成するための内部マクロ。
 // MENDO_PROFILE の展開で参照されるため #undef で隠せないが、`_MENDO_DETAIL_` prefix で

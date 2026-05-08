@@ -455,6 +455,25 @@ TEST_F(SideEffectExecutorTest, PostWindowMessageForwardsToHost)
     EXPECT_EQ(std::get<2>(host_.post_message_calls[0]), LPARAM{ 13 });
 }
 
+TEST_F(SideEffectExecutorTest, SearchFocusForwardsToHost)
+{
+    exec_.ExecuteOne(effect::SearchFocus{
+        effect::SearchFocus::Mode::SetSelection, 3, 7 });
+    ASSERT_EQ(host_.search_focus_calls.size(), 1u);
+    EXPECT_EQ(host_.search_focus_calls[0].mode, effect::SearchFocus::Mode::SetSelection);
+    EXPECT_EQ(host_.search_focus_calls[0].anchor, 3);
+    EXPECT_EQ(host_.search_focus_calls[0].caret, 7);
+    EXPECT_TRUE(host_.post_message_calls.empty());
+}
+
+TEST_F(SideEffectExecutorTest, SearchUnfocusForwardsToHost)
+{
+    exec_.ExecuteOne(effect::SearchUnfocus{ /*clear_text=*/true });
+    ASSERT_EQ(host_.search_unfocus_calls.size(), 1u);
+    EXPECT_TRUE(host_.search_unfocus_calls[0].clear_text);
+    EXPECT_TRUE(host_.post_message_calls.empty());
+}
+
 TEST_F(SideEffectExecutorTest, SetWindowTitleForwardsToHost)
 {
     exec_.ExecuteOne(effect::SetWindowTitle{ std::pmr::wstring(L"mendo — doc.md") });

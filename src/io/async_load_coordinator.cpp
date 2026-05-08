@@ -17,17 +17,23 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     const uint32_t gen = gen_.fetch_add(1, std::memory_order_relaxed) + 1;
 
     scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme] {
+        // 重い処理 (I/O / Parse / Estimate) の手前で stale gen を short-circuit する。
+        // sink への書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
         if (gen_.load(std::memory_order_relaxed) != gen) {
             return;
         }
 
         auto load_result = FileLoader::LoadFile(path);
         if (!load_result) {
-            if (gen_.load(std::memory_order_relaxed) == gen) {
-                {
-                    const std::lock_guard lock(mutex_);
+            bool published = false;
+            {
+                const std::lock_guard lock(mutex_);
+                if (gen_.load(std::memory_order_relaxed) == gen) {
                     error_ = load_result.error();
+                    published = true;
                 }
+            }
+            if (published) {
                 ::PostMessageW(hwnd, msg_id, 0, 0);
             }
             return;
@@ -47,12 +53,17 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
         cache.Reset(doc.GetNodes().size(), /* shrink = */ false);
         EstimateNodeHeights(doc.GetNodes(), cache, theme);
 
+        bool published = false;
         {
             const std::lock_guard lock(mutex_);
-            result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true });
+            if (gen_.load(std::memory_order_relaxed) == gen) {
+                result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true });
+                published = true;
+            }
         }
-
-        ::PostMessageW(hwnd, msg_id, 0, 0);
+        if (published) {
+            ::PostMessageW(hwnd, msg_id, 0, 0);
+        }
     });
 }
 

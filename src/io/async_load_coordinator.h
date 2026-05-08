@@ -4,6 +4,7 @@
 #include "task_scheduler.h"
 #include <atomic>
 #include <cstdint>
+#include <memory_resource>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -33,11 +34,17 @@ public:
     std::optional<AsyncLoadResult> TakeResult();
     std::optional<FileLoadError> TakeError() noexcept;
 
-    // 既存リクエストを破棄。worker は次の gen チェックで早期 return する (PostMessage は飛ばない)。
+    // 既存リクエストを破棄。gen を進めて worker の次回 gen チェックで早期 return させ、
+    // 同時に mutex 下で result_/error_ もクリアする。worker が最終 gen check を通過した
+    // 直後に Cancel が割り込んだ場合でも、sink への emplace と Cancel の reset は同じ
+    // mutex 上で直列化される (worker は emplace 前に lock 内で gen 再チェック)。
     void Cancel() noexcept
     {
         gen_.fetch_add(1, std::memory_order_relaxed);
         in_flight_ = false;
+        const std::lock_guard lock(mutex_);
+        result_.reset();
+        error_.reset();
     }
 
 private:
