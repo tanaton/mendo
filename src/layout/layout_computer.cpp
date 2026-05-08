@@ -142,6 +142,35 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     cache.BuildBlockHeights(block_heights);
 }
 
+bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept
+{
+    // ダイアグラム系コードブロックの高さは描画完了時にビットマップ実寸で確定する。
+    // テキスト基準の EstimateNodeHeight で上書きすると描画時に bitmap が後続ノードへ
+    // はみ出すため既存値を維持する。
+    if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language)) {
+        return false;
+    }
+    // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。
+    constexpr float kCachedWidthEpsilon = 0.5f;
+    const bool cache_hit = entry.cached_width > 0.0f &&
+                           std::abs(entry.cached_width - node_width) < kCachedWidthEpsilon &&
+                           entry.cached_height > 0.0f;
+    const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, theme);
+    // テーブル/画像/折り返しが多い段落では推定値が実測値を大きく下回るため、
+    // シュリンク方向の更新は後続ノードと重なる原因になる。よって既存値より小さくはしない。
+    if (entry.height >= fallback) {
+        return false;
+    }
+    entry.height = fallback;
+    // 推定で成長させた場合、テーブル幾何 (row_heights/col_widths) は旧値のままなので
+    // clear して MeasureNode の lazy 復元経路を通させる。
+    if (node.type == NodeType::Table && entry.has_table_layout() && !cache_hit) {
+        entry.table_layout->col_widths.clear();
+        entry.table_layout->cached_table_width = 0.0f;
+    }
+    return true;
+}
+
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
                                     size_t from_index, bool has_earlier_dirty, size_t safe_exit_after) noexcept
 {

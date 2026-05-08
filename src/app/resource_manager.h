@@ -28,8 +28,6 @@ public:
         std::move_only_function<void()> recompute_layout_anchored;
     };
 
-    static constexpr UINT_PTR TIMER_MERMAID_BATCH = 10;
-    static constexpr UINT_PTR TIMER_BITMAP_MANAGE = 11;
     static constexpr float EVICT_BUFFER_SCREENS = 5.0f;
     static constexpr float PREFETCH_BUFFER_SCREENS = 3.0f;
     static constexpr int BATCH_TIME_BUDGET_US = 6000;

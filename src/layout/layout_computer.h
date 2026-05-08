@@ -35,6 +35,11 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
 
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme);
 
+// 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。
+// 型別の touch/no-touch ポリシー (Diagram は触らない、Table は推定で成長させた場合のみ
+// table_layout を invalidate) を内部に閉じ込める。戻り値: 高さが更新されたら true。
+bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept;
+
 struct YPositionResult {
     float total_height = 0.0f;
     bool has_dirty_nodes = false;

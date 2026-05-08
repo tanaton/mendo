@@ -453,7 +453,7 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
         effect::PostWindowMessage{
             app_msg::SEARCH_FOCUS,
             app_param::SEARCH_FOCUS_SET_SELECTION,
-            MAKELPARAM(ctrl.GetDragAnchor(), a.caret_pos),
+            app_param::MakeSearchSelectionLParam(ctrl.GetDragAnchor(), a.caret_pos),
         });
 }
 

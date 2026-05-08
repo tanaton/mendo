@@ -32,10 +32,6 @@ public:
         std::move_only_function<void(float)> on_scroll_changed;      // スクロール変更後処理(md_pane_height)
     };
 
-    // タイマーID（App::HandleTimerでのルーティング用）
-    static constexpr UINT_PTR TIMER_CARET = 7;
-    static constexpr UINT_PTR TIMER_DEBOUNCE = 9;
-
     SearchBarController() = default;
     void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Callbacks cb);
 

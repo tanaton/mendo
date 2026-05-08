@@ -271,7 +271,7 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
             EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos) });
         },
         .focus_set_selection = [this](int anchor, int caret) {
-            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(anchor, caret) });
+            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, app_param::MakeSearchSelectionLParam(anchor, caret) });
         },
         .unfocus = [this]() {
             EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_UNFOCUS, 0, 0 });

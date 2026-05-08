@@ -27,12 +27,6 @@
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "uxtheme.lib")
 
-static_assert(app_timer::SEARCH_CARET == SearchBarController::TIMER_CARET);
-static_assert(app_timer::SEARCH_DEBOUNCE == SearchBarController::TIMER_DEBOUNCE);
-static_assert(app_timer::MERMAID_BATCH == ResourceManager::TIMER_MERMAID_BATCH);
-static_assert(app_timer::BITMAP_MANAGE == ResourceManager::TIMER_BITMAP_MANAGE);
-static_assert(app_timer::MERMAID_INIT_RETRY == MermaidRenderer::TIMER_INIT_RETRY);
-
 // DWMWA_USE_IMMERSIVE_DARK_MODE は Windows 10 1809 以降の SDK でしか定義されないため、
 // 古い SDK でビルドできるようフォールバック定義する。
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE

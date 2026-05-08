@@ -1,4 +1,5 @@
 #include "mermaid.h"
+#include "app_constants.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_util.h"
 #include "stream_util.h"
@@ -140,7 +141,7 @@ void MermaidRenderer::CreateWebView2Environment()
             // に失敗する。タイマーで遅延リトライする。
             if (env_retry_count_ < MAX_ENV_RETRIES && hwnd_) {
                 ++env_retry_count_;
-                SetTimer(hwnd_, TIMER_INIT_RETRY, 500, nullptr);
+                SetTimer(hwnd_, app_timer::MERMAID_INIT_RETRY, 500, nullptr);
             }
             return S_OK;
         }
@@ -156,7 +157,7 @@ void MermaidRenderer::CreateWebView2Environment()
 
 void MermaidRenderer::OnInitRetryTimer()
 {
-    KillTimer(hwnd_, TIMER_INIT_RETRY);
+    KillTimer(hwnd_, app_timer::MERMAID_INIT_RETRY);
     if (!webview_env_ && worker_count_ > 0) {
         CreateWebView2Environment();
     }

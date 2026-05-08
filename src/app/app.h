@@ -240,6 +240,9 @@ private:
     void HandleLoadFailureFallback();
     float CalcScrollForDiff(size_t diff_pos, float viewport_height) const;
     bool ApplyMermaidCacheHeights(float md_width);
+    // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
+    // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
+    void ApplyCachedHeightsAndRecompute(float md_width);
     void UpdateTitleBar();
 
     void FinishReload(size_t diff_pos);

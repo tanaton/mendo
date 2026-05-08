@@ -10,8 +10,11 @@
 
 using Microsoft::WRL::ComPtr;
 
-static constexpr float CODE_BLOCK_NO_WRAP_WIDTH = 10000.0f;
-static constexpr float LAYOUT_MAX_HEIGHT = 100000.0f;
+// CodeBlock は SetWordWrapping(NO_WRAP) のため max_width は折り返し計算に使われない。
+// MaxHeight も「事実上の上限」で十分なので、両方ともこの単一定数で運用する。
+// 1e7 は float の整数精度限界 (2^24 ≈ 1.67e7) より少し下で、DirectWrite 内部の
+// 幾何計算でも丸め誤差が乗らない安全な値。10MDIP ≈ 数十万行のコードブロックを許容する。
+static constexpr float LAYOUT_INFINITY = 1.0e7f;
 static constexpr float DEFAULT_COLUMN_WIDTH = 60.0f;
 static constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
 // セル幅がこれ以下の差分なら前回の計測高さを再利用する
@@ -248,19 +251,10 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     }
 
     IDWriteTextFormat* const fmt = GetTextFormat(node);
-    float layout_width = max_width;
-    if (node.type == NodeType::CodeBlock) {
-        layout_width = CODE_BLOCK_NO_WRAP_WIDTH;
-    }
-
-    // line_count ベースで上限高さを動的に決める。100k DIP 固定だと
-    // 数万行のコードブロックで切り詰められうるため、フォントサイズ × 行数
-    // × 安全係数で十分な余地を確保する。コードブロックは font_size_code 基準で計算しないと
-    // body フォントが小さい設定で安全マージンが不足するため type で切り替える。
-    const float height_basis = (node.type == NodeType::CodeBlock) ? theme_->font_size_code : theme_->font_size_body;
-    const float dynamic_max_height = std::max(
-        LAYOUT_MAX_HEIGHT,
-        height_basis * static_cast<float>(std::max(1, node.line_count + 1)) * 3.0f);
+    // CodeBlock は fmt_code_ に SetWordWrapping(NO_WRAP) を設定済みなので layout_width は無視される。
+    // それ以外のノードでは max_width が折り返し位置を決める。
+    const float layout_width = (node.type == NodeType::CodeBlock) ? LAYOUT_INFINITY : max_width;
+    const float dynamic_max_height = LAYOUT_INFINITY;
 
     // 高速パス: 既存の text_layout が残っていれば SetMaxWidth で再計測する。
     // text_layout は内容変更時に呼び出し側 (LayoutCache::InvalidateAllLayouts /
@@ -366,7 +360,7 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
             {
                 MENDO_PROFILE("CreateTextLayout.cell");
                 mendo::CreateDocTextLayout(dwrite_, wv, row_fmt,
-                                           CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                                           LAYOUT_INFINITY, LAYOUT_INFINITY,
                                            &tl.cell_layouts[ci]);
             }
 
@@ -407,7 +401,7 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
             {
                 MENDO_PROFILE("CreateTextLayout.cell.restore");
                 mendo::CreateDocTextLayout(dwrite_, wv, row_fmt,
-                                           CODE_BLOCK_NO_WRAP_WIDTH, LAYOUT_MAX_HEIGHT,
+                                           LAYOUT_INFINITY, LAYOUT_INFINITY,
                                            &tl.cell_layouts[ci]);
             }
             if (tl.cell_layouts[ci]) {
@@ -559,7 +553,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
                 for (size_t c = 0; c < col_count; c++) {
                     const size_t ci = tl.CellIndex(r, c);
                     if (tl.cell_layouts[ci]) {
-                        tl.cell_layouts[ci]->SetMaxWidth(CODE_BLOCK_NO_WRAP_WIDTH);
+                        tl.cell_layouts[ci]->SetMaxWidth(LAYOUT_INFINITY);
                         DWRITE_TEXT_METRICS metrics{};
                         tl.cell_layouts[ci]->GetMetrics(&metrics);
                         natural_widths[c] = std::max(natural_widths[c], metrics.width);

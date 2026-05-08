@@ -434,7 +434,13 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
         app_->OnParseComplete();
         return 0;
 
-    case app_msg::SEARCH_FOCUS:
+    case app_msg::SEARCH_FOCUS: {
+        // SET_SELECTION の payload は発行側で new、ここで delete する所有権規約。
+        // search_edit_ が無い early-return パスでもリークしないよう、最初に取り出す。
+        std::unique_ptr<app_param::SearchSelectionPayload> selection_payload;
+        if (wParam == app_param::SEARCH_FOCUS_SET_SELECTION) {
+            selection_payload.reset(reinterpret_cast<app_param::SearchSelectionPayload*>(lParam));
+        }
         if (search_edit_) {
             RepositionSearchEdit();
             SetFocus(search_edit_);
@@ -442,10 +448,8 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
                 const auto pos = static_cast<int>(lParam);
                 SendMessageW(search_edit_, EM_SETSEL, pos, pos);
             }
-            else if (wParam == app_param::SEARCH_FOCUS_SET_SELECTION) {
-                const int anchor = GET_X_LPARAM(lParam);
-                const int caret = GET_Y_LPARAM(lParam);
-                SendMessageW(search_edit_, EM_SETSEL, anchor, caret);
+            else if (selection_payload) {
+                SendMessageW(search_edit_, EM_SETSEL, selection_payload->anchor, selection_payload->caret);
             }
             else {
                 SendMessageW(search_edit_, EM_SETSEL, 0, -1);
@@ -453,6 +457,7 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
             SyncSearchCaretFromEdit();
         }
         return 0;
+    }
 
     case app_msg::SEARCH_UNFOCUS:
         SetFocus(hwnd_);

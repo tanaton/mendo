@@ -43,9 +43,21 @@ inline constexpr UINT END = WM_APP + 7;
 namespace app_param {
 
 inline constexpr WPARAM SEARCH_FOCUS_SELECT_ALL = 0;
-inline constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;
-inline constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2; // lParam = MAKELPARAM(anchor, caret)
+inline constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;          // lParam = caret (int)
+inline constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2;      // lParam = SearchSelectionPayload* (heap, 受信側で delete)
 inline constexpr WPARAM SEARCH_UNFOCUS_CLOSE = 0;
 inline constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
+
+// SEARCH_FOCUS_SET_SELECTION の lParam で運ぶペイロード。
+// 所有権: 発行側で `new` (MakeSearchSelectionLParam)、SEARCH_FOCUS ハンドラで `delete`。
+struct SearchSelectionPayload {
+    int anchor;
+    int caret;
+};
+
+inline LPARAM MakeSearchSelectionLParam(int anchor, int caret)
+{
+    return reinterpret_cast<LPARAM>(new SearchSelectionPayload{ anchor, caret });
+}
 
 } // namespace app_param

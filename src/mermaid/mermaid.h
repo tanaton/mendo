@@ -49,7 +49,6 @@ public:
     void Shutdown();
     void CancelPending() override;
     void OnInitRetryTimer();
-    static constexpr UINT_PTR TIMER_INIT_RETRY = 12;
 
 #ifdef MENDO_TESTING
     constexpr bool IsInitialized() const noexcept

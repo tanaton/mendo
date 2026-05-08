@@ -76,35 +76,10 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                     }
                 }
                 else {
-                    // 不可視ノードは MeasureNode をスキップするが、entry.height が
-                    // 旧テーマ/ズーム時の値のままだと total_height_ にそれが
-                    // 反映され、直後の SyncMaxScroll が不正確な max_scroll を
-                    // 計算しうる。現テーマでの推定値で素早く更新しておき、
-                    // 厳密値は後続の ProcessDirtyBatch / EnsureVisibleLayout に委ねる。
-                    // ただしダイアグラム系コードブロックの高さは描画完了時にビットマップ
-                    // 実寸で確定する。テキスト基準の EstimateNodeHeight で上書きすると
-                    // 描画時に bitmap が後続ノードへはみ出すため既存値を維持する。
-                    // また、テーブル/画像/折り返しが多い段落では推定値が実測値を
-                    // 大きく下回るため、シュリンク方向の更新も後続ノードと重なる
-                    // 原因になる。よって既存値より小さくはしない。
-                    const bool is_diagram = (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language));
-                    if (!is_diagram) {
-                        // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。
-                        constexpr float kCachedWidthEpsilon = 0.5f;
-                        const bool cache_hit = entry.cached_width > 0.0f &&
-                                               std::abs(entry.cached_width - node_width) < kCachedWidthEpsilon &&
-                                               entry.cached_height > 0.0f;
-                        const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, *theme_);
-                        if (entry.height < fallback) {
-                            entry.height = fallback;
-                            any_height_changed = true;
-                            // 推定で成長させた場合、テーブル幾何 (row_heights/col_widths) は
-                            // 旧値のままなので clear して MeasureNode の lazy 復元経路を通させる。
-                            if (node.type == NodeType::Table && entry.has_table_layout() && !cache_hit) {
-                                entry.table_layout->col_widths.clear();
-                                entry.table_layout->cached_table_width = 0.0f;
-                            }
-                        }
+                    // 不可視ノードは保守的な推定値だけ更新し、厳密値は後続の
+                    // ProcessDirtyBatch / EnsureVisibleLayout に委ねる。
+                    if (EstimateInvisibleNodeHeight(node, entry, *theme_, node_width)) {
+                        any_height_changed = true;
                     }
                     entry.layout_dirty = true;
                 }
@@ -142,16 +117,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         }
     }
 
-    // フルパス完走時は Fenwick バルクロード (O(N))、途中 break 時は部分のみ個別 Set。
-    if (!broke_early) {
-        cache.BuildBlockHeights(block_heights);
-        total_height_ = y + theme_->margin_top;
-    }
-    else {
-        for (size_t i = 0; i < block_heights.size(); ++i) {
-            cache.SetBlockHeight(i, block_heights[i]);
-        }
-    }
+    ApplyComputeLayoutBlockHeights(cache, block_heights, broke_early, y);
     has_dirty_nodes_ = any_dirty;
 
     if (any_measured) {
@@ -162,6 +128,20 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(width_changed));
     MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));
     MENDO_PLOT("layout.compute.broke_early", static_cast<int64_t>(broke_early));
+}
+
+void LayoutEngine::ApplyComputeLayoutBlockHeights(LayoutCache& cache, const std::pmr::vector<float>& block_heights,
+                                                  bool broke_early, float final_y) noexcept
+{
+    if (!broke_early) {
+        cache.BuildBlockHeights(block_heights);
+        total_height_ = final_y + theme_->margin_top;
+    }
+    else {
+        for (size_t i = 0; i < block_heights.size(); ++i) {
+            cache.SetBlockHeight(i, block_heights[i]);
+        }
+    }
 }
 
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)

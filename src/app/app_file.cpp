@@ -261,17 +261,9 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     // ノード高さを推定し、Mermaid/画像キャッシュの実測値で補正する。
     if (has_reload_diff || state_.view.scroll_restore.HasNodeRestore()) {
         if (!heights_estimated) {
-            MENDO_PROFILE("EstimateNodeHeights");
             EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
         }
-        const bool mermaid_applied = ApplyMermaidCacheHeights(md_width);
-        const bool image_applied = resource_manager_.ApplyCachedImagesForReload() > 0;
-        if (mermaid_applied || image_applied) {
-            RecomputeYPositions(
-                state_.document.doc.GetNodesMut(),
-                state_.document.layout_cache,
-                renderer_.GetTheme());
-        }
+        ApplyCachedHeightsAndRecompute(md_width);
     }
 
     // CalcScrollForDiff は md_height (layout 値) に依存するため reducer に渡せず、
@@ -384,14 +376,7 @@ void App::FinishReload(size_t diff_pos)
 
     // Mermaid/LaTeX 図と通常画像の推定高さを実測値 (file_cache_ / image_loader メモリキャッシュ) で
     // 上書きし、CalcScrollForDiff の Y 計算がずれないようにする。
-    const bool mermaid_applied = ApplyMermaidCacheHeights(md_width);
-    const bool image_applied = resource_manager_.ApplyCachedImagesForReload() > 0;
-    if (mermaid_applied || image_applied) {
-        RecomputeYPositions(
-            state_.document.doc.GetNodesMut(),
-            state_.document.layout_cache,
-            renderer_.GetTheme());
-    }
+    ApplyCachedHeightsAndRecompute(md_width);
 
     const float desired_scroll = CalcScrollForDiff(diff_pos, md_height);
 
@@ -453,6 +438,18 @@ bool App::ApplyMermaidCacheHeights(float md_width)
         }
     }
     return any_applied;
+}
+
+void App::ApplyCachedHeightsAndRecompute(float md_width)
+{
+    const bool mermaid_applied = ApplyMermaidCacheHeights(md_width);
+    const bool image_applied = resource_manager_.ApplyCachedImagesForReload() > 0;
+    if (mermaid_applied || image_applied) {
+        RecomputeYPositions(
+            state_.document.doc.GetNodesMut(),
+            state_.document.layout_cache,
+            renderer_.GetTheme());
+    }
 }
 
 void App::UpdateTitleBar()

@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "raw_text.h"
 #include "toc.h"
 #include "parser.h"
 #include "utility.h"
@@ -49,7 +50,9 @@ public:
     // パース入力の string テキストへの参照。AnalyzeReloadDiff の比較用。
     // ノードレベルでは検出できない編集 (空行追加・末尾空白・改行種別変更等) も
     // UTF-8 byte offset 精度で差分位置を求めるため、Document が常時保持する。
-    constexpr const std::pmr::string& GetRawText() const noexcept
+    // 戻り値は RawText 専用ラッパで、append/resize 等の relocate API を遮断している。
+    // std::string_view への暗黙変換あり。
+    const RawText& GetRawText() const noexcept
     {
         return raw_text_;
     }
@@ -91,10 +94,10 @@ private:
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
-    // 注意: raw_text_ は relocate 禁止 (assign / resize / += によるヒープ再確保で
-    // ノードの view_base_ が dangling になるため)。差し替えは ReplaceFromMarkdown 経由で
-    // 全 nodes 再構築 + InjectViewBase() を伴うパスのみ許される。
-    std::pmr::string raw_text_;
+    // RawText は append/resize 等の relocate API を提供しないため、view モードノードの
+    // view_base_ が指し続けるバッファの安全性が型レベルで担保される。差し替えは
+    // ReplaceFromMarkdown / FromMarkdown 経由の Replace() のみ許される。
+    RawText raw_text_;
     size_t loaded_byte_size_ = 0;
     TableOfContents toc_;
     // キーは所有 doc_string。nodes_ の再アロケート/構造変更でも索引が dangling しない。
