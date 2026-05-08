@@ -44,13 +44,11 @@ LRESULT CALLBACK ContextMenu::Impl::WndProc(HWND hwnd, UINT msg, WPARAM wParam, 
 
 int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
 {
-    // [1] パラメータ検証
     auto& s = *impl_;
     if (!s.d2d_factory || !s.dwrite_factory || !params.theme || params.dpi_scale <= 0.0f) {
         return 0;
     }
 
-    // [2] PrepareContent
     s.owner = owner_hwnd;
     s.theme = params.theme;
     s.dpi_scale = params.dpi_scale;
@@ -59,7 +57,6 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
     s.CreateTextFormats(*s.theme);
     s.ComputeLayout();
 
-    // [3] CreatePopupWindow
     if (!Impl::RegisterWindowClass()) {
         return 0;
     }
@@ -121,7 +118,6 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
     s.hovered_id = 0;
     s.hovered_nav = 0;
 
-    // [4] RunModalLoop
     ShowWindow(s.hwnd, SW_SHOW);
     SetForegroundWindow(s.hwnd);
     SetCapture(s.hwnd);
@@ -143,7 +139,6 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
         DispatchMessageW(&msg);
     }
 
-    // [5] Cleanup
     if (s.hwnd) {
         ReleaseCapture();
         DestroyWindow(s.hwnd);

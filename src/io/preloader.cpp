@@ -99,26 +99,25 @@ void Preloader::FinalizeIfDrained(bool taken)
     }
 }
 
-std::optional<AsyncLoadResult> Preloader::TakeResult()
+template <class Opt>
+Opt Preloader::TakeFromSink(Opt& sink)
 {
-    std::optional<AsyncLoadResult> r;
+    Opt out;
     {
         const std::lock_guard lock(sink_mutex_);
-        r = std::move(result_);
-        result_.reset();
+        out = std::move(sink);
+        sink.reset();
     }
-    FinalizeIfDrained(r.has_value());
-    return r;
+    FinalizeIfDrained(out.has_value());
+    return out;
+}
+
+std::optional<AsyncLoadResult> Preloader::TakeResult()
+{
+    return TakeFromSink(result_);
 }
 
 std::optional<FileLoadError> Preloader::TakeError()
 {
-    std::optional<FileLoadError> e;
-    {
-        const std::lock_guard lock(sink_mutex_);
-        e = error_;
-        error_.reset();
-    }
-    FinalizeIfDrained(e.has_value());
-    return e;
+    return TakeFromSink(error_);
 }

@@ -308,11 +308,8 @@ private:
 
     void ShowToast(std::wstring_view message);
 
-    // SVG クリップボードコピーのセッション内キャッシュ (LruCache の挙動は src/util/lru_cache.h 参照)。
-    // キーは PNG キャッシュと同じ NodeDiagramHash。LatexMath は SVG コピー対象外。
-    // 上限 128: 1 ノード分の SVG が数 KB ～ 数十 KB なので 128 件 ≒ 数 MB の上限相当。
-    // 通常の閲覧で 128 個ものダイアグラムを 1 ファイルに同居させるケースはまれで、これを超えれば
-    // LRU で旧エントリが追い出される。Recompute はクリップボード再要求時のみ。
+    // SVG クリップボードコピーのセッション内キャッシュ。キーは PNG キャッシュと同じ NodeDiagramHash。
+    // 上限 128: 閲覧 1 ファイルで数十～100 entries 想定、超過分は LRU で追い出される。
     static constexpr size_t MAX_SVG_CACHE_ENTRIES = 128;
     LruCache<uint64_t, std::pmr::wstring, MAX_SVG_CACHE_ENTRIES> svg_cache_;
     // SVG レンダリングは非同期で 1 秒程度かかる。同じノードを連打されても

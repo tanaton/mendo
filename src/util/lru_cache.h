@@ -23,11 +23,11 @@ public:
     constexpr auto* Find(this auto& self, const Key& key)
     {
         for (size_t i = 0; i < self.size_; i++) {
-            const size_t p = (self.head_ + i) % MaxEntries;
+            const size_t p = self.physical(i);
             if (self.keys_[p] == key) {
                 if constexpr (!std::is_const_v<std::remove_reference_t<decltype(self)>>) {
                     if (i > 0) {
-                        const size_t prev_p = (self.head_ + i - 1) % MaxEntries;
+                        const size_t prev_p = self.physical(i - 1);
                         std::ranges::swap(self.keys_[p], self.keys_[prev_p]);
                         std::ranges::swap(self.values_[p], self.values_[prev_p]);
                         return self.values_.data() + prev_p;
@@ -42,8 +42,7 @@ public:
     constexpr bool Contains(const Key& key) const
     {
         for (size_t i = 0; i < size_; i++) {
-            const size_t p = (head_ + i) % MaxEntries;
-            if (keys_[p] == key) {
+            if (keys_[physical(i)] == key) {
                 return true;
             }
         }
@@ -69,7 +68,7 @@ public:
     constexpr void Clear()
     {
         for (size_t i = 0; i < size_; i++) {
-            const size_t p = (head_ + i) % MaxEntries;
+            const size_t p = physical(i);
             keys_[p] = Key{};
             values_[p] = Value{};
         }
@@ -91,6 +90,11 @@ public:
     }
 
 private:
+    constexpr size_t physical(size_t logical) const noexcept
+    {
+        return (head_ + logical) % MaxEntries;
+    }
+
     std::array<Key, MaxEntries> keys_{};
     std::array<Value, MaxEntries> values_{};
     size_t size_ = 0;

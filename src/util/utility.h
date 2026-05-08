@@ -7,9 +7,6 @@
 #include <string_view>
 #include <vector>
 
-// LoadRcData は rc_resource.h, PmrFormat は pmr_format.h, mendo::overloaded は overloaded.h に分離した。
-// utility.h には汎用の小さな型ヘルパーだけを残す。
-
 // optional に確保される pmr::vector を std::span として安全に view する。
 // 空 vector ヘッダ (24B/個) を全要素分背負わないため
 // `unique_ptr<pmr::vector<T>, Deleter>` として保持しているメンバを、呼び出し側で

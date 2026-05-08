@@ -51,13 +51,9 @@
 #define MENDO_COUNT_SET(counter, value) ((counter) = (value))
 #define MENDO_IF_TRACY(...) __VA_ARGS__
 
-// printf 形式のメッセージは sprintf してから TracyMessage に渡す。
 // _snprintf_s は _TRUNCATE 指定時、収まれば書き込んだ文字数を返し、切り詰めが
 // 起きると -1 を返す（バッファ自体は NUL 終端される）。-1 を 0 と同様に
 // 捨てると長メッセージが silently drop されるため、切り詰め時は実長を取り直す。
-// FUTURE: callsite の `%d`/`%zu` 形式を `{}` に書き換えるリファクタを伴うが、
-// `std::format_to_n` 化すれば format string が consteval で型安全に検証できる。
-// 当面は callsite 数 (~50 箇所) に見合う移行コストの負債として留保。
 #define MENDO_LOGF(prefix, fmt, ...)                                            \
     do {                                                                        \
         char _mendo_buf[256];                                                   \

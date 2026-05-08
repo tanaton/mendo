@@ -65,6 +65,8 @@ private:
     // Take{Result,Error} 共通の末尾。`taken` が true なら worker は PostMessage 直後に
     // return しているので即 join できる。ctx_ も解放してまとめて IsActive() を false にする。
     void FinalizeIfDrained(bool taken);
+    template <class Opt>
+    Opt TakeFromSink(Opt& sink);
 
     // 宣言順: thread_ を ctx_ より前に置く。reverse-destruction で
     // ctx_ → thread_ (join) → result_/error_ の mutex の順に破壊され、
