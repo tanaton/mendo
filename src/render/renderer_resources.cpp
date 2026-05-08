@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "d2d_util.h"
 #include "resource.h"
 #include "ui_constants.h"
 #include "wic_util.h"
@@ -113,16 +114,7 @@ void Renderer::RecreateBrushes()
             brush->SetColor(s.color);
             continue;
         }
-        const HRESULT hr = render_target_->CreateSolidColorBrush(s.color, &brush);
-        if (FAILED(hr)) {
-            // 失敗時はフェイルセーフ色で再試行し、null のまま DrawXXX に渡るのを防ぐ。
-            // 真に重い失敗 (D2DERR_RECREATE_TARGET 等) は EndDraw 経路で検知されて
-            // 次フレーム頭の HandleDeviceLost で RecreateRenderTarget が走る。
-            const HRESULT hr2 = render_target_->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Magenta), &brush);
-            if (FAILED(hr2)) {
-                OutputDebugStringW(L"[mendo] CreateSolidColorBrush failed even on magenta fallback\n");
-            }
-        }
+        mendo::CreateSolidColorBrushOrFallback(render_target_, s.color, brush);
     }
 }
 

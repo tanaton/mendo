@@ -1,4 +1,5 @@
 #include "context_menu_impl.h"
+#include "d2d_util.h"
 #include "theme.h"
 #include "resource.h"
 #include <cmath>
@@ -293,12 +294,7 @@ void ContextMenu::Impl::CreateBrushes()
     }
     auto make = [&](D2D1_COLOR_F c) {
         ComPtr<ID2D1SolidColorBrush> b;
-        HRESULT hr = rt->CreateSolidColorBrush(c, &b);
-        if (FAILED(hr)) {
-            // 失敗時はフェイルセーフ色 (Magenta) で再試行。デバイスロスト等の
-            // 重い失敗は親 Renderer 側 EndDraw 経路で次フレーム再作成される。
-            rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Magenta), &b);
-        }
+        mendo::CreateSolidColorBrushOrFallback(rt.Get(), c, b);
         return b;
     };
 

@@ -1,5 +1,6 @@
 #include "mermaid.h"
 #include "app_constants.h"
+#include "log_hr.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_util.h"
 #include "pmr_format.h"
@@ -25,22 +26,7 @@ static constexpr std::wstring_view MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 static constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 static constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
 
-namespace {
-
-// WebView2 / WRL 系 API の HRESULT 無視に対する最低限のログ出力。
-// 失敗時のみフォーマットして OutputDebugStringW へ流す。
-inline void LogHrFailure(const wchar_t* what, HRESULT hr) noexcept
-{
-    if (SUCCEEDED(hr)) {
-        return;
-    }
-    wchar_t msg[160];
-    swprintf_s(msg, L"[mendo] WebView2: %ls failed (hr=0x%08lX)\n",
-               what, static_cast<unsigned long>(hr));
-    OutputDebugStringW(msg);
-}
-
-} // namespace
+using mendo::LogHrFailure;
 
 MermaidRenderer::~MermaidRenderer()
 {

@@ -1,5 +1,5 @@
 #include "d2d_render_backend.h"
-#include <cstdio>
+#include "log_hr.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -43,9 +43,7 @@ bool D2DRenderBackend::Init(HWND hwnd)
         CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&wic_factory_));
     if (FAILED(hr)) {
-        wchar_t msg[128];
-        swprintf_s(msg, L"[mendo] WIC ImagingFactory creation failed (hr=0x%08lX). Aborting backend init.\n", static_cast<unsigned long>(hr));
-        OutputDebugStringW(msg);
+        mendo::LogHrFailure(L"WIC ImagingFactory creation", hr);
         return false;
     }
 
