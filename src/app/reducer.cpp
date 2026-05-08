@@ -748,57 +748,56 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
             PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
         }
         PushEffect(effects, effect::InvalidateWindow{});
-        break;
+        return;
     case app_timer::Id::SEARCH_CARET:
         state.search.search_bar_ctrl.OnCaretBlinkTimer();
-        break;
+        return;
     case app_timer::Id::TOOLTIP:
         PushEffect(effects, effect::KillTimer{ app_timer::Id::TOOLTIP });
         state.interaction.tooltip.Show();
-        break;
+        return;
     case app_timer::Id::SEARCH_DEBOUNCE:
         state.search.search_bar_ctrl.OnDebounceTimer(state.document.doc.GetNodes());
-        break;
+        return;
     case app_timer::Id::SWIPE_OVERLAY: {
         const auto result = state.interaction.swipe_detector.Commit();
         PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
         switch (result) {
+        case SwipeResult::None:
+            return;
         case SwipeResult::Back:
             ReduceNavigateBack(state, effects);
             PushEffect(effects, effect::InvalidateWindow{});
-            break;
+            return;
         case SwipeResult::Forward:
             ReduceNavigateForward(state, effects);
             PushEffect(effects, effect::InvalidateWindow{});
-            break;
-        default:
-            break;
+            return;
         }
-        break;
+        std::unreachable();
     }
     case app_timer::Id::DEFERRED_LAYOUT:
         PushEffect(effects, effect::ProcessDeferredLayout{});
-        break;
+        return;
     case app_timer::Id::LOADING_ANIM:
         PushEffect(effects, effect::TickLoadingAnimation{});
         PushEffect(effects, effect::InvalidateWindow{});
-        break;
+        return;
     case app_timer::Id::MERMAID_BATCH:
         PushEffect(effects, effect::ProcessMermaidBatchTimer{});
-        break;
+        return;
     case app_timer::Id::BITMAP_MANAGE:
         PushEffect(effects, effect::ProcessBitmapManage{});
-        break;
+        return;
     case app_timer::Id::MERMAID_INIT_RETRY:
         PushEffect(effects, effect::MermaidInitRetry{});
-        break;
+        return;
     case app_timer::Id::FILE_RELOAD_DEBOUNCE:
         PushEffect(effects, effect::KillTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE });
         PushEffect(effects, effect::ReloadFile{});
-        break;
-    default:
-        break;
+        return;
     }
+    std::unreachable();
 }
 
 } // namespace

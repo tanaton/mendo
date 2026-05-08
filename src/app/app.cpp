@@ -296,7 +296,10 @@ void App::OnFileWatchEvent()
 
 void App::HandleTimer(UINT_PTR timer_id)
 {
-    Dispatch(TimerAction{ static_cast<app_timer::Id>(timer_id) });
+    const auto it = std::ranges::find(app_timer::ALL_TIMERS, static_cast<app_timer::Id>(timer_id));
+    if (it != std::ranges::end(app_timer::ALL_TIMERS)) {
+        Dispatch(TimerAction{ *it });
+    }
 }
 
 void App::OnAppLoadFile()
