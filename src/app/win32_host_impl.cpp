@@ -1,4 +1,5 @@
 #include "win32_host_impl.h"
+#include "app_constants.h"
 #include "clipboard_util.h"
 #include "cursor_manager.h"
 #include "darkmode_util.h"
@@ -92,9 +93,39 @@ void Win32Host::ShowWindowCmd(int cmd)
     ShowWindow(hwnd_, cmd);
 }
 
-bool Win32Host::PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp)
+void Win32Host::PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp)
 {
-    return PostMessageW(hwnd_, msg, wp, lp) != 0;
+    PostMessageW(hwnd_, msg, wp, lp);
+}
+
+void Win32Host::SearchFocus(effect::SearchFocus action)
+{
+    using Mode = effect::SearchFocus::Mode;
+    switch (action.mode) {
+    case Mode::SelectAll:
+        PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
+        break;
+    case Mode::SetCaret:
+        PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET,
+                     static_cast<LPARAM>(action.caret));
+        break;
+    case Mode::SetSelection: {
+        // 失敗時は所有権を回収して leak を防ぐ。
+        const LPARAM lp = app_param::MakeSearchSelectionLParam(action.anchor, action.caret);
+        if (!PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, lp)) {
+            delete reinterpret_cast<app_param::SearchSelectionPayload*>(lp);
+        }
+        break;
+    }
+    }
+}
+
+void Win32Host::SearchUnfocus(effect::SearchUnfocus action)
+{
+    const WPARAM wp = action.clear_text
+        ? app_param::SEARCH_UNFOCUS_FILE_SWITCH
+        : app_param::SEARCH_UNFOCUS_CLOSE;
+    PostMessageW(hwnd_, app_msg::SEARCH_UNFOCUS, wp, 0);
 }
 
 void Win32Host::SetWindowTitle(const std::pmr::wstring& title)

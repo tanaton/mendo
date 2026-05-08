@@ -198,7 +198,7 @@ void App::OnParseComplete()
         const std::string_view new_view(result->doc.GetRawText());
         const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
-        MENDO_TRACEF("OnParseComplete: reload node_count=%zu diff_pos=%zu old_size=%zu new_size=%zu op=%d",
+        MENDO_TRACEF("OnParseComplete: reload node_count={} diff_pos={} old_size={} new_size={} op={}",
                      result->doc.GetNodes().size(), decision.diff_pos, old_view.size(), new_view.size(),
                      std::to_underlying(decision.op));
 
@@ -228,7 +228,7 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
 {
     ResetViewForNewDocument();
     state_.search.search_bar_ctrl.Reset();
-    EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_UNFOCUS, app_param::SEARCH_UNFOCUS_FILE_SWITCH, 0 });
+    EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
     state_.active_toc_index = -1;
 
     const std::pmr::wstring dir = state_.document.doc.GetDirectory();
@@ -246,14 +246,14 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     const bool has_reload_diff = (state_.reload_diff_pos != std::string_view::npos);
 
     if (state_.view.scroll_restore.HasNodeRestore()) {
-        MENDO_TRACEF("FinishLoad: has_reload_diff=%d node=%d offset=%d heights_estimated=%d",
+        MENDO_TRACEF("FinishLoad: has_reload_diff={} node={} offset={} heights_estimated={}",
                      has_reload_diff ? 1 : 0,
                      state_.view.scroll_restore.pending_restore_node,
                      state_.view.scroll_restore.pending_restore_offset,
                      heights_estimated ? 1 : 0);
     }
     else {
-        MENDO_TRACEF("FinishLoad: has_reload_diff=%d (no node restore) heights_estimated=%d",
+        MENDO_TRACEF("FinishLoad: has_reload_diff={} (no node restore) heights_estimated={}",
                      has_reload_diff ? 1 : 0,
                      heights_estimated ? 1 : 0);
     }
@@ -286,7 +286,7 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
 
     FinalizeLayout(md_height);
 
-    MENDO_TRACEF("FinishLoad: scroll_y=%.1f max_scroll=%.1f reload_diff_scroll_y=%.1f",
+    MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f} reload_diff_scroll_y={:.1f}",
                  state_.view.viewport.GetScrollY(),
                  state_.view.viewport.GetMaxScroll(),
                  reload_diff_scroll_y);
@@ -352,7 +352,7 @@ void App::DoReloadCurrentFile()
     const std::string_view new_view(new_text);
     const auto decision = AnalyzeReloadDiff(old_view, new_view);
 
-    MENDO_TRACEF("DoReload: diff_pos=%zu old_size=%zu new_size=%zu op=%d",
+    MENDO_TRACEF("DoReload: diff_pos={} old_size={} new_size={} op={}",
                  decision.diff_pos, old_view.size(), new_view.size(),
                  std::to_underlying(decision.op));
 
@@ -385,7 +385,7 @@ void App::FinishReload(size_t diff_pos)
         std::string_view{ state_.document.doc.GetRawText() },
         diff_pos, md_height, state_.view.viewport.GetScrollY());
 
-    MENDO_TRACEF("FinishReload: desired_scroll=%.1f diff_pos=%zu",
+    MENDO_TRACEF("FinishReload: desired_scroll={:.1f} diff_pos={}",
                  desired_scroll, diff_pos);
 
     // スクロール位置を先に設定してから ViewportLayout を呼ぶことで、変更箇所周辺の
@@ -401,7 +401,7 @@ void App::FinishReload(size_t diff_pos)
 
     FinalizeLayout(md_height);
 
-    MENDO_TRACEF("FinishReload: after-finalize scroll_y=%.1f max_scroll=%.1f",
+    MENDO_TRACEF("FinishReload: after-finalize scroll_y={:.1f} max_scroll={:.1f}",
                  state_.view.viewport.GetScrollY(),
                  state_.view.viewport.GetMaxScroll());
 

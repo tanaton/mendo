@@ -34,10 +34,9 @@ public:
     // wstring_view 経由の null 終端コピーを 1 回省略できる。
     virtual void ShellOpen(const std::pmr::wstring& url) = 0;
     virtual void ShowWindowCmd(int cmd) = 0;
-    // 失敗 (PostMessageW が FALSE) を呼び出し側に伝えるため bool 戻り値。
-    // SEARCH_FOCUS_SET_SELECTION のように lParam で heap payload を運ぶ経路では、
-    // 失敗時に発行側が delete して所有権を回収する必要がある。
-    virtual bool PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) = 0;
+    virtual void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) = 0;
+    virtual void SearchFocus(effect::SearchFocus action) = 0;
+    virtual void SearchUnfocus(effect::SearchUnfocus action) = 0;
     virtual void SetWindowTitle(const std::pmr::wstring& title) = 0;
     virtual void SetWindowPosition(int x, int y, int cx, int cy) = 0;
     virtual POINT ClientToScreen(POINT client_pt) = 0;

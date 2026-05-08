@@ -35,6 +35,11 @@ struct ContextMenu::Impl {
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
 
+    // Show() の 3 段階。CreatePopupWindow が false を返したら Show() は早期 return する。
+    void PrepareContent(const ContextMenuParams& params);
+    bool CreatePopupWindow(int screen_x, int screen_y);
+    void RunModalLoop();
+
     void BuildItems(const ContextMenuParams& params);
     void ComputeLayout();
     bool EnsureRenderTarget(float dpi);

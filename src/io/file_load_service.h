@@ -1,4 +1,5 @@
 #pragma once
+#include "async_load_coordinator.h"
 #include "async_load_result.h"
 #include "document_service.h"
 #include "document.h"
@@ -10,14 +11,11 @@
 #include <string>
 #include <optional>
 #include <expected>
-#include <mutex>
-#include <atomic>
-#include <memory>
 
 struct Theme;
 
 // ファイル読み込みのオーケストレーション。
-// 内部に LoadingAnimation / Preloader / 非同期ロード coordinator を持ち、
+// 内部に LoadingAnimation / Preloader / AsyncLoadCoordinator を持ち、
 // UI から見える API はそれらを束ねた薄い facade。preload と StartAsyncLoad の
 // 結果ストレージは互いに独立で、TakeAsyncResult/TakeAsyncError が両者を順に確認する。
 class FileLoadService {
@@ -35,7 +33,7 @@ public:
     // 重複スケジューリングを抑制するためのフラグ。preload 経路は preloader_ が状態を持つ。
     bool IsAsyncLoading() const noexcept
     {
-        return async_in_flight_ || preloader_.IsActive();
+        return coordinator_.IsActive() || preloader_.IsActive();
     }
     constexpr float GetLoadingAngle() const noexcept
     {
@@ -68,8 +66,7 @@ public:
     std::optional<FileLoadError> TakeAsyncError() noexcept;
     void CancelAsyncLoad() noexcept
     {
-        async_gen_.fetch_add(1, std::memory_order_relaxed);
-        async_in_flight_ = false;
+        coordinator_.Cancel();
     }
 
     // ---- 起動時 preload (App::Init 前から走らせる経路) ----
@@ -99,20 +96,9 @@ public:
     }
 
 private:
-    void ResetAsyncState();
-
     DocumentService& doc_service_;
     LoadingAnimation animation_;
     std::pmr::wstring loading_path_;
-
-    // ---- 非同期ロード coordinator (StartAsyncLoad 専用) ----
-    // worker thread は async_gen_ (atomic) と async_result_/async_error_ (mutex 保護) のみ触る。
-    bool async_in_flight_ = false;
-    std::atomic<uint32_t> async_gen_{ 0 };
-    std::mutex async_mutex_;
-    std::optional<AsyncLoadResult> async_result_;
-    std::optional<FileLoadError> async_error_;
-
-    // ---- 起動時 preload (jthread + cv で hwnd 解禁を待つ) ----
+    AsyncLoadCoordinator coordinator_;
     Preloader preloader_;
 };

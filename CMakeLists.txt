@@ -160,6 +160,7 @@ add_library(mendo_core STATIC
     src/io/file_dialog_service.cpp
     src/io/file_explorer.cpp
     src/io/file_load_service.cpp
+    src/io/async_load_coordinator.cpp
     src/io/preloader.cpp
     src/io/config_service.cpp
     src/io/image_loader.cpp

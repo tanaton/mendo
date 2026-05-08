@@ -44,9 +44,16 @@ struct ViewportClip {
 };
 
 // 1 回の RunSerial で消費可能な予算。0 = 無制限。
-struct DirtyBudget {
+struct SerialBudget {
     int max_nodes = 0;
     int time_us = 0;
+};
+
+// 1 回の RunParallel で消費可能な予算。並列版は time_budget を持たない:
+// Plan/Dispatch/Wait の各 phase に checkpoint を入れる枠組みが無く、worker 側 polling コストが
+// 利得を上回るため。time 制御が必要なら呼び出し側で RunSerial にフォールバックすること。
+struct ParallelBudget {
+    int max_nodes = 0;
 };
 
 enum class StopReason : uint8_t {
@@ -78,7 +85,7 @@ public:
                                const Theme& theme,
                                const IMeasureBackend& backend,
                                ViewportClip clip,
-                               DirtyBudget budget) const;
+                               SerialBudget budget) const;
 };
 
 } // namespace mendo::layout

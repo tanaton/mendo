@@ -17,21 +17,28 @@ void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
     config_dir_override_ = dir;
 }
 
+const std::filesystem::path& ConfigService::DefaultConfigDir()
+{
+    // magic static: SHGetKnownFolderPath はプロセス全体で 1 回のみ呼び出される。
+    // 失敗時は空 path のままキャッシュされ、callsite (GetConfigPath/Load/Flush) で空チェックされる。
+    static const std::filesystem::path kDir = []() noexcept {
+        wchar_t* appdata = nullptr;
+        std::filesystem::path result;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
+            result = std::filesystem::path(appdata) / L"mendo";
+            CoTaskMemFree(appdata);
+        }
+        return result;
+    }();
+    return kDir;
+}
+
 std::filesystem::path ConfigService::GetConfigDir() const
 {
     if (!config_dir_override_.empty()) {
         return config_dir_override_;
     }
-    // 単一スレッド前提の lazy 初期化 (header の Why コメント参照)。
-    if (!default_dir_resolved_) {
-        wchar_t* appdata = nullptr;
-        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
-            cached_default_dir_ = std::filesystem::path(appdata) / L"mendo";
-            CoTaskMemFree(appdata);
-        }
-        default_dir_resolved_ = true;
-    }
-    return cached_default_dir_;
+    return DefaultConfigDir();
 }
 
 std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) const

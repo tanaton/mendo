@@ -65,7 +65,8 @@ inline constexpr WPARAM SEARCH_UNFOCUS_CLOSE = 0;
 inline constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
 
 // SEARCH_FOCUS_SET_SELECTION の lParam で運ぶペイロード。
-// 所有権: 発行側で `new` (MakeSearchSelectionLParam)、SEARCH_FOCUS ハンドラで `delete`。
+// 所有権: 発行側 (Win32Host::SearchFocus) で `new`、受信側 (SEARCH_FOCUS ハンドラ
+// または PostMessage 失敗時の発行側) で `delete`。
 struct SearchSelectionPayload {
     int anchor;
     int caret;

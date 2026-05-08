@@ -21,7 +21,7 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
     switch (HitTestSearchBar(sbl, dip_x, dip_y)) {
     case SearchBarHitZone::None:
         if (!is_double_click) {
-            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0 });
+            EmitEffect(effect::SearchFocus{});
         }
         break;
     case SearchBarHitZone::Up:
@@ -50,10 +50,11 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
             // 自前で単語境界を計算して EM_SETSEL を発行する。
             const auto wb = FindWordBoundaries(std::wstring_view{ query_wide }, static_cast<uint32_t>(pos));
             if (wb.found) {
-                EmitEffect(effect::PostWindowMessage{
-                    app_msg::SEARCH_FOCUS,
-                    app_param::SEARCH_FOCUS_SET_SELECTION,
-                    app_param::MakeSearchSelectionLParam(static_cast<int>(wb.start), static_cast<int>(wb.end)) });
+                EmitEffect(effect::SearchFocus{
+                    effect::SearchFocus::Mode::SetSelection,
+                    static_cast<int>(wb.start),
+                    static_cast<int>(wb.end),
+                });
             }
         }
         else {

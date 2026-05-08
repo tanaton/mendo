@@ -6,6 +6,7 @@
 #include "task_scheduler.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory_resource>
 
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
@@ -42,7 +43,13 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         last_viewport_width_ = viewport_width;
     }
 
+    // partial=false 時は ±∞ で full レイアウトを再現する
+    // (visible が常に true、不可視推定経路と early break が発火しない)。
+    constexpr float kInf = std::numeric_limits<float>::infinity();
+    const float vp_top = partial ? viewport_top : -kInf;
+    const float vp_bottom = partial ? viewport_bottom : kInf;
     const float content_width = theme_->ContentWidth(viewport_width);
+
     float y = theme_->margin_top;
     bool any_dirty = false;
     bool any_height_changed = false;
@@ -59,36 +66,26 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         const float indent = NodeIndent(node, *theme_);
         const float node_width = content_width - indent;
 
-        const bool needs_layout = width_changed || entry.layout_dirty;
-
-        if (needs_layout) {
-            if (partial) {
-                const float node_bottom = y + entry.height; // 古い高さを使って推定
-                const bool visible = (node_bottom >= viewport_top && y <= viewport_bottom);
-                if (visible) {
-                    const float old_height = entry.height;
-                    backend_->MeasureNode(node, entry, node_width);
-                    any_measured = true;
-                    entry.cached_width = node_width;
-                    entry.cached_height = entry.height;
-                    if (entry.height != old_height) {
-                        any_height_changed = true;
-                    }
-                }
-                else {
-                    // 不可視ノードは保守的な推定値だけ更新し、厳密値は後続の
-                    // ProcessDirtyBatch / EnsureVisibleLayout に委ねる。
-                    if (EstimateInvisibleNodeHeight(node, entry, *theme_, node_width)) {
-                        any_height_changed = true;
-                    }
-                    entry.layout_dirty = true;
-                }
-            }
-            else {
+        if (width_changed || entry.layout_dirty) {
+            const float node_bottom = y + entry.height; // 古い高さを使って推定
+            const bool visible = (node_bottom >= vp_top && y <= vp_bottom);
+            if (visible) {
+                const float old_height = entry.height;
                 backend_->MeasureNode(node, entry, node_width);
                 any_measured = true;
                 entry.cached_width = node_width;
                 entry.cached_height = entry.height;
+                if (entry.height != old_height) {
+                    any_height_changed = true;
+                }
+            }
+            else {
+                // 不可視ノードは保守的な推定値だけ更新し、厳密値は後続の
+                // ProcessDirtyBatch / EnsureVisibleLayout に委ねる。
+                if (EstimateInvisibleNodeHeight(node, entry, *theme_, node_width)) {
+                    any_height_changed = true;
+                }
+                entry.layout_dirty = true;
             }
         }
 
@@ -106,9 +103,9 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 
         block_heights.push_back(sa + entry.height + sb);
 
-        // 部分モードで幅の変更がなく、ビューポートを超えた後に
-        // 高さの変更もなければ、残りの Y 位置は変わらないので早期終了する。
-        if (partial && !width_changed && !any_height_changed && y > viewport_bottom) {
+        // 幅の変更がなく、ビューポートを超えた後に高さの変更もなければ、
+        // 残りの Y 位置は変わらないので早期終了する。
+        if (!width_changed && !any_height_changed && y > vp_bottom) {
             // 中断地点より先にダーティノードが存在する可能性を保守的に仮定する。
             // ProcessDirtyBatch が存在しない場合は速やかに確認・クリアする。
             any_dirty = true;
@@ -119,7 +116,6 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 
     ApplyComputeLayoutBlockHeights(cache, block_heights, broke_early, y);
     has_dirty_nodes_ = any_dirty;
-
     if (any_measured) {
         cache.IncrementEffectsGeneration();
     }
@@ -193,13 +189,15 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
     const float content_width = theme_->ContentWidth(viewport_width);
 
     const mendo::layout::ViewportClip clip{ viewport_top, viewport_height, buffer_screens };
-    const mendo::layout::DirtyBudget budget{ batch_size, time_budget_us };
 
-    // RunParallel は time_budget_us を無視するが、batch_size は Phase 1 で適用するので
-    // スクロール時バッチも上限以下に収まる。小規模 dirty は内部で inline 直列に倒れる。
+    // 並列版は ParallelBudget (max_nodes のみ) を取り、time_budget は型レベルで遮断される。
+    // batch_size は Phase 1 で適用するのでスクロール時バッチも上限以下に収まる。
+    // 小規模 dirty は RunParallel 内部で inline 直列に倒れる。
     const auto result = layout_scheduler_
-        ? mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *backend_, clip, budget, *layout_scheduler_)
-        : scheduler_.RunSerial(nodes, cache, content_width, *theme_, *backend_, clip, budget);
+        ? mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *backend_, clip,
+                                     mendo::layout::ParallelBudget{ batch_size }, *layout_scheduler_)
+        : scheduler_.RunSerial(nodes, cache, content_width, *theme_, *backend_, clip,
+                               mendo::layout::SerialBudget{ batch_size, time_budget_us });
 
     if (result.processed == 0) {
         has_dirty_nodes_ = false;

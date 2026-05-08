@@ -42,13 +42,12 @@ public:
 private:
     [[nodiscard]] const std::string* FindValue(std::string_view section, std::string_view key) const;
 
+    // SHGetKnownFolderPath の結果をプロセス全体で 1 回だけ resolve する。
+    // 関数ローカル static (magic static) は C++11 以降 thread-safe な lazy init を保証するため、
+    // 別スレッド (並列計測 worker 等) から GetConfigDir() を呼んでも安全。
+    static const std::filesystem::path& DefaultConfigDir();
+
     std::filesystem::path config_dir_override_;
-    // SHGetKnownFolderPath の結果キャッシュ。override 未設定時の問い合わせを 1 回に抑える。
-    // 単一 UI スレッドからの呼び出しのみ前提 (本クラスは ConfigService 自体が UI スレッド常駐)。
-    // 並列計測スレッド等から GetConfigDir() を呼ばないこと。並列利用が必要になったら
-    // call_once + ConfigService をコピー禁止に切り替える必要がある。
-    mutable std::filesystem::path cached_default_dir_;
-    mutable bool default_dir_resolved_ = false;
     ini::IniData data_;
 };
 

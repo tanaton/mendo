@@ -43,7 +43,7 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
                              const Theme& theme,
                              const IMeasureBackend& backend,
                              ViewportClip clip,
-                             DirtyBudget budget,
+                             ParallelBudget budget,
                              TaskScheduler& scheduler)
 {
     MENDO_PROFILE("DirtyScheduler::RunParallel");
@@ -53,7 +53,8 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
     const bool has_viewport_limit = clip.active();
     const float limit_top = has_viewport_limit ? clip.limit_top() : 0.0f;
     const float limit_bottom = has_viewport_limit ? clip.limit_bottom() : 0.0f;
-    // time_us 無視: worker 側に polling checkpoint が無いので RunSerial と非対称。
+    // ParallelBudget には time_us が無い (シグネチャで明示)。
+    // worker 側に polling checkpoint が無いため、time-based 制御は RunSerial 専用。
     const bool has_batch_limit = (budget.max_nodes > 0);
 
     std::pmr::vector<size_t> indices(std::pmr::get_default_resource());
