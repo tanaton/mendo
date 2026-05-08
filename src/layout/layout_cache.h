@@ -95,6 +95,7 @@ struct NodeLayoutEntry {
     // MeasureNode で text_layout 確定時に同時に求める。
     float first_line_height = 0.0f;
     // 直近 MeasureNode の幅と実測 height。同じ幅へ戻った際に EstimateNodeHeight の上書きを避ける。
+    // cached_width < 0 が「未計測」のセンチネル (per-node で密に並ぶため optional<> を避けたい)。
     float cached_width = -1.0f;
     float cached_height = 0.0f;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
@@ -378,11 +379,12 @@ public:
     // のメモリを COM 側に常駐させてしまう。EVICT_BUFFER_SCREENS 分の安全マージン
     // を取った上で範囲外を解放する。呼び出し側（ResourceManager）は再描画時の
     // 再生成コストを踏まえてタイマー駆動で間引く。
-    void EvictTextLayouts(size_t first_keep, size_t last_keep) noexcept
+    // 破棄範囲は [0, first_keep_inclusive) と [last_keep_exclusive, size)。
+    void EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept
     {
         const size_t n = entries_.size();
-        const size_t fk = std::min(first_keep, n);
-        const size_t lk = std::min(last_keep, n);
+        const size_t fk = std::min(first_keep_inclusive, n);
+        const size_t lk = std::min(last_keep_exclusive, n);
         for (size_t i = 0; i < fk; ++i) {
             EvictEntryLayout(entries_[i]);
         }
@@ -442,8 +444,8 @@ public:
         effects_generation_++;
     }
 
-    // エフェクト世代カウンタ。レイアウト変更時にインクリメントされる。
-    // Renderer が ApplyVisibleEffects のスキップ判定に使用する。
+    // ノード数の変化または全件 invalidate でのみ進める (per-node の dirty では進めない)。
+    // Renderer が ApplyVisibleEffects のスキップ判定に使う。
     constexpr uint32_t GetEffectsGeneration() const noexcept
     {
         return effects_generation_;

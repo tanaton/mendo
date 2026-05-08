@@ -57,43 +57,36 @@ bool PaneController::SetFileRefreshHovered(bool h) noexcept
     return SetFlag(file_refresh_hovered_, h);
 }
 
-void PaneController::DragSplitter1To(float dip_x, float total_width, float splitter_w) noexcept
+float PaneController::ConstrainSplitterWidth(float requested_width, float total_width,
+                                             float splitter_w, float other_width,
+                                             bool other_visible) noexcept
 {
-    file_width_ = std::clamp(dip_x, PANE_MIN_WIDTH, total_width);
-
-    float used = file_width_ + splitter_w;
-    if (show_toc_) {
-        used += toc_width_ + splitter_w;
+    float w = std::max(PANE_MIN_WIDTH, requested_width);
+    float used = w + splitter_w;
+    if (other_visible) {
+        used += other_width + splitter_w;
     }
     if (total_width - used < MD_PANE_MIN_WIDTH) {
-        file_width_ = total_width - MD_PANE_MIN_WIDTH - splitter_w;
-        if (show_toc_) {
-            file_width_ -= toc_width_ + splitter_w;
+        w = total_width - MD_PANE_MIN_WIDTH - splitter_w;
+        if (other_visible) {
+            w -= other_width + splitter_w;
         }
-        file_width_ = std::max(PANE_MIN_WIDTH, file_width_);
+        w = std::max(PANE_MIN_WIDTH, w);
     }
+    return w;
+}
+
+void PaneController::DragSplitter1To(float dip_x, float total_width, float splitter_w) noexcept
+{
+    file_width_ = ConstrainSplitterWidth(dip_x, total_width, splitter_w, toc_width_, show_toc_);
 }
 
 void PaneController::DragSplitter2To(float dip_x, float total_width, float splitter_w) noexcept
 {
     // toc_leftはレイアウトから既知; dip_xは新しい右端
     const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
-    const float toc_left = layout.toc_rect.x;
-    const float new_width = dip_x - toc_left;
-    toc_width_ = std::max(PANE_MIN_WIDTH, new_width);
-
-    float used = splitter_w;
-    if (show_file_) {
-        used += file_width_ + splitter_w;
-    }
-    used += toc_width_;
-    if (total_width - used < MD_PANE_MIN_WIDTH) {
-        toc_width_ = total_width - MD_PANE_MIN_WIDTH - splitter_w;
-        if (show_file_) {
-            toc_width_ -= file_width_ + splitter_w;
-        }
-        toc_width_ = std::max(PANE_MIN_WIDTH, toc_width_);
-    }
+    const float new_width = dip_x - layout.toc_rect.x;
+    toc_width_ = ConstrainSplitterWidth(new_width, total_width, splitter_w, file_width_, show_file_);
 }
 
 void PaneController::ApplyZoom(float ratio) noexcept

@@ -2,7 +2,6 @@
 #include "pane_controller.h"
 #include "string_convert.h"
 #include "file_io.h"
-#include "ascii_util.h"
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -45,7 +44,8 @@ std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) c
     })) {
         return {};
     }
-    if (ascii_util::Contains(filename, L"..")) {
+    // `..` の substring 判定だと `foo...bar.txt` も誤弾きするので equality で判定する。
+    if (filename == L".." || filename == L".") {
         return {};
     }
     const auto dir = GetConfigDir();

@@ -82,7 +82,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
         return;
     }
 
-    if (sp.cache.dirty) {
+    if (sp.cache.NeedsRedraw(sp.scroll.scroll_y)) {
         auto* rt = sp.cache.bitmap_rt.Get();
         rt->BeginDraw();
         rt->Clear(sp.theme.pane_bg_color);
@@ -146,6 +146,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
 
         rt->EndDraw();
         sp.cache.dirty = false;
+        sp.cache.cached_scroll_y = sp.scroll.scroll_y;
         sp.cache.cached_bitmap.Reset();
         sp.cache.bitmap_rt->GetBitmap(&sp.cache.cached_bitmap);
     }

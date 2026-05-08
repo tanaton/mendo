@@ -284,6 +284,9 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
             InvalidateHitPositions();
             resource_manager_.ScheduleBitmapManage();
         },
+        .on_wrap_around = [] {
+            MessageBeep(MB_OK);
+        },
     };
     // clang-format on
 }

@@ -130,7 +130,6 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
         }
 
         DecodeResult result;
-        result.path = path;
         result.on_complete = std::move(on_complete);
 
         if (wic_factory_) {
@@ -144,6 +143,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
                 }
             }
         }
+        result.path = std::move(path);
 
         if (cancel_gen_.load() != gen) {
             return;

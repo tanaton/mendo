@@ -4,10 +4,12 @@
 #include <string_view>
 #include <memory_resource>
 #include <expected>
+#include <limits>
 #include <windows.h>
 
-// ファイル読み込みの最大サイズ（4GB）。Markdown 経路の実効上限は ~2GB-1。
-inline constexpr LONGLONG MAX_FILE_SIZE = 1024LL * 1024 * 1024 * 4;
+// ファイル読み込みの最大サイズ。Markdown 経路は md4c が int を取るため ~2GB-1 が
+// 実効上限。事前ガード (OpenFileForReadShared) もこの値で揃え、二段ガードを排除する。
+inline constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int>::max());
 
 // FileLoader::LoadFile のエラー型
 enum class FileLoadError : uint8_t {

@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory_resource>
+#include <mutex>
 
 #pragma comment(lib, "windowscodecs.lib")
 
@@ -84,16 +85,15 @@ void MermaidRenderer::EnsureInitialized()
     // オフスクリーンでWebView2をホストする非表示ポップアップウィンドウを登録・作成する。
     // WebView2はCapturePreviewでコンテンツをレンダリングするためにIsVisible=TRUEが必要なため、
     // 非表示にする代わりに画面外に配置したポップアップを使用する。
-    static bool class_registered = false;
-    if (!class_registered) {
+    static std::once_flag class_register_flag;
+    std::call_once(class_register_flag, [] {
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = DefWindowProcW;
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.lpszClassName = MERMAID_HOST_CLASS;
         RegisterClassExW(&wc);
-        class_registered = true;
-    }
+    });
 
     for (int i = 0; i < worker_count_; i++) {
         workers_[i].hwnd = CreateWindowExW(

@@ -54,6 +54,7 @@ enum class StopReason : uint8_t {
     Done,       // 全 dirty を処理しきった
     BatchLimit, // max_nodes に到達
     TimeBudget, // time_us を超過
+    Error,      // worker 例外で一部 chunk が未処理 (RunParallel のみ)
 };
 
 struct DirtyBatchResult {
@@ -61,7 +62,7 @@ struct DirtyBatchResult {
     size_t first_processed = std::numeric_limits<size_t>::max();
     size_t last_processed = 0;
     StopReason reason = StopReason::NoneDirty;
-    // viewport buffer 内に未処理 dirty が残ったか (BatchLimit/TimeBudget 中断時のみ true)。
+    // viewport buffer 内に未処理 dirty が残ったか (BatchLimit/TimeBudget/Error 中断時のみ true)。
     // Done 時は false。viewport_top<0 (no clip) でも、中断したなら true。
     bool any_nearby_skipped = false;
 };

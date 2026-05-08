@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 #include <array>
 #include <cstdint>
+#include <list>
 #include <unordered_map>
 #include <utility>
 
@@ -59,14 +60,17 @@ private:
 
     static constexpr size_t MAX_POOLED_BRUSHES = 256;
 
+    // front = most recently used, back = oldest. splice で O(1) 昇格・追い出し。
+    using LruList = std::list<uint32_t>;
+
     struct BrushEntry {
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
-        uint64_t last_used = 0;
+        LruList::iterator lru_pos;
     };
 
     // UI スレッド専用なので pmr の sync pool を経由せず標準アロケータを使う。
     std::unordered_map<uint32_t, BrushEntry> brush_pool_;
-    uint64_t use_counter_ = 0;
+    LruList lru_keys_;
     ID2D1RenderTarget* bound_rt_ = nullptr;
     // 同色連続発行（罫線、ハイライト等）の hash lookup を省くための直前ブラシキャッシュ。
     // last_brush_==nullptr が「キャッシュ無効」を示し、PackColor の値域全体を

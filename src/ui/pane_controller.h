@@ -179,4 +179,7 @@ private:
     static bool ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept;
     static bool SetHoveredIndex(int& current, int idx) noexcept;
     static bool SetFlag(bool& current, bool value) noexcept;
+    static float ConstrainSplitterWidth(float requested_width, float total_width,
+                                        float splitter_w, float other_width,
+                                        bool other_visible) noexcept;
 };

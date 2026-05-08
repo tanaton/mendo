@@ -16,7 +16,6 @@ using Microsoft::WRL::ComPtr;
 // 幾何計算でも丸め誤差が乗らない安全な値。10MDIP ≈ 数十万行のコードブロックを許容する。
 static constexpr float LAYOUT_INFINITY = 1.0e7f;
 static constexpr float DEFAULT_COLUMN_WIDTH = 60.0f;
-static constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
 // セル幅がこれ以下の差分なら前回の計測高さを再利用する
 static constexpr float CELL_WIDTH_EPSILON = 0.5f;
 

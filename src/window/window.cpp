@@ -558,10 +558,11 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_COMMAND:
         if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == search_edit_) {
             const int text_len = GetWindowTextLengthW(search_edit_);
-            std::pmr::wstring buf(static_cast<size_t>(std::max(text_len, 0)), L'\0');
-            const int copied = GetWindowTextW(search_edit_, buf.data(), text_len + 1);
-            buf.resize(static_cast<size_t>(std::max(copied, 0)));
-            app_->OnSearchTextChanged(std::move(buf));
+            const size_t needed = static_cast<size_t>(std::max(text_len, 0));
+            search_text_buf_.assign(needed, L'\0');
+            const int copied = GetWindowTextW(search_edit_, search_text_buf_.data(), text_len + 1);
+            search_text_buf_.resize(static_cast<size_t>(std::max(copied, 0)));
+            app_->OnSearchTextChanged(search_text_buf_);
             SyncSearchCaretFromEdit();
             return 0;
         }
@@ -597,6 +598,11 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_DESTROY:
         SaveWindowPlacement();
+        // dwRefData=this を渡しているので、Win32Window 破棄前に subclass を外さないと
+        // 破棄後の SearchEditProc 呼び出しで dangling pointer を踏む。
+        if (search_edit_) {
+            RemoveWindowSubclass(search_edit_, SearchEditProc, 0);
+        }
         app_->OnDestroy();
         PostQuitMessage(0);
         return 0;
@@ -704,12 +710,12 @@ bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 
 void Win32Window::RestoreScrollPosition()
 {
-    const int node = config_.LoadInt("Session", "ScrollNode", -1, -1, 100000000);
-    if (node < 0) {
+    const SessionService session{ config_ };
+    const auto pos = session.LoadScrollPosition();
+    if (pos.node < 0) {
         return;
     }
-    const int offset = config_.LoadInt("Session", "ScrollOffset", 0, -100000, 100000);
-    app_->SetPendingRestoreNode(node, offset);
+    app_->SetPendingRestoreNode(pos.node, pos.offset);
 }
 
 // ============================================================
@@ -728,6 +734,14 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
     if (msg == WM_KEYDOWN) {
         const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        const auto step = [&] {
+            if (shift) {
+                self->app_->OnSearchPrev();
+            }
+            else {
+                self->app_->OnSearchNext();
+            }
+        };
 
         switch (wParam) {
         case VK_ESCAPE:
@@ -735,20 +749,8 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
             SetFocus(self->hwnd_);
             return 0;
         case VK_RETURN:
-            if (shift) {
-                self->app_->OnSearchPrev();
-            }
-            else {
-                self->app_->OnSearchNext();
-            }
-            return 0;
         case VK_F3:
-            if (shift) {
-                self->app_->OnSearchPrev();
-            }
-            else {
-                self->app_->OnSearchNext();
-            }
+            step();
             return 0;
         case 'F':
             if (ctrl) {
@@ -759,12 +761,7 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
             break;
         case 'G':
             if (ctrl) {
-                if (shift) {
-                    self->app_->OnSearchPrev();
-                }
-                else {
-                    self->app_->OnSearchNext();
-                }
+                step();
                 return 0;
             }
             break;

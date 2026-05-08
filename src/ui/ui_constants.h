@@ -31,6 +31,9 @@ inline constexpr float TOC_INDENT_PER_LEVEL = 12.0f;
 inline constexpr float TABLE_CELL_PADDING = 8.0f;
 inline constexpr float TABLE_BORDER_WIDTH = 1.0f;
 
+// 画像/ダイアグラム未デコード時の placeholder 最小高さ (DIP)。
+inline constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
+
 // テーブルストライプ（偶数行背景）のアルファ値
 inline constexpr float TABLE_STRIPE_ALPHA_DARK = 0.05f;
 inline constexpr float TABLE_STRIPE_ALPHA_LIGHT = 0.02f;

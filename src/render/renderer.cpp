@@ -262,6 +262,8 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
     }
 }
 
+// ApplyNodeEffects は IDWriteTextLayout の内部状態 (SetDrawingEffect/SetUnderline) を直接書き換える
+// pre-render パス。CommandGenerator の DrawCommand には乗らない (text-layout 状態は不可搬なため)。
 void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     // テーブルノード: ビューポートカリング付きの増分処理を行う。

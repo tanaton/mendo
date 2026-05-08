@@ -53,6 +53,7 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
     const bool has_viewport_limit = clip.active();
     const float limit_top = has_viewport_limit ? clip.limit_top() : 0.0f;
     const float limit_bottom = has_viewport_limit ? clip.limit_bottom() : 0.0f;
+    // time_us 無視: worker 側に polling checkpoint が無いので RunSerial と非対称。
     const bool has_batch_limit = (budget.max_nodes > 0);
 
     std::pmr::vector<size_t> indices(std::pmr::get_default_resource());
@@ -102,15 +103,14 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
         const size_t chunk_count = (indices.size() + chunk_size - 1) / chunk_size;
 
         std::latch latch(static_cast<ptrdiff_t>(chunk_count));
-        std::atomic<int> error_count{ 0 };
+        std::atomic<int> failed_node_count{ 0 };
 
-        // Why: fallback も worker と同じ try/catch を通す。例外が latch の前で抜けると
-        // count_down が漏れて latch.wait() が永久ブロックする。
+        // 例外が latch.count_down() の前で抜けると wait() が永久ブロックするので必ず try/catch で覆う。
         auto run_chunk = [&](std::span<const size_t> ci, std::span<std::pmr::vector<SyntaxToken>> co) {
             try {
                 MeasureChunk(nodes, cache, content_width, theme, backend, ci, co);
             } catch (...) {
-                error_count.fetch_add(1, std::memory_order_relaxed);
+                failed_node_count.fetch_add(static_cast<int>(ci.size()), std::memory_order_relaxed);
                 OutputDebugStringW(L"[mendo] RunParallel chunk threw exception\n");
             }
             latch.count_down();
@@ -139,8 +139,18 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
             latch.wait();
         }
 
+        const int failed = failed_node_count.load(std::memory_order_relaxed);
+        if (failed > 0) {
+            // 失敗分は processed から外し、any_nearby_skipped 経由で次フレーム再試行に乗せる。
+            result.processed -= failed;
+            if (result.reason == StopReason::Done) {
+                result.reason = StopReason::Error;
+            }
+            result.any_nearby_skipped = true;
+        }
+
         MENDO_PLOT("layout.parallel.chunk_count", static_cast<int64_t>(chunk_count));
-        MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(error_count.load(std::memory_order_relaxed)));
+        MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(failed));
     }
 
     {

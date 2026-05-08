@@ -30,6 +30,7 @@ public:
         std::move_only_function<void()> unfocus;                     // フォーカス解除
         std::move_only_function<float()> get_md_pane_height;         // Markdownペイン高さ取得
         std::move_only_function<void(float)> on_scroll_changed;      // スクロール変更後処理(md_pane_height)
+        std::move_only_function<void()> on_wrap_around;              // 検索ラップアラウンド時の通知 (Win32 では MessageBeep)
     };
 
     SearchBarController() = default;

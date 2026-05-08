@@ -2,7 +2,6 @@
 #include "file_io.h"
 #include "string_convert.h"
 #include "win_handle.h"
-#include <limits>
 #include <shlwapi.h>
 #include <commdlg.h>
 
@@ -29,11 +28,6 @@ std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr:
 
     if (r.size == 0) {
         return LoadedFileDoc{};
-    }
-
-    // 下流の md4c / view_length は uint32_t を取り扱うため、INT_MAX 超えのファイルは弾く。
-    if (r.size > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        return std::unexpected(FileLoadError::TooLarge);
     }
 
     // メモリマップで UTF-8 を直接 view し、BOM 除去後にそのまま string にコピーする。

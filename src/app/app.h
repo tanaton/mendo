@@ -92,9 +92,9 @@ public:
     void OnCaptureChanged();
     void OnDestroy();
 
-    void OnSearchTextChanged(std::pmr::wstring text)
+    void OnSearchTextChanged(const std::pmr::wstring& text)
     {
-        Dispatch(SearchTextChangedAction{ std::move(text) });
+        Dispatch(SearchTextChangedAction{ text });
     }
     void OnSearchClose()
     {

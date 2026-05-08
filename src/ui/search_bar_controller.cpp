@@ -53,7 +53,7 @@ void SearchBarController::OnClose()
 void SearchBarController::OnNext()
 {
     if (state_->NextMatch() && state_->GetMatchCount() > 1) {
-        MessageBeep(MB_OK);
+        cb_.on_wrap_around();
     }
     ScrollToCurrentMatch();
     cb_.invalidate();
@@ -62,7 +62,7 @@ void SearchBarController::OnNext()
 void SearchBarController::OnPrev()
 {
     if (state_->PrevMatch() && state_->GetMatchCount() > 1) {
-        MessageBeep(MB_OK);
+        cb_.on_wrap_around();
     }
     ScrollToCurrentMatch();
     cb_.invalidate();

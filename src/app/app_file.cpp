@@ -275,9 +275,6 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     Dispatch(RestoreScrollAfterLoadAction{ has_reload_diff, reload_diff_scroll_y });
     scroll_y = state_.view.viewport.GetScrollY();
 
-    MENDO_TRACEF("FinishLoad: after-restore scroll_y=%.1f reload_diff_scroll_y=%.1f",
-                 scroll_y, reload_diff_scroll_y);
-
     {
         MENDO_PROFILE("ViewportLayout(Initial)");
         EmitEffect(effect::ViewportLayout{ md_width, md_height });
@@ -285,9 +282,10 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
 
     FinalizeLayout(md_height);
 
-    MENDO_TRACEF("FinishLoad: after-finalize scroll_y=%.1f max_scroll=%.1f",
+    MENDO_TRACEF("FinishLoad: scroll_y=%.1f max_scroll=%.1f reload_diff_scroll_y=%.1f",
                  state_.view.viewport.GetScrollY(),
-                 state_.view.viewport.GetMaxScroll());
+                 state_.view.viewport.GetMaxScroll(),
+                 reload_diff_scroll_y);
 
     UpdateTitleBar();
 

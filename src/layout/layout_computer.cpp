@@ -1,6 +1,7 @@
 #include "layout_computer.h"
 #include "memory_resource.h"
 #include "profiler.h"
+#include "ui_constants.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -97,7 +98,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
         return line_height * 1.5f * static_cast<float>(row_count);
     }
     case NodeType::Image:
-        return std::max(60.0f, theme.font_size_body * 3.0f);
+        return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
     case NodeType::Paragraph:
     case NodeType::ListItem:
     case NodeType::BlockQuote:
