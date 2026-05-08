@@ -148,7 +148,9 @@ bool App::Init(HWND hwnd)
         resource_manager_.ScheduleMermaidBatch();
     });
 
-    image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory());
+    if (!image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory())) {
+        OutputDebugStringW(L"[mendo] ImageLoader::Init failed (WIC factory unavailable). Image rendering disabled.\n");
+    }
     image_loader_.InitAsync(hwnd_, app_msg::IMAGE_LOADED, scheduler_);
 
     // D2D デバイスロストでレンダーターゲットが再作成されたら、各ローダーへ伝搬する。
@@ -203,7 +205,7 @@ bool App::Init(HWND hwnd)
         OnParseComplete();
         break;
     case PreloadAttachResult::AttachedAsync:
-        if (DocumentService::IsLargerThan(file_load_service_.GetLoadingPath(), app_threshold::LOADING_ANIM_BYTES)) {
+        if (DocumentService::ShouldShowLoadingAnimation(file_load_service_.GetLoadingPath())) {
             file_load_service_.BeginLoadingAnimation();
             EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
             Invalidate();

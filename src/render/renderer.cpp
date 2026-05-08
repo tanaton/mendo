@@ -390,6 +390,9 @@ void Renderer::DrawLoading(float angle,
                            const GestureRenderState& gesture,
                            const ToastRenderState& toast)
 {
+    if (HandleDeviceLost()) {
+        return;
+    }
     if (!rt()) {
         return;
     }
@@ -440,6 +443,9 @@ void Renderer::DrawLoading(float angle,
 
 void Renderer::Render(const RenderParams& p)
 {
+    if (HandleDeviceLost()) {
+        return;
+    }
     if (!rt()) {
         return;
     }
@@ -503,9 +509,25 @@ bool Renderer::CheckEndDraw()
         return false;
     }
     if (SUCCEEDED(hr)) {
-        backend_.Present();
+        const HRESULT hr_present = backend_.Present();
+        if (hr_present == DXGI_ERROR_DEVICE_REMOVED || hr_present == DXGI_ERROR_DEVICE_RESET) {
+            // backend 側で device_lost_ がセット済み。次フレーム冒頭の HandleDeviceLost で再作成。
+            InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
+            return false;
+        }
     }
     return SUCCEEDED(hr);
+}
+
+bool Renderer::HandleDeviceLost()
+{
+    if (!backend_.IsDeviceLost()) {
+        return false;
+    }
+    if (RecreateRenderTarget()) {
+        InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
+    }
+    return true;
 }
 
 bool Renderer::RecreateRenderTarget()

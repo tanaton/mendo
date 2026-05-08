@@ -3,6 +3,12 @@
 #include "layout.h"
 #include "layout_cache.h"
 
+AsyncLoadCoordinator::~AsyncLoadCoordinator()
+{
+    Cancel();
+    latch_.Wait();
+}
+
 void AsyncLoadCoordinator::ResetSinks() noexcept
 {
     std::optional<AsyncLoadResult> stale_result;
@@ -21,7 +27,7 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     in_flight_ = true;
     const uint32_t gen = gen_.fetch_add(1, std::memory_order_relaxed) + 1;
 
-    scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme] {
+    const bool posted = scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme, guard = latch_.Acquire()] {
         // sink 書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
         // I/O / Parse / Estimate の前段の gen check は重い処理を skip するための short-circuit。
         auto try_publish = [this, hwnd, msg_id, gen](auto&& assign_sink) {
@@ -66,6 +72,18 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
             result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true });
         });
     });
+
+    if (!posted) {
+        // queue 飽和 or Shutdown 後。lambda が走らないので latch::Guard は capture 内で
+        // destruct され自動的に Release される。in_flight_/error_ を整えて UI に通知することで
+        // 以降のリロードを再開可能にする。
+        {
+            const std::lock_guard lock(mutex_);
+            error_ = FileLoadError::ReadFailed;
+            in_flight_ = false;
+        }
+        ::PostMessageW(hwnd, msg_id, 0, 0);
+    }
 }
 
 std::optional<AsyncLoadResult> AsyncLoadCoordinator::TakeResult()

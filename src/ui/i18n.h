@@ -209,12 +209,12 @@ inline void Init(std::wstring_view config_lang) noexcept
         const LANGID langid = GetUserDefaultUILanguage();
         selected = (PRIMARYLANGID(langid) == LANG_JAPANESE) ? &kJa : &kEn;
     }
-    g_strings.store(selected, std::memory_order_relaxed);
+    g_strings.store(selected, std::memory_order_release);
 }
 
 inline const Strings& S() noexcept
 {
-    return *g_strings.load(std::memory_order_relaxed);
+    return *g_strings.load(std::memory_order_acquire);
 }
 
 // 現在の言語を設定ファイル用のキー文字列で返す。

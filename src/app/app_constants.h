@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdint>
+#include <utility>
 #include <windows.h>
 
 // Reducer・Win32Window・副作用エグゼキュータが共有する Win32 メッセージ／タイマー
@@ -60,21 +62,29 @@ namespace app_param {
 
 inline constexpr WPARAM SEARCH_FOCUS_SELECT_ALL = 0;
 inline constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;          // lParam = caret (int)
-inline constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2;      // lParam = SearchSelectionPayload* (heap, 受信側で delete)
+inline constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2;      // lParam = (anchor << 32) | caret (int x 2)
 inline constexpr WPARAM SEARCH_UNFOCUS_CLOSE = 0;
 inline constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
 
-// SEARCH_FOCUS_SET_SELECTION の lParam で運ぶペイロード。
-// 所有権: 発行側 (Win32Host::SearchFocus) で `new`、受信側 (SEARCH_FOCUS ハンドラ
-// または PostMessage 失敗時の発行側) で `delete`。
-struct SearchSelectionPayload {
-    int anchor;
-    int caret;
-};
+// SEARCH_FOCUS_SET_SELECTION の lParam に anchor / caret (int) を pack する。
+// 64bit LPARAM (x64/arm64 ビルド前提) に int × 2 を載せて動的確保を排除。
+// PostMessage 成功後に hwnd 破棄が起きても OS の message queue に残るのは値だけで leak しない。
+static_assert(sizeof(LPARAM) >= sizeof(uint64_t), "x64/arm64 build expected (LPARAM must hold int x 2)");
 
-inline LPARAM MakeSearchSelectionLParam(int anchor, int caret)
+inline LPARAM MakeSearchSelectionLParam(int anchor, int caret) noexcept
 {
-    return reinterpret_cast<LPARAM>(new SearchSelectionPayload{ anchor, caret });
+    const auto a = static_cast<uint64_t>(static_cast<uint32_t>(anchor));
+    const auto c = static_cast<uint64_t>(static_cast<uint32_t>(caret));
+    return static_cast<LPARAM>((a << 32) | c);
+}
+
+inline std::pair<int, int> UnpackSearchSelectionLParam(LPARAM lp) noexcept
+{
+    const auto raw = static_cast<uint64_t>(lp);
+    return {
+        static_cast<int>(static_cast<uint32_t>(raw >> 32)),
+        static_cast<int>(static_cast<uint32_t>(raw)),
+    };
 }
 
 } // namespace app_param

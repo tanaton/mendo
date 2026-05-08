@@ -222,8 +222,10 @@ LRESULT Win32Window::HitTestResizeFrame(POINT pt) const noexcept
     const int frame_y = cached_nchit_frame_y_;
     const int right_border = cached_nchit_right_border_;
 
-    RECT rc;
-    GetClientRect(hwnd_, &rc);
+    RECT rc{};
+    if (!GetClientRect(hwnd_, &rc)) {
+        return HTNOWHERE;
+    }
 
     if (pt.y < frame_y) {
         if (pt.x < border) {
@@ -435,12 +437,6 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
         return 0;
 
     case app_msg::SEARCH_FOCUS: {
-        // SET_SELECTION の payload は発行側で new、ここで delete する所有権規約。
-        // search_edit_ が無い early-return パスでもリークしないよう、最初に取り出す。
-        std::unique_ptr<app_param::SearchSelectionPayload> selection_payload;
-        if (wParam == app_param::SEARCH_FOCUS_SET_SELECTION) {
-            selection_payload.reset(reinterpret_cast<app_param::SearchSelectionPayload*>(lParam));
-        }
         if (search_edit_) {
             RepositionSearchEdit();
             SetFocus(search_edit_);
@@ -448,8 +444,9 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
                 const auto pos = static_cast<int>(lParam);
                 SendMessageW(search_edit_, EM_SETSEL, pos, pos);
             }
-            else if (selection_payload) {
-                SendMessageW(search_edit_, EM_SETSEL, selection_payload->anchor, selection_payload->caret);
+            else if (wParam == app_param::SEARCH_FOCUS_SET_SELECTION) {
+                const auto [anchor, caret] = app_param::UnpackSearchSelectionLParam(lParam);
+                SendMessageW(search_edit_, EM_SETSEL, anchor, caret);
             }
             else {
                 SendMessageW(search_edit_, EM_SETSEL, 0, -1);
@@ -785,7 +782,7 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
     if (msg == WM_IME_STARTCOMPOSITION) {
         HIMC himc = ImmGetContext(hwnd);
         if (himc) {
-            RECT rc;
+            RECT rc{};
             GetClientRect(hwnd, &rc);
 
             DWORD sel_end = 0;

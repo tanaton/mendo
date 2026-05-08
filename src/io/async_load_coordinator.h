@@ -2,6 +2,7 @@
 #include "async_load_result.h"
 #include "file_loader.h"
 #include "task_scheduler.h"
+#include "worker_latch.h"
 #include <atomic>
 #include <cstdint>
 #include <memory_resource>
@@ -18,6 +19,8 @@ struct Theme;
 class AsyncLoadCoordinator {
 public:
     AsyncLoadCoordinator() = default;
+    // dtor で走行中 worker の完了を待つ。OnDestroy を経ない経路でも UAF を起こさないため。
+    ~AsyncLoadCoordinator();
     AsyncLoadCoordinator(const AsyncLoadCoordinator&) = delete;
     AsyncLoadCoordinator& operator=(const AsyncLoadCoordinator&) = delete;
 
@@ -54,4 +57,7 @@ private:
     std::mutex mutex_;
     std::optional<AsyncLoadResult> result_;
     std::optional<FileLoadError> error_;
+
+    // dtor で worker 完了を待つ。scheduler_ 共有 worker から self を参照する race を排除する。
+    WorkerLatch latch_;
 };

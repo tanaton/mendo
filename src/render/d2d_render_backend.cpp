@@ -111,8 +111,10 @@ bool D2DRenderBackend::CreateDeviceResources()
         return false;
     }
 
-    RECT rc;
-    GetClientRect(hwnd_, &rc);
+    RECT rc{};
+    if (!GetClientRect(hwnd_, &rc)) {
+        return false;
+    }
 
     DXGI_SWAP_CHAIN_DESC1 scd{};
     scd.Width = rc.right - rc.left;
@@ -178,8 +180,13 @@ void D2DRenderBackend::Resize(UINT width, UINT height) noexcept
     device_context_->SetTarget(nullptr);
 
     const HRESULT hr = swap_chain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
-    if (SUCCEEDED(hr)) {
-        CreateSwapChainBitmap();
+    if (FAILED(hr)) {
+        device_lost_ = true;
+        return;
+    }
+    if (!CreateSwapChainBitmap()) {
+        // SetTarget(nullptr) のまま戻ると次回 BeginDraw で D2DERR_WRONG_STATE。
+        device_lost_ = true;
     }
 }
 
@@ -191,11 +198,16 @@ void D2DRenderBackend::SetDpi(float dpi) noexcept
     }
 }
 
-void D2DRenderBackend::Present() noexcept
+HRESULT D2DRenderBackend::Present() noexcept
 {
-    if (swap_chain_) {
-        swap_chain_->Present(1, 0);
+    if (!swap_chain_) {
+        return E_FAIL;
     }
+    const HRESULT hr = swap_chain_->Present(1, 0);
+    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+        device_lost_ = true;
+    }
+    return hr;
 }
 
 bool D2DRenderBackend::RecreateRenderTarget()
@@ -205,5 +217,9 @@ bool D2DRenderBackend::RecreateRenderTarget()
     swap_chain_.Reset();
     d3d_device_.Reset();
 
-    return CreateDeviceResources();
+    const bool ok = CreateDeviceResources();
+    if (ok) {
+        device_lost_ = false;
+    }
+    return ok;
 }

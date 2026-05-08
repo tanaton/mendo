@@ -1,6 +1,8 @@
 #include "task_scheduler.h"
+#include "profiler.h"
 #include <windows.h>
 #include <objbase.h>
+#include <cassert>
 
 TaskScheduler::~TaskScheduler()
 {
@@ -9,6 +11,12 @@ TaskScheduler::~TaskScheduler()
 
 void TaskScheduler::Init(int thread_count)
 {
+    // 二重 Init 検出: 前回の workers_ が残っている状態で再 Init すると worker が累積する。
+    // assert は Debug のみなので Release でも accumulation を防ぐ早期 return を付ける。
+    assert(workers_.empty() && "TaskScheduler::Init called twice without Shutdown");
+    if (!workers_.empty()) {
+        return;
+    }
     shutdown_.store(false);
     workers_.reserve(thread_count);
     for (int i = 0; i < thread_count; ++i) {
@@ -26,6 +34,7 @@ bool TaskScheduler::Post(std::move_only_function<void()> task)
         const std::lock_guard lock(mutex_);
         if (queue_.size() >= MAX_PENDING_TASKS) {
             OutputDebugStringW(L"[TaskScheduler] queue saturated, dropping task\n");
+            MENDO_TRACE("TaskScheduler: queue saturated, task dropped");
             return false;
         }
         queue_.push(std::move(task));

@@ -38,22 +38,23 @@ void ImageLoader::GetDpiScale(float& scale_x, float& scale_y) const
     scale_y = (dpi_y > 0.0f) ? (dpi_y / DEFAULT_DPI) : 1.0f;
 }
 
-void ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
+bool ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
 {
     render_target_ = rt;
     if (wic) {
         wic_factory_ = wic;
+        return true;
     }
-    else {
-        HRESULT hr = CoCreateInstance(
-            CLSID_WICImagingFactory,
-            nullptr,
-            CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&wic_factory_));
-        if (FAILED(hr)) {
-            wic_factory_.Reset();
-        }
+    HRESULT hr = CoCreateInstance(
+        CLSID_WICImagingFactory,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&wic_factory_));
+    if (FAILED(hr)) {
+        wic_factory_.Reset();
+        return false;
     }
+    return true;
 }
 
 void ImageLoader::InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler)
@@ -66,6 +67,7 @@ void ImageLoader::InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler)
 void ImageLoader::Shutdown()
 {
     CancelPending();
+    latch_.Wait();
 }
 
 bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
@@ -124,7 +126,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
     }
 
     const uint32_t gen = cancel_gen_.load();
-    const bool posted = scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen]() mutable {
+    const bool posted = scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen, guard = latch_.Acquire()]() mutable {
         if (cancel_gen_.load() != gen) {
             return;
         }
@@ -159,8 +161,8 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
         }
     });
     if (!posted) {
-        // Post 失敗時はラムダが ProcessCompletedDecodes 経由で pending_paths_ を消さないため、
-        // ここで巻き戻して再リクエストできるようにする。
+        // lambda が走らないので latch::Guard は capture 内で destruct され自動 Release。
+        // ProcessCompletedDecodes 経由の pending_paths_ クリアも行われないので巻き戻す。
         const std::lock_guard lock(pending_mutex_);
         pending_paths_.erase(abs_path);
     }

@@ -150,6 +150,8 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size, const wchar_t* locale);
     bool CheckEndDraw();
     bool RecreateRenderTarget();
+    // デバイスロスト検知時に RecreateRenderTarget までフォールバック。再描画要求を出した場合 true。
+    bool HandleDeviceLost();
 
     // ApplyNodeEffects でインラインコード背景を計算するためのヒットテストバッファ。
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_{ GetThreadLocalPoolResource() };

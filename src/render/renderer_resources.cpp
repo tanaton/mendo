@@ -13,6 +13,7 @@ void Renderer::LoadAppIconBitmap()
     const HMODULE hModule = GetModuleHandleW(nullptr);
     const HICON hIcon = static_cast<HICON>(LoadImageW(hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
     if (!hIcon) {
+        OutputDebugStringW(L"[mendo] LoadAppIconBitmap: LoadImageW(IDI_APP_ICON) failed\n");
         return;
     }
 
@@ -26,15 +27,20 @@ void Renderer::LoadAppIconBitmap()
     HRESULT hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
     DestroyIcon(hIcon);
     if (FAILED(hr)) {
+        OutputDebugStringW(L"[mendo] LoadAppIconBitmap: CreateBitmapFromHICON failed\n");
         return;
     }
 
     auto converter = wic_util::ConvertBitmapSource(wic, wic_bitmap.Get());
     if (!converter) {
+        OutputDebugStringW(L"[mendo] LoadAppIconBitmap: ConvertBitmapSource failed\n");
         return;
     }
 
-    rt()->CreateBitmapFromWicBitmap(converter.Get(), nullptr, &app_icon_bitmap_);
+    hr = rt()->CreateBitmapFromWicBitmap(converter.Get(), nullptr, &app_icon_bitmap_);
+    if (FAILED(hr)) {
+        OutputDebugStringW(L"[mendo] LoadAppIconBitmap: CreateBitmapFromWicBitmap failed\n");
+    }
 }
 
 void Renderer::RecreateBrushes()
@@ -105,9 +111,17 @@ void Renderer::RecreateBrushes()
         auto& brush = brushes_[std::to_underlying(s.id)];
         if (brush) {
             brush->SetColor(s.color);
+            continue;
         }
-        else {
-            render_target_->CreateSolidColorBrush(s.color, &brush);
+        const HRESULT hr = render_target_->CreateSolidColorBrush(s.color, &brush);
+        if (FAILED(hr)) {
+            // 失敗時はフェイルセーフ色で再試行し、null のまま DrawXXX に渡るのを防ぐ。
+            // 真に重い失敗 (D2DERR_RECREATE_TARGET 等) は EndDraw 経路で検知されて
+            // 次フレーム頭の HandleDeviceLost で RecreateRenderTarget が走る。
+            const HRESULT hr2 = render_target_->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Magenta), &brush);
+            if (FAILED(hr2)) {
+                OutputDebugStringW(L"[mendo] CreateSolidColorBrush failed even on magenta fallback\n");
+            }
         }
     }
 }
@@ -123,9 +137,20 @@ ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
     const wchar_t* family, DWRITE_FONT_WEIGHT weight,
     float size, const wchar_t* locale)
 {
+    auto* dw = backend_.GetDWriteFactory();
     ComPtr<IDWriteTextFormat> fmt;
-    backend_.GetDWriteFactory()->CreateTextFormat(
+    HRESULT hr = dw->CreateTextFormat(
         family, nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
+    if (SUCCEEDED(hr)) {
+        return fmt;
+    }
+    // 無効なフォントファミリ名はフォールバック (Segoe UI) で再試行。
+    // ユーザに「フォントが効かない」状態を出さないための最終防壁。
+    OutputDebugStringW(L"[mendo] CreateTextFormat failed, falling back to Segoe UI\n");
+    fmt.Reset();
+    dw->CreateTextFormat(
+        L"Segoe UI", nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
     return fmt;
 }

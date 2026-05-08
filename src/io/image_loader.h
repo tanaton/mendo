@@ -1,6 +1,7 @@
 #pragma once
 #include "layout_cache.h"
 #include "lru_cache.h"
+#include "worker_latch.h"
 #include <d2d1.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -21,7 +22,12 @@ public:
 
     ~ImageLoader();
 
-    void Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);
+    // WIC factory を共有 (renderer_) もしくは独自に CoCreateInstance で取得。
+    // 失敗時 false (LoadImage / RequestLoadAsync は wic_factory_ が null だと no-op)。
+    bool Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);
+    // **UI スレッドからのみ呼び出すこと**。worker は render_target_ を非アトミック参照する
+    // (ProcessCompletedDecodes 経由)。デバイスロスト後の rt 差し替えは CancelPending() で
+    // worker を止めてから呼ぶ規約 (App::Init の DeviceLost コールバック参照)。
     void SetRenderTarget(ID2D1RenderTarget* rt) noexcept
     {
         render_target_ = rt;
@@ -80,4 +86,7 @@ private:
 
     std::mutex result_mutex_;
     std::vector<DecodeResult> completed_;
+
+    // Shutdown で worker 完了を待つ。scheduler_ 共有 worker から self を参照する race を排除する。
+    WorkerLatch latch_;
 };

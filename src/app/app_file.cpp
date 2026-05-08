@@ -56,7 +56,7 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
     // ライブリロード時はアニメーションを表示しない。
     // 大きいファイルを編集中の差分リロードでスピナーが点滅すると視認性が下がるため、
     // 旧コンテンツを表示したまま静かにバックグラウンドでパースし差し替える。
-    const bool show_anim = !suppress_animation && DocumentService::IsLargerThan(path, app_threshold::LOADING_ANIM_BYTES) && !state_.pending_reload_retry;
+    const bool show_anim = !suppress_animation && DocumentService::ShouldShowLoadingAnimation(path) && !state_.pending_reload_retry;
     if (show_anim) {
         MENDO_PROFILE("App::BeginAsyncLoad with animation");
         file_load_service_.StartLoading(std::move(path));
@@ -114,14 +114,14 @@ void App::LoadMarkdownFile(std::wstring_view path)
     MENDO_PROFILE("App::LoadMarkdownFile");
     EmitEffect(effect::KillTimer{ app_timer::FILE_RELOAD_DEBOUNCE });
     state_.pending_reload_retry = false;
-    // 仮想パスは IsLargerThan が true を返し非同期ロードが失敗するため、
+    // 仮想パスは IsAsyncLoadCandidate が true を返し非同期ロードが失敗するため、
     // 先に検出して同期ロードに回す。
     if (IsHelpPath(path)) {
         LoadHelpDocument();
         return;
     }
     std::pmr::wstring path_str{ path };
-    if (!DocumentService::IsLargerThan(path_str, app_threshold::ASYNC_LOAD_BYTES)) {
+    if (!DocumentService::IsAsyncLoadCandidate(path_str)) {
         file_load_service_.SetLoadingPath(std::move(path_str));
         DoLoadMarkdownFile();
     }
@@ -311,7 +311,7 @@ void App::ReloadCurrentFile()
         return;
     }
 
-    if (DocumentService::IsLargerThan(path, app_threshold::ASYNC_LOAD_BYTES)) {
+    if (DocumentService::IsAsyncLoadCandidate(path)) {
         MENDO_TRACE("ReloadCurrentFile: async path");
         BeginAsyncLoad(path, /* suppress_animation = */ true);
     }

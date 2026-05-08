@@ -71,7 +71,7 @@ private:
 
     // 同一の ITextMeasurer 派生から得た 2 つの IF view。lifecycle 系 (Init/RecreateFormats/UpdateTheme)
     // は UI スレッドからのみ呼び、backend (MeasureNode/MeasureTable) は const 経由で
-    // 将来 worker pool から並列呼び出し可能にする設計。
+    // layout_scheduler_ 上の worker から並列呼び出しされる。
     IMeasureLifecycle* lifecycle_ = nullptr;
     IMeasureBackend* backend_ = nullptr;
     const Theme* theme_ = nullptr;

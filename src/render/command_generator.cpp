@@ -18,6 +18,7 @@ struct CmdGenStats {
     int64_t sel_hl_cache_hit = 0;        // SelectionHlCache ヒット
     int64_t sel_hl_cache_miss = 0;       // SelectionHlCache ミス (HitTestTextRange を回す)
     int64_t search_hl_rebuild = 0;       // SearchHlCache 再構築
+    int64_t search_hl_provisional = 0;   // 表セルレイアウト失効中の暫定空 rect プッシュ (次フレーム再構築待ち)
     int64_t last_visible_node_count = 0; // 累積ではなく直近フレームのスナップショット
 };
 CmdGenStats g_cmd_gen_stats;
@@ -28,6 +29,7 @@ void PublishCmdGenStats() noexcept
     MENDO_PLOT("cmdgen.sel_hl_cache_hit", g_cmd_gen_stats.sel_hl_cache_hit);
     MENDO_PLOT("cmdgen.sel_hl_cache_miss", g_cmd_gen_stats.sel_hl_cache_miss);
     MENDO_PLOT("cmdgen.search_hl_rebuild", g_cmd_gen_stats.search_hl_rebuild);
+    MENDO_PLOT("cmdgen.search_hl_provisional", g_cmd_gen_stats.search_hl_provisional);
     MENDO_PLOT("cmdgen.visible_node_count", g_cmd_gen_stats.last_visible_node_count);
 }
 
@@ -648,6 +650,9 @@ void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const NodeLayo
         // 暫定状態で、l は nullptr のまま空 rect として記録する（次回再構築時に修復）。
         if (l && m.length_w > 0) {
             CollectHitTestRects(l, m.start_w, m.length_w, cache.rects);
+        }
+        else if (!l && m.table_row >= 0) {
+            MENDO_COUNT_INC(g_cmd_gen_stats.search_hl_provisional);
         }
         cache.rect_ends.push_back(static_cast<uint32_t>(cache.rects.size()));
     }

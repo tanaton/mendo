@@ -110,11 +110,9 @@ void Win32Host::SearchFocus(effect::SearchFocus action)
                      static_cast<LPARAM>(action.caret));
         break;
     case Mode::SetSelection: {
-        // 失敗時は所有権を回収して leak を防ぐ。
+        // anchor / caret は LPARAM に pack 済みなので PostMessage 失敗・hwnd 破棄しても leak しない。
         const LPARAM lp = app_param::MakeSearchSelectionLParam(action.anchor, action.caret);
-        if (!PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, lp)) {
-            delete reinterpret_cast<app_param::SearchSelectionPayload*>(lp);
-        }
+        PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, lp);
         break;
     }
     }

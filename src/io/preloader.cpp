@@ -35,6 +35,10 @@ void Preloader::Start(std::pmr::wstring path)
         MENDO_PROFILE("Preload::worker");
 
         auto load_result = DocumentService::LoadFile(path);
+        // sink 書き込み前に abort 確認。直後の publish + main 側即破棄を回避。
+        if (st.stop_requested()) {
+            return;
+        }
         if (load_result) {
             LayoutCache cache;
             cache.Reset(load_result->GetNodes().size(), /* shrink = */ false);

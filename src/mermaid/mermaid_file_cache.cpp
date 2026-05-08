@@ -295,7 +295,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
     const uint32_t gen = write_gen_.load();
     auto path = GetPngPath(key);
-    const bool posted = scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen] {
+    const bool posted = scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen, latch_guard = latch_.Acquire()] {
         // タスク完遂・キャンセルどちらの場合も pending を必ず解除する
         struct PendingGuard {
             MermaidFileCache* self;
@@ -329,8 +329,9 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         (void)WriteAllBytes(path, data.data(), data.size());
     });
     if (!posted) {
-        // Post 失敗時はラムダが走らないので PendingGuard も走らない。
-        // pending_writes_ に key を残すと Lookup が stale 扱いを抑止し続けるため、ここで巻き戻す。
+        // lambda が走らないので latch::Guard / PendingGuard は capture 内で destruct され
+        // 自動 Release。pending_writes_ に key を残すと Lookup が stale 扱いを抑止し続けるため
+        // ここで巻き戻す。
         std::lock_guard lock(pending_mutex_);
         pending_writes_.erase(key);
     }
@@ -391,6 +392,9 @@ void MermaidFileCache::ClearAll()
 
 void MermaidFileCache::Shutdown()
 {
+    // write_gen_ を進めて以後の worker は早期 return するが、走り始めた worker は self
+    // メンバ (pending_mutex_, write_gen_) を触り続けるため完了まで待つ。
     write_gen_.fetch_add(1);
+    latch_.Wait();
     scheduler_ = nullptr;
 }

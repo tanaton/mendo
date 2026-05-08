@@ -103,9 +103,12 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
     CreateBrushes();
 
     // 角丸クリッピング用リージョン
+    // SetWindowRgn は成功時のみ rgn の所有権を OS に移譲する。失敗時は呼び出し側で DeleteObject。
     const int corner_px = static_cast<int>(MENU_CORNER * dpi_scale);
     const HRGN rgn = CreateRoundRectRgn(0, 0, pixel_w + 1, pixel_h + 1, corner_px, corner_px);
-    SetWindowRgn(hwnd, rgn, FALSE);
+    if (rgn && !SetWindowRgn(hwnd, rgn, FALSE)) {
+        DeleteObject(rgn);
+    }
 
     selected_id = 0;
     done = false;
@@ -270,8 +273,10 @@ bool ContextMenu::Impl::EnsureRenderTarget(float dpi)
     if (rt) {
         return true;
     }
-    RECT rc;
-    GetClientRect(hwnd, &rc);
+    RECT rc{};
+    if (!GetClientRect(hwnd, &rc)) {
+        return false;
+    }
     const D2D1_SIZE_U size{ static_cast<UINT32>(rc.right), static_cast<UINT32>(rc.bottom) };
     D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties();
     rtProps.dpiX = dpi;
@@ -288,7 +293,12 @@ void ContextMenu::Impl::CreateBrushes()
     }
     auto make = [&](D2D1_COLOR_F c) {
         ComPtr<ID2D1SolidColorBrush> b;
-        rt->CreateSolidColorBrush(c, &b);
+        HRESULT hr = rt->CreateSolidColorBrush(c, &b);
+        if (FAILED(hr)) {
+            // 失敗時はフェイルセーフ色 (Magenta) で再試行。デバイスロスト等の
+            // 重い失敗は親 Renderer 側 EndDraw 経路で次フレーム再作成される。
+            rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Magenta), &b);
+        }
         return b;
     };
 
