@@ -127,7 +127,13 @@ void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
             host_->ShowWindowCmd(ev.cmd);
         },
         [this](const effect::PostWindowMessage& ev) {
-            host_->PostWindowMessage(ev.msg, ev.wp, ev.lp);
+            const bool ok = host_->PostWindowMessage(ev.msg, ev.wp, ev.lp);
+            // SEARCH_FOCUS_SET_SELECTION の lParam は発行側で new した heap payload。
+            // PostMessageW 失敗時は受信側 (window.cpp の SEARCH_FOCUS ハンドラ) が走らないため、
+            // 発行側で delete して所有権を回収しないとリークする。
+            if (!ok && ev.msg == app_msg::SEARCH_FOCUS && ev.wp == app_param::SEARCH_FOCUS_SET_SELECTION) {
+                delete reinterpret_cast<app_param::SearchSelectionPayload*>(ev.lp);
+            }
         },
         [this](const effect::SetWindowTitle& ev) {
             host_->SetWindowTitle(ev.title);

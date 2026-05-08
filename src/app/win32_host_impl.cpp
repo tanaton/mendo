@@ -93,9 +93,9 @@ void Win32Host::ShowWindowCmd(int cmd)
     ShowWindow(hwnd_, cmd);
 }
 
-void Win32Host::PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp)
+bool Win32Host::PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp)
 {
-    PostMessageW(hwnd_, msg, wp, lp);
+    return PostMessageW(hwnd_, msg, wp, lp) != 0;
 }
 
 void Win32Host::SetWindowTitle(const std::pmr::wstring& title)

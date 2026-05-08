@@ -34,7 +34,7 @@ public:
     };
 
     // App::Init 末尾で呼ぶ。preload の状態に応じて以下のいずれかを行う:
-    //   完了済み: JoinPreload (= AppliedSync)。呼び出し側で OnParseComplete を発火。
+    //   完了済み: Join (= AppliedSync)。呼び出し側で OnParseComplete を発火。
     //   未完了:   worker に hwnd を渡して PostMessage を解禁 (= AttachedAsync)。
     AttachResult AttachOrApply(HWND hwnd, UINT msg_id);
 
@@ -62,6 +62,9 @@ private:
 
     bool IsDoneLocked() const;
     void Join();
+    // Take{Result,Error} 共通の末尾。`taken` が true なら worker は PostMessage 直後に
+    // return しているので即 join できる。ctx_ も解放してまとめて IsActive() を false にする。
+    void FinalizeIfDrained(bool taken);
 
     // 宣言順: thread_ を ctx_ より前に置く。reverse-destruction で
     // ctx_ → thread_ (join) → result_/error_ の mutex の順に破壊され、

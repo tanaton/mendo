@@ -90,6 +90,15 @@ Preloader::AttachResult Preloader::AttachOrApply(HWND hwnd, UINT msg_id)
     return AttachResult::AttachedAsync;
 }
 
+void Preloader::FinalizeIfDrained(bool taken)
+{
+    if (taken && thread_.joinable()) {
+        // AttachedAsync 経路: worker は PostMessage 直後に return するため即 join できる。
+        thread_.join();
+        ctx_.reset();
+    }
+}
+
 std::optional<AsyncLoadResult> Preloader::TakeResult()
 {
     std::optional<AsyncLoadResult> r;
@@ -98,11 +107,7 @@ std::optional<AsyncLoadResult> Preloader::TakeResult()
         r = std::move(result_);
         result_.reset();
     }
-    if (r && thread_.joinable()) {
-        // AttachedAsync 経路: worker は PostMessage 直後に return するため即 join できる。
-        thread_.join();
-        ctx_.reset();
-    }
+    FinalizeIfDrained(r.has_value());
     return r;
 }
 
@@ -114,9 +119,6 @@ std::optional<FileLoadError> Preloader::TakeError()
         e = error_;
         error_.reset();
     }
-    if (e && thread_.joinable()) {
-        thread_.join();
-        ctx_.reset();
-    }
+    FinalizeIfDrained(e.has_value());
     return e;
 }
