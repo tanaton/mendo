@@ -22,6 +22,10 @@ Preloader::~Preloader()
 
 void Preloader::Start(std::pmr::wstring path)
 {
+    // 二重呼び出し防御: 前回 worker が cv.wait 中に thread_ を再代入すると、
+    // jthread の暗黙 request_stop は cv を notify しないので join が無限ブロックする。
+    Join();
+
     auto ctx = std::make_shared<Context>();
     ctx_ = ctx;
 
