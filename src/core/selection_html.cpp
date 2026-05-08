@@ -2,7 +2,7 @@
 #include "nav.h"
 #include "profiler.h"
 #include "syntax.h"
-#include "theme.h"
+#include "theme_palette.h"
 #include <algorithm>
 #include <array>
 #include <cassert>

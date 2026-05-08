@@ -1,5 +1,4 @@
 #include "config_service.h"
-#include "pane_controller.h"
 #include "string_convert.h"
 #include "file_io.h"
 #include <algorithm>
@@ -190,39 +189,41 @@ std::pmr::wstring SessionService::LoadLastFilePath() const
     return path;
 }
 
-void SessionService::SavePaneState(const PaneController& panes)
+void SessionService::SavePaneState(const PaneState& state)
 {
-    config_.SaveBool("Pane", "ShowFile", panes.IsFilePaneVisible());
-    config_.SaveBool("Pane", "ShowToc", panes.IsTocPaneVisible());
-    config_.SaveInt("Pane", "FileWidth", static_cast<int>(std::lround(panes.GetFilePaneWidth())));
-    config_.SaveInt("Pane", "TocWidth", static_cast<int>(std::lround(panes.GetTocPaneWidth())));
+    config_.SaveBool("Pane", "ShowFile", state.show_file);
+    config_.SaveBool("Pane", "ShowToc", state.show_toc);
+    config_.SaveInt("Pane", "FileWidth", static_cast<int>(std::lround(state.file_width)));
+    config_.SaveInt("Pane", "TocWidth", static_cast<int>(std::lround(state.toc_width)));
 }
 
-void SessionService::LoadPaneState(PaneController& panes, float client_width)
+SessionService::PaneState SessionService::LoadPaneState(float client_width, float min_width, float default_width) const
 {
-    panes.SetFilePaneVisible(config_.LoadBool("Pane", "ShowFile", true));
-    panes.SetTocPaneVisible(config_.LoadBool("Pane", "ShowToc", true));
+    PaneState s;
+    s.show_file = config_.LoadBool("Pane", "ShowFile", true);
+    s.show_toc = config_.LoadBool("Pane", "ShowToc", true);
 
-    constexpr int DEFAULT_WIDTH = static_cast<int>(PaneController::PANE_DEFAULT_WIDTH);
-    constexpr int MIN_WIDTH = static_cast<int>(PaneController::PANE_MIN_WIDTH);
+    const int default_int = static_cast<int>(default_width);
+    const int min_int = static_cast<int>(min_width);
 
     // クライアント幅に基づいて有効な最大ペイン幅を計算する
-    int dynamic_max = DEFAULT_WIDTH;
+    int dynamic_max = default_int;
     if (client_width > 0.0f) {
-        dynamic_max = std::max(MIN_WIDTH, static_cast<int>(client_width) - MIN_WIDTH);
+        dynamic_max = std::max(min_int, static_cast<int>(client_width) - min_int);
     }
 
-    // LoadInt は範囲外時に DEFAULT_WIDTH を返すが、その既定値自体が
+    // LoadInt は範囲外時に default_int を返すが、その既定値自体が
     // 狭いウィンドウでは dynamic_max を超えうる。最終結果も clamp してから
     // 適用し、SetXxxPaneWidth 側の最小値 clamp に過剰な幅が漏れないようにする。
     const int file_w = std::clamp(
-        config_.LoadInt("Pane", "FileWidth", DEFAULT_WIDTH, MIN_WIDTH, dynamic_max),
-        MIN_WIDTH, dynamic_max);
+        config_.LoadInt("Pane", "FileWidth", default_int, min_int, dynamic_max),
+        min_int, dynamic_max);
     const int toc_w = std::clamp(
-        config_.LoadInt("Pane", "TocWidth", DEFAULT_WIDTH, MIN_WIDTH, dynamic_max),
-        MIN_WIDTH, dynamic_max);
-    panes.SetFilePaneWidth(static_cast<float>(file_w));
-    panes.SetTocPaneWidth(static_cast<float>(toc_w));
+        config_.LoadInt("Pane", "TocWidth", default_int, min_int, dynamic_max),
+        min_int, dynamic_max);
+    s.file_width = static_cast<float>(file_w);
+    s.toc_width = static_cast<float>(toc_w);
+    return s;
 }
 
 void SessionService::SaveScrollPosition(int node, float scroll_y, float node_y)

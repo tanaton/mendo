@@ -1,5 +1,5 @@
 #include <winresrc.h>
-#include "../src/ui/resource.h"
+#include "../src/util/resource.h"
 
 // Icon
 IDI_APP_ICON ICON "mendo.ico"

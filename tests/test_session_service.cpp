@@ -13,48 +13,51 @@ protected:
 
 TEST_F(SessionServiceTest, SaveAndLoadPaneState)
 {
-    PaneController panes;
-    panes.SetFilePaneVisible(false);
-    panes.SetTocPaneVisible(true);
-    panes.SetFilePaneWidth(180.0f);
-    panes.SetTocPaneWidth(250.0f);
+    SessionService::PaneState saved{
+        .show_file = false,
+        .show_toc = true,
+        .file_width = 180.0f,
+        .toc_width = 250.0f,
+    };
+    session_.SavePaneState(saved);
 
-    session_.SavePaneState(panes);
+    const auto loaded = session_.LoadPaneState(1200.0f,
+                                               PaneController::PANE_MIN_WIDTH,
+                                               PaneController::PANE_DEFAULT_WIDTH);
 
-    PaneController loaded;
-    session_.LoadPaneState(loaded, 1200.0f);
-
-    EXPECT_FALSE(loaded.IsFilePaneVisible());
-    EXPECT_TRUE(loaded.IsTocPaneVisible());
-    EXPECT_FLOAT_EQ(loaded.GetFilePaneWidth(), 180.0f);
-    EXPECT_FLOAT_EQ(loaded.GetTocPaneWidth(), 250.0f);
+    EXPECT_FALSE(loaded.show_file);
+    EXPECT_TRUE(loaded.show_toc);
+    EXPECT_FLOAT_EQ(loaded.file_width, 180.0f);
+    EXPECT_FLOAT_EQ(loaded.toc_width, 250.0f);
 }
 
 TEST_F(SessionServiceTest, LoadPaneStateClampsOutOfRangeValuesToDynamicMax)
 {
     // 保存値が dynamic_max を超える場合、GetInt はデフォルト値 (PANE_DEFAULT_WIDTH=220) を
     // 返す。狭いウィンドウでは既定値自体が dynamic_max を超えうるため、
-    // LoadPaneState 側で最終結果も clamp し、Set*PaneWidth に過剰な幅を渡さない。
+    // LoadPaneState 側で最終結果も clamp し、過剰な幅を返さない。
     config_.SaveInt("Pane", "FileWidth", 500);
     config_.SaveInt("Pane", "TocWidth", 500);
 
-    PaneController loaded;
     // client_width=300 → dynamic_max = max(100, 300-100) = 200
-    session_.LoadPaneState(loaded, 300.0f);
+    const auto loaded = session_.LoadPaneState(300.0f,
+                                               PaneController::PANE_MIN_WIDTH,
+                                               PaneController::PANE_DEFAULT_WIDTH);
 
     // dynamic_max=200 で clamp される（fix 前は 220 が漏れていた）
-    EXPECT_FLOAT_EQ(loaded.GetFilePaneWidth(), 200.0f);
-    EXPECT_FLOAT_EQ(loaded.GetTocPaneWidth(), 200.0f);
+    EXPECT_FLOAT_EQ(loaded.file_width, 200.0f);
+    EXPECT_FLOAT_EQ(loaded.toc_width, 200.0f);
 }
 
 TEST_F(SessionServiceTest, LoadPaneStateUsesDefaultWhenWindowFitsIt)
 {
     // 通常幅のウィンドウでは、欠落値は DEFAULT_WIDTH のまま使われる
-    PaneController loaded;
-    session_.LoadPaneState(loaded, 1200.0f);
+    const auto loaded = session_.LoadPaneState(1200.0f,
+                                               PaneController::PANE_MIN_WIDTH,
+                                               PaneController::PANE_DEFAULT_WIDTH);
 
-    EXPECT_FLOAT_EQ(loaded.GetFilePaneWidth(), PaneController::PANE_DEFAULT_WIDTH);
-    EXPECT_FLOAT_EQ(loaded.GetTocPaneWidth(), PaneController::PANE_DEFAULT_WIDTH);
+    EXPECT_FLOAT_EQ(loaded.file_width, PaneController::PANE_DEFAULT_WIDTH);
+    EXPECT_FLOAT_EQ(loaded.toc_width, PaneController::PANE_DEFAULT_WIDTH);
 }
 
 // ---- SaveScrollPosition / LoadScrollPosition ----
