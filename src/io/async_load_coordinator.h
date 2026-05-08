@@ -34,21 +34,20 @@ public:
     std::optional<AsyncLoadResult> TakeResult();
     std::optional<FileLoadError> TakeError() noexcept;
 
-    // 既存リクエストを破棄。gen を進めて worker の次回 gen チェックで早期 return させ、
-    // 同時に mutex 下で result_/error_ もクリアする。worker が最終 gen check を通過した
-    // 直後に Cancel が割り込んだ場合でも、sink への emplace と Cancel の reset は同じ
-    // mutex 上で直列化される (worker は emplace 前に lock 内で gen 再チェック)。
+    // gen を進めて worker の以後の publish を弾き、result_/error_ も即時クリア。
+    // worker 側 emplace と Cancel reset は同一 mutex 上で直列化される (worker は
+    // sink 書き込み前に lock 内で gen を再確認)。
     void Cancel() noexcept
     {
         gen_.fetch_add(1, std::memory_order_relaxed);
         in_flight_ = false;
-        const std::lock_guard lock(mutex_);
-        result_.reset();
-        error_.reset();
+        ResetSinks();
     }
 
 private:
-    void ResetSinks();
+    // sink を swap-out して lock 解放後に破棄する。100MB 級の Document/LayoutCache の
+    // destruction を mutex 保持時間に乗せないため。
+    void ResetSinks() noexcept;
 
     bool in_flight_ = false;
     std::atomic<uint32_t> gen_{ 0 };

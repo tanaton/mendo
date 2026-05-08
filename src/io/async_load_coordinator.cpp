@@ -3,11 +3,16 @@
 #include "layout.h"
 #include "layout_cache.h"
 
-void AsyncLoadCoordinator::ResetSinks()
+void AsyncLoadCoordinator::ResetSinks() noexcept
 {
-    const std::lock_guard lock(mutex_);
-    result_.reset();
-    error_.reset();
+    std::optional<AsyncLoadResult> stale_result;
+    std::optional<FileLoadError> stale_error;
+    {
+        const std::lock_guard lock(mutex_);
+        stale_result.swap(result_);
+        stale_error.swap(error_);
+    }
+    // stale_result / stale_error はここで lock 外で破棄される。
 }
 
 void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, const Theme& theme)
@@ -17,25 +22,29 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     const uint32_t gen = gen_.fetch_add(1, std::memory_order_relaxed) + 1;
 
     scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme] {
-        // 重い処理 (I/O / Parse / Estimate) の手前で stale gen を short-circuit する。
-        // sink への書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
-        if (gen_.load(std::memory_order_relaxed) != gen) {
-            return;
-        }
-
-        auto load_result = FileLoader::LoadFile(path);
-        if (!load_result) {
+        // sink 書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
+        // I/O / Parse / Estimate の前段の gen check は重い処理を skip するための short-circuit。
+        auto try_publish = [this, hwnd, msg_id, gen](auto&& assign_sink) {
             bool published = false;
             {
                 const std::lock_guard lock(mutex_);
                 if (gen_.load(std::memory_order_relaxed) == gen) {
-                    error_ = load_result.error();
+                    assign_sink();
                     published = true;
                 }
             }
             if (published) {
                 ::PostMessageW(hwnd, msg_id, 0, 0);
             }
+        };
+
+        if (gen_.load(std::memory_order_relaxed) != gen) {
+            return;
+        }
+
+        auto load_result = FileLoader::LoadFile(path);
+        if (!load_result) {
+            try_publish([&] { error_ = load_result.error(); });
             return;
         }
 
@@ -53,17 +62,9 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
         cache.Reset(doc.GetNodes().size(), /* shrink = */ false);
         EstimateNodeHeights(doc.GetNodes(), cache, theme);
 
-        bool published = false;
-        {
-            const std::lock_guard lock(mutex_);
-            if (gen_.load(std::memory_order_relaxed) == gen) {
-                result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true });
-                published = true;
-            }
-        }
-        if (published) {
-            ::PostMessageW(hwnd, msg_id, 0, 0);
-        }
+        try_publish([&] {
+            result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true });
+        });
     });
 }
 
