@@ -448,11 +448,3 @@ void App::ApplyCachedHeightsAndRecompute(float md_width)
     }
 }
 
-void App::UpdateTitleBar()
-{
-    const int zoom_percent = static_cast<int>(ZOOM_STEPS[state_.view.viewport.GetZoomIndex()] * 100.0f + 0.5f);
-    auto title = BuildTitleString(state_.document.doc.GetFilePath(), zoom_percent);
-    SetWindowTextW(hwnd_, title.c_str());
-    state_.cached_title_text = std::move(title);
-    InvalidateTitleBar();
-}

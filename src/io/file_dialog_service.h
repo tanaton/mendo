@@ -13,4 +13,8 @@ namespace file_dialog_service {
 // キャンセルされた場合は空文字列を返す。
 [[nodiscard]] std::pmr::wstring OpenMarkdownFileDialog(HWND owner);
 
+// PNG 保存ダイアログを表示し、選択された path を返す。default_filename は
+// 初期表示の候補 (例: L"diagram.png")。キャンセル時は空文字列を返す。
+[[nodiscard]] std::pmr::wstring SavePngFileDialog(HWND owner, const wchar_t* default_filename);
+
 } // namespace file_dialog_service

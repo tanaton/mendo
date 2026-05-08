@@ -32,48 +32,6 @@ std::optional<std::pmr::string> App::GetLinkAtHit(const HitResult& hit) const
     return FindLinkAtPosition(state_.document.doc.GetNodes()[hit.node_index], hit.text_pos);
 }
 
-bool App::HandleTitleBarClick(float dip_x, float dip_y)
-{
-    if (dip_y >= state_.window.titlebar.GetHeight()) {
-        return false;
-    }
-
-    const auto tb_zone = state_.window.titlebar.HitTest(dip_x, dip_y);
-    switch (tb_zone) {
-    case TitleBarHitZone::OpenFile:
-        Dispatch(OpenFileAction{});
-        break;
-    case TitleBarHitZone::Help:
-        Dispatch(ShowHelpAction{});
-        break;
-    case TitleBarHitZone::Search:
-        Dispatch(OpenSearchBarAction{});
-        break;
-    case TitleBarHitZone::ThemeToggle:
-        Dispatch(ToggleDarkModeAction{});
-        break;
-    case TitleBarHitZone::FileToggle:
-        Dispatch(TogglePaneAction{ PaneTarget::File });
-        break;
-    case TitleBarHitZone::TocToggle:
-        Dispatch(TogglePaneAction{ PaneTarget::Toc });
-        break;
-    case TitleBarHitZone::Minimize:
-        ShowWindow(hwnd_, SW_MINIMIZE);
-        break;
-    case TitleBarHitZone::Maximize:
-        ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE);
-        break;
-    case TitleBarHitZone::Close:
-        EmitEffect(effect::PostWindowMessage{ WM_CLOSE, 0, 0 });
-        break;
-    default:
-        // タイトルバーのドラッグ領域などは WM_NCHITTEST で処理済み。
-        break;
-    }
-    return true;
-}
-
 void App::OnLButtonDown(int px, int py)
 {
     if (!IsRenderReady()) {

@@ -18,7 +18,9 @@
 #include "resource_manager.h"
 #include "cursor_manager.h"
 #include "hit_test_service.h"
-#include "lru_cache.h"
+#include "clipboard_manager.h"
+#include "persistence_controller.h"
+#include "titlebar_controller.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -152,19 +154,22 @@ public:
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
     void InvalidatePane(const PaneRect& rect) noexcept;
-    void InvalidateTitleBar() noexcept;
+    void InvalidateTitleBar() noexcept
+    {
+        titlebar_.Invalidate();
+    }
     constexpr float GetDpiScale() const noexcept
     {
         return state_.window.cached_dpi_scale;
     }
 
-    constexpr float GetTitleBarHeightDip() const noexcept
+    float GetTitleBarHeightDip() const noexcept
     {
-        return state_.window.titlebar.GetHeight();
+        return titlebar_.GetHeightDip();
     }
     TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept
     {
-        return state_.window.titlebar.HitTest(dip_x, dip_y);
+        return titlebar_.HitTest(dip_x, dip_y);
     }
     bool IsOverMdScrollbar(float dip_x, float dip_y);
     bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const noexcept;
@@ -202,13 +207,10 @@ private:
 
     void HandleLinkClick(std::string_view url);
 
-    void SetClipboardText(std::wstring_view text) const;
-    void CopySelectionToClipboard() const;
-    void CopyCodeBlockToClipboard(int node_index) const;
-    void SaveDiagramAsPng(int node_index);
-    void CopyDiagramAsSvg(int node_index);
-
-    bool HandleTitleBarClick(float dip_x, float dip_y);
+    bool HandleTitleBarClick(float dip_x, float dip_y)
+    {
+        return titlebar_.HandleClick(dip_x, dip_y);
+    }
     bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
     void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
@@ -240,7 +242,10 @@ private:
     // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
     void ApplyCachedHeightsAndRecompute(float md_width);
-    void UpdateTitleBar();
+    void UpdateTitleBar()
+    {
+        titlebar_.Update();
+    }
 
     void FinishReload(size_t diff_pos);
 
@@ -263,10 +268,6 @@ private:
     void CancelPendingResources();
     void ResetViewForNewDocument();
     void FinalizeLayout(float md_pane_height);
-    void SaveLastFilePath();
-    void SavePaneState();
-    void LoadPaneState();
-    void SaveScrollPosition();
 
     const ::PaneLayout& GetPaneLayout();
     void InvalidatePaneLayoutCache() noexcept
@@ -308,11 +309,7 @@ private:
 
     void ShowToast(std::wstring_view message);
 
-    // SVG クリップボードコピーのセッション内キャッシュ。キーは PNG キャッシュと同じ NodeDiagramHash。
-    // 上限 128: 閲覧 1 ファイルで数十～100 entries 想定、超過分は LRU で追い出される。
-    static constexpr size_t MAX_SVG_CACHE_ENTRIES = 128;
-    LruCache<uint64_t, std::pmr::wstring, MAX_SVG_CACHE_ENTRIES> svg_cache_;
-    // SVG レンダリングは非同期で 1 秒程度かかる。同じノードを連打されても
-    // 1 件のリクエストに集約するためのフラグ。
-    bool svg_copy_in_flight_ = false;
+    ClipboardManager clipboard_manager_;
+    PersistenceController persistence_{ session_, state_ };
+    TitleBarController titlebar_;
 };

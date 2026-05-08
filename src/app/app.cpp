@@ -12,6 +12,7 @@
 #include "mermaid_util.h"
 #include "layout.h"
 #include "ui_constants.h"
+#include "d2d_util.h"
 #include <windowsx.h>
 #include <algorithm>
 #include <chrono>
@@ -97,27 +98,8 @@ const PaneLayout& App::GetPaneLayout()
 
 void App::InvalidatePane(const PaneRect& rect) noexcept
 {
-    const float scale = state_.window.cached_dpi_scale;
-    RECT rc;
-    rc.left = static_cast<LONG>(rect.x * scale);
-    rc.top = static_cast<LONG>(rect.y * scale);
-    rc.right = static_cast<LONG>((rect.x + rect.width) * scale) + 1;
-    rc.bottom = static_cast<LONG>((rect.y + rect.height) * scale) + 1;
-    InvalidateRect(hwnd_, &rc, FALSE);
-}
-
-void App::InvalidateTitleBar() noexcept
-{
-    const float tb_h = state_.window.titlebar.GetHeight();
-    if (tb_h <= 0.0f) {
-        return;
-    }
-    // 幅が未計算（初期化直後など）の場合はウィンドウ全体を無効化する
-    if (state_.pane_layout_cache.WindowWidth() <= 0.0f) {
-        InvalidateRect(hwnd_, nullptr, FALSE);
-        return;
-    }
-    InvalidatePane(PaneRect{ 0.0f, 0.0f, state_.pane_layout_cache.WindowWidth(), tb_h });
+    mendo::InvalidateDipRect(hwnd_, rect.x, rect.y, rect.width, rect.height,
+                             state_.window.cached_dpi_scale);
 }
 
 PaneZone App::PaneAtPoint(float dip_x)
@@ -332,9 +314,9 @@ void App::OnDestroy()
     scheduler_.Shutdown();
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
-    SaveLastFilePath();
-    SavePaneState();
-    SaveScrollPosition();
+    persistence_.SaveLastFilePath();
+    persistence_.SavePaneState();
+    persistence_.SaveScrollPosition();
     config_.SaveWString("General", "Language", i18n::GetLangKey());
     // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
     // すべての設定値を 1 度のディスク書き込みにまとめる。
@@ -361,13 +343,6 @@ RECT App::GetSearchEditRect()
     };
 }
 
-void App::SaveLastFilePath()
-{
-    if (!IsHelpPath(state_.document.doc.GetFilePath())) {
-        session_.SaveLastFilePath(state_.document.doc.GetFilePath());
-    }
-}
-
 std::pmr::wstring App::LoadLastFilePath() const
 {
     return session_.LoadLastFilePath();
@@ -378,33 +353,4 @@ void App::ShowDirectory(std::wstring_view dir_path)
     state_.file_explorer.SetDirectory(dir_path);
     renderer_.InvalidateFilePaneCache();
     Invalidate();
-}
-
-void App::SavePaneState()
-{
-    session_.SavePaneState(state_.view.panes);
-}
-
-void App::LoadPaneState()
-{
-    float client_width = 0.0f;
-    if (hwnd_) {
-        RECT rc{};
-        if (GetClientRect(hwnd_, &rc)) {
-            client_width = static_cast<float>(rc.right - rc.left);
-        }
-    }
-    session_.LoadPaneState(state_.view.panes, client_width);
-}
-
-void App::SaveScrollPosition()
-{
-    const int node = FindFirstVisibleNode();
-    if (node < 0) {
-        return;
-    }
-    // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top フィールドを読む。
-    // Fenwick PrefixSum 経由 (TextTopOf) は float 加算順が違うためノード数が増えると誤差が累積する。
-    const float text_top = state_.document.layout_cache[node].text_top;
-    session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
 }

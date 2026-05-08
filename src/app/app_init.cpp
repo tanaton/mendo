@@ -48,6 +48,17 @@ bool App::Init(HWND hwnd)
     file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
+    clipboard_manager_.Init(hwnd_, &file_cache_, &mermaid_renderer_,
+                            [this](std::wstring_view m) { ShowToast(m); });
+
+    titlebar_.Init(hwnd_, &state_,
+                   TitleBarController::Callbacks{
+                       .dispatch = [this](const AppAction& a) { Dispatch(a); },
+                       .post_window_message = [this](UINT m, WPARAM w, LPARAM l) {
+                           EmitEffect(effect::PostWindowMessage{ m, w, l });
+                       },
+                   });
+
     resource_manager_.Init(
         state_.document.doc,
         state_.document.layout_cache,
@@ -185,7 +196,7 @@ bool App::Init(HWND hwnd)
         state_.window.titlebar.UpdateLayout(window_w);
     }
 
-    LoadPaneState();
+    persistence_.LoadPaneState(hwnd_);
 
     state_.ctx_menu.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 

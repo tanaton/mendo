@@ -143,6 +143,12 @@ add_library(mendo_core STATIC
     src/app/side_effect_executor.cpp
     # app - 画像/Mermaid リソース管理（Mermaid 具象は IMermaidRenderer 経由で隔離）
     src/app/resource_manager.cpp
+    # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramAsSvg)
+    src/app/clipboard_manager.cpp
+    # app - セッション永続化 (LastFile / PaneState / ScrollPosition)
+    src/app/persistence_controller.cpp
+    # app - タイトルバー (高さ取得 / クリック処理 / タイトル更新)
+    src/app/titlebar_controller.cpp
     # ui - UIコンポーネント
     # context_menu.cpp は Win32/D2D 描画層（本体）と logic 層（mendo_core 入り）に
     # 分割されており、logic 側のみを mendo_core に含める。
