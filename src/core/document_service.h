@@ -19,8 +19,9 @@ public:
         return watcher_.GetEventHandle();
     }
 
-    static bool NeedsAsyncLoad(const std::pmr::wstring& path) noexcept;
-    static bool NeedsLoadingAnimation(const std::pmr::wstring& path) noexcept;
+    // path のファイルサイズが threshold を超える場合 true。同期/非同期ロード判定および
+    // ローディングアニメーション表示判定に共通で使う。しきい値定数は app_constants.h::app_threshold。
+    static bool IsLargerThan(const std::pmr::wstring& path, DWORD threshold) noexcept;
 
 private:
     FileWatcher& watcher_;

@@ -1,5 +1,7 @@
 #include "app.h"
 #include "app_constants.h"
+#include "darkmode_util.h"
+#include "file_dialog_service.h"
 #include "file_loader.h"
 #include "i18n.h"
 #include "mermaid_util.h"
@@ -21,8 +23,13 @@ bool App::Init(HWND hwnd)
 
     // Mermaid 共有 scheduler_ と詰まり合わないよう独立して立ち上げる。
     {
+        // 上限 16 は超大規模 dirty バッチでも latch 待ちオーバーヘッドが利得を相殺する境界。
+        // 下限 2 は hardware_concurrency()==0 や 1 コア環境でも並列計測の枠組みを保つため。
+        constexpr unsigned kMinLayoutWorkers = 2u;
+        constexpr unsigned kMaxLayoutWorkers = 16u;
         const auto cores = std::thread::hardware_concurrency();
-        const int layout_workers = static_cast<int>(std::clamp<unsigned>(cores > 0 ? cores - 1 : 2, 2u, 16u));
+        const int layout_workers = static_cast<int>(std::clamp<unsigned>(
+            cores > 0 ? cores - 1 : kMinLayoutWorkers, kMinLayoutWorkers, kMaxLayoutWorkers));
         layout_scheduler_.Init(layout_workers);
         renderer_.GetLayout().SetLayoutScheduler(&layout_scheduler_);
     }
@@ -66,7 +73,7 @@ bool App::Init(HWND hwnd)
                 ReloadCurrentFile();
             },
             .open_file_dialog = [this]() {
-                const auto path = FileLoader::OpenFileDialog(hwnd_);
+                const auto path = file_dialog_service::OpenMarkdownFileDialog(hwnd_);
                 if (!path.empty()) {
                     if (!state_.document.doc.GetFilePath().empty()) {
                         PushCurrentNavEntry(state_);
@@ -172,7 +179,7 @@ bool App::Init(HWND hwnd)
 
     {
         const auto* rt = renderer_.GetRenderTarget();
-        const float window_w = rt ? rt->GetSize().width : 1600.0f;
+        const float window_w = rt ? rt->GetSize().width : FALLBACK_WINDOW_WIDTH;
         state_.window.titlebar.UpdateLayout(window_w);
     }
 
@@ -196,7 +203,7 @@ bool App::Init(HWND hwnd)
         OnParseComplete();
         break;
     case PreloadAttachResult::AttachedAsync:
-        if (DocumentService::NeedsLoadingAnimation(file_load_service_.GetLoadingPath())) {
+        if (DocumentService::IsLargerThan(file_load_service_.GetLoadingPath(), app_threshold::LOADING_ANIM_BYTES)) {
             file_load_service_.BeginLoadingAnimation();
             EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
             Invalidate();
@@ -271,7 +278,7 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
             EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos) });
         },
         .focus_set_selection = [this](int anchor, int caret) {
-            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, MAKELPARAM(anchor, caret) });
+            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, app_param::MakeSearchSelectionLParam(anchor, caret) });
         },
         .unfocus = [this]() {
             EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_UNFOCUS, 0, 0 });
@@ -283,6 +290,9 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
             EmitEffect(effect::SyncMaxScroll{ md_pane_height });
             InvalidateHitPositions();
             resource_manager_.ScheduleBitmapManage();
+        },
+        .on_wrap_around = [] {
+            MessageBeep(MB_OK);
         },
     };
     // clang-format on

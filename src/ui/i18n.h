@@ -1,6 +1,7 @@
 #pragma once
 #include "resource.h"
 #include <windows.h>
+#include <atomic>
 #include <string_view>
 
 namespace i18n {
@@ -62,6 +63,7 @@ struct Strings {
     std::wstring_view toast_file_too_large;
     std::wstring_view toast_file_read_failed;
     std::wstring_view toast_image_saved;
+    std::wstring_view toast_image_save_failed;
     std::wstring_view toast_svg_copying;
     std::wstring_view toast_svg_copied;
     std::wstring_view toast_svg_copy_failed;
@@ -120,6 +122,7 @@ inline constexpr Strings kJa = {
     L"ファイルが大きすぎます",
     L"ファイルの読み込みに失敗しました",
     L"画像を保存しました",
+    L"画像の保存に失敗しました",
     L"SVGをコピー中...",
     L"SVGをコピーしました",
     L"SVGのコピーに失敗しました",
@@ -176,6 +179,7 @@ inline constexpr Strings kEn = {
     L"File is too large",
     L"Failed to read file",
     L"Image saved",
+    L"Failed to save image",
     L"Copying SVG...",
     L"SVG copied",
     L"Failed to copy SVG",
@@ -185,33 +189,38 @@ inline constexpr Strings kEn = {
     IDR_HELP_EN_MD,
 };
 
-inline const Strings* g_strings = &kJa;
+// std::atomic<const Strings*> にしてあるのは、テスト並列実行時 (ja/en を別スレッドで切り替える
+// 言語切替テストなど) の data race を避けるため。kJa/kEn は static const なので
+// load 値は常に有効ポインタで、参照剥がしも安全。
+inline std::atomic<const Strings*> g_strings{ &kJa };
 
 // 起動時に1回呼び出す。config_lang が "ja"/"en" なら直接選択、
 // 空または未知の場合は OS の UI 言語から自動判定する。
 inline void Init(std::wstring_view config_lang) noexcept
 {
+    const Strings* selected = nullptr;
     if (config_lang == L"en") {
-        g_strings = &kEn;
+        selected = &kEn;
     }
     else if (config_lang == L"ja") {
-        g_strings = &kJa;
+        selected = &kJa;
     }
     else {
         const LANGID langid = GetUserDefaultUILanguage();
-        g_strings = (PRIMARYLANGID(langid) == LANG_JAPANESE) ? &kJa : &kEn;
+        selected = (PRIMARYLANGID(langid) == LANG_JAPANESE) ? &kJa : &kEn;
     }
+    g_strings.store(selected, std::memory_order_relaxed);
 }
 
-constexpr const Strings& S() noexcept
+inline const Strings& S() noexcept
 {
-    return *g_strings;
+    return *g_strings.load(std::memory_order_relaxed);
 }
 
 // 現在の言語を設定ファイル用のキー文字列で返す。
-constexpr std::wstring_view GetLangKey() noexcept
+inline std::wstring_view GetLangKey() noexcept
 {
-    return (g_strings == &kEn) ? L"en" : L"ja";
+    return (g_strings.load(std::memory_order_relaxed) == &kEn) ? L"en" : L"ja";
 }
 
 } // namespace i18n

@@ -14,7 +14,7 @@ static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path
 {
     auto r = OpenFileForReadShared(
         std::filesystem::path(path),
-        FILE_SHARE_RW_DELETE, MAX_FILE_SIZE);
+        path_util::kFileShareRWDelete, MAX_FILE_SIZE);
     if (r.error != OpenFileError::None || r.size == 0) {
         return nullptr;
     }
@@ -130,7 +130,6 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
         }
 
         DecodeResult result;
-        result.path = path;
         result.on_complete = std::move(on_complete);
 
         if (wic_factory_) {
@@ -144,6 +143,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
                 }
             }
         }
+        result.path = std::move(path);
 
         if (cancel_gen_.load() != gen) {
             return;

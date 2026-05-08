@@ -2,29 +2,26 @@
 #include "theme.h"
 #include "resource.h"
 #include <cmath>
+#include <mutex>
 
 using Microsoft::WRL::ComPtr;
 using namespace context_menu_constants;
 
-bool ContextMenu::Impl::class_registered = false;
-
 bool ContextMenu::Impl::RegisterWindowClass()
 {
-    if (class_registered) {
-        return true;
-    }
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = WndProc;
-    wc.hInstance = GetModuleHandleW(nullptr);
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.lpszClassName = L"mendoContextMenu";
-    if (!RegisterClassExW(&wc)) {
-        return false;
-    }
-    class_registered = true;
-    return true;
+    static std::once_flag flag;
+    static bool registered_ok = false;
+    std::call_once(flag, [] {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.style = CS_HREDRAW | CS_VREDRAW;
+        wc.lpfnWndProc = WndProc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.lpszClassName = L"mendoContextMenu";
+        registered_ok = (RegisterClassExW(&wc) != 0);
+    });
+    return registered_ok;
 }
 
 LRESULT CALLBACK ContextMenu::Impl::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -127,15 +124,16 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
 
     MSG msg{};
     while (!s.done) {
-        const BOOL ret = GetMessageW(&msg, nullptr, 0, 0);
-        if (ret == -1) {
-            s.done = true;
-            break;
-        }
-        if (ret == 0) {
+        // WM_APP+* (TaskScheduler 完了通知など) を parent_hwnd 宛のままキューに残し、メインループで処理させる。
+        // メニュー表示中に App 状態を書き換えると race になるため。
+        if (PeekMessageW(&msg, nullptr, WM_QUIT, WM_QUIT, PM_NOREMOVE)) {
             PostQuitMessage(static_cast<int>(msg.wParam));
             s.done = true;
             break;
+        }
+        if (!PeekMessageW(&msg, s.hwnd, 0, 0, PM_REMOVE)) {
+            WaitMessage();
+            continue;
         }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);

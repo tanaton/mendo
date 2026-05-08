@@ -2,12 +2,9 @@
 #include "file_io.h"
 #include "string_convert.h"
 #include "win_handle.h"
-#include <limits>
 #include <shlwapi.h>
-#include <commdlg.h>
 
 #pragma comment(lib, "shlwapi.lib")
-#pragma comment(lib, "comdlg32.lib")
 
 std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr::wstring& path)
 {
@@ -15,7 +12,7 @@ std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr:
     // エディタがファイルを開いている間も読み取れるよう共有モードを許容。
     auto r = OpenFileForReadShared(
         std::filesystem::path(path.c_str()),
-        FILE_SHARE_RW_DELETE, MAX_FILE_SIZE);
+        path_util::kFileShareRWDelete, MAX_FILE_SIZE);
     switch (r.error) {
     case OpenFileError::NotFound:
         return std::unexpected(FileLoadError::NotFound);
@@ -29,11 +26,6 @@ std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr:
 
     if (r.size == 0) {
         return LoadedFileDoc{};
-    }
-
-    // 下流の md4c / view_length は uint32_t を取り扱うため、INT_MAX 超えのファイルは弾く。
-    if (r.size > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        return std::unexpected(FileLoadError::TooLarge);
     }
 
     // メモリマップで UTF-8 を直接 view し、BOM 除去後にそのまま string にコピーする。
@@ -56,20 +48,3 @@ std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr:
     return result;
 }
 
-std::pmr::wstring FileLoader::OpenFileDialog(HWND owner)
-{
-    wchar_t filename[MAX_PATH] = {};
-    OPENFILENAMEW ofn{};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = owner;
-    ofn.lpstrFilter = L"Markdown Files\0*.md;*.markdown;*.mkd;*.txt\0All Files\0*.*\0";
-    ofn.lpstrFile = filename;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
-    ofn.lpstrDefExt = L"md";
-
-    if (GetOpenFileNameW(&ofn)) {
-        return filename;
-    }
-    return {};
-}

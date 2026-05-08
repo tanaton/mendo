@@ -9,7 +9,8 @@
 
 // 固定長キャッシュ。Self-organizing list (transposition rule) で
 // アクセス順を整列させる。Find / Insert (既存キー) はヒットしたエントリを
-// 1 つ前と swap して promote。新規 Insert は先頭挿入で末尾を捨てる。
+// 1 つ前と swap して promote。新規 Insert は循環バッファ + 先頭インデックス
+// (head_) を 1 つ後ろにずらすことで O(1)。物理位置 = (head_ + 論理位置) % MaxEntries。
 // std::array で連続メモリ、ヒープアロケーション 0。
 // 非スレッド安全 (非 const Find / Insert は内部順序を変更する)。
 template <typename Key, typename Value, size_t MaxEntries>
@@ -22,15 +23,17 @@ public:
     constexpr auto* Find(this auto& self, const Key& key)
     {
         for (size_t i = 0; i < self.size_; i++) {
-            if (self.keys_[i] == key) {
+            const size_t p = self.physical(i);
+            if (self.keys_[p] == key) {
                 if constexpr (!std::is_const_v<std::remove_reference_t<decltype(self)>>) {
                     if (i > 0) {
-                        std::ranges::swap(self.keys_[i], self.keys_[i - 1]);
-                        std::ranges::swap(self.values_[i], self.values_[i - 1]);
-                        return self.values_.data() + (i - 1);
+                        const size_t prev_p = self.physical(i - 1);
+                        std::ranges::swap(self.keys_[p], self.keys_[prev_p]);
+                        std::ranges::swap(self.values_[p], self.values_[prev_p]);
+                        return self.values_.data() + prev_p;
                     }
                 }
-                return self.values_.data() + i;
+                return self.values_.data() + p;
             }
         }
         return decltype(self.values_.data()){ nullptr };
@@ -38,40 +41,39 @@ public:
 
     constexpr bool Contains(const Key& key) const
     {
-        return std::ranges::contains(keys_.begin(), keys_.begin() + size_, key);
+        for (size_t i = 0; i < size_; i++) {
+            if (keys_[physical(i)] == key) {
+                return true;
+            }
+        }
+        return false;
     }
 
     constexpr void Insert(const Key& key, Value value)
     {
-        for (size_t i = 0; i < size_; i++) {
-            if (keys_[i] == key) {
-                if (i > 0) {
-                    keys_[i] = std::move(keys_[i - 1]);
-                    values_[i] = std::move(values_[i - 1]);
-                    keys_[i - 1] = key;
-                    values_[i - 1] = std::move(value);
-                }
-                else {
-                    values_[i] = std::move(value);
-                }
-                return;
-            }
+        // 既存キーは Find と同じ promote ルールで 1 つ前と swap し、値だけ上書き。
+        if (auto* slot = Find(key); slot) {
+            *slot = std::move(value);
+            return;
         }
-
+        // 新規挿入は head_ を 1 つ巻き戻して書き込む。満杯時は末尾位置 (= head_-1) を上書き。
+        head_ = (head_ + MaxEntries - 1) % MaxEntries;
+        keys_[head_] = key;
+        values_[head_] = std::move(value);
         if (size_ < MaxEntries) {
             ++size_;
         }
-        std::ranges::shift_right(keys_.begin(), keys_.begin() + size_, 1);
-        std::ranges::shift_right(values_.begin(), values_.begin() + size_, 1);
-        keys_[0] = key;
-        values_[0] = std::move(value);
     }
 
     constexpr void Clear()
     {
-        std::ranges::fill(keys_.begin(), keys_.begin() + size_, Key{});
-        std::ranges::fill(values_.begin(), values_.begin() + size_, Value{});
+        for (size_t i = 0; i < size_; i++) {
+            const size_t p = physical(i);
+            keys_[p] = Key{};
+            values_[p] = Value{};
+        }
         size_ = 0;
+        head_ = 0;
     }
 
     constexpr size_t Size() const noexcept
@@ -88,7 +90,13 @@ public:
     }
 
 private:
+    constexpr size_t physical(size_t logical) const noexcept
+    {
+        return (head_ + logical) % MaxEntries;
+    }
+
     std::array<Key, MaxEntries> keys_{};
     std::array<Value, MaxEntries> values_{};
     size_t size_ = 0;
+    size_t head_ = 0; // 論理 0 番目に対応する物理インデックス
 };

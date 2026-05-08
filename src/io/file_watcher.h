@@ -36,7 +36,8 @@ private:
     UniqueEventHandle event_;
     OVERLAPPED overlapped_{};
     // ReadDirectoryChangesW はバッファ溢れで以降の通知を失うため余裕を持って 64KB 確保。
-    alignas(DWORD) char change_buf_[65536]{};
+    static constexpr size_t CHANGE_BUF_SIZE = 64 * 1024;
+    alignas(DWORD) char change_buf_[CHANGE_BUF_SIZE]{};
     bool read_pending_ = false;
     bool paused_ = false;
     bool pending_change_ = false;

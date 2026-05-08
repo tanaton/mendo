@@ -1,4 +1,5 @@
 #include "app.h"
+#include "darkmode_util.h"
 #include "nav.h"
 #include "document_utils.h"
 #include "string_convert.h"

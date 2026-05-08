@@ -1,4 +1,5 @@
 #pragma once
+#include "ui_constants.h"
 #include "ui_types.h"
 
 // ペイン領域識別子（ある座標がどのペインに属するか）
@@ -29,7 +30,7 @@ struct PaneScrollInfo {
 PaneLayout ComputePaneLayout(float total_width, float total_height,
                              float file_pane_width, float toc_pane_width,
                              float splitter_width, bool show_file, bool show_toc,
-                             float md_min_width = 200.0f, float top_offset = 0.0f) noexcept;
+                             float md_min_width = MD_PANE_MIN_WIDTH, float top_offset = 0.0f) noexcept;
 PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_width, bool show_file, bool show_toc) noexcept;
 PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content, float thumb_min = PANE_SCROLLBAR_THUMB_MIN) noexcept;
 float ComputeThumbY(const PaneScrollInfo& info, float scroll_y) noexcept;

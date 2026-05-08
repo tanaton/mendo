@@ -1,6 +1,7 @@
 #include "renderer.h"
 #include "ui_constants.h"
 #include <algorithm>
+#include <format>
 #include <ranges>
 #include <wrl/client.h>
 
@@ -241,17 +242,22 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     drawIconBtn(sbl.down_btn, L"\uE70D", sb.down_btn_hovered, nav_alpha);
 
     if (fmt_.search_count && !sb.query.empty()) {
-        wchar_t count_text[32];
+        // 「N / M」形式で表示。M は実用上 4-5 桁に収まる (md 内 hit 数) ので
+        // 32 wchar_t は十分な余裕。format_to_n で先端から書き、長さを返してもらう。
+        constexpr size_t kCountBufLen = 32;
+        wchar_t count_text[kCountBufLen];
+        std::format_to_n_result<wchar_t*> r{};
         if (sb.total_matches == 0) {
-            wcscpy_s(count_text, L"0");
+            r = std::format_to_n(count_text, kCountBufLen - 1, L"0");
         }
         else {
-            swprintf_s(count_text, L"%d / %d", sb.current_match + 1, sb.total_matches);
+            r = std::format_to_n(count_text, kCountBufLen - 1, L"{} / {}", sb.current_match + 1, sb.total_matches);
         }
+        const auto written = static_cast<UINT32>(r.out - count_text);
         auto* brush = Brush(BrushId::SearchInputText);
         if (brush) {
             brush->SetOpacity(0.7f);
-            rt()->DrawText(count_text, static_cast<UINT32>(std::wstring_view{ count_text }.size()), fmt_.search_count.Get(), sbl.count_rect, brush);
+            rt()->DrawText(count_text, written, fmt_.search_count.Get(), sbl.count_rect, brush);
             brush->SetOpacity(1.0f);
         }
     }
@@ -269,6 +275,9 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
     // DrawSearchBar が直前に作成した cached_search_layout_ を再利用できるケース
     // （IME コンポジションが無く、query と表示テキストが一致）を高速パスに。
+    // IME 合成中は表示テキスト = query + comp string となり layout のヒット判定対象が
+    // ずれるため、cached_search_caret_pos_ != -1 (= 合成中) の場合は安全側でキャッシュを捨てて
+    // 再生成する。クリック応答性は損なわない (IME 合成中はキャレット移動を主に DefSubclassProc が処理)。
     const bool cache_hit = cached_search_layout_ && cached_search_width_ == max_width && cached_search_caret_pos_ == -1 && cached_search_query_ == query;
     if (cache_hit) {
         layout = cached_search_layout_;

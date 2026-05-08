@@ -1,5 +1,6 @@
 #include "mermaid_util.h"
 #include "document_types.h"
+#include "pmr_format.h"
 #include "syntax.h"
 #include "utility.h"
 #include "ascii_util.h"
@@ -190,6 +191,42 @@ mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view b
     if (i < body.size() && body[i] == L':') {
         out.has_payload = true;
         out.payload = body.substr(i + 1);
+    }
+    return out;
+}
+
+mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view msg) noexcept
+{
+    using namespace std::literals;
+    ParsedWebMessage out;
+
+    if (msg.starts_with(L"mermaid-ready:"sv)) {
+        const auto body = msg.substr(std::size(L"mermaid-ready:") - 1);
+        // wcstof は const wchar_t* を要求するが、msg は LPWSTR (NUL 終端) なので body.data() がその位置を指す。
+        out.kind = WebMessageKind::Ready;
+        out.ready_dpr = std::wcstof(body.data(), nullptr);
+        return out;
+    }
+    if (msg == L"mermaid-failed"sv) {
+        out.kind = WebMessageKind::Failed;
+        return out;
+    }
+    struct PrefixEntry {
+        std::wstring_view prefix;
+        WebMessageKind kind;
+    };
+    constexpr PrefixEntry kEntries[] = {
+        { L"render-result:"sv, WebMessageKind::RenderResult },
+        { L"capture-ready:"sv, WebMessageKind::CaptureReady },
+        { L"svg-result:"sv,    WebMessageKind::SvgResult },
+        { L"render-error:"sv,  WebMessageKind::RenderError },
+    };
+    for (const auto& e : kEntries) {
+        if (msg.starts_with(e.prefix)) {
+            out.kind = e.kind;
+            out.request = ParseRequestPrefix(msg.substr(e.prefix.size()));
+            return out;
+        }
     }
     return out;
 }

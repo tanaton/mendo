@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "search_bar_controller.h"
+#include "app_constants.h"
 #include "search_state.h"
 #include "viewport_manager.h"
 #include "layout_cache.h"
@@ -153,7 +154,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedLargeDocDebounces)
     const int before = set_timer_count_;
     ctrl_.OnTextChanged(L"text", nodes);
     EXPECT_GT(set_timer_count_, before);
-    EXPECT_EQ(last_timer_id_, SearchBarController::TIMER_DEBOUNCE);
+    EXPECT_EQ(last_timer_id_, app_timer::SEARCH_DEBOUNCE);
 }
 
 // ═══════════════════════════════════════════════

@@ -26,7 +26,10 @@ struct LocalFreeDeleter {
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow)
 {
-    MENDO_IF_TRACY(Sleep(1000)); // Tracy の起動待ち
+    // Tracy プロファイラ接続を待つ初期遅延 (ms)。1 秒は Tracy GUI が profile-side に
+    // attach するのに十分な経験値で、Release ビルドでは MENDO_IF_TRACY が空展開される。
+    [[maybe_unused]] constexpr DWORD kTracyStartupDelayMs = 1000;
+    MENDO_IF_TRACY(Sleep(kTracyStartupDelayMs));
     InitGlobalMemoryResource();
 
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

@@ -92,7 +92,9 @@ private:
 
     // Back→Forward→Back の連続操作で path_index_::find を回避する直前値キャッシュ
     std::wstring_view last_interned_view_;
-    uint32_t last_interned_index_ = std::numeric_limits<uint32_t>::max();
+    // 「未設定」を表すセンチネル値。0 は有効インデックスなので最大値で代用する。
+    static constexpr uint32_t kUnsetIndex = std::numeric_limits<uint32_t>::max();
+    uint32_t last_interned_index_ = kUnsetIndex;
 };
 
 struct LinkClickResult {

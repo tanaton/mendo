@@ -420,6 +420,17 @@ inline bool Contains(std::string_view text, std::string_view query) noexcept
     return Find(text, query) != npos;
 }
 
+// consteval 契約違反を CTE (compile-time error) として表面化させるためのタグ。
+// 関数本体で throw を実行することで、constant evaluation 中に呼ばれると
+// 「constant expression で例外を投げられない」CTE になる仕組み。runtime からは
+// 呼ばれない (consteval 文脈以外では消える) 想定で、msg はエラー診断に出る。
+namespace ascii_util_detail {
+[[noreturn]] inline void consteval_fail(const char* msg)
+{
+    throw msg;
+}
+} // namespace ascii_util_detail
+
 // 小文字 ASCII リテラル専用の引数型 (wchar_t 用)。コンパイル時に契約違反を検出する。
 // 検証する契約:
 //  - NUL 終端 (literal[N-1] == L'\0')。
@@ -433,14 +444,14 @@ struct LowercaseAsciiLiteral {
         : value(literal, N - 1)
     {
         if (literal[N - 1] != L'\0') {
-            throw "LowercaseAsciiLiteral: literal must be NUL-terminated";
+            ascii_util_detail::consteval_fail("LowercaseAsciiLiteral: literal must be NUL-terminated");
         }
         for (size_t i = 0; i < N - 1; ++i) {
             if (literal[i] > 0x7F) {
-                throw "LowercaseAsciiLiteral: literal must contain only ASCII characters";
+                ascii_util_detail::consteval_fail("LowercaseAsciiLiteral: literal must contain only ASCII characters");
             }
             if (literal[i] >= L'A' && literal[i] <= L'Z') {
-                throw "LowercaseAsciiLiteral: literal must be lowercase ASCII";
+                ascii_util_detail::consteval_fail("LowercaseAsciiLiteral: literal must be lowercase ASCII");
             }
         }
     }
@@ -455,15 +466,15 @@ struct LowercaseAsciiLiteralChar {
         : value(literal, N - 1)
     {
         if (literal[N - 1] != '\0') {
-            throw "LowercaseAsciiLiteralChar: literal must be NUL-terminated";
+            ascii_util_detail::consteval_fail("LowercaseAsciiLiteralChar: literal must be NUL-terminated");
         }
         for (size_t i = 0; i < N - 1; ++i) {
             // char (signed) で 0x80+ は負値になるので unsigned 変換で判定。
             if (static_cast<unsigned char>(literal[i]) > 0x7F) {
-                throw "LowercaseAsciiLiteralChar: literal must contain only ASCII characters";
+                ascii_util_detail::consteval_fail("LowercaseAsciiLiteralChar: literal must contain only ASCII characters");
             }
             if (literal[i] >= 'A' && literal[i] <= 'Z') {
-                throw "LowercaseAsciiLiteralChar: literal must be lowercase ASCII";
+                ascii_util_detail::consteval_fail("LowercaseAsciiLiteralChar: literal must be lowercase ASCII");
             }
         }
     }

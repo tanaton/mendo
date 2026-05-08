@@ -114,12 +114,13 @@ void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache&
     const int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
 
     const uint32_t effects_gen = cache.GetEffectsGeneration();
-    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || std::abs(viewport_bottom - last_effects_bottom_) > 0.5f) {
+    const int viewport_bottom_px = static_cast<int>(viewport_bottom);
+    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || viewport_bottom_px != last_effects_bottom_px_) {
         MENDO_PROFILE("PrepareVisibleEffects");
         ApplyVisibleEffects(nodes, cache, first_visible, viewport_top, viewport_bottom);
         last_effects_gen_ = effects_gen;
         last_effects_first_ = first_visible;
-        last_effects_bottom_ = viewport_bottom;
+        last_effects_bottom_px_ = viewport_bottom_px;
     }
 }
 
@@ -147,6 +148,10 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexc
         BrushId::SyntaxPreprocessor,
         BrushId::SyntaxFunction,
     };
+    // SYNTAX_MAP が SyntaxKeyword..SyntaxFunction の連続値前提で書かれていることを担保。
+    // brush_id.h で間に新規 BrushId を挿入するとここが落ちて気付ける。
+    static_assert(std::to_underlying(BrushId::SyntaxFunction) - std::to_underlying(BrushId::SyntaxKeyword) == 6,
+                  "SYNTAX_MAP は SyntaxKeyword..SyntaxFunction の連続値に依存している");
     const auto idx = std::to_underlying(type);
     if (idx >= std::size(SYNTAX_MAP)) {
         return nullptr;
@@ -262,6 +267,8 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
     }
 }
 
+// ApplyNodeEffects は IDWriteTextLayout の内部状態 (SetDrawingEffect/SetUnderline) を直接書き換える
+// pre-render パス。CommandGenerator の DrawCommand には乗らない (text-layout 状態は不可搬なため)。
 void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     // テーブルノード: ビューポートカリング付きの増分処理を行う。

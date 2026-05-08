@@ -23,7 +23,7 @@ void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallba
     dir_handle_.reset(CreateFileW(
         dir.c_str(),
         FILE_LIST_DIRECTORY,
-        FILE_SHARE_RW_DELETE,
+        path_util::kFileShareRWDelete,
         nullptr,
         OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
@@ -104,7 +104,7 @@ void FileWatcher::CheckForChanges()
     if (bytes_returned > 0) {
         const auto* buf_end = reinterpret_cast<const char*>(change_buf_) + bytes_returned;
         auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(change_buf_);
-        for (;;) {
+        while (true) {
             const std::wstring_view changed_name{ info->FileName, info->FileNameLength / sizeof(wchar_t) };
             if (info->Action != FILE_ACTION_REMOVED &&
                 info->Action != FILE_ACTION_RENAMED_OLD_NAME &&

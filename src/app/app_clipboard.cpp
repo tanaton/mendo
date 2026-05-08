@@ -1,4 +1,5 @@
 #include "app.h"
+#include "clipboard_util.h"
 #include "document_utils.h"
 #include "mermaid_util.h"
 #include "mermaid_file_cache.h"
@@ -115,6 +116,7 @@ void App::SaveDiagramAsPng(int node_index)
     }
     else {
         DeleteFileW(filename);
+        ShowToast(i18n::S().toast_image_save_failed);
     }
 }
 

@@ -9,8 +9,9 @@
 #include <span>
 
 
-// ITextMeasurerのDirectWrite実装。
-// IDWriteTextFormatオブジェクトを所有し、計測用のIDWriteTextLayoutを作成する。
+// ITextMeasurer の DirectWrite 実装。IDWriteTextFormat (重い再利用可能オブジェクト) を
+// theme ごとに所有し、計測のたびに per-call で IDWriteTextLayout を生成する分業構造。
+// Format の再生成は RecreateFormats 経由のみ許可し、並列計測中の同時更新を契約で禁止する。
 class DWriteTextMeasurer : public ITextMeasurer {
 public:
     bool Init(const Theme& theme) override;

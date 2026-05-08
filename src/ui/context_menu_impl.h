@@ -31,7 +31,6 @@ inline constexpr wchar_t GLYPH_CHECKMARK[] = L"\xE73E";
 } // namespace context_menu_constants
 
 struct ContextMenu::Impl {
-    static bool class_registered;
     static bool RegisterWindowClass();
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);

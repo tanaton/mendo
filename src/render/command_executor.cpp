@@ -1,4 +1,5 @@
 #include "command_executor.h"
+#include "overloaded.h"
 #include "profiler.h"
 #include "utility.h"
 
@@ -44,7 +45,7 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
     if (rt != bound_rt_) {
         // ブラシは RT 付随リソースなので、RT 切替・デバイス再作成では破棄する
         brush_pool_.clear();
-        use_counter_ = 0;
+        lru_keys_.clear();
         bound_rt_ = rt;
         last_brush_ = nullptr;
         MENDO_COUNT_INC(g_brush_stats.rt_switch);
@@ -56,27 +57,24 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         MENDO_COUNT_INC(g_brush_stats.fastpath_hit);
         return last_brush_;
     }
-    const uint64_t now = ++use_counter_;
     if (const auto it = brush_pool_.find(key); it != brush_pool_.end()) {
-        it->second.last_used = now;
+        lru_keys_.splice(lru_keys_.begin(), lru_keys_, it->second.lru_pos);
         last_brush_key_ = key;
         last_brush_ = it->second.brush.Get();
         MENDO_COUNT_INC(g_brush_stats.pool_hit);
         return last_brush_;
     }
     if (brush_pool_.size() >= MAX_POOLED_BRUSHES) {
-        // LRU: 全消去によるフレームスパイクを避けるため最古エントリ 1 つだけ追い出す。
-        auto oldest = brush_pool_.begin();
-        for (auto it = std::next(brush_pool_.begin()); it != brush_pool_.end(); ++it) {
-            if (it->second.last_used < oldest->second.last_used) {
-                oldest = it;
+        // 全消去によるフレームスパイクを避けるため最古エントリ 1 つだけ追い出す。
+        const uint32_t oldest_key = lru_keys_.back();
+        const auto oldest_it = brush_pool_.find(oldest_key);
+        if (oldest_it != brush_pool_.end()) {
+            if (last_brush_ == oldest_it->second.brush.Get()) {
+                last_brush_ = nullptr;
             }
+            brush_pool_.erase(oldest_it);
         }
-        // 追い出すエントリが直前キャッシュと一致する場合はキャッシュも無効化する
-        if (last_brush_ == oldest->second.brush.Get()) {
-            last_brush_ = nullptr;
-        }
-        brush_pool_.erase(oldest);
+        lru_keys_.pop_back();
         MENDO_COUNT_INC(g_brush_stats.pool_evict);
     }
     MENDO_COUNT_INC(g_brush_stats.pool_miss);
@@ -84,7 +82,8 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
     if (FAILED(rt->CreateSolidColorBrush(color, &brush)) || !brush) {
         return nullptr;
     }
-    auto [it, _] = brush_pool_.emplace(key, BrushEntry{ std::move(brush), now });
+    lru_keys_.push_front(key);
+    auto [it, _] = brush_pool_.emplace(key, BrushEntry{ std::move(brush), lru_keys_.begin() });
     last_brush_key_ = key;
     last_brush_ = it->second.brush.Get();
     return last_brush_;
@@ -100,7 +99,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
 
     fixed_brushes_ = brushes;
 
-    cmds.Visit(overloaded{
+    cmds.Visit(mendo::overloaded{
         [&](const ClearCmd& c) {
             rt->Clear(c.color);
         },

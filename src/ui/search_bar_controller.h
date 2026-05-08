@@ -30,11 +30,8 @@ public:
         std::move_only_function<void()> unfocus;                     // フォーカス解除
         std::move_only_function<float()> get_md_pane_height;         // Markdownペイン高さ取得
         std::move_only_function<void(float)> on_scroll_changed;      // スクロール変更後処理(md_pane_height)
+        std::move_only_function<void()> on_wrap_around;              // 検索ラップアラウンド時の通知 (Win32 では MessageBeep)
     };
-
-    // タイマーID（App::HandleTimerでのルーティング用）
-    static constexpr UINT_PTR TIMER_CARET = 7;
-    static constexpr UINT_PTR TIMER_DEBOUNCE = 9;
 
     SearchBarController() = default;
     void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Callbacks cb);

@@ -1,5 +1,32 @@
 #include "theme.h"
 
+// Theme 内の「ズームでスケールする float メンバ」を一元管理する。
+// 新規のスケーラブルフィールドを追加する際はここに追記すれば
+// ApplyZoom へのスケール漏れを防げる。font_size_h は配列なので別ループで扱う。
+static constexpr float Theme::* kScalableThemeFields[] = {
+    &Theme::font_size_body,
+    &Theme::font_size_code,
+    &Theme::margin_left,
+    &Theme::margin_right,
+    &Theme::margin_top,
+    &Theme::paragraph_spacing,
+    &Theme::list_item_spacing,
+    &Theme::heading_spacing_above,
+    &Theme::heading_spacing_below,
+    &Theme::heading_spacing_below_h1h2,
+    &Theme::code_block_spacing_above,
+    &Theme::code_block_padding,
+    &Theme::indent_width,
+    &Theme::blockquote_bar_width,
+    &Theme::list_bullet_offset,
+    &Theme::hr_thickness,
+    &Theme::h2_underline_thickness,
+    &Theme::pane_item_height,
+    &Theme::pane_header_height,
+    &Theme::splitter_width,
+    &Theme::pane_font_size,
+};
+
 static D2D1_COLOR_F Color(uint32_t rgb, float a = 1.0f) noexcept
 {
     return D2D1::ColorF(
@@ -33,39 +60,16 @@ ThemeConstants Theme::ToReducerConstants() const noexcept
 
 void Theme::ApplyZoom(float new_zoom) noexcept
 {
+    // 0/負値は通常の呼び出しでは発生しない (viewport ZOOM_MIN..ZOOM_MAX クランプ済み) が、
+    // ゼロ除算回避と inf/NaN 伝染を防ぐため early return する。テスト test_theme.cpp の
+    // ApplyZoomZeroIsNoOp / ApplyZoomNegativeIsNoOp が契約を保証する。
     if (new_zoom <= 0.0f || zoom <= 0.0f) {
         return;
     }
     const float ratio = new_zoom / zoom;
     zoom = new_zoom;
 
-    // Theme 内の「ズームでスケールする float メンバ」を一元管理する。
-    // 新規のスケーラブルフィールドを追加する際はここに追記すれば
-    // ApplyZoom へのスケール漏れを防げる。
-    static constexpr float Theme::* kScalable[] = {
-        &Theme::font_size_body,
-        &Theme::font_size_code,
-        &Theme::margin_left,
-        &Theme::margin_right,
-        &Theme::margin_top,
-        &Theme::paragraph_spacing,
-        &Theme::list_item_spacing,
-        &Theme::heading_spacing_above,
-        &Theme::heading_spacing_below,
-        &Theme::heading_spacing_below_h1h2,
-        &Theme::code_block_spacing_above,
-        &Theme::code_block_padding,
-        &Theme::indent_width,
-        &Theme::blockquote_bar_width,
-        &Theme::list_bullet_offset,
-        &Theme::hr_thickness,
-        &Theme::h2_underline_thickness,
-        &Theme::pane_item_height,
-        &Theme::pane_header_height,
-        &Theme::splitter_width,
-        &Theme::pane_font_size,
-    };
-    for (float Theme::* field : kScalable) {
+    for (float Theme::* field : kScalableThemeFields) {
         this->*field *= ratio;
     }
     for (auto& f : font_size_h) {

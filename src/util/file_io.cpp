@@ -33,7 +33,7 @@ OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_
 std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
     const std::filesystem::path& path, DWORD* out_error)
 {
-    auto r = OpenFileForReadShared(path, FILE_SHARE_READ, std::numeric_limits<uint32_t>::max(), out_error);
+    auto r = OpenFileForReadShared(path, FILE_SHARE_READ, path_util::MAX_READABLE_FILE_SIZE, out_error);
     if (r.error != OpenFileError::None || r.size == 0) {
         return {};
     }

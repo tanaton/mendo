@@ -15,6 +15,7 @@ class Document;
 
 // レガシー呼び出しサイト互換: 自由関数とユーティリティは mendo::layout namespace へ移動済み。
 using mendo::layout::ComputeColumnWidths;
+using mendo::layout::EstimateInvisibleNodeHeight;
 using mendo::layout::EstimateNodeHeight;
 using mendo::layout::EstimateNodeHeights;
 using mendo::layout::GetSpacingAbove;
@@ -62,6 +63,12 @@ public:
     }
 
 private:
+    // ComputeLayout 末尾の Fenwick 反映: フルパス完走 → bulk load (O(N))、
+    // 途中 break 時は処理した分のみ個別 Set。total_height_ は bulk 経路でのみ更新する
+    // (incremental 経路は ProcessDirtyBatch / EnsureVisibleLayout が後続で再計算)。
+    void ApplyComputeLayoutBlockHeights(LayoutCache& cache, const std::pmr::vector<float>& block_heights,
+                                        bool broke_early, float final_y) noexcept;
+
     // 同一の ITextMeasurer 派生から得た 2 つの IF view。lifecycle 系 (Init/RecreateFormats/UpdateTheme)
     // は UI スレッドからのみ呼び、backend (MeasureNode/MeasureTable) は const 経由で
     // 将来 worker pool から並列呼び出し可能にする設計。

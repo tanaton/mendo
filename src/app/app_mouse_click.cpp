@@ -53,7 +53,7 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
                 EmitEffect(effect::PostWindowMessage{
                     app_msg::SEARCH_FOCUS,
                     app_param::SEARCH_FOCUS_SET_SELECTION,
-                    MAKELPARAM(static_cast<int>(wb.start), static_cast<int>(wb.end)) });
+                    app_param::MakeSearchSelectionLParam(static_cast<int>(wb.start), static_cast<int>(wb.end)) });
             }
         }
         else {

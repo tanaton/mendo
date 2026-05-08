@@ -1,5 +1,6 @@
 #include "app.h"
 #include "app_constants.h"
+#include "darkmode_util.h"
 #include "render_composer.h"
 #include "search_bar_controller.h"
 #include "file_loader.h"
@@ -26,18 +27,6 @@
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "uxtheme.lib")
-
-static_assert(app_timer::SEARCH_CARET == SearchBarController::TIMER_CARET);
-static_assert(app_timer::SEARCH_DEBOUNCE == SearchBarController::TIMER_DEBOUNCE);
-static_assert(app_timer::MERMAID_BATCH == ResourceManager::TIMER_MERMAID_BATCH);
-static_assert(app_timer::BITMAP_MANAGE == ResourceManager::TIMER_BITMAP_MANAGE);
-static_assert(app_timer::MERMAID_INIT_RETRY == MermaidRenderer::TIMER_INIT_RETRY);
-
-// DWMWA_USE_IMMERSIVE_DARK_MODE は Windows 10 1809 以降の SDK でしか定義されないため、
-// 古い SDK でビルドできるようフォールバック定義する。
-#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
-#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
-#endif
 
 #include "utility.h"
 #include "profiler.h"
@@ -347,19 +336,7 @@ void App::OnDestroy()
     // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
     // すべての設定値を 1 度のディスク書き込みにまとめる。
     config_.Flush();
-    for (UINT_PTR id : {
-             app_timer::DEFERRED_LAYOUT,
-             app_timer::LOADING_ANIM,
-             app_timer::SWIPE_OVERLAY,
-             app_timer::TOAST,
-             app_timer::SEARCH_CARET,
-             app_timer::SEARCH_DEBOUNCE,
-             app_timer::TOOLTIP,
-             app_timer::BITMAP_MANAGE,
-             app_timer::MERMAID_BATCH,
-             app_timer::MERMAID_INIT_RETRY,
-             app_timer::FILE_RELOAD_DEBOUNCE,
-         }) {
+    for (UINT_PTR id : app_timer::ALL_TIMERS) {
         KillTimer(hwnd_, id);
     }
 }

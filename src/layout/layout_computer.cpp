@@ -1,6 +1,7 @@
 #include "layout_computer.h"
 #include "memory_resource.h"
 #include "profiler.h"
+#include "ui_constants.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -10,9 +11,15 @@
 namespace mendo::layout {
 
 namespace {
+// 列幅計算の下限。半角 2-3 文字相当（Theme の body フォントサイズ ~14pt 基準）。
+// 短いセルが極端に潰れないようにするための実用下限で、フォントサイズを変えても
+// 視覚的に違和感が出にくい固定値として採用している。
 constexpr float MIN_COLUMN_WIDTH = 30.0f;
+// 列幅計算で実測幅に上乗せする余白。テーブル罫線とパディングを合わせた境界 (DIP)。
+// TABLE_CELL_PADDING (8.0f) より小さいのは、列幅は左右の合計ではなく片側相当で扱うため。
 constexpr float COLUMN_WIDTH_PADDING = 4.0f;
-// Y座標の早期終了判定用許容誤差（DIP単位）
+// Y座標の早期終了判定用許容誤差（DIP単位）。物理ピクセル境界 0.01 DIP は 96 DPI 換算で
+// 約 1/100 px 未満で、視覚差を生まない閾値。これ未満の差分は再計算不要として break する。
 constexpr float Y_POSITION_EPSILON = 0.01f;
 } // namespace
 
@@ -97,7 +104,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
         return line_height * 1.5f * static_cast<float>(row_count);
     }
     case NodeType::Image:
-        return std::max(60.0f, theme.font_size_body * 3.0f);
+        return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
     case NodeType::Paragraph:
     case NodeType::ListItem:
     case NodeType::BlockQuote:
@@ -140,6 +147,35 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
         block_heights.push_back(sa + h + sb);
     }
     cache.BuildBlockHeights(block_heights);
+}
+
+bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept
+{
+    // ダイアグラム系コードブロックの高さは描画完了時にビットマップ実寸で確定する。
+    // テキスト基準の EstimateNodeHeight で上書きすると描画時に bitmap が後続ノードへ
+    // はみ出すため既存値を維持する。
+    if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language)) {
+        return false;
+    }
+    // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。
+    constexpr float kCachedWidthEpsilon = 0.5f;
+    const bool cache_hit = entry.cached_width > 0.0f &&
+                           std::abs(entry.cached_width - node_width) < kCachedWidthEpsilon &&
+                           entry.cached_height > 0.0f;
+    const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, theme);
+    // テーブル/画像/折り返しが多い段落では推定値が実測値を大きく下回るため、
+    // シュリンク方向の更新は後続ノードと重なる原因になる。よって既存値より小さくはしない。
+    if (entry.height >= fallback) {
+        return false;
+    }
+    entry.height = fallback;
+    // 推定で成長させた場合、テーブル幾何 (row_heights/col_widths) は旧値のままなので
+    // clear して MeasureNode の lazy 復元経路を通させる。
+    if (node.type == NodeType::Table && entry.has_table_layout() && !cache_hit) {
+        entry.table_layout->col_widths.clear();
+        entry.table_layout->cached_table_width = 0.0f;
+    }
+    return true;
 }
 
 YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,

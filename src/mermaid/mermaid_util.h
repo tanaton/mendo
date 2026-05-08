@@ -39,6 +39,32 @@ struct RequestPrefix {
     bool has_payload = false;
 };
 RequestPrefix ParseRequestPrefix(std::wstring_view body) noexcept;
+
+// WebMessage の種別。WebView2 から届くメッセージは prefix で識別する。
+enum class WebMessageKind : uint8_t {
+    Unknown,
+    Ready,         // "mermaid-ready:<dpr>"
+    RenderResult,  // "render-result:<id>:<payload>"
+    CaptureReady,  // "capture-ready:<id>"
+    SvgResult,     // "svg-result:<id>:<payload>"
+    RenderError,   // "render-error:<id>"
+    Failed,        // "mermaid-failed"
+};
+
+// パース済み WebMessage。kind に応じてどのフィールドが有効か変わる:
+//  - Ready:       ready_dpr (devicePixelRatio)
+//  - Render*/Capture/Svg: request (id, payload)
+//  - Failed/Unknown: フィールドなし
+struct ParsedWebMessage {
+    WebMessageKind kind = WebMessageKind::Unknown;
+    float ready_dpr = 0.0f;
+    RequestPrefix request{};
+};
+
+// WebView2 からの string メッセージを純関数でパースする。
+// switch で扱える形にすることで mermaid.cpp 側の if-else 連鎖を排除する。
+ParsedWebMessage ParseWebMessage(std::wstring_view msg) noexcept;
+
 } // namespace mermaid_util
 
 namespace mermaid_lifecycle {

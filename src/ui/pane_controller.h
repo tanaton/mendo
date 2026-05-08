@@ -156,7 +156,7 @@ public:
 
     static constexpr float PANE_DEFAULT_WIDTH = 220.0f;
     static constexpr float PANE_MIN_WIDTH = 100.0f;
-    static constexpr float MD_PANE_MIN_WIDTH = 200.0f;
+    static constexpr float MD_PANE_MIN_WIDTH = ::MD_PANE_MIN_WIDTH;
 
 private:
     float file_width_ = PANE_DEFAULT_WIDTH;
@@ -179,4 +179,7 @@ private:
     static bool ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept;
     static bool SetHoveredIndex(int& current, int idx) noexcept;
     static bool SetFlag(bool& current, bool value) noexcept;
+    static float ConstrainSplitterWidth(float requested_width, float total_width,
+                                        float splitter_w, float other_width,
+                                        bool other_visible) noexcept;
 };

@@ -33,7 +33,10 @@
 #include <d2d1.h>
 #include <dwrite.h>
 
-// <rpcndr.h> の `#define small char` を全 TU に伝播させない
+// <rpcndr.h> (windows.h 経由で間接 include される MIDL ランタイム) は
+// `#define small char` を放出するため、`small` を識別子として使う標準ライブラリや
+// 自前コードがコンパイルエラーを起こす。pch を介して全 TU に伝播するのを防ぐため、
+// pch のここで明示的に解除する。識別子 small を使用しない場合でも保険として残す。
 #ifdef small
 #  undef small
 #endif

@@ -27,8 +27,6 @@
 #include <memory>
 #include <memory_resource>
 
-void ApplyDarkModeToWindow(HWND hwnd, bool dark);
-
 class App {
 public:
     explicit App(ConfigService& config) noexcept : config_(config)
@@ -92,9 +90,9 @@ public:
     void OnCaptureChanged();
     void OnDestroy();
 
-    void OnSearchTextChanged(std::pmr::wstring text)
+    void OnSearchTextChanged(const std::pmr::wstring& text)
     {
-        Dispatch(SearchTextChangedAction{ std::move(text) });
+        Dispatch(SearchTextChangedAction{ text });
     }
     void OnSearchClose()
     {
@@ -238,17 +236,22 @@ private:
     void BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation = false);
     void FinishLoadMarkdownFile(bool heights_estimated = false);
     void HandleLoadFailureFallback();
-    float CalcScrollForDiff(size_t diff_pos, float viewport_height) const;
     bool ApplyMermaidCacheHeights(float md_width);
+    // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
+    // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
+    void ApplyCachedHeightsAndRecompute(float md_width);
     void UpdateTitleBar();
 
     void FinishReload(size_t diff_pos);
 
-    // pending_reload_retry を確定し、NoChange / DeferPrefixShrink なら
-    // ResumeFileWatch を発行して true (= 呼び出し元は早期 return) を返す。
-    // PrefixGrowth / FullReload なら false を返し、呼び出し元が
-    // decision.op で本格的な reload / load 処理を分岐する。
-    bool ApplyReloadDecisionEarly(const ReloadDecision& decision);
+    // pending_reload_retry を確定し、NoChange / DeferPrefixShrink を early-return で処理する。
+    // 呼び出し側は戻り値で「処理済み (Handled) → 呼び出し元 return」「続行 (ContinueWithReload) →
+    // decision.op に基づく本格的な reload / load 処理」を分岐する。
+    enum class ReloadFlow : uint8_t {
+        Handled,             // ResumeFileWatch / DeferReloadRetry が発行済み、呼び出し元は return
+        ContinueWithReload,  // PrefixGrowth / FullReload を呼び出し元で実行する
+    };
+    ReloadFlow ApplyReloadDecisionEarly(const ReloadDecision& decision);
 
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
     // partial-read を検出した時に共通で使う。
@@ -305,8 +308,8 @@ private:
 
     void ShowToast(std::wstring_view message);
 
-    // SVG クリップボードコピーのセッション内キャッシュ (LruCache の挙動は src/util/lru_cache.h 参照)。
-    // キーは PNG キャッシュと同じ NodeDiagramHash。LatexMath は SVG コピー対象外。
+    // SVG クリップボードコピーのセッション内キャッシュ。キーは PNG キャッシュと同じ NodeDiagramHash。
+    // 上限 128: 閲覧 1 ファイルで数十～100 entries 想定、超過分は LRU で追い出される。
     static constexpr size_t MAX_SVG_CACHE_ENTRIES = 128;
     LruCache<uint64_t, std::pmr::wstring, MAX_SVG_CACHE_ENTRIES> svg_cache_;
     // SVG レンダリングは非同期で 1 秒程度かかる。同じノードを連打されても

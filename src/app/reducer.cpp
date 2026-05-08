@@ -2,6 +2,7 @@
 #include "app_constants.h"
 #include "document_utils.h"
 #include "file_io.h"
+#include "overloaded.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include <cmath>
@@ -453,7 +454,7 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
         effect::PostWindowMessage{
             app_msg::SEARCH_FOCUS,
             app_param::SEARCH_FOCUS_SET_SELECTION,
-            MAKELPARAM(ctrl.GetDragAnchor(), a.caret_pos),
+            app_param::MakeSearchSelectionLParam(ctrl.GetDragAnchor(), a.caret_pos),
         });
 }
 
@@ -462,6 +463,25 @@ void ReduceSearchInputDragEnded(AppState& state, SideEffectList& effects)
     state.search.search_bar_ctrl.EndDrag();
     PushEffect(effects, effect::ReleaseCapture{});
 }
+
+namespace {
+
+// つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
+struct ScrollbarDragGrip {
+    float drag_offset;
+    bool inside_thumb;
+};
+
+constexpr ScrollbarDragGrip ComputeScrollbarDragGrip(
+    float thumb_y, float thumb_height, float click_y) noexcept
+{
+    if (click_y >= thumb_y && click_y <= thumb_y + thumb_height) {
+        return { click_y - thumb_y, true };
+    }
+    return { thumb_height * 0.5f, false };
+}
+
+} // namespace
 
 void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, const MdScrollbarDragStartedAction& a)
 {
@@ -472,15 +492,12 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
     const auto& md_rect = state.cached_pane_layout.md_rect;
     const auto info = ComputeScrollInfo(md_rect, 0.0f, a.total_height);
     const float thumb_y = ComputeThumbY(info, state.view.viewport.GetScrollY());
-    if (a.dip_y >= thumb_y && a.dip_y <= thumb_y + info.thumb_height) {
-        // つまみ上を掴んだ場合はつかみ位置のオフセットのみ記録してスクロール位置は据え置く。
-        state.view.panes.SetDragScrollOffset(a.dip_y - thumb_y);
+    const auto grip = ComputeScrollbarDragGrip(thumb_y, info.thumb_height, a.dip_y);
+    state.view.panes.SetDragScrollOffset(grip.drag_offset);
+    if (grip.inside_thumb) {
         return;
     }
-    // つまみ外クリック時はつまみ中心へジャンプ。以降の Move でつまみ中心追従するよう
-    // オフセットを thumb_height/2 に設定しておく。
-    state.view.panes.SetDragScrollOffset(info.thumb_height * 0.5f);
-    const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
+    const float new_thumb_y = a.dip_y - grip.drag_offset;
     const float old_scroll = state.view.viewport.GetScrollY();
     state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
     EmitScrollEffects(state, effects, old_scroll);
@@ -521,12 +538,12 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
     PushEffect(effects, effect::SetCapture{});
 
     const float thumb_y = ComputeThumbY(ctx.info, ctx.scroll.scroll_y);
-    if (a.dip_y >= thumb_y && a.dip_y <= thumb_y + ctx.info.thumb_height) {
-        state.view.panes.SetDragScrollOffset(a.dip_y - thumb_y);
+    const auto grip = ComputeScrollbarDragGrip(thumb_y, ctx.info.thumb_height, a.dip_y);
+    state.view.panes.SetDragScrollOffset(grip.drag_offset);
+    if (grip.inside_thumb) {
         return;
     }
-    state.view.panes.SetDragScrollOffset(ctx.info.thumb_height * 0.5f);
-    const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
+    const float new_thumb_y = a.dip_y - grip.drag_offset;
     ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
     ctx.scroll.max_scroll = ctx.info.max_scroll;
     PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
@@ -697,7 +714,7 @@ void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, 
     state.view.viewport.ClearScrollTarget();
     if (a.has_reload_diff) {
         state.view.viewport.SetScrollY(a.reload_diff_scroll_y);
-        state.reload_diff_pos = std::wstring_view::npos;
+        state.reload_diff_pos = std::string_view::npos;
     }
     else if (state.view.scroll_restore.HasNodeRestore()) {
         state.view.viewport.SetScrollTarget(
@@ -795,7 +812,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
     SideEffectList effects;
 
     // clang-format off
-    std::visit(overloaded{
+    std::visit(mendo::overloaded{
         [](const NoOpAction&) {},
 
         // ---- スクロール ----

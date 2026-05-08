@@ -1,4 +1,5 @@
 #include "resource_manager.h"
+#include "app_constants.h"
 #include "document.h"
 #include "layout_cache.h"
 #include "layout_computer.h"
@@ -245,13 +246,13 @@ void ResourceManager::OnMermaidRenderComplete()
 void ResourceManager::CancelMermaidBatch()
 {
     mermaid_->CancelPending();
-    cb_.kill_timer(TIMER_MERMAID_BATCH);
+    cb_.kill_timer(app_timer::MERMAID_BATCH);
 }
 
 void ResourceManager::ScheduleMermaidBatch()
 {
     mermaid_batch_next_ = 0;
-    cb_.set_timer(TIMER_MERMAID_BATCH, 16);
+    cb_.set_timer(app_timer::MERMAID_BATCH, 16);
 }
 
 void ResourceManager::ProcessMermaidBatch()
@@ -262,7 +263,7 @@ void ResourceManager::ProcessMermaidBatch()
     InvalidateMermaidForWidthChange(content_width);
 
     if (content_width <= 0.0f) {
-        cb_.kill_timer(TIMER_MERMAID_BATCH);
+        cb_.kill_timer(app_timer::MERMAID_BATCH);
         return;
     }
 
@@ -321,7 +322,7 @@ void ResourceManager::ProcessMermaidBatch()
     }
 
     if (mermaid_batch_next_ >= slice_end) {
-        cb_.kill_timer(TIMER_MERMAID_BATCH);
+        cb_.kill_timer(app_timer::MERMAID_BATCH);
     }
 }
 
@@ -423,12 +424,12 @@ void ResourceManager::ScheduleBitmapManage()
     if (since_last >= 50) {
         FlushPendingResources();
     }
-    cb_.set_timer(TIMER_BITMAP_MANAGE, 150);
+    cb_.set_timer(app_timer::BITMAP_MANAGE, 150);
 }
 
 void ResourceManager::OnBitmapManageTimer()
 {
-    cb_.kill_timer(TIMER_BITMAP_MANAGE);
+    cb_.kill_timer(app_timer::BITMAP_MANAGE);
 
     EvictOffscreenBitmaps();
     // evict 直後は可視範囲のリソース再読み込みが必要なので強制フラッシュする。

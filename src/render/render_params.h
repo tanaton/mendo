@@ -100,10 +100,15 @@ struct PaneCache {
     bool dirty = true;
     float cached_width = 0;
     float cached_height = 0;
+    float cached_scroll_y = 0;
 
     constexpr void Invalidate() noexcept
     {
         dirty = true;
+    }
+    constexpr bool NeedsRedraw(float current_scroll_y) const noexcept
+    {
+        return dirty || cached_scroll_y != current_scroll_y;
     }
     void Reset() noexcept
     {
@@ -112,6 +117,7 @@ struct PaneCache {
         dirty = true;
         cached_width = 0;
         cached_height = 0;
+        cached_scroll_y = 0;
     }
 };
 

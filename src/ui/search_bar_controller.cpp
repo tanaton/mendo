@@ -1,4 +1,5 @@
 #include "search_bar_controller.h"
+#include "app_constants.h"
 #include "viewport_manager.h"
 #include "layout_cache.h"
 #include "renderer.h" // SearchBarRenderState
@@ -43,8 +44,8 @@ void SearchBarController::OnClose()
     has_focus_ = false;
     caret_visible_ = false;
     ime_composition_.clear();
-    cb_.kill_timer(TIMER_CARET);
-    cb_.kill_timer(TIMER_DEBOUNCE);
+    cb_.kill_timer(app_timer::SEARCH_CARET);
+    cb_.kill_timer(app_timer::SEARCH_DEBOUNCE);
     cb_.unfocus();
     cb_.invalidate();
 }
@@ -52,7 +53,7 @@ void SearchBarController::OnClose()
 void SearchBarController::OnNext()
 {
     if (state_->NextMatch() && state_->GetMatchCount() > 1) {
-        MessageBeep(MB_OK);
+        cb_.on_wrap_around();
     }
     ScrollToCurrentMatch();
     cb_.invalidate();
@@ -61,7 +62,7 @@ void SearchBarController::OnNext()
 void SearchBarController::OnPrev()
 {
     if (state_->PrevMatch() && state_->GetMatchCount() > 1) {
-        MessageBeep(MB_OK);
+        cb_.on_wrap_around();
     }
     ScrollToCurrentMatch();
     cb_.invalidate();
@@ -73,7 +74,7 @@ void SearchBarController::OnTextChanged(std::wstring_view text, const std::pmr::
     std::pmr::string text_utf8;
     string_convert::WideToUtf8(text, text_utf8);
     state_->SetQuery(text_utf8);
-    cb_.kill_timer(TIMER_DEBOUNCE);
+    cb_.kill_timer(app_timer::SEARCH_DEBOUNCE);
 
     if (text.empty()) {
         state_->ExecuteSearch(nodes);
@@ -90,7 +91,7 @@ void SearchBarController::OnTextChanged(std::wstring_view text, const std::pmr::
 
     // 大規模ドキュメント: デバウンスで連続入力中の再検索を抑制
     cb_.invalidate();
-    cb_.set_timer(TIMER_DEBOUNCE, 150);
+    cb_.set_timer(app_timer::SEARCH_DEBOUNCE, 150);
 }
 
 void SearchBarController::OnToggleCaseSensitive(const std::pmr::vector<Node>& nodes)
@@ -143,7 +144,7 @@ void SearchBarController::OnCaretBlinkTimer()
 
 void SearchBarController::OnDebounceTimer(const std::pmr::vector<Node>& nodes)
 {
-    cb_.kill_timer(TIMER_DEBOUNCE);
+    cb_.kill_timer(app_timer::SEARCH_DEBOUNCE);
     RunSearchAndLocate(nodes, true);
     cb_.invalidate();
 }
@@ -201,8 +202,8 @@ void SearchBarController::Reset()
     selection_start_ = -1;
     dragging_ = false;
     ime_composition_.clear();
-    cb_.kill_timer(TIMER_CARET);
-    cb_.kill_timer(TIMER_DEBOUNCE);
+    cb_.kill_timer(app_timer::SEARCH_CARET);
+    cb_.kill_timer(app_timer::SEARCH_DEBOUNCE);
 }
 
 void SearchBarController::StartDrag(int anchor_pos) noexcept
@@ -248,9 +249,9 @@ SearchBarRenderState SearchBarController::BuildRenderState() const
 
 void SearchBarController::RestartCaretBlink()
 {
-    cb_.kill_timer(TIMER_CARET);
+    cb_.kill_timer(app_timer::SEARCH_CARET);
     const UINT blink_time = GetCaretBlinkTime();
     if (blink_time > 0 && blink_time != INFINITE) {
-        cb_.set_timer(TIMER_CARET, blink_time);
+        cb_.set_timer(app_timer::SEARCH_CARET, blink_time);
     }
 }

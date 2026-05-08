@@ -30,7 +30,7 @@ constexpr bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rec
 }
 
 // タイトルバーボタンに対応するツールチップを返す。
-constexpr TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximized) noexcept
+inline TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximized) noexcept
 {
     const auto& ls = i18n::S();
     switch (zone) {
@@ -58,7 +58,7 @@ constexpr TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maxim
 }
 
 // 検索バーのボタンに対応するツールチップを返す。
-constexpr TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
+inline TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
 {
     const auto& ls = i18n::S();
     switch (zone) {
@@ -78,7 +78,7 @@ constexpr TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
 }
 
 // MD ペインのナビゲーションボタンに対応するツールチップを返す。
-constexpr TooltipTarget BuildNavButtonTooltip(NavButtonHover hit) noexcept
+inline TooltipTarget BuildNavButtonTooltip(NavButtonHover hit) noexcept
 {
     const auto& ls = i18n::S();
     switch (hit) {

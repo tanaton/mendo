@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "resource_manager.h"
+#include "app_constants.h"
 #include "document.h"
 #include "layout_cache.h"
 #include "viewport_manager.h"
@@ -306,7 +307,7 @@ TEST_F(ResourceManagerTest, CancelMermaidBatchInvokesRendererCancelAndKillsTimer
     rm_.CancelMermaidBatch();
     EXPECT_EQ(mock_mermaid_.cancel_pending_count, 1);
     EXPECT_EQ(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.last_killed_timer_id, ResourceManager::TIMER_MERMAID_BATCH);
+    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::MERMAID_BATCH);
 }
 
 TEST_F(ResourceManagerTest, ScheduleMermaidBatchSetsTimer)
@@ -314,7 +315,7 @@ TEST_F(ResourceManagerTest, ScheduleMermaidBatchSetsTimer)
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     rm_.ScheduleMermaidBatch();
     EXPECT_EQ(tracker_.set_timer, 1);
-    EXPECT_EQ(tracker_.last_set_timer_id, ResourceManager::TIMER_MERMAID_BATCH);
+    EXPECT_EQ(tracker_.last_set_timer_id, app_timer::MERMAID_BATCH);
     EXPECT_EQ(tracker_.last_set_timer_ms, 16u);
 }
 
@@ -324,7 +325,7 @@ TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenWidthIsZero)
     tracker_.content_width = 0.0f;
     rm_.ProcessMermaidBatch();
     EXPECT_EQ(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.last_killed_timer_id, ResourceManager::TIMER_MERMAID_BATCH);
+    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::MERMAID_BATCH);
 }
 
 TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenAllProcessed)
@@ -334,7 +335,7 @@ TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenAllProcessed)
     // 1件しかないので走査が完了し、タイマーが kill される
     EXPECT_GE(mock_mermaid_.request_render_count, 1);
     EXPECT_GE(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.last_killed_timer_id, ResourceManager::TIMER_MERMAID_BATCH);
+    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::MERMAID_BATCH);
 }
 
 // ---- ビットマップ管理 ----
@@ -381,7 +382,7 @@ TEST_F(ResourceManagerTest, ScheduleBitmapManageSetsTimer)
     LoadMarkdown("# heading\n");
     rm_.ScheduleBitmapManage();
     EXPECT_GE(tracker_.set_timer, 1);
-    EXPECT_EQ(tracker_.last_set_timer_id, ResourceManager::TIMER_BITMAP_MANAGE);
+    EXPECT_EQ(tracker_.last_set_timer_id, app_timer::BITMAP_MANAGE);
     EXPECT_EQ(tracker_.last_set_timer_ms, 150u);
 }
 

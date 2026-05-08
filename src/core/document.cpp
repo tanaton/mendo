@@ -90,8 +90,9 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
 {
     Document doc;
     doc.file_path_ = path;
-    doc.raw_text_ = std::move(text);
-    NormalizeNewlines(doc.raw_text_);
+    // RawText に入った後の relocate を避けるため、normalize は Replace の前に行う。
+    NormalizeNewlines(text);
+    doc.raw_text_.Replace(std::move(text));
     doc.loaded_byte_size_ = byte_size;
     doc.ReplaceContent(ParseMarkdown(doc.raw_text_));
     return doc;
@@ -141,8 +142,8 @@ void Document::InjectViewBase() noexcept
 void Document::ReplaceFromMarkdown(std::pmr::string text, size_t byte_size)
 {
     MENDO_PROFILE("Document::ReplaceFromMarkdown");
-    raw_text_ = std::move(text);
-    NormalizeNewlines(raw_text_);
+    NormalizeNewlines(text);
+    raw_text_.Replace(std::move(text));
     loaded_byte_size_ = byte_size;
     ReplaceContent(ParseMarkdown(raw_text_));
 }
