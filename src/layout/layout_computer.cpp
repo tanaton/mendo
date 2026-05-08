@@ -159,7 +159,7 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     }
     // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。
     constexpr float kCachedWidthEpsilon = 0.5f;
-    const bool cache_hit = entry.cached_width > 0.0f &&
+    const bool cache_hit = entry.is_measured() &&
                            std::abs(entry.cached_width - node_width) < kCachedWidthEpsilon &&
                            entry.cached_height > 0.0f;
     const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, theme);

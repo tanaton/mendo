@@ -33,8 +33,8 @@
 #ifdef MENDO_USE_TRACY
 
 #include <tracy/Tracy.hpp>
-#include <cstdio>
-#include <cstring>
+#include <format>
+#include <string_view>
 
 // Tracy の ZoneScopedN は固定変数名 `___tracy_scoped_zone` を生成するため、
 // 同一スコープに 2 個書くと再定義エラーになる。__LINE__ で固有名を作る
@@ -51,26 +51,23 @@
 #define MENDO_COUNT_SET(counter, value) ((counter) = (value))
 #define MENDO_IF_TRACY(...) __VA_ARGS__
 
-// _snprintf_s は _TRUNCATE 指定時、収まれば書き込んだ文字数を返し、切り詰めが
-// 起きると -1 を返す（バッファ自体は NUL 終端される）。-1 を 0 と同様に
-// 捨てると長メッセージが silently drop されるため、切り詰め時は実長を取り直す。
-#define MENDO_LOGF(prefix, fmt, ...)                                            \
-    do {                                                                        \
-        char _mendo_buf[256];                                                   \
-        const int _mendo_n = _snprintf_s(_mendo_buf, sizeof(_mendo_buf),        \
-                                         _TRUNCATE, prefix fmt, __VA_ARGS__);   \
-        const size_t _mendo_len = (_mendo_n >= 0)                               \
-            ? static_cast<size_t>(_mendo_n)                                     \
-            : strnlen(_mendo_buf, sizeof(_mendo_buf) - 1);                      \
-        if (_mendo_len > 0) {                                                   \
-            TracyMessage(_mendo_buf, _mendo_len);                               \
-        }                                                                       \
+// 256 バイト固定はトレース用途として十分 (callsite が短いメッセージのみ生成)。
+// バッファ超過は format_to_n が out iterator で打ち切るため切り詰め検知不要。
+#define MENDO_LOGF(prefix, fmt_str, ...)                                                  \
+    do {                                                                                  \
+        char _mendo_buf[256];                                                             \
+        const auto _mendo_r = std::format_to_n(                                           \
+            _mendo_buf, sizeof(_mendo_buf), prefix fmt_str __VA_OPT__(, ) __VA_ARGS__);   \
+        const size_t _mendo_len = static_cast<size_t>(_mendo_r.out - _mendo_buf);         \
+        if (_mendo_len > 0) {                                                             \
+            TracyMessage(_mendo_buf, _mendo_len);                                         \
+        }                                                                                 \
     } while (0)
 
 // TracyMessageL はリテラル前提（NULL 終端の文字列をそのまま参照保持する）。
 #define MENDO_TRACE(msg) TracyMessageL("[mendo-reload] " msg)
-#define MENDO_TRACEF(fmt, ...) MENDO_LOGF("[mendo-reload] ", fmt, __VA_ARGS__)
-#define MENDO_STATF(fmt, ...) MENDO_LOGF("[mendo-stat] ", fmt, __VA_ARGS__)
+#define MENDO_TRACEF(fmt_str, ...) MENDO_LOGF("[mendo-reload] ", fmt_str __VA_OPT__(, ) __VA_ARGS__)
+#define MENDO_STATF(fmt_str, ...) MENDO_LOGF("[mendo-stat] ", fmt_str __VA_OPT__(, ) __VA_ARGS__)
 
 #else
 

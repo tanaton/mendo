@@ -59,6 +59,21 @@ struct PostWindowMessage {
     WPARAM wp;
     LPARAM lp;
 };
+// 検索バーの focus 操作を型安全に運ぶ effect。内部実装は IWin32Host が
+// PostMessage 経由で window.cpp のハンドラに引き継ぐ (heap payload は host 側に閉じる)。
+struct SearchFocus {
+    enum class Mode : uint8_t {
+        SelectAll,    // 既存テキスト全選択
+        SetCaret,     // caret に位置決め
+        SetSelection, // [anchor, caret) を選択
+    };
+    Mode mode = Mode::SelectAll;
+    int anchor = 0; // SetSelection でのみ参照
+    int caret = 0;  // SetCaret/SetSelection で参照
+};
+struct SearchUnfocus {
+    bool clear_text = false; // ファイル切替時に true。検索ボックスのテキストを消去する。
+};
 struct SetWindowTitle {
     std::pmr::wstring title;
 };
@@ -162,6 +177,8 @@ using UiEffect = std::variant<
 using WindowEffect = std::variant<
     effect::ShowWindowCmd,
     effect::PostWindowMessage,
+    effect::SearchFocus,
+    effect::SearchUnfocus,
     effect::SetWindowTitle,
     effect::SetWindowPosition,
     effect::ApplyDarkMode,

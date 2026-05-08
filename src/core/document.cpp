@@ -35,7 +35,7 @@ void NormalizeNewlines(std::pmr::string& s)
 
     char* first_cr = FindDocCr(data, n);
     if (!first_cr) {
-        MENDO_STATF("NormalizeNewlines: in=%zu out=%zu shrunk=0 (fast LF-only)", n, n);
+        MENDO_STATF("NormalizeNewlines: in={} out={} shrunk=0 (fast LF-only)", n, n);
         return;
     }
 
@@ -59,7 +59,7 @@ void NormalizeNewlines(std::pmr::string& s)
     } while (src < end);
 
     s.resize(static_cast<size_t>(dst - data));
-    MENDO_STATF("NormalizeNewlines: in=%zu out=%zu shrunk=%zu", n, s.size(), n - s.size());
+    MENDO_STATF("NormalizeNewlines: in={} out={} shrunk={}", n, s.size(), n - s.size());
 }
 
 } // namespace

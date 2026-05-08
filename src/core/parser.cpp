@@ -855,35 +855,43 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 ParseResult ParseMarkdown(std::string_view markdown_text)
 {
     MENDO_PROFILE("ParseMarkdown");
-    // 入力 1 byte あたりの予約容量ヒント。実測 (100MB 入力 = 30k ノード相当)
-    // を基準に、初期確保サイズと再確保回数のバランスで決めている。
-    // 各除数の意味:
-    //   /20: 入力の 5% を初期 arena に。new_delete 直結回数を削減。
-    //   /8:  ノード当たりの平均テキスト長を ~8B として scratch 初期確保。
-    //   /48: ノード平均サイズの逆数 (1 ノード ~48 入力 byte)。realloc 14 回→4 回相当。
-    //   /4096: 1MB あたり 256 個の見出し相当。実測数十〜数百に収まる。
-    //   /512:  画像/blockquote の頻度 (~0.2%)
-    //   /1024: ダイアグラムの頻度 (~0.1%)
+    // 各種予約サイズのヒント定数。実測 (100MB 入力 = 30k ノード相当) を基準に、
+    // 初期確保サイズと再確保回数のバランスで決めている。値は「入力 N byte あたり 1 個」を表す:
+    //   - kArenaInputBytesPerByte=20  → 入力の 5% を初期 arena に。new_delete 直結回数を削減。
+    //   - kScratchInputBytesPerByte=8 → ノード当たりの平均テキスト長 ~8B 想定の scratch。
+    //   - kInputBytesPerNode=48       → 1 ノードあたり ~48 入力 byte (realloc 14 回→4 回相当)。
+    //   - kInputBytesPerHeading=4096  → 1MB あたり 256 個の見出し相当。実測数十〜数百に収まる。
+    //   - kInputBytesPerImage=512     → 画像頻度 ~0.2%。
+    //   - kInputBytesPerBlockquote=512 → blockquote 頻度 (image と同程度)。
+    //   - kInputBytesPerDiagram=1024  → ダイアグラム頻度 ~0.1%。
+    constexpr size_t kArenaInputBytesPerByte = 20;
+    constexpr size_t kScratchInputBytesPerByte = 8;
+    constexpr size_t kInputBytesPerNode = 48;
+    constexpr size_t kInputBytesPerHeading = 4096;
+    constexpr size_t kInputBytesPerImage = 512;
+    constexpr size_t kInputBytesPerBlockquote = 512;
+    constexpr size_t kInputBytesPerDiagram = 1024;
     constexpr size_t kArenaMin = 128 * 1024;
     constexpr size_t kArenaMax = 5 * 1024 * 1024;
-    const size_t arena_bytes = std::clamp(markdown_text.size() / 20, kArenaMin, kArenaMax);
-    MENDO_STATF("parse_resource arena: input=%zu arena=%zu", markdown_text.size(), arena_bytes);
+    const size_t input_size = markdown_text.size();
+    const size_t arena_bytes = std::clamp(input_size / kArenaInputBytesPerByte, kArenaMin, kArenaMax);
+    MENDO_STATF("parse_resource arena: input={} arena={}", input_size, arena_bytes);
     ParseContext ctx{ arena_bytes };
     ctx.markdown_base = markdown_text.data();
-    ctx.markdown_size = markdown_text.size();
-    ctx.current_text.reserve(std::clamp(markdown_text.size() / 8, SCRATCH_RESERVE_MIN, SCRATCH_RESERVE_MAX));
+    ctx.markdown_size = input_size;
+    ctx.current_text.reserve(std::clamp(input_size / kScratchInputBytesPerByte, SCRATCH_RESERVE_MIN, SCRATCH_RESERVE_MAX));
     // 上限 256K: 100MB / 48 ≈ 2.18M ノード期待だが Node sizeof × 256K = ~20MB に抑える。
-    const size_t nodes_reserve = std::clamp(markdown_text.size() / 48, size_t{ 64 }, size_t{ 262144 });
+    const size_t nodes_reserve = std::clamp(input_size / kInputBytesPerNode, size_t{ 64 }, size_t{ 262144 });
     ctx.nodes.reserve(nodes_reserve);
     ctx.list_counter.reserve(8);
-    MENDO_STATF("nodes.reserve: input=%zu reserve=%zu", markdown_text.size(), nodes_reserve);
+    MENDO_STATF("nodes.reserve: input={} reserve={}", input_size, nodes_reserve);
     // heading_indices と anchor_counts は 1 見出し 1 エントリで対になるので同じヒントを使う。
-    const size_t heading_hint = std::clamp(markdown_text.size() / 4096, size_t{ 8 }, size_t{ 256 });
+    const size_t heading_hint = std::clamp(input_size / kInputBytesPerHeading, size_t{ 8 }, size_t{ 256 });
     ctx.heading_indices.reserve(heading_hint);
     ctx.anchor_counts.reserve(heading_hint);
-    ctx.image_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
-    ctx.diagram_indices.reserve(std::clamp(markdown_text.size() / 1024, size_t{ 4 }, size_t{ 128 }));
-    ctx.blockquote_indices.reserve(std::clamp(markdown_text.size() / 512, size_t{ 4 }, size_t{ 256 }));
+    ctx.image_indices.reserve(std::clamp(input_size / kInputBytesPerImage, size_t{ 4 }, size_t{ 256 }));
+    ctx.diagram_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, size_t{ 4 }, size_t{ 128 }));
+    ctx.blockquote_indices.reserve(std::clamp(input_size / kInputBytesPerBlockquote, size_t{ 4 }, size_t{ 256 }));
 
     MD_PARSER parser{};
     parser.abi_version = 0;

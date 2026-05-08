@@ -16,7 +16,8 @@
 #include "theme.h"
 
 using mendo::layout::DirtyBatchResult;
-using mendo::layout::DirtyBudget;
+using mendo::layout::ParallelBudget;
+using mendo::layout::SerialBudget;
 using mendo::layout::DirtyScheduler;
 using mendo::layout::RunParallel;
 using mendo::layout::StopReason;
@@ -203,9 +204,9 @@ TEST_F(ParallelMeasureStressTest, MatchesSerialOutputOnLargeMixedFixture)
     p.Build(N, /*include_code_block=*/false, /*all_dirty=*/true);
 
     const auto rs = scheduler_.RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
-                                         ViewportClip{}, DirtyBudget{});
+                                         ViewportClip{}, SerialBudget{});
     const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, DirtyBudget{}, task_scheduler_);
+                                ViewportClip{}, ParallelBudget{}, task_scheduler_);
 
     EXPECT_EQ(rp.processed, static_cast<int>(N));
     ExpectBitExactEqual(s, p, rs, rp);
@@ -222,9 +223,9 @@ TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
     p.Build(N, /*include_code_block=*/true, /*all_dirty=*/true);
 
     const auto rs = scheduler_.RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
-                                         ViewportClip{}, DirtyBudget{});
+                                         ViewportClip{}, SerialBudget{});
     const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, DirtyBudget{}, task_scheduler_);
+                                ViewportClip{}, ParallelBudget{}, task_scheduler_);
 
     EXPECT_EQ(rp.processed, static_cast<int>(N));
     ExpectBitExactEqual(s, p, rs, rp);
@@ -274,9 +275,9 @@ TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
     p.Build(N, /*include_code_block=*/true, /*all_dirty=*/true);
 
     const auto rs = scheduler_.RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
-                                         ViewportClip{}, DirtyBudget{});
+                                         ViewportClip{}, SerialBudget{});
     const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, DirtyBudget{}, ts);
+                                ViewportClip{}, ParallelBudget{}, ts);
 
     EXPECT_EQ(rp.processed, static_cast<int>(N));
     ExpectBitExactEqual(s, p, rs, rp);
@@ -314,7 +315,7 @@ TEST(ParallelMeasurePostFailure, AllChunksFallbackOnSaturatedQueue)
     MockTextMeasurerWithTokens mock;
     Theme theme = GetLightTheme();
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme, mock,
-                               ViewportClip{}, DirtyBudget{}, ts);
+                               ViewportClip{}, ParallelBudget{}, ts);
 
     EXPECT_EQ(r.processed, static_cast<int>(N));
     EXPECT_EQ(r.reason, StopReason::Done);
@@ -380,11 +381,11 @@ TEST(ParallelMeasureBench, DISABLED_ChunkSizeSweep)
 
         const double us_serial = MeasureUs([&] {
             scheduler.RunSerial(sf.nodes, sf.cache, 800.0f, theme, mock,
-                                ViewportClip{}, DirtyBudget{});
+                                ViewportClip{}, SerialBudget{});
         });
         const double us_parallel = MeasureUs([&] {
             RunParallel(pf.nodes, pf.cache, 800.0f, theme, mock,
-                        ViewportClip{}, DirtyBudget{}, ts);
+                        ViewportClip{}, ParallelBudget{}, ts);
         });
         std::cout << N << ",serial," << us_serial << "\n";
         std::cout << N << ",parallel," << us_parallel << "\n";

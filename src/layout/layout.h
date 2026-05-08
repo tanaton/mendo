@@ -69,6 +69,14 @@ private:
     void ApplyComputeLayoutBlockHeights(LayoutCache& cache, const std::pmr::vector<float>& block_heights,
                                         bool broke_early, float final_y) noexcept;
 
+    // partial: 可視範囲のみ厳密計測、不可視は推定値、早期終了あり。
+    // full:    全ノード計測。一致する経路は ComputeLayout が dispatch する。
+    void ComputeLayoutPartial(std::pmr::vector<Node>& nodes, LayoutCache& cache,
+                              float content_width, bool width_changed,
+                              float viewport_top, float viewport_bottom);
+    void ComputeLayoutFull(std::pmr::vector<Node>& nodes, LayoutCache& cache,
+                           float content_width, bool width_changed);
+
     // 同一の ITextMeasurer 派生から得た 2 つの IF view。lifecycle 系 (Init/RecreateFormats/UpdateTheme)
     // は UI スレッドからのみ呼び、backend (MeasureNode/MeasureTable) は const 経由で
     // 将来 worker pool から並列呼び出し可能にする設計。

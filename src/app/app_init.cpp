@@ -272,16 +272,16 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
             KillTimer(hwnd_, id);
         },
         .focus_select_all = [this]() {
-            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0 });
+            EmitEffect(effect::SearchFocus{});
         },
         .focus_set_caret = [this](int pos) {
-            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(pos) });
+            EmitEffect(effect::SearchFocus{ effect::SearchFocus::Mode::SetCaret, 0, pos });
         },
         .focus_set_selection = [this](int anchor, int caret) {
-            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, app_param::MakeSearchSelectionLParam(anchor, caret) });
+            EmitEffect(effect::SearchFocus{ effect::SearchFocus::Mode::SetSelection, anchor, caret });
         },
         .unfocus = [this]() {
-            EmitEffect(effect::PostWindowMessage{ app_msg::SEARCH_UNFOCUS, 0, 0 });
+            EmitEffect(effect::SearchUnfocus{});
         },
         .get_md_pane_height = [this]() -> float {
             return GetPaneLayout().md_rect.height;

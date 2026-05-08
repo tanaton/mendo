@@ -42,40 +42,34 @@ LRESULT CALLBACK ContextMenu::Impl::WndProc(HWND hwnd, UINT msg, WPARAM wParam, 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
+void ContextMenu::Impl::PrepareContent(const ContextMenuParams& params)
 {
-    auto& s = *impl_;
-    if (!s.d2d_factory || !s.dwrite_factory || !params.theme || params.dpi_scale <= 0.0f) {
-        return 0;
+    BuildItems(params);
+    CreateTextFormats(*theme);
+    ComputeLayout();
+}
+
+bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
+{
+    if (!RegisterWindowClass()) {
+        return false;
     }
-
-    s.owner = owner_hwnd;
-    s.theme = params.theme;
-    s.dpi_scale = params.dpi_scale;
-
-    s.BuildItems(params);
-    s.CreateTextFormats(*s.theme);
-    s.ComputeLayout();
-
-    if (!Impl::RegisterWindowClass()) {
-        return 0;
+    if (hwnd) {
+        DestroyWindow(hwnd);
+        hwnd = nullptr;
     }
-    if (s.hwnd) {
-        DestroyWindow(s.hwnd);
-        s.hwnd = nullptr;
-    }
-    s.rt.Reset();
+    rt.Reset();
 
-    const int pixel_w = static_cast<int>(std::ceil(s.menu_width * s.dpi_scale));
-    const int pixel_h = static_cast<int>(std::ceil(s.menu_height * s.dpi_scale));
+    const int pixel_w = static_cast<int>(std::ceil(menu_width * dpi_scale));
+    const int pixel_h = static_cast<int>(std::ceil(menu_height * dpi_scale));
 
     // 画面外にはみ出さないよう調整
-    const HMONITOR monitor = MonitorFromPoint({ params.screen_x, params.screen_y }, MONITOR_DEFAULTTONEAREST);
+    const HMONITOR monitor = MonitorFromPoint({ screen_x, screen_y }, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi = { sizeof(mi) };
     GetMonitorInfoW(monitor, &mi);
 
-    int x = params.screen_x;
-    int y = params.screen_y;
+    int x = screen_x;
+    int y = screen_y;
     if (x + pixel_w > mi.rcWork.right) {
         x = mi.rcWork.right - pixel_w;
     }
@@ -89,55 +83,78 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
         y = mi.rcWork.top;
     }
 
-    s.hwnd = CreateWindowExW(
+    hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
         L"mendoContextMenu", nullptr,
         WS_POPUP,
         x, y, pixel_w, pixel_h,
-        s.owner, nullptr, GetModuleHandleW(nullptr), &s);
+        owner, nullptr, GetModuleHandleW(nullptr), this);
 
-    if (!s.hwnd) {
-        return 0;
+    if (!hwnd) {
+        return false;
     }
 
-    const float dpi = s.dpi_scale * 96.0f;
-    if (!s.EnsureRenderTarget(dpi)) {
-        DestroyWindow(s.hwnd);
-        s.hwnd = nullptr;
-        return 0;
+    const float dpi = dpi_scale * 96.0f;
+    if (!EnsureRenderTarget(dpi)) {
+        DestroyWindow(hwnd);
+        hwnd = nullptr;
+        return false;
     }
-    s.CreateBrushes();
+    CreateBrushes();
 
     // 角丸クリッピング用リージョン
-    const int corner_px = static_cast<int>(MENU_CORNER * s.dpi_scale);
+    const int corner_px = static_cast<int>(MENU_CORNER * dpi_scale);
     const HRGN rgn = CreateRoundRectRgn(0, 0, pixel_w + 1, pixel_h + 1, corner_px, corner_px);
-    SetWindowRgn(s.hwnd, rgn, FALSE);
+    SetWindowRgn(hwnd, rgn, FALSE);
 
-    s.selected_id = 0;
-    s.done = false;
-    s.hovered_id = 0;
-    s.hovered_nav = 0;
+    selected_id = 0;
+    done = false;
+    hovered_id = 0;
+    hovered_nav = 0;
 
-    ShowWindow(s.hwnd, SW_SHOW);
-    SetForegroundWindow(s.hwnd);
-    SetCapture(s.hwnd);
+    ShowWindow(hwnd, SW_SHOW);
+    SetForegroundWindow(hwnd);
+    SetCapture(hwnd);
+    return true;
+}
 
+void ContextMenu::Impl::RunModalLoop()
+{
     MSG msg{};
-    while (!s.done) {
+    while (!done) {
         // WM_APP+* (TaskScheduler 完了通知など) を parent_hwnd 宛のままキューに残し、メインループで処理させる。
         // メニュー表示中に App 状態を書き換えると race になるため。
         if (PeekMessageW(&msg, nullptr, WM_QUIT, WM_QUIT, PM_NOREMOVE)) {
             PostQuitMessage(static_cast<int>(msg.wParam));
-            s.done = true;
+            done = true;
             break;
         }
-        if (!PeekMessageW(&msg, s.hwnd, 0, 0, PM_REMOVE)) {
+        if (!PeekMessageW(&msg, hwnd, 0, 0, PM_REMOVE)) {
             WaitMessage();
             continue;
         }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+}
+
+int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
+{
+    auto& s = *impl_;
+    if (!s.d2d_factory || !s.dwrite_factory || !params.theme || params.dpi_scale <= 0.0f) {
+        return 0;
+    }
+
+    s.owner = owner_hwnd;
+    s.theme = params.theme;
+    s.dpi_scale = params.dpi_scale;
+
+    s.PrepareContent(params);
+    if (!s.CreatePopupWindow(params.screen_x, params.screen_y)) {
+        s.theme = nullptr;
+        return 0;
+    }
+    s.RunModalLoop();
 
     if (s.hwnd) {
         ReleaseCapture();

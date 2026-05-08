@@ -87,6 +87,16 @@ public:
         return post_window_message_result;
     }
     bool post_window_message_result = true;
+    std::vector<effect::SearchFocus> search_focus_calls;
+    std::vector<effect::SearchUnfocus> search_unfocus_calls;
+    void SearchFocus(effect::SearchFocus action) override
+    {
+        search_focus_calls.push_back(action);
+    }
+    void SearchUnfocus(effect::SearchUnfocus action) override
+    {
+        search_unfocus_calls.push_back(action);
+    }
     void SetWindowTitle(const std::pmr::wstring& title) override
     {
         set_window_title_calls.emplace_back(std::wstring_view{ title });
@@ -445,18 +455,6 @@ TEST_F(SideEffectExecutorTest, PostWindowMessageForwardsToHost)
     EXPECT_EQ(std::get<0>(host_.post_message_calls[0]), UINT{ WM_USER + 1 });
     EXPECT_EQ(std::get<1>(host_.post_message_calls[0]), WPARAM{ 7 });
     EXPECT_EQ(std::get<2>(host_.post_message_calls[0]), LPARAM{ 13 });
-}
-
-// PostMessageW 失敗時に SEARCH_FOCUS_SET_SELECTION の heap payload が確実に
-// 解放されることを確認する。AddressSanitizer/CRT debug heap 配下では未解放だと検知される。
-TEST_F(SideEffectExecutorTest, PostWindowMessageReclaimsSearchSelectionPayloadOnFailure)
-{
-    host_.post_window_message_result = false;
-    exec_.ExecuteOne(effect::PostWindowMessage{
-        app_msg::SEARCH_FOCUS,
-        app_param::SEARCH_FOCUS_SET_SELECTION,
-        app_param::MakeSearchSelectionLParam(3, 7) });
-    ASSERT_EQ(host_.post_message_calls.size(), 1u);
 }
 
 TEST_F(SideEffectExecutorTest, SetWindowTitleForwardsToHost)

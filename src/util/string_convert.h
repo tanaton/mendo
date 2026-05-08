@@ -25,7 +25,7 @@ inline void Utf8ToWide(std::string_view utf8, std::pmr::wstring& out)
         const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), buf, static_cast<int>(count));
         return n > 0 ? static_cast<size_t>(n) : 0;
     });
-    MENDO_STATF("Utf8ToWide(utf8): utf8=%zu wide.size=%zu wide.cap=%zu", utf8.size(), out.size(), out.capacity());
+    MENDO_STATF("Utf8ToWide(utf8): utf8={} wide.size={} wide.cap={}", utf8.size(), out.size(), out.capacity());
 }
 
 inline std::pmr::wstring Utf8ToWide(std::string_view utf8)

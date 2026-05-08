@@ -95,9 +95,16 @@ struct NodeLayoutEntry {
     // MeasureNode で text_layout 確定時に同時に求める。
     float first_line_height = 0.0f;
     // 直近 MeasureNode の幅と実測 height。同じ幅へ戻った際に EstimateNodeHeight の上書きを避ける。
-    // cached_width < 0 が「未計測」のセンチネル (per-node で密に並ぶため optional<> を避けたい)。
-    float cached_width = -1.0f;
+    // 「未計測」のセンチネルは kUnmeasuredWidth (= 負値)。MeasureNode 入力 (node_width) は
+    // 常に正なので負値は初期化/invalidate 経路でしか出現しない。per-node で密に並ぶ hot field の
+    // ため optional<float> 化はサイズ膨張を招き避けている (is_measured() で判定統一)。
+    static constexpr float kUnmeasuredWidth = -1.0f;
+    float cached_width = kUnmeasuredWidth;
     float cached_height = 0.0f;
+    constexpr bool is_measured() const noexcept
+    {
+        return cached_width > 0.0f;
+    }
     Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
     bool effects_applied = false;

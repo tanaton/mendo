@@ -7,7 +7,7 @@
 #include "theme.h"
 
 using mendo::layout::DirtyBatchResult;
-using mendo::layout::DirtyBudget;
+using mendo::layout::SerialBudget;
 using mendo::layout::DirtyScheduler;
 using mendo::layout::StopReason;
 using mendo::layout::ViewportClip;
@@ -63,7 +63,7 @@ TEST_F(DirtySchedulerTest, NoneDirtyReturnsNoneDirty)
 {
     DirtyFixture f;
     f.Build(5, {});
-    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, DirtyBudget{});
+    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{});
     EXPECT_EQ(r.processed, 0);
     EXPECT_EQ(r.reason, StopReason::NoneDirty);
     EXPECT_FALSE(r.any_nearby_skipped);
@@ -73,7 +73,7 @@ TEST_F(DirtySchedulerTest, AllDirtyProcessedReturnsDone)
 {
     DirtyFixture f;
     f.Build(5, { 0, 1, 2, 3, 4 });
-    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, DirtyBudget{});
+    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{});
     EXPECT_EQ(r.processed, 5);
     EXPECT_EQ(r.reason, StopReason::Done);
     EXPECT_FALSE(r.any_nearby_skipped);
@@ -85,7 +85,7 @@ TEST_F(DirtySchedulerTest, BatchLimitStopsAtMaxNodes)
 {
     DirtyFixture f;
     f.Build(10, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 });
-    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, DirtyBudget{ 3, 0 });
+    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{ 3, 0 });
     EXPECT_EQ(r.processed, 3);
     EXPECT_EQ(r.reason, StopReason::BatchLimit);
     EXPECT_TRUE(r.any_nearby_skipped);
@@ -98,7 +98,7 @@ TEST_F(DirtySchedulerTest, TimeBudgetGuaranteesProgressOfAtLeastOneNode)
     // time_us=1 (実質ゼロ) でも進行保証で 1 ノードは処理されること
     DirtyFixture f;
     f.Build(10, { 0, 1, 2, 3, 4 });
-    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, DirtyBudget{ 0, 1 });
+    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{ 0, 1 });
     EXPECT_GE(r.processed, 1);
     // 処理が 1 件で打ち切られた場合: TimeBudget。全件入った場合: Done。
     if (r.processed < 5) {
@@ -119,7 +119,7 @@ TEST_F(DirtySchedulerTest, ViewportClipSkipsOffscreenDirty)
     DirtyFixture f;
     f.Build(10, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 });
     const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_,
-                                        ViewportClip{ 150.0f, 200.0f, 0.0f }, DirtyBudget{});
+                                        ViewportClip{ 150.0f, 200.0f, 0.0f }, SerialBudget{});
     EXPECT_EQ(r.processed, 3);
     EXPECT_EQ(r.reason, StopReason::Done);
     EXPECT_FALSE(r.any_nearby_skipped);
@@ -137,7 +137,7 @@ TEST_F(DirtySchedulerTest, ViewportClipWithBufferIncludesNearbyDirty)
     DirtyFixture f;
     f.Build(10, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 });
     const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_,
-                                        ViewportClip{ 300.0f, 100.0f, 1.0f }, DirtyBudget{});
+                                        ViewportClip{ 300.0f, 100.0f, 1.0f }, SerialBudget{});
     EXPECT_GE(r.processed, 3);
     EXPECT_LE(r.processed, 4);
     EXPECT_EQ(r.reason, StopReason::Done);
@@ -147,7 +147,7 @@ TEST_F(DirtySchedulerTest, FirstLastProcessedTracking)
 {
     DirtyFixture f;
     f.Build(7, { 3, 4, 5 });
-    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, DirtyBudget{});
+    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{});
     EXPECT_EQ(r.processed, 3);
     EXPECT_EQ(r.first_processed, 3u);
     EXPECT_EQ(r.last_processed, 5u);
@@ -161,7 +161,7 @@ TEST_F(DirtySchedulerTest, BudgetZeroIsUnlimited)
     for (int i = 0; i < 50; ++i) {
         f.cache[i].layout_dirty = true;
     }
-    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, DirtyBudget{ 0, 0 });
+    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{ 0, 0 });
     EXPECT_EQ(r.processed, 50);
     EXPECT_EQ(r.reason, StopReason::Done);
     EXPECT_FALSE(r.any_nearby_skipped);
@@ -173,7 +173,7 @@ TEST_F(DirtySchedulerTest, MeasureNodeIsCalledOnEachProcessed)
     // 計測 callback がインスタンスごとに 1 回ずつ呼ばれたことを検証する。
     DirtyFixture f;
     f.Build(5, { 0, 1, 2, 3, 4 });
-    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, DirtyBudget{});
+    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{});
     EXPECT_EQ(r.processed, 5);
     for (int i = 0; i < 5; ++i) {
         EXPECT_FALSE(f.cache[i].layout_dirty) << "node " << i << " should be cleaned";
@@ -187,7 +187,7 @@ TEST_F(DirtySchedulerTest, NoClipProcessesAllDirtyEvenIfYUnreachable)
     f.Build(5, { 0, 4 });
     f.cache[0].text_top = -1000.0f; // 大きく外れた値
     f.cache[4].text_top = 999999.0f;
-    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, DirtyBudget{});
+    const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{});
     EXPECT_EQ(r.processed, 2);
     EXPECT_EQ(r.first_processed, 0u);
     EXPECT_EQ(r.last_processed, 4u);

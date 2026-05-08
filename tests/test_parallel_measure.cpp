@@ -11,7 +11,8 @@
 #include "theme.h"
 
 using mendo::layout::DirtyBatchResult;
-using mendo::layout::DirtyBudget;
+using mendo::layout::ParallelBudget;
+using mendo::layout::SerialBudget;
 using mendo::layout::DirtyScheduler;
 using mendo::layout::RunParallel;
 using mendo::layout::StopReason;
@@ -69,7 +70,7 @@ TEST_F(ParallelMeasureTest, EmptyDirtyReturnsNoneDirty)
     ParallelFixture f;
     f.Build(10, false);
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
-                               ViewportClip{}, DirtyBudget{}, task_scheduler_);
+                               ViewportClip{}, ParallelBudget{}, task_scheduler_);
     EXPECT_EQ(r.processed, 0);
     EXPECT_EQ(r.reason, StopReason::NoneDirty);
 }
@@ -85,9 +86,9 @@ TEST_F(ParallelMeasureTest, MatchesSerialOutputOnSmallFixture)
     f_parallel.Build(N, true);
 
     const auto r_serial = scheduler_.RunSerial(f_serial.nodes, f_serial.cache, 800.0f, theme_, mock_,
-                                               ViewportClip{}, DirtyBudget{});
+                                               ViewportClip{}, SerialBudget{});
     const auto r_parallel = RunParallel(f_parallel.nodes, f_parallel.cache, 800.0f, theme_, mock_,
-                                        ViewportClip{}, DirtyBudget{}, task_scheduler_);
+                                        ViewportClip{}, ParallelBudget{}, task_scheduler_);
 
     EXPECT_EQ(r_serial.processed, r_parallel.processed);
     EXPECT_EQ(r_serial.first_processed, r_parallel.first_processed);
@@ -109,7 +110,7 @@ TEST_F(ParallelMeasureTest, ChunkBoundary)
         ParallelFixture f;
         f.Build(N, true);
         const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
-                                   ViewportClip{}, DirtyBudget{}, task_scheduler_);
+                                   ViewportClip{}, ParallelBudget{}, task_scheduler_);
         EXPECT_EQ(r.processed, static_cast<int>(N)) << "N=" << N;
         for (size_t i = 0; i < N; ++i) {
             EXPECT_FALSE(f.cache[i].layout_dirty) << "i=" << i << " N=" << N;
@@ -126,7 +127,7 @@ TEST_F(ParallelMeasureTest, ViewportClipSkipsOffscreen)
     f.Build(100, true);
     ViewportClip clip{ 200.0f, 400.0f, 1.0f };
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
-                               clip, DirtyBudget{}, task_scheduler_);
+                               clip, ParallelBudget{}, task_scheduler_);
     // y_position[i] = i*100, height=80。clip [-200, 1000] に重なるのは i=0..10
     EXPECT_GT(r.processed, 0);
     EXPECT_LE(r.processed, 11);
@@ -139,7 +140,7 @@ TEST_F(ParallelMeasureTest, BatchLimitClampsProcessed)
     ParallelFixture f;
     f.Build(100, true);
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
-                               ViewportClip{}, DirtyBudget{ 10, 0 }, task_scheduler_);
+                               ViewportClip{}, ParallelBudget{ 10 }, task_scheduler_);
     EXPECT_EQ(r.processed, 10);
     EXPECT_EQ(r.reason, StopReason::BatchLimit);
     EXPECT_TRUE(r.any_nearby_skipped);
@@ -152,7 +153,7 @@ TEST_F(ParallelMeasureTest, AllDirtyClearedAfterRun)
     ParallelFixture f;
     f.Build(N, true);
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
-                               ViewportClip{}, DirtyBudget{}, task_scheduler_);
+                               ViewportClip{}, ParallelBudget{}, task_scheduler_);
     EXPECT_EQ(r.processed, static_cast<int>(N));
     for (size_t i = 0; i < N; ++i) {
         EXPECT_FALSE(f.cache[i].layout_dirty) << "i=" << i;

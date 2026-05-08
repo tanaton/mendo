@@ -21,6 +21,8 @@ public:
     void ShellOpen(const std::pmr::wstring& url) override;
     void ShowWindowCmd(int cmd) override;
     bool PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override;
+    void SearchFocus(effect::SearchFocus action) override;
+    void SearchUnfocus(effect::SearchUnfocus action) override;
     void SetWindowTitle(const std::pmr::wstring& title) override;
     void SetWindowPosition(int x, int y, int cx, int cy) override;
     POINT ClientToScreen(POINT client_pt) override;

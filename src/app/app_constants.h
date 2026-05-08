@@ -58,6 +58,9 @@ inline constexpr UINT END = WM_APP + 7;
 
 namespace app_param {
 
+// SEARCH_FOCUS / SEARCH_UNFOCUS は IWin32Host::SearchFocus / SearchUnfocus からのみ生成される。
+// reducer / app_init などのアプリ層は型安全な effect::SearchFocus / SearchUnfocus を使い、
+// 本 namespace は Win32Host (発行側) と window.cpp (受信側) の間のワイヤフォーマットに留まる。
 inline constexpr WPARAM SEARCH_FOCUS_SELECT_ALL = 0;
 inline constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;          // lParam = caret (int)
 inline constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2;      // lParam = SearchSelectionPayload* (heap, 受信側で delete)
@@ -65,7 +68,8 @@ inline constexpr WPARAM SEARCH_UNFOCUS_CLOSE = 0;
 inline constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
 
 // SEARCH_FOCUS_SET_SELECTION の lParam で運ぶペイロード。
-// 所有権: 発行側で `new` (MakeSearchSelectionLParam)、SEARCH_FOCUS ハンドラで `delete`。
+// 所有権: Win32Host::SearchFocus が `new` (MakeSearchSelectionLParam)、
+// 受信側 (SEARCH_FOCUS ハンドラまたは PostMessage 失敗時の Win32Host) で `delete`。
 struct SearchSelectionPayload {
     int anchor;
     int caret;

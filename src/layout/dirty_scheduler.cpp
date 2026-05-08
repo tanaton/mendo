@@ -11,7 +11,7 @@ DirtyBatchResult DirtyScheduler::RunSerial(std::pmr::vector<Node>& nodes,
                                            const Theme& theme,
                                            const IMeasureBackend& backend,
                                            ViewportClip clip,
-                                           DirtyBudget budget) const
+                                           SerialBudget budget) const
 {
     MENDO_PROFILE("DirtyScheduler::RunSerial");
     DirtyBatchResult result;

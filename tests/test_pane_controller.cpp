@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "pane_controller.h"
+#include "ui_constants.h"
 
 class PaneControllerTest : public ::testing::Test {
 protected:
@@ -165,7 +166,7 @@ TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth)
     // MDペインに残るのは12のみ(< 200)なので、制約されるべき
     panes_.DragSplitter1To(960.0f, 1200.0f, 4.0f);
     float remaining = 1200.0f - panes_.GetFilePaneWidth() - 4.0f - 220.0f - 4.0f;
-    EXPECT_GE(remaining, PaneController::MD_PANE_MIN_WIDTH);
+    EXPECT_GE(remaining, ::MD_PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2RespectsMinWidth)
@@ -181,7 +182,7 @@ TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth)
     panes_.DragSplitter2To(1190.0f, 1200.0f, 4.0f);
     float layout_width = panes_.GetFilePaneWidth() + 4.0f + panes_.GetTocPaneWidth() + 4.0f;
     float md_width = 1200.0f - layout_width;
-    EXPECT_GE(md_width, PaneController::MD_PANE_MIN_WIDTH);
+    EXPECT_GE(md_width, ::MD_PANE_MIN_WIDTH);
 }
 
 // ═══════════════════════════════════════════════
