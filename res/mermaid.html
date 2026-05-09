@@ -27,7 +27,7 @@
         startOnLoad: false,
         theme: wantTheme,
         securityLevel: 'strict',
-        htmlLabels: false,
+        htmlLabels: false
       });
       currentTheme = wantTheme;
     }
@@ -66,8 +66,6 @@
   }
 
   // 表示用 container を触らず SVG 文字列のみ返す。PNG キャプチャ無し。
-  // ensureThemeInitialized で htmlLabels:false を設定済みなので、Mermaid 出力は
-  // Office/Inkscape 互換 (foreignObject なし) の SVG になる。
   async function renderMermaidSvg(code, isDark) {
     try {
       if (!mermaidReady()) {
