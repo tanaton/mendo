@@ -359,9 +359,14 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_MOUSEWHEEL: {
         const short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
         const bool ctrl = (LOWORD(wParam) & MK_CONTROL) != 0;
+        const bool shift = (LOWORD(wParam) & MK_SHIFT) != 0;
 
         if (ctrl) {
             app_->OnMouseWheel(0, 0, wheel_delta, true);
+        }
+        else if (shift) {
+            // Shift+Wheel は横スクロール扱い。Web ブラウザの慣習に合わせ wheel-down を右スクロールに反転する。
+            app_->OnMouseHWheel(static_cast<short>(-wheel_delta));
         }
         else {
             POINT pt;

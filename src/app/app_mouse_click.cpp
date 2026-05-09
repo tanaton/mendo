@@ -2,8 +2,10 @@
 #include "app_constants.h"
 #include "app_events.h"
 #include "app_mouse_helpers.h"
+#include "block_h_scroll.h"
 #include "document_utils.h"
 #include "i18n.h"
+#include "layout_computer.h"
 #include "pane_layout.h"
 #include "string_convert.h"
 #include "ui_constants.h"
@@ -103,6 +105,30 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
         Dispatch(MdScrollbarDragStartedAction{ dip_y, layout_service_->GetTotalHeight() });
         return;
+    }
+
+    // ホバー中ブロックの水平スクロールバー上ならドラッグ開始 (テキスト選択より優先)。
+    if (state_.view.hovered_h_block >= 0) {
+        const int hover = state_.view.hovered_h_block;
+        const auto& nodes = state_.document.doc.GetNodes();
+        const auto& cache = state_.document.layout_cache;
+        if (hover < static_cast<int>(nodes.size()) && hover < static_cast<int>(cache.size())) {
+            const auto& node = nodes[hover];
+            const auto& entry = cache[hover];
+            const auto& theme = renderer_.GetTheme();
+            const auto geom = GetBlockHScrollGeometry(node, entry, theme, pane_layout.md_rect.width);
+            if (geom.can_scroll()) {
+                const float pad = IsScrollableCodeBlock(node) ? theme.code_block_padding : 0.0f;
+                const float bar_y_local = BlockHScrollbarBarY(entry.text_top, entry.height, pad);
+                // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない規約。
+                const float bar_y_screen = bar_y_local - state_.view.viewport.GetScrollY();
+                const float block_x_screen = pane_layout.md_rect.x + theme.margin_left + mendo::layout::NodeIndent(node, theme);
+                if (PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x_screen, geom.visible_width, bar_y_screen))) {
+                    Dispatch(BlockHScrollDragStartedAction{ hover, dip_x });
+                    return;
+                }
+            }
+        }
     }
 
     const auto hit = HitTest(px, py);

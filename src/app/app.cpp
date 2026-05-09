@@ -170,12 +170,17 @@ void App::OnPaint()
 
         {
             MENDO_PROFILE("Renderer::Render");
+            const BlockHScrollContext h_scroll{
+                .scroll_x = &state_.view.block_scroll_x,
+                .hovered_block = state_.view.hovered_h_block,
+                .drag_block = state_.view.h_drag_node,
+            };
             renderer_.Render({ state_.document.doc.GetNodes(), state_.document.layout_cache,
                                state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
                                state_.view.viewport.GetScrollY(), layout_service_->GetTotalHeight(),
                                std::to_underlying(state_.interaction.nav_hover), state_.interaction.hovered,
                                state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
-                               layout_service_->HasDirtyNodes() });
+                               layout_service_->HasDirtyNodes(), h_scroll });
         }
     }
 

@@ -19,7 +19,8 @@ MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pa
         state_.document.doc.GetNodes(), state_.document.layout_cache, theme,
         state_.view.viewport.GetScrollY(), pane_layout.md_rect.x,
         state_.window.cached_dpi_scale, px, py,
-        theme.ContentWidth(pane_layout.md_rect.width), pane_layout.md_rect.height
+        theme.ContentWidth(pane_layout.md_rect.width), pane_layout.md_rect.height,
+        &state_.view.block_scroll_x
     };
 }
 
@@ -75,6 +76,11 @@ void App::OnLButtonDown(int px, int py)
 
 void App::OnLButtonUp(int px, int py)
 {
+    if (state_.view.h_drag_node >= 0) {
+        Dispatch(BlockHScrollDragEndedAction{});
+        return;
+    }
+
     if (state_.search.search_bar_ctrl.IsDragging()) {
         Dispatch(SearchInputDragEndedAction{});
         return;
@@ -153,6 +159,11 @@ void App::OnMouseMove(int px, int py)
         if (layout_service_) {
             Dispatch(MdScrollbarDragMovedAction{ dip.y, layout_service_->GetTotalHeight() });
         }
+        return;
+    }
+
+    if (state_.view.h_drag_node >= 0) {
+        Dispatch(BlockHScrollDragMovedAction{ dip_x });
         return;
     }
 

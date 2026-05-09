@@ -1,4 +1,5 @@
 #pragma once
+#include "block_h_scroll_context.h"
 #include "doc_dwrite_bridge.h"
 #include "draw_command.h"
 #include "document_types.h"
@@ -9,6 +10,7 @@
 #include "memory_resource.h"
 #include "search_state.h"
 #include <cassert>
+#include <memory_resource>
 #include <span>
 
 // HitTestTextRange 初期バッファ容量。1 行中の inline code run が
@@ -107,7 +109,8 @@ public:
         const TextSelection& selection,
         int first_visible = -1,
         HoveredButtons hovered = {},
-        float dpi_scale = 1.0f);
+        float dpi_scale = 1.0f,
+        const BlockHScrollContext& block_h_scroll = {});
 
 private:
     void GenerateNode(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index, float entry_text_top);
@@ -124,7 +127,7 @@ private:
     NodeBaseStyle GetNodeBaseStyle(const Node& node) const noexcept;
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
-    void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float entry_text_top);
+    void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float entry_text_top, float h_scroll_x = 0.0f);
     void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border);
     void GenTableCellContent(DrawCommandList& cmds, std::string_view cell_text, bool is_header, IDWriteTextLayout* cell_layout, float text_x, float text_y, bool has_selection, uint32_t sel_start, uint32_t sel_end, uint32_t flat_offset);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
@@ -132,6 +135,9 @@ private:
     void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered, float entry_text_top);
     void GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     void GenSvgCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
+    // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。
+    // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
+    void EmitBlockHScrollbarIfActive(DrawCommandList& cmds, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
@@ -225,6 +231,7 @@ private:
     D2D1::Matrix3x2F frame_pane_transform_ = D2D1::Matrix3x2F::Identity();
     const TextSelection* frame_selection_ = nullptr;
     HoveredButtons frame_hovered_;
+    BlockHScrollContext frame_h_scroll_;
 
     // 前フレームの選択ノード範囲。範囲外に出たノードの selection_hl_cache を
     // 解放するために使う。-1/-1 は「前フレームは非アクティブ」を示す。

@@ -125,23 +125,39 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     });
     const int candidate = (it != first) ? static_cast<int>(std::prev(it) - first) : -1;
 
+    // partition_point は entry.text_top で比較しているため、局所座標 (local_y) の基準も
+    // 同じ entry.text_top を直接参照する。TextTopOf (Fenwick 経由) は等価であるべきだが、
+    // 累積誤差や部分更新中の不同期で乖離するとマウス位置と一致しないため避ける。
     const float candidate_text_top =
-        (candidate >= 0)
-            ? mendo::layout::TextTopOf(ctx.cache, static_cast<size_t>(candidate), ctx.nodes[candidate], ctx.theme)
+        (candidate >= 0) ? ctx.cache[candidate].text_top : 0.0f;
+    // CodeBlock は背景が text 範囲の上下に padding 分はみ出る。padding 部分 (横スクロールバーを
+    // 置きたい領域) もそのノードのヒットとして扱い、ホバーが切れないようにする。
+    const float bottom_extension =
+        (candidate >= 0 && ctx.nodes[candidate].type == NodeType::CodeBlock)
+            ? ctx.theme.code_block_padding
             : 0.0f;
-    if (candidate >= 0 && dip_y <= candidate_text_top + ctx.cache[candidate].height) {
+    if (candidate >= 0 && dip_y <= candidate_text_top + ctx.cache[candidate].height + bottom_extension) {
         const auto& node = ctx.nodes[candidate];
         const auto& entry = ctx.cache[candidate];
 
+        // 横スクロール量 (テーブル / コードブロックのみ非ゼロ)。
+        float h_scroll_x = 0.0f;
+        if (ctx.block_scroll_x) {
+            const auto sit = ctx.block_scroll_x->find(candidate);
+            if (sit != ctx.block_scroll_x->end()) {
+                h_scroll_x = sit->second;
+            }
+        }
+
         if (node.type == NodeType::Table) {
-            result = HitTestTable(node, entry, candidate_text_top, candidate, ctx.theme, dip_x, dip_y);
+            result = HitTestTable(node, entry, candidate_text_top, candidate, ctx.theme, dip_x, dip_y, h_scroll_x);
             last_md_hit_.Store(ctx, gen, result);
             return result;
         }
 
         if (entry.text_layout) {
             const float indent = NodeIndent(node, ctx.theme);
-            const float local_x = dip_x - ctx.theme.margin_left - indent - NodeTextXOffset(node, ctx.theme);
+            const float local_x = dip_x - ctx.theme.margin_left - indent - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
             const float local_y = dip_y - candidate_text_top;
 
             BOOL is_trailing = FALSE;
@@ -176,7 +192,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     float entry_text_top,
     int node_index,
     const Theme& theme,
-    float dip_x, float dip_y) const noexcept
+    float dip_x, float dip_y, float h_scroll_x) const noexcept
 {
     HitResult result;
     result.node_index = node_index;
@@ -188,7 +204,9 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const auto& tl = *entry.table_layout;
 
     const float indent = NodeIndent(node, theme);
-    const float base_x = theme.margin_left + indent;
+    // テーブルが scroll_x 分左にスライドして見えるため、列の自然座標と一致させるには
+    // base_x を scroll_x 分左にずらして与える。
+    const float base_x = theme.margin_left + indent - h_scroll_x;
 
     const auto* tbl = node.table_data();
     const auto [hit_row, row_top_y] = FindTableRow(node, entry, entry_text_top, theme, dip_y);

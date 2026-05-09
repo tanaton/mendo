@@ -1,10 +1,13 @@
 #include "reducer.h"
 #include "app_constants.h"
+#include "block_h_scroll.h"
 #include "document_utils.h"
 #include "file_io.h"
+#include "layout_computer.h"
 #include "overloaded.h"
 #include "ui_constants.h"
 #include "utility.h"
+#include <algorithm>
 #include <cmath>
 
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
@@ -331,8 +334,58 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
         });
 }
 
+namespace {
+
+BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept
+{
+    if (node_index < 0 || !state.theme || !state.pane_layout_cache.IsValid()) {
+        return {};
+    }
+    const auto& nodes = state.document.doc.GetNodes();
+    const auto& cache = state.document.layout_cache;
+    if (node_index >= static_cast<int>(nodes.size()) || node_index >= static_cast<int>(cache.size())) {
+        return {};
+    }
+    return GetBlockHScrollGeometry(nodes[node_index], cache[node_index], *state.theme,
+                                   state.pane_layout_cache.Get().md_rect.width);
+}
+
+// scroll_x を [0, max] に詰めて map に反映する。0 になった場合はエントリを削除する。
+// HitTestService 側のキャッシュキーには block_scroll_x が含まれないため、
+// 値が変わったタイミングで effects_generation を進めて last_md_hit_ の再計算を強制する。
+void ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, float scroll_max)
+{
+    const float clamped = std::clamp(new_value, 0.0f, scroll_max);
+    const float prev = state.view.GetBlockScrollX(node_index);
+    if (std::abs(prev - clamped) < 1e-3f) {
+        return;
+    }
+    if (clamped <= 0.0f) {
+        state.view.block_scroll_x.erase(node_index);
+    }
+    else {
+        state.view.block_scroll_x[node_index] = clamped;
+    }
+    state.document.layout_cache.IncrementEffectsGeneration();
+}
+
+} // namespace
+
 void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& a)
 {
+    // ホバー or ドラッグ中のブロックが横スクロール可能ならそこに適用し、スワイプオーバーレイには流さない。
+    const int target = (state.view.h_drag_node >= 0) ? state.view.h_drag_node : state.view.hovered_h_block;
+    if (target >= 0) {
+        const auto geom = ResolveBlockHScrollGeometry(state, target);
+        if (geom.can_scroll()) {
+            const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
+            const float cur = state.view.GetBlockScrollX(target);
+            ApplyBlockHScrollDelta(state, target, cur + dx, geom.scroll_max());
+            PushEffect(effects, effect::InvalidateWindow{});
+            return;
+        }
+    }
+
     const bool had_overlay = state.interaction.swipe_detector.IsOverlayVisible();
     const int old_direction = state.interaction.swipe_detector.GetOverlayDirection();
     state.interaction.swipe_detector.OnHWheel(a.delta, a.tick);
@@ -340,6 +393,59 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     if (had_overlay != state.interaction.swipe_detector.IsOverlayVisible() || old_direction != state.interaction.swipe_detector.GetOverlayDirection()) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
+}
+
+void ReduceBlockHHoverChanged(AppState& state, SideEffectList& effects, const BlockHHoverChangedAction& a)
+{
+    if (state.view.hovered_h_block == a.node_index) {
+        return;
+    }
+    state.view.hovered_h_block = a.node_index;
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, const BlockHScrollDragStartedAction& a)
+{
+    const auto geom = ResolveBlockHScrollGeometry(state, a.node_index);
+    if (!geom.can_scroll()) {
+        return;
+    }
+    state.view.h_drag_node = a.node_index;
+    state.view.h_drag_start_x = a.dip_x;
+    state.view.h_drag_start_scroll = state.view.GetBlockScrollX(a.node_index);
+    PushEffect(effects, effect::SetCapture{});
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const BlockHScrollDragMovedAction& a)
+{
+    const int target = state.view.h_drag_node;
+    if (target < 0) {
+        return;
+    }
+    const auto geom = ResolveBlockHScrollGeometry(state, target);
+    if (!geom.can_scroll()) {
+        return;
+    }
+    // dip_delta はドラッグの sum = サムが動く DIP。サムが (track - thumb_w) 動いたとき
+    // コンテンツが scroll_max 動くべきなので、scroll_delta = dip_delta * scroll_max / drag_range。
+    // thumb_w が PANE_SCROLLBAR_THUMB_MIN に張り付いた長大コンテンツでも 1:1 で対応する。
+    const float dip_delta = a.dip_x - state.view.h_drag_start_x;
+    const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.natural_width);
+    const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
+    const float scroll_max = geom.scroll_max();
+    ApplyBlockHScrollDelta(state, target, state.view.h_drag_start_scroll + dip_delta * scroll_max / drag_range, scroll_max);
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+void ReduceBlockHScrollDragEnded(AppState& state, SideEffectList& effects, const BlockHScrollDragEndedAction&)
+{
+    if (state.view.h_drag_node < 0) {
+        return;
+    }
+    state.view.h_drag_node = -1;
+    PushEffect(effects, effect::ReleaseCapture{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceSearchStep(AppState& state, bool forward)
@@ -707,6 +813,11 @@ void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const Naviga
 
 void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, const RestoreScrollAfterLoadAction& a)
 {
+    // ノードインデックスはセッション内の識別子で、再パース後は別ノードを指しうる。
+    state.view.block_scroll_x.clear();
+    state.view.hovered_h_block = -1;
+    state.view.h_drag_node = -1;
+
     state.view.viewport.ClearScrollTarget();
     if (a.has_reload_diff) {
         state.view.viewport.SetScrollY(a.reload_diff_scroll_y);
@@ -836,6 +947,10 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ResizeAction& a) { ReduceResize(state, effects, a); },
         [&](const DpiChangedAction& a) { ReduceDpiChanged(state, effects, a); },
         [&](const HWheelAction& a) { ReduceHWheel(state, effects, a); },
+        [&](const BlockHHoverChangedAction& a) { ReduceBlockHHoverChanged(state, effects, a); },
+        [&](const BlockHScrollDragStartedAction& a) { ReduceBlockHScrollDragStarted(state, effects, a); },
+        [&](const BlockHScrollDragMovedAction& a) { ReduceBlockHScrollDragMoved(state, effects, a); },
+        [&](const BlockHScrollDragEndedAction& a) { ReduceBlockHScrollDragEnded(state, effects, a); },
 
         // ---- 検索 ----
         [&](const OpenSearchBarAction&) { state.search.search_bar_ctrl.OnOpen(state.document.doc.GetNodes()); },

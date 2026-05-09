@@ -130,3 +130,59 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_RepeatCallReturnsSameResult)
     EXPECT_EQ(a.save_node, b.save_node);
     EXPECT_EQ(a.svg_copy_node, b.svg_copy_node);
 }
+
+// 回帰テスト: HitTest は partition_point と local_y 計算で同じ entry.text_top を
+// 基準にすべき。Fenwick (block_heights) と entry.text_top が乖離すると、 修正前は
+// candidate_text_top に Fenwick 経由の TextTopOf を使っていたため local_y がズレ、
+// 縦スクロール量に比例してテキスト選択位置が大きく上にズレる現象が発生していた。
+// (修正コミット: hit_test_service.cpp で TextTopOf → cache[candidate].text_top)
+TEST_F(HitTestDWriteTest, HitTestRobustToFenwickDesync)
+{
+    auto pl = ParseAndLayout(
+        "First paragraph here.\n\nSecond paragraph with more words.\n\n"
+        "Third paragraph in the middle of document.\n\nFourth and last paragraph.");
+
+    // 3 つ目以上の Paragraph ノードを target にする (上の方ほど誤差が小さく差が出にくい)。
+    int target = -1;
+    int para_count = 0;
+    for (size_t i = 0; i < pl.nodes.size(); ++i) {
+        if (pl.nodes[i].type == NodeType::Paragraph) {
+            ++para_count;
+            if (para_count == 3) {
+                target = static_cast<int>(i);
+                break;
+            }
+        }
+    }
+    ASSERT_GE(target, 0) << "テスト前提: 3 つ目以降の Paragraph ノードが必要";
+
+    // Fenwick の block_heights を意図的に小さい値で潰す。entry.text_top はそのまま。
+    // これで TextTopOf(i) = margin_top + PrefixSum(i) + sa[i] は本来より遥かに小さくなり、
+    // 一方 partition_point の比較対象 entry.text_top は元の正しい累積位置のまま。
+    for (size_t i = 0; i < pl.nodes.size(); ++i) {
+        pl.cache.SetBlockHeight(i, 1.0f);
+    }
+
+    const auto& entry = pl.cache[target];
+    const int sx = static_cast<int>(theme_.margin_left + 20.0f);
+    // テキスト第 1 行の中央付近を狙う (entry.text_top + line_height * 0.5 程度)。
+    const int sy = static_cast<int>(entry.text_top + 4.0f);
+
+    const float content_width = ContentWidth(800.0f);
+    const MdPaneHitContext ctx{
+        pl.nodes, pl.cache, theme_, 0.0f, 0.0f, 1.0f,
+        sx, sy, content_width, 600.0f
+    };
+    const auto r = hit_.HitTest(ctx);
+
+    EXPECT_EQ(r.node_index, target)
+        << "Fenwick が乖離しても partition_point は entry.text_top で比較するため正しい候補が選ばれる";
+
+    // 修正前 (TextTopOf 使用) は local_y が巨大値になり HitTestPoint がテキスト末尾に
+    // クランプして r.text_pos == text.size() になる。修正後 (entry.text_top 使用) は
+    // 第 1 行内の早い位置を返すため text.size() より十分小さい。
+    const auto target_text_size = pl.nodes[target].GetText().size();
+    ASSERT_GT(target_text_size, 5u);
+    EXPECT_LT(r.text_pos, target_text_size)
+        << "local_y が entry.text_top 基準で計算されれば、 末尾クランプではなく行内位置が返る";
+}

@@ -464,7 +464,7 @@ void Renderer::Render(const RenderParams& p)
     const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
     {
         MENDO_PROFILE("GenerateMdPane");
-        const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale);
+        const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale, p.block_h_scroll);
         {
             MENDO_PROFILE("CommandExecutor::Execute");
             const auto fixed = BuildFixedBrushArray();

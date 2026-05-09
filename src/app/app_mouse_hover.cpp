@@ -2,7 +2,9 @@
 #include "app_constants.h"
 #include "app_events.h"
 #include "app_mouse_helpers.h"
+#include "block_h_scroll.h"
 #include "i18n.h"
+#include "layout_computer.h"
 #include "pane_layout.h"
 #include "string_convert.h"
 #include "ui_constants.h"
@@ -109,6 +111,26 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         const auto hit = HitTest(px, py);
         const auto link = GetLinkAtHit(hit);
         ht.last_md_cursor_hand = link.has_value();
+
+        // 横スクロール対象 (Table / CodeBlock) で自然幅 > 可視幅 のときだけバーを出す。
+        // ドラッグ中は hovered を固定して、スクロールバー直下に出ても見た目が動かないようにする。
+        if (state_.view.h_drag_node < 0) {
+            int new_h_block = -1;
+            if (hit.node_index >= 0) {
+                const auto& nodes = state_.document.doc.GetNodes();
+                const auto& cache = state_.document.layout_cache;
+                if (hit.node_index < static_cast<int>(nodes.size()) && hit.node_index < static_cast<int>(cache.size())) {
+                    const auto geom = GetBlockHScrollGeometry(
+                        nodes[hit.node_index], cache[hit.node_index], renderer_.GetTheme(), pane_layout.md_rect.width);
+                    if (geom.can_scroll()) {
+                        new_h_block = hit.node_index;
+                    }
+                }
+            }
+            if (new_h_block != state_.view.hovered_h_block) {
+                Dispatch(BlockHHoverChangedAction{ new_h_block });
+            }
+        }
 
         TooltipTarget tt;
         if (link.has_value()) {
