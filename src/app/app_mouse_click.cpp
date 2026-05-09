@@ -87,15 +87,17 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
     if (btn_hit.copy_node >= 0) {
-        CopyCodeBlockToClipboard(btn_hit.copy_node);
+        clipboard_manager_.CopyCodeBlock(state_.document.doc, btn_hit.copy_node);
         return;
     }
-    if (btn_hit.svg_copy_node >= 0) {
-        CopyDiagramAsSvg(btn_hit.svg_copy_node);
-        return;
-    }
-    if (btn_hit.save_node >= 0) {
-        SaveDiagramAsPng(btn_hit.save_node);
+    if (btn_hit.svg_copy_node >= 0 || btn_hit.save_node >= 0) {
+        const float md_width = renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
+        const bool dark = renderer_.GetTheme().IsDark();
+        if (btn_hit.svg_copy_node >= 0) {
+            clipboard_manager_.CopyDiagramAsSvg(state_.document.doc, btn_hit.svg_copy_node, md_width, dark);
+            return;
+        }
+        clipboard_manager_.SaveDiagramAsPng(state_.document.doc, btn_hit.save_node, md_width, dark);
         return;
     }
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {

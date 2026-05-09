@@ -18,8 +18,8 @@ public:
     virtual void Invalidate() = 0;
     virtual void InvalidateTitleBarArea(int width_px, int height_px) = 0;
 
-    virtual void SetTimer(UINT_PTR id, UINT ms) = 0;
-    virtual void KillTimer(UINT_PTR id) = 0;
+    virtual void SetTimer(app_timer::Id id, UINT ms) = 0;
+    virtual void KillTimer(app_timer::Id id) = 0;
 
     virtual void SetCapture() = 0;
     virtual void ReleaseCapture() = 0;

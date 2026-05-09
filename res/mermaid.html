@@ -19,10 +19,15 @@
   function ensureThemeInitialized(isDark) {
     const wantTheme = isDark ? 'dark' : 'default';
     if (currentTheme !== wantTheme) {
+      // htmlLabels:false は Mermaid v10+ のトップレベル設定で flowchart/class/state
+      // のノードラベルを <foreignObject> ではなく SVG <text> として出力させる。
+      // Office/Inkscape が <foreignObject> 内 HTML を描画しないため、SVG コピーを
+      // 互換にするには表示用とエクスポート用で共通化する必要がある。
       mermaid.initialize({
         startOnLoad: false,
         theme: wantTheme,
-        securityLevel: 'strict'
+        securityLevel: 'strict',
+        htmlLabels: false
       });
       currentTheme = wantTheme;
     }

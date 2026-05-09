@@ -52,9 +52,9 @@ struct CallbackTracker {
     int kill_timer = 0;
     int recompute_layout = 0;
     int recompute_layout_anchored = 0;
-    UINT_PTR last_set_timer_id = 0;
+    app_timer::Id last_set_timer_id{};
     UINT last_set_timer_ms = 0;
-    UINT_PTR last_killed_timer_id = 0;
+    app_timer::Id last_killed_timer_id{};
 
     float content_width = 800.0f;
     float viewport_height = 600.0f;
@@ -65,12 +65,12 @@ ResourceManager::Callbacks MakeCallbacks(CallbackTracker& t)
 {
     return ResourceManager::Callbacks{
         .invalidate = [&t]() { t.invalidate++; },
-        .set_timer = [&t](UINT_PTR id, UINT ms) {
+        .set_timer = [&t](app_timer::Id id, UINT ms) {
             t.set_timer++;
             t.last_set_timer_id = id;
             t.last_set_timer_ms = ms;
         },
-        .kill_timer = [&t](UINT_PTR id) {
+        .kill_timer = [&t](app_timer::Id id) {
             t.kill_timer++;
             t.last_killed_timer_id = id;
         },
@@ -307,7 +307,7 @@ TEST_F(ResourceManagerTest, CancelMermaidBatchInvokesRendererCancelAndKillsTimer
     rm_.CancelMermaidBatch();
     EXPECT_EQ(mock_mermaid_.cancel_pending_count, 1);
     EXPECT_EQ(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::MERMAID_BATCH);
+    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::Id::MERMAID_BATCH);
 }
 
 TEST_F(ResourceManagerTest, ScheduleMermaidBatchSetsTimer)
@@ -315,7 +315,7 @@ TEST_F(ResourceManagerTest, ScheduleMermaidBatchSetsTimer)
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     rm_.ScheduleMermaidBatch();
     EXPECT_EQ(tracker_.set_timer, 1);
-    EXPECT_EQ(tracker_.last_set_timer_id, app_timer::MERMAID_BATCH);
+    EXPECT_EQ(tracker_.last_set_timer_id, app_timer::Id::MERMAID_BATCH);
     EXPECT_EQ(tracker_.last_set_timer_ms, 16u);
 }
 
@@ -325,7 +325,7 @@ TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenWidthIsZero)
     tracker_.content_width = 0.0f;
     rm_.ProcessMermaidBatch();
     EXPECT_EQ(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::MERMAID_BATCH);
+    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::Id::MERMAID_BATCH);
 }
 
 TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenAllProcessed)
@@ -335,7 +335,7 @@ TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenAllProcessed)
     // 1件しかないので走査が完了し、タイマーが kill される
     EXPECT_GE(mock_mermaid_.request_render_count, 1);
     EXPECT_GE(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::MERMAID_BATCH);
+    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::Id::MERMAID_BATCH);
 }
 
 // ---- ビットマップ管理 ----
@@ -382,7 +382,7 @@ TEST_F(ResourceManagerTest, ScheduleBitmapManageSetsTimer)
     LoadMarkdown("# heading\n");
     rm_.ScheduleBitmapManage();
     EXPECT_GE(tracker_.set_timer, 1);
-    EXPECT_EQ(tracker_.last_set_timer_id, app_timer::BITMAP_MANAGE);
+    EXPECT_EQ(tracker_.last_set_timer_id, app_timer::Id::BITMAP_MANAGE);
     EXPECT_EQ(tracker_.last_set_timer_ms, 150u);
 }
 

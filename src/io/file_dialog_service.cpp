@@ -23,4 +23,26 @@ std::pmr::wstring OpenMarkdownFileDialog(HWND owner)
     return {};
 }
 
+std::pmr::wstring SavePngFileDialog(HWND owner, const wchar_t* default_filename)
+{
+    wchar_t filename[MAX_PATH] = {};
+    if (default_filename) {
+        // lstrcpynW は MAX_PATH 内で常に NUL 終端を保証する Win32 API。
+        lstrcpynW(filename, default_filename, MAX_PATH);
+    }
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = owner;
+    ofn.lpstrFilter = L"PNG Image\0*.png\0All Files\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    ofn.lpstrDefExt = L"png";
+
+    if (GetSaveFileNameW(&ofn)) {
+        return std::pmr::wstring{ filename };
+    }
+    return {};
+}
+
 } // namespace file_dialog_service

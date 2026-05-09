@@ -25,8 +25,13 @@ public:
     virtual IWICImagingFactory* GetWICFactory() const noexcept = 0;
     virtual HWND GetHwnd() const noexcept = 0;
 
-    // EndDraw 後に呼び出す。
-    virtual void Present() noexcept = 0;
+    // EndDraw 後に呼び出す。Present の HRESULT を返し、呼び出し側がデバイスロスト等を判定する。
+    virtual HRESULT Present() noexcept = 0;
+
+    // Resize / Present が DXGI_ERROR_DEVICE_REMOVED/RESET を検知した、もしくは
+    // CreateSwapChainBitmap が失敗した時に true を返す。Renderer が次フレーム頭で
+    // RecreateRenderTarget を呼んでフラグをクリアする想定。
+    virtual bool IsDeviceLost() const noexcept = 0;
 };
 
 class D2DRenderBackend final : public IRenderBackend {
@@ -39,7 +44,11 @@ public:
         return dpi_;
     }
     bool RecreateRenderTarget() override;
-    void Present() noexcept override;
+    HRESULT Present() noexcept override;
+    bool IsDeviceLost() const noexcept override
+    {
+        return device_lost_;
+    }
 
     ID2D1Factory* GetD2DFactory() const noexcept override
     {
@@ -68,6 +77,7 @@ private:
 
     HWND hwnd_ = nullptr;
     float dpi_ = 96.0f;
+    bool device_lost_ = false;
     Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;

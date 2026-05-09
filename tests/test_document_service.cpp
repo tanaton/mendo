@@ -41,38 +41,38 @@ TEST_F(DocumentServiceTest, LoadFileNotFound)
     EXPECT_EQ(result.error(), FileLoadError::NotFound);
 }
 
-TEST_F(DocumentServiceTest, IsLargerThanAsyncSmallFile)
+TEST_F(DocumentServiceTest, IsAsyncLoadCandidateSmallFile)
 {
     auto path = CreateTestFile("small.md", "# Small");
-    EXPECT_FALSE(DocumentService::IsLargerThan(path, app_threshold::ASYNC_LOAD_BYTES));
+    EXPECT_FALSE(DocumentService::IsAsyncLoadCandidate(path));
 }
 
-TEST_F(DocumentServiceTest, IsLargerThanAsyncLargeFile)
+TEST_F(DocumentServiceTest, IsAsyncLoadCandidateLargeFile)
 {
     // 64KB超のファイルは非同期ロード判定
     std::string content(65 * 1024, 'x');
     auto path = CreateTestFile("large.md", content);
-    EXPECT_TRUE(DocumentService::IsLargerThan(path, app_threshold::ASYNC_LOAD_BYTES));
+    EXPECT_TRUE(DocumentService::IsAsyncLoadCandidate(path));
 }
 
-TEST_F(DocumentServiceTest, IsLargerThanAsyncNonexistent)
+TEST_F(DocumentServiceTest, IsAsyncLoadCandidateNonexistent)
 {
     auto ws = (temp_dir_ / "nonexistent_async.md").wstring();
     std::pmr::wstring nonexistent{ ws };
-    EXPECT_TRUE(DocumentService::IsLargerThan(nonexistent, app_threshold::ASYNC_LOAD_BYTES));
+    EXPECT_TRUE(DocumentService::IsAsyncLoadCandidate(nonexistent));
 }
 
-TEST_F(DocumentServiceTest, IsLargerThanAnimSmallFile)
+TEST_F(DocumentServiceTest, ShouldShowLoadingAnimationSmallFile)
 {
     auto path = CreateTestFile("small.md", "# Small");
-    EXPECT_FALSE(DocumentService::IsLargerThan(path, app_threshold::LOADING_ANIM_BYTES));
+    EXPECT_FALSE(DocumentService::ShouldShowLoadingAnimation(path));
 }
 
-TEST_F(DocumentServiceTest, IsLargerThanAnimNonexistent)
+TEST_F(DocumentServiceTest, ShouldShowLoadingAnimationNonexistent)
 {
     auto ws = (temp_dir_ / "nonexistent_anim.md").wstring();
     std::pmr::wstring nonexistent{ ws };
-    EXPECT_TRUE(DocumentService::IsLargerThan(nonexistent, app_threshold::LOADING_ANIM_BYTES));
+    EXPECT_TRUE(DocumentService::ShouldShowLoadingAnimation(nonexistent));
 }
 
 TEST_F(DocumentServiceTest, ResumeWatching)

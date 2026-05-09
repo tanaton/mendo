@@ -2,7 +2,7 @@
 #include "nav.h"
 #include "profiler.h"
 #include "syntax.h"
-#include "theme.h"
+#include "theme_palette.h"
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -643,12 +643,17 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             AppendTableHtml(out, node, start, end, dark_mode);
             break;
         case NodeType::Image:
-            // 画像は未対応: 線形化テキストを <pre> で出力
-            out.append("<pre>");
+            // src は Markdown 記述値をそのまま使う (相対パスは貼付先で解決不能だが仕様上の限界)。
+            // alt は選択範囲内のノード線形化テキスト。
+            out.append("<img src=\"");
+            if (const auto* img = node.image_data()) {
+                AppendHtmlEscaped(out, img->src);
+            }
+            out.append("\" alt=\"");
             if (start < end) {
                 AppendHtmlEscaped(out, std::string_view(text).substr(start, end - start));
             }
-            out.append("</pre>");
+            out.append("\">");
             break;
         }
     }

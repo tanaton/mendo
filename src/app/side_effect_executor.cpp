@@ -63,15 +63,17 @@ void SideEffectExecutor::ExecuteUi(const UiEffect& e)
             host_->Invalidate();
         },
         [this](const effect::InvalidateTitleBar&) {
-            if (!state_ || state_->cached_window_width_for_layout <= 0.0f) {
+            if (!state_ || state_->pane_layout_cache.WindowWidth() <= 0.0f) {
                 host_->Invalidate();
                 return;
             }
+            // mendo::InvalidateDipRect と同じ truncate+1 で境界ピクセル切れを防ぐ。
+            // TitleBarController::Invalidate と丸めを揃えるための共通ルール。
             const float dpi_scale = state_->window.cached_dpi_scale;
             const int width_px = static_cast<int>(
-                state_->cached_window_width_for_layout * dpi_scale) + 1;
+                state_->pane_layout_cache.WindowWidth() * dpi_scale) + 1;
             const int height_px = static_cast<int>(
-                state_->window.titlebar.GetHeight() * dpi_scale + 0.5f);
+                state_->window.titlebar.GetHeight() * dpi_scale) + 1;
             host_->InvalidateTitleBarArea(width_px, height_px);
         },
         [this](const effect::SetCapture&) {
@@ -99,18 +101,18 @@ void SideEffectExecutor::ExecuteUi(const UiEffect& e)
         [this](const effect::ShowTooltip& ev) {
             const POINT screen_pos = host_->ClientToScreen({ ev.px, ev.py });
             if (state_->interaction.tooltip.Update(ev.target, screen_pos.x, screen_pos.y)) {
-                host_->SetTimer(app_timer::TOOLTIP, TOOLTIP_DELAY_MS);
+                host_->SetTimer(app_timer::Id::TOOLTIP, TOOLTIP_DELAY_MS);
             }
             else if (ev.target.IsEmpty()) {
-                host_->KillTimer(app_timer::TOOLTIP);
+                host_->KillTimer(app_timer::Id::TOOLTIP);
             }
         },
         [this](const effect::ClearTooltip&) {
-            host_->KillTimer(app_timer::TOOLTIP);
+            host_->KillTimer(app_timer::Id::TOOLTIP);
         },
         [this](const effect::ShowToast& ev) {
             state_->interaction.toast.Show(ev.message);
-            host_->SetTimer(app_timer::TOAST, app_timer::FRAME_INTERVAL_MS);
+            host_->SetTimer(app_timer::Id::TOAST, app_timer::FRAME_INTERVAL_MS);
             host_->Invalidate();
         },
         [this](const effect::ShowContextMenu& ev) {
@@ -190,7 +192,7 @@ void SideEffectExecutor::ExecuteLayout(const LayoutEffect& e)
     std::visit(mendo::overloaded{
         [this](const effect::DeferredLayout&) {
             if (layout_service_->HasDirtyNodes()) {
-                host_->SetTimer(app_timer::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
+                host_->SetTimer(app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
             }
         },
         [this](const effect::BitmapManage&) {
@@ -246,8 +248,8 @@ void SideEffectExecutor::ExecuteResource(const ResourceEffect& e)
         },
         [this](const effect::StartFileWatch& ev) {
             doc_service_->StartWatching(ev.path, [host = host_]() {
-                host->KillTimer(app_timer::FILE_RELOAD_DEBOUNCE);
-                host->SetTimer(app_timer::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
+                host->KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
+                host->SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
             });
         },
         [this](const effect::StopFileWatch&) {

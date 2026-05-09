@@ -143,6 +143,12 @@ add_library(mendo_core STATIC
     src/app/side_effect_executor.cpp
     # app - 画像/Mermaid リソース管理（Mermaid 具象は IMermaidRenderer 経由で隔離）
     src/app/resource_manager.cpp
+    # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramAsSvg)
+    src/app/clipboard_manager.cpp
+    # app - セッション永続化 (LastFile / PaneState / ScrollPosition)
+    src/app/persistence_controller.cpp
+    # app - タイトルバー (高さ取得 / クリック処理 / タイトル更新)
+    src/app/titlebar_controller.cpp
     # ui - UIコンポーネント
     # context_menu.cpp は Win32/D2D 描画層（本体）と logic 層（mendo_core 入り）に
     # 分割されており、logic 側のみを mendo_core に含める。
@@ -194,7 +200,10 @@ if(MENDO_USE_TRACY)
     target_link_libraries(mendo_core PUBLIC Tracy::TracyClient)
 endif()
 if(MSVC)
-    target_compile_options(mendo_core PRIVATE /W4 /utf-8)
+    # /Zc:preprocessor: C++20 準拠 preprocessor (__VA_OPT__ 等)。
+    # profiler.h の MENDO_LOGF/STATF/TRACEF が __VA_OPT__ を使うため必須。
+    # Tracy 等のサードパーティ target は PRIVATE フラグ管理で影響を受けない。
+    target_compile_options(mendo_core PRIVATE /W4 /utf-8 /Zc:preprocessor)
 endif()
 
 # ---- プリコンパイル済みヘッダー ----
@@ -248,7 +257,7 @@ target_link_libraries(mendo PRIVATE mendo_core
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
 )
 if(MSVC)
-    target_compile_options(mendo PRIVATE /W4 /utf-8)
+    target_compile_options(mendo PRIVATE /W4 /utf-8 /Zc:preprocessor)
 endif()
 # 自動生成マニフェストを無効化（RC経由で独自のマニフェストを提供するため）
 set_target_properties(mendo PROPERTIES LINK_FLAGS "/MANIFEST:NO")

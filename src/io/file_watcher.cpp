@@ -71,7 +71,13 @@ void FileWatcher::BeginRead()
 void FileWatcher::StopWatching() noexcept
 {
     if (read_pending_ && dir_handle_) {
-        CancelIo(dir_handle_.get());
+        // CancelIo はキャンセル要求のみで IO の終了を保証しない。CancelIoEx + GetOverlappedResult(..., TRUE)
+        // でカーネルの completion routine が change_buf_ / overlapped_ への書き込みを終えるまで待つ。
+        // 待たずに event_.reset() / overlapped_={} すると次回 StartWatching の change_buf_ 再利用と race し
+        // ヒープ破壊や謎のシグナルを招く。
+        CancelIoEx(dir_handle_.get(), &overlapped_);
+        DWORD bytes_returned = 0;
+        GetOverlappedResult(dir_handle_.get(), &overlapped_, &bytes_returned, TRUE);
         read_pending_ = false;
     }
     event_.reset();

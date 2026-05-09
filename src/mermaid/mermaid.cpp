@@ -1,5 +1,6 @@
 #include "mermaid.h"
 #include "app_constants.h"
+#include "log_hr.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_util.h"
 #include "pmr_format.h"
@@ -16,6 +17,7 @@
 #include <functional>
 #include <memory_resource>
 #include <mutex>
+#include <utility>
 
 #pragma comment(lib, "windowscodecs.lib")
 
@@ -23,6 +25,8 @@ static constexpr std::wstring_view MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
 static constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 static constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
+
+using mendo::LogHrFailure;
 
 MermaidRenderer::~MermaidRenderer()
 {
@@ -143,7 +147,7 @@ void MermaidRenderer::CreateWebView2Environment()
             // に失敗する。タイマーで遅延リトライする。
             if (env_retry_count_ < MAX_ENV_RETRIES && hwnd_) {
                 ++env_retry_count_;
-                SetTimer(hwnd_, app_timer::MERMAID_INIT_RETRY, 500, nullptr);
+                SetTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_INIT_RETRY), 500, nullptr);
             }
             return S_OK;
         }
@@ -159,7 +163,7 @@ void MermaidRenderer::CreateWebView2Environment()
 
 void MermaidRenderer::OnInitRetryTimer()
 {
-    KillTimer(hwnd_, app_timer::MERMAID_INIT_RETRY);
+    KillTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_INIT_RETRY));
     if (!webview_env_ && worker_count_ > 0) {
         CreateWebView2Environment();
     }
@@ -186,15 +190,15 @@ void MermaidRenderer::SetupWorker(int index)
         controller->put_Bounds(bounds);
 
         Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;
-        w.webview->get_Settings(&settings);
+        LogHrFailure(L"get_Settings", w.webview->get_Settings(&settings));
         if (settings) {
-            settings->put_AreDevToolsEnabled(FALSE);
-            settings->put_IsStatusBarEnabled(FALSE);
-            settings->put_AreDefaultContextMenusEnabled(FALSE);
-            settings->put_AreDefaultScriptDialogsEnabled(FALSE);
+            LogHrFailure(L"put_AreDevToolsEnabled", settings->put_AreDevToolsEnabled(FALSE));
+            LogHrFailure(L"put_IsStatusBarEnabled", settings->put_IsStatusBarEnabled(FALSE));
+            LogHrFailure(L"put_AreDefaultContextMenusEnabled", settings->put_AreDefaultContextMenusEnabled(FALSE));
+            LogHrFailure(L"put_AreDefaultScriptDialogsEnabled", settings->put_AreDefaultScriptDialogsEnabled(FALSE));
         }
 
-        w.webview->add_WebMessageReceived(
+        LogHrFailure(L"add_WebMessageReceived", w.webview->add_WebMessageReceived(
             Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                 [this, index](ICoreWebView2*,
                               ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
@@ -250,7 +254,7 @@ void MermaidRenderer::SetupWorker(int index)
                     // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
                     if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
                         ++w.init_retries;
-                        w.webview->Navigate(APP_LOCAL_INDEX_URL);
+                        LogHrFailure(L"Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
                     }
                     break;
                 case WebMessageKind::Unknown:
@@ -260,10 +264,10 @@ void MermaidRenderer::SetupWorker(int index)
             }
             return S_OK;
         }).Get(),
-            nullptr);
+            nullptr));
 
         // ナビゲーションを制限: app.local以外へのナビゲーションをブロック
-        w.webview->add_NavigationStarting(
+        LogHrFailure(L"add_NavigationStarting", w.webview->add_NavigationStarting(
             Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
                 [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static -> HRESULT {
             LPWSTR uri = nullptr;
@@ -276,24 +280,24 @@ void MermaidRenderer::SetupWorker(int index)
             }
             return S_OK;
         }).Get(),
-            nullptr);
+            nullptr));
 
-        w.webview->add_NewWindowRequested(
+        LogHrFailure(L"add_NewWindowRequested", w.webview->add_NewWindowRequested(
             Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
                 [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static -> HRESULT {
             args->put_Handled(TRUE);
             return S_OK;
         }).Get(),
-            nullptr);
+            nullptr));
 
         // 仮想ホストへのリクエストをインターセプトし、
         // 埋め込みWin32リソースからHTML / mermaid.jsを配信する。
         // 全URLをフィルタし、app.local以外へのリクエストもブロックする。
-        w.webview->AddWebResourceRequestedFilter(
+        LogHrFailure(L"AddWebResourceRequestedFilter", w.webview->AddWebResourceRequestedFilter(
             L"*",
-            COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+            COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
 
-        w.webview->add_WebResourceRequested(
+        LogHrFailure(L"add_WebResourceRequested", w.webview->add_WebResourceRequested(
             Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(
                 [this](ICoreWebView2*,
                        ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
@@ -344,11 +348,11 @@ void MermaidRenderer::SetupWorker(int index)
             }
             return S_OK;
         }).Get(),
-            nullptr);
+            nullptr));
 
         // 仮想ホストにナビゲートする（HTML + JSは上記ハンドラにより
         // メモリから配信される）。
-        w.webview->Navigate(APP_LOCAL_INDEX_URL);
+        LogHrFailure(L"Navigate(initial)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
 
         return S_OK;
     }).Get());
@@ -572,7 +576,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
             mermaid_util::JsEscape(worker.current_request.code_storage),
             worker.current_request.dark_mode ? L"true" : L"false",
             worker.current_request.request_id, worker.current_request.request_id);
-        worker.webview->ExecuteScript(js.c_str(), nullptr);
+        LogHrFailure(L"ExecuteScript(svg)", worker.webview->ExecuteScript(js.c_str(), nullptr));
         return;
     }
 
@@ -602,7 +606,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         worker.current_request.dark_mode ? L"true" : L"false",
         worker.current_request.request_id, worker.current_request.request_id);
 
-    worker.webview->ExecuteScript(js.c_str(), nullptr);
+    LogHrFailure(L"ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));
 }
 
 void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
@@ -645,7 +649,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
         L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
         L"window.chrome.webview.postMessage('capture-ready:{}');}});}});",
         w.current_request.request_id);
-    w.webview->ExecuteScript(cap_js.c_str(), nullptr);
+    LogHrFailure(L"ExecuteScript(capture)", w.webview->ExecuteScript(cap_js.c_str(), nullptr));
 }
 
 void MermaidRenderer::DoCapturePreview(int worker_idx)

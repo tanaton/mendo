@@ -20,12 +20,12 @@ protected:
         return {
             .invalidate = [this]() { invalidate_count_++; },
             .invalidate_search_bar = [this]() { invalidate_search_bar_count_++; },
-            .set_timer = [this](UINT_PTR id, UINT ms) {
+            .set_timer = [this](app_timer::Id id, UINT ms) {
             last_timer_id_ = id;
             last_timer_ms_ = ms;
             set_timer_count_++;
         },
-            .kill_timer = [this](UINT_PTR id) {
+            .kill_timer = [this](app_timer::Id id) {
             last_killed_timer_ = id;
             kill_timer_count_++;
         },
@@ -55,9 +55,9 @@ protected:
     int kill_timer_count_ = 0;
     int focus_select_all_count_ = 0;
     int unfocus_count_ = 0;
-    UINT_PTR last_timer_id_ = 0;
+    app_timer::Id last_timer_id_{};
     UINT last_timer_ms_ = 0;
-    UINT_PTR last_killed_timer_ = 0;
+    app_timer::Id last_killed_timer_{};
     int last_caret_pos_ = -1;
     int last_sel_anchor_ = -1;
     int last_sel_caret_ = -1;
@@ -154,7 +154,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedLargeDocDebounces)
     const int before = set_timer_count_;
     ctrl_.OnTextChanged(L"text", nodes);
     EXPECT_GT(set_timer_count_, before);
-    EXPECT_EQ(last_timer_id_, app_timer::SEARCH_DEBOUNCE);
+    EXPECT_EQ(last_timer_id_, app_timer::Id::SEARCH_DEBOUNCE);
 }
 
 // ═══════════════════════════════════════════════

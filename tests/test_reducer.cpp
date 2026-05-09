@@ -14,8 +14,9 @@ protected:
         // スクロール範囲を設定（最大1000.0fまでスクロール可能）
         state.view.viewport.SyncMaxScroll(1000.0f, 500.0f);
         // PaneLayout のモック（ページサイズ用）
-        state.cached_pane_layout.md_rect.height = 500.0f;
-        state.pane_layout_valid = true;
+        PaneLayout pl{};
+        pl.md_rect.height = 500.0f;
+        state.pane_layout_cache.Set(0.0f, pl);
     }
 };
 
@@ -324,7 +325,7 @@ TEST_F(ReducerTest, Resize_Normal_EmitsResizeEnd)
 
     EXPECT_TRUE(HasEffect<effect::RendererResize>(effects));
     EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
-    EXPECT_FALSE(state.pane_layout_valid);
+    EXPECT_FALSE(state.pane_layout_cache.IsValid());
 }
 
 TEST_F(ReducerTest, Resize_Sizing_EmitsSizingUpdate)
@@ -357,7 +358,7 @@ TEST_F(ReducerTest, ToggleDarkMode_EmitsApplyThemeChange)
     auto effects = Reduce(state, ToggleDarkModeAction{});
 
     EXPECT_TRUE(HasEffect<effect::ApplyThemeChange>(effects));
-    EXPECT_FALSE(state.pane_layout_valid);
+    EXPECT_FALSE(state.pane_layout_cache.IsValid());
 }
 
 TEST_F(ReducerTest, ZoomIn_EmitsApplyThemeChange)
@@ -366,7 +367,7 @@ TEST_F(ReducerTest, ZoomIn_EmitsApplyThemeChange)
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::In });
 
     EXPECT_TRUE(HasEffect<effect::ApplyThemeChange>(effects));
-    EXPECT_FALSE(state.pane_layout_valid);
+    EXPECT_FALSE(state.pane_layout_cache.IsValid());
 }
 
 // ---- HWheel テスト ----
@@ -391,13 +392,13 @@ TEST_F(ReducerTest, CaptureChanged_ResetsGesture)
 TEST_F(ReducerTest, Timer_Toast_EmitsInvalidate)
 {
     state.interaction.toast.Show(L"test");
-    auto effects = Reduce(state, TimerAction{ app_timer::TOAST });
+    auto effects = Reduce(state, TimerAction{ app_timer::Id::TOAST });
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, Timer_DeferredLayout_EmitsProcessDeferredLayout)
 {
-    auto effects = Reduce(state, TimerAction{ app_timer::DEFERRED_LAYOUT });
+    auto effects = Reduce(state, TimerAction{ app_timer::Id::DEFERRED_LAYOUT });
     EXPECT_TRUE(HasEffect<effect::ProcessDeferredLayout>(effects));
 }
 
@@ -531,49 +532,49 @@ TEST_F(ReducerTest, SplitterDragStarted_InvalidTarget_NoOp)
 TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 {
     state.window.cached_theme.splitter_width = 4.0f;
-    state.pane_layout_valid = true;
+    state.pane_layout_cache.Set(0.0f, PaneLayout{});
     const float old_width = state.view.panes.GetFilePaneWidth();
 
     auto effects = Reduce(state, SplitterDragMovedAction{
                                      PaneController::DragTarget::Splitter1, 300.0f, 1000.0f });
 
     EXPECT_NE(state.view.panes.GetFilePaneWidth(), old_width);
-    EXPECT_FALSE(state.pane_layout_valid);
+    EXPECT_FALSE(state.pane_layout_cache.IsValid());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
 {
     state.window.cached_theme.splitter_width = 4.0f;
-    state.pane_layout_valid = true;
+    state.pane_layout_cache.Set(0.0f, PaneLayout{});
 
     // Splitter2 は toc_left 基準で toc_width を変更する
     auto effects = Reduce(state, SplitterDragMovedAction{
                                      PaneController::DragTarget::Splitter2, 600.0f, 1000.0f });
 
-    EXPECT_FALSE(state.pane_layout_valid);
+    EXPECT_FALSE(state.pane_layout_cache.IsValid());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, SplitterDragMoved_InvalidTarget_NoOp)
 {
-    state.pane_layout_valid = true;
+    state.pane_layout_cache.Set(0.0f, PaneLayout{});
     auto effects = Reduce(state, SplitterDragMovedAction{
                                      PaneController::DragTarget::FileScrollbar, 300.0f, 1000.0f });
 
-    EXPECT_TRUE(state.pane_layout_valid);
+    EXPECT_TRUE(state.pane_layout_cache.IsValid());
     EXPECT_TRUE(effects.empty());
 }
 
 TEST_F(ReducerTest, SplitterDragEnded_ReleasesAndRefreshes)
 {
     state.view.panes.StartDrag(PaneController::DragTarget::Splitter1);
-    state.pane_layout_valid = true;
+    state.pane_layout_cache.Set(0.0f, PaneLayout{});
 
     auto effects = Reduce(state, SplitterDragEndedAction{});
 
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::None);
-    EXPECT_FALSE(state.pane_layout_valid);
+    EXPECT_FALSE(state.pane_layout_cache.IsValid());
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
     EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
 }
@@ -711,7 +712,9 @@ void SetupScrollableToc(AppState& state)
         md += "\n\n";
     }
     state.document.doc = Document::FromMarkdown(std::pmr::string(md), L"test.md");
-    state.cached_pane_layout.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
+    PaneLayout pl{};
+    pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
+    state.pane_layout_cache.Set(0.0f, pl);
     // item_height=28, header_height=32 → content_height=268, total=30*28=840 → scrollable
 }
 
@@ -720,7 +723,9 @@ void SetupScrollableToc(AppState& state)
 TEST_F(ReducerTest, PaneScrollbarDragStarted_NotScrollable_NoOp)
 {
     // エントリが少なく total_content <= content_height → スクロール不要で no-op
-    state.cached_pane_layout.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
+    PaneLayout pl{};
+    pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
+    state.pane_layout_cache.Set(0.0f, pl);
     // 既定の Toc (エントリ 0) で総コンテンツ 0 → スクロール不要
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, 100.0f });
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::None);

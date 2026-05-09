@@ -48,6 +48,17 @@ bool App::Init(HWND hwnd)
     file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
+    clipboard_manager_.Init(hwnd_, &file_cache_, &mermaid_renderer_,
+                            [this](std::wstring_view m) { ShowToast(m); });
+
+    titlebar_.Init(hwnd_, &state_,
+                   TitleBarController::Callbacks{
+                       .dispatch = [this](const AppAction& a) { Dispatch(a); },
+                       .post_window_message = [this](UINT m, WPARAM w, LPARAM l) {
+                           EmitEffect(effect::PostWindowMessage{ m, w, l });
+                       },
+                   });
+
     resource_manager_.Init(
         state_.document.doc,
         state_.document.layout_cache,
@@ -148,7 +159,9 @@ bool App::Init(HWND hwnd)
         resource_manager_.ScheduleMermaidBatch();
     });
 
-    image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory());
+    if (!image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory())) {
+        OutputDebugStringW(L"[mendo] ImageLoader::Init failed (WIC factory unavailable). Image rendering disabled.\n");
+    }
     image_loader_.InitAsync(hwnd_, app_msg::IMAGE_LOADED, scheduler_);
 
     // D2D デバイスロストでレンダーターゲットが再作成されたら、各ローダーへ伝搬する。
@@ -183,7 +196,7 @@ bool App::Init(HWND hwnd)
         state_.window.titlebar.UpdateLayout(window_w);
     }
 
-    LoadPaneState();
+    persistence_.LoadPaneState(hwnd_);
 
     state_.ctx_menu.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 
@@ -203,9 +216,9 @@ bool App::Init(HWND hwnd)
         OnParseComplete();
         break;
     case PreloadAttachResult::AttachedAsync:
-        if (DocumentService::IsLargerThan(file_load_service_.GetLoadingPath(), app_threshold::LOADING_ANIM_BYTES)) {
+        if (DocumentService::ShouldShowLoadingAnimation(file_load_service_.GetLoadingPath())) {
             file_load_service_.BeginLoadingAnimation();
-            EmitEffect(effect::SetTimer{ app_timer::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
+            EmitEffect(effect::SetTimer{ app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
             Invalidate();
         }
         break;
@@ -223,11 +236,11 @@ ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
         .invalidate = [this]() {
             Invalidate();
         },
-        .set_timer = [this](UINT_PTR id, UINT ms) {
-            SetTimer(hwnd_, id, ms, nullptr);
+        .set_timer = [this](app_timer::Id id, UINT ms) {
+            SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
         },
-        .kill_timer = [this](UINT_PTR id) {
-            KillTimer(hwnd_, id);
+        .kill_timer = [this](app_timer::Id id) {
+            KillTimer(hwnd_, std::to_underlying(id));
         },
         .get_content_width = [this]() -> float {
             return renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
@@ -265,11 +278,11 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
             const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
             InvalidatePane(search_area);
         },
-        .set_timer = [this](UINT_PTR id, UINT ms) {
-            SetTimer(hwnd_, id, ms, nullptr);
+        .set_timer = [this](app_timer::Id id, UINT ms) {
+            SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
         },
-        .kill_timer = [this](UINT_PTR id) {
-            KillTimer(hwnd_, id);
+        .kill_timer = [this](app_timer::Id id) {
+            KillTimer(hwnd_, std::to_underlying(id));
         },
         .focus_select_all = [this]() {
             EmitEffect(effect::SearchFocus{});

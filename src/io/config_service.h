@@ -5,8 +5,6 @@
 #include <filesystem>
 #include <memory_resource>
 
-class PaneController;
-
 // 設定 (settings.ini) のメモリ上マップとディスク永続化を保持する。
 // インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使えば良い。
 class ConfigService {
@@ -61,8 +59,16 @@ public:
     void SaveLastFilePath(std::wstring_view path);
     std::pmr::wstring LoadLastFilePath() const;
 
-    void SavePaneState(const PaneController& panes);
-    void LoadPaneState(PaneController& panes, float client_width);
+    // ペイン状態の永続化用 POD。実体 (PaneController) との変換は呼び出し側 (ui 層) が担う。
+    struct PaneState {
+        bool show_file = true;
+        bool show_toc = true;
+        float file_width = 220.0f;
+        float toc_width = 220.0f;
+    };
+    void SavePaneState(const PaneState& state);
+    // client_width が正なら最大幅 clamp を適用する (狭いウィンドウで既定値が dynamic_max を超える対策)。
+    PaneState LoadPaneState(float client_width, float min_width, float default_width) const;
 
     struct ScrollPosition {
         int node = -1;

@@ -1,4 +1,5 @@
 #pragma once
+#include "app_constants.h"
 #include "doc_text.h"
 #include "ui_types.h"
 #include "pane_layout.h"
@@ -142,11 +143,11 @@ struct ResumeFileWatch {};
 struct CheckFileChanges {};
 
 struct SetTimer {
-    UINT_PTR id;
+    app_timer::Id id;
     UINT ms;
 };
 struct KillTimer {
-    UINT_PTR id;
+    app_timer::Id id;
 };
 struct ProcessDeferredLayout {};
 struct TickLoadingAnimation {};

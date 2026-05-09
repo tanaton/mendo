@@ -355,6 +355,31 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
     EXPECT_NE(html.find("<pre>fallback</pre>"), std::string::npos);
 }
 
+TEST(ExtractSelectedTextAsHtml, ImageRendersAsImgTag)
+{
+    auto nodes = ParseMarkdown("![alt text](https://example.com/img.png)").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Image);
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find("<img src=\"https://example.com/img.png\""), std::string::npos);
+    EXPECT_NE(html.find("alt=\"alt text\""), std::string::npos);
+    EXPECT_EQ(html.find("<pre>"), std::string::npos);
+}
+
+TEST(ExtractSelectedTextAsHtml, ImageEscapesAttributesSafely)
+{
+    // alt と src の両方で & " がエスケープされること。
+    auto nodes = ParseMarkdown("![Q&A \"x\"](path?a=1&b=2)").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Image);
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find("src=\"path?a=1&amp;b=2\""), std::string::npos);
+    EXPECT_NE(html.find("Q&amp;A"), std::string::npos);
+    EXPECT_NE(html.find("&quot;x&quot;"), std::string::npos);
+}
+
 TEST(ExtractSelectedTextAsHtml, UnorderedListWrapsInUl)
 {
     auto nodes = ParseMarkdown("- one\n- two").nodes;

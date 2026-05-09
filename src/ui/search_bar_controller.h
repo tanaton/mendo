@@ -1,4 +1,5 @@
 #pragma once
+#include "app_constants.h"
 #include "doc_text.h"
 #include "search_state.h"
 #include "ui_constants.h"
@@ -22,8 +23,8 @@ public:
     struct Callbacks {
         std::move_only_function<void()> invalidate;                  // ウィンドウ全体の再描画
         std::move_only_function<void()> invalidate_search_bar;       // 検索バー領域のみ再描画
-        std::move_only_function<void(UINT_PTR, UINT)> set_timer;     // SetTimer(id, ms)
-        std::move_only_function<void(UINT_PTR)> kill_timer;          // KillTimer(id)
+        std::move_only_function<void(app_timer::Id, UINT)> set_timer; // SetTimer(id, ms)
+        std::move_only_function<void(app_timer::Id)> kill_timer;      // KillTimer(id)
         std::move_only_function<void()> focus_select_all;            // 検索テキスト全選択でフォーカス
         std::move_only_function<void(int)> focus_set_caret;          // キャレット位置指定でフォーカス
         std::move_only_function<void(int, int)> focus_set_selection; // anchor,caret指定でフォーカス

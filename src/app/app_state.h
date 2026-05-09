@@ -82,9 +82,7 @@ struct AppState {
     bool pending_reload_retry = false;
 
     std::pmr::wstring cached_title_text = L"mendo";
-    PaneLayout cached_pane_layout{};
-    float cached_window_width_for_layout = 0.0f;
-    bool pane_layout_valid = false;
+    PaneLayoutCache pane_layout_cache;
 };
 
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept;

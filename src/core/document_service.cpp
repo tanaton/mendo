@@ -1,4 +1,5 @@
 #include "document_service.h"
+#include "app_constants.h"
 #include "file_loader.h"
 #include "profiler.h"
 
@@ -40,4 +41,14 @@ bool DocumentService::IsLargerThan(const std::pmr::wstring& path, DWORD threshol
         return false;
     }
     return true;
+}
+
+bool DocumentService::IsAsyncLoadCandidate(const std::pmr::wstring& path) noexcept
+{
+    return IsLargerThan(path, app_threshold::ASYNC_LOAD_BYTES);
+}
+
+bool DocumentService::ShouldShowLoadingAnimation(const std::pmr::wstring& path) noexcept
+{
+    return IsLargerThan(path, app_threshold::LOADING_ANIM_BYTES);
 }

@@ -1,4 +1,5 @@
 #pragma once
+#include "worker_latch.h"
 #include <cstdint>
 #include <memory>
 #include <memory_resource>
@@ -116,4 +117,7 @@ private:
 
     mutable std::mutex pending_mutex_;
     std::pmr::unordered_set<uint64_t> pending_writes_;
+
+    // Shutdown / dtor で worker 完了を待つ。scheduler_ 共有 worker から self を参照する race を排除する。
+    WorkerLatch latch_;
 };

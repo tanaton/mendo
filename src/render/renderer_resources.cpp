@@ -1,4 +1,6 @@
 #include "renderer.h"
+#include "d2d_util.h"
+#include "log_hr.h"
 #include "resource.h"
 #include "ui_constants.h"
 #include "wic_util.h"
@@ -13,6 +15,7 @@ void Renderer::LoadAppIconBitmap()
     const HMODULE hModule = GetModuleHandleW(nullptr);
     const HICON hIcon = static_cast<HICON>(LoadImageW(hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
     if (!hIcon) {
+        OutputDebugStringW(L"[mendo] LoadAppIconBitmap: LoadImageW(IDI_APP_ICON) failed\n");
         return;
     }
 
@@ -26,15 +29,20 @@ void Renderer::LoadAppIconBitmap()
     HRESULT hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
     DestroyIcon(hIcon);
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromHICON", hr);
         return;
     }
 
     auto converter = wic_util::ConvertBitmapSource(wic, wic_bitmap.Get());
     if (!converter) {
+        OutputDebugStringW(L"[mendo] LoadAppIconBitmap: ConvertBitmapSource failed\n");
         return;
     }
 
-    rt()->CreateBitmapFromWicBitmap(converter.Get(), nullptr, &app_icon_bitmap_);
+    hr = rt()->CreateBitmapFromWicBitmap(converter.Get(), nullptr, &app_icon_bitmap_);
+    if (FAILED(hr)) {
+        mendo::LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromWicBitmap", hr);
+    }
 }
 
 void Renderer::RecreateBrushes()
@@ -105,10 +113,9 @@ void Renderer::RecreateBrushes()
         auto& brush = brushes_[std::to_underlying(s.id)];
         if (brush) {
             brush->SetColor(s.color);
+            continue;
         }
-        else {
-            render_target_->CreateSolidColorBrush(s.color, &brush);
-        }
+        mendo::CreateSolidColorBrushOrFallback(render_target_, s.color, brush);
     }
 }
 
@@ -123,10 +130,24 @@ ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
     const wchar_t* family, DWRITE_FONT_WEIGHT weight,
     float size, const wchar_t* locale)
 {
+    auto* dw = backend_.GetDWriteFactory();
     ComPtr<IDWriteTextFormat> fmt;
-    backend_.GetDWriteFactory()->CreateTextFormat(
+    HRESULT hr = dw->CreateTextFormat(
         family, nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
+    if (SUCCEEDED(hr)) {
+        return fmt;
+    }
+    // 無効なフォントファミリ名はフォールバック (Segoe UI) で再試行。
+    // ユーザに「フォントが効かない」状態を出さないための最終防壁。
+    mendo::LogHrFailure(L"CreateTextFormat (falling back to Segoe UI)", hr);
+    fmt.Reset();
+    hr = dw->CreateTextFormat(
+        L"Segoe UI", nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
+    if (FAILED(hr)) {
+        mendo::LogHrFailure(L"CreateTextFormat (Segoe UI fallback)", hr);
+    }
     return fmt;
 }
 

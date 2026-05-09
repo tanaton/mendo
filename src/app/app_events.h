@@ -1,4 +1,5 @@
 #pragma once
+#include "app_constants.h"
 #include "doc_text.h"
 #include "pane_layout.h"
 #include "ui_types.h"
@@ -228,7 +229,7 @@ struct CaptureChangedAction {};
 struct DestroyAction {};
 
 struct TimerAction {
-    uintptr_t timer_id;
+    app_timer::Id timer_id;
 };
 struct FileWatchAction {};
 struct ParseCompleteAction {};
