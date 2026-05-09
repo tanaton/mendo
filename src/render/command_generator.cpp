@@ -126,8 +126,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         md_pane_rect.x + md_pane_rect.width, md_pane_rect.y + md_pane_rect.height);
     cmds.emplace_back(PushClipCmd{ md_clip });
     // スクロール位置を物理ピクセル境界にスナップし、ClearTypeヒンティングの
-    // フレーム間変動によるテキストのガタつきを防止する。
-    // viewport bounds にはスナップ前の scroll_y を使い、ヒットテストとの座標一致を保つ。
+    // フレーム間変動によるテキストのガタつきを防止する。スナップは描画 Y のみに
+    // 適用し、二分探索 (FindFirstVisibleNodeIndex) には未スナップ scroll_y を渡す。
     const float snapped_y = SnapToPhysicalPixel(scroll_y, dpi_scale);
     frame_md_pane_x_ = md_pane_rect.x;
     frame_snapped_scroll_y_ = snapped_y;
@@ -171,7 +171,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
 
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
-        // 二分探索キーはドキュメント Y。
+        // 二分探索キーは未スナップのドキュメント Y (cache[i].text_top と同じ系)。
         first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), scroll_y);
     }
 
