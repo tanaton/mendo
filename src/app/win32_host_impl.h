@@ -16,8 +16,8 @@ public:
     void SetCapture() override;
     void ReleaseCapture() override;
     void SetCursor(effect::CursorType type) override;
-    void WriteClipboardText(std::wstring_view text) override;
-    void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) override;
+    void WriteClipboardText(std::string_view text) override;
+    void WriteClipboardHtml(std::string_view html, std::string_view plain) override;
     void ShellOpen(const std::pmr::wstring& url) override;
     void ShowWindowCmd(int cmd) override;
     void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override;

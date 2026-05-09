@@ -6,7 +6,6 @@
 #include "layout.h"
 #include "app_constants.h"
 #include "overloaded.h"
-#include "string_convert.h"
 #include "utility.h"
 #include "ui_constants.h"
 
@@ -86,17 +85,10 @@ void SideEffectExecutor::ExecuteUi(const UiEffect& e)
             host_->SetCursor(ev.type);
         },
         [this](const effect::ClipboardWrite& ev) {
-            // クリップボードは CF_UNICODETEXT (UTF-16) 必須のため UTF-8 → wstring 変換。
-            std::pmr::wstring wide_text;
-            string_convert::Utf8ToWide(ev.text, wide_text);
-            host_->WriteClipboardText(wide_text);
+            host_->WriteClipboardText(ev.text);
         },
         [this](const effect::ClipboardWriteHtml& ev) {
-            std::pmr::wstring wide_html;
-            std::pmr::wstring wide_plain;
-            string_convert::Utf8ToWide(ev.html, wide_html);
-            string_convert::Utf8ToWide(ev.plain, wide_plain);
-            host_->WriteClipboardHtml(wide_html, wide_plain);
+            host_->WriteClipboardHtml(ev.html, ev.plain);
         },
         [this](const effect::ShowTooltip& ev) {
             const POINT screen_pos = host_->ClientToScreen({ ev.px, ev.py });

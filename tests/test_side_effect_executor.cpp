@@ -26,8 +26,8 @@ public:
     int set_capture_count = 0;
     int release_capture_count = 0;
     std::vector<effect::CursorType> set_cursor_calls;
-    std::vector<std::wstring> clipboard_text_calls;
-    std::vector<std::pair<std::wstring, std::wstring>> clipboard_html_calls;
+    std::vector<std::string> clipboard_text_calls;
+    std::vector<std::pair<std::string, std::string>> clipboard_html_calls;
     std::vector<std::wstring> shell_open_calls;
     std::vector<int> show_window_cmd_calls;
     std::vector<std::tuple<UINT, WPARAM, LPARAM>> post_message_calls;
@@ -65,13 +65,13 @@ public:
     {
         set_cursor_calls.push_back(type);
     }
-    void WriteClipboardText(std::wstring_view text) override
+    void WriteClipboardText(std::string_view text) override
     {
         clipboard_text_calls.emplace_back(text);
     }
-    void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) override
+    void WriteClipboardHtml(std::string_view html, std::string_view plain) override
     {
-        clipboard_html_calls.emplace_back(std::wstring{ html }, std::wstring{ plain });
+        clipboard_html_calls.emplace_back(std::string{ html }, std::string{ plain });
     }
     void ShellOpen(const std::pmr::wstring& url) override
     {
@@ -426,10 +426,10 @@ TEST_F(SideEffectExecutorTest, ClipboardEffectsForwardToHost)
     exec_.ExecuteOne(effect::ClipboardWriteHtml{ std::pmr::string{ "<p>html</p>" },
                                                  std::pmr::string{ "plain" } });
     ASSERT_EQ(host_.clipboard_text_calls.size(), 1u);
-    EXPECT_EQ(host_.clipboard_text_calls[0], L"hello");
+    EXPECT_EQ(host_.clipboard_text_calls[0], "hello");
     ASSERT_EQ(host_.clipboard_html_calls.size(), 1u);
-    EXPECT_EQ(host_.clipboard_html_calls[0].first, L"<p>html</p>");
-    EXPECT_EQ(host_.clipboard_html_calls[0].second, L"plain");
+    EXPECT_EQ(host_.clipboard_html_calls[0].first, "<p>html</p>");
+    EXPECT_EQ(host_.clipboard_html_calls[0].second, "plain");
 }
 
 TEST_F(SideEffectExecutorTest, ShellOpenForwardsUrlToHost)

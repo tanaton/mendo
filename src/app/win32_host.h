@@ -26,8 +26,9 @@ public:
 
     virtual void SetCursor(effect::CursorType type) = 0;
 
-    virtual void WriteClipboardText(std::wstring_view text) = 0;
-    virtual void WriteClipboardHtml(std::wstring_view html, std::wstring_view plain) = 0;
+    // 入力は全て UTF-8。CF_UNICODETEXT 用の UTF-16 変換は実装側で行う。
+    virtual void WriteClipboardText(std::string_view text) = 0;
+    virtual void WriteClipboardHtml(std::string_view html, std::string_view plain) = 0;
 
     // ShellExecuteW / SetWindowTextW は null 終端文字列を要求するため、
     // 既に null 終端を保証している pmr::wstring を直接受ける。これにより
