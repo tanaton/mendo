@@ -8,15 +8,17 @@ namespace mendo {
 // CreateSolidColorBrush のフェイルセーフラッパ。失敗時は Magenta で再試行し、
 // nullptr ブラシが DrawXXX に渡るのを防ぐ。重い失敗 (D2DERR_RECREATE_TARGET 等) は
 // EndDraw 経路で検知されて次フレームの HandleDeviceLost で復旧される想定。
+// ReleaseAndGetAddressOf を使い、既存 brush を持つ ComPtr が渡されても assert/leak
+// しないように防御する。
 inline void CreateSolidColorBrushOrFallback(
     ID2D1RenderTarget* rt,
     D2D1_COLOR_F color,
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>& out_brush) noexcept
 {
-    if (SUCCEEDED(rt->CreateSolidColorBrush(color, &out_brush))) {
+    if (SUCCEEDED(rt->CreateSolidColorBrush(color, out_brush.ReleaseAndGetAddressOf()))) {
         return;
     }
-    if (FAILED(rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Magenta), &out_brush))) {
+    if (FAILED(rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Magenta), out_brush.ReleaseAndGetAddressOf()))) {
         OutputDebugStringW(L"[mendo] CreateSolidColorBrush failed even on magenta fallback\n");
     }
 }
