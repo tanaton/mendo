@@ -178,9 +178,7 @@ inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::s
 {
     // EmptyClipboard で既存内容を破壊しないよう、ペイロードが 1 つも揃わなければセッションを開かない。
     std::pmr::wstring plain_wide;
-    if (!plain_text_utf8.empty()) {
-        string_convert::Utf8ToWide(plain_text_utf8, plain_wide);
-    }
+    string_convert::Utf8ToWide(plain_text_utf8, plain_wide);
     if (fragment_utf8.empty() && plain_wide.empty()) {
         return;
     }
