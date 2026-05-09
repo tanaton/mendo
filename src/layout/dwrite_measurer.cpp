@@ -510,7 +510,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     tl.cached_table_width = tl.col_cum_x.back();
 
     // 圧縮分岐に入った場合 cached_table_width は自然総幅と乖離する。
-    // 横スクロール (Issue #205) のクランプ計算は natural_total_width を基準にする。
+    // 横スクロールのクランプ計算は natural_total_width を基準にする。
     {
         float natural_total = (static_cast<float>(col_count) + 1.0f) * border_width
                               + static_cast<float>(col_count) * cell_padding * 2.0f;

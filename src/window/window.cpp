@@ -365,9 +365,7 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
             app_->OnMouseWheel(0, 0, wheel_delta, true);
         }
         else if (shift) {
-            // Issue #205: Shift+Wheel は横スクロール扱い。
-            // Wheel-down (delta < 0) を右スクロール (delta > 0 in HWheel) に変換し、
-            // Web ブラウザの慣習に揃える。
+            // Shift+Wheel は横スクロール扱い。Web ブラウザの慣習に合わせ wheel-down を右スクロールに反転する。
             app_->OnMouseHWheel(static_cast<short>(-wheel_delta));
         }
         else {

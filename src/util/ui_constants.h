@@ -1,6 +1,7 @@
 #pragma once
 #include "ui_types.h"
 #include <d2d1.h>
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 
@@ -38,16 +39,36 @@ inline constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
 inline constexpr float TABLE_STRIPE_ALPHA_DARK = 0.05f;
 inline constexpr float TABLE_STRIPE_ALPHA_LIGHT = 0.02f;
 
-// 横ホイール 1 ノッチあたりの DIP スクロール量。Issue #205 のブロック単位横スクロールで
-// Shift+Wheel / WM_MOUSEHWHEEL から渡される delta (WHEEL_DELTA = 120 単位) を DIP に換算する。
+// 横ホイール 1 ノッチあたりの DIP スクロール量。
+// Shift+Wheel / WM_MOUSEHWHEEL の delta (WHEEL_DELTA = 120 単位) を DIP に換算する。
 inline constexpr float HSCROLL_DIP_PER_NOTCH = 60.0f;
 
-// Issue #205: ブロック横スクロールバーの bar 上端 Y 座標 (ペインローカル document Y)。
+// ブロック横スクロールバーの bar 上端 Y 座標 (ペインローカル document Y)。
 // extra_padding は CodeBlock の背景下端 padding 内に置く場合に渡す (Table は 0)。
-// 描画 (command_generator.cpp) と hit 判定 (app_mouse_click.cpp) で同じ式を使う。
 inline constexpr float BlockHScrollbarBarY(float entry_text_top, float entry_height, float extra_padding) noexcept
 {
     return entry_text_top + entry_height + extra_padding - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+}
+
+// thumb の幅 (DIP)。track の縦と異なり最小幅張り付き時もドラッグ範囲を可動域に揃える必要があるので、
+// 描画とドラッグの ratio 計算で同じ式を共有する。
+inline float BlockHScrollbarThumbWidth(float visible_width, float natural_width) noexcept
+{
+    if (natural_width <= 0.0f) {
+        return 0.0f;
+    }
+    const float raw = visible_width * (visible_width / natural_width);
+    return std::clamp(raw, PANE_SCROLLBAR_THUMB_MIN, visible_width);
+}
+
+// バーのヒット矩形 (スクリーン座標系)。クリック判定 / 描画位置の式を一元化する。
+inline D2D1_RECT_F BlockHScrollbarHitRect(float block_x_screen, float visible_width, float bar_y_screen) noexcept
+{
+    return D2D1::RectF(
+        block_x_screen,
+        bar_y_screen - PANE_SCROLLBAR_HIT_PADDING,
+        block_x_screen + visible_width,
+        bar_y_screen + PANE_SCROLLBAR_WIDTH + PANE_SCROLLBAR_HIT_PADDING);
 }
 
 // ナビゲーションオーバーレイボタンの定数（DIP単位）。

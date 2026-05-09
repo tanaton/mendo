@@ -48,8 +48,8 @@ struct TableLayoutData {
     // 列幅 + パディング + 罫線の合計。FinalizeTableLayout で確定後不変なので
     // GenTable から毎フレーム fold_left せずキャッシュを参照する。
     float cached_table_width = 0.0f;
-    // 圧縮を行わなかった場合の自然な総幅。横スクロール (Issue #205) のクランプ計算用に
-    // 保持する。cached_table_width と一致することもあるが、圧縮分岐を通った場合は乖離する。
+    // 圧縮を行わなかった場合の自然な総幅。横スクロールのクランプ計算用に保持する。
+    // cached_table_width と一致することもあるが、圧縮分岐を通った場合は乖離する。
     float natural_total_width = 0.0f;
     // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept
@@ -104,8 +104,8 @@ struct NodeLayoutEntry {
     static constexpr float kUnmeasuredWidth = -1.0f;
     float cached_width = kUnmeasuredWidth;
     float cached_height = 0.0f;
-    // CodeBlock の最長行幅 (NO_WRAP で計測した自然幅)。横スクロール (Issue #205) で
-    // バーのスケール計算とクランプに使う。CodeBlock 以外では 0 のまま。
+    // CodeBlock の最長行幅 (NO_WRAP で計測した自然幅)。横スクロールバーのスケール計算と
+    // クランプに使う。CodeBlock 以外では 0 のまま。
     float natural_code_width = 0.0f;
     constexpr bool is_measured() const noexcept
     {

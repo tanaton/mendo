@@ -200,7 +200,7 @@ struct HWheelAction {
     uint64_t tick;
 };
 
-// ブロック単位の横スクロール (Issue #205) 関連アクション。
+// ブロック単位の横スクロール関連アクション。
 struct BlockHHoverChangedAction {
     int node_index; // -1 でホバー解除
 };

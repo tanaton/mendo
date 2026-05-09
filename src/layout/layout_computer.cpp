@@ -73,7 +73,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
 
     if (total_natural > 0 && total_natural > effective_available) {
         // 比例圧縮で最も狭い列が MIN_COLUMN_WIDTH を割る場合は、無理に押し込めず
-        // 自然幅で出して横スクロール (Issue #205) に任せる方が読みやすい。
+        // 自然幅で出して横スクロールに任せる方が読みやすい。
         const auto smallest_it = std::ranges::min_element(natural_widths | std::views::take(col_count));
         const float smallest = (smallest_it != natural_widths.end()) ? *smallest_it : 0.0f;
         if (smallest * effective_available < MIN_COLUMN_WIDTH * total_natural) {

@@ -34,9 +34,9 @@ struct ViewState {
     NavHistory nav_history;
     float cached_total_height = 0.0f;
 
-    // ブロック単位の横スクロール (Issue #205)。キーは LayoutCache のノードインデックス。
-    // ファイルロード/リロードでクリア (永続化しない)。スクロールバーはホバー中の対象 1 件
-    // とドラッグ中の対象 1 件のみ描画するため、map サイズはユーザー操作分に限定される。
+    // ブロック単位の横スクロール。キーは LayoutCache のノードインデックス。
+    // ファイルロード/リロードでクリア (永続化しない)。スクロールバーはホバー中とドラッグ中の
+    // 対象のみ描画するため、map サイズはユーザー操作分に限定される。
     std::pmr::unordered_map<int, float> block_scroll_x;
     int hovered_h_block = -1;
     int h_drag_node = -1;

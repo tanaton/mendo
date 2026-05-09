@@ -1,5 +1,6 @@
 #include "reducer.h"
 #include "app_constants.h"
+#include "block_h_scroll.h"
 #include "document_utils.h"
 #include "file_io.h"
 #include "layout_computer.h"
@@ -335,42 +336,23 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
 
 namespace {
 
-// Issue #205: 対象ブロックの自然幅と可視幅を取得する。
-struct BlockHScrollGeometry {
-    float natural_width = 0.0f;
-    float visible_width = 0.0f;
-    bool can_scroll() const noexcept { return natural_width > visible_width && visible_width > 0.0f; }
-};
-
-BlockHScrollGeometry GetBlockHScrollGeometry(const AppState& state, int node_index)
+BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept
 {
-    BlockHScrollGeometry g;
     if (node_index < 0 || !state.theme || !state.pane_layout_cache.IsValid()) {
-        return g;
+        return {};
     }
     const auto& nodes = state.document.doc.GetNodes();
     const auto& cache = state.document.layout_cache;
     if (node_index >= static_cast<int>(nodes.size()) || node_index >= static_cast<int>(cache.size())) {
-        return g;
+        return {};
     }
-    const auto& node = nodes[node_index];
-    const auto& entry = cache[node_index];
-    const float md_w = state.pane_layout_cache.Get().md_rect.width;
-    const float content_w = state.theme->ContentWidth(md_w);
-    const float indent = mendo::layout::NodeIndent(node, *state.theme);
-    g.visible_width = content_w - indent;
-
-    if (node.type == NodeType::Table && entry.has_table_layout()) {
-        g.natural_width = entry.table_layout->natural_total_width;
-    }
-    else if (IsScrollableCodeBlock(node)) {
-        g.natural_width = entry.natural_code_width;
-    }
-    return g;
+    return GetBlockHScrollGeometry(nodes[node_index], cache[node_index], *state.theme,
+                                   state.pane_layout_cache.Get().md_rect.width);
 }
 
 // scroll_x を [0, max] に詰めて map に反映する。0 になった場合はエントリを削除する。
-// scroll_x 変更で HitCache (HitTestService 内) を invalidate するため effects_generation を進める。
+// HitTestService 側のキャッシュキーには block_scroll_x が含まれないため、
+// 値が変わったタイミングで effects_generation を進めて last_md_hit_ の再計算を強制する。
 void ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, float scroll_max)
 {
     const float clamped = std::clamp(new_value, 0.0f, scroll_max);
@@ -391,15 +373,14 @@ void ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, fl
 
 void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& a)
 {
-    // Issue #205: ホバー or ドラッグ中のブロックが横スクロール可能ならそこに適用し、
-    // スワイプオーバーレイには流さない (排他)。
+    // ホバー or ドラッグ中のブロックが横スクロール可能ならそこに適用し、スワイプオーバーレイには流さない。
     const int target = (state.view.h_drag_node >= 0) ? state.view.h_drag_node : state.view.hovered_h_block;
     if (target >= 0) {
-        const auto geom = GetBlockHScrollGeometry(state, target);
+        const auto geom = ResolveBlockHScrollGeometry(state, target);
         if (geom.can_scroll()) {
             const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
             const float cur = state.view.GetBlockScrollX(target);
-            ApplyBlockHScrollDelta(state, target, cur + dx, geom.natural_width - geom.visible_width);
+            ApplyBlockHScrollDelta(state, target, cur + dx, geom.scroll_max());
             PushEffect(effects, effect::InvalidateWindow{});
             return;
         }
@@ -425,7 +406,7 @@ void ReduceBlockHHoverChanged(AppState& state, SideEffectList& effects, const Bl
 
 void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, const BlockHScrollDragStartedAction& a)
 {
-    const auto geom = GetBlockHScrollGeometry(state, a.node_index);
+    const auto geom = ResolveBlockHScrollGeometry(state, a.node_index);
     if (!geom.can_scroll()) {
         return;
     }
@@ -442,14 +423,18 @@ void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const
     if (target < 0) {
         return;
     }
-    const auto geom = GetBlockHScrollGeometry(state, target);
+    const auto geom = ResolveBlockHScrollGeometry(state, target);
     if (!geom.can_scroll()) {
         return;
     }
+    // dip_delta はドラッグの sum = サムが動く DIP。サムが (track - thumb_w) 動いたとき
+    // コンテンツが scroll_max 動くべきなので、scroll_delta = dip_delta * scroll_max / drag_range。
+    // thumb_w が PANE_SCROLLBAR_THUMB_MIN に張り付いた長大コンテンツでも 1:1 で対応する。
     const float dip_delta = a.dip_x - state.view.h_drag_start_x;
-    const float ratio = geom.natural_width / geom.visible_width;
-    const float scroll_max = geom.natural_width - geom.visible_width;
-    ApplyBlockHScrollDelta(state, target, state.view.h_drag_start_scroll + dip_delta * ratio, scroll_max);
+    const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.natural_width);
+    const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
+    const float scroll_max = geom.scroll_max();
+    ApplyBlockHScrollDelta(state, target, state.view.h_drag_start_scroll + dip_delta * scroll_max / drag_range, scroll_max);
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
@@ -828,8 +813,7 @@ void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const Naviga
 
 void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, const RestoreScrollAfterLoadAction& a)
 {
-    // Issue #205: ファイルロード/リロード時にブロック単位の横スクロール状態をクリア。
-    // ノードインデックスはセッション内識別子で、再パース後は別ノードを指しうるため。
+    // ノードインデックスはセッション内の識別子で、再パース後は別ノードを指しうる。
     state.view.block_scroll_x.clear();
     state.view.hovered_h_block = -1;
     state.view.h_drag_node = -1;

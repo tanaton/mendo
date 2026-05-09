@@ -53,7 +53,7 @@ struct MdPaneHitContext {
     // ボタンヒットテスト用（HitTestでは未使用）
     float content_width = 0.0f;
     float md_pane_height = 0.0f;
-    // Issue #205: ブロック単位の横スクロール状態。null なら全 0 扱い。
+    // ブロック単位の横スクロール状態。null なら全 0 扱い。
     const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;
 };
 
@@ -82,7 +82,7 @@ public:
 
     // テーブルセル内のヒットテスト。
     // entry_text_top はノードのテキスト上端 Y (= entry.text_top)。
-    // h_scroll_x は Issue #205 のブロック単位横スクロール量 (DIP)。
+    // h_scroll_x はブロック単位の横スクロール量 (DIP)。
     HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
                            float entry_text_top,
                            int node_index,

@@ -1,4 +1,5 @@
 #pragma once
+#include "block_h_scroll_context.h"
 #include "doc_dwrite_bridge.h"
 #include "draw_command.h"
 #include "document_types.h"
@@ -11,24 +12,6 @@
 #include <cassert>
 #include <memory_resource>
 #include <span>
-#include <unordered_map>
-
-// ブロック単位の横スクロール (Issue #205) の描画時コンテキスト。
-// AppState/ViewState から map とホバー/ドラッグ対象 node_index を切り出して渡す。
-struct BlockHScrollContext {
-    const std::pmr::unordered_map<int, float>* scroll_x = nullptr;
-    int hovered_block = -1;
-    int drag_block = -1;
-
-    float GetScrollX(int node_index) const
-    {
-        if (!scroll_x) {
-            return 0.0f;
-        }
-        const auto it = scroll_x->find(node_index);
-        return (it != scroll_x->end()) ? it->second : 0.0f;
-    }
-};
 
 // HitTestTextRange 初期バッファ容量。1 行中の inline code run が
 // 折り返される想定最大数に合わせる。描画 hot path 中の resize を避けるのが目的。
@@ -152,12 +135,9 @@ private:
     void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered, float entry_text_top);
     void GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     void GenSvgCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
-    // ブロックローカルの水平スクロールバー (Issue #205)。
+    // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。
     // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
-    void GenBlockHScrollbar(DrawCommandList& cmds, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x);
-    // ホバー中 / ドラッグ中の対象ブロックでのみ水平スクロールバーを emit する。
-    // Table と CodeBlock で共通の出現条件を一元化する。
-    void MaybeEmitBlockHScrollbar(DrawCommandList& cmds, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x);
+    void EmitBlockHScrollbarIfActive(DrawCommandList& cmds, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);

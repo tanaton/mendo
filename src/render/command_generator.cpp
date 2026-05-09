@@ -42,23 +42,30 @@ static constexpr float HEADING_UNDERLINE_OFFSET_RATIO = 0.25f;
 
 namespace {
 
-// Issue #205: ブロックローカル横スクロールの clip + Translate を RAII で囲み、
-// push/pop の対称性を強制する。Table と CodeBlock の共通パターンを集約する。
+// ブロックローカル横スクロールの clip と Translate を RAII で囲み、push/pop の対称性を強制する。
+// scroll_x == 0 のときは Translate を省略し、自然幅がペイン幅以下のときは Clip も省略する。
+// 自然幅が visible_width を超えるが scroll_x == 0 の場合 (初期状態) は、依然として右端で
+// Clip しないとペイン余白に内容がはみ出るため、Clip と Translate を独立に判定する。
 class BlockHScrollScope {
 public:
     BlockHScrollScope(DrawCommandList& cmds, const D2D1_RECT_F& clip,
-                      const D2D1::Matrix3x2F& base_transform, float scroll_x, bool active)
-        : cmds_(cmds), restore_(base_transform), active_(active)
+                      const D2D1::Matrix3x2F& base_transform, float scroll_x, bool needs_clip)
+        : cmds_(cmds), restore_(base_transform),
+          push_clip_(needs_clip), translate_(needs_clip && scroll_x > 0.0f)
     {
-        if (active_) {
+        if (push_clip_) {
             cmds_.emplace_back(PushClipCmd{ clip });
+        }
+        if (translate_) {
             cmds_.emplace_back(SetTransformCmd{ base_transform * D2D1::Matrix3x2F::Translation(-scroll_x, 0) });
         }
     }
     ~BlockHScrollScope()
     {
-        if (active_) {
+        if (translate_) {
             cmds_.emplace_back(SetTransformCmd{ restore_ });
+        }
+        if (push_clip_) {
             cmds_.emplace_back(PopClipCmd{});
         }
     }
@@ -68,7 +75,8 @@ public:
 private:
     DrawCommandList& cmds_;
     D2D1::Matrix3x2F restore_;
-    bool active_;
+    bool push_clip_;
+    bool translate_;
 };
 
 } // namespace
@@ -223,20 +231,16 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         return;
 
     case NodeType::Table: {
-        // Issue #205: 自然幅 > 可視幅 ならテーブル全体を scroll_x 分ずらしてクリップ。
         const float natural_w = entry.has_table_layout() ? entry.table_layout->natural_total_width : 0.0f;
         const bool needs_clip = natural_w > cw;
-        const float scroll_x = needs_clip
-                                   ? std::clamp(frame_h_scroll_.GetScrollX(node_index), 0.0f, natural_w - cw)
-                                   : 0.0f;
+        const float scroll_x = needs_clip ? std::clamp(frame_h_scroll_.GetScrollX(node_index), 0.0f, natural_w - cw) : 0.0f;
         {
             BlockHScrollScope guard(cmds,
                                     D2D1::RectF(x, entry_text_top, x + cw, entry_text_top + entry.height),
                                     frame_pane_transform_, scroll_x, needs_clip);
             GenTable(cmds, node, entry, node_index, x, entry_text_top, scroll_x);
         }
-        const float bar_y = BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f);
-        MaybeEmitBlockHScrollbar(cmds, node_index, x, bar_y, cw, natural_w, scroll_x);
+        EmitBlockHScrollbarIfActive(cmds, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), cw, natural_w, scroll_x);
         return;
     }
 
@@ -256,15 +260,11 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             return;
         }
         GenCodeBlockBg(cmds, entry, x, cw, entry_text_top);
-        // Issue #205: 自然幅 > 可視幅 ならテキスト本体だけ scroll_x で平行移動。
-        // 背景とコピーボタンはクリップ外で固定描画する (GitHub と同じ挙動)。
-        // バーは背景下端の padding 内に置き、テキストに被らないようにする。
-        // padding 内クリックも CodeBlock ヒットとして扱うため HitTest 側でガードを緩和済み。
+        // 背景とコピーボタンはクリップ外で固定描画 (GitHub と同じ挙動)。テキスト本体だけ scroll_x 分平行移動。
         {
-            const bool needs_clip = entry.natural_code_width > cw;
-            const float scroll_x = needs_clip
-                                       ? std::clamp(frame_h_scroll_.GetScrollX(node_index), 0.0f, entry.natural_code_width - cw)
-                                       : 0.0f;
+            const float natural_w = entry.natural_code_width;
+            const bool needs_clip = natural_w > cw;
+            const float scroll_x = needs_clip ? std::clamp(frame_h_scroll_.GetScrollX(node_index), 0.0f, natural_w - cw) : 0.0f;
             const float pad = theme_->code_block_padding;
             {
                 BlockHScrollScope guard(cmds,
@@ -272,8 +272,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                                         frame_pane_transform_, scroll_x, needs_clip);
                 GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x, entry_text_top);
             }
-            const float bar_y = BlockHScrollbarBarY(entry_text_top, entry.height, pad);
-            MaybeEmitBlockHScrollbar(cmds, node_index, x, bar_y, cw, entry.natural_code_width, scroll_x);
+            EmitBlockHScrollbarIfActive(cmds, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), cw, natural_w, scroll_x);
         }
         GenCopyButton(cmds, entry, x, cw, node_index == frame_hovered_.copy, entry_text_top);
         return;
@@ -421,24 +420,16 @@ void CommandGenerator::GenSvgCopyButton(DrawCommandList& cmds, float bitmap_righ
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 
-void CommandGenerator::MaybeEmitBlockHScrollbar(DrawCommandList& cmds, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x)
+void CommandGenerator::EmitBlockHScrollbarIfActive(DrawCommandList& cmds, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x)
 {
-    if (natural_width <= visible_width) {
+    if (natural_width <= visible_width || visible_width <= 0.0f) {
         return;
     }
     if (node_index != frame_h_scroll_.hovered_block && node_index != frame_h_scroll_.drag_block) {
         return;
     }
-    GenBlockHScrollbar(cmds, block_x, bar_y, visible_width, natural_width, scroll_x);
-}
-
-void CommandGenerator::GenBlockHScrollbar(DrawCommandList& cmds, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x)
-{
-    if (natural_width <= visible_width || visible_width <= 0.0f) {
-        return;
-    }
     const float track_w = visible_width;
-    const float thumb_w = std::max(PANE_SCROLLBAR_THUMB_MIN, track_w * (visible_width / natural_width));
+    const float thumb_w = BlockHScrollbarThumbWidth(visible_width, natural_width);
     const float scroll_max = natural_width - visible_width;
     const float ratio = (scroll_max > 0.0f) ? std::clamp(scroll_x / scroll_max, 0.0f, 1.0f) : 0.0f;
     // bullet と同じく Identity transform + 物理ピクセル snap で描画する。
@@ -904,7 +895,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             theme_->hr_color, border, BrushId::Hr });
 
         // 可視列のみコマンド生成、画面外は cell_text_starts で flat_offset を直接取得。
-        // 横スクロール (Issue #205) では画面に映る範囲が h_scroll_x だけ右にずれる。
+        // 横スクロール時は画面に映る範囲が h_scroll_x だけ右にずれる。
         const float cull_left = offset_x + frame_viewport_left_ + h_scroll_x;
         const float cull_right = offset_x + frame_viewport_right_ + h_scroll_x;
         float cx = offset_x + border;

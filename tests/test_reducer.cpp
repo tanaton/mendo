@@ -245,7 +245,7 @@ TEST_F(ReducerTest, ImageLoadedAction_EmitsNotifyImageLoaded)
     EXPECT_TRUE(HasEffect<effect::NotifyImageLoaded>(effects));
 }
 
-// ---- Issue #205: ブロック単位の横スクロール ----
+// ---- ブロック単位の横スクロール ----
 
 TEST_F(ReducerTest, BlockHHoverChanged_UpdatesAndInvalidates)
 {
