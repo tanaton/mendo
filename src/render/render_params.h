@@ -1,5 +1,6 @@
 #pragma once
 // Renderer::Render の引数として渡す各種描画パラメータ構造体。
+#include "command_generator.h"
 #include "document_types.h"
 #include "layout_cache.h"
 #include "file_explorer.h"
@@ -165,4 +166,6 @@ struct RenderParams {
     bool can_go_back = false;
     bool can_go_forward = false;
     bool has_dirty_nodes = false;
+    // ブロック単位の横スクロール (Issue #205)。値で持ち、ポインタで AppState 側 map を参照する。
+    BlockHScrollContext block_h_scroll;
 };

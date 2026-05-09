@@ -48,6 +48,9 @@ struct TableLayoutData {
     // 列幅 + パディング + 罫線の合計。FinalizeTableLayout で確定後不変なので
     // GenTable から毎フレーム fold_left せずキャッシュを参照する。
     float cached_table_width = 0.0f;
+    // 圧縮を行わなかった場合の自然な総幅。横スクロール (Issue #205) のクランプ計算用に
+    // 保持する。cached_table_width と一致することもあるが、圧縮分岐を通った場合は乖離する。
+    float natural_total_width = 0.0f;
     // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept
     {
@@ -101,6 +104,9 @@ struct NodeLayoutEntry {
     static constexpr float kUnmeasuredWidth = -1.0f;
     float cached_width = kUnmeasuredWidth;
     float cached_height = 0.0f;
+    // CodeBlock の最長行幅 (NO_WRAP で計測した自然幅)。横スクロール (Issue #205) で
+    // バーのスケール計算とクランプに使う。CodeBlock 以外では 0 のまま。
+    float natural_code_width = 0.0f;
     constexpr bool is_measured() const noexcept
     {
         return cached_width > 0.0f;
@@ -331,6 +337,7 @@ public:
             e.text_layout.Reset();
             e.effects_applied = false;
             e.first_line_height = 0.0f;
+            e.natural_code_width = 0.0f;
             e.clear_inline_code_bgs();
             e.invalidate_per_frame_hl_caches();
             if (e.table_layout) {
@@ -434,6 +441,7 @@ public:
             e.layout_dirty = true;
             e.text_layout.Reset();
             e.first_line_height = 0.0f;
+            e.natural_code_width = 0.0f;
             e.invalidate_per_frame_hl_caches();
             if (e.table_layout) {
                 ResetTableLayoutGeometry(*e.table_layout);
@@ -514,6 +522,7 @@ private:
         tl.col_count = 0;
         tl.last_applied_max_width = -1.0f;
         tl.cached_table_width = 0.0f;
+        tl.natural_total_width = 0.0f;
     }
 
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept
@@ -524,6 +533,7 @@ private:
         e.text_layout.Reset();
         e.effects_applied = false;
         e.first_line_height = 0.0f;
+        e.natural_code_width = 0.0f;
         e.clear_inline_code_bgs();
         e.table_layout.reset();
         e.layout_dirty = true;

@@ -245,6 +245,50 @@ TEST_F(ReducerTest, ImageLoadedAction_EmitsNotifyImageLoaded)
     EXPECT_TRUE(HasEffect<effect::NotifyImageLoaded>(effects));
 }
 
+// ---- Issue #205: ブロック単位の横スクロール ----
+
+TEST_F(ReducerTest, BlockHHoverChanged_UpdatesAndInvalidates)
+{
+    auto effects = Reduce(state, BlockHHoverChangedAction{ 5 });
+    EXPECT_EQ(state.view.hovered_h_block, 5);
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+TEST_F(ReducerTest, BlockHHoverChanged_SameValue_NoEffect)
+{
+    state.view.hovered_h_block = 5;
+    auto effects = Reduce(state, BlockHHoverChangedAction{ 5 });
+    EXPECT_TRUE(effects.empty());
+}
+
+TEST_F(ReducerTest, RestoreScrollAfterLoad_ClearsBlockHScroll)
+{
+    state.view.block_scroll_x[3] = 100.0f;
+    state.view.block_scroll_x[7] = 250.0f;
+    state.view.hovered_h_block = 3;
+    state.view.h_drag_node = 7;
+
+    Reduce(state, RestoreScrollAfterLoadAction{ false, 0.0f });
+
+    EXPECT_TRUE(state.view.block_scroll_x.empty());
+    EXPECT_EQ(state.view.hovered_h_block, -1);
+    EXPECT_EQ(state.view.h_drag_node, -1);
+}
+
+TEST_F(ReducerTest, BlockHScrollDragEnded_ReleasesCapture)
+{
+    state.view.h_drag_node = 4;
+    auto effects = Reduce(state, BlockHScrollDragEndedAction{});
+    EXPECT_EQ(state.view.h_drag_node, -1);
+    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
+}
+
+TEST_F(ReducerTest, BlockHScrollDragEnded_NotDragging_NoEffect)
+{
+    auto effects = Reduce(state, BlockHScrollDragEndedAction{});
+    EXPECT_TRUE(effects.empty());
+}
+
 // ---- ナビゲーションテスト ----
 
 TEST_F(ReducerTest, NavigateBack_NoHistory_NoEffects)

@@ -2,9 +2,11 @@
 #include "app_constants.h"
 #include "document_utils.h"
 #include "file_io.h"
+#include "layout_computer.h"
 #include "overloaded.h"
 #include "ui_constants.h"
 #include "utility.h"
+#include <algorithm>
 #include <cmath>
 
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
@@ -331,8 +333,79 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
         });
 }
 
+namespace {
+
+// Issue #205: 対象ブロックの自然幅と可視幅を取得する。
+struct BlockHScrollGeometry {
+    float natural_width = 0.0f;
+    float visible_width = 0.0f;
+    bool can_scroll() const noexcept { return natural_width > visible_width && visible_width > 0.0f; }
+};
+
+BlockHScrollGeometry GetBlockHScrollGeometry(const AppState& state, int node_index)
+{
+    BlockHScrollGeometry g;
+    if (node_index < 0 || !state.theme || !state.pane_layout_cache.IsValid()) {
+        return g;
+    }
+    const auto& nodes = state.document.doc.GetNodes();
+    const auto& cache = state.document.layout_cache;
+    if (node_index >= static_cast<int>(nodes.size()) || node_index >= static_cast<int>(cache.size())) {
+        return g;
+    }
+    const auto& node = nodes[node_index];
+    const auto& entry = cache[node_index];
+    const float md_w = state.pane_layout_cache.Get().md_rect.width;
+    const float content_w = state.theme->ContentWidth(md_w);
+    const float indent = mendo::layout::NodeIndent(node, *state.theme);
+    g.visible_width = content_w - indent;
+
+    if (node.type == NodeType::Table && entry.has_table_layout()) {
+        g.natural_width = entry.table_layout->natural_total_width;
+    }
+    else if (node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language)) {
+        g.natural_width = entry.natural_code_width;
+    }
+    return g;
+}
+
+// scroll_x を [0, max] に詰めて map に反映する。0 になった場合はエントリを削除する。
+// scroll_x 変更で HitCache (HitTestService 内) を invalidate するため effects_generation を進める。
+void ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, float scroll_max)
+{
+    const float clamped = std::clamp(new_value, 0.0f, scroll_max);
+    const float prev = state.view.GetBlockScrollX(node_index);
+    if (std::abs(prev - clamped) < 1e-3f) {
+        return;
+    }
+    if (clamped <= 0.0f) {
+        state.view.block_scroll_x.erase(node_index);
+    }
+    else {
+        state.view.block_scroll_x[node_index] = clamped;
+    }
+    state.document.layout_cache.IncrementEffectsGeneration();
+}
+
+} // namespace
+
 void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& a)
 {
+    // Issue #205: ホバー or ドラッグ中のブロックが横スクロール可能ならそこに適用し、
+    // スワイプオーバーレイには流さない (排他)。
+    const int target = (state.view.h_drag_node >= 0) ? state.view.h_drag_node : state.view.hovered_h_block;
+    if (target >= 0) {
+        const auto geom = GetBlockHScrollGeometry(state, target);
+        if (geom.can_scroll()) {
+            constexpr float DIP_PER_WHEEL_NOTCH = 60.0f;
+            const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * DIP_PER_WHEEL_NOTCH;
+            const float cur = state.view.GetBlockScrollX(target);
+            ApplyBlockHScrollDelta(state, target, cur + dx, geom.natural_width - geom.visible_width);
+            PushEffect(effects, effect::InvalidateWindow{});
+            return;
+        }
+    }
+
     const bool had_overlay = state.interaction.swipe_detector.IsOverlayVisible();
     const int old_direction = state.interaction.swipe_detector.GetOverlayDirection();
     state.interaction.swipe_detector.OnHWheel(a.delta, a.tick);
@@ -340,6 +413,55 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     if (had_overlay != state.interaction.swipe_detector.IsOverlayVisible() || old_direction != state.interaction.swipe_detector.GetOverlayDirection()) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
+}
+
+void ReduceBlockHHoverChanged(AppState& state, SideEffectList& effects, const BlockHHoverChangedAction& a)
+{
+    if (state.view.hovered_h_block == a.node_index) {
+        return;
+    }
+    state.view.hovered_h_block = a.node_index;
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, const BlockHScrollDragStartedAction& a)
+{
+    const auto geom = GetBlockHScrollGeometry(state, a.node_index);
+    if (!geom.can_scroll()) {
+        return;
+    }
+    state.view.h_drag_node = a.node_index;
+    state.view.h_drag_start_x = a.dip_x;
+    state.view.h_drag_start_scroll = state.view.GetBlockScrollX(a.node_index);
+    PushEffect(effects, effect::SetCapture{});
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const BlockHScrollDragMovedAction& a)
+{
+    const int target = state.view.h_drag_node;
+    if (target < 0) {
+        return;
+    }
+    const auto geom = GetBlockHScrollGeometry(state, target);
+    if (!geom.can_scroll()) {
+        return;
+    }
+    const float dip_delta = a.dip_x - state.view.h_drag_start_x;
+    const float ratio = geom.natural_width / geom.visible_width;
+    const float scroll_max = geom.natural_width - geom.visible_width;
+    ApplyBlockHScrollDelta(state, target, state.view.h_drag_start_scroll + dip_delta * ratio, scroll_max);
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+void ReduceBlockHScrollDragEnded(AppState& state, SideEffectList& effects, const BlockHScrollDragEndedAction&)
+{
+    if (state.view.h_drag_node < 0) {
+        return;
+    }
+    state.view.h_drag_node = -1;
+    PushEffect(effects, effect::ReleaseCapture{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceSearchStep(AppState& state, bool forward)
@@ -707,6 +829,12 @@ void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const Naviga
 
 void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, const RestoreScrollAfterLoadAction& a)
 {
+    // Issue #205: ファイルロード/リロード時にブロック単位の横スクロール状態をクリア。
+    // ノードインデックスはセッション内識別子で、再パース後は別ノードを指しうるため。
+    state.view.block_scroll_x.clear();
+    state.view.hovered_h_block = -1;
+    state.view.h_drag_node = -1;
+
     state.view.viewport.ClearScrollTarget();
     if (a.has_reload_diff) {
         state.view.viewport.SetScrollY(a.reload_diff_scroll_y);
@@ -836,6 +964,10 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ResizeAction& a) { ReduceResize(state, effects, a); },
         [&](const DpiChangedAction& a) { ReduceDpiChanged(state, effects, a); },
         [&](const HWheelAction& a) { ReduceHWheel(state, effects, a); },
+        [&](const BlockHHoverChangedAction& a) { ReduceBlockHHoverChanged(state, effects, a); },
+        [&](const BlockHScrollDragStartedAction& a) { ReduceBlockHScrollDragStarted(state, effects, a); },
+        [&](const BlockHScrollDragMovedAction& a) { ReduceBlockHScrollDragMoved(state, effects, a); },
+        [&](const BlockHScrollDragEndedAction& a) { ReduceBlockHScrollDragEnded(state, effects, a); },
 
         // ---- 検索 ----
         [&](const OpenSearchBarAction&) { state.search.search_bar_ctrl.OnOpen(state.document.doc.GetNodes()); },

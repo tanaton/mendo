@@ -4,6 +4,7 @@
 #include "app_mouse_helpers.h"
 #include "document_utils.h"
 #include "i18n.h"
+#include "layout_computer.h"
 #include "pane_layout.h"
 #include "string_convert.h"
 #include "ui_constants.h"
@@ -103,6 +104,44 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
         Dispatch(MdScrollbarDragStartedAction{ dip_y, layout_service_->GetTotalHeight() });
         return;
+    }
+
+    // Issue #205: ホバー中ブロックの水平スクロールバー上ならドラッグ開始 (テキスト選択より優先)。
+    if (state_.view.hovered_h_block >= 0) {
+        const int hover = state_.view.hovered_h_block;
+        const auto& nodes = state_.document.doc.GetNodes();
+        const auto& cache = state_.document.layout_cache;
+        if (hover < static_cast<int>(nodes.size()) && hover < static_cast<int>(cache.size())) {
+            const auto& node = nodes[hover];
+            const auto& entry = cache[hover];
+            const auto& theme = renderer_.GetTheme();
+            const float md_x = pane_layout.md_rect.x + theme.margin_left;
+            const float indent = mendo::layout::NodeIndent(node, theme);
+            const float visible_w = theme.ContentWidth(pane_layout.md_rect.width) - indent;
+            float natural_w = 0.0f;
+            float bar_y_local = 0.0f;
+            if (node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language)) {
+                natural_w = entry.natural_code_width;
+                bar_y_local = entry.text_top + entry.height - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+            }
+            else if (node.type == NodeType::Table && entry.has_table_layout()) {
+                natural_w = entry.table_layout->natural_total_width;
+                bar_y_local = entry.text_top + entry.height - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+            }
+            if (natural_w > visible_w) {
+                // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない。
+                // クリック判定の bar_y_screen も md_rect.y を加算してはならない (描画とズレるため)。
+                const float scroll_y = state_.view.viewport.GetScrollY();
+                const float bar_y_screen = bar_y_local - scroll_y;
+                const float block_x_screen = md_x + indent;
+                if (dip_y >= bar_y_screen - PANE_SCROLLBAR_HIT_PADDING &&
+                    dip_y <= bar_y_screen + PANE_SCROLLBAR_WIDTH + PANE_SCROLLBAR_HIT_PADDING &&
+                    dip_x >= block_x_screen && dip_x <= block_x_screen + visible_w) {
+                    Dispatch(BlockHScrollDragStartedAction{ hover, dip_x });
+                    return;
+                }
+            }
+        }
     }
 
     const auto hit = HitTest(px, py);

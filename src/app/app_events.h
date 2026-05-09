@@ -199,6 +199,19 @@ struct HWheelAction {
     short delta;
     uint64_t tick;
 };
+
+// ブロック単位の横スクロール (Issue #205) 関連アクション。
+struct BlockHHoverChangedAction {
+    int node_index; // -1 でホバー解除
+};
+struct BlockHScrollDragStartedAction {
+    int node_index;
+    float dip_x;
+};
+struct BlockHScrollDragMovedAction {
+    float dip_x;
+};
+struct BlockHScrollDragEndedAction {};
 struct DropFilesAction {
     std::pmr::wstring path;
 };
@@ -296,6 +309,10 @@ using AppAction = std::variant<
     NavigateAnchorAction,
     RestoreScrollAfterLoadAction,
     HWheelAction,
+    BlockHHoverChangedAction,
+    BlockHScrollDragStartedAction,
+    BlockHScrollDragMovedAction,
+    BlockHScrollDragEndedAction,
     DropFilesAction,
     UpdateTooltipAction,
     ClearTooltipAction,

@@ -291,6 +291,9 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
             entry.height = metrics.height;
             entry.layout_dirty = false;
             CacheFirstLineHeight(entry.text_layout.Get(), entry);
+            if (node.type == NodeType::CodeBlock) {
+                entry.natural_code_width = metrics.widthIncludingTrailingWhitespace;
+            }
             // 折り返し行が変わるためエフェクト位置 / ハイライト矩形は無効化する。
             // text_layout 自体は破棄しない (フォーマット属性は保持される)。
             entry.effects_applied = false;
@@ -301,6 +304,7 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
         // 失敗時はスローパスでフルに作り直す。
         entry.text_layout.Reset();
         entry.first_line_height = 0.0f;
+        entry.natural_code_width = 0.0f;
     }
 
     // 1 ノードにつき WideViewForDWrite を 1 回だけ構築し、CreateTextLayout と ApplyRunFormatting で共有する
@@ -349,6 +353,9 @@ void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float m
     entry.height = metrics.height;
     entry.layout_dirty = false;
     entry.effects_applied = false;
+    if (node.type == NodeType::CodeBlock) {
+        entry.natural_code_width = metrics.widthIncludingTrailingWhitespace;
+    }
     entry.clear_inline_code_bgs();
     entry.invalidate_per_frame_hl_caches();
 }
@@ -501,6 +508,17 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
 
     // col_cum_x の末尾は border_width + Σ(col_w + 2*pad + border) と一致するため再計算しない。
     tl.cached_table_width = tl.col_cum_x.back();
+
+    // 圧縮分岐に入った場合 cached_table_width は自然総幅と乖離する。
+    // 横スクロール (Issue #205) のクランプ計算は natural_total_width を基準にする。
+    {
+        float natural_total = (static_cast<float>(col_count) + 1.0f) * border_width
+                              + static_cast<float>(col_count) * cell_padding * 2.0f;
+        for (size_t c = 0; c < col_count && c < natural_widths.size(); c++) {
+            natural_total += natural_widths[c];
+        }
+        tl.natural_total_width = natural_total;
+    }
 
     entry.height = total_height;
     entry.layout_dirty = false;

@@ -9,6 +9,7 @@
 #include <concepts>
 #include <limits>
 #include <memory_resource>
+#include <unordered_map>
 
 // ボタン矩形の純粋表現。テスト側が実装の式を再構築せずに済むよう、
 // 各ボタンの矩形を返す API は本ヘッダから提供する。
@@ -52,6 +53,8 @@ struct MdPaneHitContext {
     // ボタンヒットテスト用（HitTestでは未使用）
     float content_width = 0.0f;
     float md_pane_height = 0.0f;
+    // Issue #205: ブロック単位の横スクロール状態。null なら全 0 扱い。
+    const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;
 };
 
 // 物理ピクセルをMDペインローカルのDIP座標に変換する。
@@ -79,11 +82,12 @@ public:
 
     // テーブルセル内のヒットテスト。
     // entry_text_top はノードのテキスト上端 Y (= entry.text_top)。
+    // h_scroll_x は Issue #205 のブロック単位横スクロール量 (DIP)。
     HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
                            float entry_text_top,
                            int node_index,
                            const Theme& theme,
-                           float dip_x, float dip_y) const noexcept;
+                           float dip_x, float dip_y, float h_scroll_x = 0.0f) const noexcept;
 
     // ナビゲーションボタンのヒットテスト
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept;
