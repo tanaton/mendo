@@ -7,14 +7,14 @@
 #include <memory_resource>
 
 // テーブルセル復元の対象範囲を絞るための viewport クリップ。
-// MeasureTable の RestoreNullCellLayouts と FinalizeTableLayout で参照する。
 // デフォルト (±inf) は全範囲扱いで、部分復元しない従来挙動と一致する。
 struct MeasureViewportRange {
-    float top = -std::numeric_limits<float>::infinity();
-    float bottom = std::numeric_limits<float>::infinity();
+    static constexpr float kInf = std::numeric_limits<float>::infinity();
+    float top = -kInf;
+    float bottom = kInf;
     constexpr bool is_full() const noexcept
     {
-        return top == -std::numeric_limits<float>::infinity() && bottom == std::numeric_limits<float>::infinity();
+        return top == -kInf && bottom == kInf;
     }
 };
 

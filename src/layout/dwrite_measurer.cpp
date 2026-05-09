@@ -635,7 +635,6 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
         tl.col_count = col_count;
         tl.cell_layouts.assign(row_count * col_count, {});
 
-        // 第1パス: テキストレイアウトを作成し、自然な幅を計測。
         // 初回構築は常に全行を作る (列幅判定に全行の自然幅が必要なため)。
         std::pmr::vector<float> natural_widths(col_count, 0.0f);
         MeasureTableCells(node, entry, natural_widths);
