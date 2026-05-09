@@ -8,6 +8,20 @@
 #include "mermaid_util.h"
 #include "string_convert.h"
 
+namespace {
+
+// node_index がノード数の範囲内なら該当ノードを、範囲外なら nullptr を返す。
+const Node* NodeAt(const Document& doc, int node_index) noexcept
+{
+    const auto& nodes = doc.GetNodes();
+    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
+        return nullptr;
+    }
+    return &nodes[node_index];
+}
+
+} // namespace
+
 void ClipboardManager::Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRenderer* mermaid_renderer,
                             ToastCallback show_toast) noexcept
 {
@@ -19,22 +33,22 @@ void ClipboardManager::Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRen
 
 void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index) const
 {
-    const auto& nodes = doc.GetNodes();
-    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
+    const Node* node = NodeAt(doc, node_index);
+    if (!node) {
         return;
     }
     std::pmr::wstring wide;
-    string_convert::Utf8ToWide(nodes[node_index].GetText(), wide);
+    string_convert::Utf8ToWide(node->GetText(), wide);
     WriteClipboardText(hwnd_, wide);
 }
 
 void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark)
 {
-    const auto& nodes = doc.GetNodes();
-    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
+    const Node* node_ptr = NodeAt(doc, node_index);
+    if (!node_ptr) {
         return;
     }
-    const auto& node = nodes[node_index];
+    const auto& node = *node_ptr;
     if (node.type != NodeType::CodeBlock || !IsDiagramLanguage(node.code_language)) {
         return;
     }
@@ -66,11 +80,11 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, flo
 
 void ClipboardManager::CopyDiagramAsSvg(const Document& doc, int node_index, float md_width, bool dark)
 {
-    const auto& nodes = doc.GetNodes();
-    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
+    const Node* node_ptr = NodeAt(doc, node_index);
+    if (!node_ptr) {
         return;
     }
-    const auto& node = nodes[node_index];
+    const auto& node = *node_ptr;
     if (node.type != NodeType::CodeBlock || !IsSvgExportable(node.code_language)) {
         return;
     }

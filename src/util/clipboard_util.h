@@ -77,7 +77,7 @@ inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT
 }
 
 // クリップボードにテキストを書き込む共通ユーティリティ。
-// App::SetClipboardText と SideEffectExecutor の両方から使用される。
+// ClipboardManager (Mermaid 用) と SideEffectExecutor 経路の両方から使用される。
 inline void WriteClipboardText(HWND hwnd, std::wstring_view text) noexcept
 {
     if (text.empty()) {

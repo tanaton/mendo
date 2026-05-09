@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "d2d_util.h"
+#include "log_hr.h"
 #include "resource.h"
 #include "ui_constants.h"
 #include "wic_util.h"
@@ -28,7 +29,7 @@ void Renderer::LoadAppIconBitmap()
     HRESULT hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
     DestroyIcon(hIcon);
     if (FAILED(hr)) {
-        OutputDebugStringW(L"[mendo] LoadAppIconBitmap: CreateBitmapFromHICON failed\n");
+        mendo::LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromHICON", hr);
         return;
     }
 
@@ -40,7 +41,7 @@ void Renderer::LoadAppIconBitmap()
 
     hr = rt()->CreateBitmapFromWicBitmap(converter.Get(), nullptr, &app_icon_bitmap_);
     if (FAILED(hr)) {
-        OutputDebugStringW(L"[mendo] LoadAppIconBitmap: CreateBitmapFromWicBitmap failed\n");
+        mendo::LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromWicBitmap", hr);
     }
 }
 
@@ -139,11 +140,14 @@ ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
     }
     // 無効なフォントファミリ名はフォールバック (Segoe UI) で再試行。
     // ユーザに「フォントが効かない」状態を出さないための最終防壁。
-    OutputDebugStringW(L"[mendo] CreateTextFormat failed, falling back to Segoe UI\n");
+    mendo::LogHrFailure(L"CreateTextFormat (falling back to Segoe UI)", hr);
     fmt.Reset();
-    dw->CreateTextFormat(
+    hr = dw->CreateTextFormat(
         L"Segoe UI", nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
+    if (FAILED(hr)) {
+        mendo::LogHrFailure(L"CreateTextFormat (Segoe UI fallback)", hr);
+    }
     return fmt;
 }
 

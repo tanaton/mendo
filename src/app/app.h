@@ -224,7 +224,6 @@ private:
     void InvalidateMdPane(const PaneRect& md_rect);
     void InvalidateHitPositions();
     void ScrollTo(float position);
-    int FindFirstVisibleNode() const noexcept;
     void OnResizeEnd();
     void RefreshPaneLayout();
     void RefreshFilePane();

@@ -71,11 +71,6 @@ void App::InvalidateMdPane(const PaneRect& md_rect)
     InvalidatePane(md_rect);
 }
 
-int App::FindFirstVisibleNode() const noexcept
-{
-    return state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size());
-}
-
 void App::EnsureScrollTarget()
 {
     state_.view.viewport.EnsureScrollTarget(

@@ -502,11 +502,12 @@ TEST_F(SideEffectExecutorTest, InvalidateTitleBarComputesRectFromCachedWidthAndD
     state_.window.cached_dpi_scale = 2.0f;
     state_.pane_layout_cache.Set(800.0f, PaneLayout{});
     // Titlebar::GetHeight() は constexpr 32.0f を返す。
-    // height: 32.0f * 2.0f + 0.5f = 64.5f → int cast で 64
-    // width:  800.0f * 2.0f → 1600 +1 で 1601 (境界ピクセル切れ防止)
+    // 丸めは width/height とも mendo::InvalidateDipRect と同じ truncate+1 で揃える。
+    // width:  800.0f * 2.0f → 1600 +1 = 1601
+    // height: 32.0f * 2.0f → 64 +1 = 65
     exec_.ExecuteOne(effect::InvalidateTitleBar{});
     ASSERT_EQ(host_.invalidate_titlebar_calls.size(), 1u);
-    EXPECT_EQ(host_.invalidate_titlebar_calls[0], std::make_pair(1601, 64));
+    EXPECT_EQ(host_.invalidate_titlebar_calls[0], std::make_pair(1601, 65));
     EXPECT_EQ(host_.invalidate_count, 0);
 }
 

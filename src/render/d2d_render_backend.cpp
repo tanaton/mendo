@@ -24,6 +24,7 @@ bool D2DRenderBackend::Init(HWND hwnd)
         &opts,
         reinterpret_cast<void**>(d2d_factory_.GetAddressOf()));
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"D2D1CreateFactory", hr);
         return false;
     }
 
@@ -32,6 +33,7 @@ bool D2DRenderBackend::Init(HWND hwnd)
         __uuidof(IDWriteFactory),
         reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"DWriteCreateFactory", hr);
         return false;
     }
 
@@ -75,6 +77,7 @@ bool D2DRenderBackend::CreateDeviceResources()
             flags, feature_levels, ARRAYSIZE(feature_levels),
             D3D11_SDK_VERSION, &d3d_device_, nullptr, nullptr);
         if (FAILED(hr)) {
+            mendo::LogHrFailure(L"D3D11CreateDevice (WARP)", hr);
             return false;
         }
     }
@@ -82,16 +85,19 @@ bool D2DRenderBackend::CreateDeviceResources()
     ComPtr<IDXGIDevice> dxgi_device;
     hr = d3d_device_.As(&dxgi_device);
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"ID3D11Device::As<IDXGIDevice>", hr);
         return false;
     }
 
     hr = d2d_factory_->CreateDevice(dxgi_device.Get(), &d2d_device_);
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"ID2D1Factory1::CreateDevice", hr);
         return false;
     }
 
     hr = d2d_device_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &device_context_);
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"ID2D1Device::CreateDeviceContext", hr);
         return false;
     }
 
@@ -100,12 +106,14 @@ bool D2DRenderBackend::CreateDeviceResources()
     ComPtr<IDXGIAdapter> adapter;
     hr = dxgi_device->GetAdapter(&adapter);
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"IDXGIDevice::GetAdapter", hr);
         return false;
     }
 
     ComPtr<IDXGIFactory2> dxgi_factory;
     hr = adapter->GetParent(IID_PPV_ARGS(&dxgi_factory));
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"IDXGIAdapter::GetParent<IDXGIFactory2>", hr);
         return false;
     }
 
@@ -131,6 +139,7 @@ bool D2DRenderBackend::CreateDeviceResources()
         hr = dxgi_factory->CreateSwapChainForHwnd(
             d3d_device_.Get(), hwnd_, &scd, nullptr, nullptr, &swap_chain_);
         if (FAILED(hr)) {
+            mendo::LogHrFailure(L"CreateSwapChainForHwnd (FLIP_SEQUENTIAL)", hr);
             return false;
         }
     }
@@ -147,6 +156,7 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
     ComPtr<IDXGISurface> surface;
     HRESULT hr = swap_chain_->GetBuffer(0, IID_PPV_ARGS(&surface));
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"IDXGISwapChain1::GetBuffer", hr);
         return false;
     }
 
@@ -158,6 +168,7 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
     ComPtr<ID2D1Bitmap1> target_bitmap;
     hr = device_context_->CreateBitmapFromDxgiSurface(surface.Get(), &bp, &target_bitmap);
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"CreateBitmapFromDxgiSurface", hr);
         return false;
     }
 
@@ -179,6 +190,7 @@ void D2DRenderBackend::Resize(UINT width, UINT height) noexcept
 
     const HRESULT hr = swap_chain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"IDXGISwapChain1::ResizeBuffers", hr);
         device_lost_ = true;
         return;
     }

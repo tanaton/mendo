@@ -1,6 +1,7 @@
 #include "image_loader.h"
 #include "file_io.h"
 #include "file_loader.h"
+#include "log_hr.h"
 #include "stream_util.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
@@ -51,6 +52,7 @@ bool ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
         CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&wic_factory_));
     if (FAILED(hr)) {
+        mendo::LogHrFailure(L"ImageLoader CoCreateInstance(WIC)", hr);
         wic_factory_.Reset();
         return false;
     }

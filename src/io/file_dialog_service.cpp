@@ -27,12 +27,8 @@ std::pmr::wstring SavePngFileDialog(HWND owner, const wchar_t* default_filename)
 {
     wchar_t filename[MAX_PATH] = {};
     if (default_filename) {
-        // wcsncpy_s を使うと VC++ 固有依存が増えるので size_t で長さを clamp してコピー。
-        size_t i = 0;
-        for (; i + 1 < MAX_PATH && default_filename[i]; ++i) {
-            filename[i] = default_filename[i];
-        }
-        filename[i] = L'\0';
+        // lstrcpynW は MAX_PATH 内で常に NUL 終端を保証する Win32 API。
+        lstrcpynW(filename, default_filename, MAX_PATH);
     }
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);
