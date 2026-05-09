@@ -50,6 +50,9 @@ struct TableLayoutData {
     // 圧縮を行わなかった場合の自然な総幅。横スクロールのクランプ計算用に保持する。
     // cached_table_width と一致することもあるが、圧縮分岐を通った場合は乖離する。
     float natural_total_width = 0.0f;
+    // 立っている間は MeasureTable の超高速パスをバイパスし RestoreNullCellLayouts を走らせる。
+    // FinalizeTableLayout 完了でクリア。
+    bool cells_partially_evicted = false;
     // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept
     {
@@ -426,6 +429,11 @@ public:
                     EvictTableRow(tl, r);
                 }
             }
+            // EnsureVisibleLayout は layout_dirty=false の entry をスキップするため、
+            // ここで dirty 化しないと再可視化時に null セルが GenTable に渡り描画が欠落する。
+            if (tl.cells_partially_evicted) {
+                e.layout_dirty = true;
+            }
         }
     }
 
@@ -517,6 +525,7 @@ private:
         tl.last_applied_max_width = -1.0f;
         tl.cached_table_width = 0.0f;
         tl.natural_total_width = 0.0f;
+        tl.cells_partially_evicted = false;
     }
 
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept
@@ -550,6 +559,7 @@ private:
             const size_t ci = base + c;
             if (tl.cell_layouts[ci]) {
                 tl.cell_layouts[ci].Reset();
+                tl.cells_partially_evicted = true;
             }
             if (ci < tl.cell_heights.size()) {
                 tl.cell_heights[ci] = 0.0f;
