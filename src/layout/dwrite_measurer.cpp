@@ -520,6 +520,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(
     entry.height = total_height;
     entry.layout_dirty = false;
     tl.last_applied_max_width = max_width;
+    tl.cells_partially_evicted = false;
 }
 
 void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const
@@ -552,7 +553,8 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     // 超高速パス: 前回と max_width がほぼ一致しキャッシュ済みレイアウトが揃っていれば、
     // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、layout_dirty を倒すだけで終える。
     // 検索ハイライト矩形・effects・inline_code_bgs もテキスト位置に依存するので保持できる。
-    if (has_compatible_layouts && tl_existing->last_applied_max_width >= 0.0f && std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON) {
+    // cells_partially_evicted 時は null セルの再生成が必要なので素通り禁止。
+    if (has_compatible_layouts && !tl_existing->cells_partially_evicted && tl_existing->last_applied_max_width >= 0.0f && std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON) {
         entry.layout_dirty = false;
         return;
     }
