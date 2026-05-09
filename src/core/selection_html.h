@@ -21,6 +21,11 @@ std::pmr::string ExtractSelectedTextAsHtml(
     const TextSelection& selection,
     bool dark_mode = false);
 
+// 単一の CodeBlock ノード全体をシンタックスハイライト付きの HTML フラグメント (UTF-8) に変換する。
+// コードブロック右上のコピーボタンから書式付きでクリップボードへ書き込むために使用する。
+// node が CodeBlock 以外の場合は空文字列を返す。
+std::pmr::string BuildCodeBlockHtmlFragment(const Node& node, bool dark_mode);
+
 // ノードのラン内の指定テキスト位置にあるリンクURLを検索する。
 // リンクラン内の位置であればリンクURLを返し、そうでなければnulloptを返す。
 [[nodiscard]] std::optional<std::pmr::string> FindLinkAtPosition(const Node& node, uint32_t text_pos);

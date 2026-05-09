@@ -170,11 +170,13 @@ inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
 }
 
 // クリップボードに CF_HTML（書式付き）と CF_UNICODETEXT（プレーンテキスト）を同時に書き込む。
-// fragment_html: <!--StartFragment--> と <!--EndFragment--> の間に入る HTML 断片（Wide 文字列）。
+// fragment_utf8: <!--StartFragment--> と <!--EndFragment--> の間に入る HTML 断片 (UTF-8)。
+//                CF_HTML が UTF-8 を要求するため一次経路。wide オーバーロードは UTF-8 に
+//                変換してからこの関数へ転送する。
 // plain_text:    書式付きに対応していないアプリ向けのフォールバック。
-inline void WriteClipboardHtml(HWND hwnd, std::wstring_view fragment_html, std::wstring_view plain_text) noexcept
+inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::wstring_view plain_text) noexcept
 {
-    if (fragment_html.empty() && plain_text.empty()) {
+    if (fragment_utf8.empty() && plain_text.empty()) {
         return;
     }
     ClipboardSession session(hwnd);
@@ -182,14 +184,18 @@ inline void WriteClipboardHtml(HWND hwnd, std::wstring_view fragment_html, std::
         return;
     }
 
-    if (!fragment_html.empty()) {
-        const std::string fragment_utf8 = string_convert::WideToUtf8(fragment_html);
+    if (!fragment_utf8.empty()) {
         const std::string payload = BuildCfHtmlPayload(fragment_utf8);
-        const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
+        static const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
         SetClipboardZeroTerminated<char>(cf_html, payload);
     }
 
     if (!plain_text.empty()) {
         SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, plain_text);
     }
+}
+
+inline void WriteClipboardHtml(HWND hwnd, std::wstring_view fragment_html, std::wstring_view plain_text) noexcept
+{
+    WriteClipboardHtml(hwnd, string_convert::WideToUtf8(fragment_html), plain_text);
 }

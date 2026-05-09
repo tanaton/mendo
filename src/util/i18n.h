@@ -100,7 +100,7 @@ inline constexpr Strings kJa = {
     L"戻る (Alt+\u2190)",
     L"進む (Alt+\u2192)",
     // コピーボタン tooltip
-    L"コピー",
+    L"書式付きコピー",
     // 保存ボタン tooltip
     L"画像を保存",
     // SVG コピーボタン tooltip
@@ -157,7 +157,7 @@ inline constexpr Strings kEn = {
     L"Back (Alt+\u2190)",
     L"Forward (Alt+\u2192)",
     // コピーボタン tooltip
-    L"Copy",
+    L"Copy as HTML",
     // 保存ボタン tooltip
     L"Save Image",
     // SVG コピーボタン tooltip

@@ -661,6 +661,19 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
     return out;
 }
 
+std::pmr::string BuildCodeBlockHtmlFragment(const Node& node, bool dark_mode)
+{
+    std::pmr::string out;
+    if (node.type != NodeType::CodeBlock) {
+        return out;
+    }
+    const auto& text = node.GetText();
+    const uint32_t end = static_cast<uint32_t>(text.size());
+    out.reserve(text.size() * 3 + 128);
+    AppendCodeBlockHtml(out, node, 0, end, dark_mode);
+    return out;
+}
+
 std::optional<std::pmr::string> FindLinkAtPosition(const Node& node, uint32_t text_pos)
 {
     if (node.type == NodeType::Table) {
