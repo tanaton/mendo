@@ -77,17 +77,22 @@ inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT
 }
 
 // クリップボードにテキストを書き込む共通ユーティリティ。入力は UTF-8。
+// ClipboardSession (= EmptyClipboard) は Utf8ToWide が成功した後に開く。
+// 失敗 (out.clear()) でクリップボードを空のまま破壊するのを避けるため。
 inline void WriteClipboardText(HWND hwnd, std::string_view text_utf8) noexcept
 {
     if (text_utf8.empty()) {
+        return;
+    }
+    std::pmr::wstring text_wide;
+    string_convert::Utf8ToWide(text_utf8, text_wide);
+    if (text_wide.empty()) {
         return;
     }
     ClipboardSession session(hwnd);
     if (!session) {
         return;
     }
-    std::pmr::wstring text_wide;
-    string_convert::Utf8ToWide(text_utf8, text_wide);
     SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, text_wide);
 }
 
@@ -178,6 +183,15 @@ inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::s
     if (fragment_utf8.empty() && plain_text_utf8.empty()) {
         return;
     }
+    // 書き込むペイロードが 1 つも揃わない状態で EmptyClipboard を呼ばないよう、
+    // ClipboardSession より前に変換を済ませて空かどうか判定する。
+    std::pmr::wstring plain_wide;
+    if (!plain_text_utf8.empty()) {
+        string_convert::Utf8ToWide(plain_text_utf8, plain_wide);
+    }
+    if (fragment_utf8.empty() && plain_wide.empty()) {
+        return;
+    }
     ClipboardSession session(hwnd);
     if (!session) {
         return;
@@ -189,9 +203,7 @@ inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::s
         SetClipboardZeroTerminated<char>(cf_html, payload);
     }
 
-    if (!plain_text_utf8.empty()) {
-        std::pmr::wstring plain_wide;
-        string_convert::Utf8ToWide(plain_text_utf8, plain_wide);
+    if (!plain_wide.empty()) {
         SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, plain_wide);
     }
 }
