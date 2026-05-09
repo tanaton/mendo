@@ -125,10 +125,11 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     });
     const int candidate = (it != first) ? static_cast<int>(std::prev(it) - first) : -1;
 
+    // partition_point は entry.text_top で比較しているため、局所座標 (local_y) の基準も
+    // 同じ entry.text_top を直接参照する。TextTopOf (Fenwick 経由) は等価であるべきだが、
+    // 累積誤差や部分更新中の不同期で乖離するとマウス位置と一致しないため避ける。
     const float candidate_text_top =
-        (candidate >= 0)
-            ? mendo::layout::TextTopOf(ctx.cache, static_cast<size_t>(candidate), ctx.nodes[candidate], ctx.theme)
-            : 0.0f;
+        (candidate >= 0) ? ctx.cache[candidate].text_top : 0.0f;
     if (candidate >= 0 && dip_y <= candidate_text_top + ctx.cache[candidate].height) {
         const auto& node = ctx.nodes[candidate];
         const auto& entry = ctx.cache[candidate];
