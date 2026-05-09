@@ -217,6 +217,11 @@ private:
     // GenerateMdPane のスコープ内で不変のフレーム単位コンテキスト。
     // GenerateNode 等の private 関数から参照される。
     float frame_offset_x_ = 0.0f;
+    // ビューポート Y 範囲は **ペインローカル Y** (= 0 〜 pane_height)。GenerateNode に
+    // 渡す entry_text_top も同じローカル Y 系。100MB ファイルでドキュメント Y が 10^7
+    // オーダーに達すると float32 の桁落ちで描画位置が ±1px ばらつく問題 (#216) の対策。
+    // ドキュメント Y で比較したい箇所 (cache[i].text_top との直接比較) では
+    // frame_snapped_scroll_y_ を足し戻して使う。
     float frame_viewport_top_ = 0.0f;
     float frame_viewport_bottom_ = 0.0f;
     // フレーム座標系でのビューポート左右端。各セル x を frame_offset_x_ と

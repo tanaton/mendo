@@ -131,12 +131,20 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const float snapped_y = SnapToPhysicalPixel(scroll_y, dpi_scale);
     frame_md_pane_x_ = md_pane_rect.x;
     frame_snapped_scroll_y_ = snapped_y;
-    frame_pane_transform_ = D2D1::Matrix3x2F::Translation(md_pane_rect.x, -snapped_y);
+    // SetTransform から Y 平行移動を撤廃。100MB ファイル末尾で text_top と scroll_y が
+    // 共に 10^7 DIP オーダーになると、Direct2D 内部の float32 行列演算で
+    // catastrophic cancellation が起き、各行の Y がサブピクセルでばらつく (#216)。
+    // 対策: CPU 側で text_top - snapped_y を先に引いて、Direct2D には viewport 内
+    // (~数千 DIP) の小さな相対 Y のみを渡す。
+    frame_pane_transform_ = D2D1::Matrix3x2F::Translation(md_pane_rect.x, 0.0f);
     cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ });
 
     frame_offset_x_ = theme_->margin_left;
-    frame_viewport_top_ = scroll_y;
-    frame_viewport_bottom_ = scroll_y + md_pane_rect.height;
+    // viewport bounds をローカル Y 系 (0 〜 pane_height) に統一。
+    // 以下、frame_viewport_top_/bottom_ と GenerateNode 引数 entry_text_top はすべて
+    // ローカル Y。ドキュメント Y が必要な箇所は scroll_y / cache[i].text_top を直接使う。
+    frame_viewport_top_ = 0.0f;
+    frame_viewport_bottom_ = md_pane_rect.height;
     // 水平カリング範囲: ペイン内ローカル座標で margin_left を起点とした相対値
     frame_viewport_left_ = -theme_->margin_left;
     frame_viewport_right_ = md_pane_rect.width - theme_->margin_left;
@@ -167,8 +175,10 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     cell_wv_.ResetIfBufferChanged(nodes.data(), nodes.size());
 
     const int node_count = static_cast<int>(nodes.size());
+    // FindFirstVisibleNodeIndex は cache[i].text_top (ドキュメント Y) で二分探索するため
+    // scroll_y (ドキュメント Y) を渡す必要がある。
     if (first_visible < 0) {
-        first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), frame_viewport_top_);
+        first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), scroll_y);
     }
 
     // 同一 blockquote_group のノードをまとめてバー/背景を描画する。
@@ -176,11 +186,13 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     GenBlockQuoteGroupDecorations(cmds, nodes, cache, node_count, first_visible);
 
     int visible_count = 0;
+    const float doc_viewport_bottom = scroll_y + md_pane_rect.height;
     for (int i = first_visible; i < node_count; i++) {
-        if (cache[i].text_top > frame_viewport_bottom_) {
+        if (cache[i].text_top > doc_viewport_bottom) {
             break;
         }
-        GenerateNode(cmds, nodes[i], cache[i], cache.GetDiagram(i), i, cache[i].text_top);
+        const float local_text_top = cache[i].text_top - snapped_y;
+        GenerateNode(cmds, nodes[i], cache[i], cache.GetDiagram(i), i, local_text_top);
         ++visible_count;
     }
 
@@ -437,7 +449,10 @@ void CommandGenerator::EmitBlockHScrollbarIfActive(DrawCommandList& cmds, int no
     // frame_pane_transform_ の md_x が非整数 (DPI 1 以外) のとき、サブピクセル位置で
     // アンチエイリアスが上下に漏れて thumb の太さがブレる現象を防ぐ。
     const float abs_x = SnapToPhysicalPixel(frame_md_pane_x_ + block_x + ratio * (track_w - thumb_w), frame_dpi_scale_);
-    const float abs_y = SnapToPhysicalPixel(bar_y - frame_snapped_scroll_y_, frame_dpi_scale_);
+    // bar_y は呼び出し元で BlockHScrollbarBarY(entry_text_top, ...) から算出され、
+    // entry_text_top はローカル Y (= doc_y - snapped_scroll_y) なので bar_y もローカル Y。
+    // 余分な scroll_y 減算は不要 (二重相対化を避ける)。
+    const float abs_y = SnapToPhysicalPixel(bar_y, frame_dpi_scale_);
     const float w_snapped = SnapToPhysicalPixel(thumb_w, frame_dpi_scale_);
     const float h_snapped = SnapToPhysicalPixel(PANE_SCROLLBAR_WIDTH, frame_dpi_scale_);
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
@@ -482,7 +497,9 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, co
         // baked 座標で描画する。
         const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
         const float bullet_x = SnapToPhysicalPixel(frame_md_pane_x_ + x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR, frame_dpi_scale_);
-        const float bullet_y = SnapToPhysicalPixel(entry_text_top + first_line_h * 0.5f - frame_snapped_scroll_y_, frame_dpi_scale_);
+        // entry_text_top はローカル Y。Identity transform で描画するので X は frame_md_pane_x_ を加算するが、
+        // Y は scroll 相殺済 (二重相対化を避ける)。
+        const float bullet_y = SnapToPhysicalPixel(entry_text_top + first_line_h * 0.5f, frame_dpi_scale_);
         const float r = LIST_BULLET_RADIUS;
         cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
         if (node.indent_level <= 1) {
@@ -499,7 +516,9 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
 {
     const float offset_x = frame_offset_x_;
     const float content_width = frame_content_width_;
-    const float viewport_bottom = frame_viewport_bottom_;
+    // viewport カリングは cache[i].text_top (ドキュメント Y) と比較するため
+    // frame_viewport_bottom_ (ローカル Y) からドキュメント Y へ戻して使う。
+    const float doc_viewport_bottom = frame_snapped_scroll_y_ + frame_viewport_bottom_;
     static constexpr float BAR_EXTEND = 2.0f;
     static constexpr float ALERT_BG_PAD = 4.0f;
     static constexpr float ALERT_BG_CORNER = 4.0f;
@@ -519,7 +538,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
             i++;
             continue;
         }
-        if (cache[i].text_top > viewport_bottom) {
+        if (cache[i].text_top > doc_viewport_bottom) {
             break;
         }
 
@@ -542,7 +561,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
             // ビューポート外に大きく超えたグループ末尾は j を進めるだけにする。
             // バー/背景はクリップで切られるため、可視外で max_depth を更新しても
             // 描画コマンド数は変わらず CPU を浪費するだけ。
-            if (group_bottom > viewport_bottom) {
+            if (group_bottom > doc_viewport_bottom) {
                 while (j < node_count && nodes[j].blockquote_group == group) {
                     j++;
                 }
@@ -561,7 +580,9 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
             const auto idx = AlertColorIndex(alert_type);
             if (idx < ALERT_TYPE_COUNT) {
                 const float cw = content_width - outer_x_indent;
-                const D2D1_RECT_F bg_rect = D2D1::RectF(outer_x - ALERT_BG_PAD, group_top - ALERT_BG_PAD, outer_x + cw, group_bottom + ALERT_BG_PAD);
+                const float local_top = group_top - frame_snapped_scroll_y_;
+                const float local_bottom = group_bottom - frame_snapped_scroll_y_;
+                const D2D1_RECT_F bg_rect = D2D1::RectF(outer_x - ALERT_BG_PAD, local_top - ALERT_BG_PAD, outer_x + cw, local_bottom + ALERT_BG_PAD);
                 cmds.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, theme_->alert_bg_color[idx] });
             }
         }
@@ -580,9 +601,11 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
                     : BrushId::BlockquoteBar;
 
             const auto emit_bar = [&](float top, float bottom) {
+                const float local_top = top - frame_snapped_scroll_y_;
+                const float local_bottom = bottom - frame_snapped_scroll_y_;
                 cmds.emplace_back(DrawLineCmd{
-                    D2D1::Point2F(bar_x, top - BAR_EXTEND),
-                    D2D1::Point2F(bar_x, bottom + BAR_EXTEND),
+                    D2D1::Point2F(bar_x, local_top - BAR_EXTEND),
+                    D2D1::Point2F(bar_x, local_bottom + BAR_EXTEND),
                     bar_color, theme_->blockquote_bar_width, bar_brush });
             };
 
