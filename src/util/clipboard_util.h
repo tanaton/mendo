@@ -170,8 +170,9 @@ inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
 }
 
 // クリップボードに CF_HTML（書式付き）と CF_UNICODETEXT（プレーンテキスト）を同時に書き込む。
-// fragment_html: <!--StartFragment--> と <!--EndFragment--> の間に入る HTML 断片。
-//                UTF-8 版は CF_HTML が要求する UTF-8 をそのまま使えるので変換コストを節約できる。
+// fragment_utf8: <!--StartFragment--> と <!--EndFragment--> の間に入る HTML 断片 (UTF-8)。
+//                CF_HTML が UTF-8 を要求するため一次経路。wide オーバーロードは UTF-8 に
+//                変換してからこの関数へ転送する。
 // plain_text:    書式付きに対応していないアプリ向けのフォールバック。
 inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::wstring_view plain_text) noexcept
 {
@@ -185,7 +186,7 @@ inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::w
 
     if (!fragment_utf8.empty()) {
         const std::string payload = BuildCfHtmlPayload(fragment_utf8);
-        const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
+        static const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
         SetClipboardZeroTerminated<char>(cf_html, payload);
     }
 
