@@ -130,7 +130,13 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     // 累積誤差や部分更新中の不同期で乖離するとマウス位置と一致しないため避ける。
     const float candidate_text_top =
         (candidate >= 0) ? ctx.cache[candidate].text_top : 0.0f;
-    if (candidate >= 0 && dip_y <= candidate_text_top + ctx.cache[candidate].height) {
+    // CodeBlock は背景が text 範囲の上下に padding 分はみ出る。padding 部分 (Issue #205 の
+    // 横スクロールバーを置きたい領域) もそのノードのヒットとして扱い、ホバーが切れないようにする。
+    const float bottom_extension =
+        (candidate >= 0 && ctx.nodes[candidate].type == NodeType::CodeBlock)
+            ? ctx.theme.code_block_padding
+            : 0.0f;
+    if (candidate >= 0 && dip_y <= candidate_text_top + ctx.cache[candidate].height + bottom_extension) {
         const auto& node = ctx.nodes[candidate];
         const auto& entry = ctx.cache[candidate];
 

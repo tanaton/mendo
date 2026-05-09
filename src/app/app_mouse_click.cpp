@@ -122,7 +122,8 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
             float bar_y_local = 0.0f;
             if (node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language)) {
                 natural_w = entry.natural_code_width;
-                bar_y_local = entry.text_top + entry.height - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+                // バー描画位置と一致 (command_generator.cpp): 背景下端の padding 内。
+                bar_y_local = entry.text_top + entry.height + theme.code_block_padding - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
             }
             else if (node.type == NodeType::Table && entry.has_table_layout()) {
                 natural_w = entry.table_layout->natural_total_width;

@@ -258,8 +258,8 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         GenCodeBlockBg(cmds, entry, x, cw, entry_text_top);
         // Issue #205: 自然幅 > 可視幅 ならテキスト本体だけ scroll_x で平行移動。
         // 背景とコピーボタンはクリップ外で固定描画する (GitHub と同じ挙動)。
-        // バーは text 範囲内 (最終行の上) に置く。padding 部分に置くと HitTest がそのノードを
-        // 返さず、マウスがバー上に来た瞬間にホバーが解除されるため。
+        // バーは背景下端の padding 内に置き、テキストに被らないようにする。
+        // padding 内クリックも CodeBlock ヒットとして扱うため HitTest 側でガードを緩和済み。
         {
             const bool needs_clip = entry.natural_code_width > cw;
             const float scroll_x = needs_clip
@@ -272,7 +272,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                                         frame_pane_transform_, scroll_x, needs_clip);
                 GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x, entry_text_top);
             }
-            const float bar_y = entry_text_top + entry.height - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+            const float bar_y = entry_text_top + entry.height + pad - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
             MaybeEmitBlockHScrollbar(cmds, node_index, x, bar_y, cw, entry.natural_code_width, scroll_x);
         }
         GenCopyButton(cmds, entry, x, cw, node_index == frame_hovered_.copy, entry_text_top);
@@ -441,13 +441,20 @@ void CommandGenerator::GenBlockHScrollbar(DrawCommandList& cmds, float block_x, 
     const float thumb_w = std::max(PANE_SCROLLBAR_THUMB_MIN, track_w * (visible_width / natural_width));
     const float scroll_max = natural_width - visible_width;
     const float ratio = (scroll_max > 0.0f) ? std::clamp(scroll_x / scroll_max, 0.0f, 1.0f) : 0.0f;
-    const float thumb_x = block_x + ratio * (track_w - thumb_w);
-    const D2D1_RECT_F thumb_rect = D2D1::RectF(thumb_x, bar_y, thumb_x + thumb_w, bar_y + PANE_SCROLLBAR_WIDTH);
+    // bullet と同じく Identity transform + 物理ピクセル snap で描画する。
+    // frame_pane_transform_ の md_x が非整数 (DPI 1 以外) のとき、サブピクセル位置で
+    // アンチエイリアスが上下に漏れて thumb の太さがブレる現象を防ぐ。
+    const float abs_x = SnapToPhysicalPixel(frame_md_pane_x_ + block_x + ratio * (track_w - thumb_w), frame_dpi_scale_);
+    const float abs_y = SnapToPhysicalPixel(bar_y - frame_snapped_scroll_y_, frame_dpi_scale_);
+    const float w_snapped = SnapToPhysicalPixel(thumb_w, frame_dpi_scale_);
+    const float h_snapped = SnapToPhysicalPixel(PANE_SCROLLBAR_WIDTH, frame_dpi_scale_);
+    cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
     cmds.emplace_back(FillRoundedRectCmd{
-        thumb_rect,
-        PANE_SCROLLBAR_WIDTH / 2.0f, PANE_SCROLLBAR_WIDTH / 2.0f,
+        D2D1::RectF(abs_x, abs_y, abs_x + w_snapped, abs_y + h_snapped),
+        h_snapped / 2.0f, h_snapped / 2.0f,
         D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f),
         BrushId::ScrollbarThumb });
+    cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ });
 }
 
 void CommandGenerator::GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered)
