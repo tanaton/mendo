@@ -122,7 +122,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
                 const auto& entry = cache[hit.node_index];
                 const auto& theme = renderer_.GetTheme();
                 const float visible_w = theme.ContentWidth(pane_layout.md_rect.width) - mendo::layout::NodeIndent(node, theme);
-                if (node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language) && entry.natural_code_width > visible_w) {
+                if (IsScrollableCodeBlock(node) && entry.natural_code_width > visible_w) {
                     new_h_block = hit.node_index;
                 }
                 else if (node.type == NodeType::Table && entry.has_table_layout() && entry.table_layout->natural_total_width > visible_w) {

@@ -235,7 +235,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                                     frame_pane_transform_, scroll_x, needs_clip);
             GenTable(cmds, node, entry, node_index, x, entry_text_top, scroll_x);
         }
-        const float bar_y = entry_text_top + entry.height - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+        const float bar_y = BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f);
         MaybeEmitBlockHScrollbar(cmds, node_index, x, bar_y, cw, natural_w, scroll_x);
         return;
     }
@@ -272,7 +272,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
                                         frame_pane_transform_, scroll_x, needs_clip);
                 GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x, entry_text_top);
             }
-            const float bar_y = entry_text_top + entry.height + pad - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+            const float bar_y = BlockHScrollbarBarY(entry_text_top, entry.height, pad);
             MaybeEmitBlockHScrollbar(cmds, node_index, x, bar_y, cw, entry.natural_code_width, scroll_x);
         }
         GenCopyButton(cmds, entry, x, cw, node_index == frame_hovered_.copy, entry_text_top);

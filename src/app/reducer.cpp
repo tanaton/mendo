@@ -363,7 +363,7 @@ BlockHScrollGeometry GetBlockHScrollGeometry(const AppState& state, int node_ind
     if (node.type == NodeType::Table && entry.has_table_layout()) {
         g.natural_width = entry.table_layout->natural_total_width;
     }
-    else if (node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language)) {
+    else if (IsScrollableCodeBlock(node)) {
         g.natural_width = entry.natural_code_width;
     }
     return g;

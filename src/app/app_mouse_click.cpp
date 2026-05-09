@@ -120,14 +120,13 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
             const float visible_w = theme.ContentWidth(pane_layout.md_rect.width) - indent;
             float natural_w = 0.0f;
             float bar_y_local = 0.0f;
-            if (node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language)) {
+            if (IsScrollableCodeBlock(node)) {
                 natural_w = entry.natural_code_width;
-                // バー描画位置と一致 (command_generator.cpp): 背景下端の padding 内。
-                bar_y_local = entry.text_top + entry.height + theme.code_block_padding - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+                bar_y_local = BlockHScrollbarBarY(entry.text_top, entry.height, theme.code_block_padding);
             }
             else if (node.type == NodeType::Table && entry.has_table_layout()) {
                 natural_w = entry.table_layout->natural_total_width;
-                bar_y_local = entry.text_top + entry.height - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+                bar_y_local = BlockHScrollbarBarY(entry.text_top, entry.height, 0.0f);
             }
             if (natural_w > visible_w) {
                 // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない。

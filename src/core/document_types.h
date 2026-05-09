@@ -408,3 +408,9 @@ private:
         view_base_ = nullptr;
     }
 };
+
+// CodeBlock かつ非 Diagram 言語。Issue #205 のブロック横スクロール対象判定で頻出する組合せ。
+constexpr bool IsScrollableCodeBlock(const Node& node) noexcept
+{
+    return node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language);
+}

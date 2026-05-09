@@ -42,6 +42,14 @@ inline constexpr float TABLE_STRIPE_ALPHA_LIGHT = 0.02f;
 // Shift+Wheel / WM_MOUSEHWHEEL から渡される delta (WHEEL_DELTA = 120 単位) を DIP に換算する。
 inline constexpr float HSCROLL_DIP_PER_NOTCH = 60.0f;
 
+// Issue #205: ブロック横スクロールバーの bar 上端 Y 座標 (ペインローカル document Y)。
+// extra_padding は CodeBlock の背景下端 padding 内に置く場合に渡す (Table は 0)。
+// 描画 (command_generator.cpp) と hit 判定 (app_mouse_click.cpp) で同じ式を使う。
+inline constexpr float BlockHScrollbarBarY(float entry_text_top, float entry_height, float extra_padding) noexcept
+{
+    return entry_text_top + entry_height + extra_padding - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+}
+
 // ナビゲーションオーバーレイボタンの定数（DIP単位）。
 // レンダラー（描画）とhit_test_service（クリック検出）の間で共有される。
 inline constexpr float NAV_BTN_SIZE = 32.0f;
