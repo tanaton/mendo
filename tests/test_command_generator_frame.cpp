@@ -29,9 +29,10 @@ TEST_F(CmdGenFrameTest, PushClipMatchesPaneRect)
     EXPECT_FLOAT_EQ(clip->rect.bottom, 450.0f);
 }
 
-TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginAndScroll)
+TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
 {
-    Parse("Hello");
+    // Transform の Y は常に 0、スクロール量は描画コマンドの Y に直接合算される。
+    Parse("---");
     constexpr float origin_x = 120.0f;
     constexpr float scroll_y = 40.0f;
     const PaneRect pane{ origin_x, 0.0f, 600.0f, 400.0f };
@@ -40,13 +41,20 @@ TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginAndScroll)
     const auto* first_xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_NE(first_xform, nullptr);
     EXPECT_FLOAT_EQ(first_xform->transform._31, origin_x);
-    EXPECT_FLOAT_EQ(first_xform->transform._32, -scroll_y);
+    EXPECT_FLOAT_EQ(first_xform->transform._32, 0.0f);
+
+    // スクロール量は HR の Y 座標に CPU 側で直接合算される。
+    const auto* line = FindFirst<DrawLineCmd>(cmds);
+    ASSERT_NE(line, nullptr);
+    const float expected_y = cache_[0].text_top - scroll_y + theme_.paragraph_spacing * 0.5f;
+    EXPECT_FLOAT_EQ(line->p0.y, expected_y);
 }
 
-TEST_F(CmdGenFrameTest, TransformSnapsScrollToPixelWithDpi)
+TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
 {
-    // DPI=2.0 → round(scroll_y * 2) / 2 で 0.5px 境界にスナップ
-    Parse("Hello");
+    // DPI=2.0 → round(scroll_y * 2) / 2 で 0.5px 境界にスナップ。
+    // スナップは Transform でなく描画コマンドの Y 計算に反映される。
+    Parse("---");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     const float scroll_y = 0.3f;
     const float dpi = 2.0f;
@@ -54,7 +62,13 @@ TEST_F(CmdGenFrameTest, TransformSnapsScrollToPixelWithDpi)
 
     const auto* xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_NE(xform, nullptr);
-    EXPECT_FLOAT_EQ(xform->transform._32, -0.5f);
+    EXPECT_FLOAT_EQ(xform->transform._32, 0.0f);
+
+    const auto* line = FindFirst<DrawLineCmd>(cmds);
+    ASSERT_NE(line, nullptr);
+    const float snapped_scroll = 0.5f; // round(0.3 * 2) / 2
+    const float expected_y = cache_[0].text_top - snapped_scroll + theme_.paragraph_spacing * 0.5f;
+    EXPECT_FLOAT_EQ(line->p0.y, expected_y);
 }
 
 // ═══════════════════════════════════════════════
