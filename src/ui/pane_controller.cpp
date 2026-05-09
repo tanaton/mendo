@@ -57,9 +57,10 @@ bool PaneController::SetFileRefreshHovered(bool h) noexcept
     return SetFlag(file_refresh_hovered_, h);
 }
 
-float PaneController::ConstrainSplitterWidth(float requested_width, float total_width,
-                                             float splitter_w, float other_width,
-                                             bool other_visible) noexcept
+float PaneController::ConstrainSplitterWidth(
+    float requested_width, float total_width,
+    float splitter_w, float other_width,
+    bool other_visible) noexcept
 {
     float w = std::max(PANE_MIN_WIDTH, requested_width);
     float used = w + splitter_w;

@@ -40,15 +40,18 @@ public:
         lifecycle_->UpdateTheme(theme);
     }
     bool RecreateFormats();
-    void ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
-                       float viewport_top = -1.0f, float viewport_bottom = -1.0f);
+    void ComputeLayout(
+        std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
+        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
-    bool ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-                           float viewport_width, int batch_size, int time_budget_us = 0,
-                           float viewport_top = -1.0f, float viewport_height = -1.0f,
-                           float buffer_screens = 5.0f);
-    bool EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
-                             float viewport_top, float viewport_bottom);
+    bool ProcessDirtyBatch(
+        std::pmr::vector<Node>& nodes, LayoutCache& cache,
+        float viewport_width, int batch_size, int time_budget_us = 0,
+        float viewport_top = -1.0f, float viewport_height = -1.0f,
+        float buffer_screens = 5.0f);
+    bool EnsureVisibleLayout(
+        std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
+        float viewport_top, float viewport_bottom);
     constexpr bool HasDirtyNodes() const noexcept
     {
         return has_dirty_nodes_;
@@ -66,8 +69,9 @@ private:
     // ComputeLayout 末尾の Fenwick 反映: フルパス完走 → bulk load (O(N))、
     // 途中 break 時は処理した分のみ個別 Set。total_height_ は bulk 経路でのみ更新する
     // (incremental 経路は ProcessDirtyBatch / EnsureVisibleLayout が後続で再計算)。
-    void ApplyComputeLayoutBlockHeights(LayoutCache& cache, const std::pmr::vector<float>& block_heights,
-                                        bool broke_early, float final_y) noexcept;
+    void ApplyComputeLayoutBlockHeights(
+        LayoutCache& cache, const std::pmr::vector<float>& block_heights,
+        bool broke_early, float final_y) noexcept;
 
     // 同一の ITextMeasurer 派生から得た 2 つの IF view。lifecycle 系 (Init/RecreateFormats/UpdateTheme)
     // は UI スレッドからのみ呼び、backend (MeasureNode/MeasureTable) は const 経由で
@@ -93,8 +97,9 @@ public:
     }
 
     void ViewportLayout(Document& doc, LayoutCache& cache, float width, float height);
-    bool ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us = 0,
-                           float viewport_height = -1.0f, float buffer_screens = 5.0f);
+    bool ProcessDirtyBatch(
+        Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us = 0,
+        float viewport_height = -1.0f, float buffer_screens = 5.0f);
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
     void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept;
 

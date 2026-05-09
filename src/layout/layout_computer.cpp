@@ -169,9 +169,10 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     }
     // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。
     constexpr float kCachedWidthEpsilon = 0.5f;
-    const bool cache_hit = entry.is_measured() &&
-                           std::abs(entry.cached_width - node_width) < kCachedWidthEpsilon &&
-                           entry.cached_height > 0.0f;
+    const bool cache_hit =
+        entry.is_measured() &&
+        std::abs(entry.cached_width - node_width) < kCachedWidthEpsilon &&
+        entry.cached_height > 0.0f;
     const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, theme);
     // テーブル/画像/折り返しが多い段落では推定値が実測値を大きく下回るため、
     // シュリンク方向の更新は後続ノードと重なる原因になる。よって既存値より小さくはしない。
@@ -188,8 +189,9 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     return true;
 }
 
-YPositionResult RecomputeYPositions(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-                                    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after) noexcept
+YPositionResult RecomputeYPositions(
+    std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after) noexcept
 {
     MENDO_PROFILE("RecomputeYPositions");
     YPositionResult result;

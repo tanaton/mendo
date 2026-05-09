@@ -137,9 +137,7 @@ void NavHistory::Clear() noexcept
 // file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
 bool IsSafeUrlScheme(std::string_view url) noexcept
 {
-    return ascii_util::istarts_with(url, "http://") ||
-           ascii_util::istarts_with(url, "https://") ||
-           ascii_util::istarts_with(url, "mailto:");
+    return ascii_util::istarts_with(url, "http://") || ascii_util::istarts_with(url, "https://") || ascii_util::istarts_with(url, "mailto:");
 }
 
 LinkClickResult HandleLinkClick(std::string_view url)

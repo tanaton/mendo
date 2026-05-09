@@ -12,10 +12,10 @@ namespace {
 
 // 累積カウンタ（UI スレッド単一前提のため非アトミック）。
 struct EffectStats {
-    int64_t set_drawing_effect = 0; // ApplyNodeEffects/ApplyTableEffects 内の SetDrawingEffect
-    int64_t hittest_range = 0;      // インラインコード背景計算の HitTestTextRange
-    int64_t apply_node = 0;         // ApplyNodeEffects 呼び出し
-    int64_t apply_table = 0;        // ApplyTableEffects 呼び出し
+    int64_t set_drawing_effect = 0;   // ApplyNodeEffects/ApplyTableEffects 内の SetDrawingEffect
+    int64_t hittest_range = 0;        // インラインコード背景計算の HitTestTextRange
+    int64_t apply_node = 0;           // ApplyNodeEffects 呼び出し
+    int64_t apply_table = 0;          // ApplyTableEffects 呼び出し
     int64_t inline_code_bg_added = 0; // ノード/セルに追加されたインラインコード背景数
 };
 EffectStats g_effect_stats;
@@ -152,8 +152,9 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexc
     };
     // SYNTAX_MAP が SyntaxKeyword..SyntaxFunction の連続値前提で書かれていることを担保。
     // brush_id.h で間に新規 BrushId を挿入するとここが落ちて気付ける。
-    static_assert(std::to_underlying(BrushId::SyntaxFunction) - std::to_underlying(BrushId::SyntaxKeyword) == 6,
-                  "SYNTAX_MAP は SyntaxKeyword..SyntaxFunction の連続値に依存している");
+    static_assert(
+        std::to_underlying(BrushId::SyntaxFunction) - std::to_underlying(BrushId::SyntaxKeyword) == 6,
+        "SYNTAX_MAP は SyntaxKeyword..SyntaxFunction の連続値に依存している");
     const auto idx = std::to_underlying(type);
     if (idx >= std::size(SYNTAX_MAP)) {
         return nullptr;
@@ -383,12 +384,13 @@ void Renderer::DrawSidePanes(const SidePaneState& sp)
     }
 }
 
-void Renderer::DrawLoading(float angle,
-                           const PaneRect& md_pane_rect,
-                           const SidePaneState& sp,
-                           const TitleBarRenderState& titlebar,
-                           const GestureRenderState& gesture,
-                           const ToastRenderState& toast)
+void Renderer::DrawLoading(
+    float angle,
+    const PaneRect& md_pane_rect,
+    const SidePaneState& sp,
+    const TitleBarRenderState& titlebar,
+    const GestureRenderState& gesture,
+    const ToastRenderState& toast)
 {
     if (HandleDeviceLost()) {
         return;

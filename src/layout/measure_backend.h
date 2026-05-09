@@ -19,8 +19,9 @@ public:
     // 触らない (UI スレッドで集約後に書き戻す責務は呼び出し側にある)。
     // tokens_out == nullptr (default) のシリアル経路では従来通り
     // node.syntax_tokens_mut() に直接書き込む。
-    virtual void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                             std::pmr::vector<SyntaxToken>* tokens_out = nullptr) const = 0;
+    virtual void MeasureNode(
+        Node& node, NodeLayoutEntry& entry, float max_width,
+        std::pmr::vector<SyntaxToken>* tokens_out = nullptr) const = 0;
     virtual void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const = 0;
 };
 

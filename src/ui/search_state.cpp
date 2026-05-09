@@ -113,9 +113,10 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
     cached_node_count_ = nodes.size();
 }
 
-void SearchState::FindMatches(std::string_view search_text, std::string_view utf16_text,
-                              const std::pmr::string& lower_query, int node_index,
-                              int table_row, int table_col)
+void SearchState::FindMatches(
+    std::string_view search_text, std::string_view utf16_text,
+    const std::pmr::string& lower_query, int node_index,
+    int table_row, int table_col)
 {
     if (matches_.size() >= MAX_MATCHES) {
         return;

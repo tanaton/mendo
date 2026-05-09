@@ -222,20 +222,8 @@ void App::OnMouseHover(int px, int py)
         Dispatch(UpdateTooltipAction{ TooltipTarget{}, px, py });
         break;
     case PaneZone::FilePane: {
-        const float header_h = renderer_.GetTheme().pane_header_height;
         const auto& entries = state_.file_explorer.GetEntries();
-        const auto hr = ProcessSidePaneHover(
-            dip_x,
-            dip_y,
-            pane_layout.file_rect,
-            header_h,
-            renderer_.GetTheme().pane_item_height,
-            true,
-            state_.view.panes.FileScroll().scroll_y,
-            [this](bool v) { return state_.view.panes.SetFileCloseHovered(v); },
-            [this](bool v) { return state_.view.panes.SetFileRefreshHovered(v); },
-            [this](float y, float h) { return state_.file_explorer.HitTest(y, h); },
-            [&](bool close_hit, bool refresh_hit, int idx) -> TooltipTarget {
+        const auto tooltip = [&](bool close_hit, bool refresh_hit, int idx) -> TooltipTarget {
             if (close_hit) {
                 return {
                     TooltipTarget::Zone::FilePaneButton,
@@ -255,7 +243,19 @@ void App::OnMouseHover(int px, int py)
                 };
             }
             return {};
-        });
+        };
+        const auto hr = ProcessSidePaneHover(
+            dip_x,
+            dip_y,
+            pane_layout.file_rect,
+            renderer_.GetTheme().pane_header_height,
+            renderer_.GetTheme().pane_item_height,
+            true,
+            state_.view.panes.FileScroll().scroll_y,
+            [this](bool v) noexcept { return state_.view.panes.SetFileCloseHovered(v); },
+            [this](bool v) noexcept { return state_.view.panes.SetFileRefreshHovered(v); },
+            [this](float y, float h) noexcept { return state_.file_explorer.HitTest(y, h); },
+            tooltip);
         SetCursor(hr.any_button_hit ? cursors_.Hand() : cursors_.Arrow());
         if (hr.button_changed) {
             renderer_.InvalidateFilePaneCache();
@@ -266,20 +266,8 @@ void App::OnMouseHover(int px, int py)
         break;
     }
     case PaneZone::TocPane: {
-        const float header_h = renderer_.GetTheme().pane_header_height;
         const auto& toc_entries = state_.document.doc.GetToc().GetEntries();
-        const auto hr = ProcessSidePaneHover(
-            dip_x,
-            dip_y,
-            pane_layout.toc_rect,
-            header_h,
-            renderer_.GetTheme().pane_item_height,
-            false,
-            state_.view.panes.TocScroll().scroll_y,
-            [this](bool v) { return state_.view.panes.SetTocCloseHovered(v); },
-            [](bool) { return false; },
-            [this](float y, float h) { return state_.document.doc.GetToc().HitTest(y, h); },
-            [&](bool close_hit, bool, int idx) -> TooltipTarget {
+        const auto tooltip = [&](bool close_hit, bool, int idx) -> TooltipTarget {
             if (close_hit) {
                 return { TooltipTarget::Zone::TocPaneButton, i18n::S().tooltip_pane_close };
             }
@@ -290,7 +278,19 @@ void App::OnMouseHover(int px, int py)
                 return { TooltipTarget::Zone::TocPaneItem, text_wide };
             }
             return {};
-        });
+        };
+        const auto hr = ProcessSidePaneHover(
+            dip_x,
+            dip_y,
+            pane_layout.toc_rect,
+            renderer_.GetTheme().pane_header_height,
+            renderer_.GetTheme().pane_item_height,
+            false,
+            state_.view.panes.TocScroll().scroll_y,
+            [this](bool v) noexcept { return state_.view.panes.SetTocCloseHovered(v); },
+            [](bool) static noexcept { return false; },
+            [this](float y, float h) noexcept { return state_.document.doc.GetToc().HitTest(y, h); },
+            tooltip);
         SetCursor(hr.any_button_hit ? cursors_.Hand() : cursors_.Arrow());
         if (hr.button_changed) {
             renderer_.InvalidateTocPaneCache();

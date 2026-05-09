@@ -684,10 +684,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ctx->AppendDoc("$");
         ctx->paragraph_has_other_content = true;
         break;
-        // WIKILINK / U は現フラグ (MD_FLAG_WIKILINKS / MD_FLAG_UNDERLINE 未指定) では未到達。
-        // 将来フラグ追加時に default の std::unreachable() を踏まないよう明示している。
-    [[unlikely]] case MD_SPAN_WIKILINK:
-    [[unlikely]] case MD_SPAN_U:
+    case MD_SPAN_WIKILINK:
+    case MD_SPAN_U:
         ctx->paragraph_has_other_content = true;
         break;
     default:

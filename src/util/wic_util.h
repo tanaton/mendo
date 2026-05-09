@@ -25,8 +25,7 @@ inline std::optional<DecodeResult> DecodeFromStream(
     IWICImagingFactory* wic, IStream* stream)
 {
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = wic->CreateDecoderFromStream(
-        stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
+    HRESULT hr = wic->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
     if (FAILED(hr)) {
         return std::nullopt;
     }
@@ -67,8 +66,7 @@ struct CreatedBitmap {
 };
 
 // IStream から WIC デコード -> D2D ビットマップ生成までを一括で行う。
-inline std::optional<CreatedBitmap> CreateD2DBitmapFromStream(
-    IWICImagingFactory* wic, ID2D1RenderTarget* rt, IStream* stream)
+inline std::optional<CreatedBitmap> CreateD2DBitmapFromStream(IWICImagingFactory* wic, ID2D1RenderTarget* rt, IStream* stream)
 {
     if (!wic || !rt || !stream) {
         return std::nullopt;
@@ -87,8 +85,7 @@ inline std::optional<CreatedBitmap> CreateD2DBitmapFromStream(
 
 // IWICBitmapSource を GUID_WICPixelFormat32bppPBGRA に変換する。
 // HICON 由来の IWICBitmap など、デコーダを経由しないソースに使用する。
-inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(
-    IWICImagingFactory* wic, IWICBitmapSource* source)
+inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(IWICImagingFactory* wic, IWICBitmapSource* source)
 {
     Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
     HRESULT hr = wic->CreateFormatConverter(&converter);

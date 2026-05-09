@@ -12,20 +12,21 @@ void App::HandleLinkClick(std::string_view url)
     }
     auto result = ::HandleLinkClick(url);
     switch (result.type) {
+    case LinkClickResult::Type::None:
+        return;
     case LinkClickResult::Type::Anchor:
         PushCurrentNavEntry(state_);
         Dispatch(NavigateAnchorAction{ std::move(result.target) });
-        break;
+        return;
     case LinkClickResult::Type::ExternalUrl: {
         // ShellExecuteW 用に UTF-8 → wstring 変換。
         std::pmr::wstring url_wide;
         string_convert::Utf8ToWide(result.target, url_wide);
         EmitEffect(effect::ShellOpen{ std::move(url_wide) });
-        break;
+        return;
     }
-    default:
-        break;
     }
+    std::unreachable();
 }
 
 void App::SyncPaneThemeCache()

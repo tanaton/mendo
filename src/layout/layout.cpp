@@ -173,17 +173,17 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 
     if (any_updated) {
         cache.IncrementEffectsGeneration();
-        const auto result = RecomputeYPositions(nodes, cache, *theme_,
-                                                static_cast<size_t>(lo), has_dirty_nodes_, static_cast<size_t>(last_measured));
+        const auto result = RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo), has_dirty_nodes_, static_cast<size_t>(last_measured));
         total_height_ = result.total_height;
         has_dirty_nodes_ = result.has_dirty_nodes;
     }
     return any_updated;
 }
 
-bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-                                     float viewport_width, int batch_size, int time_budget_us,
-                                     float viewport_top, float viewport_height, float buffer_screens)
+bool LayoutEngine::ProcessDirtyBatch(
+    std::pmr::vector<Node>& nodes, LayoutCache& cache,
+    float viewport_width, int batch_size, int time_budget_us,
+    float viewport_top, float viewport_height, float buffer_screens)
 {
     MENDO_PROFILE("LayoutEngine::ProcessDirtyBatch");
     const float content_width = theme_->ContentWidth(viewport_width);
@@ -193,11 +193,10 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
     // 並列版は ParallelBudget (max_nodes のみ) を取り、time_budget は型レベルで遮断される。
     // batch_size は Phase 1 で適用するのでスクロール時バッチも上限以下に収まる。
     // 小規模 dirty は RunParallel 内部で inline 直列に倒れる。
-    const auto result = layout_scheduler_
-        ? mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *backend_, clip,
-                                     mendo::layout::ParallelBudget{ batch_size }, *layout_scheduler_)
-        : scheduler_.RunSerial(nodes, cache, content_width, *theme_, *backend_, clip,
-                               mendo::layout::SerialBudget{ batch_size, time_budget_us });
+    const auto result =
+        layout_scheduler_
+            ? mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *backend_, clip, mendo::layout::ParallelBudget{ batch_size }, *layout_scheduler_)
+            : scheduler_.RunSerial(nodes, cache, content_width, *theme_, *backend_, clip, mendo::layout::SerialBudget{ batch_size, time_budget_us });
 
     if (result.processed == 0) {
         has_dirty_nodes_ = false;
@@ -205,8 +204,7 @@ bool LayoutEngine::ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache&
     }
 
     cache.IncrementEffectsGeneration();
-    const auto y_result = RecomputeYPositions(nodes, cache, *theme_,
-                                              result.first_processed, false, result.last_processed);
+    const auto y_result = RecomputeYPositions(nodes, cache, *theme_, result.first_processed, false, result.last_processed);
     total_height_ = y_result.total_height;
     has_dirty_nodes_ = y_result.has_dirty_nodes;
 

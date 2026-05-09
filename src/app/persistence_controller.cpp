@@ -32,9 +32,7 @@ void PersistenceController::LoadPaneState(HWND hwnd)
             client_width = static_cast<float>(rc.right - rc.left);
         }
     }
-    const auto s = session_.LoadPaneState(client_width,
-                                          PaneController::PANE_MIN_WIDTH,
-                                          PaneController::PANE_DEFAULT_WIDTH);
+    const auto s = session_.LoadPaneState(client_width, PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
     auto& panes = state_.view.panes;
     panes.SetFilePaneVisible(s.show_file);
     panes.SetTocPaneVisible(s.show_toc);
@@ -44,8 +42,7 @@ void PersistenceController::LoadPaneState(HWND hwnd)
 
 void PersistenceController::SaveScrollPosition()
 {
-    const int node = state_.view.viewport.FindFirstVisibleNode(
-        state_.document.layout_cache, state_.document.doc.GetNodes().size());
+    const int node = state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size());
     if (node < 0) {
         return;
     }

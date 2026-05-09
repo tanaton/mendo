@@ -79,13 +79,14 @@ struct DirtyBatchResult {
 class DirtyScheduler {
 public:
     // 単一スレッド版: 選定即計測。現状の LayoutEngine::ProcessDirtyBatch と等価。
-    DirtyBatchResult RunSerial(std::pmr::vector<Node>& nodes,
-                               LayoutCache& cache,
-                               float content_width,
-                               const Theme& theme,
-                               const IMeasureBackend& backend,
-                               ViewportClip clip,
-                               SerialBudget budget) const;
+    DirtyBatchResult RunSerial(
+        std::pmr::vector<Node>& nodes,
+        LayoutCache& cache,
+        float content_width,
+        const Theme& theme,
+        const IMeasureBackend& backend,
+        ViewportClip clip,
+        SerialBudget budget) const;
 };
 
 } // namespace mendo::layout

@@ -1,6 +1,5 @@
 #pragma once
 #include <bit>
-#include <cassert>
 #include <cstddef>
 #include <memory_resource>
 #include <span>
@@ -84,7 +83,6 @@ public:
     // i 番目要素の現在値を value に置き換える。差分 = value - GetPoint(i) を Add。
     void Set(std::size_t i, float value) noexcept
     {
-        assert(i < tree_.size());
         const float diff = value - GetPoint(i);
         AddInternal(i, diff);
     }
@@ -92,14 +90,12 @@ public:
     // i 番目要素に diff を加算する。
     void Add(std::size_t i, float diff) noexcept
     {
-        assert(i < tree_.size());
         AddInternal(i, diff);
     }
 
     // [0, end) の和。end == 0 なら 0、end == size() なら全合計。
     float PrefixSum(std::size_t end) const noexcept
     {
-        assert(end <= tree_.size());
         float s = 0.0f;
         for (std::size_t k = end; k > 0; k -= k & (~k + 1)) {
             s += tree_[k - 1];
@@ -110,14 +106,12 @@ public:
     // [from, to) の和。from > to は UB。
     float RangeSum(std::size_t from, std::size_t to) const noexcept
     {
-        assert(from <= to && to <= tree_.size());
         return PrefixSum(to) - PrefixSum(from);
     }
 
     // 単一要素 i の値。RangeSum(i, i+1) と等価。
     float GetPoint(std::size_t i) const noexcept
     {
-        assert(i < tree_.size());
         return RangeSum(i, i + 1);
     }
 
@@ -149,7 +143,6 @@ public:
     // 起こさないため noexcept。
     void Build(std::span<const float> values) noexcept
     {
-        assert(values.size() == tree_.size());
         const std::size_t n = tree_.size();
         if (n > 0) {
             std::copy_n(values.data(), n, tree_.data());

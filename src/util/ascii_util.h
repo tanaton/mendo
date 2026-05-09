@@ -37,9 +37,7 @@ inline constexpr ToLowerAsciiFn ToLowerAscii{};
 template <typename Char>
 constexpr Char ToUpperAscii(Char c) noexcept
 {
-    return (c >= static_cast<Char>('a') && c <= static_cast<Char>('z'))
-        ? static_cast<Char>(c - static_cast<Char>('a') + static_cast<Char>('A'))
-        : c;
+    return (c >= static_cast<Char>('a') && c <= static_cast<Char>('z')) ? static_cast<Char>(c - static_cast<Char>('a') + static_cast<Char>('A')) : c;
 }
 
 // 純粋な ASCII 範囲の文字種判定。locale や CJK の影響を受けない。

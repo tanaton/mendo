@@ -214,8 +214,9 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     }
 }
 
-void DWriteTextMeasurer::MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                                     std::pmr::vector<SyntaxToken>* tokens_out) const
+void DWriteTextMeasurer::MeasureNode(
+    Node& node, NodeLayoutEntry& entry, float max_width,
+    std::pmr::vector<SyntaxToken>* tokens_out) const
 {
     MENDO_PROFILE("MeasureNode");
     if (!dwrite_ || !theme_) {
@@ -382,9 +383,7 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
             const mendo::WideViewForDWrite wv{ text };
             {
                 MENDO_PROFILE("CreateTextLayout.cell");
-                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt,
-                                           LAYOUT_INFINITY, LAYOUT_INFINITY,
-                                           &tl.cell_layouts[ci]);
+                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
             }
 
             if (tl.cell_layouts[ci]) {
@@ -423,9 +422,7 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
             const mendo::WideViewForDWrite wv{ text };
             {
                 MENDO_PROFILE("CreateTextLayout.cell.restore");
-                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt,
-                                           LAYOUT_INFINITY, LAYOUT_INFINITY,
-                                           &tl.cell_layouts[ci]);
+                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
             }
             if (tl.cell_layouts[ci]) {
                 ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
@@ -434,8 +431,9 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
     }
 }
 
-void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width,
-                                             size_t col_count, std::pmr::vector<float>& natural_widths) const
+void DWriteTextMeasurer::FinalizeTableLayout(
+    Node& node, NodeLayoutEntry& entry, float max_width,
+    size_t col_count, std::pmr::vector<float>& natural_widths) const
 {
     MENDO_PROFILE("FinalizeTableLayout");
     const float cell_padding = TABLE_CELL_PADDING;
@@ -512,8 +510,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry,
     // 圧縮分岐に入った場合 cached_table_width は自然総幅と乖離する。
     // 横スクロールのクランプ計算は natural_total_width を基準にする。
     {
-        float natural_total = (static_cast<float>(col_count) + 1.0f) * border_width
-                              + static_cast<float>(col_count) * cell_padding * 2.0f;
+        float natural_total = (static_cast<float>(col_count) + 1.0f) * border_width + static_cast<float>(col_count) * cell_padding * 2.0f;
         for (size_t c = 0; c < col_count && c < natural_widths.size(); c++) {
             natural_total += natural_widths[c];
         }
@@ -550,8 +547,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     // 既存レイアウトの互換性判定。row*col の積だけだと (旧6×4) と (新8×3) のように積が一致するだけで
     // ストライド (col_count) が違うケースを取りこぼすため、col_count も明示的に比較する。
     auto* tl_existing = entry.table_layout.get();
-    const bool has_compatible_layouts =
-        tl_existing && tl_existing->col_count == col_count && !tl_existing->cell_layouts.empty() && tl_existing->cell_layouts.size() == row_count * col_count;
+    const bool has_compatible_layouts = tl_existing && tl_existing->col_count == col_count && !tl_existing->cell_layouts.empty() && tl_existing->cell_layouts.size() == row_count * col_count;
 
     // 超高速パス: 前回と max_width がほぼ一致しキャッシュ済みレイアウトが揃っていれば、
     // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、layout_dirty を倒すだけで終える。

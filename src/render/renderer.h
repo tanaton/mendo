@@ -27,12 +27,13 @@ public:
     void Resize(UINT width, UINT height) noexcept;
     void Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
-    void DrawLoading(float angle,
-                     const PaneRect& md_pane_rect,
-                     const SidePaneState& side_panes,
-                     const TitleBarRenderState& titlebar,
-                     const GestureRenderState& gesture = {},
-                     const ToastRenderState& toast = {});
+    void DrawLoading(
+        float angle,
+        const PaneRect& md_pane_rect,
+        const SidePaneState& side_panes,
+        const TitleBarRenderState& titlebar,
+        const GestureRenderState& gesture = {},
+        const ToastRenderState& toast = {});
 
     ID2D1RenderTarget* GetRenderTarget() const noexcept
     {
@@ -191,7 +192,7 @@ private:
     mutable std::pmr::wstring cached_search_text_{ GetThreadLocalPoolResource() };     // 合成後の表示テキスト (IME 未使用時は query と同一)
     mutable std::pmr::wstring cached_search_query_{ GetThreadLocalPoolResource() };    // 直近フレームの sb.query
     mutable std::pmr::wstring cached_search_ime_comp_{ GetThreadLocalPoolResource() }; // 直近フレームの sb.ime_composition
-    mutable int cached_search_caret_pos_ = -1;         // IME 合成時の挿入位置（無いとき -1）
+    mutable int cached_search_caret_pos_ = -1;                                         // IME 合成時の挿入位置（無いとき -1）
     mutable float cached_search_width_ = -1.0f;
     mutable bool cached_search_has_underline_ = false;
     // キャレット x 位置のフレーム間キャッシュ。点滅フレームのみ caret_visible が変わる

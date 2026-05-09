@@ -23,11 +23,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         sbl.bar_bottom);
     rt()->FillRectangle(bar_rect, Brush(BrushId::SearchBarBg));
 
-    rt()->DrawLine(
-        D2D1::Point2F(bar_rect.left, sbl.bar_top),
-        D2D1::Point2F(bar_rect.right, sbl.bar_top),
-        Brush(BrushId::SearchBarBorder),
-        1.0f);
+    rt()->DrawLine(D2D1::Point2F(bar_rect.left, sbl.bar_top), D2D1::Point2F(bar_rect.right, sbl.bar_top), Brush(BrushId::SearchBarBorder), 1.0f);
 
     if (fmt_.search_icon) {
         auto* brush = Brush(BrushId::SearchInputText);
@@ -220,8 +216,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         }
     };
 
-    auto drawToggleBtn = [&](const D2D1_RECT_F& r, const wchar_t* label, UINT32 len,
-                             IDWriteTextFormat* fmt, bool checked, bool hovered) {
+    auto drawToggleBtn = [&](const D2D1_RECT_F& r, const wchar_t* label, UINT32 len, IDWriteTextFormat* fmt, bool checked, bool hovered) {
         if (hovered || checked) {
             rt()->FillRoundedRectangle(
                 D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),

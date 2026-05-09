@@ -12,7 +12,6 @@
 #include "resource.h"
 #include "ascii_util.h"
 #include <wrl/event.h>
-#include <cassert>
 #include <filesystem>
 #include <functional>
 #include <memory_resource>
@@ -55,8 +54,9 @@ void MermaidRenderer::Shutdown()
     lifecycle_.Reset();
 }
 
-void MermaidRenderer::Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
-                           const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready)
+void MermaidRenderer::Init(
+    HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
+    const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready)
 {
     hwnd_ = hwnd;
     render_target_ = render_target;
@@ -171,10 +171,7 @@ void MermaidRenderer::OnInitRetryTimer()
 
 void MermaidRenderer::SetupWorker(int index)
 {
-    webview_env_->CreateCoreWebView2Controller(
-        workers_[index].hwnd,
-        Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-            [this, index](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+    const auto handler = [this, index](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
         if (FAILED(result) || !controller) {
             return S_OK;
         }
@@ -198,164 +195,161 @@ void MermaidRenderer::SetupWorker(int index)
             LogHrFailure(L"put_AreDefaultScriptDialogsEnabled", settings->put_AreDefaultScriptDialogsEnabled(FALSE));
         }
 
-        LogHrFailure(L"add_WebMessageReceived", w.webview->add_WebMessageReceived(
-            Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
-                [this, index](ICoreWebView2*,
-                              ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-            LPWSTR msg = nullptr;
-            if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
-                auto& w = workers_[index];
-                const auto parsed = mermaid_util::ParseWebMessage(msg);
-                using mermaid_util::WebMessageKind;
-                const auto& req = parsed.request;
-                const bool req_id_match = req.valid && req.id == w.current_request.request_id;
-                switch (parsed.kind) {
-                case WebMessageKind::Ready:
-                    if (parsed.ready_dpr > 0) {
-                        w.dpr = parsed.ready_dpr;
-                    }
-                    w.ready = true;
-                    w.init_retries = 0;
-                    // 最初のワーカーが準備完了した時点でon_readyを呼び出す。
-                    // 残りのワーカーは準備でき次第プールに参加する。
-                    if (!lifecycle_.IsReady()) {
-                        lifecycle_.MarkReady();
-                        if (on_all_ready_) {
-                            auto cb = std::move(on_all_ready_);
-                            cb();
+        {
+            const auto f = [this, index](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                LPWSTR msg = nullptr;
+                if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
+                    auto& w = workers_[index];
+                    const auto parsed = mermaid_util::ParseWebMessage(msg);
+                    using mermaid_util::WebMessageKind;
+                    const auto& req = parsed.request;
+                    const bool req_id_match = req.valid && req.id == w.current_request.request_id;
+                    switch (parsed.kind) {
+                    case WebMessageKind::Ready:
+                        if (parsed.ready_dpr > 0) {
+                            w.dpr = parsed.ready_dpr;
                         }
+                        w.ready = true;
+                        w.init_retries = 0;
+                        // 最初のワーカーが準備完了した時点でon_readyを呼び出す。
+                        // 残りのワーカーは準備でき次第プールに参加する。
+                        if (!lifecycle_.IsReady()) {
+                            lifecycle_.MarkReady();
+                            if (on_all_ready_) {
+                                auto cb = std::move(on_all_ready_);
+                                cb();
+                            }
+                        }
+                        ProcessQueue();
+                        break;
+                    case WebMessageKind::RenderResult:
+                        if (req_id_match && req.has_payload) {
+                            OnRenderResult(index, req.payload);
+                        }
+                        break;
+                    case WebMessageKind::CaptureReady:
+                        if (req_id_match) {
+                            DoCapturePreview(index);
+                        }
+                        break;
+                    case WebMessageKind::SvgResult:
+                        if (req_id_match && w.current_request.svg_only) {
+                            std::pmr::wstring svg{ req.has_payload ? req.payload : std::wstring_view{} };
+                            InvokeSvgCallbackIfAny(w.current_request, std::move(svg), false);
+                            FinishWorkerRequest(w);
+                        }
+                        break;
+                    case WebMessageKind::RenderError:
+                        if (req_id_match) {
+                            InvokeSvgCallbackIfAny(w.current_request, {}, false);
+                            FinishWorkerRequest(w);
+                        }
+                        break;
+                    case WebMessageKind::Failed:
+                        // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
+                        if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
+                            ++w.init_retries;
+                            LogHrFailure(L"Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
+                        }
+                        break;
+                    case WebMessageKind::Unknown:
+                        break;
                     }
-                    ProcessQueue();
-                    break;
-                case WebMessageKind::RenderResult:
-                    if (req_id_match && req.has_payload) {
-                        OnRenderResult(index, req.payload);
-                    }
-                    break;
-                case WebMessageKind::CaptureReady:
-                    if (req_id_match) {
-                        DoCapturePreview(index);
-                    }
-                    break;
-                case WebMessageKind::SvgResult:
-                    if (req_id_match && w.current_request.svg_only) {
-                        std::pmr::wstring svg{ req.has_payload ? req.payload : std::wstring_view{} };
-                        InvokeSvgCallbackIfAny(w.current_request, std::move(svg), false);
-                        FinishWorkerRequest(w);
-                    }
-                    break;
-                case WebMessageKind::RenderError:
-                    if (req_id_match) {
-                        InvokeSvgCallbackIfAny(w.current_request, {}, false);
-                        FinishWorkerRequest(w);
-                    }
-                    break;
-                case WebMessageKind::Failed:
-                    // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
-                    if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
-                        ++w.init_retries;
-                        LogHrFailure(L"Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
-                    }
-                    break;
-                case WebMessageKind::Unknown:
-                    break;
+                    CoTaskMemFree(msg);
                 }
-                CoTaskMemFree(msg);
-            }
-            return S_OK;
-        }).Get(),
-            nullptr));
+                return S_OK;
+            };
+            LogHrFailure(L"add_WebMessageReceived", w.webview->add_WebMessageReceived(Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(f).Get(), nullptr));
+        }
 
         // ナビゲーションを制限: app.local以外へのナビゲーションをブロック
-        LogHrFailure(L"add_NavigationStarting", w.webview->add_NavigationStarting(
-            Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
-                [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static -> HRESULT {
-            LPWSTR uri = nullptr;
-            if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
-                const std::wstring_view u(uri);
-                if (!u.starts_with(APP_LOCAL_ORIGIN_PREFIX) && u != L"about:blank") {
-                    args->put_Cancel(TRUE);
+        {
+            const auto f = [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static -> HRESULT {
+                LPWSTR uri = nullptr;
+                if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
+                    const std::wstring_view u(uri);
+                    if (!u.starts_with(APP_LOCAL_ORIGIN_PREFIX) && u != L"about:blank") {
+                        args->put_Cancel(TRUE);
+                    }
+                    CoTaskMemFree(uri);
                 }
-                CoTaskMemFree(uri);
-            }
-            return S_OK;
-        }).Get(),
-            nullptr));
+                return S_OK;
+            };
+            LogHrFailure(L"add_NavigationStarting", w.webview->add_NavigationStarting(Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(f).Get(), nullptr));
+        }
 
-        LogHrFailure(L"add_NewWindowRequested", w.webview->add_NewWindowRequested(
-            Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
-                [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static -> HRESULT {
-            args->put_Handled(TRUE);
-            return S_OK;
-        }).Get(),
-            nullptr));
+        {
+            const auto f = [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static -> HRESULT {
+                args->put_Handled(TRUE);
+                return S_OK;
+            };
+            LogHrFailure(L"add_NewWindowRequested", w.webview->add_NewWindowRequested(Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(f).Get(), nullptr));
+        }
 
         // 仮想ホストへのリクエストをインターセプトし、
         // 埋め込みWin32リソースからHTML / mermaid.jsを配信する。
         // 全URLをフィルタし、app.local以外へのリクエストもブロックする。
-        LogHrFailure(L"AddWebResourceRequestedFilter", w.webview->AddWebResourceRequestedFilter(
-            L"*",
-            COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
+        LogHrFailure(L"AddWebResourceRequestedFilter", w.webview->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
 
-        LogHrFailure(L"add_WebResourceRequested", w.webview->add_WebResourceRequested(
-            Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(
-                [this](ICoreWebView2*,
-                       ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
-            Microsoft::WRL::ComPtr<ICoreWebView2WebResourceRequest> request;
-            args->get_Request(&request);
-            LPWSTR uri = nullptr;
-            request->get_Uri(&uri);
-            const std::pmr::wstring url(uri ? uri : L"");
-            CoTaskMemFree(uri);
+        {
+            const auto f = [this](ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
+                Microsoft::WRL::ComPtr<ICoreWebView2WebResourceRequest> request;
+                args->get_Request(&request);
+                LPWSTR uri = nullptr;
+                request->get_Uri(&uri);
+                const std::pmr::wstring url(uri ? uri : L"");
+                CoTaskMemFree(uri);
 
-            // https://app.local/ 以外へのリクエストをブロックする。
-            // NavigationStartingと判定ロジックを揃え、app.local.evil.comのような
-            // 部分一致によるサブドメイン経由の経路を塞ぐ。
-            if (!url.starts_with(APP_LOCAL_ORIGIN_PREFIX)) {
-                Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
-                webview_env_->CreateWebResourceResponse(nullptr, 403, L"Blocked", L"", &response);
-                args->put_Response(response.Get());
+                // https://app.local/ 以外へのリクエストをブロックする。
+                // NavigationStartingと判定ロジックを揃え、app.local.evil.comのような
+                // 部分一致によるサブドメイン経由の経路を塞ぐ。
+                if (!url.starts_with(APP_LOCAL_ORIGIN_PREFIX)) {
+                    Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
+                    webview_env_->CreateWebResourceResponse(nullptr, 403, L"Blocked", L"", &response);
+                    args->put_Response(response.Get());
+                    return S_OK;
+                }
+
+                std::span<const std::byte> payload;
+                const wchar_t* headers = nullptr;
+
+                if (ascii_util::Contains(url, L"/mermaid.min.js.gz")) {
+                    // gzip圧縮されたmermaid.jsを配信する。JSがDecompressionStreamで展開する
+                    payload = LoadRcData(IDR_MERMAID_JS_GZ);
+                    headers = L"Content-Type: application/gzip";
+                }
+                else {
+                    // その他のパスにはHTMLテンプレート（res/mermaid.html）を配信する
+                    payload = LoadRcData(IDR_MERMAID_HTML);
+                    headers = L"Content-Type: text/html; charset=utf-8";
+                }
+
+                // リソースが見つからない場合は空ボディを200で返さず500を返して失敗を明示する
+                if (payload.empty()) {
+                    Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
+                    webview_env_->CreateWebResourceResponse(nullptr, 500, L"Resource missing", L"", &response);
+                    args->put_Response(response.Get());
+                    return S_OK;
+                }
+
+                const auto stream = stream_util::CreateMemoryStream(payload.data(), payload.size());
+                if (stream) {
+                    Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
+                    webview_env_->CreateWebResourceResponse(stream.Get(), 200, L"OK", headers, &response);
+                    args->put_Response(response.Get());
+                }
                 return S_OK;
-            }
-
-            std::span<const std::byte> payload;
-            const wchar_t* headers = nullptr;
-
-            if (ascii_util::Contains(url, L"/mermaid.min.js.gz")) {
-                // gzip圧縮されたmermaid.jsを配信する。JSがDecompressionStreamで展開する
-                payload = LoadRcData(IDR_MERMAID_JS_GZ);
-                headers = L"Content-Type: application/gzip";
-            }
-            else {
-                // その他のパスにはHTMLテンプレート（res/mermaid.html）を配信する
-                payload = LoadRcData(IDR_MERMAID_HTML);
-                headers = L"Content-Type: text/html; charset=utf-8";
-            }
-
-            // リソースが見つからない場合は空ボディを200で返さず500を返して失敗を明示する
-            if (payload.empty()) {
-                Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
-                webview_env_->CreateWebResourceResponse(nullptr, 500, L"Resource missing", L"", &response);
-                args->put_Response(response.Get());
-                return S_OK;
-            }
-
-            const auto stream = stream_util::CreateMemoryStream(payload.data(), payload.size());
-            if (stream) {
-                Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
-                webview_env_->CreateWebResourceResponse(stream.Get(), 200, L"OK", headers, &response);
-                args->put_Response(response.Get());
-            }
-            return S_OK;
-        }).Get(),
-            nullptr));
+            };
+            LogHrFailure(L"add_WebResourceRequested", w.webview->add_WebResourceRequested(Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(f).Get(), nullptr));
+        }
 
         // 仮想ホストにナビゲートする（HTML + JSは上記ハンドラにより
         // メモリから配信される）。
         LogHrFailure(L"Navigate(initial)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
 
         return S_OK;
-    }).Get());
+    };
+    webview_env_->CreateCoreWebView2Controller(workers_[index].hwnd, Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(handler).Get());
 }
 
 void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
@@ -403,10 +397,11 @@ uint64_t MermaidRenderer::HashCode(std::string_view code_utf8, float max_width, 
     return mermaid_util::HashCode(code_utf8, max_width, dark_mode);
 }
 
-void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
-                                    DiagramEntry& diagram_entry,
-                                    float max_width, bool dark_mode,
-                                    Callback on_complete)
+void MermaidRenderer::RequestRender(
+    Node& node, NodeLayoutEntry& layout_entry,
+    DiagramEntry& diagram_entry,
+    float max_width, bool dark_mode,
+    Callback on_complete)
 {
     if (!IsDiagramLanguage(node.code_language)) {
         return;
@@ -472,10 +467,6 @@ void MermaidRenderer::RequestRender(Node& node, NodeLayoutEntry& layout_entry,
 
 void MermaidRenderer::RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
-    // 呼び出し元 (App::CopyDiagramAsSvg) は IsSvgExportable と非空コード、有効なコールバックを保証する。
-    assert(callback && "RequestSvg requires a callable SvgCallback");
-    assert(!code.empty() && "RequestSvg requires non-empty code");
-
     RenderRequest req;
     req.svg_only = true;
     req.max_width = max_width;

@@ -20,13 +20,14 @@ constexpr size_t kMaxChunkSize = 512;
 // dispatch + latch のオーバーヘッドが per-node 並列利得を上回る境界。
 constexpr size_t kMinDirtyForParallel = 32;
 
-void MeasureChunk(std::pmr::vector<Node>& nodes,
-                  LayoutCache& cache,
-                  float content_width,
-                  const Theme& theme,
-                  const IMeasureBackend& backend,
-                  std::span<const size_t> chunk_indices,
-                  std::span<std::pmr::vector<SyntaxToken>> chunk_slot_tokens)
+void MeasureChunk(
+    std::pmr::vector<Node>& nodes,
+    LayoutCache& cache,
+    float content_width,
+    const Theme& theme,
+    const IMeasureBackend& backend,
+    std::span<const size_t> chunk_indices,
+    std::span<std::pmr::vector<SyntaxToken>> chunk_slot_tokens)
 {
     for (size_t k = 0; k < chunk_indices.size(); ++k) {
         const size_t i = chunk_indices[k];
@@ -37,14 +38,15 @@ void MeasureChunk(std::pmr::vector<Node>& nodes,
 
 } // namespace
 
-DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
-                             LayoutCache& cache,
-                             float content_width,
-                             const Theme& theme,
-                             const IMeasureBackend& backend,
-                             ViewportClip clip,
-                             ParallelBudget budget,
-                             TaskScheduler& scheduler)
+DirtyBatchResult RunParallel(
+    std::pmr::vector<Node>& nodes,
+    LayoutCache& cache,
+    float content_width,
+    const Theme& theme,
+    const IMeasureBackend& backend,
+    ViewportClip clip,
+    ParallelBudget budget,
+    TaskScheduler& scheduler)
 {
     MENDO_PROFILE("DirtyScheduler::RunParallel");
     DirtyBatchResult result;
@@ -96,8 +98,7 @@ DirtyBatchResult RunParallel(std::pmr::vector<Node>& nodes,
 
     if (indices.size() < kMinDirtyForParallel) {
         MENDO_PROFILE("RunParallel.Inline");
-        MeasureChunk(nodes, cache, content_width, theme, backend, indices,
-                     { slot_tokens.data(), slot_tokens.size() });
+        MeasureChunk(nodes, cache, content_width, theme, backend, indices, { slot_tokens.data(), slot_tokens.size() });
     }
     else {
         const size_t worker_count = std::max<size_t>(scheduler.WorkerCount(), 1);

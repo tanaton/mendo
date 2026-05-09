@@ -83,11 +83,12 @@ public:
     // テーブルセル内のヒットテスト。
     // entry_text_top はノードのテキスト上端 Y (= entry.text_top)。
     // h_scroll_x はブロック単位の横スクロール量 (DIP)。
-    HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
-                           float entry_text_top,
-                           int node_index,
-                           const Theme& theme,
-                           float dip_x, float dip_y, float h_scroll_x = 0.0f) const noexcept;
+    HitResult HitTestTable(
+        const Node& node, const NodeLayoutEntry& entry,
+        float entry_text_top,
+        int node_index,
+        const Theme& theme,
+        float dip_x, float dip_y, float h_scroll_x = 0.0f) const noexcept;
 
     // ナビゲーションボタンのヒットテスト
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept;

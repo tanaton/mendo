@@ -5,13 +5,14 @@
 
 namespace mendo::layout {
 
-DirtyBatchResult DirtyScheduler::RunSerial(std::pmr::vector<Node>& nodes,
-                                           LayoutCache& cache,
-                                           float content_width,
-                                           const Theme& theme,
-                                           const IMeasureBackend& backend,
-                                           ViewportClip clip,
-                                           SerialBudget budget) const
+DirtyBatchResult DirtyScheduler::RunSerial(
+    std::pmr::vector<Node>& nodes,
+    LayoutCache& cache,
+    float content_width,
+    const Theme& theme,
+    const IMeasureBackend& backend,
+    ViewportClip clip,
+    SerialBudget budget) const
 {
     MENDO_PROFILE("DirtyScheduler::RunSerial");
     DirtyBatchResult result;

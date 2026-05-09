@@ -60,18 +60,12 @@ namespace path_util {
 
 inline bool iequal(std::wstring_view a, std::wstring_view b) noexcept
 {
-    return ::CompareStringOrdinal(
-               a.data(), static_cast<int>(a.size()),
-               b.data(), static_cast<int>(b.size()),
-               TRUE) == CSTR_EQUAL;
+    return ::CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL;
 }
 
 inline bool iless(std::wstring_view a, std::wstring_view b) noexcept
 {
-    return ::CompareStringOrdinal(
-               a.data(), static_cast<int>(a.size()),
-               b.data(), static_cast<int>(b.size()),
-               TRUE) == CSTR_LESS_THAN;
+    return ::CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_LESS_THAN;
 }
 
 } // namespace path_util

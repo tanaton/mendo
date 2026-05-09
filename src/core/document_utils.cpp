@@ -118,7 +118,7 @@ bool IsMarkdownFile(std::wstring_view path)
         L".mkd",
     };
     const auto ext = std::filesystem::path(path).extension().wstring();
-    return std::ranges::any_of(kMarkdownExts, [&](const auto& e) {
+    return std::ranges::any_of(kMarkdownExts, [&](const auto& e) noexcept {
         return ascii_util::iequal(ext, e);
     });
 }

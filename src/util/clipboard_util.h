@@ -104,10 +104,8 @@ inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
     constexpr std::string_view kBeforeEndFragment = "\r\nEndFragment:";
     constexpr std::string_view kHeaderSuffix = "\r\n";
     constexpr std::string_view kDigitPlaceholder = "0000000000";
-    constexpr std::string_view kHtmlPrefix =
-        "<html>\r\n<body>\r\n<!--StartFragment-->";
-    constexpr std::string_view kHtmlSuffix =
-        "<!--EndFragment-->\r\n</body>\r\n</html>";
+    constexpr std::string_view kHtmlPrefix = "<html>\r\n<body>\r\n<!--StartFragment-->";
+    constexpr std::string_view kHtmlSuffix = "<!--EndFragment-->\r\n</body>\r\n</html>";
 
     constexpr size_t kStartHtmlDigits = kBeforeStartHtml.size();
     constexpr size_t kEndHtmlDigits = kStartHtmlDigits + kDigitPlaceholder.size() + kBeforeEndHtml.size();

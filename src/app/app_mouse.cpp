@@ -54,24 +54,25 @@ void App::OnLButtonDown(int px, int py)
         state_.view.panes.IsTocPaneVisible());
 
     switch (zone) {
-    case PaneZone::Splitter1:
-        Dispatch(SplitterDragStartedAction{ PaneController::DragTarget::Splitter1 });
-        return;
-    case PaneZone::Splitter2:
-        Dispatch(SplitterDragStartedAction{ PaneController::DragTarget::Splitter2 });
+    case PaneZone::None:
         return;
     case PaneZone::FilePane:
         HandleFilePaneClick(dip.x, dip.y, pane_layout);
         return;
+    case PaneZone::Splitter1:
+        Dispatch(SplitterDragStartedAction{ PaneController::DragTarget::Splitter1 });
+        return;
     case PaneZone::TocPane:
         HandleTocPaneClick(dip.x, dip.y, pane_layout);
+        return;
+    case PaneZone::Splitter2:
+        Dispatch(SplitterDragStartedAction{ PaneController::DragTarget::Splitter2 });
         return;
     case PaneZone::MdPane:
         HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout);
         return;
-    default:
-        return;
     }
+    std::unreachable();
 }
 
 void App::OnLButtonUp(int px, int py)

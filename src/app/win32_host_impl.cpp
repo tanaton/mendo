@@ -107,8 +107,7 @@ void Win32Host::SearchFocus(effect::SearchFocus action)
         PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
         break;
     case Mode::SetCaret:
-        PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET,
-                     static_cast<LPARAM>(action.caret));
+        PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(action.caret));
         break;
     case Mode::SetSelection: {
         // anchor / caret は LPARAM に pack 済みなので PostMessage 失敗・hwnd 破棄しても leak しない。
@@ -121,9 +120,7 @@ void Win32Host::SearchFocus(effect::SearchFocus action)
 
 void Win32Host::SearchUnfocus(effect::SearchUnfocus action)
 {
-    const WPARAM wp = action.clear_text
-        ? app_param::SEARCH_UNFOCUS_FILE_SWITCH
-        : app_param::SEARCH_UNFOCUS_CLOSE;
+    const WPARAM wp = action.clear_text ? app_param::SEARCH_UNFOCUS_FILE_SWITCH : app_param::SEARCH_UNFOCUS_CLOSE;
     PostMessageW(hwnd_, app_msg::SEARCH_UNFOCUS, wp, 0);
 }
 

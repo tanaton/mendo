@@ -113,9 +113,10 @@ private:
     // utf16_text は UTF-16 オフセット算出に使う元の UTF-8 (= ノード/セルテキスト)。
     // 両者は同一バイト長で位置対応が一致するが、ASCII lowercase はインプレース変換可能なので
     // start オフセットを共有できる。
-    void FindMatches(std::string_view search_text, std::string_view utf16_text,
-                     const std::pmr::string& lower_query, int node_index,
-                     int table_row = -1, int table_col = -1);
+    void FindMatches(
+        std::string_view search_text, std::string_view utf16_text,
+        const std::pmr::string& lower_query, int node_index,
+        int table_row = -1, int table_col = -1);
     void EnsureLowercaseCache(const std::pmr::vector<Node>& nodes);
 
     // マッチ一覧と関連する世代カウンタ・トランケーションフラグを同時にリセットする。

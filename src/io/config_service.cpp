@@ -215,12 +215,8 @@ SessionService::PaneState SessionService::LoadPaneState(float client_width, floa
     // LoadInt は範囲外時に default_int を返すが、その既定値自体が
     // 狭いウィンドウでは dynamic_max を超えうる。最終結果も clamp してから
     // 適用し、SetXxxPaneWidth 側の最小値 clamp に過剰な幅が漏れないようにする。
-    const int file_w = std::clamp(
-        config_.LoadInt("Pane", "FileWidth", default_int, min_int, dynamic_max),
-        min_int, dynamic_max);
-    const int toc_w = std::clamp(
-        config_.LoadInt("Pane", "TocWidth", default_int, min_int, dynamic_max),
-        min_int, dynamic_max);
+    const int file_w = std::clamp(config_.LoadInt("Pane", "FileWidth", default_int, min_int, dynamic_max), min_int, dynamic_max);
+    const int toc_w = std::clamp(config_.LoadInt("Pane", "TocWidth", default_int, min_int, dynamic_max), min_int, dynamic_max);
     s.file_width = static_cast<float>(file_w);
     s.toc_width = static_cast<float>(toc_w);
     return s;

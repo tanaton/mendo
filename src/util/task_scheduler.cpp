@@ -2,7 +2,6 @@
 #include "profiler.h"
 #include <windows.h>
 #include <objbase.h>
-#include <cassert>
 
 TaskScheduler::~TaskScheduler()
 {
@@ -12,8 +11,6 @@ TaskScheduler::~TaskScheduler()
 void TaskScheduler::Init(int thread_count)
 {
     // 二重 Init 検出: 前回の workers_ が残っている状態で再 Init すると worker が累積する。
-    // assert は Debug のみなので Release でも accumulation を防ぐ早期 return を付ける。
-    assert(workers_.empty() && "TaskScheduler::Init called twice without Shutdown");
     if (!workers_.empty()) {
         return;
     }

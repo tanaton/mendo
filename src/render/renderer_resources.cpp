@@ -126,15 +126,11 @@ void Renderer::InvalidateBrushes() noexcept
     }
 }
 
-ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
-    const wchar_t* family, DWRITE_FONT_WEIGHT weight,
-    float size, const wchar_t* locale)
+ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size, const wchar_t* locale)
 {
     auto* dw = backend_.GetDWriteFactory();
     ComPtr<IDWriteTextFormat> fmt;
-    HRESULT hr = dw->CreateTextFormat(
-        family, nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
+    HRESULT hr = dw->CreateTextFormat(family, nullptr, weight, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
     if (SUCCEEDED(hr)) {
         return fmt;
     }
@@ -142,9 +138,7 @@ ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(
     // ユーザに「フォントが効かない」状態を出さないための最終防壁。
     mendo::LogHrFailure(L"CreateTextFormat (falling back to Segoe UI)", hr);
     fmt.Reset();
-    hr = dw->CreateTextFormat(
-        L"Segoe UI", nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
+    hr = dw->CreateTextFormat(L"Segoe UI", nullptr, weight, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
     if (FAILED(hr)) {
         mendo::LogHrFailure(L"CreateTextFormat (Segoe UI fallback)", hr);
     }

@@ -29,9 +29,10 @@ static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent, flo
     return true;
 }
 
-static void DrawPaneScrollbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb_brush,
-                              float pane_width, float content_top, float content_height,
-                              float scroll_y, float total_content_height)
+static void DrawPaneScrollbar(
+    ID2D1RenderTarget* rt, ID2D1SolidColorBrush* thumb_brush,
+    float pane_width, float content_top, float content_height,
+    float scroll_y, float total_content_height)
 {
     if (total_content_height <= content_height) {
         return;
@@ -239,9 +240,7 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
             const auto text = nodes[entry.node_index].GetText();
             const mendo::WideViewForDWrite wv{ text };
             const auto wide = wv.wide();
-            rt->DrawText(wide.data(), static_cast<UINT32>(wide.size()),
-                         fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text),
-                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            rt->DrawText(wide.data(), static_cast<UINT32>(wide.size()), fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text), D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
         if (i == active_index) {

@@ -13,9 +13,7 @@
 
 static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path)
 {
-    auto r = OpenFileForReadShared(
-        std::filesystem::path(path),
-        path_util::kFileShareRWDelete, MAX_FILE_SIZE);
+    auto r = OpenFileForReadShared(std::filesystem::path(path), path_util::kFileShareRWDelete, MAX_FILE_SIZE);
     if (r.error != OpenFileError::None || r.size == 0) {
         return nullptr;
     }

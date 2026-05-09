@@ -193,9 +193,10 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     return cmds_;
 }
 
-void CommandGenerator::GenerateNode(DrawCommandList& cmds,
-                                    const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
-                                    int node_index, float entry_text_top)
+void CommandGenerator::GenerateNode(
+    DrawCommandList& cmds,
+    const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
+    int node_index, float entry_text_top)
 {
     // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
     float node_bottom = entry_text_top + entry.height;
@@ -221,9 +222,7 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             const float draw_h = entry.height;
             const float draw_w = (diagram.height > 0) ? diagram.width * (draw_h / diagram.height) : diagram.width;
             const float dx = x;
-            cmds.emplace_back(DrawBitmapCmd{
-                diagram.bitmap.Get(),
-                D2D1::RectF(dx, entry_text_top, dx + draw_w, entry_text_top + draw_h) });
+            cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), D2D1::RectF(dx, entry_text_top, dx + draw_w, entry_text_top + draw_h) });
         }
         else {
             GenDiagramPlaceholder(cmds, x, entry_text_top, cw, entry.height);
@@ -235,9 +234,10 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         const bool needs_clip = natural_w > cw;
         const float scroll_x = needs_clip ? std::clamp(frame_h_scroll_.GetScrollX(node_index), 0.0f, natural_w - cw) : 0.0f;
         {
-            BlockHScrollScope guard(cmds,
-                                    D2D1::RectF(x, entry_text_top, x + cw, entry_text_top + entry.height),
-                                    frame_pane_transform_, scroll_x, needs_clip);
+            BlockHScrollScope guard(
+                cmds,
+                D2D1::RectF(x, entry_text_top, x + cw, entry_text_top + entry.height),
+                frame_pane_transform_, scroll_x, needs_clip);
             GenTable(cmds, node, entry, node_index, x, entry_text_top, scroll_x);
         }
         EmitBlockHScrollbarIfActive(cmds, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), cw, natural_w, scroll_x);
@@ -267,9 +267,10 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
             const float scroll_x = needs_clip ? std::clamp(frame_h_scroll_.GetScrollX(node_index), 0.0f, natural_w - cw) : 0.0f;
             const float pad = theme_->code_block_padding;
             {
-                BlockHScrollScope guard(cmds,
-                                        D2D1::RectF(x, entry_text_top - pad, x + cw, entry_text_top + entry.height + pad),
-                                        frame_pane_transform_, scroll_x, needs_clip);
+                BlockHScrollScope guard(
+                    cmds,
+                    D2D1::RectF(x, entry_text_top - pad, x + cw, entry_text_top + entry.height + pad),
+                    frame_pane_transform_, scroll_x, needs_clip);
                 GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x, entry_text_top);
             }
             EmitBlockHScrollbarIfActive(cmds, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), cw, natural_w, scroll_x);
@@ -480,12 +481,8 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, co
         // の楕円を bounding rect (長方形) に縮退させるため、bullet だけ Identity transform +
         // baked 座標で描画する。
         const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
-        const float bullet_x = SnapToPhysicalPixel(
-            frame_md_pane_x_ + x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR,
-            frame_dpi_scale_);
-        const float bullet_y = SnapToPhysicalPixel(
-            entry_text_top + first_line_h * 0.5f - frame_snapped_scroll_y_,
-            frame_dpi_scale_);
+        const float bullet_x = SnapToPhysicalPixel(frame_md_pane_x_ + x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR, frame_dpi_scale_);
+        const float bullet_y = SnapToPhysicalPixel(entry_text_top + first_line_h * 0.5f - frame_snapped_scroll_y_, frame_dpi_scale_);
         const float r = LIST_BULLET_RADIUS;
         cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
         if (node.indent_level <= 1) {
@@ -564,9 +561,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
             const auto idx = AlertColorIndex(alert_type);
             if (idx < ALERT_TYPE_COUNT) {
                 const float cw = content_width - outer_x_indent;
-                const D2D1_RECT_F bg_rect = D2D1::RectF(
-                    outer_x - ALERT_BG_PAD, group_top - ALERT_BG_PAD,
-                    outer_x + cw, group_bottom + ALERT_BG_PAD);
+                const D2D1_RECT_F bg_rect = D2D1::RectF(outer_x - ALERT_BG_PAD, group_top - ALERT_BG_PAD, outer_x + cw, group_bottom + ALERT_BG_PAD);
                 cmds.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, theme_->alert_bg_color[idx] });
             }
         }
@@ -579,9 +574,10 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
             const bool is_alert_bar = (level == 1 && alert_type != AlertType::None);
             const D2D1_COLOR_F bar_color = is_alert_bar ? theme_->alert_color[AlertColorIndex(alert_type)] : theme_->blockquote_bar_color;
             // BrushId::AlertNote..AlertCaution は AlertColorIndex(0..4) で連番に並んでいる。
-            const BrushId bar_brush = is_alert_bar
-                                          ? static_cast<BrushId>(std::to_underlying(BrushId::AlertNote) + AlertColorIndex(alert_type))
-                                          : BrushId::BlockquoteBar;
+            const BrushId bar_brush =
+                is_alert_bar
+                    ? static_cast<BrushId>(std::to_underlying(BrushId::AlertNote) + AlertColorIndex(alert_type))
+                    : BrushId::BlockquoteBar;
 
             const auto emit_bar = [&](float top, float bottom) {
                 cmds.emplace_back(DrawLineCmd{
@@ -717,8 +713,9 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayo
     EmitSearchHlCommands(cmds, cache, matches, first_global, origin_x, origin_y, table_row, table_col);
 }
 
-void CommandGenerator::RebuildSearchHlCache(SearchHlCache& cache, const NodeLayoutEntry& entry,
-                                            std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count)
+void CommandGenerator::RebuildSearchHlCache(
+    SearchHlCache& cache, const NodeLayoutEntry& entry,
+    std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count)
 {
     // キャッシュミス時のみ HitTestTextRange を一括発行。layout 変更時は
     // invalidate_search_hl_cache() でキャッシュ自体が破棄されており、SearchState の
@@ -771,9 +768,7 @@ void CommandGenerator::EmitSearchHlCommands(
     for (size_t node_mi = 0; node_mi < node_match_count; ++node_mi) {
         const size_t mi = first_global + node_mi;
         const auto& m = matches[mi];
-        const bool is_here = (table_row >= 0)
-                                 ? (m.table_row == table_row && m.table_col == table_col)
-                                 : (m.table_row < 0);
+        const bool is_here = (table_row >= 0) ? (m.table_row == table_row && m.table_col == table_col) : (m.table_row < 0);
         if (!is_here) {
             continue;
         }
@@ -786,10 +781,7 @@ void CommandGenerator::EmitSearchHlCommands(
         const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
         for (uint32_t k = rb; k < re; ++k) {
             const auto& r = cache.rects[k];
-            cmds.emplace_back(FillRectCmd{
-                D2D1::RectF(origin_x + r.left, origin_y + r.top,
-                            origin_x + r.right, origin_y + r.bottom),
-                color, hl_brush });
+            cmds.emplace_back(FillRectCmd{ D2D1::RectF(origin_x + r.left, origin_y + r.top, origin_x + r.right, origin_y + r.bottom), color, hl_brush });
         }
     }
 }
@@ -797,15 +789,11 @@ void CommandGenerator::EmitSearchHlCommands(
 void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border)
 {
     if (is_header) {
-        cmds.emplace_back(FillRectCmd{
-            D2D1::RectF(x, y, x + table_width, y + row_h + border),
-            theme_->code_bg_color, BrushId::CodeBg });
+        cmds.emplace_back(FillRectCmd{ D2D1::RectF(x, y, x + table_width, y + row_h + border), theme_->code_bg_color, BrushId::CodeBg });
     }
     else if (is_even_row) {
         // cached_stripe_color_ と Renderer の brushes_[TableStripe] は同じ式 (renderer_resources.cpp) で算出する。
-        cmds.emplace_back(FillRectCmd{
-            D2D1::RectF(x, y, x + table_width, y + row_h + border),
-            cached_stripe_color_, BrushId::TableStripe });
+        cmds.emplace_back(FillRectCmd{ D2D1::RectF(x, y, x + table_width, y + row_h + border), cached_stripe_color_, BrushId::TableStripe });
     }
 }
 
@@ -840,9 +828,10 @@ void CommandGenerator::GenTableCellContent(
     }
 }
 
-void CommandGenerator::GenTable(DrawCommandList& cmds,
-                                const Node& node, const NodeLayoutEntry& entry,
-                                int node_index, float offset_x, float entry_text_top, float h_scroll_x)
+void CommandGenerator::GenTable(
+    DrawCommandList& cmds,
+    const Node& node, const NodeLayoutEntry& entry,
+    int node_index, float offset_x, float entry_text_top, float h_scroll_x)
 {
     const auto* tbl = node.table_data();
     if (!tbl || tbl->row_count == 0 || !entry.has_table_layout() || entry.table_layout->col_widths.empty()) {
@@ -890,9 +879,7 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
         GenTableRowBg(cmds, is_header_row, r % 2 == 0, offset_x, y, table_width, row_h, border);
 
         // 行上部の水平線
-        cmds.emplace_back(DrawLineCmd{
-            D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
-            theme_->hr_color, border, BrushId::Hr });
+        cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), theme_->hr_color, border, BrushId::Hr });
 
         // 可視列のみコマンド生成、画面外は cell_text_starts で flat_offset を直接取得。
         // 横スクロール時は画面に映る範囲が h_scroll_x だけ右にずれる。
@@ -906,13 +893,10 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
             const bool col_visible = (col_right >= cull_left) && (cx - border <= cull_right);
 
             if (col_visible) {
-                cmds.emplace_back(DrawLineCmd{
-                    D2D1::Point2F(cx - border, y), D2D1::Point2F(cx - border, y + row_h + border),
-                    theme_->hr_color, border, BrushId::Hr });
+                cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(cx - border, y), D2D1::Point2F(cx - border, y + row_h + border), theme_->hr_color, border, BrushId::Hr });
 
                 const float text_x = cx + cell_padding;
                 const float text_y = y + cell_padding;
-
                 IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
 
                 // bg_cursor は cell_index 昇順で進む。
@@ -927,16 +911,9 @@ void CommandGenerator::GenTable(DrawCommandList& cmds,
 
             cx += cw + cell_padding * 2.0f + border;
         }
-
-        cmds.emplace_back(DrawLineCmd{
-            D2D1::Point2F(offset_x + table_width, y),
-            D2D1::Point2F(offset_x + table_width, y + row_h + border),
-            theme_->hr_color, border, BrushId::Hr });
-
+        cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x + table_width, y), D2D1::Point2F(offset_x + table_width, y + row_h + border), theme_->hr_color, border, BrushId::Hr });
         y += row_h + border;
     }
 
-    cmds.emplace_back(DrawLineCmd{
-        D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y),
-        theme_->hr_color, border, BrushId::Hr });
+    cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), theme_->hr_color, border, BrushId::Hr });
 }

@@ -3,7 +3,6 @@
 #include "layout.h"
 #include "layout_computer.h"
 #include "ui_constants.h"
-#include <cassert>
 #include <ranges>
 #include <utility>
 
@@ -128,8 +127,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     // partition_point は entry.text_top で比較しているため、局所座標 (local_y) の基準も
     // 同じ entry.text_top を直接参照する。TextTopOf (Fenwick 経由) は等価であるべきだが、
     // 累積誤差や部分更新中の不同期で乖離するとマウス位置と一致しないため避ける。
-    const float candidate_text_top =
-        (candidate >= 0) ? ctx.cache[candidate].text_top : 0.0f;
+    const float candidate_text_top = (candidate >= 0) ? ctx.cache[candidate].text_top : 0.0f;
     // CodeBlock は背景が text 範囲の上下に padding 分はみ出る。padding 部分 (横スクロールバーを
     // 置きたい領域) もそのノードのヒットとして扱い、ホバーが切れないようにする。
     const float bottom_extension =
@@ -163,8 +161,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
             BOOL is_trailing = FALSE;
             BOOL is_inside = FALSE;
             DWRITE_HIT_TEST_METRICS metrics{};
-            entry.text_layout->HitTestPoint(local_x, local_y,
-                                            &is_trailing, &is_inside, &metrics);
+            entry.text_layout->HitTestPoint(local_x, local_y, &is_trailing, &is_inside, &metrics);
 
             result.node_index = candidate;
             // metrics.textPosition (UTF-16 code unit) を text_pos (UTF-8 byte) に還元する。
@@ -249,9 +246,6 @@ HitTestService::HitResult HitTestService::HitTestTable(
 
 int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept
 {
-    assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
-    assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
-
     if (ctx.nodes.empty()) {
         return -1;
     }
@@ -285,9 +279,6 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
 
 int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept
 {
-    assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
-    assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
-
     return HitTestCodeBlockButton(ctx, last_save_hit_, [&](int i, const Node& node, const NodeLayoutEntry& /*entry*/, float entry_text_top, float dip_x, float dip_y) noexcept -> bool {
         if (!IsDiagramLanguage(node.code_language)) {
             return false;
@@ -305,12 +296,8 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
     });
 }
 
-HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(
-    const MdPaneHitContext& ctx) const noexcept
+HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept
 {
-    assert(ctx.content_width > 0.0f && "content_width must be set for button hit test");
-    assert(ctx.md_pane_height > 0.0f && "md_pane_height must be set for button hit test");
-
     CodeBlockButtonHit out;
     if (ctx.nodes.empty()) {
         return out;

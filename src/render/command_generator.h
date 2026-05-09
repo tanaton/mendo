@@ -154,14 +154,16 @@ private:
 
     // 検索ハイライトのキャッシュが古い場合に再構築する。
     // matches[first_global, first_global + node_match_count) が当該ノードのマッチ。
-    void RebuildSearchHlCache(SearchHlCache& cache, const NodeLayoutEntry& entry,
-                              std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count);
+    void RebuildSearchHlCache(
+        SearchHlCache& cache, const NodeLayoutEntry& entry,
+        std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count);
 
     // 構築済みキャッシュから FillRectCmd を発行する。
     // table_row / table_col に該当するマッチのみ origin に加算して描画。
-    void EmitSearchHlCommands(DrawCommandList& cmds, const SearchHlCache& cache,
-                              std::span<const SearchMatch> matches, size_t first_global,
-                              float origin_x, float origin_y, int table_row, int table_col);
+    void EmitSearchHlCommands(
+        DrawCommandList& cmds, const SearchHlCache& cache,
+        std::span<const SearchMatch> matches, size_t first_global,
+        float origin_x, float origin_y, int table_row, int table_col);
 
     const Theme* theme_ = nullptr;
     Formats formats_;

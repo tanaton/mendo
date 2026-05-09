@@ -84,18 +84,19 @@ doc_offset WideViewForDWrite::DocOffsetFromWideOffset(uint32_t wide_off) const n
     return static_cast<doc_offset>(it - utf16_offsets_.begin());
 }
 
-HRESULT CreateDocTextLayout(IDWriteFactory* factory, const WideViewForDWrite& view,
-                            IDWriteTextFormat* fmt, float max_w, float max_h,
-                            IDWriteTextLayout** out) noexcept
+HRESULT CreateDocTextLayout(
+    IDWriteFactory* factory, const WideViewForDWrite& view,
+    IDWriteTextFormat* fmt, float max_w, float max_h,
+    IDWriteTextLayout** out) noexcept
 {
     const auto wide = view.wide();
-    return factory->CreateTextLayout(wide.data(), static_cast<UINT32>(wide.size()),
-                                     fmt, max_w, max_h, out);
+    return factory->CreateTextLayout(wide.data(), static_cast<UINT32>(wide.size()), fmt, max_w, max_h, out);
 }
 
-HRESULT CreateDocTextLayout(IDWriteFactory* factory, std::string_view text,
-                            IDWriteTextFormat* fmt, float max_w, float max_h,
-                            IDWriteTextLayout** out) noexcept
+HRESULT CreateDocTextLayout(
+    IDWriteFactory* factory, std::string_view text,
+    IDWriteTextFormat* fmt, float max_w, float max_h,
+    IDWriteTextLayout** out) noexcept
 {
     WideViewForDWrite view{ text };
     return CreateDocTextLayout(factory, view, fmt, max_w, max_h, out);
