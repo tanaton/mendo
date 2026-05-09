@@ -6,6 +6,7 @@
 #include "i18n.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_util.h"
+#include "selection_html.h"
 #include "string_convert.h"
 
 namespace {
@@ -31,15 +32,18 @@ void ClipboardManager::Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRen
     show_toast_ = std::move(show_toast);
 }
 
-void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index) const
+void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool dark) const
 {
     const Node* node = NodeAt(doc, node_index);
-    if (!node) {
+    if (!node || node->type != NodeType::CodeBlock) {
         return;
     }
-    std::pmr::wstring wide;
-    string_convert::Utf8ToWide(node->GetText(), wide);
-    WriteClipboardText(hwnd_, wide);
+
+    std::pmr::wstring plain_wide;
+    string_convert::Utf8ToWide(node->GetText(), plain_wide);
+
+    const std::pmr::string html_utf8 = BuildCodeBlockHtmlFragment(*node, dark);
+    WriteClipboardHtml(hwnd_, std::string_view{ html_utf8 }, std::wstring_view{ plain_wide });
 }
 
 void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark)

@@ -89,7 +89,8 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
     if (btn_hit.copy_node >= 0) {
-        clipboard_manager_.CopyCodeBlock(state_.document.doc, btn_hit.copy_node);
+        const bool dark = renderer_.GetTheme().IsDark();
+        clipboard_manager_.CopyCodeBlock(state_.document.doc, btn_hit.copy_node, dark);
         return;
     }
     if (btn_hit.svg_copy_node >= 0 || btn_hit.save_node >= 0) {
