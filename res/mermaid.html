@@ -9,27 +9,26 @@
   #container { display: block; }
 </style>
 <script>
-  let currentTheme = null;
+  let currentInitKey = null;
   let renderCount = 0;
 
   function mermaidReady() {
     return typeof mermaid !== 'undefined' && typeof mermaid.render === 'function';
   }
 
-  function ensureThemeInitialized(isDark) {
+  // 表示用 (PNG キャプチャ経由) は htmlLabels:true で LaTeX(KaTeX) を描画させる。
+  // SVG コピー用は htmlLabels:false で <foreignObject> を避け Office/Inkscape 互換にする。
+  function ensureInitialized(isDark, htmlLabels) {
     const wantTheme = isDark ? 'dark' : 'default';
-    if (currentTheme !== wantTheme) {
-      // htmlLabels:false は Mermaid v10+ のトップレベル設定で flowchart/class/state
-      // のノードラベルを <foreignObject> ではなく SVG <text> として出力させる。
-      // Office/Inkscape が <foreignObject> 内 HTML を描画しないため、SVG コピーを
-      // 互換にするには表示用とエクスポート用で共通化する必要がある。
+    const key = wantTheme + ':' + (htmlLabels ? '1' : '0');
+    if (currentInitKey !== key) {
       mermaid.initialize({
         startOnLoad: false,
         theme: wantTheme,
         securityLevel: 'strict',
-        htmlLabels: false
+        htmlLabels: htmlLabels
       });
-      currentTheme = wantTheme;
+      currentInitKey = key;
     }
   }
 
@@ -39,7 +38,7 @@
         return JSON.stringify({ ok: false, error: 'mermaid not loaded' });
       }
       document.body.className = isDark ? 'dark' : '';
-      ensureThemeInitialized(isDark);
+      ensureInitialized(isDark, true);
       const container = document.getElementById('container');
       container.innerHTML = '';
       document.body.style.width = '';
@@ -71,7 +70,7 @@
       if (!mermaidReady()) {
         return null;
       }
-      ensureThemeInitialized(isDark);
+      ensureInitialized(isDark, false);
       renderCount++;
       const { svg } = await mermaid.render('mmd-svg-' + renderCount, code);
       return svg;
