@@ -74,12 +74,12 @@ void Win32Host::SetCursor(effect::CursorType type)
     }
 }
 
-void Win32Host::WriteClipboardText(std::wstring_view text)
+void Win32Host::WriteClipboardText(std::string_view text)
 {
     ::WriteClipboardText(hwnd_, text);
 }
 
-void Win32Host::WriteClipboardHtml(std::wstring_view html, std::wstring_view plain)
+void Win32Host::WriteClipboardHtml(std::string_view html, std::string_view plain)
 {
     ::WriteClipboardHtml(hwnd_, html, plain);
 }

@@ -39,11 +39,8 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
         return;
     }
 
-    std::pmr::wstring plain_wide;
-    string_convert::Utf8ToWide(node->GetText(), plain_wide);
-
     const std::pmr::string html_utf8 = BuildCodeBlockHtmlFragment(*node, dark);
-    WriteClipboardHtml(hwnd_, std::string_view{ html_utf8 }, std::wstring_view{ plain_wide });
+    WriteClipboardHtml(hwnd_, html_utf8, node->GetText());
 }
 
 void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark)

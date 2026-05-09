@@ -76,18 +76,20 @@ inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT
     return true;
 }
 
-// クリップボードにテキストを書き込む共通ユーティリティ。
-// ClipboardManager (Mermaid 用) と SideEffectExecutor 経路の両方から使用される。
-inline void WriteClipboardText(HWND hwnd, std::wstring_view text) noexcept
+// クリップボードにテキストを書き込む共通ユーティリティ。入力は UTF-8。
+// Utf8ToWide 失敗時に EmptyClipboard で既存内容を破壊しないよう、変換成功後にセッションを開く。
+inline void WriteClipboardText(HWND hwnd, std::string_view text_utf8) noexcept
 {
-    if (text.empty()) {
+    std::pmr::wstring text_wide;
+    string_convert::Utf8ToWide(text_utf8, text_wide);
+    if (text_wide.empty()) {
         return;
     }
     ClipboardSession session(hwnd);
     if (!session) {
         return;
     }
-    SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, text);
+    SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, text_wide);
 }
 
 // CF_HTML 形式のクリップボード用ペイロードを構築する。
@@ -170,13 +172,14 @@ inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
 }
 
 // クリップボードに CF_HTML（書式付き）と CF_UNICODETEXT（プレーンテキスト）を同時に書き込む。
-// fragment_utf8: <!--StartFragment--> と <!--EndFragment--> の間に入る HTML 断片 (UTF-8)。
-//                CF_HTML が UTF-8 を要求するため一次経路。wide オーバーロードは UTF-8 に
-//                変換してからこの関数へ転送する。
-// plain_text:    書式付きに対応していないアプリ向けのフォールバック。
-inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::wstring_view plain_text) noexcept
+// fragment_utf8:   <!--StartFragment--> と <!--EndFragment--> の間に入る HTML 断片 (UTF-8)。
+// plain_text_utf8: 書式付きに対応していないアプリ向けのフォールバック (UTF-8)。
+inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::string_view plain_text_utf8) noexcept
 {
-    if (fragment_utf8.empty() && plain_text.empty()) {
+    // EmptyClipboard で既存内容を破壊しないよう、ペイロードが 1 つも揃わなければセッションを開かない。
+    std::pmr::wstring plain_wide;
+    string_convert::Utf8ToWide(plain_text_utf8, plain_wide);
+    if (fragment_utf8.empty() && plain_wide.empty()) {
         return;
     }
     ClipboardSession session(hwnd);
@@ -190,12 +193,7 @@ inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::w
         SetClipboardZeroTerminated<char>(cf_html, payload);
     }
 
-    if (!plain_text.empty()) {
-        SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, plain_text);
+    if (!plain_wide.empty()) {
+        SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, plain_wide);
     }
-}
-
-inline void WriteClipboardHtml(HWND hwnd, std::wstring_view fragment_html, std::wstring_view plain_text) noexcept
-{
-    WriteClipboardHtml(hwnd, string_convert::WideToUtf8(fragment_html), plain_text);
 }
