@@ -19,7 +19,8 @@ public:
     void UpdateTheme(const Theme&) noexcept override {}
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                     std::pmr::vector<SyntaxToken>* /*tokens_out*/ = nullptr) const override
+                     std::pmr::vector<SyntaxToken>* /*tokens_out*/ = nullptr,
+                     MeasureViewportRange viewport = {}) const override
     {
         if (node.type == NodeType::HorizontalRule) {
             entry.height = 10.0f;
@@ -27,7 +28,7 @@ public:
             return;
         }
         if (node.type == NodeType::Table) {
-            MeasureTable(node, entry, max_width);
+            MeasureTable(node, entry, max_width, viewport);
             return;
         }
 
@@ -80,7 +81,8 @@ public:
         entry.effects_applied = false;
     }
 
-    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const override
+    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width,
+                      MeasureViewportRange /*viewport*/ = {}) const override
     {
         const auto* tbl = node.table_data();
         if (!tbl || tbl->row_count == 0) {

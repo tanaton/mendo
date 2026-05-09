@@ -117,9 +117,10 @@ struct StressFixture {
 class MockTextMeasurerWithTokens : public MockTextMeasurer {
 public:
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr) const override
+                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
+                     MeasureViewportRange viewport = {}) const override
     {
-        MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out);
+        MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out, viewport);
 
         if (node.type != NodeType::CodeBlock || IsDiagramLanguage(node.code_language)) {
             return;
@@ -338,7 +339,8 @@ public:
     int spin_us = 100;
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr) const override
+                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
+                     MeasureViewportRange viewport = {}) const override
     {
         const auto start = std::chrono::steady_clock::now();
         const auto deadline = start + std::chrono::microseconds(spin_us);
@@ -346,7 +348,7 @@ public:
         while (std::chrono::steady_clock::now() < deadline) {
             // no-op
         }
-        MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out);
+        MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out, viewport);
     }
 };
 

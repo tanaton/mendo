@@ -46,7 +46,10 @@ DirtyBatchResult DirtyScheduler::RunSerial(
             result.first_processed = i;
         }
         const float indent = NodeIndent(nodes[i], theme);
-        backend.MeasureNode(nodes[i], entry, content_width - indent);
+        const MeasureViewportRange vp = has_viewport_limit
+            ? MeasureViewportRange{ limit_top, limit_bottom }
+            : MeasureViewportRange{};
+        backend.MeasureNode(nodes[i], entry, content_width - indent, nullptr, vp);
         result.last_processed = i;
         ++result.processed;
 
