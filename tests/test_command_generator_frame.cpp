@@ -31,10 +31,7 @@ TEST_F(CmdGenFrameTest, PushClipMatchesPaneRect)
 
 TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
 {
-    // 100MB ファイル末尾で text_top と scroll_y が 10^7 DIP オーダーになると、
-    // SetTransform 経由で D2D に渡すと float32 の catastrophic cancellation で
-    // 各行の Y がサブピクセルでばらつく (#216)。そのため Y 平行移動は Transform から
-    // 撤廃し、CPU 側で各描画コマンドの Y に直接合算する設計にした。
+    // Transform の Y は常に 0、スクロール量は描画コマンドの Y に直接合算される。
     Parse("---");
     constexpr float origin_x = 120.0f;
     constexpr float scroll_y = 40.0f;
