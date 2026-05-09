@@ -94,7 +94,8 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
     EXPECT_EQ(CountNonNullCells(tl), total_cells);
 }
 
-// evict 後の再 measure で null セルが復元されフラグがクリアされる。
+// evict 後にデフォルト引数 (viewport 全範囲) で再 measure すると、null セル全てが
+// 復元されフラグがクリアされる (リサイズ等の全範囲計測ケース)。
 TEST_F(TableEvictionDWriteTest, MeasureAfterEvictionRestoresNullCells)
 {
     auto pl = ParseAndLayout(MakeBigTableMd(40));
@@ -111,7 +112,6 @@ TEST_F(TableEvictionDWriteTest, MeasureAfterEvictionRestoresNullCells)
     ASSERT_TRUE(tl.cells_partially_evicted);
     ASSERT_LT(CountNonNullCells(tl), total_cells);
 
-    // EnsureVisibleLayout に相当する経路: dirty な entry に対して再 measure する。
     const float content_width = theme_.ContentWidth(800.0f);
     measurer_.MeasureNode(pl.nodes[idx], entry, content_width);
 
@@ -119,4 +119,70 @@ TEST_F(TableEvictionDWriteTest, MeasureAfterEvictionRestoresNullCells)
     EXPECT_FALSE(entry.layout_dirty);
     EXPECT_EQ(CountNonNullCells(tl), total_cells)
         << "RestoreNullCellLayouts で evict されたセルが復元されているはず";
+}
+
+// viewport 範囲を指定した MeasureNode は範囲内の行だけ復元し、範囲外は null のまま残す。
+// dirty / cells_partially_evicted は維持され、次回スクロール時の追加復元を促す。
+TEST_F(TableEvictionDWriteTest, MeasureWithViewportRestoresOnlyVisibleRows)
+{
+    auto pl = ParseAndLayout(MakeBigTableMd(60));
+    const int idx = FindTableNode(pl.nodes);
+    ASSERT_GE(idx, 0);
+    auto& entry = pl.cache[idx];
+    ASSERT_TRUE(entry.has_table_layout());
+    auto& tl = *entry.table_layout;
+
+    const size_t total_cells = tl.cell_layouts.size();
+    ASSERT_GT(total_cells, 0u);
+
+    // テーブル全体を一旦 evict (viewport より遠い範囲) → ほぼ全セルが null になる。
+    pl.cache.EvictInvisibleTableRows(entry.text_top - 10000.0f, entry.text_top - 9000.0f, 0.0f);
+    const size_t after_evict = CountNonNullCells(tl);
+    ASSERT_LT(after_evict, total_cells);
+    ASSERT_TRUE(tl.cells_partially_evicted);
+
+    // テーブル先頭 80px だけを viewport として measure。範囲内行のみ復元される。
+    const float content_width = theme_.ContentWidth(800.0f);
+    const MeasureViewportRange vp{ entry.text_top, entry.text_top + 80.0f };
+    measurer_.MeasureNode(pl.nodes[idx], entry, content_width, nullptr, vp);
+
+    const size_t after_measure = CountNonNullCells(tl);
+    EXPECT_GT(after_measure, after_evict)
+        << "viewport 範囲内のセルは復元されているはず";
+    EXPECT_LT(after_measure, total_cells)
+        << "viewport 範囲外のセルは null のまま残っているはず";
+    EXPECT_TRUE(tl.cells_partially_evicted)
+        << "復元未完了なのでフラグは維持される";
+    EXPECT_TRUE(entry.layout_dirty)
+        << "次回スクロール時に再 measure させるため dirty を維持";
+}
+
+// 部分復元 → 別 viewport で追加復元 → 最終的に全セルが揃いフラグがクリアされる。
+TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
+{
+    auto pl = ParseAndLayout(MakeBigTableMd(60));
+    const int idx = FindTableNode(pl.nodes);
+    ASSERT_GE(idx, 0);
+    auto& entry = pl.cache[idx];
+    ASSERT_TRUE(entry.has_table_layout());
+    auto& tl = *entry.table_layout;
+
+    const size_t total_cells = tl.cell_layouts.size();
+    pl.cache.EvictInvisibleTableRows(entry.text_top - 10000.0f, entry.text_top - 9000.0f, 0.0f);
+    ASSERT_LT(CountNonNullCells(tl), total_cells);
+
+    const float content_width = theme_.ContentWidth(800.0f);
+    // 1 回目: テーブル上半分を viewport にして measure
+    const MeasureViewportRange vp1{ entry.text_top, entry.text_top + entry.height * 0.5f };
+    measurer_.MeasureNode(pl.nodes[idx], entry, content_width, nullptr, vp1);
+    EXPECT_TRUE(tl.cells_partially_evicted);
+
+    // 2 回目: テーブル全体を覆う viewport で再 measure
+    const MeasureViewportRange vp2{ entry.text_top, entry.text_top + entry.height };
+    measurer_.MeasureNode(pl.nodes[idx], entry, content_width, nullptr, vp2);
+
+    EXPECT_EQ(CountNonNullCells(tl), total_cells)
+        << "全範囲を覆う viewport で全セル復元されるはず";
+    EXPECT_FALSE(tl.cells_partially_evicted);
+    EXPECT_FALSE(entry.layout_dirty);
 }

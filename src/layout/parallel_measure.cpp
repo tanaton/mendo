@@ -27,12 +27,13 @@ void MeasureChunk(
     const Theme& theme,
     const IMeasureBackend& backend,
     std::span<const size_t> chunk_indices,
-    std::span<std::pmr::vector<SyntaxToken>> chunk_slot_tokens)
+    std::span<std::pmr::vector<SyntaxToken>> chunk_slot_tokens,
+    MeasureViewportRange viewport)
 {
     for (size_t k = 0; k < chunk_indices.size(); ++k) {
         const size_t i = chunk_indices[k];
         const float indent = NodeIndent(nodes[i], theme);
-        backend.MeasureNode(nodes[i], cache[i], content_width - indent, &chunk_slot_tokens[k]);
+        backend.MeasureNode(nodes[i], cache[i], content_width - indent, &chunk_slot_tokens[k], viewport);
     }
 }
 
@@ -55,6 +56,9 @@ DirtyBatchResult RunParallel(
     const bool has_viewport_limit = clip.active();
     const float limit_top = has_viewport_limit ? clip.limit_top() : 0.0f;
     const float limit_bottom = has_viewport_limit ? clip.limit_bottom() : 0.0f;
+    const MeasureViewportRange measure_vp = has_viewport_limit
+        ? MeasureViewportRange{ limit_top, limit_bottom }
+        : MeasureViewportRange{};
     // ParallelBudget には time_us が無い (シグネチャで明示)。
     // worker 側に polling checkpoint が無いため、time-based 制御は RunSerial 専用。
     const bool has_batch_limit = (budget.max_nodes > 0);
@@ -98,7 +102,7 @@ DirtyBatchResult RunParallel(
 
     if (indices.size() < kMinDirtyForParallel) {
         MENDO_PROFILE("RunParallel.Inline");
-        MeasureChunk(nodes, cache, content_width, theme, backend, indices, { slot_tokens.data(), slot_tokens.size() });
+        MeasureChunk(nodes, cache, content_width, theme, backend, indices, { slot_tokens.data(), slot_tokens.size() }, measure_vp);
     }
     else {
         const size_t worker_count = std::max<size_t>(scheduler.WorkerCount(), 1);
@@ -112,7 +116,7 @@ DirtyBatchResult RunParallel(
         // 例外が latch.count_down() の前で抜けると wait() が永久ブロックするので必ず try/catch で覆う。
         auto run_chunk = [&](std::span<const size_t> ci, std::span<std::pmr::vector<SyntaxToken>> co) {
             try {
-                MeasureChunk(nodes, cache, content_width, theme, backend, ci, co);
+                MeasureChunk(nodes, cache, content_width, theme, backend, ci, co, measure_vp);
             } catch (...) {
                 failed_node_count.fetch_add(static_cast<int>(ci.size()), std::memory_order_relaxed);
                 OutputDebugStringW(L"[mendo] RunParallel chunk threw exception\n");
