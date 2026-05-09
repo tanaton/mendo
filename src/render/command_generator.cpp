@@ -40,6 +40,39 @@ void PublishCmdGenStats() noexcept
 // 値を小さくすると下線は見出し文字に近づき、下線と次行の間隔が広がる。
 static constexpr float HEADING_UNDERLINE_OFFSET_RATIO = 0.25f;
 
+namespace {
+
+// Issue #205: ブロックローカル横スクロールの clip + Translate を RAII で囲み、
+// push/pop の対称性を強制する。Table と CodeBlock の共通パターンを集約する。
+class BlockHScrollScope {
+public:
+    BlockHScrollScope(DrawCommandList& cmds, const D2D1_RECT_F& clip,
+                      const D2D1::Matrix3x2F& base_transform, float scroll_x, bool active)
+        : cmds_(cmds), restore_(base_transform), active_(active)
+    {
+        if (active_) {
+            cmds_.emplace_back(PushClipCmd{ clip });
+            cmds_.emplace_back(SetTransformCmd{ base_transform * D2D1::Matrix3x2F::Translation(-scroll_x, 0) });
+        }
+    }
+    ~BlockHScrollScope()
+    {
+        if (active_) {
+            cmds_.emplace_back(SetTransformCmd{ restore_ });
+            cmds_.emplace_back(PopClipCmd{});
+        }
+    }
+    BlockHScrollScope(const BlockHScrollScope&) = delete;
+    BlockHScrollScope& operator=(const BlockHScrollScope&) = delete;
+
+private:
+    DrawCommandList& cmds_;
+    D2D1::Matrix3x2F restore_;
+    bool active_;
+};
+
+} // namespace
+
 // DWRITE_HIT_TEST_METRICS を origin 加算付きの D2D1_RECT_F に変換する。
 static inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origin_x = 0.0f, float origin_y = 0.0f) noexcept
 {
@@ -196,19 +229,14 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         const float scroll_x = needs_clip
                                    ? std::clamp(frame_h_scroll_.GetScrollX(node_index), 0.0f, natural_w - cw)
                                    : 0.0f;
-        if (needs_clip) {
-            cmds.emplace_back(PushClipCmd{ D2D1::RectF(x, entry_text_top, x + cw, entry_text_top + entry.height) });
-            cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ * D2D1::Matrix3x2F::Translation(-scroll_x, 0) });
+        {
+            BlockHScrollScope guard(cmds,
+                                    D2D1::RectF(x, entry_text_top, x + cw, entry_text_top + entry.height),
+                                    frame_pane_transform_, scroll_x, needs_clip);
+            GenTable(cmds, node, entry, node_index, x, entry_text_top, scroll_x);
         }
-        GenTable(cmds, node, entry, node_index, x, entry_text_top, scroll_x);
-        if (needs_clip) {
-            cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ });
-            cmds.emplace_back(PopClipCmd{});
-        }
-        if (needs_clip && (node_index == frame_h_scroll_.hovered_block || node_index == frame_h_scroll_.drag_block)) {
-            const float bar_y = entry_text_top + entry.height - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
-            GenBlockHScrollbar(cmds, x, bar_y, cw, natural_w, scroll_x);
-        }
+        const float bar_y = entry_text_top + entry.height - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+        MaybeEmitBlockHScrollbar(cmds, node_index, x, bar_y, cw, natural_w, scroll_x);
         return;
     }
 
@@ -230,27 +258,22 @@ void CommandGenerator::GenerateNode(DrawCommandList& cmds,
         GenCodeBlockBg(cmds, entry, x, cw, entry_text_top);
         // Issue #205: 自然幅 > 可視幅 ならテキスト本体だけ scroll_x で平行移動。
         // 背景とコピーボタンはクリップ外で固定描画する (GitHub と同じ挙動)。
+        // バーは text 範囲内 (最終行の上) に置く。padding 部分に置くと HitTest がそのノードを
+        // 返さず、マウスがバー上に来た瞬間にホバーが解除されるため。
         {
             const bool needs_clip = entry.natural_code_width > cw;
             const float scroll_x = needs_clip
                                        ? std::clamp(frame_h_scroll_.GetScrollX(node_index), 0.0f, entry.natural_code_width - cw)
                                        : 0.0f;
-            if (needs_clip) {
-                const float pad = theme_->code_block_padding;
-                cmds.emplace_back(PushClipCmd{ D2D1::RectF(x, entry_text_top - pad, x + cw, entry_text_top + entry.height + pad) });
-                cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ * D2D1::Matrix3x2F::Translation(-scroll_x, 0) });
+            const float pad = theme_->code_block_padding;
+            {
+                BlockHScrollScope guard(cmds,
+                                        D2D1::RectF(x, entry_text_top - pad, x + cw, entry_text_top + entry.height + pad),
+                                        frame_pane_transform_, scroll_x, needs_clip);
+                GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x, entry_text_top);
             }
-            GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x, entry_text_top);
-            if (needs_clip) {
-                cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ });
-                cmds.emplace_back(PopClipCmd{});
-            }
-            if (needs_clip && (node_index == frame_h_scroll_.hovered_block || node_index == frame_h_scroll_.drag_block)) {
-                // Issue #205: バーは text 範囲内 (最終行の上) に置く。padding 部分に置くと
-                // HitTest がそのノードを返さず、マウスがバー上に来た瞬間にホバーが解除される。
-                const float bar_y = entry_text_top + entry.height - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
-                GenBlockHScrollbar(cmds, x, bar_y, cw, entry.natural_code_width, scroll_x);
-            }
+            const float bar_y = entry_text_top + entry.height - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+            MaybeEmitBlockHScrollbar(cmds, node_index, x, bar_y, cw, entry.natural_code_width, scroll_x);
         }
         GenCopyButton(cmds, entry, x, cw, node_index == frame_hovered_.copy, entry_text_top);
         return;
@@ -396,6 +419,17 @@ void CommandGenerator::GenSvgCopyButton(DrawCommandList& cmds, float bitmap_righ
     }
     const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, std::to_underlying(DiagramButtonSlot::SvgCopy));
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
+}
+
+void CommandGenerator::MaybeEmitBlockHScrollbar(DrawCommandList& cmds, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x)
+{
+    if (natural_width <= visible_width) {
+        return;
+    }
+    if (node_index != frame_h_scroll_.hovered_block && node_index != frame_h_scroll_.drag_block) {
+        return;
+    }
+    GenBlockHScrollbar(cmds, block_x, bar_y, visible_width, natural_width, scroll_x);
 }
 
 void CommandGenerator::GenBlockHScrollbar(DrawCommandList& cmds, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x)

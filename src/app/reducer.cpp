@@ -397,8 +397,7 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     if (target >= 0) {
         const auto geom = GetBlockHScrollGeometry(state, target);
         if (geom.can_scroll()) {
-            constexpr float DIP_PER_WHEEL_NOTCH = 60.0f;
-            const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * DIP_PER_WHEEL_NOTCH;
+            const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
             const float cur = state.view.GetBlockScrollX(target);
             ApplyBlockHScrollDelta(state, target, cur + dx, geom.natural_width - geom.visible_width);
             PushEffect(effects, effect::InvalidateWindow{});

@@ -130,13 +130,17 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
             }
             if (natural_w > visible_w) {
                 // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない。
-                // クリック判定の bar_y_screen も md_rect.y を加算してはならない (描画とズレるため)。
+                // クリック判定も同じ規約に従い、bar_y_screen に md_rect.y を加算しない。
                 const float scroll_y = state_.view.viewport.GetScrollY();
                 const float bar_y_screen = bar_y_local - scroll_y;
                 const float block_x_screen = md_x + indent;
-                if (dip_y >= bar_y_screen - PANE_SCROLLBAR_HIT_PADDING &&
-                    dip_y <= bar_y_screen + PANE_SCROLLBAR_WIDTH + PANE_SCROLLBAR_HIT_PADDING &&
-                    dip_x >= block_x_screen && dip_x <= block_x_screen + visible_w) {
+                const D2D1_RECT_F bar_hit{
+                    block_x_screen,
+                    bar_y_screen - PANE_SCROLLBAR_HIT_PADDING,
+                    block_x_screen + visible_w,
+                    bar_y_screen + PANE_SCROLLBAR_WIDTH + PANE_SCROLLBAR_HIT_PADDING,
+                };
+                if (PointInRect(dip_x, dip_y, bar_hit)) {
                     Dispatch(BlockHScrollDragStartedAction{ hover, dip_x });
                     return;
                 }

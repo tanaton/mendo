@@ -155,6 +155,9 @@ private:
     // ブロックローカルの水平スクロールバー (Issue #205)。
     // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
     void GenBlockHScrollbar(DrawCommandList& cmds, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x);
+    // ホバー中 / ドラッグ中の対象ブロックでのみ水平スクロールバーを emit する。
+    // Table と CodeBlock で共通の出現条件を一元化する。
+    void MaybeEmitBlockHScrollbar(DrawCommandList& cmds, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x);
     void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
