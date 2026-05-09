@@ -67,6 +67,9 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
 void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<float>& natural_widths, float available_width, size_t col_count)
 {
     out.resize(col_count);
+    if (col_count == 0) {
+        return;
+    }
     const float effective_available = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
     const float total_natural = std::reduce(natural_widths.begin(), natural_widths.end(), 0.0f);
@@ -74,8 +77,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
     if (total_natural > 0 && total_natural > effective_available) {
         // 比例圧縮で最も狭い列が MIN_COLUMN_WIDTH を割る場合は、無理に押し込めず
         // 自然幅で出して横スクロールに任せる方が読みやすい。
-        const auto smallest_it = std::ranges::min_element(natural_widths | std::views::take(col_count));
-        const float smallest = (smallest_it != natural_widths.end()) ? *smallest_it : 0.0f;
+        const float smallest = *std::ranges::min_element(natural_widths | std::views::take(col_count));
         if (smallest * effective_available < MIN_COLUMN_WIDTH * total_natural) {
             std::ranges::copy(natural_widths | std::views::take(col_count), out.begin());
             return;
