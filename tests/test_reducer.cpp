@@ -3,11 +3,13 @@
 #include "reducer.h"
 #include "document.h"
 #include "app_state.h"
+#include "theme.h"
 #include "test_helpers.h"
 
 class ReducerTest : public ::testing::Test {
 protected:
     AppState state;
+    Theme theme;
 
     void SetUp() override
     {
@@ -17,6 +19,14 @@ protected:
         PaneLayout pl{};
         pl.md_rect.height = 500.0f;
         state.pane_layout_cache.Set(0.0f, pl);
+        // reducer は state.theme から zoom / splitter_width / pane_*_height を読む。
+        // Theme は default-init では POD フィールドが 0 になるため、
+        // 旧 ThemeConstants と同じデフォルトで初期化してから注入する。
+        theme.pane_item_height = 28.0f;
+        theme.pane_header_height = 32.0f;
+        theme.splitter_width = 4.0f;
+        theme.zoom = 1.0f;
+        state.theme = &theme;
     }
 };
 
@@ -407,7 +417,7 @@ TEST_F(ReducerTest, ToggleDarkMode_EmitsApplyThemeChange)
 
 TEST_F(ReducerTest, ZoomIn_EmitsApplyThemeChange)
 {
-    state.window.cached_theme.zoom = 1.0f;
+    theme.zoom = 1.0f;
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::In });
 
     EXPECT_TRUE(HasEffect<effect::ApplyThemeChange>(effects));
@@ -575,7 +585,7 @@ TEST_F(ReducerTest, SplitterDragStarted_InvalidTarget_NoOp)
 
 TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 {
-    state.window.cached_theme.splitter_width = 4.0f;
+    theme.splitter_width = 4.0f;
     state.pane_layout_cache.Set(0.0f, PaneLayout{});
     const float old_width = state.view.panes.GetFilePaneWidth();
 
@@ -589,7 +599,7 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 
 TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
 {
-    state.window.cached_theme.splitter_width = 4.0f;
+    theme.splitter_width = 4.0f;
     state.pane_layout_cache.Set(0.0f, PaneLayout{});
 
     // Splitter2 は toc_left 基準で toc_width を変更する
@@ -1195,7 +1205,7 @@ TEST_F(ReducerTest, RestoreScrollAfterLoad_HasReloadDiff_TakesPrecedenceOverNode
 
 TEST_F(ReducerTest, ZoomIn_PreservesScrollAnchorOnVisibleNode)
 {
-    state.window.cached_theme.zoom = 1.0f;
+    theme.zoom = 1.0f;
     state.document.doc = Document::FromMarkdown(
         std::pmr::string("# A\n\n# B\n\n# C"), L"test.md");
     auto& cache = state.document.layout_cache;

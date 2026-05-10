@@ -273,7 +273,6 @@ private:
     }
     ::PaneZone PaneAtPoint(float dip_x);
     float GetMarkdownPaneWidth();
-    void SyncPaneThemeCache();
     void HandleApplyThemeChange(const effect::ApplyThemeChange& e);
     void FinishThemeOrZoomChange();
 

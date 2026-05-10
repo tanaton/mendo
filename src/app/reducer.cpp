@@ -73,8 +73,8 @@ struct SidePaneContext {
 
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 {
-    const float item_h = state.window.cached_theme.pane_item_height;
-    const float header_h = state.window.cached_theme.pane_header_height;
+    const float item_h = state.theme->pane_item_height;
+    const float header_h = state.theme->pane_header_height;
     if (pane == PaneTarget::File) {
         const float total = static_cast<float>(state.file_explorer.GetEntries().size()) * item_h;
         return {
@@ -227,7 +227,7 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
         return;
     }
     const auto& nodes = state.document.doc.GetNodes();
-    PushEffect(effects, effect::ClipboardWriteHtml{ ExtractSelectedTextAsHtml(nodes, sel, state.window.cached_theme.is_dark), ExtractSelectedText(nodes, sel) });
+    PushEffect(effects, effect::ClipboardWriteHtml{ ExtractSelectedTextAsHtml(nodes, sel, state.theme->IsDark()), ExtractSelectedText(nodes, sel) });
 }
 
 void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
@@ -252,7 +252,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
     const auto anchor = SnapshotVisibleTarget(state);
     state.pane_layout_cache.Invalidate();
     const float new_zoom = state.view.viewport.GetCurrentZoom();
-    const float zoom_ratio = new_zoom / state.window.cached_theme.zoom;
+    const float zoom_ratio = new_zoom / state.theme->zoom;
     state.view.panes.ApplyZoom(zoom_ratio);
     state.document.layout_cache.InvalidateAllLayouts();
     if (anchor.IsValid()) {
@@ -502,7 +502,7 @@ void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const S
 
 void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const SplitterDragMovedAction& a)
 {
-    const float splitter_w = state.window.cached_theme.splitter_width;
+    const float splitter_w = state.theme->splitter_width;
     const float before_file = state.view.panes.GetFilePaneWidth();
     const float before_toc = state.view.panes.GetTocPaneWidth();
     if (a.target == PaneController::DragTarget::Splitter1) {
@@ -781,7 +781,7 @@ void ScrollToResolvedAnchor(AppState& state, SideEffectList& effects, int idx)
     }
     const auto target = MakeHeadingTopTarget(
         idx,
-        state.window.cached_theme.heading_spacing_above,
+        state.theme->heading_spacing_above,
         state.pane_layout_cache.Get().md_rect.y);
     ApplyScrollTargetAndEmit(state, effects, target.node, target.offset);
 }

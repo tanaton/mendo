@@ -186,8 +186,6 @@ bool App::Init(HWND hwnd)
         ApplyDarkModeToWindow(hwnd_, true);
     }
 
-    SyncPaneThemeCache();
-
     cursors_.Init();
 
     {

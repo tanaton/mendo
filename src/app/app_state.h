@@ -69,7 +69,6 @@ struct WindowState {
     bool is_sizing = false;
     bool window_active = true;
     float cached_dpi_scale = 1.0f;
-    ThemeConstants cached_theme;
 };
 
 // アプリケーションの全状態を集約する構造体。

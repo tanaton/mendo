@@ -273,7 +273,7 @@ int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         const float block_right = x + w;
         const float block_top = entry_text_top - pad;
         const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
-        return dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom;
+        return PointInRectInclusive(dip_x, dip_y, btn);
     });
 }
 
@@ -292,7 +292,7 @@ int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcep
         const float cw = ctx.content_width - indent;
         const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry_text_top);
         const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
-        return dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom;
+        return PointInRectInclusive(dip_x, dip_y, btn);
     });
 }
 
@@ -345,13 +345,13 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry_text_top);
                 if (save_hit < 0) {
                     const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
-                    if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
+                    if (PointInRectInclusive(dip_x, dip_y, btn)) {
                         save_hit = i;
                     }
                 }
                 if (svg_copy_hit < 0 && IsSvgExportable(node.code_language)) {
                     const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::SvgCopy));
-                    if (dip_x >= btn2.left && dip_x <= btn2.right && dip_y >= btn2.top && dip_y <= btn2.bottom) {
+                    if (PointInRectInclusive(dip_x, dip_y, btn2)) {
                         svg_copy_hit = i;
                     }
                 }
@@ -361,7 +361,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
             const float block_right = x + w;
             const float block_top = entry_text_top - pad;
             const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
-            if (dip_x >= btn.left && dip_x <= btn.right && dip_y >= btn.top && dip_y <= btn.bottom) {
+            if (PointInRectInclusive(dip_x, dip_y, btn)) {
                 copy_hit = i;
             }
         }
