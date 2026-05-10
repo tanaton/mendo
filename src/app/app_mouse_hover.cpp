@@ -82,28 +82,20 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         Dispatch(MdPaneButtonHoverChangedAction{ new_hover });
     }
 
-    if (new_hover.copy >= 0) {
+    const auto emit_button_hover = [&](TooltipTarget::Zone zone, std::wstring_view text) {
         SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{
-            TooltipTarget{ TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy },
-            px, py
-        });
+        Dispatch(UpdateTooltipAction{ TooltipTarget{ zone, text }, px, py });
+    };
+    if (new_hover.copy >= 0) {
+        emit_button_hover(TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy);
         return;
     }
     if (new_hover.svg_copy >= 0) {
-        SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{
-            TooltipTarget{ TooltipTarget::Zone::SvgCopyButton, i18n::S().tooltip_copy_svg },
-            px, py
-        });
+        emit_button_hover(TooltipTarget::Zone::SvgCopyButton, i18n::S().tooltip_copy_svg);
         return;
     }
     if (new_hover.save >= 0) {
-        SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{
-            TooltipTarget{ TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image },
-            px, py
-        });
+        emit_button_hover(TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image);
         return;
     }
 
@@ -195,25 +187,30 @@ void App::OnMouseHover(int px, int py)
         dip_x,
         pane_layout,
         renderer_.GetTheme().splitter_width,
-        state_.view.panes.IsFilePaneVisible(),
-        state_.view.panes.IsTocPaneVisible());
+        state_.view.panes.IsSidePaneVisible(PaneTarget::File),
+        state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
 
-    int new_file_hover = -1;
-    int new_toc_hover = -1;
+    const auto hovered_target = ToPaneTarget(zone);
 
     // ペインゾーン外に出たらヘッダーボタンのホバーをリセット（無効化忘れ防止）。
-    if (zone != PaneZone::FilePane) {
-        bool changed = state_.view.panes.SetFileCloseHovered(false);
-        changed |= state_.view.panes.SetFileRefreshHovered(false);
-        if (changed) {
-            renderer_.InvalidateFilePaneCache();
-            InvalidatePane(pane_layout.file_rect);
+    auto reset_pane_buttons = [&](PaneTarget t) {
+        bool changed = state_.view.panes.SetSideCloseHovered(t, false);
+        if (t == PaneTarget::File) {
+            changed |= state_.view.panes.SetSideRefreshHovered(t, false);
         }
+        if (changed) {
+            renderer_.InvalidateSidePaneCache(t);
+            InvalidatePane(pane_layout.Get(t));
+        }
+    };
+    if (hovered_target != PaneTarget::File) {
+        reset_pane_buttons(PaneTarget::File);
     }
-    if (zone != PaneZone::TocPane && state_.view.panes.SetTocCloseHovered(false)) {
-        renderer_.InvalidateTocPaneCache();
-        InvalidatePane(pane_layout.toc_rect);
+    if (hovered_target != PaneTarget::Toc) {
+        reset_pane_buttons(PaneTarget::Toc);
     }
+
+    int new_hover[2] = { -1, -1 };
 
     switch (zone) {
     case PaneZone::Splitter1:
@@ -221,12 +218,14 @@ void App::OnMouseHover(int px, int py)
         SetCursor(cursors_.SizeWE());
         Dispatch(UpdateTooltipAction{ TooltipTarget{}, px, py });
         break;
-    case PaneZone::FilePane: {
-        const auto& entries = state_.file_explorer.GetEntries();
+    case PaneZone::FilePane:
+    case PaneZone::TocPane: {
+        const PaneTarget target = *hovered_target;
+        const bool is_file = target == PaneTarget::File;
         const auto tooltip = [&](bool close_hit, bool refresh_hit, int idx) -> TooltipTarget {
             if (close_hit) {
                 return {
-                    TooltipTarget::Zone::FilePaneButton,
+                    is_file ? TooltipTarget::Zone::FilePaneButton : TooltipTarget::Zone::TocPaneButton,
                     i18n::S().tooltip_pane_close
                 };
             }
@@ -236,67 +235,52 @@ void App::OnMouseHover(int px, int py)
                     i18n::S().tooltip_pane_refresh
                 };
             }
-            if (idx >= 0 && idx < static_cast<int>(entries.size())) {
-                return {
-                    TooltipTarget::Zone::FilePaneItem,
-                    entries[idx].full_path
-                };
+            if (is_file) {
+                const auto& entries = state_.file_explorer.GetEntries();
+                if (idx >= 0 && idx < static_cast<int>(entries.size())) {
+                    return { TooltipTarget::Zone::FilePaneItem, entries[idx].full_path };
+                }
+            }
+            else {
+                const auto& toc_entries = state_.document.doc.GetToc().GetEntries();
+                if (idx >= 0 && idx < static_cast<int>(toc_entries.size())) {
+                    // 同一 TOC 項目のホバー継続中は reducer 側で no-op になるため
+                    // UTF-8→UTF-16 変換を省く (移動 1 回ごとの pmr::wstring 確保を回避)。
+                    const auto& current = state_.interaction.tooltip.GetCurrent();
+                    if (idx == state_.view.panes.GetHoveredSideIndex(PaneTarget::Toc)
+                        && current.zone == TooltipTarget::Zone::TocPaneItem) {
+                        return current;
+                    }
+                    const auto text = state_.document.doc.GetNodes()[toc_entries[idx].node_index].GetText();
+                    std::pmr::wstring text_wide;
+                    string_convert::Utf8ToWide(text, text_wide);
+                    return { TooltipTarget::Zone::TocPaneItem, text_wide };
+                }
             }
             return {};
         };
         const auto hr = ProcessSidePaneHover(
             dip_x,
             dip_y,
-            pane_layout.file_rect,
+            pane_layout.Get(target),
             renderer_.GetTheme().pane_header_height,
             renderer_.GetTheme().pane_item_height,
-            true,
-            state_.view.panes.FileScroll().scroll_y,
-            [this](bool v) noexcept { return state_.view.panes.SetFileCloseHovered(v); },
-            [this](bool v) noexcept { return state_.view.panes.SetFileRefreshHovered(v); },
-            [this](float y, float h) noexcept { return state_.file_explorer.HitTest(y, h); },
+            is_file,
+            state_.view.panes.SidePaneScroll(target).scroll_y,
+            [this, target](bool v) noexcept { return state_.view.panes.SetSideCloseHovered(target, v); },
+            [this, target](bool v) noexcept { return state_.view.panes.SetSideRefreshHovered(target, v); },
+            [this, is_file](float y, float h) noexcept {
+                return is_file
+                    ? state_.file_explorer.HitTest(y, h)
+                    : state_.document.doc.GetToc().HitTest(y, h);
+            },
             tooltip);
         SetCursor(hr.any_button_hit ? cursors_.Hand() : cursors_.Arrow());
         if (hr.button_changed) {
-            renderer_.InvalidateFilePaneCache();
-            InvalidatePane(pane_layout.file_rect);
+            renderer_.InvalidateSidePaneCache(target);
+            InvalidatePane(pane_layout.Get(target));
         }
-        new_file_hover = hr.hovered_index;
-        Dispatch(UpdateTooltipAction{ hr.tooltip, px, py });
-        break;
-    }
-    case PaneZone::TocPane: {
-        const auto& toc_entries = state_.document.doc.GetToc().GetEntries();
-        const auto tooltip = [&](bool close_hit, bool, int idx) -> TooltipTarget {
-            if (close_hit) {
-                return { TooltipTarget::Zone::TocPaneButton, i18n::S().tooltip_pane_close };
-            }
-            if (idx >= 0 && idx < static_cast<int>(toc_entries.size())) {
-                const auto text = state_.document.doc.GetNodes()[toc_entries[idx].node_index].GetText();
-                std::pmr::wstring text_wide;
-                string_convert::Utf8ToWide(text, text_wide);
-                return { TooltipTarget::Zone::TocPaneItem, text_wide };
-            }
-            return {};
-        };
-        const auto hr = ProcessSidePaneHover(
-            dip_x,
-            dip_y,
-            pane_layout.toc_rect,
-            renderer_.GetTheme().pane_header_height,
-            renderer_.GetTheme().pane_item_height,
-            false,
-            state_.view.panes.TocScroll().scroll_y,
-            [this](bool v) noexcept { return state_.view.panes.SetTocCloseHovered(v); },
-            [](bool) static noexcept { return false; },
-            [this](float y, float h) noexcept { return state_.document.doc.GetToc().HitTest(y, h); },
-            tooltip);
-        SetCursor(hr.any_button_hit ? cursors_.Hand() : cursors_.Arrow());
-        if (hr.button_changed) {
-            renderer_.InvalidateTocPaneCache();
-            InvalidatePane(pane_layout.toc_rect);
-        }
-        new_toc_hover = hr.hovered_index;
+        new_hover[static_cast<size_t>(target)] = hr.hovered_index;
         Dispatch(UpdateTooltipAction{ hr.tooltip, px, py });
         break;
     }
@@ -309,12 +293,10 @@ void App::OnMouseHover(int px, int py)
         break;
     }
 
-    if (state_.view.panes.SetHoveredFileIndex(new_file_hover)) {
-        renderer_.InvalidateFilePaneCache();
-        InvalidatePane(pane_layout.file_rect);
-    }
-    if (state_.view.panes.SetHoveredTocIndex(new_toc_hover)) {
-        renderer_.InvalidateTocPaneCache();
-        InvalidatePane(pane_layout.toc_rect);
+    for (auto t : { PaneTarget::File, PaneTarget::Toc }) {
+        if (state_.view.panes.SetHoveredSideIndex(t, new_hover[static_cast<size_t>(t)])) {
+            renderer_.InvalidateSidePaneCache(t);
+            InvalidatePane(pane_layout.Get(t));
+        }
     }
 }

@@ -34,8 +34,8 @@ void App::OnContextMenu(int screen_x, int screen_y)
     params.has_file = !state_.document.doc.GetFilePath().empty();
     params.has_selection = state_.view.viewport.GetSelection().active && state_.view.viewport.GetSelection().start_node >= 0;
     params.dark_mode_checked = theme_service_.IsDarkMode();
-    params.file_pane_checked = state_.view.panes.IsFilePaneVisible();
-    params.toc_pane_checked = state_.view.panes.IsTocPaneVisible();
+    params.file_pane_checked = state_.view.panes.IsSidePaneVisible(PaneTarget::File);
+    params.toc_pane_checked = state_.view.panes.IsSidePaneVisible(PaneTarget::Toc);
     params.show_file_items = (zone == PaneZone::MdPane);
     params.theme = &renderer_.GetTheme();
 

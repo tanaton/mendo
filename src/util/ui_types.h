@@ -22,6 +22,14 @@ inline constexpr bool PointInRect(float x, float y, const Rect& r) noexcept
     return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
 }
 
+// 右辺・下辺を含む inclusive 版。オーバーレイボタンのヒット判定など、
+// 「枠ピッタリの座標」もヒット扱いしたい場面で使う。
+template <class Rect>
+inline constexpr bool PointInRectInclusive(float x, float y, const Rect& r) noexcept
+{
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
 struct PaneRect {
     float x = 0.0f;
     float y = 0.0f;

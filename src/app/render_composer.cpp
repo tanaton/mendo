@@ -8,9 +8,10 @@ GestureRenderState BuildGestureState(const AppState& state)
     gs.trail_active = state.interaction.gesture.IsGestureActive();
     gs.trail_points = &state.interaction.gesture.GetTrailPoints();
     gs.overlay_visible = state.interaction.gesture.IsOverlayVisible();
-    gs.direction = (state.interaction.gesture.GetDirection() == GestureDirection::Left)    ? -1
-                   : (state.interaction.gesture.GetDirection() == GestureDirection::Right) ? 1
-                                                                                           : 0;
+    gs.direction =
+        (state.interaction.gesture.GetDirection() == GestureDirection::Left)    ? -1
+        : (state.interaction.gesture.GetDirection() == GestureDirection::Right) ? 1
+                                                                                : 0;
     gs.overlay_alpha = state.interaction.gesture.GetOverlayAlpha();
 
     // マウスジェスチャーが非アクティブな場合のみ、タッチパッドスワイプ用の
@@ -25,17 +26,34 @@ GestureRenderState BuildGestureState(const AppState& state)
 
 SidePaneState BuildSidePaneState(const AppState& state, const PaneLayout& layout)
 {
-    return { layout.file_rect, layout.toc_rect,
-             state.file_explorer.GetEntries(), state.view.panes.FileScroll(),
-             state.document.doc.GetToc().GetEntries(), state.document.doc.GetNodes(), state.view.panes.TocScroll(),
-             state.view.panes.GetHoveredFileIndex(), state.view.panes.GetHoveredTocIndex(), state.active_toc_index,
-             state.view.panes.IsFilePaneVisible(), state.view.panes.IsTocPaneVisible(),
-             state.view.panes.IsFileCloseHovered(), state.view.panes.IsFileRefreshHovered(),
-             state.view.panes.IsTocCloseHovered() };
+    const auto& panes = state.view.panes;
+    return SidePaneState{
+        .panes = {
+                  SidePaneInstance{
+                .rect = layout.file_rect,
+                .scroll = panes.SidePaneScroll(PaneTarget::File),
+                .hovered_index = panes.GetHoveredSideIndex(PaneTarget::File),
+                .show = panes.IsSidePaneVisible(PaneTarget::File),
+                .close_hovered = panes.IsSideCloseHovered(PaneTarget::File),
+                .refresh_hovered = panes.IsSideRefreshHovered(PaneTarget::File),
+            },
+                  SidePaneInstance{
+                .rect = layout.toc_rect,
+                .scroll = panes.SidePaneScroll(PaneTarget::Toc),
+                .hovered_index = panes.GetHoveredSideIndex(PaneTarget::Toc),
+                .show = panes.IsSidePaneVisible(PaneTarget::Toc),
+                .close_hovered = panes.IsSideCloseHovered(PaneTarget::Toc),
+                .refresh_hovered = false,
+            },
+                  },
+        .file_entries = state.file_explorer.GetEntries(),
+        .toc_entries = state.document.doc.GetToc().GetEntries(),
+        .nodes = state.document.doc.GetNodes(),
+        .active_toc_index = state.active_toc_index,
+    };
 }
 
-TitleBarRenderState BuildTitleBarState(const AppState& state,
-                                       float window_width, bool is_dark_mode, bool is_maximized)
+TitleBarRenderState BuildTitleBarState(const AppState& state, float window_width, bool is_dark_mode, bool is_maximized)
 {
     TitleBarRenderState tb;
     tb.height = state.window.titlebar.GetHeight();
@@ -55,8 +73,8 @@ TitleBarRenderState BuildTitleBarState(const AppState& state,
     tb.hovered_zone = state.window.titlebar.GetHovered();
     tb.is_dark_mode = is_dark_mode;
     tb.search_active = state.search.search_state.IsVisible();
-    tb.file_pane_visible = state.view.panes.IsFilePaneVisible();
-    tb.toc_pane_visible = state.view.panes.IsTocPaneVisible();
+    tb.file_pane_visible = state.view.panes.IsSidePaneVisible(PaneTarget::File);
+    tb.toc_pane_visible = state.view.panes.IsSidePaneVisible(PaneTarget::Toc);
     tb.is_maximized = is_maximized;
     tb.window_active = state.window.window_active;
     return tb;

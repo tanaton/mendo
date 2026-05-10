@@ -141,8 +141,8 @@ TEST(RenderComposer, TitleBarState_ButtonsComeFromTitleBar)
 TEST(RenderComposer, TitleBarState_PaneVisibilityMirrorsState)
 {
     AppState state;
-    state.view.panes.SetFilePaneVisible(false);
-    state.view.panes.SetTocPaneVisible(true);
+    state.view.panes.SetSidePaneVisible(PaneTarget::File, false);
+    state.view.panes.SetSidePaneVisible(PaneTarget::Toc, true);
 
     auto tb = render_composer::BuildTitleBarState(state, 800.0f, false, false);
     EXPECT_FALSE(tb.file_pane_visible);
@@ -156,21 +156,21 @@ TEST(RenderComposer, TitleBarState_PaneVisibilityMirrorsState)
 TEST(RenderComposer, SidePaneState_ReferencesDocumentAndPanes)
 {
     AppState state;
-    state.view.panes.SetFilePaneVisible(true);
-    state.view.panes.SetTocPaneVisible(false);
+    state.view.panes.SetSidePaneVisible(PaneTarget::File, true);
+    state.view.panes.SetSidePaneVisible(PaneTarget::Toc, false);
     state.active_toc_index = 3;
 
     PaneLayout layout{};
     layout.file_rect = { 0.0f, 0.0f, 200.0f, 600.0f };
-    layout.toc_rect  = { 200.0f, 0.0f, 200.0f, 600.0f };
+    layout.toc_rect = { 200.0f, 0.0f, 200.0f, 600.0f };
 
     auto sp = render_composer::BuildSidePaneState(state, layout);
 
-    EXPECT_TRUE(sp.show_file_pane);
-    EXPECT_FALSE(sp.show_toc_pane);
+    EXPECT_TRUE(sp.Get(PaneTarget::File).show);
+    EXPECT_FALSE(sp.Get(PaneTarget::Toc).show);
     EXPECT_EQ(sp.active_toc_index, 3);
-    EXPECT_FLOAT_EQ(sp.file_pane_rect.width, 200.0f);
-    EXPECT_FLOAT_EQ(sp.toc_pane_rect.x, 200.0f);
+    EXPECT_FLOAT_EQ(sp.Get(PaneTarget::File).rect.width, 200.0f);
+    EXPECT_FLOAT_EQ(sp.Get(PaneTarget::Toc).rect.x, 200.0f);
     EXPECT_EQ(&sp.file_entries, &state.file_explorer.GetEntries());
     EXPECT_EQ(&sp.nodes, &state.document.doc.GetNodes());
 }
@@ -178,17 +178,17 @@ TEST(RenderComposer, SidePaneState_ReferencesDocumentAndPanes)
 TEST(RenderComposer, SidePaneState_HoverAndHeaderFlags)
 {
     AppState state;
-    state.view.panes.SetHoveredFileIndex(2);
-    state.view.panes.SetHoveredTocIndex(5);
-    state.view.panes.SetFileCloseHovered(true);
-    state.view.panes.SetFileRefreshHovered(true);
-    state.view.panes.SetTocCloseHovered(true);
+    state.view.panes.SetHoveredSideIndex(PaneTarget::File, 2);
+    state.view.panes.SetHoveredSideIndex(PaneTarget::Toc, 5);
+    state.view.panes.SetSideCloseHovered(PaneTarget::File, true);
+    state.view.panes.SetSideRefreshHovered(PaneTarget::File, true);
+    state.view.panes.SetSideCloseHovered(PaneTarget::Toc, true);
 
     PaneLayout layout{};
     auto sp = render_composer::BuildSidePaneState(state, layout);
-    EXPECT_EQ(sp.hovered_file_index, 2);
-    EXPECT_EQ(sp.hovered_toc_index, 5);
-    EXPECT_TRUE(sp.file_close_hovered);
-    EXPECT_TRUE(sp.file_refresh_hovered);
-    EXPECT_TRUE(sp.toc_close_hovered);
+    EXPECT_EQ(sp.Get(PaneTarget::File).hovered_index, 2);
+    EXPECT_EQ(sp.Get(PaneTarget::Toc).hovered_index, 5);
+    EXPECT_TRUE(sp.Get(PaneTarget::File).close_hovered);
+    EXPECT_TRUE(sp.Get(PaneTarget::File).refresh_hovered);
+    EXPECT_TRUE(sp.Get(PaneTarget::Toc).close_hovered);
 }

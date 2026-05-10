@@ -32,7 +32,6 @@ struct ViewState {
     PaneController panes;
     ScrollRestoration scroll_restore;
     NavHistory nav_history;
-    float cached_total_height = 0.0f;
 
     // ブロック単位の横スクロール。キーは LayoutCache のノードインデックス。
     // ファイルロード/リロードでクリア (永続化しない)。スクロールバーはホバー中とドラッグ中の
@@ -70,7 +69,6 @@ struct WindowState {
     bool is_sizing = false;
     bool window_active = true;
     float cached_dpi_scale = 1.0f;
-    ThemeConstants cached_theme;
 };
 
 // アプリケーションの全状態を集約する構造体。

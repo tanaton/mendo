@@ -71,7 +71,7 @@ void Renderer::RecreateBrushes()
         { BrushId::BlockquoteBar, theme_.blockquote_bar_color },
         { BrushId::BlockquoteText, theme_.blockquote_text_color },
         { BrushId::Selection, SELECTION_COLOR },
-        { BrushId::TableStripe, is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, stripe_alpha) : D2D1::ColorF(0.0f, 0.0f, 0.0f, stripe_alpha) },
+        { BrushId::TableStripe, mendo::MonochromeOverlay(is_dark, stripe_alpha) },
         { BrushId::SyntaxKeyword, theme_.syntax_keyword },
         { BrushId::SyntaxType, theme_.syntax_type },
         { BrushId::SyntaxString, theme_.syntax_string },
@@ -94,7 +94,7 @@ void Renderer::RecreateBrushes()
         { BrushId::Splitter, theme_.splitter_color },
         { BrushId::PaneItemHover, theme_.pane_item_hover_color },
         { BrushId::PaneItemActive, theme_.pane_item_active_color },
-        { BrushId::ScrollbarThumb, is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, thumb_alpha) : D2D1::ColorF(0.0f, 0.0f, 0.0f, thumb_alpha) },
+        { BrushId::ScrollbarThumb, mendo::MonochromeOverlay(is_dark, thumb_alpha) },
         { BrushId::Overlay, D2D1::ColorF(0, 0, 0, 1.0f) },
         { BrushId::OverlayWhite, D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f) },
         { BrushId::OverlayBlack, D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f) },
@@ -218,8 +218,9 @@ void Renderer::RecreatePaneFormats()
     cached_search_effective_pos_ = -2;
     cached_search_caret_x_ = 0.0f;
 
-    file_pane_cache_.Reset();
-    toc_pane_cache_.Reset();
+    for (auto& c : pane_caches_) {
+        c.Reset();
+    }
 
     cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
 

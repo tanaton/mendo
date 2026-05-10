@@ -29,15 +29,8 @@ void App::HandleLinkClick(std::string_view url)
     std::unreachable();
 }
 
-void App::SyncPaneThemeCache()
-{
-    state_.window.cached_theme = renderer_.GetTheme().ToReducerConstants();
-}
-
 void App::FinishThemeOrZoomChange()
 {
-    SyncPaneThemeCache();
-
     auto layout = GetPaneLayout();
     float md_width = layout.md_rect.width;
     float md_height = layout.md_rect.height;

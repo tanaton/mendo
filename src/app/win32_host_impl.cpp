@@ -2,6 +2,7 @@
 #include "app_constants.h"
 #include "clipboard_util.h"
 #include "cursor_manager.h"
+#include "d2d_util.h"
 #include "darkmode_util.h"
 #include "win_handle.h"
 #include <memory_resource>
@@ -19,14 +20,13 @@ void Win32Host::Invalidate()
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
-void Win32Host::InvalidateTitleBarArea(int width_px, int height_px)
+void Win32Host::InvalidateTitleBarArea(float dip_w, float dip_h, float dpi_scale)
 {
-    if (width_px <= 0 || height_px <= 0) {
+    if (dip_w <= 0.0f || dip_h <= 0.0f) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
-    RECT tb_rect{ 0, 0, static_cast<LONG>(width_px), static_cast<LONG>(height_px) };
-    InvalidateRect(hwnd_, &tb_rect, FALSE);
+    mendo::InvalidateDipRect(hwnd_, 0.0f, 0.0f, dip_w, dip_h, dpi_scale);
 }
 
 void Win32Host::SetTimer(app_timer::Id id, UINT ms)

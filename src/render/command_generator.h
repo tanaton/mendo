@@ -1,5 +1,6 @@
 #pragma once
 #include "block_h_scroll_context.h"
+#include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "draw_command.h"
 #include "document_types.h"
@@ -83,12 +84,12 @@ public:
         hit_test_buffer_ = buf;
     }
 
-    constexpr void SetTheme(const Theme* theme) noexcept
+    void SetTheme(const Theme* theme) noexcept
     {
         theme_ = theme;
         cached_is_dark_ = theme->IsDark();
-        float a = cached_is_dark_ ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
-        cached_stripe_color_ = cached_is_dark_ ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a) : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
+        const float a = cached_is_dark_ ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
+        cached_stripe_color_ = mendo::MonochromeOverlay(cached_is_dark_, a);
     }
     constexpr void SetFormats(const Formats& fmts) noexcept
     {
@@ -113,11 +114,37 @@ public:
         const BlockHScrollContext& block_h_scroll = {});
 
 private:
-    void GenerateNode(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index, float entry_text_top);
+    // GenerateMdPane の 1 フレーム呼び出しスコープでだけ意味を持つ入力をまとめる。
+    struct FrameContext {
+        float offset_x = 0.0f;
+        // ビューポート Y 範囲は **ペインローカル Y** (= 0 〜 pane_height)。GenerateNode に
+        // 渡す entry_text_top も同じローカル Y 系。100MB ファイルでドキュメント Y が 10^7
+        // オーダーに達すると float32 の桁落ちで描画位置が ±1px ばらつく問題 (#216) の対策。
+        // ドキュメント Y で比較したい箇所 (cache[i].text_top との直接比較) では
+        // snapped_scroll_y を足し戻して使う。
+        float viewport_top = 0.0f;
+        float viewport_bottom = 0.0f;
+        // フレーム座標系でのビューポート左右端。各セル x を offset_x と
+        // 合成したあとカリング判定に使う。
+        float viewport_left = 0.0f;
+        float viewport_right = 0.0f;
+        float content_width = 0.0f;
+        float dpi_scale = 1.0f;
+        // bullet 等で SetTransform を一時 Identity に戻したあと復元するため、
+        // フレーム冒頭で設定した Translation を保持する。
+        float md_pane_x = 0.0f;
+        float snapped_scroll_y = 0.0f;
+        D2D1::Matrix3x2F pane_transform;
+        const TextSelection& selection;
+        HoveredButtons hovered;
+        BlockHScrollContext h_scroll;
+    };
+
+    void GenerateNode(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index, float entry_text_top);
 
     // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキスト、
     // タスクリストチェックボックスを描画する。
-    void GenNodeTextDecorations(DrawCommandList& cmds, const Node& node,
+    void GenNodeTextDecorations(DrawCommandList& cmds, const FrameContext& fc, const Node& node,
                                 const NodeLayoutEntry& entry, int node_index, float x, float text_x, float entry_text_top);
 
     struct NodeBaseStyle {
@@ -127,7 +154,7 @@ private:
     NodeBaseStyle GetNodeBaseStyle(const Node& node) const noexcept;
 
     void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
-    void GenTable(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float entry_text_top, float h_scroll_x = 0.0f);
+    void GenTable(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float entry_text_top, float h_scroll_x = 0.0f);
     void GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border);
     void GenTableCellContent(DrawCommandList& cmds, std::string_view cell_text, bool is_header, IDWriteTextLayout* cell_layout, float text_x, float text_y, bool has_selection, uint32_t sel_start, uint32_t sel_end, uint32_t flat_offset);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
@@ -137,9 +164,9 @@ private:
     void GenSvgCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。
     // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
-    void EmitBlockHScrollbarIfActive(DrawCommandList& cmds, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x);
-    void GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
-    void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
+    void EmitBlockHScrollbarIfActive(DrawCommandList& cmds, const FrameContext& fc, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x);
+    void GenListBullet(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
+    void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
     void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);
     // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
@@ -213,32 +240,6 @@ private:
 
     D2D1_COLOR_F cached_stripe_color_{};
     bool cached_is_dark_ = false;
-
-    // GenerateMdPane のスコープ内で不変のフレーム単位コンテキスト。
-    // GenerateNode 等の private 関数から参照される。
-    float frame_offset_x_ = 0.0f;
-    // ビューポート Y 範囲は **ペインローカル Y** (= 0 〜 pane_height)。GenerateNode に
-    // 渡す entry_text_top も同じローカル Y 系。100MB ファイルでドキュメント Y が 10^7
-    // オーダーに達すると float32 の桁落ちで描画位置が ±1px ばらつく問題 (#216) の対策。
-    // ドキュメント Y で比較したい箇所 (cache[i].text_top との直接比較) では
-    // frame_snapped_scroll_y_ を足し戻して使う。
-    float frame_viewport_top_ = 0.0f;
-    float frame_viewport_bottom_ = 0.0f;
-    // フレーム座標系でのビューポート左右端。各セル x を frame_offset_x_ と
-    // 合成したあとカリング判定に使う。GenerateMdPane で
-    // -theme_->margin_left / md_pane_rect.width - theme_->margin_left を設定。
-    float frame_viewport_left_ = 0.0f;
-    float frame_viewport_right_ = 0.0f;
-    float frame_content_width_ = 0.0f;
-    float frame_dpi_scale_ = 1.0f;
-    // bullet 等で SetTransform を一時 Identity に戻したあと復元するため、
-    // フレーム冒頭で設定した Translation を保持する。
-    float frame_md_pane_x_ = 0.0f;
-    float frame_snapped_scroll_y_ = 0.0f;
-    D2D1::Matrix3x2F frame_pane_transform_ = D2D1::Matrix3x2F::Identity();
-    const TextSelection* frame_selection_ = nullptr;
-    HoveredButtons frame_hovered_;
-    BlockHScrollContext frame_h_scroll_;
 
     // 前フレームの選択ノード範囲。範囲外に出たノードの selection_hl_cache を
     // 解放するために使う。-1/-1 は「前フレームは非アクティブ」を示す。

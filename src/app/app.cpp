@@ -66,8 +66,7 @@ void App::ResetViewForNewDocument()
     CancelPendingResources();
     renderer_.ShrinkBuffers();
     state_.view.panes.ResetScrollStates();
-    renderer_.InvalidateFilePaneCache();
-    renderer_.InvalidateTocPaneCache();
+    renderer_.InvalidateAllSidePaneCaches();
 }
 
 void App::FinalizeLayout(float md_pane_height)
@@ -233,9 +232,12 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
 
     const auto dip = PixelToDip(px, py);
     const auto pane_layout = GetPaneLayout();
-    const auto zone = DetectPaneZone(dip.x, pane_layout,
-                                     renderer_.GetTheme().splitter_width,
-                                     state_.view.panes.IsFilePaneVisible(), state_.view.panes.IsTocPaneVisible());
+    const auto zone = DetectPaneZone(
+        dip.x,
+        pane_layout,
+        renderer_.GetTheme().splitter_width,
+        state_.view.panes.IsSidePaneVisible(PaneTarget::File),
+        state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
 
     const MouseWheelEvent event{ delta, false, zone };
     Dispatch(controller_.HandleMouseWheel(event));
@@ -287,16 +289,6 @@ void App::HandleTimer(UINT_PTR timer_id)
     if (it != std::ranges::end(app_timer::ALL_TIMERS)) {
         Dispatch(TimerAction{ *it });
     }
-}
-
-void App::OnAppLoadFile()
-{
-    DoLoadMarkdownFile();
-}
-
-void App::OnAppReloadFile()
-{
-    DoReloadCurrentFile();
 }
 
 void App::OnCaptureChanged()
@@ -356,6 +348,6 @@ std::pmr::wstring App::LoadLastFilePath() const
 void App::ShowDirectory(std::wstring_view dir_path)
 {
     state_.file_explorer.SetDirectory(dir_path);
-    renderer_.InvalidateFilePaneCache();
+    renderer_.InvalidateSidePaneCache(PaneTarget::File);
     Invalidate();
 }

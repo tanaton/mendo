@@ -10,7 +10,7 @@ public:
     void Init(HWND hwnd, CursorManager& cursors) noexcept;
 
     void Invalidate() override;
-    void InvalidateTitleBarArea(int width_px, int height_px) override;
+    void InvalidateTitleBarArea(float dip_w, float dip_h, float dpi_scale) override;
     void SetTimer(app_timer::Id id, UINT ms) override;
     void KillTimer(app_timer::Id id) override;
     void SetCapture() override;

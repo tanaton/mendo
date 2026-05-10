@@ -1,6 +1,7 @@
 #pragma once
 #include "ui_constants.h"
 #include "ui_types.h"
+#include <optional>
 
 // ペイン領域識別子（ある座標がどのペインに属するか）
 enum class PaneZone : uint8_t {
@@ -12,10 +13,42 @@ enum class PaneZone : uint8_t {
     MdPane
 };
 
+// サイドペイン操作の対象（ヒット領域識別子の PaneZone と異なり、操作対象としての File/TOC のみ）。
+// SidePaneInstance[2] の添字としても使う。
+enum class PaneTarget : uint8_t {
+    File,
+    Toc
+};
+
+// PaneZone (座標ヒット判定の結果) を、サイドペイン操作の対象を表す
+// PaneTarget へ変換する。File/Toc 以外の領域 (None / Splitter / MdPane)
+// は対象外なので nullopt を返す。
+constexpr std::optional<PaneTarget> ToPaneTarget(PaneZone zone) noexcept
+{
+    switch (zone) {
+    case PaneZone::FilePane:
+        return PaneTarget::File;
+    case PaneZone::TocPane:
+        return PaneTarget::Toc;
+    default:
+        return std::nullopt;
+    }
+}
+
+constexpr PaneZone ToPaneZone(PaneTarget target) noexcept
+{
+    return target == PaneTarget::File ? PaneZone::FilePane : PaneZone::TocPane;
+}
+
 struct PaneLayout {
     PaneRect file_rect{};
     PaneRect toc_rect{};
     PaneRect md_rect{};
+
+    constexpr const PaneRect& Get(PaneTarget t) const noexcept
+    {
+        return t == PaneTarget::File ? file_rect : toc_rect;
+    }
 };
 
 // スクロールバーの描画と操作に使う情報。

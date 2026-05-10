@@ -13,22 +13,22 @@ protected:
 
 TEST_F(PaneControllerTest, DefaultVisibility)
 {
-    EXPECT_TRUE(panes_.IsFilePaneVisible());
-    EXPECT_TRUE(panes_.IsTocPaneVisible());
+    EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::File));
+    EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::Toc));
 }
 
 TEST_F(PaneControllerTest, ToggleFilePane)
 {
-    panes_.ToggleFilePane();
-    EXPECT_FALSE(panes_.IsFilePaneVisible());
-    panes_.ToggleFilePane();
-    EXPECT_TRUE(panes_.IsFilePaneVisible());
+    panes_.ToggleSidePane(PaneTarget::File);
+    EXPECT_FALSE(panes_.IsSidePaneVisible(PaneTarget::File));
+    panes_.ToggleSidePane(PaneTarget::File);
+    EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::File));
 }
 
 TEST_F(PaneControllerTest, ToggleTocPane)
 {
-    panes_.ToggleTocPane();
-    EXPECT_FALSE(panes_.IsTocPaneVisible());
+    panes_.ToggleSidePane(PaneTarget::Toc);
+    EXPECT_FALSE(panes_.IsSidePaneVisible(PaneTarget::Toc));
 }
 
 // ═══════════════════════════════════════════════
@@ -37,20 +37,20 @@ TEST_F(PaneControllerTest, ToggleTocPane)
 
 TEST_F(PaneControllerTest, DefaultWidths)
 {
-    EXPECT_FLOAT_EQ(panes_.GetFilePaneWidth(), PaneController::PANE_DEFAULT_WIDTH);
-    EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), PaneController::PANE_DEFAULT_WIDTH);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_DEFAULT_WIDTH);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_DEFAULT_WIDTH);
 }
 
 TEST_F(PaneControllerTest, SetWidthClampedToMin)
 {
-    panes_.SetFilePaneWidth(10.0f);
-    EXPECT_GE(panes_.GetFilePaneWidth(), PaneController::PANE_MIN_WIDTH);
+    panes_.SetSidePaneWidth(PaneTarget::File, 10.0f);
+    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, SetWidthAcceptsLargeValue)
 {
-    panes_.SetTocPaneWidth(500.0f);
-    EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), 500.0f);
+    panes_.SetSidePaneWidth(PaneTarget::Toc, 500.0f);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(PaneTarget::Toc), 500.0f);
 }
 
 // ═══════════════════════════════════════════════
@@ -59,44 +59,44 @@ TEST_F(PaneControllerTest, SetWidthAcceptsLargeValue)
 
 TEST_F(PaneControllerTest, ScrollFilePaneByPositive)
 {
-    bool changed = panes_.ScrollFilePaneBy(50.0f, 200.0f);
+    bool changed = panes_.ScrollSidePaneBy(PaneTarget::File, 50.0f, 200.0f);
     EXPECT_TRUE(changed);
-    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 50.0f);
-    EXPECT_FLOAT_EQ(panes_.FileScroll().max_scroll, 200.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 50.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).max_scroll, 200.0f);
 }
 
 TEST_F(PaneControllerTest, ScrollFilePaneClampsToMax)
 {
-    panes_.ScrollFilePaneBy(500.0f, 200.0f);
-    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 200.0f);
+    panes_.ScrollSidePaneBy(PaneTarget::File, 500.0f, 200.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 200.0f);
 }
 
 TEST_F(PaneControllerTest, ScrollFilePaneClampsToZero)
 {
-    panes_.ScrollFilePaneBy(-50.0f, 200.0f);
-    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 0.0f);
+    panes_.ScrollSidePaneBy(PaneTarget::File, -50.0f, 200.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
 }
 
 TEST_F(PaneControllerTest, ScrollFilePaneNoChangeReturnsFalse)
 {
-    bool changed = panes_.ScrollFilePaneBy(-10.0f, 200.0f);
-    EXPECT_FALSE(changed);  // すでに0の位置にいる
+    bool changed = panes_.ScrollSidePaneBy(PaneTarget::File, -10.0f, 200.0f);
+    EXPECT_FALSE(changed); // すでに0の位置にいる
 }
 
 TEST_F(PaneControllerTest, ScrollTocPaneByPositive)
 {
-    bool changed = panes_.ScrollTocPaneBy(30.0f, 100.0f);
+    bool changed = panes_.ScrollSidePaneBy(PaneTarget::Toc, 30.0f, 100.0f);
     EXPECT_TRUE(changed);
-    EXPECT_FLOAT_EQ(panes_.TocScroll().scroll_y, 30.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::Toc).scroll_y, 30.0f);
 }
 
 TEST_F(PaneControllerTest, ResetScrollStates)
 {
-    panes_.ScrollFilePaneBy(50.0f, 200.0f);
-    panes_.ScrollTocPaneBy(30.0f, 100.0f);
+    panes_.ScrollSidePaneBy(PaneTarget::File, 50.0f, 200.0f);
+    panes_.ScrollSidePaneBy(PaneTarget::Toc, 30.0f, 100.0f);
     panes_.ResetScrollStates();
-    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 0.0f);
-    EXPECT_FLOAT_EQ(panes_.TocScroll().scroll_y, 0.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
 }
 
 // ═══════════════════════════════════════════════
@@ -105,26 +105,26 @@ TEST_F(PaneControllerTest, ResetScrollStates)
 
 TEST_F(PaneControllerTest, HoverDefaultNegativeOne)
 {
-    EXPECT_EQ(panes_.GetHoveredFileIndex(), -1);
-    EXPECT_EQ(panes_.GetHoveredTocIndex(), -1);
+    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), -1);
+    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::Toc), -1);
 }
 
 TEST_F(PaneControllerTest, SetHoverReturnsTrueOnChange)
 {
-    EXPECT_TRUE(panes_.SetHoveredFileIndex(3));
-    EXPECT_EQ(panes_.GetHoveredFileIndex(), 3);
+    EXPECT_TRUE(panes_.SetHoveredSideIndex(PaneTarget::File, 3));
+    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), 3);
 }
 
 TEST_F(PaneControllerTest, SetHoverReturnsFalseOnSame)
 {
-    panes_.SetHoveredFileIndex(3);
-    EXPECT_FALSE(panes_.SetHoveredFileIndex(3));
+    panes_.SetHoveredSideIndex(PaneTarget::File, 3);
+    EXPECT_FALSE(panes_.SetHoveredSideIndex(PaneTarget::File, 3));
 }
 
 TEST_F(PaneControllerTest, SetHoverTocReturnsTrueOnChange)
 {
-    EXPECT_TRUE(panes_.SetHoveredTocIndex(5));
-    EXPECT_EQ(panes_.GetHoveredTocIndex(), 5);
+    EXPECT_TRUE(panes_.SetHoveredSideIndex(PaneTarget::Toc, 5));
+    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::Toc), 5);
 }
 
 // ═══════════════════════════════════════════════
@@ -157,7 +157,7 @@ TEST_F(PaneControllerTest, DragScrollOffset)
 TEST_F(PaneControllerTest, DragSplitter1RespectsMinWidth)
 {
     panes_.DragSplitter1To(10.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetFilePaneWidth(), PaneController::PANE_MIN_WIDTH);
+    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth)
@@ -165,22 +165,22 @@ TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth)
     // 両ペイン表示時: file(960) + splitter(4) + toc(220) + splitter(4) = 1188
     // MDペインに残るのは12のみ(< 200)なので、制約されるべき
     panes_.DragSplitter1To(960.0f, 1200.0f, 4.0f);
-    float remaining = 1200.0f - panes_.GetFilePaneWidth() - 4.0f - 220.0f - 4.0f;
+    float remaining = 1200.0f - panes_.GetSidePaneWidth(PaneTarget::File) - 4.0f - 220.0f - 4.0f;
     EXPECT_GE(remaining, ::MD_PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2RespectsMinWidth)
 {
     // 目次の左端位置はレイアウトに依存する; 非常に小さくドラッグ
-    panes_.DragSplitter2To(panes_.GetFilePaneWidth() + 4.0f + 10.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetTocPaneWidth(), PaneController::PANE_MIN_WIDTH);
+    panes_.DragSplitter2To(panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + 10.0f, 1200.0f, 4.0f);
+    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth)
 {
     // 目次ペインの幅を非常に大きくドラッグ
     panes_.DragSplitter2To(1190.0f, 1200.0f, 4.0f);
-    float layout_width = panes_.GetFilePaneWidth() + 4.0f + panes_.GetTocPaneWidth() + 4.0f;
+    float layout_width = panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + panes_.GetSidePaneWidth(PaneTarget::Toc) + 4.0f;
     float md_width = 1200.0f - layout_width;
     EXPECT_GE(md_width, ::MD_PANE_MIN_WIDTH);
 }
@@ -191,19 +191,19 @@ TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth)
 
 TEST_F(PaneControllerTest, ApplyZoomScalesWidths)
 {
-    float old_file = panes_.GetFilePaneWidth();
-    float old_toc = panes_.GetTocPaneWidth();
+    float old_file = panes_.GetSidePaneWidth(PaneTarget::File);
+    float old_toc = panes_.GetSidePaneWidth(PaneTarget::Toc);
     panes_.ApplyZoom(2.0f);
-    EXPECT_FLOAT_EQ(panes_.GetFilePaneWidth(), old_file * 2.0f);
-    EXPECT_FLOAT_EQ(panes_.GetTocPaneWidth(), old_toc * 2.0f);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(PaneTarget::File), old_file * 2.0f);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(PaneTarget::Toc), old_toc * 2.0f);
 }
 
 TEST_F(PaneControllerTest, ApplyZoomScalesScrollPositions)
 {
-    panes_.ScrollFilePaneBy(50.0f, 200.0f);
+    panes_.ScrollSidePaneBy(PaneTarget::File, 50.0f, 200.0f);
     panes_.ApplyZoom(1.5f);
-    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 75.0f);
-    EXPECT_FLOAT_EQ(panes_.FileScroll().max_scroll, 300.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 75.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).max_scroll, 300.0f);
 }
 
 // ═══════════════════════════════════════════════
@@ -222,7 +222,7 @@ TEST_F(PaneControllerTest, ComputeLayoutBothPanes)
 
 TEST_F(PaneControllerTest, ComputeLayoutNoFilePane)
 {
-    panes_.ToggleFilePane();
+    panes_.ToggleSidePane(PaneTarget::File);
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
     EXPECT_GT(layout.md_rect.width, 0.0f);
@@ -247,7 +247,7 @@ TEST_F(PaneControllerTest, DetectZoneFilePane)
 TEST_F(PaneControllerTest, DetectZoneSplitter1)
 {
     // Splitter1はファイルペインの直後
-    float file_w = panes_.GetFilePaneWidth(); // 220
+    float file_w = panes_.GetSidePaneWidth(PaneTarget::File); // 220
     auto zone = panes_.DetectZone(file_w + 2.0f, 1200.0f, 800.0f, 4.0f);
     EXPECT_EQ(zone, PaneZone::Splitter1);
 }
@@ -266,18 +266,18 @@ TEST_F(PaneControllerTest, DetectZoneTocPane)
 
 TEST_F(PaneControllerTest, DragSplitter1WithFilePaneHidden)
 {
-    panes_.ToggleFilePane(); // ファイルペインを非表示
+    panes_.ToggleSidePane(PaneTarget::File); // ファイルペインを非表示
     // 非表示のファイルペインでsplitter1をドラッグしても正しくクランプされるべき
     panes_.DragSplitter1To(300.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetFilePaneWidth(), PaneController::PANE_MIN_WIDTH);
+    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden)
 {
-    panes_.ToggleTocPane(); // 目次ペインを非表示
+    panes_.ToggleSidePane(PaneTarget::Toc); // 目次ペインを非表示
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     panes_.DragSplitter2To(1000.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetTocPaneWidth(), PaneController::PANE_MIN_WIDTH);
+    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_MIN_WIDTH);
 }
 
 // ═══════════════════════════════════════════════
@@ -286,8 +286,8 @@ TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden)
 
 TEST_F(PaneControllerTest, ComputeLayoutNoPanes)
 {
-    panes_.ToggleFilePane();
-    panes_.ToggleTocPane();
+    panes_.ToggleSidePane(PaneTarget::File);
+    panes_.ToggleSidePane(PaneTarget::Toc);
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     // 全幅がMDペインに割り当てられる
     EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
@@ -297,7 +297,7 @@ TEST_F(PaneControllerTest, ComputeLayoutNoPanes)
 
 TEST_F(PaneControllerTest, ComputeLayoutOnlyTocPane)
 {
-    panes_.ToggleFilePane(); // ファイルペインを非表示
+    panes_.ToggleSidePane(PaneTarget::File); // ファイルペインを非表示
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
     EXPECT_GT(layout.toc_rect.width, 0.0f);
@@ -306,7 +306,7 @@ TEST_F(PaneControllerTest, ComputeLayoutOnlyTocPane)
 
 TEST_F(PaneControllerTest, ComputeLayoutOnlyFilePane)
 {
-    panes_.ToggleTocPane(); // 目次ペインを非表示
+    panes_.ToggleSidePane(PaneTarget::Toc); // 目次ペインを非表示
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     EXPECT_GT(layout.file_rect.width, 0.0f);
     EXPECT_FLOAT_EQ(layout.toc_rect.width, 0.0f);
@@ -319,10 +319,10 @@ TEST_F(PaneControllerTest, ComputeLayoutOnlyFilePane)
 
 TEST_F(PaneControllerTest, ScrollBothPanesIndependently)
 {
-    panes_.ScrollFilePaneBy(100.0f, 500.0f);
-    panes_.ScrollTocPaneBy(50.0f, 300.0f);
-    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 100.0f);
-    EXPECT_FLOAT_EQ(panes_.TocScroll().scroll_y, 50.0f);
+    panes_.ScrollSidePaneBy(PaneTarget::File, 100.0f, 500.0f);
+    panes_.ScrollSidePaneBy(PaneTarget::Toc, 50.0f, 300.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 100.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::Toc).scroll_y, 50.0f);
 }
 
 // ═══════════════════════════════════════════════
@@ -331,13 +331,13 @@ TEST_F(PaneControllerTest, ScrollBothPanesIndependently)
 
 TEST_F(PaneControllerTest, ApplyZoomHalf)
 {
-    panes_.ScrollFilePaneBy(100.0f, 500.0f);
-    panes_.ScrollTocPaneBy(60.0f, 300.0f);
-    float old_file_w = panes_.GetFilePaneWidth();
+    panes_.ScrollSidePaneBy(PaneTarget::File, 100.0f, 500.0f);
+    panes_.ScrollSidePaneBy(PaneTarget::Toc, 60.0f, 300.0f);
+    float old_file_w = panes_.GetSidePaneWidth(PaneTarget::File);
     panes_.ApplyZoom(0.5f);
-    EXPECT_FLOAT_EQ(panes_.GetFilePaneWidth(), old_file_w * 0.5f);
-    EXPECT_FLOAT_EQ(panes_.FileScroll().scroll_y, 50.0f);
-    EXPECT_FLOAT_EQ(panes_.TocScroll().scroll_y, 30.0f);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(PaneTarget::File), old_file_w * 0.5f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 50.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::Toc).scroll_y, 30.0f);
 }
 
 // ═══════════════════════════════════════════════
@@ -370,7 +370,7 @@ TEST_F(PaneControllerTest, ExtremeZoomMdContentWidthCanBeZeroOrNegative)
 TEST_F(PaneControllerTest, ZoomRestoreMdContentWidthPositive)
 {
     panes_.ApplyZoom(5.0f);
-    panes_.ApplyZoom(1.0f / 5.0f);  // 元に戻す
+    panes_.ApplyZoom(1.0f / 5.0f); // 元に戻す
 
     float margin_left = 40.0f;
     float margin_right = 40.0f;
@@ -409,23 +409,23 @@ TEST_F(PaneControllerTest, DragTargetAllTypes)
 
 TEST_F(PaneControllerTest, SetFilePaneVisible)
 {
-    panes_.SetFilePaneVisible(false);
-    EXPECT_FALSE(panes_.IsFilePaneVisible());
-    panes_.SetFilePaneVisible(true);
-    EXPECT_TRUE(panes_.IsFilePaneVisible());
+    panes_.SetSidePaneVisible(PaneTarget::File, false);
+    EXPECT_FALSE(panes_.IsSidePaneVisible(PaneTarget::File));
+    panes_.SetSidePaneVisible(PaneTarget::File, true);
+    EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::File));
 }
 
 TEST_F(PaneControllerTest, SetTocPaneVisible)
 {
-    panes_.SetTocPaneVisible(false);
-    EXPECT_FALSE(panes_.IsTocPaneVisible());
-    panes_.SetTocPaneVisible(true);
-    EXPECT_TRUE(panes_.IsTocPaneVisible());
+    panes_.SetSidePaneVisible(PaneTarget::Toc, false);
+    EXPECT_FALSE(panes_.IsSidePaneVisible(PaneTarget::Toc));
+    panes_.SetSidePaneVisible(PaneTarget::Toc, true);
+    EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::Toc));
 }
 
 TEST_F(PaneControllerTest, SetVisibleAffectsLayout)
 {
-    panes_.SetFilePaneVisible(false);
+    panes_.SetSidePaneVisible(PaneTarget::File, false);
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
     EXPECT_GT(layout.md_rect.width, 0.0f);
@@ -437,50 +437,50 @@ TEST_F(PaneControllerTest, SetVisibleAffectsLayout)
 
 TEST_F(PaneControllerTest, CloseHoverDefaultFalse)
 {
-    EXPECT_FALSE(panes_.IsFileCloseHovered());
-    EXPECT_FALSE(panes_.IsTocCloseHovered());
+    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
+    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::Toc));
 }
 
 TEST_F(PaneControllerTest, SetFileCloseHoveredReturnsTrueOnChange)
 {
-    EXPECT_TRUE(panes_.SetFileCloseHovered(true));
-    EXPECT_TRUE(panes_.IsFileCloseHovered());
+    EXPECT_TRUE(panes_.SetSideCloseHovered(PaneTarget::File, true));
+    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::File));
 }
 
 TEST_F(PaneControllerTest, SetFileCloseHoveredReturnsFalseOnSame)
 {
-    panes_.SetFileCloseHovered(true);
-    EXPECT_FALSE(panes_.SetFileCloseHovered(true));
+    panes_.SetSideCloseHovered(PaneTarget::File, true);
+    EXPECT_FALSE(panes_.SetSideCloseHovered(PaneTarget::File, true));
 }
 
 TEST_F(PaneControllerTest, SetFileCloseHoveredReset)
 {
-    panes_.SetFileCloseHovered(true);
-    EXPECT_TRUE(panes_.SetFileCloseHovered(false));
-    EXPECT_FALSE(panes_.IsFileCloseHovered());
+    panes_.SetSideCloseHovered(PaneTarget::File, true);
+    EXPECT_TRUE(panes_.SetSideCloseHovered(PaneTarget::File, false));
+    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
 }
 
 TEST_F(PaneControllerTest, SetTocCloseHoveredReturnsTrueOnChange)
 {
-    EXPECT_TRUE(panes_.SetTocCloseHovered(true));
-    EXPECT_TRUE(panes_.IsTocCloseHovered());
+    EXPECT_TRUE(panes_.SetSideCloseHovered(PaneTarget::Toc, true));
+    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::Toc));
 }
 
 TEST_F(PaneControllerTest, SetTocCloseHoveredReturnsFalseOnSame)
 {
-    panes_.SetTocCloseHovered(true);
-    EXPECT_FALSE(panes_.SetTocCloseHovered(true));
+    panes_.SetSideCloseHovered(PaneTarget::Toc, true);
+    EXPECT_FALSE(panes_.SetSideCloseHovered(PaneTarget::Toc, true));
 }
 
 TEST_F(PaneControllerTest, FileAndTocCloseHoverIndependent)
 {
-    panes_.SetFileCloseHovered(true);
-    panes_.SetTocCloseHovered(true);
-    EXPECT_TRUE(panes_.IsFileCloseHovered());
-    EXPECT_TRUE(panes_.IsTocCloseHovered());
-    panes_.SetFileCloseHovered(false);
-    EXPECT_FALSE(panes_.IsFileCloseHovered());
-    EXPECT_TRUE(panes_.IsTocCloseHovered());
+    panes_.SetSideCloseHovered(PaneTarget::File, true);
+    panes_.SetSideCloseHovered(PaneTarget::Toc, true);
+    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::File));
+    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::Toc));
+    panes_.SetSideCloseHovered(PaneTarget::File, false);
+    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
+    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::Toc));
 }
 
 // ═══════════════════════════════════════════════
@@ -489,37 +489,37 @@ TEST_F(PaneControllerTest, FileAndTocCloseHoverIndependent)
 
 TEST_F(PaneControllerTest, RefreshHoverDefaultFalse)
 {
-    EXPECT_FALSE(panes_.IsFileRefreshHovered());
+    EXPECT_FALSE(panes_.IsSideRefreshHovered(PaneTarget::File));
 }
 
 TEST_F(PaneControllerTest, SetFileRefreshHoveredReturnsTrueOnChange)
 {
-    EXPECT_TRUE(panes_.SetFileRefreshHovered(true));
-    EXPECT_TRUE(panes_.IsFileRefreshHovered());
+    EXPECT_TRUE(panes_.SetSideRefreshHovered(PaneTarget::File, true));
+    EXPECT_TRUE(panes_.IsSideRefreshHovered(PaneTarget::File));
 }
 
 TEST_F(PaneControllerTest, SetFileRefreshHoveredReturnsFalseOnSame)
 {
-    panes_.SetFileRefreshHovered(true);
-    EXPECT_FALSE(panes_.SetFileRefreshHovered(true));
+    panes_.SetSideRefreshHovered(PaneTarget::File, true);
+    EXPECT_FALSE(panes_.SetSideRefreshHovered(PaneTarget::File, true));
 }
 
 TEST_F(PaneControllerTest, SetFileRefreshHoveredReset)
 {
-    panes_.SetFileRefreshHovered(true);
-    EXPECT_TRUE(panes_.SetFileRefreshHovered(false));
-    EXPECT_FALSE(panes_.IsFileRefreshHovered());
+    panes_.SetSideRefreshHovered(PaneTarget::File, true);
+    EXPECT_TRUE(panes_.SetSideRefreshHovered(PaneTarget::File, false));
+    EXPECT_FALSE(panes_.IsSideRefreshHovered(PaneTarget::File));
 }
 
 TEST_F(PaneControllerTest, RefreshAndCloseHoverIndependent)
 {
-    panes_.SetFileCloseHovered(true);
-    panes_.SetFileRefreshHovered(true);
-    EXPECT_TRUE(panes_.IsFileCloseHovered());
-    EXPECT_TRUE(panes_.IsFileRefreshHovered());
-    panes_.SetFileCloseHovered(false);
-    EXPECT_FALSE(panes_.IsFileCloseHovered());
-    EXPECT_TRUE(panes_.IsFileRefreshHovered());
+    panes_.SetSideCloseHovered(PaneTarget::File, true);
+    panes_.SetSideRefreshHovered(PaneTarget::File, true);
+    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::File));
+    EXPECT_TRUE(panes_.IsSideRefreshHovered(PaneTarget::File));
+    panes_.SetSideCloseHovered(PaneTarget::File, false);
+    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
+    EXPECT_TRUE(panes_.IsSideRefreshHovered(PaneTarget::File));
 }
 
 // ═══════════════════════════════════════════════
@@ -528,53 +528,53 @@ TEST_F(PaneControllerTest, RefreshAndCloseHoverIndependent)
 
 TEST_F(PaneControllerTest, ToggleFilePaneResetsHover)
 {
-    panes_.SetHoveredFileIndex(3);
-    panes_.SetFileCloseHovered(true);
-    panes_.SetFileRefreshHovered(true);
-    panes_.ToggleFilePane(); // 非表示にする
-    EXPECT_EQ(panes_.GetHoveredFileIndex(), -1);
-    EXPECT_FALSE(panes_.IsFileCloseHovered());
-    EXPECT_FALSE(panes_.IsFileRefreshHovered());
+    panes_.SetHoveredSideIndex(PaneTarget::File, 3);
+    panes_.SetSideCloseHovered(PaneTarget::File, true);
+    panes_.SetSideRefreshHovered(PaneTarget::File, true);
+    panes_.ToggleSidePane(PaneTarget::File); // 非表示にする
+    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), -1);
+    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
+    EXPECT_FALSE(panes_.IsSideRefreshHovered(PaneTarget::File));
 }
 
 TEST_F(PaneControllerTest, ToggleTocPaneResetsHover)
 {
-    panes_.SetHoveredTocIndex(5);
-    panes_.SetTocCloseHovered(true);
-    panes_.ToggleTocPane();
-    EXPECT_EQ(panes_.GetHoveredTocIndex(), -1);
-    EXPECT_FALSE(panes_.IsTocCloseHovered());
+    panes_.SetHoveredSideIndex(PaneTarget::Toc, 5);
+    panes_.SetSideCloseHovered(PaneTarget::Toc, true);
+    panes_.ToggleSidePane(PaneTarget::Toc);
+    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::Toc), -1);
+    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::Toc));
 }
 
 TEST_F(PaneControllerTest, SetFilePaneVisibleResetsHoverOnChange)
 {
-    panes_.SetHoveredFileIndex(2);
-    panes_.SetFileCloseHovered(true);
-    panes_.SetFileRefreshHovered(true);
-    panes_.SetFilePaneVisible(false);
-    EXPECT_EQ(panes_.GetHoveredFileIndex(), -1);
-    EXPECT_FALSE(panes_.IsFileCloseHovered());
-    EXPECT_FALSE(panes_.IsFileRefreshHovered());
+    panes_.SetHoveredSideIndex(PaneTarget::File, 2);
+    panes_.SetSideCloseHovered(PaneTarget::File, true);
+    panes_.SetSideRefreshHovered(PaneTarget::File, true);
+    panes_.SetSidePaneVisible(PaneTarget::File, false);
+    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), -1);
+    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
+    EXPECT_FALSE(panes_.IsSideRefreshHovered(PaneTarget::File));
 }
 
 TEST_F(PaneControllerTest, SetFilePaneVisibleNoResetOnSameValue)
 {
-    panes_.SetHoveredFileIndex(2);
-    panes_.SetFileCloseHovered(true);
-    panes_.SetFileRefreshHovered(true);
-    panes_.SetFilePaneVisible(true); // 変化なし
-    EXPECT_EQ(panes_.GetHoveredFileIndex(), 2);
-    EXPECT_TRUE(panes_.IsFileCloseHovered());
-    EXPECT_TRUE(panes_.IsFileRefreshHovered());
+    panes_.SetHoveredSideIndex(PaneTarget::File, 2);
+    panes_.SetSideCloseHovered(PaneTarget::File, true);
+    panes_.SetSideRefreshHovered(PaneTarget::File, true);
+    panes_.SetSidePaneVisible(PaneTarget::File, true); // 変化なし
+    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), 2);
+    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::File));
+    EXPECT_TRUE(panes_.IsSideRefreshHovered(PaneTarget::File));
 }
 
 TEST_F(PaneControllerTest, SetTocPaneVisibleResetsHoverOnChange)
 {
-    panes_.SetHoveredTocIndex(4);
-    panes_.SetTocCloseHovered(true);
-    panes_.SetTocPaneVisible(false);
-    EXPECT_EQ(panes_.GetHoveredTocIndex(), -1);
-    EXPECT_FALSE(panes_.IsTocCloseHovered());
+    panes_.SetHoveredSideIndex(PaneTarget::Toc, 4);
+    panes_.SetSideCloseHovered(PaneTarget::Toc, true);
+    panes_.SetSidePaneVisible(PaneTarget::Toc, false);
+    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::Toc), -1);
+    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::Toc));
 }
 
 // ═══════════════════════════════════════════════

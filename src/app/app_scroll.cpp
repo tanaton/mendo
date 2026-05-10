@@ -22,7 +22,7 @@ void App::ScrollTo(float position)
 
 void App::SyncTocActiveAndAutoScroll()
 {
-    if (!state_.view.panes.IsTocPaneVisible()) {
+    if (!state_.view.panes.IsSidePaneVisible(PaneTarget::Toc)) {
         return;
     }
     const auto& layout = GetPaneLayout();
@@ -34,7 +34,7 @@ void App::SyncTocActiveAndAutoScroll()
         return;
     }
     state_.active_toc_index = new_active;
-    renderer_.InvalidateTocPaneCache();
+    renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 
     if (new_active < 0) {
         return;
@@ -44,7 +44,7 @@ void App::SyncTocActiveAndAutoScroll()
     const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
     const float total = static_cast<float>(state_.document.doc.GetToc().GetEntries().size()) * theme.pane_item_height;
     const auto info = ComputePaneScrollInfo(layout.toc_rect, total);
-    auto& toc_scroll = state_.view.panes.TocScroll();
+    auto& toc_scroll = state_.view.panes.SidePaneScroll(PaneTarget::Toc);
     toc_scroll.max_scroll = info.max_scroll;
     float& sy = toc_scroll.scroll_y;
     sy = std::clamp(sy, 0.0f, info.max_scroll);
@@ -114,8 +114,7 @@ void App::OnResizeEnd()
 void App::RefreshPaneLayout()
 {
     InvalidatePaneLayoutCache();
-    renderer_.InvalidateFilePaneCache();
-    renderer_.InvalidateTocPaneCache();
+    renderer_.InvalidateAllSidePaneCaches();
     OnResizeEnd();
 }
 

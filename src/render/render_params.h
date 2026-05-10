@@ -6,6 +6,7 @@
 #include "file_explorer.h"
 #include "toc.h"
 #include "titlebar.h"
+#include "pane_layout.h"
 #include "ui_types.h"
 #include "mouse_gesture.h"
 #include <d2d1.h>
@@ -14,6 +15,7 @@
 #include <cstddef>
 #include <memory_resource>
 #include <string_view>
+#include <utility>
 
 struct GestureRenderState {
     const std::pmr::deque<GesturePoint>* trail_points = nullptr;
@@ -72,25 +74,27 @@ inline D2D1_RECT_F ToD2DRect(const DipRect& r) noexcept
     return std::bit_cast<D2D1_RECT_F>(r);
 }
 
+// File / TOC ペインの対称な状態をまとめた値型。SidePaneState::panes[2] の要素。
+struct SidePaneInstance {
+    PaneRect rect{};
+    ScrollState scroll{};
+    int hovered_index = -1;
+    bool show = false;
+    bool close_hovered = false;
+    bool refresh_hovered = false; // TOC 側は常に false
+};
+
 struct SidePaneState {
-    // --- 8バイトアライメント (参照 = ポインタ) ---
-    const PaneRect& file_pane_rect;
-    const PaneRect& toc_pane_rect;
+    SidePaneInstance panes[2];
     const std::pmr::vector<FileEntry>& file_entries;
-    const ScrollState& file_scroll;
     const std::pmr::vector<TocEntry>& toc_entries;
     const std::pmr::vector<Node>& nodes; // TocEntryからのテキスト参照用
-    const ScrollState& toc_scroll;
-    // --- 4バイトアライメント ---
-    int hovered_file_index;
-    int hovered_toc_index;
     int active_toc_index;
-    // --- 1バイトアライメント ---
-    bool show_file_pane;
-    bool show_toc_pane;
-    bool file_close_hovered;
-    bool file_refresh_hovered;
-    bool toc_close_hovered;
+
+    constexpr const SidePaneInstance& Get(PaneTarget t) const noexcept
+    {
+        return panes[std::to_underlying(t)];
+    }
 };
 
 // ペインビットマップキャッシュ — サイドペインはオフスクリーンビットマップに描画され、

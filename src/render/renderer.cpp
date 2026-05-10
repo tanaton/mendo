@@ -83,8 +83,9 @@ void Renderer::Resize(UINT width, UINT height) noexcept
 void Renderer::SetDpi(float dpi) noexcept
 {
     backend_.SetDpi(dpi);
-    file_pane_cache_.Reset();
-    toc_pane_cache_.Reset();
+    for (auto& c : pane_caches_) {
+        c.Reset();
+    }
 }
 
 void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
@@ -374,13 +375,15 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
 
 void Renderer::DrawSidePanes(const SidePaneState& sp)
 {
-    if (sp.show_file_pane) {
-        DrawFileExplorer(sp.file_entries, sp.file_pane_rect, sp.file_scroll, sp.hovered_file_index, sp.file_close_hovered, sp.file_refresh_hovered);
-        DrawSplitter(sp.file_pane_rect.x + sp.file_pane_rect.width, sp.file_pane_rect.y, sp.file_pane_rect.y + sp.file_pane_rect.height);
+    const auto& fp = sp.Get(PaneTarget::File);
+    if (fp.show) {
+        DrawFileExplorer(sp.file_entries, fp.rect, fp.scroll, fp.hovered_index, fp.close_hovered, fp.refresh_hovered);
+        DrawSplitter(fp.rect.x + fp.rect.width, fp.rect.y, fp.rect.y + fp.rect.height);
     }
-    if (sp.show_toc_pane) {
-        DrawToc(sp.toc_entries, sp.nodes, sp.toc_pane_rect, sp.toc_scroll, sp.hovered_toc_index, sp.toc_close_hovered, sp.active_toc_index);
-        DrawSplitter(sp.toc_pane_rect.x + sp.toc_pane_rect.width, sp.toc_pane_rect.y, sp.toc_pane_rect.y + sp.toc_pane_rect.height);
+    const auto& tp = sp.Get(PaneTarget::Toc);
+    if (tp.show) {
+        DrawToc(sp.toc_entries, sp.nodes, tp.rect, tp.scroll, tp.hovered_index, tp.close_hovered, sp.active_toc_index);
+        DrawSplitter(tp.rect.x + tp.rect.width, tp.rect.y, tp.rect.y + tp.rect.height);
     }
 }
 
@@ -542,8 +545,9 @@ bool Renderer::RecreateRenderTarget()
     InvalidateBrushes();
     RecreateBrushes();
     LoadAppIconBitmap();
-    file_pane_cache_.Reset();
-    toc_pane_cache_.Reset();
+    for (auto& c : pane_caches_) {
+        c.Reset();
+    }
     // バインドされたレンダーターゲットをリセットする
     cmd_executor_ = CommandExecutor{};
 

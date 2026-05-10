@@ -93,11 +93,8 @@ bool App::Init(HWND hwnd)
                 }
             },
             .invalidate_pane_cache = [this](PaneZone pane) {
-                if (pane == PaneZone::FilePane) {
-                    renderer_.InvalidateFilePaneCache();
-                }
-                else if (pane == PaneZone::TocPane) {
-                    renderer_.InvalidateTocPaneCache();
+                if (const auto target = ToPaneTarget(pane)) {
+                    renderer_.InvalidateSidePaneCache(*target);
                 }
             },
             .refresh_pane_layout = [this]() {
@@ -185,8 +182,6 @@ bool App::Init(HWND hwnd)
     if (theme_service_.IsDarkMode()) {
         ApplyDarkModeToWindow(hwnd_, true);
     }
-
-    SyncPaneThemeCache();
 
     cursors_.Init();
 

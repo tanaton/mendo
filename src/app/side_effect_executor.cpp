@@ -66,14 +66,10 @@ void SideEffectExecutor::ExecuteUi(const UiEffect& e)
                 host_->Invalidate();
                 return;
             }
-            // mendo::InvalidateDipRect と同じ truncate+1 で境界ピクセル切れを防ぐ。
-            // TitleBarController::Invalidate と丸めを揃えるための共通ルール。
-            const float dpi_scale = state_->window.cached_dpi_scale;
-            const int width_px = static_cast<int>(
-                state_->pane_layout_cache.WindowWidth() * dpi_scale) + 1;
-            const int height_px = static_cast<int>(
-                state_->window.titlebar.GetHeight() * dpi_scale) + 1;
-            host_->InvalidateTitleBarArea(width_px, height_px);
+            host_->InvalidateTitleBarArea(
+                state_->pane_layout_cache.WindowWidth(),
+                state_->window.titlebar.GetHeight(),
+                state_->window.cached_dpi_scale);
         },
         [this](const effect::SetCapture&) {
             host_->SetCapture();
@@ -211,9 +207,7 @@ void SideEffectExecutor::ExecuteLayout(const LayoutEffect& e)
             );
         },
         [this](const effect::SyncMaxScroll& ev) {
-            const float total = layout_service_->GetTotalHeight();
-            state_->view.cached_total_height = total;
-            state_->view.viewport.SyncMaxScroll(total, ev.md_pane_height);
+            state_->view.viewport.SyncMaxScroll(layout_service_->GetTotalHeight(), ev.md_pane_height);
         },
     }, e);
     // clang-format on

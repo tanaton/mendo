@@ -73,27 +73,22 @@ struct SidePaneContext {
 
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 {
-    const float item_h = state.window.cached_theme.pane_item_height;
-    const float header_h = state.window.cached_theme.pane_header_height;
-    if (pane == PaneTarget::File) {
-        const float total = static_cast<float>(state.file_explorer.GetEntries().size()) * item_h;
-        return {
-            state.pane_layout_cache.Get().file_rect,
-            total,
-            ComputeScrollInfo(state.pane_layout_cache.Get().file_rect, header_h, total),
-            state.view.panes.FileScroll(),
-            PaneController::DragTarget::FileScrollbar,
-            PaneZone::FilePane,
-        };
-    }
-    const float total = static_cast<float>(state.document.doc.GetToc().GetEntries().size()) * item_h;
+    const float item_h = state.theme->pane_item_height;
+    const float header_h = state.theme->pane_header_height;
+    const auto& layout = state.pane_layout_cache.Get();
+    const float item_count = static_cast<float>(
+        pane == PaneTarget::File
+            ? state.file_explorer.GetEntries().size()
+            : state.document.doc.GetToc().GetEntries().size());
+    const float total = item_count * item_h;
+    const PaneRect& rect = layout.Get(pane);
     return {
-        state.pane_layout_cache.Get().toc_rect,
+        rect,
         total,
-        ComputeScrollInfo(state.pane_layout_cache.Get().toc_rect, header_h, total),
-        state.view.panes.TocScroll(),
-        PaneController::DragTarget::TocScrollbar,
-        PaneZone::TocPane,
+        ComputeScrollInfo(rect, header_h, total),
+        state.view.panes.SidePaneScroll(pane),
+        pane == PaneTarget::File ? PaneController::DragTarget::FileScrollbar : PaneController::DragTarget::TocScrollbar,
+        ToPaneZone(pane),
     };
 }
 
@@ -169,11 +164,7 @@ void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPane
         return;
     }
     const auto ctx = GetSidePaneContext(state, *target);
-    const bool scrolled =
-        (*target == PaneTarget::File)
-            ? state.view.panes.ScrollFilePaneBy(a.delta, ctx.info.max_scroll)
-            : state.view.panes.ScrollTocPaneBy(a.delta, ctx.info.max_scroll);
-    if (scrolled) {
+    if (state.view.panes.ScrollSidePaneBy(*target, a.delta, ctx.info.max_scroll)) {
         PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
         PushEffect(effects, effect::InvalidateWindow{});
     }
@@ -181,14 +172,7 @@ void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPane
 
 void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePaneAction& a)
 {
-    switch (a.target) {
-    case PaneTarget::File:
-        state.view.panes.ToggleFilePane();
-        break;
-    case PaneTarget::Toc:
-        state.view.panes.ToggleTocPane();
-        break;
-    }
+    state.view.panes.ToggleSidePane(a.target);
     state.pane_layout_cache.Invalidate();
     PushEffect(effects, effect::RefreshPaneLayout{});
     if (a.target == PaneTarget::Toc) {
@@ -227,7 +211,7 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
         return;
     }
     const auto& nodes = state.document.doc.GetNodes();
-    PushEffect(effects, effect::ClipboardWriteHtml{ ExtractSelectedTextAsHtml(nodes, sel, state.window.cached_theme.is_dark), ExtractSelectedText(nodes, sel) });
+    PushEffect(effects, effect::ClipboardWriteHtml{ ExtractSelectedTextAsHtml(nodes, sel, state.theme->IsDark()), ExtractSelectedText(nodes, sel) });
 }
 
 void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
@@ -252,7 +236,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
     const auto anchor = SnapshotVisibleTarget(state);
     state.pane_layout_cache.Invalidate();
     const float new_zoom = state.view.viewport.GetCurrentZoom();
-    const float zoom_ratio = new_zoom / state.window.cached_theme.zoom;
+    const float zoom_ratio = new_zoom / state.theme->zoom;
     state.view.panes.ApplyZoom(zoom_ratio);
     state.document.layout_cache.InvalidateAllLayouts();
     if (anchor.IsValid()) {
@@ -502,9 +486,9 @@ void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const S
 
 void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const SplitterDragMovedAction& a)
 {
-    const float splitter_w = state.window.cached_theme.splitter_width;
-    const float before_file = state.view.panes.GetFilePaneWidth();
-    const float before_toc = state.view.panes.GetTocPaneWidth();
+    const float splitter_w = state.theme->splitter_width;
+    const float before_file = state.view.panes.GetSidePaneWidth(PaneTarget::File);
+    const float before_toc = state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
     if (a.target == PaneController::DragTarget::Splitter1) {
         state.view.panes.DragSplitter1To(a.dip_x, a.window_width, splitter_w);
     }
@@ -514,7 +498,7 @@ void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const Spl
     else {
         return;
     }
-    if (state.view.panes.GetFilePaneWidth() == before_file && state.view.panes.GetTocPaneWidth() == before_toc) {
+    if (state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
         return;
     }
     state.pane_layout_cache.Invalidate();
@@ -762,7 +746,7 @@ void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, co
     if (!state.document.doc.GetFilePath().empty()) {
         state.file_explorer.SetCurrentFile(state.document.doc.GetFilePath());
     }
-    state.view.panes.FileScroll() = {};
+    state.view.panes.SidePaneScroll(PaneTarget::File) = {};
     PushEffect(effects, effect::InvalidatePaneCache{ PaneZone::FilePane });
     PushEffect(effects, effect::InvalidateWindow{});
 }
@@ -781,7 +765,7 @@ void ScrollToResolvedAnchor(AppState& state, SideEffectList& effects, int idx)
     }
     const auto target = MakeHeadingTopTarget(
         idx,
-        state.window.cached_theme.heading_spacing_above,
+        state.theme->heading_spacing_above,
         state.pane_layout_cache.Get().md_rect.y);
     ApplyScrollTargetAndEmit(state, effects, target.node, target.offset);
 }

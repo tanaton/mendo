@@ -149,18 +149,20 @@ void App::RefreshFilePane()
     if (!state_.document.doc.GetFilePath().empty()) {
         state_.file_explorer.SetCurrentFile(state_.document.doc.GetFilePath());
     }
-    renderer_.InvalidateFilePaneCache();
+    renderer_.InvalidateSidePaneCache(PaneTarget::File);
     Invalidate();
 }
 
-void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout)
+void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout)
 {
     using mendo::app_mouse::ProcessSidePaneHeaderClick;
 
     const auto& theme = renderer_.GetTheme();
+    const bool is_file = target == PaneTarget::File;
+    const PaneRect& rect = layout.Get(target);
 
-    if (ProcessSidePaneHeaderClick(dip_x, dip_y, layout.file_rect, theme.pane_header_height, true, [this]() {
-        state_.view.panes.ToggleFilePane();
+    if (ProcessSidePaneHeaderClick(dip_x, dip_y, rect, theme.pane_header_height, is_file, [this, target]() {
+        state_.view.panes.ToggleSidePane(target);
         RefreshPaneLayout();
     }, [this]() {
         RefreshFilePane();
@@ -168,16 +170,24 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
         return;
     }
 
-    const float total_content = static_cast<float>(state_.file_explorer.GetEntries().size()) * theme.pane_item_height;
-    const auto scroll_info = ComputePaneScrollInfo(layout.file_rect, total_content);
+    const int item_count = is_file
+        ? static_cast<int>(state_.file_explorer.GetEntries().size())
+        : static_cast<int>(state_.document.doc.GetToc().GetEntries().size());
+    const float total_content = static_cast<float>(item_count) * theme.pane_item_height;
+    const auto scroll_info = ComputePaneScrollInfo(rect, total_content);
 
-    if (IsOverPaneScrollbar(dip_x, layout.file_rect, total_content, scroll_info)) {
-        Dispatch(PaneScrollbarDragStartedAction{ PaneTarget::File, dip_y });
+    if (IsOverPaneScrollbar(dip_x, rect, total_content, scroll_info)) {
+        Dispatch(PaneScrollbarDragStartedAction{ target, dip_y });
         return;
     }
-    const float local_y = dip_y - scroll_info.content_top + state_.view.panes.FileScroll().scroll_y;
-    const int idx = state_.file_explorer.HitTest(local_y, theme.pane_item_height);
-    if (idx >= 0 && idx < static_cast<int>(state_.file_explorer.GetEntries().size())) {
+    const float local_y = dip_y - scroll_info.content_top + state_.view.panes.SidePaneScroll(target).scroll_y;
+    const int idx = is_file
+        ? state_.file_explorer.HitTest(local_y, theme.pane_item_height)
+        : state_.document.doc.GetToc().HitTest(local_y, theme.pane_item_height);
+    if (idx < 0 || idx >= item_count) {
+        return;
+    }
+    if (is_file) {
         const auto& file_entry = state_.file_explorer.GetEntries()[idx];
         if (file_entry.is_directory()) {
             Dispatch(FilePaneDirectoryClickedAction{ file_entry.full_path });
@@ -191,31 +201,7 @@ void App::HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout
             Dispatch(FilePaneFileClickedAction{ file_entry.full_path });
         }
     }
-}
-
-void App::HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout)
-{
-    using mendo::app_mouse::ProcessSidePaneHeaderClick;
-
-    const auto& theme = renderer_.GetTheme();
-
-    if (ProcessSidePaneHeaderClick(dip_x, dip_y, layout.toc_rect, theme.pane_header_height, false, [this]() {
-        state_.view.panes.ToggleTocPane();
-        RefreshPaneLayout();
-    }, []() {})) {
-        return;
-    }
-
-    const float total_content = static_cast<float>(state_.document.doc.GetToc().GetEntries().size()) * theme.pane_item_height;
-    const auto scroll_info = ComputePaneScrollInfo(layout.toc_rect, total_content);
-
-    if (IsOverPaneScrollbar(dip_x, layout.toc_rect, total_content, scroll_info)) {
-        Dispatch(PaneScrollbarDragStartedAction{ PaneTarget::Toc, dip_y });
-        return;
-    }
-    const float local_y = dip_y - scroll_info.content_top + state_.view.panes.TocScroll().scroll_y;
-    const int idx = state_.document.doc.GetToc().HitTest(local_y, theme.pane_item_height);
-    if (idx >= 0 && idx < static_cast<int>(state_.document.doc.GetToc().GetEntries().size())) {
+    else {
         const auto& toc_entry = state_.document.doc.GetToc().GetEntries()[idx];
         const auto anchor = state_.document.doc.GetNodes()[toc_entry.node_index].anchor_id();
         Dispatch(TocItemClickedAction{ std::pmr::string(anchor) });

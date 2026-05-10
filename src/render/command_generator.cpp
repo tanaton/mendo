@@ -108,10 +108,9 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     float dpi_scale,
     const BlockHScrollContext& block_h_scroll)
 {
-    frame_h_scroll_ = block_h_scroll;
-
-    // 古いコマンドを destruct してから resource をリセットする。
-    // 順序が逆だと cmds_ 内部ストレージが Reset 済みバッファを指してしまう。
+    // ムーブ代入で内部 pmr::vector の data ptr を捨ててから arena をリセットする。
+    // clear() だけだと dangling な data ptr が残り、次フレームの push_back が
+    // arena 上で別系統 allocate と衝突して UAF を起こす。
     cmds_ = DrawCommandList{ frame_resource_.resource() };
     frame_resource_.Reset();
     auto& cmds = cmds_;
@@ -129,24 +128,29 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     // フレーム間変動によるテキストのガタつきを防止する。スナップは描画 Y のみに
     // 適用し、二分探索 (FindFirstVisibleNodeIndex) には未スナップ scroll_y を渡す。
     const float snapped_y = SnapToPhysicalPixel(scroll_y, dpi_scale);
-    frame_md_pane_x_ = md_pane_rect.x;
-    frame_snapped_scroll_y_ = snapped_y;
+
     // Y 平行移動は Transform に乗せず CPU 側で entry ごとに加算する。
     // 大規模ファイルで text_top/scroll_y が 10^7 DIP オーダーになると、D2D 内部の
     // float32 行列演算で catastrophic cancellation が起きるため (詳細は header)。
-    frame_pane_transform_ = D2D1::Matrix3x2F::Translation(md_pane_rect.x, 0.0f);
-    cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ });
+    const auto pane_transform = D2D1::Matrix3x2F::Translation(md_pane_rect.x, 0.0f);
+    cmds.emplace_back(SetTransformCmd{ pane_transform });
 
-    frame_offset_x_ = theme_->margin_left;
-    frame_viewport_top_ = 0.0f;
-    frame_viewport_bottom_ = md_pane_rect.height;
-    // 水平カリング範囲: ペイン内ローカル座標で margin_left を起点とした相対値
-    frame_viewport_left_ = -theme_->margin_left;
-    frame_viewport_right_ = md_pane_rect.width - theme_->margin_left;
-    frame_content_width_ = theme_->ContentWidth(md_pane_rect.width);
-    frame_dpi_scale_ = dpi_scale;
-    frame_selection_ = &selection;
-    frame_hovered_ = hovered;
+    const FrameContext fc{
+        .offset_x = theme_->margin_left,
+        .viewport_top = 0.0f,
+        .viewport_bottom = md_pane_rect.height,
+        // 水平カリング範囲: ペイン内ローカル座標で margin_left を起点とした相対値
+        .viewport_left = -theme_->margin_left,
+        .viewport_right = md_pane_rect.width - theme_->margin_left,
+        .content_width = theme_->ContentWidth(md_pane_rect.width),
+        .dpi_scale = dpi_scale,
+        .md_pane_x = md_pane_rect.x,
+        .snapped_scroll_y = snapped_y,
+        .pane_transform = pane_transform,
+        .selection = selection,
+        .hovered = hovered,
+        .h_scroll = block_h_scroll,
+    };
 
     // SelectionHlCache は lazy 確保のみで自動破棄経路が無く、選択範囲外に出たノード分が
     // 居残ってメモリが漸増する。前フレームの範囲との差分で、外れたノードを巻き戻す。
@@ -177,21 +181,20 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
 
     // 同一 blockquote_group のノードをまとめてバー/背景を描画する。
     // ノード単体ごとではなく一括で描画することで、複数行の引用ブロックが連続した見た目になる。
-    GenBlockQuoteGroupDecorations(cmds, nodes, cache, node_count, first_visible);
+    GenBlockQuoteGroupDecorations(cmds, fc, nodes, cache, node_count, first_visible);
 
     int visible_count = 0;
     for (int i = first_visible; i < node_count; i++) {
         const float local_text_top = cache[i].text_top - snapped_y;
-        if (local_text_top > frame_viewport_bottom_) {
+        if (local_text_top > fc.viewport_bottom) {
             break;
         }
-        GenerateNode(cmds, nodes[i], cache[i], cache.GetDiagram(i), i, local_text_top);
+        GenerateNode(cmds, fc, nodes[i], cache[i], cache.GetDiagram(i), i, local_text_top);
         ++visible_count;
     }
 
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
     cmds.emplace_back(PopClipCmd{});
-    frame_selection_ = nullptr;
     last_cmds_size_ = cmds_.size();
     MENDO_COUNT_SET(g_cmd_gen_stats.last_visible_node_count, visible_count);
     MENDO_IF_TRACY(PublishCmdGenStats());
@@ -200,6 +203,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
 
 void CommandGenerator::GenerateNode(
     DrawCommandList& cmds,
+    const FrameContext& fc,
     const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
     int node_index, float entry_text_top)
 {
@@ -208,13 +212,13 @@ void CommandGenerator::GenerateNode(
     if (node.type == NodeType::Heading && node.heading_level <= 2) {
         node_bottom += theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO + theme_->GetHeadingUnderlineThickness(node.heading_level);
     }
-    if (node_bottom < frame_viewport_top_ || entry_text_top > frame_viewport_bottom_) {
+    if (node_bottom < fc.viewport_top || entry_text_top > fc.viewport_bottom) {
         return;
     }
 
     const float indent = NodeIndent(node, *theme_);
-    const float x = frame_offset_x_ + indent;
-    const float cw = frame_content_width_ - indent;
+    const float x = fc.offset_x + indent;
+    const float cw = fc.content_width - indent;
     const float text_x = x + NodeTextXOffset(node, *theme_);
 
     switch (node.type) {
@@ -237,15 +241,15 @@ void CommandGenerator::GenerateNode(
     case NodeType::Table: {
         const float natural_w = entry.has_table_layout() ? entry.table_layout->natural_total_width : 0.0f;
         const bool needs_clip = natural_w > cw;
-        const float scroll_x = needs_clip ? std::clamp(frame_h_scroll_.GetScrollX(node_index), 0.0f, natural_w - cw) : 0.0f;
+        const float scroll_x = needs_clip ? std::clamp(fc.h_scroll.GetScrollX(node_index), 0.0f, natural_w - cw) : 0.0f;
         {
             BlockHScrollScope guard(
                 cmds,
                 D2D1::RectF(x, entry_text_top, x + cw, entry_text_top + entry.height),
-                frame_pane_transform_, scroll_x, needs_clip);
-            GenTable(cmds, node, entry, node_index, x, entry_text_top, scroll_x);
+                fc.pane_transform, scroll_x, needs_clip);
+            GenTable(cmds, fc, node, entry, node_index, x, entry_text_top, scroll_x);
         }
-        EmitBlockHScrollbarIfActive(cmds, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), cw, natural_w, scroll_x);
+        EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), cw, natural_w, scroll_x);
         return;
     }
 
@@ -254,9 +258,9 @@ void CommandGenerator::GenerateNode(
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry_text_top);
                 cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), bmp });
-                GenSaveButton(cmds, bmp.right, bmp.top, node_index == frame_hovered_.save);
+                GenSaveButton(cmds, bmp.right, bmp.top, node_index == fc.hovered.save);
                 if (IsSvgExportable(node.code_language)) {
-                    GenSvgCopyButton(cmds, bmp.right, bmp.top, node_index == frame_hovered_.svg_copy);
+                    GenSvgCopyButton(cmds, bmp.right, bmp.top, node_index == fc.hovered.svg_copy);
                 }
             }
             else {
@@ -269,22 +273,22 @@ void CommandGenerator::GenerateNode(
         {
             const float natural_w = entry.natural_code_width;
             const bool needs_clip = natural_w > cw;
-            const float scroll_x = needs_clip ? std::clamp(frame_h_scroll_.GetScrollX(node_index), 0.0f, natural_w - cw) : 0.0f;
+            const float scroll_x = needs_clip ? std::clamp(fc.h_scroll.GetScrollX(node_index), 0.0f, natural_w - cw) : 0.0f;
             const float pad = theme_->code_block_padding;
             {
                 BlockHScrollScope guard(
                     cmds,
                     D2D1::RectF(x, entry_text_top - pad, x + cw, entry_text_top + entry.height + pad),
-                    frame_pane_transform_, scroll_x, needs_clip);
-                GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x, entry_text_top);
+                    fc.pane_transform, scroll_x, needs_clip);
+                GenNodeTextDecorations(cmds, fc, node, entry, node_index, x, text_x, entry_text_top);
             }
-            EmitBlockHScrollbarIfActive(cmds, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), cw, natural_w, scroll_x);
+            EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), cw, natural_w, scroll_x);
         }
-        GenCopyButton(cmds, entry, x, cw, node_index == frame_hovered_.copy, entry_text_top);
+        GenCopyButton(cmds, entry, x, cw, node_index == fc.hovered.copy, entry_text_top);
         return;
 
     case NodeType::ListItem:
-        GenListBullet(cmds, node, entry, x, entry_text_top);
+        GenListBullet(cmds, fc, node, entry, x, entry_text_top);
         break;
 
     case NodeType::TaskListItem:
@@ -310,7 +314,7 @@ void CommandGenerator::GenerateNode(
         std::unreachable();
     }
 
-    GenNodeTextDecorations(cmds, node, entry, node_index, x, text_x, entry_text_top);
+    GenNodeTextDecorations(cmds, fc, node, entry, node_index, x, text_x, entry_text_top);
 }
 
 CommandGenerator::NodeBaseStyle CommandGenerator::GetNodeBaseStyle(const Node& node) const noexcept
@@ -335,7 +339,7 @@ CommandGenerator::NodeBaseStyle CommandGenerator::GetNodeBaseStyle(const Node& n
     std::unreachable();
 }
 
-void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float text_x, float entry_text_top)
+void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float text_x, float entry_text_top)
 {
     if (!entry.text_layout) {
         return;
@@ -348,7 +352,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Node&
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
     GenSearchHighlights(cmds, entry, node_index, text_x, entry_text_top);
 
-    const auto& selection = *frame_selection_;
+    const auto& selection = fc.selection;
     if (selection.active && node_index >= selection.start_node && node_index <= selection.end_node) {
         uint32_t sel_start = 0;
         uint32_t sel_end = static_cast<uint32_t>(node.GetText().size());
@@ -426,12 +430,12 @@ void CommandGenerator::GenSvgCopyButton(DrawCommandList& cmds, float bitmap_righ
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 
-void CommandGenerator::EmitBlockHScrollbarIfActive(DrawCommandList& cmds, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x)
+void CommandGenerator::EmitBlockHScrollbarIfActive(DrawCommandList& cmds, const FrameContext& fc, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x)
 {
     if (natural_width <= visible_width || visible_width <= 0.0f) {
         return;
     }
-    if (node_index != frame_h_scroll_.hovered_block && node_index != frame_h_scroll_.drag_block) {
+    if (node_index != fc.h_scroll.hovered_block && node_index != fc.h_scroll.drag_block) {
         return;
     }
     const float track_w = visible_width;
@@ -439,34 +443,32 @@ void CommandGenerator::EmitBlockHScrollbarIfActive(DrawCommandList& cmds, int no
     const float scroll_max = natural_width - visible_width;
     const float ratio = (scroll_max > 0.0f) ? std::clamp(scroll_x / scroll_max, 0.0f, 1.0f) : 0.0f;
     // bullet と同じく Identity transform + 物理ピクセル snap で描画する。
-    // frame_pane_transform_ の md_x が非整数 (DPI 1 以外) のとき、サブピクセル位置で
+    // pane_transform の md_x が非整数 (DPI 1 以外) のとき、サブピクセル位置で
     // アンチエイリアスが上下に漏れて thumb の太さがブレる現象を防ぐ。
-    const float abs_x = SnapToPhysicalPixel(frame_md_pane_x_ + block_x + ratio * (track_w - thumb_w), frame_dpi_scale_);
+    const float abs_x = SnapToPhysicalPixel(fc.md_pane_x + block_x + ratio * (track_w - thumb_w), fc.dpi_scale);
     // bar_y は entry_text_top から算出されたローカル Y。Identity transform でも追加減算は不要。
-    const float abs_y = SnapToPhysicalPixel(bar_y, frame_dpi_scale_);
-    const float w_snapped = SnapToPhysicalPixel(thumb_w, frame_dpi_scale_);
-    const float h_snapped = SnapToPhysicalPixel(PANE_SCROLLBAR_WIDTH, frame_dpi_scale_);
+    const float abs_y = SnapToPhysicalPixel(bar_y, fc.dpi_scale);
+    const float w_snapped = SnapToPhysicalPixel(thumb_w, fc.dpi_scale);
+    const float h_snapped = SnapToPhysicalPixel(PANE_SCROLLBAR_WIDTH, fc.dpi_scale);
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
     cmds.emplace_back(FillRoundedRectCmd{
         D2D1::RectF(abs_x, abs_y, abs_x + w_snapped, abs_y + h_snapped),
         h_snapped / 2.0f, h_snapped / 2.0f,
         D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f),
         BrushId::ScrollbarThumb });
-    cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ });
+    cmds.emplace_back(SetTransformCmd{ fc.pane_transform });
 }
 
 void CommandGenerator::GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered)
 {
     const float bg_alpha = is_hovered ? (cached_is_dark_ ? 0.30f : 0.15f) : (cached_is_dark_ ? 0.10f : 0.05f);
-    const D2D1_COLOR_F bg_color = cached_is_dark_ ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha) : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
-    cmds.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, bg_color });
+    cmds.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, mendo::MonochromeOverlay(cached_is_dark_, bg_alpha) });
 
     const float text_alpha = is_hovered ? (cached_is_dark_ ? 0.9f : 0.8f) : (cached_is_dark_ ? 0.4f : 0.35f);
-    const D2D1_COLOR_F icon_color = cached_is_dark_ ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha) : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
-    cmds.emplace_back(MakeTextCmd(&icon, 1, btn, formats_.copy_btn_icon, icon_color));
+    cmds.emplace_back(MakeTextCmd(&icon, 1, btn, formats_.copy_btn_icon, mendo::MonochromeOverlay(cached_is_dark_, text_alpha)));
 }
 
-void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top)
+void CommandGenerator::GenListBullet(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top)
 {
     if (node.list_number > 0) {
         if (formats_.list_number) {
@@ -487,9 +489,9 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, co
         // の楕円を bounding rect (長方形) に縮退させるため、bullet だけ Identity transform +
         // baked 座標で描画する。
         const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
-        // X は Identity 化に伴い frame_md_pane_x_ を手動で加算。Y は entry_text_top が既にローカル Y。
-        const float bullet_x = SnapToPhysicalPixel(frame_md_pane_x_ + x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR, frame_dpi_scale_);
-        const float bullet_y = SnapToPhysicalPixel(entry_text_top + first_line_h * 0.5f, frame_dpi_scale_);
+        // X は Identity 化に伴い md_pane_x を手動で加算。Y は entry_text_top が既にローカル Y。
+        const float bullet_x = SnapToPhysicalPixel(fc.md_pane_x + x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR, fc.dpi_scale);
+        const float bullet_y = SnapToPhysicalPixel(entry_text_top + first_line_h * 0.5f, fc.dpi_scale);
         const float r = LIST_BULLET_RADIUS;
         cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
         if (node.indent_level <= 1) {
@@ -498,16 +500,16 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, co
         else {
             cmds.emplace_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color, 1.0f, BrushId::Text });
         }
-        cmds.emplace_back(SetTransformCmd{ frame_pane_transform_ });
+        cmds.emplace_back(SetTransformCmd{ fc.pane_transform });
     }
 }
 
-void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible)
+void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible)
 {
-    const float offset_x = frame_offset_x_;
-    const float content_width = frame_content_width_;
-    const float snap = frame_snapped_scroll_y_;
-    const float local_viewport_bottom = frame_viewport_bottom_;
+    const float offset_x = fc.offset_x;
+    const float content_width = fc.content_width;
+    const float snap = fc.snapped_scroll_y;
+    const float local_viewport_bottom = fc.viewport_bottom;
     static constexpr float BAR_EXTEND = 2.0f;
     static constexpr float ALERT_BG_PAD = 4.0f;
     static constexpr float ALERT_BG_CORNER = 4.0f;
@@ -839,6 +841,7 @@ void CommandGenerator::GenTableCellContent(
 
 void CommandGenerator::GenTable(
     DrawCommandList& cmds,
+    const FrameContext& fc,
     const Node& node, const NodeLayoutEntry& entry,
     int node_index, float offset_x, float entry_text_top, float h_scroll_x)
 {
@@ -850,9 +853,9 @@ void CommandGenerator::GenTable(
     const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
     const auto& tl = *entry.table_layout;
-    const auto& selection = *frame_selection_;
-    const float viewport_top = frame_viewport_top_;
-    const float viewport_bottom = frame_viewport_bottom_;
+    const auto& selection = fc.selection;
+    const float viewport_top = fc.viewport_top;
+    const float viewport_bottom = fc.viewport_bottom;
     const auto row_count = tbl->row_count;
     const auto col_count = static_cast<size_t>(tbl->col_count);
 
@@ -892,8 +895,8 @@ void CommandGenerator::GenTable(
 
         // 可視列のみコマンド生成、画面外は cell_text_starts で flat_offset を直接取得。
         // 横スクロール時は画面に映る範囲が h_scroll_x だけ右にずれる。
-        const float cull_left = offset_x + frame_viewport_left_ + h_scroll_x;
-        const float cull_right = offset_x + frame_viewport_right_ + h_scroll_x;
+        const float cull_left = offset_x + fc.viewport_left + h_scroll_x;
+        const float cull_right = offset_x + fc.viewport_right + h_scroll_x;
         float cx = offset_x + border;
         const size_t drawn_cols = std::min(col_count, tl.col_widths.size());
         for (size_t c = 0; c < drawn_cols; c++) {

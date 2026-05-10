@@ -144,10 +144,7 @@ void ContextMenu::Impl::ComputeLayout()
 
     const float nav_row_w = 2 * NAV_BTN_SIZE + NAV_BTN_GAP + 2 * PAD_X;
     const float text_w = CHECK_WIDTH + max_text_w + PAD_X * 2;
-    menu_width = (nav_row_w > text_w) ? nav_row_w : text_w;
-    if (menu_width < MIN_MENU_WIDTH) {
-        menu_width = MIN_MENU_WIDTH;
-    }
+    menu_width = std::max({ nav_row_w, text_w, MIN_MENU_WIDTH });
 
     float y = PAD_Y;
     for (auto& item : items) {

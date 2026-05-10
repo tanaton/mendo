@@ -60,33 +60,9 @@ struct CopyFormattedClipboardAction {};
 struct SelectAllAction {};
 struct ClearSelectionAction {};
 
-enum class PaneTarget : uint8_t {
-    File,
-    Toc
-};
 struct TogglePaneAction {
     PaneTarget target;
 };
-
-// PaneZone (座標ヒット判定の結果) を、サイドペイン操作の対象を表す
-// PaneTarget へ変換する。File/Toc 以外の領域 (None / Splitter / MdPane)
-// は対象外なので nullopt を返す。
-constexpr std::optional<PaneTarget> ToPaneTarget(PaneZone zone) noexcept
-{
-    switch (zone) {
-    case PaneZone::FilePane:
-        return PaneTarget::File;
-    case PaneZone::TocPane:
-        return PaneTarget::Toc;
-    default:
-        return std::nullopt;
-    }
-}
-
-constexpr PaneZone ToPaneZone(PaneTarget target) noexcept
-{
-    return target == PaneTarget::File ? PaneZone::FilePane : PaneZone::TocPane;
-}
 
 enum class ZoomDirection : uint8_t {
     In,
