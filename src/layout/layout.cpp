@@ -50,30 +50,10 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     const float vp_bottom = partial ? viewport_bottom : kInf;
     const float content_width = theme_->ContentWidth(viewport_width);
 
-    // 100MB ファイル初回ロードや大幅な幅変更ではシリアル MeasureNode が支配的なので、
-    // フル走査経路 (partial=false && width_changed) では先に並列計測を済ませる。
-    // 並列計測後は entry.layout_dirty=false になるので、後続のシリアルループは
-    // measure を skip して Y 累積と block_heights 構築だけ行う。
-    static constexpr size_t kMinNodesForParallelCompute = 256;
-    bool parallel_measured = false;
-    if (layout_scheduler_ && width_changed && !partial && node_count >= kMinNodesForParallelCompute) {
-        for (size_t i = 0; i < node_count; ++i) {
-            cache[i].layout_dirty = true;
-        }
-        mendo::layout::RunParallel(
-            nodes, cache, content_width, *theme_, *backend_,
-            mendo::layout::ViewportClip{},
-            mendo::layout::ParallelBudget{ static_cast<int>(node_count) },
-            *layout_scheduler_);
-        parallel_measured = true;
-    }
-    // 並列計測済みの場合、シリアルループでは measure を再走させない。
-    const bool serial_width_changed = width_changed && !parallel_measured;
-
     float y = theme_->margin_top;
     bool any_dirty = false;
     bool any_height_changed = false;
-    bool any_measured = parallel_measured;
+    bool any_measured = false;
     bool broke_early = false;
 
     StackArena<4096> arena;
@@ -86,7 +66,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         const float indent = NodeIndent(node, *theme_);
         const float node_width = content_width - indent;
 
-        if (serial_width_changed || entry.layout_dirty) {
+        if (width_changed || entry.layout_dirty) {
             const float node_bottom = y + entry.height; // 古い高さを使って推定
             const bool visible = (node_bottom >= vp_top && y <= vp_bottom);
             if (visible) {
@@ -128,7 +108,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
 
         // 幅の変更がなく、ビューポートを超えた後に高さの変更もなければ、
         // 残りの Y 位置は変わらないので早期終了する。
-        if (!serial_width_changed && !any_height_changed && y > vp_bottom) {
+        if (!width_changed && !any_height_changed && y > vp_bottom) {
             // 中断地点より先にダーティノードが存在する可能性を保守的に仮定する。
             // ProcessDirtyBatch が存在しない場合は速やかに確認・クリアする。
             any_dirty = true;

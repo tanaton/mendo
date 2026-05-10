@@ -19,9 +19,7 @@ protected:
         PaneLayout pl{};
         pl.md_rect.height = 500.0f;
         state.pane_layout_cache.Set(0.0f, pl);
-        // reducer は state.theme から zoom / splitter_width / pane_*_height を読む。
-        // Theme は default-init では POD フィールドが 0 になるため、
-        // 旧 ThemeConstants と同じデフォルトで初期化してから注入する。
+        // Theme の POD フィールドは default-init で 0。reducer が読むものだけ明示する。
         theme.pane_item_height = 28.0f;
         theme.pane_header_height = 32.0f;
         theme.splitter_width = 4.0f;

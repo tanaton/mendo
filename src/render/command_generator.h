@@ -115,8 +115,6 @@ public:
 
 private:
     // GenerateMdPane の 1 フレーム呼び出しスコープでだけ意味を持つ入力をまとめる。
-    // 以前はメンバ (frame_*_) で持ち回していたが、フレーム終了後にステイル参照する
-    // 防衛コードが必要になり設計が歪んでいたため、引数で渡し切るように改めた。
     struct FrameContext {
         float offset_x = 0.0f;
         // ビューポート Y 範囲は **ペインローカル Y** (= 0 〜 pane_height)。GenerateNode に
