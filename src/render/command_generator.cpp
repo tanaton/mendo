@@ -458,12 +458,10 @@ void CommandGenerator::EmitBlockHScrollbarIfActive(DrawCommandList& cmds, int no
 void CommandGenerator::GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered)
 {
     const float bg_alpha = is_hovered ? (cached_is_dark_ ? 0.30f : 0.15f) : (cached_is_dark_ ? 0.10f : 0.05f);
-    const D2D1_COLOR_F bg_color = cached_is_dark_ ? D2D1::ColorF(1.0f, 1.0f, 1.0f, bg_alpha) : D2D1::ColorF(0.0f, 0.0f, 0.0f, bg_alpha);
-    cmds.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, bg_color });
+    cmds.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, mendo::MonochromeOverlay(cached_is_dark_, bg_alpha) });
 
     const float text_alpha = is_hovered ? (cached_is_dark_ ? 0.9f : 0.8f) : (cached_is_dark_ ? 0.4f : 0.35f);
-    const D2D1_COLOR_F icon_color = cached_is_dark_ ? D2D1::ColorF(1.0f, 1.0f, 1.0f, text_alpha) : D2D1::ColorF(0.0f, 0.0f, 0.0f, text_alpha);
-    cmds.emplace_back(MakeTextCmd(&icon, 1, btn, formats_.copy_btn_icon, icon_color));
+    cmds.emplace_back(MakeTextCmd(&icon, 1, btn, formats_.copy_btn_icon, mendo::MonochromeOverlay(cached_is_dark_, text_alpha)));
 }
 
 void CommandGenerator::GenListBullet(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top)

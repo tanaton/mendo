@@ -51,9 +51,7 @@ inline constexpr Id ALL_TIMERS[] = {
 
 namespace app_msg {
 
-inline constexpr UINT LOAD_FILE = WM_APP + 1;
 inline constexpr UINT IMAGE_LOADED = WM_APP + 2;
-inline constexpr UINT RELOAD_FILE = WM_APP + 3;
 inline constexpr UINT SEARCH_FOCUS = WM_APP + 4;
 inline constexpr UINT SEARCH_UNFOCUS = WM_APP + 5;
 inline constexpr UINT PARSE_COMPLETE = WM_APP + 6;

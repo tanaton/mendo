@@ -16,7 +16,7 @@ public:
     virtual ~IWin32Host() = default;
 
     virtual void Invalidate() = 0;
-    virtual void InvalidateTitleBarArea(int width_px, int height_px) = 0;
+    virtual void InvalidateTitleBarArea(float dip_w, float dip_h, float dpi_scale) = 0;
 
     virtual void SetTimer(app_timer::Id id, UINT ms) = 0;
     virtual void KillTimer(app_timer::Id id) = 0;

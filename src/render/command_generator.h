@@ -1,5 +1,6 @@
 #pragma once
 #include "block_h_scroll_context.h"
+#include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "draw_command.h"
 #include "document_types.h"
@@ -83,12 +84,12 @@ public:
         hit_test_buffer_ = buf;
     }
 
-    constexpr void SetTheme(const Theme* theme) noexcept
+    void SetTheme(const Theme* theme) noexcept
     {
         theme_ = theme;
         cached_is_dark_ = theme->IsDark();
-        float a = cached_is_dark_ ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
-        cached_stripe_color_ = cached_is_dark_ ? D2D1::ColorF(1.0f, 1.0f, 1.0f, a) : D2D1::ColorF(0.0f, 0.0f, 0.0f, a);
+        const float a = cached_is_dark_ ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
+        cached_stripe_color_ = mendo::MonochromeOverlay(cached_is_dark_, a);
     }
     constexpr void SetFormats(const Formats& fmts) noexcept
     {

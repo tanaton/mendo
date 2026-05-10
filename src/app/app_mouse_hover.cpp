@@ -82,28 +82,20 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         Dispatch(MdPaneButtonHoverChangedAction{ new_hover });
     }
 
-    if (new_hover.copy >= 0) {
+    const auto emit_button_hover = [&](TooltipTarget::Zone zone, std::wstring_view text) {
         SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{
-            TooltipTarget{ TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy },
-            px, py
-        });
+        Dispatch(UpdateTooltipAction{ TooltipTarget{ zone, text }, px, py });
+    };
+    if (new_hover.copy >= 0) {
+        emit_button_hover(TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy);
         return;
     }
     if (new_hover.svg_copy >= 0) {
-        SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{
-            TooltipTarget{ TooltipTarget::Zone::SvgCopyButton, i18n::S().tooltip_copy_svg },
-            px, py
-        });
+        emit_button_hover(TooltipTarget::Zone::SvgCopyButton, i18n::S().tooltip_copy_svg);
         return;
     }
     if (new_hover.save >= 0) {
-        SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{
-            TooltipTarget{ TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image },
-            px, py
-        });
+        emit_button_hover(TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image);
         return;
     }
 

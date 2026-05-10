@@ -85,8 +85,6 @@ public:
     void OnFileWatchEvent();
 
     void HandleTimer(UINT_PTR timer_id);
-    void OnAppLoadFile();
-    void OnAppReloadFile();
     void OnAppImageLoaded();
     void OnParseComplete();
     void OnCaptureChanged();

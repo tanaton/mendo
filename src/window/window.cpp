@@ -425,14 +425,6 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
-    case app_msg::LOAD_FILE:
-        app_->OnAppLoadFile();
-        return 0;
-
-    case app_msg::RELOAD_FILE:
-        app_->OnAppReloadFile();
-        return 0;
-
     case app_msg::IMAGE_LOADED:
         app_->OnAppImageLoaded();
         return 0;

@@ -87,18 +87,20 @@ void App::OnLButtonUp(int px, int py)
         return;
     }
 
-    const auto drag_target = state_.view.panes.GetDragTarget();
-    if (drag_target == PaneController::DragTarget::Splitter1 || drag_target == PaneController::DragTarget::Splitter2) {
+    switch (state_.view.panes.GetDragTarget()) {
+    case PaneController::DragTarget::Splitter1:
+    case PaneController::DragTarget::Splitter2:
         Dispatch(SplitterDragEndedAction{});
         return;
-    }
-    if (drag_target == PaneController::DragTarget::MdScrollbar) {
+    case PaneController::DragTarget::MdScrollbar:
         Dispatch(MdScrollbarDragEndedAction{});
         return;
-    }
-    if (drag_target == PaneController::DragTarget::FileScrollbar || drag_target == PaneController::DragTarget::TocScrollbar) {
+    case PaneController::DragTarget::FileScrollbar:
+    case PaneController::DragTarget::TocScrollbar:
         Dispatch(PaneScrollbarDragEndedAction{});
         return;
+    case PaneController::DragTarget::None:
+        break;
     }
 
     if (state_.view.viewport.IsDragging()) {
@@ -141,35 +143,30 @@ void App::OnMouseMove(int px, int py)
         return;
     }
 
-    if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::Splitter1) {
+    switch (state_.view.panes.GetDragTarget()) {
+    case PaneController::DragTarget::Splitter1:
         Dispatch(SplitterDragMovedAction{ PaneController::DragTarget::Splitter1, dip_x, size.width });
         return;
-    }
-
-    if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::FileScrollbar) {
+    case PaneController::DragTarget::Splitter2:
+        Dispatch(SplitterDragMovedAction{ PaneController::DragTarget::Splitter2, dip_x, size.width });
+        return;
+    case PaneController::DragTarget::FileScrollbar:
         Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::File, dip.y });
         return;
-    }
-
-    if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::TocScrollbar) {
+    case PaneController::DragTarget::TocScrollbar:
         Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::Toc, dip.y });
         return;
-    }
-
-    if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::MdScrollbar) {
+    case PaneController::DragTarget::MdScrollbar:
         if (layout_service_) {
             Dispatch(MdScrollbarDragMovedAction{ dip.y, layout_service_->GetTotalHeight() });
         }
         return;
+    case PaneController::DragTarget::None:
+        break;
     }
 
     if (state_.view.h_drag_node >= 0) {
         Dispatch(BlockHScrollDragMovedAction{ dip_x });
-        return;
-    }
-
-    if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::Splitter2) {
-        Dispatch(SplitterDragMovedAction{ PaneController::DragTarget::Splitter2, dip_x, size.width });
         return;
     }
 

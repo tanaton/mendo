@@ -289,16 +289,6 @@ void App::HandleTimer(UINT_PTR timer_id)
     }
 }
 
-void App::OnAppLoadFile()
-{
-    DoLoadMarkdownFile();
-}
-
-void App::OnAppReloadFile()
-{
-    DoReloadCurrentFile();
-}
-
 void App::OnCaptureChanged()
 {
     Dispatch(CaptureChangedAction{});

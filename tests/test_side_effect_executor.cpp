@@ -20,7 +20,7 @@ namespace {
 class RecordingWin32Host final : public IWin32Host {
 public:
     int invalidate_count = 0;
-    std::vector<std::pair<int, int>> invalidate_titlebar_calls;
+    std::vector<std::tuple<float, float, float>> invalidate_titlebar_calls;
     std::vector<std::pair<app_timer::Id, UINT>> set_timer_calls;
     std::vector<app_timer::Id> kill_timer_calls;
     int set_capture_count = 0;
@@ -41,9 +41,9 @@ public:
     {
         invalidate_count++;
     }
-    void InvalidateTitleBarArea(int width_px, int height_px) override
+    void InvalidateTitleBarArea(float dip_w, float dip_h, float dpi_scale) override
     {
-        invalidate_titlebar_calls.emplace_back(width_px, height_px);
+        invalidate_titlebar_calls.emplace_back(dip_w, dip_h, dpi_scale);
     }
     void SetTimer(app_timer::Id id, UINT ms) override
     {
@@ -502,12 +502,10 @@ TEST_F(SideEffectExecutorTest, InvalidateTitleBarComputesRectFromCachedWidthAndD
     state_.window.cached_dpi_scale = 2.0f;
     state_.pane_layout_cache.Set(800.0f, PaneLayout{});
     // Titlebar::GetHeight() は constexpr 32.0f を返す。
-    // 丸めは width/height とも mendo::InvalidateDipRect と同じ truncate+1 で揃える。
-    // width:  800.0f * 2.0f → 1600 +1 = 1601
-    // height: 32.0f * 2.0f → 64 +1 = 65
+    // ピクセル丸め (truncate+1) はホスト側 InvalidateDipRect で行う。
     exec_.ExecuteOne(effect::InvalidateTitleBar{});
     ASSERT_EQ(host_.invalidate_titlebar_calls.size(), 1u);
-    EXPECT_EQ(host_.invalidate_titlebar_calls[0], std::make_pair(1601, 65));
+    EXPECT_EQ(host_.invalidate_titlebar_calls[0], std::make_tuple(800.0f, 32.0f, 2.0f));
     EXPECT_EQ(host_.invalidate_count, 0);
 }
 
