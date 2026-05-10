@@ -118,7 +118,6 @@ public:
     static constexpr float PANE_MIN_WIDTH = 100.0f;
 
 private:
-    // [File=0, Toc=1]
     struct Instance {
         ScrollState scroll{};
         int hovered_index = -1;

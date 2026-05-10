@@ -212,8 +212,7 @@ private:
     bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
     void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
-    static bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect,
-                                    float total_content, const PaneScrollInfo& scroll_info) noexcept;
+    static bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, float total_content, const PaneScrollInfo& scroll_info) noexcept;
 
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
 
@@ -249,8 +248,8 @@ private:
     // 呼び出し側は戻り値で「処理済み (Handled) → 呼び出し元 return」「続行 (ContinueWithReload) →
     // decision.op に基づく本格的な reload / load 処理」を分岐する。
     enum class ReloadFlow : uint8_t {
-        Handled,             // ResumeFileWatch / DeferReloadRetry が発行済み、呼び出し元は return
-        ContinueWithReload,  // PrefixGrowth / FullReload を呼び出し元で実行する
+        Handled,            // ResumeFileWatch / DeferReloadRetry が発行済み、呼び出し元は return
+        ContinueWithReload, // PrefixGrowth / FullReload を呼び出し元で実行する
     };
     ReloadFlow ApplyReloadDecisionEarly(const ReloadDecision& decision);
 

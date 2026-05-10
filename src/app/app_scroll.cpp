@@ -114,8 +114,7 @@ void App::OnResizeEnd()
 void App::RefreshPaneLayout()
 {
     InvalidatePaneLayoutCache();
-    renderer_.InvalidateSidePaneCache(PaneTarget::File);
-    renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
+    renderer_.InvalidateAllSidePaneCaches();
     OnResizeEnd();
 }
 

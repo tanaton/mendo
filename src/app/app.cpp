@@ -66,8 +66,7 @@ void App::ResetViewForNewDocument()
     CancelPendingResources();
     renderer_.ShrinkBuffers();
     state_.view.panes.ResetScrollStates();
-    renderer_.InvalidateSidePaneCache(PaneTarget::File);
-    renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
+    renderer_.InvalidateAllSidePaneCaches();
 }
 
 void App::FinalizeLayout(float md_pane_height)
@@ -233,10 +232,12 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
 
     const auto dip = PixelToDip(px, py);
     const auto pane_layout = GetPaneLayout();
-    const auto zone = DetectPaneZone(dip.x, pane_layout,
-                                     renderer_.GetTheme().splitter_width,
-                                     state_.view.panes.IsSidePaneVisible(PaneTarget::File),
-                                     state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
+    const auto zone = DetectPaneZone(
+        dip.x,
+        pane_layout,
+        renderer_.GetTheme().splitter_width,
+        state_.view.panes.IsSidePaneVisible(PaneTarget::File),
+        state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
 
     const MouseWheelEvent event{ delta, false, zone };
     Dispatch(controller_.HandleMouseWheel(event));

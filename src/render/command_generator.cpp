@@ -132,23 +132,25 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     // Y 平行移動は Transform に乗せず CPU 側で entry ごとに加算する。
     // 大規模ファイルで text_top/scroll_y が 10^7 DIP オーダーになると、D2D 内部の
     // float32 行列演算で catastrophic cancellation が起きるため (詳細は header)。
-    FrameContext fc;
-    fc.md_pane_x = md_pane_rect.x;
-    fc.snapped_scroll_y = snapped_y;
-    fc.pane_transform = D2D1::Matrix3x2F::Translation(md_pane_rect.x, 0.0f);
-    cmds.emplace_back(SetTransformCmd{ fc.pane_transform });
+    const auto pane_transform = D2D1::Matrix3x2F::Translation(md_pane_rect.x, 0.0f);
+    cmds.emplace_back(SetTransformCmd{ pane_transform });
 
-    fc.offset_x = theme_->margin_left;
-    fc.viewport_top = 0.0f;
-    fc.viewport_bottom = md_pane_rect.height;
-    // 水平カリング範囲: ペイン内ローカル座標で margin_left を起点とした相対値
-    fc.viewport_left = -theme_->margin_left;
-    fc.viewport_right = md_pane_rect.width - theme_->margin_left;
-    fc.content_width = theme_->ContentWidth(md_pane_rect.width);
-    fc.dpi_scale = dpi_scale;
-    fc.selection = &selection;
-    fc.hovered = hovered;
-    fc.h_scroll = block_h_scroll;
+    const FrameContext fc{
+        .offset_x = theme_->margin_left,
+        .viewport_top = 0.0f,
+        .viewport_bottom = md_pane_rect.height,
+        // 水平カリング範囲: ペイン内ローカル座標で margin_left を起点とした相対値
+        .viewport_left = -theme_->margin_left,
+        .viewport_right = md_pane_rect.width - theme_->margin_left,
+        .content_width = theme_->ContentWidth(md_pane_rect.width),
+        .dpi_scale = dpi_scale,
+        .md_pane_x = md_pane_rect.x,
+        .snapped_scroll_y = snapped_y,
+        .pane_transform = pane_transform,
+        .selection = selection,
+        .hovered = hovered,
+        .h_scroll = block_h_scroll,
+    };
 
     // SelectionHlCache は lazy 確保のみで自動破棄経路が無く、選択範囲外に出たノード分が
     // 居残ってメモリが漸増する。前フレームの範囲との差分で、外れたノードを巻き戻す。
@@ -350,7 +352,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Frame
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
     GenSearchHighlights(cmds, entry, node_index, text_x, entry_text_top);
 
-    const auto& selection = *fc.selection;
+    const auto& selection = fc.selection;
     if (selection.active && node_index >= selection.start_node && node_index <= selection.end_node) {
         uint32_t sel_start = 0;
         uint32_t sel_end = static_cast<uint32_t>(node.GetText().size());
@@ -851,7 +853,7 @@ void CommandGenerator::GenTable(
     const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
     const auto& tl = *entry.table_layout;
-    const auto& selection = *fc.selection;
+    const auto& selection = fc.selection;
     const float viewport_top = fc.viewport_top;
     const float viewport_bottom = fc.viewport_bottom;
     const auto row_count = tbl->row_count;

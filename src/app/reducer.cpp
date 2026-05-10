@@ -87,9 +87,7 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
         total,
         ComputeScrollInfo(rect, header_h, total),
         state.view.panes.SidePaneScroll(pane),
-        pane == PaneTarget::File
-            ? PaneController::DragTarget::FileScrollbar
-            : PaneController::DragTarget::TocScrollbar,
+        pane == PaneTarget::File ? PaneController::DragTarget::FileScrollbar : PaneController::DragTarget::TocScrollbar,
         ToPaneZone(pane),
     };
 }
@@ -500,8 +498,7 @@ void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const Spl
     else {
         return;
     }
-    if (state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file
-        && state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
+    if (state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
         return;
     }
     state.pane_layout_cache.Invalidate();

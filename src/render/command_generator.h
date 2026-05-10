@@ -134,8 +134,8 @@ private:
         // フレーム冒頭で設定した Translation を保持する。
         float md_pane_x = 0.0f;
         float snapped_scroll_y = 0.0f;
-        D2D1::Matrix3x2F pane_transform = D2D1::Matrix3x2F::Identity();
-        const TextSelection* selection = nullptr;
+        D2D1::Matrix3x2F pane_transform;
+        const TextSelection& selection;
         HoveredButtons hovered;
         BlockHScrollContext h_scroll;
     };

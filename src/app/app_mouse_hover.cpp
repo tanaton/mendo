@@ -244,6 +244,13 @@ void App::OnMouseHover(int px, int py)
             else {
                 const auto& toc_entries = state_.document.doc.GetToc().GetEntries();
                 if (idx >= 0 && idx < static_cast<int>(toc_entries.size())) {
+                    // 同一 TOC 項目のホバー継続中は reducer 側で no-op になるため
+                    // UTF-8→UTF-16 変換を省く (移動 1 回ごとの pmr::wstring 確保を回避)。
+                    const auto& current = state_.interaction.tooltip.GetCurrent();
+                    if (idx == state_.view.panes.GetHoveredSideIndex(PaneTarget::Toc)
+                        && current.zone == TooltipTarget::Zone::TocPaneItem) {
+                        return current;
+                    }
                     const auto text = state_.document.doc.GetNodes()[toc_entries[idx].node_index].GetText();
                     std::pmr::wstring text_wide;
                     string_convert::Utf8ToWide(text, text_wide);

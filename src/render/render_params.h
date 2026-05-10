@@ -84,9 +84,7 @@ struct SidePaneInstance {
 };
 
 struct SidePaneState {
-    // [PaneTarget::File=0, PaneTarget::Toc=1]
     SidePaneInstance panes[2];
-    // 非対称なメンバ (entries の型・nodes 参照・active TOC インデックス)
     const std::pmr::vector<FileEntry>& file_entries;
     const std::pmr::vector<TocEntry>& toc_entries;
     const std::pmr::vector<Node>& nodes; // TocEntryからのテキスト参照用
@@ -94,7 +92,7 @@ struct SidePaneState {
 
     constexpr const SidePaneInstance& Get(PaneTarget t) const noexcept
     {
-        return panes[static_cast<size_t>(t)];
+        return panes[std::to_underlying(t)];
     }
 };
 
