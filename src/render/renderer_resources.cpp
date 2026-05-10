@@ -218,8 +218,9 @@ void Renderer::RecreatePaneFormats()
     cached_search_effective_pos_ = -2;
     cached_search_caret_x_ = 0.0f;
 
-    file_pane_cache_.Reset();
-    toc_pane_cache_.Reset();
+    for (auto& c : pane_caches_) {
+        c.Reset();
+    }
 
     cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
 

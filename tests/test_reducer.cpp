@@ -585,12 +585,12 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
     state.pane_layout_cache.Set(0.0f, PaneLayout{});
-    const float old_width = state.view.panes.GetFilePaneWidth();
+    const float old_width = state.view.panes.GetSidePaneWidth(PaneTarget::File);
 
     auto effects = Reduce(state, SplitterDragMovedAction{
                                      PaneController::DragTarget::Splitter1, 300.0f, 1000.0f });
 
-    EXPECT_NE(state.view.panes.GetFilePaneWidth(), old_width);
+    EXPECT_NE(state.view.panes.GetSidePaneWidth(PaneTarget::File), old_width);
     EXPECT_FALSE(state.pane_layout_cache.IsValid());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
@@ -789,7 +789,7 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbHit_StoresOffset
     SetupScrollableToc(state);
     // header_height=32 → content_top=32。scroll=0 の時 thumb_y = content_top = 32
     const float dip_y = 40.0f; // thumb 内を想定
-    auto& scroll = state.view.panes.TocScroll();
+    auto& scroll = state.view.panes.SidePaneScroll(PaneTarget::Toc);
     scroll.scroll_y = 0.0f;
 
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, dip_y });
@@ -797,7 +797,7 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbHit_StoresOffset
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::TocScrollbar);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     // thumb 上クリックではスクロール位置は不変
-    EXPECT_FLOAT_EQ(state.view.panes.TocScroll().scroll_y, 0.0f);
+    EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
     EXPECT_FALSE(HasEffect<effect::InvalidatePaneCache>(effects));
 }
 
@@ -805,13 +805,13 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbMiss_Jumps)
 {
     SetupScrollableToc(state);
     const float dip_y = 250.0f; // thumb 外（下側）
-    state.view.panes.TocScroll().scroll_y = 0.0f;
+    state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 0.0f;
 
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, dip_y });
 
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::TocScrollbar);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
-    EXPECT_GT(state.view.panes.TocScroll().scroll_y, 0.0f);
+    EXPECT_GT(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
@@ -821,11 +821,11 @@ TEST_F(ReducerTest, PaneScrollbarDragMoved_WhileDragging_UpdatesScroll)
     SetupScrollableToc(state);
     state.view.panes.StartDrag(PaneController::DragTarget::TocScrollbar);
     state.view.panes.SetDragScrollOffset(0.0f);
-    state.view.panes.TocScroll().scroll_y = 0.0f;
+    state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 0.0f;
 
     auto effects = Reduce(state, PaneScrollbarDragMovedAction{ PaneTarget::Toc, 200.0f });
 
-    EXPECT_GT(state.view.panes.TocScroll().scroll_y, 0.0f);
+    EXPECT_GT(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
@@ -1058,11 +1058,11 @@ TEST_F(ReducerTest, RightClickGestureCompleted_TrackingRight_NavigatesForward)
 TEST_F(ReducerTest, FilePaneDirectoryClicked_UpdatesDirAndInvalidates)
 {
     // スクロール位置を設定してリセットされることを確認
-    state.view.panes.FileScroll().scroll_y = 100.0f;
+    state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y = 100.0f;
 
     auto effects = Reduce(state, FilePaneDirectoryClickedAction{ std::pmr::wstring(L"C:\\nonexistent_dir_for_test") });
 
-    EXPECT_EQ(state.view.panes.FileScroll().scroll_y, 0.0f);
+    EXPECT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }

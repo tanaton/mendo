@@ -50,20 +50,18 @@ void App::OnLButtonDown(int px, int py)
         dip.x,
         pane_layout,
         renderer_.GetTheme().splitter_width,
-        state_.view.panes.IsFilePaneVisible(),
-        state_.view.panes.IsTocPaneVisible());
+        state_.view.panes.IsSidePaneVisible(PaneTarget::File),
+        state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
 
     switch (zone) {
     case PaneZone::None:
         return;
     case PaneZone::FilePane:
-        HandleFilePaneClick(dip.x, dip.y, pane_layout);
+    case PaneZone::TocPane:
+        HandleSidePaneClick(*ToPaneTarget(zone), dip.x, dip.y, pane_layout);
         return;
     case PaneZone::Splitter1:
         Dispatch(SplitterDragStartedAction{ PaneController::DragTarget::Splitter1 });
-        return;
-    case PaneZone::TocPane:
-        HandleTocPaneClick(dip.x, dip.y, pane_layout);
         return;
     case PaneZone::Splitter2:
         Dispatch(SplitterDragStartedAction{ PaneController::DragTarget::Splitter2 });

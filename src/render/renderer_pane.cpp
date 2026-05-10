@@ -201,7 +201,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
         }
     };
     const SidePaneDrawContext sp{
-        .cache = file_pane_cache_,
+        .cache = SidePaneCache(PaneTarget::File),
         .main_rt = rt(),
         .rect = rect,
         .scroll = scroll,
@@ -254,7 +254,7 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
         }
     };
     const SidePaneDrawContext sp{
-        .cache = toc_pane_cache_,
+        .cache = SidePaneCache(PaneTarget::Toc),
         .main_rt = rt(),
         .rect = rect,
         .scroll = scroll,

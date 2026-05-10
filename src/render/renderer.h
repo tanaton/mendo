@@ -79,13 +79,13 @@ public:
         cmd_generator_.SetSearchMatches(matches, current_index, generation);
     }
 
-    constexpr void InvalidateFilePaneCache() noexcept
+    constexpr PaneCache& SidePaneCache(PaneTarget t) noexcept
     {
-        file_pane_cache_.dirty = true;
+        return pane_caches_[static_cast<size_t>(t)];
     }
-    constexpr void InvalidateTocPaneCache() noexcept
+    constexpr void InvalidateSidePaneCache(PaneTarget t) noexcept
     {
-        toc_pane_cache_.dirty = true;
+        SidePaneCache(t).dirty = true;
     }
 
     // ファイル切替時にヒットテストバッファ等を縮小する。
@@ -204,8 +204,7 @@ private:
     void LoadAppIconBitmap();
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
 
-    PaneCache file_pane_cache_;
-    PaneCache toc_pane_cache_;
+    PaneCache pane_caches_[2]; // [PaneTarget::File=0, PaneTarget::Toc=1]
 
     // ApplyVisibleEffects スキップ判定用キャッシュ。viewport_bottom は物理ピクセル単位の
     // 整数値に丸めて比較し、float 比較の epsilon 揺らぎを排除する (DPI 100% で 1px 粒度)。

@@ -370,7 +370,7 @@ void App::FinishReload(size_t diff_pos)
     state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size(), false);
     EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
 
-    renderer_.InvalidateTocPaneCache();
+    renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;

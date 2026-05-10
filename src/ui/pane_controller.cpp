@@ -8,31 +8,17 @@ bool PaneController::ScrollPaneBy(ScrollState& state, float delta, float max_scr
     return state.scroll_y != old;
 }
 
-bool PaneController::ScrollFilePaneBy(float delta, float max_scroll) noexcept
+bool PaneController::ScrollSidePaneBy(PaneTarget t, float delta, float max_scroll) noexcept
 {
-    return ScrollPaneBy(file_scroll_, delta, max_scroll);
+    return ScrollPaneBy(Inst(t).scroll, delta, max_scroll);
 }
 
-bool PaneController::ScrollTocPaneBy(float delta, float max_scroll) noexcept
+bool PaneController::SetHoveredSideIndex(PaneTarget t, int idx) noexcept
 {
-    return ScrollPaneBy(toc_scroll_, delta, max_scroll);
-}
-
-bool PaneController::SetHoveredIndex(int& current, int idx) noexcept
-{
-    const bool changed = current != idx;
-    current = idx;
+    auto& cur = Inst(t).hovered_index;
+    const bool changed = cur != idx;
+    cur = idx;
     return changed;
-}
-
-bool PaneController::SetHoveredFileIndex(int idx) noexcept
-{
-    return SetHoveredIndex(hovered_file_, idx);
-}
-
-bool PaneController::SetHoveredTocIndex(int idx) noexcept
-{
-    return SetHoveredIndex(hovered_toc_, idx);
 }
 
 bool PaneController::SetFlag(bool& current, bool value) noexcept
@@ -42,19 +28,14 @@ bool PaneController::SetFlag(bool& current, bool value) noexcept
     return changed;
 }
 
-bool PaneController::SetFileCloseHovered(bool h) noexcept
+bool PaneController::SetSideCloseHovered(PaneTarget t, bool h) noexcept
 {
-    return SetFlag(file_close_hovered_, h);
+    return SetFlag(Inst(t).close_hovered, h);
 }
 
-bool PaneController::SetTocCloseHovered(bool h) noexcept
+bool PaneController::SetSideRefreshHovered(PaneTarget t, bool h) noexcept
 {
-    return SetFlag(toc_close_hovered_, h);
-}
-
-bool PaneController::SetFileRefreshHovered(bool h) noexcept
-{
-    return SetFlag(file_refresh_hovered_, h);
+    return SetFlag(Inst(t).refresh_hovered, h);
 }
 
 float PaneController::ConstrainSplitterWidth(
@@ -79,7 +60,8 @@ float PaneController::ConstrainSplitterWidth(
 
 void PaneController::DragSplitter1To(float dip_x, float total_width, float splitter_w) noexcept
 {
-    file_width_ = ConstrainSplitterWidth(dip_x, total_width, splitter_w, toc_width_, show_toc_);
+    widths_[0] = ConstrainSplitterWidth(
+        dip_x, total_width, splitter_w, widths_[1], instances_[1].show);
 }
 
 void PaneController::DragSplitter2To(float dip_x, float total_width, float splitter_w) noexcept
@@ -87,17 +69,17 @@ void PaneController::DragSplitter2To(float dip_x, float total_width, float split
     // toc_leftはレイアウトから既知; dip_xは新しい右端
     const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
     const float new_width = dip_x - layout.toc_rect.x;
-    toc_width_ = ConstrainSplitterWidth(new_width, total_width, splitter_w, file_width_, show_file_);
+    widths_[1] = ConstrainSplitterWidth(
+        new_width, total_width, splitter_w, widths_[0], instances_[0].show);
 }
 
 void PaneController::ApplyZoom(float ratio) noexcept
 {
-    file_width_ *= ratio;
-    toc_width_ *= ratio;
-    file_scroll_.scroll_y *= ratio;
-    file_scroll_.max_scroll *= ratio;
-    toc_scroll_.scroll_y *= ratio;
-    toc_scroll_.max_scroll *= ratio;
+    for (int i = 0; i < 2; ++i) {
+        widths_[i] *= ratio;
+        instances_[i].scroll.scroll_y *= ratio;
+        instances_[i].scroll.max_scroll *= ratio;
+    }
 }
 
 PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset) const noexcept
@@ -105,11 +87,11 @@ PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float spl
     return ComputePaneLayout(
         total_w,
         total_h,
-        file_width_,
-        toc_width_,
+        widths_[0],
+        widths_[1],
         splitter_w,
-        show_file_,
-        show_toc_,
+        instances_[0].show,
+        instances_[1].show,
         MD_PANE_MIN_WIDTH,
         top_offset);
 }
@@ -117,5 +99,5 @@ PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float spl
 PaneZone PaneController::DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept
 {
     const auto layout = ComputeLayout(total_w, total_h, splitter_w);
-    return DetectPaneZone(dip_x, layout, splitter_w, show_file_, show_toc_);
+    return DetectPaneZone(dip_x, layout, splitter_w, instances_[0].show, instances_[1].show);
 }

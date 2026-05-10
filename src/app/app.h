@@ -211,8 +211,7 @@ private:
     }
     bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
-    void HandleFilePaneClick(float dip_x, float dip_y, const PaneLayout& layout);
-    void HandleTocPaneClick(float dip_x, float dip_y, const PaneLayout& layout);
+    void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
     static bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect,
                                     float total_content, const PaneScrollInfo& scroll_info) noexcept;
 

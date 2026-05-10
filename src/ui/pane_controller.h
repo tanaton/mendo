@@ -2,8 +2,10 @@
 #include "ui_types.h"
 #include "pane_layout.h"
 #include <algorithm>
+#include <cstddef>
 
 // ペイン関連の全状態を管理: 幅、表示/非表示、スクロール、ホバー、ドラッグ。
+// File / TOC ペインの対称な状態は 2 要素配列で持ち、PaneTarget で添字アクセスする。
 // Win32非依存 — 完全にテスト可能。
 class PaneController {
 public:
@@ -16,111 +18,69 @@ public:
         MdScrollbar
     };
 
-    constexpr bool IsFilePaneVisible() const noexcept
+    constexpr bool IsSidePaneVisible(PaneTarget t) const noexcept
     {
-        return show_file_;
+        return Inst(t).show;
     }
-    constexpr bool IsTocPaneVisible() const noexcept
+    constexpr void SetSidePaneVisible(PaneTarget t, bool v) noexcept
     {
-        return show_toc_;
-    }
-    constexpr void SetFilePaneVisible(bool v) noexcept
-    {
-        if (show_file_ != v) {
-            show_file_ = v;
-            hovered_file_ = -1;
-            file_close_hovered_ = false;
-            file_refresh_hovered_ = false;
+        auto& s = Inst(t);
+        if (s.show != v) {
+            s.show = v;
+            s.hovered_index = -1;
+            s.close_hovered = false;
+            s.refresh_hovered = false;
         }
     }
-    constexpr void SetTocPaneVisible(bool v) noexcept
+    constexpr void ToggleSidePane(PaneTarget t) noexcept
     {
-        if (show_toc_ != v) {
-            show_toc_ = v;
-            hovered_toc_ = -1;
-            toc_close_hovered_ = false;
-        }
-    }
-    constexpr void ToggleFilePane() noexcept
-    {
-        SetFilePaneVisible(!show_file_);
-    }
-    constexpr void ToggleTocPane() noexcept
-    {
-        SetTocPaneVisible(!show_toc_);
+        SetSidePaneVisible(t, !Inst(t).show);
     }
 
-    constexpr float GetFilePaneWidth() const noexcept
+    constexpr float GetSidePaneWidth(PaneTarget t) const noexcept
     {
-        return file_width_;
+        return Width(t);
     }
-    constexpr float GetTocPaneWidth() const noexcept
+    constexpr void SetSidePaneWidth(PaneTarget t, float w) noexcept
     {
-        return toc_width_;
-    }
-    constexpr void SetFilePaneWidth(float w) noexcept
-    {
-        file_width_ = std::max(w, PANE_MIN_WIDTH);
-    }
-    constexpr void SetTocPaneWidth(float w) noexcept
-    {
-        toc_width_ = std::max(w, PANE_MIN_WIDTH);
+        Width(t) = std::max(w, PANE_MIN_WIDTH);
     }
 
-    constexpr ScrollState& FileScroll() noexcept
+    constexpr ScrollState& SidePaneScroll(PaneTarget t) noexcept
     {
-        return file_scroll_;
+        return Inst(t).scroll;
     }
-    constexpr ScrollState& TocScroll() noexcept
+    constexpr const ScrollState& SidePaneScroll(PaneTarget t) const noexcept
     {
-        return toc_scroll_;
-    }
-    constexpr const ScrollState& FileScroll() const noexcept
-    {
-        return file_scroll_;
-    }
-    constexpr const ScrollState& TocScroll() const noexcept
-    {
-        return toc_scroll_;
+        return Inst(t).scroll;
     }
     constexpr void ResetScrollStates() noexcept
     {
-        file_scroll_ = {};
-        toc_scroll_ = {};
+        instances_[0].scroll = {};
+        instances_[1].scroll = {};
     }
 
     // 実際にスクロール位置が変化した場合 true を返す。
-    bool ScrollFilePaneBy(float delta, float max_scroll) noexcept;
-    bool ScrollTocPaneBy(float delta, float max_scroll) noexcept;
+    bool ScrollSidePaneBy(PaneTarget t, float delta, float max_scroll) noexcept;
 
-    constexpr int GetHoveredFileIndex() const noexcept
+    constexpr int GetHoveredSideIndex(PaneTarget t) const noexcept
     {
-        return hovered_file_;
-    }
-    constexpr int GetHoveredTocIndex() const noexcept
-    {
-        return hovered_toc_;
+        return Inst(t).hovered_index;
     }
     // 値が変化した場合 true を返す。
-    bool SetHoveredFileIndex(int idx) noexcept;
-    bool SetHoveredTocIndex(int idx) noexcept;
+    bool SetHoveredSideIndex(PaneTarget t, int idx) noexcept;
 
-    constexpr bool IsFileCloseHovered() const noexcept
+    constexpr bool IsSideCloseHovered(PaneTarget t) const noexcept
     {
-        return file_close_hovered_;
+        return Inst(t).close_hovered;
     }
-    constexpr bool IsTocCloseHovered() const noexcept
-    {
-        return toc_close_hovered_;
-    }
-    bool SetFileCloseHovered(bool h) noexcept;
-    bool SetTocCloseHovered(bool h) noexcept;
+    bool SetSideCloseHovered(PaneTarget t, bool h) noexcept;
 
-    constexpr bool IsFileRefreshHovered() const noexcept
+    constexpr bool IsSideRefreshHovered(PaneTarget t) const noexcept
     {
-        return file_refresh_hovered_;
+        return Inst(t).refresh_hovered;
     }
-    bool SetFileRefreshHovered(bool h) noexcept;
+    bool SetSideRefreshHovered(PaneTarget t, bool h) noexcept;
 
 public:
     constexpr DragTarget GetDragTarget() const noexcept
@@ -158,25 +118,38 @@ public:
     static constexpr float PANE_MIN_WIDTH = 100.0f;
 
 private:
-    float file_width_ = PANE_DEFAULT_WIDTH;
-    float toc_width_ = PANE_DEFAULT_WIDTH;
-    bool show_file_ = true;
-    bool show_toc_ = true;
-
-    ScrollState file_scroll_{};
-    ScrollState toc_scroll_{};
-
-    int hovered_file_ = -1;
-    int hovered_toc_ = -1;
-    bool file_close_hovered_ = false;
-    bool file_refresh_hovered_ = false;
-    bool toc_close_hovered_ = false;
+    // [File=0, Toc=1]
+    struct Instance {
+        ScrollState scroll{};
+        int hovered_index = -1;
+        bool show = true;
+        bool close_hovered = false;
+        bool refresh_hovered = false;
+    };
+    Instance instances_[2];
+    float widths_[2] = { PANE_DEFAULT_WIDTH, PANE_DEFAULT_WIDTH };
 
     DragTarget drag_target_ = DragTarget::None;
     float drag_scroll_offset_ = 0.0f;
 
+    constexpr Instance& Inst(PaneTarget t) noexcept
+    {
+        return instances_[static_cast<size_t>(t)];
+    }
+    constexpr const Instance& Inst(PaneTarget t) const noexcept
+    {
+        return instances_[static_cast<size_t>(t)];
+    }
+    constexpr float& Width(PaneTarget t) noexcept
+    {
+        return widths_[static_cast<size_t>(t)];
+    }
+    constexpr float Width(PaneTarget t) const noexcept
+    {
+        return widths_[static_cast<size_t>(t)];
+    }
+
     static bool ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept;
-    static bool SetHoveredIndex(int& current, int idx) noexcept;
     static bool SetFlag(bool& current, bool value) noexcept;
     static float ConstrainSplitterWidth(float requested_width, float total_width,
                                         float splitter_w, float other_width,

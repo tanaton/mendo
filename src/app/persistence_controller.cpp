@@ -15,10 +15,10 @@ void PersistenceController::SavePaneState()
 {
     const auto& panes = state_.view.panes;
     SessionService::PaneState s{
-        .show_file = panes.IsFilePaneVisible(),
-        .show_toc = panes.IsTocPaneVisible(),
-        .file_width = panes.GetFilePaneWidth(),
-        .toc_width = panes.GetTocPaneWidth(),
+        .show_file = panes.IsSidePaneVisible(PaneTarget::File),
+        .show_toc = panes.IsSidePaneVisible(PaneTarget::Toc),
+        .file_width = panes.GetSidePaneWidth(PaneTarget::File),
+        .toc_width = panes.GetSidePaneWidth(PaneTarget::Toc),
     };
     session_.SavePaneState(s);
 }
@@ -34,10 +34,10 @@ void PersistenceController::LoadPaneState(HWND hwnd)
     }
     const auto s = session_.LoadPaneState(client_width, PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
     auto& panes = state_.view.panes;
-    panes.SetFilePaneVisible(s.show_file);
-    panes.SetTocPaneVisible(s.show_toc);
-    panes.SetFilePaneWidth(s.file_width);
-    panes.SetTocPaneWidth(s.toc_width);
+    panes.SetSidePaneVisible(PaneTarget::File, s.show_file);
+    panes.SetSidePaneVisible(PaneTarget::Toc, s.show_toc);
+    panes.SetSidePaneWidth(PaneTarget::File, s.file_width);
+    panes.SetSidePaneWidth(PaneTarget::Toc, s.toc_width);
 }
 
 void PersistenceController::SaveScrollPosition()

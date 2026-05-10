@@ -66,8 +66,8 @@ void App::ResetViewForNewDocument()
     CancelPendingResources();
     renderer_.ShrinkBuffers();
     state_.view.panes.ResetScrollStates();
-    renderer_.InvalidateFilePaneCache();
-    renderer_.InvalidateTocPaneCache();
+    renderer_.InvalidateSidePaneCache(PaneTarget::File);
+    renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 }
 
 void App::FinalizeLayout(float md_pane_height)
@@ -235,7 +235,8 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
     const auto pane_layout = GetPaneLayout();
     const auto zone = DetectPaneZone(dip.x, pane_layout,
                                      renderer_.GetTheme().splitter_width,
-                                     state_.view.panes.IsFilePaneVisible(), state_.view.panes.IsTocPaneVisible());
+                                     state_.view.panes.IsSidePaneVisible(PaneTarget::File),
+                                     state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
 
     const MouseWheelEvent event{ delta, false, zone };
     Dispatch(controller_.HandleMouseWheel(event));
@@ -346,6 +347,6 @@ std::pmr::wstring App::LoadLastFilePath() const
 void App::ShowDirectory(std::wstring_view dir_path)
 {
     state_.file_explorer.SetDirectory(dir_path);
-    renderer_.InvalidateFilePaneCache();
+    renderer_.InvalidateSidePaneCache(PaneTarget::File);
     Invalidate();
 }
