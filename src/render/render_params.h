@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <memory_resource>
 #include <string_view>
+#include <utility>
 
 struct GestureRenderState {
     const std::pmr::deque<GesturePoint>* trail_points = nullptr;
