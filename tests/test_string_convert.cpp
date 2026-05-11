@@ -53,49 +53,6 @@ TEST(StringConvert, Utf8ToWideRefClearsOnEmpty)
 }
 
 // ═══════════════════════════════════════════════
-// StripUtf8Bom
-// ═══════════════════════════════════════════════
-
-TEST(StringConvert, StripUtf8BomStripsLeadingBom)
-{
-    EXPECT_EQ(StripUtf8Bom("\xEF\xBB\xBFHello"), std::string_view("Hello"));
-}
-
-TEST(StringConvert, StripUtf8BomNoBomPassthrough)
-{
-    EXPECT_EQ(StripUtf8Bom("Hello"), std::string_view("Hello"));
-}
-
-TEST(StringConvert, StripUtf8BomEmptyInput)
-{
-    EXPECT_TRUE(StripUtf8Bom("").empty());
-}
-
-TEST(StringConvert, StripUtf8BomBomOnlyResultsEmpty)
-{
-    EXPECT_TRUE(StripUtf8Bom("\xEF\xBB\xBF").empty());
-}
-
-TEST(StringConvert, StripUtf8BomOnlyFirstBomStripped)
-{
-    // 連続 BOM は最初の 1 つだけ除去される。
-    EXPECT_EQ(StripUtf8Bom("\xEF\xBB\xBF\xEF\xBB\xBF" "A"),
-              std::string_view("\xEF\xBB\xBF" "A"));
-}
-
-TEST(StringConvert, StripUtf8BomBomWithJapanese)
-{
-    EXPECT_EQ(StripUtf8Bom("\xEF\xBB\xBF日本語"), std::string_view("日本語"));
-}
-
-TEST(StringConvert, StripUtf8BomBomInMiddleNotStripped)
-{
-    // BOM の出現位置が先頭以外なら除去しない。
-    EXPECT_EQ(StripUtf8Bom("A\xEF\xBB\xBF" "B"),
-              std::string_view("A\xEF\xBB\xBF" "B"));
-}
-
-// ═══════════════════════════════════════════════
 // WideToUtf8
 // ═══════════════════════════════════════════════
 

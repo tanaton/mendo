@@ -3,7 +3,6 @@
 #include <string_view>
 #include "app_constants.h"
 #include "document_service.h"
-#include "file_watcher.h"
 #include "test_helpers.h"
 #include <fstream>
 #include <filesystem>
@@ -15,16 +14,13 @@ protected:
         const auto path = WriteTempFile(std::filesystem::path(name).wstring(), content);
         return std::pmr::wstring{ path.wstring() };
     }
-
-    FileWatcher watcher_;
 };
 
 TEST_F(DocumentServiceTest, LoadFileSuccess)
 {
     auto path = CreateTestFile("test.md", "# Hello\nWorld");
-    DocumentService service(watcher_);
 
-    auto result = service.LoadFile(path);
+    auto result = DocumentService::LoadFile(path);
     ASSERT_TRUE(result.has_value());
     EXPECT_FALSE(result->IsEmpty());
     EXPECT_EQ(std::wstring_view{ result->GetFilePath() }, std::wstring_view{ path });
@@ -33,10 +29,8 @@ TEST_F(DocumentServiceTest, LoadFileSuccess)
 
 TEST_F(DocumentServiceTest, LoadFileNotFound)
 {
-    DocumentService service(watcher_);
-
     std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
-    auto result = service.LoadFile(nonexistent);
+    auto result = DocumentService::LoadFile(nonexistent);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), FileLoadError::NotFound);
 }
@@ -75,9 +69,3 @@ TEST_F(DocumentServiceTest, ShouldShowLoadingAnimationNonexistent)
     EXPECT_TRUE(DocumentService::ShouldShowLoadingAnimation(nonexistent));
 }
 
-TEST_F(DocumentServiceTest, ResumeWatching)
-{
-    // DocumentService経由でResumeWatchingが安全に呼べること
-    DocumentService service(watcher_);
-    service.ResumeWatching();
-}

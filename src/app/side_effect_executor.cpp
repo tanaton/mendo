@@ -1,7 +1,7 @@
 #include "side_effect_executor.h"
 #include "win32_host.h"
 #include "resource_manager.h"
-#include "document_service.h"
+#include "file_watcher.h"
 #include "app_state.h"
 #include "layout.h"
 #include "app_constants.h"
@@ -12,14 +12,14 @@
 void SideEffectExecutor::Init(
     IWin32Host& host,
     ResourceManager& resource_manager,
-    DocumentService& doc_service,
+    FileWatcher& file_watcher,
     AppState& state,
     LayoutService& layout_service,
     Callbacks cb)
 {
     host_ = &host;
     resource_manager_ = &resource_manager;
-    doc_service_ = &doc_service;
+    file_watcher_ = &file_watcher;
     state_ = &state;
     layout_service_ = &layout_service;
     cb_ = std::move(cb);
@@ -29,35 +29,7 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
 {
     // clang-format off
     std::visit(mendo::overloaded{
-        [this](const UiEffect& sub) {
-            ExecuteUi(sub);
-        },
-        [this](const WindowEffect& sub) {
-            ExecuteWindow(sub);
-        },
-        [this](const NavigationEffect& sub) {
-            ExecuteNavigation(sub);
-        },
-        [this](const LayoutEffect& sub) {
-            ExecuteLayout(sub);
-        },
-        [this](const ResourceEffect& sub) {
-            ExecuteResource(sub);
-        },
-        [this](const TimerEffect& sub) {
-            ExecuteTimer(sub);
-        },
-        [this](const LifecycleEffect& sub) {
-            ExecuteLifecycle(sub);
-        },
-    }, e);
-    // clang-format on
-}
-
-void SideEffectExecutor::ExecuteUi(const UiEffect& e)
-{
-    // clang-format off
-    std::visit(mendo::overloaded{
+        // ---- Ui ----
         [this](const effect::InvalidateWindow&) {
             host_->Invalidate();
         },
@@ -106,14 +78,7 @@ void SideEffectExecutor::ExecuteUi(const UiEffect& e)
         [this](const effect::ShowContextMenu& ev) {
             cb_.show_context_menu(ev.screen_x, ev.screen_y);
         },
-    }, e);
-    // clang-format on
-}
-
-void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
-{
-    // clang-format off
-    std::visit(mendo::overloaded{
+        // ---- Window ----
         [this](const effect::ShowWindowCmd& ev) {
             host_->ShowWindowCmd(ev.cmd);
         },
@@ -150,14 +115,7 @@ void SideEffectExecutor::ExecuteWindow(const WindowEffect& e)
         [this](const effect::RendererSetDpi& ev) {
             cb_.renderer_set_dpi(ev.dpi);
         },
-    }, e);
-    // clang-format on
-}
-
-void SideEffectExecutor::ExecuteNavigation(const NavigationEffect& e)
-{
-    // clang-format off
-    std::visit(mendo::overloaded{
+        // ---- Navigation ----
         [this](const effect::ShellOpen& ev) {
             host_->ShellOpen(ev.url);
         },
@@ -170,14 +128,7 @@ void SideEffectExecutor::ExecuteNavigation(const NavigationEffect& e)
         [this](const effect::OpenFileDialog&) {
             cb_.open_file_dialog();
         },
-    }, e);
-    // clang-format on
-}
-
-void SideEffectExecutor::ExecuteLayout(const LayoutEffect& e)
-{
-    // clang-format off
-    std::visit(mendo::overloaded{
+        // ---- Layout ----
         [this](const effect::DeferredLayout&) {
             if (layout_service_->HasDirtyNodes()) {
                 host_->SetTimer(app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
@@ -209,14 +160,7 @@ void SideEffectExecutor::ExecuteLayout(const LayoutEffect& e)
         [this](const effect::SyncMaxScroll& ev) {
             state_->view.viewport.SyncMaxScroll(layout_service_->GetTotalHeight(), ev.md_pane_height);
         },
-    }, e);
-    // clang-format on
-}
-
-void SideEffectExecutor::ExecuteResource(const ResourceEffect& e)
-{
-    // clang-format off
-    std::visit(mendo::overloaded{
+        // ---- Resource ----
         [this](const effect::LoadImages&) {
             resource_manager_->LoadImages();
         },
@@ -233,28 +177,21 @@ void SideEffectExecutor::ExecuteResource(const ResourceEffect& e)
             cb_.clear_file_cache();
         },
         [this](const effect::StartFileWatch& ev) {
-            doc_service_->StartWatching(ev.path, [host = host_]() {
+            file_watcher_->StartWatching(ev.path, [host = host_]() {
                 host->KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
                 host->SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
             });
         },
         [this](const effect::StopFileWatch&) {
-            doc_service_->StopWatching();
+            file_watcher_->StopWatching();
         },
         [this](const effect::ResumeFileWatch&) {
-            doc_service_->ResumeWatching();
+            file_watcher_->ResumeWatching();
         },
         [this](const effect::CheckFileChanges&) {
-            doc_service_->CheckForChanges();
+            file_watcher_->CheckForChanges();
         },
-    }, e);
-    // clang-format on
-}
-
-void SideEffectExecutor::ExecuteTimer(const TimerEffect& e)
-{
-    // clang-format off
-    std::visit(mendo::overloaded{
+        // ---- Timer ----
         [this](const effect::SetTimer& ev) {
             host_->SetTimer(ev.id, ev.ms);
         },
@@ -276,14 +213,7 @@ void SideEffectExecutor::ExecuteTimer(const TimerEffect& e)
         [this](const effect::MermaidInitRetry&) {
             cb_.mermaid_init_retry();
         },
-    }, e);
-    // clang-format on
-}
-
-void SideEffectExecutor::ExecuteLifecycle(const LifecycleEffect& e)
-{
-    // clang-format off
-    std::visit(mendo::overloaded{
+        // ---- Lifecycle ----
         [this](const effect::Destroy&) {
             cb_.destroy();
         },

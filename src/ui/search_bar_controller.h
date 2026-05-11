@@ -26,8 +26,6 @@ public:
         std::move_only_function<void(app_timer::Id, UINT)> set_timer; // SetTimer(id, ms)
         std::move_only_function<void(app_timer::Id)> kill_timer;      // KillTimer(id)
         std::move_only_function<void()> focus_select_all;            // 検索テキスト全選択でフォーカス
-        std::move_only_function<void(int)> focus_set_caret;          // キャレット位置指定でフォーカス
-        std::move_only_function<void(int, int)> focus_set_selection; // anchor,caret指定でフォーカス
         std::move_only_function<void()> unfocus;                     // フォーカス解除
         std::move_only_function<float()> get_md_pane_height;         // Markdownペイン高さ取得
         std::move_only_function<void(float)> on_scroll_changed;      // スクロール変更後処理(md_pane_height)

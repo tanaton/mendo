@@ -2,7 +2,9 @@
 #include "ui_constants.h"
 #include <windows.h>
 
-AppAction AppController::HandleKeyDown(const KeyDownEvent& event) const
+namespace app_controller {
+
+AppAction HandleKeyDown(const KeyDownEvent& event)
 {
     // Alt+矢印キー: 戻る/進むナビゲーション
     if (event.alt && !event.ctrl) {
@@ -83,7 +85,7 @@ AppAction AppController::HandleKeyDown(const KeyDownEvent& event) const
     return NoOpAction{};
 }
 
-AppAction AppController::HandleMouseWheel(const MouseWheelEvent& event) const
+AppAction HandleMouseWheel(const MouseWheelEvent& event)
 {
     if (event.ctrl) {
         return ZoomAction{ event.delta > 0 ? ZoomDirection::In : ZoomDirection::Out };
@@ -100,3 +102,5 @@ AppAction AppController::HandleMouseWheel(const MouseWheelEvent& event) const
         return DirectScrollByAction{ scroll_amount };
     }
 }
+
+} // namespace app_controller

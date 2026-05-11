@@ -137,8 +137,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     const auto node_count = nodes.size();
     MENDO_PLOT("layout.estimate.node_count", static_cast<int64_t>(node_count));
 
-    StackArena<4096> arena;
-    std::pmr::vector<float> block_heights(arena.resource());
+    std::pmr::vector<float> block_heights;
     block_heights.reserve(node_count);
 
     float y = theme.margin_top;
@@ -209,8 +208,7 @@ YPositionResult RecomputeYPositions(
     // safe_exit_after < node_count なら早期終了の可能性があるため、最初から per-element
     // SetBlockHeight に倒し、Fenwick を逐次同期させて中間 flush を不要にする。
     const bool can_bulk_build = (from_index == 0) && (safe_exit_after >= node_count);
-    StackArena<4096> arena;
-    std::pmr::vector<float> block_heights(arena.resource());
+    std::pmr::vector<float> block_heights;
     if (can_bulk_build) {
         block_heights.reserve(node_count);
     }

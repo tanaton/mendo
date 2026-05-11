@@ -8,8 +8,8 @@
 #include "mermaid_file_cache.h"
 #include "mermaid.h"
 #include "image_loader.h"
-#include "document_service.h"
 #include "document_utils.h"
+#include "file_watcher.h"
 #include "layout.h"
 #include "app_controller.h"
 #include "config_service.h"
@@ -19,8 +19,6 @@
 #include "cursor_manager.h"
 #include "hit_test_service.h"
 #include "clipboard_manager.h"
-#include "persistence_controller.h"
-#include "titlebar_controller.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <string>
@@ -78,9 +76,9 @@ public:
         Dispatch(NavigateForwardAction{});
     }
 
-    constexpr HANDLE GetFileWatchEvent() const noexcept
+    HANDLE GetFileWatchEvent() const noexcept
     {
-        return doc_service_.GetFileWatchEvent();
+        return file_watcher_.GetEventHandle();
     }
     void OnFileWatchEvent();
 
@@ -152,10 +150,7 @@ public:
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
     void InvalidatePane(const PaneRect& rect) noexcept;
-    void InvalidateTitleBar() noexcept
-    {
-        titlebar_.Invalidate();
-    }
+    void InvalidateTitleBar() noexcept;
     constexpr float GetDpiScale() const noexcept
     {
         return state_.window.cached_dpi_scale;
@@ -163,11 +158,11 @@ public:
 
     float GetTitleBarHeightDip() const noexcept
     {
-        return titlebar_.GetHeightDip();
+        return state_.window.titlebar.GetHeight();
     }
     TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept
     {
-        return titlebar_.HitTest(dip_x, dip_y);
+        return state_.window.titlebar.HitTest(dip_x, dip_y);
     }
     bool IsOverMdScrollbar(float dip_x, float dip_y);
     bool IsOverMdScrollbar(float dip_x, float dip_y, const ::PaneLayout& layout) const noexcept;
@@ -185,7 +180,7 @@ private:
     template <typename T>
     void EmitEffect(T&& e)
     {
-        effect_executor_.ExecuteOne(side_effect_detail::WrapIntoDomain(std::forward<T>(e)));
+        effect_executor_.ExecuteOne(SideEffect{ std::forward<T>(e) });
     }
 
     ResourceManager::Callbacks BuildResourceManagerCallbacks();
@@ -205,10 +200,7 @@ private:
 
     void HandleLinkClick(std::string_view url);
 
-    bool HandleTitleBarClick(float dip_x, float dip_y)
-    {
-        return titlebar_.HandleClick(dip_x, dip_y);
-    }
+    bool HandleTitleBarClick(float dip_x, float dip_y);
     bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
     void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
@@ -237,10 +229,7 @@ private:
     // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
     void ApplyCachedHeightsAndRecompute(float md_width);
-    void UpdateTitleBar()
-    {
-        titlebar_.Update();
-    }
+    void UpdateTitleBar();
 
     void FinishReload(size_t diff_pos);
 
@@ -286,12 +275,10 @@ private:
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;
-    DocumentService doc_service_{ file_watcher_ };
-    AppController controller_;
     ConfigService& config_;
     ThemeService theme_service_{ config_ };
     SessionService session_{ config_ };
-    FileLoadService file_load_service_{ doc_service_ };
+    FileLoadService file_load_service_;
 
     AppState state_;
 
@@ -304,6 +291,4 @@ private:
     void ShowToast(std::wstring_view message);
 
     ClipboardManager clipboard_manager_;
-    PersistenceController persistence_{ session_, state_ };
-    TitleBarController titlebar_;
 };

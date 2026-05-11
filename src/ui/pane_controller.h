@@ -18,6 +18,11 @@ public:
         MdScrollbar
     };
 
+    static constexpr bool IsSplitterDragTarget(DragTarget t) noexcept
+    {
+        return t == DragTarget::Splitter1 || t == DragTarget::Splitter2;
+    }
+
     constexpr bool IsSidePaneVisible(PaneTarget t) const noexcept
     {
         return Inst(t).show;
@@ -104,10 +109,8 @@ public:
         drag_scroll_offset_ = off;
     }
 
-    // スプリッター1の位置を制約する（ファイルペインの右端）。
-    void DragSplitter1To(float dip_x, float total_width, float splitter_w) noexcept;
-    // スプリッター2の位置を制約する（目次ペインの右端）。
-    void DragSplitter2To(float dip_x, float total_width, float splitter_w) noexcept;
+    // スプリッターの位置を制約する。target は Splitter1(=File右端) / Splitter2(=Toc右端)。
+    void DragSplitterTo(DragTarget target, float dip_x, float total_width, float splitter_w) noexcept;
 
     void ApplyZoom(float ratio) noexcept;
 

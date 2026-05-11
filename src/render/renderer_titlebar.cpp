@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "d2d_util.h"
 
 void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
 {
@@ -21,9 +22,8 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         if (fmt_.titlebar_icon) {
             auto* brush = Brush(text_id);
             if (brush) {
-                brush->SetOpacity(alpha);
+                mendo::OpacityScope guard{ brush, alpha };
                 rt()->DrawText(icon, 1, fmt_.titlebar_icon.Get(), rect, brush);
-                brush->SetOpacity(1.0f);
             }
         }
     };
@@ -115,14 +115,13 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     if (fmt_.titlebar_text && !tb.title_text.empty()) {
         auto* brush = Brush(BrushId::TitleBarText);
         if (brush) {
-            brush->SetOpacity(text_alpha);
+            mendo::OpacityScope guard{ brush, text_alpha };
             rt()->DrawText(
                 tb.title_text.data(),
                 static_cast<UINT32>(tb.title_text.size()),
                 fmt_.titlebar_text.Get(),
                 ToD2DRect(tb.title_text_rect),
                 brush);
-            brush->SetOpacity(1.0f);
         }
     }
 }

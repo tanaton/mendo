@@ -1,9 +1,9 @@
 #include "document.h"
 #include "document_utils.h"
+#include "fnv1a.h"
 #include "parser.h"
 #include "profiler.h"
-#include "string_convert.h"
-#include <cassert>
+#include <algorithm>
 #include <cstring>
 #include <cwchar>
 #include <filesystem>
@@ -100,19 +100,16 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
 
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
+    // 入力 (Help 埋め込みリソース / テスト文字列) は BOM 無しが保証されているため、
+    // size 計算のみ行い 3 引数版へ委譲する。
     const size_t byte_size = utf8.size();
-    std::pmr::string text;
-    text.assign(string_convert::StripUtf8Bom(utf8));
-    return FromMarkdown(std::move(text), byte_size, path);
+    return FromMarkdown(std::move(utf8), byte_size, path);
 }
 
 std::pmr::wstring Document::GetDirectory() const
 {
     const auto dir = std::filesystem::path(file_path_).parent_path();
-    if (!dir.empty()) {
-        return std::pmr::wstring{ dir.native() };
-    }
-    return {};
+    return std::pmr::wstring{ dir.native() };
 }
 
 void Document::ReplaceContent(ParseResult&& result)
@@ -129,12 +126,9 @@ void Document::ReplaceContent(ParseResult&& result)
 void Document::InjectViewBase() noexcept
 {
     const char* const base = raw_text_.data();
-    [[maybe_unused]] const size_t raw_size = raw_text_.size();
     for (auto& n : nodes_) {
         if (n.IsViewMode()) {
             n.view_base_ = base;
-            // view 範囲は必ず raw_text_ 内に収まること。範囲外だと GetText() が OOB になる。
-            assert(static_cast<size_t>(n.source_offset) + n.view_length <= raw_size);
         }
     }
 }
@@ -148,14 +142,6 @@ void Document::ReplaceFromMarkdown(std::pmr::string text, size_t byte_size)
     ReplaceContent(ParseMarkdown(raw_text_));
 }
 
-void Document::ReplaceFromMarkdown(std::pmr::string utf8)
-{
-    const size_t byte_size = utf8.size();
-    std::pmr::string text;
-    text.assign(string_convert::StripUtf8Bom(utf8));
-    ReplaceFromMarkdown(std::move(text), byte_size);
-}
-
 int Document::FindAnchorIndex(std::string_view anchor) const
 {
     if (anchor.empty()) {
@@ -163,8 +149,7 @@ int Document::FindAnchorIndex(std::string_view anchor) const
     }
     // クエリ引数（外部リンク等）は大文字混在の可能性があるため正規化する。
     const std::pmr::string target = ToLowerAscii(anchor);
-    const auto it = anchor_index_.find(target);
-    return (it != anchor_index_.end()) ? it->second : -1;
+    return FindNormalizedAnchorIndex(target);
 }
 
 int Document::FindNormalizedAnchorIndex(std::string_view anchor) const
@@ -172,9 +157,15 @@ int Document::FindNormalizedAnchorIndex(std::string_view anchor) const
     if (anchor.empty()) {
         return -1;
     }
-    // 透過ハッシュにより string_view のまま確保なしで lookup できる。
-    const auto it = anchor_index_.find(anchor);
-    return (it != anchor_index_.end()) ? it->second : -1;
+    const std::uint64_t h = mendo::Fnv1a64(anchor);
+    // FNV-1a 衝突時に異なる anchor_id を取り違えないよう、hash 一致範囲を文字列比較で絞る。
+    const auto [lo, hi] = std::ranges::equal_range(anchor_index_, h, {}, &decltype(anchor_index_)::value_type::first);
+    for (auto it = lo; it != hi; ++it) {
+        if (nodes_[it->second].anchor_id() == anchor) {
+            return it->second;
+        }
+    }
+    return -1;
 }
 
 void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices)
@@ -190,8 +181,14 @@ void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indic
         toc_.AddEntry(node, static_cast<int>(i));
         const auto sv = node.anchor_id();
         if (!sv.empty()) {
-            std::pmr::string key{ sv, anchor_index_.get_allocator().resource() };
-            anchor_index_.try_emplace(std::move(key), static_cast<int>(i));
+            anchor_index_.emplace_back(mendo::Fnv1a64(sv), static_cast<int>(i));
         }
+    }
+    // pair のデフォルト辞書順 (hash 昇順 → node_index 昇順) でソートする。unique は取らず、
+    // 同 anchor_id の重複見出しと、稀な hash 衝突の両方をエントリとして保持する。lookup 側
+    // (FindNormalizedAnchorIndex) で文字列比較して先勝ちを選ぶ。
+    {
+        MENDO_PROFILE("BuildHeadingIndices.Sort");
+        std::ranges::sort(anchor_index_);
     }
 }

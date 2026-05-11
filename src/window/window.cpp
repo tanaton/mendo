@@ -187,13 +187,10 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
 
         // 最大化時はフレーム厚分だけ内側に縮小（タスクバー隠れ防止）
         if (IsZoomed(hwnd_)) {
-            const UINT dpi = GetDpiForWindow(hwnd_);
-            const int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-            const int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-            params->rgrc[0].top += frame_y;
-            params->rgrc[0].left += frame_x;
-            params->rgrc[0].right -= frame_x;
-            params->rgrc[0].bottom -= frame_y;
+            params->rgrc[0].top += cached_nchit_frame_y_;
+            params->rgrc[0].left += cached_nchit_right_border_;
+            params->rgrc[0].right -= cached_nchit_right_border_;
+            params->rgrc[0].bottom -= cached_nchit_frame_y_;
         }
         return 0;
     }

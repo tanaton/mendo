@@ -186,9 +186,7 @@ constexpr void AppendInlineHtml(
         Unsafe = 2
     };
     std::pmr::vector<UrlSafety> url_safety(out.get_allocator().resource());
-    if (!link_urls.empty()) {
-        url_safety.assign(link_urls.size(), UrlSafety::Unchecked);
-    }
+    url_safety.assign(link_urls.size(), UrlSafety::Unchecked);
 
     while (pos < end) {
         while (run_idx < runs.size() && runs[run_idx].start + runs[run_idx].length <= pos) {

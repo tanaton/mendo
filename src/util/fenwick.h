@@ -139,8 +139,7 @@ public:
 
     // values をそのまま個別要素値として一括ロードする。O(N)。
     // Resize 後の初期化や、全件再構築時に Set ループ (O(N log N)) より高速。
-    // values.size() == size() を要求 (Resize は呼び出し側で済ませる)。再 allocation を
-    // 起こさないため noexcept。
+    // values.size() == size() を要求 (Resize は呼び出し側で済ませる)。
     void Build(std::span<const float> values) noexcept
     {
         const std::size_t n = tree_.size();

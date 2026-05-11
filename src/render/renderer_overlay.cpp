@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "ui_constants.h"
+#include "d2d_util.h"
 #include <algorithm>
 #include <wrl/client.h>
 
@@ -37,34 +38,30 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
             bg_alpha = is_dark ? 0.15f : 0.10f;
         }
 
-        overlay_brush->SetOpacity(bg_alpha);
-        const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
-        rt()->FillRoundedRectangle(rrect, overlay_brush);
-
-        float text_alpha;
-        if (!enabled) {
-            text_alpha = is_dark ? 0.2f : 0.15f;
-        }
-        else if (is_hovered) {
-            text_alpha = 1.0f;
-        }
-        else {
-            text_alpha = is_dark ? 0.6f : 0.5f;
+        {
+            mendo::OpacityScope guard{ overlay_brush, bg_alpha };
+            const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
+            rt()->FillRoundedRectangle(rrect, overlay_brush);
         }
 
         if (arrow_layout) {
-            overlay_brush->SetOpacity(text_alpha);
+            float text_alpha;
+            if (!enabled) {
+                text_alpha = is_dark ? 0.2f : 0.15f;
+            }
+            else if (is_hovered) {
+                text_alpha = 1.0f;
+            }
+            else {
+                text_alpha = is_dark ? 0.6f : 0.5f;
+            }
+            mendo::OpacityScope guard{ overlay_brush, text_alpha };
             rt()->DrawTextLayout(D2D1::Point2F(x, base_y), arrow_layout, overlay_brush);
         }
     };
 
     drawButton(base_x, can_back, hovered == 1, nav_back_layout_.Get());
     drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, nav_forward_layout_.Get());
-
-    if (overlay_brush) {
-        // 共有ブラシの状態が後続の描画に漏れないようリセットする。
-        overlay_brush->SetOpacity(1.0f);
-    }
 }
 
 void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
@@ -132,9 +129,8 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     auto* gesture_layout = (direction < 0) ? gesture_back_layout_.Get() : gesture_forward_layout_.Get();
     if (gesture_layout) {
         if (auto* white = Brush(BrushId::OverlayWhite)) {
-            white->SetOpacity(alpha);
+            mendo::OpacityScope guard{ white, alpha };
             rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), gesture_layout, white);
-            white->SetOpacity(1.0f);
         }
     }
 }
@@ -176,9 +172,8 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
         }
         if (cached_toast_layout_) {
             if (auto* white = Brush(BrushId::OverlayWhite)) {
-                white->SetOpacity(alpha);
+                mendo::OpacityScope guard{ white, alpha };
                 rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), cached_toast_layout_.Get(), white);
-                white->SetOpacity(1.0f);
             }
         }
     }

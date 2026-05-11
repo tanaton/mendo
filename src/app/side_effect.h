@@ -160,7 +160,10 @@ struct HandleParseComplete {};
 
 } // namespace effect
 
-using UiEffect = std::variant<
+// 全 effect を 1 段 variant に束ねる。論理グループ (Ui/Window/Navigation/Layout/Resource/Timer/Lifecycle)
+// は side_effect_executor.cpp の単一 visitor 内のコメント区切りで表現する。
+using SideEffect = std::variant<
+    // Ui
     effect::InvalidateWindow,
     effect::InvalidateTitleBar,
     effect::SetCapture,
@@ -171,9 +174,8 @@ using UiEffect = std::variant<
     effect::ShowTooltip,
     effect::ClearTooltip,
     effect::ShowToast,
-    effect::ShowContextMenu>;
-
-using WindowEffect = std::variant<
+    effect::ShowContextMenu,
+    // Window
     effect::ShowWindowCmd,
     effect::PostWindowMessage,
     effect::SearchFocus,
@@ -185,15 +187,13 @@ using WindowEffect = std::variant<
     effect::PerformResizeEnd,
     effect::PerformSizingUpdate,
     effect::RendererResize,
-    effect::RendererSetDpi>;
-
-using NavigationEffect = std::variant<
+    effect::RendererSetDpi,
+    // Navigation
     effect::ShellOpen,
     effect::LoadFile,
     effect::ReloadFile,
-    effect::OpenFileDialog>;
-
-using LayoutEffect = std::variant<
+    effect::OpenFileDialog,
+    // Layout
     effect::DeferredLayout,
     effect::BitmapManage,
     effect::MermaidBatch,
@@ -201,9 +201,8 @@ using LayoutEffect = std::variant<
     effect::RefreshPaneLayout,
     effect::SyncTocActive,
     effect::ViewportLayout,
-    effect::SyncMaxScroll>;
-
-using ResourceEffect = std::variant<
+    effect::SyncMaxScroll,
+    // Resource
     effect::LoadImages,
     effect::RequestMermaidRenders,
     effect::CancelMermaidBatch,
@@ -212,107 +211,39 @@ using ResourceEffect = std::variant<
     effect::StartFileWatch,
     effect::StopFileWatch,
     effect::ResumeFileWatch,
-    effect::CheckFileChanges>;
-
-using TimerEffect = std::variant<
+    effect::CheckFileChanges,
+    // Timer
     effect::SetTimer,
     effect::KillTimer,
     effect::ProcessDeferredLayout,
     effect::TickLoadingAnimation,
     effect::ProcessMermaidBatchTimer,
     effect::ProcessBitmapManage,
-    effect::MermaidInitRetry>;
-
-using LifecycleEffect = std::variant<
+    effect::MermaidInitRetry,
+    // Lifecycle
     effect::Destroy,
     effect::HandleParseComplete>;
 
-// ドメイン variant を束ねる二段 variant。
-using SideEffect = std::variant<
-    UiEffect,
-    WindowEffect,
-    NavigationEffect,
-    LayoutEffect,
-    ResourceEffect,
-    TimerEffect,
-    LifecycleEffect>;
-
 using SideEffectList = std::pmr::vector<SideEffect>;
 
-namespace side_effect_detail {
-
-template <typename T, typename Variant>
-struct variant_contains;
-
-template <typename T, typename... Us>
-struct variant_contains<T, std::variant<Us...>>
-    : std::disjunction<std::is_same<T, Us>...> {};
-
-template <typename T, typename Variant>
-inline constexpr bool variant_contains_v = variant_contains<T, Variant>::value;
-
-template <typename T>
-constexpr SideEffect WrapIntoDomain(T&& e)
-{
-    using D = std::remove_cvref_t<T>;
-    if constexpr (variant_contains_v<D, UiEffect>) {
-        return UiEffect{ std::forward<T>(e) };
-    }
-    else if constexpr (variant_contains_v<D, WindowEffect>) {
-        return WindowEffect{ std::forward<T>(e) };
-    }
-    else if constexpr (variant_contains_v<D, NavigationEffect>) {
-        return NavigationEffect{ std::forward<T>(e) };
-    }
-    else if constexpr (variant_contains_v<D, LayoutEffect>) {
-        return LayoutEffect{ std::forward<T>(e) };
-    }
-    else if constexpr (variant_contains_v<D, ResourceEffect>) {
-        return ResourceEffect{ std::forward<T>(e) };
-    }
-    else if constexpr (variant_contains_v<D, TimerEffect>) {
-        return TimerEffect{ std::forward<T>(e) };
-    }
-    else if constexpr (variant_contains_v<D, LifecycleEffect>) {
-        return LifecycleEffect{ std::forward<T>(e) };
-    }
-    else {
-        static_assert(!std::is_same_v<D, D>, "Effect type is not registered in any domain variant");
-    }
-}
-
-} // namespace side_effect_detail
-
-// effect::XXX{} を適切なドメイン variant に自動 wrap して effects に追加する。
+// effect::XXX{} を effects に追加する。
 template <typename T>
 void PushEffect(SideEffectList& effects, T&& e)
 {
-    effects.emplace_back(side_effect_detail::WrapIntoDomain(std::forward<T>(e)));
+    effects.emplace_back(std::forward<T>(e));
 }
 
 template <typename T>
 bool HasEffect(const SideEffectList& effects) noexcept
 {
     return std::ranges::any_of(effects, [](const SideEffect& se) {
-        return std::visit([](const auto& domain_effect) -> bool {
-            using D = std::remove_cvref_t<decltype(domain_effect)>;
-            if constexpr (side_effect_detail::variant_contains_v<T, D>) {
-                return std::holds_alternative<T>(domain_effect);
-            }
-            return false;
-        }, se);
+        return std::holds_alternative<T>(se);
     });
 }
 
-// 二段 variant の中から特定の effect 型を取り出す。該当しなければ nullptr。
+// SideEffect から特定の effect 型を取り出す。該当しなければ nullptr。
 template <typename T>
 const T* GetEffect(const SideEffect& se) noexcept
 {
-    return std::visit([](const auto& domain_effect) -> const T* {
-        using D = std::remove_cvref_t<decltype(domain_effect)>;
-        if constexpr (side_effect_detail::variant_contains_v<T, D>) {
-            return std::get_if<T>(&domain_effect);
-        }
-        return nullptr;
-    }, se);
+    return std::get_if<T>(&se);
 }

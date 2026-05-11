@@ -8,7 +8,7 @@ OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_
         *out_error = 0;
     }
     OpenedFile r;
-    UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_READ, share_mode, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_READ, share_mode, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
     if (!hFile) {
         if (out_error) {
             *out_error = GetLastError();

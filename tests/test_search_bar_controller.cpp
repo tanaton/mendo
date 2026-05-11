@@ -30,11 +30,6 @@ protected:
             kill_timer_count_++;
         },
             .focus_select_all = [this]() { focus_select_all_count_++; },
-            .focus_set_caret = [this](int pos) { last_caret_pos_ = pos; },
-            .focus_set_selection = [this](int a, int c) {
-            last_sel_anchor_ = a;
-            last_sel_caret_ = c;
-        },
             .unfocus = [this]() { unfocus_count_++; },
             .get_md_pane_height = [this]() -> float { return md_pane_height_; },
             .on_scroll_changed = [this](float v) {
@@ -58,9 +53,6 @@ protected:
     app_timer::Id last_timer_id_{};
     UINT last_timer_ms_ = 0;
     app_timer::Id last_killed_timer_{};
-    int last_caret_pos_ = -1;
-    int last_sel_anchor_ = -1;
-    int last_sel_caret_ = -1;
     float md_pane_height_ = 800.0f;
     float last_scroll_changed_value_ = -1.0f;
     int on_scroll_changed_count_ = 0;

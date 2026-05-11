@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "syntax.h"
 #include "ui_constants.h"
@@ -420,6 +421,8 @@ void Renderer::DrawLoading(
         return a;
     }();
     if (auto* const text_brush = Brush(BrushId::Text)) {
+        // ループ内で毎回 SetOpacity を上書きする。guard は scope 終了時の 1.0f 復帰のみ担う。
+        mendo::OpacityScope guard{ text_brush, 1.0f };
         for (int i = 0; i < spinner::DOT_COUNT; i++) {
             const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
             const float dx = cx + spinner::RADIUS * std::cos(a);
@@ -429,7 +432,6 @@ void Renderer::DrawLoading(
             text_brush->SetOpacity(kSpinnerAlphas[i]);
             rt()->FillEllipse(ellipse, text_brush);
         }
-        text_brush->SetOpacity(1.0f);
     }
 
     // ローディング中でもフェードアウト中は表示
@@ -472,8 +474,7 @@ void Renderer::Render(const RenderParams& p)
         const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale, p.block_h_scroll);
         {
             MENDO_PROFILE("CommandExecutor::Execute");
-            const auto fixed = BuildFixedBrushArray();
-            cmd_executor_.Execute(cmds, rt(), &fixed);
+            cmd_executor_.Execute(cmds, rt(), &fixed_brushes_cache_);
         }
     }
 

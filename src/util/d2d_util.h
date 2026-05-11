@@ -31,6 +31,31 @@ inline D2D1_COLOR_F MonochromeOverlay(bool is_dark, float alpha) noexcept
                    : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha);
 }
 
+// SetOpacity(alpha) と SetOpacity(1.0f) リセットのペアを RAII で表現する。
+// 共有ブラシに対する透明度の復帰漏れを防ぐ。null ブラシは no-op。
+class OpacityScope {
+public:
+    OpacityScope(ID2D1SolidColorBrush* brush, float alpha) noexcept : brush_(brush)
+    {
+        if (brush_) {
+            brush_->SetOpacity(alpha);
+        }
+    }
+    ~OpacityScope() noexcept
+    {
+        if (brush_) {
+            brush_->SetOpacity(1.0f);
+        }
+    }
+    OpacityScope(const OpacityScope&) = delete;
+    OpacityScope& operator=(const OpacityScope&) = delete;
+    OpacityScope(OpacityScope&&) = delete;
+    OpacityScope& operator=(OpacityScope&&) = delete;
+
+private:
+    ID2D1SolidColorBrush* brush_;
+};
+
 // DIP 矩形をピクセル境界に丸めて InvalidateRect する。 right/bottom は +1 で
 // オーバースキャンし境界線が抜けないようにする (RECT は exclusive 仕様)。
 inline void InvalidateDipRect(HWND hwnd, float dip_x, float dip_y, float dip_w, float dip_h, float dpi_scale) noexcept

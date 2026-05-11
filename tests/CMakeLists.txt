@@ -50,7 +50,7 @@ add_executable(mendo_tests
     test_session_service.cpp
     test_reducer.cpp
     test_string_convert.cpp
-    test_render_composer.cpp
+    test_gesture_overlay.cpp
     test_file_io.cpp
     test_utility.cpp
     test_tooltip_target.cpp

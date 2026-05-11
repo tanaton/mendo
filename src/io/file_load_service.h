@@ -20,9 +20,6 @@ struct Theme;
 // 結果ストレージは互いに独立で、TakeAsyncResult/TakeAsyncError が両者を順に確認する。
 class FileLoadService {
 public:
-    explicit FileLoadService(DocumentService& doc_service) noexcept : doc_service_(doc_service)
-    {}
-
     // ---- ローディングアニメーション状態 ----
 
     constexpr bool IsLoading() const noexcept
@@ -96,7 +93,6 @@ public:
     }
 
 private:
-    DocumentService& doc_service_;
     LoadingAnimation animation_;
     std::pmr::wstring loading_path_;
     AsyncLoadCoordinator coordinator_;

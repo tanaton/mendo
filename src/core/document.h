@@ -4,10 +4,11 @@
 #include "toc.h"
 #include "parser.h"
 #include "utility.h"
+#include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
-#include <unordered_map>
 #include <memory_resource>
 
 class Document {
@@ -69,7 +70,6 @@ public:
     }
     void ReplaceContent(ParseResult&& result);
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size);
-    void ReplaceFromMarkdown(std::pmr::string utf8);
     int FindAnchorIndex(std::string_view anchor) const;
     // 既に anchor_id 形式（小文字 ASCII 正規化済み）と判明している入力向け。
     // 呼び出し側で正規化が保証されていれば、ToLowerAscii の確保を回避できる。
@@ -100,10 +100,9 @@ private:
     RawText raw_text_;
     size_t loaded_byte_size_ = 0;
     TableOfContents toc_;
-    // キーは所有 doc_string。nodes_ の再アロケート/構造変更でも索引が dangling しない。
-    std::pmr::unordered_map<std::pmr::string, int,
-                            mendo::StringTransparentHash, std::equal_to<>>
-        anchor_index_;
+    // hash 昇順 → node_index 昇順でソート。重複 anchor_id や稀な hash 衝突は
+    // lookup 側で equal_range + 文字列比較し、最小 node_index を選ぶ。
+    std::pmr::vector<std::pair<std::uint64_t, int>> anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;
 };

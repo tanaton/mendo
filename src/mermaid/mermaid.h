@@ -97,6 +97,10 @@ private:
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする。
     // 同じパターン（cancel / render-error / svg-result の各経路）を1か所に集約する。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled);
+
+    struct CachedBitmap;
+    // キャッシュヒット時に layout_entry / diagram_entry の 5 フィールドを更新する。
+    static void ApplyCachedBitmap(NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, const CachedBitmap& cached) noexcept;
     void EnsureInitialized();
     void CreateWebView2Environment();
     void SetupWorker(int index);

@@ -5,7 +5,7 @@
 
 class IWin32Host;
 class ResourceManager;
-class DocumentService;
+class FileWatcher;
 class LayoutService;
 struct AppState;
 
@@ -35,23 +35,15 @@ public:
     };
 
     void Init(IWin32Host& host, ResourceManager& resource_manager,
-              DocumentService& doc_service,
+              FileWatcher& file_watcher,
               AppState& state, LayoutService& layout_service, Callbacks cb);
     void Execute(const SideEffectList& effects);
     void ExecuteOne(const SideEffect& e);
 
 private:
-    void ExecuteUi(const UiEffect& e);
-    void ExecuteWindow(const WindowEffect& e);
-    void ExecuteNavigation(const NavigationEffect& e);
-    void ExecuteLayout(const LayoutEffect& e);
-    void ExecuteResource(const ResourceEffect& e);
-    void ExecuteTimer(const TimerEffect& e);
-    void ExecuteLifecycle(const LifecycleEffect& e);
-
     IWin32Host* host_ = nullptr;
     ResourceManager* resource_manager_ = nullptr;
-    DocumentService* doc_service_ = nullptr;
+    FileWatcher* file_watcher_ = nullptr;
     AppState* state_ = nullptr;
     LayoutService* layout_service_ = nullptr;
     Callbacks cb_;

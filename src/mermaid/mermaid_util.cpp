@@ -1,5 +1,6 @@
 #include "mermaid_util.h"
 #include "document_types.h"
+#include "fnv1a.h"
 #include "pmr_format.h"
 #include "syntax.h"
 #include "utility.h"
@@ -9,7 +10,6 @@
 #include <format>
 #include <iterator>
 #include <limits>
-#include <ranges>
 
 using namespace std::literals;
 
@@ -57,40 +57,30 @@ std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
     return result;
 }
 
-uint64_t mermaid_util::HashRaw(std::wstring_view input) noexcept
-{
-    return std::ranges::fold_left(input, 14695981039346656037ULL, [](uint64_t h, wchar_t c) static noexcept {
-        return (h ^ static_cast<uint64_t>(c)) * 1099511628211ULL;
-    });
-}
-
-uint64_t mermaid_util::HashRaw(std::string_view input) noexcept
-{
-    return std::ranges::fold_left(input, 14695981039346656037ULL, [](uint64_t h, char c) static noexcept {
-        return (h ^ static_cast<uint64_t>(static_cast<unsigned char>(c))) * 1099511628211ULL;
-    });
-}
-
 std::pmr::wstring mermaid_util::SimpleHash(std::wstring_view input)
 {
-    return PmrFormat(L"{:016x}", HashRaw(input));
+    return PmrFormat(L"{:016x}", mendo::Fnv1a64(input));
+}
+
+// コード本体は FNV-1a で hash し、幅と dark_mode は別 prime で xor mix する。
+// 既存キャッシュキー (MermaidCache 内ファイル名) と互換性を保つため hash 値は不変。
+template <class SV>
+static uint64_t CombinedHashImpl(SV code, int max_width_int, bool dark_mode) noexcept
+{
+    uint64_t h = mendo::Fnv1a64(code);
+    h ^= static_cast<uint64_t>(max_width_int) * mendo::kFnv1a64Prime;
+    h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL; // Knuth multiplicative
+    return h;
 }
 
 uint64_t mermaid_util::CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode) noexcept
 {
-    // コード全体をコピーせず、直接ハッシュして幅・モードをミックスする
-    uint64_t h = HashRaw(code);
-    h ^= static_cast<uint64_t>(max_width_int) * 1099511628211ULL;
-    h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL;
-    return h;
+    return CombinedHashImpl(code, max_width_int, dark_mode);
 }
 
 uint64_t mermaid_util::CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept
 {
-    uint64_t h = HashRaw(code);
-    h ^= static_cast<uint64_t>(max_width_int) * 1099511628211ULL;
-    h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL;
-    return h;
+    return CombinedHashImpl(code, max_width_int, dark_mode);
 }
 
 int mermaid_util::ComputeWorkerCount(unsigned int processor_count) noexcept
