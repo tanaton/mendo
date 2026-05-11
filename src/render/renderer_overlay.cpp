@@ -38,23 +38,24 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
             bg_alpha = is_dark ? 0.15f : 0.10f;
         }
 
-        mendo::OpacityScope guard{ overlay_brush, bg_alpha };
-        const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
-        rt()->FillRoundedRectangle(rrect, overlay_brush);
-
-        float text_alpha;
-        if (!enabled) {
-            text_alpha = is_dark ? 0.2f : 0.15f;
-        }
-        else if (is_hovered) {
-            text_alpha = 1.0f;
-        }
-        else {
-            text_alpha = is_dark ? 0.6f : 0.5f;
+        {
+            mendo::OpacityScope guard{ overlay_brush, bg_alpha };
+            const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
+            rt()->FillRoundedRectangle(rrect, overlay_brush);
         }
 
         if (arrow_layout) {
-            overlay_brush->SetOpacity(text_alpha);
+            float text_alpha;
+            if (!enabled) {
+                text_alpha = is_dark ? 0.2f : 0.15f;
+            }
+            else if (is_hovered) {
+                text_alpha = 1.0f;
+            }
+            else {
+                text_alpha = is_dark ? 0.6f : 0.5f;
+            }
+            mendo::OpacityScope guard{ overlay_brush, text_alpha };
             rt()->DrawTextLayout(D2D1::Point2F(x, base_y), arrow_layout, overlay_brush);
         }
     };

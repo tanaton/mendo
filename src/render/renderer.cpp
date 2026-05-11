@@ -474,8 +474,7 @@ void Renderer::Render(const RenderParams& p)
         const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale, p.block_h_scroll);
         {
             MENDO_PROFILE("CommandExecutor::Execute");
-            const auto fixed = BuildFixedBrushArray();
-            cmd_executor_.Execute(cmds, rt(), &fixed);
+            cmd_executor_.Execute(cmds, rt(), &fixed_brushes_cache_);
         }
     }
 

@@ -135,18 +135,13 @@ private:
     }
 
     std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)> brushes_;
+    // brushes_ の raw pointer ビュー。RecreateBrushes / InvalidateBrushes で同期させ、
+    // 描画ホットパスでの 41 個分の Get() 呼び出しを排除する。
+    FixedBrushArray fixed_brushes_cache_{};
+
     ID2D1SolidColorBrush* Brush(BrushId id) const noexcept
     {
         return brushes_[std::to_underlying(id)].Get();
-    }
-
-    FixedBrushArray BuildFixedBrushArray() const noexcept
-    {
-        FixedBrushArray a{};
-        for (size_t i = 0; i < a.size(); ++i) {
-            a[i] = brushes_[i].Get();
-        }
-        return a;
     }
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;

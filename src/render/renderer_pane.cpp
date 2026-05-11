@@ -190,10 +190,10 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
 
         if (fmt_.pane_item) {
             const D2D1_RECT_F text_rect = D2D1::RectF(4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
-            const wchar_t* name = entry.GetDisplayName();
+            const std::wstring_view name = entry.GetDisplayName();
             rt->DrawText(
-                name,
-                static_cast<UINT32>(std::wstring_view{ name }.size()),
+                name.data(),
+                static_cast<UINT32>(name.size()),
                 fmt_.pane_item.Get(),
                 text_rect,
                 Brush(BrushId::Text),

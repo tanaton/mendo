@@ -34,14 +34,15 @@ struct FileEntry {
     }
 
     // 表示名を返す（full_pathの末尾ファイル名、".."エントリは"..") 。
-    // 戻り値はfull_pathの内部バッファまたはリテラルを指すためnull終端。
-    constexpr const wchar_t* GetDisplayName() const noexcept
+    // 戻り値は full_path の内部バッファまたはリテラルを指す view。
+    constexpr std::wstring_view GetDisplayName() const noexcept
     {
         if (is_parent()) {
             return L"..";
         }
-        const auto pos = full_path.find_last_of(L"\\/");
-        return (pos != full_path.npos) ? full_path.c_str() + pos + 1 : full_path.c_str();
+        const std::wstring_view full{ full_path };
+        const auto pos = full.find_last_of(L"\\/");
+        return (pos != full.npos) ? full.substr(pos + 1) : full;
     }
 
 private:

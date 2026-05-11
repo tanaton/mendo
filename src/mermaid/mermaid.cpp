@@ -397,6 +397,15 @@ uint64_t MermaidRenderer::HashCode(std::string_view code_utf8, float max_width, 
     return mermaid_util::HashCode(code_utf8, max_width, dark_mode);
 }
 
+void MermaidRenderer::ApplyCachedBitmap(NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, const CachedBitmap& cached) noexcept
+{
+    diagram_entry.bitmap = cached.bitmap;
+    diagram_entry.width = cached.width;
+    diagram_entry.height = cached.height;
+    layout_entry.height = cached.height;
+    layout_entry.layout_dirty = false;
+}
+
 void MermaidRenderer::RequestRender(
     Node& node, NodeLayoutEntry& layout_entry,
     DiagramEntry& diagram_entry,
@@ -410,11 +419,7 @@ void MermaidRenderer::RequestRender(
     const auto hash = mermaid_util::NodeDiagramHash(node, max_width, dark_mode);
 
     if (const auto* cached = cache_.Find(hash)) {
-        diagram_entry.bitmap = cached->bitmap;
-        diagram_entry.width = cached->width;
-        diagram_entry.height = cached->height;
-        layout_entry.height = cached->height;
-        layout_entry.layout_dirty = false;
+        ApplyCachedBitmap(layout_entry, diagram_entry, *cached);
         if (on_complete) {
             on_complete();
         }
@@ -430,13 +435,9 @@ void MermaidRenderer::RequestRender(
                 Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
                 float bw = 0, bh = 0;
                 if (SUCCEEDED(CreateBitmapFromPngStream(stream.Get(), &bitmap, &bw, &bh)) && bitmap) {
-                    diagram_entry.bitmap = bitmap;
-                    diagram_entry.width = fentry.css_width;
-                    diagram_entry.height = fentry.css_height;
-                    layout_entry.height = fentry.css_height;
-                    layout_entry.layout_dirty = false;
-
-                    cache_.Insert(hash, CachedBitmap{ bitmap, fentry.css_width, fentry.css_height });
+                    CachedBitmap cached{ bitmap, fentry.css_width, fentry.css_height };
+                    ApplyCachedBitmap(layout_entry, diagram_entry, cached);
+                    cache_.Insert(hash, std::move(cached));
 
                     if (on_complete) {
                         on_complete();
@@ -495,11 +496,7 @@ void MermaidRenderer::ProcessQueue()
         auto& front = pending_requests_.front();
         const CachedBitmap* png_hit = front.svg_only ? nullptr : cache_.Find(front.code_hash);
         if (png_hit) {
-            front.diagram_entry->bitmap = png_hit->bitmap;
-            front.diagram_entry->width = png_hit->width;
-            front.diagram_entry->height = png_hit->height;
-            front.layout_entry->height = png_hit->height;
-            front.layout_entry->layout_dirty = false;
+            ApplyCachedBitmap(*front.layout_entry, *front.diagram_entry, *png_hit);
             auto cb = std::move(front.on_complete);
             pending_requests_.pop();
             if (cb) {
