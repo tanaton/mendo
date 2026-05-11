@@ -1,8 +1,10 @@
 #include "file_loader.h"
 #include "file_io.h"
-#include "string_convert.h"
-#include "win_handle.h"
+#include "profiler.h"
+#include <algorithm>
+#include <cstring>
 #include <shlwapi.h>
+#include <string_view>
 
 #pragma comment(lib, "shlwapi.lib")
 
@@ -28,23 +30,39 @@ std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr:
         return LoadedFileDoc{};
     }
 
-    // メモリマップで UTF-8 を直接 view し、BOM 除去後にそのまま string にコピーする。
-    // OS のページキャッシュに乗ったまま読めるため、同じファイルの再オープンで物理 I/O が増えない。
-    UniqueFileMapping hMapping(CreateFileMappingW(r.handle.get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
-    if (!hMapping) {
+    // 先頭 3 バイトを覗いて UTF-8 BOM (EF BB BF) ならスキップ、なければ string 先頭へ転記する。
+    // 一括読み + erase(0,3) と違い BOM ありファイルでも全体スケールの memmove を発生させない。
+    char prefix[3];
+    const DWORD prefix_want = static_cast<DWORD>(std::min<size_t>(r.size, sizeof(prefix)));
+    DWORD prefix_read = 0;
+    if (!ReadFile(r.handle.get(), prefix, prefix_want, &prefix_read, nullptr) || prefix_read != prefix_want) {
         return std::unexpected(FileLoadError::ReadFailed);
     }
 
-    UniqueMapView view(MapViewOfFile(hMapping.get(), FILE_MAP_READ, 0, 0, 0));
-    if (!view) {
-        return std::unexpected(FileLoadError::ReadFailed);
-    }
-
-    const std::string_view bytes{ static_cast<const char*>(view.get()), r.size };
+    constexpr std::string_view kUtf8Bom = "\xEF\xBB\xBF";
+    const bool has_bom = (prefix_read == kUtf8Bom.size() && std::string_view{ prefix, kUtf8Bom.size() } == kUtf8Bom);
+    const size_t carry = has_bom ? 0u : prefix_read;
+    const size_t remaining = r.size - prefix_read;
+    const size_t out_size = carry + remaining;
 
     LoadedFileDoc result;
     result.byte_size = r.size;
-    result.text.assign(string_convert::StripUtf8Bom(bytes));
+    result.text.resize_and_overwrite(out_size, [&](char* buf, size_t /*cap*/) noexcept -> size_t {
+        if (carry > 0) {
+            std::memcpy(buf, prefix, carry);
+        }
+        if (remaining == 0) {
+            return carry;
+        }
+        DWORD bytes_read = 0;
+        if (!ReadFile(r.handle.get(), buf + carry, static_cast<DWORD>(remaining), &bytes_read, nullptr) ||
+            bytes_read != static_cast<DWORD>(remaining)) {
+            return 0;
+        }
+        return carry + bytes_read;
+    });
+    if (result.text.size() != out_size) {
+        return std::unexpected(FileLoadError::ReadFailed);
+    }
     return result;
 }
-

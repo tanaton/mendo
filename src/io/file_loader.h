@@ -43,7 +43,7 @@ struct LoadedFileDoc {
 // path 選択は file_dialog_service.h に分離してある。
 class FileLoader {
 public:
-    // ファイルをメモリマップで読み、UTF-8 BOM を除去した string を返す。
+    // ファイルを ReadFile で string バッファへ直接読み込み、UTF-8 BOM を除去して返す。
     // wstring 経由の二重変換 (UTF-8 → wstring → UTF-8) を行わないため巨大ファイルで高速。
     static std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::pmr::wstring& path);
 };

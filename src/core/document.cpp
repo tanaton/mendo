@@ -3,7 +3,6 @@
 #include "fnv1a.h"
 #include "parser.h"
 #include "profiler.h"
-#include "string_convert.h"
 #include <algorithm>
 #include <cstring>
 #include <cwchar>
@@ -101,10 +100,10 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
 
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
+    // 入力 (Help 埋め込みリソース / テスト文字列) は BOM 無しが保証されているため、
+    // size 計算のみ行い 3 引数版へ委譲する。
     const size_t byte_size = utf8.size();
-    std::pmr::string text;
-    text.assign(string_convert::StripUtf8Bom(utf8));
-    return FromMarkdown(std::move(text), byte_size, path);
+    return FromMarkdown(std::move(utf8), byte_size, path);
 }
 
 std::pmr::wstring Document::GetDirectory() const
@@ -141,14 +140,6 @@ void Document::ReplaceFromMarkdown(std::pmr::string text, size_t byte_size)
     raw_text_.Replace(std::move(text));
     loaded_byte_size_ = byte_size;
     ReplaceContent(ParseMarkdown(raw_text_));
-}
-
-void Document::ReplaceFromMarkdown(std::pmr::string utf8)
-{
-    const size_t byte_size = utf8.size();
-    std::pmr::string text;
-    text.assign(string_convert::StripUtf8Bom(utf8));
-    ReplaceFromMarkdown(std::move(text), byte_size);
 }
 
 int Document::FindAnchorIndex(std::string_view anchor) const

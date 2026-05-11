@@ -70,7 +70,6 @@ public:
     }
     void ReplaceContent(ParseResult&& result);
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size);
-    void ReplaceFromMarkdown(std::pmr::string utf8);
     int FindAnchorIndex(std::string_view anchor) const;
     // 既に anchor_id 形式（小文字 ASCII 正規化済み）と判明している入力向け。
     // 呼び出し側で正規化が保証されていれば、ToLowerAscii の確保を回避できる。

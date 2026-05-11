@@ -1,7 +1,17 @@
 #include <gtest/gtest.h>
 #include "document.h"
 #include <string>
+#include <string_view>
 #include <utility>
+
+namespace {
+void ReplaceMarkdown(Document& doc, std::string_view text)
+{
+    std::pmr::string s{ text };
+    const size_t sz = s.size();
+    doc.ReplaceFromMarkdown(std::move(s), sz);
+}
+} // namespace
 
 TEST(DocumentTest, DefaultIsEmpty)
 {
@@ -116,7 +126,7 @@ TEST(DocumentTest, GetRawTextAfterReplace)
     auto doc = Document::FromMarkdown("old content", L"test.md");
     EXPECT_EQ(doc.GetRawText(), "old content");
 
-    doc.ReplaceFromMarkdown("new content");
+    ReplaceMarkdown(doc, "new content");
     EXPECT_EQ(doc.GetRawText(), "new content");
 }
 
@@ -135,10 +145,10 @@ TEST(DocumentTest, GetRawTextPreservedAcrossMultipleReplaces)
     auto doc = Document::FromMarkdown("v1", L"test.md");
     EXPECT_EQ(doc.GetRawText(), "v1");
 
-    doc.ReplaceFromMarkdown("v2");
+    ReplaceMarkdown(doc, "v2");
     EXPECT_EQ(doc.GetRawText(), "v2");
 
-    doc.ReplaceFromMarkdown("v3");
+    ReplaceMarkdown(doc, "v3");
     EXPECT_EQ(doc.GetRawText(), "v3");
 }
 
@@ -247,7 +257,7 @@ TEST(DocumentTest, ViewModeNodesSurviveReplaceFromMarkdown)
     auto doc = Document::FromMarkdown("Initial text", L"test.md");
     EXPECT_EQ(doc.GetNodes()[0].GetText(), "Initial text");
 
-    doc.ReplaceFromMarkdown(std::pmr::string{ "Updated content here" });
+    ReplaceMarkdown(doc, "Updated content here");
     ASSERT_FALSE(doc.GetNodes().empty());
     EXPECT_EQ(doc.GetNodes()[0].GetText(), "Updated content here");
 }
@@ -265,7 +275,7 @@ TEST(DocumentTest, OwnedAndViewModesCoexist)
 TEST(DocumentTest, ViewModeNodesSurviveReplaceFromMarkdownThenMove)
 {
     auto doc1 = Document::FromMarkdown("first content", L"test.md");
-    doc1.ReplaceFromMarkdown(std::pmr::string{ "second content after replace" });
+    ReplaceMarkdown(doc1, "second content after replace");
     Document doc2 = std::move(doc1);
     EXPECT_EQ(doc2.GetNodes()[0].GetText(), "second content after replace");
 }

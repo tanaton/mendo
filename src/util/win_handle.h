@@ -84,34 +84,6 @@ struct EventHandleTraits {
 };
 using UniqueEventHandle = UniqueResource<EventHandleTraits>;
 
-// CloseHandle で解放、無効値 nullptr（CreateFileMappingW）
-struct FileMappingTraits {
-    using type = HANDLE;
-    static type invalid() noexcept
-    {
-        return nullptr;
-    }
-    static void close(type h) noexcept
-    {
-        CloseHandle(h);
-    }
-};
-using UniqueFileMapping = UniqueResource<FileMappingTraits>;
-
-// UnmapViewOfFile で解放、無効値 nullptr（MapViewOfFile）
-struct MapViewTraits {
-    using type = LPVOID;
-    static type invalid() noexcept
-    {
-        return nullptr;
-    }
-    static void close(type p) noexcept
-    {
-        UnmapViewOfFile(p);
-    }
-};
-using UniqueMapView = UniqueResource<MapViewTraits>;
-
 // FindClose で解放（FindFirstFileW）
 struct FindHandleTraits {
     using type = HANDLE;
