@@ -1,6 +1,7 @@
 #include "app.h"
 #include "app_constants.h"
 #include "darkmode_util.h"
+#include "document_service.h"
 #include "file_dialog_service.h"
 #include "file_loader.h"
 #include "i18n.h"

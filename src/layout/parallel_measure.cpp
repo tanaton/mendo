@@ -163,8 +163,12 @@ DirtyBatchResult RunParallel(
 
     {
         MENDO_PROFILE("RunParallel.Aggregate");
+        // 非 CodeBlock や既トークン化済みノードでは MeasureNode が tokens_out に書かない。
+        // 空 vector で既存トークンを上書きすると zoom/theme 変更後にハイライトが失われる。
         for (size_t k = 0; k < indices.size(); ++k) {
-            nodes[indices[k]].syntax_tokens_mut() = std::move(slot_tokens[k]);
+            if (!slot_tokens[k].empty()) {
+                nodes[indices[k]].syntax_tokens_mut() = std::move(slot_tokens[k]);
+            }
         }
     }
 

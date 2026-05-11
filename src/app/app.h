@@ -8,7 +8,6 @@
 #include "mermaid_file_cache.h"
 #include "mermaid.h"
 #include "image_loader.h"
-#include "document_service.h"
 #include "document_utils.h"
 #include "file_watcher.h"
 #include "layout.h"

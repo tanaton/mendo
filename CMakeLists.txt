@@ -143,7 +143,6 @@ add_library(mendo_core STATIC
     src/app/resource_manager.cpp
     # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramAsSvg)
     src/app/clipboard_manager.cpp
-    # app - セッション永続化 (LastFile / PaneState / ScrollPosition)
     # ui - UIコンポーネント
     # context_menu.cpp は Win32/D2D 描画層（本体）と logic 層（mendo_core 入り）に
     # 分割されており、logic 側のみを mendo_core に含める。

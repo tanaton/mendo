@@ -486,12 +486,12 @@ void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const S
 
 void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const SplitterDragMovedAction& a)
 {
-    const float splitter_w = state.theme->splitter_width;
-    const float before_file = state.view.panes.GetSidePaneWidth(PaneTarget::File);
-    const float before_toc = state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
     if (a.target != PaneController::DragTarget::Splitter1 && a.target != PaneController::DragTarget::Splitter2) {
         return;
     }
+    const float splitter_w = state.theme->splitter_width;
+    const float before_file = state.view.panes.GetSidePaneWidth(PaneTarget::File);
+    const float before_toc = state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
     state.view.panes.DragSplitterTo(a.target, a.dip_x, a.window_width, splitter_w);
     if (state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
         return;

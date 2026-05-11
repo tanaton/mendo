@@ -421,7 +421,8 @@ void Renderer::DrawLoading(
         return a;
     }();
     if (auto* const text_brush = Brush(BrushId::Text)) {
-        mendo::OpacityScope guard{ text_brush, kSpinnerAlphas[0] };
+        // ループ内で毎回 SetOpacity を上書きする。guard は scope 終了時の 1.0f 復帰のみ担う。
+        mendo::OpacityScope guard{ text_brush, 1.0f };
         for (int i = 0; i < spinner::DOT_COUNT; i++) {
             const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
             const float dx = cx + spinner::RADIUS * std::cos(a);
