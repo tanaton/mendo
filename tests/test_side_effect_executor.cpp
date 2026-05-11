@@ -4,7 +4,6 @@
 #include "app_constants.h"
 #include "app_state.h"
 #include "resource_manager.h"
-#include "document_service.h"
 #include "config_service.h"
 #include "layout.h"
 #include "file_watcher.h"
@@ -122,7 +121,6 @@ protected:
     // --- 依存クラスの実体（default-construct） ---
     RecordingWin32Host host_;
     FileWatcher watcher_;
-    DocumentService doc_service_{ watcher_ };
     ConfigService config_;
     ResourceManager resource_manager_;
     AppState state_;
@@ -198,7 +196,7 @@ protected:
 
     void SetUp() override
     {
-        exec_.Init(host_, resource_manager_, doc_service_, state_, layout_service_, MakeCallbacks());
+        exec_.Init(host_, resource_manager_, watcher_, state_, layout_service_, MakeCallbacks());
     }
 };
 

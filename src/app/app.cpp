@@ -1,7 +1,7 @@
 #include "app.h"
 #include "app_constants.h"
 #include "darkmode_util.h"
-#include "render_composer.h"
+#include "gesture_overlay.h"
 #include "search_bar_controller.h"
 #include "file_loader.h"
 #include "parser.h"
@@ -101,6 +101,73 @@ void App::InvalidatePane(const PaneRect& rect) noexcept
                              state_.window.cached_dpi_scale);
 }
 
+void App::InvalidateTitleBar() noexcept
+{
+    const float tb_h = state_.window.titlebar.GetHeight();
+    if (tb_h <= 0.0f) {
+        return;
+    }
+    // 幅未計算 (初期化直後) は次のリサイズで全描画されるので何もしない。
+    const float window_w = state_.pane_layout_cache.WindowWidth();
+    if (window_w <= 0.0f) {
+        return;
+    }
+    mendo::InvalidateDipRect(hwnd_, 0.0f, 0.0f, window_w, tb_h, state_.window.cached_dpi_scale);
+}
+
+bool App::HandleTitleBarClick(float dip_x, float dip_y)
+{
+    if (dip_y >= state_.window.titlebar.GetHeight()) {
+        return false;
+    }
+
+    switch (state_.window.titlebar.HitTest(dip_x, dip_y)) {
+    case TitleBarHitZone::OpenFile:
+        Dispatch(OpenFileAction{});
+        break;
+    case TitleBarHitZone::Help:
+        Dispatch(ShowHelpAction{});
+        break;
+    case TitleBarHitZone::Search:
+        Dispatch(OpenSearchBarAction{});
+        break;
+    case TitleBarHitZone::ThemeToggle:
+        Dispatch(ToggleDarkModeAction{});
+        break;
+    case TitleBarHitZone::FileToggle:
+        Dispatch(TogglePaneAction{ PaneTarget::File });
+        break;
+    case TitleBarHitZone::TocToggle:
+        Dispatch(TogglePaneAction{ PaneTarget::Toc });
+        break;
+    case TitleBarHitZone::Minimize:
+        ShowWindow(hwnd_, SW_MINIMIZE);
+        break;
+    case TitleBarHitZone::Maximize:
+        ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE);
+        break;
+    case TitleBarHitZone::Close:
+        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+        break;
+    default:
+        // タイトルバーのドラッグ領域などは WM_NCHITTEST で処理済み。
+        break;
+    }
+    return true;
+}
+
+void App::UpdateTitleBar()
+{
+    const int zoom_percent = static_cast<int>(ZOOM_STEPS[state_.view.viewport.GetZoomIndex()] * 100.0f + 0.5f);
+    auto title = BuildTitleString(state_.document.doc.GetFilePath(), zoom_percent);
+    if (title == state_.cached_title_text) {
+        return;
+    }
+    SetWindowTextW(hwnd_, title.c_str());
+    state_.cached_title_text = std::move(title);
+    InvalidateTitleBar();
+}
+
 PaneZone App::PaneAtPoint(float dip_x)
 {
     const auto* rt = renderer_.GetRenderTarget();
@@ -142,11 +209,66 @@ void App::OnPaint()
         }
     }
 
-    const auto gs = render_composer::BuildGestureState(state_);
-    const auto sp = render_composer::BuildSidePaneState(state_, layout);
-    const auto tb = render_composer::BuildTitleBarState(state_, state_.pane_layout_cache.WindowWidth(), theme_service_.IsDarkMode(), IsZoomed(hwnd_) != FALSE);
-    const auto ts = render_composer::BuildToastState(state_);
-    const auto sb = render_composer::BuildSearchBarState(state_);
+    const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
+
+    const auto& panes = state_.view.panes;
+    const SidePaneState sp{
+        .panes = {
+            SidePaneInstance{
+                .rect = layout.file_rect,
+                .scroll = panes.SidePaneScroll(PaneTarget::File),
+                .hovered_index = panes.GetHoveredSideIndex(PaneTarget::File),
+                .show = panes.IsSidePaneVisible(PaneTarget::File),
+                .close_hovered = panes.IsSideCloseHovered(PaneTarget::File),
+                .refresh_hovered = panes.IsSideRefreshHovered(PaneTarget::File),
+            },
+            SidePaneInstance{
+                .rect = layout.toc_rect,
+                .scroll = panes.SidePaneScroll(PaneTarget::Toc),
+                .hovered_index = panes.GetHoveredSideIndex(PaneTarget::Toc),
+                .show = panes.IsSidePaneVisible(PaneTarget::Toc),
+                .close_hovered = panes.IsSideCloseHovered(PaneTarget::Toc),
+                .refresh_hovered = false,
+            },
+        },
+        .file_entries = state_.file_explorer.GetEntries(),
+        .toc_entries = state_.document.doc.GetToc().GetEntries(),
+        .nodes = state_.document.doc.GetNodes(),
+        .active_toc_index = state_.active_toc_index,
+    };
+
+    const auto& tbar = state_.window.titlebar;
+    const TitleBarRenderState tb{
+        .title_text = state_.cached_title_text,
+        .open_file = tbar.GetOpenFileButton(),
+        .help = tbar.GetHelpButton(),
+        .theme_toggle = tbar.GetThemeToggleButton(),
+        .search = tbar.GetSearchButton(),
+        .file_toggle = tbar.GetFileToggleButton(),
+        .toc_toggle = tbar.GetTocToggleButton(),
+        .minimize = tbar.GetMinimizeButton(),
+        .maximize = tbar.GetMaximizeButton(),
+        .close = tbar.GetCloseButton(),
+        .icon_rect = tbar.GetIconRect(),
+        .title_text_rect = tbar.GetTitleTextRect(),
+        .height = tbar.GetHeight(),
+        .window_width = state_.pane_layout_cache.WindowWidth(),
+        .hovered_zone = tbar.GetHovered(),
+        .is_dark_mode = theme_service_.IsDarkMode(),
+        .search_active = state_.search.search_state.IsVisible(),
+        .file_pane_visible = panes.IsSidePaneVisible(PaneTarget::File),
+        .toc_pane_visible = panes.IsSidePaneVisible(PaneTarget::Toc),
+        .is_maximized = IsZoomed(hwnd_) != FALSE,
+        .window_active = state_.window.window_active,
+    };
+
+    const ToastRenderState ts{
+        .visible = state_.interaction.toast.IsVisible(),
+        .alpha = state_.interaction.toast.GetRenderAlpha(),
+        .message = state_.interaction.toast.GetMessage(),
+    };
+
+    const auto sb = state_.search.search_bar_ctrl.BuildRenderState();
 
     if (show_loading) {
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
@@ -217,7 +339,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
 
     if (ctrl) {
         const MouseWheelEvent event{ delta, true, PaneZone::MdPane };
-        Dispatch(controller_.HandleMouseWheel(event));
+        Dispatch(app_controller::HandleMouseWheel(event));
         return;
     }
 
@@ -240,7 +362,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
         state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
 
     const MouseWheelEvent event{ delta, false, zone };
-    Dispatch(controller_.HandleMouseWheel(event));
+    Dispatch(app_controller::HandleMouseWheel(event));
 }
 
 void App::OnMouseHWheel(short delta)
@@ -256,7 +378,7 @@ void App::OnKeyDown(WPARAM key)
         (GetKeyState(VK_SHIFT) & 0x8000) != 0,
         (GetKeyState(VK_MENU) & 0x8000) != 0
     };
-    Dispatch(controller_.HandleKeyDown(event));
+    Dispatch(app_controller::HandleKeyDown(event));
 }
 
 void App::Dispatch(const AppAction& action)
@@ -311,9 +433,29 @@ void App::OnDestroy()
     scheduler_.Shutdown();
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
-    persistence_.SaveLastFilePath();
-    persistence_.SavePaneState();
-    persistence_.SaveScrollPosition();
+
+    if (!IsHelpPath(state_.document.doc.GetFilePath())) {
+        session_.SaveLastFilePath(state_.document.doc.GetFilePath());
+    }
+
+    {
+        const auto& panes = state_.view.panes;
+        const SessionService::PaneState s{
+            .show_file = panes.IsSidePaneVisible(PaneTarget::File),
+            .show_toc = panes.IsSidePaneVisible(PaneTarget::Toc),
+            .file_width = panes.GetSidePaneWidth(PaneTarget::File),
+            .toc_width = panes.GetSidePaneWidth(PaneTarget::Toc),
+        };
+        session_.SavePaneState(s);
+    }
+
+    if (const int node = state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size()); node >= 0) {
+        // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top を読む。
+        // Fenwick PrefixSum 経由は加算順が違うため大規模ノードで誤差が累積する。
+        const float text_top = state_.document.layout_cache[node].text_top;
+        session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
+    }
+
     config_.SaveWString("General", "Language", i18n::GetLangKey());
     // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
     // すべての設定値を 1 度のディスク書き込みにまとめる。

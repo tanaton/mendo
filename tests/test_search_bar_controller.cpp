@@ -30,11 +30,6 @@ protected:
             kill_timer_count_++;
         },
             .focus_select_all = [this]() { focus_select_all_count_++; },
-            .focus_set_caret = [this](int pos) { last_caret_pos_ = pos; },
-            .focus_set_selection = [this](int a, int c) {
-            last_sel_anchor_ = a;
-            last_sel_caret_ = c;
-        },
             .unfocus = [this]() { unfocus_count_++; },
             .get_md_pane_height = [this]() -> float { return md_pane_height_; },
             .on_scroll_changed = [this](float v) {

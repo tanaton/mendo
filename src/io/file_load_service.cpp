@@ -18,7 +18,7 @@ std::expected<void, FileLoadError> FileLoadService::ExecuteLoad(Document& doc, L
 {
     StopLoading();
 
-    auto result = doc_service_.LoadFile(loading_path_);
+    auto result = DocumentService::LoadFile(loading_path_);
     if (!result) {
         return std::unexpected(result.error());
     }

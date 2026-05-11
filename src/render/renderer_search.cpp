@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "ui_constants.h"
+#include "d2d_util.h"
 #include <algorithm>
 #include <format>
 #include <ranges>
@@ -28,9 +29,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     if (fmt_.search_icon) {
         auto* brush = Brush(BrushId::SearchInputText);
         if (brush) {
-            brush->SetOpacity(0.6f);
+            mendo::OpacityScope guard{ brush, 0.6f };
             rt()->DrawText(L"\uE721", 1, fmt_.search_icon.Get(), sbl.icon_rect, brush);
-            brush->SetOpacity(1.0f);
         }
     }
 
@@ -48,9 +48,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     else {
         auto* border_brush = Brush(BrushId::SearchBarBorder);
         if (border_brush) {
-            border_brush->SetOpacity(0.5f);
+            mendo::OpacityScope guard{ border_brush, 0.5f };
             rt()->DrawRoundedRectangle(input_rrect, border_brush, 1.0f);
-            border_brush->SetOpacity(1.0f);
         }
     }
 
@@ -209,9 +208,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         if (fmt_.search_icon) {
             auto* brush = Brush(BrushId::SearchInputText);
             if (brush) {
-                brush->SetOpacity(alpha);
+                mendo::OpacityScope guard{ brush, alpha };
                 rt()->DrawText(icon, 1, fmt_.search_icon.Get(), r, brush);
-                brush->SetOpacity(1.0f);
             }
         }
     };
@@ -225,9 +223,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         if (fmt) {
             auto* brush = Brush(BrushId::SearchInputText);
             if (brush) {
-                brush->SetOpacity(checked ? 1.0f : 0.5f);
+                mendo::OpacityScope guard{ brush, checked ? 1.0f : 0.5f };
                 rt()->DrawText(label, len, fmt, r, brush);
-                brush->SetOpacity(1.0f);
             }
         }
     };
@@ -251,9 +248,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         const auto written = static_cast<UINT32>(r.out - count_text);
         auto* brush = Brush(BrushId::SearchInputText);
         if (brush) {
-            brush->SetOpacity(0.7f);
+            mendo::OpacityScope guard{ brush, 0.7f };
             rt()->DrawText(count_text, written, fmt_.search_count.Get(), sbl.count_rect, brush);
-            brush->SetOpacity(1.0f);
         }
     }
 

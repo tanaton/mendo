@@ -11,14 +11,18 @@
 
 namespace {
 
-// node_index がノード数の範囲内なら該当ノードを、範囲外なら nullptr を返す。
-const Node* NodeAt(const Document& doc, int node_index) noexcept
+// 範囲内かつ CodeBlock であれば node を返す。
+const Node* ValidateCodeBlockNode(const Document& doc, int node_index) noexcept
 {
     const auto& nodes = doc.GetNodes();
     if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
         return nullptr;
     }
-    return &nodes[node_index];
+    const Node& node = nodes[node_index];
+    if (node.type != NodeType::CodeBlock) {
+        return nullptr;
+    }
+    return &node;
 }
 
 } // namespace
@@ -34,8 +38,8 @@ void ClipboardManager::Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRen
 
 void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool dark) const
 {
-    const Node* node = NodeAt(doc, node_index);
-    if (!node || node->type != NodeType::CodeBlock) {
+    const Node* node = ValidateCodeBlockNode(doc, node_index);
+    if (!node) {
         return;
     }
 
@@ -45,14 +49,11 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
 
 void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark)
 {
-    const Node* node_ptr = NodeAt(doc, node_index);
-    if (!node_ptr) {
+    const Node* node_ptr = ValidateCodeBlockNode(doc, node_index);
+    if (!node_ptr || !IsDiagramLanguage(node_ptr->code_language)) {
         return;
     }
     const auto& node = *node_ptr;
-    if (node.type != NodeType::CodeBlock || !IsDiagramLanguage(node.code_language)) {
-        return;
-    }
     if (!file_cache_) {
         return;
     }
@@ -81,14 +82,11 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, flo
 
 void ClipboardManager::CopyDiagramAsSvg(const Document& doc, int node_index, float md_width, bool dark)
 {
-    const Node* node_ptr = NodeAt(doc, node_index);
-    if (!node_ptr) {
+    const Node* node_ptr = ValidateCodeBlockNode(doc, node_index);
+    if (!node_ptr || !IsSvgExportable(node_ptr->code_language)) {
         return;
     }
     const auto& node = *node_ptr;
-    if (node.type != NodeType::CodeBlock || !IsSvgExportable(node.code_language)) {
-        return;
-    }
     if (svg_copy_in_flight_) {
         return;
     }

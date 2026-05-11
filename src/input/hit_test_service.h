@@ -133,53 +133,8 @@ private:
         }
     };
 
-    // CodeBlock ノードのオーバーレイボタン（Copy/Save）共通ヒットテスト。
-    // キャッシュ照合・座標変換・可視範囲走査を一元化し、matches が true を返したノードの index を返す。
-    // matches は (i, node, entry, entry_text_top, dip_x, dip_y) を受け取る。
-    template <typename Predicate>
-        requires std::predicate<Predicate&, int, const Node&, const NodeLayoutEntry&, float, float, float>
-    int HitTestCodeBlockButton(
-        const MdPaneHitContext& ctx,
-        HitCache<int>& cache,
-        Predicate&& matches) const noexcept
-    {
-        if (ctx.nodes.empty()) {
-            return -1;
-        }
-        const uint32_t gen = ctx.cache.GetEffectsGeneration();
-        if (cache.Matches(ctx, gen)) {
-            return cache.result;
-        }
-
-        const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
-
-        const float viewport_top = ctx.scroll_y;
-        const float viewport_bottom = ctx.scroll_y + ctx.md_pane_height;
-        const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
-        const int count = static_cast<int>(ctx.nodes.size());
-        for (int i = first; i < count; i++) {
-            const float entry_text_top = ctx.cache[i].text_top;
-            // 早期 break: CopyButton は padding 分だけテキスト上端の上に出るため padding を引いて比較する。
-            if (entry_text_top - ctx.theme.code_block_padding > viewport_bottom) {
-                break;
-            }
-            const auto& node = ctx.nodes[i];
-            if (node.type != NodeType::CodeBlock) {
-                continue;
-            }
-            if (matches(i, node, ctx.cache[i], entry_text_top, dip_x, dip_y)) {
-                cache.Store(ctx, gen, i);
-                return i;
-            }
-        }
-        cache.Store(ctx, gen, -1);
-        return -1;
-    }
-
     mutable HitCache<HitResult> last_md_hit_{};
-    mutable HitCache<int> last_copy_hit_{ .result = -1 };
-    mutable HitCache<int> last_save_hit_{ .result = -1 };
-    mutable HitCache<int> last_svg_copy_hit_{ .result = -1 };
+    mutable HitCache<CodeBlockButtonHit> button_cache_{};
 
     // HitTestPoint の UTF-16→UTF-8 逆変換を同一ノード/セル間で再利用する
     // (ドラッグ選択時の連続呼び出しで decode を抑える)。

@@ -164,9 +164,7 @@ DirtyBatchResult RunParallel(
     {
         MENDO_PROFILE("RunParallel.Aggregate");
         for (size_t k = 0; k < indices.size(); ++k) {
-            if (!slot_tokens[k].empty()) {
-                nodes[indices[k]].syntax_tokens_mut() = std::move(slot_tokens[k]);
-            }
+            nodes[indices[k]].syntax_tokens_mut() = std::move(slot_tokens[k]);
         }
     }
 

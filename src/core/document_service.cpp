@@ -13,26 +13,6 @@ std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr:
     return Document::FromMarkdown(std::move(result->text), result->byte_size, path);
 }
 
-void DocumentService::StartWatching(const std::pmr::wstring& path, FileWatcher::ChangeCallback cb)
-{
-    watcher_.StartWatching(path, std::move(cb));
-}
-
-void DocumentService::StopWatching() noexcept
-{
-    watcher_.StopWatching();
-}
-
-void DocumentService::CheckForChanges()
-{
-    watcher_.CheckForChanges();
-}
-
-void DocumentService::ResumeWatching()
-{
-    watcher_.ResumeWatching();
-}
-
 // 仮想パスや存在しないパスは「大きい」扱いにする (非同期ロード経路で失敗を検出させるため)。
 bool DocumentService::IsLargerThan(const std::pmr::wstring& path, DWORD threshold) noexcept
 {

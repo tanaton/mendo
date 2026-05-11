@@ -246,71 +246,22 @@ HitTestService::HitResult HitTestService::HitTestTable(
 
 int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept
 {
-    if (ctx.nodes.empty()) {
-        return -1;
-    }
-    const uint32_t gen = ctx.cache.GetEffectsGeneration();
-    if (last_copy_hit_.Matches(ctx, gen)) {
-        return last_copy_hit_.result;
-    }
-
-    // コピーボタンはコンテンツ右端にあるため、X座標で大半のマウス位置を早期棄却
-    const float btn_left_bound = ctx.theme.margin_left + ctx.content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
-    if (ScreenToPaneDip(ctx).x < btn_left_bound) {
-        last_copy_hit_.Store(ctx, gen, -1);
-        return -1;
-    }
-
-    return HitTestCodeBlockButton(ctx, last_copy_hit_, [&](int /*i*/, const Node& node, const NodeLayoutEntry& /*entry*/, float entry_text_top, float dip_x, float dip_y) noexcept -> bool {
-        // ダイアグラム系 (Mermaid / LatexMath) はコピーボタン非対応
-        if (IsDiagramLanguage(node.code_language)) {
-            return false;
-        }
-        const float indent = NodeIndent(node, ctx.theme);
-        const float x = ctx.theme.margin_left + indent;
-        const float w = ctx.content_width - indent;
-        const float pad = ctx.theme.code_block_padding;
-        const float block_right = x + w;
-        const float block_top = entry_text_top - pad;
-        const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
-        return PointInRectInclusive(dip_x, dip_y, btn);
-    });
+    return CodeBlockButtonsHitTest(ctx).copy_node;
 }
 
 int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept
 {
-    return HitTestCodeBlockButton(ctx, last_save_hit_, [&](int i, const Node& node, const NodeLayoutEntry& /*entry*/, float entry_text_top, float dip_x, float dip_y) noexcept -> bool {
-        if (!IsDiagramLanguage(node.code_language)) {
-            return false;
-        }
-        const auto& diagram = ctx.cache.GetDiagram(i);
-        if (!diagram.bitmap) {
-            return false;
-        }
-        const float indent = NodeIndent(node, ctx.theme);
-        const float x = ctx.theme.margin_left + indent;
-        const float cw = ctx.content_width - indent;
-        const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry_text_top);
-        const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
-        return PointInRectInclusive(dip_x, dip_y, btn);
-    });
+    return CodeBlockButtonsHitTest(ctx).save_node;
 }
 
 HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept
 {
-    CodeBlockButtonHit out;
     if (ctx.nodes.empty()) {
-        return out;
+        return {};
     }
     const uint32_t gen = ctx.cache.GetEffectsGeneration();
-    const bool copy_cached = last_copy_hit_.Matches(ctx, gen);
-    const bool save_cached = last_save_hit_.Matches(ctx, gen);
-    const bool svg_cached = last_svg_copy_hit_.Matches(ctx, gen);
-    if (copy_cached && save_cached && svg_cached) {
-        out.copy_node = last_copy_hit_.result;
-        out.save_node = last_save_hit_.result;
-        out.svg_copy_node = last_svg_copy_hit_.result;
-        return out;
+    if (button_cache_.Matches(ctx, gen)) {
+        return button_cache_.result;
     }
 
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
@@ -322,9 +273,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
     const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
     const int count = static_cast<int>(ctx.nodes.size());
 
-    int copy_hit = -1;
-    int save_hit = -1;
-    int svg_copy_hit = -1;
+    CodeBlockButtonHit out;
     for (int i = first; i < count; i++) {
         const auto& entry = ctx.cache[i];
         const float entry_text_top = entry.text_top;
@@ -343,41 +292,36 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
             const auto& diagram = ctx.cache.GetDiagram(i);
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry_text_top);
-                if (save_hit < 0) {
+                if (out.save_node < 0) {
                     const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
                     if (PointInRectInclusive(dip_x, dip_y, btn)) {
-                        save_hit = i;
+                        out.save_node = i;
                     }
                 }
-                if (svg_copy_hit < 0 && IsSvgExportable(node.code_language)) {
+                if (out.svg_copy_node < 0 && IsSvgExportable(node.code_language)) {
                     const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::SvgCopy));
                     if (PointInRectInclusive(dip_x, dip_y, btn2)) {
-                        svg_copy_hit = i;
+                        out.svg_copy_node = i;
                     }
                 }
             }
         }
-        else if (x_in_copy_band && copy_hit < 0) {
+        else if (x_in_copy_band && out.copy_node < 0) {
             const float block_right = x + w;
             const float block_top = entry_text_top - pad;
             const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
             if (PointInRectInclusive(dip_x, dip_y, btn)) {
-                copy_hit = i;
+                out.copy_node = i;
             }
         }
         // マウス座標は1点なので、コピー/保存/SVGコピーボタンが同時にヒットすることはない。
         // 1つでも見つかった時点で残りの可視ノード走査をスキップする。
-        if (copy_hit >= 0 || save_hit >= 0 || svg_copy_hit >= 0) {
+        if (out.copy_node >= 0 || out.save_node >= 0 || out.svg_copy_node >= 0) {
             break;
         }
     }
 
-    last_copy_hit_.Store(ctx, gen, copy_hit);
-    last_save_hit_.Store(ctx, gen, save_hit);
-    last_svg_copy_hit_.Store(ctx, gen, svg_copy_hit);
-    out.copy_node = copy_hit;
-    out.save_node = save_hit;
-    out.svg_copy_node = svg_copy_hit;
+    button_cache_.Store(ctx, gen, out);
     return out;
 }
 

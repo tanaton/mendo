@@ -109,10 +109,7 @@ Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 std::pmr::wstring Document::GetDirectory() const
 {
     const auto dir = std::filesystem::path(file_path_).parent_path();
-    if (!dir.empty()) {
-        return std::pmr::wstring{ dir.native() };
-    }
-    return {};
+    return std::pmr::wstring{ dir.native() };
 }
 
 void Document::ReplaceContent(ParseResult&& result)

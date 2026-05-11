@@ -51,14 +51,6 @@ bool App::Init(HWND hwnd)
     clipboard_manager_.Init(hwnd_, &file_cache_, &mermaid_renderer_,
                             [this](std::wstring_view m) { ShowToast(m); });
 
-    titlebar_.Init(hwnd_, &state_,
-                   TitleBarController::Callbacks{
-                       .dispatch = [this](const AppAction& a) { Dispatch(a); },
-                       .post_window_message = [this](UINT m, WPARAM w, LPARAM l) {
-                           EmitEffect(effect::PostWindowMessage{ m, w, l });
-                       },
-                   });
-
     resource_manager_.Init(
         state_.document.doc,
         state_.document.layout_cache,
@@ -73,7 +65,7 @@ bool App::Init(HWND hwnd)
     effect_executor_.Init(
         win32_host_,
         resource_manager_,
-        doc_service_,
+        file_watcher_,
         state_,
         *layout_service_,
         {
@@ -191,7 +183,21 @@ bool App::Init(HWND hwnd)
         state_.window.titlebar.UpdateLayout(window_w);
     }
 
-    persistence_.LoadPaneState(hwnd_);
+    {
+        float client_width = 0.0f;
+        if (hwnd_) {
+            RECT rc{};
+            if (GetClientRect(hwnd_, &rc)) {
+                client_width = static_cast<float>(rc.right - rc.left);
+            }
+        }
+        const auto s = session_.LoadPaneState(client_width, PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
+        auto& panes = state_.view.panes;
+        panes.SetSidePaneVisible(PaneTarget::File, s.show_file);
+        panes.SetSidePaneVisible(PaneTarget::Toc, s.show_toc);
+        panes.SetSidePaneWidth(PaneTarget::File, s.file_width);
+        panes.SetSidePaneWidth(PaneTarget::Toc, s.toc_width);
+    }
 
     state_.ctx_menu.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 
@@ -281,12 +287,6 @@ SearchBarController::Callbacks App::BuildSearchBarCallbacks()
         },
         .focus_select_all = [this]() {
             EmitEffect(effect::SearchFocus{});
-        },
-        .focus_set_caret = [this](int pos) {
-            EmitEffect(effect::SearchFocus{ effect::SearchFocus::Mode::SetCaret, 0, pos });
-        },
-        .focus_set_selection = [this](int anchor, int caret) {
-            EmitEffect(effect::SearchFocus{ effect::SearchFocus::Mode::SetSelection, anchor, caret });
         },
         .unfocus = [this]() {
             EmitEffect(effect::SearchUnfocus{});

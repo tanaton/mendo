@@ -58,19 +58,19 @@ float PaneController::ConstrainSplitterWidth(
     return w;
 }
 
-void PaneController::DragSplitter1To(float dip_x, float total_width, float splitter_w) noexcept
+void PaneController::DragSplitterTo(DragTarget target, float dip_x, float total_width, float splitter_w) noexcept
 {
-    widths_[0] = ConstrainSplitterWidth(
-        dip_x, total_width, splitter_w, widths_[1], instances_[1].show);
-}
-
-void PaneController::DragSplitter2To(float dip_x, float total_width, float splitter_w) noexcept
-{
-    // toc_leftはレイアウトから既知; dip_xは新しい右端
-    const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
-    const float new_width = dip_x - layout.toc_rect.x;
-    widths_[1] = ConstrainSplitterWidth(
-        new_width, total_width, splitter_w, widths_[0], instances_[0].show);
+    if (target == DragTarget::Splitter1) {
+        widths_[0] = ConstrainSplitterWidth(
+            dip_x, total_width, splitter_w, widths_[1], instances_[1].show);
+    }
+    else if (target == DragTarget::Splitter2) {
+        // toc_left はレイアウトから既知; dip_x は新しい右端
+        const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
+        const float new_width = dip_x - layout.toc_rect.x;
+        widths_[1] = ConstrainSplitterWidth(
+            new_width, total_width, splitter_w, widths_[0], instances_[0].show);
+    }
 }
 
 void PaneController::ApplyZoom(float ratio) noexcept

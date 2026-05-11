@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "syntax.h"
 #include "ui_constants.h"
@@ -420,6 +421,7 @@ void Renderer::DrawLoading(
         return a;
     }();
     if (auto* const text_brush = Brush(BrushId::Text)) {
+        mendo::OpacityScope guard{ text_brush, kSpinnerAlphas[0] };
         for (int i = 0; i < spinner::DOT_COUNT; i++) {
             const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
             const float dx = cx + spinner::RADIUS * std::cos(a);
@@ -429,7 +431,6 @@ void Renderer::DrawLoading(
             text_brush->SetOpacity(kSpinnerAlphas[i]);
             rt()->FillEllipse(ellipse, text_brush);
         }
-        text_brush->SetOpacity(1.0f);
     }
 
     // ローディング中でもフェードアウト中は表示

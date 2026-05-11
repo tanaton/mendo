@@ -102,7 +102,8 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     if (ht.TryMarkMoved(ht.last_md_hit_pos, ht.last_md_hit_tick, px, py)) {
         const auto hit = HitTest(px, py);
         const auto link = GetLinkAtHit(hit);
-        ht.last_md_cursor_hand = link.has_value();
+        const bool has_link = link.has_value();
+        ht.last_md_cursor_hand = has_link;
 
         // 横スクロール対象 (Table / CodeBlock) で自然幅 > 可視幅 のときだけバーを出す。
         // ドラッグ中は hovered を固定して、スクロールバー直下に出ても見た目が動かないようにする。
@@ -125,7 +126,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         }
 
         TooltipTarget tt;
-        if (link.has_value()) {
+        if (has_link) {
             tt.zone = TooltipTarget::Zone::MdLink;
             // tt.text は wstring (Win32 ツールチップ表示用) なので UTF-8 → wstring 変換。
             string_convert::Utf8ToWide(*link, tt.text);

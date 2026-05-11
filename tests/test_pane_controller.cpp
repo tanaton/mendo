@@ -156,7 +156,7 @@ TEST_F(PaneControllerTest, DragScrollOffset)
 
 TEST_F(PaneControllerTest, DragSplitter1RespectsMinWidth)
 {
-    panes_.DragSplitter1To(10.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneController::DragTarget::Splitter1,10.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_MIN_WIDTH);
 }
 
@@ -164,7 +164,7 @@ TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth)
 {
     // 両ペイン表示時: file(960) + splitter(4) + toc(220) + splitter(4) = 1188
     // MDペインに残るのは12のみ(< 200)なので、制約されるべき
-    panes_.DragSplitter1To(960.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneController::DragTarget::Splitter1,960.0f, 1200.0f, 4.0f);
     float remaining = 1200.0f - panes_.GetSidePaneWidth(PaneTarget::File) - 4.0f - 220.0f - 4.0f;
     EXPECT_GE(remaining, ::MD_PANE_MIN_WIDTH);
 }
@@ -172,14 +172,14 @@ TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth)
 TEST_F(PaneControllerTest, DragSplitter2RespectsMinWidth)
 {
     // 目次の左端位置はレイアウトに依存する; 非常に小さくドラッグ
-    panes_.DragSplitter2To(panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + 10.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneController::DragTarget::Splitter2,panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + 10.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth)
 {
     // 目次ペインの幅を非常に大きくドラッグ
-    panes_.DragSplitter2To(1190.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneController::DragTarget::Splitter2,1190.0f, 1200.0f, 4.0f);
     float layout_width = panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + panes_.GetSidePaneWidth(PaneTarget::Toc) + 4.0f;
     float md_width = 1200.0f - layout_width;
     EXPECT_GE(md_width, ::MD_PANE_MIN_WIDTH);
@@ -268,7 +268,7 @@ TEST_F(PaneControllerTest, DragSplitter1WithFilePaneHidden)
 {
     panes_.ToggleSidePane(PaneTarget::File); // ファイルペインを非表示
     // 非表示のファイルペインでsplitter1をドラッグしても正しくクランプされるべき
-    panes_.DragSplitter1To(300.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneController::DragTarget::Splitter1,300.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_MIN_WIDTH);
 }
 
@@ -276,7 +276,7 @@ TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden)
 {
     panes_.ToggleSidePane(PaneTarget::Toc); // 目次ペインを非表示
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
-    panes_.DragSplitter2To(1000.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneController::DragTarget::Splitter2,1000.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_MIN_WIDTH);
 }
 
