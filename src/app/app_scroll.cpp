@@ -115,7 +115,7 @@ void App::RefreshPaneLayout()
 {
     InvalidatePaneLayoutCache();
     renderer_.InvalidateAllSidePaneCaches();
-    OnResizeEnd();
+    EmitEffect(effect::PerformResizeEnd{});
 }
 
 void App::OnDeferredLayout()

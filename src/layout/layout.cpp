@@ -56,8 +56,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     bool any_measured = false;
     bool broke_early = false;
 
-    StackArena<4096> arena;
-    std::pmr::vector<float> block_heights(arena.resource());
+    std::pmr::vector<float> block_heights;
     block_heights.reserve(node_count);
 
     for (size_t i = 0; i < node_count; i++) {

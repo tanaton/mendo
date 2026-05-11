@@ -2,6 +2,7 @@
 #include "document.h"
 #include "layout.h"
 #include "layout_cache.h"
+#include "profiler.h"
 
 AsyncLoadCoordinator::~AsyncLoadCoordinator()
 {
@@ -28,6 +29,7 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     const uint32_t gen = gen_.fetch_add(1, std::memory_order_relaxed) + 1;
 
     const bool posted = scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme, guard = latch_.Acquire()] {
+        MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
         // sink 書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
         // I/O / Parse / Estimate の前段の gen check は重い処理を skip するための short-circuit。
         auto try_publish = [this, hwnd, msg_id, gen](auto&& assign_sink) {

@@ -4,10 +4,11 @@
 #include "toc.h"
 #include "parser.h"
 #include "utility.h"
+#include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
-#include <unordered_map>
 #include <memory_resource>
 
 class Document {
@@ -100,10 +101,8 @@ private:
     RawText raw_text_;
     size_t loaded_byte_size_ = 0;
     TableOfContents toc_;
-    // キーは所有 doc_string。nodes_ の再アロケート/構造変更でも索引が dangling しない。
-    std::pmr::unordered_map<std::pmr::string, int,
-                            mendo::StringTransparentHash, std::equal_to<>>
-        anchor_index_;
+    // 衝突は N=10^4 規模で 10^-12 オーダーなので無視 (重複時は先勝ち)。
+    std::pmr::vector<std::pair<std::uint64_t, int>> anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;
 };

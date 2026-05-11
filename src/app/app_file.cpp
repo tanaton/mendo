@@ -172,6 +172,8 @@ void App::HandleLoadFailureFallback()
 
 void App::OnParseComplete()
 {
+    MENDO_PROFILE("OnParseComplete");
+
     EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
     file_load_service_.StopLoading();
 
@@ -227,6 +229,8 @@ void App::OnParseComplete()
 
 void App::FinishLoadMarkdownFile(bool heights_estimated)
 {
+    MENDO_PROFILE("FinishLoadMarkdownFile");
+
     ResetViewForNewDocument();
     state_.search.search_bar_ctrl.Reset();
     EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
@@ -293,14 +297,14 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
                  reload_diff_scroll_y);
 
     UpdateTitleBar();
-
     EmitEffect(effect::SyncTocActive{});
-
     EmitEffect(effect::StartFileWatch{ state_.document.doc.GetFilePath() });
 }
 
 void App::ReloadCurrentFile()
 {
+    MENDO_PROFILE("ReloadCurrentFile");
+
     const auto& path = state_.document.doc.GetFilePath();
     if (path.empty() || IsHelpPath(path)) {
         return;
@@ -368,6 +372,8 @@ void App::DoReloadCurrentFile()
 // ドキュメントは更新済みの状態で呼ばれる。
 void App::FinishReload(size_t diff_pos)
 {
+    MENDO_PROFILE("FinishReload");
+
     state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size(), false);
     EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
 
@@ -448,4 +454,3 @@ void App::ApplyCachedHeightsAndRecompute(float md_width)
             renderer_.GetTheme());
     }
 }
-
