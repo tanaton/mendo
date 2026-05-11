@@ -158,7 +158,7 @@ int Document::FindNormalizedAnchorIndex(std::string_view anchor) const
         return -1;
     }
     const std::uint64_t h = mendo::Fnv1a64(anchor);
-    // FNV-1a 衝突対策。通常は equal_range が単一要素を返し、ループは比較 1 回で抜ける。
+    // FNV-1a 衝突時に異なる anchor_id を取り違えないよう、hash 一致範囲を文字列比較で絞る。
     const auto [lo, hi] = std::ranges::equal_range(anchor_index_, h, {}, &decltype(anchor_index_)::value_type::first);
     for (auto it = lo; it != hi; ++it) {
         if (nodes_[it->second].anchor_id() == anchor) {
