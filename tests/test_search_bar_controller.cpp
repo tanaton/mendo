@@ -53,9 +53,6 @@ protected:
     app_timer::Id last_timer_id_{};
     UINT last_timer_ms_ = 0;
     app_timer::Id last_killed_timer_{};
-    int last_caret_pos_ = -1;
-    int last_sel_anchor_ = -1;
-    int last_sel_caret_ = -1;
     float md_pane_height_ = 800.0f;
     float last_scroll_changed_value_ = -1.0f;
     int on_scroll_changed_count_ = 0;

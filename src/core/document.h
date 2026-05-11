@@ -100,7 +100,8 @@ private:
     RawText raw_text_;
     size_t loaded_byte_size_ = 0;
     TableOfContents toc_;
-    // 衝突は N=10^4 規模で 10^-12 オーダーなので無視 (重複時は先勝ち)。
+    // hash 昇順 → node_index 昇順でソート。重複 anchor_id や稀な hash 衝突は
+    // lookup 側で equal_range + 文字列比較し、最小 node_index を選ぶ。
     std::pmr::vector<std::pair<std::uint64_t, int>> anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;

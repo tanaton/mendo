@@ -158,9 +158,12 @@ int Document::FindNormalizedAnchorIndex(std::string_view anchor) const
         return -1;
     }
     const std::uint64_t h = mendo::Fnv1a64(anchor);
-    const auto it = std::ranges::lower_bound(anchor_index_, h, {}, &decltype(anchor_index_)::value_type::first);
-    if (it != anchor_index_.end() && it->first == h) {
-        return it->second;
+    // FNV-1a 衝突対策。通常は equal_range が単一要素を返し、ループは比較 1 回で抜ける。
+    const auto [lo, hi] = std::ranges::equal_range(anchor_index_, h, {}, &decltype(anchor_index_)::value_type::first);
+    for (auto it = lo; it != hi; ++it) {
+        if (nodes_[it->second].anchor_id() == anchor) {
+            return it->second;
+        }
     }
     return -1;
 }
@@ -181,13 +184,11 @@ void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indic
             anchor_index_.emplace_back(mendo::Fnv1a64(sv), static_cast<int>(i));
         }
     }
-    // pair のデフォルト辞書順 (hash 昇順 → node_index 昇順) でソートし、unique で
-    // 同 hash の後発を畳む。heading_indices は出現順 = node_index 昇順なので、
-    // 結果として先勝ち。
+    // pair のデフォルト辞書順 (hash 昇順 → node_index 昇順) でソートする。unique は取らず、
+    // 同 anchor_id の重複見出しと、稀な hash 衝突の両方をエントリとして保持する。lookup 側
+    // (FindNormalizedAnchorIndex) で文字列比較して先勝ちを選ぶ。
     {
         MENDO_PROFILE("BuildHeadingIndices.Sort");
         std::ranges::sort(anchor_index_);
-        const auto dup = std::ranges::unique(anchor_index_, {}, &decltype(anchor_index_)::value_type::first);
-        anchor_index_.erase(dup.begin(), dup.end());
     }
 }
