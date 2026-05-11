@@ -18,6 +18,11 @@ public:
         MdScrollbar
     };
 
+    static constexpr bool IsSplitterDragTarget(DragTarget t) noexcept
+    {
+        return t == DragTarget::Splitter1 || t == DragTarget::Splitter2;
+    }
+
     constexpr bool IsSidePaneVisible(PaneTarget t) const noexcept
     {
         return Inst(t).show;

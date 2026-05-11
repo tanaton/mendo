@@ -212,24 +212,20 @@ void App::OnPaint()
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
 
     const auto& panes = state_.view.panes;
+    auto make_side_pane = [&panes](PaneTarget t, PaneRect rect, bool with_refresh) {
+        return SidePaneInstance{
+            .rect = rect,
+            .scroll = panes.SidePaneScroll(t),
+            .hovered_index = panes.GetHoveredSideIndex(t),
+            .show = panes.IsSidePaneVisible(t),
+            .close_hovered = panes.IsSideCloseHovered(t),
+            .refresh_hovered = with_refresh && panes.IsSideRefreshHovered(t),
+        };
+    };
     const SidePaneState sp{
         .panes = {
-            SidePaneInstance{
-                .rect = layout.file_rect,
-                .scroll = panes.SidePaneScroll(PaneTarget::File),
-                .hovered_index = panes.GetHoveredSideIndex(PaneTarget::File),
-                .show = panes.IsSidePaneVisible(PaneTarget::File),
-                .close_hovered = panes.IsSideCloseHovered(PaneTarget::File),
-                .refresh_hovered = panes.IsSideRefreshHovered(PaneTarget::File),
-            },
-            SidePaneInstance{
-                .rect = layout.toc_rect,
-                .scroll = panes.SidePaneScroll(PaneTarget::Toc),
-                .hovered_index = panes.GetHoveredSideIndex(PaneTarget::Toc),
-                .show = panes.IsSidePaneVisible(PaneTarget::Toc),
-                .close_hovered = panes.IsSideCloseHovered(PaneTarget::Toc),
-                .refresh_hovered = false,
-            },
+            make_side_pane(PaneTarget::File, layout.file_rect, true),
+            make_side_pane(PaneTarget::Toc, layout.toc_rect, false),
         },
         .file_entries = state_.file_explorer.GetEntries(),
         .toc_entries = state_.document.doc.GetToc().GetEntries(),

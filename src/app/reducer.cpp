@@ -477,7 +477,7 @@ void ReduceMdPaneButtonHoverChanged(AppState& state, SideEffectList& effects, co
 
 void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const SplitterDragStartedAction& a)
 {
-    if (a.target != PaneController::DragTarget::Splitter1 && a.target != PaneController::DragTarget::Splitter2) {
+    if (!PaneController::IsSplitterDragTarget(a.target)) {
         return;
     }
     state.view.panes.StartDrag(a.target);
@@ -486,7 +486,7 @@ void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const S
 
 void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const SplitterDragMovedAction& a)
 {
-    if (a.target != PaneController::DragTarget::Splitter1 && a.target != PaneController::DragTarget::Splitter2) {
+    if (!PaneController::IsSplitterDragTarget(a.target)) {
         return;
     }
     const float splitter_w = state.theme->splitter_width;
@@ -503,7 +503,7 @@ void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const Spl
 void ReduceSplitterDragEnded(AppState& state, SideEffectList& effects)
 {
     const auto drag = state.view.panes.GetDragTarget();
-    if (drag != PaneController::DragTarget::Splitter1 && drag != PaneController::DragTarget::Splitter2) {
+    if (!PaneController::IsSplitterDragTarget(drag)) {
         return;
     }
     state.view.panes.EndDrag();
