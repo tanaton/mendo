@@ -81,11 +81,6 @@ public:
         return IsOverlayVisible() ? 1.0f : 0.0f;
     }
 
-    constexpr int GetAccumulatedDelta() const noexcept
-    {
-        return accumulated_delta_;
-    }
-
     static constexpr int TRIGGER_THRESHOLD = 400;      // ナビゲーション発動閾値（WHEEL_DELTA単位の蓄積値）
     static constexpr uint64_t AXIS_LOCK_MS = 200;      // 縦スクロール後の水平入力無視期間
     static constexpr uint64_t RESET_TIMEOUT_MS = 500;  // 蓄積リセットまでの無活動期間

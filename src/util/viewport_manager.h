@@ -135,13 +135,9 @@ public:
 
     // ---- 選択 ----
 
-    constexpr const TextSelection& GetSelection() const noexcept
+    constexpr auto& GetSelection(this auto& self) noexcept
     {
-        return selection_;
-    }
-    constexpr TextSelection& GetSelectionMut() noexcept
-    {
-        return selection_;
+        return self.selection_;
     }
     constexpr void SetSelection(const TextSelection& sel) noexcept
     {

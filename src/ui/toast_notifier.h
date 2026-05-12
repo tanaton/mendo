@@ -46,10 +46,6 @@ public:
     {
         return std::min(alpha_, 1.0f);
     }
-    constexpr float GetAlpha() const noexcept
-    {
-        return alpha_;
-    }
     constexpr std::wstring_view GetMessage() const noexcept
     {
         return message_;

@@ -5,6 +5,14 @@
 class ToastNotifierTest : public ::testing::Test {
 protected:
     ToastNotifier toast_;
+
+    // ホールド期間 (GetRenderAlpha が 1.0 にクランプされている間) を消化する。
+    void TickThroughHold()
+    {
+        while (toast_.IsVisible() && toast_.GetRenderAlpha() >= 1.0f) {
+            toast_.Tick();
+        }
+    }
 };
 
 // ─── 初期状態 ───
@@ -12,7 +20,6 @@ protected:
 TEST_F(ToastNotifierTest, InitiallyHidden)
 {
     EXPECT_FALSE(toast_.IsVisible());
-    EXPECT_FLOAT_EQ(toast_.GetAlpha(), 0.0f);
     EXPECT_FLOAT_EQ(toast_.GetRenderAlpha(), 0.0f);
     EXPECT_TRUE(toast_.GetMessage().empty());
 }
@@ -23,14 +30,13 @@ TEST_F(ToastNotifierTest, ShowMakesVisible)
 {
     toast_.Show(L"テスト");
     EXPECT_TRUE(toast_.IsVisible());
-    EXPECT_FLOAT_EQ(toast_.GetAlpha(), ToastNotifier::INITIAL_ALPHA);
+    EXPECT_FLOAT_EQ(toast_.GetRenderAlpha(), 1.0f);
     EXPECT_EQ(toast_.GetMessage(), L"テスト");
 }
 
 TEST_F(ToastNotifierTest, RenderAlphaClampedDuringHold)
 {
     toast_.Show(L"test");
-    // INITIAL_ALPHA > 1.0 なのでレンダー用アルファは 1.0 にクランプ
     EXPECT_FLOAT_EQ(toast_.GetRenderAlpha(), 1.0f);
 }
 
@@ -39,17 +45,18 @@ TEST_F(ToastNotifierTest, ShowOverwritesPrevious)
     toast_.Show(L"first");
     toast_.Show(L"second");
     EXPECT_EQ(toast_.GetMessage(), L"second");
-    EXPECT_FLOAT_EQ(toast_.GetAlpha(), ToastNotifier::INITIAL_ALPHA);
+    EXPECT_FLOAT_EQ(toast_.GetRenderAlpha(), 1.0f);
 }
 
 // ─── Tick ───
 
-TEST_F(ToastNotifierTest, TickDecrementsAlpha)
+TEST_F(ToastNotifierTest, RenderAlphaDecreasesDuringFade)
 {
     toast_.Show(L"test");
-    float before = toast_.GetAlpha();
+    TickThroughHold();
+    const float before = toast_.GetRenderAlpha();
     toast_.Tick();
-    EXPECT_FLOAT_EQ(toast_.GetAlpha(), before - ToastNotifier::FADE_SPEED);
+    EXPECT_LT(toast_.GetRenderAlpha(), before);
 }
 
 TEST_F(ToastNotifierTest, TickReturnsTrueWhileVisible)
@@ -61,10 +68,9 @@ TEST_F(ToastNotifierTest, TickReturnsTrueWhileVisible)
 TEST_F(ToastNotifierTest, TickReturnsFalseWhenDone)
 {
     toast_.Show(L"test");
-    // アルファが 0 以下になるまでティック
     while (toast_.Tick()) {}
     EXPECT_FALSE(toast_.IsVisible());
-    EXPECT_FLOAT_EQ(toast_.GetAlpha(), 0.0f);
+    EXPECT_FLOAT_EQ(toast_.GetRenderAlpha(), 0.0f);
 }
 
 TEST_F(ToastNotifierTest, TickOnIdleReturnsFalse)
@@ -84,26 +90,20 @@ TEST_F(ToastNotifierTest, MessageClearedWhenFadeComplete)
 TEST_F(ToastNotifierTest, HoldPhaseKeepsRenderAlphaAtOne)
 {
     toast_.Show(L"test");
-    // ホールド期間中（alpha > 1.0）はレンダーアルファが 1.0 のまま
     int ticks = 0;
-    while (toast_.GetAlpha() > 1.0f) {
+    while (toast_.IsVisible() && toast_.GetRenderAlpha() >= 1.0f) {
         EXPECT_FLOAT_EQ(toast_.GetRenderAlpha(), 1.0f);
         toast_.Tick();
         ++ticks;
     }
-    // ホールド期間が存在することを確認
     EXPECT_GT(ticks, 0);
 }
 
 TEST_F(ToastNotifierTest, FadePhaseDecreaseRenderAlpha)
 {
     toast_.Show(L"test");
-    // ホールド期間をスキップ
-    while (toast_.GetAlpha() > 1.0f) {
-        toast_.Tick();
-    }
-    // フェード期間に入ったらレンダーアルファが減少
-    float prev = toast_.GetRenderAlpha();
+    TickThroughHold();
+    const float prev = toast_.GetRenderAlpha();
     toast_.Tick();
     EXPECT_LT(toast_.GetRenderAlpha(), prev);
 }
@@ -116,7 +116,7 @@ TEST_F(ToastNotifierTest, TotalTickCount)
         ++count;
     }
     // INITIAL_ALPHA / FADE_SPEED ≈ 83 ティック
-    int expected = static_cast<int>(std::ceil(ToastNotifier::INITIAL_ALPHA / ToastNotifier::FADE_SPEED));
+    const int expected = static_cast<int>(std::ceil(ToastNotifier::INITIAL_ALPHA / ToastNotifier::FADE_SPEED));
     EXPECT_GE(count, expected - 1);
     EXPECT_LE(count, expected);
 }
@@ -128,7 +128,7 @@ TEST_F(ToastNotifierTest, ResetClearsAll)
     toast_.Show(L"test");
     toast_.Reset();
     EXPECT_FALSE(toast_.IsVisible());
-    EXPECT_FLOAT_EQ(toast_.GetAlpha(), 0.0f);
+    EXPECT_FLOAT_EQ(toast_.GetRenderAlpha(), 0.0f);
     EXPECT_TRUE(toast_.GetMessage().empty());
 }
 
@@ -149,8 +149,8 @@ TEST_F(ToastNotifierTest, AlphaNeverNegative)
     for (int i = 0; i < 200; ++i) {
         toast_.Tick();
     }
-    EXPECT_FLOAT_EQ(toast_.GetAlpha(), 0.0f);
     EXPECT_FLOAT_EQ(toast_.GetRenderAlpha(), 0.0f);
+    EXPECT_FALSE(toast_.IsVisible());
 }
 
 // ─── Show中に再Showでリセット ───
@@ -158,11 +158,13 @@ TEST_F(ToastNotifierTest, AlphaNeverNegative)
 TEST_F(ToastNotifierTest, ShowDuringFadeRestartsTimer)
 {
     toast_.Show(L"first");
-    for (int i = 0; i < 30; ++i) { toast_.Tick(); }
-    float mid_alpha = toast_.GetAlpha();
-    EXPECT_LT(mid_alpha, ToastNotifier::INITIAL_ALPHA);
+    TickThroughHold();
+    for (int i = 0; i < 5; ++i) {
+        toast_.Tick();
+    }
+    EXPECT_LT(toast_.GetRenderAlpha(), 1.0f);
 
     toast_.Show(L"second");
-    EXPECT_FLOAT_EQ(toast_.GetAlpha(), ToastNotifier::INITIAL_ALPHA);
+    EXPECT_FLOAT_EQ(toast_.GetRenderAlpha(), 1.0f);
     EXPECT_EQ(toast_.GetMessage(), L"second");
 }

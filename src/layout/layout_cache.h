@@ -87,6 +87,20 @@ struct SelectionHlCache {
     uint32_t length = 0;
 };
 
+namespace detail {
+
+// pmr_unique_ptr の lazy 初期化ヘルパ。NodeLayoutEntry のキャッシュ群で共有する。
+template <typename T>
+constexpr T& EnsurePmrUnique(mendo::pmr_unique_ptr<T>& p)
+{
+    if (!p) {
+        p = mendo::MakePmrUnique<T>();
+    }
+    return *p;
+}
+
+} // namespace detail
+
 struct NodeLayoutEntry {
     // テキスト上端 Y の denormalized cache。値としては cache.GetBlockTop(i, margin_top) + GetSpacingAbove(node)
     // と等価で、TextTopOf でも導出可能だが、その経路は Fenwick PrefixSum で O(log N) かかる。
@@ -127,32 +141,22 @@ struct NodeLayoutEntry {
 
     constexpr SearchHlCache& ensure_search_hl_cache() const
     {
-        if (!search_hl_cache) {
-            search_hl_cache = mendo::MakePmrUnique<SearchHlCache>();
-        }
-        return *search_hl_cache;
+        return detail::EnsurePmrUnique(search_hl_cache);
     }
 
     constexpr void invalidate_search_hl_cache() const noexcept
     {
-        if (search_hl_cache) {
-            search_hl_cache.reset();
-        }
+        search_hl_cache.reset();
     }
 
     constexpr SelectionHlCache& ensure_selection_hl_cache() const
     {
-        if (!selection_hl_cache) {
-            selection_hl_cache = mendo::MakePmrUnique<SelectionHlCache>();
-        }
-        return *selection_hl_cache;
+        return detail::EnsurePmrUnique(selection_hl_cache);
     }
 
     constexpr void invalidate_selection_hl_cache() const noexcept
     {
-        if (selection_hl_cache) {
-            selection_hl_cache.reset();
-        }
+        selection_hl_cache.reset();
     }
 
     // text_layout の wrap や format 属性が変わった際に、行折り返し由来のキャッシュ
@@ -165,10 +169,7 @@ struct NodeLayoutEntry {
 
     constexpr TableLayoutData& ensure_table_layout()
     {
-        if (!table_layout) {
-            table_layout = mendo::MakePmrUnique<TableLayoutData>();
-        }
-        return *table_layout;
+        return detail::EnsurePmrUnique(table_layout);
     }
     constexpr bool has_table_layout() const noexcept
     {
@@ -177,10 +178,7 @@ struct NodeLayoutEntry {
 
     constexpr std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
     {
-        if (!inline_code_bgs) {
-            inline_code_bgs = mendo::MakePmrUnique<std::pmr::vector<InlineCodeBg>>();
-        }
-        return *inline_code_bgs;
+        return detail::EnsurePmrUnique(inline_code_bgs);
     }
 
     constexpr void clear_inline_code_bgs() noexcept
