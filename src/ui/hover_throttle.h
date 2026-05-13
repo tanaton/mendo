@@ -74,20 +74,4 @@ struct HoverThrottle {
         last_tick = now;
         return true;
     }
-
-    // 距離のみ判定。時間ガードが不要な経路（タイマー駆動など）向け。
-    [[nodiscard]] constexpr bool TryMarkMoved(POINT& last_pos, int px, int py) noexcept
-    {
-        if (IsUnset(last_pos)) {
-            last_pos = { px, py };
-            return true;
-        }
-        const int dx = px - last_pos.x;
-        const int dy = py - last_pos.y;
-        if (dx * dx + dy * dy > HOVER_THROTTLE_DISTANCE_SQ) {
-            last_pos = { px, py };
-            return true;
-        }
-        return false;
-    }
 };

@@ -289,37 +289,22 @@ struct Node {
     }
 
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
-    constexpr NodeTableData* table_data() noexcept
+    // C++23 deducing this で const/非 const を 1 つに集約。
+    constexpr auto* table_data(this auto& self) noexcept
     {
-        return table_.get();
+        return self.table_.get();
     }
-    constexpr const NodeTableData* table_data() const noexcept
+    constexpr auto* image_data(this auto& self) noexcept
     {
-        return table_.get();
+        return self.image_.get();
     }
-    constexpr NodeImageData* image_data() noexcept
+    constexpr auto* heading_data(this auto& self) noexcept
     {
-        return image_.get();
+        return std::get_if<NodeHeadingData>(&self.extra);
     }
-    constexpr const NodeImageData* image_data() const noexcept
+    constexpr auto* code_data(this auto& self) noexcept
     {
-        return image_.get();
-    }
-    constexpr NodeHeadingData* heading_data() noexcept
-    {
-        return std::get_if<NodeHeadingData>(&extra);
-    }
-    constexpr const NodeHeadingData* heading_data() const noexcept
-    {
-        return std::get_if<NodeHeadingData>(&extra);
-    }
-    constexpr NodeCodeData* code_data() noexcept
-    {
-        return std::get_if<NodeCodeData>(&extra);
-    }
-    constexpr const NodeCodeData* code_data() const noexcept
-    {
-        return std::get_if<NodeCodeData>(&extra);
+        return std::get_if<NodeCodeData>(&self.extra);
     }
 
     constexpr bool has_table() const noexcept

@@ -204,16 +204,19 @@ YPositionResult RecomputeYPositions(
         y += GetSpacingBelow(nodes[from_index - 1], theme);
     }
 
-    // BuildBlockHeights バルクロード経路 (O(N)) は完走確定時のみ採用する。
-    // safe_exit_after < node_count なら早期終了の可能性があるため、最初から per-element
-    // SetBlockHeight に倒し、Fenwick を逐次同期させて中間 flush を不要にする。
-    const bool can_bulk_build = (from_index == 0) && (safe_exit_after >= node_count);
+    // safe_exit_after の契約: 以降のノードは height/sa/sb が不変。よって block_height も不変で
+    // Fenwick 更新は不要、text_top は一定 delta のシフトで済む。size_t 飽和は node_count にクランプ。
+    const size_t tail_start = (safe_exit_after < node_count) ? safe_exit_after + 1 : node_count;
+
+    // 全件処理時のみ Fenwick を BuildBlockHeights で一括ロード。中間早期終了の可能性がある
+    // 場合は per-element Set で逐次同期し、tail-shift パスからも参照可能にする。
+    const bool can_bulk_build = (from_index == 0) && (tail_start >= node_count);
     std::pmr::vector<float> block_heights;
     if (can_bulk_build) {
         block_heights.reserve(node_count);
     }
 
-    for (size_t i = from_index; i < node_count; i++) {
+    for (size_t i = from_index; i < tail_start; i++) {
         auto& entry = cache[i];
         if (entry.layout_dirty) {
             result.has_dirty_nodes = true;
@@ -223,21 +226,6 @@ YPositionResult RecomputeYPositions(
         const float sb = GetSpacingBelow(nodes[i], theme);
 
         y += sa;
-
-        // safe_exit_after 以降で Y 位置が変わらないと判明したら早期終了する。
-        // この経路は can_bulk_build=false が保証される (上の条件分岐) ため、
-        // [from_index, i) の block_height は per-element SetBlockHeight で既に Fenwick に反映済。
-        if (i > safe_exit_after && std::abs(entry.text_top - y) < Y_POSITION_EPSILON) {
-            if (!result.has_dirty_nodes) {
-                result.has_dirty_nodes = std::ranges::any_of(
-                    std::views::iota(i, node_count),
-                    [&cache](size_t j) { return cache[j].layout_dirty; });
-            }
-            const size_t last_idx = node_count - 1;
-            result.total_height = cache[last_idx].text_top + cache[last_idx].height + GetSpacingBelow(nodes[last_idx], theme) + theme.margin_top;
-            return result;
-        }
-
         entry.text_top = y;
         y += entry.height;
         y += sb;
@@ -253,6 +241,47 @@ YPositionResult RecomputeYPositions(
 
     if (can_bulk_build) {
         cache.BuildBlockHeights(block_heights);
+        result.total_height = y + theme.margin_top;
+        return result;
+    }
+
+    // |delta| < EPSILON なら text_top も実質変化なし → write 自体スキップ (dirty 集計のみ)。
+    if (tail_start < node_count) {
+        auto& first_tail = cache[tail_start];
+        const float sa_first = GetSpacingAbove(nodes[tail_start], theme);
+        const float new_text_top = y + sa_first;
+        const float delta = new_text_top - first_tail.text_top;
+
+        if (std::abs(delta) < Y_POSITION_EPSILON) {
+            if (!result.has_dirty_nodes) {
+                result.has_dirty_nodes = std::ranges::any_of(
+                    std::views::iota(tail_start, node_count),
+                    [&cache](size_t j) { return cache[j].layout_dirty; });
+            }
+        }
+        else {
+            // dirty 確定までは layout_dirty を観測しつつシフト、確定後は分岐なしの純粋シフトに
+            // 切り替えて auto-vectorize を許可する。
+            size_t i = tail_start;
+            if (!result.has_dirty_nodes) {
+                for (; i < node_count; ++i) {
+                    auto& entry = cache[i];
+                    entry.text_top += delta;
+                    if (entry.layout_dirty) {
+                        result.has_dirty_nodes = true;
+                        ++i;
+                        break;
+                    }
+                }
+            }
+            for (; i < node_count; ++i) {
+                cache[i].text_top += delta;
+            }
+        }
+
+        const size_t last_idx = node_count - 1;
+        result.total_height = cache[last_idx].text_top + cache[last_idx].height + GetSpacingBelow(nodes[last_idx], theme) + theme.margin_top;
+        return result;
     }
 
     result.total_height = y + theme.margin_top;

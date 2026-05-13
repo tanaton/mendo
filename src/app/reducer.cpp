@@ -662,7 +662,7 @@ void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const 
     }
     state.view.viewport.SetAnchor(a.node_index, a.text_pos);
     state.view.viewport.SetDragging(true);
-    state.view.viewport.GetSelectionMut().Clear();
+    state.view.viewport.GetSelection().Clear();
     PushEffect(effects, effect::SetCapture{});
     PushEffect(effects, effect::InvalidateWindow{});
 }

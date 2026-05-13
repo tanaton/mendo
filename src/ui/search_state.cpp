@@ -20,7 +20,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     std::pmr::string lower_query;
     if (!case_sensitive_) {
         lower_query.resize(query_.size());
-        ascii_util::ToLower(query_.data(), lower_query.data(), query_.size());
+        ascii_util::AsciiToLowerOnly(query_.data(), lower_query.data(), query_.size());
         // ドキュメント単位で lowercase 化結果をキャッシュし、入力1文字ごとの
         // 全文再変換コストを除去する。ドキュメント切替時は自動で再生成される。
         EnsureLowercaseCache(nodes);
@@ -92,7 +92,7 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
             LowercaseTable table;
             table.col_count = tbl->col_count;
             table.buffer.resize(tbl->concat_text.size());
-            ascii_util::ToLower(tbl->concat_text.data(), table.buffer.data(), tbl->concat_text.size());
+            ascii_util::AsciiToLowerOnly(tbl->concat_text.data(), table.buffer.data(), tbl->concat_text.size());
             table.offsets.assign(tbl->cell_text_starts.begin(), tbl->cell_text_starts.end());
             lower_cache_.tables.emplace(static_cast<int>(i), std::move(table));
         }
@@ -104,7 +104,7 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
             const auto& src = node.GetText();
             const size_t prev = lower_cache_.buffer.size();
             lower_cache_.buffer.resize(prev + src.size());
-            ascii_util::ToLower(src.data(), lower_cache_.buffer.data() + prev, src.size());
+            ascii_util::AsciiToLowerOnly(src.data(), lower_cache_.buffer.data() + prev, src.size());
             lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
         }
     }

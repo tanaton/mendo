@@ -67,6 +67,10 @@ constexpr bool IsAsciiWordChar(Char c) noexcept
 
 namespace detail {
 
+// 1 SIMD レジスタあたりの要素数 (wchar_t=8, char=16)。
+template <typename CharT>
+inline constexpr size_t kSimdStep = 16 / sizeof(CharT);
+
 // 8 wchar_t 入りベクタに非 ASCII (>= 0x80) が含まれているか
 inline bool HasNonAscii(__m128i c) noexcept
 {
@@ -75,40 +79,41 @@ inline bool HasNonAscii(__m128i c) noexcept
     return _mm_movemask_epi8(is_ascii) != 0xFFFF;
 }
 
-// ASCII 大文字 'A'-'Z' に対して 0x20 を、それ以外には 0 を返す加算ベクタ。
-// _mm_cmpgt_epi16 は符号付き比較だが、ASCII 範囲では符号ビットが立たないので問題なし。
-// 0x8000 以上 (CJK 等) は負として扱われ、必ず mask = 0 になるため安全側に倒れる。
+// 各レーンに対して 'A'-'Z' なら全 1、それ以外は 0 を立てる比較マスク。
+// epi16 (wchar_t) と epi8 (char) は符号付き比較だが ASCII 範囲は正値で問題なし。
+// 非 ASCII (wchar_t は 0x8000+、char は signed の負値) は ge_a で必ず弾かれる。
+template <typename CharT>
+inline __m128i AsciiUpperRangeMask(__m128i c) noexcept
+{
+    if constexpr (sizeof(CharT) == 2) {
+        const __m128i ge_a = _mm_cmpgt_epi16(c, _mm_set1_epi16(L'A' - 1));
+        const __m128i le_z = _mm_cmpgt_epi16(_mm_set1_epi16(L'Z' + 1), c);
+        return _mm_and_si128(ge_a, le_z);
+    }
+    else {
+        const __m128i ge_a = _mm_cmpgt_epi8(c, _mm_set1_epi8(static_cast<char>('A' - 1)));
+        const __m128i le_z = _mm_cmpgt_epi8(_mm_set1_epi8(static_cast<char>('Z' + 1)), c);
+        return _mm_and_si128(ge_a, le_z);
+    }
+}
+
+// ASCII 大文字レーンにだけ 0x20 を載せた加算ベクタ (それ以外は 0)。
+template <typename CharT>
 inline __m128i AsciiUpperToLowerAdd(__m128i c) noexcept
 {
-    const __m128i a_minus_1 = _mm_set1_epi16(L'A' - 1);
-    const __m128i z_plus_1 = _mm_set1_epi16(L'Z' + 1);
-    const __m128i diff = _mm_set1_epi16(0x20);
-    const __m128i ge_a = _mm_cmpgt_epi16(c, a_minus_1);
-    const __m128i le_z = _mm_cmpgt_epi16(z_plus_1, c);
-    const __m128i mask = _mm_and_si128(ge_a, le_z);
-    return _mm_and_si128(mask, diff);
+    if constexpr (sizeof(CharT) == 2) {
+        return _mm_and_si128(AsciiUpperRangeMask<CharT>(c), _mm_set1_epi16(0x20));
+    }
+    else {
+        return _mm_and_si128(AsciiUpperRangeMask<CharT>(c), _mm_set1_epi8(0x20));
+    }
 }
 
-// 16 char 入りベクタに非 ASCII (>= 0x80) が含まれているか (char 用)。
-// char は signed なので >= 0x80 のチェックは符号ビットが立っているかで判定する。
-inline bool HasNonAsciiChar(__m128i c) noexcept
+// ASCII 大文字の有無を 1bit にまとめた movemask。値が非 0 なら最低 1 レーンが大文字。
+template <typename CharT>
+inline unsigned AsciiUpperMask(__m128i c) noexcept
 {
-    // _mm_movemask_epi8 は各バイトの MSB を取る。MSB が立っていれば非 ASCII。
-    return _mm_movemask_epi8(c) != 0;
-}
-
-// ASCII 大文字 'A'-'Z' に対して 0x20 を、それ以外には 0 を返す加算ベクタ (char 用、16 byte 並列)。
-// _mm_cmpgt_epi8 は符号付き比較。'A'-1 (0x40) と 'Z'+1 (0x5B) は ASCII 範囲で正値なので問題なし。
-// 0x80+ (negative as signed) は ge_a で false になるため安全側に倒れる。
-inline __m128i AsciiUpperToLowerAddChar(__m128i c) noexcept
-{
-    const __m128i a_minus_1 = _mm_set1_epi8(static_cast<char>('A' - 1));
-    const __m128i z_plus_1 = _mm_set1_epi8(static_cast<char>('Z' + 1));
-    const __m128i diff = _mm_set1_epi8(0x20);
-    const __m128i ge_a = _mm_cmpgt_epi8(c, a_minus_1);
-    const __m128i le_z = _mm_cmpgt_epi8(z_plus_1, c);
-    const __m128i mask = _mm_and_si128(ge_a, le_z);
-    return _mm_and_si128(mask, diff);
+    return static_cast<unsigned>(_mm_movemask_epi8(AsciiUpperRangeMask<CharT>(c)));
 }
 
 } // namespace detail
@@ -132,8 +137,7 @@ inline void ToLower(const wchar_t* src, wchar_t* dst, size_t n) noexcept
     while (i + 8 <= n) {
         const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i));
         if (!detail::HasNonAscii(c)) {
-            const __m128i add = detail::AsciiUpperToLowerAdd(c);
-            const __m128i r = _mm_add_epi16(c, add);
+            const __m128i r = _mm_add_epi16(c, detail::AsciiUpperToLowerAdd<wchar_t>(c));
             _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + i), r);
         }
         else {
@@ -150,93 +154,51 @@ inline void ToLower(const wchar_t* src, wchar_t* dst, size_t n) noexcept
 
 // ASCII 大文字 'A'-'Z' のみ小文字化し、それ以外はそのままコピーする。
 // シンタックスハイライタの ASCII キーワード正規化用 (towlower の locale 動作は不要)。
-inline void AsciiToLowerOnly(const wchar_t* src, wchar_t* dst, size_t n) noexcept
+// char 版 (UTF-8) では continuation byte (10xxxxxx) は signed 比較で必ず弾かれるため
+// multi-byte シーケンスを破壊しない。
+template <typename CharT>
+inline void AsciiToLowerOnly(const CharT* src, CharT* dst, size_t n) noexcept
 {
+    constexpr size_t kStep = detail::kSimdStep<CharT>;
     size_t i = 0;
-    while (i + 8 <= n) {
+    while (i + kStep <= n) {
         const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i));
-        const __m128i add = detail::AsciiUpperToLowerAdd(c);
-        const __m128i r = _mm_add_epi16(c, add);
+        const __m128i add = detail::AsciiUpperToLowerAdd<CharT>(c);
+        __m128i r;
+        if constexpr (sizeof(CharT) == 2) {
+            r = _mm_add_epi16(c, add);
+        }
+        else {
+            r = _mm_add_epi8(c, add);
+        }
         _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + i), r);
-        i += 8;
+        i += kStep;
     }
     for (; i < n; ++i) {
-        const wchar_t ch = src[i];
-        dst[i] = (ch >= L'A' && ch <= L'Z') ? static_cast<wchar_t>(ch - L'A' + L'a') : ch;
+        const CharT ch = src[i];
+        dst[i] = (ch >= static_cast<CharT>('A') && ch <= static_cast<CharT>('Z'))
+                     ? static_cast<CharT>(ch - static_cast<CharT>('A') + static_cast<CharT>('a'))
+                     : ch;
     }
-}
-
-// char 版 (UTF-8 / 16-byte 並列)。ASCII 範囲のみ大文字→小文字、UTF-8 multi-byte は不変。
-// UTF-8 continuation byte (10xxxxxx) は >= 0x80 なので AsciiUpperToLowerAddChar の mask で
-// 必ず 0 になり、書き換えられない。
-inline void AsciiToLowerOnly(const char* src, char* dst, size_t n) noexcept
-{
-    size_t i = 0;
-    while (i + 16 <= n) {
-        const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i));
-        const __m128i add = detail::AsciiUpperToLowerAddChar(c);
-        const __m128i r = _mm_add_epi8(c, add);
-        _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + i), r);
-        i += 16;
-    }
-    for (; i < n; ++i) {
-        const char ch = src[i];
-        dst[i] = (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch;
-    }
-}
-
-// char 版 ToLower。UTF-8 では非 ASCII を「小文字化」する意味のあるロケール非依存実装は存在しないため、
-// 振る舞いは AsciiToLowerOnly と完全に等価。wchar_t 版との API 対称性のためにエイリアスとして提供する。
-inline void ToLower(const char* src, char* dst, size_t n) noexcept
-{
-    AsciiToLowerOnly(src, dst, n);
 }
 
 // ASCII 大文字 'A'-'Z' を一文字でも含むなら true。
-inline bool HasAsciiUpper(const wchar_t* s, size_t n) noexcept
+// UTF-8 continuation byte (>= 0x80) は signed では負値で AsciiUpperMask が必ず弾く。
+template <typename CharT>
+inline bool HasAsciiUpper(const CharT* s, size_t n) noexcept
 {
-    const __m128i a_minus_1 = _mm_set1_epi16(L'A' - 1);
-    const __m128i z_plus_1 = _mm_set1_epi16(L'Z' + 1);
+    constexpr size_t kStep = detail::kSimdStep<CharT>;
     size_t i = 0;
-    while (i + 8 <= n) {
+    while (i + kStep <= n) {
         const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s + i));
-        const __m128i ge_a = _mm_cmpgt_epi16(c, a_minus_1);
-        const __m128i le_z = _mm_cmpgt_epi16(z_plus_1, c);
-        const __m128i mask = _mm_and_si128(ge_a, le_z);
-        if (_mm_movemask_epi8(mask) != 0) {
+        if (detail::AsciiUpperMask<CharT>(c) != 0) {
             return true;
         }
-        i += 8;
+        i += kStep;
     }
     for (; i < n; ++i) {
-        const wchar_t ch = s[i];
-        if (ch >= L'A' && ch <= L'Z') {
-            return true;
-        }
-    }
-    return false;
-}
-
-// char 版 (UTF-8 / 16-byte 並列)。UTF-8 continuation byte は >= 0x80 で signed では負値、
-// _mm_cmpgt_epi8 の ge_a で false になるため誤検出しない。
-inline bool HasAsciiUpper(const char* s, size_t n) noexcept
-{
-    const __m128i a_minus_1 = _mm_set1_epi8(static_cast<char>('A' - 1));
-    const __m128i z_plus_1 = _mm_set1_epi8(static_cast<char>('Z' + 1));
-    size_t i = 0;
-    while (i + 16 <= n) {
-        const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s + i));
-        const __m128i ge_a = _mm_cmpgt_epi8(c, a_minus_1);
-        const __m128i le_z = _mm_cmpgt_epi8(z_plus_1, c);
-        const __m128i mask = _mm_and_si128(ge_a, le_z);
-        if (_mm_movemask_epi8(mask) != 0) {
-            return true;
-        }
-        i += 16;
-    }
-    for (; i < n; ++i) {
-        const char ch = s[i];
-        if (ch >= 'A' && ch <= 'Z') {
+        const CharT ch = s[i];
+        if (ch >= static_cast<CharT>('A') && ch <= static_cast<CharT>('Z')) {
             return true;
         }
     }

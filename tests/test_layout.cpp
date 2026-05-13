@@ -1651,4 +1651,25 @@ TEST(RecomputeYPositionsTest, DISABLED_BenchLargeDocument)
               << " ITER=" << ITER
               << " total=" << elapsed_us << "us"
               << " avg=" << (static_cast<double>(elapsed_us) / ITER) << "us/iter\n";
+
+    // EnsureVisibleLayout の実ユースケース: 可視範囲 (5 ノード) だけ height を弄り、
+    // [from_index=100, safe_exit_after=104] で呼ぶ。tail [105, N) は shift-only パスを通る。
+    constexpr size_t kFromIndex = 100;
+    constexpr size_t kSafeExitAfter = 104;
+    for (int i = 0; i < 5; i++) {
+        cache[kFromIndex + static_cast<size_t>(i)].height += 1.0f; // 高さを揺らして delta != 0 にする
+        RecomputeYPositions(nodes, cache, theme, kFromIndex, false, kSafeExitAfter);
+    }
+    auto start2 = std::chrono::high_resolution_clock::now();
+    for (int iter = 0; iter < ITER; iter++) {
+        cache[kFromIndex].height += (iter % 2 == 0) ? 0.5f : -0.5f;
+        RecomputeYPositions(nodes, cache, theme, kFromIndex, false, kSafeExitAfter);
+    }
+    auto end2 = std::chrono::high_resolution_clock::now();
+    auto elapsed2_us = std::chrono::duration_cast<std::chrono::microseconds>(end2 - start2).count();
+    std::cout << "[BENCH] RecomputeYPositions (tail-shift) N=" << N
+              << " from=" << kFromIndex << " safe_exit=" << kSafeExitAfter
+              << " ITER=" << ITER
+              << " total=" << elapsed2_us << "us"
+              << " avg=" << (static_cast<double>(elapsed2_us) / ITER) << "us/iter\n";
 }

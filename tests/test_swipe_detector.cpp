@@ -9,9 +9,10 @@ protected:
 
 // ─── 初期状態 ───
 
-TEST_F(SwipeDetectorTest, InitiallyZero)
+TEST_F(SwipeDetectorTest, InitiallyNoSwipe)
 {
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::None);
+    EXPECT_FALSE(detector_.IsOverlayVisible());
 }
 
 // ─── 閾値未満は None ───
@@ -19,7 +20,7 @@ TEST_F(SwipeDetectorTest, InitiallyZero)
 TEST_F(SwipeDetectorTest, BelowThresholdReturnsNone)
 {
     detector_.OnHWheel(120, now_);
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 120);
+    EXPECT_FALSE(detector_.IsOverlayVisible());
     EXPECT_EQ(detector_.Commit(), SwipeResult::None);
 }
 
@@ -31,7 +32,7 @@ TEST_F(SwipeDetectorTest, RightSwipeTriggersBack)
     detector_.OnHWheel(200, now_ + 10);
     EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
     // Commit後にリセットされる
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::None);
 }
 
 // ─── 左スワイプ（負のdelta蓄積）→ Commit で Forward ───
@@ -41,7 +42,7 @@ TEST_F(SwipeDetectorTest, LeftSwipeTriggersForward)
     detector_.OnHWheel(-200, now_);
     detector_.OnHWheel(-200, now_ + 10);
     EXPECT_EQ(detector_.Commit(), SwipeResult::Forward);
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::None);
 }
 
 // ─── ちょうど閾値で発動 ───
@@ -76,9 +77,8 @@ TEST_F(SwipeDetectorTest, OnHWheelDoesNotFireImmediately)
 {
     // 閾値を大幅に超えてもOnHWheel自体は発火しない
     detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD * 2, now_);
-    // 蓄積されたまま残っている
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), SwipeDetector::TRIGGER_THRESHOLD * 2);
-    // Commitで初めて発火
+    // オーバーレイは表示されるが Commit() を呼ばない限りナビゲーションは発火しない
+    EXPECT_TRUE(detector_.IsOverlayVisible());
     EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
 }
 
@@ -90,7 +90,6 @@ TEST_F(SwipeDetectorTest, AxisLockIgnoresHWheelAfterVScroll)
 
     // 軸ロック期間内
     detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_ + 100);
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);  // NotifyVScrollでリセットされている
     EXPECT_EQ(detector_.Commit(), SwipeResult::None);
 }
 
@@ -109,12 +108,12 @@ TEST_F(SwipeDetectorTest, AxisLockExpiresAfterTimeout)
 TEST_F(SwipeDetectorTest, ResetAfterInactivity)
 {
     detector_.OnHWheel(300, now_);
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 300);
 
     // タイムアウト後に新しいイベント → 蓄積リセットされてから加算
     uint64_t after_timeout = now_ + SwipeDetector::RESET_TIMEOUT_MS + 1;
     detector_.OnHWheel(50, after_timeout);
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 50);  // 300はリセットされた
+    // 50 のみで TRIGGER_THRESHOLD に満たないので None
+    EXPECT_EQ(detector_.Commit(), SwipeResult::None);
 }
 
 TEST_F(SwipeDetectorTest, NoResetWithinTimeout)
@@ -132,7 +131,7 @@ TEST_F(SwipeDetectorTest, OppositeDirectionsCancelOut)
 {
     detector_.OnHWheel(300, now_);
     detector_.OnHWheel(-300, now_ + 10);
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::None);
 }
 
 // ─── Reset() で全状態クリア ───
@@ -143,7 +142,6 @@ TEST_F(SwipeDetectorTest, ResetClearsAllState)
     detector_.NotifyVScroll(now_ + 10);
     detector_.Reset();
 
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
     // リセット後は軸ロックも解除されている
     detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_ + 20);
     EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
@@ -157,7 +155,6 @@ TEST_F(SwipeDetectorTest, CommitResetsState)
     EXPECT_EQ(detector_.Commit(), SwipeResult::Back);
     // 2回目のCommitはNone
     EXPECT_EQ(detector_.Commit(), SwipeResult::None);
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
 }
 
 // ─── 連続ナビゲーション: Commit後すぐに次のスワイプが可能 ───
@@ -176,10 +173,10 @@ TEST_F(SwipeDetectorTest, ConsecutiveSwipes)
 TEST_F(SwipeDetectorTest, VScrollResetsDelta)
 {
     detector_.OnHWheel(300, now_);
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 300);
-
     detector_.NotifyVScroll(now_ + 50);
-    EXPECT_EQ(detector_.GetAccumulatedDelta(), 0);
+    // VScroll でリセットされたので軸ロック解除後の小さい入力では発火しない
+    detector_.OnHWheel(50, now_ + 50 + SwipeDetector::AXIS_LOCK_MS);
+    EXPECT_EQ(detector_.Commit(), SwipeResult::None);
 }
 
 // ─── オーバーレイ表示（閾値到達で表示、Commitで消滅） ───
