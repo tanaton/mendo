@@ -121,14 +121,14 @@ TEST(NodeTest, DefaultState)
 {
     Node node;
     EXPECT_EQ(node.type, NodeType::Paragraph);
-    EXPECT_EQ(node.heading_level, 0);
+    EXPECT_EQ(node.heading_level(), 0);
     EXPECT_EQ(node.indent_level, 0);
-    EXPECT_EQ(node.list_number, 0);
-    EXPECT_FALSE(node.task_checked);
+    EXPECT_EQ(node.list_number(), 0);
+    EXPECT_FALSE(node.task_checked());
     EXPECT_TRUE(node.GetText().empty());
     EXPECT_TRUE(node.runs.empty());
     EXPECT_TRUE(node.anchor_id().empty());
-    EXPECT_EQ(node.code_language, SyntaxLanguage::None);
+    EXPECT_EQ(node.code_language(), SyntaxLanguage::None);
     EXPECT_FALSE(node.has_table());
 }
 
@@ -516,8 +516,7 @@ TEST(NodeTest, AnchorIdWithoutHeadingData)
 TEST(NodeTest, AnchorIdWithHeadingData)
 {
     Node node;
-    node.ensure_heading();
-    node.heading_data()->anchor_id = "test-anchor";
+    node.ensure_anchor_id_mut() = "test-anchor";
     EXPECT_EQ(node.anchor_id(), "test-anchor");
 }
 
@@ -540,7 +539,7 @@ TEST(NodeTest, MermaidCodeBlockTextStored)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.code_language = SyntaxLanguage::Mermaid;
+    node.ensure_code()->code_language = SyntaxLanguage::Mermaid;
     node.SetText("graph TD;A-->B");
     EXPECT_EQ(node.GetText(), "graph TD;A-->B");
 }
@@ -549,7 +548,7 @@ TEST(NodeTest, LatexMathCodeBlockTextStored)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.code_language = SyntaxLanguage::LatexMath;
+    node.ensure_code()->code_language = SyntaxLanguage::LatexMath;
     node.SetText("E = mc^2");
     EXPECT_EQ(node.GetText(), "E = mc^2");
 }
@@ -558,7 +557,7 @@ TEST(NodeTest, NonDiagramCodeBlockTextStored)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.code_language = SyntaxLanguage::Cpp;
+    node.ensure_code()->code_language = SyntaxLanguage::Cpp;
     node.SetText("int main() { return 0; }");
     EXPECT_EQ(node.GetText(), "int main() { return 0; }");
 }
@@ -569,4 +568,75 @@ TEST(NodeTest, ParagraphTextStored)
     node.type = NodeType::Paragraph;
     node.SetText("paragraph content");
     EXPECT_EQ(node.GetText(), "paragraph content");
+}
+
+// variant alternative の排他性: 別種を ensure すると元のデータは破棄される。
+// parser は BeginNode 直後に 1 種類だけ ensure する契約だが、契約違反を回帰検出するためのテスト。
+TEST(NodeTest, EnsureCodeReplacesHeading)
+{
+    Node node;
+    node.ensure_heading()->heading_level = 3;
+    EXPECT_TRUE(node.has_heading());
+
+    node.ensure_code()->code_language = SyntaxLanguage::Cpp;
+    EXPECT_FALSE(node.has_heading());
+    EXPECT_TRUE(node.has_code());
+    EXPECT_EQ(node.heading_level(), 0);
+    EXPECT_EQ(node.code_language(), SyntaxLanguage::Cpp);
+}
+
+// ensure_table() は冪等で、連続呼出しで同じ NodeTableData ポインタを返す。
+TEST(NodeTest, EnsureTableIsIdempotent)
+{
+    Node node;
+    auto* tbl1 = node.ensure_table();
+    auto* tbl2 = node.ensure_table();
+    EXPECT_EQ(tbl1, tbl2);
+    EXPECT_TRUE(node.has_table());
+}
+
+// ensure_image() の冪等性。
+TEST(NodeTest, EnsureImageIsIdempotent)
+{
+    Node node;
+    auto* img1 = node.ensure_image();
+    auto* img2 = node.ensure_image();
+    EXPECT_EQ(img1, img2);
+    EXPECT_TRUE(node.has_image());
+}
+
+// alert_type は伝播ロジック (parser.cpp:DetectAlertAt) のため Node 直下に残し、
+// alert_label_length のみ alert_data に閉じ込めた。BlockQuote 本体は両方を持ち、
+// 伝播先ノードは alert_type のみで alert_data は不在のはず。
+TEST(NodeTest, AlertTypeAndDataAreIndependent)
+{
+    Node body;
+    body.type = NodeType::BlockQuote;
+    body.alert_type = AlertType::Warning;
+    body.ensure_alert()->alert_label_length = 8u;
+    EXPECT_EQ(body.alert_type, AlertType::Warning);
+    EXPECT_TRUE(body.has_alert());
+    EXPECT_EQ(body.alert_label_length(), 8u);
+
+    Node propagated;
+    propagated.type = NodeType::Paragraph;
+    propagated.alert_type = AlertType::Warning;
+    EXPECT_EQ(propagated.alert_type, AlertType::Warning);
+    EXPECT_FALSE(propagated.has_alert());
+    EXPECT_EQ(propagated.alert_label_length(), 0u);
+}
+
+// list_data の互換 getter: 持たないノードは task_checked=false, list_number=0。
+TEST(NodeTest, ListGettersDefaultsWhenNoData)
+{
+    Node node;
+    EXPECT_FALSE(node.has_list());
+    EXPECT_EQ(node.list_number(), 0);
+    EXPECT_FALSE(node.task_checked());
+
+    node.ensure_list()->list_number = 5;
+    node.ensure_list()->task_checked = true;
+    EXPECT_TRUE(node.has_list());
+    EXPECT_EQ(node.list_number(), 5);
+    EXPECT_TRUE(node.task_checked());
 }

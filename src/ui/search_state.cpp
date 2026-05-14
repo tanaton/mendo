@@ -47,7 +47,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
         else if (const auto& text = node.GetText(); !text.empty()) {
             // ビットマップ描画ノードはテキストハイライト不可のため検索対象外
             if (node.type == NodeType::Image ||
-                (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language))) {
+                (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language()))) {
                 continue;
             }
             const auto search_text = case_sensitive_ ? text : lower_cache_.GetText(i);
@@ -96,7 +96,7 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
             table.offsets.assign(tbl->cell_text_starts.begin(), tbl->cell_text_starts.end());
             lower_cache_.tables.emplace(static_cast<int>(i), std::move(table));
         }
-        else if (node.type == NodeType::Image || (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language))) {
+        else if (node.type == NodeType::Image || (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language()))) {
             // 検索対象外ノードは空スライス
             lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
         }

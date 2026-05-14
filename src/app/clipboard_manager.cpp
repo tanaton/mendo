@@ -50,7 +50,7 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
 void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark)
 {
     const Node* node_ptr = ValidateCodeBlockNode(doc, node_index);
-    if (!node_ptr || !IsDiagramLanguage(node_ptr->code_language)) {
+    if (!node_ptr || !IsDiagramLanguage(node_ptr->code_language())) {
         return;
     }
     const auto& node = *node_ptr;
@@ -83,7 +83,7 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, flo
 void ClipboardManager::CopyDiagramAsSvg(const Document& doc, int node_index, float md_width, bool dark)
 {
     const Node* node_ptr = ValidateCodeBlockNode(doc, node_index);
-    if (!node_ptr || !IsSvgExportable(node_ptr->code_language)) {
+    if (!node_ptr || !IsSvgExportable(node_ptr->code_language())) {
         return;
     }
     const auto& node = *node_ptr;

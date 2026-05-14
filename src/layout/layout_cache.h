@@ -375,7 +375,7 @@ public:
     {
         const auto count = std::min(nodes.size(), diagrams_.size());
         for (const auto& [idx, node] : nodes | std::views::take(count) | std::views::enumerate) {
-            if (IsDiagramLanguage(node.code_language)) {
+            if (IsDiagramLanguage(node.code_language())) {
                 diagrams_[static_cast<size_t>(idx)].bitmap.Reset();
             }
         }

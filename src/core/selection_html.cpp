@@ -499,7 +499,7 @@ constexpr bool IsListNode(const Node& n) noexcept
 
 constexpr bool IsOrderedList(const Node& n) noexcept
 {
-    return IsListNode(n) && n.list_number > 0;
+    return IsListNode(n) && n.list_number() > 0;
 }
 
 std::optional<std::pmr::string> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::pmr::string> link_urls, uint32_t pos)
@@ -605,7 +605,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
 
         switch (node.type) {
         case NodeType::Heading: {
-            const int level = std::clamp(static_cast<int>(node.heading_level), 1, 6);
+            const int level = std::clamp(static_cast<int>(node.heading_level()), 1, 6);
             AppendHeadingOpenTag(out, level);
             AppendNodeInlineHtml(out, node, start, end);
             AppendHeadingCloseTag(out, level);
@@ -630,7 +630,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             out.append("</li>");
             break;
         case NodeType::TaskListItem:
-            out.append(node.task_checked ? "<li><input type=\"checkbox\" checked disabled> " : "<li><input type=\"checkbox\" disabled> ");
+            out.append(node.task_checked() ? "<li><input type=\"checkbox\" checked disabled> " : "<li><input type=\"checkbox\" disabled> ");
             AppendNodeInlineHtml(out, node, start, end);
             out.append("</li>");
             break;

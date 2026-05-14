@@ -288,7 +288,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
         const float x = ctx.theme.margin_left + indent;
         const float w = ctx.content_width - indent;
         const float pad = ctx.theme.code_block_padding;
-        if (IsDiagramLanguage(node.code_language)) {
+        if (IsDiagramLanguage(node.code_language())) {
             const auto& diagram = ctx.cache.GetDiagram(i);
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry_text_top);
@@ -298,7 +298,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
                         out.save_node = i;
                     }
                 }
-                if (out.svg_copy_node < 0 && IsSvgExportable(node.code_language)) {
+                if (out.svg_copy_node < 0 && IsSvgExportable(node.code_language())) {
                     const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::SvgCopy));
                     if (PointInRectInclusive(dip_x, dip_y, btn2)) {
                         out.svg_copy_node = i;

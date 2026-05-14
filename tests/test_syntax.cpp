@@ -646,49 +646,49 @@ TEST(Syntax, ParserExtractsLanguageCpp)
     auto nodes = ParseMarkdown("```cpp\nint x = 1;\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Cpp);
 }
 
 TEST(Syntax, ParserExtractsLanguagePython)
 {
     auto nodes = ParseMarkdown("```python\ndef foo(): pass\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Python);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Python);
 }
 
 TEST(Syntax, ParserExtractsLanguageJs)
 {
     auto nodes = ParseMarkdown("```js\nconst x = 1;\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::JavaScript);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::JavaScript);
 }
 
 TEST(Syntax, ParserNoLanguage)
 {
     auto nodes = ParseMarkdown("```\nplain code\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::None);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::None);
 }
 
 TEST(Syntax, ParserExtractsLanguageRust)
 {
     auto nodes = ParseMarkdown("```rust\nfn main() {}\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Rust);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Rust);
 }
 
 TEST(Syntax, ParserUnknownLanguage)
 {
     auto nodes = ParseMarkdown("```java\nclass Main {}\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::None);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::None);
 }
 
 TEST(Syntax, ParserCaseInsensitiveLanguage)
 {
     auto nodes = ParseMarkdown("```CPP\nint x;\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Cpp);
 }
 
 // ---- 追加エッジケース ----
@@ -1767,40 +1767,40 @@ TEST(Syntax, ParserExtractsLanguageGo)
 {
     auto nodes = ParseMarkdown("```go\nfunc main() {}\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Go);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Go);
 }
 
 TEST(Syntax, ParserExtractsLanguageTs)
 {
     auto nodes = ParseMarkdown("```typescript\nconst x: number = 1;\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::TypeScript);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::TypeScript);
 }
 
 TEST(Syntax, ParserExtractsLanguageBash)
 {
     auto nodes = ParseMarkdown("```bash\necho hello\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Bash);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Bash);
 }
 
 TEST(Syntax, ParserExtractsLanguagePwsh)
 {
     auto nodes = ParseMarkdown("```powershell\nWrite-Host hello\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::PowerShell);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::PowerShell);
 }
 
 TEST(Syntax, ParserExtractsLanguageCmd)
 {
     auto nodes = ParseMarkdown("```cmd\necho hello\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cmd);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Cmd);
 }
 
 TEST(Syntax, ParserExtractsLanguageJson)
 {
     auto nodes = ParseMarkdown("```json\n{\"k\": 1}\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Json);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Json);
 }

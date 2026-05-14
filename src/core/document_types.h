@@ -17,10 +17,12 @@
 #include "text_types.h"
 #include "utility.h"
 
-// Node::runs / TableCell::runs の型エイリアス。SBO=4 で大半のノード (run < 4 が中央値)
-// で動的確保ゼロ。SBO を超えた場合のみ操作 new_delete に確保する (synchronized_pool を
-// 経由しないため、parse 時のロック取得を Node 数だけ削減できる)。
-using TextRunList = mendo::small_vector<TextRun, 4>;
+// Node::runs / TableCell::runs の型エイリアス。SBO=2 で size=1 (実測中央値) のノード 65%
+// を完全 inline 保持しつつ、Node 直下の 8B 削減と Paragraph/BlockQuote (中央値 4) の
+// heap fallback を許容する設計。example/test.md 実測ヒット率 75.8% (テキスト系のみ)。
+// SBO を超えた場合のみ operator new_delete に確保する (synchronized_pool を経由しないため、
+// parse 時のロック取得を Node 数だけ削減できる)。
+using TextRunList = mendo::small_vector<TextRun, 2>;
 
 enum class NodeType : uint8_t {
     Heading,
@@ -139,19 +141,41 @@ struct NodeTableData {
     }
 };
 
+// Heading 固有データ。anchor_id は外部 heap 持ちで variant alternative サイズを 16B に抑える。
+// 持たない alternative (Paragraph 等) では確保しないため、Heading 以外でのオーバーヘッドは無い。
 struct NodeHeadingData {
-    std::pmr::string anchor_id; // 内部リンク向けGitHubスタイルのスラグ
+    mendo::pmr_unique_ptr<std::pmr::string> anchor_id;
+    int8_t heading_level = 0;
 };
 
+// CodeBlock 固有データ。tokens は外部 heap 持ちで variant alternative サイズを 16B に抑える。
 struct NodeCodeData {
-    std::pmr::vector<SyntaxToken> syntax_tokens;
+    mendo::pmr_unique_ptr<std::pmr::vector<SyntaxToken>> tokens;
+    SyntaxLanguage code_language = SyntaxLanguage::None;
 };
+
+// ListItem / TaskListItem 固有データ。
+struct NodeListData {
+    int32_t list_number = 0;   // 0 = 順序なし, >0 = 順序付きリスト番号
+    bool task_checked = false; // TaskListItem のときのみ意味を持つ
+};
+
+// BlockQuote 本体の alert 情報。alert_type は同一 blockquote_group の後続ノードにも
+// 伝播するため Node 直下に置く (parser.cpp:DetectAlertAt 参照)。
+// alert_label_length は BlockQuote 本体だけが持つラベル長で variant 内に閉じ込められる。
+struct NodeAlertData {
+    uint32_t alert_label_length = 0;
+};
+
+// Tableノードのみが確保。pmr_unique_ptr の単独 alternative として variant に乗せる。
+using NodeTablePtr = mendo::pmr_unique_ptr<NodeTableData>;
 
 struct NodeImageData {
     std::pmr::string src; // 画像ソースパス（Markdown内の記述）
     float width = 0.0f;   // 元画像の幅（ピクセル）
     float height = 0.0f;  // 元画像の高さ（ピクセル）
 };
+using NodeImagePtr = mendo::pmr_unique_ptr<NodeImageData>;
 
 // Node::source_offset が未設定であることを示すセンチネル値。
 // HorizontalRule のようなテキストを持たないノードはオフセットを記録しない。
@@ -160,25 +184,26 @@ inline constexpr uint32_t kUnsetSourceOffset = std::numeric_limits<uint32_t>::ma
 struct Node {
     TextRunList runs;
 
-    // Table と Image のデータは Node 全体の少数派 (画像/表のあるノードのみ) なので、
-    // variant に詰め込むと最大 alternative である NodeImageData が全 Node の sizeof を支配する。
-    // pmr_unique_ptr で外出しすると variant 上限が下がり、持たないノードは null pointer の
-    // オーバーヘッドだけで済む。PmrDefaultDeleter (ステートレス) が pmr default_resource に
-    // 自動返却するため Node 自身は copy/move/dtor の手書き不要 (= スマートポインタメンバの
-    // 存在で Node は move-only になる)。
-    // Parser invariant: type == NodeType::Table のとき table_ != nullptr。MeasureTable や
-    // HitTestTable は type 判定だけで table_data() を参照するため、parser はテーブル開始時に
-    // 必ず ensure_table() を呼ぶこと。
-    mendo::pmr_unique_ptr<NodeTableData> table_;
-    mendo::pmr_unique_ptr<NodeImageData> image_;
-
     // リンク URL の集合。リンクを含むノードでのみ確保される。
     // Why: `Node::runs` が link_url_index で参照する URL テーブル。リンクを持つノードは
     // 全体の少数派 (見出し/段落の一部) なので、空時は 8B ポインタ 1 本に抑える。
     mendo::pmr_unique_ptr<std::pmr::vector<std::pmr::string>> link_urls_;
 
-    // ノード種別ごとの拡張データ。Heading/Code のみ variant に格納 (上限 24B + tag 8B = 32B)。
-    using Extra = std::variant<std::monostate, NodeHeadingData, NodeCodeData>;
+    // ノード種別ごとの拡張データ。variant alternative ごとに 16B 以下に抑えてあり、
+    // 上限 16B + tag 8B = 24B で Node 全体のサイズを支配しない。
+    //   - 重データ (anchor_id / tokens / table / image) は pmr_unique_ptr で外出し
+    //   - 小スカラ (heading_level / code_language / list_number / alert_label_length / task_checked)
+    //     は NodeType に対応した alternative 内にまとめる
+    // Parser invariant: 1 つのノードは 1 つの alternative しか持たない (ensure_* は他を破壊する)。
+    using Extra = std::variant<
+        std::monostate,    // Paragraph / HorizontalRule など固有データ無し
+        NodeHeadingData,   // Heading
+        NodeCodeData,      // CodeBlock
+        NodeListData,      // ListItem / TaskListItem
+        NodeAlertData,     // BlockQuote 本体の alert ラベル
+        NodeTablePtr,      // Table
+        NodeImagePtr       // Image
+    >;
     Extra extra;
 
     // 表示テキストの owned バッファ。テキスト加工 (Alert / HTML entity / SOFTBR/BR / display math 昇格 / 表セル等)
@@ -192,8 +217,6 @@ struct Node {
     const char* view_base_ = nullptr;
 
     // --- 4 バイトアライメント ---
-    int32_t list_number = 0;                     // 0 = 順序なし, >0 = 順序付きリスト番号
-    uint32_t alert_label_length = 0;             // ラベル部分の UTF-8 byte 長（描画エフェクト適用範囲）
     uint32_t source_offset = kUnsetSourceOffset; // ソーステキスト内の UTF-8 byte オフセット (view モード時は view 開始位置)
     int32_t blockquote_group = -1;               // 最外側 blockquote 単位のグループID（ネストしてもgroupは共有）
     int32_t line_count = 0;                      // テキスト内の改行数（パース時にカウント済み）
@@ -201,12 +224,9 @@ struct Node {
 
     // --- 1 バイトアライメント ---
     NodeType type = NodeType::Paragraph;
-    bool task_checked = false;
-    AlertType alert_type = AlertType::None;
-    SyntaxLanguage code_language = SyntaxLanguage::None;
+    AlertType alert_type = AlertType::None;        // 同一 blockquote_group 内で伝播するため直下に残す
     int8_t quote_depth = 0;        // 現在の blockquote ネスト深さ（0 = 引用外, 1.. = ネストレベル）
     int8_t quote_outer_indent = 0; // 最外側 blockquote が居る indent_level（バー位置の起点）
-    int8_t heading_level = 0;      // 1〜6（0 = 見出しでない）
     int8_t indent_level = 0;       // リスト/引用のネスト深さ（int8_t の最大値で飽和）
 
     constexpr bool IsViewMode() const noexcept
@@ -231,13 +251,15 @@ struct Node {
         return owned_text_;
     }
 
-    // テーブルは owned_text_ が空で線形化テキストを table_->concat_text に保持する。
+    // テーブルは owned_text_ が空で線形化テキストを table->concat_text に保持する。
     // HitTestTable / OnLButtonDblClk が返す text_pos も concat_text 内のグローバル offset
     // 体系で揃っているため、選択範囲を前提とする抽出側はこちらを使う。
     constexpr std::string_view LinearizedText() const noexcept
     {
-        if (type == NodeType::Table && table_) {
-            return table_->concat_text;
+        if (type == NodeType::Table) {
+            if (const auto* tbl = table_data()) {
+                return tbl->concat_text;
+            }
         }
         return GetText();
     }
@@ -290,14 +312,6 @@ struct Node {
 
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
     // C++23 deducing this で const/非 const を 1 つに集約。
-    constexpr auto* table_data(this auto& self) noexcept
-    {
-        return self.table_.get();
-    }
-    constexpr auto* image_data(this auto& self) noexcept
-    {
-        return self.image_.get();
-    }
     constexpr auto* heading_data(this auto& self) noexcept
     {
         return std::get_if<NodeHeadingData>(&self.extra);
@@ -306,15 +320,38 @@ struct Node {
     {
         return std::get_if<NodeCodeData>(&self.extra);
     }
+    constexpr auto* list_data(this auto& self) noexcept
+    {
+        return std::get_if<NodeListData>(&self.extra);
+    }
+    constexpr auto* alert_data(this auto& self) noexcept
+    {
+        return std::get_if<NodeAlertData>(&self.extra);
+    }
 
-    constexpr bool has_table() const noexcept
+    // table / image は variant に NodePtr (pmr_unique_ptr) を格納する形なので、
+    // alternative の存在 → 内部 unique_ptr の中身、と 2 段で取り出す。
+    constexpr NodeTableData* table_data() noexcept
     {
-        return static_cast<bool>(table_);
+        auto* p = std::get_if<NodeTablePtr>(&extra);
+        return p ? p->get() : nullptr;
     }
-    constexpr bool has_image() const noexcept
+    constexpr const NodeTableData* table_data() const noexcept
     {
-        return static_cast<bool>(image_);
+        const auto* p = std::get_if<NodeTablePtr>(&extra);
+        return p ? p->get() : nullptr;
     }
+    constexpr NodeImageData* image_data() noexcept
+    {
+        auto* p = std::get_if<NodeImagePtr>(&extra);
+        return p ? p->get() : nullptr;
+    }
+    constexpr const NodeImageData* image_data() const noexcept
+    {
+        const auto* p = std::get_if<NodeImagePtr>(&extra);
+        return p ? p->get() : nullptr;
+    }
+
     constexpr bool has_heading() const noexcept
     {
         return std::holds_alternative<NodeHeadingData>(extra);
@@ -323,41 +360,116 @@ struct Node {
     {
         return std::holds_alternative<NodeCodeData>(extra);
     }
+    constexpr bool has_list() const noexcept
+    {
+        return std::holds_alternative<NodeListData>(extra);
+    }
+    constexpr bool has_alert() const noexcept
+    {
+        return std::holds_alternative<NodeAlertData>(extra);
+    }
+    constexpr bool has_table() const noexcept
+    {
+        return std::holds_alternative<NodeTablePtr>(extra);
+    }
+    constexpr bool has_image() const noexcept
+    {
+        return std::holds_alternative<NodeImagePtr>(extra);
+    }
 
     // ensure_*: 既に存在すれば内部参照、無ければ新規確保して返す。
-    constexpr NodeTableData* ensure_table()
-    {
-        if (!table_) {
-            table_ = mendo::MakePmrUnique<NodeTableData>();
-        }
-        return table_.get();
-    }
-    constexpr NodeImageData* ensure_image()
-    {
-        if (!image_) {
-            image_ = mendo::MakePmrUnique<NodeImageData>();
-        }
-        return image_.get();
-    }
-    constexpr NodeHeadingData* ensure_heading()
+    // 既存 alternative がある状態で別種の ensure_* を呼ぶと、それは破棄される (variant の emplace 動作)。
+    // parser は BeginNode 直後に 1 種類だけ ensure する規約。
+    NodeHeadingData* ensure_heading()
     {
         if (!has_heading()) {
             return &extra.emplace<NodeHeadingData>();
         }
         return std::get_if<NodeHeadingData>(&extra);
     }
-    constexpr NodeCodeData* ensure_code()
+    NodeCodeData* ensure_code()
     {
         if (!has_code()) {
             return &extra.emplace<NodeCodeData>();
         }
         return std::get_if<NodeCodeData>(&extra);
     }
+    NodeListData* ensure_list()
+    {
+        if (!has_list()) {
+            return &extra.emplace<NodeListData>();
+        }
+        return std::get_if<NodeListData>(&extra);
+    }
+    NodeAlertData* ensure_alert()
+    {
+        if (!has_alert()) {
+            return &extra.emplace<NodeAlertData>();
+        }
+        return std::get_if<NodeAlertData>(&extra);
+    }
+    NodeTableData* ensure_table()
+    {
+        if (!has_table()) {
+            extra.emplace<NodeTablePtr>(mendo::MakePmrUnique<NodeTableData>());
+        }
+        return std::get_if<NodeTablePtr>(&extra)->get();
+    }
+    NodeImageData* ensure_image()
+    {
+        if (!has_image()) {
+            extra.emplace<NodeImagePtr>(mendo::MakePmrUnique<NodeImageData>());
+        }
+        return std::get_if<NodeImagePtr>(&extra)->get();
+    }
+
+    // 互換 inline getter: 旧メンバ直アクセスのコールサイトを 1 文字差分で置換可能にする。
+    // 該当 alternative を持たないノードではデフォルト値 (0 / None / false) を返す。
+    constexpr int8_t heading_level() const noexcept
+    {
+        const auto* hd = heading_data();
+        return hd ? hd->heading_level : static_cast<int8_t>(0);
+    }
+    constexpr SyntaxLanguage code_language() const noexcept
+    {
+        const auto* cd = code_data();
+        return cd ? cd->code_language : SyntaxLanguage::None;
+    }
+    constexpr int32_t list_number() const noexcept
+    {
+        const auto* ld = list_data();
+        return ld ? ld->list_number : 0;
+    }
+    constexpr bool task_checked() const noexcept
+    {
+        const auto* ld = list_data();
+        return ld && ld->task_checked;
+    }
+    constexpr uint32_t alert_label_length() const noexcept
+    {
+        const auto* ad = alert_data();
+        return ad ? ad->alert_label_length : 0u;
+    }
 
     constexpr std::string_view anchor_id() const noexcept
     {
         const auto* hd = heading_data();
-        return hd ? std::string_view{ hd->anchor_id } : std::string_view{};
+        if (hd && hd->anchor_id) {
+            return std::string_view{ *hd->anchor_id };
+        }
+        return std::string_view{};
+    }
+
+    // anchor_id は pmr_unique_ptr<pmr::string> で外出しされているため、書き込み時は
+    // ensure_heading() → pmr_unique_ptr の lazy 確保 → 内側 string の操作と 3 段になる。
+    // ホットパスではないが parser と test で 3 回繰り返したくないため helper に集約する。
+    std::pmr::string& ensure_anchor_id_mut()
+    {
+        auto* hd = ensure_heading();
+        if (!hd->anchor_id) {
+            hd->anchor_id = mendo::MakePmrUnique<std::pmr::string>();
+        }
+        return *hd->anchor_id;
     }
 
     constexpr std::pmr::vector<std::pmr::string>& ensure_link_urls()
@@ -374,15 +486,19 @@ struct Node {
 
     const std::pmr::vector<SyntaxToken>& syntax_tokens() const noexcept
     {
-        if (const auto* cd = code_data()) {
-            return cd->syntax_tokens;
+        if (const auto* cd = code_data(); cd && cd->tokens) {
+            return *cd->tokens;
         }
         static const std::pmr::vector<SyntaxToken> empty;
         return empty;
     }
-    constexpr std::pmr::vector<SyntaxToken>& syntax_tokens_mut() noexcept
+    std::pmr::vector<SyntaxToken>& syntax_tokens_mut() noexcept
     {
-        return ensure_code()->syntax_tokens;
+        auto* cd = ensure_code();
+        if (!cd->tokens) {
+            cd->tokens = mendo::MakePmrUnique<std::pmr::vector<SyntaxToken>>();
+        }
+        return *cd->tokens;
     }
 
 private:
@@ -394,8 +510,12 @@ private:
     }
 };
 
+// 将来の小フィールド追加用に 8B の余裕を持たせた上限。超過時は variant alternative の
+// サイズ再分配または TextRunList の SBO 値を再検討する。
+static_assert(sizeof(Node) <= 152, "Node size regression: exceeded 152 bytes");
+
 // CodeBlock かつ非 Diagram 言語。ブロック横スクロール対象判定で頻出する組合せ。
 constexpr bool IsScrollableCodeBlock(const Node& node) noexcept
 {
-    return node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language);
+    return node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language());
 }

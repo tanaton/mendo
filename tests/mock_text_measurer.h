@@ -33,7 +33,7 @@ public:
         }
 
         // ダイアグラム系コードブロック: 実装と同じく既存の高さを保持する
-        if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language)) {
+        if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())) {
             if (entry.height <= 0) {
                 entry.height = 60.0f; // プレースホルダー高さ
             }

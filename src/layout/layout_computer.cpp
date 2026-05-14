@@ -47,7 +47,7 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     switch (node.type) {
     case NodeType::Heading:
         // h1/h2 は下線を描くため、下線と次行の余白を確保すべく大きめの値を返す。
-        return (node.heading_level <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
+        return (node.heading_level() <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
     case NodeType::CodeBlock:
     case NodeType::Image:
         return theme.paragraph_spacing + theme.code_block_spacing_above;
@@ -99,7 +99,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
     const float line_height = theme.font_size_body * 1.5f;
     switch (node.type) {
     case NodeType::Heading: {
-        const int level = std::clamp(static_cast<int>(node.heading_level), 1, 6) - 1;
+        const int level = std::clamp(static_cast<int>(node.heading_level()), 1, 6) - 1;
         return theme.font_size_h[level] * 1.5f;
     }
     case NodeType::CodeBlock: {
@@ -163,7 +163,7 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     // ダイアグラム系コードブロックの高さは描画完了時にビットマップ実寸で確定する。
     // テキスト基準の EstimateNodeHeight で上書きすると描画時に bitmap が後続ノードへ
     // はみ出すため既存値を維持する。
-    if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language)) {
+    if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())) {
         return false;
     }
     // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。

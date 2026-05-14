@@ -412,7 +412,7 @@ void MermaidRenderer::RequestRender(
     float max_width, bool dark_mode,
     Callback on_complete)
 {
-    if (!IsDiagramLanguage(node.code_language)) {
+    if (!IsDiagramLanguage(node.code_language())) {
         return;
     }
 
@@ -578,7 +578,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     std::pmr::wstring src_text_wide;
     string_convert::Utf8ToWide(src_node.GetText(), src_text_wide);
     const std::wstring_view src_text = src_text_wide;
-    if (src_node.code_language == SyntaxLanguage::LatexMath) {
+    if (src_node.code_language() == SyntaxLanguage::LatexMath) {
         code_storage = mermaid_util::BuildLatexFlowchartCode(src_text);
         code_view = code_storage;
     }

@@ -1,10 +1,15 @@
 #include <gtest/gtest.h>
 #include "document.h"
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <numeric>
+#include <ranges>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -219,6 +224,179 @@ TEST(ViewStats, SimpleParagraphIsViewed)
             std::cout << "  paragraph is_view=" << n.IsViewMode()
                       << ", text.size()=" << n.GetText().size() << "\n";
         }
+    }
+}
+
+// Node::runs (small_vector<TextRun, N>) の SBO 値が妥当かを test.md で計測する。
+// 各ノードの runs.size() ヒストグラムと、SBO=1..8 での hit 率を出力する。
+TEST(ViewStats, RunsSizeHistogramTestMd)
+{
+    auto bytes = ReadFileBytes("example/test.md");
+    if (bytes.empty()) {
+        GTEST_SKIP() << "example/test.md not found";
+    }
+    auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
+
+    // 個別バケット (0..10) と 11+ ひとまとめ。
+    std::array<size_t, 12> buckets{};
+    size_t total = 0;
+    size_t total_runs = 0;
+    size_t max_runs = 0;
+    for (const auto& n : doc.GetNodes()) {
+        const auto sz = n.runs.size();
+        total++;
+        total_runs += sz;
+        max_runs = std::max(max_runs, static_cast<size_t>(sz));
+        const size_t idx = std::min<size_t>(sz, 11);
+        buckets[idx]++;
+    }
+
+    auto pct = [&](size_t n) {
+        return total > 0 ? (100.0 * n / total) : 0.0;
+    };
+
+    std::cout << "=== runs.size() histogram (test.md, all NodeTypes) ===\n";
+    std::cout << "  total nodes: " << total << ", total runs: " << total_runs
+              << ", avg: " << (total > 0 ? static_cast<double>(total_runs) / total : 0.0)
+              << ", max: " << max_runs << "\n";
+    for (size_t i = 0; i <= 10; ++i) {
+        std::cout << "  size=" << i << ": " << buckets[i] << " nodes (" << pct(buckets[i]) << "%)\n";
+    }
+    std::cout << "  size>=11: " << buckets[11] << " nodes (" << pct(buckets[11]) << "%)\n";
+
+    // SBO=N で SBO 内に収まるノード割合 (N 以下)
+    auto cumulative_le = [&](size_t n) {
+        size_t s = 0;
+        for (size_t i = 0; i <= std::min<size_t>(n, 11); ++i) {
+            s += buckets[i];
+        }
+        return s;
+    };
+    std::cout << "=== SBO hit rate (size <= N) ===\n";
+    for (size_t sbo : { 1u, 2u, 3u, 4u, 6u, 8u }) {
+        const size_t hit = cumulative_le(sbo);
+        std::cout << "  SBO=" << sbo << ": hit " << hit << " / " << total
+                  << " (" << pct(hit) << "%), miss " << (total - hit)
+                  << " (" << pct(total - hit) << "%)\n";
+    }
+
+    EXPECT_GT(total, 0u);
+}
+
+// runs を実際に使うノード型 (Heading/Paragraph/ListItem/BlockQuote/TaskListItem) に絞った
+// 分布。Table/Image/HR/CodeBlock は runs が常に空に近いので統計を歪める。
+TEST(ViewStats, RunsSizeHistogramTextNodesOnly)
+{
+    auto bytes = ReadFileBytes("example/test.md");
+    if (bytes.empty()) {
+        GTEST_SKIP() << "example/test.md not found";
+    }
+    auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
+
+    auto is_text_node = [](NodeType t) {
+        return t == NodeType::Heading || t == NodeType::Paragraph || t == NodeType::ListItem ||
+               t == NodeType::BlockQuote || t == NodeType::TaskListItem;
+    };
+
+    std::array<size_t, 12> buckets{};
+    size_t total = 0;
+    size_t total_runs = 0;
+    size_t max_runs = 0;
+    for (const auto& n : doc.GetNodes()) {
+        if (!is_text_node(n.type)) {
+            continue;
+        }
+        const auto sz = n.runs.size();
+        total++;
+        total_runs += sz;
+        max_runs = std::max(max_runs, static_cast<size_t>(sz));
+        const size_t idx = std::min<size_t>(sz, 11);
+        buckets[idx]++;
+    }
+
+    auto pct = [&](size_t n) {
+        return total > 0 ? (100.0 * n / total) : 0.0;
+    };
+
+    std::cout << "=== runs.size() histogram (test.md, text nodes only) ===\n";
+    std::cout << "  total text nodes: " << total << ", total runs: " << total_runs
+              << ", avg: " << (total > 0 ? static_cast<double>(total_runs) / total : 0.0)
+              << ", max: " << max_runs << "\n";
+    for (size_t i = 0; i <= 10; ++i) {
+        std::cout << "  size=" << i << ": " << buckets[i] << " nodes (" << pct(buckets[i]) << "%)\n";
+    }
+    std::cout << "  size>=11: " << buckets[11] << " nodes (" << pct(buckets[11]) << "%)\n";
+
+    auto cumulative_le = [&](size_t n) {
+        size_t s = 0;
+        for (size_t i = 0; i <= std::min<size_t>(n, 11); ++i) {
+            s += buckets[i];
+        }
+        return s;
+    };
+    std::cout << "=== SBO hit rate (text nodes, size <= N) ===\n";
+    for (size_t sbo : { 1u, 2u, 3u, 4u, 6u, 8u }) {
+        const size_t hit = cumulative_le(sbo);
+        std::cout << "  SBO=" << sbo << ": hit " << hit << " / " << total
+                  << " (" << pct(hit) << "%), miss " << (total - hit)
+                  << " (" << pct(total - hit) << "%)\n";
+    }
+
+    EXPECT_GT(total, 0u);
+}
+
+// NodeType 別の runs.size() の中央値・平均・最大。
+TEST(ViewStats, RunsSizeBreakdownByNodeType)
+{
+    auto bytes = ReadFileBytes("example/test.md");
+    if (bytes.empty()) {
+        GTEST_SKIP() << "example/test.md not found";
+    }
+    auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
+
+    auto bucket_label = [](NodeType t) -> const char* {
+        switch (t) {
+        case NodeType::Heading:      return "Heading";
+        case NodeType::Paragraph:    return "Paragraph";
+        case NodeType::CodeBlock:    return "CodeBlock";
+        case NodeType::HorizontalRule: return "HR";
+        case NodeType::ListItem:     return "ListItem";
+        case NodeType::BlockQuote:   return "BlockQuote";
+        case NodeType::Table:        return "Table";
+        case NodeType::TaskListItem: return "TaskListItem";
+        case NodeType::Image:        return "Image";
+        }
+        return "?";
+    };
+
+    std::cout << "=== runs.size() per NodeType (test.md) ===\n";
+    std::cout << "  type            | count | sum  | avg  | median | max | sbo4_hit\n";
+    for (NodeType type : { NodeType::Heading, NodeType::Paragraph, NodeType::CodeBlock,
+                           NodeType::ListItem, NodeType::BlockQuote, NodeType::Table,
+                           NodeType::TaskListItem, NodeType::Image, NodeType::HorizontalRule }) {
+        std::vector<size_t> sizes;
+        for (const auto& n : doc.GetNodes()) {
+            if (n.type == type) {
+                sizes.push_back(n.runs.size());
+            }
+        }
+        if (sizes.empty()) {
+            continue;
+        }
+        std::sort(sizes.begin(), sizes.end());
+        const size_t sum = std::accumulate(sizes.begin(), sizes.end(), size_t{ 0 });
+        const size_t median = sizes[sizes.size() / 2];
+        const size_t max_v = sizes.back();
+        const size_t sbo4_hit = std::ranges::count_if(sizes, [](size_t s) { return s <= 4; });
+        const double avg = static_cast<double>(sum) / sizes.size();
+        const double sbo4_pct = 100.0 * sbo4_hit / sizes.size();
+        std::cout << "  " << bucket_label(type)
+                  << " | count=" << sizes.size()
+                  << " sum=" << sum
+                  << " avg=" << avg
+                  << " median=" << median
+                  << " max=" << max_v
+                  << " sbo4_hit=" << sbo4_hit << " (" << sbo4_pct << "%)\n";
     }
 }
 

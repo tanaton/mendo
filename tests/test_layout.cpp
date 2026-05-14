@@ -565,7 +565,7 @@ TEST(RecomputeYPositionsTest, HeadingSpacing)
 
     Node heading;
     heading.type = NodeType::Heading;
-    heading.heading_level = 3; // h3はheading_spacing_below（下線なし）を使う
+    heading.ensure_heading()->heading_level = 3; // h3はheading_spacing_below（下線なし）を使う
 
     Node para2;
     para2.type = NodeType::Paragraph;
@@ -603,14 +603,14 @@ TEST(RecomputeYPositionsTest, H1H2UseLargerSpacingBelow)
     // h3以降は heading_spacing_below が使われることを検証する。
     Node h1;
     h1.type = NodeType::Heading;
-    h1.heading_level = 1;
+    h1.ensure_heading()->heading_level = 1;
 
     Node p1;
     p1.type = NodeType::Paragraph;
 
     Node h3;
     h3.type = NodeType::Heading;
-    h3.heading_level = 3;
+    h3.ensure_heading()->heading_level = 3;
 
     Node p2;
     p2.type = NodeType::Paragraph;
@@ -871,11 +871,11 @@ TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing)
     Theme theme = GetLightTheme();
     Node heading_a;
     heading_a.type = NodeType::Heading;
-    heading_a.heading_level = 3;
+    heading_a.ensure_heading()->heading_level = 3;
 
     Node heading_b;
     heading_b.type = NodeType::Heading;
-    heading_b.heading_level = 3;
+    heading_b.ensure_heading()->heading_level = 3;
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(heading_a));
@@ -1323,12 +1323,12 @@ TEST(EstimateNodeHeightsTest, HeadingHeightScalesWithLevel)
     // H1とH3を推定して、H1の方が高いことを確認
     Node h1;
     h1.type = NodeType::Heading;
-    h1.heading_level = 1;
+    h1.ensure_heading()->heading_level = 1;
     h1.SetText("Title");
 
     Node h3;
     h3.type = NodeType::Heading;
-    h3.heading_level = 3;
+    h3.ensure_heading()->heading_level = 3;
     h3.SetText("Title");
 
     std::pmr::vector<Node> nodes;
@@ -1497,7 +1497,7 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
         n.type = type;
         n.SetText(text);
         if (type == NodeType::Heading) {
-            n.heading_level = 2;
+            n.ensure_heading()->heading_level = 2;
         }
         if (type == NodeType::Table) {
             n.ensure_table();
@@ -1597,7 +1597,7 @@ TEST(RecomputeYPositionsTest, DISABLED_BenchLargeDocument)
         switch (i % 5) {
         case 0:
             nodes[i].type = NodeType::Heading;
-            nodes[i].heading_level = 2;
+            nodes[i].ensure_heading()->heading_level = 2;
             break;
         case 1:
             nodes[i].type = NodeType::Paragraph;
