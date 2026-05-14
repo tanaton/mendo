@@ -394,17 +394,18 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_LI: {
         auto* const li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
-        if (li->is_task) {
-            ctx->BeginNode(NodeType::TaskListItem);
-            ctx->current_node->ensure_list()->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
-        }
-        else {
-            ctx->BeginNode(NodeType::ListItem);
-        }
-        if (!ctx->list_counter.empty()) {
-            const int counter = ctx->list_counter.back();
-            ctx->current_node->ensure_list()->list_number = counter;
+        const bool is_task = li->is_task;
+        ctx->BeginNode(is_task ? NodeType::TaskListItem : NodeType::ListItem);
+        // counter==0 (unordered list) かつ非 task のときは NodeListData を確保しない
+        // (デフォルト値 list_number=0 / task_checked=false が getter で返るため)。
+        const int counter = ctx->list_counter.empty() ? 0 : ctx->list_counter.back();
+        if (is_task || counter > 0) {
+            auto* ld = ctx->current_node->ensure_list();
+            if (is_task) {
+                ld->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
+            }
             if (counter > 0) {
+                ld->list_number = counter;
                 ctx->list_counter.back()++;
             }
         }

@@ -337,10 +337,8 @@ void DWriteTextMeasurer::MeasureNode(
     // コードブロックのシンタックストークン化をレイアウトパスで事前実行する。
     // 描画パス（ApplyNodeEffects）での遅延トークン化を排除し、フレーム落ちを防止する。
     if (node.type == NodeType::CodeBlock) {
-        const auto* cd = node.code_data();
-        const auto lang = cd ? cd->code_language : SyntaxLanguage::None;
-        const bool tokens_empty = !cd || !cd->tokens || cd->tokens->empty();
-        if (tokens_empty && lang != SyntaxLanguage::None && !IsDiagramLanguage(lang)) {
+        const auto lang = node.code_language();
+        if (lang != SyntaxLanguage::None && !IsDiagramLanguage(lang) && node.syntax_tokens().empty()) {
             if (tokens_out != nullptr) {
                 *tokens_out = Tokenize(text, lang);
             }

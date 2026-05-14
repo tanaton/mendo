@@ -141,33 +141,29 @@ struct NodeTableData {
     }
 };
 
-// Heading 固有データ。anchor_id は外部 heap 持ちで variant alternative サイズを 16B に抑える。
-// 持たない alternative (Paragraph 等) では確保しないため、Heading 以外でのオーバーヘッドは無い。
+// Heading 固有データ。anchor_id は外部 heap 持ちにすることで variant alternative を 16B に抑える。
 struct NodeHeadingData {
     mendo::pmr_unique_ptr<std::pmr::string> anchor_id;
     int8_t heading_level = 0;
 };
 
-// CodeBlock 固有データ。tokens は外部 heap 持ちで variant alternative サイズを 16B に抑える。
+// CodeBlock 固有データ。tokens は外部 heap 持ちにすることで variant alternative を 16B に抑える。
 struct NodeCodeData {
     mendo::pmr_unique_ptr<std::pmr::vector<SyntaxToken>> tokens;
     SyntaxLanguage code_language = SyntaxLanguage::None;
 };
 
-// ListItem / TaskListItem 固有データ。
 struct NodeListData {
     int32_t list_number = 0;   // 0 = 順序なし, >0 = 順序付きリスト番号
     bool task_checked = false; // TaskListItem のときのみ意味を持つ
 };
 
-// BlockQuote 本体の alert 情報。alert_type は同一 blockquote_group の後続ノードにも
-// 伝播するため Node 直下に置く (parser.cpp:DetectAlertAt 参照)。
-// alert_label_length は BlockQuote 本体だけが持つラベル長で variant 内に閉じ込められる。
+// alert_type は同一 blockquote_group の後続ノードにも伝播するため Node 直下に置く
+// (parser.cpp:DetectAlertAt 参照)。alert_label_length は BlockQuote 本体専用なので variant 内。
 struct NodeAlertData {
     uint32_t alert_label_length = 0;
 };
 
-// Tableノードのみが確保。pmr_unique_ptr の単独 alternative として variant に乗せる。
 using NodeTablePtr = mendo::pmr_unique_ptr<NodeTableData>;
 
 struct NodeImageData {
@@ -189,11 +185,8 @@ struct Node {
     // 全体の少数派 (見出し/段落の一部) なので、空時は 8B ポインタ 1 本に抑える。
     mendo::pmr_unique_ptr<std::pmr::vector<std::pmr::string>> link_urls_;
 
-    // ノード種別ごとの拡張データ。variant alternative ごとに 16B 以下に抑えてあり、
-    // 上限 16B + tag 8B = 24B で Node 全体のサイズを支配しない。
-    //   - 重データ (anchor_id / tokens / table / image) は pmr_unique_ptr で外出し
-    //   - 小スカラ (heading_level / code_language / list_number / alert_label_length / task_checked)
-    //     は NodeType に対応した alternative 内にまとめる
+    // ノード種別ごとの拡張データ。重データ (anchor_id / tokens / table / image) は pmr_unique_ptr で
+    // 外出しすることで variant alternative の最大サイズを 16B に抑える。
     // Parser invariant: 1 つのノードは 1 つの alternative しか持たない (ensure_* は他を破壊する)。
     using Extra = std::variant<
         std::monostate,    // Paragraph / HorizontalRule など固有データ無し
@@ -380,51 +373,15 @@ struct Node {
     // ensure_*: 既に存在すれば内部参照、無ければ新規確保して返す。
     // 既存 alternative がある状態で別種の ensure_* を呼ぶと、それは破棄される (variant の emplace 動作)。
     // parser は BeginNode 直後に 1 種類だけ ensure する規約。
-    NodeHeadingData* ensure_heading()
-    {
-        if (!has_heading()) {
-            return &extra.emplace<NodeHeadingData>();
-        }
-        return std::get_if<NodeHeadingData>(&extra);
-    }
-    NodeCodeData* ensure_code()
-    {
-        if (!has_code()) {
-            return &extra.emplace<NodeCodeData>();
-        }
-        return std::get_if<NodeCodeData>(&extra);
-    }
-    NodeListData* ensure_list()
-    {
-        if (!has_list()) {
-            return &extra.emplace<NodeListData>();
-        }
-        return std::get_if<NodeListData>(&extra);
-    }
-    NodeAlertData* ensure_alert()
-    {
-        if (!has_alert()) {
-            return &extra.emplace<NodeAlertData>();
-        }
-        return std::get_if<NodeAlertData>(&extra);
-    }
-    NodeTableData* ensure_table()
-    {
-        if (!has_table()) {
-            extra.emplace<NodeTablePtr>(mendo::MakePmrUnique<NodeTableData>());
-        }
-        return std::get_if<NodeTablePtr>(&extra)->get();
-    }
-    NodeImageData* ensure_image()
-    {
-        if (!has_image()) {
-            extra.emplace<NodeImagePtr>(mendo::MakePmrUnique<NodeImageData>());
-        }
-        return std::get_if<NodeImagePtr>(&extra)->get();
-    }
+    NodeHeadingData* ensure_heading() { return EnsureAlt<NodeHeadingData>(); }
+    NodeCodeData* ensure_code() { return EnsureAlt<NodeCodeData>(); }
+    NodeListData* ensure_list() { return EnsureAlt<NodeListData>(); }
+    NodeAlertData* ensure_alert() { return EnsureAlt<NodeAlertData>(); }
+    NodeTableData* ensure_table() { return EnsurePtrAlt<NodeTablePtr>(); }
+    NodeImageData* ensure_image() { return EnsurePtrAlt<NodeImagePtr>(); }
 
-    // 互換 inline getter: 旧メンバ直アクセスのコールサイトを 1 文字差分で置換可能にする。
-    // 該当 alternative を持たないノードではデフォルト値 (0 / None / false) を返す。
+    // 該当 alternative を持たないノードでは黙ってデフォルト値 (0 / None / false) を返す。
+    // 呼び出し側は必要に応じて type を先に判定すること (Heading 以外で heading_level() が 0 を返すなど)。
     constexpr int8_t heading_level() const noexcept
     {
         const auto* hd = heading_data();
@@ -460,9 +417,8 @@ struct Node {
         return std::string_view{};
     }
 
-    // anchor_id は pmr_unique_ptr<pmr::string> で外出しされているため、書き込み時は
-    // ensure_heading() → pmr_unique_ptr の lazy 確保 → 内側 string の操作と 3 段になる。
-    // ホットパスではないが parser と test で 3 回繰り返したくないため helper に集約する。
+    // anchor_id は pmr_unique_ptr<pmr::string> で外出しされているため書き込みが 3 段になる。
+    // parser と test での重複を避けるため helper に集約する。
     std::pmr::string& ensure_anchor_id_mut()
     {
         auto* hd = ensure_heading();
@@ -508,11 +464,30 @@ private:
         view_length = 0;
         view_base_ = nullptr;
     }
+
+    template <class T>
+    T* EnsureAlt()
+    {
+        if (auto* p = std::get_if<T>(&extra)) {
+            return p;
+        }
+        return &extra.emplace<T>();
+    }
+
+    template <class Ptr>
+    auto* EnsurePtrAlt()
+    {
+        using T = typename Ptr::element_type;
+        auto* p = std::get_if<Ptr>(&extra);
+        if (!p) {
+            p = &extra.emplace<Ptr>(mendo::MakePmrUnique<T>());
+        }
+        return p->get();
+    }
 };
 
-// 将来の小フィールド追加用に 8B の余裕を持たせた上限。超過時は variant alternative の
-// サイズ再分配または TextRunList の SBO 値を再検討する。
-static_assert(sizeof(Node) <= 152, "Node size regression: exceeded 152 bytes");
+// 超過時は variant alternative のサイズ再分配または TextRunList の SBO 値を再検討する。
+static_assert(sizeof(Node) <= 144, "Node size regression: exceeded 144 bytes");
 
 // CodeBlock かつ非 Diagram 言語。ブロック横スクロール対象判定で頻出する組合せ。
 constexpr bool IsScrollableCodeBlock(const Node& node) noexcept
