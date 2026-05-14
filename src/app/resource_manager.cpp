@@ -217,6 +217,12 @@ int ResourceManager::RequestMermaidRenders()
         slice = VisibleSlice(diagram_indices, vr.first, vr.last_plus_1);
     }
 
+    // 同期キャッシュヒットの度に OnMermaidRenderComplete が recompute_layout_anchored を
+    // 発火するのを抑止し、ループ後にまとめて 1 回だけ呼ぶ。nested 呼び出し
+    // (FlushPendingResources 経由) では外側が責任を持つよう save+restore する。
+    const bool outer_batch = mermaid_batch_loading_;
+    mermaid_batch_loading_ = true;
+
     int applied = 0;
     for (auto it = slice.begin; it != slice.end; ++it) {
         const size_t i = *it;
@@ -230,6 +236,13 @@ int ResourceManager::RequestMermaidRenders()
         if (diagram.bitmap) {
             ++applied;
         }
+    }
+
+    mermaid_batch_loading_ = outer_batch;
+
+    if (!outer_batch && applied > 0) {
+        pending_flush_ = true;
+        cb_.recompute_layout_anchored();
     }
     return applied;
 }
