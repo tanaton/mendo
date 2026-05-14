@@ -1113,6 +1113,31 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
+// issue#224: 末尾セクションへのジャンプで scroll_y が max_scroll を超えると、
+// その後のホイールスクロールで位置が一気に補正されて「飛ぶ」体感になる。
+// ApplyScrollTargetAndEmit が事前クランプする契約を担保する。
+TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("# First\n\n# Second\n\n# Tail"), L"C:\\file.md");
+
+    auto& cache = state.document.layout_cache;
+    const auto& nodes = state.document.doc.GetNodes();
+    cache.Resize(nodes.size());
+    // 末尾見出しを max_scroll (= 500) より遥か下に配置 → ペイン上端へ持ってくると要求 scroll_y > max_scroll
+    const int tail = static_cast<int>(nodes.size()) - 1;
+    cache[tail].text_top = 900.0f;
+
+    const auto anchor = nodes[tail].anchor_id();
+    if (anchor.empty()) {
+        GTEST_SKIP() << "anchor_id が空のため検証できない";
+    }
+
+    Reduce(state, TocItemClickedAction{ std::pmr::string(anchor) });
+
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.view.viewport.GetMaxScroll());
+    EXPECT_FALSE(state.view.viewport.HasScrollTarget());
+}
+
 // ---- 副作用順序ヘルパーの利用例 (test_helpers.h::HasEffectInOrder) ----
 // EmitScrollEffects は InvalidateWindow → BitmapManage の順で push する契約。
 // 順序が逆転すると BitmapManage 側が古い viewport で動くなどの実害があるため、

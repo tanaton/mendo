@@ -55,6 +55,9 @@ void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node
 {
     state.view.viewport.SetScrollTarget(node, offset);
     state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
+    // 末尾セクションへのジャンプで scroll_y > max_scroll になると、後続の DirectScrollBy で
+    // 位置が一気に飛ぶ。事前クランプ + target 無効化で範囲外への復帰を抑える。
+    state.view.viewport.ClampAndDetach();
     state.interaction.hover_throttle.Reset();
     ClearTooltip(state, effects);
     PushEffect(effects, effect::InvalidateWindow{});

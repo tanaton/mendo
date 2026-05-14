@@ -47,6 +47,13 @@ public:
         scroll_target_ = {};
     }
 
+    // 現在の scroll_y を [0, max_scroll] にクランプし、scroll_target を無効化する。
+    // ApplyScrollTarget 直後に「以降のレイアウト変化で範囲外へ戻らない」確定処理として使う。
+    constexpr void ClampAndDetach() noexcept
+    {
+        ScrollTo(scroll_y_);
+    }
+
     // ユーザー発のピクセルスクロール。scroll_target を無効化する。
     constexpr void DirectScrollBy(float delta) noexcept
     {
