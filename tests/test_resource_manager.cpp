@@ -14,6 +14,32 @@
 
 namespace {
 
+// 同期キャッシュヒットをシミュレートするための最小 ID2D1Bitmap スタブ。
+// AddRef/Release は no-op (static instance で寿命管理は不要)。
+class StubD2D1Bitmap : public ID2D1Bitmap {
+public:
+    STDMETHODIMP QueryInterface(REFIID, void**) override { return E_NOTIMPL; }
+    STDMETHODIMP_(ULONG) AddRef() override { return 1; }
+    STDMETHODIMP_(ULONG) Release() override { return 1; }
+    void STDMETHODCALLTYPE GetFactory(ID2D1Factory** factory) const override
+    {
+        if (factory) {
+            *factory = nullptr;
+        }
+    }
+    D2D1_SIZE_F STDMETHODCALLTYPE GetSize() const override { return D2D1_SIZE_F{ 1.0f, 1.0f }; }
+    D2D1_SIZE_U STDMETHODCALLTYPE GetPixelSize() const override { return D2D1_SIZE_U{ 1u, 1u }; }
+    D2D1_PIXEL_FORMAT STDMETHODCALLTYPE GetPixelFormat() const override { return D2D1_PIXEL_FORMAT{}; }
+    void STDMETHODCALLTYPE GetDpi(FLOAT* dpiX, FLOAT* dpiY) const override
+    {
+        if (dpiX) { *dpiX = 96.0f; }
+        if (dpiY) { *dpiY = 96.0f; }
+    }
+    HRESULT STDMETHODCALLTYPE CopyFromBitmap(const D2D1_POINT_2U*, ID2D1Bitmap*, const D2D1_RECT_U*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE CopyFromRenderTarget(const D2D1_POINT_2U*, ID2D1RenderTarget*, const D2D1_RECT_U*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE CopyFromMemory(const D2D1_RECT_U*, const void*, UINT32) override { return E_NOTIMPL; }
+};
+
 // IMermaidRenderer のテスト用 mock。各メソッドの呼び出し回数と最後の引数を記録する。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
@@ -23,15 +49,27 @@ public:
     Node* last_node = nullptr;
     float last_max_width = 0.0f;
     bool last_dark_mode = false;
+    // true のとき RequestRender でディスクキャッシュヒットを模し、同期で bitmap を設定して on_complete を呼ぶ。
+    bool sync_apply_bitmap = false;
 
-    void RequestRender(Node& node, NodeLayoutEntry& /*layout_entry*/,
-        DiagramEntry& /*diagram_entry*/, float max_width, bool dark_mode,
-        Callback /*on_complete*/) override
+    void RequestRender(Node& node, NodeLayoutEntry& layout_entry,
+        DiagramEntry& diagram_entry, float max_width, bool dark_mode,
+        Callback on_complete) override
     {
         request_render_count++;
         last_node = &node;
         last_max_width = max_width;
         last_dark_mode = dark_mode;
+        if (sync_apply_bitmap) {
+            diagram_entry.bitmap = &SharedStubBitmap();
+            diagram_entry.width = 100.0f;
+            diagram_entry.height = 50.0f;
+            layout_entry.height = 50.0f;
+            layout_entry.layout_dirty = false;
+            if (on_complete) {
+                on_complete();
+            }
+        }
     }
 
     void RequestSvg(std::wstring_view /*code*/, float /*max_width*/, bool /*dark_mode*/, SvgCallback callback) override
@@ -43,6 +81,13 @@ public:
 
     void CancelPending() override { cancel_pending_count++; }
     void ClearCache() override { clear_cache_count++; }
+
+private:
+    static StubD2D1Bitmap& SharedStubBitmap() noexcept
+    {
+        static StubD2D1Bitmap instance;
+        return instance;
+    }
 };
 
 // ResourceManager::Callbacks の各呼び出しを観測するための counter。
@@ -277,6 +322,46 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromThemeService)
 
     rm_.RequestMermaidRenders();
     EXPECT_TRUE(mock_mermaid_.last_dark_mode);
+}
+
+// 複数の図がディスクキャッシュにヒットしても、recompute_layout_anchored は per-figure ではなく
+// ループ後にまとめて 1 回しか発火しないことを保証する (issue: 初回ロードで N 回フルスイープ)。
+TEST_F(ResourceManagerTest, RequestMermaidRendersBatchesAnchoredRecomputeAcrossCacheHits)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n\n```mermaid\ngraph TD;E-->F\n```\n");
+    ASSERT_EQ(doc_.GetDiagramNodeIndices().size(), 3u);
+    mock_mermaid_.sync_apply_bitmap = true;
+
+    const int applied = rm_.RequestMermaidRenders();
+    EXPECT_EQ(applied, 3);
+    EXPECT_EQ(mock_mermaid_.request_render_count, 3);
+    EXPECT_EQ(tracker_.recompute_layout_anchored, 1);
+    EXPECT_EQ(tracker_.recompute_layout, 0);
+}
+
+// 同期適用が 0 件なら recompute_layout_anchored は発火しない (ガード正常動作の確認)。
+TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsAnchoredRecomputeWhenNoBitmapApplied)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
+    ASSERT_FALSE(mock_mermaid_.sync_apply_bitmap);
+
+    rm_.RequestMermaidRenders();
+    EXPECT_EQ(tracker_.recompute_layout_anchored, 0);
+    EXPECT_EQ(tracker_.recompute_layout, 0);
+}
+
+// FlushPendingResources 経由 (outer_batch=true) では内側 recompute_layout_anchored は発火せず、
+// 外側 recompute_layout が 1 回だけ呼ばれる。OnBitmapManageTimer がこの経路をトリガする。
+TEST_F(ResourceManagerTest, RequestMermaidRendersInNestedFlushDoesNotFireAnchoredRecompute)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n");
+    ASSERT_EQ(doc_.GetDiagramNodeIndices().size(), 2u);
+    mock_mermaid_.sync_apply_bitmap = true;
+
+    rm_.OnBitmapManageTimer();
+
+    EXPECT_EQ(tracker_.recompute_layout_anchored, 0);
+    EXPECT_EQ(tracker_.recompute_layout, 1);
 }
 
 TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeFiresOnQuantizedWidthShift)
