@@ -450,6 +450,8 @@ void Renderer::DrawLoading(
 
 void Renderer::Render(const RenderParams& p)
 {
+    MENDO_PROFILE("Render");
+
     if (HandleDeviceLost()) {
         return;
     }
@@ -464,18 +466,14 @@ void Renderer::Render(const RenderParams& p)
 
     DrawSidePanes(p.side_panes);
 
-    // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
-    const float viewport_top = p.scroll_y;
-    const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
-
-    const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
     {
-        MENDO_PROFILE("GenerateMdPane");
+        // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
+        const float viewport_top = p.scroll_y;
+        const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
+        const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
         const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale, p.block_h_scroll);
-        {
-            MENDO_PROFILE("CommandExecutor::Execute");
-            cmd_executor_.Execute(cmds, rt(), &fixed_brushes_cache_);
-        }
+
+        cmd_executor_.Execute(cmds, rt(), &fixed_brushes_cache_);
     }
 
     if (p.can_go_back || p.can_go_forward) {
@@ -510,7 +508,6 @@ bool Renderer::CheckEndDraw()
     const HRESULT hr = rt()->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
         RecreateRenderTarget();
-        // 現在のフレームは破棄された — 新しいターゲットで再描画を要求
         InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
         return false;
     }

@@ -197,13 +197,7 @@ void App::OnPaint()
     if (!show_loading) {
         EnsureScrollTarget();
 
-        bool updated;
-        {
-            MENDO_PROFILE("EnsureVisibleLayout");
-            updated = layout_service_->EnsureVisibleLayout(
-                state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
-        }
-
+        const bool updated = layout_service_->EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
         if (updated) {
             EmitEffect(effect::SyncMaxScroll{ layout.md_rect.height });
         }
@@ -224,9 +218,9 @@ void App::OnPaint()
     };
     const SidePaneState sp{
         .panes = {
-            make_side_pane(PaneTarget::File, layout.file_rect, true),
-            make_side_pane(PaneTarget::Toc, layout.toc_rect, false),
-        },
+                  make_side_pane(PaneTarget::File, layout.file_rect, true),
+                  make_side_pane(PaneTarget::Toc, layout.toc_rect, false),
+                  },
         .file_entries = state_.file_explorer.GetEntries(),
         .toc_entries = state_.document.doc.GetToc().GetEntries(),
         .nodes = state_.document.doc.GetNodes(),
@@ -270,10 +264,9 @@ void App::OnPaint()
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
     }
     else {
-        if (state_.search.search_state.IsVisible() && state_.search.search_state.IsHighlightEnabled() && !state_.search.search_state.GetMatches().empty()) {
-            renderer_.SetSearchMatches(&state_.search.search_state.GetMatches(),
-                                       state_.search.search_state.GetCurrentMatchIndex(),
-                                       state_.search.search_state.GetGeneration());
+        auto& ss = state_.search.search_state;
+        if (ss.IsVisible() && ss.IsHighlightEnabled() && !ss.GetMatches().empty()) {
+            renderer_.SetSearchMatches(&ss.GetMatches(), ss.GetCurrentMatchIndex(), ss.GetGeneration());
         }
         else {
             renderer_.SetSearchMatches(nullptr, -1, 0);
@@ -285,20 +278,18 @@ void App::OnPaint()
             state_.document.doc.GetNodesMut(), state_.document.layout_cache,
             state_.view.viewport.GetScrollY(), layout.md_rect.height);
 
-        {
-            MENDO_PROFILE("Renderer::Render");
-            const BlockHScrollContext h_scroll{
-                .scroll_x = &state_.view.block_scroll_x,
-                .hovered_block = state_.view.hovered_h_block,
-                .drag_block = state_.view.h_drag_node,
-            };
-            renderer_.Render({ state_.document.doc.GetNodes(), state_.document.layout_cache,
-                               state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
-                               state_.view.viewport.GetScrollY(), layout_service_->GetTotalHeight(),
-                               std::to_underlying(state_.interaction.nav_hover), state_.interaction.hovered,
-                               state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
-                               layout_service_->HasDirtyNodes(), h_scroll });
-        }
+        const BlockHScrollContext h_scroll{
+            .scroll_x = &state_.view.block_scroll_x,
+            .hovered_block = state_.view.hovered_h_block,
+            .drag_block = state_.view.h_drag_node,
+        };
+        renderer_.Render(
+            { state_.document.doc.GetNodes(), state_.document.layout_cache,
+              state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
+              state_.view.viewport.GetScrollY(), layout_service_->GetTotalHeight(),
+              std::to_underlying(state_.interaction.nav_hover), state_.interaction.hovered,
+              state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
+              layout_service_->HasDirtyNodes(), h_scroll });
     }
 
     EndPaint(hwnd_, &ps);

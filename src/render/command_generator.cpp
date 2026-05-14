@@ -108,6 +108,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     float dpi_scale,
     const BlockHScrollContext& block_h_scroll)
 {
+    MENDO_PROFILE("GenerateMdPane");
     // ムーブ代入で内部 pmr::vector の data ptr を捨ててから arena をリセットする。
     // clear() だけだと dangling な data ptr が残り、次フレームの push_back が
     // arena 上で別系統 allocate と衝突して UAF を起こす。
