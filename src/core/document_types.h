@@ -1,4 +1,5 @@
 #pragma once
+#include <cassert>
 #include <string>
 #include <string_view>
 #include <span>
@@ -381,7 +382,11 @@ struct Node {
     NodeImageData* ensure_image() { return EnsurePtrAlt<NodeImagePtr>(); }
 
     // 該当 alternative を持たないノードでは黙ってデフォルト値 (0 / None / false) を返す。
-    // 呼び出し側は必要に応じて type を先に判定すること (Heading 以外で heading_level() が 0 を返すなど)。
+    //
+    // 規約: ホットパス (全 Node ループ等) では `node.type == NodeType::X && node.foo()` の順で短絡評価し、
+    //       variant タグ比較を skip すること。例: `node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())`、
+    //       `node.alert_type != AlertType::None && node.alert_label_length() > 0`。
+    //       新規アクセサを追加する場合もこの規約に倣い、type で先にゲートできる呼び出し側を維持する。
     constexpr int8_t heading_level() const noexcept
     {
         const auto* hd = heading_data();
@@ -465,12 +470,17 @@ private:
         view_base_ = nullptr;
     }
 
+    // parser 契約: BeginNode 直後の Node は monostate で、対応する 1 種類だけが ensure される。
+    // 異種 alternative を保持した状態で別種を ensure すると元データはサイレントに破棄されるため、
+    // Debug ビルドでは契約違反を assert で捕捉する (Release では noop)。
     template <class T>
     T* EnsureAlt()
     {
         if (auto* p = std::get_if<T>(&extra)) {
             return p;
         }
+        assert(std::holds_alternative<std::monostate>(extra) &&
+               "ensure_*<T>: Node already holds a different alternative — parser contract violation");
         return &extra.emplace<T>();
     }
 
@@ -480,14 +490,20 @@ private:
         using T = typename Ptr::element_type;
         auto* p = std::get_if<Ptr>(&extra);
         if (!p) {
+            assert(std::holds_alternative<std::monostate>(extra) &&
+                   "ensure_*<Ptr>: Node already holds a different alternative — parser contract violation");
             p = &extra.emplace<Ptr>(mendo::MakePmrUnique<T>());
         }
         return p->get();
     }
 };
 
-// 超過時は variant alternative のサイズ再分配または TextRunList の SBO 値を再検討する。
-static_assert(sizeof(Node) <= 144, "Node size regression: exceeded 144 bytes");
+// 超過時の対処: (1) `sizeof(Node)` の実際の値を確認 (例: /d1reportSingleClassLayoutNode)、
+// (2) variant alternative のうち最大のものを pmr_unique_ptr 経由で外出し、または
+// (3) TextRunList の SBO 値を再検討。閾値変更は ViewStats.RunsSizeHistogram* の実測も併せて確認。
+// 注意: variant の discriminator パディングは std lib 実装依存なので、ツールチェーン切替時にも踏む可能性あり。
+static_assert(sizeof(Node) <= 144,
+              "Node size regression: exceeded 144 bytes — see comment above for remediation steps");
 
 // CodeBlock かつ非 Diagram 言語。ブロック横スクロール対象判定で頻出する組合せ。
 constexpr bool IsScrollableCodeBlock(const Node& node) noexcept
