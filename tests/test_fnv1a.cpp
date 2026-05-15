@@ -90,7 +90,7 @@ TEST(Fnv1a64, NoCollisionsOnSmallSet)
     }
 }
 
-TEST(Fnv1a64Update, IdentityWithEmptyMix)
+TEST(Fnv1a64Update, ZeroByteUpdateStillChangesHash)
 {
     // h XOR 0 * prime ≠ h なので、Fnv1a64Update は「empty 文字を append しても何もしない」
     // という性質を持たない (= 入力 0 byte と 0 だけ含む 1 byte 入力は別ハッシュ)。

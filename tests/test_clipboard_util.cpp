@@ -6,7 +6,8 @@
 
 namespace {
 
-// CF_HTML ヘッダのオフセット値 (10 桁ゼロ埋め) をパースする。
+constexpr size_t kCfHtmlOffsetDigits = 10;
+
 size_t ParseOffset(std::string_view payload, std::string_view key)
 {
     const auto pos = payload.find(key);
@@ -16,7 +17,7 @@ size_t ParseOffset(std::string_view payload, std::string_view key)
     const auto digit_start = pos + key.size();
     size_t value = 0;
     auto [_, ec] = std::from_chars(payload.data() + digit_start,
-                                   payload.data() + digit_start + 10, value);
+                                   payload.data() + digit_start + kCfHtmlOffsetDigits, value);
     if (ec != std::errc{}) {
         return std::string_view::npos;
     }
@@ -86,10 +87,9 @@ TEST(BuildCfHtmlPayload, FragmentContentPreservedExactly)
 TEST(BuildCfHtmlPayload, OffsetDigitsAreTenZeroPadded)
 {
     const auto p = BuildCfHtmlPayload("x");
-    // "StartHTML:" の直後 10 文字は数字。
     const auto pos = p.find("StartHTML:");
     ASSERT_NE(pos, std::string::npos);
-    for (size_t i = 0; i < 10; ++i) {
+    for (size_t i = 0; i < kCfHtmlOffsetDigits; ++i) {
         const char c = p[pos + std::string_view{ "StartHTML:" }.size() + i];
         EXPECT_GE(c, '0');
         EXPECT_LE(c, '9');
@@ -116,8 +116,8 @@ TEST(BuildCfHtmlPayload, HtmlBodyWrapperPresent)
 TEST(BuildCfHtmlPayload, LongFragmentOffsetWithinTenDigitRange)
 {
     // 10 桁ゼロ埋めの上限 (10^10 - 1) を fragment 長で踏まないことの確認。
-    // %010zu の桁あふれは fragment 1KB 規模でも検出できるので、サイズは抑える。
-    const std::string fragment(64 * 1024, 'A');
+    // 1KB 規模でも %010zu の桁あふれは検出できる。
+    const std::string fragment(1024, 'A');
     const auto p = BuildCfHtmlPayload(fragment);
     const size_t end_html = ParseOffset(p, "EndHTML:");
     EXPECT_EQ(end_html, p.size());

@@ -184,7 +184,15 @@ public:
         fname += L"_";
         fname += std::to_wstring(reinterpret_cast<uintptr_t>(this));
         path_ = tmp_dir / fname;
-        std::ofstream(path_, std::ios::binary).write(content.data(), static_cast<std::streamsize>(content.size()));
+        std::ofstream f(path_, std::ios::binary);
+        if (!f.is_open()) {
+            ADD_FAILURE() << "Failed to open temp file: " << path_.string();
+            return;
+        }
+        f.write(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!f.good()) {
+            ADD_FAILURE() << "Failed to write temp file: " << path_.string();
+        }
     }
     ~TempFile()
     {

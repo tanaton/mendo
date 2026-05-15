@@ -172,7 +172,7 @@ TEST(ClipboardManager, CopyDiagramAsSvgRequestsRendererForMermaid)
 
     m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
     EXPECT_EQ(renderer.request_count, 1);
-    ASSERT_FALSE(toast.messages.empty()); // "Copying" toast
+    ASSERT_FALSE(toast.messages.empty());
     EXPECT_FLOAT_EQ(renderer.last_width, kDefaultMdWidth);
     EXPECT_FALSE(renderer.last_dark);
 }
@@ -189,7 +189,7 @@ TEST(ClipboardManager, CopyDiagramAsSvgInFlightGuardBlocksReentry)
     m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
     EXPECT_EQ(renderer.request_count, 1);
     m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
-    EXPECT_EQ(renderer.request_count, 1); // in-flight ガードで 2 回目は no-op
+    EXPECT_EQ(renderer.request_count, 1);
 
     // cancelled 経路で in-flight だけ解除 (svg_cache に何も入れない)。
     renderer.FireCallback({}, true);
