@@ -1,12 +1,15 @@
 #pragma once
 #include <gtest/gtest.h>
+#include <chrono>
 #include <d2d1.h>
 #include <filesystem>
 #include <fstream>
+#include <memory_resource>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <windows.h>
 #include "document_types.h"
@@ -164,6 +167,55 @@ template <typename A, typename B>
 inline bool HasEffectInOrder(const SideEffectList& effects) noexcept
 {
     return EffectOrder<A, B>(effects) == EffectOrdering::Before;
+}
+
+// プロセス内一意の一時ファイルを RAII で作成・削除する。
+// jthread / 非同期ロード系テストで「実ファイルを 1 つ」だけ要求するケースに使う。
+// 大量ファイルや subdir 構造が要るテストは TempDirTestBase を使うこと。
+class TempFile {
+public:
+    TempFile(std::wstring_view name_hint, std::string_view content)
+    {
+        const auto tmp_dir = std::filesystem::temp_directory_path();
+        std::wstring fname = L"mendo_";
+        fname.append(name_hint);
+        fname += L"_";
+        fname += std::to_wstring(::GetCurrentProcessId());
+        fname += L"_";
+        fname += std::to_wstring(reinterpret_cast<uintptr_t>(this));
+        path_ = tmp_dir / fname;
+        std::ofstream(path_, std::ios::binary).write(content.data(), static_cast<std::streamsize>(content.size()));
+    }
+    ~TempFile()
+    {
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+    }
+    TempFile(const TempFile&) = delete;
+    TempFile& operator=(const TempFile&) = delete;
+
+    std::pmr::wstring PmrPath() const
+    {
+        return std::pmr::wstring(path_.wstring());
+    }
+
+private:
+    std::filesystem::path path_;
+};
+
+// 条件 pred が true になるまで短時間ポーリングする。timeout 内に成立すれば true。
+// バックグラウンドワーカー完了の決定論的観測手段が無いケースの最終手段。
+template <class Pred>
+inline bool PollUntil(Pred pred, std::chrono::milliseconds timeout = std::chrono::seconds(5))
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (pred()) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
 }
 
 // COM apartment 初期化を管理する基底フィクスチャ。

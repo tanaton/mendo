@@ -73,6 +73,13 @@ add_executable(mendo_tests
     test_view_stats.cpp
     test_doc_dwrite_bridge.cpp
     test_utf8_codec.cpp
+    test_fnv1a.cpp
+    test_worker_latch.cpp
+    test_async_load_coordinator.cpp
+    test_layout_computer_invisible.cpp
+    test_preloader.cpp
+    test_clipboard_util.cpp
+    test_clipboard_manager.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE
