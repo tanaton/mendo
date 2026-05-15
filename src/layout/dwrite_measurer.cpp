@@ -106,8 +106,9 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) const noe
         return fmt_code_.Get();
     }
     if (node.type == NodeType::Heading) {
-        if (node.heading_level >= 1 && node.heading_level <= 6) {
-            return fmt_h_[node.heading_level - 1].Get();
+        const int8_t lv = node.heading_level();
+        if (lv >= 1 && lv <= 6) {
+            return fmt_h_[lv - 1].Get();
         }
     }
     return fmt_body_.Get();
@@ -163,7 +164,6 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     if (runs.empty()) {
         return;
     }
-    MENDO_PROFILE("ApplyRunFormatting");
     const bool apply_code = (!node_type || *node_type != NodeType::CodeBlock);
     const bool apply_code_size = apply_code && (!node_type || *node_type != NodeType::Heading);
     const bool apply_link = !node_type;
@@ -236,7 +236,7 @@ void DWriteTextMeasurer::MeasureNode(
     }
 
     // ダイアグラム系コードブロック: ビットマップがレンダリングされるまでのプレースホルダー高さ
-    if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language)) {
+    if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())) {
         if (entry.height <= 0) {
             entry.height = std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
         }
@@ -315,7 +315,6 @@ void DWriteTextMeasurer::MeasureNode(
 
     ComPtr<IDWriteTextLayout> layout;
     const HRESULT hr = [&] {
-        MENDO_PROFILE("CreateTextLayout");
         return mendo::CreateDocTextLayout(dwrite_, wv, fmt, layout_width, dynamic_max_height, &layout);
     }();
     if (FAILED(hr)) {
@@ -327,7 +326,7 @@ void DWriteTextMeasurer::MeasureNode(
     // Alert ノードのアイコン文字のフォントウェイトを設定。
     // 6 種類のアイコンは UTF-16 で 1 code unit (BMP) または 2 code unit (Tip 💡 = U+1F4A1 サロゲートペア) と
     // コンパイル時に確定するため、対応表で済ませて WideViewForDWrite の構築を回避する。
-    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
+    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length() > 0) {
         const DWRITE_TEXT_RANGE icon_range{ 0, WideUnitCountForAlertIcon(node.alert_type) };
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);
     }
@@ -337,15 +336,15 @@ void DWriteTextMeasurer::MeasureNode(
 
     // コードブロックのシンタックストークン化をレイアウトパスで事前実行する。
     // 描画パス（ApplyNodeEffects）での遅延トークン化を排除し、フレーム落ちを防止する。
-    if (node.type == NodeType::CodeBlock && node.syntax_tokens().empty() &&
-        node.code_language != SyntaxLanguage::None &&
-        !IsDiagramLanguage(node.code_language)) {
-        MENDO_PROFILE("Tokenize");
-        if (tokens_out != nullptr) {
-            *tokens_out = Tokenize(text, node.code_language);
-        }
-        else {
-            node.syntax_tokens_mut() = Tokenize(text, node.code_language);
+    if (node.type == NodeType::CodeBlock) {
+        const auto lang = node.code_language();
+        if (lang != SyntaxLanguage::None && !IsDiagramLanguage(lang) && node.syntax_tokens().empty()) {
+            if (tokens_out != nullptr) {
+                *tokens_out = Tokenize(text, lang);
+            }
+            else {
+                node.syntax_tokens_mut() = Tokenize(text, lang);
+            }
         }
     }
 
@@ -382,10 +381,7 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
             }
             const size_t ci = tl.CellIndex(r, c);
             const mendo::WideViewForDWrite wv{ text };
-            {
-                MENDO_PROFILE("CreateTextLayout.cell");
-                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
-            }
+            mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
 
             if (tl.cell_layouts[ci]) {
                 ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
@@ -433,10 +429,7 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
                 continue;
             }
             const mendo::WideViewForDWrite wv{ text };
-            {
-                MENDO_PROFILE("CreateTextLayout.cell.restore");
-                mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
-            }
+            mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
             if (tl.cell_layouts[ci]) {
                 ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
             }
@@ -558,7 +551,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(
 }
 
 void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width,
-                                       MeasureViewportRange viewport) const
+                                      MeasureViewportRange viewport) const
 {
     MENDO_PROFILE("MeasureTable");
     if (!dwrite_ || !theme_) {

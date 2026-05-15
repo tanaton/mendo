@@ -375,7 +375,12 @@ public:
     {
         const auto count = std::min(nodes.size(), diagrams_.size());
         for (const auto& [idx, node] : nodes | std::views::take(count) | std::views::enumerate) {
-            if (IsDiagramLanguage(node.code_language)) {
+            // 非 CodeBlock ノードに対する variant 検索 (code_language()) を避けるため
+            // type 比較で先にフィルタする。
+            if (node.type != NodeType::CodeBlock) {
+                continue;
+            }
+            if (IsDiagramLanguage(node.code_language())) {
                 diagrams_[static_cast<size_t>(idx)].bitmap.Reset();
             }
         }

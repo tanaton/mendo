@@ -304,7 +304,7 @@ TEST(DocumentTest, BuildIndicesDiagramNodes)
     EXPECT_EQ(diagrams.size(), 1u);
     // cppコードブロックはダイアグラムインデックスに含まれない
     const auto& nodes = doc.GetNodes();
-    EXPECT_EQ(nodes[diagrams[0]].code_language, SyntaxLanguage::Mermaid);
+    EXPECT_EQ(nodes[diagrams[0]].code_language(), SyntaxLanguage::Mermaid);
 }
 
 TEST(DocumentTest, BuildIndicesTocAndAnchorConsistent)

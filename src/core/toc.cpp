@@ -3,7 +3,7 @@
 
 void TableOfContents::AddEntry(const Node& node, int node_index)
 {
-    entries_.emplace_back(node_index, node.heading_level);
+    entries_.emplace_back(node_index, node.heading_level());
 }
 
 int TableOfContents::HitTest(float local_y, float item_height) const noexcept

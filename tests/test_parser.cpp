@@ -42,7 +42,7 @@ TEST(Parser, HeadingH1)
     auto nodes = ParseMarkdown("# Title").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Heading);
-    EXPECT_EQ(nodes[0].heading_level, 1);
+    EXPECT_EQ(nodes[0].heading_level(), 1);
     EXPECT_EQ(nodes[0].GetText(), "Title");
 }
 
@@ -50,7 +50,7 @@ TEST(Parser, HeadingH2)
 {
     auto nodes = ParseMarkdown("## Subtitle").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].heading_level, 2);
+    EXPECT_EQ(nodes[0].heading_level(), 2);
 }
 
 TEST(Parser, HeadingH3ToH6)
@@ -60,7 +60,7 @@ TEST(Parser, HeadingH3ToH6)
         md += " Test";
         auto nodes = ParseMarkdown(md).nodes;
         ASSERT_EQ(nodes.size(), 1u) << "level=" << level;
-        EXPECT_EQ(nodes[0].heading_level, level) << "level=" << level;
+        EXPECT_EQ(nodes[0].heading_level(), level) << "level=" << level;
     }
 }
 
@@ -216,7 +216,7 @@ TEST(Parser, UnorderedList)
     ASSERT_EQ(nodes.size(), 3u);
     for (const auto& node : nodes) {
         EXPECT_EQ(node.type, NodeType::ListItem);
-        EXPECT_EQ(node.list_number, 0); // 順序なしリスト
+        EXPECT_EQ(node.list_number(), 0); // 順序なしリスト
     }
     EXPECT_EQ(nodes[0].GetText(), "item1");
     EXPECT_EQ(nodes[1].GetText(), "item2");
@@ -349,17 +349,17 @@ TEST(Parser, OrderedList)
     for (const auto& node : nodes) {
         EXPECT_EQ(node.type, NodeType::ListItem);
     }
-    EXPECT_EQ(nodes[0].list_number, 1);
-    EXPECT_EQ(nodes[1].list_number, 2);
-    EXPECT_EQ(nodes[2].list_number, 3);
+    EXPECT_EQ(nodes[0].list_number(), 1);
+    EXPECT_EQ(nodes[1].list_number(), 2);
+    EXPECT_EQ(nodes[2].list_number(), 3);
 }
 
 TEST(Parser, OrderedListStartsFromN)
 {
     auto nodes = ParseMarkdown("5. five\n6. six").nodes;
     ASSERT_EQ(nodes.size(), 2u);
-    EXPECT_EQ(nodes[0].list_number, 5);
-    EXPECT_EQ(nodes[1].list_number, 6);
+    EXPECT_EQ(nodes[0].list_number(), 5);
+    EXPECT_EQ(nodes[1].list_number(), 6);
 }
 
 TEST(Parser, ListIndentLevel)
@@ -376,7 +376,7 @@ TEST(Parser, TaskListChecked)
     auto nodes = ParseMarkdown("- [x] done").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
-    EXPECT_TRUE(nodes[0].task_checked);
+    EXPECT_TRUE(nodes[0].task_checked());
     EXPECT_EQ(nodes[0].GetText(), "done");
 }
 
@@ -385,14 +385,14 @@ TEST(Parser, TaskListUnchecked)
     auto nodes = ParseMarkdown("- [ ] todo").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
-    EXPECT_FALSE(nodes[0].task_checked);
+    EXPECT_FALSE(nodes[0].task_checked());
 }
 
 TEST(Parser, TaskListUpperX)
 {
     auto nodes = ParseMarkdown("- [X] also done").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_TRUE(nodes[0].task_checked);
+    EXPECT_TRUE(nodes[0].task_checked());
 }
 
 // ---- 引用ブロック ----
@@ -652,9 +652,9 @@ TEST(Parser, NestedOrderedList)
 {
     auto nodes = ParseMarkdown("1. a\n   1. b\n      1. c").nodes;
     ASSERT_GE(nodes.size(), 3u);
-    EXPECT_EQ(nodes[0].list_number, 1);
-    EXPECT_EQ(nodes[1].list_number, 1);
-    EXPECT_EQ(nodes[2].list_number, 1);
+    EXPECT_EQ(nodes[0].list_number(), 1);
+    EXPECT_EQ(nodes[1].list_number(), 1);
+    EXPECT_EQ(nodes[2].list_number(), 1);
     EXPECT_LT(nodes[0].indent_level, nodes[1].indent_level);
 }
 
@@ -662,9 +662,9 @@ TEST(Parser, MixedListNesting)
 {
     auto nodes = ParseMarkdown("1. ordered\n   - unordered\n   - unordered2").nodes;
     ASSERT_GE(nodes.size(), 3u);
-    EXPECT_GT(nodes[0].list_number, 0);
-    EXPECT_EQ(nodes[1].list_number, 0);
-    EXPECT_EQ(nodes[2].list_number, 0);
+    EXPECT_GT(nodes[0].list_number(), 0);
+    EXPECT_EQ(nodes[1].list_number(), 0);
+    EXPECT_EQ(nodes[2].list_number(), 0);
 }
 
 // ---- 言語指定付きコードブロック ----
@@ -674,7 +674,7 @@ TEST(Parser, CodeBlockWithLanguage)
     auto nodes = ParseMarkdown("```cpp\nint x = 1;\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Cpp);
 }
 
 TEST(Parser, CodeBlockNoTrailingNewline)
@@ -954,7 +954,7 @@ TEST(Parser, MermaidCodeBlock)
     auto nodes = ParseMarkdown("```mermaid\ngraph TD;\n  A-->B;\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Mermaid);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Mermaid);
 }
 
 // ---- LaTeX display math ($$...$$) ----
@@ -964,7 +964,7 @@ TEST(Parser, LatexDisplayMathSingleLinePromotedToCodeBlock)
     auto result = ParseMarkdown("$$E = mc^2$$");
     ASSERT_EQ(result.nodes.size(), 1u);
     EXPECT_EQ(result.nodes[0].type, NodeType::CodeBlock);
-    EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[0].code_language(), SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes[0].GetText(), "E = mc^2");
     // diagram_indices に登録される（描画パイプラインに流すため）
     ASSERT_EQ(result.diagram_indices.size(), 1u);
@@ -977,7 +977,7 @@ TEST(Parser, LatexDisplayMathWithOtherContentFallsBackToText)
     auto nodes = ParseMarkdown("before $$x+y$$ after").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
+    EXPECT_NE(nodes[0].code_language(), SyntaxLanguage::LatexMath);
     // フォールバック時は $$ 区切りが復元されていること
     const std::string text(nodes[0].GetText());
     EXPECT_NE(text.find("$$x+y$$"), std::string::npos);
@@ -997,7 +997,7 @@ TEST(Parser, LatexInlineMathRemainsAsText)
     auto nodes = ParseMarkdown("value is $x$ here").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
+    EXPECT_NE(nodes[0].code_language(), SyntaxLanguage::LatexMath);
     const std::string text(nodes[0].GetText());
     EXPECT_NE(text.find("$x$"), std::string::npos);
 }
@@ -1018,7 +1018,7 @@ TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
     auto nodes = ParseMarkdown("The price is $5 or $10.").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
+    EXPECT_NE(nodes[0].code_language(), SyntaxLanguage::LatexMath);
     const std::string text(nodes[0].GetText());
     EXPECT_NE(text.find("$5"), std::string::npos);
     EXPECT_NE(text.find("$10"), std::string::npos);
@@ -1030,7 +1030,7 @@ TEST(Parser, LatexDisplayMathMultiline)
     auto result = ParseMarkdown("$$\nE = mc^2\n$$");
     ASSERT_EQ(result.nodes.size(), 1u);
     EXPECT_EQ(result.nodes[0].type, NodeType::CodeBlock);
-    EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[0].code_language(), SyntaxLanguage::LatexMath);
     // 中身に 'E = mc^2' が含まれること（md4c の改行扱いに依存するが、式本体は保持される）
     const auto& body = result.nodes[0].GetText();
     EXPECT_NE(body.find("E = mc^2"), std::string::npos);
@@ -1050,7 +1050,7 @@ TEST(Parser, LatexDisplayMathLineCountMatchesNewlines)
         auto result = ParseMarkdown(src);
         ASSERT_EQ(result.nodes.size(), 1u);
         ASSERT_EQ(result.nodes[0].type, NodeType::CodeBlock);
-        ASSERT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
+        ASSERT_EQ(result.nodes[0].code_language(), SyntaxLanguage::LatexMath);
         const auto text = result.nodes[0].GetText();
         const auto expected = static_cast<int>(std::ranges::count(text, '\n'));
         EXPECT_EQ(result.nodes[0].line_count, expected);
@@ -1064,7 +1064,7 @@ TEST(Parser, LatexDisplayMathSurroundingParagraphs)
     ASSERT_EQ(result.nodes.size(), 3u);
     EXPECT_EQ(result.nodes[0].type, NodeType::Paragraph);
     EXPECT_EQ(result.nodes[1].type, NodeType::CodeBlock);
-    EXPECT_EQ(result.nodes[1].code_language, SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[1].code_language(), SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes[1].GetText(), "E=mc^2");
     EXPECT_EQ(result.nodes[2].type, NodeType::Paragraph);
     ASSERT_EQ(result.diagram_indices.size(), 1u);
@@ -1178,7 +1178,7 @@ TEST(Parser, AlertLabelIsBold)
     // 最初のランはラベル部分で太字であるべき
     EXPECT_TRUE(nodes[0].runs[0].bold());
     EXPECT_EQ(nodes[0].runs[0].start, 0u);
-    EXPECT_EQ(nodes[0].runs[0].length, nodes[0].alert_label_length);
+    EXPECT_EQ(nodes[0].runs[0].length, nodes[0].alert_label_length());
 }
 
 TEST(Parser, AlertLabelLength)
@@ -1186,11 +1186,11 @@ TEST(Parser, AlertLabelLength)
     // alert_label_length は UTF-8 byte。ℹ (U+2139) は 3 byte、❗ (U+2757) も 3 byte。
     auto nodes = ParseMarkdown("> [!NOTE]\n> text").nodes;
     ASSERT_GE(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].alert_label_length, 8u); // ℹ 3 + ' ' 1 + "NOTE" 4
+    EXPECT_EQ(nodes[0].alert_label_length(), 8u); // ℹ 3 + ' ' 1 + "NOTE" 4
 
     auto nodes2 = ParseMarkdown("> [!IMPORTANT]\n> text").nodes;
     ASSERT_GE(nodes2.size(), 1u);
-    EXPECT_EQ(nodes2[0].alert_label_length, 13u); // ❗ 3 + ' ' 1 + "IMPORTANT" 9
+    EXPECT_EQ(nodes2[0].alert_label_length(), 13u); // ❗ 3 + ' ' 1 + "IMPORTANT" 9
 }
 
 TEST(Parser, AlertRunPositionsAreValid)
@@ -1224,7 +1224,7 @@ TEST(Parser, AlertOnlyFirstNodeHasLabel)
     // 最初のノードだけ alert_label_length > 0
     int label_count = 0;
     for (const auto& node : nodes) {
-        if (node.alert_label_length > 0)
+        if (node.alert_label_length() > 0)
             label_count++;
     }
     EXPECT_EQ(label_count, 1);
@@ -1236,7 +1236,7 @@ TEST(Parser, RegularBlockquoteUnaffected)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
     EXPECT_EQ(nodes[0].alert_type, AlertType::None);
-    EXPECT_EQ(nodes[0].alert_label_length, 0u);
+    EXPECT_EQ(nodes[0].alert_label_length(), 0u);
     EXPECT_EQ(nodes[0].GetText(), "Just a normal quote");
 }
 
@@ -1301,7 +1301,7 @@ TEST(Parser, Alert_IgnoredWhenStartedInsideNestedBlockquote)
     for (const auto& n : nodes) {
         EXPECT_EQ(n.alert_type, AlertType::None)
             << "ネスト内の Alert マーカーは無効化される";
-        EXPECT_EQ(n.alert_label_length, 0u);
+        EXPECT_EQ(n.alert_label_length(), 0u);
     }
 }
 
@@ -1612,7 +1612,7 @@ TEST(Parser, SyntaxTokensEmptyAfterParse)
     auto nodes = ParseMarkdown("```cpp\nint x = 42;\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Cpp);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Cpp);
     // パース時にはトークン化されないことを確認（レンダラーで遅延実行）
     EXPECT_TRUE(nodes[0].syntax_tokens().empty());
 }
@@ -1621,7 +1621,7 @@ TEST(Parser, SyntaxTokensEmptyForMermaid)
 {
     auto nodes = ParseMarkdown("```mermaid\ngraph TD\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Mermaid);
+    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Mermaid);
     EXPECT_TRUE(nodes[0].syntax_tokens().empty());
 }
 

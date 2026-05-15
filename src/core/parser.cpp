@@ -202,7 +202,7 @@ struct ParseContext {
             current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, kInt8Max));
             current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, kInt8Max));
         }
-        // runs は SBO=4 で初期確保ゼロを狙う。reserve すると SBO の利点が消えるので呼ばない。
+        // runs は SBO 内で初期確保ゼロを狙う。reserve すると SBO の利点が消えるので呼ばない。
         node_source_offset_set = false;
         current_node_owned_only = false;
     }
@@ -323,7 +323,7 @@ constexpr bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
         return false;
     }
     node->type = NodeType::CodeBlock;
-    node->code_language = SyntaxLanguage::LatexMath;
+    node->ensure_code()->code_language = SyntaxLanguage::LatexMath;
     node->runs.clear();
     // current_text 経由で渡すと FinalizeCurrentNode で 2 回目のコピーが走るため、Node::text_ へ直接書く。
     node->SetTextWithLineCount(ctx->display_math_buf, ctx->display_math_newlines);
@@ -342,7 +342,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     case MD_BLOCK_H: {
         auto* const h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
         ctx->BeginNode(NodeType::Heading);
-        ctx->current_node->heading_level = static_cast<int8_t>(h->level);
+        ctx->current_node->ensure_heading()->heading_level = static_cast<int8_t>(h->level);
         break;
     }
 
@@ -366,7 +366,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->BeginNode(NodeType::CodeBlock);
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            ctx->current_node->code_language = DetectLanguage(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
+            ctx->current_node->ensure_code()->code_language = DetectLanguage(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
         }
         break;
     }
@@ -394,17 +394,18 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_LI: {
         auto* const li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
-        if (li->is_task) {
-            ctx->BeginNode(NodeType::TaskListItem);
-            ctx->current_node->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
-        }
-        else {
-            ctx->BeginNode(NodeType::ListItem);
-        }
-        if (!ctx->list_counter.empty()) {
-            const int counter = ctx->list_counter.back();
-            ctx->current_node->list_number = counter;
+        const bool is_task = li->is_task;
+        ctx->BeginNode(is_task ? NodeType::TaskListItem : NodeType::ListItem);
+        // counter==0 (unordered list) かつ非 task のときは NodeListData を確保しない
+        // (デフォルト値 list_number=0 / task_checked=false が getter で返るため)。
+        const int counter = ctx->list_counter.empty() ? 0 : ctx->list_counter.back();
+        if (is_task || counter > 0) {
+            auto* ld = ctx->current_node->ensure_list();
+            if (is_task) {
+                ld->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
+            }
             if (counter > 0) {
+                ld->list_number = counter;
                 ctx->list_counter.back()++;
             }
         }
@@ -514,7 +515,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
                 }
             }
         }
-        if (cn && cn->code_language == SyntaxLanguage::Mermaid) {
+        if (cn && cn->code_language() == SyntaxLanguage::Mermaid) {
             ctx->diagram_indices.emplace_back(ctx->current_node_index);
         }
         break;
@@ -591,10 +592,10 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             GenerateAnchorIdInto(cn->GetText(), base_id);
             auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
             const int count = it->second++;
-            auto* hd = cn->ensure_heading();
-            hd->anchor_id.assign(it->first.data(), it->first.size());
+            auto& aid = cn->ensure_anchor_id_mut();
+            aid.assign(it->first.data(), it->first.size());
             if (count > 0) {
-                std::format_to(std::back_inserter(hd->anchor_id), "-{}", count);
+                std::format_to(std::back_inserter(aid), "-{}", count);
             }
             ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
@@ -1068,7 +1069,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     node.SetTextWithLineCount(std::move(new_text), new_line_count);
     node.runs = std::move(new_runs);
     node.alert_type = type;
-    node.alert_label_length = static_cast<uint32_t>(full_label_len);
+    node.ensure_alert()->alert_label_length = static_cast<uint32_t>(full_label_len);
 }
 
 // 単一の BlockQuote ノードに対して Alert マーカーを検出・適用し、

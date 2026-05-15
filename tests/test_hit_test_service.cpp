@@ -330,7 +330,7 @@ TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
     int mermaid_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
         if (pr.nodes[i].type == NodeType::CodeBlock &&
-            IsDiagramLanguage(pr.nodes[i].code_language)) {
+            IsDiagramLanguage(pr.nodes[i].code_language())) {
             mermaid_idx = static_cast<int>(i);
             break;
         }

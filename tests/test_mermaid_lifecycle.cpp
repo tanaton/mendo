@@ -92,7 +92,7 @@ TEST(MermaidLifecycle, MermaidCodeBlockTriggersInit)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.code_language = SyntaxLanguage::Mermaid;
+    node.ensure_code()->code_language = SyntaxLanguage::Mermaid;
     EXPECT_TRUE(ShouldTriggerInitForNode(node));
 }
 
@@ -100,7 +100,7 @@ TEST(MermaidLifecycle, LatexMathCodeBlockTriggersInit)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.code_language = SyntaxLanguage::LatexMath;
+    node.ensure_code()->code_language = SyntaxLanguage::LatexMath;
     EXPECT_TRUE(ShouldTriggerInitForNode(node));
 }
 
@@ -108,7 +108,7 @@ TEST(MermaidLifecycle, CppCodeBlockDoesNotTriggerInit)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.code_language = SyntaxLanguage::Cpp;
+    node.ensure_code()->code_language = SyntaxLanguage::Cpp;
     EXPECT_FALSE(ShouldTriggerInitForNode(node));
 }
 
@@ -117,7 +117,7 @@ TEST(MermaidLifecycle, NonCodeBlockDoesNotTriggerInit)
     Node node;
     node.type = NodeType::Paragraph;
     // CodeBlock ではない場合、言語によらず false
-    node.code_language = SyntaxLanguage::Mermaid;
+    node.ensure_code()->code_language = SyntaxLanguage::Mermaid;
     EXPECT_FALSE(ShouldTriggerInitForNode(node));
 }
 
@@ -125,6 +125,6 @@ TEST(MermaidLifecycle, NoneLanguageCodeBlockDoesNotTriggerInit)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.code_language = SyntaxLanguage::None;
+    node.ensure_code()->code_language = SyntaxLanguage::None;
     EXPECT_FALSE(ShouldTriggerInitForNode(node));
 }

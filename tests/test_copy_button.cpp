@@ -150,7 +150,7 @@ TEST_F(CopyButtonTest, LatexMathBlockReturnsNegative)
     int latex_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); i++) {
         if (pr.nodes[i].type == NodeType::CodeBlock &&
-            pr.nodes[i].code_language == SyntaxLanguage::LatexMath) {
+            pr.nodes[i].code_language() == SyntaxLanguage::LatexMath) {
             latex_idx = static_cast<int>(i);
             break;
         }

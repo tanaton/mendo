@@ -37,7 +37,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
 
     if (include_code_block && bucket < 2) {
         n.type = NodeType::CodeBlock;
-        n.code_language = SyntaxLanguage::Cpp;
+        n.ensure_code()->code_language = SyntaxLanguage::Cpp;
         std::string text = "int v_" + std::to_string(i) + " = 0;";
         n.SetText(text.c_str());
         return n;
@@ -55,7 +55,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
     }
     if (bucket < 14) {
         n.type = NodeType::Heading;
-        n.heading_level = static_cast<int8_t>(1 + (i % 6));
+        n.ensure_heading()->heading_level = static_cast<int8_t>(1 + (i % 6));
         std::string text = "Heading " + std::to_string(i);
         n.SetText(text.c_str());
         return n;
@@ -122,7 +122,7 @@ public:
     {
         MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out, viewport);
 
-        if (node.type != NodeType::CodeBlock || IsDiagramLanguage(node.code_language)) {
+        if (node.type != NodeType::CodeBlock || IsDiagramLanguage(node.code_language())) {
             return;
         }
         const uint32_t seed = node.source_offset;

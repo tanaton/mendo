@@ -197,7 +197,7 @@ TEST(LayoutCacheTest, TextTopMatchesFenwickDerivedValue)
     std::pmr::vector<Node> nodes;
     nodes.resize(5);
     nodes[0].type = NodeType::Heading;
-    nodes[0].heading_level = 1;
+    nodes[0].ensure_heading()->heading_level = 1;
     nodes[1].type = NodeType::Paragraph;
     nodes[2].type = NodeType::CodeBlock;
     nodes[3].type = NodeType::ListItem;

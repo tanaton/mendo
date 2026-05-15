@@ -210,8 +210,11 @@ void CommandGenerator::GenerateNode(
 {
     // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
     float node_bottom = entry_text_top + entry.height;
-    if (node.type == NodeType::Heading && node.heading_level <= 2) {
-        node_bottom += theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO + theme_->GetHeadingUnderlineThickness(node.heading_level);
+    if (node.type == NodeType::Heading) {
+        const int8_t lv = node.heading_level();
+        if (lv <= 2) {
+            node_bottom += theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO + theme_->GetHeadingUnderlineThickness(lv);
+        }
     }
     if (node_bottom < fc.viewport_top || entry_text_top > fc.viewport_bottom) {
         return;
@@ -254,13 +257,14 @@ void CommandGenerator::GenerateNode(
         return;
     }
 
-    case NodeType::CodeBlock:
-        if (IsDiagramLanguage(node.code_language)) {
+    case NodeType::CodeBlock: {
+        const auto lang = node.code_language();
+        if (IsDiagramLanguage(lang)) {
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry_text_top);
                 cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), bmp });
                 GenSaveButton(cmds, bmp.right, bmp.top, node_index == fc.hovered.save);
-                if (IsSvgExportable(node.code_language)) {
+                if (IsSvgExportable(lang)) {
                     GenSvgCopyButton(cmds, bmp.right, bmp.top, node_index == fc.hovered.svg_copy);
                 }
             }
@@ -287,6 +291,7 @@ void CommandGenerator::GenerateNode(
         }
         GenCopyButton(cmds, entry, x, cw, node_index == fc.hovered.copy, entry_text_top);
         return;
+    }
 
     case NodeType::ListItem:
         GenListBullet(cmds, fc, node, entry, x, entry_text_top);
@@ -299,14 +304,16 @@ void CommandGenerator::GenerateNode(
         // バーと背景はグループ単位で GenBlockQuoteGroupDecorations から描画済み
         break;
 
-    case NodeType::Heading:
-        if (node.heading_level <= 2) {
+    case NodeType::Heading: {
+        const int8_t lv = node.heading_level();
+        if (lv <= 2) {
             const float line_y = entry_text_top + entry.height + theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO;
             cmds.emplace_back(DrawLineCmd{
                 D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
-                theme_->hr_color, theme_->GetHeadingUnderlineThickness(node.heading_level), BrushId::Hr });
+                theme_->hr_color, theme_->GetHeadingUnderlineThickness(lv), BrushId::Hr });
         }
         break;
+    }
 
     case NodeType::Paragraph:
         break;
@@ -371,7 +378,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Frame
     cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, entry_text_top), entry.text_layout.Get(), base_color, base_brush });
 
     if (node.type == NodeType::TaskListItem && formats_.icon_font) {
-        const wchar_t icon = node.task_checked ? L'\u2611' : L'\u2610'; // ☑ / ☐
+        const wchar_t icon = node.task_checked() ? L'\u2611' : L'\u2610'; // ☑ / ☐
         const float icon_size = theme_->font_size_body;
         const float cb_x = x - theme_->list_bullet_offset;
         cmds.emplace_back(MakeTextCmd(
@@ -471,11 +478,11 @@ void CommandGenerator::GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, 
 
 void CommandGenerator::GenListBullet(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top)
 {
-    if (node.list_number > 0) {
+    if (const int32_t num = node.list_number(); num > 0) {
         if (formats_.list_number) {
             const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
             wchar_t num_buf[16];
-            const auto fmt_result = std::format_to_n(num_buf, std::size(num_buf), L"{}.", node.list_number);
+            const auto fmt_result = std::format_to_n(num_buf, std::size(num_buf), L"{}.", num);
             const size_t num_len = std::min(static_cast<size_t>(fmt_result.size), std::size(num_buf));
             const D2D1_RECT_F num_rect = D2D1::RectF(
                 x - theme_->list_bullet_offset - LIST_NUMBER_PAD_RIGHT,

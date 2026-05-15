@@ -335,7 +335,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
         flush();
     }
 
-    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length > 0) {
+    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length() > 0) {
         static constexpr BrushId ALERT_BRUSH[] = {
             BrushId::AlertNote,
             BrushId::AlertTip,
@@ -346,7 +346,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
         static_assert(std::size(ALERT_BRUSH) == ALERT_TYPE_COUNT);
         const auto idx = AlertColorIndex(node.alert_type);
         if (idx < ALERT_TYPE_COUNT) {
-            const auto range = wv.WideRange(0, node.alert_label_length);
+            const auto range = wv.WideRange(0, node.alert_label_length());
             entry.text_layout->SetDrawingEffect(Brush(ALERT_BRUSH[idx]), range);
             MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
         }
