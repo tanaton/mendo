@@ -190,14 +190,13 @@ struct Node {
     // 外出しすることで variant alternative の最大サイズを 16B に抑える。
     // Parser invariant: 1 つのノードは 1 つの alternative しか持たない (ensure_* は他を破壊する)。
     using Extra = std::variant<
-        std::monostate,    // Paragraph / HorizontalRule など固有データ無し
-        NodeHeadingData,   // Heading
-        NodeCodeData,      // CodeBlock
-        NodeListData,      // ListItem / TaskListItem
-        NodeAlertData,     // BlockQuote 本体の alert ラベル
-        NodeTablePtr,      // Table
-        NodeImagePtr       // Image
-    >;
+        std::monostate,  // Paragraph / HorizontalRule など固有データ無し
+        NodeHeadingData, // Heading
+        NodeCodeData,    // CodeBlock
+        NodeListData,    // ListItem / TaskListItem
+        NodeAlertData,   // BlockQuote 本体の alert ラベル
+        NodeTablePtr,    // Table
+        NodeImagePtr>;   // Image
     Extra extra;
 
     // 表示テキストの owned バッファ。テキスト加工 (Alert / HTML entity / SOFTBR/BR / display math 昇格 / 表セル等)
@@ -218,10 +217,10 @@ struct Node {
 
     // --- 1 バイトアライメント ---
     NodeType type = NodeType::Paragraph;
-    AlertType alert_type = AlertType::None;        // 同一 blockquote_group 内で伝播するため直下に残す
-    int8_t quote_depth = 0;        // 現在の blockquote ネスト深さ（0 = 引用外, 1.. = ネストレベル）
-    int8_t quote_outer_indent = 0; // 最外側 blockquote が居る indent_level（バー位置の起点）
-    int8_t indent_level = 0;       // リスト/引用のネスト深さ（int8_t の最大値で飽和）
+    AlertType alert_type = AlertType::None; // 同一 blockquote_group 内で伝播するため直下に残す
+    int8_t quote_depth = 0;                 // 現在の blockquote ネスト深さ（0 = 引用外, 1.. = ネストレベル）
+    int8_t quote_outer_indent = 0;          // 最外側 blockquote が居る indent_level（バー位置の起点）
+    int8_t indent_level = 0;                // リスト/引用のネスト深さ（int8_t の最大値で飽和）
 
     constexpr bool IsViewMode() const noexcept
     {
@@ -374,12 +373,30 @@ struct Node {
     // ensure_*: 既に存在すれば内部参照、無ければ新規確保して返す。
     // 既存 alternative がある状態で別種の ensure_* を呼ぶと、それは破棄される (variant の emplace 動作)。
     // parser は BeginNode 直後に 1 種類だけ ensure する規約。
-    NodeHeadingData* ensure_heading() { return EnsureAlt<NodeHeadingData>(); }
-    NodeCodeData* ensure_code() { return EnsureAlt<NodeCodeData>(); }
-    NodeListData* ensure_list() { return EnsureAlt<NodeListData>(); }
-    NodeAlertData* ensure_alert() { return EnsureAlt<NodeAlertData>(); }
-    NodeTableData* ensure_table() { return EnsurePtrAlt<NodeTablePtr>(); }
-    NodeImageData* ensure_image() { return EnsurePtrAlt<NodeImagePtr>(); }
+    NodeHeadingData* ensure_heading()
+    {
+        return EnsureAlt<NodeHeadingData>();
+    }
+    NodeCodeData* ensure_code()
+    {
+        return EnsureAlt<NodeCodeData>();
+    }
+    NodeListData* ensure_list()
+    {
+        return EnsureAlt<NodeListData>();
+    }
+    NodeAlertData* ensure_alert()
+    {
+        return EnsureAlt<NodeAlertData>();
+    }
+    NodeTableData* ensure_table()
+    {
+        return EnsurePtrAlt<NodeTablePtr>();
+    }
+    NodeImageData* ensure_image()
+    {
+        return EnsurePtrAlt<NodeImagePtr>();
+    }
 
     // 該当 alternative を持たないノードでは黙ってデフォルト値 (0 / None / false) を返す。
     //
