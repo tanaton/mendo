@@ -130,13 +130,18 @@ void App::OnMouseMove(int px, int py)
     if (state_.search.search_bar_ctrl.IsDragging()) {
         const auto layout = GetPaneLayout();
         const auto& r = layout.md_rect;
-        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
+        const auto& query_utf8 = state_.search.search_state.GetQuery();
+        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !query_utf8.empty());
         const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
-        // HitTestSearchInput は wstring_view 受け取り (Renderer 内部は wstring 経路で固定)。
-        std::pmr::wstring query_wide;
-        string_convert::Utf8ToWide(state_.search.search_state.GetQuery(), query_wide);
-        const int pos = renderer_.HitTestSearchInput(query_wide, dip.x - text_left, input_w);
+        // クエリ非変化時は前回の wide 変換結果を再利用し、ドラッグ中のフレーム毎の
+        // Utf8ToWide + heap allocation を回避する。
+        if (drag_query_utf8_prev_ != query_utf8) {
+            drag_query_wide_cache_.clear();
+            string_convert::Utf8ToWide(query_utf8, drag_query_wide_cache_);
+            drag_query_utf8_prev_.assign(query_utf8);
+        }
+        const int pos = renderer_.HitTestSearchInput(drag_query_wide_cache_, dip.x - text_left, input_w);
         Dispatch(SearchInputDragMovedAction{ pos });
         return;
     }

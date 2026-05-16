@@ -69,7 +69,8 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
     if (!rt() || points.size() < 2) {
         return;
     }
-    if (!Brush(BrushId::Overlay) || !d2d()) {
+    auto* const trail_brush = Brush(BrushId::GestureTrail);
+    if (!trail_brush || !d2d()) {
         return;
     }
 
@@ -94,7 +95,6 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
         return;
     }
 
-    Brush(BrushId::Overlay)->SetColor(D2D1::ColorF(0.9f, 0.2f, 0.2f, 0.5f));
     if (!gesture_stroke_style_) {
         // 滑らかなジェスチャー軌跡のための丸型キャップと結合（初回のみ生成）
         const D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(
@@ -102,7 +102,8 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
             D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
         d2d()->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
     }
-    rt()->DrawGeometry(path.Get(), Brush(BrushId::Overlay), GESTURE_TRAIL_STROKE_WIDTH, gesture_stroke_style_.Get());
+    mendo::OpacityScope guard{ trail_brush, 0.5f };
+    rt()->DrawGeometry(path.Get(), trail_brush, GESTURE_TRAIL_STROKE_WIDTH, gesture_stroke_style_.Get());
 }
 
 void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect)
@@ -119,9 +120,12 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2, cx + rect_w / 2, cy + rect_h / 2);
 
-    if (auto* bg_brush = Brush(BrushId::Overlay)) {
-        const D2D1_COLOR_F bg_color = is_dark ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.8f) : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.6f);
-        bg_brush->SetColor(bg_color);
+    // dark テーマは灰色 (0.2,0.2,0.2)、light テーマは純黒 (0,0,0) で背景。
+    // 専用色ブラシ + OpacityScope で毎フレーム SetColor を回避する。
+    auto* const bg_brush = is_dark ? Brush(BrushId::OverlayGestureBg) : Brush(BrushId::OverlayBlack);
+    if (bg_brush) {
+        const float bg_alpha = is_dark ? (alpha * 0.8f) : (alpha * 0.6f);
+        mendo::OpacityScope guard{ bg_brush, bg_alpha };
         const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, GESTURE_OVERLAY_CORNER, GESTURE_OVERLAY_CORNER);
         rt()->FillRoundedRectangle(rrect, bg_brush);
     }
@@ -150,9 +154,10 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
     const float bottom_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE - TOAST_OVERLAY_BOTTOM_OFFSET;
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, bottom_y - rect_h, cx + rect_w / 2, bottom_y);
 
-    if (auto* bg_brush = Brush(BrushId::Overlay)) {
-        const D2D1_COLOR_F bg_color = is_dark ? D2D1::ColorF(0.2f, 0.2f, 0.2f, alpha * 0.85f) : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha * 0.7f);
-        bg_brush->SetColor(bg_color);
+    auto* const bg_brush = is_dark ? Brush(BrushId::OverlayGestureBg) : Brush(BrushId::OverlayBlack);
+    if (bg_brush) {
+        const float bg_alpha = is_dark ? (alpha * 0.85f) : (alpha * 0.7f);
+        mendo::OpacityScope guard{ bg_brush, bg_alpha };
         const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, TOAST_OVERLAY_CORNER, TOAST_OVERLAY_CORNER);
         rt()->FillRoundedRectangle(rrect, bg_brush);
     }
