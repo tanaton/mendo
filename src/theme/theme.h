@@ -5,18 +5,6 @@
 #include "document_types.h"
 #include "theme_palette.h"
 
-// Reducer がテーマ定数を参照するためのキャッシュ。
-struct ThemeConstants {
-    float pane_item_height = 28.0f;
-    float pane_header_height = 32.0f;
-    float splitter_width = 4.0f;
-    float margin_left = 0.0f;
-    float margin_right = 0.0f;
-    float heading_spacing_above = 0.0f;
-    float zoom = 1.0f;
-    bool is_dark = false;
-};
-
 struct Theme {
     // 色
     D2D1_COLOR_F bg_color;
@@ -110,7 +98,6 @@ struct Theme {
         return (bg_color.r + bg_color.g + bg_color.b) < 1.5f;
     }
 
-    ThemeConstants ToReducerConstants() const noexcept;
     void ApplyZoom(float new_zoom) noexcept;
 };
 

@@ -53,6 +53,13 @@ bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, 
 
 [[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
 
+// tmp ファイルへ書いてから MoveFileExW(REPLACE_EXISTING) で原子的に置き換える。
+// rename が失敗 (クロスボリューム等) した場合は tmp を削除し path へ直接書き込む。
+// tmp パスは `<path>.tmp` 固定 — 同じ path への並行呼び出しは tmp が衝突するため、
+// 呼び出し側で排他制御すること (現 callsite は UI スレッド単一発火で安全)。
+// 戻り値は最終的に何らかの形で書き込めたか。
+bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
+
 // ファイル名・フルパス比較ユーティリティ。
 // `CompareStringOrdinal(..., TRUE)` ベースで NTFS と挙動が一致する
 // Unicode 込みの ordinal case-insensitive 比較を提供する。

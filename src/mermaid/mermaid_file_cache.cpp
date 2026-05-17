@@ -2,10 +2,13 @@
 #include "task_scheduler.h"
 #include "file_io.h"
 #include <algorithm>
-#include <cstring>
-#include <memory>
 #include <chrono>
 #include <cmath>
+#include <cstring>
+#include <format>
+#include <memory>
+#include <ranges>
+#include <string_view>
 
 namespace {
 
@@ -55,8 +58,8 @@ std::filesystem::path MermaidFileCache::GetCacheDir() const
 std::filesystem::path MermaidFileCache::GetPngPath(const std::filesystem::path& dir, uint64_t key) const
 {
     wchar_t name[24];
-    swprintf_s(name, L"%016llx.png", key);
-    return dir / name;
+    const auto r = std::format_to_n(name, std::ranges::size(name) - 1, L"{:016x}.png", key);
+    return dir / std::wstring_view{ name, static_cast<size_t>(r.out - name) };
 }
 
 std::filesystem::path MermaidFileCache::GetPngPath(uint64_t key) const
@@ -186,16 +189,7 @@ void MermaidFileCache::SaveIndex()
         p += sizeof(record);
     }
 
-    const auto tmp_path = path.parent_path() / L"index.bin.tmp";
-    if (!WriteAllBytes(tmp_path, buf.get(), buf_size)) {
-        return;
-    }
-
-    if (!MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-        // renameが失敗した場合、直接書き込み（更なる失敗の救済手段はないので戻り値は破棄）
-        DeleteFileW(tmp_path.c_str());
-        (void)WriteAllBytes(path, buf.get(), buf_size);
-    }
+    (void)AtomicWriteAllBytes(path, buf.get(), buf_size);
 }
 
 bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)

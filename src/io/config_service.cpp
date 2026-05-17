@@ -89,18 +89,8 @@ void ConfigService::Flush()
     }
 
     const auto ini_path = dir / L"settings.ini";
-    const auto tmp_path = dir / L"settings.ini.tmp";
-
     const std::string content = ini::Serialize(data_);
-    if (!WriteAllBytes(tmp_path, content.data(), content.size())) {
-        return;
-    }
-
-    if (!MoveFileExW(tmp_path.c_str(), ini_path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-        // renameが失敗した場合（クロスボリューム等）、直接書き込み（更なる失敗の救済手段はないので戻り値は破棄）
-        DeleteFileW(tmp_path.c_str());
-        (void)WriteAllBytes(ini_path, content.data(), content.size());
-    }
+    (void)AtomicWriteAllBytes(ini_path, content.data(), content.size());
 }
 
 void ConfigService::Clear() noexcept

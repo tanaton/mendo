@@ -70,11 +70,15 @@ void MermaidRenderer::Init(
         wic_factory_ = wic;
     }
     else {
-        CoCreateInstance(
+        const HRESULT hr = CoCreateInstance(
             CLSID_WICImagingFactory,
             nullptr,
             CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(&wic_factory_));
+        if (FAILED(hr)) {
+            LogHrFailure(L"MermaidRenderer CoCreateInstance(WIC)", hr);
+            wic_factory_.Reset();
+        }
     }
 }
 

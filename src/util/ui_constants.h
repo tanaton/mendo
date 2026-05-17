@@ -22,6 +22,12 @@ inline constexpr float DOT_FADE_FACTOR = 0.85f;
 // Windowsの基準DPI（100%スケーリング時の値）
 inline constexpr float DEFAULT_DPI = 96.0f;
 
+// dpi が 0 以下なら 1.0 (DPI 未初期化時のフォールバック)、それ以外は dpi / 96。
+inline constexpr float DpiScaleFrom(float dpi) noexcept
+{
+    return (dpi > 0.0f) ? (dpi / DEFAULT_DPI) : 1.0f;
+}
+
 // マウスホイールスクロールの倍率
 inline constexpr float MOUSE_WHEEL_SCROLL_MULTIPLIER = 0.8f;
 

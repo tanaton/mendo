@@ -8,6 +8,8 @@
 using Microsoft::WRL::ComPtr;
 using namespace context_menu_constants;
 
+static constexpr wchar_t kContextMenuClass[] = L"mendoContextMenu";
+
 bool ContextMenu::Impl::RegisterWindowClass()
 {
     static std::once_flag flag;
@@ -19,7 +21,7 @@ bool ContextMenu::Impl::RegisterWindowClass()
         wc.lpfnWndProc = WndProc;
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        wc.lpszClassName = L"mendoContextMenu";
+        wc.lpszClassName = kContextMenuClass;
         registered_ok = (RegisterClassExW(&wc) != 0);
     });
     return registered_ok;
@@ -86,7 +88,7 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
 
     hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-        L"mendoContextMenu", nullptr,
+        kContextMenuClass, nullptr,
         WS_POPUP,
         x, y, pixel_w, pixel_h,
         owner, nullptr, GetModuleHandleW(nullptr), this);
