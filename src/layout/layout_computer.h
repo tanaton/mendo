@@ -4,6 +4,7 @@
 #include "theme.h"
 #include <limits>
 #include <memory_resource>
+#include <stop_token>
 
 namespace mendo::layout {
 
@@ -34,7 +35,9 @@ void ComputeColumnWidths(
 
 float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
 
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme);
+// stop_token が stop_requested になると途中 return する (cache は中間状態のまま)。
+void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+                         std::stop_token stop_token = {});
 
 // 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。
 // 型別の touch/no-touch ポリシー (Diagram は触らない、Table は推定で成長させた場合のみ

@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "parser.h"
+#include <stop_token>
+#include <string>
 
 // ---- 基本的なパース ----
 
@@ -1715,4 +1717,30 @@ TEST(Parser, Utf8BatchLinkText)
     EXPECT_NE(nodes[0].GetText().find("before"), std::string::npos);
     EXPECT_NE(nodes[0].GetText().find("link text"), std::string::npos);
     EXPECT_NE(nodes[0].GetText().find("after"), std::string::npos);
+}
+
+// ---- 協調キャンセル (AsyncLoadCoordinator 用) ----
+
+TEST(Parser, ParseMarkdownStopTokenAlreadyRequestedAbortsEarly)
+{
+    // 大きめの markdown を用意 (キャンセルなしなら 1000 ノード以上構築されるはず)
+    std::string markdown;
+    markdown.reserve(64 * 1024);
+    for (int i = 0; i < 1000; i++) {
+        markdown += "# Heading " + std::to_string(i) + "\n\nSome paragraph text.\n\n";
+    }
+
+    std::stop_source ss;
+    ss.request_stop();
+
+    auto result = ParseMarkdown(markdown, ss.get_token());
+    // 初回 OnEnterBlock で abort されるためノード列は空。
+    EXPECT_TRUE(result.nodes.empty());
+}
+
+TEST(Parser, ParseMarkdownDefaultStopTokenWorksAsUsual)
+{
+    // default-constructed の stop_token は never stop_requested。従来動作を維持。
+    auto result = ParseMarkdown("# Title\n\nBody");
+    EXPECT_FALSE(result.nodes.empty());
 }

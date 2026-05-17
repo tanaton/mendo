@@ -90,7 +90,12 @@ private:
     void LoadIndex();
     void EvictIfNeeded(uint32_t new_png_size);
     void DecrementTotalSize(uint32_t png_size) noexcept;
-    static int64_t Now() noexcept;
+    // last_used に積む単調増加シーケンス。ms 時刻だと連続 Lookup で衝突して
+    // Lazy LRU の stale 検出が false negative になるため、衝突しない単純カウンタを使う。
+    int64_t NextLruSeq() noexcept
+    {
+        return ++lru_seq_;
+    }
 
     // current_dpr_ を mix した内部キーを返す。DPR ごとにエントリを分離して
     // DPI 変更/モニタ切替時の全消去を避ける。
@@ -107,6 +112,7 @@ private:
     std::pmr::unordered_map<uint64_t, IndexEntry> index_;
     LruOrder lru_order_;
     uint64_t total_size_ = 0;
+    int64_t lru_seq_ = 0;
 
     size_t max_entries_ = DEFAULT_MAX_ENTRIES;
     uint64_t max_total_size_ = DEFAULT_MAX_TOTAL_SIZE;

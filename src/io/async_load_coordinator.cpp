@@ -26,9 +26,12 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
 {
     ResetSinks();
     in_flight_ = true;
+    // request_stop 済みの source は再使用不可なので Start 毎に作り直す。
+    stop_source_ = std::stop_source{};
+    auto stop_token = stop_source_.get_token();
     const uint32_t gen = gen_.fetch_add(1, std::memory_order_relaxed) + 1;
 
-    const bool posted = scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme, guard = latch_.Acquire()] {
+    const bool posted = scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme, stop_token = std::move(stop_token), guard = latch_.Acquire()] {
         MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
         // sink 書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
         // I/O / Parse / Estimate の前段の gen check は重い処理を skip するための short-circuit。
@@ -56,19 +59,23 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
             return;
         }
 
-        if (gen_.load(std::memory_order_relaxed) != gen) {
+        if (gen_.load(std::memory_order_relaxed) != gen || stop_token.stop_requested()) {
             return;
         }
 
-        Document doc = Document::FromMarkdown(std::move(load_result->text), load_result->byte_size, path);
+        Document doc = Document::FromMarkdown(std::move(load_result->text), load_result->byte_size, path, stop_token);
 
-        if (gen_.load(std::memory_order_relaxed) != gen) {
+        if (gen_.load(std::memory_order_relaxed) != gen || stop_token.stop_requested()) {
             return;
         }
 
         LayoutCache cache;
         cache.Reset(doc.GetNodes().size(), /* shrink = */ false);
-        EstimateNodeHeights(doc.GetNodes(), cache, theme);
+        EstimateNodeHeights(doc.GetNodes(), cache, theme, stop_token);
+
+        if (stop_token.stop_requested()) {
+            return;
+        }
 
         try_publish([&] {
             result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true });

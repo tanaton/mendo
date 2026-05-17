@@ -2,7 +2,6 @@
 #include "task_scheduler.h"
 #include "file_io.h"
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -80,11 +79,6 @@ std::filesystem::path MermaidFileCache::GetIndexPath() const
     return dir / L"index.bin";
 }
 
-int64_t MermaidFileCache::Now() noexcept
-{
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-}
-
 void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 {
     scheduler_ = &scheduler;
@@ -111,6 +105,7 @@ void MermaidFileCache::LoadIndex()
     index_.clear();
     lru_order_.clear();
     total_size_ = 0;
+    lru_seq_ = 0;
 
     const auto path = GetIndexPath();
     if (path.empty()) {
@@ -160,6 +155,9 @@ void MermaidFileCache::LoadIndex()
         entry_ref.last_used = record.last_used;
         entry_ref.lru_iter = lru_order_.emplace(record.last_used, record.key);
         total_size_ += record.png_size;
+        if (record.last_used > lru_seq_) {
+            lru_seq_ = record.last_used;
+        }
     }
 }
 
@@ -232,11 +230,10 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
     entry.css_width = it->second.css_width;
     entry.css_height = it->second.css_height;
 
-    // last_usedを更新し、LRU順序を再配置（O(1) で erase/insert）
-    const int64_t new_time = Now();
-    lru_order_.erase(it->second.lru_iter);
-    it->second.last_used = new_time;
-    it->second.lru_iter = lru_order_.emplace(new_time, key);
+    // Lazy LRU: last_used のみ更新し、lru_order_ への反映は EvictIfNeeded での
+    // 「stale 先頭は再挿入してから判定」で吸収する。Lookup ホットパスでの
+    // multimap O(log N) erase/emplace を回避する（lru_iter は旧時刻の位置を指したまま）。
+    it->second.last_used = NextLruSeq();
 
     return true;
 }
@@ -272,7 +269,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     entry.css_width = css_width;
     entry.css_height = css_height;
     entry.png_size = png_size;
-    entry.last_used = Now();
+    entry.last_used = NextLruSeq();
     total_size_ += png_size;
     entry.lru_iter = lru_order_.emplace(entry.last_used, key);
 
@@ -336,15 +333,25 @@ void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
     const auto dir = GetCacheDir();
 
     while ((index_.size() >= max_entries_ || total_size_ + new_png_size > max_total_size_) && !lru_order_.empty()) {
-        // LRU: multimapの先頭が最も古いエントリ（O(1)）
         const auto oldest_lru = lru_order_.begin();
         const uint64_t evict_key = oldest_lru->second;
-        lru_order_.erase(oldest_lru);
 
         const auto it = index_.find(evict_key);
         if (it == index_.end()) {
+            // 既に index_ から消えていた orphan エントリ。
+            lru_order_.erase(oldest_lru);
             continue;
         }
+
+        // Lazy LRU の補正: Lookup が last_used を更新しても lru_order_ は触っていない。
+        // 「先頭が本当に最古か」を entry の last_used と比較し、ずれていれば再挿入して再評価する。
+        if (oldest_lru->first != it->second.last_used) {
+            lru_order_.erase(oldest_lru);
+            it->second.lru_iter = lru_order_.emplace(it->second.last_used, evict_key);
+            continue;
+        }
+
+        lru_order_.erase(oldest_lru);
 
         if (!dir.empty()) {
             std::error_code ec;

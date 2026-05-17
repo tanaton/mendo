@@ -1,8 +1,11 @@
 #pragma once
+#include "win_handle.h"
 #include <d2d1_1.h>
 #include <d3d11.h>
 #include <dwrite.h>
 #include <dxgi1_2.h>
+// IDXGISwapChain2 / SetMaximumFrameLatency / GetFrameLatencyWaitableObject 用。
+#include <dxgi1_3.h>
 #include <wincodec.h>
 #include <windows.h>
 #include <wrl/client.h>
@@ -25,6 +28,10 @@ public:
     virtual IWICImagingFactory* GetWICFactory() const noexcept = 0;
     virtual HWND GetHwnd() const noexcept = 0;
 
+    // BeginDraw 前に呼び出す。Frame Latency Waitable Object で GPU パイプラインの
+    // 1 フレーム遅れに同期し、CPU 側を Present 直前まで詰めずに済ませる。
+    virtual void WaitForFrameLatency() noexcept = 0;
+
     // EndDraw 後に呼び出す。Present の HRESULT を返し、呼び出し側がデバイスロスト等を判定する。
     virtual HRESULT Present() noexcept = 0;
 
@@ -44,6 +51,7 @@ public:
         return dpi_;
     }
     bool RecreateRenderTarget() override;
+    void WaitForFrameLatency() noexcept override;
     HRESULT Present() noexcept override;
     bool IsDeviceLost() const noexcept override
     {
@@ -74,6 +82,7 @@ public:
 private:
     bool CreateDeviceResources();
     bool CreateSwapChainBitmap();
+    void ConfigureFrameLatency() noexcept;
 
     HWND hwnd_ = nullptr;
     float dpi_ = 96.0f;
@@ -83,6 +92,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> device_context_;
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
+    UniqueEventHandle frame_latency_waitable_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 };

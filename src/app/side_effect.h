@@ -18,6 +18,8 @@ namespace effect {
 
 struct InvalidateWindow {};
 struct InvalidateTitleBar {};
+// MD 本文ペインのみ無効化 (詳細は reducer.cpp::EmitScrollChangedSideEffects)。
+struct InvalidateMdPane {};
 struct SetCapture {};
 struct ReleaseCapture {};
 enum class CursorType : uint8_t {
@@ -166,6 +168,7 @@ using SideEffect = std::variant<
     // Ui
     effect::InvalidateWindow,
     effect::InvalidateTitleBar,
+    effect::InvalidateMdPane,
     effect::SetCapture,
     effect::ReleaseCapture,
     effect::SetCursor,

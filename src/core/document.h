@@ -5,6 +5,7 @@
 #include "parser.h"
 #include "utility.h"
 #include <cstdint>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -25,7 +26,9 @@ public:
 
     // ファクトリ。本体は (text, byte_size, path) の 3 引数版。
     // 2 引数版は BOM 除去 + byte_size 計算を内蔵した便利ラッパー (テスト / Help リソース経路)。
-    static Document FromMarkdown(std::pmr::string text, size_t byte_size, std::wstring_view path);
+    // default-constructed の stop_token はキャンセル不可で従来通り動作。
+    static Document FromMarkdown(std::pmr::string text, size_t byte_size, std::wstring_view path,
+                                 std::stop_token stop_token = {});
     static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 
     constexpr const std::pmr::vector<Node>& GetNodes() const noexcept

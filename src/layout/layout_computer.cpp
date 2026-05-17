@@ -127,7 +127,8 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
     std::unreachable();
 }
 
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme)
+void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+                         std::stop_token stop_token)
 {
     MENDO_PROFILE("EstimateNodeHeights");
     // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
@@ -142,6 +143,9 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
 
     float y = theme.margin_top;
     for (size_t i = 0; i < node_count; i++) {
+        if ((i & 0xFFFu) == 0u && stop_token.stop_requested()) {
+            return;
+        }
         const auto& node = nodes[i];
         const float h = EstimateNodeHeight(node, theme);
         const float sa = GetSpacingAbove(node, theme);

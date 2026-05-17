@@ -36,7 +36,7 @@ TEST_F(ReducerTest, KeyScrollLineDown)
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineDown });
 
     EXPECT_GT(state.view.viewport.GetScrollY(), old_scroll);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
@@ -57,7 +57,7 @@ TEST_F(ReducerTest, KeyScrollPageDown)
 
     // ページスクロールはラインスクロールより大きい
     EXPECT_GT(state.view.viewport.GetScrollY() - old_scroll, 40.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
 }
 
 TEST_F(ReducerTest, KeyScrollHome)
@@ -66,7 +66,7 @@ TEST_F(ReducerTest, KeyScrollHome)
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::Home });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
 }
 
 TEST_F(ReducerTest, KeyScrollEnd)
@@ -74,7 +74,7 @@ TEST_F(ReducerTest, KeyScrollEnd)
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::End });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.view.viewport.GetMaxScroll());
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
 }
 
 // ---- DirectScrollByAction テスト ----
@@ -84,7 +84,7 @@ TEST_F(ReducerTest, DirectScrollBy_Positive)
     auto effects = Reduce(state, DirectScrollByAction{ 100.0f });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 100.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
@@ -93,7 +93,7 @@ TEST_F(ReducerTest, DirectScrollBy_ClampedAtMax)
     auto effects = Reduce(state, DirectScrollByAction{ 99999.0f });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.view.viewport.GetMaxScroll());
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
 }
 
 // ---- SelectAllAction テスト ----
@@ -324,7 +324,7 @@ TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
 
     auto effects = Reduce(state, NavigateBackAction{});
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 50.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
@@ -707,7 +707,7 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbMiss_JumpsAndEmitsInvalidate)
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::MdScrollbar);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
@@ -720,7 +720,7 @@ TEST_F(ReducerTest, MdScrollbarDragMoved_WhileDragging_UpdatesScroll)
     auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f, 1000.0f });
 
     EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
 }
 
 TEST_F(ReducerTest, MdScrollbarDragMoved_NotDragging_NoOp)
@@ -1109,7 +1109,7 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
     auto effects = Reduce(state, TocItemClickedAction{ std::pmr::string(anchor) });
 
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
@@ -1139,19 +1139,19 @@ TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
 }
 
 // ---- 副作用順序ヘルパーの利用例 (test_helpers.h::HasEffectInOrder) ----
-// EmitScrollEffects は InvalidateWindow → BitmapManage の順で push する契約。
+// EmitScrollEffects は InvalidateMdPane → BitmapManage の順で push する契約。
 // 順序が逆転すると BitmapManage 側が古い viewport で動くなどの実害があるため、
 // 並びそのものを検証する。
 TEST_F(ReducerTest, KeyScrollLineDown_EmitsInvalidateBeforeBitmapManage)
 {
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineDown });
-    EXPECT_TRUE((HasEffectInOrder<effect::InvalidateWindow, effect::BitmapManage>(effects)));
+    EXPECT_TRUE((HasEffectInOrder<effect::InvalidateMdPane, effect::BitmapManage>(effects)));
 }
 
 TEST_F(ReducerTest, DirectScrollBy_EmitsInvalidateBeforeBitmapManage)
 {
     auto effects = Reduce(state, DirectScrollByAction{ 100.0f });
-    EXPECT_TRUE((HasEffectInOrder<effect::InvalidateWindow, effect::BitmapManage>(effects)));
+    EXPECT_TRUE((HasEffectInOrder<effect::InvalidateMdPane, effect::BitmapManage>(effects)));
 }
 
 TEST_F(ReducerTest, Resize_EmitsRendererResizeBeforeSizingUpdate)

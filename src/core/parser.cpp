@@ -16,6 +16,7 @@
 #include <iterator>
 #include <algorithm>
 #include <ranges>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -31,6 +32,25 @@ struct ParseContext {
     explicit ParseContext(size_t initial_arena_bytes)
         : parse_resource{ initial_arena_bytes }
     {}
+
+    std::stop_token stop_token;
+    // md4c コールバックは 100MB 入力で 50 万回以上呼ばれるため、毎回 atomic load せず
+    // 1024 callbacks ごとに stop_requested() を確認する間引きカウンタ。
+    // 最大 1024 callback 分の検知遅延は 600ms parse に対し μs オーダーで許容範囲。
+    uint32_t cancel_check_counter = 0;
+    bool cancel_requested = false;
+
+    bool ShouldCancel() noexcept
+    {
+        if (cancel_requested) {
+            return true;
+        }
+        if ((++cancel_check_counter & 0x3FFu) != 0u) {
+            return false;
+        }
+        cancel_requested = stop_token.stop_requested();
+        return cancel_requested;
+    }
 
     // パース用 monotonic リソース（一括確保→一括解放）。初期サイズは入力に応じて動的に決定する。
     MonotonicResource parse_resource;
@@ -334,6 +354,9 @@ constexpr bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
 int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
+    if (ctx->ShouldCancel()) {
+        return 1;
+    }
 
     switch (type) {
     case MD_BLOCK_DOC:
@@ -497,6 +520,9 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
+    if (ctx->ShouldCancel()) {
+        return 1;
+    }
 
     ctx->FlushPendingRun();
 
@@ -628,6 +654,9 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
+    if (ctx->ShouldCancel()) {
+        return 1;
+    }
 
     ctx->FlushPendingRun();
     // span markup (** _ ` [] 等) は原文にあるが current_text には入らないため、
@@ -697,6 +726,9 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
+    if (ctx->ShouldCancel()) {
+        return 1;
+    }
 
     ctx->FlushPendingRun();
 
@@ -754,6 +786,9 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
+    if (ctx->ShouldCancel()) {
+        return 1;
+    }
 
     if (!ctx->current_node) {
         return 0;
@@ -849,7 +884,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
 } // namespace
 
-ParseResult ParseMarkdown(std::string_view markdown_text)
+ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token)
 {
     MENDO_PROFILE("ParseMarkdown");
     // 各種予約サイズのヒント定数。実測 (100MB 入力 = 30k ノード相当) を基準に、
@@ -874,6 +909,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
     const size_t arena_bytes = std::clamp(input_size / kArenaInputBytesPerByte, kArenaMin, kArenaMax);
     MENDO_STATF("parse_resource arena: input={} arena={}", input_size, arena_bytes);
     ParseContext ctx{ arena_bytes };
+    ctx.stop_token = std::move(stop_token);
     ctx.markdown_base = markdown_text.data();
     ctx.markdown_size = input_size;
     ctx.current_text.reserve(std::clamp(input_size / kScratchInputBytesPerByte, SCRATCH_RESERVE_MIN, SCRATCH_RESERVE_MAX));
@@ -905,6 +941,12 @@ ParseResult ParseMarkdown(std::string_view markdown_text)
         // 最後の current_node が残っていれば（典型的には全 OnLeaveBlock で処理済みだが
         // 安全のため）テキストを確定する。
         ctx.FinalizeCurrentNode();
+    }
+
+    // キャンセル時は中途半端な nodes に対する DetectAlerts は無意味なので skip し、
+    // 呼び出し側がチェックしやすいよう空 ParseResult を返す。
+    if (ctx.cancel_requested) {
+        return {};
     }
 
     {
