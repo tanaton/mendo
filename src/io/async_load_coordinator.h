@@ -8,6 +8,7 @@
 #include <memory_resource>
 #include <mutex>
 #include <optional>
+#include <stop_token>
 #include <string>
 #include <windows.h>
 
@@ -40,9 +41,11 @@ public:
     // gen を進めて worker の以後の publish を弾き、result_/error_ も即時クリア。
     // worker 側 emplace と Cancel reset は同一 mutex 上で直列化される (worker は
     // sink 書き込み前に lock 内で gen を再確認)。
+    // request_stop は走行中の parse/Estimate を協調的に打ち切る。
     void Cancel() noexcept
     {
         gen_.fetch_add(1, std::memory_order_relaxed);
+        stop_source_.request_stop();
         in_flight_ = false;
         ResetSinks();
     }
@@ -57,6 +60,9 @@ private:
     std::mutex mutex_;
     std::optional<AsyncLoadResult> result_;
     std::optional<FileLoadError> error_;
+
+    // request_stop 後は再使用不可なので Start 毎にフレッシュな source へ差し替える。
+    std::stop_source stop_source_;
 
     // dtor で worker 完了を待つ。scheduler_ 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

@@ -86,7 +86,8 @@ Document& Document::operator=(Document&& other) noexcept
     return *this;
 }
 
-Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::wstring_view path)
+Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::wstring_view path,
+                                std::stop_token stop_token)
 {
     Document doc;
     doc.file_path_ = path;
@@ -94,7 +95,7 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
     NormalizeNewlines(text);
     doc.raw_text_.Replace(std::move(text));
     doc.loaded_byte_size_ = byte_size;
-    doc.ReplaceContent(ParseMarkdown(doc.raw_text_));
+    doc.ReplaceContent(ParseMarkdown(doc.raw_text_, std::move(stop_token)));
     return doc;
 }
 

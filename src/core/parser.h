@@ -2,6 +2,7 @@
 #include "document_types.h"
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -16,7 +17,9 @@ struct ParseResult {
 };
 
 // 本物の Markdown パーサ。md4c を UTF-8 モード (MD_CHAR=char) で起動するため入力は char 列。
-ParseResult ParseMarkdown(std::string_view markdown_text);
+// stop_token を渡すと md4c コールバックから途中で abort できる。default-constructed の場合は
+// 永久に stop_requested() == false なので、従来どおり最後まで走る。
+ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {});
 
 // BlockQuoteノードからGitHub Alertsを検出し、マーカー除去・ラベル挿入・グルーピングを行う（テスト用に公開）。
 // blockquote_indices は ParseMarkdown が収集した BlockQuote ノードのインデックス。
