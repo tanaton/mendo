@@ -414,8 +414,6 @@ void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, con
             sv.h_drag_start_x = dip_x;
             sv.h_drag_start_scroll = sv.GetBlockScrollX(node_index);
         },
-        // BlockHScroll は thumb-grip ジャンプを持たない (Moved で差分計算するだけ)。
-        mendo::no_op,
         [&effects] {
             PushEffect(effects, effect::InvalidateWindow{});
         }
@@ -614,7 +612,7 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
     };
     // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
     if (grip.inside_thumb) {
-        mendo::RunScrollDragStarted(effects, begin, mendo::no_op, mendo::no_op);
+        mendo::RunScrollDragStarted(effects, begin);
     }
     else {
         auto jump = [&state, &effects, info, new_thumb_y = a.dip_y - drag_offset] {
@@ -622,7 +620,7 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
             state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
             EmitScrollEffects(state, effects, old_scroll);
         };
-        mendo::RunScrollDragStarted(effects, begin, jump, mendo::no_op);
+        mendo::RunScrollDragStarted(effects, begin, jump);
     }
 }
 
@@ -674,7 +672,7 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
         state.view.panes.SetDragScrollOffset(drag_offset);
     };
     if (grip.inside_thumb) {
-        mendo::RunScrollDragStarted(effects, begin, mendo::no_op, mendo::no_op);
+        mendo::RunScrollDragStarted(effects, begin);
     }
     else {
         auto jump = [&effects, &ctx, new_thumb_y = a.dip_y - drag_offset] {
@@ -683,7 +681,7 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
             PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
             PushEffect(effects, effect::InvalidateWindow{});
         };
-        mendo::RunScrollDragStarted(effects, begin, jump, mendo::no_op);
+        mendo::RunScrollDragStarted(effects, begin, jump);
     }
 }
 
@@ -709,15 +707,9 @@ void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)
     if (drag != FileScrollbar && drag != TocScrollbar) {
         return;
     }
-    // clang-format off
-    mendo::RunScrollDragEnded(
-        effects,
-        [&state] {
-            state.view.panes.EndDrag();
-        },
-        mendo::no_op
-    );
-    // clang-format on
+    mendo::RunScrollDragEnded(effects, [&state] {
+        state.view.panes.EndDrag();
+    });
 }
 
 void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const TextSelectionStartedAction& a)

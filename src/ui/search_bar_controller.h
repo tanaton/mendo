@@ -16,17 +16,6 @@ struct SearchBarRenderState;
 // SearchState（ドメインロジック）を参照で保持し、検索バー固有の
 // UIステート（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。
 // Win32依存の操作は Cb 経由でAppに委譲する。
-//
-// Cb は以下のメソッドを提供する duck type。
-//   void invalidate();                       // ウィンドウ全体の再描画
-//   void invalidate_search_bar();            // 検索バー領域のみ再描画
-//   void set_timer(app_timer::Id, UINT);     // SetTimer(id, ms)
-//   void kill_timer(app_timer::Id);          // KillTimer(id)
-//   void focus_select_all();                 // 検索テキスト全選択でフォーカス
-//   void unfocus();                          // フォーカス解除
-//   float get_md_pane_height();              // Markdownペイン高さ取得
-//   void on_scroll_changed(float);           // スクロール変更後処理(md_pane_height)
-//   void on_wrap_around();                   // 検索ラップアラウンド時の通知 (Win32 では MessageBeep)
 template <class Cb>
 class SearchBarControllerT {
 public:
@@ -99,6 +88,11 @@ public:
         return ime_composition_;
     }
 
+    // 検索クエリ (UTF-8) を wstring 化したものを返す。
+    // BuildRenderState / ドラッグ中の HitTest / クリック時の HitTest が同じキャッシュを共有する。
+    // 同一 UTF-8 のときは Utf8ToWide を skip する。
+    const std::pmr::wstring& GetQueryWide() const;
+
 private:
     void RestartCaretBlink();
 
@@ -117,5 +111,7 @@ private:
     std::pmr::wstring ime_composition_;
     // SearchBarRenderState::query (wstring_view) 用に string→wstring 変換結果を保持。
     // BuildRenderState() の戻り値内 view が SearchBarController の生存中 valid であることを保証する。
+    // query_wide_cache_key_ は invalidation キーとしての「前回入力 UTF-8 そのもの」。
     mutable std::pmr::wstring query_wide_cache_;
+    mutable std::pmr::string query_wide_cache_key_;
 };

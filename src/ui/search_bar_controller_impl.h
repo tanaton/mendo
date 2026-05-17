@@ -241,14 +241,23 @@ void SearchBarControllerT<Cb>::UpdateHoverFromZone(SearchBarHitZone zone)
 }
 
 template <class Cb>
+const std::pmr::wstring& SearchBarControllerT<Cb>::GetQueryWide() const
+{
+    const auto& utf8 = state_->GetQuery();
+    if (query_wide_cache_key_ != utf8) {
+        query_wide_cache_.clear();
+        string_convert::Utf8ToWide(utf8, query_wide_cache_);
+        query_wide_cache_key_.assign(utf8);
+    }
+    return query_wide_cache_;
+}
+
+template <class Cb>
 SearchBarRenderState SearchBarControllerT<Cb>::BuildRenderState() const
 {
     SearchBarRenderState sb;
     sb.visible = state_->IsVisible();
-    // string (UTF-8) → wstring 変換し、cache 経由で view を貼る。
-    query_wide_cache_.clear();
-    string_convert::Utf8ToWide(state_->GetQuery(), query_wide_cache_);
-    sb.query = query_wide_cache_;
+    sb.query = GetQueryWide();
     sb.current_match = state_->GetCurrentMatchIndex();
     sb.total_matches = state_->GetMatchCount();
     sb.has_focus = has_focus_;

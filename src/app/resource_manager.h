@@ -15,16 +15,6 @@ struct Theme;
 
 // 画像・Mermaidリソースのライフサイクル管理。
 // Appから画像読み込み、Mermaidバッチ処理、ビットマップ解放の責務を分離する。
-//
-// Cb は以下のメソッドを提供する duck type。
-//   void invalidate();
-//   void set_timer(app_timer::Id, UINT);
-//   void kill_timer(app_timer::Id);
-//   float get_content_width();
-//   float get_viewport_height();
-//   float get_indent_width();
-//   void recompute_layout();
-//   void recompute_layout_anchored();
 template <class Cb>
 class ResourceManagerT {
 public:
@@ -33,11 +23,7 @@ public:
     static constexpr int BATCH_TIME_BUDGET_US = 6000;
 
     ResourceManagerT() = default;
-    void Init(Document& doc, LayoutCache& cache, ViewportManager& viewport,
-              ImageLoader& image_loader, IMermaidRenderer& mermaid,
-              ThemeService& theme_service,
-              const Theme& theme,
-              Cb cb);
+    void Init(Document& doc, LayoutCache& cache, ViewportManager& viewport, ImageLoader& image_loader, IMermaidRenderer& mermaid, ThemeService& theme_service, const Theme& theme, Cb cb);
 
     // respect_viewport=true: 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
     // respect_viewport=false: 全画像を走査、未キャッシュは無視（リロード時のスクロール計算前用）。

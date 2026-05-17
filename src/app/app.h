@@ -292,11 +292,4 @@ private:
     void ShowToast(std::wstring_view message);
 
     ClipboardManager clipboard_manager_;
-
-    // ドラッグ中の OnMouseMove は毎イベントで HitTest 用の wide query を要求する。
-    // クエリ自体はドラッグ中変わらない契約なので、内容変化検知付きの局所キャッシュで
-    // 毎イベントの Utf8ToWide (allocation + decode) を回避する。
-    // drag_query_utf8_prev_ は invalidation キーとしての「前回入力 UTF-8 そのもの」。
-    std::pmr::wstring drag_query_wide_cache_;
-    std::pmr::string drag_query_utf8_prev_;
 };

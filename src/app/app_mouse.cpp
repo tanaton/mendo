@@ -4,7 +4,6 @@
 #include "document_utils.h"
 #include "pane_layout.h"
 #include "resource.h"
-#include "string_convert.h"
 #include "ui_constants.h"
 
 App::HitResult App::HitTest(int screen_x, int screen_y)
@@ -130,18 +129,11 @@ void App::OnMouseMove(int px, int py)
     if (state_.search.search_bar_ctrl.IsDragging()) {
         const auto layout = GetPaneLayout();
         const auto& r = layout.md_rect;
-        const auto& query_utf8 = state_.search.search_state.GetQuery();
-        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !query_utf8.empty());
+        const auto& query_wide = state_.search.search_bar_ctrl.GetQueryWide();
+        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !query_wide.empty());
         const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
-        // クエリ非変化時は前回の wide 変換結果を再利用し、ドラッグ中のフレーム毎の
-        // Utf8ToWide + heap allocation を回避する。
-        if (drag_query_utf8_prev_ != query_utf8) {
-            drag_query_wide_cache_.clear();
-            string_convert::Utf8ToWide(query_utf8, drag_query_wide_cache_);
-            drag_query_utf8_prev_.assign(query_utf8);
-        }
-        const int pos = renderer_.HitTestSearchInput(drag_query_wide_cache_, dip.x - text_left, input_w);
+        const int pos = renderer_.HitTestSearchInput(query_wide, dip.x - text_left, input_w);
         Dispatch(SearchInputDragMovedAction{ pos });
         return;
     }
