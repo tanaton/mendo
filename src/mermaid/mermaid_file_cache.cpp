@@ -2,7 +2,6 @@
 #include "task_scheduler.h"
 #include "file_io.h"
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -80,11 +79,6 @@ std::filesystem::path MermaidFileCache::GetIndexPath() const
     return dir / L"index.bin";
 }
 
-int64_t MermaidFileCache::Now() noexcept
-{
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-}
-
 void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 {
     scheduler_ = &scheduler;
@@ -111,6 +105,7 @@ void MermaidFileCache::LoadIndex()
     index_.clear();
     lru_order_.clear();
     total_size_ = 0;
+    lru_seq_ = 0;
 
     const auto path = GetIndexPath();
     if (path.empty()) {
@@ -160,6 +155,9 @@ void MermaidFileCache::LoadIndex()
         entry_ref.last_used = record.last_used;
         entry_ref.lru_iter = lru_order_.emplace(record.last_used, record.key);
         total_size_ += record.png_size;
+        if (record.last_used > lru_seq_) {
+            lru_seq_ = record.last_used;
+        }
     }
 }
 
@@ -235,7 +233,7 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
     // Lazy LRU: last_used のみ更新し、lru_order_ への反映は EvictIfNeeded での
     // 「stale 先頭は再挿入してから判定」で吸収する。Lookup ホットパスでの
     // multimap O(log N) erase/emplace を回避する（lru_iter は旧時刻の位置を指したまま）。
-    it->second.last_used = Now();
+    it->second.last_used = NextLruSeq();
 
     return true;
 }
@@ -271,7 +269,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     entry.css_width = css_width;
     entry.css_height = css_height;
     entry.png_size = png_size;
-    entry.last_used = Now();
+    entry.last_used = NextLruSeq();
     total_size_ += png_size;
     entry.lru_iter = lru_order_.emplace(entry.last_used, key);
 

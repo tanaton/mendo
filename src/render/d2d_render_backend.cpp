@@ -19,7 +19,11 @@ void D2DRenderBackend::ConfigureFrameLatency() noexcept
         return;
     }
     // 既定の MaximumFrameLatency=3 はホイール連打でカクつきの原因になる。1 まで詰める。
-    (void)sc2->SetMaximumFrameLatency(1);
+    // 失敗時は既定の 3 のままになる。waitable は取得しても 3 フレーム遅れに同期するだけで
+    // 意図しない wait を招くため、SetMaximumFrameLatency が成功した時のみ取得する。
+    if (FAILED(sc2->SetMaximumFrameLatency(1))) {
+        return;
+    }
     frame_latency_waitable_.reset(sc2->GetFrameLatencyWaitableObject());
 }
 
@@ -237,7 +241,8 @@ void D2DRenderBackend::WaitForFrameLatency() noexcept
         return;
     }
     // 1 秒タイムアウト。GPU が完全停止した状況でも UI スレッドを永久ブロックしない。
-    (void)WaitForSingleObjectEx(frame_latency_waitable_.get(), 1000, TRUE);
+    // alertable=FALSE: UI スレッドは APC を使わないので、意図しない早期復帰を防ぐ。
+    (void)WaitForSingleObjectEx(frame_latency_waitable_.get(), 1000, FALSE);
 }
 
 HRESULT D2DRenderBackend::Present() noexcept

@@ -34,13 +34,13 @@ struct ParseContext {
     {}
 
     std::stop_token stop_token;
-    // OnText は 100MB 入力で 40 万回以上呼ばれるため、毎回 atomic load せず
+    // md4c コールバックは 100MB 入力で 50 万回以上呼ばれるため、毎回 atomic load せず
     // 1024 callbacks ごとに stop_requested() を確認する間引きカウンタ。
+    // 最大 1024 callback 分の検知遅延は 600ms parse に対し μs オーダーで許容範囲。
     uint32_t cancel_check_counter = 0;
     bool cancel_requested = false;
 
-    // 高頻度コールバック (OnText / OnEnterSpan / OnLeaveSpan) 用の間引きチェック。
-    bool ShouldCancelThrottled() noexcept
+    bool ShouldCancel() noexcept
     {
         if (cancel_requested) {
             return true;
@@ -50,19 +50,6 @@ struct ParseContext {
         }
         cancel_requested = stop_token.stop_requested();
         return cancel_requested;
-    }
-
-    // 低頻度コールバック (OnEnterBlock / OnLeaveBlock) 用の毎回チェック。
-    bool ShouldCancel() noexcept
-    {
-        if (cancel_requested) {
-            return true;
-        }
-        if (stop_token.stop_requested()) {
-            cancel_requested = true;
-            return true;
-        }
-        return false;
     }
 
     // パース用 monotonic リソース（一括確保→一括解放）。初期サイズは入力に応じて動的に決定する。
@@ -667,7 +654,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
-    if (ctx->ShouldCancelThrottled()) {
+    if (ctx->ShouldCancel()) {
         return 1;
     }
 
@@ -739,7 +726,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
-    if (ctx->ShouldCancelThrottled()) {
+    if (ctx->ShouldCancel()) {
         return 1;
     }
 
@@ -799,7 +786,7 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
-    if (ctx->ShouldCancelThrottled()) {
+    if (ctx->ShouldCancel()) {
         return 1;
     }
 
@@ -954,6 +941,12 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         // 最後の current_node が残っていれば（典型的には全 OnLeaveBlock で処理済みだが
         // 安全のため）テキストを確定する。
         ctx.FinalizeCurrentNode();
+    }
+
+    // キャンセル時は中途半端な nodes に対する DetectAlerts は無意味なので skip し、
+    // 呼び出し側がチェックしやすいよう空 ParseResult を返す。
+    if (ctx.cancel_requested) {
+        return {};
     }
 
     {

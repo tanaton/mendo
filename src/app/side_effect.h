@@ -18,8 +18,7 @@ namespace effect {
 
 struct InvalidateWindow {};
 struct InvalidateTitleBar {};
-// MD ペイン領域のみを無効化する。スクロールなど MD 本文のみが変化する経路で使用し、
-// タイトルバー・サイドペインビットマップキャッシュの再描画を避ける。
+// MD 本文ペインのみ無効化 (詳細は reducer.cpp::EmitScrollChangedSideEffects)。
 struct InvalidateMdPane {};
 struct SetCapture {};
 struct ReleaseCapture {};
