@@ -5,6 +5,7 @@
 #include "file_io.h"
 #include "layout_computer.h"
 #include "overloaded.h"
+#include "scroll_drag.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include <algorithm>
@@ -74,6 +75,12 @@ struct SidePaneContext {
     PaneZone pane_zone;
 };
 
+constexpr PaneController::DragTarget SidePaneDragTarget(PaneTarget pane) noexcept
+{
+    using enum PaneController::DragTarget;
+    return (pane == PaneTarget::File) ? FileScrollbar : TocScrollbar;
+}
+
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 {
     const float item_h = state.theme->pane_item_height;
@@ -90,7 +97,7 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
         total,
         ComputeScrollInfo(rect, header_h, total),
         state.view.panes.SidePaneScroll(pane),
-        pane == PaneTarget::File ? PaneController::DragTarget::FileScrollbar : PaneController::DragTarget::TocScrollbar,
+        SidePaneDragTarget(pane),
         ToPaneZone(pane),
     };
 }
@@ -333,8 +340,11 @@ BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node
     if (node_index >= static_cast<int>(nodes.size()) || node_index >= static_cast<int>(cache.size())) {
         return {};
     }
-    return GetBlockHScrollGeometry(nodes[node_index], cache[node_index], *state.theme,
-                                   state.pane_layout_cache.Get().md_rect.width);
+    return GetBlockHScrollGeometry(
+        nodes[node_index],
+        cache[node_index],
+        *state.theme,
+        state.pane_layout_cache.Get().md_rect.width);
 }
 
 // scroll_x を [0, max] に詰めて map に反映する。0 になった場合はエントリを削除する。
@@ -393,35 +403,42 @@ void ReduceBlockHHoverChanged(AppState& state, SideEffectList& effects, const Bl
 
 void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, const BlockHScrollDragStartedAction& a)
 {
-    const auto geom = ResolveBlockHScrollGeometry(state, a.node_index);
-    if (!geom.can_scroll()) {
+    if (!ResolveBlockHScrollGeometry(state, a.node_index).can_scroll()) {
         return;
     }
-    state.view.h_drag_node = a.node_index;
-    state.view.h_drag_start_x = a.dip_x;
-    state.view.h_drag_start_scroll = state.view.GetBlockScrollX(a.node_index);
-    PushEffect(effects, effect::SetCapture{});
-    PushEffect(effects, effect::InvalidateWindow{});
+    // clang-format off
+    mendo::RunScrollDragStarted(
+        effects,
+        [&sv = state.view, node_index = a.node_index, dip_x = a.dip_x] {
+            sv.h_drag_node = node_index;
+            sv.h_drag_start_x = dip_x;
+            sv.h_drag_start_scroll = sv.GetBlockScrollX(node_index);
+        },
+        [&effects] {
+            PushEffect(effects, effect::InvalidateWindow{});
+        }
+    );
+    // clang-format on
 }
 
 void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const BlockHScrollDragMovedAction& a)
 {
-    const int target = state.view.h_drag_node;
-    if (target < 0) {
+    auto& sv = state.view;
+    if (sv.h_drag_node < 0) {
         return;
     }
-    const auto geom = ResolveBlockHScrollGeometry(state, target);
+    const auto geom = ResolveBlockHScrollGeometry(state, sv.h_drag_node);
     if (!geom.can_scroll()) {
         return;
     }
     // dip_delta はドラッグの sum = サムが動く DIP。サムが (track - thumb_w) 動いたとき
     // コンテンツが scroll_max 動くべきなので、scroll_delta = dip_delta * scroll_max / drag_range。
     // thumb_w が PANE_SCROLLBAR_THUMB_MIN に張り付いた長大コンテンツでも 1:1 で対応する。
-    const float dip_delta = a.dip_x - state.view.h_drag_start_x;
+    const float dip_delta = a.dip_x - sv.h_drag_start_x;
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.natural_width);
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
-    ApplyBlockHScrollDelta(state, target, state.view.h_drag_start_scroll + dip_delta * scroll_max / drag_range, scroll_max);
+    ApplyBlockHScrollDelta(state, sv.h_drag_node, sv.h_drag_start_scroll + dip_delta * scroll_max / drag_range, scroll_max);
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
@@ -430,19 +447,32 @@ void ReduceBlockHScrollDragEnded(AppState& state, SideEffectList& effects, const
     if (state.view.h_drag_node < 0) {
         return;
     }
-    state.view.h_drag_node = -1;
-    PushEffect(effects, effect::ReleaseCapture{});
-    PushEffect(effects, effect::InvalidateWindow{});
+    // clang-format off
+    mendo::RunScrollDragEnded(
+        effects,
+        [&state] {
+            state.view.h_drag_node = -1;
+        },
+        [&effects] {
+            PushEffect(effects, effect::InvalidateWindow{});
+        }
+    );
+    // clang-format on
 }
 
 void ReduceSearchStep(AppState& state, bool forward)
 {
-    if (state.search.search_state.IsVisible()) {
-        forward ? state.search.search_bar_ctrl.OnNext()
-                : state.search.search_bar_ctrl.OnPrev();
+    auto& ss = state.search;
+    if (ss.search_state.IsVisible()) {
+        if (forward) {
+            ss.search_bar_ctrl.OnNext();
+        }
+        else {
+            ss.search_bar_ctrl.OnPrev();
+        }
     }
     else {
-        state.search.search_bar_ctrl.OnOpen(state.document.doc.GetNodes());
+        ss.search_bar_ctrl.OnOpen(state.document.doc.GetNodes());
     }
 }
 
@@ -569,22 +599,29 @@ constexpr ScrollbarDragGrip ComputeScrollbarDragGrip(
 
 void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, const MdScrollbarDragStartedAction& a)
 {
-    state.view.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
-    state.view.viewport.SetScrollbarTracking(true);
-    PushEffect(effects, effect::SetCapture{});
-
     const auto& md_rect = state.pane_layout_cache.Get().md_rect;
     const auto info = ComputeScrollInfo(md_rect, 0.0f, a.total_height);
     const float thumb_y = ComputeThumbY(info, state.view.viewport.GetScrollY());
     const auto grip = ComputeScrollbarDragGrip(thumb_y, info.thumb_height, a.dip_y);
-    state.view.panes.SetDragScrollOffset(grip.drag_offset);
+    const auto drag_offset = grip.drag_offset;
+
+    auto begin = [&sv = state.view, drag_offset] {
+        sv.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
+        sv.viewport.SetScrollbarTracking(true);
+        sv.panes.SetDragScrollOffset(drag_offset);
+    };
+    // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
     if (grip.inside_thumb) {
-        return;
+        mendo::RunScrollDragStarted(effects, begin);
     }
-    const float new_thumb_y = a.dip_y - grip.drag_offset;
-    const float old_scroll = state.view.viewport.GetScrollY();
-    state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
-    EmitScrollEffects(state, effects, old_scroll);
+    else {
+        auto jump = [&state, &effects, info, new_thumb_y = a.dip_y - drag_offset] {
+            const float old_scroll = state.view.viewport.GetScrollY();
+            state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
+            EmitScrollEffects(state, effects, old_scroll);
+        };
+        mendo::RunScrollDragStarted(effects, begin, jump);
+    }
 }
 
 void ReduceMdScrollbarDragMoved(AppState& state, SideEffectList& effects, const MdScrollbarDragMovedAction& a)
@@ -605,11 +642,19 @@ void ReduceMdScrollbarDragEnded(AppState& state, SideEffectList& effects)
     if (state.view.panes.GetDragTarget() != PaneController::DragTarget::MdScrollbar) {
         return;
     }
-    state.view.viewport.SetScrollbarTracking(false);
-    state.view.panes.EndDrag();
-    PushEffect(effects, effect::ReleaseCapture{});
-    PushEffect(effects, effect::PerformResizeEnd{});
-    PushEffect(effects, effect::BitmapManage{});
+    // clang-format off
+    mendo::RunScrollDragEnded(
+        effects,
+        [&state] {
+            state.view.viewport.SetScrollbarTracking(false);
+            state.view.panes.EndDrag();
+        },
+        [&effects] {
+            PushEffect(effects, effect::PerformResizeEnd{});
+            PushEffect(effects, effect::BitmapManage{});
+        }
+    );
+    // clang-format on
 }
 
 void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
@@ -618,28 +663,36 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
     if (ctx.total_content <= ctx.info.content_height) {
         return;
     }
-    state.view.panes.StartDrag(ctx.drag_target);
-    PushEffect(effects, effect::SetCapture{});
-
     const float thumb_y = ComputeThumbY(ctx.info, ctx.scroll.scroll_y);
     const auto grip = ComputeScrollbarDragGrip(thumb_y, ctx.info.thumb_height, a.dip_y);
-    state.view.panes.SetDragScrollOffset(grip.drag_offset);
+    const auto drag_offset = grip.drag_offset;
+
+    auto begin = [&state, drag_target = ctx.drag_target, drag_offset] {
+        state.view.panes.StartDrag(drag_target);
+        state.view.panes.SetDragScrollOffset(drag_offset);
+    };
     if (grip.inside_thumb) {
-        return;
+        mendo::RunScrollDragStarted(effects, begin);
     }
-    const float new_thumb_y = a.dip_y - grip.drag_offset;
-    ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
-    ctx.scroll.max_scroll = ctx.info.max_scroll;
-    PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
-    PushEffect(effects, effect::InvalidateWindow{});
+    else {
+        auto jump = [&effects, &ctx, new_thumb_y = a.dip_y - drag_offset] {
+            ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
+            ctx.scroll.max_scroll = ctx.info.max_scroll;
+            PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
+            PushEffect(effects, effect::InvalidateWindow{});
+        };
+        mendo::RunScrollDragStarted(effects, begin, jump);
+    }
 }
 
 void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, const PaneScrollbarDragMovedAction& a)
 {
-    auto ctx = GetSidePaneContext(state, a.pane);
-    if (state.view.panes.GetDragTarget() != ctx.drag_target) {
+    // drag target は pane だけから決まるので、ctx 構築前に短絡し
+    // 非ドラッグ時の per-event GetEntries().size() + ComputeScrollInfo を回避。
+    if (state.view.panes.GetDragTarget() != SidePaneDragTarget(a.pane)) {
         return;
     }
+    auto ctx = GetSidePaneContext(state, a.pane);
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
     ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
     ctx.scroll.max_scroll = ctx.info.max_scroll;
@@ -649,12 +702,14 @@ void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, cons
 
 void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)
 {
+    using enum PaneController::DragTarget;
     const auto drag = state.view.panes.GetDragTarget();
-    if (drag != PaneController::DragTarget::FileScrollbar && drag != PaneController::DragTarget::TocScrollbar) {
+    if (drag != FileScrollbar && drag != TocScrollbar) {
         return;
     }
-    state.view.panes.EndDrag();
-    PushEffect(effects, effect::ReleaseCapture{});
+    mendo::RunScrollDragEnded(effects, [&state] {
+        state.view.panes.EndDrag();
+    });
 }
 
 void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const TextSelectionStartedAction& a)

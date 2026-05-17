@@ -1,3 +1,4 @@
+#pragma once
 #include "search_bar_controller.h"
 #include "app_constants.h"
 #include "viewport_manager.h"
@@ -7,7 +8,8 @@
 #include <algorithm>
 #include <cmath>
 
-void SearchBarController::Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Callbacks cb)
+template <class Cb>
+void SearchBarControllerT<Cb>::Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Cb cb)
 {
     state_ = &state;
     viewport_ = &viewport;
@@ -15,7 +17,8 @@ void SearchBarController::Init(SearchState& state, ViewportManager& viewport, La
     cb_ = std::move(cb);
 }
 
-void SearchBarController::OnOpen(const std::pmr::vector<Node>& nodes)
+template <class Cb>
+void SearchBarControllerT<Cb>::OnOpen(const std::pmr::vector<Node>& nodes)
 {
     if (state_->IsVisible()) {
         OnClose();
@@ -37,7 +40,8 @@ void SearchBarController::OnOpen(const std::pmr::vector<Node>& nodes)
     cb_.invalidate();
 }
 
-void SearchBarController::OnClose()
+template <class Cb>
+void SearchBarControllerT<Cb>::OnClose()
 {
     state_->Hide();
     hover_ = SearchBarHitZone::None;
@@ -50,7 +54,8 @@ void SearchBarController::OnClose()
     cb_.invalidate();
 }
 
-void SearchBarController::OnNext()
+template <class Cb>
+void SearchBarControllerT<Cb>::OnNext()
 {
     if (state_->NextMatch() && state_->GetMatchCount() > 1) {
         cb_.on_wrap_around();
@@ -59,7 +64,8 @@ void SearchBarController::OnNext()
     cb_.invalidate();
 }
 
-void SearchBarController::OnPrev()
+template <class Cb>
+void SearchBarControllerT<Cb>::OnPrev()
 {
     if (state_->PrevMatch() && state_->GetMatchCount() > 1) {
         cb_.on_wrap_around();
@@ -68,7 +74,8 @@ void SearchBarController::OnPrev()
     cb_.invalidate();
 }
 
-void SearchBarController::OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes)
+template <class Cb>
+void SearchBarControllerT<Cb>::OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes)
 {
     // 検索バー入力は IME 経由で wstring。SearchState は Document テキスト (UTF-8) と比較するため変換。
     std::pmr::string text_utf8;
@@ -94,7 +101,8 @@ void SearchBarController::OnTextChanged(std::wstring_view text, const std::pmr::
     cb_.set_timer(app_timer::Id::SEARCH_DEBOUNCE, 150);
 }
 
-void SearchBarController::OnToggleCaseSensitive(const std::pmr::vector<Node>& nodes)
+template <class Cb>
+void SearchBarControllerT<Cb>::OnToggleCaseSensitive(const std::pmr::vector<Node>& nodes)
 {
     state_->ToggleCaseSensitive();
     if (!state_->GetQuery().empty()) {
@@ -103,13 +111,15 @@ void SearchBarController::OnToggleCaseSensitive(const std::pmr::vector<Node>& no
     cb_.invalidate();
 }
 
-void SearchBarController::OnToggleHighlight()
+template <class Cb>
+void SearchBarControllerT<Cb>::OnToggleHighlight()
 {
     state_->ToggleHighlightEnabled();
     cb_.invalidate();
 }
 
-void SearchBarController::SetSelection(int sel_start, int sel_end) noexcept
+template <class Cb>
+void SearchBarControllerT<Cb>::SetSelection(int sel_start, int sel_end) noexcept
 {
     if (caret_pos_ == sel_end && selection_start_ == sel_start) {
         return;
@@ -123,7 +133,8 @@ void SearchBarController::SetSelection(int sel_start, int sel_end) noexcept
     }
 }
 
-void SearchBarController::SetImeComposition(std::wstring_view comp)
+template <class Cb>
+void SearchBarControllerT<Cb>::SetImeComposition(std::wstring_view comp)
 {
     if (ime_composition_ == comp) {
         return;
@@ -134,7 +145,8 @@ void SearchBarController::SetImeComposition(std::wstring_view comp)
     }
 }
 
-void SearchBarController::OnCaretBlinkTimer()
+template <class Cb>
+void SearchBarControllerT<Cb>::OnCaretBlinkTimer()
 {
     caret_visible_ = !caret_visible_;
     if (has_focus_) {
@@ -142,14 +154,16 @@ void SearchBarController::OnCaretBlinkTimer()
     }
 }
 
-void SearchBarController::OnDebounceTimer(const std::pmr::vector<Node>& nodes)
+template <class Cb>
+void SearchBarControllerT<Cb>::OnDebounceTimer(const std::pmr::vector<Node>& nodes)
 {
     cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
     RunSearchAndLocate(nodes, true);
     cb_.invalidate();
 }
 
-void SearchBarController::RunSearchAndLocate(const std::pmr::vector<Node>& nodes, bool scroll_to_match)
+template <class Cb>
+void SearchBarControllerT<Cb>::RunSearchAndLocate(const std::pmr::vector<Node>& nodes, bool scroll_to_match)
 {
     state_->ExecuteSearch(nodes);
     if (state_->GetMatchCount() > 0) {
@@ -160,7 +174,8 @@ void SearchBarController::RunSearchAndLocate(const std::pmr::vector<Node>& nodes
     }
 }
 
-void SearchBarController::ScrollToCurrentMatch()
+template <class Cb>
+void SearchBarControllerT<Cb>::ScrollToCurrentMatch()
 {
     const int idx = state_->GetCurrentMatchIndex();
     if (idx < 0 || idx >= state_->GetMatchCount()) {
@@ -192,7 +207,8 @@ void SearchBarController::ScrollToCurrentMatch()
     }
 }
 
-void SearchBarController::Reset()
+template <class Cb>
+void SearchBarControllerT<Cb>::Reset()
 {
     state_->Reset();
     hover_ = SearchBarHitZone::None;
@@ -206,13 +222,15 @@ void SearchBarController::Reset()
     cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
 }
 
-void SearchBarController::StartDrag(int anchor_pos) noexcept
+template <class Cb>
+void SearchBarControllerT<Cb>::StartDrag(int anchor_pos) noexcept
 {
     dragging_ = true;
     drag_anchor_ = anchor_pos;
 }
 
-void SearchBarController::UpdateHoverFromZone(SearchBarHitZone zone)
+template <class Cb>
+void SearchBarControllerT<Cb>::UpdateHoverFromZone(SearchBarHitZone zone)
 {
     // Input ゾーンはテキスト編集領域でホバー強調は不要なので None に丸める。
     const auto new_hover = (zone == SearchBarHitZone::Input) ? SearchBarHitZone::None : zone;
@@ -222,14 +240,24 @@ void SearchBarController::UpdateHoverFromZone(SearchBarHitZone zone)
     }
 }
 
-SearchBarRenderState SearchBarController::BuildRenderState() const
+template <class Cb>
+const std::pmr::wstring& SearchBarControllerT<Cb>::GetQueryWide() const
+{
+    const auto& utf8 = state_->GetQuery();
+    if (query_wide_cache_key_ != utf8) {
+        query_wide_cache_.clear();
+        string_convert::Utf8ToWide(utf8, query_wide_cache_);
+        query_wide_cache_key_.assign(utf8);
+    }
+    return query_wide_cache_;
+}
+
+template <class Cb>
+SearchBarRenderState SearchBarControllerT<Cb>::BuildRenderState() const
 {
     SearchBarRenderState sb;
     sb.visible = state_->IsVisible();
-    // string (UTF-8) → wstring 変換し、cache 経由で view を貼る。
-    query_wide_cache_.clear();
-    string_convert::Utf8ToWide(state_->GetQuery(), query_wide_cache_);
-    sb.query = query_wide_cache_;
+    sb.query = GetQueryWide();
     sb.current_match = state_->GetCurrentMatchIndex();
     sb.total_matches = state_->GetMatchCount();
     sb.has_focus = has_focus_;
@@ -247,7 +275,8 @@ SearchBarRenderState SearchBarController::BuildRenderState() const
     return sb;
 }
 
-void SearchBarController::RestartCaretBlink()
+template <class Cb>
+void SearchBarControllerT<Cb>::RestartCaretBlink()
 {
     cb_.kill_timer(app_timer::Id::SEARCH_CARET);
     const UINT blink_time = GetCaretBlinkTime();

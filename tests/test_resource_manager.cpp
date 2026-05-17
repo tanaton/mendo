@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "resource_manager.h"
+#include "resource_manager_impl.h"
 #include "app_constants.h"
 #include "document.h"
 #include "layout_cache.h"
@@ -18,26 +18,59 @@ namespace {
 // AddRef/Release は no-op (static instance で寿命管理は不要)。
 class StubD2D1Bitmap : public ID2D1Bitmap {
 public:
-    STDMETHODIMP QueryInterface(REFIID, void**) override { return E_NOTIMPL; }
-    STDMETHODIMP_(ULONG) AddRef() override { return 1; }
-    STDMETHODIMP_(ULONG) Release() override { return 1; }
+    STDMETHODIMP QueryInterface(REFIID, void**) override
+    {
+        return E_NOTIMPL;
+    }
+    STDMETHODIMP_(ULONG)
+    AddRef() override
+    {
+        return 1;
+    }
+    STDMETHODIMP_(ULONG)
+    Release() override
+    {
+        return 1;
+    }
     void STDMETHODCALLTYPE GetFactory(ID2D1Factory** factory) const override
     {
         if (factory) {
             *factory = nullptr;
         }
     }
-    D2D1_SIZE_F STDMETHODCALLTYPE GetSize() const override { return D2D1_SIZE_F{ 1.0f, 1.0f }; }
-    D2D1_SIZE_U STDMETHODCALLTYPE GetPixelSize() const override { return D2D1_SIZE_U{ 1u, 1u }; }
-    D2D1_PIXEL_FORMAT STDMETHODCALLTYPE GetPixelFormat() const override { return D2D1_PIXEL_FORMAT{}; }
+    D2D1_SIZE_F STDMETHODCALLTYPE GetSize() const override
+    {
+        return D2D1_SIZE_F{ 1.0f, 1.0f };
+    }
+    D2D1_SIZE_U STDMETHODCALLTYPE GetPixelSize() const override
+    {
+        return D2D1_SIZE_U{ 1u, 1u };
+    }
+    D2D1_PIXEL_FORMAT STDMETHODCALLTYPE GetPixelFormat() const override
+    {
+        return D2D1_PIXEL_FORMAT{};
+    }
     void STDMETHODCALLTYPE GetDpi(FLOAT* dpiX, FLOAT* dpiY) const override
     {
-        if (dpiX) { *dpiX = 96.0f; }
-        if (dpiY) { *dpiY = 96.0f; }
+        if (dpiX) {
+            *dpiX = 96.0f;
+        }
+        if (dpiY) {
+            *dpiY = 96.0f;
+        }
     }
-    HRESULT STDMETHODCALLTYPE CopyFromBitmap(const D2D1_POINT_2U*, ID2D1Bitmap*, const D2D1_RECT_U*) override { return E_NOTIMPL; }
-    HRESULT STDMETHODCALLTYPE CopyFromRenderTarget(const D2D1_POINT_2U*, ID2D1RenderTarget*, const D2D1_RECT_U*) override { return E_NOTIMPL; }
-    HRESULT STDMETHODCALLTYPE CopyFromMemory(const D2D1_RECT_U*, const void*, UINT32) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE CopyFromBitmap(const D2D1_POINT_2U*, ID2D1Bitmap*, const D2D1_RECT_U*) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE CopyFromRenderTarget(const D2D1_POINT_2U*, ID2D1RenderTarget*, const D2D1_RECT_U*) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE CopyFromMemory(const D2D1_RECT_U*, const void*, UINT32) override
+    {
+        return E_NOTIMPL;
+    }
 };
 
 // IMermaidRenderer のテスト用 mock。各メソッドの呼び出し回数と最後の引数を記録する。
@@ -52,7 +85,8 @@ public:
     // true のとき RequestRender でディスクキャッシュヒットを模し、同期で bitmap を設定して on_complete を呼ぶ。
     bool sync_apply_bitmap = false;
 
-    void RequestRender(Node& node, NodeLayoutEntry& layout_entry,
+    void RequestRender(
+        Node& node, NodeLayoutEntry& layout_entry,
         DiagramEntry& diagram_entry, float max_width, bool dark_mode,
         Callback on_complete) override
     {
@@ -79,8 +113,14 @@ public:
         }
     }
 
-    void CancelPending() override { cancel_pending_count++; }
-    void ClearCache() override { clear_cache_count++; }
+    void CancelPending() override
+    {
+        cancel_pending_count++;
+    }
+    void ClearCache() override
+    {
+        clear_cache_count++;
+    }
 
 private:
     static StubD2D1Bitmap& SharedStubBitmap() noexcept
@@ -106,26 +146,45 @@ struct CallbackTracker {
     float indent_width = 20.0f;
 };
 
-ResourceManager::Callbacks MakeCallbacks(CallbackTracker& t)
-{
-    return ResourceManager::Callbacks{
-        .invalidate = [&t]() { t.invalidate++; },
-        .set_timer = [&t](app_timer::Id id, UINT ms) {
-            t.set_timer++;
-            t.last_set_timer_id = id;
-            t.last_set_timer_ms = ms;
-        },
-        .kill_timer = [&t](app_timer::Id id) {
-            t.kill_timer++;
-            t.last_killed_timer_id = id;
-        },
-        .get_content_width = [&t]() { return t.content_width; },
-        .get_viewport_height = [&t]() { return t.viewport_height; },
-        .get_indent_width = [&t]() { return t.indent_width; },
-        .recompute_layout = [&t]() { t.recompute_layout++; },
-        .recompute_layout_anchored = [&t]() { t.recompute_layout_anchored++; },
-    };
-}
+struct TestResourceManagerCallbacks {
+    CallbackTracker* t = nullptr;
+
+    void invalidate()
+    {
+        t->invalidate++;
+    }
+    void set_timer(app_timer::Id id, UINT ms)
+    {
+        t->set_timer++;
+        t->last_set_timer_id = id;
+        t->last_set_timer_ms = ms;
+    }
+    void kill_timer(app_timer::Id id)
+    {
+        t->kill_timer++;
+        t->last_killed_timer_id = id;
+    }
+    float get_content_width()
+    {
+        return t->content_width;
+    }
+    float get_viewport_height()
+    {
+        return t->viewport_height;
+    }
+    float get_indent_width()
+    {
+        return t->indent_width;
+    }
+    void recompute_layout()
+    {
+        t->recompute_layout++;
+    }
+    void recompute_layout_anchored()
+    {
+        t->recompute_layout_anchored++;
+    }
+};
 
 // MakeUniformCache をベースに layout_dirty=false を立てたキャッシュを返す。
 LayoutCache SeedLayoutCache(size_t node_count, float block_height = 100.0f)
@@ -153,7 +212,7 @@ protected:
         doc_ = Document::FromMarkdown(std::move(utf8), kTestDocPath);
         cache_ = SeedLayoutCache(doc_.GetNodes().size(), block_height);
         rm_.Init(doc_, cache_, viewport_, image_loader_, mock_mermaid_, theme_service_, theme_,
-            MakeCallbacks(tracker_));
+                 TestResourceManagerCallbacks{ &tracker_ });
     }
 
     Document doc_;
@@ -165,7 +224,7 @@ protected:
     ThemeService theme_service_{ config_ };
     Theme theme_{};
     CallbackTracker tracker_;
-    ResourceManager rm_;
+    ResourceManagerT<TestResourceManagerCallbacks> rm_;
 };
 
 // ---- 画像経路 ----
@@ -294,7 +353,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsBeyondVisibleRange)
 {
     // diagram が 2 個。1個目を可視範囲、2個目を範囲外に置く。
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n",
-        /*block_height=*/200.0f);
+                 /*block_height=*/200.0f);
     ASSERT_GE(doc_.GetDiagramNodeIndices().size(), 2u);
 
     // viewport_height = 600, PREFETCH_BUFFER = 3 screens → range_top=-1800, range_bottom=2400

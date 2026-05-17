@@ -1,9 +1,8 @@
 #include <gtest/gtest.h>
-#include "side_effect_executor.h"
+#include "side_effect_executor_impl.h"
 #include "win32_host.h"
 #include "app_constants.h"
 #include "app_state.h"
-#include "resource_manager.h"
 #include "config_service.h"
 #include "layout.h"
 #include "file_watcher.h"
@@ -114,6 +113,135 @@ public:
     }
 };
 
+struct CallbackTracker {
+    std::vector<std::wstring> load_file_paths;
+    int reload_file_count = 0;
+    int open_file_dialog_count = 0;
+    std::vector<PaneZone> invalidate_pane_cache_calls;
+    int refresh_pane_layout_count = 0;
+    std::pair<UINT, UINT> last_renderer_resize{ 0, 0 };
+    int renderer_resize_count = 0;
+    float last_renderer_dpi = 0.0f;
+    int renderer_set_dpi_count = 0;
+    int clear_file_cache_count = 0;
+    int perform_resize_end_count = 0;
+    int perform_sizing_update_count = 0;
+    effect::ApplyThemeChange last_theme_change{};
+    int apply_theme_change_count = 0;
+    int process_deferred_layout_count = 0;
+    int tick_loading_animation_count = 0;
+    int process_mermaid_batch_timer_count = 0;
+    int process_bitmap_manage_count = 0;
+    int mermaid_init_retry_count = 0;
+    int destroy_count = 0;
+    int handle_parse_complete_count = 0;
+    std::pair<int, int> last_context_menu_pos{ 0, 0 };
+    int show_context_menu_count = 0;
+    int sync_toc_active_count = 0;
+};
+
+struct TestSideEffectCallbacks {
+    CallbackTracker* t = nullptr;
+
+    void load_file(std::wstring_view p)
+    {
+        t->load_file_paths.emplace_back(p);
+    }
+    void reload_file()
+    {
+        t->reload_file_count++;
+    }
+    void open_file_dialog()
+    {
+        t->open_file_dialog_count++;
+    }
+    void invalidate_pane_cache(PaneZone p)
+    {
+        t->invalidate_pane_cache_calls.push_back(p);
+    }
+    void refresh_pane_layout()
+    {
+        t->refresh_pane_layout_count++;
+    }
+    void renderer_resize(UINT w, UINT h)
+    {
+        t->last_renderer_resize = { w, h };
+        t->renderer_resize_count++;
+    }
+    void renderer_set_dpi(float dpi)
+    {
+        t->last_renderer_dpi = dpi;
+        t->renderer_set_dpi_count++;
+    }
+    void clear_file_cache()
+    {
+        t->clear_file_cache_count++;
+    }
+    void perform_resize_end()
+    {
+        t->perform_resize_end_count++;
+    }
+    void perform_sizing_update()
+    {
+        t->perform_sizing_update_count++;
+    }
+    void apply_theme_change(const effect::ApplyThemeChange& e)
+    {
+        t->last_theme_change = e;
+        t->apply_theme_change_count++;
+    }
+    void process_deferred_layout()
+    {
+        t->process_deferred_layout_count++;
+    }
+    void tick_loading_animation()
+    {
+        t->tick_loading_animation_count++;
+    }
+    void process_mermaid_batch_timer()
+    {
+        t->process_mermaid_batch_timer_count++;
+    }
+    void process_bitmap_manage()
+    {
+        t->process_bitmap_manage_count++;
+    }
+    void mermaid_init_retry()
+    {
+        t->mermaid_init_retry_count++;
+    }
+    void destroy()
+    {
+        t->destroy_count++;
+    }
+    void handle_parse_complete()
+    {
+        t->handle_parse_complete_count++;
+    }
+    void show_context_menu(int x, int y)
+    {
+        t->last_context_menu_pos = { x, y };
+        t->show_context_menu_count++;
+    }
+    void sync_toc_active()
+    {
+        t->sync_toc_active_count++;
+    }
+
+    void schedule_bitmap_manage()
+    {}
+    void schedule_mermaid_batch()
+    {}
+    void load_images()
+    {}
+    void request_mermaid_renders()
+    {}
+    void cancel_mermaid_batch()
+    {}
+    void on_app_image_loaded()
+    {}
+};
+
 } // namespace
 
 class SideEffectExecutorTest : public ::testing::Test {
@@ -122,81 +250,41 @@ protected:
     RecordingWin32Host host_;
     FileWatcher watcher_;
     ConfigService config_;
-    ResourceManager resource_manager_;
     AppState state_;
     LayoutEngine engine_;
     LayoutService layout_service_{ engine_, state_.view.viewport };
-    SideEffectExecutor exec_;
+    CallbackTracker tracker_;
+    SideEffectExecutorT<TestSideEffectCallbacks> exec_;
 
-    // --- スパイ記録 ---
-    std::vector<std::wstring> load_file_paths_;
-    int reload_file_count_ = 0;
-    int open_file_dialog_count_ = 0;
-    std::vector<PaneZone> invalidate_pane_cache_calls_;
-    int refresh_pane_layout_count_ = 0;
-    std::pair<UINT, UINT> last_renderer_resize_{ 0, 0 };
-    int renderer_resize_count_ = 0;
-    float last_renderer_dpi_ = 0.0f;
-    int renderer_set_dpi_count_ = 0;
-    int clear_file_cache_count_ = 0;
-    int perform_resize_end_count_ = 0;
-    int perform_sizing_update_count_ = 0;
-    effect::ApplyThemeChange last_theme_change_{};
-    int apply_theme_change_count_ = 0;
-    int process_deferred_layout_count_ = 0;
-    int tick_loading_animation_count_ = 0;
-    int process_mermaid_batch_timer_count_ = 0;
-    int process_bitmap_manage_count_ = 0;
-    int mermaid_init_retry_count_ = 0;
-    int destroy_count_ = 0;
-    int handle_parse_complete_count_ = 0;
-    std::pair<int, int> last_context_menu_pos_{ 0, 0 };
-    int show_context_menu_count_ = 0;
-
-    SideEffectExecutor::Callbacks MakeCallbacks()
-    {
-        return {
-            .load_file = [this](std::wstring_view p) {
-            load_file_paths_.emplace_back(p);
-        },
-            .reload_file = [this] { reload_file_count_++; },
-            .open_file_dialog = [this] { open_file_dialog_count_++; },
-            .invalidate_pane_cache = [this](PaneZone p) {
-            invalidate_pane_cache_calls_.push_back(p);
-        },
-            .refresh_pane_layout = [this] { refresh_pane_layout_count_++; },
-            .renderer_resize = [this](UINT w, UINT h) {
-            last_renderer_resize_ = { w, h };
-            renderer_resize_count_++;
-        },
-            .renderer_set_dpi = [this](float dpi) {
-            last_renderer_dpi_ = dpi;
-            renderer_set_dpi_count_++;
-        },
-            .clear_file_cache = [this] { clear_file_cache_count_++; },
-            .perform_resize_end = [this] { perform_resize_end_count_++; },
-            .perform_sizing_update = [this] { perform_sizing_update_count_++; },
-            .apply_theme_change = [this](const effect::ApplyThemeChange& e) {
-            last_theme_change_ = e;
-            apply_theme_change_count_++;
-        },
-            .process_deferred_layout = [this] { process_deferred_layout_count_++; },
-            .tick_loading_animation = [this] { tick_loading_animation_count_++; },
-            .process_mermaid_batch_timer = [this] { process_mermaid_batch_timer_count_++; },
-            .process_bitmap_manage = [this] { process_bitmap_manage_count_++; },
-            .mermaid_init_retry = [this] { mermaid_init_retry_count_++; },
-            .destroy = [this] { destroy_count_++; },
-            .handle_parse_complete = [this] { handle_parse_complete_count_++; },
-            .show_context_menu = [this](int x, int y) {
-            last_context_menu_pos_ = { x, y };
-            show_context_menu_count_++;
-        },
-        };
-    }
+    // --- スパイ記録 (旧 API 互換の参照) ---
+    std::vector<std::wstring>& load_file_paths_ = tracker_.load_file_paths;
+    int& reload_file_count_ = tracker_.reload_file_count;
+    int& open_file_dialog_count_ = tracker_.open_file_dialog_count;
+    std::vector<PaneZone>& invalidate_pane_cache_calls_ = tracker_.invalidate_pane_cache_calls;
+    int& refresh_pane_layout_count_ = tracker_.refresh_pane_layout_count;
+    std::pair<UINT, UINT>& last_renderer_resize_ = tracker_.last_renderer_resize;
+    int& renderer_resize_count_ = tracker_.renderer_resize_count;
+    float& last_renderer_dpi_ = tracker_.last_renderer_dpi;
+    int& renderer_set_dpi_count_ = tracker_.renderer_set_dpi_count;
+    int& clear_file_cache_count_ = tracker_.clear_file_cache_count;
+    int& perform_resize_end_count_ = tracker_.perform_resize_end_count;
+    int& perform_sizing_update_count_ = tracker_.perform_sizing_update_count;
+    effect::ApplyThemeChange& last_theme_change_ = tracker_.last_theme_change;
+    int& apply_theme_change_count_ = tracker_.apply_theme_change_count;
+    int& process_deferred_layout_count_ = tracker_.process_deferred_layout_count;
+    int& tick_loading_animation_count_ = tracker_.tick_loading_animation_count;
+    int& process_mermaid_batch_timer_count_ = tracker_.process_mermaid_batch_timer_count;
+    int& process_bitmap_manage_count_ = tracker_.process_bitmap_manage_count;
+    int& mermaid_init_retry_count_ = tracker_.mermaid_init_retry_count;
+    int& destroy_count_ = tracker_.destroy_count;
+    int& handle_parse_complete_count_ = tracker_.handle_parse_complete_count;
+    std::pair<int, int>& last_context_menu_pos_ = tracker_.last_context_menu_pos;
+    int& show_context_menu_count_ = tracker_.show_context_menu_count;
 
     void SetUp() override
     {
-        exec_.Init(host_, resource_manager_, watcher_, state_, layout_service_, MakeCallbacks());
+        exec_.Init(host_, watcher_, state_, layout_service_,
+                   TestSideEffectCallbacks{ &tracker_ });
     }
 };
 

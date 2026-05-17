@@ -4,7 +4,6 @@
 #include "document_utils.h"
 #include "pane_layout.h"
 #include "resource.h"
-#include "string_convert.h"
 #include "ui_constants.h"
 
 App::HitResult App::HitTest(int screen_x, int screen_y)
@@ -130,12 +129,10 @@ void App::OnMouseMove(int px, int py)
     if (state_.search.search_bar_ctrl.IsDragging()) {
         const auto layout = GetPaneLayout();
         const auto& r = layout.md_rect;
-        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
+        const auto& query_wide = state_.search.search_bar_ctrl.GetQueryWide();
+        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !query_wide.empty());
         const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
-        // HitTestSearchInput は wstring_view 受け取り (Renderer 内部は wstring 経路で固定)。
-        std::pmr::wstring query_wide;
-        string_convert::Utf8ToWide(state_.search.search_state.GetQuery(), query_wide);
         const int pos = renderer_.HitTestSearchInput(query_wide, dip.x - text_left, input_w);
         Dispatch(SearchInputDragMovedAction{ pos });
         return;

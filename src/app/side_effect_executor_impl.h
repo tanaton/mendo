@@ -1,6 +1,6 @@
+#pragma once
 #include "side_effect_executor.h"
 #include "win32_host.h"
-#include "resource_manager.h"
 #include "file_watcher.h"
 #include "app_state.h"
 #include "layout.h"
@@ -9,23 +9,23 @@
 #include "utility.h"
 #include "ui_constants.h"
 
-void SideEffectExecutor::Init(
+template <class Cb>
+void SideEffectExecutorT<Cb>::Init(
     IWin32Host& host,
-    ResourceManager& resource_manager,
     FileWatcher& file_watcher,
     AppState& state,
     LayoutService& layout_service,
-    Callbacks cb)
+    Cb cb)
 {
     host_ = &host;
-    resource_manager_ = &resource_manager;
     file_watcher_ = &file_watcher;
     state_ = &state;
     layout_service_ = &layout_service;
     cb_ = std::move(cb);
 }
 
-void SideEffectExecutor::ExecuteOne(const SideEffect& e)
+template <class Cb>
+void SideEffectExecutorT<Cb>::ExecuteOne(const SideEffect& e)
 {
     // clang-format off
     std::visit(mendo::overloaded{
@@ -135,10 +135,10 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
             }
         },
         [this](const effect::BitmapManage&) {
-            resource_manager_->ScheduleBitmapManage();
+            cb_.schedule_bitmap_manage();
         },
         [this](const effect::MermaidBatch&) {
-            resource_manager_->ScheduleMermaidBatch();
+            cb_.schedule_mermaid_batch();
         },
         [this](const effect::InvalidatePaneCache& ev) {
             cb_.invalidate_pane_cache(ev.pane);
@@ -162,16 +162,16 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
         },
         // ---- Resource ----
         [this](const effect::LoadImages&) {
-            resource_manager_->LoadImages();
+            cb_.load_images();
         },
         [this](const effect::RequestMermaidRenders&) {
-            resource_manager_->RequestMermaidRenders();
+            cb_.request_mermaid_renders();
         },
         [this](const effect::CancelMermaidBatch&) {
-            resource_manager_->CancelMermaidBatch();
+            cb_.cancel_mermaid_batch();
         },
         [this](const effect::NotifyImageLoaded&) {
-            resource_manager_->OnAppImageLoaded();
+            cb_.on_app_image_loaded();
         },
         [this](const effect::ClearFileCache&) {
             cb_.clear_file_cache();
@@ -224,7 +224,8 @@ void SideEffectExecutor::ExecuteOne(const SideEffect& e)
     // clang-format on
 }
 
-void SideEffectExecutor::Execute(const SideEffectList& effects)
+template <class Cb>
+void SideEffectExecutorT<Cb>::Execute(const SideEffectList& effects)
 {
     for (const auto& e : effects) {
         ExecuteOne(e);

@@ -1,5 +1,5 @@
+#pragma once
 #include "resource_manager.h"
-#include "app_constants.h"
 #include "document.h"
 #include "layout_cache.h"
 #include "layout_computer.h"
@@ -17,23 +17,24 @@
 #include <filesystem>
 #include <iterator>
 
-namespace {
+namespace resource_manager_detail {
 
 struct IndexSlice {
     std::pmr::vector<size_t>::const_iterator begin;
     std::pmr::vector<size_t>::const_iterator end;
 };
 
-IndexSlice VisibleSlice(const std::pmr::vector<size_t>& sorted_indices, size_t first_visible_node, size_t last_visible_node_plus_1)
+inline IndexSlice VisibleSlice(const std::pmr::vector<size_t>& sorted_indices, size_t first_visible_node, size_t last_visible_node_plus_1)
 {
     const auto b = std::lower_bound(sorted_indices.begin(), sorted_indices.end(), first_visible_node);
     const auto e = std::lower_bound(b, sorted_indices.end(), last_visible_node_plus_1);
     return { b, e };
 }
 
-} // namespace
+} // namespace resource_manager_detail
 
-void ResourceManager::Init(
+template <class Cb>
+void ResourceManagerT<Cb>::Init(
     Document& doc,
     LayoutCache& cache,
     ViewportManager& viewport,
@@ -41,7 +42,7 @@ void ResourceManager::Init(
     IMermaidRenderer& mermaid,
     ThemeService& theme_service,
     const Theme& theme,
-    Callbacks cb)
+    Cb cb)
 {
     doc_ = &doc;
     cache_ = &cache;
@@ -53,8 +54,12 @@ void ResourceManager::Init(
     cb_ = std::move(cb);
 }
 
-int ResourceManager::ApplyCachedImages(bool respect_viewport)
+template <class Cb>
+int ResourceManagerT<Cb>::ApplyCachedImages(bool respect_viewport)
 {
+    using resource_manager_detail::IndexSlice;
+    using resource_manager_detail::VisibleSlice;
+
     const std::pmr::wstring doc_dir = doc_->GetDirectory();
     if (doc_dir.empty()) {
         return 0;
@@ -142,7 +147,8 @@ int ResourceManager::ApplyCachedImages(bool respect_viewport)
     return applied;
 }
 
-void ResourceManager::LoadImages()
+template <class Cb>
+void ResourceManagerT<Cb>::LoadImages()
 {
     if (ApplyCachedImages() > 0) {
         cb_.recompute_layout();
@@ -150,12 +156,14 @@ void ResourceManager::LoadImages()
     }
 }
 
-void ResourceManager::OnAppImageLoaded()
+template <class Cb>
+void ResourceManagerT<Cb>::OnAppImageLoaded()
 {
     image_loader_->ProcessCompletedDecodes();
 }
 
-void ResourceManager::OnImageLoadComplete()
+template <class Cb>
+void ResourceManagerT<Cb>::OnImageLoadComplete()
 {
     pending_flush_ = true;
     if (ApplyCachedImages() > 0) {
@@ -163,7 +171,8 @@ void ResourceManager::OnImageLoadComplete()
     }
 }
 
-void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
+template <class Cb>
+void ResourceManagerT<Cb>::InvalidateMermaidForWidthChange(float content_width)
 {
     if (content_width <= 0.0f) {
         return;
@@ -194,8 +203,12 @@ void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
     last_mermaid_content_width_ = content_width;
 }
 
-int ResourceManager::RequestMermaidRenders()
+template <class Cb>
+int ResourceManagerT<Cb>::RequestMermaidRenders()
 {
+    using resource_manager_detail::IndexSlice;
+    using resource_manager_detail::VisibleSlice;
+
     const float content_width = cb_.get_content_width();
     InvalidateMermaidForWidthChange(content_width);
 
@@ -247,7 +260,8 @@ int ResourceManager::RequestMermaidRenders()
     return applied;
 }
 
-void ResourceManager::OnMermaidRenderComplete()
+template <class Cb>
+void ResourceManagerT<Cb>::OnMermaidRenderComplete()
 {
     if (mermaid_batch_loading_) {
         return;
@@ -256,20 +270,25 @@ void ResourceManager::OnMermaidRenderComplete()
     cb_.recompute_layout_anchored();
 }
 
-void ResourceManager::CancelMermaidBatch()
+template <class Cb>
+void ResourceManagerT<Cb>::CancelMermaidBatch()
 {
     mermaid_->CancelPending();
     cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
 }
 
-void ResourceManager::ScheduleMermaidBatch()
+template <class Cb>
+void ResourceManagerT<Cb>::ScheduleMermaidBatch()
 {
     mermaid_batch_next_ = 0;
     cb_.set_timer(app_timer::Id::MERMAID_BATCH, 16);
 }
 
-void ResourceManager::ProcessMermaidBatch()
+template <class Cb>
+void ResourceManagerT<Cb>::ProcessMermaidBatch()
 {
+    using resource_manager_detail::VisibleSlice;
+
     MENDO_PROFILE("ProcessMermaidBatch");
 
     const float content_width = cb_.get_content_width();
@@ -339,8 +358,11 @@ void ResourceManager::ProcessMermaidBatch()
     }
 }
 
-void ResourceManager::EvictOffscreenBitmaps()
+template <class Cb>
+void ResourceManagerT<Cb>::EvictOffscreenBitmaps()
 {
+    using resource_manager_detail::VisibleSlice;
+
     const float viewport_top = viewport_->GetScrollY();
     const float viewport_height = cb_.get_viewport_height();
     if (viewport_height <= 0.0f) {
@@ -401,7 +423,8 @@ void ResourceManager::EvictOffscreenBitmaps()
     }
 }
 
-void ResourceManager::FlushPendingResources()
+template <class Cb>
+void ResourceManagerT<Cb>::FlushPendingResources()
 {
     // 完了した非同期デコード結果をキャッシュに格納する。
     // 結果があればコールバック経由で pending_flush_ が設定される。
@@ -426,7 +449,8 @@ void ResourceManager::FlushPendingResources()
     }
 }
 
-void ResourceManager::ScheduleBitmapManage()
+template <class Cb>
+void ResourceManagerT<Cb>::ScheduleBitmapManage()
 {
     // 直近 50ms 以内に既に flush していれば再実行を抑止する。
     // 細かいスクロールで FlushPendingResources が毎フレーム走るのを防ぎ、
@@ -440,7 +464,8 @@ void ResourceManager::ScheduleBitmapManage()
     cb_.set_timer(app_timer::Id::BITMAP_MANAGE, 150);
 }
 
-void ResourceManager::OnBitmapManageTimer()
+template <class Cb>
+void ResourceManagerT<Cb>::OnBitmapManageTimer()
 {
     cb_.kill_timer(app_timer::Id::BITMAP_MANAGE);
 

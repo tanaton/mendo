@@ -4,7 +4,7 @@
 #include "viewport_manager.h"
 #include "pane_controller.h"
 #include "search_state.h"
-#include "search_bar_controller.h"
+#include "app_search_bar_callbacks.h"
 #include "nav.h"
 #include "file_explorer.h"
 #include "mouse_gesture.h"

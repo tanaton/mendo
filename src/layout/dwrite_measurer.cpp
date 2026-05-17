@@ -159,14 +159,14 @@ inline void FlushAttr(AttrRangeBuilder& b, const mendo::WideViewForDWrite& wv, E
 
 } // namespace
 
-void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& wv, std::optional<NodeType> node_type) const
+void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& wv, RunFormatScope scope) const
 {
     if (runs.empty()) {
         return;
     }
-    const bool apply_code = (!node_type || *node_type != NodeType::CodeBlock);
-    const bool apply_code_size = apply_code && (!node_type || *node_type != NodeType::Heading);
-    const bool apply_link = !node_type;
+    const bool apply_code = scope.apply_code;
+    const bool apply_code_size = scope.apply_code_size;
+    const bool apply_link = scope.apply_link;
 
     // run.start/length は UTF-8 byte 単位。wv が UTF-16 textPosition への対応表を保持する。
 
@@ -321,7 +321,7 @@ void DWriteTextMeasurer::MeasureNode(
         return;
     }
 
-    ApplyRunFormatting(layout.Get(), node.runs, wv, node.type);
+    ApplyRunFormatting(layout.Get(), node.runs, wv, RunFormatScope::ForNode(node.type));
 
     // Alert ノードのアイコン文字のフォントウェイトを設定。
     // 6 種類のアイコンは UTF-16 で 1 code unit (BMP) または 2 code unit (Tip 💡 = U+1F4A1 サロゲートペア) と
@@ -384,7 +384,7 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
             mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
 
             if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, RunFormatScope::ForCell());
                 DWRITE_TEXT_METRICS metrics{};
                 tl.cell_layouts[ci]->GetMetrics(&metrics);
                 natural_widths[c] = std::max(natural_widths[c], metrics.width);
@@ -431,7 +431,7 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
             const mendo::WideViewForDWrite wv{ text };
             mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
             if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, std::nullopt);
+                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, RunFormatScope::ForCell());
             }
         }
     }

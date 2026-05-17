@@ -6,6 +6,7 @@
 #include "profiler.h"
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <utility>
 
 #ifdef MENDO_USE_TRACY
@@ -221,12 +222,20 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
             if (!cell_layout) {
                 continue;
             }
-            // セルテキストごとに doc_offset (UTF-8 byte) → UTF-16 textPosition 変換器を構築。
-            const mendo::WideViewForDWrite wv{ tbl->GetCellText(r, c) };
-            for (const auto& run : tbl->GetCellRuns(r, c)) {
+            const auto& runs = tbl->GetCellRuns(r, c);
+            if (runs.empty()) {
+                continue;
+            }
+            // WideView は UTF-8→UTF-16 decode + offsets テーブルを伴うため、
+            // link/code を一切含まないセル (大半を占める) では構築を回避する。
+            std::optional<mendo::WideViewForDWrite> wv;
+            for (const auto& run : runs) {
                 // リンク色: 初回パスで全行に適用（軽量・冪等）
                 if (first_pass && run.has_link()) {
-                    const auto range = wv.WideRange(run.start, run.length);
+                    if (!wv) {
+                        wv.emplace(tbl->GetCellText(r, c));
+                    }
+                    const auto range = wv->WideRange(run.start, run.length);
                     cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                     MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
                 }
@@ -236,8 +245,11 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
                 // upper_bound 位置に insert する。可視ノードが下方向に増える典型ケースは
                 // 完全 append (O(1)/elem) で済む。
                 if (need_bgs && run.code() && run.length > 0) {
+                    if (!wv) {
+                        wv.emplace(tbl->GetCellText(r, c));
+                    }
                     MENDO_COUNT_INC(g_effect_stats.hittest_range);
-                    const auto wr = wv.WideRange(run.start, run.length);
+                    const auto wr = wv->WideRange(run.start, run.length);
                     const UINT32 count = FetchHitTestMetrics(cell_layout, wr.startPosition, wr.length, hit_test_buffer_);
                     MENDO_COUNT_ADD(g_effect_stats.inline_code_bg_added, count);
                     const auto cell_index = static_cast<uint32_t>(tl.CellIndex(r, c));

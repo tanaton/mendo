@@ -5,7 +5,6 @@
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <memory_resource>
-#include <optional>
 #include <span>
 
 
@@ -34,9 +33,35 @@ public:
     }
 
 private:
+    // ApplyRunFormatting で適用する属性集合。Node 用は CodeBlock/Heading に応じて絞り、
+    // テーブルセル用 (ForCell) は全属性 (link underline 含む) を適用する。
+    struct RunFormatScope {
+        bool apply_code = true;
+        bool apply_code_size = true;
+        bool apply_link = true;
+
+        static constexpr RunFormatScope ForNode(NodeType t) noexcept
+        {
+            const bool ac = (t != NodeType::CodeBlock);
+            return {
+                .apply_code = ac,
+                .apply_code_size = ac && (t != NodeType::Heading),
+                .apply_link = false,
+            };
+        }
+        static constexpr RunFormatScope ForCell() noexcept
+        {
+            return {
+                .apply_code = true,
+                .apply_code_size = true,
+                .apply_link = true,
+            };
+        }
+    };
+
     bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node) const noexcept;
-    void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& view, std::optional<NodeType> node_type) const;
+    void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& view, RunFormatScope scope) const;
     void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths) const;
     void RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry, MeasureViewportRange viewport) const;
     void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width, size_t col_count, std::pmr::vector<float>& natural_widths) const;

@@ -7,7 +7,6 @@
 #include "i18n.h"
 #include "layout_computer.h"
 #include "pane_layout.h"
-#include "string_convert.h"
 #include "ui_constants.h"
 
 bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_layout, bool is_double_click)
@@ -44,8 +43,7 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
     case SearchBarHitZone::Input: {
         const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
         const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
-        std::pmr::wstring query_wide;
-        string_convert::Utf8ToWide(state_.search.search_state.GetQuery(), query_wide);
+        const auto& query_wide = state_.search.search_bar_ctrl.GetQueryWide();
         const int pos = renderer_.HitTestSearchInput(query_wide, dip_x - text_left, input_w);
         if (is_double_click) {
             // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、

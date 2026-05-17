@@ -3,7 +3,6 @@
 #include "doc_text.h"
 #include "search_state.h"
 #include "ui_constants.h"
-#include <functional>
 #include <memory_resource>
 #include <string>
 #include <string_view>
@@ -16,24 +15,12 @@ struct SearchBarRenderState;
 // 検索バーのUI状態管理。
 // SearchState（ドメインロジック）を参照で保持し、検索バー固有の
 // UIステート（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。
-// Win32依存の操作はコールバック経由でAppに委譲する。
-class SearchBarController {
+// Win32依存の操作は Cb 経由でAppに委譲する。
+template <class Cb>
+class SearchBarControllerT {
 public:
-    // Win32操作をAppから注入するコールバック群
-    struct Callbacks {
-        std::move_only_function<void()> invalidate;                  // ウィンドウ全体の再描画
-        std::move_only_function<void()> invalidate_search_bar;       // 検索バー領域のみ再描画
-        std::move_only_function<void(app_timer::Id, UINT)> set_timer; // SetTimer(id, ms)
-        std::move_only_function<void(app_timer::Id)> kill_timer;      // KillTimer(id)
-        std::move_only_function<void()> focus_select_all;            // 検索テキスト全選択でフォーカス
-        std::move_only_function<void()> unfocus;                     // フォーカス解除
-        std::move_only_function<float()> get_md_pane_height;         // Markdownペイン高さ取得
-        std::move_only_function<void(float)> on_scroll_changed;      // スクロール変更後処理(md_pane_height)
-        std::move_only_function<void()> on_wrap_around;              // 検索ラップアラウンド時の通知 (Win32 では MessageBeep)
-    };
-
-    SearchBarController() = default;
-    void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Callbacks cb);
+    SearchBarControllerT() = default;
+    void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Cb cb);
 
     void OnOpen(const std::pmr::vector<Node>& nodes);
     void OnClose();
@@ -101,13 +88,18 @@ public:
         return ime_composition_;
     }
 
+    // 検索クエリ (UTF-8) を wstring 化したものを返す。
+    // BuildRenderState / ドラッグ中の HitTest / クリック時の HitTest が同じキャッシュを共有する。
+    // 同一 UTF-8 のときは Utf8ToWide を skip する。
+    const std::pmr::wstring& GetQueryWide() const;
+
 private:
     void RestartCaretBlink();
 
     SearchState* state_ = nullptr;
     ViewportManager* viewport_ = nullptr;
     LayoutCache* cache_ = nullptr;
-    Callbacks cb_;
+    Cb cb_{};
 
     SearchBarHitZone hover_ = SearchBarHitZone::None;
     bool caret_visible_ = false;
@@ -119,5 +111,7 @@ private:
     std::pmr::wstring ime_composition_;
     // SearchBarRenderState::query (wstring_view) 用に string→wstring 変換結果を保持。
     // BuildRenderState() の戻り値内 view が SearchBarController の生存中 valid であることを保証する。
+    // query_wide_cache_key_ は invalidation キーとしての「前回入力 UTF-8 そのもの」。
     mutable std::pmr::wstring query_wide_cache_;
+    mutable std::pmr::string query_wide_cache_key_;
 };

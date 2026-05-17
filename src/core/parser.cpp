@@ -231,7 +231,7 @@ struct ParseContext {
         const auto existing = current_node->view_link_urls();
         const size_t n = existing.size();
         for (size_t i = 0; i < n; ++i) {
-            if (std::string_view{ existing[i] } == url) {
+            if (existing[i] == url) {
                 current_link_url_index = static_cast<int16_t>(i);
                 return;
             }
@@ -634,31 +634,32 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     // どの span でも view 化は構造的に失敗する。FinalizeCurrentNode の memcmp をスキップさせる。
     ctx->current_node_owned_only = true;
 
+    // LATEXMATH_DISPLAY のみ「最初の display math は昇格対象 (other_content を立てない)」
+    // という特殊扱いがあるため、ここで一律に立てるのは他の span 全種類。
+    if (type != MD_SPAN_LATEXMATH_DISPLAY) {
+        ctx->paragraph_has_other_content = true;
+    }
+
     switch (type) {
     case MD_SPAN_STRONG:
         ++ctx->bold_count;
         ctx->current_run_flags |= TextRun::kBold;
-        ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_EM:
         ++ctx->italic_count;
         ctx->current_run_flags |= TextRun::kItalic;
-        ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_CODE:
         ++ctx->code_count;
         ctx->current_run_flags |= TextRun::kCode;
-        ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_DEL:
         ++ctx->strikethrough_count;
         ctx->current_run_flags |= TextRun::kStrikethrough;
-        ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
         ctx->ResolveLinkUrlIndex(std::string_view{ a->href.text, static_cast<size_t>(a->href.size) });
-        ctx->paragraph_has_other_content = true;
         break;
     }
     case MD_SPAN_IMG: {
@@ -666,7 +667,6 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         if (img->src.text && img->src.size > 0) {
             ctx->pending_image_src.assign(img->src.text, static_cast<size_t>(img->src.size));
         }
-        ctx->paragraph_has_other_content = true;
         break;
     }
     case MD_SPAN_LATEXMATH_DISPLAY:
@@ -683,11 +683,9 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_LATEXMATH:
         // インライン $...$ は昇格対象外。元の "$" を復元してテキストとして残す
         ctx->AppendDoc("$");
-        ctx->paragraph_has_other_content = true;
         break;
     case MD_SPAN_WIKILINK:
     case MD_SPAN_U:
-        ctx->paragraph_has_other_content = true;
         break;
     default:
         std::unreachable();

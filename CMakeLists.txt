@@ -137,10 +137,6 @@ add_library(mendo_core STATIC
     # render - 描画パイプライン
     src/render/command_generator.cpp
     src/render/command_executor.cpp
-    # app - 副作用実行（Win32 API は IWin32Host 経由で隔離）
-    src/app/side_effect_executor.cpp
-    # app - 画像/Mermaid リソース管理（Mermaid 具象は IMermaidRenderer 経由で隔離）
-    src/app/resource_manager.cpp
     # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramAsSvg)
     src/app/clipboard_manager.cpp
     # ui - UIコンポーネント
@@ -150,7 +146,6 @@ add_library(mendo_core STATIC
     src/ui/pane_layout.cpp
     src/ui/pane_controller.cpp
     src/ui/search_state.cpp
-    src/ui/search_bar_controller.cpp
     src/ui/titlebar.cpp
     src/ui/tooltip.cpp
     # input - 入力処理
@@ -233,6 +228,9 @@ add_executable(mendo WIN32
     src/app/app_navigate.cpp
     src/app/app_context_menu.cpp
     src/app/app_clipboard.cpp
+    src/app/app_side_effect_callbacks.cpp
+    src/app/app_resource_manager_callbacks.cpp
+    src/app/app_search_bar_callbacks.cpp
     src/app/win32_host_impl.cpp
     src/ui/context_menu.cpp
     src/render/renderer.cpp
