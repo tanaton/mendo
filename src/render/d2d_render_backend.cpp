@@ -8,6 +8,21 @@ using Microsoft::WRL::ComPtr;
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 
+void D2DRenderBackend::ConfigureFrameLatency() noexcept
+{
+    frame_latency_waitable_.reset();
+    if (!swap_chain_) {
+        return;
+    }
+    ComPtr<IDXGISwapChain2> sc2;
+    if (FAILED(swap_chain_.As(&sc2)) || !sc2) {
+        return;
+    }
+    // 既定の MaximumFrameLatency=3 はホイール連打でカクつきの原因になる。1 まで詰める。
+    (void)sc2->SetMaximumFrameLatency(1);
+    frame_latency_waitable_.reset(sc2->GetFrameLatencyWaitableObject());
+}
+
 bool D2DRenderBackend::Init(HWND hwnd)
 {
     hwnd_ = hwnd;
@@ -130,6 +145,9 @@ bool D2DRenderBackend::CreateDeviceResources()
     scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     scd.BufferCount = 2;
     scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    // Waitable で GPU が次フレームのバッファを準備できるまで CPU を待たせる。
+    // これがないと Present の Vsync ブロックで CPU が完全停止する。
+    scd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
     hr = dxgi_factory->CreateSwapChainForHwnd(
         d3d_device_.Get(), hwnd_, &scd, nullptr, nullptr, &swap_chain_);
@@ -143,6 +161,8 @@ bool D2DRenderBackend::CreateDeviceResources()
             return false;
         }
     }
+
+    ConfigureFrameLatency();
 
     if (!CreateSwapChainBitmap()) {
         return false;
@@ -188,7 +208,10 @@ void D2DRenderBackend::Resize(UINT width, UINT height) noexcept
     // ResizeBuffers の前にターゲット参照を切る必要がある
     device_context_->SetTarget(nullptr);
 
-    const HRESULT hr = swap_chain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
+    // SwapChain 生成時と同じ Flags を渡す必要がある（Waitable は ResizeBuffers でも維持）。
+    const HRESULT hr = swap_chain_->ResizeBuffers(
+        0, width, height, DXGI_FORMAT_UNKNOWN,
+        DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
     if (FAILED(hr)) {
         mendo::LogHrFailure(L"IDXGISwapChain1::ResizeBuffers", hr);
         device_lost_ = true;
@@ -208,6 +231,15 @@ void D2DRenderBackend::SetDpi(float dpi) noexcept
     }
 }
 
+void D2DRenderBackend::WaitForFrameLatency() noexcept
+{
+    if (!frame_latency_waitable_) {
+        return;
+    }
+    // 1 秒タイムアウト。GPU が完全停止した状況でも UI スレッドを永久ブロックしない。
+    (void)WaitForSingleObjectEx(frame_latency_waitable_.get(), 1000, TRUE);
+}
+
 HRESULT D2DRenderBackend::Present() noexcept
 {
     if (!swap_chain_) {
@@ -222,6 +254,7 @@ HRESULT D2DRenderBackend::Present() noexcept
 
 bool D2DRenderBackend::RecreateRenderTarget()
 {
+    frame_latency_waitable_.reset();
     device_context_.Reset();
     d2d_device_.Reset();
     swap_chain_.Reset();

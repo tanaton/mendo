@@ -440,6 +440,10 @@ void Renderer::DrawLoading(
         return;
     }
 
+    // GPU パイプライン詰まり時の CPU バックプレッシャを Present(Vsync) ではなく
+    // フレーム頭の Waitable で吸収する。スクロール連打時の遅延を 1 フレーム短縮できる。
+    backend_.WaitForFrameLatency();
+
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);
 
@@ -495,6 +499,8 @@ void Renderer::Render(const RenderParams& p)
     if (!rt()) {
         return;
     }
+
+    backend_.WaitForFrameLatency();
 
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);
