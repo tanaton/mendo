@@ -185,7 +185,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
     }
 
     const bool first_pass = !entry.effects_applied;
-    const auto row_count = tbl->row_count;
+    const auto row_count = static_cast<size_t>(tbl->row_count);
     const auto col_count = static_cast<size_t>(tbl->col_count);
     auto& tl = *entry.table_layout;
     if (first_pass) {
@@ -195,9 +195,34 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
     }
 
     const float border = TABLE_BORDER_WIDTH;
-    float row_y = entry_text_top;
 
-    for (size_t r = 0; r < row_count; r++) {
+    // 2回目以降のパスは row_cum_y で可視範囲を二分探索し、その帯だけループする。
+    // 1万行テーブルの大半をスキップしていたフレーム毎の row_count 線形 continue を排除する。
+    size_t r_begin = 0;
+    size_t r_end = row_count;
+    const bool cull_by_viewport = !first_pass && viewport_top >= 0.0f && tl.row_cum_y.size() == row_count + 1;
+    if (cull_by_viewport) {
+        const float local_top = viewport_top - entry_text_top;
+        const float local_bottom = viewport_bottom - entry_text_top;
+        // row_cum_y[r+1] は行 r の下端 (= 次行の上端、border 込み)。最初に local_top を超える
+        // 境界点を upper_bound で求め、その 1 つ手前が viewport 先頭にかかる行。
+        auto upper = std::ranges::upper_bound(tl.row_cum_y, local_top);
+        if (upper != tl.row_cum_y.begin()) {
+            r_begin = static_cast<size_t>(std::ranges::distance(tl.row_cum_y.begin(), upper)) - 1;
+        }
+        auto lower = std::ranges::lower_bound(tl.row_cum_y, local_bottom);
+        if (lower != tl.row_cum_y.end()) {
+            const auto idx = static_cast<size_t>(std::ranges::distance(tl.row_cum_y.begin(), lower));
+            r_end = std::min(row_count, idx);
+        }
+    }
+
+    float row_y = entry_text_top;
+    if (r_begin > 0) {
+        row_y = entry_text_top + tl.row_cum_y[r_begin];
+    }
+
+    for (size_t r = r_begin; r < r_end; r++) {
         const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_.font_size_body * 1.4f);
         const float row_bottom = row_y + row_h + border;
 
@@ -482,7 +507,7 @@ void Renderer::Render(const RenderParams& p)
         // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
         const float viewport_top = p.scroll_y;
         const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
-        const float dpi_scale = backend_.GetDpi() / DEFAULT_DPI;
+        const float dpi_scale = DpiScaleFrom(backend_.GetDpi());
         const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale, p.block_h_scroll);
 
         cmd_executor_.Execute(cmds, rt(), &fixed_brushes_cache_);

@@ -35,20 +35,6 @@ float Theme::GetHeadingSize(int level) const noexcept
     return font_size_h[level - 1];
 }
 
-ThemeConstants Theme::ToReducerConstants() const noexcept
-{
-    return ThemeConstants{
-        .pane_item_height = pane_item_height,
-        .pane_header_height = pane_header_height,
-        .splitter_width = splitter_width,
-        .margin_left = margin_left,
-        .margin_right = margin_right,
-        .heading_spacing_above = heading_spacing_above,
-        .zoom = zoom,
-        .is_dark = IsDark(),
-    };
-}
-
 void Theme::ApplyZoom(float new_zoom) noexcept
 {
     // 0/負値は通常の呼び出しでは発生しない (viewport ZOOM_MIN..ZOOM_MAX クランプ済み) が、

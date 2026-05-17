@@ -39,19 +39,24 @@ void ClearTooltip(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::ClearTooltip{});
 }
 
+// スクロール位置が変わった時に共通で発火する副作用列。
+// InvalidateWindow → BitmapManage の順序は test_reducer の HasEffectInOrder で契約として担保。
+void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects)
+{
+    state.interaction.hover_throttle.Reset();
+    ClearTooltip(state, effects);
+    PushEffect(effects, effect::InvalidateWindow{});
+    PushEffect(effects, effect::BitmapManage{});
+    PushEffect(effects, effect::SyncTocActive{});
+}
+
 void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scroll)
 {
     if (state.view.viewport.GetScrollY() != old_scroll) {
-        ClearTooltip(state, effects);
-        state.interaction.hover_throttle.Reset();
-        PushEffect(effects, effect::InvalidateWindow{});
-        PushEffect(effects, effect::BitmapManage{});
-        PushEffect(effects, effect::SyncTocActive{});
+        EmitScrollChangedSideEffects(state, effects);
     }
 }
 
-// TOC クリック / ナビゲーション復帰 / アンカー遷移でこの関数を通ることで、
-// tooltip クリア・invalidation・bitmap manage・TOC 同期の並びが常に一貫する。
 void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset)
 {
     state.view.viewport.SetScrollTarget(node, offset);
@@ -59,11 +64,7 @@ void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node
     // 末尾セクションへのジャンプで scroll_y > max_scroll になると、後続の DirectScrollBy で
     // 位置が一気に飛ぶ。事前クランプ + target 無効化で範囲外への復帰を抑える。
     state.view.viewport.ClampAndDetach();
-    state.interaction.hover_throttle.Reset();
-    ClearTooltip(state, effects);
-    PushEffect(effects, effect::InvalidateWindow{});
-    PushEffect(effects, effect::BitmapManage{});
-    PushEffect(effects, effect::SyncTocActive{});
+    EmitScrollChangedSideEffects(state, effects);
 }
 
 struct SidePaneContext {

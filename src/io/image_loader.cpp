@@ -33,8 +33,8 @@ void ImageLoader::GetDpiScale(float& scale_x, float& scale_y) const
     if (render_target_) {
         render_target_->GetDpi(&dpi_x, &dpi_y);
     }
-    scale_x = (dpi_x > 0.0f) ? (dpi_x / DEFAULT_DPI) : 1.0f;
-    scale_y = (dpi_y > 0.0f) ? (dpi_y / DEFAULT_DPI) : 1.0f;
+    scale_x = DpiScaleFrom(dpi_x);
+    scale_y = DpiScaleFrom(dpi_y);
 }
 
 bool ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)

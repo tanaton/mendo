@@ -37,7 +37,7 @@ bool App::Init(HWND hwnd)
 
     // PixelToDip 用に DPI スケールをキャッシュ（OnDpiChanged でも更新する）。
     const float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
-    state_.window.cached_dpi_scale = (init_dpi > 0.0f) ? (init_dpi / DEFAULT_DPI) : 1.0f;
+    state_.window.cached_dpi_scale = DpiScaleFrom(init_dpi);
 
     scheduler_.Init(mermaid_util::ComputeWorkerCount(
         std::thread::hardware_concurrency()));

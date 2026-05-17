@@ -72,3 +72,20 @@ bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t s
     }
     return true;
 }
+
+bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
+{
+    std::filesystem::path tmp_path = path;
+    tmp_path += L".tmp";
+
+    if (!WriteAllBytes(tmp_path, data, size)) {
+        return false;
+    }
+
+    if (MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        return true;
+    }
+
+    DeleteFileW(tmp_path.c_str());
+    return WriteAllBytes(path, data, size);
+}
