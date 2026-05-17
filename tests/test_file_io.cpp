@@ -194,3 +194,89 @@ TEST_F(FileIoTest, IsFileLargerThan_CustomTolerance)
     // tolerance=200: 100 バイト差は範囲内 → false
     EXPECT_FALSE(IsFileLargerThan(path, 1000, 200));
 }
+
+// ═══════════════════════════════════════════════
+// AtomicWriteAllBytes: tmp → MoveFileExW(REPLACE_EXISTING) 経路
+// ═══════════════════════════════════════════════
+
+TEST_F(FileIoTest, AtomicWrite_NewFile_WritesContentAndCleansUpTmp)
+{
+    const auto path = temp_dir_ / L"atomic_new.bin";
+    auto tmp = path;
+    tmp += L".tmp";
+    const std::string payload = "atomic-new-content";
+
+    ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
+
+    auto [buf, size] = ReadAllBytes(path);
+    ASSERT_EQ(size, payload.size());
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.get()), size), payload);
+    // tmp は MoveFileExW で消費される (残らない)
+    EXPECT_FALSE(fs::exists(tmp));
+}
+
+TEST_F(FileIoTest, AtomicWrite_OverwritesExistingFile)
+{
+    const auto path = temp_dir_ / L"atomic_overwrite.bin";
+    auto tmp = path;
+    tmp += L".tmp";
+    const std::string first = "first-content-longer-than-second";
+    const std::string second = "short";
+
+    ASSERT_TRUE(AtomicWriteAllBytes(path, first.data(), first.size()));
+    ASSERT_TRUE(AtomicWriteAllBytes(path, second.data(), second.size()));
+
+    auto [buf, size] = ReadAllBytes(path);
+    ASSERT_EQ(size, second.size());
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.get()), size), second);
+    EXPECT_FALSE(fs::exists(tmp));
+}
+
+TEST_F(FileIoTest, AtomicWrite_ToInvalidPath_FailsAndLeavesNoTmp)
+{
+    // 親ディレクトリが存在しないので tmp 書き込みも失敗する。
+    // 直接書き込み fallback も到達しないので path も tmp も生成されない。
+    const auto path = temp_dir_ / L"no_such_dir" / L"atomic.bin";
+    auto tmp = path;
+    tmp += L".tmp";
+    const std::string payload = "data";
+
+    EXPECT_FALSE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
+    EXPECT_FALSE(fs::exists(path));
+    EXPECT_FALSE(fs::exists(tmp));
+}
+
+TEST_F(FileIoTest, AtomicWrite_DoesNotLeavePreviousTmpBehind)
+{
+    // 既存の `<path>.tmp` がたとえ残っていても、新しい AtomicWriteAllBytes は
+    // 上書きで作り直し、MoveFileExW で消費するため最終的に残らない。
+    const auto path = temp_dir_ / L"atomic_stale_tmp.bin";
+    auto tmp = path;
+    tmp += L".tmp";
+    const std::string stale = "stale-tmp-leftover";
+    const std::string payload = "fresh-payload";
+
+    // 事前に残骸 tmp を仕込む
+    ASSERT_TRUE(WriteAllBytes(tmp, stale.data(), stale.size()));
+    ASSERT_TRUE(fs::exists(tmp));
+
+    ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
+
+    auto [buf, size] = ReadAllBytes(path);
+    ASSERT_EQ(size, payload.size());
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.get()), size), payload);
+    EXPECT_FALSE(fs::exists(tmp));
+}
+
+TEST_F(FileIoTest, AtomicWrite_ZeroBytesProducesEmptyFile)
+{
+    const auto path = temp_dir_ / L"atomic_zero.bin";
+    auto tmp = path;
+    tmp += L".tmp";
+
+    ASSERT_TRUE(AtomicWriteAllBytes(path, "", 0));
+
+    EXPECT_TRUE(fs::exists(path));
+    EXPECT_EQ(fs::file_size(path), 0u);
+    EXPECT_FALSE(fs::exists(tmp));
+}

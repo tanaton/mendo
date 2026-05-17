@@ -1214,12 +1214,11 @@ struct Theme {
     float GetHeadingSize(int level) const noexcept;
     constexpr float GetHeadingUnderlineThickness(int level) const noexcept;
     constexpr bool IsDark() const noexcept;
-    ThemeConstants ToReducerConstants() const noexcept;
     void ApplyZoom(float new_zoom) noexcept;
 };
 ```
 
-`ThemeConstants` は Reducer がテーマ寸法を参照するための軽量キャッシュ。
+Reducer は `AppState::theme`（`Renderer` 所有 `Theme` への非所有ポインタ）経由で寸法を直接参照する。
 
 #### 3.9.2 ThemeService — テーマ管理サービス
 
@@ -3322,7 +3321,7 @@ src/
 │   ├── text_measurer.h            # ITextMeasurer インターフェース
 │   └── dwrite_measurer.h / .cpp   # DirectWrite 実装
 ├── theme/                         # テーマ層
-│   ├── theme.h / theme.cpp        # Theme + ThemeConstants + theme_palette
+│   ├── theme.h / theme.cpp        # Theme + theme_palette
 │   ├── theme_palette.h            # 配色パレット定義
 │   └── theme_service.h / .cpp     # テーマ管理サービス
 ├── nav/                           # ナビゲーション層
