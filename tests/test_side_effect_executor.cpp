@@ -19,6 +19,7 @@ class RecordingWin32Host final : public IWin32Host {
 public:
     int invalidate_count = 0;
     std::vector<std::tuple<float, float, float>> invalidate_titlebar_calls;
+    std::vector<std::tuple<float, float, float, float, float>> invalidate_md_pane_calls;
     std::vector<std::pair<app_timer::Id, UINT>> set_timer_calls;
     std::vector<app_timer::Id> kill_timer_calls;
     int set_capture_count = 0;
@@ -42,6 +43,10 @@ public:
     void InvalidateTitleBarArea(float dip_w, float dip_h, float dpi_scale) override
     {
         invalidate_titlebar_calls.emplace_back(dip_w, dip_h, dpi_scale);
+    }
+    void InvalidateMdPaneArea(float dip_x, float dip_y, float dip_w, float dip_h, float dpi_scale) override
+    {
+        invalidate_md_pane_calls.emplace_back(dip_x, dip_y, dip_w, dip_h, dpi_scale);
     }
     void SetTimer(app_timer::Id id, UINT ms) override
     {
@@ -473,6 +478,33 @@ TEST_F(SideEffectExecutorTest, InvalidateWindowCallsHostInvalidate)
 {
     exec_.ExecuteOne(effect::InvalidateWindow{});
     EXPECT_EQ(host_.invalidate_count, 1);
+}
+
+TEST_F(SideEffectExecutorTest, InvalidateMdPaneFallsBackToInvalidateWhenLayoutCacheInvalid)
+{
+    // pane_layout_cache 未確立 (default-constructed) → 全画面 Invalidate にフォールバック。
+    exec_.ExecuteOne(effect::InvalidateMdPane{});
+    EXPECT_EQ(host_.invalidate_count, 1);
+    EXPECT_TRUE(host_.invalidate_md_pane_calls.empty());
+}
+
+TEST_F(SideEffectExecutorTest, InvalidateMdPaneCallsHostWithMdRect)
+{
+    PaneLayout layout{};
+    layout.md_rect = PaneRect{ 200.0f, 30.0f, 800.0f, 600.0f };
+    state_.pane_layout_cache.Set(1024.0f, layout);
+    state_.window.cached_dpi_scale = 1.5f;
+
+    exec_.ExecuteOne(effect::InvalidateMdPane{});
+
+    EXPECT_EQ(host_.invalidate_count, 0);
+    ASSERT_EQ(host_.invalidate_md_pane_calls.size(), 1u);
+    const auto& [x, y, w, h, s] = host_.invalidate_md_pane_calls[0];
+    EXPECT_FLOAT_EQ(x, 200.0f);
+    EXPECT_FLOAT_EQ(y, 30.0f);
+    EXPECT_FLOAT_EQ(w, 800.0f);
+    EXPECT_FLOAT_EQ(h, 600.0f);
+    EXPECT_FLOAT_EQ(s, 1.5f);
 }
 
 TEST_F(SideEffectExecutorTest, SetTimerAndKillTimerForwardToHost)

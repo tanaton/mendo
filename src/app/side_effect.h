@@ -18,6 +18,9 @@ namespace effect {
 
 struct InvalidateWindow {};
 struct InvalidateTitleBar {};
+// MD ペイン領域のみを無効化する。スクロールなど MD 本文のみが変化する経路で使用し、
+// タイトルバー・サイドペインビットマップキャッシュの再描画を避ける。
+struct InvalidateMdPane {};
 struct SetCapture {};
 struct ReleaseCapture {};
 enum class CursorType : uint8_t {
@@ -166,6 +169,7 @@ using SideEffect = std::variant<
     // Ui
     effect::InvalidateWindow,
     effect::InvalidateTitleBar,
+    effect::InvalidateMdPane,
     effect::SetCapture,
     effect::ReleaseCapture,
     effect::SetCursor,

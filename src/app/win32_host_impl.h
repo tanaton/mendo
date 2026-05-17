@@ -11,6 +11,7 @@ public:
 
     void Invalidate() override;
     void InvalidateTitleBarArea(float dip_w, float dip_h, float dpi_scale) override;
+    void InvalidateMdPaneArea(float dip_x, float dip_y, float dip_w, float dip_h, float dpi_scale) override;
     void SetTimer(app_timer::Id id, UINT ms) override;
     void KillTimer(app_timer::Id id) override;
     void SetCapture() override;

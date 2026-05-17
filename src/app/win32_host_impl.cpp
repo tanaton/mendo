@@ -29,6 +29,16 @@ void Win32Host::InvalidateTitleBarArea(float dip_w, float dip_h, float dpi_scale
     mendo::InvalidateDipRect(hwnd_, 0.0f, 0.0f, dip_w, dip_h, dpi_scale);
 }
 
+void Win32Host::InvalidateMdPaneArea(float dip_x, float dip_y, float dip_w, float dip_h, float dpi_scale)
+{
+    // ゼロ矩形は no-op。executor 側で layout_cache 未確立時の全画面フォールバックを既に
+    // 担っているため、ここで再度 InvalidateRect(nullptr) に倒すと最適化趣旨が打ち消される。
+    if (dip_w <= 0.0f || dip_h <= 0.0f) {
+        return;
+    }
+    mendo::InvalidateDipRect(hwnd_, dip_x, dip_y, dip_w, dip_h, dpi_scale);
+}
+
 void Win32Host::SetTimer(app_timer::Id id, UINT ms)
 {
     ::SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);

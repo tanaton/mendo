@@ -40,12 +40,13 @@ void ClearTooltip(AppState& state, SideEffectList& effects)
 }
 
 // スクロール位置が変わった時に共通で発火する副作用列。
-// InvalidateWindow → BitmapManage の順序は test_reducer の HasEffectInOrder で契約として担保。
+// InvalidateMdPane → BitmapManage の順序は test_reducer の HasEffectInOrder で契約として担保。
+// MD ペイン限定無効化により、タイトルバー/サイドペインビットマップキャッシュの再描画を避ける。
 void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects)
 {
     state.interaction.hover_throttle.Reset();
     ClearTooltip(state, effects);
-    PushEffect(effects, effect::InvalidateWindow{});
+    PushEffect(effects, effect::InvalidateMdPane{});
     PushEffect(effects, effect::BitmapManage{});
     PushEffect(effects, effect::SyncTocActive{});
 }

@@ -43,6 +43,17 @@ void SideEffectExecutorT<Cb>::ExecuteOne(const SideEffect& e)
                 state_->window.titlebar.GetHeight(),
                 state_->window.cached_dpi_scale);
         },
+        [this](const effect::InvalidateMdPane&) {
+            // layout キャッシュ未確立時はフルウィンドウ無効化にフォールバック。
+            if (!state_ || !state_->pane_layout_cache.IsValid()) {
+                host_->Invalidate();
+                return;
+            }
+            const auto& md_rect = state_->pane_layout_cache.Get().md_rect;
+            host_->InvalidateMdPaneArea(
+                md_rect.x, md_rect.y, md_rect.width, md_rect.height,
+                state_->window.cached_dpi_scale);
+        },
         [this](const effect::SetCapture&) {
             host_->SetCapture();
         },
