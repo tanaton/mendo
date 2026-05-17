@@ -1,7 +1,7 @@
 #pragma once
 #include "app_state.h"
 #include "reducer.h"
-#include "side_effect_executor.h"
+#include "app_side_effect_callbacks.h"
 #include "win32_host_impl.h"
 #include "renderer.h"
 #include "task_scheduler.h"
@@ -15,7 +15,7 @@
 #include "config_service.h"
 #include "theme_service.h"
 #include "file_load_service.h"
-#include "resource_manager.h"
+#include "app_resource_manager_callbacks.h"
 #include "cursor_manager.h"
 #include "hit_test_service.h"
 #include "clipboard_manager.h"
@@ -28,6 +28,10 @@
 #include <memory_resource>
 
 class App {
+    friend struct AppSideEffectCallbacks;
+    friend struct AppResourceManagerCallbacks;
+    friend struct AppSearchBarCallbacks;
+
 public:
     explicit App(ConfigService& config) noexcept : config_(config)
     {}
@@ -182,9 +186,6 @@ private:
     {
         effect_executor_.ExecuteOne(SideEffect{ std::forward<T>(e) });
     }
-
-    ResourceManager::Callbacks BuildResourceManagerCallbacks();
-    SearchBarController::Callbacks BuildSearchBarCallbacks();
 
     void EnsureScrollTarget();
 

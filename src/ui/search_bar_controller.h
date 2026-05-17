@@ -3,7 +3,6 @@
 #include "doc_text.h"
 #include "search_state.h"
 #include "ui_constants.h"
-#include <functional>
 #include <memory_resource>
 #include <string>
 #include <string_view>
@@ -16,24 +15,23 @@ struct SearchBarRenderState;
 // 検索バーのUI状態管理。
 // SearchState（ドメインロジック）を参照で保持し、検索バー固有の
 // UIステート（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。
-// Win32依存の操作はコールバック経由でAppに委譲する。
-class SearchBarController {
+// Win32依存の操作は Cb 経由でAppに委譲する。
+//
+// Cb は以下のメソッドを提供する duck type。
+//   void invalidate();                       // ウィンドウ全体の再描画
+//   void invalidate_search_bar();            // 検索バー領域のみ再描画
+//   void set_timer(app_timer::Id, UINT);     // SetTimer(id, ms)
+//   void kill_timer(app_timer::Id);          // KillTimer(id)
+//   void focus_select_all();                 // 検索テキスト全選択でフォーカス
+//   void unfocus();                          // フォーカス解除
+//   float get_md_pane_height();              // Markdownペイン高さ取得
+//   void on_scroll_changed(float);           // スクロール変更後処理(md_pane_height)
+//   void on_wrap_around();                   // 検索ラップアラウンド時の通知 (Win32 では MessageBeep)
+template <class Cb>
+class SearchBarControllerT {
 public:
-    // Win32操作をAppから注入するコールバック群
-    struct Callbacks {
-        std::move_only_function<void()> invalidate;                  // ウィンドウ全体の再描画
-        std::move_only_function<void()> invalidate_search_bar;       // 検索バー領域のみ再描画
-        std::move_only_function<void(app_timer::Id, UINT)> set_timer; // SetTimer(id, ms)
-        std::move_only_function<void(app_timer::Id)> kill_timer;      // KillTimer(id)
-        std::move_only_function<void()> focus_select_all;            // 検索テキスト全選択でフォーカス
-        std::move_only_function<void()> unfocus;                     // フォーカス解除
-        std::move_only_function<float()> get_md_pane_height;         // Markdownペイン高さ取得
-        std::move_only_function<void(float)> on_scroll_changed;      // スクロール変更後処理(md_pane_height)
-        std::move_only_function<void()> on_wrap_around;              // 検索ラップアラウンド時の通知 (Win32 では MessageBeep)
-    };
-
-    SearchBarController() = default;
-    void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Callbacks cb);
+    SearchBarControllerT() = default;
+    void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Cb cb);
 
     void OnOpen(const std::pmr::vector<Node>& nodes);
     void OnClose();
@@ -107,7 +105,7 @@ private:
     SearchState* state_ = nullptr;
     ViewportManager* viewport_ = nullptr;
     LayoutCache* cache_ = nullptr;
-    Callbacks cb_;
+    Cb cb_{};
 
     SearchBarHitZone hover_ = SearchBarHitZone::None;
     bool caret_visible_ = false;

@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "search_bar_controller.h"
+#include "search_bar_controller_impl.h"
 #include "app_constants.h"
 #include "search_state.h"
 #include "viewport_manager.h"
@@ -7,55 +7,97 @@
 #include "renderer.h"
 #include "test_helpers.h"
 
+namespace {
+
+struct CallbackTracker {
+    int invalidate_count = 0;
+    int invalidate_search_bar_count = 0;
+    int set_timer_count = 0;
+    int kill_timer_count = 0;
+    int focus_select_all_count = 0;
+    int unfocus_count = 0;
+    app_timer::Id last_timer_id{};
+    UINT last_timer_ms = 0;
+    app_timer::Id last_killed_timer{};
+    float md_pane_height = 800.0f;
+    float last_scroll_changed_value = -1.0f;
+    int on_scroll_changed_count = 0;
+    int on_wrap_around_count = 0;
+};
+
+struct TestSearchBarCallbacks {
+    CallbackTracker* t = nullptr;
+
+    void invalidate()
+    {
+        t->invalidate_count++;
+    }
+    void invalidate_search_bar()
+    {
+        t->invalidate_search_bar_count++;
+    }
+    void set_timer(app_timer::Id id, UINT ms)
+    {
+        t->last_timer_id = id;
+        t->last_timer_ms = ms;
+        t->set_timer_count++;
+    }
+    void kill_timer(app_timer::Id id)
+    {
+        t->last_killed_timer = id;
+        t->kill_timer_count++;
+    }
+    void focus_select_all()
+    {
+        t->focus_select_all_count++;
+    }
+    void unfocus()
+    {
+        t->unfocus_count++;
+    }
+    float get_md_pane_height()
+    {
+        return t->md_pane_height;
+    }
+    void on_scroll_changed(float v)
+    {
+        t->last_scroll_changed_value = v;
+        t->on_scroll_changed_count++;
+    }
+    void on_wrap_around()
+    {
+        t->on_wrap_around_count++;
+    }
+};
+
+} // namespace
+
 // コールバック呼び出しを記録するテストフィクスチャ
 class SearchBarControllerTest : public ::testing::Test {
 protected:
     void SetUp() override
     {
-        ctrl_.Init(state_, viewport_, cache_, MakeCallbacks());
-    }
-
-    SearchBarController::Callbacks MakeCallbacks()
-    {
-        return {
-            .invalidate = [this]() { invalidate_count_++; },
-            .invalidate_search_bar = [this]() { invalidate_search_bar_count_++; },
-            .set_timer = [this](app_timer::Id id, UINT ms) {
-            last_timer_id_ = id;
-            last_timer_ms_ = ms;
-            set_timer_count_++;
-        },
-            .kill_timer = [this](app_timer::Id id) {
-            last_killed_timer_ = id;
-            kill_timer_count_++;
-        },
-            .focus_select_all = [this]() { focus_select_all_count_++; },
-            .unfocus = [this]() { unfocus_count_++; },
-            .get_md_pane_height = [this]() -> float { return md_pane_height_; },
-            .on_scroll_changed = [this](float v) {
-            last_scroll_changed_value_ = v;
-            on_scroll_changed_count_++;
-        },
-        };
+        ctrl_.Init(state_, viewport_, cache_, TestSearchBarCallbacks{ &tracker_ });
     }
 
     SearchState state_;
     ViewportManager viewport_;
     LayoutCache cache_;
-    SearchBarController ctrl_;
+    CallbackTracker tracker_;
+    SearchBarControllerT<TestSearchBarCallbacks> ctrl_;
 
-    int invalidate_count_ = 0;
-    int invalidate_search_bar_count_ = 0;
-    int set_timer_count_ = 0;
-    int kill_timer_count_ = 0;
-    int focus_select_all_count_ = 0;
-    int unfocus_count_ = 0;
-    app_timer::Id last_timer_id_{};
-    UINT last_timer_ms_ = 0;
-    app_timer::Id last_killed_timer_{};
-    float md_pane_height_ = 800.0f;
-    float last_scroll_changed_value_ = -1.0f;
-    int on_scroll_changed_count_ = 0;
+    int& invalidate_count_ = tracker_.invalidate_count;
+    int& invalidate_search_bar_count_ = tracker_.invalidate_search_bar_count;
+    int& set_timer_count_ = tracker_.set_timer_count;
+    int& kill_timer_count_ = tracker_.kill_timer_count;
+    int& focus_select_all_count_ = tracker_.focus_select_all_count;
+    int& unfocus_count_ = tracker_.unfocus_count;
+    app_timer::Id& last_timer_id_ = tracker_.last_timer_id;
+    UINT& last_timer_ms_ = tracker_.last_timer_ms;
+    app_timer::Id& last_killed_timer_ = tracker_.last_killed_timer;
+    float& md_pane_height_ = tracker_.md_pane_height;
+    float& last_scroll_changed_value_ = tracker_.last_scroll_changed_value;
+    int& on_scroll_changed_count_ = tracker_.on_scroll_changed_count;
 };
 
 // ═══════════════════════════════════════════════

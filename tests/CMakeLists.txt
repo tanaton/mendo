@@ -80,6 +80,7 @@ add_executable(mendo_tests
     test_preloader.cpp
     test_clipboard_util.cpp
     test_clipboard_manager.cpp
+    app_search_bar_callbacks_stub.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

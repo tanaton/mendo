@@ -60,89 +60,14 @@ bool App::Init(HWND hwnd)
         mermaid_renderer_,
         theme_service_,
         renderer_.GetTheme(),
-        BuildResourceManagerCallbacks());
+        AppResourceManagerCallbacks{ this });
     win32_host_.Init(hwnd_, cursors_);
-    // clang-format off
     effect_executor_.Init(
         win32_host_,
-        resource_manager_,
         file_watcher_,
         state_,
         *layout_service_,
-        {
-            .load_file = [this](std::wstring_view path) {
-                LoadMarkdownFile(path);
-            },
-            .reload_file = [this]() {
-                ReloadCurrentFile();
-            },
-            .open_file_dialog = [this]() {
-                const auto path = file_dialog_service::OpenMarkdownFileDialog(hwnd_);
-                if (!path.empty()) {
-                    if (!state_.document.doc.GetFilePath().empty()) {
-                        PushCurrentNavEntry(state_);
-                    }
-                    LoadMarkdownFile(path);
-                }
-            },
-            .invalidate_pane_cache = [this](PaneZone pane) {
-                if (const auto target = ToPaneTarget(pane)) {
-                    renderer_.InvalidateSidePaneCache(*target);
-                }
-            },
-            .refresh_pane_layout = [this]() {
-                RefreshPaneLayout();
-            },
-            .renderer_resize = [this](UINT w, UINT h) {
-                renderer_.Resize(w, h);
-            },
-            .renderer_set_dpi = [this](float dpi) {
-                renderer_.SetDpi(dpi);
-            },
-            .clear_file_cache = [this]() {
-                file_cache_.ClearAll();
-            },
-            .perform_resize_end = [this]() {
-                OnResizeEnd();
-            },
-            .perform_sizing_update = [this]() {
-                const auto& sizing_layout = GetPaneLayout();
-                EmitEffect(effect::SyncMaxScroll{ sizing_layout.md_rect.height });
-                Invalidate();
-            },
-            .apply_theme_change = [this](const effect::ApplyThemeChange& e) {
-                HandleApplyThemeChange(e);
-            },
-            .process_deferred_layout = [this]() {
-                OnDeferredLayout();
-            },
-            .tick_loading_animation = [this]() {
-                file_load_service_.TickLoadingAnimation();
-            },
-            .process_mermaid_batch_timer = [this]() {
-                resource_manager_.ProcessMermaidBatch();
-            },
-            .process_bitmap_manage = [this]() {
-                resource_manager_.OnBitmapManageTimer();
-            },
-            .mermaid_init_retry = [this]() {
-                mermaid_renderer_.OnInitRetryTimer();
-            },
-            .destroy = [this]() {
-                OnDestroy();
-            },
-            .handle_parse_complete = [this]() {
-                OnParseComplete();
-            },
-            .show_context_menu = [this](int x, int y) {
-                OnContextMenu(x, y);
-            },
-            .sync_toc_active = [this]() {
-                SyncTocActiveAndAutoScroll();
-            },
-        }
-    );
-    // clang-format on
+        AppSideEffectCallbacks{ this });
 
     const auto webview2_data = config_dir.empty() ? std::filesystem::path{} : config_dir / L"WebView2Data";
     mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(), webview2_data, [this]() {
@@ -207,7 +132,7 @@ bool App::Init(HWND hwnd)
         state_.interaction.tooltip.ApplyDarkMode(true);
     }
 
-    state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, BuildSearchBarCallbacks());
+    state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, AppSearchBarCallbacks{ this });
 
     // small file は preload が App::Init より先に完了している場合が多い。直後の
     // ShowWindow/UpdateWindow が同期 WM_PAINT を発行するため、ここで結果を取り込んで
@@ -229,80 +154,4 @@ bool App::Init(HWND hwnd)
     }
 
     return true;
-}
-
-ResourceManager::Callbacks App::BuildResourceManagerCallbacks()
-{
-    // clang-format off
-    return {
-        .invalidate = [this]() {
-            Invalidate();
-        },
-        .set_timer = [this](app_timer::Id id, UINT ms) {
-            SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
-        },
-        .kill_timer = [this](app_timer::Id id) {
-            KillTimer(hwnd_, std::to_underlying(id));
-        },
-        .get_content_width = [this]() -> float {
-            return renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
-        },
-        .get_viewport_height = [this]() -> float {
-            return GetPaneLayout().md_rect.height;
-        },
-        .get_indent_width = [this]() -> float {
-            return renderer_.GetTheme().indent_width;
-        },
-        .recompute_layout = [this]() {
-            layout_service_->RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, renderer_.GetTheme());
-        },
-        .recompute_layout_anchored = [this]() {
-            EnsureScrollTarget();
-            layout_service_->RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, renderer_.GetTheme());
-            const auto layout = GetPaneLayout();
-            EmitEffect(effect::SyncMaxScroll{ layout.md_rect.height });
-            Invalidate();
-        },
-    };
-    // clang-format on
-}
-
-SearchBarController::Callbacks App::BuildSearchBarCallbacks()
-{
-    // clang-format off
-    return {
-        .invalidate = [this]() {
-            Invalidate();
-        },
-        .invalidate_search_bar = [this]() {
-            const auto& layout = GetPaneLayout();
-            const auto& r = layout.md_rect;
-            const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
-            InvalidatePane(search_area);
-        },
-        .set_timer = [this](app_timer::Id id, UINT ms) {
-            SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
-        },
-        .kill_timer = [this](app_timer::Id id) {
-            KillTimer(hwnd_, std::to_underlying(id));
-        },
-        .focus_select_all = [this]() {
-            EmitEffect(effect::SearchFocus{});
-        },
-        .unfocus = [this]() {
-            EmitEffect(effect::SearchUnfocus{});
-        },
-        .get_md_pane_height = [this]() -> float {
-            return GetPaneLayout().md_rect.height;
-        },
-        .on_scroll_changed = [this](float md_pane_height) {
-            EmitEffect(effect::SyncMaxScroll{ md_pane_height });
-            InvalidateHitPositions();
-            resource_manager_.ScheduleBitmapManage();
-        },
-        .on_wrap_around = [] {
-            MessageBeep(MB_OK);
-        },
-    };
-    // clang-format on
 }

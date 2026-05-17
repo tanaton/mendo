@@ -2,7 +2,6 @@
 #include "app_constants.h"
 #include <unordered_map>
 #include <string>
-#include <functional>
 #include <chrono>
 #include <windows.h>
 
@@ -16,29 +15,29 @@ struct Theme;
 
 // 画像・Mermaidリソースのライフサイクル管理。
 // Appから画像読み込み、Mermaidバッチ処理、ビットマップ解放の責務を分離する。
-class ResourceManager {
+//
+// Cb は以下のメソッドを提供する duck type。
+//   void invalidate();
+//   void set_timer(app_timer::Id, UINT);
+//   void kill_timer(app_timer::Id);
+//   float get_content_width();
+//   float get_viewport_height();
+//   float get_indent_width();
+//   void recompute_layout();
+//   void recompute_layout_anchored();
+template <class Cb>
+class ResourceManagerT {
 public:
-    struct Callbacks {
-        std::move_only_function<void()> invalidate;
-        std::move_only_function<void(app_timer::Id, UINT)> set_timer;
-        std::move_only_function<void(app_timer::Id)> kill_timer;
-        std::move_only_function<float()> get_content_width;
-        std::move_only_function<float()> get_viewport_height;
-        std::move_only_function<float()> get_indent_width;
-        std::move_only_function<void()> recompute_layout;
-        std::move_only_function<void()> recompute_layout_anchored;
-    };
-
     static constexpr float EVICT_BUFFER_SCREENS = 5.0f;
     static constexpr float PREFETCH_BUFFER_SCREENS = 3.0f;
     static constexpr int BATCH_TIME_BUDGET_US = 6000;
 
-    ResourceManager() = default;
+    ResourceManagerT() = default;
     void Init(Document& doc, LayoutCache& cache, ViewportManager& viewport,
               ImageLoader& image_loader, IMermaidRenderer& mermaid,
               ThemeService& theme_service,
               const Theme& theme,
-              Callbacks cb);
+              Cb cb);
 
     // respect_viewport=true: 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
     // respect_viewport=false: 全画像を走査、未キャッシュは無視（リロード時のスクロール計算前用）。
@@ -77,7 +76,7 @@ private:
     IMermaidRenderer* mermaid_ = nullptr;
     ThemeService* theme_service_ = nullptr;
     const Theme* theme_ = nullptr;
-    Callbacks cb_;
+    Cb cb_{};
 
     float last_mermaid_content_width_ = 0.0f;
     bool mermaid_batch_loading_ = false;
