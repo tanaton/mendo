@@ -97,8 +97,7 @@ const PaneLayout& App::GetPaneLayout()
 
 void App::InvalidatePane(const PaneRect& rect) noexcept
 {
-    mendo::InvalidateDipRect(hwnd_, rect.x, rect.y, rect.width, rect.height,
-                             state_.window.cached_dpi_scale);
+    mendo::InvalidateDipRect(hwnd_, rect.x, rect.y, rect.width, rect.height, state_.window.cached_dpi_scale);
 }
 
 void App::InvalidateTitleBar() noexcept
@@ -175,8 +174,7 @@ PaneZone App::PaneAtPoint(float dip_x)
         return PaneZone::None;
     }
     const auto size = rt->GetSize();
-    return state_.view.panes.DetectZone(dip_x, size.width, size.height,
-                                        renderer_.GetTheme().splitter_width);
+    return state_.view.panes.DetectZone(dip_x, size.width, size.height, renderer_.GetTheme().splitter_width);
 }
 
 float App::GetMarkdownPaneWidth()
