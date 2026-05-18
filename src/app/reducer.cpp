@@ -346,10 +346,8 @@ BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node
         state.pane_layout_cache.Get().md_rect.width);
 }
 
-// scroll_x を [0, max] に詰めて map に反映する。0 になった場合はエントリを削除する。
 // HitTestService 側のキャッシュキーには block_scroll_x が含まれないため、
 // 値が変わったタイミングで effects_generation を進めて last_md_hit_ の再計算を強制する。
-// 値変化が 1e-3f 未満なら false を返し、呼び出し側で InvalidateWindow をスキップさせる。
 bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, float scroll_max)
 {
     const float clamped = std::clamp(new_value, 0.0f, scroll_max);
@@ -733,7 +731,7 @@ void ReduceTextSelectionMoved(AppState& state, SideEffectList& effects, const Te
     if (!state.view.viewport.IsDragging() || a.node_index < 0) {
         return;
     }
-    // 同一位置への WM_MOUSEMOVE ではフル再描画を抑止する (16ms 周期で連発するため)。
+    // WM_MOUSEMOVE は 16ms 周期で連発するため、選択が同値なら早期 return。
     const auto next = TextSelection::MakeOrdered(
         state.view.viewport.GetAnchorNode(),
         state.view.viewport.GetAnchorPos(),

@@ -231,12 +231,12 @@ void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float widt
     viewport_.ApplyScrollTarget(cache);
 }
 
-bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us, std::optional<ViewportLimit> viewport)
+bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us, ViewportLimit viewport)
 {
     bool more;
-    if (viewport && viewport->height > 0.0f) {
+    if (viewport.height > 0.0f) {
         const float vp_top = viewport_.GetScrollY();
-        more = engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, time_budget_us, vp_top, viewport->height, viewport->buffer_screens);
+        more = engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, time_budget_us, vp_top, viewport.height, viewport.buffer_screens);
     }
     else {
         more = engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, time_budget_us);

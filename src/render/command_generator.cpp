@@ -253,7 +253,7 @@ void CommandGenerator::GenerateNode(
                 fc.pane_transform, scroll_x, needs_clip);
             GenTable(cmds, fc, node, entry, node_index, x, entry_text_top, scroll_x);
         }
-        EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), BlockHScrollGeometry{ natural_w, cw }, scroll_x);
+        EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), BlockHScrollGeometry{ .natural_width = natural_w, .visible_width = cw }, scroll_x);
         return;
     }
 
@@ -287,7 +287,7 @@ void CommandGenerator::GenerateNode(
                     fc.pane_transform, scroll_x, needs_clip);
                 GenNodeTextDecorations(cmds, fc, node, entry, node_index, x, text_x, entry_text_top);
             }
-            EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), BlockHScrollGeometry{ natural_w, cw }, scroll_x);
+            EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), BlockHScrollGeometry{ .natural_width = natural_w, .visible_width = cw }, scroll_x);
         }
         GenCopyButton(cmds, entry, x, cw, node_index == fc.hovered.copy, entry_text_top);
         return;
