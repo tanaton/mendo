@@ -34,23 +34,15 @@ inline IndexSlice VisibleSlice(const std::pmr::vector<size_t>& sorted_indices, s
 } // namespace resource_manager_detail
 
 template <class Cb>
-void ResourceManagerT<Cb>::Init(
-    Document& doc,
-    LayoutCache& cache,
-    ViewportManager& viewport,
-    ImageLoader& image_loader,
-    IMermaidRenderer& mermaid,
-    ThemeService& theme_service,
-    const Theme& theme,
-    Cb cb)
+void ResourceManagerT<Cb>::Init(const ResourceManagerDeps& deps, Cb cb)
 {
-    doc_ = &doc;
-    cache_ = &cache;
-    viewport_ = &viewport;
-    image_loader_ = &image_loader;
-    mermaid_ = &mermaid;
-    theme_service_ = &theme_service;
-    theme_ = &theme;
+    doc_ = deps.doc;
+    cache_ = deps.cache;
+    viewport_ = deps.viewport;
+    image_loader_ = deps.image_loader;
+    mermaid_ = deps.mermaid;
+    theme_service_ = deps.theme_service;
+    theme_ = deps.theme;
     cb_ = std::move(cb);
 }
 

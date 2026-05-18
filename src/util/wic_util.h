@@ -1,10 +1,28 @@
 #pragma once
+#include "log_hr.h"
 #include <wincodec.h>
 #include <d2d1.h>
 #include <wrl/client.h>
 #include <optional>
 
 namespace wic_util {
+
+// CLSID_WICImagingFactory の CoCreateInstance を共通化する。
+// 失敗時は context 文字列付きで LogHrFailure を流し nullptr を返す。
+inline Microsoft::WRL::ComPtr<IWICImagingFactory> CreateWicFactory(const wchar_t* context) noexcept
+{
+    Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
+    const HRESULT hr = CoCreateInstance(
+        CLSID_WICImagingFactory,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&factory));
+    if (FAILED(hr)) {
+        mendo::LogHrFailure(context, hr);
+        return nullptr;
+    }
+    return factory;
+}
 
 // WIC デコード結果。ピクセルサイズと FormatConverter を保持する。
 struct DecodeResult {

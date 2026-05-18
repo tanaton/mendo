@@ -11,6 +11,21 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 
+// ini 永続化キー。生文字列を散らさず一覧化し、タイポを静的に検出可能にする。
+// 既存の ini ファイル下位互換が要求されるため値の変更は禁止。
+namespace {
+using namespace std::literals;
+constexpr auto kSectionSession = "Session"sv;
+constexpr auto kKeyLastFile = "LastFile"sv;
+constexpr auto kKeyScrollNode = "ScrollNode"sv;
+constexpr auto kKeyScrollOffset = "ScrollOffset"sv;
+constexpr auto kSectionPane = "Pane"sv;
+constexpr auto kKeyShowFile = "ShowFile"sv;
+constexpr auto kKeyShowToc = "ShowToc"sv;
+constexpr auto kKeyFileWidth = "FileWidth"sv;
+constexpr auto kKeyTocWidth = "TocWidth"sv;
+} // namespace
+
 void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
 {
     config_dir_override_ = dir;
@@ -160,12 +175,12 @@ void SessionService::SaveLastFilePath(std::wstring_view path)
     if (path.empty()) {
         return;
     }
-    config_.SaveWString("Session", "LastFile", path);
+    config_.SaveWString(kSectionSession, kKeyLastFile, path);
 }
 
 std::pmr::wstring SessionService::LoadLastFilePath() const
 {
-    std::pmr::wstring path = config_.LoadWString("Session", "LastFile");
+    std::pmr::wstring path = config_.LoadWString(kSectionSession, kKeyLastFile);
     if (path.empty()) {
         return {};
     }
@@ -181,17 +196,17 @@ std::pmr::wstring SessionService::LoadLastFilePath() const
 
 void SessionService::SavePaneState(const PaneState& state)
 {
-    config_.SaveBool("Pane", "ShowFile", state.show_file);
-    config_.SaveBool("Pane", "ShowToc", state.show_toc);
-    config_.SaveInt("Pane", "FileWidth", static_cast<int>(std::lround(state.file_width)));
-    config_.SaveInt("Pane", "TocWidth", static_cast<int>(std::lround(state.toc_width)));
+    config_.SaveBool(kSectionPane, kKeyShowFile, state.show_file);
+    config_.SaveBool(kSectionPane, kKeyShowToc, state.show_toc);
+    config_.SaveInt(kSectionPane, kKeyFileWidth, static_cast<int>(std::lround(state.file_width)));
+    config_.SaveInt(kSectionPane, kKeyTocWidth, static_cast<int>(std::lround(state.toc_width)));
 }
 
 SessionService::PaneState SessionService::LoadPaneState(float client_width, float min_width, float default_width) const
 {
     PaneState s;
-    s.show_file = config_.LoadBool("Pane", "ShowFile", true);
-    s.show_toc = config_.LoadBool("Pane", "ShowToc", true);
+    s.show_file = config_.LoadBool(kSectionPane, kKeyShowFile, true);
+    s.show_toc = config_.LoadBool(kSectionPane, kKeyShowToc, true);
 
     const int default_int = static_cast<int>(default_width);
     const int min_int = static_cast<int>(min_width);
@@ -205,8 +220,8 @@ SessionService::PaneState SessionService::LoadPaneState(float client_width, floa
     // LoadInt は範囲外時に default_int を返すが、その既定値自体が
     // 狭いウィンドウでは dynamic_max を超えうる。最終結果も clamp してから
     // 適用し、SetXxxPaneWidth 側の最小値 clamp に過剰な幅が漏れないようにする。
-    const int file_w = std::clamp(config_.LoadInt("Pane", "FileWidth", default_int, min_int, dynamic_max), min_int, dynamic_max);
-    const int toc_w = std::clamp(config_.LoadInt("Pane", "TocWidth", default_int, min_int, dynamic_max), min_int, dynamic_max);
+    const int file_w = std::clamp(config_.LoadInt(kSectionPane, kKeyFileWidth, default_int, min_int, dynamic_max), min_int, dynamic_max);
+    const int toc_w = std::clamp(config_.LoadInt(kSectionPane, kKeyTocWidth, default_int, min_int, dynamic_max), min_int, dynamic_max);
     s.file_width = static_cast<float>(file_w);
     s.toc_width = static_cast<float>(toc_w);
     return s;
@@ -215,14 +230,14 @@ SessionService::PaneState SessionService::LoadPaneState(float client_width, floa
 void SessionService::SaveScrollPosition(int node, float scroll_y, float node_y)
 {
     const int offset = static_cast<int>(std::lround(scroll_y - node_y));
-    config_.SaveInt("Session", "ScrollNode", node);
-    config_.SaveInt("Session", "ScrollOffset", offset);
+    config_.SaveInt(kSectionSession, kKeyScrollNode, node);
+    config_.SaveInt(kSectionSession, kKeyScrollOffset, offset);
 }
 
 SessionService::ScrollPosition SessionService::LoadScrollPosition() const
 {
     return {
-        .node = config_.LoadInt("Session", "ScrollNode", -1, -1, 1000000),
-        .offset = config_.LoadInt("Session", "ScrollOffset", 0, -1000000, 1000000),
+        .node = config_.LoadInt(kSectionSession, kKeyScrollNode, -1, -1, 1000000),
+        .offset = config_.LoadInt(kSectionSession, kKeyScrollOffset, 0, -1000000, 1000000),
     };
 }

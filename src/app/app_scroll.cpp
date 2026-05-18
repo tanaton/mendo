@@ -130,7 +130,7 @@ void App::OnDeferredLayout()
     bool more;
     {
         MENDO_PROFILE("ProcessDirtyBatch");
-        more = layout_service_->ProcessDirtyBatch(state_.document.doc, state_.document.layout_cache, md_width, 200, ResourceManager::BATCH_TIME_BUDGET_US, md_height, ResourceManager::EVICT_BUFFER_SCREENS);
+        more = layout_service_->ProcessDirtyBatch(state_.document.doc, state_.document.layout_cache, md_width, 200, ResourceManager::BATCH_TIME_BUDGET_US, LayoutService::ViewportLimit{ md_height, ResourceManager::EVICT_BUFFER_SCREENS });
     }
 
     // 中間バッチでは SyncMaxScroll のクランプを遅延させる。

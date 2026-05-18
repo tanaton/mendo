@@ -107,6 +107,9 @@ private:
     void ProcessQueue();
     void RenderInWorker(Worker& worker);
     void OnRenderResult(int worker_idx, std::wstring_view json);
+    // WebMessageReceived から受け取った parsed メッセージを worker[index] にディスパッチする。
+    // ラムダ本体を 6 段ネストから 1 行に減らすため case 振り分けをメンバ関数に集約する。
+    void DispatchWebMessage(int index, const mermaid_util::ParsedWebMessage& parsed);
     void DoCapturePreview(int worker_idx);
     void OnCaptureComplete(int worker_idx, uint64_t code_hash, IStream* png_stream);
     void FinishWorkerRequest(Worker& worker);

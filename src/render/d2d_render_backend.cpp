@@ -1,5 +1,7 @@
 #include "d2d_render_backend.h"
 #include "log_hr.h"
+#include "ui_constants.h"
+#include "wic_util.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -33,7 +35,7 @@ bool D2DRenderBackend::Init(HWND hwnd)
 
     dpi_ = static_cast<float>(GetDpiForWindow(hwnd));
     if (dpi_ == 0.0f) {
-        dpi_ = 96.0f;
+        dpi_ = DEFAULT_DPI;
     }
 
     const D2D1_FACTORY_OPTIONS opts{};
@@ -58,13 +60,8 @@ bool D2DRenderBackend::Init(HWND hwnd)
 
     // Renderer・ImageLoader で共有。アイコン／画像／ダイアグラムは WIC が無いと
     // 機能しないため fail-fast。
-    hr = CoCreateInstance(
-        CLSID_WICImagingFactory,
-        nullptr,
-        CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic_factory_));
-    if (FAILED(hr)) {
-        mendo::LogHrFailure(L"WIC ImagingFactory creation", hr);
+    wic_factory_ = wic_util::CreateWicFactory(L"WIC ImagingFactory creation");
+    if (!wic_factory_) {
         return false;
     }
 

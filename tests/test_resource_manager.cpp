@@ -211,8 +211,17 @@ protected:
         std::pmr::string utf8(md);
         doc_ = Document::FromMarkdown(std::move(utf8), kTestDocPath);
         cache_ = SeedLayoutCache(doc_.GetNodes().size(), block_height);
-        rm_.Init(doc_, cache_, viewport_, image_loader_, mock_mermaid_, theme_service_, theme_,
-                 TestResourceManagerCallbacks{ &tracker_ });
+        rm_.Init(
+            ResourceManagerDeps{
+                .doc = &doc_,
+                .cache = &cache_,
+                .viewport = &viewport_,
+                .image_loader = &image_loader_,
+                .mermaid = &mock_mermaid_,
+                .theme_service = &theme_service_,
+                .theme = &theme_,
+            },
+            TestResourceManagerCallbacks{ &tracker_ });
     }
 
     Document doc_;

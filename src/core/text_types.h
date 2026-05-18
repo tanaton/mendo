@@ -73,6 +73,8 @@ struct TextSelection {
     uint32_t end_pos = 0;
     bool active = false;
 
+    friend constexpr bool operator==(const TextSelection&, const TextSelection&) noexcept = default;
+
     constexpr void Clear() noexcept
     {
         start_node = -1;
