@@ -53,13 +53,15 @@ bool App::Init(HWND hwnd)
                             [this](std::wstring_view m) { ShowToast(m); });
 
     resource_manager_.Init(
-        state_.document.doc,
-        state_.document.layout_cache,
-        state_.view.viewport,
-        image_loader_,
-        mermaid_renderer_,
-        theme_service_,
-        renderer_.GetTheme(),
+        ResourceManagerDeps{
+            .doc = &state_.document.doc,
+            .cache = &state_.document.layout_cache,
+            .viewport = &state_.view.viewport,
+            .image_loader = &image_loader_,
+            .mermaid = &mermaid_renderer_,
+            .theme_service = &theme_service_,
+            .theme = &renderer_.GetTheme(),
+        },
         AppResourceManagerCallbacks{ this });
     win32_host_.Init(hwnd_, cursors_);
     effect_executor_.Init(

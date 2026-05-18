@@ -25,6 +25,17 @@ static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 // 0xF000以上はシステム予約（SC_KEYMENU=0xF100等）のため、下位4bitが0のカスタム値を使う
 static constexpr UINT SC_RESET_WINDOW = 0x0010;
 
+// ini 永続化キー。既存設定との互換性のため値の変更は禁止。
+namespace {
+using namespace std::literals;
+constexpr auto kSectionWindow = "Window"sv;
+constexpr auto kKeyWindowX = "X"sv;
+constexpr auto kKeyWindowY = "Y"sv;
+constexpr auto kKeyWindowWidth = "Width"sv;
+constexpr auto kKeyWindowHeight = "Height"sv;
+constexpr auto kKeyWindowMaximized = "Maximized"sv;
+} // namespace
+
 Win32Window::Win32Window(ConfigService& config)
     : config_(config), app_(std::make_unique<App>(config))
 {
@@ -612,10 +623,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     return DefWindowProcW(hwnd_, msg, wParam, lParam);
 }
 
-// ============================================================
 // システムメニュー（タスクバー右クリック）
-// ============================================================
-
 void Win32Window::InitSystemMenu()
 {
     MENDO_PROFILE("Win32Window::InitSystemMenu");
@@ -647,10 +655,7 @@ void Win32Window::ResetWindowPlacement()
     SetWindowPos(hwnd_, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
 
-// ============================================================
 // ウィンドウ配置の永続化
-// ============================================================
-
 void Win32Window::SaveWindowPlacement()
 {
     WINDOWPLACEMENT wp{};
@@ -659,27 +664,27 @@ void Win32Window::SaveWindowPlacement()
         return;
     }
     const auto& rc = wp.rcNormalPosition;
-    config_.SaveInt("Window", "X", rc.left);
-    config_.SaveInt("Window", "Y", rc.top);
-    config_.SaveInt("Window", "Width", rc.right - rc.left);
-    config_.SaveInt("Window", "Height", rc.bottom - rc.top);
+    config_.SaveInt(kSectionWindow, kKeyWindowX, rc.left);
+    config_.SaveInt(kSectionWindow, kKeyWindowY, rc.top);
+    config_.SaveInt(kSectionWindow, kKeyWindowWidth, rc.right - rc.left);
+    config_.SaveInt(kSectionWindow, kKeyWindowHeight, rc.bottom - rc.top);
 
     // 最小化中に閉じた場合も、元が最大化だったかを正しく保存する
     const bool was_maximized = (wp.showCmd == SW_SHOWMAXIMIZED) || ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED));
-    config_.SaveBool("Window", "Maximized", was_maximized);
+    config_.SaveBool(kSectionWindow, kKeyWindowMaximized, was_maximized);
 }
 
 bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 {
     // 保存済みのウィンドウサイズを読み込み（なければデフォルト表示へフォールバック）
-    const int w = config_.LoadInt("Window", "Width", 0, 100, 100000);
-    const int h = config_.LoadInt("Window", "Height", 0, 100, 100000);
+    const int w = config_.LoadInt(kSectionWindow, kKeyWindowWidth, 0, 100, 100000);
+    const int h = config_.LoadInt(kSectionWindow, kKeyWindowHeight, 0, 100, 100000);
     if (w == 0 || h == 0) {
         return false;
     }
-    const int x = config_.LoadInt("Window", "X", 0, -100000, 100000);
-    const int y = config_.LoadInt("Window", "Y", 0, -100000, 100000);
-    const bool maximized = config_.LoadBool("Window", "Maximized", false);
+    const int x = config_.LoadInt(kSectionWindow, kKeyWindowX, 0, -100000, 100000);
+    const int y = config_.LoadInt(kSectionWindow, kKeyWindowY, 0, -100000, 100000);
+    const bool maximized = config_.LoadBool(kSectionWindow, kKeyWindowMaximized, false);
 
     WINDOWPLACEMENT wp{};
     wp.length = sizeof(wp);
@@ -709,10 +714,7 @@ void Win32Window::RestoreScrollPosition()
     app_->SetPendingRestoreNode(pos.node, pos.offset);
 }
 
-// ============================================================
 // 検索EDITコントロールのサブクラスプロシージャ
-// ============================================================
-
 LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData)
 {
     auto* self = reinterpret_cast<Win32Window*>(dwRefData);

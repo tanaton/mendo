@@ -311,10 +311,7 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
 
 void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChangedAction& a)
 {
-    state.window.cached_dpi_scale = static_cast<float>(a.dpi) / 96.0f;
-    if (state.window.cached_dpi_scale <= 0.0f) {
-        state.window.cached_dpi_scale = 1.0f;
-    }
+    state.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(a.dpi));
     state.pane_layout_cache.Invalidate();
     // DPI 変更では IDWriteTextLayout (DIP 単位) は不変。effects_generation のみ進める。
     state.document.layout_cache.NotifyDpiChanged();
@@ -349,15 +346,14 @@ BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node
         state.pane_layout_cache.Get().md_rect.width);
 }
 
-// scroll_x を [0, max] に詰めて map に反映する。0 になった場合はエントリを削除する。
 // HitTestService 側のキャッシュキーには block_scroll_x が含まれないため、
 // 値が変わったタイミングで effects_generation を進めて last_md_hit_ の再計算を強制する。
-void ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, float scroll_max)
+bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, float scroll_max)
 {
     const float clamped = std::clamp(new_value, 0.0f, scroll_max);
     const float prev = state.view.GetBlockScrollX(node_index);
     if (std::abs(prev - clamped) < 1e-3f) {
-        return;
+        return false;
     }
     if (clamped <= 0.0f) {
         state.view.block_scroll_x.erase(node_index);
@@ -366,6 +362,7 @@ void ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, fl
         state.view.block_scroll_x[node_index] = clamped;
     }
     state.document.layout_cache.IncrementEffectsGeneration();
+    return true;
 }
 
 } // namespace
@@ -379,8 +376,9 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
         if (geom.can_scroll()) {
             const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
             const float cur = state.view.GetBlockScrollX(target);
-            ApplyBlockHScrollDelta(state, target, cur + dx, geom.scroll_max());
-            PushEffect(effects, effect::InvalidateWindow{});
+            if (ApplyBlockHScrollDelta(state, target, cur + dx, geom.scroll_max())) {
+                PushEffect(effects, effect::InvalidateWindow{});
+            }
             return;
         }
     }
@@ -440,8 +438,9 @@ void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.natural_width);
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
-    ApplyBlockHScrollDelta(state, sv.h_drag_node, sv.h_drag_start_scroll + dip_delta * scroll_max / drag_range, scroll_max);
-    PushEffect(effects, effect::InvalidateWindow{});
+    if (ApplyBlockHScrollDelta(state, sv.h_drag_node, sv.h_drag_start_scroll + dip_delta * scroll_max / drag_range, scroll_max)) {
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
 }
 
 void ReduceBlockHScrollDragEnded(AppState& state, SideEffectList& effects, const BlockHScrollDragEndedAction&)
@@ -732,11 +731,16 @@ void ReduceTextSelectionMoved(AppState& state, SideEffectList& effects, const Te
     if (!state.view.viewport.IsDragging() || a.node_index < 0) {
         return;
     }
-    state.view.viewport.SetSelection(TextSelection::MakeOrdered(
+    // WM_MOUSEMOVE は 16ms 周期で連発するため、選択が同値なら早期 return。
+    const auto next = TextSelection::MakeOrdered(
         state.view.viewport.GetAnchorNode(),
         state.view.viewport.GetAnchorPos(),
         a.node_index,
-        a.text_pos));
+        a.text_pos);
+    if (next == state.view.viewport.GetSelection()) {
+        return;
+    }
+    state.view.viewport.SetSelection(next);
     PushEffect(effects, effect::InvalidateWindow{});
 }
 

@@ -13,6 +13,18 @@ class IMermaidRenderer;
 class ThemeService;
 struct Theme;
 
+// ResourceManager が依存するサービス群を 1 つにまとめる DI コンテナ。
+// 各ポインタは ResourceManager の生存期間中 valid である必要がある。
+struct ResourceManagerDeps {
+    Document* doc = nullptr;
+    LayoutCache* cache = nullptr;
+    ViewportManager* viewport = nullptr;
+    ImageLoader* image_loader = nullptr;
+    IMermaidRenderer* mermaid = nullptr;
+    ThemeService* theme_service = nullptr;
+    const Theme* theme = nullptr;
+};
+
 // 画像・Mermaidリソースのライフサイクル管理。
 // Appから画像読み込み、Mermaidバッチ処理、ビットマップ解放の責務を分離する。
 template <class Cb>
@@ -23,7 +35,7 @@ public:
     static constexpr int BATCH_TIME_BUDGET_US = 6000;
 
     ResourceManagerT() = default;
-    void Init(Document& doc, LayoutCache& cache, ViewportManager& viewport, ImageLoader& image_loader, IMermaidRenderer& mermaid, ThemeService& theme_service, const Theme& theme, Cb cb);
+    void Init(const ResourceManagerDeps& deps, Cb cb);
 
     // respect_viewport=true: 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
     // respect_viewport=false: 全画像を走査、未キャッシュは無視（リロード時のスクロール計算前用）。

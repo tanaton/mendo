@@ -94,6 +94,30 @@ constexpr size_t ScanString(std::string_view text, size_t pos, char quote, bool 
     return i;
 }
 
+// C++ 生文字列 R"DELIM(...)DELIM" をスキャン。quote_pos は開きの '"'、paren は '(' の位置。
+// 終端 )DELIM" を見つけたらその直後位置を返し、未終端なら text.size() を返す。
+constexpr size_t ScanCppRawString(std::string_view text, size_t quote_pos, size_t paren) noexcept
+{
+    const std::string_view delim = text.substr(quote_pos + 1, paren - quote_pos - 1);
+    const size_t end_marker_len = 1 + delim.size() + 1; // ')' + delim + '"'
+    size_t k = paren + 1;
+    while (k + end_marker_len <= text.size()) {
+        const size_t found = text.find(')', k);
+        if (found == std::string_view::npos || found + end_marker_len > text.size()) {
+            break;
+        }
+        if (text[found + 1 + delim.size()] != '"') {
+            k = found + 1;
+            continue;
+        }
+        if (delim.empty() || text.compare(found + 1, delim.size(), delim) == 0) {
+            return found + end_marker_len;
+        }
+        k = found + 1;
+    }
+    return text.size();
+}
+
 // Pythonのトリプルクォート文字列をスキャン（pos はトリプルクォートの最初の引用符を指す）。
 constexpr size_t ScanTripleQuote(std::string_view text, size_t pos, char quote) noexcept
 {
@@ -379,33 +403,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 // デリミタを検索: R"DELIM( ... )DELIM"
                 const size_t paren = text.find('(', i + 1);
                 if (paren != std::string_view::npos) {
-                    // end_marker = ')' + delim + '"'。delim は view のまま比較してヒープ確保しない。
-                    const std::string_view delim = text.substr(i + 1, paren - i - 1);
-                    const size_t end_marker_len = 1 + delim.size() + 1; // ')' + delim + '"'
-                    size_t end_pos = std::string_view::npos;
-                    // 生文字列の本文中で ')' は通常レアなので、find で間引いてから delim と '"' を確認する。
-                    size_t k = paren + 1;
-                    while (k + end_marker_len <= text.size()) {
-                        const auto found = text.find(')', k);
-                        if (found == std::string_view::npos || found + end_marker_len > text.size()) {
-                            break;
-                        }
-                        if (text[found + 1 + delim.size()] != '"') {
-                            k = found + 1;
-                            continue;
-                        }
-                        if (delim.empty() || text.compare(found + 1, delim.size(), delim) == 0) {
-                            end_pos = found;
-                            break;
-                        }
-                        k = found + 1;
-                    }
-                    if (end_pos != std::string_view::npos) {
-                        i = end_pos + end_marker_len;
-                    }
-                    else {
-                        i = text.size();
-                    }
+                    i = ScanCppRawString(text, i, paren);
                 }
                 else {
                     i = ScanString(text, i, c, false);

@@ -70,15 +70,7 @@ void MermaidRenderer::Init(
         wic_factory_ = wic;
     }
     else {
-        const HRESULT hr = CoCreateInstance(
-            CLSID_WICImagingFactory,
-            nullptr,
-            CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&wic_factory_));
-        if (FAILED(hr)) {
-            LogHrFailure(L"MermaidRenderer CoCreateInstance(WIC)", hr);
-            wic_factory_.Reset();
-        }
+        wic_factory_ = wic_util::CreateWicFactory(L"MermaidRenderer CoCreateInstance(WIC)");
     }
 }
 
@@ -203,62 +195,7 @@ void MermaidRenderer::SetupWorker(int index)
             const auto f = [this, index](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                 LPWSTR msg = nullptr;
                 if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
-                    auto& w = workers_[index];
-                    const auto parsed = mermaid_util::ParseWebMessage(msg);
-                    using mermaid_util::WebMessageKind;
-                    const auto& req = parsed.request;
-                    const bool req_id_match = req.valid && req.id == w.current_request.request_id;
-                    switch (parsed.kind) {
-                    case WebMessageKind::Ready:
-                        if (parsed.ready_dpr > 0) {
-                            w.dpr = parsed.ready_dpr;
-                        }
-                        w.ready = true;
-                        w.init_retries = 0;
-                        // 最初のワーカーが準備完了した時点でon_readyを呼び出す。
-                        // 残りのワーカーは準備でき次第プールに参加する。
-                        if (!lifecycle_.IsReady()) {
-                            lifecycle_.MarkReady();
-                            if (on_all_ready_) {
-                                auto cb = std::move(on_all_ready_);
-                                cb();
-                            }
-                        }
-                        ProcessQueue();
-                        break;
-                    case WebMessageKind::RenderResult:
-                        if (req_id_match && req.has_payload) {
-                            OnRenderResult(index, req.payload);
-                        }
-                        break;
-                    case WebMessageKind::CaptureReady:
-                        if (req_id_match) {
-                            DoCapturePreview(index);
-                        }
-                        break;
-                    case WebMessageKind::SvgResult:
-                        if (req_id_match && w.current_request.svg_only) {
-                            std::pmr::wstring svg{ req.has_payload ? req.payload : std::wstring_view{} };
-                            InvokeSvgCallbackIfAny(w.current_request, std::move(svg), false);
-                            FinishWorkerRequest(w);
-                        }
-                        break;
-                    case WebMessageKind::RenderError:
-                        if (req_id_match) {
-                            InvokeSvgCallbackIfAny(w.current_request, {}, false);
-                            FinishWorkerRequest(w);
-                        }
-                        break;
-                    case WebMessageKind::Failed:
-                        // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
-                        if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
-                            ++w.init_retries;
-                            LogHrFailure(L"Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
-                        }
-                        break;
-                    case WebMessageKind::Unknown:
-                        break;
-                    }
+                    DispatchWebMessage(index, mermaid_util::ParseWebMessage(msg));
                     CoTaskMemFree(msg);
                 }
                 return S_OK;
@@ -599,6 +536,65 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         worker.current_request.request_id, worker.current_request.request_id);
 
     LogHrFailure(L"ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));
+}
+
+void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWebMessage& parsed)
+{
+    using mermaid_util::WebMessageKind;
+    auto& w = workers_[index];
+    const auto& req = parsed.request;
+    const bool req_id_match = req.valid && req.id == w.current_request.request_id;
+    switch (parsed.kind) {
+    case WebMessageKind::Ready:
+        if (parsed.ready_dpr > 0) {
+            w.dpr = parsed.ready_dpr;
+        }
+        w.ready = true;
+        w.init_retries = 0;
+        // 最初のワーカーが準備完了した時点でon_readyを呼び出す。
+        // 残りのワーカーは準備でき次第プールに参加する。
+        if (!lifecycle_.IsReady()) {
+            lifecycle_.MarkReady();
+            if (on_all_ready_) {
+                auto cb = std::move(on_all_ready_);
+                cb();
+            }
+        }
+        ProcessQueue();
+        return;
+    case WebMessageKind::RenderResult:
+        if (req_id_match && req.has_payload) {
+            OnRenderResult(index, req.payload);
+        }
+        return;
+    case WebMessageKind::CaptureReady:
+        if (req_id_match) {
+            DoCapturePreview(index);
+        }
+        return;
+    case WebMessageKind::SvgResult:
+        if (req_id_match && w.current_request.svg_only) {
+            std::pmr::wstring svg{ req.has_payload ? req.payload : std::wstring_view{} };
+            InvokeSvgCallbackIfAny(w.current_request, std::move(svg), false);
+            FinishWorkerRequest(w);
+        }
+        return;
+    case WebMessageKind::RenderError:
+        if (req_id_match) {
+            InvokeSvgCallbackIfAny(w.current_request, {}, false);
+            FinishWorkerRequest(w);
+        }
+        return;
+    case WebMessageKind::Failed:
+        // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
+        if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
+            ++w.init_retries;
+            LogHrFailure(L"Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
+        }
+        return;
+    case WebMessageKind::Unknown:
+        return;
+    }
 }
 
 void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)

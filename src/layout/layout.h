@@ -97,9 +97,16 @@ public:
     }
 
     void ViewportLayout(Document& doc, LayoutCache& cache, float width, float height);
+
+    // 増分レイアウトのビューポート絞り込み。height > 0 で可視範囲 + 周辺バッファのみ
+    // 処理し、height <= 0 (デフォルト) なら全 dirty を順次処理する。
+    struct ViewportLimit {
+        float height = 0.0f;
+        float buffer_screens = 5.0f;
+    };
     bool ProcessDirtyBatch(
         Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us = 0,
-        float viewport_height = -1.0f, float buffer_screens = 5.0f);
+        ViewportLimit viewport = {});
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
     void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept;
 

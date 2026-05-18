@@ -44,17 +44,8 @@ bool ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
         wic_factory_ = wic;
         return true;
     }
-    HRESULT hr = CoCreateInstance(
-        CLSID_WICImagingFactory,
-        nullptr,
-        CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&wic_factory_));
-    if (FAILED(hr)) {
-        mendo::LogHrFailure(L"ImageLoader CoCreateInstance(WIC)", hr);
-        wic_factory_.Reset();
-        return false;
-    }
-    return true;
+    wic_factory_ = wic_util::CreateWicFactory(L"ImageLoader CoCreateInstance(WIC)");
+    return wic_factory_ != nullptr;
 }
 
 void ImageLoader::InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler)

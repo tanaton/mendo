@@ -253,7 +253,7 @@ void CommandGenerator::GenerateNode(
                 fc.pane_transform, scroll_x, needs_clip);
             GenTable(cmds, fc, node, entry, node_index, x, entry_text_top, scroll_x);
         }
-        EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), cw, natural_w, scroll_x);
+        EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), BlockHScrollGeometry{ .natural_width = natural_w, .visible_width = cw }, scroll_x);
         return;
     }
 
@@ -287,7 +287,7 @@ void CommandGenerator::GenerateNode(
                     fc.pane_transform, scroll_x, needs_clip);
                 GenNodeTextDecorations(cmds, fc, node, entry, node_index, x, text_x, entry_text_top);
             }
-            EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), cw, natural_w, scroll_x);
+            EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), BlockHScrollGeometry{ .natural_width = natural_w, .visible_width = cw }, scroll_x);
         }
         GenCopyButton(cmds, entry, x, cw, node_index == fc.hovered.copy, entry_text_top);
         return;
@@ -438,17 +438,17 @@ void CommandGenerator::GenSvgCopyButton(DrawCommandList& cmds, float bitmap_righ
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 
-void CommandGenerator::EmitBlockHScrollbarIfActive(DrawCommandList& cmds, const FrameContext& fc, int node_index, float block_x, float bar_y, float visible_width, float natural_width, float scroll_x)
+void CommandGenerator::EmitBlockHScrollbarIfActive(DrawCommandList& cmds, const FrameContext& fc, int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x)
 {
-    if (natural_width <= visible_width || visible_width <= 0.0f) {
+    if (!geom.can_scroll()) {
         return;
     }
     if (node_index != fc.h_scroll.hovered_block && node_index != fc.h_scroll.drag_block) {
         return;
     }
-    const float track_w = visible_width;
-    const float thumb_w = BlockHScrollbarThumbWidth(visible_width, natural_width);
-    const float scroll_max = natural_width - visible_width;
+    const float track_w = geom.visible_width;
+    const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.natural_width);
+    const float scroll_max = geom.scroll_max();
     const float ratio = (scroll_max > 0.0f) ? std::clamp(scroll_x / scroll_max, 0.0f, 1.0f) : 0.0f;
     // bullet と同じく Identity transform + 物理ピクセル snap で描画する。
     // pane_transform の md_x が非整数 (DPI 1 以外) のとき、サブピクセル位置で
@@ -805,45 +805,35 @@ void CommandGenerator::EmitSearchHlCommands(
     }
 }
 
-void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, bool is_header, bool is_even_row, float x, float y, float table_width, float row_h, float border)
+void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, const TableRowGeom& g, bool is_header, bool is_even_row)
 {
     if (is_header) {
-        cmds.emplace_back(FillRectCmd{ D2D1::RectF(x, y, x + table_width, y + row_h + border), theme_->code_bg_color, BrushId::CodeBg });
+        cmds.emplace_back(FillRectCmd{ D2D1::RectF(g.x, g.y, g.x + g.table_width, g.y + g.row_h + g.border), theme_->code_bg_color, BrushId::CodeBg });
     }
     else if (is_even_row) {
         // cached_stripe_color_ と Renderer の brushes_[TableStripe] は同じ式 (renderer_resources.cpp) で算出する。
-        cmds.emplace_back(FillRectCmd{ D2D1::RectF(x, y, x + table_width, y + row_h + border), cached_stripe_color_, BrushId::TableStripe });
+        cmds.emplace_back(FillRectCmd{ D2D1::RectF(g.x, g.y, g.x + g.table_width, g.y + g.row_h + g.border), cached_stripe_color_, BrushId::TableStripe });
     }
 }
 
-void CommandGenerator::GenTableCellContent(
-    DrawCommandList& cmds,
-    std::string_view cell_text,
-    bool is_header,
-    IDWriteTextLayout* cell_layout,
-    float text_x,
-    float text_y,
-    bool has_selection,
-    uint32_t sel_start,
-    uint32_t sel_end,
-    uint32_t flat_offset)
+void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, std::string_view cell_text, const CellDrawContext& ctx)
 {
-    if (has_selection && cell_layout) {
+    if (ctx.has_selection && ctx.layout) {
         const uint32_t cell_len = static_cast<uint32_t>(cell_text.size());
-        const uint32_t ov_start = std::max(sel_start, flat_offset);
-        const uint32_t ov_end = std::min(sel_end, flat_offset + cell_len);
+        const uint32_t ov_start = std::max(ctx.sel_start, ctx.flat_offset);
+        const uint32_t ov_end = std::min(ctx.sel_end, ctx.flat_offset + cell_len);
         if (ov_end > ov_start) {
             // sel_start/sel_end は UTF-8 byte offset。HitTestTextRange 用に UTF-16 へ変換する。
-            const auto wr = cell_wv_.WideRange(cell_text, ov_start - flat_offset, ov_end - ov_start);
+            const auto wr = cell_wv_.WideRange(cell_text, ov_start - ctx.flat_offset, ov_end - ov_start);
             if (wr.length > 0) {
-                GenSelectionHighlight(cmds, cell_layout, wr.startPosition, wr.length, text_x, text_y);
+                GenSelectionHighlight(cmds, ctx.layout, wr.startPosition, wr.length, ctx.text_x, ctx.text_y);
             }
         }
     }
-    if (cell_layout) {
-        const D2D1_COLOR_F cell_color = is_header ? theme_->heading_color : theme_->text_color;
-        const BrushId cell_brush = is_header ? BrushId::Heading : BrushId::Text;
-        cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, text_y), cell_layout, cell_color, cell_brush });
+    if (ctx.layout) {
+        const D2D1_COLOR_F cell_color = ctx.is_header ? theme_->heading_color : theme_->text_color;
+        const BrushId cell_brush = ctx.is_header ? BrushId::Heading : BrushId::Text;
+        cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, cell_color, cell_brush });
     }
 }
 
@@ -896,7 +886,7 @@ void CommandGenerator::GenTable(
         }
 
         const bool is_header_row = tbl->IsHeaderRow(r);
-        GenTableRowBg(cmds, is_header_row, r % 2 == 0, offset_x, y, table_width, row_h, border);
+        GenTableRowBg(cmds, TableRowGeom{ offset_x, y, table_width, row_h, border }, is_header_row, r % 2 == 0);
 
         // 行上部の水平線
         cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), theme_->hr_color, border, BrushId::Hr });
@@ -926,7 +916,16 @@ void CommandGenerator::GenTable(
 
                 const auto cell_text = tbl->GetCellText(r, c);
                 const uint32_t cell_flat = tbl->CellTextStart(r, c);
-                GenTableCellContent(cmds, cell_text, is_header_row, cell_layout, text_x, text_y, has_selection, sel_start, sel_end, cell_flat);
+                GenTableCellContent(cmds, cell_text, CellDrawContext{
+                    .layout = cell_layout,
+                    .text_x = text_x,
+                    .text_y = text_y,
+                    .flat_offset = cell_flat,
+                    .sel_start = sel_start,
+                    .sel_end = sel_end,
+                    .has_selection = has_selection,
+                    .is_header = is_header_row,
+                });
             }
 
             cx += cw + cell_padding * 2.0f + border;

@@ -32,9 +32,7 @@ struct ToastRenderState {
 };
 
 struct TitleBarRenderState {
-    // --- 8バイトアライメント ---
     std::wstring_view title_text;
-    // --- 4バイトアライメント ---
     TitleBarButton open_file;
     TitleBarButton help;
     TitleBarButton theme_toggle;
@@ -44,12 +42,10 @@ struct TitleBarRenderState {
     TitleBarButton minimize;
     TitleBarButton maximize;
     TitleBarButton close;
-    // --- 4バイトアライメント ---
     DipRect icon_rect{};
     DipRect title_text_rect{};
     float height = 0.0f;
     float window_width = 0.0f;
-    // --- 1バイトアライメント ---
     // ホバー中のボタン。各 TitleBarButton に bool を持たせず一元管理する。
     TitleBarHitZone hovered_zone = TitleBarHitZone::None;
     bool is_dark_mode = false;
@@ -127,15 +123,12 @@ struct PaneCache {
 };
 
 struct SearchBarRenderState {
-    // --- 8バイトアライメント ---
     std::wstring_view query;
     std::wstring_view ime_composition; // IME変換中のコンポジション文字列
-    // --- 4バイトアライメント ---
     int current_match = -1; // 0-based、-1 = マッチなし
     int total_matches = 0;
     int caret_pos = -1;       // キャレット位置（-1 = テキスト末尾）
     int selection_start = -1; // 選択開始位置（caret_posと異なる場合、選択範囲あり）
-    // --- 1バイトアライメント ---
     bool visible = false;
     bool has_focus = false;
     bool caret_visible = false; // キャレット（点滅制御）
@@ -151,7 +144,6 @@ struct SearchBarRenderState {
 };
 
 struct RenderParams {
-    // --- 8バイトアライメント (参照 = ポインタ) ---
     const std::pmr::vector<Node>& nodes;
     const LayoutCache& cache;
     const TextSelection& selection;
@@ -161,12 +153,10 @@ struct RenderParams {
     const GestureRenderState& gesture;
     const ToastRenderState& toast;
     const SearchBarRenderState& search_bar;
-    // --- 4バイトアライメント ---
     float scroll_y = 0.0f;
     float total_content_height = 0.0f;
     int nav_hovered = 0;
     HoveredButtons hovered;
-    // --- 1バイトアライメント ---
     bool can_go_back = false;
     bool can_go_forward = false;
     bool has_dirty_nodes = false;
