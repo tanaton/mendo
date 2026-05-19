@@ -71,7 +71,6 @@ public:
     {
         file_path_ = path;
     }
-    void ReplaceContent(ParseResult&& result);
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size);
     int FindAnchorIndex(std::string_view anchor) const;
     // 既に anchor_id 形式（小文字 ASCII 正規化済み）と判明している入力向け。
@@ -87,6 +86,13 @@ public:
     }
 
 private:
+    // ParseResult を nodes_ に取り込み、TOC / anchor_index_ / image / diagram の各種
+    // インデックスを再構築する。
+    // 契約: 入力 ParseResult のノード view_ は raw_text_.data() を base にしていること。
+    // FromMarkdown / ReplaceFromMarkdown 経由でのみ呼ぶ。Document を後で move する際の
+    // RebaseViews が異種 array 間のポインタ減算を起こさないようこの不変条件が必要。
+    void ReplaceContent(ParseResult&& result);
+
     void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
 
     // move 後にノードの view_ を新しい raw_text_.data() へ rebase する。

@@ -121,9 +121,10 @@ std::pmr::wstring Document::GetDirectory() const
 
 void Document::ReplaceContent(ParseResult&& result)
 {
-    // 注意: 各ノードの view_.data() は parser が ParseMarkdown 呼び出し時の markdown_text.data() を既に注入済み。
-    // raw_text_ を差し替える経路 (FromMarkdown / ReplaceFromMarkdown) では ParseMarkdown(raw_text_)
-    // を渡しているため view_.data() のベースが raw_text_.data() と一致し、rebase 不要。
+    // private 化された内部 helper。呼び出し元 (FromMarkdown / ReplaceFromMarkdown) は
+    // 必ず ParseMarkdown(raw_text_) を渡しており、各ノードの view_.data() のベースが
+    // raw_text_.data() と一致するため rebase 不要。Document が後で move されたときの
+    // RebaseViews も同一 array (raw_text_) 内のポインタ減算で安全に成立する。
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);

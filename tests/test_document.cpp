@@ -77,8 +77,9 @@ TEST(DocumentTest, ReplaceContent)
     EXPECT_FALSE(doc.GetToc().GetEntries().empty());
     EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), "First");
 
-    // 新しいコンテンツで置き換え
-    doc.ReplaceContent(ParseMarkdown("# Second\n## Sub"));
+    // 新しいコンテンツで置き換え (raw_text_ ごと差し替えるため ReplaceFromMarkdown を使う)
+    constexpr std::string_view kReplaced = "# Second\n## Sub";
+    doc.ReplaceFromMarkdown(std::pmr::string{ kReplaced }, kReplaced.size());
 
     // TOCが再構築されるべき
     EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);
@@ -332,7 +333,8 @@ TEST(DocumentTest, BuildIndicesAfterReplaceContent)
     EXPECT_EQ(doc.GetToc().GetEntries().size(), 1u);
     EXPECT_EQ(doc.FindAnchorIndex("old"), 0);
 
-    doc.ReplaceContent(ParseMarkdown("# New\n\n## Sub"));
+    constexpr std::string_view kReplaced = "# New\n\n## Sub";
+    doc.ReplaceFromMarkdown(std::pmr::string{ kReplaced }, kReplaced.size());
     EXPECT_EQ(doc.GetToc().GetEntries().size(), 2u);
     EXPECT_EQ(doc.FindAnchorIndex("old"), -1);
     EXPECT_EQ(doc.FindAnchorIndex("new"), 0);

@@ -1817,8 +1817,10 @@ TEST(CalcScrollYForDiff, FallbackWhenNoNodes)
 
 TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
 {
-    // すべてのノードの source_offset が diff_pos より大きい
-    const std::string content = "content";
+    // すべてのノードの source_offset が diff_pos より大きい。
+    // content は MakeNodes が埋める最大 offset (200) + SetSourceOffset の上書き (50) を
+    // string_view{base + offset, 0} で構築できるサイズを確保する必要がある。
+    std::string content(300, 'x');
     auto nodes = MakeNodes(content.data(), 3, 100);
     nodes[0].SetSourceOffset(content.data(), 50);
     auto cache = MakeUniformCache(3);
