@@ -283,18 +283,18 @@ struct Node {
         return GetText();
     }
 
-    void SetText(const char* s)
+    constexpr void SetText(const char* s)
     {
         SetText(std::string_view{ s });
     }
 
-    void SetText(std::string_view s)
+    constexpr void SetText(std::string_view s)
     {
         owned_text_.assign(s);
         FinalizeOwnedTextLineCount();
     }
 
-    void SetText(std::pmr::string&& s) noexcept
+    constexpr void SetText(std::pmr::string&& s) noexcept
     {
         owned_text_ = std::move(s);
         FinalizeOwnedTextLineCount();
@@ -303,7 +303,7 @@ struct Node {
     // 連続 NORMAL/CODE/LATEXMATH のみで構成されるノード向けの view 設定 API。
     // raw_text_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
     // 引数順は SetSourceOffset(base, offset, length) と揃えてある。
-    void SetTextView(const char* view_base, uint32_t source_offset_value, uint32_t length, int32_t line_count_value) noexcept
+    constexpr void SetTextView(const char* view_base, uint32_t source_offset_value, uint32_t length, int32_t line_count_value) noexcept
     {
         owned_text_.clear();
         SetSourceOffset(view_base, source_offset_value, length);
@@ -312,14 +312,14 @@ struct Node {
 
     // text と line_count を一括更新する（呼び出し側が積算済みの line_count を渡す）。
     // 改行を逐次カウントしておけるパーサ向けの最適化バリアント。
-    void SetTextWithLineCount(std::string_view s, int32_t line_count_value)
+    constexpr void SetTextWithLineCount(std::string_view s, int32_t line_count_value)
     {
         owned_text_.assign(s);
         DemoteToOwned();
         line_count = line_count_value;
     }
 
-    void SetTextWithLineCount(std::pmr::string&& s, int32_t line_count_value) noexcept
+    constexpr void SetTextWithLineCount(std::pmr::string&& s, int32_t line_count_value) noexcept
     {
         owned_text_ = std::move(s);
         DemoteToOwned();
@@ -396,19 +396,19 @@ struct Node {
     // ensure_*: 既に存在すれば内部参照、無ければ新規確保して返す。
     // 既存 alternative がある状態で別種の ensure_* を呼ぶと、それは破棄される (variant の emplace 動作)。
     // parser は BeginNode 直後に 1 種類だけ ensure する規約。
-    NodeHeadingData* ensure_heading()
+    constexpr NodeHeadingData* ensure_heading()
     {
         return EnsureAlt<NodeHeadingData>();
     }
-    NodeCodeData* ensure_code()
+    constexpr NodeCodeData* ensure_code()
     {
         return EnsureAlt<NodeCodeData>();
     }
-    NodeListData* ensure_list()
+    constexpr NodeListData* ensure_list()
     {
         return EnsureAlt<NodeListData>();
     }
-    NodeAlertData* ensure_alert()
+    constexpr NodeAlertData* ensure_alert()
     {
         return EnsureAlt<NodeAlertData>();
     }
@@ -510,7 +510,7 @@ private:
         view_ = std::string_view{ view_.data(), 0 };
     }
 
-    void FinalizeOwnedTextLineCount() noexcept
+    constexpr void FinalizeOwnedTextLineCount() noexcept
     {
         line_count = static_cast<int32_t>(std::ranges::count(owned_text_, mendo::doc_lf));
         DemoteToOwned();
@@ -520,7 +520,7 @@ private:
     // 異種 alternative を保持した状態で別種を ensure すると元データはサイレントに破棄されるため、
     // Debug ビルドでは契約違反を assert で捕捉する (Release では noop)。
     template <class T>
-    T* EnsureAlt()
+    constexpr T* EnsureAlt()
     {
         if (auto* p = std::get_if<T>(&extra)) {
             return p;
