@@ -32,7 +32,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
 {
     Node n;
     // 派生 mock のトークン seed として使うため、必ず source_offset を埋める。
-    n.source_offset = static_cast<uint32_t>(i);
+    n.SetSourceOffset(SourceOffsetTestBase(), static_cast<uint32_t>(i));
     const size_t bucket = i % 20;
 
     if (include_code_block && bucket < 2) {
@@ -125,7 +125,7 @@ public:
         if (node.type != NodeType::CodeBlock || IsDiagramLanguage(node.code_language())) {
             return;
         }
-        const uint32_t seed = node.source_offset;
+        const uint32_t seed = node.SourceOffsetFrom(SourceOffsetTestBase());
         const auto MakeTok = [seed](uint32_t k) {
             return SyntaxToken{
                 .start = seed + k * 10u,

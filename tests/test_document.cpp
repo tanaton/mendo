@@ -171,9 +171,11 @@ TEST(DocumentTest, RawTextSourceOffsetConsistency)
     ASSERT_GE(nodes.size(), 2u);
 
     // source_offset 位置の文字がノードのテキスト先頭と対応する
+    const char* const raw_base = raw.data();
     for (const auto& n : nodes) {
-        if (n.source_offset != kUnsetSourceOffset && n.source_offset < raw.size()) {
-            EXPECT_LT(n.source_offset, static_cast<uint32_t>(raw.size()));
+        const uint32_t off = n.SourceOffsetFrom(raw_base);
+        if (off != kUnsetSourceOffset && off < raw.size()) {
+            EXPECT_LT(off, static_cast<uint32_t>(raw.size()));
         }
     }
 }
@@ -186,17 +188,19 @@ TEST(DocumentTest, SourceOffsetPointsToNodeTextStart)
     const auto& nodes = doc.GetNodes();
     const auto& raw = doc.GetRawText();
 
+    const char* const raw_base = raw.data();
     bool checked_any = false;
     for (const auto& n : nodes) {
-        if (n.source_offset == kUnsetSourceOffset) {
+        const uint32_t off = n.SourceOffsetFrom(raw_base);
+        if (off == kUnsetSourceOffset) {
             continue;
         }
         if (!n.HasText()) {
             continue;
         }
-        ASSERT_LT(n.source_offset, raw.size());
-        EXPECT_EQ(raw[n.source_offset], n.GetText()[0])
-            << "node text starts at raw[" << n.source_offset << "]";
+        ASSERT_LT(off, raw.size());
+        EXPECT_EQ(raw[off], n.GetText()[0])
+            << "node text starts at raw[" << off << "]";
         checked_any = true;
     }
     EXPECT_TRUE(checked_any);
@@ -215,12 +219,14 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
     const auto& raw = doc.GetRawText();
     ASSERT_FALSE(nodes.empty());
 
+    const char* const raw_base = raw.data();
     bool checked_any = false;
     for (const auto& n : nodes) {
-        if (n.source_offset == kUnsetSourceOffset) {
+        const uint32_t off = n.SourceOffsetFrom(raw_base);
+        if (off == kUnsetSourceOffset) {
             continue;
         }
-        EXPECT_LT(n.source_offset, static_cast<uint32_t>(raw.size()))
+        EXPECT_LT(off, static_cast<uint32_t>(raw.size()))
             << "source_offset must remain within input buffer when md4c emits MD_TEXT_NULLCHAR";
         checked_any = true;
     }

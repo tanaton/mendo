@@ -387,6 +387,7 @@ TEST(ViewStats, DumpFirstOwnedCodeBlocks)
     }
     auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
     const auto& raw = doc.GetRawText();
+    const char* const raw_base = raw.data();
     int dumped = 0;
     for (const auto& n : doc.GetNodes()) {
         if (n.type != NodeType::CodeBlock || !n.HasText()) {
@@ -394,11 +395,12 @@ TEST(ViewStats, DumpFirstOwnedCodeBlocks)
         }
         const bool is_view = n.IsViewMode();
         const std::string_view text = n.GetText();
-        std::cout << "[" << (is_view ? "view " : "owned") << "] source_offset=" << n.source_offset
+        const uint32_t off = n.SourceOffsetFrom(raw_base);
+        std::cout << "[" << (is_view ? "view " : "owned") << "] source_offset=" << off
                   << " text.size()=" << text.size() << " line_count=" << n.line_count;
-        if (n.source_offset != kUnsetSourceOffset && n.source_offset < raw.size()) {
-            const size_t avail = std::min<size_t>(text.size(), raw.size() - n.source_offset);
-            const std::string_view raw_slice{ raw.data() + n.source_offset, avail };
+        if (off != kUnsetSourceOffset && off < raw.size()) {
+            const size_t avail = std::min<size_t>(text.size(), raw.size() - off);
+            const std::string_view raw_slice{ raw.data() + off, avail };
             // 先頭 N 文字の差分位置を探す
             size_t first_diff = avail;
             for (size_t i = 0; i < avail; ++i) {

@@ -65,14 +65,24 @@ void NormalizeNewlines(std::pmr::string& s)
 } // namespace
 
 Document::Document(Document&& other) noexcept
-    : nodes_(std::move(other.nodes_)), file_path_(std::move(other.file_path_)), raw_text_(std::move(other.raw_text_)), loaded_byte_size_(other.loaded_byte_size_), toc_(std::move(other.toc_)), anchor_index_(std::move(other.anchor_index_)), image_node_indices_(std::move(other.image_node_indices_)), diagram_node_indices_(std::move(other.diagram_node_indices_))
 {
-    InjectViewBase();
+    // raw_text_ を move する前に旧 base を捕捉。move 後の other.raw_text_.data() は空文字列を返すため。
+    const char* const old_base = other.raw_text_.data();
+    nodes_ = std::move(other.nodes_);
+    file_path_ = std::move(other.file_path_);
+    raw_text_ = std::move(other.raw_text_);
+    loaded_byte_size_ = other.loaded_byte_size_;
+    toc_ = std::move(other.toc_);
+    anchor_index_ = std::move(other.anchor_index_);
+    image_node_indices_ = std::move(other.image_node_indices_);
+    diagram_node_indices_ = std::move(other.diagram_node_indices_);
+    RebaseViews(old_base);
 }
 
 Document& Document::operator=(Document&& other) noexcept
 {
     if (this != &other) {
+        const char* const old_base = other.raw_text_.data();
         nodes_ = std::move(other.nodes_);
         file_path_ = std::move(other.file_path_);
         raw_text_ = std::move(other.raw_text_);
@@ -81,7 +91,7 @@ Document& Document::operator=(Document&& other) noexcept
         anchor_index_ = std::move(other.anchor_index_);
         image_node_indices_ = std::move(other.image_node_indices_);
         diagram_node_indices_ = std::move(other.diagram_node_indices_);
-        InjectViewBase();
+        RebaseViews(old_base);
     }
     return *this;
 }
@@ -115,22 +125,23 @@ std::pmr::wstring Document::GetDirectory() const
 
 void Document::ReplaceContent(ParseResult&& result)
 {
-    // 注意: view_base_ は parser が ParseMarkdown 呼び出し時の markdown_text.data() を既に注入済み。
+    // 注意: 各ノードの view_.data() は parser が ParseMarkdown 呼び出し時の markdown_text.data() を既に注入済み。
     // raw_text_ を差し替える経路 (FromMarkdown / ReplaceFromMarkdown) では ParseMarkdown(raw_text_)
-    // を渡しているため view_base_ = raw_text_.data() が一致し、ここでの再注入は不要。
+    // を渡しているため view_.data() のベースが raw_text_.data() と一致し、rebase 不要。
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);
     BuildHeadingIndices(result.heading_indices);
 }
 
-void Document::InjectViewBase() noexcept
+void Document::RebaseViews(const char* old_base) noexcept
 {
-    const char* const base = raw_text_.data();
+    const char* const new_base = raw_text_.data();
+    if (new_base == old_base) {
+        return; // move 後にバッファが同位置に居る (heap relocate なし) なら何もしない
+    }
     for (auto& n : nodes_) {
-        if (n.IsViewMode()) {
-            n.view_base_ = base;
-        }
+        n.RebaseSourceOffset(old_base, new_base);
     }
 }
 

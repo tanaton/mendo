@@ -145,11 +145,6 @@ struct ParseContext {
     const char* markdown_base = nullptr;
     size_t markdown_size = 0;
 
-    // 現在ノードの source_offset が既に設定済みか。
-    // OnText の uint32 比較 (current_node->source_offset == kUnsetSourceOffset) を毎テキストで
-    // 評価する代わりに、BeginNode でリセット → 範囲内マッチで設定 → 以降は素通しでよい。
-    bool node_source_offset_set = false;
-
     // 現在ノードが owned 経路確定か。span markup (** _ ` 等) の存在や、
     // entity 解決 / BR / SOFTBR で text を置換するケースは current_text と raw_slice が
     // 構造的に一致しなくなるため、FinalizeCurrentNode の memcmp を完全にスキップできる。
@@ -162,10 +157,10 @@ struct ParseContext {
     {
         // 高頻度呼び出し (100MB で 40万回超) のため MENDO_PROFILE は外す。
         // zone overhead が ~120ms 単位で計測自体を歪めるため。
-        if (!current_node || current_node->source_offset == kUnsetSourceOffset) {
+        if (!current_node || !current_node->HasSourceOffset()) {
             return false;
         }
-        const size_t offset = current_node->source_offset;
+        const size_t offset = current_node->SourceOffsetFrom(markdown_base);
         const size_t len = current_text.size();
         if (offset + len > markdown_size) {
             return false;
@@ -187,7 +182,7 @@ struct ParseContext {
         if (current_node && !current_text.empty() && !current_node->HasText()) {
             if (!current_node_owned_only && CurrentTextMatchesRawSlice()) {
                 current_node->SetTextView(
-                    static_cast<uint32_t>(current_node->source_offset),
+                    current_node->SourceOffsetFrom(markdown_base),
                     static_cast<uint32_t>(current_text.size()),
                     current_node->line_count,
                     markdown_base);
@@ -223,7 +218,6 @@ struct ParseContext {
             current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, kInt8Max));
         }
         // runs は SBO 内で初期確保ゼロを狙う。reserve すると SBO の利点が消えるので呼ばない。
-        node_source_offset_set = false;
         current_node_owned_only = false;
     }
 
@@ -800,13 +794,13 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     // 異なる array 同士のポインタ減算は UB なので、範囲判定もオフセット計算も uintptr_t の
     // 整数演算で行う (std::less<T*> の total order はアドレスの数値順と一致する保証がない)。
     // 範囲外マッチ (静的リテラル) のときは flag を立てず、後続の実体テキストで上書きできるようにする。
-    if (!ctx->node_source_offset_set) [[unlikely]] {
+    if (!ctx->current_node->HasSourceOffset()) [[unlikely]] {
         const auto text_addr = reinterpret_cast<uintptr_t>(text);
         const auto base_addr = reinterpret_cast<uintptr_t>(ctx->markdown_base);
         const auto end_addr = base_addr + ctx->markdown_size * sizeof(char);
         if (text_addr >= base_addr && text_addr < end_addr) {
-            ctx->current_node->source_offset = static_cast<uint32_t>((text_addr - base_addr) / sizeof(char));
-            ctx->node_source_offset_set = true;
+            const auto offset = static_cast<uint32_t>((text_addr - base_addr) / sizeof(char));
+            ctx->current_node->SetSourceOffset(ctx->markdown_base, offset);
         }
     }
 

@@ -28,7 +28,8 @@ ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new
     return { ReloadOp::FullReload, diff_pos };
 }
 
-int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_offset) noexcept
+int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, const char* raw_base,
+                           uint32_t diff_offset) noexcept
 {
     // source_offset はパース順で基本的に単調増加するため二分探索を使用。
     // 未設定ノードに当たった場合は左に有効ノードを探してから判定する。
@@ -36,21 +37,24 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, uint32_t diff_of
     int result = -1;
     while (lo <= hi) {
         const int mid = lo + (hi - lo) / 2;
-        const uint32_t offset = nodes[mid].source_offset;
+        const uint32_t offset = nodes[mid].SourceOffsetFrom(raw_base);
         if (offset == kUnsetSourceOffset) {
             int probe = mid - 1;
-            while (probe >= lo && nodes[probe].source_offset == kUnsetSourceOffset) {
+            while (probe >= lo && !nodes[probe].HasSourceOffset()) {
                 probe--;
             }
             if (probe < lo) {
                 lo = mid + 1;
             }
-            else if (nodes[probe].source_offset <= diff_offset) {
-                result = probe;
-                lo = mid + 1;
-            }
             else {
-                hi = probe - 1;
+                const uint32_t probe_offset = nodes[probe].SourceOffsetFrom(raw_base);
+                if (probe_offset <= diff_offset) {
+                    result = probe;
+                    lo = mid + 1;
+                }
+                else {
+                    hi = probe - 1;
+                }
             }
             continue;
         }
@@ -73,7 +77,8 @@ float CalcScrollYForDiff(
     float viewport_height,
     float fallback_scroll) noexcept
 {
-    const int changed_node = FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
+    const char* const raw_base = content.data();
+    const int changed_node = FindNodeBySourceOffset(nodes, raw_base, static_cast<uint32_t>(diff_pos));
     if (changed_node < 0 || changed_node >= static_cast<int>(cache.size())) {
         return fallback_scroll;
     }
@@ -84,13 +89,14 @@ float CalcScrollYForDiff(
     float node_y = cache[changed_node].text_top;
     const float node_h = cache[changed_node].height;
 
-    const uint32_t node_start = nodes[changed_node].source_offset;
+    const uint32_t node_start = nodes[changed_node].SourceOffsetFrom(raw_base);
     if (node_start != kUnsetSourceOffset) {
         uint32_t next_start = static_cast<uint32_t>(content.size());
         const auto node_count = static_cast<int>(nodes.size());
         for (int i = changed_node + 1; i < node_count; ++i) {
-            if (nodes[i].source_offset != kUnsetSourceOffset && nodes[i].source_offset > node_start) {
-                next_start = nodes[i].source_offset;
+            const uint32_t off = nodes[i].SourceOffsetFrom(raw_base);
+            if (off != kUnsetSourceOffset && off > node_start) {
+                next_start = off;
                 break;
             }
         }
