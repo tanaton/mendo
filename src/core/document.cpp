@@ -66,6 +66,19 @@ void NormalizeNewlines(std::pmr::string& s)
 
 Document::Document(Document&& other) noexcept
 {
+    MoveFrom(std::move(other));
+}
+
+Document& Document::operator=(Document&& other) noexcept
+{
+    if (this != &other) {
+        MoveFrom(std::move(other));
+    }
+    return *this;
+}
+
+void Document::MoveFrom(Document&& other) noexcept
+{
     // raw_text_ を move する前に旧 base を捕捉。move 後の other.raw_text_.data() は空文字列を返すため。
     const char* const old_base = other.raw_text_.data();
     nodes_ = std::move(other.nodes_);
@@ -77,23 +90,6 @@ Document::Document(Document&& other) noexcept
     image_node_indices_ = std::move(other.image_node_indices_);
     diagram_node_indices_ = std::move(other.diagram_node_indices_);
     RebaseViews(old_base);
-}
-
-Document& Document::operator=(Document&& other) noexcept
-{
-    if (this != &other) {
-        const char* const old_base = other.raw_text_.data();
-        nodes_ = std::move(other.nodes_);
-        file_path_ = std::move(other.file_path_);
-        raw_text_ = std::move(other.raw_text_);
-        loaded_byte_size_ = other.loaded_byte_size_;
-        toc_ = std::move(other.toc_);
-        anchor_index_ = std::move(other.anchor_index_);
-        image_node_indices_ = std::move(other.image_node_indices_);
-        diagram_node_indices_ = std::move(other.diagram_node_indices_);
-        RebaseViews(old_base);
-    }
-    return *this;
 }
 
 Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::wstring_view path,
@@ -138,7 +134,11 @@ void Document::RebaseViews(const char* old_base) noexcept
 {
     const char* const new_base = raw_text_.data();
     if (new_base == old_base) {
-        return; // move 後にバッファが同位置に居る (heap relocate なし) なら何もしない
+        // 同一 allocator 間の pmr::string move は O(1) でバッファ所有を譲渡する (data() 不変)
+        // ため、PMR allocator が一致する典型運用 (両 Document が new_delete_resource を使う) では
+        // ここで早期 return する。allocator 不一致時は要素コピーが走り data() が変わるので
+        // 全ノードを rebase する。
+        return;
     }
     for (auto& n : nodes_) {
         n.RebaseSourceOffset(old_base, new_base);

@@ -302,11 +302,11 @@ struct Node {
 
     // 連続 NORMAL/CODE/LATEXMATH のみで構成されるノード向けの view 設定 API。
     // raw_text_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
-    // parser 中の Heading anchor 生成等で GetText() が呼ばれるパスがあるため view_base もここで同時設定する。
-    void SetTextView(uint32_t source_offset_value, uint32_t length, int32_t line_count_value, const char* view_base) noexcept
+    // 引数順は SetSourceOffset(base, offset, length) と揃えてある。
+    void SetTextView(const char* view_base, uint32_t source_offset_value, uint32_t length, int32_t line_count_value) noexcept
     {
         owned_text_.clear();
-        view_ = std::string_view{ view_base + source_offset_value, length };
+        SetSourceOffset(view_base, source_offset_value, length);
         line_count = line_count_value;
     }
 
@@ -503,7 +503,8 @@ struct Node {
     }
 
 private:
-    // owned モードへデモートする。view_.data() (= source_offset) は保持し size のみ 0 にする。
+    // owned モードへデモートする。設定済みなら view_.data() (= source_offset) を保持し size のみ 0 にする。
+    // 未設定 (data == nullptr) の場合は再代入しても string_view{nullptr, 0} のままで no-op。
     constexpr void DemoteToOwned() noexcept
     {
         view_ = std::string_view{ view_.data(), 0 };

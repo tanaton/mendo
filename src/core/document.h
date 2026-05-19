@@ -95,6 +95,11 @@ private:
     // old_base は move 前 (raw_text_ を move する直前) に取得しておく必要がある。
     void RebaseViews(const char* old_base) noexcept;
 
+    // ムーブ構築/ムーブ代入で共有する移送処理。other の raw_text_ を move する前に
+    // old_base を確保しないと、move 後の other.raw_text_.data() が空文字列を指し
+    // rebase が壊れる。共通化により両経路で同じ順序を保証する。
+    void MoveFrom(Document&& other) noexcept;
+
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
     // RawText は append/resize 等の relocate API を提供しないため、view モードノードの
