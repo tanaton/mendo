@@ -174,8 +174,8 @@ struct NodeImageData {
 };
 using NodeImagePtr = mendo::pmr_unique_ptr<NodeImageData>;
 
-// Node::source_offset が未設定であることを示すセンチネル値。
-// HorizontalRule のようなテキストを持たないノードはオフセットを記録しない。
+// Node::SourceOffsetFrom() が未設定 (view_.data() == nullptr) のときに返す値。
+// HorizontalRule のようなテキストを持たないノードはオフセットを持たない。
 inline constexpr uint32_t kUnsetSourceOffset = std::numeric_limits<uint32_t>::max();
 
 struct Node {
@@ -201,19 +201,20 @@ struct Node {
 
     // 表示テキストの owned バッファ。テキスト加工 (Alert / HTML entity / SOFTBR/BR / display math 昇格 / 表セル等)
     // を必要とするノードのみ確保する。raw_text_ の連続範囲をそのまま表示できるノードは view モードに倒し
-    // owned_text_ は空のまま raw_text_ を共有 view する (view_length > 0 と排他的不変条件)。
+    // owned_text_ は空のまま raw_text_ を共有 view する (view_.size() > 0 と排他的不変条件)。
     // SBO (~16 byte) により短い加工結果は 0 ヒープ確保で済む。
     std::pmr::string owned_text_;
 
-    // view モード時の参照ベース (= Document::raw_text_.data())。
-    // Document::InjectViewBase() が ReplaceContent / move 時に一括設定する。
-    const char* view_base_ = nullptr;
+    // raw_text_ 内のソース位置 + 表示モードを 1 本に統合した表現。
+    //   view_.data() == nullptr                : source_offset 未設定 (HorizontalRule 等)。
+    //   view_.data() != nullptr, view_.size() == 0 : owned モード。表示は owned_text_、data() は raw 内位置。
+    //   view_.data() != nullptr, view_.size()  > 0 : view モード。view_ をそのまま表示テキストとして使う。
+    // Document::RebaseViews() が move 時に rebase する。
+    std::string_view view_;
 
     // --- 4 バイトアライメント ---
-    uint32_t source_offset = kUnsetSourceOffset; // ソーステキスト内の UTF-8 byte オフセット (view モード時は view 開始位置)
-    int32_t blockquote_group = -1;               // 最外側 blockquote 単位のグループID（ネストしてもgroupは共有）
-    int32_t line_count = 0;                      // テキスト内の改行数（パース時にカウント済み）
-    uint32_t view_length = 0;                    // view モード時の長さ (UTF-8 byte)。owned モード時は 0。
+    int32_t blockquote_group = -1; // 最外側 blockquote 単位のグループID（ネストしてもgroupは共有）
+    int32_t line_count = 0;        // テキスト内の改行数（パース時にカウント済み）
 
     // --- 1 バイトアライメント ---
     NodeType type = NodeType::Paragraph;
@@ -224,7 +225,32 @@ struct Node {
 
     constexpr bool IsViewMode() const noexcept
     {
-        return view_length > 0;
+        return !view_.empty();
+    }
+
+    constexpr bool HasSourceOffset() const noexcept
+    {
+        return view_.data() != nullptr;
+    }
+
+    // base (= Document::raw_text_.data()) 起算の UTF-8 byte オフセット。未設定時は kUnsetSourceOffset。
+    constexpr uint32_t SourceOffsetFrom(const char* base) const noexcept
+    {
+        return HasSourceOffset() ? static_cast<uint32_t>(view_.data() - base) : kUnsetSourceOffset;
+    }
+
+    // ソース位置 (および任意の view 長) を埋める。length=0 は owned モードでの位置追跡用。
+    constexpr void SetSourceOffset(const char* base, uint32_t offset, uint32_t length = 0) noexcept
+    {
+        view_ = std::string_view{ base + offset, length };
+    }
+
+    // raw_text_ の data() が relocate された (Document move) 時に view_ を rebase する。
+    constexpr void RebaseSourceOffset(const char* old_base, const char* new_base) noexcept
+    {
+        if (HasSourceOffset()) {
+            view_ = std::string_view{ new_base + (view_.data() - old_base), view_.size() };
+        }
     }
 
     constexpr bool HasText() const noexcept
@@ -238,8 +264,8 @@ struct Node {
 
     constexpr std::string_view GetText() const noexcept
     {
-        if (IsViewMode() && view_base_ != nullptr) {
-            return { view_base_ + source_offset, view_length };
+        if (IsViewMode()) {
+            return view_;
         }
         return owned_text_;
     }
@@ -276,15 +302,12 @@ struct Node {
 
     // 連続 NORMAL/CODE/LATEXMATH のみで構成されるノード向けの view 設定 API。
     // raw_text_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
-    // Document::InjectViewBase() の手前で GetText() を呼ぶパス (parser 中の Heading anchor 生成等)
-    // のため view_base もここで同時設定する。move 後は InjectViewBase() で再注入される。
-    void SetTextView(uint32_t source_offset_value, uint32_t length, int32_t line_count_value, const char* view_base) noexcept
+    // 引数順は SetSourceOffset(base, offset, length) と揃えてある。
+    void SetTextView(const char* view_base, uint32_t source_offset_value, uint32_t length, int32_t line_count_value) noexcept
     {
         owned_text_.clear();
-        source_offset = source_offset_value;
-        view_length = length;
+        SetSourceOffset(view_base, source_offset_value, length);
         line_count = line_count_value;
-        view_base_ = view_base;
     }
 
     // text と line_count を一括更新する（呼び出し側が積算済みの line_count を渡す）。
@@ -292,14 +315,14 @@ struct Node {
     void SetTextWithLineCount(std::string_view s, int32_t line_count_value)
     {
         owned_text_.assign(s);
-        view_length = 0;
+        DemoteToOwned();
         line_count = line_count_value;
     }
 
     void SetTextWithLineCount(std::pmr::string&& s, int32_t line_count_value) noexcept
     {
         owned_text_ = std::move(s);
-        view_length = 0;
+        DemoteToOwned();
         line_count = line_count_value;
     }
 
@@ -480,11 +503,17 @@ struct Node {
     }
 
 private:
+    // owned モードへデモートする。設定済みなら view_.data() (= source_offset) を保持し size のみ 0 にする。
+    // 未設定 (data == nullptr) の場合は再代入しても string_view{nullptr, 0} のままで no-op。
+    constexpr void DemoteToOwned() noexcept
+    {
+        view_ = std::string_view{ view_.data(), 0 };
+    }
+
     void FinalizeOwnedTextLineCount() noexcept
     {
         line_count = static_cast<int32_t>(std::ranges::count(owned_text_, mendo::doc_lf));
-        view_length = 0;
-        view_base_ = nullptr;
+        DemoteToOwned();
     }
 
     // parser 契約: BeginNode 直後の Node は monostate で、対応する 1 種類だけが ensure される。

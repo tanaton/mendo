@@ -1450,105 +1450,105 @@ TEST(AnalyzeReloadDiff, CjkSuffixAppendedIsPrefixGrowth)
 TEST(FindNodeBySourceOffset, EmptyNodes)
 {
     std::pmr::vector<Node> nodes;
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), -1);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 0), -1);
 }
 
 TEST(FindNodeBySourceOffset, SingleNode)
 {
     std::pmr::vector<Node> nodes(1);
-    nodes[0].source_offset = 0;
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), 0);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 100), 0);
+    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 0);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 0), 0);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 100), 0);
 }
 
 TEST(FindNodeBySourceOffset, OffsetBeforeAllNodes)
 {
     std::pmr::vector<Node> nodes(2);
-    nodes[0].source_offset = 10;
-    nodes[1].source_offset = 20;
+    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 10);
+    nodes[1].SetSourceOffset(SourceOffsetTestBase(), 20);
     // diff_offset=5 は最初のノード(offset=10)よりも前 → 該当なし
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), -1);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 5), -1);
 }
 
 TEST(FindNodeBySourceOffset, ExactMatch)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].source_offset = 0;
-    nodes[1].source_offset = 10;
-    nodes[2].source_offset = 25;
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 10), 1);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 25), 2);
+    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 0);
+    nodes[1].SetSourceOffset(SourceOffsetTestBase(), 10);
+    nodes[2].SetSourceOffset(SourceOffsetTestBase(), 25);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 10), 1);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 25), 2);
 }
 
 TEST(FindNodeBySourceOffset, BetweenNodes)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].source_offset = 0;
-    nodes[1].source_offset = 10;
-    nodes[2].source_offset = 25;
+    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 0);
+    nodes[1].SetSourceOffset(SourceOffsetTestBase(), 10);
+    nodes[2].SetSourceOffset(SourceOffsetTestBase(), 25);
     // offset=15 はノード1(10)とノード2(25)の間 → ノード1を返す
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 15), 1);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 15), 1);
 }
 
 TEST(FindNodeBySourceOffset, SkipsUnsetOffsets)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].source_offset = 0;
-    nodes[1].source_offset = kUnsetSourceOffset; // 未設定（HorizontalRule等）
-    nodes[2].source_offset = 20;
+    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 0);
+    // nodes[1] は SetSourceOffset を呼ばないため view_.data() == nullptr (= 未設定)
+    nodes[2].SetSourceOffset(SourceOffsetTestBase(), 20);
     // 未設定値は常に diff_offset 以上にならない（kUnsetSourceOffset <= diff_offset は通常 false）
     // → ノード0を返す
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 10), 0);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 20), 2);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 10), 0);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 20), 2);
 }
 
 TEST(FindNodeBySourceOffset, ParsedMarkdown)
 {
-    auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section").nodes;
+    std::string_view md = "# Title\n\nParagraph\n\n## Section";
+    auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GE(nodes.size(), 3u);
     // 各ノードが有効な source_offset を持つ
     for (const auto& n : nodes) {
-        EXPECT_NE(n.source_offset, kUnsetSourceOffset);
+        EXPECT_NE(n.SourceOffsetFrom(md.data()), kUnsetSourceOffset);
     }
     // 最初のノードの offset は "# " の後 = 2
-    EXPECT_EQ(nodes[0].source_offset, 2u);
+    EXPECT_EQ(nodes[0].SourceOffsetFrom(md.data()), 2u);
     // "Paragraph" は "# Title\n\n" = 9バイト目から
-    EXPECT_EQ(nodes[1].source_offset, 9u);
+    EXPECT_EQ(nodes[1].SourceOffsetFrom(md.data()), 9u);
 }
 
 TEST(FindNodeBySourceOffset, LastNodeForLargeOffset)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].source_offset = 0;
-    nodes[1].source_offset = 100;
-    nodes[2].source_offset = 200;
+    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 0);
+    nodes[1].SetSourceOffset(SourceOffsetTestBase(), 100);
+    nodes[2].SetSourceOffset(SourceOffsetTestBase(), 200);
     // ソース末尾を超えるオフセット → 最後のノードを返す
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 999), 2);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 999), 2);
 }
 
 TEST(FindNodeBySourceOffset, AllUnsetOffsets)
 {
     // 全ノードが未設定（テキストなし）→ 該当なし
     std::pmr::vector<Node> nodes(3);
-    nodes[0].source_offset = kUnsetSourceOffset;
-    nodes[1].source_offset = kUnsetSourceOffset;
-    nodes[2].source_offset = kUnsetSourceOffset;
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 50), -1);
+    // 何も設定しないため view_.data() == nullptr (= 未設定)
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 50), -1);
 }
 
 TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 {
     // パース結果で HorizontalRule が混在するケース
-    auto nodes = ParseMarkdown("AAA\n\n---\n\nBBB").nodes;
+    std::string_view md = "AAA\n\n---\n\nBBB";
+    auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GE(nodes.size(), 3u);
     // "AAA" offset=0, "---" は未設定, "BBB" offset=10
-    EXPECT_EQ(nodes[0].source_offset, 0u);
-    EXPECT_EQ(nodes[1].source_offset, kUnsetSourceOffset);
+    EXPECT_EQ(nodes[0].SourceOffsetFrom(md.data()), 0u);
+    EXPECT_EQ(nodes[1].SourceOffsetFrom(md.data()), kUnsetSourceOffset);
 
     // offset=5（"---"のソース位置付近）→ AAA(offset=0)を返す（HRはスキップ）
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), 0);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, md.data(), 5), 0);
     // offset=10（BBBのソース位置）→ BBBを返す
-    int bbb_idx = FindNodeBySourceOffset(nodes, 10);
+    int bbb_idx = FindNodeBySourceOffset(nodes, md.data(), 10);
     EXPECT_EQ(bbb_idx, 2);
 }
 
@@ -1557,7 +1557,8 @@ TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 // ============================================================
 
 // ヘルパー: old→new の編集をシミュレートし、変更箇所のノードを特定する。
-// source_offset は wide 単位なので、wide のまま FindFirstDifference / ParseMarkdown を呼ぶ。
+// ParseMarkdown は引数 string_view の data() を view_ ベースとして埋め込むため、
+// FindNodeBySourceOffset にも同じ new_md.data() を base として渡す。
 static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new_md)
 {
     size_t diff_pos = FindFirstDifference(old_md, new_md);
@@ -1568,7 +1569,7 @@ static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new
     if (nodes.empty()) {
         return -1;
     }
-    return FindNodeBySourceOffset(nodes, static_cast<uint32_t>(diff_pos));
+    return FindNodeBySourceOffset(nodes, new_md.data(), static_cast<uint32_t>(diff_pos));
 }
 
 TEST(DiffToNode, EditMiddleParagraph)
@@ -1795,12 +1796,14 @@ TEST(IsPrefixOnlyDiff, IntegrationWithFindFirstDifference)
 // CalcScrollYForDiff
 // ============================================================
 
-// ヘルパー: source_offset を等間隔に設定したノード列を構築する
-static std::pmr::vector<Node> MakeNodes(int count, uint32_t offset_step = 100)
+// ヘルパー: source_offset を等間隔に設定したノード列を構築する。
+// CalcScrollYForDiff は content.data() を base に source_offset を取り出すため、
+// テスト側でも同じバッファ (base) を MakeNodes に渡す必要がある。
+static std::pmr::vector<Node> MakeNodes(const char* base, int count, uint32_t offset_step = 100)
 {
     std::pmr::vector<Node> nodes(count);
     for (int i = 0; i < count; ++i) {
-        nodes[i].source_offset = static_cast<uint32_t>(i) * offset_step;
+        nodes[i].SetSourceOffset(base, static_cast<uint32_t>(i) * offset_step);
     }
     return nodes;
 }
@@ -1814,20 +1817,23 @@ TEST(CalcScrollYForDiff, FallbackWhenNoNodes)
 
 TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
 {
-    // すべてのノードの source_offset が diff_pos より大きい
-    auto nodes = MakeNodes(3, 100);
-    nodes[0].source_offset = 50;
+    // すべてのノードの source_offset が diff_pos より大きい。
+    // content は MakeNodes が埋める最大 offset (200) + SetSourceOffset の上書き (50) を
+    // string_view{base + offset, 0} で構築できるサイズを確保する必要がある。
+    std::string content(300, 'x');
+    auto nodes = MakeNodes(content.data(), 3, 100);
+    nodes[0].SetSourceOffset(content.data(), 50);
     auto cache = MakeUniformCache(3);
     // diff_pos=10 < 全ノードの最小 offset(50) → -1 → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, "content", 10, 500.0f, 99.0f), 99.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 10, 500.0f, 99.0f), 99.0f);
 }
 
 TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
 {
     // 3ノード: offset=0,100,200 / y=0,100,200 / height=100
-    auto nodes = MakeNodes(3, 100);
-    auto cache = MakeUniformCache(3, 100.0f);
     std::string content(300, 'x');
+    auto nodes = MakeNodes(content.data(), 3, 100);
+    auto cache = MakeUniformCache(3, 100.0f);
 
     // diff_pos=0 → node 0, y=0, margin=500*0.2=100 → max(0, 0-100)=0
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 0, 500.0f, 0.0f), 0.0f);
@@ -1842,9 +1848,9 @@ TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
 TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
 {
     // 2ノード: offset=0,100 / y=0,1000 / height=1000
-    auto nodes = MakeNodes(2, 100);
-    auto cache = MakeUniformCache(2, 1000.0f);
     std::string content(200, 'x');
+    auto nodes = MakeNodes(content.data(), 2, 100);
+    auto cache = MakeUniformCache(2, 1000.0f);
 
     // diff_pos=50 → node 0 (offset=0), next_start=100
     // fraction = (50-0)/(100-0) = 0.5
@@ -1857,9 +1863,9 @@ TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
 TEST(CalcScrollYForDiff, FractionClampsToOne)
 {
     // diff_pos がノード範囲を超える場合でも fraction は 1.0 でクランプ
-    auto nodes = MakeNodes(2, 100);
-    auto cache = MakeUniformCache(2, 1000.0f);
     std::string content(200, 'x');
+    auto nodes = MakeNodes(content.data(), 2, 100);
+    auto cache = MakeUniformCache(2, 1000.0f);
 
     // diff_pos=99 → node 0, fraction=99/100=0.99
     // y = 0 + 1000*0.99 = 990, scroll = 990-20 = 970
@@ -1871,12 +1877,12 @@ TEST(CalcScrollYForDiff, FractionClampsToOne)
 TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
 {
     // ノード1の source_offset が未設定の場合、ノード2を next_start として使う
-    std::pmr::vector<Node> nodes(3);
-    nodes[0].source_offset = 0;
-    nodes[1].source_offset = kUnsetSourceOffset; // 未設定（HorizontalRule等）
-    nodes[2].source_offset = 200;
-    auto cache = MakeUniformCache(3, 100.0f);
     std::string content(300, 'x');
+    std::pmr::vector<Node> nodes(3);
+    nodes[0].SetSourceOffset(content.data(), 0);
+    // nodes[1] は未設定（HorizontalRule等）
+    nodes[2].SetSourceOffset(content.data(), 200);
+    auto cache = MakeUniformCache(3, 100.0f);
 
     // diff_pos=100 → node 0 (offset=0), next valid = node 2 (offset=200)
     // fraction = (100-0)/(200-0) = 0.5
@@ -1889,10 +1895,10 @@ TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
 TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
 {
     // 最後のノードでは content.size() が next_start として使われる
-    auto nodes = MakeNodes(1, 0);
-    nodes[0].source_offset = 0;
-    auto cache = MakeUniformCache(1, 1000.0f);
     std::string content(100, 'x');
+    auto nodes = MakeNodes(content.data(), 1, 0);
+    nodes[0].SetSourceOffset(content.data(), 0);
+    auto cache = MakeUniformCache(1, 1000.0f);
 
     // diff_pos=50, next_start=content.size()=100
     // fraction = 50/100 = 0.5
@@ -1905,11 +1911,12 @@ TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
 TEST(CalcScrollYForDiff, CacheSizeMismatchFallback)
 {
     // ノード数とキャッシュサイズが不一致の場合のフォールバック
-    auto nodes = MakeNodes(5, 100);
+    const std::string content(500, 'x');
+    auto nodes = MakeNodes(content.data(), 5, 100);
     auto cache = MakeUniformCache(3, 100.0f); // キャッシュは3つだけ
 
     // diff_pos=400 → node 4 だがキャッシュは3つ → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, std::string(500, 'x'), 400, 500.0f, 77.0f), 77.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 400, 500.0f, 77.0f), 77.0f);
 }
 
 TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
@@ -1982,9 +1989,9 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
 // 採用していることを担保する。
 TEST(CalcScrollYForDiff, ReadsCachedTextTopFieldNotFenwick)
 {
-    auto nodes = MakeNodes(3, 100);
-    auto cache = MakeUniformCache(3, 100.0f);
     std::string content(300, 'x');
+    auto nodes = MakeNodes(content.data(), 3, 100);
+    auto cache = MakeUniformCache(3, 100.0f);
 
     // cache[2].text_top を Fenwick が返す値 (=200) から大きくズラす。
     // 実機の累積誤差を模した状況で、フィールド直読なら 999 が、Fenwick 経由なら 200 が

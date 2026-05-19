@@ -12,9 +12,19 @@
 #include <thread>
 #include <utility>
 #include <windows.h>
+#include <vector>
 #include "document_types.h"
 #include "layout_cache.h"
 #include "side_effect.h"
+
+// Node::view_ は実バッファへの非 null ポインタを必要とする。テストでは中身が
+// 任意で十分大きい固定 base を返し、SetSourceOffset(base, offset) と SourceOffsetFrom(base)
+// のラウンドトリップ用に使う。サイズ 32KB は stress fixture の 22000 ノード + 余裕。
+inline const char* SourceOffsetTestBase() noexcept
+{
+    static const std::vector<char> buf(32 * 1024);
+    return buf.data();
+}
 
 // 同色判定。完全一致のみ（テストで使う色はテーマ定数なので浮動小数点誤差は問題にならない）。
 constexpr bool ColorEq(D2D1_COLOR_F a, D2D1_COLOR_F b) noexcept

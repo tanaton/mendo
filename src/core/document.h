@@ -16,8 +16,8 @@ class Document {
 public:
     constexpr Document() noexcept = default;
 
-    // move-only: nodes_ は view モード時に raw_text_.data() を view_base_ に持つため、
-    // move 後に InjectViewBase() で再注入する必要がある。
+    // move-only: nodes_ は view モード時に raw_text_.data() を view_.data() に持つため、
+    // move 後に RebaseViews() で旧 base から新 base への delta を反映する必要がある。
     Document(const Document&) = delete;
     Document& operator=(const Document&) = delete;
     Document(Document&& other) noexcept;
@@ -71,7 +71,6 @@ public:
     {
         file_path_ = path;
     }
-    void ReplaceContent(ParseResult&& result);
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size);
     int FindAnchorIndex(std::string_view anchor) const;
     // 既に anchor_id 形式（小文字 ASCII 正規化済み）と判明している入力向け。
@@ -87,18 +86,30 @@ public:
     }
 
 private:
+    // ParseResult を nodes_ に取り込み、TOC / anchor_index_ / image / diagram の各種
+    // インデックスを再構築する。
+    // 契約: 入力 ParseResult のノード view_ は raw_text_.data() を base にしていること。
+    // FromMarkdown / ReplaceFromMarkdown 経由でのみ呼ぶ。Document を後で move する際の
+    // RebaseViews が異種 array 間のポインタ減算を起こさないようこの不変条件が必要。
+    void ReplaceContent(ParseResult&& result);
+
     void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
 
-    // raw_text_.data() を view モードの全ノードに注入する。
-    // ReplaceContent / move 経路で呼ぶ。raw_text_ の relocate (resize/assign) は禁止契約のため、
-    // 通常のパース完了後は再注入不要だが、Document 自身の move 後はノードのアドレス参照が更新済み
-    // でも raw_text_ のヒープバッファは move 前後で同一とは限らないため都度呼び直す。
-    void InjectViewBase() noexcept;
+    // move 後にノードの view_ を新しい raw_text_.data() へ rebase する。
+    // raw_text_ の relocate (resize/assign) は禁止契約のため、通常のパース完了後は不要だが、
+    // Document 自身の move 後は raw_text_ のヒープバッファが移動する可能性があるため呼び直す。
+    // old_base は move 前 (raw_text_ を move する直前) に取得しておく必要がある。
+    void RebaseViews(const char* old_base) noexcept;
+
+    // ムーブ構築/ムーブ代入で共有する移送処理。other の raw_text_ を move する前に
+    // old_base を確保しないと、move 後の other.raw_text_.data() が空文字列を指し
+    // rebase が壊れる。共通化により両経路で同じ順序を保証する。
+    void MoveFrom(Document&& other) noexcept;
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
     // RawText は append/resize 等の relocate API を提供しないため、view モードノードの
-    // view_base_ が指し続けるバッファの安全性が型レベルで担保される。差し替えは
+    // view_.data() が指し続けるバッファの安全性が型レベルで担保される。差し替えは
     // ReplaceFromMarkdown / FromMarkdown 経由の Replace() のみ許される。
     RawText raw_text_;
     size_t loaded_byte_size_ = 0;

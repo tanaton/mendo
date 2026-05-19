@@ -65,25 +65,31 @@ void NormalizeNewlines(std::pmr::string& s)
 } // namespace
 
 Document::Document(Document&& other) noexcept
-    : nodes_(std::move(other.nodes_)), file_path_(std::move(other.file_path_)), raw_text_(std::move(other.raw_text_)), loaded_byte_size_(other.loaded_byte_size_), toc_(std::move(other.toc_)), anchor_index_(std::move(other.anchor_index_)), image_node_indices_(std::move(other.image_node_indices_)), diagram_node_indices_(std::move(other.diagram_node_indices_))
 {
-    InjectViewBase();
+    MoveFrom(std::move(other));
 }
 
 Document& Document::operator=(Document&& other) noexcept
 {
     if (this != &other) {
-        nodes_ = std::move(other.nodes_);
-        file_path_ = std::move(other.file_path_);
-        raw_text_ = std::move(other.raw_text_);
-        loaded_byte_size_ = other.loaded_byte_size_;
-        toc_ = std::move(other.toc_);
-        anchor_index_ = std::move(other.anchor_index_);
-        image_node_indices_ = std::move(other.image_node_indices_);
-        diagram_node_indices_ = std::move(other.diagram_node_indices_);
-        InjectViewBase();
+        MoveFrom(std::move(other));
     }
     return *this;
+}
+
+void Document::MoveFrom(Document&& other) noexcept
+{
+    // raw_text_ を move する前に旧 base を捕捉。move 後の other.raw_text_.data() は空文字列を返すため。
+    const char* const old_base = other.raw_text_.data();
+    nodes_ = std::move(other.nodes_);
+    file_path_ = std::move(other.file_path_);
+    raw_text_ = std::move(other.raw_text_);
+    loaded_byte_size_ = other.loaded_byte_size_;
+    toc_ = std::move(other.toc_);
+    anchor_index_ = std::move(other.anchor_index_);
+    image_node_indices_ = std::move(other.image_node_indices_);
+    diagram_node_indices_ = std::move(other.diagram_node_indices_);
+    RebaseViews(old_base);
 }
 
 Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::wstring_view path,
@@ -115,22 +121,28 @@ std::pmr::wstring Document::GetDirectory() const
 
 void Document::ReplaceContent(ParseResult&& result)
 {
-    // 注意: view_base_ は parser が ParseMarkdown 呼び出し時の markdown_text.data() を既に注入済み。
-    // raw_text_ を差し替える経路 (FromMarkdown / ReplaceFromMarkdown) では ParseMarkdown(raw_text_)
-    // を渡しているため view_base_ = raw_text_.data() が一致し、ここでの再注入は不要。
+    // private 化された内部 helper。呼び出し元 (FromMarkdown / ReplaceFromMarkdown) は
+    // 必ず ParseMarkdown(raw_text_) を渡しており、各ノードの view_.data() のベースが
+    // raw_text_.data() と一致するため rebase 不要。Document が後で move されたときの
+    // RebaseViews も同一 array (raw_text_) 内のポインタ減算で安全に成立する。
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);
     BuildHeadingIndices(result.heading_indices);
 }
 
-void Document::InjectViewBase() noexcept
+void Document::RebaseViews(const char* old_base) noexcept
 {
-    const char* const base = raw_text_.data();
+    const char* const new_base = raw_text_.data();
+    if (new_base == old_base) {
+        // 同一 allocator 間の pmr::string move は O(1) でバッファ所有を譲渡する (data() 不変)
+        // ため、PMR allocator が一致する典型運用 (両 Document が new_delete_resource を使う) では
+        // ここで早期 return する。allocator 不一致時は要素コピーが走り data() が変わるので
+        // 全ノードを rebase する。
+        return;
+    }
     for (auto& n : nodes_) {
-        if (n.IsViewMode()) {
-            n.view_base_ = base;
-        }
+        n.RebaseSourceOffset(old_base, new_base);
     }
 }
 
