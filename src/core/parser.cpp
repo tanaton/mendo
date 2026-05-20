@@ -154,12 +154,12 @@ struct ParseContext {
     // 一致するノードは Node::owned_text_ を確保せず raw_text_ への view に倒せる。
     // span マークアップ (** _ ` 等) や BR/SOFTBR/ENTITY 混在のノードは不一致で owned 経路に落ちる。
     // offset は呼び出し側で SourceOffsetFrom した結果を渡す (FinalizeCurrentNode で再利用するため)。
-    bool CurrentTextMatchesRawSliceAt(uint32_t offset) const noexcept
+    bool CurrentTextMatchesRawSliceAt(size_t offset) const noexcept
     {
         // 高頻度呼び出し (100MB で 40万回超) のため MENDO_PROFILE は外す。
         // zone overhead が ~120ms 単位で計測自体を歪めるため。
         const size_t len = current_text.size();
-        if (static_cast<size_t>(offset) + len > markdown_size) {
+        if (offset + len > markdown_size) {
             return false;
         }
         // current_node_owned_only で span/entity 混在は事前に弾けるため、ここまで来たノードは大半が
@@ -177,13 +177,12 @@ struct ParseContext {
         // 昇格処理 (TryPromoteParagraphToDisplayMath 等) がテキストを直接設定済みのノードは、
         // current_text で上書きすると line_count ごと巻き戻るのでスキップする。
         if (current_node && !current_text.empty() && !current_node->HasText()) {
-            const uint32_t offset = current_node->SourceOffsetFrom(markdown_base);
-            if (!current_node_owned_only && offset != kUnsetSourceOffset
-                && CurrentTextMatchesRawSliceAt(offset)) {
+            const auto offset = current_node->SourceOffsetFrom(markdown_base);
+            if (!current_node_owned_only && offset != kUnsetSourceOffset && CurrentTextMatchesRawSliceAt(offset)) {
                 current_node->SetTextView(
                     markdown_base,
                     offset,
-                    static_cast<uint32_t>(current_text.size()),
+                    current_text.size(),
                     current_node->line_count);
             }
             else {
@@ -798,7 +797,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         const auto base_addr = reinterpret_cast<uintptr_t>(ctx->markdown_base);
         const auto end_addr = base_addr + ctx->markdown_size * sizeof(char);
         if (text_addr >= base_addr && text_addr < end_addr) {
-            const auto offset = static_cast<uint32_t>((text_addr - base_addr) / sizeof(char));
+            const auto offset = static_cast<size_t>((text_addr - base_addr) / sizeof(char));
             ctx->current_node->SetSourceOffset(ctx->markdown_base, offset);
         }
     }
