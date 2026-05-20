@@ -269,157 +269,12 @@ TEST(AlertColorIndex, CautionReturnsFour)
 
 // ---- Nodeアクセサ ----
 
-TEST(NodeTest, SetTextAndGetText)
-{
-    Node node;
-    node.SetText("Hello");
-    EXPECT_EQ(node.GetText(), "Hello");
-    EXPECT_TRUE(node.HasText());
-}
-
-TEST(NodeTest, SetTextStringView)
-{
-    Node node;
-    std::string_view sv = "Test text";
-    node.SetText(sv);
-    EXPECT_EQ(node.GetText(), "Test text");
-}
-
-TEST(NodeTest, SetTextMove)
-{
-    Node node;
-    std::pmr::string s = "Moved text";
-    node.SetText(std::move(s));
-    EXPECT_EQ(node.GetText(), "Moved text");
-}
-
-TEST(NodeTest, SetTextCountsNewlines)
-{
-    Node node;
-    node.SetText("line1\nline2\nline3");
-    EXPECT_EQ(node.line_count, 2);
-}
-
-TEST(NodeTest, SetTextOverwritesPrevious)
-{
-    Node node;
-    node.SetText("original");
-    node.SetText("new text");
-    EXPECT_EQ(node.GetText(), "new text");
-}
-
 // ---- Node::line_count ----
 
 TEST(NodeLineCount, DefaultIsZero)
 {
     Node node;
     EXPECT_EQ(node.line_count, 0);
-}
-
-TEST(NodeLineCount, EmptyText)
-{
-    Node node;
-    node.SetText("");
-    EXPECT_EQ(node.line_count, 0);
-}
-
-TEST(NodeLineCount, SingleLineNoNewline)
-{
-    Node node;
-    node.SetText("hello");
-    EXPECT_EQ(node.line_count, 0);
-}
-
-TEST(NodeLineCount, SingleNewline)
-{
-    Node node;
-    node.SetText("a\nb");
-    EXPECT_EQ(node.line_count, 1);
-}
-
-TEST(NodeLineCount, ConsecutiveNewlines)
-{
-    Node node;
-    node.SetText("a\n\n\nb");
-    EXPECT_EQ(node.line_count, 3);
-}
-
-TEST(NodeLineCount, LeadingNewline)
-{
-    Node node;
-    node.SetText("\nabc");
-    EXPECT_EQ(node.line_count, 1);
-}
-
-TEST(NodeLineCount, TrailingNewline)
-{
-    Node node;
-    node.SetText("abc\n");
-    EXPECT_EQ(node.line_count, 1);
-}
-
-TEST(NodeLineCount, OnlyNewlines)
-{
-    Node node;
-    node.SetText("\n\n\n\n");
-    EXPECT_EQ(node.line_count, 4);
-}
-
-TEST(NodeLineCount, CrLfCountsOnlyLf)
-{
-    // FinalizeSetText は '\n' のみ数える（\r は無視）
-    Node node;
-    node.SetText("a\r\nb\r\nc");
-    EXPECT_EQ(node.line_count, 2);
-}
-
-TEST(NodeLineCount, CarriageReturnOnlyNotCounted)
-{
-    Node node;
-    node.SetText("a\rb\rc");
-    EXPECT_EQ(node.line_count, 0);
-}
-
-TEST(NodeLineCount, CharPointerOverload)
-{
-    Node node;
-    const char* s = "x\ny\nz";
-    node.SetText(s);
-    EXPECT_EQ(node.line_count, 2);
-}
-
-TEST(NodeLineCount, StringViewOverload)
-{
-    Node node;
-    std::string_view sv = "line1\nline2";
-    node.SetText(sv);
-    EXPECT_EQ(node.line_count, 1);
-}
-
-TEST(NodeLineCount, PmrStringMoveOverload)
-{
-    Node node;
-    std::pmr::string s = "a\nb\nc\nd";
-    node.SetText(std::move(s));
-    EXPECT_EQ(node.line_count, 3);
-}
-
-TEST(NodeLineCount, OverwriteRecountsToFewer)
-{
-    Node node;
-    node.SetText("a\nb\nc\nd\ne"); // 4
-    EXPECT_EQ(node.line_count, 4);
-    node.SetText("single line"); // 0
-    EXPECT_EQ(node.line_count, 0);
-}
-
-TEST(NodeLineCount, OverwriteRecountsToMore)
-{
-    Node node;
-    node.SetText("single"); // 0
-    EXPECT_EQ(node.line_count, 0);
-    node.SetText("a\nb\nc"); // 2
-    EXPECT_EQ(node.line_count, 2);
 }
 
 TEST(NodeLineCount, SetTextWithLineCountStoresValueAsIs)
@@ -452,17 +307,6 @@ TEST(NodeLineCount, SetTextWithLineCountPmrMoveOverload)
     std::pmr::string s = "x\ny\nz";
     node.SetTextWithLineCount(std::move(s), 2);
     EXPECT_EQ(node.GetText(), "x\ny\nz");
-    EXPECT_EQ(node.line_count, 2);
-}
-
-TEST(NodeLineCount, SetTextAfterSetTextWithLineCountRecounts)
-{
-    // SetTextWithLineCount で意図的に「不一致」を入れた後、
-    // SetText を呼ぶと FinalizeSetText が走り、stale な値を上書きする。
-    Node node;
-    node.SetTextWithLineCount(std::string_view{ "x" }, 99);
-    EXPECT_EQ(node.line_count, 99);
-    node.SetText("a\nb\nc");
     EXPECT_EQ(node.line_count, 2);
 }
 
@@ -540,7 +384,7 @@ TEST(NodeTest, MermaidCodeBlockTextStored)
     Node node;
     node.type = NodeType::CodeBlock;
     node.ensure_code()->code_language = SyntaxLanguage::Mermaid;
-    node.SetText("graph TD;A-->B");
+    node.SetTextWithLineCount(std::string_view{ "graph TD;A-->B" }, 0);
     EXPECT_EQ(node.GetText(), "graph TD;A-->B");
 }
 
@@ -549,7 +393,7 @@ TEST(NodeTest, LatexMathCodeBlockTextStored)
     Node node;
     node.type = NodeType::CodeBlock;
     node.ensure_code()->code_language = SyntaxLanguage::LatexMath;
-    node.SetText("E = mc^2");
+    node.SetTextWithLineCount(std::string_view{ "E = mc^2" }, 0);
     EXPECT_EQ(node.GetText(), "E = mc^2");
 }
 
@@ -558,7 +402,7 @@ TEST(NodeTest, NonDiagramCodeBlockTextStored)
     Node node;
     node.type = NodeType::CodeBlock;
     node.ensure_code()->code_language = SyntaxLanguage::Cpp;
-    node.SetText("int main() { return 0; }");
+    node.SetTextWithLineCount(std::string_view{ "int main() { return 0; }" }, 0);
     EXPECT_EQ(node.GetText(), "int main() { return 0; }");
 }
 
@@ -566,7 +410,7 @@ TEST(NodeTest, ParagraphTextStored)
 {
     Node node;
     node.type = NodeType::Paragraph;
-    node.SetText("paragraph content");
+    node.SetTextWithLineCount(std::string_view{ "paragraph content" }, 0);
     EXPECT_EQ(node.GetText(), "paragraph content");
 }
 

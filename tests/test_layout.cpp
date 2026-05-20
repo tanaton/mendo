@@ -1272,7 +1272,7 @@ TEST(EstimateNodeHeightsTest, SingleParagraph)
 {
     Node node;
     node.type = NodeType::Paragraph;
-    node.SetText("Hello world");
+    node.SetTextWithLineCount(std::string_view{ "Hello world" }, 0);
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
     LayoutCache cache;
@@ -1324,12 +1324,12 @@ TEST(EstimateNodeHeightsTest, HeadingHeightScalesWithLevel)
     Node h1;
     h1.type = NodeType::Heading;
     h1.ensure_heading()->heading_level = 1;
-    h1.SetText("Title");
+    h1.SetTextWithLineCount(std::string_view{ "Title" }, 0);
 
     Node h3;
     h3.type = NodeType::Heading;
     h3.ensure_heading()->heading_level = 3;
-    h3.SetText("Title");
+    h3.SetTextWithLineCount(std::string_view{ "Title" }, 0);
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(h1));
@@ -1348,13 +1348,11 @@ TEST(EstimateNodeHeightsTest, CodeBlockScalesWithLineCount)
 
     Node short_code;
     short_code.type = NodeType::CodeBlock;
-    short_code.SetText("line1");
-    short_code.line_count = 0;
+    short_code.SetTextWithLineCount(std::string_view{ "line1" }, 0);
 
     Node long_code;
     long_code.type = NodeType::CodeBlock;
-    long_code.SetText("line1\nline2\nline3\nline4\nline5");
-    long_code.line_count = 4;
+    long_code.SetTextWithLineCount(std::string_view{ "line1\nline2\nline3\nline4\nline5" }, 4);
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(short_code));
@@ -1447,13 +1445,11 @@ TEST(EstimateNodeHeightsTest, MultilineParagraphScalesWithLines)
 
     Node single;
     single.type = NodeType::Paragraph;
-    single.SetText("one line");
-    single.line_count = 0;
+    single.SetTextWithLineCount(std::string_view{ "one line" }, 0);
 
     Node multi;
     multi.type = NodeType::Paragraph;
-    multi.SetText("line1\nline2\nline3");
-    multi.line_count = 2;
+    multi.SetTextWithLineCount(std::string_view{ "line1\nline2\nline3" }, 2);
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(single));
@@ -1471,7 +1467,7 @@ TEST(EstimateNodeHeightsTest, LayoutDirtyNotChanged)
     Theme theme = GetLightTheme();
     Node node;
     node.type = NodeType::Paragraph;
-    node.SetText("test");
+    node.SetTextWithLineCount(std::string_view{ "test" }, 0);
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
@@ -1495,7 +1491,7 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
     auto add_node = [&](NodeType type, const char* text = "content") {
         Node n;
         n.type = type;
-        n.SetText(text);
+        SetNodeTextCounted(n, std::string_view{ text });
         if (type == NodeType::Heading) {
             n.ensure_heading()->heading_level = 2;
         }

@@ -46,7 +46,7 @@ private:
             n.ensure_code()->code_language = src.code_language();
         }
         if (!src.GetText().empty()) {
-            n.SetText(src.GetText());
+            n.SetTextWithLineCount(src.GetText(), src.line_count);
         }
         n.runs = src.runs;
         if (src.has_image()) {
@@ -121,12 +121,12 @@ TEST_F(MeasurerParityTest, HeadingTallerThanParagraphInBoth)
 {
     Node para;
     para.type = NodeType::Paragraph;
-    para.SetText("Sample text");
+    para.SetTextWithLineCount(std::string_view{ "Sample text" }, 0);
 
     Node heading;
     heading.type = NodeType::Heading;
     heading.ensure_heading()->heading_level = 1;
-    heading.SetText("Sample text");
+    heading.SetTextWithLineCount(std::string_view{ "Sample text" }, 0);
 
     const auto p = MeasureBoth(para, 600.0f);
     const auto h = MeasureBoth(heading, 600.0f);
@@ -142,12 +142,14 @@ TEST_F(MeasurerParityTest, LongerTextIsNotShorter)
 {
     Node short_node;
     short_node.type = NodeType::Paragraph;
-    short_node.SetText("Short");
+    short_node.SetTextWithLineCount(std::string_view{ "Short" }, 0);
 
     Node long_node;
     long_node.type = NodeType::Paragraph;
-    long_node.SetText("This is a much longer paragraph that should wrap across multiple lines "
-                      "at the given narrow max width, producing a taller layout result than the short one.");
+    long_node.SetTextWithLineCount(
+        std::string_view{ "This is a much longer paragraph that should wrap across multiple lines "
+                          "at the given narrow max width, producing a taller layout result than the short one." },
+        0);
 
     const auto s = MeasureBoth(short_node, 200.0f);
     const auto l = MeasureBoth(long_node, 200.0f);

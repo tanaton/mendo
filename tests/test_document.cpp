@@ -95,7 +95,7 @@ TEST(DocumentTest, GetNodesMut)
 
     // 可変参照を通じてノードを変更
     auto& nodes = doc.GetNodesMut();
-    nodes[0].SetText("modified");
+    nodes[0].SetTextWithLineCount(std::string_view{ "modified" }, 0);
     EXPECT_EQ(doc.GetNodes()[0].GetText(), "modified");
 }
 
@@ -157,7 +157,7 @@ TEST(DocumentTest, GetRawTextIndependentOfNodes)
 {
     // ノードの変更が raw_text_ に影響しないことを確認
     auto doc = Document::FromMarkdown("hello", L"test.md");
-    doc.GetNodesMut()[0].SetText("modified");
+    doc.GetNodesMut()[0].SetTextWithLineCount(std::string_view{ "modified" }, 0);
     // raw_text_ はパース入力のまま
     EXPECT_EQ(doc.GetRawText(), "hello");
 }

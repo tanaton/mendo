@@ -1,5 +1,6 @@
 #pragma once
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
 #include <d2d1.h>
 #include <filesystem>
@@ -32,12 +33,20 @@ constexpr bool ColorEq(D2D1_COLOR_F a, D2D1_COLOR_F b) noexcept
     return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 }
 
+// 本番 API SetTextWithLineCount は line_count を呼び出し側に渡させる契約だが、
+// 任意の文字列を受け取るテストヘルパーでは内容から自動算出したい。
+inline void SetNodeTextCounted(Node& n, std::string_view sv)
+{
+    const int32_t lc = static_cast<int32_t>(std::ranges::count(sv, mendo::doc_lf));
+    n.SetTextWithLineCount(sv, lc);
+}
+
 // テキスト持ちの Paragraph ノードを作るテスト用ヘルパー。
 inline Node MakeTextNode(const char* text)
 {
     Node n;
     n.type = NodeType::Paragraph;
-    n.SetText(text);
+    SetNodeTextCounted(n, std::string_view{ text });
     return n;
 }
 

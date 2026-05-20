@@ -39,7 +39,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
         n.type = NodeType::CodeBlock;
         n.ensure_code()->code_language = SyntaxLanguage::Cpp;
         std::string text = "int v_" + std::to_string(i) + " = 0;";
-        n.SetText(text.c_str());
+        n.SetTextWithLineCount(std::string_view{ text }, 0);
         return n;
     }
     if (bucket < 12) {
@@ -50,14 +50,14 @@ Node MakeStressNode(size_t i, bool include_code_block)
         for (size_t k = 0; k < len; ++k) {
             text.push_back(static_cast<wchar_t>('a' + ((i + k) % 26)));
         }
-        n.SetText(text.c_str());
+        n.SetTextWithLineCount(std::string_view{ text }, 0);
         return n;
     }
     if (bucket < 14) {
         n.type = NodeType::Heading;
         n.ensure_heading()->heading_level = static_cast<int8_t>(1 + (i % 6));
         std::string text = "Heading " + std::to_string(i);
-        n.SetText(text.c_str());
+        n.SetTextWithLineCount(std::string_view{ text }, 0);
         return n;
     }
     if (bucket == 14) {
@@ -87,7 +87,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
         return n;
     }
     n.type = NodeType::Paragraph;
-    n.SetText("");
+    n.SetTextWithLineCount(std::string_view{ "" }, 0);
     return n;
 }
 

@@ -13,8 +13,7 @@ Node MakeParagraphNode(int line_count = 0)
 {
     Node n;
     n.type = NodeType::Paragraph;
-    n.SetText("text");
-    n.line_count = line_count;
+    n.SetTextWithLineCount(std::string_view{ "text" }, line_count);
     return n;
 }
 
@@ -22,8 +21,7 @@ Node MakeCodeBlockNode(SyntaxLanguage lang, int line_count = 1)
 {
     Node n;
     n.type = NodeType::CodeBlock;
-    n.SetText("code");
-    n.line_count = line_count;
+    n.SetTextWithLineCount(std::string_view{ "code" }, line_count);
     n.ensure_code()->code_language = lang;
     return n;
 }

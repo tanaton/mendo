@@ -219,9 +219,9 @@ TEST(ViewportManagerTest, ClearSelection)
 TEST(ViewportManagerTest, SelectAll)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].SetText("hello");
-    nodes[1].SetText("world");
-    nodes[2].SetText("end");
+    nodes[0].SetTextWithLineCount(std::string_view{ "hello" }, 0);
+    nodes[1].SetTextWithLineCount(std::string_view{ "world" }, 0);
+    nodes[2].SetTextWithLineCount(std::string_view{ "end" }, 0);
 
     ViewportManager vm;
     vm.SelectAll(nodes);
