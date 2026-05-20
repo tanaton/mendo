@@ -283,23 +283,6 @@ struct Node {
         return GetText();
     }
 
-    constexpr void SetText(const char* s)
-    {
-        SetText(std::string_view{ s });
-    }
-
-    constexpr void SetText(std::string_view s)
-    {
-        owned_text_.assign(s);
-        FinalizeOwnedTextLineCount();
-    }
-
-    constexpr void SetText(std::pmr::string&& s) noexcept
-    {
-        owned_text_ = std::move(s);
-        FinalizeOwnedTextLineCount();
-    }
-
     // 連続 NORMAL/CODE/LATEXMATH のみで構成されるノード向けの view 設定 API。
     // raw_text_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
     // 引数順は SetSourceOffset(base, offset, length) と揃えてある。
@@ -508,12 +491,6 @@ private:
     constexpr void DemoteToOwned() noexcept
     {
         view_ = std::string_view{ view_.data(), 0 };
-    }
-
-    constexpr void FinalizeOwnedTextLineCount() noexcept
-    {
-        line_count = static_cast<int32_t>(std::ranges::count(owned_text_, mendo::doc_lf));
-        DemoteToOwned();
     }
 
     // parser 契約: BeginNode 直後の Node は monostate で、対応する 1 種類だけが ensure される。

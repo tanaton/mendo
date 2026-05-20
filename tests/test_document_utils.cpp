@@ -157,7 +157,7 @@ TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
 {
     Node n;
     n.type = NodeType::Paragraph;
-    n.SetText("a<b&c>d\"e'f");
+    n.SetTextWithLineCount(std::string_view{ "a<b&c>d\"e'f" }, 0);
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(n));
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
@@ -265,7 +265,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
 static TextSelection MakeTableFullSelection(Node& table)
 {
     if (table.GetText().empty()) {
-        table.SetText("table");
+        table.SetTextWithLineCount(std::string_view{ "table" }, 0);
     }
     return TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(table.GetText().size()));
 }
@@ -346,7 +346,7 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
     // table_data が空のノードに対しては <pre> フォールバックで出力される。
     Node n;
     n.type = NodeType::Table;
-    n.SetText("fallback");
+    n.SetTextWithLineCount(std::string_view{ "fallback" }, 0);
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(n));
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
@@ -802,7 +802,7 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode)
     // テーブル型ノード（線形化テキストを持つ）でのテスト
     Node table_node;
     table_node.type = NodeType::Table;
-    table_node.SetText("A\tB\n1\t2");
+    table_node.SetTextWithLineCount(std::string_view{ "A\tB\n1\t2" }, 1);
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(table_node));
@@ -868,7 +868,7 @@ TEST(ExtractSelectedText, StartNodeOutOfRange)
 {
     std::pmr::vector<Node> nodes;
     Node n;
-    n.SetText("hello");
+    n.SetTextWithLineCount(std::string_view{ "hello" }, 0);
     nodes.emplace_back(std::move(n));
 
     TextSelection sel;
@@ -887,7 +887,7 @@ TEST(ExtractSelectedText, EndNodeOutOfRange)
 {
     std::pmr::vector<Node> nodes;
     Node n;
-    n.SetText("hello");
+    n.SetTextWithLineCount(std::string_view{ "hello" }, 0);
     nodes.emplace_back(std::move(n));
 
     TextSelection sel;
@@ -907,7 +907,7 @@ TEST(ExtractSelectedText, EndNodeOutOfRange)
 TEST(FindLinkAtPosition, MultipleLinkRuns)
 {
     Node node;
-    node.SetText("link1 link2");
+    node.SetTextWithLineCount(std::string_view{ "link1 link2" }, 0);
 
     node.ensure_link_urls().emplace_back("https://a.com");
     node.ensure_link_urls().emplace_back("https://b.com");

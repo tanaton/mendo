@@ -1092,10 +1092,9 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
         new_runs.emplace_back(adjusted);
     }
 
-    // node.SetText の中で line_count を再カウントすると O(text) で改行を数え直すため、
-    // ここで差分計算する。マーカー [!TYPE] 本体には改行が入らず、
-    // DetectAlertMarker で 1 文字だけスキップする文字が \n の場合のみ改行 1 個。
-    // count を走査せず、marker_end 直前の 1 文字だけを見ればよい。
+    // 全文走査で改行を数え直すと O(text) かかるため、ここで差分計算する。
+    // マーカー [!TYPE] 本体には改行が入らず、DetectAlertMarker で 1 文字だけスキップする
+    // 文字が \n の場合のみ改行 1 個。marker_end 直前の 1 文字だけを見ればよい。
     const int32_t marker_newlines = (marker_end > 0 && current_text[marker_end - 1] == mendo::doc_lf);
     const int32_t new_line_count = node.line_count - marker_newlines + has_content;
     node.SetTextWithLineCount(std::move(new_text), new_line_count);
