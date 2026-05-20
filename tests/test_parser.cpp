@@ -1369,7 +1369,7 @@ TEST(Parser, AlertTextStartsWithLabelThenNewline)
 // ---- ソースオフセット ----
 
 // ParseMarkdown 直後は view_.data() が入力 string_view (= 引数のリテラル) を指すため、
-// その先頭ポインタを base に取って SourceOffsetFrom() で uint32 offset を取り出す。
+// その先頭ポインタを base に取って SourceOffsetFrom() で byte offset を取り出す。
 TEST(Parser, SourceOffsetSingleParagraph)
 {
     std::string_view md = "Hello world";
@@ -1411,9 +1411,9 @@ TEST(Parser, SourceOffsetIncreasing)
         "End";
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GE(nodes.size(), 3u);
-    uint32_t prev = 0;
+    size_t prev = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
-        const uint32_t off = nodes[i].SourceOffsetFrom(md.data());
+        const size_t off = nodes[i].SourceOffsetFrom(md.data());
         if (off != kUnsetSourceOffset) {
             EXPECT_GE(off, prev) << "ノード " << i << " の source_offset が前のノードより小さい";
             prev = off;
@@ -1496,9 +1496,9 @@ TEST(Parser, SourceOffsetNestedList)
     std::string_view md = "- outer\n  - inner\n- next";
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GE(nodes.size(), 3u);
-    uint32_t prev = 0;
+    size_t prev = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
-        const uint32_t off = nodes[i].SourceOffsetFrom(md.data());
+        const size_t off = nodes[i].SourceOffsetFrom(md.data());
         if (off != kUnsetSourceOffset) {
             EXPECT_GE(off, prev) << "ノード " << i << " の offset が前のノードより小さい";
             prev = off;
@@ -1543,14 +1543,14 @@ TEST(Parser, SourceOffsetMixedDocument)
     auto nodes = ParseMarkdown(md).nodes;
     ASSERT_GE(nodes.size(), 6u);
 
-    uint32_t prev = 0;
+    size_t prev = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
-        const uint32_t off = nodes[i].SourceOffsetFrom(md.data());
+        const size_t off = nodes[i].SourceOffsetFrom(md.data());
         if (off != kUnsetSourceOffset) {
             EXPECT_GE(off, prev)
                 << "ノード " << i << " (type="
                 << static_cast<int>(nodes[i].type) << ") の offset が不正";
-            EXPECT_LT(off, static_cast<uint32_t>(md.size()))
+            EXPECT_LT(off, md.size())
                 << "ノード " << i << " の offset がソース長を超えている";
             prev = off;
         }

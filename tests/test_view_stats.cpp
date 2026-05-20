@@ -395,7 +395,7 @@ TEST(ViewStats, DumpFirstOwnedCodeBlocks)
         }
         const bool is_view = n.IsViewMode();
         const std::string_view text = n.GetText();
-        const uint32_t off = n.SourceOffsetFrom(raw_base);
+        const size_t off = n.SourceOffsetFrom(raw_base);
         std::cout << "[" << (is_view ? "view " : "owned") << "] source_offset=" << off
                   << " text.size()=" << text.size() << " line_count=" << n.line_count;
         if (off != kUnsetSourceOffset && off < raw.size()) {

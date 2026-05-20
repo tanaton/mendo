@@ -174,9 +174,9 @@ TEST(DocumentTest, RawTextSourceOffsetConsistency)
     // source_offset 位置の文字がノードのテキスト先頭と対応する
     const char* const raw_base = raw.data();
     for (const auto& n : nodes) {
-        const uint32_t off = n.SourceOffsetFrom(raw_base);
+        const size_t off = n.SourceOffsetFrom(raw_base);
         if (off != kUnsetSourceOffset && off < raw.size()) {
-            EXPECT_LT(off, static_cast<uint32_t>(raw.size()));
+            EXPECT_LT(off, raw.size());
         }
     }
 }
@@ -192,7 +192,7 @@ TEST(DocumentTest, SourceOffsetPointsToNodeTextStart)
     const char* const raw_base = raw.data();
     bool checked_any = false;
     for (const auto& n : nodes) {
-        const uint32_t off = n.SourceOffsetFrom(raw_base);
+        const size_t off = n.SourceOffsetFrom(raw_base);
         if (off == kUnsetSourceOffset) {
             continue;
         }
@@ -223,11 +223,11 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
     const char* const raw_base = raw.data();
     bool checked_any = false;
     for (const auto& n : nodes) {
-        const uint32_t off = n.SourceOffsetFrom(raw_base);
+        const size_t off = n.SourceOffsetFrom(raw_base);
         if (off == kUnsetSourceOffset) {
             continue;
         }
-        EXPECT_LT(off, static_cast<uint32_t>(raw.size()))
+        EXPECT_LT(off, raw.size())
             << "source_offset must remain within input buffer when md4c emits MD_TEXT_NULLCHAR";
         checked_any = true;
     }

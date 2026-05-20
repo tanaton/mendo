@@ -176,7 +176,7 @@ using NodeImagePtr = mendo::pmr_unique_ptr<NodeImageData>;
 
 // Node::SourceOffsetFrom() が未設定 (view_.data() == nullptr) のときに返す値。
 // HorizontalRule のようなテキストを持たないノードはオフセットを持たない。
-inline constexpr uint32_t kUnsetSourceOffset = std::numeric_limits<uint32_t>::max();
+inline constexpr size_t kUnsetSourceOffset = std::numeric_limits<size_t>::max();
 
 struct Node {
     TextRunList runs;
@@ -234,13 +234,13 @@ struct Node {
     }
 
     // base (= Document::raw_text_.data()) 起算の UTF-8 byte オフセット。未設定時は kUnsetSourceOffset。
-    constexpr uint32_t SourceOffsetFrom(const char* base) const noexcept
+    constexpr size_t SourceOffsetFrom(const char* base) const noexcept
     {
-        return HasSourceOffset() ? static_cast<uint32_t>(view_.data() - base) : kUnsetSourceOffset;
+        return HasSourceOffset() ? static_cast<size_t>(view_.data() - base) : kUnsetSourceOffset;
     }
 
     // ソース位置 (および任意の view 長) を埋める。length=0 は owned モードでの位置追跡用。
-    constexpr void SetSourceOffset(const char* base, uint32_t offset, uint32_t length = 0) noexcept
+    constexpr void SetSourceOffset(const char* base, size_t offset, size_t length = 0) noexcept
     {
         view_ = std::string_view{ base + offset, length };
     }
@@ -303,7 +303,7 @@ struct Node {
     // 連続 NORMAL/CODE/LATEXMATH のみで構成されるノード向けの view 設定 API。
     // raw_text_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
     // 引数順は SetSourceOffset(base, offset, length) と揃えてある。
-    constexpr void SetTextView(const char* view_base, uint32_t source_offset_value, uint32_t length, int32_t line_count_value) noexcept
+    constexpr void SetTextView(const char* view_base, size_t source_offset_value, size_t length, int32_t line_count_value) noexcept
     {
         owned_text_.clear();
         SetSourceOffset(view_base, source_offset_value, length);

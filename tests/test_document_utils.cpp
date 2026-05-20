@@ -1569,7 +1569,7 @@ static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new
     if (nodes.empty()) {
         return -1;
     }
-    return FindNodeBySourceOffset(nodes, new_md.data(), static_cast<uint32_t>(diff_pos));
+    return FindNodeBySourceOffset(nodes, new_md.data(), diff_pos);
 }
 
 TEST(DiffToNode, EditMiddleParagraph)
@@ -1799,11 +1799,11 @@ TEST(IsPrefixOnlyDiff, IntegrationWithFindFirstDifference)
 // ヘルパー: source_offset を等間隔に設定したノード列を構築する。
 // CalcScrollYForDiff は content.data() を base に source_offset を取り出すため、
 // テスト側でも同じバッファ (base) を MakeNodes に渡す必要がある。
-static std::pmr::vector<Node> MakeNodes(const char* base, int count, uint32_t offset_step = 100)
+static std::pmr::vector<Node> MakeNodes(const char* base, int count, size_t offset_step = 100)
 {
     std::pmr::vector<Node> nodes(count);
     for (int i = 0; i < count; ++i) {
-        nodes[i].SetSourceOffset(base, static_cast<uint32_t>(i) * offset_step);
+        nodes[i].SetSourceOffset(base, i * offset_step);
     }
     return nodes;
 }

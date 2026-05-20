@@ -32,7 +32,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
 {
     Node n;
     // 派生 mock のトークン seed として使うため、必ず source_offset を埋める。
-    n.SetSourceOffset(SourceOffsetTestBase(), static_cast<uint32_t>(i));
+    n.SetSourceOffset(SourceOffsetTestBase(), i);
     const size_t bucket = i % 20;
 
     if (include_code_block && bucket < 2) {
@@ -125,12 +125,13 @@ public:
         if (node.type != NodeType::CodeBlock || IsDiagramLanguage(node.code_language())) {
             return;
         }
-        const uint32_t seed = node.SourceOffsetFrom(SourceOffsetTestBase());
-        const auto MakeTok = [seed](uint32_t k) {
+        const size_t seed = node.SourceOffsetFrom(SourceOffsetTestBase());
+        const auto seed32 = static_cast<uint32_t>(seed);
+        const auto MakeTok = [seed32](uint32_t k) {
             return SyntaxToken{
-                .start = seed + k * 10u,
-                .length = (seed % 7u) + 1u + k,
-                .type = static_cast<SyntaxTokenType>((seed + k) % 4u),
+                .start = seed32 + k * 10u,
+                .length = (seed32 % 7u) + 1u + k,
+                .type = static_cast<SyntaxTokenType>((seed32 + k) % 4u),
             };
         };
         std::pmr::vector<SyntaxToken> dummy{ MakeTok(0), MakeTok(1), MakeTok(2) };
