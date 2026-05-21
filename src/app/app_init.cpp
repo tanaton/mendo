@@ -39,8 +39,7 @@ bool App::Init(HWND hwnd)
     const float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
     state_.window.cached_dpi_scale = DpiScaleFrom(init_dpi);
 
-    scheduler_.Init(mermaid_util::ComputeWorkerCount(
-        std::thread::hardware_concurrency()));
+    scheduler_.Init(mermaid_util::ComputeWorkerCount(std::thread::hardware_concurrency()));
 
     const auto config_dir = config_.GetConfigDir();
     if (!config_dir.empty()) {
@@ -49,8 +48,7 @@ bool App::Init(HWND hwnd)
     file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
-    clipboard_manager_.Init(hwnd_, &file_cache_, &mermaid_renderer_,
-                            [this](std::wstring_view m) { ShowToast(m); });
+    clipboard_manager_.Init(hwnd_, &file_cache_, &mermaid_renderer_, [this](std::wstring_view m) { ShowToast(m); });
 
     resource_manager_.Init(
         ResourceManagerDeps{

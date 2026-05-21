@@ -168,9 +168,10 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         return;
     }
 
-    const int item_count = is_file
-        ? static_cast<int>(state_.file_explorer.GetEntries().size())
-        : static_cast<int>(state_.document.doc.GetToc().GetEntries().size());
+    const int item_count =
+        is_file
+            ? static_cast<int>(state_.file_explorer.GetEntries().size())
+            : static_cast<int>(state_.document.doc.GetToc().GetEntries().size());
     const float total_content = static_cast<float>(item_count) * theme.pane_item_height;
     const auto scroll_info = ComputePaneScrollInfo(rect, total_content);
 
@@ -179,9 +180,10 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         return;
     }
     const float local_y = dip_y - scroll_info.content_top + state_.view.panes.SidePaneScroll(target).scroll_y;
-    const int idx = is_file
-        ? state_.file_explorer.HitTest(local_y, theme.pane_item_height)
-        : state_.document.doc.GetToc().HitTest(local_y, theme.pane_item_height);
+    const int idx =
+        is_file
+            ? state_.file_explorer.HitTest(local_y, theme.pane_item_height)
+            : state_.document.doc.GetToc().HitTest(local_y, theme.pane_item_height);
     if (idx < 0 || idx >= item_count) {
         return;
     }

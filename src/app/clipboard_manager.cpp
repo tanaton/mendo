@@ -27,8 +27,7 @@ const Node* ValidateCodeBlockNode(const Document& doc, int node_index) noexcept
 
 } // namespace
 
-void ClipboardManager::Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRenderer* mermaid_renderer,
-                            ToastCallback show_toast) noexcept
+void ClipboardManager::Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRenderer* mermaid_renderer, ToastCallback show_toast) noexcept
 {
     hwnd_ = hwnd;
     file_cache_ = file_cache;

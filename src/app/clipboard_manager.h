@@ -22,8 +22,7 @@ public:
 
     // show_toast は呼び出し側で必ず設定する想定。Init を呼び忘れた場合は
     // ガード不要にするためデフォルトは no-op。
-    void Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRenderer* mermaid_renderer,
-              ToastCallback show_toast) noexcept;
+    void Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRenderer* mermaid_renderer, ToastCallback show_toast) noexcept;
 
     void CopyCodeBlock(const Document& doc, int node_index, bool dark) const;
     void SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark);
