@@ -533,3 +533,10 @@ constexpr bool IsScrollableCodeBlock(const Node& node) noexcept
 {
     return node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language());
 }
+
+// loose list の LI (md4c が中身を MD_BLOCK_P に外出しするためテキストを持たない枠)。
+// 高さ / spacing / cull / bullet 描画で同じ判定を共有するため集約する (issue#237)。
+constexpr bool IsEmptyListItemContainer(const Node& node) noexcept
+{
+    return (node.type == NodeType::ListItem || node.type == NodeType::TaskListItem) && !node.HasText();
+}

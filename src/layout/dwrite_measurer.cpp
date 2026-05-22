@@ -264,7 +264,8 @@ void DWriteTextMeasurer::MeasureNode(
 
     const auto& text = node.GetText();
     if (text.empty()) {
-        entry.height = theme_->paragraph_spacing;
+        // loose LI で paragraph_spacing を入れると bullet と直下 P の文字 Y が分離する (issue#237)。
+        entry.height = IsEmptyListItemContainer(node) ? 0.0f : theme_->paragraph_spacing;
         entry.layout_dirty = false;
         return;
     }

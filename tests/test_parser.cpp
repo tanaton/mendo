@@ -225,6 +225,21 @@ TEST(Parser, UnorderedList)
     EXPECT_EQ(nodes[2].GetText(), "item3");
 }
 
+// loose list は md4c が LI 中身を MD_BLOCK_P に外出しするため LI 自体は空 (issue#237 の原因)。
+TEST(Parser, UnorderedListLooseProducesParagraphChildren)
+{
+    auto nodes = ParseMarkdown("- a\n\n- b").nodes;
+    ASSERT_EQ(nodes.size(), 4u);
+    EXPECT_EQ(nodes[0].type, NodeType::ListItem);
+    EXPECT_FALSE(nodes[0].HasText());
+    EXPECT_EQ(nodes[1].type, NodeType::Paragraph);
+    EXPECT_EQ(nodes[1].GetText(), "a");
+    EXPECT_EQ(nodes[2].type, NodeType::ListItem);
+    EXPECT_FALSE(nodes[2].HasText());
+    EXPECT_EQ(nodes[3].type, NodeType::Paragraph);
+    EXPECT_EQ(nodes[3].GetText(), "b");
+}
+
 // ---- バグ #10: ネストされた引用ブロック ----
 
 TEST(Parser, NestedBlockquotePreservesOuterStyle)

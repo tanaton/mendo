@@ -53,7 +53,8 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
         return theme.paragraph_spacing + theme.code_block_spacing_above;
     case NodeType::ListItem:
     case NodeType::TaskListItem:
-        return theme.list_item_spacing;
+        // 空 LI に sb を入れると直下 P の text_top が下ズレし bullet と分離する (issue#237)。
+        return IsEmptyListItemContainer(node) ? 0.0f : theme.list_item_spacing;
     case NodeType::HorizontalRule:
         return 0.0f;
     case NodeType::Table:
@@ -115,10 +116,15 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
     }
     case NodeType::Image:
         return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
-    case NodeType::Paragraph:
     case NodeType::ListItem:
-    case NodeType::BlockQuote:
     case NodeType::TaskListItem:
+        // 空 LI に高さを与えると bullet と直下 P の文字 Y が分離する (issue#237)。
+        if (IsEmptyListItemContainer(node)) {
+            return 0.0f;
+        }
+        return line_height * static_cast<float>(1 + node.line_count);
+    case NodeType::Paragraph:
+    case NodeType::BlockQuote:
         if (!node.HasText()) {
             return theme.paragraph_spacing;
         }

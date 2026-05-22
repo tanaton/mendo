@@ -1071,13 +1071,16 @@ TEST(RecomputeYPositionsTest, BlockQuoteHasSpacingAbove)
 
 // ---- リスト項目のスペーシング ----
 
+// 空テキスト LI は issue#237 の修正で sb=0 (loose 扱い)。tight LI 間隔の検証には HasText() が要る。
 TEST(RecomputeYPositionsTest, ListItemUsesListItemSpacing)
 {
     Theme theme = GetLightTheme();
     Node li1;
     li1.type = NodeType::ListItem;
+    SetNodeTextCounted(li1, "a");
     Node li2;
     li2.type = NodeType::ListItem;
+    SetNodeTextCounted(li2, "b");
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(li1));
@@ -1100,8 +1103,10 @@ TEST(RecomputeYPositionsTest, TaskListItemUsesListItemSpacing)
     Theme theme = GetLightTheme();
     Node tli1;
     tli1.type = NodeType::TaskListItem;
+    SetNodeTextCounted(tli1, "a");
     Node tli2;
     tli2.type = NodeType::TaskListItem;
+    SetNodeTextCounted(tli2, "b");
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(tli1));
@@ -1576,6 +1581,99 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
         }
     }
     FAIL() << "FillEllipseCmd が見つからない";
+}
+
+// issue#237: loose list の LI (空) と直下 Paragraph の text_top は一致すべき。
+TEST_F(LayoutTest, LooseListBulletAlignsWithFollowingParagraphText)
+{
+    auto nodes = ParseMarkdown("- a\n\n- b").nodes;
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+
+    ASSERT_EQ(nodes.size(), 4u);
+    ASSERT_EQ(nodes[0].type, NodeType::ListItem);
+    ASSERT_EQ(nodes[1].type, NodeType::Paragraph);
+    ASSERT_EQ(nodes[2].type, NodeType::ListItem);
+    ASSERT_EQ(nodes[3].type, NodeType::Paragraph);
+
+    EXPECT_NEAR(cache[0].text_top, cache[1].text_top, 0.01f);
+    EXPECT_NEAR(cache[2].text_top, cache[3].text_top, 0.01f);
+}
+
+// 空 LI の first_line_height はフォールバック (font_size*FALLBACK_LINE_HEIGHT_FACTOR) なので
+// 実 line metrics と完全一致しない → epsilon 3px で許容。
+TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
+{
+    auto nodes = ParseMarkdown("- a\n\n- b").nodes;
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+
+    ASSERT_EQ(nodes.size(), 4u);
+    ASSERT_NE(cache[1].text_layout.Get(), nullptr);
+    DWRITE_LINE_METRICS lm;
+    UINT32 lc;
+    ASSERT_TRUE(SUCCEEDED(cache[1].text_layout->GetLineMetrics(&lm, 1, &lc)));
+    ASSERT_GT(lc, 0u);
+
+    CommandGenerator gen;
+    gen.SetTheme(&theme_);
+    gen.SetFormats({ nullptr, nullptr, nullptr });
+    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
+    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+
+    const float expected_y = cache[1].text_top + lm.height * 0.5f;
+    bool found = false;
+    for (const auto& cmd : cmds) {
+        if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
+            EXPECT_NEAR(e->center.y, expected_y, 3.0f);
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found) << "FillEllipseCmd が見つからない";
+}
+
+// 旧実装は checkbox 描画を GenNodeTextDecorations に置いており、loose の空 TaskListItem
+// (text_layout=nullptr) で early return され checkbox ごと消えていた。
+TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
+{
+    auto nodes = ParseMarkdown("- [ ] a\n\n- [x] b").nodes;
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+
+    ASSERT_EQ(nodes.size(), 4u);
+    EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
+    EXPECT_FALSE(nodes[0].HasText());
+    EXPECT_EQ(nodes[2].type, NodeType::TaskListItem);
+    EXPECT_FALSE(nodes[2].HasText());
+
+    // checkbox 描画には formats_.icon_font (非 null) が必要。
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_fmt;
+    ASSERT_TRUE(SUCCEEDED(dwrite_factory_->CreateTextFormat(
+        L"Segoe UI Symbol", nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+        theme_.font_size_body, L"", &icon_fmt)));
+
+    CommandGenerator gen;
+    gen.SetTheme(&theme_);
+    gen.SetFormats({ nullptr, icon_fmt.Get(), nullptr });
+    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
+    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+
+    int unchecked = 0;
+    int checked = 0;
+    for (const auto& cmd : cmds) {
+        if (auto* t = std::get_if<DrawTextCmd>(&cmd); t && t->text_len == 1) {
+            const wchar_t ch = t->text()[0];
+            if (ch == L'☐') ++unchecked;
+            else if (ch == L'☑') ++checked;
+        }
+    }
+    EXPECT_EQ(unchecked, 1);
+    EXPECT_EQ(checked, 1);
 }
 
 // 22000 ノード × 200 iter で RecomputeYPositions のフルパス (from_index=0) 経過時間を測る。
