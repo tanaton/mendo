@@ -216,10 +216,14 @@ void CommandGenerator::GenerateNode(
             node_bottom += theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO + theme_->GetHeadingUnderlineThickness(lv);
         }
     }
-    // 空 LI は height=0 だが bullet/checkbox は first_line_h*0.5 下に描かれるため、
-    // node_bottom を line height 分拡張しないと viewport 上端で bullet が一瞬消える。
+    // 空 LI は height=0 だが bullet/checkbox は entry_text_top より下に描かれるため、
+    // node_bottom を実描画下端まで拡張しないと viewport 上端で一瞬消える。
+    // TaskListItem の checkbox (1.5x) は ListItem の bullet 1 行分 (1.3x) より背が高い。
     else if (IsEmptyListItemContainer(node)) {
-        node_bottom += theme_->font_size_body * FALLBACK_LINE_HEIGHT_FACTOR;
+        const float factor = (node.type == NodeType::TaskListItem)
+                                 ? TASK_CHECKBOX_HEIGHT_FACTOR
+                                 : FALLBACK_LINE_HEIGHT_FACTOR;
+        node_bottom += theme_->font_size_body * factor;
     }
     if (node_bottom < fc.viewport_top || entry_text_top > fc.viewport_bottom) {
         return;
