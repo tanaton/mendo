@@ -143,10 +143,13 @@ private:
 
     void GenerateNode(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index, float entry_text_top);
 
-    // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキスト、
-    // タスクリストチェックボックスを描画する。
-    void GenNodeTextDecorations(DrawCommandList& cmds, const FrameContext& fc, const Node& node,
-                                const NodeLayoutEntry& entry, int node_index, float x, float text_x, float entry_text_top);
+    // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキストを描画する。
+    void GenNodeTextDecorations(
+        DrawCommandList& cmds, const FrameContext& fc, const Node& node,
+        const NodeLayoutEntry& entry, int node_index, float x, float text_x, float entry_text_top);
+    // text_layout 非依存。loose task list (空 TaskListItem) でも GenNodeTextDecorations の
+    // early return を経由せず描画したいため独立メソッド化。
+    void GenTaskListCheckbox(DrawCommandList& cmds, const Node& node, float x, float entry_text_top);
 
     struct NodeBaseStyle {
         D2D1_COLOR_F color;

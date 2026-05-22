@@ -216,6 +216,15 @@ void CommandGenerator::GenerateNode(
             node_bottom += theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO + theme_->GetHeadingUnderlineThickness(lv);
         }
     }
+    // 空 LI は height=0 だが bullet/checkbox は entry_text_top より下に描かれるため、
+    // node_bottom を実描画下端まで拡張しないと viewport 上端で一瞬消える。
+    // TaskListItem の checkbox (1.5x) は ListItem の bullet 1 行分 (1.3x) より背が高い。
+    else if (IsEmptyListItemContainer(node)) {
+        const float factor = (node.type == NodeType::TaskListItem)
+                                 ? TASK_CHECKBOX_HEIGHT_FACTOR
+                                 : FALLBACK_LINE_HEIGHT_FACTOR;
+        node_bottom += theme_->font_size_body * factor;
+    }
     if (node_bottom < fc.viewport_top || entry_text_top > fc.viewport_bottom) {
         return;
     }
@@ -298,6 +307,9 @@ void CommandGenerator::GenerateNode(
         break;
 
     case NodeType::TaskListItem:
+        // GenNodeTextDecorations は text_layout=nullptr (loose で空 TaskListItem) で early return
+        // するため、checkbox は case 側で emit する。
+        GenTaskListCheckbox(cmds, node, x, entry_text_top);
         break;
 
     case NodeType::BlockQuote:
@@ -347,7 +359,7 @@ CommandGenerator::NodeBaseStyle CommandGenerator::GetNodeBaseStyle(const Node& n
     std::unreachable();
 }
 
-void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float text_x, float entry_text_top)
+void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float /*x*/, float text_x, float entry_text_top)
 {
     if (!entry.text_layout) {
         return;
@@ -376,8 +388,11 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Frame
     }
 
     cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(text_x, entry_text_top), entry.text_layout.Get(), base_color, base_brush });
+}
 
-    if (node.type == NodeType::TaskListItem && formats_.icon_font) {
+void CommandGenerator::GenTaskListCheckbox(DrawCommandList& cmds, const Node& node, float x, float entry_text_top)
+{
+    if (formats_.icon_font) {
         const wchar_t icon = node.task_checked() ? L'\u2611' : L'\u2610'; // ☑ / ☐
         const float icon_size = theme_->font_size_body;
         const float cb_x = x - theme_->list_bullet_offset;
