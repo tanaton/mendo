@@ -138,8 +138,7 @@ DirtyBatchResult RunParallel(
                         run_chunk(chunk_indices, chunk_slots);
                     });
                 } catch (...) {
-                    // Post 構築 (move_only_function の heap allocate / queue push) の例外。
-                    // latch.count_down() を確実に呼ぶため同期 fallback に倒す。
+                    // Post 自体が throw すると latch.count_down() が漏れて wait() が永久ブロック。
                     OutputDebugStringW(L"[mendo] RunParallel scheduler.Post threw exception\n");
                 }
                 if (!posted) {

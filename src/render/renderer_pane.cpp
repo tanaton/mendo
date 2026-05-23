@@ -40,8 +40,7 @@ static void DrawPaneScrollbar(
 
     const float track_height = content_height;
     const float thumb_ratio = content_height / total_content_height;
-    // track_height < PANE_SCROLLBAR_THUMB_MIN (極小ペイン) で thumb_height > track_height
-    // となるとサムがコンテンツ領域より上に飛び出す。track 内にクランプする。
+    // track_height < PANE_SCROLLBAR_THUMB_MIN でサムが枠外へ飛び出すのを防ぐ。
     const float thumb_height = std::min(track_height, std::max(PANE_SCROLLBAR_THUMB_MIN, track_height * thumb_ratio));
 
     const float scroll_ratio = scroll_y / (total_content_height - content_height);
@@ -149,9 +148,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
 
         const HRESULT end_hr = rt->EndDraw();
         if (FAILED(end_hr)) {
-            // compatible RT が device-lost 等で失敗。古い bitmap を後続フレームに使い回すと
-            // main_rt 側で wrong-device エラーが再発するため、cache を破棄して次フレームに
-            // 再生成させる。main_rt の EndDraw で実際の device-lost が拾われて復旧する。
+            // device-lost で失敗した bitmap を使い回すと main_rt で wrong-device 再発する。
             sp.cache.Reset();
             return;
         }

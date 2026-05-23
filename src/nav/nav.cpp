@@ -115,7 +115,6 @@ bool NavHistory::GoForward(const NavEntry& current, NavEntry& out)
     }
 
     back_stack_.emplace_back(ToInternal(current));
-    // GoBack/Push と対称に MAX_HISTORY を超えたら最古を解放する。
     // 抜けると往復で容量超過 + path slot 参照が滞留する。
     if (back_stack_.size() > MAX_HISTORY) {
         ReleasePath(back_stack_.front().path_index);

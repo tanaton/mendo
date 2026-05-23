@@ -34,7 +34,7 @@ void Preloader::Start(std::pmr::wstring path)
     thread_ = std::jthread([this, ctx, path = std::move(path)](std::stop_token st) mutable {
         MENDO_PROFILE("Preload::worker");
 
-        // stop_token を Parse に伝搬してアプリ終了時の数百 ms ハングを回避する。
+        // stop_token なしだと Parse 完走まで終了時の join が数百 ms ブロックする。
         auto load_result = DocumentService::LoadFile(path, st);
         // sink 書き込み前に abort 確認。直後の publish + main 側即破棄を回避。
         if (st.stop_requested()) {

@@ -201,8 +201,7 @@ void ReduceSelectAll(AppState& state, SideEffectList& effects)
 void ReduceClearSelection(AppState& state, SideEffectList& effects)
 {
     if (state.search.search_state.IsVisible()) {
-        // CloseSearchBarAction と同じ経路を通し、search_state.Hide() に加えて
-        // SEARCH_CARET タイマー / has_focus_ / IME 状態を一括クリアする。
+        // search_state.Hide() 単独だと SEARCH_CARET タイマー / has_focus_ / IME 状態が残留する。
         state.search.search_bar_ctrl.OnClose();
     }
     else {
@@ -382,8 +381,8 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
                 PushEffect(effects, effect::InvalidateWindow{});
             }
         }
-        // target がブロック上にある以上、自然幅==可視幅で can_scroll()==false でも
-        // 戻る/進むナビゲーションへ落とさない。ブロック上の操作は swipe_detector へ漏らさず吸収する。
+        // target がブロック上にある以上、can_scroll()==false でも swipe_detector へは流さない
+        // (戻る/進むの暴発を防ぐ)。
         return;
     }
 

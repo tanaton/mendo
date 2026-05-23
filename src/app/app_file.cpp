@@ -29,8 +29,7 @@ void App::LoadHelpDocument()
     file_load_service_.StopLoading();
     EmitEffect(effect::StopFileWatch{});
     ResetViewForNewDocument();
-    // FinishLoadMarkdownFile と同じ後処理: SearchState の lowercase キャッシュが旧 nodes ポインタを
-    // 保持したままになるのを防ぎ、TOC ハイライトも初期化する。
+    // SearchState の lowercase キャッシュが旧 nodes ポインタを保持したまま誤再利用されるのを防ぐ。
     state_.search.search_bar_ctrl.Reset();
     EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
     state_.active_toc_index = -1;

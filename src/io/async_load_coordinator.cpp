@@ -26,8 +26,8 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
 {
     ResetSinks();
     in_flight_ = true;
-    // 連続 Start で前 worker のキャプチャ済み stop_token を協調キャンセルできるよう、
-    // 差し替え前に必ず request_stop しておく (Cancel と対称)。
+    // 前 worker のキャプチャ済み stop_token を協調キャンセルする。これを呼ばないと
+    // 古い source は stop_requested=false のまま残り続ける。
     stop_source_.request_stop();
     // request_stop 済みの source は再使用不可なので Start 毎に作り直す。
     stop_source_ = std::stop_source{};

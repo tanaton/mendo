@@ -26,8 +26,7 @@ protected:
         theme.splitter_width = 4.0f;
         theme.zoom = 1.0f;
         state.theme = &theme;
-        // ReduceClearSelection は CloseSearchBarAction と同じく search_bar_ctrl.OnClose() を
-        // 経由するため、内部 state_ ポインタを初期化しておかないと nullptr deref になる。
+        // search_bar_ctrl は内部 state_ ポインタを Init で受け取る (未呼び出しだと nullptr deref)。
         state.search.search_bar_ctrl.Init(
             state.search.search_state,
             state.view.viewport,

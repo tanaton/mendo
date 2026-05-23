@@ -7,7 +7,6 @@
 class DocumentService {
 public:
     static std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path);
-    // stop_token 版: Parse 中も協調キャンセル可能。Preloader / AsyncLoadCoordinator 用。
     static std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path, std::stop_token stop_token);
 
     // 非同期ロード経路に乗せる対象か。app_threshold::ASYNC_LOAD_BYTES を超えるサイズ。

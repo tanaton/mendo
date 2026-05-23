@@ -419,9 +419,8 @@ void App::OnDestroy()
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
 
-    // Help 表示中の終了で session_ を上書きしないよう、LastFilePath と ScrollPosition は
-    // 同じ IsHelpPath ガード内で扱う。SaveScrollPosition だけ漏れていると、次回起動時に
-    // 別ファイル A 上で Help の node index を復元してしまい誤位置にジャンプする。
+    // SaveScrollPosition だけ IsHelpPath ガード外に置くと、Help 表示中に終了したとき
+    // 前回 LastFilePath に Help の node index が紐付き、次回起動時に誤位置へジャンプする。
     if (!IsHelpPath(state_.document.doc.GetFilePath())) {
         session_.SaveLastFilePath(state_.document.doc.GetFilePath());
         if (const int node = state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size()); node >= 0) {
