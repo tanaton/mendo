@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "app_constants.h"
+#include "app_search_bar_callbacks.h"
 #include "reducer.h"
 #include "document.h"
 #include "app_state.h"
@@ -25,6 +26,13 @@ protected:
         theme.splitter_width = 4.0f;
         theme.zoom = 1.0f;
         state.theme = &theme;
+        // ReduceClearSelection は CloseSearchBarAction と同じく search_bar_ctrl.OnClose() を
+        // 経由するため、内部 state_ ポインタを初期化しておかないと nullptr deref になる。
+        state.search.search_bar_ctrl.Init(
+            state.search.search_state,
+            state.view.viewport,
+            state.document.layout_cache,
+            AppSearchBarCallbacks{});
     }
 };
 
