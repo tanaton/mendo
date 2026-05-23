@@ -33,7 +33,6 @@ struct PmrDefaultDeleter {
 template <class T>
 using pmr_unique_ptr = std::unique_ptr<T, PmrDefaultDeleter<T>>;
 
-// pmr default_resource から T を構築する unique_ptr ファクトリ。
 template <class T, class... Args>
 [[nodiscard]] pmr_unique_ptr<T> MakePmrUnique(Args&&... args)
 {
@@ -41,7 +40,6 @@ template <class T, class... Args>
     return pmr_unique_ptr<T>{ alloc.new_object<T>(std::forward<Args>(args)...) };
 }
 
-// std::unique_ptr<T> と同じ sizeof に保たれることを保証する。
 static_assert(sizeof(pmr_unique_ptr<int>) == sizeof(std::unique_ptr<int>), "pmr_unique_ptr must be the same size as std::unique_ptr (EBO)");
 
 } // namespace mendo

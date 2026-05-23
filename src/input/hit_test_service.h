@@ -24,7 +24,7 @@ struct ButtonRect {
     }
 };
 
-// 戻るボタンの矩形。実装側の NavButtonHitTest と同一の式を使う。
+// NavButtonHitTest と同一の式。
 inline constexpr ButtonRect NavBackButtonRect(const PaneRect& md_rect) noexcept
 {
     const float x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2.0f - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
@@ -32,15 +32,12 @@ inline constexpr ButtonRect NavBackButtonRect(const PaneRect& md_rect) noexcept
     return { x, y, NAV_BTN_SIZE, NAV_BTN_SIZE };
 }
 
-// 進むボタンの矩形。Back の右に NAV_BTN_GAP の隙間を空けて並ぶ。
 inline constexpr ButtonRect NavForwardButtonRect(const PaneRect& md_rect) noexcept
 {
     const ButtonRect back = NavBackButtonRect(md_rect);
     return { back.x + NAV_BTN_SIZE + NAV_BTN_GAP, back.y, NAV_BTN_SIZE, NAV_BTN_SIZE };
 }
 
-// MDペインのヒットテストに必要なコンテキスト情報。
-// ドキュメントデータ、ビューポート状態、マウス位置をまとめる。
 struct MdPaneHitContext {
     const std::pmr::vector<Node>& nodes;
     const LayoutCache& cache;
@@ -57,7 +54,6 @@ struct MdPaneHitContext {
     const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;
 };
 
-// 物理ピクセルをMDペインローカルのDIP座標に変換する。
 struct PaneDip {
     float x;
     float y;
@@ -77,12 +73,8 @@ public:
         uint32_t text_pos = 0;
     };
 
-    // Md ペイン内のヒットテスト
     HitResult HitTest(const MdPaneHitContext& ctx) const noexcept;
 
-    // テーブルセル内のヒットテスト。
-    // entry_text_top はノードのテキスト上端 Y (= entry.text_top)。
-    // h_scroll_x はブロック単位の横スクロール量 (DIP)。
     HitResult HitTestTable(
         const Node& node, const NodeLayoutEntry& entry,
         float entry_text_top,
@@ -90,15 +82,10 @@ public:
         const Theme& theme,
         float dip_x, float dip_y, float h_scroll_x = 0.0f) const noexcept;
 
-    // ナビゲーションボタンのヒットテスト
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept;
 
-    // コードブロックのコピーボタンのヒットテスト。
-    // ヒットしたコードブロックのノードインデックスを返す（-1=なし）。
     int CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
 
-    // Mermaidダイアグラムの保存ボタンのヒットテスト。
-    // ヒットしたダイアグラムのノードインデックスを返す（-1=なし）。
     int SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
 
     // 可視ノード走査・座標変換・キャッシュ照合を共有して Copy / Save / SvgCopy を一度に判定する。

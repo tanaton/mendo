@@ -11,22 +11,15 @@ class ConfigService {
 public:
     ConfigService() noexcept = default;
 
-    // ---- 設定ディレクトリ ----
-
-    // テスト用に既定の AppData パスをオーバーライドする。
     void SetConfigDirOverride(const std::filesystem::path& dir);
     std::filesystem::path GetConfigDir() const;
-    // 設定ディレクトリ配下のファイルパスを返す。区切り文字や ".." を含む名前は拒否する。
+    // 区切り文字や ".." を含む名前は拒否する。
     std::filesystem::path GetConfigPath(std::wstring_view filename) const;
 
-    // ---- ディスク永続化 ----
-
     void Load();
-    // メモリ上のデータをディスクに書き出す。書き込みはアプリ終了時 (WM_DESTROY) に集約する。
+    // 書き込みはアプリ終了時 (WM_DESTROY) に集約する。
     void Flush();
     void Clear() noexcept;
-
-    // ---- 型付きアクセサ（メモリ上のマップを読み書き） ----
 
     void SaveBool(std::string_view section, std::string_view key, bool value);
     bool LoadBool(std::string_view section, std::string_view key, bool default_value = false) const;
@@ -59,7 +52,7 @@ public:
     void SaveLastFilePath(std::wstring_view path);
     std::pmr::wstring LoadLastFilePath() const;
 
-    // ペイン状態の永続化用 POD。実体 (PaneController) との変換は呼び出し側 (ui 層) が担う。
+    // PaneController との変換は呼び出し側が担う。
     struct PaneState {
         bool show_file = true;
         bool show_toc = true;
@@ -67,7 +60,7 @@ public:
         float toc_width = 220.0f;
     };
     void SavePaneState(const PaneState& state);
-    // client_width が正なら最大幅 clamp を適用する (狭いウィンドウで既定値が dynamic_max を超える対策)。
+    // 狭いウィンドウで既定値が dynamic_max を超える対策。
     PaneState LoadPaneState(float client_width, float min_width, float default_width) const;
 
     struct ScrollPosition {

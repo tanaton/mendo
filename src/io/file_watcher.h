@@ -5,7 +5,6 @@
 #include <windows.h>
 #include "win_handle.h"
 
-// ReadDirectoryChangesW によるファイル変更監視
 class FileWatcher {
 public:
     ~FileWatcher();

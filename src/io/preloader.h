@@ -23,8 +23,7 @@ public:
     Preloader(const Preloader&) = delete;
     Preloader& operator=(const Preloader&) = delete;
 
-    // hwnd なしで I/O + パースをワーカースレッドに投入する。
-    // EstimateNodeHeights は Theme 依存なので skip し、heights_estimated=false を返す。
+    // Theme 不在のため EstimateNodeHeights をスキップ (heights_estimated=false)。
     void Start(std::pmr::wstring path);
 
     enum class AttachResult {
@@ -43,7 +42,6 @@ public:
         return ctx_ != nullptr;
     }
 
-    // 完了通知を取り出す。preload が動いていなければ空。
     std::optional<AsyncLoadResult> TakeResult();
     std::optional<FileLoadError> TakeError();
 

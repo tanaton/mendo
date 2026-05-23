@@ -57,7 +57,7 @@ void Tooltip::Init(HWND parent_hwnd)
     ti.lpszText = const_cast<LPWSTR>(L"");
     SendMessageW(s.hwnd, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
 
-    // 最大幅を設定（長いURLの折り返し用）
+    // 長い URL の折り返し用
     SendMessageW(s.hwnd, TTM_SETMAXTIPWIDTH, 0, 600);
 }
 
@@ -92,7 +92,6 @@ void Tooltip::Show()
     ti.lpszText = const_cast<LPWSTR>(s.current.text.c_str());
     SendMessageW(s.hwnd, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
 
-    // カーソル下にオフセット（DPIスケーリング対応）
     const UINT dpi = GetDpiForWindow(s.parent);
     const int offset_y = MulDiv(20, dpi, 96);
     SendMessageW(s.hwnd, TTM_TRACKPOSITION, 0, MAKELPARAM(s.show_pos.x, s.show_pos.y + offset_y));

@@ -19,7 +19,6 @@ void App::HandleLinkClick(std::string_view url)
         Dispatch(NavigateAnchorAction{ std::move(result.target) });
         return;
     case LinkClickResult::Type::ExternalUrl: {
-        // ShellExecuteW 用に UTF-8 → wstring 変換。
         std::pmr::wstring url_wide;
         string_convert::Utf8ToWide(result.target, url_wide);
         EmitEffect(effect::ShellOpen{ std::move(url_wide) });

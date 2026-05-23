@@ -128,7 +128,6 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         TooltipTarget tt;
         if (has_link) {
             tt.zone = TooltipTarget::Zone::MdLink;
-            // tt.text は wstring (Win32 ツールチップ表示用) なので UTF-8 → wstring 変換。
             string_convert::Utf8ToWide(*link, tt.text);
         }
         else if (hit.node_index >= 0) {

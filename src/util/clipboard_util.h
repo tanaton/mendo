@@ -7,14 +7,8 @@
 #include <string>
 #include <string_view>
 
-// クリップボード書き込みユーティリティ。win_handle.h の RAII ハンドラと共有するが、
-// 「クリップボード文脈固有の API + プロトコル (CF_HTML / SVG / UNICODETEXT)」を分離する目的で
-// このヘッダにまとめる。`<windows.h>` への依存はあるが win_handle.h の汎用 RAII とは責務が異なる。
+// win_handle.h と責務を分離するためにこのヘッダにまとめる。
 
-// クリップボードを RAII で開閉するセッションガード。
-// コンストラクタで OpenClipboard + EmptyClipboard を行い、
-// デストラクタで CloseClipboard を呼ぶ。OpenClipboard が失敗した場合は
-// `if (session)` が false になり、EmptyClipboard / CloseClipboard は呼ばない。
 class ClipboardSession {
 public:
     explicit ClipboardSession(HWND hwnd) noexcept
@@ -42,10 +36,6 @@ private:
     bool open_;
 };
 
-// 末尾 NUL 文字を付加した text を format 形式でクリップボードに登録する。
-// CharT は char または wchar_t を想定。OpenClipboard / EmptyClipboard /
-// CloseClipboard の呼び出しは呼び出し側の責務（ClipboardSession を使うと簡潔）。
-// 戻り値: SetClipboardData まで成功したら true。
 template <typename CharT>
 inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT> text) noexcept
 {
@@ -76,7 +66,6 @@ inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT
     return true;
 }
 
-// クリップボードにテキストを書き込む共通ユーティリティ。入力は UTF-8。
 // Utf8ToWide 失敗時に EmptyClipboard で既存内容を破壊しないよう、変換成功後にセッションを開く。
 inline void WriteClipboardText(HWND hwnd, std::string_view text_utf8) noexcept
 {
@@ -92,9 +81,7 @@ inline void WriteClipboardText(HWND hwnd, std::string_view text_utf8) noexcept
     SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, text_wide);
 }
 
-// CF_HTML 形式のクリップボード用ペイロードを構築する。
 // HTML Format 仕様: https://learn.microsoft.com/windows/win32/dataxchg/html-clipboard-format
-// fragment_utf8 は <!--StartFragment--> と <!--EndFragment--> の間に挟まれる UTF-8 HTML。
 // ヘッダ内の各オフセットは UTF-8 バイト位置で 10 桁ゼロ埋め。
 inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
 {
@@ -140,12 +127,10 @@ inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
     return payload;
 }
 
-// SVG をクリップボードに書き込む。
 // "image/svg+xml": Office (Word/Excel/PowerPoint 2016+) の「形式を選択して貼り付け → SVG」
 //                  および Inkscape などのベクタ編集アプリがベクタ画像として認識する。
 // CF_UNICODETEXT:  テキストエディタへの貼り付けフォールバック（SVG マークアップ原文）。
-// 戻り値: いずれか 1 つ以上のフォーマットが SetClipboardData まで成功したら true。
-//        OpenClipboard / SetClipboardData が全滅したら false（呼び出し側で失敗トースト表示用）。
+// 全滅時は false（呼び出し側でトースト表示用）。
 inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
 {
     if (svg_text.empty()) {
@@ -169,8 +154,6 @@ inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
     return any_set;
 }
 
-// クリップボードに CF_HTML（書式付き）と CF_UNICODETEXT（プレーンテキスト）を同時に書き込む。
-// fragment_utf8:   <!--StartFragment--> と <!--EndFragment--> の間に入る HTML 断片 (UTF-8)。
 // plain_text_utf8: 書式付きに対応していないアプリ向けのフォールバック (UTF-8)。
 inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::string_view plain_text_utf8) noexcept
 {

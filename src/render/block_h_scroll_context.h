@@ -2,8 +2,6 @@
 #include <memory_resource>
 #include <unordered_map>
 
-// ブロック単位の横スクロールの描画時コンテキスト。
-// AppState/ViewState から map とホバー/ドラッグ対象 node_index を切り出して描画層へ渡す。
 struct BlockHScrollContext {
     const std::pmr::unordered_map<int, float>* scroll_x = nullptr;
     int hovered_block = -1;

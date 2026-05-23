@@ -9,7 +9,7 @@
 void FileExplorer::SetDirectory(std::wstring_view dir_path)
 {
     std::pmr::wstring normalized{ dir_path };
-    // 末尾の区切り文字を除去（"C:\" のようなルートパスは除く）
+    // ルートパスは除く
     while (normalized.size() > 3 && (normalized.back() == L'\\' || normalized.back() == L'/')) {
         normalized.pop_back();
     }
@@ -27,7 +27,7 @@ void FileExplorer::Refresh()
         return;
     }
 
-    // 親ディレクトリエントリ ".." を追加（"C:\" のようなルートでは追加しない）
+    // ルートでは ".." を出さない
     {
         const std::filesystem::path dir_path{ directory_ };
         const auto parent = dir_path.parent_path();
@@ -75,8 +75,6 @@ void FileExplorer::Refresh()
         entries_.emplace_back(std::move(entry));
     } while (FindNextFileW(hFind.get(), &fd));
 
-    // ディレクトリ優先 → 表示名 (大小無視) 昇順。
-    // 比較対象は full_path 全体ではなく末尾ファイル名のみ（GetDisplayName）。
     std::ranges::sort(entries_.begin() + static_cast<ptrdiff_t>(sort_begin), entries_.end(), [](const FileEntry& a, const FileEntry& b) noexcept {
         if (a.is_directory() != b.is_directory()) {
             return a.is_directory() > b.is_directory();

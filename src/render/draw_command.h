@@ -11,9 +11,6 @@
 #include <type_traits>
 #include <cstdint>
 
-// brush_id != Custom のコマンドは CommandExecutor が固定ブラシ配列で O(1) 解決する。
-// Custom のときだけ color から brush_pool 経由で解決する。
-
 struct ClearCmd {
     D2D1_COLOR_F color;
 };
@@ -102,8 +99,7 @@ struct SetTransformCmd {
     D2D1_MATRIX_3X2_F transform;
 };
 
-// テスト専用: holds_alternative / get_if / range-for で参照される variant view。
-// 本番経路 (Execute) は DrawCommandList::Visit が直接 SoA を走査するためここを通らない。
+// 本番経路は Visit() を使う。テスト/デバッグ用。
 using DrawCommand = std::variant<
     ClearCmd,
     FillRectCmd,
@@ -118,8 +114,6 @@ using DrawCommand = std::variant<
     PopClipCmd,
     SetTransformCmd>;
 
-// 各コマンド型ごとに pmr::vector を持ち、seq_ に packed (kind:4, idx:28) を発行順で記録する SoA バッファ。
-// variant の最大サイズ食いと visit ディスパッチを避けるため、Execute は Visit() の switch から直接呼び出す。
 class DrawCommandList {
 public:
     explicit constexpr DrawCommandList(std::pmr::memory_resource* mr = std::pmr::get_default_resource())
@@ -152,7 +146,6 @@ public:
         seq_.clear();
     }
 
-    // 発行順テーブルのみ予約。型別 vector はオンデマンドで伸ばす。
     constexpr void reserve(size_t n)
     {
         seq_.reserve(n);

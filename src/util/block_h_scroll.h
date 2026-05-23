@@ -4,8 +4,6 @@
 #include "layout_computer.h"
 #include "theme.h"
 
-// ブロック単位横スクロールの自然幅 / 可視幅 / scroll_max を一元計算する。
-// hit テスト・hover 判定・reducer・command_generator から共通利用する。
 struct BlockHScrollGeometry {
     float natural_width = 0.0f;
     float visible_width = 0.0f;
@@ -20,8 +18,6 @@ struct BlockHScrollGeometry {
     }
 };
 
-// node が Table または非 Diagram CodeBlock のとき自然幅を埋め、それ以外は 0。
-// visible_width は md_pane_width から content_width とインデントを引いたもの。
 inline BlockHScrollGeometry GetBlockHScrollGeometry(
     const Node& node, const NodeLayoutEntry& entry, const Theme& theme, float md_pane_width) noexcept
 {

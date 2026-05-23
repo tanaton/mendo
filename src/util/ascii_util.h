@@ -11,17 +11,11 @@
 #include <string_view>
 #include <type_traits>
 
-// ASCII 文字列ヘルパ。Document テキスト (UTF-8 char) と OS API 経路 (wchar_t、ファイル
-// パス比較等) の両方に対応。バルク処理は SSE2 で 16 byte / 8 wchar_t 並列、非 ASCII を
-// 含むチャンクはフォールバック (UTF-8 multi-byte / サロゲートペア境界を破壊しない)。
-// 1 文字版 helper はスカラ constexpr。
 namespace ascii_util {
 
 inline constexpr size_t npos = static_cast<size_t>(-1);
 
-// 1 文字 ASCII case 変換ヘルパ。`std::tolower` の locale 依存
-// (トルコ語の I → ı 等) を避けたい用途用。非 ASCII および ASCII 小文字は素通し。
-// 関数オブジェクトにすることで std::ranges アルゴリズムの projection に直接渡せる。
+// std::tolower の locale 依存 (トルコ語の I→ı 等) を回避。
 struct ToLowerAsciiFn {
     static constexpr wchar_t operator()(wchar_t c) noexcept
     {
@@ -40,7 +34,6 @@ constexpr Char ToUpperAscii(Char c) noexcept
     return (c >= static_cast<Char>('a') && c <= static_cast<Char>('z')) ? static_cast<Char>(c - static_cast<Char>('a') + static_cast<Char>('A')) : c;
 }
 
-// 純粋な ASCII 範囲の文字種判定。locale や CJK の影響を受けない。
 template <typename Char>
 constexpr bool IsAsciiDigit(Char c) noexcept
 {
@@ -55,7 +48,7 @@ constexpr bool IsAsciiHexDigit(Char c) noexcept
            (c >= static_cast<Char>('A') && c <= static_cast<Char>('F'));
 }
 
-// ダブルクリック単語選択の単語構成文字。ASCII 英数 + '_'。CJK は対象外。
+// CJK は対象外。
 template <typename Char>
 constexpr bool IsAsciiWordChar(Char c) noexcept
 {
@@ -118,10 +111,7 @@ inline unsigned AsciiUpperMask(__m128i c) noexcept
 
 } // namespace detail
 
-// 全文字を小文字化する。ASCII チャンクは SSE2 高速パス、非 ASCII チャンクは
-// std::towlower にフォールバック。dst と src は同サイズで src と重ならないこと。
-// ASCII 部分は SIMD/スカラ どちらの経路を通っても 'A'-'Z'→'a'-'z' に揃える
-// (towlower は locale 依存で、トルコ語では 'I'→'ı'(U+0131) になり得るため明示変換)。
+// dst と src は同サイズで重ならないこと。
 inline void ToLower(const wchar_t* src, wchar_t* dst, size_t n) noexcept
 {
     const auto lower_one = [](wchar_t ch) noexcept -> wchar_t {
@@ -152,7 +142,6 @@ inline void ToLower(const wchar_t* src, wchar_t* dst, size_t n) noexcept
     }
 }
 
-// ASCII 大文字 'A'-'Z' のみ小文字化し、それ以外はそのままコピーする。
 // シンタックスハイライタの ASCII キーワード正規化用 (towlower の locale 動作は不要)。
 // char 版 (UTF-8) では continuation byte (10xxxxxx) は signed 比較で必ず弾かれるため
 // multi-byte シーケンスを破壊しない。
@@ -182,7 +171,6 @@ inline void AsciiToLowerOnly(const CharT* src, CharT* dst, size_t n) noexcept
     }
 }
 
-// ASCII 大文字 'A'-'Z' を一文字でも含むなら true。
 // UTF-8 continuation byte (>= 0x80) は signed では負値で AsciiUpperMask が必ず弾く。
 template <typename CharT>
 inline bool HasAsciiUpper(const CharT* s, size_t n) noexcept
@@ -205,10 +193,6 @@ inline bool HasAsciiUpper(const CharT* s, size_t n) noexcept
     return false;
 }
 
-// std::wstring_view::find 互換 (start 既定 0)。
-// query の先頭文字を SSE2 でブロードキャスト比較し、合致候補だけ wmemcmp で詳細比較する。
-// query が空の場合の戻り値は std::basic_string_view::find と同じ意味論
-// (start <= text.size() なら start、超えていれば npos)。
 inline size_t Find(std::wstring_view text, std::wstring_view query, size_t start = 0) noexcept
 {
     const size_t qlen = query.size();
@@ -301,13 +285,11 @@ inline size_t Find(std::wstring_view text, std::wstring_view query, size_t start
     return npos;
 }
 
-// `Find(text, query) != npos` を読みやすく書くための薄いラッパ。
 inline bool Contains(std::wstring_view text, std::wstring_view query) noexcept
 {
     return Find(text, query) != npos;
 }
 
-// char 版 Find (UTF-8 / 16-byte 並列)。query 先頭バイトを broadcast 比較し、合致候補を memcmp で確認。
 // UTF-8 multi-byte シーケンスの中間バイトがクエリ先頭バイトと衝突する可能性はあるが、
 // 後続の memcmp で正確に弾けるため正しさは保たれる (UTF-8 self-synchronizing 性は使わずに済む)。
 inline size_t Find(std::string_view text, std::string_view query, size_t start = 0) noexcept
@@ -391,8 +373,7 @@ namespace ascii_util_detail {
 }
 } // namespace ascii_util_detail
 
-// 小文字 ASCII リテラル専用の引数型 (wchar_t 用)。コンパイル時に契約違反を検出する。
-// 検証する契約:
+// コンパイル時に契約違反を検出する。
 //  - NUL 終端 (literal[N-1] == L'\0')。
 //  - 全文字が ASCII 範囲 (<= 0x7F)。
 //  - 大文字 'A'-'Z' を含まない (RHS は小文字確定でなければならない)。
@@ -417,7 +398,6 @@ struct LowercaseAsciiLiteral {
     }
 };
 
-// 小文字 ASCII リテラル専用の引数型 (char 用、UTF-8 ビルド向け)。LowercaseAsciiLiteral の char 版。
 struct LowercaseAsciiLiteralChar {
     std::string_view value;
 
@@ -440,10 +420,8 @@ struct LowercaseAsciiLiteralChar {
     }
 };
 
-// Document テキスト (UTF-8) 用エイリアス。
 using DocLowercaseLiteral = LowercaseAsciiLiteralChar;
 
-// 大小無視の等価比較。ASCII 'A'-'Z' のみ小文字化、他は素通し。locale 非依存。
 // LHS のみ projection で小文字化する高速版。
 constexpr bool iequal(std::wstring_view a, LowercaseAsciiLiteral b) noexcept
 {
@@ -455,7 +433,6 @@ constexpr bool iequal(std::string_view a, LowercaseAsciiLiteralChar b) noexcept
     return std::ranges::equal(a, b.value, {}, ToLowerAscii);
 }
 
-// 大小無視のプレフィックスマッチ。s が prefix で始まれば true。
 constexpr bool istarts_with(std::wstring_view s, LowercaseAsciiLiteral prefix) noexcept
 {
     return s.size() >= prefix.value.size() &&

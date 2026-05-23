@@ -11,12 +11,10 @@
 
 namespace mendo::app_mouse {
 
-// ペインヘッダー内のボタン矩形を返す関数（NTTP）の型制約。
 template <auto Fn>
 concept PaneButtonRectFn =
     std::invocable<decltype(Fn), float, float> && std::convertible_to<std::invoke_result_t<decltype(Fn), float, float>, D2D1_RECT_F>;
 
-// ペインヘッダー内のボタンがクリックされたか判定する。
 template <auto ButtonRectFn>
     requires PaneButtonRectFn<ButtonRectFn>
 constexpr bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height)
@@ -29,7 +27,6 @@ constexpr bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rec
     return PointInRect(local_x, local_y, ButtonRectFn(rect.width, header_height));
 }
 
-// タイトルバーボタンに対応するツールチップを返す。
 inline TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximized) noexcept
 {
     const auto& ls = i18n::S();
@@ -57,7 +54,6 @@ inline TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximize
     }
 }
 
-// 検索バーのボタンに対応するツールチップを返す。
 inline TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
 {
     const auto& ls = i18n::S();
@@ -77,7 +73,6 @@ inline TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
     }
 }
 
-// MD ペインのナビゲーションボタンに対応するツールチップを返す。
 inline TooltipTarget BuildNavButtonTooltip(NavButtonHover hit) noexcept
 {
     const auto& ls = i18n::S();
@@ -91,7 +86,6 @@ inline TooltipTarget BuildNavButtonTooltip(NavButtonHover hit) noexcept
     }
 }
 
-// サイドペインのヘッダーボタンホバー処理結果。
 struct PaneHoverResult {
     int hovered_index = -1;
     TooltipTarget tooltip;
@@ -99,8 +93,6 @@ struct PaneHoverResult {
     bool any_button_hit = false;
 };
 
-// サイドペインの共通ホバー処理。
-// ヘッダーボタンのホバー状態を更新し、コンテンツ領域のアイテムヒットテストを行う。
 template <typename SetCloseHoveredFn, typename SetRefreshHoveredFn,
           typename HitTestFn, typename BuildTooltipFn>
     requires std::predicate<SetCloseHoveredFn&, bool> && std::predicate<SetRefreshHoveredFn&, bool> && std::invocable<HitTestFn&, float, float> && std::convertible_to<std::invoke_result_t<HitTestFn&, float, float>, int> && std::invocable<BuildTooltipFn&, bool, bool, int> && std::convertible_to<std::invoke_result_t<BuildTooltipFn&, bool, bool, int>, TooltipTarget>
@@ -137,8 +129,7 @@ PaneHoverResult ProcessSidePaneHover(
     return result;
 }
 
-// サイドペインのヘッダー領域のクリック処理を共通化。
-// ヘッダー領域内のクリックを消費した場合 true を返す（ボタン外も含む）。
+// ヘッダー領域内のクリックは (ボタン外含め) 全て消費して true を返す。
 template <typename ToggleFn, typename RefreshFn>
     requires std::invocable<ToggleFn&> && std::invocable<RefreshFn&>
 bool ProcessSidePaneHeaderClick(

@@ -42,7 +42,6 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha);
-    // ダーク時: 太陽アイコン、ライト時: 月アイコン
     drawButton(
         tb.theme_toggle.rect,
         tb.is_dark_mode ? L"\uE706" : L"\uE708",
@@ -88,7 +87,6 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         BrushId::TitleBarButtonHover,
         BrushId::TitleBarText,
         text_alpha);
-    // ホバー時は赤背景＋白アイコン
     if (is_hovered(TitleBarHitZone::Close)) {
         drawButton(
             tb.close.rect, L"\uE8BB",

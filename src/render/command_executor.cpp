@@ -6,7 +6,7 @@
 #ifdef MENDO_USE_TRACY
 namespace {
 
-// 累積カウンタ（UI スレッド単一前提のため非アトミック）。
+// UI スレッド専用のため非アトミック。
 struct BrushStats {
     int64_t fastpath_hit = 0; // last_brush_ 直前キャッシュヒット
     int64_t pool_hit = 0;     // brush_pool_ 内ヒット (PackColor で同一色)
@@ -30,7 +30,6 @@ void PublishBrushStats() noexcept
 
 ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, BrushId id, D2D1_COLOR_F color)
 {
-    // 固定 BrushId は配列ルックアップで即解決。Custom と配列未設定時のみ brush_pool 経由。
     if (id == BrushId::Custom || !fixed_brushes_) {
         return GetBrush(rt, color);
     }

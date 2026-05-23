@@ -436,7 +436,6 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
 {
     const auto* tbl = node.table_data();
     if (!tbl || tbl->row_count == 0) {
-        // テーブルデータがない場合はフラットテキストを <pre> で出力
         const auto& text = node.GetText();
         if (end > text.size()) {
             end = static_cast<uint32_t>(text.size());

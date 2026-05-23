@@ -31,13 +31,11 @@ public:
     FloatFenwick(FloatFenwick&&) = default;
     FloatFenwick& operator=(FloatFenwick&&) = default;
 
-    // 全要素を 0 にして指定サイズに確保し直す。
     void Resize(std::size_t n)
     {
         tree_.assign(n, 0.0f);
     }
 
-    // サイズ 0 にして capacity を解放する。
     void Reset() noexcept
     {
         tree_.clear();
@@ -80,20 +78,17 @@ public:
         return tree_.empty();
     }
 
-    // i 番目要素の現在値を value に置き換える。差分 = value - GetPoint(i) を Add。
     void Set(std::size_t i, float value) noexcept
     {
         const float diff = value - GetPoint(i);
         AddInternal(i, diff);
     }
 
-    // i 番目要素に diff を加算する。
     void Add(std::size_t i, float diff) noexcept
     {
         AddInternal(i, diff);
     }
 
-    // [0, end) の和。end == 0 なら 0、end == size() なら全合計。
     float PrefixSum(std::size_t end) const noexcept
     {
         float s = 0.0f;
@@ -103,13 +98,12 @@ public:
         return s;
     }
 
-    // [from, to) の和。from > to は UB。
+    // from > to は UB。
     float RangeSum(std::size_t from, std::size_t to) const noexcept
     {
         return PrefixSum(to) - PrefixSum(from);
     }
 
-    // 単一要素 i の値。RangeSum(i, i+1) と等価。
     float GetPoint(std::size_t i) const noexcept
     {
         return RangeSum(i, i + 1);
@@ -137,7 +131,6 @@ public:
         return idx;
     }
 
-    // values をそのまま個別要素値として一括ロードする。O(N)。
     // Resize 後の初期化や、全件再構築時に Set ループ (O(N log N)) より高速。
     // values.size() == size() を要求 (Resize は呼び出し側で済ませる)。
     void Build(std::span<const float> values) noexcept

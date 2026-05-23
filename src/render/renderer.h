@@ -66,8 +66,6 @@ public:
 
     void UpdateLayoutTheme();
 
-    // デバイスロスト後にD2Dレンダーターゲットが再作成された際に呼び出されるコールバックを設定。
-    // コールバックには新しいレンダーターゲットのポインタが渡される。
     void SetDeviceLostCallback(std::move_only_function<void(ID2D1RenderTarget*)> cb)
     {
         on_device_lost_ = std::move(cb);
@@ -98,8 +96,7 @@ public:
         hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
     }
 
-    // 描画前パス: 可視ノードに描画エフェクト（シンタックスハイライト、リンク色）を適用。
-    // Render() の前に呼ぶことで、RenderParams を const にできる。
+    // Render() の前に呼ぶこと。RenderParams を const にするための分離。
     void PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height);
 
 private:
@@ -153,10 +150,9 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size, const wchar_t* locale);
     bool CheckEndDraw();
     bool RecreateRenderTarget();
-    // デバイスロスト検知時に RecreateRenderTarget までフォールバック。再描画要求を出した場合 true。
+    // 再描画要求を出した場合 true。
     bool HandleDeviceLost();
 
-    // ApplyNodeEffects でインラインコード背景を計算するためのヒットテストバッファ。
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_{ GetThreadLocalPoolResource() };
 
     struct TextFormats {

@@ -1,8 +1,6 @@
 #pragma once
 #include <windows.h>
 
-// システムカーソルハンドルのキャッシュ。
-// LoadCursorW の呼び出しを初期化時に一度だけ行う。
 class CursorManager {
 public:
     void Init() noexcept

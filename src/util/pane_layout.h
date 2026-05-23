@@ -3,7 +3,6 @@
 #include "ui_types.h"
 #include <optional>
 
-// ペイン領域識別子（ある座標がどのペインに属するか）
 enum class PaneZone : uint8_t {
     None,
     FilePane,
@@ -13,16 +12,12 @@ enum class PaneZone : uint8_t {
     MdPane
 };
 
-// サイドペイン操作の対象（ヒット領域識別子の PaneZone と異なり、操作対象としての File/TOC のみ）。
-// SidePaneInstance[2] の添字としても使う。
+// PaneZone と異なり File/Toc のみ。
 enum class PaneTarget : uint8_t {
     File,
     Toc
 };
 
-// PaneZone (座標ヒット判定の結果) を、サイドペイン操作の対象を表す
-// PaneTarget へ変換する。File/Toc 以外の領域 (None / Splitter / MdPane)
-// は対象外なので nullopt を返す。
 constexpr std::optional<PaneTarget> ToPaneTarget(PaneZone zone) noexcept
 {
     switch (zone) {
@@ -51,7 +46,6 @@ struct PaneLayout {
     }
 };
 
-// スクロールバーの描画と操作に使う情報。
 struct PaneScrollInfo {
     float content_top = 0.0f;
     float content_height = 0.0f;
@@ -60,8 +54,6 @@ struct PaneScrollInfo {
     float thumb_height = 0.0f;
 };
 
-// 現フレームの PaneLayout 計算結果と、それを生成したウィンドウ幅をまとめてキャッシュする。
-// Invalidate() / Set() を経由することで、Reducer / App が個別のフラグや幅を直接触らずに済む。
 class PaneLayoutCache {
 public:
     constexpr void Invalidate() noexcept

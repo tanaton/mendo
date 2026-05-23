@@ -16,12 +16,10 @@ class SwipeDetector {
 public:
     constexpr void OnHWheel(int delta, uint64_t now_ms) noexcept
     {
-        // 直近の縦スクロールから一定時間内なら無視（軸ロック）
         if (now_ms - last_vscroll_time_ < AXIS_LOCK_MS) {
             return;
         }
 
-        // 前回の水平イベントから一定時間経過していたらリセット
         if (last_hscroll_time_ != 0 && now_ms - last_hscroll_time_ > RESET_TIMEOUT_MS) {
             accumulated_delta_ = 0;
         }
@@ -56,8 +54,6 @@ public:
         last_hscroll_time_ = 0;
         last_vscroll_time_ = 0;
     }
-
-    // ---- オーバーレイ表示用 ----
 
     constexpr bool IsOverlayVisible() const noexcept
     {

@@ -1,8 +1,6 @@
 #pragma once
 #include <cstdint>
 
-// 描画（Direct2D）と HTML クリップボードコピーで共有する色を一元定義する。
-// 0xRRGGBB 形式の uint32_t で保持し、D2D1_COLOR_F や L"#rrggbb" 文字列へ変換して参照する。
 // theme.h から分離してあるのは core 層 (selection_html.cpp) が D2D1 / Theme 構造体に
 // 引きずられず、色だけを参照できるようにするため。
 namespace theme_palette {

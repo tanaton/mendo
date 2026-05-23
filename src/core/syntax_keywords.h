@@ -503,7 +503,6 @@ inline constexpr auto RUST_TYPES = MakeBucketed(std::to_array<std::string_view>(
     "usize",
 }));
 
-// TypeScript = JS + TS固有キーワード（マージ済み）
 inline constexpr auto TS_KEYWORDS = MakeBucketed(std::to_array<std::string_view>({
     "abstract",
     "as",
@@ -679,7 +678,7 @@ inline constexpr auto BASH_TYPES = MakeBucketed(std::to_array<std::string_view>(
     "which",
 }));
 
-// PowerShell（大文字小文字を区別しないマッチングのためキーワードは小文字で格納）
+// 大文字小文字を区別しないマッチングのため小文字で格納。
 inline constexpr auto PWSH_KEYWORDS = MakeBucketed(std::to_array<std::string_view>({
     "begin",
     "break",
@@ -741,7 +740,7 @@ inline constexpr auto PWSH_TYPES = MakeBucketed(std::to_array<std::string_view>(
     "xml",
 }));
 
-// Cmd（大文字小文字を区別しないマッチングのためキーワードは小文字で格納）
+// 大文字小文字を区別しないマッチングのため小文字で格納。
 inline constexpr auto CMD_KEYWORDS = MakeBucketed(std::to_array<std::string_view>({
     "call",
     "defined",
@@ -805,7 +804,7 @@ inline constexpr auto CMD_TYPES = MakeBucketed(std::to_array<std::string_view>({
     "xcopy",
 }));
 
-// JSON / JSONC: リテラル値のみ。型名は該当概念がない。
+// 型名は該当概念がない。
 inline constexpr auto JSON_KEYWORDS = MakeBucketed(std::to_array<std::string_view>({
     "false",
     "null",

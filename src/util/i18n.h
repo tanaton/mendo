@@ -194,8 +194,6 @@ inline constexpr Strings kEn = {
 // load 値は常に有効ポインタで、参照剥がしも安全。
 inline std::atomic<const Strings*> g_strings{ &kJa };
 
-// 起動時に1回呼び出す。config_lang が "ja"/"en" なら直接選択、
-// 空または未知の場合は OS の UI 言語から自動判定する。
 inline void Init(std::wstring_view config_lang) noexcept
 {
     const Strings* selected = nullptr;
@@ -217,7 +215,6 @@ inline const Strings& S() noexcept
     return *g_strings.load(std::memory_order_acquire);
 }
 
-// 現在の言語を設定ファイル用のキー文字列で返す。
 inline std::wstring_view GetLangKey() noexcept
 {
     return (g_strings.load(std::memory_order_relaxed) == &kEn) ? L"en" : L"ja";

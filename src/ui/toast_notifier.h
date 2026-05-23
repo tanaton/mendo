@@ -4,8 +4,6 @@
 #include <string_view>
 #include <algorithm>
 
-// トースト通知の状態管理。
-// App側でタイマー駆動の Tick() 呼び出しによりフェードアウトを進行させる。
 class ToastNotifier {
 public:
     static constexpr float INITIAL_ALPHA = 2.5f; // 約0.8秒ホールド + 約0.5秒フェードアウト（合計~1.3秒）
@@ -17,7 +15,7 @@ public:
         alpha_ = INITIAL_ALPHA;
     }
 
-    // タイマーティックごとに呼び出す。まだ表示中なら true を返す。
+    // 表示中なら true。
     constexpr bool Tick() noexcept
     {
         if (alpha_ <= 0.0f) {

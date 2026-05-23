@@ -20,8 +20,6 @@ struct Theme;
 // 結果ストレージは互いに独立で、TakeAsyncResult/TakeAsyncError が両者を順に確認する。
 class FileLoadService {
 public:
-    // ---- ローディングアニメーション状態 ----
-
     constexpr bool IsLoading() const noexcept
     {
         return animation_.IsActive();
@@ -49,16 +47,11 @@ public:
         animation_.Tick();
     }
 
-    // ---- ファイル読み込み ----
-
     std::expected<void, FileLoadError> ExecuteLoad(Document& doc, LayoutCache& cache);
 
-    // ---- 非同期ファイル読み込み ----
-
     void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme);
-    // preload / async どちらの完了結果でも取り出す (preload 優先)。
+    // preload 優先。
     std::optional<AsyncLoadResult> TakeAsyncResult();
-    // 直近の非同期ロードが返したエラー (失敗時のみ有効)。
     // OnParseComplete の null パスで取り出してトースト表示に使う。
     std::optional<FileLoadError> TakeAsyncError() noexcept;
     void CancelAsyncLoad() noexcept
@@ -66,9 +59,7 @@ public:
         coordinator_.Cancel();
     }
 
-    // ---- 起動時 preload (App::Init 前から走らせる経路) ----
-
-    // hwnd なしで I/O + パースをワーカースレッドに投入する。
+    // App::Init 前から走らせる経路。
     void StartPreloadAsync(std::pmr::wstring path);
 
     using PreloadAttachResult = Preloader::AttachResult;
@@ -80,8 +71,6 @@ public:
     {
         return preloader_.AttachOrApply(hwnd, msg_id);
     }
-
-    // ---- パスアクセス ----
 
     constexpr const std::pmr::wstring& GetLoadingPath() const noexcept
     {
