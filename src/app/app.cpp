@@ -405,6 +405,9 @@ void App::OnCaptureChanged()
 
 void App::ShowToast(std::wstring_view message)
 {
+    if (message.empty()) {
+        return;
+    }
     effect_executor_.ExecuteOne(effect::ShowToast{ std::pmr::wstring{ message } });
 }
 
