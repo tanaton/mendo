@@ -27,7 +27,11 @@ std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr:
         return std::unexpected(FileLoadError::Cancelled);
     }
     MENDO_PROFILE("Document::FromMarkdown");
-    return Document::FromMarkdown(std::move(result->text), result->byte_size, path, stop_token);
+    auto doc = Document::FromMarkdown(std::move(result->text), result->byte_size, path, stop_token);
+    if (stop_token.stop_requested()) {
+        return std::unexpected(FileLoadError::Cancelled);
+    }
+    return doc;
 }
 
 // 仮想パスや存在しないパスは「大きい」扱いにする (非同期ロード経路で失敗を検出させるため)。

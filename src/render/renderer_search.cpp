@@ -289,6 +289,9 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
     BOOL is_trailing = FALSE;
     BOOL is_inside = FALSE;
     DWRITE_HIT_TEST_METRICS htm{};
-    layout->HitTestPoint(local_x, 0.0f, &is_trailing, &is_inside, &htm);
+    const HRESULT hr = layout->HitTestPoint(local_x, 0.0f, &is_trailing, &is_inside, &htm);
+    if (FAILED(hr)) {
+        return 0;
+    }
     return static_cast<int>(htm.textPosition) + (is_trailing ? 1 : 0);
 }

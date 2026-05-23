@@ -40,6 +40,7 @@ public:
     }
     void Reset() noexcept
     {
+        visible_ = false;
         ClearMatches();
         query_.clear();
         InvalidateLowercaseCache();

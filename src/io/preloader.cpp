@@ -76,6 +76,7 @@ void Preloader::Join()
     }
     ctx_->SignalAbort();
     if (thread_.joinable()) {
+        thread_.request_stop();
         thread_.join();
     }
     ctx_.reset();
