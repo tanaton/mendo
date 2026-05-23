@@ -86,6 +86,11 @@ bool App::Init(HWND hwnd)
         image_loader_.SetRenderTarget(new_rt);
         image_loader_.ClearCache();
         resource_manager_.LoadImages();
+        // layout_cache 内の IDWriteTextLayout は旧 RT 由来の ID2D1Brush を SetDrawingEffect 経由で
+        // 保持しており、新 RT で描画すると色が落ちる/拒否される。effects_applied を落として
+        // 次フレームの ApplyNodeEffects で新ブラシを再適用させる。同時に Mermaid/画像の
+        // DiagramEntry::bitmap も新 RT 系で再生成させる。
+        state_.document.layout_cache.InvalidateEffectsAndDiagramBitmaps(state_.document.doc.GetNodes());
     });
 
     theme_service_.LoadDarkMode();
