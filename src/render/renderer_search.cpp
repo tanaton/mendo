@@ -285,7 +285,10 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
     if (!layout) {
         return 0;
     }
-    BOOL is_trailing, is_inside;
+    // HitTestPoint が失敗 (E_FAIL 等) で out 引数未書込みでも未初期化値の読み出しを避ける。
+    // hit_test_service.cpp の他 2 箇所と同じ慣習。
+    BOOL is_trailing = FALSE;
+    BOOL is_inside = FALSE;
     DWRITE_HIT_TEST_METRICS htm{};
     layout->HitTestPoint(local_x, 0.0f, &is_trailing, &is_inside, &htm);
     return static_cast<int>(htm.textPosition) + (is_trailing ? 1 : 0);
