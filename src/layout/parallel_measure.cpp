@@ -131,10 +131,17 @@ DirtyBatchResult RunParallel(
                 const size_t end = std::min(begin + chunk_size, indices.size());
                 const std::span<const size_t> chunk_indices{ indices.data() + begin, end - begin };
                 const std::span<std::pmr::vector<SyntaxToken>> chunk_slots{ slot_tokens.data() + begin, end - begin };
-                const bool posted = scheduler.Post([&, chunk_indices, chunk_slots]() {
-                    MENDO_PROFILE("MeasureNode.worker");
-                    run_chunk(chunk_indices, chunk_slots);
-                });
+                bool posted = false;
+                try {
+                    posted = scheduler.Post([&, chunk_indices, chunk_slots]() {
+                        MENDO_PROFILE("MeasureNode.worker");
+                        run_chunk(chunk_indices, chunk_slots);
+                    });
+                } catch (...) {
+                    // Post 構築 (move_only_function の heap allocate / queue push) の例外。
+                    // latch.count_down() を確実に呼ぶため同期 fallback に倒す。
+                    OutputDebugStringW(L"[mendo] RunParallel scheduler.Post threw exception\n");
+                }
                 if (!posted) {
                     MENDO_PROFILE("MeasureNode.fallback");
                     run_chunk(chunk_indices, chunk_slots);

@@ -13,6 +13,19 @@ std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr:
     return Document::FromMarkdown(std::move(result->text), result->byte_size, path);
 }
 
+std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path, std::stop_token stop_token)
+{
+    auto result = FileLoader::LoadFile(path);
+    if (!result) {
+        return std::unexpected(result.error());
+    }
+    if (stop_token.stop_requested()) {
+        return std::unexpected(FileLoadError::ReadFailed);
+    }
+    MENDO_PROFILE("Document::FromMarkdown");
+    return Document::FromMarkdown(std::move(result->text), result->byte_size, path, stop_token);
+}
+
 // 仮想パスや存在しないパスは「大きい」扱いにする (非同期ロード経路で失敗を検出させるため)。
 bool DocumentService::IsLargerThan(const std::pmr::wstring& path, DWORD threshold) noexcept
 {
