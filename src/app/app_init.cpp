@@ -86,6 +86,9 @@ bool App::Init(HWND hwnd)
         image_loader_.SetRenderTarget(new_rt);
         image_loader_.ClearCache();
         resource_manager_.LoadImages();
+        // IDWriteTextLayout が SetDrawingEffect 経由で AddRef した旧 RT 由来のブラシと、
+        // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。
+        state_.document.layout_cache.InvalidateEffectsAndDiagramBitmaps(state_.document.doc.GetNodes());
     });
 
     theme_service_.LoadDarkMode();

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "app_constants.h"
+#include "app_search_bar_callbacks.h"
 #include "reducer.h"
 #include "document.h"
 #include "app_state.h"
@@ -25,6 +26,12 @@ protected:
         theme.splitter_width = 4.0f;
         theme.zoom = 1.0f;
         state.theme = &theme;
+        // search_bar_ctrl は内部 state_ ポインタを Init で受け取る (未呼び出しだと nullptr deref)。
+        state.search.search_bar_ctrl.Init(
+            state.search.search_state,
+            state.view.viewport,
+            state.document.layout_cache,
+            AppSearchBarCallbacks{});
     }
 };
 

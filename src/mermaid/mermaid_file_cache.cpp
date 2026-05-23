@@ -375,7 +375,10 @@ void MermaidFileCache::DecrementTotalSize(uint32_t png_size) noexcept
 
 void MermaidFileCache::ClearAll()
 {
+    // write_gen_ 進捗だけでは「ガード通過済みで WriteAllBytes 直前」の worker を止められず、
+    // 削除後に PNG が "復活" して orphan としてディスクに残る。
     write_gen_.fetch_add(1);
+    latch_.Wait();
 
     const auto dir = GetCacheDir();
     if (!dir.empty()) {

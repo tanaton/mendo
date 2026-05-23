@@ -40,7 +40,8 @@ static void DrawPaneScrollbar(
 
     const float track_height = content_height;
     const float thumb_ratio = content_height / total_content_height;
-    const float thumb_height = std::max(PANE_SCROLLBAR_THUMB_MIN, track_height * thumb_ratio);
+    // track_height < PANE_SCROLLBAR_THUMB_MIN でサムが枠外へ飛び出すのを防ぐ。
+    const float thumb_height = std::min(track_height, std::max(PANE_SCROLLBAR_THUMB_MIN, track_height * thumb_ratio));
 
     const float scroll_ratio = scroll_y / (total_content_height - content_height);
     const float thumb_y = content_top + scroll_ratio * (track_height - thumb_height);
@@ -145,7 +146,12 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
         const float total_content = static_cast<float>(sp.item_count) * sp.theme.pane_item_height;
         DrawPaneScrollbar(rt, sp.scrollbar_thumb_brush, sp.rect.width, content_top, content_height, sp.scroll.scroll_y, total_content);
 
-        rt->EndDraw();
+        const HRESULT end_hr = rt->EndDraw();
+        if (FAILED(end_hr)) {
+            // device-lost で失敗した bitmap を使い回すと main_rt で wrong-device 再発する。
+            sp.cache.Reset();
+            return;
+        }
         sp.cache.dirty = false;
         sp.cache.cached_scroll_y = sp.scroll.scroll_y;
         sp.cache.cached_bitmap.Reset();

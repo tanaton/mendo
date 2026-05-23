@@ -201,7 +201,8 @@ void ReduceSelectAll(AppState& state, SideEffectList& effects)
 void ReduceClearSelection(AppState& state, SideEffectList& effects)
 {
     if (state.search.search_state.IsVisible()) {
-        state.search.search_state.Hide();
+        // search_state.Hide() 単独だと SEARCH_CARET タイマー / has_focus_ / IME 状態が残留する。
+        state.search.search_bar_ctrl.OnClose();
     }
     else {
         state.view.viewport.ClearSelection();
@@ -379,8 +380,10 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
             if (ApplyBlockHScrollDelta(state, target, cur + dx, geom.scroll_max())) {
                 PushEffect(effects, effect::InvalidateWindow{});
             }
-            return;
         }
+        // target がブロック上にある以上、can_scroll()==false でも swipe_detector へは流さない
+        // (戻る/進むの暴発を防ぐ)。
+        return;
     }
 
     const bool had_overlay = state.interaction.swipe_detector.IsOverlayVisible();

@@ -29,6 +29,10 @@ void App::LoadHelpDocument()
     file_load_service_.StopLoading();
     EmitEffect(effect::StopFileWatch{});
     ResetViewForNewDocument();
+    // SearchState の lowercase キャッシュが旧 nodes ポインタを保持したまま誤再利用されるのを防ぐ。
+    state_.search.search_bar_ctrl.Reset();
+    EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
+    state_.active_toc_index = -1;
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
     state_.document.doc = Document::FromMarkdown(std::move(utf8), HELP_PATH);

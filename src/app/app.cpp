@@ -405,6 +405,9 @@ void App::OnCaptureChanged()
 
 void App::ShowToast(std::wstring_view message)
 {
+    if (message.empty()) {
+        return;
+    }
     effect_executor_.ExecuteOne(effect::ShowToast{ std::pmr::wstring{ message } });
 }
 
@@ -419,8 +422,16 @@ void App::OnDestroy()
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
 
+    // SaveScrollPosition だけ IsHelpPath ガード外に置くと、Help 表示中に終了したとき
+    // 前回 LastFilePath に Help の node index が紐付き、次回起動時に誤位置へジャンプする。
     if (!IsHelpPath(state_.document.doc.GetFilePath())) {
         session_.SaveLastFilePath(state_.document.doc.GetFilePath());
+        if (const int node = state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size()); node >= 0) {
+            // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top を読む。
+            // Fenwick PrefixSum 経由は加算順が違うため大規模ノードで誤差が累積する。
+            const float text_top = state_.document.layout_cache[node].text_top;
+            session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
+        }
     }
 
     {
@@ -432,13 +443,6 @@ void App::OnDestroy()
             .toc_width = panes.GetSidePaneWidth(PaneTarget::Toc),
         };
         session_.SavePaneState(s);
-    }
-
-    if (const int node = state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size()); node >= 0) {
-        // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top を読む。
-        // Fenwick PrefixSum 経由は加算順が違うため大規模ノードで誤差が累積する。
-        const float text_top = state_.document.layout_cache[node].text_top;
-        session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
     }
 
     config_.SaveWString("General", "Language", i18n::GetLangKey());
