@@ -65,11 +65,12 @@ public:
     {
         return loaded_byte_size_;
     }
-    std::pmr::wstring GetDirectory() const;
+    const std::pmr::wstring& GetDirectory() const noexcept { return cached_directory_; }
 
-    constexpr void SetFilePath(std::wstring_view path)
+    void SetFilePath(std::wstring_view path)
     {
         file_path_ = path;
+        RebuildCachedDirectory();
     }
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size);
     int FindAnchorIndex(std::string_view anchor) const;
@@ -119,4 +120,7 @@ private:
     std::pmr::vector<std::pair<std::uint64_t, int>> anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;
+    std::pmr::wstring cached_directory_;
+
+    void RebuildCachedDirectory();
 };

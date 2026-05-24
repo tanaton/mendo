@@ -897,6 +897,12 @@ void CommandGenerator::GenTable(
         const float row_bottom = y + row_h + border;
         if (row_bottom < viewport_top || y > viewport_bottom) {
             y = row_bottom;
+            if (!tl.cell_inline_code_bgs.empty() && bg_cursor < tl.cell_inline_code_bgs.size()) {
+                const uint32_t next_cell = static_cast<uint32_t>((r + 1) * tl.col_count);
+                while (bg_cursor < tl.cell_inline_code_bgs.size() && tl.cell_inline_code_bgs[bg_cursor].cell_index < next_cell) {
+                    ++bg_cursor;
+                }
+            }
             continue;
         }
 

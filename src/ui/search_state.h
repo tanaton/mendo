@@ -1,6 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
+#include <span>
 #include <string>
 #include <vector>
 #include <memory_resource>
@@ -144,10 +145,8 @@ private:
     // 連続バッファ化で metadata は offsets の 4B/ノード のみとなり、
     // CPU キャッシュ効率も向上する。
     struct LowercaseTable {
-        // NodeTableData::concat_text を bulk lowercase 化したもの。区切り '\t'/'\n' も含む。
         std::pmr::string buffer;
-        // NodeTableData::cell_text_starts のコピー (size = row_count * col_count + 1)。
-        std::pmr::vector<uint32_t> offsets;
+        std::span<const uint32_t> offsets;
         uint16_t col_count = 0;
     };
     struct LowercaseCache {

@@ -83,6 +83,7 @@ void Document::MoveFrom(Document&& other) noexcept
     const char* const old_base = other.raw_text_.data();
     nodes_ = std::move(other.nodes_);
     file_path_ = std::move(other.file_path_);
+    cached_directory_ = std::move(other.cached_directory_);
     raw_text_ = std::move(other.raw_text_);
     loaded_byte_size_ = other.loaded_byte_size_;
     toc_ = std::move(other.toc_);
@@ -97,6 +98,7 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
 {
     Document doc;
     doc.file_path_ = path;
+    doc.RebuildCachedDirectory();
     // RawText に入った後の relocate を避けるため、normalize は Replace の前に行う。
     NormalizeNewlines(text);
     doc.raw_text_.Replace(std::move(text));
@@ -113,10 +115,15 @@ Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
     return FromMarkdown(std::move(utf8), byte_size, path);
 }
 
-std::pmr::wstring Document::GetDirectory() const
+void Document::RebuildCachedDirectory()
 {
-    const auto dir = std::filesystem::path(file_path_).parent_path();
-    return std::pmr::wstring{ dir.native() };
+    if (file_path_.empty()) {
+        cached_directory_.clear();
+    }
+    else {
+        const auto dir = std::filesystem::path(file_path_).parent_path();
+        cached_directory_ = dir.native();
+    }
 }
 
 void Document::ReplaceContent(ParseResult&& result)
@@ -160,7 +167,14 @@ int Document::FindAnchorIndex(std::string_view anchor) const
     if (anchor.empty()) {
         return -1;
     }
-    // クエリ引数（外部リンク等）は大文字混在の可能性があるため正規化する。
+    char stack_buf[256];
+    if (anchor.size() <= sizeof(stack_buf)) {
+        for (size_t i = 0; i < anchor.size(); ++i) {
+            const char c = anchor[i];
+            stack_buf[i] = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+        }
+        return FindNormalizedAnchorIndex(std::string_view{ stack_buf, anchor.size() });
+    }
     const std::pmr::string target = ToLowerAscii(anchor);
     return FindNormalizedAnchorIndex(target);
 }

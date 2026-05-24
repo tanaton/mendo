@@ -191,6 +191,7 @@ void ImageLoader::ProcessCompletedDecodes()
             }
         }
 
+        // 全 on_complete は同一の invalidate シグナル
         last_cb = std::move(r.on_complete);
     }
 

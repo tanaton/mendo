@@ -56,8 +56,8 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     bool any_measured = false;
     bool broke_early = false;
 
-    std::pmr::vector<float> block_heights;
-    block_heights.reserve(node_count);
+    block_heights_buf_.clear();
+    block_heights_buf_.reserve(node_count);
 
     for (size_t i = 0; i < node_count; i++) {
         auto& node = nodes[i];
@@ -103,7 +103,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         y += entry.height;
         y += sb;
 
-        block_heights.push_back(sa + entry.height + sb);
+        block_heights_buf_.push_back(sa + entry.height + sb);
 
         // 幅の変更がなく、ビューポートを超えた後に高さの変更もなければ、
         // 残りの Y 位置は変わらないので早期終了する。
@@ -116,7 +116,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         }
     }
 
-    ApplyComputeLayoutBlockHeights(cache, block_heights, broke_early, y);
+    ApplyComputeLayoutBlockHeights(cache, block_heights_buf_, broke_early, y);
     has_dirty_nodes_ = any_dirty;
     if (any_measured) {
         cache.IncrementEffectsGeneration();
@@ -128,8 +128,9 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     MENDO_PLOT("layout.compute.broke_early", static_cast<int64_t>(broke_early));
 }
 
-void LayoutEngine::ApplyComputeLayoutBlockHeights(LayoutCache& cache, const std::pmr::vector<float>& block_heights,
-                                                  bool broke_early, float final_y) noexcept
+void LayoutEngine::ApplyComputeLayoutBlockHeights(
+    LayoutCache& cache, const std::pmr::vector<float>& block_heights,
+    bool broke_early, float final_y) noexcept
 {
     if (!broke_early) {
         cache.BuildBlockHeights(block_heights);

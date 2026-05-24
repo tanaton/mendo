@@ -111,13 +111,17 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
 
 bool IsMarkdownFile(std::wstring_view path)
 {
-    // ファイルパス比較は OS API 経由で wstring 固定 (alias 影響外)。
     static constexpr ascii_util::LowercaseAsciiLiteral kMarkdownExts[]{
         L".md",
         L".markdown",
         L".mkd",
     };
-    const auto ext = std::filesystem::path(path).extension().wstring();
+    const auto last_sep = path.find_last_of(L"\\/");
+    const auto dot_pos = path.rfind(L'.');
+    if (dot_pos == std::wstring_view::npos || (last_sep != std::wstring_view::npos && dot_pos < last_sep)) {
+        return false;
+    }
+    const auto ext = path.substr(dot_pos);
     return std::ranges::any_of(kMarkdownExts, [&](const auto& e) noexcept {
         return ascii_util::iequal(ext, e);
     });

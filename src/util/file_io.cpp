@@ -37,10 +37,14 @@ std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(const std::filesystem
         return {};
     }
     auto buf = std::make_unique_for_overwrite<uint8_t[]>(r.size);
-    DWORD bytes_read = 0;
-    if (!ReadFile(r.handle.get(), buf.get(), static_cast<DWORD>(r.size), &bytes_read, nullptr) ||
-        bytes_read != static_cast<DWORD>(r.size)) {
-        return {};
+    size_t total_read = 0;
+    while (total_read < r.size) {
+        DWORD bytes_read = 0;
+        const DWORD to_read = static_cast<DWORD>(std::min<size_t>(r.size - total_read, UINT32_MAX));
+        if (!ReadFile(r.handle.get(), buf.get() + total_read, to_read, &bytes_read, nullptr) || bytes_read == 0) {
+            return {};
+        }
+        total_read += bytes_read;
     }
     return { std::move(buf), r.size };
 }

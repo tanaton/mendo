@@ -119,13 +119,11 @@ void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache&
     const int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
 
     const uint32_t effects_gen = cache.GetEffectsGeneration();
-    const int viewport_bottom_px = static_cast<int>(viewport_bottom);
-    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || viewport_bottom_px != last_effects_bottom_px_) {
+    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_) {
         MENDO_PROFILE("PrepareVisibleEffects");
         ApplyVisibleEffects(nodes, cache, first_visible, viewport_top, viewport_bottom);
         last_effects_gen_ = effects_gen;
         last_effects_first_ = first_visible;
-        last_effects_bottom_px_ = viewport_bottom_px;
     }
 }
 

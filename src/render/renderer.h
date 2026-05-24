@@ -204,11 +204,8 @@ private:
 
     PaneCache pane_caches_[2];
 
-    // ApplyVisibleEffects スキップ判定用キャッシュ。viewport_bottom は物理ピクセル単位の
-    // 整数値に丸めて比較し、float 比較の epsilon 揺らぎを排除する (DPI 100% で 1px 粒度)。
     uint32_t last_effects_gen_ = std::numeric_limits<uint32_t>::max();
     int last_effects_first_ = -1;
-    int last_effects_bottom_px_ = -1;
 
     Theme theme_;
     DWriteTextMeasurer measurer_;

@@ -82,6 +82,7 @@ private:
     mendo::layout::DirtyScheduler scheduler_{};
     TaskScheduler* layout_scheduler_ = nullptr;
 
+    std::pmr::vector<float> block_heights_buf_;
     float total_height_ = 0.0f;
     float last_viewport_width_ = 0.0f;
     bool has_dirty_nodes_ = false;
