@@ -71,8 +71,9 @@ public:
     // 表示可能なノードが存在しない場合は-1を返す。
     constexpr int FindFirstVisibleNode(const LayoutCache& cache, size_t node_count) const noexcept
     {
-        const int idx = FindFirstVisibleNodeIndex(cache, node_count, scroll_y_);
-        return idx < static_cast<int>(node_count) ? idx : -1;
+        const size_t effective = std::min(node_count, cache.size());
+        const int idx = FindFirstVisibleNodeIndex(cache, effective, scroll_y_);
+        return idx < static_cast<int>(effective) ? idx : -1;
     }
 
     // scroll_target を明示設定する。内部の scroll_y は更新しないので、

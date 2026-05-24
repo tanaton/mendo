@@ -85,7 +85,6 @@ void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
     items.emplace_back(ItemType::Text, IDM_TOGGLE_TOC_PANE, ls.menu_toc_pane, true, params.toc_pane_checked);
 }
 
-// テキストフォーマット生成（DWrite only、Win32 / D2D render target 非依存）。
 void ContextMenu::Impl::CreateTextFormats(const Theme& t)
 {
     if (fmt_text && fmt_icon &&

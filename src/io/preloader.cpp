@@ -13,11 +13,7 @@ void Preloader::Context::SignalAbort()
 
 Preloader::~Preloader()
 {
-    // jthread は destructor で join するが、worker が cv.wait でブロック中だと
-    // デッドロックするため、明示的に abort 通知してから抜ける。
-    if (ctx_) {
-        ctx_->SignalAbort();
-    }
+    Join();
 }
 
 void Preloader::Start(std::pmr::wstring path)
@@ -76,6 +72,7 @@ void Preloader::Join()
     }
     ctx_->SignalAbort();
     if (thread_.joinable()) {
+        thread_.request_stop();
         thread_.join();
     }
     ctx_.reset();

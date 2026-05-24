@@ -2,15 +2,28 @@
 #include "layout_cache.h"
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <ranges>
 
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
 {
-    const auto [it_old, it_new] = std::ranges::mismatch(old_text, new_text);
-    if (it_old == old_text.end() && it_new == new_text.end()) {
-        return std::string_view::npos;
+    const size_t min_len = std::min(old_text.size(), new_text.size());
+    constexpr size_t kChunk = 64;
+    size_t i = 0;
+    for (; i + kChunk <= min_len; i += kChunk) {
+        if (std::memcmp(old_text.data() + i, new_text.data() + i, kChunk) != 0) {
+            break;
+        }
     }
-    return static_cast<size_t>(it_old - old_text.begin());
+    for (; i < min_len; ++i) {
+        if (old_text[i] != new_text[i]) {
+            return i;
+        }
+    }
+    if (old_text.size() != new_text.size()) {
+        return min_len;
+    }
+    return std::string_view::npos;
 }
 
 ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept
@@ -92,7 +105,8 @@ float CalcScrollYForDiff(
     if (node_start != kUnsetSourceOffset) {
         auto next_start = content.size();
         const auto node_count = static_cast<int>(nodes.size());
-        for (int i = changed_node + 1; i < node_count; ++i) {
+        const int probe_limit = std::min(node_count, changed_node + 1 + 64);
+        for (int i = changed_node + 1; i < probe_limit; ++i) {
             const auto off = nodes[i].SourceOffsetFrom(raw_base);
             if (off != kUnsetSourceOffset && off > node_start) {
                 next_start = off;

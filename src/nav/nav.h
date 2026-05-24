@@ -8,8 +8,6 @@
 #include <memory_resource>
 #include <map>
 
-// 単一のナビゲーション履歴エントリ: ファイルパス + スクロール位置（ノード単位）。
-// ノードインデックスと、そのノードの text_top からのオフセットで位置を表現する。
 // ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。
 struct NavEntry {
     std::pmr::wstring file_path;
@@ -23,9 +21,6 @@ struct NavEntry {
     }
 };
 
-// ブラウザスタイルの戻る/進むナビゲーション履歴。
-// 純粋なロジックのみ、Win32依存なし — 完全にテスト可能。
-// 内部ではパスをインターン化し、同一パスの重複保持を回避する。
 class NavHistory {
 public:
     void Push(const NavEntry& current);

@@ -1,4 +1,5 @@
 #include "mermaid_file_cache.h"
+#include "profiler.h"
 #include "task_scheduler.h"
 #include "file_io.h"
 #include <algorithm>
@@ -378,6 +379,7 @@ void MermaidFileCache::ClearAll()
     // write_gen_ 進捗だけでは「ガード通過済みで WriteAllBytes 直前」の worker を止められず、
     // 削除後に PNG が "復活" して orphan としてディスクに残る。
     write_gen_.fetch_add(1);
+    MENDO_PROFILE("MermaidFileCache::ClearAll::Wait");
     latch_.Wait();
 
     const auto dir = GetCacheDir();

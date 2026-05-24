@@ -30,9 +30,8 @@ private:
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);
     LRESULT OnNcHitTest(LPARAM lParam);
-    // リサイズ枠領域のヒットテスト。最大化時は HTNOWHERE を返し、呼び出し元で次の判定へ進む。
+    // 最大化時は HTNOWHERE を返す。
     LRESULT HitTestResizeFrame(POINT pt) const noexcept;
-    // タイトルバー領域のヒットテスト。タイトルバー外なら HTCLIENT を返す。
     LRESULT HitTestTitleBar(POINT pt) const noexcept;
     LRESULT HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam);
@@ -56,7 +55,7 @@ private:
 
     std::pmr::wstring search_text_buf_;
 
-    // WM_NCHITTEST用DPIメトリクスキャッシュ（WM_DPICHANGED時に更新）
+    // WM_DPICHANGED 時に更新。
     int cached_nchit_border_ = 4;
     int cached_nchit_frame_y_ = 8;
     int cached_nchit_right_border_ = 8;

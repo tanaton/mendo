@@ -51,12 +51,10 @@ public:
 
     constexpr void Insert(const Key& key, Value value)
     {
-        // 既存キーは Find と同じ promote ルールで 1 つ前と swap し、値だけ上書き。
         if (auto* slot = Find(key); slot) {
             *slot = std::move(value);
             return;
         }
-        // 新規挿入は head_ を 1 つ巻き戻して書き込む。満杯時は末尾位置 (= head_-1) を上書き。
         head_ = (head_ + MaxEntries - 1) % MaxEntries;
         keys_[head_] = key;
         values_[head_] = std::move(value);

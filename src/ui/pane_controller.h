@@ -4,9 +4,6 @@
 #include <algorithm>
 #include <cstddef>
 
-// ペイン関連の全状態を管理: 幅、表示/非表示、スクロール、ホバー、ドラッグ。
-// File / TOC ペインの対称な状態は 2 要素配列で持ち、PaneTarget で添字アクセスする。
-// Win32非依存 — 完全にテスト可能。
 class PaneController {
 public:
     enum class DragTarget : uint8_t {
@@ -65,14 +62,14 @@ public:
         instances_[1].scroll = {};
     }
 
-    // 実際にスクロール位置が変化した場合 true を返す。
+    // 変化した場合 true。
     bool ScrollSidePaneBy(PaneTarget t, float delta, float max_scroll) noexcept;
 
     constexpr int GetHoveredSideIndex(PaneTarget t) const noexcept
     {
         return Inst(t).hovered_index;
     }
-    // 値が変化した場合 true を返す。
+    // 変化した場合 true。
     bool SetHoveredSideIndex(PaneTarget t, int idx) noexcept;
 
     constexpr bool IsSideCloseHovered(PaneTarget t) const noexcept
@@ -109,7 +106,7 @@ public:
         drag_scroll_offset_ = off;
     }
 
-    // スプリッターの位置を制約する。target は Splitter1(=File右端) / Splitter2(=Toc右端)。
+    // target: Splitter1=File右端, Splitter2=Toc右端。
     void DragSplitterTo(DragTarget target, float dip_x, float total_width, float splitter_w) noexcept;
 
     void ApplyZoom(float ratio) noexcept;

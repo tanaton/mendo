@@ -33,8 +33,7 @@ struct FileEntry {
         set_flag(PARENT, v);
     }
 
-    // 表示名を返す（full_pathの末尾ファイル名、".."エントリは"..") 。
-    // 戻り値は full_path の内部バッファまたはリテラルを指す view。
+    // 戻り値は full_path の内部バッファを指す view。
     constexpr std::wstring_view GetDisplayName() const noexcept
     {
         if (is_parent()) {

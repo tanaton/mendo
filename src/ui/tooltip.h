@@ -5,9 +5,6 @@
 #include <string>
 #include <string_view>
 
-// ツールチップの表示対象を識別する値型。
-// zone + text の組み合わせでホバー対象の変化を検出する。
-// プラットフォーム非依存（Reducer / AppAction 経由で使うため Win32 ヘッダを引き込まない）。
 struct TooltipTarget {
     enum class Zone : uint8_t {
         None,
@@ -44,7 +41,6 @@ struct TooltipTarget {
 struct HWND__;
 using HWND = HWND__*;
 
-// App 側のホバー検出結果をもとに、ツールチップの表示/非表示を制御する。
 class Tooltip {
 public:
     Tooltip();

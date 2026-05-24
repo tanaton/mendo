@@ -1,29 +1,25 @@
 #pragma once
 #include "ui_types.h"
 
-// タイトルバー上のヒット領域
 enum class TitleBarHitZone : uint8_t {
-    None,        // タイトルバー外
-    Caption,     // ドラッグ可能領域
-    Icon,        // アプリアイコン（システムメニュー）
-    OpenFile,    // ファイルを開くボタン
-    Help,        // ヘルプボタン
-    ThemeToggle, // ダークモード切替ボタン
-    Search,      // 検索ボタン
-    FileToggle,  // ファイルペイン切替ボタン
-    TocToggle,   // 目次ペイン切替ボタン
-    Minimize,    // 最小化ボタン
-    Maximize,    // 最大化/復元ボタン
-    Close,       // 閉じるボタン
+    None,
+    Caption,
+    Icon,
+    OpenFile,
+    Help,
+    ThemeToggle,
+    Search,
+    FileToggle,
+    TocToggle,
+    Minimize,
+    Maximize,
+    Close,
 };
 
-// タイトルバーボタンの位置情報。ホバー状態は TitleBarHitZone で集約管理する。
 struct TitleBarButton {
     DipRect rect{};
 };
 
-// カスタムタイトルバーの状態管理。
-// ボタン位置計算・ヒットテスト・ホバー管理を担当。
 class TitleBar {
 public:
     static constexpr float BASE_HEIGHT = 32.0f;
@@ -40,13 +36,11 @@ public:
         return BASE_HEIGHT;
     }
 
-    // ウィンドウ幅からボタン位置を計算
     void UpdateLayout(float window_width_dip) noexcept;
 
-    // DIP 座標でヒットテスト
     TitleBarHitZone HitTest(float dip_x, float dip_y) const noexcept;
 
-    // ホバー状態を設定。変化した場合 true を返す。
+    // 変化した場合 true。
     bool SetHovered(TitleBarHitZone zone) noexcept;
 
     constexpr TitleBarHitZone GetHovered() const noexcept

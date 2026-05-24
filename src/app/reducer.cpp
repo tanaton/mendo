@@ -201,7 +201,6 @@ void ReduceSelectAll(AppState& state, SideEffectList& effects)
 void ReduceClearSelection(AppState& state, SideEffectList& effects)
 {
     if (state.search.search_state.IsVisible()) {
-        // search_state.Hide() 単独だと SEARCH_CARET タイマー / has_focus_ / IME 状態が残留する。
         state.search.search_bar_ctrl.OnClose();
     }
     else {
@@ -373,16 +372,16 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     // ホバー or ドラッグ中のブロックが横スクロール可能ならそこに適用し、スワイプオーバーレイには流さない。
     const int target = (state.view.h_drag_node >= 0) ? state.view.h_drag_node : state.view.hovered_h_block;
     if (target >= 0) {
-        const auto geom = ResolveBlockHScrollGeometry(state, target);
-        if (geom.can_scroll()) {
-            const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
-            const float cur = state.view.GetBlockScrollX(target);
-            if (ApplyBlockHScrollDelta(state, target, cur + dx, geom.scroll_max())) {
-                PushEffect(effects, effect::InvalidateWindow{});
+        if (state.pane_layout_cache.IsValid()) {
+            const auto geom = ResolveBlockHScrollGeometry(state, target);
+            if (geom.can_scroll()) {
+                const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
+                const float cur = state.view.GetBlockScrollX(target);
+                if (ApplyBlockHScrollDelta(state, target, cur + dx, geom.scroll_max())) {
+                    PushEffect(effects, effect::InvalidateWindow{});
+                }
             }
         }
-        // target がブロック上にある以上、can_scroll()==false でも swipe_detector へは流さない
-        // (戻る/進むの暴発を防ぐ)。
         return;
     }
 

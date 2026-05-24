@@ -6,7 +6,6 @@ namespace app_controller {
 
 AppAction HandleKeyDown(const KeyDownEvent& event)
 {
-    // Alt+矢印キー: 戻る/進むナビゲーション
     if (event.alt && !event.ctrl) {
         switch (event.key) {
         case VK_LEFT:

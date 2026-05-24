@@ -3,7 +3,6 @@
 #include <span>
 #include <windows.h>
 
-// Win32リソース（RCDATA）からバイト列を取得する。
 // リソースはプロセスのアドレス空間にマップされておりコピー不要。
 inline std::span<const std::byte> LoadRcData(UINT resource_id) noexcept
 {

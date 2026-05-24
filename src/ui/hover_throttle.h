@@ -2,9 +2,7 @@
 #include <windows.h>
 #include <limits>
 
-// ホバー時のヒットテスト省略判定用の距離の二乗（ピクセル²）
 inline constexpr int HOVER_THROTTLE_DISTANCE_SQ = 16;
-// MOUSEMOVE バースト時にヒットテストを連発させないための最小経過時間（ミリ秒）。
 inline constexpr DWORD HOVER_THROTTLE_MIN_INTERVAL_MS = 8;
 
 // last_pos の "未設定" sentinel。
@@ -19,15 +17,12 @@ inline constexpr bool IsUnset(POINT p) noexcept
     return p.x == std::numeric_limits<LONG>::min();
 }
 
-// ヒットテストのスロットリング状態。
-// マウス位置が一定距離以上動いた場合のみヒットテストを再実行する。
 struct HoverThrottle {
     POINT last_md_hit_pos = kUnsetHoverPos;
     bool last_md_cursor_hand = false;
     POINT last_copy_hit_pos = kUnsetHoverPos;
     POINT last_hover_dispatch_pos = kUnsetHoverPos;
 
-    // 各ターゲット種別のヒットテスト最終実行時刻（GetTickCount）。
     DWORD last_md_hit_tick = 0;
     DWORD last_copy_hit_tick = 0;
 
@@ -53,7 +48,6 @@ struct HoverThrottle {
         return false;
     }
 
-    // 距離 + 時間の二重ガード版。両方を満たした時のみ位置・時刻を更新して true を返す。
     [[nodiscard]] bool TryMarkMoved(POINT& last_pos, DWORD& last_tick, int px, int py) noexcept
     {
         if (IsUnset(last_pos)) {

@@ -23,8 +23,7 @@ public:
     Preloader(const Preloader&) = delete;
     Preloader& operator=(const Preloader&) = delete;
 
-    // hwnd なしで I/O + パースをワーカースレッドに投入する。
-    // EstimateNodeHeights は Theme 依存なので skip し、heights_estimated=false を返す。
+    // Theme 不在のため EstimateNodeHeights をスキップ (heights_estimated=false)。
     void Start(std::pmr::wstring path);
 
     enum class AttachResult {
@@ -43,7 +42,6 @@ public:
         return ctx_ != nullptr;
     }
 
-    // 完了通知を取り出す。preload が動いていなければ空。
     std::optional<AsyncLoadResult> TakeResult();
     std::optional<FileLoadError> TakeError();
 
@@ -68,9 +66,7 @@ private:
     template <class Opt>
     Opt TakeFromSink(Opt& sink);
 
-    // 宣言順: thread_ を ctx_ より前に置く。reverse-destruction で
-    // ctx_ → thread_ (join) → result_/error_ の mutex の順に破壊され、
-    // worker が result_/error_ を触るのは join 完了より前に保証される。
+    // デストラクタで明示的に Join() を呼ぶため、sink メンバ破壊前に worker は終了済み。
     std::jthread thread_;
     std::shared_ptr<Context> ctx_;
 

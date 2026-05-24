@@ -93,7 +93,7 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
             table.col_count = tbl->col_count;
             table.buffer.resize(tbl->concat_text.size());
             ascii_util::AsciiToLowerOnly(tbl->concat_text.data(), table.buffer.data(), tbl->concat_text.size());
-            table.offsets.assign(tbl->cell_text_starts.begin(), tbl->cell_text_starts.end());
+            table.offsets = std::span<const uint32_t>{ tbl->cell_text_starts.data(), tbl->cell_text_starts.size() };
             lower_cache_.tables.emplace(static_cast<int>(i), std::move(table));
         }
         else if (node.type == NodeType::Image || (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language()))) {

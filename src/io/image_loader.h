@@ -22,8 +22,7 @@ public:
 
     ~ImageLoader();
 
-    // WIC factory を共有 (renderer_) もしくは独自に CoCreateInstance で取得。
-    // 失敗時 false (LoadImage / RequestLoadAsync は wic_factory_ が null だと no-op)。
+    // 失敗時 false; 以降の LoadImage / RequestLoadAsync は no-op。
     bool Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);
     // **UI スレッドからのみ呼び出すこと**。worker は render_target_ を非アトミック参照する
     // (ProcessCompletedDecodes 経由)。デバイスロスト後の rt 差し替えは CancelPending() で

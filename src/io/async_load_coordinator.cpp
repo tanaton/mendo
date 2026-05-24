@@ -1,5 +1,6 @@
 #include "async_load_coordinator.h"
 #include "document.h"
+#include "document_service.h"
 #include "layout.h"
 #include "layout_cache.h"
 #include "profiler.h"
@@ -24,6 +25,8 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
 
 void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, const Theme& theme)
 {
+    // Cancel() と同じく gen を最初に進めて、旧 worker の try_publish を確実に弾く。
+    const uint32_t gen = gen_.fetch_add(1, std::memory_order_relaxed) + 1;
     ResetSinks();
     in_flight_ = true;
     // 前 worker のキャプチャ済み stop_token を協調キャンセルする。これを呼ばないと
@@ -32,7 +35,6 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     // request_stop 済みの source は再使用不可なので Start 毎に作り直す。
     stop_source_ = std::stop_source{};
     auto stop_token = stop_source_.get_token();
-    const uint32_t gen = gen_.fetch_add(1, std::memory_order_relaxed) + 1;
 
     const bool posted = scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme, stop_token = std::move(stop_token), guard = latch_.Acquire()] {
         MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
@@ -56,21 +58,20 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
             return;
         }
 
-        auto load_result = FileLoader::LoadFile(path);
+        auto load_result = DocumentService::LoadFile(path, stop_token);
         if (!load_result) {
+            if (load_result.error() == FileLoadError::Cancelled) {
+                return;
+            }
             try_publish([&] { error_ = load_result.error(); });
             return;
         }
 
-        if (gen_.load(std::memory_order_relaxed) != gen || stop_token.stop_requested()) {
+        if (gen_.load(std::memory_order_relaxed) != gen) {
             return;
         }
 
-        Document doc = Document::FromMarkdown(std::move(load_result->text), load_result->byte_size, path, stop_token);
-
-        if (gen_.load(std::memory_order_relaxed) != gen || stop_token.stop_requested()) {
-            return;
-        }
+        Document doc = std::move(*load_result);
 
         LayoutCache cache;
         cache.Reset(doc.GetNodes().size(), /* shrink = */ false);

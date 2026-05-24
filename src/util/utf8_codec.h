@@ -16,7 +16,6 @@ struct DecodedCp {
     uint32_t len; // 単位は decode 入力の code unit (UTF-8 なら byte 1-4、UTF-16 なら wchar_t 1-2)。
 };
 
-// UTF-8: pos がマルチバイト継続バイト (10xxxxxx) を指したら先頭バイトまで戻す。
 constexpr uint32_t SnapToCpStart(std::string_view text, uint32_t pos) noexcept
 {
     while (pos > 0 && (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80) {
@@ -25,7 +24,6 @@ constexpr uint32_t SnapToCpStart(std::string_view text, uint32_t pos) noexcept
     return pos;
 }
 
-// UTF-16: pos が low surrogate を指したら直前の high surrogate まで戻す。
 constexpr uint32_t SnapToCpStart(std::wstring_view text, uint32_t pos) noexcept
 {
     if (pos > 0) {
@@ -111,16 +109,14 @@ constexpr DecodedCp DecodeAt(std::wstring_view text, uint32_t pos) noexcept
     return { c, 1 };
 }
 
-// pos の直前の code point を decode。pos > 0 が前提。
+// pos > 0 が前提。
 template <typename SV>
 constexpr DecodedCp DecodePrev(SV text, uint32_t pos) noexcept
 {
     return DecodeAt(text, SnapToCpStart(text, pos - 1));
 }
 
-// cp を UTF-8 で buf に書き込み、書き込んだ byte 数 (1..4) を返す。
-// 不正な scalar 値 (cp > 0x10FFFF / サロゲート領域 0xD800..0xDFFF) は 0 を返し、buf は触らない。
-// 呼び出し側は戻り値 0 を「不正入力」として扱うこと。
+// 不正な scalar 値は 0 を返す。
 constexpr uint32_t EncodeCp(uint32_t cp, char buf[4]) noexcept
 {
     if (cp >= 0xD800u && cp <= 0xDFFFu) {

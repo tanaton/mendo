@@ -3,7 +3,6 @@
 #include "swipe_detector.h"
 #include "render_params.h"
 
-// マウスジェスチャ非アクティブ時はタッチパッドスワイプ用オーバーレイにフォールバックする。
 inline GestureRenderState ResolveGestureOverlay(
     const MouseGesture& gesture,
     const SwipeDetector& swipe) noexcept

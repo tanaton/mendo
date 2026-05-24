@@ -3,15 +3,11 @@
 #include <utility>
 #include <windows.h>
 
-// Reducer・Win32Window・副作用エグゼキュータが共有する Win32 メッセージ／タイマー
-// 関連の定数。レンダラー非依存に保ち、include 連鎖を浅く保つ。
-// 各 ID は一意であり、変更する際は全 ID の重複がないことを確認すること。
+// 各 ID は一意。変更する際は重複がないことを確認すること。
 
 namespace app_timer {
 
-// アプリで使う Win32 タイマー ID。enum class で型安全化し、
-// 任意の UINT_PTR (例: WM_TIMER の wParam) が誤って混入しないようにする。
-// Win32 API (SetTimer / KillTimer) に渡す際は std::to_underlying でキャスト。
+// Win32 API に渡す際は std::to_underlying でキャスト。
 enum class Id : UINT_PTR {
     DEFERRED_LAYOUT = 1,
     LOADING_ANIM = 2,
@@ -26,13 +22,11 @@ enum class Id : UINT_PTR {
     FILE_RELOAD_DEBOUNCE = 11,
 };
 
-// タイマー間隔 (ms)
 inline constexpr UINT FRAME_INTERVAL_MS = 16;        // ~60fps アニメーション用
 inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200; // ファイル変更通知のデバウンス
 inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;     // truncate→rewrite 検出後の短縮リトライ
 
-// アプリ終了時に KillTimer する全タイマー ID。Single Source of Truth として
-// 上記 ID 定義の更新漏れを防ぐ。新規タイマーを足したらここに追加すること。
+// 新規タイマーを足したらここに追加すること。
 inline constexpr Id ALL_TIMERS[] = {
     Id::DEFERRED_LAYOUT,
     Id::LOADING_ANIM,
@@ -56,7 +50,7 @@ inline constexpr UINT SEARCH_FOCUS = WM_APP + 4;
 inline constexpr UINT SEARCH_UNFOCUS = WM_APP + 5;
 inline constexpr UINT PARSE_COMPLETE = WM_APP + 6;
 
-// カスタムメッセージの上限。アプリ独自メッセージかどうかの判定に [WM_APP, END) を使う。
+// 判定に [WM_APP, END) を使う。
 inline constexpr UINT END = WM_APP + 7;
 
 } // namespace app_msg
@@ -69,7 +63,6 @@ inline constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2;      // lParam = (anchor
 inline constexpr WPARAM SEARCH_UNFOCUS_CLOSE = 0;
 inline constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
 
-// SEARCH_FOCUS_SET_SELECTION の lParam に anchor / caret (int) を pack する。
 // 64bit LPARAM (x64/arm64 ビルド前提) に int × 2 を載せて動的確保を排除。
 // PostMessage 成功後に hwnd 破棄が起きても OS の message queue に残るのは値だけで leak しない。
 static_assert(sizeof(LPARAM) >= sizeof(uint64_t), "x64/arm64 build expected (LPARAM must hold int x 2)");

@@ -7,12 +7,8 @@
 #include <memory_resource>
 #include <vector>
 
-// COM IStream 周りの共通ヘルパー。
-// WIC デコード入力や WebView2 CapturePreview 出力などで使い回される。
 namespace stream_util {
 
-// IStream の先頭から全バイトを読み出す。サイズ検証と Read/Seek の HRESULT を確認し、
-// 部分読込やサイズ不正は空ベクタを返す失敗扱いにする。
 inline std::pmr::vector<uint8_t> ReadAllBytes(IStream* stream)
 {
     if (!stream) {
@@ -44,7 +40,6 @@ inline std::pmr::vector<uint8_t> ReadAllBytes(IStream* stream)
     return data;
 }
 
-// HGLOBAL 上のメモリストリームを作成し、与えられたバイト列を書き込んで先頭に巻き戻す。
 // size == 0 は空ストリームを要求する正当なユースケース（WebView2 CapturePreview の
 // 書き込み先バッファ用途）として許容するが、size > 0 && data == nullptr は呼び出し
 // 側バグなので nullptr を返して失敗させる。
@@ -74,7 +69,6 @@ inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size
     return stream;
 }
 
-// ファイルハンドルから size バイトを HGLOBAL に直接読み込んで IStream を返す。
 // 大きな画像ファイルで一時バッファへのコピーを避けるため、ReadFile を HGLOBAL にロックしたまま呼ぶ。
 inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromFile(HANDLE file, size_t size)
 {

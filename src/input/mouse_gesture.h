@@ -67,7 +67,6 @@ public:
         }
 
         if (phase_ == GesturePhase::Tracking) {
-            // 軌跡ポイントをサブサンプリング
             const auto& last = trail_points_.back();
             const float pdx = x - last.x;
             const float pdy = y - last.y;
@@ -78,7 +77,6 @@ public:
                 trail_points_.emplace_back(x, y);
             }
             UpdateDirection();
-            // 方向が決定されたらすぐにオーバーレイを表示する
             overlay_alpha_ = (direction_ != GestureDirection::None) ? 1.0f : 0.0f;
         }
     }
@@ -90,12 +88,10 @@ public:
         }
 
         if (phase_ == GesturePhase::Pressed) {
-            // 小さな移動 — コンテキストメニュー
             phase_ = GesturePhase::Idle;
             return GestureResult::ShowContextMenu;
         }
 
-        // トラッキング中 → 結果を判定してIdleにリセット
         const GestureDirection dir = direction_;
         Reset();
 

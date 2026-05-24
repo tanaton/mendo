@@ -883,14 +883,14 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     // 初期確保サイズと再確保回数のバランスで決めている。値は「入力 N byte あたり 1 個」を表す:
     //   - kArenaInputBytesPerByte=20  → 入力の 5% を初期 arena に。new_delete 直結回数を削減。
     //   - kScratchInputBytesPerByte=8 → ノード当たりの平均テキスト長 ~8B 想定の scratch。
-    //   - kInputBytesPerNode=48       → 1 ノードあたり ~48 入力 byte (realloc 14 回→4 回相当)。
+    //   - kInputBytesPerNode=64       → 1 ノードあたり ~64 入力 byte (realloc 14 回→4 回相当)。
     //   - kInputBytesPerHeading=4096  → 1MB あたり 256 個の見出し相当。実測数十〜数百に収まる。
     //   - kInputBytesPerImage=512     → 画像頻度 ~0.2%。
     //   - kInputBytesPerBlockquote=512 → blockquote 頻度 (image と同程度)。
     //   - kInputBytesPerDiagram=1024  → ダイアグラム頻度 ~0.1%。
     constexpr size_t kArenaInputBytesPerByte = 20;
     constexpr size_t kScratchInputBytesPerByte = 8;
-    constexpr size_t kInputBytesPerNode = 48;
+    constexpr size_t kInputBytesPerNode = 64;
     constexpr size_t kInputBytesPerHeading = 4096;
     constexpr size_t kInputBytesPerImage = 512;
     constexpr size_t kInputBytesPerBlockquote = 512;
@@ -905,18 +905,17 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     ctx.markdown_base = markdown_text.data();
     ctx.markdown_size = input_size;
     ctx.current_text.reserve(std::clamp(input_size / kScratchInputBytesPerByte, SCRATCH_RESERVE_MIN, SCRATCH_RESERVE_MAX));
-    // 上限 256K: 100MB / 48 ≈ 2.18M ノード期待だが Node sizeof × 256K = ~20MB に抑える。
-    const size_t nodes_reserve = std::clamp(input_size / kInputBytesPerNode, size_t{ 64 }, size_t{ 262144 });
+    const size_t nodes_reserve = std::max(input_size / kInputBytesPerNode, 64uz);
     ctx.nodes.reserve(nodes_reserve);
     ctx.list_counter.reserve(8);
     MENDO_STATF("nodes.reserve: input={} reserve={}", input_size, nodes_reserve);
     // heading_indices と anchor_counts は 1 見出し 1 エントリで対になるので同じヒントを使う。
-    const size_t heading_hint = std::clamp(input_size / kInputBytesPerHeading, size_t{ 8 }, size_t{ 256 });
+    const size_t heading_hint = std::clamp(input_size / kInputBytesPerHeading, 8uz, 256uz);
     ctx.heading_indices.reserve(heading_hint);
     ctx.anchor_counts.reserve(heading_hint);
-    ctx.image_indices.reserve(std::clamp(input_size / kInputBytesPerImage, size_t{ 4 }, size_t{ 256 }));
-    ctx.diagram_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, size_t{ 4 }, size_t{ 128 }));
-    ctx.blockquote_indices.reserve(std::clamp(input_size / kInputBytesPerBlockquote, size_t{ 4 }, size_t{ 256 }));
+    ctx.image_indices.reserve(std::clamp(input_size / kInputBytesPerImage, 4uz, 256uz));
+    ctx.diagram_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, 4uz, 128uz));
+    ctx.blockquote_indices.reserve(std::clamp(input_size / kInputBytesPerBlockquote, 4uz, 256uz));
 
     MD_PARSER parser{};
     parser.abi_version = 0;

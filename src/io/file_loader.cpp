@@ -54,12 +54,16 @@ std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr:
         if (remaining == 0) {
             return carry;
         }
-        DWORD bytes_read = 0;
-        if (!ReadFile(r.handle.get(), buf + carry, static_cast<DWORD>(remaining), &bytes_read, nullptr) ||
-            bytes_read != static_cast<DWORD>(remaining)) {
-            return 0;
+        size_t total_read = 0;
+        while (total_read < remaining) {
+            DWORD bytes_read = 0;
+            const DWORD to_read = static_cast<DWORD>(std::min<size_t>(remaining - total_read, UINT32_MAX));
+            if (!ReadFile(r.handle.get(), buf + carry + total_read, to_read, &bytes_read, nullptr) || bytes_read == 0) {
+                return 0;
+            }
+            total_read += bytes_read;
         }
-        return carry + bytes_read;
+        return carry + total_read;
     });
     if (result.text.size() != out_size) {
         return std::unexpected(FileLoadError::ReadFailed);

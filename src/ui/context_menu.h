@@ -13,7 +13,6 @@ using HWND = HWND__*;
 struct ID2D1Factory;
 struct IDWriteFactory;
 
-// カスタムコンテキストメニューの表示パラメータ。
 struct ContextMenuParams {
     int screen_x = 0;
     int screen_y = 0;
@@ -29,8 +28,7 @@ struct ContextMenuParams {
     const Theme* theme = nullptr;
 };
 
-// Win32ポップアップメニューの代わりに自前描画するコンテキストメニュー。
-// 戻る/進むボタンの横並び表示が可能。
+// 戻る/進むボタンの横並び表示のため自前描画。
 class ContextMenu {
 public:
     enum class ItemType : uint8_t {
@@ -61,10 +59,9 @@ public:
     ContextMenu(const ContextMenu&) = delete;
     ContextMenu& operator=(const ContextMenu&) = delete;
 
-    // D2D/DWriteファクトリーを受け取り初期化する。Appの初期化時に1回呼ぶ。
+    // App の初期化時に 1 回呼ぶ。
     void Init(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory);
 
-    // メニューを表示しユーザーの選択を待つ（モーダル）
     int Show(HWND owner_hwnd, const ContextMenuParams& params);
 
     int HitTest(float x, float y) const noexcept;

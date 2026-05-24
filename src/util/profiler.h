@@ -1,12 +1,6 @@
 #pragma once
 
-// 計測ユーティリティ。バックエンドは Tracy のみ。
-//
-// 使い方:
-//   {
-//       MENDO_PROFILE("ParseMarkdown");
-//       ... 計測対象の処理 ...
-//   }
+// バックエンドは Tracy のみ。
 //
 // CMake -DMENDO_USE_TRACY=ON で有効化される。OFF のときは全マクロが no-op に展開され、
 // バイナリにも一切のコードが残らない。
@@ -74,7 +68,6 @@
 
 #else
 
-// MENDO_USE_TRACY 未定義時は全マクロを完全に消す。
 #define MENDO_PROFILE(label) ((void)0)
 #define MENDO_FRAME_MARK() ((void)0)
 #define MENDO_PLOT(label, value) ((void)0)

@@ -243,7 +243,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
     constexpr bool kNeedAtLineStart = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment;
 
     std::pmr::vector<SyntaxToken> tokens;
-    tokens.reserve(text.size() / 8);
+    tokens.reserve(text.size() / 16);
     size_t i = 0;
     uint32_t plain_start = 0;
     bool in_plain = false;
@@ -549,7 +549,6 @@ inline constexpr LexerConfig JSON_LEXER_CONFIG{
 
 SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
 {
-    // info string の最初の空白/タブまでを言語識別子として抽出。残りは追加情報。
     const auto lang = info_string.substr(0, info_string.find_first_of(" \t"));
     if (lang.empty()) {
         return SyntaxLanguage::None;
@@ -559,48 +558,100 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
         ascii_util::DocLowercaseLiteral name;
         SyntaxLanguage language;
     };
-    static constexpr Alias kAliases[]{
-        { "c",          SyntaxLanguage::Cpp        },
-        { "cpp",        SyntaxLanguage::Cpp        },
-        { "c++",        SyntaxLanguage::Cpp        },
-        { "cxx",        SyntaxLanguage::Cpp        },
-        { "h",          SyntaxLanguage::Cpp        },
-        { "hpp",        SyntaxLanguage::Cpp        },
-        { "cc",         SyntaxLanguage::Cpp        },
-        { "hxx",        SyntaxLanguage::Cpp        },
-        { "python",     SyntaxLanguage::Python     },
-        { "py",         SyntaxLanguage::Python     },
-        { "javascript", SyntaxLanguage::JavaScript },
-        { "js",         SyntaxLanguage::JavaScript },
-        { "jsx",        SyntaxLanguage::JavaScript },
-        { "typescript", SyntaxLanguage::TypeScript },
-        { "ts",         SyntaxLanguage::TypeScript },
-        { "tsx",        SyntaxLanguage::TypeScript },
-        { "mermaid",    SyntaxLanguage::Mermaid    },
-        { "go",         SyntaxLanguage::Go         },
-        { "golang",     SyntaxLanguage::Go         },
-        { "rust",       SyntaxLanguage::Rust       },
-        { "rs",         SyntaxLanguage::Rust       },
-        { "bash",       SyntaxLanguage::Bash       },
-        { "sh",         SyntaxLanguage::Bash       },
-        { "zsh",        SyntaxLanguage::Bash       },
-        { "shell",      SyntaxLanguage::Bash       },
-        { "powershell", SyntaxLanguage::PowerShell },
-        { "pwsh",       SyntaxLanguage::PowerShell },
-        { "ps1",        SyntaxLanguage::PowerShell },
-        { "cmd",        SyntaxLanguage::Cmd        },
-        { "bat",        SyntaxLanguage::Cmd        },
-        { "batch",      SyntaxLanguage::Cmd        },
-        { "dosbatch",   SyntaxLanguage::Cmd        },
-        { "json",       SyntaxLanguage::Json       },
-        { "jsonc",      SyntaxLanguage::Json       },
-        { "json5",      SyntaxLanguage::Json       },
+
+    auto search = [&](const Alias* begin, const Alias* end) noexcept -> SyntaxLanguage {
+        for (auto it = begin; it != end; ++it) {
+            if (ascii_util::iequal(lang, it->name)) {
+                return it->language;
+            }
+        }
+        return SyntaxLanguage::None;
     };
 
-    for (const auto& [alias, language] : kAliases) {
-        if (ascii_util::iequal(lang, alias)) {
-            return language;
+    // 長さ別テーブル — switch がジャンプテーブルにコンパイルされ O(1) でグループに到達
+    switch (lang.size()) {
+    case 1: {
+        static constexpr Alias k[]{
+            { "c", SyntaxLanguage::Cpp },
+            { "h", SyntaxLanguage::Cpp },
+        };
+        return search(k, k + std::size(k));
+    }
+    case 2: {
+        static constexpr Alias k[]{
+            { "js", SyntaxLanguage::JavaScript },
+            { "ts", SyntaxLanguage::TypeScript },
+            { "py", SyntaxLanguage::Python     },
+            { "go", SyntaxLanguage::Go         },
+            { "rs", SyntaxLanguage::Rust       },
+            { "sh", SyntaxLanguage::Bash       },
+            { "cc", SyntaxLanguage::Cpp        },
+        };
+        return search(k, k + std::size(k));
+    }
+    case 3: {
+        static constexpr Alias k[]{
+            { "cpp", SyntaxLanguage::Cpp        },
+            { "c++", SyntaxLanguage::Cpp        },
+            { "cxx", SyntaxLanguage::Cpp        },
+            { "hpp", SyntaxLanguage::Cpp        },
+            { "hxx", SyntaxLanguage::Cpp        },
+            { "jsx", SyntaxLanguage::JavaScript },
+            { "tsx", SyntaxLanguage::TypeScript },
+            { "cmd", SyntaxLanguage::Cmd        },
+            { "bat", SyntaxLanguage::Cmd        },
+            { "ps1", SyntaxLanguage::PowerShell },
+            { "zsh", SyntaxLanguage::Bash       },
+        };
+        return search(k, k + std::size(k));
+    }
+    case 4: {
+        static constexpr Alias k[]{
+            { "rust", SyntaxLanguage::Rust       },
+            { "bash", SyntaxLanguage::Bash       },
+            { "json", SyntaxLanguage::Json       },
+            { "pwsh", SyntaxLanguage::PowerShell },
+        };
+        return search(k, k + std::size(k));
+    }
+    case 5: {
+        static constexpr Alias k[]{
+            { "shell", SyntaxLanguage::Bash },
+            { "jsonc", SyntaxLanguage::Json },
+            { "json5", SyntaxLanguage::Json },
+            { "batch", SyntaxLanguage::Cmd  },
+        };
+        return search(k, k + std::size(k));
+    }
+    case 6: {
+        static constexpr Alias k[]{
+            { "python", SyntaxLanguage::Python },
+            { "golang", SyntaxLanguage::Go     },
+        };
+        return search(k, k + std::size(k));
+    }
+    case 7: {
+        if (ascii_util::iequal(lang, ascii_util::DocLowercaseLiteral{ "mermaid" })) {
+            return SyntaxLanguage::Mermaid;
         }
+        break;
+    }
+    case 8: {
+        if (ascii_util::iequal(lang, ascii_util::DocLowercaseLiteral{ "dosbatch" })) {
+            return SyntaxLanguage::Cmd;
+        }
+        break;
+    }
+    case 10: {
+        static constexpr Alias k[]{
+            { "javascript", SyntaxLanguage::JavaScript },
+            { "typescript", SyntaxLanguage::TypeScript },
+            { "powershell", SyntaxLanguage::PowerShell },
+        };
+        return search(k, k + std::size(k));
+    }
+    default:
+        break;
     }
     return SyntaxLanguage::None;
 }

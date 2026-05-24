@@ -9,7 +9,7 @@
 
 namespace mendo::layout {
 
-// 可視範囲クリップ。top<0 ならクリップなし (全 dirty を対象)。
+// top<0 ならクリップなし。
 struct ViewportClip {
     float top = -1.0f;
     float height = -1.0f;
@@ -43,7 +43,7 @@ struct ViewportClip {
     }
 };
 
-// 1 回の RunSerial で消費可能な予算。0 = 無制限。
+// 0 = 無制限。
 struct SerialBudget {
     int max_nodes = 0;
     int time_us = 0;
@@ -74,11 +74,8 @@ struct DirtyBatchResult {
     bool any_nearby_skipped = false;
 };
 
-// 「どの dirty ノードを per-node 計測するか」の選定と「いつ止めるか」の予算管理を担う。
-// 計測は IMeasureBackend::MeasureNode に委譲する。状態を持たない値型。
 class DirtyScheduler {
 public:
-    // 単一スレッド版: 選定即計測。現状の LayoutEngine::ProcessDirtyBatch と等価。
     DirtyBatchResult RunSerial(
         std::pmr::vector<Node>& nodes,
         LayoutCache& cache,

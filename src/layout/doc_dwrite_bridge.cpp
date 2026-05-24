@@ -18,7 +18,6 @@ WideViewForDWrite::WideViewForDWrite(std::string_view text)
         view_ = {};
         return;
     }
-    // UTF-8 → UTF-16 変換を自前で行い、同時に byte index → wide unit offset の対応表を埋める。
     // utf16_offsets_[i] (i = 0..utf8_size) = doc byte i 直前までの累積 wide unit 数。
     // - leading byte 位置: その文字を出力する直前の wide_pos
     // - continuation byte 位置: 同じ wide_pos (sequence 中はマップ値据え置き)
@@ -36,17 +35,14 @@ WideViewForDWrite::WideViewForDWrite(std::string_view text)
     size_t byte_pos = 0;
     while (byte_pos < n) {
         const auto decoded = utf8_codec::DecodeAt(text, static_cast<uint32_t>(byte_pos));
-        // leading + continuation すべての byte 位置に当該文字の wide_pos を埋める。
         for (uint32_t i = 0; i < decoded.len; ++i) {
             utf16_offsets_[byte_pos + i] = wide_pos;
         }
         if (decoded.cp <= 0xFFFF) {
-            // ASCII / BMP / 不正バイト (U+FFFD) はいずれも 1 wide unit。
             scratch_.push_back(static_cast<wchar_t>(decoded.cp));
             ++wide_pos;
         }
         else {
-            // 補助面: UTF-16 サロゲートペア (2 wide units)。
             const uint32_t adj = decoded.cp - 0x10000u;
             scratch_.push_back(static_cast<wchar_t>(0xD800u + (adj >> 10)));
             scratch_.push_back(static_cast<wchar_t>(0xDC00u + (adj & 0x3FFu)));

@@ -27,6 +27,7 @@ void App::LoadHelpDocument()
 
     EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
     file_load_service_.StopLoading();
+    file_load_service_.CancelAsyncLoad();
     EmitEffect(effect::StopFileWatch{});
     ResetViewForNewDocument();
     // SearchState の lowercase キャッシュが旧 nodes ポインタを保持したまま誤再利用されるのを防ぐ。
@@ -127,6 +128,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
     }
     std::pmr::wstring path_str{ path };
     if (!DocumentService::IsAsyncLoadCandidate(path_str)) {
+        file_load_service_.CancelAsyncLoad();
         file_load_service_.SetLoadingPath(std::move(path_str));
         DoLoadMarkdownFile();
     }
@@ -214,6 +216,7 @@ void App::OnParseComplete()
         }
         if (decision.op == ReloadOp::PrefixGrowth) {
             resource_manager_.CancelMermaidBatch();
+            state_.active_toc_index = -1;
             state_.document.doc = std::move(result->doc);
             FinishReload(decision.diff_pos);
             return;
@@ -336,7 +339,6 @@ void App::DoReloadCurrentFile()
 
     EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
     file_load_service_.StopLoading();
-    state_.active_toc_index = -1;
 
     if (state_.document.doc.GetFilePath().empty()) {
         return;
@@ -368,6 +370,7 @@ void App::DoReloadCurrentFile()
     if (ApplyReloadDecisionEarly(decision) == ReloadFlow::Handled) {
         return;
     }
+    state_.active_toc_index = -1;
     state_.document.doc.ReplaceFromMarkdown(std::move(new_text), byte_size);
     FinishReload(decision.diff_pos);
 }

@@ -5,15 +5,9 @@
 
 namespace ini {
 
-// セクション名 → (キー名 → 値) のマッピング
 using IniData = std::map<std::string, std::map<std::string, std::string, std::less<>>, std::less<>>;
 
-// INIテキストをパースして構造化データに変換する。
-// - [Section] でセクション開始
-// - Key=Value でキー値ペア（最初の '=' で分割）
-// - ';' または '#' で始まる行はコメント（無視）
-// - 空行は無視
-// - セクション外のキーは空文字列セクションに格納
+// セクション外のキーは空文字列セクションに格納。
 inline IniData Parse(std::string_view text)
 {
     IniData data;
@@ -27,7 +21,6 @@ inline IniData Parse(std::string_view text)
         }
         std::string_view line = text.substr(pos, eol - pos);
 
-        // \r\n を 1 行として進める（CRLF/CR/LF を統一して扱う）。
         pos = eol;
         if (pos < text.size() && text[pos] == '\r') {
             ++pos;

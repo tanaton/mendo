@@ -6,8 +6,6 @@
 #include <limits>
 #include <memory_resource>
 
-// テーブルセル復元の対象範囲を絞るための viewport クリップ。
-// デフォルト (±inf) は全範囲扱いで、部分復元しない従来挙動と一致する。
 struct MeasureViewportRange {
     static constexpr float kInf = std::numeric_limits<float>::infinity();
     float top = -kInf;
@@ -18,7 +16,6 @@ struct MeasureViewportRange {
     }
 };
 
-// per-node 計測専用 IF。const 仮想で thread-safe な API のみを露出する。
 // IDWriteFactory はスレッドセーフで IDWriteTextLayout は per-call 生成のため、
 // 同一インスタンスを複数ワーカーから const 経由で叩いて良い。lifecycle 系
 // (Init/RecreateFormats/UpdateTheme) は IMeasureLifecycle に分離してあり、
@@ -41,7 +38,7 @@ public:
                               MeasureViewportRange viewport = {}) const = 0;
 };
 
-// セットアップ系 IF。UI スレッドからのみ呼び、並列計測中は呼ばない契約。
+// UI スレッドからのみ呼ぶ。並列計測中は呼ばない契約。
 class IMeasureLifecycle {
 public:
     virtual ~IMeasureLifecycle() = default;

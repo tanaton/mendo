@@ -245,6 +245,8 @@ public:
             block_heights_.Reset();
             block_heights_.Resize(node_count);
             effects_generation_++;
+            last_evict_fk_ = 0;
+            last_evict_lk_ = 0;
         }
     }
 
@@ -400,12 +402,30 @@ public:
         const size_t n = entries_.size();
         const size_t fk = std::min(first_keep_inclusive, n);
         const size_t lk = std::min(last_keep_exclusive, n);
-        for (size_t i = 0; i < fk; ++i) {
-            EvictEntryLayout(entries_[i]);
+
+        if (last_evict_fk_ == 0 && last_evict_lk_ == 0) {
+            for (size_t i = 0; i < fk; ++i) {
+                EvictEntryLayout(entries_[i]);
+            }
+            for (size_t i = lk; i < n; ++i) {
+                EvictEntryLayout(entries_[i]);
+            }
         }
-        for (size_t i = lk; i < n; ++i) {
-            EvictEntryLayout(entries_[i]);
+        else {
+            // keep 範囲が縮小した差分のみ evict
+            if (fk > last_evict_fk_) {
+                for (size_t i = last_evict_fk_; i < fk; ++i) {
+                    EvictEntryLayout(entries_[i]);
+                }
+            }
+            if (lk < last_evict_lk_) {
+                for (size_t i = lk; i < last_evict_lk_; ++i) {
+                    EvictEntryLayout(entries_[i]);
+                }
+            }
         }
+        last_evict_fk_ = fk;
+        last_evict_lk_ = lk;
     }
 
     // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
@@ -579,6 +599,8 @@ private:
     // RecomputeYPositions が更新し、GetBlockTop / GetTotalHeightFromFenwick で参照する。
     mendo::FloatFenwick block_heights_;
     uint32_t effects_generation_ = 0;
+    size_t last_evict_fk_ = 0;
+    size_t last_evict_lk_ = 0;
 };
 
 // 「コンテンツ末尾までの高さ」(末尾 node の text_top + height + 上端マージン)。

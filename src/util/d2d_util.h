@@ -23,16 +23,13 @@ inline void CreateSolidColorBrushOrFallback(
     }
 }
 
-// ダーク/ライトテーマでの「白オーバーレイ vs 黒オーバーレイ」を 1 行で表現する。
-// テーブル縞模様、スクロールバーつまみ、トーストの背景など複数箇所で同じ判定が必要。
 inline D2D1_COLOR_F MonochromeOverlay(bool is_dark, float alpha) noexcept
 {
     return is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha)
                    : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha);
 }
 
-// SetOpacity(alpha) と SetOpacity(1.0f) リセットのペアを RAII で表現する。
-// 共有ブラシに対する透明度の復帰漏れを防ぐ。null ブラシは no-op。
+// null ブラシは no-op。
 class OpacityScope {
 public:
     OpacityScope(ID2D1SolidColorBrush* brush, float alpha) noexcept : brush_(brush)
@@ -56,7 +53,6 @@ private:
     ID2D1SolidColorBrush* brush_;
 };
 
-// DIP 矩形をピクセル境界に丸めて InvalidateRect する。 right/bottom は +1 で
 // オーバースキャンし境界線が抜けないようにする (RECT は exclusive 仕様)。
 inline void InvalidateDipRect(HWND hwnd, float dip_x, float dip_y, float dip_w, float dip_h, float dpi_scale) noexcept
 {

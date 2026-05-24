@@ -11,8 +11,7 @@
 #include <memory_resource>
 #include <optional>
 
-// プラットフォーム非依存のピクセル矩形。App::OnDpiChanged 境界で
-// Win32 の RECT から詰め替えて reducer に渡す。
+// DPI 変更時に Win32 RECT から詰め替えて reducer に渡す。
 struct PixelRect {
     int32_t left;
     int32_t top;
@@ -165,8 +164,7 @@ struct NavigateAnchorAction {
     std::pmr::string anchor_id;
 };
 
-// ファイルロード完了直後のスクロール位置復元。
-// reload_diff（内容差分による自動スクロール）が優先、次に pending_restore_node（履歴復帰）、最後に先頭。
+// 優先順: reload_diff → pending_restore_node → 先頭。
 struct RestoreScrollAfterLoadAction {
     bool has_reload_diff;
     float reload_diff_scroll_y;
@@ -176,7 +174,6 @@ struct HWheelAction {
     uint64_t tick;
 };
 
-// ブロック単位の横スクロール関連アクション。
 struct BlockHHoverChangedAction {
     int node_index; // -1 でホバー解除
 };

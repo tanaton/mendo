@@ -1,7 +1,6 @@
 #pragma once
 #include <windows.h>
 
-// ポリシーベースの汎用 RAII リソースラッパー。
 // Traits は type, invalid(), close(type) を定義する。
 template <typename Traits>
 class UniqueResource {
@@ -56,7 +55,6 @@ private:
     handle_t handle_ = Traits::invalid();
 };
 
-// CloseHandle で解放、無効値 INVALID_HANDLE_VALUE（CreateFileW 等）
 struct HandleTraits {
     using type = HANDLE;
     static type invalid() noexcept
@@ -70,7 +68,6 @@ struct HandleTraits {
 };
 using UniqueHandle = UniqueResource<HandleTraits>;
 
-// CloseHandle で解放、無効値 nullptr（CreateEventW 等）
 struct EventHandleTraits {
     using type = HANDLE;
     static type invalid() noexcept
@@ -84,7 +81,6 @@ struct EventHandleTraits {
 };
 using UniqueEventHandle = UniqueResource<EventHandleTraits>;
 
-// FindClose で解放（FindFirstFileW）
 struct FindHandleTraits {
     using type = HANDLE;
     static type invalid() noexcept
@@ -98,7 +94,6 @@ struct FindHandleTraits {
 };
 using UniqueFindHandle = UniqueResource<FindHandleTraits>;
 
-// GlobalFree で解放（GlobalAlloc）。
 // SetClipboardData / CreateStreamOnHGlobal への所有権移譲時は release() を使う。
 struct GlobalMemTraits {
     using type = HGLOBAL;
@@ -113,4 +108,3 @@ struct GlobalMemTraits {
 };
 using UniqueGlobalMem = UniqueResource<GlobalMemTraits>;
 
-// クリップボード書き込み API は clipboard_util.h に分離した。

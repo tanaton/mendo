@@ -8,8 +8,6 @@
 
 namespace {
 
-// テーブル内のクリック座標からヒットした行を特定する。
-// 見つかった場合は行インデックスとその行の上端Y座標を返す。
 struct TableRowHit {
     int row;
     float row_top_y;
@@ -26,8 +24,7 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, float e
         return { -1, 0.0f };
     }
 
-    // 事前計算された累積Y配列で二分探索。
-    // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ（サイズ row_count+1）。
+    // row_cum_y[r]: 行 r の上端（サイズ row_count+1）。
     if (tl.row_cum_y.size() == row_count + 1) {
         const float local_y = dip_y - entry_text_top;
         const auto it = std::ranges::upper_bound(tl.row_cum_y, local_y);
@@ -41,7 +38,6 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, float e
         return { static_cast<int>(idx), entry_text_top + tl.row_cum_y[static_cast<size_t>(idx)] };
     }
 
-    // フォールバック: 線形走査
     const float border = TABLE_BORDER_WIDTH;
     float ry = entry_text_top;
     for (size_t r = 0; r < row_count; r++) {
@@ -55,15 +51,12 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, float e
     return { -1, 0.0f };
 }
 
-// テーブル内のクリック座標からヒットした列を特定する。
-// 見つからない場合は最終列を返す（列数0の場合は0を返す）。
-// cell_left_x にはヒットしたセルの左端X座標（パディング含まず）を書き込む。
+// 見つからない場合は最終列にクランプ。
 int FindTableCol(const TableLayoutData& tl, float base_x, float dip_x, float& cell_left_x) noexcept
 {
     const auto col_count = tl.col_widths.size();
 
-    // 事前計算された累積X配列で二分探索。
-    // col_cum_x[c] = base_x からの列 c の左端までの累積幅（サイズ col_count+1）。
+    // col_cum_x[c]: 列 c の左端（サイズ col_count+1）。
     if (col_count > 0 && tl.col_cum_x.size() == col_count + 1) {
         const float local_x = dip_x - base_x;
         auto it = std::ranges::upper_bound(tl.col_cum_x, local_x);
@@ -78,7 +71,6 @@ int FindTableCol(const TableLayoutData& tl, float base_x, float dip_x, float& ce
         return static_cast<int>(idx);
     }
 
-    // フォールバック: 線形走査
     const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
     float cx = base_x + border;
@@ -138,7 +130,6 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         const auto& node = ctx.nodes[candidate];
         const auto& entry = ctx.cache[candidate];
 
-        // 横スクロール量 (テーブル / コードブロックのみ非ゼロ)。
         float h_scroll_x = 0.0f;
         if (ctx.block_scroll_x) {
             const auto sit = ctx.block_scroll_x->find(candidate);
@@ -164,7 +155,6 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
             entry.text_layout->HitTestPoint(local_x, local_y, &is_trailing, &is_inside, &metrics);
 
             result.node_index = candidate;
-            // metrics.textPosition (UTF-16 code unit) を text_pos (UTF-8 byte) に還元する。
             const auto& wv = md_wv_cache_.Get(node.GetText());
             result.text_pos = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
             last_md_hit_.Store(ctx, gen, result);
@@ -172,7 +162,6 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         }
     }
 
-    // 全ノードより下をクリック → 最後のノードの末尾を選択
     for (const auto& [i, node] : ctx.nodes | std::views::enumerate | std::views::reverse) {
         if (const auto& text = node.GetText(); !text.empty()) {
             result.node_index = static_cast<int>(i);
@@ -233,7 +222,6 @@ HitTestService::HitResult HitTestService::HitTestTable(
             &is_inside,
             &metrics);
 
-        // metrics.textPosition (UTF-16 code unit) を cell text の UTF-8 byte offset に還元してから flat_offset に加算。
         const auto& wv = cell_wv_cache_.Get(tbl->GetCellText(r, c));
         const auto cell_doc_off = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
         result.text_pos = flat_offset + cell_doc_off;

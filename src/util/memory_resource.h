@@ -4,17 +4,8 @@
 #include <cstddef>
 #include <memory>
 
-// アプリケーション全体のメモリリソース管理
-//
-// デフォルトに synchronized_pool_resource を設定し、
-// 必要に応じて monotonic_buffer_resource 等の特殊リソースを利用する。
-
-// グローバル同期プールリソースの初期化。
-// main() の最初に一度だけ呼び出すこと。
-// 以降、std::pmr コンテナのデフォルトリソースとして使われる。
 inline std::pmr::synchronized_pool_resource& GetGlobalPoolResource()
 {
-    // プールオプション: 最大ブロックサイズ 1MB、チャンク成長率はデフォルト
     static std::pmr::pool_options opts{ /*max_blocks_per_chunk=*/0, /*largest_required_pool_block=*/1 << 20 };
     static std::pmr::synchronized_pool_resource pool{ opts, std::pmr::new_delete_resource() };
     return pool;
@@ -43,7 +34,6 @@ public:
         return &monotonic_;
     }
 
-    // 確保済みメモリを再利用可能な状態にリセットする
     void Reset() noexcept
     {
         monotonic_.release();
