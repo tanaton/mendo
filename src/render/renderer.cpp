@@ -119,11 +119,15 @@ void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache&
     const int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
 
     const uint32_t effects_gen = cache.GetEffectsGeneration();
-    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_) {
+    // テーブル行の effects は viewport 範囲に依存するため、スクロール追従が必要。
+    // 4px 単位に量子化してサブピクセルスクロールでの過剰再実行を抑制する。
+    const int viewport_bottom_q = static_cast<int>(viewport_bottom) >> 2;
+    if (effects_gen != last_effects_gen_ || first_visible != last_effects_first_ || viewport_bottom_q != last_effects_bottom_q_) {
         MENDO_PROFILE("PrepareVisibleEffects");
         ApplyVisibleEffects(nodes, cache, first_visible, viewport_top, viewport_bottom);
         last_effects_gen_ = effects_gen;
         last_effects_first_ = first_visible;
+        last_effects_bottom_q_ = viewport_bottom_q;
     }
 }
 

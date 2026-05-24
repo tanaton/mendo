@@ -206,6 +206,7 @@ private:
 
     uint32_t last_effects_gen_ = std::numeric_limits<uint32_t>::max();
     int last_effects_first_ = -1;
+    int last_effects_bottom_q_ = -1;
 
     Theme theme_;
     DWriteTextMeasurer measurer_;

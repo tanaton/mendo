@@ -77,7 +77,7 @@ public:
                 trail_points_.emplace_back(x, y);
             }
             UpdateDirection();
-            overlay_alpha_ =(direction_ != GestureDirection::None) ? 1.0f : 0.0f;
+            overlay_alpha_ = (direction_ != GestureDirection::None) ? 1.0f : 0.0f;
         }
     }
 
