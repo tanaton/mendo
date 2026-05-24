@@ -66,9 +66,7 @@ private:
     template <class Opt>
     Opt TakeFromSink(Opt& sink);
 
-    // 宣言順: thread_ を ctx_ より前に置く。reverse-destruction で
-    // ctx_ → thread_ (join) → result_/error_ の mutex の順に破壊され、
-    // worker が result_/error_ を触るのは join 完了より前に保証される。
+    // デストラクタで明示的に Join() を呼ぶため、sink メンバ破壊前に worker は終了済み。
     std::jthread thread_;
     std::shared_ptr<Context> ctx_;
 

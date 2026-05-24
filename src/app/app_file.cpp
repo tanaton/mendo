@@ -128,6 +128,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
     }
     std::pmr::wstring path_str{ path };
     if (!DocumentService::IsAsyncLoadCandidate(path_str)) {
+        file_load_service_.CancelAsyncLoad();
         file_load_service_.SetLoadingPath(std::move(path_str));
         DoLoadMarkdownFile();
     }
@@ -215,6 +216,7 @@ void App::OnParseComplete()
         }
         if (decision.op == ReloadOp::PrefixGrowth) {
             resource_manager_.CancelMermaidBatch();
+            state_.active_toc_index = -1;
             state_.document.doc = std::move(result->doc);
             FinishReload(decision.diff_pos);
             return;

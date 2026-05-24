@@ -154,10 +154,13 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
             sp.cache.Reset();
             return;
         }
+        sp.cache.cached_bitmap.Reset();
+        if (FAILED(sp.cache.bitmap_rt->GetBitmap(&sp.cache.cached_bitmap))) {
+            sp.cache.Reset();
+            return;
+        }
         sp.cache.dirty = false;
         sp.cache.cached_scroll_y = sp.scroll.scroll_y;
-        sp.cache.cached_bitmap.Reset();
-        sp.cache.bitmap_rt->GetBitmap(&sp.cache.cached_bitmap);
     }
 
     if (sp.cache.cached_bitmap) {
