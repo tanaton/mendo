@@ -7,7 +7,8 @@
 #include <wrl/client.h>
 #include <windows.h>
 #include <string>
-#include <unordered_set>
+#include <map>
+#include <set>
 #include <vector>
 #include <mutex>
 #include <atomic>
@@ -39,9 +40,16 @@ public:
     void ProcessCompletedDecodes();
     void CancelPending();
 
-    void ClearCache() noexcept
+    void ClearCache()
     {
         cache_.Clear();
+        const std::lock_guard lock(pending_mutex_);
+        failed_paths_.clear();
+    }
+    void ResetFailedPaths()
+    {
+        const std::lock_guard lock(pending_mutex_);
+        failed_paths_.clear();
     }
     size_t CacheSize() const noexcept
     {
@@ -71,6 +79,7 @@ private:
     std::pair<float, float> CreateAndCacheImage(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, UINT pixel_width, UINT pixel_height);
 
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
+    static constexpr uint32_t kMaxImageRetries = 3;
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
@@ -81,7 +90,8 @@ private:
     TaskScheduler* scheduler_ = nullptr;
     std::atomic<uint32_t> cancel_gen_{ 0 };
     std::mutex pending_mutex_;
-    std::unordered_set<std::wstring> pending_paths_;
+    std::set<std::wstring> pending_paths_;
+    std::map<std::wstring, uint32_t> failed_paths_;
 
     std::mutex result_mutex_;
     std::vector<DecodeResult> completed_;

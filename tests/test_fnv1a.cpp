@@ -2,7 +2,7 @@
 #include "fnv1a.h"
 #include <string>
 #include <string_view>
-#include <unordered_set>
+#include <set>
 
 using mendo::Fnv1a64;
 using mendo::Fnv1a64Update;
@@ -57,7 +57,7 @@ TEST(Fnv1a64, CharAndWcharDifferentKeySpacesForMultibyte)
     // ASCII のみで比較すると char/wchar_t のいずれも数値が一致してしまうため、
     // 非 ASCII で「両 CharT を同一 key 空間で混用してはいけない」性質を確認する。
     const auto h_char = Fnv1a64(std::string_view{ "\xE3\x81\x82" }); // UTF-8 'あ'
-    const auto h_wchar = Fnv1a64(std::wstring_view{ L"あ" });    // UTF-16 'あ'
+    const auto h_wchar = Fnv1a64(std::wstring_view{ L"あ" });        // UTF-16 'あ'
     EXPECT_NE(h_char, h_wchar);
 }
 
@@ -82,7 +82,7 @@ TEST(Fnv1a64, ConstevalContext)
 TEST(Fnv1a64, NoCollisionsOnSmallSet)
 {
     // 1000 個の "key_<i>" 文字列でハッシュ衝突がないことを確認 (実用域での衝突確率は 10^-12 程度)。
-    std::unordered_set<uint64_t> seen;
+    std::set<uint64_t> seen;
     for (int i = 0; i < 1000; ++i) {
         const std::string s = "key_" + std::to_string(i);
         const auto inserted = seen.insert(Fnv1a64(std::string_view{ s })).second;
