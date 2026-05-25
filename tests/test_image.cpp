@@ -1335,3 +1335,139 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
     EXPECT_FLOAT_EQ(entry.width, 88.0f);
     EXPECT_FLOAT_EQ(entry.height, 66.0f);
 }
+
+// ---- failed_paths_ ブラックリストテスト ----
+
+TEST_F(ImageLoaderAsyncTest, NonexistentPathBlockedAfterMaxRetries)
+{
+    const auto path = GetTestImagePath(L"does_not_exist.png");
+
+    // kMaxImageRetries (3) 回失敗するまではリトライが許可される
+    for (int i = 0; i < 3; ++i) {
+        callback_count_.store(0);
+        loader_.RequestLoadAsync(path, OnComplete);
+
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (std::chrono::steady_clock::now() < deadline) {
+            loader_.ProcessCompletedDecodes();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            // pending_paths_ から消えたら処理完了
+            // callback は発火しないので ProcessCompletedDecodes のループで確認
+            break;
+        }
+        // ワーカーが処理する時間を確保
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        loader_.ProcessCompletedDecodes();
+    }
+
+    // 4回目のリクエストはブロックされ、ワーカーが起動しないこと
+    callback_count_.store(0);
+    loader_.RequestLoadAsync(path, OnComplete);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    loader_.ProcessCompletedDecodes();
+
+    DiagramEntry entry;
+    EXPECT_FALSE(loader_.GetCachedImage(path, entry));
+}
+
+TEST_F(ImageLoaderAsyncTest, CancelPendingClearsFailedPaths)
+{
+    const auto path = GetTestImagePath(L"fail_then_clear.png");
+
+    // 3回失敗させてブラックリスト化
+    for (int i = 0; i < 3; ++i) {
+        loader_.RequestLoadAsync(path, OnComplete);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        loader_.ProcessCompletedDecodes();
+    }
+
+    // CancelPending でクリア
+    loader_.CancelPending();
+    callback_count_.store(0);
+
+    // 実在するファイルを同じパスに作成 → リトライが成功すること
+    ASSERT_TRUE(CreateTestImage(L"fail_then_clear.png", GUID_ContainerFormatPng, 40, 30));
+
+    loader_.RequestLoadAsync(path, OnComplete);
+    ASSERT_TRUE(WaitForResults(1)) << "CancelPending 後のリトライが完了しなかった";
+
+    DiagramEntry entry;
+    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    EXPECT_FLOAT_EQ(entry.width, 40.0f);
+    EXPECT_FLOAT_EQ(entry.height, 30.0f);
+}
+
+TEST_F(ImageLoaderAsyncTest, ClearCacheAlsoClearsFailedPaths)
+{
+    const auto path = GetTestImagePath(L"fail_then_clearcache.png");
+
+    // 3回失敗させてブラックリスト化
+    for (int i = 0; i < 3; ++i) {
+        loader_.RequestLoadAsync(path, OnComplete);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        loader_.ProcessCompletedDecodes();
+    }
+
+    // ClearCache でもクリアされること
+    loader_.ClearCache();
+    callback_count_.store(0);
+
+    ASSERT_TRUE(CreateTestImage(L"fail_then_clearcache.png", GUID_ContainerFormatPng, 55, 45));
+
+    loader_.RequestLoadAsync(path, OnComplete);
+    ASSERT_TRUE(WaitForResults(1)) << "ClearCache 後のリトライが完了しなかった";
+
+    DiagramEntry entry;
+    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    EXPECT_FLOAT_EQ(entry.width, 55.0f);
+    EXPECT_FLOAT_EQ(entry.height, 45.0f);
+}
+
+TEST_F(ImageLoaderAsyncTest, TransientFailureRetries)
+{
+    const auto path = GetTestImagePath(L"transient.png");
+
+    // 1回目: ファイルが存在しないので失敗
+    loader_.RequestLoadAsync(path, OnComplete);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    loader_.ProcessCompletedDecodes();
+
+    // ファイルを作成（一時障害から復帰を模擬）
+    ASSERT_TRUE(CreateTestImage(L"transient.png", GUID_ContainerFormatPng, 70, 50));
+    callback_count_.store(0);
+
+    // 2回目: リトライが許可され、今度は成功すること
+    loader_.RequestLoadAsync(path, OnComplete);
+    ASSERT_TRUE(WaitForResults(1)) << "一時障害後のリトライが成功しなかった";
+
+    DiagramEntry entry;
+    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    EXPECT_FLOAT_EQ(entry.width, 70.0f);
+    EXPECT_FLOAT_EQ(entry.height, 50.0f);
+}
+
+TEST_F(ImageLoaderAsyncTest, ResetFailedPathsAllowsRetry)
+{
+    const auto path = GetTestImagePath(L"reset_failed.png");
+
+    // 3回失敗させてブラックリスト化
+    for (int i = 0; i < 3; ++i) {
+        loader_.RequestLoadAsync(path, OnComplete);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        loader_.ProcessCompletedDecodes();
+    }
+
+    // ResetFailedPaths でクリア
+    loader_.ResetFailedPaths();
+    callback_count_.store(0);
+
+    ASSERT_TRUE(CreateTestImage(L"reset_failed.png", GUID_ContainerFormatPng, 33, 22));
+
+    loader_.RequestLoadAsync(path, OnComplete);
+    ASSERT_TRUE(WaitForResults(1)) << "ResetFailedPaths 後のリトライが完了しなかった";
+
+    DiagramEntry entry;
+    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    EXPECT_FLOAT_EQ(entry.width, 33.0f);
+    EXPECT_FLOAT_EQ(entry.height, 22.0f);
+}

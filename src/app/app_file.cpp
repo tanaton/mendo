@@ -216,6 +216,7 @@ void App::OnParseComplete()
         }
         if (decision.op == ReloadOp::PrefixGrowth) {
             resource_manager_.CancelMermaidBatch();
+            image_loader_.ResetFailedPaths();
             state_.active_toc_index = -1;
             state_.document.doc = std::move(result->doc);
             FinishReload(decision.diff_pos);
