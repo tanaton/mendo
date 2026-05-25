@@ -132,6 +132,32 @@ void Renderer::InvalidateBrushes() noexcept
     fixed_brushes_cache_.fill(nullptr);
 }
 
+static std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::initializer_list<const wchar_t*> candidates)
+{
+    if (collection) {
+        for (const wchar_t* name : candidates) {
+            UINT32 index = 0;
+            BOOL exists = FALSE;
+            if (SUCCEEDED(collection->FindFamilyName(name, &index, &exists)) && exists) {
+                return name;
+            }
+        }
+    }
+    return *(candidates.end() - 1);
+}
+
+void Renderer::ResolveThemeFonts()
+{
+    auto* dw = backend_.GetDWriteFactory();
+    ComPtr<IDWriteFontCollection> collection;
+    if (dw) {
+        dw->GetSystemFontCollection(&collection, FALSE);
+    }
+    theme_.font_family = ResolveFontFamily(collection.Get(), { theme_.font_family.c_str(), L"Meiryo UI", L"Segoe UI" });
+    theme_.monospace_font = ResolveFontFamily(collection.Get(), { theme_.monospace_font.c_str(), L"Consolas", L"Courier New" });
+    theme_.icon_font = ResolveFontFamily(collection.Get(), { theme_.icon_font.c_str(), L"Segoe Fluent Icons", L"Segoe MDL2 Assets" });
+}
+
 ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size, const wchar_t* locale)
 {
     auto* dw = backend_.GetDWriteFactory();
@@ -161,7 +187,7 @@ void Renderer::RecreatePaneFormats()
     constexpr DWRITE_PARAGRAPH_ALIGNMENT PA_CTR = DWRITE_PARAGRAPH_ALIGNMENT_CENTER;
 
     const wchar_t* const body_font = theme_.font_family.c_str();
-    const wchar_t* const icon_font = L"Segoe Fluent Icons";
+    const wchar_t* const icon_font = theme_.icon_font.c_str();
 
     struct FormatSpec {
         ComPtr<IDWriteTextFormat>* target;

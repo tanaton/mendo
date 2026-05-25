@@ -47,6 +47,7 @@ bool Renderer::Init(HWND hwnd)
         return false;
     }
 
+    ResolveThemeFonts();
     RecreateBrushes();
     RecreatePaneFormats();
     LoadAppIconBitmap();
@@ -68,6 +69,7 @@ bool Renderer::Init(HWND hwnd)
 void Renderer::SetTheme(const Theme& theme)
 {
     theme_ = theme;
+    ResolveThemeFonts();
     UpdateLayoutTheme();
     RecreatePaneFormats();
     cmd_generator_.SetTheme(&theme_);
@@ -93,6 +95,7 @@ void Renderer::SetDpi(float dpi) noexcept
 void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
 {
     theme_ = base_theme;
+    ResolveThemeFonts();
     if (new_zoom != 1.0f) {
         theme_.ApplyZoom(new_zoom);
     }

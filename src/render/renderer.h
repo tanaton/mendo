@@ -146,6 +146,7 @@ private:
     void ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
+    void ResolveThemeFonts();
     void RecreatePaneFormats();
     Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size, const wchar_t* locale);
     bool CheckEndDraw();

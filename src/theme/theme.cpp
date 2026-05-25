@@ -59,6 +59,7 @@ static void ApplyCommonLayout(Theme& t)
 {
     t.font_family = L"Yu Gothic UI";
     t.monospace_font = L"Consolas";
+    t.icon_font = L"Segoe Fluent Icons";
 
     t.font_size_body = 16.0f;
     t.font_size_h[0] = 32.0f;
