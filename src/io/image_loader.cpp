@@ -111,6 +111,9 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
 
     {
         const std::lock_guard lock(pending_mutex_);
+        if (failed_paths_.contains(abs_path)) {
+            return;
+        }
         if (!pending_paths_.insert(abs_path).second) {
             return;
         }
@@ -175,6 +178,9 @@ void ImageLoader::ProcessCompletedDecodes()
         const std::lock_guard lock(pending_mutex_);
         for (auto& r : results) {
             pending_paths_.erase(r.path);
+            if (!r.success) {
+                failed_paths_.insert(r.path);
+            }
         }
     }
 
@@ -232,6 +238,7 @@ void ImageLoader::CancelPending()
     {
         const std::lock_guard lock(pending_mutex_);
         pending_paths_.clear();
+        failed_paths_.clear();
     }
     {
         const std::lock_guard lock(result_mutex_);
