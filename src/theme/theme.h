@@ -33,6 +33,7 @@ struct Theme {
     // フォント
     std::wstring font_family;
     std::wstring monospace_font;
+    std::wstring icon_font;
 
     // フォントサイズ（DIP単位）
     float font_size_body;

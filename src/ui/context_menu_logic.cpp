@@ -89,6 +89,7 @@ void ContextMenu::Impl::CreateTextFormats(const Theme& t)
 {
     if (fmt_text && fmt_icon &&
         cached_fmt_font_family == std::wstring_view{ t.font_family } &&
+        cached_fmt_icon_font == std::wstring_view{ t.icon_font } &&
         cached_fmt_font_size == t.pane_font_size) {
         return;
     }
@@ -107,7 +108,7 @@ void ContextMenu::Impl::CreateTextFormats(const Theme& t)
     }
 
     dwrite_factory->CreateTextFormat(
-        L"Segoe Fluent Icons", nullptr,
+        t.icon_font.c_str(), nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, ICON_FONT_SIZE,
         L"ja-jp", &fmt_icon);
@@ -118,6 +119,7 @@ void ContextMenu::Impl::CreateTextFormats(const Theme& t)
     }
 
     cached_fmt_font_family.assign(t.font_family.begin(), t.font_family.end());
+    cached_fmt_icon_font.assign(t.icon_font.begin(), t.icon_font.end());
     cached_fmt_font_size = t.pane_font_size;
 }
 

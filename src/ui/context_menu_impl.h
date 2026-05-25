@@ -81,6 +81,7 @@ struct ContextMenu::Impl {
 
     // 同一フォントでの Show 連発時に IDWriteTextFormat の再生成を抑止するためのキー。
     std::pmr::wstring cached_fmt_font_family;
+    std::pmr::wstring cached_fmt_icon_font;
     float cached_fmt_font_size = 0.0f;
 
     const Theme* theme = nullptr;
