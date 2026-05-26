@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "resource_manager_impl.h"
+#include "resource_manager.h"
 #include "app_constants.h"
 #include "document.h"
 #include "layout_cache.h"

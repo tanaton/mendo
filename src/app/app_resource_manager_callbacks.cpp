@@ -1,4 +1,4 @@
-#include "resource_manager_impl.h"
+#include "resource_manager.h"
 #include "app_resource_manager_callbacks.h"
 #include "app.h"
 #include "pane_layout.h"

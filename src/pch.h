@@ -24,6 +24,9 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
+#include <map>
+#include <set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -38,5 +41,5 @@
 // 自前コードがコンパイルエラーを起こす。pch を介して全 TU に伝播するのを防ぐため、
 // pch のここで明示的に解除する。識別子 small を使用しない場合でも保険として残す。
 #ifdef small
-#  undef small
+#undef small
 #endif
