@@ -1,4 +1,4 @@
-#include "search_bar_controller_impl.h"
+#include "search_bar_controller.h"
 #include "app_search_bar_callbacks.h"
 #include "app.h"
 #include "pane_layout.h"

@@ -9,7 +9,7 @@
 // (test_search_bar_controller.cpp) は独自の Cb 型 + 別インスタンス化で
 // 観測するため、ここのスタブは「reducer 経由でたまたま入る経路」の
 // リンク充足用に過ぎない。
-#include "search_bar_controller_impl.h"
+#include "search_bar_controller.h"
 #include "app_search_bar_callbacks.h"
 
 void AppSearchBarCallbacks::invalidate()

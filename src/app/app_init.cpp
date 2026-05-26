@@ -58,15 +58,16 @@ bool App::Init(HWND hwnd)
             .image_loader = &image_loader_,
             .mermaid = &mermaid_renderer_,
             .theme_service = &theme_service_,
-            .theme = &renderer_.GetTheme(),
         },
         AppResourceManagerCallbacks{ this });
     win32_host_.Init(hwnd_, cursors_);
     effect_executor_.Init(
-        win32_host_,
-        file_watcher_,
-        state_,
-        *layout_service_,
+        SideEffectExecutorDeps{
+            .host = &win32_host_,
+            .file_watcher = &file_watcher_,
+            .state = &state_,
+            .layout_service = &*layout_service_,
+        },
         AppSideEffectCallbacks{ this });
 
     const auto webview2_data = config_dir.empty() ? std::filesystem::path{} : config_dir / L"WebView2Data";

@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "search_bar_controller_impl.h"
+#include "search_bar_controller.h"
 #include "app_constants.h"
 #include "search_state.h"
 #include "viewport_manager.h"

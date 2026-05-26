@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "side_effect_executor_impl.h"
+#include "side_effect_executor.h"
 #include "win32_host.h"
 #include "app_constants.h"
 #include "app_state.h"
@@ -288,8 +288,14 @@ protected:
 
     void SetUp() override
     {
-        exec_.Init(host_, watcher_, state_, layout_service_,
-                   TestSideEffectCallbacks{ &tracker_ });
+        exec_.Init(
+            SideEffectExecutorDeps{
+                .host = &host_,
+                .file_watcher = &watcher_,
+                .state = &state_,
+                .layout_service = &layout_service_,
+            },
+            TestSideEffectCallbacks{ &tracker_ });
     }
 };
 
