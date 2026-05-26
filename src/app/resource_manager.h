@@ -3,7 +3,6 @@
 #include "document.h"
 #include "layout_cache.h"
 #include "layout_computer.h"
-#include "theme.h"
 #include "viewport_manager.h"
 #include "image_loader.h"
 #include "mermaid_renderer_interface.h"
@@ -29,7 +28,6 @@ struct ResourceManagerDeps {
     ImageLoader* image_loader = nullptr;
     IMermaidRenderer* mermaid = nullptr;
     ThemeService* theme_service = nullptr;
-    const Theme* theme = nullptr;
 };
 
 namespace resource_manager_detail {
@@ -172,7 +170,7 @@ public:
         }
     }
 
-    void OnAppImageLoaded() noexcept
+    void OnAppImageLoaded()
     {
         deps_.image_loader->ProcessCompletedDecodes();
     }
@@ -241,7 +239,7 @@ public:
         return applied;
     }
 
-    void OnMermaidRenderComplete() noexcept
+    void OnMermaidRenderComplete()
     {
         if (mermaid_batch_loading_) {
             return;
@@ -250,13 +248,13 @@ public:
         cb_.recompute_layout_anchored();
     }
 
-    void CancelMermaidBatch() noexcept
+    void CancelMermaidBatch()
     {
         deps_.mermaid->CancelPending();
         cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
     }
 
-    void ScheduleMermaidBatch() noexcept
+    void ScheduleMermaidBatch()
     {
         mermaid_batch_next_ = 0;
         cb_.set_timer(app_timer::Id::MERMAID_BATCH, 16);
@@ -335,7 +333,7 @@ public:
         }
     }
 
-    void EvictOffscreenBitmaps() noexcept
+    void EvictOffscreenBitmaps()
     {
         using resource_manager_detail::VisibleSlice;
 
@@ -438,7 +436,7 @@ public:
         cb_.set_timer(app_timer::Id::BITMAP_MANAGE, 150);
     }
 
-    void OnBitmapManageTimer() noexcept
+    void OnBitmapManageTimer()
     {
         cb_.kill_timer(app_timer::Id::BITMAP_MANAGE);
 
@@ -456,7 +454,7 @@ public:
     }
 
 private:
-    void InvalidateMermaidForWidthChange(float content_width) noexcept
+    void InvalidateMermaidForWidthChange(float content_width)
     {
         if (content_width <= 0.0f) {
             return;

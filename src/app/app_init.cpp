@@ -58,7 +58,6 @@ bool App::Init(HWND hwnd)
             .image_loader = &image_loader_,
             .mermaid = &mermaid_renderer_,
             .theme_service = &theme_service_,
-            .theme = &renderer_.GetTheme(),
         },
         AppResourceManagerCallbacks{ this });
     win32_host_.Init(hwnd_, cursors_);

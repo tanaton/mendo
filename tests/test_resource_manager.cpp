@@ -9,7 +9,6 @@
 #include "theme_service.h"
 #include "config_service.h"
 #include "test_helpers.h"
-#include "theme.h"
 #include <vector>
 
 namespace {
@@ -219,7 +218,6 @@ protected:
                 .image_loader = &image_loader_,
                 .mermaid = &mock_mermaid_,
                 .theme_service = &theme_service_,
-                .theme = &theme_,
             },
             TestResourceManagerCallbacks{ &tracker_ });
     }
@@ -231,7 +229,6 @@ protected:
     MockMermaidRenderer mock_mermaid_;
     ConfigService config_;
     ThemeService theme_service_{ config_ };
-    Theme theme_{};
     CallbackTracker tracker_;
     ResourceManagerT<TestResourceManagerCallbacks> rm_;
 };

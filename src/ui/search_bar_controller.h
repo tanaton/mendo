@@ -124,7 +124,7 @@ public:
         cb_.invalidate();
     }
 
-    void SetSelection(int sel_start, int sel_end) noexcept
+    void SetSelection(int sel_start, int sel_end)
     {
         if (caret_pos_ == sel_end && selection_start_ == sel_start) {
             return;
@@ -149,7 +149,7 @@ public:
         }
     }
 
-    void OnCaretBlinkTimer() noexcept
+    void OnCaretBlinkTimer()
     {
         caret_visible_ = !caret_visible_;
         if (has_focus_) {
@@ -246,7 +246,7 @@ public:
         dragging_ = false;
     }
 
-    void UpdateHoverFromZone(SearchBarHitZone zone) noexcept
+    void UpdateHoverFromZone(SearchBarHitZone zone)
     {
         // Input ゾーンはテキスト編集領域でホバー強調は不要なので None に丸める。
         const auto new_hover = (zone == SearchBarHitZone::Input) ? SearchBarHitZone::None : zone;
@@ -323,7 +323,7 @@ public:
     }
 
 private:
-    void RestartCaretBlink() noexcept
+    void RestartCaretBlink()
     {
         cb_.kill_timer(app_timer::Id::SEARCH_CARET);
         const UINT blink_time = GetCaretBlinkTime();
