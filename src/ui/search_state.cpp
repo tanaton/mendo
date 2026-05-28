@@ -186,7 +186,9 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
     // 二分探索が使える。
     const auto it = std::ranges::partition_point(matches_, [&](const SearchMatch& m) noexcept {
         if (m.node_index >= static_cast<int>(cache.size())) {
-            return true;
+            // cache 未同期の過渡状態では範囲外マッチを末尾扱い (false) にして
+            // partition_point の単調性 (true→false) を保ち、current_match を誤らせない。
+            return false;
         }
         const auto& e = cache[m.node_index];
         const auto [y, h] = e.GetMatchYRange(m.table_row, m.table_col, m.start_w, e.text_top);

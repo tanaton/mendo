@@ -47,6 +47,14 @@ struct ViewState {
         const auto it = block_scroll_x.find(node_index);
         return (it != block_scroll_x.end()) ? it->second : 0.0f;
     }
+
+    // 再パースでノード index がずれると別ノードを指すため、リロード時にクリアする per-node-index 一時状態。
+    void ResetPerNodeTransientState()
+    {
+        block_scroll_x.clear();
+        hovered_h_block = -1;
+        h_drag_node = -1;
+    }
 };
 
 struct InteractionState {

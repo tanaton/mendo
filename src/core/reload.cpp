@@ -105,7 +105,11 @@ float CalcScrollYForDiff(
     if (node_start != kUnsetSourceOffset) {
         auto next_start = content.size();
         const auto node_count = static_cast<int>(nodes.size());
-        const int probe_limit = std::min(node_count, changed_node + 1 + 64);
+        // 途中に offset 無しノード (HR や空のルーズリスト等) が連続しても次の有効 offset を取り逃さない
+        // よう探索する。末尾まで線形走査すると大規模ファイルのリロードが重くなるため上限を設ける
+        // (通常は最初の有効 offset で break するため上限には届かない)。
+        constexpr int kMaxOffsetProbe = 4096;
+        const int probe_limit = std::min(node_count, changed_node + 1 + kMaxOffsetProbe);
         for (int i = changed_node + 1; i < probe_limit; ++i) {
             const auto off = nodes[i].SourceOffsetFrom(raw_base);
             if (off != kUnsetSourceOffset && off > node_start) {

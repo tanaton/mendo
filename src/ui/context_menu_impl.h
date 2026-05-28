@@ -44,6 +44,7 @@ struct ContextMenu::Impl {
     void ComputeLayout();
     bool EnsureRenderTarget(float dpi);
     void CreateBrushes();
+    bool RecreateDeviceResources();
     void CreateTextFormats(const Theme& theme);
 
     void Paint();

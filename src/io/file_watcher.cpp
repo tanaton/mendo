@@ -107,7 +107,11 @@ void FileWatcher::CheckForChanges()
     read_pending_ = false;
 
     bool target_changed = false;
-    if (bytes_returned > 0) {
+    if (bytes_returned == 0) {
+        // バッファ溢れでカーネルが変更内容を破棄した。取りこぼし回避のため変更ありとして扱う。
+        target_changed = true;
+    }
+    else {
         const auto* buf_end = reinterpret_cast<const char*>(change_buf_) + bytes_returned;
         auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(change_buf_);
         while (true) {

@@ -89,6 +89,7 @@ private:
     std::filesystem::path GetIndexPath() const;
     void LoadIndex();
     void EvictIfNeeded(uint32_t new_png_size);
+    void RemoveIndexEntry(std::pmr::unordered_map<uint64_t, IndexEntry>::iterator it) noexcept;
     void DecrementTotalSize(uint32_t png_size) noexcept;
     // last_used に積む単調増加シーケンス。ms 時刻だと連続 Lookup で衝突して
     // Lazy LRU の stale 検出が false negative になるため、衝突しない単純カウンタを使う。

@@ -42,7 +42,9 @@ static void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& ent
 {
     DWRITE_LINE_METRICS lm{};
     UINT32 lc = 0;
-    entry.first_line_height = (SUCCEEDED(layout->GetLineMetrics(&lm, 1, &lc)) && lc > 0) ? lm.height : 0.0f;
+    // 複数行レイアウトでは E_NOT_SUFFICIENT_BUFFER が返るが、先頭 1 行分は lm に書き込まれる。
+    const HRESULT hr = layout->GetLineMetrics(&lm, 1, &lc);
+    entry.first_line_height = ((SUCCEEDED(hr) || hr == E_NOT_SUFFICIENT_BUFFER) && lc > 0) ? lm.height : 0.0f;
 }
 
 static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family, float size, DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** out)
