@@ -245,8 +245,7 @@ public:
             block_heights_.Reset();
             block_heights_.Resize(node_count);
             effects_generation_++;
-            last_evict_fk_ = 0;
-            last_evict_lk_ = 0;
+            ResetEvictionTracking();
         }
     }
 
@@ -291,6 +290,7 @@ public:
         block_heights_.Reset();
         block_heights_.Resize(node_count);
         effects_generation_++;
+        ResetEvictionTracking();
     }
 
     constexpr size_t size() const noexcept
@@ -344,6 +344,7 @@ public:
             }
         }
         effects_generation_++;
+        ResetEvictionTracking();
     }
 
     // フォント幾何が変わるテーマ変更（ズーム等）用。レイアウトと bitmap の両方を破棄する。
@@ -428,6 +429,14 @@ public:
         last_evict_lk_ = lk;
     }
 
+    // 全 text_layout を破棄する操作の後に呼ぶ。差分エビクトが「破棄済み」と誤認して
+    // 再生成済みの画面外レイアウトを取り逃がさないよう、追跡境界を初期化する。
+    void ResetEvictionTracking() noexcept
+    {
+        last_evict_fk_ = 0;
+        last_evict_lk_ = 0;
+    }
+
     // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
     // 再表示時は MeasureTable の lazy 復元経路で CreateTextLayout を再発行する。
     // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
@@ -474,6 +483,7 @@ public:
             }
         }
         effects_generation_++;
+        ResetEvictionTracking();
     }
 
     // DPI 変更時の最小リセット。IDWriteTextLayout は DIP 単位なので不変、effects_generation のみ進める。

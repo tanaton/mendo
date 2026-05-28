@@ -97,13 +97,11 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
         return false;
     }
 
-    const float dpi = dpi_scale * 96.0f;
-    if (!EnsureRenderTarget(dpi)) {
+    if (!RecreateDeviceResources()) {
         DestroyWindow(hwnd);
         hwnd = nullptr;
         return false;
     }
-    CreateBrushes();
 
     // 角丸クリッピング用リージョン
     // SetWindowRgn は成功時のみ rgn の所有権を OS に移譲する。失敗時は呼び出し側で DeleteObject。
@@ -289,6 +287,15 @@ bool ContextMenu::Impl::EnsureRenderTarget(float dpi)
     return SUCCEEDED(hr);
 }
 
+bool ContextMenu::Impl::RecreateDeviceResources()
+{
+    if (!EnsureRenderTarget(dpi_scale * 96.0f)) {
+        return false;
+    }
+    CreateBrushes();
+    return true;
+}
+
 void ContextMenu::Impl::CreateBrushes()
 {
     if (!rt || !theme) {
@@ -314,7 +321,10 @@ void ContextMenu::Impl::CreateBrushes()
 void ContextMenu::Impl::Paint()
 {
     if (!rt) {
-        return;
+        // デバイスロスト後 (EndDraw が D2DERR_RECREATE_TARGET で rt を破棄) はここで再生成する。
+        if (!RecreateDeviceResources()) {
+            return;
+        }
     }
     rt->BeginDraw();
     rt->Clear(theme->pane_bg_color);
@@ -345,6 +355,8 @@ void ContextMenu::Impl::Paint()
     const HRESULT hr = rt->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
         rt.Reset();
+        // 次の WM_PAINT で rt を再生成させる。
+        InvalidateRect(hwnd, nullptr, FALSE);
     }
 }
 

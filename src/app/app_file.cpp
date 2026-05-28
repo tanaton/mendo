@@ -317,6 +317,13 @@ void App::ReloadCurrentFile()
     if (path.empty() || IsHelpPath(path)) {
         return;
     }
+    // テキスト選択ドラッグ中にリロードすると ClearSelection が is_dragging_ も落として
+    // ドラッグ確定 (TextSelectionEndedAction) が発火しなくなる。ドラッグ終了後に
+    // リトライさせる (DeferReloadRetry がタイマを再セットし FileWatcher は paused 維持)。
+    if (state_.view.viewport.IsDragging()) {
+        DeferReloadRetry();
+        return;
+    }
     // FileWatcher のバーストで重複スケジュールされないよう、進行中のロードが
     // あれば即 return する。suppress_animation 経路では IsLoading() が立たない
     // ため IsAsyncLoading() も併せて見る。
@@ -381,6 +388,11 @@ void App::DoReloadCurrentFile()
 void App::FinishReload(size_t diff_pos)
 {
     MENDO_PROFILE("FinishReload");
+
+    // ノード index がずれると per-node-index の一時状態が別ノードを指すためクリアする
+    // (フルオープン経路の ReduceRestoreScrollAfterLoad / ResetViewForNewDocument と同等)。
+    state_.view.viewport.ClearSelection();
+    state_.view.ResetPerNodeTransientState();
 
     state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size(), false);
     EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());

@@ -89,6 +89,7 @@ bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, si
         return true;
     }
 
+    // 直書きフォールバックは CREATE_ALWAYS が原本を切り詰めてから失敗しうるため行わない。
     DeleteFileW(tmp_path.c_str());
-    return WriteAllBytes(path, data, size);
+    return false;
 }

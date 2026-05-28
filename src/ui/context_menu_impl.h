@@ -44,6 +44,8 @@ struct ContextMenu::Impl {
     void ComputeLayout();
     bool EnsureRenderTarget(float dpi);
     void CreateBrushes();
+    // RT + ブラシをまとめて生成する。初期生成とデバイスロスト後の再生成で共用。
+    bool RecreateDeviceResources();
     void CreateTextFormats(const Theme& theme);
 
     void Paint();

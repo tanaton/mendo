@@ -608,6 +608,11 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
             ctx->FinalizeCurrentNode();
             std::pmr::string base_id{ &ctx->pool };
             GenerateAnchorIdInto(cn->GetText(), base_id);
+            // slug が空 (記号のみの見出し等) になるとアンカーが空文字列となり
+            // フラグメントナビゲーションで到達不能になるためフォールバックを与える。
+            if (base_id.empty()) {
+                base_id.assign("section");
+            }
             auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
             const int count = it->second++;
             auto& aid = cn->ensure_anchor_id_mut();

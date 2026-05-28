@@ -110,7 +110,8 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
 
     const auto first = ctx.cache.cbegin();
-    const auto last = first + static_cast<ptrdiff_t>(ctx.nodes.size());
+    // nodes と cache のサイズは非同期リロード中などに過渡的に不一致になりうる。
+    const auto last = first + static_cast<ptrdiff_t>(std::min(ctx.nodes.size(), ctx.cache.size()));
     const auto it = std::ranges::partition_point(first, last, [dip_y](const NodeLayoutEntry& e) noexcept {
         return e.text_top <= dip_y;
     });
@@ -258,8 +259,10 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
 
     const float viewport_top = ctx.scroll_y;
     const float viewport_bottom = ctx.scroll_y + ctx.md_pane_height;
-    const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.nodes.size(), viewport_top);
-    const int count = static_cast<int>(ctx.nodes.size());
+    // nodes と cache のサイズは非同期リロード中などに過渡的に不一致になりうるため両者の最小で抑える。
+    const size_t safe_count = std::min(ctx.nodes.size(), ctx.cache.size());
+    const int first = FindFirstVisibleNodeIndex(ctx.cache, safe_count, viewport_top);
+    const int count = static_cast<int>(safe_count);
 
     CodeBlockButtonHit out;
     for (int i = first; i < count; i++) {

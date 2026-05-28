@@ -218,9 +218,7 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
                 pending = pending_writes_.contains(key);
             }
             if (!pending) {
-                DecrementTotalSize(it->second.png_size);
-                lru_order_.erase(it->second.lru_iter);
-                index_.erase(it);
+                RemoveIndexEntry(it);
             }
         }
         return false;
@@ -260,13 +258,15 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
     const uint32_t png_size = static_cast<uint32_t>(png_data.size());
 
+    // 既存キーの上書きは新規スロットを要さない。先に旧エントリを除去してから EvictIfNeeded を
+    // 呼び、満杯時に無関係なエントリを巻き込んで削除しないようにする。
+    if (const auto it = index_.find(key); it != index_.end()) {
+        RemoveIndexEntry(it);
+    }
+
     EvictIfNeeded(png_size);
 
     auto& entry = index_[key];
-    if (entry.png_size > 0) {
-        DecrementTotalSize(entry.png_size);
-        lru_order_.erase(entry.lru_iter);
-    }
     entry.css_width = css_width;
     entry.css_height = css_height;
     entry.png_size = png_size;
@@ -362,6 +362,15 @@ void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
         DecrementTotalSize(it->second.png_size);
         index_.erase(it);
     }
+}
+
+void MermaidFileCache::RemoveIndexEntry(std::pmr::unordered_map<uint64_t, IndexEntry>::iterator it) noexcept
+{
+    if (it->second.png_size > 0) {
+        DecrementTotalSize(it->second.png_size);
+        lru_order_.erase(it->second.lru_iter);
+    }
+    index_.erase(it);
 }
 
 void MermaidFileCache::DecrementTotalSize(uint32_t png_size) noexcept
