@@ -21,6 +21,22 @@ inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
 float GetSpacingAbove(const Node& node, const Theme& theme) noexcept;
 float GetSpacingBelow(const Node& node, const Theme& theme) noexcept;
 
+struct YAdvance {
+    float text_top;
+    float block_height;
+};
+
+// 1 ノード分の Y 進行。加算順序 (above → height → below) は大規模ファイルでの
+// catastrophic cancellation 回避のため既存の累積順序を厳密に保持する。
+inline YAdvance AdvanceNodeY(float& y, float spacing_above, float height, float spacing_below) noexcept
+{
+    y += spacing_above;
+    const float text_top = y;
+    y += height;
+    y += spacing_below;
+    return { text_top, spacing_above + height + spacing_below };
+}
+
 // ノード i の「テキスト上端 Y」を Fenwick から O(log N) で取得する。
 // entry.text_top と同値で、margin_top + PrefixSum(i) + spacing_above[i] を返す。
 inline float TextTopOf(const LayoutCache& cache, size_t i, const Node& node, const Theme& theme) noexcept

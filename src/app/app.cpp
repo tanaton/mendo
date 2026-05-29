@@ -454,14 +454,27 @@ void App::OnDestroy()
     }
 }
 
+SearchBarLayout App::ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const
+{
+    return ComputeSearchBarLayout(
+        md_rect.x,
+        md_rect.width,
+        md_rect.y + md_rect.height,
+        !state_.search.search_state.GetQuery().empty());
+}
+
+int App::HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view query_wide, float dip_x) const
+{
+    return renderer_.HitTestSearchInput(query_wide, dip_x - sbl.text_left(), sbl.text_width());
+}
+
 RECT App::GetSearchEditRect()
 {
     if (!state_.search.search_state.IsVisible()) {
         return { 0, 0, 1, 1 };
     }
     const auto& layout = GetPaneLayout();
-    const auto& r = layout.md_rect;
-    const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
+    const auto sbl = ComputeSearchBarLayoutForMd(layout.md_rect);
     const float s = state_.window.cached_dpi_scale;
     return {
         static_cast<LONG>(sbl.input_rect.left * s),

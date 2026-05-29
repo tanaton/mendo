@@ -228,7 +228,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
     }
 
     for (size_t r = r_begin; r < r_end; r++) {
-        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_.font_size_body * 1.4f);
+        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_.font_size_body * TABLE_ROW_HEIGHT_FACTOR);
         const float row_bottom = row_y + row_h + border;
 
         const bool row_visible = (viewport_top < 0.0f) || (row_bottom >= viewport_top && row_y <= viewport_bottom);

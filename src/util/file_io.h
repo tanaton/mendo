@@ -54,10 +54,11 @@ bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, 
 [[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
 
 // tmp ファイルへ書いてから MoveFileExW(REPLACE_EXISTING) で原子的に置き換える。
-// rename が失敗 (クロスボリューム等) した場合は tmp を削除し path へ直接書き込む。
+// rename が失敗 (クロスボリューム等) した場合は tmp を削除し false を返す。直書きフォールバックは
+// CREATE_ALWAYS が原本を切り詰めてから失敗しうるため行わない。
 // tmp パスは `<path>.tmp` 固定 — 同じ path への並行呼び出しは tmp が衝突するため、
 // 呼び出し側で排他制御すること (現 callsite は UI スレッド単一発火で安全)。
-// 戻り値は最終的に何らかの形で書き込めたか。
+// 戻り値はアトミックな置換に成功したか。false の場合は原本が変更されていないことを保証する。
 bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
 
 // ファイル名・フルパス比較ユーティリティ。

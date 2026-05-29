@@ -36,8 +36,7 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y)
 void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
 {
     if (state_.search.search_state.IsVisible()) {
-        const auto& r = pane_layout.md_rect;
-        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !state_.search.search_state.GetQuery().empty());
+        const auto sbl = ComputeSearchBarLayoutForMd(pane_layout.md_rect);
         const auto old_hover = state_.search.search_bar_ctrl.GetHover();
 
         if (dip_y >= sbl.bar_top) {

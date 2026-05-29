@@ -73,6 +73,28 @@ struct TextSelection {
     uint32_t end_pos = 0;
     bool active = false;
 
+    struct NodeRange {
+        uint32_t start;
+        uint32_t end;
+    };
+
+    // node_index に対応する選択範囲 [start, end)。end は text_size でクランプ済み。
+    constexpr NodeRange ClampedRange(int node_index, size_t text_size) const noexcept
+    {
+        uint32_t start = 0;
+        uint32_t end = static_cast<uint32_t>(text_size);
+        if (node_index == start_node) {
+            start = start_pos;
+        }
+        if (node_index == end_node) {
+            end = end_pos;
+        }
+        if (end > text_size) {
+            end = static_cast<uint32_t>(text_size);
+        }
+        return { start, end };
+    }
+
     friend constexpr bool operator==(const TextSelection&, const TextSelection&) noexcept = default;
 
     constexpr void Clear() noexcept

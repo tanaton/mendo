@@ -34,17 +34,17 @@ inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT3
     return count;
 }
 
+inline D2D1_RECT_F OffsetRectF(const D2D1_RECT_F& r, float origin_x, float origin_y) noexcept
+{
+    return D2D1::RectF(origin_x + r.left, origin_y + r.top, origin_x + r.right, origin_y + r.bottom);
+}
+
 // インラインコードの背景矩形を描画する。
 // bgsにはパディング適用済みのレイアウト原点相対矩形が格納されている。
 inline void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, float origin_x, float origin_y, D2D1_COLOR_F color)
 {
     for (const auto& bg : bgs) {
-        const D2D1_RECT_F rect = D2D1::RectF(
-            origin_x + bg.left,
-            origin_y + bg.top,
-            origin_x + bg.right,
-            origin_y + bg.bottom);
-        cmds.emplace_back(FillRoundedRectCmd{ rect, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
+        cmds.emplace_back(FillRoundedRectCmd{ OffsetRectF(bg, origin_x, origin_y), INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
     }
 }
 
@@ -57,13 +57,7 @@ inline size_t GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellIn
         ++cursor;
     }
     while (cursor < bgs.size() && bgs[cursor].cell_index == cell_index) {
-        const auto& src = bgs[cursor].rect;
-        const D2D1_RECT_F rect = D2D1::RectF(
-            origin_x + src.left,
-            origin_y + src.top,
-            origin_x + src.right,
-            origin_y + src.bottom);
-        cmds.emplace_back(FillRoundedRectCmd{ rect, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
+        cmds.emplace_back(FillRoundedRectCmd{ OffsetRectF(bgs[cursor].rect, origin_x, origin_y), INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
         ++cursor;
     }
     return cursor;

@@ -25,19 +25,8 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
         }
         const std::string_view text = nodes[i].LinearizedText();
 
-        uint32_t start = 0;
-        uint32_t end = static_cast<uint32_t>(text.size());
-        if (i == selection.start_node) {
-            start = selection.start_pos;
-        }
-        if (i == selection.end_node) {
-            end = selection.end_pos;
-        }
-
-        if (start < end && start < text.size()) {
-            if (end > text.size()) {
-                end = static_cast<uint32_t>(text.size());
-            }
+        const auto [start, end] = selection.ClampedRange(i, text.size());
+        if (start < end) {
             result.append(text.data() + start, end - start);
         }
         if (i < selection.end_node) {
@@ -578,17 +567,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
         const auto& node = nodes[i];
         const auto& text = node.GetText();
 
-        uint32_t start = 0;
-        uint32_t end = static_cast<uint32_t>(text.size());
-        if (i == selection.start_node) {
-            start = selection.start_pos;
-        }
-        if (i == selection.end_node) {
-            end = selection.end_pos;
-        }
-        if (end > text.size()) {
-            end = static_cast<uint32_t>(text.size());
-        }
+        const auto [start, end] = selection.ClampedRange(i, text.size());
 
         if (IsListNode(node)) {
             const char* want_close = IsOrderedList(node) ? "</ol>" : "</ul>";

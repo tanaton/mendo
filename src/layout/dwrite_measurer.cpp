@@ -364,6 +364,19 @@ void DWriteTextMeasurer::MeasureNode(
     entry.invalidate_per_frame_hl_caches();
 }
 
+void DWriteTextMeasurer::BuildCellLayout(const NodeTableData* tbl, size_t r, size_t c, size_t ci, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const
+{
+    const auto text = tbl->GetCellText(r, c);
+    if (text.empty()) {
+        return;
+    }
+    const mendo::WideViewForDWrite wv{ text };
+    mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
+    if (tl.cell_layouts[ci]) {
+        ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, RunFormatScope::ForCell());
+    }
+}
+
 void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths) const
 {
     MENDO_PROFILE("MeasureTableCells");
@@ -378,16 +391,9 @@ void DWriteTextMeasurer::MeasureTableCells(Node& node, NodeLayoutEntry& entry, s
         const bool is_header = tbl->IsHeaderRow(r);
         IDWriteTextFormat* const row_fmt = is_header ? fmt_bold : fmt;
         for (size_t c = 0; c < col_count; c++) {
-            const auto text = tbl->GetCellText(r, c);
-            if (text.empty()) {
-                continue;
-            }
             const size_t ci = tl.CellIndex(r, c);
-            const mendo::WideViewForDWrite wv{ text };
-            mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
-
+            BuildCellLayout(tbl, r, c, ci, row_fmt, tl);
             if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, RunFormatScope::ForCell());
                 DWRITE_TEXT_METRICS metrics{};
                 tl.cell_layouts[ci]->GetMetrics(&metrics);
                 natural_widths[c] = std::max(natural_widths[c], metrics.width);
@@ -427,15 +433,7 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
             if (ci >= tl.cell_layouts.size() || tl.cell_layouts[ci]) {
                 continue;
             }
-            const auto text = tbl->GetCellText(r, c);
-            if (text.empty()) {
-                continue;
-            }
-            const mendo::WideViewForDWrite wv{ text };
-            mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &tl.cell_layouts[ci]);
-            if (tl.cell_layouts[ci]) {
-                ApplyRunFormatting(tl.cell_layouts[ci].Get(), tbl->GetCellRuns(r, c), wv, RunFormatScope::ForCell());
-            }
+            BuildCellLayout(tbl, r, c, ci, row_fmt, tl);
         }
     }
 }
@@ -466,7 +464,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(
     const auto row_count = tbl->row_count;
     bool any_row_unrestored = false;
     for (size_t r = 0; r < row_count; r++) {
-        float row_height = theme_->font_size_body * 1.4f;
+        float row_height = theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR;
         bool row_has_null_cell = false;
         for (size_t c = 0; c < col_count; c++) {
             const float cw = (c < tl.col_widths.size()) ? tl.col_widths[c] : DEFAULT_COLUMN_WIDTH;

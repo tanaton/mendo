@@ -128,12 +128,9 @@ void App::OnMouseMove(int px, int py)
 
     if (state_.search.search_bar_ctrl.IsDragging()) {
         const auto layout = GetPaneLayout();
-        const auto& r = layout.md_rect;
         const auto& query_wide = state_.search.search_bar_ctrl.GetQueryWide();
-        const auto sbl = ComputeSearchBarLayout(r.x, r.width, r.y + r.height, !query_wide.empty());
-        const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
-        const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
-        const int pos = renderer_.HitTestSearchInput(query_wide, dip.x - text_left, input_w);
+        const auto sbl = ComputeSearchBarLayoutForMd(layout.md_rect);
+        const int pos = HitTestSearchInputPos(sbl, query_wide, dip.x);
         Dispatch(SearchInputDragMovedAction{ pos });
         return;
     }

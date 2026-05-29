@@ -7,6 +7,8 @@
 #include <memory_resource>
 #include <span>
 
+struct NodeTableData;
+struct TableLayoutData;
 
 // ITextMeasurer の DirectWrite 実装。IDWriteTextFormat (重い再利用可能オブジェクト) を
 // theme ごとに所有し、計測のたびに per-call で IDWriteTextLayout を生成する分業構造。
@@ -20,11 +22,17 @@ public:
         theme_ = &theme;
     }
 
-    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
-                     MeasureViewportRange viewport = {}) const override;
-    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width,
-                      MeasureViewportRange viewport = {}) const override;
+    void MeasureNode(
+        Node& node,
+        NodeLayoutEntry& entry,
+        float max_width,
+        std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
+        MeasureViewportRange viewport = {}) const override;
+    void MeasureTable(
+        Node& node,
+        NodeLayoutEntry& entry,
+        float max_width,
+        MeasureViewportRange viewport = {}) const override;
 
     // 外部のIDWriteFactoryで初期化する（Initの前に呼び出す必要がある）。
     void SetFactory(IDWriteFactory* factory) noexcept
@@ -62,6 +70,9 @@ private:
     bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node) const noexcept;
     void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& view, RunFormatScope scope) const;
+    // MeasureTableCells / RestoreNullCellLayouts 共通のセル生成処理。空セルは layout を
+    // null のまま残し、呼び出し側のスキップ判定に委ねる。
+    void BuildCellLayout(const NodeTableData* tbl, size_t r, size_t c, size_t ci, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const;
     void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths) const;
     void RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry, MeasureViewportRange viewport) const;
     void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width, size_t col_count, std::pmr::vector<float>& natural_widths) const;

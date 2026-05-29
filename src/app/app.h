@@ -129,6 +129,8 @@ public:
         Dispatch(ImeCompositionAction{ std::move(comp) });
     }
     RECT GetSearchEditRect();
+    SearchBarLayout ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const;
+    int HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view query_wide, float dip_x) const;
 
     // Init() より前に呼ぶこと。preload 即時完了パスは Init 内で復元情報を参照する。
     constexpr void SetPendingRestoreNode(int node, int offset) noexcept
@@ -212,7 +214,6 @@ private:
     void ScheduleDeferredLayoutIfNeeded();
     void InvalidateMdPane(const PaneRect& md_rect);
     void InvalidateHitPositions();
-    void ScrollTo(float position);
     void OnResizeEnd();
     void RefreshPaneLayout();
     void RefreshFilePane();

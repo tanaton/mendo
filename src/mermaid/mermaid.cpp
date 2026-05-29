@@ -333,11 +333,6 @@ void MermaidRenderer::CancelPending()
     }
 }
 
-uint64_t MermaidRenderer::HashCode(std::string_view code_utf8, float max_width, bool dark_mode) const noexcept
-{
-    return mermaid_util::HashCode(code_utf8, max_width, dark_mode);
-}
-
 void MermaidRenderer::ApplyCachedBitmap(NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, const CachedBitmap& cached) noexcept
 {
     diagram_entry.bitmap = cached.bitmap;

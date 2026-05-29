@@ -98,12 +98,9 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         const float sa = GetSpacingAbove(node, *theme_);
         const float sb = GetSpacingBelow(node, *theme_);
 
-        y += sa;
-        entry.text_top = y;
-        y += entry.height;
-        y += sb;
-
-        block_heights_buf_.push_back(sa + entry.height + sb);
+        const auto adv = AdvanceNodeY(y, sa, entry.height, sb);
+        entry.text_top = adv.text_top;
+        block_heights_buf_.push_back(adv.block_height);
 
         // 幅の変更がなく、ビューポートを超えた後に高さの変更もなければ、
         // 残りの Y 位置は変わらないので早期終了する。

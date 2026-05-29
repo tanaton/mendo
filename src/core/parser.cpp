@@ -661,22 +661,22 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ctx->paragraph_has_other_content = true;
     }
 
+    const auto enter_span_flag = [ctx](uint8_t& counter, uint8_t flag) {
+        ++counter;
+        ctx->current_run_flags |= flag;
+    };
     switch (type) {
     case MD_SPAN_STRONG:
-        ++ctx->bold_count;
-        ctx->current_run_flags |= TextRun::kBold;
+        enter_span_flag(ctx->bold_count, TextRun::kBold);
         break;
     case MD_SPAN_EM:
-        ++ctx->italic_count;
-        ctx->current_run_flags |= TextRun::kItalic;
+        enter_span_flag(ctx->italic_count, TextRun::kItalic);
         break;
     case MD_SPAN_CODE:
-        ++ctx->code_count;
-        ctx->current_run_flags |= TextRun::kCode;
+        enter_span_flag(ctx->code_count, TextRun::kCode);
         break;
     case MD_SPAN_DEL:
-        ++ctx->strikethrough_count;
-        ctx->current_run_flags |= TextRun::kStrikethrough;
+        enter_span_flag(ctx->strikethrough_count, TextRun::kStrikethrough);
         break;
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
@@ -725,26 +725,23 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
     ctx->FlushPendingRun();
 
     // md4c は enter/leave が常にバランスする契約なのでアンダーフローは起きない。
+    const auto leave_span_flag = [ctx](uint8_t& counter, uint8_t flag) {
+        if (--counter == 0) {
+            ctx->current_run_flags &= static_cast<uint8_t>(~flag);
+        }
+    };
     switch (type) {
     case MD_SPAN_STRONG:
-        if (--ctx->bold_count == 0) {
-            ctx->current_run_flags &= static_cast<uint8_t>(~TextRun::kBold);
-        }
+        leave_span_flag(ctx->bold_count, TextRun::kBold);
         break;
     case MD_SPAN_EM:
-        if (--ctx->italic_count == 0) {
-            ctx->current_run_flags &= static_cast<uint8_t>(~TextRun::kItalic);
-        }
+        leave_span_flag(ctx->italic_count, TextRun::kItalic);
         break;
     case MD_SPAN_CODE:
-        if (--ctx->code_count == 0) {
-            ctx->current_run_flags &= static_cast<uint8_t>(~TextRun::kCode);
-        }
+        leave_span_flag(ctx->code_count, TextRun::kCode);
         break;
     case MD_SPAN_DEL:
-        if (--ctx->strikethrough_count == 0) {
-            ctx->current_run_flags &= static_cast<uint8_t>(~TextRun::kStrikethrough);
-        }
+        leave_span_flag(ctx->strikethrough_count, TextRun::kStrikethrough);
         break;
     case MD_SPAN_A:
         ctx->current_link_url_index = -1;
