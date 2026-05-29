@@ -13,13 +13,6 @@ void App::InvalidateHitPositions()
     Dispatch(ClearTooltipAction{});
 }
 
-void App::ScrollTo(float position)
-{
-    state_.view.viewport.ScrollTo(position);
-    InvalidateHitPositions();
-    EmitEffect(effect::SyncTocActive{});
-}
-
 void App::SyncTocActiveAndAutoScroll()
 {
     if (!state_.view.panes.IsSidePaneVisible(PaneTarget::Toc)) {

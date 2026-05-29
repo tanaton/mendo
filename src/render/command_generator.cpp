@@ -374,14 +374,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Frame
 
     const auto& selection = fc.selection;
     if (selection.active && node_index >= selection.start_node && node_index <= selection.end_node) {
-        uint32_t sel_start = 0;
-        uint32_t sel_end = static_cast<uint32_t>(node.GetText().size());
-        if (node_index == selection.start_node) {
-            sel_start = selection.start_pos;
-        }
-        if (node_index == selection.end_node) {
-            sel_end = selection.end_pos;
-        }
+        const auto [sel_start, sel_end] = selection.ClampedRange(node_index, node.GetText().size());
         if (sel_end > sel_start) {
             GenSelectionHighlightCached(cmds, node, entry, sel_start, sel_end - sel_start, text_x, entry_text_top);
         }
@@ -718,13 +711,7 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
         MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_hit);
     }
     for (const auto& r : cache.rects) {
-        cmds.emplace_back(FillRectCmd{
-            D2D1::RectF(
-                origin_x + r.left,
-                origin_y + r.top,
-                origin_x + r.right,
-                origin_y + r.bottom),
-            SELECTION_COLOR, BrushId::Selection });
+        cmds.emplace_back(FillRectCmd{ OffsetRectF(r, origin_x, origin_y), SELECTION_COLOR, BrushId::Selection });
     }
 }
 
@@ -814,8 +801,7 @@ void CommandGenerator::EmitSearchHlCommands(
         const D2D1_COLOR_F color = is_current ? theme_->search_highlight_current_color : theme_->search_highlight_color;
         const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
         for (uint32_t k = rb; k < re; ++k) {
-            const auto& r = cache.rects[k];
-            cmds.emplace_back(FillRectCmd{ D2D1::RectF(origin_x + r.left, origin_y + r.top, origin_x + r.right, origin_y + r.bottom), color, hl_brush });
+            cmds.emplace_back(FillRectCmd{ OffsetRectF(cache.rects[k], origin_x, origin_y), color, hl_brush });
         }
     }
 }
@@ -875,14 +861,11 @@ void CommandGenerator::GenTable(
     const float table_width = tl.cached_table_width;
 
     bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
-    uint32_t sel_start = 0, sel_end = static_cast<uint32_t>(tbl->concat_text.size());
+    uint32_t sel_start = 0, sel_end = 0;
     if (has_selection) {
-        if (node_index == selection.start_node) {
-            sel_start = selection.start_pos;
-        }
-        if (node_index == selection.end_node) {
-            sel_end = selection.end_pos;
-        }
+        const auto range = selection.ClampedRange(node_index, tbl->concat_text.size());
+        sel_start = range.start;
+        sel_end = range.end;
         if (sel_end <= sel_start) {
             has_selection = false;
         }

@@ -1,4 +1,5 @@
 #include "document.h"
+#include "ascii_util.h"
 #include "document_utils.h"
 #include "fnv1a.h"
 #include "parser.h"
@@ -169,10 +170,7 @@ int Document::FindAnchorIndex(std::string_view anchor) const
     }
     char stack_buf[256];
     if (anchor.size() <= sizeof(stack_buf)) {
-        for (size_t i = 0; i < anchor.size(); ++i) {
-            const char c = anchor[i];
-            stack_buf[i] = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
-        }
+        ascii_util::AsciiToLowerOnly(anchor.data(), stack_buf, anchor.size());
         return FindNormalizedAnchorIndex(std::string_view{ stack_buf, anchor.size() });
     }
     const std::pmr::string target = ToLowerAscii(anchor);

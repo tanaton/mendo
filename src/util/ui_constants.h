@@ -174,6 +174,20 @@ struct SearchBarLayout {
     D2D1_RECT_F icon_rect{};
     float bar_top = 0.0f;
     float bar_bottom = 0.0f;
+
+    // 検索入力のテキスト描画領域。描画(renderer_search)とヒットテスト(app)で共有する。
+    float text_left() const noexcept
+    {
+        return input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
+    }
+    float text_right() const noexcept
+    {
+        return input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT;
+    }
+    float text_width() const noexcept
+    {
+        return text_right() - text_left();
+    }
 };
 
 inline SearchBarLayout ComputeSearchBarLayout(float md_left, float md_width, float md_bottom, bool has_query) noexcept

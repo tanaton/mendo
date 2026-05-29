@@ -133,8 +133,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
     std::unreachable();
 }
 
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-                         std::stop_token stop_token)
+void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, std::stop_token stop_token)
 {
     MENDO_PROFILE("EstimateNodeHeights");
     // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
@@ -157,13 +156,10 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
         const float sa = GetSpacingAbove(node, theme);
         const float sb = GetSpacingBelow(node, theme);
 
-        y += sa;
+        const auto adv = AdvanceNodeY(y, sa, h, sb);
         cache[i].height = h;
-        cache[i].text_top = y;
-        y += h;
-        y += sb;
-
-        block_heights.push_back(sa + h + sb);
+        cache[i].text_top = adv.text_top;
+        block_heights.push_back(adv.block_height);
     }
     cache.BuildBlockHeights(block_heights);
 }
@@ -235,17 +231,13 @@ YPositionResult RecomputeYPositions(
         const float sa = GetSpacingAbove(nodes[i], theme);
         const float sb = GetSpacingBelow(nodes[i], theme);
 
-        y += sa;
-        entry.text_top = y;
-        y += entry.height;
-        y += sb;
-
-        const float block_height = sa + entry.height + sb;
+        const auto adv = AdvanceNodeY(y, sa, entry.height, sb);
+        entry.text_top = adv.text_top;
         if (can_bulk_build) {
-            block_heights.push_back(block_height);
+            block_heights.push_back(adv.block_height);
         }
         else {
-            cache.SetBlockHeight(i, block_height);
+            cache.SetBlockHeight(i, adv.block_height);
         }
     }
 

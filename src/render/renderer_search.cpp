@@ -55,7 +55,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
     // レイアウトを1回だけ作成し、描画とキャレット計測で共用する。
     // IMEコンポジション中は確定済みテキスト+変換中テキストを合成して表示。
-    const float text_left = sbl.input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
+    const float text_left = sbl.text_left();
     float caret_x = text_left;
 
     const bool has_comp = !sb.ime_composition.empty();
@@ -76,7 +76,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     std::pmr::wstring display_buf{ GetThreadLocalPoolResource() };
 
     if (fmt_.search_input && (!sb.query.empty() || has_comp) && backend_.GetDWriteFactory()) {
-        const float input_w = sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT - text_left;
+        const float input_w = sbl.text_width();
         const float input_h = sbl.input_rect.bottom - sbl.input_rect.top;
 
         // 比較は scalar → 空になりやすい ime_comp → query の順で短絡させる
@@ -193,7 +193,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
     // コンポジション中はIME側がキャレットを表示するため非表示
     if (sb.caret_visible && !has_comp) {
-        caret_x = std::min(caret_x + 1.0f, sbl.input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT);
+        caret_x = std::min(caret_x + 1.0f, sbl.text_right());
         rt()->DrawLine(
             D2D1::Point2F(caret_x, sbl.input_rect.top + 3.0f),
             D2D1::Point2F(caret_x, sbl.input_rect.bottom - 3.0f),
