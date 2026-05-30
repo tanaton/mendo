@@ -198,6 +198,7 @@ private:
 
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y);
+    HitResult HitTest(const MdPaneHitContext& ctx);
     std::optional<std::pmr::string> GetLinkAtHit(const HitResult& hit) const;
     MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 

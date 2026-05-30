@@ -277,6 +277,36 @@ TEST(ComputePaneLayout, VeryNarrowWindow)
     EXPECT_GE(layout.md_rect.width, 200.0f);
 }
 
+TEST(ComputePaneLayout, OversizedSavedWidthsKeepMdOnScreen)
+{
+    // 広いモニタで保存した side 幅 (合計がウィンドウ超過) で狭い画面に起動しても、
+    // MD ペインとスプリッタは画面内に収まり、操作不能ロックアウトにならない。
+    const float total = 700.0f;
+    const float md_min = 200.0f;
+    auto layout = ComputePaneLayout(total, 600.0f, 2000.0f, 2000.0f, 4.0f, true, true, md_min);
+
+    EXPECT_GE(layout.md_rect.width, md_min);
+    // MD ペイン左端が画面内に収まる (md_min 幅を確保できる位置)
+    EXPECT_LE(layout.md_rect.x, total - md_min);
+    // 両スプリッタが画面内に残る (ドラッグで回復可能)
+    const float splitter1_x = layout.file_rect.x + layout.file_rect.width;
+    const float splitter2_x = layout.toc_rect.x + layout.toc_rect.width;
+    EXPECT_LT(splitter1_x, total);
+    EXPECT_LT(splitter2_x, total);
+}
+
+TEST(ComputePaneLayout, SingleOversizedPaneKeepsSplitterOnScreen)
+{
+    // 片ペインの保存幅だけでウィンドウを超える場合でも、そのスプリッタは画面内に残る。
+    const float total = 600.0f;
+    const float md_min = 200.0f;
+    auto layout = ComputePaneLayout(total, 600.0f, 5000.0f, 0.0f, 4.0f, true, false, md_min);
+
+    EXPECT_GE(layout.md_rect.width, md_min);
+    const float splitter1_x = layout.file_rect.x + layout.file_rect.width;
+    EXPECT_LT(splitter1_x, total);
+}
+
 TEST(DetectPaneZone, ExactlySplitter1Edge)
 {
     auto layout = ComputePaneLayout(1200.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);

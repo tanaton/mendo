@@ -44,6 +44,11 @@ inline IniData Parse(std::string_view text)
             if (close != std::string_view::npos) {
                 current_section = std::string(line.substr(1, close - 1));
             }
+            else {
+                // 未終端ブラケットは壊れたセクション開始。後続キーが直前セクションへ
+                // 誤混入するのを防ぐため無名セクションへ退避する。
+                current_section.clear();
+            }
             continue;
         }
 

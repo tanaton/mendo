@@ -8,7 +8,12 @@
 
 App::HitResult App::HitTest(int screen_x, int screen_y)
 {
-    return hit_test_.HitTest(BuildMdPaneHitContext(screen_x, screen_y, GetPaneLayout()));
+    return HitTest(BuildMdPaneHitContext(screen_x, screen_y, GetPaneLayout()));
+}
+
+App::HitResult App::HitTest(const MdPaneHitContext& ctx)
+{
+    return hit_test_.HitTest(ctx);
 }
 
 MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept

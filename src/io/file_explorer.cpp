@@ -6,6 +6,20 @@
 #include <filesystem>
 #include <iterator>
 
+namespace {
+// 列挙エントリを一覧に含めるか。"."/".."・システム属性を除外し、
+// ディレクトリまたは Markdown ファイルのみ対象とする。
+bool ShouldListEntry(const WIN32_FIND_DATAW& fd) noexcept
+{
+    const std::wstring_view name{ fd.cFileName };
+    if (name == L"." || name == L".." || (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0) {
+        return false;
+    }
+    const bool is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    return is_dir || IsMarkdownFile(fd.cFileName);
+}
+} // namespace
+
 void FileExplorer::SetDirectory(std::wstring_view dir_path)
 {
     std::pmr::wstring normalized{ dir_path };
@@ -52,28 +66,25 @@ void FileExplorer::Refresh()
 
     static constexpr size_t MAX_ENTRIES = 4096;
 
-    do {
-        const std::wstring_view name{ fd.cFileName };
-        if (name == L"." || name == L"..") {
-            continue;
-        }
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) {
-            continue;
+    for (;;) {
+        if (ShouldListEntry(fd)) {
+            FileEntry entry;
+            entry.full_path.assign((dir_base / fd.cFileName).native());
+            entry.set_directory((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
+            entries_.emplace_back(std::move(entry));
         }
         if (entries_.size() - sort_begin >= MAX_ENTRIES) {
             break;
         }
-
-        const bool is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-        if (!is_dir && !IsMarkdownFile(fd.cFileName)) {
-            continue;
+        if (!FindNextFileW(hFind.get(), &fd)) {
+            // 列挙の途中失敗を正常終了 (ERROR_NO_MORE_FILES) と区別する。
+            // 中断時は部分結果を完全な一覧と誤認させないよう破棄する。
+            if (GetLastError() != ERROR_NO_MORE_FILES) {
+                entries_.resize(sort_begin);
+            }
+            break;
         }
-
-        FileEntry entry;
-        entry.full_path.assign((dir_base / fd.cFileName).native());
-        entry.set_directory(is_dir);
-        entries_.emplace_back(std::move(entry));
-    } while (FindNextFileW(hFind.get(), &fd));
+    }
 
     std::ranges::sort(entries_.begin() + static_cast<ptrdiff_t>(sort_begin), entries_.end(), [](const FileEntry& a, const FileEntry& b) noexcept {
         if (a.is_directory() != b.is_directory()) {

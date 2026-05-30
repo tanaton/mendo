@@ -155,7 +155,8 @@ struct NodeCodeData {
 };
 
 struct NodeListData {
-    int32_t list_number = 0;   // 0 = 順序なし, >0 = 順序付きリスト番号
+    int32_t list_number = 0;   // 順序付きリストの番号 (ordered=true のとき有効。0 始まりも可)
+    bool ordered = false;
     bool task_checked = false; // TaskListItem のときのみ意味を持つ
 };
 
@@ -424,6 +425,11 @@ struct Node {
     {
         const auto* ld = list_data();
         return ld ? ld->list_number : 0;
+    }
+    constexpr bool list_ordered() const noexcept
+    {
+        const auto* ld = list_data();
+        return ld && ld->ordered;
     }
     constexpr bool task_checked() const noexcept
     {

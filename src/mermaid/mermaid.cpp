@@ -117,6 +117,11 @@ void MermaidRenderer::EnsureInitialized()
     }
 
     if (worker_count_ == 0) {
+        // ワーカーウィンドウを 1 つも作れなければ初期化済みフラグを戻し、
+        // 次回 RequestRender/RequestSvg で再試行できるようにする。
+        // 既にキューされた SVG リクエストは失敗で完了させ in-flight 固着を防ぐ。
+        lifecycle_.Reset();
+        FailPendingRequests();
         return;
     }
 
@@ -144,6 +149,16 @@ void MermaidRenderer::CreateWebView2Environment()
             if (env_retry_count_ < MAX_ENV_RETRIES && hwnd_) {
                 ++env_retry_count_;
                 SetTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_INIT_RETRY), 500, nullptr);
+            }
+            else {
+                // リトライ上限。待機中リクエストを失敗で完了させてから状態を全リセットし、
+                // 次回 RequestRender/RequestSvg でクリーンに再初期化させる。リセットしないと
+                // initialized_ が立ったままで EnsureInitialized が二度と走らず、以後の
+                // リクエストが処理も失敗もされず in-flight 固着する。worker/env を残したまま
+                // 再 init するとリークするため Shutdown 経由で破棄する。
+                FailPendingRequests();
+                env_retry_count_ = 0;
+                Shutdown();
             }
             return S_OK;
         }
@@ -311,6 +326,16 @@ void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstri
     }
     if (auto cb = std::move(req.svg_callback)) {
         cb(std::move(svg), cancelled);
+    }
+}
+
+void MermaidRenderer::FailPendingRequests()
+{
+    // 初期化が恒久的に失敗した場合に呼ぶ。待機中の SVG リクエストを失敗
+    // (cancelled=false) で完了させ、呼び出し元の in-flight フラグ固着を防ぐ。
+    while (!pending_requests_.empty()) {
+        InvokeSvgCallbackIfAny(pending_requests_.front(), {}, false);
+        pending_requests_.pop();
     }
 }
 

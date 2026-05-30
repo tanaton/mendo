@@ -560,9 +560,10 @@ bool Renderer::CheckEndDraw()
         return false;
     }
     if (SUCCEEDED(hr)) {
-        const HRESULT hr_present = backend_.Present();
-        if (hr_present == DXGI_ERROR_DEVICE_REMOVED || hr_present == DXGI_ERROR_DEVICE_RESET) {
-            // backend 側で device_lost_ がセット済み。次フレーム冒頭の HandleDeviceLost で再作成。
+        backend_.Present();
+        if (backend_.IsDeviceLost()) {
+            // REMOVED/RESET/HUNG/DRIVER_INTERNAL_ERROR で backend が device_lost_ をセット済み。
+            // 次フレーム冒頭の HandleDeviceLost で再作成するため再描画を予約する。
             InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
             return false;
         }

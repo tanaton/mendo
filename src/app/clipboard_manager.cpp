@@ -70,11 +70,12 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, flo
         return;
     }
 
-    if (WriteAllBytes(filename.c_str(), png.data.get(), png.size)) {
+    // 既存ファイルを上書き選択した場合でも、失敗時に原本を破壊しないよう
+    // tmp+rename のアトミック書き込みを使う。
+    if (AtomicWriteAllBytes(filename.c_str(), png.data.get(), png.size)) {
         show_toast_(i18n::S().toast_image_saved);
     }
     else {
-        DeleteFileW(filename.c_str());
         show_toast_(i18n::S().toast_image_save_failed);
     }
 }

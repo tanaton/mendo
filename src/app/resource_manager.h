@@ -378,12 +378,13 @@ public:
 
         const auto& diagram_indices = deps_.doc->GetDiagramNodeIndices();
         const auto dia_keep = VisibleSlice(diagram_indices, static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
-        bool any_mermaid_evicted = false;
+        // オフスクリーンの diagram bitmap (layout 側) だけ解放する。レンダ済みビットマップの
+        // 二次キャッシュ (mermaid 内 LRU, 128 件) は自前で上限管理されるため全消去しない。
+        // 全消去すると可視中の図まで捨てて WebView2 再レンダの cliff を生むため。
         auto evict_mermaid = [&](size_t i) {
             auto& diagram = deps_.cache->GetDiagram(i);
             if (diagram.bitmap) {
                 diagram.bitmap.Reset();
-                any_mermaid_evicted = true;
             }
         };
         for (auto it = diagram_indices.begin(); it != dia_keep.begin; ++it) {
@@ -391,9 +392,6 @@ public:
         }
         for (auto it = dia_keep.end; it != diagram_indices.end(); ++it) {
             evict_mermaid(*it);
-        }
-        if (any_mermaid_evicted) {
-            deps_.mermaid->ClearCache();
         }
     }
 

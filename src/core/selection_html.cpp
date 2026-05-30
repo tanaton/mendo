@@ -487,7 +487,7 @@ constexpr bool IsListNode(const Node& n) noexcept
 
 constexpr bool IsOrderedList(const Node& n) noexcept
 {
-    return IsListNode(n) && n.list_number() > 0;
+    return IsListNode(n) && n.list_ordered();
 }
 
 std::optional<std::pmr::string> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::pmr::string> link_urls, uint32_t pos)
@@ -545,7 +545,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
     size_t estimated = 0;
     for (int i = selection.start_node; i <= selection.end_node; ++i) {
         if (i >= 0 && i < static_cast<int>(nodes.size())) {
-            estimated += nodes[i].GetText().size();
+            estimated += nodes[i].LinearizedText().size();
         }
     }
     // シンタックスハイライトの span やテーブルの style 属性でタグのオーバーヘッドが増えるため、
@@ -565,7 +565,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             continue;
         }
         const auto& node = nodes[i];
-        const auto& text = node.GetText();
+        const auto text = node.LinearizedText();
 
         const auto [start, end] = selection.ClampedRange(i, text.size());
 

@@ -202,7 +202,7 @@ void SessionService::SavePaneState(const PaneState& state)
     config_.SaveInt(kSectionPane, kKeyTocWidth, static_cast<int>(std::lround(state.toc_width)));
 }
 
-SessionService::PaneState SessionService::LoadPaneState(float client_width, float min_width, float default_width) const
+SessionService::PaneState SessionService::LoadPaneState([[maybe_unused]] float client_width, float min_width, float default_width) const
 {
     PaneState s;
     s.show_file = config_.LoadBool(kSectionPane, kKeyShowFile, true);
@@ -211,17 +211,13 @@ SessionService::PaneState SessionService::LoadPaneState(float client_width, floa
     const int default_int = static_cast<int>(default_width);
     const int min_int = static_cast<int>(min_width);
 
-    // クライアント幅に基づいて有効な最大ペイン幅を計算する
-    int dynamic_max = default_int;
-    if (client_width > 0.0f) {
-        dynamic_max = std::max(min_int, static_cast<int>(client_width) - min_int);
-    }
-
-    // LoadInt は範囲外時に default_int を返すが、その既定値自体が
-    // 狭いウィンドウでは dynamic_max を超えうる。最終結果も clamp してから
-    // 適用し、SetXxxPaneWidth 側の最小値 clamp に過剰な幅が漏れないようにする。
-    const int file_w = std::clamp(config_.LoadInt(kSectionPane, kKeyFileWidth, default_int, min_int, dynamic_max), min_int, dynamic_max);
-    const int toc_w = std::clamp(config_.LoadInt(kSectionPane, kKeyTocWidth, default_int, min_int, dynamic_max), min_int, dynamic_max);
+    // 過剰幅の表示制限は ComputePaneLayout 側 (side 幅を表示時に clamp して MD ペインと
+    // スプリッタを画面内に保つ。論理幅は不変) に委ね、ここでは下限のみ保証する。
+    // client_width で上限 clamp すると狭いウィンドウ起動時に保存値が min へ潰れ、
+    // 終了時の再保存で恒久喪失するため。破損 INI 対策に実用上限のみ設ける。
+    constexpr int kPaneWidthLoadMax = 10000;
+    const int file_w = config_.LoadInt(kSectionPane, kKeyFileWidth, default_int, min_int, kPaneWidthLoadMax);
+    const int toc_w = config_.LoadInt(kSectionPane, kKeyTocWidth, default_int, min_int, kPaneWidthLoadMax);
     s.file_width = static_cast<float>(file_w);
     s.toc_width = static_cast<float>(toc_w);
     return s;

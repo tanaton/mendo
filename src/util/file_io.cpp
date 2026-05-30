@@ -82,6 +82,9 @@ bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, si
     tmp_path += L".tmp";
 
     if (!WriteAllBytes(tmp_path, data, size)) {
+        // 書き込み途中失敗でも CREATE_ALWAYS で tmp は生成済み。部分書き込みの
+        // 孤児 tmp を残さないよう掃除する。
+        DeleteFileW(tmp_path.c_str());
         return false;
     }
 

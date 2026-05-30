@@ -74,9 +74,9 @@ TEST_F(MouseGestureTest, LeftGestureReturnsBack)
     EXPECT_FALSE(gesture_.IsOverlayVisible());
 }
 
-// ─── 垂直移動 → None ───
+// ─── 垂直移動 (方向なし) → ShowContextMenu (右クリック扱いでメニュー表示) ───
 
-TEST_F(MouseGestureTest, VerticalGestureReturnsNone)
+TEST_F(MouseGestureTest, VerticalGestureReturnsShowContextMenu)
 {
     gesture_.OnRButtonDown(100.0f, 100.0f);
     gesture_.OnMouseMove(100.0f, 200.0f);  // 下に100px
@@ -85,8 +85,9 @@ TEST_F(MouseGestureTest, VerticalGestureReturnsNone)
     EXPECT_EQ(gesture_.GetDirection(), GestureDirection::None);
     EXPECT_FALSE(gesture_.IsOverlayVisible());
 
+    // 方向が確定しなかった右ドラッグはイベントを握り潰さず、コンテキストメニューを表示する。
     auto result = gesture_.OnRButtonUp();
-    EXPECT_EQ(result, GestureResult::None);
+    EXPECT_EQ(result, GestureResult::ShowContextMenu);
     EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
 }
 

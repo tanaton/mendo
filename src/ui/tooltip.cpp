@@ -11,7 +11,6 @@ struct Tooltip::Impl {
     HWND hwnd = nullptr;
     HWND parent = nullptr;
     TooltipTarget current;
-    POINT show_pos{};
     bool visible = false;
 
     ~Impl()
@@ -61,7 +60,7 @@ void Tooltip::Init(HWND parent_hwnd)
     SendMessageW(s.hwnd, TTM_SETMAXTIPWIDTH, 0, 600);
 }
 
-bool Tooltip::Update(const TooltipTarget& target, int screen_x, int screen_y)
+bool Tooltip::Update(const TooltipTarget& target, [[maybe_unused]] int screen_x, [[maybe_unused]] int screen_y)
 {
     auto& s = *impl_;
     if (target == s.current) {
@@ -70,7 +69,6 @@ bool Tooltip::Update(const TooltipTarget& target, int screen_x, int screen_y)
 
     Hide();
     s.current = target;
-    s.show_pos = POINT{ screen_x, screen_y };
 
     if (s.current.IsEmpty()) {
         return false;
@@ -92,9 +90,14 @@ void Tooltip::Show()
     ti.lpszText = const_cast<LPWSTR>(s.current.text.c_str());
     SendMessageW(s.hwnd, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
 
+    // 表示時点の実カーソル位置を使う。タイマー待機中に同一ターゲット内でカーソルが
+    // 動いても最新位置で表示するため (同一ターゲットでは reducer 側で抑止され Update は
+    // 呼ばれないので、保存した位置では陳腐化する)。
+    POINT pt{};
+    GetCursorPos(&pt);
     const UINT dpi = GetDpiForWindow(s.parent);
     const int offset_y = MulDiv(20, dpi, 96);
-    SendMessageW(s.hwnd, TTM_TRACKPOSITION, 0, MAKELPARAM(s.show_pos.x, s.show_pos.y + offset_y));
+    SendMessageW(s.hwnd, TTM_TRACKPOSITION, 0, MAKELPARAM(pt.x, pt.y + offset_y));
 
     SendMessageW(s.hwnd, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&ti));
     s.visible = true;

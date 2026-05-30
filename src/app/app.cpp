@@ -328,7 +328,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
         return;
     }
 
-    // 縦スクロールが発生した時点で SwipeDetector の軸ロックを解除し、
+    // 縦スクロールが発生した時点で SwipeDetector の軸ロックを更新（再武装）し、
     // 直後の水平ホイールがスワイプとして誤検出されないようにする。
     const bool had_overlay = state_.interaction.swipe_detector.IsOverlayVisible();
     state_.interaction.swipe_detector.NotifyVScroll(GetTickCount64());
