@@ -218,7 +218,8 @@ TEST(Parser, UnorderedList)
     ASSERT_EQ(nodes.size(), 3u);
     for (const auto& node : nodes) {
         EXPECT_EQ(node.type, NodeType::ListItem);
-        EXPECT_EQ(node.list_number(), 0); // 順序なしリスト
+        EXPECT_EQ(node.list_number(), 0);  // 順序なしリスト
+        EXPECT_FALSE(node.list_ordered()); // ordered フラグも false
     }
     EXPECT_EQ(nodes[0].GetText(), "item1");
     EXPECT_EQ(nodes[1].GetText(), "item2");
@@ -365,6 +366,7 @@ TEST(Parser, OrderedList)
     ASSERT_EQ(nodes.size(), 3u);
     for (const auto& node : nodes) {
         EXPECT_EQ(node.type, NodeType::ListItem);
+        EXPECT_TRUE(node.list_ordered());
     }
     EXPECT_EQ(nodes[0].list_number(), 1);
     EXPECT_EQ(nodes[1].list_number(), 2);
@@ -377,6 +379,19 @@ TEST(Parser, OrderedListStartsFromN)
     ASSERT_EQ(nodes.size(), 2u);
     EXPECT_EQ(nodes[0].list_number(), 5);
     EXPECT_EQ(nodes[1].list_number(), 6);
+}
+
+// `0.` 始まりの順序リスト: 旧実装の list_number()>0 プロキシでは unordered と誤認される。
+// ordered フラグと番号 0 の保持を検証する (PR#249 Copilot レビュー指摘の回帰テスト)。
+TEST(Parser, OrderedListStartsFromZero)
+{
+    auto nodes = ParseMarkdown("0. zero\n1. one").nodes;
+    ASSERT_EQ(nodes.size(), 2u);
+    EXPECT_EQ(nodes[0].type, NodeType::ListItem);
+    EXPECT_TRUE(nodes[0].list_ordered());
+    EXPECT_EQ(nodes[0].list_number(), 0);
+    EXPECT_TRUE(nodes[1].list_ordered());
+    EXPECT_EQ(nodes[1].list_number(), 1);
 }
 
 TEST(Parser, ListIndentLevel)
