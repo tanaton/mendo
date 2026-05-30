@@ -151,8 +151,14 @@ void MermaidRenderer::CreateWebView2Environment()
                 SetTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_INIT_RETRY), 500, nullptr);
             }
             else {
-                // リトライ上限。待機中リクエストを失敗で完了させ in-flight 固着を防ぐ。
+                // リトライ上限。待機中リクエストを失敗で完了させてから状態を全リセットし、
+                // 次回 RequestRender/RequestSvg でクリーンに再初期化させる。リセットしないと
+                // initialized_ が立ったままで EnsureInitialized が二度と走らず、以後の
+                // リクエストが処理も失敗もされず in-flight 固着する。worker/env を残したまま
+                // 再 init するとリークするため Shutdown 経由で破棄する。
                 FailPendingRequests();
+                env_retry_count_ = 0;
+                Shutdown();
             }
             return S_OK;
         }

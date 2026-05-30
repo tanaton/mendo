@@ -76,9 +76,7 @@ inline bool CommitClipboardGlobal(UINT format, UniqueGlobalMem mem) noexcept
 template <typename CharT>
 inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT> text) noexcept
 {
-    if (format == 0) {
-        return false;
-    }
+    // format==0 と確保失敗の判定は CommitClipboardGlobal 側に集約する。
     return CommitClipboardGlobal(format, BuildGlobalZeroTerminated<CharT>(text));
 }
 

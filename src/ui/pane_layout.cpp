@@ -14,14 +14,34 @@ PaneLayout ComputePaneLayout(
         pane_height = 0.0f;
     }
 
+    // 保存幅がウィンドウより広い場合 (広いモニタで保存→狭い画面で起動した等) でも
+    // MD ペインとスプリッタを画面内に保つため、表示上の side 幅を clamp する。論理幅
+    // (PaneController::widths_) は変更しないので、ウィンドウを広げれば元に戻る。
+    // side がウィンドウに収まる通常時は no-op。
+    float fw = show_file ? file_pane_width : 0.0f;
+    float tw = show_toc ? toc_pane_width : 0.0f;
+    const float splitters = (show_file ? splitter_width : 0.0f) + (show_toc ? splitter_width : 0.0f);
+    const float avail_sides = total_width - md_min_width - splitters;
+    if (fw + tw > avail_sides) {
+        if (avail_sides <= 0.0f) {
+            fw = 0.0f;
+            tw = 0.0f;
+        }
+        else {
+            const float scale = avail_sides / (fw + tw); // fw + tw > avail_sides > 0
+            fw *= scale;
+            tw *= scale;
+        }
+    }
+
     if (show_file) {
-        layout.file_rect = { x, top_offset, file_pane_width, pane_height };
-        x += file_pane_width + splitter_width;
+        layout.file_rect = { x, top_offset, fw, pane_height };
+        x += fw + splitter_width;
     }
 
     if (show_toc) {
-        layout.toc_rect = { x, top_offset, toc_pane_width, pane_height };
-        x += toc_pane_width + splitter_width;
+        layout.toc_rect = { x, top_offset, tw, pane_height };
+        x += tw + splitter_width;
     }
 
     const float md_width = std::max(md_min_width, total_width - x);

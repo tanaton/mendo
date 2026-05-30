@@ -39,6 +39,9 @@ void AppResourceManagerCallbacks::recompute_layout()
         app->state_.document.doc,
         app->state_.document.layout_cache,
         app->renderer_.GetTheme());
+    // anchored 版と同様、リフローで停止中のカーソル直下のノード/リンクが変わりうるため
+    // ホバーのヒットキャッシュを無効化し次のマウス移動で再評価させる。
+    app->InvalidateHitPositions();
 }
 
 void AppResourceManagerCallbacks::recompute_layout_anchored()

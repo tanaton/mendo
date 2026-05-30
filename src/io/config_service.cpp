@@ -211,10 +211,10 @@ SessionService::PaneState SessionService::LoadPaneState([[maybe_unused]] float c
     const int default_int = static_cast<int>(default_width);
     const int min_int = static_cast<int>(min_width);
 
-    // 過剰幅の制限はレイアウト側 (pane_layout: md_width = max(md_min_width, total_width - x) で
-    // MD ペイン下限を保証) に委ね、ここでは下限のみ保証する。client_width で上限 clamp すると
-    // 狭いウィンドウ起動時に保存値が min へ潰れ、終了時の再保存で恒久喪失するため。
-    // 破損 INI 対策に実用上限のみ設ける。
+    // 過剰幅の表示制限は ComputePaneLayout 側 (side 幅を表示時に clamp して MD ペインと
+    // スプリッタを画面内に保つ。論理幅は不変) に委ね、ここでは下限のみ保証する。
+    // client_width で上限 clamp すると狭いウィンドウ起動時に保存値が min へ潰れ、
+    // 終了時の再保存で恒久喪失するため。破損 INI 対策に実用上限のみ設ける。
     constexpr int kPaneWidthLoadMax = 10000;
     const int file_w = config_.LoadInt(kSectionPane, kKeyFileWidth, default_int, min_int, kPaneWidthLoadMax);
     const int toc_w = config_.LoadInt(kSectionPane, kKeyTocWidth, default_int, min_int, kPaneWidthLoadMax);

@@ -6,6 +6,20 @@
 #include <filesystem>
 #include <iterator>
 
+namespace {
+// 列挙エントリを一覧に含めるか。"."/".."・システム属性を除外し、
+// ディレクトリまたは Markdown ファイルのみ対象とする。
+bool ShouldListEntry(const WIN32_FIND_DATAW& fd) noexcept
+{
+    const std::wstring_view name{ fd.cFileName };
+    if (name == L"." || name == L".." || (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0) {
+        return false;
+    }
+    const bool is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    return is_dir || IsMarkdownFile(fd.cFileName);
+}
+} // namespace
+
 void FileExplorer::SetDirectory(std::wstring_view dir_path)
 {
     std::pmr::wstring normalized{ dir_path };
@@ -53,17 +67,11 @@ void FileExplorer::Refresh()
     static constexpr size_t MAX_ENTRIES = 4096;
 
     for (;;) {
-        const std::wstring_view name{ fd.cFileName };
-        const bool skip = (name == L"." || name == L"..") ||
-                          (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0;
-        if (!skip) {
-            const bool is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-            if (is_dir || IsMarkdownFile(fd.cFileName)) {
-                FileEntry entry;
-                entry.full_path.assign((dir_base / fd.cFileName).native());
-                entry.set_directory(is_dir);
-                entries_.emplace_back(std::move(entry));
-            }
+        if (ShouldListEntry(fd)) {
+            FileEntry entry;
+            entry.full_path.assign((dir_base / fd.cFileName).native());
+            entry.set_directory((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
+            entries_.emplace_back(std::move(entry));
         }
         if (entries_.size() - sort_begin >= MAX_ENTRIES) {
             break;
