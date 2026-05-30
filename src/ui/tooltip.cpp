@@ -64,13 +64,15 @@ void Tooltip::Init(HWND parent_hwnd)
 bool Tooltip::Update(const TooltipTarget& target, int screen_x, int screen_y)
 {
     auto& s = *impl_;
+    // ターゲットが同一でも位置は更新する。表示前 (タイマー待ち) に同一ターゲット内で
+    // カーソルが動いた場合でも、最新のカーソル位置で表示させるため。
+    s.show_pos = POINT{ screen_x, screen_y };
     if (target == s.current) {
         return false;
     }
 
     Hide();
     s.current = target;
-    s.show_pos = POINT{ screen_x, screen_y };
 
     if (s.current.IsEmpty()) {
         return false;

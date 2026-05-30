@@ -248,7 +248,10 @@ HRESULT D2DRenderBackend::Present() noexcept
         return E_FAIL;
     }
     const HRESULT hr = swap_chain_->Present(1, 0);
-    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+    // TDR / ドライバ内部障害もデバイス再生成で復旧するため REMOVED/RESET と同様に扱う。
+    // OCCLUDED(成功) / WAS_STILL_DRAWING / INVALID_CALL は誤爆になるため拾わない。
+    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET ||
+        hr == DXGI_ERROR_DEVICE_HUNG || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR) {
         device_lost_ = true;
     }
     return hr;

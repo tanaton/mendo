@@ -31,22 +31,22 @@ TEST_F(SessionServiceTest, SaveAndLoadPaneState)
     EXPECT_FLOAT_EQ(loaded.toc_width, 250.0f);
 }
 
-TEST_F(SessionServiceTest, LoadPaneStateClampsOutOfRangeValuesToDynamicMax)
+TEST_F(SessionServiceTest, LoadPaneStateKeepsSavedWidthWithoutWindowClamp)
 {
-    // 保存値が dynamic_max を超える場合、GetInt はデフォルト値 (PANE_DEFAULT_WIDTH=220) を
-    // 返す。狭いウィンドウでは既定値自体が dynamic_max を超えうるため、
-    // LoadPaneState 側で最終結果も clamp し、過剰な幅を返さない。
+    // 過剰幅の制限はレイアウト側 (md_width = max(md_min_width, total_width - x) で MD ペイン
+    // 下限を保証) に委ねるため、LoadPaneState は client_width に基づく上限 clamp を行わず、
+    // 保存値をそのまま返す。これにより狭いウィンドウ起動時に保存値が min へ潰れて
+    // 終了時の再保存で恒久喪失するのを防ぐ。
     config_.SaveInt("Pane", "FileWidth", 500);
     config_.SaveInt("Pane", "TocWidth", 500);
 
-    // client_width=300 → dynamic_max = max(100, 300-100) = 200
+    // 狭い client_width=300 でも保存値はそのまま保持される
     const auto loaded = session_.LoadPaneState(300.0f,
                                                PaneController::PANE_MIN_WIDTH,
                                                PaneController::PANE_DEFAULT_WIDTH);
 
-    // dynamic_max=200 で clamp される（fix 前は 220 が漏れていた）
-    EXPECT_FLOAT_EQ(loaded.file_width, 200.0f);
-    EXPECT_FLOAT_EQ(loaded.toc_width, 200.0f);
+    EXPECT_FLOAT_EQ(loaded.file_width, 500.0f);
+    EXPECT_FLOAT_EQ(loaded.toc_width, 500.0f);
 }
 
 TEST_F(SessionServiceTest, LoadPaneStateUsesDefaultWhenWindowFitsIt)

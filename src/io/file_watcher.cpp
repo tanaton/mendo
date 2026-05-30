@@ -115,7 +115,18 @@ void FileWatcher::CheckForChanges()
         const auto* buf_end = reinterpret_cast<const char*>(change_buf_) + bytes_returned;
         auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(change_buf_);
         while (true) {
-            const std::wstring_view changed_name{ info->FileName, info->FileNameLength / sizeof(wchar_t) };
+            // カーネルが切り詰めた通知に備え、現在エントリの範囲を buf_end で検証してから
+            // 参照する (NextEntryOffset の検証は次エントリ用で先頭エントリを守らない)。
+            const auto* cur = reinterpret_cast<const char*>(info);
+            const auto* name_begin = cur + offsetof(FILE_NOTIFY_INFORMATION, FileName);
+            if (name_begin > buf_end) {
+                break;
+            }
+            const size_t name_bytes = info->FileNameLength;
+            if (name_begin + name_bytes > buf_end) {
+                break;
+            }
+            const std::wstring_view changed_name{ info->FileName, name_bytes / sizeof(wchar_t) };
             if (info->Action != FILE_ACTION_REMOVED &&
                 info->Action != FILE_ACTION_RENAMED_OLD_NAME &&
                 path_util::iequal(changed_name, watch_filename_)) {

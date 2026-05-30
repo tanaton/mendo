@@ -99,7 +99,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     }
 
     if (ht.TryMarkMoved(ht.last_md_hit_pos, ht.last_md_hit_tick, px, py)) {
-        const auto hit = HitTest(px, py);
+        const auto hit = HitTest(hit_ctx);
         const auto link = GetLinkAtHit(hit);
         const bool has_link = link.has_value();
         ht.last_md_cursor_hand = has_link;

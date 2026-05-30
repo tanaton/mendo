@@ -101,7 +101,9 @@ public:
         case GestureDirection::Right:
             return GestureResult::Forward;
         default:
-            return GestureResult::None;
+            // 方向が確定しなかった右ドラッグは通常の右クリック扱いとし、
+            // コンテキストメニューを表示する (イベントを握り潰してメニューを失わない)。
+            return GestureResult::ShowContextMenu;
         }
     }
 

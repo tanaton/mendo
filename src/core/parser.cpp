@@ -396,7 +396,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         break;
 
     case MD_BLOCK_UL:
-        ctx->list_counter.push_back(0);
+        ctx->list_counter.push_back(-1); // unordered の番兵 (ordered の start は 0 以上)
         ctx->indent_level++;
         break;
 
@@ -411,15 +411,17 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         auto* const li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
         const bool is_task = li->is_task;
         ctx->BeginNode(is_task ? NodeType::TaskListItem : NodeType::ListItem);
-        // counter==0 (unordered list) かつ非 task のときは NodeListData を確保しない
-        // (デフォルト値 list_number=0 / task_checked=false が getter で返るため)。
-        const int counter = ctx->list_counter.empty() ? 0 : ctx->list_counter.back();
-        if (is_task || counter > 0) {
+        // unordered (counter<0) かつ非 task のときは NodeListData を確保しない
+        // (getter が ordered=false / list_number=0 / task_checked=false を返すため)。
+        const int counter = ctx->list_counter.empty() ? -1 : ctx->list_counter.back();
+        const bool ordered = (counter >= 0); // OL は start>=0、UL は番兵 -1
+        if (is_task || ordered) {
             auto* ld = ctx->current_node->ensure_list();
             if (is_task) {
                 ld->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
             }
-            if (counter > 0) {
+            if (ordered) {
+                ld->ordered = true;
                 ld->list_number = counter;
                 ctx->list_counter.back()++;
             }

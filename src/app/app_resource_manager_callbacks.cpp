@@ -50,6 +50,9 @@ void AppResourceManagerCallbacks::recompute_layout_anchored()
         app->renderer_.GetTheme());
     const auto layout = app->GetPaneLayout();
     app->EmitEffect(effect::SyncMaxScroll{ layout.md_rect.height });
+    // リフローで停止中のカーソル直下のノード/リンクが変わりうるため、ホバーの
+    // ヒットキャッシュを無効化し次のマウス移動で再評価させる (カーソル形状の陳腐化対策)。
+    app->InvalidateHitPositions();
     app->Invalidate();
 }
 

@@ -105,6 +105,7 @@ private:
     void CreateWebView2Environment();
     void SetupWorker(int index);
     void ProcessQueue();
+    void FailPendingRequests();
     void RenderInWorker(Worker& worker);
     void OnRenderResult(int worker_idx, std::wstring_view json);
     // WebMessageReceived から受け取った parsed メッセージを worker[index] にディスパッチする。

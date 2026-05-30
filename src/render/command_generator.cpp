@@ -486,8 +486,9 @@ void CommandGenerator::GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, 
 
 void CommandGenerator::GenListBullet(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top)
 {
-    if (const int32_t num = node.list_number(); num > 0) {
+    if (node.list_ordered()) {
         if (formats_.list_number) {
+            const int32_t num = node.list_number();
             const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
             wchar_t num_buf[16];
             const auto fmt_result = std::format_to_n(num_buf, std::size(num_buf), L"{}.", num);

@@ -222,6 +222,7 @@ struct LexerConfig {
     bool hash_comment = false;         // #
     bool preprocessor = false;         // 行頭の#
     bool triple_quote = false;         // """ '''
+    bool raw_string = false;           // C++ R"(...)"
     bool backtick_string = false;      // `
     bool angle_block_comment = false;  // <# #>
     bool double_colon_comment = false; // ::
@@ -389,9 +390,9 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 5. 文字列リテラル
         if (c == '"' || (c == '\'' && !Cfg.skip_single_quote)) {
-            // C++生文字列の確認: R"(...)"。preprocessor 言語 (C/C++) でのみ意味があるが、
-            // 元コードと挙動を揃えるため Cfg に依存しない判定にする。
-            if (c == '"' && i > 0 && text[i - 1] == 'R' && (i < 2 || !IsIdentChar(text[i - 2]))) {
+            // C++生文字列の確認: R"(...)"。raw_string 対応言語 (C/C++) のみで判定する。
+            // 他言語で識別子末尾の R + 文字列を誤って生文字列扱いしないようゲートする。
+            if (Cfg.raw_string && c == '"' && i > 0 && text[i - 1] == 'R' && (i < 2 || !IsIdentChar(text[i - 2]))) {
                 // 調整: Rは既にプレーンバッファにあるので除去する。
                 if (in_plain) {
                     if (static_cast<uint32_t>(i - 1) > plain_start) {
@@ -498,6 +499,7 @@ inline constexpr LexerConfig CPP_LEXER_CONFIG{
     .line_comment_slash = true,
     .block_comment = true,
     .preprocessor = true,
+    .raw_string = true,
 };
 inline constexpr LexerConfig PYTHON_LEXER_CONFIG{
     .hash_comment = true,

@@ -36,34 +36,50 @@ private:
     bool open_;
 };
 
+// EmptyClipboard より前にバッファを確保できるよう、構築と SetClipboardData を分離する。
+// 確保失敗時に既存クリップボードを破壊しないための土台 (WriteClipboardSvg 参照)。
+template <typename CharT>
+inline UniqueGlobalMem BuildGlobalZeroTerminated(std::basic_string_view<CharT> text) noexcept
+{
+    // text.size() + 1 が SIZE_MAX/sizeof(CharT) を超えると bytes 計算がオーバーフローする。
+    // GlobalAlloc は size_t 受けでも実用上数 GB が上限なので、UINT_MAX を実用上限とする。
+    if (text.size() > std::numeric_limits<UINT>::max() / sizeof(CharT) - 1) {
+        return {};
+    }
+    const size_t bytes = (text.size() + 1) * sizeof(CharT);
+    UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
+    if (!hMem) {
+        return {};
+    }
+    auto* dest = static_cast<CharT*>(GlobalLock(hMem.get()));
+    if (!dest) {
+        return {};
+    }
+    std::char_traits<CharT>::copy(dest, text.data(), text.size());
+    dest[text.size()] = CharT{};
+    GlobalUnlock(hMem.get());
+    return hMem;
+}
+
+inline bool CommitClipboardGlobal(UINT format, UniqueGlobalMem mem) noexcept
+{
+    if (format == 0 || !mem) {
+        return false;
+    }
+    if (!SetClipboardData(format, mem.get())) {
+        return false;
+    }
+    mem.release();
+    return true;
+}
+
 template <typename CharT>
 inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT> text) noexcept
 {
     if (format == 0) {
         return false;
     }
-    // text.size() + 1 が SIZE_MAX/sizeof(CharT) を超えると bytes 計算がオーバーフローする。
-    // GlobalAlloc は size_t 受けでも実用上数 GB が上限なので、UINT_MAX を実用上限とする。
-    if (text.size() > std::numeric_limits<UINT>::max() / sizeof(CharT) - 1) {
-        return false;
-    }
-    const size_t bytes = (text.size() + 1) * sizeof(CharT);
-    UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
-    if (!hMem) {
-        return false;
-    }
-    auto* dest = static_cast<CharT*>(GlobalLock(hMem.get()));
-    if (!dest) {
-        return false;
-    }
-    std::char_traits<CharT>::copy(dest, text.data(), text.size());
-    dest[text.size()] = CharT{};
-    GlobalUnlock(hMem.get());
-    if (!SetClipboardData(format, hMem.get())) {
-        return false;
-    }
-    hMem.release();
-    return true;
+    return CommitClipboardGlobal(format, BuildGlobalZeroTerminated<CharT>(text));
 }
 
 // Utf8ToWide 失敗時に EmptyClipboard で既存内容を破壊しないよう、変換成功後にセッションを開く。
@@ -136,21 +152,28 @@ inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
     if (svg_text.empty()) {
         return false;
     }
+    // EmptyClipboard より前に各バッファを確保する。確保に失敗しても既存クリップボードを
+    // 破壊しない (HTML 経路と同様の「揃ってから開く」方針)。
+    UniqueGlobalMem unicode_mem = BuildGlobalZeroTerminated<wchar_t>(svg_text);
+    if (!unicode_mem) {
+        return false;
+    }
+    const std::string svg_utf8 = string_convert::WideToUtf8(svg_text);
+    UniqueGlobalMem svg_mem = svg_utf8.empty()
+        ? UniqueGlobalMem{}
+        : BuildGlobalZeroTerminated<char>(std::string_view(svg_utf8));
+
     ClipboardSession session(hwnd);
     if (!session) {
         return false;
     }
 
     bool any_set = false;
-
-    const std::string svg_utf8 = string_convert::WideToUtf8(svg_text);
-    if (!svg_utf8.empty()) {
+    if (svg_mem) {
         static const UINT cf_svg = RegisterClipboardFormatW(L"image/svg+xml");
-        any_set |= SetClipboardZeroTerminated<char>(cf_svg, svg_utf8);
+        any_set |= CommitClipboardGlobal(cf_svg, std::move(svg_mem));
     }
-
-    any_set |= SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, svg_text);
-
+    any_set |= CommitClipboardGlobal(CF_UNICODETEXT, std::move(unicode_mem));
     return any_set;
 }
 

@@ -268,6 +268,8 @@ public:
                 }
             }
             effects_generation_++;
+            // 差分エビクトが残置レイアウトを「破棄済み」と誤認して取り逃がすのを防ぐ。
+            ResetEvictionTracking();
         }
         else {
             // 縮小: Resize 経由で Fenwick もリセット (末尾の累積構造を保持できないため)
