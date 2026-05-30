@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "doc_dwrite_bridge.h"
 
+using mendo::WideViewCache;
 using mendo::WideViewForDWrite;
 
 // ─────────────────────────────────────────────
@@ -121,4 +122,106 @@ TEST(WideViewForDWrite, WideRangeForCjk)
     const auto r = wv.WideRange(3, 3);
     EXPECT_EQ(r.startPosition, 1u);
     EXPECT_EQ(r.length, 1u);
+}
+
+// ─────────────────────────────────────────────
+// WideViewCache: (data ポインタ + size) identity ベースの decode キャッシュ
+// ─────────────────────────────────────────────
+
+TEST(WideViewCache, ReturnsCorrectWideForText)
+{
+    WideViewCache cache;
+    EXPECT_EQ(cache.Get("Hello").wide(), L"Hello");
+    EXPECT_EQ(cache.Get("テスト").wide(), L"テスト");
+}
+
+TEST(WideViewCache, EmptyText)
+{
+    WideViewCache cache;
+    EXPECT_TRUE(cache.Get("").wide().empty());
+}
+
+// identity (data ポインタ + size) が一致する限り再 decode しない。バッファ内容を
+// 破壊的に書き換えても旧結果が返ることでキャッシュヒットを観測する。
+TEST(WideViewCache, ReusesResultForSameBuffer)
+{
+    WideViewCache cache;
+    char buf[] = "Hello";
+    const std::string_view sv{ buf, 5 };
+    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
+
+    buf[0] = 'J'; // "Jello" だが data/size 不変なのでキャッシュヒット
+    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
+}
+
+TEST(WideViewCache, RebuildsForDifferentBuffer)
+{
+    WideViewCache cache;
+    char a[] = "Hello";
+    char b[] = "World";
+    EXPECT_EQ(cache.Get(std::string_view{ a, 5 }).wide(), L"Hello");
+    EXPECT_EQ(cache.Get(std::string_view{ b, 5 }).wide(), L"World");
+}
+
+// data ポインタが同一でも size が違えば別文字列として再構築する。
+TEST(WideViewCache, RebuildsForSamePointerDifferentSize)
+{
+    WideViewCache cache;
+    char buf[] = "Hello";
+    EXPECT_EQ(cache.Get(std::string_view{ buf, 5 }).wide(), L"Hello");
+    EXPECT_EQ(cache.Get(std::string_view{ buf, 3 }).wide(), L"Hel");
+}
+
+TEST(WideViewCache, ResetForcesRebuild)
+{
+    WideViewCache cache;
+    char buf[] = "Hello";
+    const std::string_view sv{ buf, 5 };
+    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
+
+    buf[0] = 'J'; // "Jello"
+    cache.Reset();
+    EXPECT_EQ(cache.Get(sv).wide(), L"Jello");
+}
+
+TEST(WideViewCache, WideRangeDelegatesToGet)
+{
+    WideViewCache cache;
+    // [3, 6) byte = 「ス」 = wide [1, 2)
+    const auto r = cache.WideRange("テスト", 3, 3);
+    EXPECT_EQ(r.startPosition, 1u);
+    EXPECT_EQ(r.length, 1u);
+}
+
+// owner identity が不変ならキャッシュを保持する。
+TEST(WideViewCache, ResetIfBufferChangedKeepsCacheForSameOwner)
+{
+    WideViewCache cache;
+    char buf[] = "Hello";
+    const std::string_view sv{ buf, 5 };
+    int owner = 0;
+
+    cache.ResetIfBufferChanged(&owner, 1);
+    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
+
+    buf[0] = 'J';
+    cache.ResetIfBufferChanged(&owner, 1); // 同一 owner → Reset しない
+    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
+}
+
+// owner identity が変われば Reset し、次の Get で再構築する。
+TEST(WideViewCache, ResetIfBufferChangedClearsCacheForNewOwner)
+{
+    WideViewCache cache;
+    char buf[] = "Hello";
+    const std::string_view sv{ buf, 5 };
+    int owner_a = 0;
+    int owner_b = 0;
+
+    cache.ResetIfBufferChanged(&owner_a, 1);
+    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
+
+    buf[0] = 'J';
+    cache.ResetIfBufferChanged(&owner_b, 1); // 別 owner → Reset
+    EXPECT_EQ(cache.Get(sv).wide(), L"Jello");
 }
