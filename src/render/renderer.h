@@ -121,7 +121,6 @@ private:
     void DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect);
 
     D2DRenderBackend backend_;
-    // 600行の描画コード内で冗長な backend_.Get... を避けるための簡易アクセサ
     ID2D1DeviceContext* rt() const noexcept
     {
         return backend_.GetRenderTarget();
@@ -132,8 +131,6 @@ private:
     }
 
     std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)> brushes_;
-    // brushes_ の raw pointer ビュー。RecreateBrushes / InvalidateBrushes で同期させ、
-    // 描画ホットパスでの 41 個分の Get() 呼び出しを排除する。
     FixedBrushArray fixed_brushes_cache_{};
 
     ID2D1SolidColorBrush* Brush(BrushId id) const noexcept
