@@ -328,6 +328,19 @@ TEST(Theme, ApplyZoomRepeatedRoundTripsAccumulateDrift)
     EXPECT_FALSE(std::isinf(t.font_size_body));
 }
 
+// ---- issue #251: リストバレット半径もズーム連動 ----
+
+TEST(Theme, ApplyZoomScalesBulletRadius)
+{
+    Theme t = GetLightTheme();
+    const float original_radius = t.list_bullet_radius;
+    EXPECT_GT(original_radius, 0.0f);
+
+    t.ApplyZoom(2.0f);
+
+    EXPECT_NEAR(t.list_bullet_radius, original_radius * 2.0f, 0.01f);
+}
+
 // ---- GitHub Alerts テーマ色テスト ----
 
 TEST(Theme, LightThemeAlertColorsAreDefined)

@@ -54,6 +54,7 @@ struct Theme {
     float indent_width;
     float blockquote_bar_width;
     float list_bullet_offset;
+    float list_bullet_radius;
     float hr_thickness;
     float h2_underline_thickness;
 

@@ -19,6 +19,7 @@ static constexpr float Theme::* kScalableThemeFields[] = {
     &Theme::indent_width,
     &Theme::blockquote_bar_width,
     &Theme::list_bullet_offset,
+    &Theme::list_bullet_radius,
     &Theme::hr_thickness,
     &Theme::h2_underline_thickness,
     &Theme::pane_item_height,
@@ -83,6 +84,7 @@ static void ApplyCommonLayout(Theme& t)
     t.indent_width = 24.0f;
     t.blockquote_bar_width = 4.0f;
     t.list_bullet_offset = 20.0f;
+    t.list_bullet_radius = 3.0f;
     t.hr_thickness = 1.5f;
     t.h2_underline_thickness = 1.0f;
 
