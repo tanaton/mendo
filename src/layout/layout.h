@@ -13,7 +13,7 @@ class TaskScheduler;
 
 class Document;
 
-// レガシー呼び出しサイト互換: 自由関数とユーティリティは mendo::layout namespace へ移動済み。
+// レガシー呼び出しサイト互換のための using エイリアス。実体は mendo::layout namespace にある。
 using mendo::layout::AdvanceNodeY;
 using mendo::layout::ComputeColumnWidths;
 using mendo::layout::EstimateInvisibleNodeHeight;

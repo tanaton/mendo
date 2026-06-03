@@ -110,9 +110,8 @@ void Renderer::UpdateLayoutTheme()
     layout_.RecreateFormats();
 }
 
-// ノード描画ロジックは CommandGenerator に抽出済み。ApplyNodeEffects は
-// IDWriteTextLayout の mutable state (SetDrawingEffect/SetUnderline) を書き換える性質上、
-// 値型 DrawCommand には乗せられず、描画前パスとしてここに残る。
+// ApplyNodeEffects は IDWriteTextLayout の mutable state (SetDrawingEffect/SetUnderline) を
+// 書き換える性質上、値型 DrawCommand には乗せられず、描画前パスとして実行する。
 // effects_applied フラグで初回のみ走り、以降のフレームでは no-op。
 
 void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height)

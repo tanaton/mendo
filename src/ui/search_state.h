@@ -140,8 +140,8 @@ private:
     // 大文字小文字無視検索の lowercase キャッシュ。
     // メタオーバーヘッドを抑えるため、全ノードの lower text を 1 本の連続バッファに
     // 詰め、各ノードのスライスを offsets で参照する。
-    // Why: 旧実装では LowercaseEntry を vector<vector<vector<pmr::wstring>>> で
-    // 持っていたため、1 万ノードで pmr::wstring/vector メタだけで ~500KB 死蔵していた。
+    // Why: LowercaseEntry を vector<vector<vector<pmr::wstring>>> で持つと、1 万ノードで
+    // pmr::wstring/vector メタだけで ~500KB を死蔵する。
     // 連続バッファ化で metadata は offsets の 4B/ノード のみとなり、
     // CPU キャッシュ効率も向上する。
     struct LowercaseTable {
