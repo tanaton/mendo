@@ -97,7 +97,6 @@ inline constexpr float INLINE_CODE_PAD_Y = 2.0f;
 inline constexpr float INLINE_CODE_CORNER = 3.0f;
 inline constexpr float CODE_BLOCK_CORNER = 4.0f;
 
-inline constexpr float LIST_BULLET_RADIUS = 3.0f;
 inline constexpr float LIST_BULLET_X_FACTOR = 0.6f;
 inline constexpr float LIST_NUMBER_PAD_LEFT = 4.0f;
 inline constexpr float LIST_NUMBER_PAD_RIGHT = 8.0f;
