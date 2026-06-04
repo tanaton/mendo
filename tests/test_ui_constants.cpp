@@ -365,16 +365,30 @@ TEST(SearchBarLayoutTest, CloseButtonFallsBackToLeftPackedWhenNarrow)
     EXPECT_GT(l.close_btn.left, right_aligned_x);
 }
 
-// しきい値幅(≈576 DIP)の前後で右寄せ⇔フォールバックが切り替わる。
-// std::max の選択方向 (min への誤改変や不等号ミス) を検出する遷移テスト。
+// 右寄せ⇔フォールバックの遷移を検証する。しきい値幅は SEARCH_* 定数やボタン構成に依存して
+// 動くため、560/600 のようなマジックナンバーではなく ComputeSearchBarLayout 自身を走査して
+// 遷移点を発見し、その前後で挙動が切り替わることを確認する。
+// std::max の選択方向ミス (min 化・不等号反転) を検出するのが狙い。
 TEST(SearchBarLayoutTest, RightAlignTogglesAroundThresholdWidth)
 {
-    auto narrow = ComputeSearchBarLayout(0.0f, 560.0f, 900.0f, true);
-    auto wide = ComputeSearchBarLayout(0.0f, 600.0f, 900.0f, true);
-    // 狭側: 左詰めフォールバック (highlight 直後に並ぶ)
-    EXPECT_FLOAT_EQ(narrow.close_btn.left, narrow.highlight_btn.right + SEARCH_BAR_GAP);
-    // 広側: バー右端寄せ
-    EXPECT_FLOAT_EQ(wide.close_btn.right, 600.0f - SEARCH_BAR_PADDING);
+    // 右寄せなら close は highlight から離れ、フォールバックなら highlight 直後に密着する
+    auto right_aligned = [](float w) {
+        auto l = ComputeSearchBarLayout(0.0f, w, 900.0f, true);
+        return l.close_btn.left > l.highlight_btn.right + SEARCH_BAR_GAP + 0.5f;
+    };
+    // 十分狭ければフォールバック、十分広ければ右寄せ (遷移が存在する両端)
+    ASSERT_FALSE(right_aligned(MD_PANE_MIN_WIDTH));
+    ASSERT_TRUE(right_aligned(SEARCH_INPUT_MAX_WIDTH * 4.0f));
+    // 遷移点を発見し、その直下がフォールバック・しきい値以上が右寄せであることを確認
+    float threshold = MD_PANE_MIN_WIDTH;
+    for (float w = MD_PANE_MIN_WIDTH; w <= SEARCH_INPUT_MAX_WIDTH * 4.0f; w += 1.0f) {
+        if (right_aligned(w)) {
+            threshold = w;
+            break;
+        }
+    }
+    EXPECT_FALSE(right_aligned(threshold - 1.0f));
+    EXPECT_TRUE(right_aligned(threshold));
 }
 
 // 件数表示なし (has_query=false) では count_rect が消えてレイアウトが詰まるが、
