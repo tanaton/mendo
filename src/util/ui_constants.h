@@ -224,7 +224,9 @@ inline SearchBarLayout ComputeSearchBarLayout(float md_left, float md_width, flo
     x += btn + gap;
     l.highlight_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
     x += btn + gap;
-    l.close_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
+    // close_btn だけバー右端へ寄せる。狭幅で左側ボタン群と重なる場合は従来の左詰め位置 x へフォールバック
+    const float close_x = std::max(x, bar_right - SEARCH_BAR_PADDING - btn);
+    l.close_btn = D2D1::RectF(close_x, center_y, close_x + btn, center_y + input_h);
 
     return l;
 }
