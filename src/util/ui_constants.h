@@ -160,6 +160,11 @@ inline constexpr float SEARCH_INPUT_TEXT_PAD_LEFT = 6.0f;
 inline constexpr float SEARCH_INPUT_TEXT_PAD_RIGHT = 4.0f;
 inline constexpr float SEARCH_MATCH_COUNT_WIDTH = 80.0f;
 
+// 検索バーのフォントサイズ（DIP）。pane_font_size と共有すると Zoom に追従し、
+// 固定サイズの検索バー枠から文字がはみ出すため、専用の固定値を用意する。
+inline constexpr float SEARCH_INPUT_FONT_SIZE = 13.0f;
+inline constexpr float SEARCH_COUNT_FONT_SIZE = SEARCH_INPUT_FONT_SIZE * 0.9f;
+
 // 検索バーの各要素の矩形を保持する構造体。
 // 描画・ヒットテスト・ホバー判定の3箇所で共有し、レイアウト計算の重複を防ぐ。
 struct SearchBarLayout {

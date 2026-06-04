@@ -213,8 +213,8 @@ void Renderer::RecreatePaneFormats()
         { &fmt_.nav_button,       body_font, W,                            theme_.pane_font_size,        L"ja-jp", TA_CTR,  PA_CTR, true  },
         { &fmt_.gesture_overlay,  body_font, DWRITE_FONT_WEIGHT_BOLD,      32.0f * theme_.zoom,          L"ja-JP", TA_CTR,  PA_CTR, false },
         { &fmt_.toast_text,       body_font, DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size * 1.1f, L"ja-JP", TA_CTR,  PA_CTR, true  },
-        { &fmt_.search_input,     body_font, W,                            theme_.pane_font_size,        L"ja-jp", TA_LEAD, PA_CTR, true  },
-        { &fmt_.search_count,     body_font, W,                            theme_.pane_font_size * 0.9f, L"ja-jp", TA_CTR,  PA_CTR, true  },
+        { &fmt_.search_input,     body_font, W,                            SEARCH_INPUT_FONT_SIZE,       L"ja-jp", TA_LEAD, PA_CTR, true  },
+        { &fmt_.search_count,     body_font, W,                            SEARCH_COUNT_FONT_SIZE,       L"ja-jp", TA_CTR,  PA_CTR, true  },
         { &fmt_.search_icon,      icon_font, W,                            14.0f,                        L"en-us", TA_CTR,  PA_CTR, true  },
     };
 
