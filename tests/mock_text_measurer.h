@@ -114,10 +114,8 @@ public:
         tl.row_heights.assign(row_count, table_row_height);
         tl.col_count = col_count;
         tl.cell_layouts.resize(row_count * col_count);
-        // 実装と同じ式: border + Σ(col_w + 2*pad + border)。
         tl.cached_table_width = table_border + static_cast<float>(col_count) * (col_w + TABLE_CELL_PADDING * 2.0f + table_border);
 
-        // 実装 (FinalizeTableLayout) と同じ border の数え方: 先頭 border + 各行で +(row_height + border)。
         float total = table_border;
         for (size_t r = 0; r < row_count; r++) {
             total += table_row_height + table_border;

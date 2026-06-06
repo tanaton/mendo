@@ -11,7 +11,6 @@
 
 bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept
 {
-    // layout_service_ 未生成時は ScrollableContentHeight()==0 → 下の total_h<=viewport_h で false。
     const float total_h = ScrollableContentHeight();
     const float viewport_h = layout.md_rect.height;
     if (total_h <= viewport_h || viewport_h <= 0.0f) {

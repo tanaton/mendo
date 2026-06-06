@@ -263,7 +263,7 @@ private:
     }
     ::PaneZone PaneAtPoint(float dip_x);
     float GetMarkdownPaneWidth();
-    // スクロール上限/スクロールバー計算用のコンテンツ高さ (末尾 spacing_below を含まない)。
+    // スクロール上限/スクロールバー計算用のコンテンツ高さ。
     float ScrollableContentHeight() const noexcept;
     void HandleApplyThemeChange(const effect::ApplyThemeChange& e);
     void FinishThemeOrZoomChange();
