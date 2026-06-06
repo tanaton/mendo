@@ -31,16 +31,21 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
             const auto* tbl = node.table_data();
-            const auto row_count = static_cast<int>(tbl->row_count);
-            const auto col_count = static_cast<int>(tbl->col_count);
-            for (int r = 0; r < row_count && matches_.size() < MAX_MATCHES; r++) {
-                for (int c = 0; c < col_count && matches_.size() < MAX_MATCHES; c++) {
+            // row_count は uint32 (数百万行) になりうるため size_t で走査する。int 走査だと
+            // INT_MAX 超でループ境界が負になりテーブル全体が検索対象から落ちる。
+            const size_t row_count = tbl->row_count;
+            const size_t col_count = tbl->col_count;
+            for (size_t r = 0; r < row_count && matches_.size() < MAX_MATCHES; r++) {
+                for (size_t c = 0; c < col_count && matches_.size() < MAX_MATCHES; c++) {
                     const auto cell_text = tbl->GetCellText(r, c);
                     if (cell_text.empty()) {
                         continue;
                     }
-                    const auto search_text = case_sensitive_ ? cell_text : lower_cache_.GetCell(i, r, c);
-                    FindMatches(search_text, cell_text, lower_query, i, r, c);
+                    // MAX_MATCHES 到達前に抜けるため r/c は実質小さく、int への格納は安全。
+                    const auto ri = static_cast<int>(r);
+                    const auto ci = static_cast<int>(c);
+                    const auto search_text = case_sensitive_ ? cell_text : lower_cache_.GetCell(i, ri, ci);
+                    FindMatches(search_text, cell_text, lower_query, i, ri, ci);
                 }
             }
         }

@@ -300,7 +300,7 @@ float App::ScrollableContentHeight() const noexcept
         return 0.0f;
     }
     const auto& ds = state_.document;
-    return layout_service_->GetScrollableContentHeight(ds.layout_cache, ds.doc.GetNodes().size());
+    return layout_service_->GetScrollableContentHeight(ds.doc, ds.layout_cache);
 }
 
 void App::OnResize(UINT width, UINT height)

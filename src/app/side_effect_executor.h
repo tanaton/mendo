@@ -180,7 +180,7 @@ public:
             [this](const effect::SyncMaxScroll& ev) {
                 const auto& ds = deps_.state->document;
                 deps_.state->view.viewport.SyncMaxScroll(
-                    deps_.layout_service->GetScrollableContentHeight(ds.layout_cache, ds.doc.GetNodes().size()),
+                    deps_.layout_service->GetScrollableContentHeight(ds.doc, ds.layout_cache),
                     ev.md_pane_height);
             },
             // ---- Resource ----

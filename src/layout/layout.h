@@ -120,21 +120,15 @@ public:
     {
         return engine_.HasDirtyNodes();
     }
-    constexpr float GetTotalHeight() const noexcept
-    {
-        return engine_.GetTotalHeight();
-    }
     constexpr void SetTotalHeight(float h) noexcept
     {
         engine_.SetTotalHeight(h);
     }
     // スクロール上限/スクロールバー計算に使う高さ。末尾 node の spacing_below を含まない。
-    // GetTotalHeight() は末尾余白込みの総描画高さで、これをスクロール上限に使うと sb[last] 分
-    // オーバースクロールする (layout_cache.h の ComputeTotalContentHeight 注記参照)。
-    float GetScrollableContentHeight(const LayoutCache& cache, size_t node_count) const noexcept
-    {
-        return ComputeTotalContentHeight(cache, node_count, engine_.GetMarginTop());
-    }
+    // engine_.GetTotalHeight() は末尾余白込みの総描画高さで、これをスクロール上限に使うと sb[last]
+    // 分オーバースクロールする (layout_cache.h の ComputeTotalContentHeight 注記参照)。
+    // node_count を doc から導出することで App/executor 双方が同一経路を共有する (実装は layout.cpp)。
+    float GetScrollableContentHeight(const Document& doc, const LayoutCache& cache) const noexcept;
 
 private:
     LayoutEngine& engine_;

@@ -154,9 +154,8 @@ void App::OnMouseMove(int px, int py)
         Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::Toc, dip.y });
         return;
     case PaneController::DragTarget::MdScrollbar:
-        if (layout_service_) {
-            Dispatch(MdScrollbarDragMovedAction{ dip.y, ScrollableContentHeight() });
-        }
+        // ScrollableContentHeight() は layout_service_ 未生成時に 0 を返す (内部ガード)。
+        Dispatch(MdScrollbarDragMovedAction{ dip.y, ScrollableContentHeight() });
         return;
     case PaneController::DragTarget::None:
         break;

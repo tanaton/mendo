@@ -617,13 +617,15 @@ private:
 
 // 「コンテンツ末尾までの高さ」(末尾 node の text_top + height + 上端マージン)。
 // = スクロール上限計算に使う高さ。末尾 node の spacing_below は含まない (= GetTotalHeightFromFenwick と sb[last] 分ずれる)。
-// node_count が 0 の場合は 0 を返し、size() - 1 の符号なし整数アンダーフローを回避する。
+// node_count > cache.size() の過渡状態 (doc 差し替え直後など) でも安全なよう effective にクランプする
+// (FindFirstVisibleNodeIndex / EnsureScrollTarget と同じ防御)。effective が 0 なら 0 を返し underflow を回避。
 constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) noexcept
 {
-    if (node_count == 0) {
+    const size_t effective = std::min(node_count, cache.size());
+    if (effective == 0) {
         return 0.0f;
     }
-    const size_t last = node_count - 1;
+    const size_t last = effective - 1;
     return cache[last].text_top + cache[last].height + margin_top;
 }
 
