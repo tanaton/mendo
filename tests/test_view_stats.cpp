@@ -15,8 +15,8 @@
 namespace {
 
 // "example/xxx.md" 形式の相対パスを、cwd に依存せずソースツリーの example/ から開く。
-// MENDO_EXAMPLE_DIR (CMake が渡す絶対パス) を基準に解決し、日本語を含む UTF-8 パスも
-// std::filesystem::path 経由で正しく扱う。define が無い場合は従来通り cwd 相対で開く。
+// MENDO_EXAMPLE_DIR (CMake が u8 リテラルで渡す絶対パス) を基準に解決し、日本語を含む
+// UTF-8 パスも std::filesystem::path 経由で正しく扱う。define が無い場合は cwd 相対で開く。
 std::pmr::string ReadFileBytes(const std::string& path)
 {
     std::filesystem::path full;
@@ -26,7 +26,7 @@ std::pmr::string ReadFileBytes(const std::string& path)
     if (rel.starts_with(prefix)) {
         rel.remove_prefix(prefix.size());
     }
-    full = std::filesystem::path(reinterpret_cast<const char8_t*>(MENDO_EXAMPLE_DIR)) / std::filesystem::path(rel);
+    full = std::filesystem::path(MENDO_EXAMPLE_DIR) / std::filesystem::path(rel);
 #else
     full = std::filesystem::path(path);
 #endif
