@@ -2,6 +2,7 @@
 #include "ascii_util.h"
 #include "doc_dwrite_bridge.h"
 #include <algorithm>
+#include <limits>
 
 void SearchState::SetQuery(std::string_view query)
 {
@@ -31,16 +32,24 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
             const auto* tbl = node.table_data();
-            const auto row_count = static_cast<int>(tbl->row_count);
-            const auto col_count = static_cast<int>(tbl->col_count);
-            for (int r = 0; r < row_count && matches_.size() < MAX_MATCHES; r++) {
-                for (int c = 0; c < col_count && matches_.size() < MAX_MATCHES; c++) {
+            // row_count は uint32 (数百万行) になりうるため size_t で走査する。int 走査だと
+            // INT_MAX 超でループ境界が負になりテーブル全体が検索対象から落ちる。
+            // SearchMatch::table_row / lower_cache_.GetCell は行を int で持つため、走査は
+            // INT_MAX 行までに制限し int 変換の overflow/OOB を防ぐ (それを超える行は実用上
+            // 存在しない)。col_count は uint16 上限なので常に int に収まる。
+            const size_t row_limit = std::min<size_t>(tbl->row_count, std::numeric_limits<int>::max());
+            const size_t col_count = tbl->col_count;
+            for (size_t r = 0; r < row_limit && matches_.size() < MAX_MATCHES; r++) {
+                for (size_t c = 0; c < col_count && matches_.size() < MAX_MATCHES; c++) {
                     const auto cell_text = tbl->GetCellText(r, c);
                     if (cell_text.empty()) {
                         continue;
                     }
-                    const auto search_text = case_sensitive_ ? cell_text : lower_cache_.GetCell(i, r, c);
-                    FindMatches(search_text, cell_text, lower_query, i, r, c);
+                    // r < row_limit <= INT_MAX、c < col_count <= 65535 のため int 変換は安全。
+                    const auto ri = static_cast<int>(r);
+                    const auto ci = static_cast<int>(c);
+                    const auto search_text = case_sensitive_ ? cell_text : lower_cache_.GetCell(i, ri, ci);
+                    FindMatches(search_text, cell_text, lower_query, i, ri, ci);
                 }
             }
         }

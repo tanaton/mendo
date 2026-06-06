@@ -258,3 +258,8 @@ void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, con
     engine_.SetTotalHeight(result.total_height);
     viewport_.ApplyScrollTarget(cache);
 }
+
+float LayoutService::GetScrollableContentHeight(const Document& doc, const LayoutCache& cache) const noexcept
+{
+    return ComputeTotalContentHeight(cache, doc.GetNodes().size(), engine_.GetMarginTop());
+}

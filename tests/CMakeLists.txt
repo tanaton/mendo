@@ -89,6 +89,9 @@ target_link_libraries(mendo_tests PRIVATE
     GTest::gtest_main
 )
 target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)
+# test_view_stats 等が cwd に依存せず example/ を開けるよう、ソースツリーの絶対パスを渡す。
+# u8 リテラルで定義し、std::filesystem::path(const char8_t*) に直接渡せるようにする (UTF-8 保証)。
+target_compile_definitions(mendo_tests PRIVATE "MENDO_EXAMPLE_DIR=u8\"${CMAKE_SOURCE_DIR}/example\"")
 
 if(MSVC)
     # /Zc:preprocessor: profiler.h の __VA_OPT__ 系マクロが mendo_core 経由で

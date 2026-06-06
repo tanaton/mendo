@@ -254,8 +254,6 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     const float md_width = pane_layout.md_rect.width;
     const float md_height = pane_layout.md_rect.height;
 
-    float scroll_y = 0.0f;
-
     const bool has_reload_diff = (state_.reload_diff_pos != std::string_view::npos);
 
     if (state_.view.scroll_restore.HasNodeRestore()) {
@@ -290,7 +288,6 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
             state_.reload_diff_pos, md_height, state_.view.viewport.GetScrollY());
     }
     Dispatch(RestoreScrollAfterLoadAction{ has_reload_diff, reload_diff_scroll_y });
-    scroll_y = state_.view.viewport.GetScrollY();
 
     {
         MENDO_PROFILE("ViewportLayout(Initial)");

@@ -150,7 +150,8 @@ int ConfigService::LoadInt(std::string_view section, std::string_view key, int d
     }
     int result = def;
     const auto [ptr, ec] = std::from_chars(val->data(), val->data() + val->size(), result);
-    if (ec != std::errc{}) {
+    // 末尾にゴミが残る部分パース ("300px" 等) は不正値として既定値へ倒す。
+    if (ec != std::errc{} || ptr != val->data() + val->size()) {
         return def;
     }
     if (result < min_v || result > max_v) {

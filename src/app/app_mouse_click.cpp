@@ -99,7 +99,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
-        Dispatch(MdScrollbarDragStartedAction{ dip_y, layout_service_->GetTotalHeight() });
+        Dispatch(MdScrollbarDragStartedAction{ dip_y, ScrollableContentHeight() });
         return;
     }
 

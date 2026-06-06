@@ -65,6 +65,10 @@ public:
     {
         total_height_ = h;
     }
+    constexpr float GetMarginTop() const noexcept
+    {
+        return theme_ ? theme_->margin_top : 0.0f;
+    }
 
 private:
     // ComputeLayout 末尾の Fenwick 反映: フルパス完走 → bulk load (O(N))、
@@ -116,14 +120,13 @@ public:
     {
         return engine_.HasDirtyNodes();
     }
-    constexpr float GetTotalHeight() const noexcept
-    {
-        return engine_.GetTotalHeight();
-    }
     constexpr void SetTotalHeight(float h) noexcept
     {
         engine_.SetTotalHeight(h);
     }
+    // スクロール上限/スクロールバー計算に使う高さ。詳細は layout_cache.h の
+    // ComputeTotalContentHeight 注記参照。
+    float GetScrollableContentHeight(const Document& doc, const LayoutCache& cache) const noexcept;
 
 private:
     LayoutEngine& engine_;
