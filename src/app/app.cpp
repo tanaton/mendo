@@ -284,7 +284,7 @@ void App::OnPaint()
         renderer_.Render(
             { state_.document.doc.GetNodes(), state_.document.layout_cache,
               state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
-              state_.view.viewport.GetScrollY(), layout_service_->GetTotalHeight(),
+              state_.view.viewport.GetScrollY(), ScrollableContentHeight(),
               std::to_underlying(state_.interaction.nav_hover), state_.interaction.hovered,
               state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
               layout_service_->HasDirtyNodes(), h_scroll });
@@ -292,6 +292,15 @@ void App::OnPaint()
 
     EndPaint(hwnd_, &ps);
     MENDO_FRAME_MARK();
+}
+
+float App::ScrollableContentHeight() const noexcept
+{
+    if (!layout_service_) {
+        return 0.0f;
+    }
+    const auto& ds = state_.document;
+    return layout_service_->GetScrollableContentHeight(ds.layout_cache, ds.doc.GetNodes().size());
 }
 
 void App::OnResize(UINT width, UINT height)

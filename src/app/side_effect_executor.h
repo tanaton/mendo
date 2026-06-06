@@ -178,7 +178,10 @@ public:
                 );
             },
             [this](const effect::SyncMaxScroll& ev) {
-                deps_.state->view.viewport.SyncMaxScroll(deps_.layout_service->GetTotalHeight(), ev.md_pane_height);
+                const auto& ds = deps_.state->document;
+                deps_.state->view.viewport.SyncMaxScroll(
+                    deps_.layout_service->GetScrollableContentHeight(ds.layout_cache, ds.doc.GetNodes().size()),
+                    ev.md_pane_height);
             },
             // ---- Resource ----
             [this](const effect::LoadImages&) {

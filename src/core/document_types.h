@@ -96,7 +96,9 @@ struct NodeTableData {
     // 行単位の header フラグ (md4c は TR 内で TH/TD が混在しない契約)
     std::pmr::vector<bool> is_header_row;
 
-    uint16_t row_count = 0;
+    // row は数十万〜数百万行になりうるため uint32_t。col_count は parser 側で uint16 上限に
+    // クランプ済み (65535 列超は非現実的)。両者の積 (cell index) は CellIndex で size_t 昇格。
+    uint32_t row_count = 0;
     uint16_t col_count = 0;
 
     constexpr size_t CellIndex(size_t r, size_t c) const noexcept

@@ -14,7 +14,7 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) 
     if (!layout_service_) {
         return false;
     }
-    const float total_h = layout_service_->GetTotalHeight();
+    const float total_h = ScrollableContentHeight();
     const float viewport_h = layout.md_rect.height;
     if (total_h <= viewport_h || viewport_h <= 0.0f) {
         return false;

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <numeric>
@@ -13,9 +14,23 @@
 
 namespace {
 
+// "example/xxx.md" 形式の相対パスを、cwd に依存せずソースツリーの example/ から開く。
+// MENDO_EXAMPLE_DIR (CMake が渡す絶対パス) を基準に解決し、日本語を含む UTF-8 パスも
+// std::filesystem::path 経由で正しく扱う。define が無い場合は従来通り cwd 相対で開く。
 std::pmr::string ReadFileBytes(const std::string& path)
 {
-    std::ifstream file(path, std::ios::binary);
+    std::filesystem::path full;
+#ifdef MENDO_EXAMPLE_DIR
+    std::string_view rel = path;
+    constexpr std::string_view prefix = "example/";
+    if (rel.starts_with(prefix)) {
+        rel.remove_prefix(prefix.size());
+    }
+    full = std::filesystem::path(reinterpret_cast<const char8_t*>(MENDO_EXAMPLE_DIR)) / std::filesystem::path(rel);
+#else
+    full = std::filesystem::path(path);
+#endif
+    std::ifstream file(full, std::ios::binary);
     if (!file) {
         return {};
     }
@@ -315,10 +330,10 @@ TEST(ViewStats, RunsSizeHistogramTextNodesOnly)
         "total text nodes",
         "SBO hit rate (text nodes, size <= N)",
         [](const Node& n) {
-            return n.type == NodeType::Heading || n.type == NodeType::Paragraph ||
-                   n.type == NodeType::ListItem || n.type == NodeType::BlockQuote ||
-                   n.type == NodeType::TaskListItem;
-        });
+        return n.type == NodeType::Heading || n.type == NodeType::Paragraph ||
+               n.type == NodeType::ListItem || n.type == NodeType::BlockQuote ||
+               n.type == NodeType::TaskListItem;
+    });
 
     EXPECT_GT(total, 0u);
 }
@@ -334,15 +349,24 @@ TEST(ViewStats, RunsSizeBreakdownByNodeType)
 
     auto bucket_label = [](NodeType t) -> const char* {
         switch (t) {
-        case NodeType::Heading:      return "Heading";
-        case NodeType::Paragraph:    return "Paragraph";
-        case NodeType::CodeBlock:    return "CodeBlock";
-        case NodeType::HorizontalRule: return "HR";
-        case NodeType::ListItem:     return "ListItem";
-        case NodeType::BlockQuote:   return "BlockQuote";
-        case NodeType::Table:        return "Table";
-        case NodeType::TaskListItem: return "TaskListItem";
-        case NodeType::Image:        return "Image";
+        case NodeType::Heading:
+            return "Heading";
+        case NodeType::Paragraph:
+            return "Paragraph";
+        case NodeType::CodeBlock:
+            return "CodeBlock";
+        case NodeType::HorizontalRule:
+            return "HR";
+        case NodeType::ListItem:
+            return "ListItem";
+        case NodeType::BlockQuote:
+            return "BlockQuote";
+        case NodeType::Table:
+            return "Table";
+        case NodeType::TaskListItem:
+            return "TaskListItem";
+        case NodeType::Image:
+            return "Image";
         }
         return "?";
     };

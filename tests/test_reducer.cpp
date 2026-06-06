@@ -10,7 +10,11 @@
 class ReducerTest : public ::testing::Test {
 protected:
     AppState state;
-    Theme theme;
+    // value-init ({}) で全 POD フィールドを 0 にする。Theme は zoom 以外に default member
+    // initializer を持たない集約のため、`Theme theme;` (default-init) だと heading_spacing_above
+    // 等が未初期化のまま残り、テスト順序により MakeHeadingTopTarget の offset 計算が非決定的になる
+    // (TocItemClicked_TailSection の flaky 原因)。本番では ThemeService が全フィールドを設定する。
+    Theme theme{};
 
     void SetUp() override
     {
@@ -20,7 +24,7 @@ protected:
         PaneLayout pl{};
         pl.md_rect.height = 500.0f;
         state.pane_layout_cache.Set(0.0f, pl);
-        // Theme の POD フィールドは default-init で 0。reducer が読むものだけ明示する。
+        // 上の value-init で POD フィールドは 0。reducer が読む非ゼロ値だけ明示する。
         theme.pane_item_height = 28.0f;
         theme.pane_header_height = 32.0f;
         theme.splitter_width = 4.0f;

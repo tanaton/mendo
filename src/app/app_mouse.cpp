@@ -155,7 +155,7 @@ void App::OnMouseMove(int px, int py)
         return;
     case PaneController::DragTarget::MdScrollbar:
         if (layout_service_) {
-            Dispatch(MdScrollbarDragMovedAction{ dip.y, layout_service_->GetTotalHeight() });
+            Dispatch(MdScrollbarDragMovedAction{ dip.y, ScrollableContentHeight() });
         }
         return;
     case PaneController::DragTarget::None:

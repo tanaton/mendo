@@ -8,15 +8,22 @@
 // テキスト長とノード種別から高さを決定論的に計算する。
 class MockTextMeasurer : public ITextMeasurer {
 public:
-    float line_height = 20.0f;       // 基本行高
-    float chars_per_line = 40.0f;    // 折り返し推定用の1行あたり文字数
-    float heading_scale = 1.5f;      // 見出し高さの倍率
-    float table_row_height = 28.0f;  // テーブル1行あたりの高さ
-    float table_border = 1.0f;       // テーブル罫線の幅
+    float line_height = 20.0f;               // 基本行高
+    float chars_per_line = 40.0f;            // 折り返し推定用の1行あたり文字数
+    float heading_scale = 1.5f;              // 見出し高さの倍率
+    float table_row_height = 28.0f;          // テーブル1行あたりの高さ
+    float table_border = TABLE_BORDER_WIDTH; // 罫線幅。実装 (dwrite_measurer) と同じ定数で揃える
 
-    bool Init(const Theme&) override { return true; }
-    bool RecreateFormats() override { return true; }
-    void UpdateTheme(const Theme&) noexcept override {}
+    bool Init(const Theme&) override
+    {
+        return true;
+    }
+    bool RecreateFormats() override
+    {
+        return true;
+    }
+    void UpdateTheme(const Theme&) noexcept override
+    {}
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
                      std::pmr::vector<SyntaxToken>* /*tokens_out*/ = nullptr,
@@ -92,17 +99,25 @@ public:
         }
 
         const size_t col_count = tbl->col_count;
-        if (col_count == 0) { entry.layout_dirty = false; return; }
+        if (col_count == 0) {
+            entry.layout_dirty = false;
+            return;
+        }
 
         auto& tl = entry.ensure_table_layout();
         const auto row_count = tbl->row_count;
+        // 列幅は max_width/col_count の均等割り近似。実装 (dwrite_measurer の内容依存
+        // ComputeColumnWidths) とは異なるため、cached_table_width / col_widths の絶対値は
+        // 検証に使わないこと。行数・列数への依存形と border の入り方だけ実装に揃える。
         const float col_w = max_width / static_cast<float>(col_count);
         tl.col_widths.assign(col_count, col_w);
         tl.row_heights.assign(row_count, table_row_height);
         tl.col_count = col_count;
         tl.cell_layouts.resize(row_count * col_count);
-        tl.cached_table_width = TABLE_BORDER_WIDTH + static_cast<float>(col_count) * (col_w + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH);
+        // 実装と同じ式: border + Σ(col_w + 2*pad + border)。
+        tl.cached_table_width = table_border + static_cast<float>(col_count) * (col_w + TABLE_CELL_PADDING * 2.0f + table_border);
 
+        // 実装 (FinalizeTableLayout) と同じ border の数え方: 先頭 border + 各行で +(row_height + border)。
         float total = table_border;
         for (size_t r = 0; r < row_count; r++) {
             total += table_row_height + table_border;
