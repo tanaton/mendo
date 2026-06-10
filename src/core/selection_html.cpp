@@ -181,10 +181,7 @@ constexpr void AppendInlineHtml(
     };
     // URL 数は典型的に少数のためスタック上にインライン格納する。
     mendo::small_vector<UrlSafety, 4> url_safety;
-    url_safety.reserve(static_cast<uint32_t>(link_urls.size()));
-    for (size_t i = 0; i < link_urls.size(); ++i) {
-        url_safety.emplace_back(UrlSafety::Unchecked);
-    }
+    url_safety.assign(link_urls.size(), UrlSafety::Unchecked);
 
     while (pos < end) {
         while (run_idx < runs.size() && runs[run_idx].start + runs[run_idx].length <= pos) {

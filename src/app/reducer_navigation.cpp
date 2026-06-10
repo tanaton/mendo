@@ -63,7 +63,6 @@ void ScrollToResolvedAnchor(AppState& state, SideEffectList& effects, int idx)
         state.pane_layout_cache.Get().md_rect.y);
     ApplyScrollTargetAndEmit(state, effects, target.node, target.offset);
 }
-} // namespace
 
 void ScrollToAnchor(AppState& state, SideEffectList& effects, std::string_view anchor_id)
 {
@@ -75,6 +74,7 @@ void ScrollToNormalizedAnchor(AppState& state, SideEffectList& effects, std::str
 {
     ScrollToResolvedAnchor(state, effects, state.document.doc.FindNormalizedAnchorIndex(anchor_id));
 }
+} // namespace
 
 void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a)
 {

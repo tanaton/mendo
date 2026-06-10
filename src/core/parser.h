@@ -1,6 +1,5 @@
 #pragma once
 #include "document_types.h"
-#include "html_entities.h"
 #include <optional>
 #include <span>
 #include <stop_token>

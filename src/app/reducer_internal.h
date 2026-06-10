@@ -83,8 +83,6 @@ void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, 
 
 void ReduceNavigateBack(AppState& state, SideEffectList& effects);
 void ReduceNavigateForward(AppState& state, SideEffectList& effects);
-void ScrollToAnchor(AppState& state, SideEffectList& effects, std::string_view anchor_id);
-void ScrollToNormalizedAnchor(AppState& state, SideEffectList& effects, std::string_view anchor_id);
 void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, const FilePaneDirectoryClickedAction& a);
 void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const FilePaneFileClickedAction& a);
 void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a);
